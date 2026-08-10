@@ -1,4 +1,4 @@
-//! Squads zone withdrawal steps driven through the backend's P256 keypair rail.
+//! Squads ring withdrawal steps driven through the backend's P256 keypair rail.
 //!
 //! A withdrawal is a `(1, 1)` spend that settles a public amount OUT of the pool.
 //! The client no longer builds the proof. It reads the spendable input from the
@@ -50,7 +50,7 @@ const EXPIRY: i64 = i64::MAX;
 /// The SPL token account `amount` field offset (`mint(32) || owner(32) || amount`).
 const SPL_TOKEN_AMOUNT_OFFSET: usize = 64;
 
-/// The zone SOL asset id (mirrors `zolana_squads_client::SOL_ASSET_ID`).
+/// The ring SOL asset id (mirrors `zolana_squads_client::SOL_ASSET_ID`).
 const SOL_ASSET_ID: u64 = 1;
 /// The SPL asset id the suite registers.
 const SPL_ASSET_ID: u64 = 2;
@@ -160,7 +160,7 @@ impl SquadsKeypairHarness {
 
     /// Send a backend-built `transact` instruction as a v0 transaction backed by an
     /// address lookup table. The instruction's fee payer and co-signer are both the
-    /// backend relayer (the zone co-signer), so it is the only static signer.
+    /// backend relayer (the ring co-signer), so it is the only static signer.
     pub(crate) fn send_backend_v0_alt(&mut self, ix: Instruction) -> Result<Signature> {
         let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         let relayer = self.co_signer.insecure_clone();
@@ -193,7 +193,7 @@ impl SquadsKeypairHarness {
             .unwrap_or_default())
     }
 
-    /// Withdraw `withdrawn` lamports of SOL from `name`'s deposited zone UTXO to a
+    /// Withdraw `withdrawn` lamports of SOL from `name`'s deposited ring UTXO to a
     /// fresh external account, via the backend's P256 rail.
     pub(crate) fn withdraw_sol(&mut self, name: &str, withdrawn: u64) -> Result<()> {
         let input = self.sender_input(name, SOL_ASSET_ID)?;
@@ -232,7 +232,7 @@ impl SquadsKeypairHarness {
     }
 
     /// Withdraw `withdrawn` tokens of the scenario SPL asset from `name`'s deposited
-    /// zone UTXO to a fresh recipient token account, via the backend's P256 rail.
+    /// ring UTXO to a fresh recipient token account, via the backend's P256 rail.
     pub(crate) fn withdraw_spl(&mut self, name: &str, withdrawn: u64) -> Result<()> {
         let spl = self.spl_asset()?;
         let input = self.sender_input(name, SPL_ASSET_ID)?;

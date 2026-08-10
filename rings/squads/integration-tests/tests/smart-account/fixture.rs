@@ -6,7 +6,7 @@
 //! secrets recoverable only via the auditor key. This module therefore holds only
 //! PUBLIC identity data. That is the vault sender's `owner_pk_field`, each P256
 //! recipient's `owner_pk_field`, the canonical viewing-key-account PDA derivation,
-//! the backend auditor key (also the auditor configured in `zone_config`), and the
+//! the backend auditor key (also the auditor configured in `ring_config`), and the
 //! fixed scenario amounts. Every secret lives in the backend and is recovered from
 //! the on-chain account plus the auditor key.
 
@@ -103,10 +103,10 @@ fn field_element(name: &str, domain: &[u8]) -> [u8; 32] {
 }
 
 /// The backend's deterministic auditor P256 secret. It is also the auditor key
-/// configured in `zone_config`, so the shared viewing key each account publishes
+/// configured in `ring_config`, so the shared viewing key each account publishes
 /// (encrypted to this key) is recoverable by the backend.
 pub(crate) fn auditor_secret() -> SecretKey {
-    SecretKey::from_slice(&field_element("auditor", b"squads-zone-auditor-sk"))
+    SecretKey::from_slice(&field_element("auditor", b"squads-ring-auditor-sk"))
         .expect("valid p256 auditor scalar")
 }
 

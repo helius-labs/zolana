@@ -1,8 +1,8 @@
 //! Shared state for the keypair lifecycle tests. It holds the localnet and
 //! indexer handles, per-recipient deposit state, and setup. Each test boots its
 //! own validator and Photon, because SPP's protocol config is a singleton. Setup
-//! initializes that config and a state tree, creates the zone's `zone_config`,
-//! and registers it with SPP through `init_spp_zone_config`, so a zone `deposit`
+//! initializes that config and a state tree, creates the ring's `ring_config`,
+//! and registers it with SPP through `init_spp_ring_config`, so a ring `deposit`
 //! settles through a real CPI. The lifecycle operations live in `actions/`, each
 //! adding an `impl SquadsKeypairHarness` block, so the fields and accessors here
 //! are `pub(crate)`.
@@ -31,10 +31,10 @@ use zolana_squads_client::{
 use zolana_squads_interface::{
     constants::OWNER_KIND_KEYPAIR,
     instruction::{
-        builders::{CreateZoneConfig, InitSppZoneConfig},
-        CreateZoneConfigIxData,
+        builders::{CreateRingConfig, InitSppRingConfig},
+        CreateRingConfigIxData,
     },
-    RING_AUTH_PDA_SEED, SQUADS_ZONE_PROGRAM_ID, ZONE_CONFIG_PDA_SEED,
+    RING_AUTH_PDA_SEED, RING_CONFIG_PDA_SEED, SQUADS_RING_PROGRAM_ID,
 };
 use zolana_test_utils::{
     smart_account::{self, execute_sync_ix, StandardSigners},
@@ -76,7 +76,7 @@ pub(crate) enum SettlementSnapshot {
 }
 
 /// What a deposit recorded, so the separate assert step can verify the full state
-/// transition (and a later withdrawal can reconstruct the deposited zone UTXO).
+/// transition (and a later withdrawal can reconstruct the deposited ring UTXO).
 #[derive(Clone)]
 pub(crate) struct DepositRecord {
     pub(crate) signature: Signature,
@@ -132,11 +132,11 @@ pub(crate) struct TransferRecord {
 }
 
 fn squads_program_id() -> Pubkey {
-    Pubkey::new_from_array(SQUADS_ZONE_PROGRAM_ID)
+    Pubkey::new_from_array(SQUADS_RING_PROGRAM_ID)
 }
 
-fn zone_config_pda() -> Pubkey {
-    Pubkey::find_program_address(&[ZONE_CONFIG_PDA_SEED], &squads_program_id()).0
+fn ring_config_pda() -> Pubkey {
+    Pubkey::find_program_address(&[RING_CONFIG_PDA_SEED], &squads_program_id()).0
 }
 
 fn ring_auth_pda() -> Pubkey {
@@ -150,7 +150,7 @@ pub struct SquadsKeypairHarness {
     pub(crate) payer: Keypair,
     pub(crate) authority: Keypair,
     pub(crate) tree: Pubkey,
-    /// The Squads zone's `ring_auth` PDA, which is SPP's `ZoneConfig` account.
+    /// The Squads ring's `ring_auth` PDA, which is SPP's `RingConfig` account.
     pub(crate) ring_auth: Pubkey,
     pub(crate) spls: Vec<SplAsset>,
     pub(crate) deposits: BTreeMap<String, DepositRecord>,
@@ -158,7 +158,7 @@ pub struct SquadsKeypairHarness {
     pub(crate) transfers: BTreeMap<String, TransferRecord>,
     pub(crate) protocol_settings: Pubkey,
     pub(crate) protocol_vault: Pubkey,
-    /// The configured zone co-signer, which the backend uses as its relayer /
+    /// The configured ring co-signer, which the backend uses as its relayer /
     /// fee payer for every `transact` it builds.
     pub(crate) co_signer: Keypair,
     /// Names whose viewing key account has already been created at runtime, so the
@@ -199,9 +199,9 @@ impl SquadsKeypairHarness {
         let forester_key = Keypair::new();
         let merge_key = Keypair::new();
         let tree_key = Keypair::new();
-        let zone_key = Keypair::new();
+        let ring_key = Keypair::new();
         rpc.airdrop(&payer.pubkey(), 100_000_000_000)?;
-        for keypair in [&authority, &forester_key, &merge_key, &tree_key, &zone_key] {
+        for keypair in [&authority, &forester_key, &merge_key, &tree_key, &ring_key] {
             rpc.airdrop(&keypair.pubkey(), 1_000_000_000)?;
         }
 
@@ -213,7 +213,7 @@ impl SquadsKeypairHarness {
                 forester: forester_key.pubkey(),
                 merge: merge_key.pubkey(),
                 tree: tree_key.pubkey(),
-                ring: zone_key.pubkey(),
+                ring: ring_key.pubkey(),
             },
         ) {
             send_transaction(&mut rpc, &[ix], &payer.pubkey(), &[&payer])?;
@@ -221,8 +221,8 @@ impl SquadsKeypairHarness {
 
         // The shielded pool requires the fee payer == protocol_authority, so the
         // protocol config is created via the smart-account CPI with the protocol
-        // vault as the inner fee payer. Permissionless zone creation lets
-        // `init_spp_zone_config`'s payer create SPP's zone config.
+        // vault as the inner fee payer. Permissionless ring creation lets
+        // `init_spp_ring_config`'s payer create SPP's ring config.
         rpc.airdrop(&accounts.protocol_vault, 5_000_000_000)?;
         let create_config_ix = CreateProtocolConfig {
             authority: accounts.protocol_vault,
@@ -277,7 +277,7 @@ impl SquadsKeypairHarness {
             &[&payer, &tree, &tree_key],
         )?;
 
-        // The Squads zone's own zone config, then register it with SPP. The auditor
+        // The Squads ring's own ring config, then register it with SPP. The auditor
         // key is the backend's deterministic auditor key: every viewing key account
         // publishes its shared viewing key encrypted to it, so the backend recovers
         // and decrypts balances with the auditor secret. The co-signer keypair is the
@@ -287,16 +287,16 @@ impl SquadsKeypairHarness {
         rpc.airdrop(&squads_authority.pubkey(), 1_000_000_000)?;
         let co_signer = Keypair::new();
         rpc.airdrop(&co_signer.pubkey(), 1_000_000_000)?;
-        let create_zone_config_ix = CreateZoneConfig {
+        let create_ring_config_ix = CreateRingConfig {
             creator: payer.pubkey(),
-            zone_config: zone_config_pda(),
+            ring_config: ring_config_pda(),
             system_program: Pubkey::default(),
-            data: CreateZoneConfigIxData {
+            data: CreateRingConfigIxData {
                 authority: squads_authority.pubkey(),
                 co_signer: co_signer.pubkey(),
                 max_proposal_lifetime: 3_600,
                 auditor_keys: vec![*crate::fixture::auditor_pubkey().as_bytes()],
-                // The backend crank is the zone co-signer. Whitelist it as a merge
+                // The backend crank is the ring co-signer. Whitelist it as a merge
                 // authority so its auto-merge `merge_transact` is accepted on-chain.
                 merge_authorities: vec![Address::new_from_array(co_signer.pubkey().to_bytes())],
             },
@@ -304,15 +304,15 @@ impl SquadsKeypairHarness {
         .instruction();
         send_transaction(
             &mut rpc,
-            &[create_zone_config_ix],
+            &[create_ring_config_ix],
             &payer.pubkey(),
             &[&payer],
         )?;
 
         let ring_auth = ring_auth_pda();
-        let init_ix = InitSppZoneConfig {
+        let init_ix = InitSppRingConfig {
             authority: squads_authority.pubkey(),
-            zone_config: zone_config_pda(),
+            ring_config: ring_config_pda(),
             protocol_config: pda::protocol_config(),
             ring_auth,
             system_program: Pubkey::default(),
@@ -328,15 +328,15 @@ impl SquadsKeypairHarness {
 
         // The backend builds its own indexer + RPC handles (same endpoints) so it
         // can fetch ciphertexts and account data independently of the scenario
-        // steps. Its relayer / fee payer is the zone co-signer. Its auditor secret
-        // matches the key configured in `zone_config`. Construction also starts the
+        // steps. Its relayer / fee payer is the ring co-signer. Its auditor secret
+        // matches the key configured in `ring_config`. Construction also starts the
         // settlement crank. This suite creates no proposals, so it idles.
         let prover_url =
             std::env::var("ZOLANA_PROVER_URL").unwrap_or_else(|_| "http://127.0.0.1:3001".into());
         let backend = SquadsBackend::new_with_crank(
             crate::fixture::auditor_secret(),
             co_signer.insecure_clone(),
-            Address::new_from_array(zone_config_pda().to_bytes()),
+            Address::new_from_array(ring_config_pda().to_bytes()),
             Address::new_from_array(tree.pubkey().to_bytes()),
             prover_url,
             std::env::var("ZOLANA_INDEXER_URL").unwrap_or_else(|_| DEFAULT_INDEXER_URL.into()),

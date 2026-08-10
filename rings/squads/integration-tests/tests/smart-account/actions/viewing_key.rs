@@ -6,7 +6,7 @@
 //! The vault sender is created with `OWNER_KIND_SMART_ACCOUNT`, P256 recipients with
 //! `OWNER_KIND_KEYPAIR`. Both are auditor-only (no recovery keys, no owner
 //! signature), so the program requires no owner signer. The backend sets the new
-//! account's rent-payer (`fee_payer`) to its relayer (the zone co-signer), which is
+//! account's rent-payer (`fee_payer`) to its relayer (the ring co-signer), which is
 //! therefore the only required signer.
 
 use anyhow::{anyhow, Result};

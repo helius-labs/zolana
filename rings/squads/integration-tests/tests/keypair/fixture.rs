@@ -1,4 +1,4 @@
-//! Per-user P256 owner keypairs for the Squads zone P256 (keypair-rail) lifecycle
+//! Per-user P256 owner keypairs for the Squads ring P256 (keypair-rail) lifecycle
 //! suite, plus the backend auditor key.
 //!
 //! Unlike the earlier genesis-seeded design, no `ViewingKeyAccount` is written at
@@ -17,7 +17,7 @@
 use p256::SecretKey;
 use solana_pubkey::Pubkey;
 use zolana_keypair::{P256Pubkey, PublicKey, SigningKey};
-use zolana_squads_interface::{SQUADS_ZONE_PROGRAM_ID, VIEWING_KEY_ACCOUNT_PDA_SEED};
+use zolana_squads_interface::{SQUADS_RING_PROGRAM_ID, VIEWING_KEY_ACCOUNT_PDA_SEED};
 
 /// A field element derived from `name` and `domain`: SHA256 with the top byte
 /// cleared so it is `< 2^248 < BN254 modulus < P-256 order` (a valid Poseidon
@@ -31,7 +31,7 @@ fn field_element(name: &str, domain: &[u8]) -> [u8; 32] {
 }
 
 fn squads_program_id() -> Pubkey {
-    Pubkey::new_from_array(SQUADS_ZONE_PROGRAM_ID)
+    Pubkey::new_from_array(SQUADS_RING_PROGRAM_ID)
 }
 
 /// The deterministic P256 owner (signing) identity for `name`. The client holds
@@ -93,10 +93,10 @@ pub(crate) fn viewing_key_account_address(name: &str) -> Pubkey {
 }
 
 /// The backend's deterministic auditor P256 secret. It is also the auditor key
-/// configured in `zone_config`, so the shared viewing key each account publishes
+/// configured in `ring_config`, so the shared viewing key each account publishes
 /// (encrypted to this key) is recoverable by the backend.
 pub(crate) fn auditor_secret() -> SecretKey {
-    SecretKey::from_slice(&field_element("auditor", b"squads-zone-auditor-sk"))
+    SecretKey::from_slice(&field_element("auditor", b"squads-ring-auditor-sk"))
         .expect("valid p256 auditor scalar")
 }
 

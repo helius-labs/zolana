@@ -4,7 +4,7 @@
 //! Groth16 proof built by the squads SDK.
 //!
 //! The SDK proves the new shared viewing key is encrypted to the recovery
-//! keys (R) and the zone auditor (A). The program verifies that proof,
+//! keys (R) and the ring auditor (A). The program verifies that proof,
 //! copies the `K = R + A` ciphertexts from the filled proposal buffer, and
 //! rotates the `ViewingKeyAccount` without changing its recovery set.
 //!
@@ -16,23 +16,23 @@ use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use squads_zone_tests::{custom_code, prover_url, SquadsZoneTest};
+use squads_ring_tests::{custom_code, prover_url, SquadsRingTest};
 use zolana_client::prover::{spawn_prover, SERVER_ADDRESS};
 use zolana_hasher::Hasher;
 use zolana_keypair::P256Pubkey;
 use zolana_squads_interface::{
     constants::{ENCRYPTION_SCHEME_P256_AES, OWNER_KIND_KEYPAIR, VIEWING_KEY_STATE_ACTIVE},
-    error::SquadsZoneError,
+    error::SquadsRingError,
     instruction::{
         builders::{ExecuteKeyUpdate, FillKeyUpdate, UpdateViewingKeyAccount},
         ExecuteKeyUpdateIxData, FillKeyUpdateIxData, UpdateViewingKeyAccountIxData,
     },
     state::{
-        key_update_proposal::KeyOperation, viewing_key_account::ViewingKeyAccount,
-        zone_config::ZoneConfig,
+        key_update_proposal::KeyOperation, ring_config::SquadsRingConfig,
+        viewing_key_account::ViewingKeyAccount,
     },
     types::Address,
-    KEY_UPDATE_PROPOSAL_PDA_SEED, VIEWING_KEY_ACCOUNT_PDA_SEED, ZONE_CONFIG_PDA_SEED,
+    KEY_UPDATE_PROPOSAL_PDA_SEED, RING_CONFIG_PDA_SEED, VIEWING_KEY_ACCOUNT_PDA_SEED,
 };
 use zolana_squads_sdk::prover::{prove_execute_key_update, KeyEncryptionProofInputs};
 
@@ -58,8 +58,8 @@ fn nullifier_pubkey(secret: &[u8; 32]) -> [u8; 32] {
     zolana_hasher::Poseidon::hashv(&[secret.as_slice()]).expect("poseidon")
 }
 
-fn zone_config_pda(program_id: &Pubkey) -> Pubkey {
-    Pubkey::find_program_address(&[ZONE_CONFIG_PDA_SEED], program_id).0
+fn ring_config_pda(program_id: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(&[RING_CONFIG_PDA_SEED], program_id).0
 }
 
 fn vka_pda(program_id: &Pubkey, owner: &Pubkey) -> Pubkey {
@@ -81,18 +81,18 @@ fn proposal_pda(program_id: &Pubkey, target: &Pubkey, domain: u16, key_nonce: u6
 
 /// A prover the tests cannot reach is a failure. A run that quietly skips
 /// every proof-backed case reports green while proving nothing.
-fn boot_with_prover() -> SquadsZoneTest {
+fn boot_with_prover() -> SquadsRingTest {
     spawn_prover().expect("the prover server must be reachable, see ZOLANA_PROVER_URL");
-    SquadsZoneTest::new().expect("boot")
+    SquadsRingTest::new().expect("boot")
 }
 
-fn create_zone_config(
-    test: &mut SquadsZoneTest,
+fn create_ring_config(
+    test: &mut SquadsRingTest,
     co_signer: &Pubkey,
     auditor: &P256Pubkey,
 ) -> Pubkey {
-    let zone_config = zone_config_pda(&test.program_id);
-    let config = ZoneConfig::new(
+    let ring_config = ring_config_pda(&test.program_id);
+    let config = SquadsRingConfig::new(
         Address::new_from_array([7u8; 32]),
         Address::new_from_array(co_signer.to_bytes()),
         3_600,
@@ -100,15 +100,15 @@ fn create_zone_config(
         vec![],
     );
     test.set_program_account(
-        &zone_config,
-        config.serialize().expect("serialize zone config"),
+        &ring_config,
+        config.serialize().expect("serialize ring config"),
     )
-    .expect("seed zone config");
-    zone_config
+    .expect("seed ring config");
+    ring_config
 }
 
 fn seed_target_vka(
-    test: &mut SquadsZoneTest,
+    test: &mut SquadsRingTest,
     owner: &Pubkey,
     recovery_keys: &[P256Pubkey],
     auditor: &P256Pubkey,
@@ -146,7 +146,7 @@ fn seed_target_vka(
 
 struct Prepared {
     target: Pubkey,
-    zone_config: Pubkey,
+    ring_config: Pubkey,
     proposal: Pubkey,
     executor: Keypair,
     co_signer: Keypair,
@@ -159,16 +159,16 @@ struct Prepared {
 
 /// Run the lifecycle up to but not including `execute_key_update`.
 ///
-/// `auditor` is the target account's own auditor. `zone_auditor` is the one the
-/// zone config publishes. They differ only when a test checks that a rotation
+/// `auditor` is the target account's own auditor. `ring_auditor` is the one the
+/// ring config publishes. They differ only when a test checks that a rotation
 /// leaves the account's auditor set alone.
 fn prepare_rotation(
-    test: &mut SquadsZoneTest,
+    test: &mut SquadsRingTest,
     operations: Vec<KeyOperation>,
     initial_recovery: &[P256Pubkey],
     resulting_recovery: &[P256Pubkey],
     auditor: &P256Pubkey,
-    zone_auditor: &P256Pubkey,
+    ring_auditor: &P256Pubkey,
 ) -> Prepared {
     let executor = Keypair::new();
     test.airdrop(&executor.pubkey(), 1_000_000_000)
@@ -181,7 +181,7 @@ fn prepare_rotation(
     // The rotation re-encrypts this secret to the new shared viewing key, so
     // the stored nullifier public key must survive it unchanged.
     let nullifier_secret = random_bn254_scalar();
-    let zone_config = create_zone_config(test, &co_signer.pubkey(), zone_auditor);
+    let ring_config = create_ring_config(test, &co_signer.pubkey(), ring_auditor);
     let (target, target_account) = seed_target_vka(
         test,
         &owner.pubkey(),
@@ -193,14 +193,14 @@ fn prepare_rotation(
     let domain = 1u16;
     let proposal = proposal_pda(&test.program_id, &target, domain, target_account.key_nonce);
 
-    // A keypair owner is not a Solana signer, so the zone co-signer opens the
+    // A keypair owner is not a Solana signer, so the ring co-signer opens the
     // proposal and receives the rent refund.
     let create = UpdateViewingKeyAccount {
         proposer: co_signer.pubkey(),
         target,
         key_update_proposal: proposal,
         system_program: Pubkey::default(),
-        zone_config,
+        ring_config,
         data: UpdateViewingKeyAccountIxData {
             domain,
             executor: executor.pubkey(),
@@ -269,7 +269,7 @@ fn prepare_rotation(
 
     Prepared {
         target,
-        zone_config,
+        ring_config,
         proposal,
         rent_payer: co_signer.pubkey(),
         executor,
@@ -286,7 +286,7 @@ fn execute_ix(p: &Prepared, data: ExecuteKeyUpdateIxData) -> solana_instruction:
         executor: p.executor.pubkey(),
         co_signer: p.co_signer.pubkey(),
         viewing_key_account: p.target,
-        zone_config: p.zone_config,
+        ring_config: p.ring_config,
         key_update_proposal: p.proposal,
         rent_recipient: p.rent_payer,
         system_program: Pubkey::default(),
@@ -295,7 +295,7 @@ fn execute_ix(p: &Prepared, data: ExecuteKeyUpdateIxData) -> solana_instruction:
     .instruction()
 }
 
-fn settle_and_assert(test: &mut SquadsZoneTest, p: &Prepared) {
+fn settle_and_assert(test: &mut SquadsRingTest, p: &Prepared) {
     let proposal_lamports = test.lamports(&p.proposal).expect("proposal funded");
     let rent_payer_before = test.lamports(&p.rent_payer).unwrap_or(0);
 
@@ -356,20 +356,20 @@ fn execute_key_update_rejects_tampered_proof() {
         .expect_err("tampered rotation proof must be rejected on-chain");
     assert_eq!(
         custom_code(&err),
-        SquadsZoneError::KeyEncryptionProofVerificationFailed as u32,
+        SquadsRingError::KeyEncryptionProofVerificationFailed as u32,
     );
 }
 
 /// Creation gates an auditor change behind the co-signer, so a rotation that
 /// declares no operation must leave the account's auditor set alone even when
-/// the zone config publishes a different auditor.
+/// the ring config publishes a different auditor.
 #[test]
 fn execute_key_update_no_op_keeps_the_account_auditor() {
     let mut test = boot_with_prover();
 
     let (_r0_sk, r0) = random_p256();
     let (_aud_sk, account_auditor) = random_p256();
-    let (_zone_aud_sk, zone_auditor) = random_p256();
+    let (_ring_aud_sk, ring_auditor) = random_p256();
 
     let prepared = prepare_rotation(
         &mut test,
@@ -377,7 +377,7 @@ fn execute_key_update_no_op_keeps_the_account_auditor() {
         &[r0],
         &[r0],
         &account_auditor,
-        &zone_auditor,
+        &ring_auditor,
     );
     assert_eq!(
         prepared.expected.auditor_keys,
@@ -406,7 +406,7 @@ fn execute_key_update_rejects_a_changed_nullifier_pubkey() {
         .expect_err("a rotation must keep the account's nullifier public key");
     assert_eq!(
         custom_code(&err),
-        SquadsZoneError::NullifierPubkeyRotationUnsupported as u32,
+        SquadsRingError::NullifierPubkeyRotationUnsupported as u32,
     );
 }
 
@@ -428,7 +428,7 @@ fn execute_key_update_rejects_replay_after_nonce_advance() {
         target: prepared.target,
         key_update_proposal: replay_proposal,
         system_program: Pubkey::default(),
-        zone_config: prepared.zone_config,
+        ring_config: prepared.ring_config,
         data: UpdateViewingKeyAccountIxData {
             domain,
             executor: prepared.executor.pubkey(),
@@ -455,7 +455,7 @@ fn execute_key_update_rejects_replay_after_nonce_advance() {
         executor: prepared.executor.pubkey(),
         co_signer: prepared.co_signer.pubkey(),
         viewing_key_account: prepared.target,
-        zone_config: prepared.zone_config,
+        ring_config: prepared.ring_config,
         key_update_proposal: replay_proposal,
         rent_recipient: prepared.rent_payer,
         system_program: Pubkey::default(),
@@ -471,6 +471,6 @@ fn execute_key_update_rejects_replay_after_nonce_advance() {
         .expect_err("proof bound to the prior nonce must not authorize another rotation");
     assert_eq!(
         custom_code(&err),
-        SquadsZoneError::KeyEncryptionProofVerificationFailed as u32,
+        SquadsRingError::KeyEncryptionProofVerificationFailed as u32,
     );
 }

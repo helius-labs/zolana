@@ -3,7 +3,7 @@
 //! These prove the auditor-key model: the backend recovers each account's shared
 //! viewing key from the auditor ciphertext and decrypts the account's balances,
 //! without any user viewing/nullifier secret. Each viewing key account was created
-//! at runtime with its shared key encrypted to the zone's auditor key (which the
+//! at runtime with its shared key encrypted to the ring's auditor key (which the
 //! backend holds), so a balance the backend reports here is decrypted purely from
 //! on-chain data plus the auditor secret.
 

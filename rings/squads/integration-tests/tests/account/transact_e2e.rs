@@ -1,12 +1,12 @@
-//! End-to-end `transact` tests with real zone Groth16 proofs verified
+//! End-to-end `transact` tests with real ring Groth16 proofs verified
 //! on-chain in LiteSVM.
 //!
-//! `spp_program` is the zone program's own id, a deliberate placeholder.
+//! `spp_program` is the ring program's own id, a deliberate placeholder.
 //! `spp_transact` validates the exact SPP program id before any CPI, so the
 //! placeholder is rejected with `InvalidSppProgram`. Reaching that error
-//! proves zone-proof verification completed and the flow attempted
+//! proves ring-proof verification completed and the flow attempted
 //! settlement without a real SPP. A tampered proof fails earlier, in
-//! zone-proof verification, and never reaches the CPI attempt.
+//! ring-proof verification, and never reaches the CPI attempt.
 //!
 //! Tests skip when the prebuilt program `.so` is missing or the prover
 //! server is unreachable. The first proof request lazy-loads the proving
@@ -18,7 +18,7 @@ use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use squads_zone_tests::{custom_code, prover_url, SquadsZoneTest};
+use squads_ring_tests::{custom_code, prover_url, SquadsRingTest};
 use zolana_client::prover::{spawn_prover, SERVER_ADDRESS};
 use zolana_hasher::{Hasher, Poseidon};
 use zolana_keypair::P256Pubkey;
@@ -27,18 +27,18 @@ use zolana_squads_interface::{
         ENCRYPTION_SCHEME_P256_AES, OWNER_KIND_KEYPAIR, OWNER_KIND_SMART_ACCOUNT,
         VIEWING_KEY_STATE_ACTIVE,
     },
-    error::SquadsZoneError,
+    error::SquadsRingError,
     instruction::{
         builders::{Transact, TransactWithdrawal},
         instruction_data::{EncryptedUtxos, InputContext},
         TransactIxData,
     },
-    state::{viewing_key_account::ViewingKeyAccount, zone_config::ZoneConfig},
+    state::{ring_config::SquadsRingConfig, viewing_key_account::ViewingKeyAccount},
     types::Address,
-    RING_AUTH_PDA_SEED, ZONE_CONFIG_PDA_SEED,
+    RING_AUTH_PDA_SEED, RING_CONFIG_PDA_SEED,
 };
-use zolana_squads_sdk::prover::zone::{
-    derive_change_blinding, ZoneProofInputs, ZoneRecipient, ZoneUtxo,
+use zolana_squads_sdk::prover::ring::{
+    derive_change_blinding, RingProofInputs, RingRecipient, RingUtxo,
 };
 
 /// Top byte cleared so the value is below the BN254 modulus and is a valid
@@ -64,8 +64,8 @@ fn fe_u64(x: u64) -> [u8; 32] {
     fe
 }
 
-fn zone_config_pda(program_id: &Pubkey) -> Pubkey {
-    Pubkey::find_program_address(&[ZONE_CONFIG_PDA_SEED], program_id).0
+fn ring_config_pda(program_id: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(&[RING_CONFIG_PDA_SEED], program_id).0
 }
 
 fn ring_auth_pda(program_id: &Pubkey) -> Pubkey {
@@ -74,16 +74,16 @@ fn ring_auth_pda(program_id: &Pubkey) -> Pubkey {
 
 /// A prover the tests cannot reach is a failure. A run that quietly skips
 /// every proof-backed case reports green while proving nothing.
-fn boot_with_prover() -> SquadsZoneTest {
+fn boot_with_prover() -> SquadsRingTest {
     spawn_prover().expect("the prover server must be reachable, see ZOLANA_PROVER_URL");
-    SquadsZoneTest::new().expect("boot")
+    SquadsRingTest::new().expect("boot")
 }
 
 /// The program enforces exactly one auditor key.
-fn create_zone_config(test: &mut SquadsZoneTest, co_signer: &Pubkey) -> Pubkey {
-    let zone_config = zone_config_pda(&test.program_id);
+fn create_ring_config(test: &mut SquadsRingTest, co_signer: &Pubkey) -> Pubkey {
+    let ring_config = ring_config_pda(&test.program_id);
     let auditor = P256Pubkey::from_p256(&SecretKey::random(&mut OsRng).public_key());
-    let config = ZoneConfig::new(
+    let config = SquadsRingConfig::new(
         Address::new_from_array([7u8; 32]),
         Address::new_from_array(co_signer.to_bytes()),
         3_600,
@@ -91,18 +91,18 @@ fn create_zone_config(test: &mut SquadsZoneTest, co_signer: &Pubkey) -> Pubkey {
         vec![],
     );
     test.set_program_account(
-        &zone_config,
-        config.serialize().expect("serialize zone config"),
+        &ring_config,
+        config.serialize().expect("serialize ring config"),
     )
-    .expect("seed zone config");
-    zone_config
+    .expect("seed ring config");
+    ring_config
 }
 
-/// The fixture carries the public identity the zone proof binds, the
+/// The fixture carries the public identity the ring proof binds, the
 /// owner-key-hash, the shared-key commitment, and the nullifier pubkey.
 /// Fields `transact` never reads stay zero.
 fn install_vka(
-    test: &mut SquadsZoneTest,
+    test: &mut SquadsRingTest,
     owner_key_hash: [u8; 32],
     owner_kind: u8,
     shared_viewing_key: [u8; 33],
@@ -135,8 +135,8 @@ fn install_vka(
 
 /// Only the first input's fields feed the change-blinding KDF chain. Every
 /// input's hash binds into `private_tx_hash`.
-fn input_utxo(amount: u64, owner_key_hash: [u8; 32], nullifier_pubkey: [u8; 32]) -> ZoneUtxo {
-    ZoneUtxo {
+fn input_utxo(amount: u64, owner_key_hash: [u8; 32], nullifier_pubkey: [u8; 32]) -> RingUtxo {
+    RingUtxo {
         owner_key_hash,
         nullifier_pubkey,
         asset: [0u8; 32],
@@ -184,7 +184,7 @@ impl Sender {
 }
 
 /// A smart-account sender must present the vault as `payer`.
-fn transact_payer(test: &SquadsZoneTest, sender: &Sender) -> Pubkey {
+fn transact_payer(test: &SquadsRingTest, sender: &Sender) -> Pubkey {
     match sender {
         Sender::Keypair => test.payer.pubkey(),
         Sender::SmartAccount(vault) => vault.pubkey(),
@@ -198,9 +198,9 @@ fn transact_signers<'a>(sender: &'a Sender, co_signer: &'a Keypair) -> Vec<&'a K
     }
 }
 
-/// Fixtures and instruction data for a `(2, 2)` transfer with a real zone proof.
+/// Fixtures and instruction data for a `(2, 2)` transfer with a real ring proof.
 struct TransferSetup {
-    zone_config: Pubkey,
+    ring_config: Pubkey,
     sender_vka: Pubkey,
     recipient_vka: Pubkey,
     co_signer: Keypair,
@@ -208,23 +208,23 @@ struct TransferSetup {
     data: TransactIxData,
 }
 
-fn build_transfer(test: &mut SquadsZoneTest) -> TransferSetup {
+fn build_transfer(test: &mut SquadsRingTest) -> TransferSetup {
     build_transfer_inputs(test, Sender::Keypair, &[700, 300])
 }
 
-fn build_smart_account_transfer(test: &mut SquadsZoneTest) -> TransferSetup {
+fn build_smart_account_transfer(test: &mut SquadsRingTest) -> TransferSetup {
     build_transfer_inputs(test, Sender::smart_account(Keypair::new()), &[700, 300])
 }
 
 /// The shape the client builds from a single spendable UTXO: one real input
 /// padded with a dummy so the shape stays `(2, 2)`.
-fn build_transfer_single_input(test: &mut SquadsZoneTest) -> TransferSetup {
+fn build_transfer_single_input(test: &mut SquadsRingTest) -> TransferSetup {
     build_transfer_inputs(test, Sender::Keypair, &[700])
 }
 
 /// `input_amounts` holds the real inputs. One real input is padded with a dummy.
 fn build_transfer_inputs(
-    test: &mut SquadsZoneTest,
+    test: &mut SquadsRingTest,
     sender: Sender,
     input_amounts: &[u64],
 ) -> TransferSetup {
@@ -241,7 +241,7 @@ fn build_transfer_inputs(
     let recipient_nullifier_pk = random_field();
     let recipient_owner = random_field();
 
-    let mut inputs: Vec<ZoneUtxo> = input_amounts
+    let mut inputs: Vec<RingUtxo> = input_amounts
         .iter()
         .map(|amount| input_utxo(*amount, sender_owner, sender_nullifier_pk))
         .collect();
@@ -257,7 +257,7 @@ fn build_transfer_inputs(
     let change_blinding =
         derive_change_blinding(&sender_viewing, &sender_nullifier_secret, first_input)
             .expect("derive change blinding");
-    let change_output = ZoneUtxo {
+    let change_output = RingUtxo {
         owner_key_hash: sender_owner,
         nullifier_pubkey: sender_nullifier_pk,
         asset: [0u8; 32],
@@ -268,7 +268,7 @@ fn build_transfer_inputs(
         ring_program_id: [0u8; 32],
         is_dummy: false,
     };
-    let recipient_output = ZoneUtxo {
+    let recipient_output = RingUtxo {
         owner_key_hash: recipient_owner,
         nullifier_pubkey: recipient_nullifier_pk,
         asset: [0u8; 32],
@@ -280,13 +280,13 @@ fn build_transfer_inputs(
         is_dummy: false,
     };
 
-    let proof_inputs = ZoneProofInputs {
+    let proof_inputs = RingProofInputs {
         viewing_secret_key: sender_viewing,
         nullifier_secret: sender_nullifier_secret,
         inputs,
         outputs: vec![change_output, recipient_output],
         external_data_hash: random_field(),
-        recipient: Some(ZoneRecipient {
+        recipient: Some(RingRecipient {
             owner_key_hash: recipient_owner,
             nullifier_pubkey: recipient_nullifier_pk,
             viewing_pubkey: recipient_viewing,
@@ -317,7 +317,7 @@ fn build_transfer_inputs(
     let co_signer = Keypair::new();
     test.airdrop(&co_signer.pubkey(), 1_000_000_000)
         .expect("fund co_signer");
-    let zone_config = create_zone_config(test, &co_signer.pubkey());
+    let ring_config = create_ring_config(test, &co_signer.pubkey());
     let sender_vka = install_vka(
         test,
         sender_owner,
@@ -337,7 +337,7 @@ fn build_transfer_inputs(
     );
 
     let ix_data = TransactIxData {
-        zone_proof: proof_result.proof,
+        ring_proof: proof_result.proof,
         // Never read on this path. The placeholder `spp_program` is rejected before
         // the SPP CPI (see the module doc).
         spp_proof: [0u8; 192],
@@ -345,7 +345,7 @@ fn build_transfer_inputs(
         spl_interface_bump: 0,
         private_tx_hash: proof_result.private_tx_hash,
         expiry: i64::MAX,
-        // Not read on the zone-verification path (forwarded to the SPP CPI).
+        // Not read on the ring-verification path (forwarded to the SPP CPI).
         salt: [0u8; 16],
         output_view_tags: vec![[0u8; 32], [0u8; 32]],
         output_utxo_hashes: vec![[0u8; 32]; 2],
@@ -362,7 +362,7 @@ fn build_transfer_inputs(
     };
 
     TransferSetup {
-        zone_config,
+        ring_config,
         sender_vka,
         recipient_vka,
         co_signer,
@@ -371,17 +371,17 @@ fn build_transfer_inputs(
     }
 }
 
-/// `tree_accounts` needs one arbitrary never-loaded account so the zone's
+/// `tree_accounts` needs one arbitrary never-loaded account so the ring's
 /// account parsing succeeds and the flow reaches the SPP-address check.
 fn transact_ix(
-    test: &SquadsZoneTest,
+    test: &SquadsRingTest,
     setup: &TransferSetup,
     ix_data: TransactIxData,
 ) -> Instruction {
     Transact {
         payer: transact_payer(test, &setup.sender),
         co_signer: setup.co_signer.pubkey(),
-        zone_config: setup.zone_config,
+        ring_config: setup.ring_config,
         sender_viewing_key_account: setup.sender_vka,
         recipient_viewing_key_account: Some(setup.recipient_vka),
         withdrawal: None,
@@ -394,7 +394,7 @@ fn transact_ix(
 }
 
 #[test]
-fn transact_transfer_verifies_real_zone_proof_then_attempts_spp_cpi() {
+fn transact_transfer_verifies_real_ring_proof_then_attempts_spp_cpi() {
     let mut test = boot_with_prover();
 
     let setup = build_transfer(&mut test);
@@ -407,14 +407,14 @@ fn transact_transfer_verifies_real_zone_proof_then_attempts_spp_cpi() {
             &[budget, ix],
             &transact_signers(&setup.sender, &setup.co_signer),
         )
-        .expect_err("the placeholder spp_program must be rejected after zone-proof verification");
-    assert_eq!(custom_code(&err), SquadsZoneError::InvalidSppProgram as u32);
+        .expect_err("the placeholder spp_program must be rejected after ring-proof verification");
+    assert_eq!(custom_code(&err), SquadsRingError::InvalidSppProgram as u32);
 }
 
 /// The vault signature authorizes the spend and the program routes the
 /// settlement to SPP's `ring_authority_transact` rail.
 #[test]
-fn smart_account_transact_transfer_verifies_real_zone_proof_then_attempts_spp_cpi() {
+fn smart_account_transact_transfer_verifies_real_ring_proof_then_attempts_spp_cpi() {
     let mut test = boot_with_prover();
 
     let setup = build_smart_account_transfer(&mut test);
@@ -426,8 +426,8 @@ fn smart_account_transact_transfer_verifies_real_zone_proof_then_attempts_spp_cp
             &[budget, ix],
             &transact_signers(&setup.sender, &setup.co_signer),
         )
-        .expect_err("the placeholder spp_program must be rejected after zone-proof verification");
-    assert_eq!(custom_code(&err), SquadsZoneError::InvalidSppProgram as u32);
+        .expect_err("the placeholder spp_program must be rejected after ring-proof verification");
+    assert_eq!(custom_code(&err), SquadsRingError::InvalidSppProgram as u32);
 }
 
 /// A sender with one spendable UTXO pads the `(2, 2)` shape with a dummy input.
@@ -444,19 +444,19 @@ fn transact_transfer_with_one_real_input_and_a_dummy_verifies() {
             &[budget, ix],
             &transact_signers(&setup.sender, &setup.co_signer),
         )
-        .expect_err("the placeholder spp_program must be rejected after zone-proof verification");
-    assert_eq!(custom_code(&err), SquadsZoneError::InvalidSppProgram as u32);
+        .expect_err("the placeholder spp_program must be rejected after ring-proof verification");
+    assert_eq!(custom_code(&err), SquadsRingError::InvalidSppProgram as u32);
 }
 
 #[test]
 fn co_signer_only_smart_account_transact_is_rejected() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
 
     // The relayer is both payer and configured co-signer while the vault never
     // signs or appears in the instruction. Rejection happens before proof
     // verification, so this regression needs no prover and no valid proof.
     let relayer = test.payer.pubkey();
-    let zone_config = create_zone_config(&mut test, &relayer);
+    let ring_config = create_ring_config(&mut test, &relayer);
     let vault = Keypair::new();
     let vault_owner = zolana_hasher::primitives::hash_bytes(&vault.pubkey().to_bytes())
         .expect("hash vault identity");
@@ -472,7 +472,7 @@ fn co_signer_only_smart_account_transact_is_rejected() {
     let ix = Transact {
         payer: relayer,
         co_signer: relayer,
-        zone_config,
+        ring_config,
         sender_viewing_key_account: sender_vka,
         recipient_viewing_key_account: None,
         withdrawal: None,
@@ -480,7 +480,7 @@ fn co_signer_only_smart_account_transact_is_rejected() {
         spp_program: test.program_id,
         tree_accounts: vec![Keypair::new().pubkey()],
         data: TransactIxData {
-            zone_proof: [0u8; 192],
+            ring_proof: [0u8; 192],
             spp_proof: [0u8; 192],
             public_amount: Some(1),
             spl_interface_bump: 0,
@@ -502,23 +502,23 @@ fn co_signer_only_smart_account_transact_is_rejected() {
     let err = test
         .send(&[ix], &[])
         .expect_err("the co-signer cannot substitute for the smart-account vault");
-    assert_eq!(custom_code(&err), SquadsZoneError::OwnerMismatch as u32);
+    assert_eq!(custom_code(&err), SquadsRingError::OwnerMismatch as u32);
 }
 
-/// Fixtures and instruction data for a `(1, 1)` withdrawal with a real zone proof.
+/// Fixtures and instruction data for a `(1, 1)` withdrawal with a real ring proof.
 struct WithdrawalSetup {
-    zone_config: Pubkey,
+    ring_config: Pubkey,
     sender_vka: Pubkey,
     co_signer: Keypair,
     sender: Sender,
     data: TransactIxData,
 }
 
-fn build_withdrawal(test: &mut SquadsZoneTest) -> WithdrawalSetup {
+fn build_withdrawal(test: &mut SquadsRingTest) -> WithdrawalSetup {
     build_withdrawal_for(test, Sender::Keypair)
 }
 
-fn build_smart_account_withdrawal(test: &mut SquadsZoneTest) -> WithdrawalSetup {
+fn build_smart_account_withdrawal(test: &mut SquadsRingTest) -> WithdrawalSetup {
     build_withdrawal_for(test, Sender::smart_account(Keypair::new()))
 }
 
@@ -526,7 +526,7 @@ fn build_smart_account_withdrawal(test: &mut SquadsZoneTest) -> WithdrawalSetup 
 /// binds no proposal, so the on-chain recomputation uses `proposal_hash = 0`
 /// and the proof inputs set `proposal: None`, with the withdrawn value
 /// carried in the independent `public_amount` chain element.
-fn build_withdrawal_for(test: &mut SquadsZoneTest, sender: Sender) -> WithdrawalSetup {
+fn build_withdrawal_for(test: &mut SquadsRingTest, sender: Sender) -> WithdrawalSetup {
     let sender_viewing = SecretKey::random(&mut OsRng);
     let sender_viewing_pk = *P256Pubkey::from_p256(&sender_viewing.public_key()).as_bytes();
     let sender_nullifier_secret = random_field();
@@ -539,7 +539,7 @@ fn build_withdrawal_for(test: &mut SquadsZoneTest, sender: Sender) -> Withdrawal
     let change_blinding =
         derive_change_blinding(&sender_viewing, &sender_nullifier_secret, first_input)
             .expect("derive change blinding");
-    let change_output = ZoneUtxo {
+    let change_output = RingUtxo {
         owner_key_hash: sender_owner,
         nullifier_pubkey: sender_nullifier_pk,
         asset: [0u8; 32],
@@ -552,7 +552,7 @@ fn build_withdrawal_for(test: &mut SquadsZoneTest, sender: Sender) -> Withdrawal
     };
 
     let public_amount = fe_u64(withdrawn);
-    let proof_inputs = ZoneProofInputs {
+    let proof_inputs = RingProofInputs {
         viewing_secret_key: sender_viewing,
         nullifier_secret: sender_nullifier_secret,
         inputs,
@@ -581,7 +581,7 @@ fn build_withdrawal_for(test: &mut SquadsZoneTest, sender: Sender) -> Withdrawal
     let co_signer = Keypair::new();
     test.airdrop(&co_signer.pubkey(), 1_000_000_000)
         .expect("fund co_signer");
-    let zone_config = create_zone_config(test, &co_signer.pubkey());
+    let ring_config = create_ring_config(test, &co_signer.pubkey());
     let sender_vka = install_vka(
         test,
         sender_owner,
@@ -592,7 +592,7 @@ fn build_withdrawal_for(test: &mut SquadsZoneTest, sender: Sender) -> Withdrawal
     );
 
     let ix_data = TransactIxData {
-        zone_proof: proof_result.proof,
+        ring_proof: proof_result.proof,
         spp_proof: [0u8; 192],
         // `Some` selects the (1, 1) withdrawal shape on-chain.
         public_amount: Some(withdrawn),
@@ -614,7 +614,7 @@ fn build_withdrawal_for(test: &mut SquadsZoneTest, sender: Sender) -> Withdrawal
     };
 
     WithdrawalSetup {
-        zone_config,
+        ring_config,
         sender_vka,
         co_signer,
         sender,
@@ -622,10 +622,10 @@ fn build_withdrawal_for(test: &mut SquadsZoneTest, sender: Sender) -> Withdrawal
     }
 }
 
-/// The zone never loads the settlement tail or the tree account. It only
+/// The ring never loads the settlement tail or the tree account. It only
 /// forwards them to the SPP CPI, so junk pubkeys suffice.
 fn transact_withdrawal_ix(
-    test: &SquadsZoneTest,
+    test: &SquadsRingTest,
     setup: &WithdrawalSetup,
     ix_data: TransactIxData,
     withdrawal: TransactWithdrawal,
@@ -633,7 +633,7 @@ fn transact_withdrawal_ix(
     Transact {
         payer: transact_payer(test, &setup.sender),
         co_signer: setup.co_signer.pubkey(),
-        zone_config: setup.zone_config,
+        ring_config: setup.ring_config,
         sender_viewing_key_account: setup.sender_vka,
         recipient_viewing_key_account: None,
         withdrawal: Some(withdrawal),
@@ -659,8 +659,8 @@ fn transact_withdrawal_reaches_spp_cpi() {
     let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
     let err = test
         .send(&[budget, ix], &[&setup.co_signer])
-        .expect_err("the placeholder spp_program must be rejected after zone-proof verification");
-    assert_eq!(custom_code(&err), SquadsZoneError::InvalidSppProgram as u32);
+        .expect_err("the placeholder spp_program must be rejected after ring-proof verification");
+    assert_eq!(custom_code(&err), SquadsRingError::InvalidSppProgram as u32);
 }
 
 /// The vault signature authorizes the spend and the program routes the
@@ -682,8 +682,8 @@ fn smart_account_transact_withdrawal_reaches_spp_cpi() {
             &[budget, ix],
             &transact_signers(&setup.sender, &setup.co_signer),
         )
-        .expect_err("the placeholder spp_program must be rejected after zone-proof verification");
-    assert_eq!(custom_code(&err), SquadsZoneError::InvalidSppProgram as u32);
+        .expect_err("the placeholder spp_program must be rejected after ring-proof verification");
+    assert_eq!(custom_code(&err), SquadsRingError::InvalidSppProgram as u32);
 }
 
 #[test]
@@ -691,7 +691,7 @@ fn transact_withdrawal_spl_reaches_spp_cpi() {
     let mut test = boot_with_prover();
 
     let setup = build_withdrawal(&mut test);
-    // The zone proof does not bind the settlement rail, so the SOL-rail proof
+    // The ring proof does not bind the settlement rail, so the SOL-rail proof
     // is reused. The program selects the SPL rail from the settlement account
     // count.
     let withdrawal = TransactWithdrawal::Spl {
@@ -706,12 +706,12 @@ fn transact_withdrawal_spl_reaches_spp_cpi() {
     let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
     let err = test
         .send(&[budget, ix], &[&setup.co_signer])
-        .expect_err("the placeholder spp_program must be rejected after zone-proof verification");
-    assert_eq!(custom_code(&err), SquadsZoneError::InvalidSppProgram as u32);
+        .expect_err("the placeholder spp_program must be rejected after ring-proof verification");
+    assert_eq!(custom_code(&err), SquadsRingError::InvalidSppProgram as u32);
 }
 
 #[test]
-fn transact_withdrawal_rejects_tampered_zone_proof() {
+fn transact_withdrawal_rejects_tampered_ring_proof() {
     let mut test = boot_with_prover();
 
     let setup = build_withdrawal(&mut test);
@@ -730,15 +730,15 @@ fn transact_withdrawal_rejects_tampered_zone_proof() {
     let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
     let err = test
         .send(&[budget, ix], &[&setup.co_signer])
-        .expect_err("tampered zone proof must be rejected on-chain");
+        .expect_err("tampered ring proof must be rejected on-chain");
     assert_eq!(
         custom_code(&err),
-        SquadsZoneError::ZoneProofVerificationFailed as u32,
+        SquadsRingError::RingProofVerificationFailed as u32,
     );
 }
 
 #[test]
-fn transact_rejects_tampered_zone_proof() {
+fn transact_rejects_tampered_ring_proof() {
     let mut test = boot_with_prover();
 
     let setup = build_transfer(&mut test);
@@ -752,9 +752,9 @@ fn transact_rejects_tampered_zone_proof() {
     let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
     let err = test
         .send(&[budget, ix], &[&setup.co_signer])
-        .expect_err("tampered zone proof must be rejected on-chain");
+        .expect_err("tampered ring proof must be rejected on-chain");
     assert_eq!(
         custom_code(&err),
-        SquadsZoneError::ZoneProofVerificationFailed as u32,
+        SquadsRingError::RingProofVerificationFailed as u32,
     );
 }

@@ -1,10 +1,10 @@
-//! Squads zone withdrawal steps routed through the backend.
+//! Squads ring withdrawal steps routed through the backend.
 //!
 //! Sync: the suite reads the vault's spendable UTXO via the backend `get_balances`,
 //! builds a `PrivateTransactionIntent`, and calls `request_transact` on the
 //! smart-account rail (`sender_owner_pubkey = None`) with a `Withdraw` type. The
 //! backend re-derives the sender secrets via the auditor key, proves the `(1, 1)`
-//! spend, and returns the `transact` instruction with the relayer (zone co-signer)
+//! spend, and returns the `transact` instruction with the relayer (ring co-signer)
 //! as payer + co-signer. The suite sends it as a v0+ALT transaction. The assert
 //! verifies the public fund movement OUT of the pool plus the shielded change via
 //! the backend.
@@ -66,7 +66,7 @@ fn token_amount(account: &solana_account::Account) -> Result<u64> {
 }
 
 impl SquadsSmartAccountHarness {
-    /// Sync `transact` withdrawal of SOL from the vault's deposited zone UTXO to a
+    /// Sync `transact` withdrawal of SOL from the vault's deposited ring UTXO to a
     /// fresh external account through the backend.
     pub(crate) fn withdraw_sol(&mut self, name: &str, withdrawn: u64) -> Result<()> {
         let inputs = self.wait_for_utxos(name, SOL_ASSET_ID, 1)?;

@@ -1,11 +1,11 @@
-//! Squads zone transfer steps routed through the backend.
+//! Squads ring transfer steps routed through the backend.
 //!
 //! Sync: the suite deposits two vault UTXOs, reads them via the backend
 //! `get_balances`, builds a `PrivateTransactionIntent` (the recipient output owned
 //! by the recipient VKA), and calls `request_transact` on the smart-account rail
 //! (`sender_owner_pubkey = None`). The backend re-derives the sender secrets via the
-//! auditor key, fetches spend proofs, builds the paired zone + SPP proofs, and
-//! returns the `transact` instruction with the relayer (the zone co-signer) as both
+//! auditor key, fetches spend proofs, builds the paired ring + SPP proofs, and
+//! returns the `transact` instruction with the relayer (the ring co-signer) as both
 //! payer and co-signer. The suite sends it as a v0+ALT transaction signed by the
 //! relayer.
 //!
@@ -33,7 +33,7 @@ use zolana_squads_interface::{
         builders::CreateProposal, instruction_data::EncryptedUtxos, CreateProposalIxData,
     },
     types::Address as SquadsAddress,
-    PROPOSAL_PDA_SEED, SQUADS_ZONE_PROGRAM_ID, ZONE_CONFIG_PDA_SEED,
+    PROPOSAL_PDA_SEED, RING_CONFIG_PDA_SEED, SQUADS_RING_PROGRAM_ID,
 };
 use zolana_squads_sdk::proposal::{build_proposal_ciphertext, proposal_hash, ProposalOperation};
 use zolana_test_utils::smart_account::execute_sync_ix;
@@ -80,7 +80,7 @@ pub(crate) fn placeholder_encrypted_utxos() -> EncryptedUtxos {
 }
 
 impl SquadsSmartAccountHarness {
-    /// Sync `transact` transfer of SOL through the backend: the vault funds two zone
+    /// Sync `transact` transfer of SOL through the backend: the vault funds two ring
     /// UTXOs (`amount_a`, `amount_b`), the backend proves the `(2, 2)` spend routing
     /// `transferred` to `recipient` with the change returning to the vault.
     pub(crate) fn transfer_sol(
@@ -248,7 +248,7 @@ impl SquadsSmartAccountHarness {
             build_proposal_ciphertext(cipher_amount, blinding, cipher_recipient, &ephemeral)
                 .map_err(|e| anyhow!("build proposal ciphertext: {e}"))?;
 
-        let squads_program = Pubkey::new_from_array(SQUADS_ZONE_PROGRAM_ID);
+        let squads_program = Pubkey::new_from_array(SQUADS_RING_PROGRAM_ID);
         let cipher_seed = cipher_text
             .get(..32)
             .ok_or_else(|| anyhow!("proposal ciphertext too short"))?;
@@ -263,7 +263,7 @@ impl SquadsSmartAccountHarness {
         let create_ix = CreateProposal {
             proposal: proposal_address,
             viewing_key_account: sender_vka,
-            zone_config: Pubkey::find_program_address(&[ZONE_CONFIG_PDA_SEED], &squads_program).0,
+            ring_config: Pubkey::find_program_address(&[RING_CONFIG_PDA_SEED], &squads_program).0,
             system_program: Pubkey::default(),
             owner: self.proposer_vault,
             data: CreateProposalIxData {
@@ -295,10 +295,10 @@ impl SquadsSmartAccountHarness {
         Ok(proposal_address)
     }
 
-    /// Wrap the vault-payer zone instruction in `executeTransactionSyncV2`, then
-    /// send it with the two threshold members plus the zone co-signer. The smart-
+    /// Wrap the vault-payer ring instruction in `executeTransactionSyncV2`, then
+    /// send it with the two threshold members plus the ring co-signer. The smart-
     /// account CPI is what grants signer privilege to the vault. A direct relayer
-    /// submission is rejected by the zone program.
+    /// submission is rejected by the ring program.
     pub(crate) fn send_execute_v0_alt(&mut self, ix: Instruction) -> Result<Signature> {
         let payer = self.payer.insecure_clone();
         let co_signer = self.co_signer.insecure_clone();

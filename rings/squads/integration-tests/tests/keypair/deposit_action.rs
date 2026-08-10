@@ -1,4 +1,4 @@
-//! Builder for the Squads zone `deposit` (tag 1) instruction on both rails.
+//! Builder for the Squads ring `deposit` (tag 1) instruction on both rails.
 //!
 //! The instruction is proofless: the depositor signs and funds the transfer, the
 //! recipient `owner` is derived on-chain from the recipient viewing key account,
@@ -24,8 +24,8 @@ pub(crate) fn random_blinding() -> [u8; 32] {
     blinding
 }
 
-/// The rail-agnostic inputs to a zone deposit.
-pub(crate) struct ZoneDeposit {
+/// The rail-agnostic inputs to a ring deposit.
+pub(crate) struct RingDeposit {
     pub(crate) asset: DepositAssetKind,
     pub(crate) depositor: Pubkey,
     pub(crate) recipient_vka: Pubkey,
@@ -36,14 +36,14 @@ pub(crate) struct ZoneDeposit {
     pub(crate) amount: u64,
 }
 
-impl ZoneDeposit {
+impl RingDeposit {
     fn data(&self) -> DepositIxData {
         DepositIxData {
             view_tag: self.view_tag,
             asset: self.asset,
             amount: self.amount,
             blinding: self.blinding,
-            // SPP and the zone both treat this as opaque. The suite asserts the
+            // SPP and the ring both treat this as opaque. The suite asserts the
             // settled state directly rather than by decrypting.
             encrypted: EncryptedRingDepositData {
                 tx_viewing_pk: [0u8; 33],

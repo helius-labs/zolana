@@ -1,4 +1,4 @@
-//! Localnet + Photon lifecycle tests for the Squads zone P256 (keypair) rail:
+//! Localnet + Photon lifecycle tests for the Squads ring P256 (keypair) rail:
 //! `deposit` (tag 1) and `transact` withdrawal/transfer (tag 0). Every spend
 //! routes through the `zolana-squads-client` backend's two-call P256 rail (probe,
 //! client signs `sha256(private_tx_hash)`, `requestTransact`). The async
@@ -21,7 +21,7 @@ use harness::SquadsKeypairHarness as Harness;
 
 #[test]
 #[serial]
-fn sol_deposit_creates_a_zone_utxo() -> Result<()> {
+fn sol_deposit_creates_a_ring_utxo() -> Result<()> {
     let mut harness = Harness::new()?;
     harness.create_viewing_key_account("alice")?;
     harness.deposit_sol("alice", 1_000_000)?;
@@ -31,7 +31,7 @@ fn sol_deposit_creates_a_zone_utxo() -> Result<()> {
 
 #[test]
 #[serial]
-fn spl_deposit_creates_a_zone_utxo() -> Result<()> {
+fn spl_deposit_creates_a_ring_utxo() -> Result<()> {
     let mut harness = Harness::new()?;
     harness.ensure_spl_asset()?;
     harness.create_viewing_key_account("bob")?;

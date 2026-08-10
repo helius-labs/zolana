@@ -17,7 +17,7 @@ use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use squads_zone_tests::{custom_code, prover_url, SquadsZoneTest};
+use squads_ring_tests::{custom_code, prover_url, SquadsRingTest};
 use zolana_client::prover::{spawn_prover, SERVER_ADDRESS};
 use zolana_hasher::{Hasher, Poseidon};
 use zolana_keypair::P256Pubkey;
@@ -26,19 +26,19 @@ use zolana_squads_interface::{
         ENCRYPTION_SCHEME_P256_AES, OWNER_KIND_KEYPAIR, OWNER_KIND_SMART_ACCOUNT,
         VIEWING_KEY_STATE_ACTIVE,
     },
-    error::SquadsZoneError,
+    error::SquadsRingError,
     instruction::{
         builders::FoldTransact,
         instruction_data::{EncryptedUtxos, InputContext},
         FoldTransactIxData, FoldTransactLeg,
     },
-    state::{viewing_key_account::ViewingKeyAccount, zone_config::ZoneConfig},
+    state::{ring_config::SquadsRingConfig, viewing_key_account::ViewingKeyAccount},
     types::Address,
-    RING_AUTH_PDA_SEED, ZONE_CONFIG_PDA_SEED,
+    RING_AUTH_PDA_SEED, RING_CONFIG_PDA_SEED,
 };
 use zolana_squads_sdk::prover::{
-    zone::{derive_change_blinding, ZoneProofInputs, ZoneRecipient, ZoneUtxo},
-    zone_fold::prove_zone_fold,
+    ring::{derive_change_blinding, RingProofInputs, RingRecipient, RingUtxo},
+    ring_fold::prove_ring_fold,
 };
 
 fn random_field() -> [u8; 32] {
@@ -53,8 +53,8 @@ fn nullifier_pubkey(secret: &[u8; 32]) -> [u8; 32] {
     Poseidon::hashv(&[secret.as_slice()]).expect("poseidon")
 }
 
-fn zone_config_pda(program_id: &Pubkey) -> Pubkey {
-    Pubkey::find_program_address(&[ZONE_CONFIG_PDA_SEED], program_id).0
+fn ring_config_pda(program_id: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(&[RING_CONFIG_PDA_SEED], program_id).0
 }
 
 fn ring_auth_pda(program_id: &Pubkey) -> Pubkey {
@@ -63,15 +63,15 @@ fn ring_auth_pda(program_id: &Pubkey) -> Pubkey {
 
 /// A prover the tests cannot reach is a failure. A run that quietly skips
 /// every proof-backed case reports green while proving nothing.
-fn boot_with_prover() -> SquadsZoneTest {
+fn boot_with_prover() -> SquadsRingTest {
     spawn_prover().expect("the prover server must be reachable, see ZOLANA_PROVER_URL");
-    SquadsZoneTest::new().expect("boot")
+    SquadsRingTest::new().expect("boot")
 }
 
-fn create_zone_config(test: &mut SquadsZoneTest, co_signer: &Pubkey) -> Pubkey {
-    let zone_config = zone_config_pda(&test.program_id);
+fn create_ring_config(test: &mut SquadsRingTest, co_signer: &Pubkey) -> Pubkey {
+    let ring_config = ring_config_pda(&test.program_id);
     let auditor = P256Pubkey::from_p256(&SecretKey::random(&mut OsRng).public_key());
-    let config = ZoneConfig::new(
+    let config = SquadsRingConfig::new(
         Address::new_from_array([7u8; 32]),
         Address::new_from_array(co_signer.to_bytes()),
         3_600,
@@ -79,15 +79,15 @@ fn create_zone_config(test: &mut SquadsZoneTest, co_signer: &Pubkey) -> Pubkey {
         vec![],
     );
     test.set_program_account(
-        &zone_config,
-        config.serialize().expect("serialize zone config"),
+        &ring_config,
+        config.serialize().expect("serialize ring config"),
     )
-    .expect("seed zone config");
-    zone_config
+    .expect("seed ring config");
+    ring_config
 }
 
 fn install_vka(
-    test: &mut SquadsZoneTest,
+    test: &mut SquadsRingTest,
     owner_key_hash: [u8; 32],
     owner_kind: u8,
     shared_viewing_key: [u8; 33],
@@ -118,8 +118,8 @@ fn install_vka(
     address
 }
 
-fn utxo(amount: u64, owner_key_hash: [u8; 32], nullifier_pk: [u8; 32], is_dummy: bool) -> ZoneUtxo {
-    ZoneUtxo {
+fn utxo(amount: u64, owner_key_hash: [u8; 32], nullifier_pk: [u8; 32], is_dummy: bool) -> RingUtxo {
+    RingUtxo {
         owner_key_hash,
         nullifier_pubkey: nullifier_pk,
         asset: [0u8; 32],
@@ -133,14 +133,14 @@ fn utxo(amount: u64, owner_key_hash: [u8; 32], nullifier_pk: [u8; 32], is_dummy:
 }
 
 struct FoldSetup {
-    zone_config: Pubkey,
+    ring_config: Pubkey,
     sender_vka: Pubkey,
     recipient_vka: Pubkey,
     co_signer: Keypair,
     data: FoldTransactIxData,
 }
 
-fn build_fold(test: &mut SquadsZoneTest) -> FoldSetup {
+fn build_fold(test: &mut SquadsRingTest) -> FoldSetup {
     let sender_viewing = SecretKey::random(&mut OsRng);
     let sender_viewing_pk = *P256Pubkey::from_p256(&sender_viewing.public_key()).as_bytes();
     let sender_nullifier_secret = random_field();
@@ -151,7 +151,7 @@ fn build_fold(test: &mut SquadsZoneTest) -> FoldSetup {
     let recipient_viewing_bytes = *recipient_viewing.as_bytes();
     let recipient_nullifier_pk = random_field();
     let recipient_owner = random_field();
-    let recipient = ZoneRecipient {
+    let recipient = RingRecipient {
         owner_key_hash: recipient_owner,
         nullifier_pubkey: recipient_nullifier_pk,
         viewing_pubkey: recipient_viewing,
@@ -160,7 +160,7 @@ fn build_fold(test: &mut SquadsZoneTest) -> FoldSetup {
     // Three real UTXOs across two legs. The second leg pads its free slot with a
     // dummy, which is what the `(2,2)` shape forces for an odd count.
     let leg_amounts = [(700u64, Some(300u64), 400u64), (500, None, 200)];
-    let legs: Vec<ZoneProofInputs> = leg_amounts
+    let legs: Vec<RingProofInputs> = leg_amounts
         .iter()
         .map(|(first, second, transferred)| {
             let inputs = vec![
@@ -175,7 +175,7 @@ fn build_fold(test: &mut SquadsZoneTest) -> FoldSetup {
             let change_blinding =
                 derive_change_blinding(&sender_viewing, &sender_nullifier_secret, &inputs[0])
                     .expect("derive change blinding");
-            let change = ZoneUtxo {
+            let change = RingUtxo {
                 owner_key_hash: sender_owner,
                 nullifier_pubkey: sender_nullifier_pk,
                 asset: [0u8; 32],
@@ -186,7 +186,7 @@ fn build_fold(test: &mut SquadsZoneTest) -> FoldSetup {
                 ring_program_id: [0u8; 32],
                 is_dummy: false,
             };
-            let recipient_output = ZoneUtxo {
+            let recipient_output = RingUtxo {
                 owner_key_hash: recipient_owner,
                 nullifier_pubkey: recipient_nullifier_pk,
                 asset: [0u8; 32],
@@ -197,7 +197,7 @@ fn build_fold(test: &mut SquadsZoneTest) -> FoldSetup {
                 ring_program_id: [0u8; 32],
                 is_dummy: false,
             };
-            ZoneProofInputs {
+            RingProofInputs {
                 viewing_secret_key: sender_viewing.clone(),
                 nullifier_secret: sender_nullifier_secret,
                 inputs,
@@ -211,10 +211,10 @@ fn build_fold(test: &mut SquadsZoneTest) -> FoldSetup {
         .collect();
 
     let folded =
-        prove_zone_fold(legs, &prover_url(SERVER_ADDRESS)).expect("fold proof must be produced");
+        prove_ring_fold(legs, &prover_url(SERVER_ADDRESS)).expect("fold proof must be produced");
 
     let co_signer = Keypair::new();
-    let zone_config = create_zone_config(test, &co_signer.pubkey());
+    let ring_config = create_ring_config(test, &co_signer.pubkey());
     let sender_vka = install_vka(
         test,
         sender_owner,
@@ -269,12 +269,12 @@ fn build_fold(test: &mut SquadsZoneTest) -> FoldSetup {
         .collect();
 
     FoldSetup {
-        zone_config,
+        ring_config,
         sender_vka,
         recipient_vka,
         co_signer,
         data: FoldTransactIxData {
-            zone_fold_proof: folded.proof,
+            ring_fold_proof: folded.proof,
             expiry: i64::MAX,
             legs: ix_legs,
         },
@@ -306,21 +306,21 @@ fn invalid_fold_data() -> FoldTransactIxData {
         },
     };
     FoldTransactIxData {
-        zone_fold_proof: [0xff; 192],
+        ring_fold_proof: [0xff; 192],
         expiry: i64::MAX,
         legs: vec![leg.clone(), leg],
     }
 }
 
 fn fold_transact_ix(
-    test: &SquadsZoneTest,
+    test: &SquadsRingTest,
     setup: &FoldSetup,
     data: FoldTransactIxData,
 ) -> Instruction {
     FoldTransact {
         payer: test.payer.pubkey(),
         co_signer: setup.co_signer.pubkey(),
-        zone_config: setup.zone_config,
+        ring_config: setup.ring_config,
         sender_viewing_key_account: setup.sender_vka,
         recipient_viewing_key_account: setup.recipient_vka,
         ring_auth: ring_auth_pda(&test.program_id),
@@ -343,15 +343,15 @@ fn fold_transact_verifies_a_three_utxo_spend_then_attempts_spp_cpi() {
     let err = test
         .send(&[budget, ix], &[&setup.co_signer])
         .expect_err("the placeholder spp_program must be rejected after fold verification");
-    assert_eq!(custom_code(&err), SquadsZoneError::InvalidSppProgram as u32);
+    assert_eq!(custom_code(&err), SquadsRingError::InvalidSppProgram as u32);
 }
 
 #[test]
 fn fold_transact_requires_smart_account_vault_before_proof_verification() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
 
     let relayer = test.payer.pubkey();
-    let zone_config = create_zone_config(&mut test, &relayer);
+    let ring_config = create_ring_config(&mut test, &relayer);
     let vault = Keypair::new();
     let vault_owner = zolana_hasher::primitives::hash_bytes(&vault.pubkey().to_bytes())
         .expect("hash vault identity");
@@ -378,7 +378,7 @@ fn fold_transact_requires_smart_account_vault_before_proof_verification() {
         FoldTransact {
             payer,
             co_signer: relayer,
-            zone_config,
+            ring_config,
             sender_viewing_key_account: sender_vka,
             recipient_viewing_key_account: recipient_vka,
             ring_auth,
@@ -392,14 +392,14 @@ fn fold_transact_requires_smart_account_vault_before_proof_verification() {
     let err = test
         .send(&[build_ix(relayer)], &[])
         .expect_err("a co-signer cannot substitute for the smart-account vault");
-    assert_eq!(custom_code(&err), SquadsZoneError::OwnerMismatch as u32);
+    assert_eq!(custom_code(&err), SquadsRingError::OwnerMismatch as u32);
 
     let err = test
         .send(&[build_ix(vault.pubkey())], &[&vault])
         .expect_err("an authorized request with an invalid proof must reach proof decoding");
     assert_eq!(
         custom_code(&err),
-        SquadsZoneError::InvalidProofEncoding as u32,
+        SquadsRingError::InvalidProofEncoding as u32,
     );
 }
 
@@ -421,7 +421,7 @@ fn fold_transact_rejects_a_tampered_leg() {
         .expect_err("a leg the fold did not prove must be rejected");
     assert_eq!(
         custom_code(&err),
-        SquadsZoneError::ZoneProofVerificationFailed as u32,
+        SquadsRingError::RingProofVerificationFailed as u32,
     );
 }
 
@@ -442,6 +442,6 @@ fn fold_transact_rejects_reordered_legs() {
         .expect_err("reordered legs must be rejected");
     assert_eq!(
         custom_code(&err),
-        SquadsZoneError::ZoneProofVerificationFailed as u32,
+        SquadsRingError::RingProofVerificationFailed as u32,
     );
 }

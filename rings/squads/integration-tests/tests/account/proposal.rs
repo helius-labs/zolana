@@ -6,17 +6,19 @@
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use squads_zone_tests::{custom_code, SquadsZoneTest};
+use squads_ring_tests::{custom_code, SquadsRingTest};
 use zolana_squads_interface::{
     constants::{ENCRYPTION_SCHEME_P256_AES, OWNER_KIND_SMART_ACCOUNT, VIEWING_KEY_STATE_ACTIVE},
-    error::SquadsZoneError,
+    error::SquadsRingError,
     instruction::{
         builders::{CancelProposal, CreateProposal},
         CreateProposalIxData,
     },
-    state::{proposal::Proposal, viewing_key_account::ViewingKeyAccount, zone_config::ZoneConfig},
+    state::{
+        proposal::Proposal, ring_config::SquadsRingConfig, viewing_key_account::ViewingKeyAccount,
+    },
     types::Address,
-    PROPOSAL_PDA_SEED, VIEWING_KEY_ACCOUNT_PDA_SEED, ZONE_CONFIG_PDA_SEED,
+    PROPOSAL_PDA_SEED, RING_CONFIG_PDA_SEED, VIEWING_KEY_ACCOUNT_PDA_SEED,
 };
 
 /// The first 32 bytes seed the proposal PDA, so they must differ per tag.
@@ -32,17 +34,17 @@ fn vka_pda(program_id: &Pubkey, owner: &Pubkey) -> Pubkey {
     Pubkey::find_program_address(&[VIEWING_KEY_ACCOUNT_PDA_SEED, owner.as_ref()], program_id).0
 }
 
-fn seed_zone_config(test: &mut SquadsZoneTest) -> Pubkey {
-    let pda = Pubkey::find_program_address(&[ZONE_CONFIG_PDA_SEED], &test.program_id).0;
-    let config = ZoneConfig::new(
+fn seed_ring_config(test: &mut SquadsRingTest) -> Pubkey {
+    let pda = Pubkey::find_program_address(&[RING_CONFIG_PDA_SEED], &test.program_id).0;
+    let config = SquadsRingConfig::new(
         Address::new_from_array([11u8; 32]),
         Address::new_from_array([12u8; 32]),
         3_600,
         vec![[2u8; 33]],
         vec![],
     );
-    test.set_program_account(&pda, config.serialize().expect("serialize zone config"))
-        .expect("seed zone config");
+    test.set_program_account(&pda, config.serialize().expect("serialize ring config"))
+        .expect("seed ring config");
     pda
 }
 
@@ -82,7 +84,7 @@ fn vka_fixture(owner: &Pubkey) -> ViewingKeyAccount {
     }
 }
 
-fn seed_vka(test: &mut SquadsZoneTest) -> (Keypair, Pubkey) {
+fn seed_vka(test: &mut SquadsRingTest) -> (Keypair, Pubkey) {
     let owner = Keypair::new();
     let pda = vka_pda(&test.program_id, &owner.pubkey());
     let bytes = vka_fixture(&owner.pubkey())
@@ -92,7 +94,7 @@ fn seed_vka(test: &mut SquadsZoneTest) -> (Keypair, Pubkey) {
     (owner, pda)
 }
 
-fn create_ix_data(test: &SquadsZoneTest, ct: [u8; 88]) -> CreateProposalIxData {
+fn create_ix_data(test: &SquadsRingTest, ct: [u8; 88]) -> CreateProposalIxData {
     let now = test.svm.get_sysvar::<solana_clock::Clock>().unix_timestamp;
     CreateProposalIxData {
         recipient: Address::new_from_array([7u8; 32]),
@@ -105,7 +107,7 @@ fn create_ix_data(test: &SquadsZoneTest, ct: [u8; 88]) -> CreateProposalIxData {
 
 #[test]
 fn create_proposal_creates_account() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let program_id = test.program_id;
     let (owner, vka) = seed_vka(&mut test);
     test.airdrop(&owner.pubkey(), 1_000_000_000)
@@ -113,12 +115,12 @@ fn create_proposal_creates_account() {
     let ct = cipher_text(1);
     let proposal = proposal_pda(&program_id, &owner_field(&owner.pubkey()), &ct);
     let data = create_ix_data(&test, ct);
-    let zone_config = seed_zone_config(&mut test);
+    let ring_config = seed_ring_config(&mut test);
 
     let ix = CreateProposal {
         proposal,
         viewing_key_account: vka,
-        zone_config,
+        ring_config,
         system_program: Pubkey::default(),
         owner: owner.pubkey(),
         data,
@@ -147,7 +149,7 @@ fn create_proposal_creates_account() {
 
 #[test]
 fn create_proposal_rejects_owner_mismatch() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let program_id = test.program_id;
     let (_owner, vka) = seed_vka(&mut test);
     let wrong_owner = Keypair::new();
@@ -157,12 +159,12 @@ fn create_proposal_rejects_owner_mismatch() {
     // The program errors at the owner check before it derives the PDA, so this
     // address is never validated.
     let proposal = proposal_pda(&program_id, &owner_field(&wrong_owner.pubkey()), &ct);
-    let zone_config = seed_zone_config(&mut test);
+    let ring_config = seed_ring_config(&mut test);
 
     let ix = CreateProposal {
         proposal,
         viewing_key_account: vka,
-        zone_config,
+        ring_config,
         system_program: Pubkey::default(),
         owner: wrong_owner.pubkey(),
         data: create_ix_data(&test, ct),
@@ -172,13 +174,13 @@ fn create_proposal_rejects_owner_mismatch() {
     let err = test
         .send(&[ix], &[&wrong_owner])
         .expect_err("expected OwnerMismatch");
-    assert_eq!(custom_code(&err), SquadsZoneError::OwnerMismatch as u32);
+    assert_eq!(custom_code(&err), SquadsRingError::OwnerMismatch as u32);
     assert_eq!(custom_code(&err), 8018);
 }
 
 #[test]
 fn create_proposal_rejects_distinct_fee_payer() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let program_id = test.program_id;
     let (owner, vka) = seed_vka(&mut test);
     let unrelated_payer = Keypair::new();
@@ -187,11 +189,11 @@ fn create_proposal_rejects_distinct_fee_payer() {
 
     let ct = cipher_text(6);
     let proposal = proposal_pda(&program_id, &owner_field(&owner.pubkey()), &ct);
-    let zone_config = seed_zone_config(&mut test);
+    let ring_config = seed_ring_config(&mut test);
     let mut ix = CreateProposal {
         proposal,
         viewing_key_account: vka,
-        zone_config,
+        ring_config,
         system_program: Pubkey::default(),
         owner: owner.pubkey(),
         data: create_ix_data(&test, ct),
@@ -206,20 +208,20 @@ fn create_proposal_rejects_distinct_fee_payer() {
         .expect_err("expected ProposalPayerMismatch");
     assert_eq!(
         custom_code(&err),
-        SquadsZoneError::ProposalPayerMismatch as u32
+        SquadsRingError::ProposalPayerMismatch as u32
     );
     assert_eq!(custom_code(&err), 8056);
 }
 
-fn seed_proposal(test: &mut SquadsZoneTest, owner: &Keypair, vka: &Pubkey, ct: [u8; 88]) -> Pubkey {
+fn seed_proposal(test: &mut SquadsRingTest, owner: &Keypair, vka: &Pubkey, ct: [u8; 88]) -> Pubkey {
     let proposal = proposal_pda(&test.program_id, &owner_field(&owner.pubkey()), &ct);
     test.airdrop(&owner.pubkey(), 1_000_000_000)
         .expect("fund owner");
-    let zone_config = seed_zone_config(test);
+    let ring_config = seed_ring_config(test);
     let ix = CreateProposal {
         proposal,
         viewing_key_account: *vka,
-        zone_config,
+        ring_config,
         system_program: Pubkey::default(),
         owner: owner.pubkey(),
         data: create_ix_data(test, ct),
@@ -231,17 +233,17 @@ fn seed_proposal(test: &mut SquadsZoneTest, owner: &Keypair, vka: &Pubkey, ct: [
 
 #[test]
 fn cancel_proposal_closes_and_refunds() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let (owner, vka) = seed_vka(&mut test);
     test.airdrop(&owner.pubkey(), 1_000_000_000)
         .expect("fund owner");
     let ct = cipher_text(3);
     let proposal = proposal_pda(&test.program_id, &owner_field(&owner.pubkey()), &ct);
-    let zone_config = seed_zone_config(&mut test);
+    let ring_config = seed_ring_config(&mut test);
     let create = CreateProposal {
         proposal,
         viewing_key_account: vka,
-        zone_config,
+        ring_config,
         system_program: Pubkey::default(),
         owner: owner.pubkey(),
         data: create_ix_data(&test, ct),
@@ -258,7 +260,7 @@ fn cancel_proposal_closes_and_refunds() {
         viewing_key_account: vka,
         proposal,
         rent_recipient: owner.pubkey(),
-        zone_config,
+        ring_config,
     }
     .instruction();
     test.send(&[cancel], &[&owner]).expect("cancel_proposal");
@@ -273,10 +275,10 @@ fn cancel_proposal_closes_and_refunds() {
 
 #[test]
 fn cancel_proposal_rejects_owner_mismatch() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let (owner, vka) = seed_vka(&mut test);
     let ct = cipher_text(4);
-    let zone_config = seed_zone_config(&mut test);
+    let ring_config = seed_ring_config(&mut test);
     let proposal = seed_proposal(&mut test, &owner, &vka, ct);
 
     let (other_owner, other_vka) = seed_vka(&mut test);
@@ -286,7 +288,7 @@ fn cancel_proposal_rejects_owner_mismatch() {
         viewing_key_account: other_vka,
         proposal,
         rent_recipient: owner.pubkey(),
-        zone_config,
+        ring_config,
     }
     .instruction();
     let err = test
@@ -296,17 +298,17 @@ fn cancel_proposal_rejects_owner_mismatch() {
     // proposal's recorded owner differs from that vka -> ProposalOwnershipMismatch.
     assert_eq!(
         custom_code(&err),
-        SquadsZoneError::ProposalOwnershipMismatch as u32
+        SquadsRingError::ProposalOwnershipMismatch as u32
     );
     assert_eq!(custom_code(&err), 8036);
 }
 
 #[test]
 fn cancel_proposal_rejects_rent_recipient_mismatch() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let (owner, vka) = seed_vka(&mut test);
     let ct = cipher_text(5);
-    let zone_config = seed_zone_config(&mut test);
+    let ring_config = seed_ring_config(&mut test);
     let proposal = seed_proposal(&mut test, &owner, &vka, ct);
 
     // The recorded rent_payer is the creation owner, so any other
@@ -316,7 +318,7 @@ fn cancel_proposal_rejects_rent_recipient_mismatch() {
         viewing_key_account: vka,
         proposal,
         rent_recipient: Pubkey::new_from_array([99u8; 32]),
-        zone_config,
+        ring_config,
     }
     .instruction();
     let err = test
@@ -324,10 +326,10 @@ fn cancel_proposal_rejects_rent_recipient_mismatch() {
         .expect_err("expected RentRecipientMismatch");
     assert_eq!(
         custom_code(&err),
-        SquadsZoneError::RentRecipientMismatch as u32
+        SquadsRingError::RentRecipientMismatch as u32
     );
     assert_eq!(custom_code(&err), 8038);
 }
 
-// `execute_proposal` (tag 13) needs a real zone Groth16 proof and is
+// `execute_proposal` (tag 13) needs a real ring Groth16 proof and is
 // covered end to end in `execute_proposal_e2e.rs`.

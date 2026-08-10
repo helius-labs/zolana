@@ -6,7 +6,7 @@
 //! key-encryption Groth16 proof, so its full lifecycle is covered in
 //! `key_update_e2e.rs`.
 //!
-//! The `ViewingKeyAccount` and `ZoneConfig` fixtures are seeded directly
+//! The `ViewingKeyAccount` and `SquadsRingConfig` fixtures are seeded directly
 //! with `set_program_account`. The proposal processors check only program
 //! ownership, discriminator, and the recorded identities, so no creation
 //! flow is needed.
@@ -16,24 +16,24 @@
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use squads_zone_tests::{custom_code, SquadsZoneTest};
+use squads_ring_tests::{custom_code, SquadsRingTest};
 use zolana_squads_interface::{
     constants::{
         ENCRYPTION_SCHEME_P256_AES, KEY_OP_ADD, KEY_OP_UPDATE_AUDITOR, OWNER_KIND_SMART_ACCOUNT,
         VIEWING_KEY_STATE_ACTIVE,
     },
-    error::SquadsZoneError,
+    error::SquadsRingError,
     instruction::{
         builders::{CancelKeyUpdate, ExecuteKeyUpdate, FillKeyUpdate, UpdateViewingKeyAccount},
         ExecuteKeyUpdateIxData, FillKeyUpdateIxData, UpdateViewingKeyAccountIxData,
     },
     state::{
         key_update_proposal::{KeyOperation, KeyUpdateProposal, OpenKeyUpdateProposal},
+        ring_config::SquadsRingConfig,
         viewing_key_account::ViewingKeyAccount,
-        zone_config::ZoneConfig,
     },
     types::Address,
-    KEY_UPDATE_PROPOSAL_PDA_SEED, VIEWING_KEY_ACCOUNT_PDA_SEED, ZONE_CONFIG_PDA_SEED,
+    KEY_UPDATE_PROPOSAL_PDA_SEED, RING_CONFIG_PDA_SEED, VIEWING_KEY_ACCOUNT_PDA_SEED,
 };
 
 const AUDITOR_KEY: [u8; 33] = [9u8; 33];
@@ -42,8 +42,8 @@ fn vka_pda(program_id: &Pubkey, owner: &Pubkey) -> Pubkey {
     Pubkey::find_program_address(&[VIEWING_KEY_ACCOUNT_PDA_SEED, owner.as_ref()], program_id).0
 }
 
-fn zone_config_pda(program_id: &Pubkey) -> Pubkey {
-    Pubkey::find_program_address(&[ZONE_CONFIG_PDA_SEED], program_id).0
+fn ring_config_pda(program_id: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(&[RING_CONFIG_PDA_SEED], program_id).0
 }
 
 /// Every fixture here starts at key nonce 0, the nonce the proposal PDA is
@@ -83,8 +83,8 @@ fn vka_fixture(owner: &Pubkey, recovery: usize) -> ViewingKeyAccount {
     }
 }
 
-fn zone_config_fixture(co_signer: &Pubkey, auditor: [u8; 33]) -> ZoneConfig {
-    ZoneConfig::new(
+fn ring_config_fixture(co_signer: &Pubkey, auditor: [u8; 33]) -> SquadsRingConfig {
+    SquadsRingConfig::new(
         Address::new_from_array([1u8; 32]),
         Address::new_from_array(co_signer.to_bytes()),
         3_600,
@@ -93,7 +93,7 @@ fn zone_config_fixture(co_signer: &Pubkey, auditor: [u8; 33]) -> ZoneConfig {
     )
 }
 
-fn seed_vka(test: &mut SquadsZoneTest, recovery: usize) -> (Keypair, Pubkey) {
+fn seed_vka(test: &mut SquadsRingTest, recovery: usize) -> (Keypair, Pubkey) {
     let owner = Keypair::new();
     let pda = vka_pda(&test.program_id, &owner.pubkey());
     let bytes = vka_fixture(&owner.pubkey(), recovery)
@@ -103,13 +103,13 @@ fn seed_vka(test: &mut SquadsZoneTest, recovery: usize) -> (Keypair, Pubkey) {
     (owner, pda)
 }
 
-fn seed_zone_config(test: &mut SquadsZoneTest, co_signer: &Pubkey, auditor: [u8; 33]) -> Pubkey {
-    let pda = zone_config_pda(&test.program_id);
-    let bytes = zone_config_fixture(co_signer, auditor)
+fn seed_ring_config(test: &mut SquadsRingTest, co_signer: &Pubkey, auditor: [u8; 33]) -> Pubkey {
+    let pda = ring_config_pda(&test.program_id);
+    let bytes = ring_config_fixture(co_signer, auditor)
         .serialize()
-        .expect("serialize zone config fixture");
+        .expect("serialize ring config fixture");
     test.set_program_account(&pda, bytes)
-        .expect("seed zone config");
+        .expect("seed ring config");
     pda
 }
 
@@ -123,13 +123,13 @@ fn add_op(key: u8) -> KeyOperation {
 
 #[test]
 fn update_viewing_key_account_creates_noop_rotation_proposal() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let program_id = test.program_id;
     let (proposer, target) = seed_vka(&mut test, 1);
     test.airdrop(&proposer.pubkey(), 1_000_000_000)
         .expect("fund proposer");
     let co_signer = Keypair::new();
-    let zone_config = seed_zone_config(&mut test, &co_signer.pubkey(), AUDITOR_KEY);
+    let ring_config = seed_ring_config(&mut test, &co_signer.pubkey(), AUDITOR_KEY);
 
     let domain = 1u16;
     let proposal = proposal_pda(&program_id, &target, domain);
@@ -142,7 +142,7 @@ fn update_viewing_key_account_creates_noop_rotation_proposal() {
         target,
         key_update_proposal: proposal,
         system_program: Pubkey::default(),
-        zone_config,
+        ring_config,
         data: UpdateViewingKeyAccountIxData {
             domain,
             operations: vec![],
@@ -176,12 +176,12 @@ fn update_viewing_key_account_creates_noop_rotation_proposal() {
 
 #[test]
 fn update_viewing_key_account_rejects_unauthenticated_recovery_update() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let (proposer, target) = seed_vka(&mut test, 0);
     test.airdrop(&proposer.pubkey(), 1_000_000_000)
         .expect("fund proposer");
     let co_signer = Keypair::new();
-    let zone_config = seed_zone_config(&mut test, &co_signer.pubkey(), AUDITOR_KEY);
+    let ring_config = seed_ring_config(&mut test, &co_signer.pubkey(), AUDITOR_KEY);
     let domain = 5u16;
     let proposal = proposal_pda(&test.program_id, &target, domain);
 
@@ -190,7 +190,7 @@ fn update_viewing_key_account_rejects_unauthenticated_recovery_update() {
         target,
         key_update_proposal: proposal,
         system_program: Pubkey::default(),
-        zone_config,
+        ring_config,
         data: UpdateViewingKeyAccountIxData {
             domain,
             operations: vec![add_op(20)],
@@ -205,20 +205,20 @@ fn update_viewing_key_account_rejects_unauthenticated_recovery_update() {
         .expect_err("recovery update without owner authentication must fail closed");
     assert_eq!(
         custom_code(&err),
-        SquadsZoneError::RecoveryKeyUpdateUnsupported as u32,
+        SquadsRingError::RecoveryKeyUpdateUnsupported as u32,
     );
     assert!(test.account_data(&proposal).is_none());
 }
 
 #[test]
 fn update_viewing_key_account_rejects_mixed_operations() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let program_id = test.program_id;
     let (proposer, target) = seed_vka(&mut test, 0);
     test.airdrop(&proposer.pubkey(), 1_000_000_000)
         .expect("fund proposer");
     let co_signer = Keypair::new();
-    let zone_config = seed_zone_config(&mut test, &co_signer.pubkey(), AUDITOR_KEY);
+    let ring_config = seed_ring_config(&mut test, &co_signer.pubkey(), AUDITOR_KEY);
 
     let domain = 2u16;
     let proposal = proposal_pda(&program_id, &target, domain);
@@ -228,7 +228,7 @@ fn update_viewing_key_account_rejects_mixed_operations() {
         target,
         key_update_proposal: proposal,
         system_program: Pubkey::default(),
-        zone_config,
+        ring_config,
         data: UpdateViewingKeyAccountIxData {
             domain,
             operations: vec![
@@ -250,21 +250,21 @@ fn update_viewing_key_account_rejects_mixed_operations() {
         .expect_err("expected MixedKeyOperationTypes");
     assert_eq!(
         custom_code(&err),
-        SquadsZoneError::MixedKeyOperationTypes as u32
+        SquadsRingError::MixedKeyOperationTypes as u32
     );
 }
 
 #[test]
 fn update_viewing_key_account_auditor_update_requires_co_signer() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let program_id = test.program_id;
     let (proposer, target) = seed_vka(&mut test, 0);
     test.airdrop(&proposer.pubkey(), 1_000_000_000)
         .expect("fund proposer");
     let co_signer = Keypair::new();
-    // The proposer owns the target and the zone auditor differs from the
+    // The proposer owns the target and the ring auditor differs from the
     // target's auditor, so the only failing check is the co-signer identity.
-    let zone_config = seed_zone_config(&mut test, &co_signer.pubkey(), [11u8; 33]);
+    let ring_config = seed_ring_config(&mut test, &co_signer.pubkey(), [11u8; 33]);
 
     let domain = 3u16;
     let proposal = proposal_pda(&program_id, &target, domain);
@@ -274,7 +274,7 @@ fn update_viewing_key_account_auditor_update_requires_co_signer() {
         target,
         key_update_proposal: proposal,
         system_program: Pubkey::default(),
-        zone_config,
+        ring_config,
         data: UpdateViewingKeyAccountIxData {
             domain,
             operations: vec![KeyOperation {
@@ -291,21 +291,21 @@ fn update_viewing_key_account_auditor_update_requires_co_signer() {
     let err = test
         .send(&[ix], &[&proposer])
         .expect_err("expected CoSignerMismatch");
-    assert_eq!(custom_code(&err), SquadsZoneError::CoSignerMismatch as u32);
+    assert_eq!(custom_code(&err), SquadsRingError::CoSignerMismatch as u32);
 }
 
 #[test]
 fn update_viewing_key_account_auditor_update_rejects_unchanged_auditor() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let program_id = test.program_id;
     let co_signer = Keypair::new();
     test.airdrop(&co_signer.pubkey(), 1_000_000_000)
         .expect("fund co_signer");
 
     let (_owner, target) = seed_vka(&mut test, 0);
-    // The zone auditor equals the target's auditor (AUDITOR_KEY), so the auditor
+    // The ring auditor equals the target's auditor (AUDITOR_KEY), so the auditor
     // update is a no-op and must be rejected.
-    let zone_config = seed_zone_config(&mut test, &co_signer.pubkey(), AUDITOR_KEY);
+    let ring_config = seed_ring_config(&mut test, &co_signer.pubkey(), AUDITOR_KEY);
 
     let domain = 4u16;
     let proposal = proposal_pda(&program_id, &target, domain);
@@ -315,7 +315,7 @@ fn update_viewing_key_account_auditor_update_rejects_unchanged_auditor() {
         target,
         key_update_proposal: proposal,
         system_program: Pubkey::default(),
-        zone_config,
+        ring_config,
         data: UpdateViewingKeyAccountIxData {
             domain,
             operations: vec![KeyOperation {
@@ -332,7 +332,7 @@ fn update_viewing_key_account_auditor_update_rejects_unchanged_auditor() {
     let err = test
         .send(&[ix], &[&co_signer])
         .expect_err("expected AuditorNotChanged");
-    assert_eq!(custom_code(&err), SquadsZoneError::AuditorNotChanged as u32);
+    assert_eq!(custom_code(&err), SquadsRingError::AuditorNotChanged as u32);
 }
 
 /// The proposal address is derived from caller-chosen seeds. An unbound creator
@@ -340,13 +340,13 @@ fn update_viewing_key_account_auditor_update_rejects_unchanged_auditor() {
 /// domain, so an unrelated signer must be refused.
 #[test]
 fn update_viewing_key_account_rejects_a_squatted_proposal() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let attacker = Keypair::new();
     test.airdrop(&attacker.pubkey(), 1_000_000_000)
         .expect("fund attacker");
     let (_owner, target) = seed_vka(&mut test, 1);
     let co_signer = Keypair::new();
-    let zone_config = seed_zone_config(&mut test, &co_signer.pubkey(), AUDITOR_KEY);
+    let ring_config = seed_ring_config(&mut test, &co_signer.pubkey(), AUDITOR_KEY);
 
     let domain = 0u16;
     let proposal = proposal_pda(&test.program_id, &target, domain);
@@ -355,7 +355,7 @@ fn update_viewing_key_account_rejects_a_squatted_proposal() {
         target,
         key_update_proposal: proposal,
         system_program: Pubkey::default(),
-        zone_config,
+        ring_config,
         data: UpdateViewingKeyAccountIxData {
             domain,
             operations: vec![],
@@ -368,7 +368,7 @@ fn update_viewing_key_account_rejects_a_squatted_proposal() {
     let err = test
         .send(&[ix], &[&attacker])
         .expect_err("an unrelated signer must not open a proposal on this target");
-    assert_eq!(custom_code(&err), SquadsZoneError::OwnerMismatch as u32);
+    assert_eq!(custom_code(&err), SquadsRingError::OwnerMismatch as u32);
     assert!(test.account_data(&proposal).is_none());
 }
 
@@ -376,12 +376,12 @@ fn update_viewing_key_account_rejects_a_squatted_proposal() {
 /// account whose owner cannot sign.
 #[test]
 fn cancel_key_update_accepts_the_co_signer() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let co_signer = Keypair::new();
     test.airdrop(&co_signer.pubkey(), 1_000_000_000)
         .expect("fund co-signer");
     let (_owner, target) = seed_vka(&mut test, 1);
-    let zone_config = seed_zone_config(&mut test, &co_signer.pubkey(), AUDITOR_KEY);
+    let ring_config = seed_ring_config(&mut test, &co_signer.pubkey(), AUDITOR_KEY);
 
     let domain = 30u16;
     let proposal = proposal_pda(&test.program_id, &target, domain);
@@ -390,7 +390,7 @@ fn cancel_key_update_accepts_the_co_signer() {
         target,
         key_update_proposal: proposal,
         system_program: Pubkey::default(),
-        zone_config,
+        ring_config,
         data: UpdateViewingKeyAccountIxData {
             domain,
             operations: vec![],
@@ -407,7 +407,7 @@ fn cancel_key_update_accepts_the_co_signer() {
         target,
         key_update_proposal: proposal,
         rent_recipient: co_signer.pubkey(),
-        zone_config,
+        ring_config,
     }
     .instruction();
     test.send(&[cancel], &[&co_signer])
@@ -422,7 +422,7 @@ fn cancel_key_update_accepts_the_co_signer() {
 /// proposal opened before it.
 #[test]
 fn execute_key_update_rejects_a_stale_proposal() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let co_signer = Keypair::new();
     let executor = Keypair::new();
     test.airdrop(&executor.pubkey(), 1_000_000_000)
@@ -435,7 +435,7 @@ fn execute_key_update_rejects_a_stale_proposal() {
     account.key_nonce = 1;
     test.set_program_account(&target, account.serialize().expect("serialize vka"))
         .expect("seed vka");
-    let zone_config = seed_zone_config(&mut test, &co_signer.pubkey(), AUDITOR_KEY);
+    let ring_config = seed_ring_config(&mut test, &co_signer.pubkey(), AUDITOR_KEY);
 
     let proposal_address = proposal_pda(&test.program_id, &target, 40);
     let mut proposal = KeyUpdateProposal::from(OpenKeyUpdateProposal {
@@ -458,7 +458,7 @@ fn execute_key_update_rejects_a_stale_proposal() {
         executor: executor.pubkey(),
         co_signer: co_signer.pubkey(),
         viewing_key_account: target,
-        zone_config,
+        ring_config,
         key_update_proposal: proposal_address,
         rent_recipient: executor.pubkey(),
         system_program: Pubkey::default(),
@@ -478,17 +478,17 @@ fn execute_key_update_rejects_a_stale_proposal() {
         .expect_err("a proposal from an earlier nonce must not settle");
     assert_eq!(
         custom_code(&err),
-        SquadsZoneError::StaleKeyUpdateProposal as u32
+        SquadsRingError::StaleKeyUpdateProposal as u32
     );
 }
 
 /// A no-op proposal funded for K = 2 ciphertexts (R = 1, A = 1).
-fn seed_proposal(test: &mut SquadsZoneTest, domain: u16) -> (Pubkey, Keypair) {
+fn seed_proposal(test: &mut SquadsRingTest, domain: u16) -> (Pubkey, Keypair) {
     seed_proposal_with_expiry(test, domain, i64::MAX)
 }
 
 fn seed_proposal_with_expiry(
-    test: &mut SquadsZoneTest,
+    test: &mut SquadsRingTest,
     domain: u16,
     expiry: i64,
 ) -> (Pubkey, Keypair) {
@@ -497,7 +497,7 @@ fn seed_proposal_with_expiry(
     test.airdrop(&proposer.pubkey(), 1_000_000_000)
         .expect("fund proposer");
     let co_signer = Keypair::new();
-    let zone_config = seed_zone_config(test, &co_signer.pubkey(), AUDITOR_KEY);
+    let ring_config = seed_ring_config(test, &co_signer.pubkey(), AUDITOR_KEY);
     let proposal = proposal_pda(&program_id, &target, domain);
     let executor = Keypair::new();
     test.airdrop(&executor.pubkey(), 1_000_000_000)
@@ -508,7 +508,7 @@ fn seed_proposal_with_expiry(
         target,
         key_update_proposal: proposal,
         system_program: Pubkey::default(),
-        zone_config,
+        ring_config,
         data: UpdateViewingKeyAccountIxData {
             domain,
             operations: vec![],
@@ -529,10 +529,10 @@ struct ExecuteFixture {
     executor: Keypair,
     co_signer: Keypair,
     target: Pubkey,
-    zone_config: Pubkey,
+    ring_config: Pubkey,
 }
 
-fn seed_execute_fixture(test: &mut SquadsZoneTest, domain: u16, expiry: i64) -> ExecuteFixture {
+fn seed_execute_fixture(test: &mut SquadsRingTest, domain: u16, expiry: i64) -> ExecuteFixture {
     let co_signer = Keypair::new();
     test.airdrop(&co_signer.pubkey(), 1_000_000_000)
         .expect("fund co-signer");
@@ -540,7 +540,7 @@ fn seed_execute_fixture(test: &mut SquadsZoneTest, domain: u16, expiry: i64) -> 
     test.airdrop(&executor.pubkey(), 1_000_000_000)
         .expect("fund executor");
     let (_owner, target) = seed_vka(test, 1);
-    let zone_config = seed_zone_config(test, &co_signer.pubkey(), AUDITOR_KEY);
+    let ring_config = seed_ring_config(test, &co_signer.pubkey(), AUDITOR_KEY);
 
     let proposal_address = proposal_pda(&test.program_id, &target, domain);
     let mut proposal = KeyUpdateProposal::from(OpenKeyUpdateProposal {
@@ -564,7 +564,7 @@ fn seed_execute_fixture(test: &mut SquadsZoneTest, domain: u16, expiry: i64) -> 
         executor,
         co_signer,
         target,
-        zone_config,
+        ring_config,
     }
 }
 
@@ -573,7 +573,7 @@ fn execute_key_update_ix(f: &ExecuteFixture, co_signer: Pubkey) -> solana_instru
         executor: f.executor.pubkey(),
         co_signer,
         viewing_key_account: f.target,
-        zone_config: f.zone_config,
+        ring_config: f.ring_config,
         key_update_proposal: f.proposal,
         rent_recipient: f.executor.pubkey(),
         system_program: Pubkey::default(),
@@ -592,7 +592,7 @@ fn execute_key_update_ix(f: &ExecuteFixture, co_signer: Pubkey) -> solana_instru
 /// The executor is the only signer that may append to the buffer.
 #[test]
 fn fill_key_update_rejects_a_missing_executor_signature() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let (proposal, executor) = seed_proposal(&mut test, 13);
 
     let mut ix = FillKeyUpdate {
@@ -609,7 +609,7 @@ fn fill_key_update_rejects_a_missing_executor_signature() {
         .expect_err("expected MissingExecutorSignature");
     assert_eq!(
         custom_code(&err),
-        SquadsZoneError::MissingExecutorSignature as u32
+        SquadsRingError::MissingExecutorSignature as u32
     );
 }
 
@@ -617,7 +617,7 @@ fn fill_key_update_rejects_a_missing_executor_signature() {
 /// settlement the owner no longer authorized.
 #[test]
 fn fill_key_update_rejects_an_expired_proposal() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let expiry = test.unix_timestamp() + 60;
     let (proposal, executor) = seed_proposal_with_expiry(&mut test, 14, expiry);
     test.warp_unix_timestamp(expiry + 1);
@@ -633,12 +633,12 @@ fn fill_key_update_rejects_an_expired_proposal() {
     let err = test
         .send(&[ix], &[&executor])
         .expect_err("expected ProposalExpired");
-    assert_eq!(custom_code(&err), SquadsZoneError::ProposalExpired as u32);
+    assert_eq!(custom_code(&err), SquadsRingError::ProposalExpired as u32);
 }
 
 #[test]
 fn execute_key_update_rejects_a_missing_executor_signature() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let f = seed_execute_fixture(&mut test, 41, i64::MAX);
 
     let mut ix = execute_key_update_ix(&f, f.co_signer.pubkey());
@@ -648,13 +648,13 @@ fn execute_key_update_rejects_a_missing_executor_signature() {
         .expect_err("expected MissingExecutorSignature");
     assert_eq!(
         custom_code(&err),
-        SquadsZoneError::MissingExecutorSignature as u32
+        SquadsRingError::MissingExecutorSignature as u32
     );
 }
 
 #[test]
 fn execute_key_update_rejects_a_missing_co_signer_signature() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let f = seed_execute_fixture(&mut test, 42, i64::MAX);
 
     let mut ix = execute_key_update_ix(&f, f.co_signer.pubkey());
@@ -664,13 +664,13 @@ fn execute_key_update_rejects_a_missing_co_signer_signature() {
         .expect_err("expected MissingCoSignerSignature");
     assert_eq!(
         custom_code(&err),
-        SquadsZoneError::MissingCoSignerSignature as u32
+        SquadsRingError::MissingCoSignerSignature as u32
     );
 }
 
 #[test]
 fn execute_key_update_rejects_a_foreign_co_signer() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let f = seed_execute_fixture(&mut test, 43, i64::MAX);
 
     let impostor = Keypair::new();
@@ -680,12 +680,12 @@ fn execute_key_update_rejects_a_foreign_co_signer() {
     let err = test
         .send(&[ix], &[&f.executor, &impostor])
         .expect_err("expected CoSignerMismatch");
-    assert_eq!(custom_code(&err), SquadsZoneError::CoSignerMismatch as u32);
+    assert_eq!(custom_code(&err), SquadsRingError::CoSignerMismatch as u32);
 }
 
 #[test]
 fn execute_key_update_rejects_an_expired_proposal() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let expiry = test.unix_timestamp() + 60;
     let f = seed_execute_fixture(&mut test, 44, expiry);
     test.warp_unix_timestamp(expiry + 1);
@@ -694,12 +694,12 @@ fn execute_key_update_rejects_an_expired_proposal() {
     let err = test
         .send(&[ix], &[&f.executor, &f.co_signer])
         .expect_err("expected ProposalExpired");
-    assert_eq!(custom_code(&err), SquadsZoneError::ProposalExpired as u32);
+    assert_eq!(custom_code(&err), SquadsRingError::ProposalExpired as u32);
 }
 
 #[test]
 fn fill_key_update_appends_ciphertexts() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let (proposal, executor) = seed_proposal(&mut test, 10);
 
     let fill1 = FillKeyUpdate {
@@ -734,7 +734,7 @@ fn fill_key_update_appends_ciphertexts() {
 
 #[test]
 fn fill_key_update_rejects_wrong_executor() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let (proposal, _executor) = seed_proposal(&mut test, 11);
 
     let attacker = Keypair::new();
@@ -751,12 +751,12 @@ fn fill_key_update_rejects_wrong_executor() {
     let err = test
         .send(&[ix], &[&attacker])
         .expect_err("expected ExecutorMismatch");
-    assert_eq!(custom_code(&err), SquadsZoneError::ExecutorMismatch as u32);
+    assert_eq!(custom_code(&err), SquadsRingError::ExecutorMismatch as u32);
 }
 
 #[test]
 fn fill_key_update_rejects_buffer_overflow() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let (proposal, executor) = seed_proposal(&mut test, 12);
 
     // The account is funded for K = 2 ciphertexts, so appending 3 exceeds the
@@ -772,18 +772,18 @@ fn fill_key_update_rejects_buffer_overflow() {
     let err = test
         .send(&[ix], &[&executor])
         .expect_err("expected KeyBufferOverflow");
-    assert_eq!(custom_code(&err), SquadsZoneError::KeyBufferOverflow as u32);
+    assert_eq!(custom_code(&err), SquadsRingError::KeyBufferOverflow as u32);
 }
 
 #[test]
 fn cancel_key_update_closes_and_refunds() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let program_id = test.program_id;
     let (owner, target) = seed_vka(&mut test, 0);
     test.airdrop(&owner.pubkey(), 1_000_000_000)
         .expect("fund proposer");
     let co_signer = Keypair::new();
-    let zone_config = seed_zone_config(&mut test, &co_signer.pubkey(), AUDITOR_KEY);
+    let ring_config = seed_ring_config(&mut test, &co_signer.pubkey(), AUDITOR_KEY);
     let domain = 20u16;
     let proposal = proposal_pda(&program_id, &target, domain);
     let executor = Keypair::new();
@@ -793,7 +793,7 @@ fn cancel_key_update_closes_and_refunds() {
         target,
         key_update_proposal: proposal,
         system_program: Pubkey::default(),
-        zone_config,
+        ring_config,
         data: UpdateViewingKeyAccountIxData {
             domain,
             operations: vec![],
@@ -813,7 +813,7 @@ fn cancel_key_update_closes_and_refunds() {
         target,
         key_update_proposal: proposal,
         rent_recipient: owner.pubkey(),
-        zone_config,
+        ring_config,
     }
     .instruction();
     test.send(&[cancel], &[&owner]).expect("cancel_key_update");
@@ -828,13 +828,13 @@ fn cancel_key_update_closes_and_refunds() {
 
 #[test]
 fn cancel_key_update_rejects_target_mismatch() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let program_id = test.program_id;
     let (owner, target) = seed_vka(&mut test, 0);
     test.airdrop(&owner.pubkey(), 1_000_000_000)
         .expect("fund proposer");
     let co_signer = Keypair::new();
-    let zone_config = seed_zone_config(&mut test, &co_signer.pubkey(), AUDITOR_KEY);
+    let ring_config = seed_ring_config(&mut test, &co_signer.pubkey(), AUDITOR_KEY);
     let domain = 21u16;
     let proposal = proposal_pda(&program_id, &target, domain);
     let executor = Keypair::new();
@@ -844,7 +844,7 @@ fn cancel_key_update_rejects_target_mismatch() {
         target,
         key_update_proposal: proposal,
         system_program: Pubkey::default(),
-        zone_config,
+        ring_config,
         data: UpdateViewingKeyAccountIxData {
             domain,
             operations: vec![],
@@ -861,7 +861,7 @@ fn cancel_key_update_rejects_target_mismatch() {
         target: other_target,
         key_update_proposal: proposal,
         rent_recipient: owner.pubkey(),
-        zone_config,
+        ring_config,
     }
     .instruction();
     let err = test
@@ -869,7 +869,7 @@ fn cancel_key_update_rejects_target_mismatch() {
         .expect_err("expected ProposalTargetMismatch");
     assert_eq!(
         custom_code(&err),
-        SquadsZoneError::ProposalTargetMismatch as u32
+        SquadsRingError::ProposalTargetMismatch as u32
     );
 
     let cancel_bad_recipient = CancelKeyUpdate {
@@ -877,7 +877,7 @@ fn cancel_key_update_rejects_target_mismatch() {
         target,
         key_update_proposal: proposal,
         rent_recipient: Pubkey::new_from_array([99u8; 32]),
-        zone_config,
+        ring_config,
     }
     .instruction();
     let err = test
@@ -885,6 +885,6 @@ fn cancel_key_update_rejects_target_mismatch() {
         .expect_err("expected RentRecipientMismatch");
     assert_eq!(
         custom_code(&err),
-        SquadsZoneError::RentRecipientMismatch as u32
+        SquadsRingError::RentRecipientMismatch as u32
     );
 }

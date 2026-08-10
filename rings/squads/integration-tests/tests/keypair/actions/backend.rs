@@ -1,7 +1,7 @@
 //! The backend recovers each account's shared viewing key from the auditor
 //! ciphertext and decrypts balances without any user viewing or nullifier
 //! secret. Each runtime-created viewing key account publishes its shared key
-//! encrypted to the zone's auditor key, so a balance reported here comes
+//! encrypted to the ring's auditor key, so a balance reported here comes
 //! purely from on-chain data plus the auditor secret.
 
 use std::time::{Duration, Instant};

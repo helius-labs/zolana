@@ -1,8 +1,8 @@
-//! Localnet orchestration for the Squads zone lifecycle suite. A persistent
+//! Localnet orchestration for the Squads ring lifecycle suite. A persistent
 //! prover server is started once (lazy per-shape key loading) for the
 //! proof-gated `transact` / `execute_proposal` scenarios. The proofless
 //! `deposit` never touches it. Each scenario restarts a fresh validator + Photon
-//! loaded with the SPP, user-registry, smart-account, and Squads zone programs.
+//! loaded with the SPP, user-registry, smart-account, and Squads ring programs.
 //! Indexer polling lives in `zolana_test_utils::test_validator_asserts`.
 
 use std::{
@@ -27,7 +27,7 @@ use solana_signer::Signer;
 use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use zolana_client::{spawn_prover, Rpc, SolanaRpc};
 use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
-use zolana_squads_interface::SQUADS_ZONE_PROGRAM_ID;
+use zolana_squads_interface::SQUADS_RING_PROGRAM_ID;
 use zolana_test_utils::smart_account;
 use zolana_user_registry_interface::user_registry_program_id;
 
@@ -39,9 +39,9 @@ fn repo_root() -> String {
 }
 
 /// Start the persistent prover server (idempotent), pointing it at the repo's
-/// `prover/server/proving-keys`. The squads keys (`squads_zone_*`,
+/// `prover/server/proving-keys`. The squads keys (`squads_ring_*`,
 /// `squads_key_encryption_*`, written by `generate_keys_squads.sh` /
-/// `just ensure-squads-keys`) and the SPP zone-rail keys (`transfer_p256_zone_*`)
+/// `just ensure-squads-keys`) and the SPP ring-rail keys (`transfer_p256_ring_*`)
 /// live there. The server lazy-loads each shape on first request. An
 /// already-running prover is left untouched so its loaded keys stay warm across
 /// scenarios. Override with `ZOLANA_PROVER_KEYS_DIR`.
@@ -60,8 +60,8 @@ pub(crate) fn start_prover() -> Result<()> {
 }
 
 fn squads_program_so(root: &str) -> String {
-    std::env::var("SQUADS_ZONE_PROGRAM_PATH")
-        .unwrap_or_else(|_| format!("{root}/zones/squads/target/deploy/zolana_squads_program.so"))
+    std::env::var("SQUADS_RING_PROGRAM_PATH")
+        .unwrap_or_else(|_| format!("{root}/rings/squads/target/deploy/zolana_squads_program.so"))
 }
 
 fn use_repo_photon_by_default(root: &str) {
@@ -77,7 +77,7 @@ fn use_repo_photon_by_default(root: &str) {
 /// Restart a fresh validator + Photon via the `zolana` CLI. It loads every program
 /// the deposit path touches. These are SPP (settlement), the smart-account program
 /// (the protocol config is created via its CPI), the user-registry (co-loaded for
-/// parity with the other suites), and the Squads zone (whose `deposit` CPIs SPP).
+/// parity with the other suites), and the Squads ring (whose `deposit` CPIs SPP).
 /// The account directory seeds only the smart-account `ProgramConfig`. Viewing key
 /// accounts are created at runtime through the backend.
 pub(crate) fn restart_localnet() {
@@ -105,7 +105,7 @@ pub(crate) fn restart_localnet() {
     let user_registry_so = format!("{root}/target/deploy/zolana_user_registry.so");
     let smart_account_id = smart_account::SMART_ACCOUNT_PROGRAM_ID.to_string();
     let smart_account_so = format!("{root}/target/deploy/squads_smart_account_program.so");
-    let squads_id = Pubkey::new_from_array(SQUADS_ZONE_PROGRAM_ID).to_string();
+    let squads_id = Pubkey::new_from_array(SQUADS_RING_PROGRAM_ID).to_string();
     let squads_so = squads_program_so(&root);
 
     for so in [&spp_so, &user_registry_so, &smart_account_so, &squads_so] {
@@ -113,7 +113,7 @@ pub(crate) fn restart_localnet() {
             Path::new(so).exists(),
             "missing program binary {so}; run `just build-programs build-cli ensure-smart-account` \
              and `cargo build-sbf --features bpf-entrypoint --manifest-path \
-             zones/squads/program/Cargo.toml` first"
+             rings/squads/program/Cargo.toml` first"
         );
     }
 

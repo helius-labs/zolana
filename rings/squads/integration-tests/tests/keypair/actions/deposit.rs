@@ -15,7 +15,7 @@ use zolana_interface::instruction::DepositAssetKind;
 use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
 use zolana_program_test::deposit_output_from_event;
 use zolana_squads_interface::{
-    state::viewing_key_account::ViewingKeyAccount, SQUADS_ZONE_PROGRAM_ID,
+    state::viewing_key_account::ViewingKeyAccount, SQUADS_RING_PROGRAM_ID,
 };
 use zolana_test_utils::{
     spl::mint_to,
@@ -27,7 +27,7 @@ use zolana_test_utils::{
 use zolana_transaction::SOL_MINT;
 
 use crate::{
-    deposit_action::{random_blinding, ZoneDeposit},
+    deposit_action::{random_blinding, RingDeposit},
     fixture::{owner_keypair, viewing_key_account_address},
     harness::{DepositRecord, SettlementSnapshot, SquadsKeypairHarness},
     localnet::send_transaction,
@@ -71,7 +71,7 @@ impl SquadsKeypairHarness {
 
         let blinding = random_blinding();
         let view_tag = self.view_tag(name)?;
-        let (ix, sol_interface) = ZoneDeposit {
+        let (ix, sol_interface) = RingDeposit {
             asset: DepositAssetKind::Sol,
             depositor: depositor.pubkey(),
             recipient_vka,
@@ -117,7 +117,7 @@ impl SquadsKeypairHarness {
         let asset = Address::new_from_array(spl.mint.to_bytes());
         let blinding = random_blinding();
         let view_tag = self.view_tag(name)?;
-        let (ix, vault) = ZoneDeposit {
+        let (ix, vault) = RingDeposit {
             asset: DepositAssetKind::Spl {
                 spl_interface_bump: zolana_interface::pda::spl_interface_bump(&spl.mint.to_bytes()),
             },
@@ -211,7 +211,7 @@ impl SquadsKeypairHarness {
                 vka_nullifier_pubkey: account.nullifier_pubkey,
                 expected_amount: amount,
                 expected_asset: record.asset,
-                expected_zone_program_id: SQUADS_ZONE_PROGRAM_ID,
+                expected_ring_program_id: SQUADS_RING_PROGRAM_ID,
                 signature: record.signature,
                 tree_before: &record.tree_before,
                 settlement,

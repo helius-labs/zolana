@@ -1,18 +1,18 @@
 [package]
-name = "squads-zone-tests"
+name = "squads-ring-tests"
 version = "0.1.0"
 edition.workspace = true
 publish = false
 
-# Integration tests for the Squads zone program. The tests load the program's
+# Integration tests for the Squads ring program. The tests load the program's
 # prebuilt SBF binary into a LiteSVM instance. The binary must be built first
 # from this workspace:
 #
-#   cd zones/squads/program && cargo build-sbf --features bpf-entrypoint
+#   cd rings/squads/program && cargo build-sbf --features bpf-entrypoint
 #
-# That produces `zones/squads/target/deploy/zolana_squads_program.so`, which the
+# That produces `rings/squads/target/deploy/zolana_squads_program.so`, which the
 # harness in `src/harness.rs` resolves by default (overridable via the
-# SQUADS_ZONE_PROGRAM_PATH env var). A missing binary fails the suite.
+# SQUADS_RING_PROGRAM_PATH env var). A missing binary fails the suite.
 
 [lib]
 path = "src/lib.rs"
@@ -33,8 +33,8 @@ zolana-squads-interface = { workspace = true, features = ["solana"] }
 zolana-interface = { workspace = true }
 
 [[test]]
-name = "zone_config"
-path = "tests/admin/zone_config.rs"
+name = "ring_config"
+path = "tests/admin/ring_config.rs"
 
 [[test]]
 name = "viewing_key"
@@ -84,8 +84,8 @@ name = "execute_proposal_e2e"
 path = "tests/account/execute_proposal_e2e.rs"
 
 [[test]]
-name = "init_spp_zone_config_e2e"
-path = "tests/account/init_spp_zone_config_e2e.rs"
+name = "init_spp_ring_config_e2e"
+path = "tests/account/init_spp_ring_config_e2e.rs"
 
 [[test]]
 name = "composed_localnet"

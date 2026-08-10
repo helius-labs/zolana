@@ -1,4 +1,4 @@
-//! Squads zone `deposit` steps for SOL and SPL driven by the smart-account vault.
+//! Squads ring `deposit` steps for SOL and SPL driven by the smart-account vault.
 //!
 //! The depositor is the vault: each `deposit` instruction is wrapped in the
 //! smart-account `executeTransactionSyncV2` (the vault signs the inner deposit as
@@ -21,7 +21,7 @@ use zolana_interface::instruction::DepositAssetKind;
 use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
 use zolana_program_test::deposit_output_from_event;
 use zolana_squads_client::tags::view_tag_from_shared_viewing_key;
-use zolana_squads_interface::SQUADS_ZONE_PROGRAM_ID;
+use zolana_squads_interface::SQUADS_RING_PROGRAM_ID;
 use zolana_test_utils::{
     smart_account::execute_sync_ix,
     spl::{create_token_account, mint_to},
@@ -33,7 +33,7 @@ use zolana_test_utils::{
 use zolana_transaction::SOL_MINT;
 
 use crate::{
-    deposit_action::{random_blinding, ZoneDeposit},
+    deposit_action::{random_blinding, RingDeposit},
     fixture::VAULT_SENDER,
     harness::{DepositRecord, SettlementSnapshot, SquadsSmartAccountHarness},
     localnet::send_transaction,
@@ -56,14 +56,14 @@ impl SquadsSmartAccountHarness {
         Ok(view_tag_from_shared_viewing_key(&vka.shared_viewing_key))
     }
 
-    /// Zone-deposit SOL to the vault sender VKA through the wrapped `deposit`.
+    /// Ring-deposit SOL to the vault sender VKA through the wrapped `deposit`.
     pub(crate) fn deposit_sol(&mut self, name: &str, amount: u64) -> Result<()> {
         let record = self.deposit_sol_input(amount)?;
         self.deposits.insert(name.to_string(), record);
         Ok(())
     }
 
-    /// Zone-deposit SOL and RETURN the record instead of storing it under a name.
+    /// Ring-deposit SOL and RETURN the record instead of storing it under a name.
     /// Lets a `(2, 2)` transfer fund two spendable inputs for one vault sender.
     pub(crate) fn deposit_sol_input(&mut self, amount: u64) -> Result<DepositRecord> {
         // Fund the vault so it can settle the deposit as the depositor.
@@ -73,7 +73,7 @@ impl SquadsSmartAccountHarness {
         let blinding = random_blinding();
         let view_tag = self.vault_view_tag()?;
         let recipient_vka = Pubkey::new_from_array(self.vault_vka().to_bytes());
-        let (deposit_ix, sol_interface) = ZoneDeposit {
+        let (deposit_ix, sol_interface) = RingDeposit {
             asset: DepositAssetKind::Sol,
             depositor: self.proposer_vault,
             recipient_vka,
@@ -120,7 +120,7 @@ impl SquadsSmartAccountHarness {
         })
     }
 
-    /// Zone-deposit the scenario's SPL asset to the vault sender VKA. A fresh
+    /// Ring-deposit the scenario's SPL asset to the vault sender VKA. A fresh
     /// vault-owned funding token account is created and minted to, then the vault
     /// settles the deposit from it.
     pub(crate) fn deposit_spl(&mut self, name: &str, amount: u64) -> Result<()> {
@@ -139,7 +139,7 @@ impl SquadsSmartAccountHarness {
         let blinding = random_blinding();
         let view_tag = self.vault_view_tag()?;
         let recipient_vka = Pubkey::new_from_array(self.vault_vka().to_bytes());
-        let (deposit_ix, vault) = ZoneDeposit {
+        let (deposit_ix, vault) = RingDeposit {
             asset: DepositAssetKind::Spl {
                 spl_interface_bump: zolana_interface::pda::spl_interface_bump(&spl.mint.to_bytes()),
             },
@@ -245,7 +245,7 @@ impl SquadsSmartAccountHarness {
                 vka_nullifier_pubkey: vka.nullifier_pubkey,
                 expected_amount: amount,
                 expected_asset: record.asset,
-                expected_zone_program_id: SQUADS_ZONE_PROGRAM_ID,
+                expected_ring_program_id: SQUADS_RING_PROGRAM_ID,
                 signature: record.signature,
                 tree_before: &record.tree_before,
                 settlement,

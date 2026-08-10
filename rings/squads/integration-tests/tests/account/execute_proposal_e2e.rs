@@ -1,13 +1,13 @@
-//! On-chain tests for `execute_proposal` (tag 13) with a real zone Groth16
+//! On-chain tests for `execute_proposal` (tag 13) with a real ring Groth16
 //! proof bound to a proposal (`proposal_hash != 0`).
 //!
-//! `spp_program` is the zone program's own id, a placeholder the SPP-address
+//! `spp_program` is the ring program's own id, a placeholder the SPP-address
 //! check rejects with `InvalidSppProgram` before any CPI. That rejection
-//! shows zone-proof verification completed and the flow reached settlement.
+//! shows ring-proof verification completed and the flow reached settlement.
 //! A genuine settlement needs a real SPP program plus an initialized tree
-//! and zone-config bootstrap, which the composed localnet suite owns.
-//! `execute_proposal_rejects_tampered_zone_proof` fails earlier, in
-//! zone-proof verification itself.
+//! and ring-config bootstrap, which the composed localnet suite owns.
+//! `execute_proposal_rejects_tampered_ring_proof` fails earlier, in
+//! ring-proof verification itself.
 //!
 //! Both the transfer and withdrawal shapes are covered. The processor
 //! consumes the recipient viewing key account slot only for a transfer, so
@@ -26,27 +26,29 @@ use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use squads_zone_tests::{custom_code, prover_url, SquadsZoneTest};
+use squads_ring_tests::{custom_code, prover_url, SquadsRingTest};
 use zolana_client::prover::{spawn_prover, SERVER_ADDRESS};
 use zolana_hasher::{Hasher, Poseidon};
 use zolana_keypair::P256Pubkey;
 use zolana_squads_interface::{
     constants::{ENCRYPTION_SCHEME_P256_AES, OWNER_KIND_KEYPAIR, VIEWING_KEY_STATE_ACTIVE},
-    error::SquadsZoneError,
+    error::SquadsRingError,
     instruction::{
         builders::{ExecuteProposal, TransactWithdrawal},
         instruction_data::{EncryptedUtxos, InputContext},
         ExecuteProposalIxData,
     },
-    state::{proposal::Proposal, viewing_key_account::ViewingKeyAccount, zone_config::ZoneConfig},
+    state::{
+        proposal::Proposal, ring_config::SquadsRingConfig, viewing_key_account::ViewingKeyAccount,
+    },
     types::Address,
-    RING_AUTH_PDA_SEED, ZONE_CONFIG_PDA_SEED,
+    RING_AUTH_PDA_SEED, RING_CONFIG_PDA_SEED,
 };
 use zolana_squads_sdk::proposal::{
     proposal_asset_commitment, proposal_destination_commitment, proposal_hash, ProposalOperation,
 };
 use zolana_squads_sdk::prover::{
-    derive_change_blinding, ZoneProofInputs, ZoneProposal, ZoneRecipient, ZoneUtxo,
+    derive_change_blinding, RingProofInputs, RingProposal, RingRecipient, RingUtxo,
 };
 
 /// A random BN254-range field element (top byte cleared so it is < the field
@@ -74,8 +76,8 @@ fn fe_u64(x: u64) -> [u8; 32] {
     fe
 }
 
-fn zone_config_pda(program_id: &Pubkey) -> Pubkey {
-    Pubkey::find_program_address(&[ZONE_CONFIG_PDA_SEED], program_id).0
+fn ring_config_pda(program_id: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(&[RING_CONFIG_PDA_SEED], program_id).0
 }
 
 fn ring_auth_pda(program_id: &Pubkey) -> Pubkey {
@@ -84,15 +86,15 @@ fn ring_auth_pda(program_id: &Pubkey) -> Pubkey {
 
 /// A prover the tests cannot reach is a failure. A run that quietly skips
 /// every proof-backed case reports green while proving nothing.
-fn boot_with_prover() -> SquadsZoneTest {
+fn boot_with_prover() -> SquadsRingTest {
     spawn_prover().expect("the prover server must be reachable, see ZOLANA_PROVER_URL");
-    SquadsZoneTest::new().expect("boot")
+    SquadsRingTest::new().expect("boot")
 }
 
-fn create_zone_config(test: &mut SquadsZoneTest, co_signer: &Pubkey) -> Pubkey {
-    let zone_config = zone_config_pda(&test.program_id);
+fn create_ring_config(test: &mut SquadsRingTest, co_signer: &Pubkey) -> Pubkey {
+    let ring_config = ring_config_pda(&test.program_id);
     let auditor = P256Pubkey::from_p256(&SecretKey::random(&mut OsRng).public_key());
-    let config = ZoneConfig::new(
+    let config = SquadsRingConfig::new(
         Address::new_from_array([7u8; 32]),
         Address::new_from_array(co_signer.to_bytes()),
         3_600,
@@ -100,17 +102,17 @@ fn create_zone_config(test: &mut SquadsZoneTest, co_signer: &Pubkey) -> Pubkey {
         vec![],
     );
     test.set_program_account(
-        &zone_config,
-        config.serialize().expect("serialize zone config"),
+        &ring_config,
+        config.serialize().expect("serialize ring config"),
     )
-    .expect("seed zone config");
-    zone_config
+    .expect("seed ring config");
+    ring_config
 }
 
-/// The zone proof binds the owner key hash, commitment, and nullifier
+/// The ring proof binds the owner key hash, commitment, and nullifier
 /// pubkey stored here.
 fn install_vka(
-    test: &mut SquadsZoneTest,
+    test: &mut SquadsRingTest,
     owner_key_hash: [u8; 32],
     shared_viewing_key: [u8; 33],
     commitment: [u8; 32],
@@ -140,8 +142,8 @@ fn install_vka(
     address
 }
 
-fn input_utxo(amount: u64, owner_key_hash: [u8; 32], nullifier_pubkey: [u8; 32]) -> ZoneUtxo {
-    ZoneUtxo {
+fn input_utxo(amount: u64, owner_key_hash: [u8; 32], nullifier_pubkey: [u8; 32]) -> RingUtxo {
+    RingUtxo {
         owner_key_hash,
         nullifier_pubkey,
         asset: proposal_asset_commitment(&Address::default()).expect("SOL asset commitment"),
@@ -156,7 +158,7 @@ fn input_utxo(amount: u64, owner_key_hash: [u8; 32], nullifier_pubkey: [u8; 32])
 
 struct Prepared {
     co_signer: Keypair,
-    zone_config: Pubkey,
+    ring_config: Pubkey,
     proposal: Pubkey,
     sender_vka: Pubkey,
     /// Present for a transfer, absent for a withdrawal.
@@ -167,7 +169,7 @@ struct Prepared {
     data: ExecuteProposalIxData,
 }
 
-fn prepare_transfer_proposal(test: &mut SquadsZoneTest) -> Prepared {
+fn prepare_transfer_proposal(test: &mut SquadsRingTest) -> Prepared {
     let sender_viewing = SecretKey::random(&mut OsRng);
     let sender_viewing_pk = *P256Pubkey::from_p256(&sender_viewing.public_key()).as_bytes();
     let sender_nullifier_secret = random_field();
@@ -189,7 +191,7 @@ fn prepare_transfer_proposal(test: &mut SquadsZoneTest) -> Prepared {
     let change_blinding =
         derive_change_blinding(&sender_viewing, &sender_nullifier_secret, first_input)
             .expect("derive change blinding");
-    let change_output = ZoneUtxo {
+    let change_output = RingUtxo {
         owner_key_hash: sender_owner,
         nullifier_pubkey: sender_nullifier_pk,
         asset: asset_field,
@@ -200,7 +202,7 @@ fn prepare_transfer_proposal(test: &mut SquadsZoneTest) -> Prepared {
         ring_program_id: [0u8; 32],
         is_dummy: false,
     };
-    let recipient_output = ZoneUtxo {
+    let recipient_output = RingUtxo {
         owner_key_hash: recipient_owner,
         nullifier_pubkey: recipient_nullifier_pk,
         asset: asset_field,
@@ -215,7 +217,7 @@ fn prepare_transfer_proposal(test: &mut SquadsZoneTest) -> Prepared {
     // For a transfer the proposal commits the recipient output's amount and
     // owner hash.
     let proposal_blinding = random_field();
-    let proposal = ZoneProposal {
+    let proposal = RingProposal {
         amount: fe_u64(recipient_amount),
         recipient: owner_hash(&recipient_owner, &recipient_nullifier_pk),
         asset: asset_field,
@@ -232,13 +234,13 @@ fn prepare_transfer_proposal(test: &mut SquadsZoneTest) -> Prepared {
     )
     .expect("proposal private core");
 
-    let proof_inputs = ZoneProofInputs {
+    let proof_inputs = RingProofInputs {
         viewing_secret_key: sender_viewing,
         nullifier_secret: sender_nullifier_secret,
         inputs,
         outputs: vec![change_output, recipient_output],
         external_data_hash: random_field(),
-        recipient: Some(ZoneRecipient {
+        recipient: Some(RingRecipient {
             owner_key_hash: recipient_owner,
             nullifier_pubkey: recipient_nullifier_pk,
             viewing_pubkey: recipient_viewing,
@@ -267,7 +269,7 @@ fn prepare_transfer_proposal(test: &mut SquadsZoneTest) -> Prepared {
     };
 
     let co_signer = Keypair::new();
-    let zone_config = create_zone_config(test, &co_signer.pubkey());
+    let ring_config = create_ring_config(test, &co_signer.pubkey());
     let sender_vka = install_vka(
         test,
         sender_owner,
@@ -304,10 +306,10 @@ fn prepare_transfer_proposal(test: &mut SquadsZoneTest) -> Prepared {
     .expect("seed proposal");
     test.lamports(&proposal_addr).expect("proposal funded");
 
-    // `execute_proposal` selects the zone verifying key from the lengths of these
+    // `execute_proposal` selects the ring verifying key from the lengths of these
     // vectors (unlike `transact`, which hardcodes the shape), so a (2, 2) transfer
     // needs two output hashes and two input contexts. Their values are not bound by
-    // the zone proof (only forwarded to the stubbed SPP CPI), so dummies suffice.
+    // the ring proof (only forwarded to the stubbed SPP CPI), so dummies suffice.
     let dummy_input = InputContext {
         nullifier: [0u8; 32],
         tree_index: 0,
@@ -315,7 +317,7 @@ fn prepare_transfer_proposal(test: &mut SquadsZoneTest) -> Prepared {
         nullifier_root_index: 0,
     };
     let ix_data = ExecuteProposalIxData {
-        zone_proof: proof_result.proof,
+        ring_proof: proof_result.proof,
         spp_proof: [0u8; 192],
         public_amount: None,
         spl_interface_bump: 0,
@@ -329,7 +331,7 @@ fn prepare_transfer_proposal(test: &mut SquadsZoneTest) -> Prepared {
 
     Prepared {
         co_signer,
-        zone_config,
+        ring_config,
         proposal: proposal_addr,
         sender_vka,
         recipient_vka: Some(recipient_vka),
@@ -339,7 +341,7 @@ fn prepare_transfer_proposal(test: &mut SquadsZoneTest) -> Prepared {
     }
 }
 
-fn prepare_withdrawal_proposal(test: &mut SquadsZoneTest) -> Prepared {
+fn prepare_withdrawal_proposal(test: &mut SquadsRingTest) -> Prepared {
     let sender_viewing = SecretKey::random(&mut OsRng);
     let sender_viewing_pk = *P256Pubkey::from_p256(&sender_viewing.public_key()).as_bytes();
     let sender_nullifier_secret = random_field();
@@ -353,7 +355,7 @@ fn prepare_withdrawal_proposal(test: &mut SquadsZoneTest) -> Prepared {
     let change_blinding =
         derive_change_blinding(&sender_viewing, &sender_nullifier_secret, first_input)
             .expect("derive change blinding");
-    let change_output = ZoneUtxo {
+    let change_output = RingUtxo {
         owner_key_hash: sender_owner,
         nullifier_pubkey: sender_nullifier_pk,
         asset: asset_field,
@@ -375,7 +377,7 @@ fn prepare_withdrawal_proposal(test: &mut SquadsZoneTest) -> Prepared {
     )
     .expect("withdrawal destination field");
     let proposal_blinding = random_field();
-    let proposal = ZoneProposal {
+    let proposal = RingProposal {
         amount: [0u8; 32],
         recipient: [0u8; 32],
         asset: asset_field,
@@ -392,7 +394,7 @@ fn prepare_withdrawal_proposal(test: &mut SquadsZoneTest) -> Prepared {
     )
     .expect("proposal private core");
 
-    let proof_inputs = ZoneProofInputs {
+    let proof_inputs = RingProofInputs {
         viewing_secret_key: sender_viewing,
         nullifier_secret: sender_nullifier_secret,
         inputs,
@@ -419,7 +421,7 @@ fn prepare_withdrawal_proposal(test: &mut SquadsZoneTest) -> Prepared {
     };
 
     let co_signer = Keypair::new();
-    let zone_config = create_zone_config(test, &co_signer.pubkey());
+    let ring_config = create_ring_config(test, &co_signer.pubkey());
     let sender_vka = install_vka(
         test,
         sender_owner,
@@ -453,7 +455,7 @@ fn prepare_withdrawal_proposal(test: &mut SquadsZoneTest) -> Prepared {
         nullifier_root_index: 0,
     };
     let ix_data = ExecuteProposalIxData {
-        zone_proof: proof_result.proof,
+        ring_proof: proof_result.proof,
         spp_proof: [0u8; 192],
         public_amount: Some(withdrawn),
         spl_interface_bump: 0,
@@ -467,7 +469,7 @@ fn prepare_withdrawal_proposal(test: &mut SquadsZoneTest) -> Prepared {
 
     Prepared {
         co_signer,
-        zone_config,
+        ring_config,
         proposal: proposal_addr,
         sender_vka,
         recipient_vka: None,
@@ -477,11 +479,11 @@ fn prepare_withdrawal_proposal(test: &mut SquadsZoneTest) -> Prepared {
     }
 }
 
-/// `tree_accounts` needs one arbitrary, never-loaded account so the zone's
+/// `tree_accounts` needs one arbitrary, never-loaded account so the ring's
 /// account parsing succeeds. Withdrawal settlement accounts are junk pubkeys
-/// the zone only forwards to the CPI the placeholder `spp_program` rejects.
+/// the ring only forwards to the CPI the placeholder `spp_program` rejects.
 fn execute_ix(
-    test: &SquadsZoneTest,
+    test: &SquadsRingTest,
     p: &Prepared,
     ix_data: ExecuteProposalIxData,
     withdrawal: Option<TransactWithdrawal>,
@@ -489,7 +491,7 @@ fn execute_ix(
     ExecuteProposal {
         payer: test.payer.pubkey(),
         co_signer: p.co_signer.pubkey(),
-        zone_config: p.zone_config,
+        ring_config: p.ring_config,
         proposal: p.proposal,
         sender_viewing_key_account: p.sender_vka,
         recipient_viewing_key_account: p.recipient_vka,
@@ -504,7 +506,7 @@ fn execute_ix(
 }
 
 #[test]
-fn execute_proposal_transfer_verifies_real_zone_proof_then_attempts_spp_cpi() {
+fn execute_proposal_transfer_verifies_real_ring_proof_then_attempts_spp_cpi() {
     let mut test = boot_with_prover();
     let prepared = prepare_transfer_proposal(&mut test);
     let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
@@ -512,12 +514,12 @@ fn execute_proposal_transfer_verifies_real_zone_proof_then_attempts_spp_cpi() {
 
     let err = test
         .send(&[budget, ix], &[&prepared.co_signer])
-        .expect_err("the placeholder spp_program must be rejected after zone-proof verification");
-    assert_eq!(custom_code(&err), SquadsZoneError::InvalidSppProgram as u32);
+        .expect_err("the placeholder spp_program must be rejected after ring-proof verification");
+    assert_eq!(custom_code(&err), SquadsRingError::InvalidSppProgram as u32);
 }
 
 #[test]
-fn execute_proposal_withdrawal_verifies_real_zone_proof_then_attempts_spp_cpi() {
+fn execute_proposal_withdrawal_verifies_real_ring_proof_then_attempts_spp_cpi() {
     let mut test = boot_with_prover();
     let prepared = prepare_withdrawal_proposal(&mut test);
     let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
@@ -530,12 +532,12 @@ fn execute_proposal_withdrawal_verifies_real_zone_proof_then_attempts_spp_cpi() 
     let ix = execute_ix(&test, &prepared, prepared.data.clone(), Some(withdrawal));
     let err = test
         .send(&[budget, ix], &[&prepared.co_signer])
-        .expect_err("the placeholder spp_program must be rejected after zone-proof verification");
-    assert_eq!(custom_code(&err), SquadsZoneError::InvalidSppProgram as u32);
+        .expect_err("the placeholder spp_program must be rejected after ring-proof verification");
+    assert_eq!(custom_code(&err), SquadsRingError::InvalidSppProgram as u32);
 }
 
 #[test]
-fn execute_proposal_rejects_tampered_zone_proof() {
+fn execute_proposal_rejects_tampered_ring_proof() {
     let mut test = boot_with_prover();
 
     let prepared = prepare_transfer_proposal(&mut test);
@@ -549,9 +551,9 @@ fn execute_proposal_rejects_tampered_zone_proof() {
     let ix = execute_ix(&test, &prepared, ix_data, None);
     let err = test
         .send(&[budget, ix], &[&prepared.co_signer])
-        .expect_err("tampered zone proof must be rejected on-chain");
+        .expect_err("tampered ring proof must be rejected on-chain");
     assert_eq!(
         custom_code(&err),
-        SquadsZoneError::ZoneProofVerificationFailed as u32,
+        SquadsRingError::RingProofVerificationFailed as u32,
     );
 }

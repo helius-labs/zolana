@@ -1,8 +1,8 @@
 //! Shared state for the smart-account lifecycle tests. It holds the localnet and
 //! indexer handles, per-recipient deposit state, and setup. Each test boots its
 //! own validator and Photon, because SPP's protocol config is a singleton. Setup
-//! initializes that config and a state tree, creates the zone's `zone_config`,
-//! and registers it with SPP through `init_spp_zone_config`, so a zone `deposit`
+//! initializes that config and a state tree, creates the ring's `ring_config`,
+//! and registers it with SPP through `init_spp_ring_config`, so a ring `deposit`
 //! settles through a real CPI. The lifecycle operations live in `actions/`, each
 //! adding an `impl SquadsSmartAccountHarness` block, so the fields and accessors
 //! here are `pub(crate)`.
@@ -31,10 +31,10 @@ use zolana_squads_client::{
 };
 use zolana_squads_interface::{
     instruction::{
-        builders::{CreateZoneConfig, InitSppZoneConfig},
-        CreateZoneConfigIxData,
+        builders::{CreateRingConfig, InitSppRingConfig},
+        CreateRingConfigIxData,
     },
-    RING_AUTH_PDA_SEED, SQUADS_ZONE_PROGRAM_ID, ZONE_CONFIG_PDA_SEED,
+    RING_AUTH_PDA_SEED, RING_CONFIG_PDA_SEED, SQUADS_RING_PROGRAM_ID,
 };
 use zolana_test_utils::{
     smart_account::{self, execute_sync_ix, Permissions, SmartAccountSigner, StandardSigners},
@@ -103,11 +103,11 @@ pub(crate) struct WithdrawalRecord {
 }
 
 fn squads_program_id() -> Pubkey {
-    Pubkey::new_from_array(SQUADS_ZONE_PROGRAM_ID)
+    Pubkey::new_from_array(SQUADS_RING_PROGRAM_ID)
 }
 
-fn zone_config_pda() -> Pubkey {
-    Pubkey::find_program_address(&[ZONE_CONFIG_PDA_SEED], &squads_program_id()).0
+fn ring_config_pda() -> Pubkey {
+    Pubkey::find_program_address(&[RING_CONFIG_PDA_SEED], &squads_program_id()).0
 }
 
 fn ring_auth_pda() -> Pubkey {
@@ -121,14 +121,14 @@ pub struct SquadsSmartAccountHarness {
     pub(crate) payer: Keypair,
     pub(crate) authority: Keypair,
     pub(crate) tree: Pubkey,
-    /// The Squads zone's `ring_auth` PDA, which is SPP's `ZoneConfig` account.
+    /// The Squads ring's `ring_auth` PDA, which is SPP's `RingConfig` account.
     pub(crate) ring_auth: Pubkey,
     pub(crate) spls: Vec<SplAsset>,
     pub(crate) deposits: BTreeMap<String, DepositRecord>,
     pub(crate) withdrawals: BTreeMap<String, WithdrawalRecord>,
     pub(crate) protocol_settings: Pubkey,
     pub(crate) protocol_vault: Pubkey,
-    /// The configured zone co-signer, which must sign every `transact` /
+    /// The configured ring co-signer, which must sign every `transact` /
     /// `execute_proposal`.
     pub(crate) co_signer: Keypair,
     /// The proposer smart account's `settings` PDA (seed 6). Its vault owns and
@@ -140,7 +140,7 @@ pub struct SquadsSmartAccountHarness {
     /// The proposer smart account is a 2-of-2 multisig. The operations that require
     /// the vault to sign -- the deposit and the async `create_proposal` -- are wrapped
     /// in `executeTransactionSyncV2` and need BOTH members. Sync `transact` settles on
-    /// the zone-authority rail, which needs no vault signature, so it is not wrapped
+    /// the ring-authority rail, which needs no vault signature, so it is not wrapped
     /// (a single fee payer + the co-signer authorize it).
     pub(crate) proposer_member: Keypair,
     pub(crate) proposer_member_b: Keypair,
@@ -185,9 +185,9 @@ impl SquadsSmartAccountHarness {
         let forester_key = Keypair::new();
         let merge_key = Keypair::new();
         let tree_key = Keypair::new();
-        let zone_key = Keypair::new();
+        let ring_key = Keypair::new();
         rpc.airdrop(&payer.pubkey(), 100_000_000_000)?;
-        for keypair in [&authority, &forester_key, &merge_key, &tree_key, &zone_key] {
+        for keypair in [&authority, &forester_key, &merge_key, &tree_key, &ring_key] {
             rpc.airdrop(&keypair.pubkey(), 1_000_000_000)?;
         }
 
@@ -199,7 +199,7 @@ impl SquadsSmartAccountHarness {
                 forester: forester_key.pubkey(),
                 merge: merge_key.pubkey(),
                 tree: tree_key.pubkey(),
-                ring: zone_key.pubkey(),
+                ring: ring_key.pubkey(),
             },
         ) {
             send_transaction(&mut rpc, &[ix], &payer.pubkey(), &[&payer])?;
@@ -207,8 +207,8 @@ impl SquadsSmartAccountHarness {
 
         // The shielded pool requires the fee payer == protocol_authority, so the
         // protocol config is created via the smart-account CPI with the protocol
-        // vault as the inner fee payer. Permissionless zone creation lets
-        // `init_spp_zone_config`'s payer create SPP's zone config.
+        // vault as the inner fee payer. Permissionless ring creation lets
+        // `init_spp_ring_config`'s payer create SPP's ring config.
         rpc.airdrop(&accounts.protocol_vault, 5_000_000_000)?;
         let create_config_ix = CreateProtocolConfig {
             authority: accounts.protocol_vault,
@@ -263,7 +263,7 @@ impl SquadsSmartAccountHarness {
             &[&payer, &tree, &tree_key],
         )?;
 
-        // The Squads zone's own zone config, then register it with SPP. The auditor
+        // The Squads ring's own ring config, then register it with SPP. The auditor
         // key is the backend's deterministic auditor key: every viewing key account
         // publishes its shared viewing key encrypted to it, so the backend recovers
         // and decrypts balances with the auditor secret (user keys are recovery-only).
@@ -273,16 +273,16 @@ impl SquadsSmartAccountHarness {
         rpc.airdrop(&squads_authority.pubkey(), 1_000_000_000)?;
         let co_signer = Keypair::new();
         rpc.airdrop(&co_signer.pubkey(), 1_000_000_000)?;
-        let create_zone_config_ix = CreateZoneConfig {
+        let create_ring_config_ix = CreateRingConfig {
             creator: payer.pubkey(),
-            zone_config: zone_config_pda(),
+            ring_config: ring_config_pda(),
             system_program: Pubkey::default(),
-            data: CreateZoneConfigIxData {
+            data: CreateRingConfigIxData {
                 authority: squads_authority.pubkey(),
                 co_signer: co_signer.pubkey(),
                 max_proposal_lifetime: 3_600,
                 auditor_keys: vec![*crate::fixture::auditor_pubkey().as_bytes()],
-                // The backend crank relays merge_transact signed by the zone
+                // The backend crank relays merge_transact signed by the ring
                 // co-signer, so it must be whitelisted or every merge is rejected.
                 merge_authorities: vec![co_signer.pubkey()],
             },
@@ -290,15 +290,15 @@ impl SquadsSmartAccountHarness {
         .instruction();
         send_transaction(
             &mut rpc,
-            &[create_zone_config_ix],
+            &[create_ring_config_ix],
             &payer.pubkey(),
             &[&payer],
         )?;
 
         let ring_auth = ring_auth_pda();
-        let init_ix = InitSppZoneConfig {
+        let init_ix = InitSppRingConfig {
             authority: squads_authority.pubkey(),
-            zone_config: zone_config_pda(),
+            ring_config: ring_config_pda(),
             protocol_config: pda::protocol_config(),
             ring_auth,
             system_program: Pubkey::default(),
@@ -316,8 +316,8 @@ impl SquadsSmartAccountHarness {
         // lifecycle. It is a 2-of-2 multisig: the operations that require the vault to
         // sign -- the deposit and the async `create_proposal` -- are wrapped in
         // `executeTransactionSyncV2` and need BOTH members. Sync `transact` settles on
-        // the zone-authority rail (no vault signature), so it is not wrapped. The vault
-        // settles signatureless via the SPP zone-authority rail either way.
+        // the ring-authority rail (no vault signature), so it is not wrapped. The vault
+        // settles signatureless via the SPP ring-authority rail either way.
         let proposer_member = Keypair::new();
         let proposer_member_b = Keypair::new();
         rpc.airdrop(&proposer_member.pubkey(), 5_000_000_000)?;
@@ -361,7 +361,7 @@ impl SquadsSmartAccountHarness {
         let backend = SquadsBackend::new_with_crank(
             crate::fixture::auditor_secret(),
             co_signer.insecure_clone(),
-            Address::new_from_array(zone_config_pda().to_bytes()),
+            Address::new_from_array(ring_config_pda().to_bytes()),
             Address::new_from_array(tree.pubkey().to_bytes()),
             prover_url,
             backend_indexer_url,

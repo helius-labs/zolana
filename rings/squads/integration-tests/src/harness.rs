@@ -11,7 +11,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
 use solana_transaction_error::TransactionError;
-use zolana_squads_interface::SQUADS_ZONE_PROGRAM_ID;
+use zolana_squads_interface::SQUADS_RING_PROGRAM_ID;
 
 use zolana_interface::BPF_LOADER_UPGRADEABLE_PUBKEY;
 
@@ -30,14 +30,14 @@ pub fn custom_code(err: &TransactionError) -> u32 {
     }
 }
 
-/// Default location of the prebuilt Squads zone SBF binary, overridable with the
-/// `SQUADS_ZONE_PROGRAM_PATH` env var.
+/// Default location of the prebuilt Squads ring SBF binary, overridable with the
+/// `SQUADS_RING_PROGRAM_PATH` env var.
 ///
-/// The nested `zones/squads` workspace builds to its own `target/`, so the
-/// binary lives at `<repo>/zones/squads/target/deploy/zolana_squads_program.so`
-/// relative to this crate's manifest (`<repo>/zones/squads/integration-tests`).
+/// The nested `rings/squads` workspace builds to its own `target/`, so the
+/// binary lives at `<repo>/rings/squads/target/deploy/zolana_squads_program.so`
+/// relative to this crate's manifest (`<repo>/rings/squads/integration-tests`).
 pub fn default_program_path() -> PathBuf {
-    if let Ok(path) = std::env::var("SQUADS_ZONE_PROGRAM_PATH") {
+    if let Ok(path) = std::env::var("SQUADS_RING_PROGRAM_PATH") {
         return PathBuf::from(path);
     }
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -76,7 +76,7 @@ impl std::fmt::Display for ProgramTestError {
             ProgramTestError::MissingProgram(path) => write!(
                 f,
                 "missing program binary at {path:?}. Build it with \
-                 `cd zones/squads/program && cargo build-sbf --features bpf-entrypoint`, \
+                 `cd rings/squads/program && cargo build-sbf --features bpf-entrypoint`, \
                  and the SPP with `just build-programs` from the repository root"
             ),
             ProgramTestError::Litesvm(msg) => write!(f, "litesvm failure: {msg}"),
@@ -93,13 +93,13 @@ impl From<std::io::Error> for ProgramTestError {
     }
 }
 
-pub struct SquadsZoneTest {
+pub struct SquadsRingTest {
     pub svm: LiteSVM,
     pub payer: Keypair,
     pub program_id: Pubkey,
 }
 
-impl SquadsZoneTest {
+impl SquadsRingTest {
     /// A missing binary is a hard failure. A suite that silently skips reports
     /// green while proving nothing.
     pub fn new() -> Result<Self, ProgramTestError> {
@@ -110,7 +110,7 @@ impl SquadsZoneTest {
         if !path.exists() {
             return Err(ProgramTestError::MissingProgram(path.to_path_buf()));
         }
-        let program_id = Pubkey::new_from_array(SQUADS_ZONE_PROGRAM_ID);
+        let program_id = Pubkey::new_from_array(SQUADS_RING_PROGRAM_ID);
         let mut svm = LiteSVM::new();
         let bytes = std::fs::read(path)?;
         svm.add_program(program_id, &bytes)

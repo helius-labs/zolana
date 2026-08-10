@@ -7,8 +7,8 @@
 //! The SDK computes the proof's public-input hash from the same shared viewing
 //! key, commitment, ephemeral, recovery and auditor keys, ciphertexts, and
 //! nullifier that go into `CreateViewingKeyAccountIxData`, and the program
-//! recomputes that hash from the instruction data plus the `zone_config`
-//! auditor key. The zone config's auditor key therefore equals the trailing
+//! recomputes that hash from the instruction data plus the `ring_config`
+//! auditor key. The ring config's auditor key therefore equals the trailing
 //! auditor recipient key in the proof, and the recovery keys and ciphertext
 //! ordering match the proof inputs.
 //!
@@ -20,16 +20,16 @@ use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use squads_zone_tests::{custom_code, prover_url, SquadsZoneTest};
+use squads_ring_tests::{custom_code, prover_url, SquadsRingTest};
 use zolana_client::prover::{spawn_prover, SERVER_ADDRESS};
 use zolana_keypair::P256Pubkey;
 use zolana_squads_interface::{
     constants::{ENCRYPTION_SCHEME_P256_AES, OWNER_KIND_KEYPAIR, VIEWING_KEY_STATE_ACTIVE},
-    error::SquadsZoneError,
+    error::SquadsRingError,
     instruction::{builders::CreateViewingKeyAccount, CreateViewingKeyAccountIxData},
-    state::{viewing_key_account::ViewingKeyAccount, zone_config::ZoneConfig},
+    state::{ring_config::SquadsRingConfig, viewing_key_account::ViewingKeyAccount},
     types::Address,
-    VIEWING_KEY_ACCOUNT_PDA_SEED, ZONE_CONFIG_PDA_SEED,
+    RING_CONFIG_PDA_SEED, VIEWING_KEY_ACCOUNT_PDA_SEED,
 };
 use zolana_squads_sdk::prover::{
     key_encryption::KeyEncryptionProofInputs,
@@ -50,8 +50,8 @@ fn random_bn254_scalar() -> [u8; 32] {
     b
 }
 
-fn zone_config_pda(program_id: &Pubkey) -> Pubkey {
-    Pubkey::find_program_address(&[ZONE_CONFIG_PDA_SEED], program_id).0
+fn ring_config_pda(program_id: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(&[RING_CONFIG_PDA_SEED], program_id).0
 }
 
 fn vka_pda(program_id: &Pubkey, owner: &Pubkey) -> Pubkey {
@@ -62,14 +62,14 @@ fn vka_pda(program_id: &Pubkey, owner: &Pubkey) -> Pubkey {
 /// clean skip in both cases.
 /// A prover the tests cannot reach is a failure. A run that quietly skips
 /// every proof-backed case reports green while proving nothing.
-fn boot_with_prover() -> SquadsZoneTest {
+fn boot_with_prover() -> SquadsRingTest {
     spawn_prover().expect("the prover server must be reachable, see ZOLANA_PROVER_URL");
-    SquadsZoneTest::new().expect("boot")
+    SquadsRingTest::new().expect("boot")
 }
 
-fn create_zone_config(test: &mut SquadsZoneTest, auditor: &P256Pubkey) -> Pubkey {
-    let zone_config = zone_config_pda(&test.program_id);
-    let config = ZoneConfig::new(
+fn create_ring_config(test: &mut SquadsRingTest, auditor: &P256Pubkey) -> Pubkey {
+    let ring_config = ring_config_pda(&test.program_id);
+    let config = SquadsRingConfig::new(
         Address::new_from_array([7u8; 32]),
         Address::new_from_array(test.payer.pubkey().to_bytes()),
         3_600,
@@ -77,11 +77,11 @@ fn create_zone_config(test: &mut SquadsZoneTest, auditor: &P256Pubkey) -> Pubkey
         vec![],
     );
     test.set_program_account(
-        &zone_config,
-        config.serialize().expect("serialize zone config"),
+        &ring_config,
+        config.serialize().expect("serialize ring config"),
     )
-    .expect("seed zone config");
-    zone_config
+    .expect("seed ring config");
+    ring_config
 }
 
 /// Enrollment authorization is checked before proof verification. An arbitrary
@@ -89,9 +89,9 @@ fn create_zone_config(test: &mut SquadsZoneTest, auditor: &P256Pubkey) -> Pubkey
 /// structurally valid instruction data.
 #[test]
 fn create_viewing_key_account_rejects_non_co_signer_enrollment() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let auditor = P256Pubkey::from_p256(&SecretKey::random(&mut OsRng).public_key());
-    let zone_config = create_zone_config(&mut test, &auditor);
+    let ring_config = create_ring_config(&mut test, &auditor);
     let impostor = Keypair::new();
     test.airdrop(&impostor.pubkey(), 1_000_000_000)
         .expect("fund impostor");
@@ -102,7 +102,7 @@ fn create_viewing_key_account_rejects_non_co_signer_enrollment() {
         enrollment_authority: impostor.pubkey(),
         owner_identity,
         viewing_key_account: vka,
-        zone_config,
+        ring_config,
         system_program: Pubkey::default(),
         data: CreateViewingKeyAccountIxData {
             key_encryption_proof: [0u8; 192],
@@ -122,7 +122,7 @@ fn create_viewing_key_account_rejects_non_co_signer_enrollment() {
     let err = test
         .send(&[ix], &[&impostor])
         .expect_err("non-co-signer enrollment must fail before proof verification");
-    assert_eq!(custom_code(&err), SquadsZoneError::CoSignerMismatch as u32);
+    assert_eq!(custom_code(&err), SquadsRingError::CoSignerMismatch as u32);
 }
 
 /// The configured co-signer may initialize an auditor-only account, but cannot
@@ -130,10 +130,10 @@ fn create_viewing_key_account_rejects_non_co_signer_enrollment() {
 /// owner identity. This check intentionally runs before proof verification.
 #[test]
 fn create_viewing_key_account_rejects_co_signer_only_recovery_enrollment() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let auditor = P256Pubkey::from_p256(&SecretKey::random(&mut OsRng).public_key());
     let recovery = P256Pubkey::from_p256(&SecretKey::random(&mut OsRng).public_key());
-    let zone_config = create_zone_config(&mut test, &auditor);
+    let ring_config = create_ring_config(&mut test, &auditor);
     let owner_identity = Pubkey::new_unique();
     let vka = vka_pda(&test.program_id, &owner_identity);
 
@@ -141,7 +141,7 @@ fn create_viewing_key_account_rejects_co_signer_only_recovery_enrollment() {
         enrollment_authority: test.payer.pubkey(),
         owner_identity,
         viewing_key_account: vka,
-        zone_config,
+        ring_config,
         system_program: Pubkey::default(),
         data: CreateViewingKeyAccountIxData {
             key_encryption_proof: [0u8; 192],
@@ -166,30 +166,30 @@ fn create_viewing_key_account_rejects_co_signer_only_recovery_enrollment() {
         .expect_err("co-signer-only recovery enrollment must fail closed");
     assert_eq!(
         custom_code(&err),
-        SquadsZoneError::MissingOwnerSignature as u32
+        SquadsRingError::MissingOwnerSignature as u32
     );
 }
 
-/// One recovery key plus the zone's auditor (numKeys = 2). The program must
+/// One recovery key plus the ring's auditor (numKeys = 2). The program must
 /// verify the real proof on-chain and initialize the PDA.
 #[test]
 fn create_viewing_key_account_verifies_real_proof_on_chain() {
     let mut test = boot_with_prover();
 
-    // The auditor key MUST match the zone config. It is the trailing recipient
+    // The auditor key MUST match the ring config. It is the trailing recipient
     // among the proof recipients. The exact owner identity also signs the
     // recovery-key enrollment.
     let auditor = P256Pubkey::from_p256(&SecretKey::random(&mut OsRng).public_key());
     let recovery = P256Pubkey::from_p256(&SecretKey::random(&mut OsRng).public_key());
 
-    let zone_config = create_zone_config(&mut test, &auditor);
+    let ring_config = create_ring_config(&mut test, &auditor);
 
     let proof_inputs = KeyEncryptionProofInputs {
         viewing_secret_key: SecretKey::random(&mut OsRng),
         ephemeral_secret_key: SecretKey::random(&mut OsRng),
         nullifier_secret: random_bn254_scalar(),
         // Recovery first, then auditor. The program reads recovery keys from
-        // instruction data and the auditor from zone_config, in that order.
+        // instruction data and the auditor from ring_config, in that order.
         recipient_keys: vec![recovery, auditor],
         old_state_hash: [0u8; 32],
     };
@@ -217,7 +217,7 @@ fn create_viewing_key_account_verifies_real_proof_on_chain() {
         enrollment_authority: test.payer.pubkey(),
         owner_identity: owner.pubkey(),
         viewing_key_account: vka,
-        zone_config,
+        ring_config,
         system_program: Pubkey::default(),
         data: ix_data.clone(),
     }
@@ -261,7 +261,7 @@ fn create_viewing_key_account_rejects_tampered_proof() {
 
     let auditor = P256Pubkey::from_p256(&SecretKey::random(&mut OsRng).public_key());
     let recovery = P256Pubkey::from_p256(&SecretKey::random(&mut OsRng).public_key());
-    let zone_config = create_zone_config(&mut test, &auditor);
+    let ring_config = create_ring_config(&mut test, &auditor);
 
     let proof_inputs = KeyEncryptionProofInputs {
         viewing_secret_key: SecretKey::random(&mut OsRng),
@@ -290,7 +290,7 @@ fn create_viewing_key_account_rejects_tampered_proof() {
         enrollment_authority: test.payer.pubkey(),
         owner_identity: owner.pubkey(),
         viewing_key_account: vka,
-        zone_config,
+        ring_config,
         system_program: Pubkey::default(),
         data: ix_data,
     }
@@ -304,12 +304,12 @@ fn create_viewing_key_account_rejects_tampered_proof() {
         .expect_err("tampered proof must be rejected on-chain");
     assert_eq!(
         custom_code(&err),
-        SquadsZoneError::KeyEncryptionProofVerificationFailed as u32,
+        SquadsRingError::KeyEncryptionProofVerificationFailed as u32,
     );
     assert_eq!(custom_code(&err), 8041);
 }
 
-/// Five recovery keys plus the zone's auditor, six keys total, proved as two
+/// Five recovery keys plus the ring's auditor, six keys total, proved as two
 /// folded legs of three. A fold's public input equals the chain a single
 /// circuit over the whole recipient set would expose, so the program composes
 /// it the same way and only selects a different verifying key.
@@ -321,7 +321,7 @@ fn create_viewing_key_account_verifies_a_folded_proof_on_chain() {
         .map(|_| P256Pubkey::from_p256(&SecretKey::random(&mut OsRng).public_key()))
         .collect();
     let auditor = P256Pubkey::from_p256(&SecretKey::random(&mut OsRng).public_key());
-    let zone_config = create_zone_config(&mut test, &auditor);
+    let ring_config = create_ring_config(&mut test, &auditor);
 
     let mut recipient_keys = recovery.clone();
     recipient_keys.push(auditor);
@@ -352,7 +352,7 @@ fn create_viewing_key_account_verifies_a_folded_proof_on_chain() {
         enrollment_authority: test.payer.pubkey(),
         owner_identity: owner.pubkey(),
         viewing_key_account: vka,
-        zone_config,
+        ring_config,
         system_program: Pubkey::default(),
         data: ix_data.clone(),
     }

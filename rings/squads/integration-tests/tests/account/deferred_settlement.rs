@@ -2,9 +2,9 @@
 //! paths.
 //!
 //! Neither path needs a prover. `deposit` reaches the SPP CPI before any
-//! proof, and `full_withdrawal` carries no zone proof, so both reach the CPI
+//! proof, and `full_withdrawal` carries no ring proof, so both reach the CPI
 //! directly. The CPI rejects the placeholder `spp_program` with
-//! `InvalidSppProgram`, which shows the zone-side flow completed. The
+//! `InvalidSppProgram`, which shows the ring-side flow completed. The
 //! proof-bearing withdrawal legs are covered by `transact_e2e` and
 //! `execute_proposal_e2e`.
 //!
@@ -13,13 +13,13 @@
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use squads_zone_tests::{custom_code, SquadsZoneTest};
+use squads_ring_tests::{custom_code, SquadsRingTest};
 use zolana_squads_interface::{
     constants::{
         ENCRYPTION_SCHEME_P256_AES, OWNER_KIND_KEYPAIR, VIEWING_KEY_STATE_ACTIVE,
         VIEWING_KEY_STATE_BLOCKED,
     },
-    error::SquadsZoneError,
+    error::SquadsRingError,
     instruction::{
         builders::{Deposit, DepositSettlement, FullWithdrawal, TransactWithdrawal},
         DepositIxData, EncryptedUtxos, FullWithdrawalIxData,
@@ -43,7 +43,7 @@ fn field(seed: u8) -> [u8; 32] {
 
 /// Only the fields the settlement paths read (owner, discriminator, state,
 /// nullifier_pubkey) matter. The rest are zero or empty.
-fn install_vka(test: &mut SquadsZoneTest, owner: [u8; 32], state: u8) -> Pubkey {
+fn install_vka(test: &mut SquadsRingTest, owner: [u8; 32], state: u8) -> Pubkey {
     let address = Keypair::new().pubkey();
     let account = ViewingKeyAccount {
         discriminator: ViewingKeyAccount::DISCRIMINATOR,
@@ -69,7 +69,7 @@ fn install_vka(test: &mut SquadsZoneTest, owner: [u8; 32], state: u8) -> Pubkey 
 
 /// The deposit recipient owner is an opaque field element that the deposit
 /// re-hashes, not a Solana signer.
-fn install_recipient_vka(test: &mut SquadsZoneTest) -> Pubkey {
+fn install_recipient_vka(test: &mut SquadsRingTest) -> Pubkey {
     install_vka(test, field(9), VIEWING_KEY_STATE_ACTIVE)
 }
 
@@ -89,7 +89,7 @@ fn deposit_data() -> DepositIxData {
 
 #[test]
 fn deposit_sol_reaches_spp_cpi() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let recipient_vka = install_recipient_vka(&mut test);
     let ring_auth = Pubkey::find_program_address(&[RING_AUTH_PDA_SEED], &test.program_id).0;
 
@@ -109,14 +109,14 @@ fn deposit_sol_reaches_spp_cpi() {
     let err = test
         .send(&[ix], &[])
         .expect_err("deposit reaches the SPP CPI");
-    assert_eq!(custom_code(&err), SquadsZoneError::InvalidSppProgram as u32,);
+    assert_eq!(custom_code(&err), SquadsRingError::InvalidSppProgram as u32,);
 }
 
 /// A blocked account can only exit through `full_withdrawal`, so no deposit may
 /// push new funds into it.
 #[test]
 fn deposit_rejects_a_blocked_recipient() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let recipient_vka = install_vka(&mut test, field(9), VIEWING_KEY_STATE_BLOCKED);
     let ring_auth = Pubkey::find_program_address(&[RING_AUTH_PDA_SEED], &test.program_id).0;
 
@@ -138,13 +138,13 @@ fn deposit_rejects_a_blocked_recipient() {
         .expect_err("a blocked recipient must be rejected");
     assert_eq!(
         custom_code(&err),
-        SquadsZoneError::ViewingKeyAccountBlocked as u32
+        SquadsRingError::ViewingKeyAccountBlocked as u32
     );
 }
 
 #[test]
 fn deposit_spl_reaches_spp_cpi() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let recipient_vka = install_recipient_vka(&mut test);
     let ring_auth = Pubkey::find_program_address(&[RING_AUTH_PDA_SEED], &test.program_id).0;
 
@@ -167,7 +167,7 @@ fn deposit_spl_reaches_spp_cpi() {
     let err = test
         .send(&[ix], &[])
         .expect_err("deposit reaches the SPP CPI");
-    assert_eq!(custom_code(&err), SquadsZoneError::InvalidSppProgram as u32,);
+    assert_eq!(custom_code(&err), SquadsRingError::InvalidSppProgram as u32,);
 }
 
 fn full_withdrawal_data() -> FullWithdrawalIxData {
@@ -191,7 +191,7 @@ fn full_withdrawal_data() -> FullWithdrawalIxData {
 
 #[test]
 fn full_withdrawal_sol_reaches_spp_cpi() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     // The signer is only a fee payer. The SPP proof authorizes the spend, so
     // no viewing key account or owner-signature match is needed.
     let ring_auth = Pubkey::find_program_address(&[RING_AUTH_PDA_SEED], &test.program_id).0;
@@ -212,12 +212,12 @@ fn full_withdrawal_sol_reaches_spp_cpi() {
     let err = test
         .send(&[ix], &[])
         .expect_err("full_withdrawal reaches the SPP CPI");
-    assert_eq!(custom_code(&err), SquadsZoneError::InvalidSppProgram as u32,);
+    assert_eq!(custom_code(&err), SquadsRingError::InvalidSppProgram as u32,);
 }
 
 #[test]
 fn full_withdrawal_spl_reaches_spp_cpi() {
-    let mut test = SquadsZoneTest::new().expect("boot");
+    let mut test = SquadsRingTest::new().expect("boot");
     let ring_auth = Pubkey::find_program_address(&[RING_AUTH_PDA_SEED], &test.program_id).0;
 
     let ix = FullWithdrawal {
@@ -239,5 +239,5 @@ fn full_withdrawal_spl_reaches_spp_cpi() {
     let err = test
         .send(&[ix], &[])
         .expect_err("full_withdrawal reaches the SPP CPI");
-    assert_eq!(custom_code(&err), SquadsZoneError::InvalidSppProgram as u32,);
+    assert_eq!(custom_code(&err), SquadsRingError::InvalidSppProgram as u32,);
 }

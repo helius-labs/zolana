@@ -1,13 +1,13 @@
 //! `viewing key account` step: create `name`'s viewing key account at runtime
 //! through the backend's `requestCreateViewingKeyAccount`, then assert it exists,
-//! is owned by the zone program, and is active.
+//! is owned by the ring program, and is active.
 
 use anyhow::{anyhow, Result};
 use solana_address::Address;
 use zolana_client::Rpc;
 use zolana_squads_interface::{
     constants::VIEWING_KEY_STATE_ACTIVE, state::viewing_key_account::ViewingKeyAccount,
-    SQUADS_ZONE_PROGRAM_ID,
+    SQUADS_RING_PROGRAM_ID,
 };
 use zolana_test_utils::test_validator_asserts::to_address;
 
@@ -22,8 +22,8 @@ impl SquadsKeypairHarness {
             .ok_or_else(|| anyhow!("viewing key account missing for {name}"))?;
         assert_eq!(
             account.owner,
-            Address::new_from_array(SQUADS_ZONE_PROGRAM_ID),
-            "viewing key account is owned by the zone program"
+            Address::new_from_array(SQUADS_RING_PROGRAM_ID),
+            "viewing key account is owned by the ring program"
         );
         let decoded = ViewingKeyAccount::deserialize(&account.data)
             .map_err(|e| anyhow!("decode viewing key account: {e}"))?;

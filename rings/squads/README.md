@@ -1,6 +1,6 @@
-# Squads Zone
+# Squads Ring
 
-A policy zone over the shielded pool for Squads accounts: auditor encryption
+A policy ring over the shielded pool for Squads accounts: auditor encryption
 keys, a co-signer, and smart-account support (asynchronous execution and shared
 viewing keys). Protocol description and instruction catalogue live in
 [`docs/SQUADS.md`](../../docs/SQUADS.md); the fold circuits that lift its width
@@ -16,30 +16,30 @@ by CPI. The ZK circuits and the prover server stay in
 [`/prover`](../../prover); the SDK's `prover/` module only builds witnesses and
 calls the existing lazy server.
 
-Integration tests live under `integration-tests/` (`squads-zone-tests`) and
+Integration tests live under `integration-tests/` (`squads-ring-tests`) and
 load the built SBF binary. Build it first, or every test fails:
 
 ```bash
-cd zones/squads/program && cargo build-sbf --features bpf-entrypoint
-cargo test --manifest-path zones/squads/Cargo.toml -p squads-zone-tests
+cd rings/squads/program && cargo build-sbf --features bpf-entrypoint
+cargo test --manifest-path rings/squads/Cargo.toml -p squads-ring-tests
 ```
 
 ## Crates
 
 | Crate | Path | Holds |
 | --- | --- | --- |
-| `zolana-squads-program` | `program/` | On-chain program. Verifies the zone proof, CPIs SPP, manages zone accounts. Depends only on `interface` and low-level crates. |
+| `zolana-squads-program` | `program/` | On-chain program. Verifies the ring proof, CPIs SPP, manages ring accounts. Depends only on `interface` and low-level crates. |
 | `zolana-squads-interface` | `interface/` | Instruction tags, builders, instruction-data structs, account state layouts, ciphertext types, verifying keys. Shared by program, SDK, and tests. |
-| `zolana-squads-sdk` | `sdk/` | Client-side shared-viewing-key crypto, zone UTXO and ciphertext (de)serialization, proposal building, prover glue. Reuses `keypair`, `transaction`, and `client`. |
+| `zolana-squads-sdk` | `sdk/` | Client-side shared-viewing-key crypto, ring UTXO and ciphertext (de)serialization, proposal building, prover glue. Reuses `keypair`, `transaction`, and `client`. |
 | `zolana-squads-client` | `client/` | Operator-side backend: balances, tags, transaction assembly, proposal scanning, and the settlement crank. |
-| `squads-zone-tests` | `integration-tests/` | LiteSVM and localnet integration tests plus the shared harness. Not published. |
+| `squads-ring-tests` | `integration-tests/` | LiteSVM and localnet integration tests plus the shared harness. Not published. |
 
 ## Layout
 
 ```text
 program/src/
   lib.rs                  entrypoint and tag dispatch
-  shared/                 proof composition and verify, SPP CPI + zone_auth
+  shared/                 proof composition and verify, SPP CPI + ring_auth
                           signer, PDA create, account close, owner identity,
                           withdrawal settlement, supported shapes
   instructions/
@@ -48,12 +48,12 @@ program/src/
     proposal/                     create, cancel, execute
     viewing_key_account/          create, close, toggle
     key_update_proposal/          propose, fill, execute, cancel
-    zone_config/                  create, update, init_spp_zone_config
+    ring_config/                  create, update, init_spp_ring_config
 
 interface/src/
   instruction/            tag.rs, builders/, instruction_data/
-  state/                  ZoneConfig, ViewingKeyAccount, Proposal, KeyUpdateProposal
-  verifying_keys/         zone + key encryption consts, xtask-generated
+  state/                  SquadsRingConfig, ViewingKeyAccount, Proposal, KeyUpdateProposal
+  verifying_keys/         ring + key encryption consts, xtask-generated
 
 sdk/src/
   crypto.rs, viewing_key_account.rs, encrypted_utxo.rs, proposal.rs, intent.rs
@@ -81,7 +81,7 @@ every other vector uses `FixIntLen<u8>`.
 Authorization is account-signer-based, no eddsa signature in instruction data:
 
 - Spends (`transact`, `fold_transact`, `execute_proposal`, `merge_transact`) —
-  owner intent is carried by the zone proof; the co-signer and the relayer or
+  owner intent is carried by the ring proof; the co-signer and the relayer or
   payer sign as explicit signer accounts.
 - `create_viewing_key_account` — the `owner` account is a signer only when
   registering recovery keys; absent means the account is auditor-only.
@@ -98,5 +98,5 @@ nested workspace:
 
 ```toml
 [workspace]
-exclude = ["zones/squads"]
+exclude = ["rings/squads"]
 ```

@@ -1,4 +1,4 @@
-//! Localnet + Photon lifecycle tests for the Squads zone driven by a Squads
+//! Localnet + Photon lifecycle tests for the Squads ring driven by a Squads
 //! SMART ACCOUNT, routed through the mock backend `zolana-squads-client`.
 //!
 //! A real smart-account vault is the executing party and UTXO owner: it executes
@@ -8,7 +8,7 @@
 //! accounts are created at runtime, sync transfer and withdrawal are built by
 //! `request_transact` on the smart-account rail, async proposals are settled by
 //! the backend's background crank, and balances are read via `get_balances`. The
-//! zone `owner` identity is the vault's `owner_pk_field`.
+//! ring `owner` identity is the vault's `owner_pk_field`.
 //!
 //! `Harness::new` restarts the validator and Photon, so the protocol-config
 //! singleton is never shared and these must run serially.
@@ -30,7 +30,7 @@ const SPL_ASSET_ID: u64 = 2;
 
 #[test]
 #[serial]
-fn sol_deposit_creates_a_zone_utxo_the_auditor_can_read() -> Result<()> {
+fn sol_deposit_creates_a_ring_utxo_the_auditor_can_read() -> Result<()> {
     let mut harness = Harness::new()?;
     harness.ensure_viewing_key_account("alice")?;
     harness.deposit_sol("alice", 1_000_000)?;
@@ -41,7 +41,7 @@ fn sol_deposit_creates_a_zone_utxo_the_auditor_can_read() -> Result<()> {
 
 #[test]
 #[serial]
-fn spl_deposit_creates_a_zone_utxo_the_auditor_can_read() -> Result<()> {
+fn spl_deposit_creates_a_ring_utxo_the_auditor_can_read() -> Result<()> {
     let mut harness = Harness::new()?;
     harness.ensure_spl_asset()?;
     harness.ensure_viewing_key_account("bob")?;

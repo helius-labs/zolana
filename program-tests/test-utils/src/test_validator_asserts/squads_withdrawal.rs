@@ -1,5 +1,5 @@
-//! Assert for a Squads zone `transact` / `execute_proposal` withdrawal, a
-//! zone-proof-gated spend that forwards a real SPP zone-rail proof and settles a
+//! Assert for a Squads ring `transact` / `execute_proposal` withdrawal, a
+//! ring-proof-gated spend that forwards a real SPP ring-rail proof and settles a
 //! negative public amount OUT of the pool. Unlike the proofless deposit, real
 //! funds LEAVE the SPP. The external recipient's balance rises by the withdrawn
 //! amount and the pool's SOL interface (or SPL vault) falls by it.
