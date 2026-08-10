@@ -12,7 +12,8 @@ use crate::ingester::persist::leaf_node::{i64_from_u64, u64_from_i64, usize_from
 use crate::ingester::persist::persisted_indexed_merkle_tree::persist_indexed_tree_updates;
 use num_bigint::BigUint;
 use sea_orm::{
-    ColumnTrait, DatabaseTransaction, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+    sea_query::Expr, ColumnTrait, DatabaseTransaction, EntityTrait, QueryFilter, QueryOrder,
+    QuerySelect,
 };
 use solana_pubkey::Pubkey;
 use std::collections::HashMap;
@@ -48,7 +49,7 @@ async fn persist_nullifier_tree_batch_update(
 
     if let Some(root) = current_root(txn, batch_update.tree).await? {
         if root.hash == batch_update.new_root.to_vec() {
-            return Ok(());
+            return reconcile_root_sequence(txn, batch_update, &root).await;
         }
     }
 
@@ -307,6 +308,49 @@ fn insert_leaf_update(
     Ok(())
 }
 
+/// Bring the recorded sequence number in line with the chain for a root photon
+/// already holds.
+///
+/// "Already applied" and "already correct" are not the same thing. The tree can
+/// hold exactly the right root while the sequence number stored beside it was
+/// counted per event rather than per applied zkp batch, and it is that number
+/// the API turns into the root index a client quotes. Without this, a drifted
+/// index is unrecoverable: replaying the event short-circuits on the matching
+/// root and changes nothing, so the only repair left is a full reindex.
+async fn reconcile_root_sequence(
+    txn: &DatabaseTransaction,
+    batch_update: &NullifierTreeBatchUpdate,
+    root: &state_trees::Model,
+) -> Result<(), IngesterError> {
+    let recorded = root
+        .seq
+        .map(|seq| u64_from_i64(seq, "root sequence"))
+        .transpose()?;
+    if recorded == Some(batch_update.sequence_number) {
+        return Ok(());
+    }
+
+    log::info!(
+        "Repairing nullifier root sequence for tree {}: recorded {:?}, chain reports {}",
+        batch_update.tree,
+        recorded,
+        batch_update.sequence_number
+    );
+
+    state_trees::Entity::update_many()
+        .col_expr(
+            state_trees::Column::Seq,
+            Expr::value(i64_from_u64(batch_update.sequence_number, "root sequence")?),
+        )
+        .filter(state_trees::Column::Tree.eq(batch_update.tree.to_bytes().to_vec()))
+        .filter(state_trees::Column::TreeKind.eq(i32::from(RingsTreeKind::Nullifier)))
+        .filter(state_trees::Column::NodeIdx.eq(1))
+        .exec(txn)
+        .await?;
+
+    Ok(())
+}
+
 async fn verify_reconstructed_root(
     txn: &DatabaseTransaction,
     batch_update: &NullifierTreeBatchUpdate,
@@ -537,6 +581,41 @@ mod tests {
         persist_nullifier_tree_batch_update(&tx, &already_applied, &tree_info_cache)
             .await
             .unwrap();
+        assert_eq!(root_seq(&tx, tree).await, 2);
+
+        tx.rollback().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn replaying_an_applied_event_repairs_a_drifted_sequence() {
+        // Recovery path for an index that has already drifted. The tree holds
+        // the right root, so reconstruction is skipped, but the sequence stored
+        // beside it is short -- which is what a client turns into a root index.
+        // Replaying the event has to correct it, or the only repair left is a
+        // full reindex.
+        let db = setup_test_db().await;
+        let tree = Pubkey::new_from_array([7; 32]);
+        let tree_info_cache = insert_test_tree(&db, tree).await;
+        let batch_size = ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
+
+        let tx = db.begin().await.unwrap();
+        seed_queued_nullifiers(&tx, tree, batch_size * 2).await;
+
+        // Applied as one cascade of two, but recorded with the sequence a
+        // per-event counter would have produced: one short.
+        let hash = apply_event(&tx, tree, &tree_info_cache, 2, 1).await;
+        assert_eq!(root_seq(&tx, tree).await, 1);
+
+        let replayed = NullifierTreeBatchUpdate {
+            new_root: fixed_32(hash, "root hash").unwrap(),
+            signature: Signature::from([9; 64]),
+            ..batch_event(tree, 2, 2)
+        };
+        persist_nullifier_tree_batch_update(&tx, &replayed, &tree_info_cache)
+            .await
+            .unwrap();
+
+        assert_eq!(root_seq(&tx, tree).await, 2);
 
         tx.rollback().await.unwrap();
     }
