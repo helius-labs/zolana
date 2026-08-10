@@ -3,19 +3,18 @@
 
 Selection is by manifest PATH, not by crate name, so renaming or adding a crate
 cannot silently change what is covered. Naming the harness crates individually is
-what broke before: #181 renamed `zone-test-program` to `ring-test-program`, the
-stale `--exclude zone-test-program` stopped matching, and a test crate quietly
-entered the coverage set and failed the job.
+what broke before. A crate rename in #181 left a stale `--exclude` that matched
+nothing, and a test crate quietly entered the coverage set and failed the job.
 
 Everything under `EXCLUDED_DIRS` is left out; every other workspace member is
 covered, so a new library crate is measured the day it lands.
 
-`zones/` is not reachable from here and is not measured. Each zone is a nested
+`rings/` is not reachable from here and is not measured. Each ring is a nested
 workspace that the root `Cargo.toml` excludes, so `cargo metadata` below never
 lists its crates. Measuring one needs its own `cargo llvm-cov` collection
 against its manifest, and that writes into the nested workspace's own target
 dir, which the root `cargo llvm-cov report` does not read. Until the two
-profiles are merged, a zone's coverage is a separate report, not a gap in this
+profiles are merged, a ring's coverage is a separate report, not a gap in this
 list.
 """
 

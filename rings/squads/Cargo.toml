@@ -1,5 +1,5 @@
-# Nested workspace for the Squads zone. The root repo `Cargo.toml` excludes
-# `zones/squads` so cargo does not absorb these crates. This workspace has its
+# Nested workspace for the Squads ring. The root repo `Cargo.toml` excludes
+# `rings/squads` so cargo does not absorb these crates. This workspace has its
 # own lockfile and depends on main-repo crates by relative path.
 [workspace]
 members = ["client", "integration-tests", "interface", "program", "sdk"]

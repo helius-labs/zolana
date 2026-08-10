@@ -5122,7 +5122,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "squads-zone-tests"
+name = "squads-ring-tests"
 version = "0.1.0"
 dependencies = [
  "anyhow",

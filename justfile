@@ -52,7 +52,7 @@ check:
 # Check the entire workspace.
 check-all:
     cargo check --workspace --all-targets
-    cd zones/squads && cargo check --workspace --all-targets --all-features
+    cd rings/squads && cargo check --workspace --all-targets --all-features
 
 # Default test target.
 test: test-shielded-pool test-sdk-libs test-photon
@@ -96,17 +96,17 @@ test-program-mollusk: build-programs
 test-swap-program: build-programs
     cargo nextest run -p swap-program --tests
 
-# Squads zone unit and LiteSVM suites. `zones/squads` is a nested workspace with
+# Squads ring unit and LiteSVM suites. `rings/squads` is a nested workspace with
 # its own lockfile and target dir, so it needs its own manifest path here. The
-# proof-backed binaries under `integration-tests` need the zone proving keys,
+# proof-backed binaries under `integration-tests` need the ring proving keys,
 # which are unpublished (prover/server/scripts/generate_keys_squads.sh), so they
-# stay out of this tier. `init_spp_zone_config_e2e` needs no keys but its fixture
+# stay out of this tier. `init_spp_ring_config_e2e` needs no keys but its fixture
 # is rejected with InvalidInitializationAuthority, so it is out until that is
 # fixed. Plain `cargo test`, because nextest resolves a profile against the
 # workspace root and the nested workspace defines none, so `NEXTEST_PROFILE=ci`
 # would not resolve there.
-# None of the binaries here load the SPP binary, so the tier needs only the zone
-# build. `init_spp_zone_config_e2e` and `composed_localnet` do, so adding either
+# None of the binaries here load the SPP binary, so the tier needs only the ring
+# build. `init_spp_ring_config_e2e` and `composed_localnet` do, so adding either
 # one also adds `build-programs`.
 test-squads: build-programs-squads
     #!/usr/bin/env bash
@@ -117,15 +117,15 @@ test-squads: build-programs-squads
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     export ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}"
     export ZOLANA_INDEXER_URL="{{localnet-photon-url}}"
-    manifest=zones/squads/Cargo.toml
+    manifest=rings/squads/Cargo.toml
     # One package per invocation. Selecting the client together with the SDK
     # unifies features, which turns on the SDK's `prover` module and with it the
-    # zone proof tests that need the unpublished keys.
+    # ring proof tests that need the unpublished keys.
     cargo test --manifest-path "$manifest" -p zolana-squads-interface
     cargo test --manifest-path "$manifest" -p zolana-squads-sdk
     cargo test --manifest-path "$manifest" -p zolana-squads-client
-    cargo test --manifest-path "$manifest" -p squads-zone-tests \
-        --test zone_config --test viewing_key --test proposal --test key_update \
+    cargo test --manifest-path "$manifest" -p squads-ring-tests \
+        --test ring_config --test viewing_key --test proposal --test key_update \
         --test merge_transact_cpi --test deferred_settlement
 
 # Program-side Groth16 matrices only. CI runs this variant: the client proving
@@ -247,10 +247,10 @@ coverage-ignore-paths := '(program-tests|sdk-tests|bench)/'
 # the report step, so the two collection passes stay fixed.
 #
 # Which crates are measured is decided by manifest PATH in
-# tools/coverage-packages.py, not by a list of names here: #181 renamed
-# zone-test-program to ring-test-program, a name-based `--exclude` stopped
-# matching, and a test crate silently entered the coverage set and failed the
-# job. See that script for what each excluded directory is and why.
+# tools/coverage-packages.py, not by a list of names here. A crate rename in #181
+# made a name-based `--exclude` stop matching, and a test crate silently entered
+# the coverage set and failed the job. See that script for what each excluded
+# directory is and why.
 #
 # `zolana-client` runs as its own pass restricted to `--lib`: its integration
 # targets (transaction_proving, merge_proving, …) declare no required-features,
@@ -902,16 +902,16 @@ test-ring-validator-proof-cu: build-programs build-prover-server build-cli ensur
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo nextest run -p ring-test-program --test proof_cu --release --no-capture
 
-# Generate whatever Squads zone keys are missing from {{spp-keys-dir}}. The keys
+# Generate whatever Squads ring keys are missing from {{spp-keys-dir}}. The keys
 # are unpublished, so every machine makes its own. A cold run samples fresh toxic
-# waste and rewrites the verifying-key constants the zone program compiles in. A
+# waste and rewrites the verifying-key constants the ring program compiles in. A
 # warm run keeps the committed constants, because the wrapper reverts the
 # generator's unconditional re-export. The proof-backed suites under
-# zones/squads/integration-tests need these keys, and the zone program must be
+# rings/squads/integration-tests need these keys, and the ring program must be
 # rebuilt after a cold run.
 ensure-squads-keys:
     ./tools/ensure-generated-keys.sh prover/server/scripts/generate_keys_squads.sh \
-        "{{spp-keys-dir}}" zones/squads/interface/src/verifying_keys
+        "{{spp-keys-dir}}" rings/squads/interface/src/verifying_keys
 
 # Fully-inlined create+fill (derived and verifiable-encryption take rails) and
 # create+cancel swap flows over a fresh validator
@@ -1066,11 +1066,11 @@ install-surfpool:
 build-programs:
     SBF_TOOLS_VERSION={{sbf-tools-version}} ./tools/build-programs.sh
 
-# Build the Squads zone SBF binary. `zones/squads` is its own workspace, so the
-# artifact lands in `zones/squads/target/deploy`, which is where the integration
-# harness looks for it (`SQUADS_ZONE_PROGRAM_PATH` overrides).
+# Build the Squads ring SBF binary. `rings/squads` is its own workspace, so the
+# artifact lands in `rings/squads/target/deploy`, which is where the integration
+# harness looks for it (`SQUADS_RING_PROGRAM_PATH` overrides).
 build-programs-squads:
-    cd zones/squads/program && cargo build-sbf --tools-version {{sbf-tools-version}} --features bpf-entrypoint
+    cd rings/squads/program && cargo build-sbf --tools-version {{sbf-tools-version}} --features bpf-entrypoint
 
 # Deploy/upgrade programs to devnet using the local `solana` CLI config.
 # Pass program names to deploy a subset, e.g. `just deploy-devnet shielded-pool`.
@@ -1176,19 +1176,19 @@ release tag *args: build-programs fetch-smart-account
 
 # === Formatting and linting ===
 
-# zones/squads is its own workspace (excluded from the root one), so every
+# rings/squads is its own workspace (excluded from the root one), so every
 # formatting and linting recipe needs a second invocation or nothing covers it.
 fmt:
     cargo fmt --all
-    cd zones/squads && cargo fmt --all
+    cd rings/squads && cargo fmt --all
 
 fmt-check:
     cargo fmt --all -- --check
-    cd zones/squads && cargo fmt --all -- --check
+    cd rings/squads && cargo fmt --all -- --check
 
 clippy:
     cargo clippy --workspace --all-targets -- -D warnings
-    cd zones/squads && cargo clippy --workspace --all-targets --all-features -- -D warnings
+    cd rings/squads && cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 check-test-hygiene:
     ./tools/check-test-hygiene.sh

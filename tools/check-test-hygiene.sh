@@ -16,7 +16,7 @@ require_paths() {
 }
 
 # Every check below searches this list, so a suite that moves out of it stops
-# being checked silently. `zones/squads` is a nested workspace but the same git
+# being checked silently. `rings/squads` is a nested workspace but the same git
 # repository, so its tests are searched the same way.
 test_roots=(
   program-tests
@@ -24,15 +24,15 @@ test_roots=(
   sdk-libs/keypair/tests
   sdk-libs/transaction/tests
   sdk-tests/zk-program-swap/test
-  zones/squads/integration-tests
-  zones/squads/interface/tests
-  zones/squads/client/tests
+  rings/squads/integration-tests
+  rings/squads/interface/tests
+  rings/squads/client/tests
 )
 
 # Test packages whose `[[test]]` binaries are pinned by manifest path.
 manifest_pinned_suites=(
   program-tests/shielded-pool
-  zones/squads/integration-tests
+  rings/squads/integration-tests
 )
 
 require_paths \
@@ -154,7 +154,7 @@ done
 #     them as deliberately committed regression guards.
 tracked_artifacts=$(git ls-files -- \
   'program-tests/**/test-ledger/**' 'program-tests/**/*.log' \
-  'zones/**/test-ledger/**' 'zones/**/*.log' 2>/dev/null || true)
+  'rings/**/test-ledger/**' 'rings/**/*.log' 2>/dev/null || true)
 if [ -n "$tracked_artifacts" ]; then
   echo "generated runtime artifacts must not be committed under source test packages:" >&2
   printf '%s\n' "$tracked_artifacts" >&2
@@ -340,7 +340,7 @@ if (( na_fail )); then
   failed=1
 fi
 
-# zones/squads is its own workspace and re-pins the shared external crates by
+# rings/squads is its own workspace and re-pins the shared external crates by
 # hand. Two groth16-solana revisions in one graph compile until a verifying key
 # crosses the boundary, then fail as "a different Groth16Verifyingkey", so the
 # pins are compared here rather than at that call site. Every shared crate is
@@ -375,18 +375,18 @@ workspace_pin() {
   ' "$1"
 }
 
-consumed_shared_deps=$(grep -hoE '^[a-z0-9_-]+ = \{ workspace = true' zones/squads/*/Cargo.toml \
+consumed_shared_deps=$(grep -hoE '^[a-z0-9_-]+ = \{ workspace = true' rings/squads/*/Cargo.toml \
   | awk '{ print $1 }' | sort -u)
 
 while IFS= read -r dep; do
   [ -z "$dep" ] && continue
   root_pin=$(workspace_pin Cargo.toml "$dep")
-  squads_pin=$(workspace_pin zones/squads/Cargo.toml "$dep")
+  squads_pin=$(workspace_pin rings/squads/Cargo.toml "$dep")
   [ -n "$root_pin" ] && [ -n "$squads_pin" ] || continue
   if [ "$root_pin" != "$squads_pin" ]; then
     echo "$dep pin differs between workspaces:" >&2
     echo "  Cargo.toml              $root_pin" >&2
-    echo "  zones/squads/Cargo.toml $squads_pin" >&2
+    echo "  rings/squads/Cargo.toml $squads_pin" >&2
     failed=1
   fi
 done <<EOF
