@@ -31,22 +31,22 @@ func (u UtxoCircuitFields) DefineGadget(api frontend.API) interface{} {
 	})
 }
 
-// isUtxo: the slot carries a spendable or created utxo.
+// isUtxo is 1 when the slot carries a spendable or created utxo.
 func (u UtxoCircuitFields) isUtxo(api frontend.API) frontend.Variable {
 	return api.IsZero(api.Sub(u.Domain, UtxoDomain))
 }
 
-// isAddress: the slot creates an address.
+// isAddress is 1 when the slot creates an address.
 func (u UtxoCircuitFields) isAddress(api frontend.API) frontend.Variable {
 	return api.IsZero(api.Sub(u.Domain, AddressDomain))
 }
 
-// isDummy: the slot is padding and carries nothing.
+// isDummy is 1 when the slot is padding and carries nothing.
 func (u UtxoCircuitFields) isDummy(api frontend.API) frontend.Variable {
 	return api.IsZero(api.Sub(u.Domain, DummyDomain))
 }
 
-// isUtxoOrAddress: the slot carries content — a spendable or an address utxo.
+// isUtxoOrAddress is 1 when the slot carries a spendable or an address utxo.
 func (u UtxoCircuitFields) isUtxoOrAddress(api frontend.API) frontend.Variable {
 	return api.Sub(1, u.isDummy(api))
 }
@@ -58,7 +58,7 @@ func (u UtxoCircuitFields) assertInDefaultRing(api frontend.API) {
 }
 
 // CheckDummy returns 1 iff every field except the domain and blinding is zero,
-// so the utxo carries nothing; the blinding stays free so dummy hashes are
+// so the utxo carries nothing. The blinding stays free so dummy hashes are
 // indistinguishable from real UTXO hashes.
 func (u UtxoCircuitFields) CheckDummy(api frontend.API) frontend.Variable {
 	return allZero(api,

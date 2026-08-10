@@ -2,9 +2,9 @@ package keyencryption
 
 import (
 	"fmt"
-	"github.com/consensys/gnark/backend/groth16"
 
 	"zolana/prover/prover/common"
+	"zolana/prover/prover/gpuprove"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
@@ -39,7 +39,7 @@ func ProveKeyEncryption(ps *common.SquadsKeyEncryptionProofSystem, params *KeyEn
 		return nil, fmt.Errorf("error creating witness: %v", err)
 	}
 
-	proof, err := groth16.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
+	proof, err := gpuprove.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
 	if err != nil {
 		return nil, fmt.Errorf("error proving: %v", err)
 	}

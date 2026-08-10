@@ -2,6 +2,7 @@ package server
 
 import (
 	"crypto/subtle"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -70,6 +71,9 @@ func (m *authMiddleware) extractAPIKey(r *http.Request) string {
 }
 
 func getAPIKeyFromEnv() string {
+	if apiKey := os.Getenv("ZOLANA_PROVER_API_KEY"); apiKey != "" {
+		return apiKey
+	}
 	return os.Getenv("PROVER_API_KEY")
 }
 
@@ -87,10 +91,41 @@ func requiresAuthentication(path string) bool {
 	return true
 }
 
-func conditionalAuthMiddleware(apiKey string) func(http.Handler) http.Handler {
+func isLoopbackBindAddress(address string) bool {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func conditionalAuthMiddleware(apiKey string, requireConfiguredKey bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if requiresAuthentication(r.URL.Path) {
+				// The prover is a native-client service, not a browser API. Reject
+				// browser-originated requests even on loopback so an arbitrary page
+				// cannot drive expensive local proofs through permissive CORS/PNA.
+				if r.Header.Get("Origin") != "" {
+					(&Error{
+						StatusCode: http.StatusForbidden,
+						Code:       "browser_origin_forbidden",
+						Message:    "browser-originated proof requests are not accepted",
+					}).send(w)
+					return
+				}
+				if apiKey == "" && requireConfiguredKey {
+					(&Error{
+						StatusCode: http.StatusServiceUnavailable,
+						Code:       "api_key_required",
+						Message:    "ZOLANA_PROVER_API_KEY or PROVER_API_KEY must be configured when the prover listens beyond localhost",
+					}).send(w)
+					return
+				}
 				authHandler := NewAPIKeyMiddleware(apiKey)(next)
 				authHandler.ServeHTTP(w, r)
 			} else {

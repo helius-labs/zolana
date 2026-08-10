@@ -493,7 +493,7 @@ func TestQueueNameForCircuitType(t *testing.T) {
 		expectedQueue string
 	}{
 		{common.BatchAddressAppendCircuitType, "zk_address_append_queue"},
-		{common.TransferConfidentialCircuitType, "zk_transfer_queue"},
+		{common.TransferConfidentialCircuitType, ""},
 	}
 
 	for _, test := range tests {
@@ -1018,19 +1018,20 @@ func TestBatchOperationsAlwaysUseQueue(t *testing.T) {
 		})
 	}
 
-	// Transfer circuits queue too, on the shared transfer queue.
+	// Raw transfer witnesses contain wallet secrets and must never be persisted
+	// in the shared Redis queue. They are proved synchronously by the process
+	// that accepted the request.
 	transferTests := []common.CircuitType{
 		common.TransferConfidentialCircuitType,
 		common.TransferP256RingCircuitType,
 	}
 
 	for _, circuitType := range transferTests {
-		t.Run(fmt.Sprintf("TransferOperation_%s", string(circuitType)), func(t *testing.T) {
+		t.Run(fmt.Sprintf("SecretOperation_%s", string(circuitType)), func(t *testing.T) {
 			queueName := server.GetQueueNameForCircuit(circuitType)
-			expectedQueue := "zk_transfer_queue"
-			if queueName != expectedQueue {
-				t.Errorf("Expected circuit type %s to route to %s, got %s",
-					string(circuitType), expectedQueue, queueName)
+			if queueName != "" {
+				t.Errorf("Expected circuit type %s to stay out of Redis, got %s",
+					string(circuitType), queueName)
 			}
 		})
 	}

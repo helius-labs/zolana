@@ -5,20 +5,23 @@ import (
 	"zolana/prover/prover/common"
 )
 
-// Transfer/merge circuits share zk_transfer_queue; address-append keeps its own;
-// everything else is not queued (empty name).
+// Only public proof-artifact circuits are queueable. Raw transfer/merge
+// witnesses contain wallet secrets and must never be persisted in Redis.
 func TestGetQueueNameForCircuit(t *testing.T) {
 	cases := []struct {
 		circuit common.CircuitType
 		queue   string
 	}{
 		{common.BatchAddressAppendCircuitType, "zk_address_append_queue"},
-		{common.TransferConfidentialCircuitType, "zk_transfer_queue"},
-		{common.TransferRingCircuitType, "zk_transfer_queue"},
-		{common.TransferP256RingCircuitType, "zk_transfer_queue"},
-		{common.TransferRingAuthorityCircuitType, "zk_transfer_queue"},
-		{common.MergeCircuitType, "zk_transfer_queue"},
-		{common.MergeRingCircuitType, "zk_transfer_queue"},
+		{common.AggregateCircuitType, "zk_transfer_queue"},
+		{common.NullifierFoldCircuitType, "zk_transfer_queue"},
+		{common.MergeChainCircuitType, "zk_transfer_queue"},
+		{common.TransferConfidentialCircuitType, ""},
+		{common.TransferRingCircuitType, ""},
+		{common.TransferP256RingCircuitType, ""},
+		{common.TransferRingAuthorityCircuitType, ""},
+		{common.MergeCircuitType, ""},
+		{common.MergeRingCircuitType, ""},
 		{common.CircuitType("unknown"), ""},
 	}
 	for _, c := range cases {

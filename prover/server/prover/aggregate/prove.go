@@ -6,6 +6,7 @@ import (
 
 	aggregatecircuit "zolana/prover/circuits/spp_aggregate"
 	"zolana/prover/prover/common"
+	"zolana/prover/prover/gpuprove"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
@@ -37,7 +38,7 @@ func ProveAggregate(ps *common.AggregateProofSystem, legs []Leg) (*common.Proof,
 	if err != nil {
 		return nil, err
 	}
-	proof, err := groth16.Prove(ps.ConstraintSystem, ps.ProvingKey, full)
+	proof, err := gpuprove.ProveCPU(ps.ConstraintSystem, ps.ProvingKey, full)
 	if err != nil {
 		return nil, fmt.Errorf("prove: %w", err)
 	}

@@ -14,34 +14,52 @@ go build -o light-prover .
 (cd "$repo_root" && cargo build -q -p xtask)
 xtask="$repo_root/target/debug/xtask"
 
-keys="$(find "$keys_dir" -maxdepth 1 -type f \( -name 'transfer_*.key' -o -name 'merge_*.key' \) | sort)"
+# `merge-chain_*` is matched separately because it is not `merge_*`. A glob
+# that misses a key regenerates no constant for it, which leaves that constant
+# pinned to a key nobody holds.
+keys="$(find "$keys_dir" -maxdepth 1 -type f \
+    \( -name 'transfer_*.key' -o -name 'merge_*.key' -o -name 'merge-chain_*.key' -o -name 'aggregate_*.key' \) |
+    sort)"
 if [ -z "$keys" ]; then
-    echo "no transfer or merge proving keys in $keys_dir"
+    echo "no transfer, merge, or aggregate proving keys in $keys_dir"
     exit 1
 fi
 
-modules=""
+# The module list is what git tracks, not what this machine happens to hold.
+# Deriving it from local keys would drop the declaration for every committed
+# constant whose key is absent here and break the build for everyone else.
+modules="$(git -C "$vkey_dir" ls-files '*.rs' |
+    sed 's/\.rs$//' |
+    grep -vxE 'mod|aggregate|circuit|merge_chain|catalog|registry|registry_spec')"
 for key in $keys; do
     stem="$(basename "$key" .key)"
     module="${stem//-/_}"
     vk_bin="$tmp_dir/${stem}.vkbin"
 
-    echo "exporting raw vk: $stem"
-    if ! ./light-prover export-vk --keys-file "$key" --output "$vk_bin" >/dev/null; then
-        echo "WARN: export-vk failed, skipping $stem"
+    # Only regenerate verifying keys that already exist in git. Deprecated key
+    # shapes (the plain transfer_* / transfer_p256_* combinations) remain on
+    # disk but have no committed vk. Skip them rather than mint spurious files.
+    if ! git ls-files --error-unmatch "$vkey_dir/${module}.rs" >/dev/null 2>&1; then
         continue
     fi
 
-    if "$xtask" bsb22-vk \
-        "$vk_bin" "$vkey_dir" "${module}.rs"; then
-        modules="${modules}${module}"$'\n'
-    else
-        echo "WARN: vk codegen failed, skipping $stem"
+    echo "exporting raw vk: $stem"
+    if ! ./light-prover export-vk --keys-file "$key" --output "$vk_bin" >/dev/null; then
+        echo "export-vk failed for $stem" >&2
+        exit 1
+    fi
+
+    if ! "$xtask" bsb22-vk "$vk_bin" "$vkey_dir" "${module}.rs"; then
+        echo "vk codegen failed for $stem" >&2
+        exit 1
     fi
 done
 
 {
+    echo "mod aggregate;"
     echo "mod circuit;"
+    echo "pub mod merge_chain;"
+    echo "pub use aggregate::{AggregateCircuitId, InnerCircuitKind, MAX_AGGREGATE_BATCH, MIN_AGGREGATE_BATCH};"
     echo "pub use circuit::{Bsb22Commitment, CircuitId, OutputOwnerMode, RingP256ProofData};"
     echo '#[cfg(feature = "verifying-keys")]'
     echo "pub mod catalog;"
@@ -57,7 +75,7 @@ done
     done
 } >"$vkey_dir/mod.rs"
 
-# The catalog is the single list every registry surface indexes; regenerate it
+# The catalog is the single list every registry surface indexes. Regenerate it
 # from the same module set so a new VK cannot miss it.
 {
     echo "//! The full verifying-key catalog, one entry per generated module, sorted by"
@@ -70,7 +88,7 @@ done
     echo "use super::*;"
     echo
     # Two batched-merkle-tree VKs live outside this directory but inside the
-    # catalog; they sort before every transfer/merge module name.
+    # catalog. They sort before every transfer/merge module name.
     module_count="$(echo "$modules" | sort -u | sed '/^$/d' | wc -l | tr -d ' ')"
     catalog_count="$((module_count + 2))"
     echo "macro_rules! catalog {"

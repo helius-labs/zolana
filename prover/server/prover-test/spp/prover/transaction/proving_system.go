@@ -10,6 +10,7 @@ import (
 	customring "zolana/prover/circuits/spp_transaction/custom"
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover-test/spp/protocol"
+	"zolana/prover/prover/gpuprove"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
@@ -67,7 +68,7 @@ func Prove(ps *ProofSystem, assignment frontend.Circuit) (groth16.Proof, error) 
 	if err != nil {
 		return nil, err
 	}
-	return groth16.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
+	return gpuprove.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
 }
 
 func Verify(ps *ProofSystem, assignment frontend.Circuit, proof groth16.Proof) error {
@@ -198,7 +199,7 @@ func (ps *ProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 	ps.Shape = shape
 	ps.RequiresP256 = requiresP256 != 0
 
-	ps.ProvingKey = groth16.NewProvingKey(ecc.BN254)
+	ps.ProvingKey = gpuprove.NewProvingKey()
 	n, err := ps.ProvingKey.UnsafeReadFrom(r)
 	total += n
 	if err != nil {

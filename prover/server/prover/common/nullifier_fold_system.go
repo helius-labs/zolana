@@ -3,6 +3,7 @@ package common
 import (
 	"encoding/binary"
 	"io"
+	"zolana/prover/prover/gpuprove"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
@@ -58,7 +59,7 @@ func (ps *NullifierFoldProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 		*field = binary.BigEndian.Uint32(intBuf[:])
 	}
 
-	ps.ProvingKey = groth16.NewProvingKey(ecc.BN254)
+	ps.ProvingKey = gpuprove.NewProvingKey()
 	read, err := ps.ProvingKey.UnsafeReadFrom(r)
 	total += read
 	if err != nil {

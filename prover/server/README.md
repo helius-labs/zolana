@@ -36,8 +36,9 @@ This part explains the existing cli commands.
    1. keys *[string]* - String array of keys file paths  
    2. keys-file *file path* - Proving system file, can be used instead of config       
    3. Optional: json-logging *0/1* - Enables json logging  
-   4. Optional: prover-address *address* - Address for the prover server, defaults to localhost:3000
-   5. Optional: metrics-address *address* - Address for the metrics server, defaults to localhost:9998
+   4. Optional: prover-address *address* - Address for the prover server, defaults to 127.0.0.1:5000
+   5. Optional: metrics-address *address* - Address for the metrics server, defaults to 127.0.0.1:9998
+   6. Optional: max-request-bytes *n* - Maximum proof-request body, defaults to 16 MiB
 4. prove - Reads a prover system file, generates and returns proof based on prover parameters  
    Flags:  
    1. config: Config file, which may contain the following fields:
@@ -65,6 +66,18 @@ This part explains the existing cli commands.
 go build .
 light-prover --config path/to/config/file
 ```
+
+## Security
+
+The prover handles private witness material. Keep it on loopback unless it is
+behind a trusted TLS-terminating proxy.
+
+A non-loopback listener requires `ZOLANA_PROVER_API_KEY`, or the legacy
+`PROVER_API_KEY`. It rejects protected requests when no key is configured.
+Native clients send the key as a Bearer token.
+
+Browser-originated proof requests are rejected. Raw secret-bearing proof
+requests are never persisted in the Redis queue.
 
 ## Performance Testing
 

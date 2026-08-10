@@ -11,7 +11,7 @@ import (
 // A preflight answered before authentication lets any origin probe a protected
 // path without a credential, so the served chain itself is under test.
 func TestPreflightWithoutCredentialIsRejected(t *testing.T) {
-	t.Setenv("PROVER_API_KEY", "test-secret")
+	t.Setenv("ZOLANA_PROVER_API_KEY", "test-secret")
 
 	proverAddress := freeLoopbackAddress(t)
 	job := RunEnhanced(&EnhancedConfig{
@@ -38,8 +38,8 @@ func TestPreflightWithoutCredentialIsRejected(t *testing.T) {
 	}
 	response.Body.Close()
 
-	if response.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("expected status %d for an uncredentialed preflight, got %d", http.StatusUnauthorized, response.StatusCode)
+	if response.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected status %d for an uncredentialed preflight, got %d", http.StatusForbidden, response.StatusCode)
 	}
 }
 

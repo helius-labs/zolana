@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"zolana/prover/prover/gpuprove"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
@@ -82,7 +83,7 @@ func (ps *MergeChainProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 		}
 	}
 
-	ps.ProvingKey = groth16.NewProvingKey(ecc.BN254)
+	ps.ProvingKey = gpuprove.NewProvingKey()
 	read, err := ps.ProvingKey.UnsafeReadFrom(r)
 	total += read
 	if err != nil {

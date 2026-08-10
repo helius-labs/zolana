@@ -44,11 +44,8 @@ func TestFindCachedResultReturnsAnIndexedResult(t *testing.T) {
 	}
 }
 
-// The deliberate behaviour change. Results sitting in the queue without an
-// index entry are no longer found, because finding them meant reading the whole
-// queue on every cache miss -- and since transfer inputs are unique, every job
-// was a cache miss. Regenerating a proof costs 0.28s; scanning cost more than
-// that within a few hundred queued results, and grew from there.
+// Results sitting in the queue without an index entry must not be found.
+// There is no fallback scan, an unindexed result is a miss.
 func TestFindCachedResultIgnoresUnindexedResults(t *testing.T) {
 	rq := setupRedisQueue(t)
 	defer teardownRedisQueue(t, rq)
@@ -69,7 +66,6 @@ func TestFindCachedResultIgnoresUnindexedResults(t *testing.T) {
 		if err != nil {
 			t.Fatalf("EnqueueProof: %v", err)
 		}
-		// Present and matching -- the old scan keyed off exactly this.
 		if err := rq.StoreInputHash(jobID, inputHash); err != nil {
 			t.Fatalf("StoreInputHash: %v", err)
 		}
@@ -85,8 +81,8 @@ func TestFindCachedResultIgnoresUnindexedResults(t *testing.T) {
 	}
 }
 
-// Results carry a TTL; the index hash does not. An entry can therefore outlive
-// what it points at, and must not be reported as a hit.
+// Results carry a TTL and the index hash does not, so an entry can outlive
+// what it points at. A dangling entry must not be reported as a hit.
 func TestFindCachedResultDropsAStaleIndexEntry(t *testing.T) {
 	rq := setupRedisQueue(t)
 	defer teardownRedisQueue(t, rq)
@@ -142,8 +138,8 @@ func TestFindCachedFailureIgnoresUnindexedFailures(t *testing.T) {
 	}
 }
 
-// A miss is the overwhelmingly common case -- transfer inputs are unique -- so
-// it is the path whose cost matters. It must not touch the queues at all.
+// Transfer inputs are unique, so a miss is the common case. It must not
+// touch the queues at all.
 func TestFindCachedResultMissDoesNotReadTheResultsQueue(t *testing.T) {
 	rq := setupRedisQueue(t)
 	defer teardownRedisQueue(t, rq)

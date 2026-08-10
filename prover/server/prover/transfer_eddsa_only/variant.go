@@ -1,6 +1,8 @@
 package transfereddsaonly
 
 import (
+	"fmt"
+
 	customring "zolana/prover/circuits/spp_transaction/custom"
 	defaultring "zolana/prover/circuits/spp_transaction/default"
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
@@ -14,17 +16,17 @@ import (
 type Variant int
 
 const (
-	// ConfidentialVariant is the default transact: output owners bind to public
-	// pk_field tags; non-ring.
+	// ConfidentialVariant is the default transact. Output owners bind to public
+	// pk_field tags. Non-ring.
 	ConfidentialVariant Variant = iota
-	// RingVariant is the confidential policy-ring transfer (ring_transact):
-	// input and output owners remain private and each real UTXO binds its
+	// RingVariant is the confidential policy-ring transfer (ring_transact).
+	// Input and output owners remain private and each real UTXO binds its
 	// ring_program_id. Solana signer hashes still authorize private owner hashes.
 	RingVariant
 	// RingAuthorityVariant is the anonymous policy-ring transfer for
-	// ring_authority_transact: the ring authority controls its ring-owned UTXOs, so
-	// owners do not sign. No in-circuit signature and every input owner pk_field
-	// kept private (omitted from the public input hash).
+	// ring_authority_transact. The ring authority controls its ring-owned UTXOs, so
+	// owners do not sign. No in-circuit signature, and every input owner pk_field
+	// stays private (omitted from the public input hash).
 	RingAuthorityVariant
 )
 
@@ -40,20 +42,22 @@ func (v Variant) CircuitType() common.CircuitType {
 	}
 }
 
-// variantFromCircuitType is the inverse of Variant.CircuitType; unknown types map
-// to the confidential ring variant.
-func variantFromCircuitType(ct common.CircuitType) Variant {
+// VariantFromCircuitType is the inverse of Variant.CircuitType. A type that
+// names no Solana-only rail is rejected rather than defaulted, so a mistyped
+// request cannot prove a different circuit than it asked for.
+func VariantFromCircuitType(ct common.CircuitType) (Variant, error) {
 	switch ct {
 	case common.TransferConfidentialCircuitType:
-		return ConfidentialVariant
+		return ConfidentialVariant, nil
+	case common.TransferRingCircuitType:
+		return RingVariant, nil
 	case common.TransferRingAuthorityCircuitType:
-		return RingAuthorityVariant
+		return RingAuthorityVariant, nil
 	default:
-		return RingVariant
+		return 0, fmt.Errorf("circuit type %q names no eddsa rail", ct)
 	}
 }
 
-// newVariantCircuit builds the Solana-only rail circuit for the variant.
 func newVariantCircuit(v Variant, shape txcircuit.Shape) (frontend.Circuit, error) {
 	switch v {
 	case ConfidentialVariant:

@@ -15,7 +15,7 @@ const gpuBuilt = false
 
 func gpuAvailable() bool { return false }
 
-// proveGPU is unreachable, useGPU never selects the GPU in a CPU-only build.
+// proveGPU is unreachable, UseGPU never selects the GPU in a CPU-only build.
 // It must not call the gnark icicle stub, which panics.
 func proveGPU(constraint.ConstraintSystem, groth16.ProvingKey, witness.Witness) (groth16.Proof, error) {
 	return nil, errors.New("gpu prove requested in a binary built without the cuda tag")

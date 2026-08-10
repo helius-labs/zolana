@@ -27,7 +27,7 @@ func TestCancelledRequestNeverStartsAProof(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	handler := proveHandler{}
+	handler := proveHandler{maxRequestBodyBytes: DefaultMaxRequestBodyBytes}
 	request := httptest.NewRequest(http.MethodPost, "/prove", strings.NewReader(batchAppendSyncBody)).WithContext(ctx)
 	handler.ServeHTTP(httptest.NewRecorder(), request)
 
@@ -47,7 +47,7 @@ func TestSaturatedSyncPathReturnsBusyWithTheAsyncHint(t *testing.T) {
 	t.Setenv("ZOLANA_PROVING_KEYS_URL", store.URL())
 
 	keyManager := common.NewLazyKeyManager(t.TempDir(), &common.DownloadConfig{MaxRetries: 1, AutoDownload: true})
-	handler := proveHandler{keyManager: keyManager}
+	handler := proveHandler{keyManager: keyManager, maxRequestBodyBytes: DefaultMaxRequestBodyBytes}
 
 	var saturators sync.WaitGroup
 	for range getMaxConcurrency() + 2 {

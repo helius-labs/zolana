@@ -6,6 +6,7 @@ import (
 
 	foldcircuit "zolana/prover/circuits/nullifier_fold"
 	"zolana/prover/prover/common"
+	"zolana/prover/prover/gpuprove"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
@@ -93,7 +94,7 @@ func ProveFold(ps *common.NullifierFoldProofSystem, run []Append) (*common.Proof
 	if err != nil {
 		return nil, fmt.Errorf("witness: %w", err)
 	}
-	proof, err := groth16.Prove(ps.ConstraintSystem, ps.ProvingKey, full)
+	proof, err := gpuprove.Prove(ps.ConstraintSystem, ps.ProvingKey, full)
 	if err != nil {
 		return nil, fmt.Errorf("prove: %w", err)
 	}

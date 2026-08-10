@@ -2,9 +2,9 @@ package squadszone
 
 import (
 	"fmt"
-	"github.com/consensys/gnark/backend/groth16"
 
 	"zolana/prover/prover/common"
+	"zolana/prover/prover/gpuprove"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
@@ -48,7 +48,7 @@ func ProveZone(ps *common.SquadsZoneProofSystem, params *ZoneParameters) (*commo
 		return nil, fmt.Errorf("witness: %w", err)
 	}
 
-	proof, err := groth16.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
+	proof, err := gpuprove.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
 	if err != nil {
 		return nil, fmt.Errorf("prove: %w", err)
 	}

@@ -13,7 +13,7 @@ type ProofWithTiming struct {
 	Proof           *Proof `json:"proof"`
 	ProofDurationMs int64  `json:"proof_duration_ms"`
 	// Backend names the prover that served the job. Set on routes with more
-	// than one backend.
+	// than one backend, the aggregate circuit today.
 	Backend string `json:"backend,omitempty"`
 }
 
@@ -27,11 +27,9 @@ type BatchProofSystem struct {
 }
 
 // TransferProofSystem holds the keys and constraints for one spp_transaction
-// circuit shape, ownership rail, and confidentiality mode. RequiresP256 selects
-// the P256-capable circuit (true) or the Solana-only variant (false);
-// Confidential selects the owner-tag-binding variant. It mirrors BatchProofSystem
-// but is keyed by (NInputs, NOutputs, RequiresP256, Confidential) instead of
-// (TreeHeight, BatchSize).
+// circuit shape, ownership rail, and confidentiality mode. RequiresP256
+// selects the P256-capable circuit over the Solana-only variant. Confidential
+// selects the owner-tag-binding variant.
 type TransferProofSystem struct {
 	CircuitType      CircuitType
 	NInputs          uint32

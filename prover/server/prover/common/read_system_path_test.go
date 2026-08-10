@@ -20,8 +20,8 @@ func (c *singleConstraint) Define(api frontend.API) error {
 	return nil
 }
 
-// The header and the variant must come from the file name, not the path. A
-// directory named after another circuit family must not pick that family.
+// The header must come from the file name, not the path. A directory named
+// after another circuit family must not pick that family's header.
 func TestReadSystemFromFileIgnoresDirectoryNames(t *testing.T) {
 	ccs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &singleConstraint{})
 	if err != nil {
@@ -39,11 +39,11 @@ func TestReadSystemFromFileIgnoresDirectoryNames(t *testing.T) {
 		ConstraintSystem: ccs,
 	}
 
-	dir := filepath.Join(t.TempDir(), "ring-checkout")
+	dir := filepath.Join(t.TempDir(), "aggregate-checkout")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, "transfer_2_3.key")
+	path := filepath.Join(dir, "transfer_ring_2_3.key")
 	file, err := os.Create(path)
 	if err != nil {
 		t.Fatal(err)
@@ -63,8 +63,8 @@ func TestReadSystemFromFileIgnoresDirectoryNames(t *testing.T) {
 	if !ok {
 		t.Fatalf("read as %T, want a transfer system", system)
 	}
-	if read.CircuitType != TransferConfidentialCircuitType {
-		t.Errorf("circuit type is %s, want %s", read.CircuitType, TransferConfidentialCircuitType)
+	if read.CircuitType != TransferRingCircuitType {
+		t.Errorf("circuit type is %s, want %s", read.CircuitType, TransferRingCircuitType)
 	}
 	if read.NInputs != 2 || read.NOutputs != 3 {
 		t.Errorf("shape is %dx%d, want 2x3", read.NInputs, read.NOutputs)

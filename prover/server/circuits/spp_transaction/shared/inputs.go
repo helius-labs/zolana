@@ -79,19 +79,16 @@ func constrainInput(api frontend.API, in Input, signals PublicInputUtxoInputs) (
 	isAddress := in.isAddress(api)
 	api.AssertIsEqual(api.Add(isUtxo, isAddress, in.isDummy(api)), 1)
 
-	// Asset 0 marks content-less slots (dummies, addresses); a spendable utxo
-	// must name a real asset. This also makes asset-0 public movement slots
-	// unbalanceable, since no spendable utxo can carry asset 0.
-	// Tokenless data utxos use SOL as asset.
+	// Asset 0 marks content-less slots (dummies, addresses). A spendable utxo
+	// must name a real asset, which also makes asset-0 public movement slots
+	// unbalanceable. Tokenless data utxos use SOL as asset.
 	assertZeroWhen(api, isUtxo, api.IsZero(in.Utxo.Asset))
 
-	// Checks for UTXO, dummy UTXO, adddress:
-	// 1. nullifier must not exist in nullifier tree.
+	// The nullifier non-inclusion check runs for every slot kind, dummy and
+	// address included.
 	utxoHash := UtxoHashCircuit(api, in.Utxo)
 	in.checkNonInclusion(api, utxoHash, signals)
 
-	// Checks UTXO and address:
-	// 1. Check owner hash matches UTXO.
 	{
 		nullifierPk := abstractor.Call(api, nullifierPkGadget{
 			NullifierSecret: in.NullifierSecret,
@@ -104,19 +101,11 @@ func constrainInput(api frontend.API, in Input, signals PublicInputUtxoInputs) (
 		AssertWhen(api, in.isUtxoOrAddress(api), ownerIsCorrect)
 	}
 
-	// UTXO checks:
-	// 1. UTXO hash must exist in state Merkle tree.
-	{
-		AssertWhen(api, isUtxo, in.checkInclusion(api, utxoHash, signals.UtxoTreeRoot))
-	}
-	// Dummy checks:
-	// 1. All UTXO fields and nullifier secret 0, except the blinding.
-	{
-		AssertWhen(api, in.isDummy(api), in.Utxo.CheckDummy(api))
-		assertZeroWhen(api, in.isDummy(api), in.NullifierSecret)
-	}
-	// Address checks:
-	// 1. All UTXO fields and nullifier secret 0, except the blinding and owner.
+	AssertWhen(api, isUtxo, in.checkInclusion(api, utxoHash, signals.UtxoTreeRoot))
+
+	AssertWhen(api, in.isDummy(api), in.Utxo.CheckDummy(api))
+	assertZeroWhen(api, in.isDummy(api), in.NullifierSecret)
+
 	AssertWhen(api, isAddress, in.checkAddress(api))
 
 	// Only UTXOs and addresses must be accessible as such
@@ -126,22 +115,18 @@ func constrainInput(api frontend.API, in Input, signals PublicInputUtxoInputs) (
 	return inputHash, addressHash
 }
 
-// isUtxo: the slot spends an existing utxo.
 func (in Input) isUtxo(api frontend.API) frontend.Variable {
 	return in.Utxo.isUtxo(api)
 }
 
-// isAddress: the slot creates an address, owner signed.
 func (in Input) isAddress(api frontend.API) frontend.Variable {
 	return in.Utxo.isAddress(api)
 }
 
-// isDummy: the slot is padding and carries nothing.
 func (in Input) isDummy(api frontend.API) frontend.Variable {
 	return in.Utxo.isDummy(api)
 }
 
-// isUtxoOrAddress: the slot carries content — a spendable or an address utxo.
 func (in Input) isUtxoOrAddress(api frontend.API) frontend.Variable {
 	return in.Utxo.isUtxoOrAddress(api)
 }
@@ -193,10 +178,8 @@ func (in Input) checkNonInclusion(api frontend.API, utxoHash frontend.Variable, 
 		Blinding:        in.Utxo.Blinding,
 		NullifierSecret: in.NullifierSecret,
 	})
-	// 1. Derived nullifier equals public nullifier.
 	api.AssertIsEqual(nullifier, signals.Nullifier)
 
-	// 2. indexed leaf H(in.NullifierLowValue, in.NullifierNextValue) exists in nullifier tree.
 	lowLeafHash := gadgetlib.IndexedLeafHash(api, in.NullifierLowValue, in.NullifierNextValue)
 	nfPathIndices := api.ToBinary(in.NullifierLowPathIndex, NullifierTreeHeight)
 	nfRoot := abstractor.Call(api, gadgetlib.MerkleRootGadget{
@@ -206,7 +189,6 @@ func (in Input) checkNonInclusion(api frontend.API, utxoHash frontend.Variable, 
 		Height: NullifierTreeHeight,
 	})
 	api.AssertIsEqual(nfRoot, signals.NullifierTreeRoot)
-	// 3.  nullifier is in range (NullifierLowValue < Nullifier < NullifierNextValue)
 	assertStrictlyOrdered(api, in.NullifierLowValue, signals.Nullifier, in.NullifierNextValue)
 }
 

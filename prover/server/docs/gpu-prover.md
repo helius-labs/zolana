@@ -2,18 +2,21 @@
 
 The prover server can prove Groth16 on a CUDA GPU. One package,
 `prover/gpuprove`, owns backend selection. Every per-request prove call site
-goes through `gpuprove.Prove`.
+goes through `gpuprove.Prove`. The aggregate circuit has its own device
+backend (`prover/aggregate/gpu.go`, the witgen device-witness prover) and
+follows the same `PROVER_GPU` contract.
 
 ## Build
 
 The default build compiles no CUDA code and behaves exactly like a
-CPU-only prover. A GPU build needs two tags together, plus cgo and the
+CPU-only prover. A GPU build needs three tags together, plus cgo and the
 ICICLE libraries installed on the host.
 
-    go build -tags "cuda icicle" .
+    go build -tags "cuda icicle cudawitgen" .
 
 `cuda` selects this repository's GPU files, `icicle` selects gnark's
-accelerated backend. The ICICLE CUDA backend loaded at run time must be built
+accelerated backend, `cudawitgen` selects witgen's device bridge for the
+aggregate route. The ICICLE CUDA backend loaded at run time must be built
 from the patched icicle-gnark checkout beside this repository. The upstream
 backend has an MSM stream-ordering bug that crashes sustained proving of
 commitment circuits.
@@ -50,9 +53,6 @@ A maintainer must not break these.
   witness solve internally, so the solve rides inside the serialized
   section. This is also why small circuits lose on the GPU and why auto
   mode routes them to the CPU.
-- The worker outlives a panic. `gpuJobs` is unbuffered and never closed, so
-  a worker that stops leaves every later caller blocked forever. A panic in
-  the device prover becomes a job error and the loop restarts the worker.
 - Proving keys allocate through `gpuprove.NewProvingKey`. In a cuda build
   it returns the icicle wrapper type that carries device state, and gnark's
   icicle `Prove` type-asserts it. A key deserialized into the stock type
@@ -72,6 +72,15 @@ attaches to the cached key object. `PROVER_GPU_PIN_KEYS=1` additionally
 keeps every loaded key's vectors resident in GPU memory. Off by default,
 the full pinned key set can exceed device memory.
 
+## Aggregate route
+
+`ProveAggregateBackend` serves aggregate batches from witgen's device
+prover in a cuda build. `PROVER_GPU=off` forces the gnark CPU prover and
+`on` errors without a usable device, the same contract as `gpuprove`. Key
+material that cannot reach the device falls back to the CPU prover once, at
+key load. A solve or assembly error is returned, never retried on the CPU,
+an invalid witness must fail the same way on both backends.
+
 ## Benchmarks and load test
 
 `BenchmarkProveTransfer` (circuits/spp_transaction/shared) and
@@ -90,3 +99,5 @@ download on first use. `PROVER_LOAD_SHAPES` picks the request mix and
         ./circuits/spp_transaction/shared
 
 Add `-tags "cuda icicle"` on a CUDA host to run the same load on the GPU.
+The transfer circuits do not touch the aggregate route, so `cudawitgen` is
+not needed for benches and the load test.

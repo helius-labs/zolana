@@ -6,6 +6,7 @@ import (
 
 	foldcircuit "zolana/prover/circuits/squads/key_encryption_fold"
 	"zolana/prover/prover/common"
+	"zolana/prover/prover/gpuprove"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
@@ -89,7 +90,7 @@ func ProveFold(ps *common.SquadsKeyEncryptionFoldProofSystem, legs []Leg) (*comm
 	if err != nil {
 		return nil, fmt.Errorf("witness: %w", err)
 	}
-	proof, err := groth16.Prove(ps.ConstraintSystem, ps.ProvingKey, full)
+	proof, err := gpuprove.Prove(ps.ConstraintSystem, ps.ProvingKey, full)
 	if err != nil {
 		return nil, fmt.Errorf("prove: %w", err)
 	}

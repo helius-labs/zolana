@@ -127,7 +127,9 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 	var err error
 	p.NInputs = params.NInputs
 	p.NOutputs = params.NOutputs
-	p.Variant = variantFromCircuitType(params.CircuitType)
+	if p.Variant, err = VariantFromCircuitType(params.CircuitType); err != nil {
+		return err
+	}
 
 	if p.ExternalDataHash, err = feFromHex(params.ExternalDataHash); err != nil {
 		return err

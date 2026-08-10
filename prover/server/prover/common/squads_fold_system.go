@@ -3,6 +3,7 @@ package common
 import (
 	"encoding/binary"
 	"io"
+	"zolana/prover/prover/gpuprove"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
@@ -111,7 +112,7 @@ func readFoldKeys(
 ) (int64, error) {
 	var total int64
 
-	*pk = groth16.NewProvingKey(ecc.BN254)
+	*pk = gpuprove.NewProvingKey()
 	read, err := (*pk).UnsafeReadFrom(r)
 	total += read
 	if err != nil {
