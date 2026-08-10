@@ -19,7 +19,6 @@ test-ledger
 .DS_Store
 /.idea
 .claude
-docs
 experiments
 docs/api/
 docs/docs.md
