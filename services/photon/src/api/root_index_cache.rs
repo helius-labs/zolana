@@ -149,11 +149,7 @@ mod tests {
         cache.trees.write().unwrap().insert(
             tree,
             TreeRoots {
-                indices: entries
-                    .iter()
-                    .copied()
-                    .map(|(root, index)| (root, index))
-                    .collect(),
+                indices: entries.iter().copied().collect(),
                 refreshed,
             },
         );
