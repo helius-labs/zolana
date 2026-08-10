@@ -52,7 +52,7 @@ async fn persist_nullifier_tree_batch_update(
         }
     }
 
-    let batch_seq = next_root_sequence(txn, batch_update.tree).await?;
+    let batch_seq = batch_update.sequence_number;
     let reconstructed = reconstruct_batch_updates(txn, batch_update, batch_seq).await?;
     persist_indexed_tree_updates(txn, reconstructed.updates, tree_info_cache).await?;
     verify_reconstructed_root(txn, batch_update).await
@@ -307,19 +307,6 @@ fn insert_leaf_update(
     Ok(())
 }
 
-async fn next_root_sequence(txn: &DatabaseTransaction, tree: Pubkey) -> Result<u64, IngesterError> {
-    let previous_root = current_root(txn, tree).await?;
-    let previous_seq = previous_root
-        .and_then(|root| root.seq)
-        .map(|seq| u64_from_i64(seq, "root sequence"))
-        .transpose()?
-        .unwrap_or(0);
-
-    previous_seq.checked_add(1).ok_or_else(|| {
-        IngesterError::ParserError(format!("Root sequence overflow for tree {}", tree))
-    })
-}
-
 async fn verify_reconstructed_root(
     txn: &DatabaseTransaction,
     batch_update: &NullifierTreeBatchUpdate,
@@ -474,34 +461,45 @@ mod tests {
         }
     }
 
-    fn batch_event(tree: Pubkey, num_update: u32) -> NullifierTreeBatchUpdate {
+    fn batch_event(
+        tree: Pubkey,
+        num_update: u32,
+        sequence_number: u64,
+    ) -> NullifierTreeBatchUpdate {
         NullifierTreeBatchUpdate {
             tree,
             new_root: [0; 32],
             zkp_batch_size: ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
             num_update,
+            sequence_number,
             signature: Signature::from([8; 64]),
         }
     }
 
-    /// Apply one event covering `num_update` zkp batches and return the root it
-    /// leaves behind. Skips `verify_reconstructed_root`, which needs a real root
-    /// from chain; these tests compare reconstructions against each other.
+    /// Apply one event covering `num_update` zkp batches at the chain sequence
+    /// number it reports, and return the root it leaves behind. Skips
+    /// `verify_reconstructed_root`, which needs a real root from chain; these
+    /// tests compare reconstructions against each other.
     async fn apply_event(
         tx: &DatabaseTransaction,
         tree: Pubkey,
         tree_info_cache: &HashMap<Pubkey, TreeInfo>,
         num_update: u32,
+        sequence_number: u64,
     ) -> Vec<u8> {
-        let batch_update = batch_event(tree, num_update);
-        let batch_seq = next_root_sequence(tx, tree).await.unwrap();
-        let reconstructed = reconstruct_batch_updates(tx, &batch_update, batch_seq)
+        let batch_update = batch_event(tree, num_update, sequence_number);
+        let reconstructed = reconstruct_batch_updates(tx, &batch_update, sequence_number)
             .await
             .unwrap();
         persist_indexed_tree_updates(tx, reconstructed.updates, tree_info_cache)
             .await
             .unwrap();
         current_root(tx, tree).await.unwrap().unwrap().hash
+    }
+
+    async fn root_seq(tx: &DatabaseTransaction, tree: Pubkey) -> u64 {
+        let root = current_root(tx, tree).await.unwrap().unwrap();
+        u64_from_i64(root.seq.unwrap(), "root seq").unwrap()
     }
 
     #[tokio::test]
@@ -514,8 +512,8 @@ mod tests {
         let tx = db.begin().await.unwrap();
         seed_queued_nullifiers(&tx, tree, batch_size * 2).await;
 
-        apply_event(&tx, tree, &tree_info_cache, 1).await;
-        apply_event(&tx, tree, &tree_info_cache, 1).await;
+        apply_event(&tx, tree, &tree_info_cache, 1, 1).await;
+        apply_event(&tx, tree, &tree_info_cache, 1, 2).await;
 
         let max_leaf = indexed_trees::Entity::find()
             .filter(indexed_trees::Column::Tree.eq(tree.to_bytes().to_vec()))
@@ -534,7 +532,7 @@ mod tests {
         let already_applied = NullifierTreeBatchUpdate {
             new_root: fixed_32(root.hash, "root hash").unwrap(),
             signature: Signature::from([9; 64]),
-            ..batch_event(tree, 1)
+            ..batch_event(tree, 1, 2)
         };
         persist_nullifier_tree_batch_update(&tx, &already_applied, &tree_info_cache)
             .await
@@ -556,8 +554,8 @@ mod tests {
         let sequential_cache = insert_test_tree(&sequential_db, tree).await;
         let sequential_tx = sequential_db.begin().await.unwrap();
         seed_queued_nullifiers(&sequential_tx, tree, batch_size * 3).await;
-        for _ in 0..3 {
-            apply_event(&sequential_tx, tree, &sequential_cache, 1).await;
+        for seq in 1..=3 {
+            apply_event(&sequential_tx, tree, &sequential_cache, 1, seq).await;
         }
         let sequential_root = current_root(&sequential_tx, tree)
             .await
@@ -565,13 +563,25 @@ mod tests {
             .unwrap()
             .hash;
 
+        // One event applying all three, at the sequence number the chain reports
+        // after the last of them.
         let cascade_db = setup_test_db().await;
         let cascade_cache = insert_test_tree(&cascade_db, tree).await;
         let cascade_tx = cascade_db.begin().await.unwrap();
         seed_queued_nullifiers(&cascade_tx, tree, batch_size * 3).await;
-        let cascade_root = apply_event(&cascade_tx, tree, &cascade_cache, 3).await;
+        let cascade_root = apply_event(&cascade_tx, tree, &cascade_cache, 3, 3).await;
 
         assert_eq!(cascade_root, sequential_root);
+
+        // The root index a client must quote is `seq % root_history_capacity`,
+        // and on chain that pointer moves once per applied batch. If a cascade
+        // advanced it once instead of three times, the two runs would disagree
+        // here and every client proof would be checked against the wrong root.
+        assert_eq!(
+            root_seq(&cascade_tx, tree).await,
+            root_seq(&sequential_tx, tree).await
+        );
+        assert_eq!(root_seq(&cascade_tx, tree).await, 3);
 
         let max_leaf = indexed_trees::Entity::find()
             .filter(indexed_trees::Column::Tree.eq(tree.to_bytes().to_vec()))
@@ -602,7 +612,7 @@ mod tests {
         let tx = db.begin().await.unwrap();
         seed_queued_nullifiers(&tx, tree, batch_size * 2).await;
 
-        let err = reconstruct_batch_updates(&tx, &batch_event(tree, 3), 1)
+        let err = reconstruct_batch_updates(&tx, &batch_event(tree, 3, 3), 3)
             .await
             .unwrap_err();
 
@@ -619,7 +629,7 @@ mod tests {
         let db = setup_test_db().await;
         let tx = db.begin().await.unwrap();
 
-        let err = reconstruct_batch_updates(&tx, &batch_event(tree, 0), 1)
+        let err = reconstruct_batch_updates(&tx, &batch_event(tree, 0, 1), 1)
             .await
             .unwrap_err();
 

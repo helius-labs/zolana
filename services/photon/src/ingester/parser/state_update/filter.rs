@@ -185,6 +185,7 @@ mod tests {
                 new_root: [3; 32],
                 zkp_batch_size: 250,
                 num_update: 1,
+                sequence_number: 1,
                 signature: Signature::from([4; 64]),
             },
             NullifierTreeBatchUpdate {
@@ -192,6 +193,7 @@ mod tests {
                 new_root: [5; 32],
                 zkp_batch_size: 250,
                 num_update: 1,
+                sequence_number: 1,
                 signature: Signature::from([6; 64]),
             },
         ]);

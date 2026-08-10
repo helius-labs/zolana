@@ -37,6 +37,18 @@ pub fn parse_nullifier_tree_batch_updates(
             continue;
         };
 
+        // `start_sequence_number` is the sequence number after the cascade's
+        // first applied batch, and each further batch advances it by one.
+        let sequence_number = event
+            .start_sequence_number
+            .checked_add(u64::from(event.num_update.saturating_sub(1)))
+            .ok_or_else(|| {
+                IngesterError::ParserError(format!(
+                    "Batch append sequence number overflow in {}",
+                    tx.signature
+                ))
+            })?;
+
         state_update
             .nullifier_tree_batch_updates
             .push(NullifierTreeBatchUpdate {
@@ -44,6 +56,7 @@ pub fn parse_nullifier_tree_batch_updates(
                 new_root: event.new_root,
                 zkp_batch_size: u64::from(event.zkp_batch_size),
                 num_update: event.num_update,
+                sequence_number,
                 signature: tx.signature,
             });
     }
@@ -181,6 +194,31 @@ mod tests {
             .expect("one update");
         assert_eq!(update.num_update, 3);
         assert_eq!(update.appended_count(), 750);
+    }
+
+    #[test]
+    fn cascade_sequence_number_counts_batches_not_events() {
+        // The tree's sequence number advances once per applied zkp batch, and
+        // the root index a client quotes is derived from it. Taking
+        // start_sequence_number alone would leave photon short by one per extra
+        // batch, pointing clients at the wrong slot of the root history.
+        let single = tx_emitting(&event(1));
+        let cascade = tx_emitting(&event(3));
+
+        let seq = |tx: &TransactionInfo| {
+            parse_nullifier_tree_batch_updates(tx)
+                .unwrap()
+                .unwrap()
+                .nullifier_tree_batch_updates
+                .first()
+                .expect("one update")
+                .sequence_number
+        };
+
+        // start_sequence_number is 3 in the fixture: the number after the first
+        // applied batch.
+        assert_eq!(seq(&single), 3);
+        assert_eq!(seq(&cascade), 5);
     }
 
     #[test]
