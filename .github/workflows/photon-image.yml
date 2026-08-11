@@ -105,6 +105,8 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      # Signing a provenance statement for the published image.
+      attestations: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -189,6 +191,7 @@ jobs:
           docker run --rm --entrypoint photon-snapshotter "$image" --version
           docker run --rm --entrypoint photon-snapshot-loader "$image" --version
       - name: Publish immutable tags
+        id: publish
         env:
           IMAGE_TAGS: ${{ steps.metadata.outputs.tags }}
         run: |
@@ -274,3 +277,22 @@ jobs:
             echo "Photon release tag digest $release_digest does not match commit tag $sha_digest" >&2
             exit 1
           fi
+
+          echo "digest=$release_digest" >> "$GITHUB_OUTPUT"
+          echo "image=$release_image" >> "$GITHUB_OUTPUT"
+
+      # Binds the published digest to the commit, workflow and runner that
+      # produced it, so "this image is what CI built from that source" becomes
+      # checkable rather than assumed:
+      #
+      #   gh attestation verify oci://<image> --owner helius-labs
+      #
+      # Recorded in GitHub's attestation store rather than pushed to the
+      # registry: ECR's support for OCI referrers is uneven, and a failed
+      # attestation push after a successful image push would leave a published
+      # image behind a red job.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
