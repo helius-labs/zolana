@@ -1,4 +1,31 @@
-name: photon-image
+# Publishes the service images to our own ECR: photon, the prover, the forester.
+#
+# These live here, not in the infra repository, because this is the repo that
+# owns the code. Building them from infra meant infra CI checked out this
+# source, so a change here could break a build there, and a protocol change
+# could not publish an image without driving the other repository.
+#
+# Two channels, because one rule could not fit both jobs:
+#
+#   release  the tag must name the commit (<service>-zolana-<sha12>) and the
+#            commit must be on main. This is photon's original rule, now
+#            available to every service.
+#   preview  any branch, any tag. Still immutable, still attested; it just does
+#            not claim to be a release.
+#
+# Preview exists because the release rule would ban what we actually do -- every
+# image running on devnet today was built from a feature branch -- and a rule
+# that bans normal work gets bypassed rather than followed. That is what
+# happened before: photon had this gate, and every photon image ever deployed
+# was built by a different pipeline that had none.
+#
+# The aggregator is NOT here. It is built from the infra repository's dashboard/
+# directory and is not a protocol service.
+#
+# Requires:
+#   vars.AWS_IMAGE_PUBLISHER_ROLE_ARN  image_publisher_role_arn from infra/bootstrap
+
+name: publish-image
 
 on:
   push:
@@ -14,7 +41,7 @@ on:
       - "rust-toolchain.toml"
       - "LICENSE"
       - "THIRD_PARTY_NOTICES"
-      - ".github/workflows/photon-image.yml"
+      - ".github/workflows/publish-image.yml"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -27,11 +54,25 @@ on:
       - "rust-toolchain.toml"
       - "LICENSE"
       - "THIRD_PARTY_NOTICES"
-      - ".github/workflows/photon-image.yml"
+      - ".github/workflows/publish-image.yml"
   workflow_dispatch:
     inputs:
+      service:
+        description: Which image to publish
+        required: true
+        default: photon
+        type: choice
+        options: [photon, prover, forester]
+      channel:
+        description: >-
+          release enforces the commit-naming tag and requires the commit to be
+          on main; preview allows a branch build under any tag
+        required: true
+        default: preview
+        type: choice
+        options: [preview, release]
       image_tag:
-        description: Immutable fork tag, photon-zolana-<12-character Zolana commit>
+        description: Tag to publish. For release, <service>-zolana-<12-char commit>
         required: true
         type: string
 
@@ -47,21 +88,24 @@ env:
   # different code, binaries in /app, running as root -- so publishing the fork's
   # image there would have put two unrelated things behind one name. This
   # workflow never actually published, so nothing was ever pushed there.
-  IMAGE_NAME: 558215002830.dkr.ecr.eu-north-1.amazonaws.com/zolana-photon
+  REGISTRY: 558215002830.dkr.ecr.eu-north-1.amazonaws.com
   AWS_REGION: eu-north-1
-  ECR_REPOSITORY: zolana-photon
 
 jobs:
   validate:
     name: container / photon
     runs-on: ubuntu-24.04
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    # Photon's own image check. The prover and forester are built and tested by
+    # prover-server.yml and forester.yml, so this does not gate them.
+    if: >-
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
+      (github.event_name != 'workflow_dispatch' || inputs.service == 'photon')
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
       - name: Validate release source
-        if: startsWith(github.ref, 'refs/tags/photon-zolana-') || github.event_name == 'workflow_dispatch'
+        if: startsWith(github.ref, 'refs/tags/photon-zolana-')
         run: |
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
           if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
@@ -95,13 +139,15 @@ jobs:
           test "$(docker run --rm --entrypoint id zolana-photon:ci -u)" = 10001
 
   publish:
-    name: publish / photon
+    name: publish / ${{ inputs.service || 'photon' }}
     runs-on: ubuntu-24.04
     needs: validate
     if: >-
-      startsWith(github.ref, 'refs/tags/photon-zolana-') ||
-      github.event_name == 'workflow_dispatch'
-    environment: photon-production
+      always() && needs.validate.result != 'failure' && (
+        startsWith(github.ref, 'refs/tags/photon-zolana-') ||
+        github.event_name == 'workflow_dispatch'
+      )
+    environment: image-publish
     permissions:
       contents: read
       id-token: write
@@ -111,14 +157,62 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
-      - name: Validate manual image tag
-        if: github.event_name == 'workflow_dispatch'
+      # Which service, which registry repository, and what to build. A tag push
+      # is always photon on the release channel -- that is the existing
+      # photon-zolana-* release path, unchanged.
+      - name: Resolve the build
+        id: plan
+        env:
+          SERVICE: ${{ inputs.service || 'photon' }}
+          CHANNEL: ${{ (github.event_name == 'push' && 'release') || inputs.channel }}
+        run: |
+          case "$SERVICE" in
+            photon)
+              echo "repository=zolana-photon" >> "$GITHUB_OUTPUT"
+              echo "context=." >> "$GITHUB_OUTPUT"
+              echo "file=services/photon/Dockerfile" >> "$GITHUB_OUTPUT"
+              ;;
+            prover)
+              # The keyless image. prover/server/Dockerfile bakes 1.4-3.9 GB of
+              # proving keys that are fetched and verified at runtime anyway.
+              echo "repository=zolana-prover" >> "$GITHUB_OUTPUT"
+              echo "context=prover/server" >> "$GITHUB_OUTPUT"
+              echo "file=prover/server/Dockerfile.light" >> "$GITHUB_OUTPUT"
+              ;;
+            forester)
+              # Repository root as context: the crate depends on workspace
+              # crates, so building from forester/ cannot work.
+              echo "repository=zolana-forester" >> "$GITHUB_OUTPUT"
+              echo "context=." >> "$GITHUB_OUTPUT"
+              echo "file=forester/Dockerfile" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::unknown service $SERVICE"; exit 1 ;;
+          esac
+          echo "service=$SERVICE" >> "$GITHUB_OUTPUT"
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+
+      # Release is the strict channel: the tag must name the commit, and the
+      # commit must be on main. Preview exists because that rule would ban what
+      # we actually do -- every image running on devnet today was built from a
+      # feature branch -- and an unenforceable rule gets bypassed rather than
+      # followed. A preview build is still attested and still immutable; it just
+      # does not claim to be a release.
+      - name: Validate the release
+        if: steps.plan.outputs.channel == 'release' && github.event_name == 'workflow_dispatch'
         env:
           IMAGE_TAG: ${{ inputs.image_tag }}
+          SERVICE: ${{ steps.plan.outputs.service }}
         run: |
-          expected_tag="photon-zolana-${GITHUB_SHA:0:12}"
+          expected_tag="${SERVICE}-zolana-${GITHUB_SHA:0:12}"
           if [[ "$IMAGE_TAG" != "$expected_tag" ]]; then
-            echo "Fork image tag $IMAGE_TAG must identify Zolana commit ${GITHUB_SHA:0:12}" >&2
+            echo "::error::release tag $IMAGE_TAG must be $expected_tag" >&2
+            exit 1
+          fi
+
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::a release must be built from a commit on main" >&2
             exit 1
           fi
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -135,7 +229,7 @@ jobs:
       - id: metadata
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
-          images: ${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ steps.plan.outputs.repository }}
           flavor: latest=false
           tags: |
             type=match,pattern=(photon-zolana-.*),group=1,enable=${{ startsWith(github.ref, 'refs/tags/photon-zolana-') }}
@@ -148,6 +242,7 @@ jobs:
       - name: Refuse to overwrite published tags
         env:
           IMAGE_TAGS: ${{ steps.metadata.outputs.tags }}
+          ECR_REPOSITORY: ${{ steps.plan.outputs.repository }}
         run: |
           while IFS= read -r image; do
             [[ -n "$image" ]] || continue
@@ -171,8 +266,8 @@ jobs:
           done <<< "$IMAGE_TAGS"
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
-          context: .
-          file: services/photon/Dockerfile
+          context: ${{ steps.plan.outputs.context }}
+          file: ${{ steps.plan.outputs.file }}
           platforms: linux/amd64
           load: true
           push: false
@@ -180,20 +275,37 @@ jobs:
           labels: ${{ steps.metadata.outputs.labels }}
           cache-from: type=gha,scope=photon-image-production
           cache-to: type=gha,mode=max,scope=photon-image-production
+      # Proves the image runs before anything is pushed. The binaries differ per
+      # service, so the check does too -- a shared "it built" would assert
+      # nothing about whether the thing inside starts.
       - name: Smoke-test release image
         env:
           IMAGE_TAGS: ${{ steps.metadata.outputs.tags }}
+          SERVICE: ${{ steps.plan.outputs.service }}
         run: |
           image="$(printf '%s\n' "$IMAGE_TAGS" | awk -F: '$NF !~ /^sha-/ { print; exit }')"
           test -n "$image"
-          docker run --rm --entrypoint photon "$image" --version
-          docker run --rm --entrypoint photon-migration "$image" --version
-          docker run --rm --entrypoint photon-snapshotter "$image" --version
-          docker run --rm --entrypoint photon-snapshot-loader "$image" --version
+          case "$SERVICE" in
+            photon)
+              docker run --rm --entrypoint photon "$image" --version
+              docker run --rm --entrypoint photon-migration "$image" --version
+              docker run --rm --entrypoint photon-snapshotter "$image" --version
+              docker run --rm --entrypoint photon-snapshot-loader "$image" --version
+              ;;
+            prover)
+              # Distroless and no shell, so the entrypoint is the only thing to
+              # ask. --help exits 0 without needing keys or a network.
+              docker run --rm "$image" --help >/dev/null
+              ;;
+            forester)
+              docker run --rm "$image" --version
+              ;;
+          esac
       - name: Publish immutable tags
         id: publish
         env:
           IMAGE_TAGS: ${{ steps.metadata.outputs.tags }}
+          ECR_REPOSITORY: ${{ steps.plan.outputs.repository }}
         run: |
           sha_image=""
           release_image=""
@@ -294,5 +406,5 @@ jobs:
       - name: Attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-name: ${{ env.IMAGE_NAME }}
+          subject-name: ${{ env.REGISTRY }}/${{ steps.plan.outputs.repository }}
           subject-digest: ${{ steps.publish.outputs.digest }}

@@ -454,9 +454,10 @@ git tag "$tag"
 git push origin "$tag"
 ```
 
-A manual `photon-image.yml` dispatch must use that same commit-derived value
-for its `image_tag`. The protected `photon-production` environment gates
-publication. The workflow publishes the
+A manual `publish-image.yml` dispatch on the `release` channel must use that
+same commit-derived value for its `image_tag`, and the commit must be on
+`main`; the `preview` channel takes any branch and any tag, for images that are
+not releases. The protected `image-publish` environment gates publication. The workflow publishes the
 `photon-zolana-<12-character-commit>` tag and a full `sha-<commit>` alias,
 refuses to overwrite either, and does not publish `latest`. The imported crate
 version in `services/photon/Cargo.toml` is upstream source provenance, not the
