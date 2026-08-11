@@ -43,7 +43,13 @@ permissions:
   contents: read
 
 env:
-  IMAGE_NAME: public.ecr.aws/f7o9l7p1/photon
+  # OUR registry. public.ecr.aws/f7o9l7p1/photon is the UPSTREAM Helius photon --
+  # different code, binaries in /app, running as root -- so publishing the fork's
+  # image there would have put two unrelated things behind one name. This
+  # workflow never actually published, so nothing was ever pushed there.
+  IMAGE_NAME: 558215002830.dkr.ecr.eu-north-1.amazonaws.com/zolana-photon
+  AWS_REGION: eu-north-1
+  ECR_REPOSITORY: zolana-photon
 
 jobs:
   validate:
@@ -116,12 +122,14 @@ jobs:
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
-          role-to-assume: ${{ vars.ECR_HELIUS_PROD_AWS_ROLE_ARN }}
+          role-to-assume: ${{ vars.AWS_IMAGE_PUBLISHER_ROLE_ARN }}
           role-session-name: zolana-photon-publish
-          aws-region: us-east-1
+          aws-region: ${{ env.AWS_REGION }}
+      # Private ECR, so no registry-type override. The role is trusted for this
+      # job's OIDC subject specifically -- `repo:helius-labs/zolana:environment:
+      # photon-production`, which is what declaring `environment:` above makes
+      # GitHub present instead of the ref.
       - uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2
-        with:
-          registry-type: public
       - id: metadata
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
@@ -144,9 +152,9 @@ jobs:
             tag="${image##*:}"
             [[ "$tag" != sha-* ]] || continue
             set +e
-            error="$(aws ecr-public describe-images \
-              --region us-east-1 \
-              --repository-name photon \
+            error="$(aws ecr describe-images \
+              --region "$AWS_REGION" \
+              --repository-name "$ECR_REPOSITORY" \
               --image-ids "imageTag=$tag" 2>&1)"
             status=$?
             set -e
@@ -198,14 +206,16 @@ jobs:
           test -n "$sha_image"
           test -n "$release_image"
 
-          # ECR Public has no server-side tag immutability. Serialize publishers,
-          # publish the commit alias first, and use that exact remote image for
-          # the requested tag so both can be compared after publication.
+          # Our ECR repositories are created with IMMUTABLE tags, so the registry
+          # itself refuses to move a published tag -- the checks here are kept as
+          # a clearer error than a push rejection, not as the only guard.
+          # Publish the commit alias first and reuse that exact remote image for
+          # the requested tag, so both can be compared after publication.
           sha_tag="${sha_image##*:}"
           set +e
-          error="$(aws ecr-public describe-images \
-            --region us-east-1 \
-            --repository-name photon \
+          error="$(aws ecr describe-images \
+            --region "$AWS_REGION" \
+            --repository-name "$ECR_REPOSITORY" \
             --image-ids "imageTag=$sha_tag" 2>&1)"
           status=$?
           set -e
@@ -223,9 +233,9 @@ jobs:
             local tag="$1"
             local digest
             for _ in {1..10}; do
-              if digest="$(aws ecr-public describe-images \
-                --region us-east-1 \
-                --repository-name photon \
+              if digest="$(aws ecr describe-images \
+                --region "$AWS_REGION" \
+                --repository-name "$ECR_REPOSITORY" \
                 --image-ids "imageTag=$tag" \
                 --query 'imageDetails[0].imageDigest' \
                 --output text 2>/dev/null)" && [[ "$digest" != None ]]; then
@@ -242,9 +252,9 @@ jobs:
 
           release_tag="${release_image##*:}"
           set +e
-          error="$(aws ecr-public describe-images \
-            --region us-east-1 \
-            --repository-name photon \
+          error="$(aws ecr describe-images \
+            --region "$AWS_REGION" \
+            --repository-name "$ECR_REPOSITORY" \
             --image-ids "imageTag=$release_tag" 2>&1)"
           status=$?
           set -e
