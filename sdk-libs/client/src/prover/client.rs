@@ -81,8 +81,11 @@ const PROVE_CONNECT_TIMEOUT_SECS: u64 = 10;
 /// `RetryConfig` (a client-held config with a `Default`).
 #[derive(Clone, Copy, Debug)]
 pub struct AsyncPollConfig {
-    /// Seconds between `/prove/status` polls (floored at 1 so it can't spin).
-    pub poll_interval_secs: u64,
+    /// Milliseconds between `/prove/status` polls (floored at 25 so it can't
+    /// spin). A status poll is an O(1) Redis GET on the prover, so sub-second
+    /// cadence is cheap; a transfer proof computes in ~300-500ms, and any
+    /// interval coarser than that dominates the observed proving latency.
+    pub poll_interval_ms: u64,
     /// Max seconds to wait for a queued proof before returning a timeout error.
     pub max_wait_secs: u64,
 }
@@ -90,10 +93,8 @@ pub struct AsyncPollConfig {
 impl Default for AsyncPollConfig {
     fn default() -> Self {
         Self {
-            // Polling is the fallback when the prover ignores `wait=true`;
-            // transfer proofs finish in ~1s, so anything coarser than 1s
-            // dominates the observed proving latency.
-            poll_interval_secs: 1,
+            // Polling is the fallback when the prover ignores `wait=true`.
+            poll_interval_ms: 200,
             max_wait_secs: 1200,
         }
     }
@@ -263,14 +264,14 @@ impl ProverClient {
     /// Poll the async job status endpoint until the queued proof completes.
     fn poll_async(&self, job_id: &str) -> Result<Proof, ClientError> {
         let url = format!("{}/prove/status?job_id={}", self.server_address, job_id);
-        let poll_interval = self.async_poll.poll_interval_secs.max(1);
-        let max_wait = self.async_poll.max_wait_secs;
-        let mut waited = 0u64;
+        let poll_interval_ms = self.async_poll.poll_interval_ms.max(MIN_POLL_INTERVAL_MS);
+        let max_wait_ms = self.async_poll.max_wait_secs.saturating_mul(1000);
+        let mut waited_ms = 0u64;
         loop {
             let response = match self.http.get(&url).send() {
                 Ok(response) => response,
                 Err(_) => {
-                    wait_or_timeout(job_id, &mut waited, max_wait, poll_interval)?;
+                    wait_or_timeout(job_id, &mut waited_ms, max_wait_ms, poll_interval_ms)?;
                     continue;
                 }
             };
@@ -285,14 +286,14 @@ impl ProverClient {
                 )));
             }
             if status.is_server_error() {
-                wait_or_timeout(job_id, &mut waited, max_wait, poll_interval)?;
+                wait_or_timeout(job_id, &mut waited_ms, max_wait_ms, poll_interval_ms)?;
                 continue;
             }
 
             let text = match response.text() {
                 Ok(text) => text,
                 Err(_) => {
-                    wait_or_timeout(job_id, &mut waited, max_wait, poll_interval)?;
+                    wait_or_timeout(job_id, &mut waited_ms, max_wait_ms, poll_interval_ms)?;
                     continue;
                 }
             };
@@ -313,7 +314,7 @@ impl ProverClient {
                 }
                 // queued / processing / unknown: keep polling until the bound.
                 _ => {
-                    wait_or_timeout(job_id, &mut waited, max_wait, poll_interval)?;
+                    wait_or_timeout(job_id, &mut waited_ms, max_wait_ms, poll_interval_ms)?;
                 }
             }
         }
@@ -335,22 +336,26 @@ impl ProverClient {
     }
 }
 
+/// Floor for the status poll cadence so a zero/misconfigured interval cannot
+/// hot-spin against the prover.
+const MIN_POLL_INTERVAL_MS: u64 = 25;
+
 fn wait_or_timeout(
     job_id: &str,
-    waited: &mut u64,
-    max_wait: u64,
-    poll_interval: u64,
+    waited_ms: &mut u64,
+    max_wait_ms: u64,
+    poll_interval_ms: u64,
 ) -> Result<(), ClientError> {
-    if *waited >= max_wait {
-        let waited_secs = *waited;
+    if *waited_ms >= max_wait_ms {
+        let waited_secs = *waited_ms / 1000;
         return Err(ClientError::ProverServer(format!(
             "async proof timed out after {waited_secs}s (job {job_id})"
         )));
     }
-    let remaining = max_wait.saturating_sub(*waited);
-    let sleep_secs = poll_interval.min(remaining);
-    sleep(Duration::from_secs(sleep_secs));
-    *waited = (*waited).saturating_add(sleep_secs);
+    let remaining = max_wait_ms.saturating_sub(*waited_ms);
+    let sleep_ms = poll_interval_ms.min(remaining);
+    sleep(Duration::from_millis(sleep_ms));
+    *waited_ms = (*waited_ms).saturating_add(sleep_ms);
     Ok(())
 }
 
@@ -460,14 +465,15 @@ impl AsyncProverClient {
 
     async fn poll_async(&self, job_id: &str) -> Result<Proof, ClientError> {
         let url = format!("{}/prove/status?job_id={}", self.server_address, job_id);
-        let poll_interval = self.async_poll.poll_interval_secs.max(1);
-        let max_wait = self.async_poll.max_wait_secs;
-        let mut waited = 0u64;
+        let poll_interval_ms = self.async_poll.poll_interval_ms.max(MIN_POLL_INTERVAL_MS);
+        let max_wait_ms = self.async_poll.max_wait_secs.saturating_mul(1000);
+        let mut waited_ms = 0u64;
         loop {
             let response = match self.http.get(&url).send().await {
                 Ok(response) => response,
                 Err(_) => {
-                    async_wait_or_timeout(job_id, &mut waited, max_wait, poll_interval).await?;
+                    async_wait_or_timeout(job_id, &mut waited_ms, max_wait_ms, poll_interval_ms)
+                        .await?;
                     continue;
                 }
             };
@@ -482,14 +488,16 @@ impl AsyncProverClient {
                 )));
             }
             if status.is_server_error() {
-                async_wait_or_timeout(job_id, &mut waited, max_wait, poll_interval).await?;
+                async_wait_or_timeout(job_id, &mut waited_ms, max_wait_ms, poll_interval_ms)
+                    .await?;
                 continue;
             }
 
             let text = match response.text().await {
                 Ok(text) => text,
                 Err(_) => {
-                    async_wait_or_timeout(job_id, &mut waited, max_wait, poll_interval).await?;
+                    async_wait_or_timeout(job_id, &mut waited_ms, max_wait_ms, poll_interval_ms)
+                        .await?;
                     continue;
                 }
             };
@@ -507,7 +515,8 @@ impl AsyncProverClient {
                     )));
                 }
                 _ => {
-                    async_wait_or_timeout(job_id, &mut waited, max_wait, poll_interval).await?;
+                    async_wait_or_timeout(job_id, &mut waited_ms, max_wait_ms, poll_interval_ms)
+                        .await?;
                 }
             }
         }
@@ -516,20 +525,20 @@ impl AsyncProverClient {
 
 async fn async_wait_or_timeout(
     job_id: &str,
-    waited: &mut u64,
-    max_wait: u64,
-    poll_interval: u64,
+    waited_ms: &mut u64,
+    max_wait_ms: u64,
+    poll_interval_ms: u64,
 ) -> Result<(), ClientError> {
-    if *waited >= max_wait {
-        let waited_secs = *waited;
+    if *waited_ms >= max_wait_ms {
+        let waited_secs = *waited_ms / 1000;
         return Err(ClientError::ProverServer(format!(
             "async proof timed out after {waited_secs}s (job {job_id})"
         )));
     }
-    let remaining = max_wait.saturating_sub(*waited);
-    let sleep_secs = poll_interval.min(remaining);
-    async_sleep(Duration::from_secs(sleep_secs)).await;
-    *waited = (*waited).saturating_add(sleep_secs);
+    let remaining = max_wait_ms.saturating_sub(*waited_ms);
+    let sleep_ms = poll_interval_ms.min(remaining);
+    async_sleep(Duration::from_millis(sleep_ms)).await;
+    *waited_ms = (*waited_ms).saturating_add(sleep_ms);
     Ok(())
 }
 
@@ -1000,14 +1009,14 @@ mod tests {
 
     fn queued_prover_client(url: &str) -> ProverClient {
         ProverClient::new(url.to_string()).with_async_poll_config(AsyncPollConfig {
-            poll_interval_secs: 1,
+            poll_interval_ms: 100,
             max_wait_secs: 1,
         })
     }
 
     fn async_prover_client(url: &str) -> AsyncProverClient {
         AsyncProverClient::new(url.to_string()).with_async_poll_config(AsyncPollConfig {
-            poll_interval_secs: 1,
+            poll_interval_ms: 100,
             max_wait_secs: 1,
         })
     }
