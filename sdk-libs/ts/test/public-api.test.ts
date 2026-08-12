@@ -33,6 +33,7 @@ import {
   getCreateTreeInstructionAsync,
   getDepositInstructionAsync,
   getTransactInstruction,
+  DepositAsset,
 } from "../src/instructions.js";
 import {
   InstructionTag,
@@ -284,13 +285,14 @@ describe("address and instruction builders", () => {
   });
 
   it("builds a deposit instruction", async () => {
+    expect(DepositAsset.sol).toBeTypeOf("function");
     const depositor = { address: OWNER } as TransactionSigner;
     const instruction = await getDepositInstructionAsync({
       tree: DEFAULT_TREE_ADDRESS,
       depositor,
       deposits: [
         {
-          asset: { kind: "sol" },
+          asset: DepositAsset.sol(),
           viewTag: new Uint8Array(32).fill(1) as Bytes32,
           recipientOwnerHash: new Uint8Array(32).fill(2) as Bytes32,
           blinding: new Uint8Array(32).fill(3) as Bytes32,

@@ -2,13 +2,19 @@
 
 import { SOL_MINT, createZolanaClient } from "@zolana/sdk";
 import { atSlot } from "@zolana/sdk/client";
-import { depositInstruction, transactInstruction } from "@zolana/sdk/interface";
+import {
+  depositInstruction,
+  transactInstruction,
+  DepositAsset,
+  TransactWithdrawal,
+} from "@zolana/sdk/interface";
 import { randomBlinding } from "@zolana/sdk/keypair";
 import {
   AssetRegistry,
   ConfidentialTransfer,
   ProofInputUtxo,
   decryptToBalances,
+  WithdrawalTarget,
 } from "@zolana/sdk/transaction";
 import { describe, expect, it } from "vitest";
 
@@ -57,7 +63,7 @@ describe("example: deposit, transfer, withdraw", () => {
       depositor: senderSigner,
       deposits: [
         {
-          asset: { kind: "sol" },
+          asset: DepositAsset.sol(),
           viewTag: senderViewTag,
           recipientOwnerHash: senderAddress.ownerHash(),
           blinding: randomBlinding(),
@@ -149,10 +155,11 @@ describe("example: deposit, transfer, withdraw", () => {
       [withdrawalInput],
       senderSigner.address,
     );
-    withdrawal.withdraw(SOL_MINT, WITHDRAW_AMOUNT, {
-      kind: "sol",
-      recipient: senderSigner.address,
-    });
+    withdrawal.withdraw(
+      SOL_MINT,
+      WITHDRAW_AMOUNT,
+      WithdrawalTarget.sol({ recipient: senderSigner.address }),
+    );
     const withdrawalProofInputs = withdrawal.sign(senderKeypair, assets);
 
     // 4. Fetch the ZK proof to prove the sender can spend the balance.
@@ -163,7 +170,7 @@ describe("example: deposit, transfer, withdraw", () => {
       payer: senderSigner,
       inputTree: client.tree,
       outputTree: client.tree,
-      withdrawal: { kind: "sol", recipient: senderSigner.address },
+      withdrawal: TransactWithdrawal.sol({ recipient: senderSigner.address }),
       data: withdrawalData,
     });
 

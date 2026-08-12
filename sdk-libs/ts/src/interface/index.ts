@@ -17,6 +17,7 @@ export type {
 export { externalDataHash } from "./external-data-hash.js";
 export type { ExternalDataHashInput } from "./external-data-hash.js";
 export { depositInstruction, transactInstruction } from "./instructions/index.js";
+export { DepositAsset, TransactWithdrawal } from "./types.js";
 export {
   ciphertextHash,
   ownerPkFieldCompressed,

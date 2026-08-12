@@ -555,6 +555,21 @@ export type WithdrawalTarget =
       splInterfaceBump: number;
     }>;
 
+export const WithdrawalTarget = Object.freeze({
+  sol(input: Readonly<{ recipient: Address }>): Extract<WithdrawalTarget, { kind: "sol" }> {
+    return Object.freeze({ ...input, kind: "sol" });
+  },
+  spl(
+    input: Readonly<{
+      recipientTokenAccount: Address;
+      splTokenInterface: Address;
+      splInterfaceBump: number;
+    }>,
+  ): Extract<WithdrawalTarget, { kind: "spl" }> {
+    return Object.freeze({ ...input, kind: "spl" });
+  },
+});
+
 export interface PreparedTransfer {
   readonly owner: ShieldedAddress;
   readonly inputs: readonly ProofInputUtxo[];

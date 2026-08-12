@@ -4,11 +4,11 @@ import {
   type Address,
   type Bytes32,
   type RequestContext,
-  type TransactWithdrawal,
+  TransactWithdrawal,
 } from "../interface/types.js";
 import { associatedTokenAddress, splInterfaceWithBump } from "../interface/pda/index.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
-import type { WithdrawalTarget } from "../transaction/instructions/transact.js";
+import { WithdrawalTarget } from "../transaction/instructions/transact.js";
 import { SOL_MINT } from "../transaction/wallet/asset.js";
 import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 
@@ -245,8 +245,8 @@ async function withdrawal(
 > {
   if (asset === SOL_MINT) {
     return {
-      target: { kind: "sol", recipient },
-      accounts: { kind: "sol", recipient },
+      target: WithdrawalTarget.sol({ recipient }),
+      accounts: TransactWithdrawal.sol({ recipient }),
     };
   }
   const tokenProgram = splTokenProgram ?? SPL_TOKEN_PROGRAM_ID;
@@ -255,14 +255,13 @@ async function withdrawal(
     splInterfaceWithBump(asset),
   ]);
   return {
-    target: { kind: "spl", recipientTokenAccount, splTokenInterface, splInterfaceBump },
-    accounts: {
-      kind: "spl",
+    target: WithdrawalTarget.spl({ recipientTokenAccount, splTokenInterface, splInterfaceBump }),
+    accounts: TransactWithdrawal.spl({
       mint: asset,
       splTokenInterface,
       recipientTokenAccount,
       tokenProgram,
-    },
+    }),
   };
 }
 

@@ -51,6 +51,18 @@ export type DepositAsset =
   | Readonly<{ kind: "sol" }>
   | Readonly<{ kind: "spl"; accounts: DepositSplAccounts }>;
 
+export const DepositAsset = Object.freeze({
+  sol(): Extract<DepositAsset, { kind: "sol" }> {
+    return Object.freeze({ kind: "sol" });
+  },
+  spl(accounts: DepositSplAccounts): Extract<DepositAsset, { kind: "spl" }> {
+    return Object.freeze({
+      kind: "spl",
+      accounts: Object.freeze({ ...accounts }),
+    });
+  },
+});
+
 export interface AssetDeposit extends Omit<DepositEntry, "assetIndex"> {
   readonly asset: DepositAsset;
 }
@@ -160,6 +172,22 @@ export type TransactWithdrawal =
       recipientTokenAccount: Address;
       tokenProgram: Address;
     }>;
+
+export const TransactWithdrawal = Object.freeze({
+  sol(input: Readonly<{ recipient: Address }>): Extract<TransactWithdrawal, { kind: "sol" }> {
+    return Object.freeze({ ...input, kind: "sol" });
+  },
+  spl(
+    input: Readonly<{
+      mint: Address;
+      splTokenInterface: Address;
+      recipientTokenAccount: Address;
+      tokenProgram: Address;
+    }>,
+  ): Extract<TransactWithdrawal, { kind: "spl" }> {
+    return Object.freeze({ ...input, kind: "spl" });
+  },
+});
 
 export interface ProtocolConfigAccount {
   readonly authority: Address;

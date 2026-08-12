@@ -21,6 +21,7 @@ export {
   SPP_SUPPORTED_SHAPES,
   SppProofInputs,
   ConfidentialTransfer,
+  WithdrawalTarget,
   assetField,
   canonicalShape,
   createEncryptedTransaction,
@@ -45,7 +46,6 @@ export type {
   PrivateTxHashInput,
   PublicAmounts,
   Shape,
-  WithdrawalTarget,
 } from "./instructions/index.js";
 export { ProofInputUtxo, Utxo, createProofOutput, deriveBlinding, ownerUtxoHash } from "./utxo.js";
 export type { Blinding, ProofOutputInit, ProofOutputUtxo, UtxoInit } from "./utxo.js";
