@@ -225,37 +225,45 @@ impl ProverClient {
     fn send(&self, body: String) -> Result<Proof, ClientError> {
         let url = format!("{}{}{}", self.server_address, PROVE_PATH, PROVE_WAIT_QUERY);
         crate::timing::note(0, "prover_request_bytes", body.len());
-        let mut attempt = 0;
-        let response = loop {
-            attempt += 1;
-            let outcome = self
-                .http
-                .post(&url)
-                .header("Content-Type", "application/json")
-                .body(body.clone())
-                .send();
-            match outcome {
-                Ok(response) => break response,
-                Err(_) if attempt < PROVE_MAX_ATTEMPTS => {
-                    sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS));
+        // Split the observable prove cost into the POST round trip (wire +
+        // server-side wait) and, when the server answered with a job handle
+        // instead, the status-poll tail. `server_proof_ms` (noted when the
+        // envelope reports it) then isolates pure compute from queue + wire.
+        let text = {
+            let _t = crate::timing::Phase::start("prove_post", 0);
+            let mut attempt = 0;
+            let response = loop {
+                attempt += 1;
+                let outcome = self
+                    .http
+                    .post(&url)
+                    .header("Content-Type", "application/json")
+                    .body(body.clone())
+                    .send();
+                match outcome {
+                    Ok(response) => break response,
+                    Err(_) if attempt < PROVE_MAX_ATTEMPTS => {
+                        sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS));
+                    }
+                    Err(e) => {
+                        return Err(ClientError::ProverServer(format!(
+                            "request failed after {attempt} attempt(s): {e}"
+                        )));
+                    }
                 }
-                Err(e) => {
-                    return Err(ClientError::ProverServer(format!(
-                        "request failed after {attempt} attempt(s): {e}"
-                    )));
-                }
-            }
-        };
+            };
 
-        let status = response.status();
-        let text = response
-            .text()
-            .map_err(|e| ClientError::ProverServer(format!("failed to read response body: {e}")))?;
-        if !status.is_success() {
-            return Err(ClientError::ProverServer(format!(
-                "status {status}: {text}"
-            )));
-        }
+            let status = response.status();
+            let text = response.text().map_err(|e| {
+                ClientError::ProverServer(format!("failed to read response body: {e}"))
+            })?;
+            if !status.is_success() {
+                return Err(ClientError::ProverServer(format!(
+                    "status {status}: {text}"
+                )));
+            }
+            text
+        };
 
         let value: serde_json::Value = serde_json::from_str(&text)
             .map_err(|e| ClientError::ProofParse(format!("invalid response JSON: {e}")))?;
@@ -266,6 +274,7 @@ impl ProverClient {
         // proof directly (plain gnark JSON or a `{ proof, .. }` envelope).
         if value.get("proof").is_none() {
             if let Some(job_id) = value.get("job_id").and_then(|v| v.as_str()) {
+                let _t = crate::timing::Phase::start("prove_poll", 0);
                 return self.poll_async(job_id);
             }
         }
@@ -366,6 +375,9 @@ impl ProverClient {
     /// Extract and parse a gnark proof from a proof value, accepting either a
     /// plain proof object or a `{ proof, .. }` envelope.
     fn proof_from_value(value: &serde_json::Value, raw: &str) -> Result<Proof, ClientError> {
+        if let Some(ms) = value.get("proof_duration_ms").and_then(|v| v.as_u64()) {
+            crate::timing::note(0, "server_proof_ms", ms as usize);
+        }
         let proof_value = value.get("proof").unwrap_or(value);
         if proof_value.is_null() {
             return Err(ClientError::ProverServer(
