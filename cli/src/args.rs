@@ -227,11 +227,7 @@ pub(crate) struct TestValidatorOptions {
     )]
     pub(crate) skip_indexer: bool,
 
-    #[arg(
-        long,
-        hide = true,
-        help = "Deprecated alias: Photon starts by default"
-    )]
+    #[arg(long, hide = true, help = "Deprecated alias: Photon starts by default")]
     pub(crate) with_photon: bool,
 
     #[arg(
