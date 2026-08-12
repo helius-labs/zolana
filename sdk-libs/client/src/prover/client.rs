@@ -1012,7 +1012,7 @@ mod tests {
         // time it spent waiting had not been charged against the deadline.
         assert_paths(
             &server.requests(),
-            ["/prove", "/prove/status?job_id=job-slow-status"],
+            ["/prove?wait=true", "/prove/status?job_id=job-slow-status"],
         );
     }
 
