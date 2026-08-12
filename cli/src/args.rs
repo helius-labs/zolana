@@ -220,7 +220,18 @@ pub(crate) struct TestValidatorOptions {
     #[arg(long, help = "Do not start the prover server")]
     pub(crate) skip_prover: bool,
 
-    #[arg(long, help = "Start a local Photon indexer")]
+    #[arg(
+        long,
+        help = "Do not start the Photon indexer",
+        conflicts_with = "with_photon"
+    )]
+    pub(crate) skip_indexer: bool,
+
+    #[arg(
+        long,
+        hide = true,
+        help = "Deprecated alias: Photon starts by default"
+    )]
     pub(crate) with_photon: bool,
 
     #[arg(
@@ -699,6 +710,10 @@ impl TestValidatorOptions {
         self.use_surfpool || !self.no_use_surfpool
     }
 
+    pub(crate) fn start_indexer(&self) -> bool {
+        !self.skip_indexer
+    }
+
     /// Fetch programs, account snapshots, and helper binaries from the pinned
     /// release unless the user opted into local builds or passed explicit
     /// programs (in which case those local artifacts take precedence).
@@ -822,6 +837,7 @@ mod tests {
             "--ledger <PATH>",
             "--log-dir <LOG_DIR>",
             "--photon-port <PHOTON_PORT>",
+            "--skip-indexer",
             "--sbf-program <ADDRESS> <PATH>",
         ] {
             assert!(help.contains(flag), "missing help entry for {flag}");
@@ -894,6 +910,8 @@ mod tests {
 
         assert!(!opts.use_surfpool_backend());
         assert!(opts.skip_prover);
+        assert!(!opts.skip_indexer);
+        assert!(opts.start_indexer());
         assert!(opts.with_photon);
         assert_eq!(opts.rpc_port, 8901);
         assert_eq!(opts.faucet_port, Some(9901));
@@ -943,6 +961,21 @@ mod tests {
             "target/deploy/pool.so",
         ]);
         assert!(!explicit_program.use_release());
+    }
+
+    #[test]
+    fn indexer_defaults_on_and_skip_indexer_opts_out() {
+        let default = parse_validator(&[]);
+        assert!(!default.skip_indexer);
+        assert!(default.start_indexer());
+
+        let skipped = parse_validator(&["--skip-indexer"]);
+        assert!(skipped.skip_indexer);
+        assert!(!skipped.start_indexer());
+
+        let alias = parse_validator(&["--with-photon"]);
+        assert!(alias.with_photon);
+        assert!(alias.start_indexer());
     }
 
     #[test]

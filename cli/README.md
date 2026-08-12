@@ -87,6 +87,13 @@ Every artifact is verified against the sha256 lockfile embedded in the CLI
 so repeat starts are offline. This means a fresh `cargo install --path cli` can
 boot a fully-initialized localnet with no repo checkout and nothing prebuilt.
 
+Skip the indexer or prover:
+
+```bash
+zolana dev start --skip-indexer
+zolana dev start --skip-prover
+```
+
 Use `--local` to run against locally built artifacts instead (what dev and CI
 use after `just build-programs` / `just build-prover-server` / `just
 build-photon`):
