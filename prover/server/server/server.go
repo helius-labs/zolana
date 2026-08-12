@@ -442,6 +442,7 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	forceAsync := r.Header.Get("X-Async") == "true" || r.URL.Query().Get("async") == "true"
 	forceSync := r.Header.Get("X-Sync") == "true" || r.URL.Query().Get("sync") == "true"
+	wait := r.Header.Get("X-Wait") == "true" || r.URL.Query().Get("wait") == "true"
 
 	shouldUseQueue := handler.shouldUseQueueForCircuit(proofRequestMeta.CircuitType)
 
@@ -449,12 +450,13 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Str("circuit_type", string(proofRequestMeta.CircuitType)).
 		Bool("force_async", forceAsync).
 		Bool("force_sync", forceSync).
+		Bool("wait", wait).
 		Bool("use_queue", shouldUseQueue).
 		Bool("queue_available", handler.enableQueue && handler.redisQueue != nil).
 		Msg("Processing prove request")
 
 	if shouldUseQueue && handler.enableQueue && handler.redisQueue != nil {
-		handler.handleAsyncProof(w, r, buf, proofRequestMeta)
+		handler.handleAsyncProof(w, r, buf, proofRequestMeta, wait)
 	} else {
 		handler.handleSyncProof(w, r, buf, proofRequestMeta)
 	}
@@ -852,7 +854,7 @@ func spawnServerJob(server *http.Server, label string) RunningJob {
 type healthHandler struct {
 }
 
-func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Request, buf []byte, meta common.ProofRequestMeta) {
+func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Request, buf []byte, meta common.ProofRequestMeta, wait bool) {
 	ProofRequestsTotal.WithLabelValues(string(meta.CircuitType)).Inc()
 	RecordCircuitInputSize(string(meta.CircuitType), len(buf))
 
@@ -874,6 +876,9 @@ func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Requ
 
 	// If deduplicated to an existing job, return early
 	if dedupResult.IsDeduplicated {
+		if wait && handler.respondIfWaitCompletes(w, r, dedupResult.JobID, inputHash, meta) {
+			return
+		}
 		response := map[string]interface{}{
 			"job_id":       dedupResult.JobID,
 			"status":       "already_queued",
@@ -953,6 +958,10 @@ func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	if wait && handler.respondIfWaitCompletes(w, r, jobID, inputHash, meta) {
+		return
+	}
+
 	estimatedTime := handler.getEstimatedTime(meta.CircuitType)
 
 	response := map[string]interface{}{
@@ -977,6 +986,89 @@ func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Requ
 		Str("queue", queueName).
 		Str("circuit_type", string(meta.CircuitType)).
 		Msg("Batch operation job queued successfully")
+}
+
+// respondIfWaitCompletes long-polls Redis for a queued job so a `wait=true`
+// POST /prove answers with the proof (or its failure) inline instead of a job
+// handle, sparing clients the /prove/status poll interval. Returns true when
+// a response was written; on false nothing was written and the caller falls
+// back to the async 202 job-handle response, where the client resumes
+// status polling as before.
+func (handler proveHandler) respondIfWaitCompletes(w http.ResponseWriter, r *http.Request, jobID string, inputHash string, meta common.ProofRequestMeta) bool {
+	// Bounded well under typical LB idle timeouts (60s) so a slow proof
+	// degrades into the job-handle path instead of a severed connection.
+	timeout := time.Duration(handler.getEstimatedTimeSeconds(meta.CircuitType)*4) * time.Second
+	if timeout < 10*time.Second {
+		timeout = 10 * time.Second
+	}
+	if timeout > 45*time.Second {
+		timeout = 45 * time.Second
+	}
+	deadline := time.Now().Add(timeout)
+	// Failure lookups scan the failed queue (O(n)), so check them at a
+	// coarser cadence than the O(1) result lookups.
+	lastFailureCheck := time.Time{}
+	for {
+		result, err := handler.redisQueue.GetResult(jobID)
+		if err == nil && result != nil {
+			logging.Logger().Info().
+				Str("job_id", jobID).
+				Str("circuit_type", string(meta.CircuitType)).
+				Msg("Wait-mode proof completed - returning result inline")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			if encodeErr := json.NewEncoder(w).Encode(result); encodeErr != nil {
+				logging.Logger().Error().
+					Err(encodeErr).
+					Str("job_id", jobID).
+					Str("response_type", "wait_result").
+					Msg("Failed to encode JSON response")
+			}
+			return true
+		}
+
+		if time.Since(lastFailureCheck) >= time.Second {
+			lastFailureCheck = time.Now()
+			failure, failedJobID, ferr := handler.redisQueue.FindCachedFailure(inputHash)
+			if ferr == nil && failure != nil && failedJobID == jobID {
+				logging.Logger().Warn().
+					Str("job_id", jobID).
+					Str("circuit_type", string(meta.CircuitType)).
+					Msg("Wait-mode proof failed - returning failure inline")
+				response := map[string]interface{}{
+					"job_id": jobID,
+					"status": "failed",
+					"result": failure,
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				if encodeErr := json.NewEncoder(w).Encode(response); encodeErr != nil {
+					logging.Logger().Error().
+						Err(encodeErr).
+						Str("job_id", jobID).
+						Str("response_type", "wait_failure").
+						Msg("Failed to encode JSON response")
+				}
+				return true
+			}
+		}
+
+		if time.Now().After(deadline) {
+			logging.Logger().Info().
+				Str("job_id", jobID).
+				Str("circuit_type", string(meta.CircuitType)).
+				Dur("waited", timeout).
+				Msg("Wait-mode window elapsed - falling back to job handle")
+			return false
+		}
+		select {
+		case <-r.Context().Done():
+			// Client went away; nothing was written, and the job keeps
+			// running so a status poll can still pick it up.
+			return false
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }
 
 func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Request, buf []byte, meta common.ProofRequestMeta) {

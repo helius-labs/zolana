@@ -24,6 +24,11 @@ use crate::{
 pub const SERVER_ADDRESS: &str = "http://127.0.0.1:3001";
 pub const HEALTH_CHECK: &str = "/health";
 pub const PROVE_PATH: &str = "/prove";
+/// Ask a queue-backed prover to hold the POST open and answer with the proof
+/// inline (bounded server-side) instead of a job handle. Provers without wait
+/// support ignore the parameter and return the handle, and the client falls
+/// back to status polling, so this is safe to send unconditionally.
+const PROVE_WAIT_QUERY: &str = "?wait=true";
 
 /// Default prover port, mirrored from the CLI's `DEFAULT_PROVER_PORT`. Used as
 /// the fallback when a custom [`server_address`] has no parseable port.
@@ -85,7 +90,10 @@ pub struct AsyncPollConfig {
 impl Default for AsyncPollConfig {
     fn default() -> Self {
         Self {
-            poll_interval_secs: 3,
+            // Polling is the fallback when the prover ignores `wait=true`;
+            // transfer proofs finish in ~1s, so anything coarser than 1s
+            // dominates the observed proving latency.
+            poll_interval_secs: 1,
             max_wait_secs: 1200,
         }
     }
@@ -204,7 +212,7 @@ impl ProverClient {
     }
 
     fn send(&self, body: String) -> Result<Proof, ClientError> {
-        let url = format!("{}{}", self.server_address, PROVE_PATH);
+        let url = format!("{}{}{}", self.server_address, PROVE_PATH, PROVE_WAIT_QUERY);
         let mut attempt = 0;
         let response = loop {
             attempt += 1;
@@ -405,7 +413,7 @@ impl AsyncProverClient {
     }
 
     async fn send(&self, body: String) -> Result<Proof, ClientError> {
-        let url = format!("{}{}", self.server_address, PROVE_PATH);
+        let url = format!("{}{}{}", self.server_address, PROVE_PATH, PROVE_WAIT_QUERY);
         let mut attempt = 0;
         loop {
             attempt += 1;
@@ -776,7 +784,7 @@ mod tests {
         assert_paths(
             &requests,
             [
-                "/prove",
+                "/prove?wait=true",
                 "/prove/status?job_id=job-1",
                 "/prove/status?job_id=job-1",
             ],
@@ -804,7 +812,10 @@ mod tests {
             .expect_err("failed async status should surface");
         let requests = server.requests();
 
-        assert_paths(&requests, ["/prove", "/prove/status?job_id=job-failed"]);
+        assert_paths(
+            &requests,
+            ["/prove?wait=true", "/prove/status?job_id=job-failed"],
+        );
         let message = err.to_string();
         assert!(message.contains("async proof failed"));
         assert!(message.contains("prover rejected witness"));
@@ -825,7 +836,7 @@ mod tests {
         assert_paths(
             &requests,
             [
-                "/prove",
+                "/prove?wait=true",
                 "/prove/status?job_id=job-slow",
                 "/prove/status?job_id=job-slow",
             ],
@@ -844,7 +855,10 @@ mod tests {
             .expect_err("malformed status body should fail");
         let requests = server.requests();
 
-        assert_paths(&requests, ["/prove", "/prove/status?job_id=job-bad-json"]);
+        assert_paths(
+            &requests,
+            ["/prove?wait=true", "/prove/status?job_id=job-bad-json"],
+        );
         assert!(err.to_string().contains("invalid status JSON"));
     }
 
@@ -865,7 +879,10 @@ mod tests {
             .expect_err("404 status should fail immediately");
         let requests = server.requests();
 
-        assert_paths(&requests, ["/prove", "/prove/status?job_id=missing-job"]);
+        assert_paths(
+            &requests,
+            ["/prove?wait=true", "/prove/status?job_id=missing-job"],
+        );
         let message = err.to_string();
         assert!(message.contains("status 404 Not Found"));
         assert!(message.contains("job_not_found"));
@@ -895,7 +912,7 @@ mod tests {
         assert_paths(
             &requests,
             [
-                "/prove",
+                "/prove?wait=true",
                 "/prove/status?job_id=job-transient",
                 "/prove/status?job_id=job-transient",
             ],
@@ -928,7 +945,7 @@ mod tests {
         assert_paths(
             &requests,
             [
-                "/prove",
+                "/prove?wait=true",
                 "/prove/status?job_id=async-job",
                 "/prove/status?job_id=async-job",
             ],
@@ -960,7 +977,7 @@ mod tests {
         assert_paths(
             &requests,
             [
-                "/prove",
+                "/prove?wait=true",
                 "/prove/status?job_id=async-transient",
                 "/prove/status?job_id=async-transient",
             ],
