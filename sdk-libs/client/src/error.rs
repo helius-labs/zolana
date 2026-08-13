@@ -230,13 +230,6 @@ pub enum ClientError {
 
     /// The indexer could not answer, for a reason that may not persist.
     /// Acted on by `Rpc::should_retry` during the confirmation poll.
-    ///
-    /// `reason` is what callers should branch on. `detail` is for humans and
-    /// carries the transport's own wording, which is often not what it looks
-    /// like: reqwest renders a body-read timeout as "error decoding response
-    /// body", which reads like a deserialization bug and is not one. Deciding
-    /// anything by searching that text is how a load generator ended up
-    /// classifying throttling with `message.contains("429")`.
     #[error("indexer temporarily unavailable: {reason} ({detail})")]
     IndexerUnavailable { reason: Unavailable, detail: String },
 
@@ -274,13 +267,6 @@ pub enum ClientError {
 
 impl ClientError {
     /// The on-chain program error code, when the chain rejected the transaction.
-    ///
-    /// Solana already models this: the RPC error carries a `TransactionError`,
-    /// which carries an `InstructionError::Custom(u32)`. Callers should read
-    /// that rather than the rendered message -- a load generator grouped
-    /// failures by the first 160 characters of the string, and the code sits at
-    /// roughly character 160, so a run reporting 10748 failures said nothing
-    /// about what any of them were.
     pub fn program_error_code(&self) -> Option<u32> {
         use solana_instruction::error::InstructionError;
         use solana_rpc_client_api::client_error::TransactionError;
@@ -295,22 +281,8 @@ impl ClientError {
     }
 }
 
-/// Why an indexer request failed, in a form callers can match on.
-///
-/// Exists so that nothing has to inspect an error message to decide what to do.
-/// The load generator used to separate throttling from real failure with
-/// `message.contains("429") || message.contains("rate")`, which counts a
-/// signature containing "429" as a rate limit and the word "generate" as one
-/// too, while missing a 503 entirely.
-///
-/// Every variant is retryable today. That is worth stating rather than
-/// assuming: the set is explicit, so adding a reason that is *not* retryable
-/// forces `should_retry` to be revisited instead of silently inheriting
-/// "retry anything unavailable".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum Unavailable {
-    /// Includes a timeout while reading the response body, which the transport
-    /// renders as "error decoding response body".
     #[error("request timed out")]
     Timeout,
 

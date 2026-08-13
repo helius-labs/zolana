@@ -25,13 +25,8 @@ pub const SERVER_ADDRESS: &str = "http://127.0.0.1:3001";
 pub const HEALTH_CHECK: &str = "/health";
 pub const PROVE_PATH: &str = "/prove";
 
-/// Default prover port, mirrored from the CLI's `DEFAULT_PROVER_PORT`. Used as
-/// the fallback when a custom [`server_address`] has no parseable port.
 const DEFAULT_PROVER_PORT: u16 = 3001;
 
-/// Address the local prover client connects to and that [`spawn_prover`] starts
-/// the server on. Defaults to [`SERVER_ADDRESS`]; set `ZOLANA_PROVER_URL` per
-/// local clone to avoid port contention between concurrent checkouts.
 pub fn server_address() -> String {
     match env::var("ZOLANA_PROVER_URL") {
         Ok(url) if !url.trim().is_empty() => url.trim().to_string(),
@@ -39,9 +34,6 @@ pub fn server_address() -> String {
     }
 }
 
-/// Extract the TCP port from a prover address so [`spawn_prover`] starts the
-/// server on the same port the client will connect to. Falls back to
-/// [`DEFAULT_PROVER_PORT`] when the address carries no parseable port.
 fn prover_port(server_address: &str) -> u16 {
     server_address
         .rsplit(':')
@@ -54,31 +46,12 @@ fn prover_port(server_address: &str) -> u16 {
 const STARTUP_HEALTH_CHECK_RETRIES: usize = 300;
 static IS_LOADING: AtomicBool = AtomicBool::new(false);
 
-// A heavy cold proof (the first P256 request loads a 63MB key and runs a
-// 205k-constraint Groth16 prove) can drop the HTTP connection under CPU/memory
-// contention while the server stays up. Proof generation is idempotent, so the
-// request is retried; the key is warm by the next attempt and proves quickly.
 const PROVE_MAX_ATTEMPTS: usize = 3;
 const PROVE_RETRY_BACKOFF_SECS: u64 = 2;
-// Generous bound so a slow cold prove never hangs the client forever; the server
-// caps sync work at 120–180s depending on circuit, so a clean timeout returns
-// well before this.
 const PROVE_REQUEST_TIMEOUT_SECS: u64 = 600;
 const PROVE_CONNECT_TIMEOUT_SECS: u64 = 10;
-/// Per-request bound on a `/prove/status` poll.
-///
-/// The status endpoint reads one Redis key and returns; it is not the request
-/// that 600s was sized for. Sharing the prove timeout let a single hung poll
-/// block a worker for ten minutes, and since the poll loop retries, the delays
-/// stacked: a 220-worker run whose proofs had all finished or been reaped sat
-/// wedged for over half an hour, every worker parked inside a status GET.
 const STATUS_POLL_TIMEOUT_SECS: u64 = 30;
-/// Polling cadence and ceiling for async (queued) proofs. Redis-backed provers
-/// queue batch, transfer, and merge proofs and return a job handle immediately
-/// instead of blocking; the client then polls the status endpoint until the
-/// proof completes or `max_wait_secs` elapses. The first batch job loads a
-/// multi-GB proving key before proving, so the default ceiling is generous.
-///
+
 /// Held on the [`ProverClient`] and overridable via
 /// [`ProverClient::with_async_poll_config`], mirroring light-client's
 /// `RetryConfig` (a client-held config with a `Default`).
@@ -88,11 +61,6 @@ pub struct AsyncPollConfig {
     pub poll_interval_secs: u64,
     /// Wall-clock seconds to wait for a queued proof before returning a timeout
     /// error.
-    ///
-    /// Wall clock, measured from the first poll. It used to be a running total
-    /// of time *slept*, which bounds nothing: the time inside each request did
-    /// not count, so with a 600s request timeout this "1200s" ceiling permitted
-    /// well over a day of waiting.
     pub max_wait_secs: u64,
 }
 
@@ -270,24 +238,6 @@ impl ProverClient {
     /// Poll the async job status endpoint until the queued proof completes.
     fn poll_async(&self, job_id: &str) -> Result<Proof, ClientError> {
         let url = format!("{}/prove/status?job_id={}", self.server_address, job_id);
-        // The configured interval caps the backoff rather than setting it. This
-        // used to be `.max(1)` and `sleep_secs`, which put a hard 1s floor on
-        // every proof: a 270ms proof measured 3.3s end to end, essentially all
-        // of it spent asleep between polls.
-        // The backoff ceiling is deliberately left to `poll_interval_secs` rather than
-        // clamped to something tighter.
-        //
-        // Tightening it to 250ms looks like an obvious win -- a finished proof then
-        // waits at most a quarter second to be collected -- and it measurably is not.
-        // Two 8-worker load tests, identical apart from this ceiling:
-        //
-        //     ceiling 1s     prove mean 2025ms   1.14 tps
-        //     ceiling 250ms  prove mean 3632ms   0.92 tps
-        //
-        // sync, send, and confirm were unchanged across the pair, so the regression is
-        // isolated to proving. Polling four times as hard contends with the prover's
-        // own queue rather than shortening the wait. Poll often enough to avoid the
-        // whole-second floor, then get out of the way.
         let poll_cap_ms = self
             .async_poll
             .poll_interval_secs
@@ -374,16 +324,10 @@ impl ProverClient {
     }
 }
 
-/// First gap between status polls. A transfer proof completes in well under a
-/// second, so the first poll should land almost immediately; the cost of being
-/// early is one cheap GET.
+/// First gap between status polls.
 const INITIAL_POLL_MS: u64 = 25;
 
 /// Next gap in the backoff, doubling up to `cap_ms`.
-///
-/// The configured poll interval is the CEILING, not a fixed period: a proof that
-/// finishes in 270ms should not wait a full second to be collected, but a proof
-/// that takes a minute should not be polled 2400 times either.
 fn next_poll_interval_ms(current_ms: u64, cap_ms: u64) -> u64 {
     current_ms
         .saturating_mul(2)
@@ -391,11 +335,6 @@ fn next_poll_interval_ms(current_ms: u64, cap_ms: u64) -> u64 {
 }
 
 /// How long is left before the deadline, or `Err` if it has passed.
-///
-/// Shared by the blocking and async poll loops so one definition of "expired"
-/// covers both. `started`/`max_wait` are wall clock: the previous version added
-/// up only the sleeps, which meant time spent inside a request was free and the
-/// ceiling bounded nothing.
 fn remaining_before_deadline(
     job_id: &str,
     started: Instant,
@@ -689,10 +628,6 @@ fn spawn_prover_inner(
     }
 }
 
-/// Start the test prover from an explicit CLI binary and key-cache directory.
-/// Repository tests use this entry point so neither artifact is discovered
-/// from Git or `PATH`. A healthy server is reused so separate test binaries keep
-/// its lazily loaded proving keys warm.
 pub fn spawn_prover_with_artifacts(
     cli_bin: impl AsRef<Path>,
     keys_dir: impl AsRef<Path>,
@@ -838,15 +773,6 @@ mod tests {
         );
     }
 
-    /// The prover is queue-backed: `/prove` returns a job handle and the proof
-    /// is collected by polling. The gap between polls used to be
-    /// `Duration::from_secs(poll_interval.max(1))`, so a proof the server
-    /// finished in 270ms was not collected for a further second or more --
-    /// measured on devnet as 3.3s end to end for 270ms of proving, which made
-    /// the prover call the largest phase of a transfer for no real reason.
-    ///
-    /// Asserts wall-clock rather than the sleep arithmetic, because the bug was
-    /// only visible as latency.
     #[test]
     fn a_proof_ready_on_the_first_poll_is_not_held_for_a_whole_second() {
         let server = MockServer::respond_with(vec![
@@ -961,21 +887,6 @@ mod tests {
         assert!(message.contains("prover rejected witness"));
     }
 
-    /// The deadline is wall clock, so a slow-but-alive status endpoint cannot
-    /// stretch it.
-    ///
-    /// This is the case the old accounting missed. It summed only the time
-    /// *slept* between polls, so a poll that took 1.5s to answer added nothing
-    /// to the total: the client stayed under a 1s "ceiling" indefinitely. In
-    /// production, with a 600s request timeout inherited from the prove call,
-    /// that turned a 1200s bound into a hang -- 220 workers sat wedged for 35
-    /// minutes with the prover queue empty.
-    ///
-    /// The single poll here answers after 1.5s against a 1s ceiling, so the
-    /// client must give up on it alone. Under the old rule that poll counted as
-    /// 0ms, leaving the whole budget unspent, and polling continued -- so the
-    /// server is held open to record any further polls rather than refusing
-    /// them where they would go unseen.
     #[test]
     fn a_slow_status_endpoint_cannot_extend_the_deadline() {
         let server = MockServer::respond_then_hold(vec![
@@ -1319,14 +1230,6 @@ mod tests {
             }
         }
 
-        /// Like [`respond_with`], but after the scripted responses run out the
-        /// last one repeats for as long as the client keeps asking.
-        ///
-        /// `respond_with` stops answering once its list is exhausted, which
-        /// makes "the client polled more times than it should have" invisible:
-        /// the extra polls hit a closed port and go unrecorded. Holding the
-        /// server open records them, so a test can assert on the exact number
-        /// of polls. [`requests`] stops the server.
         fn respond_then_hold(responses: Vec<MockResponse>) -> Self {
             let listener =
                 TcpListener::bind("127.0.0.1:0").expect("mock server should bind to a local port");

@@ -51,9 +51,6 @@ pub struct SignedPrivateTransaction {
     pub input_tree: Address,
 }
 
-/// Compute-unit ceiling a private transaction is submitted with unless the
-/// caller overrides it. A shielded `Transact` verifies a Groth16 proof on-chain,
-/// which does not fit inside the default per-instruction budget.
 pub const DEFAULT_TRANSACT_CU_LIMIT: u32 = 300_000;
 
 /// Unified client for private transaction proving and submission helpers.
@@ -212,15 +209,6 @@ impl<R: Rpc> ZolanaClient<R> {
     }
 
     /// Fetches the blockhash itself, after proving rather than before.
-    ///
-    /// Callers used to fetch one and hand it in, which put a multi-second proof
-    /// between the blockhash and the send. Under load that window exceeded the
-    /// blockhash lifetime and the transaction was rejected at submission,
-    /// having already paid for the sync and the proof: an 80-worker run lost
-    /// 297 of 337 transfers to "Blockhash not found".
-    ///
-    /// `R: Sync` because the two proof fetches below share the indexer across
-    /// scoped threads.
     pub fn finish_submission_unsigned_sync(
         &self,
         signed: &SignedPrivateTransaction,
@@ -232,9 +220,6 @@ impl<R: Rpc> ZolanaClient<R> {
         validate_fee_payer_pubkey(&signed.transaction.payer, fee_payer)?;
         let owner_signers = signed.transaction.owner_signer_pubkeys()?;
         let commitments = signed.transaction.input_utxo_hashes()?;
-        // Two independent indexer round trips (317ms and 114ms on devnet) that
-        // ran back to back. Nothing links them: different methods, and neither
-        // consumes the other's output.
         let (spend_proofs, dummy_proofs) = std::thread::scope(|scope| {
             let spend = scope.spawn(|| {
                 let _t = crate::timing::Phase::start("fetch_spend_proofs", 0);
@@ -256,7 +241,6 @@ impl<R: Rpc> ZolanaClient<R> {
             });
             (spend.join(), dummy.join())
         });
-        // A panic here is a bug in proof assembly, not an unreachable indexer.
         let spend_proofs =
             spend_proofs.unwrap_or_else(|payload| std::panic::resume_unwind(payload))?;
         let dummy_proofs =
@@ -268,8 +252,6 @@ impl<R: Rpc> ZolanaClient<R> {
             self.blocking_prover().prove_transfer(inputs)?
         };
         let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
-        // Last thing before building, so the blockhash is as young as it can be
-        // when the transaction reaches the cluster.
         let (recent_blockhash, _) = self.rpc().get_latest_blockhash()?;
         build_unsigned_solana_transaction(
             ComputeBudgetConfig {

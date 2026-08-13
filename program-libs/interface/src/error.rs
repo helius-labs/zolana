@@ -20,19 +20,6 @@ pub enum InterfaceError {
 }
 
 /// Declares the error enum and its reverse lookup from one list.
-///
-/// A client sees only a number -- `custom program error: 0x1b60` -- so naming
-/// it needs a code-to-variant map. Maintaining that map by hand is how 0x1b60
-/// got called `StaleNullifierRoot` for a day: it is 7008,
-/// `TransactProofVerificationFailed`, while `StaleNullifierRoot` is 7015. The
-/// wrong name came from reading a `TreeError` conversion instead of this table
-/// and survived into three commit messages because nothing checked it.
-///
-/// Generating both directions from one list means a new variant cannot be
-/// added without `from_code` learning it. A derive macro (strum's `EnumIter`)
-/// would do the same, but this crate compiles into the on-chain program and
-/// keeps its dependency list to what the program needs; a `macro_rules!` costs
-/// nothing at all.
 macro_rules! shielded_pool_errors {
     ($(
         $(#[$attr:meta])*
@@ -202,11 +189,6 @@ mod tests {
     use super::{ShieldedPoolError, ShieldedPoolError::*};
 
     /// Every pinned code must map back to the variant it came from.
-    ///
-    /// `expected_code` below is exhaustive with no wildcard, so a new variant
-    /// stops this file compiling until it is listed there -- and because the
-    /// enum and `from_code` are generated from one list, the lookup learns it
-    /// at the same moment. This asserts the two really do agree.
     #[test]
     fn every_code_maps_back_to_its_variant() {
         for error in [
