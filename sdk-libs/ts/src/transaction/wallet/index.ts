@@ -12,7 +12,12 @@ export {
 } from "./authority.js";
 export { AssetRegistry, SOL_ASSET_ID, SOL_MINT } from "./asset.js";
 export { deserializeWallet, serializeWallet, type SerializedWalletState } from "./persistence.js";
-export { decryptTransactions, decryptTransactionsWorkerEquivalent } from "./sync.js";
+export {
+  decryptToBalances,
+  decryptTransactions,
+  decryptTransactionsWorkerEquivalent,
+  type PrivateBalances,
+} from "./sync.js";
 export { Wallet } from "./state.js";
 export type {
   AssetBalance,

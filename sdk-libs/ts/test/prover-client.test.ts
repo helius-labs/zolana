@@ -111,20 +111,55 @@ describe("queued prover polling", () => {
 describe("prover request routing", () => {
   it("routes merge through its canonical circuit type", async () => {
     const bodies: unknown[] = [];
+    const urls: URL[] = [];
     const redirects: (RequestRedirect | undefined)[] = [];
-    const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
+    const fetch = vi.fn(async (input: URL | string, init?: RequestInit) => {
+      urls.push(new URL(String(input)));
       bodies.push(JSON.parse(String(init?.body)));
       redirects.push(init?.redirect);
       return new Response(JSON.stringify(STANDARD_PROOF), {
         headers: { "content-type": "application/json" },
       });
     }) as typeof globalThis.fetch;
-    const prover = new ProverClient({ url: "http://127.0.0.1:3001", fetch });
+    const prover = new ProverClient({
+      url: "https://gateway.example/zolana?api-key=k%2B1&tenant=alpha",
+      fetch,
+    });
 
     await prover.proveMerge(mergeInputs());
 
     expect(bodies).toMatchObject([{ circuitType: "merge" }]);
     expect(redirects).toEqual(["error"]);
+    expect(urls[0]?.pathname).toBe("/zolana/prove");
+    expect(urls[0]?.searchParams.get("api-key")).toBe("k+1");
+    expect(urls[0]?.searchParams.get("tenant")).toBe("alpha");
+  });
+
+  it("preserves endpoint queries when polling a queued proof", async () => {
+    const urls: URL[] = [];
+    const fetch = vi.fn(async (input: URL | string) => {
+      const url = new URL(String(input));
+      urls.push(url);
+      return urls.length === 1
+        ? new Response(JSON.stringify({ job_id: "job-123" }), {
+            status: 202,
+            headers: { "content-type": "application/json" },
+          })
+        : new Response(JSON.stringify({ status: "completed", result: STANDARD_PROOF }), {
+            headers: { "content-type": "application/json" },
+          });
+    }) as typeof globalThis.fetch;
+    const prover = new ProverClient({
+      url: "https://gateway.example/zolana?api-key=k%2B1&tenant=alpha",
+      fetch,
+    });
+
+    await prover.prove(INPUTS);
+
+    expect(urls.map((url) => url.pathname)).toEqual(["/zolana/prove", "/zolana/prove/status"]);
+    expect(urls[1]?.searchParams.get("api-key")).toBe("k+1");
+    expect(urls[1]?.searchParams.get("tenant")).toBe("alpha");
+    expect(urls[1]?.searchParams.get("job_id")).toBe("job-123");
   });
 });
 

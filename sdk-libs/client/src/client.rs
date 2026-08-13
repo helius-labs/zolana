@@ -297,6 +297,9 @@ impl<R: Rpc> ZolanaClient<R> {
 
     /// Wait until Solana confirms the transaction and Photon has indexed a
     /// Rings event for it.
+    ///
+    /// Confirming first turns a transaction that failed on chain into a chain
+    /// error, instead of an indexer timeout that blames the wrong subsystem.
     pub fn confirm_private_transaction_sync(
         &self,
         signature: Signature,
@@ -349,6 +352,9 @@ impl<R: AsyncRpc> ZolanaClient<R> {
 
     /// Wait until Solana confirms the transaction and Photon has indexed a
     /// Rings event for it.
+    ///
+    /// Confirming first turns a transaction that failed on chain into a chain
+    /// error, instead of an indexer timeout that blames the wrong subsystem.
     pub async fn confirm_private_transaction(
         &self,
         signature: Signature,

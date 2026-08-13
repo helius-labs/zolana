@@ -3,6 +3,7 @@ import {
   SolanaError,
   address,
   getBase58Decoder,
+  type Signature,
 } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
@@ -62,7 +63,8 @@ function proofFixture(): Readonly<{ proofInputs: SppProofInputs; spendProof: Spe
   });
   const ownerTag = bytes(8);
   const proofInputs = new SppProofInputs({
-    payerPublicKeyHash: bytes(9),
+    // The payer must own the input notes: only its own are provable.
+    payer: keypair.shieldedAddress().solanaAddress(),
     inputUtxos: [input],
     outputs: [output],
     externalData: createExternalData({
@@ -238,7 +240,19 @@ describe("ZolanaClient", () => {
     expect(instance).not.toHaveProperty("sendTransaction");
     expect(instance).not.toHaveProperty("signAndSendInstructions");
     expect(instance).not.toHaveProperty("submitPrivateTransaction");
-    expect(instance).not.toHaveProperty("confirmPrivateTransaction");
+  });
+
+  it("resolves confirmTransaction to the slot the transaction landed in", async () => {
+    const instance = client();
+    const send = vi.fn(async () => ({
+      value: [{ slot: 42n, err: null, confirmationStatus: "confirmed" }],
+    }));
+    Object.defineProperty(instance, "solanaRpc", {
+      value: { getSignatureStatuses: () => ({ send }) },
+    });
+
+    await expect(instance.confirmTransaction("1".repeat(64) as Signature)).resolves.toBe(42n);
+    expect(send).toHaveBeenCalledOnce();
   });
 
   it("rejects malformed service URLs before any request", () => {
@@ -291,18 +305,18 @@ describe("ZolanaClient", () => {
     for (const { config, field } of [
       {
         config: { solanaRpcUrl: "http://rpc.example.com" },
-        field: "indexerUrl",
+        field: "solanaRpcUrl",
       },
       {
         config: {
           solanaRpcUrl: "http://rpc.example.com",
           indexerUrl: INDEXER_URL,
         },
-        field: "proverUrl",
+        field: "solanaRpcUrl",
       },
     ] satisfies readonly Readonly<{
       config: ZolanaClientConfig;
-      field: "indexerUrl" | "proverUrl";
+      field: "solanaRpcUrl";
     }>[]) {
       let error: unknown;
       try {

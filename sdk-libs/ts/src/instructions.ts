@@ -12,12 +12,12 @@ export {
   type ProtocolConfigUpdate,
   type SignerAccount,
 } from "./interface/instructions/index.js";
-export type {
-  AssetDeposit,
+export {
   DepositAsset,
-  DepositInstructionData,
-  DepositSplAccounts,
-  MergeTransactInstructionData,
-  TransactInstructionData,
   TransactWithdrawal,
+  type AssetDeposit,
+  type DepositInstructionData,
+  type DepositSplAccounts,
+  type MergeTransactInstructionData,
+  type TransactInstructionData,
 } from "./interface/index.js";

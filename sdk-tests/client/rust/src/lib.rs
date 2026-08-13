@@ -9,7 +9,7 @@ use zolana_interface::{
     state::tree_account_size,
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::ShieldedKeypair;
+use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
 use zolana_program_test::system_create_account_ix;
 use zolana_test_utils::{
     localnet::LocalnetValidator,
@@ -21,12 +21,12 @@ pub struct SetupContext {
     pub indexer_url: String,
     pub prover_url: String,
     pub tree: Pubkey,
-    pub alice: ShieldedKeypair,
-    pub bob: ShieldedKeypair,
+    pub sender: ShieldedKeypair,
+    pub recipient_address: ShieldedAddress,
 }
 
 pub fn setup() -> Result<SetupContext> {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../..");
     let cli =
         std::env::var("ZOLANA_CLI_BIN").unwrap_or_else(|_| format!("{root}/target/debug/zolana"));
     let rpc_port = std::env::var("ZOLANA_LOCALNET_RPC_PORT").unwrap_or_else(|_| "8899".to_string());
@@ -61,7 +61,7 @@ pub fn setup() -> Result<SetupContext> {
         "ZOLANA_PROVER_KEYS_DIR",
         concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../prover/server/proving-keys"
+            "/../../../prover/server/proving-keys"
         ),
     );
     spawn_prover()?;
@@ -156,16 +156,16 @@ pub fn setup() -> Result<SetupContext> {
     )?;
     let tree = tree.pubkey();
 
-    let alice = new_wallet(&mut rpc)?;
-    let bob = new_wallet(&mut rpc)?;
+    let sender = new_wallet(&mut rpc)?;
+    let recipient_address = new_wallet(&mut rpc)?.shielded_address()?;
 
     Ok(SetupContext {
         rpc_url,
         indexer_url,
         prover_url,
         tree,
-        alice,
-        bob,
+        sender,
+        recipient_address,
     })
 }
 

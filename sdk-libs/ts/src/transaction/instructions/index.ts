@@ -11,6 +11,7 @@ export {
   SENDER_SLOT_COUNT,
   SPP_SUPPORTED_SHAPES,
   SppProofInputs,
+  WithdrawalTarget,
   assetField,
   canonicalShape,
   createEncryptedTransaction,
@@ -35,5 +36,4 @@ export type {
   PrivateTxHashInput,
   PublicAmounts,
   Shape,
-  WithdrawalTarget,
 } from "./transact.js";

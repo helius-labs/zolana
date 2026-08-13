@@ -7,7 +7,7 @@ import { ShieldedKeypair, type ShieldedAddress } from "../../keypair/shielded.js
 
 import { Data } from "../data.js";
 import { TransactionError } from "../error.js";
-import { checked, decodeAddress, equal, hashField } from "../internal.js";
+import { checked, equal } from "../internal.js";
 import { encodeSplitBundle, encryptSplit } from "../serialization/codecs.js";
 import {
   ProofInputUtxo,
@@ -195,7 +195,7 @@ export class ConfidentialSplit {
   readonly #asset: Address;
   readonly #numOutputs: number;
   readonly #perOutputAmount: bigint;
-  readonly #payerHash: Bytes32;
+  readonly #payer: Address;
   readonly #seed = randomBlinding();
 
   constructor(
@@ -216,15 +216,17 @@ export class ConfidentialSplit {
     if (input.owner.signingPublicKey.signatureType() === "p256") {
       throw new TransactionError("TRANSACTION_P256_TRANSACT_UNSUPPORTED");
     }
+    // Only the payer occupies a non-zero slot in the circuit's signer vector, so
+    // a note owned by anyone else cannot be authorized.
     if (input.owner.solanaAddress() !== input.payer) {
       throw new TransactionError("TRANSACTION_ED25519_PAYER_MISMATCH", {
         owner: input.owner.solanaAddress(),
         payer: input.payer,
       });
     }
-    // Split proves ownership in-circuit from the nullifier secret behind
-    // `ownerHash`, so an input the splitter cannot open is unprovable. A
-    // zero-owner slot has no openable owner hash at all.
+    // Ownership is proven from the nullifier secret behind `ownerHash`, so an
+    // input the splitter cannot open is unprovable. A zero-owner slot has no
+    // openable owner hash at all.
     if (input.input.isDummy()) {
       throw new TransactionError("TRANSACTION_SPLIT_INPUT_IS_DUMMY");
     }
@@ -260,7 +262,7 @@ export class ConfidentialSplit {
     this.#asset = input.asset;
     this.#numOutputs = input.numOutputs;
     this.#perOutputAmount = perOutputAmount;
-    this.#payerHash = hashField(decodeAddress(input.payer));
+    this.#payer = input.payer;
   }
 
   prepare(): PreparedSplit {
@@ -279,7 +281,7 @@ export class ConfidentialSplit {
       numOutputs: this.#numOutputs,
       perOutputAmount: this.#perOutputAmount,
       blindingSeed: this.#seed,
-      payerPublicKeyHash: this.#payerHash,
+      payer: this.#payer,
     });
   }
 
@@ -319,7 +321,7 @@ export class PreparedSplit {
   readonly numOutputs: number;
   readonly perOutputAmount: bigint;
   readonly blindingSeed: Bytes32;
-  readonly payerPublicKeyHash: Bytes32;
+  readonly payer: Address;
 
   constructor(
     input: Readonly<{
@@ -329,7 +331,7 @@ export class PreparedSplit {
       numOutputs: number;
       perOutputAmount: bigint;
       blindingSeed: Bytes32;
-      payerPublicKeyHash: Bytes32;
+      payer: Address;
     }>,
   ) {
     if (!Number.isInteger(input.numOutputs) || input.numOutputs < 2 || input.numOutputs > 8) {
@@ -368,11 +370,7 @@ export class PreparedSplit {
     this.numOutputs = input.numOutputs;
     this.perOutputAmount = perOutputAmount;
     this.blindingSeed = blindingSeed;
-    this.payerPublicKeyHash = checked<Bytes32>(
-      input.payerPublicKeyHash,
-      32,
-      "payer public key hash",
-    );
+    this.payer = input.payer;
   }
 
   bundlePlaintext(
@@ -411,7 +409,7 @@ export class PreparedSplit {
       ...(index === 0 ? { data: new Uint8Array(input.payload.data) } : {}),
     }));
     return new SppProofInputs({
-      payerPublicKeyHash: this.payerPublicKeyHash,
+      payer: this.payer,
       inputUtxos: [this.input],
       outputs: this.outputs,
       externalData: createExternalData({

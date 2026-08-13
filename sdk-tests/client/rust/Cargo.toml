@@ -12,6 +12,7 @@ path = "src/lib.rs"
 anyhow = { workspace = true }
 solana-keypair = { workspace = true }
 solana-pubkey = { workspace = true }
+solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
 zolana-interface = { workspace = true }
@@ -23,4 +24,4 @@ zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 
 [[example]]
 name = "deposit_transfer_withdraw"
-path = "examples/deposit_transfer_withdraw.rs"
+path = "deposit_transfer_withdraw.rs"

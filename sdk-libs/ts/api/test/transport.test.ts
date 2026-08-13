@@ -47,6 +47,20 @@ describe("transport configuration", () => {
     expect(injected.mock.calls[0]?.[1]?.redirect).toBe("error");
   });
 
+  it("preserves query parameters from a shared endpoint", async () => {
+    const injected = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(success()));
+    const api = new ZolanaApi({
+      url: "https://gateway.example/zolana?api-key=k%2B1&tenant=alpha",
+      fetch: injected,
+    });
+
+    await api.getMerkleProofs(REQUEST);
+
+    expect(String(injected.mock.calls[0]?.[0])).toBe(
+      "https://gateway.example/zolana/get_merkle_proofs?tenant=alpha&api-key=k%2B1",
+    );
+  });
+
   it("copies URL configuration before use", async () => {
     const url = new URL("https://rpc.example.test/first");
     const injected = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(success()));

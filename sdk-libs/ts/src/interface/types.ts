@@ -29,12 +29,12 @@ export interface UtxoData {
 
 export type DepositAssetKind =
   | Readonly<{ kind: "sol" }>
-  | Readonly<{ kind: "spl"; vaultBump: number }>;
+  | Readonly<{ kind: "spl"; splInterfaceBump: number }>;
 
 export interface DepositEntry {
   readonly assetIndex: number;
   readonly viewTag: Bytes32;
-  readonly owner: Bytes32;
+  readonly recipientOwnerHash: Bytes32;
   readonly blinding: Bytes32;
   readonly amount: bigint;
   readonly utxoData?: UtxoData;
@@ -43,13 +43,25 @@ export interface DepositEntry {
 
 export interface DepositSplAccounts {
   readonly mint: Address;
-  readonly userToken: Address;
+  readonly sourceTokenAccount: Address;
   readonly tokenProgram: Address;
 }
 
 export type DepositAsset =
   | Readonly<{ kind: "sol" }>
   | Readonly<{ kind: "spl"; accounts: DepositSplAccounts }>;
+
+export const DepositAsset = Object.freeze({
+  sol(): Extract<DepositAsset, { kind: "sol" }> {
+    return Object.freeze({ kind: "sol" });
+  },
+  spl(accounts: DepositSplAccounts): Extract<DepositAsset, { kind: "spl" }> {
+    return Object.freeze({
+      kind: "spl",
+      accounts: Object.freeze({ ...accounts }),
+    });
+  },
+});
 
 export interface AssetDeposit extends Omit<DepositEntry, "assetIndex"> {
   readonly asset: DepositAsset;
@@ -117,8 +129,8 @@ export type CircuitId =
 export type InterfaceTransfer =
   | Readonly<{ kind: "solDeposit"; amount: bigint }>
   | Readonly<{ kind: "solWithdrawal"; amount: bigint }>
-  | Readonly<{ kind: "splDeposit"; amount: bigint; vaultBump: number }>
-  | Readonly<{ kind: "splWithdrawal"; amount: bigint; vaultBump: number }>;
+  | Readonly<{ kind: "splDeposit"; amount: bigint; splInterfaceBump: number }>
+  | Readonly<{ kind: "splWithdrawal"; amount: bigint; splInterfaceBump: number }>;
 
 export type ResolvedInterfaceTransfer =
   | Readonly<{ kind: "solDeposit"; amount: bigint; recipient: Address }>
@@ -126,14 +138,14 @@ export type ResolvedInterfaceTransfer =
   | Readonly<{
       kind: "splDeposit";
       amount: bigint;
-      userTokenAccount: Address;
-      vault: Address;
+      tokenAccount: Address;
+      splInterfacePda: Address;
     }>
   | Readonly<{
       kind: "splWithdrawal";
       amount: bigint;
-      userTokenAccount: Address;
-      vault: Address;
+      tokenAccount: Address;
+      splInterfacePda: Address;
     }>;
 
 export interface TransactInstructionData {
@@ -157,9 +169,25 @@ export type TransactWithdrawal =
       kind: "spl";
       mint: Address;
       splTokenInterface: Address;
-      userTokenAccount: Address;
+      recipientTokenAccount: Address;
       tokenProgram: Address;
     }>;
+
+export const TransactWithdrawal = Object.freeze({
+  sol(input: Readonly<{ recipient: Address }>): Extract<TransactWithdrawal, { kind: "sol" }> {
+    return Object.freeze({ ...input, kind: "sol" });
+  },
+  spl(
+    input: Readonly<{
+      mint: Address;
+      splTokenInterface: Address;
+      recipientTokenAccount: Address;
+      tokenProgram: Address;
+    }>,
+  ): Extract<TransactWithdrawal, { kind: "spl" }> {
+    return Object.freeze({ ...input, kind: "spl" });
+  },
+});
 
 export interface ProtocolConfigAccount {
   readonly authority: Address;

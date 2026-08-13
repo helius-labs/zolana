@@ -93,6 +93,15 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Some("generate-account-snapshots") => {
+            let (deploy_dir, accounts_dir) = parse_account_snapshot_options(args.collect());
+            if let Err(error) =
+                create_release::generate_account_snapshots(&deploy_dir, &accounts_dir)
+            {
+                eprintln!("generate-account-snapshots failed: {error:?}");
+                std::process::exit(1);
+            }
+        }
         Some("tx-size") => tx_size(args.collect()),
         Some("--help") | Some("-h") | None => print_help(),
         Some(command) => {
@@ -101,6 +110,33 @@ fn main() {
             std::process::exit(2);
         }
     }
+}
+
+fn parse_account_snapshot_options(args: Vec<String>) -> (PathBuf, PathBuf) {
+    let mut deploy_dir = PathBuf::from("target/deploy");
+    let mut accounts_dir = PathBuf::from("target/localnet-accounts");
+    let mut args = args.into_iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--deploy-dir" => {
+                deploy_dir = args
+                    .next()
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| usage_and_exit("--deploy-dir missing value"));
+            }
+            "--accounts-dir" => {
+                accounts_dir = args
+                    .next()
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| usage_and_exit("--accounts-dir missing value"));
+            }
+            other => usage_and_exit(&format!(
+                "generate-account-snapshots: unexpected arg {other:?} \
+                 (options: --deploy-dir <dir>, --accounts-dir <dir>)"
+            )),
+        }
+    }
+    (deploy_dir, accounts_dir)
 }
 
 fn print_program_ids() {
@@ -119,6 +155,13 @@ fn print_program_ids() {
     println!(
         "SWAP_PROGRAM_ID={}",
         bs58::encode(swap_program::ID).into_string()
+    );
+    // The canonical account snapshots pre-allocate the state Merkle tree that
+    // stores private token accounts (UTXOs) at this address, so localnet
+    // callers never create one.
+    println!(
+        "DEFAULT_TREE_ADDRESS={}",
+        zolana_interface::DEFAULT_TREE_ADDRESS
     );
 }
 
@@ -334,6 +377,9 @@ fn print_help() {
     println!("  update-protocol-config   Update protocol config flags on a cluster (see --help)");
     println!(
         "  create-release           Build the localnet release artifacts + lockfile (see --help)"
+    );
+    println!(
+        "  generate-account-snapshots  Generate canonical protocol accounts from the local build"
     );
     println!("  tx-size [N:M ...]        Compute serialized transaction sizes per circuit shape");
 }

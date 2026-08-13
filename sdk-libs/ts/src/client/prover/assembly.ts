@@ -59,14 +59,6 @@ export function circuitUtxo(value: object): CircuitUtxo {
   return result;
 }
 
-export function intoProver(
-  proofInputs: SppProofInputs,
-  spendProofs: readonly SpendProof[],
-  dummyNullifierProofs: readonly NonInclusionProof[] = [],
-): ProverInputs {
-  return assemble(proofInputs, spendProofs, dummyNullifierProofs).proverInputs;
-}
-
 export function assemble(
   proofInputs: SppProofInputs,
   spendProofs: readonly SpendProof[],
@@ -114,9 +106,12 @@ function assembleUnchecked(
     asset,
     movements.amounts[index] ?? 0n,
   ]);
-  const payerPublicKeyHash = bytesField(proofInputs.payerPublicKeyHash, "payer public key hash");
+  // The circuit authorizes an input owner by finding its Poseidon owner hash in
+  // this vector, so the payer enters as `hashField`, matching Rust's
+  // `signer_pk_hashes`.
+  const payerSignerHash = hashField(addressBytes(proofInputs.payer));
   const signerPublicKeyHashes = [
-    payerPublicKeyHash,
+    payerSignerHash,
     ...Array.from({ length: inputHashes.length }, () => 0n),
   ];
   const allowDummyInputs = 1n;
@@ -189,7 +184,7 @@ function assembleUnchecked(
           : Object.freeze({
               kind: transfer.isDeposit ? ("splDeposit" as const) : ("splWithdrawal" as const),
               amount: transfer.amount,
-              vaultBump: transfer.vaultBump,
+              splInterfaceBump: transfer.splInterfaceBump,
             }),
       ),
     ),

@@ -30,7 +30,7 @@ import {
   splAssetCounterAddress,
   splAssetRegistryAddress,
   splAssetVaultAddress,
-  splAssetVaultPda,
+  splInterfaceWithBump,
 } from "../pda/index.js";
 import {
   encodeAddressTreeParams,
@@ -182,7 +182,8 @@ function depositLayout(deposits: readonly AssetDeposit[]): DepositLayout {
     const existing = splGroups.find((candidate) => candidate.mint === spl.mint);
     if (
       existing !== undefined &&
-      (existing.userToken !== spl.userToken || existing.tokenProgram !== spl.tokenProgram)
+      (existing.sourceTokenAccount !== spl.sourceTokenAccount ||
+        existing.tokenProgram !== spl.tokenProgram)
     ) {
       fail("INTERFACE_CODEC", { reason: "conflicting SPL deposit accounts", mint: spl.mint });
     }
@@ -206,7 +207,7 @@ async function depositAccounts(
   tree: Address,
   depositor: SignerAccount,
   layout: DepositLayout,
-): Promise<Readonly<{ accounts: Meta[]; vaultBumps: number[] }>> {
+): Promise<Readonly<{ accounts: Meta[]; splInterfaceBumps: number[] }>> {
   const accounts = [
     meta(tree, false, true),
     meta(depositor, true, true),
@@ -215,18 +216,18 @@ async function depositAccounts(
   if (layout.hasSol) {
     accounts.push(meta(SYSTEM_PROGRAM, false, false), meta(solInterfaceAddress(), false, true));
   }
-  const vaultBumps: number[] = [];
+  const splInterfaceBumps: number[] = [];
   for (const spl of layout.splGroups) {
-    const [vault, bump] = await splAssetVaultPda(spl.mint);
-    vaultBumps.push(bump);
+    const [vault, bump] = await splInterfaceWithBump(spl.mint);
+    splInterfaceBumps.push(bump);
     accounts.push(
       meta(spl.tokenProgram, false, false),
       meta(spl.mint, false, false),
-      meta(spl.userToken, false, true),
+      meta(spl.sourceTokenAccount, false, true),
       meta(vault, false, true),
     );
   }
-  return Object.freeze({ accounts, vaultBumps });
+  return Object.freeze({ accounts, splInterfaceBumps });
 }
 
 export async function depositInstruction(
@@ -237,19 +238,26 @@ export async function depositInstruction(
   }>,
 ): Promise<Instruction> {
   const layout = depositLayout(input.deposits);
-  const { accounts, vaultBumps } = await depositAccounts(input.tree, input.depositor, layout);
+  const { accounts, splInterfaceBumps } = await depositAccounts(
+    input.tree,
+    input.depositor,
+    layout,
+  );
   return instruction(
     tagged(
       InstructionTag.deposit,
       encodeDepositInstructionData({
         assets: [
           ...(layout.hasSol ? ([{ kind: "sol" }] as const) : []),
-          ...vaultBumps.map((vaultBump) => ({ kind: "spl" as const, vaultBump })),
+          ...splInterfaceBumps.map((splInterfaceBump) => ({
+            kind: "spl" as const,
+            splInterfaceBump,
+          })),
         ],
         deposits: input.deposits.map((deposit) => ({
           assetIndex: depositAssetIndex(layout, deposit),
           viewTag: deposit.viewTag,
-          owner: deposit.owner,
+          recipientOwnerHash: deposit.recipientOwnerHash,
           blinding: deposit.blinding,
           amount: deposit.amount,
           ...(deposit.utxoData === undefined ? {} : { utxoData: deposit.utxoData }),
@@ -270,7 +278,7 @@ function settlementAccounts(withdrawal?: TransactWithdrawal): Meta[] {
     meta(SHIELDED_POOL_CPI_AUTHORITY, false, false),
     meta(withdrawal.mint, false, false),
     meta(withdrawal.splTokenInterface, false, true),
-    meta(withdrawal.userTokenAccount, false, true),
+    meta(withdrawal.recipientTokenAccount, false, true),
     meta(withdrawal.tokenProgram, false, false),
   ];
 }

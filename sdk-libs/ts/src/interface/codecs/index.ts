@@ -50,7 +50,7 @@ function writeDepositData(writer: Writer, value: DepositInstructionData): void {
     if (asset.kind === "sol") {
       writer.u8(0, "asset.kind");
     } else {
-      writer.u8(1, "asset.kind").u8(asset.vaultBump, "asset.vaultBump");
+      writer.u8(1, "asset.kind").u8(asset.splInterfaceBump, "asset.splInterfaceBump");
     }
   }
   writer.u8(value.deposits.length, "deposits.length");
@@ -58,7 +58,7 @@ function writeDepositData(writer: Writer, value: DepositInstructionData): void {
     writer
       .u8(deposit.assetIndex, "deposit.assetIndex")
       .bytes(deposit.viewTag, 32, "deposit.viewTag")
-      .bytes(deposit.owner, 32, "deposit.owner")
+      .bytes(deposit.recipientOwnerHash, 32, "deposit.recipientOwnerHash")
       .bytes(deposit.blinding, 32, "deposit.blinding")
       .u64(deposit.amount, "deposit.amount")
       .option(deposit.utxoData, (output, data) => {
@@ -136,7 +136,7 @@ function writeInterfaceTransfer(
           : 3;
   writer.u8(tag, "interfaceTransfer.kind").u64(value.amount, "interfaceTransfer.amount");
   if (value.kind === "splDeposit" || value.kind === "splWithdrawal") {
-    writer.u8(value.vaultBump, "interfaceTransfer.vaultBump");
+    writer.u8(value.splInterfaceBump, "interfaceTransfer.splInterfaceBump");
   }
 }
 

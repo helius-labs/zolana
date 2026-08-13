@@ -42,8 +42,8 @@ export function externalDataHash(input: ExternalDataHashInput): Bytes32 {
       parts.push(
         Uint8Array.of(1, transfer.kind === "splDeposit" ? 1 : 0),
         amount,
-        addressBytes(transfer.userTokenAccount, `${position}.userTokenAccount`),
-        addressBytes(transfer.vault, `${position}.vault`),
+        addressBytes(transfer.tokenAccount, `${position}.tokenAccount`),
+        addressBytes(transfer.splInterfacePda, `${position}.splInterfacePda`),
       );
     }
   });

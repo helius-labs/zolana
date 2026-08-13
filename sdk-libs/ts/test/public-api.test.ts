@@ -33,6 +33,7 @@ import {
   getCreateTreeInstructionAsync,
   getDepositInstructionAsync,
   getTransactInstruction,
+  DepositAsset,
 } from "../src/instructions.js";
 import {
   InstructionTag,
@@ -47,10 +48,8 @@ const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 const BLOCKHASH = "11111111111111111111111111111111" as Blockhash;
 
 describe("public package surface", () => {
-  it("creates the one configured client and initializes protocol crypto", async () => {
-    const client = await createZolanaClient({
-      solanaRpcUrl: "http://127.0.0.1:8899",
-    });
+  it("creates the default client and initializes protocol crypto", async () => {
+    const client = await createZolanaClient();
     expect(client.tree).toBe(DEFAULT_TREE_ADDRESS);
     expect(client.commitment).toBe("confirmed");
     expect(client.solanaRpc).toBeDefined();
@@ -286,15 +285,16 @@ describe("address and instruction builders", () => {
   });
 
   it("builds a deposit instruction", async () => {
+    expect(DepositAsset.sol).toBeTypeOf("function");
     const depositor = { address: OWNER } as TransactionSigner;
     const instruction = await getDepositInstructionAsync({
       tree: DEFAULT_TREE_ADDRESS,
       depositor,
       deposits: [
         {
-          asset: { kind: "sol" },
+          asset: DepositAsset.sol(),
           viewTag: new Uint8Array(32).fill(1) as Bytes32,
-          owner: new Uint8Array(32).fill(2) as Bytes32,
+          recipientOwnerHash: new Uint8Array(32).fill(2) as Bytes32,
           blinding: new Uint8Array(32).fill(3) as Bytes32,
           amount: 42n,
         },

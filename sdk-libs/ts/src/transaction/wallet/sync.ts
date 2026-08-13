@@ -2,7 +2,7 @@ import type { Address, Bytes16, Bytes32, Bytes33 } from "../../interface/types.j
 import type { NullifierKey } from "../../keypair/nullifier-key.js";
 import { mergeDummyNullifier, mergeOutputBlinding } from "../../keypair/merge/index.js";
 import { P256PublicKey, type ShieldedPublicKey } from "../../keypair/public-key.js";
-import type { ViewingKeyLike } from "../../keypair/shielded.js";
+import type { ShieldedKeypair, ViewingKeyLike } from "../../keypair/shielded.js";
 
 import { TransactionError } from "../error.js";
 import { copy, decodeAddress, equal } from "../internal.js";
@@ -33,6 +33,8 @@ import { SOL_MINT, type AssetRegistry } from "./asset.js";
 import {
   SENDER_HISTORY_ROW_BASE,
   newViewingKeyEntry,
+  type AssetBalance,
+  type Filter,
   type PrivateTransaction,
   type PrivateTransactionDirection,
   type PrivateTransactionId,
@@ -49,6 +51,11 @@ const U64_MAX = 0xffff_ffff_ffff_ffffn;
 interface DecryptTransactionsConfig {
   /** Recorded as `Wallet.lastSynced` once the sync commits, as `Wallet::sync` records `synced_at`. */
   readonly syncedAt?: bigint;
+}
+
+export interface PrivateBalances {
+  balance(mint: Address, filter?: Filter): AssetBalance;
+  balances(skipUtxos?: boolean): readonly AssetBalance[];
 }
 
 function validateMaterial(wallet: Wallet, material: WalletSyncMaterial): void {
@@ -880,4 +887,32 @@ export async function decryptTransactionsWorkerEquivalent(
   input: Parameters<typeof decryptTransactions>[0],
 ): Promise<SyncReport> {
   return decryptTransactions(input);
+}
+
+/** Decrypt a complete indexed history into a read-only balance view. */
+export async function decryptToBalances(
+  input: Readonly<{
+    keypair: ShieldedKeypair;
+    registry: AssetRegistry;
+    transactions: readonly IndexedShieldedTransaction[];
+  }>,
+): Promise<PrivateBalances> {
+  const identity = input.keypair.shieldedAddress();
+  const wallet = new Wallet({ identity, registry: input.registry });
+  await decryptTransactions({
+    wallet,
+    authority: {
+      syncMaterial: () =>
+        Promise.resolve({
+          identity,
+          viewingKeys: [input.keypair.viewingKey()],
+          nullifierKey: input.keypair.nullifierKey(),
+        }),
+    },
+    transactions: input.transactions,
+  });
+  return Object.freeze({
+    balance: (mint: Address, filter?: Filter) => wallet.balance(mint, filter),
+    balances: (skipUtxos = false) => wallet.balances(skipUtxos),
+  });
 }

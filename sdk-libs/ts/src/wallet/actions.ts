@@ -4,10 +4,11 @@ import {
   type Address,
   type Bytes32,
   type RequestContext,
-  type TransactWithdrawal,
+  TransactWithdrawal,
 } from "../interface/types.js";
-import { associatedTokenAddress, splAssetVaultPda } from "../interface/pda/index.js";
+import { associatedTokenAddress, splInterfaceWithBump } from "../interface/pda/index.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
+import { WithdrawalTarget } from "../transaction/instructions/transact.js";
 import { SOL_MINT } from "../transaction/wallet/asset.js";
 import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 
@@ -30,14 +31,7 @@ type PrivateAction =
       kind: "withdrawal";
       asset: Address;
       amount: bigint;
-      target:
-        | Readonly<{ kind: "sol"; recipient: Address }>
-        | Readonly<{
-            kind: "spl";
-            userTokenAccount: Address;
-            splTokenInterface: Address;
-            vaultBump: number;
-          }>;
+      target: WithdrawalTarget;
     }>
   | Readonly<{
       kind: "split";
@@ -251,24 +245,23 @@ async function withdrawal(
 > {
   if (asset === SOL_MINT) {
     return {
-      target: { kind: "sol", recipient },
-      accounts: { kind: "sol", recipient },
+      target: WithdrawalTarget.sol({ recipient }),
+      accounts: TransactWithdrawal.sol({ recipient }),
     };
   }
   const tokenProgram = splTokenProgram ?? SPL_TOKEN_PROGRAM_ID;
-  const [userTokenAccount, [splTokenInterface, vaultBump]] = await Promise.all([
+  const [recipientTokenAccount, [splTokenInterface, splInterfaceBump]] = await Promise.all([
     associatedTokenAddress(recipient, asset, tokenProgram),
-    splAssetVaultPda(asset),
+    splInterfaceWithBump(asset),
   ]);
   return {
-    target: { kind: "spl", userTokenAccount, splTokenInterface, vaultBump },
-    accounts: {
-      kind: "spl",
+    target: WithdrawalTarget.spl({ recipientTokenAccount, splTokenInterface, splInterfaceBump }),
+    accounts: TransactWithdrawal.spl({
       mint: asset,
       splTokenInterface,
-      userTokenAccount,
+      recipientTokenAccount,
       tokenProgram,
-    },
+    }),
   };
 }
 

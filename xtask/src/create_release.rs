@@ -119,10 +119,8 @@ pub fn run(options: Options) -> Result<()> {
     let staging = &options.staging_dir;
     reset_dir(staging)?;
     let accounts_dir = staging.join("accounts");
-    fs::create_dir_all(&accounts_dir)
-        .with_context(|| format!("failed to create {}", accounts_dir.display()))?;
 
-    generate_account_snapshots(&options, &accounts_dir)?;
+    generate_account_snapshots(&options.deploy_dir, &accounts_dir)?;
 
     // Bundle the snapshot directory; the CLI extracts it into --account-dir.
     let accounts_asset = format!("accounts-{}.tar.gz", options.tag);
@@ -414,8 +412,11 @@ fn git_head() -> Result<String> {
 /// keypairs and no running validator are needed: every authority is generated
 /// here, and the pool tree is pre-allocated directly at DEFAULT_TREE_ADDRESS
 /// without the tree keypair.
-fn generate_account_snapshots(options: &Options, accounts_dir: &Path) -> Result<()> {
-    let shielded_so = options.deploy_dir.join("shielded_pool_program.so");
+pub(crate) fn generate_account_snapshots(deploy_dir: &Path, accounts_dir: &Path) -> Result<()> {
+    let shielded_so = deploy_dir.join("shielded_pool_program.so");
+    require_file(&shielded_so, "run `just build-programs` first")?;
+    reset_dir(accounts_dir)?;
+
     let mut test = ZolanaProgramTest::with_program_path(&shielded_so)
         .map_err(|e| anyhow!("failed to boot litesvm: {e:?}"))?;
 

@@ -6,7 +6,7 @@ import {
   SigningKey,
   ViewingKey,
 } from "../../src/keypair/index.js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   AssetRegistry,
@@ -225,6 +225,27 @@ describe("transaction core", () => {
         details: { field: "asset" },
       }),
     );
+  });
+
+  it("creates proof inputs from keypairs without retaining the temporary nullifier key", () => {
+    const { keypair } = keyMaterial();
+    const utxo = new Utxo({
+      owner: keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 42n,
+      blinding: scalar(3),
+      zoneProgramId: ZONE,
+    });
+    const temporary = keypair.nullifierKey();
+    const nullifierKey = vi.spyOn(keypair, "nullifierKey").mockReturnValue(temporary);
+    const destroy = vi.spyOn(temporary, "destroy");
+
+    const input = ProofInputUtxo.fromKeypair(utxo, keypair);
+
+    expect(nullifierKey).toHaveBeenCalledOnce();
+    expect(destroy).toHaveBeenCalledOnce();
+    expect(input.hash()).toEqual(utxo.hash(keypair.nullifierPublicKey()));
+    expect(input.nullifier()).toHaveLength(32);
   });
 
   it("accepts and hashes a canonical dummy exactly as Rust does", () => {

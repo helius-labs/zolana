@@ -89,6 +89,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           shared-key: typescript-e2e
+      - run: rustup target add wasm32-unknown-unknown
       - name: Install Anza CLI
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"

@@ -1,6 +1,12 @@
-import { getAddressDecoder, type Address } from "@solana/kit";
+import {
+  getAddressDecoder,
+  type Address,
+  type SignatureBytes,
+  type TransactionPartialSigner,
+} from "@solana/kit";
 
 import { type Bytes32, type Bytes64, checkedBytes, concatBytes, copyBytes } from "./bytes.js";
+import { KeypairError } from "./error.js";
 import { ownerHash, pack33 } from "./hash.js";
 import { NullifierKey } from "./nullifier-key.js";
 import { poseidon } from "./poseidon.js";
@@ -257,6 +263,40 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
       this.#nullifier.publicKey(),
       this.viewingPublicKey(),
     );
+  }
+
+  /**
+   * The Solana signer for this identity, so one seed pays fees and owns the
+   * private balance. Mirrors Rust's `to_solana_keypair`.
+   *
+   * Kit builds its own signers through WebCrypto and can only do so
+   * asynchronously. This one signs with the same Ed25519 the shielded keys
+   * already use, which keeps construction synchronous; `signTransactions` still
+   * returns a promise because Kit's interface demands one.
+   *
+   * Only the Ed25519 rail has a Solana identity: a P256 signing key has no
+   * Solana address to sign for.
+   */
+  toSolanaSigner(): TransactionPartialSigner {
+    if (!this.#signing.isEd25519()) {
+      throw new KeypairError("KEYPAIR_NOT_ED25519");
+    }
+    const address = addressDecoder.decode(this.signingPublicKey().ed25519());
+    const signing = this.#signing;
+    return Object.freeze({
+      address,
+      signTransactions: (transactions) =>
+        Promise.resolve(
+          transactions.map((transaction) => {
+            // Both sides are 64-byte brands over the same bytes, and Kit's
+            // message bytes are a readonly view of a plain Uint8Array.
+            const signature = signing.sign(
+              new Uint8Array(transaction.messageBytes),
+            ) as unknown as SignatureBytes;
+            return Object.freeze({ [address]: signature });
+          }),
+        ),
+    });
   }
 
   ownerHash(): Bytes32 {
