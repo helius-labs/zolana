@@ -107,7 +107,7 @@ fn maker_order_candidate(
     })
 }
 
-pub fn index_maker<I: Rpc>(
+pub fn index_maker<I: Rpc + Sync>(
     wallet: &mut Wallet,
     keypair: &ShieldedKeypair,
     indexer: &I,

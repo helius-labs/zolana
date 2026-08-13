@@ -1,5 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
+    panic::resume_unwind,
+    thread,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -71,7 +73,7 @@ pub fn sync_wallet<A, I>(
 ) -> Result<SyncReport, ClientError>
 where
     A: SyncWalletAuthority + ?Sized,
-    I: Rpc,
+    I: Rpc + Sync,
 {
     sync_wallet_with_config(wallet, authority, indexer, SyncWalletConfig::default())
 }
@@ -84,7 +86,7 @@ pub fn sync_wallet_with_config<A, I>(
 ) -> Result<SyncReport, ClientError>
 where
     A: SyncWalletAuthority + ?Sized,
-    I: Rpc,
+    I: Rpc + Sync,
 {
     let config = normalized_config(config);
     let material = authority.sync_material()?;
@@ -113,44 +115,82 @@ where
         timing::note(round, "tags", tags.len());
         timing::note(round, "nullifiers", nullifiers.len());
         {
-            let _t = timing::Phase::start("fetch_shielded_by_tags", round);
-            // Cursors are taken out of the wallet and put back, rather than held
-            // borrowed: `wallet` is needed mutably further down this loop.
+            let _t = timing::Phase::start("fetch_round", round);
+            // The three queries are independent: different indexer methods,
+            // disjoint cursor state, and separate accumulators. Run sequentially
+            // a round cost the sum of three round trips (866 + 521 + 503ms
+            // measured on devnet) when it need only cost the slowest.
+            //
+            // Cursors come out of the wallet and go back rather than staying
+            // borrowed, because `wallet` is needed mutably further down.
             let mut cursors = std::mem::take(&mut wallet.sync_cursors);
-            let result = fetch_shielded_transactions_incremental(
-                indexer,
-                &tags,
-                &mut transactions,
-                config,
-                freshness_gate.take(),
-                &mut cursors,
-                &mut scanned_to_tip,
-            );
+            let mut by_nullifier: HashMap<String, ShieldedTransaction> = HashMap::new();
+            // One gate for the whole round, not one per call: every query in a
+            // round should read the chain at the same freshness bound, and
+            // `take()`ing it three times would gate only the first.
+            let gate = freshness_gate.take();
+
+            let (tag_result, nullifier_result, proofless_result) = thread::scope(|scope| {
+                let tags_ref = &tags;
+                let tag_handle = scope.spawn(|| {
+                    let _t = timing::Phase::start("fetch_shielded_by_tags", round);
+                    fetch_shielded_transactions_incremental(
+                        indexer,
+                        tags_ref,
+                        &mut transactions,
+                        config,
+                        gate,
+                        &mut cursors,
+                        &mut scanned_to_tip,
+                    )
+                });
+                let nullifier_handle = scope.spawn(|| {
+                    let _t = timing::Phase::start("fetch_shielded_by_nullifiers", round);
+                    fetch_shielded_transactions_by_nullifiers(
+                        indexer,
+                        &nullifiers,
+                        &mut by_nullifier,
+                        config,
+                        gate,
+                        &mut nullifier_scanned_to_tip,
+                    )
+                });
+                let proofless_handle = scope.spawn(|| {
+                    let _t = timing::Phase::start("fetch_proofless_deposits", round);
+                    fetch_proofless_deposits(
+                        indexer,
+                        tags_ref,
+                        &mut proofless_deposits,
+                        config,
+                        gate,
+                        &mut proofless_scanned_to_tip,
+                    )
+                });
+                (
+                    tag_handle.join(),
+                    nullifier_handle.join(),
+                    proofless_handle.join(),
+                )
+            });
+
             wallet.sync_cursors = cursors;
-            result?;
+            // Propagate a panic rather than swallowing it into a sync error: a
+            // panicked fetch means a bug here, not an unreachable indexer.
+            let tag_result = tag_result.unwrap_or_else(|payload| resume_unwind(payload));
+            let nullifier_result =
+                nullifier_result.unwrap_or_else(|payload| resume_unwind(payload));
+            let proofless_result =
+                proofless_result.unwrap_or_else(|payload| resume_unwind(payload));
+            tag_result?;
+            nullifier_result?;
+            proofless_result?;
+
+            // Both queries return transactions; the by-tag map wins ties, which
+            // is the same precedence the sequential version had via `or_insert`.
+            for (key, tx) in by_nullifier {
+                transactions.entry(key).or_insert(tx);
+            }
             timing::note(round, "tag_cursors", wallet.sync_cursors.len());
-        }
-        {
-            let _t = timing::Phase::start("fetch_shielded_by_nullifiers", round);
-            fetch_shielded_transactions_by_nullifiers(
-                indexer,
-                &nullifiers,
-                &mut transactions,
-                config,
-                freshness_gate.take(),
-                &mut nullifier_scanned_to_tip,
-            )?;
-        }
-        {
-            let _t = timing::Phase::start("fetch_proofless_deposits", round);
-            fetch_proofless_deposits(
-                indexer,
-                &tags,
-                &mut proofless_deposits,
-                config,
-                freshness_gate.take(),
-                &mut proofless_scanned_to_tip,
-            )?;
         }
         timing::note(round, "transactions", transactions.len());
         timing::note(round, "proofless_deposits", proofless_deposits.len());

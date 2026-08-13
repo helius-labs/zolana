@@ -10,7 +10,7 @@ use crate::err;
 
 const INDEX_POLL: Duration = Duration::from_millis(500);
 
-pub(crate) fn index_until<I: Rpc, T>(
+pub(crate) fn index_until<I: Rpc + Sync, T>(
     wallet: &mut Wallet,
     keypair: &ShieldedKeypair,
     indexer: &I,
@@ -37,7 +37,7 @@ pub(crate) fn index_until<I: Rpc, T>(
     }
 }
 
-pub(crate) fn collect_tagged<I: Rpc, T>(
+pub(crate) fn collect_tagged<I: Rpc + Sync, T>(
     wallet: &Wallet,
     indexer: &I,
     mut scan: impl FnMut(&ShieldedTransaction) -> Result<Option<T>>,
