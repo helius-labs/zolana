@@ -15,22 +15,6 @@ struct SlotModel {
 }
 
 /// Reads the newest block, rather than each column's maximum separately.
-///
-/// Every rings method calls this to stamp its response, so it runs on more or
-/// less every request. It used to ask for `MAX(block_time), MAX(slot)` in one
-/// query: `slot` is the primary key and would answer from `pk_blocks` alone,
-/// but `block_time` has no index, and two aggregates over different columns
-/// cannot both be served by an index scan -- so Postgres scanned the whole
-/// `blocks` table, every time, holding a pool connection while it did.
-///
-/// Measured on devnet: 1.0-1.7s per call, rising to 2.2-2.4s an hour later as
-/// the table grew, and it was the *only* statement in the slow-query log. It
-/// pinned photon's connection pool flat at its ceiling and drove ALB target
-/// response time to 2s while photon itself sat at 6% CPU.
-///
-/// Ordering by the primary key and taking one row is a backward index scan.
-/// It also returns a coherent pair -- one real block's slot and time -- where
-/// two independent maxima could report a slot and a time from different blocks.
 fn latest_block() -> Select<blocks::Entity> {
     blocks::Entity::find()
         .select_only()
