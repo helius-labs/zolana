@@ -162,7 +162,7 @@ test-ts-e2e: build-programs build-prover-server build-cli ensure-photon
     cleanup
     sleep 2
 
-    "$bin" dev start --with-photon --no-use-surfpool \
+    "$bin" dev start --no-use-surfpool \
       --rpc-port {{localnet-rpc-port}} --prover-port {{localnet-prover-port}} \
       --photon-port {{localnet-photon-port}} \
       --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so \
@@ -645,7 +645,7 @@ test-cli-smoke: build-programs build-prover-server build-cli ensure-photon
 
     # 1. Spawn services (dev start daemonizes the validator/prover/photon and
     #    returns once each is ready).
-    "$bin" dev start --with-photon --no-use-surfpool \
+    "$bin" dev start --no-use-surfpool \
       --rpc-port {{localnet-rpc-port}} --prover-port {{localnet-prover-port}} \
       --photon-port {{localnet-photon-port}} \
       --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so \
