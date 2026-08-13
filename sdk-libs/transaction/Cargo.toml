@@ -16,7 +16,6 @@ borsh = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }
 solana-address = { workspace = true }
-p256 = { workspace = true }
 rand = { workspace = true }
 rayon = { workspace = true, optional = true }
 solana-signature = { workspace = true }

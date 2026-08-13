@@ -10960,7 +10960,6 @@ dependencies = [
  "criterion",
  "hex",
  "num-bigint 0.4.8",
- "p256",
  "proptest",
  "rand 0.8.7",
  "rayon",

@@ -46,7 +46,7 @@ use zolana_keypair::{
     hash::owner_hash,
     pubkey::PublicKey,
     shielded::{ShieldedAddress, ShieldedKeypair},
-    NullifierKey, ViewingKey,
+    NullifierKey, SigningKey,
 };
 use zolana_program_test::{rpc_state_root, ZolanaProgramTest};
 use zolana_test_utils::smart_account;
