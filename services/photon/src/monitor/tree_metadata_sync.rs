@@ -124,6 +124,32 @@ fn parse_rings_tree_account<'a>(
     Some(tree)
 }
 
+/// Every occupied slot of the UTXO tree's root history, paired with its index.
+///
+/// A client quotes the index of the root its proof was built against, and the
+/// program loads the root it verifies against from that slot. So the question
+/// to answer is "which slot holds this root?", for whatever root is being
+/// served -- not only the newest one. Empty slots are skipped because
+/// `root_by_index` rejects them, so they can never be a valid answer.
+pub(crate) fn rings_utxo_root_history(
+    pubkey: Pubkey,
+    account: &Account,
+) -> Option<Vec<(u16, [u8; 32])>> {
+    let mut data = account.data.clone();
+    let tree = parse_rings_tree_account(pubkey, account, &mut data)?;
+    let capacity = RingsTreeKind::State.root_history_capacity();
+
+    Some(
+        (0..capacity)
+            .filter_map(|index| {
+                let index = u16::try_from(index).ok()?;
+                let root = tree.get_utxo_tree_root(index).ok()?;
+                root.iter().any(|byte| *byte != 0).then_some((index, root))
+            })
+            .collect(),
+    )
+}
+
 pub(crate) fn rings_state_roots(pubkey: Pubkey, account: &Account) -> Option<Vec<[u8; 32]>> {
     let mut data = account.data.clone();
     let mut tree = parse_rings_tree_account(pubkey, account, &mut data)?;

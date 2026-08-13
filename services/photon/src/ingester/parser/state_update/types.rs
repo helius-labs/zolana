@@ -54,11 +54,36 @@ pub struct RingsNullifierUpdate {
     pub nullifier: [u8; 32],
 }
 
+/// One `BatchAddressAppendEvent`: the zkp batches the program actually applied,
+/// which is not always the one its instruction asked for. An out-of-order proof
+/// is cached and applied later, so a single instruction can land several batches
+/// at once -- `num_update` of them, `zkp_batch_size` nullifiers each -- and
+/// `new_root` is the root after all of them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NullifierTreeBatchUpdate {
     pub tree: Pubkey,
     pub new_root: [u8; 32],
+    pub zkp_batch_size: u64,
+    pub num_update: u32,
+    /// The tree's sequence number after this event, taken from the chain rather
+    /// than counted locally.
+    ///
+    /// This is load-bearing: the API serves `root_seq % root_history_capacity`
+    /// as the root index a client must quote, and on chain that index is a ring
+    /// pointer advanced once per *applied zkp batch*. Counting events instead of
+    /// batches drifts by one per cascade, and a client then proves against one
+    /// root while the program checks another -- every transfer fails proof
+    /// verification. Taking the number from the event keeps the two in step and
+    /// repairs any existing drift on the next update.
+    pub sequence_number: u64,
     pub signature: Signature,
+}
+
+impl NullifierTreeBatchUpdate {
+    /// Nullifiers appended by this event across all of its zkp batches.
+    pub fn appended_count(&self) -> u64 {
+        self.zkp_batch_size * u64::from(self.num_update)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

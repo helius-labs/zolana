@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::api::root_index_cache::RootIndexCache;
 use crate::rpc::RpcClient;
 use sea_orm::{ConnectionTrait, DatabaseConnection, Statement};
 use utoipa::openapi::{RefOr, Schema};
@@ -32,6 +33,7 @@ use super::{
 pub struct PhotonApi {
     db_conn: Arc<DatabaseConnection>,
     rpc_client: Arc<RpcClient>,
+    root_index_cache: RootIndexCache,
 }
 
 pub struct OpenApiSpec {
@@ -58,6 +60,7 @@ impl PhotonApi {
         Self {
             db_conn,
             rpc_client,
+            root_index_cache: RootIndexCache::new(),
         }
     }
 
@@ -116,7 +119,13 @@ impl PhotonApi {
         &self,
         request: GetMerkleProofsRequest,
     ) -> Result<GetMerkleProofsResponse, PhotonApiError> {
-        get_merkle_proofs(self.db_conn.as_ref(), request).await
+        get_merkle_proofs(
+            self.db_conn.as_ref(),
+            &self.rpc_client,
+            &self.root_index_cache,
+            request,
+        )
+        .await
     }
 
     pub async fn get_non_inclusion_proofs(

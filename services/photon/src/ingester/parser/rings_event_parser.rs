@@ -1,27 +1,13 @@
+use super::event_site::{find_event_sites, to_rings_instruction_groups};
 use super::state_update::{
     RingsMessageUpdate, RingsNullifierUpdate, RingsOutputUpdate, RingsTransactionUpdate,
     StateUpdate,
 };
-use crate::ingester::{
-    error::IngesterError,
-    typedefs::block_info::{
-        Instruction as PhotonInstruction, InstructionGroup as PhotonInstructionGroup,
-        TransactionInfo,
-    },
-};
-use solana_pubkey::Pubkey;
-use zolana_event::{
-    decode_event_payload, tag, InstructionGroup as RingsInstructionGroup,
-    ParsedInstruction as RingsInstruction,
-};
+use crate::ingester::{error::IngesterError, typedefs::block_info::TransactionInfo};
+use zolana_event::{decode_event_payload, tag};
 use zolana_interface::pda;
 
 const RINGS_PARSE_VERSION: i16 = 3;
-
-struct EventSite {
-    source_instruction_tag: u8,
-    payload: Vec<u8>,
-}
 
 pub fn parse_rings_events(
     tx: &TransactionInfo,
@@ -29,7 +15,7 @@ pub fn parse_rings_events(
 ) -> Result<Option<StateUpdate>, IngesterError> {
     let rings_program_id = pda::shielded_pool_program_id();
     let groups = to_rings_instruction_groups(&tx.instruction_groups);
-    let event_sites = find_event_sites(&groups, rings_program_id)?;
+    let event_sites = find_event_sites(&groups, rings_program_id, is_general_event_source)?;
 
     if event_sites.is_empty() {
         return Ok(None);
@@ -160,98 +146,7 @@ pub fn parse_rings_events(
     Ok(Some(state_update))
 }
 
-fn to_rings_instruction_groups(groups: &[PhotonInstructionGroup]) -> Vec<RingsInstructionGroup> {
-    let to_rings_instruction = |instruction: &PhotonInstruction| {
-        RingsInstruction::new(
-            instruction.program_id,
-            instruction.accounts.clone(),
-            instruction.data.clone(),
-            instruction.stack_height,
-        )
-    };
-
-    groups
-        .iter()
-        .map(|group| RingsInstructionGroup {
-            outer: to_rings_instruction(&group.outer_instruction),
-            inner: group
-                .inner_instructions
-                .iter()
-                .map(to_rings_instruction)
-                .collect(),
-        })
-        .collect()
-}
-
-fn find_event_sites(
-    groups: &[RingsInstructionGroup],
-    rings_program_id: Pubkey,
-) -> Result<Vec<EventSite>, IngesterError> {
-    let mut sites = Vec::new();
-
-    for group in groups {
-        for (index, instruction) in group.inner.iter().enumerate() {
-            if !is_emit_event(rings_program_id, instruction) {
-                continue;
-            }
-
-            let Some(parent) = event_parent(group, index)? else {
-                continue;
-            };
-
-            if !is_event_source(rings_program_id, parent) {
-                continue;
-            }
-
-            let source_instruction_tag = parent.data.first().copied().ok_or_else(|| {
-                IngesterError::ParserError(
-                    "Rings event parent instruction is missing source tag".to_string(),
-                )
-            })?;
-
-            sites.push(EventSite {
-                source_instruction_tag,
-                payload: instruction.data.get(1..).unwrap_or_default().to_vec(),
-            });
-        }
-    }
-
-    Ok(sites)
-}
-
-fn event_parent(
-    group: &RingsInstructionGroup,
-    event_index: usize,
-) -> Result<Option<&RingsInstruction>, IngesterError> {
-    let event_instruction = group.inner.get(event_index).ok_or_else(|| {
-        IngesterError::ParserError(format!(
-            "Rings event index {} is out of bounds for {} inner instructions",
-            event_index,
-            group.inner.len()
-        ))
-    })?;
-    let Some(event_height) = event_instruction.stack_height else {
-        return Ok(None);
-    };
-    let Some(parent_height) = event_height.checked_sub(1) else {
-        return Ok(None);
-    };
-    let previous_instructions = group.inner.get(..event_index).ok_or_else(|| {
-        IngesterError::ParserError(format!(
-            "Rings event parent search index {} is out of bounds for {} inner instructions",
-            event_index,
-            group.inner.len()
-        ))
-    })?;
-
-    Ok(previous_instructions
-        .iter()
-        .rev()
-        .find(|instruction| instruction.stack_height == Some(parent_height))
-        .or_else(|| (group.outer.stack_height == Some(parent_height)).then_some(&group.outer)))
-}
-
-fn is_event_source(rings_program_id: Pubkey, instruction: &RingsInstruction) -> bool {
+fn is_general_event_source(source_instruction_tag: u8) -> bool {
     // Keep this in sync with shielded-pool processors that call
     // `emit_general_event`, directly or via process_transact_core /
     // process_merge_core. Self-emitting instructions: TRANSACT, RING_TRANSACT,
@@ -259,131 +154,14 @@ fn is_event_source(rings_program_id: Pubkey, instruction: &RingsInstruction) -> 
     // (merge core); DEPOSIT, RING_DEPOSIT (deposit). Missing a tag here silently
     // drops those transactions from the index (they never get a rings_transactions
     // row).
-    instruction.program_id == rings_program_id
-        && matches!(
-            instruction.data.first().copied(),
-            Some(
-                tag::TRANSACT
-                    | tag::RING_TRANSACT
-                    | tag::RING_AUTHORITY_TRANSACT
-                    | tag::MERGE_TRANSACT
-                    | tag::RING_MERGE_TRANSACT
-                    | tag::DEPOSIT
-                    | tag::RING_DEPOSIT
-            )
-        )
-}
-
-fn is_emit_event(rings_program_id: Pubkey, instruction: &RingsInstruction) -> bool {
-    instruction.program_id == rings_program_id && instruction.data.first() == Some(&tag::EMIT_EVENT)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use zolana_event::{InstructionGroup, ParsedInstruction};
-
-    fn spp() -> Pubkey {
-        pda::shielded_pool_program_id()
-    }
-
-    /// Stand-in for any foreign program (attacker contract, ring program).
-    fn foreign() -> Pubkey {
-        Pubkey::new_from_array([9; 32])
-    }
-
-    fn ix(program_id: Pubkey, tag_byte: u8, stack_height: u32) -> ParsedInstruction {
-        ParsedInstruction::new(
-            program_id,
-            Vec::new(),
-            vec![tag_byte, 1, 2, 3],
-            Some(stack_height),
-        )
-    }
-
-    fn event_sites(groups: &[InstructionGroup]) -> Vec<EventSite> {
-        find_event_sites(groups, spp()).unwrap()
-    }
-
-    #[test]
-    fn accepts_genuine_self_emitted_event() {
-        let groups = [InstructionGroup {
-            outer: ix(spp(), tag::TRANSACT, 1),
-            inner: vec![ix(spp(), tag::EMIT_EVENT, 2)],
-        }];
-
-        let sites = event_sites(&groups);
-
-        assert_eq!(sites.len(), 1);
-        assert_eq!(sites[0].source_instruction_tag, tag::TRANSACT);
-    }
-
-    #[test]
-    fn accepts_ring_rail_event_nested_at_height_three() {
-        let groups = [InstructionGroup {
-            outer: ix(foreign(), 0, 1),
-            inner: vec![
-                ix(spp(), tag::RING_TRANSACT, 2),
-                ix(spp(), tag::EMIT_EVENT, 3),
-            ],
-        }];
-
-        let sites = event_sites(&groups);
-
-        assert_eq!(sites.len(), 1);
-        assert_eq!(sites[0].source_instruction_tag, tag::RING_TRANSACT);
-    }
-
-    #[test]
-    fn drops_event_forged_by_direct_foreign_cpi() {
-        // Attacker program CPIs SPP with EMIT_EVENT; the event's parent is the
-        // attacker's top-level instruction.
-        let groups = [InstructionGroup {
-            outer: ix(foreign(), 0, 1),
-            inner: vec![ix(spp(), tag::EMIT_EVENT, 2)],
-        }];
-
-        assert!(event_sites(&groups).is_empty());
-    }
-
-    #[test]
-    fn drops_event_forged_under_a_foreign_inner_parent() {
-        // Attacker nests one level deeper so the forged event's stack height
-        // matches the genuine ring-rail shape; the parent is still foreign.
-        let groups = [InstructionGroup {
-            outer: ix(foreign(), 0, 1),
-            inner: vec![ix(foreign(), 0, 2), ix(spp(), tag::EMIT_EVENT, 3)],
-        }];
-
-        assert!(event_sites(&groups).is_empty());
-    }
-
-    #[test]
-    fn drops_event_parented_to_another_emit_event() {
-        // A second EMIT_EVENT whose reconstructed parent is the first
-        // EMIT_EVENT: the event-source whitelist never includes EMIT_EVENT.
-        let groups = [InstructionGroup {
-            outer: ix(spp(), tag::TRANSACT, 1),
-            inner: vec![ix(spp(), tag::EMIT_EVENT, 2), ix(spp(), tag::EMIT_EVENT, 3)],
-        }];
-
-        let sites = event_sites(&groups);
-
-        assert_eq!(sites.len(), 1);
-    }
-
-    #[test]
-    fn drops_event_without_stack_height() {
-        let groups = [InstructionGroup {
-            outer: ix(spp(), tag::TRANSACT, 1),
-            inner: vec![ParsedInstruction::new(
-                spp(),
-                Vec::new(),
-                vec![tag::EMIT_EVENT],
-                None,
-            )],
-        }];
-
-        assert!(event_sites(&groups).is_empty());
-    }
+    matches!(
+        source_instruction_tag,
+        tag::TRANSACT
+            | tag::RING_TRANSACT
+            | tag::RING_AUTHORITY_TRANSACT
+            | tag::MERGE_TRANSACT
+            | tag::RING_MERGE_TRANSACT
+            | tag::DEPOSIT
+            | tag::RING_DEPOSIT
+    )
 }

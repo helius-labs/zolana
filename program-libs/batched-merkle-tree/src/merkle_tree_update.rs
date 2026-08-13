@@ -2,12 +2,12 @@ use zolana_hasher::hash_chain::create_hash_chain_from_array;
 
 use crate::{
     errors::{BatchedMerkleTreeError, MerkleTreeMetadataError},
-    events::BatchAddressAppendEvent,
     merkle_tree::{BatchedMerkleTreeAccount, InstructionDataAddressAppendInputs},
     merkle_tree_metadata::TreeType,
     verify::verify_batch_address_update,
     zero_copy::CachedTreeUpdate,
 };
+use zolana_event::BatchAddressAppendEvent;
 
 impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP: usize>
     BatchedMerkleTreeAccount<'a, RH, NUM_ITERS, BLOOM, ZKP>
