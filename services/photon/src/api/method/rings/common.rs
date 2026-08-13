@@ -295,21 +295,6 @@ fn cursor_bincode_config() -> impl bincode::config::Config {
 }
 
 /// Position of the last row returned, or `None` when there were none.
-///
-/// A short page used to return `None`, on the reasoning that a page below the
-/// limit is the end of the stream and so there is nothing left to page to. That
-/// is true for pagination and wrong for resumption: the cursor is also the
-/// client's sync watermark, and a wallet whose whole history fits in one page
-/// therefore recorded no watermark and refetched everything on every sync. On
-/// devnet an 881-transaction wallet spent 2.4s of a 5.0s sync doing exactly
-/// that, growing with every transfer.
-///
-/// Returning the position whenever rows exist costs one extra request per
-/// chunk per sync -- the client asks once more and gets an empty page, which
-/// yields `None` here and ends the loop. Deliberately not a new response field:
-/// the response types are `deny_unknown_fields`, so an added field would break
-/// every deployed client, whereas this shape is what clients already handle
-/// when a final page happens to be exactly `limit` rows.
 pub(super) fn next_cursor_from_rows<T>(
     rows: &[T],
     cursor_from_row: impl FnOnce(&T) -> Result<Vec<u8>, PhotonApiError>,
