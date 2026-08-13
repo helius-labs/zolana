@@ -9847,11 +9847,13 @@ dependencies = [
  "swap-program",
  "zolana-client",
  "zolana-interface",
+ "zolana-keypair",
  "zolana-program-test",
  "zolana-smart-account-client",
  "zolana-test-utils",
  "zolana-transaction",
  "zolana-user-registry-interface",
+ "zolana-wallet",
 ]
 
 [[package]]
