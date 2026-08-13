@@ -1,4 +1,27 @@
-FROM golang:1.25-alpine AS builder
+# light-prover, without proving keys.
+#
+# Keys are NOT baked in. They are distributed separately and fetched at runtime
+# by EnsureProvingKey (prover/common/key_downloader.go):
+#   - proving-keys.lock is embedded into the binary (//go:embed), pinning the
+#     sha256, byte size and version-hashed prefix of every key
+#   - the downloader is cache-first: an on-disk key is verified against the
+#     lockfile offline, and only otherwise fetched
+#   - a fetch hard-fails unless the bytes match the pinned size and sha256
+#
+# So baking keys is pointless and slightly harmful: the lockfile already makes
+# pk<->vk<->code drift impossible, and a baked key layer is 1.4 GB for client
+# shapes to 3.9 GB for forester batch shapes, rebuilt and re-pulled on every
+# code change. That is what prover/server/Dockerfile does; prefer this one.
+#
+# One image serves both roles. The client prover and the forester prover differ
+# only in flags -- circuit selection and concurrency -- and in which keys they
+# happen to fetch.
+
+# Both stages pinned by digest: this image is attested now, and a mutable tag
+# lets one commit produce different bytes depending on when it was built, which
+# is exactly what the attestation is supposed to rule out. These are index
+# digests, so multi-arch resolution still works.
+FROM golang:1.25-alpine@sha256:56961d79ea8129efddcc0b8643fd8a5416b4e6228cfd477e3fd61deb2672c587 AS builder
 
 WORKDIR /app
 
@@ -10,9 +33,11 @@ COPY . .
 ENV CGO_ENABLED=0
 RUN go build -v -o /usr/local/bin/light-prover .
 
+# The runtime image is distroless and has no shell, so the writable key cache
+# directory has to be created here and copied in with the right ownership.
 RUN mkdir -p /tmp/empty_proving_keys
 
-FROM gcr.io/distroless/base-debian11:nonroot
+FROM gcr.io/distroless/base-debian11:nonroot@sha256:68b0f492c1eb077f71d384b544456dac4afb282372966917df32b3923f65ad0d
 
 COPY --from=builder /usr/local/bin/light-prover /usr/local/bin/light-prover
 
@@ -21,6 +46,9 @@ WORKDIR /proving-keys
 COPY --chown=nonroot:nonroot --from=builder /tmp/empty_proving_keys /proving-keys/
 
 WORKDIR /
+
+# 3001 prover API, 9998 Prometheus metrics.
+EXPOSE 3001 9998
 
 ENTRYPOINT [ "light-prover" ]
 CMD [ "start" ]

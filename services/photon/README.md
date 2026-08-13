@@ -96,22 +96,24 @@ block batch until the underlying data or code is fixed. Alert on stale `getIndex
 
 ### Container releases
 
-Production images are published by `.github/workflows/photon-image.yml` through
-the protected `photon-production` environment. Configure
-`ECR_HELIUS_PROD_AWS_ROLE_ARN` as an environment variable containing an AWS IAM
-role that trusts GitHub's OIDC provider only for
-`repo:helius-labs/zolana:environment:photon-production`, and restrict that role
-to the Photon ECR Public repository. Restrict the environment's deployment tags
-to `photon-zolana-*` and require approval for manual releases. Fork releases are
-identified by the Zolana commit that contains the Photon source, using
-`photon-zolana-<12-character-zolana-commit>`; the imported crate's upstream
-version is not used as a Zolana release version.
+Images are published by `.github/workflows/publish-image.yml`, which publishes
+photon, the prover and the forester, through the protected `image-publish`
+environment. Configure `vars.AWS_IMAGE_PUBLISHER_ROLE_ARN` as a repository
+variable holding an AWS IAM role that trusts GitHub's OIDC provider only for
+`repo:helius-labs/zolana:environment:image-publish`, and restrict that role to
+the zolnet ECR repositories.
 
-ECR Public does not provide server-side immutable tags. The workflow serializes
-production releases, refuses tags that already exist, publishes a commit tag
-first, and verifies both remote tags resolve to the same digest. These checks
-narrow but cannot eliminate a race with a publisher outside this workflow;
-production access must therefore remain exclusive to this role.
+Two channels. `release` requires the tag to name the commit
+(`<service>-zolana-<12-character-zolana-commit>`) and the commit to be on `main`;
+the imported crate's upstream version is not a Zolana release version. `preview`
+takes any branch and any tag, and refuses a `-zolana-` tag so a preview cannot
+claim a release name. Both are attested and immutable.
+
+The registry is private ECR with `IMMUTABLE` tags, so the registry itself refuses
+to move a published tag. The workflow also serializes publishes per service,
+refuses tags that already exist, publishes the `sha-<commit>` alias first, and
+verifies both remote tags resolve to the same digest — a clearer failure than a
+push rejection, not the only guard.
 
 ## Development
 

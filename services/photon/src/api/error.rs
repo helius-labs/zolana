@@ -20,6 +20,10 @@ pub enum PhotonApiError {
     UnexpectedError(String),
     #[error("Node is behind {0} slots")]
     StaleSlot(u64),
+    /// The index has a root the chain has already moved past, so it cannot name
+    /// the root-history slot a client would have to quote. Retryable.
+    #[error("Stale Root: {0}")]
+    StaleRoot(String),
 }
 
 impl From<PhotonApiError> for ErrorObjectOwned {
@@ -46,6 +50,12 @@ impl From<PhotonApiError> for ErrorObjectOwned {
             PhotonApiError::StaleSlot(_) => {
                 metric! {
                     statsd_count!("stale_slot_api_error", 1);
+                }
+                invalid_request(val)
+            }
+            PhotonApiError::StaleRoot(_) => {
+                metric! {
+                    statsd_count!("stale_root_api_error", 1);
                 }
                 invalid_request(val)
             }

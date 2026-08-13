@@ -1,4 +1,4 @@
-use nullifier_tree_batch_update_parser::parse_nullifier_tree_batch_update;
+use nullifier_tree_batch_update_parser::parse_nullifier_tree_batch_updates;
 use rings_event_parser::parse_rings_events;
 use solana_pubkey::Pubkey;
 use std::collections::HashSet;
@@ -9,6 +9,7 @@ use self::state_update::{StateUpdate, Transaction};
 use self::tree_info::TreeInfo;
 pub use self::tree_info::TreeResolver;
 
+pub mod event_site;
 pub mod nullifier_tree_batch_update_parser;
 pub mod rings_event_parser;
 pub mod state_update;
@@ -40,16 +41,8 @@ where
         state_updates.push(rings_state_update);
     }
 
-    for instruction_group in &tx.instruction_groups {
-        for instruction in std::iter::once(&instruction_group.outer_instruction)
-            .chain(instruction_group.inner_instructions.iter())
-        {
-            if let Some(state_update) = parse_nullifier_tree_batch_update(instruction, tx)? {
-                if state_update != StateUpdate::default() {
-                    state_updates.push(state_update);
-                }
-            }
-        }
+    if let Some(state_update) = parse_nullifier_tree_batch_updates(tx)? {
+        state_updates.push(state_update);
     }
 
     let mut state_update = StateUpdate::merge_updates(state_updates);

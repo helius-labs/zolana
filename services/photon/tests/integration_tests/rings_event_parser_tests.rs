@@ -652,7 +652,7 @@ async fn rings_mode_persists_output_leaf_nodes_without_zk_tables() {
     .await
     .unwrap();
 
-    let response = get_merkle_proofs(
+    let response = merkle_proofs_for_test(
         &db,
         GetMerkleProofsRequest {
             tree_account: SerializablePubkey::from(output.output_tree),
@@ -710,7 +710,7 @@ async fn rings_merkle_proofs_reject_duplicate_output_hashes() {
     .await
     .unwrap();
 
-    let err = get_merkle_proofs(
+    let err = merkle_proofs_for_test(
         &db,
         GetMerkleProofsRequest {
             tree_account: SerializablePubkey::from(output.output_tree),
@@ -752,7 +752,7 @@ async fn rings_merkle_proofs_error_when_output_leaf_node_is_missing() {
         .await
         .unwrap();
 
-    let err = get_merkle_proofs(
+    let err = merkle_proofs_for_test(
         &db,
         GetMerkleProofsRequest {
             tree_account: SerializablePubkey::from(output.output_tree),
@@ -801,7 +801,7 @@ async fn rings_merkle_proofs_error_when_state_leaf_hash_diverges_from_output_has
         .await
         .unwrap();
 
-    let err = get_merkle_proofs(
+    let err = merkle_proofs_for_test(
         &db,
         GetMerkleProofsRequest {
             tree_account: SerializablePubkey::from(output.output_tree),
@@ -1012,7 +1012,7 @@ async fn rings_state_and_nullifier_nodes_do_not_collide_for_same_tree_account() 
         .expect("nullifier root should be stored");
     assert_ne!(state_root.hash, nullifier_root.hash);
 
-    let inclusion_response = get_merkle_proofs(
+    let inclusion_response = merkle_proofs_for_test(
         &db,
         GetMerkleProofsRequest {
             tree_account: SerializablePubkey::from(tree),
@@ -1320,7 +1320,10 @@ async fn assert_rings_api_exposes_output_hashes(
         .await
         .unwrap();
     assert_eq!(shielded.context.block_time, UNSHIELD_SLOT as i64);
-    assert!(shielded.next_cursor.is_none());
+    // A non-empty page carries the position of its last row even when it is
+    // short, so a client can resume from the tip rather than rescan. The stream
+    // ends on the next page, which comes back empty.
+    assert!(shielded.next_cursor.is_some());
     assert!(!shielded.transactions.is_empty());
     let output_slot = shielded
         .transactions
@@ -1368,7 +1371,7 @@ async fn assert_rings_api_exposes_output_hashes(
 
     let encrypted = get_encrypted_utxos_by_tags(db, request).await.unwrap();
     assert_eq!(encrypted.context.block_time, UNSHIELD_SLOT as i64);
-    assert!(encrypted.next_cursor.is_none());
+    assert!(encrypted.next_cursor.is_some());
     assert!(!encrypted.matches.is_empty());
     let encrypted_match = encrypted
         .matches
@@ -1724,4 +1727,33 @@ fn batch_update_transaction_info(tree: Pubkey) -> TransactionInfo {
         signature: Signature::from([7; 64]),
         error: None,
     }
+}
+
+/// Proof helper for tests: seeds the root-index cache from the tree photon just
+/// built, so the proof path resolves an index without an RPC endpoint. The
+/// index itself is not what these tests are about.
+async fn merkle_proofs_for_test(
+    db: &sea_orm::DatabaseConnection,
+    request: GetMerkleProofsRequest,
+) -> Result<zolana_indexer_api::GetMerkleProofsResponse, photon_indexer::api::error::PhotonApiError>
+{
+    use photon_indexer::api::root_index_cache::RootIndexCache;
+    use photon_indexer::dao::generated::state_trees;
+
+    let tree = solana_pubkey::Pubkey::from(request.tree_account.0.to_bytes());
+    let roots = state_trees::Entity::find()
+        .filter(state_trees::Column::Tree.eq(tree.to_bytes().to_vec()))
+        .filter(state_trees::Column::NodeIdx.eq(1))
+        .all(db)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter_map(|node| <[u8; 32]>::try_from(node.hash.as_slice()).ok())
+        .enumerate()
+        .filter_map(|(index, root)| u16::try_from(index).ok().map(|index| (index, root)))
+        .collect::<Vec<_>>();
+
+    let cache = RootIndexCache::with_roots(tree, roots);
+    let rpc = photon_indexer::rpc::RpcClient::new("http://127.0.0.1:1".to_string());
+    get_merkle_proofs(db, &rpc, &cache, request).await
 }

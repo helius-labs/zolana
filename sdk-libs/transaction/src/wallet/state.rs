@@ -1,7 +1,7 @@
 use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
 
 use solana_address::Address;
-use zolana_keypair::{shielded::ShieldedAddress, P256Pubkey};
+use zolana_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, P256Pubkey};
 
 use crate::{
     error::TransactionError, instructions::transact::OutputContext, utxo::Utxo, AssetRegistry,
@@ -144,6 +144,9 @@ pub struct Wallet {
     /// spent.
     pub nullifiers: HashSet<[u8; 32]>,
     pub last_synced: i64,
+    /// Per-view-tag sync watermarks: for each tag, the indexer cursor up to which
+    /// every matching transaction has already been seen.    
+    pub sync_cursors: HashMap<ViewTag, Vec<u8>>,
 }
 
 impl Wallet {
@@ -160,6 +163,7 @@ impl Wallet {
             transactions: Vec::new(),
             nullifiers: HashSet::new(),
             last_synced: 0,
+            sync_cursors: HashMap::new(),
         })
     }
 

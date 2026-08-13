@@ -1,5 +1,6 @@
 pub mod error;
 pub mod method;
+pub mod root_index_cache;
 pub mod rpc_server;
 pub mod service;
 

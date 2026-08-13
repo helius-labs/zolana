@@ -1,12 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::api::error::PhotonApiError;
+use crate::api::root_index_cache::RootIndexCache;
 use crate::common::bind_sql_value;
 use crate::common::bn254::is_bn254_field_element;
 use crate::common::rings_tree::RingsTreeKind;
 use crate::dao::generated::{indexed_trees, rings_outputs};
 use crate::ingester::parser::tree_info::TreeInfo;
 use crate::ingester::persist::MerkleProofWithContext;
+use crate::rpc::RpcClient;
 use bincode::{Decode, Encode};
 use sea_orm::{
     ColumnTrait, DatabaseBackend, DatabaseTransaction, EntityTrait, QueryFilter, QueryOrder, Value,
@@ -124,11 +126,13 @@ pub(super) async fn rings_output_leaf_indices(
         .collect()
 }
 
-pub(super) fn merkle_proof_from_context(
+pub(super) async fn merkle_proof_from_context(
     proof: MerkleProofWithContext,
     tree_info: &TreeInfo,
     tree_kind: RingsTreeKind,
     expected_leaf: &Hash,
+    rpc_client: &RpcClient,
+    root_index_cache: &RootIndexCache,
 ) -> Result<MerkleProof, PhotonApiError> {
     let expected_tree = SerializablePubkey::from(tree_info.tree);
     if proof.merkle_tree != expected_tree {
@@ -144,7 +148,12 @@ pub(super) fn merkle_proof_from_context(
         )));
     }
 
-    let (root_seq, root_index) = proof_root_position(&proof, tree_kind)?;
+    let root_seq = proof.root_seq.unwrap_or(0);
+    // The chain's slot for this exact root, not a number photon counted. See
+    // `RootIndexCache` for why the two cannot be kept in step by construction.
+    let root_index = root_index_cache
+        .index_for(rpc_client, tree_info.tree, proof.root.0)
+        .await?;
 
     Ok(MerkleProof {
         leaf: proof.hash,
@@ -191,19 +200,10 @@ pub(super) fn non_inclusion_proof_from_context(
     })
 }
 
-fn proof_root_position(
-    proof: &MerkleProofWithContext,
-    tree_kind: RingsTreeKind,
-) -> Result<(u64, u16), PhotonApiError> {
-    let root_seq = proof.root_seq.unwrap_or(0);
-    let root_index = proof
-        .root_seq
-        .map(|root_seq| root_index(root_seq, tree_kind.root_history_capacity()))
-        .transpose()
-        .map(|root_index| root_index.unwrap_or(0))?;
-    Ok((root_seq, root_index))
-}
-
+/// Root index for the nullifier tree, where the sequence number *is* the
+/// chain's: it comes from `BatchAddressAppendEvent`, not from a local counter.
+/// The state tree has no such field in its event, which is why it reads the
+/// index from the tree account instead -- see [`state_root_index`].
 fn root_index(root_seq: u64, root_history_capacity: u64) -> Result<u16, PhotonApiError> {
     let root_index = if root_history_capacity == 0 {
         0
@@ -294,15 +294,11 @@ fn cursor_bincode_config() -> impl bincode::config::Config {
         .with_fixed_int_encoding()
 }
 
+/// Position of the last row returned, or `None` when there were none.
 pub(super) fn next_cursor_from_rows<T>(
     rows: &[T],
-    limit: u64,
     cursor_from_row: impl FnOnce(&T) -> Result<Vec<u8>, PhotonApiError>,
 ) -> Result<Option<Base64String>, PhotonApiError> {
-    if u64_from_usize(rows.len(), "row count")? < limit {
-        return Ok(None);
-    }
-
     rows.last()
         .map(cursor_from_row)
         .transpose()
@@ -349,12 +345,6 @@ pub(super) fn u64_from_i64(value: i64, field: &str) -> Result<u64, PhotonApiErro
     })
 }
 
-fn u64_from_usize(value: usize, field: &str) -> Result<u64, PhotonApiError> {
-    u64::try_from(value).map_err(|_| {
-        PhotonApiError::UnexpectedError(format!("{} {} does not fit in u64", field, value))
-    })
-}
-
 pub(super) fn u16_from_i16(value: i16, field: &str) -> Result<u16, PhotonApiError> {
     u16::try_from(value).map_err(|_| {
         PhotonApiError::UnexpectedError(format!("Invalid negative {}: {}", field, value))
@@ -389,4 +379,36 @@ pub(super) fn rings_output_slot_from_parts(
         output_context: rings_output_context_from_parts(hash, tree, leaf_index)?,
         payload: Base64String(payload),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cursor_of(row: &u64) -> Result<Vec<u8>, PhotonApiError> {
+        Ok(row.to_be_bytes().to_vec())
+    }
+
+    /// The cursor doubles as the client's sync watermark, so a short page has to
+    /// carry one. Returning `None` there -- correct for "is there another page?"
+    /// -- made every wallet whose history fits in one page refetch all of it on
+    /// every sync.
+    #[test]
+    fn a_short_page_still_reports_its_last_row() {
+        let rows = vec![10u64, 50];
+        let cursor = next_cursor_from_rows(&rows, cursor_of).expect("cursor");
+        assert_eq!(
+            cursor.map(|c| c.0),
+            Some(50u64.to_be_bytes().to_vec()),
+            "a page below the limit still reports where it got to"
+        );
+    }
+
+    /// How the loop terminates now: the client asks once more and gets nothing.
+    #[test]
+    fn an_empty_page_ends_the_stream() {
+        let rows: Vec<u64> = Vec::new();
+        let cursor = next_cursor_from_rows(&rows, cursor_of).expect("cursor");
+        assert!(cursor.is_none(), "no rows means no position to resume from");
+    }
 }

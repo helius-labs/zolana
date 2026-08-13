@@ -198,6 +198,10 @@ func (w *BaseQueueWorker) processJobs() {
 	// Check if a job has expired
 	if !job.CreatedAt.IsZero() {
 		jobAge := time.Since(job.CreatedAt)
+		// The same age answers a second question: how long the job waited to be
+		// picked up. Recorded before the expiry branch so expired jobs, which
+		// are the extreme case, still count.
+		RecordQueueWait(w.queueName, jobAge)
 		if jobAge > JobExpirationTimeout {
 			logging.Logger().Warn().
 				Str("job_id", job.ID).

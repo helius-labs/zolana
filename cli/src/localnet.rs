@@ -95,7 +95,7 @@ pub(crate) fn run_test_validator(mut opts: TestValidatorOptions) -> Result<()> {
         )?;
     }
 
-    if opts.with_photon {
+    if opts.start_indexer() {
         let photon_binary = match &release {
             Some(release) => Some(release.photon_binary()?),
             None => None,
@@ -188,7 +188,7 @@ fn stop_test_env(opts: &TestValidatorOptions) {
         stop_name("prover-server");
         stop_port(opts.prover_port);
     }
-    if opts.with_photon {
+    if opts.start_indexer() {
         stop_name("photon");
         stop_port(opts.photon_port);
     }
@@ -318,8 +318,8 @@ mod tests {
 
     #[test]
     fn parses_photon_options() {
-        let opts = parse_validator(&["--with-photon", "--photon-port", "8785"]);
-        assert!(opts.with_photon);
+        let opts = parse_validator(&["--photon-port", "8785"]);
+        assert!(opts.start_indexer());
         assert_eq!(opts.photon_port, 8785);
         assert_eq!(opts.photon_start_slot, "latest");
     }

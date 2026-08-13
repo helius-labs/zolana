@@ -2,6 +2,7 @@ package server
 
 import (
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -111,6 +112,71 @@ var (
 		[]string{"circuit_type"},
 	)
 
+	// Duration as GAUGES, alongside the histogram above.
+	//
+	// The histogram is the right Prometheus primitive and stays, but our
+	// CloudWatch agent drops histogram metrics entirely -- not as _bucket, _sum or
+	// _count -- so nothing derived from ProofGenerationDuration reaches our
+	// dashboards. Measured, not assumed: after a run that generated 125 proofs,
+	// the zolnet/prover namespace contained every gauge and counter and not one
+	// histogram series.
+	//
+	// These carry the same information in a shape that survives the trip.
+	ProofDurationLast = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "prover_proof_duration_seconds_last",
+			Help: "Duration of the most recent proof, by circuit type",
+		},
+		[]string{"circuit_type"},
+	)
+
+	ProofDurationMean = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "prover_proof_duration_seconds_mean",
+			Help: "Mean duration over the last 100 proofs, by circuit type",
+		},
+		[]string{"circuit_type"},
+	)
+
+	ProofDurationMax = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "prover_proof_duration_seconds_max",
+			Help: "Slowest of the last 100 proofs, by circuit type",
+		},
+		[]string{"circuit_type"},
+	)
+
+	// How long a job sat in Redis between being accepted and being picked up.
+	//
+	// The gap nobody measured. A client-observed "prove" phase of 118s was
+	// reconciled against 0.28s of compute and an idle worker, and there was no
+	// way to tell whether the missing two minutes were queue wait or the client
+	// polling too slowly for its result. Stamped from the job's CreatedAt at
+	// dequeue, which the expiry check already relies on.
+	QueueWaitLast = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "prover_queue_wait_seconds_last",
+			Help: "Enqueue-to-dequeue delay of the most recent job, by queue",
+		},
+		[]string{"queue"},
+	)
+
+	QueueWaitMean = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "prover_queue_wait_seconds_mean",
+			Help: "Mean enqueue-to-dequeue delay over the last 100 jobs, by queue",
+		},
+		[]string{"queue"},
+	)
+
+	QueueWaitMax = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "prover_queue_wait_seconds_max",
+			Help: "Longest enqueue-to-dequeue delay over the last 100 jobs, by queue",
+		},
+		[]string{"queue"},
+	)
+
 	SystemMemoryUsage = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "prover_system_memory_bytes",
@@ -147,6 +213,82 @@ func StartProofTimer(circuitType string) *MetricTimer {
 	}
 }
 
+// recentWindow is the number of proofs the rolling duration gauges average over.
+// Small enough to react to a change in load, large enough that one slow proof
+// does not dominate the mean.
+const recentWindow = 100
+
+// rollingStats keeps the last `recentWindow` observations per circuit type.
+//
+// Needed because a Prometheus Gauge is write-only -- there is no Get -- so a
+// running peak or mean has to be tracked here rather than read back out. That
+// missing Get is exactly why ProofPeakMemory was dead: the code that should have
+// updated it was an empty block whose comment said the value was "tracked via
+// histogram max", and the histogram never leaves the process.
+type rollingStats struct {
+	mu        sync.Mutex
+	byCircuit map[string]*window
+}
+
+type window struct {
+	samples []float64
+	next    int
+	peakMem float64
+}
+
+var rolling = &rollingStats{byCircuit: map[string]*window{}}
+
+// Queue waits keep their own window, keyed by queue rather than circuit.
+var queueWaits = &rollingStats{byCircuit: map[string]*window{}}
+
+// RecordQueueWait publishes how long a job sat between accept and dequeue.
+//
+// Called with the job's age at pickup. Zero CreatedAt means the job predates
+// the field, so it is skipped rather than reported as an enormous wait.
+func RecordQueueWait(queueName string, waited time.Duration) {
+	seconds := waited.Seconds()
+	if seconds < 0 {
+		return
+	}
+	mean, max, _ := queueWaits.observe(queueName, seconds, 0)
+	QueueWaitLast.WithLabelValues(queueName).Set(seconds)
+	QueueWaitMean.WithLabelValues(queueName).Set(mean)
+	QueueWaitMax.WithLabelValues(queueName).Set(max)
+}
+
+// observe records a duration and a memory delta, returning the mean and max
+// duration over the retained window and the all-time peak memory.
+func (r *rollingStats) observe(circuit string, duration, memBytes float64) (mean, max, peakMem float64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	w, ok := r.byCircuit[circuit]
+	if !ok {
+		w = &window{samples: make([]float64, 0, recentWindow)}
+		r.byCircuit[circuit] = w
+	}
+
+	if len(w.samples) < recentWindow {
+		w.samples = append(w.samples, duration)
+	} else {
+		w.samples[w.next] = duration
+		w.next = (w.next + 1) % recentWindow
+	}
+
+	if memBytes > w.peakMem {
+		w.peakMem = memBytes
+	}
+
+	var total float64
+	for _, sample := range w.samples {
+		total += sample
+		if sample > max {
+			max = sample
+		}
+	}
+	return total / float64(len(w.samples)), max, w.peakMem
+}
+
 func (t *MetricTimer) ObserveDuration() {
 	duration := time.Since(t.start).Seconds()
 	ProofGenerationDuration.WithLabelValues(t.circuitType).Observe(duration)
@@ -165,11 +307,12 @@ func (t *MetricTimer) ObserveDuration() {
 	// Record memory usage for this proof
 	ProofMemoryUsage.WithLabelValues(t.circuitType).Observe(float64(memDelta))
 
-	// Update peak memory if this is higher
-	currentPeak, _ := ProofPeakMemory.GetMetricWithLabelValues(t.circuitType)
-	if currentPeak != nil {
-		// Note: Gauge doesn't have a Get method, so we track via histogram max
-	}
+	// Peak memory, and the duration gauges that survive the metrics agent.
+	mean, max, peakMem := rolling.observe(t.circuitType, duration, float64(memDelta))
+	ProofPeakMemory.WithLabelValues(t.circuitType).Set(peakMem)
+	ProofDurationLast.WithLabelValues(t.circuitType).Set(duration)
+	ProofDurationMean.WithLabelValues(t.circuitType).Set(mean)
+	ProofDurationMax.WithLabelValues(t.circuitType).Set(max)
 
 	// Update system memory gauges
 	SystemMemoryUsage.WithLabelValues("heap_alloc").Set(float64(memStats.HeapAlloc))

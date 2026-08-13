@@ -50,7 +50,7 @@ Workflows under `.github/workflows/`:
 
 - `rust.yml` — fmt, clippy, machete, check-all, per-area unit tests
 - `photon.yml` — Photon contract tests, migrations, schema drift, and service tests
-- `photon-image.yml` — container smoke tests and approved immutable releases
+- `publish-image.yml` — container smoke tests, and publishes photon, prover and forester images to ECR
 - `forester.yml` — forester compile check
 - `prover-server.yml` — Go test suite + xtask smoke
 - `enforce-pr-only.yml` — fails direct pushes to `main`

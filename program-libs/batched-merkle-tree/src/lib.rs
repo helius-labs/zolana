@@ -103,7 +103,6 @@
 pub mod batch;
 pub mod constants;
 pub mod errors;
-pub mod events;
 pub mod initialize_address_tree;
 pub mod merkle_tree;
 pub mod merkle_tree_metadata;

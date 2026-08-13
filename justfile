@@ -176,7 +176,7 @@ _test-ts-live test-script: build-programs build-prover-server build-cli ensure-p
     cargo run -q -p xtask -- generate-account-snapshots \
       --deploy-dir target/deploy --accounts-dir "$accounts_dir"
 
-    "$bin" dev start --with-photon --no-use-surfpool \
+    "$bin" dev start --no-use-surfpool \
       --rpc-port {{localnet-rpc-port}} --prover-port {{localnet-prover-port}} \
       --photon-port {{localnet-photon-port}} --account-dir "$accounts_dir" \
       --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so \
@@ -656,7 +656,7 @@ test-cli-smoke: build-programs build-prover-server build-cli ensure-photon
 
     # 1. Spawn services (dev start daemonizes the validator/prover/photon and
     #    returns once each is ready).
-    "$bin" dev start --with-photon --no-use-surfpool \
+    "$bin" dev start --no-use-surfpool \
       --rpc-port {{localnet-rpc-port}} --prover-port {{localnet-prover-port}} \
       --photon-port {{localnet-photon-port}} \
       --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so \
