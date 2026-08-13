@@ -8,11 +8,6 @@
 use std::{sync::OnceLock, thread::sleep, time::Duration};
 
 /// Reject a service URL that would carry shielded material in plaintext.
-///
-/// Mirrors the TypeScript SDK's `checkedServiceUrl`: https anywhere, http only
-/// to loopback, where there is no network to observe. Kept deliberately simple
-/// -- scheme and host, no dependency on a URL crate -- because the rule is
-/// about which wire the bytes cross, not about parsing.
 fn check_service_url(url: &str, field: &'static str) -> Result<(), ClientError> {
     let insecure = || ClientError::InsecureServiceUrl {
         field,
