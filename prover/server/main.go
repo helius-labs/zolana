@@ -885,6 +885,29 @@ func startCleanupRoutines(redisQueue *server.RedisQueue) {
 		}
 	}()
 
+	// Backlog is what autoscaling reacts to, so it has to be published faster
+	// than the scaler's minute-granularity view of it. Six LLen calls is cheap
+	// next to a 3.85 CPU-second proof.
+	go func() {
+		depthTicker := time.NewTicker(10 * time.Second)
+		defer depthTicker.Stop()
+
+		logging.Logger().Info().Msg("Started queue depth publisher (every 10 seconds)")
+
+		for range depthTicker.C {
+			stats, err := redisQueue.GetQueueStats()
+			if err != nil {
+				logging.Logger().Warn().
+					Err(err).
+					Msg("Failed to read queue depths for metrics")
+				continue
+			}
+			for queueName, depth := range stats {
+				server.QueueDepth.WithLabelValues(queueName).Set(float64(depth))
+			}
+		}
+	}()
+
 	// Start cleanup for old proof requests (every 10 minutes)
 	go func() {
 		requestTicker := time.NewTicker(10 * time.Minute)
