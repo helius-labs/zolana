@@ -76,8 +76,13 @@ on:
         required: true
         type: string
 
+# Publishing is serialized per service, not globally: GitHub holds at most one
+# pending run per group, so a single 'production' group meant dispatching the
+# prover and then the forester during a photon publish quietly cancelled one of
+# them. Three services can publish at once because ECR tags are immutable -- the
+# registry, not this group, is what prevents two runs claiming one tag.
 concurrency:
-  group: ${{ github.workflow }}-${{ (startsWith(github.ref, 'refs/tags/photon-zolana-') || github.event_name == 'workflow_dispatch') && 'production' || github.ref }}
+  group: ${{ github.workflow }}-${{ (startsWith(github.ref, 'refs/tags/photon-zolana-') || github.event_name == 'workflow_dispatch') && format('production-{0}', inputs.service || 'photon') || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -142,8 +147,13 @@ jobs:
     name: publish / ${{ inputs.service || 'photon' }}
     runs-on: ubuntu-24.04
     needs: validate
+    # The positive form matters: `!= 'failure'` is also true when validate was
+    # cancelled, which would let a tag push publish an image whose smoke test
+    # never finished. 'skipped' is the prover/forester dispatch path, where
+    # validate does not apply.
     if: >-
-      always() && needs.validate.result != 'failure' && (
+      always() &&
+      (needs.validate.result == 'success' || needs.validate.result == 'skipped') && (
         startsWith(github.ref, 'refs/tags/photon-zolana-') ||
         github.event_name == 'workflow_dispatch'
       )
@@ -171,6 +181,8 @@ jobs:
               echo "repository=zolana-photon" >> "$GITHUB_OUTPUT"
               echo "context=." >> "$GITHUB_OUTPUT"
               echo "file=services/photon/Dockerfile" >> "$GITHUB_OUTPUT"
+              echo "title=Zolana Photon" >> "$GITHUB_OUTPUT"
+              echo "description=Zolana shielded-pool indexer" >> "$GITHUB_OUTPUT"
               ;;
             prover)
               # The keyless image. prover/server/Dockerfile bakes 1.4-3.9 GB of
@@ -178,6 +190,8 @@ jobs:
               echo "repository=zolana-prover" >> "$GITHUB_OUTPUT"
               echo "context=prover/server" >> "$GITHUB_OUTPUT"
               echo "file=prover/server/Dockerfile.light" >> "$GITHUB_OUTPUT"
+              echo "title=Zolana Prover" >> "$GITHUB_OUTPUT"
+              echo "description=Zolana Groth16 proving server" >> "$GITHUB_OUTPUT"
               ;;
             forester)
               # Repository root as context: the crate depends on workspace
@@ -185,6 +199,8 @@ jobs:
               echo "repository=zolana-forester" >> "$GITHUB_OUTPUT"
               echo "context=." >> "$GITHUB_OUTPUT"
               echo "file=forester/Dockerfile" >> "$GITHUB_OUTPUT"
+              echo "title=Zolana Forester" >> "$GITHUB_OUTPUT"
+              echo "description=Zolana queue and tree maintenance service" >> "$GITHUB_OUTPUT"
               ;;
             *)
               echo "::error::unknown service $SERVICE"; exit 1 ;;
@@ -198,12 +214,26 @@ jobs:
       # feature branch -- and an unenforceable rule gets bypassed rather than
       # followed. A preview build is still attested and still immutable; it just
       # does not claim to be a release.
-      - name: Validate the release
-        if: steps.plan.outputs.channel == 'release' && github.event_name == 'workflow_dispatch'
+      #
+      # Both channels are checked here, because the `-zolana-` shape is what
+      # tells a reader (and infra's image pins) that a tag carries the release
+      # guarantees. Enforcing it on release alone would leave preview free to
+      # mint a name it has not earned.
+      - name: Validate the tag
+        if: github.event_name == 'workflow_dispatch'
         env:
           IMAGE_TAG: ${{ inputs.image_tag }}
           SERVICE: ${{ steps.plan.outputs.service }}
+          CHANNEL: ${{ steps.plan.outputs.channel }}
         run: |
+          if [[ "$CHANNEL" != release ]]; then
+            if [[ "$IMAGE_TAG" == *-zolana-* ]]; then
+              echo "::error::preview tag $IMAGE_TAG must not use the release naming scheme" >&2
+              exit 1
+            fi
+            exit 0
+          fi
+
           expected_tag="${SERVICE}-zolana-${GITHUB_SHA:0:12}"
           if [[ "$IMAGE_TAG" != "$expected_tag" ]]; then
             echo "::error::release tag $IMAGE_TAG must be $expected_tag" >&2
@@ -219,30 +249,40 @@ jobs:
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: ${{ vars.AWS_IMAGE_PUBLISHER_ROLE_ARN }}
-          role-session-name: zolana-photon-publish
+          # Names the service so CloudTrail attributes a publish to the thing
+          # that was actually published.
+          role-session-name: zolana-${{ steps.plan.outputs.service }}-publish
           aws-region: ${{ env.AWS_REGION }}
       # Private ECR, so no registry-type override. The role is trusted for this
       # job's OIDC subject specifically -- `repo:helius-labs/zolana:environment:
-      # photon-production`, which is what declaring `environment:` above makes
-      # GitHub present instead of the ref.
+      # image-publish`, which is what declaring `environment:` above makes
+      # GitHub present instead of the ref. One environment covers all three
+      # services and both channels: what separates release from preview is what
+      # this workflow enforces, not which role the job may assume.
       - uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2
       - id: metadata
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: ${{ env.REGISTRY }}/${{ steps.plan.outputs.repository }}
           flavor: latest=false
+          # type=match is push-only. Enabled by ref alone it would also fire on a
+          # dispatch started from a photon-zolana-* tag ref, emitting that tag
+          # *and* inputs.image_tag -- and "Publish immutable tags" keeps
+          # whichever it reads last, silently dropping the other onto whichever
+          # repository the dispatch named.
           tags: |
-            type=match,pattern=(photon-zolana-.*),group=1,enable=${{ startsWith(github.ref, 'refs/tags/photon-zolana-') }}
+            type=match,pattern=(photon-zolana-.*),group=1,enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/photon-zolana-') }}
             type=raw,value=${{ inputs.image_tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
             type=sha,format=long,prefix=sha-
           labels: |
-            org.opencontainers.image.title=Zolana Photon
-            org.opencontainers.image.description=Zolana shielded-pool indexer
+            org.opencontainers.image.title=${{ steps.plan.outputs.title }}
+            org.opencontainers.image.description=${{ steps.plan.outputs.description }}
             org.opencontainers.image.licenses=Apache-2.0
       - name: Refuse to overwrite published tags
         env:
           IMAGE_TAGS: ${{ steps.metadata.outputs.tags }}
           ECR_REPOSITORY: ${{ steps.plan.outputs.repository }}
+          SERVICE: ${{ steps.plan.outputs.service }}
         run: |
           while IFS= read -r image; do
             [[ -n "$image" ]] || continue
@@ -256,7 +296,7 @@ jobs:
             status=$?
             set -e
             if [[ $status -eq 0 ]]; then
-              echo "Refusing to overwrite published Photon tag: $tag" >&2
+              echo "Refusing to overwrite published $SERVICE tag: $tag" >&2
               exit 1
             fi
             if [[ "$error" != *ImageNotFoundException* ]]; then
@@ -273,8 +313,11 @@ jobs:
           push: false
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
-          cache-from: type=gha,scope=photon-image-production
-          cache-to: type=gha,mode=max,scope=photon-image-production
+          # Per service. A Go build, a Rust build and photon's share nothing, so
+          # one mode=max scope had all three evicting each other out of the
+          # 10 GB the whole repository gets.
+          cache-from: type=gha,scope=publish-${{ steps.plan.outputs.service }}
+          cache-to: type=gha,mode=max,scope=publish-${{ steps.plan.outputs.service }}
       # Proves the image runs before anything is pushed. The binaries differ per
       # service, so the check does too -- a shared "it built" would assert
       # nothing about whether the thing inside starts.
@@ -306,6 +349,7 @@ jobs:
         env:
           IMAGE_TAGS: ${{ steps.metadata.outputs.tags }}
           ECR_REPOSITORY: ${{ steps.plan.outputs.repository }}
+          SERVICE: ${{ steps.plan.outputs.service }}
         run: |
           sha_image=""
           release_image=""
@@ -335,7 +379,7 @@ jobs:
           status=$?
           set -e
           if [[ $status -eq 0 ]]; then
-            echo "Reusing existing Photon commit tag: $sha_tag"
+            echo "Reusing existing $SERVICE commit tag: $sha_tag"
             docker pull "$sha_image"
           elif [[ "$error" == *ImageNotFoundException* ]]; then
             docker push "$sha_image"
@@ -359,7 +403,7 @@ jobs:
               fi
               sleep 2
             done
-            echo "Could not resolve remote digest for Photon tag: $tag" >&2
+            echo "Could not resolve remote digest for $SERVICE tag: $tag" >&2
             return 1
           }
 
@@ -374,7 +418,7 @@ jobs:
           status=$?
           set -e
           if [[ $status -eq 0 ]]; then
-            echo "Refusing to overwrite published Photon tag: $release_tag" >&2
+            echo "Refusing to overwrite published $SERVICE tag: $release_tag" >&2
             exit 1
           fi
           if [[ "$error" != *ImageNotFoundException* ]]; then
@@ -386,7 +430,7 @@ jobs:
 
           release_digest="$(remote_digest "$release_tag")"
           if [[ "$release_digest" != "$sha_digest" ]]; then
-            echo "Photon release tag digest $release_digest does not match commit tag $sha_digest" >&2
+            echo "$SERVICE release tag digest $release_digest does not match commit tag $sha_digest" >&2
             exit 1
           fi
 

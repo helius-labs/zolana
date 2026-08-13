@@ -457,17 +457,20 @@ git push origin "$tag"
 A manual `publish-image.yml` dispatch on the `release` channel must use that
 same commit-derived value for its `image_tag`, and the commit must be on
 `main`; the `preview` channel takes any branch and any tag, for images that are
-not releases. The protected `image-publish` environment gates publication. The workflow publishes the
-`photon-zolana-<12-character-commit>` tag and a full `sha-<commit>` alias,
-refuses to overwrite either, and does not publish `latest`. The imported crate
-version in `services/photon/Cargo.toml` is upstream source provenance, not the
-Zolana fork's release identifier.
+not releases, and refuses a `-zolana-` tag so a preview cannot claim a release
+name. The protected `image-publish` environment gates publication. The workflow
+publishes the `photon-zolana-<12-character-commit>` tag and a full `sha-<commit>`
+alias, refuses to overwrite either, and does not publish `latest`. The imported
+crate version in `services/photon/Cargo.toml` is upstream source provenance, not
+the Zolana fork's release identifier.
 
 Before archiving the standalone Photon repository, update external deployment
 configuration that consumes its old `<run>-<sha>` or `latest` tags to use a new
 immutable `photon-zolana-*` or `sha-*` tag from this repository. Keep the
-base-image digests in `services/photon/Dockerfile` updated through reviewed
-changes.
+base-image digests in `services/photon/Dockerfile`, `forester/Dockerfile` and
+`prover/server/Dockerfile.light` updated through reviewed changes -- all three
+images are attested, and a mutable base tag would let one commit produce
+different bytes.
 
 ## Git Hygiene
 

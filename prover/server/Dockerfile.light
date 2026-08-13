@@ -17,7 +17,11 @@
 # only in flags -- circuit selection and concurrency -- and in which keys they
 # happen to fetch.
 
-FROM golang:1.25-alpine AS builder
+# Both stages pinned by digest: this image is attested now, and a mutable tag
+# lets one commit produce different bytes depending on when it was built, which
+# is exactly what the attestation is supposed to rule out. These are index
+# digests, so multi-arch resolution still works.
+FROM golang:1.25-alpine@sha256:56961d79ea8129efddcc0b8643fd8a5416b4e6228cfd477e3fd61deb2672c587 AS builder
 
 WORKDIR /app
 
@@ -33,7 +37,7 @@ RUN go build -v -o /usr/local/bin/light-prover .
 # directory has to be created here and copied in with the right ownership.
 RUN mkdir -p /tmp/empty_proving_keys
 
-FROM gcr.io/distroless/base-debian11:nonroot
+FROM gcr.io/distroless/base-debian11:nonroot@sha256:68b0f492c1eb077f71d384b544456dac4afb282372966917df32b3923f65ad0d
 
 COPY --from=builder /usr/local/bin/light-prover /usr/local/bin/light-prover
 
