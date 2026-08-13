@@ -242,6 +242,16 @@ describe("unsigned public transaction builders", () => {
     expect(() => assertIsFullySignedTransaction(signed)).not.toThrow();
   });
 
+  it("tags a deposit with the recipient confidential view tag", async () => {
+    const recipient = ShieldedKeypair.generate().shieldedAddress();
+    const deposit = await createDeposit({
+      recipient,
+      asset: SOL_MINT,
+      amount: 42n,
+    });
+    expect(deposit.viewTag()).toEqual(recipient.confidentialViewTag());
+  });
+
   it("threads Token-2022 through an SPL deposit", async () => {
     const deposit = await createDeposit({
       recipient: ShieldedKeypair.generate().shieldedAddress(),

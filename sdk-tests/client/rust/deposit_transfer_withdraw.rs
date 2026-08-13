@@ -112,8 +112,8 @@ fn main() -> Result<()> {
         let transfer_utxo = sender_balances_after_deposit
             .get_balance(SOL_MINT)
             // SPL: .get_balance(spl.mint)
+            .and_then(|balance| balance.utxos.first())
             .expect("failed to fetch deposited utxo")
-            .utxos[0]
             .clone();
 
         // 2. Prepare the selected UTXOs as inputs for the zero-knowledge proof.

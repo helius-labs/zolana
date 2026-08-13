@@ -58,11 +58,6 @@ export async function splAssetVaultAddress(mint: Address): Promise<Address> {
   return (await splInterfaceWithBump(mint))[0];
 }
 
-/** Canonical bump of the per-mint SPL interface PDA. Rust: `pda::spl_interface_bump`. */
-export async function splInterfaceBump(mint: Address): Promise<number> {
-  return (await splInterfaceWithBump(mint))[1];
-}
-
 export async function associatedTokenAddress(
   owner: Address,
   mint: Address,
