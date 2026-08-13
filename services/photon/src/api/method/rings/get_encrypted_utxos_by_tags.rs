@@ -55,7 +55,7 @@ pub async fn get_encrypted_utxos_by_tags(
     crate::api::set_transaction_isolation_if_needed(&tx).await?;
 
     let rows = fetch_encrypted_utxo_rows(&tx, &request.tags, cursor.as_ref(), limit).await?;
-    let next_cursor = next_cursor_from_rows(&rows, limit, encrypted_utxo_cursor_from_row)?;
+    let next_cursor = next_cursor_from_rows(&rows, encrypted_utxo_cursor_from_row)?;
 
     let matches = rows
         .into_iter()
