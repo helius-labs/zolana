@@ -220,15 +220,8 @@ pub(crate) struct TestValidatorOptions {
     #[arg(long, help = "Do not start the prover server")]
     pub(crate) skip_prover: bool,
 
-    #[arg(
-        long,
-        help = "Do not start the Photon indexer",
-        conflicts_with = "with_photon"
-    )]
+    #[arg(long, help = "Do not start the Photon indexer")]
     pub(crate) skip_indexer: bool,
-
-    #[arg(long, hide = true, help = "Deprecated alias: Photon starts by default")]
-    pub(crate) with_photon: bool,
 
     #[arg(
         long,
@@ -885,7 +878,6 @@ mod tests {
             "8901",
             "--faucet-port",
             "9901",
-            "--with-photon",
             "--photon-port",
             "8785",
             "--photon-db-url",
@@ -908,7 +900,6 @@ mod tests {
         assert!(opts.skip_prover);
         assert!(!opts.skip_indexer);
         assert!(opts.start_indexer());
-        assert!(opts.with_photon);
         assert_eq!(opts.rpc_port, 8901);
         assert_eq!(opts.faucet_port, Some(9901));
         assert_eq!(opts.photon_port, 8785);
@@ -968,10 +959,6 @@ mod tests {
         let skipped = parse_validator(&["--skip-indexer"]);
         assert!(skipped.skip_indexer);
         assert!(!skipped.start_indexer());
-
-        let alias = parse_validator(&["--with-photon"]);
-        assert!(alias.with_photon);
-        assert!(alias.start_indexer());
     }
 
     #[test]

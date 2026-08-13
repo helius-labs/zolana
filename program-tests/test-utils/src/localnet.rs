@@ -149,7 +149,6 @@ impl LocalnetValidator {
             "test-env".into(),
             "--local".into(),
             "--no-use-surfpool".into(),
-            "--with-photon".into(),
             "--skip-prover".into(),
             "--rpc-port".into(),
             self.rpc_port.clone(),

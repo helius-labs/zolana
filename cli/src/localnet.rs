@@ -318,7 +318,7 @@ mod tests {
 
     #[test]
     fn parses_photon_options() {
-        let opts = parse_validator(&["--with-photon", "--photon-port", "8785"]);
+        let opts = parse_validator(&["--photon-port", "8785"]);
         assert!(opts.start_indexer());
         assert_eq!(opts.photon_port, 8785);
         assert_eq!(opts.photon_start_slot, "latest");
