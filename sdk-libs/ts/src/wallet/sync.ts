@@ -279,13 +279,16 @@ interface CollectByTagsInput {
   readonly pageLimit: number;
   readonly nextRpcConfig: () => IndexerRpcConfig;
   readonly out: Map<string, IndexedShieldedTransaction>;
+  /** Where this group of tags was read to last sync, or undefined for never. */
+  readonly from: Uint8Array | undefined;
 }
 
 async function collectShieldedTransactions(
   input: CollectByTagsInput,
   context?: RequestContext,
-): Promise<void> {
-  let cursor: Uint8Array | undefined;
+): Promise<Uint8Array | undefined> {
+  let cursor: Uint8Array | undefined = input.from;
+  let furthest: Uint8Array | undefined = input.from;
   const seenCursors = new Set<string>();
   do {
     const response = await input.indexer.getShieldedTransactionsByTags(
@@ -302,14 +305,19 @@ async function collectShieldedTransactions(
       if (!input.out.has(key)) input.out.set(key, transaction);
     }
     cursor = checkedNextCursor("getShieldedTransactionsByTags", response.nextCursor, seenCursors);
+    // Kept even on the last page: the resume point for the next sync is a
+    // different question from whether another page exists now.
+    if (cursor !== undefined) furthest = cursor;
   } while (cursor !== undefined);
+  return furthest;
 }
 
 async function collectProoflessDeposits(
   input: CollectByTagsInput,
   context?: RequestContext,
-): Promise<void> {
-  let cursor: Uint8Array | undefined;
+): Promise<Uint8Array | undefined> {
+  let cursor: Uint8Array | undefined = input.from;
+  let furthest: Uint8Array | undefined = input.from;
   const seenCursors = new Set<string>();
   do {
     const response = await input.indexer.getEncryptedUtxosByTags(
@@ -340,7 +348,9 @@ async function collectProoflessDeposits(
       );
     }
     cursor = checkedNextCursor("getEncryptedUtxosByTags", response.nextCursor, seenCursors);
+    if (cursor !== undefined) furthest = cursor;
   } while (cursor !== undefined);
+  return furthest;
 }
 
 interface CollectByNullifiersInput {
@@ -412,16 +422,42 @@ export async function syncWallet(
     const transactions = new Map<string, IndexedShieldedTransaction>();
     const deposits = new Map<string, IndexedShieldedTransaction>();
     const tags = walletQueryTags(input.wallet, material);
-    for (let offset = 0; offset < tags.length; offset += chunkSize) {
-      const chunk = tags.slice(offset, offset + chunkSize);
-      await collectShieldedTransactions(
-        { indexer: input.client, chunk, pageLimit, nextRpcConfig, out: transactions },
-        context,
-      );
-      await collectProoflessDeposits(
-        { indexer: input.client, chunk, pageLimit, nextRpcConfig, out: deposits },
-        context,
-      );
+    // Tags are grouped by where each was last read to, because a chunk can only
+    // carry one cursor. Mixing a tag at the tip with one learned this sync would
+    // resume the new tag from the old one's position and skip its history
+    // permanently -- which is why the watermarks are per tag, not per wallet.
+    // `undefined` (never queried) is its own group.
+    for (const stream of ["transactions", "proofless"] as const) {
+      const groups = new Map<string, { from: Uint8Array | undefined; tags: Bytes32[] }>();
+      for (const tag of tags) {
+        const from = input.wallet._syncCursor(stream, bytesKey(tag));
+        const key = from === undefined ? "" : bytesKey(from);
+        const group = groups.get(key);
+        if (group === undefined) groups.set(key, { from, tags: [tag] });
+        else group.tags.push(tag);
+      }
+
+      for (const group of groups.values()) {
+        for (let offset = 0; offset < group.tags.length; offset += chunkSize) {
+          const chunk = group.tags.slice(offset, offset + chunkSize);
+          const collect =
+            stream === "transactions" ? collectShieldedTransactions : collectProoflessDeposits;
+          const furthest = await collect(
+            {
+              indexer: input.client,
+              chunk,
+              pageLimit,
+              nextRpcConfig,
+              out: stream === "transactions" ? transactions : deposits,
+              from: group.from,
+            },
+            context,
+          );
+          if (furthest !== undefined) {
+            for (const tag of chunk) input.wallet._setSyncCursor(stream, bytesKey(tag), furthest);
+          }
+        }
+      }
     }
 
     const queriedNullifiers = new Set<string>();

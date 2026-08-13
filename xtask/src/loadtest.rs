@@ -431,7 +431,12 @@ fn worker(
     let shielded = ShieldedKeypair::from_solana_keypair(funding)?;
     let mut wallet = Wallet::new(shielded.shielded_address()?, AssetRegistry::default())?;
 
-    let client = ZolanaClient::from_urls(
+    // Explicitly insecure: devnet's ALB has no certificate yet, so the indexer
+    // and prover are plain http. That is a real exposure -- the wallet's UTXO
+    // set and every proof witness cross the network in the clear -- and it is
+    // spelled out here rather than defaulted, so it disappears the moment the
+    // certificate is issued.
+    let client = ZolanaClient::from_urls_allowing_insecure_http(
         SolanaRpc::new(options.rpc_url.clone()),
         options.indexer_url.clone(),
         options.prover_url.clone(),

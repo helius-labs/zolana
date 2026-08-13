@@ -61,6 +61,81 @@ describe("wallet sync", () => {
     expect(report).toMatchObject({ storedUtxos: 0, unparsedTransactions: 0 });
   });
 
+  it("resumes each tag stream from where it was read to", async () => {
+    // Without this every sync re-reads the wallet's whole history: 569 ECDH
+    // operations for a wallet holding a handful of notes, growing forever.
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const cursor = Uint8Array.of(1, 2, 3);
+    // One page carrying a cursor, then the end. Repeating a cursor would trip
+    // the SDK's loop guard, which is a different behaviour under test.
+    let served = 0;
+    const getShieldedTransactionsByTags = vi.fn(async () => {
+      served += 1;
+      return {
+        context: { blockTime: 1_700_000_000n },
+        transactions: [],
+        ...(served === 1 ? { nextCursor: cursor } : {}),
+      };
+    });
+    const client = {
+      getShieldedTransactionsByTags,
+      getEncryptedUtxosByTags: vi.fn(async () => ({
+        context: { blockTime: 1_700_000_000n },
+        matches: [],
+      })),
+      getShieldedTransactionsByNullifiers: vi.fn(),
+    } as unknown as ZolanaClient;
+    const authority = new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair });
+
+    await syncWallet({ wallet, authority, client });
+    const calls = () =>
+      getShieldedTransactionsByTags.mock.calls as unknown as [{ cursor?: Uint8Array }][];
+    const firstCall = calls()[0]?.[0];
+    expect(firstCall?.cursor).toBeUndefined();
+
+    getShieldedTransactionsByTags.mockClear();
+    await syncWallet({ wallet, authority, client });
+    const secondCall = calls()[0]?.[0];
+    expect(secondCall?.cursor).toEqual(cursor);
+  });
+
+  it("does not resume a newly learned tag from another tag's position", async () => {
+    // The trap the per-tag watermarks exist for. Tags come from a counter plus a
+    // window, so one can be learned after others have advanced far past the
+    // slots it needs. Sharing a cursor would skip its history permanently.
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    wallet._setSyncCursor("transactions", "deadbeef", Uint8Array.of(9, 9, 9));
+
+    const getShieldedTransactionsByTags = vi.fn(async () => ({
+      context: { blockTime: 1_700_000_000n },
+      transactions: [],
+    }));
+    const client = {
+      getShieldedTransactionsByTags,
+      getEncryptedUtxosByTags: vi.fn(async () => ({
+        context: { blockTime: 1_700_000_000n },
+        matches: [],
+      })),
+      getShieldedTransactionsByNullifiers: vi.fn(),
+    } as unknown as ZolanaClient;
+
+    await syncWallet({
+      wallet,
+      authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      client,
+    });
+
+    // The wallet's real tags have no watermark, so every query starts at the
+    // beginning -- the unrelated tag's cursor must not leak into them.
+    for (const call of getShieldedTransactionsByTags.mock.calls as unknown as [
+      { cursor?: Uint8Array },
+    ][]) {
+      expect(call[0]?.cursor).toBeUndefined();
+    }
+  });
+
   it("filters registry backfill before downloading program accounts", async () => {
     const keypair = ShieldedKeypair.generate();
     const send = vi.fn(async () => []);

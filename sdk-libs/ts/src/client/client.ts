@@ -89,6 +89,15 @@ export interface ZolanaClientConfig {
   readonly indexerConfig?: IndexerRpcConfig;
   readonly proverAsyncPoll?: AsyncPollConfig;
   readonly fetch?: typeof globalThis.fetch;
+  /**
+   * Permit plain http to non-loopback indexer and prover URLs.
+   *
+   * Off by default: in plaintext the indexer response reveals which UTXOs an
+   * identity owns and the prover request carries the witness, so the transport
+   * carries the protocol's privacy. Set this only where the network is already
+   * private, and never for a public endpoint.
+   */
+  readonly allowInsecureHttp?: boolean;
 }
 
 /** @internal */
@@ -142,8 +151,13 @@ export class ZolanaClient {
         ? {}
         : { solanaRpcSubscriptionsUrl: endpoints.solanaRpcSubscriptions }),
     });
-    const indexerUrl = checkedServiceUrl(endpoints.photon, endpoints.photonField);
-    const proverUrl = checkedServiceUrl(endpoints.prover, endpoints.proverField);
+    const allowInsecureHttp = input.allowInsecureHttp ?? false;
+    const indexerUrl = checkedServiceUrl(
+      endpoints.photon,
+      endpoints.photonField,
+      allowInsecureHttp,
+    );
+    const proverUrl = checkedServiceUrl(endpoints.prover, endpoints.proverField, allowInsecureHttp);
     let indexer: ZolanaIndexer;
     try {
       indexer = new ZolanaIndexer(
@@ -163,6 +177,7 @@ export class ZolanaClient {
     try {
       prover = new ProverClient({
         url: proverUrl,
+        allowInsecureHttp,
         ...(input.proverAsyncPoll === undefined ? {} : { asyncPoll: input.proverAsyncPoll }),
         ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
       });

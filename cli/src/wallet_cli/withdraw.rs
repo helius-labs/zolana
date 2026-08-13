@@ -29,7 +29,7 @@ pub(crate) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
         network.sync.indexer_url.clone(),
         network.prover_url.clone(),
         Address::new_from_array(network.tree.to_bytes()),
-    );
+    )?;
     let recipient = parse_pubkey(&opts.to)?;
 
     // An SPL withdrawal settles into the recipient's associated token account,

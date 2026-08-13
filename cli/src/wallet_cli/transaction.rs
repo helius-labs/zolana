@@ -28,7 +28,7 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
         network.sync.indexer_url.clone(),
         network.prover_url.clone(),
         Address::new_from_array(network.tree.to_bytes()),
-    );
+    )?;
     let recipient = parse_pubkey(&opts.to)?;
 
     let transfer = create_transfer_sync(TransferParams {
@@ -111,7 +111,7 @@ pub(crate) fn run_split(opts: SplitOptions) -> Result<()> {
         network.sync.indexer_url.clone(),
         network.prover_url.clone(),
         Address::new_from_array(network.tree.to_bytes()),
-    );
+    )?;
     let input = opts
         .input
         .as_deref()
@@ -183,7 +183,7 @@ pub(crate) fn run_merge(opts: MergeOptions) -> Result<()> {
         network.sync.indexer_url.clone(),
         network.prover_url.clone(),
         Address::new_from_array(tree.to_bytes()),
-    );
+    )?;
     // Submit only needs the owner's public identity plus the nullifier secret;
     // no signing/viewing/funding secret crosses the submit boundary.
     let material = MergeMaterial::from_keypair(&ctx.material.keypair);
