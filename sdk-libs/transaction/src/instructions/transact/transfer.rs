@@ -7,7 +7,7 @@ use zolana_keypair::{
     random_salt,
     shielded::ShieldedAddress,
     viewing_key::random_blinding,
-    P256Pubkey, PublicKey, ShieldedKeypairTrait, SignatureType, ViewingKey, ViewingKeyTrait,
+    Curve, P256Pubkey, PublicKey, ViewingKey, ViewingKeyTrait,
 };
 
 use super::{
@@ -109,7 +109,7 @@ impl ConfidentialTransfer {
         asset: Address,
         amount: u64,
     ) -> Result<&mut Self, TransactionError> {
-        if recipient.signing_pubkey.signature_type()? == SignatureType::P256 {
+        if recipient.signing_pubkey.curve()? == Curve::P256 {
             return Err(TransactionError::P256TransactUnsupported);
         }
         self.recipients.push(Recipient {
@@ -174,7 +174,7 @@ impl ConfidentialTransfer {
     /// no separate authority. The authority rail is [`Self::prepare`] +
     /// [`PreparedTransfer::finalize`], with encryption/signing delegated to a
     /// `WalletAuthority`.
-    pub fn sign<K: ShieldedKeypairTrait + ViewingKeyTrait>(
+    pub fn sign<K: ViewingKeyTrait>(
         self,
         keypair: &K,
         assets: &AssetRegistry,
@@ -185,7 +185,7 @@ impl ConfidentialTransfer {
     /// Assemble a custom-ring P256 transfer. Unlike the default transact rail,
     /// the sender's P256 owner tag is carried inline because ownership is proven
     /// inside the RingP256 circuit rather than by a Solana signer account.
-    pub fn sign_ring_p256<K: ShieldedKeypairTrait + ViewingKeyTrait>(
+    pub fn sign_ring_p256<K: ViewingKeyTrait>(
         self,
         keypair: &K,
         assets: &AssetRegistry,
@@ -193,7 +193,7 @@ impl ConfidentialTransfer {
         self.assemble(keypair, assets, true)
     }
 
-    fn assemble<K: ShieldedKeypairTrait + ViewingKeyTrait>(
+    fn assemble<K: ViewingKeyTrait>(
         self,
         keypair: &K,
         assets: &AssetRegistry,
@@ -542,20 +542,21 @@ impl PreparedTransfer {
 }
 
 /// The sender's output owner tag and its resolved 32-byte value. The resolved
-/// value is the full Ed25519 key returned by `confidential_view_tag()`; the
-/// wire tag is `Account(0)` when the owner is the fee payer at account index 0,
-/// otherwise `Inline` (relayed transfer). Default transact has no P-256 owner
-/// rail.
+/// value is the full 32-byte address returned by `confidential_view_tag()`;
+/// the instruction tag is `Account(0)` when the owner is the fee payer at
+/// account index 0, otherwise `Inline` (relayed transfer). Default transact
+/// has no P-256 owner rail. A PDA owner follows the Ed25519 arm: identical in
+/// every public-data path, and never the fee payer.
 fn sender_owner_tag(
     owner_pubkey: &PublicKey,
     payer: &Address,
     allow_p256_sender: bool,
 ) -> Result<(OwnerTag, [u8; 32]), TransactionError> {
     let resolved = owner_pubkey.confidential_view_tag()?;
-    let tag = match owner_pubkey.signature_type()? {
-        SignatureType::P256 if allow_p256_sender => OwnerTag::Inline(resolved),
-        SignatureType::P256 => return Err(TransactionError::P256TransactUnsupported),
-        SignatureType::Ed25519 => {
+    let tag = match owner_pubkey.curve()? {
+        Curve::P256 if allow_p256_sender => OwnerTag::Inline(resolved),
+        Curve::P256 => return Err(TransactionError::P256TransactUnsupported),
+        Curve::Ed25519 | Curve::Pda => {
             if resolved == payer.to_bytes() {
                 OwnerTag::Account(0)
             } else {
@@ -610,7 +611,7 @@ mod tests {
     /// `Account(0)`; the resolved value is the owner's view tag (the ed25519 key).
     #[test]
     fn sender_tag_is_account_zero_when_owner_is_payer() {
-        let pk = SigningKey::from_ed25519(&[7u8; 32]).pubkey();
+        let pk = SigningKey::from_ed25519_bytes(&[7u8; 32]).pubkey();
         let resolved = pk.confidential_view_tag().unwrap();
         let payer = Address::new_from_array(resolved);
         let (tag, got_resolved) = sender_owner_tag(&pk, &payer, false).unwrap();
@@ -622,7 +623,7 @@ mod tests {
     /// an inline tag carrying the owner's view tag verbatim.
     #[test]
     fn sender_tag_is_inline_for_relayed_transfer() {
-        let pk = SigningKey::from_ed25519(&[7u8; 32]).pubkey();
+        let pk = SigningKey::from_ed25519_bytes(&[7u8; 32]).pubkey();
         let resolved = pk.confidential_view_tag().unwrap();
         let unrelated_payer = Address::default();
         let (tag, got_resolved) = sender_owner_tag(&pk, &unrelated_payer, false).unwrap();
@@ -633,7 +634,7 @@ mod tests {
     /// Default transact has no P-256 owner rail.
     #[test]
     fn sender_tag_rejects_p256_owner() {
-        let pk = SigningKey::new().pubkey();
+        let pk = SigningKey::new_p256().pubkey();
         assert_eq!(
             sender_owner_tag(&pk, &Address::default(), false),
             Err(TransactionError::P256TransactUnsupported)
@@ -642,7 +643,7 @@ mod tests {
 
     #[test]
     fn ring_p256_sender_tag_is_inline() {
-        let pk = SigningKey::new().pubkey();
+        let pk = SigningKey::new_p256().pubkey();
         let resolved = pk.confidential_view_tag().unwrap();
         assert_eq!(
             sender_owner_tag(&pk, &Address::default(), true),

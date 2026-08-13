@@ -127,7 +127,7 @@ fn indexed_spend_input(args: IndexedSpendInputArgs<'_>) -> TestResult<TransferIn
         nullifier_tree_root: be(&args.nullifier_proof.root),
         nullifier: be(args.nullifier),
         owner_pk_hash: be(args.owner_pk_hash),
-        nullifier_secret: be(&right_align_slice(args.nullifier_key.secret())?),
+        nullifier_secret: be(&right_align_slice(&*args.nullifier_key.secret())?),
     })
 }
 
@@ -229,7 +229,9 @@ fn shielded_ed25519_from_solana(signer: &Keypair) -> TestResult<ShieldedKeypair>
     let seed: [u8; 32] = signer.to_bytes()[..32]
         .try_into()
         .expect("ed25519 seed is the first 32 bytes");
-    Ok(ShieldedKeypair::from_ed25519(&seed, ViewingKey::new())?)
+    Ok(ShieldedKeypair::from_keypair(
+        SigningKey::from_ed25519_bytes(&seed),
+    )?)
 }
 
 /// Restart a fresh validator + Photon indexer so each test runs against clean

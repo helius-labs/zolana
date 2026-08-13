@@ -5,7 +5,7 @@ use dynamic_swap_sdk::{
     instructions::{create_pair::CreatePair, update_price::UpdatePrice},
     pair_pda,
 };
-use shared::{setup, TestEnv, DESTINATION_ASSET_ID, SOURCE_ASSET_ID};
+use shared::{escrow_authority_identity, setup, TestEnv, DESTINATION_ASSET_ID, SOURCE_ASSET_ID};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
@@ -36,7 +36,7 @@ fn assert_custom_error(context: &str, err: &anyhow::Error, code: u32) {
 // pool: the maker funds each escrow on demand, so this creates only the pair
 // account. Returns the pair PDA (or the RPC error, which the price-0 case
 // asserts on).
-fn create_pair(env: &TestEnv, authority_solana: &Keypair, price: u64) -> Result<Pubkey> {
+fn create_pair(env: &TestEnv, authority_solana: &dyn Signer, price: u64) -> Result<Pubkey> {
     let pair = pair_pda(
         &authority_solana.pubkey(),
         SOURCE_ASSET_ID,
@@ -58,6 +58,12 @@ fn create_pair(env: &TestEnv, authority_solana: &Keypair, price: u64) -> Result<
         authority_owner_hash,
         source_asset,
         destination_asset,
+        escrow_authority_nullifier_pubkey: escrow_authority_identity(
+            &env.authority.keypair,
+            &pair,
+        )?
+        .nullifier_pubkey()
+        .map_err(|e| anyhow!("escrow authority nullifier pubkey: {e:?}"))?,
     }
     .instruction()
     .map_err(|e| anyhow!("create_pair instruction: {e:?}"))?;
@@ -81,7 +87,7 @@ fn create_pair(env: &TestEnv, authority_solana: &Keypair, price: u64) -> Result<
 #[test]
 fn zero_price_and_authority_checks() -> Result<()> {
     let env = setup()?;
-    let authority_solana = env.authority.solana_keypair()?;
+    let authority_solana = &env.authority.keypair;
 
     // create_pair rejects a zero price (create_escrow could not stamp a nonzero
     // execution_price, so escrows on the pair could never settle).

@@ -57,6 +57,8 @@ pub enum DynamicSwapError {
     InvalidPrice = 9016,
     #[error("rent recipient must be the escrow owner")]
     RentRecipientMismatch = 9017,
+    #[error("escrow-authority nullifier pubkey must be nonzero")]
+    InvalidNullifierPubkey = 9018,
 }
 
 impl From<DynamicSwapError> for ProgramError {

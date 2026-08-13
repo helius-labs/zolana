@@ -11,7 +11,7 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_interface::instruction::MergeTransact;
-use zolana_keypair::{NullifierKey, P256Pubkey, PublicKey, ShieldedKeypair, SignatureType};
+use zolana_keypair::{Curve, NullifierKey, P256Pubkey, PublicKey, ShieldedKeypair};
 use zolana_transaction::{instructions::merge::PreparedMerge, Address};
 use zolana_user_registry_interface::{user_record_pda, UserRecord};
 
@@ -199,16 +199,17 @@ fn validate_merge_submission(
         return Err(ClientError::MergeDisabled { owner });
     }
     let signing = material.signing_pubkey;
-    match signing.signature_type()? {
-        SignatureType::P256 => {
+    match signing.curve()? {
+        Curve::P256 => {
             if record.owner_p256 != Some(*signing.as_p256()?.as_bytes()) {
                 return Err(ClientError::MergeSigningKeyMismatch);
             }
         }
-        SignatureType::Ed25519 => {
+        Curve::Ed25519 | Curve::Pda => {
             // The ed25519 rail derives the signing identity from the record's
-            // Solana `owner`, which carries no P256 key.
-            if record.owner_p256.is_some() || signing.as_ed25519()? != owner.to_bytes() {
+            // Solana `owner`, which carries no P256 key. A PDA owner is
+            // identical here: its identity is the record's `owner` address.
+            if record.owner_p256.is_some() || signing.confidential_view_tag()? != owner.to_bytes() {
                 return Err(ClientError::MergeSigningKeyMismatch);
             }
         }
@@ -225,14 +226,14 @@ fn validate_merge_submission(
 #[cfg(test)]
 mod tests {
     use zolana_client::{MerkleContext, MerkleProof, NonInclusionProof};
-    use zolana_keypair::ViewingKey;
+    use zolana_keypair::SigningKey;
 
     use super::*;
 
     fn ed25519_owner() -> (Pubkey, ShieldedKeypair) {
         let seed = zolana_keypair::random_blinding();
-        let keypair =
-            ShieldedKeypair::from_ed25519(&seed, ViewingKey::new()).expect("ed25519 keypair");
+        let keypair = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&seed))
+            .expect("ed25519 keypair");
         let owner = Pubkey::new_from_array(
             keypair
                 .signing_pubkey()

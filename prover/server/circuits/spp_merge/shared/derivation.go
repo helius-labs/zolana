@@ -8,8 +8,9 @@ import (
 
 // Domain separators (32-bit ASCII tags) for the deterministic merge-output
 // recovery scheme. Mirror DOMAIN_MERGE_OUTPUT_BLINDING_V1 /
-// DOMAIN_MERGE_DUMMY_NULLIFIER in sdk-libs/keypair/src/merge.rs; the
-// cross-language vectors are pinned in derivation_test.go.
+// DOMAIN_MERGE_DUMMY_NULLIFIER in
+// sdk-libs/transaction/src/instructions/merge.rs; the cross-language vectors
+// are pinned in derivation_test.go.
 const (
 	// MergeOutputBlindingDomainV1 = "TMOB"
 	MergeOutputBlindingDomainV1 = 0x544d4f42

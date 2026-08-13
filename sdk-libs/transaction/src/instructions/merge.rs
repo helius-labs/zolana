@@ -4,10 +4,8 @@
 //! in-circuit from the nullifier secret, so there is no signing step.
 
 use solana_address::Address;
-use zolana_keypair::{
-    merge::{merge_dummy_nullifier, merge_output_blinding},
-    PublicKey, ShieldedKeypairTrait,
-};
+use zolana_hasher::{primitives::right_align, Hasher, Poseidon};
+use zolana_keypair::{NullifierKey, PublicKey, ShieldedKeypairTrait};
 
 use crate::{
     error::TransactionError,
@@ -18,6 +16,47 @@ use crate::{
 /// Fixed input arity of the merge circuit (`merge_8_1`). Real inputs sit at the
 /// front; padding fills the rest with dummies.
 pub const MERGE_INPUTS: usize = 8;
+
+/// Domain separators (32-bit ASCII tags) for the deterministic merge-output
+/// recovery scheme, mirroring `circuits/spp_merge/shared/derivation.go`.
+pub const DOMAIN_MERGE_OUTPUT_BLINDING_V1: u32 = 0x544d_4f42; // "TMOB"
+pub const DOMAIN_MERGE_DUMMY_NULLIFIER: u32 = 0x544d_444e; // "TMDN"
+
+/// The merged output's blinding, derived in-circuit from the owner's nullifier
+/// secret and the first (always real) input's single-use nullifier. The wallet
+/// recovers the output by recomputing this value and checking the resulting
+/// UTXO hash against the on-chain output commitment. The nullifier secret is
+/// known to the owner alone -- unlike a UTXO blinding, which the sender of
+/// that UTXO also knows -- so only the owner can run this derivation.
+pub fn merge_output_blinding(
+    nullifier_key: &NullifierKey,
+    first_nullifier: &[u8; 32],
+) -> Result<[u8; 32], TransactionError> {
+    Ok(Poseidon::hashv(&[
+        &right_align(&DOMAIN_MERGE_OUTPUT_BLINDING_V1.to_be_bytes()),
+        &right_align(&nullifier_key.secret()),
+        first_nullifier,
+    ])?)
+}
+
+/// The published nullifier of a dummy (padding) input slot, derived in-circuit
+/// from the owner's nullifier secret, the first real input's single-use
+/// nullifier, and the slot index. Seeding with the nullifier secret (owner-only)
+/// rather than an input blinding (also known to that UTXO's sender) hides which
+/// slots are padding, while the fixed derivation prevents a prover from
+/// smuggling a real wallet nullifier into one.
+pub fn merge_dummy_nullifier(
+    nullifier_key: &NullifierKey,
+    first_nullifier: &[u8; 32],
+    slot_index: u8,
+) -> Result<[u8; 32], TransactionError> {
+    Ok(Poseidon::hashv(&[
+        &right_align(&DOMAIN_MERGE_DUMMY_NULLIFIER.to_be_bytes()),
+        &right_align(&nullifier_key.secret()),
+        first_nullifier,
+        &right_align(&u32::from(slot_index).to_be_bytes()),
+    ])?)
+}
 
 /// A merge plan: the real UTXOs to consolidate (no Merkle proofs, no padding), the
 /// derived single output, and the owner identity. Every input must share one owner
@@ -113,10 +152,10 @@ pub(crate) fn validate_merge_inputs<K: ShieldedKeypairTrait>(
     let asset = inputs.first().ok_or(TransactionError::NoInputs)?.utxo.asset;
     let owner = keypair.signing_pubkey();
     let owner_rail = keypair.curve()?;
-    let nullifier_pubkey = keypair.nullifier_key().pubkey()?;
+    let nullifier_pubkey = keypair.nullifier_pubkey()?;
     let mut total = 0u64;
     for (index, spend) in inputs.iter().enumerate() {
-        if spend.utxo.owner.signature_type()? != owner_rail {
+        if spend.utxo.owner.curve()? != owner_rail {
             return Err(TransactionError::MergeInputRailMismatch { index });
         }
         if spend.utxo.owner != owner {
@@ -145,7 +184,7 @@ pub(crate) fn pad_with_dummies(inputs: &mut Vec<SppProofInputUtxo>) {
 
 pub(crate) fn derive_dummy_nullifiers(
     inputs: &[SppProofInputUtxo],
-    nullifier_key: &zolana_keypair::NullifierKey,
+    nullifier_key: &NullifierKey,
 ) -> Result<Vec<[u8; 32]>, TransactionError> {
     let first = inputs.first().ok_or(TransactionError::NoInputs)?;
     if first.is_dummy() {
@@ -156,9 +195,7 @@ pub(crate) fn derive_dummy_nullifiers(
         .iter()
         .enumerate()
         .filter(|(_, input)| input.is_dummy())
-        .map(|(slot, _)| {
-            merge_dummy_nullifier(nullifier_key, &first_nullifier, slot as u8).map_err(Into::into)
-        })
+        .map(|(slot, _)| merge_dummy_nullifier(nullifier_key, &first_nullifier, slot as u8))
         .collect()
 }
 
@@ -233,7 +270,7 @@ pub(crate) fn has_utxo_data(spend: &SppProofInputUtxo) -> bool {
 #[cfg(test)]
 mod tests {
     use solana_address::Address;
-    use zolana_keypair::{viewing_key::random_blinding, ShieldedKeypair, ViewingKey};
+    use zolana_keypair::{viewing_key::random_blinding, ShieldedKeypair, SigningKey};
 
     use super::*;
     use crate::{data::DataRecord, utxo::Utxo, Data};
@@ -348,7 +385,8 @@ mod tests {
     fn rejects_input_on_a_different_rail() {
         let mut seed = [0u8; 32];
         seed.copy_from_slice(&random_blinding());
-        let eddsa = ShieldedKeypair::from_ed25519(&seed, ViewingKey::new()).expect("eddsa keypair");
+        let eddsa = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&seed))
+            .expect("eddsa keypair");
         let p256 = ShieldedKeypair::new().expect("p256 keypair");
         // A P256-owned input under an ed25519 merging keypair mismatches the rail.
         let input = plain_input(&p256, Address::default(), 10);

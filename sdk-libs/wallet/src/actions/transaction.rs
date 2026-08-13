@@ -1094,7 +1094,7 @@ fn validate_unsigned_inputs(
 mod tests {
     use borsh::to_vec;
     use solana_account::Account;
-    use zolana_keypair::{ShieldedKeypair, ViewingKey};
+    use zolana_keypair::{ShieldedKeypair, SigningKey};
     use zolana_transaction::{
         instructions::transact::SettlementTransfer, Data, DataRecord, Utxo, WalletUtxo,
     };
@@ -1134,7 +1134,8 @@ mod tests {
     }
 
     fn ed25519_keypair(seed: u8) -> ShieldedKeypair {
-        ShieldedKeypair::from_ed25519(&[seed; 32], ViewingKey::new()).expect("Ed25519 keypair")
+        ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[seed; 32]))
+            .expect("Ed25519 keypair")
     }
 
     fn wallet_with_asset(keypair: ShieldedKeypair, asset: Address, amount: u64) -> Wallet {

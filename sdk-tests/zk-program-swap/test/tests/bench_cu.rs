@@ -42,7 +42,7 @@ use zolana_interface::{
     },
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
 use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
 use zolana_transaction::{
     instructions::{
@@ -223,7 +223,8 @@ fn keypair_from_payer(payer: &Keypair) -> ShieldedKeypair {
     let seed: [u8; 32] = payer.to_bytes()[..32]
         .try_into()
         .expect("ed25519 seed is the first 32 bytes");
-    ShieldedKeypair::from_ed25519(&seed, ViewingKey::new()).expect("keypair from payer")
+    ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&seed))
+        .expect("keypair from payer")
 }
 
 fn prove_transact_timed(
@@ -376,8 +377,8 @@ fn bench_make(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
         data: Data::default(),
     };
 
-    let taker = ShieldedKeypair::from_solana_keypair(&Keypair::new_from_array([0x4d; 32]))
-        .expect("taker keypair");
+    let taker =
+        ShieldedKeypair::from_keypair(&Keypair::new_from_array([0x4d; 32])).expect("taker keypair");
     let taker_address = taker.shielded_address().expect("taker address");
     let terms = OrderTerms {
         destination_mint: Address::new_from_array([7u8; 32]),
@@ -518,8 +519,8 @@ fn bench_take_derived(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenc
     let taker_payer = Keypair::new();
     let taker = keypair_from_payer(&taker_payer);
     let taker_address = taker.shielded_address().expect("taker address");
-    let maker = ShieldedKeypair::from_solana_keypair(&Keypair::new_from_array([0x51; 32]))
-        .expect("maker keypair");
+    let maker =
+        ShieldedKeypair::from_keypair(&Keypair::new_from_array([0x51; 32])).expect("maker keypair");
     let maker_address = maker.shielded_address().expect("maker address");
 
     let terms = OrderTerms {
@@ -662,8 +663,8 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
     let taker_payer = Keypair::new();
     let taker = keypair_from_payer(&taker_payer);
     let taker_address = taker.shielded_address().expect("taker address");
-    let maker = ShieldedKeypair::from_solana_keypair(&Keypair::new_from_array([0x51; 32]))
-        .expect("maker keypair");
+    let maker =
+        ShieldedKeypair::from_keypair(&Keypair::new_from_array([0x51; 32])).expect("maker keypair");
     let maker_address = maker.shielded_address().expect("maker address");
 
     let terms = OrderTerms {
@@ -832,8 +833,8 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
     let maker_payer = Keypair::new();
     let maker = keypair_from_payer(&maker_payer);
     let maker_address = maker.shielded_address().expect("maker address");
-    let taker = ShieldedKeypair::from_solana_keypair(&Keypair::new_from_array([0x4d; 32]))
-        .expect("taker keypair");
+    let taker =
+        ShieldedKeypair::from_keypair(&Keypair::new_from_array([0x4d; 32])).expect("taker keypair");
     let taker_viewing_pubkey = taker
         .shielded_address()
         .expect("taker address")

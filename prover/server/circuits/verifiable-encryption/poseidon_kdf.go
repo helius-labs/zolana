@@ -57,7 +57,7 @@ func feToBytesBE(api frontend.API, fe frontend.Variable) [32]frontend.Variable {
 	return out
 }
 
-// KeySchedule mirrors encryption.rs:key_schedule in-circuit.
+// KeySchedule mirrors sdk-libs/keypair/src/encryption.rs:key_schedule in-circuit.
 //
 // Inputs:
 //   - sharedSecret: a single field element (output of DeriveSharedSecret)

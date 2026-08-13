@@ -60,12 +60,8 @@ fn make_and_cancel_swap_inline() -> Result<()> {
     } = setup()?;
     let swap_prover_client = SwapProverClient::new();
     {
-        ensure_registered(
-            client.rpc(),
-            &maker.keypair.to_solana_keypair()?,
-            &maker.keypair,
-        )
-        .map_err(|e| anyhow!("register maker: {e:?}"))?;
+        ensure_registered(client.rpc(), &maker.keypair, &maker.keypair)
+            .map_err(|e| anyhow!("register maker: {e:?}"))?;
 
         let taker_address = taker.keypair.shielded_address()?;
         // The taker's ed25519 authorization identity: the order-committed taker.
@@ -158,8 +154,7 @@ fn make_and_cancel_swap_inline() -> Result<()> {
         }
         .instruction()?;
 
-        let make_signature =
-            send_v0_with_lookup_table(client.rpc(), &maker.keypair.to_solana_keypair()?, make_ix)?;
+        let make_signature = send_v0_with_lookup_table(client.rpc(), &maker.keypair, make_ix)?;
         client
             .confirm_private_transaction_sync(make_signature)
             .map_err(|e| anyhow!("confirm make indexed: {e:?}"))?;
@@ -243,11 +238,7 @@ fn make_and_cancel_swap_inline() -> Result<()> {
         }
         .instruction()?;
 
-        let cancel_signature = send_v0_with_lookup_table(
-            client.rpc(),
-            &maker.keypair.to_solana_keypair()?,
-            cancel_ix,
-        )?;
+        let cancel_signature = send_v0_with_lookup_table(client.rpc(), &maker.keypair, cancel_ix)?;
         client
             .confirm_private_transaction_sync(cancel_signature)
             .map_err(|e| anyhow!("confirm cancel indexed: {e:?}"))?;

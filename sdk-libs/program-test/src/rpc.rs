@@ -2,7 +2,7 @@ use solana_account::{Account, ReadableAccount};
 use solana_address::Address;
 use solana_hash::Hash;
 use solana_instruction::Instruction;
-use solana_keypair::Keypair;
+use solana_keypair::Signer;
 use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
@@ -27,7 +27,7 @@ impl ZolanaProgramTest {
         &mut self,
         ixs: &[Instruction],
         payer: &Pubkey,
-        signers: &[&Keypair],
+        signers: &[&dyn Signer],
     ) -> Result<IndexedTransaction, ProgramTestError> {
         // Each helper call represents a fresh RPC submission. LiteSVM otherwise
         // deduplicates repeated instructions signed over the same blockhash.

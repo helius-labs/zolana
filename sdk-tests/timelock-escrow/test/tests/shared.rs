@@ -24,7 +24,7 @@ use zolana_interface::{
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{
-    constants::BLINDING_LEN, NullifierKey, PublicKey, ShieldedAddress, ShieldedKeypair, ViewingKey,
+    constants::BLINDING_LEN, NullifierKey, PublicKey, ShieldedAddress, ShieldedKeypair, SigningKey,
 };
 use zolana_program_test::system_create_account_ix;
 use zolana_test_utils::{
@@ -218,7 +218,8 @@ pub fn setup() -> Result<TestEnv> {
     let creator_seed: [u8; 32] = creator_solana_keypair.to_bytes()[..32]
         .try_into()
         .expect("ed25519 seed is the first 32 bytes");
-    let creator_shielded_keypair = ShieldedKeypair::from_ed25519(&creator_seed, ViewingKey::new())?;
+    let creator_shielded_keypair =
+        ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&creator_seed))?;
     rpc.airdrop(&creator_solana_keypair.pubkey(), 10_000_000_000)?;
 
     let escrow_nullifier_key = NullifierKey::from_secret([0u8; BLINDING_LEN]);
@@ -284,7 +285,7 @@ pub fn setup() -> Result<TestEnv> {
 // accounts) don't fit within the 1232-byte tx limit via a legacy transaction.
 pub fn send_v0_with_lookup_table(
     rpc: &SolanaRpc,
-    payer: &Keypair,
+    payer: &dyn Signer,
     ix: Instruction,
 ) -> Result<Signature> {
     let alt_addresses: Vec<Pubkey> = ix

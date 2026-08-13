@@ -25,7 +25,7 @@ use zolana_interface::SOL_ASSET_FIELD;
 use zolana_interface::instruction::instruction_data::transact::{
     OwnerTag, TransactIxData, TransactProof,
 };
-use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, ViewingKey};
+use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, SigningKey, ViewingKey};
 use zolana_transaction::{
     instructions::transact::{
         spp_proof_inputs::signed_to_field, SettlementTransfer, Shape, SENDER_SLOT_COUNT,
@@ -53,7 +53,7 @@ fn blinding(rng: &mut ThreadRng) -> [u8; 32] {
 fn test_keypair() -> ShieldedKeypair {
     let mut secret = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut secret);
-    ShieldedKeypair::from_ed25519(&secret, ViewingKey::new()).unwrap()
+    ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&secret)).unwrap()
 }
 
 fn spend_input(sender: &ShieldedKeypair, amount: u64, rng: &mut ThreadRng) -> SppProofInputUtxo {

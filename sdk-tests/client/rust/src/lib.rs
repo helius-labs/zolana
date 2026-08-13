@@ -171,7 +171,7 @@ pub fn setup() -> Result<SetupContext> {
 
 fn new_wallet(rpc: &mut SolanaRpc) -> Result<ShieldedKeypair> {
     let solana_keypair = Keypair::new();
-    let keypair = ShieldedKeypair::from_solana_keypair(&solana_keypair)?;
+    let keypair = ShieldedKeypair::from_keypair(&solana_keypair)?;
     rpc.airdrop(&solana_keypair.pubkey(), 10_000_000_000)?;
     Ok(keypair)
 }

@@ -1,9 +1,12 @@
+use solana_signer::{Signer, SignerError};
+
 use crate::{
     constants::SALT_LEN,
+    derivation::{Rail, RoleExpansion},
     error::KeypairError,
     hash::{owner_hash, poseidon},
     nullifier_key::NullifierKey,
-    pubkey::{P256Pubkey, PublicKey},
+    pubkey::{Curve, P256Pubkey, PublicKey},
     signing_key::SigningKey,
     viewing_key::ViewingKey,
 };
@@ -16,14 +19,29 @@ pub struct ShieldedAddress {
 }
 
 impl ShieldedAddress {
+    pub fn for_pda(
+        pda: &solana_address::Address,
+        nullifier_pubkey: [u8; 32],
+        viewing_pubkey: P256Pubkey,
+    ) -> Self {
+        Self {
+            signing_pubkey: PublicKey::from_pda(pda),
+            nullifier_pubkey,
+            viewing_pubkey,
+        }
+    }
+
     pub fn owner_hash(&self) -> Result<[u8; 32], KeypairError> {
         owner_hash(&self.signing_pubkey, &self.nullifier_pubkey)
     }
 
     pub fn solana_address(&self) -> Result<solana_address::Address, KeypairError> {
-        Ok(solana_address::Address::new_from_array(
-            self.signing_pubkey.as_ed25519()?,
-        ))
+        let bytes = match self.signing_pubkey.curve()? {
+            Curve::Ed25519 => self.signing_pubkey.as_ed25519()?,
+            Curve::Pda => self.signing_pubkey.as_pda()?,
+            Curve::P256 => return Err(KeypairError::NoSolanaAddress),
+        };
+        Ok(solana_address::Address::new_from_array(bytes))
     }
 
     pub fn confidential_view_tag(&self) -> Result<[u8; 32], KeypairError> {
@@ -57,6 +75,7 @@ impl TryFrom<&ShieldedAddress> for CompressedShieldedAddress {
 }
 
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct ShieldedKeypair {
     pub signing_key: SigningKey,
     pub nullifier_key: NullifierKey,
@@ -69,65 +88,64 @@ impl AsRef<NullifierKey> for ShieldedKeypair {
     }
 }
 
-impl ShieldedKeypair {
-    pub fn from_keys(
-        signing_key: SigningKey,
-        viewing_key: ViewingKey,
-    ) -> Result<Self, KeypairError> {
-        let nullifier_key = NullifierKey::from_signing_key(&signing_key)?;
-        Ok(Self {
-            signing_key,
-            nullifier_key,
-            viewing_key,
-        })
+impl Signer for ShieldedKeypair {
+    fn try_pubkey(&self) -> Result<solana_address::Address, SignerError> {
+        let bytes = self
+            .signing_pubkey()
+            .as_ed25519()
+            .map_err(|e| SignerError::Custom(e.to_string()))?;
+        Ok(solana_address::Address::new_from_array(bytes))
     }
 
-    pub fn from_parts(
-        signing_key: SigningKey,
-        nullifier_key: NullifierKey,
-        viewing_key: ViewingKey,
-    ) -> Self {
-        Self {
-            signing_key,
-            nullifier_key,
-            viewing_key,
+    fn try_sign_message(&self, message: &[u8]) -> Result<solana_keypair::Signature, SignerError> {
+        if self.signing_key.curve() != Curve::Ed25519 {
+            return Err(SignerError::Custom(KeypairError::NotEd25519.to_string()));
         }
+        let sig = self
+            .sign(message)
+            .map_err(|e| SignerError::Custom(e.to_string()))?;
+        Ok(solana_keypair::Signature::from(sig))
     }
 
+    fn is_interactive(&self) -> bool {
+        false
+    }
+}
+
+impl ShieldedKeypair {
     pub fn new() -> Result<Self, KeypairError> {
-        Self::from_keys(SigningKey::new(), ViewingKey::new())
+        Self::from_keypair(SigningKey::new_p256())
     }
 
-    pub fn from_ed25519(
-        signing_secret: &[u8; 32],
+    pub fn from_keypair<K>(keypair: K) -> Result<Self, KeypairError>
+    where
+        K: Into<SigningKey>,
+    {
+        let signing_key: SigningKey = keypair.into();
+        let seed = signing_key.derivation_seed()?;
+        let viewing_key =
+            RoleExpansion::new(&seed, Rail::from_curve(signing_key.curve())?).viewing_key()?;
+        Self::with_viewing_key(signing_key, viewing_key)
+    }
+
+    /// Same derivation as [`Self::from_keypair`] with a shared viewing key in
+    /// place of the derived one; the nullifier key is still derived from the
+    /// signing key, so no argument can detach it.
+    pub fn with_viewing_key(
+        signing_key: SigningKey,
         viewing_key: ViewingKey,
     ) -> Result<Self, KeypairError> {
-        let signing_key = SigningKey::from_ed25519(signing_secret);
-        let nullifier_key = NullifierKey::from_signing_secret_key_bytes(signing_secret)?;
+        let seed = signing_key.derivation_seed()?;
+        let expansion = RoleExpansion::new(&seed, Rail::from_curve(signing_key.curve())?);
         Ok(Self {
             signing_key,
-            nullifier_key,
+            nullifier_key: expansion.nullifier_key()?,
             viewing_key,
         })
-    }
-
-    pub fn from_solana_keypair(keypair: &solana_keypair::Keypair) -> Result<Self, KeypairError> {
-        let signing_secret = keypair.secret_bytes();
-        let viewing_key = ViewingKey::from_seed(signing_secret, 0)?;
-        Self::from_ed25519(signing_secret, viewing_key)
     }
 
     pub fn signing_pubkey(&self) -> PublicKey {
         self.signing_key.pubkey()
-    }
-
-    pub fn to_solana_keypair(&self) -> Result<solana_keypair::Keypair, KeypairError> {
-        if !self.signing_key.is_ed25519() {
-            return Err(KeypairError::NotEd25519);
-        }
-        Ok(solana_keypair::Keypair::new_from_array(
-            *self.signing_key.secret_bytes(),
-        ))
     }
 
     pub fn viewing_pubkey(&self) -> P256Pubkey {
@@ -153,7 +171,8 @@ impl ShieldedKeypair {
         })
     }
 
-    pub fn sign(&self, msg: &[u8]) -> [u8; 64] {
+    // TODO: rename to sign message
+    pub fn sign(&self, msg: &[u8]) -> Result<[u8; 64], KeypairError> {
         self.signing_key.sign(msg)
     }
 

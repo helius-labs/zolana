@@ -81,6 +81,21 @@ fn nullifiers_bind_every_input_and_match_the_golden_vector() {
 }
 
 #[test]
+fn nullifier_rails_are_hsm_derivable() {
+    let mut world = KeypairWorld::default();
+    cases::nullifier::p_derive_matches();
+    cases::common::random_p256_signing_key(&mut world, "k".into());
+    cases::nullifier::derivation_seed_matches_rail_primitives(&mut world, "k".into());
+    cases::nullifier::p256_rail_matches_ecdh_entry_point(&mut world, "k".into());
+    cases::nullifier::ed25519_rail_matches_signature_entry_point();
+    cases::nullifier::ed25519_keypair_derives_both_keys_from_one_signature();
+    cases::nullifier::solana_keypair_matches_ed25519_rail();
+    cases::nullifier::rails_differ_for_identical_root_bytes();
+    cases::nullifier::ed25519_ecdh_is_not_p256();
+    cases::nullifier::primitives_refuse_derivation_inputs(&mut world, "k".into());
+}
+
+#[test]
 fn public_key_encodings_are_typed_and_canonical() {
     let mut world = KeypairWorld::default();
     cases::pubkey::random_p256_public_key(&mut world, "k".into());
@@ -110,11 +125,19 @@ fn shielded_keypair_facade_round_trips_full_transfers() {
     let mut world = KeypairWorld::default();
     cases::common::random_shielded_keypair(&mut world, "alice".into());
     cases::shielded::address_consistent(&mut world, "alice".into());
+    cases::shielded::p256_owner_has_no_solana_address(&mut world, "alice".into());
     cases::shielded::facade_sign_nullifier(&mut world, "alice".into());
 
     cases::common::random_p256_signing_key(&mut world, "signing".into());
     cases::common::random_viewing_key(&mut world, "viewing".into());
-    cases::shielded::from_keys_derives_nullifier(&mut world, "signing".into(), "viewing".into());
+    cases::shielded::from_parts_keeps_detached_viewing_key(
+        &mut world,
+        "signing".into(),
+        "viewing".into(),
+    );
+    cases::shielded::from_keypair_roots_both_keys_in_one_seed(&mut world, "signing".into());
+    cases::shielded::new_derives_viewing_key_from_signing_key(&mut world, "alice".into());
+    cases::shielded::solana_signer_matches_solana_keypair();
 
     cases::common::random_shielded_keypair(&mut world, "sender".into());
     cases::common::random_shielded_keypair(&mut world, "recipient".into());
@@ -166,6 +189,41 @@ fn encrypted_slots_are_unique_and_recipient_bound() {
 }
 
 #[test]
+fn pda_identities_derive_from_the_viewing_key_exchange() {
+    let mut world = KeypairWorld::default();
+    cases::pda::p_pda_matches();
+    cases::common::random_viewing_key(&mut world, "alice".into());
+    cases::common::random_viewing_key(&mut world, "bob".into());
+    cases::pda::both_parties_derive_the_same_identity(&mut world, "alice".into(), "bob".into());
+    cases::pda::pda_binding_separates_identities(&mut world, "alice".into(), "bob".into());
+    cases::pda::sole_holder_identity(&mut world, "alice".into(), "bob".into());
+    cases::pda::from_viewing_key_is_deterministic_and_distinct(
+        &mut world,
+        "alice".into(),
+        "bob".into(),
+    );
+    cases::pda::pda_cannot_sign(&mut world, "alice".into());
+    cases::pda::from_parts_holds_supplied_roles(&mut world, "alice".into());
+    cases::pda::encrypted_slot_round_trips_to_the_pda(&mut world, "alice".into(), "bob".into());
+    cases::pda::solana_address_returns_the_pda(&mut world, "alice".into());
+    cases::pda::owner_tag_is_not_hashed();
+    cases::pda::pda_public_key_encoding_round_trips();
+}
+
+#[test]
+fn domain_separation_tags_are_pairwise_distinct() {
+    cases::derivation::hkdf_tags_pairwise_distinct();
+    cases::derivation::poseidon_tags_pairwise_distinct();
+}
+
+#[test]
+fn offchain_derivation_message_is_pinned_and_detected() {
+    cases::derivation::application_domain_is_payload_hash();
+    cases::derivation::offchain_derivation_message_golden();
+    cases::derivation::derivation_inputs_are_detected();
+}
+
+#[test]
 fn viewing_keys_and_tags_match_protocol_vectors() {
     let mut world = KeypairWorld::default();
     cases::common::random_viewing_key(&mut world, "alice".into());
@@ -173,7 +231,6 @@ fn viewing_keys_and_tags_match_protocol_vectors() {
     cases::viewing::ecdh_symmetric(&mut world, "alice".into(), "bob".into());
     cases::viewing::viewing_roundtrip(&mut world, "alice".into());
     cases::viewing::tags_advance(&mut world, "alice".into());
-    cases::viewing::merge_tags_advance("alice".into());
     cases::viewing::shared_tag_symmetric(&mut world, "alice".into(), "bob".into(), 0);
     cases::viewing::shared_tag_per_index(&mut world, "alice".into(), "bob".into(), 0, 1);
     cases::viewing::bootstrap_tag(&mut world, "alice".into());

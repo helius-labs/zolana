@@ -21,7 +21,6 @@ use dynamic_swap_sdk::{
     },
     pair_pda,
     prover::DynamicSwapProverClient,
-    shared_address::SharedShieldedAddress,
     state::{EscrowTerms, EscrowUtxo, Reservation},
     SettleProof,
 };
@@ -53,7 +52,7 @@ use zolana_interface::{
     },
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{random_blinding, ShieldedKeypair, ShieldedPda, SigningKey};
 use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
 use zolana_transaction::{
     instructions::{
@@ -280,7 +279,8 @@ fn assemble_accounts(
 }
 
 fn shielded_keypair_from_seed(seed: [u8; 32]) -> ShieldedKeypair {
-    ShieldedKeypair::from_ed25519(&seed, ViewingKey::new()).expect("shielded keypair from seed")
+    ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&seed))
+        .expect("shielded keypair from seed")
 }
 
 fn prove_transact_timed(
@@ -439,6 +439,7 @@ fn bench_create_pair(
         authority_owner_hash: [9u8; 32],
         source_asset: [0u8; 32],
         destination_asset: [0u8; 32],
+        escrow_authority_nullifier_pubkey: [9u8; 32],
     }
     .instruction()
     .expect("create_pair instruction");
@@ -479,6 +480,7 @@ fn bench_update_price(
         authority_owner_hash: [9u8; 32],
         source_asset: [0u8; 32],
         destination_asset: [0u8; 32],
+        escrow_authority_nullifier_pubkey: [9u8; 32],
     };
 
     let ix = UpdatePrice {
@@ -536,12 +538,9 @@ fn bench_create_escrow(
         SOURCE_ASSET_ID,
         DESTINATION_ASSET_ID,
     );
-    let escrow_owner = SharedShieldedAddress::from_key_exchange(
-        &authority_keypair.viewing_key,
-        &user_keypair.viewing_pubkey(),
-        escrow_authority_pda(&pair),
-    )
-    .expect("shared escrow address");
+    let escrow_owner =
+        ShieldedPda::from_viewing_key(escrow_authority_pda(&pair), &authority_keypair.viewing_key)
+            .expect("escrow authority identity");
     let tree = Keypair::new().pubkey();
 
     let source_utxo = Utxo {
@@ -722,6 +721,9 @@ fn bench_create_escrow(
         authority_owner_hash: [9u8; 32],
         source_asset: source_asset_field,
         destination_asset: destination_asset_field,
+        escrow_authority_nullifier_pubkey: escrow_owner
+            .nullifier_pubkey()
+            .expect("escrow authority nullifier pubkey"),
     };
 
     // `created_at` must land within `CREATED_AT_SLOT_TOLERANCE` of the real
@@ -789,12 +791,9 @@ fn bench_settle(
         SOURCE_ASSET_ID,
         DESTINATION_ASSET_ID,
     );
-    let escrow_owner = SharedShieldedAddress::from_key_exchange(
-        &authority_keypair.viewing_key,
-        &user_keypair.viewing_pubkey(),
-        escrow_authority_pda(&pair),
-    )
-    .expect("shared escrow address");
+    let escrow_owner =
+        ShieldedPda::from_viewing_key(escrow_authority_pda(&pair), &authority_keypair.viewing_key)
+            .expect("escrow authority identity");
     let tree = Keypair::new().pubkey();
 
     let escrow_terms = EscrowTerms {
@@ -979,6 +978,9 @@ fn bench_settle(
         authority_owner_hash,
         source_asset: [0u8; 32],
         destination_asset: [0u8; 32],
+        escrow_authority_nullifier_pubkey: escrow_owner
+            .nullifier_pubkey()
+            .expect("escrow authority nullifier pubkey"),
     };
     let escrow_state = Escrow {
         discriminator: ESCROW,

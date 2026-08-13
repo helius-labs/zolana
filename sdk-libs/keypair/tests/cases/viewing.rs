@@ -1,7 +1,4 @@
-use zolana_keypair::{
-    merge::{merge_dummy_nullifier, merge_output_blinding},
-    random_blinding, NullifierKey, ViewingKey,
-};
+use zolana_keypair::ViewingKey;
 
 use crate::KeypairWorld;
 
@@ -40,35 +37,6 @@ pub(crate) fn tags_advance(world: &mut KeypairWorld, name: String) {
     );
     assert_eq!(vk.get_sender_view_tag(0).unwrap()[0], 0);
     assert_eq!(vk.get_recipient_request_view_tag(0).unwrap()[0], 0);
-}
-
-/// The merged output is indexed by the first input nullifier: its blinding is
-/// derived deterministically from the owner's nullifier secret and that
-/// nullifier, so the owner recovers the output without a published merge view
-/// tag (removed with `merge_view_tag`).
-pub(crate) fn merge_tags_advance(_name: String) {
-    let nullifier_key = NullifierKey::from_secret(random_blinding()[1..].try_into().unwrap());
-    let first_nullifier = random_blinding();
-    let other_nullifier = random_blinding();
-    let base = merge_output_blinding(&nullifier_key, &first_nullifier).unwrap();
-    assert_eq!(
-        base,
-        merge_output_blinding(&nullifier_key, &first_nullifier).unwrap()
-    );
-    assert_ne!(
-        base,
-        merge_output_blinding(&nullifier_key, &other_nullifier).unwrap()
-    );
-    // The dummy slot nullifiers derive from the same secret, per slot index.
-    let dummy_0 = merge_dummy_nullifier(&nullifier_key, &first_nullifier, 0).unwrap();
-    assert_eq!(
-        dummy_0,
-        merge_dummy_nullifier(&nullifier_key, &first_nullifier, 0).unwrap()
-    );
-    assert_ne!(
-        dummy_0,
-        merge_dummy_nullifier(&nullifier_key, &first_nullifier, 1).unwrap()
-    );
 }
 
 pub(crate) fn shared_tag_symmetric(
@@ -131,7 +99,7 @@ pub(crate) fn p_const_matches() {
         NistP256,
     };
     use sha2::Sha256;
-    use zolana_keypair::constants::{DST_VIEW_ROOT_P_CONST, P_CONST_SEC1};
+    use zolana_keypair::derivation::{DST_VIEW_ROOT_P_CONST, P_CONST_SEC1};
 
     let point = NistP256::hash_from_bytes::<ExpandMsgXmd<Sha256>>(&[b""], &[DST_VIEW_ROOT_P_CONST])
         .unwrap();

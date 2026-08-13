@@ -3,10 +3,7 @@ use solana_address::Address;
 use swap_program::instructions::shared::u64_right_align;
 use swap_prover::TAKE_ENC_KDF_DOMAIN;
 use zolana_hasher::primitives::hash_bytes;
-use zolana_keypair::{
-    hash::poseidon,
-    merge::{merge_ciphertext_hash, symmetric_apply, MERGE_INFO},
-};
+use zolana_keypair::{derivation::MERGE_INFO, hash::poseidon, symmetric_apply};
 use zolana_transaction::utxo::Blinding;
 
 use crate::{err, shared::right_align_blinding};
@@ -36,7 +33,7 @@ pub fn destination_ciphertext_with_hash(
         &mut plaintext,
     )
     .map_err(err)?;
-    let ct_hash = merge_ciphertext_hash(&plaintext).map_err(err)?;
+    let ct_hash = hash_bytes(&plaintext).map_err(err)?;
     Ok((plaintext, ct_hash))
 }
 

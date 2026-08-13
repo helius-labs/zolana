@@ -1,14 +1,14 @@
 use anyhow::{anyhow, Result};
 use dynamic_swap_program::instructions::shared::u64_right_align;
 use solana_address::Address;
-use zolana_keypair::{constants::BLINDING_LEN, hash::poseidon};
+use zolana_keypair::{constants::BLINDING_LEN, hash::poseidon, ShieldedPda};
 use zolana_transaction::{
     instructions::{transact::SppProofOutputUtxo, types::SppProofInputUtxo},
     utxo::{Blinding, Utxo},
     Data,
 };
 
-use crate::{err, shared_address::SharedShieldedAddress};
+use crate::err;
 
 /// The two escrow terms an `EscrowUtxo`'s `DataHash` commits to, per
 /// `escrow_open.go`'s `checkOrderOutputUtxo`: `DataHash =
@@ -49,11 +49,12 @@ impl EscrowTerms {
 }
 
 /// The escrow order UTXO's full preimage: created as an output by
-/// `create_escrow`, later spent as an input by `settle`. Owned
-/// by the per-pair `escrow_authority` PDA (seeds `[ESCROW_AUTHORITY_PDA_SEED,
-/// pair]`), with a constant (zero-secret) nullifier key so the program can
-/// always sign for a spend via `invoke_signed` -- mirrors `zk-program-swap`'s
-/// `OrderUtxo`/`order_authority_pda`.
+/// `create_escrow`, later spent as an input by `settle`. Owned by the per-pair
+/// `escrow_authority` PDA's shielded identity (seeds
+/// `[ESCROW_AUTHORITY_PDA_SEED, pair]`), which the maker derives from its
+/// viewing key via `ShieldedPda::from_viewing_key`; the identity's nullifier
+/// pubkey is published in the `Pair` account and the program signs spends via
+/// `invoke_signed`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EscrowUtxo {
     pub terms: EscrowTerms,
@@ -71,15 +72,15 @@ impl EscrowUtxo {
     }
 
     /// The order UTXO as a `create_escrow` output, owned by `owner` (the escrow
-    /// authority PDA + shared viewing key). Its encrypted note carries the terms'
+    /// authority PDA's derived identity). Its encrypted note carries the terms'
     /// `max_price` and the reservation UTXO's `blinding` (see `encode_escrow_note`),
-    /// so a party sharing the viewing key can rebuild both escrow UTXOs on settle
-    /// without tracking them client-side. `data_hash` still commits the full terms
+    /// so the maker can rebuild both escrow UTXOs on settle without tracking
+    /// them client-side. `data_hash` still commits the full terms
     /// (`Poseidon(recipient_owner_hash, max_price, created_at)`); the note is
     /// encrypted-only, and its `max_price` is checked against that commitment.
     pub fn output_utxo(
         &self,
-        owner: &SharedShieldedAddress,
+        owner: &ShieldedPda,
         reservation_blinding: &Blinding,
     ) -> Result<SppProofOutputUtxo> {
         let note = encode_escrow_note(self.terms.max_price, reservation_blinding);
@@ -94,7 +95,7 @@ impl EscrowUtxo {
     }
 
     /// The order UTXO as a `settle` input spend.
-    pub fn to_input_utxo(&self, owner: &SharedShieldedAddress) -> Result<SppProofInputUtxo> {
+    pub fn to_input_utxo(&self, owner: &ShieldedPda) -> Result<SppProofInputUtxo> {
         let utxo = Utxo {
             owner: owner.shielded_address()?.signing_pubkey,
             asset: self.asset,
@@ -103,7 +104,7 @@ impl EscrowUtxo {
             ring_program_id: None,
             data: Data::default(),
         };
-        Ok(SppProofInputUtxo::new(utxo, owner.nullifier_key()).with_data_hash(self.data_hash()?))
+        Ok(SppProofInputUtxo::new(utxo, owner).with_data_hash(self.data_hash()?))
     }
 }
 
@@ -130,7 +131,7 @@ impl Reservation {
     /// populate `CreateEscrowIxData::escrow_utxo_hash` -- don't recompute it).
     pub fn output_utxo(
         &self,
-        owner: &SharedShieldedAddress,
+        owner: &ShieldedPda,
         order_utxo_hash: [u8; 32],
     ) -> Result<SppProofOutputUtxo> {
         Ok(SppProofOutputUtxo {
@@ -146,7 +147,7 @@ impl Reservation {
     /// The reservation UTXO as a `settle` input spend.
     pub fn to_input_utxo(
         &self,
-        owner: &SharedShieldedAddress,
+        owner: &ShieldedPda,
         order_utxo_hash: [u8; 32],
     ) -> Result<SppProofInputUtxo> {
         let utxo = Utxo {
@@ -157,7 +158,7 @@ impl Reservation {
             ring_program_id: None,
             data: Data::default(),
         };
-        Ok(SppProofInputUtxo::new(utxo, owner.nullifier_key()).with_data_hash(order_utxo_hash))
+        Ok(SppProofInputUtxo::new(utxo, owner).with_data_hash(order_utxo_hash))
     }
 }
 

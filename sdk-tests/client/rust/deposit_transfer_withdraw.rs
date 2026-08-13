@@ -41,7 +41,6 @@ fn main() -> Result<()> {
     // Initialize the sender's private wallet and local authority
     // to decrypt transactions and sync balances.
     // The Solana signer and private wallet are derived from the same Ed25519 seed.
-    let sender_solana_keypair = sender.to_solana_keypair()?;
     let sender_shielded_address = sender.shielded_address()?;
 
     // Deposit SOL into the sender's private balance.
@@ -53,7 +52,7 @@ fn main() -> Result<()> {
     let sender_balances_after_deposit = {
         let deposit_ix = Deposit {
             tree,
-            depositor: sender_solana_keypair.pubkey(),
+            depositor: sender.pubkey(),
             deposits: vec![AssetDeposit {
                 asset: DepositAsset::Sol,
                 // SPL: asset: DepositAsset::Spl(zolana_interface::instruction::DepositSplAccounts {
@@ -73,11 +72,8 @@ fn main() -> Result<()> {
 
         // 2. Send and confirm like any Solana transaction; the landed slot gates
         // the indexer fetch below.
-        let signature = client.create_and_send_transaction(
-            &[deposit_ix],
-            sender_solana_keypair.pubkey(),
-            &[&sender_solana_keypair],
-        )?;
+        let signature =
+            client.create_and_send_transaction(&[deposit_ix], sender.pubkey(), &[&sender])?;
         let slot = landed_slot(&client, signature)?;
 
         // 3. Fetch transaction outputs from the indexer, gated on the deposit's slot.
@@ -124,7 +120,7 @@ fn main() -> Result<()> {
         let mut transfer = ConfidentialTransfer::new(
             sender_shielded_address,
             vec![transfer_input_utxo],
-            sender_solana_keypair.pubkey(),
+            sender.pubkey(),
         );
         transfer.send(&recipient_address, SOL_MINT, TRANSFER_AMOUNT)?;
         // SPL: transfer.send(&recipient_address, spl.mint, TRANSFER_AMOUNT)?;
@@ -135,7 +131,7 @@ fn main() -> Result<()> {
 
         // 5. Construct the instruction.
         let transfer_ix = Transact {
-            payer: sender_solana_keypair.pubkey(),
+            payer: sender.pubkey(),
             input_tree: tree,
             output_tree: tree,
             owner_signers: Vec::new(),
@@ -145,11 +141,8 @@ fn main() -> Result<()> {
         .instruction();
 
         // 6. Send and confirm like any Solana transaction; confirmation yields the landed slot.
-        let signature = client.create_and_send_transaction(
-            &[transfer_ix],
-            sender_solana_keypair.pubkey(),
-            &[&sender_solana_keypair],
-        )?;
+        let signature =
+            client.create_and_send_transaction(&[transfer_ix], sender.pubkey(), &[&sender])?;
         let slot = landed_slot(&client, signature)?;
 
         // 7. Sync the sender's wallet, gated on the transfer's slot, and read
@@ -193,13 +186,13 @@ fn main() -> Result<()> {
         let mut withdrawal = ConfidentialTransfer::new(
             sender_shielded_address,
             vec![withdrawal_input_utxo],
-            sender_solana_keypair.pubkey(),
+            sender.pubkey(),
         );
         withdrawal.withdraw(
             SOL_MINT,
             WITHDRAW_AMOUNT,
             SettlementTarget::Sol {
-                user_sol_account: sender_solana_keypair.pubkey(),
+                user_sol_account: sender.pubkey(),
             },
         )?;
         // SPL: withdrawal.withdraw(
@@ -217,13 +210,13 @@ fn main() -> Result<()> {
 
         // 5. Combine the proof and withdrawal accounts in a single instruction.
         let withdraw_ix = Transact {
-            payer: sender_solana_keypair.pubkey(),
+            payer: sender.pubkey(),
             input_tree: tree,
             output_tree: tree,
             owner_signers: Vec::new(),
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
                 TransactSolTransferAccounts {
-                    recipient: sender_solana_keypair.pubkey(),
+                    recipient: sender.pubkey(),
                 },
             )],
             // SPL: interface_transfer_accounts: vec![
@@ -241,11 +234,8 @@ fn main() -> Result<()> {
         .instruction();
 
         // 6. Send and confirm like any Solana transaction.
-        let signature = client.create_and_send_transaction(
-            &[withdraw_ix],
-            sender_solana_keypair.pubkey(),
-            &[&sender_solana_keypair],
-        )?;
+        let signature =
+            client.create_and_send_transaction(&[withdraw_ix], sender.pubkey(), &[&sender])?;
         let slot = landed_slot(&client, signature)?;
 
         // 7. Sync the sender's wallet, gated on the withdrawal's slot, and read
@@ -270,7 +260,7 @@ fn main() -> Result<()> {
         assert_eq!(sender_balance.utxos.len(), 1);
 
         // 8. Read remaining private balance and the public SOL balance.
-        let solana_balance = client.get_balance(sender_solana_keypair.pubkey())?;
+        let solana_balance = client.get_balance(sender.pubkey())?;
         println!("withdraw solana_balance={solana_balance} tx={signature}");
         // SPL: println!(
         // SPL:     "withdraw user_token={} tx={signature}",

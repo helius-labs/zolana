@@ -33,8 +33,8 @@ fn cosigned_rfq_settlement() -> Result<()> {
 
     let maker_address = maker.keypair.shielded_address()?;
     let taker_address = taker.keypair.shielded_address()?;
-    let maker_solana = maker.keypair.to_solana_keypair()?;
-    let taker_solana = taker.keypair.to_solana_keypair()?;
+    let maker_solana = &maker.keypair;
+    let taker_solana = &taker.keypair;
 
     let maker_sol_utxo = maker
         .balance(SOL_MINT, Some(Filter::MinAmount(SELL_SOL)))?

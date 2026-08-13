@@ -9,9 +9,12 @@ use zolana_interface::instruction::instruction_data::{
     merge_ring::MergeRingIxData,
     merge_transact::{MergeExternalDataHash, MergeProof, MergeTransactIxData},
 };
-use zolana_keypair::{merge::merge_dummy_nullifier, NullifierKey, PublicKey, SignatureType};
+use zolana_keypair::{Curve, NullifierKey, PublicKey};
 use zolana_transaction::{
-    instructions::{merge::PreparedMerge, transact::PrivateTxHash},
+    instructions::{
+        merge::{merge_dummy_nullifier, PreparedMerge},
+        transact::PrivateTxHash,
+    },
     SppProofOutputUtxo,
 };
 
@@ -227,11 +230,14 @@ impl MergeProver {
             super::transact::assembly::bool_field(true),
         ];
 
-        let eddsa_owner = self.signing_pubkey.signature_type()? == SignatureType::Ed25519;
+        let eddsa_owner = match self.signing_pubkey.curve()? {
+            Curve::Ed25519 | Curve::Pda => true,
+            Curve::P256 => false,
+        };
         let owner_pk_hash = BigUint::from_bytes_be(&user_signing_pk_hash);
         let user_nullifier_pk = self.nullifier_key.pubkey()?;
         let mut user_nullifier_secret = [0u8; 32];
-        user_nullifier_secret[1..].copy_from_slice(self.nullifier_key.secret());
+        user_nullifier_secret[1..].copy_from_slice(&*self.nullifier_key.secret());
 
         let output = assembled_outputs
             .outputs

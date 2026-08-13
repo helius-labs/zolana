@@ -211,11 +211,11 @@ impl ZolanaProgramTest {
     pub fn create_and_send_default_payer_transaction(
         &mut self,
         ixs: &[Instruction],
-        signers: &[&Keypair],
+        signers: &[&dyn Signer],
     ) -> Result<IndexedTransaction, ProgramTestError> {
         let payer = self.payer.insecure_clone();
         let payer_pubkey = payer.pubkey();
-        let mut all_signers = Vec::with_capacity(signers.len() + 1);
+        let mut all_signers: Vec<&dyn Signer> = Vec::with_capacity(signers.len() + 1);
         all_signers.push(&payer);
         all_signers.extend_from_slice(signers);
         self.create_and_send_transaction(ixs, &payer_pubkey, &all_signers)
@@ -224,7 +224,7 @@ impl ZolanaProgramTest {
     pub(crate) fn send(
         &mut self,
         ixs: &[Instruction],
-        signers: &[&Keypair],
+        signers: &[&dyn Signer],
     ) -> Result<(), ProgramTestError> {
         self.create_and_send_default_payer_transaction(ixs, signers)
             .map(|_| ())

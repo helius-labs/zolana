@@ -126,6 +126,7 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
     let pair_address = *pair_account.address();
     let source_asset = pair.source_asset;
     let destination_asset = pair.destination_asset;
+    let escrow_authority_nullifier_pubkey = pair.escrow_authority_nullifier_pubkey;
     // The escrow is priced at creation (commit folded in): snapshot the current
     // pair price so `execution_price` is stamped below. A zero price would leave
     // the escrow unpriced and unsettleable, so reject it -- create_pair and
@@ -136,10 +137,12 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
         return Err(DynamicSwapError::InvalidPrice.into());
     }
 
-    // Recomputed from the escrow_authority PDA (never trusted from the client):
-    // binds the created order/reservation UTXOs to the program-controlled
-    // escrow_authority so only settle can spend them.
-    let escrow_authority_owner_hash = escrow_authority_owner_hash(&pair_address)?;
+    // The PDA half is recomputed here (never trusted from the client), binding
+    // the created order/reservation UTXOs to the program-controlled
+    // escrow_authority so only settle can spend them; the nullifier pubkey is
+    // the maker-published value from the Pair account.
+    let escrow_authority_owner_hash =
+        escrow_authority_owner_hash(&pair_address, &escrow_authority_nullifier_pubkey)?;
 
     // Bound the client-supplied `created_at` to the real current slot; see
     // `CREATED_AT_SLOT_TOLERANCE` for why it is client-supplied, not read here.

@@ -895,7 +895,7 @@ mod tests {
 
     use solana_signature::Signature;
     use zolana_interface::event::{encode_output_data, ProoflessOutput};
-    use zolana_keypair::{ShieldedKeypair, ViewingKey};
+    use zolana_keypair::{ShieldedKeypair, SigningKey};
     use zolana_transaction::{
         instructions::{
             merge::Merge as MergePlan,
@@ -1367,7 +1367,8 @@ mod tests {
     }
 
     fn ed25519_keypair(seed: u8) -> ShieldedKeypair {
-        ShieldedKeypair::from_ed25519(&[seed; 32], ViewingKey::new()).expect("Ed25519 keypair")
+        ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[seed; 32]))
+            .expect("Ed25519 keypair")
     }
 
     #[tokio::test]

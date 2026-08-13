@@ -6,20 +6,15 @@
 //! ECDH and can stay in an HSM. View tags let a wallet locate its ciphertexts
 //! at an indexer without trial decryption.
 
-use hkdf::Hkdf;
-use p256::{
-    elliptic_curve::hash2curve::FromOkm, NonZeroScalar, PublicKey as P256PublicKey, Scalar,
-    SecretKey,
-};
+use p256::{NonZeroScalar, SecretKey};
 use rand::{rngs::OsRng, RngCore};
-use sha2::Sha256;
 use zeroize::Zeroizing;
 
 use crate::{
-    constants::{
-        INFO_PAIR_DOMAIN_PREFIX, INFO_PAIR_HINT_PREFIX, INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX,
-        INFO_RECIPIENT_VIEW_TAG_SECRET, INFO_SENDER_VIEW_TAG_PREFIX, INFO_SENDER_VIEW_TAG_SECRET,
-        INFO_TX_VIEWING, P_CONST_SEC1, SALT_LEN, VIEW_TAG_LEN,
+    constants::{SALT_LEN, VIEW_TAG_LEN},
+    derivation::{
+        self, INFO_RECIPIENT_VIEW_TAG_SECRET, INFO_SEED_P256_VIEWING, INFO_SENDER_VIEW_TAG_SECRET,
+        INFO_TX_VIEWING,
     },
     encryption,
     error::KeypairError,
@@ -34,18 +29,6 @@ pub type Salt = [u8; SALT_LEN];
 pub struct ViewingKey {
     secret: SecretKey,
     view_root: Zeroizing<[u8; 32]>,
-}
-
-/// `view_root = HKDF-Extract(salt=∅, IKM=ECDH(viewing_sk, P_const))` — the PRK
-/// all per-purpose secrets expand from.
-fn view_root(secret: &SecretKey) -> Zeroizing<[u8; 32]> {
-    let p_const =
-        P256PublicKey::from_sec1_bytes(&P_CONST_SEC1).expect("committed P_const is valid SEC1");
-    let ikm = Zeroizing::new(encryption::ecdh_x_point(secret, p_const.as_affine()));
-    let (prk, _) = Hkdf::<Sha256>::extract(None, ikm.as_slice());
-    let mut out = Zeroizing::new([0u8; 32]);
-    out.copy_from_slice(&prk);
-    out
 }
 
 pub fn random_salt() -> Salt {
@@ -63,23 +46,6 @@ pub fn random_blinding() -> [u8; 32] {
     blinding
 }
 
-pub(crate) fn hkdf_expand(
-    salt: Option<&[u8]>,
-    ikm: &[u8],
-    info: &[&[u8]],
-    out: &mut [u8],
-) -> Result<(), KeypairError> {
-    Hkdf::<Sha256>::new(salt, ikm)
-        .expand_multi_info(info, out)
-        .map_err(|_| KeypairError::Hkdf)
-}
-
-fn expand_view_tag(ikm: &[u8], info: &[&[u8]]) -> Result<ViewTag, KeypairError> {
-    let mut out = ViewTag::default();
-    hkdf_expand(None, ikm, info, &mut out[1..])?;
-    Ok(out)
-}
-
 impl ViewingKey {
     /// Generates a viewing key from the OS RNG.
     pub fn new() -> Self {
@@ -89,7 +55,7 @@ impl ViewingKey {
     /// Wraps an existing P-256 secret key.
     pub fn from_secret_key(secret: SecretKey) -> Self {
         Self {
-            view_root: view_root(&secret),
+            view_root: derivation::view_root(&secret),
             secret,
         }
     }
@@ -99,15 +65,22 @@ impl ViewingKey {
         Ok(Self::from_secret_key(secret))
     }
 
+    pub(crate) fn from_okm48(okm: &Zeroizing<[u8; 48]>) -> Result<Self, KeypairError> {
+        let scalar = derivation::scalar_from_okm(okm);
+        let nonzero = Option::<NonZeroScalar>::from(NonZeroScalar::new(scalar))
+            .ok_or(KeypairError::ZeroScalar)?;
+        Ok(Self::from_secret_key(SecretKey::from(nonzero)))
+    }
+
     pub fn from_seed(wallet_seed: &[u8; 32], account: u32) -> Result<Self, KeypairError> {
         let mut okm = [0u8; 48];
-        hkdf_expand(
+        derivation::hkdf_expand(
             None,
             wallet_seed,
-            &[b"TSPP/seed/p256_viewing", &account.to_be_bytes()],
+            &[INFO_SEED_P256_VIEWING, &account.to_be_bytes()],
             &mut okm,
         )?;
-        let scalar = scalar_from_okm(&okm);
+        let scalar = derivation::scalar_from_okm(&okm);
         let nonzero = Option::<NonZeroScalar>::from(NonZeroScalar::new(scalar))
             .ok_or(KeypairError::ZeroScalar)?;
         Ok(Self::from_secret_key(SecretKey::from(nonzero)))
@@ -125,15 +98,19 @@ impl ViewingKey {
 
     /// ECDH with `counterparty`, returning the shared point's x-coordinate.
     pub fn ecdh(&self, counterparty: &P256Pubkey) -> Result<[u8; 32], KeypairError> {
-        encryption::ecdh_x(&self.secret, counterparty)
+        if derivation::is_derivation_point(counterparty) {
+            return Err(KeypairError::DerivationInput);
+        }
+        self.ecdh_raw(counterparty)
+    }
+
+    pub(crate) fn ecdh_raw(&self, counterparty: &P256Pubkey) -> Result<[u8; 32], KeypairError> {
+        derivation::ecdh_x(&self.secret, counterparty)
     }
 
     pub(crate) fn derive_secret32(&self, info: &[u8]) -> Result<[u8; 32], KeypairError> {
         let mut out = [0u8; 32];
-        Hkdf::<Sha256>::from_prk(self.view_root.as_slice())
-            .map_err(|_| KeypairError::Hkdf)?
-            .expand_multi_info(&[info], &mut out)
-            .map_err(|_| KeypairError::Hkdf)?;
+        derivation::hkdf_expand_prk(self.view_root.as_slice(), &[info], &mut out)?;
         Ok(out)
     }
 
@@ -157,10 +134,7 @@ impl ViewingKey {
     /// the sender both tags and indexes it.
     pub fn get_sender_view_tag(&self, tx_count: u64) -> Result<ViewTag, KeypairError> {
         let secret = self.sender_view_tag_secret()?;
-        expand_view_tag(
-            &secret,
-            &[INFO_SENDER_VIEW_TAG_PREFIX, &tx_count.to_be_bytes()],
-        )
+        derivation::sender_view_tag(&secret, tx_count)
     }
 
     /// Recipient view tag for a `PaymentRequest` shared out-of-band.
@@ -169,13 +143,7 @@ impl ViewingKey {
         request_count: u64,
     ) -> Result<ViewTag, KeypairError> {
         let secret = self.recipient_view_tag_secret()?;
-        expand_view_tag(
-            &secret,
-            &[
-                INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX,
-                &request_count.to_be_bytes(),
-            ],
-        )
+        derivation::recipient_request_view_tag(&secret, request_count)
     }
 
     fn shared_view_tag(
@@ -185,15 +153,7 @@ impl ViewingKey {
         i: u64,
     ) -> Result<ViewTag, KeypairError> {
         let shared = self.ecdh(counterparty)?;
-        let mut domain = [0u8; 32];
-        hkdf_expand(
-            None,
-            &shared,
-            &[INFO_PAIR_DOMAIN_PREFIX, r_pubkey.as_bytes()],
-            &mut domain,
-        )?;
-
-        expand_view_tag(&domain, &[INFO_PAIR_HINT_PREFIX, &i.to_be_bytes()])
+        derivation::shared_view_tag(&shared, r_pubkey, i)
     }
 
     /// Sender-side `recipient_shared_view_tag` for transfer `i` to a paired
@@ -232,8 +192,8 @@ impl ViewingKey {
     ) -> Result<ViewingKey, KeypairError> {
         let secret = self.tx_viewing_secret()?;
         let mut okm = [0u8; 48];
-        hkdf_expand(Some(first_nullifier), &secret, &[INFO_TX_VIEWING], &mut okm)?;
-        let scalar = scalar_from_okm(&okm);
+        derivation::hkdf_expand(Some(first_nullifier), &secret, &[INFO_TX_VIEWING], &mut okm)?;
+        let scalar = derivation::scalar_from_okm(&okm);
         let nonzero = Option::<NonZeroScalar>::from(NonZeroScalar::new(scalar))
             .ok_or(KeypairError::ZeroScalar)?;
         Ok(ViewingKey::from_secret_key(SecretKey::from(nonzero)))
@@ -312,16 +272,6 @@ impl ViewingKey {
             slot_index,
         )
     }
-}
-
-// p256 0.13's `FromOkm` API still exposes generic-array 0.14. Newer
-// generic-array releases deprecate that type, so keep the compatibility use
-// isolated until p256's public hash-to-field API moves to hybrid-array.
-#[allow(deprecated)]
-fn scalar_from_okm(okm: &[u8; 48]) -> Scalar {
-    use p256::elliptic_curve::generic_array::GenericArray;
-
-    Scalar::from_okm(GenericArray::from_slice(okm))
 }
 
 impl Default for ViewingKey {

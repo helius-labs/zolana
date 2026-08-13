@@ -28,7 +28,7 @@ use zolana_interface::{
     },
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
 use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
 use zolana_transaction::{
     instructions::{
@@ -218,7 +218,8 @@ fn keypair_from_payer(payer: &Keypair) -> ShieldedKeypair {
     let seed: [u8; 32] = payer.to_bytes()[..32]
         .try_into()
         .expect("ed25519 seed is the first 32 bytes");
-    ShieldedKeypair::from_ed25519(&seed, ViewingKey::new()).expect("keypair from payer")
+    ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&seed))
+        .expect("keypair from payer")
 }
 
 fn prove_transact_timed(

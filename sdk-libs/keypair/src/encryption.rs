@@ -3,17 +3,18 @@ use ctr::{
     cipher::{KeyIvInit, StreamCipher},
     Ctr32BE,
 };
-use hkdf::Hkdf;
-use p256::{ecdh::diffie_hellman, AffinePoint, SecretKey};
-use sha2::Sha256;
+use p256::SecretKey;
 use zeroize::Zeroizing;
+use zolana_hasher::primitives::{pack_be, right_align};
 
 use crate::{
-    constants::{
-        CTR_NONCE_LEN, ENC_INFO_RING_DEPOSIT, ENC_INFO_TRANSFER, HPKE_PREFIX, P256_PUBKEY_LEN,
-        SALT_LEN,
+    constants::{CTR_NONCE_LEN, P256_PUBKEY_LEN, SALT_LEN},
+    derivation::{
+        ecdh_x, hkdf_expand, DOM_SEP_KEY, DOM_SEP_NONCE, DOM_SEP_SILO, ENC_INFO_RING_DEPOSIT,
+        ENC_INFO_TRANSFER, HPKE_PREFIX,
     },
     error::KeypairError,
+    hash::poseidon,
     pubkey::P256Pubkey,
 };
 
@@ -31,18 +32,43 @@ pub(crate) fn ctr_apply(key: &[u8; 32], nonce: &[u8; CTR_NONCE_LEN], buf: &mut [
     cipher.apply_keystream(buf);
 }
 
-pub(crate) fn ecdh_x(
-    secret_key: &SecretKey,
-    pubkey: &P256Pubkey,
-) -> Result<[u8; 32], KeypairError> {
-    Ok(ecdh_x_point(secret_key, pubkey.to_p256()?.as_affine()))
+fn key_schedule(
+    shared_secret: &[u8; 32],
+    info: &[u8; 10],
+) -> Result<([u8; 32], [u8; CTR_NONCE_LEN]), KeypairError> {
+    let [info_field] = pack_be::<10, 1>(info);
+    let siloed = poseidon(&[
+        &right_align(&DOM_SEP_SILO.to_be_bytes()),
+        shared_secret,
+        &info_field,
+    ])?;
+    let key_lo = poseidon(&[&right_align(&DOM_SEP_KEY.to_be_bytes()), &siloed])?;
+    let key_hi = poseidon(&[&right_align(&(DOM_SEP_KEY + 1).to_be_bytes()), &siloed])?;
+    let mut key = [0u8; 32];
+    key[0..16].copy_from_slice(&key_hi[16..32]);
+    key[16..32].copy_from_slice(&key_lo[16..32]);
+    let nonce_raw = poseidon(&[&right_align(&DOM_SEP_NONCE.to_be_bytes()), &siloed])?;
+    let mut nonce = [0u8; CTR_NONCE_LEN];
+    nonce.copy_from_slice(&nonce_raw[20..32]);
+    Ok((key, nonce))
 }
 
-pub(crate) fn ecdh_x_point(secret_key: &SecretKey, point: &AffinePoint) -> [u8; 32] {
-    let shared = diffie_hellman(secret_key.to_nonzero_scalar(), point);
-    let mut x = [0u8; 32];
-    x.copy_from_slice(shared.raw_secret_bytes());
-    x
+/// Symmetric verifiable encryption: derive the AES-256-CTR key/nonce from a
+/// pre-shared `shared_secret` via the same Poseidon key schedule as the
+/// circuit's `KeySchedule` + `CTREncrypt`, then apply the keystream.
+/// Encryption and decryption are the same operation.
+///
+/// The key and nonce are fully determined by `(shared_secret, info)`, so the
+/// caller must never encrypt two different plaintexts under one pair: CTR
+/// keystream reuse leaks their XOR.
+pub fn symmetric_apply(
+    shared_secret: &[u8; 32],
+    info: &[u8; 10],
+    buf: &mut [u8],
+) -> Result<(), KeypairError> {
+    let (key, nonce) = key_schedule(shared_secret, info)?;
+    ctr_apply(&key, &nonce, buf);
+    Ok(())
 }
 
 // TODO: try to use a library directly and ensure HSM and yubikey compatibility (different pr)
@@ -60,12 +86,12 @@ fn derive_key_nonce(
     ikm[32 + P256_PUBKEY_LEN..].copy_from_slice(recipient_pubkey.as_bytes());
 
     let mut okm = Zeroizing::new([0u8; 32 + CTR_NONCE_LEN]);
-    Hkdf::<Sha256>::new(None, ikm.as_slice())
-        .expand_multi_info(
-            &[HPKE_PREFIX, info, salt, &slot.to_be_bytes()],
-            okm.as_mut_slice(),
-        )
-        .map_err(|_| KeypairError::Hkdf)?;
+    hkdf_expand(
+        None,
+        ikm.as_slice(),
+        &[HPKE_PREFIX, info, salt, &slot.to_be_bytes()],
+        okm.as_mut_slice(),
+    )?;
     let mut key = Zeroizing::new([0u8; 32]);
     let mut nonce = [0u8; CTR_NONCE_LEN];
     key.copy_from_slice(&okm[..32]);

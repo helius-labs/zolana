@@ -21,8 +21,20 @@ pub enum KeypairError {
     #[error("signing key is not P256")]
     NotP256,
 
+    #[error("a P256 owner has no Solana address")]
+    NoSolanaAddress,
+
+    #[error("input would produce the derivation seed; use ShieldedKeypair::from_keypair")]
+    DerivationInput,
+
+    #[error("a PDA holds no signing secret; the owning program signs via CPI")]
+    PdaCannotSign,
+
     #[error("HKDF expansion failed")]
     Hkdf,
+
+    #[error("signing failed")]
+    SigningFailed,
 
     #[error("poseidon hash failed (code {0})")]
     Poseidon(u32),

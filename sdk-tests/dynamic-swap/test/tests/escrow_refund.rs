@@ -7,7 +7,7 @@ use dynamic_swap_program::{
 };
 use dynamic_swap_sdk::{
     discovery::{discover_escrow_note, DiscoveredEscrow},
-    escrow_authority_pda, escrow_pda,
+    escrow_pda,
     instructions::{
         create_escrow::{CreateEscrow, EscrowOpenProofInputParams},
         create_pair::CreatePair,
@@ -18,12 +18,11 @@ use dynamic_swap_sdk::{
     },
     pair_pda,
     prover::DynamicSwapProverClient,
-    shared_address::SharedShieldedAddress,
     state::{EscrowTerms, EscrowUtxo, Reservation},
 };
 use shared::{
-    get_slot_with_retry, send_v0_with_lookup_table, setup, DESTINATION_ASSET_ID, SOURCE_ASSET_ID,
-    USER_SPL_SHIELD,
+    escrow_authority_identity, get_slot_with_retry, send_v0_with_lookup_table, setup,
+    DESTINATION_ASSET_ID, SOURCE_ASSET_ID, USER_SPL_SHIELD,
 };
 use solana_signer::Signer;
 use zolana_client::Rpc;
@@ -57,8 +56,8 @@ const _: () = assert!(MAX_PRICE < PRICE);
 #[test]
 fn create_escrow_underwater_then_refund() -> Result<()> {
     let env = setup()?;
-    let authority_solana = env.authority.solana_keypair()?;
-    let user_solana = env.user.solana_keypair()?;
+    let authority_solana = &env.authority.keypair;
+    let user_solana = &env.user.keypair;
 
     // 1. create_pair: register the SPL(source)->SOL(destination) pair at PRICE.
     let pair = pair_pda(
@@ -72,6 +71,10 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             asset_field(&env.spl_mint).map_err(|e| anyhow!("source asset: {e:?}"))?;
         let destination_asset =
             asset_field(&SOL_MINT).map_err(|e| anyhow!("destination asset: {e:?}"))?;
+        let escrow_authority_nullifier_pubkey =
+            escrow_authority_identity(&env.authority.keypair, &pair)?
+                .nullifier_pubkey()
+                .map_err(|e| anyhow!("escrow authority nullifier pubkey: {e:?}"))?;
         let create_pair_ix = CreatePair {
             payer: authority_solana.pubkey(),
             pair,
@@ -81,6 +84,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             authority_owner_hash,
             source_asset,
             destination_asset,
+            escrow_authority_nullifier_pubkey,
         }
         .instruction()
         .map_err(|e| anyhow!("create_pair instruction: {e:?}"))?;
@@ -173,11 +177,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
         }
     };
 
-    let escrow_owner = SharedShieldedAddress::from_key_exchange(
-        &env.authority.keypair.viewing_key,
-        &env.user.keypair.viewing_pubkey(),
-        escrow_authority_pda(&pair),
-    )?;
+    let escrow_owner = escrow_authority_identity(&env.authority.keypair, &pair)?;
 
     // The maker funds the reservation on demand: a fresh deposit owned by the
     // escrow-authority PDA and spent by `escrow_open`.
@@ -231,8 +231,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
         let reservation_blinding = random_blinding();
 
         let source_in = SppProofInputUtxo::new(source_utxo.clone(), &env.user.keypair);
-        let maker_funding_in =
-            SppProofInputUtxo::new(maker_funding.clone(), escrow_owner.nullifier_key());
+        let maker_funding_in = SppProofInputUtxo::new(maker_funding.clone(), &escrow_owner);
 
         let escrow_terms = EscrowTerms {
             recipient_owner_hash,
@@ -401,11 +400,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             let recipient = resolve_registered_address(env.client.rpc(), user_solana.pubkey())
                 .map_err(|e| anyhow!("resolve recipient: {e:?}"))?
                 .address;
-            let escrow_owner = SharedShieldedAddress::from_key_exchange(
-                &env.authority.keypair.viewing_key,
-                &recipient.viewing_pubkey,
-                escrow_authority_pda(&pair),
-            )?;
+            let escrow_owner = escrow_authority_identity(&env.authority.keypair, &pair)?;
             let discovered = discover_escrow_note(env.client.indexer(), &escrow_owner)?;
             // The scan matches the shared authority tag alone, so pin the
             // discovered order UTXO to the escrow account being settled.

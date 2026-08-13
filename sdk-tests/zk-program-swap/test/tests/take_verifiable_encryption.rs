@@ -60,12 +60,8 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
     } = setup()?;
     let swap_prover_client = SwapProverClient::new();
     {
-        ensure_registered(
-            client.rpc(),
-            &maker.keypair.to_solana_keypair()?,
-            &maker.keypair,
-        )
-        .map_err(|e| anyhow!("register maker: {e:?}"))?;
+        ensure_registered(client.rpc(), &maker.keypair, &maker.keypair)
+            .map_err(|e| anyhow!("register maker: {e:?}"))?;
 
         let taker_address = taker.keypair.shielded_address()?;
         let taker_authorization_address = taker_address
@@ -161,8 +157,7 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
         }
         .instruction()?;
 
-        let make_signature =
-            send_v0_with_lookup_table(client.rpc(), &maker.keypair.to_solana_keypair()?, make_ix)?;
+        let make_signature = send_v0_with_lookup_table(client.rpc(), &maker.keypair, make_ix)?;
         client
             .confirm_private_transaction_sync(make_signature)
             .map_err(|e| anyhow!("confirm make indexed: {e:?}"))?;
@@ -288,8 +283,7 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
         }
         .instruction()?;
 
-        let take_signature =
-            send_v0_with_lookup_table(client.rpc(), &taker.keypair.to_solana_keypair()?, take_ix)?;
+        let take_signature = send_v0_with_lookup_table(client.rpc(), &taker.keypair, take_ix)?;
         client
             .confirm_private_transaction_sync(take_signature)
             .map_err(|e| anyhow!("confirm take indexed: {e:?}"))?;

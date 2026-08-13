@@ -24,7 +24,7 @@ use zolana_interface::{
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{
-    constants::BLINDING_LEN, NullifierKey, PublicKey, ShieldedAddress, ShieldedKeypair, ViewingKey,
+    constants::BLINDING_LEN, NullifierKey, PublicKey, ShieldedAddress, ShieldedKeypair, SigningKey,
 };
 use zolana_program_test::system_create_account_ix;
 use zolana_test_utils::{
@@ -245,7 +245,8 @@ pub fn setup() -> Result<TestEnv> {
     let maker_seed: [u8; 32] = maker_solana_keypair.to_bytes()[..32]
         .try_into()
         .expect("ed25519 seed is the first 32 bytes");
-    let maker_shielded_keypair = ShieldedKeypair::from_ed25519(&maker_seed, ViewingKey::new())?;
+    let maker_shielded_keypair =
+        ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&maker_seed))?;
     rpc.airdrop(&maker_solana_keypair.pubkey(), 10_000_000_000)?;
 
     let taker_solana_keypair = Keypair::new();
@@ -253,7 +254,8 @@ pub fn setup() -> Result<TestEnv> {
     let taker_seed: [u8; 32] = taker_solana_keypair.to_bytes()[..32]
         .try_into()
         .expect("ed25519 seed is the first 32 bytes");
-    let taker_shielded_keypair = ShieldedKeypair::from_ed25519(&taker_seed, ViewingKey::new())?;
+    let taker_shielded_keypair =
+        ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&taker_seed))?;
 
     // Fund the actors: shield the maker-funded SPL to the order authority so it
     // can authorize the data-bearing order output, and shield the taker's SOL
@@ -347,7 +349,7 @@ pub fn setup() -> Result<TestEnv> {
 // swap lifecycle account lists only fit within the 1232-byte tx limit via an ALT.
 pub fn send_v0_with_lookup_table(
     rpc: &SolanaRpc,
-    payer: &Keypair,
+    payer: &dyn Signer,
     ix: Instruction,
 ) -> Result<Signature> {
     let alt_addresses: Vec<Pubkey> = ix

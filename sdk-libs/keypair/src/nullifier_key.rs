@@ -1,12 +1,9 @@
-use hkdf::Hkdf;
-use sha2::Sha256;
 use zeroize::Zeroizing;
 
 use crate::{
-    constants::{BLINDING_LEN, INFO_NULLIFIER},
+    constants::BLINDING_LEN,
     error::KeypairError,
     hash::{poseidon, right_align},
-    signing_key::SigningKey,
 };
 
 #[derive(Clone)]
@@ -21,16 +18,8 @@ impl AsRef<NullifierKey> for NullifierKey {
 }
 
 impl NullifierKey {
-    pub fn from_signing_key(signing_key: &SigningKey) -> Result<Self, KeypairError> {
-        Self::from_signing_secret_key_bytes(signing_key.secret_bytes().as_slice())
-    }
-
-    pub fn from_signing_secret_key_bytes(ikm: &[u8]) -> Result<Self, KeypairError> {
-        let hk = Hkdf::<Sha256>::new(None, ikm);
-        let mut secret = Zeroizing::new([0u8; BLINDING_LEN]);
-        hk.expand(INFO_NULLIFIER, secret.as_mut_slice())
-            .map_err(|_| KeypairError::Hkdf)?;
-        Ok(Self { secret })
+    pub(crate) fn from_zeroizing_secret(secret: Zeroizing<[u8; BLINDING_LEN]>) -> Self {
+        Self { secret }
     }
 
     pub fn from_secret(secret: [u8; BLINDING_LEN]) -> Self {
@@ -39,12 +28,12 @@ impl NullifierKey {
         }
     }
 
-    pub fn secret(&self) -> &[u8; BLINDING_LEN] {
-        &self.secret
+    pub fn secret(&self) -> Zeroizing<[u8; BLINDING_LEN]> {
+        self.secret.clone()
     }
 
     pub fn pubkey(&self) -> Result<[u8; 32], KeypairError> {
-        let secret_fe = right_align(self.secret());
+        let secret_fe = right_align(&self.secret);
         poseidon(&[&secret_fe])
     }
 
@@ -53,7 +42,7 @@ impl NullifierKey {
         utxo_hash: &[u8; 32],
         blinding: &[u8; 32],
     ) -> Result<[u8; 32], KeypairError> {
-        let secret_fe = right_align(self.secret());
+        let secret_fe = right_align(&self.secret);
         poseidon(&[utxo_hash, blinding, &secret_fe])
     }
 }

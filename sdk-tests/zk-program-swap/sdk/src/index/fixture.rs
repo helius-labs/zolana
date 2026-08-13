@@ -69,10 +69,10 @@ fn shielded_transaction(proof_inputs: &SppProofInputs) -> ShieldedTransaction {
 }
 
 pub(crate) fn order_fixture() -> OrderFixture {
-    let maker_keypair = ShieldedKeypair::from_solana_keypair(&Keypair::new_from_array([7u8; 32]))
-        .expect("maker keypair");
-    let taker_keypair = ShieldedKeypair::from_solana_keypair(&Keypair::new_from_array([13u8; 32]))
-        .expect("taker keypair");
+    let maker_keypair =
+        ShieldedKeypair::from_keypair(&Keypair::new_from_array([7u8; 32])).expect("maker keypair");
+    let taker_keypair =
+        ShieldedKeypair::from_keypair(&Keypair::new_from_array([13u8; 32])).expect("taker keypair");
     let maker_address = maker_keypair.shielded_address().expect("maker address");
     let taker_address = taker_keypair.shielded_address().expect("taker address");
     let source_mint = Address::new_from_array([9u8; 32]);

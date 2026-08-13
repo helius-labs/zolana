@@ -27,6 +27,7 @@ parallel = ["dep:rayon"]
 
 [dev-dependencies]
 criterion = { workspace = true }
+hex = { workspace = true }
 proptest = { workspace = true }
 
 [[test]]

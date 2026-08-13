@@ -1,4 +1,4 @@
-use zolana_keypair::{hash::sha256, SignatureType, SigningKey};
+use zolana_keypair::{hash::sha256, Curve, SigningKey};
 
 use crate::KeypairWorld;
 
@@ -9,7 +9,7 @@ pub(crate) fn digest(msg: &str) -> [u8; 32] {
 }
 
 pub(crate) fn sign_message(world: &mut KeypairWorld, key: String, msg: String, dst: String) {
-    let sig = world.sig_key(&key).sign(&digest(&msg));
+    let sig = world.sig_key(&key).sign(&digest(&msg)).unwrap();
     world.sigs.insert(dst, sig);
 }
 
@@ -36,20 +36,20 @@ pub(crate) fn does_not_verify_tampered(
 
 pub(crate) fn signs_identically(world: &mut KeypairWorld, key: String, msg: String) {
     let k = world.sig_key(&key);
-    assert_eq!(k.sign(&digest(&msg)), k.sign(&digest(&msg)));
+    assert_eq!(
+        k.sign(&digest(&msg)).unwrap(),
+        k.sign(&digest(&msg)).unwrap()
+    );
 }
 
 pub(crate) fn signing_scheme_p256(world: &mut KeypairWorld, key: String) {
-    assert_eq!(
-        world.sig_key(&key).pubkey().signature_type().unwrap(),
-        SignatureType::P256
-    );
+    assert_eq!(world.sig_key(&key).pubkey().curve().unwrap(), Curve::P256);
 }
 
 pub(crate) fn p256_secret_roundtrip(world: &mut KeypairWorld, key: String) {
     let k = world.sig_key(&key);
     let bytes = k.secret_bytes();
-    let restored = SigningKey::from_bytes(&bytes).unwrap();
+    let restored = SigningKey::from_p256_bytes(&bytes).unwrap();
     assert_eq!(k.pubkey(), restored.pubkey());
     assert_eq!(*bytes, *restored.secret_bytes());
 }

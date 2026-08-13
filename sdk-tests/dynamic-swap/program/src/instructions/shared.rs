@@ -19,25 +19,31 @@ pub fn u64_right_align(value: u64) -> [u8; 32] {
     bytes
 }
 
-/// The escrow_authority PDA's owner-hash for `pair`, recomputed from the PDA
-/// itself so the program never trusts a client value for the `escrow_open`
-/// circuit's `EscrowAuthorityOwnerHash` public input. Mirrors the SDK's
-/// `EscrowUtxo::order_utxo_owner_hash`: `Poseidon(owner_pk_field(pda),
-/// nullifier_pubkey)`, where for an ed25519 owner `owner_pk_field ==
-/// hash_bytes(pda_bytes)` and the constant zero-secret nullifier key's pubkey
-/// is `Poseidon(fe_right_align([0u8; 31])) == Poseidon([0u8; 32])`.
+/// The escrow_authority PDA's owner-hash for `pair`:
+/// `Poseidon(hash_bytes(derived PDA), nullifier_pubkey)`, with the PDA derived
+/// here so the program never trusts a client value for the PDA binding of the
+/// `escrow_open` circuit's `EscrowAuthorityOwnerHash` public input.
+/// `nullifier_pubkey` is the value published in
+/// `Pair::escrow_authority_nullifier_pubkey`: the maker derives the identity's
+/// nullifier secret from its viewing key, so who can build spend proofs is
+/// maker-chosen, while the order/reservation UTXOs stay bound to the
+/// program-controlled PDA that only `settle` can sign for.
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
-pub fn escrow_authority_owner_hash(pair: &Address) -> Result<[u8; 32], ProgramError> {
+pub fn escrow_authority_owner_hash(
+    pair: &Address,
+    nullifier_pubkey: &[u8; 32],
+) -> Result<[u8; 32], ProgramError> {
     let (pda, _bump) = derive_authority_pda(crate::ESCROW_AUTHORITY_PDA_SEED, pair);
     let owner_pk_field = hash_bytes(pda.as_array()).map_err(DynamicSwapError::from)?;
-    let nullifier_pubkey =
-        Poseidon::hashv(&[[0u8; 32].as_slice()]).map_err(|_| DynamicSwapError::HashingFailed)?;
     Poseidon::hashv(&[owner_pk_field.as_slice(), nullifier_pubkey.as_slice()])
         .map_err(|_| DynamicSwapError::HashingFailed.into())
 }
 
 #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
-pub fn escrow_authority_owner_hash(_pair: &Address) -> Result<[u8; 32], ProgramError> {
+pub fn escrow_authority_owner_hash(
+    _pair: &Address,
+    _nullifier_pubkey: &[u8; 32],
+) -> Result<[u8; 32], ProgramError> {
     unimplemented!("escrow_authority_owner_hash requires Solana runtime syscalls")
 }
 

@@ -1,13 +1,12 @@
 use solana_address::Address;
 use solana_instruction::Instruction;
-use solana_keypair::Keypair;
 use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction as SolanaTransaction;
 use zolana_keypair::{
-    viewing_key::ViewTag, P256Pubkey, PublicKey, ShieldedAddress, ShieldedKeypair, SignatureType,
+    viewing_key::ViewTag, Curve, P256Pubkey, PublicKey, ShieldedAddress, ShieldedKeypair,
 };
 use zolana_user_registry_interface::{
     instruction::{
@@ -49,9 +48,9 @@ pub fn p256_registration_proof_message(
 /// P256 owner key (only for P256-owned wallets), nullifier pubkey, and viewing
 /// pubkey. Returns the exact `RegisterData` the register/update instructions take.
 fn register_fields(address: &ShieldedAddress) -> Result<RegisterData, ClientError> {
-    let owner_p256 = match address.signing_pubkey.signature_type()? {
-        SignatureType::P256 => Some(*address.signing_pubkey.as_p256()?.as_bytes()),
-        SignatureType::Ed25519 => None,
+    let owner_p256 = match address.signing_pubkey.curve()? {
+        Curve::P256 => Some(*address.signing_pubkey.as_p256()?.as_bytes()),
+        Curve::Ed25519 | Curve::Pda => None,
     };
     Ok(RegisterData {
         owner_p256,
@@ -75,7 +74,7 @@ fn register_fields(address: &ShieldedAddress) -> Result<RegisterData, ClientErro
 /// publish or update it.
 pub fn ensure_registered<R: Rpc>(
     rpc: &R,
-    funding: &Keypair,
+    funding: &dyn Signer,
     keypair: &ShieldedKeypair,
 ) -> Result<Option<Signature>, ClientError> {
     let owner = funding.pubkey();
@@ -136,7 +135,7 @@ pub enum StrictRegistration {
 /// signature of, its owner pubkey.
 pub fn register_if_absent<R: Rpc>(
     rpc: &R,
-    funding: &Keypair,
+    funding: &dyn Signer,
     keypair: &ShieldedKeypair,
 ) -> Result<StrictRegistration, ClientError> {
     let owner = funding.pubkey();
@@ -264,7 +263,7 @@ fn key_binding_proof(
     owner: Pubkey,
     keypair: &ShieldedKeypair,
 ) -> Result<Option<P256KeyBindingProof>, ClientError> {
-    if keypair.signing_pubkey().signature_type()? == SignatureType::Ed25519 {
+    if keypair.signing_pubkey().curve()? == Curve::Ed25519 {
         return Ok(None);
     }
     let address = keypair.shielded_address()?;
@@ -407,9 +406,9 @@ pub fn validate_registered_keypair<R: Rpc>(
     keypair: &ShieldedKeypair,
 ) -> Result<(), ClientError> {
     let record = fetch_user_record_checked(rpc, owner)?;
-    let expected_owner_p256 = match keypair.signing_pubkey().signature_type()? {
-        SignatureType::P256 => Some(*keypair.signing_pubkey().as_p256()?.as_bytes()),
-        SignatureType::Ed25519 => None,
+    let expected_owner_p256 = match keypair.signing_pubkey().curve()? {
+        Curve::P256 => Some(*keypair.signing_pubkey().as_p256()?.as_bytes()),
+        Curve::Ed25519 | Curve::Pda => None,
     };
     let expected_nullifier = keypair.nullifier_key.pubkey()?;
     let expected_viewing = *keypair.viewing_pubkey().as_bytes();
@@ -536,8 +535,9 @@ pub fn resolved_address_from_record(
 mod tests {
     use borsh::to_vec;
     use solana_account::Account;
+    use solana_keypair::Keypair;
     use solana_signer::Signer;
-    use zolana_keypair::{ShieldedKeypair, ViewingKey};
+    use zolana_keypair::{ShieldedKeypair, SigningKey};
     use zolana_user_registry_interface::user_registry_program_id;
 
     use super::*;
@@ -710,8 +710,8 @@ mod tests {
     #[test]
     fn registration_builder_rejects_proof_for_ed25519_address() {
         let owner = Pubkey::new_unique();
-        let keypair =
-            ShieldedKeypair::from_ed25519(&[7u8; 32], ViewingKey::new()).expect("ed25519 keypair");
+        let keypair = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[7u8; 32]))
+            .expect("ed25519 keypair");
         let address = keypair.shielded_address().expect("shielded address");
         let proof = P256KeyBindingProof {
             signature: [0u8; 64],
@@ -875,8 +875,8 @@ mod tests {
     fn validate_registered_keypair_accepts_ed25519_owner_records() {
         let owner_keypair = solana_keypair::Keypair::new();
         let seed: [u8; 32] = *owner_keypair.secret_bytes();
-        let keypair =
-            ShieldedKeypair::from_ed25519(&seed, ViewingKey::new()).expect("ed25519 keypair");
+        let keypair = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&seed))
+            .expect("ed25519 keypair");
         let owner = owner_keypair.pubkey();
         let (pda, bump) = user_record_pda(&owner);
         let record = UserRecord {

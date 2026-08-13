@@ -1,6 +1,8 @@
 pub(crate) mod common;
+pub(crate) mod derivation;
 pub(crate) mod hashing;
 pub(crate) mod nullifier;
+pub(crate) mod pda;
 pub(crate) mod pubkey;
 pub(crate) mod shielded;
 pub(crate) mod signing;

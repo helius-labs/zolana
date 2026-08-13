@@ -428,7 +428,7 @@ fn worker(
     stop: &AtomicBool,
     started: Instant,
 ) -> Result<()> {
-    let shielded = ShieldedKeypair::from_solana_keypair(funding)?;
+    let shielded = ShieldedKeypair::from_keypair(funding)?;
     let mut wallet = Wallet::new(shielded.shielded_address()?, AssetRegistry::default())?;
 
     // Explicitly insecure: devnet's ALB has no certificate yet, so the indexer

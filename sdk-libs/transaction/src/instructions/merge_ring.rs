@@ -8,12 +8,15 @@
 //! hashes remain in the witness and the ring selects the output policy-data hash.
 
 use solana_address::Address;
-use zolana_keypair::{merge::merge_output_blinding, PublicKey, ShieldedKeypairTrait};
+use zolana_keypair::{PublicKey, ShieldedKeypairTrait};
 
 use crate::{
     error::TransactionError,
     instructions::{
-        merge::{has_utxo_data, pad_with_dummies, real_input_contexts, validate_merge_inputs},
+        merge::{
+            has_utxo_data, merge_output_blinding, pad_with_dummies, real_input_contexts,
+            validate_merge_inputs,
+        },
         types::{InputUtxoContext, SppProofInputUtxo},
     },
     SppProofOutputUtxo,

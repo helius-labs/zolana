@@ -13,8 +13,8 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::SolanaRpc;
 use zolana_keypair::{
-    shielded::ShieldedAddress, viewing_key::ViewTag, NullifierKey, ShieldedKeypair, SigningKey,
-    ViewingKey,
+    shielded::ShieldedAddress, viewing_key::ViewTag, Curve, NullifierKey, ShieldedKeypair,
+    SigningKey, ViewingKey,
 };
 use zolana_transaction::{
     serialization::{anonymous::AnonymousTransferSenderPlaintext, split::SplitBundlePlaintext},
@@ -186,7 +186,7 @@ pub(super) fn run_new(opts: NewWalletOptions) -> Result<()> {
     let (keypair, mode) = if opts.p256 {
         (ShieldedKeypair::new()?, "p256")
     } else {
-        (ShieldedKeypair::from_solana_keypair(&funding)?, "ed25519")
+        (ShieldedKeypair::from_keypair(&funding)?, "ed25519")
     };
     save_wallet(&path, &keypair, &funding)?;
     let material = WalletMaterial { keypair, funding };
@@ -259,7 +259,7 @@ pub(super) fn load_existing_wallet(path: &Path) -> Result<WalletMaterial> {
     let keypair = match file.mode {
         // The funding key is the identity: re-derive the shielded keypair (flat
         // HKDF) instead of trusting any cached scalars.
-        WalletMode::Ed25519 => ShieldedKeypair::from_solana_keypair(&funding)?,
+        WalletMode::Ed25519 => ShieldedKeypair::from_keypair(&funding)?,
         // A P256 identity is random, so its scalars are stored and reloaded.
         WalletMode::P256 => p256_keypair_from_file(path, &file)?,
     };
@@ -289,9 +289,9 @@ fn p256_keypair_from_file(path: &Path, file: &KeypairFile) -> Result<ShieldedKey
         .viewing_key_hex
         .as_deref()
         .with_context(|| format!("wallet {} is missing viewing_key_hex", path.display()))?;
-    let signing = SigningKey::from_bytes(&parse_hex_array::<32>(signing_hex)?)?;
+    let signing = SigningKey::from_p256_bytes(&parse_hex_array::<32>(signing_hex)?)?;
     let viewing = ViewingKey::from_bytes(&parse_hex_array::<32>(viewing_hex)?)?;
-    Ok(ShieldedKeypair::from_keys(signing, viewing)?)
+    Ok(ShieldedKeypair::with_viewing_key(signing, viewing)?)
 }
 
 /// Load the JSON byte array written by `solana-keygen`. Both the standard
@@ -328,23 +328,24 @@ fn keypair_from_solana_bytes(values: &[u8], path: &Path) -> Result<Keypair> {
 }
 
 fn save_wallet(path: &Path, keypair: &ShieldedKeypair, funding: &Keypair) -> Result<()> {
-    let file = if keypair.signing_key.is_ed25519() {
-        // An ed25519 wallet's signing key must be the funding secret: that is
-        // the whole point of the rail, and it is what the load path re-derives.
-        if keypair.signing_key.secret_bytes().as_slice() != funding.secret_bytes().as_slice() {
-            bail!("ed25519 wallet signing key must be the funding keypair");
+    let file = match keypair.signing_key.curve() {
+        Curve::Ed25519 => {
+            // An ed25519 wallet's signing key must be the funding secret: that is
+            // the whole point of the rail, and it is what the load path re-derives.
+            if keypair.signing_key.secret_bytes().as_slice() != funding.secret_bytes().as_slice() {
+                bail!("ed25519 wallet signing key must be the funding keypair");
+            }
+            KeypairFile {
+                version: WALLET_FORMAT_VERSION,
+                mode: WalletMode::Ed25519,
+                owner_hash_hex: hex::encode(keypair.owner_hash()?),
+                signing_key_hex: None,
+                viewing_key_hex: None,
+                funding_secret_hex: hex::encode(funding.secret_bytes()),
+                funding_pubkey: funding.pubkey().to_string(),
+            }
         }
-        KeypairFile {
-            version: WALLET_FORMAT_VERSION,
-            mode: WalletMode::Ed25519,
-            owner_hash_hex: hex::encode(keypair.owner_hash()?),
-            signing_key_hex: None,
-            viewing_key_hex: None,
-            funding_secret_hex: hex::encode(funding.secret_bytes()),
-            funding_pubkey: funding.pubkey().to_string(),
-        }
-    } else {
-        KeypairFile {
+        Curve::P256 => KeypairFile {
             version: WALLET_FORMAT_VERSION,
             mode: WalletMode::P256,
             owner_hash_hex: hex::encode(keypair.owner_hash()?),
@@ -352,7 +353,8 @@ fn save_wallet(path: &Path, keypair: &ShieldedKeypair, funding: &Keypair) -> Res
             viewing_key_hex: Some(hex::encode(keypair.viewing_key.secret_bytes().as_slice())),
             funding_secret_hex: hex::encode(funding.secret_bytes()),
             funding_pubkey: funding.pubkey().to_string(),
-        }
+        },
+        Curve::Pda => bail!("a PDA cannot be a wallet signing key"),
     };
     write_json_secret_exclusive(path, &file)
 }
@@ -492,7 +494,7 @@ mod tests {
         let root = temp_root("zolana-cli-wallet-ed25519");
         let wallet = root.join("alice.pid.json");
         let funding = Keypair::new();
-        let keypair = ShieldedKeypair::from_solana_keypair(&funding).expect("keypair");
+        let keypair = ShieldedKeypair::from_keypair(&funding).expect("keypair");
         save_wallet(&wallet, &keypair, &funding).expect("save wallet");
 
         let file: KeypairFile =
@@ -514,7 +516,7 @@ mod tests {
     fn ed25519_wallet_rejects_foreign_funding_key() {
         let root = temp_root("zolana-cli-wallet-ed25519-mismatch");
         let wallet = root.join("mismatch.pid.json");
-        let keypair = ShieldedKeypair::from_solana_keypair(&Keypair::new()).unwrap();
+        let keypair = ShieldedKeypair::from_keypair(&Keypair::new()).unwrap();
 
         assert!(save_wallet(&wallet, &keypair, &Keypair::new()).is_err());
     }

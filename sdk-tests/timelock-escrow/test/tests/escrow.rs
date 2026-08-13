@@ -126,11 +126,7 @@ fn escrow_then_withdraw() -> Result<()> {
     }
     .instruction()?;
 
-    let signature = send_v0_with_lookup_table(
-        client.rpc(),
-        &creator.keypair.to_solana_keypair()?,
-        escrow_ix,
-    )?;
+    let signature = send_v0_with_lookup_table(client.rpc(), &creator.keypair, escrow_ix)?;
     client
         .confirm_private_transaction_sync(signature)
         .map_err(|e| anyhow!("confirm escrow indexed: {e:?}"))?;
@@ -227,11 +223,7 @@ fn escrow_then_withdraw() -> Result<()> {
     }
     .instruction()?;
 
-    let signature = send_v0_with_lookup_table(
-        client.rpc(),
-        &creator.keypair.to_solana_keypair()?,
-        withdraw_ix,
-    )?;
+    let signature = send_v0_with_lookup_table(client.rpc(), &creator.keypair, withdraw_ix)?;
     client
         .confirm_private_transaction_sync(signature)
         .map_err(|e| anyhow!("confirm withdraw indexed: {e:?}"))?;

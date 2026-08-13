@@ -1,9 +1,12 @@
 use zolana_keypair::{
-    hash::owner_hash, random_salt, CompressedShieldedAddress, NullifierKey, ShieldedAddress,
+    hash::owner_hash, random_salt, CompressedShieldedAddress, KeypairError, ShieldedAddress,
     ShieldedKeypair, SigningKey, ViewingKey,
 };
 
-use crate::KeypairWorld;
+use crate::{
+    cases::nullifier::{expand_nullifier_secret, expand_viewing_pubkey},
+    KeypairWorld,
+};
 
 pub(crate) fn address_consistent(world: &mut KeypairWorld, name: String) {
     let kp = world.keypair(&name);
@@ -25,23 +28,91 @@ pub(crate) fn address_consistent(world: &mut KeypairWorld, name: String) {
     );
 }
 
-pub(crate) fn from_keys_derives_nullifier(
+pub(crate) fn p256_owner_has_no_solana_address(world: &mut KeypairWorld, name: String) {
+    let kp = world.keypair(&name);
+    assert_eq!(
+        kp.shielded_address().unwrap().solana_address(),
+        Err(KeypairError::NoSolanaAddress)
+    );
+}
+
+pub(crate) fn from_parts_keeps_detached_viewing_key(
     world: &mut KeypairWorld,
     signing: String,
     viewing: String,
 ) {
-    let expected = NullifierKey::from_signing_key(world.sig_key(&signing)).unwrap();
-    let signing_clone = SigningKey::from_bytes(&world.sig_key(&signing).secret_bytes()).unwrap();
+    let signing_clone =
+        SigningKey::from_p256_bytes(&world.sig_key(&signing).secret_bytes()).unwrap();
     let viewing_clone = ViewingKey::from_bytes(&world.vk(&viewing).secret_bytes()).unwrap();
-    let kp = ShieldedKeypair::from_keys(signing_clone, viewing_clone).unwrap();
-    assert_eq!(kp.nullifier_key.secret(), expected.secret());
+    let derived = ShieldedKeypair::from_keypair(signing_clone.clone()).unwrap();
+    let kp = ShieldedKeypair::with_viewing_key(signing_clone, viewing_clone).unwrap();
+    assert_eq!(*kp.nullifier_key.secret(), *derived.nullifier_key.secret());
+    assert_eq!(kp.viewing_key.pubkey(), world.vk(&viewing).pubkey());
+    assert_ne!(kp.viewing_key.pubkey(), derived.viewing_key.pubkey());
+
+    let ed_signing = SigningKey::from_ed25519_bytes(&[9u8; 32]);
+    let ed_viewing = ViewingKey::from_bytes(&world.vk(&viewing).secret_bytes()).unwrap();
+    let ed_derived = ShieldedKeypair::from_keypair(ed_signing.clone()).unwrap();
+    let ed = ShieldedKeypair::with_viewing_key(ed_signing, ed_viewing).unwrap();
+    assert_eq!(
+        *ed.nullifier_key.secret(),
+        *ed_derived.nullifier_key.secret()
+    );
+    assert_eq!(ed.viewing_key.pubkey(), world.vk(&viewing).pubkey());
+    assert_ne!(ed.viewing_key.pubkey(), ed_derived.viewing_key.pubkey());
+}
+
+pub(crate) fn from_keypair_roots_both_keys_in_one_seed(world: &mut KeypairWorld, signing: String) {
+    let sk = world.sig_key(&signing);
+    let seed = sk.derivation_seed().unwrap();
+    let kp = ShieldedKeypair::from_keypair(sk.clone()).unwrap();
+    assert_eq!(
+        *kp.nullifier_key.secret(),
+        expand_nullifier_secret(&seed, b"TSPP/nf_key/ecdh/v1")
+    );
+    assert_eq!(
+        kp.viewing_key.pubkey(),
+        expand_viewing_pubkey(&seed, b"TSPP/view_key/ecdh/v1")
+    );
+}
+
+pub(crate) fn new_derives_viewing_key_from_signing_key(world: &mut KeypairWorld, name: String) {
+    let kp = world.keypair(&name);
+    let rederived = ShieldedKeypair::from_keypair(kp.signing_key.clone()).unwrap();
+    assert_eq!(kp.viewing_key.pubkey(), rederived.viewing_key.pubkey());
+    assert_eq!(
+        *kp.nullifier_key.secret(),
+        *rederived.nullifier_key.secret()
+    );
+}
+
+pub(crate) fn solana_signer_matches_solana_keypair() {
+    use solana_signer::Signer;
+
+    let secret = [7u8; 32];
+    let shielded = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&secret)).unwrap();
+    let solana = solana_keypair::Keypair::new_from_array(secret);
+    assert_eq!(shielded.try_pubkey().unwrap(), solana.pubkey());
+    let msg = b"tx message";
+    assert_eq!(
+        shielded.try_sign_message(msg).unwrap(),
+        solana.sign_message(msg)
+    );
+
+    let p256 = ShieldedKeypair::new().unwrap();
+    assert!(p256.try_pubkey().is_err());
+    assert!(p256.try_sign_message(msg).is_err());
+
+    assert!(shielded
+        .try_sign_message(zolana_keypair::derivation::ED25519_DERIVATION_MSG)
+        .is_err());
 }
 
 pub(crate) fn facade_sign_nullifier(world: &mut KeypairWorld, name: String) {
     let kp = world.keypair(&name);
     // The signing API signs a 32-byte prehash digest (the transaction message_hash).
     let msg = [7u8; 32];
-    assert!(kp.signing_key.verify(&msg, &kp.sign(&msg)));
+    assert!(kp.signing_key.verify(&msg, &kp.sign(&msg).unwrap()));
     let utxo_hash = [5u8; 32];
     let blinding = [6u8; 32];
     assert_eq!(

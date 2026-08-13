@@ -12,11 +12,11 @@ pub(crate) fn viewing_key_from_scalar(world: &mut KeypairWorld, name: String, n:
 }
 
 pub(crate) fn random_p256_signing_key(world: &mut KeypairWorld, name: String) {
-    world.signing.insert(name, SigningKey::new());
+    world.signing.insert(name, SigningKey::new_p256());
 }
 
 pub(crate) fn p256_signing_key_from_scalar(world: &mut KeypairWorld, name: String, n: u8) {
-    let secret_key = SigningKey::from_bytes(&scalar_bytes(n)).unwrap();
+    let secret_key = SigningKey::from_p256_bytes(&scalar_bytes(n)).unwrap();
     world.signing.insert(name, secret_key);
 }
 

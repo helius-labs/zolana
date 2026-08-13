@@ -115,7 +115,7 @@ pub fn user_registry_program_path() -> PathBuf {
 /// curve point, so it can produce the proof of possession `register` /
 /// `update_keys` require alongside an `owner_p256`.
 pub fn p256_owner_key() -> SigningKey {
-    SigningKey::new()
+    SigningKey::new_p256()
 }
 
 /// The compressed `owner_p256` for `key` and its proof-of-possession signature

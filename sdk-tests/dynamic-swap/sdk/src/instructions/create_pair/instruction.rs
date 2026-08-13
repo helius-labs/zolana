@@ -19,6 +19,9 @@ pub struct CreatePair {
     pub source_asset: [u8; 32],
     /// The destination asset's UTXO commitment; see `Pair::destination_asset`.
     pub destination_asset: [u8; 32],
+    /// The escrow_authority identity's published nullifier pubkey; see
+    /// `Pair::escrow_authority_nullifier_pubkey`.
+    pub escrow_authority_nullifier_pubkey: [u8; 32],
 }
 
 impl CreatePair {
@@ -30,6 +33,7 @@ impl CreatePair {
             authority_owner_hash: self.authority_owner_hash,
             source_asset: self.source_asset,
             destination_asset: self.destination_asset,
+            escrow_authority_nullifier_pubkey: self.escrow_authority_nullifier_pubkey,
         };
 
         let mut instruction_data = vec![tag::CREATE_PAIR];
