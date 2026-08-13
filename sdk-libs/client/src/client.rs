@@ -140,17 +140,6 @@ impl<R> ZolanaClient<R> {
     }
 
     /// Build both async and blocking service adapters from their URLs.
-    ///
-    /// Blocking adapters are initialized on first blocking use so constructing
-    /// an async client inside a Tokio runtime never creates a nested runtime.
-    ///
-    /// Both URLs must be https, or http to loopback. The indexer's response
-    /// says which UTXOs an identity owns and the prover's request carries the
-    /// witness, so in plaintext they hand a network observer exactly what a
-    /// shielded protocol exists to hide. Where the transport is already private
-    /// -- an indexer inside your own VPC, TLS terminated elsewhere -- use
-    /// [`Self::from_urls_allowing_insecure_http`], which is named so that
-    /// choice is greppable.
     pub fn from_urls(
         rpc: R,
         indexer_url: impl AsRef<str>,
