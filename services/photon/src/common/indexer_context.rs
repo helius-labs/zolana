@@ -61,11 +61,6 @@ mod tests {
     use super::*;
     use sea_orm::{DatabaseBackend, QueryTrait};
 
-    // This query runs on nearly every API response, so its plan matters more
-    // than its shape. Aggregating over `block_time`, which has no index, made it
-    // scan the whole `blocks` table -- 2.4s per call on devnet, and growing with
-    // the table. Asserting on the generated SQL is what keeps a later "just add
-    // MAX back, it reads better" from quietly reinstating a full scan.
     #[test]
     fn the_context_query_walks_the_primary_key_instead_of_aggregating() {
         let sql = latest_block().build(DatabaseBackend::Postgres).to_string();
