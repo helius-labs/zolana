@@ -179,7 +179,7 @@ pub(super) fn non_inclusion_proof_from_context(
     let root_seq = proof.root_seq.unwrap_or(0);
     let root_index = proof
         .root_seq
-        .map(|root_seq| root_index(root_seq, tree_info.root_history_capacity))
+        .map(|root_seq| root_index(root_seq, tree_kind, tree_info))
         .transpose()
         .map(|root_index| root_index.unwrap_or(0))?;
 
@@ -200,15 +200,51 @@ pub(super) fn non_inclusion_proof_from_context(
     })
 }
 
-/// Root index for the nullifier tree, where the sequence number *is* the
+/// Position of a root within its own tree's history ring.
+///
+/// Only the nullifier tree reaches here, and its sequence number *is* the
 /// chain's: it comes from `BatchAddressAppendEvent`, not from a local counter.
-/// The state tree has no such field in its event, which is why it reads the
-/// index from the tree account instead -- see [`state_root_index`].
-fn root_index(root_seq: u64, root_history_capacity: u64) -> Result<u16, PhotonApiError> {
-    let root_index = if root_history_capacity == 0 {
+/// The state tree has no such field in its event, so it reads its index from
+/// the tree account instead -- see `RootIndexCache`.
+///
+/// The capacity always comes from `tree_kind`, never from a value that happens
+/// to be in scope. The UTXO and nullifier trees share one account but keep
+/// separate histories of different sizes (200 and 120), so `root_seq % capacity`
+/// gives a different answer per tree, and the program reads that slot of the
+/// ring to check the root it was handed. A capacity from the wrong tree yields a
+/// valid-looking index pointing at the wrong root, which the program rejects as
+/// `InvalidRootIndex` -- surfacing to the client as `StaleNullifierRoot`,
+/// indistinguishable from a proof that genuinely expired. That is an expensive
+/// error to recognise: we spent an hour attributing exactly this code to prover
+/// latency before ruling this path out. Upstream photon shipped that bug by
+/// computing both proof kinds' indices from one capacity
+/// (helius-labs/photon@7113918); taking the capacity from `tree_kind` makes it
+/// unrepresentable here.
+///
+/// `tree_info` is cross-checked rather than used: it carries the *nullifier*
+/// tree's capacity, because both trees live in one account and that is the one
+/// `process_rings_tree_account` stores. Where it is comparable it must agree
+/// with the constant this binary was built against; a mismatch means the
+/// deployed tree is not the tree this code assumes, and guessing is worse than
+/// failing.
+fn root_index(
+    root_seq: u64,
+    tree_kind: RingsTreeKind,
+    tree_info: &TreeInfo,
+) -> Result<u16, PhotonApiError> {
+    let capacity = tree_kind.root_history_capacity();
+    if matches!(tree_kind, RingsTreeKind::Nullifier) && tree_info.root_history_capacity != capacity
+    {
+        return Err(PhotonApiError::UnexpectedError(format!(
+            "nullifier root history capacity is {} on chain but {} in this build",
+            tree_info.root_history_capacity, capacity
+        )));
+    }
+
+    let root_index = if capacity == 0 {
         0
     } else {
-        root_seq % root_history_capacity
+        root_seq % capacity
     };
     root_index.try_into().map_err(|_| {
         PhotonApiError::UnexpectedError(format!("Root index {} does not fit in u16", root_index))
@@ -410,5 +446,58 @@ mod tests {
         let rows: Vec<u64> = Vec::new();
         let cursor = next_cursor_from_rows(&rows, cursor_of).expect("cursor");
         assert!(cursor.is_none(), "no rows means no position to resume from");
+    }
+
+    fn tree_info_with(root_history_capacity: u64) -> TreeInfo {
+        TreeInfo {
+            tree: Default::default(),
+            queue: Default::default(),
+            height: 0,
+            root_history_capacity,
+            input_queue_zkp_batch_size: 0,
+        }
+    }
+
+    /// The two trees share an account but not a history size, so the same
+    /// `root_seq` lands at different ring positions for each. Getting this wrong
+    /// hands the program a plausible index pointing at the wrong root, which it
+    /// rejects as `InvalidRootIndex` -> `StaleNullifierRoot`, identical to a
+    /// proof that genuinely expired. Upstream photon shipped exactly that
+    /// (helius-labs/photon@7113918).
+    #[test]
+    fn each_tree_indexes_its_root_by_its_own_capacity() {
+        let nullifier_capacity = RingsTreeKind::Nullifier.root_history_capacity();
+        let state_capacity = RingsTreeKind::State.root_history_capacity();
+        assert_ne!(
+            nullifier_capacity, state_capacity,
+            "this test is only meaningful while the capacities differ"
+        );
+
+        // Chosen so the two capacities disagree about where it lands.
+        let root_seq = state_capacity + 5;
+        let info = tree_info_with(nullifier_capacity);
+
+        let nullifier = root_index(root_seq, RingsTreeKind::Nullifier, &info).expect("nullifier");
+        let state = root_index(root_seq, RingsTreeKind::State, &info).expect("state");
+
+        assert_eq!(nullifier as u64, root_seq % nullifier_capacity);
+        assert_eq!(state as u64, root_seq % state_capacity);
+        assert_ne!(
+            nullifier, state,
+            "a shared capacity would collapse these to one value -- the upstream bug"
+        );
+    }
+
+    /// A deployed tree that disagrees with the constant this binary was built
+    /// against means the assumption is wrong, and a computed index would be
+    /// quietly incorrect. Fail instead.
+    #[test]
+    fn a_tree_whose_capacity_disagrees_with_the_build_is_rejected() {
+        let info = tree_info_with(RingsTreeKind::Nullifier.root_history_capacity() + 1);
+        let result = root_index(7, RingsTreeKind::Nullifier, &info);
+        assert!(
+            result.is_err(),
+            "a capacity mismatch must fail loudly, not produce an index"
+        );
     }
 }
