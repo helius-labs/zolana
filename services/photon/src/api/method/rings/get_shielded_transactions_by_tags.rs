@@ -49,6 +49,15 @@ struct RingsMessageRow {
     payload: Vec<u8>,
 }
 
+/// Just enough of a row to build a cursor from, for the tip lookup that has no
+/// transaction to hydrate.
+#[derive(FromQueryResult, Debug)]
+struct StreamTipRow {
+    slot: i64,
+    signature: Vec<u8>,
+    event_index: i16,
+}
+
 #[derive(FromQueryResult, Debug)]
 struct RingsNullifierRow {
     rings_tx_id: i64,
@@ -68,7 +77,7 @@ pub async fn get_shielded_transactions_by_tags(
     request: GetRingsByTagsRequest,
 ) -> Result<GetShieldedTransactionsByTagsResponse, PhotonApiError> {
     validate_tags(&request.tags)?;
-    let (context, transactions, next_cursor, _) = get_shielded_transactions(
+    let page = get_shielded_transactions(
         conn,
         &request.tags,
         request.cursor.as_ref(),
@@ -78,9 +87,9 @@ pub async fn get_shielded_transactions_by_tags(
     )
     .await?;
     Ok(GetShieldedTransactionsByTagsResponse {
-        context,
-        transactions,
-        next_cursor,
+        context: page.context,
+        transactions: page.transactions,
+        next_cursor: page.next_cursor,
     })
 }
 
@@ -89,7 +98,7 @@ pub async fn get_shielded_transactions_by_nullifiers(
     request: GetRingsByNullifiersRequest,
 ) -> Result<GetShieldedTransactionsByNullifiersResponse, PhotonApiError> {
     validate_nullifiers(&request.nullifiers)?;
-    let (context, transactions, next_cursor, scanned_through) = get_shielded_transactions(
+    let page = get_shielded_transactions(
         conn,
         &request.nullifiers,
         request.cursor.as_ref(),
@@ -99,10 +108,10 @@ pub async fn get_shielded_transactions_by_nullifiers(
     )
     .await?;
     Ok(GetShieldedTransactionsByNullifiersResponse {
-        context,
-        transactions,
-        next_cursor,
-        scanned_through,
+        context: page.context,
+        transactions: page.transactions,
+        next_cursor: page.next_cursor,
+        scanned_through: page.scanned_through,
     })
 }
 
@@ -124,6 +133,14 @@ enum ReportFrontier {
     No,
 }
 
+struct ShieldedTransactionPage {
+    context: zolana_indexer_api::Context,
+    transactions: Vec<ShieldedTransaction>,
+    next_cursor: Option<Base64String>,
+    /// Always `None` unless the caller passed [`ReportFrontier::Yes`].
+    scanned_through: Option<Base64String>,
+}
+
 async fn get_shielded_transactions(
     conn: &DatabaseConnection,
     values: &[Hash],
@@ -131,15 +148,7 @@ async fn get_shielded_transactions(
     limit: u64,
     match_by: MatchBy,
     report_frontier: ReportFrontier,
-) -> Result<
-    (
-        zolana_indexer_api::Context,
-        Vec<ShieldedTransaction>,
-        Option<Base64String>,
-        Option<Base64String>,
-    ),
-    PhotonApiError,
-> {
+) -> Result<ShieldedTransactionPage, PhotonApiError> {
     let cursor = encoded_cursor
         .map(decode_cursor::<ShieldedTxCursor>)
         .transpose()?;
@@ -168,7 +177,12 @@ async fn get_shielded_transactions(
 
     tx.commit().await?;
 
-    Ok((context, transactions, next_cursor, scanned_through))
+    Ok(ShieldedTransactionPage {
+        context,
+        transactions,
+        next_cursor,
+        scanned_through,
+    })
 }
 
 /// The greatest position present in the transaction stream, as a cursor.
@@ -189,13 +203,9 @@ async fn stream_tip(tx: &DatabaseTransaction) -> Result<Option<Base64String>, Ph
     // `idx_rings_transactions_slot_id`, and the handful of rows sharing that
     // slot are all that gets sorted.
     let sql = "SELECT
-            pt.rings_tx_id AS rings_tx_id,
             pt.slot AS slot,
             pt.signature AS signature,
-            pt.event_index AS event_index,
-            pt.tx_viewing_pk AS tx_viewing_pk,
-            pt.salt AS salt,
-            pt.proofless AS proofless
+            pt.event_index AS event_index
          FROM rings_transactions pt
          WHERE pt.slot = (SELECT MAX(slot) FROM rings_transactions)
          ORDER BY pt.signature DESC, pt.event_index DESC
@@ -210,8 +220,12 @@ async fn stream_tip(tx: &DatabaseTransaction) -> Result<Option<Base64String>, Ph
     else {
         return Ok(None);
     };
-    let row = MatchedRingsTxRow::from_query_result(&row, "")?;
-    Ok(Some(Base64String(shielded_tx_cursor_from_row(&row)?)))
+    let row = StreamTipRow::from_query_result(&row, "")?;
+    Ok(Some(Base64String(shielded_tx_cursor(
+        row.slot,
+        &row.signature,
+        row.event_index,
+    )?)))
 }
 
 pub(super) async fn hydrate_shielded_transactions(
@@ -467,8 +481,15 @@ fn shielded_tx_cursor_sql(
 }
 
 fn shielded_tx_cursor_from_row(row: &MatchedRingsTxRow) -> Result<Vec<u8>, PhotonApiError> {
-    let (slot, signature, event_index) =
-        cursor_sort_key(row.slot, &row.signature, row.event_index)?;
+    shielded_tx_cursor(row.slot, &row.signature, row.event_index)
+}
+
+fn shielded_tx_cursor(
+    slot: i64,
+    signature: &[u8],
+    event_index: i16,
+) -> Result<Vec<u8>, PhotonApiError> {
+    let (slot, signature, event_index) = cursor_sort_key(slot, signature, event_index)?;
     let cursor = ShieldedTxCursor {
         slot,
         signature,

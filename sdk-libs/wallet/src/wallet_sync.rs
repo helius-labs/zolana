@@ -684,8 +684,9 @@ async fn fetch_shielded_transactions_incremental_async<I: AsyncRpc>(
 /// about D. A nullifier with no entry is queried from zero, which is wasteful
 /// rather than wrong.
 ///
-/// An indexer that does not report `scanned_through` simply never populates
-/// `cursors`, which is exactly the old behaviour.
+/// `scanned_through` is absent on a page the limit truncated, because nothing
+/// can then be claimed beyond it; the loop keeps paging and takes the position
+/// from the short page that ends it.
 fn fetch_shielded_transactions_by_nullifiers<I: Rpc>(
     indexer: &I,
     nullifiers: &[[u8; 32]],
@@ -724,8 +725,8 @@ fn fetch_shielded_transactions_by_nullifiers<I: Rpc>(
                     let key = tx.tx_signature.to_string();
                     out.entry(key).or_insert(convert_sync_transaction(tx)?);
                 }
-                if response.scanned_through.is_some() {
-                    resume = response.scanned_through;
+                if let Some(position) = response.scanned_through {
+                    resume = Some(position);
                 }
                 cursor = response.next_cursor;
                 if cursor.is_none() {
@@ -785,8 +786,8 @@ async fn fetch_shielded_transactions_by_nullifiers_async<I: AsyncRpc>(
                     let key = tx.tx_signature.to_string();
                     out.entry(key).or_insert(convert_sync_transaction(tx)?);
                 }
-                if response.scanned_through.is_some() {
-                    resume = response.scanned_through;
+                if let Some(position) = response.scanned_through {
+                    resume = Some(position);
                 }
                 cursor = response.next_cursor;
                 if cursor.is_none() {
