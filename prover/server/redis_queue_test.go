@@ -14,23 +14,40 @@ import (
 	"zolana/prover/prover/common"
 	"zolana/prover/server"
 
+	"github.com/alicebob/miniredis/v2"
 	bn254 "github.com/consensys/gnark-crypto/ecc/bn254"
 	groth16bn254 "github.com/consensys/gnark/backend/groth16/bn254"
 	"github.com/google/uuid"
 )
 
-const TestRedisURL = "redis://localhost:6379/15"
+// setupRedisQueue returns a queue backed by an in-process Redis unless
+// TEST_REDIS_URL points at a real one.
+//
+// These tests used to skip themselves whenever nothing was listening on
+// localhost:6379, which on a developer machine and in CI meant always. The
+// whole queue layer was therefore untested by default, and it showed: nothing
+// covered FindCachedResult at all, and an O(n) scan sat in the dedup path --
+// executed on every job, on the goroutine feeding every proof worker -- until
+// it capped the production prover at 0.88 jobs/s against 57 jobs/s of capacity.
+// A skipped test reports success just as loudly as a passing one.
+func redisURLForTest(t *testing.T) string {
+	if redisURL := os.Getenv("TEST_REDIS_URL"); redisURL != "" {
+		return redisURL
+	}
+	// RunT registers its own cleanup, so the server dies with the test.
+	return "redis://" + miniredis.RunT(t).Addr() + "/0"
+}
 
 func setupRedisQueue(t *testing.T) *server.RedisQueue {
-	// Skip if Redis URL not available
-	redisURL := os.Getenv("TEST_REDIS_URL")
-	if redisURL == "" {
-		redisURL = TestRedisURL
-	}
+	return setupRedisQueueAt(t, redisURLForTest(t))
+}
 
+// setupRedisQueueAt is for tests that also need to hand the URL to something
+// else, such as a server config, so both ends talk to the same instance.
+func setupRedisQueueAt(t *testing.T, redisURL string) *server.RedisQueue {
 	rq, err := server.NewRedisQueue(redisURL)
 	if err != nil {
-		t.Skipf("Redis not available for testing: %v", err)
+		t.Fatalf("Redis not available for testing: %v", err)
 	}
 
 	err = rq.Client.FlushDB(context.Background()).Err()
@@ -487,7 +504,11 @@ func TestDequeueTimeout(t *testing.T) {
 	if duration < 400*time.Millisecond {
 		t.Errorf("Timeout duration too short: %v", duration)
 	}
-	if duration > 1*time.Second {
+	// A 1s block cannot return in under 1s, so the old "> 1 * time.Second"
+	// bound was unsatisfiable -- it measured 1.0013s here. The point of the
+	// upper bound is to catch a block that ignores its timeout entirely, so it
+	// needs slack for scheduling.
+	if duration > 3*time.Second {
 		t.Errorf("Timeout duration too long: %v", duration)
 	}
 }
@@ -580,26 +601,32 @@ func TestJobResultStorage(t *testing.T) {
 
 	jobID := "test-result-job"
 
-	mockResult := map[string]interface{}{
-		"proof":  "mock-proof-data",
-		"status": "completed",
-	}
+	// GetResult decodes into common.ProofWithTiming. This test used to store a
+	// free-form map with "proof" as a string and assert the result came back as
+	// a map[string]interface{} -- a contract that no longer exists, and could
+	// not pass. It went unnoticed because the suite skipped itself without a
+	// local Redis.
+	stored := &common.ProofWithTiming{ProofDurationMs: 271}
 
-	err := rq.StoreResult(jobID, mockResult)
+	err := rq.StoreResult(jobID, stored)
 	if err != nil {
-		t.Errorf("Failed to store result: %v", err)
+		t.Fatalf("Failed to store result: %v", err)
 	}
 
 	result, err := rq.GetResult(jobID)
 	if err != nil {
-		t.Errorf("Failed to retrieve result: %v", err)
-	}
-	if result == nil {
-		t.Errorf("Expected result, got nil")
+		t.Fatalf("Failed to retrieve result: %v", err)
 	}
 
-	if _, ok := result.(map[string]interface{}); !ok {
-		t.Errorf("Expected result to be map[string]interface{}, got %T", result)
+	loaded, ok := result.(*common.ProofWithTiming)
+	if !ok {
+		t.Fatalf("Expected result to be *common.ProofWithTiming, got %T", result)
+	}
+	if loaded.ProofDurationMs != stored.ProofDurationMs {
+		t.Errorf(
+			"ProofDurationMs = %d, want %d",
+			loaded.ProofDurationMs, stored.ProofDurationMs,
+		)
 	}
 }
 
@@ -626,6 +653,15 @@ func TestQueuedCommittedProofResultRoundTrip(t *testing.T) {
 	payload, err := json.Marshal(result)
 	if err != nil {
 		t.Fatalf("marshal committed proof result: %v", err)
+	}
+
+	// Both, because the worker does both: StoreResult writes zk_result_<id>,
+	// which is what GetResult reads, and the queue entry is what cleanup ages
+	// out. This test used to enqueue only, and passed because GetResult would
+	// scan the whole results queue on a miss -- a scan that ran on every status
+	// poll and pinned Redis's engine thread at 99%.
+	if err := rq.StoreResult(jobID, result); err != nil {
+		t.Fatalf("store committed proof result: %v", err)
 	}
 	if err := rq.EnqueueProof("zk_results_queue", &server.ProofJob{
 		ID:        jobID,
@@ -659,34 +695,55 @@ func TestQueuedCommittedProofResultRoundTrip(t *testing.T) {
 	}
 }
 
+// CleanupOldResults removes results by age, and only by age.
+//
+// This test used to enqueue 1005 fresh results and expect 1000 to remain,
+// asserting a length cap that no code has ever implemented -- there is no LTrim
+// and no maximum anywhere in the queue. It never failed because it never ran:
+// without a local Redis the whole suite skipped itself. Rewritten to assert the
+// behaviour that exists.
+//
+// Worth knowing: because nothing caps it, zk_results_queue grows unbounded
+// between cleanup passes, and it was that growth which turned the dedup path's
+// O(n) scan from cheap into a production throughput ceiling.
 func TestResultCleanup(t *testing.T) {
 	rq := setupRedisQueue(t)
 	defer teardownRedisQueue(t, rq)
 
-	for i := 0; i < 1005; i++ {
+	// The cutoff is one hour, so these straddle it.
+	const staleCount, freshCount = 3, 2
+	enqueue := func(id string, createdAt time.Time) {
+		t.Helper()
 		job := &server.ProofJob{
-			ID:        fmt.Sprintf("cleanup-job-%d", i),
+			ID:        id,
 			Type:      "result",
 			Payload:   json.RawMessage(`{"test": "data"}`),
-			CreatedAt: time.Now(),
+			CreatedAt: createdAt,
 		}
-		err := rq.EnqueueProof("zk_results_queue", job)
-		if err != nil {
-			t.Fatalf("Failed to enqueue cleanup job %d: %v", i, err)
+		if err := rq.EnqueueProof("zk_results_queue", job); err != nil {
+			t.Fatalf("Failed to enqueue %s: %v", id, err)
 		}
 	}
+	for i := 0; i < staleCount; i++ {
+		enqueue(fmt.Sprintf("stale-result-%d", i), time.Now().Add(-2*time.Hour))
+	}
+	for i := 0; i < freshCount; i++ {
+		enqueue(fmt.Sprintf("fresh-result-%d", i), time.Now())
+	}
 
-	err := rq.CleanupOldResults()
-	if err != nil {
-		t.Errorf("Failed to cleanup old results: %v", err)
+	if err := rq.CleanupOldResults(); err != nil {
+		t.Fatalf("Failed to cleanup old results: %v", err)
 	}
 
 	stats, err := rq.GetQueueStats()
 	if err != nil {
 		t.Fatalf("Failed to get queue stats: %v", err)
 	}
-	if stats["zk_results_queue"] != int64(1000) {
-		t.Errorf("Expected results queue to have 1000 jobs after cleanup, got %d", stats["zk_results_queue"])
+	if stats["zk_results_queue"] != int64(freshCount) {
+		t.Errorf(
+			"Expected only the %d recent results to survive cleanup, got %d",
+			freshCount, stats["zk_results_queue"],
+		)
 	}
 }
 
@@ -848,7 +905,8 @@ func TestFailedJobStatusDetails(t *testing.T) {
 }
 
 func TestFailedJobStatusHTTPEndpoint(t *testing.T) {
-	rq := setupRedisQueue(t)
+	redisURL := redisURLForTest(t)
+	rq := setupRedisQueueAt(t, redisURL)
 	defer teardownRedisQueue(t, rq)
 
 	keyManager := common.NewLazyKeyManager("./proving-keys/", common.DefaultDownloadConfig())
@@ -857,7 +915,7 @@ func TestFailedJobStatusHTTPEndpoint(t *testing.T) {
 		ProverAddress:  "localhost:8082",
 		MetricsAddress: "localhost:9997",
 		Queue: &server.QueueConfig{
-			RedisURL: TestRedisURL,
+			RedisURL: redisURL,
 			Enabled:  true,
 		},
 	}
@@ -878,21 +936,13 @@ func TestFailedJobStatusHTTPEndpoint(t *testing.T) {
 		"failed_at":    time.Now().Format(time.RFC3339),
 	}
 
-	failedData, err := json.Marshal(failureDetails)
-	if err != nil {
-		t.Fatalf("Failed to marshal failure details: %v", err)
-	}
-
-	failedJob := &server.ProofJob{
-		ID:        jobID + "_failed",
-		Type:      "failed",
-		Payload:   json.RawMessage(failedData),
-		CreatedAt: time.Now(),
-	}
-
-	err = rq.EnqueueProof("zk_failed_queue", failedJob)
-	if err != nil {
-		t.Fatalf("Failed to enqueue failed job: %v", err)
+	// Fail the job the way the workers do. This test used to write straight
+	// into zk_failed_queue and rely on the status endpoint scanning that queue
+	// to find it -- the scan that made every status poll cost O(queue length).
+	// Every producer of a failure now records it in the job metadata too, so
+	// the endpoint is answered with a single GET.
+	if err := rq.MarkJobFailed(jobID, failureDetails); err != nil {
+		t.Fatalf("Failed to mark job failed: %v", err)
 	}
 
 	statusURL := fmt.Sprintf("http://%s/prove/status?job_id=%s", config.ProverAddress, jobID)
