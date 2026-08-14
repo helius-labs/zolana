@@ -430,7 +430,19 @@ export function decodeShieldedTransactionsResponse(
 export function decodeShieldedTransactionsByNullifiersResponse(
   value: unknown,
 ): GetShieldedTransactionsByNullifiersResponse {
-  return decodeShieldedTransactionsResponse(value);
+  // Not `decodeShieldedTransactionsResponse`: this response carries one extra
+  // field, and `object` rejects any key it was not told about. Delegating would
+  // make every nullifier query fail against an indexer that reports how far it
+  // scanned.
+  const record = object(value, "$", ["context", "transactions", "next_cursor", "scanned_through"]);
+  const nextCursor = optional(record["next_cursor"], "$.next_cursor", checkedBase64);
+  const scannedThrough = optional(record["scanned_through"], "$.scanned_through", checkedBase64);
+  return {
+    context: context(record["context"], "$.context"),
+    transactions: array(record["transactions"], "$.transactions", indexedTransaction),
+    ...(nextCursor === undefined ? {} : { nextCursor }),
+    ...(scannedThrough === undefined ? {} : { scannedThrough }),
+  };
 }
 
 export function decodeShieldedTransactionsBySignatureResponse(
