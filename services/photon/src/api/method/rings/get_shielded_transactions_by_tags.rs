@@ -49,10 +49,10 @@ struct RingsMessageRow {
     payload: Vec<u8>,
 }
 
-/// Just enough of a row to build a cursor from, for the tip lookup that has no
-/// transaction to hydrate.
+/// Just enough of a row to build a cursor from, for the lookup that reports
+/// where a scan stopped and has no transaction to hydrate.
 #[derive(FromQueryResult, Debug)]
-struct StreamTipRow {
+struct ScanPositionRow {
     slot: i64,
     signature: Vec<u8>,
     event_index: i16,
@@ -146,16 +146,16 @@ async fn get_shielded_transactions(
         fetch_matching_rings_transactions(&tx, values, cursor.as_ref(), limit, match_by).await?;
     let next_cursor = next_cursor_from_rows(&matched_txs, shielded_tx_cursor_from_row)?;
 
-    // Only the nullifier response has a field to carry a frontier in, and only
-    // that stream needs one: a tag query returns the wallet's own transactions,
-    // so its cursor advances on the rows themselves.
+    // Only the nullifier response has a field to report this in, and only that
+    // stream needs one: a tag query returns the wallet's own transactions, so
+    // its cursor advances on the rows themselves.
     //
     // A full page means the limit cut the scan short, so nothing can be claimed
     // about what lies beyond it. Anything less means the scan ran out of rows,
-    // not out of room, and the tip it reached is a sound resume point.
+    // not out of room, and where it stopped is a sound resume point.
     let truncated = matched_txs.len() as u64 >= limit;
     let scanned_through = match match_by {
-        MatchBy::Nullifiers if !truncated => stream_tip(&tx).await?,
+        MatchBy::Nullifiers if !truncated => scan_position(&tx).await?,
         _ => None,
     };
 
@@ -175,17 +175,20 @@ async fn get_shielded_transactions(
     })
 }
 
-/// The greatest position present in the transaction stream, as a cursor.
+/// The last position in the transaction stream, as a cursor.
+///
+/// A scan that was not cut short by its limit reached exactly here, so this is
+/// what "I looked this far and found nothing more" means concretely.
 ///
 /// Read inside the caller's transaction so it describes the same snapshot the
 /// scan saw. `None` only when the table is empty, which leaves the caller
 /// resuming from zero -- correct, and there is nothing to skip anyway.
 ///
 /// Soundness rests on positions only ever being appended: a row inserted later
-/// at a position below this tip would be skipped by anyone who resumed here.
+/// at a position below this one would be skipped by anyone who resumed here.
 /// That is the same assumption the per-tag cursors already run on, since they
 /// resume from the last row they saw.
-async fn stream_tip(tx: &DatabaseTransaction) -> Result<Option<Base64String>, PhotonApiError> {
+async fn scan_position(tx: &DatabaseTransaction) -> Result<Option<Base64String>, PhotonApiError> {
     let backend = tx.get_database_backend();
     // Deliberately not one `ORDER BY slot, signature, event_index DESC LIMIT 1`:
     // no index covers that ordering, so it sorts the whole table on every
@@ -210,7 +213,7 @@ async fn stream_tip(tx: &DatabaseTransaction) -> Result<Option<Base64String>, Ph
     else {
         return Ok(None);
     };
-    let row = StreamTipRow::from_query_result(&row, "")?;
+    let row = ScanPositionRow::from_query_result(&row, "")?;
     Ok(Some(Base64String(shielded_tx_cursor(
         row.slot,
         &row.signature,
@@ -596,7 +599,7 @@ mod tests {
     }
 
     /// An unspent nullifier is the normal case, and it matches nothing. Without
-    /// a frontier the caller has no way to record that it just scanned the whole
+    /// this the caller has no way to record that it just scanned the whole
     /// stream, so it scans the whole stream again on the next sync forever.
     #[tokio::test]
     async fn an_empty_nullifier_page_still_reports_how_far_it_scanned() {
@@ -617,17 +620,17 @@ mod tests {
             response.next_cursor.is_none(),
             "no rows, so no page to follow"
         );
-        let frontier = response
+        let scanned_through = response
             .scanned_through
             .expect("an exhausted scan reports its tip");
 
-        // Resuming there is the point: the same query from the frontier must
+        // Resuming there is the point: the same query from that position must
         // still be empty, and must not walk the stream again.
         let resumed = get_shielded_transactions_by_nullifiers(
             &db,
             GetRingsByNullifiersRequest {
                 nullifiers: vec![hash(5)],
-                cursor: Some(frontier.clone()),
+                cursor: Some(scanned_through.clone()),
                 limit: Some(Limit::new(10).unwrap()),
             },
         )
@@ -636,15 +639,15 @@ mod tests {
         assert!(resumed.transactions.is_empty());
         assert_eq!(
             resumed.scanned_through,
-            Some(frontier),
+            Some(scanned_through),
             "a stream that has not moved reports the same tip"
         );
     }
 
-    /// The frontier claims "nothing matches at or before here", which is only
-    /// true when the scan ran out of rows rather than out of room.
+    /// The reported position claims "nothing matches at or before here", which
+    /// is only true when the scan ran out of rows rather than out of room.
     #[tokio::test]
-    async fn a_truncated_page_reports_no_frontier() {
+    async fn a_truncated_page_reports_no_scan_position() {
         let db = setup().await;
         let response = get_shielded_transactions_by_nullifiers(
             &db,
@@ -665,9 +668,9 @@ mod tests {
     }
 
     /// A spend is found whether the caller starts from zero or resumes, so the
-    /// frontier cannot be used to skip one.
+    /// reported position cannot be used to skip one.
     #[tokio::test]
-    async fn resuming_from_a_frontier_still_finds_a_later_spend() {
+    async fn resuming_from_a_scan_position_still_finds_a_later_spend() {
         let db = setup().await;
         let first = get_shielded_transactions_by_nullifiers(
             &db,
@@ -679,7 +682,9 @@ mod tests {
         )
         .await
         .unwrap();
-        let frontier = first.scanned_through.expect("frontier");
+        let scanned_through = first
+            .scanned_through
+            .expect("a scan that reached the end reports where");
 
         // A later transaction spends the nullifier the caller is watching.
         blocks::Entity::insert(blocks::ActiveModel {
@@ -736,7 +741,7 @@ mod tests {
             &db,
             GetRingsByNullifiersRequest {
                 nullifiers: vec![hash(5)],
-                cursor: Some(frontier),
+                cursor: Some(scanned_through),
                 limit: Some(Limit::new(10).unwrap()),
             },
         )
@@ -745,7 +750,7 @@ mod tests {
         assert_eq!(
             resumed.transactions.len(),
             1,
-            "the spend landed after the frontier, so resuming there must still see it"
+            "the spend landed after that position, so resuming there must still see it"
         );
     }
 }

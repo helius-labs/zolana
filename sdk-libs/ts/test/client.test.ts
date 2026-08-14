@@ -379,7 +379,7 @@ describe("ZolanaClient", () => {
 
   it("accepts a nullifier response that reports how far the scan reached", async () => {
     // The decoder rejects unknown fields, so an indexer that reports its scan
-    // frontier would otherwise fail every nullifier query outright -- which is
+    // scanned to would otherwise fail every nullifier query outright -- which is
     // exactly what the live e2e suite hit.
     const fetch = vi.fn<typeof globalThis.fetch>(() =>
       Promise.resolve(
