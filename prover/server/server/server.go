@@ -84,7 +84,21 @@ func (handler proofStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	jobExists, jobStatus, jobInfo := handler.checkJobExistsDetailed(jobID)
+	jobExists, jobStatus, jobInfo, lookupErr := handler.checkJobExistsDetailed(jobID)
+	if lookupErr != nil {
+		logging.Logger().Error().
+			Err(lookupErr).
+			Str("job_id", jobID).
+			Msg("Job status lookup failed")
+
+		unavailableError := &Error{
+			StatusCode: http.StatusServiceUnavailable,
+			Code:       "status_unavailable",
+			Message:    fmt.Sprintf("Status for job %s is temporarily unavailable. Retry shortly.", jobID),
+		}
+		unavailableError.send(w)
+		return
+	}
 
 	if !jobExists {
 		// Fallback: check job metadata - this catches jobs that were submitted but not yet
@@ -296,7 +310,14 @@ func getStatusMessage(status string) string {
 // and never updated, so "queued" and "processing" could not be told apart
 // without looking. The workers now keep that field current (MarkJobProcessing,
 // MarkJobFailed), which costs one SET per job, so the status is simply read.
-func (handler proofStatusHandler) checkJobExistsDetailed(jobID string) (bool, string, map[string]interface{}) {
+//
+// A Redis failure is reported as an error rather than as "not found": the two
+// are indistinguishable to a caller that only gets a bool, and answering
+// "unknown" during a blip 404s a live job and lets the caller clear its
+// in-flight marker.
+func (handler proofStatusHandler) checkJobExistsDetailed(
+	jobID string,
+) (bool, string, map[string]interface{}, error) {
 	// Completion is answered by the result index. This is the common terminal
 	// case and stays first.
 	result, err := handler.redisQueue.GetResult(jobID)
@@ -308,15 +329,18 @@ func (handler proofStatusHandler) checkJobExistsDetailed(jobID string) (bool, st
 		return true, "completed", map[string]interface{}{
 			"result":        result,
 			"result_cached": true,
-		}
+		}, nil
 	}
 
 	jobMeta, metaErr := handler.redisQueue.GetJobMeta(jobID)
-	if metaErr != nil || jobMeta == nil {
+	if metaErr != nil {
+		return false, "", nil, fmt.Errorf("failed to read job meta: %w", metaErr)
+	}
+	if jobMeta == nil {
 		// Metadata is deleted on success and expires an hour after submission,
 		// so an unknown id is genuinely unknown: either it never existed, or it
 		// completed long enough ago that its result is gone too.
-		return false, "", nil
+		return false, "", nil, nil
 	}
 
 	status := "queued"
@@ -335,7 +359,7 @@ func (handler proofStatusHandler) checkJobExistsDetailed(jobID string) (bool, st
 		jobInfo["failure"] = failure
 	}
 
-	return true, status, jobInfo
+	return true, status, jobInfo, nil
 }
 
 func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
