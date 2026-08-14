@@ -150,10 +150,19 @@ function walletQueryTags(wallet: Wallet, material: WalletSyncMaterial): readonly
   return [...tags.values()];
 }
 
-/** Every note nullifier is queried, including notes already marked spent. */
+/**
+ * Nullifiers still worth asking about: the unspent ones.
+ *
+ * This query asks "was this note spent, and in which transaction". A nullifier
+ * appears at most once on chain -- that is what it is for -- so once the
+ * spending transaction is in hand the answer is final and re-asking returns the
+ * same row forever. The set therefore shrinks as a wallet ages rather than
+ * growing with it: cost tracks the unspent note count, not history.
+ */
 function walletQueryNullifiers(wallet: Wallet): readonly Bytes32[] {
   const nullifiers = new Map<string, Bytes32>();
   for (const entry of wallet.utxos()) {
+    if (entry.spent) continue;
     nullifiers.set(bytesKey(entry.nullifier), entry.nullifier);
   }
   return [...nullifiers.values()];
