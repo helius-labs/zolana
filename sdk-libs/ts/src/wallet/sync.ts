@@ -386,7 +386,9 @@ async function collectShieldedTransactionsByNullifiers(
 ): Promise<Uint8Array | undefined> {
   let cursor = input.start;
   let resume: Uint8Array | undefined;
-  const seenCursors = new Set<string>();
+  // Seeded with the resume point, so an indexer that hands back the cursor it
+  // was given trips the guard on the spot rather than after a wasted round trip.
+  const seenCursors = new Set<string>(input.start === undefined ? [] : [bytesKey(input.start)]);
   do {
     const response = await input.indexer.getShieldedTransactionsByNullifiers(
       {
