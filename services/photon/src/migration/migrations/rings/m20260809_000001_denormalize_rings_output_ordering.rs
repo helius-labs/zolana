@@ -3,29 +3,17 @@ use sea_orm_migration::sea_orm::{ConnectionTrait, DbBackend, Statement};
 
 use super::super::super::model::table::RingsOutputs;
 
-/// Give `rings_outputs` the columns the tag queries sort by, and an index that
-/// covers filter and sort together.
+/// Gives `rings_outputs` the columns the tag queries sort by, and an index
+/// covering filter and sort together.
 ///
-/// `get_encrypted_utxos_by_tags` and `get_shielded_transactions_by_tags` filter
-/// on `rings_outputs.view_tag` but order by `rings_transactions.slot,
-/// signature, event_index`. No index can span a join, so Postgres walked
-/// `rings_transactions` in slot order and probed outputs for each row. Measured
-/// on devnet with the real cursor predicate, returning 101 rows: it examined
-/// ~3540 transactions, discarded 3076 by filter, and got nothing back from 464
-/// of 464 probes -- 1.854ms and 3440 buffers.
+/// The tag queries filter on `rings_outputs.view_tag` but ordered by
+/// `rings_transactions.slot, signature, event_index`. No index spans a join, so
+/// the planner walked the transactions table and probed outputs per row, at a
+/// cost that scaled with history rather than page size.
 ///
-/// The cost scaled with transaction history rather than with the page size,
-/// which is why sync time grew from 823ms to 4164ms on unchanged wallets inside
-/// a single day, and why one query shape accounted for 17.16 of ~17.6 average
-/// active sessions on a 2 vCPU instance.
-///
-/// With `signature` and `event_index` on the outputs table, the same page is an
-/// index range scan that stops at LIMIT: 0.326ms and 661 buffers, and flat as
-/// the tables grow.
-///
-/// These are copies of `rings_transactions` values. That is the same tradeoff
-/// `rings_outputs.slot` already makes -- one more thing to write correctly at
-/// ingest, in exchange for a query that does not need the join to sort.
+/// The columns are copies of `rings_transactions` values, the same tradeoff
+/// `rings_outputs.slot` already makes: one more thing to write correctly at
+/// ingest, for a sort that does not need the join.
 #[derive(DeriveMigrationName)]
 pub struct Migration;
 
@@ -55,13 +43,11 @@ impl MigrationTrait for Migration {
                 .await?;
         }
 
-        // Backfill before indexing: an index built over NULLs would have to be
-        // rebuilt anyway, and the ordering is unusable until every row has one.
+        // Backfill before indexing: the ordering is unusable until every row
+        // has a position.
         //
-        // Correlated subqueries rather than `UPDATE ... FROM`, which is Postgres
-        // syntax the SQLite the migration tests run against does not share. One
-        // pass over a table this size is cheap enough not to trade portability
-        // for it.
+        // Correlated subqueries rather than `UPDATE ... FROM`, which the SQLite
+        // the migration tests run against does not share.
         let backend = manager.get_database_backend();
         manager
             .get_connection()
@@ -80,8 +66,8 @@ impl MigrationTrait for Migration {
             ))
             .await?;
 
-        // Column order matters: equality on view_tag first, then the sort key in
-        // sort order, so the planner can seek and then walk.
+        // Equality on view_tag first, then the sort key in sort order, so the
+        // planner can seek and then walk.
         manager
             .create_index(
                 Index::create()

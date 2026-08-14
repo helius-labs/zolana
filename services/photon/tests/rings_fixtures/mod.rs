@@ -213,9 +213,8 @@ pub async fn seed_tagged_transaction_history(
             leaf_index: Set(rings_tx_id),
             view_tag: Set(view_tag.to_vec()),
             utxo_hash: Set(rings_tx_id.to_be_bytes().repeat(4)),
-            // Copied from the transaction, as the ingester does: the tag
-            // queries sort by these, so a fixture that left them NULL would
-            // order differently from production.
+            // Copied from the transaction, as the ingester does; a fixture
+            // leaving them NULL would order differently from production.
             signature: Set(Some(signature_at(index).as_ref().to_vec())),
             event_index: Set(Some(0)),
         });

@@ -112,10 +112,8 @@ pub(super) async fn persist_rings_transactions(
                 )?),
                 view_tag: Set(output.view_tag.to_vec()),
                 utxo_hash: Set(output.utxo_hash.to_vec()),
-                // The tag queries sort by these. They live on
-                // rings_transactions too; copied here so the sort does not need
-                // the join, which is what let an index cover filter and order
-                // together.
+                // Copied so the tag queries sort without joining. See
+                // m20260809_000001_denormalize_rings_output_ordering.
                 signature: Set(Some(signature.clone())),
                 event_index: Set(Some(update.event_index)),
             });

@@ -285,23 +285,15 @@ pub(super) fn bind_u64_as_i64(
 
 /// Builds the "strictly after this position" predicate as a row comparison.
 ///
-/// `alias` selects which table the predicate reads from, and it must be the
-/// table the query's ORDER BY uses: a cursor that filters on one table while
-/// sorting by another is only accidentally correct, and it costs the index.
-/// Filtering on `rings_outputs.view_tag` while ordering by
-/// `rings_transactions` columns is what made the planner walk the transactions
-/// table and discard most of what it read.
+/// `alias` must name the table the query's ORDER BY uses. Filtering on one table
+/// while sorting by another cannot use an index for both.
 ///
-/// `trailing` appends further columns to the comparison, for callers whose sort
-/// key extends past the transaction (the UTXO endpoint adds `output_index`).
+/// `trailing` appends further columns, for callers whose sort key extends past
+/// the transaction (the UTXO endpoint adds `output_index`).
 ///
-/// Written as `(a, b, c) > (x, y, z)` rather than the equivalent chain of ORs.
-/// They mean the same thing, but Postgres can start an index scan at a row
-/// comparison and cannot at the OR form: with the OR chain the plan still read
-/// from the first row of the tag and threw away everything before the cursor
-/// (`Rows Removed by Filter: 1201` for one page), so paging cost grew with how
-/// far in the client had read. The row comparison seeks straight to the cursor,
-/// which makes every page cost the same. It is also simply easier to read.
+/// A row comparison rather than the equivalent chain of ORs: Postgres can begin
+/// an index scan at `(a, b) > (x, y)` and cannot at
+/// `a > x OR (a = x AND b > y)`, where each page costs more than the last.
 pub(super) fn tx_cursor_sql_condition(
     alias: &str,
     slot: u64,
@@ -530,15 +522,9 @@ mod tests {
         );
     }
 
-    /// The cursor must read from whichever table the query sorts by.
-    ///
-    /// `get_encrypted_utxos_by_tags` filters on `rings_outputs.view_tag`, so
-    /// when it also sorted by `rings_transactions` columns no index could serve
-    /// both: the planner walked `rings_transactions` and threw away most of what
-    /// it read (~3540 rows examined to return 101), and the cost grew with
-    /// transaction history rather than page size. Reading the cursor from `po`
-    /// is half of what keeps that query on its index; the ORDER BY is the other
-    /// half, and the two have to agree.
+    /// The cursor must read from whichever table the query sorts by. Reading it
+    /// from `po` is half of what keeps the query on its index; the ORDER BY is
+    /// the other half, and the two have to agree.
     #[test]
     fn the_cursor_predicate_reads_from_the_table_it_is_told_to() {
         let mut params = Vec::new();
@@ -562,11 +548,8 @@ mod tests {
         }
     }
 
-    /// The predicate has to stay a row comparison rather than the equivalent
-    /// chain of ORs. Postgres can begin an index scan at `(a, b) > (x, y)` and
-    /// cannot at `a > x OR (a = x AND b > y)`: with the OR form the plan read
-    /// from the tag's first row and discarded everything before the cursor, so
-    /// each page cost more than the last.
+    /// The predicate must stay a row comparison: Postgres cannot begin an index
+    /// scan at the equivalent OR chain.
     #[test]
     fn the_cursor_predicate_is_a_row_comparison_so_the_index_can_seek() {
         let mut params = Vec::new();
@@ -592,8 +575,7 @@ mod tests {
         assert_eq!(params.len(), 4, "one bind per column in the comparison");
     }
 
-    /// And the transactions endpoint keeps ordering by, and filtering on, the
-    /// transactions table — the aliases are not interchangeable.
+    /// The aliases are not interchangeable.
     #[test]
     fn the_transactions_cursor_still_reads_from_the_transactions_table() {
         let mut params = Vec::new();

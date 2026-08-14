@@ -1352,11 +1352,9 @@ async fn assert_rings_api_exposes_output_hashes(
         .unwrap()
         .expect("rings transaction should exist");
 
-    // The output carries copies of the transaction's position, and the tag
-    // queries ORDER BY them. Nothing else fails if the ingester stops writing
-    // them: the columns are nullable, so rows would simply arrive NULL, sort
-    // last, and page in an order the cursor cannot follow -- wallets would miss
-    // transactions with every test still green. Hence asserting it here.
+    // The tag queries ORDER BY these copies. The columns are nullable, so an
+    // ingester that stopped writing them would leave rows sorting last and
+    // paging in an order the cursor cannot follow, with nothing else failing.
     assert_eq!(
         output.signature.as_deref(),
         Some(rings_tx.signature.as_slice()),

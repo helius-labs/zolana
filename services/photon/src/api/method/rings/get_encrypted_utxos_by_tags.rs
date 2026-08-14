@@ -136,10 +136,8 @@ fn encrypted_utxo_cursor_sql(
     params: &mut Vec<Value>,
 ) -> Result<String, PhotonApiError> {
     let signature = cursor.signature.to_vec();
-    // "po", matching this query's ORDER BY. Reading the cursor from
-    // rings_outputs is what lets idx_rings_outputs_view_tag_order serve the
-    // filter and the sort together, so the scan seeks to the cursor and stops
-    // at LIMIT instead of walking rings_transactions.
+    // "po", matching this query's ORDER BY, so
+    // idx_rings_outputs_view_tag_order serves the filter and the sort together.
     let condition = tx_cursor_sql_condition(
         "po",
         cursor.slot,
