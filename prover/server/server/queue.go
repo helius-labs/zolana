@@ -195,11 +195,40 @@ func (rq *RedisQueue) MarkJobFailed(jobID string, details map[string]interface{}
 	}, time.Hour)
 }
 
+// jobMetaKeepTTLScript writes job metadata while preserving the key's existing
+// expiry, and gives it a fresh one when it has none.
+//
+// SET ... KEEPTTL cannot do this on its own. Reading the TTL and then setting
+// the value are two commands, and a key that expires in between is recreated by
+// KEEPTTL with no expiry at all: a zk_job_meta_* key that never ages out and
+// answers every later poll for that id with a stale "processing". Reading the
+// expiry and writing it back inside one script closes that window.
+//
+// KEYS[1] is the metadata key. ARGV[1] is the encoded metadata, ARGV[2] the
+// fallback expiry in milliseconds for a key that has none.
+var jobMetaKeepTTLScript = redis.NewScript(`
+local pttl = redis.call('PTTL', KEYS[1])
+redis.call('SET', KEYS[1], ARGV[1])
+if pttl > 0 then
+	redis.call('PEXPIRE', KEYS[1], pttl)
+else
+	redis.call('PEXPIRE', KEYS[1], ARGV[2])
+end
+return 1
+`)
+
 // updateJobMeta applies mutate to a job's metadata and writes it back.
 //
 // A missing key is recreated rather than skipped. A job can be failed by the
 // stuck-job reaper after its metadata has expired, and a client polling such a
 // job must still be told to stop rather than being left to time out.
+//
+// The read-modify-write is deliberately not atomic: no WATCH, no script around
+// the mutation. Concurrent writers are last-write-wins, and the realistic
+// collision is the worker's failure path against the stuck-job reaper, which
+// both write status "failed", so at worst one writer's failure details are
+// lost. The expiry is a different matter -- a lost expiry is permanent, not
+// merely stale -- so the write itself is scripted.
 func (rq *RedisQueue) updateJobMeta(
 	jobID string,
 	mutate func(map[string]interface{}),
@@ -224,10 +253,13 @@ func (rq *RedisQueue) updateJobMeta(
 	if err != nil {
 		return fmt.Errorf("failed to marshal job meta: %w", err)
 	}
-	// A recreated key cannot inherit a TTL that no longer exists, so it gets a
-	// fresh hour rather than KeepTTL's "no expiry at all".
-	if ttl == redis.KeepTTL && rq.Client.TTL(rq.Ctx, key).Val() < 0 {
-		ttl = time.Hour
+	if ttl == redis.KeepTTL {
+		if err := jobMetaKeepTTLScript.Run(
+			rq.Ctx, rq.Client, []string{key}, data, time.Hour.Milliseconds(),
+		).Err(); err != nil {
+			return fmt.Errorf("failed to store job meta: %w", err)
+		}
+		return nil
 	}
 	if err := rq.Client.Set(rq.Ctx, key, data, ttl).Err(); err != nil {
 		return fmt.Errorf("failed to store job meta: %w", err)
