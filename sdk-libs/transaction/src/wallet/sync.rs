@@ -1017,8 +1017,7 @@ impl Wallet {
             }
         }
         // A spent nullifier is never queried again, so its watermark is dead
-        // weight. Without this the map grows with history even though the query
-        // set shrinks.
+        // weight.
         self.nullifier_cursors
             .retain(|nullifier, _| !self.nullifiers.contains(nullifier));
         self.transactions.sort_by(|a, b| {

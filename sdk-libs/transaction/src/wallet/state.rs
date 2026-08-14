@@ -147,27 +147,15 @@ pub struct Wallet {
     /// Per-view-tag sync watermarks: for each tag, the indexer cursor up to which
     /// every matching transaction has already been seen.
     pub sync_cursors: HashMap<ViewTag, Vec<u8>>,
-    /// The same watermark for the nullifier stream: for each unspent nullifier,
-    /// the position through which no spend of it exists.
+    /// For each unspent nullifier, the position through which no spend of it
+    /// exists.
     ///
-    /// Separate from [`Self::sync_cursors`] because the two are separate streams
-    /// -- reaching the tip of one says nothing about the other -- and because an
-    /// entry here means the opposite thing: a tag cursor records what has been
-    /// found, a nullifier cursor records how far it has been confirmed absent.
-    /// Entries are dropped once the nullifier is spent, since the question is
-    /// then answered for good.
+    /// A separate stream from [`Self::sync_cursors`]: reaching the tip of one
+    /// says nothing about the other. Entries are dropped once the nullifier is
+    /// spent.
     pub nullifier_cursors: HashMap<[u8; 32], Vec<u8>>,
-    /// The same watermarks for the encrypted-utxo stream, which proofless
-    /// deposits are read from.
-    ///
-    /// Separate again for the same reason: reaching the tip of the transaction
-    /// stream says nothing about where the encrypted-utxo stream has been read
-    /// to, and sharing one cursor would skip rows in whichever is behind.
-    ///
-    /// This existed only for the duration of a single sync before, so every sync
-    /// re-read the whole encrypted-utxo history for every tag and discarded all
-    /// but the deposits. Measured on devnet: 909ms per sync to keep 2.5 rows,
-    /// about a third of the sync phase, and growing with history.
+    /// The same for the encrypted-utxo stream, which proofless deposits are read
+    /// from. Separate for the same reason.
     pub proofless_cursors: HashMap<ViewTag, Vec<u8>>,
 }
 

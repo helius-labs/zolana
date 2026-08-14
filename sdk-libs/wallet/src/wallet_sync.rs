@@ -508,16 +508,10 @@ fn indexer_rpc_config(config: SyncWalletConfig) -> Option<IndexerRpcConfig> {
     })
 }
 
-/// Nullifiers still worth asking about: the unspent ones.
+/// Nullifiers of unspent UTXOs.
 ///
-/// This query asks "was this UTXO spent, and in which transaction". A nullifier
-/// appears at most once on chain -- that is what it is for -- so once the
-/// spending transaction has been seen the answer is final and re-asking returns
-/// the same row forever. `spent` is set precisely when that transaction is in
-/// hand, so it is the exact condition for dropping a nullifier from the query.
-///
-/// The set therefore shrinks as a wallet ages rather than growing with it: cost
-/// tracks the unspent UTXO count, not history.
+/// A nullifier appears at most once on chain, so once its spend is known the
+/// answer is final. Cost tracks the unspent count, not history.
 fn wallet_query_nullifiers(wallet: &Wallet) -> Vec<[u8; 32]> {
     wallet
         .utxos
@@ -527,12 +521,11 @@ fn wallet_query_nullifiers(wallet: &Wallet) -> Vec<[u8; 32]> {
         .collect()
 }
 
-/// Bucket keys by the position their stream was last read to.
+/// Buckets keys by the position their stream was last read to.
 ///
 /// A chunk carries one cursor, so keys at different positions cannot share a
-/// request: a key learned this sync would resume from a position it was never
-/// scanned to and skip its history permanently. `None` (never queried) is its
-/// own group. Keys already read to the tip earlier in this sync are dropped.
+/// request. `None` (never queried) is its own group. Keys already read to the
+/// tip in this sync are dropped.
 fn group_by_resume_point<K: Copy + Eq + std::hash::Hash>(
     keys: &[K],
     cursors: &HashMap<K, Vec<u8>>,
@@ -554,18 +547,13 @@ fn group_by_resume_point<K: Copy + Eq + std::hash::Hash>(
 /// One page of a cursor-ordered stream, reduced to what paging needs.
 struct Page {
     next_cursor: Option<Vec<u8>>,
-    /// Where the server says its scan reached. Only the nullifier stream reports
-    /// this, and only it needs to: its pages are normally empty, so there is no
-    /// last row to take a position from.
+    /// Where the server's scan reached. Reported only by the nullifier stream,
+    /// whose pages are normally empty and so carry no last row.
     scanned_through: Option<Vec<u8>>,
 }
 
-/// Read one chunk to the end of its stream, returning the position reached.
-///
-/// Every stream pages the same way and differs only in the request it makes, so
-/// the rule that a short page ends the read lives here rather than in each
-/// caller. Paging until `next_cursor` is `None` instead costs one extra request
-/// per chunk per sync, to be told the stream is empty.
+/// Reads one chunk until the stream offers no further cursor, returning the
+/// position reached.
 fn read_chunk<F>(start: Option<Vec<u8>>, mut request: F) -> Result<Option<Vec<u8>>, ClientError>
 where
     F: FnMut(Option<Vec<u8>>) -> Result<Page, ClientError>,
@@ -581,12 +569,10 @@ where
     }
 }
 
-/// Record where a chunk was read to, once its read has ended.
+/// Records one position for every key in the chunk.
 ///
-/// Advancing every key in the chunk to one position is sound only because the
-/// ordering is global: a position obtained from a query over {A, B, C} states,
-/// for each of them individually, that everything matching up to there has been
-/// seen.
+/// Sound because the ordering is global: a position from a query over
+/// {A, B, C} holds for each of them individually.
 fn record_chunk<K: Copy + Eq + std::hash::Hash>(
     chunk: &[K],
     furthest: Option<Vec<u8>>,
@@ -601,18 +587,15 @@ fn record_chunk<K: Copy + Eq + std::hash::Hash>(
     scanned_to_tip.extend(chunk.iter().copied());
 }
 
-/// Fold one page into the position read so far, and say where to read next.
+/// Folds one page into the position read so far. `None` ends the read.
 ///
-/// The async paths drive their own loop rather than calling [`read_chunk`]: an
-/// `AsyncFnMut` cannot carry the `Send` bound its callers need, and a test
-/// asserts the sync future is `Send`. They share this instead, so the rule for
-/// when a read ends is written once even though the loop is not.
+/// A cursor means there may be more, whatever the page size. Stopping on a short
+/// page would make the non-advancing-cursor guard unreachable.
 ///
-/// `None` ends the read: either the page was short of the limit, so the server
-/// had no more rows, or it offered no cursor to continue from.
+/// The async paths keep their own loop and share only this: an `AsyncFnMut`
+/// cannot carry the `Send` bound their callers require.
 fn advance(furthest: &mut Option<Vec<u8>>, page: Page) -> Option<Vec<u8>> {
-    // The server's own scan position when it reports one, else the last row it
-    // returned, else stay put.
+    // The server's scan position if reported, else the last row, else unchanged.
     *furthest = page
         .scanned_through
         .or_else(|| page.next_cursor.clone())
@@ -724,17 +707,12 @@ async fn fetch_shielded_transactions_incremental_async<I: AsyncRpc>(
     Ok(())
 }
 
-/// Fetch spends of `nullifiers`, resuming each from where it was last checked.
+/// Fetches spends of `nullifiers`, resuming each from where it was last checked.
 ///
-/// The resume point comes from the indexer's `scanned_through`, not from the
-/// rows: an unspent nullifier matches nothing, so there is no last row to take a
-/// position from. That is the whole difficulty here and the reason this cannot
-/// be modelled on the tag path, whose cursor rides on rows it actually returns.
-///
-/// The position is per-nullifier rather than one shared value because it is only
-/// sound for the set that was asked about: a scan over {A, B, C} says nothing
-/// about D. A nullifier with no entry is queried from zero, which is wasteful
-/// rather than wrong.
+/// The resume point comes from `scanned_through`, not from rows: an unspent
+/// nullifier matches nothing. Positions are per nullifier, since a scan over
+/// {A, B, C} says nothing about D. A nullifier with no entry is read from
+/// zero.
 fn fetch_shielded_transactions_by_nullifiers<I: Rpc>(
     indexer: &I,
     nullifiers: &[[u8; 32]],
@@ -744,9 +722,6 @@ fn fetch_shielded_transactions_by_nullifiers<I: Rpc>(
     cursors: &mut HashMap<[u8; 32], Vec<u8>>,
     scanned_to_tip: &mut HashSet<[u8; 32]>,
 ) -> Result<(), ClientError> {
-    // In the steady state every known nullifier shares one position and newly
-    // created ones have none, so this is two queries however many the wallet
-    // holds.
     for (start, group) in group_by_resume_point(nullifiers, cursors, scanned_to_tip) {
         for chunk in group.chunks(config.tag_query_chunk) {
             let furthest = read_chunk(start.clone(), |cursor| {
@@ -816,17 +791,11 @@ async fn fetch_shielded_transactions_by_nullifiers_async<I: AsyncRpc>(
     Ok(())
 }
 
-/// Reads new proofless deposits, resuming from where the last sync stopped.
+/// Reads new proofless deposits from the encrypted-utxo stream, resuming from
+/// where the last sync stopped.
 ///
-/// Resume points are per tag and persisted on the wallet, for the same reason
-/// [`fetch_shielded_transactions_incremental`] keeps them that way: the tag set
-/// grows, and a tag learned late has to be scanned from the beginning while
-/// tags learned earlier are far ahead.
-///
-/// Without the persisted cursor this paged the entire encrypted-utxo history for
-/// every tag on every sync and then discarded all but the deposits client-side --
-/// 909ms to keep 2.5 rows on devnet, a third of the sync phase, growing with
-/// history. The rows it re-read were ones it had already seen and dropped.
+/// Resume points are per tag and persisted, as for the transaction stream: a tag
+/// learned late must be read from the beginning while others are far ahead.
 fn fetch_proofless_deposits<I>(
     indexer: &I,
     tags: &[ViewTag],
@@ -1036,9 +1005,8 @@ mod tests {
         entries: Vec<(u64, ViewTag)>,
         /// (slot, nullifier) pairs: the transaction at `slot` spent `nullifier`.
         spends: Vec<(u64, [u8; 32])>,
-        /// (slot, view tag) pairs in the encrypted-utxo stream, which proofless
-        /// deposits are read from. A separate stream from `entries`, and paged
-        /// separately.
+        /// (slot, view tag) pairs in the encrypted-utxo stream. Paged separately
+        /// from `entries`.
         utxo_entries: Vec<(u64, ViewTag)>,
         /// Every (tags, cursor) pair the client asked for, for call accounting.
         calls: std::sync::Mutex<Vec<(usize, Option<u64>)>>,
@@ -1103,8 +1071,7 @@ mod tests {
             (transactions, next)
         }
 
-        /// The nullifier stream, same ordering and same cursor rule. Entries are
-        /// (slot, nullifier): the transaction at `slot` spent `nullifier`.
+        /// The nullifier stream, same ordering and cursor rule.
         fn matching_nullifiers(
             &self,
             nullifiers: &[[u8; 32]],
@@ -1130,9 +1097,9 @@ mod tests {
             rows.truncate(limit);
 
             let next = rows.last().map(|(slot, _)| slot.to_be_bytes().to_vec());
-            // Photon.s rule: the position is reported only when the limit did
-            // not cut the scan short, and it is the tip of the whole stream --
-            // not of the matching rows, of which there are usually none.
+            // Photon reports the position only when the limit did not cut the
+            // scan short, and it is the tip of the whole stream, not of the
+            // matching rows.
             let scanned_through = (rows.len() < limit)
                 .then(|| self.stream_tip().map(|slot| slot.to_be_bytes().to_vec()))
                 .flatten();
@@ -1233,9 +1200,8 @@ mod tests {
                     .cloned()
                     .collect(),
                 next_cursor: None,
-                // This mock answers everything in one page and never paginates,
-                // so it has nothing to report; the resume path is covered by
-                // TaggedIndexer instead.
+                // Answers in one page and never paginates; resumption is covered
+                // by TaggedIndexer.
                 scanned_through: None,
             })
         }
@@ -1478,7 +1444,7 @@ mod tests {
     /// twentieth.
     #[test]
     fn spent_utxos_drop_out_of_the_nullifier_query() {
-        let owner = ShieldedKeypair::new().expect("keypair");
+        let owner = ShieldedKeypair::new_p256().expect("keypair");
         let mut wallet = wallet_with_utxos(&owner, &[(SOL_MINT, 100, 1), (SOL_MINT, 200, 2)]);
 
         assert_eq!(
@@ -1578,7 +1544,7 @@ mod tests {
     /// even though they share [`advance`]. Covers all three streams at once.
     #[tokio::test]
     async fn the_async_paths_resume_every_stream() {
-        let keypair = ShieldedKeypair::new().expect("keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("keypair");
         let tag = keypair.viewing_key.get_sender_view_tag(0).expect("tag");
         let unspent = [7u8; 32];
         let indexer = TaggedIndexer {

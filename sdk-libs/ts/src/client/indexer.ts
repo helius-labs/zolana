@@ -343,9 +343,8 @@ function convertShieldedTransactionsByNullifiersResponse(
   response: WireGetShieldedTransactionsByNullifiersResponse,
   method: string,
 ): GetShieldedTransactionsByNullifiersResponse {
-  // Delegating alone would silently drop how far the scan reached, leaving sync to
-  // restart from zero every time with nothing to show it had been told
-  // otherwise.
+  // Delegating alone would drop the scan position, leaving sync restarting from
+  // zero while appearing to resume.
   return Object.freeze({
     ...convertShieldedTransactionsResponse(response, method),
     ...(response.scannedThrough === undefined

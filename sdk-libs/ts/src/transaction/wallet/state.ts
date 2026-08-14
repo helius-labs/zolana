@@ -194,13 +194,8 @@ export class Wallet {
    */
   #prooflessCursors = new Map<string, Uint8Array>();
   /**
-   * The same watermarks for the nullifier stream, keyed by nullifier rather than
-   * by tag. Mirrors Rust's `Wallet::nullifier_cursors`.
-   *
-   * An entry here means the opposite of a tag cursor: a tag cursor records what
-   * has been found, this records how far a spend has been confirmed *absent*.
-   * Entries are dropped once the nullifier is spent, since the question is then
-   * answered for good.
+   * The same for the nullifier stream, keyed by nullifier rather than tag.
+   * Entries are dropped once the nullifier is spent.
    */
   #nullifierCursors = new Map<string, Uint8Array>();
 

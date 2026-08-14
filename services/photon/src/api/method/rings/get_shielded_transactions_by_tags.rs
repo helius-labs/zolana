@@ -49,8 +49,7 @@ struct RingsMessageRow {
     payload: Vec<u8>,
 }
 
-/// Just enough of a row to build a cursor from, for the lookup that reports
-/// where a scan stopped and has no transaction to hydrate.
+/// Just enough of a row to build a cursor from.
 #[derive(FromQueryResult, Debug)]
 struct ScanPositionRow {
     slot: i64,
@@ -123,8 +122,7 @@ struct ShieldedTransactionPage {
     context: zolana_indexer_api::Context,
     transactions: Vec<ShieldedTransaction>,
     next_cursor: Option<Base64String>,
-    /// Only ever set for [`MatchBy::Nullifiers`]; nothing else has a response
-    /// field to carry it in.
+    /// Set only for [`MatchBy::Nullifiers`]; no other response carries it.
     scanned_through: Option<Base64String>,
 }
 
@@ -146,13 +144,9 @@ async fn get_shielded_transactions(
         fetch_matching_rings_transactions(&tx, values, cursor.as_ref(), limit, match_by).await?;
     let next_cursor = next_cursor_from_rows(&matched_txs, shielded_tx_cursor_from_row)?;
 
-    // Only the nullifier response has a field to report this in, and only that
-    // stream needs one: a tag query returns the wallet's own transactions, so
-    // its cursor advances on the rows themselves.
-    //
     // A full page means the limit cut the scan short, so nothing can be claimed
-    // about what lies beyond it. Anything less means the scan ran out of rows,
-    // not out of room, and where it stopped is a sound resume point.
+    // beyond it. Only the nullifier stream needs the position: a tag query's
+    // cursor advances on the rows it returns.
     let truncated = matched_txs.len() as u64 >= limit;
     let scanned_through = match match_by {
         MatchBy::Nullifiers if !truncated => scan_position(&tx).await?,
@@ -177,24 +171,17 @@ async fn get_shielded_transactions(
 
 /// The last position in the transaction stream, as a cursor.
 ///
-/// A scan that was not cut short by its limit reached exactly here, so this is
-/// what "I looked this far and found nothing more" means concretely.
+/// Read inside the caller's transaction, so it describes the snapshot the scan
+/// saw. `None` only when the table is empty.
 ///
-/// Read inside the caller's transaction so it describes the same snapshot the
-/// scan saw. `None` only when the table is empty, which leaves the caller
-/// resuming from zero -- correct, and there is nothing to skip anyway.
-///
-/// Soundness rests on positions only ever being appended: a row inserted later
-/// at a position below this one would be skipped by anyone who resumed here.
-/// That is the same assumption the per-tag cursors already run on, since they
-/// resume from the last row they saw.
+/// Sound while positions are only appended: a row later inserted below this one
+/// would be skipped by anyone resuming here. Per-tag cursors already assume the
+/// same.
 async fn scan_position(tx: &DatabaseTransaction) -> Result<Option<Base64String>, PhotonApiError> {
     let backend = tx.get_database_backend();
-    // Deliberately not one `ORDER BY slot, signature, event_index DESC LIMIT 1`:
-    // no index covers that ordering, so it sorts the whole table on every
-    // request. Pinning the slot first is an index lookup on
-    // `idx_rings_transactions_slot_id`, and the handful of rows sharing that
-    // slot are all that gets sorted.
+    // Not `ORDER BY slot, signature, event_index DESC LIMIT 1`: no index covers
+    // that ordering, so it would sort the whole table. Pinning the slot first is
+    // an index lookup on `idx_rings_transactions_slot_id`.
     let sql = "SELECT
             pt.slot AS slot,
             pt.signature AS signature,
@@ -598,9 +585,8 @@ mod tests {
         assert!(response.transactions.is_empty());
     }
 
-    /// An unspent nullifier is the normal case, and it matches nothing. Without
-    /// this the caller has no way to record that it just scanned the whole
-    /// stream, so it scans the whole stream again on the next sync forever.
+    /// An unspent nullifier matches nothing, so without a reported position the
+    /// caller rescans the whole stream on every sync.
     #[tokio::test]
     async fn an_empty_nullifier_page_still_reports_how_far_it_scanned() {
         let db = setup().await;
@@ -624,8 +610,7 @@ mod tests {
             .scanned_through
             .expect("an exhausted scan reports its tip");
 
-        // Resuming there is the point: the same query from that position must
-        // still be empty, and must not walk the stream again.
+        // The same query from that position must still be empty.
         let resumed = get_shielded_transactions_by_nullifiers(
             &db,
             GetRingsByNullifiersRequest {
@@ -644,8 +629,8 @@ mod tests {
         );
     }
 
-    /// The reported position claims "nothing matches at or before here", which
-    /// is only true when the scan ran out of rows rather than out of room.
+    /// The position claims nothing matches at or before it, true only when the
+    /// scan ran out of rows rather than out of room.
     #[tokio::test]
     async fn a_truncated_page_reports_no_scan_position() {
         let db = setup().await;
@@ -667,8 +652,7 @@ mod tests {
         );
     }
 
-    /// A spend is found whether the caller starts from zero or resumes, so the
-    /// reported position cannot be used to skip one.
+    /// The position must not skip a spend that lands after it.
     #[tokio::test]
     async fn resuming_from_a_scan_position_still_finds_a_later_spend() {
         let db = setup().await;

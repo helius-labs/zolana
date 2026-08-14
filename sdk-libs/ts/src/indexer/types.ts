@@ -75,11 +75,9 @@ export interface GetShieldedTransactionsByNullifiersResponse {
   readonly transactions: readonly IndexedShieldedTransaction[];
   readonly nextCursor?: Base64String;
   /**
-   * How far the indexer scanned, when it reached the end of the stream.
-   *
-   * Present only on a page the limit did not truncate. Unspent nullifiers match
-   * nothing, so `nextCursor` is absent for them and this is the only thing that
-   * lets a later sync resume rather than restart.
+   * Where the indexer's scan reached. Present only on a page the limit did not
+   * truncate. Unspent nullifiers match nothing, so `nextCursor` is absent for
+   * them and this is the only resume point.
    */
   readonly scannedThrough?: Base64String;
 }

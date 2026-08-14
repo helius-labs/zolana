@@ -151,13 +151,10 @@ function walletQueryTags(wallet: Wallet, material: WalletSyncMaterial): readonly
 }
 
 /**
- * Nullifiers still worth asking about: the unspent ones.
+ * Nullifiers of unspent notes.
  *
- * This query asks "was this note spent, and in which transaction". A nullifier
- * appears at most once on chain -- that is what it is for -- so once the
- * spending transaction is in hand the answer is final and re-asking returns the
- * same row forever. The set therefore shrinks as a wallet ages rather than
- * growing with it: cost tracks the unspent note count, not history.
+ * A nullifier appears at most once on chain, so once its spend is known the
+ * answer is final. Cost tracks the unspent count, not history.
  */
 function walletQueryNullifiers(wallet: Wallet): readonly Bytes32[] {
   const nullifiers = new Map<string, Bytes32>();
@@ -300,13 +297,11 @@ interface Page {
 }
 
 /**
- * Read one chunk to the end of its stream, returning the position reached.
+ * Reads one chunk until the stream offers no further cursor.
  *
- * Only a missing cursor ends the read. Stopping on a page short of the limit
- * would save a request per chunk, but it makes the non-advancing-cursor guard
- * unreachable and stakes correctness on every endpoint returning a short page
- * only when genuinely out of rows. Mirrors the Rust SDK, which has to agree
- * with this or the two clients read different amounts.
+ * A cursor means there may be more, whatever the page size. Stopping on a short
+ * page would make the non-advancing-cursor guard unreachable. Mirrors the Rust
+ * SDK, which must agree or the two clients read different amounts.
  */
 async function readChunk(
   method: string,
@@ -386,12 +381,10 @@ async function collectProoflessDeposits(
 }
 
 /**
- * Bucket keys by the position their stream was last read to.
+ * Buckets keys by the position their stream was last read to.
  *
  * A chunk carries one cursor, so keys at different positions cannot share a
- * request: a key learned this sync would resume from a position it was never
- * scanned to and skip its history permanently. `undefined` (never queried) is
- * its own group.
+ * request. `undefined` (never queried) is its own group.
  */
 function groupByResumePoint(
   keys: readonly Bytes32[],

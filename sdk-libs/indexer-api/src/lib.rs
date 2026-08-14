@@ -626,19 +626,13 @@ pub struct GetShieldedTransactionsByNullifiersResponse {
     /// requested nullifier and includes all of its output and input slots.
     pub transactions: Vec<ShieldedTransaction>,
     pub next_cursor: Option<Base64String>,
-    /// How far the scan got, when it reached the end rather than filling a page.
+    /// Where the scan reached, when it ran out of rows rather than filling a
+    /// page.
     ///
-    /// `next_cursor` cannot answer this: it is the position of the last returned
-    /// row, and the useful case here returns no rows at all. A wallet asks about
-    /// unspent nullifiers, which by definition have no spending transaction, so
-    /// every page comes back empty and the caller learns nothing about how much
-    /// of the stream it just paid to scan -- and starts from zero again next
-    /// time.
-    ///
-    /// Present only on a page the limit did not truncate, which is exactly when
-    /// "no more matches exist at or before this position" is true. Resuming a
-    /// later query for the same nullifiers here skips only ground already
-    /// covered.
+    /// `next_cursor` is the last returned row's position, and a query for
+    /// unspent nullifiers returns none. Present only on a page the limit did not
+    /// truncate, which is when "no match exists at or before this position"
+    /// holds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scanned_through: Option<Base64String>,
 }
