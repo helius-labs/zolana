@@ -520,6 +520,36 @@ fn wallet_query_nullifiers(wallet: &Wallet) -> Vec<[u8; 32]> {
         .collect()
 }
 
+/// Bucket keys by the position their stream was last read to.
+///
+/// A chunk carries one cursor, so keys at different positions cannot share a
+/// request: a key learned this sync would resume from a position it was never
+/// scanned to and skip its history permanently. `None` (never queried) is its
+/// own group. Keys already read to the tip earlier in this same sync are
+/// dropped, since a second request would only return rows the accumulator
+/// already holds.
+///
+/// Shared by the tag and nullifier streams, and by the sync and async halves of
+/// each: the bucketing is the same rule four times over, and only the query it
+/// feeds differs.
+fn group_by_resume_point<K: Copy + Eq + std::hash::Hash>(
+    keys: &[K],
+    cursors: &HashMap<K, Vec<u8>>,
+    scanned_to_tip: &HashSet<K>,
+) -> HashMap<Option<Vec<u8>>, Vec<K>> {
+    let mut groups: HashMap<Option<Vec<u8>>, Vec<K>> = HashMap::new();
+    for key in keys {
+        if scanned_to_tip.contains(key) {
+            continue;
+        }
+        groups
+            .entry(cursors.get(key).cloned())
+            .or_default()
+            .push(*key);
+    }
+    groups
+}
+
 /// Fetch shielded transactions for `tags`, resuming each tag from where it was
 /// last seen.
 ///
@@ -550,20 +580,7 @@ fn fetch_shielded_transactions_incremental<I: Rpc>(
     scanned_to_tip: &mut HashSet<ViewTag>,
 ) -> Result<(), ClientError> {
     // Group by resume point. `None` (never queried) is its own group.
-    let mut groups: HashMap<Option<Vec<u8>>, Vec<ViewTag>> = HashMap::new();
-    for tag in tags {
-        // Already read to the tip earlier in this same sync -- a second request
-        // would return the same rows the accumulator already holds.
-        if scanned_to_tip.contains(tag) {
-            continue;
-        }
-        groups
-            .entry(cursors.get(tag).cloned())
-            .or_default()
-            .push(*tag);
-    }
-
-    for (start, group) in groups {
+    for (start, group) in group_by_resume_point(tags, cursors, scanned_to_tip) {
         for chunk in group.chunks(config.tag_query_chunk) {
             let mut cursor = start.clone();
             let mut furthest = start.clone();
@@ -619,20 +636,7 @@ async fn fetch_shielded_transactions_incremental_async<I: AsyncRpc>(
     cursors: &mut HashMap<ViewTag, Vec<u8>>,
     scanned_to_tip: &mut HashSet<ViewTag>,
 ) -> Result<(), ClientError> {
-    let mut groups: HashMap<Option<Vec<u8>>, Vec<ViewTag>> = HashMap::new();
-    for tag in tags {
-        // Already read to the tip earlier in this same sync -- a second request
-        // would return the same rows the accumulator already holds.
-        if scanned_to_tip.contains(tag) {
-            continue;
-        }
-        groups
-            .entry(cursors.get(tag).cloned())
-            .or_default()
-            .push(*tag);
-    }
-
-    for (start, group) in groups {
+    for (start, group) in group_by_resume_point(tags, cursors, scanned_to_tip) {
         for chunk in group.chunks(config.tag_query_chunk) {
             let mut cursor = start.clone();
             let mut furthest = start.clone();
@@ -699,18 +703,7 @@ fn fetch_shielded_transactions_by_nullifiers<I: Rpc>(
     // Group by resume point, exactly as the tag path does. In the steady state
     // every known nullifier shares one position and newly created ones have
     // none, so this is two queries however many UTXOs the wallet holds.
-    let mut groups: HashMap<Option<Vec<u8>>, Vec<[u8; 32]>> = HashMap::new();
-    for nullifier in nullifiers {
-        if scanned_to_tip.contains(nullifier) {
-            continue;
-        }
-        groups
-            .entry(cursors.get(nullifier).cloned())
-            .or_default()
-            .push(*nullifier);
-    }
-
-    for (start, group) in groups {
+    for (start, group) in group_by_resume_point(nullifiers, cursors, scanned_to_tip) {
         for chunk in group.chunks(config.tag_query_chunk) {
             let mut cursor = start.clone();
             let mut resume = None;
@@ -758,18 +751,7 @@ async fn fetch_shielded_transactions_by_nullifiers_async<I: AsyncRpc>(
     cursors: &mut HashMap<[u8; 32], Vec<u8>>,
     scanned_to_tip: &mut HashSet<[u8; 32]>,
 ) -> Result<(), ClientError> {
-    let mut groups: HashMap<Option<Vec<u8>>, Vec<[u8; 32]>> = HashMap::new();
-    for nullifier in nullifiers {
-        if scanned_to_tip.contains(nullifier) {
-            continue;
-        }
-        groups
-            .entry(cursors.get(nullifier).cloned())
-            .or_default()
-            .push(*nullifier);
-    }
-
-    for (start, group) in groups {
+    for (start, group) in group_by_resume_point(nullifiers, cursors, scanned_to_tip) {
         for chunk in group.chunks(config.tag_query_chunk) {
             let mut cursor = start.clone();
             let mut resume = None;
