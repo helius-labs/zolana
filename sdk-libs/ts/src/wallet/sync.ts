@@ -292,14 +292,46 @@ interface CollectByTagsInput {
   readonly from: Uint8Array | undefined;
 }
 
+/** One page of a cursor-ordered stream, reduced to what paging needs. */
+interface Page {
+  readonly nextCursor?: Uint8Array | undefined;
+  /** Where the server says its scan reached; only the nullifier stream reports it. */
+  readonly scannedThrough?: Uint8Array | undefined;
+}
+
+/**
+ * Read one chunk to the end of its stream, returning the position reached.
+ *
+ * Only a missing cursor ends the read. Stopping on a page short of the limit
+ * would save a request per chunk, but it makes the non-advancing-cursor guard
+ * unreachable and stakes correctness on every endpoint returning a short page
+ * only when genuinely out of rows. Mirrors the Rust SDK, which has to agree
+ * with this or the two clients read different amounts.
+ */
+async function readChunk(
+  method: string,
+  start: Uint8Array | undefined,
+  request: (cursor: Uint8Array | undefined) => Promise<Page>,
+): Promise<Uint8Array | undefined> {
+  let cursor = start;
+  let furthest = start;
+  // Seeded with the resume point, so an indexer handing back the cursor it was
+  // given trips the guard immediately rather than after a wasted round trip.
+  const seenCursors = new Set<string>(start === undefined ? [] : [bytesKey(start)]);
+  for (;;) {
+    const page = await request(cursor);
+    furthest = page.scannedThrough ?? page.nextCursor ?? furthest;
+    const next = checkedNextCursor(method, page.nextCursor, seenCursors);
+    if (next === undefined) return furthest;
+    cursor = next;
+  }
+}
+
 async function collectShieldedTransactions(
   input: CollectByTagsInput,
   context?: RequestContext,
 ): Promise<Uint8Array | undefined> {
-  let cursor: Uint8Array | undefined = input.from;
-  let furthest: Uint8Array | undefined = input.from;
-  const seenCursors = new Set<string>();
-  do {
+  return readChunk("getShieldedTransactionsByTags", input.from, async (cursor) => {
     const response = await input.indexer.getShieldedTransactionsByTags(
       { tags: input.chunk, limit: input.pageLimit, ...(cursor === undefined ? {} : { cursor }) },
       input.nextRpcConfig(),
@@ -313,22 +345,15 @@ async function collectShieldedTransactions(
       const key = shieldedTransactionKey(transaction);
       if (!input.out.has(key)) input.out.set(key, transaction);
     }
-    cursor = checkedNextCursor("getShieldedTransactionsByTags", response.nextCursor, seenCursors);
-    // Kept even on the last page: the resume point for the next sync is a
-    // different question from whether another page exists now.
-    if (cursor !== undefined) furthest = cursor;
-  } while (cursor !== undefined);
-  return furthest;
+    return { nextCursor: response.nextCursor };
+  });
 }
 
 async function collectProoflessDeposits(
   input: CollectByTagsInput,
   context?: RequestContext,
 ): Promise<Uint8Array | undefined> {
-  let cursor: Uint8Array | undefined = input.from;
-  let furthest: Uint8Array | undefined = input.from;
-  const seenCursors = new Set<string>();
-  do {
+  return readChunk("getEncryptedUtxosByTags", input.from, async (cursor) => {
     const response = await input.indexer.getEncryptedUtxosByTags(
       { tags: input.chunk, limit: input.pageLimit, ...(cursor === undefined ? {} : { cursor }) },
       input.nextRpcConfig(),
@@ -356,10 +381,8 @@ async function collectProoflessDeposits(
         }),
       );
     }
-    cursor = checkedNextCursor("getEncryptedUtxosByTags", response.nextCursor, seenCursors);
-    if (cursor !== undefined) furthest = cursor;
-  } while (cursor !== undefined);
-  return furthest;
+    return { nextCursor: response.nextCursor };
+  });
 }
 
 /**
@@ -407,12 +430,7 @@ async function collectShieldedTransactionsByNullifiers(
   input: CollectByNullifiersInput,
   context?: RequestContext,
 ): Promise<Uint8Array | undefined> {
-  let cursor = input.start;
-  let resume: Uint8Array | undefined;
-  // Seeded with the resume point, so an indexer that hands back the cursor it
-  // was given trips the guard on the spot rather than after a wasted round trip.
-  const seenCursors = new Set<string>(input.start === undefined ? [] : [bytesKey(input.start)]);
-  do {
+  return readChunk("getShieldedTransactionsByNullifiers", input.start, async (cursor) => {
     const response = await input.indexer.getShieldedTransactionsByNullifiers(
       {
         nullifiers: input.chunk,
@@ -427,14 +445,11 @@ async function collectShieldedTransactionsByNullifiers(
       const key = shieldedTransactionKey(transaction);
       if (!input.out.has(key)) input.out.set(key, transaction);
     }
-    if (response.scannedThrough !== undefined) resume = response.scannedThrough;
-    cursor = checkedNextCursor(
-      "getShieldedTransactionsByNullifiers",
-      response.nextCursor,
-      seenCursors,
-    );
-  } while (cursor !== undefined);
-  return resume;
+    return {
+      nextCursor: response.nextCursor,
+      scannedThrough: response.scannedThrough,
+    };
+  });
 }
 
 export async function syncWallet(

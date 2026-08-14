@@ -553,9 +553,6 @@ fn group_by_resume_point<K: Copy + Eq + std::hash::Hash>(
 
 /// One page of a cursor-ordered stream, reduced to what paging needs.
 struct Page {
-    /// Rows the server returned, before any client-side filtering. A page short
-    /// of the limit means the server ran out of rows, not out of room.
-    rows: usize,
     next_cursor: Option<Vec<u8>>,
     /// Where the server says its scan reached. Only the nullifier stream reports
     /// this, and only it needs to: its pages are normally empty, so there is no
@@ -569,11 +566,7 @@ struct Page {
 /// the rule that a short page ends the read lives here rather than in each
 /// caller. Paging until `next_cursor` is `None` instead costs one extra request
 /// per chunk per sync, to be told the stream is empty.
-fn read_chunk<F>(
-    start: Option<Vec<u8>>,
-    page_limit: u32,
-    mut request: F,
-) -> Result<Option<Vec<u8>>, ClientError>
+fn read_chunk<F>(start: Option<Vec<u8>>, mut request: F) -> Result<Option<Vec<u8>>, ClientError>
 where
     F: FnMut(Option<Vec<u8>>) -> Result<Page, ClientError>,
 {
@@ -581,11 +574,31 @@ where
     let mut furthest = start;
     loop {
         let page = request(cursor)?;
-        let Some(next) = advance(&mut furthest, page, page_limit) else {
+        let Some(next) = advance(&mut furthest, page) else {
             return Ok(furthest);
         };
         cursor = Some(next);
     }
+}
+
+/// Record where a chunk was read to, once its read has ended.
+///
+/// Advancing every key in the chunk to one position is sound only because the
+/// ordering is global: a position obtained from a query over {A, B, C} states,
+/// for each of them individually, that everything matching up to there has been
+/// seen.
+fn record_chunk<K: Copy + Eq + std::hash::Hash>(
+    chunk: &[K],
+    furthest: Option<Vec<u8>>,
+    cursors: &mut HashMap<K, Vec<u8>>,
+    scanned_to_tip: &mut HashSet<K>,
+) {
+    if let Some(position) = furthest {
+        for key in chunk {
+            cursors.insert(*key, position.clone());
+        }
+    }
+    scanned_to_tip.extend(chunk.iter().copied());
 }
 
 /// Fold one page into the position read so far, and say where to read next.
@@ -597,7 +610,7 @@ where
 ///
 /// `None` ends the read: either the page was short of the limit, so the server
 /// had no more rows, or it offered no cursor to continue from.
-fn advance(furthest: &mut Option<Vec<u8>>, page: Page, page_limit: u32) -> Option<Vec<u8>> {
+fn advance(furthest: &mut Option<Vec<u8>>, page: Page) -> Option<Vec<u8>> {
     // The server's own scan position when it reports one, else the last row it
     // returned, else stay put.
     *furthest = page
@@ -605,7 +618,6 @@ fn advance(furthest: &mut Option<Vec<u8>>, page: Page, page_limit: u32) -> Optio
         .or_else(|| page.next_cursor.clone())
         .or_else(|| furthest.take());
     page.next_cursor
-        .filter(|_| page.rows >= page_limit as usize)
 }
 
 /// Fetch shielded transactions for `tags`, resuming each tag from where it was
@@ -639,14 +651,13 @@ fn fetch_shielded_transactions_incremental<I: Rpc>(
 ) -> Result<(), ClientError> {
     for (start, group) in group_by_resume_point(tags, cursors, scanned_to_tip) {
         for chunk in group.chunks(config.tag_query_chunk) {
-            let furthest = read_chunk(start.clone(), config.page_limit, |cursor| {
+            let furthest = read_chunk(start.clone(), |cursor| {
                 let response = indexer.get_shielded_transactions_by_tags(
                     chunk.to_vec(),
                     cursor,
                     Some(config.page_limit),
                     rpc_config,
                 )?;
-                let rows = response.transactions.len();
                 for tx in response.transactions {
                     if tx.proofless || tx.tx_viewing_pk.is_none() || tx.salt.is_none() {
                         continue;
@@ -655,20 +666,12 @@ fn fetch_shielded_transactions_incremental<I: Rpc>(
                     out.entry(key).or_insert(convert_sync_transaction(tx)?);
                 }
                 Ok(Page {
-                    rows,
                     next_cursor: response.next_cursor,
                     scanned_through: None,
                 })
             })?;
 
-            // Sound only because the ordering is global: every tag in the chunk
-            // has now been read to that one position.
-            if let Some(position) = furthest {
-                for tag in chunk {
-                    cursors.insert(*tag, position.clone());
-                }
-            }
-            scanned_to_tip.extend(chunk.iter().copied());
+            record_chunk(chunk, furthest, cursors, scanned_to_tip);
         }
     }
     Ok(())
@@ -698,7 +701,6 @@ async fn fetch_shielded_transactions_incremental_async<I: AsyncRpc>(
                         rpc_config,
                     )
                     .await?;
-                let rows = response.transactions.len();
                 for tx in response.transactions {
                     if tx.proofless || tx.tx_viewing_pk.is_none() || tx.salt.is_none() {
                         continue;
@@ -707,22 +709,16 @@ async fn fetch_shielded_transactions_incremental_async<I: AsyncRpc>(
                     out.entry(key).or_insert(convert_sync_transaction(tx)?);
                 }
                 let page = Page {
-                    rows,
                     next_cursor: response.next_cursor,
                     scanned_through: None,
                 };
-                let Some(next) = advance(&mut furthest, page, config.page_limit) else {
+                let Some(next) = advance(&mut furthest, page) else {
                     break;
                 };
                 cursor = Some(next);
             }
 
-            if let Some(position) = furthest {
-                for tag in chunk {
-                    cursors.insert(*tag, position.clone());
-                }
-            }
-            scanned_to_tip.extend(chunk.iter().copied());
+            record_chunk(chunk, furthest, cursors, scanned_to_tip);
         }
     }
     Ok(())
@@ -753,31 +749,24 @@ fn fetch_shielded_transactions_by_nullifiers<I: Rpc>(
     // holds.
     for (start, group) in group_by_resume_point(nullifiers, cursors, scanned_to_tip) {
         for chunk in group.chunks(config.tag_query_chunk) {
-            let furthest = read_chunk(start.clone(), config.page_limit, |cursor| {
+            let furthest = read_chunk(start.clone(), |cursor| {
                 let response = indexer.get_shielded_transactions_by_nullifiers(
                     chunk.to_vec(),
                     cursor,
                     Some(config.page_limit),
                     rpc_config,
                 )?;
-                let rows = response.transactions.len();
                 for tx in response.transactions.into_iter().filter(|tx| !tx.proofless) {
                     let key = tx.tx_signature.to_string();
                     out.entry(key).or_insert(convert_sync_transaction(tx)?);
                 }
                 Ok(Page {
-                    rows,
                     next_cursor: response.next_cursor,
                     scanned_through: response.scanned_through,
                 })
             })?;
 
-            if let Some(position) = furthest {
-                for nullifier in chunk {
-                    cursors.insert(*nullifier, position.clone());
-                }
-            }
-            scanned_to_tip.extend(chunk.iter().copied());
+            record_chunk(chunk, furthest, cursors, scanned_to_tip);
         }
     }
     Ok(())
@@ -807,28 +796,21 @@ async fn fetch_shielded_transactions_by_nullifiers_async<I: AsyncRpc>(
                         rpc_config,
                     )
                     .await?;
-                let rows = response.transactions.len();
                 for tx in response.transactions.into_iter().filter(|tx| !tx.proofless) {
                     let key = tx.tx_signature.to_string();
                     out.entry(key).or_insert(convert_sync_transaction(tx)?);
                 }
                 let page = Page {
-                    rows,
                     next_cursor: response.next_cursor,
                     scanned_through: response.scanned_through,
                 };
-                let Some(next) = advance(&mut furthest, page, config.page_limit) else {
+                let Some(next) = advance(&mut furthest, page) else {
                     break;
                 };
                 cursor = Some(next);
             }
 
-            if let Some(position) = furthest {
-                for nullifier in chunk {
-                    cursors.insert(*nullifier, position.clone());
-                }
-            }
-            scanned_to_tip.extend(chunk.iter().copied());
+            record_chunk(chunk, furthest, cursors, scanned_to_tip);
         }
     }
     Ok(())
@@ -859,14 +841,13 @@ where
 {
     for (start, group) in group_by_resume_point(tags, cursors, scanned_to_tip) {
         for chunk in group.chunks(config.tag_query_chunk) {
-            let furthest = read_chunk(start.clone(), config.page_limit, |cursor| {
+            let furthest = read_chunk(start.clone(), |cursor| {
                 let response = indexer.get_encrypted_utxos_by_tags(
                     chunk.to_vec(),
                     cursor,
                     Some(config.page_limit),
                     rpc_config,
                 )?;
-                let rows = response.matches.len();
                 for item in response.matches {
                     if item.tx_viewing_pk.is_some() || item.salt.is_some() {
                         continue;
@@ -883,18 +864,12 @@ where
                     }
                 }
                 Ok(Page {
-                    rows,
                     next_cursor: response.next_cursor,
                     scanned_through: None,
                 })
             })?;
 
-            if let Some(position) = furthest {
-                for tag in chunk {
-                    cursors.insert(*tag, position.clone());
-                }
-            }
-            scanned_to_tip.extend(chunk.iter().copied());
+            record_chunk(chunk, furthest, cursors, scanned_to_tip);
         }
     }
     Ok(())
@@ -924,7 +899,6 @@ async fn fetch_proofless_deposits_async<I: AsyncRpc>(
                         rpc_config,
                     )
                     .await?;
-                let rows = response.matches.len();
                 for item in response.matches {
                     if item.tx_viewing_pk.is_some() || item.salt.is_some() {
                         continue;
@@ -941,22 +915,16 @@ async fn fetch_proofless_deposits_async<I: AsyncRpc>(
                     }
                 }
                 let page = Page {
-                    rows,
                     next_cursor: response.next_cursor,
                     scanned_through: None,
                 };
-                let Some(next) = advance(&mut furthest, page, config.page_limit) else {
+                let Some(next) = advance(&mut furthest, page) else {
                     break;
                 };
                 cursor = Some(next);
             }
 
-            if let Some(position) = furthest {
-                for tag in chunk {
-                    cursors.insert(*tag, position.clone());
-                }
-            }
-            scanned_to_tip.extend(chunk.iter().copied());
+            record_chunk(chunk, furthest, cursors, scanned_to_tip);
         }
     }
     Ok(())
@@ -1444,12 +1412,12 @@ mod tests {
         )
         .expect("round 1");
 
-        // One request per round, each carrying one tag: the early tag is already
-        // at the tip and is never re-queried, and neither round pays for a
-        // second request just to learn its page was the last.
+        // Two requests per round: one for the rows, one that comes back empty
+        // and ends the stream. What matters is that no request ever carries two
+        // tags -- the early tag is never re-queried.
         assert_eq!(
             *indexer.calls.lock().expect("calls poisoned"),
-            vec![(1, None), (1, None)],
+            vec![(1, None), (1, Some(10)), (1, None), (1, Some(50))],
             "round 1 must ask for the late tag alone, not both tags again"
         );
     }
@@ -1494,9 +1462,8 @@ mod tests {
         );
         assert_eq!(
             *indexer.calls.lock().expect("calls poisoned"),
-            vec![(1, None)],
-            "a page short of the limit ends the read: asking again only to be \
-             told the stream is empty costs a round trip per chunk per sync"
+            vec![(1, None), (1, Some(50))],
+            "one request for the rows, one more that returns none and ends the loop"
         );
     }
 
@@ -1553,33 +1520,43 @@ mod tests {
         );
     }
 
-    /// A full page keeps reading; a short one stops. Every stream pages through
-    /// [`advance`], so this is the rule for all three.
+    /// A cursor means there may be more; only its absence ends the read. Every
+    /// stream pages through [`advance`], so this is the rule for all three.
+    ///
+    /// Guessing from page size instead would save a request per chunk, and was
+    /// tried: it makes the non-advancing-cursor guard unreachable, and stakes
+    /// correctness on every endpoint returning a short page only when genuinely
+    /// out of rows. Skipping a spend silently is not worth a round trip.
     #[test]
-    fn a_full_page_continues_and_a_short_page_ends_the_read() {
-        let page = |rows, next: Option<u64>| Page {
-            rows,
-            next_cursor: next.map(|slot| slot.to_be_bytes().to_vec()),
-            scanned_through: None,
-        };
+    fn only_a_missing_cursor_ends_the_read() {
+        let cursor = |slot: u64| Some(slot.to_be_bytes().to_vec());
 
         let mut furthest = None;
         assert_eq!(
-            advance(&mut furthest, page(10, Some(50)), 10),
-            Some(50u64.to_be_bytes().to_vec()),
-            "a page at the limit may have been truncated, so keep reading"
+            advance(
+                &mut furthest,
+                Page {
+                    next_cursor: cursor(50),
+                    scanned_through: None,
+                },
+            ),
+            cursor(50),
+            "a cursor is an invitation to read on"
         );
 
-        let mut furthest = None;
+        let mut furthest = cursor(10);
         assert!(
-            advance(&mut furthest, page(3, Some(50)), 10).is_none(),
-            "a short page means the server ran out of rows, not out of room"
+            advance(
+                &mut furthest,
+                Page {
+                    next_cursor: None,
+                    scanned_through: None,
+                },
+            )
+            .is_none(),
+            "no cursor ends it"
         );
-        assert_eq!(
-            furthest,
-            Some(50u64.to_be_bytes().to_vec()),
-            "and it still records where it read to"
-        );
+        assert_eq!(furthest, cursor(10), "and the earlier position is kept");
 
         // The nullifier stream's pages are normally empty, so its position comes
         // from the server rather than from a row.
@@ -1587,14 +1564,12 @@ mod tests {
         assert!(advance(
             &mut furthest,
             Page {
-                rows: 0,
                 next_cursor: None,
-                scanned_through: Some(99u64.to_be_bytes().to_vec()),
+                scanned_through: cursor(99),
             },
-            10,
         )
         .is_none());
-        assert_eq!(furthest, Some(99u64.to_be_bytes().to_vec()));
+        assert_eq!(furthest, cursor(99));
     }
 
     /// The async twins page and resume like the blocking ones.
@@ -1660,8 +1635,11 @@ mod tests {
         .expect("proofless");
         assert_eq!(proofless_cursors.get(&tag).map(slot_of), Some(30));
 
-        // One request per stream: each page was short of the limit.
-        assert_eq!(indexer.calls.lock().expect("calls poisoned").len(), 1);
+        // The streams that return rows take a second request to reach the empty
+        // page that ends them. The nullifier stream matches nothing, so its
+        // first page is already the last.
+        assert_eq!(indexer.calls.lock().expect("calls poisoned").len(), 2);
+        assert_eq!(indexer.utxo_calls.lock().expect("calls poisoned").len(), 2);
         assert_eq!(
             indexer
                 .nullifier_calls
@@ -1670,7 +1648,6 @@ mod tests {
                 .len(),
             1
         );
-        assert_eq!(indexer.utxo_calls.lock().expect("calls poisoned").len(), 1);
     }
 
     fn slot_of(cursor: &Vec<u8>) -> u64 {
