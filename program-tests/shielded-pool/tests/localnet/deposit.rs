@@ -51,7 +51,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
         &rpc.airdrop(&depositor.pubkey(), 5_000_000_000)?,
     );
 
-    let direct_keypair = ShieldedKeypair::new()?;
+    let direct_keypair = ShieldedKeypair::new_p256()?;
     let mut direct_recipient =
         Wallet::new(direct_keypair.shielded_address()?, AssetRegistry::default())?;
     let direct_data = ZolanaProgramTest::wallet_sol_shield_data(
@@ -126,7 +126,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     )?;
     print_signature("create_ring_config", &create_ring_config_tx.signature);
 
-    let ring_keypair = ShieldedKeypair::new()?;
+    let ring_keypair = ShieldedKeypair::new_p256()?;
     let mut ring_recipient =
         Wallet::new(ring_keypair.shielded_address()?, AssetRegistry::default())?;
     let mut ring_data = ZolanaProgramTest::wallet_ring_sol_shield_data(

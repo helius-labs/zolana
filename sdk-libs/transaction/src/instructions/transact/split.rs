@@ -322,7 +322,7 @@ mod tests {
 
     #[test]
     fn split_out_of_range_part_count_is_rejected() {
-        let keypair = ShieldedKeypair::new().unwrap();
+        let keypair = ShieldedKeypair::new_p256().unwrap();
         for parts in [0u8, 1, 9] {
             assert_eq!(
                 split_error(&keypair, parts, 1, 800),
@@ -333,7 +333,7 @@ mod tests {
 
     #[test]
     fn split_amount_that_does_not_sum_to_input_is_rejected() {
-        let keypair = ShieldedKeypair::new().unwrap();
+        let keypair = ShieldedKeypair::new_p256().unwrap();
         assert_eq!(
             split_error(&keypair, 3, 100, 800),
             TransactionError::SplitAmountMismatch {

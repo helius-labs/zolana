@@ -184,7 +184,7 @@ pub(super) fn run_new(opts: NewWalletOptions) -> Result<()> {
     // the file is a cache. p256 (`--p256`): an independent random shielded
     // identity whose scalars derive from nothing else and are stored on disk.
     let (keypair, mode) = if opts.p256 {
-        (ShieldedKeypair::new()?, "p256")
+        (ShieldedKeypair::new_p256()?, "p256")
     } else {
         (ShieldedKeypair::from_keypair(&funding)?, "ed25519")
     };
@@ -461,7 +461,7 @@ mod tests {
     fn p256_wallet_round_trips_and_stores_scalars() {
         let root = temp_root("zolana-cli-wallet-p256");
         let wallet = root.join("alice.pid.json");
-        let keypair = ShieldedKeypair::new().expect("p256 keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("p256 keypair");
         let funding = Keypair::new();
         save_wallet(&wallet, &keypair, &funding).expect("save wallet");
 
@@ -525,12 +525,17 @@ mod tests {
     fn wallet_file_creation_never_overwrites() {
         let root = temp_root("zolana-cli-wallet-exclusive");
         let wallet = root.join("id.json");
-        let first = ShieldedKeypair::new().expect("first shielded keypair");
+        let first = ShieldedKeypair::new_p256().expect("first shielded keypair");
         let first_funding = Keypair::new();
         save_wallet(&wallet, &first, &first_funding).expect("create wallet");
         let before = fs::read(&wallet).expect("read first wallet");
 
-        assert!(save_wallet(&wallet, &ShieldedKeypair::new().unwrap(), &Keypair::new()).is_err());
+        assert!(save_wallet(
+            &wallet,
+            &ShieldedKeypair::new_p256().unwrap(),
+            &Keypair::new()
+        )
+        .is_err());
         assert_eq!(fs::read(&wallet).expect("read unchanged wallet"), before);
     }
 
@@ -542,7 +547,7 @@ mod tests {
         let wallet = temp_root("zolana-cli-wallet-mode").join("id.json");
         save_wallet(
             &wallet,
-            &ShieldedKeypair::new().expect("shielded keypair"),
+            &ShieldedKeypair::new_p256().expect("shielded keypair"),
             &Keypair::new(),
         )
         .expect("create wallet");
@@ -604,7 +609,7 @@ mod tests {
 
     #[test]
     fn wallet_authority_is_bound_to_funding_owner() {
-        let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
         let funding = Keypair::new();
         let material = WalletMaterial { keypair, funding };
         let message_hash = [7u8; 32];

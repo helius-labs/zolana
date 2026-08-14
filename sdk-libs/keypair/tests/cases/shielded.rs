@@ -1,5 +1,5 @@
 use zolana_keypair::{
-    hash::owner_hash, random_salt, CompressedShieldedAddress, KeypairError, ShieldedAddress,
+    hash::owner_hash, random_salt, CompressedShieldedAddress, Curve, KeypairError, ShieldedAddress,
     ShieldedKeypair, SigningKey, ViewingKey,
 };
 
@@ -86,6 +86,35 @@ pub(crate) fn new_derives_viewing_key_from_signing_key(world: &mut KeypairWorld,
     );
 }
 
+pub(crate) fn random_constructors_pick_their_rail() {
+    use solana_signer::Signer;
+
+    let ed = ShieldedKeypair::new_ed25519().unwrap();
+    assert_eq!(ed.signing_key.curve(), Curve::Ed25519);
+    assert_eq!(
+        ed.try_pubkey().unwrap().to_bytes(),
+        ed.signing_pubkey().as_ed25519().unwrap()
+    );
+    let rederived = ShieldedKeypair::from_keypair(ed.signing_key.clone()).unwrap();
+    assert_eq!(
+        *ed.nullifier_key.secret(),
+        *rederived.nullifier_key.secret()
+    );
+    assert_eq!(ed.viewing_key.pubkey(), rederived.viewing_key.pubkey());
+
+    let p256 = ShieldedKeypair::new_p256().unwrap();
+    assert_eq!(p256.signing_key.curve(), Curve::P256);
+    assert_eq!(p256.try_pubkey(), Err(KeypairError::NoSolanaAddress.into()));
+
+    assert_ne!(
+        ShieldedKeypair::new_ed25519()
+            .unwrap()
+            .owner_hash()
+            .unwrap(),
+        ed.owner_hash().unwrap()
+    );
+}
+
 pub(crate) fn solana_signer_matches_solana_keypair() {
     use solana_signer::Signer;
 
@@ -99,7 +128,7 @@ pub(crate) fn solana_signer_matches_solana_keypair() {
         solana.sign_message(msg)
     );
 
-    let p256 = ShieldedKeypair::new().unwrap();
+    let p256 = ShieldedKeypair::new_p256().unwrap();
     assert!(p256.try_pubkey().is_err());
     assert!(p256.try_sign_message(msg).is_err());
 

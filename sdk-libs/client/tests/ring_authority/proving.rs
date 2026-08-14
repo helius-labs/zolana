@@ -319,7 +319,7 @@ fn eddsa_keypair() -> ShieldedKeypair {
 }
 
 fn p256_keypair() -> ShieldedKeypair {
-    ShieldedKeypair::new().expect("p256 keypair")
+    ShieldedKeypair::new_p256().expect("p256 keypair")
 }
 
 fn ring_authority_vk(n_in: usize, n_out: usize) -> &'static Groth16Verifyingkey<'static> {

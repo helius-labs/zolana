@@ -6,6 +6,8 @@
 //! ECDH and can stay in an HSM. View tags let a wallet locate its ciphertexts
 //! at an indexer without trial decryption.
 
+use std::sync::OnceLock;
+
 use p256::{NonZeroScalar, SecretKey};
 use rand::{rngs::OsRng, RngCore};
 use zeroize::Zeroizing;
@@ -25,10 +27,14 @@ pub type ViewTag = [u8; VIEW_TAG_LEN];
 pub type Salt = [u8; SALT_LEN];
 
 /// A P-256 viewing keypair.
+///
+/// `view_root` costs a scalar multiplication and only the view-tag and
+/// transaction-viewing secrets need it, so it resolves on first use: the
+/// single-use key `get_transaction_viewing_key` returns never pays for it.
 #[derive(Clone)]
 pub struct ViewingKey {
     secret: SecretKey,
-    view_root: Zeroizing<[u8; 32]>,
+    view_root: OnceLock<Zeroizing<[u8; 32]>>,
 }
 
 pub fn random_salt() -> Salt {
@@ -55,8 +61,8 @@ impl ViewingKey {
     /// Wraps an existing P-256 secret key.
     pub fn from_secret_key(secret: SecretKey) -> Self {
         Self {
-            view_root: derivation::view_root(&secret),
             secret,
+            view_root: OnceLock::new(),
         }
     }
 
@@ -108,9 +114,14 @@ impl ViewingKey {
         derivation::ecdh_x(&self.secret, counterparty)
     }
 
+    fn view_root(&self) -> &Zeroizing<[u8; 32]> {
+        self.view_root
+            .get_or_init(|| derivation::view_root(&self.secret))
+    }
+
     pub(crate) fn derive_secret32(&self, info: &[u8]) -> Result<[u8; 32], KeypairError> {
         let mut out = [0u8; 32];
-        derivation::hkdf_expand_prk(self.view_root.as_slice(), &[info], &mut out)?;
+        derivation::hkdf_expand_prk(self.view_root().as_slice(), &[info], &mut out)?;
         Ok(out)
     }
 

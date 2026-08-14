@@ -293,7 +293,7 @@ fn bench_deposit_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBench
     pt.airdrop(&depositor.pubkey(), 1_000_000_000)
         .expect("airdrop depositor");
 
-    let recipient = ShieldedKeypair::new()
+    let recipient = ShieldedKeypair::new_p256()
         .expect("recipient keypair")
         .shielded_address()
         .expect("shielded address");
@@ -331,7 +331,7 @@ fn bench_deposit_sol_batch(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut C
     pt.airdrop(&depositor.pubkey(), 1_000_000_000)
         .expect("airdrop depositor");
 
-    let recipient = ShieldedKeypair::new()
+    let recipient = ShieldedKeypair::new_p256()
         .expect("recipient keypair")
         .shielded_address()
         .expect("shielded address");
@@ -386,7 +386,7 @@ fn bench_deposit_spl(
         .expect("user token account");
     pt.mint_to(&mint, &user_token, 1_000_000).expect("mint_to");
 
-    let recipient = ShieldedKeypair::new()
+    let recipient = ShieldedKeypair::new_p256()
         .expect("recipient keypair")
         .shielded_address()
         .expect("shielded address");

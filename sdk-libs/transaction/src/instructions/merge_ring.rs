@@ -164,7 +164,7 @@ mod tests {
 
     #[test]
     fn accepts_matching_ring_inputs_and_preserves_ring_on_output() {
-        let keypair = ShieldedKeypair::new().expect("keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("keypair");
         let ring = Address::new_from_array(RING);
         let inputs = vec![ring_input(&keypair, 10), ring_input(&keypair, 20)];
 
@@ -179,7 +179,7 @@ mod tests {
 
     #[test]
     fn rejects_input_bound_to_a_different_ring() {
-        let keypair = ShieldedKeypair::new().expect("keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("keypair");
         let ring = Address::new_from_array(RING);
         let mut input = ring_input(&keypair, 10);
         input.utxo.ring_program_id = Some(Address::new_from_array([9u8; 32]));
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn rejects_unbound_input() {
-        let keypair = ShieldedKeypair::new().expect("keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("keypair");
         let ring = Address::new_from_array(RING);
         let mut input = ring_input(&keypair, 10);
         input.utxo.ring_program_id = None;
@@ -207,8 +207,8 @@ mod tests {
 
     #[test]
     fn rejects_input_owned_by_a_different_key() {
-        let keypair = ShieldedKeypair::new().expect("keypair");
-        let other = ShieldedKeypair::new().expect("other keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("keypair");
+        let other = ShieldedKeypair::new_p256().expect("other keypair");
         let ring = Address::new_from_array(RING);
         let mut input = ring_input(&keypair, 10);
         input.utxo.owner = other.signing_pubkey();
@@ -225,8 +225,8 @@ mod tests {
 
     #[test]
     fn rejects_input_with_a_different_nullifier_key() {
-        let keypair = ShieldedKeypair::new().expect("keypair");
-        let other = ShieldedKeypair::new().expect("other keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("keypair");
+        let other = ShieldedKeypair::new_p256().expect("other keypair");
         let ring = Address::new_from_array(RING);
         let utxo = Utxo {
             owner: keypair.signing_pubkey(),
@@ -250,7 +250,7 @@ mod tests {
 
     #[test]
     fn preserves_input_and_output_ring_data_hashes() {
-        let keypair = ShieldedKeypair::new().expect("keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("keypair");
         let ring = Address::new_from_array(RING);
         let input_ring_data_hash = [1u8; 32];
         let output_ring_data_hash = [2u8; 32];
@@ -272,7 +272,7 @@ mod tests {
 
     #[test]
     fn rejects_input_carrying_utxo_program_data() {
-        let keypair = ShieldedKeypair::new().expect("keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("keypair");
         let ring = Address::new_from_array(RING);
         let mut input = ring_input(&keypair, 10);
         input.utxo.data = Data::new(vec![DataRecord::UtxoData(vec![1])]);

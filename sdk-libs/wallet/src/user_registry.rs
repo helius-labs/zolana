@@ -655,7 +655,7 @@ mod tests {
     #[test]
     fn registration_builder_returns_unsigned_transaction_for_external_signer() {
         let owner = Pubkey::new_unique();
-        let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
         let proof = P256KeyBindingProof {
             signature: keypair
                 .signing_key
@@ -698,7 +698,7 @@ mod tests {
     #[test]
     fn registration_builder_requires_p256_proof() {
         let owner = Pubkey::new_unique();
-        let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
         let address = keypair.shielded_address().expect("shielded address");
 
         let error = build_registration_transaction_sync(&MockRpc::default(), owner, &address, None)
@@ -727,7 +727,7 @@ mod tests {
     #[tokio::test]
     async fn async_registration_builder_returns_sendable_unsigned_transaction() {
         let owner = Pubkey::new_unique();
-        let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
         let rpc = MockRpc::default();
         let address = keypair.shielded_address().expect("shielded address");
         let proof = P256KeyBindingProof {
@@ -777,7 +777,7 @@ mod tests {
     fn recipient_confidential_view_tag_sync_uses_registered_signing_pubkey() {
         let owner = Pubkey::new_unique();
         let (pda, bump) = user_record_pda(&owner);
-        let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
         let record = registered_record(owner, bump, &keypair);
         let rpc = MockRpc {
             account: Some((
@@ -833,7 +833,7 @@ mod tests {
     fn resolved_address_from_record_maps_registered_keys() {
         let owner = Pubkey::new_unique();
         let (_, bump) = user_record_pda(&owner);
-        let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
         let record = registered_record(owner, bump, &keypair);
 
         let resolved = resolved_address_from_record(owner, &record).expect("resolved address");
@@ -855,7 +855,7 @@ mod tests {
     fn resolve_registered_address_fetches_and_maps_record() {
         let owner = Pubkey::new_unique();
         let (pda, bump) = user_record_pda(&owner);
-        let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
         let record = registered_record(owner, bump, &keypair);
         let rpc = MockRpc {
             account: Some((
@@ -1028,7 +1028,7 @@ mod tests {
     #[test]
     fn ensure_registered_registers_when_absent() {
         let funding = Keypair::new();
-        let keypair = ShieldedKeypair::new().unwrap();
+        let keypair = ShieldedKeypair::new_p256().unwrap();
         let rpc = SendMockRpc::default(); // no record -> register path
         let sig = ensure_registered(&rpc, &funding, &keypair).expect("ensure_registered");
         assert!(sig.is_some(), "register should send a transaction");
@@ -1042,7 +1042,7 @@ mod tests {
     #[test]
     fn ensure_registered_noops_when_current() {
         let funding = Keypair::new();
-        let keypair = ShieldedKeypair::new().unwrap();
+        let keypair = ShieldedKeypair::new_p256().unwrap();
         let owner = funding.pubkey();
         let (_pda, bump) = user_record_pda(&owner);
         let record = registered_record(owner, bump, &keypair);
@@ -1058,11 +1058,11 @@ mod tests {
     #[test]
     fn ensure_registered_updates_when_keys_changed() {
         let funding = Keypair::new();
-        let keypair = ShieldedKeypair::new().unwrap();
+        let keypair = ShieldedKeypair::new_p256().unwrap();
         let owner = funding.pubkey();
         let (_pda, bump) = user_record_pda(&owner);
         // Record exists but with stale keys (a different keypair).
-        let stale = registered_record(owner, bump, &ShieldedKeypair::new().unwrap());
+        let stale = registered_record(owner, bump, &ShieldedKeypair::new_p256().unwrap());
         let rpc = SendMockRpc {
             account: Some(account_at(owner, &stale)),
             ..Default::default()
@@ -1081,7 +1081,7 @@ mod tests {
     #[test]
     fn register_if_absent_writes_when_absent() {
         let funding = Keypair::new();
-        let keypair = ShieldedKeypair::new().unwrap();
+        let keypair = ShieldedKeypair::new_p256().unwrap();
         let rpc = SendMockRpc::default(); // no record -> register path
         let outcome = register_if_absent(&rpc, &funding, &keypair).expect("register_if_absent");
         assert!(matches!(outcome, StrictRegistration::Written(_)));
@@ -1094,7 +1094,7 @@ mod tests {
     #[test]
     fn register_if_absent_is_current_when_matching() {
         let funding = Keypair::new();
-        let keypair = ShieldedKeypair::new().unwrap();
+        let keypair = ShieldedKeypair::new_p256().unwrap();
         let owner = funding.pubkey();
         let (_pda, bump) = user_record_pda(&owner);
         let record = registered_record(owner, bump, &keypair);
@@ -1110,12 +1110,12 @@ mod tests {
     #[test]
     fn register_if_absent_reports_mismatch_without_sending() {
         let funding = Keypair::new();
-        let keypair = ShieldedKeypair::new().unwrap();
+        let keypair = ShieldedKeypair::new_p256().unwrap();
         let owner = funding.pubkey();
         let (_pda, bump) = user_record_pda(&owner);
         // A record exists but with a different identity's keys. Strict semantics
         // must surface the conflict and never send an update_keys transaction.
-        let other = registered_record(owner, bump, &ShieldedKeypair::new().unwrap());
+        let other = registered_record(owner, bump, &ShieldedKeypair::new_p256().unwrap());
         let rpc = SendMockRpc {
             account: Some(account_at(owner, &other)),
             ..Default::default()

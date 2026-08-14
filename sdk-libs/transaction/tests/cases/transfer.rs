@@ -372,7 +372,7 @@ pub(crate) fn stranger_cannot(world: &mut TransactionWorld, name: String) {
         | zolana_event::OutputDataEncoding::Plaintext(blob) => blob,
     };
     let body = blob.get(1..).expect("scheme byte");
-    let stranger = ShieldedKeypair::new().unwrap();
+    let stranger = ShieldedKeypair::new_p256().unwrap();
     let cx = DecodeCx::for_slot(&stranger.viewing_key, tx, slot_index as u32);
     assert!(AnonymousRecipient::decode(body, &cx).is_err());
 }

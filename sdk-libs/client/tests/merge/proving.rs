@@ -24,7 +24,7 @@ impl MergeHarness {
             ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&seed))
                 .expect("eddsa sender keypair")
         } else {
-            ShieldedKeypair::new().expect("sender keypair")
+            ShieldedKeypair::new_p256().expect("sender keypair")
         };
         let asset = Address::default(); // SOL
         let owner = sender.signing_pubkey();

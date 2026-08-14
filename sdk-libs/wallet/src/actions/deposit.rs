@@ -282,7 +282,7 @@ mod tests {
 
     #[test]
     fn prepared_sol_deposit_derives_consistent_material() {
-        let recipient = ShieldedKeypair::new().unwrap();
+        let recipient = ShieldedKeypair::new_p256().unwrap();
         let recipient_address = recipient.shielded_address().unwrap();
         let prepared = create_deposit(DepositParams {
             recipient: &recipient_address,
@@ -303,7 +303,7 @@ mod tests {
 
     #[tokio::test]
     async fn deposit_builder_returns_sendable_unsigned_transaction() {
-        let recipient = ShieldedKeypair::new().expect("recipient");
+        let recipient = ShieldedKeypair::new_p256().expect("recipient");
         let prepared = create_deposit(DepositParams {
             recipient: &recipient.shielded_address().expect("shielded address"),
             asset: SOL_MINT,
@@ -331,7 +331,7 @@ mod tests {
 
     #[test]
     fn prepared_spl_deposit_carries_settlement_accounts() {
-        let recipient = ShieldedKeypair::new().unwrap();
+        let recipient = ShieldedKeypair::new_p256().unwrap();
         let recipient_address = recipient.shielded_address().unwrap();
         let mint = Pubkey::new_unique();
         let user_token = Pubkey::new_unique();

@@ -24,13 +24,13 @@ thiserror = { workspace = true }
 [dev-dependencies]
 hex = { workspace = true }
 solana-address = { workspace = true }
-aws-sdk-kms = { version = "1", features = ["test-util"] }
-aws-smithy-mocks = "0.3"
+aws-sdk-kms = { workspace = true, features = ["test-util"] }
+aws-smithy-mocks = { workspace = true }
 tokio = { workspace = true, features = ["time"] }
 solana-keypair = { workspace = true, features = ["seed-derivable"] }
-solana-derivation-path = "3.0.0"
-solana-seed-phrase = "3.0.0"
-ed25519-dalek-bip32 = "0.3.0"
+solana-derivation-path = { workspace = true }
+solana-seed-phrase = { workspace = true }
+ed25519-dalek-bip32 = { workspace = true }
 
 [[test]]
 name = "keypair"

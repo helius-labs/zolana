@@ -1,8 +1,8 @@
 use zolana_keypair::{
     constants::BLINDING_LEN,
     derivation::{
-        ed25519_derivation_message, DST_DERIVE_P_DERIVE, ED25519_DERIVATION_MSG, P_CONST_SEC1,
-        P_DERIVE_SEC1,
+        ed25519_derivation_message, DST_DERIVE_P_DERIVE, DST_PDA_ROOT_P_PDA, DST_VIEW_ROOT_P_CONST,
+        ED25519_DERIVATION_MSG, P_CONST_SEC1, P_DERIVE_SEC1, P_PDA_SEC1,
     },
     KeypairError, NullifierKey, P256Pubkey, ShieldedKeypair, SigningKey,
 };
@@ -57,7 +57,12 @@ fn p256_ecdh_x(secret: &[u8; 32], point_sec1: &[u8]) -> [u8; 32] {
     x
 }
 
-pub(crate) fn p_derive_matches() {
+/// Every committed point is regenerated from its own DST, so a substituted
+/// point with a known discrete log fails here rather than silently rooting a
+/// forged identity: `P_derive` roots both role keys on the P-256 rail, `P_pda`
+/// roots every single-holder PDA identity, and `P_const` roots `view_root` and
+/// with it every view tag and the transaction-viewing secret.
+pub(crate) fn committed_points_match_dsts() {
     use p256::{
         elliptic_curve::{
             hash2curve::{ExpandMsgXmd, GroupDigest},
@@ -67,11 +72,26 @@ pub(crate) fn p_derive_matches() {
     };
     use sha2::Sha256;
 
-    let point =
-        NistP256::hash_from_bytes::<ExpandMsgXmd<Sha256>>(&[b""], &[DST_DERIVE_P_DERIVE]).unwrap();
-    let sec1 = point.to_affine().to_encoded_point(true);
-    assert_eq!(sec1.as_bytes(), P_DERIVE_SEC1);
-    assert_ne!(P_DERIVE_SEC1, P_CONST_SEC1);
+    let committed = [
+        ("P_derive", DST_DERIVE_P_DERIVE, P_DERIVE_SEC1),
+        ("P_const", DST_VIEW_ROOT_P_CONST, P_CONST_SEC1),
+        ("P_pda", DST_PDA_ROOT_P_PDA, P_PDA_SEC1),
+    ];
+
+    for (name, dst, sec1) in committed {
+        let point = NistP256::hash_from_bytes::<ExpandMsgXmd<Sha256>>(&[b""], &[dst]).unwrap();
+        assert_eq!(
+            point.to_affine().to_encoded_point(true).as_bytes(),
+            sec1,
+            "{name} does not match its DST",
+        );
+    }
+
+    for (index, (name, _, point)) in committed.iter().enumerate() {
+        for (other_name, _, other) in committed.iter().skip(index + 1) {
+            assert_ne!(point, other, "{name} and {other_name} collide");
+        }
+    }
 }
 
 pub(crate) fn derivation_seed_matches_rail_primitives(world: &mut KeypairWorld, key: String) {
@@ -150,7 +170,7 @@ pub(crate) fn rails_differ_for_identical_root_bytes() {
 
 pub(crate) fn ed25519_ecdh_is_not_p256() {
     let ed25519 = SigningKey::from_ed25519_bytes(&[7u8; 32]);
-    let counterparty = P256Pubkey::from_bytes(P_CONST_SEC1).unwrap();
+    let counterparty = zolana_keypair::ViewingKey::new().pubkey();
     assert_eq!(ed25519.ecdh(&counterparty), Err(KeypairError::NotP256));
 }
 
@@ -177,15 +197,19 @@ pub(crate) fn primitives_refuse_derivation_inputs(world: &mut KeypairWorld, key:
         sk.sign_p256_message(ED25519_DERIVATION_MSG),
         Err(KeypairError::DerivationInput)
     );
-    let benign = P256Pubkey::from_bytes(P_CONST_SEC1).unwrap();
+    let benign = zolana_keypair::ViewingKey::new().pubkey();
     assert!(sk.ecdh(&benign).is_ok());
 
-    let p_pda = P256Pubkey::from_bytes(zolana_keypair::derivation::P_PDA_SEC1).unwrap();
+    let p_pda = P256Pubkey::from_bytes(P_PDA_SEC1).unwrap();
     assert_eq!(sk.ecdh(&p_pda), Err(KeypairError::DerivationInput));
+
+    let p_const = P256Pubkey::from_bytes(P_CONST_SEC1).unwrap();
+    assert_eq!(sk.ecdh(&p_const), Err(KeypairError::DerivationInput));
 
     let vk = zolana_keypair::ViewingKey::new();
     assert_eq!(vk.ecdh(&p_derive), Err(KeypairError::DerivationInput));
     assert_eq!(vk.ecdh(&p_pda), Err(KeypairError::DerivationInput));
+    assert_eq!(vk.ecdh(&p_const), Err(KeypairError::DerivationInput));
     assert!(vk.ecdh(&benign).is_ok());
 }
 

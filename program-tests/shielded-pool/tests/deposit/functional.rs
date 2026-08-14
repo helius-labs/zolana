@@ -32,7 +32,7 @@ use shielded_pool_tests::support::{
 fn sol_deposit_moves_lamports_emits_the_exact_output_and_updates_the_indexer() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(5_000_000_000);
-    let recipient_key = ShieldedKeypair::new().expect("recipient keypair");
+    let recipient_key = ShieldedKeypair::new_p256().expect("recipient keypair");
     let mut recipient = Wallet::new(
         recipient_key.shielded_address().expect("shielded address"),
         AssetRegistry::default(),
@@ -233,7 +233,7 @@ fn bootstrap_deposits_keep_indexer_wallet_and_tree_in_sync() {
 
     let depositor = pool.funded_signer(10_000_000_000);
     let mut oracle = SolDepositOracle::capture(&pool.rpc, &tree, &depositor.pubkey());
-    let recipient_keypair = ShieldedKeypair::new().expect("recipient keypair");
+    let recipient_keypair = ShieldedKeypair::new_p256().expect("recipient keypair");
     let mut recipient = Wallet::new(
         recipient_keypair
             .shielded_address()
@@ -316,7 +316,7 @@ fn ring_sol_deposit_settles_and_indexes_the_exact_output() {
 
     let tree = pool.tree.pubkey();
     let depositor = pool.funded_signer(5_000_000_000);
-    let recipient_key = ShieldedKeypair::new().expect("recipient keypair");
+    let recipient_key = ShieldedKeypair::new_p256().expect("recipient keypair");
     let mut recipient = Wallet::new(
         recipient_key.shielded_address().expect("shielded address"),
         AssetRegistry::default(),
@@ -450,7 +450,7 @@ fn ring_deposit_batch_binds_distinct_ring_data_per_entry() {
 
     let tree = pool.tree.pubkey();
     let depositor = pool.funded_signer(2_000_000_000);
-    let recipient_key = ShieldedKeypair::new().expect("recipient keypair");
+    let recipient_key = ShieldedKeypair::new_p256().expect("recipient keypair");
     let recipient = recipient_key
         .shielded_address()
         .expect("recipient shielded address");
@@ -555,7 +555,7 @@ fn ring_spl_deposit_settles_and_indexes_the_exact_output() {
         .expect("create ring config");
     let (mint, _, vault) = register_mint(&mut pool);
     let (depositor, user_token) = spl_depositor(&mut pool, mint, 1_000_000);
-    let recipient_key = ShieldedKeypair::new().expect("recipient keypair");
+    let recipient_key = ShieldedKeypair::new_p256().expect("recipient keypair");
     let mut recipient = Wallet::new(
         recipient_key.shielded_address().expect("shielded address"),
         AssetRegistry::default(),

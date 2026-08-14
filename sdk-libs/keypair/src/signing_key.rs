@@ -100,6 +100,12 @@ impl SigningKey {
         }
     }
 
+    /// The derivation-input guard is meaningful on the ed25519 arm, where
+    /// `msg` is the message itself and signing it would yield the derivation
+    /// seed. The P256 arm takes a prehash, so the check can only fire on a
+    /// digest that happens to start with the prefix; that rail's seed is
+    /// `ECDH(sk, P_derive)`, guarded by the committed-point check in
+    /// [`Self::ecdh`].
     // TODO: rename to be consistent with ShieldedKeypair
     pub fn sign(&self, msg: &[u8]) -> Result<[u8; 64], KeypairError> {
         if derivation::is_derivation_input(msg) {

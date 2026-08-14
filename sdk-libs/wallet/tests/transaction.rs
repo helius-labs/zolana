@@ -671,7 +671,7 @@ fn withdrawal_sets_external_data_and_change() {
 #[test]
 fn default_transact_rejects_p256_and_uses_eddsa() {
     let mut rng = rand::thread_rng();
-    let sender = ShieldedKeypair::new().unwrap();
+    let sender = ShieldedKeypair::new_p256().unwrap();
 
     let p256_transfer = ConfidentialTransfer::new(
         sender.shielded_address().unwrap(),

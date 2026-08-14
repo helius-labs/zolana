@@ -289,7 +289,7 @@ mod tests {
 
     #[test]
     fn accepts_matching_plain_inputs_and_pads_to_shape() {
-        let keypair = ShieldedKeypair::new().expect("keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("keypair");
         let inputs = vec![
             plain_input(&keypair, Address::default(), 10),
             plain_input(&keypair, Address::default(), 20),
@@ -303,8 +303,8 @@ mod tests {
 
     #[test]
     fn rejects_input_owned_by_a_different_key() {
-        let keypair = ShieldedKeypair::new().expect("keypair");
-        let other = ShieldedKeypair::new().expect("other keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("keypair");
+        let other = ShieldedKeypair::new_p256().expect("other keypair");
         // Same rail (both P256), different owner: the exact-owner check fires.
         let mut input = plain_input(&keypair, Address::default(), 10);
         input.utxo.owner = other.signing_pubkey();
@@ -321,8 +321,8 @@ mod tests {
 
     #[test]
     fn rejects_input_with_a_different_nullifier_key() {
-        let keypair = ShieldedKeypair::new().expect("keypair");
-        let other = ShieldedKeypair::new().expect("other keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("keypair");
+        let other = ShieldedKeypair::new_p256().expect("other keypair");
         let utxo = Utxo {
             owner: keypair.signing_pubkey(),
             asset: Address::default(),
@@ -345,7 +345,7 @@ mod tests {
 
     #[test]
     fn rejects_ring_bound_input() {
-        let keypair = ShieldedKeypair::new().expect("keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("keypair");
         let mut input = plain_input(&keypair, Address::default(), 10);
         input.utxo.ring_program_id = Some(Address::new_from_array([3u8; 32]));
 
@@ -358,7 +358,7 @@ mod tests {
 
     #[test]
     fn rejects_input_carrying_inline_data() {
-        let keypair = ShieldedKeypair::new().expect("keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("keypair");
         let mut input = plain_input(&keypair, Address::default(), 10);
         input.utxo.data = Data::new(vec![DataRecord::Memo(b"utxo".to_vec())]);
 
@@ -371,7 +371,7 @@ mod tests {
 
     #[test]
     fn rejects_input_carrying_a_committed_data_hash() {
-        let keypair = ShieldedKeypair::new().expect("keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("keypair");
         let input = plain_input(&keypair, Address::default(), 10).with_data_hash([1u8; 32]);
 
         let Err(error) = Merge::new(&keypair, vec![input]) else {
@@ -387,7 +387,7 @@ mod tests {
         seed.copy_from_slice(&random_blinding());
         let eddsa = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&seed))
             .expect("eddsa keypair");
-        let p256 = ShieldedKeypair::new().expect("p256 keypair");
+        let p256 = ShieldedKeypair::new_p256().expect("p256 keypair");
         // A P256-owned input under an ed25519 merging keypair mismatches the rail.
         let input = plain_input(&p256, Address::default(), 10);
 

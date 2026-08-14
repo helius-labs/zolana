@@ -117,7 +117,7 @@ impl<D> Actor<D> {
     /// authorization is proved inside RingP256; the harness payer funds and
     /// signs its transactions.
     pub fn p256() -> Result<Self> {
-        let keypair = ShieldedKeypair::new()?;
+        let keypair = ShieldedKeypair::new_p256()?;
         let wallet = Wallet::new(keypair.shielded_address()?, AssetRegistry::default())?;
         Ok(Self {
             keypair,

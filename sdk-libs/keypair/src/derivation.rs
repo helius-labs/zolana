@@ -243,11 +243,14 @@ pub(crate) fn p_pda() -> P256Pubkey {
 }
 
 /// Committed points whose shared secret is a derivation root; the generic ecdh
-/// entry points refuse them. `P_const` is deliberately absent: `view_root`
-/// expands per-purpose secrets, not identity roles.
+/// entry points refuse all three. `ECDH(viewing_sk, P_const)` is the IKM
+/// `view_root` extracts from, so handing it to a caller hands over every view
+/// tag and the transaction-viewing secret. The roots themselves are reached
+/// through [`view_root`] and the `ecdh_raw` entry points, which bypass this
+/// check.
 pub(crate) fn is_derivation_point(pubkey: &P256Pubkey) -> bool {
     let bytes = pubkey.as_bytes();
-    bytes == &P_DERIVE_SEC1 || bytes == &P_PDA_SEC1
+    bytes == &P_DERIVE_SEC1 || bytes == &P_PDA_SEC1 || bytes == &P_CONST_SEC1
 }
 
 /// `view_root = HKDF-Extract(salt=∅, IKM=ECDH(viewing_sk, P_const))` — the PRK

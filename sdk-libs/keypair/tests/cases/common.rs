@@ -21,5 +21,7 @@ pub(crate) fn p256_signing_key_from_scalar(world: &mut KeypairWorld, name: Strin
 }
 
 pub(crate) fn random_shielded_keypair(world: &mut KeypairWorld, name: String) {
-    world.shielded.insert(name, ShieldedKeypair::new().unwrap());
+    world
+        .shielded
+        .insert(name, ShieldedKeypair::new_p256().unwrap());
 }

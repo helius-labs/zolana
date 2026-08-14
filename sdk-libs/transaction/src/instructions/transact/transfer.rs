@@ -653,7 +653,10 @@ mod tests {
 
     #[test]
     fn transfer_accepts_many_same_asset_settlements_up_to_limit() {
-        let owner = ShieldedKeypair::new().unwrap().shielded_address().unwrap();
+        let owner = ShieldedKeypair::new_p256()
+            .unwrap()
+            .shielded_address()
+            .unwrap();
         let mut transfer = ConfidentialTransfer::new(owner, vec![], Address::default());
         for seed in 1..=zolana_interface::MAX_INTERFACE_TRANSFERS {
             let address_seed = u8::try_from(seed).expect("interface transfer index fits u8");
@@ -689,7 +692,10 @@ mod tests {
 
     #[test]
     fn transfer_rejects_target_mismatch_and_zero_but_accepts_full_u64() {
-        let owner = ShieldedKeypair::new().unwrap().shielded_address().unwrap();
+        let owner = ShieldedKeypair::new_p256()
+            .unwrap()
+            .shielded_address()
+            .unwrap();
         let mut transfer = ConfidentialTransfer::new(owner, vec![], Address::default());
         assert!(matches!(
             transfer.deposit(

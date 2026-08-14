@@ -83,7 +83,7 @@ fn nullifiers_bind_every_input_and_match_the_golden_vector() {
 #[test]
 fn nullifier_rails_are_hsm_derivable() {
     let mut world = KeypairWorld::default();
-    cases::nullifier::p_derive_matches();
+    cases::nullifier::committed_points_match_dsts();
     cases::common::random_p256_signing_key(&mut world, "k".into());
     cases::nullifier::derivation_seed_matches_rail_primitives(&mut world, "k".into());
     cases::nullifier::p256_rail_matches_ecdh_entry_point(&mut world, "k".into());
@@ -137,6 +137,7 @@ fn shielded_keypair_facade_round_trips_full_transfers() {
     );
     cases::shielded::from_keypair_roots_both_keys_in_one_seed(&mut world, "signing".into());
     cases::shielded::new_derives_viewing_key_from_signing_key(&mut world, "alice".into());
+    cases::shielded::random_constructors_pick_their_rail();
     cases::shielded::solana_signer_matches_solana_keypair();
 
     cases::common::random_shielded_keypair(&mut world, "sender".into());

@@ -1,3 +1,4 @@
+use solana_signer::SignerError;
 use thiserror::Error;
 use zolana_hasher::HasherError;
 
@@ -43,5 +44,11 @@ pub enum KeypairError {
 impl From<HasherError> for KeypairError {
     fn from(error: HasherError) -> Self {
         Self::Poseidon(error.into())
+    }
+}
+
+impl From<KeypairError> for SignerError {
+    fn from(error: KeypairError) -> Self {
+        Self::Custom(error.to_string())
     }
 }

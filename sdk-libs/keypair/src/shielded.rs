@@ -90,21 +90,18 @@ impl AsRef<NullifierKey> for ShieldedKeypair {
 
 impl Signer for ShieldedKeypair {
     fn try_pubkey(&self) -> Result<solana_address::Address, SignerError> {
-        let bytes = self
-            .signing_pubkey()
-            .as_ed25519()
-            .map_err(|e| SignerError::Custom(e.to_string()))?;
+        if self.signing_key.curve() != Curve::Ed25519 {
+            return Err(KeypairError::NoSolanaAddress.into());
+        }
+        let bytes = self.signing_pubkey().as_ed25519()?;
         Ok(solana_address::Address::new_from_array(bytes))
     }
 
     fn try_sign_message(&self, message: &[u8]) -> Result<solana_keypair::Signature, SignerError> {
         if self.signing_key.curve() != Curve::Ed25519 {
-            return Err(SignerError::Custom(KeypairError::NotEd25519.to_string()));
+            return Err(KeypairError::NotEd25519.into());
         }
-        let sig = self
-            .sign(message)
-            .map_err(|e| SignerError::Custom(e.to_string()))?;
-        Ok(solana_keypair::Signature::from(sig))
+        Ok(solana_keypair::Signature::from(self.sign(message)?))
     }
 
     fn is_interactive(&self) -> bool {
@@ -113,8 +110,17 @@ impl Signer for ShieldedKeypair {
 }
 
 impl ShieldedKeypair {
-    pub fn new() -> Result<Self, KeypairError> {
+    /// A fresh random keypair on the P-256 rail: both role keys expand from
+    /// `ECDH(signing_sk, P_derive)`.
+    pub fn new_p256() -> Result<Self, KeypairError> {
         Self::from_keypair(SigningKey::new_p256())
+    }
+
+    /// A fresh random keypair on the ed25519 rail: both role keys expand from
+    /// the deterministic signature over the derivation message, and the owner
+    /// has a Solana address.
+    pub fn new_ed25519() -> Result<Self, KeypairError> {
+        Self::from_keypair(SigningKey::new_ed25519())
     }
 
     pub fn from_keypair<K>(keypair: K) -> Result<Self, KeypairError>

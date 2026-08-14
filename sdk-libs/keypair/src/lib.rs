@@ -24,7 +24,7 @@
 //!   keys: P-256 for shielded owners, Ed25519 for Solana-only owners.
 //!
 //! # Hashing
-//! - [`hash`] — Poseidon helpers plus [`PublicKey::hash`] and
+//! - [`hash`] — Poseidon helpers plus [`PublicKey::owner_proof_input_hash`] and
 //!   [`hash::owner_hash`], which compress an address into its `owner_hash`.
 //!
 //! # Wallet flow

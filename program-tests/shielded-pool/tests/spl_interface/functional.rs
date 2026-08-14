@@ -141,7 +141,7 @@ fn spl_deposit_moves_tokens_emits_the_exact_output_and_updates_the_indexer() {
     let mut pool = Pool::initialized();
     let (mint, _, vault) = register_mint(&mut pool);
     let (depositor, user_token) = spl_depositor(&mut pool, mint, 1_000_000);
-    let recipient_key = ShieldedKeypair::new().expect("recipient keypair");
+    let recipient_key = ShieldedKeypair::new_p256().expect("recipient keypair");
     let mut recipient = Wallet::new(
         recipient_key.shielded_address().expect("shielded address"),
         AssetRegistry::default(),
