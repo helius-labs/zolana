@@ -124,6 +124,7 @@ where
             // Cursors come out of the wallet and go back rather than staying
             // borrowed, because `wallet` is needed mutably further down.
             let mut cursors = std::mem::take(&mut wallet.sync_cursors);
+            let mut nullifier_cursors = std::mem::take(&mut wallet.nullifier_cursors);
             let mut by_nullifier: HashMap<String, ShieldedTransaction> = HashMap::new();
             // One gate for the whole round, not one per call: every query in a
             // round should read the chain at the same freshness bound, and
@@ -152,6 +153,7 @@ where
                         &mut by_nullifier,
                         config,
                         gate,
+                        &mut nullifier_cursors,
                         &mut nullifier_scanned_to_tip,
                     )
                 });
@@ -174,6 +176,7 @@ where
             });
 
             wallet.sync_cursors = cursors;
+            wallet.nullifier_cursors = nullifier_cursors;
             // Propagate a panic rather than swallowing it into a sync error: a
             // panicked fetch means a bug here, not an unreachable indexer.
             let tag_result = tag_result.unwrap_or_else(|payload| resume_unwind(payload));
@@ -191,6 +194,7 @@ where
                 transactions.entry(key).or_insert(tx);
             }
             timing::note(round, "tag_cursors", wallet.sync_cursors.len());
+            timing::note(round, "nullifier_cursors", wallet.nullifier_cursors.len());
         }
         timing::note(round, "transactions", transactions.len());
         timing::note(round, "proofless_deposits", proofless_deposits.len());
@@ -295,15 +299,19 @@ where
         .await;
         wallet.sync_cursors = cursors;
         fetched?;
-        fetch_shielded_transactions_by_nullifiers_async(
+        let mut nullifier_cursors = std::mem::take(&mut wallet.nullifier_cursors);
+        let nullifiers_fetched = fetch_shielded_transactions_by_nullifiers_async(
             indexer,
             &nullifiers,
             &mut transactions,
             config,
             freshness_gate.take(),
+            &mut nullifier_cursors,
             &mut nullifier_scanned_to_tip,
         )
-        .await?;
+        .await;
+        wallet.nullifier_cursors = nullifier_cursors;
+        nullifiers_fetched?;
         fetch_proofless_deposits_async(
             indexer,
             &tags,
@@ -664,76 +672,135 @@ async fn fetch_shielded_transactions_incremental_async<I: AsyncRpc>(
     Ok(())
 }
 
+/// Fetch spends of `nullifiers`, resuming each from where it was last checked.
+///
+/// The resume point comes from the indexer's `scanned_through`, not from the
+/// rows: an unspent nullifier matches nothing, so there is no last row to take a
+/// position from. That is the whole difficulty here and the reason this cannot
+/// be modelled on the tag path, whose cursor rides on rows it actually returns.
+///
+/// The position is per-nullifier rather than one shared value because it is only
+/// sound for the set that was asked about: a scan over {A, B, C} says nothing
+/// about D. A nullifier with no entry is queried from zero, which is wasteful
+/// rather than wrong.
+///
+/// An indexer that does not report `scanned_through` simply never populates
+/// `cursors`, which is exactly the old behaviour.
 fn fetch_shielded_transactions_by_nullifiers<I: Rpc>(
     indexer: &I,
     nullifiers: &[[u8; 32]],
     out: &mut HashMap<String, ShieldedTransaction>,
     config: SyncWalletConfig,
     rpc_config: Option<IndexerRpcConfig>,
+    cursors: &mut HashMap<[u8; 32], Vec<u8>>,
     scanned_to_tip: &mut HashSet<[u8; 32]>,
 ) -> Result<(), ClientError> {
-    let pending: Vec<[u8; 32]> = nullifiers
-        .iter()
-        .copied()
-        .filter(|nullifier| !scanned_to_tip.contains(nullifier))
-        .collect();
-    for chunk in pending.chunks(config.tag_query_chunk) {
-        let mut cursor = None;
-        loop {
-            let response = indexer.get_shielded_transactions_by_nullifiers(
-                chunk.to_vec(),
-                cursor,
-                Some(config.page_limit),
-                rpc_config,
-            )?;
-            for tx in response.transactions.into_iter().filter(|tx| !tx.proofless) {
-                let key = tx.tx_signature.to_string();
-                out.entry(key).or_insert(convert_sync_transaction(tx)?);
-            }
-            cursor = response.next_cursor;
-            if cursor.is_none() {
-                break;
-            }
+    // Group by resume point, exactly as the tag path does. In the steady state
+    // every known nullifier shares one position and newly created ones have
+    // none, so this is two queries however many UTXOs the wallet holds.
+    let mut groups: HashMap<Option<Vec<u8>>, Vec<[u8; 32]>> = HashMap::new();
+    for nullifier in nullifiers {
+        if scanned_to_tip.contains(nullifier) {
+            continue;
         }
-        scanned_to_tip.extend(chunk.iter().copied());
+        groups
+            .entry(cursors.get(nullifier).cloned())
+            .or_default()
+            .push(*nullifier);
+    }
+
+    for (start, group) in groups {
+        for chunk in group.chunks(config.tag_query_chunk) {
+            let mut cursor = start.clone();
+            let mut resume = None;
+            loop {
+                let response = indexer.get_shielded_transactions_by_nullifiers(
+                    chunk.to_vec(),
+                    cursor,
+                    Some(config.page_limit),
+                    rpc_config,
+                )?;
+                for tx in response.transactions.into_iter().filter(|tx| !tx.proofless) {
+                    let key = tx.tx_signature.to_string();
+                    out.entry(key).or_insert(convert_sync_transaction(tx)?);
+                }
+                if response.scanned_through.is_some() {
+                    resume = response.scanned_through;
+                }
+                cursor = response.next_cursor;
+                if cursor.is_none() {
+                    break;
+                }
+            }
+
+            if let Some(position) = resume {
+                for nullifier in chunk {
+                    cursors.insert(*nullifier, position.clone());
+                }
+            }
+            scanned_to_tip.extend(chunk.iter().copied());
+        }
     }
     Ok(())
 }
 
+/// Async twin of [`fetch_shielded_transactions_by_nullifiers`], kept deliberately
+/// parallel rather than shared for the same reason as the tag pair: the two
+/// differ only in `.await`, and an async client that missed the per-nullifier
+/// resume rule would rescan the whole stream on every sync.
 async fn fetch_shielded_transactions_by_nullifiers_async<I: AsyncRpc>(
     indexer: &I,
     nullifiers: &[[u8; 32]],
     out: &mut HashMap<String, ShieldedTransaction>,
     config: SyncWalletConfig,
     rpc_config: Option<IndexerRpcConfig>,
+    cursors: &mut HashMap<[u8; 32], Vec<u8>>,
     scanned_to_tip: &mut HashSet<[u8; 32]>,
 ) -> Result<(), ClientError> {
-    let pending: Vec<[u8; 32]> = nullifiers
-        .iter()
-        .copied()
-        .filter(|nullifier| !scanned_to_tip.contains(nullifier))
-        .collect();
-    for chunk in pending.chunks(config.tag_query_chunk) {
-        let mut cursor = None;
-        loop {
-            let response = indexer
-                .get_shielded_transactions_by_nullifiers(
-                    chunk.to_vec(),
-                    cursor,
-                    Some(config.page_limit),
-                    rpc_config,
-                )
-                .await?;
-            for tx in response.transactions.into_iter().filter(|tx| !tx.proofless) {
-                let key = tx.tx_signature.to_string();
-                out.entry(key).or_insert(convert_sync_transaction(tx)?);
-            }
-            cursor = response.next_cursor;
-            if cursor.is_none() {
-                break;
-            }
+    let mut groups: HashMap<Option<Vec<u8>>, Vec<[u8; 32]>> = HashMap::new();
+    for nullifier in nullifiers {
+        if scanned_to_tip.contains(nullifier) {
+            continue;
         }
-        scanned_to_tip.extend(chunk.iter().copied());
+        groups
+            .entry(cursors.get(nullifier).cloned())
+            .or_default()
+            .push(*nullifier);
+    }
+
+    for (start, group) in groups {
+        for chunk in group.chunks(config.tag_query_chunk) {
+            let mut cursor = start.clone();
+            let mut resume = None;
+            loop {
+                let response = indexer
+                    .get_shielded_transactions_by_nullifiers(
+                        chunk.to_vec(),
+                        cursor,
+                        Some(config.page_limit),
+                        rpc_config,
+                    )
+                    .await?;
+                for tx in response.transactions.into_iter().filter(|tx| !tx.proofless) {
+                    let key = tx.tx_signature.to_string();
+                    out.entry(key).or_insert(convert_sync_transaction(tx)?);
+                }
+                if response.scanned_through.is_some() {
+                    resume = response.scanned_through;
+                }
+                cursor = response.next_cursor;
+                if cursor.is_none() {
+                    break;
+                }
+            }
+
+            if let Some(position) = resume {
+                for nullifier in chunk {
+                    cursors.insert(*nullifier, position.clone());
+                }
+            }
+            scanned_to_tip.extend(chunk.iter().copied());
+        }
     }
     Ok(())
 }
@@ -1008,7 +1075,7 @@ mod tests {
             nullifiers: &[[u8; 32]],
             cursor: Option<Vec<u8>>,
             limit: usize,
-        ) -> (Vec<ShieldedTransaction>, Option<Vec<u8>>) {
+        ) -> (Vec<ShieldedTransaction>, Option<Vec<u8>>, Option<Vec<u8>>) {
             let after = cursor.as_ref().map(|bytes| {
                 u64::from_be_bytes(bytes.as_slice().try_into().expect("8-byte cursor"))
             });
@@ -1027,6 +1094,12 @@ mod tests {
             rows.truncate(limit);
 
             let next = rows.last().map(|(slot, _)| slot.to_be_bytes().to_vec());
+            // Photon's rule: the frontier is reported only when the limit did
+            // not cut the scan short, and it is the tip of the whole stream --
+            // not of the matching rows, of which there are usually none.
+            let scanned_through = (rows.len() < limit)
+                .then(|| self.stream_tip().map(|slot| slot.to_be_bytes().to_vec()))
+                .flatten();
             let transactions = rows
                 .into_iter()
                 .map(|(slot, nullifier)| ShieldedTransaction {
@@ -1040,7 +1113,17 @@ mod tests {
                     proofless: false,
                 })
                 .collect();
-            (transactions, next)
+            (transactions, next, scanned_through)
+        }
+
+        /// The greatest position in the stream, matching or not, as photon reads
+        /// it straight off `rings_transactions`.
+        fn stream_tip(&self) -> Option<u64> {
+            self.entries
+                .iter()
+                .map(|(slot, _)| *slot)
+                .chain(self.spends.iter().map(|(slot, _)| *slot))
+                .max()
         }
     }
 
@@ -1114,6 +1197,10 @@ mod tests {
                     .cloned()
                     .collect(),
                 next_cursor: None,
+                // This mock answers everything in one page and never paginates,
+                // so it has no frontier to report; the resume path is covered by
+                // TaggedIndexer instead.
+                scanned_through: None,
             })
         }
     }
@@ -1175,7 +1262,8 @@ mod tests {
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
             let limit = limit.unwrap_or(1_000).max(1) as usize;
-            let (transactions, next_cursor) = self.matching_nullifiers(&nullifiers, cursor, limit);
+            let (transactions, next_cursor, scanned_through) =
+                self.matching_nullifiers(&nullifiers, cursor, limit);
             Ok(GetShieldedTransactionsByNullifiersResponse {
                 context: Context {
                     block_time: 0,
@@ -1183,6 +1271,7 @@ mod tests {
                 },
                 transactions,
                 next_cursor,
+                scanned_through,
             })
         }
     }
@@ -1343,6 +1432,7 @@ mod tests {
             &mut HashMap::new(),
             SyncWalletConfig::default(),
             None,
+            &mut HashMap::new(),
             &mut HashSet::new(),
         )
         .expect("fetch");
@@ -1351,6 +1441,63 @@ mod tests {
             *indexer.nullifier_calls.borrow(),
             vec![(1, None)],
             "one request carrying one nullifier, not the whole utxo history"
+        );
+    }
+
+    /// A second sync resumes the nullifier stream instead of walking it again.
+    ///
+    /// This is what the indexer's `scanned_through` buys. The rows cannot supply
+    /// it: an unspent nullifier matches nothing, so there is no last row whose
+    /// position could be remembered, and every sync would start from zero.
+    #[test]
+    fn a_second_sync_resumes_the_nullifier_stream() {
+        let unspent = [7u8; 32];
+        // A stream with traffic in it, none of which spends `unspent`.
+        let indexer = TaggedIndexer {
+            spends: vec![(10, [9u8; 32]), (50, [9u8; 32])],
+            ..Default::default()
+        };
+
+        let config = SyncWalletConfig::default();
+        let mut out = HashMap::new();
+        let mut cursors: HashMap<[u8; 32], Vec<u8>> = HashMap::new();
+
+        fetch_shielded_transactions_by_nullifiers(
+            &indexer,
+            &[unspent],
+            &mut out,
+            config,
+            None,
+            &mut cursors,
+            &mut HashSet::new(),
+        )
+        .expect("first sync");
+
+        assert_eq!(
+            cursors
+                .get(&unspent)
+                .map(|c| u64::from_be_bytes(c.as_slice().try_into().expect("8-byte cursor"))),
+            Some(50),
+            "nothing matched, but the scan still reached the tip of the stream"
+        );
+
+        // A fresh scanned_to_tip, as a later sync would have.
+        indexer.nullifier_calls.borrow_mut().clear();
+        fetch_shielded_transactions_by_nullifiers(
+            &indexer,
+            &[unspent],
+            &mut out,
+            config,
+            None,
+            &mut cursors,
+            &mut HashSet::new(),
+        )
+        .expect("second sync");
+
+        assert_eq!(
+            *indexer.nullifier_calls.borrow(),
+            vec![(1, Some(50))],
+            "the second sync resumes at 50 rather than rescanning from zero"
         );
     }
 

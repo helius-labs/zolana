@@ -315,6 +315,7 @@ impl Rpc for ZolanaIndexer {
                         })
                         .collect::<Result<Vec<_>, _>>()?,
                     next_cursor: response.next_cursor.map(Into::into),
+                    scanned_through: response.scanned_through.map(Into::into),
                 })
             },
         )
@@ -526,6 +527,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
                         })
                         .collect::<Result<Vec<_>, _>>()?,
                     next_cursor: response.next_cursor.map(Into::into),
+                    scanned_through: response.scanned_through.map(Into::into),
                 })
             },
         )
@@ -1075,6 +1077,7 @@ mod tests {
                 },
                 transactions: vec![],
                 next_cursor: None,
+                scanned_through: None,
             }
         );
     }
