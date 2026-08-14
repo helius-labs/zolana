@@ -145,8 +145,18 @@ pub struct Wallet {
     pub nullifiers: HashSet<[u8; 32]>,
     pub last_synced: i64,
     /// Per-view-tag sync watermarks: for each tag, the indexer cursor up to which
-    /// every matching transaction has already been seen.    
+    /// every matching transaction has already been seen.
     pub sync_cursors: HashMap<ViewTag, Vec<u8>>,
+    /// The same watermark for the nullifier stream: for each unspent nullifier,
+    /// the position through which no spend of it exists.
+    ///
+    /// Separate from [`Self::sync_cursors`] because the two are separate streams
+    /// -- reaching the tip of one says nothing about the other -- and because an
+    /// entry here means the opposite thing: a tag cursor records what has been
+    /// found, a nullifier cursor records how far it has been confirmed absent.
+    /// Entries are dropped once the nullifier is spent, since the question is
+    /// then answered for good.
+    pub nullifier_cursors: HashMap<[u8; 32], Vec<u8>>,
 }
 
 impl Wallet {
@@ -164,6 +174,7 @@ impl Wallet {
             nullifiers: HashSet::new(),
             last_synced: 0,
             sync_cursors: HashMap::new(),
+            nullifier_cursors: HashMap::new(),
         })
     }
 
