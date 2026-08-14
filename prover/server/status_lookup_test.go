@@ -19,6 +19,7 @@ import (
 
 func TestJobStatusStartsQueued(t *testing.T) {
 	queue := setupRedisQueue(t)
+	defer teardownRedisQueue(t, queue)
 	jobID := uuid.NewString()
 
 	if err := queue.StoreJobMeta(jobID, "zk_transfer_queue", "transfer"); err != nil {
@@ -36,6 +37,7 @@ func TestJobStatusStartsQueued(t *testing.T) {
 
 func TestMarkJobProcessingIsVisibleWithoutScanningQueues(t *testing.T) {
 	queue := setupRedisQueue(t)
+	defer teardownRedisQueue(t, queue)
 	jobID := uuid.NewString()
 
 	if err := queue.StoreJobMeta(jobID, "zk_transfer_queue", "transfer"); err != nil {
@@ -64,6 +66,7 @@ func TestMarkJobProcessingIsVisibleWithoutScanningQueues(t *testing.T) {
 
 func TestMarkJobProcessingKeepsTheSubmissionExpiry(t *testing.T) {
 	queue := setupRedisQueue(t)
+	defer teardownRedisQueue(t, queue)
 	jobID := uuid.NewString()
 
 	if err := queue.StoreJobMeta(jobID, "zk_transfer_queue", "transfer"); err != nil {
@@ -87,8 +90,33 @@ func TestMarkJobProcessingKeepsTheSubmissionExpiry(t *testing.T) {
 	}
 }
 
+// A keep-TTL write must never leave a key without an expiry, whatever it finds:
+// a zk_job_meta_* key with no expiry answers "processing" for every later poll
+// of that id, forever.
+//
+// This pins the invariant, not the race that motivated the script. The race --
+// the key expiring between reading its TTL and writing the value -- cannot be
+// staged from a test, since both commands are issued back to back by the same
+// caller; the script removes it by construction rather than by check.
+func TestMarkJobProcessingAlwaysLeavesAnExpiry(t *testing.T) {
+	queue := setupRedisQueue(t)
+	defer teardownRedisQueue(t, queue)
+	jobID := uuid.NewString()
+
+	// No StoreJobMeta first: this is the metadata-already-expired case.
+	if err := queue.MarkJobProcessing(jobID); err != nil {
+		t.Fatalf("mark processing: %v", err)
+	}
+
+	ttl := queue.Client.TTL(queue.Ctx, "zk_job_meta_"+jobID).Val()
+	if ttl <= 0 {
+		t.Fatalf("TTL = %v, want a fresh expiry on a recreated key", ttl)
+	}
+}
+
 func TestMarkJobFailedCarriesTheReason(t *testing.T) {
 	queue := setupRedisQueue(t)
+	defer teardownRedisQueue(t, queue)
 	jobID := uuid.NewString()
 
 	if err := queue.StoreJobMeta(jobID, "zk_transfer_queue", "transfer"); err != nil {
@@ -125,6 +153,7 @@ func TestMarkJobFailedCarriesTheReason(t *testing.T) {
 // minutes against an idle prover.
 func TestMarkJobFailedRecreatesExpiredMetadata(t *testing.T) {
 	queue := setupRedisQueue(t)
+	defer teardownRedisQueue(t, queue)
 	jobID := uuid.NewString()
 
 	if meta, err := queue.GetJobMeta(jobID); err != nil || meta != nil {
