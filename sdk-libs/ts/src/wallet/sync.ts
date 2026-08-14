@@ -368,13 +368,24 @@ interface CollectByNullifiersInput {
   readonly pageLimit: number;
   readonly nextRpcConfig: () => IndexerRpcConfig;
   readonly out: Map<string, IndexedShieldedTransaction>;
+  /** Where this chunk was read to last time, if it has been read before. */
+  readonly start?: Uint8Array;
 }
 
+/**
+ * Returns how far the scan reached, or `undefined` if the indexer did not say.
+ *
+ * The position comes from `scannedThrough`, not from the rows: an unspent
+ * nullifier matches nothing, so there is no last row to take a position from.
+ * An indexer that does not report it leaves the caller starting from zero next
+ * time, which is exactly the old behaviour.
+ */
 async function collectShieldedTransactionsByNullifiers(
   input: CollectByNullifiersInput,
   context?: RequestContext,
-): Promise<void> {
-  let cursor: Uint8Array | undefined;
+): Promise<Uint8Array | undefined> {
+  let cursor = input.start;
+  let resume: Uint8Array | undefined;
   const seenCursors = new Set<string>();
   do {
     const response = await input.indexer.getShieldedTransactionsByNullifiers(
@@ -391,12 +402,14 @@ async function collectShieldedTransactionsByNullifiers(
       const key = shieldedTransactionKey(transaction);
       if (!input.out.has(key)) input.out.set(key, transaction);
     }
+    if (response.scannedThrough !== undefined) resume = response.scannedThrough;
     cursor = checkedNextCursor(
       "getShieldedTransactionsByNullifiers",
       response.nextCursor,
       seenCursors,
     );
   } while (cursor !== undefined);
+  return resume;
 }
 
 export async function syncWallet(
@@ -469,21 +482,46 @@ export async function syncWallet(
       }
     }
 
+    const scanNullifiers = async (nullifiers: readonly Bytes32[]): Promise<void> => {
+      // Grouped by resume point for the same reason tags are: a chunk carries
+      // one cursor, and a nullifier learned this sync must not inherit the
+      // position of one already at the tip.
+      const groups = new Map<string, { from: Uint8Array | undefined; nullifiers: Bytes32[] }>();
+      for (const nullifier of nullifiers) {
+        const from = input.wallet._syncCursor("nullifiers", bytesKey(nullifier));
+        const key = from === undefined ? "" : bytesKey(from);
+        const group = groups.get(key);
+        if (group === undefined) groups.set(key, { from, nullifiers: [nullifier] });
+        else group.nullifiers.push(nullifier);
+      }
+
+      for (const group of groups.values()) {
+        for (let offset = 0; offset < group.nullifiers.length; offset += chunkSize) {
+          const chunk = group.nullifiers.slice(offset, offset + chunkSize);
+          const furthest = await collectShieldedTransactionsByNullifiers(
+            {
+              indexer: input.client,
+              chunk,
+              pageLimit,
+              nextRpcConfig,
+              out: transactions,
+              ...(group.from === undefined ? {} : { start: group.from }),
+            },
+            context,
+          );
+          if (furthest !== undefined) {
+            for (const nullifier of chunk) {
+              input.wallet._setSyncCursor("nullifiers", bytesKey(nullifier), furthest);
+            }
+          }
+        }
+      }
+    };
+
     const queriedNullifiers = new Set<string>();
     const initialNullifiers = walletQueryNullifiers(input.wallet);
     for (const nullifier of initialNullifiers) queriedNullifiers.add(bytesKey(nullifier));
-    for (let offset = 0; offset < initialNullifiers.length; offset += chunkSize) {
-      await collectShieldedTransactionsByNullifiers(
-        {
-          indexer: input.client,
-          chunk: initialNullifiers.slice(offset, offset + chunkSize),
-          pageLimit,
-          nextRpcConfig,
-          out: transactions,
-        },
-        context,
-      );
-    }
+    await scanNullifiers(initialNullifiers);
 
     const orderedTransactions = (): readonly IndexedShieldedTransaction[] => [
       ...[...transactions.values()].sort(compareBySlotThenSignature),
@@ -521,18 +559,7 @@ export async function syncWallet(
       (nullifier) => !queriedNullifiers.has(bytesKey(nullifier)),
     );
     const beforeFollowUp = transactions.size;
-    for (let offset = 0; offset < followUpNullifiers.length; offset += chunkSize) {
-      await collectShieldedTransactionsByNullifiers(
-        {
-          indexer: input.client,
-          chunk: followUpNullifiers.slice(offset, offset + chunkSize),
-          pageLimit,
-          nextRpcConfig,
-          out: transactions,
-        },
-        context,
-      );
-    }
+    await scanNullifiers(followUpNullifiers);
     if (transactions.size !== beforeFollowUp) {
       ordered = orderedTransactions();
       report = await decryptTransactions({

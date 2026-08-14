@@ -343,7 +343,15 @@ function convertShieldedTransactionsByNullifiersResponse(
   response: WireGetShieldedTransactionsByNullifiersResponse,
   method: string,
 ): GetShieldedTransactionsByNullifiersResponse {
-  return convertShieldedTransactionsResponse(response, method);
+  // Delegating alone would silently drop the scan frontier, leaving the sync to
+  // restart from zero every time with nothing to show it had been told
+  // otherwise.
+  return Object.freeze({
+    ...convertShieldedTransactionsResponse(response, method),
+    ...(response.scannedThrough === undefined
+      ? {}
+      : { scannedThrough: decodeBase64(response.scannedThrough, "scanned_through") }),
+  });
 }
 
 function convertShieldedTransactionsBySignatureResponse(

@@ -377,6 +377,36 @@ describe("ZolanaClient", () => {
     });
   });
 
+  it("accepts a nullifier response that reports how far the scan reached", async () => {
+    // The decoder rejects unknown fields, so an indexer that reports its scan
+    // frontier would otherwise fail every nullifier query outright -- which is
+    // exactly what the live e2e suite hit.
+    const fetch = vi.fn<typeof globalThis.fetch>(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: "test-account",
+            jsonrpc: "2.0",
+            result: {
+              context: { block_time: 1, slot: 1 },
+              transactions: [],
+              next_cursor: null,
+              scanned_through: "Aw==",
+            },
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      ),
+    );
+
+    const response = await client(fetch).getShieldedTransactionsByNullifiers({
+      nullifiers: [bytes(7)],
+    });
+
+    expect(response.nextCursor).toBeUndefined();
+    expect(response.scannedThrough).toEqual(Uint8Array.of(3));
+  });
+
   it("forwards paginated nullifier lookups through the client facade", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(() =>
       Promise.resolve(
