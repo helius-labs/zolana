@@ -343,7 +343,7 @@ function convertShieldedTransactionsByNullifiersResponse(
   response: WireGetShieldedTransactionsByNullifiersResponse,
   method: string,
 ): GetShieldedTransactionsByNullifiersResponse {
-  // Delegating alone would silently drop the scan frontier, leaving the sync to
+  // Delegating alone would silently drop how far the scan reached, leaving sync to
   // restart from zero every time with nothing to show it had been told
   // otherwise.
   return Object.freeze({

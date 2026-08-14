@@ -1077,7 +1077,7 @@ mod tests {
             rows.truncate(limit);
 
             let next = rows.last().map(|(slot, _)| slot.to_be_bytes().to_vec());
-            // Photon's rule: the frontier is reported only when the limit did
+            // Photon.s rule: the position is reported only when the limit did
             // not cut the scan short, and it is the tip of the whole stream --
             // not of the matching rows, of which there are usually none.
             let scanned_through = (rows.len() < limit)
@@ -1181,7 +1181,7 @@ mod tests {
                     .collect(),
                 next_cursor: None,
                 // This mock answers everything in one page and never paginates,
-                // so it has no frontier to report; the resume path is covered by
+                // so it has nothing to report; the resume path is covered by
                 // TaggedIndexer instead.
                 scanned_through: None,
             })
