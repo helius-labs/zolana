@@ -362,6 +362,29 @@ async function collectProoflessDeposits(
   return furthest;
 }
 
+/**
+ * Bucket keys by the position their stream was last read to.
+ *
+ * A chunk carries one cursor, so keys at different positions cannot share a
+ * request: a key learned this sync would resume from a position it was never
+ * scanned to and skip its history permanently. `undefined` (never queried) is
+ * its own group.
+ */
+function groupByResumePoint(
+  keys: readonly Bytes32[],
+  cursorFor: (key: Bytes32) => Uint8Array | undefined,
+): readonly { readonly from: Uint8Array | undefined; readonly keys: Bytes32[] }[] {
+  const groups = new Map<string, { from: Uint8Array | undefined; keys: Bytes32[] }>();
+  for (const key of keys) {
+    const from = cursorFor(key);
+    const groupKey = from === undefined ? "" : bytesKey(from);
+    const group = groups.get(groupKey);
+    if (group === undefined) groups.set(groupKey, { from, keys: [key] });
+    else group.keys.push(key);
+  }
+  return [...groups.values()];
+}
+
 interface CollectByNullifiersInput {
   readonly indexer: Pick<ZolanaClient, "getShieldedTransactionsByNullifiers">;
   readonly chunk: readonly Bytes32[];
@@ -452,18 +475,13 @@ export async function syncWallet(
     // permanently -- which is why the watermarks are per tag, not per wallet.
     // `undefined` (never queried) is its own group.
     for (const stream of ["transactions", "proofless"] as const) {
-      const groups = new Map<string, { from: Uint8Array | undefined; tags: Bytes32[] }>();
-      for (const tag of tags) {
-        const from = input.wallet._syncCursor(stream, bytesKey(tag));
-        const key = from === undefined ? "" : bytesKey(from);
-        const group = groups.get(key);
-        if (group === undefined) groups.set(key, { from, tags: [tag] });
-        else group.tags.push(tag);
-      }
+      const groups = groupByResumePoint(tags, (tag) =>
+        input.wallet._syncCursor(stream, bytesKey(tag)),
+      );
 
-      for (const group of groups.values()) {
-        for (let offset = 0; offset < group.tags.length; offset += chunkSize) {
-          const chunk = group.tags.slice(offset, offset + chunkSize);
+      for (const group of groups) {
+        for (let offset = 0; offset < group.keys.length; offset += chunkSize) {
+          const chunk = group.keys.slice(offset, offset + chunkSize);
           const collect =
             stream === "transactions" ? collectShieldedTransactions : collectProoflessDeposits;
           const furthest = await collect(
@@ -485,21 +503,13 @@ export async function syncWallet(
     }
 
     const scanNullifiers = async (nullifiers: readonly Bytes32[]): Promise<void> => {
-      // Grouped by resume point for the same reason tags are: a chunk carries
-      // one cursor, and a nullifier learned this sync must not inherit the
-      // position of one already at the tip.
-      const groups = new Map<string, { from: Uint8Array | undefined; nullifiers: Bytes32[] }>();
-      for (const nullifier of nullifiers) {
-        const from = input.wallet._syncCursor("nullifiers", bytesKey(nullifier));
-        const key = from === undefined ? "" : bytesKey(from);
-        const group = groups.get(key);
-        if (group === undefined) groups.set(key, { from, nullifiers: [nullifier] });
-        else group.nullifiers.push(nullifier);
-      }
+      const groups = groupByResumePoint(nullifiers, (nullifier) =>
+        input.wallet._syncCursor("nullifiers", bytesKey(nullifier)),
+      );
 
-      for (const group of groups.values()) {
-        for (let offset = 0; offset < group.nullifiers.length; offset += chunkSize) {
-          const chunk = group.nullifiers.slice(offset, offset + chunkSize);
+      for (const group of groups) {
+        for (let offset = 0; offset < group.keys.length; offset += chunkSize) {
+          const chunk = group.keys.slice(offset, offset + chunkSize);
           const furthest = await collectShieldedTransactionsByNullifiers(
             {
               indexer: input.client,
