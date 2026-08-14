@@ -144,8 +144,8 @@ impl ShieldedKeypairTrait for ShieldedPda {
         self.viewing_pubkey()
     }
 
-    fn curve(&self) -> Result<Curve, KeypairError> {
-        Ok(Curve::Pda)
+    fn curve(&self) -> Curve {
+        Curve::Pda
     }
 
     fn shielded_address(&self) -> Result<ShieldedAddress, KeypairError> {
@@ -160,7 +160,11 @@ impl ShieldedKeypairTrait for ShieldedPda {
         self.compressed_address()
     }
 
-    fn sign(&self, _msg: &[u8]) -> Result<[u8; 64], KeypairError> {
+    fn sign_message(&self, _message: &[u8]) -> Result<[u8; 64], KeypairError> {
+        Err(KeypairError::PdaCannotSign)
+    }
+
+    fn sign_hash(&self, _hash: &[u8; 32]) -> Result<[u8; 64], KeypairError> {
         Err(KeypairError::PdaCannotSign)
     }
 

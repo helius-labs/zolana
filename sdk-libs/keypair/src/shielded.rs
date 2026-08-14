@@ -90,7 +90,7 @@ impl AsRef<NullifierKey> for ShieldedKeypair {
 
 impl Signer for ShieldedKeypair {
     fn try_pubkey(&self) -> Result<solana_address::Address, SignerError> {
-        if self.signing_key.curve() != Curve::Ed25519 {
+        if self.curve() != Curve::Ed25519 {
             return Err(KeypairError::NoSolanaAddress.into());
         }
         let bytes = self.signing_pubkey().as_ed25519()?;
@@ -98,10 +98,10 @@ impl Signer for ShieldedKeypair {
     }
 
     fn try_sign_message(&self, message: &[u8]) -> Result<solana_keypair::Signature, SignerError> {
-        if self.signing_key.curve() != Curve::Ed25519 {
+        if self.curve() != Curve::Ed25519 {
             return Err(KeypairError::NotEd25519.into());
         }
-        Ok(solana_keypair::Signature::from(self.sign(message)?))
+        Ok(solana_keypair::Signature::from(self.sign_message(message)?))
     }
 
     fn is_interactive(&self) -> bool {
@@ -154,6 +154,10 @@ impl ShieldedKeypair {
         self.signing_key.pubkey()
     }
 
+    pub fn curve(&self) -> Curve {
+        self.signing_key.curve()
+    }
+
     pub fn viewing_pubkey(&self) -> P256Pubkey {
         self.viewing_key.pubkey()
     }
@@ -177,9 +181,12 @@ impl ShieldedKeypair {
         })
     }
 
-    // TODO: rename to sign message
-    pub fn sign(&self, msg: &[u8]) -> Result<[u8; 64], KeypairError> {
-        self.signing_key.sign(msg)
+    pub fn sign_message(&self, message: &[u8]) -> Result<[u8; 64], KeypairError> {
+        self.signing_key.sign_message(message)
+    }
+
+    pub fn sign_hash(&self, hash: &[u8; 32]) -> Result<[u8; 64], KeypairError> {
+        self.signing_key.sign_hash(hash)
     }
 
     pub fn nullifier(

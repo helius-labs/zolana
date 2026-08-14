@@ -10,13 +10,15 @@ use crate::{
 /// spend signing, and nullifier derivation. View-tag derivation and UTXO
 /// encryption/decryption live on `ViewingKeyTrait`; a backend exposes both.
 ///
-/// Custody boundary: only the signing key can be hardware-resident — `sign` is
-/// fallible for that reason, and the nullifier and viewing secrets are
-/// derivable from the device-produced seed alone
+/// Custody boundary: only the signing key can be hardware-resident — the
+/// signing methods are fallible for that reason, and the nullifier and viewing
+/// secrets are derivable from the device-produced seed alone
 /// ([`crate::SigningKey::derivation_seed`]).
 /// Both secrets stay host-side by design: both are private proof inputs, so
 /// `nullifier_key()` returning the raw key is part of the minimal surface.
-/// Construction is intentionally excluded.
+/// Construction is intentionally excluded, and so is signing-key ECDH: its
+/// only consumer is role derivation at bootstrap, which every backend covers
+/// through its own seed derivation.
 pub trait ShieldedKeypairTrait {
     // --- identity ---
 
@@ -26,7 +28,7 @@ pub trait ShieldedKeypairTrait {
 
     /// The signing curve / scheme of this keypair (P-256 shielded owner vs
     /// Ed25519 Solana-only owner), which selects the transfer rail.
-    fn curve(&self) -> Result<Curve, KeypairError>;
+    fn curve(&self) -> Curve;
 
     fn shielded_address(&self) -> Result<ShieldedAddress, KeypairError>;
 
@@ -36,7 +38,14 @@ pub trait ShieldedKeypairTrait {
 
     // --- signing ---
 
-    fn sign(&self, msg: &[u8]) -> Result<[u8; 64], KeypairError>;
+    /// The scheme's native message signature: ed25519 over the raw bytes
+    /// (RFC 8032), P256 as ECDSA over `SHA-256(message)` normalized to low-S,
+    /// matching Solana's secp256r1 precompile. PDA owners cannot sign.
+    fn sign_message(&self, message: &[u8]) -> Result<[u8; 64], KeypairError>;
+
+    /// ECDSA over a caller-supplied digest, the proof path. P-256 rail only;
+    /// ed25519 owners sign digest bytes with [`Self::sign_message`].
+    fn sign_hash(&self, hash: &[u8; 32]) -> Result<[u8; 64], KeypairError>;
 
     // --- nullifiers ---
 
@@ -66,8 +75,8 @@ impl ShieldedKeypairTrait for ShieldedKeypair {
         self.viewing_pubkey()
     }
 
-    fn curve(&self) -> Result<Curve, KeypairError> {
-        Ok(self.signing_key.curve())
+    fn curve(&self) -> Curve {
+        self.curve()
     }
 
     fn shielded_address(&self) -> Result<ShieldedAddress, KeypairError> {
@@ -82,8 +91,12 @@ impl ShieldedKeypairTrait for ShieldedKeypair {
         self.compressed_address()
     }
 
-    fn sign(&self, msg: &[u8]) -> Result<[u8; 64], KeypairError> {
-        self.sign(msg)
+    fn sign_message(&self, message: &[u8]) -> Result<[u8; 64], KeypairError> {
+        self.sign_message(message)
+    }
+
+    fn sign_hash(&self, hash: &[u8; 32]) -> Result<[u8; 64], KeypairError> {
+        self.sign_hash(hash)
     }
 
     fn nullifier(

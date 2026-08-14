@@ -376,8 +376,7 @@ fn sign_p256_with(
     message_hash: &[u8; 32],
 ) -> Result<P256Signature, TransactionError> {
     let bytes = keypair
-        .signing_key
-        .sign(message_hash)
+        .sign_hash(message_hash)
         .map_err(|e| TransactionError::P256(e.to_string()))?;
     let mut sig_r = [0u8; 32];
     let mut sig_s = [0u8; 32];

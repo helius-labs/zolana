@@ -109,9 +109,13 @@ pub(crate) fn sole_holder_identity(world: &mut KeypairWorld, a: String, b: Strin
 pub(crate) fn pda_cannot_sign(world: &mut KeypairWorld, a: String) {
     let alice = world.vk(&a);
     let identity = ShieldedPda::from_key_exchange(pda(7), alice, &alice.pubkey()).unwrap();
-    assert_eq!(identity.curve().unwrap(), Curve::Pda);
+    assert_eq!(identity.curve(), Curve::Pda);
     assert_eq!(
-        ShieldedKeypairTrait::sign(&identity, b"private_tx_hash"),
+        identity.sign_message(b"private_tx_hash"),
+        Err(KeypairError::PdaCannotSign)
+    );
+    assert_eq!(
+        identity.sign_hash(&[7u8; 32]),
         Err(KeypairError::PdaCannotSign)
     );
 }

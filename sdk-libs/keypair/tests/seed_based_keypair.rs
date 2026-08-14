@@ -67,8 +67,8 @@ impl ShieldedKeypairTrait for SeedBasedShieldedKeypair {
         self.viewing_key.pubkey()
     }
 
-    fn curve(&self) -> Result<Curve, KeypairError> {
-        Ok(Curve::Ed25519)
+    fn curve(&self) -> Curve {
+        Curve::Ed25519
     }
 
     fn shielded_address(&self) -> Result<ShieldedAddress, KeypairError> {
@@ -90,8 +90,12 @@ impl ShieldedKeypairTrait for SeedBasedShieldedKeypair {
         })
     }
 
-    fn sign(&self, msg: &[u8]) -> Result<[u8; 64], KeypairError> {
-        self.signing_key.sign(msg)
+    fn sign_message(&self, message: &[u8]) -> Result<[u8; 64], KeypairError> {
+        self.signing_key.sign_message(message)
+    }
+
+    fn sign_hash(&self, hash: &[u8; 32]) -> Result<[u8; 64], KeypairError> {
+        self.signing_key.sign_hash(hash)
     }
 
     fn nullifier(
@@ -140,7 +144,7 @@ fn seed_based_keypair_matches_reference_parts() {
 
     assert_eq!(keypair.signing_pubkey(), signing_reference.pubkey());
     assert_eq!(keypair.viewing_pubkey(), viewing_reference.pubkey());
-    assert_eq!(keypair.curve().unwrap(), Curve::Ed25519);
+    assert_eq!(keypair.curve(), Curve::Ed25519);
     assert_eq!(
         *keypair.nullifier_key().secret(),
         *nullifier_reference.secret()
@@ -216,16 +220,17 @@ fn seed_based_keypair_signs_and_guards_derivation_inputs() {
     let keypair = SeedBasedShieldedKeypair::from_seed_phrase(TEST_MNEMONIC, 0);
 
     let msg = b"private tx hash binding";
-    let signature = keypair.sign(msg).unwrap();
-    assert!(keypair.signing_key.verify(msg, &signature));
+    let signature = keypair.sign_message(msg).unwrap();
+    assert!(keypair.signing_pubkey().verify_message(msg, &signature));
 
     let signer = keypair.signing_pubkey().as_ed25519().unwrap();
     assert_eq!(
-        keypair.sign(ED25519_DERIVATION_MSG),
+        keypair.sign_message(ED25519_DERIVATION_MSG),
         Err(KeypairError::DerivationInput)
     );
     assert_eq!(
-        keypair.sign(&ed25519_derivation_message(&signer)),
+        keypair.sign_message(&ed25519_derivation_message(&signer)),
         Err(KeypairError::DerivationInput)
     );
+    assert_eq!(keypair.sign_hash(&[7u8; 32]), Err(KeypairError::NotP256));
 }

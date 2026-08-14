@@ -286,8 +286,8 @@ impl ShieldedKeypairTrait for KmsP256ShieldedKeypair {
         self.viewing_pubkey
     }
 
-    fn curve(&self) -> Result<Curve, KeypairError> {
-        Ok(Curve::P256)
+    fn curve(&self) -> Curve {
+        Curve::P256
     }
 
     fn shielded_address(&self) -> Result<ShieldedAddress, KeypairError> {
@@ -309,12 +309,16 @@ impl ShieldedKeypairTrait for KmsP256ShieldedKeypair {
         })
     }
 
-    fn sign(&self, msg: &[u8]) -> Result<[u8; 64], KeypairError> {
-        if derivation::is_derivation_input(msg) {
+    fn sign_message(&self, message: &[u8]) -> Result<[u8; 64], KeypairError> {
+        if derivation::is_derivation_input(message) {
             return Err(KeypairError::DerivationInput);
         }
-        if msg.len() != 32 {
-            return Err(KeypairError::SigningFailed);
+        self.sign_hash(&hash::sha256(message))
+    }
+
+    fn sign_hash(&self, hash: &[u8; 32]) -> Result<[u8; 64], KeypairError> {
+        if derivation::is_derivation_input(hash) {
+            return Err(KeypairError::DerivationInput);
         }
         let output = self
             .runtime
@@ -322,7 +326,7 @@ impl ShieldedKeypairTrait for KmsP256ShieldedKeypair {
                 self.client
                     .sign()
                     .key_id(&self.sign_key_id)
-                    .message(Blob::new(msg.to_vec()))
+                    .message(Blob::new(hash.to_vec()))
                     .message_type(MessageType::Digest)
                     .signing_algorithm(SigningAlgorithmSpec::EcdsaSha256)
                     .send(),

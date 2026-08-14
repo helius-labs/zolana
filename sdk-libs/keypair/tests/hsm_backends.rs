@@ -57,7 +57,7 @@ fn kms_backend_matches_software_keypair() {
     let software = software_keypair();
     assert_eq!(kms.signing_pubkey(), software.signing_pubkey());
     assert_eq!(kms.viewing_pubkey(), software.viewing_pubkey());
-    assert_eq!(kms.curve().unwrap(), Curve::Ed25519);
+    assert_eq!(kms.curve(), Curve::Ed25519);
     assert_eq!(
         kms.shielded_address().unwrap(),
         software.shielded_address().unwrap()
@@ -94,20 +94,23 @@ fn kms_backend_signs_like_software_and_guards_derivation_inputs() {
     let software = software_keypair();
 
     let msg = b"private tx hash binding";
-    let signature = kms.sign(msg).unwrap();
-    assert_eq!(signature, software.sign(msg).unwrap());
-    assert!(software.signing_key.verify(msg, &signature));
+    let signature = kms.sign_message(msg).unwrap();
+    assert_eq!(signature, software.sign_message(msg).unwrap());
+    assert!(kms.signing_pubkey().verify_message(msg, &signature));
     assert_eq!(rules.sign.num_calls(), 2);
 
     let signer = software.signing_pubkey().as_ed25519().unwrap();
     assert_eq!(
-        kms.sign(ED25519_DERIVATION_MSG),
+        kms.sign_message(ED25519_DERIVATION_MSG),
         Err(KeypairError::DerivationInput)
     );
     assert_eq!(
-        kms.sign(&ed25519_derivation_message(&signer)),
+        kms.sign_message(&ed25519_derivation_message(&signer)),
         Err(KeypairError::DerivationInput)
     );
+    assert_eq!(rules.sign.num_calls(), 2);
+
+    assert_eq!(kms.sign_hash(&[7u8; 32]), Err(KeypairError::NotP256));
     assert_eq!(rules.sign.num_calls(), 2);
 }
 
@@ -157,7 +160,7 @@ fn kms_p256_backend_matches_software_parts() {
 
     assert_eq!(kms.signing_pubkey(), sign_software.pubkey());
     assert_eq!(kms.viewing_pubkey(), viewing_software.pubkey());
-    assert_eq!(kms.curve().unwrap(), Curve::P256);
+    assert_eq!(kms.curve(), Curve::P256);
     assert_eq!(*kms.nullifier_key().secret(), *nullifier_reference.secret());
     assert_eq!(
         kms.nullifier_pubkey().unwrap(),
@@ -206,42 +209,52 @@ fn kms_p256_backend_signs_prehash() {
     let sign_software = SigningKey::from_p256_bytes(&P256_ROOTS.sign).unwrap();
 
     let digest = hash::sha256(b"private tx hash binding");
-    let signature = kms.sign(&digest).unwrap();
+    let signature = kms.sign_hash(&digest).unwrap();
     assert_eq!(rules.sign.num_calls(), 1);
 
-    let software_sig = sign_software.sign(&digest).unwrap();
+    let software_sig = sign_software.sign_hash(&digest).unwrap();
     let software_parsed = p256::ecdsa::Signature::from_slice(&software_sig).unwrap();
     let software_normalized = software_parsed.normalize_s().unwrap_or(software_parsed);
     assert_eq!(signature, <[u8; 64]>::from(software_normalized.to_bytes()));
 
     let parsed = p256::ecdsa::Signature::from_slice(&signature).unwrap();
     assert!(parsed.normalize_s().is_none());
-    assert!(sign_software.verify(&digest, &signature));
+    assert!(kms.signing_pubkey().verify_hash(&digest, &signature));
 
-    assert_eq!(kms.sign(&digest).unwrap(), signature);
+    assert_eq!(kms.sign_hash(&digest).unwrap(), signature);
     assert_eq!(rules.sign.num_calls(), 2);
 
-    assert_eq!(kms.sign(&[5u8; 31]), Err(KeypairError::SigningFailed));
+    let mut prefixed_digest = [0u8; 32];
+    prefixed_digest[..12].copy_from_slice(b"TSPP/derive/");
     assert_eq!(
-        kms.sign(ED25519_DERIVATION_MSG),
+        kms.sign_hash(&prefixed_digest),
         Err(KeypairError::DerivationInput)
     );
     assert_eq!(rules.sign.num_calls(), 2);
+
+    let message = b"registry binding";
+    let message_signature = kms.sign_message(message).unwrap();
+    assert_eq!(rules.sign.num_calls(), 3);
+    assert!(kms.signing_pubkey().verify_message(message, &message_signature));
+    assert_eq!(
+        kms.sign_message(ED25519_DERIVATION_MSG),
+        Err(KeypairError::DerivationInput)
+    );
+    assert_eq!(rules.sign.num_calls(), 3);
 }
 
 #[test]
 fn kms_p256_backend_normalizes_high_s() {
     let (client, rules) = p256_client_high_s(&P256_ROOTS);
     let kms = p256_bootstrap(client);
-    let sign_software = SigningKey::from_p256_bytes(&P256_ROOTS.sign).unwrap();
 
     let digest = hash::sha256(b"high-s device signature");
-    let signature = kms.sign(&digest).unwrap();
+    let signature = kms.sign_hash(&digest).unwrap();
     assert_eq!(rules.sign.num_calls(), 1);
 
     let parsed = p256::ecdsa::Signature::from_slice(&signature).unwrap();
     assert!(parsed.normalize_s().is_none());
-    assert!(sign_software.verify(&digest, &signature));
+    assert!(kms.signing_pubkey().verify_hash(&digest, &signature));
 }
 
 #[test]
@@ -303,7 +316,7 @@ fn kms_sign_failure_surfaces_as_signing_failed() {
         software_keypair().owner_hash().unwrap()
     );
     assert_eq!(
-        kms.sign(b"benign message"),
+        kms.sign_message(b"benign message"),
         Err(KeypairError::SigningFailed)
     );
 }

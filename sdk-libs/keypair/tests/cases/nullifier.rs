@@ -177,24 +177,30 @@ pub(crate) fn ed25519_ecdh_is_not_p256() {
 pub(crate) fn primitives_refuse_derivation_inputs(world: &mut KeypairWorld, key: String) {
     let ed = SigningKey::from_ed25519_bytes(&[7u8; 32]);
     assert_eq!(
-        ed.sign(ED25519_DERIVATION_MSG),
+        ed.sign_message(ED25519_DERIVATION_MSG),
         Err(KeypairError::DerivationInput)
     );
     assert_eq!(
-        ed.sign(&ed25519_derivation_message(&[7u8; 32])),
+        ed.sign_message(&ed25519_derivation_message(&[7u8; 32])),
         Err(KeypairError::DerivationInput)
     );
     assert_eq!(
-        ed.sign(b"TSPP/derive/pda/v1/x"),
+        ed.sign_message(b"TSPP/derive/pda/v1/x"),
         Err(KeypairError::DerivationInput)
     );
-    assert!(ed.sign(b"benign message").is_ok());
+    assert!(ed.sign_message(b"benign message").is_ok());
 
     let sk = world.sig_key(&key);
     let p_derive = P256Pubkey::from_bytes(P_DERIVE_SEC1).unwrap();
     assert_eq!(sk.ecdh(&p_derive), Err(KeypairError::DerivationInput));
     assert_eq!(
-        sk.sign_p256_message(ED25519_DERIVATION_MSG),
+        sk.sign_message(ED25519_DERIVATION_MSG),
+        Err(KeypairError::DerivationInput)
+    );
+    let mut prefixed_digest = [0u8; 32];
+    prefixed_digest[..12].copy_from_slice(b"TSPP/derive/");
+    assert_eq!(
+        sk.sign_hash(&prefixed_digest),
         Err(KeypairError::DerivationInput)
     );
     let benign = zolana_keypair::ViewingKey::new().pubkey();

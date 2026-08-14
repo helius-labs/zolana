@@ -182,4 +182,51 @@ impl PublicKey {
             &self.confidential_view_tag()?,
         )?)
     }
+
+    /// Verifies a [`crate::SigningKey::sign_message`] signature in the
+    /// scheme's native form: ed25519 over the raw bytes, P256 as ECDSA over
+    /// `SHA-256(message)`. A PDA owner or malformed encoding verifies nothing.
+    pub fn verify_message(&self, message: &[u8], sig: &[u8; 64]) -> bool {
+        match self.curve() {
+            Ok(Curve::P256) => self.p256_verify_prehash(&crate::hash::sha256(message), sig),
+            Ok(Curve::Ed25519) => {
+                use ed25519_dalek::Verifier;
+
+                let Ok(bytes) = self.as_ed25519() else {
+                    return false;
+                };
+                let Ok(vk) = ed25519_dalek::VerifyingKey::from_bytes(&bytes) else {
+                    return false;
+                };
+                match ed25519_dalek::Signature::try_from(sig.as_slice()) {
+                    Ok(parsed) => vk.verify(message, &parsed).is_ok(),
+                    Err(_) => false,
+                }
+            }
+            Ok(Curve::Pda) | Err(_) => false,
+        }
+    }
+
+    /// Verifies a [`crate::SigningKey::sign_hash`] signature over a
+    /// caller-supplied digest. P-256 rail only; every other scheme verifies
+    /// nothing.
+    pub fn verify_hash(&self, hash: &[u8; 32], sig: &[u8; 64]) -> bool {
+        match self.curve() {
+            Ok(Curve::P256) => self.p256_verify_prehash(hash, sig),
+            _ => false,
+        }
+    }
+
+    fn p256_verify_prehash(&self, prehash: &[u8], sig: &[u8; 64]) -> bool {
+        use p256::ecdsa::signature::hazmat::PrehashVerifier;
+
+        let Ok(pubkey) = self.as_p256().and_then(|p| p.to_p256()) else {
+            return false;
+        };
+        let vk = p256::ecdsa::VerifyingKey::from(pubkey);
+        match p256::ecdsa::Signature::from_slice(sig) {
+            Ok(parsed) => vk.verify_prehash(prehash, &parsed).is_ok(),
+            Err(_) => false,
+        }
+    }
 }

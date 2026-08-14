@@ -269,7 +269,7 @@ fn key_binding_proof(
     let address = keypair.shielded_address()?;
     let message = p256_registration_proof_message(owner, &address)?;
     Ok(Some(P256KeyBindingProof {
-        signature: keypair.signing_key.sign_p256_message(&message)?,
+        signature: keypair.sign_message(&message)?,
     }))
 }
 
@@ -658,8 +658,7 @@ mod tests {
         let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
         let proof = P256KeyBindingProof {
             signature: keypair
-                .signing_key
-                .sign_p256_message(
+                .sign_message(
                     &p256_registration_proof_message(
                         owner,
                         &keypair.shielded_address().expect("shielded address"),
@@ -732,8 +731,7 @@ mod tests {
         let address = keypair.shielded_address().expect("shielded address");
         let proof = P256KeyBindingProof {
             signature: keypair
-                .signing_key
-                .sign_p256_message(
+                .sign_message(
                     &p256_registration_proof_message(owner, &address).expect("proof message"),
                 )
                 .expect("proof signature"),

@@ -196,8 +196,8 @@ impl ShieldedKeypairTrait for KmsShieldedKeypair {
         self.viewing_key.pubkey()
     }
 
-    fn curve(&self) -> Result<Curve, KeypairError> {
-        Ok(Curve::Ed25519)
+    fn curve(&self) -> Curve {
+        Curve::Ed25519
     }
 
     fn shielded_address(&self) -> Result<ShieldedAddress, KeypairError> {
@@ -219,8 +219,8 @@ impl ShieldedKeypairTrait for KmsShieldedKeypair {
         })
     }
 
-    fn sign(&self, msg: &[u8]) -> Result<[u8; 64], KeypairError> {
-        if derivation::is_derivation_input(msg) {
+    fn sign_message(&self, message: &[u8]) -> Result<[u8; 64], KeypairError> {
+        if derivation::is_derivation_input(message) {
             return Err(KeypairError::DerivationInput);
         }
         let output = self
@@ -229,7 +229,7 @@ impl ShieldedKeypairTrait for KmsShieldedKeypair {
                 self.client
                     .sign()
                     .key_id(&self.key_id)
-                    .message(Blob::new(msg.to_vec()))
+                    .message(Blob::new(message.to_vec()))
                     .message_type(MessageType::Raw)
                     .signing_algorithm(SigningAlgorithmSpec::Ed25519Sha512)
                     .send(),
@@ -241,6 +241,10 @@ impl ShieldedKeypairTrait for KmsShieldedKeypair {
             .as_ref()
             .try_into()
             .map_err(|_| KeypairError::SigningFailed)
+    }
+
+    fn sign_hash(&self, _hash: &[u8; 32]) -> Result<[u8; 64], KeypairError> {
+        Err(KeypairError::NotP256)
     }
 
     fn nullifier(

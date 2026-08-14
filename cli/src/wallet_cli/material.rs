@@ -328,7 +328,7 @@ fn keypair_from_solana_bytes(values: &[u8], path: &Path) -> Result<Keypair> {
 }
 
 fn save_wallet(path: &Path, keypair: &ShieldedKeypair, funding: &Keypair) -> Result<()> {
-    let file = match keypair.signing_key.curve() {
+    let file = match keypair.curve() {
         Curve::Ed25519 => {
             // An ed25519 wallet's signing key must be the funding secret: that is
             // the whole point of the rail, and it is what the load path re-derives.

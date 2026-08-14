@@ -150,7 +150,7 @@ fn shielded_keypair_facade_round_trips_full_transfers() {
 fn p256_signatures_are_deterministic_and_reject_tampering() {
     let mut world = KeypairWorld::default();
     cases::common::random_p256_signing_key(&mut world, "k".into());
-    cases::signing::sign_message(
+    cases::signing::sign_hash(
         &mut world,
         "k".into(),
         "private_tx_hash".into(),
@@ -163,11 +163,15 @@ fn p256_signatures_are_deterministic_and_reject_tampering() {
         "private_tx_hash".into(),
     );
     cases::signing::signing_scheme_p256(&mut world, "k".into());
-    cases::signing::sign_message(&mut world, "k".into(), "a".into(), "a-sig".into());
+    cases::signing::sign_hash(&mut world, "k".into(), "a".into(), "a-sig".into());
     cases::signing::does_not_verify(&mut world, "k".into(), "a-sig".into(), "b".into());
     cases::signing::does_not_verify_tampered(&mut world, "k".into(), "a-sig".into(), "a".into());
     cases::signing::signs_identically(&mut world, "k".into(), "same".into());
     cases::signing::p256_secret_roundtrip(&mut world, "k".into());
+    cases::signing::new_ed25519_is_a_working_ed25519_key();
+    cases::signing::p256_message_signature_is_sha256_and_low_s();
+    cases::signing::ed25519_cannot_sign_hash();
+    cases::signing::ed25519_signature_does_not_verify_as_hash();
 }
 
 #[test]

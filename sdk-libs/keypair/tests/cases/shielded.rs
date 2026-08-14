@@ -90,7 +90,7 @@ pub(crate) fn random_constructors_pick_their_rail() {
     use solana_signer::Signer;
 
     let ed = ShieldedKeypair::new_ed25519().unwrap();
-    assert_eq!(ed.signing_key.curve(), Curve::Ed25519);
+    assert_eq!(ed.curve(), Curve::Ed25519);
     assert_eq!(
         ed.try_pubkey().unwrap().to_bytes(),
         ed.signing_pubkey().as_ed25519().unwrap()
@@ -103,7 +103,7 @@ pub(crate) fn random_constructors_pick_their_rail() {
     assert_eq!(ed.viewing_key.pubkey(), rederived.viewing_key.pubkey());
 
     let p256 = ShieldedKeypair::new_p256().unwrap();
-    assert_eq!(p256.signing_key.curve(), Curve::P256);
+    assert_eq!(p256.curve(), Curve::P256);
     assert_eq!(p256.try_pubkey(), Err(KeypairError::NoSolanaAddress.into()));
 
     assert_ne!(
@@ -139,9 +139,10 @@ pub(crate) fn solana_signer_matches_solana_keypair() {
 
 pub(crate) fn facade_sign_nullifier(world: &mut KeypairWorld, name: String) {
     let kp = world.keypair(&name);
-    // The signing API signs a 32-byte prehash digest (the transaction message_hash).
     let msg = [7u8; 32];
-    assert!(kp.signing_key.verify(&msg, &kp.sign(&msg).unwrap()));
+    assert!(kp
+        .signing_pubkey()
+        .verify_hash(&msg, &kp.sign_hash(&msg).unwrap()));
     let utxo_hash = [5u8; 32];
     let blinding = [6u8; 32];
     assert_eq!(

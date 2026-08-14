@@ -151,7 +151,7 @@ pub(crate) fn validate_merge_inputs<K: ShieldedKeypairTrait>(
 
     let asset = inputs.first().ok_or(TransactionError::NoInputs)?.utxo.asset;
     let owner = keypair.signing_pubkey();
-    let owner_rail = keypair.curve()?;
+    let owner_rail = keypair.curve();
     let nullifier_pubkey = keypair.nullifier_pubkey()?;
     let mut total = 0u64;
     for (index, spend) in inputs.iter().enumerate() {

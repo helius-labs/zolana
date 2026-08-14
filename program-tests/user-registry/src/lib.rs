@@ -130,7 +130,7 @@ pub fn p256_binding_signature(owner: &Pubkey, key: &SigningKey) -> ([u8; 33], [u
     let (user_record, _bump) = user_record_pda(owner);
     let message = p256_key_binding_message(&user_record, owner, &pubkey);
     let signature = key
-        .sign_p256_message(&message)
+        .sign_message(&message)
         .expect("p256 owner key signs the binding message");
     (pubkey, signature)
 }
