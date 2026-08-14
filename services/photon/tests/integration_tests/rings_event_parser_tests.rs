@@ -1351,6 +1351,23 @@ async fn assert_rings_api_exposes_output_hashes(
         .await
         .unwrap()
         .expect("rings transaction should exist");
+
+    // The output carries copies of the transaction's position, and the tag
+    // queries ORDER BY them. Nothing else fails if the ingester stops writing
+    // them: the columns are nullable, so rows would simply arrive NULL, sort
+    // last, and page in an order the cursor cannot follow -- wallets would miss
+    // transactions with every test still green. Hence asserting it here.
+    assert_eq!(
+        output.signature.as_deref(),
+        Some(rings_tx.signature.as_slice()),
+        "the output must carry its transaction's signature"
+    );
+    assert_eq!(
+        output.event_index,
+        Some(rings_tx.event_index),
+        "the output must carry its transaction's event index"
+    );
+
     let signature = Signature::from(
         <[u8; 64]>::try_from(rings_tx.signature.as_slice()).expect("stored signature length"),
     );
