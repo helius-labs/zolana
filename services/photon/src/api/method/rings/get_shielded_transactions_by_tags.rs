@@ -113,31 +113,18 @@ pub async fn get_shielded_transactions_by_nullifiers(
     })
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 enum MatchBy {
     Tags,
     Nullifiers,
-}
-
-impl MatchBy {
-    /// Whether to spend an extra lookup telling the caller how far the scan got.
-    ///
-    /// Only the nullifier stream needs it, because only there is an empty page
-    /// the normal answer. A tag query returns the wallet's own transactions, so
-    /// its cursor advances on the rows themselves, and only its response carries
-    /// the field. Deriving this from the match rather than passing it separately
-    /// keeps the two from disagreeing.
-    fn reports_frontier(self) -> bool {
-        self == Self::Nullifiers
-    }
 }
 
 struct ShieldedTransactionPage {
     context: zolana_indexer_api::Context,
     transactions: Vec<ShieldedTransaction>,
     next_cursor: Option<Base64String>,
-    /// Always `None` for a match the response has no field to carry it in; see
-    /// [`MatchBy::reports_frontier`].
+    /// Only ever set for [`MatchBy::Nullifiers`]; nothing else has a response
+    /// field to carry it in.
     scanned_through: Option<Base64String>,
 }
 
@@ -159,14 +146,17 @@ async fn get_shielded_transactions(
         fetch_matching_rings_transactions(&tx, values, cursor.as_ref(), limit, match_by).await?;
     let next_cursor = next_cursor_from_rows(&matched_txs, shielded_tx_cursor_from_row)?;
 
+    // Only the nullifier response has a field to carry a frontier in, and only
+    // that stream needs one: a tag query returns the wallet's own transactions,
+    // so its cursor advances on the rows themselves.
+    //
     // A full page means the limit cut the scan short, so nothing can be claimed
     // about what lies beyond it. Anything less means the scan ran out of rows,
     // not out of room, and the tip it reached is a sound resume point.
     let truncated = matched_txs.len() as u64 >= limit;
-    let scanned_through = if match_by.reports_frontier() && !truncated {
-        stream_tip(&tx).await?
-    } else {
-        None
+    let scanned_through = match match_by {
+        MatchBy::Nullifiers if !truncated => stream_tip(&tx).await?,
+        _ => None,
     };
 
     let transactions = hydrate_shielded_transactions(&tx, matched_txs)
