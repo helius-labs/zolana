@@ -4,7 +4,7 @@ use zolana_event::MessageData;
 use zolana_keypair::{
     shielded::{ShieldedAddress, ShieldedKeypair},
     viewing_key::{random_salt, Salt, ViewTag},
-    NullifierKey, P256Pubkey, ViewingKey,
+    NullifierKey, P256Pubkey, ShieldedKeypairTrait, ViewingKey, ViewingKeyTrait,
 };
 
 use crate::{
@@ -248,18 +248,67 @@ where
     }
 }
 
-/// Binds local shielded keys to the Solana address that publishes them.
-pub struct LocalWalletAuthority<'a> {
+/// Binds a shielded keypair to the Solana address that publishes it.
+///
+/// Generic over the keypair so a backend whose signing key is hardware-resident
+/// — an HSM, a KMS, a remote custodian — becomes a [`WalletAuthority`] by
+/// implementing [`ShieldedKeypairTrait`] and [`ViewingKeyTrait`], with no
+/// reimplementation of the encryption bodies below. "Local" describes the
+/// encryption and scan material, which is in this process for every backend:
+/// both role secrets are private proof inputs, so no signing device can hold
+/// them on the wallet's behalf.
+///
+/// `K` defaults to [`ShieldedKeypair`], so `LocalWalletAuthority<'_>` keeps
+/// meaning what it did.
+pub struct LocalWalletAuthority<'a, K = ShieldedKeypair> {
     solana_pubkey: Address,
-    keypair: &'a ShieldedKeypair,
+    keypair: &'a K,
+    viewing_keys: Vec<ViewingKey>,
 }
 
-impl<'a> LocalWalletAuthority<'a> {
+impl<'a> LocalWalletAuthority<'a, ShieldedKeypair> {
+    /// Scans with the keypair's own viewing key. Use
+    /// [`Self::with_viewing_keys`] to add rotated-out keys, or for a backend
+    /// that is not a [`ShieldedKeypair`].
     pub fn new(solana_pubkey: impl Into<Address>, keypair: &'a ShieldedKeypair) -> Self {
+        let viewing_keys = vec![keypair.viewing_key.clone()];
         Self {
             solana_pubkey: solana_pubkey.into(),
             keypair,
+            viewing_keys,
         }
+    }
+}
+
+impl<'a, K: ViewingKeyTrait> LocalWalletAuthority<'a, K> {
+    /// Binds any shielded keypair backend to the viewing keys a scan needs:
+    /// every current and historical key.
+    ///
+    /// `viewing_keys` must contain the keypair's own, or this fails with
+    /// [`TransactionError::AuthorityViewingKeyMismatch`]. That check is why this constructor is fallible while
+    /// [`Self::new`] is not: `new` reads the key off the keypair and cannot
+    /// disagree with it, whereas a generic backend cannot hand over its viewing
+    /// key at all — [`ViewingKeyTrait`] deliberately exposes operations rather
+    /// than the secret — so the caller supplies it and the two could drift.
+    ///
+    /// A drift is not cosmetic. The encryption bodies key off the *keypair*
+    /// while a scan keys off this vector, so a wallet built from a mismatched
+    /// pair would encrypt to one key and scan with another. Rejecting it at
+    /// construction fails at the mistake instead of later, inside a scan.
+    pub fn with_viewing_keys(
+        solana_pubkey: impl Into<Address>,
+        keypair: &'a K,
+        viewing_keys: Vec<ViewingKey>,
+    ) -> Result<Self, TransactionError> {
+        let current = keypair.pubkey();
+        if !viewing_keys.iter().any(|key| key.pubkey() == current) {
+            return Err(TransactionError::AuthorityViewingKeyMismatch);
+        }
+        Ok(Self {
+            solana_pubkey: solana_pubkey.into(),
+            keypair,
+            viewing_keys,
+        })
     }
 }
 
@@ -271,18 +320,19 @@ fn recipient_slot_index(i: usize) -> Result<u32, TransactionError> {
     })
 }
 
-/// Shared bodies for every local authority over a [`ShieldedKeypair`]
-/// ([`LocalWalletAuthority`] and the bare keypair impl below), so the
-/// encryption and signing logic exists once.
-fn encrypt_confidential_transfer_with(
-    keypair: &ShieldedKeypair,
+/// Shared bodies for every local authority ([`LocalWalletAuthority`] and the
+/// bare keypair impl below), so the encryption and signing logic exists once.
+///
+/// Written against [`ViewingKeyTrait`] and [`ShieldedKeypairTrait`] rather than
+/// a concrete keypair: these are exactly the capabilities the bodies need, so
+/// any backend that has them gets the same code.
+fn encrypt_confidential_transfer_with<K: ViewingKeyTrait>(
+    keypair: &K,
     first_nullifier: &[u8; 32],
     outputs: &[SppProofOutputUtxo],
     assets: &AssetRegistry,
 ) -> Result<EncryptedTransfer, TransactionError> {
-    let tx = keypair
-        .viewing_key
-        .get_transaction_viewing_key(first_nullifier)?;
+    let tx = keypair.get_transaction_viewing_key(first_nullifier)?;
     let salt = random_salt();
     let slots = encode_confidential_slots(outputs, assets, &tx, salt)?;
     Ok(EncryptedTransfer {
@@ -292,18 +342,16 @@ fn encrypt_confidential_transfer_with(
     })
 }
 
-fn encrypt_anonymous_transfer_with(
-    keypair: &ShieldedKeypair,
+fn encrypt_anonymous_transfer_with<K: ViewingKeyTrait>(
+    keypair: &K,
     first_nullifier: &[u8; 32],
     sender_view_tag: ViewTag,
     sender: &AnonymousTransferSenderPlaintext,
     recipients: &[AnonymousRecipientSlot],
 ) -> Result<EncryptedTransfer, TransactionError> {
-    let tx = keypair
-        .viewing_key
-        .get_transaction_viewing_key(first_nullifier)?;
+    let tx = keypair.get_transaction_viewing_key(first_nullifier)?;
     let salt = random_salt();
-    let self_pubkey = keypair.viewing_key.pubkey();
+    let self_pubkey = keypair.pubkey();
 
     let mut slots = Vec::with_capacity(1 + recipients.len());
     let sender_cx = AnonymousSenderEncode {
@@ -342,15 +390,13 @@ fn encrypt_anonymous_transfer_with(
     })
 }
 
-fn encrypt_split_with(
-    keypair: &ShieldedKeypair,
+fn encrypt_split_with<K: ViewingKeyTrait>(
+    keypair: &K,
     first_nullifier: &[u8; 32],
     view_tag: ViewTag,
     bundle: &SplitBundlePlaintext,
 ) -> Result<EncryptedSplit, TransactionError> {
-    let tx = keypair
-        .viewing_key
-        .get_transaction_viewing_key(first_nullifier)?;
+    let tx = keypair.get_transaction_viewing_key(first_nullifier)?;
     let salt = random_salt();
     let tx_viewing_pk = tx.pubkey();
     let message = Split::encode_plaintext(
@@ -358,7 +404,7 @@ fn encrypt_split_with(
         view_tag,
         &SplitEncode {
             tx,
-            recipient_pubkey: keypair.viewing_key.pubkey(),
+            recipient_pubkey: keypair.pubkey(),
             salt,
             slot_index: 0,
             blinding_seed: bundle.blinding_seed,
@@ -371,8 +417,8 @@ fn encrypt_split_with(
     })
 }
 
-fn sign_p256_with(
-    keypair: &ShieldedKeypair,
+fn sign_p256_with<K: ShieldedKeypairTrait>(
+    keypair: &K,
     message_hash: &[u8; 32],
 ) -> Result<P256Signature, TransactionError> {
     let bytes = keypair
@@ -389,17 +435,19 @@ fn sign_p256_with(
     })
 }
 
-impl SyncWalletAuthority for LocalWalletAuthority<'_> {
+impl<K: ShieldedKeypairTrait + ViewingKeyTrait + Sync> SyncWalletAuthority
+    for LocalWalletAuthority<'_, K>
+{
     fn solana_pubkey(&self) -> Address {
         self.solana_pubkey
     }
 
     fn shielded_address(&self) -> Result<ShieldedAddress, TransactionError> {
-        Ok(self.keypair.shielded_address()?)
+        Ok(ShieldedKeypairTrait::shielded_address(self.keypair)?)
     }
 
     fn viewing_keys(&self) -> Result<Vec<ViewingKey>, TransactionError> {
-        Ok(vec![self.keypair.viewing_key.clone()])
+        Ok(self.viewing_keys.clone())
     }
 
     fn encrypt_confidential_transfer(
@@ -441,7 +489,7 @@ impl SyncWalletAuthority for LocalWalletAuthority<'_> {
     }
 
     fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError> {
-        Ok(self.keypair.nullifier_key.clone())
+        Ok(ShieldedKeypairTrait::nullifier_key(self.keypair))
     }
 }
 
