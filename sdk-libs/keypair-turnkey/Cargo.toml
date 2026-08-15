@@ -1,0 +1,47 @@
+[package]
+name = "zolana-keypair-turnkey"
+version = "0.1.0"
+description = "Turnkey-backed shielded keypairs: the signing key stays in a Turnkey sub-organization and never reaches this process."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+ed25519-dalek = { workspace = true }
+hex = { workspace = true }
+p256 = { workspace = true }
+solana-address = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+zolana-keypair = { workspace = true }
+
+turnkey_api_key_stamper = { workspace = true, optional = true }
+turnkey_client = { workspace = true, optional = true }
+
+[features]
+default = ["api"]
+# The `turnkey_client`-backed transport. Without it the crate still builds the
+# backends and their `TurnkeyActivities` seam, so a caller can supply its own
+# transport and tests need no HTTP stack.
+api = ["turnkey_api_key_stamper", "turnkey_client"]
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+# Test-only: proves a backend here satisfies `WalletAuthority` through
+# `LocalWalletAuthority`. Library users get the backends without this.
+zolana-transaction = { workspace = true }
+
+[[test]]
+name = "turnkey_backends"
+path = "tests/turnkey_backends.rs"
+
+[[test]]
+name = "wallet_authority"
+path = "tests/wallet_authority.rs"
+
+# Ignored by default; needs a dedicated Turnkey test organization. See the
+# module docs in tests/live.rs.
+[[test]]
+name = "live"
+path = "tests/live.rs"
