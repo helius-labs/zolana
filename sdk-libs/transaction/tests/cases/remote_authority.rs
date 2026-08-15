@@ -13,9 +13,8 @@ use zolana_keypair::{
     derivation::{self, DERIVATION_PAYLOAD_PREFIX, ED25519_DERIVATION_MSG},
     hash,
     shielded::{CompressedShieldedAddress, ShieldedAddress},
-    viewing_key::{Salt, ViewTag},
     Curve, KeypairError, NullifierKey, P256Pubkey, PublicKey, ShieldedKeypair,
-    ShieldedKeypairTrait, SigningKey, ViewingKey, ViewingKeyTrait,
+    ShieldedKeypairTrait, SigningKey, ViewingKey,
 };
 use zolana_transaction::{
     Address, AssetRegistry, LocalWalletAuthority, SyncWalletAuthority, TransactionError,
@@ -104,88 +103,9 @@ impl ShieldedKeypairTrait for RemoteKeypair {
     }
 }
 
-/// Pure forwarding to the host-side viewing key, which is what every backend
-/// with a host-side viewing key has to write today.
-impl ViewingKeyTrait for RemoteKeypair {
-    fn pubkey(&self) -> P256Pubkey {
-        self.viewing_key.pubkey()
-    }
-
-    fn ecdh(&self, counterparty: &P256Pubkey) -> Result<[u8; 32], KeypairError> {
-        self.viewing_key.ecdh(counterparty)
-    }
-
-    fn get_sender_view_tag(&self, tx_count: u64) -> Result<ViewTag, KeypairError> {
-        self.viewing_key.get_sender_view_tag(tx_count)
-    }
-
-    fn get_recipient_request_view_tag(&self, request_count: u64) -> Result<ViewTag, KeypairError> {
-        self.viewing_key
-            .get_recipient_request_view_tag(request_count)
-    }
-
-    fn get_send_shared_view_tag(
-        &self,
-        counterparty: &P256Pubkey,
-        i: u64,
-    ) -> Result<ViewTag, KeypairError> {
-        self.viewing_key.get_send_shared_view_tag(counterparty, i)
-    }
-
-    fn get_recipient_shared_view_tag(
-        &self,
-        counterparty: &P256Pubkey,
-        i: u64,
-    ) -> Result<ViewTag, KeypairError> {
-        self.viewing_key
-            .get_recipient_shared_view_tag(counterparty, i)
-    }
-
-    fn recipient_bootstrap_view_tag(&self) -> ViewTag {
-        self.viewing_key.recipient_bootstrap_view_tag()
-    }
-
-    fn get_transaction_viewing_key(
-        &self,
-        first_nullifier: &[u8; 32],
-    ) -> Result<ViewingKey, KeypairError> {
-        self.viewing_key
-            .get_transaction_viewing_key(first_nullifier)
-    }
-
-    fn encrypt_slot(
-        &self,
-        recipient_pubkey: &P256Pubkey,
-        plaintext: &[u8],
-        salt: Salt,
-        slot_index: u32,
-    ) -> Result<Vec<u8>, KeypairError> {
-        self.viewing_key
-            .encrypt_slot(recipient_pubkey, plaintext, salt, slot_index)
-    }
-
-    fn decrypt_utxo(
-        &self,
-        ciphertext: &[u8],
-        tx_viewing_pubkey: &P256Pubkey,
-        salt: Salt,
-        slot_index: u32,
-    ) -> Result<Vec<u8>, KeypairError> {
-        self.viewing_key
-            .decrypt_utxo(ciphertext, tx_viewing_pubkey, salt, slot_index)
-    }
-
-    fn decrypt_slot_ephemeral(
-        &self,
-        recipient_pubkey: &P256Pubkey,
-        ciphertext: &[u8],
-        salt: Salt,
-        slot_index: u32,
-    ) -> Result<Vec<u8>, KeypairError> {
-        self.viewing_key
-            .decrypt_slot_ephemeral(recipient_pubkey, ciphertext, salt, slot_index)
-    }
-}
+// The viewing half of a backend with a host-side viewing key: one line, where
+// twelve verbatim forwarding methods used to be.
+zolana_keypair::forward_viewing_key_trait!(RemoteKeypair => viewing_key);
 
 fn software_keypair() -> ShieldedKeypair {
     ShieldedKeypair::from_keypair(SigningKey::from_p256_bytes(&SIGNING_SECRET).expect("P-256"))
