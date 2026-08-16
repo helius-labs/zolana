@@ -87,6 +87,21 @@ impl SigningKey {
         }
     }
 
+    /// Every P-256 signature this crate emits, on both signing paths.
+    /// Normalizing to low-S is what makes a signature byte-identical across
+    /// backends: hardware signers return whichever of `s`/`n-s` their device
+    /// produced, so an un-normalized software signature would differ from a
+    /// KMS or YubiKey one over the same key and digest.
+    fn p256_sign_prehash(sk: &EcdsaSigningKey, prehash: &[u8]) -> Result<[u8; 64], KeypairError> {
+        let signature: EcdsaSig = sk
+            .sign_prehash(prehash)
+            .map_err(|_| KeypairError::SigningFailed)?;
+        let signature = signature.normalize_s().unwrap_or(signature);
+        let mut out = [0u8; 64];
+        out.copy_from_slice(&signature.to_bytes());
+        Ok(out)
+    }
+
     /// The scheme's native message signature: ed25519 over the raw bytes
     /// (RFC 8032), P256 as ECDSA over `SHA-256(message)` normalized to low-S,
     /// matching Solana's secp256r1 precompile.
@@ -100,36 +115,21 @@ impl SigningKey {
             return Err(KeypairError::DerivationInput);
         }
         match &self.inner {
-            SigningKeyInner::P256(sk) => {
-                let digest = Sha256::digest(message);
-                let signature: EcdsaSig = sk
-                    .sign_prehash(&digest)
-                    .map_err(|_| KeypairError::SigningFailed)?;
-                let signature = signature.normalize_s().unwrap_or(signature);
-                let mut out = [0u8; 64];
-                out.copy_from_slice(&signature.to_bytes());
-                Ok(out)
-            }
+            SigningKeyInner::P256(sk) => Self::p256_sign_prehash(sk, &Sha256::digest(message)),
             SigningKeyInner::Ed25519(sk) => Ok(sk.sign(message).to_bytes()),
         }
     }
 
-    /// ECDSA over a caller-supplied digest, the proof path: the transfer proof
-    /// verifies the signature against `SHA-256(private_tx_hash)`. P-256 rail
-    /// only; ed25519 owners sign digest bytes with [`Self::sign_message`].
+    /// ECDSA over a caller-supplied digest, normalized to low-S: the proof
+    /// path, where the transfer proof verifies the signature against
+    /// `SHA-256(private_tx_hash)`. P-256 rail only; ed25519 owners sign digest
+    /// bytes with [`Self::sign_message`].
     pub fn sign_hash(&self, hash: &[u8; 32]) -> Result<[u8; 64], KeypairError> {
         if derivation::is_derivation_input(hash) {
             return Err(KeypairError::DerivationInput);
         }
         match &self.inner {
-            SigningKeyInner::P256(sk) => {
-                let sig: EcdsaSig = sk
-                    .sign_prehash(hash)
-                    .map_err(|_| KeypairError::SigningFailed)?;
-                let mut out = [0u8; 64];
-                out.copy_from_slice(&sig.to_bytes());
-                Ok(out)
-            }
+            SigningKeyInner::P256(sk) => Self::p256_sign_prehash(sk, hash),
             SigningKeyInner::Ed25519(_) => Err(KeypairError::NotP256),
         }
     }
@@ -140,8 +140,7 @@ impl SigningKey {
     pub fn derivation_seed(&self) -> Result<Zeroizing<Vec<u8>>, KeypairError> {
         match &self.inner {
             SigningKeyInner::Ed25519(sk) => {
-                let message =
-                    derivation::ed25519_derivation_message(sk.verifying_key().as_bytes());
+                let message = derivation::ed25519_derivation_message(sk.verifying_key().as_bytes());
                 Ok(Zeroizing::new(sk.sign(&message).to_bytes().to_vec()))
             }
             SigningKeyInner::P256(_) => Ok(Zeroizing::new(

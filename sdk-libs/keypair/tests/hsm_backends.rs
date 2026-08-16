@@ -212,10 +212,7 @@ fn kms_p256_backend_signs_prehash() {
     let signature = kms.sign_hash(&digest).unwrap();
     assert_eq!(rules.sign.num_calls(), 1);
 
-    let software_sig = sign_software.sign_hash(&digest).unwrap();
-    let software_parsed = p256::ecdsa::Signature::from_slice(&software_sig).unwrap();
-    let software_normalized = software_parsed.normalize_s().unwrap_or(software_parsed);
-    assert_eq!(signature, <[u8; 64]>::from(software_normalized.to_bytes()));
+    assert_eq!(signature, sign_software.sign_hash(&digest).unwrap());
 
     let parsed = p256::ecdsa::Signature::from_slice(&signature).unwrap();
     assert!(parsed.normalize_s().is_none());
@@ -235,7 +232,9 @@ fn kms_p256_backend_signs_prehash() {
     let message = b"registry binding";
     let message_signature = kms.sign_message(message).unwrap();
     assert_eq!(rules.sign.num_calls(), 3);
-    assert!(kms.signing_pubkey().verify_message(message, &message_signature));
+    assert!(kms
+        .signing_pubkey()
+        .verify_message(message, &message_signature));
     assert_eq!(
         kms.sign_message(ED25519_DERIVATION_MSG),
         Err(KeypairError::DerivationInput)
@@ -255,6 +254,9 @@ fn kms_p256_backend_normalizes_high_s() {
     let parsed = p256::ecdsa::Signature::from_slice(&signature).unwrap();
     assert!(parsed.normalize_s().is_none());
     assert!(kms.signing_pubkey().verify_hash(&digest, &signature));
+
+    let sign_software = SigningKey::from_p256_bytes(&P256_ROOTS.sign).unwrap();
+    assert_eq!(signature, sign_software.sign_hash(&digest).unwrap());
 }
 
 #[test]
