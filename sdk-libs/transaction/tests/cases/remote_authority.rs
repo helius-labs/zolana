@@ -1,4 +1,4 @@
-//! [`LocalWalletAuthority`] over a keypair that is not a [`ShieldedKeypair`].
+//! [`KeypairWalletAuthority`] over a keypair that is not a [`ShieldedKeypair`].
 //!
 //! This is the case the generic parameter exists for: a backend whose signing
 //! key is device-resident implements [`ShieldedKeypairTrait`] and
@@ -17,7 +17,7 @@ use zolana_keypair::{
     ShieldedKeypairTrait, SigningKey, ViewingKey,
 };
 use zolana_transaction::{
-    Address, AssetRegistry, LocalWalletAuthority, SyncWalletAuthority, TransactionError,
+    Address, AssetRegistry, KeypairWalletAuthority, SyncWalletAuthority, TransactionError,
 };
 
 const SIGNING_SECRET: [u8; 32] = [31u8; 32];
@@ -118,8 +118,8 @@ pub(crate) fn remote_backend_publishes_the_same_identity() {
     let software = software_keypair();
     let remote = RemoteKeypair::mirroring(&software);
 
-    let software_authority = LocalWalletAuthority::new(Address::default(), &software);
-    let remote_authority = LocalWalletAuthority::with_viewing_keys(
+    let software_authority = KeypairWalletAuthority::new(Address::default(), &software);
+    let remote_authority = KeypairWalletAuthority::with_viewing_keys(
         Address::default(),
         &remote,
         vec![software.viewing_key.clone()],
@@ -163,7 +163,7 @@ pub(crate) fn remote_backend_signs_through_the_trait() {
     let message_hash = [7u8; 32];
 
     let signature = {
-        let authority = LocalWalletAuthority::with_viewing_keys(
+        let authority = KeypairWalletAuthority::with_viewing_keys(
             Address::default(),
             &remote,
             vec![software.viewing_key.clone()],
@@ -176,7 +176,7 @@ pub(crate) fn remote_backend_signs_through_the_trait() {
     assert_eq!(
         signature,
         SyncWalletAuthority::sign_p256(
-            &LocalWalletAuthority::new(Address::default(), &software),
+            &KeypairWalletAuthority::new(Address::default(), &software),
             &message_hash,
         )
         .unwrap()
@@ -193,13 +193,13 @@ pub(crate) fn remote_backend_encrypts_with_the_same_transaction_key() {
     let first_nullifier = [3u8; 32];
     let assets = AssetRegistry::default();
 
-    let remote_authority = LocalWalletAuthority::with_viewing_keys(
+    let remote_authority = KeypairWalletAuthority::with_viewing_keys(
         Address::default(),
         &remote,
         vec![software.viewing_key.clone()],
     )
     .expect("the keypair's own viewing key is supplied");
-    let software_authority = LocalWalletAuthority::new(Address::default(), &software);
+    let software_authority = KeypairWalletAuthority::new(Address::default(), &software);
 
     let from_remote = SyncWalletAuthority::encrypt_confidential_transfer(
         &remote_authority,
@@ -226,7 +226,7 @@ pub(crate) fn remote_backend_encrypts_with_the_same_transaction_key() {
 pub(crate) fn remote_backend_refuses_derivation_shaped_payloads() {
     let software = software_keypair();
     let remote = RemoteKeypair::mirroring(&software);
-    let authority = LocalWalletAuthority::with_viewing_keys(
+    let authority = KeypairWalletAuthority::with_viewing_keys(
         Address::default(),
         &remote,
         vec![software.viewing_key.clone()],
@@ -255,7 +255,7 @@ pub(crate) fn historical_viewing_keys_are_carried_through() {
     let remote = RemoteKeypair::mirroring(&software);
     let retired = ViewingKey::from_bytes(&[9u8; 32]).expect("viewing key");
 
-    let authority = LocalWalletAuthority::with_viewing_keys(
+    let authority = KeypairWalletAuthority::with_viewing_keys(
         Address::default(),
         &remote,
         vec![software.viewing_key.clone(), retired.clone()],
@@ -282,7 +282,7 @@ pub(crate) fn viewing_keys_must_contain_the_keypairs_own() {
     let unrelated = ViewingKey::from_bytes(&[4u8; 32]).expect("viewing key");
 
     assert!(matches!(
-        LocalWalletAuthority::with_viewing_keys(
+        KeypairWalletAuthority::with_viewing_keys(
             Address::default(),
             &remote,
             vec![unrelated.clone()],
@@ -290,12 +290,12 @@ pub(crate) fn viewing_keys_must_contain_the_keypairs_own() {
         Err(TransactionError::AuthorityViewingKeyMismatch)
     ));
     assert!(matches!(
-        LocalWalletAuthority::with_viewing_keys(Address::default(), &remote, Vec::new()),
+        KeypairWalletAuthority::with_viewing_keys(Address::default(), &remote, Vec::new()),
         Err(TransactionError::AuthorityViewingKeyMismatch)
     ));
 
     // Extra keys alongside the current one are fine: that is key rotation.
-    assert!(LocalWalletAuthority::with_viewing_keys(
+    assert!(KeypairWalletAuthority::with_viewing_keys(
         Address::default(),
         &remote,
         vec![unrelated, software.viewing_key.clone()],

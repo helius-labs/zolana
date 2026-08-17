@@ -100,8 +100,8 @@ export interface WalletAuthority {
   requestUserApproval(request: ApprovalRequest): Promise<void>;
 }
 
-/** Binds local shielded keys to the Solana address that publishes them. */
-export class LocalWalletAuthority implements WalletAuthority {
+/** Binds a shielded keypair to the Solana address that publishes it. */
+export class KeypairWalletAuthority implements WalletAuthority {
   readonly #solanaPublicKey: Address;
   readonly #keypair: ShieldedKeypair;
 

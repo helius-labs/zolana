@@ -54,7 +54,7 @@ export {
 } from "./keypair/index.js";
 export {
   Data,
-  LocalWalletAuthority,
+  KeypairWalletAuthority,
   SOL_MINT,
   TransactionError,
   Utxo,

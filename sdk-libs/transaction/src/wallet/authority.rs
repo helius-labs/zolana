@@ -253,20 +253,22 @@ where
 /// Generic over the keypair so a backend whose signing key is hardware-resident
 /// — an HSM, a KMS, a remote custodian — becomes a [`WalletAuthority`] by
 /// implementing [`ShieldedKeypairTrait`] and [`ViewingKeyTrait`], with no
-/// reimplementation of the encryption bodies below. "Local" describes the
-/// encryption and scan material, which is in this process for every backend:
-/// both role secrets are private proof inputs, so no signing device can hold
-/// them on the wallet's behalf.
+/// reimplementation of the encryption bodies below.
 ///
-/// `K` defaults to [`ShieldedKeypair`], so `LocalWalletAuthority<'_>` keeps
-/// meaning what it did.
-pub struct LocalWalletAuthority<'a, K = ShieldedKeypair> {
+/// Wherever the signing key lives, the encryption and scan material is in this
+/// process: both role secrets are private proof inputs, so no signing device can
+/// hold them on the wallet's behalf.
+///
+/// `K` defaults to [`ShieldedKeypair`] because a software keypair is the
+/// ordinary case, the way `HashMap` defaults its hasher — not to keep older
+/// call sites compiling.
+pub struct KeypairWalletAuthority<'a, K = ShieldedKeypair> {
     solana_pubkey: Address,
     keypair: &'a K,
     viewing_keys: Vec<ViewingKey>,
 }
 
-impl<'a> LocalWalletAuthority<'a, ShieldedKeypair> {
+impl<'a> KeypairWalletAuthority<'a, ShieldedKeypair> {
     /// Scans with the keypair's own viewing key. Use
     /// [`Self::with_viewing_keys`] to add rotated-out keys, or for a backend
     /// that is not a [`ShieldedKeypair`].
@@ -280,7 +282,7 @@ impl<'a> LocalWalletAuthority<'a, ShieldedKeypair> {
     }
 }
 
-impl<'a, K: ViewingKeyTrait> LocalWalletAuthority<'a, K> {
+impl<'a, K: ViewingKeyTrait> KeypairWalletAuthority<'a, K> {
     /// Binds any shielded keypair backend to the viewing keys a scan needs:
     /// every current and historical key.
     ///
@@ -320,8 +322,9 @@ fn recipient_slot_index(i: usize) -> Result<u32, TransactionError> {
     })
 }
 
-/// Shared bodies for every local authority ([`LocalWalletAuthority`] and the
-/// bare keypair impl below), so the encryption and signing logic exists once.
+/// Shared bodies for every authority over a shielded keypair
+/// ([`KeypairWalletAuthority`] and the bare keypair impl below), so the
+/// encryption and signing logic exists once.
 ///
 /// Written against [`ViewingKeyTrait`] and [`ShieldedKeypairTrait`] rather than
 /// a concrete keypair: these are exactly the capabilities the bodies need, so
@@ -436,7 +439,7 @@ fn sign_p256_with<K: ShieldedKeypairTrait>(
 }
 
 impl<K: ShieldedKeypairTrait + ViewingKeyTrait + Sync> SyncWalletAuthority
-    for LocalWalletAuthority<'_, K>
+    for KeypairWalletAuthority<'_, K>
 {
     fn solana_pubkey(&self) -> Address {
         self.solana_pubkey

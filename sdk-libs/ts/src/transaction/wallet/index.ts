@@ -1,5 +1,5 @@
 export {
-  LocalWalletAuthority,
+  KeypairWalletAuthority,
   type AnonymousRecipientSlot,
   type ApprovalRequest,
   type EncryptedEnvelope,
