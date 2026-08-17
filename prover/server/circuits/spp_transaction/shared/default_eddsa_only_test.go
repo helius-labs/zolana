@@ -23,12 +23,12 @@ func MustNewDefaultZoneEddsaOnlyCircuit(shape Shape) *defaultzone.DefaultZoneEdd
 	return circuit
 }
 
-// defaultOutputOwnerTag is the (pk_field, nullifier_pk) decomposition of the
-// owner sampleUtxo bakes into every default output: OwnerHash(testSolanaPkField,
-// NullifierPk(99)).
-func defaultOutputOwnerTag(t testing.TB) (*big.Int, *big.Int) {
+// defaultOutputOwnerTag is the (pk_field, spend_public) decomposition of the
+// owner sampleUtxo bakes into every default output:
+// OwnerHash(testSolanaPkField, SpendPublic(99)).
+func defaultOutputOwnerTag(t testing.TB) (*big.Int, protocol.SpendPoint) {
 	t.Helper()
-	return testSolanaPkField(t), spptest.MustNullifierPk(t, spptest.Fe(99))
+	return testSolanaPkField(t), spptest.MustSpendPublic(t, spptest.Fe(99))
 }
 
 // makeDefaultZone turns an anonymous assignment whose outputs all carry the
@@ -36,10 +36,10 @@ func defaultOutputOwnerTag(t testing.TB) (*big.Int, *big.Int) {
 // default-zone public-input hash.
 func makeDefaultZone(t testing.TB, assignment *testAssignment) {
 	t.Helper()
-	pkField, nullifierPk := defaultOutputOwnerTag(t)
+	pkField, spendPublic := defaultOutputOwnerTag(t)
 	for i := range assignment.Outputs {
 		assignment.Outputs[i].OwnerPkHash = pkField
-		assignment.Outputs[i].NullifierPk = nullifierPk
+		assignment.Outputs[i].SpendPublic = spendPublic
 	}
 	refreshDefaultZonePublicInputHash(t, assignment)
 }
@@ -130,20 +130,20 @@ func TestDefaultZoneEddsaOnlyAcceptsDataHashOnSignerOwnedOutput(t *testing.T) {
 }
 
 // The data check is on the signing key, not on the full owner identity: a
-// data-carrying output owned by the signer under a different nullifier pubkey
+// data-carrying output owned by the signer under a different spend pubkey
 // (a different derived identity of the same signer) solves.
-func TestDefaultZoneEddsaOnlyAcceptsDataHashOnSignerOwnedOutputWithOtherNullifierPk(t *testing.T) {
+func TestDefaultZoneEddsaOnlyAcceptsDataHashOnSignerOwnedOutputWithOtherSpendKey(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 
 	pkField := testSolanaPkField(t)
-	otherNullifierPk := spptest.MustNullifierPk(t, spptest.Fe(1234))
+	otherSpendPublic := spptest.MustSpendPublic(t, spptest.Fe(1234))
 
 	inputs, outputs := defaultBalancedUtxos(t, shape)
 	outputs[0].DataHash = spptest.Fe(0x99)
-	outputs[0].Owner = spptest.MustOwnerHash(t, pkField, otherNullifierPk)
+	outputs[0].Owner = spptest.MustOwnerHash(t, pkField, otherSpendPublic)
 	assignment := buildDefaultZoneEddsaOnlyAssignmentFromUtxos(t, shape, inputs, outputs)
-	assignment.Outputs[0].NullifierPk = otherNullifierPk
+	assignment.Outputs[0].SpendPublic = otherSpendPublic
 	refreshDefaultZonePublicInputHash(t, assignment)
 
 	circuit := MustNewDefaultZoneEddsaOnlyCircuit(Shape(shape))
@@ -158,11 +158,11 @@ func TestDefaultZoneEddsaOnlyRejectsDataHashOnNonSignerOwnedOutput(t *testing.T)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 
 	otherPkField := testSolanaPkFieldSeed(t, 0x43)
-	_, nullifierPk := defaultOutputOwnerTag(t)
+	_, spendPublic := defaultOutputOwnerTag(t)
 
 	inputs, outputs := defaultBalancedUtxos(t, shape)
 	outputs[0].DataHash = spptest.Fe(0x99)
-	outputs[0].Owner = spptest.MustOwnerHash(t, otherPkField, nullifierPk)
+	outputs[0].Owner = spptest.MustOwnerHash(t, otherPkField, spendPublic)
 	assignment := buildDefaultZoneEddsaOnlyAssignmentFromUtxos(t, shape, inputs, outputs)
 	assignment.Outputs[0].OwnerPkHash = otherPkField
 	refreshDefaultZonePublicInputHash(t, assignment)
@@ -181,7 +181,7 @@ func TestDefaultZoneEddsaOnlyRejectsDummyOutputThirdPartyTag(t *testing.T) {
 
 	// Dummy slot tagged with a third party's pk_field.
 	assignment.Outputs[1].OwnerPkHash = spptest.Fe(424242)
-	assignment.Outputs[1].NullifierPk = spptest.Fe(55)
+	assignment.Outputs[1].SpendPublic = spptest.MustSpendPublic(t, spptest.Fe(55))
 	refreshDummyOutputHashes(t, assignment)
 
 	circuit := MustNewDefaultZoneEddsaOnlyCircuit(Shape(shape))
@@ -197,7 +197,7 @@ func TestDefaultZoneEddsaOnlyDummyOutputSignerTagSolves(t *testing.T) {
 
 	// Dummy slot tagged with the real input's owner tag (a signer).
 	assignment.Outputs[1].OwnerPkHash = assignment.Inputs[0].OwnerPkHash
-	assignment.Outputs[1].NullifierPk = spptest.Fe(55)
+	assignment.Outputs[1].SpendPublic = spptest.MustSpendPublic(t, spptest.Fe(55))
 	refreshDummyOutputHashes(t, assignment)
 
 	circuit := MustNewDefaultZoneEddsaOnlyCircuit(Shape(shape))
@@ -212,7 +212,7 @@ func TestDefaultZoneEddsaOnlyAcceptsDummyOutputPayerHashTag(t *testing.T) {
 	assignment := dummyOutputAssignment(t, shape)
 
 	assignment.Outputs[1].OwnerPkHash = assignment.TransactionSignerPkHashes()[0]
-	assignment.Outputs[1].NullifierPk = spptest.Fe(55)
+	assignment.Outputs[1].SpendPublic = spptest.MustSpendPublic(t, spptest.Fe(55))
 	refreshDummyOutputHashes(t, assignment)
 
 	circuit := MustNewDefaultZoneEddsaOnlyCircuit(Shape(shape))
@@ -232,9 +232,9 @@ func dummyOutputAssignment(t *testing.T, shape protocol.Shape) *testAssignment {
 		},
 	)
 
-	pkField, nullifierPk := defaultOutputOwnerTag(t)
+	pkField, spendPublic := defaultOutputOwnerTag(t)
 	assignment.Outputs[0].OwnerPkHash = pkField
-	assignment.Outputs[0].NullifierPk = nullifierPk
+	assignment.Outputs[0].SpendPublic = spendPublic
 	return assignment
 }
 
@@ -252,5 +252,6 @@ func refreshDummyOutputHashes(t *testing.T, assignment *testAssignment) {
 		spptest.AsBigInt(assignment.ExternalDataHash),
 	)
 	assignment.PrivateTxHash = privateTxHash
+	resignInputs(t, assignment)
 	refreshDefaultZonePublicInputHash(t, assignment)
 }

@@ -4,29 +4,35 @@ import (
 	"zolana/prover/circuits/gadget"
 
 	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/std/signature/eddsa"
 )
 
 // Owner-tag bindings apply to rails that publish per-slot owner tags. Rails
 // that keep tags private skip the corresponding checks.
 
 // AssertOutputOwnerTags — every real output's owner_hash must recompute from
-// its public owner tag and the witnessed nullifier pubkey, which is what makes
-// the tag usable as the output's signer identity. Dummy slots skip the binding
-// so their tag stays free (see AssertDummyTags for what constrains it).
+// its public owner tag and the witnessed spend pubkey, which is what makes the
+// tag usable as the output's signer identity. Outputs carry no signature: the
+// recipient holds that key. Dummy slots skip the binding so their tag stays free
+// (see AssertDummyTags for what constrains it).
 func AssertOutputOwnerTags(
 	api frontend.API,
 	outputs []UtxoCircuitFields,
 	ownerPkHashes []frontend.Variable,
-	nullifierPks []frontend.Variable,
+	spendPublics []eddsa.PublicKey,
 ) error {
 	if err := ValidateLength("output owner pk hash", len(ownerPkHashes), len(outputs)); err != nil {
 		return err
 	}
-	if err := ValidateLength("output nullifier pk", len(nullifierPks), len(outputs)); err != nil {
+	if err := ValidateLength("output spend pk", len(spendPublics), len(outputs)); err != nil {
 		return err
 	}
 	for i, utxo := range outputs {
-		ownerHash := gadget.PoseidonHash(api, []frontend.Variable{ownerPkHashes[i], nullifierPks[i]})
+		ownerHash := gadget.PoseidonHash(api, []frontend.Variable{
+			ownerPkHashes[i],
+			spendPublics[i].A.X,
+			spendPublics[i].A.Y,
+		})
 		AssertWhen(api, utxo.isUtxo(api), api.IsZero(api.Sub(ownerHash, utxo.Owner)))
 	}
 	return nil

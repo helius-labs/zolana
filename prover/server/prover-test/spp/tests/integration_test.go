@@ -37,11 +37,11 @@ func p256ProofRequest(t *testing.T) txprover.ProofBundleRequest {
 	if err != nil {
 		t.Fatal(err)
 	}
-	nullifierPk, err := protocol.NullifierPk(nullifierSecret)
+	spendKey, err := protocol.NewSpendKey(nullifierSecret)
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner, err := protocol.OwnerHash(ownerKeyHash, nullifierPk)
+	owner, err := protocol.OwnerHash(ownerKeyHash, spendKey.Public)
 	if err != nil {
 		t.Fatal(err)
 	}

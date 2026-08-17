@@ -100,11 +100,16 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 		}
 	}
 	nullifierSecret := big.NewInt(19)
-	userNullifierPk, err := protocol.NullifierPk(nullifierSecret)
+	// The merge circuit still uses the pre-EdDSA owner-hash scheme --
+	// nullifier_pk = Poseidon(secret) and owner_hash = Poseidon(owner_key_hash,
+	// nullifier_pk) -- so the fixture derives both locally. The transfer
+	// circuits on this branch have moved to EdDSA spend keys and merge is
+	// deliberately inconsistent with them until it is migrated.
+	userNullifierPk, err := poseidon.Hash([]*big.Int{nullifierSecret})
 	if err != nil {
 		t.Fatal(err)
 	}
-	userOwnerHash, err := protocol.OwnerHash(ownerKeyHash, userNullifierPk)
+	userOwnerHash, err := poseidon.Hash([]*big.Int{ownerKeyHash, userNullifierPk})
 	if err != nil {
 		t.Fatal(err)
 	}

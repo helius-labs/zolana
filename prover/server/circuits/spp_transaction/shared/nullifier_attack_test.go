@@ -97,6 +97,7 @@ func TestCircuitRejectsSharedNullifierAcrossSlots(t *testing.T) {
 		noAddressHashes(2),
 		spptest.AsBigInt(assignment.ExternalDataHash),
 	)
+	resignInputs(t, assignment)
 	refreshPublicInputHash(t, assignment)
 
 	assert.SolvingFailed(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))

@@ -9,6 +9,7 @@ import (
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 
 	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/std/signature/eddsa"
 )
 
 func utxoFields(u UtxoParams) txcircuit.UtxoCircuitFields {
@@ -34,7 +35,7 @@ func inputWitness(in InputParams) txcircuit.Input {
 	for j := range in.NullifierLowPathElements {
 		nullifierPath[j] = in.NullifierLowPathElements[j]
 	}
-	return txcircuit.Input{
+	input := txcircuit.Input{
 		Utxo:                     utxoFields(in.Utxo),
 		StatePathElements:        statePath,
 		StatePathIndex:           in.StatePathIndex,
@@ -44,6 +45,32 @@ func inputWitness(in InputParams) txcircuit.Input {
 		NullifierLowPathIndex:    in.NullifierLowPathIndex,
 		NullifierSecret:          in.NullifierSecret,
 	}
+	input.SpendPublic.A.X = orNeutralX(in.SpendPkX)
+	input.SpendPublic.A.Y = orNeutralY(in.SpendPkY)
+	input.SpendSignature.R.X = orNeutralX(in.SpendSigX)
+	input.SpendSignature.R.Y = orNeutralY(in.SpendSigY)
+	input.SpendSignature.S = orZero(in.SpendSigS)
+	return input
+}
+
+// Missing spend key material means a slot that does not spend, so it defaults to
+// the neutral element and the signature that verifies under it. Assigning zero
+// to a point coordinate would put the witness off the curve and make the whole
+// proof unsatisfiable.
+func orNeutralX(x *big.Int) *big.Int { return orZero(x) }
+
+func orNeutralY(y *big.Int) *big.Int {
+	if y == nil {
+		return big.NewInt(1)
+	}
+	return y
+}
+
+func spendPublicWitness(x, y *big.Int) eddsa.PublicKey {
+	var public eddsa.PublicKey
+	public.A.X = orNeutralX(x)
+	public.A.Y = orNeutralY(y)
+	return public
 }
 
 // witnessCore carries the assignment pieces shared by every Solana-only
@@ -136,9 +163,9 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 
 	switch p.Variant {
 	case ConfidentialVariant:
-		outputNullifierPks := make([]frontend.Variable, len(p.Outputs))
+		outputSpendPks := make([]eddsa.PublicKey, len(p.Outputs))
 		for i, out := range p.Outputs {
-			outputNullifierPks[i] = orZero(out.NullifierPk)
+			outputSpendPks[i] = spendPublicWitness(out.SpendPkX, out.SpendPkY)
 		}
 		return &defaultzone.DefaultZoneEddsaOnlyCircuit{
 			Shape: shape,
@@ -160,7 +187,7 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 				Inputs:             core.inputs,
 				InputOwnerPkHashes: core.inputOwnerPkHashes,
 				Outputs:            core.outputs,
-				OutputNullifierPks: outputNullifierPks,
+				OutputSpendPks:     outputSpendPks,
 			},
 		}, nil
 	case ZoneAuthorityVariant:
@@ -188,10 +215,10 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 		}, nil
 	default:
 		outputOwnerPkHashes := make([]frontend.Variable, len(p.Outputs))
-		outputNullifierPks := make([]frontend.Variable, len(p.Outputs))
+		outputSpendPks := make([]eddsa.PublicKey, len(p.Outputs))
 		for i, out := range p.Outputs {
 			outputOwnerPkHashes[i] = orZero(out.OwnerPkHash)
-			outputNullifierPks[i] = orZero(out.NullifierPk)
+			outputSpendPks[i] = spendPublicWitness(out.SpendPkX, out.SpendPkY)
 		}
 		return &customzone.CustomZoneEddsaOnlyCircuit{
 			Shape: shape,
@@ -215,7 +242,7 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 				InputOwnerPkHashes:  core.inputOwnerPkHashes,
 				Outputs:             core.outputs,
 				OutputOwnerPkHashes: outputOwnerPkHashes,
-				OutputNullifierPks:  outputNullifierPks,
+				OutputSpendPks:      outputSpendPks,
 			},
 		}, nil
 	}

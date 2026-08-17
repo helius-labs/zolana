@@ -8,16 +8,14 @@ import (
 	"zolana/prover/prover-test/poseidon"
 )
 
-func NullifierPk(nullifierSecret *big.Int) (*big.Int, error) {
-	h, err := poseidon.Hash([]*big.Int{nullifierSecret})
-	if err != nil {
-		return nil, fmt.Errorf("spp: nullifier pk: %w", err)
+// OwnerHash commits an owner identity: the key hash of the signer that
+// authorizes the transaction, plus the spend public key whose secret derives the
+// nullifier. Spending proves an EdDSA-Poseidon signature under that public key.
+func OwnerHash(ownerKeyHash *big.Int, spendPublic SpendPoint) (*big.Int, error) {
+	if spendPublic.X == nil || spendPublic.Y == nil {
+		return nil, fmt.Errorf("spp: owner hash: missing spend public key coordinate")
 	}
-	return h, nil
-}
-
-func OwnerHash(ownerKeyHash, nullifierPk *big.Int) (*big.Int, error) {
-	h, err := poseidon.Hash([]*big.Int{ownerKeyHash, nullifierPk})
+	h, err := poseidon.Hash([]*big.Int{ownerKeyHash, spendPublic.X, spendPublic.Y})
 	if err != nil {
 		return nil, fmt.Errorf("spp: owner hash: %w", err)
 	}

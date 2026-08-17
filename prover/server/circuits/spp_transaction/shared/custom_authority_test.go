@@ -173,6 +173,7 @@ func buildZoneAuthorityAssignmentWithAddressInput(
 		addressHashes,
 		spptest.AsBigInt(assignment.ExternalDataHash),
 	)
+	resignInputs(t, assignment)
 	refreshZoneAuthorityPublicInputHash(t, assignment)
 	return assignment
 }

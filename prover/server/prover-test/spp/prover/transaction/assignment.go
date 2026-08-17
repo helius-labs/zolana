@@ -11,6 +11,7 @@ import (
 	"zolana/prover/prover-test/spp/protocol"
 
 	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/std/signature/eddsa"
 )
 
 // TransactionRequiresP256 reports whether a transaction uses the removed P256
@@ -105,6 +106,11 @@ func buildProofAssignment(
 	if inputs.requiresP256OwnerWitness {
 		return proofAssignment{}, fmt.Errorf("spp: P256-owned inputs are no longer provable")
 	}
+	// Second pass: every input signs the transaction's private hash, which only
+	// exists now that all input and output witnesses are built.
+	if err := inputs.signSpendWitnesses(privateTxHash); err != nil {
+		return proofAssignment{}, err
+	}
 	publicInputs := buildPublicInputs(payerHash, inputs, outputs, external, privateTxHash)
 	publicInputHash, err := protocol.PublicInputHash(publicInputs)
 	if err != nil {
@@ -181,7 +187,7 @@ func customZoneWitness(
 			InputOwnerPkHashes:  fieldVariables(inputs.inputOwnerPkHashes),
 			Outputs:             outputs.outputs,
 			OutputOwnerPkHashes: fieldVariables(outputs.outputOwnerPkHashes),
-			OutputNullifierPks:  fieldVariables(outputs.outputNullifierPks),
+			OutputSpendPks:      outputSpendPkWitnesses(outputs.outputSpendPks),
 		},
 	}
 }
@@ -330,6 +336,16 @@ func signerPkHashes(payerHash *big.Int, inputOwnerPkHashes []*big.Int) []*big.In
 	}
 	for i := next; i < len(out); i++ {
 		out[i] = big.NewInt(0)
+	}
+	return out
+}
+
+// outputSpendPkWitnesses maps host spend points onto circuit public keys.
+func outputSpendPkWitnesses(points []protocol.SpendPoint) []eddsa.PublicKey {
+	out := make([]eddsa.PublicKey, len(points))
+	for i, point := range points {
+		out[i].A.X = point.X
+		out[i].A.Y = point.Y
 	}
 	return out
 }

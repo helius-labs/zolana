@@ -60,7 +60,7 @@ func asCustomZoneP256(a *testAssignment, authorization p256Authorization) fronte
 			InputOwnerPkHashes:  a.InputOwnerPkHashes(),
 			Outputs:             a.outputUtxos(),
 			OutputOwnerPkHashes: a.OutputOwnerPkHashes(),
-			OutputNullifierPks:  a.outputNullifierPks(),
+			OutputSpendPks:      a.outputSpendPks(),
 			P256Pub:             authorization.pub,
 			P256Sig:             authorization.sig,
 		},
@@ -74,10 +74,9 @@ func rewriteInputAsP256(
 	ownerPrivateKey *ecdsa.PrivateKey,
 ) {
 	t.Helper()
-	nullifierPk := spptest.MustNullifierPk(
-		t,
-		spptest.AsBigInt(assignment.Inputs[inputIndex].NullifierSecret),
-	)
+	// The slot keeps its spend key: the input still proves a spend signature
+	// under it and binds it through the owner hash.
+	spendPublic := assignment.Inputs[inputIndex].SpendKey.Public
 	compressed := elliptic.MarshalCompressed(
 		elliptic.P256(),
 		ownerPrivateKey.PublicKey.X,
@@ -87,7 +86,7 @@ func rewriteInputAsP256(
 	if err != nil {
 		t.Fatalf("P256 owner pk hash: %v", err)
 	}
-	owner, err := protocol.OwnerHash(ownerPkHash, nullifierPk)
+	owner, err := protocol.OwnerHash(ownerPkHash, spendPublic)
 	if err != nil {
 		t.Fatalf("P256 owner hash: %v", err)
 	}

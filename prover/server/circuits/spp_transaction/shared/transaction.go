@@ -5,7 +5,9 @@ import (
 
 	"zolana/prover/circuits/gadget"
 
+	tedwards "github.com/consensys/gnark-crypto/ecc/twistededwards"
 	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/std/algebra/native/twistededwards"
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 )
 
@@ -114,6 +116,12 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 		return err
 	}
 	api.AssertIsBoolean(t.AllowDummyInputs)
+	// The embedded curve is built once and shared by every input slot's spend
+	// signature check.
+	curve, err := twistededwards.NewEdCurve(api, tedwards.BN254)
+	if err != nil {
+		return fmt.Errorf("spp: embedded curve: %w", err)
+	}
 	// 1. check inputs
 	inputHashes := make([]frontend.Variable, t.Shape.NInputs)
 	addressHashes := make([]frontend.Variable, t.Shape.NInputs)
@@ -127,8 +135,13 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 			UtxoTreeRoot:      t.UtxoTreeRoots[i],
 			NullifierTreeRoot: t.NullifierTreeRoots[i],
 			SignerPk:          signers[i],
+			SpendMessage:      t.PrivateTxHash,
 		}
-		inputHashes[i], addressHashes[i] = constrainInput(api, in, signals)
+		var err error
+		inputHashes[i], addressHashes[i], err = constrainInput(api, curve, in, signals)
+		if err != nil {
+			return err
+		}
 	}
 	AssertDistinctNullifiers(api, t.Nullifiers)
 

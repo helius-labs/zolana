@@ -6,8 +6,17 @@ import (
 	gadgetlib "zolana/prover/circuits/gadget"
 
 	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/std/algebra/native/twistededwards"
+	"github.com/consensys/gnark/std/signature/eddsa"
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 )
+
+// SpendSecretBits bounds the spend secret scalar. The subgroup order is 251 bits
+// while the scalar field is 254, so without this bound secret, secret+order, ...
+// secret+7*order would be distinct field elements sharing one public key, each
+// deriving a different nullifier for the same UTXO. Mirrors
+// protocol.SpendSecretBits.
+const SpendSecretBits = 250
 
 // Input UTXO with inclusion and non inclusion proofs.
 type Input struct {
@@ -20,7 +29,16 @@ type Input struct {
 	NullifierLowPathElements []frontend.Variable
 	NullifierLowPathIndex    frontend.Variable
 
+	// NullifierSecret is the spend secret scalar: it derives the nullifier and
+	// is bound to SpendPublic by a base-point multiplication.
 	NullifierSecret frontend.Variable
+
+	// SpendPublic is committed by the UTXO's owner hash, and SpendSignature
+	// authorizes this spend under it. Slots that do not spend (dummy padding and
+	// address slots) carry the neutral element and its trivially valid
+	// signature, so every curve check below runs ungated.
+	SpendPublic    eddsa.PublicKey
+	SpendSignature eddsa.Signature
 }
 
 // Public inputs per input UTXO.
@@ -29,6 +47,10 @@ type PublicInputUtxoInputs struct {
 	UtxoTreeRoot      frontend.Variable
 	NullifierTreeRoot frontend.Variable
 	SignerPk          frontend.Variable
+	// SpendMessage is the transaction's private hash, which every input
+	// signature covers, so a signature cannot be replayed into another
+	// transaction.
+	SpendMessage frontend.Variable
 }
 
 func NewInputs(n int) []Input {
@@ -73,7 +95,12 @@ func AssertDistinctNullifiers(api frontend.API, nullifiers []frontend.Variable) 
 	}
 }
 
-func constrainInput(api frontend.API, in Input, signals PublicInputUtxoInputs) (frontend.Variable, frontend.Variable) {
+func constrainInput(
+	api frontend.API,
+	curve twistededwards.Curve,
+	in Input,
+	signals PublicInputUtxoInputs,
+) (frontend.Variable, frontend.Variable, error) {
 
 	isUtxo := in.isUtxo(api)
 	isAddress := in.isAddress(api)
@@ -93,15 +120,20 @@ func constrainInput(api frontend.API, in Input, signals PublicInputUtxoInputs) (
 	// Checks UTXO and address:
 	// 1. Check owner hash matches UTXO.
 	{
-		nullifierPk := abstractor.Call(api, nullifierPkGadget{
-			NullifierSecret: in.NullifierSecret,
-		})
 		ownerHash := abstractor.Call(api, ownerHashGadget{
 			OwnerKeyHash: signals.SignerPk,
-			NullifierPk:  nullifierPk,
+			SpendPkX:     in.SpendPublic.A.X,
+			SpendPkY:     in.SpendPublic.A.Y,
 		})
 		ownerIsCorrect := api.IsZero(api.Sub(ownerHash, in.Utxo.Owner))
 		AssertWhen(api, in.isUtxoOrAddress(api), ownerIsCorrect)
+	}
+
+	// Spend authority. Every check here runs ungated: non-spending slots carry
+	// the neutral element and the signature that verifies under it, which is
+	// exactly why a real UTXO must not commit to the neutral element.
+	if err := in.constrainSpendAuthority(api, curve, isUtxo, signals.SpendMessage); err != nil {
+		return nil, nil, err
 	}
 
 	// UTXO checks:
@@ -111,9 +143,12 @@ func constrainInput(api frontend.API, in Input, signals PublicInputUtxoInputs) (
 	}
 	// Dummy checks:
 	// 1. All UTXO fields and nullifier secret 0, except the blinding.
+	// 2. Spend key pinned to the neutral element, so a dummy slot cannot smuggle
+	//    in a key of its own.
 	{
 		AssertWhen(api, in.isDummy(api), in.Utxo.CheckDummy(api))
 		assertZeroWhen(api, in.isDummy(api), in.NullifierSecret)
+		AssertWhen(api, in.isDummy(api), in.spendKeyIsNeutral(api))
 	}
 	// Address checks:
 	// 1. All UTXO fields and nullifier secret 0, except the blinding and owner.
@@ -123,7 +158,56 @@ func constrainInput(api frontend.API, in Input, signals PublicInputUtxoInputs) (
 	// in zk program proofs via private transaction hash.
 	inputHash := api.Select(isUtxo, utxoHash, frontend.Variable(0))
 	addressHash := api.Select(isAddress, utxoHash, frontend.Variable(0))
-	return inputHash, addressHash
+	return inputHash, addressHash, nil
+}
+
+// constrainSpendAuthority proves the spender holds the secret of the public key
+// the UTXO's owner hash commits to:
+//
+//  1. the public key and the signature nonce are curve points (gnark's verifier
+//     checks neither),
+//  2. the signature verifies over the transaction's private hash,
+//  3. the nullifier secret is that public key's discrete log, canonically
+//     represented — without this a spender could pick any secret and derive an
+//     unlimited number of nullifiers for one UTXO,
+//  4. a real UTXO does not commit to the neutral element, whose signature anyone
+//     can forge.
+func (in Input) constrainSpendAuthority(
+	api frontend.API,
+	curve twistededwards.Curve,
+	isUtxo frontend.Variable,
+	message frontend.Variable,
+) error {
+	curve.AssertIsOnCurve(in.SpendPublic.A)
+	curve.AssertIsOnCurve(in.SpendSignature.R)
+
+	if err := eddsa.Verify(
+		curve,
+		in.SpendSignature,
+		message,
+		in.SpendPublic,
+		gadgetlib.NewPoseidonFieldHasher(api),
+	); err != nil {
+		return fmt.Errorf("spp: spend signature: %w", err)
+	}
+
+	api.ToBinary(in.NullifierSecret, SpendSecretBits)
+	base := twistededwards.Point{X: curve.Params().Base[0], Y: curve.Params().Base[1]}
+	derived := curve.ScalarMul(base, in.NullifierSecret)
+	api.AssertIsEqual(derived.X, in.SpendPublic.A.X)
+	api.AssertIsEqual(derived.Y, in.SpendPublic.A.Y)
+
+	AssertWhen(api, isUtxo, api.Sub(1, in.spendKeyIsNeutral(api)))
+	return nil
+}
+
+// spendKeyIsNeutral returns 1 iff the spend public key is the curve's neutral
+// element (0, 1), the convention for slots that do not spend.
+func (in Input) spendKeyIsNeutral(api frontend.API) frontend.Variable {
+	return api.Mul(
+		api.IsZero(in.SpendPublic.A.X),
+		api.IsZero(api.Sub(in.SpendPublic.A.Y, 1)),
+	)
 }
 
 // isUtxo: the slot spends an existing utxo.
@@ -160,16 +244,21 @@ func (in Input) checkInclusion(api frontend.API, utxoHash, utxoTreeRoot frontend
 func (in Input) checkAddress(api frontend.API) frontend.Variable {
 	// Owner is signer.
 	// Blinding is seed.
-	// NullifierSecret is 0, so the address nullifier is derivable from
-	// (owner, seed) alone.
+	// NullifierSecret is 0 and the spend key is the neutral element, so the
+	// address nullifier and its owner hash are derivable from (owner, seed)
+	// alone. An unpinned spend key would let one (owner, seed) pair yield
+	// unboundedly many addresses and stop them being recomputable off-circuit.
 	// -> domain separated nullifier by owner which can be used as address
-	return allZero(api,
-		in.Utxo.Asset,
-		in.Utxo.Amount,
-		in.Utxo.DataHash,
-		in.Utxo.ZoneDataHash,
-		in.Utxo.ZoneProgramID,
-		in.NullifierSecret,
+	return api.Mul(
+		allZero(api,
+			in.Utxo.Asset,
+			in.Utxo.Amount,
+			in.Utxo.DataHash,
+			in.Utxo.ZoneDataHash,
+			in.Utxo.ZoneProgramID,
+			in.NullifierSecret,
+		),
+		in.spendKeyIsNeutral(api),
 	)
 }
 
@@ -208,14 +297,6 @@ func (in Input) checkNonInclusion(api frontend.API, utxoHash frontend.Variable, 
 	api.AssertIsEqual(nfRoot, signals.NullifierTreeRoot)
 	// 3.  nullifier is in range (NullifierLowValue < Nullifier < NullifierNextValue)
 	assertStrictlyOrdered(api, in.NullifierLowValue, signals.Nullifier, in.NullifierNextValue)
-}
-
-type nullifierPkGadget struct {
-	NullifierSecret frontend.Variable
-}
-
-func (gadget nullifierPkGadget) DefineGadget(api frontend.API) interface{} {
-	return gadgetlib.PoseidonHash(api, []frontend.Variable{gadget.NullifierSecret})
 }
 
 type NullifierGadget struct {

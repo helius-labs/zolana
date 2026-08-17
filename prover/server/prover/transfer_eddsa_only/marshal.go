@@ -34,6 +34,11 @@ type InputParamsJSON struct {
 	Nullifier                string         `json:"nullifier"`
 	OwnerPkHash              string         `json:"ownerPkHash"`
 	NullifierSecret          string         `json:"nullifierSecret"`
+	SpendPkX                 string         `json:"spendPkX"`
+	SpendPkY                 string         `json:"spendPkY"`
+	SpendSigX                string         `json:"spendSigX"`
+	SpendSigY                string         `json:"spendSigY"`
+	SpendSigS                string         `json:"spendSigS"`
 }
 
 type OutputParamsJSON struct {
@@ -41,7 +46,8 @@ type OutputParamsJSON struct {
 	IsDummy     string         `json:"isDummy"`
 	Hash        string         `json:"hash"`
 	OwnerPkHash string         `json:"ownerPkHash"`
-	NullifierPk string         `json:"nullifierPk"`
+	SpendPkX    string         `json:"spendPkX"`
+	SpendPkY    string         `json:"spendPkY"`
 }
 
 type TransferParametersJSON struct {
@@ -106,6 +112,11 @@ func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJS
 			Nullifier:                feHex(in.Nullifier),
 			OwnerPkHash:              feHex(in.OwnerPkHash),
 			NullifierSecret:          feHex(in.NullifierSecret),
+			SpendPkX:                 feHex(in.SpendPkX),
+			SpendPkY:                 feHex(in.SpendPkY),
+			SpendSigX:                feHex(in.SpendSigX),
+			SpendSigY:                feHex(in.SpendSigY),
+			SpendSigS:                feHex(in.SpendSigS),
 		}
 	}
 
@@ -116,7 +127,8 @@ func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJS
 			IsDummy:     feHex(out.IsDummy),
 			Hash:        feHex(out.Hash),
 			OwnerPkHash: feHex(out.OwnerPkHash),
-			NullifierPk: feHex(out.NullifierPk),
+			SpendPkX:    feHex(out.SpendPkX),
+			SpendPkY:    feHex(out.SpendPkY),
 		}
 	}
 
@@ -206,6 +218,21 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 		if input.NullifierSecret, err = feFromHex(in.NullifierSecret); err != nil {
 			return err
 		}
+		if input.SpendPkX, err = feFromHex(in.SpendPkX); err != nil {
+			return err
+		}
+		if input.SpendPkY, err = feFromHex(in.SpendPkY); err != nil {
+			return err
+		}
+		if input.SpendSigX, err = feFromHex(in.SpendSigX); err != nil {
+			return err
+		}
+		if input.SpendSigY, err = feFromHex(in.SpendSigY); err != nil {
+			return err
+		}
+		if input.SpendSigS, err = feFromHex(in.SpendSigS); err != nil {
+			return err
+		}
 		p.Inputs[i] = input
 	}
 
@@ -225,7 +252,10 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 		if output.OwnerPkHash, err = feFromHex(out.OwnerPkHash); err != nil {
 			return err
 		}
-		if output.NullifierPk, err = feFromHex(out.NullifierPk); err != nil {
+		if output.SpendPkX, err = feFromHex(out.SpendPkX); err != nil {
+			return err
+		}
+		if output.SpendPkY, err = feFromHex(out.SpendPkY); err != nil {
 			return err
 		}
 		p.Outputs[i] = output

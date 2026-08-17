@@ -15,6 +15,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/consensys/gnark/std/math/emulated"
+	"github.com/consensys/gnark/std/signature/eddsa"
 )
 
 // P256TransferParameters is the flat witness for CustomZoneP256Circuit.
@@ -206,10 +207,10 @@ func (p *P256TransferParameters) CreateWitness() (frontend.Circuit, error) {
 		publishedOutputOwnerPkHashes[i] = p.PublishedOutputOwnerPkHashes[i]
 	}
 	outputOwnerPkHashes := make([]frontend.Variable, len(p.Outputs))
-	outputNullifierPks := make([]frontend.Variable, len(p.Outputs))
+	outputSpendPks := make([]eddsa.PublicKey, len(p.Outputs))
 	for i, out := range p.Outputs {
 		outputOwnerPkHashes[i] = orZero(out.OwnerPkHash)
-		outputNullifierPks[i] = orZero(out.NullifierPk)
+		outputSpendPks[i] = spendPublicWitness(out.SpendPkX, out.SpendPkY)
 	}
 	return &customzone.CustomZoneP256Circuit{
 		Shape: txcircuit.Shape{NInputs: int(p.NInputs), NOutputs: int(p.NOutputs)},
@@ -236,7 +237,7 @@ func (p *P256TransferParameters) CreateWitness() (frontend.Circuit, error) {
 			InputOwnerPkHashes:  core.inputOwnerPkHashes,
 			Outputs:             core.outputs,
 			OutputOwnerPkHashes: outputOwnerPkHashes,
-			OutputNullifierPks:  outputNullifierPks,
+			OutputSpendPks:      outputSpendPks,
 			P256Pub: customzone.P256PublicKey{
 				X: emulated.ValueOf[emulated.P256Fp](p.P256PubX),
 				Y: emulated.ValueOf[emulated.P256Fp](p.P256PubY),

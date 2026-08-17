@@ -10,8 +10,11 @@ import (
 )
 
 type ownerKey struct {
-	keyHash     *big.Int
-	nullifierPk *big.Int
+	keyHash *big.Int
+	// spendPublic is the EdDSA-Poseidon public key the owner hash commits to.
+	// Spending proves a signature under it, and its secret derives the
+	// nullifier.
+	spendPublic protocol.SpendPoint
 	isP256      bool
 }
 
@@ -27,7 +30,10 @@ func parseOwner(input ProofUtxoRequest, inputNullifierSecret *big.Int) (ownerFie
 			return ownerFields{}, fmt.Errorf("owner: %w", err)
 		}
 		if input.OwnerSolanaPubkey == "" && input.OwnerP256Pubkey == "" {
-			return ownerFields{owner: owner, ownerKey: ownerKey{keyHash: big.NewInt(0), nullifierPk: big.NewInt(0)}}, nil
+			return ownerFields{owner: owner, ownerKey: ownerKey{
+				keyHash:     big.NewInt(0),
+				spendPublic: protocol.IdentitySpendPoint(),
+			}}, nil
 		}
 		key, err := ownerComponents(input, inputNullifierSecret)
 		if err != nil {
@@ -36,12 +42,12 @@ func parseOwner(input ProofUtxoRequest, inputNullifierSecret *big.Int) (ownerFie
 		// The circuit constrains owner == OwnerHash(key_hash, nullifier_pk), so an
 		// explicit owner that disagrees with the supplied key components can only
 		// build an unprovable witness. Reject it here with a clear error.
-		expected, err := protocol.OwnerHash(key.keyHash, key.nullifierPk)
+		expected, err := protocol.OwnerHash(key.keyHash, key.spendPublic)
 		if err != nil {
 			return ownerFields{}, err
 		}
 		if owner.Cmp(expected) != 0 {
-			return ownerFields{}, fmt.Errorf("owner: explicit owner does not match OwnerHash(key_hash, nullifier_pk)")
+			return ownerFields{}, fmt.Errorf("owner: explicit owner does not match OwnerHash(key_hash, spend_public_key)")
 		}
 		return ownerFields{owner: owner, ownerKey: key}, nil
 	}
@@ -49,7 +55,7 @@ func parseOwner(input ProofUtxoRequest, inputNullifierSecret *big.Int) (ownerFie
 	if err != nil {
 		return ownerFields{}, err
 	}
-	owner, err := protocol.OwnerHash(key.keyHash, key.nullifierPk)
+	owner, err := protocol.OwnerHash(key.keyHash, key.spendPublic)
 	if err != nil {
 		return ownerFields{}, err
 	}
@@ -99,9 +105,9 @@ func ownerComponents(input ProofUtxoRequest, inputNullifierSecret *big.Int) (own
 			return ownerKey{}, fmt.Errorf("owner_nullifier_secret: %w", err)
 		}
 	}
-	nullifierPk, err := protocol.NullifierPk(nullifierSecret)
+	spendKey, err := protocol.NewSpendKey(nullifierSecret)
 	if err != nil {
 		return ownerKey{}, err
 	}
-	return ownerKey{keyHash: keyHash, nullifierPk: nullifierPk, isP256: isP256}, nil
+	return ownerKey{keyHash: keyHash, spendPublic: spendKey.Public, isP256: isP256}, nil
 }

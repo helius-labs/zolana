@@ -21,11 +21,11 @@ func proveTestOwner(t *testing.T) (payerPubkey [32]byte, payerHash, owner, nulli
 	}
 	payerHash = new(big.Int).Set(ownerKeyHash)
 	nullifierSecret = big.NewInt(12345)
-	nullifierPk, err := protocol.NullifierPk(nullifierSecret)
+	spendKey, err := protocol.NewSpendKey(nullifierSecret)
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner, err = protocol.OwnerHash(ownerKeyHash, nullifierPk)
+	owner, err = protocol.OwnerHash(ownerKeyHash, spendKey.Public)
 	if err != nil {
 		t.Fatal(err)
 	}

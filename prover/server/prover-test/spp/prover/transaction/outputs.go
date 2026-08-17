@@ -14,7 +14,7 @@ type outputWitnesses struct {
 	hashes              []*big.Int
 	privateTxHashes     []*big.Int
 	outputOwnerPkHashes []*big.Int
-	outputNullifierPks  []*big.Int
+	outputSpendPks      []protocol.SpendPoint
 	responses           []ProofUtxoResponse
 }
 
@@ -22,7 +22,7 @@ type parsedUtxo struct {
 	utxo             protocol.Utxo
 	normalized       ProofUtxoRequest
 	ownerKeyHash     *big.Int
-	ownerNullifierPk *big.Int
+	ownerSpendPublic protocol.SpendPoint
 	isP256           bool
 }
 
@@ -32,7 +32,7 @@ func buildOutputWitnesses(shape protocol.Shape, requests []ProofUtxoRequest) (ou
 		hashes:              make([]*big.Int, shape.NOutputs),
 		privateTxHashes:     make([]*big.Int, shape.NOutputs),
 		outputOwnerPkHashes: make([]*big.Int, shape.NOutputs),
-		outputNullifierPks:  make([]*big.Int, shape.NOutputs),
+		outputSpendPks:      make([]protocol.SpendPoint, shape.NOutputs),
 		responses:           make([]ProofUtxoResponse, 0, len(requests)),
 	}
 	for i, request := range requests {
@@ -52,7 +52,7 @@ func buildOutputWitnesses(shape protocol.Shape, requests []ProofUtxoRequest) (ou
 		outputs.hashes[i] = outputHash
 		outputs.privateTxHashes[i] = outputHash
 		outputs.outputOwnerPkHashes[i] = parsed.ownerKeyHash
-		outputs.outputNullifierPks[i] = parsed.ownerNullifierPk
+		outputs.outputSpendPks[i] = parsed.ownerSpendPublic
 		outputs.responses = append(outputs.responses, ProofUtxoResponse{
 			Utxo: parsed.normalized,
 			Hash: parse.FieldHex(outputHash),
@@ -72,7 +72,7 @@ func buildOutputWitnesses(shape protocol.Shape, requests []ProofUtxoRequest) (ou
 		outputs.outputs[i] = dummyUtxoFields(blinding)
 		outputs.hashes[i] = hash
 		outputs.privateTxHashes[i] = big.NewInt(0)
-		outputs.outputNullifierPks[i] = big.NewInt(0)
+		outputs.outputSpendPks[i] = protocol.IdentitySpendPoint()
 	}
 	return outputs, nil
 }
@@ -148,7 +148,7 @@ func parseProofUtxo(input ProofUtxoRequest, inputNullifierSecret *big.Int) (pars
 		utxo:             utxo,
 		normalized:       normalized,
 		ownerKeyHash:     own.keyHash,
-		ownerNullifierPk: own.nullifierPk,
+		ownerSpendPublic: own.spendPublic,
 		isP256:           own.isP256,
 	}, nil
 }

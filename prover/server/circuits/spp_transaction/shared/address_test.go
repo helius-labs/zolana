@@ -20,9 +20,11 @@ func addressNullifier(t testing.TB, fields UtxoCircuitFields, nullifierSecret *b
 
 func makeAddressSlot(t testing.TB, assignment *testAssignment, idx int, ownerPkHash, seed *big.Int) {
 	t.Helper()
+	// An address slot never spends, so it carries secret 0 and the neutral spend
+	// key the circuit pins non-spending slots to.
 	nullifierSecret := spptest.Fe(0)
-	nullifierPk := spptest.MustNullifierPk(t, nullifierSecret)
-	owner, err := protocol.OwnerHash(ownerPkHash, nullifierPk)
+	spendKey := spptest.MustSpendKey(t, nullifierSecret)
+	owner, err := protocol.OwnerHash(ownerPkHash, spendKey.Public)
 	if err != nil {
 		t.Fatalf("address slot owner hash: %v", err)
 	}
@@ -38,6 +40,8 @@ func makeAddressSlot(t testing.TB, assignment *testAssignment, idx int, ownerPkH
 	in.OwnerPkHash = ownerPkHash
 	assignment.SignerPkHashes[0] = ownerPkHash
 	in.NullifierSecret = nullifierSecret
+	in.SpendKey = spendKey
+	in.SpendPublic = spendPublicVar(spendKey.Public)
 	in.Nullifier = addressNullifier(t, in.Utxo, nullifierSecret)
 }
 
@@ -76,6 +80,7 @@ func finalizeAddressAssignment(t testing.TB, assignment *testAssignment, require
 		spptest.AsBigInt(assignment.ExternalDataHash),
 	)
 	assignment.PrivateTxHash = privateTxHash
+	resignInputs(t, assignment)
 	if requiresP256 {
 	} else {
 	}
@@ -128,10 +133,10 @@ func TestAddressSlotConfidentialSolves(t *testing.T) {
 		[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, solAsset, spptest.Fe(0))},
 		twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, solAsset, spptest.Fe(0))),
 	)
-	pkField, nullifierPk := defaultOutputOwnerTag(t)
+	pkField, spendPublic := defaultOutputOwnerTag(t)
 	for i := range assignment.Outputs {
 		assignment.Outputs[i].OwnerPkHash = pkField
-		assignment.Outputs[i].NullifierPk = nullifierPk
+		assignment.Outputs[i].SpendPublic = spendPublic
 	}
 	makeAddressSlot(t, assignment, 0, addressOwnerPkHash(t), spptest.Fe(0xABCDEF))
 	finalizeAddressAssignment(t, assignment, false, true)

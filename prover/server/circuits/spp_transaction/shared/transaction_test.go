@@ -13,7 +13,25 @@ import (
 	"zolana/prover/prover-test/spp/spptest"
 
 	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/std/signature/eddsa"
 )
+
+// spendPublicVar and spendSignatureVar lift the host-side spend key material
+// into the circuit witness types.
+func spendPublicVar(point protocol.SpendPoint) eddsa.PublicKey {
+	var public eddsa.PublicKey
+	public.A.X = point.X
+	public.A.Y = point.Y
+	return public
+}
+
+func spendSignatureVar(signature protocol.SpendSignature) eddsa.Signature {
+	var out eddsa.Signature
+	out.R.X = signature.R.X
+	out.R.Y = signature.R.Y
+	out.S = signature.S
+	return out
+}
 
 func TestShapeValidate(t *testing.T) {
 	if err := (Shape{NInputs: 0, NOutputs: 1}).Validate(); err == nil {
@@ -31,6 +49,9 @@ func TestShapeValidate(t *testing.T) {
 // Input plus the hoisted signals that live in the variant Public structs.
 type testInput struct {
 	Input
+	// SpendKey is kept host-side so the slot can be re-signed whenever the
+	// signed message (the private transaction hash) changes.
+	SpendKey          protocol.SpendKey
 	Nullifier         frontend.Variable
 	UtxoTreeRoot      frontend.Variable
 	NullifierTreeRoot frontend.Variable
@@ -41,7 +62,7 @@ type testOutput struct {
 	Utxo        UtxoCircuitFields
 	Hash        frontend.Variable
 	OwnerPkHash frontend.Variable
-	NullifierPk frontend.Variable
+	SpendPublic protocol.SpendPoint
 }
 
 // testAssignment carries every value any variant needs; the as<Variant>
@@ -156,12 +177,30 @@ func (a *testAssignment) outputUtxos() []UtxoCircuitFields {
 	return out
 }
 
-func (a *testAssignment) outputNullifierPks() []frontend.Variable {
-	out := make([]frontend.Variable, len(a.Outputs))
+func (a *testAssignment) outputSpendPks() []eddsa.PublicKey {
+	out := make([]eddsa.PublicKey, len(a.Outputs))
 	for i := range a.Outputs {
-		out[i] = a.Outputs[i].NullifierPk
+		out[i] = spendPublicVar(a.Outputs[i].SpendPublic)
 	}
 	return out
+}
+
+// resignInputs signs the assignment's current PrivateTxHash for every input
+// slot. The signed message only exists once the input and output hashes are
+// final, so every path that assigns PrivateTxHash must call this: a stale
+// signature makes the witness unsatisfiable and would let a negative test pass
+// for a reason other than the constraint under test.
+func resignInputs(t testing.TB, a *testAssignment) {
+	t.Helper()
+	message := spptest.AsBigInt(a.PrivateTxHash)
+	for i := range a.Inputs {
+		in := &a.Inputs[i]
+		if in.SpendKey.Secret == nil || in.SpendKey.Secret.Sign() == 0 {
+			in.SpendSignature = spendSignatureVar(protocol.IdentitySpendSignature())
+			continue
+		}
+		in.SpendSignature = spendSignatureVar(spptest.MustSignSpend(t, in.SpendKey, message, i))
+	}
 }
 
 func asCustomZoneEddsaOnly(a *testAssignment) frontend.Circuit {
@@ -186,7 +225,7 @@ func asCustomZoneEddsaOnly(a *testAssignment) frontend.Circuit {
 			InputOwnerPkHashes:  a.InputOwnerPkHashes(),
 			Outputs:             a.outputUtxos(),
 			OutputOwnerPkHashes: a.OutputOwnerPkHashes(),
-			OutputNullifierPks:  a.outputNullifierPks(),
+			OutputSpendPks:      a.outputSpendPks(),
 		},
 	}
 }
@@ -235,7 +274,7 @@ func asDefaultZoneEddsaOnly(a *testAssignment) frontend.Circuit {
 			Inputs:             a.coreInputs(),
 			InputOwnerPkHashes: a.InputOwnerPkHashes(),
 			Outputs:            a.outputUtxos(),
-			OutputNullifierPks: a.outputNullifierPks(),
+			OutputSpendPks:     a.outputSpendPks(),
 		},
 	}
 }
@@ -301,6 +340,7 @@ func buildCircuitAssignmentExact(
 	}
 
 	nullifierSecrets := make([]*big.Int, shape.NInputs)
+	spendKeys := make([]protocol.SpendKey, shape.NInputs)
 	inputOwnerPkHashes := make([]*big.Int, shape.NInputs)
 	inputCircuitUtxos := make([]UtxoCircuitFields, shape.NInputs)
 	inputHashes := make([]*big.Int, shape.NInputs)
@@ -310,12 +350,16 @@ func buildCircuitAssignmentExact(
 
 	for i := 0; i < shape.NInputs; i++ {
 		utxo := inputUtxos[i]
-		nullifierSecrets[i] = spptest.Fe(99)
+		// A dummy slot must carry secret 0, whose spend key is the neutral
+		// element the circuit pins non-spending slots to.
 		if utxo.Domain.Cmp(big.NewInt(protocol.DummyDomain)) == 0 {
+			nullifierSecrets[i] = spptest.Fe(0)
 			inputOwnerPkHashes[i] = big.NewInt(0)
 		} else {
+			nullifierSecrets[i] = spptest.Fe(99)
 			inputOwnerPkHashes[i] = testSolanaPkField(t)
 		}
+		spendKeys[i] = spptest.MustSpendKey(t, nullifierSecrets[i])
 		inputCircuitUtxos[i] = fieldsFromUtxo(utxo)
 		inputHash := spptest.MustUtxoHash(t, utxo)
 		inputHashes[i] = inputHash
@@ -356,7 +400,7 @@ func buildCircuitAssignmentExact(
 	OutputHashes := make([]*big.Int, shape.NOutputs)
 	outputHashVariables := make([]frontend.Variable, shape.NOutputs)
 	outputOwnerPkHashes := make([]*big.Int, shape.NOutputs)
-	outputNullifierPks := make([]*big.Int, shape.NOutputs)
+	outputSpendPublics := make([]protocol.SpendPoint, shape.NOutputs)
 	for i := 0; i < shape.NOutputs; i++ {
 		utxo := outputUtxos[i]
 		outputCircuitUtxos[i] = fieldsFromUtxo(utxo)
@@ -364,7 +408,7 @@ func buildCircuitAssignmentExact(
 		OutputHashes[i] = outputHash
 		outputHashVariables[i] = outputHash
 		outputOwnerPkHashes[i] = testSolanaPkField(t)
-		outputNullifierPks[i] = spptest.MustNullifierPk(t, spptest.Fe(99))
+		outputSpendPublics[i] = spptest.MustSpendPublic(t, spptest.Fe(99))
 	}
 
 	externalDataHash := spptest.Fe(300)
@@ -437,7 +481,9 @@ func buildCircuitAssignmentExact(
 				NullifierLowPathElements: nfLowPathElementVars[i],
 				NullifierLowPathIndex:    nfLowPathIndexVars[i],
 				NullifierSecret:          nullifierSecrets[i],
+				SpendPublic:              spendPublicVar(spendKeys[i].Public),
 			},
+			SpendKey:          spendKeys[i],
 			UtxoTreeRoot:      utxoTreeRoots[i],
 			NullifierTreeRoot: nullifierTreeRoots[i],
 			Nullifier:         nullifiers[i],
@@ -450,7 +496,7 @@ func buildCircuitAssignmentExact(
 			Utxo:        outputCircuitUtxos[i],
 			Hash:        outputHashVariables[i],
 			OwnerPkHash: outputOwnerPkHashes[i],
-			NullifierPk: outputNullifierPks[i],
+			SpendPublic: outputSpendPublics[i],
 		}
 	}
 
@@ -469,6 +515,7 @@ func buildCircuitAssignmentExact(
 		circuit.PublicAssets[i] = publicInputs.PublicAssets[i]
 		circuit.PublicAmounts[i] = publicInputs.PublicAmounts[i]
 	}
+	resignInputs(t, circuit)
 	return circuit
 }
 
@@ -600,8 +647,8 @@ func rewriteInputAsSolanaOwner(
 		t.Fatalf("Solana owner input index %d out of range", inputIndex)
 	}
 	pkField := testSolanaPkFieldSeed(t, seed)
-	nullifierPk := spptest.MustNullifierPk(t, nullifierSecret)
-	owner, err := protocol.OwnerHash(pkField, nullifierPk)
+	spendKey := spptest.MustSpendKey(t, nullifierSecret)
+	owner, err := protocol.OwnerHash(pkField, spendKey.Public)
 	if err != nil {
 		t.Fatalf("owner hash: %v", err)
 	}
@@ -614,6 +661,8 @@ func rewriteInputAsSolanaOwner(
 		}
 	}
 	assignment.Inputs[inputIndex].NullifierSecret = nullifierSecret
+	assignment.Inputs[inputIndex].SpendKey = spendKey
+	assignment.Inputs[inputIndex].SpendPublic = spendPublicVar(spendKey.Public)
 	rebuildAfterOwnerChange(t, assignment)
 }
 
@@ -658,15 +707,16 @@ func rebuildAfterOwnerChange(t testing.TB, assignment *testAssignment) {
 		spptest.AsBigInt(assignment.ExternalDataHash),
 	)
 	assignment.PrivateTxHash = privateTxHash
+	resignInputs(t, assignment)
 	refreshPublicInputHash(t, assignment)
 }
 
 func testOwnerHashForNullifierSecret(nullifierSecret *big.Int) *big.Int {
-	nullifierPk, err := protocol.NullifierPk(nullifierSecret)
+	spendKey, err := protocol.NewSpendKey(nullifierSecret)
 	if err != nil {
 		panic(err)
 	}
-	owner, err := protocol.OwnerHash(testSolanaPkField(nil), nullifierPk)
+	owner, err := protocol.OwnerHash(testSolanaPkField(nil), spendKey.Public)
 	if err != nil {
 		panic(err)
 	}

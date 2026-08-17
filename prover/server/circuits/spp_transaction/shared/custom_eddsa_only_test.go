@@ -51,9 +51,7 @@ func TestCustomZoneEddsaOnlyRejectsZeroOwnerTag(t *testing.T) {
 	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 
-	nullifierSecret := spptest.AsBigInt(assignment.Inputs[0].NullifierSecret)
-	nullifierPk := spptest.MustNullifierPk(t, nullifierSecret)
-	owner, err := protocol.OwnerHash(big.NewInt(0), nullifierPk)
+	owner, err := protocol.OwnerHash(big.NewInt(0), assignment.Inputs[0].SpendKey.Public)
 	if err != nil {
 		t.Fatalf("owner hash: %v", err)
 	}

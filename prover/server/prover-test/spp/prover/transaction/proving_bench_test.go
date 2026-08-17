@@ -1,79 +1,54 @@
-// Proving benchmarks for the spp_transaction circuit variants. Every timed
-// proof runs against the committed, lockfile-pinned proving key, so a result is
-// attributable to a key version and comparable to what the server does per
-// request: build the witness, then prove.
+// Proving benchmarks for the spp_transaction circuit variants. Every timed proof
+// is one server-side proof -- build the witness, then prove -- measuring what the
+// server does per request.
+//
+// The keys are generated locally by a real groth16.Setup, not loaded from the
+// committed set: this branch's circuits carry EdDSA-Poseidon spend authority, so
+// no pinned key can prove their witnesses. A locally set up key has the same
+// structure as a committed one, so these timings stay comparable to earlier
+// committed-key rows, but the proofs verify against no published verifying key.
 package transaction
 
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 
 	"zolana/prover/prover-test/spp/protocol"
 	"zolana/prover/prover/common"
 	"zolana/prover/prover/fingerprint"
-	"zolana/prover/prover/provingkeys"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
 
 	"github.com/consensys/gnark-crypto/ecc"
+	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/frontend"
 )
 
-const (
-	// benchKeysDirEnv overrides where the pinned proving keys live.
-	benchKeysDirEnv = "ZOLANA_SPP_KEYS_DIR"
-	// benchAllShapesEnv extends the run from the representative shape subset to
-	// every shape with a pinned key.
-	benchAllShapesEnv = "ZOLANA_BENCH_ALL_SHAPES"
-	// benchDefaultKeysDir is prover/server/proving-keys relative to this package.
-	benchDefaultKeysDir = "../../../../proving-keys"
-)
+// benchAllShapesEnv extends the run from the representative shape subset to
+// every supported shape.
+const benchAllShapesEnv = "ZOLANA_BENCH_ALL_SHAPES"
 
-// benchRail is one circuit variant plus the naming it uses on disk.
+// benchRail is one circuit variant.
 type benchRail struct {
-	name        string
-	circuitType common.CircuitType
-	keyPrefix   string
-	variant     transfereddsaonly.Variant
-	p256        bool
+	name    string
+	variant transfereddsaonly.Variant
+	p256    bool
 }
 
 func benchRails() []benchRail {
 	return []benchRail{
-		{
-			name:        "confidential",
-			circuitType: common.TransferConfidentialCircuitType,
-			keyPrefix:   "transfer_confidential",
-			variant:     transfereddsaonly.ConfidentialVariant,
-		},
-		{
-			name:        "zone",
-			circuitType: common.TransferZoneCircuitType,
-			keyPrefix:   "transfer_zone",
-			variant:     transfereddsaonly.ZoneVariant,
-		},
-		{
-			name:        "zone_authority",
-			circuitType: common.TransferZoneAuthorityCircuitType,
-			keyPrefix:   "transfer_zone_authority",
-			variant:     transfereddsaonly.ZoneAuthorityVariant,
-		},
-		{
-			name:        "p256",
-			circuitType: common.TransferP256ZoneCircuitType,
-			keyPrefix:   "transfer_p256_zone",
-			p256:        true,
-		},
+		{name: "confidential", variant: transfereddsaonly.ConfidentialVariant},
+		{name: "zone", variant: transfereddsaonly.ZoneVariant},
+		{name: "zone_authority", variant: transfereddsaonly.ZoneAuthorityVariant},
+		{name: "p256", p256: true},
 	}
 }
 
 // benchShapes keeps a default run short: the P256 rail alone costs roughly five
-// times an eddsa proof, and a full sweep loads every pinned key from disk. 2x2
-// is included because the authority rail only has square-shape keys.
+// times an eddsa proof, and every combination pays a compile and a setup before
+// its timer starts.
 func benchShapes() []protocol.Shape {
 	if os.Getenv(benchAllShapesEnv) == "1" {
 		return protocol.SupportedShapes
@@ -87,49 +62,40 @@ func benchShapes() []protocol.Shape {
 }
 
 func BenchmarkSppTransfer(b *testing.B) {
-	manifest, err := provingkeys.Load()
-	if err != nil {
-		b.Fatalf("load proving-keys lockfile: %v", err)
-	}
-	keysDir := benchKeysDir()
-	b.Logf("proving keys: %s (lockfile prefix %s)", keysDir, manifest.Prefix)
-
 	for _, rail := range benchRails() {
 		for _, shape := range benchShapes() {
 			b.Run(fmt.Sprintf("%s/%dx%d", rail.name, shape.NInputs, shape.NOutputs), func(b *testing.B) {
-				benchmarkProveShape(b, keysDir, manifest, rail, shape)
+				benchmarkProveShape(b, rail, shape)
 			})
-			// The combination's key manager and proving key die with the frame
-			// above; collect them here so a sweep holds one key at a time
-			// instead of all 34.
+			// The combination's constraint system and proving key die with the
+			// frame above; collect them here so a sweep holds one at a time.
 			runtime.GC()
 		}
 	}
 }
 
-func benchmarkProveShape(
-	b *testing.B,
-	keysDir string,
-	manifest *provingkeys.Manifest,
-	rail benchRail,
-	shape protocol.Shape,
-) {
-	keyFile := fmt.Sprintf("%s_%d_%d.key", rail.keyPrefix, shape.NInputs, shape.NOutputs)
-	if _, pinned := manifest.Keys[keyFile]; !pinned {
-		b.Skipf("%s is not pinned in proving-keys.lock: this variant has no key for shape %s", keyFile, shape)
-	}
-
-	// One manager per combination: it caches every system it loads and offers no
-	// eviction, so a shared manager would keep all 34 pinned keys resident.
-	proofSystem, err := common.NewLazyKeyManager(keysDir, nil).GetTransferSystem(
-		rail.circuitType,
-		uint32(shape.NInputs),
-		uint32(shape.NOutputs),
-	)
+func benchmarkProveShape(b *testing.B, rail benchRail, shape protocol.Shape) {
+	// Compile and setup run before the timer starts, so a row measures proving
+	// only. The setup is a real one: groth16.DummySetup fills every G1 and G2
+	// point of the proving key with the same value, and multi-scalar
+	// multiplication over identical points does not cost what it does over the
+	// distinct points a real key carries.
+	ccs, err := benchConstraintSystem(rail, shape)
 	if err != nil {
-		b.Fatalf("load %s: %v", keyFile, err)
+		b.Fatalf("compile %s shape %s: %v", rail.name, shape, err)
 	}
-	assertPinnedFingerprint(b, keyFile, proofSystem.ConstraintSystem)
+	provingKey, _, err := groth16.Setup(ccs)
+	if err != nil {
+		b.Fatalf("setup %s shape %s: %v", rail.name, shape, err)
+	}
+	proofSystem := &common.TransferProofSystem{
+		NInputs:          uint32(shape.NInputs),
+		NOutputs:         uint32(shape.NOutputs),
+		RequiresP256:     rail.p256,
+		ProvingKey:       provingKey,
+		ConstraintSystem: ccs,
+	}
+	assertPinnedFingerprint(b, benchFingerprintName(rail, shape), ccs)
 
 	prove, err := benchProver(rail, shape, proofSystem)
 	if err != nil {
@@ -231,13 +197,32 @@ func benchProver(
 	}, nil
 }
 
-// assertPinnedFingerprint checks the constraint system carried by the downloaded
-// key against fingerprint.KeyPinned. A mismatch means the key set changed under
-// the same lockfile prefix, which invalidates every recorded measurement for that
-// key. The source-side comparison, and the drift between the two sides, is the
-// fingerprint package's own test.
-func assertPinnedFingerprint(b *testing.B, keyFile string, cs constraint.ConstraintSystem) {
-	pinned, ok := fingerprint.KeyPinned[strings.TrimSuffix(keyFile, ".key")]
+// benchConstraintSystem compiles the production circuit for a rail and shape.
+func benchConstraintSystem(rail benchRail, shape protocol.Shape) (constraint.ConstraintSystem, error) {
+	if rail.p256 {
+		return transfereddsaonly.R1CSP256Transfer(uint32(shape.NInputs), uint32(shape.NOutputs))
+	}
+	return transfereddsaonly.R1CSTransfer(uint32(shape.NInputs), uint32(shape.NOutputs), rail.variant)
+}
+
+// benchFingerprintName is the proving-key name a rail and shape would carry, so
+// a benched combination can be matched against the pinned fingerprints.
+func benchFingerprintName(rail benchRail, shape protocol.Shape) string {
+	prefix := map[string]string{
+		"confidential":   "transfer_confidential",
+		"zone":           "transfer_zone",
+		"zone_authority": "transfer_zone_authority",
+		"p256":           "transfer_p256_zone",
+	}[rail.name]
+	return fmt.Sprintf("%s_%d_%d", prefix, shape.NInputs, shape.NOutputs)
+}
+
+// assertPinnedFingerprint compares a compiled constraint system against the
+// fingerprints recorded for the current sources, so a benchmark row can never be
+// attributed to a circuit other than the one that was pinned. Combinations with
+// no pinned entry are simply not covered.
+func assertPinnedFingerprint(b *testing.B, name string, cs constraint.ConstraintSystem) {
+	pinned, ok := fingerprint.Pinned[name]
 	if !ok {
 		return
 	}
@@ -245,18 +230,10 @@ func assertPinnedFingerprint(b *testing.B, keyFile string, cs constraint.Constra
 	public := cs.GetNbPublicVariables()
 	if constraints != pinned.Constraints || public != pinned.Public {
 		b.Fatalf(
-			"%s carries a different constraint system than fingerprint.KeyPinned records "+
-				"(constraints %d, want %d; public %d, want %d). Either the key set was "+
-				"rotated without updating the fingerprints, or this key does not belong to "+
-				"the version in prover/provingkeys/proving-keys.lock.",
-			keyFile, constraints, pinned.Constraints, public, pinned.Public,
+			"%s compiled to a different constraint system than fingerprint.Pinned records "+
+				"(constraints %d, want %d; public %d, want %d). The circuit changed without "+
+				"the fingerprints being updated.",
+			name, constraints, pinned.Constraints, public, pinned.Public,
 		)
 	}
-}
-
-func benchKeysDir() string {
-	if dir := os.Getenv(benchKeysDirEnv); dir != "" {
-		return dir
-	}
-	return filepath.Clean(benchDefaultKeysDir)
 }

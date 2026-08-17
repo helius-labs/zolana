@@ -11,7 +11,7 @@ import (
 	"github.com/consensys/gnark/test"
 )
 
-// The owner hash binds OwnerKeyHash and NullifierPk (OwnerHashGadget in
+// The owner hash binds OwnerKeyHash and the spend public key (ownerHashGadget in
 // utxo.go); a UTXO whose committed owner does not match that preimage fails the
 // owner binding in constrainInput.
 func TestCircuitRejectsOwnerHashPreimageMismatch(t *testing.T) {

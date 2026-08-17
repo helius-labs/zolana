@@ -47,15 +47,35 @@ func MustUtxoHash(t testing.TB, utxo protocol.Utxo) *big.Int {
 	return MustHash(t, value, err)
 }
 
-func MustNullifierPk(t testing.TB, secret *big.Int) *big.Int {
+// MustSpendKey derives the spend key of a secret scalar.
+func MustSpendKey(t testing.TB, secret *big.Int) protocol.SpendKey {
 	t.Helper()
-	value, err := protocol.NullifierPk(secret)
-	return MustHash(t, value, err)
+	key, err := protocol.NewSpendKey(secret)
+	if err != nil {
+		t.Fatalf("spend key: %v", err)
+	}
+	return key
 }
 
-func MustOwnerHash(t testing.TB, ownerKeyHash, nullifierPk *big.Int) *big.Int {
+// MustSpendPublic is the public half of MustSpendKey.
+func MustSpendPublic(t testing.TB, secret *big.Int) protocol.SpendPoint {
 	t.Helper()
-	value, err := protocol.OwnerHash(ownerKeyHash, nullifierPk)
+	return MustSpendKey(t, secret).Public
+}
+
+// MustSignSpend signs a transaction's private hash for one input slot.
+func MustSignSpend(t testing.TB, key protocol.SpendKey, msg *big.Int, slot int) protocol.SpendSignature {
+	t.Helper()
+	signature, err := protocol.SignSpend(key, msg, slot)
+	if err != nil {
+		t.Fatalf("sign spend: %v", err)
+	}
+	return signature
+}
+
+func MustOwnerHash(t testing.TB, ownerKeyHash *big.Int, spendPublic protocol.SpendPoint) *big.Int {
+	t.Helper()
+	value, err := protocol.OwnerHash(ownerKeyHash, spendPublic)
 	return MustHash(t, value, err)
 }
 

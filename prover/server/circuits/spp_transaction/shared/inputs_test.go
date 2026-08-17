@@ -237,7 +237,11 @@ func buildDummyInputShield(t testing.TB, deposit int64) *testAssignment {
 	in.OwnerPkHash = spptest.Fe(0)
 	// A padding dummy derives its nullifier with nullifier_secret = 0, its
 	// blinding being the sole source of unpredictability (spec: SPP Proof).
+	// Secret 0 pins its spend key to the neutral element, which is what the
+	// circuit requires of a slot that does not spend.
 	in.NullifierSecret = spptest.Fe(0)
+	in.SpendKey = spptest.MustSpendKey(t, spptest.Fe(0))
+	in.SpendPublic = spendPublicVar(in.SpendKey.Public)
 	dummyUtxoHash := spptest.MustUtxoHash(t, circuitFieldsToUtxo(in.Utxo))
 	in.Nullifier = spptest.MustNullifier(
 		t,
@@ -258,6 +262,7 @@ func buildDummyInputShield(t testing.TB, deposit int64) *testAssignment {
 		spptest.AsBigInt(assignment.ExternalDataHash),
 	)
 	assignment.PrivateTxHash = privateTxHash
+	resignInputs(t, assignment)
 	refreshPublicInputHash(t, assignment)
 	return assignment
 }

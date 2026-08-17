@@ -34,19 +34,32 @@ type InputParams struct {
 	NullifierTreeRoot *big.Int
 	Nullifier         *big.Int
 
-	OwnerPkHash     *big.Int
+	OwnerPkHash *big.Int
+	// NullifierSecret is the spend secret scalar. It derives the nullifier and
+	// must be the discrete log of SpendPkX/SpendPkY, which the circuit checks.
 	NullifierSecret *big.Int
+
+	// Spend key and its signature over the transaction's private hash. Slots
+	// that do not spend carry the neutral element (0, 1) and the signature
+	// (R = (0, 1), S = 0) that verifies under it.
+	SpendPkX  *big.Int
+	SpendPkY  *big.Int
+	SpendSigX *big.Int
+	SpendSigY *big.Int
+	SpendSigS *big.Int
 }
 
-// OutputParams mirrors txcircuit.Output. OwnerPkHash and NullifierPk bind the
-// output owner identity; only the default confidential rail publishes its owner
-// tags. They are 0 for authority proofs.
+// OutputParams mirrors txcircuit.Output. OwnerPkHash and the spend public key
+// bind the output owner identity; only the default confidential rail publishes
+// its owner tags. They are 0 for authority proofs. Outputs carry no signature:
+// the recipient holds that key.
 type OutputParams struct {
 	Utxo        UtxoParams
 	IsDummy     *big.Int
 	Hash        *big.Int
 	OwnerPkHash *big.Int
-	NullifierPk *big.Int
+	SpendPkX    *big.Int
+	SpendPkY    *big.Int
 }
 
 // TransferParameters is the flat, pre-computed witness for the Solana-only

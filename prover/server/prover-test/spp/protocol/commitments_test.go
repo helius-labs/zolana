@@ -33,16 +33,19 @@ func mustPoseidon(t *testing.T, width int, inputs []*big.Int) *big.Int {
 	return mustHash(t, value, err)
 }
 
-func mustNullifierPk(t *testing.T, secret *big.Int) *big.Int {
+func mustOwnerHash(t *testing.T, ownerKeyHash *big.Int, spendPublic SpendPoint) *big.Int {
 	t.Helper()
-	value, err := NullifierPk(secret)
+	value, err := OwnerHash(ownerKeyHash, spendPublic)
 	return mustHash(t, value, err)
 }
 
-func mustOwnerHash(t *testing.T, ownerKeyHash, nullifierPk *big.Int) *big.Int {
+func mustSpendKey(t *testing.T, secret *big.Int) SpendKey {
 	t.Helper()
-	value, err := OwnerHash(ownerKeyHash, nullifierPk)
-	return mustHash(t, value, err)
+	key, err := NewSpendKey(secret)
+	if err != nil {
+		t.Fatalf("spend key: %v", err)
+	}
+	return key
 }
 
 func mustSolanaPkField(t *testing.T, pubkey [32]byte) *big.Int {
@@ -110,12 +113,6 @@ func TestNullifierMatchesSpecFormula(t *testing.T) {
 	utxoHash := mustUtxoHash(t, utxo)
 	secret := fe(99)
 
-	nullifierPk := mustNullifierPk(t, secret)
-	wantNullifierPk := mustPoseidon(t, 2, []*big.Int{secret})
-	if nullifierPk.Cmp(wantNullifierPk) != 0 {
-		t.Fatalf("nullifier pk mismatch: got %s want %s", nullifierPk, wantNullifierPk)
-	}
-
 	nullifier := mustNullifier(t, utxoHash, utxo.Blinding, secret)
 	// spec: nullifier := Poseidon(utxo_hash, utxo_blinding, nullifier_secret)
 	wantNullifier := mustPoseidon(t, 4, []*big.Int{utxoHash, utxo.Blinding, secret})
@@ -134,11 +131,22 @@ func TestNullifierMatchesSpecFormula(t *testing.T) {
 
 func TestOwnerHashMatchesSpecFormula(t *testing.T) {
 	ownerKeyHash := fe(12)
-	nullifierPk := fe(13)
-	got := mustOwnerHash(t, ownerKeyHash, nullifierPk)
-	want := mustPoseidon(t, 3, []*big.Int{ownerKeyHash, nullifierPk})
+	spendPublic := mustSpendKey(t, fe(13)).Public
+	got := mustOwnerHash(t, ownerKeyHash, spendPublic)
+	want := mustPoseidon(t, 4, []*big.Int{ownerKeyHash, spendPublic.X, spendPublic.Y})
 	if got.Cmp(want) != 0 {
 		t.Fatalf("owner hash mismatch: got %s want %s", got, want)
+	}
+}
+
+// A second key must move the owner hash: the commitment is to the spend key, not
+// just to the signer identity.
+func TestOwnerHashBindsSpendPublicKey(t *testing.T) {
+	ownerKeyHash := fe(12)
+	first := mustOwnerHash(t, ownerKeyHash, mustSpendKey(t, fe(13)).Public)
+	second := mustOwnerHash(t, ownerKeyHash, mustSpendKey(t, fe(14)).Public)
+	if first.Cmp(second) == 0 {
+		t.Fatal("owner hash did not change with the spend public key")
 	}
 }
 

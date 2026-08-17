@@ -48,6 +48,7 @@ type benchCore struct {
 	nullifierTreeRoots []*big.Int
 	published          []*big.Int
 	signers            []*big.Int
+	spendKey           protocol.SpendKey
 	privateTxHash      *big.Int
 	externalDataHash   *big.Int
 }
@@ -203,11 +204,11 @@ func buildBenchCore(shape protocol.Shape, ownership benchOwnership) (benchCore, 
 		return benchCore{}, err
 	}
 	nullifierSecret := big.NewInt(benchNullifierSecret)
-	nullifierPk, err := protocol.NullifierPk(nullifierSecret)
+	spendKey, err := protocol.NewSpendKey(nullifierSecret)
 	if err != nil {
-		return benchCore{}, fmt.Errorf("spp bench: nullifier pk: %w", err)
+		return benchCore{}, fmt.Errorf("spp bench: spend key: %w", err)
 	}
-	owner, err := protocol.OwnerHash(ownerPkHash, nullifierPk)
+	owner, err := protocol.OwnerHash(ownerPkHash, spendKey.Public)
 	if err != nil {
 		return benchCore{}, fmt.Errorf("spp bench: owner hash: %w", err)
 	}
@@ -224,7 +225,7 @@ func buildBenchCore(shape protocol.Shape, ownership benchOwnership) (benchCore, 
 		if shape.NInputs == 0 {
 			return benchCore{}, fmt.Errorf("spp bench: P256 ownership needs at least one input")
 		}
-		p256Owner, err := protocol.OwnerHash(ownership.p256OwnerPkHash, nullifierPk)
+		p256Owner, err := protocol.OwnerHash(ownership.p256OwnerPkHash, spendKey.Public)
 		if err != nil {
 			return benchCore{}, fmt.Errorf("spp bench: P256 owner hash: %w", err)
 		}
@@ -292,6 +293,8 @@ func buildBenchCore(shape protocol.Shape, ownership benchOwnership) (benchCore, 
 			Nullifier:                nullifier,
 			OwnerPkHash:              inputOwnerPkHashes[i],
 			NullifierSecret:          nullifierSecret,
+			SpendPkX:                 spendKey.Public.X,
+			SpendPkY:                 spendKey.Public.Y,
 		}
 	}
 
@@ -306,7 +309,8 @@ func buildBenchCore(shape protocol.Shape, ownership benchOwnership) (benchCore, 
 			IsDummy:     big.NewInt(0),
 			Hash:        hash,
 			OwnerPkHash: ownerPkHash,
-			NullifierPk: nullifierPk,
+			SpendPkX:    spendKey.Public.X,
+			SpendPkY:    spendKey.Public.Y,
 		}
 		// Zone-owned outputs keep their owner anonymous, so the published tag is
 		// masked to zero.
@@ -323,6 +327,20 @@ func buildBenchCore(shape protocol.Shape, ownership benchOwnership) (benchCore, 
 		return benchCore{}, fmt.Errorf("spp bench: private tx hash: %w", err)
 	}
 	core.privateTxHash = privateTxHash
+	core.spendKey = spendKey
+
+	// Second pass: every input signs the transaction's private hash, which only
+	// exists once all input and output witnesses are built. Signing per slot
+	// keeps two slots of one key from sharing a nonce.
+	for i := range core.inputs {
+		signature, err := protocol.SignSpend(spendKey, privateTxHash, i)
+		if err != nil {
+			return benchCore{}, fmt.Errorf("spp bench: input %d spend signature: %w", i, err)
+		}
+		core.inputs[i].SpendSigX = signature.R.X
+		core.inputs[i].SpendSigY = signature.R.Y
+		core.inputs[i].SpendSigS = signature.S
+	}
 
 	payerPkHash, err := benchSolanaPkField(benchPayerSeed)
 	if err != nil {

@@ -20,7 +20,10 @@ type parsedInput struct {
 }
 
 type inputWitnesses struct {
-	inputs                   []txcircuit.Input
+	inputs []txcircuit.Input
+	// spendKeys[i] is nil for slots that do not sign (dummies and P256-owned
+	// inputs); SignSpendWitnesses skips those.
+	spendKeys                []*protocol.SpendKey
 	hashes                   []*big.Int
 	utxoRoots                []*big.Int
 	nullifierTreeRoots       []*big.Int
@@ -42,6 +45,7 @@ func buildInputWitnesses(
 		utxoRoots:          make([]*big.Int, shape.NInputs),
 		nullifierTreeRoots: make([]*big.Int, shape.NInputs),
 		nullifiers:         make([]*big.Int, shape.NInputs),
+		spendKeys:          make([]*protocol.SpendKey, shape.NInputs),
 		inputOwnerPkHashes: make([]*big.Int, shape.NInputs),
 		solanaOwnerPubkeys: make([]string, len(requests)),
 	}
@@ -64,9 +68,16 @@ func buildInputWitnesses(
 			return inputWitnesses{}, err
 		}
 
+		spendKey, err := protocol.NewSpendKey(input.nullifierSecret)
+		if err != nil {
+			return inputWitnesses{}, fmt.Errorf("input %d spend key: %w", i, err)
+		}
 		witness := newInputWitness()
 		witness.Utxo = toProofCircuitFields(input.utxo)
 		witness.NullifierSecret = input.nullifierSecret
+		witness.SpendPublic.A.X = spendKey.Public.X
+		witness.SpendPublic.A.Y = spendKey.Public.Y
+		inputs.spendKeys[i] = &spendKey
 		if input.isP256 {
 			inputs.requiresP256OwnerWitness = true
 			inputs.inputOwnerPkHashes[i] = big.NewInt(0)
@@ -138,7 +149,7 @@ func buildInputWitnesses(
 }
 
 func newInputWitness() txcircuit.Input {
-	return txcircuit.Input{
+	input := txcircuit.Input{
 		StatePathElements:        zeroVariables(protocol.StateTreeHeight),
 		StatePathIndex:           big.NewInt(0),
 		NullifierLowPathElements: zeroVariables(protocol.NullifierTreeHeight),
@@ -147,6 +158,40 @@ func newInputWitness() txcircuit.Input {
 		NullifierNextValue:       big.NewInt(0),
 		NullifierSecret:          big.NewInt(0),
 	}
+	// A slot defaults to the non-signing convention: the neutral element and the
+	// signature that verifies under it. Zeroed coordinates would be off the
+	// curve and make the whole witness unsatisfiable.
+	assignSpendWitness(&input, protocol.IdentitySpendPoint(), protocol.IdentitySpendSignature())
+	return input
+}
+
+func assignSpendWitness(
+	input *txcircuit.Input,
+	public protocol.SpendPoint,
+	signature protocol.SpendSignature,
+) {
+	input.SpendPublic.A.X = public.X
+	input.SpendPublic.A.Y = public.Y
+	input.SpendSignature.R.X = signature.R.X
+	input.SpendSignature.R.Y = signature.R.Y
+	input.SpendSignature.S = signature.S
+}
+
+// signSpendWitnesses is the second pass: the message every input signs is the
+// transaction's private hash, which only exists once every input and output
+// witness is built.
+func (w *inputWitnesses) signSpendWitnesses(privateTxHash *big.Int) error {
+	for i, key := range w.spendKeys {
+		if key == nil {
+			continue
+		}
+		signature, err := protocol.SignSpend(*key, privateTxHash, i)
+		if err != nil {
+			return fmt.Errorf("input %d spend signature: %w", i, err)
+		}
+		assignSpendWitness(&w.inputs[i], key.Public, signature)
+	}
+	return nil
 }
 
 // dummyInputWitness fills an unused input slot with a random-blinded UTXO so

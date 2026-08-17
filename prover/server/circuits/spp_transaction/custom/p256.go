@@ -8,6 +8,7 @@ import (
 	"github.com/consensys/gnark/std/algebra/emulated/sw_emulated"
 	"github.com/consensys/gnark/std/math/emulated"
 	gnarkecdsa "github.com/consensys/gnark/std/signature/ecdsa"
+	"github.com/consensys/gnark/std/signature/eddsa"
 )
 
 const p256MessageLimbBits = 128
@@ -41,7 +42,7 @@ type CustomZoneP256Private struct {
 	InputOwnerPkHashes  []frontend.Variable
 	Outputs             []shared.UtxoCircuitFields
 	OutputOwnerPkHashes []frontend.Variable
-	OutputNullifierPks  []frontend.Variable
+	OutputSpendPks      []eddsa.PublicKey
 	P256Pub             P256PublicKey
 	P256Sig             P256Signature
 }
@@ -71,7 +72,7 @@ func NewCustomZoneP256Circuit(shape shared.Shape) (*CustomZoneP256Circuit, error
 			InputOwnerPkHashes:  make([]frontend.Variable, shape.NInputs),
 			Outputs:             make([]shared.UtxoCircuitFields, shape.NOutputs),
 			OutputOwnerPkHashes: make([]frontend.Variable, shape.NOutputs),
-			OutputNullifierPks:  make([]frontend.Variable, shape.NOutputs),
+			OutputSpendPks:      make([]eddsa.PublicKey, shape.NOutputs),
 		},
 	}, nil
 }
@@ -116,7 +117,7 @@ func (c *CustomZoneP256Circuit) Define(api frontend.API) error {
 		shared.LengthCheck{Name: "signer pk hash", Got: len(c.Public.SignerPkHashes), Want: c.Shape.NInputs + 1},
 		shared.LengthCheck{Name: "input owner pk hash", Got: len(c.Private.InputOwnerPkHashes), Want: c.Shape.NInputs},
 		shared.LengthCheck{Name: "output owner pk hash", Got: len(c.Private.OutputOwnerPkHashes), Want: c.Shape.NOutputs},
-		shared.LengthCheck{Name: "output nullifier pk", Got: len(c.Private.OutputNullifierPks), Want: c.Shape.NOutputs},
+		shared.LengthCheck{Name: "output spend pk", Got: len(c.Private.OutputSpendPks), Want: c.Shape.NOutputs},
 		shared.LengthCheck{Name: "published output owner pk hash", Got: len(c.Public.PublishedOutputOwnerPkHashes), Want: c.Shape.NOutputs},
 	); err != nil {
 		return err
@@ -128,7 +129,7 @@ func (c *CustomZoneP256Circuit) Define(api frontend.API) error {
 		api,
 		tx.Outputs,
 		c.Private.OutputOwnerPkHashes,
-		c.Private.OutputNullifierPks,
+		c.Private.OutputSpendPks,
 	); err != nil {
 		return err
 	}

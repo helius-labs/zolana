@@ -5,6 +5,7 @@ import (
 	"zolana/prover/circuits/spp_transaction/shared"
 
 	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/std/signature/eddsa"
 )
 
 // Properties:
@@ -34,7 +35,7 @@ type DefaultZoneEddsaOnlyPrivate struct {
 	Inputs             []shared.Input
 	InputOwnerPkHashes []frontend.Variable
 	Outputs            []shared.UtxoCircuitFields
-	OutputNullifierPks []frontend.Variable
+	OutputSpendPks     []eddsa.PublicKey
 }
 
 type DefaultZoneEddsaOnlyCircuit struct {
@@ -61,7 +62,7 @@ func NewDefaultZoneEddsaOnlyCircuit(shape shared.Shape) (*DefaultZoneEddsaOnlyCi
 			Inputs:             shared.NewInputs(shape.NInputs),
 			InputOwnerPkHashes: make([]frontend.Variable, shape.NInputs),
 			Outputs:            make([]shared.UtxoCircuitFields, shape.NOutputs),
-			OutputNullifierPks: make([]frontend.Variable, shape.NOutputs),
+			OutputSpendPks:     make([]eddsa.PublicKey, shape.NOutputs),
 		},
 	}, nil
 }
@@ -95,7 +96,7 @@ func (c *DefaultZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 		shared.LengthCheck{Name: "signer pk hash", Got: len(c.Public.SignerPkHashes), Want: c.Shape.NInputs + 1},
 		shared.LengthCheck{Name: "input owner pk hash", Got: len(c.Private.InputOwnerPkHashes), Want: c.Shape.NInputs},
 		shared.LengthCheck{Name: "output owner pk hash", Got: len(c.Public.OutputOwnerPkHashes), Want: c.Shape.NOutputs},
-		shared.LengthCheck{Name: "output nullifier pk", Got: len(c.Private.OutputNullifierPks), Want: c.Shape.NOutputs},
+		shared.LengthCheck{Name: "output spend pk", Got: len(c.Private.OutputSpendPks), Want: c.Shape.NOutputs},
 	); err != nil {
 		return err
 	}
@@ -109,7 +110,7 @@ func (c *DefaultZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 		api,
 		tx.Outputs,
 		c.Public.OutputOwnerPkHashes,
-		c.Private.OutputNullifierPks,
+		c.Private.OutputSpendPks,
 	); err != nil {
 		return err
 	}

@@ -25,39 +25,29 @@ type Fingerprint struct {
 // the current sources, keyed by proving-key name (the key filename without its
 // .key suffix). TestCircuitFingerprintsMatchRotatedKeys enforces it.
 var Pinned = map[string]Fingerprint{
-	"transfer_confidential_2_3":   {Constraints: 54031, Public: 2},
-	"transfer_zone_2_3":           {Constraints: 54136, Public: 2},
-	"transfer_zone_authority_2_2": {Constraints: 50574, Public: 2},
-	"transfer_p256_zone_2_3":      {Constraints: 245645, Public: 2},
+	"transfer_confidential_2_3":   {Constraints: 71964, Public: 2},
+	"transfer_zone_2_3":           {Constraints: 72069, Public: 2},
+	"transfer_zone_authority_2_2": {Constraints: 68444, Public: 2},
+	"transfer_p256_zone_2_3":      {Constraints: 263578, Public: 2},
 	"merge_8_1":                   {Constraints: 180470, Public: 2},
 	"merge_zone_8_1":              {Constraints: 180740, Public: 2},
 	"batch_address-append_40_10":  {Constraints: 423683, Public: 2},
 }
 
 // KeyPinned is the fingerprint of the constraint system embedded in each
-// committed proving key of the version pinned by
-// prover/provingkeys/proving-keys.lock. BenchmarkSppTransfer enforces it while
-// loading keys, which is the only place the key-side constraint system is
-// observed.
+// committed proving key, for keys whose circuit still matches these sources.
 //
-// Where an entry differs from Pinned, the committed key set and the circuit
-// sources have drifted: that key was produced from an older revision of the
-// circuit. Proofs made with it still verify, because its proving key, its
-// verifying key, and the exported on-chain verifying key all come from that same
-// older revision, but the key can no longer be regenerated from source. The next
-// rotation clears the difference; until then KnownKeyDrift documents it.
-var KeyPinned = map[string]Fingerprint{
-	"transfer_confidential_2_3": {Constraints: 54031, Public: 2},
-	"transfer_zone_2_3":         {Constraints: 54136, Public: 2},
-	// 2 constraints below the current sources (50574).
-	"transfer_zone_authority_2_2": {Constraints: 50572, Public: 2},
-	"transfer_p256_zone_2_3":      {Constraints: 245645, Public: 2},
-}
+// It is EMPTY on this experiment branch. Every transfer circuit moved to
+// EdDSA-Poseidon spend authority, which adds private inputs, so the committed
+// keys cannot prove current witnesses at all -- they are not merely drifted, they
+// are unusable. Recording their old counts here would assert the opposite. The
+// benchmark therefore generates its own setup instead of loading committed keys,
+// and this map fills back in after the next key rotation.
+var KeyPinned = map[string]Fingerprint{}
 
 // KnownKeyDrift lists every proving key whose embedded constraint system differs
 // from the current sources, and by how many constraints (key minus source).
 // TestKnownKeyDriftIsComplete fails when a key drifts that is not listed here,
-// so a new divergence cannot hide behind an existing one.
-var KnownKeyDrift = map[string]int{
-	"transfer_zone_authority_2_2": -2,
-}
+// so a new divergence cannot hide behind an existing one. Empty while KeyPinned
+// is empty.
+var KnownKeyDrift = map[string]int{}

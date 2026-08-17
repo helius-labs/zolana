@@ -3,70 +3,101 @@ package transfereddsaonly
 import (
 	"encoding/json"
 	"math/big"
+	"reflect"
 	"testing"
 
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover/common"
 )
 
-func TestP256TransferParametersJSONRoundTrip(t *testing.T) {
-	zero := big.NewInt(0)
-	utxo := UtxoParams{
-		Domain:        zero,
-		Owner:         zero,
-		Asset:         zero,
-		Amount:        zero,
-		Blinding:      zero,
-		DataHash:      zero,
-		ZoneDataHash:  zero,
-		ZoneProgramID: zero,
+// distinctFields hands out a fresh value per call so every parameter field
+// carries a different number. A field dropped from the JSON encoding decodes
+// back as zero, which only shows up when no two fields share a value.
+type distinctFields struct{ next int64 }
+
+func (d *distinctFields) fe() *big.Int {
+	d.next++
+	return big.NewInt(d.next)
+}
+
+func (d *distinctFields) slice(n int) []*big.Int {
+	out := make([]*big.Int, n)
+	for i := range out {
+		out[i] = d.fe()
 	}
-	params := P256TransferParameters{
+	return out
+}
+
+func (d *distinctFields) utxo() UtxoParams {
+	return UtxoParams{
+		Domain:        d.fe(),
+		Owner:         d.fe(),
+		Asset:         d.fe(),
+		Amount:        d.fe(),
+		Blinding:      d.fe(),
+		DataHash:      d.fe(),
+		ZoneDataHash:  d.fe(),
+		ZoneProgramID: d.fe(),
+	}
+}
+
+func p256RoundTripParams(d *distinctFields) P256TransferParameters {
+	return P256TransferParameters{
 		NInputs:  1,
 		NOutputs: 1,
 		Inputs: []InputParams{{
-			Utxo:                     utxo,
-			IsDummy:                  zero,
-			StatePathElements:        make([]*big.Int, txcircuit.StateTreeHeight),
-			StatePathIndex:           zero,
-			NullifierLowValue:        zero,
-			NullifierNextValue:       zero,
-			NullifierLowPathElements: make([]*big.Int, txcircuit.NullifierTreeHeight),
-			NullifierLowPathIndex:    zero,
-			UtxoTreeRoot:             zero,
-			NullifierTreeRoot:        zero,
-			Nullifier:                zero,
-			OwnerPkHash:              zero,
-			NullifierSecret:          zero,
+			Utxo:                     d.utxo(),
+			IsDummy:                  d.fe(),
+			StatePathElements:        d.slice(txcircuit.StateTreeHeight),
+			StatePathIndex:           d.fe(),
+			NullifierLowValue:        d.fe(),
+			NullifierNextValue:       d.fe(),
+			NullifierLowPathElements: d.slice(txcircuit.NullifierTreeHeight),
+			NullifierLowPathIndex:    d.fe(),
+			UtxoTreeRoot:             d.fe(),
+			NullifierTreeRoot:        d.fe(),
+			Nullifier:                d.fe(),
+			OwnerPkHash:              d.fe(),
+			NullifierSecret:          d.fe(),
+			SpendPkX:                 d.fe(),
+			SpendPkY:                 d.fe(),
+			SpendSigX:                d.fe(),
+			SpendSigY:                d.fe(),
+			SpendSigS:                d.fe(),
 		}},
 		Outputs: []OutputParams{{
-			Utxo:        utxo,
-			IsDummy:     zero,
-			Hash:        zero,
-			OwnerPkHash: zero,
-			NullifierPk: zero,
+			Utxo:        d.utxo(),
+			IsDummy:     d.fe(),
+			Hash:        d.fe(),
+			OwnerPkHash: d.fe(),
+			SpendPkX:    d.fe(),
+			SpendPkY:    d.fe(),
 		}},
-		ExternalDataHash:    zero,
-		PrivateTxHash:       zero,
-		P256PubX:            zero,
-		P256PubY:            zero,
-		P256SigR:            zero,
-		P256SigS:            zero,
-		P256MessageHashLow:  zero,
-		P256MessageHashHigh: zero,
-		PublicAssets:        []*big.Int{zero, zero, zero},
-		PublicAmounts:       []*big.Int{zero, zero, zero},
-		ZoneProgramID:       zero,
-		SignerPkHashes:      []*big.Int{zero, zero},
-		AllowDummyInputs:    zero,
-		PublicInputHash:     zero,
+		ExternalDataHash:             d.fe(),
+		PrivateTxHash:                d.fe(),
+		P256PubX:                     d.fe(),
+		P256PubY:                     d.fe(),
+		P256SigR:                     d.fe(),
+		P256SigS:                     d.fe(),
+		P256MessageHashLow:           d.fe(),
+		P256MessageHashHigh:          d.fe(),
+		DefaultP256OwnerPkHash:       d.fe(),
+		PublicAssets:                 d.slice(txcircuit.NPublicSlots),
+		PublicAmounts:                d.slice(txcircuit.NPublicSlots),
+		ZoneProgramID:                d.fe(),
+		SignerPkHashes:               d.slice(2),
+		AllowDummyInputs:             d.fe(),
+		PublishedOutputOwnerPkHashes: d.slice(1),
+		PublicInputHash:              d.fe(),
 	}
-	for i := range params.Inputs[0].StatePathElements {
-		params.Inputs[0].StatePathElements[i] = zero
-	}
-	for i := range params.Inputs[0].NullifierLowPathElements {
-		params.Inputs[0].NullifierLowPathElements[i] = zero
-	}
+}
+
+// Every field must survive the round trip. Comparing the whole struct is what
+// catches a field that the encoder forgets: feHex(nil) and feFromHex("") both
+// produce zero, so a dropped field is invisible to any check that does not
+// compare values.
+func TestP256TransferParametersJSONRoundTrip(t *testing.T) {
+	params := p256RoundTripParams(&distinctFields{})
 
 	encoded, err := json.Marshal(&params)
 	if err != nil {
@@ -87,10 +118,51 @@ func TestP256TransferParametersJSONRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatalf("unmarshal params: %v", err)
 	}
-	if decoded.NInputs != 1 || decoded.NOutputs != 1 {
-		t.Fatalf("shape = %dx%d", decoded.NInputs, decoded.NOutputs)
-	}
 	if err := decoded.ValidateShape(); err != nil {
 		t.Fatalf("validate shape: %v", err)
+	}
+	if !reflect.DeepEqual(params, decoded) {
+		t.Fatalf("round trip lost or changed a field:\n got %+v\nwant %+v", decoded, params)
+	}
+}
+
+// The same guarantee for the Solana-only rail, which carries the spend key and
+// signature that the P256 rail shares.
+func TestTransferParametersJSONRoundTrip(t *testing.T) {
+	d := &distinctFields{}
+	source := p256RoundTripParams(d)
+	params := TransferParameters{
+		NInputs:                      source.NInputs,
+		NOutputs:                     source.NOutputs,
+		Inputs:                       source.Inputs,
+		Outputs:                      source.Outputs,
+		ExternalDataHash:             source.ExternalDataHash,
+		PrivateTxHash:                source.PrivateTxHash,
+		PublicAssets:                 source.PublicAssets,
+		PublicAmounts:                source.PublicAmounts,
+		ZoneProgramID:                source.ZoneProgramID,
+		SignerPkHashes:               source.SignerPkHashes,
+		AllowDummyInputs:             source.AllowDummyInputs,
+		PublishedOutputOwnerPkHashes: source.PublishedOutputOwnerPkHashes,
+		Variant:                      ZoneVariant,
+		PublicInputHash:              source.PublicInputHash,
+	}
+
+	encoded, err := json.Marshal(params.CreateTransferParametersJSON())
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var reparsed TransferParametersJSON
+	if err := json.Unmarshal(encoded, &reparsed); err != nil {
+		t.Fatalf("unmarshal json struct: %v", err)
+	}
+	var decoded TransferParameters
+	if err := decoded.UpdateWithJSON(reparsed); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	// UpdateWithJSON does not carry the variant; it comes from the circuit type.
+	decoded.Variant = params.Variant
+	if !reflect.DeepEqual(params, decoded) {
+		t.Fatalf("round trip lost or changed a field:\n got %+v\nwant %+v", decoded, params)
 	}
 }
