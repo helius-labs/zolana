@@ -218,14 +218,6 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
     );
   }
 
-  static fromEd25519(secret: Bytes32, account: number): ShieldedKeypair {
-    const owned = checkedBytes<Bytes32>(secret, 32, "Ed25519 signing secret");
-    const signing = SigningKey.fromEd25519Bytes(owned);
-    const viewing = ViewingKey.fromSeed(owned, account);
-    owned.fill(0);
-    return ShieldedKeypair.withViewingKey(signing, viewing);
-  }
-
   static #roleExpansion(
     signing: SigningKey,
   ): Readonly<{ nullifierSecret(): Bytes31; viewingSecret(): Bytes32 }> {

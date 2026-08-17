@@ -40,6 +40,7 @@ import {
 import {
   LocalWalletAuthority,
   ShieldedKeypair,
+  SigningKey,
   SOL_MINT,
   Wallet,
   buildDepositTransaction,
@@ -60,7 +61,7 @@ declare function loadOwnerSeed(): Promise<Bytes32>;
 const ownerSeed = await loadOwnerSeed();
 
 const feePayer = await createKeyPairSignerFromPrivateKeyBytes(ownerSeed);
-const keypair = ShieldedKeypair.fromEd25519(ownerSeed, 0);
+const keypair = ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(ownerSeed));
 ownerSeed.fill(0);
 
 const wallet = new Wallet({ identity: keypair.shieldedAddress() });
