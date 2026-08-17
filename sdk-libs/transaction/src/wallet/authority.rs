@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use p256::ecdsa::{signature::hazmat::PrehashSigner, Signature, SigningKey as EcdsaSigningKey};
 use solana_address::Address;
 use zolana_event::MessageData;
 use zolana_keypair::{
@@ -376,12 +375,9 @@ fn sign_p256_with(
     keypair: &ShieldedKeypair,
     message_hash: &[u8; 32],
 ) -> Result<P256Signature, TransactionError> {
-    let signer = EcdsaSigningKey::from_slice(keypair.signing_key.secret_bytes().as_slice())
+    let bytes = keypair
+        .sign_hash(message_hash)
         .map_err(|e| TransactionError::P256(e.to_string()))?;
-    let signature: Signature = signer
-        .sign_prehash(message_hash)
-        .map_err(|e| TransactionError::P256(e.to_string()))?;
-    let bytes = signature.to_bytes();
     let mut sig_r = [0u8; 32];
     let mut sig_s = [0u8; 32];
     sig_r.copy_from_slice(&bytes[..32]);

@@ -6,7 +6,7 @@ use dynamic_swap_sdk::{
     instructions::{create_pair::CreatePair, update_price::UpdatePrice},
     pair_pda,
 };
-use shared::{setup, DESTINATION_ASSET_ID, SOURCE_ASSET_ID};
+use shared::{escrow_authority_identity, setup, DESTINATION_ASSET_ID, SOURCE_ASSET_ID};
 use solana_signer::Signer;
 use zolana_client::Rpc;
 use zolana_transaction::{instructions::transact::spp_proof_inputs::asset_field, SOL_MINT};
@@ -19,7 +19,7 @@ const INITIAL_PRICE: u64 = 100;
 #[test]
 fn create_pair_then_update_price() -> Result<()> {
     let env = setup()?;
-    let authority_solana = env.authority.solana_keypair()?;
+    let authority_solana = &env.authority.keypair;
     let authority_owner_hash = env.authority.owner_hash()?;
 
     // create_pair: derive the pair PDA and register the source/destination
@@ -33,6 +33,10 @@ fn create_pair_then_update_price() -> Result<()> {
     let source_asset = asset_field(&env.spl_mint).map_err(|e| anyhow!("source asset: {e:?}"))?;
     let destination_asset =
         asset_field(&SOL_MINT).map_err(|e| anyhow!("destination asset: {e:?}"))?;
+    let escrow_authority_nullifier_pubkey =
+        escrow_authority_identity(&env.authority.keypair, &pair)?
+            .nullifier_pubkey()
+            .map_err(|e| anyhow!("escrow authority nullifier pubkey: {e:?}"))?;
     let create_pair_ix = CreatePair {
         payer: authority_solana.pubkey(),
         pair,
@@ -42,6 +46,7 @@ fn create_pair_then_update_price() -> Result<()> {
         authority_owner_hash,
         source_asset,
         destination_asset,
+        escrow_authority_nullifier_pubkey,
     }
     .instruction()
     .map_err(|e| anyhow!("create_pair instruction: {e:?}"))?;
@@ -83,6 +88,7 @@ fn create_pair_then_update_price() -> Result<()> {
         authority_owner_hash,
         source_asset,
         destination_asset,
+        escrow_authority_nullifier_pubkey,
     };
     assert_eq!(*pair_state, expected);
 

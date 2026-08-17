@@ -73,7 +73,7 @@ impl ZolanaProgramTest {
             update(UpdateProtocolConfigData::RingCreationAuthority(next.into())),
             update(UpdateProtocolConfigData::ProtocolAuthority(next.into())),
         ];
-        let mut signers = vec![authority];
+        let mut signers: Vec<&dyn Signer> = vec![authority];
         if new_authority.pubkey() != authority.pubkey() {
             signers.push(new_authority);
         }

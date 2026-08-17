@@ -1,7 +1,7 @@
 use num_bigint::BigUint;
 use zolana_event::is_confidential_encrypted_output;
 use zolana_hasher::hash_chain::{create_hash_chain_from_slice, create_right_hash_chain_from_slice};
-use zolana_keypair::{NullifierKey, SignatureType};
+use zolana_keypair::{Curve, NullifierKey};
 use zolana_transaction::{
     instructions::transact::PublicTransfers, ExternalData, ProofInputUtxo, SppProofOutputUtxo, Utxo,
 };
@@ -167,7 +167,7 @@ pub(crate) fn assemble_inputs(
             .nullifier_key
             .nullifier(&utxo_hash, &spend.utxo.blinding)?;
 
-        let is_p256 = spend.utxo.owner.signature_type()? == SignatureType::P256;
+        let is_p256 = spend.utxo.owner.curve()? == Curve::P256;
         // Per-input owner pk_field, selected by mode. A P256 owner's value
         // depends on the mode (see OwnerMode); an ed25519 owner always uses
         // its own pk_field.
@@ -180,7 +180,7 @@ pub(crate) fn assemble_inputs(
             (_, false) => spend.utxo.owner.owner_proof_input_hash()?,
         };
 
-        let nullifier_secret = right_align_slice(spend.nullifier_key.secret())?;
+        let nullifier_secret = right_align_slice(&*spend.nullifier_key.secret())?;
 
         let state = &proof.state;
         let nf = &proof.nullifier;

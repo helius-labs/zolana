@@ -76,7 +76,12 @@ fn expect_rejection(env: &mut Pool, data: TransactIxData, expected: ShieldedPool
 /// Like [`expect_rejection`], but for a caller-built instruction
 /// (tampered metas, ring rails) with extra transaction signers.
 #[track_caller]
-fn expect_ix_rejection(env: &mut Pool, ix: Instruction, signers: &[&Keypair], expected: Rejection) {
+fn expect_ix_rejection(
+    env: &mut Pool,
+    ix: Instruction,
+    signers: &[&dyn Signer],
+    expected: Rejection,
+) {
     let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
     let error = env
         .rpc

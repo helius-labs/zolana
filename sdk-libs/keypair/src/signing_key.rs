@@ -1,10 +1,7 @@
-use ed25519_dalek::{
-    Signer as Ed25519Signer, SigningKey as DalekSigningKey, Verifier as Ed25519Verifier,
-};
+use ed25519_dalek::{Signer as Ed25519Signer, SigningKey as DalekSigningKey};
 use p256::{
     ecdsa::{
-        signature::hazmat::{PrehashSigner, PrehashVerifier},
-        Signature as EcdsaSig, SigningKey as EcdsaSigningKey, VerifyingKey,
+        signature::hazmat::PrehashSigner, Signature as EcdsaSig, SigningKey as EcdsaSigningKey,
     },
     SecretKey,
 };
@@ -13,40 +10,30 @@ use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
 use crate::{
+    derivation,
     error::KeypairError,
-    pubkey::{P256Pubkey, PublicKey},
+    pubkey::{Curve, P256Pubkey, PublicKey},
 };
 
+#[derive(Clone)]
 enum SigningKeyInner {
-    P256(SecretKey),
+    P256(EcdsaSigningKey),
     Ed25519(DalekSigningKey),
 }
 
+#[derive(Clone)]
 pub struct SigningKey {
     inner: SigningKeyInner,
 }
 
-impl Clone for SigningKey {
-    fn clone(&self) -> Self {
-        match &self.inner {
-            SigningKeyInner::P256(sk) => Self {
-                inner: SigningKeyInner::P256(sk.clone()),
-            },
-            SigningKeyInner::Ed25519(sk) => Self {
-                inner: SigningKeyInner::Ed25519(DalekSigningKey::from_bytes(sk.as_bytes())),
-            },
-        }
-    }
-}
-
 impl SigningKey {
-    pub fn new() -> Self {
+    pub fn new_p256() -> Self {
         Self {
-            inner: SigningKeyInner::P256(SecretKey::random(&mut OsRng)),
+            inner: SigningKeyInner::P256(EcdsaSigningKey::random(&mut OsRng)),
         }
     }
 
-    /// A fresh random ed25519 key. Mirrors [`Self::new`] (P256) for callers that
+    /// A fresh random ed25519 key. Mirrors [`Self::new_p256`] for callers that
     /// need a throwaway key on the ed25519 rail; the secret bytes are zeroized
     /// once copied into the dalek key.
     pub fn new_ed25519() -> Self {
@@ -56,22 +43,25 @@ impl SigningKey {
             inner: SigningKeyInner::Ed25519(DalekSigningKey::from_bytes(&secret)),
         }
     }
-
-    pub fn from_bytes(bytes: &[u8; 32]) -> Result<Self, KeypairError> {
-        let secret = SecretKey::from_slice(bytes).map_err(|_| KeypairError::InvalidSecretKey)?;
+    pub fn from_p256_bytes(bytes: &[u8; 32]) -> Result<Self, KeypairError> {
+        let secret =
+            EcdsaSigningKey::from_slice(bytes).map_err(|_| KeypairError::InvalidSecretKey)?;
         Ok(Self {
             inner: SigningKeyInner::P256(secret),
         })
     }
 
-    pub fn from_ed25519(bytes: &[u8; 32]) -> Self {
+    pub fn from_ed25519_bytes(bytes: &[u8; 32]) -> Self {
         Self {
             inner: SigningKeyInner::Ed25519(DalekSigningKey::from_bytes(bytes)),
         }
     }
 
-    pub fn is_ed25519(&self) -> bool {
-        matches!(self.inner, SigningKeyInner::Ed25519(_))
+    pub fn curve(&self) -> Curve {
+        match self.inner {
+            SigningKeyInner::P256(_) => Curve::P256,
+            SigningKeyInner::Ed25519(_) => Curve::Ed25519,
+        }
     }
 
     pub fn secret_bytes(&self) -> Zeroizing<[u8; 32]> {
@@ -88,7 +78,7 @@ impl SigningKey {
     pub fn pubkey(&self) -> PublicKey {
         match &self.inner {
             SigningKeyInner::P256(sk) => {
-                PublicKey::from_p256(&P256Pubkey::from_p256(&sk.public_key()))
+                PublicKey::from_p256(&P256Pubkey::from_p256(&sk.verifying_key().into()))
             }
             SigningKeyInner::Ed25519(sk) => {
                 let vk = sk.verifying_key();
@@ -97,113 +87,89 @@ impl SigningKey {
         }
     }
 
-    pub fn sign(&self, msg: &[u8]) -> [u8; 64] {
-        match &self.inner {
-            SigningKeyInner::P256(sk) => {
-                let signing = EcdsaSigningKey::from(sk);
-                let sig: EcdsaSig = signing
-                    .sign_prehash(msg)
-                    .expect("p256 prehash signing is infallible for a 32-byte digest");
-                let mut out = [0u8; 64];
-                out.copy_from_slice(&sig.to_bytes());
-                out
-            }
-            SigningKeyInner::Ed25519(sk) => sk.sign(msg).to_bytes(),
-        }
-    }
-
-    /// Sign an arbitrary message exactly as Solana's secp256r1 precompile
-    /// verifies it: ECDSA over SHA-256(message), normalized to low-S.
-    pub fn sign_p256_message(&self, message: &[u8]) -> Result<[u8; 64], KeypairError> {
-        let SigningKeyInner::P256(sk) = &self.inner else {
-            return Err(KeypairError::NotP256);
-        };
-        let signing = EcdsaSigningKey::from(sk);
-        let digest = Sha256::digest(message);
-        let signature: EcdsaSig = signing
-            .sign_prehash(&digest)
-            .map_err(|_| KeypairError::InvalidSecretKey)?;
+    /// Every P-256 signature this crate emits, on both signing paths.
+    /// Normalizing to low-S is what makes a signature byte-identical across
+    /// backends: hardware signers return whichever of `s`/`n-s` their device
+    /// produced, so an un-normalized software signature would differ from a
+    /// KMS or YubiKey one over the same key and digest.
+    fn p256_sign_prehash(sk: &EcdsaSigningKey, prehash: &[u8]) -> Result<[u8; 64], KeypairError> {
+        let signature: EcdsaSig = sk
+            .sign_prehash(prehash)
+            .map_err(|_| KeypairError::SigningFailed)?;
         let signature = signature.normalize_s().unwrap_or(signature);
         let mut out = [0u8; 64];
         out.copy_from_slice(&signature.to_bytes());
         Ok(out)
     }
 
-    pub fn verify(&self, msg: &[u8], sig: &[u8; 64]) -> bool {
+    /// The scheme's native message signature: ed25519 over the raw bytes
+    /// (RFC 8032), P256 as ECDSA over `SHA-256(message)` normalized to low-S,
+    /// matching Solana's secp256r1 precompile.
+    ///
+    /// The derivation-input guard is meaningful on the ed25519 arm, where
+    /// signing the derivation message would yield the derivation seed. The
+    /// P-256 rail's seed is `ECDH(sk, P_derive)`, guarded by the
+    /// committed-point check in [`Self::ecdh`].
+    pub fn sign_message(&self, message: &[u8]) -> Result<[u8; 64], KeypairError> {
+        if derivation::is_derivation_input(message) {
+            return Err(KeypairError::DerivationInput);
+        }
+        match &self.inner {
+            SigningKeyInner::P256(sk) => Self::p256_sign_prehash(sk, &Sha256::digest(message)),
+            SigningKeyInner::Ed25519(sk) => Ok(sk.sign(message).to_bytes()),
+        }
+    }
+
+    /// ECDSA over a caller-supplied digest, normalized to low-S: the proof
+    /// path, where the transfer proof verifies the signature against
+    /// `SHA-256(private_tx_hash)`. P-256 rail only; ed25519 owners sign digest
+    /// bytes with [`Self::sign_message`].
+    pub fn sign_hash(&self, hash: &[u8; 32]) -> Result<[u8; 64], KeypairError> {
+        if derivation::is_derivation_input(hash) {
+            return Err(KeypairError::DerivationInput);
+        }
+        match &self.inner {
+            SigningKeyInner::P256(sk) => Self::p256_sign_prehash(sk, hash),
+            SigningKeyInner::Ed25519(_) => Err(KeypairError::NotP256),
+        }
+    }
+
+    /// The rail seed both role keys expand from: the deterministic RFC 8032
+    /// signature over [`derivation::ed25519_derivation_message`] on the
+    /// ed25519 rail, or `ECDH(signing_sk, P_derive)` on the P-256 rail.
+    pub fn derivation_seed(&self) -> Result<Zeroizing<Vec<u8>>, KeypairError> {
+        match &self.inner {
+            SigningKeyInner::Ed25519(sk) => {
+                let message = derivation::ed25519_derivation_message(sk.verifying_key().as_bytes());
+                Ok(Zeroizing::new(sk.sign(&message).to_bytes().to_vec()))
+            }
+            SigningKeyInner::P256(_) => Ok(Zeroizing::new(
+                self.ecdh_raw(&derivation::p_derive())?.to_vec(),
+            )),
+        }
+    }
+
+    /// ECDH with `counterparty`, returning the shared point's x-coordinate.
+    /// P-256 rail only; mirrors [`crate::ViewingKey::ecdh`].
+    pub fn ecdh(&self, counterparty: &P256Pubkey) -> Result<[u8; 32], KeypairError> {
+        if derivation::is_derivation_point(counterparty) {
+            return Err(KeypairError::DerivationInput);
+        }
+        self.ecdh_raw(counterparty)
+    }
+
+    pub(crate) fn ecdh_raw(&self, counterparty: &P256Pubkey) -> Result<[u8; 32], KeypairError> {
         match &self.inner {
             SigningKeyInner::P256(sk) => {
-                let vk = VerifyingKey::from(sk.public_key());
-                match EcdsaSig::from_slice(sig) {
-                    Ok(parsed) => vk.verify_prehash(msg, &parsed).is_ok(),
-                    Err(_) => false,
-                }
+                derivation::ecdh_x(&SecretKey::from(sk.as_nonzero_scalar()), counterparty)
             }
-            SigningKeyInner::Ed25519(sk) => {
-                let vk = sk.verifying_key();
-                match ed25519_dalek::Signature::try_from(sig.as_slice()) {
-                    Ok(parsed) => vk.verify(msg, &parsed).is_ok(),
-                    Err(_) => false,
-                }
-            }
+            SigningKeyInner::Ed25519(_) => Err(KeypairError::NotP256),
         }
     }
 }
 
-impl Default for SigningKey {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::pubkey::SignatureType;
-
-    /// `new_ed25519` produces a genuine ed25519 key: it reports the ed25519 rail,
-    /// signs and verifies a message (which an off-curve key could not), and its
-    /// confidential view tag is the raw 32-byte ed25519 public key. `new` stays on
-    /// the P256 rail.
-    #[test]
-    fn new_ed25519_is_a_working_ed25519_key() {
-        let key = SigningKey::new_ed25519();
-        assert!(key.is_ed25519());
-        assert!(!SigningKey::new().is_ed25519());
-
-        let msg = [7u8; 32];
-        let sig = key.sign(&msg);
-        assert!(key.verify(&msg, &sig));
-
-        let pubkey = key.pubkey();
-        assert_eq!(pubkey.signature_type().unwrap(), SignatureType::Ed25519);
-        assert_eq!(
-            pubkey.confidential_view_tag().unwrap(),
-            pubkey.as_ed25519().unwrap()
-        );
-    }
-
-    #[test]
-    fn p256_message_signature_is_sha256_and_low_s() {
-        let key = SigningKey::new();
-        let message = b"registry binding";
-        let raw = key.sign_p256_message(message).expect("P256 signature");
-        let signature = EcdsaSig::from_slice(&raw).expect("compact signature");
-        assert!(signature.normalize_s().is_none(), "signature must be low-S");
-
-        let SigningKeyInner::P256(secret) = &key.inner else {
-            unreachable!();
-        };
-        let verifying = VerifyingKey::from(secret.public_key());
-        let digest = Sha256::digest(message);
-        assert!(verifying.verify_prehash(&digest, &signature).is_ok());
-    }
-
-    #[test]
-    fn ed25519_key_cannot_make_p256_precompile_signature() {
-        let key = SigningKey::new_ed25519();
-        assert_eq!(
-            key.sign_p256_message(b"registry binding"),
-            Err(KeypairError::NotP256)
-        );
+impl From<&solana_keypair::Keypair> for SigningKey {
+    fn from(keypair: &solana_keypair::Keypair) -> Self {
+        Self::from_ed25519_bytes(keypair.secret_bytes())
     }
 }

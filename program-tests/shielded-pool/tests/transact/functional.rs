@@ -1231,7 +1231,10 @@ fn transact_rejects_an_overrunning_owner_signer_run() {
     }
     .instruction();
 
-    let signer_refs: Vec<&Keypair> = extra_signers.iter().collect();
+    let signer_refs: Vec<&dyn Signer> = extra_signers
+        .iter()
+        .map(|signer| signer as &dyn Signer)
+        .collect();
     let error = env
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &signer_refs)

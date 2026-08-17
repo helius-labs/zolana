@@ -82,7 +82,7 @@ impl ZolanaProgramTest {
             new_authority: new_authority.pubkey().to_bytes().into(),
         }
         .instruction();
-        let mut signers = vec![authority];
+        let mut signers: Vec<&dyn Signer> = vec![authority];
         if new_authority.pubkey() != authority.pubkey() {
             signers.push(new_authority);
         }

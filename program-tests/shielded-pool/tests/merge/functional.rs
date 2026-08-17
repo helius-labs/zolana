@@ -29,15 +29,14 @@ use zolana_interface::{
     state::{forester_fee_per_queue_element, ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE},
     verifying_keys::merge_8_1,
 };
-use zolana_keypair::{
-    hash::owner_hash,
-    merge::{merge_dummy_nullifier, merge_output_blinding},
-    PublicKey, ShieldedKeypair, ShieldedKeypairTrait,
-};
+use zolana_keypair::{hash::owner_hash, PublicKey, ShieldedKeypair, ShieldedKeypairTrait};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::{test_blinding, ZolanaProgramTest};
 use zolana_test_utils::transact::nullifier_tree;
-use zolana_transaction::{Data, SppProofOutputUtxo, Utxo, SOL_MINT};
+use zolana_transaction::{
+    instructions::merge::{merge_dummy_nullifier, merge_output_blinding},
+    Data, SppProofOutputUtxo, Utxo, SOL_MINT,
+};
 use zolana_user_registry_interface::{
     state::{UserRecord, NULLIFIER_PUBKEY_LEN, P256_PUBKEY_LEN},
     user_record_pda, USER_REGISTRY_PROGRAM_ID,
@@ -101,7 +100,7 @@ fn merge_collects_the_exact_forester_fee_from_the_payer() {
     // The merge owner IS the payer: the shielded keypair derives from the
     // payer's ed25519 secret, so the registry record binds the same key the
     // proof recomputes `signing_pk_field` from.
-    let keypair = ShieldedKeypair::from_solana_keypair(&payer).expect("shielded keypair");
+    let keypair = ShieldedKeypair::from_keypair(&payer).expect("shielded keypair");
     let record = write_user_record(&mut env.rpc, payer_pk, None, true);
 
     // The real input: a zero-value SOL deposit owned by the payer's shielded

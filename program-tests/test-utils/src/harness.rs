@@ -24,7 +24,7 @@ use zolana_interface::{
     state::tree_account_size,
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{ShieldedKeypair, ViewingKey};
+use zolana_keypair::{ShieldedKeypair, SigningKey};
 use zolana_smart_account_client::execute_sync_ix;
 use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo, Wallet, WalletUtxo};
 use zolana_tree::InitAddressTreeAccountsInstructionData;
@@ -101,7 +101,7 @@ impl<D> Actor<D> {
         let seed: [u8; 32] = signer.to_bytes()[..32]
             .try_into()
             .expect("ed25519 seed is the first 32 bytes");
-        let keypair = ShieldedKeypair::from_ed25519(&seed, ViewingKey::new())?;
+        let keypair = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&seed))?;
         let wallet = Wallet::new(keypair.shielded_address()?, AssetRegistry::default())?;
         Ok(Self {
             keypair,
@@ -117,7 +117,7 @@ impl<D> Actor<D> {
     /// authorization is proved inside RingP256; the harness payer funds and
     /// signs its transactions.
     pub fn p256() -> Result<Self> {
-        let keypair = ShieldedKeypair::new()?;
+        let keypair = ShieldedKeypair::new_p256()?;
         let wallet = Wallet::new(keypair.shielded_address()?, AssetRegistry::default())?;
         Ok(Self {
             keypair,

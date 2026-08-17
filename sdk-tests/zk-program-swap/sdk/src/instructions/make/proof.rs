@@ -87,11 +87,10 @@ mod tests {
     // than the SPP transact it CPIs into and the instruction can never land.
     #[test]
     fn zero_change_folds_real_hash_matching_spp() {
-        let destination =
-            ShieldedKeypair::from_solana_keypair(&Keypair::new_from_array([21u8; 32]))
-                .expect("destination keypair")
-                .shielded_address()
-                .expect("destination address");
+        let destination = ShieldedKeypair::from_keypair(&Keypair::new_from_array([21u8; 32]))
+            .expect("destination keypair")
+            .shielded_address()
+            .expect("destination address");
 
         let order_utxo = OrderUtxo {
             terms: OrderTerms {

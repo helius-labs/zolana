@@ -10,13 +10,13 @@ use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeTransact},
 };
-use zolana_keypair::{
-    merge::{merge_dummy_nullifier, merge_output_blinding},
-    random_blinding,
-};
+use zolana_keypair::random_blinding;
 use zolana_program_test::Rejection;
 use zolana_smart_account_client::execute_sync_ix;
-use zolana_transaction::{Data, OutputContext, SppProofOutputUtxo, Utxo, WalletUtxo};
+use zolana_transaction::{
+    instructions::merge::{merge_dummy_nullifier, merge_output_blinding},
+    Data, OutputContext, SppProofOutputUtxo, Utxo, WalletUtxo,
+};
 use zolana_user_registry_interface::{
     instruction::{register, set_merging_enabled, RegisterData},
     user_record_pda,

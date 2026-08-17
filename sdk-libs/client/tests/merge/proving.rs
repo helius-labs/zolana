@@ -7,8 +7,8 @@ use zolana_client::{
     MERGE_INPUTS,
 };
 use zolana_interface::verifying_keys::merge_8_1;
-use zolana_keypair::{merge::merge_output_blinding, random_blinding, ShieldedKeypair, ViewingKey};
-use zolana_transaction::{Data, Utxo};
+use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
+use zolana_transaction::{instructions::merge::merge_output_blinding, Data, Utxo};
 
 use crate::{harness::MergeHarness, prover_bootstrap::start_prover, test_indexer::TestIndexer};
 
@@ -21,9 +21,10 @@ impl MergeHarness {
         let sender = if self.plan.eddsa {
             let mut seed = [0u8; 32];
             seed.copy_from_slice(&random_blinding());
-            ShieldedKeypair::from_ed25519(&seed, ViewingKey::new()).expect("eddsa sender keypair")
+            ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&seed))
+                .expect("eddsa sender keypair")
         } else {
-            ShieldedKeypair::new().expect("sender keypair")
+            ShieldedKeypair::new_p256().expect("sender keypair")
         };
         let asset = Address::default(); // SOL
         let owner = sender.signing_pubkey();

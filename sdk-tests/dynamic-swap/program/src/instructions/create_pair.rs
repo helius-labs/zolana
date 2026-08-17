@@ -20,6 +20,9 @@ pub struct CreatePairData {
     pub source_asset: [u8; 32],
     /// The destination asset's UTXO commitment; see `Pair::destination_asset`.
     pub destination_asset: [u8; 32],
+    /// The escrow_authority identity's published nullifier pubkey; see
+    /// `Pair::escrow_authority_nullifier_pubkey`.
+    pub escrow_authority_nullifier_pubkey: [u8; 32],
 }
 
 #[inline(never)]
@@ -32,12 +35,18 @@ pub fn process_create_pair_ix(accounts: &mut [AccountView], data: &[u8]) -> Prog
         authority_owner_hash,
         source_asset,
         destination_asset,
+        escrow_authority_nullifier_pubkey,
     } = CreatePairData::try_from_slice(data)
         .map_err(|_| DynamicSwapError::InvalidInstructionData)?;
     // See `update_price`: a zero price leaves `create_escrow` unable to stamp a
     // nonzero `execution_price`, so the escrow could never settle.
     if price == 0 {
         return Err(DynamicSwapError::InvalidPrice.into());
+    }
+    // A zero nullifier pubkey would silently recreate the transparent
+    // zero-secret escrow identity this field exists to replace.
+    if escrow_authority_nullifier_pubkey == [0u8; 32] {
+        return Err(DynamicSwapError::InvalidNullifierPubkey.into());
     }
 
     let mut iter = AccountIterator::new(accounts);
@@ -91,6 +100,7 @@ pub fn process_create_pair_ix(accounts: &mut [AccountView], data: &[u8]) -> Prog
         state.authority_owner_hash = authority_owner_hash;
         state.source_asset = source_asset;
         state.destination_asset = destination_asset;
+        state.escrow_authority_nullifier_pubkey = escrow_authority_nullifier_pubkey;
     }
 
     Ok(())

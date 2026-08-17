@@ -332,7 +332,7 @@ mod tests {
 
     #[test]
     fn default_transact_rejects_p256_owned_inputs() {
-        let keypair = ShieldedKeypair::new().expect("P256 keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("P256 keypair");
         let input = SppProofInputUtxo::new(
             Utxo {
                 owner: keypair.signing_pubkey(),

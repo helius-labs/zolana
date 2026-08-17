@@ -115,7 +115,7 @@ pub fn user_registry_program_path() -> PathBuf {
 /// curve point, so it can produce the proof of possession `register` /
 /// `update_keys` require alongside an `owner_p256`.
 pub fn p256_owner_key() -> SigningKey {
-    SigningKey::new()
+    SigningKey::new_p256()
 }
 
 /// The compressed `owner_p256` for `key` and its proof-of-possession signature
@@ -130,7 +130,7 @@ pub fn p256_binding_signature(owner: &Pubkey, key: &SigningKey) -> ([u8; 33], [u
     let (user_record, _bump) = user_record_pda(owner);
     let message = p256_key_binding_message(&user_record, owner, &pubkey);
     let signature = key
-        .sign_p256_message(&message)
+        .sign_message(&message)
         .expect("p256 owner key signs the binding message");
     (pubkey, signature)
 }

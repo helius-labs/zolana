@@ -1,14 +1,14 @@
 use anyhow::{bail, Result};
 use zolana_client::Rpc;
 use zolana_interface::event::OutputDataEncoding;
-use zolana_keypair::ViewingKey;
+use zolana_keypair::{ShieldedPda, ViewingKey};
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
     utxo::Blinding,
     DecodeCx, EncryptedScheme, ShieldedTransaction, UtxoSerialization,
 };
 
-use crate::{err, shared_address::SharedShieldedAddress, state::decode_escrow_note};
+use crate::{err, state::decode_escrow_note};
 
 /// The escrow order + reservation UTXO state a settler recovers by scanning for
 /// and decrypting the order UTXO's note -- no client-side tracking, and no
@@ -25,15 +25,12 @@ pub struct DiscoveredEscrow {
 }
 
 /// Scans for the `create_escrow` transaction by the escrow_authority PDA's
-/// public view tag and decrypts the order UTXO's note with the `owner`'s shared
-/// viewing key, returning everything `settle` needs to rebuild both escrow UTXOs
-/// (including the discovered order-UTXO leaf hash). Only the SPP `transact` query
-/// and `Confidential::decode` do real work here; the rest is locating the order
-/// slot by that view tag.
-pub fn discover_escrow_note<I: Rpc>(
-    indexer: &I,
-    owner: &SharedShieldedAddress,
-) -> Result<DiscoveredEscrow> {
+/// public view tag and decrypts the order UTXO's note with the identity's
+/// derived viewing key, returning everything `settle` needs to rebuild both
+/// escrow UTXOs (including the discovered order-UTXO leaf hash). Only the SPP
+/// `transact` query and `Confidential::decode` do real work here; the rest is
+/// locating the order slot by that view tag.
+pub fn discover_escrow_note<I: Rpc>(indexer: &I, owner: &ShieldedPda) -> Result<DiscoveredEscrow> {
     let tag = owner
         .shielded_address()?
         .confidential_view_tag()

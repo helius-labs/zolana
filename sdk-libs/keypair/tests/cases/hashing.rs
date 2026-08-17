@@ -55,7 +55,7 @@ pub(crate) fn owner_hash_binds_nullifier(world: &mut KeypairWorld, name: String)
 
 pub(crate) fn p256_ed25519_owner_hash_differ() {
     let nullifier_pubkey = [9u8; 32];
-    let p256 = SigningKey::new().pubkey();
+    let p256 = SigningKey::new_p256().pubkey();
     let ed25519 = PublicKey::from_ed25519(&[7u8; 32]);
     assert_ne!(
         owner_hash(&p256, &nullifier_pubkey).unwrap(),

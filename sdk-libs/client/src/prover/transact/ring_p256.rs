@@ -7,7 +7,7 @@ use p256::{
 };
 use solana_address::Address;
 use zolana_hasher::primitives::hash_bytes;
-use zolana_keypair::{hash::sha256, SignatureType};
+use zolana_keypair::{hash::sha256, Curve};
 use zolana_transaction::{
     instructions::transact::{PrivateTxHash, PublicTransfers},
     utxo::program_id_proof_input_hash,
@@ -148,7 +148,7 @@ fn has_default_p256_input(inputs: &[TransferSpendInput]) -> Result<bool, ClientE
     for spend in inputs {
         if spend.proof.is_some()
             && spend.utxo.ring_program_id.is_none()
-            && spend.utxo.owner.signature_type()? == SignatureType::P256
+            && spend.utxo.owner.curve()? == Curve::P256
         {
             return Ok(true);
         }
@@ -166,7 +166,7 @@ fn validate_authorization(
         if spend.proof.is_none() {
             continue;
         }
-        if spend.utxo.owner.signature_type()? != SignatureType::P256 {
+        if spend.utxo.owner.curve()? != Curve::P256 {
             continue;
         }
         found_p256 = true;

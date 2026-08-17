@@ -9,7 +9,7 @@
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
-use dynamic_swap_sdk::{instructions::create_pair::CreatePair, pair_pda};
+use dynamic_swap_sdk::{escrow_authority_pda, instructions::create_pair::CreatePair, pair_pda};
 use solana_address::Address;
 use solana_address_lookup_table_interface::instruction::{
     create_lookup_table, extend_lookup_table,
@@ -29,7 +29,7 @@ use zolana_interface::{
     state::tree_account_size,
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{ShieldedKeypair, ViewingKey};
+use zolana_keypair::{ShieldedKeypair, ShieldedPda, SigningKey};
 use zolana_program_test::system_create_account_ix;
 use zolana_test_utils::{
     localnet::LocalnetValidator,
@@ -58,12 +58,6 @@ pub struct TestWallet {
 }
 
 impl TestWallet {
-    pub fn solana_keypair(&self) -> Result<Keypair> {
-        self.keypair
-            .to_solana_keypair()
-            .map_err(|e| anyhow!("solana keypair: {e:?}"))
-    }
-
     pub fn address(&self) -> Result<zolana_keypair::ShieldedAddress> {
         self.keypair
             .shielded_address()
@@ -90,10 +84,6 @@ pub struct TestEnv {
     /// sync is needed to discover it, exactly like the pool/escrow UTXOs
     /// tracked elsewhere in this harness.
     pub user_spl_blinding: Blinding,
-    /// Reused for every synthetic output owned by `escrow_authority`: nobody
-    /// ever decrypts these notes (amounts and blindings are tracked client-side
-    /// across the whole test), so a single throwaway viewing key is enough.
-    pub escrow_viewing_key: ViewingKey,
 }
 
 pub fn setup() -> Result<TestEnv> {
@@ -287,14 +277,15 @@ pub fn setup() -> Result<TestEnv> {
         .try_into()
         .expect("ed25519 seed is the first 32 bytes");
     let authority_shielded_keypair =
-        ShieldedKeypair::from_ed25519(&authority_seed, ViewingKey::new())?;
+        ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&authority_seed))?;
 
     let user_solana = Keypair::new();
     rpc.airdrop(&user_solana.pubkey(), 10_000_000_000)?;
     let user_seed: [u8; 32] = user_solana.to_bytes()[..32]
         .try_into()
         .expect("ed25519 seed is the first 32 bytes");
-    let user_shielded_keypair = ShieldedKeypair::from_ed25519(&user_seed, ViewingKey::new())?;
+    let user_shielded_keypair =
+        ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&user_seed))?;
 
     // Shield the user's SPL (the source asset it will escrow). The pool's own
     // liquidity is bootstrapped separately per-pair by each test (a zero-amount
@@ -348,8 +339,19 @@ pub fn setup() -> Result<TestEnv> {
         spl_mint,
         assets,
         user_spl_blinding,
-        escrow_viewing_key: ViewingKey::new(),
     })
+}
+
+/// The maker-derived shielded identity of the pair's escrow_authority PDA
+/// (`ShieldedPda::from_viewing_key`); its nullifier pubkey is published in the
+/// `Pair` account at `create_pair`, so `create_escrow` binds
+/// `Poseidon(hash_bytes(pda), nullifier_pk)` as the order owner hash.
+pub fn escrow_authority_identity(
+    authority: &ShieldedKeypair,
+    pair: &Pubkey,
+) -> Result<ShieldedPda> {
+    ShieldedPda::from_viewing_key(escrow_authority_pda(pair), &authority.viewing_key)
+        .map_err(|e| anyhow!("escrow authority identity: {e:?}"))
 }
 
 /// `setup()` plus a registered SPL(source)->SOL(destination) pair at `price`.
@@ -358,7 +360,7 @@ pub fn setup() -> Result<TestEnv> {
 /// exercise `create_pair` itself (pair/negative) keep plain `setup()`.
 pub fn setup_with_pair(price: u64) -> Result<(TestEnv, Pubkey)> {
     let env = setup()?;
-    let authority_solana = env.authority.solana_keypair()?;
+    let authority_solana = &env.authority.keypair;
     let pair = pair_pda(
         &authority_solana.pubkey(),
         SOURCE_ASSET_ID,
@@ -368,6 +370,10 @@ pub fn setup_with_pair(price: u64) -> Result<(TestEnv, Pubkey)> {
     let source_asset = asset_field(&env.spl_mint).map_err(|e| anyhow!("source asset: {e:?}"))?;
     let destination_asset =
         asset_field(&SOL_MINT).map_err(|e| anyhow!("destination asset: {e:?}"))?;
+    let escrow_authority_nullifier_pubkey =
+        escrow_authority_identity(&env.authority.keypair, &pair)?
+            .nullifier_pubkey()
+            .map_err(|e| anyhow!("escrow authority nullifier pubkey: {e:?}"))?;
     let create_pair_ix = CreatePair {
         payer: authority_solana.pubkey(),
         pair,
@@ -377,6 +383,7 @@ pub fn setup_with_pair(price: u64) -> Result<(TestEnv, Pubkey)> {
         authority_owner_hash,
         source_asset,
         destination_asset,
+        escrow_authority_nullifier_pubkey,
     }
     .instruction()
     .map_err(|e| anyhow!("create_pair instruction: {e:?}"))?;
@@ -425,8 +432,8 @@ pub fn get_slot_with_retry(client: &solana_rpc_client::rpc_client::RpcClient) ->
 /// included.
 pub fn send_v0_with_lookup_table(
     rpc: &SolanaRpc,
-    fee_payer: &Keypair,
-    extra_signers: &[&Keypair],
+    fee_payer: &dyn Signer,
+    extra_signers: &[&dyn Signer],
     ix: Instruction,
 ) -> Result<Signature> {
     let compute = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
@@ -488,7 +495,7 @@ pub fn send_v0_with_lookup_table(
         blockhash,
     )
     .map_err(|e| anyhow!("compile v0: {e}"))?;
-    let mut signers: Vec<&Keypair> = vec![fee_payer];
+    let mut signers: Vec<&dyn Signer> = vec![fee_payer];
     signers.extend(extra_signers.iter().copied());
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(message), &signers)
         .map_err(|e| anyhow!("sign v0: {e}"))?;

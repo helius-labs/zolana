@@ -1,13 +1,12 @@
 use solana_address::Address;
 use solana_instruction::Instruction;
-use solana_keypair::Keypair;
 use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction as SolanaTransaction;
 use zolana_keypair::{
-    viewing_key::ViewTag, P256Pubkey, PublicKey, ShieldedAddress, ShieldedKeypair, SignatureType,
+    viewing_key::ViewTag, Curve, P256Pubkey, PublicKey, ShieldedAddress, ShieldedKeypair,
 };
 use zolana_user_registry_interface::{
     instruction::{
@@ -49,9 +48,9 @@ pub fn p256_registration_proof_message(
 /// P256 owner key (only for P256-owned wallets), nullifier pubkey, and viewing
 /// pubkey. Returns the exact `RegisterData` the register/update instructions take.
 fn register_fields(address: &ShieldedAddress) -> Result<RegisterData, ClientError> {
-    let owner_p256 = match address.signing_pubkey.signature_type()? {
-        SignatureType::P256 => Some(*address.signing_pubkey.as_p256()?.as_bytes()),
-        SignatureType::Ed25519 => None,
+    let owner_p256 = match address.signing_pubkey.curve()? {
+        Curve::P256 => Some(*address.signing_pubkey.as_p256()?.as_bytes()),
+        Curve::Ed25519 | Curve::Pda => None,
     };
     Ok(RegisterData {
         owner_p256,
@@ -75,7 +74,7 @@ fn register_fields(address: &ShieldedAddress) -> Result<RegisterData, ClientErro
 /// publish or update it.
 pub fn ensure_registered<R: Rpc>(
     rpc: &R,
-    funding: &Keypair,
+    funding: &dyn Signer,
     keypair: &ShieldedKeypair,
 ) -> Result<Option<Signature>, ClientError> {
     let owner = funding.pubkey();
@@ -136,7 +135,7 @@ pub enum StrictRegistration {
 /// signature of, its owner pubkey.
 pub fn register_if_absent<R: Rpc>(
     rpc: &R,
-    funding: &Keypair,
+    funding: &dyn Signer,
     keypair: &ShieldedKeypair,
 ) -> Result<StrictRegistration, ClientError> {
     let owner = funding.pubkey();
@@ -264,13 +263,13 @@ fn key_binding_proof(
     owner: Pubkey,
     keypair: &ShieldedKeypair,
 ) -> Result<Option<P256KeyBindingProof>, ClientError> {
-    if keypair.signing_pubkey().signature_type()? == SignatureType::Ed25519 {
+    if keypair.signing_pubkey().curve()? == Curve::Ed25519 {
         return Ok(None);
     }
     let address = keypair.shielded_address()?;
     let message = p256_registration_proof_message(owner, &address)?;
     Ok(Some(P256KeyBindingProof {
-        signature: keypair.signing_key.sign_p256_message(&message)?,
+        signature: keypair.sign_message(&message)?,
     }))
 }
 
@@ -407,9 +406,9 @@ pub fn validate_registered_keypair<R: Rpc>(
     keypair: &ShieldedKeypair,
 ) -> Result<(), ClientError> {
     let record = fetch_user_record_checked(rpc, owner)?;
-    let expected_owner_p256 = match keypair.signing_pubkey().signature_type()? {
-        SignatureType::P256 => Some(*keypair.signing_pubkey().as_p256()?.as_bytes()),
-        SignatureType::Ed25519 => None,
+    let expected_owner_p256 = match keypair.signing_pubkey().curve()? {
+        Curve::P256 => Some(*keypair.signing_pubkey().as_p256()?.as_bytes()),
+        Curve::Ed25519 | Curve::Pda => None,
     };
     let expected_nullifier = keypair.nullifier_key.pubkey()?;
     let expected_viewing = *keypair.viewing_pubkey().as_bytes();
@@ -536,8 +535,9 @@ pub fn resolved_address_from_record(
 mod tests {
     use borsh::to_vec;
     use solana_account::Account;
+    use solana_keypair::Keypair;
     use solana_signer::Signer;
-    use zolana_keypair::{ShieldedKeypair, ViewingKey};
+    use zolana_keypair::{ShieldedKeypair, SigningKey};
     use zolana_user_registry_interface::user_registry_program_id;
 
     use super::*;
@@ -655,11 +655,10 @@ mod tests {
     #[test]
     fn registration_builder_returns_unsigned_transaction_for_external_signer() {
         let owner = Pubkey::new_unique();
-        let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
         let proof = P256KeyBindingProof {
             signature: keypair
-                .signing_key
-                .sign_p256_message(
+                .sign_message(
                     &p256_registration_proof_message(
                         owner,
                         &keypair.shielded_address().expect("shielded address"),
@@ -698,7 +697,7 @@ mod tests {
     #[test]
     fn registration_builder_requires_p256_proof() {
         let owner = Pubkey::new_unique();
-        let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
         let address = keypair.shielded_address().expect("shielded address");
 
         let error = build_registration_transaction_sync(&MockRpc::default(), owner, &address, None)
@@ -710,8 +709,8 @@ mod tests {
     #[test]
     fn registration_builder_rejects_proof_for_ed25519_address() {
         let owner = Pubkey::new_unique();
-        let keypair =
-            ShieldedKeypair::from_ed25519(&[7u8; 32], ViewingKey::new()).expect("ed25519 keypair");
+        let keypair = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[7u8; 32]))
+            .expect("ed25519 keypair");
         let address = keypair.shielded_address().expect("shielded address");
         let proof = P256KeyBindingProof {
             signature: [0u8; 64],
@@ -727,13 +726,12 @@ mod tests {
     #[tokio::test]
     async fn async_registration_builder_returns_sendable_unsigned_transaction() {
         let owner = Pubkey::new_unique();
-        let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
         let rpc = MockRpc::default();
         let address = keypair.shielded_address().expect("shielded address");
         let proof = P256KeyBindingProof {
             signature: keypair
-                .signing_key
-                .sign_p256_message(
+                .sign_message(
                     &p256_registration_proof_message(owner, &address).expect("proof message"),
                 )
                 .expect("proof signature"),
@@ -777,7 +775,7 @@ mod tests {
     fn recipient_confidential_view_tag_sync_uses_registered_signing_pubkey() {
         let owner = Pubkey::new_unique();
         let (pda, bump) = user_record_pda(&owner);
-        let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
         let record = registered_record(owner, bump, &keypair);
         let rpc = MockRpc {
             account: Some((
@@ -833,7 +831,7 @@ mod tests {
     fn resolved_address_from_record_maps_registered_keys() {
         let owner = Pubkey::new_unique();
         let (_, bump) = user_record_pda(&owner);
-        let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
         let record = registered_record(owner, bump, &keypair);
 
         let resolved = resolved_address_from_record(owner, &record).expect("resolved address");
@@ -855,7 +853,7 @@ mod tests {
     fn resolve_registered_address_fetches_and_maps_record() {
         let owner = Pubkey::new_unique();
         let (pda, bump) = user_record_pda(&owner);
-        let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
         let record = registered_record(owner, bump, &keypair);
         let rpc = MockRpc {
             account: Some((
@@ -875,8 +873,8 @@ mod tests {
     fn validate_registered_keypair_accepts_ed25519_owner_records() {
         let owner_keypair = solana_keypair::Keypair::new();
         let seed: [u8; 32] = *owner_keypair.secret_bytes();
-        let keypair =
-            ShieldedKeypair::from_ed25519(&seed, ViewingKey::new()).expect("ed25519 keypair");
+        let keypair = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&seed))
+            .expect("ed25519 keypair");
         let owner = owner_keypair.pubkey();
         let (pda, bump) = user_record_pda(&owner);
         let record = UserRecord {
@@ -1028,7 +1026,7 @@ mod tests {
     #[test]
     fn ensure_registered_registers_when_absent() {
         let funding = Keypair::new();
-        let keypair = ShieldedKeypair::new().unwrap();
+        let keypair = ShieldedKeypair::new_p256().unwrap();
         let rpc = SendMockRpc::default(); // no record -> register path
         let sig = ensure_registered(&rpc, &funding, &keypair).expect("ensure_registered");
         assert!(sig.is_some(), "register should send a transaction");
@@ -1042,7 +1040,7 @@ mod tests {
     #[test]
     fn ensure_registered_noops_when_current() {
         let funding = Keypair::new();
-        let keypair = ShieldedKeypair::new().unwrap();
+        let keypair = ShieldedKeypair::new_p256().unwrap();
         let owner = funding.pubkey();
         let (_pda, bump) = user_record_pda(&owner);
         let record = registered_record(owner, bump, &keypair);
@@ -1058,11 +1056,11 @@ mod tests {
     #[test]
     fn ensure_registered_updates_when_keys_changed() {
         let funding = Keypair::new();
-        let keypair = ShieldedKeypair::new().unwrap();
+        let keypair = ShieldedKeypair::new_p256().unwrap();
         let owner = funding.pubkey();
         let (_pda, bump) = user_record_pda(&owner);
         // Record exists but with stale keys (a different keypair).
-        let stale = registered_record(owner, bump, &ShieldedKeypair::new().unwrap());
+        let stale = registered_record(owner, bump, &ShieldedKeypair::new_p256().unwrap());
         let rpc = SendMockRpc {
             account: Some(account_at(owner, &stale)),
             ..Default::default()
@@ -1081,7 +1079,7 @@ mod tests {
     #[test]
     fn register_if_absent_writes_when_absent() {
         let funding = Keypair::new();
-        let keypair = ShieldedKeypair::new().unwrap();
+        let keypair = ShieldedKeypair::new_p256().unwrap();
         let rpc = SendMockRpc::default(); // no record -> register path
         let outcome = register_if_absent(&rpc, &funding, &keypair).expect("register_if_absent");
         assert!(matches!(outcome, StrictRegistration::Written(_)));
@@ -1094,7 +1092,7 @@ mod tests {
     #[test]
     fn register_if_absent_is_current_when_matching() {
         let funding = Keypair::new();
-        let keypair = ShieldedKeypair::new().unwrap();
+        let keypair = ShieldedKeypair::new_p256().unwrap();
         let owner = funding.pubkey();
         let (_pda, bump) = user_record_pda(&owner);
         let record = registered_record(owner, bump, &keypair);
@@ -1110,12 +1108,12 @@ mod tests {
     #[test]
     fn register_if_absent_reports_mismatch_without_sending() {
         let funding = Keypair::new();
-        let keypair = ShieldedKeypair::new().unwrap();
+        let keypair = ShieldedKeypair::new_p256().unwrap();
         let owner = funding.pubkey();
         let (_pda, bump) = user_record_pda(&owner);
         // A record exists but with a different identity's keys. Strict semantics
         // must surface the conflict and never send an update_keys transaction.
-        let other = registered_record(owner, bump, &ShieldedKeypair::new().unwrap());
+        let other = registered_record(owner, bump, &ShieldedKeypair::new_p256().unwrap());
         let rpc = SendMockRpc {
             account: Some(account_at(owner, &other)),
             ..Default::default()

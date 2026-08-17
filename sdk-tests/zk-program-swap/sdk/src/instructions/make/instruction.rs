@@ -100,15 +100,12 @@ mod tests {
 
     #[test]
     fn sign_order_utxo_make_layout() {
-        let owner_keypair =
-            ShieldedKeypair::from_solana_keypair(&Keypair::new_from_array([7u8; 32]))
-                .expect("owner keypair");
-        let order_keypair =
-            ShieldedKeypair::from_solana_keypair(&Keypair::new_from_array([9u8; 32]))
-                .expect("order keypair");
-        let taker_keypair =
-            ShieldedKeypair::from_solana_keypair(&Keypair::new_from_array([13u8; 32]))
-                .expect("market maker keypair");
+        let owner_keypair = ShieldedKeypair::from_keypair(&Keypair::new_from_array([7u8; 32]))
+            .expect("owner keypair");
+        let order_keypair = ShieldedKeypair::from_keypair(&Keypair::new_from_array([9u8; 32]))
+            .expect("order keypair");
+        let taker_keypair = ShieldedKeypair::from_keypair(&Keypair::new_from_array([13u8; 32]))
+            .expect("market maker keypair");
         let assets = AssetRegistry::default();
 
         let input_amount = 1_000_000u64;
@@ -237,15 +234,12 @@ mod tests {
 
     #[test]
     fn sign_order_utxo_make_zero_change_utxo() {
-        let owner_keypair =
-            ShieldedKeypair::from_solana_keypair(&Keypair::new_from_array([3u8; 32]))
-                .expect("owner keypair");
-        let order_keypair =
-            ShieldedKeypair::from_solana_keypair(&Keypair::new_from_array([4u8; 32]))
-                .expect("order keypair");
-        let taker_keypair =
-            ShieldedKeypair::from_solana_keypair(&Keypair::new_from_array([14u8; 32]))
-                .expect("market maker keypair");
+        let owner_keypair = ShieldedKeypair::from_keypair(&Keypair::new_from_array([3u8; 32]))
+            .expect("owner keypair");
+        let order_keypair = ShieldedKeypair::from_keypair(&Keypair::new_from_array([4u8; 32]))
+            .expect("order keypair");
+        let taker_keypair = ShieldedKeypair::from_keypair(&Keypair::new_from_array([14u8; 32]))
+            .expect("market maker keypair");
         let assets = AssetRegistry::default();
 
         let amount = 250_000u64;

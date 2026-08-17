@@ -1,7 +1,7 @@
 use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_interface::{MAX_INTERFACE_TRANSFERS, N_PUBLIC_SLOTS, SOL_ASSET_FIELD};
-use zolana_keypair::{hash::sha256, SignatureType, ViewingKey, ViewingKeyTrait};
+use zolana_keypair::{hash::sha256, Curve, ViewingKey, ViewingKeyTrait};
 
 use super::{
     shape::{Shape, SPP_SUPPORTED_SHAPES},
@@ -55,7 +55,7 @@ pub fn inputs_require_p256(inputs: &[SppProofInputUtxo]) -> Result<bool, Transac
         if spend.is_dummy() {
             continue;
         }
-        if spend.utxo.owner.signature_type()? == SignatureType::P256 {
+        if spend.utxo.owner.curve()? == Curve::P256 {
             return Ok(true);
         }
     }
@@ -123,17 +123,22 @@ impl SppProofInputs {
         }
     }
 
-    /// Unique non-payer Ed25519 input owners in first-input order. This is the
-    /// account vector appended by the high-level instruction builder; the
-    /// program applies the same payer-seeded first-occurrence normalization.
+    /// Unique non-payer Ed25519 and PDA input owners in first-input order. This
+    /// is the account vector appended by the high-level instruction builder; the
+    /// program applies the same payer-seeded first-occurrence normalization. A
+    /// PDA owner occupies an owner-signer slot like any Ed25519 owner; the
+    /// owning program flips its account to signer via CPI, so only wallet
+    /// signature collection treats it differently.
     pub fn owner_signer_pubkeys(&self) -> Result<Vec<Address>, TransactionError> {
         let mut signers = Vec::new();
         let mut signer_hashes: Vec<[u8; 32]> = Vec::new();
         for spend in self.input_utxos.iter().filter(|spend| !spend.is_dummy()) {
-            if spend.utxo.owner.signature_type()? == SignatureType::P256 {
-                continue;
-            }
-            let address = Address::new_from_array(spend.utxo.owner.as_ed25519()?);
+            let address = match spend.utxo.owner.curve()? {
+                Curve::P256 => continue,
+                Curve::Ed25519 | Curve::Pda => {
+                    Address::new_from_array(spend.utxo.owner.confidential_view_tag()?)
+                }
+            };
             let hash = spend.utxo.owner.owner_proof_input_hash()?;
             if address == self.payer || signer_hashes.contains(&hash) {
                 continue;
@@ -296,13 +301,14 @@ impl SppProofInputs {
 
 #[cfg(test)]
 mod tests {
-    use zolana_keypair::{ShieldedKeypair, ViewingKey};
+    use zolana_keypair::{NullifierKey, ShieldedKeypair, ShieldedPda, SigningKey, ViewingKey};
 
     use super::*;
     use crate::{Data, Utxo};
 
     fn ed25519_keypair(seed: u8) -> ShieldedKeypair {
-        ShieldedKeypair::from_ed25519(&[seed; 32], ViewingKey::new()).expect("Ed25519 keypair")
+        ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[seed; 32]))
+            .expect("Ed25519 keypair")
     }
 
     fn input(keypair: &ShieldedKeypair) -> SppProofInputUtxo {
@@ -317,6 +323,56 @@ mod tests {
             },
             keypair,
         )
+    }
+
+    #[test]
+    fn pda_owner_is_an_owner_signer_and_committed_signer_hash() {
+        let payer = ed25519_keypair(3);
+        let payer_address = Address::new_from_array(
+            payer
+                .signing_pubkey()
+                .as_ed25519()
+                .expect("payer Ed25519 pubkey"),
+        );
+        let pda = Address::new_from_array([5u8; 32]);
+        let identity = ShieldedPda::with_viewing_key(
+            pda,
+            NullifierKey::from_secret([3u8; 31]),
+            ViewingKey::new(),
+        );
+        let pda_input = SppProofInputUtxo::new(
+            Utxo {
+                owner: identity.signing_pubkey(),
+                asset: SOL_MINT,
+                amount: 1,
+                blinding: [7u8; 32],
+                ring_program_id: None,
+                data: Data::default(),
+            },
+            &identity,
+        );
+        let proof_inputs = SppProofInputs::new(
+            vec![input(&payer), pda_input],
+            Vec::new(),
+            ExternalData::new([0u8; 33], [0u8; 16], Vec::new(), Vec::new(), Vec::new()),
+            payer_address,
+        );
+
+        assert_eq!(proof_inputs.owner_signer_pubkeys().unwrap(), vec![pda]);
+        assert_eq!(
+            proof_inputs.signer_pk_hashes(3).unwrap(),
+            vec![
+                payer
+                    .signing_pubkey()
+                    .owner_proof_input_hash()
+                    .expect("payer owner hash"),
+                identity
+                    .signing_pubkey()
+                    .owner_proof_input_hash()
+                    .expect("pda owner hash"),
+                [0u8; 32],
+            ]
+        );
     }
 
     #[test]

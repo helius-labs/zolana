@@ -7,7 +7,7 @@ use zolana_client::{
 };
 use zolana_event::OutputDataEncoding;
 use zolana_interface::{N_PUBLIC_SLOTS, SOL_ASSET_FIELD};
-use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey, ViewingKey};
+use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey, SigningKey};
 use zolana_transaction::{
     instructions::transact::{
         spp_proof_inputs::{asset_field, signed_to_field},
@@ -37,8 +37,10 @@ impl TransferHarness {
         let mut rng = rand::thread_rng();
         // Post-PR164 the confidential rail is eddsa-only: sender and recipients
         // are ed25519-derived keypairs.
-        let sender = ShieldedKeypair::from_ed25519(&random_blinding(&mut rng), ViewingKey::new())
-            .expect("eddsa sender keypair");
+        let sender = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(
+            &random_blinding(&mut rng),
+        ))
+        .expect("eddsa sender keypair");
         let assets = AssetRegistry::new([(SPL_ASSET_ID, spl_mint())]).expect("asset registry");
 
         let mut first_solana_owner_tag: Option<[u8; 32]> = None;
@@ -85,7 +87,7 @@ impl TransferHarness {
             .iter()
             .map(|_| {
                 let seed = random_blinding(&mut rng);
-                ShieldedKeypair::from_ed25519(&seed, ViewingKey::new())
+                ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&seed))
                     .expect("eddsa recipient keypair")
             })
             .collect();

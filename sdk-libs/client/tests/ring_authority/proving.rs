@@ -16,7 +16,7 @@ use zolana_interface::{
         transfer_ring_authority_4_4,
     },
 };
-use zolana_keypair::{random_blinding, NullifierKey, PublicKey, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{random_blinding, NullifierKey, PublicKey, ShieldedKeypair, SigningKey};
 use zolana_transaction::{
     instructions::transact::shape::Shape as TxShape, Data, ExternalData, SppProofOutputUtxo, Utxo,
     SOL_MINT,
@@ -315,11 +315,11 @@ fn ring_program() -> Address {
 fn eddsa_keypair() -> ShieldedKeypair {
     let mut seed = [0u8; 32];
     seed.copy_from_slice(&random_blinding());
-    ShieldedKeypair::from_ed25519(&seed, ViewingKey::new()).expect("eddsa keypair")
+    ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&seed)).expect("eddsa keypair")
 }
 
 fn p256_keypair() -> ShieldedKeypair {
-    ShieldedKeypair::new().expect("p256 keypair")
+    ShieldedKeypair::new_p256().expect("p256 keypair")
 }
 
 fn ring_authority_vk(n_in: usize, n_out: usize) -> &'static Groth16Verifyingkey<'static> {

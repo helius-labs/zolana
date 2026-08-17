@@ -1,6 +1,6 @@
 use zolana_keypair::{
     constants::{P256_PUBKEY_LEN, PUBLIC_KEY_LEN},
-    KeypairError, P256Pubkey, PublicKey, SignatureType, ViewingKey,
+    Curve, KeypairError, P256Pubkey, PublicKey, ViewingKey,
 };
 
 use crate::KeypairWorld;
@@ -53,17 +53,11 @@ pub(crate) fn tag_ed25519(world: &mut KeypairWorld, fill: u8, dst: String) {
 }
 
 pub(crate) fn scheme_is_p256(world: &mut KeypairWorld, name: String) {
-    assert_eq!(
-        world.tag(&name).signature_type().unwrap(),
-        SignatureType::P256
-    );
+    assert_eq!(world.tag(&name).curve().unwrap(), Curve::P256);
 }
 
 pub(crate) fn scheme_is_ed25519(world: &mut KeypairWorld, name: String) {
-    assert_eq!(
-        world.tag(&name).signature_type().unwrap(),
-        SignatureType::Ed25519
-    );
+    assert_eq!(world.tag(&name).curve().unwrap(), Curve::Ed25519);
 }
 
 pub(crate) fn reads_back_as_p256(world: &mut KeypairWorld, tagged: String, expected: String) {

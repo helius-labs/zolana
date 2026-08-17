@@ -13,12 +13,14 @@ use super::state::{
     PrivateTransactionKind, PrivateTransactionStatus, SyncReport, ViewingKeyEntry, Wallet,
     WalletUtxo, DEFAULT_TAG_WINDOW, SENDER_HISTORY_ROW_BASE,
 };
-use zolana_keypair::merge::{merge_dummy_nullifier, merge_output_blinding};
 
 use crate::{
     data::Data,
     error::TransactionError,
-    instructions::transact::{OutputContext, ShieldedTransaction, SENDER_SLOT_COUNT},
+    instructions::{
+        merge::{merge_dummy_nullifier, merge_output_blinding},
+        transact::{OutputContext, ShieldedTransaction, SENDER_SLOT_COUNT},
+    },
     serialization::{
         anonymous::{AnonymousRecipient, AnonymousSenderBundle},
         confidential::Confidential,

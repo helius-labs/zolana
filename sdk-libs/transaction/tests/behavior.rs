@@ -52,11 +52,11 @@ impl TransactionWorld {
 
     pub fn fresh_keypair(&self, name: &str) -> ShieldedKeypair {
         let keypair = self.kp(name);
-        let signing = SigningKey::from_bytes(&keypair.signing_key.secret_bytes())
+        let signing = SigningKey::from_p256_bytes(&keypair.signing_key.secret_bytes())
             .expect("signing key round-trip");
         let viewing = ViewingKey::from_bytes(&keypair.viewing_key.secret_bytes())
             .expect("viewing key round-trip");
-        ShieldedKeypair::from_keys(signing, viewing).expect("keypair rebuild")
+        ShieldedKeypair::with_viewing_key(signing, viewing).expect("keypair rebuild")
     }
 }
 
@@ -77,6 +77,14 @@ fn asset_registry_and_blinding_rules_are_explicit() {
     cases::asset::duplicate_mint();
     cases::blinding::blindings_deterministic();
     cases::blinding::blinding_top_byte_dropped();
+}
+
+#[test]
+fn merge_recovery_derivations_match_circuit_vectors() {
+    cases::merge_derivation::recovery_domains_are_the_ascii_tags();
+    cases::merge_derivation::recovery_derivations_match_circuit_vectors();
+    cases::merge_derivation::recovery_derivations_bind_every_input();
+    cases::merge_derivation::recovery_derivations_are_deterministic();
 }
 
 #[test]

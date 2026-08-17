@@ -50,7 +50,7 @@ fn self_consistent_deposit(keypair: &ShieldedKeypair, amount: u64) -> ShieldedTr
 
 #[test]
 fn sync_discovers_and_spends_proofless_deposit() {
-    let keypair = ShieldedKeypair::new().expect("shielded keypair");
+    let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
     let authority = LocalWalletAuthority::new(Address::default(), &keypair);
     let mut wallet = Wallet::new(
         keypair.shielded_address().expect("shielded address"),

@@ -1456,7 +1456,7 @@ mod tests {
     #[test]
     fn confirm_private_transaction_sync_waits_for_indexer() {
         let payer = Keypair::new();
-        let sender = ShieldedKeypair::from_solana_keypair(&payer).expect("sender");
+        let sender = ShieldedKeypair::from_keypair(&payer).expect("sender");
         let tree = Address::new_from_array([6u8; 32]);
         let wallet = wallet_with_tree(sender.clone(), tree, 10);
         let recipient = Pubkey::new_unique();

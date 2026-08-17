@@ -1,6 +1,7 @@
 pub(crate) mod asset;
 pub(crate) mod blinding;
 pub(crate) mod common;
+pub(crate) mod merge_derivation;
 pub(crate) mod plaintext_transfer;
 pub(crate) mod serialization;
 pub(crate) mod split;

@@ -117,6 +117,7 @@ solana-commitment-config = "3.1"
 solana-compute-budget = "3.1"
 solana-compute-budget-interface = "3.0"
 solana-cpi = "3.1"
+solana-derivation-path = "3.0.0"
 solana-epoch-info = "3.1"
 # Pin solana-hash to 4.5.0: the agave 4.1 graph (agave-feature-set,
 # solana-message, solana-transaction) is built against 4.5.x; letting it float
@@ -141,6 +142,7 @@ solana-rpc-client-api = "4.1"
 solana-security-txt = "1.1.2"
 solana-secp256r1-program = "3.0"
 solana-sdk = "4.0"
+solana-seed-phrase = "3.0.0"
 solana-signature = "3.4"
 solana-signer = "3.0"
 solana-system-interface = { version = "3.2", features = ["bincode"] }
@@ -235,10 +237,14 @@ ark-std = "0.5"
 # Client keypair crypto.
 p256 = { version = "0.13", default-features = false, features = ["ecdh", "arithmetic", "ecdsa", "hash2curve", "std"] }
 ed25519-dalek = "2.2.0"
+ed25519-dalek-bip32 = "0.3.0"
 aes = { version = "0.8", default-features = false }
 ctr = { version = "0.9", default-features = false }
 hkdf = "0.12"
 zeroize = "1"
+# HSM custody backends exercised by the keypair test suite.
+aws-sdk-kms = "1"
+aws-smithy-mocks = "0.3"
 criterion = "0.5"
 proptest = "1"
 wincode = { version = "0.5", features = ["derive"] }

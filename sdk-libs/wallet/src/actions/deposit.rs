@@ -2,7 +2,6 @@
 
 use solana_address::Address;
 use solana_instruction::Instruction;
-use solana_keypair::Keypair;
 use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
@@ -99,9 +98,9 @@ impl Deposit {
     pub fn send<R: Rpc>(
         &self,
         rpc: &R,
-        payer: &Keypair,
+        payer: &dyn Signer,
         tree: Pubkey,
-        depositor: &Keypair,
+        depositor: &dyn Signer,
     ) -> Result<Signature, ClientError> {
         deposit(rpc, payer, tree, depositor, &self.deposit)
     }
@@ -153,13 +152,13 @@ pub fn build_deposit_transaction_sync<R: Rpc>(
 /// Returns the transaction signature; event indexing is the caller's concern.
 pub fn deposit<R: Rpc>(
     rpc: &R,
-    payer: &Keypair,
+    payer: &dyn Signer,
     tree: Pubkey,
-    depositor: &Keypair,
+    depositor: &dyn Signer,
     deposit_fields: &AssetDeposit,
 ) -> Result<Signature, ClientError> {
     let ix = deposit_instruction(tree, depositor.pubkey(), deposit_fields)?;
-    let mut signers: Vec<&Keypair> = vec![payer];
+    let mut signers: Vec<&dyn Signer> = vec![payer];
     if depositor.pubkey() != payer.pubkey() {
         signers.push(depositor);
     }
@@ -213,6 +212,7 @@ mod tests {
     use std::cell::RefCell;
 
     use solana_hash::Hash;
+    use solana_keypair::Keypair;
     use solana_transaction::Transaction;
     use zolana_keypair::ShieldedKeypair;
 
@@ -282,7 +282,7 @@ mod tests {
 
     #[test]
     fn prepared_sol_deposit_derives_consistent_material() {
-        let recipient = ShieldedKeypair::new().unwrap();
+        let recipient = ShieldedKeypair::new_p256().unwrap();
         let recipient_address = recipient.shielded_address().unwrap();
         let prepared = create_deposit(DepositParams {
             recipient: &recipient_address,
@@ -303,7 +303,7 @@ mod tests {
 
     #[tokio::test]
     async fn deposit_builder_returns_sendable_unsigned_transaction() {
-        let recipient = ShieldedKeypair::new().expect("recipient");
+        let recipient = ShieldedKeypair::new_p256().expect("recipient");
         let prepared = create_deposit(DepositParams {
             recipient: &recipient.shielded_address().expect("shielded address"),
             asset: SOL_MINT,
@@ -331,7 +331,7 @@ mod tests {
 
     #[test]
     fn prepared_spl_deposit_carries_settlement_accounts() {
-        let recipient = ShieldedKeypair::new().unwrap();
+        let recipient = ShieldedKeypair::new_p256().unwrap();
         let recipient_address = recipient.shielded_address().unwrap();
         let mint = Pubkey::new_unique();
         let user_token = Pubkey::new_unique();

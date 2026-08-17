@@ -186,9 +186,8 @@ mod tests {
     #[test]
     fn scan_taker_ignores_transactions_for_other_takers() {
         let fixture = order_fixture();
-        let other_keypair =
-            ShieldedKeypair::from_solana_keypair(&Keypair::new_from_array([21u8; 32]))
-                .expect("other keypair");
+        let other_keypair = ShieldedKeypair::from_keypair(&Keypair::new_from_array([21u8; 32]))
+            .expect("other keypair");
         let other_wallet = Wallet::new(
             other_keypair.shielded_address().expect("other address"),
             fixture.wallet.registry.clone(),

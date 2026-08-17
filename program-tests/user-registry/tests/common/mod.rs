@@ -29,7 +29,7 @@ pub fn signing_key(tag: u8) -> SigningKey {
     let mut seed = [0u8; 32];
     seed[0] = 1;
     *seed.last_mut().expect("seed byte") = tag;
-    SigningKey::from_bytes(&seed).expect("deterministic p256 test key")
+    SigningKey::from_p256_bytes(&seed).expect("deterministic p256 test key")
 }
 
 pub fn keys(tag: u8) -> Keys {

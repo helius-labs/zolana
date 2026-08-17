@@ -2,7 +2,6 @@ pub mod discovery;
 pub mod instructions;
 pub mod prover;
 pub mod shared;
-pub mod shared_address;
 pub mod state;
 
 use solana_pubkey::Pubkey;

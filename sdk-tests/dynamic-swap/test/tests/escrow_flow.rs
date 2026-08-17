@@ -7,7 +7,7 @@ use dynamic_swap_program::{
 };
 use dynamic_swap_sdk::{
     discovery::{discover_escrow_note, DiscoveredEscrow},
-    escrow_authority_pda, escrow_pda,
+    escrow_pda,
     instructions::{
         create_escrow::{CreateEscrow, EscrowOpenProofInputParams},
         settle::{
@@ -16,10 +16,11 @@ use dynamic_swap_sdk::{
         },
     },
     prover::DynamicSwapProverClient,
-    shared_address::SharedShieldedAddress,
     state::{EscrowTerms, EscrowUtxo, Reservation},
 };
-use shared::{get_slot_with_retry, send_v0_with_lookup_table, setup_with_pair};
+use shared::{
+    escrow_authority_identity, get_slot_with_retry, send_v0_with_lookup_table, setup_with_pair,
+};
 use solana_signer::Signer;
 use zolana_client::Rpc;
 use zolana_interface::instruction::Transact;
@@ -60,8 +61,8 @@ fn create_pair_escrow_and_settle() -> Result<()> {
     // 1. setup_with_pair: register the SPL(source)->SOL(destination) pair at PRICE.
     // There is no shared pool; the maker funds each escrow directly.
     let (env, pair) = setup_with_pair(PRICE)?;
-    let authority_solana = env.authority.solana_keypair()?;
-    let user_solana = env.user.solana_keypair()?;
+    let authority_solana = &env.authority.keypair;
+    let user_solana = &env.user.keypair;
 
     let recipient_owner_hash = env
         .user
@@ -158,11 +159,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 .ok_or_else(|| anyhow!("no exact-{ORDER_AMOUNT} utxo after split"))?
         };
 
-        let escrow_owner = SharedShieldedAddress::from_key_exchange(
-            &env.authority.keypair.viewing_key,
-            &env.user.keypair.viewing_pubkey(),
-            escrow_authority_pda(&pair),
-        )?;
+        let escrow_owner = escrow_authority_identity(&env.authority.keypair, &pair)?;
 
         // The maker funds this escrow's reservation on demand: a fresh deposit
         // owned by the escrow-authority PDA and spent by `escrow_open`.
@@ -218,8 +215,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             let reservation_blinding = random_blinding();
 
             let source_in = SppProofInputUtxo::new(source_utxo.clone(), &env.user.keypair);
-            let maker_funding_in =
-                SppProofInputUtxo::new(maker_funding.clone(), escrow_owner.nullifier_key());
+            let maker_funding_in = SppProofInputUtxo::new(maker_funding.clone(), &escrow_owner);
 
             let escrow_terms = EscrowTerms {
                 recipient_owner_hash,
@@ -408,11 +404,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             let recipient = resolve_registered_address(env.client.rpc(), user_solana.pubkey())
                 .map_err(|e| anyhow!("resolve recipient: {e:?}"))?
                 .address;
-            let escrow_owner = SharedShieldedAddress::from_key_exchange(
-                &env.authority.keypair.viewing_key,
-                &recipient.viewing_pubkey,
-                escrow_authority_pda(&pair),
-            )?;
+            let escrow_owner = escrow_authority_identity(&env.authority.keypair, &pair)?;
             let discovered = discover_escrow_note(env.client.indexer(), &escrow_owner)?;
             // The scan matches the shared authority tag alone, so pin the
             // discovered order UTXO to the escrow account being settled.

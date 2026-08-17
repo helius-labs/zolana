@@ -21,9 +21,9 @@ pub fn keypair_from_index(index: u16) -> ShieldedKeypair {
     let mut viewing_bytes = [0u8; 32];
     viewing_bytes[0] = 0x20;
     viewing_bytes[1..3].copy_from_slice(&index.to_be_bytes());
-    let signing = SigningKey::from_bytes(&signing_bytes).unwrap();
+    let signing = SigningKey::from_p256_bytes(&signing_bytes).unwrap();
     let viewing = ViewingKey::from_bytes(&viewing_bytes).unwrap();
-    ShieldedKeypair::from_keys(signing, viewing).unwrap()
+    ShieldedKeypair::with_viewing_key(signing, viewing).unwrap()
 }
 
 pub fn local_authority(keypair: &ShieldedKeypair) -> LocalWalletAuthority<'_> {

@@ -6,7 +6,7 @@ use zolana_interface::{
 };
 use zolana_keypair::{
     constants::SALT_LEN, random_salt, shielded::ShieldedAddress, viewing_key::random_blinding,
-    P256Pubkey, ShieldedKeypairTrait, SignatureType, ViewingKeyTrait,
+    Curve, P256Pubkey, ViewingKeyTrait,
 };
 
 use super::{spp_proof_inputs::SppProofInputs, ExternalData, SppProofOutputUtxo};
@@ -132,7 +132,7 @@ impl ConfidentialSplit {
     /// at slot 0, and sign in place. The authority rail is [`Self::prepare`] +
     /// [`PreparedSplit::finalize`], with encryption/signing delegated to a
     /// `WalletAuthority`.
-    pub fn sign<K: ShieldedKeypairTrait + ViewingKeyTrait>(
+    pub fn sign<K: ViewingKeyTrait>(
         self,
         keypair: &K,
         assets: &AssetRegistry,
@@ -221,7 +221,7 @@ impl PreparedSplit {
             payer,
             ..
         } = self;
-        if owner.signing_pubkey.signature_type()? == SignatureType::P256 {
+        if owner.signing_pubkey.curve()? == Curve::P256 {
             return Err(TransactionError::P256TransactUnsupported);
         }
         let owner_view_tag = owner.signing_pubkey.confidential_view_tag()?;
@@ -260,7 +260,7 @@ impl PreparedSplit {
 mod tests {
     use borsh::BorshDeserialize;
     use zolana_event::OutputDataEncoding;
-    use zolana_keypair::{ShieldedKeypair, ViewingKey};
+    use zolana_keypair::{ShieldedKeypair, SigningKey};
 
     use super::*;
     use crate::{
@@ -280,7 +280,8 @@ mod tests {
     }
 
     fn ed25519_keypair() -> ShieldedKeypair {
-        ShieldedKeypair::from_ed25519(&[7u8; 32], ViewingKey::new()).expect("Ed25519 keypair")
+        ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[7u8; 32]))
+            .expect("Ed25519 keypair")
     }
 
     fn assemble(keypair: &ShieldedKeypair, amount: u64, parts: u8) -> SppProofInputs {
@@ -321,7 +322,7 @@ mod tests {
 
     #[test]
     fn split_out_of_range_part_count_is_rejected() {
-        let keypair = ShieldedKeypair::new().unwrap();
+        let keypair = ShieldedKeypair::new_p256().unwrap();
         for parts in [0u8, 1, 9] {
             assert_eq!(
                 split_error(&keypair, parts, 1, 800),
@@ -332,7 +333,7 @@ mod tests {
 
     #[test]
     fn split_amount_that_does_not_sum_to_input_is_rejected() {
-        let keypair = ShieldedKeypair::new().unwrap();
+        let keypair = ShieldedKeypair::new_p256().unwrap();
         assert_eq!(
             split_error(&keypair, 3, 100, 800),
             TransactionError::SplitAmountMismatch {

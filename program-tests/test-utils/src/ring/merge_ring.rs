@@ -14,12 +14,12 @@ use zolana_interface::{
         MergeRing,
     },
 };
-use zolana_keypair::{
-    merge::{merge_dummy_nullifier, merge_output_blinding},
-    random_blinding,
-};
+use zolana_keypair::random_blinding;
 use zolana_program_test::Rejection;
-use zolana_transaction::{Data, SppProofOutputUtxo, Utxo};
+use zolana_transaction::{
+    instructions::merge::{merge_dummy_nullifier, merge_output_blinding},
+    Data, SppProofOutputUtxo, Utxo,
+};
 
 use super::{MergeRingRecord, RingHarness, SECOND_RING_TEST_PROGRAM_ID};
 use crate::{

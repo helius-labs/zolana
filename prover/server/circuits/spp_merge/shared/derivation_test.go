@@ -24,7 +24,8 @@ func (c *derivationCircuit) Define(api frontend.API) error {
 
 // TestRecoveryDerivationsMatchRustVectors pins the in-circuit recovery
 // derivations against the host-side canonical implementation in
-// sdk-libs/keypair/src/merge.rs (recovery_derivations_match_circuit_vectors).
+// sdk-libs/transaction/src/instructions/merge.rs
+// (tests/cases/merge_derivation.rs:recovery_derivations_match_circuit_vectors).
 func TestRecoveryDerivationsMatchRustVectors(t *testing.T) {
 	mustBig := func(hexStr string) *big.Int {
 		v, ok := new(big.Int).SetString(hexStr, 16)

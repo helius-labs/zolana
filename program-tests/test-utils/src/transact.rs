@@ -516,7 +516,7 @@ pub fn spend_input(args: SpendInputArgs<'_>) -> Result<TransferInput> {
         nullifier_tree_root: be(&nullifier_root),
         nullifier: be(args.nullifier),
         owner_pk_hash: be(args.owner_pk_hash),
-        nullifier_secret: be(&right_align_slice(args.nullifier_key.secret())?),
+        nullifier_secret: be(&right_align_slice(&*args.nullifier_key.secret())?),
     })
 }
 

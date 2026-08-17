@@ -23,7 +23,7 @@ use zolana_interface::{
     state::tree_account_size,
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{ShieldedKeypair, ViewingKey};
+use zolana_keypair::{ShieldedKeypair, SigningKey};
 use zolana_program_test::system_create_account_ix;
 use zolana_test_utils::{
     localnet::LocalnetValidator,
@@ -232,7 +232,8 @@ pub fn setup() -> Result<TestEnv> {
     let maker_seed: [u8; 32] = maker_solana_keypair.to_bytes()[..32]
         .try_into()
         .expect("ed25519 seed is the first 32 bytes");
-    let maker_shielded_keypair = ShieldedKeypair::from_ed25519(&maker_seed, ViewingKey::new())?;
+    let maker_shielded_keypair =
+        ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&maker_seed))?;
     rpc.airdrop(&maker_solana_keypair.pubkey(), 10_000_000_000)?;
 
     let taker_solana_keypair = Keypair::new();
@@ -240,7 +241,8 @@ pub fn setup() -> Result<TestEnv> {
     let taker_seed: [u8; 32] = taker_solana_keypair.to_bytes()[..32]
         .try_into()
         .expect("ed25519 seed is the first 32 bytes");
-    let taker_shielded_keypair = ShieldedKeypair::from_ed25519(&taker_seed, ViewingKey::new())?;
+    let taker_shielded_keypair =
+        ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&taker_seed))?;
 
     Deposit::new(DepositParams {
         recipient: &maker_shielded_keypair.shielded_address()?,
@@ -304,8 +306,8 @@ pub fn setup() -> Result<TestEnv> {
 
 pub fn send_cosigned_v0_with_lookup_table(
     rpc: &SolanaRpc,
-    payer: &Keypair,
-    cosigner: &Keypair,
+    payer: &dyn Signer,
+    cosigner: &dyn Signer,
     ix: Instruction,
 ) -> Result<Signature> {
     let alt_addresses: Vec<Pubkey> = ix
