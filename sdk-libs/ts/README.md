@@ -99,45 +99,40 @@ console.log(wallet.balance(SOL_MINT).amount);
 console.log(getPrivateTransactions(wallet));
 ```
 
-By default, the indexer and prover use `solanaRpcUrl`. Override either one
-independently for separate services or local development:
-
-```ts
-const client = await createZolanaClient({
-  solanaRpcUrl: "http://127.0.0.1:8899",
-  indexerUrl: "http://127.0.0.1:8784",
-  proverUrl: "http://127.0.0.1:3001",
-});
-```
-
 For an Ed25519 spending wallet, the shielded keypair and the Solana signer must use
 the same owner seed, as shown above.
 
 ### Endpoints
 
-A config that names no URL reaches the local stack, where the validator,
-Photon, and the prover listen on 8899, 8784, and 3001. One URL is enough only
-when that host actually serves RPC, indexer, and prover. A Helius RPC URL
-does not serve indexer or prover methods; name those separately when they
-sit on other hosts.
+Localnet (`zolana dev start`) is RPC `:8899`, indexer `:8784`, prover `:3001`.
+No URLs:
 
 ```ts
 const client = await createZolanaClient({});
 ```
 
-Name a service on its own when it does not sit behind the same host:
+Devnet (beta) is three hosts. The indexer and prover are plain HTTP, so the
+client must allow that:
 
 ```ts
 const client = await createZolanaClient({
-  solanaRpcUrl: process.env.SOLANA_RPC_URL!,
-  indexerUrl: "https://photon.example",
-  proverUrl: "https://prover.example",
+  solanaRpcUrl: `https://devnet.helius-rpc.com/?api-key=${process.env.API_KEY!}`,
+  indexerUrl: "http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com",
+  proverUrl: "http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com:3001",
+  allowInsecureHttp: true,
 });
 ```
 
-A named URL wins over `solanaRpcUrl` and over a local default port, so
-`ZOLANA_PORT_OFFSET` shifts the local ports by naming them. Pass `apiKey` when
-the URL does not already carry one.
+The intended client is one Helius URL for RPC, indexer, and prover:
+
+```ts
+const client = await createZolanaClient({
+  solanaRpcUrl: `https://devnet.helius-rpc.com/?api-key=${process.env.API_KEY!}`,
+});
+```
+
+Beta does not work that way yet. A Helius RPC URL does not serve indexer or
+prover methods.
 
 ## Common transactions
 
