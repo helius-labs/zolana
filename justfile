@@ -95,9 +95,16 @@ test-program-mollusk: build-programs
 test-swap-program: build-programs
     cargo nextest run -p swap-program --tests
 
-# Custom-ring program host tests: error-code stability and the mollusk negatives.
-test-custom-ring-program: build-programs
+# Custom-ring host tests: the program's error-code pins and mollusk negatives
+# (need the SBF build), the prover's link check, the sdk's circuit-consistency
+# and builder tests, and the client's in-memory audit round trips. Needs the
+# canonical keys: the sdk proofs must verify under the committed VERIFYINGKEY,
+# and gnark setup is non-deterministic, so locally generated keys cannot pass.
+test-custom-ring: ensure-custom-ring-keys build-programs
     cargo nextest run -p custom-ring-program --tests
+    cargo nextest run -p custom-ring-prover
+    cargo nextest run -p custom-ring-sdk
+    cargo nextest run -p custom-ring-client
 
 # Program-side Groth16 matrices only. CI runs this variant: the client proving
 # matrices' CI home is `test-client-integration` (`--all-features`), so they do
@@ -297,7 +304,7 @@ test-proofless-programs: build-programs
     cargo nextest run -p shielded-pool-tests
 
 # Aggregate of all CI-runnable Rust tests.
-test-all: test test-programs test-user-registry-litesvm test-swap-program test-custom-ring-program
+test-all: test test-programs test-user-registry-litesvm test-swap-program test-custom-ring
 
 # Rust-only verification for machines without Go installed.
 verify-rust: check test
