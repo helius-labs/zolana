@@ -1,0 +1,216 @@
+use custom_ring_program::{
+    instructions::create_config::CreateConfigIxData,
+    state::{RingProgramConfig, RING_PROGRAM_CONFIG},
+    tag, CONFIG_PDA_SEED,
+};
+use mollusk_svm::Mollusk;
+use pinocchio::Address;
+use solana_account::Account;
+use solana_instruction::{AccountMeta, Instruction};
+use solana_pubkey::Pubkey;
+use zolana_interface::{RING_AUTH_PDA_SEED, SHIELDED_POOL_PROGRAM_ID};
+
+const SBF_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/deploy");
+
+pub fn setup_mollusk() -> (Mollusk, Pubkey) {
+    zolana_test_utils::mollusk::mollusk_with_program(
+        SBF_DIR,
+        *custom_ring_program::ID.as_array(),
+        "custom_ring_program",
+    )
+}
+
+pub fn program_id() -> Pubkey {
+    Pubkey::new_from_array(*custom_ring_program::ID.as_array())
+}
+
+pub fn payer() -> Pubkey {
+    Pubkey::new_from_array([21; 32])
+}
+
+pub fn authority() -> Pubkey {
+    Pubkey::new_from_array([22; 32])
+}
+
+pub fn account(lamports: u64) -> Account {
+    Account {
+        lamports,
+        data: Vec::new(),
+        owner: Pubkey::new_from_array([0; 32]),
+        executable: false,
+        rent_epoch: 0,
+    }
+}
+
+pub fn config_pda() -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[CONFIG_PDA_SEED], &program_id())
+}
+
+pub fn ring_auth_pda() -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[RING_AUTH_PDA_SEED], &program_id())
+}
+
+/// The shielded-pool program account as the runtime presents it: executable and
+/// loader-v3 owned. The program itself is not loaded into mollusk, so any CPI
+/// into it fails; only the ring's own pre-CPI validation is assertable here.
+pub fn spp_program_account() -> (Pubkey, Account) {
+    let spp_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+    (
+        spp_id,
+        mollusk_svm::program::create_program_account_loader_v3(&spp_id),
+    )
+}
+
+/// A well-formed SEC1-compressed auditor key, or a deliberately malformed one
+/// when `prefix` is not 2 or 3.
+pub fn auditor_pubkey(prefix: u8) -> [u8; 33] {
+    let mut key = [7u8; 33];
+    if let Some(first) = key.first_mut() {
+        *first = prefix;
+    }
+    key
+}
+
+/// An initialized config account as this program would have written it.
+pub fn initialized_config_account(authority: Pubkey, auditor_pubkey: [u8; 33]) -> Account {
+    let state = RingProgramConfig {
+        discriminator: RING_PROGRAM_CONFIG,
+        authority: Address::new_from_array(authority.to_bytes()),
+        auditor_pubkey,
+        bump: config_pda().1,
+    };
+    Account {
+        lamports: 1_000_000_000,
+        data: bytemuck::bytes_of(&state).to_vec(),
+        owner: program_id(),
+        executable: false,
+        rent_epoch: 0,
+    }
+}
+
+pub fn create_config_data(auditor_pubkey: [u8; 33]) -> Vec<u8> {
+    let mut data = vec![tag::CREATE_CONFIG];
+    data.extend_from_slice(
+        &wincode::serialize(&CreateConfigIxData { auditor_pubkey })
+            .expect("serialize create_config data"),
+    );
+    data
+}
+
+/// Green `create_config` fixture: `[payer(w,s), authority(s), config(w),
+/// system_program]`.
+pub fn create_config_fixture(auditor_pubkey: [u8; 33]) -> (Instruction, Vec<(Pubkey, Account)>) {
+    let (config, _) = config_pda();
+    let (system_program, system_program_account) =
+        mollusk_svm::program::keyed_account_for_system_program();
+
+    (
+        Instruction {
+            program_id: program_id(),
+            accounts: vec![
+                AccountMeta::new(payer(), true),
+                AccountMeta::new_readonly(authority(), true),
+                AccountMeta::new(config, false),
+                AccountMeta::new_readonly(system_program, false),
+            ],
+            data: create_config_data(auditor_pubkey),
+        },
+        vec![
+            (payer(), account(1_000_000_000)),
+            (authority(), account(1_000_000_000)),
+            (config, account(0)),
+            (system_program, system_program_account),
+        ],
+    )
+}
+
+/// `init_spp_ring_config` fixture: `[payer(w,s), authority(s), config,
+/// protocol_config, ring_auth(w), system_program, spp_program]`. `config` is
+/// supplied by the caller so negatives can pass an uninitialized or
+/// foreign-authority config.
+pub fn init_spp_ring_config_fixture(config: Account) -> (Instruction, Vec<(Pubkey, Account)>) {
+    let (config_key, _) = config_pda();
+    let (ring_auth, _) = ring_auth_pda();
+    let protocol_config = zolana_interface::pda::protocol_config();
+    let (system_program, system_program_account) =
+        mollusk_svm::program::keyed_account_for_system_program();
+    let (spp_id, spp_account) = spp_program_account();
+
+    (
+        Instruction {
+            program_id: program_id(),
+            accounts: vec![
+                AccountMeta::new(payer(), true),
+                AccountMeta::new_readonly(authority(), true),
+                AccountMeta::new_readonly(config_key, false),
+                AccountMeta::new_readonly(protocol_config, false),
+                AccountMeta::new(ring_auth, false),
+                AccountMeta::new_readonly(system_program, false),
+                AccountMeta::new_readonly(spp_id, false),
+            ],
+            data: vec![tag::INIT_SPP_RING_CONFIG],
+        },
+        vec![
+            (payer(), account(1_000_000_000)),
+            (authority(), account(1_000_000_000)),
+            (config_key, config),
+            (protocol_config, account(1_000_000_000)),
+            (ring_auth, account(0)),
+            (system_program, system_program_account),
+            (spp_id, spp_account),
+        ],
+    )
+}
+
+/// SOL-only ring-deposit fixture, laid out exactly as SPP's deposit loader wants
+/// it: `[tree(w), depositor(w,s), ring_config, spp_program, system_program,
+/// sol_interface]`. The instruction data starts with SPP's own `RING_DEPOSIT`
+/// tag, which the ring forwards verbatim.
+pub fn deposit_fixture() -> (Instruction, Vec<(Pubkey, Account)>) {
+    let tree = Pubkey::new_from_array([51; 32]);
+    let depositor = Pubkey::new_from_array([52; 32]);
+    let sol_interface = Pubkey::new_from_array([53; 32]);
+    let (ring_auth, _) = ring_auth_pda();
+    let (system_program, system_program_account) =
+        mollusk_svm::program::keyed_account_for_system_program();
+    let (spp_id, spp_account) = spp_program_account();
+
+    (
+        Instruction {
+            program_id: program_id(),
+            accounts: vec![
+                AccountMeta::new(tree, false),
+                AccountMeta::new(depositor, true),
+                AccountMeta::new_readonly(ring_auth, false),
+                AccountMeta::new_readonly(spp_id, false),
+                AccountMeta::new_readonly(system_program, false),
+                AccountMeta::new(sol_interface, false),
+            ],
+            data: vec![tag::DEPOSIT],
+        },
+        vec![
+            (tree, account(1_000_000_000)),
+            (depositor, account(1_000_000_000)),
+            (ring_auth, account(1_000_000_000)),
+            (spp_id, spp_account),
+            (system_program, system_program_account),
+            (sol_interface, account(1_000_000_000)),
+        ],
+    )
+}
+
+/// Point the meta at `index` at `replacement` and register a bare account for it,
+/// so a fixture can swap in an impostor address.
+pub fn substitute_account(
+    instruction: &mut Instruction,
+    accounts: &mut Vec<(Pubkey, Account)>,
+    index: usize,
+    replacement: Pubkey,
+) {
+    instruction
+        .accounts
+        .get_mut(index)
+        .expect("meta index in fixture")
+        .pubkey = replacement;
+    accounts.push((replacement, account(1_000_000_000)));
+}

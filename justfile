@@ -95,6 +95,10 @@ test-program-mollusk: build-programs
 test-swap-program: build-programs
     cargo nextest run -p swap-program --tests
 
+# Custom-ring program host tests: error-code stability and the mollusk negatives.
+test-custom-ring-program: build-programs
+    cargo nextest run -p custom-ring-program --tests
+
 # Program-side Groth16 matrices only. CI runs this variant: the client proving
 # matrices' CI home is `test-client-integration` (`--all-features`), so they do
 # not run twice per PR.
@@ -293,7 +297,7 @@ test-proofless-programs: build-programs
     cargo nextest run -p shielded-pool-tests
 
 # Aggregate of all CI-runnable Rust tests.
-test-all: test test-programs test-user-registry-litesvm test-swap-program
+test-all: test test-programs test-user-registry-litesvm test-swap-program test-custom-ring-program
 
 # Rust-only verification for machines without Go installed.
 verify-rust: check test
@@ -367,6 +371,57 @@ swap-keys-tag := "swap-keys-v4"
 # (regen-dynamic-swap-keys) requires publishing a new release and updating
 # dynamic-swap-keys.CHECKSUM plus the committed verifying keys together.
 dynamic-swap-keys-tag := "dynamic-swap-keys-v4"
+
+# Same contract as swap-keys-tag, for the custom-ring example's single circuit
+# (auditor_key_encryption). gnark's Setup is non-deterministic, so the release
+# assets are the only key set matching the committed Rust verifying key; rotating
+# locally (regen-custom-ring-keys) requires publishing a new release and updating
+# custom-ring-keys.CHECKSUM plus the committed verifying key together.
+custom-ring-keys-tag := "custom-ring-keys-v1"
+
+ensure-custom-ring-keys:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="custom-ring-tests"
+    for c in auditor_key_encryption; do
+        dir="$base/build/gnark/$c"
+        for kind in pk vk; do
+            if [ ! -f "$dir/$kind.bin" ]; then
+                mkdir -p "$dir"
+                gh release download "{{custom-ring-keys-tag}}" --repo helius-labs/zolana \
+                    --pattern "${c}_${kind}.bin" --output "$dir/$kind.bin" --clobber
+            fi
+            want=$(awk -v n="${c}_${kind}.bin" '$2==n {print $1}' "$base/custom-ring-keys.CHECKSUM")
+            got=$(shasum -a 256 "$dir/$kind.bin" | awk '{print $1}')
+            if [ "$want" != "$got" ]; then
+                echo "checksum mismatch for $dir/$kind.bin (want $want, got $got)" >&2
+                echo "refresh from the {{custom-ring-keys-tag}} release (delete the file and rerun)," >&2
+                echo "or rotate keys with 'just regen-custom-ring-keys' and publish a new release" >&2
+                exit 1
+            fi
+        done
+    done
+
+# Rotate the custom-ring proving key: regenerate the circuit, rewriting the
+# committed Rust verifying key and the checksum manifest. Publish the new
+# build/gnark key files to a fresh custom-ring-keys release and bump
+# custom-ring-keys-tag afterwards.
+regen-custom-ring-keys:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="custom-ring-tests"
+    for c in auditor_key_encryption; do
+        cargo run --release -p custom-ring-prover --bin custom-ring-prover-setup -- \
+            "$c" "$base/build/gnark/$c" \
+            --rust-vk "$base/program/src/verifying_keys/$c.rs"
+    done
+    : > "$base/custom-ring-keys.CHECKSUM"
+    for c in auditor_key_encryption; do
+        for kind in pk vk; do
+            shasum -a 256 "$base/build/gnark/$c/$kind.bin" \
+                | awk -v n="${c}_${kind}.bin" '{print $1 "  " n}' >> "$base/custom-ring-keys.CHECKSUM"
+        done
+    done
 
 ensure-swap-keys:
     #!/usr/bin/env bash
@@ -905,6 +960,35 @@ test-swap-validator: ensure-swap-keys build-programs build-prover-server build-c
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo nextest run -p swap-test-validator --test swap --test take_verifiable_encryption --test cancel --no-capture
+
+# Minimal custom-ring lifecycle on a local validator
+# (custom-ring-tests/test/tests/ring.rs): create the ring config holding the
+# auditor key, register it with SPP, ring-deposit, then a ring transact whose
+# proof binds the verifiable encryption of the transaction viewing key to the
+# auditor key -- and assert the auditor client decrypts the outputs.
+test-custom-ring-validator: ensure-custom-ring-keys build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # `eval "$(...)"` alone cannot fail the recipe: a command substitution that
+    # exits nonzero is not a `set -e` trigger, so a broken xtask would leave the
+    # program ids unset and the test would silently run against its fallbacks.
+    program_ids=$(cargo run -q -p xtask -- program-ids)
+    eval "$program_ids"
+    : "${CUSTOM_RING_PROGRAM_ID:?xtask did not emit CUSTOM_RING_PROGRAM_ID}"
+    : "${SHIELDED_POOL_PROGRAM_ID:?xtask did not emit SHIELDED_POOL_PROGRAM_ID}"
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      pkill -f solana-test-validator 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    export CUSTOM_RING_PROGRAM_ID
+    export SHIELDED_POOL_PROGRAM_ID
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo nextest run -p custom-ring-test-validator --test ring --no-capture
 
 # Timelock escrow lifecycle on a local validator, driven against a real
 # localnet (sdk-tests/timelock-escrow/test/tests/escrow.rs). Boots

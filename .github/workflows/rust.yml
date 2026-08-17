@@ -203,12 +203,15 @@ jobs:
             recipe: test-swap-and-escrow-validator
           - name: dynamic-swap lifecycle
             recipe: test-dynamic-swap
+          - name: custom-ring auditor lifecycle
+            recipe: test-custom-ring-validator
           - name: rfq settlement
             recipe: test-rfq-validator
     env:
       AGAVE_VERSION: v4.0.2
-      # GH_TOKEN is for the gh-release swap/escrow key downloads (ensure-swap-keys /
-      # ensure-escrow-keys); proving keys come from CloudFront and need no token.
+      # GH_TOKEN is for the gh-release swap/escrow/custom-ring key downloads
+      # (ensure-swap-keys / ensure-escrow-keys / ensure-custom-ring-keys); SPP
+      # proving keys come from CloudFront and need no token.
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ZOLANA_PHOTON_BIN: target/bin/photon
     steps:
