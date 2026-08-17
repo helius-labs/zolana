@@ -515,7 +515,7 @@ describe("wallet sync", () => {
       payload: encodeOutputData(
         EncryptedScheme.proofless,
         encodeProofless({
-          owner: keypair.signingPublicKey().ownerPublicKeyField(),
+          owner: keypair.signingPublicKey().ownerProofInputHash(),
           blinding,
           asset: SOL_MINT,
           amount: 42n,

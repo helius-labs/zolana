@@ -3,13 +3,21 @@ import { describe, expect, it } from "vitest";
 import fixture from "../vectors/poseidon-parity-v1.json" with { type: "json" };
 import { HasherWasmError, MAX_POSEIDON_INPUTS, poseidon } from "../src/hasher/index.js";
 import {
+  KeypairError,
   P256PublicKey,
+  P_CONST_SEC1,
+  P_DERIVE_SEC1,
+  P_PDA_SEC1,
   ShieldedKeypair,
   SigningKey,
   ViewingKey,
+  ed25519DerivationMessage,
+  symmetricApply,
   type Bytes16,
   type Bytes32,
+  type Bytes33,
 } from "../src/keypair/index.js";
+import { MERGE_INFO } from "../src/keypair/merge/index.js";
 
 function bytes(hex: string): Uint8Array {
   return Uint8Array.from(hex.match(/../g)?.map((pair) => Number.parseInt(pair, 16)) ?? []);
@@ -62,15 +70,42 @@ describe("shielded key material", () => {
     expect(ShieldedKeypair.generate("p256").curve()).toBe("p256");
   });
 
-  it("derives symmetric ECDH secrets and authenticated viewing encryption", () => {
+  it("derives symmetric ECDH secrets", () => {
     const alice = ViewingKey.fromSeed(new Uint8Array(32).fill(1) as Bytes32, 0);
     const bob = ViewingKey.fromSeed(new Uint8Array(32).fill(2) as Bytes32, 0);
     expect(alice.ecdh(bob.publicKey())).toEqual(bob.ecdh(alice.publicKey()));
+  });
 
+  it("applies the symmetric key schedule as an involution", () => {
+    const sharedSecret = new Uint8Array(32);
+    sharedSecret.set(new Uint8Array(31).fill(0x11), 1);
     const plaintext = new TextEncoder().encode("private note");
-    const encrypted = alice.encryptVerifiable(bob.publicKey(), plaintext);
-    expect(bob.decryptVerifiable(encrypted.txViewingPublicKey, encrypted.ciphertext)).toEqual(
-      plaintext,
+    const ciphertext = symmetricApply(sharedSecret, MERGE_INFO, plaintext);
+    expect(ciphertext).not.toEqual(plaintext);
+    expect(symmetricApply(sharedSecret, MERGE_INFO, ciphertext)).toEqual(plaintext);
+  });
+
+  it("refuses to sign derivation inputs on both rails", () => {
+    for (const rail of ["p256", "ed25519"] as const) {
+      const key = SigningKey.generate(rail);
+      const payload = new TextEncoder().encode("TSPP/derive/v1".padEnd(32, "\0")).subarray(0, 32);
+      expect(() => key.sign(payload)).toThrow(KeypairError);
+    }
+    const ed25519Key = SigningKey.generate("ed25519");
+    const message = ed25519DerivationMessage(ed25519Key.publicKey().ed25519());
+    expect(() => ed25519Key.sign(message)).toThrow(KeypairError);
+  });
+
+  it("refuses ECDH against the committed derivation points", () => {
+    const viewing = ViewingKey.generate();
+    expect(() => viewing.ecdh(P256PublicKey.fromBytes(P_CONST_SEC1 as Bytes33))).toThrow(
+      KeypairError,
+    );
+    expect(() => viewing.ecdh(P256PublicKey.fromBytes(P_DERIVE_SEC1 as Bytes33))).toThrow(
+      KeypairError,
+    );
+    expect(() => viewing.ecdh(P256PublicKey.fromBytes(P_PDA_SEC1 as Bytes33))).toThrow(
+      KeypairError,
     );
   });
 

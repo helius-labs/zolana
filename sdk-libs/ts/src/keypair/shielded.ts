@@ -5,9 +5,18 @@ import {
   type TransactionPartialSigner,
 } from "@solana/kit";
 
-import { type Bytes32, type Bytes64, checkedBytes, concatBytes, copyBytes } from "./bytes.js";
+import { hashBytes } from "../hasher/index.js";
+import {
+  type Bytes31,
+  type Bytes32,
+  type Bytes64,
+  checkedBytes,
+  concatBytes,
+  copyBytes,
+} from "./bytes.js";
+import { type Rail, roleExpansion } from "./derivation.js";
 import { KeypairError } from "./error.js";
-import { ownerHash, pack33 } from "./hash.js";
+import { ownerHash } from "./hash.js";
 import { NullifierKey } from "./nullifier-key.js";
 import { poseidon } from "./poseidon.js";
 import {
@@ -56,7 +65,7 @@ export class ShieldedAddress {
 
   ownerHash(): Bytes32 {
     return ownerHash(
-      this.signingPublicKey.ownerPublicKeyField(),
+      this.signingPublicKey.ownerProofInputHash(),
       this.#nullifierPublicKey,
     ) as Bytes32;
   }
@@ -101,8 +110,7 @@ export class CompressedShieldedAddress {
   }
 
   hash(): Bytes32 {
-    const [low, high] = pack33(this.viewingPublicKey.toBytes());
-    return poseidon([this.ownerHash, low, high]) as Bytes32;
+    return poseidon([this.ownerHash, hashBytes(this.viewingPublicKey.toBytes())]) as Bytes32;
   }
 }
 
@@ -146,7 +154,6 @@ export interface ShieldedKeypairLike {
 export interface ViewingKeyLike {
   publicKey(): P256PublicKey;
   ecdh(counterparty: P256PublicKey): Bytes32;
-  mergeViewTag(mergeCount: bigint): ViewTag;
   recipientBootstrapViewTag(): ViewTag;
   transactionViewingKey(firstNullifier: Bytes32): ViewingKey;
   encryptSlot(
@@ -167,11 +174,6 @@ export interface ViewingKeyLike {
     salt: Salt,
     slotIndex: number,
   ): Uint8Array;
-  encryptVerifiable(
-    userViewingPublicKey: P256PublicKey,
-    plaintext: Uint8Array,
-  ): Readonly<{ ciphertext: Uint8Array; txViewingPublicKey: P256PublicKey }>;
-  decryptVerifiable(txViewingPublicKey: P256PublicKey, ciphertext: Uint8Array): Uint8Array;
 }
 
 export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
@@ -187,40 +189,53 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
 
   /**
    * Generates an Ed25519 signing identity by default, the rail supported by
-   * the lean SDK's registration and ordinary transaction builders. Viewing
-   * keys remain P256 on both signing rails.
+   * the lean SDK's registration and ordinary transaction builders. Both role
+   * keys expand from the signing key's derivation seed, like Rust's
+   * `new_ed25519` / `new_p256`.
    */
   static generate(type: SignatureType = "ed25519"): ShieldedKeypair {
-    return ShieldedKeypair.fromSigningAndViewingKeys(
-      SigningKey.generate(type),
-      ViewingKey.generate(),
-    );
+    return ShieldedKeypair.fromKeypair(SigningKey.generate(type));
+  }
+
+  /** Mirrors Rust's `ShieldedKeypair::from_keypair`. */
+  static fromKeypair(signing: SigningKey): ShieldedKeypair {
+    const expansion = ShieldedKeypair.#roleExpansion(signing);
+    return ShieldedKeypair.withViewingKey(signing, ViewingKey.fromBytes(expansion.viewingSecret()));
   }
 
   /**
-   * Mirrors Rust's two-argument `ShieldedKeypair::from_keys`: the nullifier key
-   * is derived from the signing secret rather than supplied, which is what
-   * makes the owner hash reproducible from the signing key alone.
+   * Mirrors Rust's `ShieldedKeypair::with_viewing_key`: same derivation as
+   * `fromKeypair` with a shared viewing key in place of the derived one; the
+   * nullifier key is still derived from the signing key, so no argument can
+   * detach it.
    */
-  static fromSigningAndViewingKeys(signing: SigningKey, viewing: ViewingKey): ShieldedKeypair {
-    return new ShieldedKeypair(signing, NullifierKey.fromSigningKey(signing), viewing);
-  }
-
-  static fromKeys(
-    signing: SigningKey,
-    nullifier: NullifierKey,
-    viewing: ViewingKey,
-  ): ShieldedKeypair {
-    return new ShieldedKeypair(signing, nullifier, viewing);
+  static withViewingKey(signing: SigningKey, viewing: ViewingKey): ShieldedKeypair {
+    const expansion = ShieldedKeypair.#roleExpansion(signing);
+    return new ShieldedKeypair(
+      signing,
+      NullifierKey.fromSecret(expansion.nullifierSecret()),
+      viewing,
+    );
   }
 
   static fromEd25519(secret: Bytes32, account: number): ShieldedKeypair {
     const owned = checkedBytes<Bytes32>(secret, 32, "Ed25519 signing secret");
     const signing = SigningKey.fromEd25519Bytes(owned);
-    const nullifier = NullifierKey.fromSigningSecret(owned);
     const viewing = ViewingKey.fromSeed(owned, account);
     owned.fill(0);
-    return new ShieldedKeypair(signing, nullifier, viewing);
+    return ShieldedKeypair.withViewingKey(signing, viewing);
+  }
+
+  static #roleExpansion(
+    signing: SigningKey,
+  ): Readonly<{ nullifierSecret(): Bytes31; viewingSecret(): Bytes32 }> {
+    const rail: Rail = signing.isEd25519() ? "ed25519" : "ecdh";
+    const seed = signing.derivationSeed();
+    try {
+      return roleExpansion(seed, rail);
+    } finally {
+      seed.fill(0);
+    }
   }
 
   signingPublicKey(): ShieldedPublicKey {
@@ -301,7 +316,7 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
 
   ownerHash(): Bytes32 {
     return ownerHash(
-      this.signingPublicKey().ownerPublicKeyField(),
+      this.signingPublicKey().ownerProofInputHash(),
       this.#nullifier.publicKey(),
     ) as Bytes32;
   }
@@ -325,10 +340,6 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
 
   ecdh(counterparty: P256PublicKey): Bytes32 {
     return this.#viewing.ecdh(counterparty);
-  }
-
-  mergeViewTag(mergeCount: bigint): ViewTag {
-    return this.#viewing.mergeViewTag(mergeCount);
   }
 
   recipientBootstrapViewTag(): ViewTag {
@@ -364,17 +375,6 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
     slotIndex: number,
   ): Uint8Array {
     return this.#viewing.decryptSlotEphemeral(recipientPublicKey, ciphertext, salt, slotIndex);
-  }
-
-  encryptVerifiable(
-    userViewingPublicKey: P256PublicKey,
-    plaintext: Uint8Array,
-  ): Readonly<{ ciphertext: Uint8Array; txViewingPublicKey: P256PublicKey }> {
-    return this.#viewing.encryptVerifiable(userViewingPublicKey, plaintext);
-  }
-
-  decryptVerifiable(txViewingPublicKey: P256PublicKey, ciphertext: Uint8Array): Uint8Array {
-    return this.#viewing.decryptVerifiable(txViewingPublicKey, ciphertext);
   }
 
   sign(message: Uint8Array): Bytes64 {

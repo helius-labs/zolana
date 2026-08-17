@@ -19,7 +19,7 @@ import type {
   RequestContext,
   Signature,
 } from "../interface/types.js";
-import { hashField as canonicalHashField } from "../keypair/hash.js";
+import { hashBytes } from "../hasher/index.js";
 
 import { ClientError, hasherError } from "./error.js";
 
@@ -173,13 +173,13 @@ export function rightHashChain(values: readonly bigint[]): bigint {
   return result;
 }
 
-export function hashField(bytes: Uint8Array): bigint {
+export function hashBytesBigInt(bytes: Uint8Array): bigint {
   if (bytes.length !== 32) {
     throw new ClientError("CLIENT_INVALID_LENGTH", {
-      details: { field: "hash field input", expected: 32, actual: bytes.length },
+      details: { field: "hash_bytes input", expected: 32, actual: bytes.length },
     });
   }
-  return bytesToBigInt(canonicalHashField(bytes));
+  return bytesToBigInt(hashBytes(bytes));
 }
 
 export function sha256Bytes(bytes: Uint8Array): Bytes32 {

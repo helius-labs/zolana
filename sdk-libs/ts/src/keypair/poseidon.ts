@@ -6,7 +6,7 @@ export function poseidon(inputs: readonly Uint8Array[]): Uint8Array {
   try {
     inputs.forEach((input, index) => {
       if (input.length > 32) {
-        throw new KeypairError("KEYPAIR_FIELD_ELEMENT_TOO_LONG", {
+        throw new KeypairError("KEYPAIR_POSEIDON", {
           index,
           maximum: 32,
           actual: input.length,

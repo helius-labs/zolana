@@ -111,11 +111,11 @@ function keyMaterial(): Readonly<{
   nullifier: NullifierKey;
 }> {
   const signing = SigningKey.fromBytes(scalar(1));
-  const nullifier = NullifierKey.fromSecret(new Uint8Array(31).fill(7) as Bytes31);
   const viewing = ViewingKey.fromBytes(scalar(2));
+  const keypair = ShieldedKeypair.withViewingKey(signing, viewing);
   return {
-    keypair: ShieldedKeypair.fromKeys(signing, nullifier, viewing),
-    nullifier,
+    keypair,
+    nullifier: keypair.nullifierKey(),
   };
 }
 
@@ -124,11 +124,11 @@ function ed25519Material(): Readonly<{
   nullifier: NullifierKey;
 }> {
   const signing = SigningKey.fromEd25519Bytes(scalar(3));
-  const nullifier = NullifierKey.fromSecret(new Uint8Array(31).fill(5) as Bytes31);
   const viewing = ViewingKey.fromBytes(scalar(4));
+  const keypair = ShieldedKeypair.withViewingKey(signing, viewing);
   return {
-    keypair: ShieldedKeypair.fromKeys(signing, nullifier, viewing),
-    nullifier,
+    keypair,
+    nullifier: keypair.nullifierKey(),
   };
 }
 

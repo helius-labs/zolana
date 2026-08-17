@@ -1,76 +1,65 @@
-import { ciphertextHash } from "../../interface/merge-utils.js";
+import { ctr } from "@noble/ciphers/aes.js";
 
-import { type Bytes32, checkedBytes, copyBytes } from "../bytes.js";
-import { wrapKeypairError } from "../error.js";
+import { type Bytes32, bigIntToBytes, checkedBytes, concatBytes, copyBytes } from "../bytes.js";
+import {
+  DOMAIN_MERGE_DUMMY_NULLIFIER,
+  DOMAIN_MERGE_OUTPUT_BLINDING_V1,
+  DOM_SEP_KEY,
+  DOM_SEP_NONCE,
+  DOM_SEP_SILO,
+  MERGE_INFO as MERGE_INFO_BYTES,
+} from "../derivation.js";
+import { invalidLength } from "../error.js";
 import type { NullifierKey } from "../nullifier-key.js";
 import { poseidon } from "../poseidon.js";
-import { P256PublicKey } from "../public-key.js";
-import {
-  MERGE_INFO as MERGE_INFO_BYTES,
-  decryptVerifiableSecret,
-  encryptVerifiableSecret,
-  packMergePublicKey,
-} from "./core.js";
-
-export { MAX_INFO_LENGTH, symmetricApply } from "./core.js";
 
 export const MERGE_INFO = copyBytes(MERGE_INFO_BYTES);
-const DOMAIN_MERGE_OUTPUT_BLINDING = 0x544d_4f42;
-const DOMAIN_MERGE_DUMMY_NULLIFIER = 0x544d_444e;
 
-export interface MergeCiphertextPublicInputs {
-  readonly txViewingPublicKeyLow: Bytes32;
-  readonly txViewingPublicKeyHigh: Bytes32;
-  readonly ciphertextHash: Bytes32;
+function keySchedule(
+  sharedSecret: Uint8Array,
+  info: Uint8Array,
+): readonly [Uint8Array, Uint8Array] {
+  const siloed = poseidon([bigIntToBytes(BigInt(DOM_SEP_SILO)), sharedSecret, rightAlign(info)]);
+  const keyLow = poseidon([bigIntToBytes(BigInt(DOM_SEP_KEY)), siloed]);
+  const keyHigh = poseidon([bigIntToBytes(BigInt(DOM_SEP_KEY) + 1n), siloed]);
+  const key = concatBytes(keyHigh.subarray(16), keyLow.subarray(16));
+  const nonce = poseidon([bigIntToBytes(BigInt(DOM_SEP_NONCE)), siloed]).subarray(20);
+  siloed.fill(0);
+  keyLow.fill(0);
+  keyHigh.fill(0);
+  return [key, nonce];
 }
 
-export function encryptVerifiable(
-  txViewingSecret: Bytes32,
-  userViewingPublicKey: P256PublicKey,
-  plaintext: Uint8Array,
-): Readonly<{ ciphertext: Uint8Array; txViewingPublicKey: P256PublicKey }> {
-  return encryptVerifiableSecret(
-    checkedBytes<Bytes32>(txViewingSecret, 32, "transaction viewing secret"),
-    userViewingPublicKey,
-    plaintext,
-  );
-}
-
-export function decryptVerifiable(
-  userViewingSecret: Bytes32,
-  txViewingPublicKey: P256PublicKey,
-  ciphertext: Uint8Array,
+/**
+ * Mirrors `zolana_keypair::symmetric_apply`: the Poseidon key schedule over a
+ * pre-shared secret, then AES-256-CTR. Encryption and decryption are the same
+ * operation, so applying it twice returns the input.
+ */
+export function symmetricApply(
+  sharedSecret: Uint8Array,
+  info: Uint8Array,
+  data: Uint8Array,
 ): Uint8Array {
-  return decryptVerifiableSecret(
-    checkedBytes<Bytes32>(userViewingSecret, 32, "user viewing secret"),
-    txViewingPublicKey,
-    ciphertext,
-  );
-}
-
-export function mergePublicContribution(
-  txViewingPublicKey: P256PublicKey,
-  ciphertext: Uint8Array,
-): MergeCiphertextPublicInputs {
-  const [txViewingPublicKeyLow, txViewingPublicKeyHigh] = packMergePublicKey(txViewingPublicKey);
-  return {
-    txViewingPublicKeyLow,
-    txViewingPublicKeyHigh,
-    ciphertextHash: mergeCiphertextHash(ciphertext),
-  };
-}
-
-export function mergeCiphertextHash(ciphertext: Uint8Array): Bytes32 {
+  const secret = checkedBytes<Bytes32>(sharedSecret, 32, "shared secret");
+  if (info.length !== MERGE_INFO_BYTES.length) {
+    throw invalidLength("key schedule info", MERGE_INFO_BYTES.length, info.length);
+  }
+  let key: Uint8Array | undefined;
   try {
-    return ciphertextHash(ciphertext);
-  } catch (error) {
-    throw wrapKeypairError("KEYPAIR_POSEIDON", error);
+    let nonce: Uint8Array;
+    [key, nonce] = keySchedule(secret, info);
+    const counter = new Uint8Array(16);
+    counter.set(nonce);
+    counter[15] = 2;
+    return ctr(key, counter).encrypt(copyBytes(data));
+  } finally {
+    key?.fill(0);
   }
 }
 
 export function mergeOutputBlinding(nullifierKey: NullifierKey, firstNullifier: Bytes32): Bytes32 {
   return poseidon([
-    fieldU32(DOMAIN_MERGE_OUTPUT_BLINDING),
+    fieldU32(DOMAIN_MERGE_OUTPUT_BLINDING_V1),
     rightAlign(nullifierKey.secretBytes()),
     checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"),
   ]) as Bytes32;

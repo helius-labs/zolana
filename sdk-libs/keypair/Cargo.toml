@@ -23,6 +23,8 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 hex = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 solana-address = { workspace = true }
 aws-sdk-kms = { workspace = true, features = ["test-util"] }
 aws-smithy-mocks = { workspace = true }
@@ -43,3 +45,7 @@ path = "tests/hsm_backends.rs"
 [[test]]
 name = "seed_based_keypair"
 path = "tests/seed_based_keypair.rs"
+
+[[test]]
+name = "vectors"
+path = "tests/vectors.rs"

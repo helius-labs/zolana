@@ -1,78 +1,33 @@
 import { p256 } from "@noble/curves/nist.js";
-import { expand, extract, hkdf } from "@noble/hashes/hkdf.js";
+import { expand } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 
 import {
   type Bytes16,
   type Bytes32,
-  bytesToBigInt,
   checkedBytes,
   concatBytes,
   copyBytes,
   randomBytes,
   u32be,
-  u64be,
 } from "./bytes.js";
 import {
-  INFO_MERGE_VIEW_TAG_PREFIX,
-  INFO_MERGE_VIEW_TAG_SECRET,
+  INFO_SEED_P256_VIEWING,
   INFO_TX_VIEWING,
-  P_CONST_SEC1,
-} from "./constants.js";
-import { applyTransferCipher, ecdhX } from "./encryption.js";
+  ecdhX,
+  hkdfExpand,
+  isDerivationPoint,
+  scalarFromOkm,
+  viewRoot,
+} from "./derivation.js";
+import { applyTransferCipher } from "./encryption.js";
 import { KeypairError } from "./error.js";
-import { decryptVerifiableSecret, encryptVerifiableSecret } from "./merge/core.js";
 import { P256PublicKey, type ViewTag } from "./public-key.js";
 import type { ViewingKeyLike } from "./shielded.js";
 
 export type Salt = Bytes16;
 
 const encoder = new TextEncoder();
-const P256_ORDER =
-  115_792_089_210_356_248_762_697_446_949_407_573_529_996_955_224_135_760_342_422_259_061_068_512_044_369n;
-const P_CONST = P256PublicKey.fromBytes(P_CONST_SEC1 as import("./bytes.js").Bytes33);
-
-// Rust separates `ZeroScalar` from `InvalidSecretKey`: the first says the
-// derivation landed on zero, the second says the caller supplied an out-of-range
-// secret. Collapsing them would hide which one a wallet hit.
-function scalarFromOkm(okm: Uint8Array): Bytes32 {
-  const scalar = bytesToBigInt(okm) % P256_ORDER;
-  if (scalar === 0n) {
-    throw new KeypairError("KEYPAIR_ZERO_SCALAR");
-  }
-  const bytes = new Uint8Array(32);
-  let value = scalar;
-  for (let index = 31; index >= 0; index--) {
-    bytes[index] = Number(value & 0xffn);
-    value >>= 8n;
-  }
-  return bytes as Bytes32;
-}
-
-/** Every HKDF failure surfaces as Rust's `Hkdf`, not as a generic key error. */
-function expandOrThrow(
-  ikm: Uint8Array,
-  info: Uint8Array,
-  length: number,
-  salt?: Uint8Array,
-): Uint8Array {
-  try {
-    return hkdf(sha256, ikm, salt, info, length);
-  } catch (error) {
-    throw new KeypairError("KEYPAIR_HKDF", { actual: length }, error);
-  }
-}
-
-function checkCounter(value: bigint, name: string): Uint8Array {
-  if (value < 0n || value > 0xffff_ffff_ffff_ffffn) {
-    throw new KeypairError("KEYPAIR_INVALID_LENGTH", {
-      name,
-      minimum: "0",
-      maximum: "18446744073709551615",
-    });
-  }
-  return u64be(value);
-}
 
 function checkSlotIndex(value: number): number {
   if (!Number.isInteger(value) || value < 0 || value > 0xffff_ffff) {
@@ -87,14 +42,11 @@ function checkSlotIndex(value: number): number {
 
 export class ViewingKey implements ViewingKeyLike {
   #secret: Uint8Array;
-  #viewRoot: Uint8Array;
+  #viewRoot: Uint8Array | undefined;
   #destroyed = false;
 
   private constructor(secret: Uint8Array) {
     this.#secret = secret;
-    const shared = ecdhX(secret, P_CONST);
-    this.#viewRoot = extract(sha256, shared);
-    shared.fill(0);
   }
 
   static generate(): ViewingKey {
@@ -122,8 +74,8 @@ export class ViewingKey implements ViewingKeyLike {
       });
     }
     const seed = checkedBytes<Bytes32>(walletSeed, 32, "wallet seed");
-    const info = concatBytes(encoder.encode("TSPP/seed/p256_viewing"), u32be(account));
-    return ViewingKey.fromBytes(scalarFromOkm(expandOrThrow(seed, info, 48)));
+    const info = concatBytes(encoder.encode(INFO_SEED_P256_VIEWING), u32be(account));
+    return ViewingKey.fromBytes(scalarFromOkm(hkdfExpand(undefined, seed, info, 48)));
   }
 
   publicKey(): P256PublicKey {
@@ -138,15 +90,10 @@ export class ViewingKey implements ViewingKeyLike {
 
   ecdh(counterparty: P256PublicKey): Bytes32 {
     this.#assertUsable();
+    if (isDerivationPoint(counterparty)) {
+      throw new KeypairError("KEYPAIR_DERIVATION_INPUT");
+    }
     return copyBytes(ecdhX(this.#secret, counterparty)) as Bytes32;
-  }
-
-  mergeViewTag(mergeCount: bigint): ViewTag {
-    return this.#viewTag(
-      INFO_MERGE_VIEW_TAG_SECRET,
-      INFO_MERGE_VIEW_TAG_PREFIX,
-      checkCounter(mergeCount, "mergeCount"),
-    );
   }
 
   recipientBootstrapViewTag(): ViewTag {
@@ -158,7 +105,7 @@ export class ViewingKey implements ViewingKeyLike {
     const nullifier = checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier");
     const txViewingSecret = this.#viewSecret(INFO_TX_VIEWING);
     try {
-      const salted = expandOrThrow(txViewingSecret, encoder.encode(INFO_TX_VIEWING), 48, nullifier);
+      const salted = hkdfExpand(nullifier, txViewingSecret, encoder.encode(INFO_TX_VIEWING), 48);
       return ViewingKey.fromBytes(scalarFromOkm(salted));
     } finally {
       txViewingSecret.fill(0);
@@ -210,42 +157,21 @@ export class ViewingKey implements ViewingKeyLike {
     return this.encryptSlot(recipientPublicKey, ciphertext, salt, slotIndex);
   }
 
-  encryptVerifiable(
-    userViewingPublicKey: P256PublicKey,
-    plaintext: Uint8Array,
-  ): Readonly<{ ciphertext: Uint8Array; txViewingPublicKey: P256PublicKey }> {
-    this.#assertUsable();
-    return encryptVerifiableSecret(this.#secret, userViewingPublicKey, plaintext);
-  }
-
-  decryptVerifiable(txViewingPublicKey: P256PublicKey, ciphertext: Uint8Array): Uint8Array {
-    this.#assertUsable();
-    return decryptVerifiableSecret(this.#secret, txViewingPublicKey, ciphertext);
-  }
-
   destroy(): void {
     this.#secret.fill(0);
-    this.#viewRoot.fill(0);
+    this.#viewRoot?.fill(0);
     this.#destroyed = true;
   }
 
+  // Resolved on first use like Rust's `OnceLock`: the single-use keys
+  // `transactionViewingKey` returns never pay for the view-root ECDH.
   #viewSecret(info: string): Uint8Array {
     this.#assertUsable();
+    this.#viewRoot ??= viewRoot(this.#secret);
     try {
       return expand(sha256, this.#viewRoot, encoder.encode(info), 32);
     } catch (error) {
       throw new KeypairError("KEYPAIR_HKDF", { name: info }, error);
-    }
-  }
-
-  #viewTag(secretInfo: string, prefix: string, counter: Uint8Array): ViewTag {
-    const secret = this.#viewSecret(secretInfo);
-    try {
-      const tag = new Uint8Array(32);
-      tag.set(expandOrThrow(secret, concatBytes(encoder.encode(prefix), counter), 31), 1);
-      return tag as ViewTag;
-    } finally {
-      secret.fill(0);
     }
   }
 

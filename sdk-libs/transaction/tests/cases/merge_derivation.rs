@@ -1,3 +1,4 @@
+use serde::Deserialize;
 use zolana_keypair::{random_blinding, NullifierKey};
 use zolana_transaction::instructions::merge::{
     merge_dummy_nullifier, merge_output_blinding, DOMAIN_MERGE_DUMMY_NULLIFIER,
@@ -39,6 +40,48 @@ pub(crate) fn recovery_derivations_match_circuit_vectors() {
     assert_eq!(
         hex::encode(merge_dummy_nullifier(&key, &first_nullifier, 3).unwrap()),
         "1498da905bec363e5c1ae40faee4aca4e3ee990a9e030599797bcbda18cff914",
+    );
+}
+
+#[derive(Deserialize)]
+struct KeyDerivationVectors {
+    merge_recovery: MergeRecovery,
+}
+
+#[derive(Deserialize)]
+struct MergeRecovery {
+    nullifier_secret: String,
+    first_nullifier: String,
+    output_blinding: String,
+    dummy_slot_index: u8,
+    dummy_nullifier: String,
+}
+
+/// The shared cross-language vector file must agree with the goldens above;
+/// the TypeScript SDK asserts the same section, so the three implementations
+/// (Rust, TS, Go circuit) cannot drift apart silently.
+pub(crate) fn recovery_derivations_match_shared_vectors() {
+    let vectors: KeyDerivationVectors =
+        serde_json::from_str(include_str!("../../../../test-vectors/key_derivation.json")).unwrap();
+    let section = vectors.merge_recovery;
+    let secret: [u8; 31] = hex::decode(&section.nullifier_secret)
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let first_nullifier: [u8; 32] = hex::decode(&section.first_nullifier)
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let key = NullifierKey::from_secret(secret);
+    assert_eq!(
+        hex::encode(merge_output_blinding(&key, &first_nullifier).unwrap()),
+        section.output_blinding,
+    );
+    assert_eq!(
+        hex::encode(
+            merge_dummy_nullifier(&key, &first_nullifier, section.dummy_slot_index).unwrap()
+        ),
+        section.dummy_nullifier,
     );
 }
 
