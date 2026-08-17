@@ -65,7 +65,7 @@ jobs:
           package_version="$(node -p \
             "JSON.parse(require('node:fs').readFileSync('sdk-libs/ts/package.json')).version")"
           if [[ "$version" != "$package_version" ]]; then
-            echo "tag version $version does not match @zolana/sdk $package_version" >&2
+            echo "tag version $version does not match @heliuslabs/zolana $package_version" >&2
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -107,12 +107,12 @@ jobs:
         run: |
           git -C "$RUNNER_TEMP/api-docs-site" add --all
           if git -C "$RUNNER_TEMP/api-docs-site" diff --cached --quiet; then
-            echo "@zolana/sdk v$VERSION is already persisted"
+            echo "@heliuslabs/zolana v$VERSION is already persisted"
           else
             git -C "$RUNNER_TEMP/api-docs-site" \
               -c user.name=github-actions[bot] \
               -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
-              commit -m "docs: publish @zolana/sdk v$VERSION"
+              commit -m "docs: publish @heliuslabs/zolana v$VERSION"
             git -C "$RUNNER_TEMP/api-docs-site" push origin HEAD:gh-pages
           fi
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3

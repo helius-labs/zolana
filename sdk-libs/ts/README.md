@@ -1,29 +1,27 @@
 # @heliuslabs/zolana
 
-`@heliuslabs/zolana` is the TypeScript SDK for Zolana shielded assets on Solana. Use it
+`@heliuslabs/zolana` is the TypeScript SDK for Solana Rings by Helius. Use it
 to:
 
-- shield SOL, SPL Token, and Token-2022 assets;
+- deposit SOL, SPL Token, and Token-2022 into a private balance;
 - read private balances and transaction history;
-- send confidential transfers;
-- withdraw to public Solana addresses; and
-- split or merge private notes when needed.
+- send private transfers; and
+- withdraw to public Solana addresses.
 
 ## Install
 
 ```sh
-npm install @heliuslabs/zolana @solana/kit
+npm install @heliuslabs/zolana@alpha @solana/kit
 ```
 
 Requirements:
 
 - Node.js 24 or newer;
-- a unified Zolana endpoint, or separate Solana RPC, indexer, and prover
-  endpoints.
+- Solana RPC, indexer, and prover endpoints.
 
 ## Quick start
 
-This example creates a wallet, syncs it, shields SOL, and reads the resulting
+This example creates a wallet, syncs it, deposits SOL, and reads the resulting
 balance and history. For the purpose of this demo the application supplies the Solana signer and stores its
 seed.
 
@@ -49,11 +47,7 @@ import {
   type Bytes32,
 } from "@heliuslabs/zolana";
 
-// One url serves the RPC, the indexer, and the prover.
-// localnet: const client = await createZolanaClient({});
-const client = await createZolanaClient({
-  solanaRpcUrl: `https://devnet.helius-rpc.com?api-key=${process.env.API_KEY!}`,
-});
+const client = await createZolanaClient({});
 
 // Load this from the app wallet or key store.
 declare function loadOwnerSeed(): Promise<Bytes32>;
@@ -116,14 +110,16 @@ const client = await createZolanaClient({
 });
 ```
 
-For an Ed25519 spending wallet, the shielded identity and Solana signer must use
+For an Ed25519 spending wallet, the shielded keypair and the Solana signer must use
 the same owner seed, as shown above.
 
 ### Endpoints
 
-`solanaRpcUrl` serves the Solana RPC, the indexer, and the prover, which is the
-shape a Helius URL takes. A config that names no url reaches the local stack,
-where the validator, photon, and the prover listen on 8899, 8784, and 3001:
+A config that names no URL reaches the local stack, where the validator,
+Photon, and the prover listen on 8899, 8784, and 3001. One URL is enough only
+when that host actually serves RPC, indexer, and prover. A Helius RPC URL
+does not serve indexer or prover methods; name those separately when they
+sit on other hosts.
 
 ```ts
 const client = await createZolanaClient({});
@@ -167,12 +163,15 @@ await submit(deposit, feePayer);
 The standard SPL Token program is used by default. For Token-2022, also pass
 `splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID`.
 
-The SDK automatically resolves a registered Solana public key to its shielded
-address. Passing a `ShieldedAddress` directly bypasses the lookup.
+The SDK resolves a registered Solana public key to a shielded address.
+Passing a `ShieldedAddress` skips the lookup.
 
-### Confidential transfer
+### Private transfer
 
-A transfer normally targets the recipient's registered Solana public key.
+A private transfer targets the recipient's registered Solana public key.
+If that pubkey is not registered, the call fails with
+`WALLET_RECIPIENT_NOT_REGISTERED`. It does not withdraw. Use
+`buildWithdrawalTransaction` for a public recipient.
 
 ```ts
 import { buildTransferTransaction } from "@heliuslabs/zolana";
@@ -230,7 +229,7 @@ previous confirmed transaction.
 
 Persist wallet state with `serializeWallet` and restore it with
 `deserializeWallet`. Persist key material separately. Serialized wallet state
-contains private note data and must be encrypted at rest.
+contains UTXO data and must be encrypted at rest.
 
 ## Public API
 
@@ -256,9 +255,9 @@ The release workflow publishes the generated TypeDoc reference from
 `ts-sdk-v*` tags. The tag version must match this package's version. Published
 versions are immutable:
 
-- latest stable: <https://helius-labs.github.io/zolana/ts-sdk/>;
+- latest: <https://helius-labs.github.io/zolana/ts-sdk/>;
 - explicit version:
-  <https://helius-labs.github.io/zolana/ts-sdk/v0.1.0/>; and
+  <https://helius-labs.github.io/zolana/ts-sdk/v0.1.0-alpha/>; and
 - version index:
   <https://helius-labs.github.io/zolana/ts-sdk/versions.json>.
 
@@ -267,17 +266,17 @@ workflow runs.
 
 The intended long-term canonical location is
 `https://www.helius.dev/privacy/api/`, with immutable versions such as
-`https://www.helius.dev/privacy/api/v0.1.0/`. Migrate only after the Helius
+`https://www.helius.dev/privacy/api/v0.1.0-alpha/`. Migrate only after the Helius
 website proxies `/privacy/api/*` to the GitHub Pages `/zolana/ts-sdk/*` origin.
 At that point, update the release workflow's `PUBLIC_BASE_URL`; existing GitHub
 Pages URLs remain available as the backing origin.
 
 ## Important notes
 
-- Ed25519 is the supported owner rail for registration and private
+- Ed25519 is the supported owner scheme for registration and private
   transactions. `ShieldedKeypair.generate()` defaults to Ed25519.
 - Viewing keys use P256; this is separate from unsupported P256 owner
   registration or spending.
 - Non-loopback indexer and prover URLs must use HTTPS.
 - Protect signer seeds and shielded key material. Encrypt serialized wallet
-  state and avoid logging private balances, notes, or keys.
+  state and avoid logging private balances, UTXOs, or keys.

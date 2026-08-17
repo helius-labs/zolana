@@ -1,6 +1,6 @@
 {
   "$schema": "https://typedoc.org/schema.json",
-  "name": "@zolana/sdk",
+  "name": "@heliuslabs/zolana",
   "entryPoints": [
     "sdk-libs/ts/src/index.ts",
     "sdk-libs/ts/src/addresses.ts",
@@ -73,6 +73,6 @@
   "githubPages": true,
   "navigationLinks": {
     "GitHub": "https://github.com/helius-labs/zolana",
-    "npm": "https://www.npmjs.com/package/@zolana/sdk"
+    "npm": "https://www.npmjs.com/package/@heliuslabs/zolana"
   }
 }

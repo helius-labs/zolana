@@ -101,11 +101,11 @@ function redirectPage(destination, canonicalUrl) {
     <meta http-equiv="refresh" content="0; url=${destination}">
     <meta name="robots" content="noindex">
     <link rel="canonical" href="${canonicalUrl}">
-    <title>Zolana TypeScript SDK API reference</title>
+    <title>@heliuslabs/zolana API reference</title>
     <script>location.replace(${serializedDestination});</script>
   </head>
   <body>
-    <p>Continue to the <a href="${destination}">Zolana TypeScript SDK API reference</a>.</p>
+    <p>Continue to the <a href="${destination}">@heliuslabs/zolana API reference</a>.</p>
   </body>
 </html>
 `;
@@ -150,9 +150,10 @@ async function main() {
     .filter((entry) => entry.isDirectory() && entry.name.startsWith("v"))
     .map((entry) => parseVersion(entry.name.slice(1)))
     .sort((left, right) => semver.rcompare(left.value, right.value));
-  const latest = publishedVersions.find((entry) => entry.prerelease.length === 0);
+  const latest =
+    publishedVersions.find((entry) => entry.prerelease.length === 0) ?? publishedVersions[0];
   if (!latest) {
-    throw new Error("publish a stable API documentation version before prerelease versions");
+    throw new Error("no published API documentation versions");
   }
 
   const latestName = `v${latest.value}`;
