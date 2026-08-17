@@ -2,12 +2,12 @@
 
 Photon indexes Rings shielded-pool transactions and exposes the Rings JSON-RPC API:
 
-- `get_encrypted_utxos_by_tags`
-- `get_shielded_transactions_by_signature`
-- `get_shielded_transactions_by_tags`
-- `get_merkle_proofs`
-- `get_non_inclusion_proofs`
-- `get_nullifier_queue_elements`
+- `getEncryptedUtxosByTags`
+- `getShieldedTransactionsBySignature`
+- `getShieldedTransactionsByTags`
+- `getMerkleProofs`
+- `getNonInclusionProofs`
+- `getNullifierQueueElements`
 
 Photon is built from the Zolana Cargo workspace so its event parser, tree
 layout, SDK contract, and localnet tests always use the same source revision.

@@ -39,7 +39,7 @@ describe("proof compression", () => {
   });
 
   it("rejects stale commitments and malformed points", () => {
-    expect(() => parseProof({ ...ZERO_PROOF, proof_commitment: ZERO_POINT })).toThrow(
+    expect(() => parseProof({ ...ZERO_PROOF, proofCommitment: ZERO_POINT })).toThrow(
       expect.objectContaining({ code: "CLIENT_PROOF_PARSE" }),
     );
     expect(() => parseProof({ ...ZERO_PROOF, ar: ["0x1", "0x1"] })).toThrow(
@@ -54,8 +54,8 @@ describe("proof compression", () => {
     const withUnknownFields = parseProof({ ...ZERO_PROOF, curve: "bn254", commitments: 0 });
     const withEmptyCommitments = parseProof({
       ...ZERO_PROOF,
-      proof_commitment: [],
-      proof_commitment_pok: [],
+      proofCommitment: [],
+      proofCommitmentPok: [],
     });
     const bareCoordinates = parseProof({ ...ZERO_PROOF, ar: ["1", "2"] });
     const prefixedCoordinates = parseProof({ ...ZERO_PROOF, ar: ["0x1", "0x2"] });

@@ -113,10 +113,10 @@ func isFairQueueEnabled(queueName string) bool {
 func (rq *RedisQueue) StoreJobMeta(jobID string, queueName string, circuitType string) error {
 	key := fmt.Sprintf("zk_job_meta_%s", jobID)
 	meta := map[string]interface{}{
-		"queue":        queueName,
-		"circuit_type": circuitType,
-		"submitted_at": time.Now(),
-		"status":       "queued",
+		"queue":       queueName,
+		"circuitType": circuitType,
+		"submittedAt": time.Now(),
+		"status":      "queued",
 	}
 	data, err := json.Marshal(meta)
 	if err != nil {
@@ -177,7 +177,7 @@ func (rq *RedisQueue) DeleteJobMeta(jobID string) error {
 func (rq *RedisQueue) MarkJobProcessing(jobID string) error {
 	return rq.updateJobMeta(jobID, func(meta map[string]interface{}) {
 		meta["status"] = "processing"
-		meta["started_at"] = time.Now()
+		meta["startedAt"] = time.Now()
 	}, redis.KeepTTL)
 }
 
@@ -543,22 +543,22 @@ func (rq *RedisQueue) GetQueueHealth() (map[string]interface{}, error) {
 	}
 
 	health := make(map[string]interface{})
-	health["queue_lengths"] = stats
+	health["queueLengths"] = stats
 	health["timestamp"] = time.Now().Unix()
 
-	health["total_pending"] = stats["zk_address_append_queue"] + stats["zk_transfer_queue"]
-	health["total_processing"] = stats["zk_address_append_processing_queue"] + stats["zk_transfer_processing_queue"]
-	health["total_failed"] = stats["zk_failed_queue"]
-	health["total_results"] = stats["zk_results_queue"]
+	health["totalPending"] = stats["zk_address_append_queue"] + stats["zk_transfer_queue"]
+	health["totalProcessing"] = stats["zk_address_append_processing_queue"] + stats["zk_transfer_processing_queue"]
+	health["totalFailed"] = stats["zk_failed_queue"]
+	health["totalResults"] = stats["zk_results_queue"]
 
 	stuckJobs := rq.countStuckJobs()
-	health["stuck_jobs"] = stuckJobs
+	health["stuckJobs"] = stuckJobs
 
 	healthStatus := "healthy"
 	if stuckJobs > 0 {
 		healthStatus = "degraded"
 	}
-	if health["total_failed"].(int64) > 50 {
+	if health["totalFailed"].(int64) > 50 {
 		healthStatus = "unhealthy"
 	}
 	health["status"] = healthStatus

@@ -60,11 +60,10 @@ export function parseProof(value: unknown): Proof {
   a.set(bigintToBytes(y === 0n ? 0n : BN254_BASE_MODULUS - y), 32);
   const b = parseG2(proof["bs"], "$.proof.bs");
   const c = parseG1(proof["krs"], "$.proof.krs");
-  const hasCommitment =
-    present(proof["proof_commitment"]) || present(proof["proof_commitment_pok"]);
+  const hasCommitment = present(proof["proofCommitment"]) || present(proof["proofCommitmentPok"]);
   if (hasCommitment) {
     throw new ClientError("CLIENT_PROOF_PARSE", {
-      details: { path: "$.proof.proof_commitment", reason: "unsupported commitment proof" },
+      details: { path: "$.proof.proofCommitment", reason: "unsupported commitment proof" },
     });
   }
   return Object.freeze({

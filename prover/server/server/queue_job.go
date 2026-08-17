@@ -117,14 +117,14 @@ type ProofJob struct {
 	ID        string          `json:"id"`
 	Type      string          `json:"type"`
 	Payload   json.RawMessage `json:"payload"`
-	CreatedAt time.Time       `json:"created_at"`
+	CreatedAt time.Time       `json:"createdAt"`
 	// TreeID is the merkle tree pubkey - used for fair queuing across trees
 	// If empty, job goes to the default queue (backwards compatible)
-	TreeID string `json:"tree_id,omitempty"`
+	TreeID string `json:"treeId,omitempty"`
 	// BatchIndex is the batch sequence number within a tree - used to process batches in order
 	// Lower batch indices should be processed first to enable sequential transaction submission
 	// -1 means no batch index (legacy requests, FIFO)
-	BatchIndex int64 `json:"batch_index"`
+	BatchIndex int64 `json:"batchIndex"`
 }
 
 type QueueWorker interface {
@@ -315,15 +315,15 @@ func (w *BaseQueueWorker) processJobs() {
 
 		// Add to failed queue with new job ID (without full payload to save memory)
 		failedJob := map[string]interface{}{
-			"original_job": map[string]interface{}{
-				"id":           job.ID,
-				"type":         job.Type,
-				"payload_size": len(job.Payload),
-				"created_at":   job.CreatedAt,
+			"originalJob": map[string]interface{}{
+				"id":          job.ID,
+				"type":        job.Type,
+				"payloadSize": len(job.Payload),
+				"createdAt":   job.CreatedAt,
 			},
-			"error":       errorMsg,
-			"failed_at":   time.Now(),
-			"cached_from": cachedFailedJobID,
+			"error":      errorMsg,
+			"failedAt":   time.Now(),
+			"cachedFrom": cachedFailedJobID,
 		}
 
 		failedData, _ := json.Marshal(failedJob)
@@ -719,15 +719,15 @@ func failureDetails(job *ProofJob, err error) map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"original_job": map[string]interface{}{
-			"id":           job.ID,
-			"type":         job.Type,
-			"circuit_type": circuitType,
-			"payload_size": len(job.Payload),
-			"created_at":   job.CreatedAt,
+		"originalJob": map[string]interface{}{
+			"id":          job.ID,
+			"type":        job.Type,
+			"circuitType": circuitType,
+			"payloadSize": len(job.Payload),
+			"createdAt":   job.CreatedAt,
 		},
-		"error":     err.Error(),
-		"failed_at": time.Now(),
+		"error":    err.Error(),
+		"failedAt": time.Now(),
 	}
 }
 

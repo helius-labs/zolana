@@ -1534,9 +1534,9 @@ mod tests {
         assert_eq!(
             requests,
             [
-                "/get_merkle_proofs",
-                "/get_non_inclusion_proofs",
-                "/get_shielded_transactions_by_signature",
+                "/getMerkleProofs",
+                "/getNonInclusionProofs",
+                "/getShieldedTransactionsBySignature",
             ]
         );
     }
@@ -1626,7 +1626,7 @@ mod tests {
     fn confirm_private_transaction_sync_times_out_when_indexer_lags() {
         let signature = Signature::from([9u8; 64]);
         let server = MockIndexerServer::respond_with(vec![rpc_result(json!({
-            "context": { "block_time": 12, "slot": 1 },
+            "context": { "blockTime": 12, "slot": 1 },
             "transactions": [],
         }))]);
         let rpc = MockSubmitRpc::new(signature);
@@ -1652,7 +1652,7 @@ mod tests {
         let signature = Signature::from([10u8; 64]);
         let server = MockIndexerServer::respond_with(vec![
             rpc_result(json!({
-                "context": { "block_time": 12, "slot": 1 },
+                "context": { "blockTime": 12, "slot": 1 },
                 "transactions": [],
             })),
             indexed_transaction_by_signature_response(signature),
@@ -1675,8 +1675,8 @@ mod tests {
         assert_eq!(
             server.requests(),
             [
-                "/get_shielded_transactions_by_signature",
-                "/get_shielded_transactions_by_signature",
+                "/getShieldedTransactionsBySignature",
+                "/getShieldedTransactionsBySignature",
             ]
         );
     }
@@ -1705,8 +1705,8 @@ mod tests {
         assert_eq!(
             server.requests(),
             [
-                "/get_shielded_transactions_by_signature",
-                "/get_shielded_transactions_by_signature",
+                "/getShieldedTransactionsBySignature",
+                "/getShieldedTransactionsBySignature",
             ]
         );
     }
@@ -1738,8 +1738,8 @@ mod tests {
         assert_eq!(
             server.requests(),
             [
-                "/get_shielded_transactions_by_signature",
-                "/get_shielded_transactions_by_signature",
+                "/getShieldedTransactionsBySignature",
+                "/getShieldedTransactionsBySignature",
             ]
         );
         let ClientError::PollTimedOut {
@@ -1762,10 +1762,10 @@ mod tests {
     fn confirm_private_transaction_sync_accepts_events_sharing_a_view_tag() {
         let signature = Signature::from([18u8; 64]);
         let server = MockIndexerServer::respond_with(vec![rpc_result(json!({
-            "context": { "block_time": 12, "slot": 1 },
+            "context": { "blockTime": 12, "slot": 1 },
             "transactions": [
-                { "event_index": 0, "transaction": indexed_transaction_json(signature) },
-                { "event_index": 1, "transaction": indexed_transaction_json(signature) },
+                { "eventIndex": 0, "transaction": indexed_transaction_json(signature) },
+                { "eventIndex": 1, "transaction": indexed_transaction_json(signature) },
             ],
         }))]);
         let client = ZolanaClient::new(
@@ -1782,10 +1782,7 @@ mod tests {
             .confirm_private_transaction_sync(signature)
             .expect("events sharing a view tag are not an error");
 
-        assert_eq!(
-            server.requests(),
-            ["/get_shielded_transactions_by_signature"]
-        );
+        assert_eq!(server.requests(), ["/getShieldedTransactionsBySignature"]);
     }
 
     /// Confirmation no longer reads view tags, so the forwarders are the only
@@ -1949,39 +1946,39 @@ mod tests {
 
     fn merkle_response(tree: Address, leaf: [u8; 32]) -> Value {
         rpc_result(json!({
-            "context": { "block_time": 10, "slot": 1 },
+            "context": { "blockTime": 10, "slot": 1 },
             "proofs": [{
                 "leaf": encode_hash(leaf),
-                "merkle_context": {
-                    "tree_type": 0,
+                "merkleContext": {
+                    "treeType": 0,
                     "tree": encode_address(tree),
                 },
                 "path": vec![encode_hash([0u8; 32]); crate::rpc::STATE_TREE_HEIGHT],
-                "leaf_index": 0,
+                "leafIndex": 0,
                 "root": encode_hash([3u8; 32]),
-                "root_seq": 1,
-                "root_index": 0,
+                "rootSeq": 1,
+                "rootIndex": 0,
             }],
         }))
     }
 
     fn nullifier_response(tree: Address, leaf: [u8; 32]) -> Value {
         rpc_result(json!({
-            "context": { "block_time": 10, "slot": 1 },
+            "context": { "blockTime": 10, "slot": 1 },
             "proofs": [{
                 "leaf": encode_hash(leaf),
-                "merkle_context": {
-                    "tree_type": 1,
+                "merkleContext": {
+                    "treeType": 1,
                     "tree": encode_address(tree),
                 },
                 "path": vec![encode_hash([0u8; 32]); crate::rpc::NULLIFIER_TREE_HEIGHT],
-                "low_element": encode_hash([0u8; 32]),
-                "low_element_index": 0,
-                "high_element": encode_hash([u8::MAX; 32]),
-                "high_element_index": 1,
+                "lowElement": encode_hash([0u8; 32]),
+                "lowElementIndex": 0,
+                "highElement": encode_hash([u8::MAX; 32]),
+                "highElementIndex": 1,
                 "root": encode_hash([4u8; 32]),
-                "root_seq": 1,
-                "root_index": 0,
+                "rootSeq": 1,
+                "rootIndex": 0,
             }],
         }))
     }
@@ -1989,14 +1986,14 @@ mod tests {
     fn indexed_transaction_json(signature: Signature) -> Value {
         json!({
             "slot": 11,
-            "tx_signature": signature.to_string(),
-            "tx_viewing_pk": null,
-            "output_slots": [{
-                "view_tag": encode_hash([0u8; 32]),
-                "output_context": {
+            "txSignature": signature.to_string(),
+            "txViewingPk": null,
+            "outputSlots": [{
+                "viewTag": encode_hash([0u8; 32]),
+                "outputContext": {
                     "hash": encode_hash([1u8; 32]),
                     "tree": encode_address(Address::new_from_array([8u8; 32])),
-                    "leaf_index": 0,
+                    "leafIndex": 0,
                 },
                 "payload": "",
             }],
@@ -2008,9 +2005,9 @@ mod tests {
 
     fn indexed_transaction_by_signature_response(signature: Signature) -> Value {
         rpc_result(json!({
-            "context": { "block_time": 11, "slot": 1 },
+            "context": { "blockTime": 11, "slot": 1 },
             "transactions": [{
-                "event_index": 0,
+                "eventIndex": 0,
                 "transaction": indexed_transaction_json(signature),
             }],
         }))

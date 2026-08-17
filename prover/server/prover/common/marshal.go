@@ -32,8 +32,8 @@ type ProofJSON struct {
 	Ar                 [2]string    `json:"ar"`
 	Bs                 [2][2]string `json:"bs"`
 	Krs                [2]string    `json:"krs"`
-	ProofCommitment    []string     `json:"proof_commitment,omitempty"`
-	ProofCommitmentPok []string     `json:"proof_commitment_pok,omitempty"`
+	ProofCommitment    []string     `json:"proofCommitment,omitempty"`
+	ProofCommitmentPok []string     `json:"proofCommitmentPok,omitempty"`
 }
 
 func (p *Proof) MarshalJSON() ([]byte, error) {

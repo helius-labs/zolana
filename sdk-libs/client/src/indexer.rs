@@ -643,7 +643,7 @@ fn convert_encrypted_utxo_match(
         output_slot: convert_output_slot(item.output_slot),
         tx_viewing_pk: decode_optional_p256(
             item.tx_viewing_pk,
-            &format!("matches[{index}].tx_viewing_pk"),
+            &format!("matches[{index}].txViewingPk"),
         )?,
         salt: decode_optional_salt(item.salt, &format!("matches[{index}].salt"))?,
     })
@@ -695,7 +695,7 @@ fn convert_shielded_transaction(
     Ok(ShieldedTransaction {
         slot: item.slot,
         tx_signature: item.tx_signature.0,
-        tx_viewing_pk: decode_optional_p256(item.tx_viewing_pk, &format!("{path}.tx_viewing_pk"))?,
+        tx_viewing_pk: decode_optional_p256(item.tx_viewing_pk, &format!("{path}.txViewingPk"))?,
         salt: decode_optional_salt(item.salt, &format!("{path}.salt"))?,
         output_slots: item
             .output_slots
@@ -836,12 +836,10 @@ mod tests {
         let secret = SecretKey::from_slice(&[1u8; 32]).unwrap();
         let public = secret.public_key();
         let point = public.to_encoded_point(true);
-        let key = decode_optional_p256(
-            Some(Base64String(point.as_bytes().to_vec())),
-            "tx_viewing_pk",
-        )
-        .unwrap()
-        .unwrap();
+        let key =
+            decode_optional_p256(Some(Base64String(point.as_bytes().to_vec())), "txViewingPk")
+                .unwrap()
+                .unwrap();
 
         assert_eq!(key.as_bytes(), point.as_bytes());
     }
@@ -855,22 +853,22 @@ mod tests {
         let signature = signature(9);
         let (tx_viewing_pk_bytes, tx_viewing_pk) = compressed_p256_pubkey(3);
         let response = rpc_result(json!({
-            "context": { "block_time": 42, "slot": 1 },
+            "context": { "blockTime": 42, "slot": 1 },
             "matches": [{
                 "slot": 7,
-                "tx_signature": signature.to_string(),
-                "output_slot": {
-                    "view_tag": encode_hash_string(tag_a),
-                    "output_context": {
+                "txSignature": signature.to_string(),
+                "outputSlot": {
+                    "viewTag": encode_hash_string(tag_a),
+                    "outputContext": {
                         "hash": encode_hash_string(utxo_hash),
                         "tree": encode_pubkey_string(output_tree),
-                        "leaf_index": 11,
+                        "leafIndex": 11,
                     },
                     "payload": STANDARD.encode([8, 9, 10]),
                 },
-                "tx_viewing_pk": STANDARD.encode(&tx_viewing_pk_bytes),
+                "txViewingPk": STANDARD.encode(&tx_viewing_pk_bytes),
             }],
-            "next_cursor": STANDARD.encode([5, 6]),
+            "nextCursor": STANDARD.encode([5, 6]),
         }));
         let server = MockServer::respond_once(response);
         let indexer = ZolanaIndexer::new(server.url());
@@ -880,8 +878,8 @@ mod tests {
             .expect("encrypted UTXO lookup");
         let request = server.request();
 
-        assert_eq!(request.path, "/get_encrypted_utxos_by_tags");
-        assert_json_rpc_request(&request.body, "get_encrypted_utxos_by_tags");
+        assert_eq!(request.path, "/getEncryptedUtxosByTags");
+        assert_json_rpc_request(&request.body, "getEncryptedUtxosByTags");
         assert_eq!(
             request.body["params"],
             json!({
@@ -925,17 +923,17 @@ mod tests {
         let nullifier = bytes32(13);
         let signature = signature(14);
         let response = rpc_result(json!({
-            "context": { "block_time": 51, "slot": 1 },
+            "context": { "blockTime": 51, "slot": 1 },
             "transactions": [{
                 "slot": 50,
-                "tx_signature": signature.to_string(),
-                "tx_viewing_pk": null,
-                "output_slots": [{
-                    "view_tag": encode_hash_string(tag),
-                    "output_context": {
+                "txSignature": signature.to_string(),
+                "txViewingPk": null,
+                "outputSlots": [{
+                    "viewTag": encode_hash_string(tag),
+                    "outputContext": {
                         "hash": encode_hash_string(output_hash),
                         "tree": encode_pubkey_string(output_tree),
-                        "leaf_index": 16,
+                        "leafIndex": 16,
                     },
                     "payload": STANDARD.encode([21, 22]),
                 }],
@@ -943,7 +941,7 @@ mod tests {
                 "nullifiers": [encode_hash_string(nullifier)],
                 "proofless": true,
             }],
-            "next_cursor": STANDARD.encode([23]),
+            "nextCursor": STANDARD.encode([23]),
         }));
         let server = MockServer::respond_once(response);
         let indexer = ZolanaIndexer::new(server.url());
@@ -953,8 +951,8 @@ mod tests {
             .expect("shielded transaction lookup");
         let request = server.request();
 
-        assert_eq!(request.path, "/get_shielded_transactions_by_tags");
-        assert_json_rpc_request(&request.body, "get_shielded_transactions_by_tags");
+        assert_eq!(request.path, "/getShieldedTransactionsByTags");
+        assert_json_rpc_request(&request.body, "getShieldedTransactionsByTags");
         assert_eq!(
             request.body["params"],
             json!({
@@ -996,14 +994,14 @@ mod tests {
     fn get_shielded_transactions_by_signature_preserves_event_index() {
         let signature = signature(24);
         let response = rpc_result(json!({
-            "context": { "block_time": 52, "slot": 1 },
+            "context": { "blockTime": 52, "slot": 1 },
             "transactions": [{
-                "event_index": 3,
+                "eventIndex": 3,
                 "transaction": {
                     "slot": 50,
-                    "tx_signature": signature.to_string(),
-                    "tx_viewing_pk": null,
-                    "output_slots": [],
+                    "txSignature": signature.to_string(),
+                    "txViewingPk": null,
+                    "outputSlots": [],
                     "messages": [],
                     "nullifiers": [],
                     "proofless": false,
@@ -1018,11 +1016,11 @@ mod tests {
             .expect("direct shielded transaction lookup");
         let request = server.request();
 
-        assert_eq!(request.path, "/get_shielded_transactions_by_signature");
-        assert_json_rpc_request(&request.body, "get_shielded_transactions_by_signature");
+        assert_eq!(request.path, "/getShieldedTransactionsBySignature");
+        assert_json_rpc_request(&request.body, "getShieldedTransactionsBySignature");
         assert_eq!(
             request.body["params"],
-            json!({ "tx_signature": signature.to_string() })
+            json!({ "txSignature": signature.to_string() })
         );
         let indexed = got
             .transactions
@@ -1038,9 +1036,9 @@ mod tests {
         let nullifier_a = bytes32(24);
         let nullifier_b = bytes32(25);
         let response = rpc_result(json!({
-            "context": { "block_time": 52, "slot": 1 },
+            "context": { "blockTime": 52, "slot": 1 },
             "transactions": [],
-            "next_cursor": null,
+            "nextCursor": null,
         }));
         let server = MockServer::respond_once(response);
         let indexer = ZolanaIndexer::new(server.url());
@@ -1055,8 +1053,8 @@ mod tests {
             .expect("nullifier transaction lookup");
         let request = server.request();
 
-        assert_eq!(request.path, "/get_shielded_transactions_by_nullifiers");
-        assert_json_rpc_request(&request.body, "get_shielded_transactions_by_nullifiers");
+        assert_eq!(request.path, "/getShieldedTransactionsByNullifiers");
+        assert_json_rpc_request(&request.body, "getShieldedTransactionsByNullifiers");
         assert_eq!(
             request.body["params"],
             json!({
@@ -1088,18 +1086,18 @@ mod tests {
         let path = vec![bytes32(34), bytes32(35)];
         let root = bytes32(36);
         let response = rpc_result(json!({
-            "context": { "block_time": 80, "slot": 1 },
+            "context": { "blockTime": 80, "slot": 1 },
             "proofs": [{
                 "leaf": encode_hash_string(leaf_a),
-                "merkle_context": {
-                    "tree_type": 1,
+                "merkleContext": {
+                    "treeType": 1,
                     "tree": encode_pubkey_string(tree),
                 },
                 "path": path.iter().copied().map(encode_hash_string).collect::<Vec<_>>(),
-                "leaf_index": 9,
+                "leafIndex": 9,
                 "root": encode_hash_string(root),
-                "root_seq": 10,
-                "root_index": 11,
+                "rootSeq": 10,
+                "rootIndex": 11,
             }],
         }));
         let server = MockServer::respond_once(response);
@@ -1110,12 +1108,12 @@ mod tests {
             .expect("merkle proofs");
         let request = server.request();
 
-        assert_eq!(request.path, "/get_merkle_proofs");
-        assert_json_rpc_request(&request.body, "get_merkle_proofs");
+        assert_eq!(request.path, "/getMerkleProofs");
+        assert_json_rpc_request(&request.body, "getMerkleProofs");
         assert_eq!(
             request.body["params"],
             json!({
-                "tree_account": encode_pubkey_string(tree),
+                "treeAccount": encode_pubkey_string(tree),
                 "leaves": [encode_hash_string(leaf_a)],
             })
         );
@@ -1148,21 +1146,21 @@ mod tests {
         let path = vec![bytes32(45), bytes32(46)];
         let root = bytes32(47);
         let response = rpc_result(json!({
-            "context": { "block_time": 90, "slot": 1 },
+            "context": { "blockTime": 90, "slot": 1 },
             "proofs": [{
                 "leaf": encode_hash_string(leaf),
-                "merkle_context": {
-                    "tree_type": 2,
+                "merkleContext": {
+                    "treeType": 2,
                     "tree": encode_pubkey_string(tree),
                 },
                 "path": path.iter().copied().map(encode_hash_string).collect::<Vec<_>>(),
-                "low_element": encode_hash_string(low),
-                "low_element_index": 3,
-                "high_element": encode_hash_string(high),
-                "high_element_index": 4,
+                "lowElement": encode_hash_string(low),
+                "lowElementIndex": 3,
+                "highElement": encode_hash_string(high),
+                "highElementIndex": 4,
                 "root": encode_hash_string(root),
-                "root_seq": 12,
-                "root_index": 13,
+                "rootSeq": 12,
+                "rootIndex": 13,
             }],
         }));
         let server = MockServer::respond_once(response);
@@ -1173,12 +1171,12 @@ mod tests {
             .expect("non-inclusion proofs");
         let request = server.request();
 
-        assert_eq!(request.path, "/get_non_inclusion_proofs");
-        assert_json_rpc_request(&request.body, "get_non_inclusion_proofs");
+        assert_eq!(request.path, "/getNonInclusionProofs");
+        assert_json_rpc_request(&request.body, "getNonInclusionProofs");
         assert_eq!(
             request.body["params"],
             json!({
-                "tree_account": encode_pubkey_string(tree),
+                "treeAccount": encode_pubkey_string(tree),
                 "leaves": [encode_hash_string(leaf)],
             })
         );
@@ -1236,7 +1234,7 @@ mod tests {
         assert!(matches!(rate_limit, ClientError::IndexerUnavailable(_)));
 
         let internal_error = indexer_error(zolana_api::ApiError::JsonRpc {
-            method: "get_shielded_transactions_by_signature",
+            method: "getShieldedTransactionsBySignature",
             code: Some(-32603),
             message: Some("Internal error".to_string()),
         });
@@ -1246,13 +1244,13 @@ mod tests {
     #[test]
     fn classifies_non_transient_indexer_errors_without_retry() {
         let method_not_found = indexer_error(zolana_api::ApiError::JsonRpc {
-            method: "get_shielded_transactions_by_signature",
+            method: "getShieldedTransactionsBySignature",
             code: Some(-32601),
             message: Some("Method not found".to_string()),
         });
         assert!(matches!(
             method_not_found,
-            ClientError::UnsupportedRpcMethod("get_shielded_transactions_by_signature")
+            ClientError::UnsupportedRpcMethod("getShieldedTransactionsBySignature")
         ));
 
         let request_error = reqwest::blocking::Client::new()
@@ -1267,17 +1265,17 @@ mod tests {
     fn rejects_malformed_output_slot_hash() {
         let tag = bytes32(51);
         let response = rpc_result(json!({
-            "context": { "block_time": 1, "slot": 1 },
+            "context": { "blockTime": 1, "slot": 1 },
             "transactions": [{
                 "slot": 1,
-                "tx_signature": signature(52).to_string(),
-                "tx_viewing_pk": null,
-                "output_slots": [{
-                    "view_tag": encode_hash_string(tag),
-                    "output_context": {
+                "txSignature": signature(52).to_string(),
+                "txViewingPk": null,
+                "outputSlots": [{
+                    "viewTag": encode_hash_string(tag),
+                    "outputContext": {
                         "hash": bs58::encode([1u8; 31]).into_string(),
                         "tree": encode_pubkey_string(Address::new_from_array(bytes32(53))),
-                        "leaf_index": 1,
+                        "leafIndex": 1,
                     },
                     "payload": STANDARD.encode([1]),
                 }],
@@ -1285,7 +1283,7 @@ mod tests {
                 "nullifiers": [],
                 "proofless": true,
             }],
-            "next_cursor": null,
+            "nextCursor": null,
         }));
         let server = MockServer::respond_once(response);
         let indexer = ZolanaIndexer::new(server.url());
@@ -1297,21 +1295,21 @@ mod tests {
 
         let message = err.to_string();
         assert!(message.contains("wrong size"));
-        assert!(message.contains("result.transactions[0].output_slots[0].output_context.hash"));
+        assert!(message.contains("result.transactions[0].outputSlots[0].outputContext.hash"));
     }
 
     #[test]
     fn by_signature_error_path_includes_transaction_nesting() {
         let signature = signature(61);
         let response = rpc_result(json!({
-            "context": { "block_time": 1, "slot": 1 },
+            "context": { "blockTime": 1, "slot": 1 },
             "transactions": [{
-                "event_index": 0,
+                "eventIndex": 0,
                 "transaction": {
                     "slot": 1,
-                    "tx_signature": signature.to_string(),
-                    "tx_viewing_pk": STANDARD.encode([1u8; 16]),
-                    "output_slots": [],
+                    "txSignature": signature.to_string(),
+                    "txViewingPk": STANDARD.encode([1u8; 16]),
+                    "outputSlots": [],
                     "messages": [],
                     "nullifiers": [],
                     "proofless": false,
@@ -1328,7 +1326,7 @@ mod tests {
 
         assert!(err
             .to_string()
-            .contains("transactions[0].transaction.tx_viewing_pk"));
+            .contains("transactions[0].transaction.txViewingPk"));
     }
 
     fn assert_json_rpc_request(body: &Value, method: &str) {

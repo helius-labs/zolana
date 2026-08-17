@@ -184,12 +184,12 @@ mod tests {
         assert!(methods.contains(&"readiness"));
         assert!(methods.contains(&"getIndexerHealth"));
         assert!(methods.contains(&"getIndexerSlot"));
-        assert!(methods.contains(&"get_encrypted_utxos_by_tags"));
-        assert!(methods.contains(&"get_shielded_transactions_by_signature"));
-        assert!(methods.contains(&"get_shielded_transactions_by_tags"));
-        assert!(methods.contains(&"get_merkle_proofs"));
-        assert!(methods.contains(&"get_non_inclusion_proofs"));
-        assert!(methods.contains(&"get_nullifier_queue_elements"));
+        assert!(methods.contains(&"getEncryptedUtxosByTags"));
+        assert!(methods.contains(&"getShieldedTransactionsBySignature"));
+        assert!(methods.contains(&"getShieldedTransactionsByTags"));
+        assert!(methods.contains(&"getMerkleProofs"));
+        assert!(methods.contains(&"getNonInclusionProofs"));
+        assert!(methods.contains(&"getNullifierQueueElements"));
     }
 
     async fn test_api() -> PhotonApi {

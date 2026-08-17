@@ -242,11 +242,11 @@ impl ProverClient {
             .map_err(|e| ClientError::ProofParse(format!("invalid response JSON: {e}")))?;
 
         // A Redis-backed prover queues supported proofs and returns a job
-        // handle (`{ job_id, status, status_url }`) instead of a proof; poll the
+        // handle (`{ jobId, status, statusUrl }`) instead of a proof; poll the
         // status endpoint until it completes. A synchronous prover returns the
         // proof directly (plain gnark JSON or a `{ proof, .. }` envelope).
         if value.get("proof").is_none() {
-            if let Some(job_id) = value.get("job_id").and_then(|v| v.as_str()) {
+            if let Some(job_id) = value.get("jobId").and_then(|v| v.as_str()) {
                 return self.poll_async(job_id);
             }
         }
@@ -255,7 +255,7 @@ impl ProverClient {
 
     /// Poll the async job status endpoint until the queued proof completes.
     fn poll_async(&self, job_id: &str) -> Result<Proof, ClientError> {
-        let url = format!("{}/prove/status?job_id={}", self.server_address, job_id);
+        let url = format!("{}/prove/status?jobId={}", self.server_address, job_id);
         // The configured interval caps the backoff rather than setting it. This
         // used to be `.max(1)` and `sleep_secs`, which put a hard 1s floor on
         // every proof: a 270ms proof measured 3.3s end to end, essentially all
@@ -319,7 +319,7 @@ impl ProverClient {
                 .map_err(|e| ClientError::ProofParse(format!("invalid status JSON: {e}")))?;
 
             match value.get("status").and_then(|v| v.as_str()) {
-                // The completed result is a `{ proof, proof_duration_ms }` envelope
+                // The completed result is a `{ proof, proofDurationMs }` envelope
                 // nested under `result`.
                 Some("completed") => {
                     let result = value.get("result").map_or(&value, |result| result);
@@ -476,7 +476,7 @@ impl AsyncProverClient {
                         ClientError::ProofParse(format!("invalid response JSON: {e}"))
                     })?;
                     if value.get("proof").is_none() {
-                        if let Some(job_id) = value.get("job_id").and_then(|v| v.as_str()) {
+                        if let Some(job_id) = value.get("jobId").and_then(|v| v.as_str()) {
                             return self.poll_async(job_id).await;
                         }
                     }
@@ -495,7 +495,7 @@ impl AsyncProverClient {
     }
 
     async fn poll_async(&self, job_id: &str) -> Result<Proof, ClientError> {
-        let url = format!("{}/prove/status?job_id={}", self.server_address, job_id);
+        let url = format!("{}/prove/status?jobId={}", self.server_address, job_id);
         let poll_cap_ms = self
             .async_poll
             .poll_interval_secs
@@ -810,12 +810,12 @@ mod tests {
     #[test]
     fn a_proof_ready_on_the_first_poll_is_not_held_for_a_whole_second() {
         let server = MockServer::respond_with(vec![
-            MockResponse::json(202, json!({ "job_id": "job-1", "status": "queued" })),
+            MockResponse::json(202, json!({ "jobId": "job-1", "status": "queued" })),
             MockResponse::json(
                 200,
                 json!({
                     "status": "completed",
-                    "result": { "proof": gnark_proof(), "proof_duration_ms": 7 },
+                    "result": { "proof": gnark_proof(), "proofDurationMs": 7 },
                 }),
             ),
         ]);
@@ -862,9 +862,9 @@ mod tests {
             MockResponse::json(
                 202,
                 json!({
-                    "job_id": "job-1",
+                    "jobId": "job-1",
                     "status": "queued",
-                    "status_url": "/prove/status?job_id=job-1",
+                    "statusUrl": "/prove/status?jobId=job-1",
                 }),
             ),
             MockResponse::json(200, json!({ "status": "queued" })),
@@ -874,7 +874,7 @@ mod tests {
                     "status": "completed",
                     "result": {
                         "proof": gnark_proof(),
-                        "proof_duration_ms": 7,
+                        "proofDurationMs": 7,
                     },
                 }),
             ),
@@ -888,8 +888,8 @@ mod tests {
             &requests,
             [
                 "/prove",
-                "/prove/status?job_id=job-1",
-                "/prove/status?job_id=job-1",
+                "/prove/status?jobId=job-1",
+                "/prove/status?jobId=job-1",
             ],
         );
         assert_eq!(proof.a, [0u8; 64]);
@@ -901,7 +901,7 @@ mod tests {
     #[test]
     fn poll_async_failed_status_errors() {
         let server = MockServer::respond_with(vec![
-            MockResponse::json(202, json!({ "job_id": "job-failed" })),
+            MockResponse::json(202, json!({ "jobId": "job-failed" })),
             MockResponse::json(
                 200,
                 json!({
@@ -915,7 +915,7 @@ mod tests {
             .expect_err("failed async status should surface");
         let requests = server.requests();
 
-        assert_paths(&requests, ["/prove", "/prove/status?job_id=job-failed"]);
+        assert_paths(&requests, ["/prove", "/prove/status?jobId=job-failed"]);
         let message = err.to_string();
         assert!(message.contains("async proof failed"));
         assert!(message.contains("prover rejected witness"));
@@ -924,7 +924,7 @@ mod tests {
     #[test]
     fn poll_async_times_out_after_max_wait() {
         let server = MockServer::respond_with(vec![
-            MockResponse::json(202, json!({ "job_id": "job-slow" })),
+            MockResponse::json(202, json!({ "jobId": "job-slow" })),
             MockResponse::json(200, json!({ "status": "queued" })),
             MockResponse::json(200, json!({ "status": "processing" })),
         ]);
@@ -937,8 +937,8 @@ mod tests {
             &requests,
             [
                 "/prove",
-                "/prove/status?job_id=job-slow",
-                "/prove/status?job_id=job-slow",
+                "/prove/status?jobId=job-slow",
+                "/prove/status?jobId=job-slow",
             ],
         );
         assert!(err.to_string().contains("async proof timed out after 1s"));
@@ -947,7 +947,7 @@ mod tests {
     #[test]
     fn poll_async_rejects_malformed_status_body() {
         let server = MockServer::respond_with(vec![
-            MockResponse::json(202, json!({ "job_id": "job-bad-json" })),
+            MockResponse::json(202, json!({ "jobId": "job-bad-json" })),
             MockResponse::text(200, "not json"),
         ]);
         let err = queued_prover_client(server.url())
@@ -955,14 +955,14 @@ mod tests {
             .expect_err("malformed status body should fail");
         let requests = server.requests();
 
-        assert_paths(&requests, ["/prove", "/prove/status?job_id=job-bad-json"]);
+        assert_paths(&requests, ["/prove", "/prove/status?jobId=job-bad-json"]);
         assert!(err.to_string().contains("invalid status JSON"));
     }
 
     #[test]
     fn poll_async_client_error_status_fails_fast() {
         let server = MockServer::respond_with(vec![
-            MockResponse::json(202, json!({ "job_id": "missing-job" })),
+            MockResponse::json(202, json!({ "jobId": "missing-job" })),
             MockResponse::json(
                 404,
                 json!({
@@ -976,7 +976,7 @@ mod tests {
             .expect_err("404 status should fail immediately");
         let requests = server.requests();
 
-        assert_paths(&requests, ["/prove", "/prove/status?job_id=missing-job"]);
+        assert_paths(&requests, ["/prove", "/prove/status?jobId=missing-job"]);
         let message = err.to_string();
         assert!(message.contains("status 404 Not Found"));
         assert!(message.contains("job_not_found"));
@@ -985,7 +985,7 @@ mod tests {
     #[test]
     fn poll_async_retries_transient_status_poll_errors() {
         let server = MockServer::respond_with(vec![
-            MockResponse::json(202, json!({ "job_id": "job-transient" })),
+            MockResponse::json(202, json!({ "jobId": "job-transient" })),
             MockResponse::disconnect(),
             MockResponse::json(
                 200,
@@ -993,7 +993,7 @@ mod tests {
                     "status": "completed",
                     "result": {
                         "proof": gnark_proof(),
-                        "proof_duration_ms": 3,
+                        "proofDurationMs": 3,
                     },
                 }),
             ),
@@ -1007,8 +1007,8 @@ mod tests {
             &requests,
             [
                 "/prove",
-                "/prove/status?job_id=job-transient",
-                "/prove/status?job_id=job-transient",
+                "/prove/status?jobId=job-transient",
+                "/prove/status?jobId=job-transient",
             ],
         );
         assert_eq!(proof.a, [0u8; 64]);
@@ -1017,7 +1017,7 @@ mod tests {
     #[tokio::test]
     async fn async_prover_poll_returns_completed_nested_proof() {
         let server = MockServer::respond_with(vec![
-            MockResponse::json(202, json!({ "job_id": "async-job" })),
+            MockResponse::json(202, json!({ "jobId": "async-job" })),
             MockResponse::json(200, json!({ "status": "processing" })),
             MockResponse::json(
                 200,
@@ -1025,7 +1025,7 @@ mod tests {
                     "status": "completed",
                     "result": {
                         "proof": gnark_proof(),
-                        "proof_duration_ms": 4,
+                        "proofDurationMs": 4,
                     },
                 }),
             ),
@@ -1040,8 +1040,8 @@ mod tests {
             &requests,
             [
                 "/prove",
-                "/prove/status?job_id=async-job",
-                "/prove/status?job_id=async-job",
+                "/prove/status?jobId=async-job",
+                "/prove/status?jobId=async-job",
             ],
         );
         assert_eq!(proof.a, [0u8; 64]);
@@ -1052,7 +1052,7 @@ mod tests {
     #[tokio::test]
     async fn async_prover_poll_retries_transient_error() {
         let server = MockServer::respond_with(vec![
-            MockResponse::json(202, json!({ "job_id": "async-transient" })),
+            MockResponse::json(202, json!({ "jobId": "async-transient" })),
             MockResponse::disconnect(),
             MockResponse::json(
                 200,
@@ -1072,8 +1072,8 @@ mod tests {
             &requests,
             [
                 "/prove",
-                "/prove/status?job_id=async-transient",
-                "/prove/status?job_id=async-transient",
+                "/prove/status?jobId=async-transient",
+                "/prove/status?jobId=async-transient",
             ],
         );
     }

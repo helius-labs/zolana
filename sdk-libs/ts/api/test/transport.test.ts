@@ -5,7 +5,7 @@ import { ApiError, ZolanaApi } from "../../src/api/index.js";
 const HASH = "11111111111111111111111111111111";
 const SIGNATURE = "1".repeat(64);
 const REQUEST = { treeAccount: HASH, leaves: [HASH] } as never;
-const RESULT = { context: { block_time: 0, slot: 1 }, proofs: [] };
+const RESULT = { context: { blockTime: 0, slot: 1 }, proofs: [] };
 
 function success(result: unknown = RESULT): Response {
   return new Response(
@@ -42,7 +42,7 @@ describe("transport configuration", () => {
 
     expect(injected).toHaveBeenCalledOnce();
     expect(String(injected.mock.calls[0]?.[0])).toBe(
-      "https://rpc.example.test/root/get_merkle_proofs?tenant=one&api-key=test-key",
+      "https://rpc.example.test/root/getMerkleProofs?tenant=one&api-key=test-key",
     );
     expect(injected.mock.calls[0]?.[1]?.redirect).toBe("error");
   });
@@ -57,7 +57,7 @@ describe("transport configuration", () => {
     await api.getMerkleProofs(REQUEST);
 
     expect(String(injected.mock.calls[0]?.[0])).toBe(
-      "https://gateway.example/zolana/get_merkle_proofs?tenant=alpha&api-key=k%2B1",
+      "https://gateway.example/zolana/getMerkleProofs?tenant=alpha&api-key=k%2B1",
     );
   });
 
@@ -70,7 +70,7 @@ describe("transport configuration", () => {
     await api.getMerkleProofs(REQUEST);
 
     expect(String(injected.mock.calls[0]?.[0])).toBe(
-      "https://rpc.example.test/first/get_merkle_proofs",
+      "https://rpc.example.test/first/getMerkleProofs",
     );
   });
 
@@ -78,16 +78,16 @@ describe("transport configuration", () => {
     const injected = vi.fn<typeof globalThis.fetch>(() =>
       Promise.resolve(
         success({
-          context: { block_time: 0, slot: 1 },
+          context: { blockTime: 0, slot: 1 },
           transactions: [
             {
-              event_index: 1,
+              eventIndex: 1,
               transaction: {
                 slot: 2,
-                tx_signature: SIGNATURE,
-                tx_viewing_pk: null,
+                txSignature: SIGNATURE,
+                txViewingPk: null,
                 salt: null,
-                output_slots: [],
+                outputSlots: [],
                 messages: [],
                 nullifiers: [],
                 proofless: false,
@@ -105,10 +105,10 @@ describe("transport configuration", () => {
 
     expect(response.transactions[0]?.eventIndex).toBe(1);
     expect(String(injected.mock.calls[0]?.[0])).toBe(
-      "https://rpc.example.test/get_shielded_transactions_by_signature",
+      "https://rpc.example.test/getShieldedTransactionsBySignature",
     );
     expect(JSON.parse(String(injected.mock.calls[0]?.[1]?.body))).toMatchObject({
-      params: { tx_signature: SIGNATURE },
+      params: { txSignature: SIGNATURE },
     });
   });
 
@@ -116,9 +116,9 @@ describe("transport configuration", () => {
     const injected = vi.fn<typeof globalThis.fetch>(() =>
       Promise.resolve(
         success({
-          context: { block_time: 0, slot: 1 },
+          context: { blockTime: 0, slot: 1 },
           transactions: [],
-          next_cursor: "Ag==",
+          nextCursor: "Ag==",
         }),
       ),
     );
@@ -132,10 +132,10 @@ describe("transport configuration", () => {
 
     expect(response.nextCursor).toBe("Ag==");
     expect(String(injected.mock.calls[0]?.[0])).toBe(
-      "https://rpc.example.test/get_shielded_transactions_by_nullifiers",
+      "https://rpc.example.test/getShieldedTransactionsByNullifiers",
     );
     expect(JSON.parse(String(injected.mock.calls[0]?.[1]?.body))).toMatchObject({
-      method: "get_shielded_transactions_by_nullifiers",
+      method: "getShieldedTransactionsByNullifiers",
       params: { nullifiers: [HASH], cursor: "AQ==", limit: 1000 },
     });
   });
@@ -170,7 +170,7 @@ describe("transport configuration", () => {
       "API_INVALID_CONTEXT",
     );
 
-    expect(error.details).toEqual({ field: "timeoutMs", method: "get_merkle_proofs" });
+    expect(error.details).toEqual({ field: "timeoutMs", method: "getMerkleProofs" });
     expect(injected).not.toHaveBeenCalled();
   });
 });
@@ -273,7 +273,7 @@ describe("integers past the safe-integer bound", () => {
   }
 
   function merkleProofsBody(leafIndex: string, rootSeq: string): string {
-    return `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"block_time":0,"slot":1},"proofs":[{"leaf":"${HASH}","merkle_context":{"tree_type":0,"tree":"${HASH}"},"path":["${HASH}"],"leaf_index":${leafIndex},"root":"${HASH}","root_seq":${rootSeq},"root_index":0}]}}`;
+    return `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"blockTime":0,"slot":1},"proofs":[{"leaf":"${HASH}","merkleContext":{"treeType":0,"tree":"${HASH}"},"path":["${HASH}"],"leafIndex":${leafIndex},"root":"${HASH}","rootSeq":${rootSeq},"rootIndex":0}]}}`;
   }
 
   it("reads a u64 above the safe-integer bound without losing precision", async () => {
@@ -286,7 +286,7 @@ describe("integers past the safe-integer bound", () => {
   });
 
   it("leaves a safe integer and a negative block time as they were sent", async () => {
-    const body = `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"block_time":-1700000000,"slot":1},"proofs":[{"leaf":"${HASH}","merkle_context":{"tree_type":0,"tree":"${HASH}"},"path":["${HASH}"],"leaf_index":9007199254740991,"root":"${HASH}","root_seq":0,"root_index":0}]}}`;
+    const body = `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"blockTime":-1700000000,"slot":1},"proofs":[{"leaf":"${HASH}","merkleContext":{"treeType":0,"tree":"${HASH}"},"path":["${HASH}"],"leafIndex":9007199254740991,"root":"${HASH}","rootSeq":0,"rootIndex":0}]}}`;
     const api = respondWith(body);
 
     const response = await api.getMerkleProofs(REQUEST);
@@ -302,13 +302,13 @@ describe("integers past the safe-integer bound", () => {
 
     const error = await expectApiError(api.getMerkleProofs(REQUEST), "API_INVALID_RESULT");
 
-    expect(error.details?.["path"]).toBe("$.proofs[0].leaf_index");
+    expect(error.details?.["path"]).toBe("$.proofs[0].leafIndex");
     expect(error.details?.["schemaCode"]).toBe("INDEXER_SCHEMA_INVALID_INTEGER");
   });
 
   it("does not rewrite a digit run inside a string payload", async () => {
     const payload = "99999999999999999999";
-    const body = `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"block_time":0,"slot":1},"matches":[{"slot":0,"tx_signature":"${SIGNATURE}","output_slot":{"view_tag":"${HASH}","output_context":{"hash":"${HASH}","tree":"${HASH}","leaf_index":0},"payload":"${payload}"}}]}}`;
+    const body = `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"blockTime":0,"slot":1},"matches":[{"slot":0,"txSignature":"${SIGNATURE}","outputSlot":{"viewTag":"${HASH}","outputContext":{"hash":"${HASH}","tree":"${HASH}","leafIndex":0},"payload":"${payload}"}}]}}`;
     const api = respondWith(body);
 
     const response = await api.getEncryptedUtxosByTags({ tags: [HASH] } as never);

@@ -104,23 +104,23 @@ mod tests {
         })
         .unwrap();
 
-        assert!(value.get("tx_signature").is_some());
-        assert!(value.get("output_slot").is_some());
-        assert!(value.get("tx_viewing_pk").is_some());
+        assert!(value.get("txSignature").is_some());
+        assert!(value.get("outputSlot").is_some());
+        assert!(value.get("txViewingPk").is_some());
         assert!(value.get("salt").is_some());
-        assert!(value.get("txSignature").is_none());
-        assert!(value.get("outputSlot").is_none());
-        assert!(value.get("txViewingPk").is_none());
-        let output_slot = &value["output_slot"];
-        assert!(output_slot.get("view_tag").is_some());
-        assert!(output_slot.get("output_context").is_some());
+        assert!(value.get("tx_signature").is_none());
+        assert!(value.get("output_slot").is_none());
+        assert!(value.get("tx_viewing_pk").is_none());
+        let output_slot = &value["outputSlot"];
+        assert!(output_slot.get("viewTag").is_some());
+        assert!(output_slot.get("outputContext").is_some());
         assert!(output_slot.get("payload").is_some());
         assert!(output_slot.get("proofless").is_none());
-        let output_context = &output_slot["output_context"];
+        let output_context = &output_slot["outputContext"];
         assert!(output_context.get("hash").is_some());
         assert!(output_context.get("tree").is_some());
-        assert!(output_context.get("leaf_index").is_some());
-        assert!(output_context.get("leafIndex").is_none());
+        assert!(output_context.get("leafIndex").is_some());
+        assert!(output_context.get("leaf_index").is_none());
 
         let value = serde_json::to_value(ShieldedTransaction {
             slot: 1,
@@ -145,21 +145,21 @@ mod tests {
         })
         .unwrap();
 
-        assert!(value.get("tx_signature").is_some());
-        assert!(value.get("tx_viewing_pk").is_some());
-        assert!(value.get("output_slots").is_some());
+        assert!(value.get("txSignature").is_some());
+        assert!(value.get("txViewingPk").is_some());
+        assert!(value.get("outputSlots").is_some());
         assert!(value.get("messages").is_some());
-        assert!(value.get("txSignature").is_none());
-        assert!(value.get("outputSlots").is_none());
+        assert!(value.get("tx_signature").is_none());
+        assert!(value.get("output_slots").is_none());
 
         let message = &value["messages"][0];
-        assert!(message.get("view_tag").is_some());
+        assert!(message.get("viewTag").is_some());
         assert!(message.get("payload").is_some());
 
-        let slot = &value["output_slots"][0];
-        assert!(slot.get("view_tag").is_some());
-        assert!(slot.get("output_context").is_some());
-        assert!(slot.get("outputContext").is_none());
+        let slot = &value["outputSlots"][0];
+        assert!(slot.get("viewTag").is_some());
+        assert!(slot.get("outputContext").is_some());
+        assert!(slot.get("output_context").is_none());
     }
 
     #[test]
@@ -169,8 +169,8 @@ mod tests {
             leaves: vec![hash(9)],
         })
         .unwrap();
-        assert!(request.get("tree_account").is_some());
-        assert!(request.get("treeAccount").is_none());
+        assert!(request.get("treeAccount").is_some());
+        assert!(request.get("tree_account").is_none());
 
         let proof = serde_json::to_value(NonInclusionProof {
             leaf: hash(10),
@@ -189,14 +189,14 @@ mod tests {
         })
         .unwrap();
 
-        assert!(proof.get("merkle_context").is_some());
-        assert!(proof.get("low_element").is_some());
-        assert!(proof.get("low_element_index").is_some());
-        assert!(proof.get("high_element").is_some());
-        assert!(proof.get("high_element_index").is_some());
-        assert!(proof.get("root_seq").is_some());
-        assert!(proof.get("root_index").is_some());
-        assert!(proof.get("merkleContext").is_none());
+        assert!(proof.get("merkleContext").is_some());
+        assert!(proof.get("lowElement").is_some());
+        assert!(proof.get("lowElementIndex").is_some());
+        assert!(proof.get("highElement").is_some());
+        assert!(proof.get("highElementIndex").is_some());
+        assert!(proof.get("rootSeq").is_some());
+        assert!(proof.get("rootIndex").is_some());
+        assert!(proof.get("merkle_context").is_none());
     }
 
     #[test]
@@ -212,7 +212,7 @@ mod tests {
         .unwrap();
 
         assert!(matches!(value, Value::Object(_)));
-        assert!(value.get("next_cursor").is_some());
-        assert!(value.get("nextCursor").is_none());
+        assert!(value.get("nextCursor").is_some());
+        assert!(value.get("next_cursor").is_none());
     }
 }
