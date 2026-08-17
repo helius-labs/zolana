@@ -744,7 +744,8 @@
         "txViewingPkBytes": null
       }
     ],
-    "viewingSeedBytes": "0808080808080808080808080808080808080808080808080808080808080808"
+    "txViewingSecretBytes": "254808cf4b7b6038a964696dacee10159e00a8ff1a3f8cf15452e375454a2bf2",
+    "viewingSecretBytes": "79f23ff3d69caf61bb2434d3a439e8894e8a19d6fce30ba5fcb22a160162e52d"
   },
   "inventoryRow": "sdk-libs/transaction/tests/wallet_prop.rs",
   "owningPacket": "P00",

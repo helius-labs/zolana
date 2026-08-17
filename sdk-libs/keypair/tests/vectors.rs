@@ -25,7 +25,6 @@ const VECTORS_JSON: &str = include_str!("../../../test-vectors/key_derivation.js
 struct KeyDerivationVectors {
     ed25519_rail: Ed25519Rail,
     p256_rail: P256Rail,
-    viewing_from_seed: Vec<ViewingFromSeed>,
     tx_viewing: TxViewing,
     hpke_utxo: HpkeUtxo,
     owner: Owner,
@@ -52,14 +51,6 @@ struct P256Rail {
     derivation_seed: String,
     nullifier_secret: String,
     nullifier_pubkey: String,
-    viewing_secret: String,
-    viewing_pubkey: String,
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-struct ViewingFromSeed {
-    wallet_seed: String,
-    account: u32,
     viewing_secret: String,
     viewing_pubkey: String,
 }
@@ -154,22 +145,6 @@ fn compute_p256_rail() -> P256Rail {
         viewing_secret: hex::encode(keypair.viewing_key.secret_bytes().as_slice()),
         viewing_pubkey: hex::encode(keypair.viewing_pubkey().as_bytes()),
     }
-}
-
-fn compute_viewing_from_seed() -> Vec<ViewingFromSeed> {
-    let wallet_seed = [5u8; 32];
-    [0u32, 1]
-        .into_iter()
-        .map(|account| {
-            let viewing_key = ViewingKey::from_seed(&wallet_seed, account).unwrap();
-            ViewingFromSeed {
-                wallet_seed: hex::encode(wallet_seed),
-                account,
-                viewing_secret: hex::encode(viewing_key.secret_bytes().as_slice()),
-                viewing_pubkey: hex::encode(viewing_key.pubkey().as_bytes()),
-            }
-        })
-        .collect()
 }
 
 fn compute_tx_viewing() -> TxViewing {
@@ -272,7 +247,6 @@ fn compute(merge_recovery: MergeRecovery) -> KeyDerivationVectors {
     KeyDerivationVectors {
         ed25519_rail: compute_ed25519_rail(),
         p256_rail: compute_p256_rail(),
-        viewing_from_seed: compute_viewing_from_seed(),
         tx_viewing: compute_tx_viewing(),
         hpke_utxo: compute_hpke_utxo(),
         owner: compute_owner(),

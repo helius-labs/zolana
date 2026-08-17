@@ -42,12 +42,6 @@ type RailVectors = Readonly<{
 type KeyDerivationVectors = Readonly<{
   ed25519_rail: RailVectors;
   p256_rail: RailVectors;
-  viewing_from_seed: readonly Readonly<{
-    wallet_seed: string;
-    account: number;
-    viewing_secret: string;
-    viewing_pubkey: string;
-  }>[];
   tx_viewing: Readonly<{
     viewing_secret: string;
     first_nullifier: string;
@@ -141,15 +135,7 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
 
   it("derives the p256 rail", () => {
     const section = vectors.p256_rail;
-    assertRail(section, SigningKey.fromBytes(bytes(section.signing_secret) as Bytes32));
-  });
-
-  it("derives viewing keys from a wallet seed per account", () => {
-    for (const section of vectors.viewing_from_seed) {
-      const viewing = ViewingKey.fromSeed(bytes(section.wallet_seed) as Bytes32, section.account);
-      expect(hex(viewing.secretBytes())).toBe(section.viewing_secret);
-      expect(hex(viewing.publicKey().toBytes())).toBe(section.viewing_pubkey);
-    }
+    assertRail(section, SigningKey.fromP256Bytes(bytes(section.signing_secret) as Bytes32));
   });
 
   it("derives the transaction viewing key", () => {
@@ -180,7 +166,7 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
   it("derives owner hashes and the compressed address hash", () => {
     const section = vectors.owner;
     const keypair = ShieldedKeypair.fromKeypair(
-      SigningKey.fromBytes(bytes(section.signing_secret) as Bytes32),
+      SigningKey.fromP256Bytes(bytes(section.signing_secret) as Bytes32),
     );
     expect(hex(keypair.signingPublicKey().ownerProofInputHash())).toBe(
       section.owner_proof_input_hash,

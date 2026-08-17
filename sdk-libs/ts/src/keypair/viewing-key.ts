@@ -2,17 +2,8 @@ import { p256 } from "@noble/curves/nist.js";
 import { expand } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 
+import { type Bytes16, type Bytes32, checkedBytes, copyBytes, randomBytes } from "./bytes.js";
 import {
-  type Bytes16,
-  type Bytes32,
-  checkedBytes,
-  concatBytes,
-  copyBytes,
-  randomBytes,
-  u32be,
-} from "./bytes.js";
-import {
-  INFO_SEED_P256_VIEWING,
   INFO_TX_VIEWING,
   ecdhX,
   hkdfExpand,
@@ -63,19 +54,6 @@ export class ViewingKey implements ViewingKeyLike {
       throw new KeypairError("KEYPAIR_INVALID_SECRET_KEY", { type: "p256" });
     }
     return new ViewingKey(secret);
-  }
-
-  static fromSeed(walletSeed: Bytes32, account: number): ViewingKey {
-    if (!Number.isInteger(account) || account < 0 || account > 0xffff_ffff) {
-      throw new KeypairError("KEYPAIR_INVALID_LENGTH", {
-        name: "account",
-        minimum: 0,
-        maximum: 0xffff_ffff,
-      });
-    }
-    const seed = checkedBytes<Bytes32>(walletSeed, 32, "wallet seed");
-    const info = concatBytes(encoder.encode(INFO_SEED_P256_VIEWING), u32be(account));
-    return ViewingKey.fromBytes(scalarFromOkm(hkdfExpand(undefined, seed, info, 48)));
   }
 
   publicKey(): P256PublicKey {

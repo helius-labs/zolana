@@ -17,6 +17,7 @@ import {
   SPL_TOKEN_2022_PROGRAM_ID,
   SPL_TOKEN_PROGRAM_ID,
   USER_REGISTRY_PROGRAM_ID,
+  ViewingKey,
   Wallet,
   buildDepositTransaction,
   buildRegistrationTransaction,
@@ -64,6 +65,9 @@ describe("public package surface", () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     expect(ShieldedKeypair).not.toHaveProperty("fromEd25519");
+    expect(SigningKey).not.toHaveProperty("fromBytes");
+    expect(SigningKey.fromP256Bytes).toBeTypeOf("function");
+    expect(ViewingKey).not.toHaveProperty("fromSeed");
     expect(wallet.identity).toEqual(keypair.shieldedAddress());
     expect(SOL_MINT).toBe("11111111111111111111111111111111");
     expect(DEFAULT_TREE_ADDRESS).toBe("trEEbaNobcTESNmtsPBj3FX27q5sDCQePV2kb12FYho");

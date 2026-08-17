@@ -47,8 +47,6 @@ export const INFO_VIEW_KEY_ED25519 = "TSPP/view_key/ed25519/v1";
 
 export const INFO_VIEW_KEY_ECDH = "TSPP/view_key/ecdh/v1";
 
-export const INFO_SEED_P256_VIEWING = "TSPP/seed/p256_viewing";
-
 export const INFO_TX_VIEWING = "TSPP/tx_viewing";
 
 export const ED25519_DERIVATION_MSG = "TSPP/derive/v1";

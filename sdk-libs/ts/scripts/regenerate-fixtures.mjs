@@ -30,8 +30,8 @@ function hex(value) {
 }
 
 function keypairFromInputs(inputs) {
-  const signing = SigningKey.fromBytes(bytes(inputs.signingSecretBytes));
-  const viewing = ViewingKey.fromSeed(bytes(inputs.viewingSeedBytes), 0);
+  const signing = SigningKey.fromP256Bytes(bytes(inputs.signingSecretBytes));
+  const viewing = ViewingKey.fromBytes(bytes(inputs.viewingSecretBytes));
   return { keypair: ShieldedKeypair.withViewingKey(signing, viewing), signing };
 }
 

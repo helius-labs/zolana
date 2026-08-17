@@ -75,7 +75,7 @@ export class SigningKey {
     }
   }
 
-  static fromBytes(bytes: Bytes32): SigningKey {
+  static fromP256Bytes(bytes: Bytes32): SigningKey {
     const secret = checkedBytes<Bytes32>(bytes, 32, "P256 signing secret");
     if (!p256.utils.isValidSecretKey(secret)) {
       secret.fill(0);

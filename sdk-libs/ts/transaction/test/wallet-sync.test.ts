@@ -62,10 +62,10 @@ function fixtureAuthority(
 }> {
   const secret = hexBytes(fixtureString(inputs, "signingSecretBytes"));
   secret[31] = (secret.at(31) ?? 0) + offset;
-  const signing = SigningKey.fromBytes(secret as Bytes32);
-  const viewingSeed = hexBytes(fixtureString(inputs, "viewingSeedBytes"));
-  viewingSeed.fill((viewingSeed.at(0) ?? 0) + offset);
-  const viewing = ViewingKey.fromSeed(viewingSeed as Bytes32, 0);
+  const signing = SigningKey.fromP256Bytes(secret as Bytes32);
+  const viewingSecret = hexBytes(fixtureString(inputs, "viewingSecretBytes"));
+  viewingSecret[31] = (viewingSecret.at(31) ?? 0) + offset;
+  const viewing = ViewingKey.fromBytes(viewingSecret as Bytes32);
   const keypair = ShieldedKeypair.withViewingKey(signing, viewing);
   const nullifier = keypair.nullifierKey();
   const identity = keypair.shieldedAddress();
@@ -259,7 +259,7 @@ describe("manifest-verified wallet behavior", () => {
     const envelope = fixtureObject(expected.envelope);
     expect(
       hex(
-        ViewingKey.fromSeed(new Uint8Array(32).fill(9) as Bytes32, 0)
+        ViewingKey.fromBytes(hexBytes(fixtureString(inputs, "txViewingSecretBytes")) as Bytes32)
           .publicKey()
           .toBytes(),
       ),
@@ -419,7 +419,7 @@ describe("manifest-verified wallet behavior", () => {
       syncMaterial: () =>
         Promise.resolve({
           identity: value.identity,
-          viewingKeys: [ViewingKey.fromSeed(new Uint8Array(32).fill(42) as Bytes32, 0)],
+          viewingKeys: [ViewingKey.fromBytes(new Uint8Array(32).fill(42) as Bytes32)],
           nullifierKey: value.nullifier,
         }),
     };
@@ -438,7 +438,7 @@ describe("manifest-verified wallet behavior", () => {
       syncMaterial: () =>
         Promise.resolve({
           identity: value.identity,
-          viewingKeys: [ViewingKey.fromSeed(new Uint8Array(32).fill(42) as Bytes32, 0)],
+          viewingKeys: [ViewingKey.fromBytes(new Uint8Array(32).fill(42) as Bytes32)],
           nullifierKey: other.nullifier,
         }),
     };

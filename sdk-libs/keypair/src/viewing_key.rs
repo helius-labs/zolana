@@ -15,8 +15,7 @@ use zeroize::Zeroizing;
 use crate::{
     constants::{SALT_LEN, VIEW_TAG_LEN},
     derivation::{
-        self, INFO_RECIPIENT_VIEW_TAG_SECRET, INFO_SEED_P256_VIEWING, INFO_SENDER_VIEW_TAG_SECRET,
-        INFO_TX_VIEWING,
+        self, INFO_RECIPIENT_VIEW_TAG_SECRET, INFO_SENDER_VIEW_TAG_SECRET, INFO_TX_VIEWING,
     },
     encryption,
     error::KeypairError,
@@ -73,20 +72,6 @@ impl ViewingKey {
 
     pub(crate) fn from_okm48(okm: &Zeroizing<[u8; 48]>) -> Result<Self, KeypairError> {
         let scalar = derivation::scalar_from_okm(okm);
-        let nonzero = Option::<NonZeroScalar>::from(NonZeroScalar::new(scalar))
-            .ok_or(KeypairError::ZeroScalar)?;
-        Ok(Self::from_secret_key(SecretKey::from(nonzero)))
-    }
-
-    pub fn from_seed(wallet_seed: &[u8; 32], account: u32) -> Result<Self, KeypairError> {
-        let mut okm = [0u8; 48];
-        derivation::hkdf_expand(
-            None,
-            wallet_seed,
-            &[INFO_SEED_P256_VIEWING, &account.to_be_bytes()],
-            &mut okm,
-        )?;
-        let scalar = derivation::scalar_from_okm(&okm);
         let nonzero = Option::<NonZeroScalar>::from(NonZeroScalar::new(scalar))
             .ok_or(KeypairError::ZeroScalar)?;
         Ok(Self::from_secret_key(SecretKey::from(nonzero)))

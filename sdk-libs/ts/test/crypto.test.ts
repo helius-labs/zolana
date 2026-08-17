@@ -71,8 +71,8 @@ describe("shielded key material", () => {
   });
 
   it("derives symmetric ECDH secrets", () => {
-    const alice = ViewingKey.fromSeed(new Uint8Array(32).fill(1) as Bytes32, 0);
-    const bob = ViewingKey.fromSeed(new Uint8Array(32).fill(2) as Bytes32, 0);
+    const alice = ViewingKey.fromBytes(new Uint8Array(32).fill(1) as Bytes32);
+    const bob = ViewingKey.fromBytes(new Uint8Array(32).fill(2) as Bytes32);
     expect(alice.ecdh(bob.publicKey())).toEqual(bob.ecdh(alice.publicKey()));
   });
 
