@@ -33,14 +33,14 @@ jobs:
         run: |
           tmp="$(mktemp -d)"
           trap 'rm -rf "$tmp"' EXIT
-          npm pack --workspace @zolana/sdk --pack-destination "$tmp"
+          npm pack --workspace @heliuslabs/zolana --pack-destination "$tmp"
           set -- "$tmp"/*.tgz
           test "$#" -eq 1
           tarball="$1"
           printf '{"private":true,"type":"module"}\n' > "$tmp/package.json"
           npm --prefix "$tmp" install "$tarball" "@solana/kit@^7" --ignore-scripts
           cat > "$tmp/smoke.mts" <<'TS'
-          import { createZolanaClient, type ZolanaClientConfig } from "@zolana/sdk";
+          import { createZolanaClient, type ZolanaClientConfig } from "@heliuslabs/zolana";
           const config: ZolanaClientConfig = {
             solanaRpcUrl: new URL("http://127.0.0.1:8899"),
             indexerUrl: undefined,
@@ -55,11 +55,11 @@ jobs:
           (
             cd "$tmp"
             node --input-type=module <<'NODE'
-          const sdk = await import("@zolana/sdk");
-          const instructions = await import("@zolana/sdk/instructions");
+          const sdk = await import("@heliuslabs/zolana");
+          const instructions = await import("@heliuslabs/zolana/instructions");
           await Promise.all(
             ["addresses", "client", "interface", "keypair", "transaction", "wallet"].map(
-              (subpath) => import(`@zolana/sdk/${subpath}`),
+              (subpath) => import(`@heliuslabs/zolana/${subpath}`),
             ),
           );
           if (!sdk.buildTransferTransaction || !instructions.getDepositInstructionAsync) process.exit(1);

@@ -1,7 +1,7 @@
 # TypeScript client example
 
 [`deposit-transfer-withdraw.test.ts`](deposit-transfer-withdraw.test.ts) shows
-the instruction-level `@zolana/sdk` flow to deposit SOL into a private balance,
+the instruction-level `@heliuslabs/zolana` flow to deposit SOL into a private balance,
 transfer between private balances, and withdraw from a private balance to a
 public balance.
 

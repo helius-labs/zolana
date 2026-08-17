@@ -30,7 +30,7 @@ import {
   initializePoseidon,
   type Bytes32,
   type ZolanaClientConfig,
-} from "@zolana/sdk";
+} from "@heliuslabs/zolana";
 
 // The SDK's localnet default; the airdrop is a localnet-only operation and
 // targets the same validator the client connects to.

@@ -1,6 +1,6 @@
-# @zolana/sdk
+# @heliuslabs/zolana
 
-`@zolana/sdk` is the TypeScript SDK for Zolana shielded assets on Solana. Use it
+`@heliuslabs/zolana` is the TypeScript SDK for Zolana shielded assets on Solana. Use it
 to:
 
 - shield SOL, SPL Token, and Token-2022 assets;
@@ -12,7 +12,7 @@ to:
 ## Install
 
 ```sh
-npm install @zolana/sdk @solana/kit
+npm install @heliuslabs/zolana @solana/kit
 ```
 
 Requirements:
@@ -47,7 +47,7 @@ import {
   getPrivateTransactions,
   syncWallet,
   type Bytes32,
-} from "@zolana/sdk";
+} from "@heliuslabs/zolana";
 
 // One url serves the RPC, the indexer, and the prover.
 // localnet: const client = await createZolanaClient({});
@@ -175,7 +175,7 @@ address. Passing a `ShieldedAddress` directly bypasses the lookup.
 A transfer normally targets the recipient's registered Solana public key.
 
 ```ts
-import { buildTransferTransaction } from "@zolana/sdk";
+import { buildTransferTransaction } from "@heliuslabs/zolana";
 
 declare const recipientSolanaAddress: Address;
 
@@ -198,7 +198,7 @@ Pass `asset: mint` for an SPL or Token-2022 balance.
 Withdraw to a public Solana address:
 
 ```ts
-import { buildWithdrawalTransaction } from "@zolana/sdk";
+import { buildWithdrawalTransaction } from "@heliuslabs/zolana";
 
 const withdrawal = await buildWithdrawalTransaction({
   client,
@@ -234,7 +234,7 @@ contains private note data and must be encrypted at rest.
 
 ## Public API
 
-Common exports from `@zolana/sdk` include:
+Common exports from `@heliuslabs/zolana` include:
 
 - setup: `createZolanaClient`, `ShieldedKeypair`, `Wallet`,
   `LocalWalletAuthority`;
@@ -246,9 +246,9 @@ Common exports from `@zolana/sdk` include:
 - registration: `buildRegistrationTransaction`.
 
 Advanced protocol users can import low-level instruction builders from
-`@zolana/sdk/instructions`. PDA helpers are available from
-`@zolana/sdk/addresses`; additional typed surfaces are exposed under
-`@zolana/sdk/client`, `/interface`, `/keypair`, `/transaction`, and `/wallet`.
+`@heliuslabs/zolana/instructions`. PDA helpers are available from
+`@heliuslabs/zolana/addresses`; additional typed surfaces are exposed under
+`@heliuslabs/zolana/client`, `/interface`, `/keypair`, `/transaction`, and `/wallet`.
 
 ## Important notes
 
