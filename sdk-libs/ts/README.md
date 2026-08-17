@@ -106,11 +106,11 @@ the same owner seed, as shown above.
 
 **Devnet:**
 
-| Service | Host the SDK uses | Notes |
-| --- | --- | --- |
-| Solana RPC | `https://devnet.helius-rpc.com/?api-key=<API_KEY>` | Helius key. Fund the payer with [devnet SOL](https://www.helius.dev/docs/rpc/devnet-sol). |
-| Indexer | `http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com` | Fetches encrypted state. |
-| Prover | `http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com:3001` | Generates ZK proofs |
+| Service    | Host the SDK uses                                                   | Notes                                                                                     |
+| ---------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Solana RPC | `https://devnet.helius-rpc.com/?api-key=<API_KEY>`                  | Helius key. Fund the payer with [devnet SOL](https://www.helius.dev/docs/rpc/devnet-sol). |
+| Indexer    | `http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com`      | Fetches encrypted state.                                                                  |
+| Prover     | `http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com:3001` | Generates ZK proofs                                                                       |
 
 ```ts
 const client = await createZolanaClient({
@@ -132,10 +132,10 @@ const client = await createZolanaClient({});
 A client needs one URL and a
 [Helius API key](https://dashboard.helius.dev/).
 
-| Network | Endpoint |
-| --- | --- |
+| Network | Endpoint                                            |
+| ------- | --------------------------------------------------- |
 | Mainnet | `https://mainnet.helius-rpc.com/?api-key=<API_KEY>` |
-| Devnet | `https://devnet.helius-rpc.com/?api-key=<API_KEY>` |
+| Devnet  | `https://devnet.helius-rpc.com/?api-key=<API_KEY>`  |
 
 The RPC endpoint serves the Solana RPC, the Photon indexer to fetch encrypted
 state, and the prover that generates the zero-knowledge proofs.
