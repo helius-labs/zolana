@@ -104,15 +104,14 @@ the same owner seed, as shown above.
 
 ### Endpoints
 
-Localnet (`zolana dev start`) is RPC `:8899`, indexer `:8784`, prover `:3001`.
-No URLs:
+Localnet starts ports on `:8899` (RPC), `:8784` (indexer), and `:3001` (prover):
 
 ```ts
 const client = await createZolanaClient({});
 ```
 
-Devnet (beta) is three hosts. The indexer and prover are plain HTTP, so the
-client must allow that:
+Devnet (beta) exposes Helius RPC plus indexer and prover on the ELB. Indexer
+and prover are HTTP, so pass `allowInsecureHttp`:
 
 ```ts
 const client = await createZolanaClient({
@@ -130,9 +129,6 @@ const client = await createZolanaClient({
   solanaRpcUrl: `https://devnet.helius-rpc.com/?api-key=${process.env.API_KEY!}`,
 });
 ```
-
-Beta does not work that way yet. A Helius RPC URL does not serve indexer or
-prover methods.
 
 ## Common transactions
 
