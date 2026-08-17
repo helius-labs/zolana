@@ -64,16 +64,6 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        Some("fund") => {
-            let options = match fund::Options::parse(args.collect()) {
-                Ok(options) => options,
-                Err(error) => usage_and_exit(&format!("fund: {error:#}")),
-            };
-            if let Err(error) = fund::run(options) {
-                eprintln!("fund failed: {error:?}");
-                std::process::exit(1);
-            }
-        }
         Some("program-ids") => print_program_ids(),
         Some("init-protocol") => {
             if let Err(error) = init_protocol::run(init_protocol::Options::parse(args.collect())) {

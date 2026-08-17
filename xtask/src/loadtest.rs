@@ -115,6 +115,11 @@ pub struct Options {
     pub asset: String,
     /// Where to write the machine-readable summary, if anywhere.
     pub json_out: Option<PathBuf>,
+    /// Funder for the pre-run top-up. Without it the run uses whatever shielded
+    /// balance the wallets already hold.
+    pub funder: Option<PathBuf>,
+    /// Lamports to bring each wallet up by before starting.
+    pub top_up: u64,
 }
 
 impl Options {
@@ -125,6 +130,8 @@ impl Options {
         let mut tree = None;
         let mut keypairs = None;
         let mut json_out = None;
+        let mut funder = None;
+        let mut top_up = 60_000_000u64;
         let mut duration = 300u64;
         let mut amount = 200_000u64;
         let mut asset = "SOL".to_string();
@@ -142,6 +149,8 @@ impl Options {
                 "--amount" => amount = value()?.parse().context("--amount")?,
                 "--asset" => asset = value()?,
                 "--json" => json_out = Some(PathBuf::from(value()?)),
+                "--funder" => funder = Some(PathBuf::from(value()?)),
+                "--top-up" => top_up = value()?.parse().context("--top-up")?,
                 other => bail!("unknown flag {other}"),
             }
         }
@@ -153,6 +162,8 @@ impl Options {
             tree: tree.context("--tree is required")?,
             keypairs: keypairs.context("--keypairs <dir> is required")?,
             json_out,
+            funder,
+            top_up,
             duration: Duration::from_secs(duration),
             amount,
             asset,
@@ -289,6 +300,15 @@ fn write_json(
 pub fn run(options: Options) -> Result<()> {
     let keypairs = load_keypairs(&options.keypairs)?;
     let workers = keypairs.len();
+    if let Some(funder) = options.funder.as_ref() {
+        crate::fund::top_up(
+            &options.rpc_url,
+            &options.tree,
+            &keypairs,
+            funder,
+            options.top_up,
+        )?;
+    }
     let tree = Address::new_from_array(
         bs58::decode(&options.tree)
             .into_vec()
@@ -403,6 +423,22 @@ pub fn run(options: Options) -> Result<()> {
         stats.ok as f64 / elapsed.as_secs_f64(),
         stats.ok as f64 / elapsed.as_secs_f64() * 60.0
     );
+
+    // A wallet that runs dry keeps failing, so the run measures how fast it can
+    // be told no. Reporting that number as throughput is the trap; say so.
+    let ran_dry: u64 = stats
+        .errors
+        .values()
+        .filter(|(sample, _)| sample.contains("insufficient balance"))
+        .map(|(_, count)| count)
+        .sum();
+    if ran_dry > 0 {
+        println!(
+            "\n{ran_dry} of {} failures were empty wallets, not capacity. Re-run with \
+             --funder <keypair.json> to top up first.",
+            stats.failed
+        );
+    }
     if !stats.errors.is_empty() {
         println!("\nerrors:");
         let mut ranked: Vec<_> = stats.errors.values().collect();

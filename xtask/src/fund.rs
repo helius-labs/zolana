@@ -1,8 +1,8 @@
-//! Top up the shielded balances of a directory of load-test wallets.
+//! Top up the shielded balances of the load-test wallets.
 //!
-//! The load generator spends shielded value; when a wallet runs out it fails
-//! with `insufficient balance for asset` and the run measures depletion rather
-//! than capacity. One 220-worker run ended with 209 such failures.
+//! The load generator spends shielded value; a wallet that runs out fails with
+//! `insufficient balance for asset`, and the run then measures depletion rather
+//! than capacity.
 //!
 //! One funder pays for everything. A deposit names its recipient by shielded
 //! address and needs no shared secret — see `DepositParams` — so the funder both
@@ -16,7 +16,7 @@
 //! CLI wallet files holding the same secrets.
 
 use std::{
-    path::PathBuf,
+    path::Path,
     sync::atomic::{AtomicU64, AtomicUsize, Ordering},
     thread,
     time::Instant,
@@ -30,56 +30,10 @@ use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::Address;
 use zolana_wallet::{create_deposit, DepositParams};
 
-use crate::loadtest::load_keypairs;
+/// Deposits in flight at once.
+const CONCURRENCY: usize = 16;
 
-pub struct Options {
-    pub rpc_url: String,
-    pub tree: String,
-    /// Directory of `solana-keygen` keypairs — the same one `loadtest` takes.
-    pub keypairs: PathBuf,
-    /// Funder: signs and pays for every deposit.
-    pub funder: PathBuf,
-    /// Lamports to deposit into each wallet.
-    pub amount: u64,
-    /// Deposits in flight at once.
-    pub concurrency: usize,
-}
-
-impl Options {
-    pub fn parse(args: Vec<String>) -> Result<Self> {
-        let mut rpc_url = None;
-        let mut tree = None;
-        let mut keypairs = None;
-        let mut funder = None;
-        let mut amount = 60_000_000u64;
-        let mut concurrency = 16usize;
-
-        let mut iter = args.into_iter();
-        while let Some(arg) = iter.next() {
-            let mut value = || iter.next().context("missing value");
-            match arg.as_str() {
-                "--rpc" => rpc_url = Some(value()?),
-                "--tree" => tree = Some(value()?),
-                "--keypairs" => keypairs = Some(PathBuf::from(value()?)),
-                "--funder" => funder = Some(PathBuf::from(value()?)),
-                "--amount" => amount = value()?.parse().context("--amount")?,
-                "--concurrency" => concurrency = value()?.parse().context("--concurrency")?,
-                other => bail!("unknown flag {other}"),
-            }
-        }
-
-        Ok(Self {
-            rpc_url: rpc_url.context("--rpc is required")?,
-            tree: tree.context("--tree is required")?,
-            keypairs: keypairs.context("--keypairs <dir> is required")?,
-            funder: funder.context("--funder <keypair.json> is required")?,
-            amount,
-            concurrency: concurrency.max(1),
-        })
-    }
-}
-
-fn read_keypair(path: &PathBuf) -> Result<Keypair> {
+fn read_keypair(path: &Path) -> Result<Keypair> {
     let bytes = std::fs::read(path).with_context(|| format!("read {}", path.display()))?;
     let raw: Vec<u8> = serde_json::from_slice(&bytes)
         .with_context(|| format!("{} is not a keypair array", path.display()))?;
@@ -89,20 +43,30 @@ fn read_keypair(path: &PathBuf) -> Result<Keypair> {
     Keypair::try_from(&array[..]).context("bad funder keypair")
 }
 
-pub fn run(options: Options) -> Result<()> {
-    let funder = read_keypair(&options.funder)?;
-    let wallets = load_keypairs(&options.keypairs)?;
-    let tree: Address = options.tree.parse().context("--tree is not an address")?;
+/// Bring every wallet up by `amount`, paid for by one funder.
+///
+/// Runs as part of `loadtest` rather than as its own command: a run against
+/// empty wallets still produces a throughput number, and that number measures
+/// how fast the pool can refuse a transfer.
+pub fn top_up(
+    rpc_url: &str,
+    tree: &str,
+    wallets: &[Keypair],
+    funder_path: &Path,
+    amount: u64,
+) -> Result<()> {
+    let funder = read_keypair(funder_path)?;
+    let tree: Address = tree.parse().context("--tree is not an address")?;
     let asset = Address::default();
 
-    let rpc = SolanaRpc::new(options.rpc_url.clone());
+    let rpc = SolanaRpc::new(rpc_url.to_string());
     let funder_address = Address::new_from_array(funder.pubkey().to_bytes());
     let balance = rpc.get_balance(funder_address)?;
-    let required = options.amount.saturating_mul(wallets.len() as u64);
+    let required = amount.saturating_mul(wallets.len() as u64);
     println!(
         "funding {} wallets with {} lamports each ({:.3} SOL total)\nfunder {} holds {:.3} SOL",
         wallets.len(),
-        options.amount,
+        amount,
         required as f64 / 1e9,
         funder.pubkey(),
         balance as f64 / 1e9,
@@ -121,17 +85,17 @@ pub fn run(options: Options) -> Result<()> {
     let started = Instant::now();
 
     thread::scope(|scope| {
-        for _ in 0..options.concurrency.min(wallets.len()) {
+        for _ in 0..CONCURRENCY.min(wallets.len()) {
             scope.spawn(|| {
                 // Each worker holds its own RPC client; they are cheap and not
                 // shared state.
-                let rpc = SolanaRpc::new(options.rpc_url.clone());
+                let rpc = SolanaRpc::new(rpc_url.to_string());
                 loop {
                     let index = next.fetch_add(1, Ordering::Relaxed);
                     let Some(wallet) = wallets.get(index) else {
                         return;
                     };
-                    match fund_one(&rpc, &funder, wallet, tree, asset, options.amount) {
+                    match fund_one(&rpc, &funder, wallet, tree, asset, amount) {
                         Ok(()) => {
                             let done = funded.fetch_add(1, Ordering::Relaxed) + 1;
                             if done.is_multiple_of(25) {
@@ -172,7 +136,7 @@ fn fund_one(
     asset: Address,
     amount: u64,
 ) -> Result<()> {
-    let shielded = ShieldedKeypair::from_solana_keypair(wallet)?;
+    let shielded = ShieldedKeypair::from_keypair(wallet)?;
     let recipient = shielded.shielded_address()?;
     let built = create_deposit(DepositParams {
         recipient: &recipient,
