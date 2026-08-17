@@ -34,7 +34,7 @@ env:
 # integration tests will be reintroduced against the new combined tree type.
 jobs:
   unit:
-    name: forester / compile
+    name: forester / compile + test
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
@@ -43,3 +43,7 @@ jobs:
         with:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: cargo check -p forester --all-targets
+        # The crate had no unit tests when this job was written, so it only
+        # compiled them. It now has coverage for config resolution and the
+        # metrics exposition format, which is worth nothing unless CI runs it.
+      - run: cargo test -p forester
