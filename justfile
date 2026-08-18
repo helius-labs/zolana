@@ -160,10 +160,13 @@ ring-localnet: build-programs build-prover-server build-cli ensure-photon ensure
     echo "  prover    {{localnet-prover-url}}"
     echo "  ring rpc  http://127.0.0.1:{{localnet-ring-rpc-port}}  (started per ring by 'just rpc' or 'just pipeline')"
 
+# Stops the validator, photon, the prover, and a ring RPC left on the ring RPC
+# port by a ring's `just pipeline`.
 ring-localnet-stop:
     lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
     lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
     lsof -ti "tcp:{{localnet-prover-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    lsof -ti "tcp:{{localnet-ring-rpc-port}}" 2>/dev/null | xargs kill 2>/dev/null || true
 
 # Template smoke test: generate a ring without prompts and build its workspace.
 test-ring-template:
