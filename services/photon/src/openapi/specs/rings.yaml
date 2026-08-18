@@ -54,8 +54,9 @@ paths:
                     order:
                       $ref: '#/components/schemas/SortOrder'
                       description: |-
-                        Omitted means [`SortOrder::OldestFirst`], so a client written before this
-                        existed keeps its behaviour.
+                        Omitted means [`SortOrder::OldestFirst`], and is omitted on the way out
+                        too, so a request that does not care is byte-identical to one written
+                        before this field existed.
                     tags:
                       type: array
                       items:
@@ -557,8 +558,9 @@ paths:
                     order:
                       $ref: '#/components/schemas/SortOrder'
                       description: |-
-                        Omitted means [`SortOrder::OldestFirst`], so a client written before this
-                        existed keeps its behaviour.
+                        Omitted means [`SortOrder::OldestFirst`], and is omitted on the way out
+                        too, so a request that does not care is byte-identical to one written
+                        before this field existed.
                   additionalProperties: false
         required: true
       responses:
@@ -817,8 +819,9 @@ paths:
                     order:
                       $ref: '#/components/schemas/SortOrder'
                       description: |-
-                        Omitted means [`SortOrder::OldestFirst`], so a client written before this
-                        existed keeps its behaviour.
+                        Omitted means [`SortOrder::OldestFirst`], and is omitted on the way out
+                        too, so a request that does not care is byte-identical to one written
+                        before this field existed.
                     tags:
                       type: array
                       items:

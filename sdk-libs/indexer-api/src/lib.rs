@@ -514,6 +514,14 @@ pub enum SortOrder {
     NewestFirst,
 }
 
+impl SortOrder {
+    /// Serialization skips the default, so adding this field changed no existing
+    /// request body.
+    fn is_default(&self) -> bool {
+        matches!(self, Self::OldestFirst)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -523,9 +531,10 @@ pub struct GetRingsByTagsRequest {
     pub cursor: Option<Base64String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<Limit>,
-    /// Omitted means [`SortOrder::OldestFirst`], so a client written before this
-    /// existed keeps its behaviour.
-    #[serde(default)]
+    /// Omitted means [`SortOrder::OldestFirst`], and is omitted on the way out
+    /// too, so a request that does not care is byte-identical to one written
+    /// before this field existed.
+    #[serde(default, skip_serializing_if = "SortOrder::is_default")]
     pub order: SortOrder,
 }
 
@@ -538,9 +547,10 @@ pub struct GetRingsByNullifiersRequest {
     pub cursor: Option<Base64String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<Limit>,
-    /// Omitted means [`SortOrder::OldestFirst`], so a client written before this
-    /// existed keeps its behaviour.
-    #[serde(default)]
+    /// Omitted means [`SortOrder::OldestFirst`], and is omitted on the way out
+    /// too, so a request that does not care is byte-identical to one written
+    /// before this field existed.
+    #[serde(default, skip_serializing_if = "SortOrder::is_default")]
     pub order: SortOrder,
 }
 
@@ -800,6 +810,32 @@ mod tests {
             serde_json::from_str::<Base64String>(&json).unwrap(),
             payload
         );
+    }
+
+    /// Adding `order` must not change a request that does not set it: every
+    /// existing caller would otherwise start sending a field it never asked for.
+    #[test]
+    fn a_default_sort_order_is_not_sent() {
+        let default = serde_json::to_value(GetRingsByTagsRequest {
+            tags: vec![Hash::from([1; 32])],
+            ..Default::default()
+        })
+        .unwrap();
+        assert!(default.get("order").is_none(), "{default}");
+
+        let chosen = serde_json::to_value(GetRingsByTagsRequest {
+            tags: vec![Hash::from([1; 32])],
+            order: SortOrder::NewestFirst,
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(chosen["order"], "newestFirst");
+
+        // And it round-trips from the wire spelling.
+        let parsed: GetRingsByTagsRequest =
+            serde_json::from_value(serde_json::json!({ "tags": [], "order": "newestFirst" }))
+                .unwrap();
+        assert_eq!(parsed.order, SortOrder::NewestFirst);
     }
 
     #[test]

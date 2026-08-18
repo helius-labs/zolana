@@ -152,7 +152,9 @@ describe("transport configuration", () => {
 
     // Omitting it must stay the old behaviour rather than becoming explicit.
     await api.getShieldedTransactionsByTags({ tags: [HASH] } as never);
-    expect(JSON.parse(String(injected.mock.calls[1]?.[1]?.body)).params).not.toHaveProperty("order");
+    expect(JSON.parse(String(injected.mock.calls[1]?.[1]?.body)).params).not.toHaveProperty(
+      "order",
+    );
 
     await expectApiError(
       api.getShieldedTransactionsByTags({ tags: [HASH], order: "sideways" } as never),
