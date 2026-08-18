@@ -192,6 +192,11 @@ jobs:
           path: custom-ring-tests/build/gnark
           key: custom-ring-keys-${{ hashFiles('custom-ring-tests/custom-ring-keys.CHECKSUM') }}
       - run: just test-custom-ring
+      # The custom ring template: generate a ring without prompts and build it.
+      - uses: taiki-e/install-action@43aecc8d72668fbcfe75c31400bc4f890f1c5853 # v2
+        with:
+          tool: cargo-generate
+      - run: just test-ring-template
 
   build-photon:
     name: build / photon

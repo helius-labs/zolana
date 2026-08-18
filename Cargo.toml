@@ -20,6 +20,7 @@ members = [
     "bench/bloom-filter",
     "bench/tree",
     "cli",
+    "custom-ring-tests/cli",
     "custom-ring-tests/program",
     "custom-ring-tests/prover",
     "custom-ring-tests/sdk",
@@ -81,6 +82,7 @@ zolana-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }
 zolana-wallet = { path = "sdk-libs/wallet", version = "0.1.0" }
 zolana-client = { path = "sdk-libs/client", version = "0.1.0" }
 zolana-ring-client = { path = "sdk-libs/ring-client", version = "0.1.0" }
+zolana-ring-rpc = { path = "services/ring-rpc", version = "0.1.0" }
 zolana-indexer-api = { path = "sdk-libs/indexer-api", version = "0.1.0" }
 zolana-merkle-tree = { path = "sdk-libs/merkle-tree", version = "4.0.0" }
 zolana-smart-account-client = { path = "sdk-libs/smart-account-client", version = "0.1.0" }
@@ -224,6 +226,7 @@ tabled = "0.20"
 thiserror = "2.0"
 tinyvec = "1.10.0"
 tokio = { version = "1.48.0", features = ["rt", "macros", "rt-multi-thread"] }
+toml = "0.9"
 tower = { version = "0.5.3", features = ["util"] }
 tower-http = { version = "0.7.0", default-features = false, features = ["cors"] }
 tracing = "0.1.41"

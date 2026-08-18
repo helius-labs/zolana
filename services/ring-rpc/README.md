@@ -6,16 +6,19 @@ indexer by the auditor view tag, recovers each transaction's viewing key from th
 auditor message, and returns the opened output slots.
 
 ```bash
-cargo run -p zolana-ring-rpc -- \
+cargo run -p zolana-ring-rpc -- keygen --out keys/auditor.key
+cargo run -p zolana-ring-rpc -- serve \
   --indexer-url http://127.0.0.1:8784 \
   --rpc-url http://127.0.0.1:8899 \
-  --auditor-key-file /run/secrets/auditor.key
+  --auditor-key-file keys/auditor.key
 ```
 
-Every flag has an environment variable (`RING_RPC_PORT`, `RING_RPC_INDEXER_URL`,
-`RING_RPC_SOLANA_RPC_URL`, `RING_RPC_AUDITOR_KEY_FILE`). The key file holds the
-P256 secret as 64 hex characters. The Solana RPC is read once at startup for the
-SPL asset registry.
+`keygen` writes the P256 secret as 64 hex characters (mode 0600) and the SEC1
+compressed public key to `keys/auditor.key.pub`, which is what the ring's
+`create_config` takes. Every `serve` flag has an environment variable
+(`RING_RPC_PORT`, `RING_RPC_INDEXER_URL`, `RING_RPC_SOLANA_RPC_URL`,
+`RING_RPC_AUDITOR_KEY_FILE`). The Solana RPC is read once at startup for the SPL
+asset registry.
 
 ## Methods
 
