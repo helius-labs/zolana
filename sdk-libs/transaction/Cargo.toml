@@ -28,6 +28,8 @@ parallel = ["dep:rayon"]
 criterion = { workspace = true }
 hex = { workspace = true }
 proptest = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 
 [[test]]
 name = "behavior"

@@ -10,6 +10,7 @@ import {
   copyBytes,
   randomBytes,
 } from "./bytes.js";
+import { ecdhX, ed25519DerivationMessage, isDerivationInput, pDerive } from "./derivation.js";
 import { KeypairError, wrapKeypairError } from "./error.js";
 import { P256PublicKey, ShieldedPublicKey, type SignatureType } from "./public-key.js";
 
@@ -74,7 +75,7 @@ export class SigningKey {
     }
   }
 
-  static fromBytes(bytes: Bytes32): SigningKey {
+  static fromP256Bytes(bytes: Bytes32): SigningKey {
     const secret = checkedBytes<Bytes32>(bytes, 32, "P256 signing secret");
     if (!p256.utils.isValidSecretKey(secret)) {
       secret.fill(0);
@@ -106,6 +107,9 @@ export class SigningKey {
 
   sign(message: Uint8Array): Bytes64 {
     this.#assertUsable();
+    if (isDerivationInput(message)) {
+      throw new KeypairError("KEYPAIR_DERIVATION_INPUT");
+    }
     try {
       if (this.#type === "p256") {
         if (message.length !== 32) {
@@ -114,18 +118,32 @@ export class SigningKey {
             actual: message.length,
           });
         }
-        // The circuit range-checks s against the curve order only, so s above
-        // n/2 is valid and must not be normalized into the lower half.
+        // Low-S like Rust's `normalize_s`: it makes a signature byte-identical
+        // across software, KMS, and YubiKey backends over the same digest.
         return p256.sign(message, this.#secret, {
           prehash: false,
           format: "compact",
-          lowS: false,
+          lowS: true,
         }) as Bytes64;
       }
       return ed25519.sign(message, this.#secret) as Bytes64;
     } catch (error) {
       throw wrapKeypairError("KEYPAIR_INVALID_SECRET_KEY", error);
     }
+  }
+
+  /**
+   * The rail seed both role keys expand from: the deterministic RFC 8032
+   * signature over the off-chain derivation message on the ed25519 rail, or
+   * `ECDH(signing_sk, P_derive)` on the P-256 rail.
+   */
+  derivationSeed(): Uint8Array {
+    this.#assertUsable();
+    if (this.#type === "ed25519") {
+      const message = ed25519DerivationMessage(ed25519.getPublicKey(this.#secret) as Bytes32);
+      return ed25519.sign(message, this.#secret);
+    }
+    return ecdhX(this.#secret, pDerive());
   }
 
   verify(message: Uint8Array, signature: Bytes64): boolean {

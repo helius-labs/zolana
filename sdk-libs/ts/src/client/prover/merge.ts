@@ -181,7 +181,7 @@ function assembleMergeUnchecked(
     const ownerPublicKeyHash =
       input.utxo.owner.signatureType() === "p256"
         ? 0n
-        : bytesField(input.utxo.owner.ownerPublicKeyField(), "merge owner public key");
+        : bytesField(input.utxo.owner.ownerProofInputHash(), "merge owner public key");
     const converted = createRealInput(input, proof, ownerPublicKeyHash);
     inputs.push(converted);
     inputHashes.push(bytesToBigInt(input.hash()));
@@ -210,7 +210,7 @@ function assembleMergeUnchecked(
   ) as Bytes32;
   const eddsaOwner = prepared.signingPublicKey.signatureType() === "ed25519";
   const ownerPublicKeyHash = bytesField(
-    prepared.signingPublicKey.ownerPublicKeyField(),
+    prepared.signingPublicKey.ownerProofInputHash(),
     "merge owner public key",
   );
   const commonPublicInputs = [

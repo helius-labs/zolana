@@ -279,7 +279,7 @@ mod tests {
     use super::*;
 
     fn sample_viewing_pk(seed: u8) -> P256Pubkey {
-        ViewingKey::from_seed(&[seed; 32], 0).unwrap().pubkey()
+        ViewingKey::from_bytes(&[seed; 32]).unwrap().pubkey()
     }
 
     fn sample_terms(take_mode: u64) -> OrderTermsProofInput {

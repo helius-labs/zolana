@@ -31,7 +31,7 @@ import {
   decodeAddress,
   equal,
   hashChain,
-  hashField,
+  hashBytes,
   poseidon,
   sha256Bytes,
 } from "../internal.js";
@@ -81,7 +81,7 @@ export function signedToField(value: bigint): Bytes32 {
 
 /** The field element an asset mint contributes to a proof's public inputs. */
 export function assetField(asset: Address): Bytes32 {
-  return hashField(decodeAddress(asset));
+  return hashBytes(decodeAddress(asset)) as Bytes32;
 }
 
 function checkedCount(value: number, name: string): number {

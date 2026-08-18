@@ -1,22 +1,10 @@
 import { ctr } from "@noble/ciphers/aes.js";
-import { p256 } from "@noble/curves/nist.js";
-import { hkdf } from "@noble/hashes/hkdf.js";
-import { sha256 } from "@noble/hashes/sha2.js";
 
 import { concatBytes, copyBytes, u32be } from "./bytes.js";
-import { ENC_INFO_TRANSFER, HPKE_PREFIX } from "./constants.js";
-import { wrapKeypairError } from "./error.js";
-import { P256PublicKey } from "./public-key.js";
+import { ENC_INFO_TRANSFER, HPKE_PREFIX, ecdhX, hkdfExpand } from "./derivation.js";
+import type { P256PublicKey } from "./public-key.js";
 
 const encoder = new TextEncoder();
-
-export function ecdhX(secret: Uint8Array, counterparty: P256PublicKey): Uint8Array {
-  try {
-    return p256.getSharedSecret(secret, counterparty.toBytes(), true).subarray(1, 33);
-  } catch (error) {
-    throw wrapKeypairError("KEYPAIR_INVALID_PUBLIC_KEY", error);
-  }
-}
 
 function deriveKeyNonce(
   dh: Uint8Array,
@@ -33,10 +21,8 @@ function deriveKeyNonce(
     u32be(slotIndex),
   );
   try {
-    const output = hkdf(sha256, ikm, undefined, info, 44);
+    const output = hkdfExpand(undefined, ikm, info, 44);
     return [output.subarray(0, 32), output.subarray(32)];
-  } catch (error) {
-    throw wrapKeypairError("KEYPAIR_HKDF", error);
   } finally {
     ikm.fill(0);
   }

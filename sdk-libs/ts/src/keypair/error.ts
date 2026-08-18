@@ -1,13 +1,12 @@
 /**
- * Errors reachable through the TypeScript key APIs, plus the two
- * TypeScript-only shape errors below. Rust encodes lengths in its types, so a
- * JavaScript caller can reach malformed inputs Rust cannot express.
+ * Errors reachable through the TypeScript key APIs, plus the TypeScript-only
+ * shape errors below. Rust encodes lengths in its types, so a JavaScript
+ * caller can reach malformed inputs Rust cannot express.
  *
  * A TypeScript-only code is justified at a boundary only when the input it
  * describes cannot be expressed in Rust. Where Rust accepts the same input and
  * answers with a variant, the boundary must raise the code mirroring that
- * variant, or the port reports a divergence Rust does not have. The K10 suite
- * enforces this by scanning the sources for each TypeScript-only code.
+ * variant, or the port reports a divergence Rust does not have.
  */
 export type KeypairErrorCode =
   | "KEYPAIR_INVALID_PUBLIC_KEY"
@@ -16,15 +15,14 @@ export type KeypairErrorCode =
   | "KEYPAIR_INVALID_SIGNATURE_TYPE"
   | "KEYPAIR_HKDF"
   | "KEYPAIR_POSEIDON"
-  | "KEYPAIR_FIELD_ELEMENT_TOO_LONG"
-  | "KEYPAIR_INVALID_PREHASH_LENGTH"
-  | "KEYPAIR_INFO_TOO_LONG"
   | "KEYPAIR_NOT_ED25519"
+  | "KEYPAIR_DERIVATION_INPUT"
   // TypeScript-only: Rust rejects these at the type level.
+  | "KEYPAIR_INVALID_PREHASH_LENGTH"
   | "KEYPAIR_INVALID_LENGTH"
   | "KEYPAIR_HASH";
 
-/** The Rust variant each code mirrors, or `null` for the two TypeScript-only codes. */
+/** The Rust variant each code mirrors, or `null` for a TypeScript-only code. */
 export const KEYPAIR_ERROR_RUST_VARIANT: Readonly<Record<KeypairErrorCode, string | null>> =
   Object.freeze({
     KEYPAIR_INVALID_PUBLIC_KEY: "InvalidPublicKey",
@@ -33,10 +31,9 @@ export const KEYPAIR_ERROR_RUST_VARIANT: Readonly<Record<KeypairErrorCode, strin
     KEYPAIR_INVALID_SIGNATURE_TYPE: "InvalidSignatureType",
     KEYPAIR_HKDF: "Hkdf",
     KEYPAIR_POSEIDON: "Poseidon",
-    KEYPAIR_FIELD_ELEMENT_TOO_LONG: "FieldElementTooLong",
-    KEYPAIR_INVALID_PREHASH_LENGTH: "InvalidPrehashLength",
-    KEYPAIR_INFO_TOO_LONG: "InfoTooLong",
     KEYPAIR_NOT_ED25519: "NotEd25519",
+    KEYPAIR_DERIVATION_INPUT: "DerivationInput",
+    KEYPAIR_INVALID_PREHASH_LENGTH: null,
     KEYPAIR_INVALID_LENGTH: null,
     KEYPAIR_HASH: null,
   });

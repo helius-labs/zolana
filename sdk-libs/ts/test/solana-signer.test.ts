@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 
 import { KeypairError } from "../src/keypair/error.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
+import { SigningKey } from "../src/keypair/signing-key.js";
 import type { Bytes32 } from "../src/keypair/bytes.js";
 
 const SEED = new Uint8Array(32).fill(7) as Bytes32;
@@ -46,7 +47,9 @@ function compileTransferTransaction(feePayer: Address): SignableTransaction {
 
 describe("ShieldedKeypair.toSolanaSigner", () => {
   it("matches Kit's address and signs every transaction with Kit's signature", async () => {
-    const keypair = ShieldedKeypair.fromEd25519(new Uint8Array(SEED) as Bytes32, 0);
+    const keypair = ShieldedKeypair.fromKeypair(
+      SigningKey.fromEd25519Bytes(new Uint8Array(SEED) as Bytes32),
+    );
     const signer = keypair.toSolanaSigner();
     const kit = await createKeyPairSignerFromPrivateKeyBytes(SEED);
     expect(signer.address).toBe(kit.address);

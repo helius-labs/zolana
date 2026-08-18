@@ -16,7 +16,7 @@ import {
   commitmentPoseidon,
   copy,
   decodeAddress,
-  hashField,
+  hashBytes,
   poseidon,
   rightAlign,
   sha256Bytes,
@@ -82,7 +82,7 @@ function commitmentFields(
     throw new TransactionError("TRANSACTION_MISSING_ZONE_PROGRAM_ID");
   }
   const zoneProgramId = input.zoneProgramId
-    ? hashField(decodeAddress(input.zoneProgramId))
+    ? hashBytes(decodeAddress(input.zoneProgramId))
     : ZERO_32;
   const zoneHash = commitmentPoseidon([zoneDataHash, zoneProgramId]);
   const ownerCommitment = commitmentPoseidon([
@@ -91,7 +91,7 @@ function commitmentFields(
   ]);
   return [
     rightAlign(Uint8Array.of(input.domain ?? UTXO_DOMAIN)),
-    hashField(decodeAddress(input.asset)),
+    hashBytes(decodeAddress(input.asset)) as Bytes32,
     rightAlign(bigintToU64(input.amount)),
     input.dataHash ? checked<Bytes32>(input.dataHash, 32, "data hash") : ZERO_32,
     zoneHash,
@@ -202,7 +202,7 @@ export class Utxo {
     zoneDataHash?: Bytes32,
   ): Readonly<{ hash(): Bytes32 }> {
     const owner = poseidon([
-      this.owner.ownerPublicKeyField(),
+      this.owner.ownerProofInputHash(),
       checked<Bytes32>(nullifierPublicKey, 32, "nullifier public key"),
     ]);
     const input = {
@@ -318,7 +318,7 @@ export class ProofInputUtxo {
     this.checkCanonicalDummy();
     const owner = this.isDummy()
       ? ZERO_32
-      : poseidon([this.utxo.owner.ownerPublicKeyField(), this.nullifierKey.publicKey()]);
+      : poseidon([this.utxo.owner.ownerProofInputHash(), this.nullifierKey.publicKey()]);
     return fullOwnerUtxoHash(
       {
         owner,

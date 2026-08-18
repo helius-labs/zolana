@@ -68,9 +68,11 @@
     "bn.js": "^5.2.5"
   },
   "devDependencies": {
+    "@scure/bip39": "^2.3.0",
     "@solana/kit": "^7.0.0",
     "@types/bn.js": "^5.2.0",
     "@types/node": "^24.0.0",
+    "micro-key-producer": "^0.10.0",
     "oxfmt": "^0.60.0",
     "oxlint": "^1.75.0",
     "typescript": "^7.0.2",

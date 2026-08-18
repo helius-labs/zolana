@@ -113,8 +113,9 @@
     "saltBytes": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
     "signingSecretBytes": "0000000000000000000000000000000000000000000000000000000000000007",
     "testOnlySecret": true,
-    "txViewingSeedBytes": "0909090909090909090909090909090909090909090909090909090909090909",
-    "viewingSeedBytes": "0808080808080808080808080808080808080808080808080808080808080808"
+    "recipientViewingSecretBytes": "7a73f92ade2220b5b3b561f0ee391b08bb4e99d85a4b4e75cc1be4b6ba3063d3",
+    "txViewingSecretBytes": "254808cf4b7b6038a964696dacee10159e00a8ff1a3f8cf15452e375454a2bf2",
+    "viewingSecretBytes": "79f23ff3d69caf61bb2434d3a439e8894e8a19d6fce30ba5fcb22a160162e52d"
   },
   "inventoryRow": "sdk-libs/transaction/tests/features/serialization.feature",
   "owningPacket": "P00",

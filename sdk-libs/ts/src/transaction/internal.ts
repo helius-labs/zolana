@@ -3,7 +3,8 @@ import { getAddressDecoder, getAddressEncoder, getBase58Encoder } from "@solana/
 import { MAX_POSEIDON_INPUTS, poseidon as hash } from "../hasher/index.js";
 
 import type { Address, Bytes16, Bytes32, Bytes33 } from "../interface/types.js";
-export { hashField, sha256Be } from "../keypair/hash.js";
+export { hashBytes } from "../hasher/index.js";
+export { sha256Be } from "../keypair/hash.js";
 
 import { TransactionError, type TransactionErrorCode } from "./error.js";
 
