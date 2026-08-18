@@ -35,10 +35,14 @@ driver, devnet asks), and the features.
 
 `FEATURES` in that file is the registry. Each entry has an `id`, a display
 `name`, an `example` and a `state`: `always` (on for every ring), `ready`
-(offered as a yes/no question, enabled ids become cargo features of
-`custom-ring-program` in the generated `program/Cargo.toml`) or `coming_soon`
-(listed, disabled). Adding a feature is one entry; `ring.toml`, the README table
-and the cargo feature list follow.
+(offered as a yes/no question; the id is used verbatim as a cargo feature of
+`custom-ring-program` and `custom-ring-cli` in the generated manifests, so both
+crates must declare it) or `coming_soon` (listed, disabled). Adding a feature is one
+entry; `ring.toml`, the README table and the cargo feature list follow. The
+resolved answer is `<id>_enabled` (a bool), which is what liquid files and
+`[conditional]` blocks read. `hello`
+is the smoke feature: on, the program logs `Hello feature` on every instruction
+(shown by `just transact`) and `status` greets; off, neither happens.
 
 ### Variables
 
@@ -50,7 +54,8 @@ and the cargo feature list follow.
 | `zolana_path` | driver (this checkout), or `-d` |
 | `default_rpc_url`, `default_indexer_url`, `default_prover_url`, `default_ring_rpc_port` | driver, from `ZOLANA_PORT_OFFSET` |
 | `silent` | driver, for `--silent` |
-| `feature_<id>`, `features_toml`, `features_markdown`, `program_features` | computed by the wizard |
+| `feature_<id>` | `-d` only, the answer for a `ready` feature |
+| `<id>_enabled`, `features_toml`, `features_markdown`, `cargo_features` | computed by the wizard |
 
 `just test-ring-template` generates a ring without prompts and builds its
 workspace; CI runs it in the custom-ring job.

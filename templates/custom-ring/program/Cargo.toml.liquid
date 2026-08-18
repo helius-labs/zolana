@@ -12,7 +12,7 @@ default = []
 bpf-entrypoint = []
 
 [dependencies]
-custom-ring-program = { workspace = true{% if program_features != "" %}, features = [{{program_features}}] {% endif %} }
+custom-ring-program = { workspace = true{% if cargo_features != "" %}, features = [{{cargo_features}}] {% endif %} }
 pinocchio = { workspace = true }
 
 [lints.rust.unexpected_cfgs]

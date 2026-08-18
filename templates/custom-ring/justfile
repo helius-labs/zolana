@@ -12,8 +12,16 @@ default:
     @just --list
 
 # Local test validator with SPP, photon and the prover (localnet target only).
+# The ring RPC is not part of it: `just rpc` starts it once the ring is
+# initialized, `just pipeline` does so on its own.
 localnet:
     just -f {{ "{{zolana}}" }}/justfile ring-localnet
+    @echo
+    @echo "{{project-name}} points at"
+    @echo "  rpc       {{rpc_url}}"
+    @echo "  indexer   {{indexer_url}}"
+    @echo "  prover    {{prover_url}}"
+    @echo "  ring rpc  {{ring_rpc_url}}  (just rpc)"
 
 localnet-stop:
     just -f {{ "{{zolana}}" }}/justfile ring-localnet-stop

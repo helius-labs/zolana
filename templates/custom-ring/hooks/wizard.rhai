@@ -4,7 +4,8 @@
 // command line (`-d name=value`) is kept, so the driver and CI can run this
 // without prompts. The feature registry below is the one place a feature is
 // declared: add an entry, and the prompt, ring.toml, README and cargo feature
-// list follow.
+// list follow. A `ready` feature id is a cargo feature of both
+// `custom-ring-program` and `custom-ring-cli`.
 
 const PIPELINE = [
     "cargo generate template (this wizard)",
@@ -21,6 +22,7 @@ const PIPELINE = [
 const FEATURES = [
     #{ id: "confidential", name: "Confidential", example: "Amounts and recipients are hidden on chain", state: "always" },
     #{ id: "auditor_visibility", name: "Auditor visibility", example: "Let compliance, accounting, or regulators view ring activity", state: "always" },
+    #{ id: "hello", name: "Hello", example: "Smoke test of the feature wiring: the program logs `Hello feature` on every instruction and `status` greets", state: "ready" },
     #{ id: "anonymous", name: "Anonymous", example: "Hide senders and recipients from the ring itself", state: "coming_soon" },
     #{ id: "allowed_assets", name: "Allowed assets", example: "Only USDC or a specific issued stablecoin", state: "coming_soon" },
     #{ id: "freeze_thaw", name: "Freeze/thaw", example: "Freeze a balance while an investigation is pending", state: "coming_soon" },
@@ -138,7 +140,7 @@ print("");
 print("Features");
 let features_toml = "";
 let features_markdown = "";
-let program_features = "";
+let cargo_features = "";
 for feature in FEATURES {
     let enabled = false;
     let status = "";
@@ -149,12 +151,16 @@ for feature in FEATURES {
             print(`  [x] ${feature.name} (always on)`);
         }
         "ready" => {
+            // `-d feature_<id>=true` arrives as a string, a prompt as a bool.
             let key = `feature_${feature.id}`;
-            if !variable::is_set(key) {
-                let answer = if silent() { false } else { variable::prompt(`Enable ${feature.name}? ${feature.example}`, false) };
-                variable::set(key, answer);
-            }
-            enabled = variable::get(key) == true || variable::get(key) == "true";
+            enabled = if variable::is_set(key) {
+                let answer = variable::get(key);
+                answer == true || answer == "true"
+            } else if silent() {
+                false
+            } else {
+                variable::prompt(`Enable ${feature.name}? ${feature.example}`, false)
+            };
             status = if enabled { "enabled" } else { "disabled" };
             print(`  [${if enabled { "x" } else { " " }}] ${feature.name}`);
         }
@@ -163,17 +169,20 @@ for feature in FEATURES {
             print(`  [ ] ${feature.name} (coming soon)`);
         }
     }
-    variable::set(`feature_${feature.id}`, enabled);
+    // The resolved answer is a bool under a name the wizard owns, so liquid and
+    // `[conditional]` blocks never see a raw command-line string.
+    variable::set(feature.id + "_enabled", enabled);
     features_toml += feature.id + " = " + enabled + "\n";
     features_markdown += "| " + feature.name + " | " + status + " | " + feature.example + " |\n";
+    // The id is the cargo feature name, so both crates declare it verbatim.
     if enabled && feature.state == "ready" {
-        if program_features != "" {
-            program_features += ", ";
+        if cargo_features != "" {
+            cargo_features += ", ";
         }
-        program_features += `"${feature.id.replace("_", "-")}"`;
+        cargo_features += "\"" + feature.id + "\"";
     }
 }
 print("");
 variable::set("features_toml", features_toml);
 variable::set("features_markdown", features_markdown);
-variable::set("program_features", program_features);
+variable::set("cargo_features", cargo_features);
