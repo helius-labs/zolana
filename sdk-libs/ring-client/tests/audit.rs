@@ -1,19 +1,12 @@
 //! In-memory audit round trips.
 //!
 //! Every transaction here is assembled from the real sender-side encryption path
-//! (`Confidential::encode_plaintext` plus the sdk's auditor message codec) into a
+//! (`Confidential::encode_plaintext` plus the auditor message codec) into a
 //! synthetic [`ShieldedTransaction`], the same struct the indexer returns. No
 //! validator, no prover: what is under test is that the auditor recovers the
 //! transaction viewing key and returns the exact amounts, assets and blindings
 //! the sender encrypted.
 
-use custom_ring_client::{
-    audit_ring_transactions, audit_transaction, scan_ring_transactions, AuditError, AuditedOutput,
-    AuditedTransaction,
-};
-use custom_ring_sdk::{
-    auditor_view_tag, encrypt_tx_viewing_sk, AuditorEncryption, AuditorMessage, AUDITOR_MESSAGE_LEN,
-};
 use p256::{
     elliptic_curve::{bigint::ArrayEncoding, Curve},
     NistP256, U256,
@@ -25,6 +18,11 @@ use zolana_client::{
 };
 use zolana_interface::{event::OutputDataEncoding, instruction::MessageData};
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
+use zolana_ring_client::{
+    audit_ring_transactions, audit_transaction, auditor_view_tag, encrypt_tx_viewing_sk,
+    scan_ring_transactions, AuditError, AuditedOutput, AuditedTransaction, AuditorEncryption,
+    AuditorMessage, AUDITOR_MESSAGE_LEN,
+};
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
     AssetRegistry, Data, EncryptedScheme, OutputContext, OutputSlot, UtxoSerialization,

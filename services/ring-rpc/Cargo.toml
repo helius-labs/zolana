@@ -1,0 +1,38 @@
+[package]
+name = "zolana-ring-rpc"
+version = "0.1.0"
+description = "Ring RPC: holds a custom ring's auditor viewing key and serves decrypted ring transactions over JSON-RPC."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "ring-rpc"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+hex = { workspace = true }
+hyper = { workspace = true }
+jsonrpsee = { workspace = true }
+log = { workspace = true }
+serde = { workspace = true }
+solana-address = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["signal"] }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tracing-subscriber = { workspace = true }
+zeroize = { workspace = true }
+zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
+zolana-indexer-api = { workspace = true }
+zolana-interface = { workspace = true }
+zolana-keypair = { workspace = true }
+zolana-ring-client = { workspace = true }
+zolana-transaction = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+solana-signature = { workspace = true }

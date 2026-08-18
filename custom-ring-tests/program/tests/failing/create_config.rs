@@ -13,7 +13,8 @@ use zolana_test_utils::mollusk::expect_err_exact;
 
 use crate::common::{
     auditor_pubkey, authority, config_pda, create_config_data, create_config_fixture,
-    initialized_config_account, program_id, setup_mollusk, substitute_account,
+    create_config_fixture_deployed_by, initialized_config_account, program_data_account,
+    program_data_pda, program_id, setup_mollusk, substitute_account,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -225,6 +226,95 @@ fn double_initialization_is_rejected_exactly() {
         &instruction,
         &accounts,
         custom(CustomRingError::ConfigAlreadyInitialized),
+    );
+}
+
+#[test]
+fn foreign_upgrade_authority_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let other = Pubkey::new_from_array([42; 32]);
+    let (instruction, accounts) =
+        create_config_fixture_deployed_by(auditor_pubkey(2), Some(&other));
+    expect_err_exact(
+        &mollusk,
+        &instruction,
+        &accounts,
+        custom(CustomRingError::UnauthorizedInitializer),
+    );
+}
+
+/// An immutable deployment names no authority, so the first caller wins.
+#[test]
+fn unset_upgrade_authority_skips_the_gate() {
+    let (mollusk, _) = setup_mollusk();
+    let (instruction, accounts) = create_config_fixture_deployed_by(auditor_pubkey(2), None);
+    let result = mollusk.process_instruction(&instruction, &accounts);
+    assert_eq!(result.program_result, ProgramResult::Success);
+}
+
+/// solana-test-validator `--bpf-program` writes a zeroed authority.
+#[test]
+fn zeroed_upgrade_authority_skips_the_gate() {
+    let (mollusk, _) = setup_mollusk();
+    let zero = Pubkey::new_from_array([0; 32]);
+    let (instruction, accounts) = create_config_fixture_deployed_by(auditor_pubkey(2), Some(&zero));
+    let result = mollusk.process_instruction(&instruction, &accounts);
+    assert_eq!(result.program_result, ProgramResult::Success);
+}
+
+/// A `ProgramData` account at any other address, even one naming the
+/// authority, does not satisfy the gate.
+#[test]
+fn foreign_program_data_account_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let (mut instruction, mut accounts) = create_config_fixture(auditor_pubkey(2));
+    let impostor = Pubkey::new_from_array([43; 32]);
+    substitute_account(&mut instruction, &mut accounts, 5, impostor);
+    replace_account(
+        &mut accounts,
+        impostor,
+        program_data_account(Some(&authority())),
+    );
+    expect_err_exact(
+        &mollusk,
+        &instruction,
+        &accounts,
+        custom(CustomRingError::UnauthorizedInitializer),
+    );
+}
+
+/// The gate reads the ring program's own account, never a caller-chosen one.
+#[test]
+fn foreign_program_account_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let (mut instruction, mut accounts) = create_config_fixture(auditor_pubkey(2));
+    substitute_account(
+        &mut instruction,
+        &mut accounts,
+        4,
+        Pubkey::new_from_array([44; 32]),
+    );
+    expect_err_exact(
+        &mollusk,
+        &instruction,
+        &accounts,
+        custom(CustomRingError::UnauthorizedInitializer),
+    );
+}
+
+/// Truncated loader state fails closed rather than skipping the check.
+#[test]
+fn truncated_program_data_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let (instruction, mut accounts) = create_config_fixture(auditor_pubkey(2));
+    let mut truncated = program_data_account(Some(&authority()));
+    truncated.data.truncate(8);
+    replace_account(&mut accounts, program_data_pda(), truncated);
+    expect_err_exact(
+        &mollusk,
+        &instruction,
+        &accounts,
+        custom(CustomRingError::UnauthorizedInitializer),
     );
 }
 

@@ -7,9 +7,6 @@ autotests = false
 
 [dependencies]
 anyhow = { workspace = true }
-# The auditor side under test: `audit_ring_transactions` is the call whose
-# returned plaintexts the lifecycle asserts against what the sender sent.
-custom-ring-client = { path = "../client" }
 custom-ring-program = { path = "../program" }
 custom-ring-sdk = { path = "../sdk" }
 solana-address = { workspace = true }
@@ -30,6 +27,9 @@ zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
 zolana-interface = { workspace = true, features = ["solana"] }
 zolana-keypair = { workspace = true }
 zolana-program-test = { workspace = true }
+# The auditor side under test: `audit_ring_transactions` is the call whose
+# returned plaintexts the lifecycle asserts against what the sender sent.
+zolana-ring-client = { workspace = true }
 zolana-test-utils = { workspace = true }
 zolana-transaction = { workspace = true }
 zolana-tree = { workspace = true }

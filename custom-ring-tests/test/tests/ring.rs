@@ -20,7 +20,6 @@ use std::{
 };
 
 use anyhow::{anyhow, Context, Result};
-use custom_ring_client::{audit_ring_transactions, AuditedOutput};
 use custom_ring_program::{
     error::CustomRingError,
     state::{RingProgramConfig, RING_PROGRAM_CONFIG},
@@ -55,11 +54,12 @@ use zolana_interface::{
 };
 use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey};
 use zolana_program_test::Rejection;
+use zolana_ring_client::{audit_ring_transactions, AuditedOutput};
 use zolana_test_utils::{
     smart_account,
     test_validator_asserts::{
-        assert_account_unchanged, fetch_account, fetch_state, wait_for_indexed_transaction,
-        wait_for_merkle_proof, wait_for_non_inclusion_proof,
+        assert_account_unchanged, assert_transaction_compute_units, fetch_account, fetch_state,
+        wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
     },
     transact::pack_transact_proof,
 };
@@ -108,6 +108,12 @@ const AUDITOR_CIPHERTEXT_OFFSET: usize = 33;
 
 /// A UTXO's `data_hash` / `ring_data_hash` when it carries neither.
 const ZERO: [u8; 32] = [0u8; 32];
+
+/// Local-validator baseline for the audited (2, 2) transact, measured
+/// 2026-08-18: 405,169 CU, the ring's BSB22 audit verification plus SPP's
+/// transfer verification. The ceiling sits roughly 20% over so a regression in
+/// either trips the assert.
+const AUDITED_RING_TRANSACT_CU_LIMIT: u64 = 486_000;
 
 #[test]
 fn localnet_bring_up_is_live() -> Result<()> {
@@ -283,6 +289,8 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
 
     // 2. Create the ring's singleton config holding the auditor key. The payer
     //    doubles as the config authority, so one signature covers both roles.
+    //    `--bpf-program` deploys with a zeroed upgrade authority, so the
+    //    upgrade-authority gate is skipped on this validator.
     let authority = env.payer.pubkey();
     send(
         rpc,
@@ -290,7 +298,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         &[CreateConfig {
             payer: authority,
             authority,
-            auditor_pubkey,
+            auditor_pubkey: auditor_pk,
         }
         .instruction()],
     )?;
@@ -484,6 +492,12 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         rpc,
         &env.sender.keypair,
         ring_transact_ix(sender_address, env.tree, owner_signers, audit_proof, data)?,
+    )?;
+    assert_transaction_compute_units(
+        rpc,
+        &signature,
+        "audited ring transact 2x2",
+        AUDITED_RING_TRANSACT_CU_LIMIT,
     )?;
 
     // 8. What the auditor sees. Photon matches the auditor view tag against
