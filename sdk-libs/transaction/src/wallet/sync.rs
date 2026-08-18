@@ -1018,9 +1018,10 @@ impl Wallet {
         }
         // A spent nullifier is never queried again, so its watermark is dead
         // weight.
-        if let Some(cursors) = self.cursors.get_mut(&CursorStream::Nullifiers) {
-            cursors.retain(|nullifier, _| !self.nullifiers.contains(nullifier));
-        }
+        self.cursors.retain(|stream, _| match stream {
+            CursorStream::Nullifiers(nullifier) => !self.nullifiers.contains(nullifier),
+            _ => true,
+        });
         self.transactions.sort_by(|a, b| {
             (a.id.slot, &a.id.signature, a.id.index).cmp(&(b.id.slot, &b.id.signature, b.id.index))
         });

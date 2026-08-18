@@ -1,7 +1,7 @@
 use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
 
 use solana_address::Address;
-use zolana_keypair::{shielded::ShieldedAddress, P256Pubkey};
+use zolana_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, P256Pubkey};
 
 use crate::{
     error::TransactionError, instructions::transact::OutputContext, utxo::Utxo, AssetRegistry,
@@ -128,19 +128,29 @@ pub struct SyncReport {
     pub unknown_asset_ids: BTreeSet<u64>,
 }
 
-/// One of the indexer streams the wallet resumes.
+/// One key on one of the indexer streams the wallet resumes.
 ///
-/// A selector rather than a key wrapper: the inner maps stay
-/// `HashMap<[u8; 32], Vec<u8>>`, which is what the generic resume-point helpers
-/// already take, so nothing downstream needs to know a stream exists.
+/// The variant carries what its stream indexes by, so the map is flat and a tag
+/// cannot be mistaken for a nullifier -- `ViewTag` is itself `[u8; 32]`, so
+/// keying by the bare value would make the two interchangeable.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CursorStream {
     /// Shielded transactions matched by output view tag.
-    Tags,
+    Tags(ViewTag),
     /// Shielded transactions matched by spent nullifier.
-    Nullifiers,
+    Nullifiers([u8; 32]),
     /// Encrypted UTXOs, which proofless deposits are read from.
-    Proofless,
+    Proofless(ViewTag),
+}
+
+impl CursorStream {
+    /// The tag or nullifier itself, for building the query its stream is read
+    /// with.
+    pub fn value(self) -> [u8; 32] {
+        match self {
+            Self::Tags(value) | Self::Nullifiers(value) | Self::Proofless(value) => value,
+        }
+    }
 }
 
 pub struct Wallet {
@@ -159,16 +169,13 @@ pub struct Wallet {
     /// spent.
     pub nullifiers: HashSet<[u8; 32]>,
     pub last_synced: i64,
-    /// Sync watermarks, one map per stream.
+    /// Sync watermarks: for each key on each stream, the indexer position
+    /// through which everything matching it has already been seen.
     ///
-    /// For each key the stream indexes by -- a view tag, or a nullifier for
-    /// [`CursorStream::Nullifiers`] -- the indexer position through which
-    /// everything matching has already been seen.
-    ///
-    /// The streams are independent: reaching the tip of one says nothing about
-    /// the others, so a shared map would conflate watermarks that advance
-    /// separately. Nullifier entries are dropped once the nullifier is spent.
-    pub cursors: HashMap<CursorStream, HashMap<[u8; 32], Vec<u8>>>,
+    /// Keyed by [`CursorStream`], so the streams stay independent -- reaching the
+    /// tip of one says nothing about the others -- without a map per stream.
+    /// Nullifier entries are dropped once the nullifier is spent.
+    pub cursors: HashMap<CursorStream, Vec<u8>>,
 }
 
 impl Wallet {
