@@ -4,6 +4,8 @@ use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 use serde_json::json;
 use solana_signature::Signature;
+use zolana_keypair::P256Pubkey;
+use zolana_ring_client::auditor_view_tag;
 use zolana_ring_rpc::api::{
     DecryptedTransaction, GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse,
     HealthResponse, GET_DECRYPTED_TRANSACTIONS, HEALTH,
@@ -32,6 +34,25 @@ impl RingRpc {
 
     pub fn health(&self) -> Result<HealthResponse> {
         self.call(HEALTH, json!({}))
+    }
+
+    /// The RPC at this URL must hold the key behind `auditor_pk`; another
+    /// ring's RPC on the same port answers `health` but can open nothing here.
+    pub fn check_serves(&self, auditor_pk: &P256Pubkey) -> Result<()> {
+        let health = self
+            .health()
+            .with_context(|| format!("no ring rpc answers at {}", self.url))?;
+        let expected = auditor_view_tag(auditor_pk);
+        if health.auditor_view_tag.0 != expected {
+            return Err(anyhow!(
+                "the ring rpc at {} serves auditor tag {} but this ring's key has tag {}; \
+                 stop it or point ring.toml at another port",
+                self.url,
+                health.auditor_view_tag,
+                zolana_indexer_api::Hash(expected)
+            ));
+        }
+        Ok(())
     }
 
     pub fn decrypted_transactions(

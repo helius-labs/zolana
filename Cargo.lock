@@ -1977,8 +1977,10 @@ dependencies = [
  "solana-transaction-error",
  "toml",
  "zolana-client",
+ "zolana-indexer-api",
  "zolana-interface",
  "zolana-keypair",
+ "zolana-ring-client",
  "zolana-ring-rpc",
  "zolana-transaction",
 ]
@@ -11093,6 +11095,7 @@ dependencies = [
  "serde_json",
  "solana-address 2.6.1",
  "solana-signature",
+ "solana-transaction-status-client-types",
  "thiserror 2.0.18",
  "tokio",
  "tower",

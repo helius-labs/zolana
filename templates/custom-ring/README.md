@@ -21,9 +21,10 @@ Target: `{{target}}`. Authority: `{{authority_keypair}}`.
 | 6 | `just rpc` | ring RPC serving `getDecryptedTransactions` with the auditor key |
 | 7 | `just transact` | two ring deposits, one audited transfer, the auditor's view read back |
 
-`just pipeline` runs steps 3 to 7. On the localnet target, `just localnet` first
-starts a validator with SPP, Photon and the prover from the zolana checkout, and
-`just localnet-stop` tears it down.
+`just pipeline` runs steps 3 to 7 and leaves the ring RPC running for the
+auditor's reads (`just rpc-stop` ends it). On the localnet target, `just
+localnet` first starts a validator with SPP, Photon and the prover from the
+zolana checkout, and `just localnet-stop` tears it down.
 
 ## Features
 

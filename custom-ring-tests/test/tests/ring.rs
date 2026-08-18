@@ -537,6 +537,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         vec![
             AuditedOutput {
                 slot_index: CHANGE_SLOT,
+                recipient_viewing_pk: env.sender.keypair.viewing_pubkey(),
                 asset: SOL_MINT,
                 amount: RING_CHANGE,
                 blinding: change_output.blinding,
@@ -544,13 +545,14 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
             },
             AuditedOutput {
                 slot_index: RECIPIENT_SLOT,
+                recipient_viewing_pk: env.recipient.keypair.viewing_pubkey(),
                 asset: SOL_MINT,
                 amount: RING_TRANSFER_AMOUNT,
                 blinding: recipient_output.blinding,
                 ring_program_id: None,
             },
         ],
-        "auditor-decrypted outputs equal what the sender sent, blindings included"
+        "auditor-decrypted outputs equal what the sender sent, recipients and blindings included"
     );
     assert!(
         audited.undecryptable_slots.is_empty(),
