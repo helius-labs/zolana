@@ -1,12 +1,19 @@
 //! In-memory audit round trips.
 //!
 //! Every transaction here is assembled from the real sender-side encryption path
-//! (`Confidential::encode_plaintext` plus the auditor message codec) into a
+//! (`Confidential::encode_plaintext` plus the sdk's auditor message codec) into a
 //! synthetic [`ShieldedTransaction`], the same struct the indexer returns. No
 //! validator, no prover: what is under test is that the auditor recovers the
 //! transaction viewing key and returns the exact amounts, assets and blindings
 //! the sender encrypted.
 
+use custom_ring_client::{
+    audit_ring_transactions, audit_transaction, scan_ring_transactions, AuditError, AuditedOutput,
+    AuditedTransaction,
+};
+use custom_ring_sdk::{
+    auditor_view_tag, encrypt_tx_viewing_sk, AuditorEncryption, AuditorMessage, AUDITOR_MESSAGE_LEN,
+};
 use p256::{
     elliptic_curve::{bigint::ArrayEncoding, Curve},
     NistP256, U256,
@@ -18,11 +25,6 @@ use zolana_client::{
 };
 use zolana_interface::{event::OutputDataEncoding, instruction::MessageData};
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
-use zolana_ring_client::{
-    audit_ring_transactions, audit_transaction, auditor_view_tag, encrypt_tx_viewing_sk,
-    scan_ring_transactions, AuditError, AuditedOutput, AuditedTransaction, AuditorEncryption,
-    AuditorMessage, AUDITOR_MESSAGE_LEN,
-};
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
     AssetRegistry, Data, EncryptedScheme, OutputContext, OutputSlot, UtxoSerialization,
@@ -172,7 +174,6 @@ fn audit_returns_the_amounts_assets_and_blindings_that_were_encrypted() {
             outputs: vec![
                 AuditedOutput {
                     slot_index: 0,
-                    recipient_viewing_pk: recipient_one.pubkey(),
                     asset: SOL_MINT,
                     amount: 1_234_567,
                     blinding: [0x21; 32],
@@ -180,7 +181,6 @@ fn audit_returns_the_amounts_assets_and_blindings_that_were_encrypted() {
                 },
                 AuditedOutput {
                     slot_index: 1,
-                    recipient_viewing_pk: recipient_two.pubkey(),
                     asset: TOKEN_MINT,
                     amount: 99,
                     blinding: [0x22; 32],
@@ -212,7 +212,6 @@ fn ring_owned_output_keeps_its_ring_program_id() {
         audited.outputs,
         vec![AuditedOutput {
             slot_index: 0,
-            recipient_viewing_pk: recipient.pubkey(),
             asset: SOL_MINT,
             amount: 500,
             blinding: [0x31; 32],
@@ -251,7 +250,6 @@ fn dummy_and_foreign_slots_are_reported_not_fatal() {
             vec![
                 AuditedOutput {
                     slot_index: 0,
-                    recipient_viewing_pk: recipient_one.pubkey(),
                     asset: SOL_MINT,
                     amount: 10,
                     blinding: [0x41; 32],
@@ -259,7 +257,6 @@ fn dummy_and_foreign_slots_are_reported_not_fatal() {
                 },
                 AuditedOutput {
                     slot_index: 2,
-                    recipient_viewing_pk: recipient_two.pubkey(),
                     asset: TOKEN_MINT,
                     amount: 20,
                     blinding: [0x42; 32],
@@ -402,7 +399,6 @@ fn secret_key_plus_group_order_still_recovers_the_key() {
             tx_key.pubkey(),
             vec![AuditedOutput {
                 slot_index: 0,
-                recipient_viewing_pk: recipient.pubkey(),
                 asset: SOL_MINT,
                 amount: 8_000,
                 blinding: [0x71; 32],
@@ -612,7 +608,6 @@ fn scan_walks_every_page_and_keeps_only_auditor_tagged_transactions() {
                 tx_key_one.pubkey(),
                 vec![AuditedOutput {
                     slot_index: 0,
-                    recipient_viewing_pk: recipient.pubkey(),
                     asset: SOL_MINT,
                     amount: 111,
                     blinding: [0xa1; 32],
@@ -623,7 +618,6 @@ fn scan_walks_every_page_and_keeps_only_auditor_tagged_transactions() {
                 tx_key_two.pubkey(),
                 vec![AuditedOutput {
                     slot_index: 0,
-                    recipient_viewing_pk: recipient.pubkey(),
                     asset: TOKEN_MINT,
                     amount: 222,
                     blinding: [0xa2; 32],

@@ -8,9 +8,7 @@ use pinocchio::Address;
 use solana_account::Account;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use zolana_interface::{
-    BPF_LOADER_UPGRADEABLE_PUBKEY, RING_AUTH_PDA_SEED, SHIELDED_POOL_PROGRAM_ID,
-};
+use zolana_interface::{RING_AUTH_PDA_SEED, SHIELDED_POOL_PROGRAM_ID};
 
 const SBF_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/deploy");
 
@@ -50,34 +48,6 @@ pub fn config_pda() -> (Pubkey, u8) {
 
 pub fn ring_auth_pda() -> (Pubkey, u8) {
     Pubkey::find_program_address(&[RING_AUTH_PDA_SEED], &program_id())
-}
-
-/// The ring program's `ProgramData` account under the upgradeable loader.
-pub fn program_data_pda() -> Pubkey {
-    Pubkey::find_program_address(&[program_id().as_ref()], &BPF_LOADER_UPGRADEABLE_PUBKEY).0
-}
-
-/// Loader-v3 `ProgramData` state: u32 tag 3 || slot u64 || u8 option tag ||
-/// authority, the bytes a real loader writes. `None` models an immutable
-/// program.
-pub fn program_data_account(upgrade_authority: Option<&Pubkey>) -> Account {
-    let mut data = Vec::with_capacity(48);
-    data.extend_from_slice(&3u32.to_le_bytes());
-    data.extend_from_slice(&0u64.to_le_bytes());
-    match upgrade_authority {
-        Some(authority) => {
-            data.push(1);
-            data.extend_from_slice(authority.as_ref());
-        }
-        None => data.push(0),
-    }
-    Account {
-        lamports: 1_000_000_000,
-        data,
-        owner: BPF_LOADER_UPGRADEABLE_PUBKEY,
-        executable: false,
-        rent_epoch: 0,
-    }
 }
 
 /// The shielded-pool program account as the runtime presents it: executable and
@@ -128,21 +98,11 @@ pub fn create_config_data(auditor_pubkey: [u8; 33]) -> Vec<u8> {
 }
 
 /// Green `create_config` fixture: `[payer(w,s), authority(s), config(w),
-/// system_program, program, program_data]`, deployed as an upgradeable program
-/// whose upgrade authority is the fixture `authority`.
+/// system_program]`.
 pub fn create_config_fixture(auditor_pubkey: [u8; 33]) -> (Instruction, Vec<(Pubkey, Account)>) {
-    create_config_fixture_deployed_by(auditor_pubkey, Some(&authority()))
-}
-
-/// `create_config` fixture with a chosen `ProgramData` upgrade authority.
-pub fn create_config_fixture_deployed_by(
-    auditor_pubkey: [u8; 33],
-    upgrade_authority: Option<&Pubkey>,
-) -> (Instruction, Vec<(Pubkey, Account)>) {
     let (config, _) = config_pda();
     let (system_program, system_program_account) =
         mollusk_svm::program::keyed_account_for_system_program();
-    let program_data = program_data_pda();
 
     (
         Instruction {
@@ -152,8 +112,6 @@ pub fn create_config_fixture_deployed_by(
                 AccountMeta::new_readonly(authority(), true),
                 AccountMeta::new(config, false),
                 AccountMeta::new_readonly(system_program, false),
-                AccountMeta::new_readonly(program_id(), false),
-                AccountMeta::new_readonly(program_data, false),
             ],
             data: create_config_data(auditor_pubkey),
         },
@@ -162,11 +120,6 @@ pub fn create_config_fixture_deployed_by(
             (authority(), account(1_000_000_000)),
             (config, account(0)),
             (system_program, system_program_account),
-            (
-                program_id(),
-                mollusk_svm::program::create_program_account_loader_v3(&program_id()),
-            ),
-            (program_data, program_data_account(upgrade_authority)),
         ],
     )
 }

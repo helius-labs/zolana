@@ -1,4 +1,4 @@
-use crate::encryption::AuditEncryptionError;
+use custom_ring_sdk::AuditEncryptionError;
 use thiserror::Error;
 use zolana_client::ClientError;
 use zolana_keypair::KeypairError;

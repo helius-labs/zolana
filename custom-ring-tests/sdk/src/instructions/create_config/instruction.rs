@@ -1,9 +1,8 @@
 use custom_ring_program::instructions::create_config::CreateConfigIxData;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
-use zolana_keypair::P256Pubkey;
 
-use crate::{config_pda, program_data_pda, tag, PROGRAM_ID};
+use crate::{config_pda, tag, PROGRAM_ID};
 
 /// Creates the ring's singleton config account: the authority allowed to register
 /// the ring with SPP, and the auditor key every `transact` must verifiably encrypt
@@ -11,13 +10,12 @@ use crate::{config_pda, program_data_pda, tag, PROGRAM_ID};
 pub struct CreateConfig {
     pub payer: Address,
     /// Stored as the config authority. It signs the creation so the recorded
-    /// authority is always a key that consented to the role. When the program
-    /// was deployed with an upgrade authority, this must be that key.
+    /// authority is always a key that consented to the role.
     pub authority: Address,
-    /// Auditor P256 public key. The type guarantees a point on the curve; the
-    /// program only checks the SEC1 prefix, and an off-curve key would leave the
-    /// ring without a provable transaction.
-    pub auditor_pubkey: P256Pubkey,
+    /// Auditor P256 public key in SEC1 compressed form. The program rejects any
+    /// prefix other than `0x02`/`0x03`: the circuit witnesses the uncompressed key
+    /// and re-compresses it, so no other encoding could ever match a proof.
+    pub auditor_pubkey: [u8; 33],
 }
 
 impl CreateConfig {
@@ -32,10 +30,8 @@ impl CreateConfig {
         data.extend_from_slice(
             // A fixed 33-byte payload written into a growable buffer: wincode has
             // nothing to fail on here.
-            &wincode::serialize(&CreateConfigIxData {
-                auditor_pubkey: *auditor_pubkey.as_bytes(),
-            })
-            .expect("create_config instruction data is fixed size"),
+            &wincode::serialize(&CreateConfigIxData { auditor_pubkey })
+                .expect("create_config instruction data is fixed size"),
         );
 
         Instruction {
@@ -48,10 +44,6 @@ impl CreateConfig {
                 AccountMeta::new(config_pda(), false),
                 // The system program is the all-zero address.
                 AccountMeta::new_readonly(Address::default(), false),
-                // The program and its loader-v3 `ProgramData` account, read for
-                // the upgrade-authority gate.
-                AccountMeta::new_readonly(PROGRAM_ID, false),
-                AccountMeta::new_readonly(program_data_pda(), false),
             ],
             data,
         }

@@ -8,7 +8,6 @@ use zolana_account_checks::AccountIterator;
 
 use crate::{
     error::CustomRingError,
-    instructions::loader::check_upgrade_authority,
     state::{RingProgramConfig, RingProgramConfigInitParams},
 };
 
@@ -20,9 +19,8 @@ pub struct CreateConfigIxData {
 
 /// Creates the ring's singleton config account (authority + auditor key).
 ///
-/// Accounts `[payer(w,s), authority(s), config(w), system_program, program,
-/// program_data]`. When the deployment names an upgrade authority, only that
-/// key may sign as `authority`; otherwise the first caller wins.
+/// Gating is a plain authority signature: the config is front-runnable, which is
+/// acceptable for an example ring.
 #[inline(never)]
 pub fn process_create_config_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let CreateConfigIxData { auditor_pubkey } =
@@ -33,13 +31,10 @@ pub fn process_create_config_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
     let authority = iter.next_signer("authority")?;
     let config_account = iter.next_mut("config")?;
     let system_program = iter.next_account("system_program")?;
-    let program = iter.next_account("program")?;
-    let program_data = iter.next_account("program_data")?;
 
     if !pinocchio_system::check_id(system_program.address()) {
         return Err(CustomRingError::InvalidSystemProgram.into());
     }
-    check_upgrade_authority(authority, program, program_data)?;
     // Only SEC1-compressed points are stored: the circuit witnesses the
     // uncompressed auditor key and re-compresses it in-circuit, so a key with
     // any other prefix could never match a proof.

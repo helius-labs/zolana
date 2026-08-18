@@ -1,7 +1,7 @@
 //! Finding the transactions an auditor can open.
 //!
 //! The auditor scans for its own view tag, which is the auditor key's
-//! x-coordinate ([`auditor_view_tag`]). Photon's
+//! x-coordinate (`custom_ring_sdk::auditor_view_tag`). Photon's
 //! `get_shielded_transactions_by_tags` matches the requested tags against both
 //! output view tags and MESSAGE view tags (an OR of two EXISTS subqueries in
 //! `services/photon/src/api/method/rings/get_shielded_transactions_by_tags.rs`)
@@ -9,7 +9,7 @@
 //! usable here. `get_encrypted_utxos_by_tags` matches outputs only and would
 //! never see an auditor message.
 
-use crate::encryption::auditor_view_tag;
+use custom_ring_sdk::auditor_view_tag;
 use zolana_client::Rpc;
 use zolana_keypair::{P256Pubkey, ViewingKey};
 use zolana_transaction::{AssetRegistry, ShieldedTransaction};

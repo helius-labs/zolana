@@ -21,7 +21,6 @@ zeroize = { workspace = true }
 # `solana` pulls in the instruction builders this crate wraps for ring deposits.
 zolana-interface = { workspace = true, features = ["solana"] }
 zolana-keypair = { workspace = true }
-zolana-ring-client = { workspace = true }
 
 [dev-dependencies]
 groth16-solana = { workspace = true, features = ["bsb22", "gnark-vk"] }

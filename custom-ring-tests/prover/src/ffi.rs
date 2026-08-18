@@ -87,14 +87,11 @@ pub fn prove(circuit: CircuitId, witness: &WitnessMap) -> Result<ProveOutput> {
     engine::prove(circuit, &json)
 }
 
-/// Key location: `$CUSTOM_RING_KEYS_DIR/<circuit>/` when set, else the
-/// checkout's `custom-ring-tests/build/gnark/<circuit>/`.
+/// Canonical key location: `custom-ring-tests/build/gnark/<circuit>/`.
 pub fn build_dir(circuit: CircuitId) -> PathBuf {
-    let base = std::env::var_os("CUSTOM_RING_KEYS_DIR")
-        .filter(|dir| !dir.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../build/gnark"));
-    base.join(circuit.name())
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../build/gnark")
+        .join(circuit.name())
 }
 
 #[cfg(custom_ring_go_circuits)]
