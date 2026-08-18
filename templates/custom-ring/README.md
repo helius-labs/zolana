@@ -40,5 +40,6 @@ with the template picks up new ones.
   entrypoint and address (`.cargo/config.toml`).
 - `cli/` the operator CLI (`status`, `deploy`, `init`, `transact`), from
   `custom-ring-cli`.
-- `keys/` the program keypair and the auditor key. Never committed.
+- `keys/` the program keypair and the auditor secret, never committed, and
+  `auditor.key.pub`, the auditor public key the ring config carries, committed.
 - `ring.toml` the wizard's answers.
