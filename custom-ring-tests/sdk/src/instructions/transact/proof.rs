@@ -32,7 +32,7 @@ use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_keypair::{KeypairError, P256Pubkey, ViewingKey};
 
-use zolana_ring_client::{AuditEncryptionError, AuditorEncryption, AuditorMessage};
+use crate::encryption::{AuditEncryptionError, AuditorEncryption, AuditorMessage};
 
 /// SEC1 uncompressed public key: `0x04 || x || y`. The circuit witnesses the
 /// auditor key in this form because its emulated-P256 gadgets need both
