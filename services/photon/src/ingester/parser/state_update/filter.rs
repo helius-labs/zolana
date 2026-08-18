@@ -276,7 +276,7 @@ mod tests {
             signature,
             event_index,
             slot: 1,
-            rings_program_id: [9; 32],
+            ring_config: Some([9; 32]),
             source_instruction_tag: 1,
             output_tree: output_tree.to_bytes(),
             first_output_leaf_index: 0,

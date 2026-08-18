@@ -3,6 +3,9 @@
 use anyhow::Result;
 use serial_test::serial;
 use solana_address::Address;
+use solana_commitment_config::CommitmentConfig;
+use solana_rpc_client::api::config::RpcTransactionConfig;
+use solana_transaction_status_client_types::UiTransactionEncoding;
 use zolana_client::Rpc;
 use zolana_test_utils::ring::RingHarness;
 use zolana_transaction::SOL_MINT;
@@ -50,6 +53,45 @@ fn eddsa_ring_transfer_updates_recipient_wallet() -> Result<()> {
     harness.ring_transfer("alice", "bob", SOL_MINT, 300_000_000)?;
     harness.sync("bob")?;
     harness.assert_utxos("bob");
+    Ok(())
+}
+
+/// Regenerate `services/photon/tests/fixtures/ring_transact.json`, the real
+/// ring-CPI transaction Photon's parser replays to prove it still finds the
+/// ring's `ring_config` account. Ignored: it needs the localnet stack, while
+/// the fixture it writes does not.
+///
+/// ```text
+/// cargo test -p ring-test-program --test ring_lifecycle -- \
+///     --ignored dump_ring_transact_fixture
+/// ```
+#[test]
+#[serial]
+#[ignore = "regenerates a committed fixture; needs the localnet stack"]
+fn dump_ring_transact_fixture() -> Result<()> {
+    let mut harness = RingHarness::new()?;
+    harness.create_enabled_ring_config()?;
+    harness.make_payer_actor("alice")?;
+    for _ in 0..2 {
+        harness.ring_shield_sol("alice", 1_000_000_000)?;
+    }
+    let signature = harness.ring_transfer("alice", "bob", SOL_MINT, 300_000_000)?;
+
+    // base64, matching what Photon's ingester requests -- the JSON encoding
+    // yields a parsed message that `EncodedTransaction::decode` rejects.
+    let transaction = harness.rpc.client().get_transaction_with_config(
+        &signature,
+        RpcTransactionConfig {
+            encoding: Some(UiTransactionEncoding::Base64),
+            commitment: Some(CommitmentConfig::confirmed()),
+            max_supported_transaction_version: Some(0),
+        },
+    )?;
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../services/photon/tests/fixtures/ring_transact.json");
+    std::fs::create_dir_all(path.parent().expect("fixture parent"))?;
+    std::fs::write(&path, serde_json::to_vec_pretty(&transaction)?)?;
+    println!("wrote {}", path.display());
     Ok(())
 }
 

@@ -49,7 +49,7 @@ pub enum RingsTransactions {
     Signature,
     EventIndex,
     Slot,
-    RingsProgramId,
+    RingConfig,
     SourceInstructionTag,
     OutputTree,
     FirstOutputLeafIndex,

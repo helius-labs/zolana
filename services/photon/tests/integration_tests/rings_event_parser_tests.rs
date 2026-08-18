@@ -39,6 +39,7 @@ use photon_indexer::{
             persist_state_update,
             persisted_indexed_merkle_tree::persist_indexed_tree_updates,
         },
+        typedefs::block_info::parse_transaction_info,
         typedefs::block_info::{Instruction, InstructionGroup, TransactionInfo},
     },
     migration::RingsMigrator,
@@ -53,6 +54,7 @@ use sea_orm_migration::MigratorTrait;
 use solana_account::Account;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
+use solana_transaction_status_client_types::EncodedConfirmedTransactionWithStatusMeta;
 use zolana_event::{
     encode_event_instruction, encode_output_data, encode_verifiably_encrypted, EventKind,
     GeneralEvent, Input, OutputUtxo, ProoflessOutput, SplTransfer,
@@ -72,7 +74,6 @@ const PROOFLESS_SHIELD_SLOT: u64 = 23;
 const SHIELDED_TRANSFER_SLOT: u64 = 25;
 const UNSHIELD_SLOT: u64 = 28;
 const ENCRYPTED_TRANSFER_SLOT: u64 = 19;
-const RING_TRANSFER_SLOT: u64 = 31;
 const TEST_TREE: [u8; 32] = [41; 32];
 
 fn only<'a, T>(items: &'a [T], description: &str) -> &'a T {
@@ -215,26 +216,54 @@ fn rings_snapshot_filter_keeps_rings_transactions() {
     ));
 }
 
-#[tokio::test]
-async fn persists_the_ring_that_cpid_the_pool() {
-    let ring = Pubkey::new_unique();
-    let db = Database::connect("sqlite::memory:").await.unwrap();
-    RingsMigrator::up(&db, None).await.unwrap();
-    insert_test_blocks(&db, &[RING_TRANSFER_SLOT]).await;
+/// Replays a real ring CPI captured from localnet by `just dump-ring-fixture`.
+///
+/// The ring's identity is only in the signed `ring_config` account, at a fixed
+/// position in the pool instruction's account list -- the event payload does
+/// not carry it and the event's parent is the pool either way. Reordering that
+/// list would silently reattribute every ring transaction, which this catches
+/// by deriving the expected PDA from the ring program the fixture actually
+/// invoked.
+#[test]
+fn ring_fixture_records_the_signing_ring_config() {
+    let confirmed: EncodedConfirmedTransactionWithStatusMeta =
+        serde_json::from_str(include_str!("../fixtures/ring_transact.json"))
+            .expect("ring_transact fixture");
+    let slot = confirmed.slot;
+    let tx = parse_transaction_info(confirmed.transaction).expect("fixture transaction");
 
-    let state_update =
-        parse_ingestion_update(ring_transfer_transaction_info(ring), RING_TRANSFER_SLOT);
-    insert_known_rings_tree_accounts_from_outputs(&db, &state_update).await;
+    // The transaction also carries a ComputeBudget instruction, so take the
+    // group that actually reached the pool.
+    let ring_program = tx
+        .instruction_groups
+        .iter()
+        .find(|group| {
+            group
+                .inner_instructions
+                .iter()
+                .any(|inner| inner.program_id == pda::shielded_pool_program_id())
+        })
+        .expect("group that invoked the pool")
+        .outer_instruction
+        .program_id;
+    assert_ne!(
+        ring_program,
+        pda::shielded_pool_program_id(),
+        "fixture must be a ring CPI, not a direct pool call"
+    );
 
-    let txn = db.begin().await.unwrap();
-    persist_state_update(&txn, state_update).await.unwrap();
-    txn.commit().await.unwrap();
-
-    let rows = rings_transactions::Entity::find().all(&db).await.unwrap();
-    let [row] = rows.as_slice() else {
-        panic!("expected one rings_transactions row, got {}", rows.len());
+    let state_update = parse_rings_events(&tx, slot)
+        .expect("parse fixture")
+        .expect("fixture carries rings events");
+    let [update] = state_update.rings_transactions.as_slice() else {
+        panic!(
+            "expected one rings transaction, got {}",
+            state_update.rings_transactions.len()
+        );
     };
-    assert_eq!(row.rings_program_id, ring.to_bytes().to_vec());
+
+    let (ring_auth, _) = pda::ring_auth(&ring_program);
+    assert_eq!(update.ring_config, Some(ring_auth.to_bytes()));
 }
 
 #[test]
@@ -299,11 +328,8 @@ async fn persists_rings_events() {
         .all(&db)
         .await
         .unwrap();
-    // No ring CPI'd these, so each records the pool as its own outer program.
-    let rings_program_id = pda::shielded_pool_program_id().to_bytes().to_vec();
-    assert!(rows
-        .iter()
-        .all(|row| row.rings_program_id == rings_program_id));
+    // Plain DEPOSIT/TRANSACT: no ring signed, so no ring_config was passed.
+    assert!(rows.iter().all(|row| row.ring_config.is_none()));
     assert_eq!(
         rows.iter()
             .map(|row| row.source_instruction_tag)
@@ -1694,49 +1720,6 @@ fn rings_transaction_info(
             }],
         }],
         signature: Signature::from([signature_byte; 64]),
-        error: None,
-    }
-}
-
-/// The ring shape: a ring program CPIs the pool, which emits. The pool is the
-/// event's parent either way, so only the outer instruction names the ring.
-fn ring_transfer_transaction_info(ring: Pubkey) -> TransactionInfo {
-    let program_id = pda::shielded_pool_program_id();
-    let event = GeneralEvent {
-        inputs: vec![test_input(6, 27), test_input(7, 28)],
-        outputs: vec![test_output(11, 21, Vec::new())],
-        messages: Vec::new(),
-        tx_viewing_pk: [0; 33],
-        salt: [0; 16],
-        first_output_leaf_index: 7,
-        output_tree: TEST_TREE,
-        spl_transfers: Vec::new(),
-    };
-
-    TransactionInfo {
-        instruction_groups: vec![InstructionGroup {
-            outer_instruction: Instruction {
-                program_id: ring,
-                accounts: Vec::new(),
-                data: vec![0],
-                stack_height: Some(1),
-            },
-            inner_instructions: vec![
-                Instruction {
-                    program_id,
-                    accounts: Vec::new(),
-                    data: vec![tag::TRANSACT],
-                    stack_height: Some(2),
-                },
-                Instruction {
-                    program_id,
-                    accounts: Vec::new(),
-                    data: encode_event_instruction(EventKind::Transact, event),
-                    stack_height: Some(3),
-                },
-            ],
-        }],
-        signature: Signature::from([9; 64]),
         error: None,
     }
 }

@@ -69,7 +69,7 @@ pub fn parse_ui_confirmed_blocked(
     let transactions: Result<Vec<_>, _> = transactions
         .unwrap_or_default()
         .into_iter()
-        .map(_parse_transaction)
+        .map(parse_transaction_info)
         .collect();
 
     Ok(BlockInfo {
@@ -92,7 +92,7 @@ pub fn parse_ui_confirmed_blocked(
     })
 }
 
-fn _parse_transaction(
+pub fn parse_transaction_info(
     transaction: EncodedTransactionWithStatusMeta,
 ) -> Result<TransactionInfo, IngesterError> {
     let EncodedTransactionWithStatusMeta {

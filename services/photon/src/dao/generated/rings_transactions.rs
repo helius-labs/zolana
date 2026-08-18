@@ -11,8 +11,8 @@ pub struct Model {
     pub signature: Vec<u8>,
     pub event_index: i16,
     pub slot: i64,
-    #[sea_orm(column_type = "VarBinary(StringLen::None)")]
-    pub rings_program_id: Vec<u8>,
+    #[sea_orm(column_type = "VarBinary(StringLen::None)", nullable)]
+    pub ring_config: Option<Vec<u8>>,
     pub source_instruction_tag: i16,
     #[sea_orm(column_type = "VarBinary(StringLen::None)")]
     pub output_tree: Vec<u8>,

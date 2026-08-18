@@ -124,7 +124,7 @@ pub fn parse_rings_events(
                 signature: tx.signature,
                 event_index: event_index_i16,
                 slot,
-                rings_program_id: event_site.outer_program_id.to_bytes(),
+                ring_config: event_site.ring_config.map(|key| key.to_bytes()),
                 source_instruction_tag: event_site.source_instruction_tag as i16,
                 // Accepted events are Rings EMIT_EVENT inner instructions under a
                 // Rings source instruction, so these fields are trusted as the

@@ -196,7 +196,7 @@ pub async fn seed_tagged_transaction_history(
             signature: Set(signature),
             event_index: Set(0),
             slot: Set(slot),
-            rings_program_id: Set(vec![1u8; 32]),
+            ring_config: Set(Some(vec![1; 32])),
             source_instruction_tag: Set(0),
             output_tree: Set(vec![8u8; 32]),
             first_output_leaf_index: Set(rings_tx_id),
