@@ -14,6 +14,11 @@ export interface GetRingsByTagsRequest {
   readonly tags: readonly Hash[];
   readonly cursor?: Base64String;
   readonly limit?: Limit;
+  /**
+   * Restrict the match to one ring. Its config account is derived from this
+   * program id, so the filter needs no indexed registration.
+   */
+  readonly ringProgramId?: Address;
 }
 
 export interface GetRingsByNullifiersRequest {
@@ -62,6 +67,18 @@ export interface IndexedShieldedTransaction {
   readonly messages: readonly RingsMessage[];
   readonly nullifiers: readonly Hash[];
   readonly proofless: boolean;
+  /**
+   * The ring's config account (its `ring_auth` PDA), absent when no ring
+   * authorized this transaction. Observed directly on the transaction.
+   */
+  readonly ringConfig?: Address;
+  /**
+   * The ring's program, resolved through the indexed registrations. Absent when
+   * `ringConfig` is absent, and also when the registration itself was never
+   * indexed -- so `ringConfig` is what separates "no ring" from "ring whose
+   * program is unknown here".
+   */
+  readonly ringProgramId?: Address;
 }
 
 export interface GetShieldedTransactionsByTagsResponse {

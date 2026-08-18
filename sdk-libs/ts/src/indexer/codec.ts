@@ -261,9 +261,13 @@ function indexedTransaction(value: unknown, path: string): IndexedShieldedTransa
     "messages",
     "nullifiers",
     "proofless",
+    "ringConfig",
+    "ringProgramId",
   ]);
   const txViewingPk = optional(record["txViewingPk"], `${path}.txViewingPk`, checkedBase64);
   const salt = optional(record["salt"], `${path}.salt`, checkedBase64);
+  const ringConfig = optional(record["ringConfig"], `${path}.ringConfig`, checkedAddress);
+  const ringProgramId = optional(record["ringProgramId"], `${path}.ringProgramId`, checkedAddress);
   return {
     slot: unboundedU64(record["slot"], `${path}.slot`),
     txSignature: checkedSignature(record["txSignature"], `${path}.txSignature`),
@@ -273,6 +277,8 @@ function indexedTransaction(value: unknown, path: string): IndexedShieldedTransa
     messages: array(record["messages"], `${path}.messages`, message),
     nullifiers: array(record["nullifiers"], `${path}.nullifiers`, checkedHash),
     proofless: boolean(record["proofless"], `${path}.proofless`),
+    ...(ringConfig === undefined ? {} : { ringConfig }),
+    ...(ringProgramId === undefined ? {} : { ringProgramId }),
   };
 }
 
@@ -344,16 +350,18 @@ function nonInclusionProof(value: unknown, path: string): NonInclusionProof {
 }
 
 function decodeRingsByTagsRequest(value: unknown): GetRingsByTagsRequest {
-  const record = object(value, "$", ["tags", "cursor", "limit"]);
+  const record = object(value, "$", ["tags", "cursor", "limit", "ringProgramId"]);
   const cursor = optional(record["cursor"], "$.cursor", checkedBase64);
   const pageLimit =
     record["limit"] === undefined || record["limit"] === null
       ? undefined
       : checkedPageLimit(record["limit"], "$.limit");
+  const ringProgramId = optional(record["ringProgramId"], "$.ringProgramId", checkedAddress);
   return {
     tags: array(record["tags"], "$.tags", checkedHash),
     ...(cursor === undefined ? {} : { cursor }),
     ...(pageLimit === undefined ? {} : { limit: pageLimit }),
+    ...(ringProgramId === undefined ? {} : { ringProgramId }),
   };
 }
 
@@ -362,11 +370,13 @@ export function encodeRingsByTagsRequest(value: GetRingsByTagsRequest): WireObje
     tags: value.tags,
     ...(value.cursor === undefined ? {} : { cursor: value.cursor }),
     ...(value.limit === undefined ? {} : { limit: toU64(value.limit, "$.limit") }),
+    ...(value.ringProgramId === undefined ? {} : { ringProgramId: value.ringProgramId }),
   });
   return {
     tags: [...decoded.tags],
     ...(decoded.cursor === undefined ? {} : { cursor: decoded.cursor }),
     ...(decoded.limit === undefined ? {} : { limit: Number(decoded.limit) }),
+    ...(decoded.ringProgramId === undefined ? {} : { ringProgramId: decoded.ringProgramId }),
   };
 }
 

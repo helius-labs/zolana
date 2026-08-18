@@ -158,6 +158,8 @@ mod tests {
             }],
             nullifiers: vec![hash(7)],
             proofless: true,
+            ring_config: Some(pubkey(11)),
+            ring_program_id: Some(pubkey(12)),
         })
         .unwrap();
 
@@ -165,8 +167,12 @@ mod tests {
         assert!(value.get("txViewingPk").is_some());
         assert!(value.get("outputSlots").is_some());
         assert!(value.get("messages").is_some());
+        assert!(value.get("ringConfig").is_some());
+        assert!(value.get("ringProgramId").is_some());
         assert!(value.get("tx_signature").is_none());
         assert!(value.get("output_slots").is_none());
+        assert!(value.get("ring_config").is_none());
+        assert!(value.get("ring_program_id").is_none());
 
         let message = &value["messages"][0];
         assert!(message.get("viewTag").is_some());

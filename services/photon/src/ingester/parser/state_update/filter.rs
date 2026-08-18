@@ -108,6 +108,8 @@ impl StateUpdate {
             state_update: StateUpdate {
                 transactions,
                 rings_transactions,
+                // Registrations reference no tree, so tree filtering cannot drop them.
+                ring_configs: self.ring_configs,
                 nullifier_tree_batch_updates,
             },
             tree_info_cache,

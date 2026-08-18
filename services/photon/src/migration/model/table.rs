@@ -60,6 +60,15 @@ pub enum RingsTransactions {
 }
 
 #[derive(Copy, Clone, Iden)]
+pub enum RingConfigs {
+    Table,
+    RingConfig,
+    ProgramId,
+    Authority,
+    Slot,
+}
+
+#[derive(Copy, Clone, Iden)]
 pub enum RingsTransactionPayloads {
     Table,
     RingsTxId,

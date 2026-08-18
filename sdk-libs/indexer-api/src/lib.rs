@@ -505,6 +505,10 @@ pub struct GetRingsByTagsRequest {
     pub cursor: Option<Base64String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<Limit>,
+    /// Restrict the match to one ring. Its config account is derived from this
+    /// program id, so the filter needs no indexed registration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ring_program_id: Option<SerializablePubkey>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -581,6 +585,17 @@ pub struct ShieldedTransaction {
     pub nullifiers: Vec<Hash>,
     /// True when at least one output in this transaction is proofless.
     pub proofless: bool,
+    /// The ring's config account (its `ring_auth` PDA), or `None` when no ring
+    /// authorized this transaction. Observed directly on the transaction, so it
+    /// is always present for a ring.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ring_config: Option<SerializablePubkey>,
+    /// The ring's program, resolved through the indexed registrations. `None`
+    /// when `ringConfig` is `None`, and also when the registration itself was
+    /// never indexed -- so `ringConfig` is what distinguishes "no ring" from
+    /// "ring whose program is unknown here".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ring_program_id: Option<SerializablePubkey>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

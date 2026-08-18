@@ -51,6 +51,13 @@ paths:
                       oneOf:
                       - type: 'null'
                       - $ref: '#/components/schemas/Limit'
+                    ringProgramId:
+                      oneOf:
+                      - type: 'null'
+                      - $ref: '#/components/schemas/SerializablePubkey'
+                        description: |-
+                          Restrict the match to one ring. Its config account is derived from this
+                          program id, so the filter needs no indexed registration.
                     tags:
                       type: array
                       items:
@@ -804,6 +811,13 @@ paths:
                       oneOf:
                       - type: 'null'
                       - $ref: '#/components/schemas/Limit'
+                    ringProgramId:
+                      oneOf:
+                      - type: 'null'
+                      - $ref: '#/components/schemas/SerializablePubkey'
+                        description: |-
+                          Restrict the match to one ring. Its config account is derived from this
+                          program id, so the filter needs no indexed registration.
                     tags:
                       type: array
                       items:
@@ -1139,6 +1153,23 @@ components:
         proofless:
           type: boolean
           description: True when at least one output in this transaction is proofless.
+        ringConfig:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SerializablePubkey'
+            description: |-
+              The ring's config account (its `ring_auth` PDA), or `None` when no ring
+              authorized this transaction. Observed directly on the transaction, so it
+              is always present for a ring.
+        ringProgramId:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SerializablePubkey'
+            description: |-
+              The ring's program, resolved through the indexed registrations. `None`
+              when `ringConfig` is `None`, and also when the registration itself was
+              never indexed -- so `ringConfig` is what distinguishes "no ring" from
+              "ring whose program is unknown here".
         salt:
           oneOf:
           - type: 'null'

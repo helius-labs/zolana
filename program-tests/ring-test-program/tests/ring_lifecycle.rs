@@ -56,10 +56,10 @@ fn eddsa_ring_transfer_updates_recipient_wallet() -> Result<()> {
     Ok(())
 }
 
-/// Regenerate `services/photon/tests/fixtures/ring_transact.json`, the real
-/// ring-CPI transaction Photon's parser replays to prove it still finds the
-/// ring's `ring_config` account. Ignored: it needs the localnet stack, while
-/// the fixture it writes does not.
+/// Regenerate the `services/photon/tests/fixtures` transactions Photon's parser
+/// replays: a real ring CPI (to prove it still finds the ring's `ring_config`
+/// account) and a real registration (to prove it still reads the registry).
+/// Ignored: it needs the localnet stack, while the fixtures it writes do not.
 ///
 /// ```text
 /// cargo test -p ring-test-program --test ring_lifecycle -- \
@@ -70,7 +70,7 @@ fn eddsa_ring_transfer_updates_recipient_wallet() -> Result<()> {
 #[ignore = "regenerates a committed fixture; needs the localnet stack"]
 fn dump_ring_transact_fixture() -> Result<()> {
     let mut harness = RingHarness::new()?;
-    harness.create_enabled_ring_config()?;
+    let create_config = harness.create_enabled_ring_config()?;
     harness.make_payer_actor("alice")?;
     for _ in 0..2 {
         harness.ring_shield_sol("alice", 1_000_000_000)?;
@@ -79,19 +79,27 @@ fn dump_ring_transact_fixture() -> Result<()> {
 
     // base64, matching what Photon's ingester requests -- the JSON encoding
     // yields a parsed message that `EncodedTransaction::decode` rejects.
-    let transaction = harness.rpc.client().get_transaction_with_config(
-        &signature,
-        RpcTransactionConfig {
-            encoding: Some(UiTransactionEncoding::Base64),
-            commitment: Some(CommitmentConfig::confirmed()),
-            max_supported_transaction_version: Some(0),
-        },
-    )?;
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../services/photon/tests/fixtures/ring_transact.json");
-    std::fs::create_dir_all(path.parent().expect("fixture parent"))?;
-    std::fs::write(&path, serde_json::to_vec_pretty(&transaction)?)?;
-    println!("wrote {}", path.display());
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../services/photon/tests/fixtures");
+    std::fs::create_dir_all(&fixtures)?;
+    for (name, signature) in [
+        ("ring_transact.json", signature),
+        ("create_ring_config.json", create_config),
+    ] {
+        // base64, matching what Photon's ingester requests -- the JSON encoding
+        // yields a parsed message that `EncodedTransaction::decode` rejects.
+        let transaction = harness.rpc.client().get_transaction_with_config(
+            &signature,
+            RpcTransactionConfig {
+                encoding: Some(UiTransactionEncoding::Base64),
+                commitment: Some(CommitmentConfig::confirmed()),
+                max_supported_transaction_version: Some(0),
+            },
+        )?;
+        let path = fixtures.join(name);
+        std::fs::write(&path, serde_json::to_vec_pretty(&transaction)?)?;
+        println!("wrote {}", path.display());
+    }
     Ok(())
 }
 
