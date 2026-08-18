@@ -16,7 +16,7 @@ use sea_orm::{
 use solana_signature::{Signature, SIGNATURE_BYTES};
 use zolana_indexer_api::{
     Base64String, Hash, MerkleContext, MerkleProof, NonInclusionProof, RingsOutputContext,
-    RingsOutputSlot, SerializablePubkey, SerializableSignature, PAGE_LIMIT,
+    RingsOutputSlot, SerializablePubkey, SerializableSignature, SortOrder, PAGE_LIMIT,
 };
 
 pub(super) fn validate_tags(tags: &[Hash]) -> Result<(), PhotonApiError> {
@@ -294,35 +294,60 @@ pub(super) fn bind_u64_as_i64(
 /// A row comparison rather than the equivalent chain of ORs: Postgres can begin
 /// an index scan at `(a, b) > (x, y)` and cannot at
 /// `a > x OR (a = x AND b > y)`, where each page costs more than the last.
-pub(super) fn tx_cursor_sql_condition(
-    alias: &str,
-    slot: u64,
-    signature: &[u8],
-    event_index: u16,
-    trailing: &[(&str, i32)],
-    backend: DatabaseBackend,
-    params: &mut Vec<Value>,
-) -> Result<String, PhotonApiError> {
-    let slot = bind_u64_as_i64(params, backend, slot)?;
-    let signature = bind_sql_value(params, backend, signature.to_vec());
-    let event_index_value = bind_sql_value(params, backend, i32::from(event_index));
+pub(super) struct TxCursorCondition<'a> {
+    /// The table the query's ORDER BY uses. Filtering on one table while sorting
+    /// by another cannot use an index for both.
+    pub(super) alias: &'a str,
+    pub(super) order: SortOrder,
+    pub(super) slot: u64,
+    pub(super) signature: &'a [u8],
+    pub(super) event_index: u16,
+    /// Further columns, for callers whose sort key extends past the transaction
+    /// (the UTXO endpoint adds `output_index`).
+    pub(super) trailing: &'a [(&'a str, i32)],
+}
 
-    let mut columns = vec![
-        format!("{alias}.slot"),
-        format!("{alias}.signature"),
-        format!("{alias}.event_index"),
-    ];
-    let mut values = vec![slot, signature, event_index_value];
-    for (column, value) in trailing {
-        columns.push(format!("{alias}.{column}"));
-        values.push(bind_sql_value(params, backend, *value));
+impl TxCursorCondition<'_> {
+    /// The "strictly past this position" predicate, as a row comparison.
+    ///
+    /// A row comparison rather than the equivalent chain of ORs: Postgres can
+    /// begin an index scan at `(a, b) > (x, y)` and cannot at
+    /// `a > x OR (a = x AND b > y)`, where each page costs more than the last.
+    pub(super) fn into_sql(
+        self,
+        backend: DatabaseBackend,
+        params: &mut Vec<Value>,
+    ) -> Result<String, PhotonApiError> {
+        let slot = bind_u64_as_i64(params, backend, self.slot)?;
+        let signature = bind_sql_value(params, backend, self.signature.to_vec());
+        let event_index = bind_sql_value(params, backend, i32::from(self.event_index));
+
+        let alias = self.alias;
+        let mut columns = vec![
+            format!("{alias}.slot"),
+            format!("{alias}.signature"),
+            format!("{alias}.event_index"),
+        ];
+        let mut values = vec![slot, signature, event_index];
+        for (column, value) in self.trailing {
+            columns.push(format!("{alias}.{column}"));
+            values.push(bind_sql_value(params, backend, *value));
+        }
+
+        // Which way "past" runs follows the direction of travel: `>` reading
+        // oldest-first, `<` reading newest-first. Getting this wrong does not
+        // error -- the scan walks away from the unread rows and reports the
+        // empty page as the end of the stream.
+        let comparison = match self.order {
+            SortOrder::OldestFirst => ">",
+            SortOrder::NewestFirst => "<",
+        };
+        Ok(format!(
+            "({}) {comparison} ({})",
+            columns.join(", "),
+            values.join(", ")
+        ))
     }
-
-    Ok(format!(
-        "({}) > ({})",
-        columns.join(", "),
-        values.join(", ")
-    ))
 }
 
 /// Which stream a cursor came from, carried as its first byte.
@@ -343,15 +368,27 @@ pub(super) enum CursorKind {
 
 pub(super) fn decode_cursor<T: Decode<()>>(
     kind: CursorKind,
+    order: SortOrder,
     cursor: &Base64String,
 ) -> Result<T, PhotonApiError> {
-    let (tag, body) = cursor
+    let (tag, rest) = cursor
         .0
         .split_first()
         .ok_or_else(|| PhotonApiError::ValidationError("Invalid cursor".to_string()))?;
     if *tag != kind as u8 {
         return Err(PhotonApiError::ValidationError(
             "Invalid cursor: it belongs to a different query".to_string(),
+        ));
+    }
+    // A cursor is a position in one direction of travel. Resuming it under the
+    // other direction would walk away from the unread rows and report success,
+    // so the order is pinned at the point the cursor was minted.
+    let (direction, body) = rest
+        .split_first()
+        .ok_or_else(|| PhotonApiError::ValidationError("Invalid cursor".to_string()))?;
+    if *direction != order_tag(order) {
+        return Err(PhotonApiError::ValidationError(
+            "Invalid cursor: it was issued for the other sort order".to_string(),
         ));
     }
 
@@ -370,15 +407,37 @@ pub(super) fn decode_cursor<T: Decode<()>>(
 
 pub(super) fn encode_cursor<T: Encode>(
     kind: CursorKind,
+    order: SortOrder,
     cursor: &T,
 ) -> Result<Vec<u8>, PhotonApiError> {
     let config = cursor_bincode_config();
     let body = bincode::encode_to_vec(cursor, config)
         .map_err(|_| PhotonApiError::UnexpectedError("Failed to encode cursor".to_string()))?;
-    let mut encoded = Vec::with_capacity(1 + body.len());
+    let mut encoded = Vec::with_capacity(2 + body.len());
     encoded.push(kind as u8);
+    encoded.push(order_tag(order));
     encoded.extend_from_slice(&body);
     Ok(encoded)
+}
+
+fn order_tag(order: SortOrder) -> u8 {
+    match order {
+        SortOrder::OldestFirst => 1,
+        SortOrder::NewestFirst => 2,
+    }
+}
+
+/// `ASC`/`DESC` for every column of a page query's sort key.
+///
+/// All of them or none: the index covers `(view_tag, slot, signature,
+/// event_index, output_index)` ascending, and Postgres can walk that backwards,
+/// but only while the whole key agrees on direction. A mixed key would need its
+/// own index.
+pub(super) fn sql_direction(order: SortOrder) -> &'static str {
+    match order {
+        SortOrder::OldestFirst => "ASC",
+        SortOrder::NewestFirst => "DESC",
+    }
 }
 
 fn cursor_bincode_config() -> impl bincode::config::Config {
@@ -558,21 +617,60 @@ mod tests {
         );
     }
 
+    /// Reading newest-first walks the other way, so "past this position" is the
+    /// other comparison. Getting this wrong does not error: the scan would run
+    /// away from the unread rows and report an empty page as the end of the
+    /// stream.
+    #[test]
+    fn the_comparison_follows_the_direction_of_travel() {
+        let mut params = Vec::new();
+        let oldest = TxCursorCondition {
+            alias: "po",
+            order: SortOrder::OldestFirst,
+            slot: 42,
+            signature: &[7u8; 64],
+            event_index: 3,
+            trailing: &[],
+        }
+        .into_sql(DatabaseBackend::Postgres, &mut params)
+        .expect("condition");
+        assert!(
+            oldest.contains(") > ("),
+            "oldest-first must read forward: {oldest}"
+        );
+
+        let mut params = Vec::new();
+        let newest = TxCursorCondition {
+            alias: "po",
+            order: SortOrder::NewestFirst,
+            slot: 42,
+            signature: &[7u8; 64],
+            event_index: 3,
+            trailing: &[],
+        }
+        .into_sql(DatabaseBackend::Postgres, &mut params)
+        .expect("condition");
+        assert!(
+            newest.contains(") < ("),
+            "newest-first must read backward: {newest}"
+        );
+    }
+
     /// The cursor must read from whichever table the query sorts by. Reading it
     /// from `po` is half of what keeps the query on its index; the ORDER BY is
     /// the other half, and the two have to agree.
     #[test]
     fn the_cursor_predicate_reads_from_the_table_it_is_told_to() {
         let mut params = Vec::new();
-        let sql = tx_cursor_sql_condition(
-            "po",
-            42,
-            &[7u8; 64],
-            3,
-            &[],
-            DatabaseBackend::Postgres,
-            &mut params,
-        )
+        let sql = TxCursorCondition {
+            alias: "po",
+            order: SortOrder::OldestFirst,
+            slot: 42,
+            signature: &[7u8; 64],
+            event_index: 3,
+            trailing: &[],
+        }
+        .into_sql(DatabaseBackend::Postgres, &mut params)
         .expect("condition");
 
         assert!(
@@ -589,15 +687,15 @@ mod tests {
     #[test]
     fn the_cursor_predicate_is_a_row_comparison_so_the_index_can_seek() {
         let mut params = Vec::new();
-        let sql = tx_cursor_sql_condition(
-            "po",
-            42,
-            &[7u8; 64],
-            3,
-            &[("output_index", 5)],
-            DatabaseBackend::Postgres,
-            &mut params,
-        )
+        let sql = TxCursorCondition {
+            alias: "po",
+            order: SortOrder::OldestFirst,
+            slot: 42,
+            signature: &[7u8; 64],
+            event_index: 3,
+            trailing: &[("output_index", 5)],
+        }
+        .into_sql(DatabaseBackend::Postgres, &mut params)
         .expect("condition");
 
         assert!(
@@ -615,15 +713,15 @@ mod tests {
     #[test]
     fn the_transactions_cursor_still_reads_from_the_transactions_table() {
         let mut params = Vec::new();
-        let sql = tx_cursor_sql_condition(
-            "pt",
-            42,
-            &[7u8; 64],
-            3,
-            &[],
-            DatabaseBackend::Postgres,
-            &mut params,
-        )
+        let sql = TxCursorCondition {
+            alias: "pt",
+            order: SortOrder::OldestFirst,
+            slot: 42,
+            signature: &[7u8; 64],
+            event_index: 3,
+            trailing: &[],
+        }
+        .into_sql(DatabaseBackend::Postgres, &mut params)
         .expect("condition");
 
         assert!(!sql.contains("po."), "unexpected po reference in: {sql}");

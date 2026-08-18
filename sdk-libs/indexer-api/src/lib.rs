@@ -496,6 +496,24 @@ pub struct Context {
     pub slot: u64,
 }
 
+/// Which end of the stream a page starts from.
+///
+/// Both directions read the same rows in the same total order; only the
+/// direction of travel differs. Newest-first suits fetching confidential state,
+/// where the owner tag is deterministic and recent history is what matters;
+/// oldest-first suits syncing anonymous state, where view tags are walked from
+/// index 0 and history has to be read forward.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub enum SortOrder {
+    /// Oldest first. The default, and what every release before this one did.
+    #[default]
+    OldestFirst,
+    /// Newest first.
+    NewestFirst,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -505,6 +523,10 @@ pub struct GetRingsByTagsRequest {
     pub cursor: Option<Base64String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<Limit>,
+    /// Omitted means [`SortOrder::OldestFirst`], so a client written before this
+    /// existed keeps its behaviour.
+    #[serde(default)]
+    pub order: SortOrder,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -516,6 +538,10 @@ pub struct GetRingsByNullifiersRequest {
     pub cursor: Option<Base64String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<Limit>,
+    /// Omitted means [`SortOrder::OldestFirst`], so a client written before this
+    /// existed keeps its behaviour.
+    #[serde(default)]
+    pub order: SortOrder,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

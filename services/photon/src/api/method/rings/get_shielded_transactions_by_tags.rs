@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 
 use super::common::{
     bind_u64_as_i64, cursor_sort_key, decode_cursor, encode_cursor, hash_from_vec, int_list_sql,
-    next_cursor_from_rows, rings_output_slot_from_parts, signature_from_bytes, tags_sql,
-    tx_cursor_sql_condition, u16_from_i16, u64_from_i64, validate_nullifiers, validate_tags,
-    CursorKind,
+    next_cursor_from_rows, rings_output_slot_from_parts, signature_from_bytes, sql_direction,
+    tags_sql, u16_from_i16, u64_from_i64, validate_nullifiers, validate_tags, CursorKind,
+    TxCursorCondition,
 };
 use crate::api::error::PhotonApiError;
 use crate::common::indexer_context::extract as extract_context;
@@ -17,7 +17,7 @@ use solana_signature::SIGNATURE_BYTES;
 use zolana_indexer_api::{
     Base64String, GetRingsByNullifiersRequest, GetRingsByTagsRequest,
     GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsByTagsResponse, Hash,
-    IndexedShieldedTransaction, RingsMessage, RingsOutputSlot, ShieldedTransaction,
+    IndexedShieldedTransaction, RingsMessage, RingsOutputSlot, ShieldedTransaction, SortOrder,
 };
 
 #[derive(FromQueryResult, Debug)]
@@ -83,6 +83,7 @@ pub async fn get_shielded_transactions_by_tags(
         request.cursor.as_ref(),
         request.limit.unwrap_or_default().value(),
         MatchBy::Tags,
+        request.order,
     )
     .await?;
     Ok(GetShieldedTransactionsByTagsResponse {
@@ -103,6 +104,7 @@ pub async fn get_shielded_transactions_by_nullifiers(
         request.cursor.as_ref(),
         request.limit.unwrap_or_default().value(),
         MatchBy::Nullifiers,
+        request.order,
     )
     .await?;
     Ok(GetShieldedTransactionsByNullifiersResponse {
@@ -133,6 +135,7 @@ async fn get_shielded_transactions(
     encoded_cursor: Option<&Base64String>,
     limit: u64,
     match_by: MatchBy,
+    order: SortOrder,
 ) -> Result<ShieldedTransactionPage, PhotonApiError> {
     // The kind follows the query, so a cursor from the sibling stream is
     // rejected rather than silently resumed in a differently filtered scan.
@@ -141,16 +144,17 @@ async fn get_shielded_transactions(
         MatchBy::Nullifiers => CursorKind::ShieldedTxByNullifiers,
     };
     let cursor = encoded_cursor
-        .map(|c| decode_cursor::<ShieldedTxCursor>(cursor_kind, c))
+        .map(|c| decode_cursor::<ShieldedTxCursor>(cursor_kind, order, c))
         .transpose()?;
     let context = extract_context(conn).await?;
     let tx = conn.begin().await?;
     crate::api::set_transaction_isolation_if_needed(&tx).await?;
 
     let matched_txs =
-        fetch_matching_rings_transactions(&tx, values, cursor.as_ref(), limit, match_by).await?;
+        fetch_matching_rings_transactions(&tx, values, cursor.as_ref(), limit, match_by, order)
+            .await?;
     let next_cursor = next_cursor_from_rows(&matched_txs, |row| {
-        shielded_tx_cursor_from_row(row, cursor_kind)
+        shielded_tx_cursor_from_row(row, cursor_kind, order)
     })?;
 
     // A full page means the limit cut the scan short, so nothing can be claimed
@@ -158,7 +162,7 @@ async fn get_shielded_transactions(
     // cursor advances on the rows it returns.
     let truncated = matched_txs.len() as u64 >= limit;
     let scanned_through = match match_by {
-        MatchBy::Nullifiers if !truncated => scan_position(&tx, cursor_kind).await?,
+        MatchBy::Nullifiers if !truncated => scan_position(&tx, cursor_kind, order).await?,
         _ => None,
     };
 
@@ -192,6 +196,7 @@ async fn get_shielded_transactions(
 async fn scan_position(
     tx: &DatabaseTransaction,
     kind: CursorKind,
+    order: SortOrder,
 ) -> Result<Option<Base64String>, PhotonApiError> {
     let backend = tx.get_database_backend();
     // Not `ORDER BY slot, signature, event_index DESC LIMIT 1`: no index covers
@@ -221,6 +226,7 @@ async fn scan_position(
         &row.signature,
         row.event_index,
         kind,
+        order,
     )?)))
 }
 
@@ -298,8 +304,10 @@ async fn fetch_matching_rings_transactions(
     cursor: Option<&ShieldedTxCursor>,
     limit: u64,
     match_by: MatchBy,
+    order: SortOrder,
 ) -> Result<Vec<MatchedRingsTxRow>, PhotonApiError> {
     let backend = tx.get_database_backend();
+    let dir = sql_direction(order);
     let mut params = Vec::new();
     let match_filter = match match_by {
         MatchBy::Tags => {
@@ -333,7 +341,7 @@ async fn fetch_matching_rings_transactions(
         }
     };
     let cursor_filter = cursor
-        .map(|cursor| shielded_tx_cursor_sql(cursor, backend, &mut params))
+        .map(|cursor| shielded_tx_cursor_sql(cursor, order, backend, &mut params))
         .transpose()?
         .unwrap_or_default();
     let limit = bind_u64_as_i64(&mut params, backend, limit)?;
@@ -350,7 +358,7 @@ async fn fetch_matching_rings_transactions(
          FROM rings_transactions pt
          WHERE ({match_filter})
          {cursor_filter}
-         ORDER BY pt.slot ASC, pt.signature ASC, pt.event_index ASC
+         ORDER BY pt.slot {dir}, pt.signature {dir}, pt.event_index {dir}
          LIMIT {limit}"
     );
 
@@ -463,29 +471,31 @@ async fn fetch_rings_nullifiers(
 
 fn shielded_tx_cursor_sql(
     cursor: &ShieldedTxCursor,
+    order: SortOrder,
     backend: DatabaseBackend,
     params: &mut Vec<Value>,
 ) -> Result<String, PhotonApiError> {
     let signature = cursor.signature.to_vec();
     // "pt": this query returns transactions and orders by them, so the cursor
     // reads from the same table it sorts by.
-    let condition = tx_cursor_sql_condition(
-        "pt",
-        cursor.slot,
-        &signature,
-        cursor.event_index,
-        &[],
-        backend,
-        params,
-    )?;
+    let condition = TxCursorCondition {
+        alias: "pt",
+        order,
+        slot: cursor.slot,
+        signature: &signature,
+        event_index: cursor.event_index,
+        trailing: &[],
+    }
+    .into_sql(backend, params)?;
     Ok(format!("AND {condition}"))
 }
 
 fn shielded_tx_cursor_from_row(
     row: &MatchedRingsTxRow,
     kind: CursorKind,
+    order: SortOrder,
 ) -> Result<Vec<u8>, PhotonApiError> {
-    shielded_tx_cursor(row.slot, &row.signature, row.event_index, kind)
+    shielded_tx_cursor(row.slot, &row.signature, row.event_index, kind, order)
 }
 
 fn shielded_tx_cursor(
@@ -493,6 +503,7 @@ fn shielded_tx_cursor(
     signature: &[u8],
     event_index: i16,
     kind: CursorKind,
+    order: SortOrder,
 ) -> Result<Vec<u8>, PhotonApiError> {
     let (slot, signature, event_index) = cursor_sort_key(slot, signature, event_index)?;
     let cursor = ShieldedTxCursor {
@@ -500,7 +511,7 @@ fn shielded_tx_cursor(
         signature,
         event_index,
     };
-    encode_cursor(kind, &cursor)
+    encode_cursor(kind, order, &cursor)
 }
 
 #[cfg(test)]
@@ -571,6 +582,86 @@ mod tests {
         db
     }
 
+    /// The direction has to reach the SQL. Asserting on the `ORDER BY` string
+    /// would pass while the rows came back in the old order, so this checks the
+    /// rows.
+    #[tokio::test]
+    async fn newest_first_reverses_the_page() {
+        let db = setup().await;
+        // A second transaction, later, sharing a nullifier so both match.
+        blocks::Entity::insert(blocks::ActiveModel {
+            slot: Set(9),
+            parent_slot: Set(7),
+            parent_blockhash: Set(vec![1; 32]),
+            blockhash: Set(vec![2; 32]),
+            block_height: Set(2),
+            block_time: Set(2),
+        })
+        .exec(&db)
+        .await
+        .unwrap();
+        transactions::Entity::insert(transactions::ActiveModel {
+            signature: Set(vec![2; 64]),
+            slot: Set(9),
+            error: Set(None),
+        })
+        .exec(&db)
+        .await
+        .unwrap();
+        rings_transactions::Entity::insert(rings_transactions::ActiveModel {
+            rings_tx_id: Set(2),
+            signature: Set(vec![2; 64]),
+            event_index: Set(0),
+            slot: Set(9),
+            rings_program_id: Set(vec![9; 32]),
+            source_instruction_tag: Set(1),
+            output_tree: Set(vec![8; 32]),
+            first_output_leaf_index: Set(0),
+            tx_viewing_pk: Set(None),
+            salt: Set(None),
+            proofless: Set(false),
+        })
+        .exec(&db)
+        .await
+        .unwrap();
+        // Its own nullifier: (nullifier_tree, nullifier) is unique, because a
+        // nullifier is spent exactly once. So the query names one from each
+        // transaction rather than one shared between them.
+        rings_tx_nullifiers::Entity::insert(rings_tx_nullifiers::ActiveModel {
+            nullifier_id: Default::default(),
+            rings_tx_id: Set(2),
+            slot: Set(9),
+            input_index: Set(0),
+            nullifier_tree: Set(vec![7; 32]),
+            input_queue_seq: Set(2),
+            nullifier: Set(vec![5; 32]),
+        })
+        .exec(&db)
+        .await
+        .unwrap();
+
+        async fn slots(db: &DatabaseConnection, order: SortOrder) -> Vec<u64> {
+            get_shielded_transactions_by_nullifiers(
+                db,
+                GetRingsByNullifiersRequest {
+                    nullifiers: vec![hash(3), hash(5)],
+                    cursor: None,
+                    limit: Some(Limit::new(10).unwrap()),
+                    order,
+                },
+            )
+            .await
+            .unwrap()
+            .transactions
+            .iter()
+            .map(|tx| tx.slot)
+            .collect()
+        }
+
+        assert_eq!(slots(&db, SortOrder::OldestFirst).await, vec![7, 9]);
+        assert_eq!(slots(&db, SortOrder::NewestFirst).await, vec![9, 7]);
+    }
+
     #[tokio::test]
     async fn nullifier_lookup_hydrates_each_matching_transaction_once() {
         let db = setup().await;
@@ -580,6 +671,7 @@ mod tests {
                 nullifiers: vec![hash(3), hash(4)],
                 cursor: None,
                 limit: Some(Limit::new(10).unwrap()),
+                order: SortOrder::default(),
             },
         )
         .await
@@ -598,6 +690,7 @@ mod tests {
                 nullifiers: vec![hash(5)],
                 cursor: None,
                 limit: Some(Limit::new(10).unwrap()),
+                order: SortOrder::default(),
             },
         )
         .await
@@ -616,6 +709,7 @@ mod tests {
                 nullifiers: vec![hash(5)],
                 cursor: None,
                 limit: Some(Limit::new(10).unwrap()),
+                order: SortOrder::default(),
             },
         )
         .await
@@ -637,6 +731,7 @@ mod tests {
                 nullifiers: vec![hash(5)],
                 cursor: Some(scanned_through.clone()),
                 limit: Some(Limit::new(10).unwrap()),
+                order: SortOrder::default(),
             },
         )
         .await
@@ -660,6 +755,7 @@ mod tests {
                 nullifiers: vec![hash(3), hash(4)],
                 cursor: None,
                 limit: Some(Limit::new(1).unwrap()),
+                order: SortOrder::default(),
             },
         )
         .await
@@ -682,6 +778,7 @@ mod tests {
                 nullifiers: vec![hash(5)],
                 cursor: None,
                 limit: Some(Limit::new(10).unwrap()),
+                order: SortOrder::default(),
             },
         )
         .await
@@ -747,6 +844,7 @@ mod tests {
                 nullifiers: vec![hash(5)],
                 cursor: Some(scanned_through),
                 limit: Some(Limit::new(10).unwrap()),
+                order: SortOrder::default(),
             },
         )
         .await

@@ -10,16 +10,27 @@ export interface IndexerContext {
   readonly slot: bigint;
 }
 
+/**
+ * Which end of the stream a page starts from.
+ *
+ * Both directions read the same rows in the same total order; only the direction
+ * of travel differs. Omitting it means `oldestFirst`, which is what every
+ * release before this one did.
+ */
+export type SortOrder = "oldestFirst" | "newestFirst";
+
 export interface GetRingsByTagsRequest {
   readonly tags: readonly Hash[];
   readonly cursor?: Base64String;
   readonly limit?: Limit;
+  readonly order?: SortOrder;
 }
 
 export interface GetRingsByNullifiersRequest {
   readonly nullifiers: readonly Hash[];
   readonly cursor?: Base64String;
   readonly limit?: Limit;
+  readonly order?: SortOrder;
 }
 
 export interface RingsOutputContext {
