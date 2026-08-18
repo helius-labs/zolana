@@ -1,5 +1,3 @@
-#![cfg(not(feature = "localnet"))]
-
 use light_program_profiler::{
     mollusk::{register_profiling_syscalls, take_profiling_entries},
     report::{CuBenchmark, ReadmeConfig},

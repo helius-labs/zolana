@@ -51,7 +51,10 @@ check:
 
 # Check the entire workspace.
 check-all:
-    cargo check --workspace --all-targets
+    # Both gates named explicitly: cargo skips a `required-features` target
+    # even under `--all-targets`, so without these the ten gated suites
+    # compile on no PR.
+    cargo check --workspace --all-targets --features shielded-pool-tests/proofs,shielded-pool-tests/localnet
 
 # Default test target.
 test: test-shielded-pool test-sdk-libs test-photon
@@ -1144,7 +1147,7 @@ fmt-check:
     cargo fmt --all -- --check
 
 clippy:
-    cargo clippy --workspace --all-targets -- -D warnings
+    cargo clippy --workspace --all-targets --features shielded-pool-tests/proofs,shielded-pool-tests/localnet -- -D warnings
 
 check-test-hygiene:
     ./tools/check-test-hygiene.sh
