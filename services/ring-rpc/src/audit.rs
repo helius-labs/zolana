@@ -1,9 +1,6 @@
-//! Reading ring transactions by the auditor tag and opening them.
-//!
-//! The auditor tag is the view tag of the auditor message: the x-coordinate of
-//! the ring's auditor public key (`auditor_view_tag`). The ring program requires
-//! it on the last `messages` entry of every transact, Photon indexes messages by
-//! view tag, so one tag query returns every transaction of the ring.
+//! Reading ring transactions by the auditor tag and opening them. Photon indexes
+//! messages by view tag, so one query for `auditor_view_tag` returns every
+//! transaction of the ring.
 
 use std::{
     collections::HashMap,
@@ -29,14 +26,15 @@ use zolana_client::{
     AsyncRpc, AsyncSolanaRpc, AsyncZolanaIndexer, ClientError,
     GetShieldedTransactionsByTagsResponse,
 };
+use zolana_indexer_api::Limit;
 use zolana_interface::{state::SplAssetRegistry, SHIELDED_POOL_PROGRAM_ID};
 use zolana_keypair::{P256Pubkey, ViewingKey};
-use zolana_ring_client::{audit_transaction, auditor_view_tag, AuditedTransaction};
-use zolana_transaction::{AssetRegistry, ShieldedTransaction};
+use zolana_ring_client::{audit_transaction, auditor_view_tag, AuditError, AuditedTransaction};
+use zolana_transaction::AssetRegistry;
 
 use crate::api::{
     DecryptedOutput, DecryptedTransaction, DecryptedTransactionsPage,
-    GetDecryptedTransactionsResponse, SkippedTransaction, PAGE_LIMIT,
+    GetDecryptedTransactionsResponse, SkippedTransaction,
 };
 
 /// Where the service reads from. Photon serves the tagged transactions and the
@@ -146,12 +144,8 @@ impl TransactionSource for ChainSource {
 
 #[derive(Debug, Error)]
 pub enum RingRpcError {
-    #[error("limit must be between 1 and {PAGE_LIMIT}, got {0}")]
-    InvalidLimit(u32),
     #[error("ring_program_id is required, this instance serves keys per ring")]
     RingRequired,
-    #[error("this instance serves one ring and it is not {0}")]
-    UnknownRing(Address),
     #[error("key derivation failed: {0}")]
     Derivation(#[from] zolana_keypair::KeypairError),
     #[error(transparent)]
@@ -161,10 +155,7 @@ pub enum RingRpcError {
 impl From<RingRpcError> for ErrorObjectOwned {
     fn from(error: RingRpcError) -> Self {
         match error {
-            RingRpcError::InvalidLimit(_)
-            | RingRpcError::RingRequired
-            | RingRpcError::UnknownRing(_)
-            | RingRpcError::Derivation(_) => ErrorObjectOwned::owned(
+            RingRpcError::RingRequired | RingRpcError::Derivation(_) => ErrorObjectOwned::owned(
                 ErrorCode::InvalidRequest.code(),
                 error.to_string(),
                 None::<()>,
@@ -183,16 +174,11 @@ impl From<RingRpcError> for ErrorObjectOwned {
 
 /// The auditor key plus a transaction source. Every method reads one page and
 /// opens what the key can open.
-/// Confirmed transactions never change signers, so one fetch per signature is
-/// enough; the map is bounded so a long-running instance stays flat.
-const SIGNER_CACHE_ENTRIES: usize = 4096;
-
 pub struct AuditService<S> {
     auditor: ViewingKey,
     view_tag: [u8; 32],
     source: Arc<S>,
     assets: AssetRegistry,
-    signers: Mutex<HashMap<Signature, Vec<Address>>>,
 }
 
 impl<S: TransactionSource> AuditService<S> {
@@ -203,7 +189,6 @@ impl<S: TransactionSource> AuditService<S> {
             view_tag,
             source,
             assets,
-            signers: Mutex::new(HashMap::new()),
         }
     }
 
@@ -221,32 +206,6 @@ impl<S: TransactionSource> AuditService<S> {
         Ok(page.context.slot)
     }
 
-    async fn signers(&self, signature: Signature) -> Result<Vec<Address>, ClientError> {
-        if let Some(cached) = self.cached_signers(signature) {
-            return Ok(cached);
-        }
-        let signers = self.source.signers(signature).await?;
-        if !signers.is_empty() {
-            let mut cache = self
-                .signers
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if cache.len() >= SIGNER_CACHE_ENTRIES {
-                cache.clear();
-            }
-            cache.insert(signature, signers.clone());
-        }
-        Ok(signers)
-    }
-
-    fn cached_signers(&self, signature: Signature) -> Option<Vec<Address>> {
-        self.signers
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .get(&signature)
-            .cloned()
-    }
-
     pub fn auditor_view_tag(&self) -> [u8; 32] {
         self.view_tag
     }
@@ -260,13 +219,9 @@ impl<S: TransactionSource> AuditService<S> {
     pub async fn decrypted_transactions(
         &self,
         cursor: Option<Vec<u8>>,
-        limit: Option<u32>,
+        limit: Option<Limit>,
     ) -> Result<GetDecryptedTransactionsResponse, RingRpcError> {
-        if let Some(limit) = limit {
-            if limit == 0 || u64::from(limit) > PAGE_LIMIT {
-                return Err(RingRpcError::InvalidLimit(limit));
-            }
-        }
+        let limit = limit.and_then(|limit| u32::try_from(limit.value()).ok());
         let page = self
             .source
             .transactions_by_tag(self.view_tag, cursor, limit)
@@ -274,16 +229,13 @@ impl<S: TransactionSource> AuditService<S> {
 
         let mut items = Vec::new();
         let mut skipped = Vec::new();
-        for tx in page
-            .transactions
-            .into_iter()
-            .filter(|tx| self.carries_auditor_message(tx))
-        {
+        for tx in page.transactions {
             match audit_transaction(&self.auditor, &tx, &self.assets) {
                 Ok(audited) => {
-                    let signers = self.signers(tx.tx_signature).await?;
+                    let signers = self.source.signers(tx.tx_signature).await?;
                     items.push(decrypted_transaction(audited, signers, tx.nullifiers));
                 }
+                Err(AuditError::MissingAuditorMessage) => {}
                 Err(reason) => skipped.push(SkippedTransaction {
                     slot: tx.slot,
                     tx_signature: tx.tx_signature.into(),
@@ -303,12 +255,6 @@ impl<S: TransactionSource> AuditService<S> {
                 cursor: page.next_cursor.map(Into::into),
             },
         })
-    }
-
-    fn carries_auditor_message(&self, tx: &ShieldedTransaction) -> bool {
-        tx.messages
-            .iter()
-            .any(|message| message.view_tag == self.view_tag)
     }
 }
 
@@ -359,36 +305,39 @@ pub async fn asset_registry_from_chain<R: AsyncRpc>(rpc: &R) -> Result<AssetRegi
 /// Domain of the derived auditor keys. Bumping it rotates every derived key.
 const DERIVATION_INFO: &[u8] = b"zolana/ring-auditor/v1";
 
-/// Where a ring's auditor key comes from.
-pub enum KeyProvider {
+/// `HKDF(root_secret, ring_program_id)`.
+pub fn derive_auditor_key(root: &[u8; 32], ring: Address) -> Result<ViewingKey, RingRpcError> {
+    Ok(ViewingKey::from_hkdf(
+        root,
+        &[DERIVATION_INFO, ring.as_ref()],
+    )?)
+}
+
+/// Resolves a ring to its audit service.
+pub enum Hub<S> {
     /// One key from a file, one ring per instance.
-    Local(ViewingKey),
-    /// `HKDF(root_secret, ring_program_id)`, any ring on demand.
-    Derived(Zeroizing<[u8; 32]>),
-}
-
-impl KeyProvider {
-    pub fn derive(root: &[u8; 32], ring: Address) -> Result<ViewingKey, RingRpcError> {
-        Ok(ViewingKey::from_hkdf(
-            root,
-            &[DERIVATION_INFO, ring.as_ref()],
-        )?)
-    }
-}
-
-/// Resolves a ring to its audit service. Local mode has exactly one; derived
-/// mode builds one per ring the first time it is asked.
-pub struct Hub<S> {
-    provider: KeyProvider,
-    source: Arc<S>,
-    assets: AssetRegistry,
-    services: Mutex<HashMap<Option<Address>, Arc<AuditService<S>>>>,
+    Local(Arc<AuditService<S>>),
+    /// A key per ring, derived on first use.
+    Derived {
+        root: Zeroizing<[u8; 32]>,
+        source: Arc<S>,
+        assets: AssetRegistry,
+        services: Mutex<HashMap<Address, Arc<AuditService<S>>>>,
+    },
 }
 
 impl<S: TransactionSource> Hub<S> {
-    pub fn new(provider: KeyProvider, source: S, assets: AssetRegistry) -> Self {
-        Self {
-            provider,
+    pub fn local(auditor: ViewingKey, source: S, assets: AssetRegistry) -> Self {
+        Self::Local(Arc::new(AuditService::new(
+            auditor,
+            Arc::new(source),
+            assets,
+        )))
+    }
+
+    pub fn derived(root: Zeroizing<[u8; 32]>, source: S, assets: AssetRegistry) -> Self {
+        Self::Derived {
+            root,
             source: Arc::new(source),
             assets,
             services: Mutex::new(HashMap::new()),
@@ -396,42 +345,42 @@ impl<S: TransactionSource> Hub<S> {
     }
 
     pub fn is_derived(&self) -> bool {
-        matches!(self.provider, KeyProvider::Derived(_))
+        matches!(self, Self::Derived { .. })
     }
 
-    /// The service for `ring`. `None` selects the local key.
+    /// The service for `ring`. The local key ignores `ring`.
     pub fn ring(&self, ring: Option<Address>) -> Result<Arc<AuditService<S>>, RingRpcError> {
-        let key = match (&self.provider, ring) {
-            (KeyProvider::Local(_), _) => None,
-            (KeyProvider::Derived(_), None) => return Err(RingRpcError::RingRequired),
-            (KeyProvider::Derived(_), Some(ring)) => Some(ring),
-        };
-        let mut services = self
-            .services
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(service) = services.get(&key) {
-            return Ok(service.clone());
+        match self {
+            Self::Local(service) => Ok(service.clone()),
+            Self::Derived {
+                root,
+                source,
+                assets,
+                services,
+            } => {
+                let ring = ring.ok_or(RingRpcError::RingRequired)?;
+                let mut services = services
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                if let Some(service) = services.get(&ring) {
+                    return Ok(service.clone());
+                }
+                let service = Arc::new(AuditService::new(
+                    derive_auditor_key(root, ring)?,
+                    source.clone(),
+                    assets.clone(),
+                ));
+                services.insert(ring, service.clone());
+                Ok(service)
+            }
         }
-        let auditor = match (&self.provider, key) {
-            (KeyProvider::Local(auditor), _) => auditor.clone(),
-            (KeyProvider::Derived(root), Some(ring)) => KeyProvider::derive(root, ring)?,
-            (KeyProvider::Derived(_), None) => return Err(RingRpcError::RingRequired),
-        };
-        let service = Arc::new(AuditService::new(
-            auditor,
-            self.source.clone(),
-            self.assets.clone(),
-        ));
-        services.insert(key, service.clone());
-        Ok(service)
     }
 
-    /// The local key's service, for callers that name no ring.
-    pub fn local(&self) -> Option<Arc<AuditService<S>>> {
-        match self.provider {
-            KeyProvider::Local(_) => self.ring(None).ok(),
-            KeyProvider::Derived(_) => None,
+    /// The local key's service, `None` when keys are derived per ring.
+    pub fn local_service(&self) -> Option<Arc<AuditService<S>>> {
+        match self {
+            Self::Local(service) => Some(service.clone()),
+            Self::Derived { .. } => None,
         }
     }
 }

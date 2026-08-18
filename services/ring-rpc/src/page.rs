@@ -1,13 +1,11 @@
 //! The auditor page, rendered on the server from the same data the JSON-RPC
 //! methods return. No script runs in the browser; the page refreshes itself.
 
-use std::collections::{HashMap, HashSet};
-
 use maud::{html, Markup, PreEscaped, DOCTYPE};
 use solana_address::Address;
 use zolana_indexer_api::{Base64String, Hash, SerializablePubkey};
 
-use crate::api::{DecryptedOutput, DecryptedTransaction, GetDecryptedTransactionsResponse};
+use crate::api::{DecryptedTransaction, GetDecryptedTransactionsResponse};
 
 /// The all-zero mint, SOL's asset in the registry.
 const SOL_MINT: [u8; 32] = [0u8; 32];
@@ -28,7 +26,6 @@ pub struct AuditorPage<'a> {
 impl AuditorPage<'_> {
     pub fn render(&self) -> Markup {
         let items = &self.page.value.items;
-        let own_keys = own_viewing_keys(items);
         html! {
             (DOCTYPE)
             html lang="en" {
@@ -57,7 +54,7 @@ impl AuditorPage<'_> {
                             p class="empty" { "No audited transactions yet." }
                         }
                         @for tx in items.iter().rev() {
-                            (transaction_card(tx, &own_keys))
+                            (transaction_card(tx))
                         }
                         (skipped(self.page))
                         (pager(self))
@@ -72,35 +69,7 @@ impl AuditorPage<'_> {
     }
 }
 
-/// A recipient key that shows up under the same signer more than once is that
-/// sender's own key, so its slots are change.
-fn own_viewing_keys(items: &[DecryptedTransaction]) -> HashSet<(String, String)> {
-    let mut seen: HashMap<(String, String), usize> = HashMap::new();
-    for tx in items {
-        for signer in &tx.signers {
-            for output in &tx.outputs {
-                *seen
-                    .entry((
-                        signer.to_string(),
-                        hex::encode(&output.recipient_viewing_pk.0),
-                    ))
-                    .or_default() += 1;
-            }
-        }
-    }
-    seen.into_iter()
-        .filter(|(_, count)| *count > 1)
-        .map(|(key, _)| key)
-        .collect()
-}
-
-fn transaction_card(tx: &DecryptedTransaction, own_keys: &HashSet<(String, String)>) -> Markup {
-    let is_change = |output: &DecryptedOutput| {
-        let key = hex::encode(&output.recipient_viewing_pk.0);
-        tx.signers
-            .iter()
-            .any(|signer| own_keys.contains(&(signer.to_string(), key.clone())))
-    };
+fn transaction_card(tx: &DecryptedTransaction) -> Markup {
     html! {
         section class="card" {
             h2 {
@@ -136,7 +105,6 @@ fn transaction_card(tx: &DecryptedTransaction, own_keys: &HashSet<(String, Strin
                                 code title=(hex::encode(&output.recipient_viewing_pk.0)) {
                                     (short(&hex::encode(&output.recipient_viewing_pk.0), 8))
                                 }
-                                @if is_change(output) { " " span class="muted" { "(change)" } }
                             }
                             td { (asset(&output.asset)) }
                             td class="num" { (lamports(output.amount)) }
@@ -199,7 +167,6 @@ fn pager(page: &AuditorPage<'_>) -> Markup {
 }
 
 fn base64_query(cursor: &Base64String) -> String {
-    // The cursor is opaque bytes; base64url keeps it inside a query string.
     use base64::Engine as _;
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&cursor.0)
 }
@@ -249,14 +216,5 @@ mod tests {
         assert_eq!(lamports(1_000_000_000), "1000000000 (1 SOL)");
         assert_eq!(lamports(1_500_000_000), "1500000000 (1.5 SOL)");
         assert_eq!(lamports(7), "7 (0.000000007 SOL)");
-    }
-
-    #[test]
-    fn cursor_round_trips_through_the_query_string() {
-        let cursor = Base64String(vec![0, 1, 254, 255, 7]);
-        assert_eq!(
-            cursor_from_query(&base64_query(&cursor)).expect("decode"),
-            cursor.0
-        );
     }
 }

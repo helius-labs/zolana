@@ -1,12 +1,12 @@
 //! Behavior of the host mirror of the `auditor_key_encryption` circuit crypto.
 
-use custom_ring_sdk::encryption::{
+use zolana_interface::instruction::MessageData;
+use zolana_keypair::ViewingKey;
+use zolana_ring_client::encryption::{
     auditor_view_tag, decrypt_tx_viewing_sk, derive_audit_shared_secret, encrypt_tx_viewing_sk,
     pack32_to_2fe, pack33_to_2fe, AuditEncryptionError, AuditorEncryption, AuditorMessage,
     AUDITOR_MESSAGE_LEN,
 };
-use zolana_interface::instruction::MessageData;
-use zolana_keypair::ViewingKey;
 
 fn tx_viewing_sk() -> [u8; 32] {
     let mut sk = [0u8; 32];

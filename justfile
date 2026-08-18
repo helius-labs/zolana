@@ -102,12 +102,11 @@ test-swap-program: build-programs
 # trips. Needs the canonical keys: the sdk proofs must verify under the
 # committed VERIFYINGKEY, and gnark setup is non-deterministic, so locally
 # generated keys cannot pass.
-test-custom-ring: ensure-custom-ring-keys build-programs
+test-custom-ring: ensure-custom-ring-keys build-programs test-ring-rpc
     cargo nextest run -p custom-ring-program --tests
     cargo nextest run -p custom-ring-prover
     cargo nextest run -p custom-ring-sdk
     cargo nextest run -p zolana-ring-client
-    cargo nextest run -p zolana-ring-rpc
 
 # === Custom ring template ===
 
@@ -115,7 +114,8 @@ test-custom-ring: ensure-custom-ring-keys build-programs
 # `dest` is the parent directory of the new ring, default the parent of this
 # checkout. Extra arguments go to `cargo generate` (`-d name=value`, `--silent`).
 ring-new dest="" *args:
-    tools/ring-wizard.sh {{dest}} {{args}}
+    ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_LOCALNET_PHOTON_URL="{{localnet-photon-url}}" \
+      ZOLANA_LOCALNET_RING_RPC_PORT="{{localnet-ring-rpc-port}}" tools/ring-wizard.sh {{dest}} {{args}}
 
 # Local validator for a generated ring: SPP, user registry, photon and the prover
 # on the per-clone ports, protocol accounts from snapshots (ring creation
@@ -160,8 +160,6 @@ ring-localnet: build-programs build-prover-server build-cli ensure-photon ensure
     echo "  prover    {{localnet-prover-url}}"
     echo "  ring rpc  http://127.0.0.1:{{localnet-ring-rpc-port}}  (started per ring by 'just rpc' or 'just pipeline')"
 
-# Stops the validator, photon, the prover, and a ring RPC left on the ring RPC
-# port by a ring's `just pipeline`.
 # A ring RPC in derived mode for the localnet: one root secret, a key per
 # ring, the shape the hosted devnet instance has. Foreground.
 ring-rpc-derived:
@@ -176,6 +174,8 @@ ring-rpc-derived:
         --indexer-url {{localnet-photon-url}} --rpc-url {{localnet-rpc-url}} \
         --root-secret-file "$secret"
 
+# Stops the validator, photon, the prover, and a ring RPC left on the ring RPC
+# port by a ring's `just pipeline`.
 ring-localnet-stop:
     lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
     lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
@@ -193,7 +193,7 @@ test-ring-template:
     ring="$dest/smoke-ring"
     grep -q 'target = "localnet"' "$ring/ring.toml"
     grep -q 'confidential = true' "$ring/ring.toml"
-    (cd "$ring" && cargo check --workspace --offline 2>/dev/null || cargo check --workspace)
+    (cd "$ring" && cargo check --workspace)
     (cd "$ring" && cargo run -q -p smoke-ring -- --help >/dev/null)
 
 # Program-side Groth16 matrices only. CI runs this variant: the client proving
@@ -1293,9 +1293,6 @@ publish-spp-keys:
 
 build-photon:
     cargo build --locked -p photon-indexer --bin photon --target-dir target
-
-build-ring-rpc:
-    cargo build --locked -p zolana-ring-rpc --bin ring-rpc --target-dir target
 
 ensure-photon:
     #!/usr/bin/env bash

@@ -1,5 +1,4 @@
-//! HTTP surface: the JSON-RPC methods and, on `GET /`, the auditor page. Same
-//! server shape as Photon so one client stack reads both.
+//! HTTP surface: the JSON-RPC methods and, on `GET /`, the auditor page.
 
 use std::{
     future::Future,
@@ -27,11 +26,12 @@ use tower::{Layer, Service};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use solana_address::Address;
+use zolana_indexer_api::Limit;
 
 use crate::{
     api::{
         CreateAuditorKeyRequest, CreateAuditorKeyResponse, GetDecryptedTransactionsRequest,
-        HealthResponse, CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH, PAGE_LIMIT,
+        HealthResponse, CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH,
     },
     audit::{Hub, RingRpcError, TransactionSource},
     page::{cursor_from_query, AuditorPage},
@@ -90,7 +90,9 @@ pub fn rpc_module<S: TransactionSource + 'static>(
     module.register_async_method(HEALTH, |_params, hub, _extensions| async move {
         Ok::<_, ErrorObjectOwned>(HealthResponse {
             mode: if hub.is_derived() { "derived" } else { "local" }.to_owned(),
-            auditor_view_tag: hub.local().map(|service| service.auditor_view_tag().into()),
+            auditor_view_tag: hub
+                .local_service()
+                .map(|service| service.auditor_view_tag().into()),
         })
     })?;
 
@@ -125,7 +127,8 @@ pub fn rpc_module<S: TransactionSource + 'static>(
 
 /// Serves the auditor page on `GET /` and `GET /ui` (`?ring=<program id>`
 /// selects the ring when keys are derived), and readiness on `GET /ready`;
-/// every other request goes to the JSON-RPC server.
+/// every other request goes to the JSON-RPC server. Readiness stays outside the
+/// JSON-RPC proxy because a failing probe must answer with a non-200 status.
 struct PageLayer<S> {
     hub: Arc<Hub<S>>,
 }
@@ -146,7 +149,6 @@ struct PageService<S, Inner> {
     hub: Arc<Hub<S>>,
 }
 
-// Derived `Clone` would demand `S: Clone`; the hub is shared through `Arc`.
 impl<S, Inner: Clone> Clone for PageService<S, Inner> {
     fn clone(&self) -> Self {
         Self {
@@ -227,8 +229,10 @@ async fn render_page<S: TransactionSource>(
             None => return redirect_home(),
         },
     };
-    let limit = u32::try_from(PAGE_LIMIT).ok();
-    match service.decrypted_transactions(cursor_bytes, limit).await {
+    match service
+        .decrypted_transactions(cursor_bytes, Some(Limit::default()))
+        .await
+    {
         Ok(page) => {
             let markup = AuditorPage {
                 auditor_view_tag: service.auditor_view_tag().into(),
@@ -251,7 +255,7 @@ async fn render_page<S: TransactionSource>(
 
 async fn readiness<S: TransactionSource>(hub: &Hub<S>) -> HttpResponse {
     // Any ring probes the same indexer; the local key or an arbitrary ring.
-    let service = match hub.local() {
+    let service = match hub.local_service() {
         Some(service) => Ok(service),
         None => hub.ring(Some(Address::default())),
     };
@@ -274,17 +278,17 @@ fn query_param<'a>(query: Option<&'a str>, name: &str) -> Option<&'a str> {
 }
 
 fn html_response(status: StatusCode, body: String) -> HttpResponse {
-    hyper::Response::builder()
-        .status(status)
-        .header(CONTENT_TYPE, "text/html; charset=utf-8")
-        .body(HttpBody::from(body))
-        .expect("static response parts are valid")
+    response(status, "text/html; charset=utf-8", body)
 }
 
 fn text_response(status: StatusCode, body: String) -> HttpResponse {
+    response(status, "text/plain; charset=utf-8", body)
+}
+
+fn response(status: StatusCode, content_type: &str, body: String) -> HttpResponse {
     hyper::Response::builder()
         .status(status)
-        .header(CONTENT_TYPE, "text/plain; charset=utf-8")
+        .header(CONTENT_TYPE, content_type)
         .body(HttpBody::from(body))
         .expect("static response parts are valid")
 }

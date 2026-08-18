@@ -50,10 +50,13 @@ trap 'rm -rf "$keys"' EXIT
 solana-keygen new --no-bip39-passphrase --silent --force -o "$keys/program-keypair.json"
 program_id="$(solana-keygen pubkey "$keys/program-keypair.json")"
 
+# Service URLs come from the justfile (`just ring-new`), which resolves the
+# per-clone port offset and every explicit override; a direct call falls back to
+# the offset alone.
 offset="${ZOLANA_PORT_OFFSET:-0}"
-rpc_port=$((8899 + offset))
-photon_port=$((8784 + offset))
-prover_port=$((3001 + offset))
+rpc_url="${ZOLANA_LOCALNET_URL:-http://127.0.0.1:$((8899 + offset))}"
+indexer_url="${ZOLANA_LOCALNET_PHOTON_URL:-http://127.0.0.1:$((8784 + offset))}"
+prover_url="${ZOLANA_PROVER_URL:-http://127.0.0.1:$((3001 + offset))}"
 ring_rpc_port="${ZOLANA_LOCALNET_RING_RPC_PORT:-$((8785 + offset))}"
 
 # Non-interactive runs (`--silent`, or no terminal) answer every question with
@@ -73,9 +76,9 @@ cargo generate --path "$root/templates/custom-ring" --destination "$dest" --name
     ${silent[@]+"${silent[@]}"} \
     -d program_id="$program_id" \
     -d zolana_path="$root" \
-    -d default_rpc_url="http://127.0.0.1:$rpc_port" \
-    -d default_indexer_url="http://127.0.0.1:$photon_port" \
-    -d default_prover_url="http://127.0.0.1:$prover_port" \
+    -d default_rpc_url="$rpc_url" \
+    -d default_indexer_url="$indexer_url" \
+    -d default_prover_url="$prover_url" \
     -d default_ring_rpc_port="$ring_rpc_port" \
     "$@"
 

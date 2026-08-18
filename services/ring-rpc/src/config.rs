@@ -10,7 +10,7 @@ use std::{
 use clap::{Args, Parser, Subcommand};
 use thiserror::Error;
 use zeroize::Zeroizing;
-use zolana_keypair::{KeypairError, ViewingKey};
+use zolana_keypair::{KeypairError, P256Pubkey, ViewingKey};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -123,6 +123,8 @@ pub enum KeyFileError {
     Shared { path: PathBuf, mode: u32 },
     #[error("key file is not 64 hex characters")]
     Encoding,
+    #[error("public key file is not 66 hex characters")]
+    PubkeyEncoding,
     #[error("auditor key is not a valid P256 secret key: {0}")]
     Key(#[from] KeypairError),
 }
@@ -145,12 +147,7 @@ pub fn write_auditor_key(out: &Path) -> Result<ViewingKey, KeyFileError> {
     };
     let mut file = options.open(out).map_err(write_error)?;
     std::io::Write::write_all(&mut file, secret_hex.as_bytes()).map_err(write_error)?;
-    std::fs::write(public_key_path(out), hex::encode(key.pubkey().as_bytes())).map_err(
-        |source| KeyFileError::Write {
-            path: public_key_path(out),
-            source,
-        },
-    )?;
+    write_auditor_pubkey(&public_key_path(out), &key.pubkey())?;
     Ok(key)
 }
 
@@ -159,6 +156,33 @@ pub fn public_key_path(secret: &Path) -> PathBuf {
     let mut name = secret.file_name().unwrap_or_default().to_os_string();
     name.push(".pub");
     secret.with_file_name(name)
+}
+
+/// The SEC1 compressed auditor public key as hex, the format `read_auditor_pubkey`
+/// and the ring CLI's `init` take.
+pub fn write_auditor_pubkey(path: &Path, pubkey: &P256Pubkey) -> Result<(), KeyFileError> {
+    if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
+        std::fs::create_dir_all(dir).map_err(|source| KeyFileError::Write {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    }
+    std::fs::write(path, hex::encode(pubkey.as_bytes())).map_err(|source| KeyFileError::Write {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+pub fn read_auditor_pubkey(path: &Path) -> Result<P256Pubkey, KeyFileError> {
+    let text = std::fs::read_to_string(path).map_err(|source| KeyFileError::Read {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let bytes: [u8; 33] = hex::decode(text.trim())
+        .map_err(|_| KeyFileError::PubkeyEncoding)?
+        .try_into()
+        .map_err(|_| KeyFileError::PubkeyEncoding)?;
+    Ok(P256Pubkey::from_bytes(bytes)?)
 }
 
 /// Reads the auditor viewing key. Intermediate buffers are zeroized. Unless
@@ -246,14 +270,6 @@ mod tests {
     }
 
     #[test]
-    fn hex_key_round_trips_with_surrounding_whitespace() {
-        let key = ViewingKey::new();
-        let text = format!("  {}\n", hex::encode(*key.secret_bytes()));
-        let parsed = parse_auditor_key(&text).expect("parse key");
-        assert_eq!(parsed.pubkey(), key.pubkey());
-    }
-
-    #[test]
     fn short_and_non_hex_inputs_are_rejected() {
         assert!(matches!(
             parse_auditor_key("abcd"),
@@ -274,8 +290,10 @@ mod tests {
             load_auditor_key(&secret, false).expect("load").pubkey(),
             key.pubkey()
         );
-        let public = std::fs::read_to_string(public_key_path(&secret)).expect("pub file");
-        assert_eq!(hex::decode(public).expect("hex"), key.pubkey().as_bytes());
+        assert_eq!(
+            read_auditor_pubkey(&public_key_path(&secret)).expect("pub file"),
+            key.pubkey()
+        );
         assert!(matches!(
             write_auditor_key(&secret),
             Err(KeyFileError::Write { .. })

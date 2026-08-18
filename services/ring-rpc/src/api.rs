@@ -1,9 +1,10 @@
-//! Wire types of the Ring RPC. Scalars reuse the indexer's encodings so a client
-//! that reads Photon reads this service the same way.
+//! Wire types of the Ring RPC. Scalars use the indexer's encodings (base58
+//! keys and signatures, base64 bytes, hex hashes).
 
 use serde::{Deserialize, Serialize};
-pub use zolana_indexer_api::PAGE_LIMIT;
-use zolana_indexer_api::{Base64String, Context, Hash, SerializablePubkey, SerializableSignature};
+use zolana_indexer_api::{
+    Base64String, Context, Hash, Limit, SerializablePubkey, SerializableSignature,
+};
 
 pub const HEALTH: &str = "health";
 pub const CREATE_AUDITOR_KEY: &str = "createAuditorKey";
@@ -46,9 +47,8 @@ pub struct GetDecryptedTransactionsRequest {
     /// Opaque indexer cursor from a previous page.
     #[serde(default)]
     pub cursor: Option<Base64String>,
-    /// Page size, `1..=PAGE_LIMIT`.
     #[serde(default)]
-    pub limit: Option<u32>,
+    pub limit: Option<Limit>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

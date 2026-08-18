@@ -1990,6 +1990,7 @@ name = "custom-ring-program"
 version = "0.1.0"
 dependencies = [
  "bincode 2.0.1",
+ "bs58",
  "bytemuck",
  "groth16-solana",
  "hex",
@@ -11092,6 +11093,7 @@ name = "zolana-ring-client"
 version = "0.1.0"
 dependencies = [
  "borsh",
+ "hex",
  "p256",
  "solana-address 2.6.1",
  "solana-signature",

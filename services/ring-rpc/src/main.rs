@@ -5,7 +5,7 @@ use clap::Parser;
 use log::info;
 use zolana_ring_client::auditor_view_tag;
 use zolana_ring_rpc::{
-    audit::{asset_registry_from_chain, ChainSource, Hub, KeyProvider},
+    audit::{asset_registry_from_chain, ChainSource, Hub},
     config::{
         load_auditor_key, load_root_secret, public_key_path, write_auditor_key, Cli, Command,
         ServeArgs,
@@ -39,23 +39,27 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn serve(args: ServeArgs) -> anyhow::Result<()> {
-    let provider = match (&args.auditor_key_file, &args.root_secret_file) {
-        (Some(path), None) => KeyProvider::Local(
-            load_auditor_key(path, args.allow_shared_key_file)
-                .with_context(|| format!("loading {}", path.display()))?,
-        ),
-        (None, Some(path)) => KeyProvider::Derived(
-            load_root_secret(path, args.allow_shared_key_file)
-                .with_context(|| format!("loading {}", path.display()))?,
-        ),
-        _ => anyhow::bail!("pass exactly one of --auditor-key-file and --root-secret-file"),
-    };
     let source = ChainSource::new(&args.indexer_url, &args.rpc_url, args.upstream_timeout())?;
     let assets = asset_registry_from_chain(source.rpc())
         .await
         .context("loading the SPL asset registry")?;
-    let hub = Arc::new(Hub::new(provider, source, assets));
-    match hub.local() {
+    let hub = match (&args.auditor_key_file, &args.root_secret_file) {
+        (Some(path), None) => Hub::local(
+            load_auditor_key(path, args.allow_shared_key_file)
+                .with_context(|| format!("loading {}", path.display()))?,
+            source,
+            assets,
+        ),
+        (None, Some(path)) => Hub::derived(
+            load_root_secret(path, args.allow_shared_key_file)
+                .with_context(|| format!("loading {}", path.display()))?,
+            source,
+            assets,
+        ),
+        _ => anyhow::bail!("pass exactly one of --auditor-key-file and --root-secret-file"),
+    };
+    let hub = Arc::new(hub);
+    match hub.local_service() {
         Some(service) => info!(
             "ring-rpc listening on {}:{} for auditor tag {}",
             args.bind,

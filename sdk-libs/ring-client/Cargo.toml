@@ -19,3 +19,4 @@ zolana-transaction = { workspace = true }
 
 [dev-dependencies]
 borsh = { workspace = true }
+hex = { workspace = true }

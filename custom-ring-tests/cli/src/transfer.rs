@@ -86,7 +86,15 @@ impl AuditedTransfer<'_> {
             deposits.push(signature);
         }
 
-        fund(self.rpc, self.payer, &sender.pubkey(), SENDER_FEE_BUDGET)?;
+        // The sender pays its own transact so the v0 message stays inside the
+        // size limit; the recipient key stays with the recipient.
+        let fee = solana_system_interface::instruction::transfer(
+            &self.payer.pubkey(),
+            &sender.pubkey(),
+            SENDER_FEE_BUDGET,
+        );
+        self.rpc
+            .create_and_send_transaction(&[fee], self.payer.pubkey(), &[self.payer])?;
 
         let input_utxos: Vec<SppProofInputUtxo> = spendable
             .iter()
@@ -156,12 +164,6 @@ impl AuditedTransfer<'_> {
     }
 }
 
-fn fund(rpc: &SolanaRpc, payer: &dyn Signer, to: &Address, lamports: u64) -> Result<()> {
-    let ix = solana_system_interface::instruction::transfer(&payer.pubkey(), to, lamports);
-    rpc.create_and_send_transaction(&[ix], payer.pubkey(), &[payer])?;
-    Ok(())
-}
-
 /// Ring-deposit `amount` lamports to `recipient`'s shielded address, paid by
 /// `payer`, returning the ring-owned UTXO the deposit created. The public face
 /// of a ring deposit carries only the `owner_utxo_hash` commitment and the
@@ -213,50 +215,49 @@ pub fn ring_deposit_sol(
     ))
 }
 
-/// The state and non-inclusion witnesses every real spend needs, waiting for the
-/// indexer to catch up with the deposits.
+/// The state and non-inclusion witnesses every real spend needs. The indexer
+/// client polls until every requested proof is present.
 pub fn ring_spend_inputs<I: Rpc>(
     indexer: &I,
     tree: Address,
     spends: &[SppProofInputUtxo],
 ) -> Result<Vec<TransferSpendInput>> {
-    let mut inputs = Vec::with_capacity(spends.len());
-    for spend in spends {
-        if spend.is_dummy() {
-            return Err(anyhow!("the audited transfer spends real ring UTXOs only"));
-        }
-        let nullifier_pk = spend.nullifier_key.pubkey()?;
-        let utxo_hash = spend.utxo.hash(&nullifier_pk, &ZERO, &ZERO)?;
-        let nullifier = spend
-            .nullifier_key
-            .nullifier(&utxo_hash, &spend.utxo.blinding)?;
-        let state = wait_for("indexed merkle proof", || {
-            Ok(indexer
-                .get_merkle_proofs(tree, vec![utxo_hash], None)?
-                .proofs
-                .into_iter()
-                .next())
-        })?;
-        let non_inclusion = wait_for("indexed non-inclusion proof", || {
-            Ok(indexer
-                .get_non_inclusion_proofs(tree, vec![nullifier], None)?
-                .proofs
-                .into_iter()
-                .next())
-        })?;
-        inputs.push(TransferSpendInput {
+    if spends.iter().any(SppProofInputUtxo::is_dummy) {
+        return Err(anyhow!("the audited transfer spends real ring UTXOs only"));
+    }
+    let utxo_hashes = spends
+        .iter()
+        .map(SppProofInputUtxo::hash)
+        .collect::<Result<Vec<_>, _>>()?;
+    let nullifiers = spends
+        .iter()
+        .map(SppProofInputUtxo::nullifier)
+        .collect::<Result<Vec<_>, _>>()?;
+    let states = indexer.get_merkle_proofs(tree, utxo_hashes, None)?.proofs;
+    let non_inclusions = indexer
+        .get_non_inclusion_proofs(tree, nullifiers, None)?
+        .proofs;
+    if states.len() != spends.len() || non_inclusions.len() != spends.len() {
+        return Err(anyhow!(
+            "indexer returned {} state and {} non-inclusion proofs for {} spends",
+            states.len(),
+            non_inclusions.len(),
+            spends.len()
+        ));
+    }
+    Ok(spends
+        .iter()
+        .zip(states)
+        .zip(non_inclusions)
+        .map(|((spend, state), nullifier)| TransferSpendInput {
             utxo: spend.utxo.clone(),
             nullifier_key: spend.nullifier_key.clone(),
             data_hash: None,
             ring_data_hash: None,
-            proof: Some(SpendProof {
-                state,
-                nullifier: non_inclusion,
-            }),
+            proof: Some(SpendProof { state, nullifier }),
             nullifier_proof: None,
-        });
-    }
-    Ok(inputs)
+        })
+        .collect())
 }
 
 /// Fold the signed transaction's external data and the ring prover's result into
