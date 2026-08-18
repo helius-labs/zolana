@@ -134,8 +134,7 @@ async fn get_shielded_transactions(
     limit: u64,
     match_by: MatchBy,
 ) -> Result<ShieldedTransactionPage, PhotonApiError> {
-    // The kind follows the query, so a cursor from the sibling stream is
-    // rejected rather than silently resumed in a differently filtered scan.
+    // Follows the query, so a sibling stream's cursor is rejected, not resumed.
     let cursor_kind = match match_by {
         MatchBy::Tags => CursorKind::ShieldedTxByTags,
         MatchBy::Nullifiers => CursorKind::ShieldedTxByNullifiers,
@@ -186,9 +185,8 @@ async fn get_shielded_transactions(
 /// Sound while positions are only appended: a row later inserted below this one
 /// would be skipped by anyone resuming here. Per-tag cursors already assume the
 /// same.
-/// The kind comes from the caller rather than being hardcoded: this position is
-/// handed back as a cursor, so it has to be labelled with the stream that will
-/// resume from it.
+/// Kind from the caller: this position is returned as a cursor, so it carries the
+/// stream that will resume from it.
 async fn scan_position(
     tx: &DatabaseTransaction,
     kind: CursorKind,

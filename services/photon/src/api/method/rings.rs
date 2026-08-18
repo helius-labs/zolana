@@ -77,10 +77,8 @@ mod tests {
         )
         .is_err());
 
-        // The tags and nullifiers streams share this cursor byte for byte and
-        // order by the same key, so a cursor from one would otherwise decode
-        // cleanly in the other and resume mid-scan, skipping every match before
-        // that position without reporting anything.
+        // Tags and nullifiers share this cursor byte for byte, so without the
+        // kind one resumes mid-scan in the other and skips silently.
         assert!(decode_cursor::<ShieldedTxCursor>(
             CursorKind::ShieldedTxByNullifiers,
             &shielded_cursor

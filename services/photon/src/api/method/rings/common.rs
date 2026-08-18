@@ -325,15 +325,11 @@ pub(super) fn tx_cursor_sql_condition(
     ))
 }
 
-/// Which stream a cursor came from, carried as its first byte.
+/// Which stream minted a cursor, as its first byte.
 ///
-/// Without it the tags and nullifiers streams cannot be told apart: they share
-/// `ShieldedTxCursor` byte for byte and order by the same key, so a cursor from
-/// one decodes cleanly in the other and resumes at that position in a
-/// differently filtered scan -- skipping every match before it and reporting
-/// success. The encrypted-utxo stream is only distinguishable today because its
-/// cursor happens to be two bytes longer, which is accident rather than design
-/// and stops being true the moment either shape changes.
+/// Tags and nullifiers share `ShieldedTxCursor` byte for byte, so one resumes
+/// cleanly in the other and skips every match before it. Encrypted-utxo cursors
+/// differ only by length, which is accident, not design.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum CursorKind {
     EncryptedUtxos = 1,

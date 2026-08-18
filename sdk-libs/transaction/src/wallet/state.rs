@@ -128,11 +128,8 @@ pub struct SyncReport {
     pub unknown_asset_ids: BTreeSet<u64>,
 }
 
-/// One key on one of the indexer streams the wallet resumes.
-///
-/// The variant carries what its stream indexes by, so the map is flat and a tag
-/// cannot be mistaken for a nullifier -- `ViewTag` is itself `[u8; 32]`, so
-/// keying by the bare value would make the two interchangeable.
+/// One key on one indexer stream. `ViewTag` is `[u8; 32]`, so the variant is
+/// what stops a tag being read as a nullifier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CursorStream {
     /// Shielded transactions matched by output view tag.
@@ -144,8 +141,7 @@ pub enum CursorStream {
 }
 
 impl CursorStream {
-    /// The tag or nullifier itself, for building the query its stream is read
-    /// with.
+    /// The tag or nullifier, for building the query.
     pub fn value(self) -> [u8; 32] {
         match self {
             Self::Tags(value) | Self::Nullifiers(value) | Self::Proofless(value) => value,
@@ -169,12 +165,8 @@ pub struct Wallet {
     /// spent.
     pub nullifiers: HashSet<[u8; 32]>,
     pub last_synced: i64,
-    /// Sync watermarks: for each key on each stream, the indexer position
-    /// through which everything matching it has already been seen.
-    ///
-    /// Keyed by [`CursorStream`], so the streams stay independent -- reaching the
-    /// tip of one says nothing about the others -- without a map per stream.
-    /// Nullifier entries are dropped once the nullifier is spent.
+    /// Per key, the position everything matching it has been seen through.
+    /// Streams advance independently. Nullifier entries die with their spend.
     pub cursors: HashMap<CursorStream, Vec<u8>>,
 }
 

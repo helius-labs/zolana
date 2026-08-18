@@ -123,10 +123,8 @@ where
             //
             // Cursors come out of the wallet and go back rather than staying
             // borrowed, because `wallet` is needed mutably further down.
-            // Split per stream for the round: the three threads below each need
-            // their own `&mut`, and one map cannot be borrowed mutably three
-            // times. The variants keep the keys apart, so merging after the join
-            // is lossless.
+            // Three threads, three `&mut`. Variants keep the keys disjoint, so
+            // the merge after the join is lossless.
             let (mut cursors, mut nullifier_cursors, mut proofless_cursors) =
                 split_by_stream(std::mem::take(&mut wallet.cursors));
             let tag_keys = stream_keys(&tags, CursorStream::Tags);
@@ -304,8 +302,7 @@ where
         let before = (transactions.len(), proofless_deposits.len());
         let tags = wallet_query_tags(wallet, &material, config.tag_window)?;
         let nullifiers = wallet_query_nullifiers(wallet);
-        // One map for every stream now, so it comes out of the wallet once and
-        // goes back once.
+        // Sequential here, so one borrow serves all three.
         let mut cursors = std::mem::take(&mut wallet.cursors);
         let tag_keys = stream_keys(&tags, CursorStream::Tags);
         let nullifier_keys = stream_keys(&nullifiers, CursorStream::Nullifiers);
@@ -594,12 +591,10 @@ where
     }
 }
 
-/// Watermarks keyed by stream: for each key, the position read through.
+/// Per key, the position read through.
 type StreamCursors = HashMap<CursorStream, Vec<u8>>;
 
-/// Splits watermarks into one map per stream, so concurrent fetches hold
-/// disjoint `&mut` instead of contending on one map. The caller merges them
-/// back; the variants keep the keys from colliding.
+/// One map per stream, so concurrent fetches borrow disjointly. Caller merges.
 fn split_by_stream(cursors: StreamCursors) -> (StreamCursors, StreamCursors, StreamCursors) {
     let mut tags = HashMap::new();
     let mut nullifiers = HashMap::new();
@@ -614,12 +609,12 @@ fn split_by_stream(cursors: StreamCursors) -> (StreamCursors, StreamCursors, Str
     (tags, nullifiers, proofless)
 }
 
-/// Labels each of a stream's keys with the stream it belongs to.
+/// Labels a stream's keys with the stream.
 fn stream_keys(values: &[[u8; 32]], stream: fn([u8; 32]) -> CursorStream) -> Vec<CursorStream> {
     values.iter().copied().map(stream).collect()
 }
 
-/// How many keys the wallet has a watermark for on one stream.
+/// Keys with a watermark on one stream.
 fn stream_len(wallet: &Wallet, matches: fn(&CursorStream) -> bool) -> usize {
     wallet.cursors.keys().filter(|key| matches(key)).count()
 }

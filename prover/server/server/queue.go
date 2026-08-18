@@ -928,9 +928,8 @@ func (rq *RedisQueue) failStuckJobsFromQueue(queueName string, timeoutCutoff tim
 						}
 					}
 
-					// Keys must match what the status endpoint reads off
-					// `failure`; see failureDetails, which every other
-					// MarkJobFailed caller goes through.
+					// Keys must match failureDetails, which the status
+					// endpoint reads and every other caller uses.
 					details := map[string]interface{}{
 						"originalJob": map[string]interface{}{
 							"id":          originalJobID,

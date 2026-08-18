@@ -186,11 +186,9 @@ func TestMarkJobFailedRecreatesExpiredMetadata(t *testing.T) {
 	}
 }
 
-// The stuck-job reaper builds its failure details inline instead of going
-// through failureDetails, so nothing but this test keeps the two spellings
-// together. Drift is quiet: a reaped job still reports "failed" and its error,
-// so the client stops waiting, but the status response loses failedAt and
-// circuitType with nothing failing anywhere.
+// The reaper builds its details inline, so only this test keeps them in step with
+// failureDetails. Drift is quiet: status stays "failed", but loses failedAt and
+// circuitType.
 func TestStuckJobReaperUsesTheKeysTheStatusEndpointReads(t *testing.T) {
 	queue := setupRedisQueue(t)
 	defer teardownRedisQueue(t, queue)
