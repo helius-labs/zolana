@@ -166,6 +166,9 @@ pub fn run(cli: Cli) -> Result<()> {
                 println!("deposit     {signature}");
             }
             println!("transact    {}", receipt.transact);
+            for line in program_logs(&rpc, &receipt.transact)? {
+                println!("  log       {line}");
+            }
             wait_for_indexed_transaction(&indexer, receipt.transact)?;
 
             let ring_rpc = RingRpc::new(&config.urls.ring_rpc);
@@ -183,6 +186,21 @@ pub fn run(cli: Cli) -> Result<()> {
             Ok(())
         }
     }
+}
+
+/// `Program log:` lines of a confirmed transaction, the ring's own output.
+fn program_logs(rpc: &SolanaRpc, signature: &solana_signature::Signature) -> Result<Vec<String>> {
+    let confirmed = rpc.fetch_confirmed_transaction(signature)?;
+    let logs: Option<Vec<String>> = confirmed
+        .transaction
+        .meta
+        .map(|meta| meta.log_messages.into())
+        .unwrap_or_default();
+    Ok(logs
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|line| line.strip_prefix("Program log: ").map(str::to_owned))
+        .collect())
 }
 
 fn default_program_so(name: &str) -> PathBuf {

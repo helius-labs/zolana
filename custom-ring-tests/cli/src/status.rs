@@ -27,6 +27,8 @@ pub fn print_status(config: &RingConfig, rpc: &SolanaRpc) -> Result<()> {
     println!("ring rpc    {}", config.urls.ring_rpc);
     let features: Vec<&str> = config.enabled_features().collect();
     println!("features    {}", features.join(", "));
+    #[cfg(feature = "hello")]
+    println!("hello       Hello feature");
 
     let chain = || -> Result<()> {
         match rpc.get_account(config.program_id)? {

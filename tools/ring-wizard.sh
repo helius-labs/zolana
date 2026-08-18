@@ -54,7 +54,7 @@ offset="${ZOLANA_PORT_OFFSET:-0}"
 rpc_port=$((8899 + offset))
 photon_port=$((8784 + offset))
 prover_port=$((3001 + offset))
-ring_rpc_port=$((8785 + offset))
+ring_rpc_port="${ZOLANA_LOCALNET_RING_RPC_PORT:-$((8785 + offset))}"
 
 # Non-interactive runs (`--silent`, or no terminal) answer every question with
 # its default; the hook learns that through `silent`.
