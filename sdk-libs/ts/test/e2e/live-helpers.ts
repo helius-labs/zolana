@@ -19,6 +19,7 @@ import {
 import {
   LocalWalletAuthority,
   ShieldedKeypair,
+  SigningKey,
   Wallet,
   createZolanaClient,
   syncWallet,
@@ -62,7 +63,9 @@ export async function actor(
   const publicKey = ed25519.getPublicKey(seed);
   const signer = await createKeyPairSignerFromBytes(Uint8Array.of(...seed, ...publicKey));
   const keypair =
-    rail === "ed25519" ? ShieldedKeypair.fromEd25519(seed, 0) : ShieldedKeypair.generate("p256");
+    rail === "ed25519"
+      ? ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(seed))
+      : ShieldedKeypair.generate("p256");
   return {
     signer,
     keypair,

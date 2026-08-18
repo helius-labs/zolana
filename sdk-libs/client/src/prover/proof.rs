@@ -130,6 +130,7 @@ fn compress_g1(point: &[u8; 64], name: &str) -> Result<[u8; 32], ClientError> {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct GnarkProofJson {
     pub ar: Vec<String>,
     pub bs: Vec<Vec<String>>,
@@ -162,7 +163,7 @@ fn hex_to_be_32(hex_str: &str) -> [u8; 32] {
     result
 }
 
-/// Parse a gnark proof JSON (`{ar, bs, krs, proof_commitment?, proof_commitment_pok?}`)
+/// Parse a gnark proof JSON (`{ar, bs, krs, proofCommitment?, proofCommitmentPok?}`)
 /// into an uncompressed [`Proof`] with `proof_a` negated. The commitment is `Some`
 /// only when both commitment fields are present (P256 rail).
 pub(crate) fn proof_from_gnark_json(json_str: &str) -> Option<Proof> {

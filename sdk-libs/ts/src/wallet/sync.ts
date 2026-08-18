@@ -240,7 +240,7 @@ function checkedNextCursor(
   const key = bytesKey(cursor);
   if (seen.has(key)) {
     throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
-      details: { method, path: "$.next_cursor" },
+      details: { method, path: "$.nextCursor" },
     });
   }
   seen.add(key);

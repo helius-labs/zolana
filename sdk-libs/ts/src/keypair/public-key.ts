@@ -2,8 +2,8 @@ import { p256 } from "@noble/curves/nist.js";
 
 import { type Bytes32, type Bytes33, type Bytes34, checkedBytes, copyBytes } from "./bytes.js";
 import { P256_PUBLIC_KEY_LENGTH, SHIELDED_PUBLIC_KEY_LENGTH } from "./constants.js";
+import { hashBytes } from "../hasher/index.js";
 import { KeypairError, wrapKeypairError } from "./error.js";
-import { hashField } from "./hash.js";
 
 export type SignatureType = "p256" | "ed25519";
 export type ViewTag = Bytes32;
@@ -117,12 +117,8 @@ export class ShieldedPublicKey {
     return copyBytes(this.#bytes.subarray(1, 33)) as ViewTag;
   }
 
-  hash(): Bytes32 {
-    return hashField(this.confidentialViewTag());
-  }
-
-  ownerPublicKeyField(): Bytes32 {
-    return hashField(this.confidentialViewTag());
+  ownerProofInputHash(): Bytes32 {
+    return hashBytes(this.confidentialViewTag()) as Bytes32;
   }
 
   ed25519(): Bytes32 {

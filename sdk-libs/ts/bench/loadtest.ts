@@ -12,9 +12,9 @@
  * ring of transfers, same four phases, same 30s progress windows. Numbers are
  * meant to be read side by side with it, so changes here should keep that true.
  *
- * The shielded key derivation matches `ShieldedKeypair::from_solana_keypair`
- * (32-byte Ed25519 secret, account 0), so wallet directories funded by
- * `xtask fund` work unchanged.
+ * The shielded key derivation matches Rust's `ShieldedKeypair::from_keypair`
+ * for the wallet's 32-byte Ed25519 secret, so wallet directories funded by
+ * `xtask fund` produce the same shielded identities.
  *
  * Runs against `dist/`, so it measures the SDK as published rather than as
  * sourced; `npm run loadtest` builds first.
@@ -42,6 +42,7 @@ import {
 import {
   LocalWalletAuthority,
   ShieldedKeypair,
+  SigningKey,
   Wallet,
   buildTransferTransaction,
   createZolanaClient,
@@ -153,7 +154,7 @@ async function loadActors(dir: string): Promise<Actor[]> {
     const signer = await createKeyPairSignerFromBytes(
       Uint8Array.of(...seed, ...ed25519.getPublicKey(seed)),
     );
-    const keypair = ShieldedKeypair.fromEd25519(seed, 0);
+    const keypair = ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(seed));
     actors.push({
       signer,
       wallet: new Wallet({ identity: keypair.shieldedAddress() }),

@@ -112,12 +112,12 @@ async function serviceRequestUrls(
     const requestUrl = input instanceof Request ? input.url : String(input);
     urls.push(requestUrl);
     const path = new URL(requestUrl).pathname;
-    if (path.endsWith("/get_shielded_transactions_by_nullifiers")) {
+    if (path.endsWith("/getShieldedTransactionsByNullifiers")) {
       return new Response(
         JSON.stringify({
           id: "test-account",
           jsonrpc: "2.0",
-          result: { context: { block_time: 1, slot: 1 }, transactions: [] },
+          result: { context: { blockTime: 1, slot: 1 }, transactions: [] },
         }),
         { headers: { "content-type": "application/json" } },
       );
@@ -179,7 +179,7 @@ describe("ZolanaClient", () => {
       name: "uses the RPC endpoint for both omitted services",
       overrides: {},
       expected: [
-        "https://rpc.example.com/zolana/get_shielded_transactions_by_nullifiers",
+        "https://rpc.example.com/zolana/getShieldedTransactionsByNullifiers",
         "https://rpc.example.com/zolana/prove",
       ],
     },
@@ -187,7 +187,7 @@ describe("ZolanaClient", () => {
       name: "keeps an explicit indexer and falls the prover back to RPC",
       overrides: { indexerUrl: INDEXER_URL },
       expected: [
-        "https://indexer.example.com/api/get_shielded_transactions_by_nullifiers",
+        "https://indexer.example.com/api/getShieldedTransactionsByNullifiers",
         "https://rpc.example.com/zolana/prove",
       ],
     },
@@ -195,7 +195,7 @@ describe("ZolanaClient", () => {
       name: "falls the indexer back to RPC and keeps an explicit prover",
       overrides: { proverUrl: PROVER_URL },
       expected: [
-        "https://rpc.example.com/zolana/get_shielded_transactions_by_nullifiers",
+        "https://rpc.example.com/zolana/getShieldedTransactionsByNullifiers",
         "https://prover.example.com/api/prove",
       ],
     },
@@ -203,7 +203,7 @@ describe("ZolanaClient", () => {
       name: "keeps both explicit service endpoints",
       overrides: { indexerUrl: INDEXER_URL, proverUrl: PROVER_URL },
       expected: [
-        "https://indexer.example.com/api/get_shielded_transactions_by_nullifiers",
+        "https://indexer.example.com/api/getShieldedTransactionsByNullifiers",
         "https://prover.example.com/api/prove",
       ],
     },
@@ -219,7 +219,7 @@ describe("ZolanaClient", () => {
     await expect(
       serviceRequestUrls(RPC_URL, { indexerUrl: undefined, proverUrl: undefined }),
     ).resolves.toEqual([
-      "https://rpc.example.com/zolana/get_shielded_transactions_by_nullifiers",
+      "https://rpc.example.com/zolana/getShieldedTransactionsByNullifiers",
       "https://rpc.example.com/zolana/prove",
     ]);
   });
@@ -229,7 +229,7 @@ describe("ZolanaClient", () => {
     const original = rpcUrl.href;
 
     await expect(serviceRequestUrls(rpcUrl)).resolves.toEqual([
-      "https://gateway.example.com/base/get_shielded_transactions_by_nullifiers?cluster=devnet",
+      "https://gateway.example.com/base/getShieldedTransactionsByNullifiers?cluster=devnet",
       "https://gateway.example.com/base/prove?cluster=devnet",
     ]);
     expect(rpcUrl.href).toBe(original);
@@ -385,9 +385,9 @@ describe("ZolanaClient", () => {
             id: "test-account",
             jsonrpc: "2.0",
             result: {
-              context: { block_time: 1, slot: 1 },
+              context: { blockTime: 1, slot: 1 },
               transactions: [],
-              next_cursor: "Ag==",
+              nextCursor: "Ag==",
             },
           }),
           { headers: { "content-type": "application/json" } },
@@ -405,10 +405,10 @@ describe("ZolanaClient", () => {
 
     expect(response.nextCursor).toEqual(Uint8Array.of(2));
     expect(String(fetch.mock.calls[0]?.[0])).toBe(
-      "http://127.0.0.1:8784/get_shielded_transactions_by_nullifiers",
+      "http://127.0.0.1:8784/getShieldedTransactionsByNullifiers",
     );
     expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toMatchObject({
-      method: "get_shielded_transactions_by_nullifiers",
+      method: "getShieldedTransactionsByNullifiers",
       params: {
         nullifiers: [getBase58Decoder().decode(nullifier)],
         cursor: "AQ==",

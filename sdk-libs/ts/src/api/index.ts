@@ -605,7 +605,7 @@ function hasControlCharacter(value: string): boolean {
 
 function safeSchemaPath(path: string): string | undefined {
   const knownField =
-    "(?:block_time|context|hash|high_element|high_element_index|leaf|leaf_index|leaves|limit|low_element|low_element_index|matches|merkle_context|next_cursor|nullifiers|output_context|output_slot|output_slots|path|payload|proofless|proofs|root|root_index|root_seq|salt|slot|tags|transactions|tree|tree_account|tree_type|tx_signature|tx_viewing_pk|view_tag)";
+    "(?:blockTime|context|hash|highElement|highElementIndex|leaf|leafIndex|leaves|limit|lowElement|lowElementIndex|matches|merkleContext|nextCursor|nullifiers|outputContext|outputSlot|outputSlots|path|payload|proofless|proofs|root|rootIndex|rootSeq|salt|slot|tags|transactions|tree|treeAccount|treeType|txSignature|txViewingPk|viewTag)";
   const pattern = new RegExp(`^\\$(?:(?:\\.${knownField})|(?:\\[\\d+\\]))*$`, "u");
   return path.length <= 256 && pattern.test(path) ? path : undefined;
 }

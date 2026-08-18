@@ -18,7 +18,7 @@ import {
   bytesToBigInt,
   field,
   hashChain,
-  hashField,
+  hashBytesBigInt,
   poseidon,
   rightHashChain,
 } from "../internal.js";
@@ -85,7 +85,7 @@ function assembleUnchecked(
 
   const { transferInputs, inputHashes, nullifiers, utxoRoots, nullifierRoots, rootIndexes } =
     assembleSlots(proofInputs, spendProofs, dummyNullifierProofs, (input) =>
-      bytesField(input.utxo.owner.ownerPublicKeyField(), "owner public key"),
+      bytesField(input.utxo.owner.ownerProofInputHash(), "owner public key"),
     );
 
   const transferOutputs = proofInputs.outputs.map(createOutput);
@@ -107,9 +107,9 @@ function assembleUnchecked(
     movements.amounts[index] ?? 0n,
   ]);
   // The circuit authorizes an input owner by finding its Poseidon owner hash in
-  // this vector, so the payer enters as `hashField`, matching Rust's
+  // this vector, so the payer enters as `hashBytesBigInt`, matching Rust's
   // `signer_pk_hashes`.
-  const payerSignerHash = hashField(addressBytes(proofInputs.payer));
+  const payerSignerHash = hashBytesBigInt(addressBytes(proofInputs.payer));
   const signerPublicKeyHashes = [
     payerSignerHash,
     ...Array.from({ length: inputHashes.length }, () => 0n),
@@ -371,10 +371,10 @@ export function createDummyTransferInput(
 export function createOutput(output: ProofOutputUtxo): TransferOutput {
   const ownerPublicKeyHash = output.ownerAddress
     ? bytesField(
-        output.ownerAddress.signingPublicKey.ownerPublicKeyField(),
+        output.ownerAddress.signingPublicKey.ownerProofInputHash(),
         "output owner public key",
       )
-    : hashField(output.ownerTag ?? new Uint8Array(32));
+    : hashBytesBigInt(output.ownerTag ?? new Uint8Array(32));
   const value = Object.freeze({
     utxo: output as unknown as ProofInputUtxo,
     isDummy: asField(output.isDummy() ? 1n : 0n),
@@ -394,13 +394,13 @@ function inputCircuitUtxo(input: ProofInputUtxo, dummy = false): CircuitUtxo {
   const owner = dummy
     ? 0n
     : poseidon([
-        bytesField(input.utxo.owner.ownerPublicKeyField(), "owner public key"),
+        bytesField(input.utxo.owner.ownerProofInputHash(), "owner public key"),
         bytesField(input.nullifierKey.publicKey(), "nullifier public key"),
       ]);
   return Object.freeze({
     domain: asField(BigInt(dummy ? DUMMY_DOMAIN : UTXO_DOMAIN)),
     owner: asField(owner),
-    asset: asField(dummy ? 0n : hashField(addressBytes(input.utxo.asset))),
+    asset: asField(dummy ? 0n : hashBytesBigInt(addressBytes(input.utxo.asset))),
     amount: asField(dummy ? 0n : input.utxo.amount),
     blinding: asField(bytesToBigInt(input.utxo.blinding)),
     dataHash: asField(dummy ? 0n : input.dataHash ? bytesField(input.dataHash, "data hash") : 0n),
@@ -411,7 +411,7 @@ function inputCircuitUtxo(input: ProofInputUtxo, dummy = false): CircuitUtxo {
       dummy
         ? 0n
         : input.utxo.zoneProgramId
-          ? hashField(addressBytes(input.utxo.zoneProgramId))
+          ? hashBytesBigInt(addressBytes(input.utxo.zoneProgramId))
           : 0n,
     ),
   });
@@ -422,7 +422,7 @@ function outputCircuitUtxo(output: ProofOutputUtxo): CircuitUtxo {
   return Object.freeze({
     domain: asField(BigInt(dummy ? DUMMY_DOMAIN : UTXO_DOMAIN)),
     owner: asField(dummy ? 0n : bytesField(output.ownerHash(), "output owner")),
-    asset: asField(dummy ? 0n : hashField(addressBytes(output.asset))),
+    asset: asField(dummy ? 0n : hashBytesBigInt(addressBytes(output.asset))),
     amount: asField(dummy ? 0n : output.amount),
     blinding: asField(bytesToBigInt(output.blinding)),
     dataHash: asField(
@@ -436,7 +436,7 @@ function outputCircuitUtxo(output: ProofOutputUtxo): CircuitUtxo {
           : 0n,
     ),
     zoneProgramId: asField(
-      dummy ? 0n : output.zoneProgramId ? hashField(addressBytes(output.zoneProgramId)) : 0n,
+      dummy ? 0n : output.zoneProgramId ? hashBytesBigInt(addressBytes(output.zoneProgramId)) : 0n,
     ),
   });
 }
@@ -503,7 +503,7 @@ function publicMovements(proofInputs: SppProofInputs): Readonly<{
   if (aggregated.size > 3) {
     throw new ClientError("CLIENT_PROVER_INPUT");
   }
-  const assets = [...aggregated.keys()].map((asset) => hashField(addressBytes(asset)));
+  const assets = [...aggregated.keys()].map((asset) => hashBytesBigInt(addressBytes(asset)));
   const amounts = [...aggregated.values()].map((amount) => signedField(amount, "public amount"));
   while (assets.length < 3) assets.push(0n);
   while (amounts.length < 3) amounts.push(0n);

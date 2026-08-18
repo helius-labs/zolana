@@ -3,7 +3,7 @@ import { address } from "@solana/kit";
 import type { Address, Bytes32 } from "../../interface/types.js";
 
 import { TransactionError } from "../error.js";
-import { checked, decodeAddress, equal, hashField } from "../internal.js";
+import { checked, decodeAddress, equal, hashBytes } from "../internal.js";
 
 export const SOL_ASSET_ID = 1n;
 export const SOL_MINT = address("11111111111111111111111111111111");
@@ -76,7 +76,7 @@ export class AssetRegistry {
 export function addressForAssetField(registry: AssetRegistry, field: Bytes32): Address | undefined {
   const expected = checked<Bytes32>(field, 32, "asset field");
   for (const [, mint] of registry.entries()) {
-    if (equal(hashField(decodeAddress(mint)), expected)) return mint;
+    if (equal(hashBytes(decodeAddress(mint)), expected)) return mint;
   }
   return undefined;
 }

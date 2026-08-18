@@ -56,8 +56,6 @@ pub const INFO_VIEW_KEY_ED25519: &[u8] = b"TSPP/view_key/ed25519/v1";
 
 pub const INFO_VIEW_KEY_ECDH: &[u8] = b"TSPP/view_key/ecdh/v1";
 
-pub const INFO_SEED_P256_VIEWING: &[u8] = b"TSPP/seed/p256_viewing";
-
 pub const INFO_PDA_NF_KEY: &[u8] = b"TSPP/pda_nf/v1";
 
 pub const INFO_PDA_VIEW_KEY: &[u8] = b"TSPP/pda_view/v1";

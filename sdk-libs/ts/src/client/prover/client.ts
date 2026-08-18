@@ -137,10 +137,10 @@ export class ProverClient {
           }
           if (
             isObject(value) &&
-            typeof value["job_id"] === "string" &&
+            typeof value["jobId"] === "string" &&
             value["proof"] === undefined
           ) {
-            return await this.#poll(value["job_id"], signal);
+            return await this.#poll(value["jobId"], signal);
           }
           return parseProof(value);
         } finally {
@@ -164,7 +164,7 @@ export class ProverClient {
     }
     const url = new URL(this.#url);
     url.pathname = url.pathname.replace(/\/prove$/u, "/prove/status");
-    url.searchParams.set("job_id", jobId);
+    url.searchParams.set("jobId", jobId);
     const intervalCap = Math.max(INITIAL_POLL_INTERVAL_MS, this.#asyncPoll.pollIntervalCapMs);
     let interval = INITIAL_POLL_INTERVAL_MS;
     const maxWaitMs = this.#asyncPoll.maxWaitMs;

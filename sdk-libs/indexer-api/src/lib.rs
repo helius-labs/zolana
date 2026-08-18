@@ -13,13 +13,13 @@ use thiserror::Error;
 
 pub const MIN_PAGE_LIMIT: u64 = 1;
 pub const PAGE_LIMIT: u64 = 1000;
-pub const GET_ENCRYPTED_UTXOS_BY_TAGS: &str = "get_encrypted_utxos_by_tags";
-pub const GET_SHIELDED_TRANSACTIONS_BY_TAGS: &str = "get_shielded_transactions_by_tags";
-pub const GET_SHIELDED_TRANSACTIONS_BY_SIGNATURE: &str = "get_shielded_transactions_by_signature";
-pub const GET_SHIELDED_TRANSACTIONS_BY_NULLIFIERS: &str = "get_shielded_transactions_by_nullifiers";
-pub const GET_MERKLE_PROOFS: &str = "get_merkle_proofs";
-pub const GET_NON_INCLUSION_PROOFS: &str = "get_non_inclusion_proofs";
-pub const GET_NULLIFIER_QUEUE_ELEMENTS: &str = "get_nullifier_queue_elements";
+pub const GET_ENCRYPTED_UTXOS_BY_TAGS: &str = "getEncryptedUtxosByTags";
+pub const GET_SHIELDED_TRANSACTIONS_BY_TAGS: &str = "getShieldedTransactionsByTags";
+pub const GET_SHIELDED_TRANSACTIONS_BY_SIGNATURE: &str = "getShieldedTransactionsBySignature";
+pub const GET_SHIELDED_TRANSACTIONS_BY_NULLIFIERS: &str = "getShieldedTransactionsByNullifiers";
+pub const GET_MERKLE_PROOFS: &str = "getMerkleProofs";
+pub const GET_NON_INCLUSION_PROOFS: &str = "getNonInclusionProofs";
+pub const GET_NULLIFIER_QUEUE_ELEMENTS: &str = "getNullifierQueueElements";
 
 const MAX_BASE58_32_LEN: usize = 44;
 const LIMIT_EXPECTATION: &str = "a value between 1 and 1000";
@@ -488,7 +488,7 @@ impl<'de> Deserialize<'de> for Limit {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Context {
     pub block_time: i64,
@@ -497,7 +497,7 @@ pub struct Context {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetRingsByTagsRequest {
     pub tags: Vec<Hash>,
@@ -508,7 +508,7 @@ pub struct GetRingsByTagsRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetRingsByNullifiersRequest {
     pub nullifiers: Vec<Hash>,
@@ -519,7 +519,7 @@ pub struct GetRingsByNullifiersRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct EncryptedUtxoMatch {
     pub slot: u64,
@@ -531,7 +531,7 @@ pub struct EncryptedUtxoMatch {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetEncryptedUtxosByTagsResponse {
     pub context: Context,
@@ -541,7 +541,7 @@ pub struct GetEncryptedUtxosByTagsResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct RingsOutputContext {
     pub hash: Hash,
@@ -550,7 +550,7 @@ pub struct RingsOutputContext {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct RingsOutputSlot {
     pub view_tag: Hash,
@@ -559,7 +559,7 @@ pub struct RingsOutputSlot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct RingsMessage {
     pub view_tag: Hash,
@@ -567,7 +567,7 @@ pub struct RingsMessage {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ShieldedTransaction {
     pub slot: u64,
@@ -584,7 +584,7 @@ pub struct ShieldedTransaction {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetShieldedTransactionsByTagsResponse {
     pub context: Context,
@@ -595,14 +595,14 @@ pub struct GetShieldedTransactionsByTagsResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetShieldedTransactionsBySignatureRequest {
     pub tx_signature: SerializableSignature,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct IndexedShieldedTransaction {
     pub event_index: u16,
@@ -610,7 +610,7 @@ pub struct IndexedShieldedTransaction {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetShieldedTransactionsBySignatureResponse {
     pub context: Context,
@@ -618,7 +618,7 @@ pub struct GetShieldedTransactionsBySignatureResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetShieldedTransactionsByNullifiersResponse {
     pub context: Context,
@@ -629,7 +629,7 @@ pub struct GetShieldedTransactionsByNullifiersResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetMerkleProofsRequest {
     pub tree_account: SerializablePubkey,
@@ -637,7 +637,7 @@ pub struct GetMerkleProofsRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetMerkleProofsResponse {
     pub context: Context,
@@ -645,11 +645,11 @@ pub struct GetMerkleProofsResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetNullifierQueueElementsRequest {
     pub tree_account: SerializablePubkey,
-    /// Return elements with `input_queue_seq >= start_seq` (default 0).
+    /// Return elements with `input_queue_seq >= startSeq` (default 0).
     #[serde(default)]
     pub start_seq: u64,
     /// Maximum number of elements to return.
@@ -657,7 +657,7 @@ pub struct GetNullifierQueueElementsRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetNullifierQueueElementsResponse {
     pub context: Context,
@@ -666,7 +666,7 @@ pub struct GetNullifierQueueElementsResponse {
 
 /// One queued nullifier, in on-chain input-queue order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct NullifierQueueElement {
     pub seq: u64,
@@ -674,7 +674,7 @@ pub struct NullifierQueueElement {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct MerkleContext {
     pub tree_type: u16,
@@ -682,7 +682,7 @@ pub struct MerkleContext {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct MerkleProof {
     pub leaf: Hash,
@@ -695,7 +695,7 @@ pub struct MerkleProof {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetNonInclusionProofsRequest {
     pub tree_account: SerializablePubkey,
@@ -703,7 +703,7 @@ pub struct GetNonInclusionProofsRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetNonInclusionProofsResponse {
     pub context: Context,
@@ -711,7 +711,7 @@ pub struct GetNonInclusionProofsResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct NonInclusionProof {
     pub leaf: Hash,
@@ -734,20 +734,20 @@ mod tests {
     fn method_markers_have_canonical_names() {
         assert_eq!(
             method::GetEncryptedUtxosByTags::NAME,
-            "get_encrypted_utxos_by_tags"
+            "getEncryptedUtxosByTags"
         );
         assert_eq!(
             method::GetShieldedTransactionsByNullifiers::NAME,
-            "get_shielded_transactions_by_nullifiers"
+            "getShieldedTransactionsByNullifiers"
         );
-        assert_eq!(method::GetMerkleProofs::NAME, "get_merkle_proofs");
+        assert_eq!(method::GetMerkleProofs::NAME, "getMerkleProofs");
         assert_eq!(
             method::GetNullifierQueueElements::NAME,
-            "get_nullifier_queue_elements"
+            "getNullifierQueueElements"
         );
         assert_eq!(
             method::GetShieldedTransactionsBySignature::NAME,
-            "get_shielded_transactions_by_signature"
+            "getShieldedTransactionsBySignature"
         );
     }
 
@@ -768,7 +768,7 @@ mod tests {
     }
 
     #[test]
-    fn response_shape_stays_snake_case() {
+    fn response_shape_stays_camel_case() {
         let value = serde_json::to_value(GetEncryptedUtxosByTagsResponse {
             context: Context {
                 block_time: 3,
@@ -778,13 +778,15 @@ mod tests {
             next_cursor: Some(Base64String(vec![1])),
         })
         .unwrap();
-        assert!(value.get("next_cursor").is_some());
-        assert!(value.get("nextCursor").is_none());
+        assert!(value.get("nextCursor").is_some());
+        assert!(value.get("next_cursor").is_none());
+        assert!(value["context"].get("blockTime").is_some());
+        assert!(value["context"].get("block_time").is_none());
     }
 
     #[test]
     fn signature_lookup_contract_rejects_malformed_signatures() {
-        let invalid = serde_json::json!({ "tx_signature": "not-a-signature" });
+        let invalid = serde_json::json!({ "txSignature": "not-a-signature" });
         assert!(
             serde_json::from_value::<GetShieldedTransactionsBySignatureRequest>(invalid).is_err()
         );
@@ -794,21 +796,21 @@ mod tests {
             tx_signature: SerializableSignature(signature),
         };
         let value = serde_json::to_value(request).unwrap();
-        assert_eq!(value["tx_signature"], signature.to_string());
+        assert_eq!(value["txSignature"], signature.to_string());
     }
 
     #[test]
     fn every_page_limit_uses_the_shared_bounds() {
         let tree = SerializablePubkey::from([3; 32]);
         let request = serde_json::json!({
-            "tree_account": tree.to_string(),
+            "treeAccount": tree.to_string(),
             "limit": PAGE_LIMIT,
         });
         let parsed = serde_json::from_value::<GetNullifierQueueElementsRequest>(request).unwrap();
         assert_eq!(parsed.limit.value(), PAGE_LIMIT);
 
         let invalid = serde_json::json!({
-            "tree_account": tree.to_string(),
+            "treeAccount": tree.to_string(),
             "limit": PAGE_LIMIT + 1,
         });
         assert!(serde_json::from_value::<GetNullifierQueueElementsRequest>(invalid).is_err());

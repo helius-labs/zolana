@@ -66,12 +66,12 @@
     "mintBytes": "2525252525252525252525252525252525252525252525252525252525252525",
     "signingSecretBytes": "0000000000000000000000000000000000000000000000000000000000000007",
     "testOnlySecret": true,
-    "viewingSeedBytes": "0808080808080808080808080808080808080808080808080808080808080808",
+    "viewingSecretBytes": "79f23ff3d69caf61bb2434d3a439e8894e8a19d6fce30ba5fcb22a160162e52d",
     "walletUtxos": [
       {
         "hashBytes": "2626262626262626262626262626262626262626262626262626262626262626",
         "leafIndex": "1",
-        "nullifierBytes": "2d0e5a6cff512220c6fc718c50a335704db58579b66aeb267412567c9f27f667",
+        "nullifierBytes": "2f3ceb81bf46600ce7d0020bf3e2cd3eba1936ff1ad547c1fac7ce061c1daec6",
         "spent": false,
         "utxo": {
           "amount": "40",
@@ -85,7 +85,7 @@
       {
         "hashBytes": "2727272727272727272727272727272727272727272727272727272727272727",
         "leafIndex": "2",
-        "nullifierBytes": "271b2763a2f5e04b591cd84de9ae3baa9f391229858af0a6f989737fc335901f",
+        "nullifierBytes": "1c76fae77e1efc590f53521e92f5f20111905836f77cd6abcb9f8184b4292753",
         "spent": false,
         "utxo": {
           "amount": "70",
@@ -99,7 +99,7 @@
       {
         "hashBytes": "2828282828282828282828282828282828282828282828282828282828282828",
         "leafIndex": "3",
-        "nullifierBytes": "111dc2a61309b67176f6044cfde35bbed84dd8abc3f4e3890bf12c54f7d2db34",
+        "nullifierBytes": "1c9c14ef011426fa157758ed9ceba26c5c1dc51202687ba56eac52115f0fe620",
         "spent": true,
         "utxo": {
           "amount": "5",

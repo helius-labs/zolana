@@ -55,5 +55,9 @@ pub enum Commands {
         /// — without proving or submitting.
         #[arg(long)]
         dry_run: bool,
+        /// Serve Prometheus metrics on `host:port`, e.g. 0.0.0.0:9999. Omitted
+        /// serves nothing. Names come from forester/metrics-contract.json.
+        #[arg(long)]
+        metrics_address: Option<String>,
     },
 }

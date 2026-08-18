@@ -566,7 +566,7 @@ mod tests {
         assert_eq!(api.api_key(), Some("secret"));
         assert_eq!(
             api.url(GET_MERKLE_PROOFS),
-            "https://rpc.example.test/get_merkle_proofs?api-key=secret"
+            "https://rpc.example.test/getMerkleProofs?api-key=secret"
         );
     }
 
@@ -577,7 +577,7 @@ mod tests {
         assert_eq!(api.api_key(), None);
         assert_eq!(
             api.url(GET_ENCRYPTED_UTXOS_BY_TAGS),
-            "http://127.0.0.1:8784/get_encrypted_utxos_by_tags"
+            "http://127.0.0.1:8784/getEncryptedUtxosByTags"
         );
     }
 
@@ -588,7 +588,7 @@ mod tests {
         assert_eq!(api.api_key(), Some("secret"));
         assert_eq!(
             api.url(GetNonInclusionProofs::NAME),
-            "https://rpc.example.test/get_non_inclusion_proofs?api-key=secret"
+            "https://rpc.example.test/getNonInclusionProofs?api-key=secret"
         );
     }
 

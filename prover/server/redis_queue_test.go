@@ -838,9 +838,9 @@ func TestFailedJobStatusDetails(t *testing.T) {
 	errorMessage := "Proof generation failed: Invalid merkle tree state"
 
 	failureDetails := map[string]interface{}{
-		"original_job": originalJob,
-		"error":        errorMessage,
-		"failed_at":    time.Now(),
+		"originalJob": originalJob,
+		"error":       errorMessage,
+		"failedAt":    time.Now(),
 	}
 
 	failedData, err := json.Marshal(failureDetails)
@@ -895,12 +895,12 @@ func TestFailedJobStatusDetails(t *testing.T) {
 		t.Errorf("Expected error message '%s', got '%s'", errorMessage, retrievedError)
 	}
 
-	if _, ok := parsedFailureDetails["failed_at"]; !ok {
-		t.Errorf("Expected failed_at field in failure details")
+	if _, ok := parsedFailureDetails["failedAt"]; !ok {
+		t.Errorf("Expected failedAt field in failure details")
 	}
 
-	if _, ok := parsedFailureDetails["original_job"]; !ok {
-		t.Errorf("Expected original_job field in failure details")
+	if _, ok := parsedFailureDetails["originalJob"]; !ok {
+		t.Errorf("Expected originalJob field in failure details")
 	}
 }
 
@@ -931,9 +931,9 @@ func TestFailedJobStatusHTTPEndpoint(t *testing.T) {
 	originalJob := createTestJob(jobID, "batch-update")
 
 	failureDetails := map[string]interface{}{
-		"original_job": originalJob,
-		"error":        errorMessage,
-		"failed_at":    time.Now().Format(time.RFC3339),
+		"originalJob": originalJob,
+		"error":       errorMessage,
+		"failedAt":    time.Now().Format(time.RFC3339),
 	}
 
 	// Fail the job the way the workers do. This test used to write straight
@@ -945,7 +945,7 @@ func TestFailedJobStatusHTTPEndpoint(t *testing.T) {
 		t.Fatalf("Failed to mark job failed: %v", err)
 	}
 
-	statusURL := fmt.Sprintf("http://%s/prove/status?job_id=%s", config.ProverAddress, jobID)
+	statusURL := fmt.Sprintf("http://%s/prove/status?jobId=%s", config.ProverAddress, jobID)
 	resp, err := http.Get(statusURL)
 	if err != nil {
 		t.Fatalf("Failed to make HTTP request: %v", err)
@@ -980,12 +980,12 @@ func TestFailedJobStatusHTTPEndpoint(t *testing.T) {
 		t.Errorf("Expected error field to be '%s', got '%s'", errorMessage, errorField)
 	}
 
-	if _, ok := statusResponse["failed_at"]; !ok {
-		t.Errorf("Expected failed_at field in response")
+	if _, ok := statusResponse["failedAt"]; !ok {
+		t.Errorf("Expected failedAt field in response")
 	}
 
-	if jobIDField, ok := statusResponse["job_id"].(string); !ok || jobIDField != jobID {
-		t.Errorf("Expected job_id to be '%s', got %v", jobID, statusResponse["job_id"])
+	if jobIDField, ok := statusResponse["jobId"].(string); !ok || jobIDField != jobID {
+		t.Errorf("Expected jobId to be '%s', got %v", jobID, statusResponse["jobId"])
 	}
 }
 

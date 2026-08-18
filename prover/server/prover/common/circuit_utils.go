@@ -12,7 +12,7 @@ type Proof struct {
 // ProofWithTiming wraps a proof with timing information for metrics
 type ProofWithTiming struct {
 	Proof           *Proof `json:"proof"`
-	ProofDurationMs int64  `json:"proof_duration_ms"`
+	ProofDurationMs int64  `json:"proofDurationMs"`
 }
 
 type BatchProofSystem struct {

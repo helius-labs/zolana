@@ -63,11 +63,11 @@
 - [ZK Program Interface](#zk-program-interface)
 - [RPC](#rpc)
   - [Indexer](#indexer)
-    - [get_encrypted_utxos_by_tags](#get_encrypted_utxos_by_tags)
-    - [get_shielded_transactions_by_tags](#get_shielded_transactions_by_tags)
-    - [subscribe_to_shielded_transactions_by_tags](#subscribe_to_shielded_transactions_by_tags)
-    - [get_merkle_proofs](#get_merkle_proofs)
-    - [get_non_inclusion_proofs](#get_non_inclusion_proofs)
+    - [getEncryptedUtxosByTags](#getencryptedutxosbytags)
+    - [getShieldedTransactionsByTags](#getshieldedtransactionsbytags)
+    - [subscribeToShieldedTransactionsByTags](#subscribetoshieldedtransactionsbytags)
+    - [getMerkleProofs](#getmerkleproofs)
+    - [getNonInclusionProofs](#getnoninclusionproofs)
   - [Prover](#prover)
   - [Relayer](#relayer)
   - [Ring RPC](#ring-rpc)
@@ -1989,7 +1989,7 @@ All RPC services can be run independently. RPC providers can offer the endpoints
 
 Indexes the SPP program instructions to parse encrypted UTXOs, utxo hashes, nullifiers and private transactions.
 
-**Privacy.** Endpoints that take tags as input (default-ring owner pubkeys, or policy-ring view tags), [`get_encrypted_utxos_by_tags`](#get_encrypted_utxos_by_tags), [`get_shielded_transactions_by_tags`](#get_shielded_transactions_by_tags), [`subscribe_to_shielded_transactions_by_tags`](#subscribe_to_shielded_transactions_by_tags), can run inside a TEE (Trusted Execution Environment) to add partial RPC-level privacy. A client's tag set identifies which transactions it cares about; an operator that sees the plaintext request links the client to those UTXOs. A TEE hides the tag set and ciphertext stream from the operator.
+**Privacy.** Endpoints that take tags as input (default-ring owner pubkeys, or policy-ring view tags), [`getEncryptedUtxosByTags`](#getencryptedutxosbytags), [`getShieldedTransactionsByTags`](#getshieldedtransactionsbytags), [`subscribeToShieldedTransactionsByTags`](#subscribetoshieldedtransactionsbytags), can run inside a TEE (Trusted Execution Environment) to add partial RPC-level privacy. A client's tag set identifies which transactions it cares about; an operator that sees the plaintext request links the client to those UTXOs. A TEE hides the tag set and ciphertext stream from the operator.
 
 Every response is wrapped in a `Context` struct so the client knows the slot the response was assembled at.
 
@@ -2007,7 +2007,7 @@ struct MerkleContext {
 }
 ```
 
-### `get_encrypted_utxos_by_tags`
+### `getEncryptedUtxosByTags`
 
 Returns encrypted UTXO ciphertexts whose tag matches any of the given values.
 
@@ -2035,7 +2035,7 @@ struct EncryptedUtxoMatch {
 }
 ```
 
-### `get_shielded_transactions_by_tags`
+### `getShieldedTransactionsByTags`
 
 Returns full shielded transactions where any output's tag matches. Includes all sibling output slots and the transaction's nullifier set.
 
@@ -2074,7 +2074,7 @@ struct OutputSlot {
 }
 ```
 
-### `subscribe_to_shielded_transactions_by_tags`
+### `subscribeToShieldedTransactionsByTags`
 
 Streaming subscription. Pushes new matches whose tag is in the subscribed set as transactions land. Long-lived connection (WebSocket / gRPC stream).
 
@@ -2083,11 +2083,11 @@ struct SubscribeToTagsRequest {
     tags: Vec<[u8; 32]>,
 }
 
-/// Yields one [`ShieldedTransaction`](#get_shielded_transactions_by_tags) per
-/// matching transaction (same shape as `get_shielded_transactions_by_tags`).
+/// Yields one [`ShieldedTransaction`](#getshieldedtransactionsbytags) per
+/// matching transaction (same shape as `getShieldedTransactionsByTags`).
 ```
 
-### `get_merkle_proofs`
+### `getMerkleProofs`
 
 Returns inclusion proofs for leaves against the given tree (UTXO tree, merge authority tree, etc.), plus the root + `root_seq` needed by the consuming instruction.
 
@@ -2119,7 +2119,7 @@ struct MerkleProof {
 }
 ```
 
-### `get_non_inclusion_proofs`
+### `getNonInclusionProofs`
 
 Returns non-inclusion proofs for leaves against the given tree (nullifier tree, merge authority tree, etc.), plus the root + `root_seq` for the consuming instruction.
 
@@ -2162,7 +2162,7 @@ struct NonInclusionProof {
 
 Generates SPP proofs server-side for clients that opt into server-side proving instead of building proofs locally.
 
-### `generate_spp_proof`
+### `generateSppProof`
 
 Builds an [SPP proof](#spp-proof---solana-privacy-zk-proof) from proof inputs; returns the compressed Groth16 proof for the [`transact`](#transact) or [`ring_transact`](#ring_transact) instruction.
 
@@ -2216,7 +2216,7 @@ A Ring RPC holds the ring's auditor key, if configured, and serves decrypted ana
 
 ### `get_decrypted_utxos_by_owner`
 
-Decrypted analogue of [`get_encrypted_utxos_by_tags`](#get_encrypted_utxos_by_tags). Filters spent UTXOs unless `include_spent`.
+Decrypted analogue of [`getEncryptedUtxosByTags`](#getencryptedutxosbytags). Filters spent UTXOs unless `include_spent`.
 
 ```rust
 struct GetDecryptedUtxosByOwnerRequest {
@@ -2245,7 +2245,7 @@ struct DecryptedUtxoEntry {
 
 ### `get_decrypted_transactions_by_owner`
 
-Decrypted analogue of [`get_shielded_transactions_by_tags`](#get_shielded_transactions_by_tags).
+Decrypted analogue of [`getShieldedTransactionsByTags`](#getshieldedtransactionsbytags).
 
 ```rust
 struct GetDecryptedTransactionsByOwnerRequest {
@@ -2272,7 +2272,7 @@ struct DecryptedTransaction {
 
 ### `subscribe_to_decrypted_transactions_by_owner`
 
-Streaming analogue of [`subscribe_to_shielded_transactions_by_tags`](#subscribe_to_shielded_transactions_by_tags). The RPC closes the stream when `current_slot > bound_slot + 150`; the client re-subscribes with a fresh signature.
+Streaming analogue of [`subscribeToShieldedTransactionsByTags`](#subscribetoshieldedtransactionsbytags). The RPC closes the stream when `current_slot > bound_slot + 150`; the client re-subscribes with a fresh signature.
 
 ```rust
 struct SubscribeToDecryptedTransactionsByOwnerRequest {
@@ -2421,11 +2421,11 @@ Wallet {
 
 2. **Default-ring sync, anonymous-ring sync, and merge sync run as independent parallel branches.**
 
-    1. **Default-ring sync (confidential).** One call: `indexer.get_shielded_transactions_by_tags` with the wallet's `owner_pubkey` tag; matches the wallet's encrypted change bundles, encrypted recipient slots, and [plaintext transfer](#plaintext-transfer) slots. Try the locally retained viewing keys against each encrypted ciphertext (plaintext slots need none); store the UTXOs with each transaction's `nullifiers`. The tag derives from the signing key, so discovery does not depend on the viewing key.
+    1. **Default-ring sync (confidential).** One call: `indexer.getShieldedTransactionsByTags` with the wallet's `owner_pubkey` tag; matches the wallet's encrypted change bundles, encrypted recipient slots, and [plaintext transfer](#plaintext-transfer) slots. Try the locally retained viewing keys against each encrypted ciphertext (plaintext slots need none); store the UTXOs with each transaction's `nullifiers`. The tag derives from the signing key, so discovery does not depend on the viewing key.
 
     2. **Anonymous-ring sync — for each anonymous ring in `known_rings`, for each viewing key `k` in parallel:**
         1. **Phase 1 — scan own view tags (concurrent within `k`).**
-            1. **Fetch loop**, scoped to `k`'s `[created_at, next.created_at)` window. Three parallel streams, each calling `indexer.get_shielded_transactions_by_tags(tags)` in batches of 10 000 tags until its first empty batch:
+            1. **Fetch loop**, scoped to `k`'s `[created_at, next.created_at)` window. Three parallel streams, each calling `indexer.getShieldedTransactionsByTags(tags)` in batches of 10 000 tags until its first empty batch:
                 - `wallet.get_sender_view_tag(n)` under `k` for `n in [i, i+10_000)`,
                 - `wallet.get_recipient_request_view_tag(n)` under `k` for `n in [i, i+10_000)`,
                 - the single `recipient_bootstrap_view_tag` for `k` (one call, not a range).
