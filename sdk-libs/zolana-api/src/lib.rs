@@ -9,7 +9,7 @@ use zolana_indexer_api::{
         GetShieldedTransactionsByNullifiers, GetShieldedTransactionsBySignature,
         GetShieldedTransactionsByTags,
     },
-    RpcMethod,
+    RpcMethod, SortOrder,
 };
 
 pub use zolana_indexer_api::{
@@ -177,6 +177,9 @@ impl ZolanaApi {
             tags,
             cursor,
             limit: optional_limit(limit)?,
+            // These methods do not take an order yet; the wire default is
+            // oldest-first, which is what they have always requested.
+            order: SortOrder::default(),
         })
         .await
     }
@@ -191,6 +194,9 @@ impl ZolanaApi {
             tags,
             cursor,
             limit: optional_limit(limit)?,
+            // These methods do not take an order yet; the wire default is
+            // oldest-first, which is what they have always requested.
+            order: SortOrder::default(),
         })
         .await
     }
@@ -215,6 +221,9 @@ impl ZolanaApi {
             nullifiers,
             cursor,
             limit: optional_limit(limit)?,
+            // These methods do not take an order yet; the wire default is
+            // oldest-first, which is what they have always requested.
+            order: SortOrder::default(),
         })
         .await
     }
@@ -339,6 +348,9 @@ impl BlockingZolanaApi {
             tags,
             cursor,
             limit: optional_limit(limit)?,
+            // These methods do not take an order yet; the wire default is
+            // oldest-first, which is what they have always requested.
+            order: SortOrder::default(),
         })
     }
 
@@ -352,6 +364,9 @@ impl BlockingZolanaApi {
             tags,
             cursor,
             limit: optional_limit(limit)?,
+            // These methods do not take an order yet; the wire default is
+            // oldest-first, which is what they have always requested.
+            order: SortOrder::default(),
         })
     }
 
@@ -374,6 +389,9 @@ impl BlockingZolanaApi {
             nullifiers,
             cursor,
             limit: optional_limit(limit)?,
+            // These methods do not take an order yet; the wire default is
+            // oldest-first, which is what they have always requested.
+            order: SortOrder::default(),
         })
     }
 
