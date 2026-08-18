@@ -9,8 +9,8 @@ use zolana_keypair::P256Pubkey;
 use zolana_ring_client::auditor_view_tag;
 use zolana_ring_rpc::api::{
     CreateAuditorKeyRequest, CreateAuditorKeyResponse, DecryptedTransaction,
-    GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse, HealthResponse,
-    CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH,
+    GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse, CREATE_AUDITOR_KEY,
+    GET_DECRYPTED_TRANSACTIONS,
 };
 
 use crate::transfer::wait_for;
@@ -32,10 +32,6 @@ impl RingRpc {
             url: url.into(),
             http: reqwest::blocking::Client::new(),
         }
-    }
-
-    pub fn health(&self) -> Result<HealthResponse> {
-        self.call(HEALTH, json!({}))
     }
 
     /// The auditor public key the RPC holds for `ring`. Derived instances mint
@@ -73,8 +69,7 @@ impl RingRpc {
         Ok(())
     }
 
-    /// The instance selects the ring by program id when it derives keys.
-    pub fn transactions_request(ring: Address) -> GetDecryptedTransactionsRequest {
+    fn transactions_request(ring: Address) -> GetDecryptedTransactionsRequest {
         GetDecryptedTransactionsRequest {
             ring_program_id: Some(ring.to_bytes().into()),
             ..Default::default()

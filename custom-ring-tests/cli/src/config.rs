@@ -6,18 +6,18 @@ use std::{
 };
 
 use anyhow::{anyhow, Context, Result};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use solana_address::Address;
 use solana_keypair::{read_keypair_file, Keypair};
 
 pub const RING_TOML: &str = "ring.toml";
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RingConfig {
     pub name: String,
     pub target: Target,
-    #[serde(with = "base58_address")]
+    #[serde(deserialize_with = "base58_address::deserialize")]
     pub program_id: Address,
     /// Deploy upgrade authority and ring authority. `~` expands to `$HOME`.
     pub authority_keypair: PathBuf,
@@ -28,14 +28,14 @@ pub struct RingConfig {
     pub features: BTreeMap<String, bool>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Target {
     Localnet,
     Devnet,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Urls {
     pub rpc: String,
@@ -65,14 +65,10 @@ impl RingConfig {
     }
 }
 
-/// `Address` serializes as bytes by default; the file wants base58.
+/// `Address` deserializes from bytes by default; the file carries base58.
 mod base58_address {
-    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::{Deserialize, Deserializer};
     use solana_address::Address;
-
-    pub fn serialize<S: Serializer>(address: &Address, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&address.to_string())
-    }
 
     pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Address, D::Error> {
         let text = String::deserialize(deserializer)?;

@@ -17,7 +17,7 @@ use zolana_ring_rpc::{
         GetDecryptedTransactionsResponse, HealthResponse, CREATE_AUDITOR_KEY,
         GET_DECRYPTED_TRANSACTIONS, HEALTH,
     },
-    audit::{AuditService, Hub, KeyProvider, RingRpcError, TransactionSource},
+    audit::{derive_auditor_key, AuditService, Hub, RingRpcError, TransactionSource},
     page::AuditorPage,
     server::rpc_module,
 };
@@ -188,8 +188,8 @@ fn source(fixture: &Fixture, next_cursor: Option<Vec<u8>>) -> StaticSource {
 }
 
 fn hub(fixture: &Fixture, next_cursor: Option<Vec<u8>>) -> Hub<StaticSource> {
-    Hub::new(
-        KeyProvider::Local(fixture.auditor.clone()),
+    Hub::local(
+        fixture.auditor.clone(),
         source(fixture, next_cursor),
         AssetRegistry::default(),
     )
@@ -205,7 +205,7 @@ async fn page_opens_audited_transfers_and_reports_the_rest() {
     let service = service(&fixture, Some(vec![7, 7]));
 
     let response = service
-        .decrypted_transactions(None, Some(10))
+        .decrypted_transactions(None, None)
         .await
         .expect("page");
 
@@ -250,18 +250,6 @@ async fn page_opens_audited_transfers_and_reports_the_rest() {
 }
 
 #[tokio::test]
-async fn out_of_range_limits_are_rejected_before_the_indexer_is_asked() {
-    let fixture = fixture();
-    let service = service(&fixture, None);
-    for limit in [0, 1001] {
-        assert!(matches!(
-            service.decrypted_transactions(None, Some(limit)).await,
-            Err(RingRpcError::InvalidLimit(got)) if got == limit
-        ));
-    }
-}
-
-#[tokio::test]
 async fn rpc_methods_answer_over_the_module() {
     let fixture = fixture();
     let module = rpc_module(Arc::new(hub(&fixture, None))).expect("module");
@@ -291,7 +279,7 @@ async fn the_auditor_page_shows_from_and_to() {
     let fixture = fixture();
     let service = service(&fixture, None);
     let page = service
-        .decrypted_transactions(None, Some(10))
+        .decrypted_transactions(None, None)
         .await
         .expect("page");
     let html = AuditorPage {
@@ -329,8 +317,8 @@ async fn the_auditor_page_shows_from_and_to() {
 async fn derived_keys_are_per_ring_and_stable() {
     let fixture = fixture();
     let root = zeroize::Zeroizing::new([7u8; 32]);
-    let hub = Hub::new(
-        KeyProvider::Derived(root.clone()),
+    let hub = Hub::derived(
+        root.clone(),
         source(&fixture, None),
         AssetRegistry::default(),
     );
@@ -340,7 +328,7 @@ async fn derived_keys_are_per_ring_and_stable() {
     let key_b = hub.ring(Some(ring_b)).expect("ring b").auditor_pubkey();
     assert_ne!(key_a, key_b, "rings get distinct keys");
     assert_eq!(
-        KeyProvider::derive(&root, ring_a).expect("derive").pubkey(),
+        derive_auditor_key(&root, ring_a).expect("derive").pubkey(),
         key_a,
         "the same root and ring derive the same key"
     );

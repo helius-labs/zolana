@@ -33,8 +33,6 @@ pub fn send_v0_with_lookup_table(
         .map_err(|e| anyhow!("send v0: {e}"))
 }
 
-/// Create and extend a throwaway lookup table (waiting a slot for each to
-/// root), then compile and sign the v0 transaction with a 1.4M CU budget.
 pub fn build_v0_with_lookup_table(
     rpc: &SolanaRpc,
     payer: &dyn Signer,

@@ -36,6 +36,9 @@ zolana-account-checks = { workspace = true }
 zolana-hasher = { workspace = true, features = ["poseidon"] }
 zolana-interface = { workspace = true, features = ["solana"] }
 
+[build-dependencies]
+bs58 = { workspace = true }
+
 [dev-dependencies]
 hex = { workspace = true }
 mollusk-svm = { workspace = true }

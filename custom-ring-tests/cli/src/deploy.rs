@@ -5,7 +5,7 @@ use std::{path::Path, process::Command};
 
 use anyhow::{anyhow, Context, Result};
 use solana_address::Address;
-use zolana_client::{Rpc, SolanaRpc};
+use zolana_client::SolanaRpc;
 
 pub struct Deploy<'a> {
     pub rpc_url: &'a str,
@@ -15,8 +15,6 @@ pub struct Deploy<'a> {
 }
 
 impl Deploy<'_> {
-    /// Deploys (or upgrades) the program with the authority as fee payer and
-    /// upgrade authority, then confirms the program account is executable.
     pub fn run(self, rpc: &SolanaRpc, program_id: Address) -> Result<()> {
         for (label, path) in [
             ("authority keypair", self.authority_keypair),
@@ -40,12 +38,7 @@ impl Deploy<'_> {
         if !status.success() {
             return Err(anyhow!("solana program deploy exited with {status}"));
         }
-        let account = rpc
-            .get_account(program_id)?
-            .ok_or_else(|| anyhow!("program account {program_id} missing after deploy"))?;
-        if !account.executable {
-            return Err(anyhow!("program account {program_id} is not executable"));
-        }
-        Ok(())
+        rpc.assert_executable(&program_id)
+            .with_context(|| format!("program {program_id} after deploy"))
     }
 }

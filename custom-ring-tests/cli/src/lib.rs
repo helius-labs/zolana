@@ -11,9 +11,9 @@ pub mod ring_rpc;
 pub mod status;
 pub mod transfer;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use clap::{Args, Parser, Subcommand};
 use custom_ring_sdk::PROGRAM_ID;
 use solana_address::Address;
@@ -21,6 +21,7 @@ use solana_signer::Signer;
 use zolana_client::{ProverClient, SolanaRpc, ZolanaIndexer};
 use zolana_interface::DEFAULT_TREE_ADDRESS;
 use zolana_keypair::P256Pubkey;
+use zolana_ring_rpc::config::{read_auditor_pubkey, write_auditor_pubkey};
 
 use crate::{
     config::{expand_tilde, RingConfig, Target, RING_TOML},
@@ -178,9 +179,7 @@ pub fn run(cli: Cli) -> Result<()> {
                 indexer: &indexer,
                 prover: &prover,
                 payer: &authority,
-                tree: DEFAULT_TREE_ADDRESS
-                    .parse::<Address>()
-                    .expect("default tree address is a valid base58 constant"),
+                tree: Address::from_str_const(DEFAULT_TREE_ADDRESS),
                 auditor_pk,
                 amount: args.amount,
             }
@@ -261,25 +260,6 @@ fn default_program_so(name: &str) -> PathBuf {
         "target/deploy/{}_program.so",
         name.replace('-', "_")
     ))
-}
-
-fn read_auditor_pubkey(path: &Path) -> Result<P256Pubkey> {
-    let text = std::fs::read_to_string(path)
-        .with_context(|| format!("reading auditor public key {}", path.display()))?;
-    let bytes = hex::decode(text.trim())
-        .with_context(|| format!("auditor public key {} is not hex", path.display()))?;
-    let bytes: [u8; 33] = bytes
-        .try_into()
-        .map_err(|_| anyhow!("auditor public key must be 33 bytes"))?;
-    Ok(P256Pubkey::from_bytes(bytes)?)
-}
-
-fn write_auditor_pubkey(path: &Path, auditor_pk: &P256Pubkey) -> Result<()> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    std::fs::write(path, format!("{}\n", hex::encode(auditor_pk.as_bytes())))
-        .with_context(|| format!("writing auditor public key {}", path.display()))
 }
 
 /// A local validator hands out SOL for free; devnet and beyond need a funded

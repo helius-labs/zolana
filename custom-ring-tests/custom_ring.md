@@ -219,24 +219,10 @@ This example uses the `8100..=8115` range, verified collision-free against SPP
 Every code is pinned in an `error_codes_are_stable` test.
 
 
-## CPI account limit
+## Auditor service and ring generator
 
-`cpi_spp_signed` builds the CPI account table on the heap and refuses more than
-the runtime's `MAX_CPI_ACCOUNTS` with `TooManyAccounts`. A ring transact with
-five owner signers and several settlement legs exceeds any small static bound.
-
-## Ring RPC
-
-`services/ring-rpc` holds the auditor viewing key and serves
-`getDecryptedTransactions` over JSON-RPC, reading Photon by the auditor view tag
-and opening each transaction with `zolana-ring-client`. `ring-rpc keygen` creates
-the key in place. One ring per instance, no request authentication yet.
-
-## Template
-
-`templates/custom-ring` generates a ring repository over these crates; see
-`templates/README.md`. `just ring-new` runs the wizard, the generated `justfile`
-runs the pipeline against a local validator (`just ring-localnet`) or devnet.
+Auditor service: `services/ring-rpc/README.md`. Ring generator (`just ring-new`
+and the generated pipeline): `templates/README.md`.
 
 ## Future Work
 - rust prover server to make local testing performant (keep it separate from go prover server)

@@ -4,6 +4,7 @@
 use anyhow::{anyhow, Result};
 use custom_ring_program::{error::CustomRingError, state::RingProgramConfig};
 use custom_ring_sdk::{config_pda, ring_auth_pda, CreateConfig, InitSppRingConfig};
+use solana_address::Address;
 use solana_instruction::error::InstructionError;
 use solana_signer::Signer;
 use solana_transaction_error::TransactionError;
@@ -55,21 +56,20 @@ pub fn init(
 }
 
 pub fn read_config<R: Rpc>(rpc: &R) -> Result<Option<RingProgramConfig>> {
-    let Some(account) = rpc.get_account(config_pda())? else {
-        return Ok(None);
-    };
-    bytemuck::try_from_bytes::<RingProgramConfig>(&account.data)
-        .map(|config| Some(*config))
-        .map_err(|_| anyhow!("config account has an unexpected layout"))
+    read_pod(rpc, config_pda(), "ring config")
 }
 
 pub fn read_ring_config<R: Rpc>(rpc: &R) -> Result<Option<RingConfig>> {
-    let Some(account) = rpc.get_account(ring_auth_pda())? else {
+    read_pod(rpc, ring_auth_pda(), "SPP ring config")
+}
+
+fn read_pod<R: Rpc, T: bytemuck::Pod>(rpc: &R, address: Address, label: &str) -> Result<Option<T>> {
+    let Some(account) = rpc.get_account(address)? else {
         return Ok(None);
     };
-    bytemuck::try_from_bytes::<RingConfig>(&account.data)
-        .map(|config| Some(*config))
-        .map_err(|_| anyhow!("SPP ring config account has an unexpected layout"))
+    bytemuck::try_from_bytes::<T>(&account.data)
+        .map(|value| Some(*value))
+        .map_err(|_| anyhow!("{label} account has an unexpected layout"))
 }
 
 /// Name the two failures an operator can act on; everything else passes through.
