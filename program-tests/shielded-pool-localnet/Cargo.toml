@@ -1,0 +1,48 @@
+[package]
+name = "shielded-pool-localnet"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# The localnet suites live in their own package for the same reason the Groth16
+# ones do: the tier is a package boundary rather than a feature flag. They need a
+# running validator (and Photon, for some), which the `localnet` feature used to
+# gate them behind -- and a gated target is skipped by `cargo check
+# --workspace --all-targets`, so these four compiled on no PR. A package keeps
+# `cargo test -p shielded-pool-tests` hermetic while leaving them in every
+# `--all-targets` build.
+#
+# The feature also selected dependency features (`zolana-client/indexer-api`,
+# `zolana-client/solana-rpc`); those are now plain dependencies here, so nothing
+# has to remember to turn them on.
+#
+# Flat layout so cargo auto-discovers each target: no `[[test]]` blocks, and no
+# way to add a suite that never runs. File names match the previous target names,
+# so `--test localnet_photon` and friends still select the same suite.
+
+[dependencies]
+shielded-pool-tests = { path = "../shielded-pool", features = ["localnet"] }
+zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
+
+anyhow = { workspace = true }
+serial_test = { workspace = true }
+solana-address = { workspace = true }
+solana-compute-budget-interface = { workspace = true }
+solana-instruction = { workspace = true }
+solana-keypair = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-signature = { workspace = true }
+solana-signer = { workspace = true }
+zolana-event = { workspace = true, features = ["program-test"] }
+zolana-hasher = { workspace = true }
+zolana-interface = { workspace = true }
+zolana-keypair = { workspace = true }
+zolana-merkle-tree = { workspace = true }
+zolana-program-test = { workspace = true }
+zolana-test-utils = { workspace = true }
+zolana-transaction = { workspace = true }
+zolana-tree = { workspace = true }
+num-bigint = { workspace = true }
+serde_json = { workspace = true }

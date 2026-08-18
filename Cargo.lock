@@ -6296,6 +6296,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "shielded-pool-localnet"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "num-bigint 0.4.8",
+ "serde_json",
+ "serial_test",
+ "shielded-pool-tests",
+ "solana-address 2.6.1",
+ "solana-compute-budget-interface",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-pubkey 4.2.0",
+ "solana-signature",
+ "solana-signer",
+ "zolana-client",
+ "zolana-event",
+ "zolana-hasher",
+ "zolana-interface",
+ "zolana-keypair",
+ "zolana-merkle-tree",
+ "zolana-program-test",
+ "zolana-test-utils",
+ "zolana-transaction",
+ "zolana-tree",
+]
+
+[[package]]
 name = "shielded-pool-program"
 version = "0.1.0"
 dependencies = [

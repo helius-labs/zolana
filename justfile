@@ -578,7 +578,7 @@ test-localnet-deposit: build-programs build-cli
     set -euo pipefail
     eval "$(cargo run -q -p xtask -- program-ids)"
     cargo run -p zolana-cli -- dev start --local --skip-prover --no-use-surfpool --rpc-port {{localnet-rpc-port}} --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so --sbf-program "$RING_TEST_PROGRAM_ID" target/deploy/ring_test_program.so
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo test -p shielded-pool-tests --features localnet --test localnet_deposit -- --nocapture
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo test -p shielded-pool-localnet --test localnet_deposit -- --nocapture
 
 # Local-validator end-to-end SOL cycle.
 test-localnet-e2e: build-programs build-prover-server build-cli
@@ -599,9 +599,9 @@ test-localnet-e2e: build-programs build-prover-server build-cli
       cargo run -p zolana-cli -- dev start --local --skip-prover --no-use-surfpool --rpc-port {{localnet-rpc-port}} --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so --sbf-program "$RING_TEST_PROGRAM_ID" target/deploy/ring_test_program.so
     }
     dev_start
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo nextest run -p shielded-pool-tests --features localnet --test localnet_e2e --no-capture
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo nextest run -p shielded-pool-localnet --test localnet_e2e --no-capture
     dev_start
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo nextest run -p shielded-pool-tests --features localnet --test localnet_deposit --no-capture
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo nextest run -p shielded-pool-localnet --test localnet_deposit --no-capture
 
 # Local-validator SOL cycle backed by a real Photon Zolana indexer. Each
 # `#[serial]` test restarts a fresh validator + Photon via the `zolana` CLI,
@@ -622,9 +622,9 @@ test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-ph
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      cargo nextest run -p shielded-pool-tests --features localnet --test localnet_photon --no-capture
+      cargo nextest run -p shielded-pool-localnet --test localnet_photon --no-capture
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      cargo nextest run -p shielded-pool-tests --features localnet --test localnet_wallet_cli --no-capture
+      cargo nextest run -p shielded-pool-localnet --test localnet_wallet_cli --no-capture
 
 # Spawn a localnet (validator + prover + photon) via the `zolana` CLI, bootstrap a
 # pool tree with an authority wallet, then run the tools/cli_smoke.sh coverage
@@ -698,7 +698,7 @@ test-nullifier-batch-proof-cu: build-programs build-prover-server build-cli ensu
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      cargo nextest run -p shielded-pool-tests --features localnet --test localnet_photon \
+      cargo nextest run -p shielded-pool-localnet --test localnet_photon \
       --no-capture -E 'test(nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer)'
 
 # Decrypt-and-spend lifecycle tests over a fresh validator + Photon per test

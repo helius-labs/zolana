@@ -87,14 +87,14 @@ const BATCH_NULLIFIER_TREE_CU_LIMIT: u64 = 500_000;
 type TestResult<T = ()> = anyhow::Result<T>;
 
 // `#[path]` is required here: this file is the `localnet_photon` test-crate
-// root, so an ordinary `mod cycle;` would resolve against `tests/localnet/`
-// rather than this binary's `photon/` submodule directory. These three modules
+// root, and a crate root resolves `mod cycle;` against its own directory
+// (`tests/`) rather than a `localnet_photon/` subdirectory. These three modules
 // form one intentional execution suite (the Photon-backed SOL cycle).
-#[path = "photon/cycle.rs"]
+#[path = "localnet_photon/cycle.rs"]
 mod cycle;
-#[path = "photon/encrypted_transfer.rs"]
+#[path = "localnet_photon/encrypted_transfer.rs"]
 mod encrypted_transfer;
-#[path = "photon/forester.rs"]
+#[path = "localnet_photon/forester.rs"]
 mod forester;
 
 struct IndexedSpendInputArgs<'a> {
