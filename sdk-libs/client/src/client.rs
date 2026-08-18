@@ -267,33 +267,56 @@ impl<R: Rpc> ZolanaClient<R> {
             .prove_transact(proof_inputs, &spend_proofs, &dummy_proofs)
     }
 
+    /// Fetches the blockhash itself, after proving rather than before.
+    ///
+    /// Callers used to fetch one and hand it in, which put a multi-second proof
+    /// between the blockhash and the send. Under load that window exceeded the
+    /// blockhash lifetime and the transaction was rejected at submission,
+    /// having already paid for the sync and the proof: an 80-worker run lost
+    /// 297 of 337 transfers to "Blockhash not found".
+    ///
+    /// `R: Sync` because the two proof fetches below share the indexer across
+    /// scoped threads.
     pub fn finish_submission_unsigned_sync(
         &self,
         signed: &SignedPrivateTransaction,
         fee_payer: Pubkey,
-        recent_blockhash: Hash,
-    ) -> Result<SolanaTransaction, ClientError> {
+    ) -> Result<SolanaTransaction, ClientError>
+    where
+        R: Sync,
+    {
         validate_fee_payer_pubkey(&signed.transaction.payer, fee_payer)?;
         let owner_signers = signed.transaction.owner_signer_pubkeys()?;
         let commitments = signed.transaction.input_utxo_hashes()?;
-        let spend_proofs = {
-            let _t = crate::timing::Phase::start("fetch_spend_proofs", 0);
-            fetch_spend_proofs(
-                self.blocking_indexer(),
-                signed.input_tree,
-                &commitments,
-                None,
-            )?
-        };
-        let dummy_proofs = {
-            let _t = crate::timing::Phase::start("fetch_dummy_nullifier_proofs", 0);
-            fetch_dummy_nullifier_proofs(
-                self.blocking_indexer(),
-                signed.input_tree,
-                &signed.transaction,
-                None,
-            )?
-        };
+        // Two independent indexer round trips (317ms and 114ms on devnet) that
+        // ran back to back. Nothing links them: different methods, and neither
+        // consumes the other's output.
+        let (spend_proofs, dummy_proofs) = std::thread::scope(|scope| {
+            let spend = scope.spawn(|| {
+                let _t = crate::timing::Phase::start("fetch_spend_proofs", 0);
+                fetch_spend_proofs(
+                    self.blocking_indexer(),
+                    signed.input_tree,
+                    &commitments,
+                    None,
+                )
+            });
+            let dummy = scope.spawn(|| {
+                let _t = crate::timing::Phase::start("fetch_dummy_nullifier_proofs", 0);
+                fetch_dummy_nullifier_proofs(
+                    self.blocking_indexer(),
+                    signed.input_tree,
+                    &signed.transaction,
+                    None,
+                )
+            });
+            (spend.join(), dummy.join())
+        });
+        // A panic here is a bug in proof assembly, not an unreachable indexer.
+        let spend_proofs =
+            spend_proofs.unwrap_or_else(|payload| std::panic::resume_unwind(payload))?;
+        let dummy_proofs =
+            dummy_proofs.unwrap_or_else(|payload| std::panic::resume_unwind(payload))?;
         let assembled = assemble(signed.transaction.clone(), &spend_proofs, &dummy_proofs)?;
         let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
         let proof = {
@@ -301,6 +324,9 @@ impl<R: Rpc> ZolanaClient<R> {
             self.blocking_prover().prove_transfer(inputs)?
         };
         let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
+        // Last thing before building, so the blockhash is as young as it can be
+        // when the transaction reaches the cluster.
+        let (recent_blockhash, _) = self.rpc().get_latest_blockhash()?;
         build_unsigned_solana_transaction(
             ComputeBudgetConfig {
                 cu_limit: self.cu_limit,
