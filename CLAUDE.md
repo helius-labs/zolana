@@ -407,7 +407,7 @@ regenerated. The codegen lives in the `xtask` crate, which depends on the
 
 - **transfer_p256 (P256):** the emulated-P256 gadget adds one BSB22 commitment over
   private wires. Its vk has `vk_commitment_g2: Some(..)` and `vk_ic.len() ==
-  public_inputs + 2`. Proofs include `proof_commitment` + `proof_commitment_pok`.
+  public_inputs + 2`. Proofs include `proofCommitment` + `proofCommitmentPok`.
   Verify with `Groth16Verifier::new_with_commitment`.
 - **transfer (eddsa, Solana-only):** standard Groth16, zero commitments. Its vk
   has `vk_commitment_g2: None` and `vk_ic.len() == public_inputs + 1`. Verify
@@ -416,7 +416,7 @@ regenerated. The codegen lives in the `xtask` crate, which depends on the
 Both verify in one binary built with the `bsb22` feature: `verify_common` runs
 the standard Groth16 pairing for every proof and only adds the Pedersen PoK
 pairing when a commitment is present. Dispatch on `vk.vk_commitment_g2.is_some()`
-(or the rail). The Go prover marshals `proof_commitment` as `omitempty`, so it is
+(or the rail). The Go prover marshals `proofCommitment` as `omitempty`, so it is
 absent for the eddsa rail and present for the P256 rail.
 
 NOTE: the parser/verifier support a single commitment over **private** wires
