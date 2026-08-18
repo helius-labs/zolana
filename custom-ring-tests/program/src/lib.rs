@@ -31,12 +31,35 @@ pub mod tag {
 
 pub const CONFIG_PDA_SEED: &[u8] = b"config";
 
+/// Smoke feature of the ring template: proves a toggle reaches the deployed
+/// program. Every instruction logs one line, and nothing else changes.
+#[cfg(feature = "hello")]
+mod hello {
+    const GREETING: &[u8] = b"Hello feature";
+
+    #[cfg(any(target_os = "solana", target_arch = "bpf"))]
+    pub fn greet() {
+        // SAFETY: the syscall reads `GREETING.len()` bytes from a `'static`
+        // slice, which outlives the call.
+        unsafe { pinocchio::syscalls::sol_log_(GREETING.as_ptr(), GREETING.len() as u64) };
+    }
+
+    #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
+    pub fn greet() {
+        println!(
+            "{}",
+            core::str::from_utf8(GREETING).expect("ascii greeting")
+        );
+    }
+}
+
 #[cfg(all(feature = "bpf-entrypoint", not(feature = "no-entrypoint")))]
 mod entrypoint {
     pinocchio::entrypoint!(crate::process_instruction);
 }
 
-pinocchio::address::declare_id!("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
+// `declare_id!` of the build-time program id, see `build.rs`.
+include!(concat!(env!("OUT_DIR"), "/program_id.rs"));
 
 pub fn process_instruction(
     program_id: &Address,
@@ -46,6 +69,8 @@ pub fn process_instruction(
     if !address_eq(program_id, &crate::ID) {
         return Err(ProgramError::IncorrectProgramId);
     }
+    #[cfg(feature = "hello")]
+    hello::greet();
 
     let (ix_tag, ix_data) = instruction_data
         .split_first()

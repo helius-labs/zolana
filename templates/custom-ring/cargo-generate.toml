@@ -1,0 +1,13 @@
+# Custom ring template. The wizard in hooks/wizard.rhai asks for everything a
+# generated ring needs and records the answers in ring.toml; every variable can
+# also be passed with `-d name=value`, which is how the driver and CI run it.
+# It runs as a `pre` hook: `-d` values are visible only from that stage on.
+[template]
+cargo_generate_version = ">=0.20.0"
+# The wizard script is not part of a generated ring.
+ignore = ["hooks"]
+# Not liquid: a keypair placeholder the driver fills after generation.
+exclude = ["keys/.gitkeep"]
+
+[hooks]
+pre = ["hooks/wizard.rhai"]

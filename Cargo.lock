@@ -1952,19 +1952,36 @@ dependencies = [
 ]
 
 [[package]]
-name = "custom-ring-client"
+name = "custom-ring-cli"
 version = "0.1.0"
 dependencies = [
- "borsh",
+ "anyhow",
+ "bytemuck",
+ "clap",
+ "custom-ring-program",
  "custom-ring-sdk",
- "p256",
+ "hex",
+ "reqwest",
+ "serde",
+ "serde_json",
  "solana-address 2.6.1",
+ "solana-address-lookup-table-interface",
+ "solana-compute-budget-interface",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-message",
  "solana-signature",
- "thiserror 2.0.18",
- "zeroize",
+ "solana-signer",
+ "solana-system-interface 3.2.0",
+ "solana-transaction",
+ "solana-transaction-error",
+ "toml",
  "zolana-client",
+ "zolana-indexer-api",
  "zolana-interface",
  "zolana-keypair",
+ "zolana-ring-client",
+ "zolana-ring-rpc",
  "zolana-transaction",
 ]
 
@@ -1972,6 +1989,7 @@ dependencies = [
 name = "custom-ring-program"
 version = "0.1.0"
 dependencies = [
+ "bincode 2.0.1",
  "bytemuck",
  "groth16-solana",
  "hex",
@@ -1980,6 +1998,7 @@ dependencies = [
  "pinocchio-system",
  "solana-account 4.3.1",
  "solana-instruction",
+ "solana-loader-v3-interface 8.0.1",
  "solana-program-error",
  "solana-pubkey 4.2.0",
  "thiserror 2.0.18",
@@ -2019,6 +2038,7 @@ dependencies = [
  "zeroize",
  "zolana-interface",
  "zolana-keypair",
+ "zolana-ring-client",
 ]
 
 [[package]]
@@ -2026,23 +2046,20 @@ name = "custom-ring-test-validator"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "custom-ring-client",
+ "custom-ring-cli",
  "custom-ring-program",
  "custom-ring-sdk",
  "solana-address 2.6.1",
- "solana-address-lookup-table-interface",
- "solana-compute-budget-interface",
  "solana-instruction",
  "solana-keypair",
- "solana-message",
  "solana-signature",
  "solana-signer",
  "solana-system-interface 3.2.0",
- "solana-transaction",
  "zolana-client",
  "zolana-interface",
  "zolana-keypair",
  "zolana-program-test",
+ "zolana-ring-client",
  "zolana-test-utils",
  "zolana-transaction",
  "zolana-tree",
@@ -4067,6 +4084,28 @@ name = "matchit"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
+
+[[package]]
+name = "maud"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8156733e27020ea5c684db5beac5d1d611e1272ab17901a49466294b84fc217e"
+dependencies = [
+ "itoa",
+ "maud_macros",
+]
+
+[[package]]
+name = "maud_macros"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7261b00f3952f617899bc012e3dbd56e4f0110a038175929fa5d18e5a19913ca"
+dependencies = [
+ "proc-macro2",
+ "proc-macro2-diagnostics",
+ "quote",
+ "syn 2.0.119",
+]
 
 [[package]]
 name = "maybe-async"
@@ -6260,6 +6299,15 @@ checksum = "10a9ff822e371bb5403e391ecd83e182e0e77ba7f6fe0160b795797109d1b457"
 dependencies = [
  "itoa",
  "serde",
+ "serde_core",
+]
+
+[[package]]
+name = "serde_spanned"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6662b5879511e06e8999a8a235d848113e942c9124f211511b16466ee2995f26"
+dependencies = [
  "serde_core",
 ]
 
@@ -9462,6 +9510,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "toml"
+version = "0.9.12+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf92845e79fc2e2def6a5d828f0801e29a2f8acc037becc5ab08595c7d5e9863"
+dependencies = [
+ "indexmap",
+ "serde_core",
+ "serde_spanned",
+ "toml_datetime 0.7.5+spec-1.1.0",
+ "toml_parser",
+ "toml_writer",
+ "winnow 0.7.15",
+]
+
+[[package]]
+name = "toml_datetime"
+version = "0.7.5+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92e1cfed4a3038bc5a127e35a2d360f145e1f4b971b551a2ba5fd7aedf7e1347"
+dependencies = [
+ "serde_core",
+]
+
+[[package]]
 name = "toml_datetime"
 version = "1.1.1+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9477,9 +9549,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6975367e4d2ef766d86af01ffad14b622fecc8d4357a998fbc4deb6e9bacaf9b"
 dependencies = [
  "indexmap",
- "toml_datetime",
+ "toml_datetime 1.1.1+spec-1.1.0",
  "toml_parser",
- "winnow",
+ "winnow 1.0.4",
 ]
 
 [[package]]
@@ -9488,8 +9560,14 @@ version = "1.1.2+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2abe9b86193656635d2411dc43050282ca48aa31c2451210f4202550afb7526"
 dependencies = [
- "winnow",
+ "winnow 1.0.4",
 ]
+
+[[package]]
+name = "toml_writer"
+version = "1.1.2+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
 
 [[package]]
 name = "tonic"
@@ -10512,6 +10590,12 @@ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 
 [[package]]
 name = "winnow"
+version = "0.7.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
+
+[[package]]
+name = "winnow"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
@@ -10998,6 +11082,58 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-merkle-tree",
+ "zolana-transaction",
+]
+
+[[package]]
+name = "zolana-ring-client"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "p256",
+ "solana-address 2.6.1",
+ "solana-signature",
+ "thiserror 2.0.18",
+ "zeroize",
+ "zolana-client",
+ "zolana-interface",
+ "zolana-keypair",
+ "zolana-transaction",
+]
+
+[[package]]
+name = "zolana-ring-rpc"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "clap",
+ "hex",
+ "hyper 1.10.1",
+ "jsonrpsee",
+ "log",
+ "maud",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "solana-address 2.6.1",
+ "solana-commitment-config",
+ "solana-rpc-client",
+ "solana-rpc-client-api",
+ "solana-signature",
+ "solana-transaction-status-client-types",
+ "thiserror 2.0.18",
+ "tokio",
+ "tower",
+ "tower-http 0.7.0",
+ "tracing-subscriber",
+ "zeroize",
+ "zolana-api",
+ "zolana-client",
+ "zolana-indexer-api",
+ "zolana-interface",
+ "zolana-keypair",
+ "zolana-ring-client",
  "zolana-transaction",
 ]
 

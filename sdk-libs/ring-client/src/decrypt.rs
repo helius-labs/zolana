@@ -9,7 +9,7 @@
 //! else. Recovering that one scalar therefore opens everything the recipients
 //! see.
 
-use custom_ring_sdk::{auditor_view_tag, decrypt_tx_viewing_sk, AuditorMessage};
+use crate::encryption::{auditor_view_tag, decrypt_tx_viewing_sk, AuditorMessage};
 use p256::{elliptic_curve::ops::Reduce, FieldBytes, Scalar, U256};
 use zeroize::Zeroizing;
 use zolana_interface::event::OutputDataEncoding;
@@ -150,6 +150,9 @@ fn audit_slot(
     if EncryptedScheme::from_byte(scheme_byte) != Ok(EncryptedScheme::Confidential) {
         return Ok(None);
     }
+    let Ok(recipient_viewing_pk) = Confidential::embedded_viewing_pk(body) else {
+        return Ok(None);
+    };
     let Ok(plaintext) = Confidential::decrypt_with_tx_key(tx_key, body, salt, slot_index) else {
         return Ok(None);
     };
@@ -161,6 +164,7 @@ fn audit_slot(
         })?;
     Ok(Some(AuditedOutput {
         slot_index,
+        recipient_viewing_pk,
         asset,
         amount: plaintext.amount,
         blinding: plaintext.blinding,

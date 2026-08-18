@@ -1,0 +1,13 @@
+[package]
+name = "{{project-name}}"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[[bin]]
+name = "{{project-name}}"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+custom-ring-cli = { workspace = true{% if cargo_features != "" %}, features = [{{cargo_features}}] {% endif %} }

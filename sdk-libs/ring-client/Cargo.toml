@@ -1,11 +1,12 @@
 [package]
-name = "custom-ring-client"
+name = "zolana-ring-client"
 version = "0.1.0"
+description = "Auditor side of a custom ring: the auditor key encryption codec, transaction viewing key recovery, and decrypted transaction views."
 edition.workspace = true
-publish = false
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
-custom-ring-sdk = { path = "../sdk" }
 p256 = { workspace = true }
 solana-address = { workspace = true }
 solana-signature = { workspace = true }

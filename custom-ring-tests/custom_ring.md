@@ -30,8 +30,8 @@ the recipients see. That is why the circuit needs no per-output witnesses and no
   viewing-key lifecycle.
 - One feature: verifiable encryption to the auditor. User-side encryption is not
   checked by the circuit.
-- Config gating is a plain authority signer. The singleton config is
-  front-runnable by design; acceptable for an example.
+- Config gating is the program's upgrade authority when the deployment names
+  one, otherwise a plain authority signer. No key rotation yet.
 
 ## Program id
 
@@ -39,8 +39,11 @@ the recipients see. That is why the circuit needs no per-output witnesses and no
 9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh
 ```
 
-Provisioned exactly like the other `sdk-tests` examples: a literal in
-`pinocchio::address::declare_id!`, with no keypair committed to the repository.
+The default of a build-time input: `build.rs` reads `CUSTOM_RING_PROGRAM_ID` and
+writes the `declare_id!` the crate includes, so a ring generated from
+`templates/custom-ring` pins its own address through Cargo `[env]` without
+editing sources. With the variable unset the example is provisioned like the
+other `sdk-tests` examples: no keypair committed to the repository.
 `cargo build-sbf` writes `target/deploy/custom_ring_program.so` plus a throwaway
 `target/deploy/custom_ring_program-keypair.json` (both gitignored), and the
 localnet harness deploys the `.so` at the `declare_id!` address rather than at the
@@ -53,22 +56,19 @@ id above; this example never performs one.
 | --- | --- | --- |
 | `program` | `custom-ring-program` | Pinocchio program: instructions, proof verification, verifying keys, instruction data, tags, errors, canonical public-input hashing. |
 | `prover` | `custom-ring-prover` | Go gnark circuit, cgo bindings, proof-input containers, setup binary. |
-| `sdk` | `custom-ring-sdk` | Instruction builders, proof-input builders, auditor encryption codec, prover client. |
-| `client` | `custom-ring-client` | Auditor-side scan + decrypt, returning typed decrypted transaction data. |
+| `sdk` | `custom-ring-sdk` | Instruction builders, proof-input builders, prover client. Re-exports the auditor encryption codec. |
+| `cli` | `custom-ring-cli` | Operator flows a generated ring runs (`deploy`, `init`, `transact`, `status`) and the audited transfer used by the tests. |
 | `test` | `custom-ring-test-validator` | Localnet end-to-end tests. |
 
-### The fifth crate is a deliberate deviation
+### The auditor side lives outside the example
 
-The `sdk-tests` examples are four crates (`program`, `prover`, `sdk`, `test`).
-This example adds `client` on purpose, mirroring the role the squads client
-plays: it is the auditor-side consumer, and the end-to-end test asserts on the
-data it returns. Keeping it a separate crate with no test-utils dependency
-guarantees the assertions run the same code path an external auditor would.
-
-`client` therefore owns indexer scanning by auditor view tag, secret-key
-recovery, and output decryption; `sdk` owns everything the sender needs
-(instruction and proof-input construction, the encryption codec) and stays free
-of auditor-side discovery.
+The auditor encryption codec, transaction viewing key recovery, indexer scanning
+and the decrypted result types are the `zolana-ring-client` crate under
+`sdk-libs/ring-client`, not an example crate: the Ring RPC service
+(`services/ring-rpc`) and the end-to-end test both run it, so the assertions run
+the same code path an external auditor would, and neither depends on test
+utilities. `sdk` owns everything the sender needs (instruction and proof-input
+construction) and re-exports the codec for the message it builds.
 
 ### Dependency lists
 
@@ -76,7 +76,7 @@ Dependencies are added task by task, only when code actually uses them: CI runs
 `cargo machete` and `just clippy` with `-D warnings`, so a declared-but-unused
 dependency is a red build. The skeleton starts with `pinocchio` +
 `zolana-interface` (program), `bindgen` as a build dependency (prover),
-`custom-ring-program` (sdk), and none for `client` / `test`.
+`custom-ring-program` (sdk), and none for `test`.
 
 ## The Go circuits and `build.rs`
 
@@ -99,11 +99,19 @@ local tag: the client builds the SPP-shaped instruction with the existing
 
 ### 1 `create_config`
 
-Accounts `[payer(w,s), authority(s), config(w, PDA [b"config"]), system_program]`;
-data `CreateConfigIxData { auditor_pubkey: [u8; 33] }` (wincode). Validates both
-signers, the system program, the canonical config bump, an SEC1 compressed prefix
-in `{2, 3}`, and that the account is not already initialized. Creates the account
-at exactly `RingProgramConfig::SIZE`.
+Accounts `[payer(w,s), authority(s), config(w, PDA [b"config"]), system_program,
+program, program_data]`; data `CreateConfigIxData { auditor_pubkey: [u8; 33] }`
+(wincode). Validates both signers, the system program, the canonical config
+bump, an SEC1 compressed prefix in `{2, 3}`, and that the account is not already
+initialized. Creates the account at exactly `RingProgramConfig::SIZE`.
+
+`program` and `program_data` gate the call on the deployment: when the loader-v3
+`ProgramData` names an upgrade authority, `authority` must be that key. A
+non-upgradeable deployment or an unset or zeroed authority skips the check, so
+localnet `--bpf-program` deployments (zeroed authority) and the mollusk fixtures
+that model an immutable program stay first-caller-wins. Forged or truncated
+loader state fails closed. The sdk builder types the auditor key as `P256Pubkey`,
+so an off-curve key never reaches the program.
 
 ### 2 `init_spp_ring_config`
 
@@ -206,12 +214,32 @@ root `CLAUDE.md` rule that every program error belongs in
 `program-libs/interface` with a code in the 7000 space applies to SPP itself, not
 to the `sdk-tests`-style examples.
 
-This example uses the `8100..=8113` range, verified collision-free against SPP
+This example uses the `8100..=8115` range, verified collision-free against SPP
 (7000-7047), the swap example (8005-8016), and the remaining examples (9xxx).
 Every code is pinned in an `error_codes_are_stable` test.
 
 
+## CPI account limit
+
+`cpi_spp_signed` builds the CPI account table on the heap and refuses more than
+the runtime's `MAX_CPI_ACCOUNTS` with `TooManyAccounts`. A ring transact with
+five owner signers and several settlement legs exceeds any small static bound.
+
+## Ring RPC
+
+`services/ring-rpc` holds the auditor viewing key and serves
+`getDecryptedTransactions` over JSON-RPC, reading Photon by the auditor view tag
+and opening each transaction with `zolana-ring-client`. `ring-rpc keygen` creates
+the key in place. One ring per instance, no request authentication yet.
+
+## Template
+
+`templates/custom-ring` generates a ring repository over these crates; see
+`templates/README.md`. `just ring-new` runs the wizard, the generated `justfile`
+runs the pipeline against a local validator (`just ring-localnet`) or devnet.
+
 ## Future Work
 - rust prover server to make local testing performant (keep it separate from go prover server)
-- rotating auditor key like in squads POC
+- rotating auditor key with a key version in the public-input chain
 - add custom ring program filter as option to GetRingsByTagsRequest
+- signed `get_decrypted_*_by_owner` methods on the Ring RPC

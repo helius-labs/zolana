@@ -1,0 +1,107 @@
+# {{project-name}} pipeline. Each recipe is one step; `just pipeline` runs them
+# in order against the target recorded in ring.toml.
+
+zolana := "{{zolana_path}}"
+# Same platform tools as the zolana checkout, so the binary matches what its
+# validators accept.
+sbf-tools-version := env_var_or_default("SBF_TOOLS_VERSION", "v1.54")
+program-so := "target/deploy/{{crate_name}}_program.so"
+ring-rpc-log := ".localnet/ring-rpc.log"
+
+default:
+    @just --list
+
+# Local test validator with SPP, photon and the prover (localnet target only).
+# The ring RPC is not part of it: `just rpc` starts it once the ring is
+# initialized, `just pipeline` does so on its own.
+localnet:
+    just -f {{ "{{zolana}}" }}/justfile ring-localnet
+    @echo
+    @echo "{{project-name}} points at"
+    @echo "  rpc       {{rpc_url}}"
+    @echo "  indexer   {{indexer_url}}"
+    @echo "  prover    {{prover_url}}"
+    @echo "  ring rpc  {{ring_rpc_url}}  (just rpc)"
+
+localnet-stop: rpc-stop
+    just -f {{ "{{zolana}}" }}/justfile ring-localnet-stop
+
+# Build the ring program at its pinned address.
+build:
+    cargo build-sbf --tools-version {{ "{{sbf-tools-version}}" }} --manifest-path program/Cargo.toml -- --features bpf-entrypoint
+
+# Create the GitHub repository for this ring and push it.
+repo:
+    git init -q 2>/dev/null || true
+    git add -A && git commit -q -m "chore: generate custom ring" || true
+    gh repo create {{project-name}} --private --source . --push
+
+# Deploy under the authority from ring.toml (it becomes the upgrade authority).
+deploy: build
+    cargo run -q -p {{project-name}} -- deploy --program-so {{ "{{program-so}}" }}
+
+# Create the auditor key inside the ring RPC binary; the public half feeds init.
+auditor-key:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -f keys/auditor.key ]; then
+        echo "keys/auditor.key exists"
+        exit 0
+    fi
+    cargo run -q --manifest-path {{ "{{zolana}}" }}/services/ring-rpc/Cargo.toml -- keygen --out keys/auditor.key
+
+# Create the ring config with the auditor key and register the ring with SPP.
+init: auditor-key
+    cargo run -q -p {{project-name}} -- init
+
+# Serve decrypted ring transactions to the auditor (foreground).
+rpc:
+    cargo run -q --manifest-path {{ "{{zolana}}" }}/services/ring-rpc/Cargo.toml -- serve \
+        --port {{ring_rpc_port}} --indexer-url {{indexer_url}} --rpc-url {{rpc_url}} \
+        --auditor-key-file keys/auditor.key
+
+# Two ring deposits and one audited transfer, read back through the ring RPC.
+transact:
+    cargo run -q -p {{project-name}} -- transact
+
+status:
+    cargo run -q -p {{project-name}} -- status
+
+# Steps 3 to 7 in one go. The ring RPC is started in the background if none
+# answers at its URL, and stays up afterwards for the auditor UI (`just
+# rpc-stop` ends it; its log is .localnet/ring-rpc.log).
+pipeline: build deploy init
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p .localnet
+    # An RPC already answering must be this ring's: rings generated on the same
+    # machine share the default port, and a foreign RPC can open nothing here.
+    # A foreign one left behind by another local ring's pipeline is replaced.
+    start_rpc=true
+    if curl -sf {{ring_rpc_url}}/health >/dev/null 2>&1; then
+        if cargo run -q -p {{project-name}} -- rpc-check >/dev/null 2>&1; then
+            start_rpc=false
+        else
+            echo "replacing the ring rpc on port {{ring_rpc_port}}, it served another ring"
+            just rpc-stop
+            sleep 1
+        fi
+    fi
+    if [ "$start_rpc" = true ]; then
+        nohup just rpc > {{ "{{ring-rpc-log}}" }} 2>&1 &
+        echo $! > .localnet/ring-rpc.pid
+        for _ in $(seq 1 180); do
+            if curl -sf {{ring_rpc_url}}/health >/dev/null 2>&1; then break; fi
+            sleep 1
+        done
+        curl -sf {{ring_rpc_url}}/health >/dev/null
+        echo "ring rpc listening at {{ring_rpc_url}} (log {{ "{{ring-rpc-log}}" }}, stop with 'just rpc-stop')"
+    fi
+    just transact
+
+# Stop a ring RPC started by `just pipeline`.
+rpc-stop:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    lsof -ti "tcp:{{ring_rpc_port}}" 2>/dev/null | xargs kill 2>/dev/null || true
+    rm -f .localnet/ring-rpc.pid
