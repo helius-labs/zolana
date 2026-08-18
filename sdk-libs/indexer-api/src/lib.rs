@@ -626,6 +626,15 @@ pub struct GetShieldedTransactionsByNullifiersResponse {
     /// requested nullifier and includes all of its output and input slots.
     pub transactions: Vec<ShieldedTransaction>,
     pub next_cursor: Option<Base64String>,
+    /// Where the scan reached, when it ran out of rows rather than filling a
+    /// page.
+    ///
+    /// `next_cursor` is the last returned row's position, and a query for
+    /// unspent nullifiers returns none. Present only on a page the limit did not
+    /// truncate, which is when "no match exists at or before this position"
+    /// holds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scanned_through: Option<Base64String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

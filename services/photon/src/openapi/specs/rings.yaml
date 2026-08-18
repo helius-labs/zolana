@@ -591,6 +591,18 @@ paths:
                         oneOf:
                         - type: 'null'
                         - $ref: '#/components/schemas/Base64String'
+                      scannedThrough:
+                        oneOf:
+                        - type: 'null'
+                        - $ref: '#/components/schemas/Base64String'
+                          description: |-
+                            Where the scan reached, when it ran out of rows rather than filling a
+                            page.
+
+                            `next_cursor` is the last returned row's position, and a query for
+                            unspent nullifiers returns none. Present only on a page the limit did not
+                            truncate, which is when "no match exists at or before this position"
+                            holds.
                       transactions:
                         type: array
                         items:

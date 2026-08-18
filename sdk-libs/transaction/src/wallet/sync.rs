@@ -9,7 +9,7 @@ use zolana_keypair::{
 };
 
 use super::state::{
-    Balances, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,
+    Balances, CursorStream, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,
     PrivateTransactionKind, PrivateTransactionStatus, SyncReport, ViewingKeyEntry, Wallet,
     WalletUtxo, DEFAULT_TAG_WINDOW, SENDER_HISTORY_ROW_BASE,
 };
@@ -1016,6 +1016,12 @@ impl Wallet {
                 utxo.spent = true;
             }
         }
+        // A spent nullifier is never queried again, so its watermark is dead
+        // weight.
+        self.cursors.retain(|stream, _| match stream {
+            CursorStream::Nullifiers(nullifier) => !self.nullifiers.contains(nullifier),
+            _ => true,
+        });
         self.transactions.sort_by(|a, b| {
             (a.id.slot, &a.id.signature, a.id.index).cmp(&(b.id.slot, &b.id.signature, b.id.index))
         });

@@ -150,10 +150,16 @@ function walletQueryTags(wallet: Wallet, material: WalletSyncMaterial): readonly
   return [...tags.values()];
 }
 
-/** Every note nullifier is queried, including notes already marked spent. */
+/**
+ * Nullifiers of unspent notes.
+ *
+ * A nullifier appears at most once on chain, so once its spend is known the
+ * answer is final. Cost tracks the unspent count, not history.
+ */
 function walletQueryNullifiers(wallet: Wallet): readonly Bytes32[] {
   const nullifiers = new Map<string, Bytes32>();
   for (const entry of wallet.utxos()) {
+    if (entry.spent) continue;
     nullifiers.set(bytesKey(entry.nullifier), entry.nullifier);
   }
   return [...nullifiers.values()];
@@ -283,14 +289,44 @@ interface CollectByTagsInput {
   readonly from: Uint8Array | undefined;
 }
 
+/** One page of a cursor-ordered stream, reduced to what paging needs. */
+interface Page {
+  readonly nextCursor?: Uint8Array | undefined;
+  /** Where the server says its scan reached; only the nullifier stream reports it. */
+  readonly scannedThrough?: Uint8Array | undefined;
+}
+
+/**
+ * Reads one chunk until the stream offers no further cursor.
+ *
+ * A cursor means there may be more, whatever the page size. Stopping on a short
+ * page would make the non-advancing-cursor guard unreachable. Mirrors the Rust
+ * SDK, which must agree or the two clients read different amounts.
+ */
+async function readChunk(
+  method: string,
+  start: Uint8Array | undefined,
+  request: (cursor: Uint8Array | undefined) => Promise<Page>,
+): Promise<Uint8Array | undefined> {
+  let cursor = start;
+  let furthest = start;
+  // Seeded with the resume point, so an indexer handing back the cursor it was
+  // given trips the guard immediately rather than after a wasted round trip.
+  const seenCursors = new Set<string>(start === undefined ? [] : [bytesKey(start)]);
+  for (;;) {
+    const page = await request(cursor);
+    furthest = page.scannedThrough ?? page.nextCursor ?? furthest;
+    const next = checkedNextCursor(method, page.nextCursor, seenCursors);
+    if (next === undefined) return furthest;
+    cursor = next;
+  }
+}
+
 async function collectShieldedTransactions(
   input: CollectByTagsInput,
   context?: RequestContext,
 ): Promise<Uint8Array | undefined> {
-  let cursor: Uint8Array | undefined = input.from;
-  let furthest: Uint8Array | undefined = input.from;
-  const seenCursors = new Set<string>();
-  do {
+  return readChunk("getShieldedTransactionsByTags", input.from, async (cursor) => {
     const response = await input.indexer.getShieldedTransactionsByTags(
       { tags: input.chunk, limit: input.pageLimit, ...(cursor === undefined ? {} : { cursor }) },
       input.nextRpcConfig(),
@@ -304,22 +340,15 @@ async function collectShieldedTransactions(
       const key = shieldedTransactionKey(transaction);
       if (!input.out.has(key)) input.out.set(key, transaction);
     }
-    cursor = checkedNextCursor("getShieldedTransactionsByTags", response.nextCursor, seenCursors);
-    // Kept even on the last page: the resume point for the next sync is a
-    // different question from whether another page exists now.
-    if (cursor !== undefined) furthest = cursor;
-  } while (cursor !== undefined);
-  return furthest;
+    return { nextCursor: response.nextCursor };
+  });
 }
 
 async function collectProoflessDeposits(
   input: CollectByTagsInput,
   context?: RequestContext,
 ): Promise<Uint8Array | undefined> {
-  let cursor: Uint8Array | undefined = input.from;
-  let furthest: Uint8Array | undefined = input.from;
-  const seenCursors = new Set<string>();
-  do {
+  return readChunk("getEncryptedUtxosByTags", input.from, async (cursor) => {
     const response = await input.indexer.getEncryptedUtxosByTags(
       { tags: input.chunk, limit: input.pageLimit, ...(cursor === undefined ? {} : { cursor }) },
       input.nextRpcConfig(),
@@ -347,10 +376,29 @@ async function collectProoflessDeposits(
         }),
       );
     }
-    cursor = checkedNextCursor("getEncryptedUtxosByTags", response.nextCursor, seenCursors);
-    if (cursor !== undefined) furthest = cursor;
-  } while (cursor !== undefined);
-  return furthest;
+    return { nextCursor: response.nextCursor };
+  });
+}
+
+/**
+ * Buckets keys by the position their stream was last read to.
+ *
+ * A chunk carries one cursor, so keys at different positions cannot share a
+ * request. `undefined` (never queried) is its own group.
+ */
+function groupByResumePoint(
+  keys: readonly Bytes32[],
+  cursorFor: (key: Bytes32) => Uint8Array | undefined,
+): readonly { readonly from: Uint8Array | undefined; readonly keys: Bytes32[] }[] {
+  const groups = new Map<string, { from: Uint8Array | undefined; keys: Bytes32[] }>();
+  for (const key of keys) {
+    const from = cursorFor(key);
+    const groupKey = from === undefined ? "" : bytesKey(from);
+    const group = groups.get(groupKey);
+    if (group === undefined) groups.set(groupKey, { from, keys: [key] });
+    else group.keys.push(key);
+  }
+  return [...groups.values()];
 }
 
 interface CollectByNullifiersInput {
@@ -359,15 +407,23 @@ interface CollectByNullifiersInput {
   readonly pageLimit: number;
   readonly nextRpcConfig: () => IndexerRpcConfig;
   readonly out: Map<string, IndexedShieldedTransaction>;
+  /** Where this chunk was read to last time, if it has been read before. */
+  readonly start?: Uint8Array;
 }
 
+/**
+ * Returns how far the scan reached, or `undefined` if the indexer did not say.
+ *
+ * The position comes from `scannedThrough`, not from the rows: an unspent
+ * nullifier matches nothing, so there is no last row to take a position from.
+ * An indexer that does not report it leaves the caller starting from zero next
+ * time, which is exactly the old behaviour.
+ */
 async function collectShieldedTransactionsByNullifiers(
   input: CollectByNullifiersInput,
   context?: RequestContext,
-): Promise<void> {
-  let cursor: Uint8Array | undefined;
-  const seenCursors = new Set<string>();
-  do {
+): Promise<Uint8Array | undefined> {
+  return readChunk("getShieldedTransactionsByNullifiers", input.start, async (cursor) => {
     const response = await input.indexer.getShieldedTransactionsByNullifiers(
       {
         nullifiers: input.chunk,
@@ -382,12 +438,11 @@ async function collectShieldedTransactionsByNullifiers(
       const key = shieldedTransactionKey(transaction);
       if (!input.out.has(key)) input.out.set(key, transaction);
     }
-    cursor = checkedNextCursor(
-      "getShieldedTransactionsByNullifiers",
-      response.nextCursor,
-      seenCursors,
-    );
-  } while (cursor !== undefined);
+    return {
+      nextCursor: response.nextCursor,
+      scannedThrough: response.scannedThrough,
+    };
+  });
 }
 
 export async function syncWallet(
@@ -428,18 +483,13 @@ export async function syncWallet(
     // permanently -- which is why the watermarks are per tag, not per wallet.
     // `undefined` (never queried) is its own group.
     for (const stream of ["transactions", "proofless"] as const) {
-      const groups = new Map<string, { from: Uint8Array | undefined; tags: Bytes32[] }>();
-      for (const tag of tags) {
-        const from = input.wallet._syncCursor(stream, bytesKey(tag));
-        const key = from === undefined ? "" : bytesKey(from);
-        const group = groups.get(key);
-        if (group === undefined) groups.set(key, { from, tags: [tag] });
-        else group.tags.push(tag);
-      }
+      const groups = groupByResumePoint(tags, (tag) =>
+        input.wallet._syncCursor(stream, bytesKey(tag)),
+      );
 
-      for (const group of groups.values()) {
-        for (let offset = 0; offset < group.tags.length; offset += chunkSize) {
-          const chunk = group.tags.slice(offset, offset + chunkSize);
+      for (const group of groups) {
+        for (let offset = 0; offset < group.keys.length; offset += chunkSize) {
+          const chunk = group.keys.slice(offset, offset + chunkSize);
           const collect =
             stream === "transactions" ? collectShieldedTransactions : collectProoflessDeposits;
           const furthest = await collect(
@@ -460,21 +510,38 @@ export async function syncWallet(
       }
     }
 
+    const scanNullifiers = async (nullifiers: readonly Bytes32[]): Promise<void> => {
+      const groups = groupByResumePoint(nullifiers, (nullifier) =>
+        input.wallet._syncCursor("nullifiers", bytesKey(nullifier)),
+      );
+
+      for (const group of groups) {
+        for (let offset = 0; offset < group.keys.length; offset += chunkSize) {
+          const chunk = group.keys.slice(offset, offset + chunkSize);
+          const furthest = await collectShieldedTransactionsByNullifiers(
+            {
+              indexer: input.client,
+              chunk,
+              pageLimit,
+              nextRpcConfig,
+              out: transactions,
+              ...(group.from === undefined ? {} : { start: group.from }),
+            },
+            context,
+          );
+          if (furthest !== undefined) {
+            for (const nullifier of chunk) {
+              input.wallet._setSyncCursor("nullifiers", bytesKey(nullifier), furthest);
+            }
+          }
+        }
+      }
+    };
+
     const queriedNullifiers = new Set<string>();
     const initialNullifiers = walletQueryNullifiers(input.wallet);
     for (const nullifier of initialNullifiers) queriedNullifiers.add(bytesKey(nullifier));
-    for (let offset = 0; offset < initialNullifiers.length; offset += chunkSize) {
-      await collectShieldedTransactionsByNullifiers(
-        {
-          indexer: input.client,
-          chunk: initialNullifiers.slice(offset, offset + chunkSize),
-          pageLimit,
-          nextRpcConfig,
-          out: transactions,
-        },
-        context,
-      );
-    }
+    await scanNullifiers(initialNullifiers);
 
     const orderedTransactions = (): readonly IndexedShieldedTransaction[] => [
       ...[...transactions.values()].sort(compareBySlotThenSignature),
@@ -512,18 +579,7 @@ export async function syncWallet(
       (nullifier) => !queriedNullifiers.has(bytesKey(nullifier)),
     );
     const beforeFollowUp = transactions.size;
-    for (let offset = 0; offset < followUpNullifiers.length; offset += chunkSize) {
-      await collectShieldedTransactionsByNullifiers(
-        {
-          indexer: input.client,
-          chunk: followUpNullifiers.slice(offset, offset + chunkSize),
-          pageLimit,
-          nextRpcConfig,
-          out: transactions,
-        },
-        context,
-      );
-    }
+    await scanNullifiers(followUpNullifiers);
     if (transactions.size !== beforeFollowUp) {
       ordered = orderedTransactions();
       report = await decryptTransactions({

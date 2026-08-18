@@ -928,17 +928,19 @@ func (rq *RedisQueue) failStuckJobsFromQueue(queueName string, timeoutCutoff tim
 						}
 					}
 
+					// Keys must match failureDetails, which the status
+					// endpoint reads and every other caller uses.
 					details := map[string]interface{}{
-						"original_job": map[string]interface{}{
-							"id":           originalJobID,
-							"type":         "zk_proof",
-							"circuit_type": circuitType,
-							"payload_size": len(job.Payload),
-							"created_at":   job.CreatedAt,
+						"originalJob": map[string]interface{}{
+							"id":          originalJobID,
+							"type":        "zk_proof",
+							"circuitType": circuitType,
+							"payloadSize": len(job.Payload),
+							"createdAt":   job.CreatedAt,
 						},
-						"error":     fmt.Sprintf("Job timed out in processing queue (stuck since %s)", job.CreatedAt.Format(time.RFC3339)),
-						"failed_at": time.Now(),
-						"timeout":   true,
+						"error":    fmt.Sprintf("Job timed out in processing queue (stuck since %s)", job.CreatedAt.Format(time.RFC3339)),
+						"failedAt": time.Now(),
+						"timeout":  true,
 					}
 
 					// A reaped job is terminal, and the client polling it has no

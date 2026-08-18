@@ -85,6 +85,10 @@ pub struct GetShieldedTransactionsByNullifiersResponse {
     pub context: Context,
     pub transactions: Vec<ShieldedTransaction>,
     pub next_cursor: Option<Vec<u8>>,
+    /// Where the indexer's scan reached. Set only on a page the limit did not
+    /// truncate. Unspent nullifiers match nothing, so `next_cursor` is `None`
+    /// for them and this is the only resume point.
+    pub scanned_through: Option<Vec<u8>>,
 }
 
 /// Stream of shielded transactions pushed as they land, one per matching transaction.

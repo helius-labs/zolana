@@ -434,15 +434,126 @@ describe("wallet sync", () => {
     expect(getShieldedTransactionsByTags).toHaveBeenCalledOnce();
     expect(getEncryptedUtxosByTags).toHaveBeenCalledOnce();
     expect(getShieldedTransactionsByNullifiers).toHaveBeenCalledTimes(2);
+    // entries[1] was already known spent, so it is not asked about again: a
+    // nullifier appears at most once on chain, and that answer is already in
+    // hand. Only the unspent entries[0] is still an open question.
+    const unspent = [entries[0]!.nullifier];
     expect(getShieldedTransactionsByNullifiers.mock.calls[0]?.[0]).toMatchObject({
-      nullifiers: entries.map((entry) => entry.nullifier),
+      nullifiers: unspent,
       limit: 1000,
     });
     expect(getShieldedTransactionsByNullifiers.mock.calls[1]?.[0]).toMatchObject({
-      nullifiers: entries.map((entry) => entry.nullifier),
+      nullifiers: unspent,
       cursor,
       limit: 1000,
     });
+  });
+
+  it("does not ask about notes already known spent", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const entries = [31n, 11n, 17n].map((amount, index) => {
+      const blinding = bytes(index + 40);
+      const utxo = new Utxo({
+        owner: keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount,
+        blinding,
+      });
+      const hash = utxo.hash(keypair.nullifierPublicKey());
+      return {
+        utxo,
+        outputContext: { hash, tree: TREE, leafIndex: BigInt(index) },
+        nullifier: keypair.nullifier(hash, blinding),
+        // Only the last note is still unspent.
+        spent: index < 2,
+      };
+    });
+    wallet._replace({ ...wallet._state(), utxos: entries });
+
+    const getShieldedTransactionsByNullifiers = vi.fn(
+      async (_request: Readonly<{ nullifiers: readonly Bytes32[] }>) => ({
+        context: { blockTime: 1n },
+        transactions: [],
+      }),
+    );
+    const client = {
+      getShieldedTransactionsByTags: vi.fn(async () => ({
+        context: { blockTime: 1n },
+        transactions: [],
+      })),
+      getEncryptedUtxosByTags: vi.fn(async () => ({
+        context: { blockTime: 1n },
+        matches: [],
+      })),
+      getShieldedTransactionsByNullifiers,
+    } as unknown as ZolanaClient;
+
+    await syncWallet({
+      wallet,
+      authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      client,
+    });
+
+    // One request carrying one nullifier -- not three, and not one request per
+    // note the wallet has ever held.
+    expect(getShieldedTransactionsByNullifiers).toHaveBeenCalledOnce();
+    expect(getShieldedTransactionsByNullifiers.mock.calls[0]?.[0]).toMatchObject({
+      nullifiers: [entries[2]!.nullifier],
+    });
+  });
+
+  it("resumes the nullifier stream from where the indexer said it scanned to", async () => {
+    // The rows cannot supply this: an unspent note matches nothing, so there is
+    // no last row whose position could be remembered, and every sync would walk
+    // the whole stream again.
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    // Blinding is a field element, so the leading byte has to stay below the
+    // BN254 modulus -- 51 (0x33) does not.
+    const blinding = bytes(23);
+    const utxo = new Utxo({
+      owner: keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 5n,
+      blinding,
+    });
+    const hash = utxo.hash(keypair.nullifierPublicKey());
+    const nullifier = keypair.nullifier(hash, blinding);
+    wallet._replace({
+      ...wallet._state(),
+      utxos: [
+        { utxo, outputContext: { hash, tree: TREE, leafIndex: 0n }, nullifier, spent: false },
+      ],
+    });
+
+    const scannedThrough = Uint8Array.of(4, 2);
+    const getShieldedTransactionsByNullifiers = vi.fn(
+      async (_request: Readonly<{ nullifiers: readonly Bytes32[]; cursor?: Uint8Array }>) => ({
+        context: { blockTime: 1n },
+        transactions: [],
+        scannedThrough,
+      }),
+    );
+    const client = {
+      getShieldedTransactionsByTags: vi.fn(async () => ({
+        context: { blockTime: 1n },
+        transactions: [],
+      })),
+      getEncryptedUtxosByTags: vi.fn(async () => ({
+        context: { blockTime: 1n },
+        matches: [],
+      })),
+      getShieldedTransactionsByNullifiers,
+    } as unknown as ZolanaClient;
+    const authority = new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair });
+
+    await syncWallet({ wallet, authority, client });
+    expect(getShieldedTransactionsByNullifiers.mock.calls[0]?.[0]?.cursor).toBeUndefined();
+
+    getShieldedTransactionsByNullifiers.mockClear();
+    await syncWallet({ wallet, authority, client });
+    expect(getShieldedTransactionsByNullifiers.mock.calls[0]?.[0]?.cursor).toEqual(scannedThrough);
   });
 
   it("rejects a non-advancing nullifier cursor", async () => {

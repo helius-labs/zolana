@@ -4,6 +4,7 @@ use super::common::{
     bind_u64_as_i64, cursor_sort_key, decode_cursor, encode_cursor, hash_from_vec, int_list_sql,
     next_cursor_from_rows, rings_output_slot_from_parts, signature_from_bytes, tags_sql,
     tx_cursor_sql_condition, u16_from_i16, u64_from_i64, validate_nullifiers, validate_tags,
+    CursorKind,
 };
 use crate::api::error::PhotonApiError;
 use crate::common::indexer_context::extract as extract_context;
@@ -49,6 +50,14 @@ struct RingsMessageRow {
     payload: Vec<u8>,
 }
 
+/// Just enough of a row to build a cursor from.
+#[derive(FromQueryResult, Debug)]
+struct ScanPositionRow {
+    slot: i64,
+    signature: Vec<u8>,
+    event_index: i16,
+}
+
 #[derive(FromQueryResult, Debug)]
 struct RingsNullifierRow {
     rings_tx_id: i64,
@@ -68,7 +77,7 @@ pub async fn get_shielded_transactions_by_tags(
     request: GetRingsByTagsRequest,
 ) -> Result<GetShieldedTransactionsByTagsResponse, PhotonApiError> {
     validate_tags(&request.tags)?;
-    let (context, transactions, next_cursor) = get_shielded_transactions(
+    let page = get_shielded_transactions(
         conn,
         &request.tags,
         request.cursor.as_ref(),
@@ -77,9 +86,9 @@ pub async fn get_shielded_transactions_by_tags(
     )
     .await?;
     Ok(GetShieldedTransactionsByTagsResponse {
-        context,
-        transactions,
-        next_cursor,
+        context: page.context,
+        transactions: page.transactions,
+        next_cursor: page.next_cursor,
     })
 }
 
@@ -88,7 +97,7 @@ pub async fn get_shielded_transactions_by_nullifiers(
     request: GetRingsByNullifiersRequest,
 ) -> Result<GetShieldedTransactionsByNullifiersResponse, PhotonApiError> {
     validate_nullifiers(&request.nullifiers)?;
-    let (context, transactions, next_cursor) = get_shielded_transactions(
+    let page = get_shielded_transactions(
         conn,
         &request.nullifiers,
         request.cursor.as_ref(),
@@ -97,9 +106,10 @@ pub async fn get_shielded_transactions_by_nullifiers(
     )
     .await?;
     Ok(GetShieldedTransactionsByNullifiersResponse {
-        context,
-        transactions,
-        next_cursor,
+        context: page.context,
+        transactions: page.transactions,
+        next_cursor: page.next_cursor,
+        scanned_through: page.scanned_through,
     })
 }
 
@@ -109,22 +119,28 @@ enum MatchBy {
     Nullifiers,
 }
 
+struct ShieldedTransactionPage {
+    context: zolana_indexer_api::Context,
+    transactions: Vec<ShieldedTransaction>,
+    next_cursor: Option<Base64String>,
+    /// Set only for [`MatchBy::Nullifiers`]; no other response carries it.
+    scanned_through: Option<Base64String>,
+}
+
 async fn get_shielded_transactions(
     conn: &DatabaseConnection,
     values: &[Hash],
     encoded_cursor: Option<&Base64String>,
     limit: u64,
     match_by: MatchBy,
-) -> Result<
-    (
-        zolana_indexer_api::Context,
-        Vec<ShieldedTransaction>,
-        Option<Base64String>,
-    ),
-    PhotonApiError,
-> {
+) -> Result<ShieldedTransactionPage, PhotonApiError> {
+    // Follows the query, so a sibling stream's cursor is rejected, not resumed.
+    let cursor_kind = match match_by {
+        MatchBy::Tags => CursorKind::ShieldedTxByTags,
+        MatchBy::Nullifiers => CursorKind::ShieldedTxByNullifiers,
+    };
     let cursor = encoded_cursor
-        .map(decode_cursor::<ShieldedTxCursor>)
+        .map(|c| decode_cursor::<ShieldedTxCursor>(cursor_kind, c))
         .transpose()?;
     let context = extract_context(conn).await?;
     let tx = conn.begin().await?;
@@ -132,7 +148,18 @@ async fn get_shielded_transactions(
 
     let matched_txs =
         fetch_matching_rings_transactions(&tx, values, cursor.as_ref(), limit, match_by).await?;
-    let next_cursor = next_cursor_from_rows(&matched_txs, shielded_tx_cursor_from_row)?;
+    let next_cursor = next_cursor_from_rows(&matched_txs, |row| {
+        shielded_tx_cursor_from_row(row, cursor_kind)
+    })?;
+
+    // A full page means the limit cut the scan short, so nothing can be claimed
+    // beyond it. Only the nullifier stream needs the position: a tag query's
+    // cursor advances on the rows it returns.
+    let truncated = matched_txs.len() as u64 >= limit;
+    let scanned_through = match match_by {
+        MatchBy::Nullifiers if !truncated => scan_position(&tx, cursor_kind).await?,
+        _ => None,
+    };
 
     let transactions = hydrate_shielded_transactions(&tx, matched_txs)
         .await?
@@ -142,7 +169,57 @@ async fn get_shielded_transactions(
 
     tx.commit().await?;
 
-    Ok((context, transactions, next_cursor))
+    Ok(ShieldedTransactionPage {
+        context,
+        transactions,
+        next_cursor,
+        scanned_through,
+    })
+}
+
+/// The last position in the transaction stream, as a cursor.
+///
+/// Read inside the caller's transaction, so it describes the snapshot the scan
+/// saw. `None` only when the table is empty.
+///
+/// Sound while positions are only appended: a row later inserted below this one
+/// would be skipped by anyone resuming here. Per-tag cursors already assume the
+/// same.
+/// Kind from the caller: this position is returned as a cursor, so it carries the
+/// stream that will resume from it.
+async fn scan_position(
+    tx: &DatabaseTransaction,
+    kind: CursorKind,
+) -> Result<Option<Base64String>, PhotonApiError> {
+    let backend = tx.get_database_backend();
+    // Not `ORDER BY slot, signature, event_index DESC LIMIT 1`: no index covers
+    // that ordering, so it would sort the whole table. Pinning the slot first is
+    // an index lookup on `idx_rings_transactions_slot_id`.
+    let sql = "SELECT
+            pt.slot AS slot,
+            pt.signature AS signature,
+            pt.event_index AS event_index
+         FROM rings_transactions pt
+         WHERE pt.slot = (SELECT MAX(slot) FROM rings_transactions)
+         ORDER BY pt.signature DESC, pt.event_index DESC
+         LIMIT 1"
+        .to_string();
+
+    let Some(row) = tx
+        .query_all(Statement::from_sql_and_values(backend, sql, Vec::new()))
+        .await?
+        .into_iter()
+        .next()
+    else {
+        return Ok(None);
+    };
+    let row = ScanPositionRow::from_query_result(&row, "")?;
+    Ok(Some(Base64String(shielded_tx_cursor(
+        row.slot,
+        &row.signature,
+        row.event_index,
+        kind,
+    )?)))
 }
 
 pub(super) async fn hydrate_shielded_transactions(
@@ -402,15 +479,26 @@ fn shielded_tx_cursor_sql(
     Ok(format!("AND {condition}"))
 }
 
-fn shielded_tx_cursor_from_row(row: &MatchedRingsTxRow) -> Result<Vec<u8>, PhotonApiError> {
-    let (slot, signature, event_index) =
-        cursor_sort_key(row.slot, &row.signature, row.event_index)?;
+fn shielded_tx_cursor_from_row(
+    row: &MatchedRingsTxRow,
+    kind: CursorKind,
+) -> Result<Vec<u8>, PhotonApiError> {
+    shielded_tx_cursor(row.slot, &row.signature, row.event_index, kind)
+}
+
+fn shielded_tx_cursor(
+    slot: i64,
+    signature: &[u8],
+    event_index: i16,
+    kind: CursorKind,
+) -> Result<Vec<u8>, PhotonApiError> {
+    let (slot, signature, event_index) = cursor_sort_key(slot, signature, event_index)?;
     let cursor = ShieldedTxCursor {
         slot,
         signature,
         event_index,
     };
-    encode_cursor(&cursor)
+    encode_cursor(kind, &cursor)
 }
 
 #[cfg(test)]
@@ -513,5 +601,158 @@ mod tests {
         .await
         .unwrap();
         assert!(response.transactions.is_empty());
+    }
+
+    /// An unspent nullifier matches nothing, so without a reported position the
+    /// caller rescans the whole stream on every sync.
+    #[tokio::test]
+    async fn an_empty_nullifier_page_still_reports_how_far_it_scanned() {
+        let db = setup().await;
+        let response = get_shielded_transactions_by_nullifiers(
+            &db,
+            GetRingsByNullifiersRequest {
+                nullifiers: vec![hash(5)],
+                cursor: None,
+                limit: Some(Limit::new(10).unwrap()),
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(response.transactions.is_empty());
+        assert!(
+            response.next_cursor.is_none(),
+            "no rows, so no page to follow"
+        );
+        let scanned_through = response
+            .scanned_through
+            .expect("an exhausted scan reports its tip");
+
+        // The same query from that position must still be empty.
+        let resumed = get_shielded_transactions_by_nullifiers(
+            &db,
+            GetRingsByNullifiersRequest {
+                nullifiers: vec![hash(5)],
+                cursor: Some(scanned_through.clone()),
+                limit: Some(Limit::new(10).unwrap()),
+            },
+        )
+        .await
+        .unwrap();
+        assert!(resumed.transactions.is_empty());
+        assert_eq!(
+            resumed.scanned_through,
+            Some(scanned_through),
+            "a stream that has not moved reports the same tip"
+        );
+    }
+
+    /// The position claims nothing matches at or before it, true only when the
+    /// scan ran out of rows rather than out of room.
+    #[tokio::test]
+    async fn a_truncated_page_reports_no_scan_position() {
+        let db = setup().await;
+        let response = get_shielded_transactions_by_nullifiers(
+            &db,
+            GetRingsByNullifiersRequest {
+                nullifiers: vec![hash(3), hash(4)],
+                cursor: None,
+                limit: Some(Limit::new(1).unwrap()),
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(response.transactions.len(), 1);
+        assert!(
+            response.scanned_through.is_none(),
+            "the limit cut the scan short, so nothing can be claimed beyond it"
+        );
+    }
+
+    /// The position must not skip a spend that lands after it.
+    #[tokio::test]
+    async fn resuming_from_a_scan_position_still_finds_a_later_spend() {
+        let db = setup().await;
+        let first = get_shielded_transactions_by_nullifiers(
+            &db,
+            GetRingsByNullifiersRequest {
+                nullifiers: vec![hash(5)],
+                cursor: None,
+                limit: Some(Limit::new(10).unwrap()),
+            },
+        )
+        .await
+        .unwrap();
+        let scanned_through = first
+            .scanned_through
+            .expect("a scan that reached the end reports where");
+
+        // A later transaction spends the nullifier the caller is watching.
+        blocks::Entity::insert(blocks::ActiveModel {
+            slot: Set(9),
+            parent_slot: Set(7),
+            parent_blockhash: Set(vec![1; 32]),
+            blockhash: Set(vec![2; 32]),
+            block_height: Set(2),
+            block_time: Set(2),
+        })
+        .exec(&db)
+        .await
+        .unwrap();
+        transactions::Entity::insert(transactions::ActiveModel {
+            signature: Set(vec![2; 64]),
+            slot: Set(9),
+            error: Set(None),
+        })
+        .exec(&db)
+        .await
+        .unwrap();
+        rings_transactions::Entity::insert(rings_transactions::ActiveModel {
+            rings_tx_id: Set(2),
+            signature: Set(vec![2; 64]),
+            event_index: Set(0),
+            slot: Set(9),
+            rings_program_id: Set(vec![9; 32]),
+            source_instruction_tag: Set(1),
+            output_tree: Set(vec![8; 32]),
+            first_output_leaf_index: Set(0),
+            tx_viewing_pk: Set(None),
+            salt: Set(None),
+            proofless: Set(false),
+        })
+        .exec(&db)
+        .await
+        .unwrap();
+        rings_tx_nullifiers::Entity::insert(rings_tx_nullifiers::ActiveModel {
+            nullifier_id: Default::default(),
+            rings_tx_id: Set(2),
+            slot: Set(9),
+            input_index: Set(0),
+            nullifier_tree: Set(vec![7; 32]),
+            // The setup already used seq 0 and 1 in this tree, and the pair
+            // (tree, seq) is unique.
+            input_queue_seq: Set(2),
+            nullifier: Set(vec![5; 32]),
+        })
+        .exec(&db)
+        .await
+        .unwrap();
+
+        let resumed = get_shielded_transactions_by_nullifiers(
+            &db,
+            GetRingsByNullifiersRequest {
+                nullifiers: vec![hash(5)],
+                cursor: Some(scanned_through),
+                limit: Some(Limit::new(10).unwrap()),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            resumed.transactions.len(),
+            1,
+            "the spend landed after that position, so resuming there must still see it"
+        );
     }
 }

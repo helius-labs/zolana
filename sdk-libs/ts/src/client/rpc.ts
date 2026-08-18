@@ -52,6 +52,12 @@ export interface GetShieldedTransactionsByNullifiersResponse {
   readonly context: RpcContext;
   readonly transactions: readonly IndexedShieldedTransaction[];
   readonly nextCursor?: Uint8Array;
+  /**
+   * Where the indexer's scan reached. Present only on a page the limit did not
+   * truncate. Unspent nullifiers match nothing, so `nextCursor` is absent for
+   * them and this is the only resume point.
+   */
+  readonly scannedThrough?: Uint8Array;
 }
 
 export interface GetShieldedTransactionsBySignatureResponse {

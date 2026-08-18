@@ -74,6 +74,12 @@ export interface GetShieldedTransactionsByNullifiersResponse {
   readonly context: IndexerContext;
   readonly transactions: readonly IndexedShieldedTransaction[];
   readonly nextCursor?: Base64String;
+  /**
+   * Where the indexer's scan reached. Present only on a page the limit did not
+   * truncate. Unspent nullifiers match nothing, so `nextCursor` is absent for
+   * them and this is the only resume point.
+   */
+  readonly scannedThrough?: Base64String;
 }
 
 export interface GetShieldedTransactionsBySignatureRequest {

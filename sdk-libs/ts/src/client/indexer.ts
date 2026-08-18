@@ -343,7 +343,14 @@ function convertShieldedTransactionsByNullifiersResponse(
   response: WireGetShieldedTransactionsByNullifiersResponse,
   method: string,
 ): GetShieldedTransactionsByNullifiersResponse {
-  return convertShieldedTransactionsResponse(response, method);
+  // Delegating alone would drop the scan position, leaving sync restarting from
+  // zero while appearing to resume.
+  return Object.freeze({
+    ...convertShieldedTransactionsResponse(response, method),
+    ...(response.scannedThrough === undefined
+      ? {}
+      : { scannedThrough: decodeBase64(response.scannedThrough, "scannedThrough") }),
+  });
 }
 
 function convertShieldedTransactionsBySignatureResponse(

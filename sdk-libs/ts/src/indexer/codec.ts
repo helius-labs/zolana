@@ -430,7 +430,17 @@ export function decodeShieldedTransactionsResponse(
 export function decodeShieldedTransactionsByNullifiersResponse(
   value: unknown,
 ): GetShieldedTransactionsByNullifiersResponse {
-  return decodeShieldedTransactionsResponse(value);
+  // Not `decodeShieldedTransactionsResponse`: `object` rejects any key it was
+  // not told about, and this response carries one more.
+  const record = object(value, "$", ["context", "transactions", "nextCursor", "scannedThrough"]);
+  const nextCursor = optional(record["nextCursor"], "$.nextCursor", checkedBase64);
+  const scannedThrough = optional(record["scannedThrough"], "$.scannedThrough", checkedBase64);
+  return {
+    context: context(record["context"], "$.context"),
+    transactions: array(record["transactions"], "$.transactions", indexedTransaction),
+    ...(nextCursor === undefined ? {} : { nextCursor }),
+    ...(scannedThrough === undefined ? {} : { scannedThrough }),
+  };
 }
 
 export function decodeShieldedTransactionsBySignatureResponse(
