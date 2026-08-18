@@ -979,7 +979,7 @@ mod tests {
     #[test]
     fn a_slow_status_endpoint_cannot_extend_the_deadline() {
         let server = MockServer::respond_then_hold(vec![
-            MockResponse::json(202, json!({ "job_id": "job-slow-status" })),
+            MockResponse::json(202, json!({ "jobId": "job-slow-status" })),
             MockResponse::slow_json(
                 200,
                 json!({ "status": "processing" }),
@@ -1007,7 +1007,7 @@ mod tests {
         // time it spent waiting had not been charged against the deadline.
         assert_paths(
             &server.requests(),
-            ["/prove", "/prove/status?job_id=job-slow-status"],
+            ["/prove", "/prove/status?jobId=job-slow-status"],
         );
     }
 
