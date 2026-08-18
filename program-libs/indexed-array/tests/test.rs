@@ -797,3 +797,75 @@ fn test_find_low_element_for_existent_element() {
     let res = indexed_array.find_low_element_for_nonexistent(&nullifier_1);
     assert!(matches!(res, Err(IndexedArrayError::ElementAlreadyExists)));
 }
+
+/// The sorted index must answer exactly what a walk of `elements` answered.
+///
+/// `find_low_element_index_for_nonexistent` used to scan every element; it now
+/// asks a BTreeMap for the greatest value below the probe. The two must agree
+/// on every input, so this checks against the walk it replaced.
+#[test]
+fn low_element_lookup_agrees_with_a_linear_walk() {
+    fn linear_walk(
+        array: &IndexedArray<Poseidon, usize>,
+        value: &BigUint,
+    ) -> Result<usize, IndexedArrayError> {
+        for (i, node) in array.elements.iter().enumerate() {
+            if node.value == *value {
+                return Err(IndexedArrayError::ElementAlreadyExists);
+            }
+            if array.elements[node.next_index].value > *value && node.value < *value {
+                return Ok(i);
+            }
+        }
+        Ok(array.highest_element_index)
+    }
+
+    let next_value = BigUint::from_str(HIGHEST_ADDRESS_PLUS_ONE).unwrap();
+    let mut array: IndexedArray<Poseidon, usize> =
+        IndexedArray::new(0_u32.to_biguint().unwrap(), next_value);
+    // Deterministic, and deliberately not inserted in sorted order.
+    let inserted: Vec<BigUint> = (1..=64u64)
+        .map(|i| ((i * 2_654_435_761u64) % 100_003).to_biguint().unwrap())
+        .collect();
+    for value in &inserted {
+        if array.find_low_element_index_for_nonexistent(value).is_ok() {
+            array.append(value).unwrap();
+        }
+    }
+
+    for probe in 0..100_003u64 {
+        if probe % 997 != 0 {
+            continue;
+        }
+        let probe = probe.to_biguint().unwrap();
+        assert_eq!(
+            array.find_low_element_index_for_nonexistent(&probe),
+            linear_walk(&array, &probe),
+            "disagreement on probe {probe}"
+        );
+    }
+}
+
+/// Appending must not be linear in the array's size.
+///
+/// The forester replays every already-applied nullifier into a reference tree,
+/// so a linear `append` made that quadratic: ~37k nullifiers held a core for
+/// over ten minutes. At 20k elements the old walk does ~200M comparisons, so
+/// this test simply would not finish in a reasonable time against it.
+#[test]
+fn appending_many_elements_does_not_degrade() {
+    let next_value = BigUint::from_str(HIGHEST_ADDRESS_PLUS_ONE).unwrap();
+    let mut array: IndexedArray<Poseidon, usize> =
+        IndexedArray::new(0_u32.to_biguint().unwrap(), next_value);
+    // Even values only, so an odd probe lands in a gap rather than on an
+    // element (a present value is an ElementAlreadyExists, not a low element).
+    for i in 1..=20_000u64 {
+        array.append(&(i * 2).to_biguint().unwrap()).unwrap();
+    }
+
+    // The lookup must still name the greatest element below the probe.
+    let low = array
+        .find_low_element_index_for_nonexistent(&15_001u64.to_biguint().unwrap())
+        .unwrap();
+    assert_eq!(array.elements[low].value, 15_000u64.to_biguint().unwrap());
+}

@@ -46,6 +46,7 @@ fn dispatch(cli: Cli) -> Result<()> {
             poll_secs,
             dry_run,
             metrics_address,
+            proof_concurrency,
         } => {
             // Resolved before the drain loop so a missing endpoint fails at
             // startup rather than partway through an iteration.
@@ -67,6 +68,7 @@ fn dispatch(cli: Cli) -> Result<()> {
                     watch,
                     poll_secs,
                     dry_run,
+                    proof_concurrency,
                 },
             )
         }

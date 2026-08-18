@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, fmt::Debug, marker::PhantomData};
+use std::{cmp::Ordering, collections::BTreeMap, fmt::Debug, marker::PhantomData};
 
 use num_bigint::BigUint;
 use num_traits::{CheckedAdd, CheckedSub, ToBytes, Unsigned, Zero};
@@ -125,6 +125,19 @@ where
     pub highest_element_index: I,
     pub highest_value: BigUint,
 
+    /// Element values, sorted, mapped to their position in `elements`.
+    ///
+    /// `elements` is a linked list in insertion order, so finding an
+    /// insertion point used to walk all of it. That made `append` linear and
+    /// building an array of n elements quadratic: replaying ~37k nullifiers
+    /// into the forester's reference tree took over ten minutes of pure
+    /// comparison, and the cost grew with every element ever added.
+    ///
+    /// Only `append_with_low_element_index` mutates `elements`, and the low
+    /// element it rewrites keeps its value and changes only its link, so this
+    /// stays in step by being appended to in exactly one place.
+    by_value: BTreeMap<BigUint, I>,
+
     _hasher: PhantomData<H>,
 }
 
@@ -144,6 +157,7 @@ where
             current_node_index: I::zero(),
             highest_element_index: I::zero(),
             highest_value: BigUint::zero(),
+            by_value: BTreeMap::from([(BigUint::zero(), I::zero())]),
             _hasher: PhantomData,
         }
     }
@@ -160,6 +174,7 @@ where
             current_node_index: I::zero(),
             highest_element_index: I::zero(),
             highest_value: next_value,
+            by_value: BTreeMap::from([(value.clone(), I::zero())]),
             elements: vec![IndexedElement {
                 index: I::zero(),
                 value,
@@ -205,20 +220,21 @@ where
         &self,
         value: &BigUint,
     ) -> Result<I, IndexedArrayError> {
-        // Try to find element whose next element is higher than the provided
-        // value.
-        for (i, node) in self.elements.iter().enumerate() {
-            if node.value == *value {
-                return Err(IndexedArrayError::ElementAlreadyExists);
-            }
-            if self.elements[node.next_index()].value > *value && node.value < *value {
-                return i.try_into().map_err(|_| IndexedArrayError::IntegerOverflow);
-            }
+        // The low element is the greatest element below `value`, which is what
+        // the sorted index answers directly. Walking `elements` for it made
+        // this linear in the array's size, and building an array quadratic.
+        //
+        // A value greater than everything present lands on the highest element,
+        // which is the same answer the walk fell through to.
+        if self.by_value.contains_key(value) {
+            return Err(IndexedArrayError::ElementAlreadyExists);
         }
-        // If no such element was found, it means that our value is going to be
-        // the greatest in the array. This means that the currently greatest
-        // element is going to be the low element of our value.
-        Ok(self.highest_element_index)
+        Ok(self
+            .by_value
+            .range(..value)
+            .next_back()
+            .map(|(_, index)| *index)
+            .unwrap_or(self.highest_element_index))
     }
 
     /// Returns the:
@@ -400,6 +416,10 @@ where
         // Insert new node.
         self.current_node_index = new_element_bundle.new_element.index;
         self.elements.push(new_element_bundle.new_element.clone());
+        self.by_value.insert(
+            new_element_bundle.new_element.value.clone(),
+            new_element_bundle.new_element.index,
+        );
 
         // Update low element.
         self.elements[low_element_index.into()] = new_element_bundle.new_low_element.clone();
