@@ -1,6 +1,6 @@
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 use pinocchio::{
-    cpi::{invoke_signed_with_bounds, Seed, Signer},
+    cpi::{invoke_signed_with_slice, Seed, Signer, MAX_CPI_ACCOUNTS},
     instruction::{InstructionAccount, InstructionView},
     Address,
 };
@@ -60,6 +60,12 @@ pub fn cpi_spp_signed<A: AsRef<AccountView>>(accounts: &[A], data: &[u8]) -> Pro
         return Err(CustomRingError::MissingRingAuth.into());
     }
 
+    // A ring transact with the maximum signers and settlement legs exceeds any
+    // small static bound, so the CPI account table lives on the heap and the
+    // only limit is the runtime's.
+    if accounts.len() > MAX_CPI_ACCOUNTS {
+        return Err(CustomRingError::TooManyAccounts.into());
+    }
     let metas: Vec<InstructionAccount> = accounts
         .iter()
         .map(|account| {
@@ -78,9 +84,7 @@ pub fn cpi_spp_signed<A: AsRef<AccountView>>(accounts: &[A], data: &[u8]) -> Pro
     let bump = [bump];
     let seeds = [Seed::from(RING_AUTH_PDA_SEED), Seed::from(bump.as_ref())];
     let signer = Signer::from(seeds.as_ref());
-    // Upper bound: a five-mint ring deposit carries the fixed prefix, ring_auth
-    // and five SPL settlement groups.
-    invoke_signed_with_bounds::<24, _>(&instruction, accounts, core::slice::from_ref(&signer))
+    invoke_signed_with_slice(&instruction, accounts, core::slice::from_ref(&signer))
 }
 
 #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]

@@ -17,6 +17,8 @@ fn error_codes_are_stable() {
         (InvalidSystemProgram as u32, 8111),
         (InvalidConfigPda as u32, 8112),
         (UnsupportedCircuit as u32, 8113),
+        (UnauthorizedInitializer as u32, 8114),
+        (TooManyAccounts as u32, 8115),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");

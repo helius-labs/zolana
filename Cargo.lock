@@ -1952,26 +1952,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "custom-ring-client"
-version = "0.1.0"
-dependencies = [
- "borsh",
- "custom-ring-sdk",
- "p256",
- "solana-address 2.6.1",
- "solana-signature",
- "thiserror 2.0.18",
- "zeroize",
- "zolana-client",
- "zolana-interface",
- "zolana-keypair",
- "zolana-transaction",
-]
-
-[[package]]
 name = "custom-ring-program"
 version = "0.1.0"
 dependencies = [
+ "bincode 2.0.1",
  "bytemuck",
  "groth16-solana",
  "hex",
@@ -1980,6 +1964,7 @@ dependencies = [
  "pinocchio-system",
  "solana-account 4.3.1",
  "solana-instruction",
+ "solana-loader-v3-interface 8.0.1",
  "solana-program-error",
  "solana-pubkey 4.2.0",
  "thiserror 2.0.18",
@@ -2019,6 +2004,7 @@ dependencies = [
  "zeroize",
  "zolana-interface",
  "zolana-keypair",
+ "zolana-ring-client",
 ]
 
 [[package]]
@@ -2026,7 +2012,6 @@ name = "custom-ring-test-validator"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "custom-ring-client",
  "custom-ring-program",
  "custom-ring-sdk",
  "solana-address 2.6.1",
@@ -2043,6 +2028,7 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-program-test",
+ "zolana-ring-client",
  "zolana-test-utils",
  "zolana-transaction",
  "zolana-tree",
@@ -11000,6 +10986,50 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-merkle-tree",
+ "zolana-transaction",
+]
+
+[[package]]
+name = "zolana-ring-client"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "p256",
+ "solana-address 2.6.1",
+ "solana-signature",
+ "thiserror 2.0.18",
+ "zeroize",
+ "zolana-client",
+ "zolana-interface",
+ "zolana-keypair",
+ "zolana-transaction",
+]
+
+[[package]]
+name = "zolana-ring-rpc"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "hex",
+ "hyper 1.10.1",
+ "jsonrpsee",
+ "log",
+ "serde",
+ "serde_json",
+ "solana-address 2.6.1",
+ "solana-signature",
+ "thiserror 2.0.18",
+ "tokio",
+ "tower",
+ "tower-http 0.7.0",
+ "tracing-subscriber",
+ "zeroize",
+ "zolana-client",
+ "zolana-indexer-api",
+ "zolana-interface",
+ "zolana-keypair",
+ "zolana-ring-client",
  "zolana-transaction",
 ]
 

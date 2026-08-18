@@ -16,6 +16,7 @@ cpi = ["no-entrypoint"]
 test-sbf = []
 
 [dependencies]
+bincode = { workspace = true }
 # `min_const_generics`: without it bytemuck only implements Pod/Zeroable for
 # arrays up to 32 elements, and `RingProgramConfig` holds the 33-byte
 # SEC1-compressed auditor key. The feature is purely additive.
@@ -25,6 +26,7 @@ bytemuck = { workspace = true, features = ["min_const_generics"] }
 groth16-solana = { workspace = true, features = ["bsb22"] }
 pinocchio = { workspace = true, features = ["cpi"] }
 pinocchio-system = { workspace = true }
+solana-loader-v3-interface = { workspace = true, features = ["serde"] }
 solana-program-error = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }

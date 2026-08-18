@@ -4,7 +4,7 @@
 //! `custom-ring-tests/program/tests/common/mod.rs`.
 
 use custom_ring_sdk::{
-    config_pda, ring_auth_pda, tag, AuditProof, CreateConfig, CreateConfigIxData,
+    config_pda, program_data_pda, ring_auth_pda, tag, AuditProof, CreateConfig, CreateConfigIxData,
     CustomRingTransactIxData, Deposit, InitSppRingConfig, RingTransactWithAudit, CONFIG_PDA_SEED,
     PROGRAM_ID,
 };
@@ -17,8 +17,9 @@ use zolana_interface::{
         TransactInterfaceTransferAccounts, TransactIxData, TransactProof,
         TransactSolTransferAccounts,
     },
-    pda, N_PUBLIC_SLOTS, RING_AUTH_PDA_SEED,
+    pda, BPF_LOADER_UPGRADEABLE_ID, N_PUBLIC_SLOTS, RING_AUTH_PDA_SEED,
 };
+use zolana_keypair::{P256Pubkey, ViewingKey};
 
 /// The system program is the all-zero address.
 const SYSTEM_PROGRAM: Address = Address::new_from_array([0u8; 32]);
@@ -31,12 +32,8 @@ fn authority() -> Address {
     Address::new_from_array([12; 32])
 }
 
-fn auditor_pubkey() -> [u8; 33] {
-    let mut key = [7u8; 33];
-    if let Some(prefix) = key.first_mut() {
-        *prefix = 2;
-    }
-    key
+fn auditor_pubkey() -> P256Pubkey {
+    ViewingKey::new().pubkey()
 }
 
 fn sol_deposit_entry() -> RingAssetDeposit {
@@ -82,6 +79,8 @@ fn create_config_emits_the_program_account_order_and_auditor_key() {
             AccountMeta::new_readonly(authority(), true),
             AccountMeta::new(config_pda(), false),
             AccountMeta::new_readonly(SYSTEM_PROGRAM, false),
+            AccountMeta::new_readonly(PROGRAM_ID, false),
+            AccountMeta::new_readonly(program_data_pda(), false),
         ]
     );
 
@@ -89,7 +88,7 @@ fn create_config_emits_the_program_account_order_and_auditor_key() {
     assert_eq!(ix_tag, tag::CREATE_CONFIG);
     let decoded: CreateConfigIxData =
         wincode::deserialize_exact(body).expect("body is a complete CreateConfigIxData");
-    assert_eq!(decoded.auditor_pubkey, auditor_pubkey);
+    assert_eq!(decoded.auditor_pubkey, *auditor_pubkey.as_bytes());
 }
 
 #[test]
@@ -122,8 +121,13 @@ fn init_spp_ring_config_emits_the_program_account_order_and_no_body() {
 fn builders_place_the_canonical_config_and_ring_auth_pdas() {
     let (config, _bump) = Address::find_program_address(&[CONFIG_PDA_SEED], &PROGRAM_ID);
     let (ring_auth, _bump) = Address::find_program_address(&[RING_AUTH_PDA_SEED], &PROGRAM_ID);
+    let (program_data, _bump) = Address::find_program_address(
+        &[PROGRAM_ID.as_ref()],
+        &Address::new_from_array(BPF_LOADER_UPGRADEABLE_ID),
+    );
     assert_eq!(config_pda(), config);
     assert_eq!(ring_auth_pda(), ring_auth);
+    assert_eq!(program_data_pda(), program_data);
 
     let create_config = CreateConfig {
         payer: payer(),
