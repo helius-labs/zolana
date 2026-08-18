@@ -108,6 +108,68 @@ test-custom-ring: ensure-custom-ring-keys build-programs
     cargo nextest run -p zolana-ring-client
     cargo nextest run -p zolana-ring-rpc
 
+# === Custom ring template ===
+
+# Generate a custom ring repository with the wizard (templates/custom-ring).
+# `dest` is the parent directory of the new ring, default the parent of this
+# checkout. Extra arguments go to `cargo generate` (`-d name=value`, `--silent`).
+ring-new dest="" *args:
+    tools/ring-wizard.sh {{dest}} {{args}}
+
+# Local validator for a generated ring: SPP, user registry, photon and the prover
+# on the per-clone ports, protocol accounts from snapshots (ring creation
+# permissionless). Stays up until `just ring-localnet-stop`.
+ring-localnet: build-programs build-prover-server build-cli ensure-photon ensure-custom-ring-keys
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(cargo run -q -p xtask -- program-ids)"
+    bin="target/debug/zolana"
+    workdir="target/ring-localnet"
+    rm -rf "$workdir"
+    mkdir -p "$workdir"
+    photon_bin="{{photon-bin}}"
+    [[ "$photon_bin" = /* ]] || photon_bin="$PWD/$photon_bin"
+    keys_dir="{{spp-keys-dir}}"
+    [[ "$keys_dir" = /* ]] || keys_dir="$PWD/$keys_dir"
+    export ZOLANA_PHOTON_BIN="$photon_bin"
+    export ZOLANA_PROVER_KEYS_DIR="$keys_dir"
+    lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    lsof -ti "tcp:{{localnet-prover-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    sleep 2
+    accounts_dir="$workdir/accounts"
+    cargo run -q -p xtask -- generate-account-snapshots \
+      --deploy-dir target/deploy --accounts-dir "$accounts_dir"
+    # The test validator activates SIMD-0500 (no new SBPF v0 deployments) by
+    # default; the ring deploys through `solana program deploy` like on devnet
+    # and mainnet, where v0 deployments are still accepted, so it is turned off.
+    "$bin" dev start --no-use-surfpool \
+      --rpc-port {{localnet-rpc-port}} --prover-port {{localnet-prover-port}} \
+      --photon-port {{localnet-photon-port}} --account-dir "$accounts_dir" \
+      --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so \
+      --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so \
+      -- --deactivate-feature B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g
+    echo "rpc {{localnet-rpc-url}}  photon {{localnet-photon-url}}  prover {{localnet-prover-url}}"
+
+ring-localnet-stop:
+    lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    lsof -ti "tcp:{{localnet-prover-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+
+# Template smoke test: generate a ring without prompts and build its workspace.
+test-ring-template:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dest="$(mktemp -d)"
+    trap 'rm -rf "$dest"' EXIT
+    RING_NAME=smoke-ring tools/ring-wizard.sh "$dest" --silent \
+      -d target=localnet -d authority_keypair="$dest/authority.json"
+    ring="$dest/smoke-ring"
+    grep -q 'target = "localnet"' "$ring/ring.toml"
+    grep -q 'confidential = true' "$ring/ring.toml"
+    (cd "$ring" && cargo check --workspace --offline 2>/dev/null || cargo check --workspace)
+    (cd "$ring" && cargo run -q -p smoke-ring -- --help >/dev/null)
+
 # Program-side Groth16 matrices only. CI runs this variant: the client proving
 # matrices' CI home is `test-client-integration` (`--all-features`), so they do
 # not run twice per PR.

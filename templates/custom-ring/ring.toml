@@ -1,0 +1,15 @@
+# Answers recorded by the custom ring wizard. `just` and the `{{project-name}}`
+# CLI read this file; edit it to retarget the ring.
+name = "{{project-name}}"
+target = "{{target}}"
+program_id = "{{program_id}}"
+authority_keypair = "{{authority_keypair}}"
+
+[urls]
+rpc = "{{rpc_url}}"
+indexer = "{{indexer_url}}"
+prover = "{{prover_url}}"
+ring_rpc = "{{ring_rpc_url}}"
+
+[features]
+{{features_toml}}

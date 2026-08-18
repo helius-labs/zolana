@@ -7,20 +7,13 @@
 //! address that no instruction has to create, and `AssetRegistry::default()`
 //! already carries SOL as asset id 1.
 
-use std::time::Duration;
-
 use anyhow::{anyhow, Result};
+use custom_ring_cli::lookup_table::build_v0_with_lookup_table;
 use solana_address::Address;
-use solana_address_lookup_table_interface::instruction::{
-    create_lookup_table, extend_lookup_table,
-};
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
-use solana_message::{v0, AddressLookupTableAccount, Message, VersionedMessage};
 use solana_signature::Signature;
 use solana_signer::Signer;
-use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use zolana_client::{
     prover::SERVER_ADDRESS, AsyncProverClient, AsyncZolanaIndexer, ClientError, ProverClient, Rpc,
     SolanaRpc, ZolanaClient, ZolanaIndexer,
@@ -298,32 +291,17 @@ pub fn send(rpc: &SolanaRpc, payer: &dyn Signer, ixs: &[Instruction]) -> Result<
     Ok(signature)
 }
 
-/// Submit a single (large) instruction as a v0 transaction behind a throwaway
-/// address lookup table. Prepends a 1.4M CU budget; `payer` signs and pays.
-pub fn send_v0_with_lookup_table(
-    rpc: &SolanaRpc,
-    payer: &dyn Signer,
-    ix: Instruction,
-) -> Result<Signature> {
-    let tx = build_v0_with_lookup_table(rpc, payer, ix)?;
-    let signature = rpc
-        .client()
-        .send_and_confirm_transaction(&tx)
-        .map_err(|e| anyhow!("send v0: {e}"))?;
-    Ok(signature)
-}
-
-/// The same submission path for a transaction that must be REJECTED: returns the
-/// runtime's typed failure so a test can assert the exact program error code and
-/// the failing instruction index (`Rejection::custom(..).at(1)`, index 1 because
-/// of the prepended compute budget). [`send_v0_with_lookup_table`] stringifies
-/// the error, which cannot be asserted on.
+/// The same submission path as `custom_ring_cli::lookup_table::send_v0_with_lookup_table` for a transaction
+/// that must be REJECTED: returns the runtime's typed failure so a test can
+/// assert the exact program error code and the failing instruction index
+/// (`Rejection::custom(..).at(1)`, index 1 because of the prepended compute
+/// budget). The sending helper stringifies the error, which cannot be asserted on.
 pub fn send_v0_expecting_rejection(
     rpc: &SolanaRpc,
     payer: &dyn Signer,
     ix: Instruction,
 ) -> Result<ClientError> {
-    let tx = build_v0_with_lookup_table(rpc, payer, ix)?;
+    let tx = build_v0_with_lookup_table(rpc, payer, &[], ix)?;
     match rpc.client().send_and_confirm_transaction(&tx) {
         Ok(signature) => Err(anyhow!(
             "transaction {signature} was expected to be rejected but landed"
@@ -332,89 +310,5 @@ pub fn send_v0_expecting_rejection(
             operation: "send v0",
             source,
         }),
-    }
-}
-
-// Build the v0 transaction: create + extend a throwaway ALT (waiting a slot for
-// each to root), then compile and sign. The ring transact instruction forwards
-// SPP's full `RING_TRANSACT` account list, which does not fit a legacy
-// transaction's 1232-byte packet.
-fn build_v0_with_lookup_table(
-    rpc: &SolanaRpc,
-    payer: &dyn Signer,
-    ix: Instruction,
-) -> Result<VersionedTransaction> {
-    let compute = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-    // Every key the transaction needs except the fee payer, which has to stay a
-    // static signer. The compute budget program is included too: a key left out
-    // of the table costs 32 message bytes instead of a 1-byte table index, and
-    // the audited ring transact has no such bytes to spare. Duplicates are
-    // dropped so one key never claims two table slots.
-    let mut alt_addresses: Vec<Address> = Vec::new();
-    for address in ix
-        .accounts
-        .iter()
-        .filter(|meta| !meta.is_signer)
-        .map(|meta| meta.pubkey)
-        .chain([ix.program_id, compute.program_id])
-    {
-        if !alt_addresses.contains(&address) {
-            alt_addresses.push(address);
-        }
-    }
-
-    let client = rpc.client();
-    let recent_slot = client.get_slot().map_err(|e| anyhow!("get_slot: {e}"))?;
-    wait_past_slot(rpc, recent_slot)?;
-    let (lut_create_ix, table_address) =
-        create_lookup_table(payer.pubkey(), payer.pubkey(), recent_slot);
-    let lut_extend_ix = extend_lookup_table(
-        table_address,
-        payer.pubkey(),
-        Some(payer.pubkey()),
-        alt_addresses.clone(),
-    );
-    let blockhash = client
-        .get_latest_blockhash()
-        .map_err(|e| anyhow!("blockhash: {e}"))?;
-    let setup = Transaction::new(
-        &[payer],
-        Message::new(&[lut_create_ix, lut_extend_ix], Some(&payer.pubkey())),
-        blockhash,
-    );
-    client
-        .send_and_confirm_transaction(&setup)
-        .map_err(|e| anyhow!("create+extend ALT: {e}"))?;
-    let extended_slot = client.get_slot().map_err(|e| anyhow!("get_slot: {e}"))?;
-    wait_past_slot(rpc, extended_slot)?;
-    let alt = AddressLookupTableAccount {
-        key: table_address,
-        addresses: alt_addresses,
-    };
-    let blockhash = client
-        .get_latest_blockhash()
-        .map_err(|e| anyhow!("blockhash: {e}"))?;
-    let message = v0::Message::try_compile(
-        &payer.pubkey(),
-        &[compute, ix],
-        std::slice::from_ref(&alt),
-        blockhash,
-    )
-    .map_err(|e| anyhow!("compile v0: {e}"))?;
-    VersionedTransaction::try_new(VersionedMessage::V0(message), &[payer])
-        .map_err(|e| anyhow!("sign v0: {e}"))
-}
-
-/// An address lookup table is only usable from the slot after the one it was
-/// created (and extended) in, so both writes have to root before the v0
-/// transaction that resolves against them.
-fn wait_past_slot(rpc: &SolanaRpc, slot: u64) -> Result<()> {
-    let client = rpc.client();
-    loop {
-        let tip = client.get_slot().map_err(|e| anyhow!("get_slot: {e}"))?;
-        if tip > slot {
-            return Ok(());
-        }
-        std::thread::sleep(Duration::from_millis(100));
     }
 }
