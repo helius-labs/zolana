@@ -159,6 +159,40 @@ jobs:
           key: proving-keys-${{ hashFiles('prover/server/prover/provingkeys/proving-keys.lock') }}
       - run: just test-program-proofs-programs-only
 
+  test-custom-ring:
+    name: tests / custom-ring
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    env:
+      AGAVE_VERSION: v4.0.2
+      # GH_TOKEN is for the gh-release custom-ring key download
+      # (ensure-custom-ring-keys): the sdk circuit tests prove with the released
+      # pk and must verify under the committed VERIFYINGKEY, so a locally
+      # generated key set cannot substitute.
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: prover/server/go.mod
+          cache-dependency-path: prover/server/go.sum
+      - uses: ./.github/actions/setup-rust
+        with:
+          shared-key: custom-ring
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - name: Install Anza CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - name: Install pinned SBF platform tools
+        run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
+      - name: Cache custom-ring keys
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: custom-ring-tests/build/gnark
+          key: custom-ring-keys-${{ hashFiles('custom-ring-tests/custom-ring-keys.CHECKSUM') }}
+      - run: just test-custom-ring
+
   build-photon:
     name: build / photon
     runs-on: ubuntu-latest
@@ -203,12 +237,15 @@ jobs:
             recipe: test-swap-and-escrow-validator
           - name: dynamic-swap lifecycle
             recipe: test-dynamic-swap
+          - name: custom-ring auditor lifecycle
+            recipe: test-custom-ring-validator
           - name: rfq settlement
             recipe: test-rfq-validator
     env:
       AGAVE_VERSION: v4.0.2
-      # GH_TOKEN is for the gh-release swap/escrow key downloads (ensure-swap-keys /
-      # ensure-escrow-keys); proving keys come from CloudFront and need no token.
+      # GH_TOKEN is for the gh-release swap/escrow/custom-ring key downloads
+      # (ensure-swap-keys / ensure-escrow-keys / ensure-custom-ring-keys); SPP
+      # proving keys come from CloudFront and need no token.
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ZOLANA_PHOTON_BIN: target/bin/photon
     steps:

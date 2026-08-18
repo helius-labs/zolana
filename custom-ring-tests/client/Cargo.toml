@@ -1,0 +1,20 @@
+[package]
+name = "custom-ring-client"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+custom-ring-sdk = { path = "../sdk" }
+p256 = { workspace = true }
+solana-address = { workspace = true }
+solana-signature = { workspace = true }
+thiserror = { workspace = true }
+zeroize = { workspace = true }
+zolana-client = { workspace = true }
+zolana-interface = { workspace = true }
+zolana-keypair = { workspace = true }
+zolana-transaction = { workspace = true }
+
+[dev-dependencies]
+borsh = { workspace = true }
