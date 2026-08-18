@@ -15,8 +15,8 @@ use zolana_interface::{
 };
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_transaction::{
-    AssetBalance, OutputContext, OutputSlot, PrivateTransaction, ShieldedTransaction, SyncReport,
-    SyncWalletAuthority, TransactionError, Wallet, WalletAuthority, WalletSyncMaterial,
+    AssetBalance, CursorStream, OutputContext, OutputSlot, PrivateTransaction, ShieldedTransaction,
+    SyncReport, SyncWalletAuthority, TransactionError, Wallet, WalletAuthority, WalletSyncMaterial,
     DEFAULT_TAG_WINDOW,
 };
 
@@ -123,9 +123,18 @@ where
             //
             // Cursors come out of the wallet and go back rather than staying
             // borrowed, because `wallet` is needed mutably further down.
-            let mut cursors = std::mem::take(&mut wallet.sync_cursors);
-            let mut nullifier_cursors = std::mem::take(&mut wallet.nullifier_cursors);
-            let mut proofless_cursors = std::mem::take(&mut wallet.proofless_cursors);
+            let mut cursors = wallet
+                .cursors
+                .remove(&CursorStream::Tags)
+                .unwrap_or_default();
+            let mut nullifier_cursors = wallet
+                .cursors
+                .remove(&CursorStream::Nullifiers)
+                .unwrap_or_default();
+            let mut proofless_cursors = wallet
+                .cursors
+                .remove(&CursorStream::Proofless)
+                .unwrap_or_default();
             let mut by_nullifier: HashMap<String, ShieldedTransaction> = HashMap::new();
             // One gate for the whole round, not one per call: every query in a
             // round should read the chain at the same freshness bound, and
@@ -177,9 +186,13 @@ where
                 )
             });
 
-            wallet.sync_cursors = cursors;
-            wallet.nullifier_cursors = nullifier_cursors;
-            wallet.proofless_cursors = proofless_cursors;
+            wallet.cursors.insert(CursorStream::Tags, cursors);
+            wallet
+                .cursors
+                .insert(CursorStream::Nullifiers, nullifier_cursors);
+            wallet
+                .cursors
+                .insert(CursorStream::Proofless, proofless_cursors);
             // Propagate a panic rather than swallowing it into a sync error: a
             // panicked fetch means a bug here, not an unreachable indexer.
             let tag_result = tag_result.unwrap_or_else(|payload| resume_unwind(payload));
@@ -196,8 +209,12 @@ where
             for (key, tx) in by_nullifier {
                 transactions.entry(key).or_insert(tx);
             }
-            timing::note(round, "tag_cursors", wallet.sync_cursors.len());
-            timing::note(round, "nullifier_cursors", wallet.nullifier_cursors.len());
+            timing::note(round, "tag_cursors", stream_len(wallet, CursorStream::Tags));
+            timing::note(
+                round,
+                "nullifier_cursors",
+                stream_len(wallet, CursorStream::Nullifiers),
+            );
         }
         timing::note(round, "transactions", transactions.len());
         timing::note(round, "proofless_deposits", proofless_deposits.len());
@@ -289,7 +306,10 @@ where
         let before = (transactions.len(), proofless_deposits.len());
         let tags = wallet_query_tags(wallet, &material, config.tag_window)?;
         let nullifiers = wallet_query_nullifiers(wallet);
-        let mut cursors = std::mem::take(&mut wallet.sync_cursors);
+        let mut cursors = wallet
+            .cursors
+            .remove(&CursorStream::Tags)
+            .unwrap_or_default();
         let fetched = fetch_shielded_transactions_incremental_async(
             indexer,
             &tags,
@@ -300,9 +320,12 @@ where
             &mut scanned_to_tip,
         )
         .await;
-        wallet.sync_cursors = cursors;
+        wallet.cursors.insert(CursorStream::Tags, cursors);
         fetched?;
-        let mut nullifier_cursors = std::mem::take(&mut wallet.nullifier_cursors);
+        let mut nullifier_cursors = wallet
+            .cursors
+            .remove(&CursorStream::Nullifiers)
+            .unwrap_or_default();
         let nullifiers_fetched = fetch_shielded_transactions_by_nullifiers_async(
             indexer,
             &nullifiers,
@@ -313,9 +336,14 @@ where
             &mut nullifier_scanned_to_tip,
         )
         .await;
-        wallet.nullifier_cursors = nullifier_cursors;
+        wallet
+            .cursors
+            .insert(CursorStream::Nullifiers, nullifier_cursors);
         nullifiers_fetched?;
-        let mut proofless_cursors = std::mem::take(&mut wallet.proofless_cursors);
+        let mut proofless_cursors = wallet
+            .cursors
+            .remove(&CursorStream::Proofless)
+            .unwrap_or_default();
         let fetched_proofless = fetch_proofless_deposits_async(
             indexer,
             &tags,
@@ -326,7 +354,9 @@ where
             &mut proofless_scanned_to_tip,
         )
         .await;
-        wallet.proofless_cursors = proofless_cursors;
+        wallet
+            .cursors
+            .insert(CursorStream::Proofless, proofless_cursors);
         fetched_proofless?;
 
         txs = transactions.values().cloned().collect::<Vec<_>>();
@@ -567,6 +597,11 @@ where
         };
         cursor = Some(next);
     }
+}
+
+/// How many keys the wallet has a watermark for on one stream.
+fn stream_len(wallet: &Wallet, stream: CursorStream) -> usize {
+    wallet.cursors.get(&stream).map_or(0, HashMap::len)
 }
 
 /// Records one position for every key in the chunk.
