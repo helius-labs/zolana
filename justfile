@@ -54,7 +54,7 @@ check-all:
     cargo check --workspace --all-targets
 
 # Default test target.
-test: test-shielded-pool test-sdk-libs test-photon
+test: test-shielded-pool test-sdk-libs test-photon test-ring-rpc
 
 # Program/interface tests for the shielded-pool implementation.
 # Depends on build-programs so the litesvm tests load a fresh .so and actually
@@ -97,14 +97,16 @@ test-swap-program: build-programs
 
 # Custom-ring host tests: the program's error-code pins and mollusk negatives
 # (need the SBF build), the prover's link check, the sdk's circuit-consistency
-# and builder tests, and the client's in-memory audit round trips. Needs the
-# canonical keys: the sdk proofs must verify under the committed VERIFYINGKEY,
-# and gnark setup is non-deterministic, so locally generated keys cannot pass.
+# and builder tests, and the ring-client and ring-rpc in-memory audit round
+# trips. Needs the canonical keys: the sdk proofs must verify under the
+# committed VERIFYINGKEY, and gnark setup is non-deterministic, so locally
+# generated keys cannot pass.
 test-custom-ring: ensure-custom-ring-keys build-programs
     cargo nextest run -p custom-ring-program --tests
     cargo nextest run -p custom-ring-prover
     cargo nextest run -p custom-ring-sdk
-    cargo nextest run -p custom-ring-client
+    cargo nextest run -p zolana-ring-client
+    cargo nextest run -p zolana-ring-rpc
 
 # Program-side Groth16 matrices only. CI runs this variant: the client proving
 # matrices' CI home is `test-client-integration` (`--all-features`), so they do
@@ -225,6 +227,9 @@ test-ts-all: test-ts test-ts-e2e
 # test runs in CI where a database service is available.
 test-photon:
     cargo nextest run -p photon-indexer
+
+test-ring-rpc:
+    cargo nextest run -p zolana-ring-rpc
 
 # Paths dropped at report time. Single source of truth for `coverage-report`,
 # which both `just coverage` and the CI job go through.
@@ -1223,6 +1228,9 @@ publish-spp-keys:
 
 build-photon:
     cargo build --locked -p photon-indexer --bin photon --target-dir target
+
+build-ring-rpc:
+    cargo build --locked -p zolana-ring-rpc --bin ring-rpc --target-dir target
 
 ensure-photon:
     #!/usr/bin/env bash

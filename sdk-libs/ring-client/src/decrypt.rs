@@ -9,7 +9,7 @@
 //! else. Recovering that one scalar therefore opens everything the recipients
 //! see.
 
-use custom_ring_sdk::{auditor_view_tag, decrypt_tx_viewing_sk, AuditorMessage};
+use crate::encryption::{auditor_view_tag, decrypt_tx_viewing_sk, AuditorMessage};
 use p256::{elliptic_curve::ops::Reduce, FieldBytes, Scalar, U256};
 use zeroize::Zeroizing;
 use zolana_interface::event::OutputDataEncoding;
