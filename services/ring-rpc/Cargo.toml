@@ -13,21 +13,28 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = { workspace = true }
+base64 = { workspace = true }
 clap = { workspace = true }
 hex = { workspace = true }
 hyper = { workspace = true }
 jsonrpsee = { workspace = true }
 log = { workspace = true }
+maud = { workspace = true }
+reqwest = { workspace = true }
 serde = { workspace = true }
 solana-address = { workspace = true }
+solana-commitment-config = { workspace = true }
+solana-rpc-client = { workspace = true }
+solana-rpc-client-api = { workspace = true }
 solana-signature = { workspace = true }
 solana-transaction-status-client-types = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["signal"] }
-tower = { workspace = true }
+tower = { workspace = true, features = ["timeout"] }
 tower-http = { workspace = true }
 tracing-subscriber = { workspace = true }
 zeroize = { workspace = true }
+zolana-api = { workspace = true }
 zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
 zolana-indexer-api = { workspace = true }
 zolana-interface = { workspace = true }
