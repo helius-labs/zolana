@@ -325,12 +325,41 @@ pub(super) fn tx_cursor_sql_condition(
     ))
 }
 
-pub(super) fn decode_cursor<T: Decode<()>>(cursor: &Base64String) -> Result<T, PhotonApiError> {
+/// Which stream a cursor came from, carried as its first byte.
+///
+/// Without it the tags and nullifiers streams cannot be told apart: they share
+/// `ShieldedTxCursor` byte for byte and order by the same key, so a cursor from
+/// one decodes cleanly in the other and resumes at that position in a
+/// differently filtered scan -- skipping every match before it and reporting
+/// success. The encrypted-utxo stream is only distinguishable today because its
+/// cursor happens to be two bytes longer, which is accident rather than design
+/// and stops being true the moment either shape changes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum CursorKind {
+    EncryptedUtxos = 1,
+    ShieldedTxByTags = 2,
+    ShieldedTxByNullifiers = 3,
+}
+
+pub(super) fn decode_cursor<T: Decode<()>>(
+    kind: CursorKind,
+    cursor: &Base64String,
+) -> Result<T, PhotonApiError> {
+    let (tag, body) = cursor
+        .0
+        .split_first()
+        .ok_or_else(|| PhotonApiError::ValidationError("Invalid cursor".to_string()))?;
+    if *tag != kind as u8 {
+        return Err(PhotonApiError::ValidationError(
+            "Invalid cursor: it belongs to a different query".to_string(),
+        ));
+    }
+
     let config = cursor_bincode_config();
-    let (decoded, bytes_read) = bincode::decode_from_slice(&cursor.0, config)
+    let (decoded, bytes_read) = bincode::decode_from_slice(body, config)
         .map_err(|_| PhotonApiError::ValidationError("Invalid cursor".to_string()))?;
 
-    if bytes_read != cursor.0.len() {
+    if bytes_read != body.len() {
         return Err(PhotonApiError::ValidationError(
             "Invalid cursor: trailing bytes".to_string(),
         ));
@@ -339,10 +368,17 @@ pub(super) fn decode_cursor<T: Decode<()>>(cursor: &Base64String) -> Result<T, P
     Ok(decoded)
 }
 
-pub(super) fn encode_cursor<T: Encode>(cursor: &T) -> Result<Vec<u8>, PhotonApiError> {
+pub(super) fn encode_cursor<T: Encode>(
+    kind: CursorKind,
+    cursor: &T,
+) -> Result<Vec<u8>, PhotonApiError> {
     let config = cursor_bincode_config();
-    bincode::encode_to_vec(cursor, config)
-        .map_err(|_| PhotonApiError::UnexpectedError("Failed to encode cursor".to_string()))
+    let body = bincode::encode_to_vec(cursor, config)
+        .map_err(|_| PhotonApiError::UnexpectedError("Failed to encode cursor".to_string()))?;
+    let mut encoded = Vec::with_capacity(1 + body.len());
+    encoded.push(kind as u8);
+    encoded.extend_from_slice(&body);
+    Ok(encoded)
 }
 
 fn cursor_bincode_config() -> impl bincode::config::Config {

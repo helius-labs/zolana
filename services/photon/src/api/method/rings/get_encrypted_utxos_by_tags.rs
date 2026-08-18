@@ -1,7 +1,7 @@
 use super::common::{
     bind_u64_as_i64, cursor_sort_key, decode_cursor, encode_cursor, next_cursor_from_rows,
     rings_output_slot_from_parts, signature_from_bytes, tags_sql, tx_cursor_sql_condition,
-    u16_from_i16, u64_from_i64, validate_tags,
+    u16_from_i16, u64_from_i64, validate_tags, CursorKind,
 };
 use crate::api::error::PhotonApiError;
 use crate::common::indexer_context::extract as extract_context;
@@ -47,7 +47,7 @@ pub async fn get_encrypted_utxos_by_tags(
     let cursor = request
         .cursor
         .as_ref()
-        .map(decode_cursor::<EncryptedUtxoCursor>)
+        .map(|c| decode_cursor::<EncryptedUtxoCursor>(CursorKind::EncryptedUtxos, c))
         .transpose()?;
 
     let context = extract_context(conn).await?;
@@ -159,5 +159,5 @@ fn encrypted_utxo_cursor_from_row(row: &EncryptedUtxoRow) -> Result<Vec<u8>, Pho
         event_index,
         output_index: u16_from_i16(row.output_index, "output index")?,
     };
-    encode_cursor(&cursor)
+    encode_cursor(CursorKind::EncryptedUtxos, &cursor)
 }

@@ -16,7 +16,7 @@ pub use get_shielded_transactions_by_tags::get_shielded_transactions_by_tags;
 
 #[cfg(test)]
 mod tests {
-    use super::common::{decode_cursor, encode_cursor, validate_proof_leaves};
+    use super::common::{decode_cursor, encode_cursor, validate_proof_leaves, CursorKind};
     use super::get_encrypted_utxos_by_tags::EncryptedUtxoCursor;
     use super::get_shielded_transactions_by_tags::ShieldedTxCursor;
     use crate::api::error::PhotonApiError;
@@ -48,9 +48,11 @@ mod tests {
             event_index: 3,
             output_index: 5,
         };
-        let encrypted_cursor = Base64String(encode_cursor(&encrypted).unwrap());
+        let encrypted_cursor =
+            Base64String(encode_cursor(CursorKind::EncryptedUtxos, &encrypted).unwrap());
         assert_eq!(
-            decode_cursor::<EncryptedUtxoCursor>(&encrypted_cursor).unwrap(),
+            decode_cursor::<EncryptedUtxoCursor>(CursorKind::EncryptedUtxos, &encrypted_cursor)
+                .unwrap(),
             encrypted
         );
 
@@ -59,15 +61,31 @@ mod tests {
             signature,
             event_index: 8,
         };
-        let shielded_cursor = Base64String(encode_cursor(&shielded).unwrap());
+        let shielded_cursor =
+            Base64String(encode_cursor(CursorKind::ShieldedTxByTags, &shielded).unwrap());
         assert_eq!(
-            decode_cursor::<ShieldedTxCursor>(&shielded_cursor).unwrap(),
+            decode_cursor::<ShieldedTxCursor>(CursorKind::ShieldedTxByTags, &shielded_cursor)
+                .unwrap(),
             shielded
         );
 
-        let mut malformed_cursor = shielded_cursor.0;
+        let mut malformed_cursor = shielded_cursor.0.clone();
         malformed_cursor.push(1);
-        assert!(decode_cursor::<ShieldedTxCursor>(&Base64String(malformed_cursor)).is_err());
+        assert!(decode_cursor::<ShieldedTxCursor>(
+            CursorKind::ShieldedTxByTags,
+            &Base64String(malformed_cursor)
+        )
+        .is_err());
+
+        // The tags and nullifiers streams share this cursor byte for byte and
+        // order by the same key, so a cursor from one would otherwise decode
+        // cleanly in the other and resume mid-scan, skipping every match before
+        // that position without reporting anything.
+        assert!(decode_cursor::<ShieldedTxCursor>(
+            CursorKind::ShieldedTxByNullifiers,
+            &shielded_cursor
+        )
+        .is_err());
     }
 
     #[test]

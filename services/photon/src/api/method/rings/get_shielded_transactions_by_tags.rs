@@ -4,6 +4,7 @@ use super::common::{
     bind_u64_as_i64, cursor_sort_key, decode_cursor, encode_cursor, hash_from_vec, int_list_sql,
     next_cursor_from_rows, rings_output_slot_from_parts, signature_from_bytes, tags_sql,
     tx_cursor_sql_condition, u16_from_i16, u64_from_i64, validate_nullifiers, validate_tags,
+    CursorKind,
 };
 use crate::api::error::PhotonApiError;
 use crate::common::indexer_context::extract as extract_context;
@@ -133,8 +134,14 @@ async fn get_shielded_transactions(
     limit: u64,
     match_by: MatchBy,
 ) -> Result<ShieldedTransactionPage, PhotonApiError> {
+    // The kind follows the query, so a cursor from the sibling stream is
+    // rejected rather than silently resumed in a differently filtered scan.
+    let cursor_kind = match match_by {
+        MatchBy::Tags => CursorKind::ShieldedTxByTags,
+        MatchBy::Nullifiers => CursorKind::ShieldedTxByNullifiers,
+    };
     let cursor = encoded_cursor
-        .map(decode_cursor::<ShieldedTxCursor>)
+        .map(|c| decode_cursor::<ShieldedTxCursor>(cursor_kind, c))
         .transpose()?;
     let context = extract_context(conn).await?;
     let tx = conn.begin().await?;
@@ -142,14 +149,16 @@ async fn get_shielded_transactions(
 
     let matched_txs =
         fetch_matching_rings_transactions(&tx, values, cursor.as_ref(), limit, match_by).await?;
-    let next_cursor = next_cursor_from_rows(&matched_txs, shielded_tx_cursor_from_row)?;
+    let next_cursor = next_cursor_from_rows(&matched_txs, |row| {
+        shielded_tx_cursor_from_row(row, cursor_kind)
+    })?;
 
     // A full page means the limit cut the scan short, so nothing can be claimed
     // beyond it. Only the nullifier stream needs the position: a tag query's
     // cursor advances on the rows it returns.
     let truncated = matched_txs.len() as u64 >= limit;
     let scanned_through = match match_by {
-        MatchBy::Nullifiers if !truncated => scan_position(&tx).await?,
+        MatchBy::Nullifiers if !truncated => scan_position(&tx, cursor_kind).await?,
         _ => None,
     };
 
@@ -177,7 +186,13 @@ async fn get_shielded_transactions(
 /// Sound while positions are only appended: a row later inserted below this one
 /// would be skipped by anyone resuming here. Per-tag cursors already assume the
 /// same.
-async fn scan_position(tx: &DatabaseTransaction) -> Result<Option<Base64String>, PhotonApiError> {
+/// The kind comes from the caller rather than being hardcoded: this position is
+/// handed back as a cursor, so it has to be labelled with the stream that will
+/// resume from it.
+async fn scan_position(
+    tx: &DatabaseTransaction,
+    kind: CursorKind,
+) -> Result<Option<Base64String>, PhotonApiError> {
     let backend = tx.get_database_backend();
     // Not `ORDER BY slot, signature, event_index DESC LIMIT 1`: no index covers
     // that ordering, so it would sort the whole table. Pinning the slot first is
@@ -205,6 +220,7 @@ async fn scan_position(tx: &DatabaseTransaction) -> Result<Option<Base64String>,
         row.slot,
         &row.signature,
         row.event_index,
+        kind,
     )?)))
 }
 
@@ -465,14 +481,18 @@ fn shielded_tx_cursor_sql(
     Ok(format!("AND {condition}"))
 }
 
-fn shielded_tx_cursor_from_row(row: &MatchedRingsTxRow) -> Result<Vec<u8>, PhotonApiError> {
-    shielded_tx_cursor(row.slot, &row.signature, row.event_index)
+fn shielded_tx_cursor_from_row(
+    row: &MatchedRingsTxRow,
+    kind: CursorKind,
+) -> Result<Vec<u8>, PhotonApiError> {
+    shielded_tx_cursor(row.slot, &row.signature, row.event_index, kind)
 }
 
 fn shielded_tx_cursor(
     slot: i64,
     signature: &[u8],
     event_index: i16,
+    kind: CursorKind,
 ) -> Result<Vec<u8>, PhotonApiError> {
     let (slot, signature, event_index) = cursor_sort_key(slot, signature, event_index)?;
     let cursor = ShieldedTxCursor {
@@ -480,7 +500,7 @@ fn shielded_tx_cursor(
         signature,
         event_index,
     };
-    encode_cursor(&cursor)
+    encode_cursor(kind, &cursor)
 }
 
 #[cfg(test)]
