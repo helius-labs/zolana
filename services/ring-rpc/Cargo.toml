@@ -13,13 +13,11 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = { workspace = true }
-base64 = { workspace = true }
 clap = { workspace = true }
 hex = { workspace = true }
 hyper = { workspace = true }
 jsonrpsee = { workspace = true }
 log = { workspace = true }
-maud = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 solana-address = { workspace = true }

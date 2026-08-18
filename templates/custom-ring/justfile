@@ -80,7 +80,7 @@ status:
     cargo run -q -p {{project-name}} -- status
 
 # Steps 3 to 7 in one go. The ring RPC is started in the background if none
-# answers at its URL, and stays up afterwards for the auditor UI (`just
+# answers at its URL, and stays up afterwards for the auditor (`just
 # rpc-stop` ends it; its log is .localnet/ring-rpc.log).
 pipeline: build deploy init
     #!/usr/bin/env bash

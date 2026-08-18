@@ -24,7 +24,7 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Serve decrypted ring transactions and the auditor page.
+    /// Serve decrypted ring transactions.
     Serve(ServeArgs),
     /// Create an auditor key. The secret stays in the file, the public key goes
     /// into the ring's `create_config`.

@@ -33,15 +33,6 @@ compressed public key to `keys/auditor.key.pub`, which is what the ring's
 `RING_RPC_AUDITOR_KEY_FILE`, `RING_RPC_ROOT_SECRET_FILE`). The Solana RPC is
 read once at startup for the SPL asset registry.
 
-## Auditor page
-
-`GET /` renders the auditor's view on the server (maud, no script): every
-transaction the key opened, newest first, with `from` (the transaction's Solana
-signers), and per output `to` (the viewing key the slot was encrypted to),
-asset, amount, blinding and ring program. `?ring=<program id>` selects the ring
-in derived mode. The newest page refreshes itself every few seconds; `older`
-follows the indexer cursor. `GET /ready` answers 200 while the indexer answers.
-
 ## Methods
 
 | Method | Params | Result |
@@ -61,8 +52,8 @@ no longer holds the transaction.
 ## Operating it
 
 The listener binds to loopback (`--bind`) and answers cross-origin browser
-calls only for origins named with `--allow-origin`; the built-in page is
-same-origin and needs none. Requests time out after `--request-timeout-secs`
+calls only for origins named with `--allow-origin`. `GET /ready` answers 200
+while the indexer answers. Requests time out after `--request-timeout-secs`
 and each upstream call after `--upstream-timeout-secs`. Key files must not be
 readable by other users unless `--allow-shared-key-file` says so.
 
