@@ -1,10 +1,5 @@
-import { hmac } from "@noble/hashes/hmac.js";
-import { sha512 } from "@noble/hashes/sha2.js";
-import { mnemonicToSeedSync } from "@scure/bip39";
-import { HDKey } from "micro-key-producer/slip10.js";
+import { initWasm } from "@trustwallet/wallet-core";
 import { describe, expect, it } from "vitest";
-
-import { p256 } from "@noble/curves/nist.js";
 
 import { ED25519_DERIVATION_MSG, ed25519DerivationMessage } from "../src/keypair/derivation.js";
 import {
@@ -27,41 +22,7 @@ const TEST_MNEMONIC =
 
 const TSPP_COIN_TYPE = 1392955331;
 
-const P256_ORDER = p256.Point.Fn.ORDER;
-
-const NIST256P1_MASTER_HMAC_KEY = new TextEncoder().encode("Nist256p1 seed");
-
-const SLIP10_VECTORS = {
-  vector1: {
-    seed: "000102030405060708090a0b0c0d0e0f",
-    master: {
-      key: "612091aaa12e22dd2abef664f8a01a82cae99ad7441b7ef8110424915c268bc2",
-      chain: "beeb672fe4621673f722f38529c07392fecaa61015c80c34f29ce8b41b3cb6ea",
-    },
-    child0: {
-      key: "6939694369114c67917a182c59ddb8cafc3004e63ca5d3b84403ba8613debc0c",
-      chain: "3460cea53e6a6bb5fb391eeef3237ffd8724bf0a40e94943c98b83825342ee11",
-    },
-    childRetry28578: {
-      key: "06f0db126f023755d0b8d86d4591718a5210dd8d024e3e14b6159d63f53aa669",
-      chain: "e94c8ebe30c2250a14713212f6449b20f3329105ea15b652ca5bdfc68f6c65c2",
-    },
-  },
-  vector2: {
-    seed: "fffcf9f6f3f0edeae7e4e1dedbd8d5d2cfccc9c6c3c0bdbab7b4b1aeaba8a5a29f9c999693908d8a8784817e7b7875726f6c696663605d5a5754514e4b484542",
-    master: {
-      key: "eaa31c2e46ca2962227cf21d73a7ef0ce8b31c756897521eb6c7b39796633357",
-      chain: "96cd4465a9644e31528eda3592aa35eb39a9527769ce1855beafc1b81055e75d",
-    },
-  },
-  seedRetry: {
-    seed: "a7305bc8df8d0951f0cb224c0e95d7707cbdf2c6ce7e8d481fec69c7ff5e9446",
-    master: {
-      key: "3b8c18469a4634517d6d0b65448f8e6c62091b45540a1743c5846be55d47d88f",
-      chain: "7762f9729fed06121fd13f326884c82f59aa95c57ac492ce8c9654e60efd130c",
-    },
-  },
-} as const;
+const walletCore = await initWasm();
 
 const GOLDEN = [
   {
@@ -96,88 +57,36 @@ function hex(value: Uint8Array): string {
   return Array.from(value, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function bytesToBigInt(value: Uint8Array): bigint {
-  let result = 0n;
-  for (const byte of value) {
-    result = (result << 8n) | BigInt(byte);
-  }
-  return result;
-}
-
-function bigIntToBytes32(value: bigint): Uint8Array {
-  const result = new Uint8Array(32);
-  let remaining = value;
-  for (let index = 31; index >= 0; index--) {
-    result[index] = Number(remaining & 0xffn);
-    remaining >>= 8n;
-  }
-  return result;
-}
-
-type Slip10Node = Readonly<{ key: Uint8Array; chain: Uint8Array }>;
-
-function nist256p1Master(seed: Uint8Array): Slip10Node {
-  let digest = hmac(sha512, NIST256P1_MASTER_HMAC_KEY, seed);
-  for (;;) {
-    const key = bytesToBigInt(digest.subarray(0, 32));
-    if (key > 0n && key < P256_ORDER) {
-      return { key: digest.slice(0, 32), chain: digest.slice(32) };
-    }
-    digest = hmac(sha512, NIST256P1_MASTER_HMAC_KEY, digest);
-  }
-}
-
-function hardenedChildData(prefix: number, body: Uint8Array, index: number): Uint8Array {
-  const data = new Uint8Array(37);
-  data[0] = prefix;
-  data.set(body, 1);
-  const hardened = 0x80000000 + index;
-  data[33] = (hardened >>> 24) & 0xff;
-  data[34] = (hardened >>> 16) & 0xff;
-  data[35] = (hardened >>> 8) & 0xff;
-  data[36] = hardened & 0xff;
-  return data;
-}
-
-function nist256p1HardenedChild(parent: Slip10Node, index: number): Slip10Node {
-  const parentKey = bytesToBigInt(parent.key);
-  let data = hardenedChildData(0, parent.key, index);
-  for (;;) {
-    const digest = hmac(sha512, parent.chain, data);
-    const tweak = bytesToBigInt(digest.subarray(0, 32));
-    const childKey = (tweak + parentKey) % P256_ORDER;
-    if (tweak < P256_ORDER && childKey !== 0n) {
-      return { key: bigIntToBytes32(childKey), chain: digest.slice(32) };
-    }
-    data = hardenedChildData(1, digest.subarray(32), index);
-  }
-}
-
-function nist256p1Node(seed: Uint8Array, path: readonly number[]): Bytes32 {
-  let node = nist256p1Master(seed);
-  for (const index of path) {
-    node = nist256p1HardenedChild(node, index);
-  }
-  return node.key as Bytes32;
-}
-
 class SeedBasedShieldedKeypair implements ShieldedKeypairLike {
   readonly signingKey: SigningKey;
   readonly #nullifierKey: NullifierKey;
   readonly #viewingKey: ViewingKey;
 
   constructor(mnemonic: string, account: number) {
-    const seed = mnemonicToSeedSync(mnemonic, "");
-    const root = HDKey.fromMasterSeed(seed);
-    this.signingKey = SigningKey.fromEd25519Bytes(
-      root.derive(`m/44'/501'/${account}'/0'`).privateKey as Bytes32,
-    );
-    this.#nullifierKey = NullifierKey.fromSecret(
-      root.derive(`m/44'/${TSPP_COIN_TYPE}'/${account}'/1'/0'`).privateKey.slice(1) as Bytes31,
-    );
-    this.#viewingKey = ViewingKey.fromBytes(
-      nist256p1Node(seed, [44, TSPP_COIN_TYPE, account, 2, 0]),
-    );
+    const wallet = walletCore.HDWallet.createWithMnemonic(mnemonic, "");
+    try {
+      const deriveKey = (curve: typeof walletCore.Curve.ed25519, path: string): Bytes32 => {
+        const key = wallet.getKeyByCurve(curve, path);
+        try {
+          return key.data().slice() as Bytes32;
+        } finally {
+          key.delete();
+        }
+      };
+      this.signingKey = SigningKey.fromEd25519Bytes(
+        deriveKey(walletCore.Curve.ed25519, `m/44'/501'/${account}'/0'`),
+      );
+      this.#nullifierKey = NullifierKey.fromSecret(
+        deriveKey(walletCore.Curve.ed25519, `m/44'/${TSPP_COIN_TYPE}'/${account}'/1'/0'`).slice(
+          1,
+        ) as Bytes31,
+      );
+      this.#viewingKey = ViewingKey.fromBytes(
+        deriveKey(walletCore.Curve.nist256p1, `m/44'/${TSPP_COIN_TYPE}'/${account}'/2'/0'`),
+      );
+    } finally {
+      wallet.delete();
+    }
   }
 
   signingPublicKey() {
@@ -238,28 +147,6 @@ class SeedBasedShieldedKeypair implements ShieldedKeypairLike {
 }
 
 describe("seed-based shielded keypair (docs/spec.md Seed phrase)", () => {
-  it("derives SLIP-0010 nist256p1 nodes matching the official test vectors", () => {
-    const master1 = nist256p1Master(bytes(SLIP10_VECTORS.vector1.seed));
-    expect(hex(master1.key)).toBe(SLIP10_VECTORS.vector1.master.key);
-    expect(hex(master1.chain)).toBe(SLIP10_VECTORS.vector1.master.chain);
-
-    const child0 = nist256p1HardenedChild(master1, 0);
-    expect(hex(child0.key)).toBe(SLIP10_VECTORS.vector1.child0.key);
-    expect(hex(child0.chain)).toBe(SLIP10_VECTORS.vector1.child0.chain);
-
-    const childRetry = nist256p1HardenedChild(master1, 28578);
-    expect(hex(childRetry.key)).toBe(SLIP10_VECTORS.vector1.childRetry28578.key);
-    expect(hex(childRetry.chain)).toBe(SLIP10_VECTORS.vector1.childRetry28578.chain);
-
-    const master2 = nist256p1Master(bytes(SLIP10_VECTORS.vector2.seed));
-    expect(hex(master2.key)).toBe(SLIP10_VECTORS.vector2.master.key);
-    expect(hex(master2.chain)).toBe(SLIP10_VECTORS.vector2.master.chain);
-
-    const masterRetry = nist256p1Master(bytes(SLIP10_VECTORS.seedRetry.seed));
-    expect(hex(masterRetry.key)).toBe(SLIP10_VECTORS.seedRetry.master.key);
-    expect(hex(masterRetry.chain)).toBe(SLIP10_VECTORS.seedRetry.master.chain);
-  });
-
   it("matches Solana's BIP44 signing-key derivation", () => {
     const keypair = new SeedBasedShieldedKeypair(TEST_MNEMONIC, 0);
     expect(hex(keypair.signingPublicKey().ed25519())).toBe(GOLDEN[0].signingPubkey);
