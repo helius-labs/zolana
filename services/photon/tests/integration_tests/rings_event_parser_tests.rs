@@ -72,6 +72,7 @@ const PROOFLESS_SHIELD_SLOT: u64 = 23;
 const SHIELDED_TRANSFER_SLOT: u64 = 25;
 const UNSHIELD_SLOT: u64 = 28;
 const ENCRYPTED_TRANSFER_SLOT: u64 = 19;
+const RING_TRANSFER_SLOT: u64 = 31;
 const TEST_TREE: [u8; 32] = [41; 32];
 
 fn only<'a, T>(items: &'a [T], description: &str) -> &'a T {
@@ -214,6 +215,28 @@ fn rings_snapshot_filter_keeps_rings_transactions() {
     ));
 }
 
+#[tokio::test]
+async fn persists_the_ring_that_cpid_the_pool() {
+    let ring = Pubkey::new_unique();
+    let db = Database::connect("sqlite::memory:").await.unwrap();
+    RingsMigrator::up(&db, None).await.unwrap();
+    insert_test_blocks(&db, &[RING_TRANSFER_SLOT]).await;
+
+    let state_update =
+        parse_ingestion_update(ring_transfer_transaction_info(ring), RING_TRANSFER_SLOT);
+    insert_known_rings_tree_accounts_from_outputs(&db, &state_update).await;
+
+    let txn = db.begin().await.unwrap();
+    persist_state_update(&txn, state_update).await.unwrap();
+    txn.commit().await.unwrap();
+
+    let rows = rings_transactions::Entity::find().all(&db).await.unwrap();
+    let [row] = rows.as_slice() else {
+        panic!("expected one rings_transactions row, got {}", rows.len());
+    };
+    assert_eq!(row.rings_program_id, ring.to_bytes().to_vec());
+}
+
 #[test]
 fn rings_snapshot_filter_keeps_nullifier_tree_batch_updates() {
     let tx = batch_update_transaction_info(Pubkey::new_unique());
@@ -276,6 +299,7 @@ async fn persists_rings_events() {
         .all(&db)
         .await
         .unwrap();
+    // No ring CPI'd these, so each records the pool as its own outer program.
     let rings_program_id = pda::shielded_pool_program_id().to_bytes().to_vec();
     assert!(rows
         .iter()
@@ -1670,6 +1694,49 @@ fn rings_transaction_info(
             }],
         }],
         signature: Signature::from([signature_byte; 64]),
+        error: None,
+    }
+}
+
+/// The ring shape: a ring program CPIs the pool, which emits. The pool is the
+/// event's parent either way, so only the outer instruction names the ring.
+fn ring_transfer_transaction_info(ring: Pubkey) -> TransactionInfo {
+    let program_id = pda::shielded_pool_program_id();
+    let event = GeneralEvent {
+        inputs: vec![test_input(6, 27), test_input(7, 28)],
+        outputs: vec![test_output(11, 21, Vec::new())],
+        messages: Vec::new(),
+        tx_viewing_pk: [0; 33],
+        salt: [0; 16],
+        first_output_leaf_index: 7,
+        output_tree: TEST_TREE,
+        spl_transfers: Vec::new(),
+    };
+
+    TransactionInfo {
+        instruction_groups: vec![InstructionGroup {
+            outer_instruction: Instruction {
+                program_id: ring,
+                accounts: Vec::new(),
+                data: vec![0],
+                stack_height: Some(1),
+            },
+            inner_instructions: vec![
+                Instruction {
+                    program_id,
+                    accounts: Vec::new(),
+                    data: vec![tag::TRANSACT],
+                    stack_height: Some(2),
+                },
+                Instruction {
+                    program_id,
+                    accounts: Vec::new(),
+                    data: encode_event_instruction(EventKind::Transact, event),
+                    stack_height: Some(3),
+                },
+            ],
+        }],
+        signature: Signature::from([9; 64]),
         error: None,
     }
 }

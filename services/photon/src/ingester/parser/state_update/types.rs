@@ -91,6 +91,7 @@ pub struct RingsTransactionUpdate {
     pub signature: Signature,
     pub event_index: i16,
     pub slot: u64,
+    /// Top-level program: the ring that CPI'd the pool, or the pool itself.
     pub rings_program_id: [u8; 32],
     pub source_instruction_tag: i16,
     pub output_tree: [u8; 32],

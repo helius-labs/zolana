@@ -22,6 +22,9 @@ use zolana_event::{
 pub struct EventSite {
     /// Tag of the instruction that emitted this event.
     pub source_instruction_tag: u8,
+    /// Top-level program of the transaction group. The ring program when a ring
+    /// CPI'd the pool, the pool itself when it was called directly.
+    pub outer_program_id: Pubkey,
     /// Event bytes: `[kind, borsh(body)]`, i.e. the `EMIT_EVENT` instruction
     /// data with the tag byte removed.
     pub payload: Vec<u8>,
@@ -88,6 +91,7 @@ pub fn find_event_sites(
 
             sites.push(EventSite {
                 source_instruction_tag,
+                outer_program_id: group.outer.program_id,
                 payload: instruction.data.get(1..).unwrap_or_default().to_vec(),
             });
         }
@@ -171,6 +175,8 @@ mod tests {
 
         assert_eq!(sites.len(), 1);
         assert_eq!(sites[0].source_instruction_tag, tag::TRANSACT);
+        // No ring: the pool is its own outer program.
+        assert_eq!(sites[0].outer_program_id, spp());
     }
 
     #[test]
@@ -184,6 +190,8 @@ mod tests {
 
         assert_eq!(sites.len(), 1);
         assert_eq!(sites[0].source_instruction_tag, tag::TRANSACT);
+        // The ring, not the pool: the event's parent is the pool either way.
+        assert_eq!(sites[0].outer_program_id, foreign());
     }
 
     #[test]
