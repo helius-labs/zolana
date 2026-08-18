@@ -40,7 +40,8 @@ repo:
 deploy: build
     cargo run -q -p {{project-name}} -- deploy --program-so {{ "{{program-so}}" }}
 
-# Create the auditor key inside the ring RPC binary; the public half feeds init.
+{%- if target == "localnet" %}
+# Localnet: the auditor key is a local file the ring RPC below serves.
 auditor-key:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -59,6 +60,16 @@ rpc:
     cargo run -q --manifest-path {{ "{{zolana}}" }}/services/ring-rpc/Cargo.toml -- serve \
         --port {{ring_rpc_port}} --indexer-url {{indexer_url}} --rpc-url {{rpc_url}} \
         --auditor-key-file keys/auditor.key
+{%- else %}
+# The hosted ring RPC at {{ring_rpc_url}} creates the auditor key; only the
+# public half comes back and goes into the config.
+init:
+    cargo run -q -p {{project-name}} -- init
+
+# The ring RPC is hosted; nothing to start here.
+rpc:
+    @echo "ring rpc is hosted at {{ring_rpc_url}}"
+{%- endif %}
 
 # Two ring deposits and one audited transfer, read back through the ring RPC.
 transact:

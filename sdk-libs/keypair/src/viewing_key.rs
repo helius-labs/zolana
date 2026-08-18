@@ -70,6 +70,14 @@ impl ViewingKey {
         Ok(Self::from_secret_key(secret))
     }
 
+    /// HKDF-SHA256 over `ikm` with `info`, then the hash-to-scalar of the
+    /// 48-byte output. Deterministic: the same inputs give the same key.
+    pub fn from_hkdf(ikm: &[u8], info: &[&[u8]]) -> Result<Self, KeypairError> {
+        let mut okm = Zeroizing::new([0u8; 48]);
+        derivation::hkdf_expand(None, ikm, info, okm.as_mut_slice())?;
+        Self::from_okm48(&okm)
+    }
+
     pub(crate) fn from_okm48(okm: &Zeroizing<[u8; 48]>) -> Result<Self, KeypairError> {
         let scalar = derivation::scalar_from_okm(okm);
         let nonzero = Option::<NonZeroScalar>::from(NonZeroScalar::new(scalar))

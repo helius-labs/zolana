@@ -53,9 +53,19 @@ pub struct ServeArgs {
         default_value = "http://127.0.0.1:8899"
     )]
     pub rpc_url: String,
-    /// File holding the auditor P256 secret key as 64 hex characters.
-    #[arg(long, env = "RING_RPC_AUDITOR_KEY_FILE")]
-    pub auditor_key_file: PathBuf,
+    /// File holding one auditor P256 secret key as 64 hex characters. One ring
+    /// per instance.
+    #[arg(
+        long,
+        env = "RING_RPC_AUDITOR_KEY_FILE",
+        conflicts_with = "root_secret_file",
+        required_unless_present = "root_secret_file"
+    )]
+    pub auditor_key_file: Option<PathBuf>,
+    /// File holding a 32-byte root secret as 64 hex characters. Every ring's
+    /// auditor key is derived from it, so one instance serves any ring.
+    #[arg(long, env = "RING_RPC_ROOT_SECRET_FILE")]
+    pub root_secret_file: Option<PathBuf>,
     /// Browser origins allowed to call the JSON-RPC methods. The built-in page
     /// is same-origin and needs none; a UI hosted elsewhere names its origin here.
     #[arg(
@@ -73,8 +83,8 @@ pub struct ServeArgs {
     /// Upper bound for one upstream call to the indexer or the Solana RPC.
     #[arg(long, env = "RING_RPC_UPSTREAM_TIMEOUT_SECS", default_value_t = 10)]
     pub upstream_timeout_secs: u64,
-    /// Accept an auditor key file readable by other users (unix). Off by default
-    /// so a misplaced key is noticed before the service answers.
+    /// Accept a key or root secret file readable by other users (unix). Off by
+    /// default so a misplaced key is noticed before the service answers.
     #[arg(long, env = "RING_RPC_ALLOW_SHARED_KEY_FILE")]
     pub allow_shared_key_file: bool,
 }
@@ -111,7 +121,7 @@ pub enum KeyFileError {
     },
     #[error("auditor key file {path} is readable by other users (mode {mode:o}); chmod 600 it or pass --allow-shared-key-file")]
     Shared { path: PathBuf, mode: u32 },
-    #[error("auditor key file is not 64 hex characters")]
+    #[error("key file is not 64 hex characters")]
     Encoding,
     #[error("auditor key is not a valid P256 secret key: {0}")]
     Key(#[from] KeypairError),
@@ -193,13 +203,36 @@ fn check_private(_path: &Path) -> Result<(), KeyFileError> {
 }
 
 pub fn parse_auditor_key(text: &str) -> Result<ViewingKey, KeyFileError> {
+    let secret = parse_hex32(text)?;
+    Ok(ViewingKey::from_bytes(&secret)?)
+}
+
+/// Reads the 32-byte root secret every derived auditor key comes from.
+pub fn load_root_secret(
+    path: &Path,
+    allow_shared: bool,
+) -> Result<Zeroizing<[u8; 32]>, KeyFileError> {
+    if !allow_shared {
+        check_private(path)?;
+    }
+    let text =
+        Zeroizing::new(
+            std::fs::read_to_string(path).map_err(|source| KeyFileError::Read {
+                path: path.to_path_buf(),
+                source,
+            })?,
+        );
+    parse_hex32(&text)
+}
+
+fn parse_hex32(text: &str) -> Result<Zeroizing<[u8; 32]>, KeyFileError> {
     let decoded = Zeroizing::new(hex::decode(text.trim()).map_err(|_| KeyFileError::Encoding)?);
     let mut secret = Zeroizing::new([0u8; 32]);
     if decoded.len() != secret.len() {
         return Err(KeyFileError::Encoding);
     }
     secret.copy_from_slice(&decoded);
-    Ok(ViewingKey::from_bytes(&secret)?)
+    Ok(secret)
 }
 
 #[cfg(test)]

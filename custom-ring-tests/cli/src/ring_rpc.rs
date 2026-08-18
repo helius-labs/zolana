@@ -3,12 +3,14 @@
 use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 use serde_json::json;
+use solana_address::Address;
 use solana_signature::Signature;
 use zolana_keypair::P256Pubkey;
 use zolana_ring_client::auditor_view_tag;
 use zolana_ring_rpc::api::{
-    DecryptedTransaction, GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse,
-    HealthResponse, GET_DECRYPTED_TRANSACTIONS, HEALTH,
+    CreateAuditorKeyRequest, CreateAuditorKeyResponse, DecryptedTransaction,
+    GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse, HealthResponse,
+    CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH,
 };
 
 use crate::transfer::wait_for;
@@ -36,23 +38,47 @@ impl RingRpc {
         self.call(HEALTH, json!({}))
     }
 
+    /// The auditor public key the RPC holds for `ring`. Derived instances mint
+    /// it on first call; a local instance returns its one key.
+    pub fn auditor_pubkey(&self, ring: Address) -> Result<P256Pubkey> {
+        let created: CreateAuditorKeyResponse = self
+            .call(
+                CREATE_AUDITOR_KEY,
+                serde_json::to_value(CreateAuditorKeyRequest {
+                    ring_program_id: ring.to_bytes().into(),
+                })?,
+            )
+            .with_context(|| format!("no ring rpc answers at {}", self.url))?;
+        let bytes: [u8; 33] = created
+            .auditor_pubkey
+            .0
+            .try_into()
+            .map_err(|_| anyhow!("ring rpc returned an auditor key of the wrong length"))?;
+        Ok(P256Pubkey::from_bytes(bytes)?)
+    }
+
     /// The RPC at this URL must hold the key behind `auditor_pk`; another
     /// ring's RPC on the same port answers `health` but can open nothing here.
-    pub fn check_serves(&self, auditor_pk: &P256Pubkey) -> Result<()> {
-        let health = self
-            .health()
-            .with_context(|| format!("no ring rpc answers at {}", self.url))?;
-        let expected = auditor_view_tag(auditor_pk);
-        if health.auditor_view_tag.0 != expected {
+    pub fn check_serves(&self, ring: Address, auditor_pk: &P256Pubkey) -> Result<()> {
+        let served = self.auditor_pubkey(ring)?;
+        if served != *auditor_pk {
             return Err(anyhow!(
                 "the ring rpc at {} serves auditor tag {} but this ring's key has tag {}; \
                  stop it or point ring.toml at another port",
                 self.url,
-                health.auditor_view_tag,
-                zolana_indexer_api::Hash(expected)
+                zolana_indexer_api::Hash(auditor_view_tag(&served)),
+                zolana_indexer_api::Hash(auditor_view_tag(auditor_pk))
             ));
         }
         Ok(())
+    }
+
+    /// The instance selects the ring by program id when it derives keys.
+    pub fn transactions_request(ring: Address) -> GetDecryptedTransactionsRequest {
+        GetDecryptedTransactionsRequest {
+            ring_program_id: Some(ring.to_bytes().into()),
+            ..Default::default()
+        }
     }
 
     pub fn decrypted_transactions(
@@ -63,9 +89,13 @@ impl RingRpc {
     }
 
     /// Walk every page until `signature` shows up as an opened transaction.
-    pub fn wait_for_decrypted(&self, signature: Signature) -> Result<DecryptedTransaction> {
+    pub fn wait_for_decrypted(
+        &self,
+        ring: Address,
+        signature: Signature,
+    ) -> Result<DecryptedTransaction> {
         wait_for("ring rpc to open the transaction", || {
-            let mut request = GetDecryptedTransactionsRequest::default();
+            let mut request = Self::transactions_request(ring);
             loop {
                 let page = self.decrypted_transactions(&request)?;
                 if let Some(item) = page

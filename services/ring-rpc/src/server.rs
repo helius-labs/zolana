@@ -26,12 +26,14 @@ use jsonrpsee::{
 use tower::{Layer, Service};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
+use solana_address::Address;
+
 use crate::{
     api::{
-        GetDecryptedTransactionsRequest, HealthResponse, GET_DECRYPTED_TRANSACTIONS, HEALTH,
-        PAGE_LIMIT,
+        CreateAuditorKeyRequest, CreateAuditorKeyResponse, GetDecryptedTransactionsRequest,
+        HealthResponse, CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH, PAGE_LIMIT,
     },
-    audit::{AuditService, TransactionSource},
+    audit::{Hub, RingRpcError, TransactionSource},
     page::{cursor_from_query, AuditorPage},
 };
 
@@ -44,16 +46,14 @@ pub struct ServerOptions {
 }
 
 pub async fn run_server<S: TransactionSource + 'static>(
-    service: Arc<AuditService<S>>,
+    hub: Arc<Hub<S>>,
     options: ServerOptions,
 ) -> Result<ServerHandle, anyhow::Error> {
     let addr = SocketAddr::from((options.bind, options.port));
     let middleware = tower::ServiceBuilder::new()
         .layer(cors(&options.allow_origins)?)
         .layer(tower::timeout::TimeoutLayer::new(options.request_timeout))
-        .layer(PageLayer {
-            service: service.clone(),
-        })
+        .layer(PageLayer { hub: hub.clone() })
         .layer(ProxyGetRequestLayer::new([("/health", HEALTH)])?);
     let server = ServerBuilder::default()
         .set_config(
@@ -64,7 +64,7 @@ pub async fn run_server<S: TransactionSource + 'static>(
         .set_http_middleware(middleware)
         .build(addr)
         .await?;
-    Ok(server.start(rpc_module(service)?))
+    Ok(server.start(rpc_module(hub)?))
 }
 
 /// The page is same-origin, so cross-origin calls are opt-in per origin.
@@ -83,20 +83,36 @@ fn cors(origins: &[String]) -> Result<CorsLayer, anyhow::Error> {
 }
 
 pub fn rpc_module<S: TransactionSource + 'static>(
-    service: Arc<AuditService<S>>,
-) -> Result<RpcModule<Arc<AuditService<S>>>, anyhow::Error> {
-    let mut module = RpcModule::new(service);
+    hub: Arc<Hub<S>>,
+) -> Result<RpcModule<Arc<Hub<S>>>, anyhow::Error> {
+    let mut module = RpcModule::new(hub);
 
-    module.register_async_method(HEALTH, |_params, service, _extensions| async move {
+    module.register_async_method(HEALTH, |_params, hub, _extensions| async move {
         Ok::<_, ErrorObjectOwned>(HealthResponse {
+            mode: if hub.is_derived() { "derived" } else { "local" }.to_owned(),
+            auditor_view_tag: hub.local().map(|service| service.auditor_view_tag().into()),
+        })
+    })?;
+
+    module.register_async_method(CREATE_AUDITOR_KEY, |params, hub, _extensions| async move {
+        let request = params.parse::<CreateAuditorKeyRequest>()?;
+        let ring = request.ring_program_id.0;
+        let service = hub.ring(Some(ring)).map_err(ErrorObjectOwned::from)?;
+        Ok::<_, ErrorObjectOwned>(CreateAuditorKeyResponse {
+            ring_program_id: ring.into(),
+            auditor_pubkey: service.auditor_pubkey().as_bytes().to_vec().into(),
             auditor_view_tag: service.auditor_view_tag().into(),
+            key_version: 1,
         })
     })?;
 
     module.register_async_method(
         GET_DECRYPTED_TRANSACTIONS,
-        |params, service, _extensions| async move {
+        |params, hub, _extensions| async move {
             let request = params.parse::<GetDecryptedTransactionsRequest>()?;
+            let service = hub
+                .ring(request.ring_program_id.map(|ring| ring.0))
+                .map_err(ErrorObjectOwned::from)?;
             service
                 .decrypted_transactions(request.cursor.map(Into::into), request.limit)
                 .await
@@ -107,10 +123,11 @@ pub fn rpc_module<S: TransactionSource + 'static>(
     Ok(module)
 }
 
-/// Serves the auditor page on `GET /` and `GET /ui`, and readiness on
-/// `GET /ready`; every other request goes to the JSON-RPC server.
+/// Serves the auditor page on `GET /` and `GET /ui` (`?ring=<program id>`
+/// selects the ring when keys are derived), and readiness on `GET /ready`;
+/// every other request goes to the JSON-RPC server.
 struct PageLayer<S> {
-    service: Arc<AuditService<S>>,
+    hub: Arc<Hub<S>>,
 }
 
 impl<S, Inner> Layer<Inner> for PageLayer<S> {
@@ -119,22 +136,22 @@ impl<S, Inner> Layer<Inner> for PageLayer<S> {
     fn layer(&self, inner: Inner) -> Self::Service {
         PageService {
             inner,
-            service: self.service.clone(),
+            hub: self.hub.clone(),
         }
     }
 }
 
 struct PageService<S, Inner> {
     inner: Inner,
-    service: Arc<AuditService<S>>,
+    hub: Arc<Hub<S>>,
 }
 
-// Derived `Clone` would demand `S: Clone`; the service is shared through `Arc`.
+// Derived `Clone` would demand `S: Clone`; the hub is shared through `Arc`.
 impl<S, Inner: Clone> Clone for PageService<S, Inner> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
-            service: self.service.clone(),
+            hub: self.hub.clone(),
         }
     }
 }
@@ -160,13 +177,15 @@ where
             let future = self.inner.call(request);
             return Box::pin(async move { future.await.map_err(Into::into) });
         }
-        let service = self.service.clone();
+        let hub = self.hub.clone();
         match request.uri().path() {
             "/" | "/ui" => {
-                let cursor = query_param(request.uri().query(), "cursor").map(str::to_owned);
-                Box::pin(async move { Ok(render_page(&service, cursor).await) })
+                let query = request.uri().query();
+                let cursor = query_param(query, "cursor").map(str::to_owned);
+                let ring = query_param(query, "ring").map(str::to_owned);
+                Box::pin(async move { Ok(render_page(&hub, ring, cursor).await) })
             }
-            "/ready" => Box::pin(async move { Ok(readiness(&service).await) }),
+            "/ready" => Box::pin(async move { Ok(readiness(&hub).await) }),
             _ => {
                 let future = self.inner.call(request);
                 Box::pin(async move { future.await.map_err(Into::into) })
@@ -176,9 +195,31 @@ where
 }
 
 async fn render_page<S: TransactionSource>(
-    service: &AuditService<S>,
+    hub: &Hub<S>,
+    ring: Option<String>,
     cursor: Option<String>,
 ) -> HttpResponse {
+    let ring = match ring.as_deref().map(str::parse::<Address>) {
+        None => None,
+        Some(Ok(ring)) => Some(ring),
+        Some(Err(_)) => return redirect_home(),
+    };
+    let service = match hub.ring(ring) {
+        Ok(service) => service,
+        Err(error @ RingRpcError::RingRequired) => {
+            return html_response(
+                StatusCode::BAD_REQUEST,
+                maud::html! { p { (error) ". Open " code { "/?ring=<program id>" } "." } }
+                    .into_string(),
+            )
+        }
+        Err(error) => {
+            return html_response(
+                StatusCode::BAD_REQUEST,
+                maud::html! { p { (error) } }.into_string(),
+            )
+        }
+    };
     let cursor_bytes = match cursor.as_deref() {
         None => None,
         Some(text) => match cursor_from_query(text) {
@@ -191,6 +232,7 @@ async fn render_page<S: TransactionSource>(
         Ok(page) => {
             let markup = AuditorPage {
                 auditor_view_tag: service.auditor_view_tag().into(),
+                ring,
                 page: &page,
                 cursor: cursor.as_deref(),
             }
@@ -207,8 +249,17 @@ async fn render_page<S: TransactionSource>(
     }
 }
 
-async fn readiness<S: TransactionSource>(service: &AuditService<S>) -> HttpResponse {
-    match service.probe_indexer().await {
+async fn readiness<S: TransactionSource>(hub: &Hub<S>) -> HttpResponse {
+    // Any ring probes the same indexer; the local key or an arbitrary ring.
+    let service = match hub.local() {
+        Some(service) => Ok(service),
+        None => hub.ring(Some(Address::default())),
+    };
+    let probe = match service {
+        Ok(service) => service.probe_indexer().await,
+        Err(error) => Err(error),
+    };
+    match probe {
         Ok(slot) => text_response(StatusCode::OK, format!("ready, indexer slot {slot}")),
         Err(error) => text_response(StatusCode::SERVICE_UNAVAILABLE, error.to_string()),
     }

@@ -13,10 +13,11 @@ use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
 use zolana_ring_client::{auditor_view_tag, AuditorEncryption};
 use zolana_ring_rpc::{
     api::{
-        GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse, HealthResponse,
+        CreateAuditorKeyRequest, CreateAuditorKeyResponse, GetDecryptedTransactionsRequest,
+        GetDecryptedTransactionsResponse, HealthResponse, CREATE_AUDITOR_KEY,
         GET_DECRYPTED_TRANSACTIONS, HEALTH,
     },
-    audit::{AuditService, RingRpcError, TransactionSource},
+    audit::{AuditService, Hub, KeyProvider, RingRpcError, TransactionSource},
     page::AuditorPage,
     server::rpc_module,
 };
@@ -175,19 +176,27 @@ fn fixture() -> Fixture {
     }
 }
 
-fn service(fixture: &Fixture, next_cursor: Option<Vec<u8>>) -> AuditService<StaticSource> {
-    AuditService::new(
-        fixture.auditor.clone(),
-        StaticSource {
-            transactions: vec![
-                fixture.audited.clone(),
-                fixture.foreign_key.clone(),
-                fixture.output_tag_only.clone(),
-            ],
-            next_cursor,
-        },
+fn source(fixture: &Fixture, next_cursor: Option<Vec<u8>>) -> StaticSource {
+    StaticSource {
+        transactions: vec![
+            fixture.audited.clone(),
+            fixture.foreign_key.clone(),
+            fixture.output_tag_only.clone(),
+        ],
+        next_cursor,
+    }
+}
+
+fn hub(fixture: &Fixture, next_cursor: Option<Vec<u8>>) -> Hub<StaticSource> {
+    Hub::new(
+        KeyProvider::Local(fixture.auditor.clone()),
+        source(fixture, next_cursor),
         AssetRegistry::default(),
     )
+}
+
+fn service(fixture: &Fixture, next_cursor: Option<Vec<u8>>) -> Arc<AuditService<StaticSource>> {
+    hub(fixture, next_cursor).ring(None).expect("local service")
 }
 
 #[tokio::test]
@@ -255,11 +264,12 @@ async fn out_of_range_limits_are_rejected_before_the_indexer_is_asked() {
 #[tokio::test]
 async fn rpc_methods_answer_over_the_module() {
     let fixture = fixture();
-    let module = rpc_module(Arc::new(service(&fixture, None))).expect("module");
+    let module = rpc_module(Arc::new(hub(&fixture, None))).expect("module");
 
     let health: HealthResponse = module.call(HEALTH, [(); 0]).await.expect("health");
+    assert_eq!(health.mode, "local");
     assert_eq!(
-        health.auditor_view_tag.0,
+        health.auditor_view_tag.expect("local tag").0,
         auditor_view_tag(&fixture.auditor.pubkey())
     );
 
@@ -286,6 +296,7 @@ async fn the_auditor_page_shows_from_and_to() {
         .expect("page");
     let html = AuditorPage {
         auditor_view_tag: service.auditor_view_tag().into(),
+        ring: None,
         page: &page,
         cursor: None,
     }
@@ -312,4 +323,48 @@ async fn the_auditor_page_shows_from_and_to() {
         html.contains("http-equiv=\"refresh\""),
         "newest page refreshes"
     );
+}
+
+#[tokio::test]
+async fn derived_keys_are_per_ring_and_stable() {
+    let fixture = fixture();
+    let root = zeroize::Zeroizing::new([7u8; 32]);
+    let hub = Hub::new(
+        KeyProvider::Derived(root.clone()),
+        source(&fixture, None),
+        AssetRegistry::default(),
+    );
+    let ring_a = Address::new_from_array([1u8; 32]);
+    let ring_b = Address::new_from_array([2u8; 32]);
+    let key_a = hub.ring(Some(ring_a)).expect("ring a").auditor_pubkey();
+    let key_b = hub.ring(Some(ring_b)).expect("ring b").auditor_pubkey();
+    assert_ne!(key_a, key_b, "rings get distinct keys");
+    assert_eq!(
+        KeyProvider::derive(&root, ring_a).expect("derive").pubkey(),
+        key_a,
+        "the same root and ring derive the same key"
+    );
+    assert!(
+        matches!(hub.ring(None), Err(RingRpcError::RingRequired)),
+        "derived mode names a ring"
+    );
+
+    let module = rpc_module(Arc::new(hub)).expect("module");
+    let health: HealthResponse = module.call(HEALTH, [(); 0]).await.expect("health");
+    assert_eq!(
+        (health.mode.as_str(), health.auditor_view_tag),
+        ("derived", None)
+    );
+    let serde_json::Value::Object(request) = serde_json::to_value(CreateAuditorKeyRequest {
+        ring_program_id: ring_a.to_bytes().into(),
+    })
+    .expect("request json") else {
+        panic!("request serializes as an object");
+    };
+    let created: CreateAuditorKeyResponse = module
+        .call(CREATE_AUDITOR_KEY, request)
+        .await
+        .expect("create auditor key");
+    assert_eq!(created.auditor_pubkey.0, key_a.as_bytes().to_vec());
+    assert_eq!(created.key_version, 1);
 }
