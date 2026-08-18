@@ -5,7 +5,6 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
-autotests = false
 
 [features]
 default = []
@@ -73,143 +72,15 @@ solana-pubkey = { workspace = true }
 solana-program-error = { workspace = true }
 proptest = { workspace = true }
 
-# Test targets are declared explicitly (`autotests = false`): each `[[test]]`
-# maps one binary directly to its leaf file under `tests/<domain>/<intent>.rs`,
-# mirroring the domain-first layout. Shared setup lives in the `src/support`
-# library, imported as `shielded_pool_tests::support::*` -- there are no thin
-# `#[path]` wrapper entrypoints. Groupings below match the test tiers the
-# justfile and CI select.
-
-# --- Fast functional / rejection (hermetic LiteSVM + Mollusk) ---
-
-[[test]]
-name = "admin_functional"
-path = "tests/admin/functional.rs"
-
-[[test]]
-name = "admin_rejection"
-path = "tests/admin/rejection.rs"
-
-[[test]]
-name = "admin_edge_cases"
-path = "tests/admin/edge_cases.rs"
-
-[[test]]
-name = "protocol_config_contract"
-path = "tests/protocol_config/contract.rs"
-
-[[test]]
-name = "protocol_config_gate"
-path = "tests/protocol_config/gate.rs"
-
-[[test]]
-name = "tree_contract"
-path = "tests/tree/contract.rs"
-
-[[test]]
-name = "spl_interface_contract"
-path = "tests/spl_interface/contract.rs"
-
-[[test]]
-name = "spl_interface_functional"
-path = "tests/spl_interface/functional.rs"
-
-[[test]]
-name = "spl_interface_rejection"
-path = "tests/spl_interface/rejection.rs"
-
-[[test]]
-name = "ring_config_contract"
-path = "tests/ring_config/contract.rs"
-
-[[test]]
-name = "ring_config_update_owner"
-path = "tests/ring_config/update_owner.rs"
-
-[[test]]
-name = "deposit_functional"
-path = "tests/deposit/functional.rs"
-
-[[test]]
-name = "deposit_rejection"
-path = "tests/deposit/rejection.rs"
-
-[[test]]
-name = "deposit_edge_cases"
-path = "tests/deposit/edge_cases.rs"
-
-[[test]]
-name = "dispatch_functional"
-path = "tests/dispatch/functional.rs"
-
-[[test]]
-name = "dispatch_rejection"
-path = "tests/dispatch/rejection.rs"
-
-[[test]]
-name = "transact_guard"
-path = "tests/transact/guard.rs"
-
-# --- Behavioral model and cross-cutting contracts ---
-
-[[test]]
-name = "deposit_model"
-path = "tests/deposit/model.rs"
-
-[[test]]
-name = "cross_cutting_cu_budget"
-path = "tests/cross_cutting/cu_budget.rs"
-
-[[test]]
-name = "nullifier_batch"
-path = "tests/nullifier/batch.rs"
-
-[[test]]
-name = "merge_contract"
-path = "tests/merge/contract.rs"
-
-# --- Mollusk mutation coverage ---
-
-[[test]]
-name = "deposit_mutation"
-path = "tests/deposit/mutation.rs"
-
-# --- Proof-backed integration lives in the `shielded-pool-proofs` package ---
-
-[[test]]
-name = "interface_transfers"
-path = "tests/transact/interface_transfers.rs"
-
-
-
-
-
-# --- Benchmarks (CU profiling; run with `-- --ignored`) ---
-
-[[test]]
-name = "bench_cu"
-path = "tests/bench/cu.rs"
-
-[[test]]
-name = "transact_circuit_vectors"
-path = "tests/transact/circuit_vectors.rs"
-
-[[test]]
-name = "transact_signer_run"
-path = "tests/transact/signer_run.rs"
-
-[[test]]
-name = "transact_public_slots"
-path = "tests/transact/public_slots.rs"
-
-[[test]]
-name = "transact_validate_circuit"
-path = "tests/transact/validate_circuit.rs"
-
-[[test]]
-name = "spl_interface_validation"
-path = "tests/spl_interface/validation.rs"
-
-[[test]]
-name = "dispatch_validation"
-path = "tests/dispatch/validation.rs"
+# Test targets are auto-discovered: every `tests/*.rs` is one binary, named
+# after the file. There are no `[[test]]` blocks to keep in sync, so a suite
+# added here cannot fail to run -- which is what `cargo xtask check-tests` used
+# to police by comparing declarations against the tree.
+#
+# Names are `<domain>_<intent>`, formerly the directory layout, so the justfile
+# and CI selectors are unchanged. Shared setup lives in the `src/support`
+# library, imported as `shielded_pool_tests::support::*`.
+#
+# The slow tiers are packages, not features: `shielded-pool-proofs` (Groth16,
+# needs a prover) and `shielded-pool-localnet` (needs a validator). A plain
+# `cargo test -p shielded-pool-tests` is hermetic because it cannot reach them.
