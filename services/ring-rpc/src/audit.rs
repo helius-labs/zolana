@@ -1,4 +1,9 @@
 //! Reading ring transactions by the auditor tag and opening them.
+//!
+//! The auditor tag is the view tag of the auditor message: the x-coordinate of
+//! the ring's auditor public key (`auditor_view_tag`). The ring program requires
+//! it on the last `messages` entry of every transact, Photon indexes messages by
+//! view tag, so one tag query returns every transaction of the ring.
 
 use std::{collections::HashMap, future::Future, sync::Mutex, time::Duration};
 
