@@ -78,7 +78,7 @@ describe("queued prover polling", () => {
       request++;
       redirects.push(init?.redirect);
       if (request === 1) {
-        return new Response(JSON.stringify({ job_id: "job-hang" }), {
+        return new Response(JSON.stringify({ jobId: "job-hang" }), {
           status: 202,
           headers: { "content-type": "application/json" },
         });
@@ -141,7 +141,7 @@ describe("prover request routing", () => {
       const url = new URL(String(input));
       urls.push(url);
       return urls.length === 1
-        ? new Response(JSON.stringify({ job_id: "job-123" }), {
+        ? new Response(JSON.stringify({ jobId: "job-123" }), {
             status: 202,
             headers: { "content-type": "application/json" },
           })
@@ -159,7 +159,7 @@ describe("prover request routing", () => {
     expect(urls.map((url) => url.pathname)).toEqual(["/zolana/prove", "/zolana/prove/status"]);
     expect(urls[1]?.searchParams.get("api-key")).toBe("k+1");
     expect(urls[1]?.searchParams.get("tenant")).toBe("alpha");
-    expect(urls[1]?.searchParams.get("job_id")).toBe("job-123");
+    expect(urls[1]?.searchParams.get("jobId")).toBe("job-123");
   });
 });
 

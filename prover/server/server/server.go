@@ -31,9 +31,9 @@ func (handler proofStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	jobID := r.URL.Query().Get("job_id")
+	jobID := r.URL.Query().Get("jobId")
 	if jobID == "" {
-		malformedBodyError(fmt.Errorf("job_id parameter required")).send(w)
+		malformedBodyError(fmt.Errorf("jobId parameter required")).send(w)
 		return
 	}
 
@@ -67,7 +67,7 @@ func (handler proofStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 			Msg("Job completed - returning result")
 
 		response := map[string]interface{}{
-			"job_id": jobID,
+			"jobId":  jobID,
 			"status": "completed",
 			"result": result,
 		}
@@ -119,15 +119,15 @@ func (handler proofStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 				Msg("Job not found in queues but metadata exists - returning queued status")
 
 			response := map[string]interface{}{
-				"job_id":  jobID,
+				"jobId":   jobID,
 				"status":  "queued",
 				"message": "Job is queued and waiting to be processed",
 			}
-			if circuitType, ok := jobMeta["circuit_type"]; ok {
-				response["circuit_type"] = circuitType
+			if circuitType, ok := jobMeta["circuitType"]; ok {
+				response["circuitType"] = circuitType
 			}
-			if submittedAt, ok := jobMeta["submitted_at"]; ok {
-				response["submitted_at"] = submittedAt
+			if submittedAt, ok := jobMeta["submittedAt"]; ok {
+				response["submittedAt"] = submittedAt
 			}
 
 			w.Header().Set("Content-Type", "application/json")
@@ -179,17 +179,17 @@ func (handler proofStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		Str("job_id", jobID).
 		Str("status", jobStatus)
 	if jobInfo != nil {
-		if ct, ok := jobInfo["circuit_type"]; ok {
+		if ct, ok := jobInfo["circuitType"]; ok {
 			logEvent = logEvent.Interface("circuit_type", ct)
 		}
-		if ca, ok := jobInfo["created_at"]; ok {
+		if ca, ok := jobInfo["createdAt"]; ok {
 			logEvent = logEvent.Interface("created_at", ca)
 		}
 	}
 	logEvent.Msg("Job found but not completed")
 
 	response := map[string]interface{}{
-		"job_id": jobID,
+		"jobId":  jobID,
 		"status": jobStatus,
 	}
 
@@ -213,12 +213,12 @@ func (handler proofStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 				response["message"] = fmt.Sprintf("Job processing failed: %s", errorMsg)
 				response["error"] = errorMsg
 			}
-			if failedAt, ok := failureDetails["failed_at"]; ok {
-				response["failed_at"] = failedAt
+			if failedAt, ok := failureDetails["failedAt"]; ok {
+				response["failedAt"] = failedAt
 			}
-			if originalJob, ok := failureDetails["original_job"].(map[string]interface{}); ok {
-				if circuitType, ok := originalJob["circuit_type"]; ok {
-					response["circuit_type"] = circuitType
+			if originalJob, ok := failureDetails["originalJob"].(map[string]interface{}); ok {
+				if circuitType, ok := originalJob["circuitType"]; ok {
+					response["circuitType"] = circuitType
 				}
 			}
 		} else {
@@ -229,11 +229,11 @@ func (handler proofStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		response["message"] = getStatusMessage(jobStatus)
 
 		if jobInfo != nil {
-			if createdAt, ok := jobInfo["created_at"]; ok {
-				response["created_at"] = createdAt
+			if createdAt, ok := jobInfo["createdAt"]; ok {
+				response["createdAt"] = createdAt
 			}
-			if circuitType, ok := jobInfo["circuit_type"]; ok {
-				response["circuit_type"] = circuitType
+			if circuitType, ok := jobInfo["circuitType"]; ok {
+				response["circuitType"] = circuitType
 			}
 		}
 	}
@@ -327,8 +327,8 @@ func (handler proofStatusHandler) checkJobExistsDetailed(
 			Msg("Job found in result cache")
 
 		return true, "completed", map[string]interface{}{
-			"result":        result,
-			"result_cached": true,
+			"result":       result,
+			"resultCached": true,
 		}, nil
 	}
 
@@ -349,9 +349,9 @@ func (handler proofStatusHandler) checkJobExistsDetailed(
 	}
 
 	jobInfo := map[string]interface{}{
-		"circuit_type": jobMeta["circuit_type"],
-		"submitted_at": jobMeta["submitted_at"],
-		"from_meta":    true,
+		"circuitType": jobMeta["circuitType"],
+		"submittedAt": jobMeta["submittedAt"],
+		"fromMeta":    true,
 	}
 	// A failure carries its reason with it, so the caller gets the same detail
 	// the failed queue used to supply.
@@ -438,11 +438,11 @@ func (handler queueStatsHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 	}
 
 	response := map[string]interface{}{
-		"queues":        stats,
-		"total_pending": stats["zk_address_append_queue"] + stats["zk_transfer_queue"],
-		"total_active":  stats["zk_address_append_processing_queue"] + stats["zk_transfer_processing_queue"],
-		"total_failed":  stats["zk_failed_queue"],
-		"timestamp":     time.Now().Unix(),
+		"queues":       stats,
+		"totalPending": stats["zk_address_append_queue"] + stats["zk_transfer_queue"],
+		"totalActive":  stats["zk_address_append_processing_queue"] + stats["zk_transfer_processing_queue"],
+		"totalFailed":  stats["zk_failed_queue"],
+		"timestamp":    time.Now().Unix(),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -488,45 +488,45 @@ func (handler queueCleanupHandler) ServeHTTP(w http.ResponseWriter, r *http.Requ
 	results := make(map[string]interface{})
 
 	if err := handler.redisQueue.CleanupOldRequests(); err != nil {
-		results["old_requests_cleanup"] = map[string]interface{}{
+		results["oldRequestsCleanup"] = map[string]interface{}{
 			"success": false,
 			"error":   err.Error(),
 		}
 	} else {
-		results["old_requests_cleanup"] = map[string]interface{}{
+		results["oldRequestsCleanup"] = map[string]interface{}{
 			"success": true,
 		}
 	}
 
 	if err := handler.redisQueue.CleanupStuckProcessingJobs(); err != nil {
-		results["stuck_jobs_cleanup"] = map[string]interface{}{
+		results["stuckJobsCleanup"] = map[string]interface{}{
 			"success": false,
 			"error":   err.Error(),
 		}
 	} else {
-		results["stuck_jobs_cleanup"] = map[string]interface{}{
+		results["stuckJobsCleanup"] = map[string]interface{}{
 			"success": true,
 		}
 	}
 
 	if err := handler.redisQueue.CleanupOldFailedJobs(); err != nil {
-		results["old_failed_cleanup"] = map[string]interface{}{
+		results["oldFailedCleanup"] = map[string]interface{}{
 			"success": false,
 			"error":   err.Error(),
 		}
 	} else {
-		results["old_failed_cleanup"] = map[string]interface{}{
+		results["oldFailedCleanup"] = map[string]interface{}{
 			"success": true,
 		}
 	}
 
 	if err := handler.redisQueue.CleanupOldResultKeys(); err != nil {
-		results["old_result_keys_cleanup"] = map[string]interface{}{
+		results["oldResultKeysCleanup"] = map[string]interface{}{
 			"success": false,
 			"error":   err.Error(),
 		}
 	} else {
-		results["old_result_keys_cleanup"] = map[string]interface{}{
+		results["oldResultKeysCleanup"] = map[string]interface{}{
 			"success": true,
 		}
 	}
@@ -616,10 +616,10 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 			// If deduplicated to an existing job, return early
 			if dedupResult.IsDeduplicated {
 				response := map[string]interface{}{
-					"job_id":       dedupResult.JobID,
+					"jobId":        dedupResult.JobID,
 					"status":       "already_queued",
 					"queue":        queueName,
-					"circuit_type": string(proofRequestMeta.CircuitType),
+					"circuitType":  string(proofRequestMeta.CircuitType),
 					"message":      "Proof request with identical input already in queue. Returning existing job ID.",
 					"deduplicated": true,
 				}
@@ -687,11 +687,11 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 				Msg("Enqueued proof job")
 
 			response := map[string]interface{}{
-				"job_id":       jobID,
-				"status":       "queued",
-				"queue":        queueName,
-				"circuit_type": string(proofRequestMeta.CircuitType),
-				"message":      fmt.Sprintf("Job queued in %s", queueName),
+				"jobId":       jobID,
+				"status":      "queued",
+				"queue":       queueName,
+				"circuitType": string(proofRequestMeta.CircuitType),
+				"message":     fmt.Sprintf("Job queued in %s", queueName),
 			}
 
 			w.Header().Set("Content-Type", "application/json")
@@ -822,9 +822,9 @@ func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Requ
 	// If deduplicated to an existing job, return early
 	if dedupResult.IsDeduplicated {
 		response := map[string]interface{}{
-			"job_id":       dedupResult.JobID,
+			"jobId":        dedupResult.JobID,
 			"status":       "already_queued",
-			"circuit_type": string(meta.CircuitType),
+			"circuitType":  string(meta.CircuitType),
 			"queue":        queueName,
 			"message":      "Proof request with identical input already in queue. Returning existing job ID.",
 			"deduplicated": true,
@@ -903,13 +903,13 @@ func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Requ
 	estimatedTime := handler.getEstimatedTime(meta.CircuitType)
 
 	response := map[string]interface{}{
-		"job_id":         jobID,
-		"status":         "queued",
-		"circuit_type":   string(meta.CircuitType),
-		"queue":          queueName,
-		"estimated_time": estimatedTime,
-		"status_url":     fmt.Sprintf("/prove/status?job_id=%s", jobID),
-		"message":        fmt.Sprintf("Proof generation queued for %s circuit. Use status_url to check progress.", meta.CircuitType),
+		"jobId":         jobID,
+		"status":        "queued",
+		"circuitType":   string(meta.CircuitType),
+		"queue":         queueName,
+		"estimatedTime": estimatedTime,
+		"statusUrl":     fmt.Sprintf("/prove/status?jobId=%s", jobID),
+		"message":       fmt.Sprintf("Proof generation queued for %s circuit. Use statusUrl to check progress.", meta.CircuitType),
 	}
 
 	w.Header().Set("Content-Type", "application/json")

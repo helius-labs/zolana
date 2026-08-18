@@ -205,53 +205,47 @@ function optional<T>(
 function context(value: unknown, path: string): IndexerContext {
   // `object` rejects any key not listed here, so a new wire field must be added
   // in the same release that starts sending it.
-  const record = object(value, path, ["block_time", "slot"]);
+  const record = object(value, path, ["blockTime", "slot"]);
   return {
-    blockTime: unboundedI64(record["block_time"], `${path}.block_time`),
+    blockTime: unboundedI64(record["blockTime"], `${path}.blockTime`),
     slot: u64(record["slot"], `${path}.slot`),
   };
 }
 
 function outputContext(value: unknown, path: string): RingsOutputContext {
-  const record = object(value, path, ["hash", "tree", "leaf_index"]);
+  const record = object(value, path, ["hash", "tree", "leafIndex"]);
   return {
     hash: checkedHash(record["hash"], `${path}.hash`),
     tree: checkedAddress(record["tree"], `${path}.tree`),
-    leafIndex: u64(record["leaf_index"], `${path}.leaf_index`),
+    leafIndex: u64(record["leafIndex"], `${path}.leafIndex`),
   };
 }
 
 function outputSlot(value: unknown, path: string): RingsOutputSlot {
-  const record = object(value, path, ["view_tag", "output_context", "payload"]);
+  const record = object(value, path, ["viewTag", "outputContext", "payload"]);
   return {
-    viewTag: checkedHash(record["view_tag"], `${path}.view_tag`),
-    outputContext: outputContext(record["output_context"], `${path}.output_context`),
+    viewTag: checkedHash(record["viewTag"], `${path}.viewTag`),
+    outputContext: outputContext(record["outputContext"], `${path}.outputContext`),
     payload: checkedBase64(record["payload"], `${path}.payload`),
   };
 }
 
 function message(value: unknown, path: string): RingsMessage {
-  const record = object(value, path, ["view_tag", "payload"]);
+  const record = object(value, path, ["viewTag", "payload"]);
   return {
-    viewTag: checkedHash(record["view_tag"], `${path}.view_tag`),
+    viewTag: checkedHash(record["viewTag"], `${path}.viewTag`),
     payload: checkedBase64(record["payload"], `${path}.payload`),
   };
 }
 
 function encryptedUtxoMatch(value: unknown, path: string): EncryptedUtxoMatch {
-  const record = object(value, path, [
-    "slot",
-    "tx_signature",
-    "output_slot",
-    "tx_viewing_pk",
-    "salt",
-  ]);
-  const txViewingPk = optional(record["tx_viewing_pk"], `${path}.tx_viewing_pk`, checkedBase64);
+  const record = object(value, path, ["slot", "txSignature", "outputSlot", "txViewingPk", "salt"]);
+  const txViewingPk = optional(record["txViewingPk"], `${path}.txViewingPk`, checkedBase64);
   const salt = optional(record["salt"], `${path}.salt`, checkedBase64);
   return {
     slot: unboundedU64(record["slot"], `${path}.slot`),
-    txSignature: checkedSignature(record["tx_signature"], `${path}.tx_signature`),
-    outputSlot: outputSlot(record["output_slot"], `${path}.output_slot`),
+    txSignature: checkedSignature(record["txSignature"], `${path}.txSignature`),
+    outputSlot: outputSlot(record["outputSlot"], `${path}.outputSlot`),
     ...(txViewingPk === undefined ? {} : { txViewingPk }),
     ...(salt === undefined ? {} : { salt }),
   };
@@ -260,22 +254,22 @@ function encryptedUtxoMatch(value: unknown, path: string): EncryptedUtxoMatch {
 function indexedTransaction(value: unknown, path: string): IndexedShieldedTransaction {
   const record = object(value, path, [
     "slot",
-    "tx_signature",
-    "tx_viewing_pk",
+    "txSignature",
+    "txViewingPk",
     "salt",
-    "output_slots",
+    "outputSlots",
     "messages",
     "nullifiers",
     "proofless",
   ]);
-  const txViewingPk = optional(record["tx_viewing_pk"], `${path}.tx_viewing_pk`, checkedBase64);
+  const txViewingPk = optional(record["txViewingPk"], `${path}.txViewingPk`, checkedBase64);
   const salt = optional(record["salt"], `${path}.salt`, checkedBase64);
   return {
     slot: unboundedU64(record["slot"], `${path}.slot`),
-    txSignature: checkedSignature(record["tx_signature"], `${path}.tx_signature`),
+    txSignature: checkedSignature(record["txSignature"], `${path}.txSignature`),
     ...(txViewingPk === undefined ? {} : { txViewingPk }),
     ...(salt === undefined ? {} : { salt }),
-    outputSlots: array(record["output_slots"], `${path}.output_slots`, outputSlot),
+    outputSlots: array(record["outputSlots"], `${path}.outputSlots`, outputSlot),
     messages: array(record["messages"], `${path}.messages`, message),
     nullifiers: array(record["nullifiers"], `${path}.nullifiers`, checkedHash),
     proofless: boolean(record["proofless"], `${path}.proofless`),
@@ -286,17 +280,17 @@ function signatureIndexedTransaction(
   value: unknown,
   path: string,
 ): SignatureIndexedShieldedTransaction {
-  const record = object(value, path, ["event_index", "transaction"]);
+  const record = object(value, path, ["eventIndex", "transaction"]);
   return {
-    eventIndex: u16(record["event_index"], `${path}.event_index`),
+    eventIndex: u16(record["eventIndex"], `${path}.eventIndex`),
     transaction: indexedTransaction(record["transaction"], `${path}.transaction`),
   };
 }
 
 function merkleContext(value: unknown, path: string): MerkleProof["merkleContext"] {
-  const record = object(value, path, ["tree_type", "tree"]);
+  const record = object(value, path, ["treeType", "tree"]);
   return {
-    treeType: u16(record["tree_type"], `${path}.tree_type`),
+    treeType: u16(record["treeType"], `${path}.treeType`),
     tree: checkedAddress(record["tree"], `${path}.tree`),
   };
 }
@@ -304,48 +298,48 @@ function merkleContext(value: unknown, path: string): MerkleProof["merkleContext
 function merkleProof(value: unknown, path: string): MerkleProof {
   const record = object(value, path, [
     "leaf",
-    "merkle_context",
+    "merkleContext",
     "path",
-    "leaf_index",
+    "leafIndex",
     "root",
-    "root_seq",
-    "root_index",
+    "rootSeq",
+    "rootIndex",
   ]);
   return {
     leaf: checkedHash(record["leaf"], `${path}.leaf`),
-    merkleContext: merkleContext(record["merkle_context"], `${path}.merkle_context`),
+    merkleContext: merkleContext(record["merkleContext"], `${path}.merkleContext`),
     path: array(record["path"], `${path}.path`, checkedHash),
-    leafIndex: u64(record["leaf_index"], `${path}.leaf_index`),
+    leafIndex: u64(record["leafIndex"], `${path}.leafIndex`),
     root: checkedHash(record["root"], `${path}.root`),
-    rootSeq: unboundedU64(record["root_seq"], `${path}.root_seq`),
-    rootIndex: u16(record["root_index"], `${path}.root_index`),
+    rootSeq: unboundedU64(record["rootSeq"], `${path}.rootSeq`),
+    rootIndex: u16(record["rootIndex"], `${path}.rootIndex`),
   };
 }
 
 function nonInclusionProof(value: unknown, path: string): NonInclusionProof {
   const record = object(value, path, [
     "leaf",
-    "merkle_context",
+    "merkleContext",
     "path",
-    "low_element",
-    "low_element_index",
-    "high_element",
-    "high_element_index",
+    "lowElement",
+    "lowElementIndex",
+    "highElement",
+    "highElementIndex",
     "root",
-    "root_seq",
-    "root_index",
+    "rootSeq",
+    "rootIndex",
   ]);
   return {
     leaf: checkedHash(record["leaf"], `${path}.leaf`),
-    merkleContext: merkleContext(record["merkle_context"], `${path}.merkle_context`),
+    merkleContext: merkleContext(record["merkleContext"], `${path}.merkleContext`),
     path: array(record["path"], `${path}.path`, checkedHash),
-    lowElement: checkedHash(record["low_element"], `${path}.low_element`),
-    lowElementIndex: u64(record["low_element_index"], `${path}.low_element_index`),
-    highElement: checkedHash(record["high_element"], `${path}.high_element`),
-    highElementIndex: u64(record["high_element_index"], `${path}.high_element_index`),
+    lowElement: checkedHash(record["lowElement"], `${path}.lowElement`),
+    lowElementIndex: u64(record["lowElementIndex"], `${path}.lowElementIndex`),
+    highElement: checkedHash(record["highElement"], `${path}.highElement`),
+    highElementIndex: u64(record["highElementIndex"], `${path}.highElementIndex`),
     root: checkedHash(record["root"], `${path}.root`),
-    rootSeq: unboundedU64(record["root_seq"], `${path}.root_seq`),
-    rootIndex: u16(record["root_index"], `${path}.root_index`),
+    rootSeq: unboundedU64(record["rootSeq"], `${path}.rootSeq`),
+    rootIndex: u16(record["rootIndex"], `${path}.rootIndex`),
   };
 }
 
@@ -407,13 +401,13 @@ export function encodeShieldedTransactionsBySignatureRequest(
   value: GetShieldedTransactionsBySignatureRequest,
 ): WireObject {
   return {
-    tx_signature: checkedSignature(value.txSignature, "$.tx_signature"),
+    txSignature: checkedSignature(value.txSignature, "$.txSignature"),
   };
 }
 
 export function decodeEncryptedUtxosResponse(value: unknown): GetEncryptedUtxosByTagsResponse {
-  const record = object(value, "$", ["context", "matches", "next_cursor"]);
-  const nextCursor = optional(record["next_cursor"], "$.next_cursor", checkedBase64);
+  const record = object(value, "$", ["context", "matches", "nextCursor"]);
+  const nextCursor = optional(record["nextCursor"], "$.nextCursor", checkedBase64);
   return {
     context: context(record["context"], "$.context"),
     matches: array(record["matches"], "$.matches", encryptedUtxoMatch),
@@ -424,8 +418,8 @@ export function decodeEncryptedUtxosResponse(value: unknown): GetEncryptedUtxosB
 export function decodeShieldedTransactionsResponse(
   value: unknown,
 ): GetShieldedTransactionsByTagsResponse {
-  const record = object(value, "$", ["context", "transactions", "next_cursor"]);
-  const nextCursor = optional(record["next_cursor"], "$.next_cursor", checkedBase64);
+  const record = object(value, "$", ["context", "transactions", "nextCursor"]);
+  const nextCursor = optional(record["nextCursor"], "$.nextCursor", checkedBase64);
   return {
     context: context(record["context"], "$.context"),
     transactions: array(record["transactions"], "$.transactions", indexedTransaction),
@@ -450,9 +444,9 @@ export function decodeShieldedTransactionsBySignatureResponse(
 }
 
 function decodeLeavesRequest(value: unknown): GetMerkleProofsRequest {
-  const record = object(value, "$", ["tree_account", "leaves"]);
+  const record = object(value, "$", ["treeAccount", "leaves"]);
   return {
-    treeAccount: checkedAddress(record["tree_account"], "$.tree_account"),
+    treeAccount: checkedAddress(record["treeAccount"], "$.treeAccount"),
     leaves: array(record["leaves"], "$.leaves", checkedHash),
   };
 }
@@ -461,10 +455,10 @@ function encodeLeavesRequest(
   value: GetMerkleProofsRequest | GetNonInclusionProofsRequest,
 ): WireObject {
   decodeLeavesRequest({
-    tree_account: value.treeAccount,
+    treeAccount: value.treeAccount,
     leaves: value.leaves,
   });
-  return { tree_account: value.treeAccount, leaves: [...value.leaves] };
+  return { treeAccount: value.treeAccount, leaves: [...value.leaves] };
 }
 
 export function encodeMerkleProofsRequest(value: GetMerkleProofsRequest): WireObject {

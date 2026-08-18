@@ -302,7 +302,7 @@ function convertEncryptedUtxosResponse(
     ),
     ...(response.nextCursor === undefined
       ? {}
-      : { nextCursor: decodeBase64(response.nextCursor, "next_cursor") }),
+      : { nextCursor: decodeBase64(response.nextCursor, "nextCursor") }),
   });
 }
 
@@ -335,7 +335,7 @@ function convertShieldedTransactionsResponse(
     ),
     ...(response.nextCursor === undefined
       ? {}
-      : { nextCursor: decodeBase64(response.nextCursor, "next_cursor") }),
+      : { nextCursor: decodeBase64(response.nextCursor, "nextCursor") }),
   });
 }
 

@@ -56,8 +56,8 @@ func TestMarkJobProcessingIsVisibleWithoutScanningQueues(t *testing.T) {
 	}
 	// The fields written at submission have to survive the update -- the status
 	// response still reports them.
-	if got := meta["circuit_type"]; got != "transfer" {
-		t.Fatalf("circuit_type = %v, want transfer", got)
+	if got := meta["circuitType"]; got != "transfer" {
+		t.Fatalf("circuitType = %v, want transfer", got)
 	}
 	if got := meta["queue"]; got != "zk_transfer_queue" {
 		t.Fatalf("queue = %v, want zk_transfer_queue", got)
@@ -123,8 +123,8 @@ func TestMarkJobFailedCarriesTheReason(t *testing.T) {
 		t.Fatalf("store job meta: %v", err)
 	}
 	details := map[string]interface{}{
-		"error":     "proof generation failed",
-		"failed_at": time.Now(),
+		"error":    "proof generation failed",
+		"failedAt": time.Now(),
 	}
 	if err := queue.MarkJobFailed(jobID, details); err != nil {
 		t.Fatalf("mark failed: %v", err)
