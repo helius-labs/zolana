@@ -591,7 +591,7 @@ paths:
                         oneOf:
                         - type: 'null'
                         - $ref: '#/components/schemas/Base64String'
-                      scanned_through:
+                      scannedThrough:
                         oneOf:
                         - type: 'null'
                         - $ref: '#/components/schemas/Base64String'

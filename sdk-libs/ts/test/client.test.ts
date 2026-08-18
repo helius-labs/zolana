@@ -388,10 +388,10 @@ describe("ZolanaClient", () => {
             id: "test-account",
             jsonrpc: "2.0",
             result: {
-              context: { block_time: 1, slot: 1 },
+              context: { blockTime: 1, slot: 1 },
               transactions: [],
-              next_cursor: null,
-              scanned_through: "Aw==",
+              nextCursor: null,
+              scannedThrough: "Aw==",
             },
           }),
           { headers: { "content-type": "application/json" } },

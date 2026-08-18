@@ -349,7 +349,7 @@ function convertShieldedTransactionsByNullifiersResponse(
     ...convertShieldedTransactionsResponse(response, method),
     ...(response.scannedThrough === undefined
       ? {}
-      : { scannedThrough: decodeBase64(response.scannedThrough, "scanned_through") }),
+      : { scannedThrough: decodeBase64(response.scannedThrough, "scannedThrough") }),
   });
 }
 

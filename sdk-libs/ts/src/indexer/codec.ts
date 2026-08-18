@@ -432,9 +432,9 @@ export function decodeShieldedTransactionsByNullifiersResponse(
 ): GetShieldedTransactionsByNullifiersResponse {
   // Not `decodeShieldedTransactionsResponse`: `object` rejects any key it was
   // not told about, and this response carries one more.
-  const record = object(value, "$", ["context", "transactions", "next_cursor", "scanned_through"]);
-  const nextCursor = optional(record["next_cursor"], "$.next_cursor", checkedBase64);
-  const scannedThrough = optional(record["scanned_through"], "$.scanned_through", checkedBase64);
+  const record = object(value, "$", ["context", "transactions", "nextCursor", "scannedThrough"]);
+  const nextCursor = optional(record["nextCursor"], "$.nextCursor", checkedBase64);
+  const scannedThrough = optional(record["scannedThrough"], "$.scannedThrough", checkedBase64);
   return {
     context: context(record["context"], "$.context"),
     transactions: array(record["transactions"], "$.transactions", indexedTransaction),
