@@ -1,13 +1,19 @@
 //! Reading ring transactions by the auditor tag and opening them.
 
-use std::{collections::HashMap, future::Future, sync::Mutex};
+use std::{collections::HashMap, future::Future, sync::Mutex, time::Duration};
 
 use jsonrpsee::types::{error::ErrorCode, ErrorObjectOwned};
-use log::error;
+use log::{error, warn};
 use solana_address::Address;
+use solana_commitment_config::CommitmentConfig;
+use solana_rpc_client::nonblocking::rpc_client::RpcClient as NonblockingRpcClient;
+use solana_rpc_client_api::config::RpcTransactionConfig;
 use solana_signature::Signature;
-use solana_transaction_status_client_types::{EncodedTransaction, UiMessage, UiTransaction};
+use solana_transaction_status_client_types::{
+    EncodedTransaction, UiMessage, UiTransaction, UiTransactionEncoding,
+};
 use thiserror::Error;
+use zolana_api::ZolanaApi;
 use zolana_client::{
     AsyncRpc, AsyncSolanaRpc, AsyncZolanaIndexer, ClientError,
     GetShieldedTransactionsByTagsResponse,
@@ -41,8 +47,33 @@ pub trait TransactionSource: Send + Sync {
 
 /// The production source: a Photon indexer plus the Solana RPC it follows.
 pub struct ChainSource {
-    pub indexer: AsyncZolanaIndexer,
-    pub rpc: AsyncSolanaRpc,
+    indexer: AsyncZolanaIndexer,
+    rpc: AsyncSolanaRpc,
+}
+
+impl ChainSource {
+    /// Every upstream call is bounded by `timeout`, so a stalled indexer or RPC
+    /// turns into an error instead of a hung request.
+    pub fn new(indexer_url: &str, rpc_url: &str, timeout: Duration) -> Result<Self, ClientError> {
+        let http = reqwest::Client::builder()
+            .timeout(timeout)
+            .build()
+            .map_err(|error| ClientError::Rpc(format!("http client: {error}")))?;
+        Ok(Self {
+            indexer: AsyncZolanaIndexer::with_api(ZolanaApi::with_client(indexer_url, http)),
+            rpc: AsyncSolanaRpc::with_client(
+                NonblockingRpcClient::new_with_timeout_and_commitment(
+                    rpc_url.to_owned(),
+                    timeout,
+                    CommitmentConfig::confirmed(),
+                ),
+            ),
+        })
+    }
+
+    pub fn rpc(&self) -> &AsyncSolanaRpc {
+        &self.rpc
+    }
 }
 
 impl TransactionSource for ChainSource {
@@ -57,10 +88,28 @@ impl TransactionSource for ChainSource {
             .get_shielded_transactions_by_tags(vec![tag], cursor, limit, None)
     }
 
-    // The RPC client asks for the JSON encoding, whose raw message lists the
-    // static keys with the signers first.
+    // One read of the confirmed transaction: the JSON encoding lists the static
+    // keys with the signers first. The audit itself comes from the indexer;
+    // signers are enrichment, so an RPC that no longer holds the transaction
+    // (a pruned ledger) leaves them empty instead of failing the page.
     async fn signers(&self, signature: Signature) -> Result<Vec<Address>, ClientError> {
-        let confirmed = self.rpc.fetch_confirmed_transaction(&signature).await?;
+        let config = RpcTransactionConfig {
+            encoding: Some(UiTransactionEncoding::Json),
+            commitment: Some(CommitmentConfig::confirmed()),
+            max_supported_transaction_version: Some(0),
+        };
+        let confirmed = match self
+            .rpc
+            .client()
+            .get_transaction_with_config(&signature, config)
+            .await
+        {
+            Ok(confirmed) => confirmed,
+            Err(error) => {
+                warn!("signers of {signature} unavailable from the rpc: {error}");
+                return Ok(Vec::new());
+            }
+        };
         let EncodedTransaction::Json(UiTransaction {
             message: UiMessage::Raw(message),
             ..
@@ -114,12 +163,15 @@ impl From<RingRpcError> for ErrorObjectOwned {
 
 /// The auditor key plus a transaction source. Every method reads one page and
 /// opens what the key can open.
+/// Confirmed transactions never change signers, so one fetch per signature is
+/// enough; the map is bounded so a long-running instance stays flat.
+const SIGNER_CACHE_ENTRIES: usize = 4096;
+
 pub struct AuditService<S> {
     auditor: ViewingKey,
     view_tag: [u8; 32],
     source: S,
     assets: AssetRegistry,
-    /// Signers never change once a transaction is confirmed.
     signers: Mutex<HashMap<Signature, Vec<Address>>>,
 }
 
@@ -135,15 +187,31 @@ impl<S: TransactionSource> AuditService<S> {
         }
     }
 
+    /// The indexer answers and is this ring's source of truth. Used by
+    /// readiness so a stale instance is taken out of rotation.
+    pub async fn probe_indexer(&self) -> Result<u64, RingRpcError> {
+        let page = self
+            .source
+            .transactions_by_tag(self.view_tag, None, Some(1))
+            .await?;
+        Ok(page.context.slot)
+    }
+
     async fn signers(&self, signature: Signature) -> Result<Vec<Address>, ClientError> {
         if let Some(cached) = self.cached_signers(signature) {
             return Ok(cached);
         }
         let signers = self.source.signers(signature).await?;
-        self.signers
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .insert(signature, signers.clone());
+        if !signers.is_empty() {
+            let mut cache = self
+                .signers
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if cache.len() >= SIGNER_CACHE_ENTRIES {
+                cache.clear();
+            }
+            cache.insert(signature, signers.clone());
+        }
         Ok(signers)
     }
 

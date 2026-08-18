@@ -17,6 +17,7 @@ use zolana_ring_rpc::{
         GET_DECRYPTED_TRANSACTIONS, HEALTH,
     },
     audit::{AuditService, RingRpcError, TransactionSource},
+    page::AuditorPage,
     server::rpc_module,
 };
 use zolana_transaction::{
@@ -273,4 +274,42 @@ async fn rpc_methods_answer_over_the_module() {
         .expect("decrypted transactions");
     assert_eq!(page.value.items.len(), 1);
     assert_eq!(page.value.skipped.len(), 1);
+}
+
+#[tokio::test]
+async fn the_auditor_page_shows_from_and_to() {
+    let fixture = fixture();
+    let service = service(&fixture, None);
+    let page = service
+        .decrypted_transactions(None, Some(10))
+        .await
+        .expect("page");
+    let html = AuditorPage {
+        auditor_view_tag: service.auditor_view_tag().into(),
+        page: &page,
+        cursor: None,
+    }
+    .render()
+    .into_string();
+
+    let recipient_hex = hex::encode(fixture.recipient.as_bytes());
+    assert!(html.contains("<!DOCTYPE html>"));
+    assert!(html.contains("1 transaction"), "{html}");
+    assert!(
+        html.contains(&recipient_hex),
+        "recipient viewing key is the to"
+    );
+    assert!(
+        html.contains(&Address::new_from_array([1u8; 32]).to_string()),
+        "signer is the from"
+    );
+    assert!(html.contains("500 (0.0000005 SOL)"), "{html}");
+    assert!(
+        html.contains("Skipped"),
+        "the foreign-key transaction is listed"
+    );
+    assert!(
+        html.contains("http-equiv=\"refresh\""),
+        "newest page refreshes"
+    );
 }

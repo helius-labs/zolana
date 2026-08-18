@@ -144,9 +144,12 @@ ring-localnet: build-programs build-prover-server build-cli ensure-photon ensure
     # The test validator activates SIMD-0500 (no new SBPF v0 deployments) by
     # default; the ring deploys through `solana program deploy` like on devnet
     # and mainnet, where v0 deployments are still accepted, so it is turned off.
+    # The ledger keeps enough shreds for a session, so the ring RPC can still
+    # read a transaction's signers minutes after it landed.
     "$bin" dev start --no-use-surfpool \
       --rpc-port {{localnet-rpc-port}} --prover-port {{localnet-prover-port}} \
       --photon-port {{localnet-photon-port}} --account-dir "$accounts_dir" \
+      --limit-ledger-size 5000000 \
       --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so \
       --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so \
       -- --deactivate-feature B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g
