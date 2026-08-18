@@ -36,7 +36,8 @@ mod entrypoint {
     pinocchio::entrypoint!(crate::process_instruction);
 }
 
-pinocchio::address::declare_id!("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
+// `declare_id!` of the build-time program id, see `build.rs`.
+include!(concat!(env!("OUT_DIR"), "/program_id.rs"));
 
 pub fn process_instruction(
     program_id: &Address,

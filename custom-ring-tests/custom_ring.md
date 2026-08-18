@@ -39,8 +39,11 @@ the recipients see. That is why the circuit needs no per-output witnesses and no
 9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh
 ```
 
-Provisioned exactly like the other `sdk-tests` examples: a literal in
-`pinocchio::address::declare_id!`, with no keypair committed to the repository.
+The default of a build-time input: `build.rs` reads `CUSTOM_RING_PROGRAM_ID` and
+writes the `declare_id!` the crate includes, so a ring generated from
+`templates/custom-ring` pins its own address through Cargo `[env]` without
+editing sources. With the variable unset the example is provisioned like the
+other `sdk-tests` examples: no keypair committed to the repository.
 `cargo build-sbf` writes `target/deploy/custom_ring_program.so` plus a throwaway
 `target/deploy/custom_ring_program-keypair.json` (both gitignored), and the
 localnet harness deploys the `.so` at the `declare_id!` address rather than at the
@@ -54,6 +57,7 @@ id above; this example never performs one.
 | `program` | `custom-ring-program` | Pinocchio program: instructions, proof verification, verifying keys, instruction data, tags, errors, canonical public-input hashing. |
 | `prover` | `custom-ring-prover` | Go gnark circuit, cgo bindings, proof-input containers, setup binary. |
 | `sdk` | `custom-ring-sdk` | Instruction builders, proof-input builders, prover client. Re-exports the auditor encryption codec. |
+| `cli` | `custom-ring-cli` | Operator flows a generated ring runs (`deploy`, `init`, `transact`, `status`) and the audited transfer used by the tests. |
 | `test` | `custom-ring-test-validator` | Localnet end-to-end tests. |
 
 ### The auditor side lives outside the example
@@ -225,8 +229,14 @@ five owner signers and several settlement legs exceeds any small static bound.
 
 `services/ring-rpc` holds the auditor viewing key and serves
 `getDecryptedTransactions` over JSON-RPC, reading Photon by the auditor view tag
-and opening each transaction with `zolana-ring-client`. One ring per instance, no
-request authentication yet.
+and opening each transaction with `zolana-ring-client`. `ring-rpc keygen` creates
+the key in place. One ring per instance, no request authentication yet.
+
+## Template
+
+`templates/custom-ring` generates a ring repository over these crates; see
+`templates/README.md`. `just ring-new` runs the wizard, the generated `justfile`
+runs the pipeline against a local validator (`just ring-localnet`) or devnet.
 
 ## Future Work
 - rust prover server to make local testing performant (keep it separate from go prover server)

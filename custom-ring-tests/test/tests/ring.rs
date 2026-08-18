@@ -20,55 +20,51 @@ use std::{
 };
 
 use anyhow::{anyhow, Context, Result};
+use custom_ring_cli::{
+    lookup_table::send_v0_with_lookup_table,
+    transfer::{
+        assemble_ring_eddsa_ix_data, ring_deposit_sol, ring_spend_inputs, ring_transact_ix,
+    },
+};
 use custom_ring_program::{
     error::CustomRingError,
     state::{RingProgramConfig, RING_PROGRAM_CONFIG},
 };
 use custom_ring_sdk::{
-    auditor_view_tag, config_pda, ring_auth_pda, to_instruction_proof, AuditProof,
-    AuditProofParams, CreateConfig, CustomRingProverClient, Deposit, InitSppRingConfig,
-    RingTransactWithAudit, CONFIG_PDA_SEED, PROGRAM_ID,
+    auditor_view_tag, config_pda, ring_auth_pda, to_instruction_proof, AuditProofParams,
+    CreateConfig, CustomRingProverClient, InitSppRingConfig, CONFIG_PDA_SEED, PROGRAM_ID,
 };
-use shared::{
-    custom_ring_program_id, prover_url, send, send_v0_expecting_rejection,
-    send_v0_with_lookup_table, setup,
-};
+use shared::{custom_ring_program_id, prover_url, send, send_v0_expecting_rejection, setup};
 use solana_address::Address;
-use solana_instruction::Instruction;
 use solana_signer::Signer;
 use zolana_client::{
-    ProverClient, RingTransferProofResult, RingTransferProver, Rpc, Shape, SolanaRpc, SpendProof,
-    SppProofInputUtxo, SppProofInputs, TransferSpendInput,
+    ProofCompressed, ProverClient, RingTransferProver, Rpc, Shape, SppProofInputUtxo,
+    SppProofInputs,
 };
 use zolana_interface::{
-    instruction::{
-        tag::RING_TRANSACT, CircuitId, DepositAsset, InputUtxo, RingAssetDeposit, TransactIxData,
-        TransactProof,
-    },
+    instruction::tag::RING_TRANSACT,
     pda,
     state::{
         discriminator::{PROTOCOL_CONFIG, RING_CONFIG, TREE_ACCOUNT_DISCRIMINATOR},
         tree_account_size, ProtocolConfig, RingConfig,
     },
-    N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
+    SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey};
+use zolana_keypair::ViewingKey;
 use zolana_program_test::Rejection;
 use zolana_ring_client::{audit_ring_transactions, AuditedOutput};
 use zolana_test_utils::{
     smart_account,
     test_validator_asserts::{
         assert_account_unchanged, assert_transaction_compute_units, fetch_account, fetch_state,
-        wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
+        wait_for_indexed_transaction,
     },
-    transact::pack_transact_proof,
 };
 use zolana_transaction::{
     instructions::transact::{
         encrypt_transaction_data, get_transaction_viewing_key, ExternalData, SppProofOutputUtxo,
     },
-    owner_utxo_hash, Data, LocalWalletAuthority, RingDepositPlaintext, Utxo, DEFAULT_TAG_WINDOW,
-    SOL_ASSET_ID, SOL_MINT,
+    LocalWalletAuthority, DEFAULT_TAG_WINDOW, SOL_ASSET_ID, SOL_MINT,
 };
 use zolana_tree::TreeAccount;
 use zolana_user_registry_interface::user_registry_program_id;
@@ -105,9 +101,6 @@ const RECIPIENT_SLOT: u32 = 1;
 /// (`eph_pk_compressed(33) || ciphertext(32)`), i.e. the first byte the negative
 /// case tampers with.
 const AUDITOR_CIPHERTEXT_OFFSET: usize = 33;
-
-/// A UTXO's `data_hash` / `ring_data_hash` when it carries neither.
-const ZERO: [u8; 32] = [0u8; 32];
 
 /// Local-validator baseline for the audited (2, 2) transact, measured
 /// 2026-08-18: 405,169 CU, the ring's BSB22 audit verification plus SPP's
@@ -251,6 +244,7 @@ fn localnet_bring_up_is_live() -> Result<()> {
     send_v0_with_lookup_table(
         rpc,
         &env.payer,
+        &[],
         solana_system_interface::instruction::transfer(
             &env.payer.pubkey(),
             &recipient,
@@ -353,12 +347,14 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
     //    is rebuilt without needing a wallet sync here.
     let mut spendable = Vec::with_capacity(2);
     for amount in [RING_DEPOSIT_A, RING_DEPOSIT_B] {
-        spendable.push(ring_deposit_sol(
+        let (_, utxo) = ring_deposit_sol(
             rpc,
+            &env.sender.keypair,
             &env.sender.keypair,
             env.tree,
             amount,
-        )?);
+        )?;
+        spendable.push(utxo);
     }
 
     // 5a. Spends and the transaction viewing key. That key is the audit's whole
@@ -441,7 +437,8 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
     }
     .build()?;
     let spp_proof =
-        pack_transact_proof(&ProverClient::local().prove_transfer_ring(&ring_result.inputs)?)?;
+        ProofCompressed::try_from(ProverClient::local().prove_transfer_ring(&ring_result.inputs)?)?
+            .to_transact_proof();
 
     // 5e. Now the real `private_tx_hash` exists, so the pending encryption can be
     //     finished into a witness over the unchanged ciphertext. The program
@@ -491,6 +488,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
     let signature = send_v0_with_lookup_table(
         rpc,
         &env.sender.keypair,
+        &[],
         ring_transact_ix(sender_address, env.tree, owner_signers, audit_proof, data)?,
     )?;
     assert_transaction_compute_units(
@@ -584,175 +582,6 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
     );
 
     Ok(())
-}
-
-/// Ring-deposit `amount` of SOL to `keypair`'s shielded address through the
-/// custom-ring program, returning the ring-owned UTXO it created.
-///
-/// Mirrors `program-tests/test-utils/src/ring/ring_deposit.rs::ring_shield_sol`:
-/// the public face of a ring deposit carries only the `owner_utxo_hash`
-/// commitment and the recipient bootstrap view tag, while the blinding travels in
-/// an envelope encrypted to the recipient's viewing key. The ring proves nothing
-/// here -- deposit amounts are public on chain -- so the program only lends its
-/// `ring_auth` signature and forwards the instruction.
-fn ring_deposit_sol(
-    rpc: &SolanaRpc,
-    keypair: &ShieldedKeypair,
-    tree: Address,
-    amount: u64,
-) -> Result<Utxo> {
-    let blinding = random_blinding();
-    let deposit = RingAssetDeposit {
-        asset: DepositAsset::Sol,
-        view_tag: keypair.recipient_bootstrap_view_tag(),
-        owner_utxo_hash: owner_utxo_hash(&keypair.owner_hash()?, &blinding)?,
-        amount,
-        data_hash: None,
-        ring_data_hash: ZERO,
-        encrypted: RingDepositPlaintext {
-            blinding,
-            utxo_data: None,
-            memo: None,
-            ring_data: Vec::new(),
-        }
-        .encrypt(&keypair.viewing_pubkey())?,
-    };
-    let ix = Deposit {
-        tree,
-        depositor: keypair.pubkey(),
-        deposits: vec![deposit],
-    }
-    .instruction()
-    .map_err(|e| anyhow!("ring deposit instruction: {e}"))?;
-    send(rpc, keypair, &[ix])?;
-
-    Ok(Utxo {
-        owner: keypair.signing_pubkey(),
-        asset: SOL_MINT,
-        amount,
-        blinding,
-        // A ring deposit's output is owned by the ring, and that binds the ring
-        // into the UTXO hash the transfer proof spends.
-        ring_program_id: Some(PROGRAM_ID),
-        data: Data::default(),
-    })
-}
-
-/// Fetch the state and non-inclusion witnesses every spend needs, waiting for the
-/// indexer to catch up with the deposits. Mirrors
-/// `program-tests/test-utils/src/ring/ring_transact.rs::ring_spend_inputs`; the
-/// (2, 3) shape here is filled by two real inputs, so a padded slot would mean
-/// the transfer was built differently than intended.
-fn ring_spend_inputs<I: Rpc>(
-    indexer: &I,
-    tree: Address,
-    spends: &[SppProofInputUtxo],
-) -> Result<Vec<TransferSpendInput>> {
-    let mut inputs = Vec::with_capacity(spends.len());
-    for spend in spends {
-        if spend.is_dummy() {
-            return Err(anyhow!(
-                "the audited transfer spends two real ring UTXOs; no dummy input slot expected"
-            ));
-        }
-        let nullifier_pk = spend.nullifier_key.pubkey()?;
-        let utxo_hash = spend.utxo.hash(&nullifier_pk, &ZERO, &ZERO)?;
-        let nullifier = spend
-            .nullifier_key
-            .nullifier(&utxo_hash, &spend.utxo.blinding)?;
-        inputs.push(TransferSpendInput {
-            utxo: spend.utxo.clone(),
-            nullifier_key: spend.nullifier_key.clone(),
-            data_hash: None,
-            ring_data_hash: None,
-            proof: Some(SpendProof {
-                state: wait_for_merkle_proof(indexer, tree, utxo_hash),
-                nullifier: wait_for_non_inclusion_proof(indexer, tree, nullifier),
-            }),
-            nullifier_proof: None,
-        });
-    }
-    Ok(inputs)
-}
-
-/// Fold the signed transaction's external data and the ring prover's result into
-/// the `TransactIxData` SPP verifies. Mirrors
-/// `program-tests/test-utils/src/ring/ring_transact.rs::assemble_ix_data`,
-/// reduced to the eddsa rail this ring supports: `external_data` fields flow
-/// through unchanged (already rebound to `RING_TRANSACT` and already carrying the
-/// auditor message), and authorization comes from the leading signer run in the
-/// account list rather than from any per-input field.
-fn assemble_ring_eddsa_ix_data(
-    proof_inputs: &SppProofInputs,
-    result: &RingTransferProofResult,
-    proof: TransactProof,
-) -> Result<TransactIxData> {
-    let n_inputs = proof_inputs.check_shape()?.n_inputs();
-    let inputs: Vec<InputUtxo> = result
-        .nullifiers
-        .iter()
-        .zip(result.input_root_indices.iter())
-        .map(
-            |(nullifier_hash, &(utxo_tree_root_index, nullifier_tree_root_index))| InputUtxo {
-                nullifier_hash: *nullifier_hash,
-                nullifier_tree_root_index,
-                utxo_tree_root_index,
-            },
-        )
-        .collect();
-    if inputs.len() != n_inputs {
-        return Err(anyhow!(
-            "prover returned {} nullifier/root-index pairs for shape {n_inputs}",
-            inputs.len()
-        ));
-    }
-
-    let external = &proof_inputs.external_data;
-    Ok(TransactIxData {
-        proof,
-        expiry_unix_ts: external.expiry_unix_ts,
-        private_tx_hash: result.private_tx_hash,
-        circuit: CircuitId::RingEddsa(
-            n_inputs as u8,
-            external.outputs.len() as u8,
-            N_PUBLIC_SLOTS as u8,
-        ),
-        inputs,
-        interface_transfers: external
-            .interface_transfers
-            .iter()
-            .map(|transfer| transfer.interface_transfer())
-            .collect(),
-        data_hash: external.data_hash,
-        ring_data_hash: external.ring_data_hash,
-        tx_viewing_pk: external.tx_viewing_pk,
-        salt: external.salt,
-        outputs: external.outputs.clone(),
-        messages: external.messages.clone(),
-    })
-}
-
-/// The audited ring transact instruction. `ring_config` (the ring's `ring_auth`
-/// PDA) stays unsigned here; the program flips it to a signer inside its CPI.
-fn ring_transact_ix(
-    payer: Address,
-    tree: Address,
-    owner_signers: Vec<Address>,
-    audit_proof: AuditProof,
-    transact: TransactIxData,
-) -> Result<Instruction> {
-    let ix = RingTransactWithAudit {
-        payer,
-        input_tree: tree,
-        output_tree: tree,
-        owner_signers,
-        interface_transfer_accounts: Vec::new(),
-        audit_proof,
-        transact,
-    }
-    .instruction()
-    .map_err(|e| anyhow!("ring transact instruction: {e}"))?;
-    Ok(ix)
 }
 
 fn lamports<R: Rpc>(rpc: &R, address: Address) -> Result<u64> {
