@@ -42,6 +42,8 @@ solana-transaction-error = { workspace = true }
 toml = { workspace = true }
 zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
 zolana-interface = { workspace = true, features = ["solana"] }
+zolana-indexer-api = { workspace = true }
 zolana-keypair = { workspace = true }
+zolana-ring-client = { workspace = true }
 zolana-ring-rpc = { workspace = true }
 zolana-transaction = { workspace = true }

@@ -54,6 +54,8 @@ pub enum Command {
     Init(InitArgs),
     /// Two ring deposits and one audited transfer, read back from the ring RPC.
     Transact(TransactArgs),
+    /// Confirm the ring RPC in `ring.toml` is up and holds this ring's auditor key.
+    RpcCheck,
 }
 
 #[derive(Debug, Args)]
@@ -140,14 +142,20 @@ pub fn run(cli: Cli) -> Result<()> {
             );
             Ok(())
         }
+        Command::RpcCheck => {
+            let auditor_pk = configured_auditor_pk(&rpc)?;
+            RingRpc::new(&config.urls.ring_rpc).check_serves(&auditor_pk)?;
+            println!("ring rpc    {} serves this ring", config.urls.ring_rpc);
+            Ok(())
+        }
         Command::Transact(args) => {
             let authority = config.authority()?;
             fund_on_localnet(&config, &mut rpc, authority.pubkey())?;
-            let auditor_pk = P256Pubkey::from_bytes(
-                init::read_config(&rpc)?
-                    .ok_or_else(|| anyhow!("ring config not created, run `init` first"))?
-                    .auditor_pubkey,
-            )?;
+            let auditor_pk = configured_auditor_pk(&rpc)?;
+            // Before proving: an RPC holding another ring's key would leave the
+            // readback below waiting for a transaction it can never open.
+            let ring_rpc = RingRpc::new(&config.urls.ring_rpc);
+            ring_rpc.check_serves(&auditor_pk)?;
             let indexer = ZolanaIndexer::new(&config.urls.indexer);
             let prover = ProverClient::new(config.urls.prover.clone());
             let receipt = AuditedTransfer {
@@ -162,6 +170,16 @@ pub fn run(cli: Cli) -> Result<()> {
                 amount: args.amount,
             }
             .run()?;
+            println!(
+                "sender      {}  viewing pk {}",
+                receipt.sender.pubkey(),
+                hex::encode(receipt.sender.viewing_pubkey().as_bytes())
+            );
+            println!(
+                "recipient   {}  viewing pk {}",
+                receipt.recipient.pubkey(),
+                hex::encode(receipt.recipient.viewing_pubkey().as_bytes())
+            );
             for signature in &receipt.deposits {
                 println!("deposit     {signature}");
             }
@@ -169,15 +187,26 @@ pub fn run(cli: Cli) -> Result<()> {
             for line in program_logs(&rpc, &receipt.transact)? {
                 println!("  log       {line}");
             }
+            println!("waiting for the indexer and the ring rpc to open the transaction");
             wait_for_indexed_transaction(&indexer, receipt.transact)?;
-
-            let ring_rpc = RingRpc::new(&config.urls.ring_rpc);
             let opened = ring_rpc.wait_for_decrypted(receipt.transact)?;
             println!("auditor sees slot {} at {}", opened.slot, receipt.transact);
+            println!(
+                "  from      {}",
+                opened
+                    .signers
+                    .iter()
+                    .map(|signer| signer.0.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
             for output in &opened.outputs {
                 println!(
-                    "  slot {}  asset {}  amount {}",
-                    output.slot_index, output.asset.0, output.amount
+                    "  slot {}  to {}  asset {}  amount {}",
+                    output.slot_index,
+                    hex::encode(&output.recipient_viewing_pk.0),
+                    output.asset.0,
+                    output.amount
                 );
             }
             if !opened.undecryptable_slots.is_empty() {
@@ -201,6 +230,15 @@ fn program_logs(rpc: &SolanaRpc, signature: &solana_signature::Signature) -> Res
         .into_iter()
         .filter_map(|line| line.strip_prefix("Program log: ").map(str::to_owned))
         .collect())
+}
+
+/// The auditor key `create_config` recorded on chain.
+fn configured_auditor_pk(rpc: &SolanaRpc) -> Result<P256Pubkey> {
+    Ok(P256Pubkey::from_bytes(
+        init::read_config(rpc)?
+            .ok_or_else(|| anyhow!("ring config not created, run `init` first"))?
+            .auditor_pubkey,
+    )?)
 }
 
 fn default_program_so(name: &str) -> PathBuf {

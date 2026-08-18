@@ -67,20 +67,32 @@ transact:
 status:
     cargo run -q -p {{project-name}} -- status
 
-# Steps 3 to 7 in one go. The ring RPC runs in the background for the transfer
-# unless one already answers at its URL.
+# Steps 3 to 7 in one go. The ring RPC is started in the background if none
+# answers at its URL, and stays up afterwards for the auditor UI (`just
+# rpc-stop` ends it; its log is .localnet/ring-rpc.log).
 pipeline: build deploy init
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p .localnet
-    if ! curl -sf {{ring_rpc_url}}/health >/dev/null 2>&1; then
-        just rpc > {{ "{{ring-rpc-log}}" }} 2>&1 &
-        rpc_pid=$!
-        trap 'kill $rpc_pid 2>/dev/null || true' EXIT
+    # An RPC already answering must be this ring's: rings generated on the same
+    # machine share the default port, and a foreign RPC can open nothing here.
+    if curl -sf {{ring_rpc_url}}/health >/dev/null 2>&1; then
+        cargo run -q -p {{project-name}} -- rpc-check
+    else
+        nohup just rpc > {{ "{{ring-rpc-log}}" }} 2>&1 &
+        echo $! > .localnet/ring-rpc.pid
         for _ in $(seq 1 180); do
             if curl -sf {{ring_rpc_url}}/health >/dev/null 2>&1; then break; fi
             sleep 1
         done
         curl -sf {{ring_rpc_url}}/health >/dev/null
+        echo "ring rpc listening at {{ring_rpc_url}} (log {{ "{{ring-rpc-log}}" }}, stop with 'just rpc-stop')"
     fi
     just transact
+
+# Stop a ring RPC started by `just pipeline`.
+rpc-stop:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    lsof -ti "tcp:{{ring_rpc_port}}" 2>/dev/null | xargs kill 2>/dev/null || true
+    rm -f .localnet/ring-rpc.pid
