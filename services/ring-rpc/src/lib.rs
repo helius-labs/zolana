@@ -3,14 +3,16 @@
 //! One instance serves one ring. It holds the ring's auditor viewing key, reads
 //! ring transactions from a Photon indexer by the auditor view tag, recovers each
 //! transaction's viewing key from the auditor message, and returns the opened
-//! output slots over JSON-RPC ([`api`]). Decryption happens on read; the key
-//! never leaves the process.
+//! output slots over JSON-RPC ([`api`]) and as a server-rendered page ([`page`]).
+//! Decryption happens on read; the key never leaves the process.
 //!
-//! The scaffold has no request authentication and no per-user scoping. The
-//! signed `get_decrypted_*_by_owner` methods of the spec's Ring RPC section
-//! build on this service.
+//! There is no request authentication and no per-user scoping yet. The signed
+//! `get_decrypted_*_by_owner` methods of the spec's Ring RPC section build on
+//! this service; until then the listener stays on loopback unless bound
+//! elsewhere on purpose.
 
 pub mod api;
 pub mod audit;
 pub mod config;
+pub mod page;
 pub mod server;
