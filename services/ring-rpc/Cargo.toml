@@ -2,9 +2,9 @@
 name = "zolana-ring-rpc"
 version = "0.1.0"
 description = "Ring RPC: holds a custom ring's auditor viewing key and serves decrypted ring transactions over JSON-RPC."
-edition.workspace = true
-license.workspace = true
-repository.workspace = true
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/helius-labs/zolana"
 publish = false
 
 [[bin]]
@@ -20,6 +20,8 @@ jsonrpsee = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }
 solana-address = { workspace = true }
+solana-signature = { workspace = true }
+solana-transaction-status-client-types = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["signal"] }
 tower = { workspace = true }
@@ -35,4 +37,3 @@ zolana-transaction = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
-solana-signature = { workspace = true }

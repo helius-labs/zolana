@@ -172,6 +172,7 @@ fn audit_returns_the_amounts_assets_and_blindings_that_were_encrypted() {
             outputs: vec![
                 AuditedOutput {
                     slot_index: 0,
+                    recipient_viewing_pk: recipient_one.pubkey(),
                     asset: SOL_MINT,
                     amount: 1_234_567,
                     blinding: [0x21; 32],
@@ -179,6 +180,7 @@ fn audit_returns_the_amounts_assets_and_blindings_that_were_encrypted() {
                 },
                 AuditedOutput {
                     slot_index: 1,
+                    recipient_viewing_pk: recipient_two.pubkey(),
                     asset: TOKEN_MINT,
                     amount: 99,
                     blinding: [0x22; 32],
@@ -210,6 +212,7 @@ fn ring_owned_output_keeps_its_ring_program_id() {
         audited.outputs,
         vec![AuditedOutput {
             slot_index: 0,
+            recipient_viewing_pk: recipient.pubkey(),
             asset: SOL_MINT,
             amount: 500,
             blinding: [0x31; 32],
@@ -248,6 +251,7 @@ fn dummy_and_foreign_slots_are_reported_not_fatal() {
             vec![
                 AuditedOutput {
                     slot_index: 0,
+                    recipient_viewing_pk: recipient_one.pubkey(),
                     asset: SOL_MINT,
                     amount: 10,
                     blinding: [0x41; 32],
@@ -255,6 +259,7 @@ fn dummy_and_foreign_slots_are_reported_not_fatal() {
                 },
                 AuditedOutput {
                     slot_index: 2,
+                    recipient_viewing_pk: recipient_two.pubkey(),
                     asset: TOKEN_MINT,
                     amount: 20,
                     blinding: [0x42; 32],
@@ -397,6 +402,7 @@ fn secret_key_plus_group_order_still_recovers_the_key() {
             tx_key.pubkey(),
             vec![AuditedOutput {
                 slot_index: 0,
+                recipient_viewing_pk: recipient.pubkey(),
                 asset: SOL_MINT,
                 amount: 8_000,
                 blinding: [0x71; 32],
@@ -606,6 +612,7 @@ fn scan_walks_every_page_and_keeps_only_auditor_tagged_transactions() {
                 tx_key_one.pubkey(),
                 vec![AuditedOutput {
                     slot_index: 0,
+                    recipient_viewing_pk: recipient.pubkey(),
                     asset: SOL_MINT,
                     amount: 111,
                     blinding: [0xa1; 32],
@@ -616,6 +623,7 @@ fn scan_walks_every_page_and_keeps_only_auditor_tagged_transactions() {
                 tx_key_two.pubkey(),
                 vec![AuditedOutput {
                     slot_index: 0,
+                    recipient_viewing_pk: recipient.pubkey(),
                     asset: TOKEN_MINT,
                     amount: 222,
                     blinding: [0xa2; 32],

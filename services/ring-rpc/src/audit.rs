@@ -1,13 +1,16 @@
 //! Reading ring transactions by the auditor tag and opening them.
 
-use std::future::Future;
+use std::{collections::HashMap, future::Future, sync::Mutex};
 
 use jsonrpsee::types::{error::ErrorCode, ErrorObjectOwned};
 use log::error;
 use solana_address::Address;
+use solana_signature::Signature;
+use solana_transaction_status_client_types::{EncodedTransaction, UiMessage, UiTransaction};
 use thiserror::Error;
 use zolana_client::{
-    AsyncRpc, AsyncZolanaIndexer, ClientError, GetShieldedTransactionsByTagsResponse,
+    AsyncRpc, AsyncSolanaRpc, AsyncZolanaIndexer, ClientError,
+    GetShieldedTransactionsByTagsResponse,
 };
 use zolana_interface::{state::SplAssetRegistry, SHIELDED_POOL_PROGRAM_ID};
 use zolana_keypair::ViewingKey;
@@ -19,8 +22,8 @@ use crate::api::{
     GetDecryptedTransactionsResponse, SkippedTransaction, PAGE_LIMIT,
 };
 
-/// Where the service reads tagged transactions from. Photon is the production
-/// source; tests provide pages in memory.
+/// Where the service reads from. Photon serves the tagged transactions and the
+/// Solana RPC the signers; tests provide both in memory.
 pub trait TransactionSource: Send + Sync {
     fn transactions_by_tag(
         &self,
@@ -28,9 +31,21 @@ pub trait TransactionSource: Send + Sync {
         cursor: Option<Vec<u8>>,
         limit: Option<u32>,
     ) -> impl Future<Output = Result<GetShieldedTransactionsByTagsResponse, ClientError>> + Send;
+
+    /// The Solana signers of a confirmed transaction.
+    fn signers(
+        &self,
+        signature: Signature,
+    ) -> impl Future<Output = Result<Vec<Address>, ClientError>> + Send;
 }
 
-impl TransactionSource for AsyncZolanaIndexer {
+/// The production source: a Photon indexer plus the Solana RPC it follows.
+pub struct ChainSource {
+    pub indexer: AsyncZolanaIndexer,
+    pub rpc: AsyncSolanaRpc,
+}
+
+impl TransactionSource for ChainSource {
     fn transactions_by_tag(
         &self,
         tag: [u8; 32],
@@ -38,7 +53,34 @@ impl TransactionSource for AsyncZolanaIndexer {
         limit: Option<u32>,
     ) -> impl Future<Output = Result<GetShieldedTransactionsByTagsResponse, ClientError>> + Send
     {
-        self.get_shielded_transactions_by_tags(vec![tag], cursor, limit, None)
+        self.indexer
+            .get_shielded_transactions_by_tags(vec![tag], cursor, limit, None)
+    }
+
+    // The RPC client asks for the JSON encoding, whose raw message lists the
+    // static keys with the signers first.
+    async fn signers(&self, signature: Signature) -> Result<Vec<Address>, ClientError> {
+        let confirmed = self.rpc.fetch_confirmed_transaction(&signature).await?;
+        let EncodedTransaction::Json(UiTransaction {
+            message: UiMessage::Raw(message),
+            ..
+        }) = confirmed.transaction.transaction
+        else {
+            return Err(ClientError::Rpc(format!(
+                "transaction {signature} did not come back as a raw JSON message"
+            )));
+        };
+        let required = usize::from(message.header.num_required_signatures);
+        message
+            .account_keys
+            .iter()
+            .take(required)
+            .map(|key| {
+                key.parse::<Address>().map_err(|error| {
+                    ClientError::Rpc(format!("transaction {signature} signer {key}: {error}"))
+                })
+            })
+            .collect()
     }
 }
 
@@ -77,6 +119,8 @@ pub struct AuditService<S> {
     view_tag: [u8; 32],
     source: S,
     assets: AssetRegistry,
+    /// Signers never change once a transaction is confirmed.
+    signers: Mutex<HashMap<Signature, Vec<Address>>>,
 }
 
 impl<S: TransactionSource> AuditService<S> {
@@ -87,7 +131,28 @@ impl<S: TransactionSource> AuditService<S> {
             view_tag,
             source,
             assets,
+            signers: Mutex::new(HashMap::new()),
         }
+    }
+
+    async fn signers(&self, signature: Signature) -> Result<Vec<Address>, ClientError> {
+        if let Some(cached) = self.cached_signers(signature) {
+            return Ok(cached);
+        }
+        let signers = self.source.signers(signature).await?;
+        self.signers
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(signature, signers.clone());
+        Ok(signers)
+    }
+
+    fn cached_signers(&self, signature: Signature) -> Option<Vec<Address>> {
+        self.signers
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(&signature)
+            .cloned()
     }
 
     pub fn auditor_view_tag(&self) -> [u8; 32] {
@@ -123,7 +188,10 @@ impl<S: TransactionSource> AuditService<S> {
             .filter(|tx| self.carries_auditor_message(tx))
         {
             match audit_transaction(&self.auditor, &tx, &self.assets) {
-                Ok(audited) => items.push(decrypted_transaction(audited, tx.nullifiers)),
+                Ok(audited) => {
+                    let signers = self.signers(tx.tx_signature).await?;
+                    items.push(decrypted_transaction(audited, signers, tx.nullifiers));
+                }
                 Err(reason) => skipped.push(SkippedTransaction {
                     slot: tx.slot,
                     tx_signature: tx.tx_signature.into(),
@@ -154,17 +222,23 @@ impl<S: TransactionSource> AuditService<S> {
 
 fn decrypted_transaction(
     audited: AuditedTransaction,
+    signers: Vec<Address>,
     nullifiers: Vec<[u8; 32]>,
 ) -> DecryptedTransaction {
     DecryptedTransaction {
         slot: audited.slot,
         tx_signature: audited.tx_signature.into(),
+        signers: signers
+            .into_iter()
+            .map(|signer| signer.to_bytes().into())
+            .collect(),
         tx_viewing_pk: audited.tx_viewing_pk.as_bytes().to_vec().into(),
         outputs: audited
             .outputs
             .into_iter()
             .map(|output| DecryptedOutput {
                 slot_index: output.slot_index,
+                recipient_viewing_pk: output.recipient_viewing_pk.as_bytes().to_vec().into(),
                 asset: output.asset.to_bytes().into(),
                 amount: output.amount,
                 blinding: output.blinding.to_vec().into(),

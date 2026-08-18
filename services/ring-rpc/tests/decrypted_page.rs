@@ -51,6 +51,15 @@ impl TransactionSource for StaticSource {
         };
         async move { Ok(response) }
     }
+
+    fn signers(
+        &self,
+        signature: Signature,
+    ) -> impl Future<Output = Result<Vec<Address>, ClientError>> + Send {
+        // One deterministic signer per transaction, derived from its signature.
+        let signer = Address::new_from_array([signature.as_ref()[0]; 32]);
+        async move { Ok(vec![signer]) }
+    }
 }
 
 fn confidential_slot(
@@ -115,6 +124,7 @@ fn transaction(
 
 struct Fixture {
     auditor: ViewingKey,
+    recipient: P256Pubkey,
     audited: ShieldedTransaction,
     foreign_key: ShieldedTransaction,
     output_tag_only: ShieldedTransaction,
@@ -157,6 +167,7 @@ fn fixture() -> Fixture {
 
     Fixture {
         auditor,
+        recipient,
         audited,
         foreign_key,
         output_tag_only,
@@ -201,6 +212,19 @@ async fn page_opens_audited_transfers_and_reports_the_rest() {
     assert_eq!(item.outputs[1].amount, 7);
     assert_eq!(item.outputs[0].asset.0.to_bytes(), SOL_MINT.to_bytes());
     assert_eq!(item.outputs[1].blinding, Base64String(vec![1u8; 32]));
+    assert_eq!(
+        item.outputs[0].recipient_viewing_pk,
+        Base64String(fixture.recipient.as_bytes().to_vec()),
+        "the recipient viewing key is the auditor's to"
+    );
+    assert_eq!(
+        item.signers
+            .iter()
+            .map(|s| s.0.to_bytes())
+            .collect::<Vec<_>>(),
+        vec![[1u8; 32]],
+        "the transaction signers are the auditor's from"
+    );
     assert!(item.undecryptable_slots.is_empty());
     assert_eq!(item.nullifiers.len(), 1);
 
