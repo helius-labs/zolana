@@ -7,6 +7,7 @@ import type {
   GetNonInclusionProofsResponse,
   GetRingsByNullifiersRequest,
   GetRingsByTagsRequest,
+  SortOrder,
   GetShieldedTransactionsByNullifiersResponse,
   GetShieldedTransactionsBySignatureRequest,
   GetShieldedTransactionsBySignatureResponse,
@@ -343,17 +344,27 @@ function nonInclusionProof(value: unknown, path: string): NonInclusionProof {
   };
 }
 
+/** Only the two spellings the indexer accepts; anything else is a schema error. */
+function checkedSortOrder(value: unknown, path: string): SortOrder {
+  if (value !== "oldestFirst" && value !== "newestFirst") {
+    return schemaFailure("INDEXER_SCHEMA_INVALID_SORT_ORDER", path, "a sort order", value);
+  }
+  return value;
+}
+
 function decodeRingsByTagsRequest(value: unknown): GetRingsByTagsRequest {
-  const record = object(value, "$", ["tags", "cursor", "limit"]);
+  const record = object(value, "$", ["tags", "cursor", "limit", "order"]);
   const cursor = optional(record["cursor"], "$.cursor", checkedBase64);
   const pageLimit =
     record["limit"] === undefined || record["limit"] === null
       ? undefined
       : checkedPageLimit(record["limit"], "$.limit");
+  const order = optional(record["order"], "$.order", checkedSortOrder);
   return {
     tags: array(record["tags"], "$.tags", checkedHash),
     ...(cursor === undefined ? {} : { cursor }),
     ...(pageLimit === undefined ? {} : { limit: pageLimit }),
+    ...(order === undefined ? {} : { order }),
   };
 }
 
@@ -362,25 +373,29 @@ export function encodeRingsByTagsRequest(value: GetRingsByTagsRequest): WireObje
     tags: value.tags,
     ...(value.cursor === undefined ? {} : { cursor: value.cursor }),
     ...(value.limit === undefined ? {} : { limit: toU64(value.limit, "$.limit") }),
+    ...(value.order === undefined ? {} : { order: value.order }),
   });
   return {
     tags: [...decoded.tags],
     ...(decoded.cursor === undefined ? {} : { cursor: decoded.cursor }),
     ...(decoded.limit === undefined ? {} : { limit: Number(decoded.limit) }),
+    ...(decoded.order === undefined ? {} : { order: decoded.order }),
   };
 }
 
 function decodeRingsByNullifiersRequest(value: unknown): GetRingsByNullifiersRequest {
-  const record = object(value, "$", ["nullifiers", "cursor", "limit"]);
+  const record = object(value, "$", ["nullifiers", "cursor", "limit", "order"]);
   const cursor = optional(record["cursor"], "$.cursor", checkedBase64);
   const pageLimit =
     record["limit"] === undefined || record["limit"] === null
       ? undefined
       : checkedPageLimit(record["limit"], "$.limit");
+  const order = optional(record["order"], "$.order", checkedSortOrder);
   return {
     nullifiers: array(record["nullifiers"], "$.nullifiers", checkedHash),
     ...(cursor === undefined ? {} : { cursor }),
     ...(pageLimit === undefined ? {} : { limit: pageLimit }),
+    ...(order === undefined ? {} : { order }),
   };
 }
 
@@ -389,11 +404,13 @@ export function encodeRingsByNullifiersRequest(value: GetRingsByNullifiersReques
     nullifiers: value.nullifiers,
     ...(value.cursor === undefined ? {} : { cursor: value.cursor }),
     ...(value.limit === undefined ? {} : { limit: toU64(value.limit, "$.limit") }),
+    ...(value.order === undefined ? {} : { order: value.order }),
   });
   return {
     nullifiers: [...decoded.nullifiers],
     ...(decoded.cursor === undefined ? {} : { cursor: decoded.cursor }),
     ...(decoded.limit === undefined ? {} : { limit: Number(decoded.limit) }),
+    ...(decoded.order === undefined ? {} : { order: decoded.order }),
   };
 }
 

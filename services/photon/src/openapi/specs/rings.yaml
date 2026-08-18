@@ -51,6 +51,12 @@ paths:
                       oneOf:
                       - type: 'null'
                       - $ref: '#/components/schemas/Limit'
+                    order:
+                      $ref: '#/components/schemas/SortOrder'
+                      description: |-
+                        Omitted means [`SortOrder::OldestFirst`], and is omitted on the way out
+                        too, so a request that does not care is byte-identical to one written
+                        before this field existed.
                     tags:
                       type: array
                       items:
@@ -549,6 +555,12 @@ paths:
                       type: array
                       items:
                         $ref: '#/components/schemas/Hash'
+                    order:
+                      $ref: '#/components/schemas/SortOrder'
+                      description: |-
+                        Omitted means [`SortOrder::OldestFirst`], and is omitted on the way out
+                        too, so a request that does not care is byte-identical to one written
+                        before this field existed.
                   additionalProperties: false
         required: true
       responses:
@@ -804,6 +816,12 @@ paths:
                       oneOf:
                       - type: 'null'
                       - $ref: '#/components/schemas/Limit'
+                    order:
+                      $ref: '#/components/schemas/SortOrder'
+                      description: |-
+                        Omitted means [`SortOrder::OldestFirst`], and is omitted on the way out
+                        too, so a request that does not care is byte-identical to one written
+                        before this field existed.
                     tags:
                       type: array
                       items:
@@ -1155,3 +1173,16 @@ components:
           - type: 'null'
           - $ref: '#/components/schemas/Base64String'
       additionalProperties: false
+    SortOrder:
+      type: string
+      description: |-
+        Which end of the stream a page starts from.
+
+        Both directions read the same rows in the same total order; only the
+        direction of travel differs. Newest-first suits fetching confidential state,
+        where the owner tag is deterministic and recent history is what matters;
+        oldest-first suits syncing anonymous state, where view tags are walked from
+        index 0 and history has to be read forward.
+      enum:
+      - oldestFirst
+      - newestFirst

@@ -1318,6 +1318,7 @@ async fn assert_rings_api_exposes_output_hashes(
         tags: vec![Hash::try_from(output.view_tag.clone()).unwrap()],
         cursor: None,
         limit: None,
+        order: Default::default(),
     };
 
     let shielded = get_shielded_transactions_by_tags(db, request.clone())

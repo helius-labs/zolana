@@ -140,6 +140,28 @@ describe("transport configuration", () => {
     });
   });
 
+  it("passes the sort order through and refuses an unknown one", async () => {
+    const page = { context: { blockTime: 0, slot: 1 }, transactions: [] };
+    const injected = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(success(page)));
+    const api = new ZolanaApi({ url: "https://rpc.example.test", fetch: injected });
+
+    await api.getShieldedTransactionsByTags({ tags: [HASH], order: "newestFirst" } as never);
+    expect(JSON.parse(String(injected.mock.calls[0]?.[1]?.body)).params).toMatchObject({
+      order: "newestFirst",
+    });
+
+    // Omitting it must stay the old behaviour rather than becoming explicit.
+    await api.getShieldedTransactionsByTags({ tags: [HASH] } as never);
+    expect(JSON.parse(String(injected.mock.calls[1]?.[1]?.body)).params).not.toHaveProperty(
+      "order",
+    );
+
+    await expectApiError(
+      api.getShieldedTransactionsByTags({ tags: [HASH], order: "sideways" } as never),
+      "API_INVALID_REQUEST",
+    );
+  });
+
   it.each([
     [{ url: "not a url" }, "url"],
     [{ url: "file:///tmp/indexer" }, "url"],

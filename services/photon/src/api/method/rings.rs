@@ -24,6 +24,7 @@ mod tests {
     use crate::common::rings_tree::RingsTreeKind;
     use serde_json::Value;
     use solana_signature::SIGNATURE_BYTES;
+    use zolana_indexer_api::SortOrder;
     use zolana_indexer_api::{
         Base64String, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
         GetMerkleProofsRequest, Hash, MerkleContext, NonInclusionProof, RingsMessage,
@@ -48,11 +49,21 @@ mod tests {
             event_index: 3,
             output_index: 5,
         };
-        let encrypted_cursor =
-            Base64String(encode_cursor(CursorKind::EncryptedUtxos, &encrypted).unwrap());
+        let encrypted_cursor = Base64String(
+            encode_cursor(
+                CursorKind::EncryptedUtxos,
+                SortOrder::OldestFirst,
+                &encrypted,
+            )
+            .unwrap(),
+        );
         assert_eq!(
-            decode_cursor::<EncryptedUtxoCursor>(CursorKind::EncryptedUtxos, &encrypted_cursor)
-                .unwrap(),
+            decode_cursor::<EncryptedUtxoCursor>(
+                CursorKind::EncryptedUtxos,
+                SortOrder::OldestFirst,
+                &encrypted_cursor,
+            )
+            .unwrap(),
             encrypted
         );
 
@@ -61,11 +72,21 @@ mod tests {
             signature,
             event_index: 8,
         };
-        let shielded_cursor =
-            Base64String(encode_cursor(CursorKind::ShieldedTxByTags, &shielded).unwrap());
+        let shielded_cursor = Base64String(
+            encode_cursor(
+                CursorKind::ShieldedTxByTags,
+                SortOrder::OldestFirst,
+                &shielded,
+            )
+            .unwrap(),
+        );
         assert_eq!(
-            decode_cursor::<ShieldedTxCursor>(CursorKind::ShieldedTxByTags, &shielded_cursor)
-                .unwrap(),
+            decode_cursor::<ShieldedTxCursor>(
+                CursorKind::ShieldedTxByTags,
+                SortOrder::OldestFirst,
+                &shielded_cursor,
+            )
+            .unwrap(),
             shielded
         );
 
@@ -73,6 +94,7 @@ mod tests {
         malformed_cursor.push(1);
         assert!(decode_cursor::<ShieldedTxCursor>(
             CursorKind::ShieldedTxByTags,
+            SortOrder::OldestFirst,
             &Base64String(malformed_cursor)
         )
         .is_err());
@@ -83,6 +105,17 @@ mod tests {
         // that position without reporting anything.
         assert!(decode_cursor::<ShieldedTxCursor>(
             CursorKind::ShieldedTxByNullifiers,
+            SortOrder::OldestFirst,
+            &shielded_cursor
+        )
+        .is_err());
+
+        // A cursor is a position in one direction of travel. Resuming it under
+        // the other order would walk away from the unread rows and report the
+        // empty page as the end of the stream.
+        assert!(decode_cursor::<ShieldedTxCursor>(
+            CursorKind::ShieldedTxByTags,
+            SortOrder::NewestFirst,
             &shielded_cursor
         )
         .is_err());

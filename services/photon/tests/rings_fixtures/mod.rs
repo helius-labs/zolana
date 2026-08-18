@@ -153,6 +153,7 @@ pub async fn tag_page(
             tags: vec![Hash::from(view_tag)],
             cursor,
             limit: Some(Limit::new(page_limit).expect("page limit is within the shared bounds")),
+            order: Default::default(),
         },
     )
     .await

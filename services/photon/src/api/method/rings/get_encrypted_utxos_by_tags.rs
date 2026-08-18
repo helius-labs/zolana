@@ -1,7 +1,7 @@
 use super::common::{
     bind_u64_as_i64, cursor_sort_key, decode_cursor, encode_cursor, next_cursor_from_rows,
-    rings_output_slot_from_parts, signature_from_bytes, tags_sql, tx_cursor_sql_condition,
-    u16_from_i16, u64_from_i64, validate_tags, CursorKind,
+    rings_output_slot_from_parts, signature_from_bytes, sql_direction, tags_sql, u16_from_i16,
+    u64_from_i64, validate_tags, CursorKind, TxCursorCondition,
 };
 use crate::api::error::PhotonApiError;
 use crate::common::indexer_context::extract as extract_context;
@@ -13,6 +13,7 @@ use sea_orm::{
 use solana_signature::SIGNATURE_BYTES;
 use zolana_indexer_api::{
     Base64String, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetRingsByTagsRequest, Hash,
+    SortOrder,
 };
 
 #[derive(FromQueryResult, Debug)]
@@ -47,15 +48,18 @@ pub async fn get_encrypted_utxos_by_tags(
     let cursor = request
         .cursor
         .as_ref()
-        .map(|c| decode_cursor::<EncryptedUtxoCursor>(CursorKind::EncryptedUtxos, c))
+        .map(|c| decode_cursor::<EncryptedUtxoCursor>(CursorKind::EncryptedUtxos, request.order, c))
         .transpose()?;
 
     let context = extract_context(conn).await?;
     let tx = conn.begin().await?;
     crate::api::set_transaction_isolation_if_needed(&tx).await?;
 
-    let rows = fetch_encrypted_utxo_rows(&tx, &request.tags, cursor.as_ref(), limit).await?;
-    let next_cursor = next_cursor_from_rows(&rows, encrypted_utxo_cursor_from_row)?;
+    let rows = fetch_encrypted_utxo_rows(&tx, &request.tags, cursor.as_ref(), limit, request.order)
+        .await?;
+    let next_cursor = next_cursor_from_rows(&rows, |row| {
+        encrypted_utxo_cursor_from_row(row, request.order)
+    })?;
 
     let matches = rows
         .into_iter()
@@ -90,15 +94,17 @@ async fn fetch_encrypted_utxo_rows(
     tags: &[Hash],
     cursor: Option<&EncryptedUtxoCursor>,
     limit: u64,
+    order: SortOrder,
 ) -> Result<Vec<EncryptedUtxoRow>, PhotonApiError> {
     let backend = tx.get_database_backend();
     let mut params = Vec::new();
     let tag_filter = tags_sql(tags, backend, &mut params);
     let cursor_filter = cursor
-        .map(|cursor| encrypted_utxo_cursor_sql(cursor, backend, &mut params))
+        .map(|cursor| encrypted_utxo_cursor_sql(cursor, order, backend, &mut params))
         .transpose()?
         .unwrap_or_default();
     let limit = bind_u64_as_i64(&mut params, backend, limit)?;
+    let dir = sql_direction(order);
 
     let sql = format!(
         "SELECT
@@ -118,7 +124,7 @@ async fn fetch_encrypted_utxo_rows(
          JOIN rings_output_payloads pop ON pop.output_id = po.output_id
          WHERE po.view_tag IN ({tag_filter})
          {cursor_filter}
-         ORDER BY po.slot ASC, po.signature ASC, po.event_index ASC, po.output_index ASC
+         ORDER BY po.slot {dir}, po.signature {dir}, po.event_index {dir}, po.output_index {dir}
          LIMIT {limit}"
     );
 
@@ -132,25 +138,29 @@ async fn fetch_encrypted_utxo_rows(
 
 fn encrypted_utxo_cursor_sql(
     cursor: &EncryptedUtxoCursor,
+    order: SortOrder,
     backend: DatabaseBackend,
     params: &mut Vec<Value>,
 ) -> Result<String, PhotonApiError> {
     let signature = cursor.signature.to_vec();
     // "po", matching this query's ORDER BY, so
     // idx_rings_outputs_view_tag_order serves the filter and the sort together.
-    let condition = tx_cursor_sql_condition(
-        "po",
-        cursor.slot,
-        &signature,
-        cursor.event_index,
-        &[("output_index", i32::from(cursor.output_index))],
-        backend,
-        params,
-    )?;
+    let condition = TxCursorCondition {
+        alias: "po",
+        order,
+        slot: cursor.slot,
+        signature: &signature,
+        event_index: cursor.event_index,
+        trailing: &[("output_index", i32::from(cursor.output_index))],
+    }
+    .into_sql(backend, params)?;
     Ok(format!("AND {condition}"))
 }
 
-fn encrypted_utxo_cursor_from_row(row: &EncryptedUtxoRow) -> Result<Vec<u8>, PhotonApiError> {
+fn encrypted_utxo_cursor_from_row(
+    row: &EncryptedUtxoRow,
+    order: SortOrder,
+) -> Result<Vec<u8>, PhotonApiError> {
     let (slot, signature, event_index) =
         cursor_sort_key(row.slot, &row.signature, row.event_index)?;
     let cursor = EncryptedUtxoCursor {
@@ -159,5 +169,5 @@ fn encrypted_utxo_cursor_from_row(row: &EncryptedUtxoRow) -> Result<Vec<u8>, Pho
         event_index,
         output_index: u16_from_i16(row.output_index, "output index")?,
     };
-    encode_cursor(CursorKind::EncryptedUtxos, &cursor)
+    encode_cursor(CursorKind::EncryptedUtxos, order, &cursor)
 }
