@@ -1,4 +1,4 @@
-//! HTTP surface: the JSON-RPC methods and, on `GET /`, the auditor page.
+//! HTTP surface: the JSON-RPC methods, `GET /health` and `GET /ready`.
 
 use std::{
     future::Future,
@@ -9,10 +9,7 @@ use std::{
     time::Duration,
 };
 
-use hyper::{
-    header::{CONTENT_TYPE, LOCATION},
-    Method, StatusCode,
-};
+use hyper::{header::CONTENT_TYPE, Method, StatusCode};
 use jsonrpsee::{
     core::BoxError,
     server::{
@@ -26,15 +23,13 @@ use tower::{Layer, Service};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use solana_address::Address;
-use zolana_indexer_api::Limit;
 
 use crate::{
     api::{
         CreateAuditorKeyRequest, CreateAuditorKeyResponse, GetDecryptedTransactionsRequest,
         HealthResponse, CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH,
     },
-    audit::{Hub, RingRpcError, TransactionSource},
-    page::{cursor_from_query, AuditorPage},
+    audit::{Hub, TransactionSource},
 };
 
 pub struct ServerOptions {
@@ -53,7 +48,7 @@ pub async fn run_server<S: TransactionSource + 'static>(
     let middleware = tower::ServiceBuilder::new()
         .layer(cors(&options.allow_origins)?)
         .layer(tower::timeout::TimeoutLayer::new(options.request_timeout))
-        .layer(PageLayer { hub: hub.clone() })
+        .layer(ReadyLayer { hub: hub.clone() })
         .layer(ProxyGetRequestLayer::new([("/health", HEALTH)])?);
     let server = ServerBuilder::default()
         .set_config(
@@ -67,7 +62,7 @@ pub async fn run_server<S: TransactionSource + 'static>(
     Ok(server.start(rpc_module(hub)?))
 }
 
-/// The page is same-origin, so cross-origin calls are opt-in per origin.
+/// Cross-origin calls are opt-in per origin.
 fn cors(origins: &[String]) -> Result<CorsLayer, anyhow::Error> {
     if origins.is_empty() {
         return Ok(CorsLayer::new());
@@ -125,31 +120,30 @@ pub fn rpc_module<S: TransactionSource + 'static>(
     Ok(module)
 }
 
-/// Serves the auditor page on `GET /` and `GET /ui` (`?ring=<program id>`
-/// selects the ring when keys are derived), and readiness on `GET /ready`;
-/// every other request goes to the JSON-RPC server. Readiness stays outside the
-/// JSON-RPC proxy because a failing probe must answer with a non-200 status.
-struct PageLayer<S> {
+/// Answers readiness on `GET /ready` and hands every other request to the
+/// JSON-RPC server. Readiness stays outside the JSON-RPC proxy because a failing
+/// probe must answer with a non-200 status.
+struct ReadyLayer<S> {
     hub: Arc<Hub<S>>,
 }
 
-impl<S, Inner> Layer<Inner> for PageLayer<S> {
-    type Service = PageService<S, Inner>;
+impl<S, Inner> Layer<Inner> for ReadyLayer<S> {
+    type Service = ReadyService<S, Inner>;
 
     fn layer(&self, inner: Inner) -> Self::Service {
-        PageService {
+        ReadyService {
             inner,
             hub: self.hub.clone(),
         }
     }
 }
 
-struct PageService<S, Inner> {
+struct ReadyService<S, Inner> {
     inner: Inner,
     hub: Arc<Hub<S>>,
 }
 
-impl<S, Inner: Clone> Clone for PageService<S, Inner> {
+impl<S, Inner: Clone> Clone for ReadyService<S, Inner> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -158,7 +152,7 @@ impl<S, Inner: Clone> Clone for PageService<S, Inner> {
     }
 }
 
-impl<S, Inner, B> Service<HttpRequest<B>> for PageService<S, Inner>
+impl<S, Inner, B> Service<HttpRequest<B>> for ReadyService<S, Inner>
 where
     S: TransactionSource + 'static,
     Inner: Service<HttpRequest<B>, Response = HttpResponse>,
@@ -175,81 +169,12 @@ where
     }
 
     fn call(&mut self, request: HttpRequest<B>) -> Self::Future {
-        if request.method() != Method::GET {
-            let future = self.inner.call(request);
-            return Box::pin(async move { future.await.map_err(Into::into) });
+        if request.method() == Method::GET && request.uri().path() == "/ready" {
+            let hub = self.hub.clone();
+            return Box::pin(async move { Ok(readiness(&hub).await) });
         }
-        let hub = self.hub.clone();
-        match request.uri().path() {
-            "/" | "/ui" => {
-                let query = request.uri().query();
-                let cursor = query_param(query, "cursor").map(str::to_owned);
-                let ring = query_param(query, "ring").map(str::to_owned);
-                Box::pin(async move { Ok(render_page(&hub, ring, cursor).await) })
-            }
-            "/ready" => Box::pin(async move { Ok(readiness(&hub).await) }),
-            _ => {
-                let future = self.inner.call(request);
-                Box::pin(async move { future.await.map_err(Into::into) })
-            }
-        }
-    }
-}
-
-async fn render_page<S: TransactionSource>(
-    hub: &Hub<S>,
-    ring: Option<String>,
-    cursor: Option<String>,
-) -> HttpResponse {
-    let ring = match ring.as_deref().map(str::parse::<Address>) {
-        None => None,
-        Some(Ok(ring)) => Some(ring),
-        Some(Err(_)) => return redirect_home(),
-    };
-    let service = match hub.ring(ring) {
-        Ok(service) => service,
-        Err(error @ RingRpcError::RingRequired) => {
-            return html_response(
-                StatusCode::BAD_REQUEST,
-                maud::html! { p { (error) ". Open " code { "/?ring=<program id>" } "." } }
-                    .into_string(),
-            )
-        }
-        Err(error) => {
-            return html_response(
-                StatusCode::BAD_REQUEST,
-                maud::html! { p { (error) } }.into_string(),
-            )
-        }
-    };
-    let cursor_bytes = match cursor.as_deref() {
-        None => None,
-        Some(text) => match cursor_from_query(text) {
-            Some(bytes) => Some(bytes),
-            None => return redirect_home(),
-        },
-    };
-    match service
-        .decrypted_transactions(cursor_bytes, Some(Limit::default()))
-        .await
-    {
-        Ok(page) => {
-            let markup = AuditorPage {
-                auditor_view_tag: service.auditor_view_tag().into(),
-                ring,
-                page: &page,
-                cursor: cursor.as_deref(),
-            }
-            .render();
-            html_response(StatusCode::OK, markup.into_string())
-        }
-        Err(error) => html_response(
-            StatusCode::BAD_GATEWAY,
-            maud::html! {
-                p { "The ring RPC is up, its indexer is not: " (error) }
-            }
-            .into_string(),
-        ),
+        let future = self.inner.call(request);
+        Box::pin(async move { future.await.map_err(Into::into) })
     }
 }
 
@@ -269,34 +194,10 @@ async fn readiness<S: TransactionSource>(hub: &Hub<S>) -> HttpResponse {
     }
 }
 
-fn query_param<'a>(query: Option<&'a str>, name: &str) -> Option<&'a str> {
-    query?
-        .split('&')
-        .filter_map(|pair| pair.split_once('='))
-        .find(|(key, _)| *key == name)
-        .map(|(_, value)| value)
-}
-
-fn html_response(status: StatusCode, body: String) -> HttpResponse {
-    response(status, "text/html; charset=utf-8", body)
-}
-
 fn text_response(status: StatusCode, body: String) -> HttpResponse {
-    response(status, "text/plain; charset=utf-8", body)
-}
-
-fn response(status: StatusCode, content_type: &str, body: String) -> HttpResponse {
     hyper::Response::builder()
         .status(status)
-        .header(CONTENT_TYPE, content_type)
+        .header(CONTENT_TYPE, "text/plain; charset=utf-8")
         .body(HttpBody::from(body))
-        .expect("static response parts are valid")
-}
-
-fn redirect_home() -> HttpResponse {
-    hyper::Response::builder()
-        .status(StatusCode::SEE_OTHER)
-        .header(LOCATION, "/")
-        .body(HttpBody::empty())
         .expect("static response parts are valid")
 }

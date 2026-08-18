@@ -202,7 +202,6 @@ jsonwebtoken = "10.4.0"
 jsonrpsee = { version = "0.26.0", features = ["server", "macros"] }
 lazy_static = "1.5.0"
 log = "0.4"
-maud = "0.27"
 litesvm = "0.15"
 num-bigint = "0.4.6"
 num-traits = "0.2.19"
