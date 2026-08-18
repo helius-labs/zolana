@@ -1,5 +1,7 @@
 /target/
 /.localnet/
-# Deploy and auditor keys stay on this machine.
+# The program keypair and the auditor secret stay on this machine. The auditor
+# public key is part of the ring and is committed.
 /keys/*
 !/keys/.gitkeep
+!/keys/auditor.key.pub

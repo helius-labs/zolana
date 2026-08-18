@@ -71,7 +71,8 @@ pub struct DeployArgs {
 pub struct InitArgs {
     /// SEC1 compressed auditor public key as hex, as `ring-rpc keygen` writes
     /// it. When the file is absent the ring RPC in `ring.toml` is asked to
-    /// create the key and only the public half comes back.
+    /// create the key, only the public half comes back and is written here so
+    /// the ring repository records the key its config carries.
     #[arg(long, default_value = "keys/auditor.key.pub")]
     pub auditor_pubkey_file: PathBuf,
 }
@@ -128,10 +129,12 @@ pub fn run(cli: Cli) -> Result<()> {
                 read_auditor_pubkey(&args.auditor_pubkey_file)?
             } else {
                 let auditor_pk = RingRpc::new(&config.urls.ring_rpc).auditor_pubkey(PROGRAM_ID)?;
+                write_auditor_pubkey(&args.auditor_pubkey_file, &auditor_pk)?;
                 println!(
-                    "auditor pk  {} (from {})",
+                    "auditor pk  {} (from {}, written to {})",
                     hex::encode(auditor_pk.as_bytes()),
-                    config.urls.ring_rpc
+                    config.urls.ring_rpc,
+                    args.auditor_pubkey_file.display()
                 );
                 auditor_pk
             };
@@ -269,6 +272,14 @@ fn read_auditor_pubkey(path: &Path) -> Result<P256Pubkey> {
         .try_into()
         .map_err(|_| anyhow!("auditor public key must be 33 bytes"))?;
     Ok(P256Pubkey::from_bytes(bytes)?)
+}
+
+fn write_auditor_pubkey(path: &Path, auditor_pk: &P256Pubkey) -> Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(path, format!("{}\n", hex::encode(auditor_pk.as_bytes())))
+        .with_context(|| format!("writing auditor public key {}", path.display()))
 }
 
 /// A local validator hands out SOL for free; devnet and beyond need a funded
