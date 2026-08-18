@@ -283,24 +283,45 @@ pub(super) fn bind_u64_as_i64(
     Ok(bind_sql_value(params, backend, value))
 }
 
+/// Builds the "strictly after this position" predicate as a row comparison.
+///
+/// `alias` must name the table the query's ORDER BY uses. Filtering on one table
+/// while sorting by another cannot use an index for both.
+///
+/// `trailing` appends further columns, for callers whose sort key extends past
+/// the transaction (the UTXO endpoint adds `output_index`).
+///
+/// A row comparison rather than the equivalent chain of ORs: Postgres can begin
+/// an index scan at `(a, b) > (x, y)` and cannot at
+/// `a > x OR (a = x AND b > y)`, where each page costs more than the last.
 pub(super) fn tx_cursor_sql_condition(
+    alias: &str,
     slot: u64,
     signature: &[u8],
     event_index: u16,
+    trailing: &[(&str, i32)],
     backend: DatabaseBackend,
     params: &mut Vec<Value>,
 ) -> Result<String, PhotonApiError> {
-    let slot_for_gt = bind_u64_as_i64(params, backend, slot)?;
-    let slot_for_signature = bind_u64_as_i64(params, backend, slot)?;
-    let signature_for_signature = bind_sql_value(params, backend, signature.to_vec());
-    let slot_for_event = bind_u64_as_i64(params, backend, slot)?;
-    let signature_for_event = bind_sql_value(params, backend, signature.to_vec());
-    let event_index = bind_sql_value(params, backend, i32::from(event_index));
+    let slot = bind_u64_as_i64(params, backend, slot)?;
+    let signature = bind_sql_value(params, backend, signature.to_vec());
+    let event_index_value = bind_sql_value(params, backend, i32::from(event_index));
+
+    let mut columns = vec![
+        format!("{alias}.slot"),
+        format!("{alias}.signature"),
+        format!("{alias}.event_index"),
+    ];
+    let mut values = vec![slot, signature, event_index_value];
+    for (column, value) in trailing {
+        columns.push(format!("{alias}.{column}"));
+        values.push(bind_sql_value(params, backend, *value));
+    }
 
     Ok(format!(
-        "pt.slot > {slot_for_gt}
-            OR (pt.slot = {slot_for_signature} AND pt.signature > {signature_for_signature})
-            OR (pt.slot = {slot_for_event} AND pt.signature = {signature_for_event} AND pt.event_index > {event_index})"
+        "({}) > ({})",
+        columns.join(", "),
+        values.join(", ")
     ))
 }
 
@@ -499,5 +520,77 @@ mod tests {
             result.is_err(),
             "a capacity mismatch must fail loudly, not produce an index"
         );
+    }
+
+    /// The cursor must read from whichever table the query sorts by. Reading it
+    /// from `po` is half of what keeps the query on its index; the ORDER BY is
+    /// the other half, and the two have to agree.
+    #[test]
+    fn the_cursor_predicate_reads_from_the_table_it_is_told_to() {
+        let mut params = Vec::new();
+        let sql = tx_cursor_sql_condition(
+            "po",
+            42,
+            &[7u8; 64],
+            3,
+            &[],
+            DatabaseBackend::Postgres,
+            &mut params,
+        )
+        .expect("condition");
+
+        assert!(
+            !sql.contains("pt."),
+            "a po-ordered query must not filter on pt: {sql}"
+        );
+        for column in ["po.slot", "po.signature", "po.event_index"] {
+            assert!(sql.contains(column), "expected {column} in: {sql}");
+        }
+    }
+
+    /// The predicate must stay a row comparison: Postgres cannot begin an index
+    /// scan at the equivalent OR chain.
+    #[test]
+    fn the_cursor_predicate_is_a_row_comparison_so_the_index_can_seek() {
+        let mut params = Vec::new();
+        let sql = tx_cursor_sql_condition(
+            "po",
+            42,
+            &[7u8; 64],
+            3,
+            &[("output_index", 5)],
+            DatabaseBackend::Postgres,
+            &mut params,
+        )
+        .expect("condition");
+
+        assert!(
+            !sql.contains(" OR "),
+            "an OR chain cannot be used as an index seek: {sql}"
+        );
+        assert!(
+            sql.starts_with("(po.slot, po.signature, po.event_index, po.output_index) > ("),
+            "expected a single row comparison in sort-key order: {sql}"
+        );
+        assert_eq!(params.len(), 4, "one bind per column in the comparison");
+    }
+
+    /// The aliases are not interchangeable.
+    #[test]
+    fn the_transactions_cursor_still_reads_from_the_transactions_table() {
+        let mut params = Vec::new();
+        let sql = tx_cursor_sql_condition(
+            "pt",
+            42,
+            &[7u8; 64],
+            3,
+            &[],
+            DatabaseBackend::Postgres,
+            &mut params,
+        )
+        .expect("condition");
+
+        assert!(!sql.contains("po."), "unexpected po reference in: {sql}");
+        assert!(sql.contains("pt.slot"), "expected pt.slot in: {sql}");
     }
 }

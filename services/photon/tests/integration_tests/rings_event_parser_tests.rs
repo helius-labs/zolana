@@ -705,6 +705,10 @@ async fn rings_merkle_proofs_reject_duplicate_output_hashes() {
         leaf_index: Set(i64::try_from(output.leaf_index + 1).unwrap()),
         view_tag: Set(output.view_tag.to_vec()),
         utxo_hash: Set(output.utxo_hash.to_vec()),
+        // Copied from the transaction this output belongs to, as the ingester
+        // does.
+        signature: Set(Some(rings_tx.signature.clone())),
+        event_index: Set(Some(rings_tx.event_index)),
     })
     .exec(&db)
     .await
@@ -1347,6 +1351,21 @@ async fn assert_rings_api_exposes_output_hashes(
         .await
         .unwrap()
         .expect("rings transaction should exist");
+
+    // The tag queries ORDER BY these copies. The columns are nullable, so an
+    // ingester that stopped writing them would leave rows sorting last and
+    // paging in an order the cursor cannot follow, with nothing else failing.
+    assert_eq!(
+        output.signature.as_deref(),
+        Some(rings_tx.signature.as_slice()),
+        "the output must carry its transaction's signature"
+    );
+    assert_eq!(
+        output.event_index,
+        Some(rings_tx.event_index),
+        "the output must carry its transaction's event index"
+    );
+
     let signature = Signature::from(
         <[u8; 64]>::try_from(rings_tx.signature.as_slice()).expect("stored signature length"),
     );
