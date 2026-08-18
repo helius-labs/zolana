@@ -23,7 +23,7 @@ localnet:
     @echo "  prover    {{prover_url}}"
     @echo "  ring rpc  {{ring_rpc_url}}  (just rpc)"
 
-localnet-stop:
+localnet-stop: rpc-stop
     just -f {{ "{{zolana}}" }}/justfile ring-localnet-stop
 
 # Build the ring program at its pinned address.
@@ -76,9 +76,18 @@ pipeline: build deploy init
     mkdir -p .localnet
     # An RPC already answering must be this ring's: rings generated on the same
     # machine share the default port, and a foreign RPC can open nothing here.
+    # A foreign one left behind by another local ring's pipeline is replaced.
+    start_rpc=true
     if curl -sf {{ring_rpc_url}}/health >/dev/null 2>&1; then
-        cargo run -q -p {{project-name}} -- rpc-check
-    else
+        if cargo run -q -p {{project-name}} -- rpc-check >/dev/null 2>&1; then
+            start_rpc=false
+        else
+            echo "replacing the ring rpc on port {{ring_rpc_port}}, it served another ring"
+            just rpc-stop
+            sleep 1
+        fi
+    fi
+    if [ "$start_rpc" = true ]; then
         nohup just rpc > {{ "{{ring-rpc-log}}" }} 2>&1 &
         echo $! > .localnet/ring-rpc.pid
         for _ in $(seq 1 180); do
