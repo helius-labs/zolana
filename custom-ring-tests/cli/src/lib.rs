@@ -69,7 +69,9 @@ pub struct DeployArgs {
 
 #[derive(Debug, Args)]
 pub struct InitArgs {
-    /// SEC1 compressed auditor public key as hex, as `ring-rpc keygen` writes it.
+    /// SEC1 compressed auditor public key as hex, as `ring-rpc keygen` writes
+    /// it. When the file is absent the ring RPC in `ring.toml` is asked to
+    /// create the key and only the public half comes back.
     #[arg(long, default_value = "keys/auditor.key.pub")]
     pub auditor_pubkey_file: PathBuf,
 }
@@ -122,7 +124,17 @@ pub fn run(cli: Cli) -> Result<()> {
         Command::Init(args) => {
             let authority = config.authority()?;
             fund_on_localnet(&config, &mut rpc, authority.pubkey())?;
-            let auditor_pk = read_auditor_pubkey(&args.auditor_pubkey_file)?;
+            let auditor_pk = if args.auditor_pubkey_file.exists() {
+                read_auditor_pubkey(&args.auditor_pubkey_file)?
+            } else {
+                let auditor_pk = RingRpc::new(&config.urls.ring_rpc).auditor_pubkey(PROGRAM_ID)?;
+                println!(
+                    "auditor pk  {} (from {})",
+                    hex::encode(auditor_pk.as_bytes()),
+                    config.urls.ring_rpc
+                );
+                auditor_pk
+            };
             let outcome = init::init(&rpc, &authority, auditor_pk)?;
             println!(
                 "config      {}",
@@ -144,7 +156,7 @@ pub fn run(cli: Cli) -> Result<()> {
         }
         Command::RpcCheck => {
             let auditor_pk = configured_auditor_pk(&rpc)?;
-            RingRpc::new(&config.urls.ring_rpc).check_serves(&auditor_pk)?;
+            RingRpc::new(&config.urls.ring_rpc).check_serves(PROGRAM_ID, &auditor_pk)?;
             println!("ring rpc    {} serves this ring", config.urls.ring_rpc);
             Ok(())
         }
@@ -155,7 +167,7 @@ pub fn run(cli: Cli) -> Result<()> {
             // Before proving: an RPC holding another ring's key would leave the
             // readback below waiting for a transaction it can never open.
             let ring_rpc = RingRpc::new(&config.urls.ring_rpc);
-            ring_rpc.check_serves(&auditor_pk)?;
+            ring_rpc.check_serves(PROGRAM_ID, &auditor_pk)?;
             let indexer = ZolanaIndexer::new(&config.urls.indexer);
             let prover = ProverClient::new(config.urls.prover.clone());
             let receipt = AuditedTransfer {
@@ -189,7 +201,7 @@ pub fn run(cli: Cli) -> Result<()> {
             }
             println!("waiting for the indexer and the ring rpc to open the transaction");
             wait_for_indexed_transaction(&indexer, receipt.transact)?;
-            let opened = ring_rpc.wait_for_decrypted(receipt.transact)?;
+            let opened = ring_rpc.wait_for_decrypted(PROGRAM_ID, receipt.transact)?;
             println!("auditor sees slot {} at {}", opened.slot, receipt.transact);
             println!(
                 "  from      {}",

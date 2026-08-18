@@ -6,18 +6,43 @@ pub use zolana_indexer_api::PAGE_LIMIT;
 use zolana_indexer_api::{Base64String, Context, Hash, SerializablePubkey, SerializableSignature};
 
 pub const HEALTH: &str = "health";
+pub const CREATE_AUDITOR_KEY: &str = "createAuditorKey";
 pub const GET_DECRYPTED_TRANSACTIONS: &str = "getDecryptedTransactions";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub struct HealthResponse {
-    /// The tag every audited transaction carries, the auditor key's x-coordinate.
+    /// `local` serves one key, `derived` a key per ring.
+    pub mode: String,
+    /// The local key's tag; absent when keys are derived per ring.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auditor_view_tag: Option<Hash>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
+pub struct CreateAuditorKeyRequest {
+    pub ring_program_id: SerializablePubkey,
+}
+
+/// The public half of a ring's auditor key. Idempotent: the same ring gets
+/// the same key back.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
+pub struct CreateAuditorKeyResponse {
+    pub ring_program_id: SerializablePubkey,
+    /// SEC1 compressed, what `create_config` takes.
+    pub auditor_pubkey: Base64String,
     pub auditor_view_tag: Hash,
+    pub key_version: u32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub struct GetDecryptedTransactionsRequest {
+    /// Required when the instance derives keys per ring.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ring_program_id: Option<SerializablePubkey>,
     /// Opaque indexer cursor from a previous page.
     #[serde(default)]
     pub cursor: Option<Base64String>,

@@ -4,6 +4,7 @@
 use std::collections::{HashMap, HashSet};
 
 use maud::{html, Markup, PreEscaped, DOCTYPE};
+use solana_address::Address;
 use zolana_indexer_api::{Base64String, Hash, SerializablePubkey};
 
 use crate::api::{DecryptedOutput, DecryptedTransaction, GetDecryptedTransactionsResponse};
@@ -17,6 +18,8 @@ const STYLE: &str = include_str!("page.css");
 /// reader needs to place it.
 pub struct AuditorPage<'a> {
     pub auditor_view_tag: Hash,
+    /// The ring shown when the instance serves several.
+    pub ring: Option<Address>,
     pub page: &'a GetDecryptedTransactionsResponse,
     /// The cursor this page was fetched with, if any.
     pub cursor: Option<&'a str>,
@@ -42,6 +45,7 @@ impl AuditorPage<'_> {
                     header {
                         h1 { "Ring Auditor" }
                         span class="muted" {
+                            @if let Some(ring) = self.ring { "ring " code { (ring) } " · " }
                             "auditor view tag " code { (self.auditor_view_tag) }
                             " · indexer slot " (self.page.context.slot)
                             " · " (items.len()) " transaction" @if items.len() != 1 { "s" }
@@ -182,10 +186,14 @@ fn skipped(page: &GetDecryptedTransactionsResponse) -> Markup {
 
 fn pager(page: &AuditorPage<'_>) -> Markup {
     let older = page.page.value.cursor.as_ref().map(base64_query);
+    let ring = page
+        .ring
+        .map(|ring| format!("ring={ring}&"))
+        .unwrap_or_default();
     html! {
         nav class="pager" {
-            @if page.cursor.is_some() { a href="/" { "newest" } " " }
-            @if let Some(older) = older { a href={ "/?cursor=" (older) } { "older" } }
+            @if page.cursor.is_some() { a href={ "/?" (ring) } { "newest" } " " }
+            @if let Some(older) = older { a href={ "/?" (ring) "cursor=" (older) } { "older" } }
         }
     }
 }

@@ -162,6 +162,20 @@ ring-localnet: build-programs build-prover-server build-cli ensure-photon ensure
 
 # Stops the validator, photon, the prover, and a ring RPC left on the ring RPC
 # port by a ring's `just pipeline`.
+# A ring RPC in derived mode for the localnet: one root secret, a key per
+# ring, the shape the hosted devnet instance has. Foreground.
+ring-rpc-derived:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p target/ring-localnet
+    secret="target/ring-localnet/root.secret"
+    if [ ! -f "$secret" ]; then
+        (umask 077 && head -c 32 /dev/urandom | xxd -p -c 64 > "$secret")
+    fi
+    cargo run -q -p zolana-ring-rpc -- serve --port {{localnet-ring-rpc-port}} \
+        --indexer-url {{localnet-photon-url}} --rpc-url {{localnet-rpc-url}} \
+        --root-secret-file "$secret"
+
 ring-localnet-stop:
     lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
     lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true

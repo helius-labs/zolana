@@ -5,7 +5,12 @@
 //! it on the last `messages` entry of every transact, Photon indexes messages by
 //! view tag, so one tag query returns every transaction of the ring.
 
-use std::{collections::HashMap, future::Future, sync::Mutex, time::Duration};
+use std::{
+    collections::HashMap,
+    future::Future,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use jsonrpsee::types::{error::ErrorCode, ErrorObjectOwned};
 use log::{error, warn};
@@ -18,13 +23,14 @@ use solana_transaction_status_client_types::{
     EncodedTransaction, UiMessage, UiTransaction, UiTransactionEncoding,
 };
 use thiserror::Error;
+use zeroize::Zeroizing;
 use zolana_api::ZolanaApi;
 use zolana_client::{
     AsyncRpc, AsyncSolanaRpc, AsyncZolanaIndexer, ClientError,
     GetShieldedTransactionsByTagsResponse,
 };
 use zolana_interface::{state::SplAssetRegistry, SHIELDED_POOL_PROGRAM_ID};
-use zolana_keypair::ViewingKey;
+use zolana_keypair::{P256Pubkey, ViewingKey};
 use zolana_ring_client::{audit_transaction, auditor_view_tag, AuditedTransaction};
 use zolana_transaction::{AssetRegistry, ShieldedTransaction};
 
@@ -142,6 +148,12 @@ impl TransactionSource for ChainSource {
 pub enum RingRpcError {
     #[error("limit must be between 1 and {PAGE_LIMIT}, got {0}")]
     InvalidLimit(u32),
+    #[error("ring_program_id is required, this instance serves keys per ring")]
+    RingRequired,
+    #[error("this instance serves one ring and it is not {0}")]
+    UnknownRing(Address),
+    #[error("key derivation failed: {0}")]
+    Derivation(#[from] zolana_keypair::KeypairError),
     #[error(transparent)]
     Indexer(#[from] ClientError),
 }
@@ -149,7 +161,10 @@ pub enum RingRpcError {
 impl From<RingRpcError> for ErrorObjectOwned {
     fn from(error: RingRpcError) -> Self {
         match error {
-            RingRpcError::InvalidLimit(_) => ErrorObjectOwned::owned(
+            RingRpcError::InvalidLimit(_)
+            | RingRpcError::RingRequired
+            | RingRpcError::UnknownRing(_)
+            | RingRpcError::Derivation(_) => ErrorObjectOwned::owned(
                 ErrorCode::InvalidRequest.code(),
                 error.to_string(),
                 None::<()>,
@@ -175,13 +190,13 @@ const SIGNER_CACHE_ENTRIES: usize = 4096;
 pub struct AuditService<S> {
     auditor: ViewingKey,
     view_tag: [u8; 32],
-    source: S,
+    source: Arc<S>,
     assets: AssetRegistry,
     signers: Mutex<HashMap<Signature, Vec<Address>>>,
 }
 
 impl<S: TransactionSource> AuditService<S> {
-    pub fn new(auditor: ViewingKey, source: S, assets: AssetRegistry) -> Self {
+    pub fn new(auditor: ViewingKey, source: Arc<S>, assets: AssetRegistry) -> Self {
         let view_tag = auditor_view_tag(&auditor.pubkey());
         Self {
             auditor,
@@ -190,6 +205,10 @@ impl<S: TransactionSource> AuditService<S> {
             assets,
             signers: Mutex::new(HashMap::new()),
         }
+    }
+
+    pub fn auditor_pubkey(&self) -> P256Pubkey {
+        self.auditor.pubkey()
     }
 
     /// The indexer answers and is this ring's source of truth. Used by
@@ -335,4 +354,84 @@ pub async fn asset_registry_from_chain<R: AsyncRpc>(rpc: &R) -> Result<AssetRegi
             .map(|registry| (registry.asset_id, registry.mint))
     });
     AssetRegistry::new(entries).map_err(ClientError::from)
+}
+
+/// Domain of the derived auditor keys. Bumping it rotates every derived key.
+const DERIVATION_INFO: &[u8] = b"zolana/ring-auditor/v1";
+
+/// Where a ring's auditor key comes from.
+pub enum KeyProvider {
+    /// One key from a file, one ring per instance.
+    Local(ViewingKey),
+    /// `HKDF(root_secret, ring_program_id)`, any ring on demand.
+    Derived(Zeroizing<[u8; 32]>),
+}
+
+impl KeyProvider {
+    pub fn derive(root: &[u8; 32], ring: Address) -> Result<ViewingKey, RingRpcError> {
+        Ok(ViewingKey::from_hkdf(
+            root,
+            &[DERIVATION_INFO, ring.as_ref()],
+        )?)
+    }
+}
+
+/// Resolves a ring to its audit service. Local mode has exactly one; derived
+/// mode builds one per ring the first time it is asked.
+pub struct Hub<S> {
+    provider: KeyProvider,
+    source: Arc<S>,
+    assets: AssetRegistry,
+    services: Mutex<HashMap<Option<Address>, Arc<AuditService<S>>>>,
+}
+
+impl<S: TransactionSource> Hub<S> {
+    pub fn new(provider: KeyProvider, source: S, assets: AssetRegistry) -> Self {
+        Self {
+            provider,
+            source: Arc::new(source),
+            assets,
+            services: Mutex::new(HashMap::new()),
+        }
+    }
+
+    pub fn is_derived(&self) -> bool {
+        matches!(self.provider, KeyProvider::Derived(_))
+    }
+
+    /// The service for `ring`. `None` selects the local key.
+    pub fn ring(&self, ring: Option<Address>) -> Result<Arc<AuditService<S>>, RingRpcError> {
+        let key = match (&self.provider, ring) {
+            (KeyProvider::Local(_), _) => None,
+            (KeyProvider::Derived(_), None) => return Err(RingRpcError::RingRequired),
+            (KeyProvider::Derived(_), Some(ring)) => Some(ring),
+        };
+        let mut services = self
+            .services
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(service) = services.get(&key) {
+            return Ok(service.clone());
+        }
+        let auditor = match (&self.provider, key) {
+            (KeyProvider::Local(auditor), _) => auditor.clone(),
+            (KeyProvider::Derived(root), Some(ring)) => KeyProvider::derive(root, ring)?,
+            (KeyProvider::Derived(_), None) => return Err(RingRpcError::RingRequired),
+        };
+        let service = Arc::new(AuditService::new(
+            auditor,
+            self.source.clone(),
+            self.assets.clone(),
+        ));
+        services.insert(key, service.clone());
+        Ok(service)
+    }
+
+    /// The local key's service, for callers that name no ring.
+    pub fn local(&self) -> Option<Arc<AuditService<S>>> {
+        match self.provider {
+            KeyProvider::Local(_) => self.ring(None).ok(),
+            KeyProvider::Derived(_) => None,
+        }
+    }
 }

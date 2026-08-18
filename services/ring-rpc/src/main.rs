@@ -5,8 +5,11 @@ use clap::Parser;
 use log::info;
 use zolana_ring_client::auditor_view_tag;
 use zolana_ring_rpc::{
-    audit::{asset_registry_from_chain, AuditService, ChainSource},
-    config::{load_auditor_key, public_key_path, write_auditor_key, Cli, Command, ServeArgs},
+    audit::{asset_registry_from_chain, ChainSource, Hub, KeyProvider},
+    config::{
+        load_auditor_key, load_root_secret, public_key_path, write_auditor_key, Cli, Command,
+        ServeArgs,
+    },
     server::{run_server, ServerOptions},
 };
 
@@ -36,19 +39,34 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn serve(args: ServeArgs) -> anyhow::Result<()> {
-    let auditor = load_auditor_key(&args.auditor_key_file, args.allow_shared_key_file)
-        .with_context(|| format!("loading {}", args.auditor_key_file.display()))?;
+    let provider = match (&args.auditor_key_file, &args.root_secret_file) {
+        (Some(path), None) => KeyProvider::Local(
+            load_auditor_key(path, args.allow_shared_key_file)
+                .with_context(|| format!("loading {}", path.display()))?,
+        ),
+        (None, Some(path)) => KeyProvider::Derived(
+            load_root_secret(path, args.allow_shared_key_file)
+                .with_context(|| format!("loading {}", path.display()))?,
+        ),
+        _ => anyhow::bail!("pass exactly one of --auditor-key-file and --root-secret-file"),
+    };
     let source = ChainSource::new(&args.indexer_url, &args.rpc_url, args.upstream_timeout())?;
     let assets = asset_registry_from_chain(source.rpc())
         .await
         .context("loading the SPL asset registry")?;
-    let service = Arc::new(AuditService::new(auditor, source, assets));
-    info!(
-        "ring-rpc listening on {}:{} for auditor tag {}",
-        args.bind,
-        args.port,
-        hex::encode(service.auditor_view_tag())
-    );
+    let hub = Arc::new(Hub::new(provider, source, assets));
+    match hub.local() {
+        Some(service) => info!(
+            "ring-rpc listening on {}:{} for auditor tag {}",
+            args.bind,
+            args.port,
+            hex::encode(service.auditor_view_tag())
+        ),
+        None => info!(
+            "ring-rpc listening on {}:{}, auditor keys derived per ring",
+            args.bind, args.port
+        ),
+    }
 
     let options = ServerOptions {
         bind: args.bind,
@@ -57,7 +75,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         request_timeout: args.request_timeout(),
         allow_origins: args.allow_origins,
     };
-    let handle = run_server(service, options).await?;
+    let handle = run_server(hub, options).await?;
     tokio::signal::ctrl_c().await?;
     info!("stopping");
     handle.stop()?;
