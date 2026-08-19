@@ -8,5 +8,7 @@ mod deposit;
 mod dispatch;
 #[path = "failing/init_spp_ring_config.rs"]
 mod init_spp_ring_config;
+#[path = "failing/set_policy.rs"]
+mod set_policy;
 #[path = "failing/transact.rs"]
 mod transact;

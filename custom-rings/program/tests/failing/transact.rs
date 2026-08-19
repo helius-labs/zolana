@@ -16,15 +16,16 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    instruction::{CircuitId, MessageData, TransactIxData, TransactProof},
+    instruction::{CircuitId, InterfaceTransfer, MessageData, TransactIxData, TransactProof},
     verifying_keys::{Bsb22Commitment, RingP256ProofData},
     N_PUBLIC_SLOTS,
 };
 use zolana_test_utils::mollusk::expect_err_exact;
 
 use crate::common::{
-    account, auditor_pubkey, authority, config_pda, initialized_config_account, payer, program_id,
-    ring_auth_pda, setup_mollusk, spp_program_account, substitute_account,
+    account, auditor_pubkey, authority, config_account_with_policy, config_pda,
+    initialized_config_account, payer, program_id, ring_auth_pda, setup_mollusk,
+    spp_program_account, substitute_account,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -377,5 +378,55 @@ fn zeroed_proof_is_rejected_exactly() {
         &instruction,
         &accounts,
         custom(CustomRingError::ProofVerificationFailed),
+    );
+}
+
+/// Policy runs before the proof: the fixture's proof is bogus and the
+/// withdrawal is still what gets named.
+#[test]
+fn public_withdrawal_is_rejected_exactly_when_blocked() {
+    let (mollusk, _) = setup_mollusk();
+    let mut transact = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+    transact.interface_transfers = vec![InterfaceTransfer::SolWithdrawal { amount: 5 }];
+    let config = config_account_with_policy(authority(), config_auditor_pubkey(), None, true);
+    let (mut instruction, mut accounts) =
+        transact_fixture(config, instruction_data(bogus_proof(), transact));
+    // SOL settlement group `[sol_interface, recipient]` after the (empty)
+    // signer run.
+    for key in [[61u8; 32], [62u8; 32]] {
+        let key = Pubkey::new_from_array(key);
+        instruction.accounts.push(AccountMeta::new(key, false));
+        accounts.push((key, account(1_000_000_000)));
+    }
+    expect_err_exact(
+        &mollusk,
+        &instruction,
+        &accounts,
+        custom(CustomRingError::WithdrawalsBlocked),
+    );
+}
+
+/// A public SOL deposit inside a transact is an asset entering the ring, so
+/// the allowlist applies to it too.
+#[test]
+fn settlement_of_an_asset_outside_the_allowlist_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut transact = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+    transact.interface_transfers = vec![InterfaceTransfer::SolDeposit { amount: 5 }];
+    let usdc = [9u8; 32];
+    let config =
+        config_account_with_policy(authority(), config_auditor_pubkey(), Some(&[usdc]), false);
+    let (mut instruction, mut accounts) =
+        transact_fixture(config, instruction_data(bogus_proof(), transact));
+    for key in [[61u8; 32], [62u8; 32]] {
+        let key = Pubkey::new_from_array(key);
+        instruction.accounts.push(AccountMeta::new(key, false));
+        accounts.push((key, account(1_000_000_000)));
+    }
+    expect_err_exact(
+        &mollusk,
+        &instruction,
+        &accounts,
+        custom(CustomRingError::AssetNotAllowed),
     );
 }

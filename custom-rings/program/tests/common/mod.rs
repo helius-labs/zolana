@@ -1,6 +1,9 @@
 use custom_ring_program::{
-    instructions::create_config::CreateConfigIxData,
-    state::{RingProgramConfig, RING_PROGRAM_CONFIG},
+    instructions::{create_config::CreateConfigIxData, set_policy::SetPolicyIxData},
+    state::{
+        RingProgramConfig, ASSETS_ALLOWLIST, ASSETS_ANY, MAX_ALLOWED_ASSETS, RING_PROGRAM_CONFIG,
+        WITHDRAWALS_BLOCKED, WITHDRAWALS_OPEN,
+    },
     tag, CONFIG_PDA_SEED,
 };
 use mollusk_svm::Mollusk;
@@ -101,13 +104,40 @@ pub fn auditor_pubkey(prefix: u8) -> [u8; 33] {
     key
 }
 
-/// An initialized config account as this program would have written it.
+/// An initialized config account as this program would have written it, with
+/// the open policy `create_config` starts from.
 pub fn initialized_config_account(authority: Pubkey, auditor_pubkey: [u8; 33]) -> Account {
+    config_account_with_policy(authority, auditor_pubkey, None, false)
+}
+
+/// A config account carrying a policy as `set_policy` would have written it:
+/// `allowed_assets` `Some(mints)` turns the allowlist on.
+pub fn config_account_with_policy(
+    authority: Pubkey,
+    auditor_pubkey: [u8; 33],
+    allowed_assets: Option<&[[u8; 32]]>,
+    withdrawals_blocked: bool,
+) -> Account {
+    let mut assets = [[0u8; 32]; MAX_ALLOWED_ASSETS];
+    let listed = allowed_assets.unwrap_or_default();
+    assets[..listed.len()].copy_from_slice(listed);
     let state = RingProgramConfig {
         discriminator: RING_PROGRAM_CONFIG,
         authority: Address::new_from_array(authority.to_bytes()),
         auditor_pubkey,
         bump: config_pda().1,
+        withdrawals: if withdrawals_blocked {
+            WITHDRAWALS_BLOCKED
+        } else {
+            WITHDRAWALS_OPEN
+        },
+        asset_policy: if allowed_assets.is_some() {
+            ASSETS_ALLOWLIST
+        } else {
+            ASSETS_ANY
+        },
+        allowed_assets_len: listed.len() as u8,
+        allowed_assets: assets,
     };
     Account {
         lamports: 1_000_000_000,
@@ -116,6 +146,31 @@ pub fn initialized_config_account(authority: Pubkey, auditor_pubkey: [u8; 33]) -
         executable: false,
         rent_epoch: 0,
     }
+}
+
+pub fn set_policy_data(policy: &SetPolicyIxData) -> Vec<u8> {
+    let mut data = vec![tag::SET_POLICY];
+    data.extend_from_slice(&wincode::serialize(policy).expect("serialize set_policy data"));
+    data
+}
+
+/// `set_policy` fixture: `[authority(s), config(w)]` over `config`.
+pub fn set_policy_fixture(
+    config: Account,
+    policy: &SetPolicyIxData,
+) -> (Instruction, Vec<(Pubkey, Account)>) {
+    let (config_key, _) = config_pda();
+    (
+        Instruction {
+            program_id: program_id(),
+            accounts: vec![
+                AccountMeta::new_readonly(authority(), true),
+                AccountMeta::new(config_key, false),
+            ],
+            data: set_policy_data(policy),
+        },
+        vec![(authority(), account(1_000_000_000)), (config_key, config)],
+    )
 }
 
 pub fn create_config_data(auditor_pubkey: [u8; 33]) -> Vec<u8> {
@@ -209,11 +264,16 @@ pub fn init_spp_ring_config_fixture(config: Account) -> (Instruction, Vec<(Pubke
     )
 }
 
-/// SOL-only ring-deposit fixture, laid out exactly as SPP's deposit loader wants
-/// it: `[tree(w), depositor(w,s), ring_config, spp_program, system_program,
-/// sol_interface]`. The instruction data starts with SPP's own `RING_DEPOSIT`
-/// tag, which the ring forwards verbatim.
-pub fn deposit_fixture() -> (Instruction, Vec<(Pubkey, Account)>) {
+/// SOL-only ring-deposit fixture: the ring config first, then SPP's list laid
+/// out exactly as its deposit loader wants it: `[tree(w), depositor(w,s),
+/// ring_config, spp_program, system_program, sol_interface]`. The instruction
+/// data starts with SPP's own `RING_DEPOSIT` tag, which the ring forwards
+/// verbatim; `data` is the body after the tag.
+pub fn deposit_fixture_with(
+    config: Account,
+    data: Vec<u8>,
+) -> (Instruction, Vec<(Pubkey, Account)>) {
+    let (config_key, _) = config_pda();
     let tree = Pubkey::new_from_array([51; 32]);
     let depositor = Pubkey::new_from_array([52; 32]);
     let sol_interface = Pubkey::new_from_array([53; 32]);
@@ -221,11 +281,14 @@ pub fn deposit_fixture() -> (Instruction, Vec<(Pubkey, Account)>) {
     let (system_program, system_program_account) =
         mollusk_svm::program::keyed_account_for_system_program();
     let (spp_id, spp_account) = spp_program_account();
+    let mut instruction_data = vec![tag::DEPOSIT];
+    instruction_data.extend_from_slice(&data);
 
     (
         Instruction {
             program_id: program_id(),
             accounts: vec![
+                AccountMeta::new_readonly(config_key, false),
                 AccountMeta::new(tree, false),
                 AccountMeta::new(depositor, true),
                 AccountMeta::new_readonly(ring_auth, false),
@@ -233,9 +296,10 @@ pub fn deposit_fixture() -> (Instruction, Vec<(Pubkey, Account)>) {
                 AccountMeta::new_readonly(system_program, false),
                 AccountMeta::new(sol_interface, false),
             ],
-            data: vec![tag::DEPOSIT],
+            data: instruction_data,
         },
         vec![
+            (config_key, config),
             (tree, account(1_000_000_000)),
             (depositor, account(1_000_000_000)),
             (ring_auth, account(1_000_000_000)),
@@ -243,6 +307,13 @@ pub fn deposit_fixture() -> (Instruction, Vec<(Pubkey, Account)>) {
             (system_program, system_program_account),
             (sol_interface, account(1_000_000_000)),
         ],
+    )
+}
+
+pub fn deposit_fixture() -> (Instruction, Vec<(Pubkey, Account)>) {
+    deposit_fixture_with(
+        initialized_config_account(authority(), auditor_pubkey(2)),
+        Vec::new(),
     )
 }
 

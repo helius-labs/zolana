@@ -26,6 +26,18 @@ pub struct RingConfig {
     /// carries them as data so a new feature needs no code here.
     #[serde(default)]
     pub features: BTreeMap<String, bool>,
+    /// What the enabled features enforce on chain; `init` writes it.
+    #[serde(default)]
+    pub policy: PolicyConfig,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PolicyConfig {
+    /// Mints the ring accepts, `SOL` for native SOL. Absent: any asset.
+    pub allowed_assets: Option<Vec<String>>,
+    /// `open` or `blocked`. Absent: open.
+    pub withdrawals: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -103,7 +115,12 @@ ring_rpc = "http://127.0.0.1:8785"
 [features]
 confidential = true
 auditor_visibility = true
+allowed_assets = true
 anonymous = false
+
+[policy]
+allowed_assets = ["SOL", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"]
+withdrawals = "blocked"
 "#;
 
     #[test]
@@ -112,9 +129,14 @@ anonymous = false
         assert_eq!(config.target, Target::Localnet);
         assert_eq!(
             config.enabled_features().collect::<Vec<_>>(),
-            vec!["auditor_visibility", "confidential"]
+            vec!["allowed_assets", "auditor_visibility", "confidential"]
         );
         assert_eq!(config.urls.ring_rpc, "http://127.0.0.1:8785");
+        assert_eq!(
+            config.policy.allowed_assets.as_deref().map(<[String]>::len),
+            Some(2)
+        );
+        assert_eq!(config.policy.withdrawals.as_deref(), Some("blocked"));
     }
 
     #[test]

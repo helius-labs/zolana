@@ -1,16 +1,17 @@
 use solana_address::Address;
-use solana_instruction::Instruction;
+use solana_instruction::{AccountMeta, Instruction};
 use zolana_interface::instruction::{DepositBuildError, RingAssetDeposit, RingDeposit};
 
-use crate::PROGRAM_ID;
+use crate::{config_pda, PROGRAM_ID};
 
 /// Ring deposit: SPP's `RING_DEPOSIT` instruction re-targeted at this program.
 ///
 /// The ring proves nothing for a deposit -- amounts are public on-chain -- so it
-/// only lends its `ring_auth` signature and forwards the instruction data byte for
-/// byte, tag included. Encoding and the account layout therefore stay in the
-/// interface builder; this wrapper exists to pin `ring_program_id`, which selects
-/// both the instruction target and the `ring_auth` PDA that has to sign inside the
+/// checks its asset policy, lends its `ring_auth` signature and forwards the
+/// instruction data byte for byte, tag included. Encoding and SPP's account
+/// layout stay in the interface builder; the ring config is prepended for the
+/// policy read. This wrapper pins `ring_program_id`, which selects both the
+/// instruction target and the `ring_auth` PDA that has to sign inside the
 /// forwarded CPI. Those two must never disagree, and here they cannot.
 pub struct Deposit {
     pub tree: Address,
@@ -27,12 +28,15 @@ impl Deposit {
             deposits,
         } = self;
 
-        RingDeposit {
+        let mut ix = RingDeposit {
             tree,
             depositor,
             ring_program_id: PROGRAM_ID,
             deposits,
         }
-        .instruction()
+        .instruction()?;
+        ix.accounts
+            .insert(0, AccountMeta::new_readonly(config_pda(), false));
+        Ok(ix)
     }
 }

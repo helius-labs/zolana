@@ -36,13 +36,18 @@ zolana checkout, and `just localnet-stop` tears it down.
 | --- | --- | --- |
 {{features_markdown}}
 Features are declared in the template's `hooks/wizard.rhai`; a ring regenerated
-with the template picks up new ones.
+with the template picks up new ones. Enabled features that carry on-chain
+values live in `ring.toml`'s `[policy]` table: `allowed_assets` (mints the ring
+accepts, `SOL` for native SOL) and `withdrawals = "blocked"` (no public
+withdrawals out of the ring). `just init` writes the policy on chain, and
+`cargo run -p {{project-name}} -- policy show|apply|set` reads it back, re-applies
+`ring.toml`, or changes it (`policy set --allow-asset <mint> --withdrawals blocked`).
 
 ## Layout
 
 - `program/` the on-chain program: `custom-ring-program` behind this ring's
   entrypoint and address (`.cargo/config.toml`).
-- `cli/` the operator CLI (`status`, `deploy`, `init`, `transact`, `authority`), from
+- `cli/` the operator CLI (`status`, `deploy`, `init`, `policy`, `transact`, `authority`), from
   `custom-ring-cli`.
 - `keys/` the program keypair and the auditor secret, never committed, and
   `auditor.key.pub`, the auditor public key the ring config carries, committed.

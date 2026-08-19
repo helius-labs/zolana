@@ -14,8 +14,6 @@ bpf-entrypoint = []
 no-entrypoint = []
 cpi = ["no-entrypoint"]
 test-sbf = []
-# Toggleable smoke feature of the template: every instruction logs a greeting.
-hello = []
 
 [dependencies]
 bincode = { workspace = true }

@@ -28,8 +28,6 @@ pub fn print_status(config: &RingConfig, rpc: &SolanaRpc) -> Result<()> {
     println!("ring rpc    {}", config.urls.ring_rpc);
     let features: Vec<&str> = config.enabled_features().collect();
     println!("features    {}", features.join(", "));
-    #[cfg(feature = "hello")]
-    println!("hello       Hello feature");
 
     let chain = || -> Result<()> {
         match rpc.get_account(config.program_id)? {
@@ -48,11 +46,14 @@ pub fn print_status(config: &RingConfig, rpc: &SolanaRpc) -> Result<()> {
             None => println!("program     not deployed"),
         }
         match read_config(rpc)? {
-            Some(state) => println!(
-                "config      {} auditor {}",
-                config_pda(),
-                hex::encode(state.auditor_pubkey)
-            ),
+            Some(state) => {
+                println!(
+                    "config      {} auditor {}",
+                    config_pda(),
+                    hex::encode(state.auditor_pubkey)
+                );
+                crate::policy::print(&custom_ring_sdk::RingPolicy::from_config(&state));
+            }
             None => println!("config      not created ({})", config_pda()),
         }
         match read_ring_config(rpc)? {

@@ -7,6 +7,7 @@ pub mod authority;
 pub mod config;
 pub mod deploy;
 pub mod init;
+pub mod policy;
 pub mod ring_rpc;
 pub mod status;
 pub mod transfer;
@@ -52,8 +53,12 @@ pub enum Command {
     /// Deploy the program with the authority as upgrade authority, or upgrade
     /// it in place when it is already deployed.
     Deploy(DeployArgs),
-    /// Create the config with the auditor key and register the ring with SPP.
+    /// Create the config with the auditor key, write the policy from ring.toml
+    /// and register the ring with SPP.
     Init(InitArgs),
+    /// Show, re-apply from ring.toml, or change the on-chain policy.
+    #[command(subcommand)]
+    Policy(PolicyCommand),
     /// Two ring deposits and one audited transfer, read back from the ring RPC.
     Transact(TransactArgs),
     /// Confirm the ring RPC in `ring.toml` is up and holds this ring's auditor key.
@@ -61,6 +66,27 @@ pub enum Command {
     /// Transfer or renounce the program's upgrade authority.
     #[command(subcommand)]
     Authority(AuthorityCommand),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum PolicyCommand {
+    /// The policy the ring config carries.
+    Show,
+    /// Write ring.toml's `[policy]` on chain when it differs.
+    Apply,
+    /// Write the given policy on chain.
+    Set(PolicySetArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct PolicySetArgs {
+    /// Mint the ring accepts, repeatable; `SOL` for native SOL. Without any,
+    /// every asset is accepted.
+    #[arg(long = "allow-asset", value_name = "MINT")]
+    pub allow_assets: Vec<String>,
+    /// `open` or `blocked`.
+    #[arg(long, default_value = "open")]
+    pub withdrawals: String,
 }
 
 #[derive(Debug, Subcommand)]
@@ -170,6 +196,15 @@ pub fn run(cli: Cli) -> Result<()> {
                     "already present"
                 }
             );
+            let wanted = policy::from_config(&config.policy)?;
+            println!(
+                "policy      {}",
+                if policy::apply(&rpc, &authority, &wanted)? {
+                    "written"
+                } else {
+                    "already applied"
+                }
+            );
             println!(
                 "spp ring    {}",
                 if outcome.ring_registered {
@@ -184,6 +219,31 @@ pub fn run(cli: Cli) -> Result<()> {
             let auditor_pk = configured_auditor_pk(&rpc)?;
             RingRpc::new(&config.urls.ring_rpc).check_serves(PROGRAM_ID, &auditor_pk)?;
             println!("ring rpc    {} serves this ring", config.urls.ring_rpc);
+            Ok(())
+        }
+        Command::Policy(command) => {
+            let wanted = match command {
+                PolicyCommand::Show => {
+                    policy::print(&policy::read_policy(&rpc)?);
+                    return Ok(());
+                }
+                PolicyCommand::Apply => policy::from_config(&config.policy)?,
+                PolicyCommand::Set(args) => policy::from_config(&config::PolicyConfig {
+                    allowed_assets: (!args.allow_assets.is_empty()).then_some(args.allow_assets),
+                    withdrawals: Some(args.withdrawals),
+                })?,
+            };
+            let authority = config.authority()?;
+            fund_on_localnet(&config, &mut rpc, authority.pubkey())?;
+            println!(
+                "policy      {}",
+                if policy::apply(&rpc, &authority, &wanted)? {
+                    "written"
+                } else {
+                    "already applied"
+                }
+            );
+            policy::print(&wanted);
             Ok(())
         }
         Command::Authority(command) => {

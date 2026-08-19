@@ -12,4 +12,10 @@ prover = "{{prover_url}}"
 ring_rpc = "{{ring_rpc_url}}"
 
 [features]
-{{features_toml}}
+{{features_toml -}}
+{% if policy_toml != "" %}
+# What the enabled features enforce on chain. `just init` writes it, the CLI's
+# `policy` command edits it.
+[policy]
+{{policy_toml -}}
+{% endif %}

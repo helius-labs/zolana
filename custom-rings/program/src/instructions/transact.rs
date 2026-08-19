@@ -11,6 +11,7 @@ use crate::{
     error::CustomRingError,
     instructions::{
         loader::{load_config, validate_spp_program},
+        policy::check_transact,
         shared::{cpi_spp_signed, pack33_to_2fe},
         verifier::{verify_groth16, CompressedGroth16Proof},
     },
@@ -161,7 +162,12 @@ pub fn process_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Program
     // exactly one -- the canonical config PDA -- so ownership plus the
     // discriminator already identify it; the borrow is released here so the
     // account is not still borrowed across the CPI.
-    let auditor_pubkey = load_config(config_account)?.auditor_pubkey;
+    let auditor_pubkey = {
+        let config = load_config(config_account)?;
+        // Policy before the pairing: a refused transfer costs no proof work.
+        check_transact(&config, spp_accounts, &transact.interface_transfers)?;
+        config.auditor_pubkey
+    };
 
     // This ring has one rail: Solana eddsa signers. `RingP256` (and any future
     // selector) would put SPP on a proof shape whose ownership semantics this
