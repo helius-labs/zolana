@@ -59,6 +59,15 @@ pub struct GetEncryptedUtxosByTagsResponse {
     pub context: Context,
     pub matches: Vec<EncryptedUtxoMatch>,
     pub next_cursor: Option<Vec<u8>>,
+    /// Where the indexer's scan reached: the position to resume from next sync.
+    ///
+    /// Not a duplicate of `next_cursor`, which is a liveness signal -- its
+    /// presence means "read on", so the page that ends a read is by definition
+    /// the one without it, and it cannot also carry that page's position.
+    /// Ending on page size instead would collapse the two, and is rejected by
+    /// `only_a_missing_cursor_ends_the_read`: it stakes not skipping a spend on
+    /// every endpoint returning a short page only when out of rows.
+    pub scanned_through: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -66,6 +75,15 @@ pub struct GetShieldedTransactionsByTagsResponse {
     pub context: Context,
     pub transactions: Vec<ShieldedTransaction>,
     pub next_cursor: Option<Vec<u8>>,
+    /// Where the indexer's scan reached: the position to resume from next sync.
+    ///
+    /// Not a duplicate of `next_cursor`, which is a liveness signal -- its
+    /// presence means "read on", so the page that ends a read is by definition
+    /// the one without it, and it cannot also carry that page's position.
+    /// Ending on page size instead would collapse the two, and is rejected by
+    /// `only_a_missing_cursor_ends_the_read`: it stakes not skipping a spend on
+    /// every endpoint returning a short page only when out of rows.
+    pub scanned_through: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

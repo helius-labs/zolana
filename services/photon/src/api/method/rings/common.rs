@@ -394,6 +394,37 @@ pub(super) fn next_cursor_from_rows<T>(
         .map(|cursor| cursor.map(Base64String))
 }
 
+/// Trim an over-fetched page to `limit`, returning a cursor only when a row was
+/// left behind.
+///
+/// `next_cursor` used to answer two questions at once, and they want different
+/// answers on the last page. As "where did I get to" it has to be present, or a
+/// caller has no watermark and rescans from the start -- the regression
+/// `a_short_page_still_reports_its_last_row` guards. As "is there more" it has to
+/// be absent, or the caller spends an entire request being told there is nothing.
+///
+/// So the two split: `scanned_through` carries the watermark, and this carries
+/// paging. The caller asks for one row past `limit`; that row is never returned,
+/// it is only evidence another page exists.
+pub(super) fn page_cursor<T>(
+    rows: &mut Vec<T>,
+    limit: u64,
+    cursor_from_row: impl FnOnce(&T) -> Result<Vec<u8>, PhotonApiError>,
+) -> Result<Option<Base64String>, PhotonApiError> {
+    let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+    if rows.len() <= limit {
+        return Ok(None);
+    }
+    rows.truncate(limit);
+    next_cursor_from_rows(rows, cursor_from_row)
+}
+
+/// One row past what the caller wants, so the page can tell whether it is the
+/// last. Paired with [`page_cursor`], which drops it.
+pub(super) fn over_fetch(limit: u64) -> u64 {
+    limit.saturating_add(1)
+}
+
 pub(super) fn signature_from_bytes(bytes: &[u8]) -> Result<SerializableSignature, PhotonApiError> {
     Ok(SerializableSignature(Signature::from(signature_array(
         bytes,
@@ -491,6 +522,43 @@ mod tests {
             Some(50u64.to_be_bytes().to_vec()),
             "a page below the limit still reports where it got to"
         );
+    }
+
+    /// The two jobs the cursor used to do at once, now split. A last page must
+    /// not carry a paging cursor -- that cost the caller a request to discover
+    /// the page was the last -- while `scanned_through` keeps the watermark that
+    /// `a_short_page_still_reports_its_last_row` exists to protect.
+    #[test]
+    fn a_last_page_carries_no_paging_cursor() {
+        // Asked for 2, the query found 2: there was no third row.
+        let mut rows = vec![10u64, 50];
+        assert!(page_cursor(&mut rows, 2, cursor_of)
+            .expect("cursor")
+            .is_none());
+        assert_eq!(rows, vec![10, 50], "a last page is returned whole");
+    }
+
+    /// A full page pages from the last row it returned -- not from the
+    /// over-fetched one, which the caller never sees.
+    #[test]
+    fn a_full_page_pages_from_its_last_returned_row() {
+        let mut rows = vec![10u64, 50, 90];
+        let cursor = page_cursor(&mut rows, 2, cursor_of).expect("cursor");
+
+        assert_eq!(rows, vec![10, 50], "the extra row is evidence, not payload");
+        assert_eq!(
+            cursor.map(|c| c.0),
+            Some(50u64.to_be_bytes().to_vec()),
+            "resumes at 50, so 90 is read next rather than skipped"
+        );
+    }
+
+    #[test]
+    fn an_empty_page_carries_no_paging_cursor() {
+        let mut rows: Vec<u64> = Vec::new();
+        assert!(page_cursor(&mut rows, 2, cursor_of)
+            .expect("cursor")
+            .is_none());
     }
 
     /// How the loop terminates now: the client asks once more and gets nothing.

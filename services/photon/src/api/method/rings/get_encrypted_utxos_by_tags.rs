@@ -1,7 +1,7 @@
 use super::common::{
     bind_u64_as_i64, cursor_sort_key, decode_cursor, encode_cursor, next_cursor_from_rows,
-    rings_output_slot_from_parts, signature_from_bytes, tags_sql, tx_cursor_sql_condition,
-    u16_from_i16, u64_from_i64, validate_tags, CursorKind,
+    over_fetch, page_cursor, rings_output_slot_from_parts, signature_from_bytes, tags_sql,
+    tx_cursor_sql_condition, u16_from_i16, u64_from_i64, validate_tags, CursorKind,
 };
 use crate::api::error::PhotonApiError;
 use crate::common::bind_sql_value;
@@ -62,9 +62,25 @@ pub async fn get_encrypted_utxos_by_tags(
     let ring_config = request
         .ring_program_id
         .map(|program| pda::ring_auth(&program.0).0);
-    let rows =
-        fetch_encrypted_utxo_rows(&tx, &request.tags, cursor.as_ref(), limit, ring_config).await?;
-    let next_cursor = next_cursor_from_rows(&rows, encrypted_utxo_cursor_from_row)?;
+    // One row past the limit; see `page_cursor`.
+    let mut rows = fetch_encrypted_utxo_rows(
+        &tx,
+        &request.tags,
+        cursor.as_ref(),
+        over_fetch(limit),
+        ring_config,
+    )
+    .await?;
+    let next_cursor = page_cursor(&mut rows, limit, encrypted_utxo_cursor_from_row)?;
+    // The caller's watermark, now that `next_cursor` only reports paging. The
+    // rows are the answer: on a page the limit did not truncate, the last row
+    // returned is where the scan reached. Reading the stream tip from the
+    // database instead cost about as much as the round trip this saves.
+    let scanned_through = if next_cursor.is_some() {
+        None
+    } else {
+        next_cursor_from_rows(&rows, encrypted_utxo_cursor_from_row)?
+    };
 
     let matches = rows
         .into_iter()
@@ -91,6 +107,7 @@ pub async fn get_encrypted_utxos_by_tags(
         context,
         matches,
         next_cursor,
+        scanned_through,
     })
 }
 

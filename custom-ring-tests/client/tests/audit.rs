@@ -544,6 +544,11 @@ impl Rpc for PagedIndexer {
                 slot: 1,
             },
             transactions,
+            // A last page reports where the scan reached instead of a paging
+            // cursor; this double pages by index, so the tip is the final page.
+            scanned_through: next_cursor
+                .is_none()
+                .then(|| vec![u8::try_from(self.pages.len()).expect("page count")]),
             next_cursor,
         })
     }

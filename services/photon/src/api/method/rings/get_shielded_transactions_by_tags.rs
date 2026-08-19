@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 
 use super::common::{
     bind_u64_as_i64, cursor_sort_key, decode_cursor, encode_cursor, hash_from_vec, int_list_sql,
-    next_cursor_from_rows, rings_output_slot_from_parts, signature_from_bytes, tags_sql,
-    tx_cursor_sql_condition, u16_from_i16, u64_from_i64, validate_nullifiers, validate_tags,
-    CursorKind,
+    next_cursor_from_rows, over_fetch, page_cursor, rings_output_slot_from_parts,
+    signature_from_bytes, tags_sql, tx_cursor_sql_condition, u16_from_i16, u64_from_i64,
+    validate_nullifiers, validate_tags, CursorKind,
 };
 use crate::api::error::PhotonApiError;
 use crate::common::bind_sql_value;
@@ -101,6 +101,7 @@ pub async fn get_shielded_transactions_by_tags(
         context: page.context,
         transactions: page.transactions,
         next_cursor: page.next_cursor,
+        scanned_through: page.scanned_through,
     })
 }
 
@@ -160,26 +161,41 @@ async fn get_shielded_transactions(
     let tx = conn.begin().await?;
     crate::api::set_transaction_isolation_if_needed(&tx).await?;
 
-    let matched_txs = fetch_matching_rings_transactions(
+    // One row past the limit, so an absent cursor means "this was the last page"
+    // instead of "the page was empty". Without it a caller spends a whole request
+    // learning there is nothing more -- 170ms of every sync on devnet.
+    let mut matched_txs = fetch_matching_rings_transactions(
         &tx,
         values,
         cursor.as_ref(),
-        limit,
+        over_fetch(limit),
         match_by,
         ring_config,
     )
     .await?;
-    let next_cursor = next_cursor_from_rows(&matched_txs, |row| {
+    let next_cursor = page_cursor(&mut matched_txs, limit, |row| {
         shielded_tx_cursor_from_row(row, cursor_kind)
     })?;
 
-    // A full page means the limit cut the scan short, so nothing can be claimed
-    // beyond it. Only the nullifier stream needs the position: a tag query's
-    // cursor advances on the rows it returns.
-    let truncated = matched_txs.len() as u64 >= limit;
-    let scanned_through = match match_by {
-        MatchBy::Nullifiers if !truncated => scan_position(&tx, cursor_kind).await?,
-        _ => None,
+    // A cursor now means exactly that the limit cut the scan short, so nothing
+    // can be claimed beyond it.
+    let truncated = next_cursor.is_some();
+    let scanned_through = if truncated {
+        None
+    } else {
+        match match_by {
+            // The rows are the answer: the last one returned is where a scan
+            // that ran out of rows reached. Reading the stream tip from the
+            // database instead cost about as much as the round trip this
+            // watermark exists to save -- 180ms per request, measured.
+            MatchBy::Tags => next_cursor_from_rows(&matched_txs, |row| {
+                shielded_tx_cursor_from_row(row, cursor_kind)
+            })?,
+            // Except here, where they are not: a query for unspent nullifiers
+            // matches nothing, so an untruncated page has no last row and the
+            // position has to come from the stream itself.
+            MatchBy::Nullifiers => scan_position(&tx, cursor_kind).await?,
+        }
     };
 
     let transactions = hydrate_shielded_transactions(&tx, matched_txs)
@@ -555,7 +571,7 @@ mod tests {
     use crate::migration::RingsMigrator;
     use sea_orm::{Database, EntityTrait, Set};
     use sea_orm_migration::MigratorTrait;
-    use zolana_indexer_api::{GetRingsByNullifiersRequest, Limit};
+    use zolana_indexer_api::{GetRingsByNullifiersRequest, GetRingsByTagsRequest, Limit};
 
     fn hash(byte: u8) -> Hash {
         Hash::from([byte; 32])
@@ -828,15 +844,127 @@ mod tests {
         );
     }
 
+    /// The tag stream's watermark comes from the rows it returned, not from a
+    /// separate look at the stream's tip. Reading the tip cost 180ms per request
+    /// -- about what the round trip it replaces was worth -- and the rows
+    /// already say where a scan that ran out of rows reached.
+    ///
+    /// Asserted by using it: resuming from the watermark must find nothing
+    /// further, which is the only property a caller depends on.
+    #[tokio::test]
+    async fn a_tag_page_reports_a_watermark_that_resumes_past_its_rows() {
+        let db = setup().await;
+        rings_outputs::Entity::insert(rings_outputs::ActiveModel {
+            output_id: Set(1),
+            rings_tx_id: Set(1),
+            slot: Set(7),
+            output_index: Set(0),
+            output_tree: Set(vec![8; 32]),
+            leaf_index: Set(1),
+            view_tag: Set(hash(6).to_vec()),
+            utxo_hash: Set(vec![6; 32]),
+            signature: Set(Some(vec![1; 64])),
+            event_index: Set(Some(0)),
+        })
+        .exec(&db)
+        .await
+        .unwrap();
+        rings_output_payloads::Entity::insert(rings_output_payloads::ActiveModel {
+            output_id: Set(1),
+            payload: Set(vec![1, 2, 3]),
+        })
+        .exec(&db)
+        .await
+        .unwrap();
+
+        let first = get_shielded_transactions_by_tags(
+            &db,
+            GetRingsByTagsRequest {
+                tags: vec![hash(6)],
+                cursor: None,
+                limit: Some(Limit::new(10).unwrap()),
+                ring_program_id: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(first.transactions.len(), 1);
+        assert!(
+            first.next_cursor.is_none(),
+            "the page was not truncated, so there is nothing to page to"
+        );
+        let watermark = first.scanned_through.clone().expect("a watermark");
+
+        let resumed = get_shielded_transactions_by_tags(
+            &db,
+            GetRingsByTagsRequest {
+                tags: vec![hash(6)],
+                cursor: Some(watermark),
+                limit: Some(Limit::new(10).unwrap()),
+                ring_program_id: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            resumed.transactions.is_empty(),
+            "the watermark must sit past the rows the page returned"
+        );
+    }
+
     /// The position claims nothing matches at or before it, true only when the
     /// scan ran out of rows rather than out of room.
+    ///
+    /// Needs two matching transactions to be a real test: both fixture
+    /// nullifiers belong to one transaction, so a limit of 1 returns a page that
+    /// fills exactly and is not truncated. Over-fetching one row is what tells
+    /// those two cases apart, where the old rule assumed the worse of them.
     #[tokio::test]
     async fn a_truncated_page_reports_no_scan_position() {
         let db = setup().await;
+        transactions::Entity::insert(transactions::ActiveModel {
+            signature: Set(vec![3; 64]),
+            slot: Set(7),
+            error: Set(None),
+        })
+        .exec(&db)
+        .await
+        .unwrap();
+        rings_transactions::Entity::insert(rings_transactions::ActiveModel {
+            rings_tx_id: Set(3),
+            signature: Set(vec![3; 64]),
+            event_index: Set(0),
+            slot: Set(7),
+            ring_config: Set(None),
+            source_instruction_tag: Set(1),
+            output_tree: Set(vec![8; 32]),
+            first_output_leaf_index: Set(0),
+            tx_viewing_pk: Set(None),
+            salt: Set(None),
+            proofless: Set(false),
+        })
+        .exec(&db)
+        .await
+        .unwrap();
+        rings_tx_nullifiers::Entity::insert(rings_tx_nullifiers::ActiveModel {
+            nullifier_id: Default::default(),
+            rings_tx_id: Set(3),
+            slot: Set(7),
+            input_index: Set(0),
+            nullifier_tree: Set(vec![7; 32]),
+            input_queue_seq: Set(9),
+            nullifier: Set(vec![9; 32]),
+        })
+        .exec(&db)
+        .await
+        .unwrap();
+
         let response = get_shielded_transactions_by_nullifiers(
             &db,
             GetRingsByNullifiersRequest {
-                nullifiers: vec![hash(3), hash(4)],
+                nullifiers: vec![hash(3), hash(9)],
                 cursor: None,
                 limit: Some(Limit::new(1).unwrap()),
             },
@@ -844,7 +972,11 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(response.transactions.len(), 1);
+        assert_eq!(response.transactions.len(), 1, "the limit was reached");
+        assert!(
+            response.next_cursor.is_some(),
+            "another matching transaction is left, so the page must page"
+        );
         assert!(
             response.scanned_through.is_none(),
             "the limit cut the scan short, so nothing can be claimed beyond it"

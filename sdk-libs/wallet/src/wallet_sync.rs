@@ -569,8 +569,12 @@ fn group_by_resume_point<K: Copy + Eq + std::hash::Hash>(
 /// One page of a cursor-ordered stream, reduced to what paging needs.
 struct Page {
     next_cursor: Option<Vec<u8>>,
-    /// Where the server's scan reached. Reported only by the nullifier stream,
-    /// whose pages are normally empty and so carry no last row.
+    /// Where the server's scan reached, on a page the limit did not truncate.
+    ///
+    /// The watermark, separate from `next_cursor`, which reports only whether
+    /// another page exists. Every stream reports it: without it a last page
+    /// would either cost an extra request to recognise or leave nothing to
+    /// resume from.
     scanned_through: Option<Vec<u8>>,
 }
 
@@ -700,7 +704,7 @@ fn fetch_shielded_transactions_incremental<I: Rpc>(
                 }
                 Ok(Page {
                     next_cursor: response.next_cursor,
-                    scanned_through: None,
+                    scanned_through: response.scanned_through,
                 })
             })?;
 
@@ -743,7 +747,7 @@ async fn fetch_shielded_transactions_incremental_async<I: AsyncRpc>(
                 }
                 let page = Page {
                     next_cursor: response.next_cursor,
-                    scanned_through: None,
+                    scanned_through: response.scanned_through,
                 };
                 let Some(next) = advance(&mut furthest, page) else {
                     break;
@@ -884,7 +888,7 @@ where
                 }
                 Ok(Page {
                     next_cursor: response.next_cursor,
-                    scanned_through: None,
+                    scanned_through: response.scanned_through,
                 })
             })?;
 
@@ -935,7 +939,7 @@ async fn fetch_proofless_deposits_async<I: AsyncRpc>(
                 }
                 let page = Page {
                     next_cursor: response.next_cursor,
-                    scanned_through: None,
+                    scanned_through: response.scanned_through,
                 };
                 let Some(next) = advance(&mut furthest, page) else {
                     break;
@@ -1075,7 +1079,7 @@ mod tests {
             tags: &[ViewTag],
             cursor: Option<Vec<u8>>,
             limit: usize,
-        ) -> (Vec<ShieldedTransaction>, Option<Vec<u8>>) {
+        ) -> (Vec<ShieldedTransaction>, Option<Vec<u8>>, Option<Vec<u8>>) {
             let after = cursor.as_ref().map(|bytes| {
                 u64::from_be_bytes(bytes.as_slice().try_into().expect("8-byte cursor"))
             });
@@ -1091,12 +1095,20 @@ mod tests {
                 .collect();
             rows.sort_by_key(|(slot, _)| *slot);
 
-            // Photon's rule (`next_cursor_from_rows`): the position of the last
-            // row returned, or None when there were none. A short page still
-            // carries a cursor, so the client can resume from the tip next sync
-            // instead of rescanning; the loop ends on the following empty page.
+            // Photon's rule (`page_cursor`): one row past the limit decides
+            // whether another page exists, and only then is a cursor returned.
+            // The watermark is `scanned_through`, which a last page carries
+            // instead -- so the client resumes from the tip next sync without
+            // spending a request to discover the page was the last.
+            let more = rows.len() > limit;
             rows.truncate(limit);
-            let next = rows.last().map(|(slot, _)| slot.to_be_bytes().to_vec());
+            let next = more
+                .then(|| rows.last().map(|(slot, _)| slot.to_be_bytes().to_vec()))
+                .flatten();
+            let scanned_through = (!more)
+                .then(|| self.entries.iter().map(|(slot, _)| *slot).max())
+                .flatten()
+                .map(|slot| slot.to_be_bytes().to_vec());
             let transactions = rows
                 .into_iter()
                 .map(|(slot, tag)| ShieldedTransaction {
@@ -1118,7 +1130,7 @@ mod tests {
                     proofless: false,
                 })
                 .collect();
-            (transactions, next)
+            (transactions, next, scanned_through)
         }
 
         /// The nullifier stream, same ordering and cursor rule.
@@ -1211,6 +1223,7 @@ mod tests {
                 },
                 matches: self.matches.clone(),
                 next_cursor: None,
+                scanned_through: None,
             })
         }
 
@@ -1228,6 +1241,7 @@ mod tests {
                 },
                 transactions: self.transactions.clone(),
                 next_cursor: None,
+                scanned_through: None,
             })
         }
 
@@ -1291,9 +1305,17 @@ mod tests {
                 .filter(|(slot, tag)| tags.contains(tag) && after.is_none_or(|after| *slot > after))
                 .collect();
             rows.sort_by_key(|(slot, _)| *slot);
+            // Same rule as the transaction stream: a cursor only when a row was
+            // left behind, a watermark otherwise.
+            let more = rows.len() > limit;
             rows.truncate(limit);
-
-            let next_cursor = rows.last().map(|(slot, _)| slot.to_be_bytes().to_vec());
+            let next_cursor = more
+                .then(|| rows.last().map(|(slot, _)| slot.to_be_bytes().to_vec()))
+                .flatten();
+            let scanned_through = (!more)
+                .then(|| self.utxo_entries.iter().map(|(slot, _)| *slot).max())
+                .flatten()
+                .map(|slot| slot.to_be_bytes().to_vec());
             let matches = rows
                 .into_iter()
                 .map(|(slot, tag)| EncryptedUtxoMatch {
@@ -1319,6 +1341,7 @@ mod tests {
                 },
                 matches,
                 next_cursor,
+                scanned_through,
             })
         }
 
@@ -1330,7 +1353,7 @@ mod tests {
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
             let limit = limit.unwrap_or(1_000).max(1) as usize;
-            let (transactions, next_cursor) = self.matching(&tags, cursor, limit);
+            let (transactions, next_cursor, scanned_through) = self.matching(&tags, cursor, limit);
             Ok(GetShieldedTransactionsByTagsResponse {
                 context: Context {
                     block_time: 0,
@@ -1338,6 +1361,7 @@ mod tests {
                 },
                 transactions,
                 next_cursor,
+                scanned_through,
             })
         }
 
@@ -1428,12 +1452,11 @@ mod tests {
         )
         .expect("round 1");
 
-        // Two requests per round: one for the rows, one that comes back empty
-        // and ends the stream. What matters is that no request ever carries two
-        // tags -- the early tag is never re-queried.
+        // One request per round, each carrying one tag. What matters is that no
+        // request ever carries two tags -- the early tag is never re-queried.
         assert_eq!(
             *indexer.calls.lock().expect("calls poisoned"),
-            vec![(1, None), (1, Some(10)), (1, None), (1, Some(50))],
+            vec![(1, None), (1, None)],
             "round 1 must ask for the late tag alone, not both tags again"
         );
     }
@@ -1478,8 +1501,9 @@ mod tests {
         );
         assert_eq!(
             *indexer.calls.lock().expect("calls poisoned"),
-            vec![(1, None), (1, Some(50))],
-            "one request for the rows, one more that returns none and ends the loop"
+            vec![(1, None)],
+            "one request: the page reported where the scan reached, so there is \
+             nothing left to confirm"
         );
     }
 
@@ -1661,11 +1685,10 @@ mod tests {
             Some(30)
         );
 
-        // The streams that return rows take a second request to reach the empty
-        // page that ends them. The nullifier stream matches nothing, so its
-        // first page is already the last.
-        assert_eq!(indexer.calls.lock().expect("calls poisoned").len(), 2);
-        assert_eq!(indexer.utxo_calls.lock().expect("calls poisoned").len(), 2);
+        // One request per stream: each page says where the scan reached, so none
+        // of them needs a second request to discover it was the last.
+        assert_eq!(indexer.calls.lock().expect("calls poisoned").len(), 1);
+        assert_eq!(indexer.utxo_calls.lock().expect("calls poisoned").len(), 1);
         assert_eq!(
             indexer
                 .nullifier_calls
