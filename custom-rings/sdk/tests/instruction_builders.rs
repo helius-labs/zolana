@@ -158,7 +158,11 @@ fn builders_place_the_canonical_config_and_ring_auth_pdas() {
     .instruction()
     .expect("single SOL deposit");
     assert_eq!(
-        deposit.accounts.get(2).expect("ring_config meta").pubkey,
+        deposit.accounts.first().expect("config meta").pubkey,
+        config_pda()
+    );
+    assert_eq!(
+        deposit.accounts.get(3).expect("ring_config meta").pubkey,
         ring_auth
     );
 }
@@ -186,7 +190,7 @@ fn ring_auth_is_never_a_signer_in_the_outer_instruction() {
     }
     .instruction()
     .expect("single SOL deposit");
-    let deposit_ring_config = deposit.accounts.get(2).expect("ring_config meta");
+    let deposit_ring_config = deposit.accounts.get(3).expect("ring_config meta");
     assert!(!deposit_ring_config.is_signer);
 }
 
@@ -205,7 +209,8 @@ fn deposit_targets_the_ring_program_with_spps_own_tag() {
     .expect("single SOL deposit");
 
     // The program dispatches on SPP's own deposit tag and forwards the data
-    // verbatim, so the instruction is SPP-shaped but addressed to the ring.
+    // verbatim, so the instruction is SPP-shaped but addressed to the ring, with
+    // the ring config in front for the policy read.
     assert_eq!(instruction.program_id, PROGRAM_ID);
     let (ix_tag, body) = split_tag(&instruction);
     assert_eq!(ix_tag, zolana_interface::instruction::tag::RING_DEPOSIT);
@@ -214,6 +219,7 @@ fn deposit_targets_the_ring_program_with_spps_own_tag() {
     assert_eq!(
         instruction.accounts,
         vec![
+            AccountMeta::new_readonly(config_pda(), false),
             AccountMeta::new(tree, false),
             AccountMeta::new(depositor, true),
             AccountMeta::new_readonly(ring_auth_pda(), false),
@@ -287,7 +293,7 @@ fn deposit_batches_index_each_entry_into_its_settlement_accounts() {
     assert_eq!(
         instruction
             .accounts
-            .get(4..)
+            .get(5..)
             .expect("settlement metas")
             .to_vec(),
         vec![

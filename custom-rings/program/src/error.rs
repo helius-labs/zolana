@@ -3,7 +3,7 @@ use thiserror::Error;
 
 /// Errors of the minimal custom ring program.
 ///
-/// The 8100..8115 range is reserved for this example and is collision-free
+/// The 8100..8118 range is reserved for this example and is collision-free
 /// against SPP (7000..7047) and the other example programs (zk-program-swap
 /// 8005..8016, the rest 9xxx). Every code is pinned by
 /// `tests/error_codes.rs::error_codes_are_stable`; clients observe them, so they
@@ -43,6 +43,12 @@ pub enum CustomRingError {
     UnauthorizedInitializer = 8114,
     #[error("forwarded account list exceeds the CPI account limit")]
     TooManyAccounts = 8115,
+    #[error("asset is not on the ring's allowlist")]
+    AssetNotAllowed = 8116,
+    #[error("public withdrawals are blocked by the ring's policy")]
+    WithdrawalsBlocked = 8117,
+    #[error("policy values are out of range")]
+    InvalidPolicy = 8118,
 }
 
 impl From<CustomRingError> for ProgramError {

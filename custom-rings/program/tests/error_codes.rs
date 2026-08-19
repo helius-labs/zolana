@@ -19,6 +19,9 @@ fn error_codes_are_stable() {
         (UnsupportedCircuit as u32, 8113),
         (UnauthorizedInitializer as u32, 8114),
         (TooManyAccounts as u32, 8115),
+        (AssetNotAllowed as u32, 8116),
+        (WithdrawalsBlocked as u32, 8117),
+        (InvalidPolicy as u32, 8118),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");

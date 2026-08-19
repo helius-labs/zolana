@@ -1,5 +1,9 @@
-use bytemuck::from_bytes;
-use pinocchio::{account::Ref, error::ProgramError, AccountView, Address};
+use bytemuck::{from_bytes, from_bytes_mut};
+use pinocchio::{
+    account::{Ref, RefMut},
+    error::ProgramError,
+    AccountView, Address,
+};
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use zolana_interface::{BPF_LOADER_UPGRADEABLE_ID, SHIELDED_POOL_PROGRAM_ID};
 
@@ -24,6 +28,27 @@ pub fn load_config(account: &AccountView) -> Result<Ref<'_, RingProgramConfig>, 
     }
     // Length is checked above and the struct is align 1, so this cannot panic.
     let config = Ref::map(data, |data| from_bytes::<RingProgramConfig>(data));
+    if !config.has_discriminator() {
+        return Err(CustomRingError::ConfigNotInitialized.into());
+    }
+    Ok(config)
+}
+
+/// Load the ring config for writing, same checks as [`load_config`].
+#[inline(always)]
+pub fn load_config_mut(
+    account: &mut AccountView,
+) -> Result<RefMut<'_, RingProgramConfig>, ProgramError> {
+    if !account.owned_by(&crate::ID) {
+        return Err(CustomRingError::ConfigNotInitialized.into());
+    }
+    let data = account
+        .try_borrow_mut()
+        .map_err(|_| CustomRingError::ConfigNotInitialized)?;
+    if data.len() != RingProgramConfig::SIZE {
+        return Err(CustomRingError::ConfigNotInitialized.into());
+    }
+    let config = RefMut::map(data, |data| from_bytes_mut::<RingProgramConfig>(data));
     if !config.has_discriminator() {
         return Err(CustomRingError::ConfigNotInitialized.into());
     }

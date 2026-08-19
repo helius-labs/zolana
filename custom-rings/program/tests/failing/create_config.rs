@@ -1,6 +1,8 @@
 use custom_ring_program::{
     error::CustomRingError,
-    state::{RingProgramConfig, RING_PROGRAM_CONFIG},
+    state::{
+        RingProgramConfig, ASSETS_ANY, MAX_ALLOWED_ASSETS, RING_PROGRAM_CONFIG, WITHDRAWALS_OPEN,
+    },
     tag,
 };
 use mollusk_svm::result::ProgramResult;
@@ -52,7 +54,12 @@ fn create_config_writes_the_config_account() {
             authority: pinocchio::Address::new_from_array(authority),
             auditor_pubkey: auditor_pubkey(2),
             bump,
-        }
+            withdrawals: WITHDRAWALS_OPEN,
+            asset_policy: ASSETS_ANY,
+            allowed_assets_len: 0,
+            allowed_assets: [[0u8; 32]; MAX_ALLOWED_ASSETS],
+        },
+        "a fresh config starts with the open policy"
     );
 }
 

@@ -28,8 +28,12 @@ the recipients see. That is why the circuit needs no per-output witnesses and no
   accounts.
 - No user accounts: no viewing-key accounts, no proposals, no key rotation, no
   viewing-key lifecycle.
-- One feature: verifiable encryption to the auditor. User-side encryption is not
-  checked by the circuit.
+- Verifiable encryption to the auditor. User-side encryption is not checked by
+  the circuit.
+- Policy on public data only: an asset allowlist (what may enter or leave the
+  ring, checked on ring deposits and on transact settlement legs) and a public
+  withdrawal switch. Both live in the config and are set by the authority
+  (`set_policy`); nothing hidden inside confidential outputs is inspected.
 - Config gating is the program's upgrade authority when the deployment names
   one, otherwise a plain authority signer. No key rotation yet.
 
@@ -91,7 +95,7 @@ the script takes the normal path and a failing `go build` is a hard error.
 
 ## Instructions
 
-Tags 1-3 are program-local. Ring deposits carry no proof and are forwarded to SPP
+Tags 1-4 are program-local. Ring deposits carry no proof and are forwarded to SPP
 byte for byte, so the dispatcher matches SPP's own
 `zolana_interface::instruction::tag::RING_DEPOSIT` (14) instead of allocating a
 local tag: the client builds the SPP-shaped instruction with the existing
@@ -120,19 +124,34 @@ system_program, spp_program]`; no data. Requires the stored authority to sign,
 then CPIs SPP `CREATE_RING_CONFIG` with `ring_auth` (`[b"ring_auth"]` under this
 program) flipped to a signer and `ring_authority_transact_is_enabled: false`.
 
+### 4 `set_policy`
+
+Accounts `[authority(s), config(w)]`; data `SetPolicyIxData { withdrawals: u8,
+asset_policy: u8, allowed_assets: Vec<[u8; 32]> }` (wincode, at most
+`MAX_ALLOWED_ASSETS` = 8 mints, SOL is the all-zero mint). Requires the stored
+authority to sign, rejects values outside `{0, 1}` and oversized lists with
+`InvalidPolicy`, and replaces the policy fields of the config in place. A fresh
+config starts open (any asset, withdrawals allowed).
+
 ### 14 `deposit` (forwarded)
 
-Proofless forwarder. Checks the SPP program account, requires `ring_auth` to be
-present, flips it to a signer, and invokes SPP with the instruction data
-unchanged (tag byte included; SPP's dispatcher strips it).
+Proofless forwarder. Accounts `[config] ++ <SPP RING_DEPOSIT list>`. Checks the
+SPP program account, applies the asset allowlist to every deposited asset
+(reading the mint from the SPL settlement group SPP itself validates next),
+requires `ring_auth` to be present, flips it to a signer, and invokes SPP with the
+instruction data unchanged (tag byte included; SPP's dispatcher strips it).
 
 ### 3 `transact`
 
 Data `CustomRingTransactIxData { proof: AuditProof, transact: TransactIxData }`
 (wincode). Accounts `[payer(w,s), config] ++ <RING_TRANSACT list with ring_config
-unsigned>`. Flow: deserialize, load config, require `CircuitId::RingEddsa`, locate
-the auditor message, recompute the public-input hash, verify the Groth16 proof,
-then CPI SPP `RING_TRANSACT` with `ring_auth` as signer.
+unsigned>`. Flow: deserialize, load config, apply the policy to
+`interface_transfers` (`WithdrawalsBlocked` for a SOL or SPL withdrawal when
+blocked, `AssetNotAllowed` for a settlement leg outside the allowlist; before
+the pairing so a refused transfer costs no proof work), require
+`CircuitId::RingEddsa`, locate the auditor message, recompute the public-input
+hash, verify the Groth16 proof, then CPI SPP `RING_TRANSACT` with `ring_auth` as
+signer.
 
 The auditor message is transported in SPP `transact` `messages`, which are folded
 into `external_data_hash` and republished verbatim in `GeneralEvent` - the
@@ -214,7 +233,7 @@ root `CLAUDE.md` rule that every program error belongs in
 `program-libs/interface` with a code in the 7000 space applies to SPP itself, not
 to the `sdk-tests`-style examples.
 
-This example uses the `8100..=8115` range, verified collision-free against SPP
+This example uses the `8100..=8118` range, verified collision-free against SPP
 (7000-7047), the swap example (8005-8016), and the remaining examples (9xxx).
 Every code is pinned in an `error_codes_are_stable` test.
 

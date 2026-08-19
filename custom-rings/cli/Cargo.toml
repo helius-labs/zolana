@@ -12,12 +12,6 @@ path = "src/lib.rs"
 name = "custom-ring"
 path = "src/main.rs"
 
-[features]
-default = []
-# Toggleable smoke feature of the template. One id reaches both sides: the
-# program logs a greeting on every instruction, `status` greets locally.
-hello = ["custom-ring-program/hello"]
-
 [dependencies]
 bincode = { workspace = true }
 anyhow = { workspace = true }

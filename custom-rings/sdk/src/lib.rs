@@ -26,6 +26,7 @@ pub use crate::{
         create_config::CreateConfig,
         deposit::Deposit,
         init_spp_ring_config::InitSppRingConfig,
+        set_policy::{PolicyError, RingPolicy, SetPolicy, SOL},
         transact::{
             to_instruction_proof, AuditProofInputError, AuditProofParams, PendingAuditProof,
             RingTransactWithAudit,

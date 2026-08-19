@@ -22,9 +22,9 @@ const PIPELINE = [
 const FEATURES = [
     #{ id: "confidential", name: "Confidential", example: "Amounts and recipients are hidden on chain", state: "always" },
     #{ id: "auditor_visibility", name: "Auditor visibility", example: "Let compliance, accounting, or regulators view ring activity", state: "always" },
-    #{ id: "hello", name: "Hello", example: "Smoke test of the feature wiring: the program logs `Hello feature` on every instruction and `status` greets", state: "ready" },
+    #{ id: "allowed_assets", name: "Allowed assets", example: "Only USDC or a specific issued stablecoin", state: "ready" },
+    #{ id: "withdrawal_rules", name: "Withdrawal rules", example: "Block public withdrawals out of the ring", state: "ready" },
     #{ id: "anonymous", name: "Anonymous", example: "Hide senders and recipients from the ring itself", state: "coming_soon" },
-    #{ id: "allowed_assets", name: "Allowed assets", example: "Only USDC or a specific issued stablecoin", state: "coming_soon" },
     #{ id: "freeze_thaw", name: "Freeze/thaw", example: "Freeze a balance while an investigation is pending", state: "coming_soon" },
     #{ id: "transfer_limits", name: "Transfer limits", example: "Require extra approval above a threshold", state: "coming_soon" },
     #{ id: "co_signing", name: "Co-signing", example: "Require compliance approval for selected payments", state: "coming_soon" },
@@ -32,7 +32,6 @@ const FEATURES = [
     #{ id: "blocklists", name: "Blocklists", example: "Block sanctioned or risky destinations", state: "coming_soon" },
     #{ id: "permanent_delegate", name: "Permanent delegate", example: "Allow a configured authority to move funds under policy", state: "coming_soon" },
     #{ id: "cross_ring_rules", name: "Cross-ring rules", example: "Allow or block movement between specific rings", state: "coming_soon" },
-    #{ id: "withdrawal_rules", name: "Withdrawal rules", example: "Restrict public withdrawals or require approval", state: "coming_soon" },
     #{ id: "smart_account_support", name: "Smart account support", example: "Allow native use with smart accounts such as Squads", state: "coming_soon" },
     #{ id: "account_recovery", name: "Account recovery", example: "Allow a configured authority or fallback identity to recover accounts", state: "coming_soon" },
 ];
@@ -121,7 +120,6 @@ print("");
 print("Features");
 let features_toml = "";
 let features_markdown = "";
-let cargo_features = "";
 for feature in FEATURES {
     let enabled = false;
     let status = "";
@@ -155,15 +153,35 @@ for feature in FEATURES {
     variable::set(feature.id + "_enabled", enabled);
     features_toml += feature.id + " = " + enabled + "\n";
     features_markdown += "| " + feature.name + " | " + status + " | " + feature.example + " |\n";
-    // The id is the cargo feature name, so both crates declare it verbatim.
-    if enabled && feature.state == "ready" {
-        if cargo_features != "" {
-            cargo_features += ", ";
-        }
-        cargo_features += "\"" + feature.id + "\"";
-    }
 }
 print("");
 variable::set("features_toml", features_toml);
 variable::set("features_markdown", features_markdown);
-variable::set("cargo_features", cargo_features);
+
+// Policy the enabled features need. `init` writes it on chain, `policy` edits it.
+let policy_toml = "";
+if variable::get("allowed_assets_enabled") {
+    let assets = if variable::is_set("allowed_assets") {
+        variable::get("allowed_assets")
+    } else if silent() {
+        "SOL"
+    } else {
+        variable::prompt("Allowed assets, comma separated mints (SOL for native SOL)", "SOL")
+    };
+    let list = "";
+    for entry in assets.split(",") {
+        let mint = entry;
+        mint.trim();
+        if mint == "" { continue; }
+        if list != "" { list += ", "; }
+        list += `"${mint}"`;
+    }
+    if list == "" {
+        abort("allowed_assets needs at least one mint");
+    }
+    policy_toml += "allowed_assets = [" + list + "]\n";
+}
+if variable::get("withdrawal_rules_enabled") {
+    policy_toml += "withdrawals = \"blocked\"\n";
+}
+variable::set("policy_toml", policy_toml);
