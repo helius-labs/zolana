@@ -62,10 +62,26 @@ pub struct Urls {
 }
 
 impl RingConfig {
+    /// Reads `ring.toml`, loads a `.env` next to it (values already in the
+    /// environment win), and expands `${NAME}` in every URL. Secrets such as an
+    /// RPC API key live in `.env`, which the generated ring ignores in git.
     pub fn load(path: &Path) -> Result<Self> {
         let text =
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-        toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
+        let mut config: Self =
+            toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+        load_dotenv(&path.with_file_name(".env"))?;
+        for urls in [&mut config.localnet, &mut config.devnet] {
+            for url in [
+                &mut urls.rpc,
+                &mut urls.indexer,
+                &mut urls.prover,
+                &mut urls.ring_rpc,
+            ] {
+                *url = expand_env(url)?;
+            }
+        }
+        Ok(config)
     }
 
     /// The service URLs of the active target.
@@ -123,6 +139,51 @@ mod base58_address {
         let text = String::deserialize(deserializer)?;
         text.parse().map_err(serde::de::Error::custom)
     }
+}
+
+/// `KEY=VALUE` lines into the process environment, comments and blanks
+/// skipped, without overriding what is already set. A missing file is fine.
+fn load_dotenv(path: &Path) -> Result<()> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error).with_context(|| format!("reading {}", path.display())),
+    };
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            return Err(anyhow!("{}: expected KEY=VALUE, got {line}", path.display()));
+        };
+        let key = key.trim().strip_prefix("export ").unwrap_or(key.trim());
+        if std::env::var_os(key).is_none() {
+            std::env::set_var(key, value.trim().trim_matches('"'));
+        }
+    }
+    Ok(())
+}
+
+/// Replaces every `${NAME}` with the environment variable, failing on an unset
+/// one so a URL never goes out with the placeholder in it.
+fn expand_env(text: &str) -> Result<String> {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find("${") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 2..];
+        let end = after
+            .find('}')
+            .ok_or_else(|| anyhow!("unclosed ${{ in {text}"))?;
+        let name = &after[..end];
+        let value = std::env::var(name)
+            .map_err(|_| anyhow!("{name} is not set, put it in .env next to ring.toml"))?;
+        out.push_str(&value);
+        rest = &after[end + 1..];
+    }
+    out.push_str(rest);
+    Ok(out)
 }
 
 pub fn expand_tilde(path: &Path) -> Result<PathBuf> {
@@ -214,5 +275,21 @@ mod target_tests {
             "name = \"x\"\ntarget = \"devnet\"\n\n[localnet]\nrpc = \"a\"\n"
         );
         std::fs::remove_dir_all(dir).expect("cleanup");
+    }
+}
+
+#[cfg(test)]
+mod env_tests {
+    use super::*;
+
+    #[test]
+    fn urls_expand_env_placeholders_and_refuse_unset_ones() {
+        std::env::set_var("RING_TEST_KEY", "k1");
+        assert_eq!(
+            expand_env("https://x/?api-key=${RING_TEST_KEY}").expect("expand"),
+            "https://x/?api-key=k1"
+        );
+        assert_eq!(expand_env("http://127.0.0.1:8899").expect("plain"), "http://127.0.0.1:8899");
+        assert!(expand_env("${RING_TEST_UNSET_KEY}").is_err());
     }
 }

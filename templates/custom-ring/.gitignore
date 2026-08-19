@@ -1,4 +1,6 @@
 /target/
+# Secrets the URLs in ring.toml refer to.
+/.env
 /.localnet/
 # The program keypair and the auditor secret stay on this machine. The auditor
 # public key is part of the ring and is committed.

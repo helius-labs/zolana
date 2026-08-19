@@ -12,11 +12,12 @@ indexer = "{{indexer_url}}"
 prover = "{{prover_url}}"
 ring_rpc = "{{ring_rpc_url}}"
 
-# Photon, the prover and the ring RPC run on this machine against devnet for now.
+# `${NAME}` is read from .env next to this file, so secrets stay out of git.
+# The ring RPC runs on this machine, `just rpc`.
 [devnet]
 rpc = "{{devnet_rpc_url}}"
-indexer = "{{indexer_url}}"
-prover = "{{prover_url}}"
+indexer = "{{devnet_indexer_url}}"
+prover = "{{devnet_prover_url}}"
 ring_rpc = "{{ring_rpc_url}}"
 
 [features]

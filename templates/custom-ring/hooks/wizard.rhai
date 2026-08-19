@@ -38,10 +38,14 @@ const FEATURES = [
 ];
 
 // Devnet goes through Helius RPC when an API key is given, else the public
-// endpoint. The ring picks the cluster later with `just localnet` or `just
-// devnet`, the wizard only records both sets of URLs.
-const HELIUS_DEVNET_RPC = "https://devnet.helius-rpc.com/?api-key=";
+// endpoint. The key is written to the ring's .env (ignored in git) and the URL
+// carries `${HELIUS_API_KEY}`, which the CLI expands. The hosted devnet
+// indexer and prover are the defaults. The ring picks the cluster later with
+// `just localnet` or `just devnet`, the wizard only records both sets of URLs.
+const HELIUS_DEVNET_RPC = "https://devnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}";
 const PUBLIC_DEVNET_RPC = "https://api.devnet.solana.com";
+const DEVNET_INDEXER = "http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com";
+const DEVNET_PROVER = "http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com:3001";
 
 fn setting(name, fallback) {
     if variable::is_set(name) {
@@ -95,8 +99,13 @@ if !variable::is_set("ring_rpc_port") {
 }
 if !variable::is_set("devnet_rpc_url") {
     let api_key = ask("helius_api_key", "Helius API key for devnet (empty for the public endpoint)", "");
-    variable::set("devnet_rpc_url", if api_key == "" { PUBLIC_DEVNET_RPC } else { HELIUS_DEVNET_RPC + api_key });
+    variable::set("devnet_rpc_url", if api_key == "" { PUBLIC_DEVNET_RPC } else { HELIUS_DEVNET_RPC });
 }
+if !variable::is_set("helius_api_key") {
+    variable::set("helius_api_key", "");
+}
+ask("devnet_indexer_url", "Devnet Photon indexer URL", DEVNET_INDEXER);
+ask("devnet_prover_url", "Devnet prover URL", DEVNET_PROVER);
 
 // The program id is the address the ring deploys to. The driver generates the
 // keypair and hands the pubkey in; typing one by hand needs the matching keypair
