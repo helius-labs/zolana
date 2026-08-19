@@ -2,6 +2,8 @@
 # them in order against the target recorded in ring.toml (`just localnet` or
 # `just devnet` set it).
 
+set dotenv-load
+
 zolana := "{{zolana_path}}"
 # Same platform tools as the zolana checkout, so the binary matches what its
 # validators accept.
@@ -26,11 +28,23 @@ localnet:
 localnet-stop: rpc-stop
     just -f {{ "{{zolana}}" }}/justfile ring-localnet-stop
 
-# Photon and the prover on this machine against devnet, and ring.toml set to
-# devnet. Deploys and transactions then go to devnet and cost real devnet SOL.
+# ring.toml set to devnet. The hosted devnet Photon and prover from ring.toml
+# are probed, or started on this machine when ring.toml points them at
+# 127.0.0.1. Deploys and transactions then go to devnet and cost devnet SOL.
 devnet:
+    #!/usr/bin/env bash
+    set -euo pipefail
     cargo run -q -p {{project-name}} -- target devnet
-    just -f {{ "{{zolana}}" }}/justfile ring-devnet-services "$({{ "{{url}}" }} rpc)"
+    indexer="$({{ "{{url}}" }} indexer)"
+    prover="$({{ "{{url}}" }} prover)"
+    case "$indexer" in
+      http://127.0.0.1*|http://localhost*)
+        just -f {{ "{{zolana}}" }}/justfile ring-devnet-services "$({{ "{{url}}" }} rpc)" ;;
+      *)
+        curl -sf "$indexer/readiness" >/dev/null || { echo "devnet indexer $indexer is not ready" >&2; exit 1; }
+        curl -sf "$prover/health" >/dev/null || { echo "devnet prover $prover is not ready" >&2; exit 1; }
+        echo "devnet services ready (hosted)" ;;
+    esac
     just urls
 
 # The active target and where its services are.

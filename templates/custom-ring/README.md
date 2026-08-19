@@ -17,7 +17,7 @@ step acts on it.
 | --- | --- | --- |
 | 1 | `just ring-new` (in zolana) | this repository |
 | 2 | `just repo` | GitHub repository created and pushed with `gh` |
-| 3 | `just localnet` or `just devnet` | localnet: a validator with SPP, Photon and the prover from the zolana checkout. devnet: Photon and the prover on this machine against devnet. Both set `target` in `ring.toml` |
+| 3 | `just localnet` or `just devnet` | localnet: a validator with SPP, Photon and the prover from the zolana checkout. devnet: the hosted devnet Photon and prover from `ring.toml` (or local ones when `ring.toml` points at 127.0.0.1). Both set `target` in `ring.toml` |
 | 4 | `just build` | `cargo build-sbf` of the program at the pinned address |
 | 5 | `just deploy` | `solana program deploy` to the target, the authority becomes the upgrade authority. On a deployed program this is the upgrade, growing program data when the binary grew |
 | 6 | `just init` | auditor key created by `ring-rpc keygen` (secret stays here, public half committed), `create_config` (gated on the upgrade authority), the policy, and `init_spp_ring_config` |
@@ -33,7 +33,9 @@ accounts and does nothing. `cargo run -p {{project-name}} -- authority transfer
 localnet-stop` and `just devnet-stop` tear the services down. On devnet
 deploys and transactions cost real devnet SOL, `status` shows the authority's
 balance, and a hosted ring RPC (`init --trust-ring-rpc`, or `ring_rpc_pubkey`
-in `ring.toml`) can stand in for the local one.
+in `ring.toml`) can stand in for the local one. Secrets such as the Helius API
+key live in `.env` (ignored in git, `.env.example` shows the keys) and
+`ring.toml` refers to them as `${NAME}`.
 
 ## Features
 
