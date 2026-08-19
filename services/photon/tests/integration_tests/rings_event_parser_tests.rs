@@ -1498,10 +1498,11 @@ async fn assert_rings_api_exposes_output_hashes(
         .await
         .unwrap();
     assert_eq!(shielded.context.block_time, UNSHIELD_SLOT as i64);
-    // A non-empty page carries the position of its last row even when it is
-    // short, so a client can resume from the tip rather than rescan. The stream
-    // ends on the next page, which comes back empty.
-    assert!(shielded.next_cursor.is_some());
+    // A page the limit did not truncate ends the read, so it carries no paging
+    // cursor. The position to resume from comes back as the watermark instead --
+    // that is what keeps a client from rescanning the tip next sync.
+    assert!(shielded.next_cursor.is_none());
+    assert!(shielded.scanned_through.is_some());
     assert!(!shielded.transactions.is_empty());
     let output_slot = shielded
         .transactions
@@ -1564,7 +1565,8 @@ async fn assert_rings_api_exposes_output_hashes(
 
     let encrypted = get_encrypted_utxos_by_tags(db, request).await.unwrap();
     assert_eq!(encrypted.context.block_time, UNSHIELD_SLOT as i64);
-    assert!(encrypted.next_cursor.is_some());
+    assert!(encrypted.next_cursor.is_none());
+    assert!(encrypted.scanned_through.is_some());
     assert!(!encrypted.matches.is_empty());
     let encrypted_match = encrypted
         .matches
