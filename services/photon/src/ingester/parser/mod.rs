@@ -1,4 +1,5 @@
 use nullifier_tree_batch_update_parser::parse_nullifier_tree_batch_updates;
+use ring_config_parser::parse_ring_configs;
 use rings_event_parser::parse_rings_events;
 use solana_pubkey::Pubkey;
 use std::collections::HashSet;
@@ -11,6 +12,7 @@ pub use self::tree_info::TreeResolver;
 
 pub mod event_site;
 pub mod nullifier_tree_batch_update_parser;
+pub mod ring_config_parser;
 pub mod rings_event_parser;
 pub mod state_update;
 pub mod tree_info;
@@ -39,6 +41,10 @@ where
     if let Some(rings_state_update) = parse_rings_events(tx, slot)? {
         is_rings_transaction = true;
         state_updates.push(rings_state_update);
+    }
+
+    if let Some(state_update) = parse_ring_configs(tx, slot)? {
+        state_updates.push(state_update);
     }
 
     if let Some(state_update) = parse_nullifier_tree_batch_updates(tx)? {

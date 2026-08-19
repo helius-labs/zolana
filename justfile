@@ -942,6 +942,29 @@ test-ring-validator-proof-cu: build-programs build-prover-server build-cli ensur
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo nextest run -p ring-test-program --test proof_cu --release --no-capture
 
+# Regenerate services/photon/tests/fixtures/ring_transact.json from a real ring
+# CPI. The fixture is committed; Photon replays it without a validator. Run this
+# only when the ring account layout or the transaction shape changes.
+dump-ring-fixture: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(cargo run -q -p xtask -- program-ids)"
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      pkill -f solana-test-validator 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    export SHIELDED_POOL_PROGRAM_ID
+    export USER_REGISTRY_PROGRAM_ID
+    export RING_TEST_PROGRAM_ID
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo nextest run -p ring-test-program --test ring_lifecycle --release \
+      --run-ignored all --no-capture -E 'test(=dump_ring_transact_fixture)'
+
 # Fully-inlined create+fill (derived and verifiable-encryption take rails) and
 # create+cancel swap flows over a fresh validator
 # (sdk-tests/zk-program-swap/test/tests/{swap,take_verifiable_encryption,cancel}.rs).

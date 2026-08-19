@@ -31,7 +31,7 @@ pub(super) async fn persist_rings_transactions(
                     update.slot,
                     "rings transaction slot",
                 )?),
-                rings_program_id: Set(update.rings_program_id.to_vec()),
+                ring_config: Set(update.ring_config.map(|key| key.to_vec())),
                 source_instruction_tag: Set(update.source_instruction_tag),
                 output_tree: Set(update.output_tree.to_vec()),
                 first_output_leaf_index: Set(leaf_node::i64_from_u64(

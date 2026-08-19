@@ -95,7 +95,7 @@ impl RingHarness {
     ) -> Result<()> {
         let foreign = solana_pubkey::Pubkey::new_from_array(SECOND_RING_TEST_PROGRAM_ID);
         let authority = self.payer.pubkey().to_bytes().into();
-        self.create_ring_config_for(foreign, &authority, true)?;
+        let (_, _) = self.create_ring_config_for(foreign, &authority, true)?;
         self.merge_ring_inner(
             name,
             asset,

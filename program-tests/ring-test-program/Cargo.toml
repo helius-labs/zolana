@@ -32,15 +32,19 @@ zolana-interface = { workspace = true, features = ["solana"] }
 anyhow = { workspace = true }
 bytemuck = { workspace = true }
 p256 = { workspace = true }
+serde_json = { workspace = true }
 serial_test = { workspace = true }
 solana-account = { workspace = true }
 solana-address = { workspace = true }
+solana-commitment-config = { workspace = true }
 solana-compute-budget-interface = { workspace = true }
 solana-keypair = { workspace = true }
 solana-message = { workspace = true }
+solana-rpc-client = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
+solana-transaction-status-client-types = { workspace = true }
 zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
 zolana-event = { workspace = true, features = ["program-test"] }
 zolana-hasher = { workspace = true }

@@ -39,7 +39,7 @@ impl MigrationTrait for Migration {
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(RingsTransactions::RingsProgramId)
+                        ColumnDef::new(Alias::new("rings_program_id"))
                             .binary_len(32)
                             .not_null(),
                     )
@@ -115,7 +115,7 @@ impl MigrationTrait for Migration {
                     .if_not_exists()
                     .name("idx_rings_transactions_program_slot_id")
                     .table(RingsTransactions::Table)
-                    .col(RingsTransactions::RingsProgramId)
+                    .col(Alias::new("rings_program_id"))
                     .col(RingsTransactions::Slot)
                     .col(RingsTransactions::RingsTxId)
                     .to_owned(),

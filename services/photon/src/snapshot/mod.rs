@@ -15,7 +15,7 @@ use crate::ingester::{
     fetchers::BlockStreamConfig,
     parser::{
         nullifier_tree_batch_update_parser::has_nullifier_tree_batch_update,
-        rings_event_parser::parse_rings_events,
+        ring_config_parser::parse_ring_configs, rings_event_parser::parse_rings_events,
     },
     typedefs::block_info::{BlockInfo, TransactionInfo},
 };
@@ -502,7 +502,26 @@ pub fn is_rings_transaction(tx: &TransactionInfo, slot: u64) -> bool {
 }
 
 pub fn is_rings_snapshot_transaction(tx: &TransactionInfo, slot: u64) -> bool {
-    is_rings_transaction(tx, slot) || has_nullifier_tree_batch_update(tx)
+    is_rings_transaction(tx, slot)
+        || has_nullifier_tree_batch_update(tx)
+        || has_ring_config_registration(tx, slot)
+}
+
+/// Ring registrations emit no event, so `is_rings_transaction` does not see
+/// them. Dropping them here would rebuild an index whose ring registry is
+/// missing exactly the rings it needs to resolve.
+fn has_ring_config_registration(tx: &TransactionInfo, slot: u64) -> bool {
+    match parse_ring_configs(tx, slot) {
+        Ok(update) => update.is_some(),
+        Err(err) => {
+            log::warn!(
+                "Skipping transaction {} in snapshot because ring config parsing failed: {}",
+                tx.signature,
+                err
+            );
+            false
+        }
+    }
 }
 
 #[derive(Debug)]

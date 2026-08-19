@@ -21,11 +21,13 @@ use photon_indexer::{
 };
 use sea_orm::{Database, DatabaseConnection, EntityTrait, Set};
 use sea_orm_migration::MigratorTrait;
+use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_indexer_api::{
     Base64String, GetRingsByTagsRequest, GetShieldedTransactionsBySignatureRequest,
     GetShieldedTransactionsByTagsResponse, Hash, Limit, SerializableSignature,
 };
+use zolana_interface::pda;
 
 pub const VIEW_TAG: [u8; 32] = [77u8; 32];
 /// The page size the confirmation path used before the signature lookup.
@@ -153,6 +155,7 @@ pub async fn tag_page(
             tags: vec![Hash::from(view_tag)],
             cursor,
             limit: Some(Limit::new(page_limit).expect("page limit is within the shared bounds")),
+            ring_program_id: None,
         },
     )
     .await
@@ -162,6 +165,16 @@ pub async fn tag_page(
 /// Insert one transaction per index, each carrying `view_tag` on its single
 /// output and sitting in its own slot so the tag query's `slot ASC` order is
 /// deterministic and the highest index is always the newest.
+/// The ring every seeded transaction is attributed to. A real derived PDA, so
+/// filtering by `fixture_ring_program()` resolves to these rows.
+pub fn fixture_ring_program() -> Pubkey {
+    Pubkey::new_from_array([4; 32])
+}
+
+pub fn fixture_ring_config() -> Pubkey {
+    pda::ring_auth(&fixture_ring_program()).0
+}
+
 pub async fn seed_tagged_transaction_history(
     db: &DatabaseConnection,
     view_tag: [u8; 32],
@@ -196,7 +209,7 @@ pub async fn seed_tagged_transaction_history(
             signature: Set(signature),
             event_index: Set(0),
             slot: Set(slot),
-            rings_program_id: Set(vec![1u8; 32]),
+            ring_config: Set(Some(fixture_ring_config().to_bytes().to_vec())),
             source_instruction_tag: Set(0),
             output_tree: Set(vec![8u8; 32]),
             first_output_leaf_index: Set(rings_tx_id),

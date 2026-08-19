@@ -5,6 +5,8 @@ pub mod m20260625_000001_add_rings_messages;
 pub mod m20260710_000001_add_rings_merge_view_tag;
 pub mod m20260727_000001_remove_rings_merge_view_tag;
 pub mod m20260809_000001_denormalize_rings_output_ordering;
+pub mod m20260818_000001_rings_transactions_ring_config;
+pub mod m20260818_000002_add_ring_configs;
 pub mod r20260617_000001_init;
 pub mod r20260624_000001_nullifier_queue_metadata;
 pub mod r20260810_000001_state_root_index;
@@ -21,5 +23,7 @@ pub fn get_rings_migrations() -> Vec<Box<dyn MigrationTrait>> {
         Box::new(m20260809_000001_denormalize_rings_output_ordering::Migration),
         Box::new(r20260810_000001_state_root_index::Migration),
         Box::new(r20260810_000002_drop_state_root_columns::Migration),
+        Box::new(m20260818_000001_rings_transactions_ring_config::Migration),
+        Box::new(m20260818_000002_add_ring_configs::Migration),
     ]
 }

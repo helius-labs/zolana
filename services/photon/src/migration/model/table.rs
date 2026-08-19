@@ -49,7 +49,7 @@ pub enum RingsTransactions {
     Signature,
     EventIndex,
     Slot,
-    RingsProgramId,
+    RingConfig,
     SourceInstructionTag,
     OutputTree,
     FirstOutputLeafIndex,
@@ -57,6 +57,15 @@ pub enum RingsTransactions {
     Salt,
     Proofless,
     MergeViewTag,
+}
+
+#[derive(Copy, Clone, Iden)]
+pub enum RingConfigs {
+    Table,
+    RingConfig,
+    ProgramId,
+    Authority,
+    Slot,
 }
 
 #[derive(Copy, Clone, Iden)]

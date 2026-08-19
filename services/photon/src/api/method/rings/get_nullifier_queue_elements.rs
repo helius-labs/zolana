@@ -112,7 +112,7 @@ mod tests {
             signature: Set(vec![1; 64]),
             event_index: Set(0),
             slot: Set(7),
-            rings_program_id: Set([9u8; 32].to_vec()),
+            ring_config: Set(Some(vec![9; 32])),
             source_instruction_tag: Set(1),
             output_tree: Set(tree.to_bytes_vec()),
             first_output_leaf_index: Set(0),

@@ -4,16 +4,19 @@ use super::common::{
     u16_from_i16, u64_from_i64, validate_tags, CursorKind,
 };
 use crate::api::error::PhotonApiError;
+use crate::common::bind_sql_value;
 use crate::common::indexer_context::extract as extract_context;
 use bincode::{Decode, Encode};
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DatabaseConnection, DatabaseTransaction, FromQueryResult,
     Statement, TransactionTrait, Value,
 };
+use solana_pubkey::Pubkey;
 use solana_signature::SIGNATURE_BYTES;
 use zolana_indexer_api::{
     Base64String, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetRingsByTagsRequest, Hash,
 };
+use zolana_interface::pda;
 
 #[derive(FromQueryResult, Debug)]
 struct EncryptedUtxoRow {
@@ -54,7 +57,13 @@ pub async fn get_encrypted_utxos_by_tags(
     let tx = conn.begin().await?;
     crate::api::set_transaction_isolation_if_needed(&tx).await?;
 
-    let rows = fetch_encrypted_utxo_rows(&tx, &request.tags, cursor.as_ref(), limit).await?;
+    // Derived, not looked up: the filter works for a ring whose registration
+    // this index never saw.
+    let ring_config = request
+        .ring_program_id
+        .map(|program| pda::ring_auth(&program.0).0);
+    let rows =
+        fetch_encrypted_utxo_rows(&tx, &request.tags, cursor.as_ref(), limit, ring_config).await?;
     let next_cursor = next_cursor_from_rows(&rows, encrypted_utxo_cursor_from_row)?;
 
     let matches = rows
@@ -90,6 +99,7 @@ async fn fetch_encrypted_utxo_rows(
     tags: &[Hash],
     cursor: Option<&EncryptedUtxoCursor>,
     limit: u64,
+    ring_config: Option<Pubkey>,
 ) -> Result<Vec<EncryptedUtxoRow>, PhotonApiError> {
     let backend = tx.get_database_backend();
     let mut params = Vec::new();
@@ -98,6 +108,13 @@ async fn fetch_encrypted_utxo_rows(
         .map(|cursor| encrypted_utxo_cursor_sql(cursor, backend, &mut params))
         .transpose()?
         .unwrap_or_default();
+    let ring_filter = match ring_config {
+        Some(config) => {
+            let bound = bind_sql_value(&mut params, backend, config.to_bytes().to_vec());
+            format!("AND pt.ring_config = {bound}")
+        }
+        None => String::new(),
+    };
     let limit = bind_u64_as_i64(&mut params, backend, limit)?;
 
     let sql = format!(
@@ -117,6 +134,7 @@ async fn fetch_encrypted_utxo_rows(
          JOIN rings_transactions pt ON pt.rings_tx_id = po.rings_tx_id
          JOIN rings_output_payloads pop ON pop.output_id = po.output_id
          WHERE po.view_tag IN ({tag_filter})
+         {ring_filter}
          {cursor_filter}
          ORDER BY po.slot ASC, po.signature ASC, po.event_index ASC, po.output_index ASC
          LIMIT {limit}"

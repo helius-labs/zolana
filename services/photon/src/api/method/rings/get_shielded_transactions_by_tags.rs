@@ -7,18 +7,22 @@ use super::common::{
     CursorKind,
 };
 use crate::api::error::PhotonApiError;
+use crate::common::bind_sql_value;
 use crate::common::indexer_context::extract as extract_context;
 use bincode::{Decode, Encode};
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DatabaseConnection, DatabaseTransaction, FromQueryResult,
     Statement, TransactionTrait, Value,
 };
+use solana_pubkey::Pubkey;
 use solana_signature::SIGNATURE_BYTES;
 use zolana_indexer_api::{
     Base64String, GetRingsByNullifiersRequest, GetRingsByTagsRequest,
     GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsByTagsResponse, Hash,
-    IndexedShieldedTransaction, RingsMessage, RingsOutputSlot, ShieldedTransaction,
+    IndexedShieldedTransaction, RingsMessage, RingsOutputSlot, SerializablePubkey,
+    ShieldedTransaction,
 };
+use zolana_interface::pda;
 
 #[derive(FromQueryResult, Debug)]
 pub(super) struct MatchedRingsTxRow {
@@ -29,6 +33,8 @@ pub(super) struct MatchedRingsTxRow {
     tx_viewing_pk: Option<Vec<u8>>,
     salt: Option<Vec<u8>>,
     proofless: bool,
+    ring_config: Option<Vec<u8>>,
+    ring_program_id: Option<Vec<u8>>,
 }
 
 #[derive(FromQueryResult, Debug)]
@@ -77,12 +83,18 @@ pub async fn get_shielded_transactions_by_tags(
     request: GetRingsByTagsRequest,
 ) -> Result<GetShieldedTransactionsByTagsResponse, PhotonApiError> {
     validate_tags(&request.tags)?;
+    // The config account is derived, not looked up, so filtering by ring works
+    // even for a ring whose registration this index never saw.
+    let ring_config = request
+        .ring_program_id
+        .map(|program| pda::ring_auth(&program.0).0);
     let page = get_shielded_transactions(
         conn,
         &request.tags,
         request.cursor.as_ref(),
         request.limit.unwrap_or_default().value(),
         MatchBy::Tags,
+        ring_config,
     )
     .await?;
     Ok(GetShieldedTransactionsByTagsResponse {
@@ -103,6 +115,7 @@ pub async fn get_shielded_transactions_by_nullifiers(
         request.cursor.as_ref(),
         request.limit.unwrap_or_default().value(),
         MatchBy::Nullifiers,
+        None,
     )
     .await?;
     Ok(GetShieldedTransactionsByNullifiersResponse {
@@ -133,6 +146,7 @@ async fn get_shielded_transactions(
     encoded_cursor: Option<&Base64String>,
     limit: u64,
     match_by: MatchBy,
+    ring_config: Option<Pubkey>,
 ) -> Result<ShieldedTransactionPage, PhotonApiError> {
     // Follows the query, so a sibling stream's cursor is rejected, not resumed.
     let cursor_kind = match match_by {
@@ -146,8 +160,15 @@ async fn get_shielded_transactions(
     let tx = conn.begin().await?;
     crate::api::set_transaction_isolation_if_needed(&tx).await?;
 
-    let matched_txs =
-        fetch_matching_rings_transactions(&tx, values, cursor.as_ref(), limit, match_by).await?;
+    let matched_txs = fetch_matching_rings_transactions(
+        &tx,
+        values,
+        cursor.as_ref(),
+        limit,
+        match_by,
+        ring_config,
+    )
+    .await?;
     let next_cursor = next_cursor_from_rows(&matched_txs, |row| {
         shielded_tx_cursor_from_row(row, cursor_kind)
     })?;
@@ -284,6 +305,14 @@ pub(super) async fn hydrate_shielded_transactions(
                         .remove(&row.rings_tx_id)
                         .unwrap_or_default(),
                     proofless: row.proofless,
+                    ring_config: row
+                        .ring_config
+                        .map(SerializablePubkey::try_from)
+                        .transpose()?,
+                    ring_program_id: row
+                        .ring_program_id
+                        .map(SerializablePubkey::try_from)
+                        .transpose()?,
                 },
             })
         })
@@ -296,6 +325,7 @@ async fn fetch_matching_rings_transactions(
     cursor: Option<&ShieldedTxCursor>,
     limit: u64,
     match_by: MatchBy,
+    ring_config: Option<Pubkey>,
 ) -> Result<Vec<MatchedRingsTxRow>, PhotonApiError> {
     let backend = tx.get_database_backend();
     let mut params = Vec::new();
@@ -334,8 +364,18 @@ async fn fetch_matching_rings_transactions(
         .map(|cursor| shielded_tx_cursor_sql(cursor, backend, &mut params))
         .transpose()?
         .unwrap_or_default();
+    let ring_filter = match ring_config {
+        Some(config) => {
+            let bound = bind_sql_value(&mut params, backend, config.to_bytes().to_vec());
+            format!("AND pt.ring_config = {bound}")
+        }
+        None => String::new(),
+    };
+
     let limit = bind_u64_as_i64(&mut params, backend, limit)?;
 
+    // LEFT JOIN: a ring whose registration was never indexed still returns its
+    // transaction, with a null program id.
     let sql = format!(
         "SELECT
             pt.rings_tx_id AS rings_tx_id,
@@ -344,9 +384,13 @@ async fn fetch_matching_rings_transactions(
             pt.event_index AS event_index,
             pt.tx_viewing_pk AS tx_viewing_pk,
             pt.salt AS salt,
-            pt.proofless AS proofless
+            pt.proofless AS proofless,
+            pt.ring_config AS ring_config,
+            rc.program_id AS ring_program_id
          FROM rings_transactions pt
+         LEFT JOIN ring_configs rc ON rc.ring_config = pt.ring_config
          WHERE ({match_filter})
+         {ring_filter}
          {cursor_filter}
          ORDER BY pt.slot ASC, pt.signature ASC, pt.event_index ASC
          LIMIT {limit}"
@@ -504,7 +548,10 @@ fn shielded_tx_cursor(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dao::generated::{blocks, rings_transactions, rings_tx_nullifiers, transactions};
+    use crate::dao::generated::{
+        blocks, ring_configs, rings_output_payloads, rings_outputs, rings_transactions,
+        rings_tx_nullifiers, transactions,
+    };
     use crate::migration::RingsMigrator;
     use sea_orm::{Database, EntityTrait, Set};
     use sea_orm_migration::MigratorTrait;
@@ -541,7 +588,7 @@ mod tests {
             signature: Set(vec![1; 64]),
             event_index: Set(0),
             slot: Set(7),
-            rings_program_id: Set(vec![9; 32]),
+            ring_config: Set(Some(vec![9; 32])),
             source_instruction_tag: Set(1),
             output_tree: Set(vec![8; 32]),
             first_output_leaf_index: Set(0),
@@ -585,6 +632,140 @@ mod tests {
 
         assert_eq!(response.transactions.len(), 1);
         assert_eq!(response.transactions[0].nullifiers, vec![hash(3), hash(4)]);
+    }
+
+    /// Inserts one ring transaction whose `ring_config` is a real derived PDA,
+    /// with the registration that maps it back to a program.
+    async fn setup_ring(register: bool) -> (DatabaseConnection, Pubkey) {
+        let db = setup().await;
+        let ring_program = Pubkey::new_unique();
+        let (ring_config, _) = pda::ring_auth(&ring_program);
+
+        transactions::Entity::insert(transactions::ActiveModel {
+            signature: Set(vec![2; 64]),
+            slot: Set(7),
+            error: Set(None),
+        })
+        .exec(&db)
+        .await
+        .unwrap();
+        rings_transactions::Entity::insert(rings_transactions::ActiveModel {
+            rings_tx_id: Set(2),
+            signature: Set(vec![2; 64]),
+            event_index: Set(0),
+            slot: Set(7),
+            ring_config: Set(Some(ring_config.to_bytes().to_vec())),
+            source_instruction_tag: Set(15),
+            output_tree: Set(vec![8; 32]),
+            first_output_leaf_index: Set(0),
+            tx_viewing_pk: Set(None),
+            salt: Set(None),
+            proofless: Set(false),
+        })
+        .exec(&db)
+        .await
+        .unwrap();
+        rings_outputs::Entity::insert(rings_outputs::ActiveModel {
+            output_id: Set(2),
+            rings_tx_id: Set(2),
+            slot: Set(7),
+            output_index: Set(0),
+            output_tree: Set(vec![8; 32]),
+            leaf_index: Set(2),
+            view_tag: Set(hash(6).to_vec()),
+            utxo_hash: Set(vec![6; 32]),
+            signature: Set(Some(vec![2; 64])),
+            event_index: Set(Some(0)),
+        })
+        .exec(&db)
+        .await
+        .unwrap();
+        rings_output_payloads::Entity::insert(rings_output_payloads::ActiveModel {
+            output_id: Set(2),
+            payload: Set(vec![1, 2, 3]),
+        })
+        .exec(&db)
+        .await
+        .unwrap();
+        if register {
+            ring_configs::Entity::insert(ring_configs::ActiveModel {
+                ring_config: Set(ring_config.to_bytes().to_vec()),
+                program_id: Set(ring_program.to_bytes().to_vec()),
+                authority: Set(vec![5; 32]),
+                slot: Set(7),
+            })
+            .exec(&db)
+            .await
+            .unwrap();
+        }
+        (db, ring_program)
+    }
+
+    async fn tags_query(
+        db: &DatabaseConnection,
+        ring_program_id: Option<Pubkey>,
+    ) -> Vec<ShieldedTransaction> {
+        get_shielded_transactions_by_tags(
+            db,
+            GetRingsByTagsRequest {
+                tags: vec![hash(6)],
+                cursor: None,
+                limit: Some(Limit::new(10).unwrap()),
+                ring_program_id: ring_program_id.map(SerializablePubkey::from),
+            },
+        )
+        .await
+        .unwrap()
+        .transactions
+    }
+
+    #[tokio::test]
+    async fn a_registered_ring_resolves_to_its_program() {
+        let (db, ring_program) = setup_ring(true).await;
+
+        let found = tags_query(&db, None).await;
+        let [tx] = found.as_slice() else {
+            panic!("expected one transaction, got {}", found.len());
+        };
+
+        assert_eq!(
+            tx.ring_config,
+            Some(SerializablePubkey::from(pda::ring_auth(&ring_program).0))
+        );
+        assert_eq!(
+            tx.ring_program_id,
+            Some(SerializablePubkey::from(ring_program))
+        );
+    }
+
+    /// The two fields differ precisely here: the transaction still reports the
+    /// ring it observed, and only the resolution is missing.
+    #[tokio::test]
+    async fn an_unregistered_ring_still_reports_its_config() {
+        let (db, ring_program) = setup_ring(false).await;
+
+        let found = tags_query(&db, None).await;
+        let [tx] = found.as_slice() else {
+            panic!("expected one transaction, got {}", found.len());
+        };
+
+        assert_eq!(
+            tx.ring_config,
+            Some(SerializablePubkey::from(pda::ring_auth(&ring_program).0))
+        );
+        assert_eq!(tx.ring_program_id, None);
+    }
+
+    /// Filtering derives the config account, so it does not consult the
+    /// registry and works for an unregistered ring too.
+    #[tokio::test]
+    async fn filtering_by_ring_selects_only_that_ring() {
+        for registered in [true, false] {
+            let (db, ring_program) = setup_ring(registered).await;
+
+            assert_eq!(tags_query(&db, Some(ring_program)).await.len(), 1);
+            assert!(tags_query(&db, Some(Pubkey::new_unique())).await.is_empty());
+        }
     }
 
     #[tokio::test]
@@ -713,7 +894,7 @@ mod tests {
             signature: Set(vec![2; 64]),
             event_index: Set(0),
             slot: Set(9),
-            rings_program_id: Set(vec![9; 32]),
+            ring_config: Set(None),
             source_instruction_tag: Set(1),
             output_tree: Set(vec![8; 32]),
             first_output_leaf_index: Set(0),
