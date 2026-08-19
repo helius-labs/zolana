@@ -7,7 +7,6 @@ autotests = false
 
 [dependencies]
 anyhow = { workspace = true }
-custom-ring-cli = { path = "../cli" }
 custom-ring-program = { path = "../program" }
 custom-ring-sdk = { path = "../sdk" }
 solana-address = { workspace = true }

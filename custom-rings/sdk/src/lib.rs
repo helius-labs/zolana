@@ -1,9 +1,11 @@
-//! Client library for the custom ring program: instruction builders and
-//! proof-input builders.
+//! Client library for the custom ring program: instruction builders,
+//! proof-input builders, and the audited transfer flow a client runs.
 
 pub mod instructions;
+pub mod lookup_table;
 pub mod prover;
 pub mod shared;
+pub mod transfer;
 
 pub use custom_ring_program::{
     instructions::{
@@ -29,6 +31,8 @@ pub use crate::{
             RingTransactWithAudit,
         },
     },
+    lookup_table::send_v0_with_lookup_table,
     prover::CustomRingProverClient,
     shared::{config_pda, program_data_pda, ring_auth_pda},
+    transfer::{ring_deposit_sol, AuditedTransfer, ProvenTransfer},
 };

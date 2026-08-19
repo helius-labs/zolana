@@ -6,7 +6,6 @@
 pub mod config;
 pub mod deploy;
 pub mod init;
-pub mod lookup_table;
 pub mod ring_rpc;
 pub mod status;
 pub mod transfer;
@@ -26,7 +25,7 @@ use zolana_ring_rpc::config::{read_auditor_pubkey, write_auditor_pubkey};
 use crate::{
     config::{expand_tilde, RingConfig, Target, RING_TOML},
     ring_rpc::RingRpc,
-    transfer::{wait_for_indexed_transaction, AuditedTransfer},
+    transfer::{wait_for_indexed_transaction, DemoTransfer},
 };
 
 /// Lamports the localnet authority is topped up to before it pays for anything.
@@ -180,7 +179,7 @@ pub fn run(cli: Cli) -> Result<()> {
             ring_rpc.check_serves(PROGRAM_ID, &auditor_pk)?;
             let indexer = ZolanaIndexer::new(&config.urls.indexer);
             let prover = ProverClient::new(config.urls.prover.clone());
-            let receipt = AuditedTransfer {
+            let receipt = DemoTransfer {
                 rpc: &rpc,
                 indexer: &indexer,
                 prover: &prover,

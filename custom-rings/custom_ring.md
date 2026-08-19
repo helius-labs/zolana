@@ -56,8 +56,8 @@ id above; this example never performs one.
 | --- | --- | --- |
 | `program` | `custom-ring-program` | Pinocchio program: instructions, proof verification, verifying keys, instruction data, tags, errors, canonical public-input hashing. |
 | `prover` | `custom-ring-prover` | Go gnark circuit, cgo bindings, proof-input containers, setup binary. |
-| `sdk` | `custom-ring-sdk` | Instruction builders, proof-input builders, prover client. Re-exports the auditor encryption codec. |
-| `cli` | `custom-ring-cli` | Operator flows a generated ring runs (`deploy`, `init`, `transact`, `status`) and the audited transfer used by the tests. |
+| `sdk` | `custom-ring-sdk` | Instruction builders, proof-input builders, prover client, the audited transfer flow (`AuditedTransfer`, ring deposits, v0 send behind a lookup table). Re-exports the auditor encryption codec. |
+| `cli` | `custom-ring-cli` | Operator commands a generated ring runs (`deploy` and upgrade, `init`, `transact`, `status`, `rpc-check`) over the sdk. |
 | `test` | `custom-ring-test-validator` | Localnet end-to-end tests. |
 
 ### The auditor side lives outside the example

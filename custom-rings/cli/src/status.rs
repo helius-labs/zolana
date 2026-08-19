@@ -33,7 +33,8 @@ pub fn print_status(config: &RingConfig, rpc: &SolanaRpc) -> Result<()> {
 
     let chain = || -> Result<()> {
         match rpc.get_account(config.program_id)? {
-            Some(account) if account.executable => match read_program_data(rpc, config.program_id)? {
+            Some(account) if account.executable => match read_program_data(rpc, config.program_id)?
+            {
                 Some(info) => println!(
                     "program     deployed, upgrade authority {}, capacity {} bytes",
                     info.upgrade_authority

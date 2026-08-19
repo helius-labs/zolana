@@ -1966,16 +1966,12 @@ dependencies = [
  "serde",
  "serde_json",
  "solana-address 2.6.1",
- "solana-address-lookup-table-interface",
- "solana-compute-budget-interface",
  "solana-instruction",
  "solana-keypair",
  "solana-loader-v3-interface 8.0.1",
- "solana-message",
  "solana-signature",
  "solana-signer",
  "solana-system-interface 3.2.0",
- "solana-transaction",
  "solana-transaction-error",
  "toml",
  "zolana-client",
@@ -2028,20 +2024,29 @@ dependencies = [
 name = "custom-ring-sdk"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "custom-ring-program",
  "custom-ring-prover",
  "groth16-solana",
  "hex",
  "p256",
  "solana-address 2.6.1",
+ "solana-address-lookup-table-interface",
+ "solana-compute-budget-interface",
  "solana-instruction",
+ "solana-message",
  "solana-program-error",
+ "solana-signature",
+ "solana-signer",
+ "solana-transaction",
  "thiserror 2.0.18",
  "wincode 0.5.5",
  "zeroize",
+ "zolana-client",
  "zolana-interface",
  "zolana-keypair",
  "zolana-ring-client",
+ "zolana-transaction",
 ]
 
 [[package]]
@@ -2049,7 +2054,6 @@ name = "custom-ring-test-validator"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "custom-ring-cli",
  "custom-ring-program",
  "custom-ring-sdk",
  "solana-address 2.6.1",
