@@ -25,13 +25,13 @@ use zolana_client::{
 };
 use zolana_indexer_api::Limit;
 use zolana_interface::{state::SplAssetRegistry, SHIELDED_POOL_PROGRAM_ID};
-use zolana_keypair::{P256Pubkey, ViewingKey};
+use zolana_keypair::{P256Pubkey, PublicKey, ViewingKey};
 use zolana_ring_client::{audit_transaction, auditor_view_tag, AuditError, AuditedTransaction};
 use zolana_transaction::AssetRegistry;
 
 use crate::api::{
     read_attestation, DecryptedOutput, DecryptedTransaction, DecryptedTransactionsPage,
-    GetDecryptedTransactionsResponse, ReadAuth, SkippedTransaction,
+    GetDecryptedTransactionsResponse, ReadAuth, ReadScope, SkippedTransaction,
 };
 
 /// Where the service reads from. Photon serves the tagged transactions and the
@@ -224,38 +224,6 @@ impl<S: TransactionSource> AuditService<S> {
         self.ring
     }
 
-    /// The reader must be the ring's on-chain authority and must have signed
-    /// this very request recently. Only the ring's own key can open its
-    /// transactions through this service.
-    pub async fn authorize_read(
-        &self,
-        auth: &ReadAuth,
-        cursor: Option<&[u8]>,
-        limit: Option<Limit>,
-    ) -> Result<(), RingRpcError> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|elapsed| elapsed.as_secs())
-            .unwrap_or_default();
-        if now.abs_diff(auth.timestamp) > READ_SKEW.as_secs() {
-            return Err(RingRpcError::Unauthorized("request timestamp is stale"));
-        }
-        let message =
-            read_attestation(&self.ring, auth.timestamp, cursor, limit.map(|l| l.value()));
-        if !auth.signature.0.verify(auth.reader.0.as_ref(), &message) {
-            return Err(RingRpcError::Unauthorized(
-                "signature does not cover this request",
-            ));
-        }
-        match self.source.ring_authority(self.ring).await? {
-            Some(authority) if authority == auth.reader.0 => Ok(()),
-            Some(_) => Err(RingRpcError::Unauthorized(
-                "reader is not the ring authority",
-            )),
-            None => Err(RingRpcError::Unauthorized("ring has no config on chain")),
-        }
-    }
-
     pub fn auditor_pubkey(&self) -> P256Pubkey {
         self.auditor.pubkey()
     }
@@ -268,6 +236,55 @@ impl<S: TransactionSource> AuditService<S> {
             .transactions_by_tag(self.view_tag, None, Some(1))
             .await?;
         Ok(page.context.slot)
+    }
+
+    /// Checks the request's signature and freshness, then what the reader may
+    /// see. Ring scope needs the ring's on-chain authority. Participant scope
+    /// accepts any key and returns a filter that keeps only the reader's own
+    /// side of each transaction.
+    pub async fn authorize_read(
+        &self,
+        auth: &ReadAuth,
+        cursor: Option<&[u8]>,
+        limit: Option<Limit>,
+    ) -> Result<ReadFilter, RingRpcError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_secs())
+            .unwrap_or_default();
+        if now.abs_diff(auth.timestamp) > READ_SKEW.as_secs() {
+            return Err(RingRpcError::Unauthorized("request timestamp is stale"));
+        }
+        let reader = Reader::parse(&auth.reader.0).ok_or(RingRpcError::Unauthorized(
+            "reader is not an ed25519 or P-256 key",
+        ))?;
+        let message = read_attestation(
+            auth.scope,
+            &self.ring,
+            auth.timestamp,
+            cursor,
+            limit.map(|l| l.value()),
+        );
+        if !reader.verify(&message, &auth.signature.0) {
+            return Err(RingRpcError::Unauthorized(
+                "signature does not cover this request",
+            ));
+        }
+        match (auth.scope, reader) {
+            (ReadScope::Ring, Reader::Ed25519(reader)) => {
+                match self.source.ring_authority(self.ring).await? {
+                    Some(authority) if authority == reader => Ok(ReadFilter::Ring),
+                    Some(_) => Err(RingRpcError::Unauthorized(
+                        "reader is not the ring authority",
+                    )),
+                    None => Err(RingRpcError::Unauthorized("ring has no config on chain")),
+                }
+            }
+            (ReadScope::Ring, Reader::P256(_)) => Err(RingRpcError::Unauthorized(
+                "ring scope needs the ring authority's ed25519 key",
+            )),
+            (ReadScope::Participant, reader) => Ok(ReadFilter::Participant(reader)),
+        }
     }
 
     pub fn auditor_view_tag(&self) -> [u8; 32] {
@@ -284,6 +301,7 @@ impl<S: TransactionSource> AuditService<S> {
         &self,
         cursor: Option<Vec<u8>>,
         limit: Option<Limit>,
+        filter: &ReadFilter,
     ) -> Result<GetDecryptedTransactionsResponse, RingRpcError> {
         let limit = limit.and_then(|limit| u32::try_from(limit.value()).ok());
         let page = self
@@ -297,14 +315,23 @@ impl<S: TransactionSource> AuditService<S> {
             match audit_transaction(&self.auditor, &tx, &self.assets) {
                 Ok(audited) => {
                     let signers = self.source.signers(tx.tx_signature).await?;
-                    items.push(decrypted_transaction(audited, signers, tx.nullifiers));
+                    if let Some(item) =
+                        filter.apply(decrypted_transaction(audited, signers, tx.nullifiers))
+                    {
+                        items.push(item);
+                    }
                 }
                 Err(AuditError::MissingAuditorMessage) => {}
-                Err(reason) => skipped.push(SkippedTransaction {
-                    slot: tx.slot,
-                    tx_signature: tx.tx_signature.into(),
-                    reason: reason.to_string(),
-                }),
+                // A transaction nobody could attribute is the auditor's
+                // business, not a participant's.
+                Err(reason) if matches!(filter, ReadFilter::Ring) => {
+                    skipped.push(SkippedTransaction {
+                        slot: tx.slot,
+                        tx_signature: tx.tx_signature.into(),
+                        reason: reason.to_string(),
+                    })
+                }
+                Err(_) => {}
             }
         }
 
@@ -319,6 +346,61 @@ impl<S: TransactionSource> AuditService<S> {
                 cursor: page.next_cursor.map(Into::into),
             },
         })
+    }
+}
+
+/// A key that signed a read, either curve the protocol uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reader {
+    /// A Solana signer, what `signers` of a transaction are.
+    Ed25519(Address),
+    /// A viewing key, what outputs are encrypted to.
+    P256(P256Pubkey),
+}
+
+impl Reader {
+    fn parse(bytes: &[u8]) -> Option<Self> {
+        if let Ok(ed25519) = <[u8; 32]>::try_from(bytes) {
+            return Some(Self::Ed25519(Address::new_from_array(ed25519)));
+        }
+        let p256 = <[u8; 33]>::try_from(bytes).ok()?;
+        Some(Self::P256(P256Pubkey::from_bytes(p256).ok()?))
+    }
+
+    fn verify(&self, message: &[u8], signature: &[u8]) -> bool {
+        let Ok(signature) = <[u8; 64]>::try_from(signature) else {
+            return false;
+        };
+        match self {
+            Self::Ed25519(address) => Signature::from(signature).verify(address.as_ref(), message),
+            Self::P256(pubkey) => PublicKey::from_p256(pubkey).verify_message(message, &signature),
+        }
+    }
+}
+
+/// What a read may see, decided by [`AuditService::authorize_read`].
+pub enum ReadFilter {
+    Ring,
+    Participant(Reader),
+}
+
+impl ReadFilter {
+    /// Ring scope passes everything. A sender sees the transactions it signed
+    /// in full, a recipient only the outputs encrypted to its key.
+    fn apply(&self, mut item: DecryptedTransaction) -> Option<DecryptedTransaction> {
+        match self {
+            Self::Ring => Some(item),
+            Self::Participant(Reader::Ed25519(reader)) => item
+                .signers
+                .iter()
+                .any(|signer| signer.0 == *reader)
+                .then_some(item),
+            Self::Participant(Reader::P256(reader)) => {
+                item.outputs
+                    .retain(|output| output.recipient_viewing_pk.0 == reader.as_bytes());
+                (!item.outputs.is_empty()).then_some(item)
+            }
+        }
     }
 }
 

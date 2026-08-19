@@ -17,10 +17,10 @@ use zolana_ring_rpc::{
     api::{
         auditor_key_attestation, read_attestation, CreateAuditorKeyRequest,
         CreateAuditorKeyResponse, GetDecryptedTransactionsRequest,
-        GetDecryptedTransactionsResponse, HealthResponse, ReadAuth, CREATE_AUDITOR_KEY,
+        GetDecryptedTransactionsResponse, HealthResponse, ReadAuth, ReadScope, CREATE_AUDITOR_KEY,
         GET_DECRYPTED_TRANSACTIONS, HEALTH,
     },
-    audit::{derive_auditor_key, AuditService, Hub, RingRpcError, TransactionSource},
+    audit::{derive_auditor_key, AuditService, Hub, ReadFilter, RingRpcError, TransactionSource},
     server::rpc_module,
 };
 use zolana_transaction::{
@@ -39,6 +39,11 @@ struct StaticSource {
     authority: Option<Address>,
 }
 
+/// The one Solana signer the source reports for every transaction.
+fn sender() -> Keypair {
+    Keypair::new_from_array([44u8; 32])
+}
+
 const RING: Address = Address::new_from_array([5u8; 32]);
 
 /// The ring authority of the fixture, the one reader the service accepts.
@@ -48,10 +53,19 @@ fn reader() -> Keypair {
 
 fn read_auth(ring: Address, signer: &Keypair, timestamp: u64) -> ReadAuth {
     ReadAuth {
-        reader: signer.pubkey().to_bytes().into(),
+        scope: ReadScope::Ring,
+        reader: signer.pubkey().to_bytes().to_vec().into(),
         timestamp,
         signature: signer
-            .sign_message(&read_attestation(&ring, timestamp, None, None))
+            .sign_message(&read_attestation(
+                ReadScope::Ring,
+                &ring,
+                timestamp,
+                None,
+                None,
+            ))
+            .as_ref()
+            .to_vec()
             .into(),
     }
 }
@@ -98,8 +112,8 @@ impl TransactionSource for StaticSource {
         &self,
         signature: Signature,
     ) -> impl Future<Output = Result<Vec<Address>, ClientError>> + Send {
-        // One deterministic signer per transaction, derived from its signature.
-        let signer = Address::new_from_array([signature.as_ref()[0]; 32]);
+        let _ = signature;
+        let signer = Address::new_from_array(sender().pubkey().to_bytes());
         async move { Ok(vec![signer]) }
     }
 
@@ -174,6 +188,7 @@ fn transaction(
 
 struct Fixture {
     auditor: ViewingKey,
+    recipient_key: ViewingKey,
     recipient: P256Pubkey,
     audited: ShieldedTransaction,
     foreign_key: ShieldedTransaction,
@@ -183,7 +198,8 @@ struct Fixture {
 fn fixture() -> Fixture {
     let auditor = ViewingKey::new();
     let auditor_pk = auditor.pubkey();
-    let recipient = ViewingKey::new().pubkey();
+    let recipient_key = ViewingKey::new();
+    let recipient = recipient_key.pubkey();
 
     let tx = ViewingKey::new();
     let audited = transaction(
@@ -217,6 +233,7 @@ fn fixture() -> Fixture {
 
     Fixture {
         auditor,
+        recipient_key,
         recipient,
         audited,
         foreign_key,
@@ -255,7 +272,7 @@ async fn page_opens_audited_transfers_and_reports_the_rest() {
     let service = service(&fixture, Some(vec![7, 7]));
 
     let response = service
-        .decrypted_transactions(None, None)
+        .decrypted_transactions(None, None, &ReadFilter::Ring)
         .await
         .expect("page");
 
@@ -282,7 +299,7 @@ async fn page_opens_audited_transfers_and_reports_the_rest() {
             .iter()
             .map(|s| s.0.to_bytes())
             .collect::<Vec<_>>(),
-        vec![[1u8; 32]],
+        vec![sender().pubkey().to_bytes()],
         "the transaction signers are the auditor's from"
     );
     assert!(item.undecryptable_slots.is_empty());
@@ -339,6 +356,75 @@ async fn rpc_methods_answer_over_the_module() {
         .await
         .expect("decrypted transactions through the signing builder");
     assert_eq!(page.value.items.len(), 1);
+
+    // Participant scope. The sender sees the transaction it signed in full,
+    // the recipient only its own outputs, a stranger nothing, and nobody but
+    // the auditor sees the skipped list.
+    let as_object = |request: GetDecryptedTransactionsRequest| {
+        let serde_json::Value::Object(map) = serde_json::to_value(request).expect("json") else {
+            panic!("request serializes as an object");
+        };
+        map
+    };
+    let page: GetDecryptedTransactionsResponse = module
+        .call(
+            GET_DECRYPTED_TRANSACTIONS,
+            as_object(
+                GetDecryptedTransactionsRequest::unsigned(RING, None).sign_as_sender(&sender()),
+            ),
+        )
+        .await
+        .expect("sender read");
+    assert_eq!(
+        page.value.items.len(),
+        1,
+        "the sender signed the audited transaction"
+    );
+    assert_eq!(
+        page.value.items[0].outputs.len(),
+        2,
+        "a sender sees every output"
+    );
+    assert!(
+        page.value.skipped.is_empty(),
+        "participants see no skipped list"
+    );
+
+    let page: GetDecryptedTransactionsResponse = module
+        .call(
+            GET_DECRYPTED_TRANSACTIONS,
+            as_object(
+                GetDecryptedTransactionsRequest::unsigned(RING, None)
+                    .sign_as_recipient(&fixture.recipient_key)
+                    .expect("recipient signs"),
+            ),
+        )
+        .await
+        .expect("recipient read");
+    assert_eq!(page.value.items.len(), 1);
+    assert!(
+        page.value.items[0]
+            .outputs
+            .iter()
+            .all(|output| output.recipient_viewing_pk.0 == fixture.recipient.as_bytes()),
+        "a recipient sees only outputs encrypted to its key"
+    );
+
+    let page: GetDecryptedTransactionsResponse = module
+        .call(
+            GET_DECRYPTED_TRANSACTIONS,
+            as_object(
+                GetDecryptedTransactionsRequest::unsigned(RING, None)
+                    .sign_as_recipient(&ViewingKey::new())
+                    .expect("stranger signs"),
+            ),
+        )
+        .await
+        .expect("stranger read");
+    assert!(
+        page.value.items.is_empty(),
+        "a key outside the transaction sees nothing"
+    );
 
     // Reads are signed by the ring authority, fresh, and bound to the ring.
     let stranger = Keypair::new_from_array([43u8; 32]);
