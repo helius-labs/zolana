@@ -398,6 +398,32 @@ impl<R: Rpc> ZolanaClient<R> {
         wait_for_rpc_confirmation(self.rpc(), signature, self.indexer_config.poll)?;
         wait_for_indexed_transaction(self.blocking_indexer(), signature, self.indexer_config.poll)
     }
+
+    /// Submit a signed private transaction and return as soon as the RPC
+    /// accepts it.
+    ///
+    /// Pair with [`Self::confirm_private_transaction_sync`], which waits for the
+    /// chain and then the indexer. `Rpc::send_transaction` confirms too, so the
+    /// two together waited for the same signature twice.
+    ///
+    /// Preflight is skipped: simulation re-executes a transaction whose inputs
+    /// are proofs the indexer just served, and a failure it would catch is one
+    /// this client cannot fix by retrying. The cost of being wrong is a landed
+    /// transaction that fails on chain, so callers submitting unvalidated
+    /// transactions should keep using `send_transaction`.
+    pub fn submit_private_transaction_sync(
+        &self,
+        transaction: &SolanaTransaction,
+    ) -> Result<Signature, ClientError> {
+        let _t = crate::timing::Phase::start("submit_private", 0);
+        // Honours `with_send_transaction_config`, which until now set a field
+        // nothing read.
+        let config = self.send_config.unwrap_or(RpcSendTransactionConfig {
+            skip_preflight: true,
+            ..RpcSendTransactionConfig::default()
+        });
+        self.rpc().send_transaction_with_config(transaction, config)
+    }
 }
 
 impl<R: AsyncRpc> ZolanaClient<R> {
@@ -1100,8 +1126,25 @@ fn fetch_spend_proofs(
         .iter()
         .map(|commitment| commitment.nullifier)
         .collect::<Vec<_>>();
-    let state_response = indexer.get_merkle_proofs(tree, leaves, config)?;
-    let nullifier_response = indexer.get_non_inclusion_proofs(tree, nullifiers, config)?;
+    // Independent round trips, run together for the same reason the async path
+    // does with `try_join!`: different methods, neither consuming the other's
+    // output. Serially this cost the sum on every transfer.
+    let (state_response, nullifier_response) = std::thread::scope(|scope| {
+        let state = scope.spawn(|| {
+            let _t = crate::timing::Phase::start("get_merkle_proofs", 0);
+            indexer.get_merkle_proofs(tree, leaves, config)
+        });
+        let nullifier = scope.spawn(|| {
+            let _t = crate::timing::Phase::start("get_non_inclusion_proofs", 0);
+            indexer.get_non_inclusion_proofs(tree, nullifiers, config)
+        });
+        (state.join(), nullifier.join())
+    });
+    // A panic here is a bug in the indexer client, not an unreachable indexer.
+    let state_response =
+        state_response.unwrap_or_else(|payload| std::panic::resume_unwind(payload))?;
+    let nullifier_response =
+        nullifier_response.unwrap_or_else(|payload| std::panic::resume_unwind(payload))?;
     validate_spend_proofs(
         tree,
         commitments,
@@ -1516,10 +1559,19 @@ mod tests {
         };
         let commitment = shielded.transaction.input_utxo_hashes().unwrap().remove(0);
         let signature = Signature::from([5u8; 64]);
-        let server = MockIndexerServer::respond_with(vec![
-            merkle_response(tree, commitment.utxo_hash),
-            nullifier_response(tree, commitment.nullifier),
-            indexed_transaction_by_signature_response(signature),
+        let server = MockIndexerServer::respond_by_path(vec![
+            (
+                "/getMerkleProofs",
+                merkle_response(tree, commitment.utxo_hash),
+            ),
+            (
+                "/getNonInclusionProofs",
+                nullifier_response(tree, commitment.nullifier),
+            ),
+            (
+                "/getShieldedTransactionsBySignature",
+                indexed_transaction_by_signature_response(signature),
+            ),
         ]);
         let rpc = MockSubmitRpc::new(signature);
         let sent = rpc.sent.clone();
@@ -1557,14 +1609,13 @@ mod tests {
         assert_eq!(sent.len(), 1);
         assert_eq!(sent[0].message.instructions.len(), 3);
         let requests = server.requests();
-        assert_eq!(
-            requests,
-            [
-                "/getMerkleProofs",
-                "/getNonInclusionProofs",
-                "/getShieldedTransactionsBySignature",
-            ]
-        );
+        // The two proof fetches race, so only their membership is defined; the
+        // indexed-transaction lookup still happens after them.
+        let (proofs, rest) = requests.split_at(2);
+        let mut proofs = proofs.to_vec();
+        proofs.sort();
+        assert_eq!(proofs, ["/getMerkleProofs", "/getNonInclusionProofs"]);
+        assert_eq!(rest, ["/getShieldedTransactionsBySignature"]);
     }
 
     #[test]
@@ -1910,6 +1961,7 @@ mod tests {
         signature: Signature,
         view_tags: Vec<[u8; 32]>,
         sent: Arc<Mutex<Vec<SolanaTransaction>>>,
+        sent_configs: Arc<Mutex<Vec<RpcSendTransactionConfig>>>,
     }
 
     impl MockSubmitRpc {
@@ -1918,6 +1970,7 @@ mod tests {
                 signature,
                 view_tags: Vec::new(),
                 sent: Arc::new(Mutex::new(Vec::new())),
+                sent_configs: Arc::new(Mutex::new(Vec::new())),
             }
         }
 
@@ -1941,6 +1994,16 @@ mod tests {
             transaction: &SolanaTransaction,
         ) -> Result<Signature, ClientError> {
             self.sent.lock().unwrap().push(transaction.clone());
+            Ok(self.signature)
+        }
+
+        fn send_transaction_with_config(
+            &self,
+            transaction: &SolanaTransaction,
+            config: RpcSendTransactionConfig,
+        ) -> Result<Signature, ClientError> {
+            self.sent.lock().unwrap().push(transaction.clone());
+            self.sent_configs.lock().unwrap().push(config);
             Ok(self.signature)
         }
 
@@ -1968,6 +2031,56 @@ mod tests {
         ) -> Result<Vec<[u8; 32]>, ClientError> {
             Ok(self.view_tags.clone())
         }
+    }
+
+    fn submit_client(rpc: MockSubmitRpc) -> ZolanaClient<MockSubmitRpc> {
+        ZolanaClient::new(
+            rpc,
+            ZolanaIndexer::new("http://unused.invalid"),
+            ProverClient::new("http://unused.invalid".to_string()),
+            AsyncZolanaIndexer::new("http://unused.invalid"),
+            AsyncProverClient::new("http://unused.invalid".to_string()),
+            Address::new_from_array([8u8; 32]),
+        )
+    }
+
+    /// `confirm_private_transaction_sync` already waits for the chain, so the
+    /// submit half must not: together they waited for one signature twice.
+    /// Preflight is skipped for the same round-trip reason.
+    #[test]
+    fn submit_private_skips_preflight() {
+        let rpc = MockSubmitRpc::new(Signature::from([3u8; 64]));
+        let configs = rpc.sent_configs.clone();
+        let client = submit_client(rpc);
+
+        client
+            .submit_private_transaction_sync(&SolanaTransaction::default())
+            .expect("submit");
+
+        let recorded = configs.lock().unwrap();
+        assert_eq!(recorded.len(), 1);
+        assert!(recorded[0].skip_preflight);
+    }
+
+    /// `with_send_transaction_config` set a field nothing read until this path
+    /// existed; a caller that asks for preflight must get it.
+    #[test]
+    fn submit_private_honours_a_configured_send_config() {
+        let rpc = MockSubmitRpc::new(Signature::from([3u8; 64]));
+        let configs = rpc.sent_configs.clone();
+        let client = submit_client(rpc).with_send_transaction_config(RpcSendTransactionConfig {
+            skip_preflight: false,
+            max_retries: Some(7),
+            ..RpcSendTransactionConfig::default()
+        });
+
+        client
+            .submit_private_transaction_sync(&SolanaTransaction::default())
+            .expect("submit");
+
+        let recorded = configs.lock().unwrap();
+        assert!(!recorded[0].skip_preflight);
+        assert_eq!(recorded[0].max_retries, Some(7));
     }
 
     fn merkle_response(tree: Address, leaf: [u8; 32]) -> Value {
@@ -2077,6 +2190,38 @@ mod tests {
     }
 
     impl MockIndexerServer {
+        /// Serve each response to the request whose path asks for it.
+        ///
+        /// `respond_with` hands responses out in order, which stops being a
+        /// description of the server once the client fetches concurrently: the
+        /// proof fetches race, and whichever connects first would take the
+        /// other's body.
+        fn respond_by_path(responses: Vec<(&'static str, Value)>) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock indexer");
+            let url = format!("http://{}", listener.local_addr().unwrap());
+            let (request_tx, requests) = mpsc::channel();
+            let count = responses.len();
+            let handle = thread::spawn(move || {
+                let mut remaining: Vec<(&'static str, Value)> = responses;
+                for _ in 0..count {
+                    let (mut stream, _) = listener.accept().expect("accept request");
+                    let request = read_request(&mut stream);
+                    let index = remaining
+                        .iter()
+                        .position(|(path, _)| *path == request.path)
+                        .unwrap_or_else(|| panic!("no mock response for {}", request.path));
+                    let (_, response) = remaining.remove(index);
+                    request_tx.send(request).expect("record request");
+                    write_json_response(&mut stream, &response);
+                }
+            });
+            Self {
+                url,
+                requests,
+                handle,
+            }
+        }
+
         fn respond_with(responses: Vec<Value>) -> Self {
             let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock indexer");
             let url = format!("http://{}", listener.local_addr().unwrap());

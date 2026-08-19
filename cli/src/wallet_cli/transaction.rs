@@ -1,6 +1,6 @@
 use anyhow::Result;
 use solana_signer::Signer;
-use zolana_client::{Rpc, SolanaRpc, ZolanaClient};
+use zolana_client::{SolanaRpc, ZolanaClient};
 use zolana_transaction::Address;
 use zolana_wallet::{
     actions::{submit::MergeMaterial, transaction::is_plain_utxo},
@@ -46,7 +46,7 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
         &client,
         &ctx.material.funding,
     )?;
-    let signature = client.rpc().send_transaction(&transaction)?;
+    let signature = client.submit_private_transaction_sync(&transaction)?;
     client.confirm_private_transaction_sync(signature)?;
     let mode = if transfer.recipient.is_public_withdrawal() {
         "withdraw"
@@ -134,7 +134,7 @@ pub(crate) fn run_split(opts: SplitOptions) -> Result<()> {
         &client,
         &ctx.material.funding,
     )?;
-    let signature = client.rpc().send_transaction(&transaction)?;
+    let signature = client.submit_private_transaction_sync(&transaction)?;
     client.confirm_private_transaction_sync(signature)?;
     println!(
         "ok split parts={} amount={} mint={} signature={}",

@@ -122,6 +122,9 @@ async fn start_api_server(
     max_http_connections: u32,
 ) -> Result<ServerHandle> {
     let api = PhotonApi::new(db, rpc_client);
+    // Before the server accepts anything, so the first proof request finds a
+    // populated ring rather than paying for it.
+    api.spawn_root_index_refresher();
     api::rpc_server::run_server(api, api_port, max_http_connections)
         .await
         .context("Failed to start API server")

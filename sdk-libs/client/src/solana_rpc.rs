@@ -526,12 +526,11 @@ impl Rpc for SolanaRpc {
         transaction: &Transaction,
         config: solana_rpc_client_api::config::RpcSendTransactionConfig,
     ) -> Result<Signature, ClientError> {
+        // Sends and returns; it does not confirm. `send_transaction` is the
+        // send-and-confirm one. The two were the same call, so a caller asking
+        // for a config also bought a confirmation wait it never requested.
         self.client
-            .send_and_confirm_transaction_with_spinner_and_config(
-                transaction,
-                CommitmentConfig::confirmed(),
-                config,
-            )
+            .send_transaction_with_config(transaction, config)
             .map_err(|source| ClientError::SolanaRpcTransaction {
                 operation: "send_transaction_with_config",
                 source,
@@ -670,12 +669,10 @@ impl AsyncRpc for AsyncSolanaRpc {
         transaction: &Transaction,
         config: solana_rpc_client_api::config::RpcSendTransactionConfig,
     ) -> Result<Signature, ClientError> {
+        // Sends and returns, matching the blocking path: `send_transaction` is
+        // the send-and-confirm one.
         self.client
-            .send_and_confirm_transaction_with_config(
-                transaction,
-                CommitmentConfig::confirmed(),
-                config,
-            )
+            .send_transaction_with_config(transaction, config)
             .await
             .map_err(|source| ClientError::SolanaRpcTransaction {
                 operation: "send_transaction_with_config",

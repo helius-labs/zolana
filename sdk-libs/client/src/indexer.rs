@@ -30,7 +30,15 @@ use crate::{
 };
 
 const MERKLE_PROOF_POLL_TIMEOUT: Duration = Duration::from_secs(60);
-const MERKLE_PROOF_POLL_INTERVAL: Duration = Duration::from_millis(500);
+/// First wait after an incomplete answer.
+///
+/// A transfer spends a note the indexer has only just written, so the first
+/// attempt often lands a few milliseconds early and this sleep is on the
+/// critical path of every transfer. A flat 500ms charged the tail's wait to
+/// every caller; starting short and backing off keeps the 60s ceiling for an
+/// indexer that is genuinely behind.
+const MERKLE_PROOF_POLL_START: Duration = Duration::from_millis(25);
+const MERKLE_PROOF_POLL_MAX: Duration = Duration::from_millis(500);
 
 const JSON_RPC_METHOD_NOT_FOUND: i64 = -32601;
 const JSON_RPC_INTERNAL_ERROR: i64 = -32603;
@@ -328,11 +336,14 @@ impl Rpc for ZolanaIndexer {
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetMerkleProofsResponse, ClientError> {
         let single = || {
-            self.api
-                .get_merkle_proofs(
+            let response = {
+                let _t = crate::timing::Phase::start("merkle_http", 0);
+                self.api.get_merkle_proofs(
                     encode_pubkey(tree_account),
                     leaves.iter().copied().map(encode_hash).collect(),
                 )
+            };
+            response
                 .map_err(indexer_error)
                 .map(|response| GetMerkleProofsResponse {
                     context: convert_context(response.context),
@@ -357,6 +368,7 @@ impl Rpc for ZolanaIndexer {
         let expected = leaves.len();
         let started = Instant::now();
         let mut last_error = None;
+        let mut wait = MERKLE_PROOF_POLL_START;
         loop {
             match single() {
                 Ok(response) if response.proofs.len() >= expected => return Ok(response),
@@ -370,7 +382,8 @@ impl Rpc for ZolanaIndexer {
                     ))
                 }));
             }
-            sleep(MERKLE_PROOF_POLL_INTERVAL);
+            sleep(wait);
+            wait = (wait * 2).min(MERKLE_PROOF_POLL_MAX);
         }
     }
 

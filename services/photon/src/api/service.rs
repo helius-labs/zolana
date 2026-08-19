@@ -33,7 +33,7 @@ use super::{
 pub struct PhotonApi {
     db_conn: Arc<DatabaseConnection>,
     rpc_client: Arc<RpcClient>,
-    root_index_cache: RootIndexCache,
+    root_index_cache: Arc<RootIndexCache>,
 }
 
 pub struct OpenApiSpec {
@@ -60,8 +60,21 @@ impl PhotonApi {
         Self {
             db_conn,
             rpc_client,
-            root_index_cache: RootIndexCache::new(),
+            root_index_cache: Arc::new(RootIndexCache::new()),
         }
+    }
+
+    /// Start the task that keeps the root-index ring current.
+    ///
+    /// Without it the ring is only refreshed when a request misses, which is
+    /// every transfer, and that fetch is then the largest single cost of a
+    /// transfer. Callers that only serve reads of other methods can skip it; the
+    /// on-miss path still answers correctly, just slowly.
+    pub fn spawn_root_index_refresher(&self) -> tokio::task::JoinHandle<()> {
+        let cache = Arc::clone(&self.root_index_cache);
+        let db = Arc::clone(&self.db_conn);
+        let rpc_client = Arc::clone(&self.rpc_client);
+        tokio::spawn(async move { cache.refresh_loop(db.as_ref(), rpc_client.as_ref()).await })
     }
 
     pub async fn liveness(&self) -> Result<(), PhotonApiError> {
