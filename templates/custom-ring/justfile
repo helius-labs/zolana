@@ -85,8 +85,7 @@ auditor-key:
     fi
     cargo run -q --manifest-path {{ "{{zolana}}" }}/services/ring-rpc/Cargo.toml -- keygen --out keys/auditor.key
 
-# Create the ring config with the auditor key, write the policy and register the
-# ring with SPP.
+# Create the ring config with the auditor key and register the ring with SPP.
 init: auditor-key
     cargo run -q -p {{project-name}} -- init
 
