@@ -1,7 +1,7 @@
 use super::common::{
-    bind_u64_as_i64, cursor_sort_key, decode_cursor, encode_cursor, over_fetch, page_cursor,
-    rings_output_slot_from_parts, signature_from_bytes, tags_sql, tx_cursor_sql_condition,
-    u16_from_i16, u64_from_i64, validate_tags, CursorKind,
+    bind_u64_as_i64, cursor_sort_key, decode_cursor, encode_cursor, next_cursor_from_rows,
+    over_fetch, page_cursor, rings_output_slot_from_parts, signature_from_bytes, tags_sql,
+    tx_cursor_sql_condition, u16_from_i16, u64_from_i64, validate_tags, CursorKind,
 };
 use crate::api::error::PhotonApiError;
 use crate::common::bind_sql_value;
@@ -72,12 +72,14 @@ pub async fn get_encrypted_utxos_by_tags(
     )
     .await?;
     let next_cursor = page_cursor(&mut rows, limit, encrypted_utxo_cursor_from_row)?;
-    // The caller's watermark, now that `next_cursor` only reports paging. Only
-    // meaningful on a page the limit did not truncate.
+    // The caller's watermark, now that `next_cursor` only reports paging. The
+    // rows are the answer: on a page the limit did not truncate, the last row
+    // returned is where the scan reached. Reading the stream tip from the
+    // database instead cost about as much as the round trip this saves.
     let scanned_through = if next_cursor.is_some() {
         None
     } else {
-        output_scan_position(&tx).await?
+        next_cursor_from_rows(&rows, encrypted_utxo_cursor_from_row)?
     };
 
     let matches = rows
@@ -181,63 +183,6 @@ fn encrypted_utxo_cursor_sql(
         params,
     )?;
     Ok(format!("AND {condition}"))
-}
-
-/// The last position in the output stream, as a cursor.
-///
-/// The transactions stream has its own version of this; outputs need a separate
-/// one because their cursor carries `output_index`, so the tail of
-/// `rings_transactions` does not describe where an output scan reached.
-///
-/// Read inside the caller's transaction, so it describes the snapshot the scan
-/// saw. Sound while positions are only appended, which is the same assumption
-/// the per-tag cursors already make.
-async fn output_scan_position(
-    tx: &DatabaseTransaction,
-) -> Result<Option<Base64String>, PhotonApiError> {
-    let backend = tx.get_database_backend();
-    // Pinning the slot first keeps this an index lookup rather than a sort of
-    // the whole table, as in `scan_position`.
-    let sql = "SELECT
-            po.slot AS slot,
-            po.signature AS signature,
-            po.event_index AS event_index,
-            po.output_index AS output_index
-         FROM rings_outputs po
-         WHERE po.slot = (SELECT MAX(slot) FROM rings_outputs)
-         ORDER BY po.signature DESC, po.event_index DESC, po.output_index DESC
-         LIMIT 1"
-        .to_string();
-
-    let Some(row) = tx
-        .query_all(Statement::from_sql_and_values(backend, sql, Vec::new()))
-        .await?
-        .into_iter()
-        .next()
-    else {
-        return Ok(None);
-    };
-    let row = EncryptedUtxoScanRow::from_query_result(&row, "")?;
-    let (slot, signature, event_index) =
-        cursor_sort_key(row.slot, &row.signature, row.event_index)?;
-    let cursor = EncryptedUtxoCursor {
-        slot,
-        signature,
-        event_index,
-        output_index: u16_from_i16(row.output_index, "output index")?,
-    };
-    Ok(Some(Base64String(encode_cursor(
-        CursorKind::EncryptedUtxos,
-        &cursor,
-    )?)))
-}
-
-#[derive(FromQueryResult, Debug)]
-struct EncryptedUtxoScanRow {
-    slot: i64,
-    signature: Vec<u8>,
-    event_index: i16,
-    output_index: i16,
 }
 
 fn encrypted_utxo_cursor_from_row(row: &EncryptedUtxoRow) -> Result<Vec<u8>, PhotonApiError> {
