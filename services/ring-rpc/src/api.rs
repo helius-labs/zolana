@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 use solana_address::Address;
+use solana_signer::Signer;
 use zolana_indexer_api::{
     Base64String, Context, Hash, Limit, SerializablePubkey, SerializableSignature,
 };
@@ -77,6 +78,55 @@ pub struct ReadAuth {
     pub reader: SerializablePubkey,
     pub timestamp: u64,
     pub signature: SerializableSignature,
+}
+
+impl GetDecryptedTransactionsRequest {
+    /// A read of `ring`'s page at `cursor`, to be signed by the ring authority.
+    pub fn unsigned(ring_program_id: Address, cursor: Option<Base64String>) -> UnsignedRead {
+        UnsignedRead {
+            ring_program_id,
+            cursor,
+            limit: None,
+        }
+    }
+}
+
+/// A read before the reader signed it. `sign` stamps the current time, so sign
+/// right before sending and sign again on retry.
+pub struct UnsignedRead {
+    ring_program_id: Address,
+    cursor: Option<Base64String>,
+    limit: Option<Limit>,
+}
+
+impl UnsignedRead {
+    pub fn limit(mut self, limit: Limit) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    pub fn sign(self, reader: &dyn Signer) -> GetDecryptedTransactionsRequest {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_secs())
+            .unwrap_or_default();
+        let message = read_attestation(
+            &self.ring_program_id,
+            timestamp,
+            self.cursor.as_ref().map(|cursor| cursor.0.as_slice()),
+            self.limit.as_ref().map(Limit::value),
+        );
+        GetDecryptedTransactionsRequest {
+            ring_program_id: Some(self.ring_program_id.to_bytes().into()),
+            cursor: self.cursor,
+            limit: self.limit,
+            auth: ReadAuth {
+                reader: reader.pubkey().to_bytes().into(),
+                timestamp,
+                signature: reader.sign_message(&message).into(),
+            },
+        }
+    }
 }
 
 /// Domain of the read signature.
