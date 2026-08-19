@@ -5,6 +5,10 @@
 //! Wallet state, syncing, transaction-building actions, and the user registry
 //! live in the `zolana-wallet` crate, which builds on this one.
 //!
+//! `ZOLANA_TIMING=1` prints per-phase timings to stderr; see [`timing`]. The
+//! `let _t = Phase::start(..)` guards through this crate are that, timing until
+//! they drop, and inert otherwise.
+//!
 //! Feature flags:
 //! - `(none)`: prover client + RPC traits
 //! - `indexer-api`: Photon indexer adapter and [`ZolanaClient`]
