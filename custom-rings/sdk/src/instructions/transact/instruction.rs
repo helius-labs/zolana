@@ -10,11 +10,12 @@ use crate::{config_pda, tag, PROGRAM_ID};
 /// Audited ring transact: the ring's auditor key-encryption proof followed by the
 /// SPP payload it forwards.
 ///
-/// The account list is `[payer, config]` prepended to SPP's own `RING_TRANSACT`
-/// list. Those two extra accounts are all this program reads for itself: the payer
-/// it requires as a signer, and the config account holding the auditor key the
-/// public-input hash is recomputed against. Everything after them is forwarded to
-/// SPP position for position, so it is taken straight from
+/// The account list is `[payer, config, approval?]` prepended to SPP's own
+/// `RING_TRANSACT` list. Those extra accounts are all this program reads for
+/// itself: the payer it requires as a signer, the config account holding the
+/// auditor key the public-input hash is recomputed against and the policy, and
+/// the approval account a withdrawal under an approval rule spends. Everything
+/// after them is forwarded to SPP position for position, so it is taken straight from
 /// [`RingTransact::instruction`] rather than re-listed here -- a hand-written copy
 /// would be a second definition of SPP's loader order, free to drift from it.
 ///
@@ -27,6 +28,9 @@ pub struct RingTransactWithAudit {
     pub output_tree: Address,
     /// The eddsa owners of the spent UTXOs; SPP requires each as a signer.
     pub owner_signers: Vec<Address>,
+    /// The approval account of this transact (`approval_pda(private_tx_hash)`)
+    /// when a withdrawal leg falls under an approval rule.
+    pub approval: Option<Address>,
     /// Settlement accounts for the payload's `interface_transfers`, in the same
     /// order.
     pub interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
@@ -46,6 +50,7 @@ impl RingTransactWithAudit {
             input_tree,
             output_tree,
             owner_signers,
+            approval,
             interface_transfer_accounts,
             audit_proof,
             transact,
@@ -65,9 +70,12 @@ impl RingTransactWithAudit {
         let spp_accounts = ring.instruction().accounts;
         let transact = ring.data;
 
-        let mut accounts = Vec::with_capacity(2 + spp_accounts.len());
+        let mut accounts = Vec::with_capacity(3 + spp_accounts.len());
         accounts.push(AccountMeta::new(payer, true));
         accounts.push(AccountMeta::new_readonly(config_pda(), false));
+        if let Some(approval) = approval {
+            accounts.push(AccountMeta::new(approval, false));
+        }
         accounts.extend(spp_accounts);
 
         let body = wincode::serialize(&CustomRingTransactIxData {

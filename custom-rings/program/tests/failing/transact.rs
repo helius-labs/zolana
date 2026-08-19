@@ -8,7 +8,11 @@
 
 use custom_ring_program::{
     error::CustomRingError,
-    instructions::transact::{AuditProof, CustomRingTransactIxData, AUDITOR_MESSAGE_LEN},
+    instructions::{
+        set_policy::AssetRule,
+        transact::{AuditProof, CustomRingTransactIxData, AUDITOR_MESSAGE_LEN},
+    },
+    state::{WITHDRAWALS_APPROVAL, WITHDRAWALS_BLOCKED, WITHDRAWALS_OPEN},
     tag,
 };
 use solana_account::Account;
@@ -23,9 +27,9 @@ use zolana_interface::{
 use zolana_test_utils::mollusk::expect_err_exact;
 
 use crate::common::{
-    account, auditor_pubkey, authority, config_account_with_policy, config_pda,
-    initialized_config_account, payer, program_id, ring_auth_pda, setup_mollusk,
-    spp_program_account, substitute_account,
+    account, approval_account, approval_pda, approver, auditor_pubkey, authority,
+    config_account_with_policy, config_pda, initialized_config_account, payer, program_id,
+    ring_auth_pda, setup_mollusk, spp_program_account, substitute_account, PolicyFixture,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -381,28 +385,126 @@ fn zeroed_proof_is_rejected_exactly() {
     );
 }
 
-/// Policy runs before the proof: the fixture's proof is bogus and the
-/// withdrawal is still what gets named.
-#[test]
-fn public_withdrawal_is_rejected_exactly_when_blocked() {
-    let (mollusk, _) = setup_mollusk();
+/// A transact carrying one SOL withdrawal leg over `config`, with the SOL
+/// settlement group `[sol_interface, recipient]` after the (empty) signer run
+/// and, when given, the approval account between the config and SPP's list.
+fn withdrawal_fixture(
+    config: Account,
+    approval: Option<(Pubkey, Account)>,
+) -> (Instruction, Vec<(Pubkey, Account)>) {
     let mut transact = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
     transact.interface_transfers = vec![InterfaceTransfer::SolWithdrawal { amount: 5 }];
-    let config = config_account_with_policy(authority(), config_auditor_pubkey(), None, true);
     let (mut instruction, mut accounts) =
         transact_fixture(config, instruction_data(bogus_proof(), transact));
-    // SOL settlement group `[sol_interface, recipient]` after the (empty)
-    // signer run.
+    if let Some((key, account)) = approval {
+        instruction.accounts.insert(2, AccountMeta::new(key, false));
+        accounts.push((key, account));
+    }
     for key in [[61u8; 32], [62u8; 32]] {
         let key = Pubkey::new_from_array(key);
         instruction.accounts.push(AccountMeta::new(key, false));
         accounts.push((key, account(1_000_000_000)));
     }
+    (instruction, accounts)
+}
+
+fn policy(withdrawals: u8) -> Account {
+    config_account_with_policy(
+        authority(),
+        config_auditor_pubkey(),
+        PolicyFixture {
+            withdrawals,
+            approver: Some(approver()),
+            ..PolicyFixture::default()
+        },
+    )
+}
+
+/// Policy runs before the proof: the fixture's proof is bogus and the
+/// withdrawal is still what gets named.
+#[test]
+fn public_withdrawal_is_rejected_exactly_when_blocked() {
+    let (mollusk, _) = setup_mollusk();
+    let (instruction, accounts) = withdrawal_fixture(policy(WITHDRAWALS_BLOCKED), None);
     expect_err_exact(
         &mollusk,
         &instruction,
         &accounts,
         custom(CustomRingError::WithdrawalsBlocked),
+    );
+}
+
+#[test]
+fn public_withdrawal_under_approval_needs_the_approval_account() {
+    let (mollusk, _) = setup_mollusk();
+    let (instruction, accounts) = withdrawal_fixture(policy(WITHDRAWALS_APPROVAL), None);
+    expect_err_exact(
+        &mollusk,
+        &instruction,
+        &accounts,
+        custom(CustomRingError::ApprovalRequired),
+    );
+}
+
+/// The approval account is bound to `private_tx_hash`; another transact's
+/// approval does not open this one.
+#[test]
+fn an_approval_for_another_transact_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let other = approval_pda(&[8u8; 32]).0;
+    let (instruction, accounts) = withdrawal_fixture(
+        policy(WITHDRAWALS_APPROVAL),
+        Some((other, approval_account())),
+    );
+    expect_err_exact(
+        &mollusk,
+        &instruction,
+        &accounts,
+        custom(CustomRingError::InvalidApproval),
+    );
+}
+
+/// With the right approval the policy passes and the proof is what fails,
+/// which is as far as mollusk can take a transact.
+#[test]
+fn a_matching_approval_lets_the_withdrawal_reach_the_proof() {
+    let (mollusk, _) = setup_mollusk();
+    let private_tx_hash = transact(vec![]).private_tx_hash;
+    let approval = approval_pda(&private_tx_hash).0;
+    let (instruction, accounts) = withdrawal_fixture(
+        policy(WITHDRAWALS_APPROVAL),
+        Some((approval, approval_account())),
+    );
+    expect_err_exact(
+        &mollusk,
+        &instruction,
+        &accounts,
+        custom(CustomRingError::ProofVerificationFailed),
+    );
+}
+
+/// The per-asset rule wins over the default: SOL open while the default blocks.
+#[test]
+fn per_asset_rule_overrides_the_default() {
+    let (mollusk, _) = setup_mollusk();
+    let config = config_account_with_policy(
+        authority(),
+        config_auditor_pubkey(),
+        PolicyFixture {
+            withdrawals: WITHDRAWALS_BLOCKED,
+            assets: &[AssetRule {
+                mint: [0u8; 32],
+                withdrawals: WITHDRAWALS_OPEN,
+            }],
+            ..PolicyFixture::default()
+        },
+    );
+    let (instruction, accounts) = withdrawal_fixture(config, None);
+    expect_err_exact(
+        &mollusk,
+        &instruction,
+        &accounts,
+        custom(CustomRingError::ProofVerificationFailed),
     );
 }
 
@@ -413,9 +515,18 @@ fn settlement_of_an_asset_outside_the_allowlist_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut transact = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
     transact.interface_transfers = vec![InterfaceTransfer::SolDeposit { amount: 5 }];
-    let usdc = [9u8; 32];
-    let config =
-        config_account_with_policy(authority(), config_auditor_pubkey(), Some(&[usdc]), false);
+    let config = config_account_with_policy(
+        authority(),
+        config_auditor_pubkey(),
+        PolicyFixture {
+            allowlist: true,
+            assets: &[AssetRule {
+                mint: [9u8; 32],
+                withdrawals: WITHDRAWALS_OPEN,
+            }],
+            ..PolicyFixture::default()
+        },
+    );
     let (mut instruction, mut accounts) =
         transact_fixture(config, instruction_data(bogus_proof(), transact));
     for key in [[61u8; 32], [62u8; 32]] {

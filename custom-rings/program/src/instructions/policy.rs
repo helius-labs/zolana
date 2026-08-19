@@ -3,12 +3,12 @@
 //! so a rejection here is a named error where SPP would still have accepted the
 //! transfer.
 
-use pinocchio::{AccountView, ProgramResult};
+use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use zolana_interface::instruction::{DepositAssetKind, InterfaceTransfer, RingDepositIxDataRef};
 
 use crate::{
     error::CustomRingError,
-    state::{RingProgramConfig, SOL_MINT},
+    state::{RingProgramConfig, SOL_MINT, WITHDRAWALS_APPROVAL, WITHDRAWALS_BLOCKED},
 };
 
 /// Accounts of SPP's `RING_DEPOSIT` before the per-asset settlement groups:
@@ -61,26 +61,17 @@ pub fn check_deposit(
     Ok(())
 }
 
-/// `spp_accounts` is the forwarded ring transact list. Public withdrawals are
-/// refused when blocked, and every settlement leg's mint must pass the
-/// allowlist.
+/// `spp_accounts` is the forwarded ring transact list. Every settlement leg's
+/// mint must pass the allowlist, and its withdrawal rule decides whether a
+/// withdrawal is forwarded, refused, or needs an approval account. Returns
+/// whether the transact must carry an approval.
 pub fn check_transact(
     config: &RingProgramConfig,
     spp_accounts: &[AccountView],
     interface_transfers: &[InterfaceTransfer],
-) -> ProgramResult {
-    if config.withdrawals_blocked()
-        && interface_transfers.iter().any(|transfer| {
-            matches!(
-                transfer,
-                InterfaceTransfer::SolWithdrawal { .. } | InterfaceTransfer::SplWithdrawal { .. }
-            )
-        })
-    {
-        return Err(CustomRingError::WithdrawalsBlocked.into());
-    }
-    if config.allows_every_asset() || interface_transfers.is_empty() {
-        return Ok(());
+) -> Result<bool, ProgramError> {
+    if interface_transfers.is_empty() {
+        return Ok(false);
     }
     // Owner signers follow the fixed prefix; the settlement groups start at
     // the first non-signer, in `interface_transfers` order.
@@ -92,26 +83,33 @@ pub fn check_transact(
         .position(|account| !account.is_signer())
         .unwrap_or(after_prefix.len());
     let mut groups = &after_prefix[signer_count..];
+    let mut needs_approval = false;
     for transfer in interface_transfers {
         // Group shapes follow SPP's transact loader: SPL deposit `[mint,
         // spl_interface, token_authority, user_token, token_program]`, SPL
         // withdrawal `[mint, spl_interface, user_token, token_program]`, SOL
         // `[sol_interface, recipient]`.
-        let (mint, width) = match transfer {
-            InterfaceTransfer::SplDeposit { .. } => (spl_mint(groups)?, 5),
-            InterfaceTransfer::SplWithdrawal { .. } => (spl_mint(groups)?, 4),
-            InterfaceTransfer::SolDeposit { .. } | InterfaceTransfer::SolWithdrawal { .. } => {
-                (SOL_MINT, 2)
-            }
+        let (mint, width, is_withdrawal) = match transfer {
+            InterfaceTransfer::SplDeposit { .. } => (spl_mint(groups)?, 5, false),
+            InterfaceTransfer::SplWithdrawal { .. } => (spl_mint(groups)?, 4, true),
+            InterfaceTransfer::SolDeposit { .. } => (SOL_MINT, 2, false),
+            InterfaceTransfer::SolWithdrawal { .. } => (SOL_MINT, 2, true),
         };
         if !config.allows_asset(&mint) {
             return Err(CustomRingError::AssetNotAllowed.into());
+        }
+        if is_withdrawal {
+            match config.withdrawal_rule(&mint) {
+                WITHDRAWALS_BLOCKED => return Err(CustomRingError::WithdrawalsBlocked.into()),
+                WITHDRAWALS_APPROVAL => needs_approval = true,
+                _ => {}
+            }
         }
         groups = groups
             .get(width..)
             .ok_or(CustomRingError::InvalidInstructionData)?;
     }
-    Ok(())
+    Ok(needs_approval)
 }
 
 fn spl_mint(group: &[AccountView]) -> Result<[u8; 32], CustomRingError> {

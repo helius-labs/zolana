@@ -4,8 +4,8 @@
 //!
 //! Scope is deliberately minimal: confidential transfers only, Solana eddsa
 //! signers only (`CircuitId::RingEddsa`), no smart accounts, no user accounts.
-//! Policy is an asset allowlist and a public-withdrawal switch, both set by the
-//! ring authority. See `custom-rings/custom_ring.md`.
+//! Policy is an asset allowlist and a withdrawal rule per asset (open, blocked,
+//! or approved by a configured key), set by the ring authority. See `custom-rings/custom_ring.md`.
 
 pub mod error;
 pub mod instructions;
@@ -15,8 +15,8 @@ pub mod verifying_keys;
 use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address, ProgramResult};
 
 use crate::instructions::{
-    process_create_config_ix, process_deposit_ix, process_init_spp_ring_config_ix,
-    process_set_policy_ix, process_transact_ix,
+    process_approve_transact_ix, process_create_config_ix, process_deposit_ix,
+    process_init_spp_ring_config_ix, process_set_policy_ix, process_transact_ix,
 };
 
 pub mod tag {
@@ -24,6 +24,7 @@ pub mod tag {
     pub const INIT_SPP_RING_CONFIG: u8 = 2;
     pub const TRANSACT: u8 = 3;
     pub const SET_POLICY: u8 = 4;
+    pub const APPROVE_TRANSACT: u8 = 5;
     /// Ring deposits carry no proof and are forwarded to SPP byte for byte, so
     /// the dispatcher matches SPP's own deposit tag instead of a program-local
     /// one: the client builds the SPP-shaped instruction and only re-targets the
@@ -58,6 +59,7 @@ pub fn process_instruction(
         tag::INIT_SPP_RING_CONFIG => process_init_spp_ring_config_ix(accounts, ix_data),
         tag::TRANSACT => process_transact_ix(accounts, ix_data),
         tag::SET_POLICY => process_set_policy_ix(accounts, ix_data),
+        tag::APPROVE_TRANSACT => process_approve_transact_ix(accounts, ix_data),
         // The forwarder passes the tag byte on as well: SPP's dispatcher strips it.
         tag::DEPOSIT => process_deposit_ix(accounts, instruction_data),
         _ => Err(ProgramError::InvalidInstructionData),

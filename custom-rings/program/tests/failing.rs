@@ -1,5 +1,7 @@
 mod common;
 
+#[path = "failing/approve_transact.rs"]
+mod approve_transact;
 #[path = "failing/create_config.rs"]
 mod create_config;
 #[path = "failing/deposit.rs"]

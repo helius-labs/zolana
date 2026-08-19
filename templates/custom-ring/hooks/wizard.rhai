@@ -23,7 +23,7 @@ const FEATURES = [
     #{ id: "confidential", name: "Confidential", example: "Amounts and recipients are hidden on chain", state: "always" },
     #{ id: "auditor_visibility", name: "Auditor visibility", example: "Let compliance, accounting, or regulators view ring activity", state: "always" },
     #{ id: "allowed_assets", name: "Allowed assets", example: "Only USDC or a specific issued stablecoin", state: "ready" },
-    #{ id: "withdrawal_rules", name: "Withdrawal rules", example: "Block public withdrawals out of the ring", state: "ready" },
+    #{ id: "withdrawal_rules", name: "Withdrawal rules", example: "Block public withdrawals, or require an approver's sign-off, per asset", state: "ready" },
     #{ id: "anonymous", name: "Anonymous", example: "Hide senders and recipients from the ring itself", state: "coming_soon" },
     #{ id: "freeze_thaw", name: "Freeze/thaw", example: "Freeze a balance while an investigation is pending", state: "coming_soon" },
     #{ id: "transfer_limits", name: "Transfer limits", example: "Require extra approval above a threshold", state: "coming_soon" },
@@ -182,6 +182,32 @@ if variable::get("allowed_assets_enabled") {
     policy_toml += "allowed_assets = [" + list + "]\n";
 }
 if variable::get("withdrawal_rules_enabled") {
-    policy_toml += "withdrawals = \"blocked\"\n";
+    // The default rule for every asset; `policy set --asset-withdrawals` and
+    // ring.toml's `[policy.asset_withdrawals]` refine it per mint.
+    let rule = if variable::is_set("withdrawals") {
+        variable::get("withdrawals")
+    } else if silent() {
+        "blocked"
+    } else {
+        variable::prompt("Public withdrawals", "blocked", ["blocked", "approval", "open"])
+    };
+    if rule != "blocked" && rule != "approval" && rule != "open" {
+        abort("withdrawals must be blocked, approval or open");
+    }
+    policy_toml += "withdrawals = \"" + rule + "\"\n";
+    if rule == "approval" {
+        // The authority approves by default; the driver passes its pubkey.
+        let approver = if variable::is_set("approver") {
+            variable::get("approver")
+        } else if silent() {
+            setting("authority_pubkey", "")
+        } else {
+            variable::prompt("Approver pubkey", setting("authority_pubkey", ""))
+        };
+        if approver == "" {
+            abort("an approval rule needs an approver, pass -d approver=<pubkey>");
+        }
+        policy_toml += "approver = \"" + approver + "\"\n";
+    }
 }
 variable::set("policy_toml", policy_toml);

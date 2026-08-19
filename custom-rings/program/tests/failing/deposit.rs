@@ -4,7 +4,9 @@
 //! cannot execute (SPP is not loaded here), so every assertable failure is
 //! pre-CPI. The successful forward is covered by the localnet end-to-end test.
 
-use custom_ring_program::{error::CustomRingError, state::SOL_MINT};
+use custom_ring_program::{
+    error::CustomRingError, instructions::set_policy::AssetRule, state::SOL_MINT,
+};
 use pinocchio::cpi::MAX_CPI_ACCOUNTS;
 use solana_instruction::AccountMeta;
 use solana_program_error::ProgramError;
@@ -14,8 +16,23 @@ use zolana_test_utils::mollusk::expect_err_exact;
 
 use crate::common::{
     account, auditor_pubkey, authority, config_account_with_policy, deposit_fixture,
-    deposit_fixture_with, setup_mollusk, substitute_account,
+    deposit_fixture_with, setup_mollusk, substitute_account, PolicyFixture,
 };
+
+fn allowlist(mint: [u8; 32]) -> solana_account::Account {
+    config_account_with_policy(
+        authority(),
+        auditor_pubkey(2),
+        PolicyFixture {
+            allowlist: true,
+            assets: &[AssetRule {
+                mint,
+                withdrawals: 0,
+            }],
+            ..PolicyFixture::default()
+        },
+    )
+}
 
 fn custom(error: CustomRingError) -> ProgramError {
     ProgramError::Custom(error as u32)
@@ -99,9 +116,7 @@ fn sol_deposit_body() -> Vec<u8> {
 #[test]
 fn deposit_of_an_asset_outside_the_allowlist_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let usdc = [9u8; 32];
-    let config = config_account_with_policy(authority(), auditor_pubkey(2), Some(&[usdc]), false);
-    let (instruction, accounts) = deposit_fixture_with(config, sol_deposit_body());
+    let (instruction, accounts) = deposit_fixture_with(allowlist([9u8; 32]), sol_deposit_body());
     expect_err_exact(
         &mollusk,
         &instruction,
@@ -115,9 +130,7 @@ fn deposit_of_an_asset_outside_the_allowlist_is_rejected_exactly() {
 #[test]
 fn deposit_of_an_allowlisted_asset_reaches_the_forward() {
     let (mollusk, _) = setup_mollusk();
-    let config =
-        config_account_with_policy(authority(), auditor_pubkey(2), Some(&[SOL_MINT]), false);
-    let (instruction, accounts) = deposit_fixture_with(config, sol_deposit_body());
+    let (instruction, accounts) = deposit_fixture_with(allowlist(SOL_MINT), sol_deposit_body());
     let result = mollusk.process_instruction(&instruction, &accounts);
     assert_ne!(
         result.program_result,

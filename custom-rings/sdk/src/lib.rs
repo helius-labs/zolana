@@ -23,10 +23,11 @@ pub use zolana_ring_client::{
 
 pub use crate::{
     instructions::{
+        approve_transact::{approval_pda, ApproveTransact},
         create_config::CreateConfig,
         deposit::Deposit,
         init_spp_ring_config::InitSppRingConfig,
-        set_policy::{PolicyError, RingPolicy, SetPolicy, SOL},
+        set_policy::{AssetRule, PolicyError, RingPolicy, SetPolicy, WithdrawalRule, SOL},
         transact::{
             to_instruction_proof, AuditProofInputError, AuditProofParams, PendingAuditProof,
             RingTransactWithAudit,

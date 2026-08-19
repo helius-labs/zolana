@@ -364,6 +364,7 @@ fn ring_transact_with_audit_prepends_payer_and_config_to_the_spp_list() {
         input_tree: input_tree(),
         output_tree: output_tree(),
         owner_signers: vec![owner_signer()],
+        approval: None,
         interface_transfer_accounts: Vec::new(),
         audit_proof: proof,
         transact: transact.clone(),
@@ -405,6 +406,7 @@ fn ring_transact_with_audit_leaves_ring_config_unsigned() {
         input_tree: input_tree(),
         output_tree: output_tree(),
         owner_signers: Vec::new(),
+        approval: None,
         interface_transfer_accounts: Vec::new(),
         audit_proof: audit_proof(),
         transact: transact_data(Vec::new()),
@@ -428,6 +430,7 @@ fn ring_transact_with_audit_forwards_settlement_accounts() {
         input_tree: input_tree(),
         output_tree: output_tree(),
         owner_signers: vec![owner_signer()],
+        approval: None,
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts { recipient },
         )],

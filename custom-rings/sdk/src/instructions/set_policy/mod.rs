@@ -1,3 +1,3 @@
 mod instruction;
 
-pub use instruction::{PolicyError, RingPolicy, SetPolicy, SOL};
+pub use instruction::{AssetRule, PolicyError, RingPolicy, SetPolicy, WithdrawalRule, SOL};

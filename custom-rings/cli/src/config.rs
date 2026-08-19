@@ -39,8 +39,14 @@ pub struct RingConfig {
 pub struct PolicyConfig {
     /// Mints the ring accepts, `SOL` for native SOL. Absent: any asset.
     pub allowed_assets: Option<Vec<String>>,
-    /// `open` or `blocked`. Absent: open.
+    /// Withdrawal rule for assets without their own entry: `open`, `blocked`
+    /// or `approval`. Absent: open.
     pub withdrawals: Option<String>,
+    /// Per-asset withdrawal rule, mint to `open` / `blocked` / `approval`.
+    #[serde(default)]
+    pub asset_withdrawals: BTreeMap<String, String>,
+    /// The key that approves withdrawals under an `approval` rule.
+    pub approver: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, clap::ValueEnum)]
@@ -240,6 +246,10 @@ anonymous = false
 [policy]
 allowed_assets = ["SOL", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"]
 withdrawals = "blocked"
+approver = "2GNuM5ksdfNxGNbwf2hrnND9FHgQsdju7vz8CyGd7Zjy"
+
+[policy.asset_withdrawals]
+SOL = "approval"
 "#;
 
     #[test]
@@ -258,6 +268,14 @@ withdrawals = "blocked"
             Some(2)
         );
         assert_eq!(config.policy.withdrawals.as_deref(), Some("blocked"));
+        assert_eq!(
+            config
+                .policy
+                .asset_withdrawals
+                .get("SOL")
+                .map(String::as_str),
+            Some("approval")
+        );
     }
 
     #[test]

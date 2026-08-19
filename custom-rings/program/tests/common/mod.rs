@@ -1,8 +1,12 @@
 use custom_ring_program::{
-    instructions::{create_config::CreateConfigIxData, set_policy::SetPolicyIxData},
+    instructions::{
+        approve_transact::{ApproveTransactIxData, APPROVAL_PDA_SEED, APPROVAL_SIZE},
+        create_config::CreateConfigIxData,
+        set_policy::{AssetRule, SetPolicyIxData},
+    },
     state::{
-        RingProgramConfig, ASSETS_ALLOWLIST, ASSETS_ANY, MAX_ALLOWED_ASSETS, RING_PROGRAM_CONFIG,
-        WITHDRAWALS_BLOCKED, WITHDRAWALS_OPEN,
+        RingProgramConfig, ASSETS_ALLOWLIST, ASSETS_ANY, MAX_ASSETS, RING_PROGRAM_CONFIG,
+        TRANSACT_APPROVAL, WITHDRAWALS_OPEN,
     },
     tag, CONFIG_PDA_SEED,
 };
@@ -107,37 +111,59 @@ pub fn auditor_pubkey(prefix: u8) -> [u8; 33] {
 /// An initialized config account as this program would have written it, with
 /// the open policy `create_config` starts from.
 pub fn initialized_config_account(authority: Pubkey, auditor_pubkey: [u8; 33]) -> Account {
-    config_account_with_policy(authority, auditor_pubkey, None, false)
+    config_account_with_policy(authority, auditor_pubkey, PolicyFixture::default())
 }
 
 /// A config account carrying a policy as `set_policy` would have written it:
-/// `allowed_assets` `Some(mints)` turns the allowlist on.
+/// `allowlist` turns the asset allowlist on over `assets`, `withdrawals` is the
+/// default withdrawal rule, `approver` the approval signer.
+pub struct PolicyFixture<'a> {
+    pub allowlist: bool,
+    pub assets: &'a [AssetRule],
+    pub withdrawals: u8,
+    pub approver: Option<Pubkey>,
+}
+
+impl Default for PolicyFixture<'_> {
+    fn default() -> Self {
+        Self {
+            allowlist: false,
+            assets: &[],
+            withdrawals: WITHDRAWALS_OPEN,
+            approver: None,
+        }
+    }
+}
+
 pub fn config_account_with_policy(
     authority: Pubkey,
     auditor_pubkey: [u8; 33],
-    allowed_assets: Option<&[[u8; 32]]>,
-    withdrawals_blocked: bool,
+    policy: PolicyFixture<'_>,
 ) -> Account {
-    let mut assets = [[0u8; 32]; MAX_ALLOWED_ASSETS];
-    let listed = allowed_assets.unwrap_or_default();
-    assets[..listed.len()].copy_from_slice(listed);
+    let mut assets = [[0u8; 32]; MAX_ASSETS];
+    let mut asset_withdrawals = [0u8; MAX_ASSETS];
+    for (index, asset) in policy.assets.iter().enumerate() {
+        assets[index] = asset.mint;
+        asset_withdrawals[index] = asset.withdrawals;
+    }
     let state = RingProgramConfig {
         discriminator: RING_PROGRAM_CONFIG,
         authority: Address::new_from_array(authority.to_bytes()),
         auditor_pubkey,
         bump: config_pda().1,
-        withdrawals: if withdrawals_blocked {
-            WITHDRAWALS_BLOCKED
-        } else {
-            WITHDRAWALS_OPEN
-        },
-        asset_policy: if allowed_assets.is_some() {
+        withdrawals: policy.withdrawals,
+        asset_policy: if policy.allowlist {
             ASSETS_ALLOWLIST
         } else {
             ASSETS_ANY
         },
-        allowed_assets_len: listed.len() as u8,
-        allowed_assets: assets,
+        assets_len: policy.assets.len() as u8,
+        approver: policy
+            .approver
+            .map(|key| Address::new_from_array(key.to_bytes()))
+            .unwrap_or_default(),
+        assets,
+        asset_withdrawals,
     };
     Account {
         lamports: 1_000_000_000,
@@ -146,6 +172,62 @@ pub fn config_account_with_policy(
         executable: false,
         rent_epoch: 0,
     }
+}
+
+pub fn approver() -> Pubkey {
+    Pubkey::new_from_array([23; 32])
+}
+
+pub fn approval_pda(private_tx_hash: &[u8; 32]) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[APPROVAL_PDA_SEED, private_tx_hash], &program_id())
+}
+
+/// An approval account as `approve_transact` writes it.
+pub fn approval_account() -> Account {
+    Account {
+        lamports: 1_000_000,
+        data: vec![TRANSACT_APPROVAL; APPROVAL_SIZE],
+        owner: program_id(),
+        executable: false,
+        rent_epoch: 0,
+    }
+}
+
+/// `approve_transact` fixture: `[approver(s), payer(w,s), config, approval(w),
+/// system_program]` over `config`.
+pub fn approve_transact_fixture(
+    config: Account,
+    private_tx_hash: [u8; 32],
+) -> (Instruction, Vec<(Pubkey, Account)>) {
+    let (config_key, _) = config_pda();
+    let (approval, _) = approval_pda(&private_tx_hash);
+    let (system_program, system_program_account) =
+        mollusk_svm::program::keyed_account_for_system_program();
+    let mut data = vec![tag::APPROVE_TRANSACT];
+    data.extend_from_slice(
+        &wincode::serialize(&ApproveTransactIxData { private_tx_hash })
+            .expect("serialize approve_transact data"),
+    );
+    (
+        Instruction {
+            program_id: program_id(),
+            accounts: vec![
+                AccountMeta::new_readonly(approver(), true),
+                AccountMeta::new(payer(), true),
+                AccountMeta::new_readonly(config_key, false),
+                AccountMeta::new(approval, false),
+                AccountMeta::new_readonly(system_program, false),
+            ],
+            data,
+        },
+        vec![
+            (approver(), account(1_000_000_000)),
+            (payer(), account(1_000_000_000)),
+            (config_key, config),
+            (approval, account(0)),
+            (system_program, system_program_account),
+        ],
+    )
 }
 
 pub fn set_policy_data(policy: &SetPolicyIxData) -> Vec<u8> {

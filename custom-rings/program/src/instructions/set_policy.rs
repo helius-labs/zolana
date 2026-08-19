@@ -1,4 +1,4 @@
-use pinocchio::{address::address_eq, AccountView, ProgramResult};
+use pinocchio::{address::address_eq, AccountView, Address, ProgramResult};
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_account_checks::AccountIterator;
 
@@ -6,19 +6,36 @@ use crate::{
     error::CustomRingError,
     instructions::loader::load_config_mut,
     state::{
-        ASSETS_ALLOWLIST, ASSETS_ANY, MAX_ALLOWED_ASSETS, WITHDRAWALS_BLOCKED, WITHDRAWALS_OPEN,
+        ASSETS_ALLOWLIST, ASSETS_ANY, MAX_ASSETS, WITHDRAWALS_APPROVAL, WITHDRAWALS_BLOCKED,
+        WITHDRAWALS_OPEN,
     },
 };
 
+/// One asset table entry: a mint and its withdrawal rule.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct AssetRule {
+    pub mint: [u8; 32],
+    pub withdrawals: u8,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct SetPolicyIxData {
-    /// `WITHDRAWALS_OPEN` or `WITHDRAWALS_BLOCKED`.
+    /// Withdrawal rule for assets without a table entry.
     pub withdrawals: u8,
     /// `ASSETS_ANY` or `ASSETS_ALLOWLIST`.
     pub asset_policy: u8,
-    /// Mints accepted under the allowlist, at most `MAX_ALLOWED_ASSETS`.
-    #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
-    pub allowed_assets: Vec<[u8; 32]>,
+    /// All zero when no rule is `WITHDRAWALS_APPROVAL`.
+    pub approver: [u8; 32],
+    /// At most `MAX_ASSETS` entries.
+    #[wincode(with = "containers::Vec<AssetRule, FixIntLen<u8>>")]
+    pub assets: Vec<AssetRule>,
+}
+
+fn is_rule(value: u8) -> bool {
+    matches!(
+        value,
+        WITHDRAWALS_OPEN | WITHDRAWALS_BLOCKED | WITHDRAWALS_APPROVAL
+    )
 }
 
 /// Replaces the ring's policy. Accounts `[authority(s), config(w)]`; the
@@ -28,11 +45,18 @@ pub fn process_set_policy_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
     let SetPolicyIxData {
         withdrawals,
         asset_policy,
-        allowed_assets,
+        approver,
+        assets,
     } = wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
-    if !matches!(withdrawals, WITHDRAWALS_OPEN | WITHDRAWALS_BLOCKED)
+    let needs_approver = withdrawals == WITHDRAWALS_APPROVAL
+        || assets
+            .iter()
+            .any(|asset| asset.withdrawals == WITHDRAWALS_APPROVAL);
+    if !is_rule(withdrawals)
         || !matches!(asset_policy, ASSETS_ANY | ASSETS_ALLOWLIST)
-        || allowed_assets.len() > MAX_ALLOWED_ASSETS
+        || assets.len() > MAX_ASSETS
+        || assets.iter().any(|asset| !is_rule(asset.withdrawals))
+        || (needs_approver && approver == [0u8; 32])
     {
         return Err(CustomRingError::InvalidPolicy.into());
     }
@@ -47,10 +71,13 @@ pub fn process_set_policy_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
     }
     config.withdrawals = withdrawals;
     config.asset_policy = asset_policy;
-    config.allowed_assets = [[0u8; 32]; MAX_ALLOWED_ASSETS];
-    for (slot, mint) in config.allowed_assets.iter_mut().zip(&allowed_assets) {
-        *slot = *mint;
+    config.approver = Address::new_from_array(approver);
+    config.assets = [[0u8; 32]; MAX_ASSETS];
+    config.asset_withdrawals = [0u8; MAX_ASSETS];
+    for (index, asset) in assets.iter().enumerate() {
+        config.assets[index] = asset.mint;
+        config.asset_withdrawals[index] = asset.withdrawals;
     }
-    config.allowed_assets_len = allowed_assets.len() as u8;
+    config.assets_len = assets.len() as u8;
     Ok(())
 }

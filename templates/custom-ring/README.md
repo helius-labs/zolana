@@ -45,10 +45,17 @@ key live in `.env` (ignored in git, `.env.example` shows the keys) and
 Features are declared in the template's `hooks/wizard.rhai`; a ring regenerated
 with the template picks up new ones. Enabled features that carry on-chain
 values live in `ring.toml`'s `[policy]` table: `allowed_assets` (mints the ring
-accepts, `SOL` for native SOL) and `withdrawals = "blocked"` (no public
-withdrawals out of the ring). `just init` writes the policy on chain, and
+accepts, `SOL` for native SOL), `withdrawals` (the default rule for public
+withdrawals out of the ring: `open`, `blocked`, or `approval`),
+`[policy.asset_withdrawals]` (a rule per mint) and `approver` (the key whose
+sign-off an `approval` rule needs). `just init` writes the policy on chain, and
 `cargo run -p {{project-name}} -- policy show|apply|set` reads it back, re-applies
-`ring.toml`, or changes one part at a time (`policy set --withdrawals open`, `policy set --allow-asset <mint>`, `policy set --any-asset`).
+`ring.toml`, or changes one part at a time (`policy set --withdrawals approval
+--approver <pubkey>`, `policy set --asset-withdrawals SOL=open`, `policy set
+--allow-asset <mint>`, `policy set --any-asset`). Under an approval rule the
+approver runs `approve <private_tx_hash>` for a proven transact, and the
+transact then carries the approval account; `transact --withdraw <lamports>`
+demonstrates it with the authority as approver.
 
 ## Layout
 
