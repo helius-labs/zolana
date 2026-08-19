@@ -44,6 +44,16 @@ var (
 		[]string{"circuit_type"},
 	)
 
+	// Sheds are the signal that the sync bound is too low for the offered load,
+	// or that the fleet is undersized -- a client-visible 429, so it must be
+	// visible here too rather than only in a log line.
+	SyncProofsShedTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "prover_sync_proofs_shed_total",
+			Help: "Total number of synchronous proof requests rejected at the concurrency limit",
+		},
+	)
+
 	QueueWaitTime = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "prover_queue_wait_time_seconds",

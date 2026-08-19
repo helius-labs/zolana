@@ -272,6 +272,9 @@ type proveHandler struct {
 	keyManager  *common.LazyKeyManager
 	redisQueue  *RedisQueue
 	enableQueue bool
+	// Bounds proving done inside a request. Shared across requests, so it must
+	// be the same instance for every one of them.
+	admission *syncAdmission
 }
 
 func isValidJobID(jobID string) bool {
@@ -384,14 +387,20 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	forceAsync := r.Header.Get("X-Async") == "true" || r.URL.Query().Get("async") == "true"
 	forceSync := r.Header.Get("X-Sync") == "true" || r.URL.Query().Get("sync") == "true"
 
-	shouldUseQueue := handler.shouldUseQueueForCircuit(proofRequestMeta.CircuitType)
+	queueAvailable := handler.enableQueue && handler.redisQueue != nil
+	circuitQueued := handler.shouldUseQueueForCircuit(proofRequestMeta.CircuitType)
+	// `use_queue` is the decision, not the circuit's queueability: logging the
+	// latter under that name said use_queue=true on requests that were proved in
+	// the response, which is exactly the question the line exists to answer.
+	queued := useQueue(forceSync, forceAsync, circuitQueued, queueAvailable)
 
 	logging.Logger().Info().
 		Str("circuit_type", string(proofRequestMeta.CircuitType)).
 		Bool("force_async", forceAsync).
 		Bool("force_sync", forceSync).
-		Bool("use_queue", shouldUseQueue).
-		Bool("queue_available", handler.enableQueue && handler.redisQueue != nil).
+		Bool("circuit_queued", circuitQueued).
+		Bool("use_queue", queued).
+		Bool("queue_available", queueAvailable).
 		Msg("Processing prove request")
 
 	// Counted here, once, because this is the only point every request passes
@@ -403,11 +412,34 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ProofRequestsTotal.WithLabelValues(string(proofRequestMeta.CircuitType)).Inc()
 	RecordCircuitInputSize(string(proofRequestMeta.CircuitType), len(buf))
 
-	if shouldUseQueue && handler.enableQueue && handler.redisQueue != nil {
+	if queued {
 		handler.handleAsyncProof(w, r, buf, proofRequestMeta)
 	} else {
 		handler.handleSyncProof(w, r, buf, proofRequestMeta)
 	}
+}
+
+// useQueue decides which rail proves a request.
+//
+// X-Sync and X-Async were computed and logged here but never consulted, so a
+// caller asking for its proof in the response still got a job handle to poll --
+// the header looked supported and did nothing.
+//
+// A contradiction resolves to the queue: queueing cannot exceed a connection or
+// load balancer idle timeout, and answering inside the request can. X-Async can
+// only be honoured for a circuit that has a queue to go on; for anything else the
+// sync path takes it, with the heavy-operation warning it already emits.
+func useQueue(forceSync, forceAsync, circuitQueued, queueAvailable bool) bool {
+	if !queueAvailable {
+		return false
+	}
+	if forceAsync {
+		return circuitQueued
+	}
+	if forceSync {
+		return false
+	}
+	return circuitQueued
 }
 
 func (handler proveHandler) shouldUseQueueForCircuit(circuitType common.CircuitType) bool {
@@ -569,6 +601,7 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 		keyManager:  keyManager,
 		redisQueue:  redisQueue,
 		enableQueue: config.Queue != nil && config.Queue.Enabled,
+		admission:   newSyncAdmission(syncPermits()),
 	})
 
 	proverMux.Handle("/health", healthHandler{})
@@ -947,6 +980,18 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 	ctx, cancel := context.WithTimeout(r.Context(), timeoutDuration)
 	defer cancel()
 
+	// Wait for a permit before starting work. Doing this here rather than around
+	// the whole handler keeps parsing and validation off the bound: a malformed
+	// request should be rejected while the prover is busy, not queued behind it.
+	release, admitErr := handler.admission.admit(ctx)
+	if admitErr != nil {
+		logging.Logger().Warn().
+			Str("circuit_type", string(meta.CircuitType)).
+			Msg("Shedding synchronous proof at the concurrency limit")
+		sendOverloaded(w, admitErr)
+		return
+	}
+
 	type proofResult struct {
 		proof *common.Proof
 		err   *Error
@@ -955,6 +1000,7 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 	resultChan := make(chan proofResult, 1)
 
 	go func() {
+		defer release()
 		// Recover from panics to prevent server crash from malformed input
 		defer func() {
 			if r := recover(); r != nil {

@@ -332,7 +332,16 @@ fn dummy_transfer_2_3_proof_verifies() {
 
     let result = prover.build().expect("build witness with one real input");
 
-    let proof = ProverClient::local()
+    // The queue is what this test covers, and transfers otherwise take the
+    // faster in-response rail, so ask for the queued one where it is being
+    // asserted on.
+    let client = ProverClient::local();
+    let client = if queued_results_before.is_some() {
+        client.with_queued_proofs()
+    } else {
+        client
+    };
+    let proof = client
         .prove_transfer(&result.inputs)
         .expect("prove transfer-eddsa");
 

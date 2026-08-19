@@ -7,6 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use reqwest::StatusCode;
 use tokio::time::sleep as async_sleep;
 
 use crate::{
@@ -58,6 +59,23 @@ static IS_LOADING: AtomicBool = AtomicBool::new(false);
 // 205k-constraint Groth16 prove) can drop the HTTP connection under CPU/memory
 // contention while the server stays up. Proof generation is idempotent, so the
 // request is retried; the key is warm by the next attempt and proves quickly.
+/// Whether the prover should answer with the proof or with a job handle.
+///
+/// A transfer-shaped proof is ~150ms of work, and asking for it in the response
+/// costs one round trip. Queueing it costs an enqueue, then a poll schedule that
+/// starts at 25ms and doubles -- so the proof is collected somewhere between one
+/// and several round trips after it was ready, and the client sleeps through the
+/// difference. Batch proofs are the other way round: they run far longer than a
+/// connection or a load balancer's idle timeout should be held open.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Delivery {
+    /// Ask for the proof in the response, falling back to the queue if the
+    /// prover says it is at its concurrency limit.
+    InResponse,
+    /// Let the prover queue it and poll for the result.
+    Queued,
+}
+
 const PROVE_MAX_ATTEMPTS: usize = 3;
 const PROVE_RETRY_BACKOFF_SECS: u64 = 2;
 // Generous bound so a slow cold prove never hangs the client forever; the server
@@ -128,6 +146,8 @@ pub struct ProverClient {
     server_address: String,
     http: reqwest::blocking::Client,
     async_poll: AsyncPollConfig,
+    /// Rail for transfer-shaped proofs. Batch proofs are always queued.
+    delivery: Delivery,
 }
 
 /// Async client for the transfer proving endpoints of the prover server.
@@ -135,6 +155,8 @@ pub struct AsyncProverClient {
     server_address: String,
     http: reqwest::Client,
     async_poll: AsyncPollConfig,
+    /// Rail for transfer-shaped proofs. Batch proofs are always queued.
+    delivery: Delivery,
 }
 
 impl Default for ProverClient {
@@ -159,6 +181,7 @@ impl ProverClient {
             server_address,
             http: build_http_client(),
             async_poll: AsyncPollConfig::default(),
+            delivery: Delivery::InResponse,
         }
     }
 
@@ -168,35 +191,45 @@ impl ProverClient {
         self
     }
 
+    /// Queue transfer-shaped proofs instead of asking for them in the response.
+    ///
+    /// The response is the faster rail and the default. Queueing is still the
+    /// right choice for a caller sharing a prover with heavier work, and it is
+    /// the rail the queue's own tests have to exercise.
+    pub fn with_queued_proofs(mut self) -> Self {
+        self.delivery = Delivery::Queued;
+        self
+    }
+
     /// Prove a Solana-only (eddsa) transfer, returning the uncompressed negated proof.
     /// Call [`Proof::compress`] for the wire format.
     pub fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json(inputs))
+        self.send(to_json(inputs), self.delivery)
     }
 
     /// Prove an 8-in/1-out merge, returning the uncompressed negated proof.
     /// Call [`Proof::compress`] for the wire format.
     pub fn prove_merge(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge(inputs))
+        self.send(to_json_merge(inputs), self.delivery)
     }
 
     /// Prove a ring-authority transfer (anonymous, no signature), returning the
     /// uncompressed negated proof. Reuses the Solana-only [`TransferInputs`] witness;
     /// call [`Proof::compress`] for the wire format.
     pub fn prove_ring_authority(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_ring_authority(inputs))
+        self.send(to_json_ring_authority(inputs), self.delivery)
     }
 
     /// Prove a policy-ring merge (`merge-ring`), returning the uncompressed negated
     /// proof. Reuses the [`MergeInputs`] witness; call [`Proof::compress`] for the
     /// wire format.
     pub fn prove_merge_ring(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge_ring(inputs))
+        self.send(to_json_merge_ring(inputs), self.delivery)
     }
 
     /// Prove an eddsa confidential policy-ring transfer (`transfer-ring`).
     pub fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_ring(inputs))
+        self.send(to_json_ring(inputs), self.delivery)
     }
 
     /// Prove a custom-ring P256 transfer.
@@ -204,7 +237,7 @@ impl ProverClient {
         &self,
         inputs: &TransferP256Inputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_p256_ring(inputs))
+        self.send(to_json_p256_ring(inputs), self.delivery)
     }
 
     /// Prove a nullifier-tree batch address-append update, returning the
@@ -214,22 +247,28 @@ impl ProverClient {
         &self,
         inputs: &BatchAddressAppendInputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_batch_address_append(inputs))
+        self.send(to_json_batch_address_append(inputs), Delivery::Queued)
     }
 
-    fn send(&self, body: String) -> Result<Proof, ClientError> {
-        let url = format!("{}{}", self.server_address, PROVE_PATH);
-        crate::timing::note(0, "prover_request_bytes", body.len());
+    /// One POST to `/prove`, retried only for transport failures. Returns the
+    /// status alongside the body so the caller can act on a shed request.
+    fn post(
+        &self,
+        url: &str,
+        body: &str,
+        delivery: Delivery,
+    ) -> Result<(StatusCode, String), ClientError> {
         let mut attempt = 0;
         let response = loop {
             attempt += 1;
-            let outcome = self
+            let mut request = self
                 .http
-                .post(&url)
-                .header("Content-Type", "application/json")
-                .body(body.clone())
-                .send();
-            match outcome {
+                .post(url)
+                .header("Content-Type", "application/json");
+            if delivery == Delivery::InResponse {
+                request = request.header("X-Sync", "true");
+            }
+            match request.body(body.to_string()).send() {
                 Ok(response) => break response,
                 Err(_) if attempt < PROVE_MAX_ATTEMPTS => {
                     sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS));
@@ -241,11 +280,29 @@ impl ProverClient {
                 }
             }
         };
-
         let status = response.status();
         let text = response
             .text()
             .map_err(|e| ClientError::ProverServer(format!("failed to read response body: {e}")))?;
+        Ok((status, text))
+    }
+
+    fn send(&self, body: String, delivery: Delivery) -> Result<Proof, ClientError> {
+        let url = format!("{}{}", self.server_address, PROVE_PATH);
+        crate::timing::note(0, "prover_request_bytes", body.len());
+        // Dropped to `Queued` if the prover sheds the synchronous request, so a
+        // busy prover degrades to waiting in line rather than to an error.
+        let mut delivery = delivery;
+        let (status, text) = loop {
+            let (status, text) = self.post(&url, &body, delivery)?;
+            if status == StatusCode::TOO_MANY_REQUESTS && delivery == Delivery::InResponse {
+                // Retrying synchronously would compete for the same permit that
+                // was just refused; queueing waits for it once instead.
+                delivery = Delivery::Queued;
+                continue;
+            }
+            break (status, text);
+        };
         if !status.is_success() {
             return Err(ClientError::ProverServer(format!(
                 "status {status}: {text}"
@@ -437,6 +494,7 @@ impl AsyncProverClient {
             server_address,
             http: build_async_http_client(),
             async_poll: AsyncPollConfig::default(),
+            delivery: Delivery::InResponse,
         }
     }
 
@@ -446,78 +504,107 @@ impl AsyncProverClient {
         self
     }
 
+    /// Queue transfer-shaped proofs instead of asking for them in the response.
+    ///
+    /// The response is the faster rail and the default. Queueing is still the
+    /// right choice for a caller sharing a prover with heavier work, and it is
+    /// the rail the queue's own tests have to exercise.
+    pub fn with_queued_proofs(mut self) -> Self {
+        self.delivery = Delivery::Queued;
+        self
+    }
+
     /// Prove a Solana-only (eddsa) transfer, returning the uncompressed negated proof.
     /// Call [`Proof::compress`] for the wire format.
     pub async fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json(inputs)).await
+        self.send(to_json(inputs), self.delivery).await
     }
 
     pub async fn prove_merge(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge(inputs)).await
+        self.send(to_json_merge(inputs), self.delivery).await
     }
 
     pub async fn prove_ring_authority(
         &self,
         inputs: &TransferInputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_ring_authority(inputs)).await
+        self.send(to_json_ring_authority(inputs), self.delivery)
+            .await
     }
 
     pub async fn prove_merge_ring(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge_ring(inputs)).await
+        self.send(to_json_merge_ring(inputs), self.delivery).await
     }
 
     pub async fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_ring(inputs)).await
+        self.send(to_json_ring(inputs), self.delivery).await
     }
 
     pub async fn prove_transfer_p256_ring(
         &self,
         inputs: &TransferP256Inputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_p256_ring(inputs)).await
+        self.send(to_json_p256_ring(inputs), self.delivery).await
     }
 
     pub async fn prove_batch_address_append(
         &self,
         inputs: &BatchAddressAppendInputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_batch_address_append(inputs)).await
+        self.send(to_json_batch_address_append(inputs), Delivery::Queued)
+            .await
     }
 
-    async fn send(&self, body: String) -> Result<Proof, ClientError> {
+    async fn send(&self, body: String, delivery: Delivery) -> Result<Proof, ClientError> {
         let url = format!("{}{}", self.server_address, PROVE_PATH);
+        let mut delivery = delivery;
+        let (status, text) = loop {
+            let (status, text) = self.post(&url, &body, delivery).await?;
+            if status == StatusCode::TOO_MANY_REQUESTS && delivery == Delivery::InResponse {
+                delivery = Delivery::Queued;
+                continue;
+            }
+            break (status, text);
+        };
+        if !status.is_success() {
+            return Err(ClientError::ProverServer(format!(
+                "status {status}: {text}"
+            )));
+        }
+
+        let value: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|e| ClientError::ProofParse(format!("invalid response JSON: {e}")))?;
+        if value.get("proof").is_none() {
+            if let Some(job_id) = value.get("jobId").and_then(|v| v.as_str()) {
+                return self.poll_async(job_id).await;
+            }
+        }
+        ProverClient::proof_from_value(&value, &text)
+    }
+
+    async fn post(
+        &self,
+        url: &str,
+        body: &str,
+        delivery: Delivery,
+    ) -> Result<(StatusCode, String), ClientError> {
         let mut attempt = 0;
         loop {
             attempt += 1;
-            let outcome = self
+            let mut request = self
                 .http
-                .post(&url)
-                .header("Content-Type", "application/json")
-                .body(body.clone())
-                .send()
-                .await;
-            match outcome {
+                .post(url)
+                .header("Content-Type", "application/json");
+            if delivery == Delivery::InResponse {
+                request = request.header("X-Sync", "true");
+            }
+            match request.body(body.to_string()).send().await {
                 Ok(response) => {
                     let status = response.status();
                     let text = response.text().await.map_err(|e| {
                         ClientError::ProverServer(format!("failed to read response body: {e}"))
                     })?;
-                    if !status.is_success() {
-                        return Err(ClientError::ProverServer(format!(
-                            "status {status}: {text}"
-                        )));
-                    }
-
-                    let value: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
-                        ClientError::ProofParse(format!("invalid response JSON: {e}"))
-                    })?;
-                    if value.get("proof").is_none() {
-                        if let Some(job_id) = value.get("jobId").and_then(|v| v.as_str()) {
-                            return self.poll_async(job_id).await;
-                        }
-                    }
-                    return ProverClient::proof_from_value(&value, &text);
+                    return Ok((status, text));
                 }
                 Err(_) if attempt < PROVE_MAX_ATTEMPTS => {
                     async_sleep(Duration::from_secs(PROVE_RETRY_BACKOFF_SECS)).await;
@@ -861,7 +948,7 @@ mod tests {
         ]);
         let started = std::time::Instant::now();
         queued_prover_client(server.url())
-            .send("{}".to_string())
+            .send("{}".to_string(), Delivery::Queued)
             .expect("queued proof should complete");
         let elapsed = started.elapsed();
 
@@ -920,7 +1007,7 @@ mod tests {
             ),
         ]);
         let proof = queued_prover_client(server.url())
-            .send("{}".to_string())
+            .send("{}".to_string(), Delivery::Queued)
             .expect("queued proof should complete");
         let requests = server.requests();
 
@@ -951,7 +1038,7 @@ mod tests {
             ),
         ]);
         let err = queued_prover_client(server.url())
-            .send("{}".to_string())
+            .send("{}".to_string(), Delivery::Queued)
             .expect_err("failed async status should surface");
         let requests = server.requests();
 
@@ -989,7 +1076,7 @@ mod tests {
 
         let started = Instant::now();
         let err = queued_prover_client(server.url())
-            .send("{}".to_string())
+            .send("{}".to_string(), Delivery::Queued)
             .expect_err("a deadline measured in wall clock must expire");
         let elapsed = started.elapsed();
 
@@ -1019,7 +1106,7 @@ mod tests {
             MockResponse::json(200, json!({ "status": "processing" })),
         ]);
         let err = queued_prover_client(server.url())
-            .send("{}".to_string())
+            .send("{}".to_string(), Delivery::Queued)
             .expect_err("slow async proof should time out");
         let requests = server.requests();
 
@@ -1041,7 +1128,7 @@ mod tests {
             MockResponse::text(200, "not json"),
         ]);
         let err = queued_prover_client(server.url())
-            .send("{}".to_string())
+            .send("{}".to_string(), Delivery::Queued)
             .expect_err("malformed status body should fail");
         let requests = server.requests();
 
@@ -1062,7 +1149,7 @@ mod tests {
             ),
         ]);
         let err = queued_prover_client(server.url())
-            .send("{}".to_string())
+            .send("{}".to_string(), Delivery::Queued)
             .expect_err("404 status should fail immediately");
         let requests = server.requests();
 
@@ -1089,7 +1176,7 @@ mod tests {
             ),
         ]);
         let proof = queued_prover_client(server.url())
-            .send("{}".to_string())
+            .send("{}".to_string(), Delivery::Queued)
             .expect("transient poll error should be retried");
         let requests = server.requests();
 
@@ -1121,7 +1208,7 @@ mod tests {
             ),
         ]);
         let proof = async_prover_client(server.url())
-            .send("{}".to_string())
+            .send("{}".to_string(), Delivery::Queued)
             .await
             .expect("queued async proof should complete");
         let requests = server.requests();
@@ -1153,7 +1240,7 @@ mod tests {
             ),
         ]);
         async_prover_client(server.url())
-            .send("{}".to_string())
+            .send("{}".to_string(), Delivery::Queued)
             .await
             .expect("transient async poll error should be retried");
         let requests = server.requests();
@@ -1165,6 +1252,73 @@ mod tests {
                 "/prove/status?jobId=async-transient",
                 "/prove/status?jobId=async-transient",
             ],
+        );
+    }
+
+    /// Transfer-shaped proofs ask for the proof in the response: the queue's
+    /// enqueue plus poll schedule costs more round trips than the proof takes.
+    #[test]
+    fn a_transfer_proof_asks_for_the_proof_in_the_response() {
+        let server = MockServer::respond_with(vec![MockResponse::json(
+            200,
+            json!({ "proof": gnark_proof() }),
+        )]);
+        queued_prover_client(server.url())
+            .send("{}".to_string(), Delivery::InResponse)
+            .expect("a synchronous prover answers with the proof");
+
+        let requests = server.requests();
+        assert_paths(&requests, ["/prove"]);
+        assert!(
+            requests
+                .first()
+                .expect("one request was recorded")
+                .sync_requested,
+            "the request must say it wants the proof back"
+        );
+    }
+
+    /// And a prover at its concurrency limit must not turn into a failed
+    /// transfer. Retrying synchronously would compete for the permit that was
+    /// just refused, so the client queues instead -- one wait rather than a
+    /// storm.
+    #[test]
+    fn a_shed_sync_proof_falls_back_to_the_queue() {
+        let server = MockServer::respond_with(vec![
+            MockResponse::json(429, json!({ "code": "prover_busy" })),
+            MockResponse::json(202, json!({ "jobId": "queued-after-shed" })),
+            MockResponse::json(
+                200,
+                json!({
+                    "status": "completed",
+                    "result": { "proof": gnark_proof() },
+                }),
+            ),
+        ]);
+
+        let proof = queued_prover_client(server.url())
+            .send("{}".to_string(), Delivery::InResponse)
+            .expect("a shed proof should be queued, not failed");
+        assert_eq!(proof.a, [0u8; 64]);
+
+        let requests = server.requests();
+        assert_paths(
+            &requests,
+            ["/prove", "/prove", "/prove/status?jobId=queued-after-shed"],
+        );
+        assert!(
+            requests
+                .first()
+                .expect("the shed request was recorded")
+                .sync_requested,
+            "the first attempt asked for the proof in the response"
+        );
+        assert!(
+            !requests
+                .get(1)
+                .expect("the retry was recorded")
+                .sync_requested,
+            "the retry must queue rather than ask again for a permit just refused"
         );
     }
 
@@ -1220,6 +1374,8 @@ mod tests {
 
     struct RecordedRequest {
         path: String,
+        /// Whether the request asked for the proof in the response.
+        sync_requested: bool,
     }
 
     enum MockResponse {
@@ -1441,7 +1597,13 @@ mod tests {
             .and_then(|line| line.split_whitespace().nth(1))
             .expect("request line should include a path")
             .to_string();
-        RecordedRequest { path }
+        RecordedRequest {
+            path,
+            sync_requested: header.lines().any(|line| {
+                let lower = line.to_ascii_lowercase();
+                lower.strip_prefix("x-sync:").map(str::trim) == Some("true")
+            }),
+        }
     }
 
     fn parse_content_length(header: &str) -> Option<usize> {
