@@ -20,29 +20,20 @@ use std::{
 };
 
 use anyhow::{anyhow, Context, Result};
-use custom_ring_cli::{
-    lookup_table::send_v0_with_lookup_table,
-    transfer::{
-        assemble_ring_eddsa_ix_data, ring_deposit_sol, ring_spend_inputs, ring_transact_ix,
-    },
-};
 use custom_ring_program::{
     error::CustomRingError,
     state::{RingProgramConfig, RING_PROGRAM_CONFIG},
 };
 use custom_ring_sdk::{
-    auditor_view_tag, config_pda, ring_auth_pda, to_instruction_proof, AuditProofParams,
-    CreateConfig, CustomRingProverClient, InitSppRingConfig, CONFIG_PDA_SEED, PROGRAM_ID,
+    auditor_view_tag, config_pda, ring_auth_pda, ring_deposit_sol, send_v0_with_lookup_table,
+    transfer::{ring_transact_ix, ProvenTransfer},
+    AuditedTransfer, CreateConfig, InitSppRingConfig, CONFIG_PDA_SEED, PROGRAM_ID,
 };
 use shared::{custom_ring_program_id, prover_url, send, send_v0_expecting_rejection, setup};
 use solana_address::Address;
 use solana_signer::Signer;
-use zolana_client::{
-    ProofCompressed, ProverClient, RingTransferProver, Rpc, Shape, SppProofInputUtxo,
-    SppProofInputs,
-};
+use zolana_client::{ProverClient, Rpc};
 use zolana_interface::{
-    instruction::tag::RING_TRANSACT,
     pda,
     state::{
         discriminator::{PROTOCOL_CONFIG, RING_CONFIG, TREE_ACCOUNT_DISCRIMINATOR},
@@ -61,10 +52,8 @@ use zolana_test_utils::{
     },
 };
 use zolana_transaction::{
-    instructions::transact::{
-        encrypt_transaction_data, get_transaction_viewing_key, ExternalData, SppProofOutputUtxo,
-    },
-    LocalWalletAuthority, DEFAULT_TAG_WINDOW, SOL_ASSET_ID, SOL_MINT,
+    instructions::transact::SppProofOutputUtxo, LocalWalletAuthority, DEFAULT_TAG_WINDOW,
+    SOL_ASSET_ID, SOL_MINT,
 };
 use zolana_tree::TreeAccount;
 use zolana_user_registry_interface::user_registry_program_id;
@@ -357,19 +346,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         spendable.push(utxo);
     }
 
-    // 5a. Spends and the transaction viewing key. That key is the audit's whole
-    //     subject: every output ciphertext is HPKE'd under it, so recovering this
-    //     one scalar opens the transaction. It is derived from the first
-    //     nullifier, which is why the sender can re-derive it here.
-    let sender_address = env.sender.keypair.pubkey();
-    let recipient_address = env.recipient.keypair.shielded_address()?;
-    let input_utxos: Vec<SppProofInputUtxo> = spendable
-        .iter()
-        .map(|utxo| SppProofInputUtxo::new(utxo.clone(), &env.sender.keypair))
-        .collect();
-    let tx_viewing_key = get_transaction_viewing_key(&env.sender.keypair, &input_utxos)?;
-
-    // 5b. Two explicit outputs -- the sender's change and the recipient -- which
+    // 5a. Two explicit outputs -- the sender's change and the recipient -- which
     //     is the (2, 2) shape. This is the `SppProofInputs` layer the transaction
     //     crate documents for ring flows, not the high-level
     //     `ConfidentialTransfer`: that builder always emits three outputs (a
@@ -378,79 +355,41 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
     //     pushes this instruction 61 bytes past a transaction's 1232-byte packet
     //     even behind an address lookup table. Two real slots also mean every
     //     published slot is one the auditor must be able to open.
+    let sender_address = env.sender.keypair.pubkey();
     let change_output = SppProofOutputUtxo::new(
         SOL_MINT,
         RING_CHANGE,
         env.sender.keypair.shielded_address()?,
     )?;
-    let recipient_output =
-        SppProofOutputUtxo::new(SOL_MINT, RING_TRANSFER_AMOUNT, recipient_address)?;
-
-    // 5c. ORDER MATTERS. The auditor message has to be inside `external_data`
-    //     BEFORE the SPP proof runs: SPP folds `messages` into
-    //     `external_data_hash` and that into `private_tx_hash`, which is element 1
-    //     of the audit circuit's public-input chain. Proving SPP first and
-    //     appending the message afterwards yields two irreconcilable
-    //     `private_tx_hash` values -- whichever one the ring proof commits to, the
-    //     other is the one SPP checks. `encrypt` returning a `PendingAuditProof`
-    //     that only `finish` can turn into a witness is what makes the order
-    //     unforgettable: there is no `private_tx_hash` to supply yet.
-    let (pending_audit_proof, auditor_message) = AuditProofParams {
-        tx_viewing_sk: tx_viewing_key.secret_bytes(),
-        auditor_pk,
-    }
-    .encrypt()?;
-
-    let encoded = encrypt_transaction_data(
-        &[change_output.clone(), recipient_output.clone()],
-        &env.assets,
-        &tx_viewing_key,
+    let recipient_output = SppProofOutputUtxo::new(
+        SOL_MINT,
+        RING_TRANSFER_AMOUNT,
+        env.recipient.keypair.shielded_address()?,
     )?;
-    let mut external_data = ExternalData::new(
-        *tx_viewing_key.pubkey().as_bytes(),
-        encoded.salt,
-        encoded.outputs,
-        encoded.resolved_owner_tags,
-        vec![auditor_message.to_message_data(&auditor_pk)],
-    );
-    // RING_TRANSACT is folded into external_data_hash and from there into
-    // private_tx_hash, so it must be bound before anything hashes external data.
-    external_data.instruction_discriminator = RING_TRANSACT;
-    let proof_inputs = SppProofInputs::new(
-        input_utxos,
-        encoded.output_utxos,
-        external_data,
-        sender_address,
-    );
 
-    // 5d. Prove the SPP ring transfer over the message-bearing external data.
-    let tx_shape = proof_inputs.check_shape()?;
-    let ring_result = RingTransferProver {
-        inputs: ring_spend_inputs(indexer, env.tree, &proof_inputs.input_utxos)?,
-        outputs: proof_inputs.output_utxos.clone(),
-        external_data: proof_inputs.external_data.clone(),
-        public_transfers: proof_inputs.public_transfers()?,
-        signer_pk_hashes: proof_inputs.signer_pk_hashes(tx_shape.n_inputs() + 1)?,
-        allow_dummy_inputs: true,
-        ring_program_id: Some(PROGRAM_ID),
-        shape: Some(Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs())),
+    // 5b. Both proofs. The transaction viewing key is the audit's whole subject:
+    //     every output ciphertext is HPKE'd under it, so recovering this one
+    //     scalar opens the transaction. `AuditedTransfer::prove` encrypts it to
+    //     the auditor before the SPP proof runs, so the message is inside the
+    //     `private_tx_hash` the audit circuit binds; the program recomputes that
+    //     same public-input chain from the payload and the config account.
+    let proven = AuditedTransfer {
+        indexer,
+        spp_prover: &ProverClient::local(),
+        sender: &env.sender.keypair,
+        inputs: spendable,
+        outputs: vec![change_output.clone(), recipient_output.clone()],
+        tree: env.tree,
+        auditor_pk,
+        assets: &env.assets,
     }
-    .build()?;
-    let spp_proof =
-        ProofCompressed::try_from(ProverClient::local().prove_transfer_ring(&ring_result.inputs)?)?
-            .to_transact_proof();
-
-    // 5e. Now the real `private_tx_hash` exists, so the pending encryption can be
-    //     finished into a witness over the unchanged ciphertext. The program
-    //     recomputes that same public-input chain from the payload and the config
-    //     account.
-    let audit_inputs = pending_audit_proof.finish(&ring_result.private_tx_hash)?;
-    let audit_proof = to_instruction_proof(
-        &CustomRingProverClient::new().prove_auditor_key_encryption(&audit_inputs)?,
-    );
-
-    let data = assemble_ring_eddsa_ix_data(&proof_inputs, &ring_result, spp_proof)?;
-    let owner_signers = proof_inputs.owner_signer_pubkeys()?;
+    .prove()?;
+    let ProvenTransfer {
+        tx_viewing_key,
+        data,
+        audit_proof,
+        owner_signers,
+    } = proven;
 
     // 6. Negative, before the real spend so the tree snapshot is meaningful: flip
     //    one ciphertext byte of the auditor message with both proofs already

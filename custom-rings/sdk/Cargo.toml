@@ -5,13 +5,20 @@ edition.workspace = true
 publish = false
 
 [dependencies]
+anyhow = { workspace = true }
 custom-ring-program = { path = "../program" }
 custom-ring-prover = { path = "../prover" }
 # Only for the uncompressed SEC1 encoding of the auditor key that the circuit
 # witnesses; `zolana-keypair` hands out compressed keys.
 p256 = { workspace = true }
 solana-address = { workspace = true, features = ["curve25519"] }
+solana-address-lookup-table-interface = { workspace = true }
+solana-compute-budget-interface = { workspace = true }
 solana-instruction = { workspace = true }
+solana-message = { workspace = true }
+solana-signature = { workspace = true }
+solana-signer = { workspace = true }
+solana-transaction = { workspace = true, features = ["serde"] }
 # The program crate's canonical public-input hashing fails with this error type
 # (pinocchio re-exports it), so the sdk names it to wrap it.
 solana-program-error = { workspace = true }
@@ -19,9 +26,11 @@ thiserror = { workspace = true }
 wincode = { workspace = true }
 zeroize = { workspace = true }
 # `solana` pulls in the instruction builders this crate wraps for ring deposits.
+zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
 zolana-interface = { workspace = true, features = ["solana"] }
 zolana-keypair = { workspace = true }
 zolana-ring-client = { workspace = true }
+zolana-transaction = { workspace = true }
 
 [dev-dependencies]
 groth16-solana = { workspace = true, features = ["bsb22", "gnark-vk"] }

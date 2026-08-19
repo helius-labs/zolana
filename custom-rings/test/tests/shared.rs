@@ -8,7 +8,7 @@
 //! already carries SOL as asset id 1.
 
 use anyhow::{anyhow, Result};
-use custom_ring_cli::lookup_table::build_v0_with_lookup_table;
+use custom_ring_sdk::lookup_table::build_v0_with_lookup_table;
 use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
@@ -291,7 +291,7 @@ pub fn send(rpc: &SolanaRpc, payer: &dyn Signer, ixs: &[Instruction]) -> Result<
     Ok(signature)
 }
 
-/// The same submission path as `custom_ring_cli::lookup_table::send_v0_with_lookup_table` for a transaction
+/// The same submission path as `custom_ring_sdk::send_v0_with_lookup_table` for a transaction
 /// that must be REJECTED: returns the runtime's typed failure so a test can
 /// assert the exact program error code and the failing instruction index
 /// (`Rejection::custom(..).at(1)`, index 1 because of the prepended compute
