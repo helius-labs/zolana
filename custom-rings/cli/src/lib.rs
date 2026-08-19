@@ -21,7 +21,10 @@ use solana_signer::Signer;
 use zolana_client::{ProverClient, SolanaRpc, ZolanaIndexer};
 use zolana_interface::DEFAULT_TREE_ADDRESS;
 use zolana_keypair::P256Pubkey;
-use zolana_ring_rpc::config::{read_auditor_pubkey, write_auditor_pubkey};
+use zolana_ring_rpc::{
+    api::GetDecryptedTransactionsRequest,
+    config::{read_auditor_pubkey, write_auditor_pubkey},
+};
 
 use crate::{
     config::{expand_tilde, RingConfig, Target, RING_TOML},
@@ -295,6 +298,29 @@ pub fn run(cli: Cli) -> Result<()> {
             if !opened.undecryptable_slots.is_empty() {
                 println!("  undecryptable slots {:?}", opened.undecryptable_slots);
             }
+            // The participants' own view, what the ring RPC answers to the keys
+            // in the transaction rather than to the authority.
+            let sender_view = ring_rpc.first_page(
+                GetDecryptedTransactionsRequest::unsigned(PROGRAM_ID, None)
+                    .sign_as_sender(&receipt.sender),
+            )?;
+            println!(
+                "sender sees {} transaction(s) it signed",
+                sender_view.value.items.len()
+            );
+            let recipient_view = ring_rpc.first_page(
+                GetDecryptedTransactionsRequest::unsigned(PROGRAM_ID, None)
+                    .sign_as_recipient(&receipt.recipient.viewing_key)?,
+            )?;
+            println!(
+                "recipient sees {} output(s) encrypted to it",
+                recipient_view
+                    .value
+                    .items
+                    .iter()
+                    .map(|item| item.outputs.len())
+                    .sum::<usize>()
+            );
             Ok(())
         }
     }

@@ -11106,6 +11106,7 @@ dependencies = [
  "hyper 1.10.1",
  "jsonrpsee",
  "log",
+ "p256",
  "reqwest",
  "serde",
  "serde_json",

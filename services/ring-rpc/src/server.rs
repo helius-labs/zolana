@@ -119,12 +119,12 @@ pub fn rpc_module<S: TransactionSource + 'static>(
                 .ring(request.ring_program_id.map(|ring| ring.0))
                 .map_err(ErrorObjectOwned::from)?;
             let cursor: Option<Vec<u8>> = request.cursor.map(Into::into);
-            service
+            let filter = service
                 .authorize_read(&request.auth, cursor.as_deref(), request.limit.clone())
                 .await
                 .map_err(ErrorObjectOwned::from)?;
             service
-                .decrypted_transactions(cursor, request.limit)
+                .decrypted_transactions(cursor, request.limit, &filter)
                 .await
                 .map_err(ErrorObjectOwned::from)
         },

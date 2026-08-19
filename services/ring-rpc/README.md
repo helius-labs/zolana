@@ -41,19 +41,24 @@ read once at startup for the SPL asset registry.
 | --- | --- | --- |
 | `health` (also `GET /health`) | none | `{ mode, service_pubkey, auditor_view_tag? }` |
 | `createAuditorKey` | `{ ring_program_id }` | `{ ring_program_id, auditor_pubkey, auditor_view_tag, service_pubkey, signature }` |
-| `getDecryptedTransactions` | `{ ring_program_id?, cursor?, limit?, auth: { reader, timestamp, signature } }` | `{ context, value: { items, skipped, cursor } }` |
+| `getDecryptedTransactions` | `{ ring_program_id?, cursor?, limit?, auth: { scope, reader, timestamp, signature } }` | `{ context, value: { items, skipped, cursor } }` |
 
 `mode` is `local` or `derived`. `ring_program_id` is required in derived mode
 and ignored in local mode, where `--ring-program-id` names the one ring the key
 serves.
 
-Reads are authorized by the ring itself. `auth.reader` must be the ring
-authority its on-chain config records, `auth.signature` that key's ed25519
-signature over `"zolana/ring-rpc-read/v1" || ring_program_id || timestamp ||
-limit || cursor`, and `auth.timestamp` (unix seconds) within a minute of the
-service clock. A read signed by any other key, for another ring, or captured
-earlier is refused with `unauthorized`. The CLI signs with the ring's authority
-keypair. `signature` is the instance's ed25519 signature over
+Reads are signed. `auth.signature` is `auth.reader`'s signature over
+`"zolana/ring-rpc-read/v1" || scope || ring_program_id || timestamp || limit ||
+cursor`, `auth.timestamp` (unix seconds) within a minute of the service clock.
+Two scopes. `ring` needs the ring authority its on-chain config records (an
+ed25519 key) and returns every transaction plus the skipped list. `participant`
+takes any key and returns only that key's side: an ed25519 signer of a
+transaction sees the transactions it signed in full, a P-256 viewing key (SEC1
+compressed, ECDSA over `SHA-256(message)`) sees only the outputs encrypted to
+it, and a key outside a transaction sees nothing. A read signed by another key
+than it claims, for another ring, or captured earlier is refused with
+`unauthorized`. `GetDecryptedTransactionsRequest::unsigned(..)` builds both:
+`.sign(authority)`, `.sign_as_sender(signer)`, `.sign_as_recipient(viewing_key)`. `signature` is the instance's ed25519 signature over
 `"zolana/ring-auditor-key/v1" || ring_program_id || auditor_pubkey` with
 `service_pubkey`, which is derived from the instance's secret and so survives
 restarts. A ring pins that key in `ring.toml` (`ring_rpc_pubkey`) after
@@ -76,6 +81,7 @@ readable by other users unless `--allow-shared-key-file` says so.
 
 ## Boundaries
 
-Reads are scoped to the ring authority, not to individual users. Decrypt on
-read. The spec's signed `get_decrypted_utxos_by_owner` and
-`get_decrypted_transactions_by_owner` build on this service.
+Decrypt on read. The participant scope is the spec's signed
+`get_decrypted_transactions_by_owner` over what the auditor can see; a reader
+list for third-party auditors is not there yet, so the auditor is the ring
+authority.
