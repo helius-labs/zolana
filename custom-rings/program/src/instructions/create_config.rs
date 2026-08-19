@@ -22,7 +22,7 @@ pub struct CreateConfigIxData {
 ///
 /// Accounts `[payer(w,s), authority(s), config(w), system_program, program,
 /// program_data]`. When the deployment names an upgrade authority, only that
-/// key may sign as `authority`; otherwise the first caller wins.
+/// key may sign as `authority`. Otherwise the first caller wins.
 #[inline(never)]
 pub fn process_create_config_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let CreateConfigIxData { auditor_pubkey } =

@@ -20,11 +20,11 @@ members = [
     "bench/bloom-filter",
     "bench/tree",
     "cli",
-    "custom-ring-tests/cli",
-    "custom-ring-tests/program",
-    "custom-ring-tests/prover",
-    "custom-ring-tests/sdk",
-    "custom-ring-tests/test",
+    "custom-rings/cli",
+    "custom-rings/program",
+    "custom-rings/prover",
+    "custom-rings/sdk",
+    "custom-rings/test",
     "sdk-libs/client",
     "sdk-libs/indexer-api",
     "sdk-libs/keypair",
@@ -88,8 +88,12 @@ zolana-merkle-tree = { path = "sdk-libs/merkle-tree", version = "4.0.0" }
 zolana-smart-account-client = { path = "sdk-libs/smart-account-client", version = "0.1.0" }
 zolana-test-utils = { path = "program-tests/test-utils", version = "0.1.0" }
 shielded-pool-program = { path = "programs/shielded-pool", version = "0.1.0" }
-zolana-user-registry = { path = "programs/user-registry", version = "0.1.0", default-features = false, features = ["no-entrypoint"] }
-groth16-solana = { git = "https://github.com/Lightprotocol/groth16-solana", rev = "43fee1a67e91c0df7bb4edad5ba87ae4602aa208", features = ["bsb22"] }
+zolana-user-registry = { path = "programs/user-registry", version = "0.1.0", default-features = false, features = [
+    "no-entrypoint",
+] }
+groth16-solana = { git = "https://github.com/Lightprotocol/groth16-solana", rev = "43fee1a67e91c0df7bb4edad5ba87ae4602aa208", features = [
+    "bsb22",
+] }
 
 # Published Light Protocol crates.
 aligned-sized = "1.1.0"
@@ -117,8 +121,18 @@ solana-account-info = "3.1"
 solana-account-view = "2.0"
 solana-account-decoder = "4.1"
 solana-account-decoder-client-types = "4.1"
-solana-address = { version = "2.6", features = ["atomic", "borsh", "bytemuck", "copy", "decode", "wincode"] }
-solana-address-lookup-table-interface = { version = "3.0", features = ["bytemuck", "bincode"] }
+solana-address = { version = "2.6", features = [
+    "atomic",
+    "borsh",
+    "bytemuck",
+    "copy",
+    "decode",
+    "wincode",
+] }
+solana-address-lookup-table-interface = { version = "3.0", features = [
+    "bytemuck",
+    "bincode",
+] }
 solana-banks-client = { version = "4.1", features = ["agave-unstable-api"] }
 solana-bn254 = "3.2.1"
 solana-clock = "3.0"
@@ -210,17 +224,38 @@ proc-macro2 = "1.0"
 quote = "1.0"
 rand = "0.8.5"
 rayon = "1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-s3 = { package = "rust-s3", version = "0.37.2", default-features = false, features = ["fail-on-err", "tags", "tokio-rustls-tls"] }
-sea-orm = { version = "1.1.20", default-features = false, features = ["macros", "runtime-tokio-rustls", "sqlx-postgres", "sqlx-sqlite"] }
-sea-orm-migration = { version = "1.1.20", default-features = false, features = ["runtime-tokio-rustls", "sqlx-postgres"] }
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls",
+] }
+s3 = { package = "rust-s3", version = "0.37.2", default-features = false, features = [
+    "fail-on-err",
+    "tags",
+    "tokio-rustls-tls",
+] }
+sea-orm = { version = "1.1.20", default-features = false, features = [
+    "macros",
+    "runtime-tokio-rustls",
+    "sqlx-postgres",
+    "sqlx-sqlite",
+] }
+sea-orm-migration = { version = "1.1.20", default-features = false, features = [
+    "runtime-tokio-rustls",
+    "sqlx-postgres",
+] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_norway = "0.9.42"
 serde_path_to_error = "0.1"
 serial_test = "3.2.0"
 sha2 = "0.10"
-sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "postgres", "sqlite", "rust_decimal"] }
+sqlx = { version = "0.8.6", default-features = false, features = [
+    "runtime-tokio",
+    "tls-rustls-ring-webpki",
+    "postgres",
+    "sqlite",
+    "rust_decimal",
+] }
 syn = { version = "2.0", features = ["visit-mut", "full"] }
 tabled = "0.20"
 thiserror = "2.0"
@@ -228,13 +263,18 @@ tinyvec = "1.10.0"
 tokio = { version = "1.48.0", features = ["rt", "macros", "rt-multi-thread"] }
 toml = "0.9"
 tower = { version = "0.5.3", features = ["util"] }
-tower-http = { version = "0.7.0", default-features = false, features = ["cors"] }
+tower-http = { version = "0.7.0", default-features = false, features = [
+    "cors",
+] }
 tracing = "0.1.41"
 tracing-appender = "0.2.3"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 utoipa = { version = "5.5.0", features = ["yaml", "non_strict_integers"] }
 yellowstone-grpc-proto = "12.5.0"
-tonic = { version = "0.14.6", default-features = false, features = ["transport", "tls-native-roots"] }
+tonic = { version = "0.14.6", default-features = false, features = [
+    "transport",
+    "tls-native-roots",
+] }
 tokio-stream = "0.1.18"
 zerocopy = "0.8.25"
 
@@ -245,7 +285,13 @@ ark-serialize = "0.5"
 ark-std = "0.5"
 
 # Client keypair crypto.
-p256 = { version = "0.13", default-features = false, features = ["ecdh", "arithmetic", "ecdsa", "hash2curve", "std"] }
+p256 = { version = "0.13", default-features = false, features = [
+    "ecdh",
+    "arithmetic",
+    "ecdsa",
+    "hash2curve",
+    "std",
+] }
 ed25519-dalek = "2.2.0"
 ed25519-dalek-bip32 = "0.3.0"
 aes = { version = "0.8", default-features = false }

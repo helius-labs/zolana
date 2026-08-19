@@ -1,8 +1,5 @@
 //! Client library for the custom ring program: instruction builders and
-//! proof-input builders. Instruction data, tags, and the canonical public-input
-//! hashing are re-exported from the program crate so a single definition serves
-//! both sides; the auditor encryption codec is re-exported from
-//! `zolana-ring-client`, which the auditor side shares.
+//! proof-input builders.
 
 pub mod instructions;
 pub mod prover;

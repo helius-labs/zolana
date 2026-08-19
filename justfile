@@ -114,8 +114,7 @@ test-custom-ring: ensure-custom-ring-keys build-programs test-ring-rpc
 # `dest` is the parent directory of the new ring, default the parent of this
 # checkout. Extra arguments go to `cargo generate` (`-d name=value`, `--silent`).
 ring-new dest="" *args:
-    ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_LOCALNET_PHOTON_URL="{{localnet-photon-url}}" \
-      ZOLANA_LOCALNET_RING_RPC_PORT="{{localnet-ring-rpc-port}}" tools/ring-wizard.sh {{dest}} {{args}}
+    tools/ring-wizard.sh {{dest}} {{args}}
 
 # Local validator for a generated ring: SPP, user registry, photon and the prover
 # on the per-clone ports, protocol accounts from snapshots (ring creation
@@ -482,7 +481,7 @@ custom-ring-keys-tag := "custom-ring-keys-v1"
 ensure-custom-ring-keys:
     #!/usr/bin/env bash
     set -euo pipefail
-    base="custom-ring-tests"
+    base="custom-rings"
     for c in auditor_key_encryption; do
         dir="$base/build/gnark/$c"
         for kind in pk vk; do
@@ -509,7 +508,7 @@ ensure-custom-ring-keys:
 regen-custom-ring-keys:
     #!/usr/bin/env bash
     set -euo pipefail
-    base="custom-ring-tests"
+    base="custom-rings"
     for c in auditor_key_encryption; do
         cargo run --release -p custom-ring-prover --bin custom-ring-prover-setup -- \
             "$c" "$base/build/gnark/$c" \
@@ -1085,7 +1084,7 @@ test-swap-validator: ensure-swap-keys build-programs build-prover-server build-c
       cargo nextest run -p swap-test-validator --test swap --test take_verifiable_encryption --test cancel --no-capture
 
 # Minimal custom-ring lifecycle on a local validator
-# (custom-ring-tests/test/tests/ring.rs): create the ring config holding the
+# (custom-rings/test/tests/ring.rs): create the ring config holding the
 # auditor key, register it with SPP, ring-deposit, then a ring transact whose
 # proof binds the verifiable encryption of the transaction viewing key to the
 # auditor key -- and assert the auditor client decrypts the outputs.
@@ -1316,6 +1315,9 @@ publish-spp-keys:
 
 build-photon:
     cargo build --locked -p photon-indexer --bin photon --target-dir target
+
+build-ring-rpc:
+    cargo build --locked -p zolana-ring-rpc --bin ring-rpc --target-dir target
 
 ensure-photon:
     #!/usr/bin/env bash
