@@ -73,7 +73,7 @@ pub enum Command {
     Transact(TransactArgs),
     /// Confirm the ring RPC in `ring.toml` is up and holds this ring's auditor key.
     RpcCheck,
-    /// Approve one proven transact by its `private_tx_hash`.
+    /// Approve one proven transact by its `private_tx_hash`, or revoke it.
     Approve(ApproveArgs),
     /// Transfer or renounce the program's upgrade authority.
     #[command(subcommand)]
@@ -182,6 +182,9 @@ pub struct ApproveArgs {
     /// The approver, default the authority.
     #[arg(long, value_name = "KEYPAIR")]
     pub approver_keypair: Option<PathBuf>,
+    /// Take an unspent approval back instead; its rent returns to the approver.
+    #[arg(long)]
+    pub revoke: bool,
 }
 
 pub fn main() -> Result<()> {
@@ -323,7 +326,7 @@ pub fn run(cli: Cli) -> Result<()> {
                 PolicyCommand::Set(args) => {
                     let mut wanted = policy::read_policy(&rpc)?;
                     if args.any_asset {
-                        wanted.allowlist = false;
+                        wanted.asset_policy = custom_ring_sdk::AssetPolicy::Any;
                     } else if !args.allow_assets.is_empty() {
                         let mints = args
                             .allow_assets
@@ -337,7 +340,7 @@ pub fn run(cli: Cli) -> Result<()> {
                                 mint,
                             })
                             .collect();
-                        wanted.allowlist = true;
+                        wanted.asset_policy = custom_ring_sdk::AssetPolicy::Allowlist;
                     }
                     if let Some(withdrawals) = args.withdrawals.as_deref() {
                         wanted.withdrawals = policy::parse_rule(withdrawals)?;
@@ -385,16 +388,26 @@ pub fn run(cli: Cli) -> Result<()> {
             let private_tx_hash: [u8; 32] = hex::decode(args.private_tx_hash.trim())?
                 .try_into()
                 .map_err(|_| anyhow!("private_tx_hash must be 32 bytes of hex"))?;
-            let ix = custom_ring_sdk::ApproveTransact {
-                approver: approver.pubkey(),
-                payer: approver.pubkey(),
-                private_tx_hash,
-            }
-            .instruction();
+            let ix = if args.revoke {
+                custom_ring_sdk::RevokeApproval {
+                    approver: approver.pubkey(),
+                    rent_recipient: approver.pubkey(),
+                    private_tx_hash,
+                }
+                .instruction()
+            } else {
+                custom_ring_sdk::ApproveTransact {
+                    approver: approver.pubkey(),
+                    payer: approver.pubkey(),
+                    private_tx_hash,
+                }
+                .instruction()
+            };
             let signature =
                 rpc.create_and_send_transaction(&[ix], approver.pubkey(), &[&approver])?;
             println!(
-                "approved    {} at {signature}",
+                "{}    {} at {signature}",
+                if args.revoke { "revoked " } else { "approved" },
                 custom_ring_sdk::approval_pda(&private_tx_hash)
             );
             Ok(())

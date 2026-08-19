@@ -10,7 +10,7 @@ use zolana_interface::{
 use crate::{
     error::CustomRingError,
     instructions::{
-        approve_transact::{verify_approval_pda, APPROVAL_SIZE},
+        approve_transact::{check_approval, APPROVAL_SIZE},
         loader::{load_config, validate_spp_program},
         policy::check_transact,
         shared::{cpi_spp_signed, pack33_to_2fe},
@@ -27,8 +27,7 @@ fn is_approval_account(account: &AccountView) -> bool {
         && account.data_len() == APPROVAL_SIZE
         && account
             .try_borrow()
-            .map(|data| data.first() == Some(&TRANSACT_APPROVAL))
-            .unwrap_or(false)
+            .is_ok_and(|data| data.first() == Some(&TRANSACT_APPROVAL))
 }
 /// AES-256-CTR ciphertext of the 32-byte transaction viewing secret key.
 const CIPHERTEXT_LEN: usize = 32;
@@ -193,7 +192,7 @@ pub fn process_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Program
     // The approval is bound to this transact through `private_tx_hash`; it is
     // spent after the CPI so it cannot approve a second submission.
     if let Some(approval) = &approval {
-        verify_approval_pda(approval.address(), &transact.private_tx_hash)?;
+        check_approval(approval, &transact.private_tx_hash)?;
     }
 
     // This ring has one rail: Solana eddsa signers. `RingP256` (and any future

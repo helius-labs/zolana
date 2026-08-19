@@ -1,7 +1,7 @@
 //! The ring's on-chain policy: read, applied from `ring.toml`, or changed.
 
 use anyhow::{anyhow, Result};
-use custom_ring_sdk::{AssetRule, RingPolicy, SetPolicy, WithdrawalRule, SOL};
+use custom_ring_sdk::{AssetPolicy, AssetRule, RingPolicy, SetPolicy, WithdrawalRule, SOL};
 use solana_address::Address;
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc};
@@ -26,8 +26,8 @@ pub fn format_asset(asset: &Address) -> String {
 }
 
 pub fn parse_rule(text: &str) -> Result<WithdrawalRule> {
-    WithdrawalRule::parse(text)
-        .ok_or_else(|| anyhow!("withdrawal rule must be open, blocked or approval, got {text}"))
+    text.parse()
+        .map_err(|_| anyhow!("withdrawal rule must be open, blocked or approval, got {text}"))
 }
 
 /// The policy `ring.toml` asks for. Absent keys leave that part open.
@@ -44,7 +44,7 @@ pub fn from_config(policy: &PolicyConfig) -> Result<RingPolicy> {
         .as_deref()
         .map(parse_rule)
         .transpose()?
-        .unwrap_or_default();
+        .unwrap_or(WithdrawalRule::Open);
     // Listed mints inherit the default rule until an entry names its own.
     for asset in &mut assets {
         asset.withdrawals = withdrawals;
@@ -67,7 +67,11 @@ pub fn from_config(policy: &PolicyConfig) -> Result<RingPolicy> {
         }
     }
     Ok(RingPolicy {
-        allowlist: policy.allowed_assets.is_some(),
+        asset_policy: if policy.allowed_assets.is_some() {
+            AssetPolicy::Allowlist
+        } else {
+            AssetPolicy::Any
+        },
         assets,
         withdrawals,
         approver: policy
@@ -105,7 +109,10 @@ pub fn apply(rpc: &SolanaRpc, authority: &dyn Signer, policy: &RingPolicy) -> Re
 pub fn print(policy: &RingPolicy) {
     println!(
         "assets      {}",
-        if policy.allowlist { "allowlist" } else { "any" }
+        match policy.asset_policy {
+            AssetPolicy::Any => "any",
+            AssetPolicy::Allowlist => "allowlist",
+        }
     );
     println!("withdrawals {} (default)", policy.withdrawals.as_str());
     for asset in &policy.assets {

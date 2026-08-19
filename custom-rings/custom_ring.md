@@ -97,7 +97,7 @@ the script takes the normal path and a failing `go build` is a hard error.
 
 ## Instructions
 
-Tags 1-5 are program-local. Ring deposits carry no proof and are forwarded to SPP
+Tags 1-6 are program-local. Ring deposits carry no proof and are forwarded to SPP
 byte for byte, so the dispatcher matches SPP's own
 `zolana_interface::instruction::tag::RING_DEPOSIT` (14) instead of allocating a
 local tag: the client builds the SPP-shaped instruction with the existing
@@ -131,28 +131,38 @@ program) flipped to a signer and `ring_authority_transact_is_enabled: false`.
 Accounts `[authority(s), config(w)]`; data `SetPolicyIxData { withdrawals: u8,
 asset_policy: u8, approver: [u8; 32], assets: Vec<AssetRule { mint, withdrawals
 }> }` (wincode, at most `MAX_ASSETS` = 8 entries, SOL is the all-zero mint).
-`withdrawals` is the default rule (`WITHDRAWALS_OPEN` 0, `WITHDRAWALS_BLOCKED`
-1, `WITHDRAWALS_APPROVAL` 2), each table entry carries its own; `asset_policy`
-`ASSETS_ALLOWLIST` limits deposits and settlement legs to the table's mints.
-Requires the stored authority to sign, rejects out-of-range values, oversized
-tables and an approval rule without an approver with `InvalidPolicy`, and
-replaces the policy fields of the config in place. A fresh config starts open.
+`withdrawals` is the default `WithdrawalRule` (`Open` 0, `Blocked` 1,
+`Approval` 2), each table entry carries its own; `asset_policy` is an
+`AssetPolicy` (`Any` 0, `Allowlist` 1), the allowlist limiting deposits and
+settlement legs to the table's mints. Both are `#[repr(u8)]` enums read back
+through `TryFrom<u8>`; a byte the program never wrote reads as `Blocked` /
+`Allowlist`, so corrupted state fails closed. Requires the stored authority to
+sign, rejects out-of-range values, oversized tables, a mint listed twice and an
+approval rule without an approver with `InvalidPolicy`, and replaces the policy
+fields of the config in place. A fresh config starts open.
 
 ### 5 `approve_transact`
 
 Accounts `[approver(s), payer(w,s), config, approval(w, PDA [b"approval",
 private_tx_hash]), system_program]`; data `ApproveTransactIxData {
 private_tx_hash: [u8; 32] }`. The config's approver signs off one proven
-transact by creating its approval account (one discriminator byte). The
-`private_tx_hash` commits to inputs, outputs and every settlement leg, so an
-approval fits exactly one transfer; `transact` spends it, so it cannot be
-replayed.
+transact by creating its approval account, `[discriminator, bump]`: the bump
+is stored so `transact` re-derives the address with one
+`create_program_address`. The `private_tx_hash` commits to inputs, outputs and
+every settlement leg, so an approval fits exactly one transfer; `transact`
+spends it, so it cannot be replayed.
+
+### 6 `revoke_approval`
+
+Accounts `[approver(s), rent_recipient(w), config, approval(w)]`; same data.
+The approver closes an unspent approval, its lamports go to `rent_recipient`.
 
 ### 14 `deposit` (forwarded)
 
 Proofless forwarder. Accounts `[config] ++ <SPP RING_DEPOSIT list>`. Checks the
 SPP program account, applies the asset allowlist to every deposited asset
-(reading the mint from the SPL settlement group SPP itself validates next),
+(reading only the leading `assets` field of the ring deposit data and the mint
+from the SPL settlement group SPP itself validates next),
 requires `ring_auth` to be present, flips it to a signer, and invokes SPP with the
 instruction data unchanged (tag byte included; SPP's dispatcher strips it).
 

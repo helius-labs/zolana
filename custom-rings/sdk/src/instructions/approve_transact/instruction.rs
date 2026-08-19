@@ -42,3 +42,33 @@ impl ApproveTransact {
         }
     }
 }
+
+/// The approver takes an unspent approval back; its lamports go to
+/// `rent_recipient`.
+pub struct RevokeApproval {
+    pub approver: Address,
+    pub rent_recipient: Address,
+    pub private_tx_hash: [u8; 32],
+}
+
+impl RevokeApproval {
+    pub fn instruction(self) -> Instruction {
+        let mut data = vec![tag::REVOKE_APPROVAL];
+        data.extend_from_slice(
+            &wincode::serialize(&ApproveTransactIxData {
+                private_tx_hash: self.private_tx_hash,
+            })
+            .expect("revoke_approval instruction data is fixed size"),
+        );
+        Instruction {
+            program_id: PROGRAM_ID,
+            accounts: vec![
+                AccountMeta::new_readonly(self.approver, true),
+                AccountMeta::new(self.rent_recipient, false),
+                AccountMeta::new_readonly(config_pda(), false),
+                AccountMeta::new(approval_pda(&self.private_tx_hash), false),
+            ],
+            data,
+        }
+    }
+}

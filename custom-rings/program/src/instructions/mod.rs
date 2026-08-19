@@ -9,7 +9,7 @@ pub mod shared;
 pub mod transact;
 pub mod verifier;
 
-pub use approve_transact::process_approve_transact_ix;
+pub use approve_transact::{process_approve_transact_ix, process_revoke_approval_ix};
 pub use create_config::process_create_config_ix;
 pub use deposit::process_deposit_ix;
 pub use init_spp_ring_config::process_init_spp_ring_config_ix;
