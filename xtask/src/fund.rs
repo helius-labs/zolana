@@ -172,7 +172,7 @@ fn fund_one(
     asset: Address,
     amount: u64,
 ) -> Result<()> {
-    let shielded = ShieldedKeypair::from_solana_keypair(wallet)?;
+    let shielded = ShieldedKeypair::from_keypair(wallet)?;
     let recipient = shielded.shielded_address()?;
     let built = create_deposit(DepositParams {
         recipient: &recipient,
