@@ -146,6 +146,8 @@ pub struct ProverClient {
     server_address: String,
     http: reqwest::blocking::Client,
     async_poll: AsyncPollConfig,
+    /// Rail for transfer-shaped proofs. Batch proofs are always queued.
+    delivery: Delivery,
 }
 
 /// Async client for the transfer proving endpoints of the prover server.
@@ -153,6 +155,8 @@ pub struct AsyncProverClient {
     server_address: String,
     http: reqwest::Client,
     async_poll: AsyncPollConfig,
+    /// Rail for transfer-shaped proofs. Batch proofs are always queued.
+    delivery: Delivery,
 }
 
 impl Default for ProverClient {
@@ -177,6 +181,7 @@ impl ProverClient {
             server_address,
             http: build_http_client(),
             async_poll: AsyncPollConfig::default(),
+            delivery: Delivery::InResponse,
         }
     }
 
@@ -186,35 +191,45 @@ impl ProverClient {
         self
     }
 
+    /// Queue transfer-shaped proofs instead of asking for them in the response.
+    ///
+    /// The response is the faster rail and the default. Queueing is still the
+    /// right choice for a caller sharing a prover with heavier work, and it is
+    /// the rail the queue's own tests have to exercise.
+    pub fn with_queued_proofs(mut self) -> Self {
+        self.delivery = Delivery::Queued;
+        self
+    }
+
     /// Prove a Solana-only (eddsa) transfer, returning the uncompressed negated proof.
     /// Call [`Proof::compress`] for the wire format.
     pub fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json(inputs), Delivery::InResponse)
+        self.send(to_json(inputs), self.delivery)
     }
 
     /// Prove an 8-in/1-out merge, returning the uncompressed negated proof.
     /// Call [`Proof::compress`] for the wire format.
     pub fn prove_merge(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge(inputs), Delivery::InResponse)
+        self.send(to_json_merge(inputs), self.delivery)
     }
 
     /// Prove a ring-authority transfer (anonymous, no signature), returning the
     /// uncompressed negated proof. Reuses the Solana-only [`TransferInputs`] witness;
     /// call [`Proof::compress`] for the wire format.
     pub fn prove_ring_authority(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_ring_authority(inputs), Delivery::InResponse)
+        self.send(to_json_ring_authority(inputs), self.delivery)
     }
 
     /// Prove a policy-ring merge (`merge-ring`), returning the uncompressed negated
     /// proof. Reuses the [`MergeInputs`] witness; call [`Proof::compress`] for the
     /// wire format.
     pub fn prove_merge_ring(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge_ring(inputs), Delivery::InResponse)
+        self.send(to_json_merge_ring(inputs), self.delivery)
     }
 
     /// Prove an eddsa confidential policy-ring transfer (`transfer-ring`).
     pub fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_ring(inputs), Delivery::InResponse)
+        self.send(to_json_ring(inputs), self.delivery)
     }
 
     /// Prove a custom-ring P256 transfer.
@@ -222,7 +237,7 @@ impl ProverClient {
         &self,
         inputs: &TransferP256Inputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_p256_ring(inputs), Delivery::InResponse)
+        self.send(to_json_p256_ring(inputs), self.delivery)
     }
 
     /// Prove a nullifier-tree batch address-append update, returning the
@@ -479,6 +494,7 @@ impl AsyncProverClient {
             server_address,
             http: build_async_http_client(),
             async_poll: AsyncPollConfig::default(),
+            delivery: Delivery::InResponse,
         }
     }
 
@@ -488,39 +504,47 @@ impl AsyncProverClient {
         self
     }
 
+    /// Queue transfer-shaped proofs instead of asking for them in the response.
+    ///
+    /// The response is the faster rail and the default. Queueing is still the
+    /// right choice for a caller sharing a prover with heavier work, and it is
+    /// the rail the queue's own tests have to exercise.
+    pub fn with_queued_proofs(mut self) -> Self {
+        self.delivery = Delivery::Queued;
+        self
+    }
+
     /// Prove a Solana-only (eddsa) transfer, returning the uncompressed negated proof.
     /// Call [`Proof::compress`] for the wire format.
     pub async fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json(inputs), Delivery::InResponse).await
+        self.send(to_json(inputs), self.delivery).await
     }
 
     pub async fn prove_merge(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge(inputs), Delivery::InResponse).await
+        self.send(to_json_merge(inputs), self.delivery).await
     }
 
     pub async fn prove_ring_authority(
         &self,
         inputs: &TransferInputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_ring_authority(inputs), Delivery::InResponse)
+        self.send(to_json_ring_authority(inputs), self.delivery)
             .await
     }
 
     pub async fn prove_merge_ring(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge_ring(inputs), Delivery::InResponse)
-            .await
+        self.send(to_json_merge_ring(inputs), self.delivery).await
     }
 
     pub async fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_ring(inputs), Delivery::InResponse).await
+        self.send(to_json_ring(inputs), self.delivery).await
     }
 
     pub async fn prove_transfer_p256_ring(
         &self,
         inputs: &TransferP256Inputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_p256_ring(inputs), Delivery::InResponse)
-            .await
+        self.send(to_json_p256_ring(inputs), self.delivery).await
     }
 
     pub async fn prove_batch_address_append(
