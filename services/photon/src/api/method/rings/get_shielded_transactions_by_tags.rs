@@ -101,6 +101,7 @@ pub async fn get_shielded_transactions_by_tags(
         context: page.context,
         transactions: page.transactions,
         next_cursor: page.next_cursor,
+        scanned_through: page.scanned_through,
     })
 }
 

@@ -607,6 +607,10 @@ pub struct GetShieldedTransactionsByTagsResponse {
     /// output view tag and includes all of its output slots.
     pub transactions: Vec<ShieldedTransaction>,
     pub next_cursor: Option<Base64String>,
+    /// Where the scan reached on a page the limit did not truncate, as the
+    /// nullifier query reports it. Absent from indexers that do not send it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scanned_through: Option<Base64String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
