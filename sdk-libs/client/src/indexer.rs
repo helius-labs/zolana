@@ -336,11 +336,14 @@ impl Rpc for ZolanaIndexer {
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetMerkleProofsResponse, ClientError> {
         let single = || {
-            self.api
-                .get_merkle_proofs(
+            let response = {
+                let _t = crate::timing::Phase::start("merkle_http", 0);
+                self.api.get_merkle_proofs(
                     encode_pubkey(tree_account),
                     leaves.iter().copied().map(encode_hash).collect(),
                 )
+            };
+            response
                 .map_err(indexer_error)
                 .map(|response| GetMerkleProofsResponse {
                     context: convert_context(response.context),
