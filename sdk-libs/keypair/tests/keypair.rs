@@ -118,6 +118,25 @@ fn public_key_encodings_are_typed_and_canonical() {
     cases::pubkey::public_key_parse_fails(&mut world, KeypairError::InvalidSignatureType(9));
     cases::pubkey::parse_ed25519_nonzero_pad(&mut world);
     cases::pubkey::public_key_parse_fails(&mut world, KeypairError::InvalidPublicKey);
+    cases::pubkey::zeroed_owner_is_rejected();
+}
+
+#[test]
+#[should_panic(expected = "ed25519-only")]
+fn signer_pubkey_panics_on_p256_keypair() {
+    use solana_signer::Signer;
+
+    let kp = ShieldedKeypair::new_p256().unwrap();
+    let _ = Signer::pubkey(&kp);
+}
+
+#[test]
+#[should_panic(expected = "ed25519-only")]
+fn signer_sign_message_panics_on_p256_keypair() {
+    use solana_signer::Signer;
+
+    let kp = ShieldedKeypair::new_p256().unwrap();
+    let _ = Signer::sign_message(&kp, b"tx");
 }
 
 #[test]
@@ -139,6 +158,7 @@ fn shielded_keypair_facade_round_trips_full_transfers() {
     cases::shielded::new_derives_viewing_key_from_signing_key(&mut world, "alice".into());
     cases::shielded::random_constructors_pick_their_rail();
     cases::shielded::solana_signer_matches_solana_keypair();
+    cases::shielded::signer_infallible_pubkey_matches_ed25519();
 
     cases::common::random_shielded_keypair(&mut world, "sender".into());
     cases::common::random_shielded_keypair(&mut world, "recipient".into());
@@ -191,6 +211,7 @@ fn encrypted_slots_are_unique_and_recipient_bound() {
     cases::common::viewing_key_from_scalar(&mut world, "eph".into(), 1);
     cases::common::viewing_key_from_scalar(&mut world, "rcpt".into(), 2);
     cases::transaction::golden_decrypts(&mut world, "rcpt".into(), "eph".into());
+    cases::transaction::golden_wire_format_is_pinned(&mut world, "eph".into(), "rcpt".into());
 }
 
 #[test]

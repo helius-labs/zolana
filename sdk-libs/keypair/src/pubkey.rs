@@ -168,6 +168,12 @@ impl PublicKey {
     }
 
     pub fn confidential_view_tag(&self) -> Result<[u8; 32], KeypairError> {
+        // The all-zero dummy marker reads as a P256 tag. Reject it here so a
+        // padding owner does not hash to a real identity, rather than depending
+        // on `as_p256`'s SEC1 re-parse to fail.
+        if self.is_zero() {
+            return Err(KeypairError::InvalidPublicKey);
+        }
         match self.curve()? {
             Curve::P256 => Ok(self.as_p256()?.x()),
             Curve::Ed25519 => self.as_ed25519(),
