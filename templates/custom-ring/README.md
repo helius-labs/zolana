@@ -41,7 +41,7 @@ values live in `ring.toml`'s `[policy]` table: `allowed_assets` (mints the ring
 accepts, `SOL` for native SOL) and `withdrawals = "blocked"` (no public
 withdrawals out of the ring). `just init` writes the policy on chain, and
 `cargo run -p {{project-name}} -- policy show|apply|set` reads it back, re-applies
-`ring.toml`, or changes it (`policy set --allow-asset <mint> --withdrawals blocked`).
+`ring.toml`, or changes one part at a time (`policy set --withdrawals open`, `policy set --allow-asset <mint>`, `policy set --any-asset`).
 
 ## Layout
 

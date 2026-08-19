@@ -78,15 +78,22 @@ pub enum PolicyCommand {
     Set(PolicySetArgs),
 }
 
+/// Each flag changes one part of the on-chain policy; parts not named stay.
 #[derive(Debug, Args)]
 pub struct PolicySetArgs {
-    /// Mint the ring accepts, repeatable; `SOL` for native SOL. Without any,
-    /// every asset is accepted.
-    #[arg(long = "allow-asset", value_name = "MINT")]
+    /// Replace the allowlist with these mints, repeatable; `SOL` for native SOL.
+    #[arg(
+        long = "allow-asset",
+        value_name = "MINT",
+        conflicts_with = "any_asset"
+    )]
     pub allow_assets: Vec<String>,
+    /// Drop the allowlist, every asset is accepted.
+    #[arg(long)]
+    pub any_asset: bool,
     /// `open` or `blocked`.
-    #[arg(long, default_value = "open")]
-    pub withdrawals: String,
+    #[arg(long, value_parser = ["open", "blocked"])]
+    pub withdrawals: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -228,10 +235,23 @@ pub fn run(cli: Cli) -> Result<()> {
                     return Ok(());
                 }
                 PolicyCommand::Apply => policy::from_config(&config.policy)?,
-                PolicyCommand::Set(args) => policy::from_config(&config::PolicyConfig {
-                    allowed_assets: (!args.allow_assets.is_empty()).then_some(args.allow_assets),
-                    withdrawals: Some(args.withdrawals),
-                })?,
+                PolicyCommand::Set(args) => {
+                    let mut wanted = policy::read_policy(&rpc)?;
+                    if args.any_asset {
+                        wanted.allowed_assets = None;
+                    } else if !args.allow_assets.is_empty() {
+                        wanted.allowed_assets = Some(
+                            args.allow_assets
+                                .iter()
+                                .map(|asset| policy::parse_asset(asset))
+                                .collect::<Result<_>>()?,
+                        );
+                    }
+                    if let Some(withdrawals) = args.withdrawals.as_deref() {
+                        wanted.withdrawals_blocked = withdrawals == "blocked";
+                    }
+                    wanted
+                }
             };
             let authority = config.authority()?;
             fund_on_localnet(&config, &mut rpc, authority.pubkey())?;
