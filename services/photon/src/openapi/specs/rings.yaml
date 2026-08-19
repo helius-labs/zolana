@@ -109,6 +109,21 @@ paths:
                         oneOf:
                         - type: 'null'
                         - $ref: '#/components/schemas/Base64String'
+                      scannedThrough:
+                        oneOf:
+                        - type: 'null'
+                        - $ref: '#/components/schemas/Base64String'
+                          description: |-
+                            Where the scan reached, when it ran out of rows rather than filling a
+                            page.
+
+                            Separates the two jobs `next_cursor` used to do at once. A cursor on
+                            every non-empty page made "is there more?" cost an extra request, and
+                            dropping it there instead would leave a caller with no watermark to
+                            resume from -- so the watermark moved here, and `next_cursor` now means
+                            only that another page exists. Present only on a page the limit did not
+                            truncate, which is when "nothing further exists at or before this
+                            position" holds.
                     additionalProperties: false
         '429':
           description: Exceeded rate limit.
@@ -864,6 +879,21 @@ paths:
                         oneOf:
                         - type: 'null'
                         - $ref: '#/components/schemas/Base64String'
+                      scannedThrough:
+                        oneOf:
+                        - type: 'null'
+                        - $ref: '#/components/schemas/Base64String'
+                          description: |-
+                            Where the scan reached, when it ran out of rows rather than filling a
+                            page.
+
+                            Separates the two jobs `next_cursor` used to do at once. A cursor on
+                            every non-empty page made "is there more?" cost an extra request, and
+                            dropping it there instead would leave a caller with no watermark to
+                            resume from -- so the watermark moved here, and `next_cursor` now means
+                            only that another page exists. Present only on a page the limit did not
+                            truncate, which is when "nothing further exists at or before this
+                            position" holds.
                       transactions:
                         type: array
                         items:
