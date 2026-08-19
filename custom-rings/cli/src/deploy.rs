@@ -14,7 +14,7 @@ pub struct Deploy<'a> {
     pub rpc_url: &'a str,
     pub authority_keypair: &'a Path,
     pub authority: Address,
-    /// Needed for the first deploy only; an upgrade names the program by id.
+    /// Needed for the first deploy only. An upgrade names the program by id.
     pub program_keypair: &'a Path,
     pub program_so: &'a Path,
 }
@@ -28,7 +28,7 @@ pub enum DeployOutcome {
     Upgraded,
 }
 
-/// The loader-v3 `ProgramData` of a deployed program: who may upgrade it and
+/// The loader-v3 `ProgramData` of a deployed program, who may upgrade it and
 /// how many bytecode bytes it can hold.
 pub struct ProgramDataInfo {
     pub upgrade_authority: Option<Address>,
@@ -103,7 +103,7 @@ impl Deploy<'_> {
         })
     }
 
-    /// Grows `ProgramData` so a larger binary fits; the loader refuses an
+    /// Grows `ProgramData` so a larger binary fits. The loader refuses an
     /// upgrade that does not.
     fn extend(&self, program_id: Address, additional_bytes: usize) -> Result<()> {
         println!("extending program data by {additional_bytes} bytes");

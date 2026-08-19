@@ -71,7 +71,7 @@ impl ViewingKey {
     }
 
     /// HKDF-SHA256 over `ikm` with `info`, then the hash-to-scalar of the
-    /// 48-byte output. Deterministic: the same inputs give the same key.
+    /// 48-byte output. Deterministic, the same inputs give the same key.
     pub fn from_hkdf(ikm: &[u8], info: &[&[u8]]) -> Result<Self, KeypairError> {
         let mut okm = Zeroizing::new([0u8; 48]);
         derivation::hkdf_expand(None, ikm, info, okm.as_mut_slice())?;

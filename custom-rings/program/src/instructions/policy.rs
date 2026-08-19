@@ -35,7 +35,7 @@ struct DepositAssets {
     assets: Vec<DepositAssetKind>,
 }
 
-/// A settlement leg as the policy sees it: which mint, which way, and how many
+/// A settlement leg as the policy sees it. Which mint, which way, and how many
 /// accounts its group takes in SPP's layout.
 struct Leg {
     mint: [u8; 32],
@@ -49,8 +49,8 @@ enum Direction {
     OutOf,
 }
 
-/// `spp_accounts` and `data` are the forwarded ring deposit; `data` still
-/// carries SPP's tag byte. Every deposited mint must pass the allowlist.
+/// `spp_accounts` and `data` are the forwarded ring deposit, `data` still
+/// carrying SPP's tag byte. Every deposited mint must pass the allowlist.
 pub fn check_deposit(
     config: &RingProgramConfig,
     spp_accounts: &[AccountView],
@@ -68,7 +68,7 @@ pub fn check_deposit(
         .get(DEPOSIT_PREFIX..)
         .ok_or(CustomRingError::InvalidInstructionData)?;
     for kind in &assets {
-        // Group shapes follow SPP's deposit loader: SOL reads `[system_program,
+        // Group shapes follow SPP's deposit loader. SOL reads `[system_program,
         // sol_interface]`, SPL reads `[token_program, mint, user_token,
         // spl_interface]`.
         let (mint, width) = match kind {
@@ -97,7 +97,7 @@ pub fn check_transact(
     if interface_transfers.is_empty() {
         return Ok(false);
     }
-    // Owner signers follow the fixed prefix; the settlement groups start at
+    // Owner signers follow the fixed prefix and the settlement groups start at
     // the first non-signer, in `interface_transfers` order. Every group opens
     // with a non-signer (`mint` or `sol_interface`), so the boundary is exact.
     let after_prefix = spp_accounts
@@ -128,7 +128,7 @@ pub fn check_transact(
     Ok(needs_approval)
 }
 
-/// Group shapes follow SPP's transact loader: SPL deposit `[mint,
+/// Group shapes follow SPP's transact loader. SPL deposit `[mint,
 /// spl_interface, token_authority, user_token, token_program]`, SPL withdrawal
 /// `[mint, spl_interface, user_token, token_program]`, SOL `[sol_interface,
 /// recipient]`.

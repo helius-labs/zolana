@@ -46,7 +46,7 @@ fn approver_creates_the_approval_of_one_transact() {
     assert_eq!(approval.data, vec![TRANSACT_APPROVAL, bump]);
 }
 
-/// `revoke_approval` over the account `approve_transact` wrote: the account
+/// `revoke_approval` over the account `approve_transact` wrote. The account
 /// closes and its lamports land with the rent recipient.
 #[test]
 fn approver_revokes_an_unspent_approval() {

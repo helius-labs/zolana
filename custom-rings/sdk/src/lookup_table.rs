@@ -20,7 +20,7 @@ use zolana_client::SolanaRpc;
 pub const TRANSACT_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 
 /// Send `ix` as a v0 transaction behind a fresh lookup table. `payer` pays for
-/// the table and the transaction; `signers` are the other required signers.
+/// the table and the transaction, `signers` are the other required signers.
 pub fn send_v0_with_lookup_table(
     rpc: &SolanaRpc,
     payer: &dyn Signer,
@@ -88,9 +88,10 @@ pub fn build_v0_with_lookup_table(
 }
 
 /// Every key the transaction needs except the signers, which stay static. The
-/// compute budget program is included too: a key left out of the table costs 32
-/// message bytes instead of a 1-byte index, and the audited ring transact has no
-/// such bytes to spare. Duplicates are dropped so one key never claims two slots.
+/// compute budget program is included too, because a key left out of the table
+/// costs 32 message bytes instead of a 1-byte index and the audited ring
+/// transact has no such bytes to spare. Duplicates are dropped so one key never
+/// claims two slots.
 pub fn lookup_table_addresses(ix: &Instruction, compute_program: Address) -> Vec<Address> {
     let mut addresses: Vec<Address> = Vec::new();
     for address in ix

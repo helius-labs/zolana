@@ -11,7 +11,7 @@ pub fn approval_pda(private_tx_hash: &[u8; 32]) -> Address {
     Address::find_program_address(&[APPROVAL_PDA_SEED, private_tx_hash], &PROGRAM_ID).0
 }
 
-/// The approver signs off one transact; `transact` spends the approval.
+/// The approver signs off one transact and `transact` spends the approval.
 pub struct ApproveTransact {
     /// The config's approver.
     pub approver: Address,
@@ -43,7 +43,7 @@ impl ApproveTransact {
     }
 }
 
-/// The approver takes an unspent approval back; its lamports go to
+/// The approver takes an unspent approval back and its lamports go to
 /// `rent_recipient`.
 pub struct RevokeApproval {
     pub approver: Address,

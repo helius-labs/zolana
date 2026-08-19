@@ -3,9 +3,8 @@
 // Every answer becomes a template variable. A variable that arrives on the
 // command line (`-d name=value`) is kept, so the driver and CI can run this
 // without prompts. The feature registry below is the one place a feature is
-// declared: add an entry, and the prompt, ring.toml, README and cargo feature
-// list follow. A `ready` feature id is a cargo feature of both
-// `custom-ring-program` and `custom-ring-cli`.
+// declared. Add an entry, and the prompt, ring.toml and README follow. A
+// feature that needs on-chain values adds them to `policy_toml`.
 
 const PIPELINE = [
     "cargo generate template (this wizard)",
@@ -17,8 +16,8 @@ const PIPELINE = [
     "transact in the ring (`just transact`)",
 ];
 
-// state: "always" is on for every ring, "ready" is offered as a choice,
-// "coming_soon" is listed and disabled.
+// The `state` field. "always" is on for every ring, "ready" is offered as a
+// choice, "coming_soon" is listed and disabled.
 const FEATURES = [
     #{ id: "confidential", name: "Confidential", example: "Amounts and recipients are hidden on chain", state: "always" },
     #{ id: "auditor_visibility", name: "Auditor visibility", example: "Let compliance, accounting, or regulators view ring activity", state: "always" },
@@ -55,7 +54,7 @@ fn setting(name, fallback) {
 }
 
 // `-d silent=true` (what the driver passes for `--silent`) turns every question
-// into its fallback; a missing required answer aborts instead of prompting.
+// into its fallback. A missing required answer aborts instead of prompting.
 fn silent() {
     let value = setting("silent", false);
     value == true || value == "true"
@@ -107,7 +106,7 @@ ask("devnet_indexer_url", "Devnet Photon indexer URL", DEVNET_INDEXER);
 ask("devnet_prover_url", "Devnet prover URL", DEVNET_PROVER);
 
 // The program id is the address the ring deploys to. The driver generates the
-// keypair and hands the pubkey in; typing one by hand needs the matching keypair
+// keypair and hands the pubkey in. Typing one by hand needs the matching keypair
 // in keys/program-keypair.json before `just deploy`.
 ask("program_id", "Program id (base58 pubkey of keys/program-keypair.json)", "");
 if variable::get("program_id") == "" {
@@ -182,7 +181,7 @@ if variable::get("allowed_assets_enabled") {
     policy_toml += "allowed_assets = [" + list + "]\n";
 }
 if variable::get("withdrawal_rules_enabled") {
-    // The default rule for every asset; `policy set --asset-withdrawals` and
+    // The default rule for every asset. `policy set --asset-withdrawals` and
     // ring.toml's `[policy.asset_withdrawals]` refine it per mint.
     let rule = if variable::is_set("withdrawals") {
         variable::get("withdrawals")
@@ -196,7 +195,7 @@ if variable::get("withdrawal_rules_enabled") {
     }
     policy_toml += "withdrawals = \"" + rule + "\"\n";
     if rule == "approval" {
-        // The authority approves by default; the driver passes its pubkey.
+        // The authority approves by default. The driver passes its pubkey.
         let approver = if variable::is_set("approver") {
             variable::get("approver")
         } else if silent() {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Custom ring wizard driver: prepares what cargo-generate cannot (the program
+# Custom ring wizard driver. Prepares what cargo-generate cannot (the program
 # keypair, the per-clone service URLs), runs the template interactively, and
 # places the keypair in the generated ring.
 #
@@ -49,11 +49,11 @@ mkdir -p "$keys"
 trap 'rm -rf "$keys"' EXIT
 solana-keygen new --no-bip39-passphrase --silent --force -o "$keys/program-keypair.json"
 program_id="$(solana-keygen pubkey "$keys/program-keypair.json")"
-# The default approver of an approval rule; the wizard offers it as the default.
+# The default approver of an approval rule, offered by the wizard as its default.
 authority_pubkey="$(solana-keygen pubkey "${AUTHORITY_KEYPAIR:-$HOME/.config/solana/id.json}" 2>/dev/null || true)"
 
 # Service URLs come from the justfile (`just ring-new`), which resolves the
-# per-clone port offset and every explicit override; a direct call falls back to
+# per-clone port offset and every explicit override. A direct call falls back to
 # the offset alone.
 offset="${ZOLANA_PORT_OFFSET:-0}"
 rpc_url="${ZOLANA_LOCALNET_URL:-http://127.0.0.1:$((8899 + offset))}"
@@ -62,7 +62,7 @@ prover_url="${ZOLANA_PROVER_URL:-http://127.0.0.1:$((3001 + offset))}"
 ring_rpc_port="${ZOLANA_LOCALNET_RING_RPC_PORT:-$((8785 + offset))}"
 
 # Non-interactive runs (`--silent`, or no terminal) answer every question with
-# its default; the hook learns that through `silent`.
+# its default. The hook learns that through `silent`.
 silent=()
 wants_silent=false
 for arg in "$@"; do

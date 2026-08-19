@@ -192,7 +192,7 @@ where
 }
 
 async fn readiness<S: TransactionSource>(hub: &Hub<S>) -> HttpResponse {
-    // Any ring probes the same indexer; the local key or an arbitrary ring.
+    // Any ring probes the same indexer, the local key or an arbitrary ring.
     let service = match hub.local_service() {
         Some(service) => Ok(service),
         None => hub.ring(Some(Address::default())),

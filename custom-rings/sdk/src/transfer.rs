@@ -44,7 +44,7 @@ use crate::{
 /// A UTXO's `data_hash` / `ring_data_hash` when it carries neither.
 const ZERO: [u8; 32] = [0u8; 32];
 
-/// One audited transfer: `sender` spends `inputs` (ring-owned UTXOs) into
+/// One audited transfer. `sender` spends `inputs` (ring-owned UTXOs) into
 /// `outputs` and `withdrawals`, and the transaction viewing key is verifiably
 /// encrypted to `auditor_pk`.
 pub struct AuditedTransfer<'a, I: Rpc> {
@@ -62,7 +62,7 @@ pub struct AuditedTransfer<'a, I: Rpc> {
 
 /// Both proofs and the instruction data they verify, ready to send.
 pub struct ProvenTransfer {
-    /// The key the auditor recovers; every output ciphertext is under it.
+    /// The key the auditor recovers, every output ciphertext is under it.
     pub tx_viewing_key: ViewingKey,
     pub data: TransactIxData,
     pub audit_proof: AuditProof,
@@ -161,7 +161,7 @@ impl ProvenTransfer {
     /// The audited ring transact instruction, `payer` paying. `approval` is
     /// this transact's approval account when a withdrawal falls under an
     /// approval rule. `ring_config` (the ring's `ring_auth` PDA) stays unsigned
-    /// here; the program flips it to a signer inside its CPI.
+    /// here, the program flips it to a signer inside its CPI.
     pub fn instruction(
         &self,
         payer: Address,
@@ -186,7 +186,7 @@ impl ProvenTransfer {
 /// Ring-deposit `amount` lamports to `recipient`'s shielded address, paid by
 /// `payer`, returning the ring-owned UTXO the deposit created. The public face
 /// of a ring deposit carries only the `owner_utxo_hash` commitment and the
-/// recipient bootstrap view tag; the blinding travels encrypted to the
+/// recipient bootstrap view tag, while the blinding travels encrypted to the
 /// recipient's viewing key.
 pub fn ring_deposit_sol<R: Rpc>(
     rpc: &R,
@@ -335,7 +335,7 @@ pub fn assemble_ring_eddsa_ix_data(
 }
 
 /// The audited ring transact instruction. `ring_config` (the ring's `ring_auth`
-/// PDA) stays unsigned here; the program flips it to a signer inside its CPI.
+/// PDA) stays unsigned here, the program flips it to a signer inside its CPI.
 pub fn ring_transact_ix(
     payer: Address,
     tree: Address,

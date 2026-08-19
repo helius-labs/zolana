@@ -225,7 +225,7 @@ fn fixture() -> Fixture {
     );
 
     // Returned by the indexer because an output tag collided with the auditor
-    // tag; it carries no auditor message and must be dropped.
+    // tag. It carries no auditor message and must be dropped.
     let tx3 = ViewingKey::new();
     let mut slot = confidential_slot(&tx3, &recipient, 11, 0);
     slot.view_tag = auditor_view_tag(&auditor_pk);

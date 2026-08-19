@@ -417,7 +417,7 @@ fn policy(withdrawals: WithdrawalRule) -> Account {
     )
 }
 
-/// Policy runs before the proof: the fixture's proof is bogus and the
+/// Policy runs before the proof. The fixture's proof is bogus and the
 /// withdrawal is still what gets named.
 #[test]
 fn public_withdrawal_is_rejected_exactly_when_blocked() {
@@ -443,7 +443,7 @@ fn public_withdrawal_under_approval_needs_the_approval_account() {
     );
 }
 
-/// The approval account is bound to `private_tx_hash`; another transact's
+/// The approval account is bound to `private_tx_hash`. Another transact's
 /// approval does not open this one.
 #[test]
 fn an_approval_for_another_transact_is_rejected_exactly() {
@@ -478,7 +478,7 @@ fn a_matching_approval_lets_the_withdrawal_reach_the_proof() {
     );
 }
 
-/// The per-asset rule wins over the default: SOL open while the default blocks.
+/// The per-asset rule wins over the default, SOL open while the default blocks.
 #[test]
 fn per_asset_rule_overrides_the_default() {
     let (mollusk, _) = setup_mollusk();

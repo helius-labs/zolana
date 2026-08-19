@@ -15,8 +15,8 @@ pub const MAX_ASSETS: usize = 8;
 /// The mint that stands for native SOL in the asset table and in SPP's registry.
 pub const SOL_MINT: [u8; 32] = [0u8; 32];
 
-/// What happens to a public settlement leg out of the pool. Stored as its `u8`
-/// in the config; every byte the program writes came through `try_from`.
+/// What happens to a public settlement leg out of the pool. The config stores
+/// the `u8` and every byte the program writes came through `try_from`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum WithdrawalRule {
@@ -108,10 +108,10 @@ pub struct RingProgramConfig {
     pub asset_policy: u8,
     /// Live entries of `assets` and `asset_withdrawals`, at most [`MAX_ASSETS`].
     pub assets_len: u8,
-    /// The key that may create approval accounts; all zero when no rule needs
+    /// The key that may create approval accounts, all zero when no rule needs
     /// approval.
     pub approver: Address,
-    /// Mints of the asset table; SOL is [`SOL_MINT`].
+    /// Mints of the asset table, SOL is [`SOL_MINT`].
     pub assets: [[u8; 32]; MAX_ASSETS],
     /// [`WithdrawalRule`] per table entry.
     pub asset_withdrawals: [u8; MAX_ASSETS],
@@ -150,7 +150,7 @@ impl RingProgramConfig {
         }
     }
 
-    /// The withdrawal rule for `mint`: its table entry, else the default.
+    /// The withdrawal rule for `mint`, its table entry or else the default.
     pub fn withdrawal_rule(&self, mint: &[u8; 32]) -> WithdrawalRule {
         self.assets().find(|asset| asset.mint == *mint).map_or_else(
             || rule_or_blocked(self.withdrawals),
@@ -162,7 +162,7 @@ impl RingProgramConfig {
         (self.approver != Address::default()).then_some(&self.approver)
     }
 
-    /// Replaces the policy fields; the caller has validated `assets.len()`.
+    /// Replaces the policy fields. The caller has validated `assets.len()`.
     pub fn set_policy(
         &mut self,
         asset_policy: AssetPolicy,

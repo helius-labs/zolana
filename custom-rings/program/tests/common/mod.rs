@@ -197,7 +197,7 @@ pub fn approval_account(private_tx_hash: &[u8; 32]) -> (Pubkey, Account) {
     )
 }
 
-/// `approve_transact` fixture: `[approver(s), payer(w,s), config, approval(w),
+/// `approve_transact` fixture, `[approver(s), payer(w,s), config, approval(w),
 /// system_program]` over `config`.
 pub fn approve_transact_fixture(
     config: Account,
@@ -240,7 +240,7 @@ pub fn set_policy_data(policy: &SetPolicyIxData) -> Vec<u8> {
     data
 }
 
-/// `set_policy` fixture: `[authority(s), config(w)]` over `config`.
+/// `set_policy` fixture, `[authority(s), config(w)]` over `config`.
 pub fn set_policy_fixture(
     config: Account,
     policy: &SetPolicyIxData,
@@ -350,11 +350,11 @@ pub fn init_spp_ring_config_fixture(config: Account) -> (Instruction, Vec<(Pubke
     )
 }
 
-/// SOL-only ring-deposit fixture: the ring config first, then SPP's list laid
-/// out exactly as its deposit loader wants it: `[tree(w), depositor(w,s),
+/// SOL-only ring-deposit fixture, the ring config first, then SPP's list laid
+/// out exactly as its deposit loader wants it, `[tree(w), depositor(w,s),
 /// ring_config, spp_program, system_program, sol_interface]`. The instruction
 /// data starts with SPP's own `RING_DEPOSIT` tag, which the ring forwards
-/// verbatim; `data` is the body after the tag.
+/// verbatim, and `data` is the body after the tag.
 pub fn deposit_fixture_with(
     config: Account,
     data: Vec<u8>,

@@ -352,7 +352,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         spendable.push(utxo);
     }
 
-    // 5a. Two explicit outputs -- the sender's change and the recipient -- which
+    // 5a. Two explicit outputs, the sender's change and the recipient, which
     //     is the (2, 2) shape. This is the `SppProofInputs` layer the transaction
     //     crate documents for ring flows, not the high-level
     //     `ConfidentialTransfer`: that builder always emits three outputs (a
@@ -377,8 +377,8 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
     //     every output ciphertext is HPKE'd under it, so recovering this one
     //     scalar opens the transaction. `AuditedTransfer::prove` encrypts it to
     //     the auditor before the SPP proof runs, so the message is inside the
-    //     `private_tx_hash` the audit circuit binds; the program recomputes that
-    //     same public-input chain from the payload and the config account.
+    //     `private_tx_hash` the audit circuit binds, and the program recomputes
+    //     that same public-input chain from the payload and the config account.
     let proven = AuditedTransfer {
         indexer,
         spp_prover: &ProverClient::local(),

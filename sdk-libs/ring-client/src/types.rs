@@ -16,7 +16,7 @@ pub struct AuditedOutput {
     pub slot_index: u32,
     /// The recipient's viewing key, published in clear at the head of every
     /// confidential slot so the recipient can find it. It is the auditor's
-    /// "to": the sender's own change carries the sender's viewing key.
+    /// "to". The sender's own change carries the sender's viewing key.
     pub recipient_viewing_pk: P256Pubkey,
     pub asset: Address,
     pub amount: u64,

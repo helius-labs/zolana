@@ -9,7 +9,7 @@ use zolana_interface::{BPF_LOADER_UPGRADEABLE_ID, SHIELDED_POOL_PROGRAM_ID};
 
 use crate::{error::CustomRingError, state::RingProgramConfig};
 
-/// Load the ring config read-only: owned by this program, exact length, and
+/// Load the ring config read-only. Owned by this program, exact length, and
 /// carrying the config discriminator.
 ///
 /// The canonical PDA derivation is checked once, at creation; access control
