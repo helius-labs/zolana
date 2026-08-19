@@ -45,7 +45,7 @@ impl CreateEscrow {
 
         let accounts = vec![
             AccountMeta::new(taker, true),
-            AccountMeta::new_readonly(pair, false),
+            AccountMeta::new(pair, false),
             AccountMeta::new(escrow, false),
             AccountMeta::new_readonly(solana_system_interface::program::ID, false),
             // Forwarded SPP `transact` CPI tail: payer (the taker, whose outer

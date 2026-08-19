@@ -24,6 +24,21 @@ pub struct Pair {
     /// to be past that. Set at `create_pair` and immutable, so the maker
     /// cannot shrink or stretch the window on open escrows. Nonzero.
     pub expiry_slots: u64,
+    /// The worst-case owed per escrow (destination asset): every open escrow
+    /// reserves exactly this much of `liquidity_bound`, and the `escrow_open`
+    /// circuit caps `order_amount * execution_price` to it. Set at
+    /// `create_pair` and immutable: `cancel` must release exactly what
+    /// `create_escrow` reserved. Nonzero.
+    pub max_order_size: u64,
+    /// Public lower bound on the pool's counted liquidity (destination asset).
+    /// Invariant: `sum(booked over pool notes) >= liquidity_bound +
+    /// open_reservations * max_order_size`, maintained purely by public
+    /// deltas -- deposits and rebalance credits raise it, withdrawals and
+    /// escrow reservations lower it, settle leaves it untouched.
+    pub liquidity_bound: u64,
+    /// Number of open escrows, each holding a `max_order_size` reservation
+    /// carved out of `liquidity_bound`. Settle and cancel each release one.
+    pub open_reservations: u64,
     /// The source asset's UTXO commitment (`asset_field(source_mint)` =
     /// `hash_bytes(source_mint)`), supplied at `create_pair` time. The program
     /// has only the `source_asset_id` registry number, not a mint->field map,
@@ -33,6 +48,10 @@ pub struct Pair {
     /// escrow a worthless token and drain the destination asset on settle).
     pub source_asset: [u8; 32],
     pub destination_asset: [u8; 32],
+    /// The maker receipt destination: the shielded owner-hash `settle` pays the
+    /// source asset to, supplied at `create_pair` time and fed as the
+    /// `pool_settle` circuit's `ReceiptOwnerHash` public input. Immutable.
+    pub maker_receipt_owner_hash: [u8; 32],
     /// The maker's encryption pubkey (SEC1-compressed P256), supplied at
     /// `create_pair` time -- the PDA-role viewing pubkey the maker derives from
     /// its own viewing key bound to the escrow_authority PDA. `create_escrow`
@@ -54,7 +73,7 @@ impl Pair {
     }
 }
 
-const _: () = assert!(Pair::SIZE == 176);
+const _: () = assert!(Pair::SIZE == 232);
 
 #[inline(always)]
 pub fn load_pair(account: &AccountView) -> Result<Ref<'_, Pair>, ProgramError> {

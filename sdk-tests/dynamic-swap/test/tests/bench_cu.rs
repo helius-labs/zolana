@@ -11,16 +11,17 @@ use dynamic_swap_sdk::{
         cancel::{Cancel, CancelProofInputParams},
         create_escrow::{CreateEscrow, EscrowOpenProofInputParams},
         create_pair::CreatePair,
+        rebalance_liquidity::{RebalanceLiquidity, RebalanceProofInputParams},
         settle::{
-            derive_output_blinding, Settle, SettleProofInputParams,
-            CANCEL_REFUND_BLINDING_DOMAIN, FUNDER_CHANGE_BLINDING_DOMAIN,
-            FUNDER_RECEIPT_BLINDING_DOMAIN, RECIPIENT_BLINDING_DOMAIN,
+            derive_output_blinding, Settle, SettleProofInputParams, CANCEL_REFUND_BLINDING_DOMAIN,
+            RECIPIENT_BLINDING_DOMAIN,
         },
         update_price::UpdatePrice,
+        withdraw_liquidity::{WithdrawLiquidity, WithdrawProofInputParams},
     },
     pair_pda,
     prover::DynamicSwapProverClient,
-    state::{escrow_authority_identity, EscrowUtxo},
+    state::{escrow_authority_identity, pool_authority_identity, EscrowUtxo, PoolUtxo},
     Groth16ProofBytes,
 };
 use light_program_profiler::{
@@ -62,7 +63,7 @@ use zolana_transaction::{
         },
         types::SppProofInputUtxo,
     },
-    AssetRegistry, Data, Utxo, SOL_MINT,
+    AssetRegistry, Data, Utxo,
 };
 use zolana_tree::TreeAccount;
 
@@ -77,9 +78,10 @@ const PROVER_KEYS_DIR: &str = concat!(
 );
 
 const SOURCE_ASSET_ID: u64 = 2;
-const DESTINATION_ASSET_ID: u64 = 1;
+const DESTINATION_ASSET_ID: u64 = 3;
 const PRICE: u64 = 5;
 const EXPIRY_SLOTS: u64 = 1_000;
+const MAX_ORDER_SIZE: u64 = 600_000_000;
 
 fn mollusk_program_account(program_id: &Pubkey) -> (Pubkey, Account) {
     let account = mollusk_svm::program::create_program_account_loader_v3(program_id);
@@ -179,6 +181,29 @@ fn nullifier_tree() -> IndexedMerkleTree<Poseidon, usize> {
     .expect("nullifier tree")
 }
 
+fn non_inclusion_proof(
+    nf_tree: &IndexedMerkleTree<Poseidon, usize>,
+    merkle_context: &MerkleContext,
+    nullifier: [u8; 32],
+    nullifier_root: [u8; 32],
+) -> NonInclusionProof {
+    let nf = nf_tree
+        .get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))
+        .expect("non inclusion proof");
+    NonInclusionProof {
+        leaf: nullifier,
+        merkle_context: merkle_context.clone(),
+        path: nf.merkle_proof.to_vec(),
+        low_element: nf.leaf_lower_range_value,
+        low_element_index: nf.leaf_index as u64,
+        high_element: nf.leaf_higher_range_value,
+        high_element_index: 0,
+        root: nullifier_root,
+        root_seq: 0,
+        root_index: 0,
+    }
+}
+
 fn build_spend_proofs(
     tree: &Pubkey,
     state_tree: &MerkleTree<Poseidon>,
@@ -200,9 +225,6 @@ fn build_spend_proofs(
                 .get_proof_of_leaf(leaf_index, true)
                 .expect("state proof")
                 .to_vec();
-            let nf = nf_tree
-                .get_non_inclusion_proof(&BigUint::from_bytes_be(&commitment.nullifier))
-                .expect("non inclusion proof");
             SpendProof {
                 state: MerkleProof {
                     leaf: commitment.utxo_hash,
@@ -213,18 +235,12 @@ fn build_spend_proofs(
                     root_seq: 0,
                     root_index,
                 },
-                nullifier: NonInclusionProof {
-                    leaf: commitment.nullifier,
-                    merkle_context: merkle_context.clone(),
-                    path: nf.merkle_proof.to_vec(),
-                    low_element: nf.leaf_lower_range_value,
-                    low_element_index: nf.leaf_index as u64,
-                    high_element: nf.leaf_higher_range_value,
-                    high_element_index: 0,
-                    root: nullifier_root,
-                    root_seq: 0,
-                    root_index: 0,
-                },
+                nullifier: non_inclusion_proof(
+                    nf_tree,
+                    &merkle_context,
+                    commitment.nullifier,
+                    nullifier_root,
+                ),
             }
         })
         .collect()
@@ -269,14 +285,15 @@ fn shielded_keypair_from_seed(seed: [u8; 32]) -> ShieldedKeypair {
 fn prove_transact_timed(
     proof_inputs: SppProofInputs,
     spend_proofs: &[SpendProof],
+    dummy_nullifier_proofs: &[NonInclusionProof],
     prover: &ProverClient,
 ) -> (TransactIxData, Duration) {
     prover
-        .prove_transact(proof_inputs.clone(), spend_proofs, &[])
+        .prove_transact(proof_inputs.clone(), spend_proofs, dummy_nullifier_proofs)
         .expect("warm prove transact");
     let start = Instant::now();
     let transact = prover
-        .prove_transact(proof_inputs, spend_proofs, &[])
+        .prove_transact(proof_inputs, spend_proofs, dummy_nullifier_proofs)
         .expect("prove transact");
     (transact, start.elapsed())
 }
@@ -371,23 +388,26 @@ fn bench_cu_dynamic_swap() {
     let mut bench = CuBenchmark::new(ReadmeConfig {
         title: "Dynamic Swap -- CU Benchmark".into(),
         description: "Compute unit profiling for the dynamic-swap create_pair/update_price/\
-             create_escrow/settle/cancel instructions, replayed under mollusk. Every PDA account \
-             (Pair, Escrow) and the shielded-pool tree account are built directly, as if the prior \
-             instruction chain already ran -- only the ONE instruction under \
-             measurement is actually replayed. Only the dynamic-swap program is profiled; the \
-             shielded-pool program is built plain, so the CU its CPI consumes is charged to the \
-             `cpi_spp_transact*` row as a black box and its internal functions do not appear \
-             here. update_price never verifies a proof or CPI into SPP at all \
-             (the whole point of keeping it cheap); create_escrow (taker-only, IN1_OUT2), settle \
-             (maker-funded, IN2_OUT3), and cancel (after expiry, IN1_OUT1) each verify their own \
-             Groth16 proof and then CPI SPP `transact`, which verifies its own. Each \
-             proof-carrying instruction's section also records its proving times (SPP transfer \
-             proof plus the dynamic-swap circuit proof) and its serialized transaction size: the \
-             instruction prefixed with a compute-budget limit ix, as a legacy transaction and as \
-             a v0 transaction with every non-signer account and the program id in one address \
-             lookup table (Solana's packet limit is 1232 bytes). Dropping the maker legs from \
-             create_escrow brought it and cancel back under the limit as plain legacy \
-             transactions; only settle still needs the v0+ALT form."
+             create_escrow/settle/cancel/withdraw_liquidity/rebalance_liquidity instructions, \
+             replayed under mollusk. Every PDA account (Pair, Escrow) and the shielded-pool tree \
+             account are built directly, as if the prior instruction chain already ran -- only \
+             the ONE instruction under measurement is actually replayed. Only the dynamic-swap \
+             program is profiled; the shielded-pool program is built plain, so the CU its CPI \
+             consumes is charged to the `cpi_spp_*` row as a black box and its internal functions \
+             do not appear here. update_price never verifies a proof or CPI into SPP at all (the \
+             whole point of keeping it cheap); create_escrow (taker-only, IN1_OUT2), settle \
+             (pool-funded, maker-only, IN2_OUT3), cancel (after expiry, IN1_OUT1), \
+             withdraw_liquidity (IN1_OUT1, benched as the amount = 0 re-blind so no SPL \
+             settlement fixtures are needed), and rebalance_liquidity (IN5_OUT4, dummy-padded) \
+             each verify their own Groth16 proof and then CPI SPP `transact`, which verifies its \
+             own. deposit_liquidity is proof-free (the program validates the public entry and \
+             forwards SPP's proofless deposit with its SPL settlement) and is not profiled here \
+             -- it would need token-program fixtures; its on-chain cost is dominated by the SPP \
+             deposit CPI. Each proof-carrying instruction's section also records its proving \
+             times (SPP transfer proof plus the dynamic-swap circuit proof) and its serialized \
+             transaction size: the instruction prefixed with a compute-budget limit ix, as a \
+             legacy transaction and as a v0 transaction with every non-signer account and the \
+             program id in one address lookup table (Solana's packet limit is 1232 bytes)."
             .into(),
         output_path: OUTPUT_PATH.into(),
         regenerate_command: Some("just bench-dynamic-swap".into()),
@@ -401,6 +421,8 @@ fn bench_cu_dynamic_swap() {
     bench_create_escrow(&mut mollusk, &spp_id, &dynamic_swap_id, &mut bench);
     bench_settle(&mut mollusk, &spp_id, &dynamic_swap_id, &mut bench);
     bench_cancel(&mut mollusk, &spp_id, &dynamic_swap_id, &mut bench);
+    bench_withdraw_liquidity(&mut mollusk, &spp_id, &dynamic_swap_id, &mut bench);
+    bench_rebalance_liquidity(&mut mollusk, &spp_id, &dynamic_swap_id, &mut bench);
 
     bench.generate().expect("write BENCHMARK.md");
 }
@@ -421,8 +443,10 @@ fn bench_create_pair(
         source_asset_id: SOURCE_ASSET_ID,
         destination_asset_id: DESTINATION_ASSET_ID,
         expiry_slots: EXPIRY_SLOTS,
+        max_order_size: MAX_ORDER_SIZE,
         source_asset: [0u8; 32],
         destination_asset: [0u8; 32],
+        maker_receipt_owner_hash: [7u8; 32],
         maker_encryption_pubkey: bench_encryption_pubkey(),
     }
     .instruction()
@@ -450,22 +474,10 @@ fn bench_update_price(
     dynamic_swap_id: &Pubkey,
     bench: &mut CuBenchmark,
 ) {
-    let authority = Keypair::new();
-    let pair = pair_pda(&authority.pubkey(), SOURCE_ASSET_ID, DESTINATION_ASSET_ID);
-    let pair_state = Pair {
-        discriminator: PAIR,
-        bump: 255,
-        _pad: [0u8; 6],
-        authority: authority.pubkey(),
-        source_asset_id: SOURCE_ASSET_ID,
-        destination_asset_id: DESTINATION_ASSET_ID,
-        price: PRICE,
-        expiry_slots: EXPIRY_SLOTS,
-        source_asset: [0u8; 32],
-        destination_asset: [0u8; 32],
-        maker_encryption_pubkey: bench_encryption_pubkey(),
-        _pad2: [0u8; 7],
-    };
+    let world = escrow_bench_world();
+    let pair_state = world.pair_state(MAX_ORDER_SIZE, 0);
+    let authority = &world.authority_solana;
+    let pair = world.pair;
 
     let ix = UpdatePrice {
         authority: authority.pubkey(),
@@ -492,21 +504,25 @@ fn bench_update_price(
 }
 
 /// The identity + escrow-account world shared by the create_escrow, settle,
-/// and cancel benches: one taker, one maker, one pair, one order UTXO.
+/// cancel, and liquidity benches: one taker, one maker, one pair, one order
+/// UTXO, one pool authority.
 struct EscrowBenchWorld {
     authority_solana: Keypair,
     authority_keypair: ShieldedKeypair,
     user_solana: Keypair,
     user_keypair: ShieldedKeypair,
     source_asset: Address,
+    destination_asset: Address,
     pair: Pubkey,
     escrow_owner: ShieldedPda,
+    pool_owner: ShieldedPda,
     tree: Pubkey,
     escrow_utxo: EscrowUtxo,
     assets: AssetRegistry,
 }
 
 const ORDER_AMOUNT: u64 = 100_000_000;
+const OWED: u64 = ORDER_AMOUNT * PRICE;
 const FUNDING_AMOUNT: u64 = 1_000_000_000;
 const CREATED_AT: u64 = 1_000;
 
@@ -524,6 +540,7 @@ fn escrow_bench_world() -> EscrowBenchWorld {
             .expect("ed25519 seed is the first 32 bytes"),
     );
     let source_asset = Address::new_from_array([2u8; 32]);
+    let destination_asset = Address::new_from_array([3u8; 32]);
     let pair = pair_pda(
         &authority_solana.pubkey(),
         SOURCE_ASSET_ID,
@@ -531,6 +548,8 @@ fn escrow_bench_world() -> EscrowBenchWorld {
     );
     let escrow_owner = escrow_authority_identity(&pair, &authority_keypair.viewing_key)
         .expect("escrow authority identity");
+    let pool_owner = pool_authority_identity(&pair, &authority_keypair.viewing_key)
+        .expect("pool authority identity");
     let recipient_owner_hash = user_keypair.owner_hash().expect("user owner hash");
     let escrow_utxo = EscrowUtxo {
         recipient_owner_hash,
@@ -542,14 +561,19 @@ fn escrow_bench_world() -> EscrowBenchWorld {
     assets
         .insert(SOURCE_ASSET_ID, source_asset)
         .expect("register source asset");
+    assets
+        .insert(DESTINATION_ASSET_ID, destination_asset)
+        .expect("register destination asset");
     EscrowBenchWorld {
         authority_solana,
         authority_keypair,
         user_solana,
         user_keypair,
         source_asset,
+        destination_asset,
         pair,
         escrow_owner,
+        pool_owner,
         tree: Keypair::new().pubkey(),
         escrow_utxo,
         assets,
@@ -557,7 +581,7 @@ fn escrow_bench_world() -> EscrowBenchWorld {
 }
 
 impl EscrowBenchWorld {
-    fn pair_state(&self) -> Pair {
+    fn pair_state(&self, liquidity_bound: u64, open_reservations: u64) -> Pair {
         Pair {
             discriminator: PAIR,
             bump: 255,
@@ -567,8 +591,16 @@ impl EscrowBenchWorld {
             destination_asset_id: DESTINATION_ASSET_ID,
             price: PRICE,
             expiry_slots: EXPIRY_SLOTS,
+            max_order_size: MAX_ORDER_SIZE,
+            liquidity_bound,
+            open_reservations,
             source_asset: asset_field(&self.source_asset).expect("source asset field"),
-            destination_asset: asset_field(&SOL_MINT).expect("destination asset field"),
+            destination_asset: asset_field(&self.destination_asset)
+                .expect("destination asset field"),
+            maker_receipt_owner_hash: self
+                .authority_keypair
+                .owner_hash()
+                .expect("authority owner hash"),
             maker_encryption_pubkey: *self.escrow_owner.viewing_pubkey().as_bytes(),
             _pad2: [0u8; 7],
         }
@@ -589,6 +621,12 @@ impl EscrowBenchWorld {
             .hash()
             .expect("order_in hash");
         (order_in, order_in_hash)
+    }
+
+    fn pool_address(&self) -> zolana_keypair::ShieldedAddress {
+        self.pool_owner
+            .shielded_address()
+            .expect("pool authority address")
     }
 
     fn escrow_state(&self, order_utxo_hash: [u8; 32]) -> Escrow {
@@ -633,13 +671,13 @@ fn bench_create_escrow(
         .expect("order_out");
     let order_utxo_hash = order_out.hash().expect("order_utxo hash");
 
-    let user_address = world
-        .user_keypair
-        .shielded_address()
-        .expect("user address");
-    let taker_change =
-        SppProofOutputUtxo::new(world.source_asset, FUNDING_AMOUNT - ORDER_AMOUNT, user_address)
-            .expect("taker_change");
+    let user_address = world.user_keypair.shielded_address().expect("user address");
+    let taker_change = SppProofOutputUtxo::new(
+        world.source_asset,
+        FUNDING_AMOUNT - ORDER_AMOUNT,
+        user_address,
+    )
+    .expect("taker_change");
 
     // Both ciphertexts are kept: the order slot is the maker handoff, the
     // change slot is the taker's own note.
@@ -695,7 +733,7 @@ fn bench_create_escrow(
     );
 
     let prover = ProverClient::local();
-    let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
+    let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &[], &prover);
 
     let proof_inputs = EscrowOpenProofInputParams {
         source_in,
@@ -705,6 +743,8 @@ fn bench_create_escrow(
             .owner_hash()
             .expect("escrow authority owner hash"),
         source_asset: asset_field(&world.source_asset).expect("source asset field"),
+        execution_price: PRICE,
+        max_order_size: MAX_ORDER_SIZE,
         order_amount: ORDER_AMOUNT,
         external_data_hash,
     }
@@ -736,12 +776,16 @@ fn bench_create_escrow(
     // `created_at` is program-stamped from the Clock sysvar; any slot works.
     mollusk.sysvars.clock.slot = CREATED_AT;
 
+    // The pool covers the worst-case reservation.
     let fixtures = vec![
         (
             world.user_solana.pubkey(),
             system_owned_account(100_000_000_000),
         ),
-        (world.pair, pair_fixture(world.pair_state(), dynamic_swap_id)),
+        (
+            world.pair,
+            pair_fixture(world.pair_state(FUNDING_AMOUNT, 0), dynamic_swap_id),
+        ),
         (escrow, system_owned_account(0)),
         (world.tree, tree_account),
     ];
@@ -771,74 +815,63 @@ fn bench_settle(
 
     let (order_in, order_in_hash) = world.order_in();
 
-    // The funder brings its own destination-asset note at fill time.
-    let maker_funding_utxo = Utxo {
-        owner: world.authority_keypair.signing_pubkey(),
-        asset: SOL_MINT,
+    // The payout is funded from the committed pool.
+    let pool_address = world.pool_address();
+    let pool_note = PoolUtxo {
+        asset: world.destination_asset,
         amount: FUNDING_AMOUNT,
+        booked: FUNDING_AMOUNT,
         blinding: random_blinding(),
-        ring_program_id: None,
-        data: Data::default(),
     };
-    let funding_blinding = maker_funding_utxo.blinding;
-    let maker_funding = SppProofInputUtxo::new(maker_funding_utxo, &world.authority_keypair);
-
-    let owed = ORDER_AMOUNT * PRICE;
-    let change_amount = FUNDING_AMOUNT - owed;
+    let pool_in = pool_note.to_input_utxo(&pool_address).expect("pool_in");
 
     let authority_address = world
         .authority_keypair
         .shielded_address()
         .expect("authority shielded address");
     let mut recipient_out = SppProofOutputUtxo::new(
-        SOL_MINT,
-        owed,
+        world.destination_asset,
+        OWED,
         world.user_keypair.shielded_address().expect("user address"),
     )
     .expect("recipient_out");
-    let mut funder_change =
-        SppProofOutputUtxo::new(SOL_MINT, change_amount, authority_address).expect("funder_change");
-    let mut funder_receipt =
-        SppProofOutputUtxo::new(world.source_asset, ORDER_AMOUNT, authority_address)
-            .expect("funder_receipt");
-
-    // The circuit fixes each output blinding to a derivation over one input
-    // blinding; the same value feeds the SPP transaction and the settle proof.
+    // The recipient blinding derives from the order blinding; the pool change
+    // and receipt blindings are the maker's own fresh choices.
     recipient_out.blinding =
         derive_output_blinding(&world.escrow_utxo.blinding, RECIPIENT_BLINDING_DOMAIN)
             .expect("recipient_out blinding");
-    funder_change.blinding =
-        derive_output_blinding(&funding_blinding, FUNDER_CHANGE_BLINDING_DOMAIN)
-            .expect("funder_change blinding");
-    funder_receipt.blinding =
-        derive_output_blinding(&funding_blinding, FUNDER_RECEIPT_BLINDING_DOMAIN)
-            .expect("funder_receipt blinding");
+    let pool_change_note = PoolUtxo {
+        asset: world.destination_asset,
+        amount: FUNDING_AMOUNT - OWED,
+        booked: FUNDING_AMOUNT - MAX_ORDER_SIZE,
+        blinding: random_blinding(),
+    };
+    let pool_change = pool_change_note
+        .output_utxo(&pool_address)
+        .expect("pool_change");
+    let maker_receipt =
+        SppProofOutputUtxo::new(world.source_asset, ORDER_AMOUNT, authority_address)
+            .expect("maker_receipt");
 
-    // funder_change (output index 1) returns to the funder and is tracked
-    // off-chain, so its ciphertext is dropped.
-    const FUNDER_CHANGE_INDEX: usize = 1;
-    let input_utxos = vec![order_in.clone(), maker_funding.clone()];
+    // All three ciphertexts are kept (the pool change's is the maker's own
+    // pool-scan handoff).
+    let input_utxos = vec![order_in.clone(), pool_in.clone()];
     let viewing_key = get_transaction_viewing_key(&world.authority_keypair, &input_utxos)
         .expect("transaction viewing key");
     let encoded = encrypt_transaction_data(
         &[
             recipient_out.clone(),
-            funder_change.clone(),
-            funder_receipt.clone(),
+            pool_change.clone(),
+            maker_receipt.clone(),
         ],
         &world.assets,
         &viewing_key,
     )
     .expect("encode outputs");
-    let mut outputs = encoded.outputs;
-    outputs
-        .get_mut(FUNDER_CHANGE_INDEX)
-        .expect("funder_change output index in range")
-        .data = None;
     let external_data = ExternalData::new(
         *viewing_key.pubkey().as_bytes(),
         encoded.salt,
-        outputs,
+        encoded.outputs,
         encoded.resolved_owner_tags,
         vec![],
     );
@@ -871,31 +904,39 @@ fn bench_settle(
     );
 
     let prover = ProverClient::local();
-    let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
+    let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &[], &prover);
 
+    let pool_authority_owner_hash = pool_address.owner_hash().expect("pool owner hash");
     let proof_inputs = SettleProofInputParams {
         order_in,
-        maker_funding,
+        pool_in,
+        pool_booked_in: pool_note.booked,
         recipient_out,
-        funder_change,
-        funder_receipt,
+        pool_change,
+        maker_receipt,
         execution_price: PRICE,
         order_amount: ORDER_AMOUNT,
         order_utxo_hash: order_in_hash,
-        destination_asset: asset_field(&SOL_MINT).expect("destination asset field"),
+        destination_asset: asset_field(&world.destination_asset).expect("destination asset field"),
+        pool_authority_owner_hash,
+        max_order_size: MAX_ORDER_SIZE,
+        receipt_owner_hash: world
+            .authority_keypair
+            .owner_hash()
+            .expect("authority owner hash"),
         external_data_hash,
     }
     .to_proof_inputs()
-    .expect("escrow_settle proof inputs");
+    .expect("pool_settle proof inputs");
     let circuit_start = Instant::now();
     let order_proof = DynamicSwapProverClient::new()
-        .prove_escrow_settle(&proof_inputs)
-        .expect("prove escrow_settle");
+        .prove_pool_settle(&proof_inputs)
+        .expect("prove pool_settle");
     let circuit_dur = circuit_start.elapsed();
 
     let escrow = escrow_pda(&order_in_hash);
     let ix = Settle {
-        funder: world.authority_solana.pubkey(),
+        authority: world.authority_solana.pubkey(),
         pair: world.pair,
         escrow,
         rent_recipient: world.user_solana.pubkey(),
@@ -913,6 +954,8 @@ fn bench_settle(
     // Inside the settle window: created_at <= slot <= created_at + expiry.
     mollusk.sysvars.clock.slot = CREATED_AT + 1;
 
+    // One open reservation for settle to release; the bound is already net of
+    // it.
     let fixtures = vec![
         (
             world.authority_solana.pubkey(),
@@ -922,7 +965,13 @@ fn bench_settle(
             world.user_solana.pubkey(),
             system_owned_account(1_000_000_000),
         ),
-        (world.pair, pair_fixture(world.pair_state(), dynamic_swap_id)),
+        (
+            world.pair,
+            pair_fixture(
+                world.pair_state(FUNDING_AMOUNT - MAX_ORDER_SIZE, 1),
+                dynamic_swap_id,
+            ),
+        ),
         (
             escrow,
             escrow_fixture(world.escrow_state(order_in_hash), dynamic_swap_id),
@@ -1003,7 +1052,7 @@ fn bench_cancel(
     );
 
     let prover = ProverClient::local();
-    let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
+    let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &[], &prover);
 
     let proof_inputs = CancelProofInputParams {
         order_in,
@@ -1040,12 +1089,19 @@ fn bench_cancel(
     // Past the settle window: slot > created_at + expiry.
     mollusk.sysvars.clock.slot = CREATED_AT + EXPIRY_SLOTS + 1;
 
+    // One open reservation for cancel to release in full.
     let fixtures = vec![
         (
             world.user_solana.pubkey(),
             system_owned_account(100_000_000_000),
         ),
-        (world.pair, pair_fixture(world.pair_state(), dynamic_swap_id)),
+        (
+            world.pair,
+            pair_fixture(
+                world.pair_state(FUNDING_AMOUNT - MAX_ORDER_SIZE, 1),
+                dynamic_swap_id,
+            ),
+        ),
         (
             escrow,
             escrow_fixture(world.escrow_state(order_in_hash), dynamic_swap_id),
@@ -1060,4 +1116,299 @@ fn bench_cancel(
     bench.add_from_entries("cancel", entries);
     bench.add_table("cancel", proving_time_table(spp_dur, circuit_dur));
     bench.add_table("cancel", tx_size_table(&ix, &world.user_solana.pubkey()));
+}
+
+fn bench_withdraw_liquidity(
+    mollusk: &mut Mollusk,
+    spp_id: &Pubkey,
+    dynamic_swap_id: &Pubkey,
+    bench: &mut CuBenchmark,
+) {
+    let world = escrow_bench_world();
+    let pool_address = world.pool_address();
+
+    // Benched as the amount = 0 re-blind: the proof/CPI path is identical to a
+    // real withdrawal, with no SPL settlement fixtures needed.
+    let pool_in_note = PoolUtxo {
+        asset: world.destination_asset,
+        amount: FUNDING_AMOUNT,
+        booked: FUNDING_AMOUNT,
+        blinding: random_blinding(),
+    };
+    let pool_out_note = PoolUtxo {
+        asset: world.destination_asset,
+        amount: FUNDING_AMOUNT,
+        booked: FUNDING_AMOUNT,
+        blinding: random_blinding(),
+    };
+    let pool_in = pool_in_note.to_input_utxo(&pool_address).expect("pool_in");
+    let pool_out = pool_out_note.output_utxo(&pool_address).expect("pool_out");
+
+    let input_utxos = vec![pool_in.clone()];
+    let viewing_key = get_transaction_viewing_key(&world.authority_keypair, &input_utxos)
+        .expect("transaction viewing key");
+    let encoded =
+        encrypt_transaction_data(std::slice::from_ref(&pool_out), &world.assets, &viewing_key)
+            .expect("encode outputs");
+    let external_data = ExternalData::new(
+        *viewing_key.pubkey().as_bytes(),
+        encoded.salt,
+        encoded.outputs,
+        encoded.resolved_owner_tags,
+        vec![],
+    );
+    let external_data_hash = external_data.hash().expect("external data hash");
+    let spp_proof_inputs = SppProofInputs::new(
+        input_utxos,
+        encoded.output_utxos,
+        external_data,
+        world.authority_solana.pubkey(),
+    );
+
+    let commitments = spp_proof_inputs
+        .input_utxo_hashes()
+        .expect("input commitments");
+    let leaves: Vec<[u8; 32]> = commitments.iter().map(|input| input.utxo_hash).collect();
+    let (tree_account, utxo_root, nullifier_root, root_index) =
+        build_tree_fixture(&world.tree, &leaves);
+    let state_tree = local_state_tree(&leaves);
+    assert_eq!(state_tree.root(), utxo_root, "state root gate");
+    let nf_tree = nullifier_tree();
+    assert_eq!(nf_tree.root(), nullifier_root, "nullifier root gate");
+    let spend_proofs = build_spend_proofs(
+        &world.tree,
+        &state_tree,
+        &nf_tree,
+        &commitments,
+        utxo_root,
+        nullifier_root,
+        root_index,
+    );
+
+    let prover = ProverClient::local();
+    let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &[], &prover);
+
+    let bundle = WithdrawProofInputParams {
+        pool_in: pool_in_note,
+        pool_out: pool_out_note,
+        pool_authority: pool_address,
+        amount: 0,
+        destination_asset: asset_field(&world.destination_asset).expect("destination asset field"),
+        external_data_hash,
+    }
+    .to_proof_inputs()
+    .expect("pool_withdraw proof inputs");
+    let circuit_start = Instant::now();
+    let withdraw_proof = DynamicSwapProverClient::new()
+        .prove_pool_withdraw(&bundle.proof_inputs)
+        .expect("prove pool_withdraw");
+    let circuit_dur = circuit_start.elapsed();
+
+    let ix = WithdrawLiquidity {
+        authority: world.authority_solana.pubkey(),
+        pair: world.pair,
+        tree: world.tree,
+        amount: 0,
+        spl: None,
+        proof: Groth16ProofBytes {
+            proof_a: withdraw_proof.proof_a,
+            proof_b: withdraw_proof.proof_b,
+            proof_c: withdraw_proof.proof_c,
+        },
+        transact,
+    }
+    .instruction()
+    .expect("withdraw instruction");
+
+    let fixtures = vec![
+        (
+            world.authority_solana.pubkey(),
+            system_owned_account(100_000_000_000),
+        ),
+        (
+            world.pair,
+            pair_fixture(world.pair_state(FUNDING_AMOUNT, 0), dynamic_swap_id),
+        ),
+        (world.tree, tree_account),
+    ];
+    let accounts = assemble_accounts(&ix, spp_id, &fixtures);
+    mollusk.process_and_validate_instruction(&ix, &accounts, &[Check::success()]);
+
+    let entries = take_profiling_entries();
+    assert!(
+        !entries.is_empty(),
+        "no profiling entries for 'withdraw_liquidity'"
+    );
+    bench.add_from_entries("withdraw_liquidity", entries);
+    bench.add_table(
+        "withdraw_liquidity",
+        proving_time_table(spp_dur, circuit_dur),
+    );
+    bench.add_table(
+        "withdraw_liquidity",
+        tx_size_table(&ix, &world.authority_solana.pubkey()),
+    );
+}
+
+fn bench_rebalance_liquidity(
+    mollusk: &mut Mollusk,
+    spp_id: &Pubkey,
+    dynamic_swap_id: &Pubkey,
+    bench: &mut CuBenchmark,
+) {
+    let world = escrow_bench_world();
+    let pool_address = world.pool_address();
+
+    // Publish surplus from one settle-change-shaped note (1 real input, 1 real
+    // output, 4 + 3 dummy slots).
+    const CREDIT: u64 = MAX_ORDER_SIZE - OWED;
+    let pool_in_note = PoolUtxo {
+        asset: world.destination_asset,
+        amount: FUNDING_AMOUNT - OWED,
+        booked: FUNDING_AMOUNT - MAX_ORDER_SIZE,
+        blinding: random_blinding(),
+    };
+    let pool_out_note = PoolUtxo {
+        asset: world.destination_asset,
+        amount: FUNDING_AMOUNT - OWED,
+        booked: FUNDING_AMOUNT - OWED,
+        blinding: random_blinding(),
+    };
+
+    let prepared = RebalanceProofInputParams {
+        inputs: vec![pool_in_note],
+        outputs: vec![pool_out_note],
+        pool_authority: pool_address,
+        credit: CREDIT,
+        destination_asset: asset_field(&world.destination_asset).expect("destination asset field"),
+    }
+    .prepare()
+    .expect("rebalance prepare");
+
+    let spp_proof_inputs = prepared
+        .spp_proof_inputs(
+            &world.authority_keypair,
+            &world.assets,
+            world.authority_solana.pubkey(),
+        )
+        .expect("rebalance spp inputs");
+    let external_data_hash = spp_proof_inputs
+        .external_data
+        .hash()
+        .expect("external data hash");
+    let bundle = prepared
+        .to_proof_inputs(external_data_hash)
+        .expect("rebalance proof inputs");
+
+    // Only the real input is a tree leaf; each dummy input needs its own
+    // nullifier non-inclusion proof.
+    let commitments = spp_proof_inputs
+        .input_utxo_hashes()
+        .expect("input commitments");
+    let real_commitments: Vec<zolana_transaction::instructions::types::InputUtxoContext> =
+        commitments
+            .iter()
+            .zip(&prepared.spp_inputs)
+            .filter(|(_, input)| !input.is_dummy())
+            .map(
+                |(commitment, _)| zolana_transaction::instructions::types::InputUtxoContext {
+                    index: commitment.index,
+                    utxo_hash: commitment.utxo_hash,
+                    nullifier: commitment.nullifier,
+                },
+            )
+            .collect();
+    let leaves: Vec<[u8; 32]> = real_commitments
+        .iter()
+        .map(|input| input.utxo_hash)
+        .collect();
+    let (tree_account, utxo_root, nullifier_root, root_index) =
+        build_tree_fixture(&world.tree, &leaves);
+    let state_tree = local_state_tree(&leaves);
+    assert_eq!(state_tree.root(), utxo_root, "state root gate");
+    let nf_tree = nullifier_tree();
+    assert_eq!(nf_tree.root(), nullifier_root, "nullifier root gate");
+    let spend_proofs = build_spend_proofs(
+        &world.tree,
+        &state_tree,
+        &nf_tree,
+        &real_commitments,
+        utxo_root,
+        nullifier_root,
+        root_index,
+    );
+    let merkle_context = MerkleContext {
+        tree_type: 0,
+        tree: world.tree,
+    };
+    let dummy_proofs: Vec<NonInclusionProof> = prepared
+        .spp_inputs
+        .iter()
+        .filter(|input| input.is_dummy())
+        .map(|input| {
+            non_inclusion_proof(
+                &nf_tree,
+                &merkle_context,
+                input.nullifier().expect("dummy nullifier"),
+                nullifier_root,
+            )
+        })
+        .collect();
+
+    let prover = ProverClient::local();
+    let (transact, spp_dur) =
+        prove_transact_timed(spp_proof_inputs, &spend_proofs, &dummy_proofs, &prover);
+
+    let circuit_start = Instant::now();
+    let rebalance_proof = DynamicSwapProverClient::new()
+        .prove_pool_rebalance(&bundle.proof_inputs)
+        .expect("prove pool_rebalance");
+    let circuit_dur = circuit_start.elapsed();
+
+    let ix = RebalanceLiquidity {
+        authority: world.authority_solana.pubkey(),
+        pair: world.pair,
+        tree: world.tree,
+        credit: CREDIT,
+        proof: Groth16ProofBytes {
+            proof_a: rebalance_proof.proof_a,
+            proof_b: rebalance_proof.proof_b,
+            proof_c: rebalance_proof.proof_c,
+        },
+        transact,
+    }
+    .instruction()
+    .expect("rebalance instruction");
+
+    let fixtures = vec![
+        (
+            world.authority_solana.pubkey(),
+            system_owned_account(100_000_000_000),
+        ),
+        (
+            world.pair,
+            pair_fixture(
+                world.pair_state(FUNDING_AMOUNT - MAX_ORDER_SIZE, 0),
+                dynamic_swap_id,
+            ),
+        ),
+        (world.tree, tree_account),
+    ];
+    let accounts = assemble_accounts(&ix, spp_id, &fixtures);
+    mollusk.process_and_validate_instruction(&ix, &accounts, &[Check::success()]);
+
+    let entries = take_profiling_entries();
+    assert!(
+        !entries.is_empty(),
+        "no profiling entries for 'rebalance_liquidity'"
+    );
+    bench.add_from_entries("rebalance_liquidity", entries);
+    bench.add_table(
+        "rebalance_liquidity",
+        proving_time_table(spp_dur, circuit_dur),
+    );
+    bench.add_table(
+        "rebalance_liquidity",
+        tx_size_table(&ix, &world.authority_solana.pubkey()),
+    );
 }

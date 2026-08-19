@@ -372,12 +372,13 @@ bench-shielded-pool: build-programs
 # updating swap-keys.CHECKSUM plus the committed verifying keys together.
 swap-keys-tag := "swap-keys-v4"
 
-# Same contract as swap-keys-tag, for the dynamic-swap example's three circuits
-# (escrow_open/escrow_settle/escrow_cancel). The release assets are
-# the only key set matching the committed Rust verifying keys; rotating locally
-# (regen-dynamic-swap-keys) requires publishing a new release and updating
-# dynamic-swap-keys.CHECKSUM plus the committed verifying keys together.
-dynamic-swap-keys-tag := "dynamic-swap-keys-v4"
+# Same contract as swap-keys-tag, for the dynamic-swap example's five circuits
+# (escrow_open/pool_settle/escrow_cancel/pool_withdraw/pool_rebalance). The
+# release assets are the only key set matching the committed Rust verifying
+# keys; rotating locally (regen-dynamic-swap-keys) requires publishing a new
+# release and updating dynamic-swap-keys.CHECKSUM plus the committed verifying
+# keys together.
+dynamic-swap-keys-tag := "dynamic-swap-keys-v5"
 
 # Same contract as swap-keys-tag, for the custom-ring example's single circuit
 # (auditor_key_encryption). gnark's Setup is non-deterministic, so the release
@@ -477,7 +478,7 @@ ensure-dynamic-swap-keys:
     #!/usr/bin/env bash
     set -euo pipefail
     base="sdk-tests/dynamic-swap"
-    for c in escrow_open escrow_settle escrow_cancel; do
+    for c in escrow_open pool_settle escrow_cancel pool_withdraw pool_rebalance; do
         dir="$base/build/gnark/$c"
         for kind in pk vk; do
             if [ ! -f "$dir/$kind.bin" ]; then
@@ -504,13 +505,13 @@ regen-dynamic-swap-keys:
     #!/usr/bin/env bash
     set -euo pipefail
     base="sdk-tests/dynamic-swap"
-    for c in escrow_open escrow_settle escrow_cancel; do
+    for c in escrow_open pool_settle escrow_cancel pool_withdraw pool_rebalance; do
         cargo run --release -p dynamic-swap-prover --bin dynamic-swap-prover-setup -- \
             "$c" "$base/build/gnark/$c" \
             --rust-vk "$base/program/src/verifying_keys/$c.rs"
     done
     : > "$base/dynamic-swap-keys.CHECKSUM"
-    for c in escrow_open escrow_settle escrow_cancel; do
+    for c in escrow_open pool_settle escrow_cancel pool_withdraw pool_rebalance; do
         for kind in pk vk; do
             shasum -a 256 "$base/build/gnark/$c/$kind.bin" \
                 | awk -v n="${c}_${kind}.bin" '{print $1 "  " n}' >> "$base/dynamic-swap-keys.CHECKSUM"

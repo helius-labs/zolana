@@ -137,9 +137,12 @@ pub fn decode_order_note(data: &Data) -> Result<[u8; 32]> {
     let bytes = data
         .utxo_data()
         .ok_or_else(|| anyhow!("escrow order note carries no utxo data record"))?;
-    bytes
-        .try_into()
-        .map_err(|_| anyhow!("escrow order note is {} bytes, expected {ORDER_NOTE_LEN}", bytes.len()))
+    bytes.try_into().map_err(|_| {
+        anyhow!(
+            "escrow order note is {} bytes, expected {ORDER_NOTE_LEN}",
+            bytes.len()
+        )
+    })
 }
 
 #[cfg(test)]

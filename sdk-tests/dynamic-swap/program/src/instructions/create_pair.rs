@@ -16,10 +16,14 @@ pub struct CreatePairData {
     pub destination_asset_id: u64,
     /// The maker's settle window in slots; see `Pair::expiry_slots`.
     pub expiry_slots: u64,
+    /// The worst-case owed per escrow; see `Pair::max_order_size`.
+    pub max_order_size: u64,
     /// The source asset's UTXO commitment; see `Pair::source_asset`.
     pub source_asset: [u8; 32],
     /// The destination asset's UTXO commitment; see `Pair::destination_asset`.
     pub destination_asset: [u8; 32],
+    /// The maker receipt destination; see `Pair::maker_receipt_owner_hash`.
+    pub maker_receipt_owner_hash: [u8; 32],
     /// The maker's encryption pubkey; see `Pair::maker_encryption_pubkey`.
     pub maker_encryption_pubkey: [u8; 33],
 }
@@ -32,8 +36,10 @@ pub fn process_create_pair_ix(accounts: &mut [AccountView], data: &[u8]) -> Prog
         source_asset_id,
         destination_asset_id,
         expiry_slots,
+        max_order_size,
         source_asset,
         destination_asset,
+        maker_receipt_owner_hash,
         maker_encryption_pubkey,
     } = CreatePairData::try_from_slice(data)
         .map_err(|_| DynamicSwapError::InvalidInstructionData)?;
@@ -46,6 +52,11 @@ pub fn process_create_pair_ix(accounts: &mut [AccountView], data: &[u8]) -> Prog
     // unsettleable.
     if expiry_slots == 0 {
         return Err(DynamicSwapError::InvalidExpiry.into());
+    }
+    // A zero max_order_size would make every escrow unprovable (owed is
+    // nonzero in escrow_open) and every reservation empty.
+    if max_order_size == 0 {
+        return Err(DynamicSwapError::InvalidMaxOrderSize.into());
     }
     // The maker encryption pubkey must be a SEC1-compressed P256 point; a
     // malformed key would make every order UTXO handoff undecryptable, leaving
@@ -103,8 +114,14 @@ pub fn process_create_pair_ix(accounts: &mut [AccountView], data: &[u8]) -> Prog
         state.destination_asset_id = destination_asset_id;
         state.price = price;
         state.expiry_slots = expiry_slots;
+        state.max_order_size = max_order_size;
+        // The pool starts empty and unreserved; deposits and open escrows move
+        // these counters from here on.
+        state.liquidity_bound = 0;
+        state.open_reservations = 0;
         state.source_asset = source_asset;
         state.destination_asset = destination_asset;
+        state.maker_receipt_owner_hash = maker_receipt_owner_hash;
         state.maker_encryption_pubkey = maker_encryption_pubkey;
     }
 

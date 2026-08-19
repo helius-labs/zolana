@@ -11,10 +11,13 @@ import (
 // spent; order and taker-change UTXOs created), the exact supported IN1_OUT2
 // shape with no padding on either side. The taker signs SourceIn as the CPI
 // payer; the program signs the escrow-authority-owned order output, which
-// authorizes the data-bearing slot. The maker is not involved: its liquidity
-// enters only at settle time, so there is no funding input, no reservation, and
-// no maker change. max_price never enters the circuit -- create_escrow checks it
-// against the pair price in the program and discards it.
+// authorizes the data-bearing slot. The maker is not involved: its committed
+// pool liquidity is reserved program-side (liquidity_bound -= max_order_size)
+// and enters only at settle time, so there is no funding input and no maker
+// change here -- the circuit's liquidity job is only the owed cap, which makes
+// the worst-case reservation sufficient. max_price never enters the circuit --
+// create_escrow checks it against the pair price in the program and discards
+// it.
 type Circuit struct {
 	Public PublicInputs
 
@@ -30,6 +33,17 @@ type Circuit struct {
 
 func (c *Circuit) Define(api frontend.API) error {
 	api.AssertIsDifferent(c.OrderAmount, 0)
+
+	// owed = OrderAmount * ExecutionPrice must fit the pair's max_order_size:
+	// this is what backs the program's worst-case liquidity reservation, so an
+	// order the reservation cannot cover must be unprovable. Both factors are
+	// 64-bit (OrderAmount via the spent source leaf, ExecutionPrice program-fed),
+	// but their product is a free 128-bit value in the field -- pin it to 64
+	// bits before the comparison so it cannot wrap.
+	owed := api.Mul(c.OrderAmount, c.Public.ExecutionPrice)
+	api.ToBinary(owed, 64)
+	api.ToBinary(c.Public.MaxOrderSize, 64)
+	api.AssertIsLessOrEqual(owed, c.Public.MaxOrderSize)
 
 	sourceInHash := c.checkSourceInputUtxo(api)
 	orderOutHash := c.checkOrderOutputUtxo(api)
@@ -66,6 +80,13 @@ type PublicInputs struct {
 	// SourceIn.Asset. Without it a caller could escrow a worthless token and
 	// extract the destination asset on settle.
 	SourceAsset frontend.Variable
+	// The pair price at creation, fed on-chain from Pair.price (the same value
+	// the program stores as Escrow.execution_price). Enters the owed cap below.
+	ExecutionPrice frontend.Variable
+	// The pair's immutable max_order_size, fed on-chain from
+	// Pair.max_order_size. Caps owed = OrderAmount * ExecutionPrice so the
+	// program's per-escrow liquidity reservation always covers the order.
+	MaxOrderSize frontend.Variable
 }
 
 func (p PublicInputs) Check(api frontend.API) {
@@ -73,6 +94,8 @@ func (p PublicInputs) Check(api frontend.API) {
 		p.PrivateTxHash,
 		p.EscrowAuthorityOwnerHash,
 		p.SourceAsset,
+		p.ExecutionPrice,
+		p.MaxOrderSize,
 	})
 	api.AssertIsEqual(p.PublicInputHash, publicInputHash)
 }

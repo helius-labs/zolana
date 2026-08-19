@@ -12,18 +12,23 @@ use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use crate::{
     error::DynamicSwapError,
     instructions::{
-        shared::{cpi_spp_transact_signed, escrow_authority_owner_hash, verify_pda, CreatePdaAccount},
+        shared::{
+            cpi_spp_transact_signed, escrow_authority_owner_hash, u64_right_align, verify_pda,
+            CreatePdaAccount,
+        },
         verifier::{verify_groth16, CompressedGroth16Proof, Groth16ProofBytes},
     },
-    state::{discriminator::ESCROW, load_pair, Escrow},
+    state::{discriminator::ESCROW, load_pair_mut, Escrow},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CreateEscrowIxData {
     /// `escrow_open` circuit proof (1-in: taker source UTXO / 2-out: escrow
-    /// order UTXO, taker change UTXO). Taker-only: the maker's liquidity enters
-    /// at settle time, so there is no funding input, no reservation, and no
-    /// maker change.
+    /// order UTXO, taker change UTXO). Taker-only: the maker's committed pool
+    /// liquidity is reserved here (`liquidity_bound -= max_order_size`) and
+    /// spent at settle time, so there is no funding input and no maker change;
+    /// the circuit caps `owed <= max_order_size` so the reservation always
+    /// covers the order.
     pub proof: Groth16ProofBytes,
     /// The taker's price limit: the escrow is rejected if the pair's current
     /// price exceeds it -- protection against an `update_price` landing between
@@ -34,10 +39,11 @@ pub struct CreateEscrowIxData {
 }
 
 /// `escrow_open`'s public-input hash: `Poseidon(PrivateTxHash,
-/// EscrowAuthorityOwnerHash, SourceAsset)`. The recipient is deliberately
-/// absent -- it is bound in-circuit to the source UTXO's owner and committed as
-/// the order UTXO's DataHash, so the payout destination never appears on-chain.
-/// Field order and encoding must match the circuit's `PublicInputs.Check`.
+/// EscrowAuthorityOwnerHash, SourceAsset, ExecutionPrice, MaxOrderSize)`. The
+/// recipient is deliberately absent -- it is bound in-circuit to the source
+/// UTXO's owner and committed as the order UTXO's DataHash, so the payout
+/// destination never appears on-chain. Field order and encoding must match the
+/// circuit's `PublicInputs.Check`.
 pub struct EscrowOpenPublicInput<'a> {
     pub private_tx_hash: &'a [u8; 32],
     /// The escrow_authority PDA's owner-hash, recomputed on-chain (see
@@ -46,6 +52,13 @@ pub struct EscrowOpenPublicInput<'a> {
     /// The pair's source-asset commitment (`Pair.source_asset`); binds
     /// `SourceIn.Asset`.
     pub source_asset: &'a [u8; 32],
+    /// The pair price at creation (stored as `Escrow.execution_price`); enters
+    /// the circuit's `owed = order_amount * execution_price` cap.
+    pub execution_price: u64,
+    /// The pair's immutable `max_order_size`; the circuit enforces
+    /// `owed <= max_order_size` so the reservation taken below always covers
+    /// the order.
+    pub max_order_size: u64,
 }
 
 impl EscrowOpenPublicInput<'_> {
@@ -54,6 +67,8 @@ impl EscrowOpenPublicInput<'_> {
             self.private_tx_hash.as_slice(),
             self.escrow_authority_owner_hash.as_slice(),
             self.source_asset.as_slice(),
+            u64_right_align(self.execution_price).as_slice(),
+            u64_right_align(self.max_order_size).as_slice(),
         ])
         .map_err(|_| DynamicSwapError::HashingFailed.into())
     }
@@ -73,7 +88,7 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
     // escrow account rent. No maker involvement -- the maker's liquidity enters
     // at settle time.
     let taker = iter.next_signer_mut("taker")?;
-    let pair_account = iter.next_account("pair")?;
+    let pair_account = iter.next_mut("pair")?;
     let escrow_account = iter.next_mut("escrow")?;
     let system_program = iter.next_account("system_program")?;
     if !pinocchio_system::check_id(system_program.address()) {
@@ -86,7 +101,7 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
         transact,
     } = wincode::deserialize_exact(data).map_err(|_| DynamicSwapError::InvalidInstructionData)?;
 
-    let pair = load_pair(pair_account)?;
+    let pair = *load_pair_mut(pair_account)?;
     let pair_address = *pair_account.address();
     let source_asset = pair.source_asset;
     // The escrow is priced at creation: snapshot the current pair price as
@@ -94,7 +109,6 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
     // unsettleable, so reject it -- create_pair and update_price already forbid
     // a zero price, making this defense in depth.
     let execution_price = pair.price;
-    drop(pair);
     if execution_price == 0 {
         return Err(DynamicSwapError::InvalidPrice.into());
     }
@@ -102,6 +116,12 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
     // exist at an acceptable price; settle therefore has no refund branch.
     if execution_price > max_price {
         return Err(DynamicSwapError::MaxPriceExceeded.into());
+    }
+    // The worst-case reservation must be covered by committed liquidity: this
+    // is the taker's hard guarantee that funds exist for the escrow's whole
+    // lifetime, checked before any expensive work.
+    if pair.liquidity_bound < pair.max_order_size {
+        return Err(DynamicSwapError::InsufficientLiquidity.into());
     }
 
     // The PDA half is recomputed here (never trusted from the client), binding
@@ -117,6 +137,8 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
         private_tx_hash: &transact.private_tx_hash,
         escrow_authority_owner_hash: &escrow_authority_owner_hash,
         source_asset: &source_asset,
+        execution_price,
+        max_order_size: pair.max_order_size,
     }
     .hash()?;
 
@@ -171,6 +193,22 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
         state.owner = *taker.address();
         state.created_at = Clock::get()?.slot;
         state.execution_price = execution_price;
+    }
+
+    // Take the reservation: `max_order_size` moves out of the public bound and
+    // into this escrow's reservation, released by settle or cancel. The early
+    // `liquidity_bound < max_order_size` check makes the subtraction safe;
+    // checked ops keep it explicit.
+    {
+        let mut pair_mut = load_pair_mut(pair_account)?;
+        pair_mut.liquidity_bound = pair_mut
+            .liquidity_bound
+            .checked_sub(pair_mut.max_order_size)
+            .ok_or(ProgramError::ArithmeticOverflow)?;
+        pair_mut.open_reservations = pair_mut
+            .open_reservations
+            .checked_add(1)
+            .ok_or(ProgramError::ArithmeticOverflow)?;
     }
 
     let transact_bytes = transact

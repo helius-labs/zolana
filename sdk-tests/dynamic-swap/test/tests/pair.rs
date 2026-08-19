@@ -9,22 +9,23 @@ use dynamic_swap_sdk::{
 use shared::{escrow_authority_identity, setup, DESTINATION_ASSET_ID, SOURCE_ASSET_ID};
 use solana_signer::Signer;
 use zolana_client::Rpc;
-use zolana_transaction::{instructions::transact::spp_proof_inputs::asset_field, SOL_MINT};
+use zolana_transaction::instructions::transact::spp_proof_inputs::asset_field;
 
 const INITIAL_PRICE: u64 = 100;
 const EXPIRY_SLOTS: u64 = 777;
+const MAX_ORDER_SIZE: u64 = 1_000_000;
 
 // Creates a unidirectional pair then updates its price, asserting the pair
-// account ends up in the expected state. There is no shared pool: liquidity
-// arrives at settle time, so `create_pair` creates only the pair account.
+// account ends up in the expected state. The pool starts empty:
+// `liquidity_bound` and `open_reservations` are zero until the maker deposits.
 #[test]
 fn create_pair_then_update_price() -> Result<()> {
     let env = setup()?;
     let authority_solana = &env.authority.keypair;
 
     // create_pair: derive the pair PDA and register the source/destination
-    // asset pair at `INITIAL_PRICE` with the maker's settle window and
-    // encryption pubkey.
+    // asset pair at `INITIAL_PRICE` with the maker's settle window, reservation
+    // size, receipt destination, and encryption pubkey.
     let pair = pair_pda(
         &authority_solana.pubkey(),
         SOURCE_ASSET_ID,
@@ -32,10 +33,11 @@ fn create_pair_then_update_price() -> Result<()> {
     );
     let source_asset = asset_field(&env.spl_mint).map_err(|e| anyhow!("source asset: {e:?}"))?;
     let destination_asset =
-        asset_field(&SOL_MINT).map_err(|e| anyhow!("destination asset: {e:?}"))?;
+        asset_field(&env.dest_mint).map_err(|e| anyhow!("destination asset: {e:?}"))?;
     let maker_encryption_pubkey = *escrow_authority_identity(&env.authority.keypair, &pair)?
         .viewing_pubkey()
         .as_bytes();
+    let maker_receipt_owner_hash = env.authority.owner_hash()?;
     let create_pair_ix = CreatePair {
         payer: authority_solana.pubkey(),
         pair,
@@ -43,8 +45,10 @@ fn create_pair_then_update_price() -> Result<()> {
         source_asset_id: SOURCE_ASSET_ID,
         destination_asset_id: DESTINATION_ASSET_ID,
         expiry_slots: EXPIRY_SLOTS,
+        max_order_size: MAX_ORDER_SIZE,
         source_asset,
         destination_asset,
+        maker_receipt_owner_hash,
         maker_encryption_pubkey,
     }
     .instruction()
@@ -85,8 +89,12 @@ fn create_pair_then_update_price() -> Result<()> {
         destination_asset_id: DESTINATION_ASSET_ID,
         price: INITIAL_PRICE,
         expiry_slots: EXPIRY_SLOTS,
+        max_order_size: MAX_ORDER_SIZE,
+        liquidity_bound: 0,
+        open_reservations: 0,
         source_asset,
         destination_asset,
+        maker_receipt_owner_hash,
         maker_encryption_pubkey,
         _pad2: [0u8; 7],
     };

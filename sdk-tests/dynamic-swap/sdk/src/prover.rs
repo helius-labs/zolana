@@ -1,6 +1,7 @@
 use anyhow::Result;
 use dynamic_swap_prover::{
-    EscrowCancelProofInputs, EscrowOpenProofInputs, EscrowSettleProofInputs, OrderProof,
+    EscrowCancelProofInputs, EscrowOpenProofInputs, OrderProof, PoolRebalanceProofInputs,
+    PoolSettleProofInputs, PoolWithdrawProofInputs,
 };
 
 fn err(e: impl core::fmt::Debug) -> anyhow::Error {
@@ -19,11 +20,19 @@ impl DynamicSwapProverClient {
         inputs.prove().map_err(err)
     }
 
-    pub fn prove_escrow_settle(&self, inputs: &EscrowSettleProofInputs) -> Result<OrderProof> {
+    pub fn prove_pool_settle(&self, inputs: &PoolSettleProofInputs) -> Result<OrderProof> {
         inputs.prove().map_err(err)
     }
 
     pub fn prove_escrow_cancel(&self, inputs: &EscrowCancelProofInputs) -> Result<OrderProof> {
+        inputs.prove().map_err(err)
+    }
+
+    pub fn prove_pool_withdraw(&self, inputs: &PoolWithdrawProofInputs) -> Result<OrderProof> {
+        inputs.prove().map_err(err)
+    }
+
+    pub fn prove_pool_rebalance(&self, inputs: &PoolRebalanceProofInputs) -> Result<OrderProof> {
         inputs.prove().map_err(err)
     }
 }

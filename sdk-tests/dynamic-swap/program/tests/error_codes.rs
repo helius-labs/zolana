@@ -25,6 +25,11 @@ fn error_codes_are_stable() {
         (MaxPriceExceeded as u32, 9019),
         (InvalidEncryptionPubkey as u32, 9020),
         (InvalidExpiry as u32, 9021),
+        (InsufficientLiquidity as u32, 9022),
+        (InvalidMaxOrderSize as u32, 9023),
+        (AssetMismatch as u32, 9024),
+        (InvalidDepositEntry as u32, 9025),
+        (InterfaceTransferMismatch as u32, 9026),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");

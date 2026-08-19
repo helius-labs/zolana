@@ -10,8 +10,10 @@ use crate::{
 
 /// Proof inputs for the `escrow_open` circuit (`create_escrow`): 1-in (source) /
 /// 2-out (order, taker_change), the exact supported IN1_OUT2 shape with no
-/// padding. Taker-only: the maker's liquidity enters at settle time, so there is
-/// no funding input, no reservation, and no maker change. `max_price` never
+/// padding. Taker-only: the maker's liquidity is reserved program-side and
+/// enters at settle time, so there is no funding input and no maker change; the
+/// circuit caps `owed = order_amount * execution_price <= max_order_size` so
+/// the worst-case reservation always covers the order. `max_price` never
 /// enters the circuit -- the program checks it against the pair price and
 /// discards it.
 #[derive(Debug, Clone)]
@@ -24,6 +26,11 @@ pub struct EscrowOpenProofInputs {
     /// The pair's source-asset commitment (`SourceAsset`), bound to
     /// `SourceIn.Asset`.
     pub source_asset: [u8; 32],
+    /// The pair price at creation (`ExecutionPrice`), the value the program
+    /// stores as `Escrow.execution_price`.
+    pub execution_price: u64,
+    /// The pair's immutable `max_order_size` (`MaxOrderSize`), capping owed.
+    pub max_order_size: u64,
     pub order_amount: u64,
     pub source_in: ProofInputUtxo,
     pub order_out: ProofInputUtxo,
@@ -49,6 +56,14 @@ impl EscrowOpenProofInputs {
         map.insert(
             "Public_SourceAsset".to_string(),
             vec![bytes_to_decimal_string(&self.source_asset)],
+        );
+        map.insert(
+            "Public_ExecutionPrice".to_string(),
+            vec![self.execution_price.to_string()],
+        );
+        map.insert(
+            "Public_MaxOrderSize".to_string(),
+            vec![self.max_order_size.to_string()],
         );
         map.insert(
             "OrderAmount".to_string(),
@@ -85,6 +100,8 @@ mod tests {
             private_tx_hash: [2; 32],
             escrow_authority_owner_hash: [6; 32],
             source_asset: [7; 32],
+            execution_price: 90,
+            max_order_size: 100,
             order_amount: 50,
             source_in: ProofInputUtxo::default(),
             order_out: ProofInputUtxo::default(),
@@ -103,6 +120,8 @@ mod tests {
             "Public_PrivateTxHash".to_string(),
             "Public_EscrowAuthorityOwnerHash".to_string(),
             "Public_SourceAsset".to_string(),
+            "Public_ExecutionPrice".to_string(),
+            "Public_MaxOrderSize".to_string(),
             "OrderAmount".to_string(),
             "ExternalDataHash".to_string(),
         ];

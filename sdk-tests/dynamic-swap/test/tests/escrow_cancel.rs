@@ -4,7 +4,6 @@ use anyhow::{anyhow, bail, Result};
 use dynamic_swap_program::state::{Escrow, Pair};
 use dynamic_swap_sdk::{
     escrow_pda,
-    Groth16ProofBytes,
     instructions::{
         cancel::{Cancel, CancelProofInputParams},
         create_escrow::{CreateEscrow, EscrowOpenProofInputParams},
@@ -12,8 +11,11 @@ use dynamic_swap_sdk::{
     },
     prover::DynamicSwapProverClient,
     state::{escrow_authority_address, EscrowUtxo},
+    Groth16ProofBytes,
 };
-use shared::{get_slot_with_retry, setup_with_pair, wait_for_slot};
+use shared::{
+    assert_liquidity, deposit_pool_liquidity, get_slot_with_retry, setup_with_pair, wait_for_slot,
+};
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signer::Signer;
 use zolana_client::Rpc;
@@ -30,6 +32,8 @@ use zolana_wallet::sync_wallet;
 
 const PRICE: u64 = 5;
 const ORDER_AMOUNT: u64 = 100_000_000;
+const MAX_ORDER_SIZE: u64 = 600_000_000;
+const POOL_DEPOSIT: u64 = 1_000_000_000;
 /// Small enough that the test crosses expiry in under two minutes of real slot
 /// progression, wide enough that building the cancel proof (~15-40s of key
 /// loading + in-process proving) finishes before it -- the NotYetExpired probe
@@ -60,10 +64,13 @@ fn assert_custom_error(context: &str, err: &anyhow::Error, code: u32) {
 //      to the owner, and the refund note is wallet-discoverable by the taker.
 #[test]
 fn cancel_after_expiry() -> Result<()> {
-    let (env, pair) = setup_with_pair(PRICE, EXPIRY_SLOTS)?;
+    let (env, pair) = setup_with_pair(PRICE, EXPIRY_SLOTS, MAX_ORDER_SIZE)?;
     let authority_solana = &env.authority.keypair;
     let user_solana = &env.user.keypair;
     let prover = DynamicSwapProverClient::new();
+
+    // The escrow's reservation must be covered by committed liquidity.
+    deposit_pool_liquidity(&env, pair, POOL_DEPOSIT)?;
 
     let recipient_owner_hash = env
         .user
@@ -165,8 +172,9 @@ fn cancel_after_expiry() -> Result<()> {
             escrow_authority_owner_hash: escrow_authority
                 .owner_hash()
                 .map_err(|e| anyhow!("escrow authority owner hash: {e:?}"))?,
-            source_asset: asset_field(&env.spl_mint)
-                .map_err(|e| anyhow!("source asset: {e:?}"))?,
+            source_asset: asset_field(&env.spl_mint).map_err(|e| anyhow!("source asset: {e:?}"))?,
+            execution_price: PRICE,
+            max_order_size: MAX_ORDER_SIZE,
             order_amount: ORDER_AMOUNT,
             external_data_hash,
         }
@@ -222,6 +230,14 @@ fn cancel_after_expiry() -> Result<()> {
             execution_price: PRICE,
         };
         assert_eq!(escrow_state, expected);
+        // The reservation moved MAX_ORDER_SIZE out of the public bound.
+        assert_liquidity(
+            &env,
+            pair,
+            POOL_DEPOSIT - MAX_ORDER_SIZE,
+            1,
+            "after create_escrow",
+        )?;
         (escrow, escrow_state)
     };
 
@@ -333,7 +349,7 @@ fn cancel_after_expiry() -> Result<()> {
     // before proof verification -- a garbage proof and any well-formed transact
     // payload reach it.
     let settle_ix = Settle {
-        funder: authority_solana.pubkey(),
+        authority: authority_solana.pubkey(),
         pair,
         escrow,
         rent_recipient: user_solana.pubkey(),
@@ -390,7 +406,9 @@ fn cancel_after_expiry() -> Result<()> {
         .find(|utxo| utxo.amount == ORDER_AMOUNT)
         .ok_or_else(|| anyhow!("refund note not discovered after cancel"))?;
 
-    // Cancellation closes the escrow account.
+    // Cancellation closes the escrow account and releases the reservation in
+    // full: the exact MAX_ORDER_SIZE taken at create_escrow returns to the
+    // bound.
     assert!(
         env.client
             .rpc()
@@ -399,6 +417,7 @@ fn cancel_after_expiry() -> Result<()> {
             .is_none(),
         "escrow account must be closed after cancel"
     );
+    assert_liquidity(&env, pair, POOL_DEPOSIT, 0, "after cancel")?;
 
     Ok(())
 }

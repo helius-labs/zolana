@@ -19,9 +19,10 @@ pub enum DynamicSwapError {
     InvalidInstructionData = 9003,
     #[error("shielded-pool program account is invalid")]
     InvalidShieldedPoolProgram = 9004,
-    // 9005 retired (was MissingPoolAuthority): there is no pool_authority PDA any
-    // more; the multi-PDA CPI's non-escrow-authority branch is now unreachable.
-    // Kept as a pinned, stable code.
+    /// A pool-spending instruction (`withdraw_liquidity`,
+    /// `rebalance_liquidity`, `settle`) whose forwarded transact account list
+    /// does not contain the pair's `pool_authority` PDA, so the CPI could not
+    /// sign for the pool notes.
     #[error("pool-authority account is missing from the transact account list")]
     MissingPoolAuthority = 9005,
     #[error("escrow-authority account is missing from the transact account list")]
@@ -78,6 +79,31 @@ pub enum DynamicSwapError {
     /// cancellable immediately and unsettleable.
     #[error("expiry_slots must be nonzero")]
     InvalidExpiry = 9021,
+    /// `create_escrow` when `liquidity_bound < max_order_size` (the worst-case
+    /// reservation cannot be covered), or `withdraw_liquidity` when the
+    /// withdrawn amount exceeds `liquidity_bound`.
+    #[error("insufficient committed liquidity")]
+    InsufficientLiquidity = 9022,
+    /// `create_pair` with a zero `max_order_size`, which would make every
+    /// escrow unprovable (owed is nonzero) and every reservation empty.
+    #[error("max_order_size must be nonzero")]
+    InvalidMaxOrderSize = 9023,
+    /// `deposit_liquidity` whose mint does not hash to the pair's destination
+    /// asset commitment.
+    #[error("deposit mint does not match the pair's destination asset")]
+    AssetMismatch = 9024,
+    /// `deposit_liquidity` whose forwarded deposit data violates the pool-note
+    /// shape: not exactly one SPL asset and one entry, a zero amount, an owner
+    /// that is not the pair's pool_authority owner-hash, or utxo data that does
+    /// not commit `booked = amount`.
+    #[error("deposit entry does not form a valid pool note")]
+    InvalidDepositEntry = 9025,
+    /// `withdraw_liquidity` whose transact interface transfers do not consist
+    /// of exactly one SplWithdrawal matching the withdrawn amount (or any
+    /// transfer at all for `amount = 0`), or `rebalance_liquidity` with any
+    /// interface transfer present.
+    #[error("transact interface transfers do not match the instruction")]
+    InterfaceTransferMismatch = 9026,
 }
 
 impl From<DynamicSwapError> for ProgramError {

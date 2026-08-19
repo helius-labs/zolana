@@ -11,9 +11,11 @@ use crate::{err, shared::check_output_utxo};
 
 /// Proof-input params for the `escrow_open` circuit (`create_escrow`): 1-in
 /// (taker source UTXO) / 2-out (escrow order UTXO, taker change UTXO), the
-/// exact IN1_OUT2 shape, no padding. Taker-only: the maker's liquidity enters
-/// at settle time. `max_price` never appears here -- it is instruction data the
-/// program checks against the pair price and discards.
+/// exact IN1_OUT2 shape, no padding. Taker-only: the maker's committed
+/// liquidity is reserved program-side and spent at settle time. The circuit
+/// caps `owed = order_amount * execution_price <= max_order_size` so the
+/// reservation always covers the order. `max_price` never appears here -- it
+/// is instruction data the program checks against the pair price and discards.
 pub struct EscrowOpenProofInputParams {
     pub source_in: SppProofInputUtxo,
     pub order_out: SppProofOutputUtxo,
@@ -25,6 +27,11 @@ pub struct EscrowOpenProofInputParams {
     /// The pair's source-asset commitment (`Pair.source_asset` =
     /// `asset_field(source_mint)`); bound to `SourceIn.Asset`.
     pub source_asset: [u8; 32],
+    /// The current pair price -- the value the program stores as
+    /// `Escrow.execution_price` and feeds into the public-input hash.
+    pub execution_price: u64,
+    /// The pair's immutable `max_order_size`; caps owed in-circuit.
+    pub max_order_size: u64,
     pub order_amount: u64,
     pub external_data_hash: [u8; 32],
 }
@@ -37,6 +44,15 @@ impl EscrowOpenProofInputParams {
 
         if self.order_amount == 0 {
             bail!("order_amount must be nonzero");
+        }
+        // Early client-side mirror of the circuit's owed cap: an order the
+        // reservation cannot cover would only fail at proving time otherwise.
+        let owed = self
+            .order_amount
+            .checked_mul(self.execution_price)
+            .ok_or_else(|| err("order_amount * execution_price overflows"))?;
+        if owed > self.max_order_size {
+            bail!("owed exceeds the pair's max_order_size");
         }
         if asset_field(&self.source_in.utxo.asset).map_err(err)? != self.source_asset {
             bail!("source_in asset does not match the pair source asset");
@@ -93,6 +109,8 @@ impl EscrowOpenProofInputParams {
             private_tx_hash: &private_tx_hash,
             escrow_authority_owner_hash: &self.escrow_authority_owner_hash,
             source_asset: &self.source_asset,
+            execution_price: self.execution_price,
+            max_order_size: self.max_order_size,
         }
         .hash()
         .map_err(err)?;
@@ -102,6 +120,8 @@ impl EscrowOpenProofInputParams {
             private_tx_hash,
             escrow_authority_owner_hash: self.escrow_authority_owner_hash,
             source_asset: self.source_asset,
+            execution_price: self.execution_price,
+            max_order_size: self.max_order_size,
             order_amount: self.order_amount,
             source_in,
             order_out,

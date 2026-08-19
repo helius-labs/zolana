@@ -41,7 +41,7 @@ impl Cancel {
 
         let accounts = vec![
             AccountMeta::new(caller, true),
-            AccountMeta::new_readonly(pair, false),
+            AccountMeta::new(pair, false),
             AccountMeta::new(escrow, false),
             AccountMeta::new(rent_recipient, false),
             // Forwarded SPP `transact` CPI tail: payer, input tree, output tree,

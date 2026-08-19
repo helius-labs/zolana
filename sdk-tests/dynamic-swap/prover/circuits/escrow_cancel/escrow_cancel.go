@@ -3,7 +3,7 @@ package escrow_cancel
 import (
 	"github.com/consensys/gnark/frontend"
 
-	"circuits/escrow_settle"
+	"circuits/blinding"
 
 	"zolana/prover/circuits/gadget"
 	spp "zolana/prover/circuits/spp_transaction/shared"
@@ -114,6 +114,6 @@ func (c *Circuit) checkRefundOutputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(c.RefundOut.Amount, c.OrderAmount)
 	api.AssertIsEqual(c.RefundOut.Owner, c.OrderIn.DataHash)
 	api.AssertIsEqual(c.RefundOut.Blinding,
-		escrow_settle.DeriveOutputBlinding(api, c.OrderIn.Blinding, RefundBlindingDomain))
+		blinding.DeriveOutputBlinding(api, c.OrderIn.Blinding, RefundBlindingDomain))
 	return spp.UtxoHashCircuit(api, c.RefundOut)
 }

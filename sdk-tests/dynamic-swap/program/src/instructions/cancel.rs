@@ -16,7 +16,7 @@ use crate::{
         shared::{close_escrow_account, cpi_spp_transact_signed},
         verifier::{verify_groth16, CompressedGroth16Proof, Groth16ProofBytes},
     },
-    state::{load_escrow_mut, load_pair},
+    state::{load_escrow_mut, load_pair_mut},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
@@ -58,14 +58,14 @@ pub fn process_cancel_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     let mut iter = AccountIterator::new(accounts);
     // Permissionless caller: signs and pays fees only (see doc above).
     iter.next_signer_mut("caller")?;
-    let pair_account = iter.next_account("pair")?;
+    let pair_account = iter.next_mut("pair")?;
     let escrow_account = iter.next_mut("escrow")?;
     let rent_recipient = iter.next_mut("rent_recipient")?;
 
     let CancelIxData { proof, transact } =
         wincode::deserialize_exact(data).map_err(|_| DynamicSwapError::InvalidInstructionData)?;
 
-    let pair = *load_pair(pair_account)?;
+    let pair = *load_pair_mut(pair_account)?;
     let pair_address = *pair_account.address();
 
     // Snapshot the escrow's fields and immediately drop the borrow so
@@ -105,6 +105,20 @@ pub fn process_cancel_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
         .hash()?,
         &crate::verifying_keys::escrow_cancel::VERIFYINGKEY,
     )?;
+
+    // Release the reservation in full: the order was never filled, so the
+    // exact `max_order_size` taken at create_escrow returns to the bound.
+    {
+        let mut pair_mut = load_pair_mut(pair_account)?;
+        pair_mut.liquidity_bound = pair_mut
+            .liquidity_bound
+            .checked_add(pair_mut.max_order_size)
+            .ok_or(ProgramError::ArithmeticOverflow)?;
+        pair_mut.open_reservations = pair_mut
+            .open_reservations
+            .checked_sub(1)
+            .ok_or(ProgramError::ArithmeticOverflow)?;
+    }
 
     let transact_bytes = transact
         .serialize()

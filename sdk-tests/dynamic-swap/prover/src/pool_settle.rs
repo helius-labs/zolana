@@ -8,32 +8,19 @@ use crate::{
     ProofInputUtxo,
 };
 
-/// Per-output-slot domains folded into the settle output-blinding derivation
-/// (`Poseidon(blinding, domain)`). These MUST stay byte-for-byte in sync with
-/// the Go copies in `prover/circuits/escrow_settle/escrow_settle.go`. The
-/// recipient output derives from the order blinding (the taker precomputes its
-/// payout note at creation); the funder outputs derive from the funding
-/// blinding.
-pub const RECIPIENT_BLINDING_DOMAIN: u64 = 0x5354_4C52_4543_4950; // "STLRECIP"
-pub const FUNDER_CHANGE_BLINDING_DOMAIN: u64 = 0x5354_4C46_4E43_4847; // "STLFNCHG"
-pub const FUNDER_RECEIPT_BLINDING_DOMAIN: u64 = 0x5354_4C46_4E52_4350; // "STLFNRCP"
-
-/// The cancel refund output's blinding domain (`Poseidon(order_blinding,
-/// domain)`), distinct from the settle recipient domain deriving from the same
-/// order blinding. MUST stay byte-for-byte in sync with the Go copy in
-/// `prover/circuits/escrow_cancel/escrow_cancel.go`.
-pub const CANCEL_REFUND_BLINDING_DOMAIN: u64 = 0x434E_4C52_4546_4E44; // "CNLREFND"
-
-/// Proof inputs for the `escrow_settle` circuit: 2-in (order, maker funding) /
-/// 3-out (recipient payout, funder change, funder receipt), the exact IN2_OUT3
-/// shape, no padding. There is no refund branch: an escrow can only exist at an
+/// Proof inputs for the `pool_settle` circuit: 2-in (order, pool note) / 3-out
+/// (recipient payout, pool change, maker receipt), the exact IN2_OUT3 shape,
+/// no padding. There is no refund branch: an escrow can only exist at an
 /// acceptable price, so settle always pays `order_amount * execution_price` of
 /// the destination asset to the recipient committed as the order UTXO's data
-/// hash. `execution_price` is public (the escrow account's stored price); the
+/// hash. The payout is funded from a pool note locked under the pair's
+/// pool_authority PDA; the change returns to the pool with its booked value
+/// (the note's data hash) reduced by `max(booked_in - max_order_size, 0)`.
+/// `execution_price` is public (the escrow account's stored price); the
 /// recipient owner-hash stays private, re-opened from `OrderIn.DataHash` which
 /// the public `OrderInHash` pins.
 #[derive(Debug, Clone)]
-pub struct EscrowSettleProofInputs {
+pub struct PoolSettleProofInputs {
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
     pub execution_price: u64,
@@ -41,18 +28,26 @@ pub struct EscrowSettleProofInputs {
     /// `Escrow.order_utxo_hash`, asserted equal in-circuit to `Hash(order_in)`.
     pub order_in_hash: [u8; 32],
     /// The pair's destination-asset commitment (`DestinationAsset`), bound to
-    /// `MakerFunding.Asset`.
+    /// the pool note and the payout.
     pub destination_asset: [u8; 32],
+    /// The pool_authority PDA's owner-hash (`PoolAuthorityOwnerHash`), bound to
+    /// `PoolIn.Owner` and `PoolChange.Owner`.
+    pub pool_authority_owner_hash: [u8; 32],
+    /// The pair's immutable `max_order_size`, entering the booked clamp.
+    pub max_order_size: u64,
+    /// The maker receipt destination (`ReceiptOwnerHash`), fed on-chain from
+    /// `Pair.maker_receipt_owner_hash`.
+    pub receipt_owner_hash: [u8; 32],
     pub order_amount: u64,
     pub order_in: ProofInputUtxo,
-    pub maker_funding: ProofInputUtxo,
+    pub pool_in: ProofInputUtxo,
     pub recipient_out: ProofInputUtxo,
-    pub funder_change: ProofInputUtxo,
-    pub funder_receipt: ProofInputUtxo,
+    pub pool_change: ProofInputUtxo,
+    pub maker_receipt: ProofInputUtxo,
     pub external_data_hash: [u8; 32],
 }
 
-impl EscrowSettleProofInputs {
+impl PoolSettleProofInputs {
     fn witness(&self) -> ffi::WitnessMap {
         let mut map = HashMap::new();
         map.insert(
@@ -76,6 +71,18 @@ impl EscrowSettleProofInputs {
             vec![bytes_to_decimal_string(&self.destination_asset)],
         );
         map.insert(
+            "Public_PoolAuthorityOwnerHash".to_string(),
+            vec![bytes_to_decimal_string(&self.pool_authority_owner_hash)],
+        );
+        map.insert(
+            "Public_MaxOrderSize".to_string(),
+            vec![self.max_order_size.to_string()],
+        );
+        map.insert(
+            "Public_ReceiptOwnerHash".to_string(),
+            vec![bytes_to_decimal_string(&self.receipt_owner_hash)],
+        );
+        map.insert(
             "OrderAmount".to_string(),
             vec![self.order_amount.to_string()],
         );
@@ -85,10 +92,10 @@ impl EscrowSettleProofInputs {
         );
         for (key, value) in utxo_witness_entries(&self.order_in, "OrderIn")
             .into_iter()
-            .chain(utxo_witness_entries(&self.maker_funding, "MakerFunding"))
+            .chain(utxo_witness_entries(&self.pool_in, "PoolIn"))
             .chain(utxo_witness_entries(&self.recipient_out, "RecipientOut"))
-            .chain(utxo_witness_entries(&self.funder_change, "FunderChange"))
-            .chain(utxo_witness_entries(&self.funder_receipt, "FunderReceipt"))
+            .chain(utxo_witness_entries(&self.pool_change, "PoolChange"))
+            .chain(utxo_witness_entries(&self.maker_receipt, "MakerReceipt"))
         {
             map.insert(key, value);
         }
@@ -96,7 +103,7 @@ impl EscrowSettleProofInputs {
     }
 
     pub fn prove(&self) -> Result<OrderProof, ProofError> {
-        negate_and_compress_proof(&ffi::prove(CircuitId::EscrowSettle, &self.witness())?)
+        negate_and_compress_proof(&ffi::prove(CircuitId::PoolSettle, &self.witness())?)
     }
 }
 
@@ -106,19 +113,22 @@ mod tests {
 
     use super::*;
 
-    fn sample() -> EscrowSettleProofInputs {
-        EscrowSettleProofInputs {
+    fn sample() -> PoolSettleProofInputs {
+        PoolSettleProofInputs {
             public_input_hash: [1; 32],
             private_tx_hash: [2; 32],
             execution_price: 90,
             order_in_hash: [3; 32],
             destination_asset: [4; 32],
+            pool_authority_owner_hash: [5; 32],
+            max_order_size: 100,
+            receipt_owner_hash: [6; 32],
             order_amount: 50,
             order_in: ProofInputUtxo::default(),
-            maker_funding: ProofInputUtxo::default(),
+            pool_in: ProofInputUtxo::default(),
             recipient_out: ProofInputUtxo::default(),
-            funder_change: ProofInputUtxo::default(),
-            funder_receipt: ProofInputUtxo::default(),
+            pool_change: ProofInputUtxo::default(),
+            maker_receipt: ProofInputUtxo::default(),
             external_data_hash: [8; 32],
         }
     }
@@ -134,15 +144,18 @@ mod tests {
             "Public_ExecutionPrice".to_string(),
             "Public_OrderInHash".to_string(),
             "Public_DestinationAsset".to_string(),
+            "Public_PoolAuthorityOwnerHash".to_string(),
+            "Public_MaxOrderSize".to_string(),
+            "Public_ReceiptOwnerHash".to_string(),
             "OrderAmount".to_string(),
             "ExternalDataHash".to_string(),
         ];
         for prefix in [
             "OrderIn",
-            "MakerFunding",
+            "PoolIn",
             "RecipientOut",
-            "FunderChange",
-            "FunderReceipt",
+            "PoolChange",
+            "MakerReceipt",
         ] {
             for suffix in [
                 "Domain",

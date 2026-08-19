@@ -1,8 +1,6 @@
 use anyhow::{bail, Result};
 use dynamic_swap_program::instructions::cancel::CancelPublicInput;
-use dynamic_swap_prover::{
-    EscrowCancelProofInputs, ProofInputUtxo, CANCEL_REFUND_BLINDING_DOMAIN,
-};
+use dynamic_swap_prover::{EscrowCancelProofInputs, ProofInputUtxo, CANCEL_REFUND_BLINDING_DOMAIN};
 use zolana_transaction::instructions::{
     transact::{PrivateTxHash, SppProofOutputUtxo},
     types::SppProofInputUtxo,
