@@ -8,29 +8,34 @@ use zolana_transaction::{
     DecodeCx, EncryptedScheme, ShieldedTransaction, UtxoSerialization,
 };
 
-use crate::{err, state::decode_escrow_note};
+use crate::{err, state::decode_order_note};
 
-/// The escrow order + reservation UTXO state a settler recovers by scanning for
-/// and decrypting the order UTXO's note -- no client-side tracking, and no
-/// caller-supplied hash: `order_utxo_hash` is the committed leaf discovered by
-/// the fetch. `recipient_owner_hash` is deliberately absent -- the settler
-/// resolves it from the recipient's registered account and checks it against the
-/// order UTXO's committed `data_hash`.
+/// The order UTXO data a settler recovers by scanning for and decrypting the
+/// order UTXO's confidential slot -- no client-side tracking. Together with the
+/// `order_utxo_hash` the caller read from the escrow account and the pair's
+/// public source asset, this is the complete preimage `settle` needs to spend
+/// the order.
 pub struct DiscoveredEscrow {
-    pub order_utxo_hash: [u8; 32],
     pub order_amount: u64,
     pub order_blinding: Blinding,
-    pub max_price: u64,
-    pub reservation_blinding: Blinding,
+    /// The taker's owner-hash: the order UTXO's data hash, re-opened by the
+    /// settle proof as the payout destination.
+    pub recipient_owner_hash: [u8; 32],
 }
 
-/// Scans for the `create_escrow` transaction by the escrow_authority PDA's
-/// public view tag and decrypts the order UTXO's note with the identity's
-/// derived viewing key, returning everything `settle` needs to rebuild both
-/// escrow UTXOs (including the discovered order-UTXO leaf hash). Only the SPP
-/// `transact` query and `Confidential::decode` do real work here; the rest is
-/// locating the order slot by that view tag.
-pub fn discover_escrow_note<I: Rpc>(indexer: &I, owner: &ShieldedPda) -> Result<DiscoveredEscrow> {
+/// Scans for the `create_escrow` transaction whose order slot committed the
+/// leaf `order_utxo_hash` (the value stored in the escrow account being
+/// settled) by the escrow_authority PDA's public view tag, and decrypts that
+/// slot with the maker's derived viewing key (see
+/// `state::escrow_authority_identity`). Keying the scan by the committed leaf
+/// pins the result to the escrow under settlement even when the pair has many
+/// open orders sharing the authority tag. Only the SPP `transact` query and
+/// `Confidential::decode` do real work here.
+pub fn discover_escrow_note<I: Rpc>(
+    indexer: &I,
+    owner: &ShieldedPda,
+    order_utxo_hash: &[u8; 32],
+) -> Result<DiscoveredEscrow> {
     let tag = owner
         .shielded_address()?
         .confidential_view_tag()
@@ -41,38 +46,37 @@ pub fn discover_escrow_note<I: Rpc>(indexer: &I, owner: &ShieldedPda) -> Result<
             .get_shielded_transactions_by_tags(vec![tag], cursor, None, None)
             .map_err(err)?;
         for tx in &page.transactions {
-            if let Some((order_utxo_hash, plaintext)) =
-                decode_order_slot(tx, &tag, owner.viewing_key())?
+            if let Some(plaintext) =
+                decode_order_slot(tx, &tag, order_utxo_hash, owner.viewing_key())?
             {
-                let (max_price, reservation_blinding) = decode_escrow_note(&plaintext.data)?;
+                let recipient_owner_hash = decode_order_note(&plaintext.data)?;
                 return Ok(DiscoveredEscrow {
-                    order_utxo_hash,
                     order_amount: plaintext.amount,
                     order_blinding: plaintext.blinding,
-                    max_price,
-                    reservation_blinding,
+                    recipient_owner_hash,
                 });
             }
         }
         match page.next_cursor {
             Some(next) => cursor = Some(next),
-            None => bail!("no escrow order note found for the escrow_authority view tag"),
+            None => bail!("no escrow order note found for the committed order leaf"),
         }
     }
 }
 
 /// Locate the confidential output slot addressed to the escrow_authority `tag`
-/// (the reservation slot shares the tag but its ciphertext is dropped, so only
-/// the order slot is data-bearing) and decrypt it with the shared viewing key,
-/// returning its committed leaf hash and plaintext. The confidential-slot index
-/// (counted over data-bearing slots, the same order the encrypter used) plus the
+/// whose committed leaf is `order_utxo_hash`, and decrypt it with the maker's
+/// derived viewing key. The confidential-slot index (counted over data-bearing
+/// slots, the same order the encrypter used; in a create_escrow transaction
+/// every slot is data-bearing, so it equals the raw position) plus the
 /// transaction's own `tx_viewing_pk`/`salt` form the `DecodeCx` the standard
 /// confidential decode expects -- the same path a wallet scan uses.
 fn decode_order_slot(
     tx: &ShieldedTransaction,
     tag: &[u8; 32],
+    order_utxo_hash: &[u8; 32],
     viewing_key: &ViewingKey,
-) -> Result<Option<([u8; 32], ConfidentialOutputPlaintext)>> {
+) -> Result<Option<ConfidentialOutputPlaintext>> {
     let mut slot_index = 0u32;
     for slot in &tx.output_slots {
         let Some(output_data) = slot.output_data() else {
@@ -89,12 +93,12 @@ fn decode_order_slot(
         if EncryptedScheme::from_byte(scheme_byte).ok() != Some(EncryptedScheme::Confidential) {
             continue;
         }
-        if &slot.view_tag != tag {
+        if &slot.view_tag != tag || &slot.output_context.hash != order_utxo_hash {
             continue;
         }
         let cx = DecodeCx::for_slot(viewing_key, tx, this_index);
         let plaintext = Confidential::decode(body, &cx).map_err(err)?;
-        return Ok(Some((slot.output_context.hash, plaintext)));
+        return Ok(Some(plaintext));
     }
     Ok(None)
 }

@@ -14,15 +14,14 @@ pub struct CreatePairData {
     pub price: u64,
     pub source_asset_id: u64,
     pub destination_asset_id: u64,
-    /// The authority's own owner-hash commitment; see `Pair::authority_owner_hash`.
-    pub authority_owner_hash: [u8; 32],
+    /// The maker's settle window in slots; see `Pair::expiry_slots`.
+    pub expiry_slots: u64,
     /// The source asset's UTXO commitment; see `Pair::source_asset`.
     pub source_asset: [u8; 32],
     /// The destination asset's UTXO commitment; see `Pair::destination_asset`.
     pub destination_asset: [u8; 32],
-    /// The escrow_authority identity's published nullifier pubkey; see
-    /// `Pair::escrow_authority_nullifier_pubkey`.
-    pub escrow_authority_nullifier_pubkey: [u8; 32],
+    /// The maker's encryption pubkey; see `Pair::maker_encryption_pubkey`.
+    pub maker_encryption_pubkey: [u8; 33],
 }
 
 #[inline(never)]
@@ -32,21 +31,27 @@ pub fn process_create_pair_ix(accounts: &mut [AccountView], data: &[u8]) -> Prog
         price,
         source_asset_id,
         destination_asset_id,
-        authority_owner_hash,
+        expiry_slots,
         source_asset,
         destination_asset,
-        escrow_authority_nullifier_pubkey,
+        maker_encryption_pubkey,
     } = CreatePairData::try_from_slice(data)
         .map_err(|_| DynamicSwapError::InvalidInstructionData)?;
-    // See `update_price`: a zero price leaves `create_escrow` unable to stamp a
+    // See `update_price`: a zero price leaves `create_escrow` unable to write a
     // nonzero `execution_price`, so the escrow could never settle.
     if price == 0 {
         return Err(DynamicSwapError::InvalidPrice.into());
     }
-    // A zero nullifier pubkey would silently recreate the transparent
-    // zero-secret escrow identity this field exists to replace.
-    if escrow_authority_nullifier_pubkey == [0u8; 32] {
-        return Err(DynamicSwapError::InvalidNullifierPubkey.into());
+    // A zero window would make every escrow cancellable immediately and
+    // unsettleable.
+    if expiry_slots == 0 {
+        return Err(DynamicSwapError::InvalidExpiry.into());
+    }
+    // The maker encryption pubkey must be a SEC1-compressed P256 point; a
+    // malformed key would make every order UTXO handoff undecryptable, leaving
+    // takers only the cancel path.
+    if !matches!(maker_encryption_pubkey.first(), Some(0x02) | Some(0x03)) {
+        return Err(DynamicSwapError::InvalidEncryptionPubkey.into());
     }
 
     let mut iter = AccountIterator::new(accounts);
@@ -97,10 +102,10 @@ pub fn process_create_pair_ix(accounts: &mut [AccountView], data: &[u8]) -> Prog
         state.source_asset_id = source_asset_id;
         state.destination_asset_id = destination_asset_id;
         state.price = price;
-        state.authority_owner_hash = authority_owner_hash;
+        state.expiry_slots = expiry_slots;
         state.source_asset = source_asset;
         state.destination_asset = destination_asset;
-        state.escrow_authority_nullifier_pubkey = escrow_authority_nullifier_pubkey;
+        state.maker_encryption_pubkey = maker_encryption_pubkey;
     }
 
     Ok(())

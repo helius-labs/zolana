@@ -2,7 +2,11 @@ mod shared;
 
 use anyhow::{anyhow, Result};
 use dynamic_swap_sdk::{
-    instructions::{create_pair::CreatePair, update_price::UpdatePrice},
+    escrow_pda,
+    Groth16ProofBytes,
+    instructions::{
+        create_escrow::CreateEscrow, create_pair::CreatePair, update_price::UpdatePrice,
+    },
     pair_pda,
 };
 use shared::{escrow_authority_identity, setup, TestEnv, DESTINATION_ASSET_ID, SOURCE_ASSET_ID};
@@ -10,12 +14,20 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::Rpc;
+use zolana_interface::{
+    instruction::instruction_data::transact::{TransactIxData, TransactProof},
+    verifying_keys::CircuitId,
+};
 use zolana_transaction::{instructions::transact::spp_proof_inputs::asset_field, SOL_MINT};
 
 const PRICE: u64 = 5;
+const EXPIRY_SLOTS: u64 = 100_000;
 
 const INVALID_PRICE: u32 = 9016;
 const UNAUTHORIZED: u32 = 9012;
+const MAX_PRICE_EXCEEDED: u32 = 9019;
+const INVALID_ENCRYPTION_PUBKEY: u32 = 9020;
+const INVALID_EXPIRY: u32 = 9021;
 
 // A custom program error surfaces in the RPC error two ways: the structured
 // `InstructionError::Custom(<decimal>)` and the program-log line `custom program
@@ -32,20 +44,21 @@ fn assert_custom_error(context: &str, err: &anyhow::Error, code: u32) {
     );
 }
 
-// Derives the pair PDA and sends `create_pair` at `price`. There is no shared
-// pool: the maker funds each escrow on demand, so this creates only the pair
-// account. Returns the pair PDA (or the RPC error, which the price-0 case
-// asserts on).
-fn create_pair(env: &TestEnv, authority_solana: &dyn Signer, price: u64) -> Result<Pubkey> {
+// Derives the pair PDA and sends `create_pair`. There is no shared pool:
+// liquidity arrives at settle time, so this creates only the pair account.
+// Returns the pair PDA (or the RPC error, which the rejection cases assert on).
+fn create_pair(
+    env: &TestEnv,
+    authority_solana: &dyn Signer,
+    price: u64,
+    expiry_slots: u64,
+    maker_encryption_pubkey: [u8; 33],
+) -> Result<Pubkey> {
     let pair = pair_pda(
         &authority_solana.pubkey(),
         SOURCE_ASSET_ID,
         DESTINATION_ASSET_ID,
     );
-    let authority_owner_hash = env
-        .authority
-        .owner_hash()
-        .map_err(|e| anyhow!("authority owner hash: {e:?}"))?;
     let source_asset = asset_field(&env.spl_mint).map_err(|e| anyhow!("source asset: {e:?}"))?;
     let destination_asset =
         asset_field(&SOL_MINT).map_err(|e| anyhow!("destination asset: {e:?}"))?;
@@ -55,15 +68,10 @@ fn create_pair(env: &TestEnv, authority_solana: &dyn Signer, price: u64) -> Resu
         price,
         source_asset_id: SOURCE_ASSET_ID,
         destination_asset_id: DESTINATION_ASSET_ID,
-        authority_owner_hash,
+        expiry_slots,
         source_asset,
         destination_asset,
-        escrow_authority_nullifier_pubkey: escrow_authority_identity(
-            &env.authority.keypair,
-            &pair,
-        )?
-        .nullifier_pubkey()
-        .map_err(|e| anyhow!("escrow authority nullifier pubkey: {e:?}"))?,
+        maker_encryption_pubkey,
     }
     .instruction()
     .map_err(|e| anyhow!("create_pair instruction: {e:?}"))?;
@@ -78,28 +86,98 @@ fn create_pair(env: &TestEnv, authority_solana: &dyn Signer, price: u64) -> Resu
     Ok(pair)
 }
 
+/// A wincode-deserializable transact payload for gates that reject before proof
+/// verification touches it.
+fn dummy_transact() -> TransactIxData {
+    TransactIxData {
+        expiry_unix_ts: u64::MAX,
+        private_tx_hash: [0u8; 32],
+        circuit: CircuitId::ConfidentialEddsa(1, 2, 0),
+        tx_viewing_pk: [2u8; 33],
+        salt: [0u8; 16],
+        proof: TransactProof::zeroed(),
+        inputs: vec![],
+        interface_transfers: vec![],
+        data_hash: None,
+        ring_data_hash: None,
+        outputs: vec![],
+        messages: vec![],
+    }
+}
+
 // Proof-free access-control and validation rejections, all under one validator
 // (kept in a single `#[test]` because each `setup()` boots its own localnet on
 // fixed ports, so multiple tests in one binary would race for them):
-//   - create_pair with price 0            -> InvalidPrice
-//   - update_price to 0                    -> InvalidPrice
-//   - update_price by a non-authority      -> Unauthorized
+//   - create_pair with price 0                    -> InvalidPrice
+//   - create_pair with expiry_slots 0             -> InvalidExpiry
+//   - create_pair with a non-SEC1 encryption key  -> InvalidEncryptionPubkey
+//   - update_price to 0                           -> InvalidPrice
+//   - update_price by a non-authority             -> Unauthorized
+//   - create_escrow with max_price < pair.price   -> MaxPriceExceeded
 #[test]
 fn zero_price_and_authority_checks() -> Result<()> {
     let env = setup()?;
     let authority_solana = &env.authority.keypair;
+    let user_solana = &env.user.keypair;
 
-    // create_pair rejects a zero price (create_escrow could not stamp a nonzero
+    let pair = pair_pda(
+        &authority_solana.pubkey(),
+        SOURCE_ASSET_ID,
+        DESTINATION_ASSET_ID,
+    );
+    let maker_encryption_pubkey = *escrow_authority_identity(&env.authority.keypair, &pair)?
+        .viewing_pubkey()
+        .as_bytes();
+
+    // create_pair rejects a zero price (create_escrow could not write a nonzero
     // execution_price, so escrows on the pair could never settle).
-    let err = create_pair(&env, &authority_solana, 0)
-        .err()
-        .ok_or_else(|| anyhow!("create_pair with price 0 must fail"))?;
+    let err = create_pair(
+        &env,
+        &authority_solana,
+        0,
+        EXPIRY_SLOTS,
+        maker_encryption_pubkey,
+    )
+    .err()
+    .ok_or_else(|| anyhow!("create_pair with price 0 must fail"))?;
     assert_custom_error("create_pair zero price", &err, INVALID_PRICE);
 
-    // A valid pair for the remaining update_price checks.
-    let pair = create_pair(&env, &authority_solana, PRICE)?;
+    // create_pair rejects a zero settle window (every escrow would be
+    // immediately cancellable and unsettleable).
+    let err = create_pair(&env, &authority_solana, PRICE, 0, maker_encryption_pubkey)
+        .err()
+        .ok_or_else(|| anyhow!("create_pair with expiry 0 must fail"))?;
+    assert_custom_error("create_pair zero expiry", &err, INVALID_EXPIRY);
 
-    // update_price rejects a zero price for the same reason.
+    // create_pair rejects an encryption pubkey that is not a SEC1-compressed
+    // P256 point (order UTXO handoffs would be undecryptable).
+    let mut bad_encryption_pubkey = maker_encryption_pubkey;
+    bad_encryption_pubkey[0] = 0x04;
+    let err = create_pair(
+        &env,
+        &authority_solana,
+        PRICE,
+        EXPIRY_SLOTS,
+        bad_encryption_pubkey,
+    )
+    .err()
+    .ok_or_else(|| anyhow!("create_pair with a bad encryption pubkey must fail"))?;
+    assert_custom_error(
+        "create_pair bad encryption pubkey",
+        &err,
+        INVALID_ENCRYPTION_PUBKEY,
+    );
+
+    // A valid pair for the remaining checks.
+    let pair = create_pair(
+        &env,
+        &authority_solana,
+        PRICE,
+        EXPIRY_SLOTS,
+        maker_encryption_pubkey,
+    )?;
+
+    // update_price rejects a zero price for the same reason as create_pair.
     let zero_ix = UpdatePrice {
         authority: authority_solana.pubkey(),
         pair,
@@ -140,6 +218,36 @@ fn zero_price_and_authority_checks() -> Result<()> {
         "non-authority update_price",
         &anyhow!("{err:?}"),
         UNAUTHORIZED,
+    );
+
+    // create_escrow rejects a max_price below the pair's current price. The gate
+    // runs before proof verification, so a garbage proof and an empty transact
+    // payload reach it.
+    let escrow_ix = CreateEscrow {
+        taker: user_solana.pubkey(),
+        pair,
+        escrow: escrow_pda(&[0u8; 32]),
+        tree: Pubkey::new_unique(),
+        proof: Groth16ProofBytes {
+            proof_a: [0u8; 32],
+            proof_b: [0u8; 64],
+            proof_c: [0u8; 32],
+        },
+        max_price: PRICE - 1,
+        transact: dummy_transact(),
+    }
+    .instruction()
+    .map_err(|e| anyhow!("create_escrow instruction: {e:?}"))?;
+    let err = env
+        .client
+        .rpc()
+        .create_and_send_transaction(&[escrow_ix], user_solana.pubkey(), &[&user_solana])
+        .err()
+        .ok_or_else(|| anyhow!("create_escrow above max_price must fail"))?;
+    assert_custom_error(
+        "create_escrow above max_price",
+        &anyhow!("{err:?}"),
+        MAX_PRICE_EXCEEDED,
     );
 
     Ok(())

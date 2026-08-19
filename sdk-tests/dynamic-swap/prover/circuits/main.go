@@ -32,6 +32,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
+	"circuits/escrow_cancel"
 	"circuits/escrow_open"
 	"circuits/escrow_settle"
 	"circuits/witness"
@@ -40,6 +41,7 @@ import (
 const (
 	CircuitEscrowOpen   = 1
 	CircuitEscrowSettle = 2
+	CircuitEscrowCancel = 3
 )
 
 var (
@@ -69,6 +71,8 @@ func compileCircuit(id int) (constraint.ConstraintSystem, error) {
 		circuit = &escrow_open.Circuit{}
 	case CircuitEscrowSettle:
 		circuit = &escrow_settle.Circuit{}
+	case CircuitEscrowCancel:
+		circuit = &escrow_cancel.Circuit{}
 	default:
 		return nil, fmt.Errorf("unknown circuit id %d", id)
 	}
@@ -88,6 +92,8 @@ func assignFromWitness(id int, witnessValues map[string][]string) (frontend.Circ
 		circuit = &escrow_open.Circuit{}
 	case CircuitEscrowSettle:
 		circuit = &escrow_settle.Circuit{}
+	case CircuitEscrowCancel:
+		circuit = &escrow_cancel.Circuit{}
 	default:
 		return nil, fmt.Errorf("unknown circuit id %d", id)
 	}

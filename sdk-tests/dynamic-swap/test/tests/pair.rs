@@ -12,19 +12,19 @@ use zolana_client::Rpc;
 use zolana_transaction::{instructions::transact::spp_proof_inputs::asset_field, SOL_MINT};
 
 const INITIAL_PRICE: u64 = 100;
+const EXPIRY_SLOTS: u64 = 777;
 
 // Creates a unidirectional pair then updates its price, asserting the pair
-// account ends up in the expected state. There is no shared pool: the maker
-// funds each escrow directly, so `create_pair` creates only the pair account.
+// account ends up in the expected state. There is no shared pool: liquidity
+// arrives at settle time, so `create_pair` creates only the pair account.
 #[test]
 fn create_pair_then_update_price() -> Result<()> {
     let env = setup()?;
     let authority_solana = &env.authority.keypair;
-    let authority_owner_hash = env.authority.owner_hash()?;
 
     // create_pair: derive the pair PDA and register the source/destination
-    // asset pair at `INITIAL_PRICE`. The maker funds each escrow on demand, so
-    // this creates only the pair account.
+    // asset pair at `INITIAL_PRICE` with the maker's settle window and
+    // encryption pubkey.
     let pair = pair_pda(
         &authority_solana.pubkey(),
         SOURCE_ASSET_ID,
@@ -33,20 +33,19 @@ fn create_pair_then_update_price() -> Result<()> {
     let source_asset = asset_field(&env.spl_mint).map_err(|e| anyhow!("source asset: {e:?}"))?;
     let destination_asset =
         asset_field(&SOL_MINT).map_err(|e| anyhow!("destination asset: {e:?}"))?;
-    let escrow_authority_nullifier_pubkey =
-        escrow_authority_identity(&env.authority.keypair, &pair)?
-            .nullifier_pubkey()
-            .map_err(|e| anyhow!("escrow authority nullifier pubkey: {e:?}"))?;
+    let maker_encryption_pubkey = *escrow_authority_identity(&env.authority.keypair, &pair)?
+        .viewing_pubkey()
+        .as_bytes();
     let create_pair_ix = CreatePair {
         payer: authority_solana.pubkey(),
         pair,
         price: INITIAL_PRICE,
         source_asset_id: SOURCE_ASSET_ID,
         destination_asset_id: DESTINATION_ASSET_ID,
-        authority_owner_hash,
+        expiry_slots: EXPIRY_SLOTS,
         source_asset,
         destination_asset,
-        escrow_authority_nullifier_pubkey,
+        maker_encryption_pubkey,
     }
     .instruction()
     .map_err(|e| anyhow!("create_pair instruction: {e:?}"))?;
@@ -81,19 +80,20 @@ fn create_pair_then_update_price() -> Result<()> {
         discriminator: dynamic_swap_program::state::discriminator::PAIR,
         bump: pair_bump,
         _pad: [0u8; 6],
-        authority: solana_address::Address::new_from_array(authority_solana.pubkey().to_bytes()),
+        authority: authority_solana.pubkey(),
         source_asset_id: SOURCE_ASSET_ID,
         destination_asset_id: DESTINATION_ASSET_ID,
         price: INITIAL_PRICE,
-        authority_owner_hash,
+        expiry_slots: EXPIRY_SLOTS,
         source_asset,
         destination_asset,
-        escrow_authority_nullifier_pubkey,
+        maker_encryption_pubkey,
+        _pad2: [0u8; 7],
     };
     assert_eq!(*pair_state, expected);
 
     // Only the pair authority may update the price; any other actor is out of
-    // scope here (the program's own signer check is exercised by unit tests).
+    // scope here (the negative binary exercises the signer check).
     let new_price = INITIAL_PRICE * 3;
     let update_price_ix = UpdatePrice {
         authority: authority_solana.pubkey(),

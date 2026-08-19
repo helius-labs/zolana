@@ -1,3 +1,6 @@
 pub mod order;
 
-pub use order::{decode_escrow_note, encode_escrow_note, EscrowTerms, EscrowUtxo, Reservation};
+pub use order::{
+    decode_order_note, encode_order_note, escrow_authority_address, escrow_authority_identity,
+    escrow_nullifier_key, EscrowUtxo,
+};

@@ -252,6 +252,7 @@ impl PreparedSplit {
             output_utxos: outputs,
             external_data,
             payer,
+            extra_owner_signers: Vec::new(),
         })
     }
 }

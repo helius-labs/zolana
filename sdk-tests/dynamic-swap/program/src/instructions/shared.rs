@@ -20,31 +20,46 @@ pub fn u64_right_align(value: u64) -> [u8; 32] {
 }
 
 /// The escrow_authority PDA's owner-hash for `pair`:
-/// `Poseidon(hash_bytes(derived PDA), nullifier_pubkey)`, with the PDA derived
-/// here so the program never trusts a client value for the PDA binding of the
-/// `escrow_open` circuit's `EscrowAuthorityOwnerHash` public input.
-/// `nullifier_pubkey` is the value published in
-/// `Pair::escrow_authority_nullifier_pubkey`: the maker derives the identity's
-/// nullifier secret from its viewing key, so who can build spend proofs is
-/// maker-chosen, while the order/reservation UTXOs stay bound to the
-/// program-controlled PDA that only `settle` can sign for.
+/// `Poseidon(hash_bytes(derived PDA), ESCROW_NULLIFIER_PUBKEY)`, with the PDA
+/// derived here so the program never trusts a client value for the PDA binding
+/// of the `escrow_open` circuit's `EscrowAuthorityOwnerHash` public input. The
+/// nullifier pubkey is the hardcoded zero-secret constant (see
+/// `crate::ESCROW_NULLIFIER_PUBKEY`), so both the maker (settle) and the taker
+/// (cancel) can build spend proofs, while the order UTXO stays bound to the
+/// program-controlled PDA that only settle/cancel can sign for.
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
-pub fn escrow_authority_owner_hash(
-    pair: &Address,
-    nullifier_pubkey: &[u8; 32],
-) -> Result<[u8; 32], ProgramError> {
+pub fn escrow_authority_owner_hash(pair: &Address) -> Result<[u8; 32], ProgramError> {
     let (pda, _bump) = derive_authority_pda(crate::ESCROW_AUTHORITY_PDA_SEED, pair);
     let owner_pk_field = hash_bytes(pda.as_array()).map_err(DynamicSwapError::from)?;
-    Poseidon::hashv(&[owner_pk_field.as_slice(), nullifier_pubkey.as_slice()])
-        .map_err(|_| DynamicSwapError::HashingFailed.into())
+    Poseidon::hashv(&[
+        owner_pk_field.as_slice(),
+        crate::ESCROW_NULLIFIER_PUBKEY.as_slice(),
+    ])
+    .map_err(|_| DynamicSwapError::HashingFailed.into())
 }
 
 #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
-pub fn escrow_authority_owner_hash(
-    _pair: &Address,
-    _nullifier_pubkey: &[u8; 32],
-) -> Result<[u8; 32], ProgramError> {
+pub fn escrow_authority_owner_hash(_pair: &Address) -> Result<[u8; 32], ProgramError> {
     unimplemented!("escrow_authority_owner_hash requires Solana runtime syscalls")
+}
+
+/// Move the escrow account's rent to `rent_recipient` and close the account.
+/// The rent must move before the account is closed, or the instruction is
+/// unbalanced. Shared by `settle` and `cancel`, the two escrow-resolving
+/// instructions.
+pub fn close_escrow_account(
+    escrow_account: &mut AccountView,
+    rent_recipient: &mut AccountView,
+) -> ProgramResult {
+    let rent_lamports = escrow_account.lamports();
+    rent_recipient.set_lamports(
+        rent_recipient
+            .lamports()
+            .checked_add(rent_lamports)
+            .ok_or(ProgramError::ArithmeticOverflow)?,
+    );
+    escrow_account.set_lamports(0);
+    escrow_account.close()
 }
 
 /// Create a program-derived account. Handles both the hot path (the account has

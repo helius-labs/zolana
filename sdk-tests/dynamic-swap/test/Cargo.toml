@@ -62,5 +62,5 @@ name = "escrow_flow"
 path = "tests/escrow_flow.rs"
 
 [[test]]
-name = "escrow_refund"
-path = "tests/escrow_refund.rs"
+name = "escrow_cancel"
+path = "tests/escrow_cancel.rs"

@@ -4,8 +4,8 @@ use solana_pubkey::Pubkey;
 
 use crate::{err, tag, CreatePairData};
 
-/// Creates a unidirectional trading pair. There is no shared pool: the maker
-/// funds each escrow directly, so no pool bootstrap or auxiliary accounts are
+/// Creates a unidirectional trading pair. There is no shared pool: settle is
+/// funded directly at fill time, so no pool bootstrap or auxiliary accounts are
 /// needed.
 pub struct CreatePair {
     pub payer: Pubkey,
@@ -13,15 +13,15 @@ pub struct CreatePair {
     pub price: u64,
     pub source_asset_id: u64,
     pub destination_asset_id: u64,
-    pub authority_owner_hash: [u8; 32],
+    /// The maker's settle window in slots; see `Pair::expiry_slots`.
+    pub expiry_slots: u64,
     /// The source asset's UTXO commitment (`asset_field(source_mint)`); see
     /// `Pair::source_asset`.
     pub source_asset: [u8; 32],
     /// The destination asset's UTXO commitment; see `Pair::destination_asset`.
     pub destination_asset: [u8; 32],
-    /// The escrow_authority identity's published nullifier pubkey; see
-    /// `Pair::escrow_authority_nullifier_pubkey`.
-    pub escrow_authority_nullifier_pubkey: [u8; 32],
+    /// The maker's encryption pubkey; see `Pair::maker_encryption_pubkey`.
+    pub maker_encryption_pubkey: [u8; 33],
 }
 
 impl CreatePair {
@@ -30,10 +30,10 @@ impl CreatePair {
             price: self.price,
             source_asset_id: self.source_asset_id,
             destination_asset_id: self.destination_asset_id,
-            authority_owner_hash: self.authority_owner_hash,
+            expiry_slots: self.expiry_slots,
             source_asset: self.source_asset,
             destination_asset: self.destination_asset,
-            escrow_authority_nullifier_pubkey: self.escrow_authority_nullifier_pubkey,
+            maker_encryption_pubkey: self.maker_encryption_pubkey,
         };
 
         let mut instruction_data = vec![tag::CREATE_PAIR];

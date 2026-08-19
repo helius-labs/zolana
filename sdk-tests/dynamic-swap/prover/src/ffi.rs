@@ -17,6 +17,7 @@ pub type WitnessMap = HashMap<String, Vec<String>>;
 pub enum CircuitId {
     EscrowOpen = 1,
     EscrowSettle = 2,
+    EscrowCancel = 3,
 }
 
 #[derive(Debug, Clone)]
@@ -118,6 +119,7 @@ fn build_dir(circuit: CircuitId) -> PathBuf {
     let sub = match circuit {
         CircuitId::EscrowOpen => "escrow_open",
         CircuitId::EscrowSettle => "escrow_settle",
+        CircuitId::EscrowCancel => "escrow_cancel",
     };
     base.join(sub)
 }
@@ -135,9 +137,11 @@ enum KeyStatus {
 fn circuit_key_status(circuit: CircuitId) -> &'static OnceLock<KeyStatus> {
     static ESCROW_OPEN: OnceLock<KeyStatus> = OnceLock::new();
     static ESCROW_SETTLE: OnceLock<KeyStatus> = OnceLock::new();
+    static ESCROW_CANCEL: OnceLock<KeyStatus> = OnceLock::new();
     match circuit {
         CircuitId::EscrowOpen => &ESCROW_OPEN,
         CircuitId::EscrowSettle => &ESCROW_SETTLE,
+        CircuitId::EscrowCancel => &ESCROW_CANCEL,
     }
 }
 

@@ -1,3 +1,4 @@
+pub mod cancel;
 pub mod create_escrow;
 pub mod create_pair;
 pub mod settle;
@@ -5,6 +6,7 @@ pub mod shared;
 pub mod update_price;
 pub mod verifier;
 
+pub use cancel::process_cancel_ix;
 pub use create_escrow::process_create_escrow_ix;
 pub use create_pair::process_create_pair_ix;
 pub use settle::process_settle_ix;

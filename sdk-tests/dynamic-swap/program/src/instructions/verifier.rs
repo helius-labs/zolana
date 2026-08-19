@@ -3,10 +3,21 @@ use groth16_solana::{
     groth16::{Groth16Verifier, Groth16Verifyingkey},
 };
 use pinocchio::ProgramResult;
+use wincode::{SchemaRead, SchemaWrite};
 
 use crate::error::DynamicSwapError;
 
 const PROOF_ERR: DynamicSwapError = DynamicSwapError::ProofVerificationFailed;
+
+/// Compressed Groth16 proof bytes as carried in instruction data; the one wire
+/// shape shared by every proof-carrying instruction (create_escrow, settle,
+/// cancel -- each verifies against its own verifying key).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct Groth16ProofBytes {
+    pub proof_a: [u8; 32],
+    pub proof_b: [u8; 64],
+    pub proof_c: [u8; 32],
+}
 
 pub struct CompressedGroth16Proof<'a> {
     pub a: &'a [u8; 32],

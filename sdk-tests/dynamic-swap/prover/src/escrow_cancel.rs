@@ -8,30 +8,26 @@ use crate::{
     ProofInputUtxo,
 };
 
-/// Proof inputs for the `escrow_open` circuit (`create_escrow`): 1-in (source) /
-/// 2-out (order, taker_change), the exact supported IN1_OUT2 shape with no
-/// padding. Taker-only: the maker's liquidity enters at settle time, so there is
-/// no funding input, no reservation, and no maker change. `max_price` never
-/// enters the circuit -- the program checks it against the pair price and
-/// discards it.
+/// Proof inputs for the `escrow_cancel` circuit: 1-in (order) / 1-out (refund),
+/// the exact IN1_OUT1 shape. The full order amount returns, in the source
+/// asset, to the recipient committed as the order UTXO's data hash; the refund
+/// blinding derives from the order blinding under
+/// `CANCEL_REFUND_BLINDING_DOMAIN`. The expiry gate is program-side, so the
+/// circuit carries no notion of time.
 #[derive(Debug, Clone)]
-pub struct EscrowOpenProofInputs {
+pub struct EscrowCancelProofInputs {
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
-    /// The escrow_authority PDA's owner-hash (`EscrowAuthorityOwnerHash`),
-    /// bound to `OrderOut.Owner`.
-    pub escrow_authority_owner_hash: [u8; 32],
-    /// The pair's source-asset commitment (`SourceAsset`), bound to
-    /// `SourceIn.Asset`.
-    pub source_asset: [u8; 32],
+    /// The order-input UTXO's own hash -- the escrow account's on-chain
+    /// `Escrow.order_utxo_hash`, asserted equal in-circuit to `Hash(order_in)`.
+    pub order_in_hash: [u8; 32],
     pub order_amount: u64,
-    pub source_in: ProofInputUtxo,
-    pub order_out: ProofInputUtxo,
-    pub taker_change: ProofInputUtxo,
+    pub order_in: ProofInputUtxo,
+    pub refund_out: ProofInputUtxo,
     pub external_data_hash: [u8; 32],
 }
 
-impl EscrowOpenProofInputs {
+impl EscrowCancelProofInputs {
     fn witness(&self) -> ffi::WitnessMap {
         let mut map = HashMap::new();
         map.insert(
@@ -43,12 +39,8 @@ impl EscrowOpenProofInputs {
             vec![bytes_to_decimal_string(&self.private_tx_hash)],
         );
         map.insert(
-            "Public_EscrowAuthorityOwnerHash".to_string(),
-            vec![bytes_to_decimal_string(&self.escrow_authority_owner_hash)],
-        );
-        map.insert(
-            "Public_SourceAsset".to_string(),
-            vec![bytes_to_decimal_string(&self.source_asset)],
+            "Public_OrderInHash".to_string(),
+            vec![bytes_to_decimal_string(&self.order_in_hash)],
         );
         map.insert(
             "OrderAmount".to_string(),
@@ -58,10 +50,9 @@ impl EscrowOpenProofInputs {
             "ExternalDataHash".to_string(),
             vec![bytes_to_decimal_string(&self.external_data_hash)],
         );
-        for (key, value) in utxo_witness_entries(&self.source_in, "SourceIn")
+        for (key, value) in utxo_witness_entries(&self.order_in, "OrderIn")
             .into_iter()
-            .chain(utxo_witness_entries(&self.order_out, "OrderOut"))
-            .chain(utxo_witness_entries(&self.taker_change, "TakerChange"))
+            .chain(utxo_witness_entries(&self.refund_out, "RefundOut"))
         {
             map.insert(key, value);
         }
@@ -69,7 +60,7 @@ impl EscrowOpenProofInputs {
     }
 
     pub fn prove(&self) -> Result<OrderProof, ProofError> {
-        negate_and_compress_proof(&ffi::prove(CircuitId::EscrowOpen, &self.witness())?)
+        negate_and_compress_proof(&ffi::prove(CircuitId::EscrowCancel, &self.witness())?)
     }
 }
 
@@ -79,17 +70,15 @@ mod tests {
 
     use super::*;
 
-    fn sample() -> EscrowOpenProofInputs {
-        EscrowOpenProofInputs {
+    fn sample() -> EscrowCancelProofInputs {
+        EscrowCancelProofInputs {
             public_input_hash: [1; 32],
             private_tx_hash: [2; 32],
-            escrow_authority_owner_hash: [6; 32],
-            source_asset: [7; 32],
+            order_in_hash: [3; 32],
             order_amount: 50,
-            source_in: ProofInputUtxo::default(),
-            order_out: ProofInputUtxo::default(),
-            taker_change: ProofInputUtxo::default(),
-            external_data_hash: [5; 32],
+            order_in: ProofInputUtxo::default(),
+            refund_out: ProofInputUtxo::default(),
+            external_data_hash: [4; 32],
         }
     }
 
@@ -101,12 +90,11 @@ mod tests {
         let mut expected: Vec<String> = vec![
             "Public_PublicInputHash".to_string(),
             "Public_PrivateTxHash".to_string(),
-            "Public_EscrowAuthorityOwnerHash".to_string(),
-            "Public_SourceAsset".to_string(),
+            "Public_OrderInHash".to_string(),
             "OrderAmount".to_string(),
             "ExternalDataHash".to_string(),
         ];
-        for prefix in ["SourceIn", "OrderOut", "TakerChange"] {
+        for prefix in ["OrderIn", "RefundOut"] {
             for suffix in [
                 "Domain",
                 "Owner",

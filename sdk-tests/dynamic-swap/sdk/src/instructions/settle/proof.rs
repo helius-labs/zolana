@@ -1,13 +1,13 @@
 use anyhow::{bail, Result};
 use dynamic_swap_program::instructions::{settle::SettlePublicInput, shared::u64_right_align};
 use dynamic_swap_prover::{
-    EscrowSettleProofInputs, ProofInputUtxo, MAKER_COUNTER_BLINDING_DOMAIN,
-    MAKER_SOURCE_BLINDING_DOMAIN, RECIPIENT_BLINDING_DOMAIN,
+    EscrowSettleProofInputs, ProofInputUtxo, FUNDER_CHANGE_BLINDING_DOMAIN,
+    FUNDER_RECEIPT_BLINDING_DOMAIN, RECIPIENT_BLINDING_DOMAIN,
 };
 use zolana_keypair::hash::poseidon;
 use zolana_transaction::{
     instructions::{
-        transact::{PrivateTxHash, SppProofOutputUtxo},
+        transact::{spp_proof_inputs::asset_field, PrivateTxHash, SppProofOutputUtxo},
         types::SppProofInputUtxo,
     },
     utxo::Blinding,
@@ -18,25 +18,16 @@ use crate::{
     shared::{check_output_utxo, right_align_blinding},
 };
 
-/// Deterministically derives a settle output UTXO's blinding from both escrow
-/// input blindings (the order and reservation notes) and a per-slot `domain`.
-/// The maker and taker -- who both know the two input blindings -- can recompute
-/// their payout notes without an encrypted memo, while a third party (which never
-/// learns the input blindings) cannot, so the settle-vs-refund outcome stays
-/// hidden. Mirrors `escrow_settle.go`'s `DeriveOutputBlinding`: keep bytes
+/// Deterministically derives a settle/cancel output UTXO's blinding from one
+/// input blinding and a per-slot `domain`. The recipient output derives from
+/// the order blinding, so the taker precomputes its payout (and refund) note at
+/// creation; the funder outputs derive from the funding blinding the funder
+/// picked. Mirrors `escrow_settle.go`'s `DeriveOutputBlinding`: keep bytes
 /// `[1..32]` of the Poseidon output (its low 248 bits).
-pub fn derive_settle_output_blinding(
-    order_blinding: &Blinding,
-    reservation_blinding: &Blinding,
-    domain: u64,
-) -> Result<Blinding> {
-    let derived = poseidon(&[
-        &right_align_blinding(order_blinding),
-        &right_align_blinding(reservation_blinding),
-        &u64_right_align(domain),
-    ])
-    .map_err(err)?;
-    // The swap circuit derives the blinding with a 31-byte truncation
+pub fn derive_output_blinding(blinding: &Blinding, domain: u64) -> Result<Blinding> {
+    let derived = poseidon(&[&right_align_blinding(blinding), &u64_right_align(domain)])
+        .map_err(err)?;
+    // The circuits derive the blinding with a 31-byte truncation
     // (`DeriveOutputBlinding` keeps the low 248 bits), so mirror it: zero the
     // top byte of the Poseidon output.
     let mut blinding = derived;
@@ -44,177 +35,143 @@ pub fn derive_settle_output_blinding(
     Ok(blinding)
 }
 
-/// Proof-input params for the `escrow_settle` circuit -- the single circuit the
-/// `settle` instruction uses for both outcomes: 2-in (order, reservation) /
-/// 3-out (recipient, maker counter-asset UTXO, maker source-asset UTXO). The
-/// circuit derives the outcome from `is_settle = execution_price <= max_price`
-/// (execution_price is always nonzero -- the escrow is priced at creation), so
-/// the caller must supply outputs shaped for whichever outcome actually applies;
-/// this method computes the expected shape from the same comparison and validates
-/// the caller's UTXOs against it.
-///
-/// `max_price` and `created_at` are private witnesses (bound to the order UTXO's
-/// data hash), not public inputs -- keeping `max_price` private is what hides
-/// settle-vs-refund.
+/// Proof-input params for the `escrow_settle` circuit: 2-in (order, maker
+/// funding) / 3-out (recipient payout, funder change, funder receipt), the
+/// exact IN2_OUT3 shape. There is no refund branch: settle always pays
+/// `order_amount * execution_price` of the destination asset to the recipient
+/// committed as the order UTXO's data hash. The recipient owner-hash is taken
+/// from `order_in`'s data hash -- never a public input, so the payout
+/// destination stays confidential.
 pub struct SettleProofInputParams {
     pub order_in: SppProofInputUtxo,
-    pub reservation_in: SppProofInputUtxo,
+    pub maker_funding: SppProofInputUtxo,
     pub recipient_out: SppProofOutputUtxo,
-    pub maker_counter: SppProofOutputUtxo,
-    pub maker_source: SppProofOutputUtxo,
-    /// The escrow's `execution_price` (the public pair price, always nonzero).
+    pub funder_change: SppProofOutputUtxo,
+    pub funder_receipt: SppProofOutputUtxo,
+    /// The escrow's `execution_price` (the stored public pair price, always
+    /// nonzero).
     pub execution_price: u64,
-    /// Private witness: the order's `max_price` (re-opened from the order UTXO's
-    /// data hash in-circuit).
-    pub max_price: u64,
-    /// Private witness: the order's `created_at` (the third data-hash preimage).
-    pub created_at: u64,
     pub order_amount: u64,
-    /// The `Escrow` account's on-chain `escrow_utxo_hash`. `order_in` must
-    /// hash to this value.
-    pub escrow_utxo_hash: [u8; 32],
-    /// The `Escrow` account's on-chain `reservation_utxo_hash`.
-    /// `reservation_in` must hash to this value.
-    pub reservation_utxo_hash: [u8; 32],
-    /// Private witness: the taker's owner-hash -- the source UTXO's owner
-    /// `escrow_open` committed into the order UTXO's data hash. Not stored
-    /// on-chain; the caller supplies it from its own record of the order, and the
-    /// circuit binds it via the data-hash commitment (pinned by `OrderInHash`) and
-    /// to `RecipientOut.Owner`.
-    pub recipient_owner_hash: [u8; 32],
-    /// The `Pair` account's on-chain `authority_owner_hash`.
-    pub authority_owner_hash: [u8; 32],
+    /// The `Escrow` account's on-chain `order_utxo_hash`. `order_in` must hash
+    /// to this value.
+    pub order_utxo_hash: [u8; 32],
+    /// The `Pair` account's on-chain `destination_asset`; bound to
+    /// `MakerFunding.Asset`.
+    pub destination_asset: [u8; 32],
     pub external_data_hash: [u8; 32],
 }
 
 impl SettleProofInputParams {
     pub fn to_proof_inputs(&self) -> Result<EscrowSettleProofInputs> {
-        // Matches the circuit's selector. execution_price is always nonzero (the
-        // escrow is priced at creation), so the outcome is purely the comparison.
-        let is_settle = self.execution_price != 0 && self.execution_price <= self.max_price;
+        if self.execution_price == 0 {
+            bail!("execution_price must be nonzero");
+        }
 
         let order_in = ProofInputUtxo::try_from(&self.order_in).map_err(err)?;
-        let reservation_in = ProofInputUtxo::try_from(&self.reservation_in).map_err(err)?;
+        let maker_funding = ProofInputUtxo::try_from(&self.maker_funding).map_err(err)?;
         let recipient_out = ProofInputUtxo::try_from(&self.recipient_out).map_err(err)?;
-        let maker_counter = ProofInputUtxo::try_from(&self.maker_counter).map_err(err)?;
-        let maker_source = ProofInputUtxo::try_from(&self.maker_source).map_err(err)?;
+        let funder_change = ProofInputUtxo::try_from(&self.funder_change).map_err(err)?;
+        let funder_receipt = ProofInputUtxo::try_from(&self.funder_receipt).map_err(err)?;
 
         let order_in_hash = order_in.hash().map_err(err)?;
-        let reservation_in_hash = reservation_in.hash().map_err(err)?;
-
-        if order_in_hash != self.escrow_utxo_hash {
-            bail!("order_in does not hash to the on-chain escrow_utxo_hash");
-        }
-        if reservation_in_hash != self.reservation_utxo_hash {
-            bail!("reservation_in does not hash to the on-chain reservation_utxo_hash");
+        if order_in_hash != self.order_utxo_hash {
+            bail!("order_in does not hash to the on-chain order_utxo_hash");
         }
         if self.order_in.utxo.amount != self.order_amount {
             bail!("order_in amount does not match order_amount");
         }
-
-        let reserved = self
-            .order_amount
-            .checked_mul(self.max_price)
-            .ok_or_else(|| err("order_amount * max_price overflows"))?;
-        if self.reservation_in.utxo.amount != reserved {
-            bail!("reservation_in amount does not match order_amount * max_price");
+        if asset_field(&self.maker_funding.utxo.asset).map_err(err)? != self.destination_asset {
+            bail!("maker_funding asset does not match the pair destination asset");
         }
+        // The recipient the circuit re-opens from the order UTXO's data hash.
+        let recipient_owner_hash = self
+            .order_in
+            .data_hash
+            .ok_or_else(|| err("order_in carries no data hash (recipient)"))?;
 
-        // Settle: owed = order_amount * execution_price; the maker gets the
-        // remainder of the reservation back. Refund: owed = 0, remainder = the
-        // full reservation.
-        let owed = if is_settle {
-            self.order_amount
-                .checked_mul(self.execution_price)
-                .ok_or_else(|| err("order_amount * execution_price overflows"))?
-        } else {
-            0
-        };
-        let remainder = reserved
-            .checked_sub(owed)
-            .ok_or_else(|| err("owed exceeds reserved"))?;
+        let owed = self
+            .order_amount
+            .checked_mul(self.execution_price)
+            .ok_or_else(|| err("order_amount * execution_price overflows"))?;
 
-        // Settle: recipient is paid `owed` of the reservation's (destination)
-        // asset. Refund: recipient is paid the full `order_amount` back in the
-        // order's (source) asset -- the recipient's owner is identical either way.
-        let (recipient_amount, recipient_asset) = if is_settle {
-            (owed, self.reservation_in.utxo.asset)
-        } else {
-            (self.order_amount, self.order_in.utxo.asset)
-        };
+        // The recipient is paid `owed` of the funding's (destination) asset.
         let recipient_owner = check_output_utxo(
             "recipient_out",
             &self.recipient_out,
-            &recipient_asset,
-            recipient_amount,
+            &self.maker_funding.utxo.asset,
+            owed,
         )?;
-        if recipient_owner.owner_hash().map_err(err)? != self.recipient_owner_hash {
-            bail!("recipient_out owner does not match the escrow's recipient");
+        if recipient_owner.owner_hash().map_err(err)? != recipient_owner_hash {
+            bail!("recipient_out owner does not match the order's committed recipient");
         }
 
-        // The maker's counter-asset leg: the unspent reservation (remainder), in
-        // the reservation's (destination) asset, returned to the maker.
-        let maker_counter_owner = check_output_utxo(
-            "maker_counter",
-            &self.maker_counter,
-            &self.reservation_in.utxo.asset,
-            remainder,
+        // The funder's change: the unspent funding, back to the funding UTXO's
+        // own owner.
+        let expected_change = self
+            .maker_funding
+            .utxo
+            .amount
+            .checked_sub(owed)
+            .ok_or_else(|| err("owed exceeds the maker funding amount"))?;
+        let change_owner = check_output_utxo(
+            "funder_change",
+            &self.funder_change,
+            &self.maker_funding.utxo.asset,
+            expected_change,
         )?;
-        if maker_counter_owner.owner_hash().map_err(err)? != self.authority_owner_hash {
-            bail!("maker_counter owner does not match the pair's authority_owner_hash");
+        if change_owner.owner_hash().map_err(err)? != maker_funding.owner_hash {
+            bail!("funder_change owner does not match the funding owner");
         }
 
-        // Settle: the maker receives the full settled source-asset amount.
-        // Refund: the maker's source-asset output is a zero-amount placeholder --
-        // present either way so the proof shape never differs, but valueless here.
-        let maker_source_amount = if is_settle { self.order_amount } else { 0 };
-        let maker_source_owner = check_output_utxo(
-            "maker_source",
-            &self.maker_source,
+        // The funder's receipt: the full settled source-asset amount.
+        let receipt_owner = check_output_utxo(
+            "funder_receipt",
+            &self.funder_receipt,
             &self.order_in.utxo.asset,
-            maker_source_amount,
+            self.order_amount,
         )?;
-        if maker_source_owner.owner_hash().map_err(err)? != self.authority_owner_hash {
-            bail!("maker_source owner does not match the pair's authority_owner_hash");
+        if receipt_owner.owner_hash().map_err(err)? != maker_funding.owner_hash {
+            bail!("funder_receipt owner does not match the funding owner");
         }
 
         // Every output blinding is fixed by the circuit to a deterministic
-        // derivation from both input blindings; validate the caller's outputs
-        // against it so the proof cannot be built with off-derivation blindings.
-        let order_blinding = &self.order_in.utxo.blinding;
-        let reservation_blinding = &self.reservation_in.utxo.blinding;
-        for (label, output, domain) in [
+        // derivation; validate the caller's outputs against it so the proof
+        // cannot be built with off-derivation blindings.
+        for (label, output, source_blinding, domain) in [
             (
                 "recipient_out",
                 &self.recipient_out,
+                &self.order_in.utxo.blinding,
                 RECIPIENT_BLINDING_DOMAIN,
             ),
             (
-                "maker_counter",
-                &self.maker_counter,
-                MAKER_COUNTER_BLINDING_DOMAIN,
+                "funder_change",
+                &self.funder_change,
+                &self.maker_funding.utxo.blinding,
+                FUNDER_CHANGE_BLINDING_DOMAIN,
             ),
             (
-                "maker_source",
-                &self.maker_source,
-                MAKER_SOURCE_BLINDING_DOMAIN,
+                "funder_receipt",
+                &self.funder_receipt,
+                &self.maker_funding.utxo.blinding,
+                FUNDER_RECEIPT_BLINDING_DOMAIN,
             ),
         ] {
-            let expected =
-                derive_settle_output_blinding(order_blinding, reservation_blinding, domain)?;
+            let expected = derive_output_blinding(source_blinding, domain)?;
             if output.blinding != expected {
                 bail!("{label} blinding does not match the derived settle blinding");
             }
         }
 
-        // 2-in/3-out; output order (recipient, maker_counter, maker_source) must
-        // match the circuit's `privateTxHashInputs` and the program.
+        // 2-in/3-out; output order (recipient, funder_change, funder_receipt)
+        // must match the circuit's `privateTxHashInputs` and the program.
+        let maker_funding_hash = maker_funding.hash().map_err(err)?;
         let private_tx_hash = PrivateTxHash::new(
-            &[order_in_hash, reservation_in_hash],
+            &[order_in_hash, maker_funding_hash],
             &[
                 recipient_out.hash().map_err(err)?,
-                maker_counter.hash().map_err(err)?,
-                maker_source.hash().map_err(err)?,
+                funder_change.hash().map_err(err)?,
+                funder_receipt.hash().map_err(err)?,
             ],
             &self.external_data_hash,
         )
@@ -225,8 +182,7 @@ impl SettleProofInputParams {
             private_tx_hash: &private_tx_hash,
             execution_price: self.execution_price,
             order_in_hash: &order_in_hash,
-            reservation_in_hash: &reservation_in_hash,
-            authority_owner_hash: &self.authority_owner_hash,
+            destination_asset: &self.destination_asset,
         }
         .hash()
         .map_err(err)?;
@@ -235,18 +191,14 @@ impl SettleProofInputParams {
             public_input_hash,
             private_tx_hash,
             execution_price: self.execution_price,
-            max_price: self.max_price,
-            created_at: self.created_at,
             order_in_hash,
-            reservation_in_hash,
-            recipient_owner_hash: self.recipient_owner_hash,
-            authority_owner_hash: self.authority_owner_hash,
+            destination_asset: self.destination_asset,
             order_amount: self.order_amount,
             order_in,
-            reservation_in,
+            maker_funding,
             recipient_out,
-            maker_counter,
-            maker_source,
+            funder_change,
+            funder_receipt,
             external_data_hash: self.external_data_hash,
         })
     }

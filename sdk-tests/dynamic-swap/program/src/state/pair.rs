@@ -19,12 +19,11 @@ pub struct Pair {
     pub source_asset_id: u64,
     pub destination_asset_id: u64,
     pub price: u64,
-    /// The authority's own owner-hash commitment (`Poseidon(owner_pk_field,
-    /// nullifier_pubkey)`), supplied at `create_pair` time. `settle`'s settle
-    /// branch binds the settled source-asset leg's UTXO owner to this value,
-    /// so the authority controls its own destination without resupplying it
-    /// on every call.
-    pub authority_owner_hash: [u8; 32],
+    /// The maker's settle window in slots: `settle` requires the current slot
+    /// to be at most `Escrow.created_at + expiry_slots`, `cancel` requires it
+    /// to be past that. Set at `create_pair` and immutable, so the maker
+    /// cannot shrink or stretch the window on open escrows. Nonzero.
+    pub expiry_slots: u64,
     /// The source asset's UTXO commitment (`asset_field(source_mint)` =
     /// `hash_bytes(source_mint)`), supplied at `create_pair` time. The program
     /// has only the `source_asset_id` registry number, not a mint->field map,
@@ -34,13 +33,14 @@ pub struct Pair {
     /// escrow a worthless token and drain the destination asset on settle).
     pub source_asset: [u8; 32],
     pub destination_asset: [u8; 32],
-    /// The escrow_authority identity's published nullifier pubkey, supplied at
-    /// `create_pair` time by the maker, who derives it from its viewing key
-    /// bound to the escrow_authority PDA. `create_escrow` recomputes the
-    /// escrow-authority owner hash as `Poseidon(hash_bytes(derived PDA), this)`,
-    /// so the PDA binding stays program-enforced while the nullifier secret
-    /// stays private to the maker (the escrow spend graph is not public).
-    pub escrow_authority_nullifier_pubkey: [u8; 32],
+    /// The maker's encryption pubkey (SEC1-compressed P256), supplied at
+    /// `create_pair` time -- the PDA-role viewing pubkey the maker derives from
+    /// its own viewing key bound to the escrow_authority PDA. `create_escrow`
+    /// encrypts the order UTXO data to it so the maker can settle without
+    /// contacting the taker. Immutable: a rotation would orphan in-flight
+    /// handoffs.
+    pub maker_encryption_pubkey: [u8; 33],
+    pub _pad2: [u8; 7],
 }
 
 impl Pair {
@@ -54,7 +54,7 @@ impl Pair {
     }
 }
 
-const _: () = assert!(Pair::SIZE == 192);
+const _: () = assert!(Pair::SIZE == 176);
 
 #[inline(always)]
 pub fn load_pair(account: &AccountView) -> Result<Ref<'_, Pair>, ProgramError> {

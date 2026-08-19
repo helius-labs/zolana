@@ -9,7 +9,7 @@
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
-use dynamic_swap_sdk::{escrow_authority_pda, instructions::create_pair::CreatePair, pair_pda};
+use dynamic_swap_sdk::{instructions::create_pair::CreatePair, pair_pda};
 use solana_address::Address;
 use solana_address_lookup_table_interface::instruction::{
     create_lookup_table, extend_lookup_table,
@@ -342,23 +342,25 @@ pub fn setup() -> Result<TestEnv> {
     })
 }
 
-/// The maker-derived shielded identity of the pair's escrow_authority PDA
-/// (`ShieldedPda::from_viewing_key`); its nullifier pubkey is published in the
-/// `Pair` account at `create_pair`, so `create_escrow` binds
-/// `Poseidon(hash_bytes(pda), nullifier_pk)` as the order owner hash.
+/// The maker's shielded identity of the pair's escrow_authority PDA: the
+/// PDA-role viewing key derived from the maker's own viewing key, paired with
+/// the public zero-secret nullifier key (see
+/// `dynamic_swap_sdk::state::escrow_authority_identity`). The viewing pubkey is
+/// what `create_pair` publishes as `Pair::maker_encryption_pubkey`.
 pub fn escrow_authority_identity(
     authority: &ShieldedKeypair,
     pair: &Pubkey,
 ) -> Result<ShieldedPda> {
-    ShieldedPda::from_viewing_key(escrow_authority_pda(pair), &authority.viewing_key)
+    dynamic_swap_sdk::state::escrow_authority_identity(pair, &authority.viewing_key)
         .map_err(|e| anyhow!("escrow authority identity: {e:?}"))
 }
 
-/// `setup()` plus a registered SPL(source)->SOL(destination) pair at `price`.
-/// There is no shared pool; the maker funds each escrow directly, so this only
-/// creates the pair account. Returns the env and the pair PDA. Tests that
-/// exercise `create_pair` itself (pair/negative) keep plain `setup()`.
-pub fn setup_with_pair(price: u64) -> Result<(TestEnv, Pubkey)> {
+/// `setup()` plus a registered SPL(source)->SOL(destination) pair at `price`
+/// with the maker's settle window `expiry_slots`. There is no shared pool; the
+/// funder brings liquidity at settle time, so this only creates the pair
+/// account. Returns the env and the pair PDA. Tests that exercise `create_pair`
+/// itself (pair/negative) keep plain `setup()`.
+pub fn setup_with_pair(price: u64, expiry_slots: u64) -> Result<(TestEnv, Pubkey)> {
     let env = setup()?;
     let authority_solana = &env.authority.keypair;
     let pair = pair_pda(
@@ -366,24 +368,22 @@ pub fn setup_with_pair(price: u64) -> Result<(TestEnv, Pubkey)> {
         SOURCE_ASSET_ID,
         DESTINATION_ASSET_ID,
     );
-    let authority_owner_hash = env.authority.owner_hash()?;
     let source_asset = asset_field(&env.spl_mint).map_err(|e| anyhow!("source asset: {e:?}"))?;
     let destination_asset =
         asset_field(&SOL_MINT).map_err(|e| anyhow!("destination asset: {e:?}"))?;
-    let escrow_authority_nullifier_pubkey =
-        escrow_authority_identity(&env.authority.keypair, &pair)?
-            .nullifier_pubkey()
-            .map_err(|e| anyhow!("escrow authority nullifier pubkey: {e:?}"))?;
+    let maker_encryption_pubkey = *escrow_authority_identity(&env.authority.keypair, &pair)?
+        .viewing_pubkey()
+        .as_bytes();
     let create_pair_ix = CreatePair {
         payer: authority_solana.pubkey(),
         pair,
         price,
         source_asset_id: SOURCE_ASSET_ID,
         destination_asset_id: DESTINATION_ASSET_ID,
-        authority_owner_hash,
+        expiry_slots,
         source_asset,
         destination_asset,
-        escrow_authority_nullifier_pubkey,
+        maker_encryption_pubkey,
     }
     .instruction()
     .map_err(|e| anyhow!("create_pair instruction: {e:?}"))?;
@@ -396,6 +396,21 @@ pub fn setup_with_pair(price: u64) -> Result<(TestEnv, Pubkey)> {
         )
         .map_err(|e| anyhow!("send create_pair: {e:?}"))?;
     Ok((env, pair))
+}
+
+/// Poll until the validator's slot is strictly past `target`. Used by the
+/// cancel flow to cross an escrow's expiry (`created_at + expiry_slots`)
+/// deterministically instead of sleeping a guessed duration.
+pub fn wait_for_slot(
+    client: &solana_rpc_client::rpc_client::RpcClient,
+    target: u64,
+) -> Result<()> {
+    loop {
+        if get_slot_with_retry(client)? > target {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
 }
 
 /// The validator's RPC connection can transiently drop a request right after
