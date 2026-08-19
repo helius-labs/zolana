@@ -5,6 +5,10 @@
 //! Wallet state, syncing, transaction-building actions, and the user registry
 //! live in the `zolana-wallet` crate, which builds on this one.
 //!
+//! `ZOLANA_TIMING=1` prints per-phase timings to stderr; see [`timing`]. The
+//! `let _t = Phase::start(..)` guards through this crate are that, timing until
+//! they drop, and inert otherwise.
+//!
 //! Feature flags:
 //! - `(none)`: prover client + RPC traits
 //! - `indexer-api`: Photon indexer adapter and [`ZolanaClient`]
@@ -55,6 +59,9 @@ pub use rpc::{
 };
 #[cfg(feature = "solana-rpc")]
 pub use solana_rpc::{AsyncSolanaRpc, ConfirmedInstructionGroups, SolanaRpc};
+// `SolanaRpc::send_transaction_with_config` is public but names this type,
+// so callers outside the crate need it to call the method at all.
+pub use solana_rpc_client_api::config::RpcSendTransactionConfig;
 pub use zolana_transaction::{
     instructions::{
         merge::{Merge, PreparedMerge, MERGE_INPUTS},

@@ -6,7 +6,10 @@
 //! rather than the protocol doing work. This drives the SDK in-process, holds a
 //! wallet across iterations, and records where the time actually goes.
 //!
-//! The phase breakdown is the point. "Transfers per second" alone cannot tell you
+//! The phase breakdown is the point. This crate times the outer phases itself;
+//! `ZOLANA_TIMING=1` adds the client's finer ones (HTTP versus indexer polling,
+//! each proof fetch) to stderr, which is how a phase gets attributed to a
+//! specific call rather than to "the indexer". "Transfers per second" alone cannot tell you
 //! whether you are bound by proving, by the indexer, or by your own client, and
 //! those have completely different fixes.
 //!
@@ -31,7 +34,7 @@ use solana_keypair::Keypair;
 use solana_signer::Signer;
 // `Rpc` is in scope for send_transaction, which is a trait method rather than
 // an inherent one on SolanaRpc.
-use zolana_client::{Rpc, SolanaRpc, ZolanaClient};
+use zolana_client::{Rpc, RpcSendTransactionConfig, SolanaRpc, ZolanaClient};
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{Address, AssetRegistry, LocalWalletAuthority, Wallet};
 use zolana_wallet::{
@@ -83,6 +86,10 @@ pub struct Options {
     pub asset: String,
     /// Where to write the machine-readable summary, if anywhere.
     pub json_out: Option<PathBuf>,
+    /// Concurrent senders. Fewer than the keypair count measures what one user
+    /// waits for, without the generator contending with itself; the remaining
+    /// wallets stay recipients.
+    pub workers: Option<usize>,
 }
 
 impl Options {
@@ -93,6 +100,7 @@ impl Options {
         let mut tree = None;
         let mut keypairs = None;
         let mut json_out = None;
+        let mut workers: Option<usize> = None;
         let mut duration = 300u64;
         let mut amount = 200_000u64;
         let mut asset = "SOL".to_string();
@@ -110,6 +118,7 @@ impl Options {
                 "--amount" => amount = value()?.parse().context("--amount")?,
                 "--asset" => asset = value()?,
                 "--json" => json_out = Some(PathBuf::from(value()?)),
+                "--workers" => workers = Some(value()?.parse().context("--workers")?),
                 other => bail!("unknown flag {other}"),
             }
         }
@@ -121,6 +130,7 @@ impl Options {
             tree: tree.context("--tree is required")?,
             keypairs: keypairs.context("--keypairs <dir> is required")?,
             json_out,
+            workers,
             duration: Duration::from_secs(duration),
             amount,
             asset,
@@ -256,6 +266,16 @@ fn write_json(
 
 pub fn run(options: Options) -> Result<()> {
     let keypairs = load_keypairs(&options.keypairs)?;
+    // Every wallet is a possible recipient; only the first `workers` send. One
+    // sender measures what a single user waits for, which is a different
+    // question from how much the fleet sustains.
+    let senders = options
+        .workers
+        .unwrap_or(keypairs.len())
+        .min(keypairs.len());
+    if senders == 0 {
+        bail!("--workers must be at least 1");
+    }
     let workers = keypairs.len();
     let tree = Address::new_from_array(
         bs58::decode(&options.tree)
@@ -321,7 +341,7 @@ pub fn run(options: Options) -> Result<()> {
             });
         }
 
-        for (index, funding) in keypairs.iter().enumerate() {
+        for (index, funding) in keypairs.iter().enumerate().take(senders) {
             let peer = recipients[(index + 1) % workers];
             let options = &options;
             let stats = Arc::clone(&stats);
@@ -496,7 +516,13 @@ fn worker(
         timing.prove_ms = mark.elapsed().as_millis() as u64;
 
         let mark = Instant::now();
-        let signature = match client.rpc().send_transaction(&transfer) {
+        let signature = match client.rpc().send_transaction_with_config(
+            &transfer,
+            RpcSendTransactionConfig {
+                skip_preflight: true,
+                ..RpcSendTransactionConfig::default()
+            },
+        ) {
             Ok(signature) => signature,
             Err(error) => {
                 classify(&error.to_string(), stats, &mut backoff);

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use solana_signer::Signer;
-use zolana_client::{Rpc, SolanaRpc, ZolanaClient};
+use zolana_client::{Rpc, RpcSendTransactionConfig, SolanaRpc, ZolanaClient};
 use zolana_transaction::Address;
 use zolana_wallet::{
     actions::{submit::MergeMaterial, transaction::is_plain_utxo},
@@ -15,6 +15,15 @@ use super::{
     util::{ensure_positive, format_address, parse_address, parse_hex_array, parse_pubkey},
 };
 use crate::args::{MergeOptions, SplitOptions, TransferOptions, UtxosOptions};
+
+/// The CLI confirms separately, so preflight would only buy a simulation
+/// round trip before a send that is about to be confirmed anyway.
+fn send_config() -> RpcSendTransactionConfig {
+    RpcSendTransactionConfig {
+        skip_preflight: true,
+        ..RpcSendTransactionConfig::default()
+    }
+}
 
 pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
     ensure_positive(opts.amount)?;
@@ -46,7 +55,9 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
         &client,
         &ctx.material.funding,
     )?;
-    let signature = client.rpc().send_transaction(&transaction)?;
+    let signature = client
+        .rpc()
+        .send_transaction_with_config(&transaction, send_config())?;
     client.confirm_private_transaction_sync(signature)?;
     let mode = if transfer.recipient.is_public_withdrawal() {
         "withdraw"
@@ -134,7 +145,9 @@ pub(crate) fn run_split(opts: SplitOptions) -> Result<()> {
         &client,
         &ctx.material.funding,
     )?;
-    let signature = client.rpc().send_transaction(&transaction)?;
+    let signature = client
+        .rpc()
+        .send_transaction_with_config(&transaction, send_config())?;
     client.confirm_private_transaction_sync(signature)?;
     println!(
         "ok split parts={} amount={} mint={} signature={}",
