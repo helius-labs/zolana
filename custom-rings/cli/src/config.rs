@@ -16,23 +16,35 @@ pub const RING_TOML: &str = "ring.toml";
 #[serde(deny_unknown_fields)]
 pub struct RingConfig {
     pub name: String,
+    /// The cluster the CLI and `just` act on. `just localnet` and `just devnet`
+    /// set it, `--target` overrides it for one command.
     pub target: Target,
     #[serde(deserialize_with = "base58_address::deserialize")]
     pub program_id: Address,
     /// Deploy upgrade authority and ring authority. `~` expands to `$HOME`.
     pub authority_keypair: PathBuf,
-    pub urls: Urls,
+    pub localnet: Urls,
+    pub devnet: Urls,
     /// Feature id to enabled. Ids come from the wizard's registry; the config
     /// carries them as data so a new feature needs no code here.
     #[serde(default)]
     pub features: BTreeMap<String, bool>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum Target {
     Localnet,
     Devnet,
+}
+
+impl Target {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Localnet => "localnet",
+            Self::Devnet => "devnet",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -54,6 +66,38 @@ impl RingConfig {
         let text =
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
+    }
+
+    /// The service URLs of the active target.
+    pub fn urls(&self) -> &Urls {
+        match self.target {
+            Target::Localnet => &self.localnet,
+            Target::Devnet => &self.devnet,
+        }
+    }
+
+    /// Rewrites the `target` line of `path` in place, the rest of the file
+    /// stays byte for byte.
+    pub fn set_target(path: &Path, target: Target) -> Result<()> {
+        let text =
+            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        let mut replaced = false;
+        let updated: Vec<String> = text
+            .lines()
+            .map(|line| {
+                if line.starts_with("target = ") {
+                    replaced = true;
+                    format!("target = \"{}\"", target.as_str())
+                } else {
+                    line.to_owned()
+                }
+            })
+            .collect();
+        if !replaced {
+            return Err(anyhow!("{} has no `target = ...` line", path.display()));
+        }
+        std::fs::write(path, updated.join("\n") + "\n")
+            .with_context(|| format!("writing {}", path.display()))
     }
 
     pub fn authority(&self) -> Result<Keypair> {
@@ -99,8 +143,14 @@ target = "localnet"
 program_id = "9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh"
 authority_keypair = "~/.config/solana/id.json"
 
-[urls]
+[localnet]
 rpc = "http://127.0.0.1:8899"
+indexer = "http://127.0.0.1:8784"
+prover = "http://127.0.0.1:3001"
+ring_rpc = "http://127.0.0.1:8785"
+
+[devnet]
+rpc = "https://api.devnet.solana.com"
 indexer = "http://127.0.0.1:8784"
 prover = "http://127.0.0.1:3001"
 ring_rpc = "http://127.0.0.1:8785"
@@ -115,11 +165,13 @@ anonymous = false
     fn parses_the_wizard_output_and_lists_enabled_features() {
         let config: RingConfig = toml::from_str(EXAMPLE).expect("parse");
         assert_eq!(config.target, Target::Localnet);
+        assert_eq!(config.urls().rpc, "http://127.0.0.1:8899");
+        assert_eq!(config.devnet.rpc, "https://api.devnet.solana.com");
         assert_eq!(
             config.enabled_features().collect::<Vec<_>>(),
             vec!["auditor_visibility", "confidential"]
         );
-        assert_eq!(config.urls.ring_rpc, "http://127.0.0.1:8785");
+        assert_eq!(config.urls().ring_rpc, "http://127.0.0.1:8785");
     }
 
     #[test]
@@ -139,5 +191,28 @@ anonymous = false
             expand_tilde(Path::new("/abs/key.json")).expect("expand"),
             PathBuf::from("/abs/key.json")
         );
+    }
+}
+
+#[cfg(test)]
+mod target_tests {
+    use super::*;
+
+    #[test]
+    fn set_target_rewrites_only_the_target_line() {
+        let dir = std::env::temp_dir().join(format!("ring-toml-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("ring.toml");
+        std::fs::write(
+            &path,
+            "name = \"x\"\ntarget = \"localnet\"\n\n[localnet]\nrpc = \"a\"\n",
+        )
+        .expect("write");
+        RingConfig::set_target(&path, Target::Devnet).expect("set");
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read"),
+            "name = \"x\"\ntarget = \"devnet\"\n\n[localnet]\nrpc = \"a\"\n"
+        );
+        std::fs::remove_dir_all(dir).expect("cleanup");
     }
 }

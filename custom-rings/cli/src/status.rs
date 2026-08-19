@@ -13,7 +13,7 @@ use crate::{
 
 pub fn print_status(config: &RingConfig, rpc: &SolanaRpc) -> Result<()> {
     println!("ring        {}", config.name);
-    println!("target      {:?}", config.target);
+    println!("target      {}", config.target.as_str());
     println!(
         "program id  {} (compiled {})",
         config.program_id, PROGRAM_ID
@@ -22,16 +22,23 @@ pub fn print_status(config: &RingConfig, rpc: &SolanaRpc) -> Result<()> {
         Ok(authority) => println!("authority   {}", authority.pubkey()),
         Err(error) => println!("authority   unavailable ({error})"),
     }
-    println!("rpc         {}", config.urls.rpc);
-    println!("indexer     {}", config.urls.indexer);
-    println!("prover      {}", config.urls.prover);
-    println!("ring rpc    {}", config.urls.ring_rpc);
+    println!("rpc         {}", config.urls().rpc);
+    println!("indexer     {}", config.urls().indexer);
+    println!("prover      {}", config.urls().prover);
+    println!("ring rpc    {}", config.urls().ring_rpc);
     let features: Vec<&str> = config.enabled_features().collect();
     println!("features    {}", features.join(", "));
     #[cfg(feature = "hello")]
     println!("hello       Hello feature");
 
     let chain = || -> Result<()> {
+        if let Ok(authority) = config.authority() {
+            let lamports = rpc.get_balance(authority.pubkey())?;
+            println!(
+                "balance     {} SOL ({lamports} lamports)",
+                lamports as f64 / 1_000_000_000.0
+            );
+        }
         match rpc.get_account(config.program_id)? {
             Some(account) if account.executable => match read_program_data(rpc, config.program_id)?
             {
@@ -67,7 +74,7 @@ pub fn print_status(config: &RingConfig, rpc: &SolanaRpc) -> Result<()> {
         Ok(())
     };
     if let Err(error) = chain() {
-        println!("chain       unreachable at {} ({error})", config.urls.rpc);
+        println!("chain       unreachable at {} ({error})", config.urls().rpc);
     }
     Ok(())
 }

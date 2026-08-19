@@ -44,6 +44,9 @@ pub struct Cli {
     /// The wizard's answers.
     #[arg(long, default_value = RING_TOML, global = true)]
     pub config: PathBuf,
+    /// Act on this cluster instead of the one ring.toml records.
+    #[arg(long, global = true, env = "RING_TARGET")]
+    pub target: Option<Target>,
     #[command(subcommand)]
     pub command: Command,
 }
@@ -52,6 +55,10 @@ pub struct Cli {
 pub enum Command {
     /// Recorded answers and on-chain state.
     Status,
+    /// Record the cluster the ring acts on in ring.toml.
+    Target { target: Target },
+    /// Print one service URL of the active target, for scripts.
+    Url { service: Service },
     /// Deploy the program with the authority as upgrade authority, or upgrade
     /// it in place when it is already deployed.
     Deploy(DeployArgs),
@@ -64,6 +71,14 @@ pub enum Command {
     /// Transfer or renounce the program's upgrade authority.
     #[command(subcommand)]
     Authority(AuthorityCommand),
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum Service {
+    Rpc,
+    Indexer,
+    Prover,
+    RingRpc,
 }
 
 #[derive(Debug, Subcommand)]
@@ -114,7 +129,28 @@ pub fn main() -> Result<()> {
 }
 
 pub fn run(cli: Cli) -> Result<()> {
-    let config = RingConfig::load(&cli.config)?;
+    let mut config = RingConfig::load(&cli.config)?;
+    if let Command::Target { target } = cli.command {
+        RingConfig::set_target(&cli.config, target)?;
+        println!("target      {}", target.as_str());
+        return Ok(());
+    }
+    if let Some(target) = cli.target {
+        config.target = target;
+    }
+    if let Command::Url { service } = cli.command {
+        let urls = config.urls();
+        println!(
+            "{}",
+            match service {
+                Service::Rpc => &urls.rpc,
+                Service::Indexer => &urls.indexer,
+                Service::Prover => &urls.prover,
+                Service::RingRpc => &urls.ring_rpc,
+            }
+        );
+        return Ok(());
+    }
     // The builders carry the id this binary was compiled with; a mismatch means
     // every PDA and CPI would target the wrong program.
     if config.program_id != PROGRAM_ID {
@@ -124,8 +160,11 @@ pub fn run(cli: Cli) -> Result<()> {
             PROGRAM_ID
         ));
     }
-    let mut rpc = SolanaRpc::new(config.urls.rpc.clone());
+    let mut rpc = SolanaRpc::new(config.urls().rpc.clone());
     match cli.command {
+        Command::Target { .. } | Command::Url { .. } => {
+            unreachable!("handled before the RPC client exists")
+        }
         Command::Status => status::print_status(&config, &rpc),
         Command::Deploy(args) => {
             let authority = config.authority()?;
@@ -134,7 +173,7 @@ pub fn run(cli: Cli) -> Result<()> {
                 .program_so
                 .unwrap_or_else(|| default_program_so(&config.name));
             let outcome = deploy::Deploy {
-                rpc_url: &config.urls.rpc,
+                rpc_url: &config.urls().rpc,
                 authority_keypair: &expand_tilde(&config.authority_keypair)?,
                 authority: authority.pubkey(),
                 program_keypair: &args.program_keypair,
@@ -159,7 +198,7 @@ pub fn run(cli: Cli) -> Result<()> {
                 read_auditor_pubkey(&args.auditor_pubkey_file)?
             } else {
                 let pinned = config
-                    .urls
+                    .urls()
                     .ring_rpc_pubkey
                     .as_deref()
                     .map(|key| {
@@ -168,14 +207,14 @@ pub fn run(cli: Cli) -> Result<()> {
                         })
                     })
                     .transpose()?;
-                let auditor_pk = RingRpc::new(&config.urls.ring_rpc)
+                let auditor_pk = RingRpc::new(&config.urls().ring_rpc)
                     .auditor_pubkey(PROGRAM_ID)?
                     .require(pinned, args.trust_ring_rpc)?;
                 write_auditor_pubkey(&args.auditor_pubkey_file, &auditor_pk)?;
                 println!(
                     "auditor pk  {} (from {}, written to {})",
                     hex::encode(auditor_pk.as_bytes()),
-                    config.urls.ring_rpc,
+                    config.urls().ring_rpc,
                     args.auditor_pubkey_file.display()
                 );
                 auditor_pk
@@ -201,15 +240,15 @@ pub fn run(cli: Cli) -> Result<()> {
         }
         Command::RpcCheck => {
             let auditor_pk = configured_auditor_pk(&rpc)?;
-            RingRpc::new(&config.urls.ring_rpc).check_serves(PROGRAM_ID, &auditor_pk)?;
-            println!("ring rpc    {} serves this ring", config.urls.ring_rpc);
+            RingRpc::new(&config.urls().ring_rpc).check_serves(PROGRAM_ID, &auditor_pk)?;
+            println!("ring rpc    {} serves this ring", config.urls().ring_rpc);
             Ok(())
         }
         Command::Authority(command) => {
             let authority = config.authority()?;
             let current = authority::deployed_program_data(&rpc, config.program_id)?;
             let set = authority::SetUpgradeAuthority {
-                rpc_url: &config.urls.rpc,
+                rpc_url: &config.urls().rpc,
                 authority_keypair: &expand_tilde(&config.authority_keypair)?,
                 authority: authority.pubkey(),
                 program_id: config.program_id,
@@ -242,10 +281,10 @@ pub fn run(cli: Cli) -> Result<()> {
             let auditor_pk = configured_auditor_pk(&rpc)?;
             // Before proving: an RPC holding another ring's key would leave the
             // readback below waiting for a transaction it can never open.
-            let ring_rpc = RingRpc::new(&config.urls.ring_rpc);
+            let ring_rpc = RingRpc::new(&config.urls().ring_rpc);
             ring_rpc.check_serves(PROGRAM_ID, &auditor_pk)?;
-            let indexer = ZolanaIndexer::new(&config.urls.indexer);
-            let prover = ProverClient::new(config.urls.prover.clone());
+            let indexer = ZolanaIndexer::new(&config.urls().indexer);
+            let prover = ProverClient::new(config.urls().prover.clone());
             let receipt = DemoTransfer {
                 rpc: &rpc,
                 indexer: &indexer,
