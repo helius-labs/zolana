@@ -31,7 +31,7 @@ use solana_keypair::Keypair;
 use solana_signer::Signer;
 // `Rpc` is in scope for send_transaction, which is a trait method rather than
 // an inherent one on SolanaRpc.
-use zolana_client::{SolanaRpc, ZolanaClient};
+use zolana_client::{Rpc, RpcSendTransactionConfig, SolanaRpc, ZolanaClient};
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{Address, AssetRegistry, LocalWalletAuthority, Wallet};
 use zolana_wallet::{
@@ -513,7 +513,13 @@ fn worker(
         timing.prove_ms = mark.elapsed().as_millis() as u64;
 
         let mark = Instant::now();
-        let signature = match client.submit_private_transaction_sync(&transfer) {
+        let signature = match client.rpc().send_transaction_with_config(
+            &transfer,
+            RpcSendTransactionConfig {
+                skip_preflight: true,
+                ..RpcSendTransactionConfig::default()
+            },
+        ) {
             Ok(signature) => signature,
             Err(error) => {
                 classify(&error.to_string(), stats, &mut backoff);

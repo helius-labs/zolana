@@ -111,7 +111,6 @@ pub struct ZolanaClient<R> {
     cu_limit: u32,
     cu_price_micro_lamports: Option<u64>,
     indexer_config: IndexerRpcConfig,
-    send_config: Option<RpcSendTransactionConfig>,
 }
 
 impl<R> ZolanaClient<R> {
@@ -135,7 +134,6 @@ impl<R> ZolanaClient<R> {
             cu_limit: DEFAULT_TRANSACT_CU_LIMIT,
             cu_price_micro_lamports: None,
             indexer_config: IndexerRpcConfig::default(),
-            send_config: None,
         }
     }
 
@@ -182,7 +180,6 @@ impl<R> ZolanaClient<R> {
             cu_limit: DEFAULT_TRANSACT_CU_LIMIT,
             cu_price_micro_lamports: None,
             indexer_config: IndexerRpcConfig::default(),
-            send_config: None,
         }
     }
 
@@ -203,11 +200,6 @@ impl<R> ZolanaClient<R> {
 
     pub fn with_indexer_config(mut self, config: IndexerRpcConfig) -> Self {
         self.indexer_config = config;
-        self
-    }
-
-    pub fn with_send_transaction_config(mut self, config: RpcSendTransactionConfig) -> Self {
-        self.send_config = Some(config);
         self
     }
 
@@ -397,32 +389,6 @@ impl<R: Rpc> ZolanaClient<R> {
     ) -> Result<(), ClientError> {
         wait_for_rpc_confirmation(self.rpc(), signature, self.indexer_config.poll)?;
         wait_for_indexed_transaction(self.blocking_indexer(), signature, self.indexer_config.poll)
-    }
-
-    /// Submit a signed private transaction and return as soon as the RPC
-    /// accepts it.
-    ///
-    /// Pair with [`Self::confirm_private_transaction_sync`], which waits for the
-    /// chain and then the indexer. `Rpc::send_transaction` confirms too, so the
-    /// two together waited for the same signature twice.
-    ///
-    /// Preflight is skipped: simulation re-executes a transaction whose inputs
-    /// are proofs the indexer just served, and a failure it would catch is one
-    /// this client cannot fix by retrying. The cost of being wrong is a landed
-    /// transaction that fails on chain, so callers submitting unvalidated
-    /// transactions should keep using `send_transaction`.
-    pub fn submit_private_transaction_sync(
-        &self,
-        transaction: &SolanaTransaction,
-    ) -> Result<Signature, ClientError> {
-        let _t = crate::timing::Phase::start("submit_private", 0);
-        // Honours `with_send_transaction_config`, which until now set a field
-        // nothing read.
-        let config = self.send_config.unwrap_or(RpcSendTransactionConfig {
-            skip_preflight: true,
-            ..RpcSendTransactionConfig::default()
-        });
-        self.rpc().send_transaction_with_config(transaction, config)
     }
 }
 
@@ -1961,7 +1927,6 @@ mod tests {
         signature: Signature,
         view_tags: Vec<[u8; 32]>,
         sent: Arc<Mutex<Vec<SolanaTransaction>>>,
-        sent_configs: Arc<Mutex<Vec<RpcSendTransactionConfig>>>,
     }
 
     impl MockSubmitRpc {
@@ -1970,7 +1935,6 @@ mod tests {
                 signature,
                 view_tags: Vec::new(),
                 sent: Arc::new(Mutex::new(Vec::new())),
-                sent_configs: Arc::new(Mutex::new(Vec::new())),
             }
         }
 
@@ -2000,10 +1964,9 @@ mod tests {
         fn send_transaction_with_config(
             &self,
             transaction: &SolanaTransaction,
-            config: RpcSendTransactionConfig,
+            _config: RpcSendTransactionConfig,
         ) -> Result<Signature, ClientError> {
             self.sent.lock().unwrap().push(transaction.clone());
-            self.sent_configs.lock().unwrap().push(config);
             Ok(self.signature)
         }
 
@@ -2031,56 +1994,6 @@ mod tests {
         ) -> Result<Vec<[u8; 32]>, ClientError> {
             Ok(self.view_tags.clone())
         }
-    }
-
-    fn submit_client(rpc: MockSubmitRpc) -> ZolanaClient<MockSubmitRpc> {
-        ZolanaClient::new(
-            rpc,
-            ZolanaIndexer::new("http://unused.invalid"),
-            ProverClient::new("http://unused.invalid".to_string()),
-            AsyncZolanaIndexer::new("http://unused.invalid"),
-            AsyncProverClient::new("http://unused.invalid".to_string()),
-            Address::new_from_array([8u8; 32]),
-        )
-    }
-
-    /// `confirm_private_transaction_sync` already waits for the chain, so the
-    /// submit half must not: together they waited for one signature twice.
-    /// Preflight is skipped for the same round-trip reason.
-    #[test]
-    fn submit_private_skips_preflight() {
-        let rpc = MockSubmitRpc::new(Signature::from([3u8; 64]));
-        let configs = rpc.sent_configs.clone();
-        let client = submit_client(rpc);
-
-        client
-            .submit_private_transaction_sync(&SolanaTransaction::default())
-            .expect("submit");
-
-        let recorded = configs.lock().unwrap();
-        assert_eq!(recorded.len(), 1);
-        assert!(recorded[0].skip_preflight);
-    }
-
-    /// `with_send_transaction_config` set a field nothing read until this path
-    /// existed; a caller that asks for preflight must get it.
-    #[test]
-    fn submit_private_honours_a_configured_send_config() {
-        let rpc = MockSubmitRpc::new(Signature::from([3u8; 64]));
-        let configs = rpc.sent_configs.clone();
-        let client = submit_client(rpc).with_send_transaction_config(RpcSendTransactionConfig {
-            skip_preflight: false,
-            max_retries: Some(7),
-            ..RpcSendTransactionConfig::default()
-        });
-
-        client
-            .submit_private_transaction_sync(&SolanaTransaction::default())
-            .expect("submit");
-
-        let recorded = configs.lock().unwrap();
-        assert!(!recorded[0].skip_preflight);
-        assert_eq!(recorded[0].max_retries, Some(7));
     }
 
     fn merkle_response(tree: Address, leaf: [u8; 32]) -> Value {
