@@ -125,6 +125,16 @@ ask("ring_rpc_url", "Ring RPC URL", `http://127.0.0.1:${ring_rpc_port}`);
 if !variable::is_set("ring_rpc_port") {
     variable::set("ring_rpc_port", ring_rpc_port);
 }
+// A hosted ring RPC mints the auditor key. `init` takes it only signed by the
+// service key pinned here, which the RPC's `health` reports and the operator
+// confirms out of band. localnet runs its own RPC and passes `--trust-ring-rpc`.
+if target == "localnet" {
+    if !variable::is_set("ring_rpc_pubkey") {
+        variable::set("ring_rpc_pubkey", "");
+    }
+} else {
+    ask("ring_rpc_pubkey", "Ring RPC service pubkey (from its health)", "");
+}
 
 // The program id is the address the ring deploys to. The driver generates the
 // keypair and hands the pubkey in; typing one by hand needs the matching keypair

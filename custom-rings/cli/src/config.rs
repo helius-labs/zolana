@@ -42,6 +42,11 @@ pub struct Urls {
     pub indexer: String,
     pub prover: String,
     pub ring_rpc: String,
+    /// The ring RPC's ed25519 service pubkey (its `health` reports it). When
+    /// set, `init` accepts an auditor key from the RPC only with that key's
+    /// signature on it.
+    #[serde(default)]
+    pub ring_rpc_pubkey: Option<String>,
 }
 
 impl RingConfig {

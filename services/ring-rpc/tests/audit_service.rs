@@ -5,7 +5,9 @@
 use std::{future::Future, sync::Arc};
 
 use solana_address::Address;
+use solana_keypair::Keypair;
 use solana_signature::Signature;
+use solana_signer::Signer;
 use zolana_client::{ClientError, Context, GetShieldedTransactionsByTagsResponse};
 use zolana_indexer_api::Base64String;
 use zolana_interface::instruction::MessageData;
@@ -13,8 +15,9 @@ use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
 use zolana_ring_client::{auditor_view_tag, AuditorEncryption};
 use zolana_ring_rpc::{
     api::{
-        CreateAuditorKeyRequest, CreateAuditorKeyResponse, GetDecryptedTransactionsRequest,
-        GetDecryptedTransactionsResponse, HealthResponse, CREATE_AUDITOR_KEY,
+        auditor_key_attestation, read_attestation, CreateAuditorKeyRequest,
+        CreateAuditorKeyResponse, GetDecryptedTransactionsRequest,
+        GetDecryptedTransactionsResponse, HealthResponse, ReadAuth, CREATE_AUDITOR_KEY,
         GET_DECRYPTED_TRANSACTIONS, HEALTH,
     },
     audit::{derive_auditor_key, AuditService, Hub, RingRpcError, TransactionSource},
@@ -32,6 +35,32 @@ const TREE: Address = Address::new_from_array([4u8; 32]);
 struct StaticSource {
     transactions: Vec<ShieldedTransaction>,
     next_cursor: Option<Vec<u8>>,
+    /// The ring authority the chain would report for every ring asked.
+    authority: Option<Address>,
+}
+
+const RING: Address = Address::new_from_array([5u8; 32]);
+
+/// The ring authority of the fixture, the one reader the service accepts.
+fn reader() -> Keypair {
+    Keypair::new_from_array([42u8; 32])
+}
+
+fn read_auth(ring: Address, signer: &Keypair, timestamp: u64) -> ReadAuth {
+    ReadAuth {
+        reader: signer.pubkey().to_bytes().into(),
+        timestamp,
+        signature: signer
+            .sign_message(&read_attestation(&ring, timestamp, None, None))
+            .into(),
+    }
+}
+
+fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_secs()
 }
 
 impl TransactionSource for StaticSource {
@@ -60,6 +89,14 @@ impl TransactionSource for StaticSource {
         // One deterministic signer per transaction, derived from its signature.
         let signer = Address::new_from_array([signature.as_ref()[0]; 32]);
         async move { Ok(vec![signer]) }
+    }
+
+    fn ring_authority(
+        &self,
+        _ring: Address,
+    ) -> impl Future<Output = Result<Option<Address>, ClientError>> + Send {
+        let authority = self.authority;
+        async move { Ok(authority) }
     }
 }
 
@@ -183,11 +220,13 @@ fn source(fixture: &Fixture, next_cursor: Option<Vec<u8>>) -> StaticSource {
             fixture.output_tag_only.clone(),
         ],
         next_cursor,
+        authority: Some(Address::new_from_array(reader().pubkey().to_bytes())),
     }
 }
 
 fn hub(fixture: &Fixture, next_cursor: Option<Vec<u8>>) -> Hub<StaticSource> {
     Hub::local(
+        RING,
         fixture.auditor.clone(),
         source(fixture, next_cursor),
         AssetRegistry::default(),
@@ -260,25 +299,55 @@ async fn rpc_methods_answer_over_the_module() {
         auditor_view_tag(&fixture.auditor.pubkey())
     );
 
-    let serde_json::Value::Object(request) =
-        serde_json::to_value(GetDecryptedTransactionsRequest::default()).expect("request json")
-    else {
-        panic!("request serializes as an object");
+    let request = |auth: ReadAuth| {
+        let serde_json::Value::Object(request) =
+            serde_json::to_value(GetDecryptedTransactionsRequest {
+                ring_program_id: None,
+                cursor: None,
+                limit: None,
+                auth,
+            })
+            .expect("request json")
+        else {
+            panic!("request serializes as an object");
+        };
+        request
     };
     let page: GetDecryptedTransactionsResponse = module
-        .call(GET_DECRYPTED_TRANSACTIONS, request)
+        .call(
+            GET_DECRYPTED_TRANSACTIONS,
+            request(read_auth(RING, &reader(), now())),
+        )
         .await
         .expect("decrypted transactions");
     assert_eq!(page.value.items.len(), 1);
     assert_eq!(page.value.skipped.len(), 1);
+
+    // Reads are signed by the ring authority, fresh, and bound to the ring.
+    let stranger = Keypair::new_from_array([43u8; 32]);
+    for (label, auth) in [
+        ("another key", read_auth(RING, &stranger, now())),
+        ("stale", read_auth(RING, &reader(), now() - 3600)),
+        (
+            "another ring",
+            read_auth(Address::new_from_array([6u8; 32]), &reader(), now()),
+        ),
+    ] {
+        let result: Result<GetDecryptedTransactionsResponse, _> =
+            module.call(GET_DECRYPTED_TRANSACTIONS, request(auth)).await;
+        let error = result.expect_err(label).to_string();
+        assert!(error.contains("unauthorized"), "{label}: {error}");
+    }
 }
 
 #[tokio::test]
 async fn derived_keys_are_per_ring_and_stable() {
     let fixture = fixture();
     let root = zeroize::Zeroizing::new([7u8; 32]);
+    let genesis = [9u8; 32];
     let hub = Hub::derived(
         root.clone(),
+        genesis,
         source(&fixture, None),
         AssetRegistry::default(),
     );
@@ -288,9 +357,18 @@ async fn derived_keys_are_per_ring_and_stable() {
     let key_b = hub.ring(Some(ring_b)).expect("ring b").auditor_pubkey();
     assert_ne!(key_a, key_b, "rings get distinct keys");
     assert_eq!(
-        derive_auditor_key(&root, ring_a).expect("derive").pubkey(),
+        derive_auditor_key(&root, &genesis, ring_a)
+            .expect("derive")
+            .pubkey(),
         key_a,
-        "the same root and ring derive the same key"
+        "the same root, cluster and ring derive the same key"
+    );
+    assert_ne!(
+        derive_auditor_key(&root, &[10u8; 32], ring_a)
+            .expect("derive")
+            .pubkey(),
+        key_a,
+        "another cluster derives another key for the same ring id"
     );
     assert!(
         matches!(hub.ring(None), Err(RingRpcError::RingRequired)),
@@ -314,5 +392,19 @@ async fn derived_keys_are_per_ring_and_stable() {
         .await
         .expect("create auditor key");
     assert_eq!(created.auditor_pubkey.0, key_a.as_bytes().to_vec());
-    assert_eq!(created.key_version, 1);
+    assert_eq!(created.service_pubkey, health.service_pubkey);
+    assert!(
+        created.signature.0.verify(
+            created.service_pubkey.0.as_ref(),
+            &auditor_key_attestation(&ring_a, &created.auditor_pubkey.0)
+        ),
+        "the instance signs the key it hands out"
+    );
+    assert!(
+        !created.signature.0.verify(
+            created.service_pubkey.0.as_ref(),
+            &auditor_key_attestation(&ring_b, &created.auditor_pubkey.0)
+        ),
+        "the attestation is bound to the ring"
+    );
 }

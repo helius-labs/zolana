@@ -17,7 +17,7 @@ Target: `{{target}}`. Authority: `{{authority_keypair}}`.
 | 2 | `just repo` | GitHub repository created and pushed with `gh` |
 | 3 | `just build` | `cargo build-sbf` of the program at the pinned address |
 | 4 | `just deploy` | `solana program deploy`, the authority becomes the upgrade authority; on a deployed program this is the upgrade, growing program data when the binary grew |
-| 5 | `just init` | auditor key created by `ring-rpc keygen`, `create_config` (gated on the upgrade authority) and `init_spp_ring_config` |
+| 5 | `just init` | auditor key created by `ring-rpc keygen` (localnet) or handed out by the ring RPC signed with the service key `ring.toml` pins, `create_config` (gated on the upgrade authority), the policy, and `init_spp_ring_config` |
 | 6 | `just rpc` | ring RPC serving `getDecryptedTransactions` with the auditor key |
 | 7 | `just transact` | two ring deposits, one audited transfer, the auditor's view read back |
 
