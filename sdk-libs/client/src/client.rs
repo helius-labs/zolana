@@ -1130,8 +1130,14 @@ fn fetch_spend_proofs(
     // does with `try_join!`: different methods, neither consuming the other's
     // output. Serially this cost the sum on every transfer.
     let (state_response, nullifier_response) = std::thread::scope(|scope| {
-        let state = scope.spawn(|| indexer.get_merkle_proofs(tree, leaves, config));
-        let nullifier = scope.spawn(|| indexer.get_non_inclusion_proofs(tree, nullifiers, config));
+        let state = scope.spawn(|| {
+            let _t = crate::timing::Phase::start("get_merkle_proofs", 0);
+            indexer.get_merkle_proofs(tree, leaves, config)
+        });
+        let nullifier = scope.spawn(|| {
+            let _t = crate::timing::Phase::start("get_non_inclusion_proofs", 0);
+            indexer.get_non_inclusion_proofs(tree, nullifiers, config)
+        });
         (state.join(), nullifier.join())
     });
     // A panic here is a bug in the indexer client, not an unreachable indexer.
