@@ -20,7 +20,7 @@ step acts on it.
 | 3 | `just localnet` or `just devnet` | localnet: a validator with SPP, Photon and the prover from the zolana checkout. devnet: the hosted devnet Photon and prover from `ring.toml` (or local ones when `ring.toml` points at 127.0.0.1). Both set `target` in `ring.toml` |
 | 4 | `just build` | `cargo build-sbf` of the program at the pinned address |
 | 5 | `just deploy` | `solana program deploy` to the target, the authority becomes the upgrade authority. On a deployed program this is the upgrade, growing program data when the binary grew |
-| 6 | `just init` | auditor key created by `ring-rpc keygen` (secret stays here, public half committed), `create_config` (gated on the upgrade authority), the policy, and `init_spp_ring_config` |
+| 6 | `just init` | auditor key created by `ring-rpc keygen` (secret stays here, public half committed), `create_config` (gated on the upgrade authority) and `init_spp_ring_config` |
 | 7 | `just rpc` | ring RPC serving `getDecryptedTransactions` with the auditor key against the target |
 | 8 | `just transact` | two ring deposits, one audited transfer, the auditor's view read back |
 
