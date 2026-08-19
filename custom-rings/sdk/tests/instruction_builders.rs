@@ -1,7 +1,7 @@
 //! The instruction builders must reproduce the account order, privileges and
 //! instruction data the program's processors and SPP's loaders expect. Each
 //! expected list below is the one asserted by the program's own fixtures in
-//! `custom-ring-tests/program/tests/common/mod.rs`.
+//! `custom-rings/program/tests/common/mod.rs`.
 
 use custom_ring_sdk::{
     config_pda, program_data_pda, ring_auth_pda, tag, AuditProof, CreateConfig, CreateConfigIxData,

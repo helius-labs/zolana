@@ -1,5 +1,5 @@
 //! Cross-language vectors: the host crypto recomputed in Go with the fixture of
-//! `custom-ring-tests/prover/circuits/auditor_key_encryption/circuit_test.go`
+//! `custom-rings/prover/circuits/auditor_key_encryption/circuit_test.go`
 //! (crypto/ecdh P-256, iden3 Poseidon, crypto/aes CTR), which is the same host
 //! computation whose witness that test solves against the compiled circuit.
 //!

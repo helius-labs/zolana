@@ -1,5 +1,5 @@
 //! Host mirror of the custom ring's `auditor_key_encryption` circuit
-//! (`custom-ring-tests/prover/circuits/auditor_key_encryption/{circuit.go,pack.go}`).
+//! (`custom-rings/prover/circuits/auditor_key_encryption/{circuit.go,pack.go}`).
 //!
 //! The circuit proves that the transaction viewing secret key was encrypted to
 //! the ring's auditor key, so every value below has an in-circuit counterpart

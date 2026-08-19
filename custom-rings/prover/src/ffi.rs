@@ -61,7 +61,7 @@ pub enum Error {
     #[error("proving keys missing at {0} -- run setup first")]
     MissingKeys(String),
     #[error(
-        "the Go circuits are not linked into this build: custom-ring-tests/prover/build.rs \
+        "the Go circuits are not linked into this build: custom-rings/prover/build.rs \
          skipped the cgo build (missing circuits/main.go or Go toolchain)"
     )]
     EngineUnavailable,
@@ -87,7 +87,7 @@ pub fn prove(circuit: CircuitId, witness: &WitnessMap) -> Result<ProveOutput> {
     engine::prove(circuit, &json)
 }
 
-/// Canonical key location: `custom-ring-tests/build/gnark/<circuit>/`.
+/// Canonical key location: `custom-rings/build/gnark/<circuit>/`.
 pub fn build_dir(circuit: CircuitId) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../build/gnark")
