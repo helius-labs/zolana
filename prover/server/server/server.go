@@ -387,14 +387,20 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	forceAsync := r.Header.Get("X-Async") == "true" || r.URL.Query().Get("async") == "true"
 	forceSync := r.Header.Get("X-Sync") == "true" || r.URL.Query().Get("sync") == "true"
 
-	shouldUseQueue := handler.shouldUseQueueForCircuit(proofRequestMeta.CircuitType)
+	queueAvailable := handler.enableQueue && handler.redisQueue != nil
+	circuitQueued := handler.shouldUseQueueForCircuit(proofRequestMeta.CircuitType)
+	// `use_queue` is the decision, not the circuit's queueability: logging the
+	// latter under that name said use_queue=true on requests that were proved in
+	// the response, which is exactly the question the line exists to answer.
+	queued := useQueue(forceSync, forceAsync, circuitQueued, queueAvailable)
 
 	logging.Logger().Info().
 		Str("circuit_type", string(proofRequestMeta.CircuitType)).
 		Bool("force_async", forceAsync).
 		Bool("force_sync", forceSync).
-		Bool("use_queue", shouldUseQueue).
-		Bool("queue_available", handler.enableQueue && handler.redisQueue != nil).
+		Bool("circuit_queued", circuitQueued).
+		Bool("use_queue", queued).
+		Bool("queue_available", queueAvailable).
 		Msg("Processing prove request")
 
 	// Counted here, once, because this is the only point every request passes
@@ -406,7 +412,7 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ProofRequestsTotal.WithLabelValues(string(proofRequestMeta.CircuitType)).Inc()
 	RecordCircuitInputSize(string(proofRequestMeta.CircuitType), len(buf))
 
-	if useQueue(forceSync, forceAsync, shouldUseQueue, handler.enableQueue && handler.redisQueue != nil) {
+	if queued {
 		handler.handleAsyncProof(w, r, buf, proofRequestMeta)
 	} else {
 		handler.handleSyncProof(w, r, buf, proofRequestMeta)
