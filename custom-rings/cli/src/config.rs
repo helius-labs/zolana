@@ -155,7 +155,10 @@ fn load_dotenv(path: &Path) -> Result<()> {
             continue;
         }
         let Some((key, value)) = line.split_once('=') else {
-            return Err(anyhow!("{}: expected KEY=VALUE, got {line}", path.display()));
+            return Err(anyhow!(
+                "{}: expected KEY=VALUE, got {line}",
+                path.display()
+            ));
         };
         let key = key.trim().strip_prefix("export ").unwrap_or(key.trim());
         if std::env::var_os(key).is_none() {
@@ -289,7 +292,10 @@ mod env_tests {
             expand_env("https://x/?api-key=${RING_TEST_KEY}").expect("expand"),
             "https://x/?api-key=k1"
         );
-        assert_eq!(expand_env("http://127.0.0.1:8899").expect("plain"), "http://127.0.0.1:8899");
+        assert_eq!(
+            expand_env("http://127.0.0.1:8899").expect("plain"),
+            "http://127.0.0.1:8899"
+        );
         assert!(expand_env("${RING_TEST_UNSET_KEY}").is_err());
     }
 }
