@@ -98,7 +98,7 @@ impl RingRpc {
         })
     }
 
-    /// The RPC at this URL must hold the key behind `auditor_pk`; another
+    /// The RPC at this URL must hold the key behind `auditor_pk`. Another
     /// ring's RPC on the same port answers `health` but can open nothing here.
     pub fn check_serves(&self, ring: Address, auditor_pk: &P256Pubkey) -> Result<()> {
         let served = self.auditor_pubkey(ring)?.auditor_pk;

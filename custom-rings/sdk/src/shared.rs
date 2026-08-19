@@ -22,7 +22,7 @@ pub fn ring_auth_pda() -> Address {
     pda
 }
 
-/// The program's `ProgramData` account under the upgradeable BPF loader;
+/// The program's `ProgramData` account under the upgradeable BPF loader,
 /// `create_config` reads the deploy upgrade authority from it.
 pub fn program_data_pda() -> Address {
     let (pda, _bump) = Address::find_program_address(

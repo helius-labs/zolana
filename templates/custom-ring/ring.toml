@@ -1,5 +1,5 @@
 # Answers recorded by the custom ring wizard. `just` and the `{{project-name}}`
-# CLI read this file; edit it to retarget the ring.
+# CLI read this file. Edit it to retarget the ring.
 name = "{{project-name}}"
 target = "{{target}}"
 program_id = "{{program_id}}"

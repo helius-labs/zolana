@@ -104,7 +104,7 @@ fn oversized_account_list_is_rejected_exactly() {
 }
 
 /// A SOL deposit body as SPP's `RING_DEPOSIT` carries it, with one full entry
-/// after the asset kinds: the policy reads only the prefix and must leave the
+/// after the asset kinds. The policy reads only the prefix and must leave the
 /// entry alone.
 fn sol_deposit_body() -> Vec<u8> {
     RingDepositIxData {

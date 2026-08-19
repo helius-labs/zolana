@@ -27,9 +27,9 @@ pub struct DemoTransfer<'a> {
     pub indexer: &'a ZolanaIndexer,
     pub prover: &'a ProverClient,
     /// Pays the deposits and funds the sender for its own transaction. The
-    /// sender pays and signs the transact itself: with a separate fee payer
-    /// the second signature and static key push the audited transact past the
-    /// 1232-byte packet even behind a lookup table.
+    /// sender pays and signs the transact itself, because with a separate fee
+    /// payer the second signature and static key push the audited transact past
+    /// the 1232-byte packet even behind a lookup table.
     pub payer: &'a dyn Signer,
     pub tree: Address,
     pub auditor_pk: P256Pubkey,
@@ -95,7 +95,7 @@ impl DemoTransfer<'_> {
         }
         .prove()?;
 
-        // The policy decides whether this withdrawal needs an approval; the
+        // The policy decides whether this withdrawal needs an approval. The
         // approver signs off the proven transact by its private_tx_hash.
         let mut approval = None;
         let mut approval_account = None;

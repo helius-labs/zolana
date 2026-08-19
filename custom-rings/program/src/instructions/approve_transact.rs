@@ -75,9 +75,9 @@ pub fn process_approve_transact_ix(accounts: &mut [AccountView], data: &[u8]) ->
     Ok(())
 }
 
-/// The approver takes an approval back before it is spent; the account's
+/// The approver takes an approval back before it is spent and the account's
 /// lamports go to `rent_recipient`. Accounts `[approver(s), rent_recipient(w),
-/// config, approval(w)]`; data `ApproveTransactIxData`.
+/// config, approval(w)]`, data `ApproveTransactIxData`.
 #[inline(never)]
 pub fn process_revoke_approval_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let ApproveTransactIxData { private_tx_hash } =
@@ -130,9 +130,9 @@ fn find_approval_bump(
     unimplemented!("approval PDA derivation requires Solana runtime syscalls")
 }
 
-/// `approval` must be the approval account of `private_tx_hash`: this
-/// program's, carrying the discriminator, at the address its stored bump
-/// derives. One `create_program_address` instead of a bump search.
+/// `approval` must be the approval account of `private_tx_hash`, owned by this
+/// program, carrying the discriminator, at the address its stored bump derives.
+/// One `create_program_address` instead of a bump search.
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 pub fn check_approval(approval: &AccountView, private_tx_hash: &[u8; 32]) -> ProgramResult {
     let bump = {

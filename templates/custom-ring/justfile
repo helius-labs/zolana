@@ -1,5 +1,5 @@
-# {{project-name}} pipeline. Each recipe is one step; `just pipeline` runs them
-# in order against the target recorded in ring.toml.
+# {{project-name}} pipeline. Each recipe is one step and `just pipeline` runs
+# them in order against the target recorded in ring.toml.
 
 zolana := "{{zolana_path}}"
 # Same platform tools as the zolana checkout, so the binary matches what its
@@ -12,7 +12,7 @@ default:
     @just --list
 
 # Local test validator with SPP, photon and the prover (localnet target only).
-# The ring RPC is not part of it: `just rpc` starts it once the ring is
+# The ring RPC is not part of it. `just rpc` starts it once the ring is
 # initialized, `just pipeline` does so on its own.
 localnet:
     just -f {{ "{{zolana}}" }}/justfile ring-localnet
@@ -41,7 +41,7 @@ deploy: build
     cargo run -q -p {{project-name}} -- deploy --program-so {{ "{{program-so}}" }}
 
 {%- if target == "localnet" %}
-# Localnet: the auditor key is a local file the ring RPC below serves.
+# On localnet the auditor key is a local file the ring RPC below serves.
 auditor-key:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -67,7 +67,7 @@ rpc:
 init:
     cargo run -q -p {{project-name}} -- init
 
-# The ring RPC is hosted; nothing to start here.
+# The ring RPC is hosted, nothing to start here.
 rpc:
     @echo "ring rpc is hosted at {{ring_rpc_url}}"
 {%- endif %}
@@ -81,12 +81,12 @@ status:
 
 # Steps 3 to 7 in one go. The ring RPC is started in the background if none
 # answers at its URL, and stays up afterwards for the auditor (`just
-# rpc-stop` ends it; its log is .localnet/ring-rpc.log).
+# rpc-stop` ends it, its log is .localnet/ring-rpc.log).
 pipeline: build deploy init
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p .localnet
-    # An RPC already answering must be this ring's: rings generated on the same
+    # An RPC already answering must be this ring's. Rings generated on the same
     # machine share the default port, and a foreign RPC can open nothing here.
     # A foreign one left behind by another local ring's pipeline is replaced.
     start_rpc=true

@@ -116,7 +116,7 @@ test-custom-ring: ensure-custom-ring-keys build-programs test-ring-rpc
 ring-new dest="" *args:
     tools/ring-wizard.sh {{dest}} {{args}}
 
-# Local validator for a generated ring: SPP, user registry, photon and the prover
+# Local validator for a generated ring. SPP, user registry, photon and the prover
 # on the per-clone ports, protocol accounts from snapshots (ring creation
 # permissionless). Stays up until `just ring-localnet-stop`.
 ring-localnet: build-programs build-prover-server build-cli ensure-photon ensure-custom-ring-keys
@@ -141,7 +141,7 @@ ring-localnet: build-programs build-prover-server build-cli ensure-photon ensure
     cargo run -q -p xtask -- generate-account-snapshots \
       --deploy-dir target/deploy --accounts-dir "$accounts_dir"
     # The test validator activates SIMD-0500 (no new SBPF v0 deployments) by
-    # default; the ring deploys through `solana program deploy` like on devnet
+    # default. The ring deploys through `solana program deploy` like on devnet
     # and mainnet, where v0 deployments are still accepted, so it is turned off.
     # The ledger keeps enough shreds for a session, so the ring RPC can still
     # read a transaction's signers minutes after it landed.
@@ -159,7 +159,7 @@ ring-localnet: build-programs build-prover-server build-cli ensure-photon ensure
     echo "  prover    {{localnet-prover-url}}"
     echo "  ring rpc  http://127.0.0.1:{{localnet-ring-rpc-port}}  (started per ring by 'just rpc' or 'just pipeline')"
 
-# A ring RPC in derived mode for the localnet: one root secret, a key per
+# A ring RPC in derived mode for the localnet, one root secret and a key per
 # ring, the shape the hosted devnet instance has. Foreground.
 ring-rpc-derived:
     #!/usr/bin/env bash
@@ -181,7 +181,7 @@ ring-localnet-stop:
     lsof -ti "tcp:{{localnet-prover-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
     lsof -ti "tcp:{{localnet-ring-rpc-port}}" 2>/dev/null | xargs kill 2>/dev/null || true
 
-# Template smoke test: generate a ring without prompts and build its workspace.
+# Template smoke test. Generates a ring without prompts and builds its workspace.
 test-ring-template:
     #!/usr/bin/env bash
     set -euo pipefail

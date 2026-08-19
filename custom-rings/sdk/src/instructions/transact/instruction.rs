@@ -12,7 +12,7 @@ use crate::{config_pda, tag, PROGRAM_ID};
 ///
 /// The account list is `[payer, config, approval?]` prepended to SPP's own
 /// `RING_TRANSACT` list. Those extra accounts are all this program reads for
-/// itself: the payer it requires as a signer, the config account holding the
+/// itself, the payer it requires as a signer, the config account holding the
 /// auditor key the public-input hash is recomputed against and the policy, and
 /// the approval account a withdrawal under an approval rule spends. Everything
 /// after them is forwarded to SPP position for position, so it is taken straight from

@@ -22,11 +22,11 @@ pub struct RingConfig {
     /// Deploy upgrade authority and ring authority. `~` expands to `$HOME`.
     pub authority_keypair: PathBuf,
     pub urls: Urls,
-    /// Feature id to enabled. Ids come from the wizard's registry; the config
-    /// carries them as data so a new feature needs no code here.
+    /// Feature id to enabled. Ids come from the wizard's registry, and the
+    /// config carries them as data so a new feature needs no code here.
     #[serde(default)]
     pub features: BTreeMap<String, bool>,
-    /// What the enabled features enforce on chain; `init` writes it.
+    /// What the enabled features enforce on chain. `init` writes it.
     #[serde(default)]
     pub policy: PolicyConfig,
 }
@@ -34,10 +34,10 @@ pub struct RingConfig {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PolicyConfig {
-    /// Mints the ring accepts, `SOL` for native SOL. Absent: any asset.
+    /// Mints the ring accepts, `SOL` for native SOL. Absent means any asset.
     pub allowed_assets: Option<Vec<String>>,
-    /// Withdrawal rule for assets without their own entry: `open`, `blocked`
-    /// or `approval`. Absent: open.
+    /// Withdrawal rule for assets without their own entry, `open`, `blocked`
+    /// or `approval`. Absent means open.
     pub withdrawals: Option<String>,
     /// Per-asset withdrawal rule, mint to `open` / `blocked` / `approval`.
     #[serde(default)]
@@ -88,7 +88,7 @@ impl RingConfig {
     }
 }
 
-/// `Address` deserializes from bytes by default; the file carries base58.
+/// `Address` deserializes from bytes by default and the file carries base58.
 mod base58_address {
     use serde::{Deserialize, Deserializer};
     use solana_address::Address;

@@ -17,8 +17,8 @@ just ring-new              # ring lands next to this checkout
 just ring-new ~/rings      # or in a chosen parent directory
 ```
 
-Non-interactive runs pass every answer with `-d`; `--silent` turns remaining
-questions into their defaults:
+Non-interactive runs pass every answer with `-d`, and `--silent` turns the
+remaining questions into their defaults.
 
 ```bash
 RING_NAME=demo tools/ring-wizard.sh /tmp --silent -d target=localnet \
@@ -29,7 +29,7 @@ RING_NAME=demo tools/ring-wizard.sh /tmp --silent -d target=localnet \
 
 `custom-ring/hooks/wizard.rhai` runs as a cargo-generate `pre` hook, the first
 stage that sees `-d` values. It prints the pipeline, asks for the target
-(`localnet`, `devnet`; `mainnet` is listed and refused), the authority keypair
+(`localnet` or `devnet`, `mainnet` is listed and refused), the authority keypair
 (default the Solana CLI keypair), the service URLs (localnet defaults from the
 driver, devnet asks, plus the ring RPC's service pubkey that `init` pins), and
 the features.
@@ -37,13 +37,13 @@ the features.
 `FEATURES` in that file is the registry. Each entry has an `id`, a display
 `name`, an `example` and a `state`: `always` (on for every ring), `ready`
 (offered as a yes/no question) or `coming_soon` (listed, disabled). Adding a
-feature is one entry; `ring.toml` and the README table follow. The resolved
+feature is one entry, and `ring.toml` and the README table follow. The resolved
 answer is `<id>_enabled` (a bool), which is what liquid files and
 `[conditional]` blocks read. Features that need on-chain values add them to
 `policy_toml`, rendered as `ring.toml`'s `[policy]` table: `allowed_assets`
 asks for the mints (`-d allowed_assets=SOL,<mint>` without prompts, `SOL` is
 native SOL) and `withdrawal_rules` asks for the default withdrawal rule
-(`-d withdrawals=blocked|approval|open`; `approval` needs an approver,
+(`-d withdrawals=blocked|approval|open`, where `approval` needs an approver,
 default the authority, `-d approver=<pubkey>`). `just init` writes the policy
 on chain and the CLI's `policy` command shows or changes it, per asset too.
 
@@ -61,4 +61,4 @@ on chain and the CLI's `policy` command shows or changes it, per asset too.
 | `<id>_enabled`, `features_toml`, `features_markdown`, `policy_toml` | computed by the wizard |
 
 `just test-ring-template` generates a ring without prompts and builds its
-workspace; CI runs it in the custom-ring job.
+workspace. CI runs it in the custom-ring job.

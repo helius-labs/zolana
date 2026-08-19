@@ -35,7 +35,7 @@ use crate::api::{
 };
 
 /// Where the service reads from. Photon serves the tagged transactions and the
-/// Solana RPC the signers; tests provide both in memory.
+/// Solana RPC the signers. Tests provide both in memory.
 pub trait TransactionSource: Send + Sync {
     fn transactions_by_tag(
         &self,
@@ -58,7 +58,7 @@ pub trait TransactionSource: Send + Sync {
     ) -> impl Future<Output = Result<Option<Address>, ClientError>> + Send;
 }
 
-/// The production source: a Photon indexer plus the Solana RPC it follows.
+/// The production source, a Photon indexer plus the Solana RPC it follows.
 pub struct ChainSource {
     indexer: AsyncZolanaIndexer,
     rpc: AsyncSolanaRpc,
@@ -101,8 +101,8 @@ impl TransactionSource for ChainSource {
             .get_shielded_transactions_by_tags(vec![tag], cursor, limit, None)
     }
 
-    // One read of the confirmed transaction: the JSON encoding lists the static
-    // keys with the signers first. The audit itself comes from the indexer;
+    // One read of the confirmed transaction. The JSON encoding lists the static
+    // keys with the signers first. The audit itself comes from the indexer and
     // signers are enrichment, so an RPC that no longer holds the transaction
     // (a pruned ledger) leaves them empty instead of failing the page.
     async fn signers(&self, signature: Signature) -> Result<Vec<Address>, ClientError> {
@@ -295,7 +295,7 @@ impl<S: TransactionSource> AuditService<S> {
     /// recovered transaction viewing keys.
     ///
     /// The indexer matches the tag against output tags and message tags, so a
-    /// transaction can arrive without an auditor message; those are dropped. A
+    /// transaction can arrive without an auditor message. Those are dropped. A
     /// tagged transaction that fails to audit is reported under `skipped`.
     pub async fn decrypted_transactions(
         &self,
@@ -434,7 +434,7 @@ fn decrypted_transaction(
     }
 }
 
-/// The SPL asset registry as SPP publishes it: every `SplAssetRegistry` account
+/// The SPL asset registry as SPP publishes it, every `SplAssetRegistry` account
 /// under the shielded-pool program. SOL is implicit in the registry.
 pub async fn asset_registry_from_chain<R: AsyncRpc>(rpc: &R) -> Result<AssetRegistry, ClientError> {
     let accounts = rpc

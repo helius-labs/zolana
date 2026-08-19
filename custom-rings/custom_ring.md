@@ -34,7 +34,7 @@ the recipients see. That is why the circuit needs no per-output witnesses and no
   ring, checked on ring deposits and on transact settlement legs) and a
   withdrawal rule per asset (open, blocked, or approval by a configured key,
   with a default for unlisted assets). All of it lives in the config and is set
-  by the authority (`set_policy`); nothing hidden inside confidential outputs is
+  by the authority (`set_policy`). Nothing hidden inside confidential outputs is
   inspected.
 - Config gating is the program's upgrade authority when the deployment names
   one, otherwise a plain authority signer. No key rotation yet.
@@ -128,14 +128,14 @@ program) flipped to a signer and `ring_authority_transact_is_enabled: false`.
 
 ### 4 `set_policy`
 
-Accounts `[authority(s), config(w)]`; data `SetPolicyIxData { withdrawals: u8,
+Accounts `[authority(s), config(w)]`. Data `SetPolicyIxData { withdrawals: u8,
 asset_policy: u8, approver: [u8; 32], assets: Vec<AssetRule { mint, withdrawals
 }> }` (wincode, at most `MAX_ASSETS` = 8 entries, SOL is the all-zero mint).
 `withdrawals` is the default `WithdrawalRule` (`Open` 0, `Blocked` 1,
-`Approval` 2), each table entry carries its own; `asset_policy` is an
+`Approval` 2) and each table entry carries its own. `asset_policy` is an
 `AssetPolicy` (`Any` 0, `Allowlist` 1), the allowlist limiting deposits and
 settlement legs to the table's mints. Both are `#[repr(u8)]` enums read back
-through `TryFrom<u8>`; a byte the program never wrote reads as `Blocked` /
+through `TryFrom<u8>`, and a byte the program never wrote reads as `Blocked` /
 `Allowlist`, so corrupted state fails closed. Requires the stored authority to
 sign, rejects out-of-range values, oversized tables, a mint listed twice and an
 approval rule without an approver with `InvalidPolicy`, and replaces the policy
@@ -144,17 +144,17 @@ fields of the config in place. A fresh config starts open.
 ### 5 `approve_transact`
 
 Accounts `[approver(s), payer(w,s), config, approval(w, PDA [b"approval",
-private_tx_hash]), system_program]`; data `ApproveTransactIxData {
+private_tx_hash]), system_program]`. Data `ApproveTransactIxData {
 private_tx_hash: [u8; 32] }`. The config's approver signs off one proven
-transact by creating its approval account, `[discriminator, bump]`: the bump
+transact by creating its approval account, `[discriminator, bump]`. The bump
 is stored so `transact` re-derives the address with one
 `create_program_address`. The `private_tx_hash` commits to inputs, outputs and
-every settlement leg, so an approval fits exactly one transfer; `transact`
+every settlement leg, so an approval fits exactly one transfer, and `transact`
 spends it, so it cannot be replayed.
 
 ### 6 `revoke_approval`
 
-Accounts `[approver(s), rent_recipient(w), config, approval(w)]`; same data.
+Accounts `[approver(s), rent_recipient(w), config, approval(w)]`, same data.
 The approver closes an unspent approval, its lamports go to `rent_recipient`.
 
 ### 14 `deposit` (forwarded)
@@ -175,8 +175,8 @@ list when a withdrawal falls under an approval rule (recognised by owner and
 discriminator). Flow: deserialize, load config, apply the policy to
 `interface_transfers` (`AssetNotAllowed` for a settlement leg outside the
 allowlist, then per withdrawal leg the asset's rule: `WithdrawalsBlocked`, or
-`ApprovalRequired` when the approval account is missing; before the pairing so
-a refused transfer costs no proof work), check the approval account is this
+`ApprovalRequired` when the approval account is missing, all before the pairing
+so a refused transfer costs no proof work), check the approval account is this
 transact's PDA (`InvalidApproval`), require `CircuitId::RingEddsa`, locate the
 auditor message, recompute the public-input hash, verify the Groth16 proof, CPI
 SPP `RING_TRANSACT` with `ring_auth` as signer, then spend the approval (its

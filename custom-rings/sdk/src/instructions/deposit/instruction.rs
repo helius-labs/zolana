@@ -6,11 +6,11 @@ use crate::{config_pda, PROGRAM_ID};
 
 /// Ring deposit: SPP's `RING_DEPOSIT` instruction re-targeted at this program.
 ///
-/// The ring proves nothing for a deposit -- amounts are public on-chain -- so it
+/// The ring proves nothing for a deposit, amounts are public on-chain, so it
 /// checks its asset policy, lends its `ring_auth` signature and forwards the
 /// instruction data byte for byte, tag included. Encoding and SPP's account
-/// layout stay in the interface builder; the ring config is prepended for the
-/// policy read. This wrapper pins `ring_program_id`, which selects both the
+/// layout stay in the interface builder, and the ring config is prepended for
+/// the policy read. This wrapper pins `ring_program_id`, which selects both the
 /// instruction target and the `ring_auth` PDA that has to sign inside the
 /// forwarded CPI. Those two must never disagree, and here they cannot.
 pub struct Deposit {

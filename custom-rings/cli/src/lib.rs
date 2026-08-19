@@ -83,10 +83,10 @@ pub enum PolicyCommand {
     Set(PolicySetArgs),
 }
 
-/// Each flag changes one part of the on-chain policy; parts not named stay.
+/// Each flag changes one part of the on-chain policy. Parts not named stay.
 #[derive(Debug, Args)]
 pub struct PolicySetArgs {
-    /// Replace the allowlist with these mints, repeatable; `SOL` for native SOL.
+    /// Replace the allowlist with these mints, repeatable, `SOL` for native SOL.
     /// Listed mints keep their withdrawal rule when they had one.
     #[arg(
         long = "allow-asset",
@@ -97,7 +97,7 @@ pub struct PolicySetArgs {
     /// Drop the allowlist, every asset is accepted.
     #[arg(long)]
     pub any_asset: bool,
-    /// Default withdrawal rule: `open`, `blocked` or `approval`.
+    /// Default withdrawal rule, `open`, `blocked` or `approval`.
     #[arg(long, value_parser = ["open", "blocked", "approval"])]
     pub withdrawals: Option<String>,
     /// Withdrawal rule of one asset, `<mint>=<rule>`, repeatable.
@@ -167,7 +167,7 @@ pub struct ApproveArgs {
     /// The approver, default the authority.
     #[arg(long, value_name = "KEYPAIR")]
     pub approver_keypair: Option<PathBuf>,
-    /// Take an unspent approval back instead; its rent returns to the approver.
+    /// Take an unspent approval back instead. Its rent returns to the approver.
     #[arg(long)]
     pub revoke: bool,
 }
@@ -178,7 +178,7 @@ pub fn main() -> Result<()> {
 
 pub fn run(cli: Cli) -> Result<()> {
     let config = RingConfig::load(&cli.config)?;
-    // The builders carry the id this binary was compiled with; a mismatch means
+    // The builders carry the id this binary was compiled with. A mismatch means
     // every PDA and CPI would target the wrong program.
     if config.program_id != PROGRAM_ID {
         return Err(anyhow!(
@@ -408,8 +408,8 @@ pub fn run(cli: Cli) -> Result<()> {
             let authority = config.authority()?;
             fund_on_localnet(&config, &mut rpc, authority.pubkey())?;
             let auditor_pk = configured_auditor_pk(&rpc)?;
-            // Before proving: an RPC holding another ring's key would leave the
-            // readback below waiting for a transaction it can never open.
+            // Checked before proving. An RPC holding another ring's key would
+            // leave the readback below waiting for a transaction it can never open.
             let ring_rpc = RingRpc::new(&config.urls.ring_rpc);
             ring_rpc.check_serves(PROGRAM_ID, &auditor_pk)?;
             let indexer = ZolanaIndexer::new(&config.urls.indexer);
@@ -539,7 +539,7 @@ fn default_program_so(name: &str) -> PathBuf {
     ))
 }
 
-/// A local validator hands out SOL for free; devnet and beyond need a funded
+/// A local validator hands out SOL for free. Devnet and beyond need a funded
 /// authority.
 fn fund_on_localnet(config: &RingConfig, rpc: &mut SolanaRpc, authority: Address) -> Result<()> {
     if config.target != Target::Localnet {

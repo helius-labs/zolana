@@ -165,8 +165,8 @@ pub fn process_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Program
 
     // An approval account, when the caller passes one, sits between the config
     // and the forwarded list. Only this program writes accounts with that
-    // discriminator, so ownership plus the first byte identify it; SPP's list
-    // starts with a system-owned signer and can never be mistaken for one.
+    // discriminator, so ownership plus the first byte identify it, and SPP's
+    // list starts with a system-owned signer that can never be mistaken for one.
     let rest = iter.remaining_mut()?;
     let (approval, spp_accounts) = match rest.split_first_mut() {
         Some((first, spp_accounts)) if is_approval_account(first) => (Some(first), spp_accounts),
@@ -182,15 +182,15 @@ pub fn process_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Program
     // account is not still borrowed across the CPI.
     let auditor_pubkey = {
         let config = load_config(config_account)?;
-        // Policy before the pairing: a refused transfer costs no proof work.
+        // Policy before the pairing, so a refused transfer costs no proof work.
         let needs_approval = check_transact(&config, spp_accounts, &transact.interface_transfers)?;
         if needs_approval && approval.is_none() {
             return Err(CustomRingError::ApprovalRequired.into());
         }
         config.auditor_pubkey
     };
-    // The approval is bound to this transact through `private_tx_hash`; it is
-    // spent after the CPI so it cannot approve a second submission.
+    // The approval is bound to this transact through `private_tx_hash` and is
+    // spent after the CPI, so it cannot approve a second submission.
     if let Some(approval) = &approval {
         check_approval(approval, &transact.private_tx_hash)?;
     }
@@ -239,7 +239,7 @@ pub fn process_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Program
     instruction_data.extend_from_slice(&transact_bytes);
     cpi_spp_signed(spp_accounts, &instruction_data)?;
 
-    // Lamports move only after the CPI: the runtime syncs the caller's changes
+    // Lamports move only after the CPI. The runtime syncs the caller's changes
     // to the accounts it forwards (the payer) before invoking, and an account
     // outside the CPI list (the approval) only at the end, so moving them
     // earlier reads as an unbalanced instruction.

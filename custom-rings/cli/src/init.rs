@@ -17,7 +17,7 @@ pub struct InitOutcome {
     pub ring_registered: bool,
 }
 
-/// Idempotent: each step is skipped when its account already exists, so a rerun
+/// Idempotent. Each step is skipped when its account already exists, so a rerun
 /// after a partial failure finishes the job.
 pub fn init(
     rpc: &SolanaRpc,
@@ -72,7 +72,7 @@ fn read_pod<R: Rpc, T: bytemuck::Pod>(rpc: &R, address: Address, label: &str) ->
         .map_err(|_| anyhow!("{label} account has an unexpected layout"))
 }
 
-/// Name the two failures an operator can act on; everything else passes through.
+/// Name the two failures an operator can act on. Everything else passes through.
 fn explain(error: ClientError, step: &str) -> anyhow::Error {
     let hint = match custom_error_code(&error) {
         Some(code) if code == CustomRingError::UnauthorizedInitializer as u32 => {

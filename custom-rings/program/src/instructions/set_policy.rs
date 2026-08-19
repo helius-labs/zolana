@@ -8,7 +8,7 @@ use crate::{
     state::{AssetPolicy, AssetRule, WithdrawalRule, MAX_ASSETS},
 };
 
-/// One asset table entry on the wire; `withdrawals` is a `WithdrawalRule`.
+/// One asset table entry on the wire, `withdrawals` a `WithdrawalRule`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct AssetRuleData {
     pub mint: [u8; 32],
@@ -28,8 +28,8 @@ pub struct SetPolicyIxData {
     pub assets: Vec<AssetRuleData>,
 }
 
-/// Replaces the ring's policy. Accounts `[authority(s), config(w)]`; the
-/// authority is the one `create_config` recorded.
+/// Replaces the ring's policy. Accounts `[authority(s), config(w)]`, the
+/// authority being the one `create_config` recorded.
 #[inline(never)]
 pub fn process_set_policy_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let SetPolicyIxData {

@@ -236,9 +236,9 @@ pub struct GetDecryptedTransactionsResponse {
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub struct DecryptedTransactionsPage {
     pub items: Vec<DecryptedTransaction>,
-    /// Transactions tagged for this auditor that did not audit: a message
-    /// encrypted to another key, a malformed message, or an asset the service
-    /// cannot resolve. Reported so a gap is visible instead of silent.
+    /// Transactions tagged for this auditor that did not audit, because of a
+    /// message encrypted to another key, a malformed message, or an asset the
+    /// service cannot resolve. Reported so a gap is visible instead of silent.
     pub skipped: Vec<SkippedTransaction>,
     pub cursor: Option<Base64String>,
 }
@@ -249,12 +249,12 @@ pub struct DecryptedTransaction {
     pub slot: u64,
     pub tx_signature: SerializableSignature,
     /// Solana signers of the transaction. On the eddsa rail the spent inputs'
-    /// owners sign, so this is the sender side; the fee payer is among them.
+    /// owners sign, so this is the sender side, and the fee payer is among them.
     pub signers: Vec<SerializablePubkey>,
     /// SEC1 compressed transaction viewing pubkey the recovered key matched.
     pub tx_viewing_pk: Base64String,
     pub outputs: Vec<DecryptedOutput>,
-    /// Slot positions the recovered key did not open: dummies, other schemes,
+    /// Slot positions the recovered key did not open, dummies, other schemes,
     /// or ciphertexts under another transaction key.
     pub undecryptable_slots: Vec<u32>,
     pub nullifiers: Vec<Hash>,

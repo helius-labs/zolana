@@ -14,7 +14,7 @@ pub struct CreateConfig {
     /// authority is always a key that consented to the role. When the program
     /// was deployed with an upgrade authority, this must be that key.
     pub authority: Address,
-    /// Auditor P256 public key. The type guarantees a point on the curve; the
+    /// Auditor P256 public key. The type guarantees a point on the curve. The
     /// program only checks the SEC1 prefix, and an off-curve key would leave the
     /// ring without a provable transaction.
     pub auditor_pubkey: P256Pubkey,

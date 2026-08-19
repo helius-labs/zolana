@@ -21,7 +21,7 @@ pub struct AssetRule {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RingPolicy {
     pub asset_policy: AssetPolicy,
-    /// The asset table: a withdrawal rule per mint, and under the allowlist
+    /// The asset table, a withdrawal rule per mint and, under the allowlist,
     /// the mints allowed at all.
     pub assets: Vec<AssetRule>,
     /// Withdrawal rule for mints outside the table.
@@ -114,7 +114,7 @@ pub enum PolicyError {
     ApproverRequired,
 }
 
-/// Replaces the ring's policy; `authority` is the config's authority.
+/// Replaces the ring's policy. `authority` is the config's authority.
 pub struct SetPolicy {
     pub authority: Address,
     pub policy: RingPolicy,

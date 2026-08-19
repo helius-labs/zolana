@@ -34,7 +34,7 @@ pub enum Command {
 
 #[derive(Debug, Args)]
 pub struct ServeArgs {
-    /// Interface to listen on. Loopback by default; the auditor key opens every
+    /// Interface to listen on, loopback by default. The auditor key opens every
     /// transaction of the ring, so exposing the port is a deliberate step.
     #[arg(long, env = "RING_RPC_BIND", default_value = "127.0.0.1")]
     pub bind: IpAddr,
@@ -134,7 +134,7 @@ pub enum KeyFileError {
     Key(#[from] KeypairError),
 }
 
-/// Writes a fresh auditor key: the secret to `out` (mode 0600 on unix) and the
+/// Writes a fresh auditor key, the secret to `out` (mode 0600 on unix) and the
 /// SEC1 compressed public key as hex to `<out>.pub`. Refuses to overwrite.
 pub fn write_auditor_key(out: &Path) -> Result<ViewingKey, KeyFileError> {
     let key = ViewingKey::new();
