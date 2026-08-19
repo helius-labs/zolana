@@ -10,8 +10,9 @@
 //! The tree account is authoritative and holds the whole 200-slot ring, so the
 //! answer is a lookup rather than a count. The account is ~1.2 MB, far too
 //! large to fetch per request, and one fetch brings back every root in the
-//! window -- so it is cached, refreshed on a miss, and rate limited so a root
-//! the chain genuinely does not have cannot turn into a fetch per request.
+//! window -- so it is cached, refreshed on a miss, and that on-miss fetch is
+//! rate limited so a root the chain genuinely does not have cannot turn into a
+//! fetch per request.
 //!
 //! Held per process. Only the API serves proofs, and a cache that belongs to
 //! the process reading it needs no coordination with the indexer.
@@ -27,7 +28,10 @@
 //! Postgres, which is cheap, and fetches the 1.2 MB account only when that number
 //! moves. The on-miss fetch stays as the fallback: a request that arrives between
 //! a tree update and the next refresh must still be answerable, and only the
-//! common case is being moved, not the contract.
+//! common case is being moved, not the contract. The refresher's own fetches
+//! therefore do not count against the on-miss floor: they fire whenever the tree
+//! moves, so letting them close that window would starve the fallback on exactly
+//! the busy tree that needs it.
 
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -55,7 +59,18 @@ const CHANGE_POLL_INTERVAL: Duration = Duration::from_millis(200);
 #[derive(Default)]
 struct TreeRoots {
     indices: HashMap<[u8; 32], u16>,
-    refreshed: Option<Instant>,
+    /// When the on-demand path last fetched this account, and nothing else. The
+    /// floor is there to stop a caller turning a root the chain does not have
+    /// into a fetch per request; the refresher is already gated on the sequence
+    /// moving, so its fetches must not stamp this.
+    fetched_on_miss: Option<Instant>,
+}
+
+/// Which path is bringing roots in. Only the on-demand one is throttled.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Fetch {
+    OnMiss,
+    Refresher,
 }
 
 #[derive(Default)]
@@ -82,7 +97,7 @@ impl RootIndexCache {
                         .into_iter()
                         .map(|(index, root)| (root, index))
                         .collect(),
-                    refreshed: Some(Instant::now()),
+                    fetched_on_miss: Some(Instant::now()),
                 },
             );
         }
@@ -104,7 +119,7 @@ impl RootIndexCache {
             return Err(self.missing(tree));
         }
 
-        self.refresh(rpc_client, tree).await?;
+        self.refresh(rpc_client, tree, Fetch::OnMiss).await?;
         self.lookup(tree, &root).ok_or_else(|| self.missing(tree))
     }
 
@@ -119,7 +134,7 @@ impl RootIndexCache {
         };
         trees
             .get(&tree)
-            .and_then(|roots| roots.refreshed)
+            .and_then(|roots| roots.fetched_on_miss)
             .is_none_or(|at| at.elapsed() >= MIN_REFRESH_INTERVAL)
     }
 
@@ -158,7 +173,7 @@ impl RootIndexCache {
                         if seen.get(&tree).is_some_and(|last| *last == seq) {
                             continue;
                         }
-                        match self.refresh(rpc_client, tree).await {
+                        match self.refresh(rpc_client, tree, Fetch::Refresher).await {
                             Ok(()) => {
                                 seen.insert(tree, seq);
                             }
@@ -175,7 +190,12 @@ impl RootIndexCache {
         }
     }
 
-    async fn refresh(&self, rpc_client: &RpcClient, tree: Pubkey) -> Result<(), PhotonApiError> {
+    async fn refresh(
+        &self,
+        rpc_client: &RpcClient,
+        tree: Pubkey,
+        fetch: Fetch,
+    ) -> Result<(), PhotonApiError> {
         let account = rpc_client.get_account(&tree).await.map_err(|error| {
             PhotonApiError::UnexpectedError(format!("Failed to fetch tree {tree}: {error}"))
         })?;
@@ -183,21 +203,28 @@ impl RootIndexCache {
             PhotonApiError::UnexpectedError(format!("Account {tree} is not a Rings tree"))
         })?;
 
+        self.store(tree, history, fetch)
+    }
+
+    fn store(
+        &self,
+        tree: Pubkey,
+        history: impl IntoIterator<Item = (u16, [u8; 32])>,
+        fetch: Fetch,
+    ) -> Result<(), PhotonApiError> {
         let mut trees = self.trees.write().map_err(|_| {
             PhotonApiError::UnexpectedError("Root index cache is poisoned".to_string())
         })?;
+        let entry = trees.entry(tree).or_default();
         // Replaced wholesale: a root evicted from the ring must stop resolving,
         // or its stale index outlives the root it described.
-        trees.insert(
-            tree,
-            TreeRoots {
-                indices: history
-                    .into_iter()
-                    .map(|(index, root)| (root, index))
-                    .collect(),
-                refreshed: Some(Instant::now()),
-            },
-        );
+        entry.indices = history
+            .into_iter()
+            .map(|(index, root)| (root, index))
+            .collect();
+        if fetch == Fetch::OnMiss {
+            entry.fetched_on_miss = Some(Instant::now());
+        }
         Ok(())
     }
 }
@@ -247,14 +274,14 @@ mod tests {
     fn cache_with(
         tree: Pubkey,
         entries: &[([u8; 32], u16)],
-        refreshed: Option<Instant>,
+        fetched_on_miss: Option<Instant>,
     ) -> RootIndexCache {
         let cache = RootIndexCache::new();
         cache.trees.write().unwrap().insert(
             tree,
             TreeRoots {
                 indices: entries.iter().copied().collect(),
-                refreshed,
+                fetched_on_miss,
             },
         );
         cache
@@ -305,6 +332,38 @@ mod tests {
         assert!(
             matches!(error, PhotonApiError::UnexpectedError(_)),
             "expected the on-miss fetch to be attempted, got {error:?}"
+        );
+    }
+
+    /// The regression this pairs with: the refresher fetches whenever the tree
+    /// moves, so if its fetches stamped the on-miss floor, every append would
+    /// hold that window shut and the fallback would never fire. A miss right
+    /// after a refresher pass -- a root indexed between the pass and the request
+    /// -- then failed as StaleRoot instead of being fetched, which is a hard
+    /// error on a chain that is merely busy.
+    ///
+    /// Driven through `store`, so it is the code both fetch paths share that is
+    /// under test rather than a hand-built cache.
+    #[test]
+    fn the_refreshers_fetches_do_not_close_the_on_miss_window() {
+        let tree = Pubkey::new_from_array([7; 32]);
+        let cache = RootIndexCache::new();
+
+        cache
+            .store(tree, [(12u16, [9u8; 32])], Fetch::Refresher)
+            .expect("store");
+        assert_eq!(cache.lookup(tree, &[9; 32]), Some(12), "roots are cached");
+        assert!(
+            cache.due_for_refresh(tree),
+            "a miss must still be able to reach for the account"
+        );
+
+        cache
+            .store(tree, [(12u16, [9u8; 32])], Fetch::OnMiss)
+            .expect("store");
+        assert!(
+            !cache.due_for_refresh(tree),
+            "and an on-demand fetch still closes it"
         );
     }
 
