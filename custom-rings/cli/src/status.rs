@@ -7,6 +7,7 @@ use zolana_client::{Rpc, SolanaRpc};
 
 use crate::{
     config::RingConfig,
+    deploy::read_program_data,
     init::{read_config, read_ring_config},
 };
 
@@ -32,7 +33,16 @@ pub fn print_status(config: &RingConfig, rpc: &SolanaRpc) -> Result<()> {
 
     let chain = || -> Result<()> {
         match rpc.get_account(config.program_id)? {
-            Some(account) if account.executable => println!("program     deployed"),
+            Some(account) if account.executable => match read_program_data(rpc, config.program_id)? {
+                Some(info) => println!(
+                    "program     deployed, upgrade authority {}, capacity {} bytes",
+                    info.upgrade_authority
+                        .map(|key| key.to_string())
+                        .unwrap_or_else(|| "none (immutable)".to_owned()),
+                    info.capacity
+                ),
+                None => println!("program     deployed (not upgradeable)"),
+            },
             Some(_) => println!("program     account exists but is not executable"),
             None => println!("program     not deployed"),
         }

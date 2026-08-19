@@ -19,6 +19,7 @@ default = []
 hello = ["custom-ring-program/hello"]
 
 [dependencies]
+bincode = { workspace = true }
 anyhow = { workspace = true }
 bytemuck = { workspace = true }
 clap = { workspace = true }
@@ -29,6 +30,7 @@ reqwest = { workspace = true, features = ["blocking", "json"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 solana-address = { workspace = true }
+solana-loader-v3-interface = { workspace = true, features = ["serde"] }
 solana-address-lookup-table-interface = { workspace = true }
 solana-compute-budget-interface = { workspace = true }
 solana-instruction = { workspace = true }

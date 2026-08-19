@@ -49,7 +49,8 @@ pub struct Cli {
 pub enum Command {
     /// Recorded answers and on-chain state.
     Status,
-    /// Deploy the program with the authority as upgrade authority.
+    /// Deploy the program with the authority as upgrade authority, or upgrade
+    /// it in place when it is already deployed.
     Deploy(DeployArgs),
     /// Create the config with the auditor key and register the ring with SPP.
     Init(InitArgs),
@@ -109,15 +110,20 @@ pub fn run(cli: Cli) -> Result<()> {
             let program_so = args
                 .program_so
                 .unwrap_or_else(|| default_program_so(&config.name));
-            deploy::Deploy {
+            let outcome = deploy::Deploy {
                 rpc_url: &config.urls.rpc,
                 authority_keypair: &expand_tilde(&config.authority_keypair)?,
+                authority: authority.pubkey(),
                 program_keypair: &args.program_keypair,
                 program_so: &program_so,
             }
             .run(&rpc, config.program_id)?;
             println!(
-                "deployed {} under {}",
+                "{} {} under {}",
+                match outcome {
+                    deploy::DeployOutcome::Deployed => "deployed",
+                    deploy::DeployOutcome::Upgraded => "upgraded",
+                },
                 config.program_id,
                 authority.pubkey()
             );
