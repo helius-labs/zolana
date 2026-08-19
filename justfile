@@ -368,51 +368,105 @@ bench-shielded-pool: build-programs
 # Fetch the pinned swap proving keys from the swap-keys release and verify them
 # against the committed manifest. groth16.Setup is non-deterministic, so the
 # published keys are the only set matching the committed Rust verifying keys;
-# regenerating locally (regen-swap-keys) requires publishing a new release and
+# regenerating locally (regen-swap-keys) requires publishing a new key folder and
 # updating swap-keys.CHECKSUM plus the committed verifying keys together.
+# Where the example circuits' proving keys come from: the same bucket behind the
+# same CloudFront domain as the SPP proving keys, under an immutable
+# version-addressed folder per key tag. Reads are credential-free -- these are
+# public setup parameters, not secrets -- and every file is checked against the
+# hash committed next to the circuit before it is used.
+#
+# ZOLANA_PROVING_KEYS_URL overrides the host for both these and the SPP keys, so a
+# mirror or a local server serves everything or nothing.
+example-keys-url := env_var_or_default("ZOLANA_PROVING_KEYS_URL", "https://d3gbdb0egjwcw9.cloudfront.net") + "/proving-keys/examples"
+
 swap-keys-tag := "swap-keys-v4"
 
 # Same contract as swap-keys-tag, for the dynamic-swap example's two circuits
 # (escrow_open/escrow_settle). The release assets are
 # the only key set matching the committed Rust verifying keys; rotating locally
-# (regen-dynamic-swap-keys) requires publishing a new release and updating
+# (regen-dynamic-swap-keys) requires publishing a new key folder and updating
 # dynamic-swap-keys.CHECKSUM plus the committed verifying keys together.
 dynamic-swap-keys-tag := "dynamic-swap-keys-v4"
 
 # Same contract as swap-keys-tag, for the custom-ring example's single circuit
 # (auditor_key_encryption). gnark's Setup is non-deterministic, so the release
 # assets are the only key set matching the committed Rust verifying key; rotating
-# locally (regen-custom-ring-keys) requires publishing a new release and updating
+# locally (regen-custom-ring-keys) requires publishing a new key folder and updating
 # custom-ring-keys.CHECKSUM plus the committed verifying key together.
 custom-ring-keys-tag := "custom-ring-keys-v1"
 
-ensure-custom-ring-keys:
+# The counterpart to `_ensure-example-keys`. A tag names one folder and is never
+# rewritten: a rotation writes a new one and leaves the old in place, so a
+# checkout pinned to the previous tag keeps working. Needs the aws CLI and write
+# access to the bucket; reads need neither.
+#
+# Upload a regenerated example circuit family to the object store under a new tag.
+publish-example-keys tag base:
     #!/usr/bin/env bash
     set -euo pipefail
-    base="custom-ring-tests"
-    for c in auditor_key_encryption; do
-        dir="$base/build/gnark/$c"
+    src="{{base}}/build/gnark"
+    if [ ! -d "$src" ]; then
+        echo "no keys at $src -- regenerate them first" >&2
+        exit 1
+    fi
+    bucket="${ZOLANA_PROVING_KEYS_BUCKET:-zolana-proving-keys}"
+    dest="s3://$bucket/proving-keys/examples/{{tag}}"
+    if aws s3 ls "$dest/" >/dev/null 2>&1 && [ -n "$(aws s3 ls "$dest/")" ]; then
+        echo "$dest already exists -- pick a new tag rather than overwriting one" >&2
+        echo "a checkout pinned to {{tag}} would otherwise get different bytes" >&2
+        exit 1
+    fi
+    # Flattened to <circuit>_<kind>.bin, the names the manifests and the fetch
+    # recipe both use.
+    for f in "$src"/*/*.bin; do
+        circuit=$(basename "$(dirname "$f")")
+        kind=$(basename "$f" .bin)
+        echo "==> $dest/${circuit}_${kind}.bin"
+        aws s3 cp "$f" "$dest/${circuit}_${kind}.bin"
+    done
+
+# Fetch one example circuit family's keys and verify them against the committed
+# manifest. Cache-first: a file already on disk is only re-hashed, never refetched.
+#
+# The four families used to each run their own `gh release download`, which needed
+# a GitHub token and put them on GitHub's release-asset CDN -- where a reset
+# connection failed CI outright, with the key never reaching a compile. The SPP
+# proving keys had already moved off that; this is the same move for the examples.
+_ensure-example-keys tag base manifest circuits:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for c in {{circuits}}; do
+        dir="{{base}}/build/gnark/$c"
         for kind in pk vk; do
+            want=$(awk -v n="${c}_${kind}.bin" '$2==n {print $1}' "{{base}}/{{manifest}}")
+            if [ -z "$want" ]; then
+                echo "{{base}}/{{manifest}} has no hash for ${c}_${kind}.bin" >&2
+                exit 1
+            fi
             if [ ! -f "$dir/$kind.bin" ]; then
                 mkdir -p "$dir"
-                gh release download "{{custom-ring-keys-tag}}" --repo helius-labs/zolana \
-                    --pattern "${c}_${kind}.bin" --output "$dir/$kind.bin" --clobber
+                # Downloaded aside and moved, so an interrupted fetch cannot leave a
+                # short file that the next run trusts because it exists.
+                curl -fsSL --retry 3 --retry-delay 2 \
+                    -o "$dir/$kind.bin.part" "{{example-keys-url}}/{{tag}}/${c}_${kind}.bin"
+                mv "$dir/$kind.bin.part" "$dir/$kind.bin"
             fi
-            want=$(awk -v n="${c}_${kind}.bin" '$2==n {print $1}' "$base/custom-ring-keys.CHECKSUM")
             got=$(shasum -a 256 "$dir/$kind.bin" | awk '{print $1}')
             if [ "$want" != "$got" ]; then
                 echo "checksum mismatch for $dir/$kind.bin (want $want, got $got)" >&2
-                echo "refresh from the {{custom-ring-keys-tag}} release (delete the file and rerun)," >&2
-                echo "or rotate keys with 'just regen-custom-ring-keys' and publish a new release" >&2
+                echo "delete the file and rerun to refetch, or rotate the keys and" >&2
+                echo "publish a new {{tag}} folder alongside the regenerated manifest" >&2
                 exit 1
             fi
         done
     done
 
+ensure-custom-ring-keys: (_ensure-example-keys custom-ring-keys-tag "custom-ring-tests" "custom-ring-keys.CHECKSUM" "auditor_key_encryption")
 # Rotate the custom-ring proving key: regenerate the circuit, rewriting the
 # committed Rust verifying key and the checksum manifest. Publish the new
-# build/gnark key files to a fresh custom-ring-keys release and bump
-# custom-ring-keys-tag afterwards.
+# build/gnark key files with `just publish-example-keys custom-ring-keys-<next>
+# custom-ring-tests` and bump custom-ring-keys-tag afterwards.
 regen-custom-ring-keys:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -430,32 +484,11 @@ regen-custom-ring-keys:
         done
     done
 
-ensure-swap-keys:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    base="sdk-tests/zk-program-swap"
-    for c in make take cancel take_verifiable_encryption; do
-        dir="$base/build/gnark/$c"
-        for kind in pk vk; do
-            if [ ! -f "$dir/$kind.bin" ]; then
-                mkdir -p "$dir"
-                gh release download "{{swap-keys-tag}}" --repo helius-labs/zolana \
-                    --pattern "${c}_${kind}.bin" --output "$dir/$kind.bin" --clobber
-            fi
-            want=$(awk -v n="${c}_${kind}.bin" '$2==n {print $1}' "$base/swap-keys.CHECKSUM")
-            got=$(shasum -a 256 "$dir/$kind.bin" | awk '{print $1}')
-            if [ "$want" != "$got" ]; then
-                echo "checksum mismatch for $dir/$kind.bin (want $want, got $got)" >&2
-                echo "refresh from the {{swap-keys-tag}} release (delete the file and rerun)," >&2
-                echo "or rotate keys with 'just regen-swap-keys' and publish a new release" >&2
-                exit 1
-            fi
-        done
-    done
-
+ensure-swap-keys: (_ensure-example-keys swap-keys-tag "sdk-tests/zk-program-swap" "swap-keys.CHECKSUM" "make take cancel take_verifiable_encryption")
 # Rotate the swap proving keys: regenerate every circuit, rewriting the committed
 # Rust verifying keys and the checksum manifest. Publish the new build/gnark
-# key files to a fresh swap-keys release and bump swap-keys-tag afterwards.
+# key files with `just publish-example-keys swap-keys-<next> sdk-tests/zk-program-swap`
+# and bump swap-keys-tag afterwards.
 regen-swap-keys:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -473,32 +506,11 @@ regen-swap-keys:
         done
     done
 
-ensure-dynamic-swap-keys:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    base="sdk-tests/dynamic-swap"
-    for c in escrow_open escrow_settle; do
-        dir="$base/build/gnark/$c"
-        for kind in pk vk; do
-            if [ ! -f "$dir/$kind.bin" ]; then
-                mkdir -p "$dir"
-                gh release download "{{dynamic-swap-keys-tag}}" --repo helius-labs/zolana \
-                    --pattern "${c}_${kind}.bin" --output "$dir/$kind.bin" --clobber
-            fi
-            want=$(awk -v n="${c}_${kind}.bin" '$2==n {print $1}' "$base/dynamic-swap-keys.CHECKSUM")
-            got=$(shasum -a 256 "$dir/$kind.bin" | awk '{print $1}')
-            if [ "$want" != "$got" ]; then
-                echo "checksum mismatch for $dir/$kind.bin (want $want, got $got)" >&2
-                echo "refresh from the {{dynamic-swap-keys-tag}} release (delete the file and rerun)," >&2
-                echo "or rotate keys with 'just regen-dynamic-swap-keys' and publish a new release" >&2
-                exit 1
-            fi
-        done
-    done
-
+ensure-dynamic-swap-keys: (_ensure-example-keys dynamic-swap-keys-tag "sdk-tests/dynamic-swap" "dynamic-swap-keys.CHECKSUM" "escrow_open escrow_settle")
 # Rotate the dynamic-swap proving keys: regenerate every circuit, rewriting the
 # committed Rust verifying keys and the checksum manifest. Publish the new
-# build/gnark key files to a fresh dynamic-swap-keys release and bump
+# build/gnark key files with `just publish-example-keys dynamic-swap-keys-<next>
+# sdk-tests/dynamic-swap` and bump
 # dynamic-swap-keys-tag afterwards.
 regen-dynamic-swap-keys:
     #!/usr/bin/env bash
@@ -549,36 +561,15 @@ bench-rfq:
 # and verify them against the committed manifest. groth16.Setup is
 # non-deterministic, so the published keys are the only set matching the
 # committed Rust verifying keys; regenerating locally (regen-escrow-keys)
-# requires publishing a new release and updating timelock-escrow-keys.CHECKSUM
+# requires publishing a new key folder and updating timelock-escrow-keys.CHECKSUM
 # plus the committed verifying keys together.
 escrow-keys-tag := "escrow-keys-v2"
 
-ensure-escrow-keys:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    base="sdk-tests/timelock-escrow"
-    for c in escrow withdraw; do
-        dir="$base/build/gnark/$c"
-        for kind in pk vk; do
-            if [ ! -f "$dir/$kind.bin" ]; then
-                mkdir -p "$dir"
-                gh release download "{{escrow-keys-tag}}" --repo helius-labs/zolana \
-                    --pattern "${c}_${kind}.bin" --output "$dir/$kind.bin" --clobber
-            fi
-            want=$(awk -v n="${c}_${kind}.bin" '$2==n {print $1}' "$base/timelock-escrow-keys.CHECKSUM")
-            got=$(shasum -a 256 "$dir/$kind.bin" | awk '{print $1}')
-            if [ "$want" != "$got" ]; then
-                echo "checksum mismatch for $dir/$kind.bin (want $want, got $got)" >&2
-                echo "refresh from the {{escrow-keys-tag}} release (delete the file and rerun)," >&2
-                echo "or rotate keys with 'just regen-escrow-keys' and publish a new release" >&2
-                exit 1
-            fi
-        done
-    done
-
+ensure-escrow-keys: (_ensure-example-keys escrow-keys-tag "sdk-tests/timelock-escrow" "timelock-escrow-keys.CHECKSUM" "escrow withdraw")
 # Rotate the escrow/withdraw proving keys: regenerate both circuits, rewriting
 # the committed Rust verifying keys and the checksum manifest. Publish the new
-# build/gnark key files to a fresh escrow-keys release and bump
+# build/gnark key files with `just publish-example-keys escrow-keys-<next>
+# sdk-tests/timelock-escrow` and bump
 # escrow-keys-tag afterwards.
 regen-escrow-keys:
     #!/usr/bin/env bash
