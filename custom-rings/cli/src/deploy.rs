@@ -19,6 +19,9 @@ pub struct Deploy<'a> {
     pub program_so: &'a Path,
 }
 
+/// The loader refuses to grow `ProgramData` by less than this.
+const MIN_EXTEND_BYTES: usize = 10_240;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeployOutcome {
     Deployed,
@@ -63,7 +66,7 @@ impl Deploy<'_> {
                 }
             }
             if so_len > info.capacity {
-                self.extend(program_id, so_len - info.capacity)?;
+                self.extend(program_id, (so_len - info.capacity).max(MIN_EXTEND_BYTES))?;
             }
         } else if !self.program_keypair.exists() {
             return Err(anyhow!(
@@ -136,7 +139,10 @@ pub fn read_program_data<R: Rpc>(rpc: &R, program_id: Address) -> Result<Option<
         ..
     } = state
     else {
-        return Err(anyhow!("{} is not a ProgramData account", program_data_pda()));
+        return Err(anyhow!(
+            "{} is not a ProgramData account",
+            program_data_pda()
+        ));
     };
     Ok(Some(ProgramDataInfo {
         upgrade_authority: upgrade_authority_address
