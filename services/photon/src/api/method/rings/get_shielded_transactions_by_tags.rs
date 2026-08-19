@@ -883,6 +883,7 @@ mod tests {
                 tags: vec![hash(6)],
                 cursor: None,
                 limit: Some(Limit::new(10).unwrap()),
+                ring_program_id: None,
             },
         )
         .await
@@ -901,6 +902,7 @@ mod tests {
                 tags: vec![hash(6)],
                 cursor: Some(watermark),
                 limit: Some(Limit::new(10).unwrap()),
+                ring_program_id: None,
             },
         )
         .await
@@ -935,7 +937,7 @@ mod tests {
             signature: Set(vec![3; 64]),
             event_index: Set(0),
             slot: Set(7),
-            rings_program_id: Set(vec![9; 32]),
+            ring_config: Set(None),
             source_instruction_tag: Set(1),
             output_tree: Set(vec![8; 32]),
             first_output_leaf_index: Set(0),
