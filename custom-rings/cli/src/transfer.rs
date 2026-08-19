@@ -1,11 +1,15 @@
 //! The demo the operator CLI runs: two ring deposits for a fresh sender, one
-//! audited confidential transfer to a fresh recipient, then the auditor's view
-//! of it read back from the ring RPC.
+//! audited confidential transfer to a fresh recipient (with an optional public
+//! SOL withdrawal, approved when the policy asks for it), then the auditor's
+//! view of it read back from the ring RPC.
 
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
-use custom_ring_sdk::{ring_deposit_sol, send_v0_with_lookup_table, AuditedTransfer};
+use custom_ring_sdk::{
+    approval_pda, ring_deposit_sol, send_v0_with_lookup_table, ApproveTransact, AuditedTransfer,
+    RingPolicy, WithdrawalRule, SOL,
+};
 use solana_address::Address;
 use solana_signature::Signature;
 use solana_signer::Signer;
@@ -32,12 +36,20 @@ pub struct DemoTransfer<'a> {
     /// Lamports the recipient receives. The sender is funded with twice that
     /// through two ring deposits, so the change output is the same amount.
     pub amount: u64,
+    /// A public SOL withdrawal out of the pool, `(recipient, lamports)`, taken
+    /// from the recipient's share.
+    pub withdrawal: Option<(Address, u64)>,
+    /// The ring's policy, to know whether the withdrawal needs an approval.
+    pub policy: &'a RingPolicy,
+    /// Signs the approval when the policy asks for one.
+    pub approver: Option<&'a dyn Signer>,
 }
 
 pub struct TransferReceipt {
     pub sender: ShieldedKeypair,
     pub recipient: ShieldedKeypair,
     pub deposits: Vec<Signature>,
+    pub approval: Option<Signature>,
     pub transact: Signature,
 }
 
@@ -62,6 +74,11 @@ impl DemoTransfer<'_> {
         self.rpc
             .create_and_send_transaction(&[fee], self.payer.pubkey(), &[self.payer])?;
 
+        let withdrawn = self.withdrawal.map_or(0, |(_, lamports)| lamports);
+        let to_recipient = self
+            .amount
+            .checked_sub(withdrawn)
+            .ok_or_else(|| anyhow!("the withdrawal exceeds the recipient's share"))?;
         let proven = AuditedTransfer {
             indexer: self.indexer,
             spp_prover: self.prover,
@@ -69,20 +86,46 @@ impl DemoTransfer<'_> {
             inputs,
             outputs: vec![
                 SppProofOutputUtxo::new(SOL_MINT, self.amount, sender.shielded_address()?)?,
-                SppProofOutputUtxo::new(SOL_MINT, self.amount, recipient.shielded_address()?)?,
+                SppProofOutputUtxo::new(SOL_MINT, to_recipient, recipient.shielded_address()?)?,
             ],
+            withdrawals: self.withdrawal.into_iter().collect(),
             tree: self.tree,
             auditor_pk: self.auditor_pk,
             assets: &AssetRegistry::default(),
         }
         .prove()?;
-        let ix = proven.instruction(sender.pubkey(), self.tree)?;
+
+        // The policy decides whether this withdrawal needs an approval; the
+        // approver signs off the proven transact by its private_tx_hash.
+        let mut approval = None;
+        let mut approval_account = None;
+        if self.withdrawal.is_some()
+            && self.policy.withdrawal_rule(&SOL) == WithdrawalRule::Approval
+        {
+            let approver = self.approver.ok_or_else(|| {
+                anyhow!("the policy requires an approval, no approver keypair given")
+            })?;
+            let ix = ApproveTransact {
+                approver: approver.pubkey(),
+                payer: self.payer.pubkey(),
+                private_tx_hash: proven.private_tx_hash(),
+            }
+            .instruction();
+            approval = Some(self.rpc.create_and_send_transaction(
+                &[ix],
+                self.payer.pubkey(),
+                &[self.payer, approver],
+            )?);
+            approval_account = Some(approval_pda(&proven.private_tx_hash()));
+        }
+        let ix = proven.instruction(sender.pubkey(), self.tree, approval_account)?;
         let transact = send_v0_with_lookup_table(self.rpc, &sender, &[], ix)?;
 
         Ok(TransferReceipt {
             sender,
             recipient,
             deposits,
+            approval,
             transact,
         })
     }

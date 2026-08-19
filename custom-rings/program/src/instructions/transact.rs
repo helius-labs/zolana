@@ -10,15 +10,26 @@ use zolana_interface::{
 use crate::{
     error::CustomRingError,
     instructions::{
+        approve_transact::{verify_approval_pda, APPROVAL_SIZE},
         loader::{load_config, validate_spp_program},
         policy::check_transact,
         shared::{cpi_spp_signed, pack33_to_2fe},
         verifier::{verify_groth16, CompressedGroth16Proof},
     },
+    state::TRANSACT_APPROVAL,
 };
 
 /// SEC1-compressed public key length.
 const COMPRESSED_PUBKEY_LEN: usize = 33;
+
+fn is_approval_account(account: &AccountView) -> bool {
+    account.owned_by(&crate::ID)
+        && account.data_len() == APPROVAL_SIZE
+        && account
+            .try_borrow()
+            .map(|data| data.first() == Some(&TRANSACT_APPROVAL))
+            .unwrap_or(false)
+}
 /// AES-256-CTR ciphertext of the 32-byte transaction viewing secret key.
 const CIPHERTEXT_LEN: usize = 32;
 /// `eph_pk_compressed(33) || ciphertext(32)`.
@@ -147,15 +158,23 @@ fn select_auditor_message<'a>(
 #[inline(never)]
 pub fn process_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let mut iter = AccountIterator::new(accounts);
-    iter.next_signer_mut("payer")?;
+    let payer = iter.next_signer_mut("payer")?;
     let config_account = iter.next_account("config")?;
 
     let CustomRingTransactIxData { proof, transact } =
         wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
 
+    // An approval account, when the caller passes one, sits between the config
+    // and the forwarded list. Only this program writes accounts with that
+    // discriminator, so ownership plus the first byte identify it; SPP's list
+    // starts with a system-owned signer and can never be mistaken for one.
+    let rest = iter.remaining_mut()?;
+    let (approval, spp_accounts) = match rest.split_first_mut() {
+        Some((first, spp_accounts)) if is_approval_account(first) => (Some(first), spp_accounts),
+        _ => (None, rest),
+    };
     // The forwarded list is taken before the expensive work so a malformed
     // account list costs no pairing.
-    let spp_accounts = iter.remaining()?;
     validate_spp_program(spp_accounts)?;
 
     // Only this program can own an account it wrote, and `create_config` writes
@@ -165,9 +184,17 @@ pub fn process_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Program
     let auditor_pubkey = {
         let config = load_config(config_account)?;
         // Policy before the pairing: a refused transfer costs no proof work.
-        check_transact(&config, spp_accounts, &transact.interface_transfers)?;
+        let needs_approval = check_transact(&config, spp_accounts, &transact.interface_transfers)?;
+        if needs_approval && approval.is_none() {
+            return Err(CustomRingError::ApprovalRequired.into());
+        }
         config.auditor_pubkey
     };
+    // The approval is bound to this transact through `private_tx_hash`; it is
+    // spent after the CPI so it cannot approve a second submission.
+    if let Some(approval) = &approval {
+        verify_approval_pda(approval.address(), &transact.private_tx_hash)?;
+    }
 
     // This ring has one rail: Solana eddsa signers. `RingP256` (and any future
     // selector) would put SPP on a proof shape whose ownership semantics this
@@ -211,7 +238,23 @@ pub fn process_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Program
     let mut instruction_data = Vec::with_capacity(1 + transact_bytes.len());
     instruction_data.push(tag::RING_TRANSACT);
     instruction_data.extend_from_slice(&transact_bytes);
-    cpi_spp_signed(spp_accounts, &instruction_data)
+    cpi_spp_signed(spp_accounts, &instruction_data)?;
+
+    // Lamports move only after the CPI: the runtime syncs the caller's changes
+    // to the accounts it forwards (the payer) before invoking, and an account
+    // outside the CPI list (the approval) only at the end, so moving them
+    // earlier reads as an unbalanced instruction.
+    if let Some(approval) = approval {
+        payer.set_lamports(
+            payer
+                .lamports()
+                .checked_add(approval.lamports())
+                .ok_or(ProgramError::ArithmeticOverflow)?,
+        );
+        approval.set_lamports(0);
+        approval.close()?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

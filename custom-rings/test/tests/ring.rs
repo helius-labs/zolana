@@ -22,9 +22,7 @@ use std::{
 use anyhow::{anyhow, Context, Result};
 use custom_ring_program::{
     error::CustomRingError,
-    state::{
-        RingProgramConfig, ASSETS_ANY, MAX_ALLOWED_ASSETS, RING_PROGRAM_CONFIG, WITHDRAWALS_OPEN,
-    },
+    state::{RingProgramConfig, ASSETS_ANY, MAX_ASSETS, RING_PROGRAM_CONFIG, WITHDRAWALS_OPEN},
 };
 use custom_ring_sdk::{
     auditor_view_tag, config_pda, ring_auth_pda, ring_deposit_sol, send_v0_with_lookup_table,
@@ -301,8 +299,10 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
             bump: config_bump,
             withdrawals: WITHDRAWALS_OPEN,
             asset_policy: ASSETS_ANY,
-            allowed_assets_len: 0,
-            allowed_assets: [[0u8; 32]; MAX_ALLOWED_ASSETS],
+            assets_len: 0,
+            approver: Address::default(),
+            assets: [[0u8; 32]; MAX_ASSETS],
+            asset_withdrawals: [0u8; MAX_ASSETS],
         },
         "custom-ring config account"
     );
@@ -385,6 +385,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         sender: &env.sender.keypair,
         inputs: spendable,
         outputs: vec![change_output.clone(), recipient_output.clone()],
+        withdrawals: Vec::new(),
         tree: env.tree,
         auditor_pk,
         assets: &env.assets,
@@ -395,6 +396,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         data,
         audit_proof,
         owner_signers,
+        ..
     } = proven;
 
     // 6. Negative, before the real spend so the tree snapshot is meaningful: flip

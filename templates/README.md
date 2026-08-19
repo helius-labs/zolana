@@ -42,8 +42,10 @@ answer is `<id>_enabled` (a bool), which is what liquid files and
 `[conditional]` blocks read. Features that need on-chain values add them to
 `policy_toml`, rendered as `ring.toml`'s `[policy]` table: `allowed_assets`
 asks for the mints (`-d allowed_assets=SOL,<mint>` without prompts, `SOL` is
-native SOL) and `withdrawal_rules` blocks public withdrawals. `just init`
-writes the policy on chain and the CLI's `policy` command shows or changes it.
+native SOL) and `withdrawal_rules` asks for the default withdrawal rule
+(`-d withdrawals=blocked|approval|open`; `approval` needs an approver,
+default the authority, `-d approver=<pubkey>`). `just init` writes the policy
+on chain and the CLI's `policy` command shows or changes it, per asset too.
 
 ### Variables
 

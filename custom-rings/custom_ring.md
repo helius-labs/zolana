@@ -31,9 +31,11 @@ the recipients see. That is why the circuit needs no per-output witnesses and no
 - Verifiable encryption to the auditor. User-side encryption is not checked by
   the circuit.
 - Policy on public data only: an asset allowlist (what may enter or leave the
-  ring, checked on ring deposits and on transact settlement legs) and a public
-  withdrawal switch. Both live in the config and are set by the authority
-  (`set_policy`); nothing hidden inside confidential outputs is inspected.
+  ring, checked on ring deposits and on transact settlement legs) and a
+  withdrawal rule per asset (open, blocked, or approval by a configured key,
+  with a default for unlisted assets). All of it lives in the config and is set
+  by the authority (`set_policy`); nothing hidden inside confidential outputs is
+  inspected.
 - Config gating is the program's upgrade authority when the deployment names
   one, otherwise a plain authority signer. No key rotation yet.
 
@@ -95,7 +97,7 @@ the script takes the normal path and a failing `go build` is a hard error.
 
 ## Instructions
 
-Tags 1-4 are program-local. Ring deposits carry no proof and are forwarded to SPP
+Tags 1-5 are program-local. Ring deposits carry no proof and are forwarded to SPP
 byte for byte, so the dispatcher matches SPP's own
 `zolana_interface::instruction::tag::RING_DEPOSIT` (14) instead of allocating a
 local tag: the client builds the SPP-shaped instruction with the existing
@@ -127,11 +129,24 @@ program) flipped to a signer and `ring_authority_transact_is_enabled: false`.
 ### 4 `set_policy`
 
 Accounts `[authority(s), config(w)]`; data `SetPolicyIxData { withdrawals: u8,
-asset_policy: u8, allowed_assets: Vec<[u8; 32]> }` (wincode, at most
-`MAX_ALLOWED_ASSETS` = 8 mints, SOL is the all-zero mint). Requires the stored
-authority to sign, rejects values outside `{0, 1}` and oversized lists with
-`InvalidPolicy`, and replaces the policy fields of the config in place. A fresh
-config starts open (any asset, withdrawals allowed).
+asset_policy: u8, approver: [u8; 32], assets: Vec<AssetRule { mint, withdrawals
+}> }` (wincode, at most `MAX_ASSETS` = 8 entries, SOL is the all-zero mint).
+`withdrawals` is the default rule (`WITHDRAWALS_OPEN` 0, `WITHDRAWALS_BLOCKED`
+1, `WITHDRAWALS_APPROVAL` 2), each table entry carries its own; `asset_policy`
+`ASSETS_ALLOWLIST` limits deposits and settlement legs to the table's mints.
+Requires the stored authority to sign, rejects out-of-range values, oversized
+tables and an approval rule without an approver with `InvalidPolicy`, and
+replaces the policy fields of the config in place. A fresh config starts open.
+
+### 5 `approve_transact`
+
+Accounts `[approver(s), payer(w,s), config, approval(w, PDA [b"approval",
+private_tx_hash]), system_program]`; data `ApproveTransactIxData {
+private_tx_hash: [u8; 32] }`. The config's approver signs off one proven
+transact by creating its approval account (one discriminator byte). The
+`private_tx_hash` commits to inputs, outputs and every settlement leg, so an
+approval fits exactly one transfer; `transact` spends it, so it cannot be
+replayed.
 
 ### 14 `deposit` (forwarded)
 
@@ -145,13 +160,18 @@ instruction data unchanged (tag byte included; SPP's dispatcher strips it).
 
 Data `CustomRingTransactIxData { proof: AuditProof, transact: TransactIxData }`
 (wincode). Accounts `[payer(w,s), config] ++ <RING_TRANSACT list with ring_config
-unsigned>`. Flow: deserialize, load config, apply the policy to
-`interface_transfers` (`WithdrawalsBlocked` for a SOL or SPL withdrawal when
-blocked, `AssetNotAllowed` for a settlement leg outside the allowlist; before
-the pairing so a refused transfer costs no proof work), require
-`CircuitId::RingEddsa`, locate the auditor message, recompute the public-input
-hash, verify the Groth16 proof, then CPI SPP `RING_TRANSACT` with `ring_auth` as
-signer.
+unsigned>`, with the transact's approval account between the config and the SPP
+list when a withdrawal falls under an approval rule (recognised by owner and
+discriminator). Flow: deserialize, load config, apply the policy to
+`interface_transfers` (`AssetNotAllowed` for a settlement leg outside the
+allowlist, then per withdrawal leg the asset's rule: `WithdrawalsBlocked`, or
+`ApprovalRequired` when the approval account is missing; before the pairing so
+a refused transfer costs no proof work), check the approval account is this
+transact's PDA (`InvalidApproval`), require `CircuitId::RingEddsa`, locate the
+auditor message, recompute the public-input hash, verify the Groth16 proof, CPI
+SPP `RING_TRANSACT` with `ring_auth` as signer, then spend the approval (its
+rent goes to the payer). Lamports move only after the CPI, since the runtime
+syncs forwarded accounts before invoking and the rest only at the end.
 
 The auditor message is transported in SPP `transact` `messages`, which are folded
 into `external_data_hash` and republished verbatim in `GeneralEvent` - the
@@ -233,7 +253,7 @@ root `CLAUDE.md` rule that every program error belongs in
 `program-libs/interface` with a code in the 7000 space applies to SPP itself, not
 to the `sdk-tests`-style examples.
 
-This example uses the `8100..=8118` range, verified collision-free against SPP
+This example uses the `8100..=8121` range, verified collision-free against SPP
 (7000-7047), the swap example (8005-8016), and the remaining examples (9xxx).
 Every code is pinned in an `error_codes_are_stable` test.
 

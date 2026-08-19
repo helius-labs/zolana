@@ -21,15 +21,17 @@ use zolana_client::{
 };
 use zolana_interface::{
     instruction::{
-        tag::RING_TRANSACT, CircuitId, DepositAsset, InputUtxo, RingAssetDeposit, TransactIxData,
-        TransactProof,
+        tag::RING_TRANSACT, CircuitId, DepositAsset, InputUtxo, RingAssetDeposit,
+        TransactInterfaceTransferAccounts, TransactIxData, TransactProof,
+        TransactSolTransferAccounts,
     },
     N_PUBLIC_SLOTS,
 };
 use zolana_keypair::{random_blinding, P256Pubkey, ShieldedKeypair, ViewingKey};
 use zolana_transaction::{
     instructions::transact::{
-        encrypt_transaction_data, get_transaction_viewing_key, ExternalData, SppProofOutputUtxo,
+        encrypt_transaction_data, get_transaction_viewing_key, ExternalData, SettlementTransfer,
+        SppProofOutputUtxo,
     },
     owner_utxo_hash, AssetRegistry, Data, RingDepositPlaintext, Utxo, SOL_MINT,
 };
@@ -43,14 +45,16 @@ use crate::{
 const ZERO: [u8; 32] = [0u8; 32];
 
 /// One audited transfer: `sender` spends `inputs` (ring-owned UTXOs) into
-/// `outputs`, and the transaction viewing key is verifiably encrypted to
-/// `auditor_pk`.
+/// `outputs` and `withdrawals`, and the transaction viewing key is verifiably
+/// encrypted to `auditor_pk`.
 pub struct AuditedTransfer<'a, I: Rpc> {
     pub indexer: &'a I,
     pub spp_prover: &'a ProverClient,
     pub sender: &'a ShieldedKeypair,
     pub inputs: Vec<Utxo>,
     pub outputs: Vec<SppProofOutputUtxo>,
+    /// Public SOL withdrawals out of the pool, `(recipient, lamports)`.
+    pub withdrawals: Vec<(Address, u64)>,
     pub tree: Address,
     pub auditor_pk: P256Pubkey,
     pub assets: &'a AssetRegistry,
@@ -63,6 +67,8 @@ pub struct ProvenTransfer {
     pub data: TransactIxData,
     pub audit_proof: AuditProof,
     pub owner_signers: Vec<Address>,
+    /// Settlement accounts of `data.interface_transfers`, in order.
+    pub interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
 }
 
 impl<I: Rpc> AuditedTransfer<'_, I> {
@@ -86,7 +92,17 @@ impl<I: Rpc> AuditedTransfer<'_, I> {
             encoded.outputs,
             encoded.resolved_owner_tags,
             vec![auditor_message.to_message_data(&self.auditor_pk)],
-        );
+        )
+        .with_interface_transfers(
+            self.withdrawals
+                .iter()
+                .map(|(recipient, amount)| SettlementTransfer::Sol {
+                    is_deposit: false,
+                    amount: *amount,
+                    user_sol_account: *recipient,
+                })
+                .collect(),
+        )?;
         // Folded into external_data_hash and from there into private_tx_hash,
         // so it is bound before anything hashes external data.
         external_data.instruction_discriminator = RING_TRANSACT;
@@ -123,22 +139,47 @@ impl<I: Rpc> AuditedTransfer<'_, I> {
             data: assemble_ring_eddsa_ix_data(&proof_inputs, &ring_result, spp_proof)?,
             audit_proof,
             owner_signers: proof_inputs.owner_signer_pubkeys()?,
+            interface_transfer_accounts: self
+                .withdrawals
+                .iter()
+                .map(|(recipient, _)| {
+                    TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
+                        recipient: *recipient,
+                    })
+                })
+                .collect(),
         })
     }
 }
 
 impl ProvenTransfer {
-    /// The audited ring transact instruction, `payer` paying. `ring_config`
-    /// (the ring's `ring_auth` PDA) stays unsigned here; the program flips it to
-    /// a signer inside its CPI.
-    pub fn instruction(&self, payer: Address, tree: Address) -> Result<Instruction> {
-        ring_transact_ix(
+    /// What an approver signs off, and the seed of the approval account.
+    pub fn private_tx_hash(&self) -> [u8; 32] {
+        self.data.private_tx_hash
+    }
+
+    /// The audited ring transact instruction, `payer` paying. `approval` is
+    /// this transact's approval account when a withdrawal falls under an
+    /// approval rule. `ring_config` (the ring's `ring_auth` PDA) stays unsigned
+    /// here; the program flips it to a signer inside its CPI.
+    pub fn instruction(
+        &self,
+        payer: Address,
+        tree: Address,
+        approval: Option<Address>,
+    ) -> Result<Instruction> {
+        RingTransactWithAudit {
             payer,
-            tree,
-            self.owner_signers.clone(),
-            self.audit_proof,
-            self.data.clone(),
-        )
+            input_tree: tree,
+            output_tree: tree,
+            owner_signers: self.owner_signers.clone(),
+            approval,
+            interface_transfer_accounts: self.interface_transfer_accounts.clone(),
+            audit_proof: self.audit_proof,
+            transact: self.data.clone(),
+        }
+        .instruction()
+        .map_err(|e| anyhow!("ring transact instruction: {e}"))
     }
 }
 
@@ -307,6 +348,7 @@ pub fn ring_transact_ix(
         input_tree: tree,
         output_tree: tree,
         owner_signers,
+        approval: None,
         interface_transfer_accounts: Vec::new(),
         audit_proof,
         transact,

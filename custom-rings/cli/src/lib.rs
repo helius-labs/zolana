@@ -19,7 +19,7 @@ use clap::{Args, Parser, Subcommand};
 use custom_ring_sdk::PROGRAM_ID;
 use solana_address::Address;
 use solana_signer::Signer;
-use zolana_client::{ProverClient, SolanaRpc, ZolanaIndexer};
+use zolana_client::{ProverClient, Rpc, SolanaRpc, ZolanaIndexer};
 use zolana_interface::DEFAULT_TREE_ADDRESS;
 use zolana_keypair::P256Pubkey;
 use zolana_ring_rpc::{
@@ -66,6 +66,8 @@ pub enum Command {
     Transact(TransactArgs),
     /// Confirm the ring RPC in `ring.toml` is up and holds this ring's auditor key.
     RpcCheck,
+    /// Approve one proven transact by its `private_tx_hash`.
+    Approve(ApproveArgs),
     /// Transfer or renounce the program's upgrade authority.
     #[command(subcommand)]
     Authority(AuthorityCommand),
@@ -85,6 +87,7 @@ pub enum PolicyCommand {
 #[derive(Debug, Args)]
 pub struct PolicySetArgs {
     /// Replace the allowlist with these mints, repeatable; `SOL` for native SOL.
+    /// Listed mints keep their withdrawal rule when they had one.
     #[arg(
         long = "allow-asset",
         value_name = "MINT",
@@ -94,9 +97,15 @@ pub struct PolicySetArgs {
     /// Drop the allowlist, every asset is accepted.
     #[arg(long)]
     pub any_asset: bool,
-    /// `open` or `blocked`.
-    #[arg(long, value_parser = ["open", "blocked"])]
+    /// Default withdrawal rule: `open`, `blocked` or `approval`.
+    #[arg(long, value_parser = ["open", "blocked", "approval"])]
     pub withdrawals: Option<String>,
+    /// Withdrawal rule of one asset, `<mint>=<rule>`, repeatable.
+    #[arg(long = "asset-withdrawals", value_name = "MINT=RULE")]
+    pub asset_withdrawals: Vec<String>,
+    /// The key that approves withdrawals under an `approval` rule.
+    #[arg(long, value_name = "PUBKEY")]
+    pub approver: Option<Address>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -140,6 +149,24 @@ pub struct TransactArgs {
     /// Lamports the recipient receives.
     #[arg(long, default_value_t = 1_000_000_000)]
     pub amount: u64,
+    /// Withdraw this many lamports of the recipient's share publicly.
+    #[arg(long, value_name = "LAMPORTS")]
+    pub withdraw: Option<u64>,
+    /// Who receives the withdrawal, default the authority.
+    #[arg(long, value_name = "PUBKEY", requires = "withdraw")]
+    pub withdraw_to: Option<Address>,
+    /// Signs the approval when the policy asks for one, default the authority.
+    #[arg(long, value_name = "KEYPAIR")]
+    pub approver_keypair: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub struct ApproveArgs {
+    /// The `private_tx_hash` of the proven transact, hex.
+    pub private_tx_hash: String,
+    /// The approver, default the authority.
+    #[arg(long, value_name = "KEYPAIR")]
+    pub approver_keypair: Option<PathBuf>,
 }
 
 pub fn main() -> Result<()> {
@@ -257,17 +284,41 @@ pub fn run(cli: Cli) -> Result<()> {
                 PolicyCommand::Set(args) => {
                     let mut wanted = policy::read_policy(&rpc)?;
                     if args.any_asset {
-                        wanted.allowed_assets = None;
+                        wanted.allowlist = false;
                     } else if !args.allow_assets.is_empty() {
-                        wanted.allowed_assets = Some(
-                            args.allow_assets
-                                .iter()
-                                .map(|asset| policy::parse_asset(asset))
-                                .collect::<Result<_>>()?,
-                        );
+                        let mints = args
+                            .allow_assets
+                            .iter()
+                            .map(|asset| policy::parse_asset(asset))
+                            .collect::<Result<Vec<_>>>()?;
+                        wanted.assets = mints
+                            .into_iter()
+                            .map(|mint| custom_ring_sdk::AssetRule {
+                                withdrawals: wanted.withdrawal_rule(&mint),
+                                mint,
+                            })
+                            .collect();
+                        wanted.allowlist = true;
                     }
                     if let Some(withdrawals) = args.withdrawals.as_deref() {
-                        wanted.withdrawals_blocked = withdrawals == "blocked";
+                        wanted.withdrawals = policy::parse_rule(withdrawals)?;
+                    }
+                    for entry in &args.asset_withdrawals {
+                        let (mint, rule) = entry
+                            .split_once('=')
+                            .ok_or_else(|| anyhow!("expected <mint>=<rule>, got {entry}"))?;
+                        let mint = policy::parse_asset(mint)?;
+                        let rule = policy::parse_rule(rule)?;
+                        match wanted.assets.iter_mut().find(|asset| asset.mint == mint) {
+                            Some(asset) => asset.withdrawals = rule,
+                            None => wanted.assets.push(custom_ring_sdk::AssetRule {
+                                mint,
+                                withdrawals: rule,
+                            }),
+                        }
+                    }
+                    if let Some(approver) = args.approver {
+                        wanted.approver = Some(approver);
                     }
                     wanted
                 }
@@ -283,6 +334,30 @@ pub fn run(cli: Cli) -> Result<()> {
                 }
             );
             policy::print(&wanted);
+            Ok(())
+        }
+        Command::Approve(args) => {
+            let approver = match &args.approver_keypair {
+                Some(path) => solana_keypair::read_keypair_file(expand_tilde(path)?)
+                    .map_err(|e| anyhow!("reading approver keypair {}: {e}", path.display()))?,
+                None => config.authority()?,
+            };
+            fund_on_localnet(&config, &mut rpc, approver.pubkey())?;
+            let private_tx_hash: [u8; 32] = hex::decode(args.private_tx_hash.trim())?
+                .try_into()
+                .map_err(|_| anyhow!("private_tx_hash must be 32 bytes of hex"))?;
+            let ix = custom_ring_sdk::ApproveTransact {
+                approver: approver.pubkey(),
+                payer: approver.pubkey(),
+                private_tx_hash,
+            }
+            .instruction();
+            let signature =
+                rpc.create_and_send_transaction(&[ix], approver.pubkey(), &[&approver])?;
+            println!(
+                "approved    {} at {signature}",
+                custom_ring_sdk::approval_pda(&private_tx_hash)
+            );
             Ok(())
         }
         Command::Authority(command) => {
@@ -326,6 +401,12 @@ pub fn run(cli: Cli) -> Result<()> {
             ring_rpc.check_serves(PROGRAM_ID, &auditor_pk)?;
             let indexer = ZolanaIndexer::new(&config.urls.indexer);
             let prover = ProverClient::new(config.urls.prover.clone());
+            let ring_policy = policy::read_policy(&rpc)?;
+            let approver = match &args.approver_keypair {
+                Some(path) => solana_keypair::read_keypair_file(expand_tilde(path)?)
+                    .map_err(|e| anyhow!("reading approver keypair {}: {e}", path.display()))?,
+                None => config.authority()?,
+            };
             let receipt = DemoTransfer {
                 rpc: &rpc,
                 indexer: &indexer,
@@ -334,6 +415,11 @@ pub fn run(cli: Cli) -> Result<()> {
                 tree: Address::from_str_const(DEFAULT_TREE_ADDRESS),
                 auditor_pk,
                 amount: args.amount,
+                withdrawal: args
+                    .withdraw
+                    .map(|lamports| (args.withdraw_to.unwrap_or(authority.pubkey()), lamports)),
+                policy: &ring_policy,
+                approver: Some(&approver),
             }
             .run()?;
             println!(
@@ -348,6 +434,9 @@ pub fn run(cli: Cli) -> Result<()> {
             );
             for signature in &receipt.deposits {
                 println!("deposit     {signature}");
+            }
+            if let Some(signature) = &receipt.approval {
+                println!("approval    {signature}");
             }
             println!("transact    {}", receipt.transact);
             for line in program_logs(&rpc, &receipt.transact)? {

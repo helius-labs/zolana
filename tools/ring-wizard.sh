@@ -49,6 +49,8 @@ mkdir -p "$keys"
 trap 'rm -rf "$keys"' EXIT
 solana-keygen new --no-bip39-passphrase --silent --force -o "$keys/program-keypair.json"
 program_id="$(solana-keygen pubkey "$keys/program-keypair.json")"
+# The default approver of an approval rule; the wizard offers it as the default.
+authority_pubkey="$(solana-keygen pubkey "${AUTHORITY_KEYPAIR:-$HOME/.config/solana/id.json}" 2>/dev/null || true)"
 
 # Service URLs come from the justfile (`just ring-new`), which resolves the
 # per-clone port offset and every explicit override; a direct call falls back to
@@ -75,6 +77,7 @@ fi
 cargo generate --path "$root/templates/custom-ring" --destination "$dest" --name "$name" \
     ${silent[@]+"${silent[@]}"} \
     -d program_id="$program_id" \
+    -d authority_pubkey="$authority_pubkey" \
     -d zolana_path="$root" \
     -d default_rpc_url="$rpc_url" \
     -d default_indexer_url="$indexer_url" \

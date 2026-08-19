@@ -1,7 +1,7 @@
 //! The ring's on-chain policy: read, applied from `ring.toml`, or changed.
 
 use anyhow::{anyhow, Result};
-use custom_ring_sdk::{RingPolicy, SetPolicy, SOL};
+use custom_ring_sdk::{AssetRule, RingPolicy, SetPolicy, WithdrawalRule, SOL};
 use solana_address::Address;
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc};
@@ -25,19 +25,59 @@ pub fn format_asset(asset: &Address) -> String {
     }
 }
 
+pub fn parse_rule(text: &str) -> Result<WithdrawalRule> {
+    WithdrawalRule::parse(text)
+        .ok_or_else(|| anyhow!("withdrawal rule must be open, blocked or approval, got {text}"))
+}
+
 /// The policy `ring.toml` asks for. Absent keys leave that part open.
 pub fn from_config(policy: &PolicyConfig) -> Result<RingPolicy> {
+    let mut assets: Vec<AssetRule> = Vec::new();
+    for asset in policy.allowed_assets.iter().flatten() {
+        assets.push(AssetRule {
+            mint: parse_asset(asset)?,
+            withdrawals: WithdrawalRule::Open,
+        });
+    }
+    let withdrawals = policy
+        .withdrawals
+        .as_deref()
+        .map(parse_rule)
+        .transpose()?
+        .unwrap_or_default();
+    // Listed mints inherit the default rule until an entry names its own.
+    for asset in &mut assets {
+        asset.withdrawals = withdrawals;
+    }
+    for (mint, rule) in &policy.asset_withdrawals {
+        let mint = parse_asset(mint)?;
+        let rule = parse_rule(rule)?;
+        match assets.iter_mut().find(|asset| asset.mint == mint) {
+            Some(asset) => asset.withdrawals = rule,
+            None if policy.allowed_assets.is_some() => {
+                return Err(anyhow!(
+                    "asset_withdrawals names {} which is not in allowed_assets",
+                    format_asset(&mint)
+                ))
+            }
+            None => assets.push(AssetRule {
+                mint,
+                withdrawals: rule,
+            }),
+        }
+    }
     Ok(RingPolicy {
-        allowed_assets: policy
-            .allowed_assets
-            .as_ref()
-            .map(|assets| assets.iter().map(|asset| parse_asset(asset)).collect())
+        allowlist: policy.allowed_assets.is_some(),
+        assets,
+        withdrawals,
+        approver: policy
+            .approver
+            .as_deref()
+            .map(|key| {
+                key.parse()
+                    .map_err(|error| anyhow!("approver {key} is not a base58 pubkey: {error}"))
+            })
             .transpose()?,
-        withdrawals_blocked: match policy.withdrawals.as_deref() {
-            None | Some("open") => false,
-            Some("blocked") => true,
-            Some(other) => return Err(anyhow!("withdrawals must be open or blocked, got {other}")),
-        },
     })
 }
 
@@ -65,21 +105,17 @@ pub fn apply(rpc: &SolanaRpc, authority: &dyn Signer, policy: &RingPolicy) -> Re
 pub fn print(policy: &RingPolicy) {
     println!(
         "assets      {}",
-        match &policy.allowed_assets {
-            None => "any".to_owned(),
-            Some(assets) => assets
-                .iter()
-                .map(format_asset)
-                .collect::<Vec<_>>()
-                .join(", "),
-        }
+        if policy.allowlist { "allowlist" } else { "any" }
     );
-    println!(
-        "withdrawals {}",
-        if policy.withdrawals_blocked {
-            "blocked"
-        } else {
-            "open"
-        }
-    );
+    println!("withdrawals {} (default)", policy.withdrawals.as_str());
+    for asset in &policy.assets {
+        println!(
+            "  {:<44} withdrawals {}",
+            format_asset(&asset.mint),
+            asset.withdrawals.as_str()
+        );
+    }
+    if let Some(approver) = policy.approver {
+        println!("approver    {approver}");
+    }
 }

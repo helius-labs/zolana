@@ -22,6 +22,9 @@ fn error_codes_are_stable() {
         (AssetNotAllowed as u32, 8116),
         (WithdrawalsBlocked as u32, 8117),
         (InvalidPolicy as u32, 8118),
+        (ApprovalRequired as u32, 8119),
+        (InvalidApproval as u32, 8120),
+        (UnauthorizedApprover as u32, 8121),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
