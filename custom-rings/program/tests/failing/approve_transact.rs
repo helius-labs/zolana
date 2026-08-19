@@ -3,16 +3,18 @@
 
 use custom_ring_program::{
     error::CustomRingError,
-    instructions::approve_transact::APPROVAL_SIZE,
-    state::{TRANSACT_APPROVAL, WITHDRAWALS_APPROVAL},
+    state::{WithdrawalRule, TRANSACT_APPROVAL},
+    tag,
 };
+use solana_instruction::AccountMeta;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use zolana_test_utils::mollusk::expect_err_exact;
 
 use crate::common::{
-    account, approval_pda, approve_transact_fixture, approver, auditor_pubkey, authority,
-    config_account_with_policy, initialized_config_account, setup_mollusk, PolicyFixture,
+    account, approval_account, approval_pda, approve_transact_fixture, approver, auditor_pubkey,
+    authority, config_account_with_policy, initialized_config_account, setup_mollusk,
+    PolicyFixture,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -24,7 +26,7 @@ fn config_with_approver() -> solana_account::Account {
         authority(),
         auditor_pubkey(2),
         PolicyFixture {
-            withdrawals: WITHDRAWALS_APPROVAL,
+            withdrawals: WithdrawalRule::Approval,
             approver: Some(approver()),
             ..PolicyFixture::default()
         },
@@ -38,11 +40,59 @@ fn approver_creates_the_approval_of_one_transact() {
     let (instruction, accounts) = approve_transact_fixture(config_with_approver(), private_tx_hash);
     let result = mollusk.process_and_validate_instruction(&instruction, &accounts, &[]);
     assert!(result.program_result.is_ok(), "{:?}", result.program_result);
-    let approval = result
-        .get_account(&approval_pda(&private_tx_hash).0)
-        .expect("approval account");
+    let (address, bump) = approval_pda(&private_tx_hash);
+    let approval = result.get_account(&address).expect("approval account");
     assert_eq!(approval.owner, crate::common::program_id());
-    assert_eq!(approval.data, vec![TRANSACT_APPROVAL; APPROVAL_SIZE]);
+    assert_eq!(approval.data, vec![TRANSACT_APPROVAL, bump]);
+}
+
+/// `revoke_approval` over the account `approve_transact` wrote: the account
+/// closes and its lamports land with the rent recipient.
+#[test]
+fn approver_revokes_an_unspent_approval() {
+    let (mollusk, _) = setup_mollusk();
+    let private_tx_hash = [4u8; 32];
+    let (address, approval) = approval_account(&private_tx_hash);
+    let rent_recipient = Pubkey::new_from_array([80; 32]);
+    let (config_key, _) = crate::common::config_pda();
+    let mut data = vec![tag::REVOKE_APPROVAL];
+    data.extend_from_slice(&private_tx_hash);
+    let instruction = solana_instruction::Instruction {
+        program_id: crate::common::program_id(),
+        accounts: vec![
+            AccountMeta::new_readonly(approver(), true),
+            AccountMeta::new(rent_recipient, false),
+            AccountMeta::new_readonly(config_key, false),
+            AccountMeta::new(address, false),
+        ],
+        data,
+    };
+    let accounts = vec![
+        (approver(), account(1_000_000_000)),
+        (rent_recipient, account(1_000_000_000)),
+        (config_key, config_with_approver()),
+        (address, approval),
+    ];
+    let result = mollusk.process_and_validate_instruction(&instruction, &accounts, &[]);
+    assert!(result.program_result.is_ok(), "{:?}", result.program_result);
+    assert_eq!(
+        result.get_account(&rent_recipient).map(|a| a.lamports),
+        Some(1_001_000_000)
+    );
+    assert_eq!(result.get_account(&address).map(|a| a.lamports), Some(0));
+
+    // Not the approver.
+    let mut wrong = instruction.clone();
+    let impostor = Pubkey::new_from_array([81; 32]);
+    wrong.accounts[0].pubkey = impostor;
+    let mut wrong_accounts = accounts.clone();
+    wrong_accounts.push((impostor, account(1_000_000_000)));
+    expect_err_exact(
+        &mollusk,
+        &wrong,
+        &wrong_accounts,
+        custom(CustomRingError::UnauthorizedApprover),
+    );
 }
 
 #[test]

@@ -5,13 +5,16 @@
 //! pre-CPI. The successful forward is covered by the localnet end-to-end test.
 
 use custom_ring_program::{
-    error::CustomRingError, instructions::set_policy::AssetRule, state::SOL_MINT,
+    error::CustomRingError,
+    state::{AssetRule, WithdrawalRule, SOL_MINT},
 };
 use pinocchio::cpi::MAX_CPI_ACCOUNTS;
 use solana_instruction::AccountMeta;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
-use zolana_interface::instruction::{DepositAssetKind, RingDepositIxData};
+use zolana_interface::instruction::{
+    DepositAssetKind, EncryptedRingDepositData, RingDepositEntry, RingDepositIxData,
+};
 use zolana_test_utils::mollusk::expect_err_exact;
 
 use crate::common::{
@@ -27,7 +30,7 @@ fn allowlist(mint: [u8; 32]) -> solana_account::Account {
             allowlist: true,
             assets: &[AssetRule {
                 mint,
-                withdrawals: 0,
+                withdrawals: WithdrawalRule::Open,
             }],
             ..PolicyFixture::default()
         },
@@ -100,12 +103,25 @@ fn oversized_account_list_is_rejected_exactly() {
     );
 }
 
-/// A SOL deposit body as SPP's `RING_DEPOSIT` carries it, entries left out
-/// because only the asset kinds matter to the policy.
+/// A SOL deposit body as SPP's `RING_DEPOSIT` carries it, with one full entry
+/// after the asset kinds: the policy reads only the prefix and must leave the
+/// entry alone.
 fn sol_deposit_body() -> Vec<u8> {
     RingDepositIxData {
         assets: vec![DepositAssetKind::Sol],
-        deposits: Vec::new(),
+        deposits: vec![RingDepositEntry {
+            asset_index: 0,
+            view_tag: [1u8; 32],
+            owner_utxo_hash: [2u8; 32],
+            amount: 7,
+            data_hash: Some([3u8; 32]),
+            ring_data_hash: [4u8; 32],
+            encrypted: EncryptedRingDepositData {
+                tx_viewing_pk: [2u8; 33],
+                salt: [5u8; 16],
+                ciphertext: vec![6u8; 300],
+            },
+        }],
     }
     .serialize()
     .expect("serialize ring deposit")

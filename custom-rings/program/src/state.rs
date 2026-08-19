@@ -12,19 +12,84 @@ pub const TRANSACT_APPROVAL: u8 = 2;
 /// Capacity of the asset table. Fixed so the config stays a `Pod` account.
 pub const MAX_ASSETS: usize = 8;
 
-/// A withdrawal rule: what happens to a public settlement leg out of the pool.
-pub const WITHDRAWALS_OPEN: u8 = 0;
-pub const WITHDRAWALS_BLOCKED: u8 = 1;
-/// The transact must carry an approval account the configured approver created
-/// for its `private_tx_hash`.
-pub const WITHDRAWALS_APPROVAL: u8 = 2;
-
-/// `RingProgramConfig::asset_policy`: any asset, or only the listed mints.
-pub const ASSETS_ANY: u8 = 0;
-pub const ASSETS_ALLOWLIST: u8 = 1;
-
 /// The mint that stands for native SOL in the asset table and in SPP's registry.
 pub const SOL_MINT: [u8; 32] = [0u8; 32];
+
+/// What happens to a public settlement leg out of the pool. Stored as its `u8`
+/// in the config; every byte the program writes came through `try_from`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum WithdrawalRule {
+    Open = 0,
+    Blocked = 1,
+    /// The transact must carry an approval account the configured approver
+    /// created for its `private_tx_hash`.
+    Approval = 2,
+}
+
+impl WithdrawalRule {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Blocked => "blocked",
+            Self::Approval => "approval",
+        }
+    }
+}
+
+impl TryFrom<u8> for WithdrawalRule {
+    type Error = CustomRingError;
+
+    fn try_from(value: u8) -> Result<Self, CustomRingError> {
+        match value {
+            0 => Ok(Self::Open),
+            1 => Ok(Self::Blocked),
+            2 => Ok(Self::Approval),
+            _ => Err(CustomRingError::InvalidPolicy),
+        }
+    }
+}
+
+impl core::str::FromStr for WithdrawalRule {
+    type Err = CustomRingError;
+
+    fn from_str(text: &str) -> Result<Self, CustomRingError> {
+        match text {
+            "open" => Ok(Self::Open),
+            "blocked" => Ok(Self::Blocked),
+            "approval" => Ok(Self::Approval),
+            _ => Err(CustomRingError::InvalidPolicy),
+        }
+    }
+}
+
+/// Which mints may enter or leave the ring.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum AssetPolicy {
+    Any = 0,
+    /// Only the mints in the asset table.
+    Allowlist = 1,
+}
+
+impl TryFrom<u8> for AssetPolicy {
+    type Error = CustomRingError;
+
+    fn try_from(value: u8) -> Result<Self, CustomRingError> {
+        match value {
+            0 => Ok(Self::Any),
+            1 => Ok(Self::Allowlist),
+            _ => Err(CustomRingError::InvalidPolicy),
+        }
+    }
+}
+
+/// One asset table entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AssetRule {
+    pub mint: [u8; 32],
+    pub withdrawals: WithdrawalRule,
+}
 
 /// The ring's singleton config: who may register the ring with SPP, the auditor
 /// key every `transact` must verifiably encrypt the transaction viewing secret
@@ -37,10 +102,9 @@ pub struct RingProgramConfig {
     /// Auditor P256 public key in SEC1 compressed form (`0x02`/`0x03 || x`).
     pub auditor_pubkey: [u8; 33],
     pub bump: u8,
-    /// Withdrawal rule for assets without an entry in the table.
+    /// [`WithdrawalRule`] for assets without an entry in the table.
     pub withdrawals: u8,
-    /// [`ASSETS_ANY`] or [`ASSETS_ALLOWLIST`]. Under the allowlist only the
-    /// table's mints may enter or leave the ring.
+    /// [`AssetPolicy`].
     pub asset_policy: u8,
     /// Live entries of `assets` and `asset_withdrawals`, at most [`MAX_ASSETS`].
     pub assets_len: u8,
@@ -49,7 +113,7 @@ pub struct RingProgramConfig {
     pub approver: Address,
     /// Mints of the asset table; SOL is [`SOL_MINT`].
     pub assets: [[u8; 32]; MAX_ASSETS],
-    /// Withdrawal rule per table entry.
+    /// [`WithdrawalRule`] per table entry.
     pub asset_withdrawals: [u8; MAX_ASSETS],
 }
 
@@ -61,33 +125,66 @@ impl RingProgramConfig {
         self.discriminator == RING_PROGRAM_CONFIG
     }
 
-    /// The asset table as `(mint, withdrawal rule)` pairs.
-    pub fn assets(&self) -> impl Iterator<Item = (&[u8; 32], u8)> {
+    /// The asset table. A rule byte the program never wrote reads as
+    /// `Blocked`, so corrupted state fails closed.
+    pub fn assets(&self) -> impl Iterator<Item = AssetRule> + '_ {
         let len = usize::from(self.assets_len).min(MAX_ASSETS);
         self.assets[..len]
             .iter()
-            .zip(self.asset_withdrawals[..len].iter().copied())
+            .zip(&self.asset_withdrawals[..len])
+            .map(|(mint, rule)| AssetRule {
+                mint: *mint,
+                withdrawals: rule_or_blocked(*rule),
+            })
     }
 
-    pub fn allows_every_asset(&self) -> bool {
-        self.asset_policy != ASSETS_ALLOWLIST
+    pub fn asset_policy(&self) -> AssetPolicy {
+        AssetPolicy::try_from(self.asset_policy).unwrap_or(AssetPolicy::Allowlist)
     }
 
     /// Whether `mint` may enter or leave the ring under the asset policy.
     pub fn allows_asset(&self, mint: &[u8; 32]) -> bool {
-        self.allows_every_asset() || self.assets().any(|(listed, _)| listed == mint)
+        match self.asset_policy() {
+            AssetPolicy::Any => true,
+            AssetPolicy::Allowlist => self.assets().any(|asset| asset.mint == *mint),
+        }
     }
 
     /// The withdrawal rule for `mint`: its table entry, else the default.
-    pub fn withdrawal_rule(&self, mint: &[u8; 32]) -> u8 {
-        self.assets()
-            .find(|(listed, _)| *listed == mint)
-            .map_or(self.withdrawals, |(_, rule)| rule)
+    pub fn withdrawal_rule(&self, mint: &[u8; 32]) -> WithdrawalRule {
+        self.assets().find(|asset| asset.mint == *mint).map_or_else(
+            || rule_or_blocked(self.withdrawals),
+            |asset| asset.withdrawals,
+        )
     }
 
-    pub fn has_approver(&self) -> bool {
-        self.approver != Address::default()
+    pub fn approver(&self) -> Option<&Address> {
+        (self.approver != Address::default()).then_some(&self.approver)
     }
+
+    /// Replaces the policy fields; the caller has validated `assets.len()`.
+    pub fn set_policy(
+        &mut self,
+        asset_policy: AssetPolicy,
+        withdrawals: WithdrawalRule,
+        approver: Address,
+        assets: &[AssetRule],
+    ) {
+        self.asset_policy = asset_policy as u8;
+        self.withdrawals = withdrawals as u8;
+        self.approver = approver;
+        self.assets = [[0u8; 32]; MAX_ASSETS];
+        self.asset_withdrawals = [0u8; MAX_ASSETS];
+        for (index, asset) in assets.iter().enumerate().take(MAX_ASSETS) {
+            self.assets[index] = asset.mint;
+            self.asset_withdrawals[index] = asset.withdrawals as u8;
+        }
+        self.assets_len = assets.len().min(MAX_ASSETS) as u8;
+    }
+}
+
+fn rule_or_blocked(value: u8) -> WithdrawalRule {
+    WithdrawalRule::try_from(value).unwrap_or(WithdrawalRule::Blocked)
 }
 
 // Every field is byte-typed (`Address` is a 32-byte, align-1 newtype), so the
@@ -127,8 +224,8 @@ impl RingProgramConfigInitParams {
             authority: self.authority,
             auditor_pubkey: self.auditor_pubkey,
             bump: self.bump,
-            withdrawals: WITHDRAWALS_OPEN,
-            asset_policy: ASSETS_ANY,
+            withdrawals: WithdrawalRule::Open as u8,
+            asset_policy: AssetPolicy::Any as u8,
             assets_len: 0,
             approver: Address::default(),
             assets: [[0u8; 32]; MAX_ASSETS],

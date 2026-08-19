@@ -8,11 +8,8 @@
 
 use custom_ring_program::{
     error::CustomRingError,
-    instructions::{
-        set_policy::AssetRule,
-        transact::{AuditProof, CustomRingTransactIxData, AUDITOR_MESSAGE_LEN},
-    },
-    state::{WITHDRAWALS_APPROVAL, WITHDRAWALS_BLOCKED, WITHDRAWALS_OPEN},
+    instructions::transact::{AuditProof, CustomRingTransactIxData, AUDITOR_MESSAGE_LEN},
+    state::{AssetRule, WithdrawalRule},
     tag,
 };
 use solana_account::Account;
@@ -27,9 +24,9 @@ use zolana_interface::{
 use zolana_test_utils::mollusk::expect_err_exact;
 
 use crate::common::{
-    account, approval_account, approval_pda, approver, auditor_pubkey, authority,
-    config_account_with_policy, config_pda, initialized_config_account, payer, program_id,
-    ring_auth_pda, setup_mollusk, spp_program_account, substitute_account, PolicyFixture,
+    account, approval_account, approver, auditor_pubkey, authority, config_account_with_policy,
+    config_pda, initialized_config_account, payer, program_id, ring_auth_pda, setup_mollusk,
+    spp_program_account, substitute_account, PolicyFixture,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -408,7 +405,7 @@ fn withdrawal_fixture(
     (instruction, accounts)
 }
 
-fn policy(withdrawals: u8) -> Account {
+fn policy(withdrawals: WithdrawalRule) -> Account {
     config_account_with_policy(
         authority(),
         config_auditor_pubkey(),
@@ -425,7 +422,7 @@ fn policy(withdrawals: u8) -> Account {
 #[test]
 fn public_withdrawal_is_rejected_exactly_when_blocked() {
     let (mollusk, _) = setup_mollusk();
-    let (instruction, accounts) = withdrawal_fixture(policy(WITHDRAWALS_BLOCKED), None);
+    let (instruction, accounts) = withdrawal_fixture(policy(WithdrawalRule::Blocked), None);
     expect_err_exact(
         &mollusk,
         &instruction,
@@ -437,7 +434,7 @@ fn public_withdrawal_is_rejected_exactly_when_blocked() {
 #[test]
 fn public_withdrawal_under_approval_needs_the_approval_account() {
     let (mollusk, _) = setup_mollusk();
-    let (instruction, accounts) = withdrawal_fixture(policy(WITHDRAWALS_APPROVAL), None);
+    let (instruction, accounts) = withdrawal_fixture(policy(WithdrawalRule::Approval), None);
     expect_err_exact(
         &mollusk,
         &instruction,
@@ -451,10 +448,9 @@ fn public_withdrawal_under_approval_needs_the_approval_account() {
 #[test]
 fn an_approval_for_another_transact_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let other = approval_pda(&[8u8; 32]).0;
     let (instruction, accounts) = withdrawal_fixture(
-        policy(WITHDRAWALS_APPROVAL),
-        Some((other, approval_account())),
+        policy(WithdrawalRule::Approval),
+        Some(approval_account(&[8u8; 32])),
     );
     expect_err_exact(
         &mollusk,
@@ -470,10 +466,9 @@ fn an_approval_for_another_transact_is_rejected_exactly() {
 fn a_matching_approval_lets_the_withdrawal_reach_the_proof() {
     let (mollusk, _) = setup_mollusk();
     let private_tx_hash = transact(vec![]).private_tx_hash;
-    let approval = approval_pda(&private_tx_hash).0;
     let (instruction, accounts) = withdrawal_fixture(
-        policy(WITHDRAWALS_APPROVAL),
-        Some((approval, approval_account())),
+        policy(WithdrawalRule::Approval),
+        Some(approval_account(&private_tx_hash)),
     );
     expect_err_exact(
         &mollusk,
@@ -491,10 +486,10 @@ fn per_asset_rule_overrides_the_default() {
         authority(),
         config_auditor_pubkey(),
         PolicyFixture {
-            withdrawals: WITHDRAWALS_BLOCKED,
+            withdrawals: WithdrawalRule::Blocked,
             assets: &[AssetRule {
                 mint: [0u8; 32],
-                withdrawals: WITHDRAWALS_OPEN,
+                withdrawals: WithdrawalRule::Open,
             }],
             ..PolicyFixture::default()
         },
@@ -522,7 +517,7 @@ fn settlement_of_an_asset_outside_the_allowlist_is_rejected_exactly() {
             allowlist: true,
             assets: &[AssetRule {
                 mint: [9u8; 32],
-                withdrawals: WITHDRAWALS_OPEN,
+                withdrawals: WithdrawalRule::Open,
             }],
             ..PolicyFixture::default()
         },

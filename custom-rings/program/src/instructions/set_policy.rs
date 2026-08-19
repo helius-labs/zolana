@@ -5,37 +5,27 @@ use zolana_account_checks::AccountIterator;
 use crate::{
     error::CustomRingError,
     instructions::loader::load_config_mut,
-    state::{
-        ASSETS_ALLOWLIST, ASSETS_ANY, MAX_ASSETS, WITHDRAWALS_APPROVAL, WITHDRAWALS_BLOCKED,
-        WITHDRAWALS_OPEN,
-    },
+    state::{AssetPolicy, AssetRule, WithdrawalRule, MAX_ASSETS},
 };
 
-/// One asset table entry: a mint and its withdrawal rule.
+/// One asset table entry on the wire; `withdrawals` is a `WithdrawalRule`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct AssetRule {
+pub struct AssetRuleData {
     pub mint: [u8; 32],
     pub withdrawals: u8,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct SetPolicyIxData {
-    /// Withdrawal rule for assets without a table entry.
+    /// `WithdrawalRule` for assets without a table entry.
     pub withdrawals: u8,
-    /// `ASSETS_ANY` or `ASSETS_ALLOWLIST`.
+    /// `AssetPolicy`.
     pub asset_policy: u8,
-    /// All zero when no rule is `WITHDRAWALS_APPROVAL`.
+    /// All zero when no rule is `WithdrawalRule::Approval`.
     pub approver: [u8; 32],
-    /// At most `MAX_ASSETS` entries.
-    #[wincode(with = "containers::Vec<AssetRule, FixIntLen<u8>>")]
-    pub assets: Vec<AssetRule>,
-}
-
-fn is_rule(value: u8) -> bool {
-    matches!(
-        value,
-        WITHDRAWALS_OPEN | WITHDRAWALS_BLOCKED | WITHDRAWALS_APPROVAL
-    )
+    /// At most `MAX_ASSETS` entries, distinct mints.
+    #[wincode(with = "containers::Vec<AssetRuleData, FixIntLen<u8>>")]
+    pub assets: Vec<AssetRuleData>,
 }
 
 /// Replaces the ring's policy. Accounts `[authority(s), config(w)]`; the
@@ -48,16 +38,36 @@ pub fn process_set_policy_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
         approver,
         assets,
     } = wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
-    let needs_approver = withdrawals == WITHDRAWALS_APPROVAL
-        || assets
+    let withdrawals = WithdrawalRule::try_from(withdrawals)?;
+    let asset_policy = AssetPolicy::try_from(asset_policy)?;
+    if assets.len() > MAX_ASSETS {
+        return Err(CustomRingError::InvalidPolicy.into());
+    }
+    let mut table = [AssetRule {
+        mint: [0u8; 32],
+        withdrawals: WithdrawalRule::Open,
+    }; MAX_ASSETS];
+    for (index, asset) in assets.iter().enumerate() {
+        // A mint listed twice would let the first entry's rule shadow the
+        // second silently.
+        if assets[..index]
             .iter()
-            .any(|asset| asset.withdrawals == WITHDRAWALS_APPROVAL);
-    if !is_rule(withdrawals)
-        || !matches!(asset_policy, ASSETS_ANY | ASSETS_ALLOWLIST)
-        || assets.len() > MAX_ASSETS
-        || assets.iter().any(|asset| !is_rule(asset.withdrawals))
-        || (needs_approver && approver == [0u8; 32])
-    {
+            .any(|earlier| earlier.mint == asset.mint)
+        {
+            return Err(CustomRingError::InvalidPolicy.into());
+        }
+        table[index] = AssetRule {
+            mint: asset.mint,
+            withdrawals: WithdrawalRule::try_from(asset.withdrawals)?,
+        };
+    }
+    let table = &table[..assets.len()];
+    let needs_approver = withdrawals == WithdrawalRule::Approval
+        || table
+            .iter()
+            .any(|asset| asset.withdrawals == WithdrawalRule::Approval);
+    let approver = Address::new_from_array(approver);
+    if needs_approver && approver == Address::default() {
         return Err(CustomRingError::InvalidPolicy.into());
     }
 
@@ -69,15 +79,6 @@ pub fn process_set_policy_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
     if !address_eq(&config.authority, authority.address()) {
         return Err(CustomRingError::UnauthorizedAuthority.into());
     }
-    config.withdrawals = withdrawals;
-    config.asset_policy = asset_policy;
-    config.approver = Address::new_from_array(approver);
-    config.assets = [[0u8; 32]; MAX_ASSETS];
-    config.asset_withdrawals = [0u8; MAX_ASSETS];
-    for (index, asset) in assets.iter().enumerate() {
-        config.assets[index] = asset.mint;
-        config.asset_withdrawals[index] = asset.withdrawals;
-    }
-    config.assets_len = assets.len() as u8;
+    config.set_policy(asset_policy, withdrawals, approver, table);
     Ok(())
 }

@@ -22,7 +22,7 @@ use std::{
 use anyhow::{anyhow, Context, Result};
 use custom_ring_program::{
     error::CustomRingError,
-    state::{RingProgramConfig, ASSETS_ANY, MAX_ASSETS, RING_PROGRAM_CONFIG, WITHDRAWALS_OPEN},
+    state::{AssetPolicy, RingProgramConfig, WithdrawalRule, MAX_ASSETS, RING_PROGRAM_CONFIG},
 };
 use custom_ring_sdk::{
     auditor_view_tag, config_pda, ring_auth_pda, ring_deposit_sol, send_v0_with_lookup_table,
@@ -297,8 +297,8 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
             authority,
             auditor_pubkey,
             bump: config_bump,
-            withdrawals: WITHDRAWALS_OPEN,
-            asset_policy: ASSETS_ANY,
+            withdrawals: WithdrawalRule::Open as u8,
+            asset_policy: AssetPolicy::Any as u8,
             assets_len: 0,
             approver: Address::default(),
             assets: [[0u8; 32]; MAX_ASSETS],
