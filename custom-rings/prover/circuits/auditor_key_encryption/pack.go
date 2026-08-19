@@ -11,7 +11,7 @@ import (
 // DomSepCRShared is the shared-secret domain separator, the ASCII tag "CR_S"
 // read as a big-endian 32-bit integer and used as the first Poseidon input of
 // DeriveAuditSharedSecret. The Rust host derivation
-// (custom-ring-tests/sdk/src/encryption.rs) MUST use the same value.
+// (custom-rings/sdk/src/encryption.rs) MUST use the same value.
 const DomSepCRShared uint32 = 0x43525f53 // "CR_S"
 
 // pack256 builds 256^k as a *big.Int constant, for k in 0..31.

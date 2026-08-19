@@ -4,7 +4,7 @@
 //!
 //! Scope is deliberately minimal: confidential transfers only, Solana eddsa
 //! signers only (`CircuitId::RingEddsa`), no smart accounts, no user accounts.
-//! See `custom-ring-tests/custom_ring.md`.
+//! See `custom-rings/custom_ring.md`.
 
 pub mod error;
 pub mod instructions;

@@ -36,7 +36,7 @@ fn main() {
     if !custom_ring_prover::GO_CIRCUITS_LINKED {
         eprintln!(
             "error: the Go circuits are not compiled into this build \
-             (custom-ring-tests/prover/circuits/main.go is missing)"
+             (custom-rings/prover/circuits/main.go is missing)"
         );
         std::process::exit(1);
     }

@@ -15,7 +15,7 @@ use crate::error::CustomRingError;
 /// the auditor circuit hashes.
 ///
 /// Mirrors `Pack33To2FECircuit`
-/// (`custom-ring-tests/prover/circuits/auditor_key_encryption/pack.go`, the source
+/// (`custom-rings/prover/circuits/auditor_key_encryption/pack.go`, the source
 /// of truth) and the SDK's host copy in `custom-ring-sdk::encryption`:
 ///
 /// ```text

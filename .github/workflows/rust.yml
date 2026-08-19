@@ -189,8 +189,8 @@ jobs:
       - name: Cache custom-ring keys
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: custom-ring-tests/build/gnark
-          key: custom-ring-keys-${{ hashFiles('custom-ring-tests/custom-ring-keys.CHECKSUM') }}
+          path: custom-rings/build/gnark
+          key: custom-ring-keys-${{ hashFiles('custom-rings/custom-ring-keys.CHECKSUM') }}
       - run: just test-custom-ring
       # The custom ring template: generate a ring without prompts and build it.
       - uses: taiki-e/install-action@43aecc8d72668fbcfe75c31400bc4f890f1c5853 # v2

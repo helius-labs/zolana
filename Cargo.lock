@@ -1956,6 +1956,7 @@ name = "custom-ring-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bincode 2.0.1",
  "bytemuck",
  "clap",
  "custom-ring-program",
@@ -1969,6 +1970,7 @@ dependencies = [
  "solana-compute-budget-interface",
  "solana-instruction",
  "solana-keypair",
+ "solana-loader-v3-interface 8.0.1",
  "solana-message",
  "solana-signature",
  "solana-signer",

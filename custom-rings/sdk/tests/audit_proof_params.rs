@@ -12,7 +12,7 @@ use custom_ring_sdk::{
 use zeroize::Zeroizing;
 use zolana_keypair::{P256Pubkey, ViewingKey};
 
-/// The `custom-ring-tests/sdk/tests/go_vectors.rs` fixture, which is the Go
+/// The `custom-rings/sdk/tests/go_vectors.rs` fixture, which is the Go
 /// circuit test's own: byte `i` is `seed ^ i` with byte 0 forced to 0x01 so the
 /// scalar stays below the P-256 group order.
 const TX_SK: &str = "011013121514171619181b1a1d1c1f1e010003020504070609080b0a0d0c0f0e";

@@ -25,7 +25,7 @@ import sys
 #                  in fact well covered, just not by this tool.
 #   program-tests/ the harness and the SBF fixture programs it drives.
 #   sdk-tests/     example programs and their SDK/prover scaffolding.
-#   custom-ring-tests/ the custom-ring example: same category as sdk-tests/,
+#   custom-rings/ the custom-ring example: same category as sdk-tests/,
 #                  and its program tests need an SBF build this job never runs.
 #   bench/         CU benchmarks, which run under `--ignored` and need SBF builds.
 #   xtask/         `publish = false` build and release automation (the
@@ -42,7 +42,7 @@ EXCLUDED_DIRS = (
     "programs",
     "program-tests",
     "sdk-tests",
-    "custom-ring-tests",
+    "custom-rings",
     "bench",
     "xtask",
 )

@@ -37,7 +37,7 @@ import (
 )
 
 // CircuitAuditorKeyEncryption is the only circuit of this example. The id is
-// part of the ffi contract with custom-ring-tests/prover/src.
+// part of the ffi contract with custom-rings/prover/src.
 const CircuitAuditorKeyEncryption = 0
 
 var (

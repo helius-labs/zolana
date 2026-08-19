@@ -46,7 +46,7 @@ pub struct CustomRingTransactIxData {
 /// Inputs of the auditor circuit's single public input.
 ///
 /// The chain order is pinned by the circuit's package comment
-/// (`custom-ring-tests/prover/circuits/auditor_key_encryption/circuit.go`) and is
+/// (`custom-rings/prover/circuits/auditor_key_encryption/circuit.go`) and is
 /// numbered 1..8 there; [`AuditPublicInput::hash`] mirrors it element for
 /// element. Recomputing the hash on-chain from values the program itself trusts
 /// -- `private_tx_hash` and `tx_viewing_pk` from the forwarded SPP payload, the
@@ -215,7 +215,7 @@ mod tests {
     /// Fixture of the circuit's Go test
     /// (`prover/circuits/auditor_key_encryption/circuit_test.go`, scalars
     /// 0x11/0x22/0x33) and of the SDK's cross-language vectors
-    /// (`custom-ring-tests/sdk/tests/go_vectors.rs`). The compressed keys and the
+    /// (`custom-rings/sdk/tests/go_vectors.rs`). The compressed keys and the
     /// ciphertext are the values Go printed and the Go test feeds to the compiled
     /// circuit; `PUBLIC_INPUT_HASH` and `CT_HASH` were computed with the same
     /// iden3 Poseidon implementation the in-circuit gadget links its constants
