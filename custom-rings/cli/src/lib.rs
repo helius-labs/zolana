@@ -126,6 +126,10 @@ pub struct InitArgs {
     /// the ring repository records the key its config carries.
     #[arg(long, default_value = "keys/auditor.key.pub")]
     pub auditor_pubkey_file: PathBuf,
+    /// Accept the ring RPC's auditor key without a pinned service key in
+    /// ring.toml. For a local instance only, the key cannot be changed later.
+    #[arg(long)]
+    pub trust_ring_rpc: bool,
 }
 
 #[derive(Debug, Args)]
@@ -184,7 +188,19 @@ pub fn run(cli: Cli) -> Result<()> {
             let auditor_pk = if args.auditor_pubkey_file.exists() {
                 read_auditor_pubkey(&args.auditor_pubkey_file)?
             } else {
-                let auditor_pk = RingRpc::new(&config.urls.ring_rpc).auditor_pubkey(PROGRAM_ID)?;
+                let pinned = config
+                    .urls
+                    .ring_rpc_pubkey
+                    .as_deref()
+                    .map(|key| {
+                        key.parse::<Address>().map_err(|error| {
+                            anyhow!("ring_rpc_pubkey {key} is not a base58 pubkey: {error}")
+                        })
+                    })
+                    .transpose()?;
+                let auditor_pk = RingRpc::new(&config.urls.ring_rpc)
+                    .auditor_pubkey(PROGRAM_ID)?
+                    .require(pinned, args.trust_ring_rpc)?;
                 write_auditor_pubkey(&args.auditor_pubkey_file, &auditor_pk)?;
                 println!(
                     "auditor pk  {} (from {}, written to {})",
@@ -336,7 +352,7 @@ pub fn run(cli: Cli) -> Result<()> {
             }
             println!("waiting for the indexer and the ring rpc to open the transaction");
             wait_for_indexed_transaction(&indexer, receipt.transact)?;
-            let opened = ring_rpc.wait_for_decrypted(PROGRAM_ID, receipt.transact)?;
+            let opened = ring_rpc.wait_for_decrypted(PROGRAM_ID, &authority, receipt.transact)?;
             println!("auditor sees slot {} at {}", opened.slot, receipt.transact);
             println!(
                 "  from      {}",

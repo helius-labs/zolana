@@ -5,12 +5,14 @@ use serde::Deserialize;
 use serde_json::json;
 use solana_address::Address;
 use solana_signature::Signature;
+use solana_signer::Signer;
+use zolana_indexer_api::Base64String;
 use zolana_keypair::P256Pubkey;
 use zolana_ring_client::auditor_view_tag;
 use zolana_ring_rpc::api::{
-    CreateAuditorKeyRequest, CreateAuditorKeyResponse, DecryptedTransaction,
-    GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse, CREATE_AUDITOR_KEY,
-    GET_DECRYPTED_TRANSACTIONS,
+    auditor_key_attestation, read_attestation, CreateAuditorKeyRequest, CreateAuditorKeyResponse,
+    DecryptedTransaction, GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse,
+    ReadAuth, CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS,
 };
 
 use crate::transfer::wait_for;
@@ -18,6 +20,34 @@ use crate::transfer::wait_for;
 pub struct RingRpc {
     url: String,
     http: reqwest::blocking::Client,
+}
+
+/// An auditor key the RPC handed out, and the service key that signed for it.
+pub struct AttestedAuditorKey {
+    pub auditor_pk: P256Pubkey,
+    pub service_pubkey: Address,
+}
+
+impl AttestedAuditorKey {
+    /// A ring that pinned its RPC's service key takes the auditor key only from
+    /// that key. Without a pin the caller has to opt in explicitly, since a key
+    /// baked into `create_config` cannot be changed afterwards.
+    pub fn require(self, pinned: Option<Address>, trust_unpinned: bool) -> Result<P256Pubkey> {
+        match pinned {
+            Some(pinned) if pinned == self.service_pubkey => Ok(self.auditor_pk),
+            Some(pinned) => Err(anyhow!(
+                "the ring rpc signs with {} but ring.toml pins {pinned}",
+                self.service_pubkey
+            )),
+            None if trust_unpinned => Ok(self.auditor_pk),
+            None => Err(anyhow!(
+                "ring.toml pins no ring rpc service key, the rpc signs with {}. Put it in \
+                 [urls] ring_rpc_pubkey after confirming it out of band, or pass \
+                 --trust-ring-rpc for a local instance",
+                self.service_pubkey
+            )),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -34,9 +64,12 @@ impl RingRpc {
         }
     }
 
-    /// The auditor public key the RPC holds for `ring`. Derived instances mint
-    /// it on first call; a local instance returns its one key.
-    pub fn auditor_pubkey(&self, ring: Address) -> Result<P256Pubkey> {
+    /// The auditor public key the RPC holds for `ring`, with the service key
+    /// that attested it. Derived instances mint it on first call, a local
+    /// instance returns its one key. The attestation signature is checked
+    /// against the key the response names, so a caller that pins a service
+    /// pubkey compares it with the returned one.
+    pub fn auditor_pubkey(&self, ring: Address) -> Result<AttestedAuditorKey> {
         let created: CreateAuditorKeyResponse = self
             .call(
                 CREATE_AUDITOR_KEY,
@@ -45,18 +78,31 @@ impl RingRpc {
                 })?,
             )
             .with_context(|| format!("no ring rpc answers at {}", self.url))?;
+        let service_pubkey = created.service_pubkey.0;
+        if !created.signature.0.verify(
+            service_pubkey.as_ref(),
+            &auditor_key_attestation(&ring, &created.auditor_pubkey.0),
+        ) {
+            return Err(anyhow!(
+                "the ring rpc at {} returned an auditor key its service key {service_pubkey} did not sign",
+                self.url
+            ));
+        }
         let bytes: [u8; 33] = created
             .auditor_pubkey
             .0
             .try_into()
             .map_err(|_| anyhow!("ring rpc returned an auditor key of the wrong length"))?;
-        Ok(P256Pubkey::from_bytes(bytes)?)
+        Ok(AttestedAuditorKey {
+            auditor_pk: P256Pubkey::from_bytes(bytes)?,
+            service_pubkey,
+        })
     }
 
     /// The RPC at this URL must hold the key behind `auditor_pk`; another
     /// ring's RPC on the same port answers `health` but can open nothing here.
     pub fn check_serves(&self, ring: Address, auditor_pk: &P256Pubkey) -> Result<()> {
-        let served = self.auditor_pubkey(ring)?;
+        let served = self.auditor_pubkey(ring)?.auditor_pk;
         if served != *auditor_pk {
             return Err(anyhow!(
                 "the ring rpc at {} serves auditor tag {} but this ring's key has tag {}; \
@@ -69,17 +115,34 @@ impl RingRpc {
         Ok(())
     }
 
-    fn transactions_request(ring: Address) -> GetDecryptedTransactionsRequest {
-        GetDecryptedTransactionsRequest {
-            ring_program_id: Some(ring.to_bytes().into()),
-            ..Default::default()
-        }
-    }
-
+    /// One page of opened transactions, the request signed by `reader`, which
+    /// must be the ring's on-chain authority.
     pub fn decrypted_transactions(
         &self,
-        request: &GetDecryptedTransactionsRequest,
+        ring: Address,
+        reader: &dyn Signer,
+        cursor: Option<Base64String>,
     ) -> Result<GetDecryptedTransactionsResponse> {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_secs())
+            .unwrap_or_default();
+        let message = read_attestation(
+            &ring,
+            timestamp,
+            cursor.as_ref().map(|cursor| cursor.0.as_slice()),
+            None,
+        );
+        let request = GetDecryptedTransactionsRequest {
+            ring_program_id: Some(ring.to_bytes().into()),
+            cursor,
+            limit: None,
+            auth: ReadAuth {
+                reader: reader.pubkey().to_bytes().into(),
+                timestamp,
+                signature: reader.sign_message(&message).into(),
+            },
+        };
         self.call(GET_DECRYPTED_TRANSACTIONS, serde_json::to_value(request)?)
     }
 
@@ -87,12 +150,13 @@ impl RingRpc {
     pub fn wait_for_decrypted(
         &self,
         ring: Address,
+        reader: &dyn Signer,
         signature: Signature,
     ) -> Result<DecryptedTransaction> {
         wait_for("ring rpc to open the transaction", || {
-            let mut request = Self::transactions_request(ring);
+            let mut cursor = None;
             loop {
-                let page = self.decrypted_transactions(&request)?;
+                let page = self.decrypted_transactions(ring, reader, cursor.take())?;
                 if let Some(item) = page
                     .value
                     .items
@@ -113,7 +177,7 @@ impl RingRpc {
                     ));
                 }
                 match page.value.cursor {
-                    Some(cursor) => request.cursor = Some(cursor),
+                    Some(next) => cursor = Some(next),
                     None => return Ok(None),
                 }
             }

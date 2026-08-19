@@ -23,11 +23,13 @@ use tower::{Layer, Service};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use solana_address::Address;
+use solana_signer::Signer;
 
 use crate::{
     api::{
-        CreateAuditorKeyRequest, CreateAuditorKeyResponse, GetDecryptedTransactionsRequest,
-        HealthResponse, CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH,
+        auditor_key_attestation, CreateAuditorKeyRequest, CreateAuditorKeyResponse,
+        GetDecryptedTransactionsRequest, HealthResponse, CREATE_AUDITOR_KEY,
+        GET_DECRYPTED_TRANSACTIONS, HEALTH,
     },
     audit::{Hub, TransactionSource},
 };
@@ -85,6 +87,7 @@ pub fn rpc_module<S: TransactionSource + 'static>(
     module.register_async_method(HEALTH, |_params, hub, _extensions| async move {
         Ok::<_, ErrorObjectOwned>(HealthResponse {
             mode: if hub.is_derived() { "derived" } else { "local" }.to_owned(),
+            service_pubkey: hub.signer().pubkey().into(),
             auditor_view_tag: hub
                 .local_service()
                 .map(|service| service.auditor_view_tag().into()),
@@ -95,11 +98,16 @@ pub fn rpc_module<S: TransactionSource + 'static>(
         let request = params.parse::<CreateAuditorKeyRequest>()?;
         let ring = request.ring_program_id.0;
         let service = hub.ring(Some(ring)).map_err(ErrorObjectOwned::from)?;
+        let auditor_pubkey = service.auditor_pubkey().as_bytes().to_vec();
+        let signature = hub
+            .signer()
+            .sign_message(&auditor_key_attestation(&ring, &auditor_pubkey));
         Ok::<_, ErrorObjectOwned>(CreateAuditorKeyResponse {
             ring_program_id: ring.into(),
-            auditor_pubkey: service.auditor_pubkey().as_bytes().to_vec().into(),
+            auditor_pubkey: auditor_pubkey.into(),
             auditor_view_tag: service.auditor_view_tag().into(),
-            key_version: 1,
+            service_pubkey: hub.signer().pubkey().into(),
+            signature: signature.into(),
         })
     })?;
 
@@ -110,8 +118,13 @@ pub fn rpc_module<S: TransactionSource + 'static>(
             let service = hub
                 .ring(request.ring_program_id.map(|ring| ring.0))
                 .map_err(ErrorObjectOwned::from)?;
+            let cursor: Option<Vec<u8>> = request.cursor.map(Into::into);
             service
-                .decrypted_transactions(request.cursor.map(Into::into), request.limit)
+                .authorize_read(&request.auth, cursor.as_deref(), request.limit.clone())
+                .await
+                .map_err(ErrorObjectOwned::from)?;
+            service
+                .decrypted_transactions(cursor, request.limit)
                 .await
                 .map_err(ErrorObjectOwned::from)
         },
