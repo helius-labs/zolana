@@ -56,6 +56,18 @@ fn read_auth(ring: Address, signer: &Keypair, timestamp: u64) -> ReadAuth {
     }
 }
 
+/// `GetDecryptedTransactionsRequest::unsigned(..).sign(..)` signs what the service
+/// checks.
+fn signed_request(signer: &Keypair) -> serde_json::Map<String, serde_json::Value> {
+    let serde_json::Value::Object(request) =
+        serde_json::to_value(GetDecryptedTransactionsRequest::unsigned(RING, None).sign(signer))
+            .expect("request json")
+    else {
+        panic!("request serializes as an object");
+    };
+    request
+}
+
 fn now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -322,6 +334,11 @@ async fn rpc_methods_answer_over_the_module() {
         .expect("decrypted transactions");
     assert_eq!(page.value.items.len(), 1);
     assert_eq!(page.value.skipped.len(), 1);
+    let page: GetDecryptedTransactionsResponse = module
+        .call(GET_DECRYPTED_TRANSACTIONS, signed_request(&reader()))
+        .await
+        .expect("decrypted transactions through the signing builder");
+    assert_eq!(page.value.items.len(), 1);
 
     // Reads are signed by the ring authority, fresh, and bound to the ring.
     let stranger = Keypair::new_from_array([43u8; 32]);

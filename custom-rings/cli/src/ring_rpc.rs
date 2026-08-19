@@ -6,13 +6,12 @@ use serde_json::json;
 use solana_address::Address;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_indexer_api::Base64String;
 use zolana_keypair::P256Pubkey;
 use zolana_ring_client::auditor_view_tag;
 use zolana_ring_rpc::api::{
-    auditor_key_attestation, read_attestation, CreateAuditorKeyRequest, CreateAuditorKeyResponse,
+    auditor_key_attestation, CreateAuditorKeyRequest, CreateAuditorKeyResponse,
     DecryptedTransaction, GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse,
-    ReadAuth, CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS,
+    CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS,
 };
 
 use crate::transfer::wait_for;
@@ -115,34 +114,12 @@ impl RingRpc {
         Ok(())
     }
 
-    /// One page of opened transactions, the request signed by `reader`, which
-    /// must be the ring's on-chain authority.
+    /// One page of opened transactions. The request is signed by the ring's
+    /// on-chain authority, see `GetDecryptedTransactionsRequest::unsigned`.
     pub fn decrypted_transactions(
         &self,
-        ring: Address,
-        reader: &dyn Signer,
-        cursor: Option<Base64String>,
+        request: &GetDecryptedTransactionsRequest,
     ) -> Result<GetDecryptedTransactionsResponse> {
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|elapsed| elapsed.as_secs())
-            .unwrap_or_default();
-        let message = read_attestation(
-            &ring,
-            timestamp,
-            cursor.as_ref().map(|cursor| cursor.0.as_slice()),
-            None,
-        );
-        let request = GetDecryptedTransactionsRequest {
-            ring_program_id: Some(ring.to_bytes().into()),
-            cursor,
-            limit: None,
-            auth: ReadAuth {
-                reader: reader.pubkey().to_bytes().into(),
-                timestamp,
-                signature: reader.sign_message(&message).into(),
-            },
-        };
         self.call(GET_DECRYPTED_TRANSACTIONS, serde_json::to_value(request)?)
     }
 
@@ -156,7 +133,9 @@ impl RingRpc {
         wait_for("ring rpc to open the transaction", || {
             let mut cursor = None;
             loop {
-                let page = self.decrypted_transactions(ring, reader, cursor.take())?;
+                let request =
+                    GetDecryptedTransactionsRequest::unsigned(ring, cursor.take()).sign(reader);
+                let page = self.decrypted_transactions(&request)?;
                 if let Some(item) = page
                     .value
                     .items
