@@ -3,6 +3,7 @@
 //! the ring with SPP, and run an audited transfer end to end. Every command reads
 //! `ring.toml`, the answers the wizard recorded.
 
+pub mod authority;
 pub mod config;
 pub mod deploy;
 pub mod init;
@@ -57,6 +58,22 @@ pub enum Command {
     Transact(TransactArgs),
     /// Confirm the ring RPC in `ring.toml` is up and holds this ring's auditor key.
     RpcCheck,
+    /// Transfer or renounce the program's upgrade authority.
+    #[command(subcommand)]
+    Authority(AuthorityCommand),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AuthorityCommand {
+    /// Hand the program to another key. Update `authority_keypair` in
+    /// ring.toml afterwards, `deploy` and a not yet created config follow it.
+    Transfer { new_authority: Address },
+    /// Make the program immutable. Irreversible.
+    Renounce {
+        /// Confirms the irreversible step.
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -167,6 +184,37 @@ pub fn run(cli: Cli) -> Result<()> {
             let auditor_pk = configured_auditor_pk(&rpc)?;
             RingRpc::new(&config.urls.ring_rpc).check_serves(PROGRAM_ID, &auditor_pk)?;
             println!("ring rpc    {} serves this ring", config.urls.ring_rpc);
+            Ok(())
+        }
+        Command::Authority(command) => {
+            let authority = config.authority()?;
+            let current = authority::deployed_program_data(&rpc, config.program_id)?;
+            let set = authority::SetUpgradeAuthority {
+                rpc_url: &config.urls.rpc,
+                authority_keypair: &expand_tilde(&config.authority_keypair)?,
+                authority: authority.pubkey(),
+                program_id: config.program_id,
+            };
+            match command {
+                AuthorityCommand::Transfer { new_authority } => {
+                    set.transfer(&current, new_authority)?;
+                    println!(
+                        "upgrade authority of {} is now {new_authority}, point authority_keypair in {} at its keypair",
+                        config.program_id,
+                        cli.config.display()
+                    );
+                }
+                AuthorityCommand::Renounce { yes } => {
+                    if !yes {
+                        return Err(anyhow!(
+                            "renouncing is irreversible, pass --yes to make {} immutable",
+                            config.program_id
+                        ));
+                    }
+                    set.renounce(&current)?;
+                    println!("{} is immutable", config.program_id);
+                }
+            }
             Ok(())
         }
         Command::Transact(args) => {

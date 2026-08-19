@@ -16,13 +16,17 @@ Target: `{{target}}`. Authority: `{{authority_keypair}}`.
 | 1 | `just ring-new` (in zolana) | this repository |
 | 2 | `just repo` | GitHub repository created and pushed with `gh` |
 | 3 | `just build` | `cargo build-sbf` of the program at the pinned address |
-| 4 | `just deploy` | `solana program deploy`, the authority becomes the upgrade authority |
+| 4 | `just deploy` | `solana program deploy`, the authority becomes the upgrade authority; on a deployed program this is the upgrade, growing program data when the binary grew |
 | 5 | `just init` | auditor key created by `ring-rpc keygen`, `create_config` (gated on the upgrade authority) and `init_spp_ring_config` |
 | 6 | `just rpc` | ring RPC serving `getDecryptedTransactions` with the auditor key |
 | 7 | `just transact` | two ring deposits, one audited transfer, the auditor's view read back |
 
 `just pipeline` runs steps 3 to 7 and leaves the ring RPC running for the
-auditor's reads (`just rpc-stop` ends it). On the localnet target, `just
+auditor's reads (`just rpc-stop` ends it). After a code change it is the
+upgrade path: `deploy` upgrades in place, `init` finds its accounts and does
+nothing. `cargo run -p {{project-name}} -- authority transfer <pubkey>` hands the
+program to another key (then point `authority_keypair` in `ring.toml` at it),
+`authority renounce --yes` makes it immutable. On the localnet target, `just
 localnet` first starts a validator with SPP, Photon and the prover from the
 zolana checkout, and `just localnet-stop` tears it down.
 
@@ -38,7 +42,7 @@ with the template picks up new ones.
 
 - `program/` the on-chain program: `custom-ring-program` behind this ring's
   entrypoint and address (`.cargo/config.toml`).
-- `cli/` the operator CLI (`status`, `deploy`, `init`, `transact`), from
+- `cli/` the operator CLI (`status`, `deploy`, `init`, `transact`, `authority`), from
   `custom-ring-cli`.
 - `keys/` the program keypair and the auditor secret, never committed, and
   `auditor.key.pub`, the auditor public key the ring config carries, committed.
