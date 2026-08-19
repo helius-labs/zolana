@@ -114,8 +114,17 @@ impl RingRpc {
         Ok(())
     }
 
-    /// One page of opened transactions. The request is signed by the ring's
-    /// on-chain authority, see `GetDecryptedTransactionsRequest::unsigned`.
+    /// The newest page for a signed request, see
+    /// `GetDecryptedTransactionsRequest::unsigned` for the scopes.
+    pub fn first_page(
+        &self,
+        request: GetDecryptedTransactionsRequest,
+    ) -> Result<GetDecryptedTransactionsResponse> {
+        self.decrypted_transactions(&request)
+    }
+
+    /// One page of opened transactions for a signed request, see
+    /// `GetDecryptedTransactionsRequest::unsigned` for the scopes.
     pub fn decrypted_transactions(
         &self,
         request: &GetDecryptedTransactionsRequest,

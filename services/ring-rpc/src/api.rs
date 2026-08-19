@@ -7,6 +7,7 @@ use solana_signer::Signer;
 use zolana_indexer_api::{
     Base64String, Context, Hash, Limit, SerializablePubkey, SerializableSignature,
 };
+use zolana_keypair::{KeypairError, ViewingKey};
 
 pub const HEALTH: &str = "health";
 pub const CREATE_AUDITOR_KEY: &str = "createAuditorKey";
@@ -68,20 +69,44 @@ pub struct GetDecryptedTransactionsRequest {
     pub auth: ReadAuth,
 }
 
-/// Who reads and proof of it. `reader` must be the ring's authority as its
-/// on-chain config records it, and `signature` is that key's ed25519 signature
-/// over [`read_attestation`] of this request. `timestamp` (unix seconds) keeps
-/// a captured request from being replayed later.
+/// Who reads, how much, and proof of it. `signature` is `reader`'s signature
+/// over [`read_attestation`] of this request, and `timestamp` (unix seconds)
+/// keeps a captured request from being replayed later.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub struct ReadAuth {
-    pub reader: SerializablePubkey,
+    pub scope: ReadScope,
+    /// An ed25519 pubkey (32 bytes, signs ed25519) or a P-256 viewing pubkey
+    /// (33 bytes SEC1 compressed, signs ECDSA over `SHA-256(message)`).
+    pub reader: Base64String,
     pub timestamp: u64,
-    pub signature: SerializableSignature,
+    pub signature: Base64String,
+}
+
+/// How much of the ring a read may see.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadScope {
+    /// Every transaction of the ring. The reader must be the ring authority
+    /// its on-chain config records.
+    Ring,
+    /// Only what the reader took part in: as a sender, the transactions it
+    /// signed; as a recipient, the outputs encrypted to its viewing key. Any
+    /// key may ask, it only ever sees its own side.
+    Participant,
+}
+
+impl ReadScope {
+    const fn tag(self) -> u8 {
+        match self {
+            Self::Ring => 0,
+            Self::Participant => 1,
+        }
+    }
 }
 
 impl GetDecryptedTransactionsRequest {
-    /// A read of `ring`'s page at `cursor`, to be signed by the ring authority.
+    /// A read of `ring`'s page at `cursor`, to be signed by a reader.
     pub fn unsigned(ring_program_id: Address, cursor: Option<Base64String>) -> UnsignedRead {
         UnsignedRead {
             ring_program_id,
@@ -91,8 +116,8 @@ impl GetDecryptedTransactionsRequest {
     }
 }
 
-/// A read before the reader signed it. `sign` stamps the current time, so sign
-/// right before sending and sign again on retry.
+/// A read before the reader signed it. Signing stamps the current time, so
+/// sign right before sending and sign again on retry.
 pub struct UnsignedRead {
     ring_program_id: Address,
     cursor: Option<Base64String>,
@@ -105,25 +130,73 @@ impl UnsignedRead {
         self
     }
 
-    pub fn sign(self, reader: &dyn Signer) -> GetDecryptedTransactionsRequest {
+    /// The whole ring, signed by the ring authority.
+    pub fn sign(self, authority: &dyn Signer) -> GetDecryptedTransactionsRequest {
+        self.signed(
+            ReadScope::Ring,
+            authority.pubkey().to_bytes().to_vec(),
+            |message| authority.sign_message(message).as_ref().to_vec(),
+        )
+    }
+
+    /// The transactions `sender` signed, as the auditor sees them.
+    pub fn sign_as_sender(self, sender: &dyn Signer) -> GetDecryptedTransactionsRequest {
+        self.signed(
+            ReadScope::Participant,
+            sender.pubkey().to_bytes().to_vec(),
+            |message| sender.sign_message(message).as_ref().to_vec(),
+        )
+    }
+
+    /// The outputs encrypted to `recipient`'s viewing key, as the auditor sees
+    /// them. ECDSA P-256 over `SHA-256(message)`, the viewing key's curve.
+    pub fn sign_as_recipient(
+        self,
+        recipient: &ViewingKey,
+    ) -> Result<GetDecryptedTransactionsRequest, KeypairError> {
+        let signing = p256::ecdsa::SigningKey::from_bytes((&*recipient.secret_bytes()).into())
+            .map_err(|_| KeypairError::InvalidSecretKey)?;
+        Ok(self.signed(
+            ReadScope::Participant,
+            recipient.pubkey().as_bytes().to_vec(),
+            |message| {
+                use p256::ecdsa::signature::hazmat::PrehashSigner;
+                let digest = <sha2::Sha256 as sha2::Digest>::digest(message);
+                let signature: p256::ecdsa::Signature = signing
+                    .sign_prehash(&digest)
+                    .expect("P-256 prehash signing does not fail for a valid key");
+                signature.to_bytes().to_vec()
+            },
+        ))
+    }
+
+    fn signed(
+        self,
+        scope: ReadScope,
+        reader: Vec<u8>,
+        sign: impl FnOnce(&[u8]) -> Vec<u8>,
+    ) -> GetDecryptedTransactionsRequest {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|elapsed| elapsed.as_secs())
             .unwrap_or_default();
         let message = read_attestation(
+            scope,
             &self.ring_program_id,
             timestamp,
             self.cursor.as_ref().map(|cursor| cursor.0.as_slice()),
             self.limit.as_ref().map(Limit::value),
         );
+        let signature = sign(&message);
         GetDecryptedTransactionsRequest {
             ring_program_id: Some(self.ring_program_id.to_bytes().into()),
             cursor: self.cursor,
             limit: self.limit,
             auth: ReadAuth {
-                reader: reader.pubkey().to_bytes().into(),
+                scope,
+                reader: reader.into(),
                 timestamp,
-                signature: reader.sign_message(&message).into(),
+                signature: signature.into(),
             },
         }
     }
@@ -132,9 +205,10 @@ impl UnsignedRead {
 /// Domain of the read signature.
 const READ_DOMAIN: &[u8] = b"zolana/ring-rpc-read/v1";
 
-/// The bytes a reader signs for `getDecryptedTransactions`: the ring, the
-/// moment, and the page asked for, so a signature fits one request.
+/// The bytes a reader signs for `getDecryptedTransactions`: the scope, the
+/// ring, the moment, and the page asked for, so a signature fits one request.
 pub fn read_attestation(
+    scope: ReadScope,
     ring_program_id: &Address,
     timestamp: u64,
     cursor: Option<&[u8]>,
@@ -142,6 +216,7 @@ pub fn read_attestation(
 ) -> Vec<u8> {
     [
         READ_DOMAIN,
+        &[scope.tag()],
         ring_program_id.as_ref(),
         &timestamp.to_le_bytes(),
         &limit.unwrap_or(0).to_le_bytes(),
