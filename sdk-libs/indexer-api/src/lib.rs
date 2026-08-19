@@ -538,6 +538,18 @@ pub struct GetEncryptedUtxosByTagsResponse {
     /// Output-level matches; every returned output slot has a view tag from the request.
     pub matches: Vec<EncryptedUtxoMatch>,
     pub next_cursor: Option<Base64String>,
+    /// Where the scan reached, when it ran out of rows rather than filling a
+    /// page.
+    ///
+    /// Separates the two jobs `next_cursor` used to do at once. A cursor on
+    /// every non-empty page made "is there more?" cost an extra request, and
+    /// dropping it there instead would leave a caller with no watermark to
+    /// resume from -- so the watermark moved here, and `next_cursor` now means
+    /// only that another page exists. Present only on a page the limit did not
+    /// truncate, which is when "nothing further exists at or before this
+    /// position" holds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scanned_through: Option<Base64String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -592,6 +604,18 @@ pub struct GetShieldedTransactionsByTagsResponse {
     /// output view tag and includes all of its output slots.
     pub transactions: Vec<ShieldedTransaction>,
     pub next_cursor: Option<Base64String>,
+    /// Where the scan reached, when it ran out of rows rather than filling a
+    /// page.
+    ///
+    /// Separates the two jobs `next_cursor` used to do at once. A cursor on
+    /// every non-empty page made "is there more?" cost an extra request, and
+    /// dropping it there instead would leave a caller with no watermark to
+    /// resume from -- so the watermark moved here, and `next_cursor` now means
+    /// only that another page exists. Present only on a page the limit did not
+    /// truncate, which is when "nothing further exists at or before this
+    /// position" holds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scanned_through: Option<Base64String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -785,10 +809,13 @@ mod tests {
             },
             matches: Vec::new(),
             next_cursor: Some(Base64String(vec![1])),
+            scanned_through: Some(Base64String(vec![2])),
         })
         .unwrap();
         assert!(value.get("nextCursor").is_some());
         assert!(value.get("next_cursor").is_none());
+        assert!(value.get("scannedThrough").is_some());
+        assert!(value.get("scanned_through").is_none());
         assert!(value["context"].get("blockTime").is_some());
         assert!(value["context"].get("block_time").is_none());
     }

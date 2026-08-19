@@ -224,11 +224,14 @@ mod tests {
             },
             matches: Vec::new(),
             next_cursor: Some(Base64String(vec![1, 2, 3])),
+            scanned_through: Some(Base64String(vec![4, 5, 6])),
         })
         .unwrap();
 
         assert!(matches!(value, Value::Object(_)));
         assert!(value.get("nextCursor").is_some());
         assert!(value.get("next_cursor").is_none());
+        assert!(value.get("scannedThrough").is_some());
+        assert!(value.get("scanned_through").is_none());
     }
 }

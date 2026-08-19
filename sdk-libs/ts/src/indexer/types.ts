@@ -51,6 +51,15 @@ export interface GetEncryptedUtxosByTagsResponse {
   readonly context: IndexerContext;
   readonly matches: readonly EncryptedUtxoMatch[];
   readonly nextCursor?: Base64String;
+  /**
+   * Where the indexer's scan reached, on a page the limit did not truncate.
+   *
+   * The watermark to resume from. `nextCursor` reports only whether another page
+   * exists, so a last page carries this instead — without it a caller either
+   * spends a request discovering the page was the last, or has nothing to resume
+   * from and rescans.
+   */
+  readonly scannedThrough?: Base64String;
 }
 
 export interface IndexedShieldedTransaction {
@@ -68,6 +77,15 @@ export interface GetShieldedTransactionsByTagsResponse {
   readonly context: IndexerContext;
   readonly transactions: readonly IndexedShieldedTransaction[];
   readonly nextCursor?: Base64String;
+  /**
+   * Where the indexer's scan reached, on a page the limit did not truncate.
+   *
+   * The watermark to resume from. `nextCursor` reports only whether another page
+   * exists, so a last page carries this instead — without it a caller either
+   * spends a request discovering the page was the last, or has nothing to resume
+   * from and rescans.
+   */
+  readonly scannedThrough?: Base64String;
 }
 
 export interface GetShieldedTransactionsByNullifiersResponse {
