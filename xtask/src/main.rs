@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 
 mod create_release;
 mod find_smart_accounts;
+mod fund;
 mod init_protocol;
 mod loadtest;
 mod update_protocol_config;

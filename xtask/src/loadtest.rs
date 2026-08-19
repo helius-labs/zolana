@@ -31,12 +31,35 @@ use solana_keypair::Keypair;
 use solana_signer::Signer;
 // `Rpc` is in scope for send_transaction, which is a trait method rather than
 // an inherent one on SolanaRpc.
-use zolana_client::{Rpc, SolanaRpc, ZolanaClient};
+use zolana_client::{ClientError, Rpc, SolanaRpc, Unavailable, ZolanaClient};
+use zolana_interface::error::ShieldedPoolError;
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{Address, AssetRegistry, LocalWalletAuthority, Wallet};
 use zolana_wallet::{
     create_transfer_sync, sign_private_transaction_sync, sync_wallet, TransferParams,
 };
+
+/// Identity of a failure, for grouping.
+///
+/// The variant plus, for a chain rejection, the program's own error code. Two
+/// failures share a key exactly when they are the same failure, which a
+/// truncated message cannot express: the same rejection arrives with different
+/// wrappers from simulation and from send, so a prefix groups them apart while
+/// a longer prefix groups unrelated errors together.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct ErrorKey {
+    variant: std::mem::Discriminant<ClientError>,
+    program_code: Option<u32>,
+}
+
+impl ErrorKey {
+    fn of(error: &ClientError) -> Self {
+        Self {
+            variant: std::mem::discriminant(error),
+            program_code: error.program_error_code(),
+        }
+    }
+}
 
 /// One completed transfer, broken into the phases that can each be slow for a
 /// different reason.
@@ -57,12 +80,21 @@ struct Stats {
     ok: u64,
     failed: u64,
     throttled: u64,
-    /// Distinct error messages and how often each occurred.
+    /// Distinct failures and how often each occurred.
     ///
     /// Counting failures without recording them makes a run unactionable: "43
     /// failed" says nothing about whether the prover is down, the wallet is
     /// empty, or the indexer is behind.
-    errors: std::collections::BTreeMap<String, u64>,
+    ///
+    /// Keyed by what the failure *is*, never by how it renders.
+    ///
+    /// `mem::discriminant` identifies the `ClientError` variant exactly, and the
+    /// program error code splits one variant into the distinct on-chain
+    /// rejections it carries. Neither can drift when a message is reworded, and
+    /// nothing depends on where a substring happens to fall. The stored `String`
+    /// is one real example per group, shown to a reader and used for nothing
+    /// else.
+    errors: std::collections::HashMap<ErrorKey, (String, u64)>,
     /// This worker's first sync, before it sent anything.
     ///
     /// Stands in for how much history its wallet already carried. Sync cost
@@ -83,6 +115,11 @@ pub struct Options {
     pub asset: String,
     /// Where to write the machine-readable summary, if anywhere.
     pub json_out: Option<PathBuf>,
+    /// Funder for the pre-run top-up. Without it the run uses whatever shielded
+    /// balance the wallets already hold.
+    pub funder: Option<PathBuf>,
+    /// Lamports to bring each wallet up by before starting.
+    pub top_up: u64,
 }
 
 impl Options {
@@ -93,6 +130,8 @@ impl Options {
         let mut tree = None;
         let mut keypairs = None;
         let mut json_out = None;
+        let mut funder = None;
+        let mut top_up = 60_000_000u64;
         let mut duration = 300u64;
         let mut amount = 200_000u64;
         let mut asset = "SOL".to_string();
@@ -110,6 +149,8 @@ impl Options {
                 "--amount" => amount = value()?.parse().context("--amount")?,
                 "--asset" => asset = value()?,
                 "--json" => json_out = Some(PathBuf::from(value()?)),
+                "--funder" => funder = Some(PathBuf::from(value()?)),
+                "--top-up" => top_up = value()?.parse().context("--top-up")?,
                 other => bail!("unknown flag {other}"),
             }
         }
@@ -121,6 +162,8 @@ impl Options {
             tree: tree.context("--tree is required")?,
             keypairs: keypairs.context("--keypairs <dir> is required")?,
             json_out,
+            funder,
+            top_up,
             duration: Duration::from_secs(duration),
             amount,
             asset,
@@ -134,7 +177,7 @@ impl Options {
 /// the shielded keypair is derived from the funding key, so the funding key is
 /// the only secret needed and there is no reason to reimplement the CLI's file
 /// parsing here.
-fn load_keypairs(dir: &Path) -> Result<Vec<Keypair>> {
+pub(crate) fn load_keypairs(dir: &Path) -> Result<Vec<Keypair>> {
     let mut paths: Vec<PathBuf> = fs::read_dir(dir)
         .with_context(|| format!("read {}", dir.display()))?
         .filter_map(|entry| entry.ok().map(|e| e.path()))
@@ -257,6 +300,15 @@ fn write_json(
 pub fn run(options: Options) -> Result<()> {
     let keypairs = load_keypairs(&options.keypairs)?;
     let workers = keypairs.len();
+    if let Some(funder) = options.funder.as_ref() {
+        crate::fund::top_up(
+            &options.rpc_url,
+            &options.tree,
+            &keypairs,
+            funder,
+            options.top_up,
+        )?;
+    }
     let tree = Address::new_from_array(
         bs58::decode(&options.tree)
             .into_vec()
@@ -345,8 +397,9 @@ pub fn run(options: Options) -> Result<()> {
                 shared.ok += local.ok;
                 shared.failed += local.failed;
                 shared.throttled += local.throttled;
-                for (message, count) in local.errors {
-                    *shared.errors.entry(message).or_insert(0) += count;
+                for (key, (sample, count)) in local.errors {
+                    let entry = shared.errors.entry(key).or_insert((sample, 0));
+                    entry.1 += count;
                 }
             });
         }
@@ -370,12 +423,30 @@ pub fn run(options: Options) -> Result<()> {
         stats.ok as f64 / elapsed.as_secs_f64(),
         stats.ok as f64 / elapsed.as_secs_f64() * 60.0
     );
+
+    // A wallet that runs dry keeps failing, so the run measures how fast it can
+    // be told no. Reporting that number as throughput is the trap; say so.
+    let ran_dry: u64 = stats
+        .errors
+        .values()
+        .filter(|(sample, _)| sample.contains("insufficient balance"))
+        .map(|(_, count)| count)
+        .sum();
+    if ran_dry > 0 {
+        println!(
+            "\n{ran_dry} of {} failures were empty wallets, not capacity. Re-run with \
+             --funder <keypair.json> to top up first.",
+            stats.failed
+        );
+    }
     if !stats.errors.is_empty() {
         println!("\nerrors:");
-        let mut ranked: Vec<_> = stats.errors.iter().collect();
-        ranked.sort_by(|a, b| b.1.cmp(a.1));
-        for (message, count) in ranked.into_iter().take(5) {
-            println!("  {count:>5}x  {message}");
+        let mut ranked: Vec<_> = stats.errors.values().collect();
+        // Ties break on the message so two runs of the same workload print the
+        // same report; hash order alone would shuffle equal counts.
+        ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        for (sample, count) in ranked.into_iter().take(8) {
+            println!("  {count:>5}x  {sample}");
         }
     }
 
@@ -461,7 +532,7 @@ fn worker(
         // This phase is the one that grows with the wallet's note count.
         let mark = Instant::now();
         if let Err(error) = sync_wallet(&mut wallet, &authority, &client) {
-            classify(&error.to_string(), stats, &mut backoff);
+            classify(&error, stats, &mut backoff);
             continue;
         }
         timing.sync_ms = mark.elapsed().as_millis() as u64;
@@ -489,7 +560,7 @@ fn worker(
         }) {
             Ok(signed) => signed,
             Err(error) => {
-                classify(&error.to_string(), stats, &mut backoff);
+                classify(&error, stats, &mut backoff);
                 continue;
             }
         };
@@ -499,7 +570,7 @@ fn worker(
         let signature = match client.rpc().send_transaction(&transfer) {
             Ok(signature) => signature,
             Err(error) => {
-                classify(&error.to_string(), stats, &mut backoff);
+                classify(&error, stats, &mut backoff);
                 continue;
             }
         };
@@ -507,7 +578,7 @@ fn worker(
 
         let mark = Instant::now();
         if let Err(error) = client.confirm_private_transaction_sync(signature) {
-            classify(&error.to_string(), stats, &mut backoff);
+            classify(&error, stats, &mut backoff);
             continue;
         }
         timing.confirm_ms = mark.elapsed().as_millis() as u64;
@@ -528,19 +599,148 @@ fn worker(
 /// A load generator without backoff measures the rate limiter rather than the
 /// system under test: an earlier shell-driven run lost 101 of 220 transfers to
 /// Helius 403s and reported it as protocol failure.
-fn classify(message: &str, stats: &mut Stats, backoff: &mut Duration) {
-    // Truncated: these carry request ids and addresses that would make every
-    // occurrence look distinct and defeat the grouping.
-    let key: String = message.chars().take(160).collect();
-    *stats.errors.entry(key).or_insert(0) += 1;
+/// A readable one-line description of a failure.
+///
+/// Names the on-chain error when there is one, because a client otherwise sees
+/// only a number. Long transport messages are shortened here and only here:
+/// this is display, and grouping never consults it.
+fn describe(error: &ClientError) -> String {
+    match error.program_error_code() {
+        Some(code) => match ShieldedPoolError::from_code(code) {
+            Some(named) => format!("program error {code:#x} ({named})"),
+            None => format!("program error {code:#x} (unknown to this build)"),
+        },
+        None => {
+            let text = error.to_string();
+            match text.char_indices().nth(160) {
+                Some((cut, _)) => format!("{}...", &text[..cut]),
+                None => text,
+            }
+        }
+    }
+}
 
-    let lowered = message.to_ascii_lowercase();
-    if lowered.contains("403") || lowered.contains("429") || lowered.contains("rate") {
+fn classify(error: &ClientError, stats: &mut Stats, backoff: &mut Duration) {
+    // Identity comes from the type, never from the text. The message is kept
+    // only as a readable example of the group.
+    //
+    // Grouping by a message prefix failed in both directions at once: the same
+    // chain rejection arrives with two wrappers depending on whether it failed
+    // in simulation or on send, so 10748 occurrences landed under a key that
+    // named none of them while 318 of the *same* error grouped separately as
+    // "0x1b60" purely because their wrapper was shorter.
+    stats
+        .errors
+        .entry(ErrorKey::of(error))
+        .or_insert_with(|| (describe(error), 0))
+        .1 += 1;
+
+    // Matched on the error's type, not its text. This used to ask whether the
+    // message contained "403", "429" or "rate", which counts a signature
+    // containing "429" as throttling and the word "generate" as well, while
+    // missing a 503 entirely -- and it silently misreads any error whose
+    // wording changes.
+    let throttled = matches!(
+        error,
+        ClientError::IndexerUnavailable {
+            reason: Unavailable::RateLimited,
+            ..
+        }
+    );
+
+    if throttled {
         stats.throttled += 1;
         thread::sleep(*backoff);
         *backoff = (*backoff * 2).min(Duration::from_secs(30));
     } else {
         stats.failed += 1;
         thread::sleep(Duration::from_millis(250));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rpc_program_error(operation: &'static str, code: u32) -> ClientError {
+        use solana_instruction::error::InstructionError;
+        use solana_rpc_client_api::client_error::{Error as RpcError, TransactionError};
+
+        ClientError::SolanaRpcTransaction {
+            operation,
+            source: RpcError::from(TransactionError::InstructionError(
+                0,
+                InstructionError::Custom(code),
+            )),
+        }
+    }
+
+    /// The failure that motivated all of this: one on-chain rejection reported
+    /// as two unrelated lines because the wrappers rendered at different
+    /// lengths.
+    #[test]
+    fn one_rejection_groups_under_one_key_whatever_the_wrapper() {
+        let simulate = rpc_program_error("simulate", 7008);
+        let send = rpc_program_error("send", 7008);
+
+        assert_ne!(
+            simulate.to_string(),
+            send.to_string(),
+            "vacuous unless the two render differently"
+        );
+        assert_eq!(ErrorKey::of(&simulate), ErrorKey::of(&send));
+    }
+
+    #[test]
+    fn different_program_codes_stay_apart() {
+        assert_ne!(
+            ErrorKey::of(&rpc_program_error("send", 7008)),
+            ErrorKey::of(&rpc_program_error("send", 7015)),
+        );
+    }
+
+    /// Off-chain failures group by variant, so per-occurrence detail -- slots,
+    /// attempt counts, addresses -- cannot split one cause across many lines.
+    #[test]
+    fn per_occurrence_detail_does_not_split_a_group() {
+        let early = ClientError::IndexerNotCaughtUp {
+            required: 1,
+            indexed: 0,
+            attempts: 3,
+        };
+        let late = ClientError::IndexerNotCaughtUp {
+            required: 99_999,
+            indexed: 42,
+            attempts: 7,
+        };
+
+        assert_ne!(early.to_string(), late.to_string());
+        assert_eq!(ErrorKey::of(&early), ErrorKey::of(&late));
+        assert_ne!(
+            ErrorKey::of(&early),
+            ErrorKey::of(&ClientError::IndexerTimeout)
+        );
+    }
+
+    #[test]
+    fn the_report_names_the_program_error() {
+        let described = describe(&rpc_program_error("send", 7008));
+        assert!(
+            described.starts_with("program error 0x1b60 ("),
+            "expected a named code, got {described}"
+        );
+        assert!(
+            described.contains(&ShieldedPoolError::TransactProofVerificationFailed.to_string()),
+            "expected the name from ShieldedPoolError, got {described}"
+        );
+    }
+
+    /// Shortening is display-only, so it may not silently swallow the tail.
+    #[test]
+    fn a_long_message_is_marked_when_shortened() {
+        let long = ClientError::AddressResolution("x".repeat(400));
+        let described = describe(&long);
+        assert!(described.ends_with("..."), "got {described}");
+        assert!(described.chars().count() < long.to_string().chars().count());
     }
 }

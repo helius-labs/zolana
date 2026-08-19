@@ -19,14 +19,52 @@ pub enum InterfaceError {
     AlreadyInitialized,
 }
 
-/// Program errors surfaced on-chain as `ProgramError::Custom(code)`.
+/// Declares the error enum and its reverse lookup from one list.
 ///
-/// The discriminants below are the on-chain error codes for this program
-/// version. `error_codes_are_stable` pins the mapping so intentional ABI
-/// changes are explicit.
-#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
-#[repr(u32)]
-pub enum ShieldedPoolError {
+/// A client sees only a number -- `custom program error: 0x1b60` -- so naming
+/// it needs a code-to-variant map. Maintaining that map by hand is how 0x1b60
+/// got called `StaleNullifierRoot` for a day: it is 7008,
+/// `TransactProofVerificationFailed`, while `StaleNullifierRoot` is 7015. The
+/// wrong name came from reading a `TreeError` conversion instead of this table
+/// and survived into three commit messages because nothing checked it.
+///
+/// Generating both directions from one list means a new variant cannot be
+/// added without `from_code` learning it. A derive macro (strum's `EnumIter`)
+/// would do the same, but this crate compiles into the on-chain program and
+/// keeps its dependency list to what the program needs; a `macro_rules!` costs
+/// nothing at all.
+macro_rules! shielded_pool_errors {
+    ($(
+        $(#[$attr:meta])*
+        $variant:ident = $code:literal,
+    )*) => {
+        /// Program errors surfaced on-chain as `ProgramError::Custom(code)`.
+        ///
+        /// The discriminants below are the on-chain error codes for this program
+        /// version. `error_codes_are_stable` pins the mapping so intentional ABI
+        /// changes are explicit.
+        #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+        #[repr(u32)]
+        pub enum ShieldedPoolError {
+            $(
+                $(#[$attr])*
+                $variant = $code,
+            )*
+        }
+
+        impl ShieldedPoolError {
+            /// Recovers the variant from the code a failed transaction reports.
+            pub fn from_code(code: u32) -> Option<Self> {
+                match code {
+                    $($code => Some(Self::$variant),)*
+                    _ => None,
+                }
+            }
+        }
+    };
+}
+
+shielded_pool_errors! {
     #[error("invalid instruction data")]
     InvalidInstructionData = 7000,
     #[error("pool tree accounts are invalid")]
@@ -162,6 +200,49 @@ impl From<TreeError> for ShieldedPoolError {
 #[cfg(test)]
 mod tests {
     use super::{ShieldedPoolError, ShieldedPoolError::*};
+
+    /// Every pinned code must map back to the variant it came from.
+    ///
+    /// `expected_code` below is exhaustive with no wildcard, so a new variant
+    /// stops this file compiling until it is listed there -- and because the
+    /// enum and `from_code` are generated from one list, the lookup learns it
+    /// at the same moment. This asserts the two really do agree.
+    #[test]
+    fn every_code_maps_back_to_its_variant() {
+        for error in [
+            InvalidInstructionData,
+            TransactProofVerificationFailed,
+            StaleNullifierRoot,
+            NullifierTreeUpdateFailed,
+            RingPaused,
+        ] {
+            let code = error as u32;
+            assert_eq!(
+                ShieldedPoolError::from_code(code),
+                Some(error),
+                "code {code} did not map back"
+            );
+        }
+
+        // The two that were confused for each other, spelled out: 0x1b60 is
+        // proof verification, not a stale root.
+        assert_eq!(
+            ShieldedPoolError::from_code(0x1b60),
+            Some(TransactProofVerificationFailed)
+        );
+        assert_eq!(
+            ShieldedPoolError::from_code(0x1b67),
+            Some(StaleNullifierRoot)
+        );
+    }
+
+    /// A code the program never emits has no name, and inventing one would be
+    /// worse than reporting the number.
+    #[test]
+    fn an_unknown_code_has_no_variant() {
+        assert_eq!(ShieldedPoolError::from_code(1), None);
+        assert_eq!(ShieldedPoolError::from_code(7020), None, "7020 is retired");
+    }
 
     /// Pin every on-chain error code for this program version.
     #[test]
