@@ -1,18 +1,23 @@
 # Answers recorded by the custom ring wizard. `just` and the `{{project-name}}`
-# CLI read this file; edit it to retarget the ring.
+# CLI read this file. Edit it to retarget the ring.
 name = "{{project-name}}"
-target = "{{target}}"
 program_id = "{{program_id}}"
 authority_keypair = "{{authority_keypair}}"
+# The cluster the CLI and `just` act on. `just localnet` and `just devnet` set it.
+target = "localnet"
 
-[urls]
+[localnet]
 rpc = "{{rpc_url}}"
 indexer = "{{indexer_url}}"
 prover = "{{prover_url}}"
 ring_rpc = "{{ring_rpc_url}}"
-{%- if ring_rpc_pubkey != "" %}
-ring_rpc_pubkey = "{{ring_rpc_pubkey}}"
-{%- endif %}
+
+# Photon, the prover and the ring RPC run on this machine against devnet for now.
+[devnet]
+rpc = "{{devnet_rpc_url}}"
+indexer = "{{indexer_url}}"
+prover = "{{prover_url}}"
+ring_rpc = "{{ring_rpc_url}}"
 
 [features]
-{{features_toml}}
+{{features_toml -}}

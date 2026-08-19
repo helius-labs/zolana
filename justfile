@@ -181,6 +181,46 @@ ring-localnet-stop:
     lsof -ti "tcp:{{localnet-prover-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
     lsof -ti "tcp:{{localnet-ring-rpc-port}}" 2>/dev/null | xargs kill 2>/dev/null || true
 
+# Photon and the prover on this machine against an external cluster (a
+# generated ring's `just devnet`), on the per-clone ports. Photon indexes from
+# the current slot, which is enough for a ring created after it started. Stays
+# up until `just ring-devnet-services-stop`.
+ring-devnet-services rpc_url: build-prover-server ensure-photon ensure-custom-ring-keys
+    #!/usr/bin/env bash
+    set -euo pipefail
+    workdir="target/ring-devnet"
+    mkdir -p "$workdir"
+    photon_bin="{{photon-bin}}"
+    [[ "$photon_bin" = /* ]] || photon_bin="$PWD/$photon_bin"
+    keys_dir="{{spp-keys-dir}}"
+    [[ "$keys_dir" = /* ]] || keys_dir="$PWD/$keys_dir"
+    lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    lsof -ti "tcp:{{localnet-prover-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    sleep 1
+    nohup "$photon_bin" --rpc-url "{{rpc_url}}" --port {{localnet-photon-port}} --start-slot latest \
+      > "$workdir/photon.log" 2>&1 &
+    nohup target/prover-server start --keys-dir "$keys_dir" \
+      --prover-address 0.0.0.0:{{localnet-prover-port}} --auto-download=true \
+      > "$workdir/prover.log" 2>&1 &
+    for _ in $(seq 1 120); do
+      if curl -sf "{{localnet-photon-url}}/readiness" >/dev/null 2>&1 \
+         && curl -sf "{{localnet-prover-url}}/health" >/dev/null 2>&1; then
+        break
+      fi
+      sleep 1
+    done
+    curl -sf "{{localnet-photon-url}}/readiness" >/dev/null || { echo "photon did not become ready, see $workdir/photon.log" >&2; exit 1; }
+    curl -sf "{{localnet-prover-url}}/health" >/dev/null || { echo "prover did not become ready, see $workdir/prover.log" >&2; exit 1; }
+    echo "devnet services ready"
+    echo "  photon    {{localnet-photon-url}}  (indexing {{rpc_url}}, log $workdir/photon.log)"
+    echo "  prover    {{localnet-prover-url}}  (log $workdir/prover.log)"
+
+# Stops photon, the prover and a ring RPC started for devnet.
+ring-devnet-services-stop:
+    lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    lsof -ti "tcp:{{localnet-prover-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    lsof -ti "tcp:{{localnet-ring-rpc-port}}" 2>/dev/null | xargs kill 2>/dev/null || true
+
 # Template smoke test: generate a ring without prompts and build its workspace.
 test-ring-template:
     #!/usr/bin/env bash
@@ -188,7 +228,7 @@ test-ring-template:
     dest="$(mktemp -d)"
     trap 'rm -rf "$dest"' EXIT
     RING_NAME=smoke-ring tools/ring-wizard.sh "$dest" --silent \
-      -d target=localnet -d authority_keypair="$dest/authority.json"
+      -d authority_keypair="$dest/authority.json"
     ring="$dest/smoke-ring"
     grep -q 'target = "localnet"' "$ring/ring.toml"
     grep -q 'confidential = true' "$ring/ring.toml"

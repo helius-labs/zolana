@@ -37,13 +37,11 @@ const FEATURES = [
     #{ id: "account_recovery", name: "Account recovery", example: "Allow a configured authority or fallback identity to recover accounts", state: "coming_soon" },
 ];
 
-const TARGETS = ["localnet", "devnet", "mainnet"];
-
-// Public clusters go through Helius RPC; the API key is the only per-user part.
-const HELIUS_RPC = #{
-    devnet: "https://devnet.helius-rpc.com/?api-key=",
-    mainnet: "https://mainnet.helius-rpc.com/?api-key=",
-};
+// Devnet goes through Helius RPC when an API key is given, else the public
+// endpoint. The ring picks the cluster later with `just localnet` or `just
+// devnet`, the wizard only records both sets of URLs.
+const HELIUS_DEVNET_RPC = "https://devnet.helius-rpc.com/?api-key=";
+const PUBLIC_DEVNET_RPC = "https://api.devnet.solana.com";
 
 fn setting(name, fallback) {
     if variable::is_set(name) {
@@ -80,60 +78,24 @@ for line in PIPELINE {
 }
 print("");
 
-// Target. Mainnet is listed so the choice is visible, and refused.
-let target = setting("target", "");
-if target == "mainnet" {
-    abort("mainnet is disabled for custom rings for now, pick localnet or devnet");
-}
-if silent() && target != "localnet" && target != "devnet" {
-    abort("pass -d target=localnet or -d target=devnet when running without prompts");
-}
-while target != "localnet" && target != "devnet" {
-    if target != "" {
-        print(`  ${target} is not a target`);
-    }
-    target = variable::prompt("Deployment target", "localnet", TARGETS);
-    if target == "mainnet" {
-        print("  mainnet is disabled for custom rings for now");
-    }
-}
-variable::set("target", target);
-
 // The deployer, ring authority and fee payer. The default is the Solana CLI's
 // keypair, so an existing setup is picked up without typing.
 ask("authority_keypair", "Deployer and ring authority keypair", "~/.config/solana/id.json");
 
-// Service URLs. localnet defaults come from the driver (per-clone port offset);
-// devnet has to name its indexer, prover and ring RPC.
+// Service URLs. localnet defaults come from the driver (per-clone port offset).
+// devnet uses the same local photon, prover and ring RPC for now, only the
+// Solana RPC differs.
 let ring_rpc_port = setting("default_ring_rpc_port", "8785");
-if target == "localnet" {
-    ask("rpc_url", "Solana RPC URL", setting("default_rpc_url", "http://127.0.0.1:8899"));
-    ask("indexer_url", "Photon indexer URL", setting("default_indexer_url", "http://127.0.0.1:8784"));
-    ask("prover_url", "Prover URL", setting("default_prover_url", "http://127.0.0.1:3001"));
-} else {
-    if !variable::is_set("rpc_url") {
-        let api_key = ask("helius_api_key", "Helius API key", "");
-        if api_key == "" {
-            abort("a Helius API key is required for " + target + ", pass -d helius_api_key=... or -d rpc_url=...");
-        }
-        variable::set("rpc_url", HELIUS_RPC[target] + api_key);
-    }
-    ask("indexer_url", "Photon indexer URL", "");
-    ask("prover_url", "Prover URL", "");
-}
+ask("rpc_url", "Localnet Solana RPC URL", setting("default_rpc_url", "http://127.0.0.1:8899"));
+ask("indexer_url", "Photon indexer URL", setting("default_indexer_url", "http://127.0.0.1:8784"));
+ask("prover_url", "Prover URL", setting("default_prover_url", "http://127.0.0.1:3001"));
 ask("ring_rpc_url", "Ring RPC URL", `http://127.0.0.1:${ring_rpc_port}`);
 if !variable::is_set("ring_rpc_port") {
     variable::set("ring_rpc_port", ring_rpc_port);
 }
-// A hosted ring RPC mints the auditor key. `init` takes it only signed by the
-// service key pinned here, which the RPC's `health` reports and the operator
-// confirms out of band. localnet runs its own RPC and passes `--trust-ring-rpc`.
-if target == "localnet" {
-    if !variable::is_set("ring_rpc_pubkey") {
-        variable::set("ring_rpc_pubkey", "");
-    }
-} else {
-    ask("ring_rpc_pubkey", "Ring RPC service pubkey (from its health)", "");
+if !variable::is_set("devnet_rpc_url") {
+    let api_key = ask("helius_api_key", "Helius API key for devnet (empty for the public endpoint)", "");
+    variable::set("devnet_rpc_url", if api_key == "" { PUBLIC_DEVNET_RPC } else { HELIUS_DEVNET_RPC + api_key });
 }
 
 // The program id is the address the ring deploys to. The driver generates the

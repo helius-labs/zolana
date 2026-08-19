@@ -6,7 +6,7 @@
 #   tools/ring-wizard.sh [destination-dir] [cargo generate args...]
 #
 # RING_NAME skips the name prompt. Extra arguments reach `cargo generate`, so
-# `--silent -d target=localnet -d authority_keypair=...` runs without prompts.
+# `--silent -d authority_keypair=...` runs without prompts.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -93,6 +93,7 @@ Generated $dest/$name for program $program_id.
 
 Next:
   cd $dest/$name
-  just localnet     # localnet target: validator, photon, prover from $root
-  just pipeline     # build, deploy, init, ring rpc, transact
+  just localnet     # validator, photon, prover from $root, ring.toml target = localnet
+  just devnet       # or photon and prover against devnet, ring.toml target = devnet
+  just pipeline     # build, deploy, init, ring rpc, transact on that target
 MSG

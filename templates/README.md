@@ -17,22 +17,22 @@ just ring-new              # ring lands next to this checkout
 just ring-new ~/rings      # or in a chosen parent directory
 ```
 
-Non-interactive runs pass every answer with `-d`; `--silent` turns remaining
-questions into their defaults:
+Non-interactive runs pass every answer with `-d`, and `--silent` turns the
+remaining questions into their defaults.
 
 ```bash
-RING_NAME=demo tools/ring-wizard.sh /tmp --silent -d target=localnet \
+RING_NAME=demo tools/ring-wizard.sh /tmp --silent \
   -d authority_keypair=~/.config/solana/id.json
 ```
 
 ### The wizard
 
 `custom-ring/hooks/wizard.rhai` runs as a cargo-generate `pre` hook, the first
-stage that sees `-d` values. It prints the pipeline, asks for the target
-(`localnet`, `devnet`; `mainnet` is listed and refused), the authority keypair
-(default the Solana CLI keypair), the service URLs (localnet defaults from the
-driver, devnet asks, plus the ring RPC's service pubkey that `init` pins), and
-the features.
+stage that sees `-d` values. It prints the pipeline, asks for the authority
+keypair (default the Solana CLI keypair), the local service URLs (defaults from
+the driver), the devnet Solana RPC (a Helius API key, or the public endpoint),
+and the features. The cluster is not a wizard answer, the generated ring picks
+it with `just localnet` or `just devnet`.
 
 `FEATURES` in that file is the registry. Each entry has an `id`, a display
 `name`, an `example` and a `state`: `always` (on for every ring), `ready`
@@ -50,7 +50,7 @@ is the smoke feature: on, the program logs `Hello feature` on every instruction
 | Variable | Source |
 | --- | --- |
 | `project-name` | cargo-generate `--name` |
-| `target`, `authority_keypair`, `rpc_url`, `indexer_url`, `prover_url`, `ring_rpc_url`, `ring_rpc_port` | wizard prompts, or `-d` |
+| `authority_keypair`, `rpc_url`, `indexer_url`, `prover_url`, `ring_rpc_url`, `ring_rpc_port`, `helius_api_key` (or `devnet_rpc_url`) | wizard prompts, or `-d` |
 | `program_id` | driver (`solana-keygen new`), or `-d` |
 | `zolana_path` | driver (this checkout), or `-d` |
 | `default_rpc_url`, `default_indexer_url`, `default_prover_url`, `default_ring_rpc_port` | driver, from `ZOLANA_PORT_OFFSET` |
