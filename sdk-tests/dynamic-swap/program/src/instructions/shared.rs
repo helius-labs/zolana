@@ -22,19 +22,13 @@ pub fn u64_right_align(value: u64) -> [u8; 32] {
     bytes
 }
 
-/// A named authority PDA's owner-hash for `pair`:
-/// `Poseidon(hash_bytes(derived PDA), ESCROW_NULLIFIER_PUBKEY)`, with the PDA
-/// derived here so the program never trusts a client value for the PDA binding
-/// of the circuits' owner-hash public inputs. The nullifier pubkey is the
-/// hardcoded zero-secret constant (see `crate::ESCROW_NULLIFIER_PUBKEY`),
+/// An already-derived authority PDA's owner-hash:
+/// `Poseidon(hash_bytes(pda), ESCROW_NULLIFIER_PUBKEY)`. The nullifier pubkey
+/// is the hardcoded zero-secret constant (see `crate::ESCROW_NULLIFIER_PUBKEY`),
 /// shared by both authorities: spend linkage is public by design and spends
 /// are gated by the proofs, the signer checks, and the liquidity accounting.
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
-pub fn authority_owner_hash(
-    seed_label: &'static [u8],
-    pair: &Address,
-) -> Result<[u8; 32], ProgramError> {
-    let (pda, _bump) = derive_authority_pda(seed_label, pair);
+pub fn pda_owner_hash(pda: &Address) -> Result<[u8; 32], ProgramError> {
     let owner_pk_field = hash_bytes(pda.as_array()).map_err(DynamicSwapError::from)?;
     Poseidon::hashv(&[
         owner_pk_field.as_slice(),
@@ -44,11 +38,19 @@ pub fn authority_owner_hash(
 }
 
 #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
+pub fn pda_owner_hash(_pda: &Address) -> Result<[u8; 32], ProgramError> {
+    unimplemented!("pda_owner_hash requires Solana runtime syscalls")
+}
+
+/// A named authority PDA's owner-hash for `pair`, with the PDA derived here so
+/// the program never trusts a client value for the PDA binding of the
+/// circuits' owner-hash public inputs.
 pub fn authority_owner_hash(
-    _seed_label: &'static [u8],
-    _pair: &Address,
+    seed_label: &'static [u8],
+    pair: &Address,
 ) -> Result<[u8; 32], ProgramError> {
-    unimplemented!("authority_owner_hash requires Solana runtime syscalls")
+    let (pda, _bump) = derive_authority_pda(seed_label, pair);
+    pda_owner_hash(&pda)
 }
 
 /// The escrow_authority PDA's owner-hash: owns every order UTXO for the pair.

@@ -699,19 +699,15 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             mint: env.dest_mint,
             is_deposit: false,
             amount,
-            user_spl_token: solana_address::Address::new_from_array(
-                env.authority_dest_token.to_bytes(),
-            ),
-            spl_token_interface: solana_address::Address::new_from_array(
-                zolana_interface::pda::spl_interface(&env.dest_mint).to_bytes(),
-            ),
+            user_spl_token: env.authority_dest_token,
+            spl_token_interface: zolana_interface::pda::spl_interface(&env.dest_mint),
         })
         .map_err(|e| anyhow!("interface transfer: {e:?}"))?;
         let external_data_hash = external_data
             .hash()
             .map_err(|e| anyhow!("external data hash: {e:?}"))?;
 
-        let withdraw_bundle = WithdrawProofInputParams {
+        let withdraw_proof_inputs = WithdrawProofInputParams {
             pool_in: rebalanced_note.clone(),
             pool_out: pool_out.clone(),
             pool_authority: pool_address,
@@ -722,11 +718,11 @@ fn create_pair_escrow_and_settle() -> Result<()> {
         .to_proof_inputs()
         .map_err(|e| anyhow!("withdraw proof inputs: {e:?}"))?;
         let withdraw_proof = prover
-            .prove_pool_withdraw(&withdraw_bundle.proof_inputs)
+            .prove_pool_withdraw(&withdraw_proof_inputs)
             .map_err(|e| anyhow!("prove pool_withdraw: {e:?}"))?;
 
         let spp_proof_inputs = SppProofInputs::new(
-            vec![withdraw_bundle.spp_input],
+            vec![spp_input],
             encoded.output_utxos,
             external_data,
             authority_solana.pubkey(),
@@ -744,7 +740,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             tree: env.tree,
             amount,
             spl: Some(WithdrawSplAccounts {
-                mint: solana_pubkey::Pubkey::new_from_array(env.dest_mint.to_bytes()),
+                mint: env.dest_mint,
                 user_token: env.authority_dest_token,
                 token_program: zolana_interface::pda::spl_token_program_id(),
             }),

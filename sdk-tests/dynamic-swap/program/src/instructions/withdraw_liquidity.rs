@@ -97,7 +97,7 @@ pub fn process_withdraw_liquidity_ix(accounts: &mut [AccountView], data: &[u8]) 
                 amount: transfer_amount,
                 ..
             }],
-        ) if *transfer_amount == amount => {}
+        ) if amount > 0 && *transfer_amount == amount => {}
         _ => return Err(DynamicSwapError::InterfaceTransferMismatch.into()),
     }
 

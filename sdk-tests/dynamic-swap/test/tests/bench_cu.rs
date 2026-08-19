@@ -1188,7 +1188,7 @@ fn bench_withdraw_liquidity(
     let prover = ProverClient::local();
     let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &[], &prover);
 
-    let bundle = WithdrawProofInputParams {
+    let withdraw_proof_inputs = WithdrawProofInputParams {
         pool_in: pool_in_note,
         pool_out: pool_out_note,
         pool_authority: pool_address,
@@ -1200,7 +1200,7 @@ fn bench_withdraw_liquidity(
     .expect("pool_withdraw proof inputs");
     let circuit_start = Instant::now();
     let withdraw_proof = DynamicSwapProverClient::new()
-        .prove_pool_withdraw(&bundle.proof_inputs)
+        .prove_pool_withdraw(&withdraw_proof_inputs)
         .expect("prove pool_withdraw");
     let circuit_dur = circuit_start.elapsed();
 

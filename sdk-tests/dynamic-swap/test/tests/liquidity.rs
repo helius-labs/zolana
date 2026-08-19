@@ -39,8 +39,7 @@ struct PoolCx<'a> {
     prover: DynamicSwapProverClient,
 }
 
-/// Send one rebalance (any real in/out layout, credit 0 here) and return the
-/// created notes.
+/// Send one rebalance (any real in/out layout).
 fn rebalance(
     cx: &PoolCx,
     inputs: Vec<PoolUtxo>,
@@ -137,12 +136,8 @@ fn withdraw(cx: &PoolCx, pool_in: PoolUtxo, pool_out: PoolUtxo, amount: u64) -> 
                 mint: cx.env.dest_mint,
                 is_deposit: false,
                 amount,
-                user_spl_token: solana_address::Address::new_from_array(
-                    cx.env.authority_dest_token.to_bytes(),
-                ),
-                spl_token_interface: solana_address::Address::new_from_array(
-                    zolana_interface::pda::spl_interface(&cx.env.dest_mint).to_bytes(),
-                ),
+                user_spl_token: cx.env.authority_dest_token,
+                spl_token_interface: zolana_interface::pda::spl_interface(&cx.env.dest_mint),
             })
             .map_err(|e| anyhow!("interface transfer: {e:?}"))?;
     }
@@ -150,7 +145,7 @@ fn withdraw(cx: &PoolCx, pool_in: PoolUtxo, pool_out: PoolUtxo, amount: u64) -> 
         .hash()
         .map_err(|e| anyhow!("external data hash: {e:?}"))?;
 
-    let bundle = WithdrawProofInputParams {
+    let proof_inputs = WithdrawProofInputParams {
         pool_in,
         pool_out,
         pool_authority: cx.pool_address,
@@ -162,11 +157,11 @@ fn withdraw(cx: &PoolCx, pool_in: PoolUtxo, pool_out: PoolUtxo, amount: u64) -> 
     .map_err(|e| anyhow!("withdraw proof inputs: {e:?}"))?;
     let proof = cx
         .prover
-        .prove_pool_withdraw(&bundle.proof_inputs)
+        .prove_pool_withdraw(&proof_inputs)
         .map_err(|e| anyhow!("prove pool_withdraw: {e:?}"))?;
 
     let spp_proof_inputs = SppProofInputs::new(
-        vec![bundle.spp_input],
+        vec![spp_input],
         encoded.output_utxos,
         external_data,
         authority_solana.pubkey(),
@@ -184,7 +179,7 @@ fn withdraw(cx: &PoolCx, pool_in: PoolUtxo, pool_out: PoolUtxo, amount: u64) -> 
         tree: cx.env.tree,
         amount,
         spl: (amount > 0).then(|| WithdrawSplAccounts {
-            mint: solana_pubkey::Pubkey::new_from_array(cx.env.dest_mint.to_bytes()),
+            mint: cx.env.dest_mint,
             user_token: cx.env.authority_dest_token,
             token_program: zolana_interface::pda::spl_token_program_id(),
         }),

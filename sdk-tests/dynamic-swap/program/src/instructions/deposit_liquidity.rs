@@ -8,7 +8,7 @@ use zolana_interface::instruction::instruction_data::deposit::{
 use crate::{
     error::DynamicSwapError,
     instructions::shared::{
-        asset_field, cpi_spp_deposit, pool_authority_owner_hash, u64_right_align,
+        asset_field, cpi_spp_deposit, derive_authority_pda, pda_owner_hash, u64_right_align,
     },
     state::load_pair_mut,
 };
@@ -59,9 +59,12 @@ pub fn process_deposit_liquidity_ix(accounts: &mut [AccountView], data: &[u8]) -
     }
 
     // The note must be locked under the pair's pool_authority; the owner-hash
-    // is recomputed here, never trusted from the client.
-    let pool_owner_hash = pool_authority_owner_hash(&pair_address)?;
-    if entry.owner != &pool_owner_hash {
+    // is recomputed here, never trusted from the client. The view tag must be
+    // the pool authority's standard confidential tag (the raw PDA bytes) --
+    // without this a permissionless depositor could raise the bound with a
+    // note the maker's pool scan never finds.
+    let (pool_pda, _bump) = derive_authority_pda(crate::POOL_AUTHORITY_PDA_SEED, &pair_address);
+    if entry.owner != &pda_owner_hash(&pool_pda)? || entry.view_tag != pool_pda.as_array() {
         return Err(DynamicSwapError::InvalidDepositEntry.into());
     }
 

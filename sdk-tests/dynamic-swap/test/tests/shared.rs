@@ -475,7 +475,7 @@ pub fn deposit_pool_liquidity(env: &TestEnv, pair: Pubkey, amount: u64) -> Resul
         depositor: authority_solana.pubkey(),
         pair,
         tree: env.tree,
-        mint: Pubkey::new_from_array(env.dest_mint.to_bytes()),
+        mint: env.dest_mint,
         user_token: env.authority_dest_token,
         token_program: zolana_interface::pda::spl_token_program_id(),
         amount,

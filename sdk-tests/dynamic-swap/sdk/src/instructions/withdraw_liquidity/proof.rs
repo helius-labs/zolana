@@ -2,10 +2,7 @@ use anyhow::{bail, Result};
 use dynamic_swap_program::instructions::withdraw_liquidity::PoolWithdrawPublicInput;
 use dynamic_swap_prover::{PoolWithdrawProofInputs, ProofInputUtxo};
 use zolana_keypair::ShieldedAddress;
-use zolana_transaction::instructions::{
-    transact::{spp_proof_inputs::asset_field, PrivateTxHash, SppProofOutputUtxo},
-    types::SppProofInputUtxo,
-};
+use zolana_transaction::instructions::transact::{spp_proof_inputs::asset_field, PrivateTxHash};
 
 use crate::state::PoolUtxo;
 
@@ -13,20 +10,16 @@ fn err(e: impl core::fmt::Debug) -> anyhow::Error {
     anyhow::anyhow!("{e:?}")
 }
 
-/// The withdraw proof inputs together with the transact-facing forms of the
-/// same notes, so the swap proof and the SPP transact are built from identical
-/// values by construction.
-pub struct WithdrawProofBundle {
-    pub proof_inputs: PoolWithdrawProofInputs,
-    pub spp_input: SppProofInputUtxo,
-    pub spp_output: SppProofOutputUtxo,
-}
-
 /// Proof-input params for the `pool_withdraw` circuit: 1-in (pool note) /
 /// 1-out (pool change), the exact IN1_OUT1 shape. The public `amount` leaves
 /// through the transact's SplWithdrawal leg; the change keeps
 /// `booked_in - amount`, so a withdrawal can only consume counted value.
 /// `amount = 0` re-blinds a public deposit note into a confidential one.
+///
+/// The transact-facing note forms are deterministic from the same `PoolUtxo`s
+/// (their blindings are caller-fixed), so the caller builds those with
+/// `PoolUtxo::{to_input_utxo, output_utxo}` for the external data first and
+/// then finishes the witness here with the resulting hash.
 pub struct WithdrawProofInputParams {
     pub pool_in: PoolUtxo,
     pub pool_out: PoolUtxo,
@@ -40,7 +33,7 @@ pub struct WithdrawProofInputParams {
 }
 
 impl WithdrawProofInputParams {
-    pub fn to_proof_inputs(&self) -> Result<WithdrawProofBundle> {
+    pub fn to_proof_inputs(&self) -> Result<PoolWithdrawProofInputs> {
         if asset_field(&self.pool_in.asset).map_err(err)? != self.destination_asset {
             bail!("pool_in asset does not match the pair destination asset");
         }
@@ -90,19 +83,15 @@ impl WithdrawProofInputParams {
         .hash()
         .map_err(err)?;
 
-        Ok(WithdrawProofBundle {
-            proof_inputs: PoolWithdrawProofInputs {
-                public_input_hash,
-                private_tx_hash,
-                pool_authority_owner_hash,
-                destination_asset: self.destination_asset,
-                amount: self.amount,
-                pool_in,
-                pool_out,
-                external_data_hash: self.external_data_hash,
-            },
-            spp_input,
-            spp_output,
+        Ok(PoolWithdrawProofInputs {
+            public_input_hash,
+            private_tx_hash,
+            pool_authority_owner_hash,
+            destination_asset: self.destination_asset,
+            amount: self.amount,
+            pool_in,
+            pool_out,
+            external_data_hash: self.external_data_hash,
         })
     }
 }
