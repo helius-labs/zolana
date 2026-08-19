@@ -59,11 +59,11 @@ init: auditor-key
 rpc:
     cargo run -q --manifest-path {{ "{{zolana}}" }}/services/ring-rpc/Cargo.toml -- serve \
         --port {{ring_rpc_port}} --indexer-url {{indexer_url}} --rpc-url {{rpc_url}} \
-        --auditor-key-file keys/auditor.key
+        --auditor-key-file keys/auditor.key --ring-program-id {{program_id}}
 {%- else %}
-# The hosted ring RPC at {{ring_rpc_url}} creates the auditor key; only the
-# public half comes back, goes into the config and is recorded in
-# keys/auditor.key.pub.
+# The hosted ring RPC at {{ring_rpc_url}} creates the auditor key. Only the
+# public half comes back, signed by the service key ring.toml pins, goes into
+# the config and is recorded in keys/auditor.key.pub.
 init:
     cargo run -q -p {{project-name}} -- init
 

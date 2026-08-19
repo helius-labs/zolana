@@ -2,6 +2,7 @@
 //! keys and signatures, base64 bytes, hex hashes).
 
 use serde::{Deserialize, Serialize};
+use solana_address::Address;
 use zolana_indexer_api::{
     Base64String, Context, Hash, Limit, SerializablePubkey, SerializableSignature,
 };
@@ -15,7 +16,9 @@ pub const GET_DECRYPTED_TRANSACTIONS: &str = "getDecryptedTransactions";
 pub struct HealthResponse {
     /// `local` serves one key, `derived` a key per ring.
     pub mode: String,
-    /// The local key's tag; absent when keys are derived per ring.
+    /// The ed25519 key this instance signs `createAuditorKey` responses with.
+    pub service_pubkey: SerializablePubkey,
+    /// The local key's tag, absent when keys are derived per ring.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auditor_view_tag: Option<Hash>,
 }
@@ -26,8 +29,10 @@ pub struct CreateAuditorKeyRequest {
     pub ring_program_id: SerializablePubkey,
 }
 
-/// The public half of a ring's auditor key. Idempotent: the same ring gets
-/// the same key back.
+/// The public half of a ring's auditor key. Idempotent, the same ring gets
+/// the same key back. `signature` is the instance's ed25519 signature over
+/// [`auditor_key_attestation`], so a client that pins `service_pubkey` cannot
+/// be handed another party's key in transit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub struct CreateAuditorKeyResponse {
@@ -35,10 +40,20 @@ pub struct CreateAuditorKeyResponse {
     /// SEC1 compressed, what `create_config` takes.
     pub auditor_pubkey: Base64String,
     pub auditor_view_tag: Hash,
-    pub key_version: u32,
+    pub service_pubkey: SerializablePubkey,
+    pub signature: SerializableSignature,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// Domain of the attestation signature.
+const ATTESTATION_DOMAIN: &[u8] = b"zolana/ring-auditor-key/v1";
+
+/// The bytes the instance signs for a `createAuditorKey` response. Binds the
+/// key to the ring, so a signature for one ring attests nothing for another.
+pub fn auditor_key_attestation(ring_program_id: &Address, auditor_pubkey: &[u8]) -> Vec<u8> {
+    [ATTESTATION_DOMAIN, ring_program_id.as_ref(), auditor_pubkey].concat()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub struct GetDecryptedTransactionsRequest {
     /// Required when the instance derives keys per ring.
@@ -49,6 +64,40 @@ pub struct GetDecryptedTransactionsRequest {
     pub cursor: Option<Base64String>,
     #[serde(default)]
     pub limit: Option<Limit>,
+    pub auth: ReadAuth,
+}
+
+/// Who reads and proof of it. `reader` must be the ring's authority as its
+/// on-chain config records it, and `signature` is that key's ed25519 signature
+/// over [`read_attestation`] of this request. `timestamp` (unix seconds) keeps
+/// a captured request from being replayed later.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
+pub struct ReadAuth {
+    pub reader: SerializablePubkey,
+    pub timestamp: u64,
+    pub signature: SerializableSignature,
+}
+
+/// Domain of the read signature.
+const READ_DOMAIN: &[u8] = b"zolana/ring-rpc-read/v1";
+
+/// The bytes a reader signs for `getDecryptedTransactions`: the ring, the
+/// moment, and the page asked for, so a signature fits one request.
+pub fn read_attestation(
+    ring_program_id: &Address,
+    timestamp: u64,
+    cursor: Option<&[u8]>,
+    limit: Option<u64>,
+) -> Vec<u8> {
+    [
+        READ_DOMAIN,
+        ring_program_id.as_ref(),
+        &timestamp.to_le_bytes(),
+        &limit.unwrap_or(0).to_le_bytes(),
+        cursor.unwrap_or_default(),
+    ]
+    .concat()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

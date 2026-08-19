@@ -8,6 +8,7 @@ use std::{
 };
 
 use clap::{Args, Parser, Subcommand};
+use solana_address::Address;
 use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_keypair::{KeypairError, P256Pubkey, ViewingKey};
@@ -62,12 +63,16 @@ pub struct ServeArgs {
         required_unless_present = "root_secret_file"
     )]
     pub auditor_key_file: Option<PathBuf>,
+    /// The ring the local auditor key serves. Reads are authorized against its
+    /// on-chain authority.
+    #[arg(long, env = "RING_RPC_RING_PROGRAM_ID", requires = "auditor_key_file")]
+    pub ring_program_id: Option<Address>,
     /// File holding a 32-byte root secret as 64 hex characters. Every ring's
     /// auditor key is derived from it, so one instance serves any ring.
     #[arg(long, env = "RING_RPC_ROOT_SECRET_FILE")]
     pub root_secret_file: Option<PathBuf>,
-    /// Browser origins allowed to call the JSON-RPC methods. The built-in page
-    /// is same-origin and needs none; a UI hosted elsewhere names its origin here.
+    /// Browser origins allowed to call the JSON-RPC methods. None by default,
+    /// a UI hosted elsewhere names its origin here.
     #[arg(
         long = "allow-origin",
         env = "RING_RPC_ALLOW_ORIGINS",

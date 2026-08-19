@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use clap::Parser;
 use log::info;
+use solana_signer::Signer;
 use zolana_ring_client::auditor_view_tag;
 use zolana_ring_rpc::{
     audit::{asset_registry_from_chain, ChainSource, Hub},
@@ -45,20 +46,34 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         .context("loading the SPL asset registry")?;
     let hub = match (&args.auditor_key_file, &args.root_secret_file) {
         (Some(path), None) => Hub::local(
+            args.ring_program_id.ok_or_else(|| {
+                anyhow::anyhow!("--ring-program-id names the ring this key serves")
+            })?,
             load_auditor_key(path, args.allow_shared_key_file)
                 .with_context(|| format!("loading {}", path.display()))?,
             source,
             assets,
         ),
-        (None, Some(path)) => Hub::derived(
-            load_root_secret(path, args.allow_shared_key_file)
-                .with_context(|| format!("loading {}", path.display()))?,
-            source,
-            assets,
-        ),
+        (None, Some(path)) => {
+            let genesis_hash = source
+                .rpc()
+                .client()
+                .get_genesis_hash()
+                .await
+                .context("reading the cluster genesis hash")?
+                .to_bytes();
+            Hub::derived(
+                load_root_secret(path, args.allow_shared_key_file)
+                    .with_context(|| format!("loading {}", path.display()))?,
+                genesis_hash,
+                source,
+                assets,
+            )
+        }
         _ => anyhow::bail!("pass exactly one of --auditor-key-file and --root-secret-file"),
     };
     let hub = Arc::new(hub);
+    info!("service pubkey {}", hub.signer().pubkey());
     match hub.local_service() {
         Some(service) => info!(
             "ring-rpc listening on {}:{} for auditor tag {}",

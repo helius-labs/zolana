@@ -31,7 +31,8 @@ RING_NAME=demo tools/ring-wizard.sh /tmp --silent -d target=localnet \
 stage that sees `-d` values. It prints the pipeline, asks for the target
 (`localnet`, `devnet`; `mainnet` is listed and refused), the authority keypair
 (default the Solana CLI keypair), the service URLs (localnet defaults from the
-driver, devnet asks), and the features.
+driver, devnet asks, plus the ring RPC's service pubkey that `init` pins), and
+the features.
 
 `FEATURES` in that file is the registry. Each entry has an `id`, a display
 `name`, an `example` and a `state`: `always` (on for every ring), `ready`

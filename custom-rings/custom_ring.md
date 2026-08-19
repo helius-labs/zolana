@@ -222,7 +222,9 @@ Every code is pinned in an `error_codes_are_stable` test.
 ## Auditor service and ring generator
 
 Auditor service: `services/ring-rpc/README.md`. Ring generator (`just ring-new`
-and the generated pipeline): `templates/README.md`.
+and the generated pipeline): `templates/README.md`. A hosted auditor service
+signs the key it hands out and the ring pins the service key, because the
+auditor key is fixed at `create_config`.
 
 ## Future Work
 - rust prover server to make local testing performant (keep it separate from go prover server)

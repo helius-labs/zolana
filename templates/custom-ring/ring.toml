@@ -10,6 +10,9 @@ rpc = "{{rpc_url}}"
 indexer = "{{indexer_url}}"
 prover = "{{prover_url}}"
 ring_rpc = "{{ring_rpc_url}}"
+{%- if ring_rpc_pubkey != "" %}
+ring_rpc_pubkey = "{{ring_rpc_pubkey}}"
+{%- endif %}
 
 [features]
 {{features_toml}}

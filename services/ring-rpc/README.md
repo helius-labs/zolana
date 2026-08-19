@@ -13,11 +13,13 @@ cargo run -p zolana-ring-rpc -- keygen --out keys/auditor.key
 cargo run -p zolana-ring-rpc -- serve \
   --indexer-url http://127.0.0.1:8784 \
   --rpc-url http://127.0.0.1:8899 \
-  --auditor-key-file keys/auditor.key
+  --auditor-key-file keys/auditor.key --ring-program-id <program id>
 ```
 
-Derived: `HKDF(root_secret, ring_program_id)`, any ring on demand, the key a
-ring gets is minted by `createAuditorKey` and stays stable across restarts.
+Derived: `HKDF(root_secret, genesis_hash || ring_program_id)`, any ring on
+demand. The key a ring gets is minted by `createAuditorKey`, stays stable across
+restarts, and differs per cluster for the same ring id. Nothing is kept per
+ring between requests.
 
 ```bash
 cargo run -p zolana-ring-rpc -- serve \
@@ -37,12 +39,27 @@ read once at startup for the SPL asset registry.
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `health` (also `GET /health`) | none | `{ mode, auditor_view_tag? }` |
-| `createAuditorKey` | `{ ring_program_id }` | `{ ring_program_id, auditor_pubkey, auditor_view_tag, key_version }` |
-| `getDecryptedTransactions` | `{ ring_program_id?, cursor?, limit? }` | `{ context, value: { items, skipped, cursor } }` |
+| `health` (also `GET /health`) | none | `{ mode, service_pubkey, auditor_view_tag? }` |
+| `createAuditorKey` | `{ ring_program_id }` | `{ ring_program_id, auditor_pubkey, auditor_view_tag, service_pubkey, signature }` |
+| `getDecryptedTransactions` | `{ ring_program_id?, cursor?, limit?, auth: { reader, timestamp, signature } }` | `{ context, value: { items, skipped, cursor } }` |
 
 `mode` is `local` or `derived`. `ring_program_id` is required in derived mode
-and ignored in local mode. `items` are transactions the key opened, each with
+and ignored in local mode, where `--ring-program-id` names the one ring the key
+serves.
+
+Reads are authorized by the ring itself. `auth.reader` must be the ring
+authority its on-chain config records, `auth.signature` that key's ed25519
+signature over `"zolana/ring-rpc-read/v1" || ring_program_id || timestamp ||
+limit || cursor`, and `auth.timestamp` (unix seconds) within a minute of the
+service clock. A read signed by any other key, for another ring, or captured
+earlier is refused with `unauthorized`. The CLI signs with the ring's authority
+keypair. `signature` is the instance's ed25519 signature over
+`"zolana/ring-auditor-key/v1" || ring_program_id || auditor_pubkey` with
+`service_pubkey`, which is derived from the instance's secret and so survives
+restarts. A ring pins that key in `ring.toml` (`ring_rpc_pubkey`) after
+confirming it out of band, and its `init` refuses an auditor key signed by any
+other key. The auditor key is fixed at `create_config`, so this is the one
+moment the ring can be given the wrong auditor. `items` are transactions the key opened, each with
 `signers`, `outputs` (slot index, recipient viewing key, asset mint, amount,
 blinding, ring program id), the slot positions the key did not open, and the
 nullifiers. `skipped` lists transactions tagged for this auditor that did not
@@ -59,6 +76,6 @@ readable by other users unless `--allow-shared-key-file` says so.
 
 ## Boundaries
 
-No request authentication, no per-user scoping, decrypt on read. The spec's
-signed `get_decrypted_utxos_by_owner` and `get_decrypted_transactions_by_owner`
-build on this service.
+Reads are scoped to the ring authority, not to individual users. Decrypt on
+read. The spec's signed `get_decrypted_utxos_by_owner` and
+`get_decrypted_transactions_by_owner` build on this service.
