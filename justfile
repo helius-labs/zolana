@@ -13,6 +13,9 @@ export ZOLANA_PORT_OFFSET := env_var_or_default("ZOLANA_PORT_OFFSET", "0")
 localnet-rpc-port := env_var_or_default("ZOLANA_LOCALNET_RPC_PORT", `echo $((8899 + ${ZOLANA_PORT_OFFSET:-0}))`)
 localnet-photon-port := env_var_or_default("ZOLANA_LOCALNET_PHOTON_PORT", `echo $((8784 + ${ZOLANA_PORT_OFFSET:-0}))`)
 localnet-prover-port := env_var_or_default("ZOLANA_LOCALNET_PROVER_PORT", `echo $((3001 + ${ZOLANA_PORT_OFFSET:-0}))`)
+# The prover's Prometheus listener, offset in lockstep with its own port so two
+# clones never collide there (cli/src/prover.rs does the same derivation).
+localnet-prover-metrics-port := env_var_or_default("ZOLANA_LOCALNET_PROVER_METRICS_PORT", `echo $((9998 + ${ZOLANA_PORT_OFFSET:-0}))`)
 localnet-rpc-url := env_var_or_default("ZOLANA_LOCALNET_URL", "http://127.0.0.1:" + localnet-rpc-port)
 localnet-photon-url := env_var_or_default("ZOLANA_LOCALNET_PHOTON_URL", "http://127.0.0.1:" + localnet-photon-port)
 localnet-prover-url := env_var_or_default("ZOLANA_PROVER_URL", "http://127.0.0.1:" + localnet-prover-port)
@@ -1248,6 +1251,26 @@ ensure-photon:
 # GitHub pre-release. Example: `just release v0.1.0-alpha --upload --prerelease`.
 release tag *args: build-programs fetch-smart-account
     cargo run -p xtask -- create-release --tag {{tag}} {{args}}
+
+# === API requests (hurl) ===
+
+# Indexer JSON-RPC requests against an already-running stack (tools/hurl).
+# Defaults to the files that need no indexed data; pass a file plus the variables
+# it wants for the rest:
+#   just hurl-indexer tools/hurl/indexer/proofs.hurl --variable tree=<pool tree> --variable leaf=<utxo hash>
+hurl-indexer *args:
+    hurl --test --file-root tools/hurl --variables-file tools/hurl/localnet.env \
+      --variable indexer_url="{{localnet-photon-url}}" \
+      {{ if args == "" { "tools/hurl/indexer/health.hurl tools/hurl/indexer/sync.hurl tools/hurl/indexer/errors.hurl" } else { args } }}
+
+# Prover requests against an already-running prover (tools/hurl). Defaults to the
+# files that need no witness; the rest want a captured request body:
+#   just hurl-prover tools/hurl/prover/prove.hurl --variable witness=fixtures/transfer-2x2.json
+hurl-prover *args:
+    hurl --test --file-root tools/hurl --variables-file tools/hurl/localnet.env \
+      --variable prover_url="{{localnet-prover-url}}" \
+      --variable prover_metrics_url="http://127.0.0.1:{{localnet-prover-metrics-port}}" \
+      {{ if args == "" { "tools/hurl/prover/health.hurl tools/hurl/prover/errors.hurl" } else { args } }}
 
 # === Formatting and linting ===
 

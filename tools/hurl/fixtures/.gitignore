@@ -1,0 +1,3 @@
+# Captured /prove request bodies live here. A witness is plaintext: amounts,
+# owner hashes, blindings and nullifier secrets. Keep captures out of git.
+*.json
