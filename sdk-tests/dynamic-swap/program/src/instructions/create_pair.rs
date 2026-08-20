@@ -1,5 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use bytemuck::try_from_bytes_mut;
+use bytemuck::from_bytes_mut;
 use light_program_profiler::profile;
 use pinocchio::{AccountView, ProgramResult};
 use zolana_account_checks::AccountIterator;
@@ -107,8 +107,8 @@ pub fn process_create_pair_ix(accounts: &mut [AccountView], data: &[u8]) -> Prog
         let mut bytes = pair_account
             .try_borrow_mut()
             .map_err(|_| DynamicSwapError::InvalidInstructionData)?;
-        let state = try_from_bytes_mut::<Pair>(&mut bytes[..])
-            .map_err(|_| DynamicSwapError::InvalidInstructionData)?;
+        // `CreatePdaAccount` just allocated exactly `Pair::SIZE` bytes.
+        let state = from_bytes_mut::<Pair>(&mut bytes[..]);
         *state = Pair {
             discriminator: PAIR,
             bump: pair_bump,
