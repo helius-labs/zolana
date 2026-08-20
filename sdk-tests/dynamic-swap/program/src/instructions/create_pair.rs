@@ -1,4 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use bytemuck::try_from_bytes_mut;
 use light_program_profiler::profile;
 use pinocchio::{AccountView, ProgramResult};
 use zolana_account_checks::AccountIterator;
@@ -106,23 +107,28 @@ pub fn process_create_pair_ix(accounts: &mut [AccountView], data: &[u8]) -> Prog
         let mut bytes = pair_account
             .try_borrow_mut()
             .map_err(|_| DynamicSwapError::InvalidInstructionData)?;
-        let state: &mut Pair = bytemuck::from_bytes_mut(&mut bytes[..]);
-        state.discriminator = PAIR;
-        state.bump = pair_bump;
-        state.authority = *payer.address();
-        state.source_asset_id = source_asset_id;
-        state.destination_asset_id = destination_asset_id;
-        state.price = price;
-        state.expiry_slots = expiry_slots;
-        state.max_order_size = max_order_size;
-        // The pool starts empty and unreserved; deposits and open escrows move
-        // these counters from here on.
-        state.liquidity_bound = 0;
-        state.open_reservations = 0;
-        state.source_asset = source_asset;
-        state.destination_asset = destination_asset;
-        state.maker_receipt_owner_hash = maker_receipt_owner_hash;
-        state.maker_encryption_pubkey = maker_encryption_pubkey;
+        let state = try_from_bytes_mut::<Pair>(&mut bytes[..])
+            .map_err(|_| DynamicSwapError::InvalidInstructionData)?;
+        *state = Pair {
+            discriminator: PAIR,
+            bump: pair_bump,
+            _pad: [0; 6],
+            authority: *payer.address(),
+            source_asset_id,
+            destination_asset_id,
+            price,
+            expiry_slots,
+            max_order_size,
+            // The pool starts empty and unreserved; deposits and open escrows
+            // move these counters from here on.
+            liquidity_bound: 0,
+            open_reservations: 0,
+            source_asset,
+            destination_asset,
+            maker_receipt_owner_hash,
+            maker_encryption_pubkey,
+            _pad2: [0; 7],
+        };
     }
 
     Ok(())
