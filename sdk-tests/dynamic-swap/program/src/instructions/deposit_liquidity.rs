@@ -13,33 +13,49 @@ use crate::{
     state::load_pair_mut,
 };
 
-/// The forwarded SPP deposit tail: `tree, depositor, spp_program,
-/// token_program, mint, user_token, spl_interface`. The mint sits at index 4.
-const DEPOSIT_TAIL_MINT_INDEX: usize = 4;
+const DEPOSIT_MINT_INDEX: usize = 4;
 
-/// Shields a public `amount` of the destination asset from the depositor's SPL
-/// token account into a new pool UTXO owned by the pair's `pool_authority`
-/// PDA, with `booked = amount` committed as the note's data hash. Amount,
-/// owner, blinding, and booked are public instruction data, so the SPP deposit
-/// processor computes the commitment itself; no proof. Permissionless: the
-/// depositor signs its own SPL transfer (SPP checks that signature), and a
-/// deposit can only raise the guarantee.
-///
-/// The instruction data (after the tag) is the verbatim SPP `DepositIxData`
-/// bytes; the program validates that the single entry forms a pool note,
-/// applies `liquidity_bound += amount`, and forwards the bytes unsigned.
+// Deposits SPL tokens into the pair's liquidity pool and adds the deposited
+// amount to its available liquidity.
+//
+// Steps:
+// 1. Check that the pair account is present and writable.
+// 2. Parse the instruction data as shielded-pool deposit data.
+// 3. Check that there is exactly one asset.
+// 4. Check that there is exactly one deposit entry.
+// 5. Check that the asset is an SPL asset.
+// 6. Check that the deposit entry references asset index 0.
+// 7. Check that the deposited amount is nonzero.
+// 8. Check that the entry owner equals the derived `pool_authority` PDA's
+//    owner hash.
+// 9. Check that the entry view tag equals the raw `pool_authority` PDA bytes.
+// 10. Check that the entry contains UTXO data.
+// 11. Check that the UTXO data hash commits `booked = amount`.
+// 12. Check that the clear UTXO payload contains the same amount encoded as
+//     eight-byte big-endian data.
+// 13. Check that the forwarded shielded-pool account list is present.
+// 14. Check that the SPL mint exists at the expected deposit-account index.
+// 15. Load the pair, verifying program ownership, exact `Pair::SIZE`, the pair
+//     discriminator, and writable access.
+// 16. Check that the supplied SPL mint's asset commitment equals
+//     `pair.destination_asset`.
+// 17. Add the amount to `pair.liquidity_bound` with overflow checking.
+// 18. Invoke the shielded-pool program, which validates its account layout,
+//     depositor authorization, SPL transfer, and UTXO creation.
 #[inline(never)]
 #[profile]
 pub fn process_deposit_liquidity_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let mut iter = AccountIterator::new(accounts);
+    // Step 1: Check that the pair account is present and writable.
     let pair_account = iter.next_mut("pair")?;
     let pair_address = *pair_account.address();
 
+    // Step 2: Parse the instruction data as shielded-pool deposit data.
     let deposit =
         DepositIxDataRef::from_bytes(data).map_err(|_| DynamicSwapError::InvalidInstructionData)?;
 
-    // Exactly one SPL settlement group and one entry: a pool deposit funds one
-    // pool note of the pair's destination asset, nothing else.
+    // Step 3: Check that there is exactly one asset.
+    // Step 4: Check that there is exactly one deposit entry.
     if deposit.assets.len() != 1 || deposit.deposits.len() != 1 {
         return Err(DynamicSwapError::InvalidDepositEntry.into());
     }
@@ -47,6 +63,7 @@ pub fn process_deposit_liquidity_ix(accounts: &mut [AccountView], data: &[u8]) -
         .assets
         .first()
         .ok_or(DynamicSwapError::InvalidDepositEntry)?;
+    // Step 5: Check that the asset is an SPL asset.
     if !matches!(asset, DepositAssetKind::Spl { .. }) {
         return Err(DynamicSwapError::InvalidDepositEntry.into());
     }
@@ -54,52 +71,53 @@ pub fn process_deposit_liquidity_ix(accounts: &mut [AccountView], data: &[u8]) -
         .deposits
         .first()
         .ok_or(DynamicSwapError::InvalidDepositEntry)?;
+    // Step 6: Check that the deposit entry references asset index 0.
+    // Step 7: Check that the deposited amount is nonzero.
     if entry.asset_index != 0 || entry.amount == 0 {
         return Err(DynamicSwapError::InvalidDepositEntry.into());
     }
 
-    // The note must be locked under the pair's pool_authority; the owner-hash
-    // is recomputed here, never trusted from the client. The view tag must be
-    // the pool authority's standard confidential tag (the raw PDA bytes) --
-    // without this a permissionless depositor could raise the bound with a
-    // note the maker's pool scan never finds.
     let (pool_pda, _bump) = derive_authority_pda(crate::POOL_AUTHORITY_PDA_SEED, &pair_address);
+    // Step 8: Check that the entry owner equals the pool PDA's owner hash.
+    // Step 9: Check that the entry view tag equals the raw pool PDA bytes.
     if entry.owner != &pda_owner_hash(&pool_pda)? || entry.view_tag != pool_pda.as_array() {
         return Err(DynamicSwapError::InvalidDepositEntry.into());
     }
 
-    // Deposit notes start fully booked: the data hash commits
-    // `booked = amount` (right-aligned), and the clear payload is the 8-byte
-    // big-endian booked value the maker's discovery decodes.
+    // Step 10: Check that the entry contains UTXO data.
     let utxo_data = entry
         .utxo_data
         .ok_or(DynamicSwapError::InvalidDepositEntry)?;
+    // Step 11: Check that the data hash commits `booked = amount`.
+    // Step 12: Check that the payload contains the amount as big-endian data.
     if utxo_data.data_hash != &u64_right_align(entry.amount)
         || utxo_data.data != entry.amount.to_be_bytes().as_slice()
     {
         return Err(DynamicSwapError::InvalidDepositEntry.into());
     }
 
+    // Step 13: Check that the forwarded shielded-pool accounts are present.
     let spp_accounts = iter.remaining()?;
+    // Step 14: Check that the mint exists at the expected account index.
     let mint = spp_accounts
-        .get(DEPOSIT_TAIL_MINT_INDEX)
+        .get(DEPOSIT_MINT_INDEX)
         .ok_or(ProgramError::NotEnoughAccountKeys)?;
     let mint_asset = asset_field(mint.address())?;
 
     {
+        // Step 15: Load and validate the pair account.
         let mut pair = load_pair_mut(pair_account)?;
-        // The deposited mint must be the pair's destination asset: SPP settles
-        // the SPL transfer against the mint account it is handed, so binding
-        // that mint to `Pair.destination_asset` is what makes the bound
-        // increase real.
+        // Step 16: Check that the mint matches the pair's destination asset.
         if mint_asset != pair.destination_asset {
             return Err(DynamicSwapError::AssetMismatch.into());
         }
+        // Step 17: Add the amount to available liquidity without overflow.
         pair.liquidity_bound = pair
             .liquidity_bound
             .checked_add(entry.amount)
             .ok_or(ProgramError::ArithmeticOverflow)?;
     }
 
+    // Step 18: Invoke the shielded-pool deposit.
     cpi_spp_deposit(spp_accounts, data)
 }
