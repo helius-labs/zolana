@@ -16,22 +16,27 @@ use jsonrpsee::{
         middleware::http::ProxyGetRequestLayer, HttpBody, HttpRequest, HttpResponse, ServerBuilder,
         ServerConfig, ServerHandle,
     },
-    types::ErrorObjectOwned,
+    types::{ErrorCode, ErrorObjectOwned},
     RpcModule,
 };
+use log::error;
 use tower::{Layer, Service};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use solana_address::Address;
 use solana_signer::Signer;
+use zeroize::Zeroizing;
+use zolana_indexer_api::Base64String;
 
 use crate::{
     api::{
         auditor_key_attestation, CreateAuditorKeyRequest, CreateAuditorKeyResponse,
-        GetDecryptedTransactionsRequest, HealthResponse, CREATE_AUDITOR_KEY,
-        GET_DECRYPTED_TRANSACTIONS, HEALTH,
+        GetDecryptedTransactionsRequest, HealthResponse, ProveAuditorKeyEncryptionRequest,
+        ProveAuditorKeyEncryptionResponse, CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH,
+        PROVE_AUDITOR_KEY_ENCRYPTION,
     },
     audit::{Hub, TransactionSource},
+    prove::{prove_auditor_key_encryption, AuditProveError, AuditWitness},
 };
 
 pub struct ServerOptions {
@@ -130,7 +135,55 @@ pub fn rpc_module<S: TransactionSource + 'static>(
         },
     )?;
 
+    module.register_async_method(
+        PROVE_AUDITOR_KEY_ENCRYPTION,
+        |params, hub, _extensions| async move {
+            let request = params.parse::<ProveAuditorKeyEncryptionRequest>()?;
+            let service = hub
+                .ring(request.ring_program_id.map(|ring| ring.0))
+                .map_err(ErrorObjectOwned::from)?;
+            let witness = AuditWitness {
+                private_tx_hash: scalar(request.private_tx_hash, "private_tx_hash")?,
+                tx_viewing_sk: Zeroizing::new(scalar(request.tx_viewing_sk, "tx_viewing_sk")?),
+                eph_sk: Zeroizing::new(scalar(request.eph_sk, "eph_sk")?),
+            };
+            let auditor_pk = service.auditor_pubkey();
+            // Proving blocks for seconds.
+            let proof = tokio::task::spawn_blocking(move || {
+                prove_auditor_key_encryption(&witness, &auditor_pk)
+            })
+            .await
+            .map_err(|_| internal_error("audit prover task failed"))?
+            .map_err(|error| match error {
+                AuditProveError::Scalar(_) | AuditProveError::Encryption(_) => {
+                    invalid_params(error.to_string())
+                }
+                other => {
+                    error!("audit proof failed: {other}");
+                    internal_error("audit proof failed")
+                }
+            })?;
+            let bytes = wincode::serialize(&proof)
+                .map_err(|_| internal_error("audit proof serialization failed"))?;
+            Ok::<_, ErrorObjectOwned>(ProveAuditorKeyEncryptionResponse {
+                proof: bytes.into(),
+            })
+        },
+    )?;
+
     Ok(module)
+}
+
+fn scalar(value: Base64String, name: &str) -> Result<[u8; 32], ErrorObjectOwned> {
+    <[u8; 32]>::try_from(value.0).map_err(|_| invalid_params(format!("{name} must be 32 bytes")))
+}
+
+fn invalid_params(message: String) -> ErrorObjectOwned {
+    ErrorObjectOwned::owned(ErrorCode::InvalidParams.code(), message, None::<()>)
+}
+
+fn internal_error(message: &str) -> ErrorObjectOwned {
+    ErrorObjectOwned::owned(ErrorCode::InternalError.code(), message, None::<()>)
 }
 
 /// Answers readiness on `GET /ready` and hands every other request to the

@@ -5,5 +5,6 @@
 pub mod api;
 pub mod audit;
 pub mod config;
+pub mod prove;
 pub mod server;
 pub mod webauthn;

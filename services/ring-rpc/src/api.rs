@@ -12,6 +12,7 @@ use zolana_keypair::{KeypairError, ViewingKey};
 pub const HEALTH: &str = "health";
 pub const CREATE_AUDITOR_KEY: &str = "createAuditorKey";
 pub const GET_DECRYPTED_TRANSACTIONS: &str = "getDecryptedTransactions";
+pub const PROVE_AUDITOR_KEY_ENCRYPTION: &str = "proveAuditorKeyEncryption";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
@@ -53,6 +54,24 @@ const ATTESTATION_DOMAIN: &[u8] = b"zolana/ring-auditor-key/v1";
 /// key to the ring, so a signature for one ring attests nothing for another.
 pub fn auditor_key_attestation(ring_program_id: &Address, auditor_pubkey: &[u8]) -> Vec<u8> {
     [ATTESTATION_DOMAIN, ring_program_id.as_ref(), auditor_pubkey].concat()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
+pub struct ProveAuditorKeyEncryptionRequest {
+    /// Required when the instance derives keys per ring.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ring_program_id: Option<SerializablePubkey>,
+    pub private_tx_hash: Base64String,
+    pub tx_viewing_sk: Base64String,
+    pub eph_sk: Base64String,
+}
+
+/// The wincode bytes of `AuditProof`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
+pub struct ProveAuditorKeyEncryptionResponse {
+    pub proof: Base64String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
