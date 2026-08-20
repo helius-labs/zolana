@@ -118,8 +118,9 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 	inputHashes := make([]frontend.Variable, t.Shape.NInputs)
 	addressHashes := make([]frontend.Variable, t.Shape.NInputs)
 	for i, in := range t.Inputs {
+		isDummyOrAddress := api.Add(in.isDummy(api), in.isAddress(api))
 		api.AssertIsEqual(
-			api.Mul(api.Sub(1, t.AllowDummyInputs), in.isDummy(api)),
+			api.Mul(api.Sub(1, t.AllowDummyInputs), isDummyOrAddress),
 			0,
 		)
 		signals := PublicInputUtxoInputs{
