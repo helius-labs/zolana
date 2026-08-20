@@ -17,10 +17,15 @@ url := "cargo run -q -p {{project-name}} -- url"
 default:
     @just --list
 
+# The CLI every recipe calls through `cargo run -q`. Built here once with cargo's
+# progress visible, so a fresh ring does not compile in silence.
+build-cli:
+    cargo build -p {{project-name}}
+
 # Local test validator with SPP, photon and the prover, and ring.toml set to
 # localnet. The ring RPC is not part of it. `just rpc` starts it once the ring
 # is initialized, `just pipeline` does so on its own.
-localnet:
+localnet: build-cli
     cargo run -q -p {{project-name}} -- target localnet
     just -f {{ "{{zolana}}" }}/justfile ring-localnet
     just urls
@@ -31,7 +36,7 @@ localnet-stop: rpc-stop
 # ring.toml set to devnet. The hosted devnet Photon and prover from ring.toml
 # are probed, or started on this machine when ring.toml points them at
 # 127.0.0.1. Deploys and transactions then go to devnet and cost devnet SOL.
-devnet:
+devnet: build-cli
     #!/usr/bin/env bash
     set -euo pipefail
     cargo run -q -p {{project-name}} -- target devnet
@@ -71,7 +76,7 @@ repo:
 
 # Deploy under the authority from ring.toml (it becomes the upgrade authority),
 # or upgrade the program in place when it is already deployed.
-deploy: build
+deploy: build build-cli
     cargo run -q -p {{project-name}} -- deploy --program-so {{ "{{program-so}}" }}
 
 # The auditor key is a local file the ring RPC below serves. Its public half is
@@ -86,7 +91,7 @@ auditor-key:
     cargo run -q --manifest-path {{ "{{zolana}}" }}/services/ring-rpc/Cargo.toml -- keygen --out keys/auditor.key
 
 # Create the ring config with the auditor key and register the ring with SPP.
-init: auditor-key
+init: build-cli auditor-key
     cargo run -q -p {{project-name}} -- init
 
 # Serve decrypted ring transactions to the auditor (foreground) against the
@@ -101,19 +106,19 @@ rpc:
         --allow-origin "${RING_RPC_ALLOW_ORIGINS:-http://localhost:3000}"
 
 # Two ring deposits and one audited transfer, read back through the ring RPC.
-transact:
+transact: build-cli
     cargo run -q -p {{project-name}} -- transact
 
-status:
+status: build-cli
     cargo run -q -p {{project-name}} -- status
 
 # Let another key read the ring's transactions through the ring RPC, and take
 # that back. The authority signs, so a Squads-held authority runs the same
 # instruction through a proposal.
-grant-reader reader:
+grant-reader reader: build-cli
     cargo run -q -p {{project-name}} -- reader grant {{ "{{reader}}" }}
 
-revoke-reader reader:
+revoke-reader reader: build-cli
     cargo run -q -p {{project-name}} -- reader revoke {{ "{{reader}}" }}
 
 # Steps 3 to 7 in one go against the active target. The ring RPC is started in
