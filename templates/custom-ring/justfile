@@ -91,10 +91,14 @@ init: auditor-key
 
 # Serve decrypted ring transactions to the auditor (foreground) against the
 # active target.
+# Browser pages named in RING_RPC_ALLOW_ORIGINS (.env) may call it and sign
+# reads with passkeys. Every local ring serves on the same port, so one ring's
+# RPC at a time.
 rpc:
     cargo run -q --manifest-path {{ "{{zolana}}" }}/services/ring-rpc/Cargo.toml -- serve \
         --port {{ring_rpc_port}} --indexer-url "$({{ "{{url}}" }} indexer)" --rpc-url "$({{ "{{url}}" }} rpc)" \
-        --auditor-key-file keys/auditor.key --ring-program-id {{program_id}}
+        --auditor-key-file keys/auditor.key --ring-program-id {{program_id}} \
+        --allow-origin "${RING_RPC_ALLOW_ORIGINS:-http://localhost:3000}"
 
 # Two ring deposits and one audited transfer, read back through the ring RPC.
 transact:
