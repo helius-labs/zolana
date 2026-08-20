@@ -104,7 +104,7 @@ fn rebalance(
     Ok(())
 }
 
-/// Send one withdrawal (`amount = 0` re-blinds) from `pool_in` into `pool_out`.
+/// Send one withdrawal from `pool_in` into `pool_out`.
 fn withdraw(cx: &PoolCx, pool_in: PoolUtxo, pool_out: PoolUtxo, amount: u64) -> Result<()> {
     let authority_solana = &cx.env.authority.keypair;
     let spp_input = pool_in
@@ -123,24 +123,21 @@ fn withdraw(cx: &PoolCx, pool_in: PoolUtxo, pool_out: PoolUtxo, amount: u64) -> 
         &viewing_key,
     )
     .map_err(|e| anyhow!("encode outputs: {e:?}"))?;
-    let mut external_data = ExternalData::new(
+    let external_data = ExternalData::new(
         *viewing_key.pubkey().as_bytes(),
         encoded.salt,
         encoded.outputs,
         encoded.resolved_owner_tags,
         vec![],
-    );
-    if amount > 0 {
-        external_data = external_data
-            .with_interface_transfer(SettlementTransfer::Spl {
-                mint: cx.env.dest_mint,
-                is_deposit: false,
-                amount,
-                user_spl_token: cx.env.authority_dest_token,
-                spl_token_interface: zolana_interface::pda::spl_interface(&cx.env.dest_mint),
-            })
-            .map_err(|e| anyhow!("interface transfer: {e:?}"))?;
-    }
+    )
+    .with_interface_transfer(SettlementTransfer::Spl {
+        mint: cx.env.dest_mint,
+        is_deposit: false,
+        amount,
+        user_spl_token: cx.env.authority_dest_token,
+        spl_token_interface: zolana_interface::pda::spl_interface(&cx.env.dest_mint),
+    })
+    .map_err(|e| anyhow!("interface transfer: {e:?}"))?;
     let external_data_hash = external_data
         .hash()
         .map_err(|e| anyhow!("external data hash: {e:?}"))?;
@@ -178,11 +175,11 @@ fn withdraw(cx: &PoolCx, pool_in: PoolUtxo, pool_out: PoolUtxo, amount: u64) -> 
         pair: cx.pair,
         tree: cx.env.tree,
         amount,
-        spl: (amount > 0).then(|| WithdrawSplAccounts {
+        spl: WithdrawSplAccounts {
             mint: cx.env.dest_mint,
             user_token: cx.env.authority_dest_token,
             token_program: zolana_interface::pda::spl_token_program_id(),
-        }),
+        },
         proof: Groth16ProofBytes {
             proof_a: proof.proof_a,
             proof_b: proof.proof_b,
@@ -198,9 +195,9 @@ fn withdraw(cx: &PoolCx, pool_in: PoolUtxo, pool_out: PoolUtxo, amount: u64) -> 
 }
 
 // Pool lifecycle without any escrow: deposit -> split (1->2, credit 0) ->
-// merge (2->1, credit 0) -> partial withdrawal -> re-blind (amount 0) ->
-// drain. Asserts the public accounting after every step and that the maker's
-// token balance round-trips: every unit deposited comes back.
+// merge (2->1, credit 0) -> partial withdrawal -> full withdrawal. Asserts the public
+// accounting after every step and that the maker's token balance round-trips:
+// every unit deposited comes back.
 #[test]
 fn pool_deposit_rebalance_withdraw() -> Result<()> {
     let (env, pair) = setup_with_pair(PRICE, EXPIRY_SLOTS, MAX_ORDER_SIZE)?;
@@ -279,24 +276,7 @@ fn pool_deposit_rebalance_withdraw() -> Result<()> {
         "withdrawal must land in the maker's token account"
     );
 
-    // Re-blind (amount 0): rotates the note with no SPL leg and no public
-    // effect.
-    let reblinded = PoolUtxo {
-        asset: env.dest_mint,
-        amount: after_withdraw.amount,
-        booked: after_withdraw.booked,
-        blinding: random_blinding(),
-    };
-    withdraw(&cx, after_withdraw, reblinded.clone(), 0)?;
-    assert_liquidity(
-        &env,
-        pair,
-        POOL_DEPOSIT - WITHDRAW_AMOUNT,
-        0,
-        "after re-blind",
-    )?;
-
-    // Drain the rest: the pool and the bound return to zero, and the maker's
+    // Withdraw the remainder: the pool and the bound return to zero, and the maker's
     // token balance round-trips to its starting value.
     let empty = PoolUtxo {
         asset: env.dest_mint,
@@ -304,8 +284,8 @@ fn pool_deposit_rebalance_withdraw() -> Result<()> {
         booked: 0,
         blinding: random_blinding(),
     };
-    withdraw(&cx, reblinded.clone(), empty, reblinded.amount)?;
-    assert_liquidity(&env, pair, 0, 0, "after drain")?;
+    withdraw(&cx, after_withdraw, empty, POOL_DEPOSIT - WITHDRAW_AMOUNT)?;
+    assert_liquidity(&env, pair, 0, 0, "after complete withdrawal")?;
     assert_eq!(
         token_balance(&env, env.authority_dest_token)?,
         MAKER_DEST_BALANCE,

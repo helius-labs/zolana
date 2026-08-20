@@ -12,8 +12,7 @@ use crate::{
 /// (pool change), the exact IN1_OUT1 shape. The public `amount` leaves the
 /// pool through the transact's SplWithdrawal leg; the change note keeps
 /// `booked_in - amount` as its data hash, rejected in-circuit if negative, so
-/// a withdrawal can only consume counted value. `amount = 0` re-blinds a
-/// public deposit note into a confidential one.
+/// a withdrawal can only consume counted value.
 #[derive(Debug, Clone)]
 pub struct PoolWithdrawProofInputs {
     pub public_input_hash: [u8; 32],

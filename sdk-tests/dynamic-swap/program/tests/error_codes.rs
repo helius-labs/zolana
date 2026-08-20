@@ -30,6 +30,7 @@ fn error_codes_are_stable() {
         (AssetMismatch as u32, 9024),
         (InvalidDepositEntry as u32, 9025),
         (InterfaceTransferMismatch as u32, 9026),
+        (InvalidWithdrawalAmount as u32, 9027),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");

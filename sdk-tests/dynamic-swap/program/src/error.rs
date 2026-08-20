@@ -99,11 +99,12 @@ pub enum DynamicSwapError {
     #[error("deposit entry does not form a valid pool note")]
     InvalidDepositEntry = 9025,
     /// `withdraw_liquidity` whose transact interface transfers do not consist
-    /// of exactly one SplWithdrawal matching the withdrawn amount (or any
-    /// transfer at all for `amount = 0`), or `rebalance_liquidity` with any
-    /// interface transfer present.
+    /// of exactly one SplWithdrawal matching the withdrawn amount, or
+    /// `rebalance_liquidity` with any interface transfer present.
     #[error("transact interface transfers do not match the instruction")]
     InterfaceTransferMismatch = 9026,
+    #[error("withdrawal amount must be nonzero")]
+    InvalidWithdrawalAmount = 9027,
 }
 
 impl From<DynamicSwapError> for ProgramError {

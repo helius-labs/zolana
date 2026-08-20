@@ -1,17 +1,17 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use zolana_interface::{
     instruction::{
         builders::{Transact, TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts},
-        instruction_data::transact::TransactIxData,
+        instruction_data::transact::{InterfaceTransfer, TransactIxData},
     },
     pda,
 };
 
 use crate::{err, pool_authority_pda, tag, Groth16ProofBytes, WithdrawLiquidityIxData};
 
-/// The SPL destination of a withdrawal; omitted for the `amount = 0` re-blind.
+/// The SPL destination of a withdrawal.
 #[derive(Clone, Copy, Debug)]
 pub struct WithdrawSplAccounts {
     pub mint: Pubkey,
@@ -28,25 +28,28 @@ pub struct WithdrawLiquidity {
     pub pair: Pubkey,
     pub tree: Pubkey,
     pub amount: u64,
-    /// `None` only for the `amount = 0` re-blind (no SPL leg).
-    pub spl: Option<WithdrawSplAccounts>,
+    pub spl: WithdrawSplAccounts,
     pub proof: Groth16ProofBytes,
     pub transact: TransactIxData,
 }
 
 impl WithdrawLiquidity {
     pub fn instruction(self) -> Result<Instruction> {
-        let transfer_accounts = match self.spl {
-            Some(spl) => vec![TransactInterfaceTransferAccounts::SplWithdrawal(
-                TransactSplWithdrawalAccounts {
-                    mint: spl.mint,
-                    spl_interface: pda::spl_interface(&spl.mint),
-                    user_token_account: spl.user_token,
-                    token_program: spl.token_program,
-                },
-            )],
-            None => Vec::new(),
-        };
+        if self.amount == 0 {
+            bail!("withdrawal amount must be nonzero");
+        }
+        match self.transact.interface_transfers.as_slice() {
+            [InterfaceTransfer::SplWithdrawal { amount, .. }] if *amount == self.amount => {}
+            _ => bail!("transact must contain one SPL withdrawal matching the amount"),
+        }
+        let transfer_accounts = vec![TransactInterfaceTransferAccounts::SplWithdrawal(
+            TransactSplWithdrawalAccounts {
+                mint: self.spl.mint,
+                spl_interface: pda::spl_interface(&self.spl.mint),
+                user_token_account: self.spl.user_token,
+                token_program: self.spl.token_program,
+            },
+        )];
         // The interface builder lays out the canonical transact tail: payer,
         // trees, SPP, System Program, the pool authority owner-signer, then
         // the SplWithdrawal settlement group. The builder marks owner signers

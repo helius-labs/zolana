@@ -14,8 +14,8 @@ import (
 // transfer (the SPP transfer circuit balances it); this circuit's job is the
 // booked accounting: the change note keeps booked_in - amount, and the 64-bit
 // range checks reject both an overdrawn amount and a negative booked, so a
-// withdrawal can only consume counted value. Amount = 0 is allowed: it
-// re-blinds a public deposit note into a confidential one.
+// withdrawal can only consume counted value. The native program rejects a
+// zero amount before proof verification.
 type Circuit struct {
 	Public PublicInputs
 

@@ -8,7 +8,7 @@ use dynamic_swap_sdk::{
         create_pair::CreatePair,
         deposit_liquidity::DepositLiquidity,
         update_price::UpdatePrice,
-        withdraw_liquidity::WithdrawLiquidity,
+        withdraw_liquidity::{WithdrawLiquidity, WithdrawSplAccounts},
     },
     pair_pda,
     state::PoolUtxo,
@@ -43,6 +43,7 @@ const INVALID_MAX_ORDER_SIZE: u32 = 9023;
 const ASSET_MISMATCH: u32 = 9024;
 const INVALID_DEPOSIT_ENTRY: u32 = 9025;
 const INTERFACE_TRANSFER_MISMATCH: u32 = 9026;
+const INVALID_WITHDRAWAL_AMOUNT: u32 = 9027;
 
 // A custom program error surfaces in the RPC error two ways: the structured
 // `InstructionError::Custom(<decimal>)` and the program-log line `custom program
@@ -120,6 +121,23 @@ fn dummy_transact() -> TransactIxData {
         outputs: vec![],
         messages: vec![],
     }
+}
+
+fn withdraw_spl_accounts(env: &TestEnv) -> WithdrawSplAccounts {
+    WithdrawSplAccounts {
+        mint: env.dest_mint,
+        user_token: env.authority_dest_token,
+        token_program: zolana_interface::pda::spl_token_program_id(),
+    }
+}
+
+fn dummy_withdraw_transact(env: &TestEnv, amount: u64) -> TransactIxData {
+    let mut transact = dummy_transact();
+    transact.interface_transfers = vec![InterfaceTransfer::SplWithdrawal {
+        amount,
+        spl_interface_bump: zolana_interface::pda::spl_interface_with_bump(&env.dest_mint).1,
+    }];
+    transact
 }
 
 // Proof-free access-control and validation rejections, all under one validator
@@ -331,14 +349,14 @@ fn zero_price_and_authority_checks() -> Result<()> {
         authority: intruder.pubkey(),
         pair,
         tree: Pubkey::new_unique(),
-        amount: 0,
-        spl: None,
+        amount: 1,
+        spl: withdraw_spl_accounts(&env),
         proof: Groth16ProofBytes {
             proof_a: [0u8; 32],
             proof_b: [0u8; 64],
             proof_c: [0u8; 32],
         },
-        transact: dummy_transact(),
+        transact: dummy_withdraw_transact(&env, 1),
     }
     .instruction()
     .map_err(|e| anyhow!("withdraw instruction: {e:?}"))?;
@@ -354,19 +372,57 @@ fn zero_price_and_authority_checks() -> Result<()> {
         .ok_or_else(|| anyhow!("non-authority withdraw must fail"))?;
     assert_custom_error("non-authority withdraw", &anyhow!("{err:?}"), UNAUTHORIZED);
 
-    // withdraw_liquidity beyond the bound: the empty pool covers nothing.
-    let withdraw_ix = WithdrawLiquidity {
-        authority: authority_solana.pubkey(),
-        pair,
-        tree: Pubkey::new_unique(),
-        amount: 1,
-        spl: None,
+    // A zero withdrawal is rejected before transfer-shape and proof checks.
+    let withdraw_data = dynamic_swap_sdk::WithdrawLiquidityIxData {
+        amount: 0,
         proof: Groth16ProofBytes {
             proof_a: [0u8; 32],
             proof_b: [0u8; 64],
             proof_c: [0u8; 32],
         },
         transact: dummy_transact(),
+    };
+    let mut withdraw_bytes = vec![dynamic_swap_sdk::tag::WITHDRAW_LIQUIDITY];
+    withdraw_bytes.extend_from_slice(
+        &wincode::serialize(&withdraw_data).map_err(|e| anyhow!("serialize withdraw: {e:?}"))?,
+    );
+    let withdraw_ix = solana_instruction::Instruction {
+        program_id: dynamic_swap_program::ID,
+        accounts: vec![
+            solana_instruction::AccountMeta::new(authority_solana.pubkey(), true),
+            solana_instruction::AccountMeta::new(pair, false),
+        ],
+        data: withdraw_bytes,
+    };
+    let err = env
+        .client
+        .rpc()
+        .create_and_send_transaction(
+            &[withdraw_ix],
+            authority_solana.pubkey(),
+            &[&authority_solana],
+        )
+        .err()
+        .ok_or_else(|| anyhow!("zero withdraw must fail"))?;
+    assert_custom_error(
+        "zero withdraw",
+        &anyhow!("{err:?}"),
+        INVALID_WITHDRAWAL_AMOUNT,
+    );
+
+    // withdraw_liquidity beyond the bound: the empty pool covers nothing.
+    let withdraw_ix = WithdrawLiquidity {
+        authority: authority_solana.pubkey(),
+        pair,
+        tree: Pubkey::new_unique(),
+        amount: 1,
+        spl: withdraw_spl_accounts(&env),
+        proof: Groth16ProofBytes {
+            proof_a: [0u8; 32],
+            proof_b: [0u8; 64],
+            proof_c: [0u8; 32],
+        },
+        transact: dummy_withdraw_transact(&env, 1),
     }
     .instruction()
     .map_err(|e| anyhow!("withdraw instruction: {e:?}"))?;

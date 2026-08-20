@@ -16,30 +16,18 @@ use crate::{
     state::load_pair_mut,
 };
 
-/// The SplWithdrawal settlement group appended to the transact tail:
-/// `cpi_authority, mint, spl_interface, user_token_account, token_program`.
-/// With exactly one transfer (enforced below) SPP rejects leftover accounts,
-/// so the group is the tail's final five accounts and the destination token
-/// account sits second-to-last.
 const WITHDRAWAL_GROUP_LEN: usize = 5;
 const USER_TOKEN_FROM_END: usize = 2;
 
-/// SPL token account layout: the owner pubkey occupies bytes 32..64.
 const TOKEN_ACCOUNT_OWNER_RANGE: core::ops::Range<usize> = 32..64;
 
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct WithdrawLiquidityIxData {
-    /// `pool_withdraw` circuit proof (1-in: pool note / 1-out: pool change).
     pub proof: Groth16ProofBytes,
-    /// The public withdrawn amount. `0` is allowed: it re-blinds a public
-    /// deposit note into a confidential one, with no SPL leg.
     pub amount: u64,
     pub transact: TransactIxData,
 }
 
-/// `pool_withdraw`'s public-input hash: `Poseidon(PrivateTxHash,
-/// PoolAuthorityOwnerHash, DestinationAsset, Amount)`. Field order and encoding
-/// must match the circuit's `PublicInputs.Check`.
 pub struct PoolWithdrawPublicInput<'a> {
     pub private_tx_hash: &'a [u8; 32],
     pub pool_authority_owner_hash: &'a [u8; 32],
@@ -59,49 +47,79 @@ impl PoolWithdrawPublicInput<'_> {
     }
 }
 
-/// Unshields a public `amount` of the destination asset from one pool note to
-/// the authority's SPL token account through the transact's SplWithdrawal leg.
-/// Rejects `amount > available_liquidity`, so guaranteed funds for open orders can
-/// never leave; the circuit additionally consumes `amount` from the note's
-/// booked value, keeping the bound a lower bound.
+// Withdraws destination-asset SPL tokens from the pair's liquidity pool into
+// the authority's token account and subtracts the amount from available
+// liquidity.
+//
+// Steps:
+// 1. Check that the authority account is present, writable, and a signer.
+// 2. Check that the pair account is present and writable.
+// 3. Parse the proof, amount, and shielded-pool transaction.
+// 4. Load the pair, verifying program ownership, exact `Pair::SIZE`, the pair
+//    discriminator, and writable access.
+// 5. Check that the signer is the pair authority.
+// 6. Check that the amount is nonzero.
+// 7. Check that the amount does not exceed `pair.available_liquidity`.
+// 8. Check for exactly one SPL withdrawal matching the amount.
+// 9. Derive the `pool_authority` PDA's owner hash.
+// 10. Build the proof's public-input hash from `transact.private_tx_hash`, the
+//     pool owner, destination asset, and amount.
+// 11. Verify the `pool_withdraw` Groth16 proof.
+// 12. Check that the forwarded shielded-pool account list is present.
+// 13. Check that the account list is long enough for the five-account SPL
+//     withdrawal group.
+// 14. Locate the destination token account in that group.
+// 15. Read the destination token account's owner field.
+// 16. Check that the destination token account belongs to the pair authority.
+// 17. Subtract the amount from `pair.available_liquidity` with underflow
+//     checking.
+// 18. Serialize the shielded-pool transaction.
+// 19. Invoke the shielded-pool program with the `pool_authority` PDA as signer.
 #[inline(never)]
 #[profile]
 pub fn process_withdraw_liquidity_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let mut iter = AccountIterator::new(accounts);
+    // Step 1: Check that the authority is present, writable, and a signer.
     let authority = iter.next_signer_mut("authority")?;
+    // Step 2: Check that the pair account is present and writable.
     let pair_account = iter.next_mut("pair")?;
     let pair_address = *pair_account.address();
 
+    // Step 3: Parse the proof, amount, and shielded-pool transaction.
     let WithdrawLiquidityIxData {
         proof,
         amount,
         transact,
     } = wincode::deserialize_exact(data).map_err(|_| DynamicSwapError::InvalidInstructionData)?;
 
+    // Step 4: Load and validate the pair account.
     let pair = *load_pair_mut(pair_account)?;
+    // Step 5: Check that the signer is the pair authority.
     if !address_eq(&pair.authority, authority.address()) {
         return Err(DynamicSwapError::Unauthorized.into());
     }
+    // Step 6: Check that the amount is nonzero.
+    if amount == 0 {
+        return Err(DynamicSwapError::InvalidWithdrawalAmount.into());
+    }
+    // Step 7: Check that the amount does not exceed available liquidity.
     if amount > pair.available_liquidity {
         return Err(DynamicSwapError::InsufficientLiquidity.into());
     }
 
-    // The transact's public SPL leg must be exactly the withdrawn amount: one
-    // SplWithdrawal matching `amount`, or none at all for the `amount = 0`
-    // re-blind (SPP rejects zero-amount transfers).
-    match (amount, transact.interface_transfers.as_slice()) {
-        (0, []) => {}
-        (
-            _,
-            [InterfaceTransfer::SplWithdrawal {
-                amount: transfer_amount,
-                ..
-            }],
-        ) if amount > 0 && *transfer_amount == amount => {}
+    // Step 8: Check that the public transfer shape matches the amount.
+    match transact.interface_transfers.as_slice() {
+        [InterfaceTransfer::SplWithdrawal {
+            amount: transfer_amount,
+            ..
+        }] if *transfer_amount == amount => {}
         _ => return Err(DynamicSwapError::InterfaceTransferMismatch.into()),
     }
 
+    // Step 9: Derive the pool authority's owner hash.
     let pool_owner_hash = pool_authority_owner_hash(&pair_address)?;
+    // Step 10: Build the proof's public-input hash.
+    // Step 11: Verify the pool-withdraw proof.
     verify_groth16(
         CompressedGroth16Proof {
             a: &proof.proof_a,
@@ -119,30 +137,30 @@ pub fn process_withdraw_liquidity_ix(accounts: &mut [AccountView], data: &[u8]) 
         &crate::verifying_keys::pool_withdraw::VERIFYINGKEY,
     )?;
 
+    // Step 12: Check that the forwarded shielded-pool accounts are present.
     let spp_accounts = iter.remaining()?;
-    // Defense in depth: the withdrawal destination must be a token account
-    // owned by the pair authority (the authority signed and picked the
-    // accounts, but this keeps a mistaken destination from settling). With
-    // exactly one transfer the group is the tail's final five accounts.
-    if amount > 0 {
-        if spp_accounts.len() < WITHDRAWAL_GROUP_LEN {
-            return Err(ProgramError::NotEnoughAccountKeys);
-        }
-        let user_token = spp_accounts
-            .get(spp_accounts.len() - USER_TOKEN_FROM_END)
-            .ok_or(ProgramError::NotEnoughAccountKeys)?;
-        let token_data = user_token
-            .try_borrow()
-            .map_err(|_| DynamicSwapError::InterfaceTransferMismatch)?;
-        let token_owner = token_data
-            .get(TOKEN_ACCOUNT_OWNER_RANGE)
-            .ok_or(DynamicSwapError::InterfaceTransferMismatch)?;
-        if token_owner != pair.authority.as_array() {
-            return Err(DynamicSwapError::InterfaceTransferMismatch.into());
-        }
+    // Step 13: Check that the SPL withdrawal group has enough accounts.
+    if spp_accounts.len() < WITHDRAWAL_GROUP_LEN {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    }
+    // Step 14: Locate the destination token account.
+    let user_token = spp_accounts
+        .get(spp_accounts.len() - USER_TOKEN_FROM_END)
+        .ok_or(ProgramError::NotEnoughAccountKeys)?;
+    // Step 15: Read the destination token account's owner field.
+    let token_data = user_token
+        .try_borrow()
+        .map_err(|_| DynamicSwapError::InterfaceTransferMismatch)?;
+    let token_owner = token_data
+        .get(TOKEN_ACCOUNT_OWNER_RANGE)
+        .ok_or(DynamicSwapError::InterfaceTransferMismatch)?;
+    // Step 16: Check that the token account belongs to the pair authority.
+    if token_owner != pair.authority.as_array() {
+        return Err(DynamicSwapError::InterfaceTransferMismatch.into());
     }
 
     {
+        // Step 17: Subtract the amount from available liquidity.
         let mut pair = load_pair_mut(pair_account)?;
         pair.available_liquidity = pair
             .available_liquidity
@@ -150,12 +168,11 @@ pub fn process_withdraw_liquidity_ix(accounts: &mut [AccountView], data: &[u8]) 
             .ok_or(ProgramError::ArithmeticOverflow)?;
     }
 
+    // Step 18: Serialize the shielded-pool transaction.
     let transact_bytes = transact
         .serialize()
         .map_err(|_| DynamicSwapError::InvalidInstructionData)?;
-    // The spent pool note is owned by the pool_authority PDA, the only account
-    // flipped to a signer in the `transact` CPI (it also authorizes the
-    // data-bearing pool change output).
+    // Step 19: Invoke the shielded pool with the pool authority as signer.
     cpi_spp_transact_signed(
         &pair_address,
         crate::POOL_AUTHORITY_PDA_SEED,

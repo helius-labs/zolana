@@ -33,6 +33,9 @@ zolana-interface = { workspace = true, features = ["solana"] }
 # encryption key. The feature is purely additive.
 bytemuck = { workspace = true, features = ["min_const_generics"] }
 
+[dev-dependencies]
+zolana-account-checks = { workspace = true, features = ["test-only"] }
+
 [lints.rust.unexpected_cfgs]
 level = "allow"
 check-cfg = [

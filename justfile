@@ -621,6 +621,8 @@ bench-escrow: ensure-escrow-keys
 # own gnark keys (build/gnark/{escrow_open,escrow_settle,escrow_cancel}) are
 # gitignored; fetch or verify them with ensure-dynamic-swap-keys first.
 bench-dynamic-swap: ensure-dynamic-swap-keys
+    test -f target/deploy/spl_token.so || \
+        solana program dump TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA target/deploy/spl_token.so --url mainnet-beta
     cargo build-sbf --tools-version {{sbf-tools-version}} \
         --sbf-out-dir target/dynamic-swap-bench \
         --manifest-path programs/shielded-pool/Cargo.toml \

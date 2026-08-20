@@ -17,7 +17,7 @@ use dynamic_swap_sdk::{
             RECIPIENT_BLINDING_DOMAIN,
         },
         update_price::UpdatePrice,
-        withdraw_liquidity::{WithdrawLiquidity, WithdrawProofInputParams},
+        withdraw_liquidity::{WithdrawLiquidity, WithdrawProofInputParams, WithdrawSplAccounts},
     },
     pair_pda,
     prover::DynamicSwapProverClient,
@@ -28,7 +28,7 @@ use light_program_profiler::{
     mollusk::{register_profiling_syscalls, take_profiling_entries},
     report::{CuBenchmark, ReadmeConfig, SectionTable},
 };
-use mollusk_svm::{result::Check, Mollusk};
+use mollusk_svm::{program::loader_keys::LOADER_V3, result::Check, Mollusk};
 use num_bigint::BigUint;
 use solana_account::Account;
 use solana_address::Address;
@@ -46,11 +46,14 @@ use zolana_client::{
 use zolana_hasher::Poseidon;
 use zolana_interface::{
     instruction::instruction_data::transact::TransactIxData,
+    pda,
     state::{
         address_tree_params, discriminator::TREE_ACCOUNT_DISCRIMINATOR, tree_account_size,
         STATE_HEIGHT,
     },
-    SHIELDED_POOL_PROGRAM_ID,
+    SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET,
+    SPL_TOKEN_ACCOUNT_INITIALIZED, SPL_TOKEN_ACCOUNT_LEN, SPL_TOKEN_ACCOUNT_STATE_OFFSET,
+    SPL_TOKEN_MINT_ACCOUNT_LEN, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{random_blinding, ShieldedKeypair, ShieldedPda, SigningKey};
 use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
@@ -59,7 +62,7 @@ use zolana_transaction::{
         transact::{
             encrypt_transaction_data, get_transaction_viewing_key,
             spp_proof_inputs::{asset_field, BN254_MODULUS_DEC},
-            ExternalData, SppProofInputs, SppProofOutputUtxo,
+            ExternalData, SettlementTransfer, SppProofInputs, SppProofOutputUtxo,
         },
         types::SppProofInputUtxo,
     },
@@ -75,6 +78,10 @@ const OUTPUT_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../BENCHMARK.md"
 const PROVER_KEYS_DIR: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../prover/server/proving-keys"
+);
+const SPL_TOKEN_PROGRAM_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../target/deploy/spl_token.so"
 );
 
 const SOURCE_ASSET_ID: u64 = 2;
@@ -97,6 +104,40 @@ fn system_owned_account(lamports: u64) -> Account {
         lamports,
         data: Vec::new(),
         owner: Pubkey::new_from_array([0u8; 32]),
+        executable: false,
+        rent_epoch: 0,
+    }
+}
+
+fn token_mint_fixture(token_program: &Pubkey) -> Account {
+    let mut data = vec![0u8; SPL_TOKEN_MINT_ACCOUNT_LEN];
+    data[44] = 0;
+    data[45] = 1;
+    Account {
+        lamports: 1_000_000_000,
+        data,
+        owner: *token_program,
+        executable: false,
+        rent_epoch: 0,
+    }
+}
+
+fn token_account_fixture(
+    mint: &Pubkey,
+    owner: &[u8; 32],
+    amount: u64,
+    token_program: &Pubkey,
+) -> Account {
+    let mut data = vec![0u8; SPL_TOKEN_ACCOUNT_LEN];
+    data[..32].copy_from_slice(&mint.to_bytes());
+    data[32..64].copy_from_slice(owner);
+    data[SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET..SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET + 8]
+        .copy_from_slice(&amount.to_le_bytes());
+    data[SPL_TOKEN_ACCOUNT_STATE_OFFSET] = SPL_TOKEN_ACCOUNT_INITIALIZED;
+    Account {
+        lamports: 1_000_000_000,
+        data,
+        owner: *token_program,
         executable: false,
         rent_epoch: 0,
     }
@@ -384,6 +425,11 @@ fn bench_cu_dynamic_swap() {
     register_profiling_syscalls(&mut mollusk);
     mollusk.add_program(&dynamic_swap_id, "dynamic_swap_program");
     mollusk.add_program(&spp_id, "shielded_pool_program");
+    let token_program_id = Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID);
+    let spl_token_elf = std::fs::read(SPL_TOKEN_PROGRAM_PATH).unwrap_or_else(|_| {
+        panic!("missing {SPL_TOKEN_PROGRAM_PATH}; run `just bench-dynamic-swap`")
+    });
+    mollusk.add_program_with_loader_and_elf(&token_program_id, &LOADER_V3, &spl_token_elf);
 
     let mut bench = CuBenchmark::new(ReadmeConfig {
         title: "Dynamic Swap -- CU Benchmark".into(),
@@ -397,8 +443,8 @@ fn bench_cu_dynamic_swap() {
              do not appear here. update_price never verifies a proof or CPI into SPP at all (the \
              whole point of keeping it cheap); create_escrow (taker-only, IN1_OUT2), settle \
              (pool-funded, maker-only, IN2_OUT3), cancel (after expiry, IN1_OUT1), \
-             withdraw_liquidity (IN1_OUT1, benched as the amount = 0 re-blind so no SPL \
-             settlement fixtures are needed), and rebalance_liquidity (IN5_OUT4, dummy-padded) \
+             withdraw_liquidity (IN1_OUT1 with an SPL withdrawal), and rebalance_liquidity \
+             (IN5_OUT4, dummy-padded) \
              each verify their own Groth16 proof and then CPI SPP `transact`, which verifies its \
              own. deposit_liquidity is proof-free (the program validates the public entry and \
              forwards SPP's proofless deposit with its SPL settlement) and is not profiled here \
@@ -1126,9 +1172,12 @@ fn bench_withdraw_liquidity(
 ) {
     let world = escrow_bench_world();
     let pool_address = world.pool_address();
+    let amount = MAX_ORDER_SIZE;
+    let mint = Pubkey::new_from_array(world.destination_asset.to_bytes());
+    let user_token = Pubkey::new_unique();
+    let token_program = Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID);
+    let spl_interface = pda::spl_interface(&mint);
 
-    // Benched as the amount = 0 re-blind: the proof/CPI path is identical to a
-    // real withdrawal, with no SPL settlement fixtures needed.
     let pool_in_note = PoolUtxo {
         asset: world.destination_asset,
         amount: FUNDING_AMOUNT,
@@ -1137,8 +1186,8 @@ fn bench_withdraw_liquidity(
     };
     let pool_out_note = PoolUtxo {
         asset: world.destination_asset,
-        amount: FUNDING_AMOUNT,
-        booked: FUNDING_AMOUNT,
+        amount: FUNDING_AMOUNT - amount,
+        booked: FUNDING_AMOUNT - amount,
         blinding: random_blinding(),
     };
     let pool_in = pool_in_note.to_input_utxo(&pool_address).expect("pool_in");
@@ -1156,7 +1205,15 @@ fn bench_withdraw_liquidity(
         encoded.outputs,
         encoded.resolved_owner_tags,
         vec![],
-    );
+    )
+    .with_interface_transfer(SettlementTransfer::Spl {
+        mint,
+        is_deposit: false,
+        amount,
+        user_spl_token: user_token,
+        spl_token_interface: spl_interface,
+    })
+    .expect("withdrawal interface transfer");
     let external_data_hash = external_data.hash().expect("external data hash");
     let spp_proof_inputs = SppProofInputs::new(
         input_utxos,
@@ -1192,7 +1249,7 @@ fn bench_withdraw_liquidity(
         pool_in: pool_in_note,
         pool_out: pool_out_note,
         pool_authority: pool_address,
-        amount: 0,
+        amount,
         destination_asset: asset_field(&world.destination_asset).expect("destination asset field"),
         external_data_hash,
     }
@@ -1208,8 +1265,12 @@ fn bench_withdraw_liquidity(
         authority: world.authority_solana.pubkey(),
         pair: world.pair,
         tree: world.tree,
-        amount: 0,
-        spl: None,
+        amount,
+        spl: WithdrawSplAccounts {
+            mint,
+            user_token,
+            token_program,
+        },
         proof: Groth16ProofBytes {
             proof_a: withdraw_proof.proof_a,
             proof_b: withdraw_proof.proof_b,
@@ -1230,6 +1291,29 @@ fn bench_withdraw_liquidity(
             pair_fixture(world.pair_state(FUNDING_AMOUNT, 0), dynamic_swap_id),
         ),
         (world.tree, tree_account),
+        (mint, token_mint_fixture(&token_program)),
+        (
+            spl_interface,
+            token_account_fixture(
+                &mint,
+                &SHIELDED_POOL_CPI_AUTHORITY,
+                FUNDING_AMOUNT,
+                &token_program,
+            ),
+        ),
+        (
+            user_token,
+            token_account_fixture(
+                &mint,
+                &world.authority_solana.pubkey().to_bytes(),
+                0,
+                &token_program,
+            ),
+        ),
+        (
+            token_program,
+            mollusk_svm::program::create_program_account_loader_v3(&token_program),
+        ),
     ];
     let accounts = assemble_accounts(&ix, spp_id, &fixtures);
     mollusk.process_and_validate_instruction(&ix, &accounts, &[Check::success()]);

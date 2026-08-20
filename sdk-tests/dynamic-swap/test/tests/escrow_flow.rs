@@ -62,7 +62,7 @@ const EXPIRY_SLOTS: u64 = 100_000;
 //   5. rebalance_liquidity: the maker publishes the settle surplus
 //      (MAX_ORDER_SIZE - OWED) back into available_liquidity.
 //   6. withdraw_liquidity: the maker unshields the whole remaining pool back
-//      to its token account; the pool and the bound drain to zero.
+//      to its token account; the pool and the bound return to zero.
 #[test]
 fn create_pair_escrow_and_settle() -> Result<()> {
     // 1. setup_with_pair: register the SPL(source)->SPL(destination) pair.
@@ -739,11 +739,11 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             pair,
             tree: env.tree,
             amount,
-            spl: Some(WithdrawSplAccounts {
+            spl: WithdrawSplAccounts {
                 mint: env.dest_mint,
                 user_token: env.authority_dest_token,
                 token_program: zolana_interface::pda::spl_token_program_id(),
-            }),
+            },
             proof: Groth16ProofBytes {
                 proof_a: withdraw_proof.proof_a,
                 proof_b: withdraw_proof.proof_b,

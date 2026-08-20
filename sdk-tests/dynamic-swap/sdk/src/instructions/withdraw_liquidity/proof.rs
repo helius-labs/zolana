@@ -14,7 +14,6 @@ fn err(e: impl core::fmt::Debug) -> anyhow::Error {
 /// 1-out (pool change), the exact IN1_OUT1 shape. The public `amount` leaves
 /// through the transact's SplWithdrawal leg; the change keeps
 /// `booked_in - amount`, so a withdrawal can only consume counted value.
-/// `amount = 0` re-blinds a public deposit note into a confidential one.
 ///
 /// The transact-facing note forms are deterministic from the same `PoolUtxo`s
 /// (their blindings are caller-fixed), so the caller builds those with
@@ -34,6 +33,9 @@ pub struct WithdrawProofInputParams {
 
 impl WithdrawProofInputParams {
     pub fn to_proof_inputs(&self) -> Result<PoolWithdrawProofInputs> {
+        if self.amount == 0 {
+            bail!("withdrawal amount must be nonzero");
+        }
         if asset_field(&self.pool_in.asset).map_err(err)? != self.destination_asset {
             bail!("pool_in asset does not match the pair destination asset");
         }
