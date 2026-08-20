@@ -43,7 +43,7 @@ func (c *Circuit) Define(api frontend.API) error {
 // PublicInputs folds PrivateTxHash with the pool_authority owner-hash (the
 // native program recomputes it: PDA re-derived, zero-secret nullifier pubkey),
 // the pair's destination asset, and the withdrawn Amount the program pays out
-// through the SplWithdrawal leg and subtracts from liquidity_bound.
+// through the SplWithdrawal leg and subtracts from available_liquidity.
 type PublicInputs struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 
@@ -55,7 +55,7 @@ type PublicInputs struct {
 	// The pair's destination asset, fed on-chain from Pair.destination_asset.
 	DestinationAsset frontend.Variable
 	// The public withdrawn amount, fed on-chain from the instruction data (the
-	// program checks it against liquidity_bound and the SplWithdrawal leg).
+	// program checks it against available_liquidity and the SplWithdrawal leg).
 	Amount frontend.Variable
 }
 

@@ -39,7 +39,7 @@ const DEPOSIT_MINT_INDEX: usize = 4;
 //     discriminator, and writable access.
 // 16. Check that the supplied SPL mint's asset commitment equals
 //     `pair.destination_asset`.
-// 17. Add the amount to `pair.liquidity_bound` with overflow checking.
+// 17. Add the amount to `pair.available_liquidity` with overflow checking.
 // 18. Invoke the shielded-pool program, which validates its account layout,
 //     depositor authorization, SPL transfer, and UTXO creation.
 #[inline(never)]
@@ -112,8 +112,8 @@ pub fn process_deposit_liquidity_ix(accounts: &mut [AccountView], data: &[u8]) -
             return Err(DynamicSwapError::AssetMismatch.into());
         }
         // Step 17: Add the amount to available liquidity without overflow.
-        pair.liquidity_bound = pair
-            .liquidity_bound
+        pair.available_liquidity = pair
+            .available_liquidity
             .checked_add(entry.amount)
             .ok_or(ProgramError::ArithmeticOverflow)?;
     }

@@ -73,7 +73,7 @@ impl SettlePublicInput<'_> {
 /// notes' confidential data anyway), the payout is funded from a
 /// pool_authority-owned note, the change re-locks under the pool_authority,
 /// and the source-asset receipt goes to the pair's stored receipt owner-hash.
-/// `liquidity_bound` is untouched: the reservation taken at create_escrow
+/// `available_liquidity` is untouched: the reservation taken at create_escrow
 /// already charged `max_order_size`, and the unspent part stays in the change
 /// note as surplus, publishable later through `rebalance_liquidity`.
 #[inline(never)]
@@ -143,7 +143,7 @@ pub fn process_settle_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
         &crate::verifying_keys::pool_settle::VERIFYINGKEY,
     )?;
 
-    // Release the reservation. `liquidity_bound` stays untouched: the pool
+    // Release the reservation. `available_liquidity` stays untouched: the pool
     // dropped by owed while the bound already dropped by max_order_size at
     // creation, so the invariant holds with the slack accumulating in the
     // change note.

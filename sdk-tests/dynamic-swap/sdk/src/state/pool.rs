@@ -71,7 +71,7 @@ pub fn pool_authority_identity(
 /// One pool (liquidity) note's full preimage: owned by the per-pair
 /// `pool_authority` PDA (seeds `[POOL_AUTHORITY_PDA_SEED, pair]`) with the
 /// zero-secret nullifier key. Its `DataHash` is `u64_right_align(booked)`
-/// directly -- the portion of `amount` the public `liquidity_bound` already
+/// directly -- the portion of `amount` the public `available_liquidity` already
 /// counts (`amount - booked` is unpublished surplus). Created by
 /// `deposit_liquidity` (booked = amount, fully public), `settle` (change,
 /// booked clamped down by `max_order_size`), and `rebalance_liquidity`.

@@ -79,10 +79,10 @@ pub enum DynamicSwapError {
     /// cancellable immediately and unsettleable.
     #[error("expiry_slots must be nonzero")]
     InvalidExpiry = 9021,
-    /// `create_escrow` when `liquidity_bound < max_order_size` (the worst-case
+    /// `create_escrow` when `available_liquidity < max_order_size` (the worst-case
     /// reservation cannot be covered), or `withdraw_liquidity` when the
-    /// withdrawn amount exceeds `liquidity_bound`.
-    #[error("insufficient committed liquidity")]
+    /// withdrawn amount exceeds `available_liquidity`.
+    #[error("insufficient available liquidity")]
     InsufficientLiquidity = 9022,
     /// `create_pair` with a zero `max_order_size`, which would make every
     /// escrow unprovable (owed is nonzero) and every reservation empty.

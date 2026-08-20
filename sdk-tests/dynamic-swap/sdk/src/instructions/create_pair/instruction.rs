@@ -5,7 +5,7 @@ use solana_pubkey::Pubkey;
 use crate::{err, tag, CreatePairData};
 
 /// Creates a unidirectional trading pair. The pool starts empty
-/// (`liquidity_bound = 0`); the maker commits liquidity afterwards with
+/// (`available_liquidity = 0`); the maker commits liquidity afterwards with
 /// `deposit_liquidity`.
 pub struct CreatePair {
     pub payer: Pubkey,

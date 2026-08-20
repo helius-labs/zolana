@@ -20,7 +20,7 @@ import (
 // 2-in (order, pool note) / 3-out (recipient payout, pool change, maker
 // receipt), the exact IN2_OUT3 shape. The payout is funded from the pool: a
 // note locked under the pair's pool_authority PDA whose DataHash commits its
-// booked value (the portion of its amount the public liquidity_bound already
+// booked value (the portion of its amount the public available_liquidity already
 // counts). The change returns to the pool with booked reduced by the full
 // max_order_size reservation (clamped at zero) while only owed actually
 // leaves, so the unspent reservation stays in the note as surplus --

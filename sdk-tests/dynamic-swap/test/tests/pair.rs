@@ -17,7 +17,7 @@ const MAX_ORDER_SIZE: u64 = 1_000_000;
 
 // Creates a unidirectional pair then updates its price, asserting the pair
 // account ends up in the expected state. The pool starts empty:
-// `liquidity_bound` and `open_reservations` are zero until the maker deposits.
+// `available_liquidity` and `open_reservations` are zero until the maker deposits.
 #[test]
 fn create_pair_then_update_price() -> Result<()> {
     let env = setup()?;
@@ -90,7 +90,7 @@ fn create_pair_then_update_price() -> Result<()> {
         price: INITIAL_PRICE,
         expiry_slots: EXPIRY_SLOTS,
         max_order_size: MAX_ORDER_SIZE,
-        liquidity_bound: 0,
+        available_liquidity: 0,
         open_reservations: 0,
         source_asset,
         destination_asset,

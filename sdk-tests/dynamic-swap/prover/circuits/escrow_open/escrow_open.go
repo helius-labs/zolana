@@ -12,7 +12,7 @@ import (
 // shape with no padding on either side. The taker signs SourceIn as the CPI
 // payer; the program signs the escrow-authority-owned order output, which
 // authorizes the data-bearing slot. The maker is not involved: its committed
-// pool liquidity is reserved program-side (liquidity_bound -= max_order_size)
+// pool liquidity is reserved program-side (available_liquidity -= max_order_size)
 // and enters only at settle time, so there is no funding input and no maker
 // change here -- the circuit's liquidity job is only the owed cap, which makes
 // the worst-case reservation sufficient. max_price never enters the circuit --

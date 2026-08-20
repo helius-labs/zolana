@@ -52,7 +52,7 @@ const EXPIRY_SLOTS: u64 = 100_000;
 //   1. setup_with_pair: register the SPL(source)->SPL(destination) pair at
 //      PRICE with MAX_ORDER_SIZE and the maker encryption pubkey.
 //   2. deposit_liquidity: the maker shields POOL_DEPOSIT of the destination
-//      asset into a public pool note; liquidity_bound = POOL_DEPOSIT.
+//      asset into a public pool note; available_liquidity = POOL_DEPOSIT.
 //   3. create_escrow: the taker spends its funding UTXO (IN1_OUT2), priced at
 //      creation; the reservation moves MAX_ORDER_SIZE out of the bound.
 //   4. settle: the maker recovers the order and pool notes purely from Solana
@@ -60,7 +60,7 @@ const EXPIRY_SLOTS: u64 = 100_000;
 //      destination asset, pool change re-locked with booked clamped down by
 //      MAX_ORDER_SIZE, maker receipt (the full escrowed SPL). Maker-only.
 //   5. rebalance_liquidity: the maker publishes the settle surplus
-//      (MAX_ORDER_SIZE - OWED) back into liquidity_bound.
+//      (MAX_ORDER_SIZE - OWED) back into available_liquidity.
 //   6. withdraw_liquidity: the maker unshields the whole remaining pool back
 //      to its token account; the pool and the bound drain to zero.
 #[test]

@@ -19,7 +19,7 @@ pub const REBALANCE_OUTPUT_SLOTS: usize = 4;
 /// 4 pool notes out, dummy-padded to the fixed IN5_OUT4 shape. The circuit
 /// checks conservation over the real slots, per-output `booked <= amount`, and
 /// `sum(booked_out) = sum(booked_in) + credit` for the public `credit` the
-/// program adds to `liquidity_bound`.
+/// program adds to `available_liquidity`.
 #[derive(Debug, Clone)]
 pub struct PoolRebalanceProofInputs {
     pub public_input_hash: [u8; 32],

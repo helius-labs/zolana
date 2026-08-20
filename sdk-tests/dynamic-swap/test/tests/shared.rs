@@ -553,15 +553,15 @@ pub fn read_pair(env: &TestEnv, pair: Pubkey) -> Result<Pair> {
 pub fn assert_liquidity(
     env: &TestEnv,
     pair: Pubkey,
-    expected_bound: u64,
+    expected_available_liquidity: u64,
     expected_reservations: u64,
     context: &str,
 ) -> Result<()> {
     let state = read_pair(env, pair)?;
     assert_eq!(
-        (state.liquidity_bound, state.open_reservations),
-        (expected_bound, expected_reservations),
-        "{context}: (liquidity_bound, open_reservations) mismatch"
+        (state.available_liquidity, state.open_reservations),
+        (expected_available_liquidity, expected_reservations),
+        "{context}: (available_liquidity, open_reservations) mismatch"
     );
     Ok(())
 }

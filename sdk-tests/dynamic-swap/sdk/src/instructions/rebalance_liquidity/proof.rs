@@ -44,7 +44,7 @@ pub struct RebalanceProofInputParams {
     /// pool-role viewing pubkey (see `state::pool_authority_identity`); owner
     /// of every real slot and the encryption target of the output notes.
     pub pool_authority: ShieldedAddress,
-    /// The published surplus the program adds to `liquidity_bound`.
+    /// The published surplus the program adds to `available_liquidity`.
     pub credit: u64,
     /// The `Pair` account's on-chain `destination_asset`.
     pub destination_asset: [u8; 32],

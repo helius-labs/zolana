@@ -18,7 +18,7 @@ use crate::{
 /// Shields a public `amount` of the destination asset from the depositor's SPL
 /// token account into a new pool note (`booked = amount`, fully public, no
 /// proof) by forwarding an SPP proofless deposit through the swap program,
-/// which validates the entry and raises `liquidity_bound`. Permissionless: the
+/// which validates the entry and raises `available_liquidity`. Permissionless: the
 /// depositor signs its own SPL transfer.
 pub struct DepositLiquidity {
     pub depositor: Pubkey,

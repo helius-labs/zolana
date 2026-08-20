@@ -50,7 +50,7 @@ impl PoolRebalancePublicInput<'_> {
 }
 
 /// Restructures the pool (merge, split, re-blind, redistribute booked) and
-/// optionally publishes accumulated settle surplus into `liquidity_bound` via
+/// optionally publishes accumulated settle surplus into `available_liquidity` via
 /// the public `credit`. This is the only instruction that raises the bound
 /// from confidential value; deposits raise it by their public SPL amount.
 #[inline(never)]
@@ -97,8 +97,8 @@ pub fn process_rebalance_liquidity_ix(accounts: &mut [AccountView], data: &[u8])
 
     {
         let mut pair = load_pair_mut(pair_account)?;
-        pair.liquidity_bound = pair
-            .liquidity_bound
+        pair.available_liquidity = pair
+            .available_liquidity
             .checked_add(credit)
             .ok_or(ProgramError::ArithmeticOverflow)?;
     }

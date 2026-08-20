@@ -581,7 +581,7 @@ fn escrow_bench_world() -> EscrowBenchWorld {
 }
 
 impl EscrowBenchWorld {
-    fn pair_state(&self, liquidity_bound: u64, open_reservations: u64) -> Pair {
+    fn pair_state(&self, available_liquidity: u64, open_reservations: u64) -> Pair {
         Pair {
             discriminator: PAIR,
             bump: 255,
@@ -592,7 +592,7 @@ impl EscrowBenchWorld {
             price: PRICE,
             expiry_slots: EXPIRY_SLOTS,
             max_order_size: MAX_ORDER_SIZE,
-            liquidity_bound,
+            available_liquidity,
             open_reservations,
             source_asset: asset_field(&self.source_asset).expect("source asset field"),
             destination_asset: asset_field(&self.destination_asset)

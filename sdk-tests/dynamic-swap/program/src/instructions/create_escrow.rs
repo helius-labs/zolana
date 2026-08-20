@@ -25,7 +25,7 @@ use crate::{
 pub struct CreateEscrowIxData {
     /// `escrow_open` circuit proof (1-in: taker source UTXO / 2-out: escrow
     /// order UTXO, taker change UTXO). Taker-only: the maker's committed pool
-    /// liquidity is reserved here (`liquidity_bound -= max_order_size`) and
+    /// liquidity is reserved here (`available_liquidity -= max_order_size`) and
     /// spent at settle time, so there is no funding input and no maker change;
     /// the circuit caps `owed <= max_order_size` so the reservation always
     /// covers the order.
@@ -120,7 +120,7 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
     // The worst-case reservation must be covered by committed liquidity: this
     // is the taker's hard guarantee that funds exist for the escrow's whole
     // lifetime, checked before any expensive work.
-    if pair.liquidity_bound < pair.max_order_size {
+    if pair.available_liquidity < pair.max_order_size {
         return Err(DynamicSwapError::InsufficientLiquidity.into());
     }
 
@@ -197,12 +197,12 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
 
     // Take the reservation: `max_order_size` moves out of the public bound and
     // into this escrow's reservation, released by settle or cancel. The early
-    // `liquidity_bound < max_order_size` check makes the subtraction safe;
+    // `available_liquidity < max_order_size` check makes the subtraction safe;
     // checked ops keep it explicit.
     {
         let mut pair_mut = load_pair_mut(pair_account)?;
-        pair_mut.liquidity_bound = pair_mut
-            .liquidity_bound
+        pair_mut.available_liquidity = pair_mut
+            .available_liquidity
             .checked_sub(pair_mut.max_order_size)
             .ok_or(ProgramError::ArithmeticOverflow)?;
         pair_mut.open_reservations = pair_mut

@@ -1,6 +1,6 @@
 // Package pool_rebalance restructures the pool: many pool notes in, many pool
 // notes out, with an optional public credit that publishes accumulated
-// surplus into liquidity_bound.
+// surplus into available_liquidity.
 package pool_rebalance
 
 import (
@@ -30,7 +30,7 @@ const (
 // where booked is each pool note's DataHash. Dummy slots are pinned all-zero
 // (except blinding), so they drop out of the sums by construction. The credit
 // is therefore capped by the spent notes' surplus -- value provably present
-// and not yet counted -- which is what lets the program raise liquidity_bound
+// and not yet counted -- which is what lets the program raise available_liquidity
 // by it without ever double counting.
 type Circuit struct {
 	Public PublicInputs
@@ -122,7 +122,7 @@ func (c *Circuit) checkPoolSlot(api frontend.API, utxo spp.UtxoCircuitFields, mu
 
 // PublicInputs folds PrivateTxHash with the pool_authority owner-hash and the
 // destination asset (both recomputed/read on-chain from the pair) and the
-// public Credit the program adds to liquidity_bound.
+// public Credit the program adds to available_liquidity.
 type PublicInputs struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 

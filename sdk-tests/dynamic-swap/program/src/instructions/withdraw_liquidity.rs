@@ -61,7 +61,7 @@ impl PoolWithdrawPublicInput<'_> {
 
 /// Unshields a public `amount` of the destination asset from one pool note to
 /// the authority's SPL token account through the transact's SplWithdrawal leg.
-/// Rejects `amount > liquidity_bound`, so guaranteed funds for open orders can
+/// Rejects `amount > available_liquidity`, so guaranteed funds for open orders can
 /// never leave; the circuit additionally consumes `amount` from the note's
 /// booked value, keeping the bound a lower bound.
 #[inline(never)]
@@ -82,7 +82,7 @@ pub fn process_withdraw_liquidity_ix(accounts: &mut [AccountView], data: &[u8]) 
     if !address_eq(&pair.authority, authority.address()) {
         return Err(DynamicSwapError::Unauthorized.into());
     }
-    if amount > pair.liquidity_bound {
+    if amount > pair.available_liquidity {
         return Err(DynamicSwapError::InsufficientLiquidity.into());
     }
 
@@ -144,8 +144,8 @@ pub fn process_withdraw_liquidity_ix(accounts: &mut [AccountView], data: &[u8]) 
 
     {
         let mut pair = load_pair_mut(pair_account)?;
-        pair.liquidity_bound = pair
-            .liquidity_bound
+        pair.available_liquidity = pair
+            .available_liquidity
             .checked_sub(amount)
             .ok_or(ProgramError::ArithmeticOverflow)?;
     }

@@ -121,7 +121,7 @@ pub fn process_create_pair_ix(accounts: &mut [AccountView], data: &[u8]) -> Prog
             max_order_size,
             // The pool starts empty and unreserved; deposits and open escrows
             // move these counters from here on.
-            liquidity_bound: 0,
+            available_liquidity: 0,
             open_reservations: 0,
             source_asset,
             destination_asset,

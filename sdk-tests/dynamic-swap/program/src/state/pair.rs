@@ -25,19 +25,19 @@ pub struct Pair {
     /// cannot shrink or stretch the window on open escrows. Nonzero.
     pub expiry_slots: u64,
     /// The worst-case owed per escrow (destination asset): every open escrow
-    /// reserves exactly this much of `liquidity_bound`, and the `escrow_open`
+    /// reserves exactly this much of `available_liquidity`, and the `escrow_open`
     /// circuit caps `order_amount * execution_price` to it. Set at
     /// `create_pair` and immutable: `cancel` must release exactly what
     /// `create_escrow` reserved. Nonzero.
     pub max_order_size: u64,
     /// Public lower bound on the pool's counted liquidity (destination asset).
-    /// Invariant: `sum(booked over pool notes) >= liquidity_bound +
+    /// Invariant: `sum(booked over pool notes) >= available_liquidity +
     /// open_reservations * max_order_size`, maintained purely by public
     /// deltas -- deposits and rebalance credits raise it, withdrawals and
     /// escrow reservations lower it, settle leaves it untouched.
-    pub liquidity_bound: u64,
+    pub available_liquidity: u64,
     /// Number of open escrows, each holding a `max_order_size` reservation
-    /// carved out of `liquidity_bound`. Settle and cancel each release one.
+    /// carved out of `available_liquidity`. Settle and cancel each release one.
     pub open_reservations: u64,
     /// The source asset's UTXO commitment (`asset_field(source_mint)` =
     /// `hash_bytes(source_mint)`), supplied at `create_pair` time. The program

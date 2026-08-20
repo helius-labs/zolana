@@ -110,8 +110,8 @@ pub fn process_cancel_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     // exact `max_order_size` taken at create_escrow returns to the bound.
     {
         let mut pair_mut = load_pair_mut(pair_account)?;
-        pair_mut.liquidity_bound = pair_mut
-            .liquidity_bound
+        pair_mut.available_liquidity = pair_mut
+            .available_liquidity
             .checked_add(pair_mut.max_order_size)
             .ok_or(ProgramError::ArithmeticOverflow)?;
         pair_mut.open_reservations = pair_mut

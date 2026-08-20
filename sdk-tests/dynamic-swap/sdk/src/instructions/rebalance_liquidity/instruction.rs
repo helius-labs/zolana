@@ -8,7 +8,7 @@ use zolana_interface::instruction::{
 use crate::{err, pool_authority_pda, tag, Groth16ProofBytes, RebalanceLiquidityIxData};
 
 /// Restructures the pool (merge, split, re-blind, redistribute booked) and
-/// optionally publishes settle surplus into `liquidity_bound` via the public
+/// optionally publishes settle surplus into `available_liquidity` via the public
 /// `credit`. Authority-only; the transact always declares shape IN5_OUT4 with
 /// dummy-padded slots and carries no interface transfers.
 pub struct RebalanceLiquidity {
