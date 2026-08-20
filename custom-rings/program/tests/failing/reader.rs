@@ -10,41 +10,73 @@ use zolana_account_checks::AccountError;
 use zolana_test_utils::mollusk::expect_err_exact;
 
 use crate::common::{
-    account, config_pda, grant_reader_fixture, initialized_reader_account, payer, program_id,
-    reader, reader_ix_data, reader_record_pda, rent_recipient, revoke_reader_fixture,
-    setup_mollusk, substitute_account,
+    account, config_pda, ed25519_reader, grant_reader_fixture, initialized_reader_account,
+    other_reader, p256_reader, payer, program_id, reader, reader_ix_data, reader_record_pda,
+    rent_recipient, revoke_reader_fixture, setup_mollusk, substitute_account,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
     ProgramError::Custom(error as u32)
 }
 
-/// Pins the green fixture: without it the negatives below could pass for the
-/// wrong reason.
+/// Pins the green fixture for both key kinds: without it the negatives below
+/// could pass for the wrong reason.
 #[test]
 fn grant_reader_writes_the_record() {
-    let (mollusk, _) = setup_mollusk();
-    let (instruction, accounts) = grant_reader_fixture(&reader());
-    let result = mollusk.process_instruction(&instruction, &accounts);
-    assert_eq!(result.program_result, ProgramResult::Success);
+    for key in [reader(), p256_reader()] {
+        let (mollusk, _) = setup_mollusk();
+        let (instruction, accounts) = grant_reader_fixture(&key);
+        let result = mollusk.process_instruction(&instruction, &accounts);
+        assert_eq!(result.program_result, ProgramResult::Success);
 
-    let (record, bump) = reader_record_pda(&reader());
-    let written = result
-        .resulting_accounts
-        .iter()
-        .find(|(key, _)| key == &record)
-        .map(|(_, account)| account.clone())
-        .expect("reader record in result");
-    assert_eq!(written.owner, program_id());
-    assert_eq!(written.data.len(), ReaderRecord::SIZE);
-    assert_eq!(
-        bytemuck::from_bytes::<ReaderRecord>(&written.data),
-        &ReaderRecord {
-            discriminator: READER_RECORD,
-            reader: reader().to_bytes(),
-            bump,
-        }
-    );
+        let (record, bump) = reader_record_pda(&key);
+        let written = result
+            .resulting_accounts
+            .iter()
+            .find(|(key, _)| key == &record)
+            .map(|(_, account)| account.clone())
+            .expect("reader record in result");
+        assert_eq!(written.owner, program_id());
+        assert_eq!(written.data.len(), ReaderRecord::SIZE);
+        assert_eq!(
+            bytemuck::from_bytes::<ReaderRecord>(&written.data),
+            &ReaderRecord {
+                discriminator: READER_RECORD,
+                reader: key,
+                bump,
+            }
+        );
+
+        let (revoke, accounts) = revoke_reader_fixture(&key);
+        let result = mollusk.process_instruction(&revoke, &accounts);
+        assert_eq!(result.program_result, ProgramResult::Success);
+    }
+}
+
+/// A grant to a key no reader could sign with is refused before any account
+/// is touched: a PDA tag, a P-256 body with an uncompressed prefix, an ed25519
+/// body with a nonzero pad byte, an unknown tag.
+#[test]
+fn grant_of_an_unsignable_key_is_rejected() {
+    let mut pda = ed25519_reader(23);
+    pda[0] = 2;
+    let mut uncompressed = p256_reader();
+    uncompressed[1] = 4;
+    let mut padded = ed25519_reader(23);
+    padded[33] = 1;
+    let mut unknown = ed25519_reader(23);
+    unknown[0] = 9;
+    for key in [pda, uncompressed, padded, unknown] {
+        let (mollusk, _) = setup_mollusk();
+        let (mut instruction, accounts) = grant_reader_fixture(&reader());
+        instruction.data = reader_ix_data(tag::GRANT_READER, &key);
+        expect_err_exact(
+            &mollusk,
+            &instruction,
+            &accounts,
+            custom(CustomRingError::InvalidReaderKey),
+        );
+    }
 }
 
 #[test]
@@ -100,7 +132,7 @@ fn grant_before_the_config_exists_is_rejected() {
 fn grant_into_a_non_canonical_record_is_rejected() {
     let (mollusk, _) = setup_mollusk();
     let (mut instruction, mut accounts) = grant_reader_fixture(&reader());
-    let other_record = reader_record_pda(&Pubkey::new_from_array([67; 32])).0;
+    let other_record = reader_record_pda(&other_reader()).0;
     substitute_account(&mut instruction, &mut accounts, 3, other_record);
     expect_err_exact(
         &mollusk,
@@ -217,7 +249,7 @@ fn revoke_by_a_non_authority_signer_is_rejected() {
 fn revoke_of_a_mismatched_record_is_rejected() {
     let (mollusk, _) = setup_mollusk();
     let (mut instruction, accounts) = revoke_reader_fixture(&reader());
-    instruction.data = reader_ix_data(tag::REVOKE_READER, &Pubkey::new_from_array([67; 32]));
+    instruction.data = reader_ix_data(tag::REVOKE_READER, &other_reader());
     expect_err_exact(
         &mollusk,
         &instruction,

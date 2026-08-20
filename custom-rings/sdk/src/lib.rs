@@ -36,6 +36,9 @@ pub use crate::{
     },
     lookup_table::send_v0_with_lookup_table,
     prover::CustomRingProverClient,
-    shared::{config_pda, program_data_pda, reader_record_pda, ring_auth_pda},
+    shared::{
+        config_pda, program_data_pda, reader_record_pda, ring_auth_pda, ReaderKey,
+        ReaderKeyParseError,
+    },
     transfer::{ring_deposit_sol, AuditedTransfer, ProvenTransfer},
 };

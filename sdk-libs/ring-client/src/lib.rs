@@ -18,6 +18,7 @@
 pub mod decrypt;
 pub mod encryption;
 pub mod error;
+pub mod reader;
 pub mod scan;
 pub mod types;
 
@@ -29,6 +30,7 @@ pub use crate::{
         AUDITOR_MESSAGE_LEN, AUDIT_ENC_INFO, DOM_SEP_CR_SHARED,
     },
     error::AuditError,
+    reader::{ReaderKey, ReaderKeyParseError, READER_RECORD_PDA_SEED},
     scan::{audit_ring_transactions, scan_ring_transactions},
     types::{AuditedOutput, AuditedTransaction},
 };

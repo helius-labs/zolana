@@ -1,6 +1,6 @@
 use custom_ring_program::{
     instructions::create_config::CreateConfigIxData,
-    state::{RingProgramConfig, RING_PROGRAM_CONFIG},
+    state::{ReaderKey, ReaderRecord, RingProgramConfig, RING_PROGRAM_CONFIG},
     tag, CONFIG_PDA_SEED,
 };
 use mollusk_svm::Mollusk;
@@ -262,32 +262,54 @@ pub fn substitute_account(
     accounts.push((replacement, account(1_000_000_000)));
 }
 
-pub fn reader() -> Pubkey {
-    Pubkey::new_from_array([23; 32])
+/// Tagged ed25519 reader, the layout `grant_reader` stores.
+pub fn reader() -> ReaderKey {
+    ed25519_reader(23)
+}
+
+pub fn other_reader() -> ReaderKey {
+    ed25519_reader(67)
+}
+
+pub fn ed25519_reader(byte: u8) -> ReaderKey {
+    let mut key = [0u8; 34];
+    key[0] = custom_ring_program::state::READER_KEY_ED25519;
+    key[1..33].fill(byte);
+    key
+}
+
+/// Tagged P-256 reader. The program checks only the SEC1 prefix, so the body
+/// need not be a curve point.
+pub fn p256_reader() -> ReaderKey {
+    let mut key = [23u8; 34];
+    key[0] = custom_ring_program::state::READER_KEY_P256;
+    key[1] = 2;
+    key
 }
 
 pub fn rent_recipient() -> Pubkey {
     Pubkey::new_from_array([24; 32])
 }
 
-pub fn reader_record_pda(reader: &Pubkey) -> (Pubkey, u8) {
+pub fn reader_record_pda(reader: &ReaderKey) -> (Pubkey, u8) {
+    let seed_hash = ReaderRecord::seed_hash(reader).expect("sha256");
     Pubkey::find_program_address(
-        &[custom_ring_program::READER_RECORD_PDA_SEED, reader.as_ref()],
+        &[custom_ring_program::READER_RECORD_PDA_SEED, &seed_hash],
         &program_id(),
     )
 }
 
-pub fn reader_ix_data(instruction_tag: u8, reader: &Pubkey) -> Vec<u8> {
+pub fn reader_ix_data(instruction_tag: u8, reader: &ReaderKey) -> Vec<u8> {
     let mut data = vec![instruction_tag];
-    data.extend_from_slice(reader.as_ref());
+    data.extend_from_slice(reader);
     data
 }
 
 /// An initialized reader record as `grant_reader` would have written it.
-pub fn initialized_reader_account(reader: &Pubkey) -> Account {
-    let state = custom_ring_program::state::ReaderRecord {
+pub fn initialized_reader_account(reader: &ReaderKey) -> Account {
+    let state = ReaderRecord {
         discriminator: custom_ring_program::state::READER_RECORD,
-        reader: *reader.as_array(),
+        reader: *reader,
         bump: reader_record_pda(reader).1,
     };
     Account {
@@ -301,7 +323,7 @@ pub fn initialized_reader_account(reader: &Pubkey) -> Account {
 
 /// Green `grant_reader` fixture: `[payer(w,s), authority(s), config,
 /// reader_record(w), system_program]` over an initialized config.
-pub fn grant_reader_fixture(reader: &Pubkey) -> (Instruction, Vec<(Pubkey, Account)>) {
+pub fn grant_reader_fixture(reader: &ReaderKey) -> (Instruction, Vec<(Pubkey, Account)>) {
     let (config, _) = config_pda();
     let (record, _) = reader_record_pda(reader);
     let (system_program, system_program_account) =
@@ -333,7 +355,7 @@ pub fn grant_reader_fixture(reader: &Pubkey) -> (Instruction, Vec<(Pubkey, Accou
 
 /// Green `revoke_reader` fixture: `[authority(s), config, reader_record(w),
 /// rent_recipient(w)]` over an initialized record.
-pub fn revoke_reader_fixture(reader: &Pubkey) -> (Instruction, Vec<(Pubkey, Account)>) {
+pub fn revoke_reader_fixture(reader: &ReaderKey) -> (Instruction, Vec<(Pubkey, Account)>) {
     let (config, _) = config_pda();
     let (record, _) = reader_record_pda(reader);
     (

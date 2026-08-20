@@ -6,7 +6,7 @@
 use custom_ring_sdk::{
     config_pda, program_data_pda, reader_record_pda, ring_auth_pda, tag, AuditProof, CreateConfig,
     CreateConfigIxData, CustomRingTransactIxData, Deposit, GrantReader, InitSppRingConfig,
-    ReaderIxData, RevokeReader, RingTransactWithAudit, CONFIG_PDA_SEED, PROGRAM_ID,
+    ReaderIxData, ReaderKey, RevokeReader, RingTransactWithAudit, CONFIG_PDA_SEED, PROGRAM_ID,
     READER_RECORD_PDA_SEED,
 };
 use solana_address::Address;
@@ -118,8 +118,12 @@ fn init_spp_ring_config_emits_the_program_account_order_and_no_body() {
     assert_eq!(instruction.data, vec![tag::INIT_SPP_RING_CONFIG]);
 }
 
-fn reader() -> Address {
-    Address::new_from_array([23; 32])
+fn reader() -> ReaderKey {
+    ReaderKey::Ed25519(Address::new_from_array([23; 32]))
+}
+
+fn p256_reader() -> ReaderKey {
+    ReaderKey::P256(auditor_pubkey())
 }
 
 #[test]
@@ -150,6 +154,22 @@ fn grant_reader_emits_the_program_account_order_and_reader() {
 }
 
 #[test]
+fn reader_keys_round_trip_through_text_and_bytes() {
+    for key in [reader(), p256_reader()] {
+        assert_eq!(
+            key.to_string().parse::<ReaderKey>().expect("text form"),
+            key
+        );
+        assert_eq!(ReaderKey::from_bytes(key.to_bytes()), Some(key));
+    }
+    let mut pda = reader().to_bytes();
+    pda[0] = 2;
+    assert_eq!(ReaderKey::from_bytes(pda), None);
+    assert!("not-a-key".parse::<ReaderKey>().is_err());
+    assert!(hex::encode([4u8; 33]).parse::<ReaderKey>().is_err());
+}
+
+#[test]
 fn revoke_reader_emits_the_program_account_order_and_reader() {
     let rent_recipient = Address::new_from_array([24; 32]);
     let instruction = RevokeReader {
@@ -177,11 +197,19 @@ fn revoke_reader_emits_the_program_account_order_and_reader() {
 }
 
 #[test]
-fn reader_record_pda_derives_from_the_reader_key() {
-    let (record, _bump) =
-        Address::find_program_address(&[READER_RECORD_PDA_SEED, reader().as_ref()], &PROGRAM_ID);
-    assert_eq!(reader_record_pda(&reader()), record);
-    assert_ne!(reader_record_pda(&payer()), record);
+fn reader_record_pda_derives_from_the_hashed_tagged_key() {
+    use sha2::Digest;
+    for key in [reader(), p256_reader()] {
+        let seed_hash: [u8; 32] = sha2::Sha256::digest(key.to_bytes()).into();
+        let (record, _bump) =
+            Address::find_program_address(&[READER_RECORD_PDA_SEED, &seed_hash], &PROGRAM_ID);
+        assert_eq!(reader_record_pda(&key), record);
+        assert_eq!(key.record_address(&PROGRAM_ID), record);
+    }
+    assert_ne!(
+        reader_record_pda(&reader()),
+        reader_record_pda(&p256_reader())
+    );
 }
 
 #[test]

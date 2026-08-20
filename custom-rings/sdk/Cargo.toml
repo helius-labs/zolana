@@ -33,5 +33,6 @@ zolana-ring-client = { workspace = true }
 zolana-transaction = { workspace = true }
 
 [dev-dependencies]
+sha2 = { workspace = true }
 groth16-solana = { workspace = true, features = ["bsb22", "gnark-vk"] }
 hex = { workspace = true }

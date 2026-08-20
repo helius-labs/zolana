@@ -1,7 +1,8 @@
-//! Addresses the client shares across instruction builders.
+//! Addresses and key types the client shares across instruction builders.
 
 use solana_address::Address;
 use zolana_interface::{BPF_LOADER_UPGRADEABLE_ID, RING_AUTH_PDA_SEED};
+pub use zolana_ring_client::{ReaderKey, ReaderKeyParseError};
 
 /// The program's singleton config account, holding the authority and the auditor
 /// public key.
@@ -14,12 +15,8 @@ pub fn config_pda() -> Address {
 }
 
 /// The record that marks `reader` as a delegated ring-scope reader.
-pub fn reader_record_pda(reader: &Address) -> Address {
-    let (pda, _bump) = Address::find_program_address(
-        &[custom_ring_program::READER_RECORD_PDA_SEED, reader.as_ref()],
-        &custom_ring_program::ID,
-    );
-    pda
+pub fn reader_record_pda(reader: &ReaderKey) -> Address {
+    reader.record_address(&custom_ring_program::ID)
 }
 
 /// The ring authority PDA. SPP stores the ring config under this address and

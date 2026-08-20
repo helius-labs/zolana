@@ -1,5 +1,6 @@
 use bytemuck::{from_bytes_mut, Pod, Zeroable};
 use pinocchio::{AccountView, Address, ProgramResult};
+use zolana_hasher::{sha256::Sha256, Hasher};
 
 use crate::error::CustomRingError;
 
@@ -72,14 +73,33 @@ impl RingProgramConfigInitParams {
     }
 }
 
+/// Scheme-tagged reader key, the protocol's 34-byte `PublicKey` layout:
+/// `0x00 || sec1(33)` for P-256, `0x01 || ed25519(32) || 0x00` for ed25519.
+/// A PDA tag is refused because a PDA cannot sign a read attestation.
+pub type ReaderKey = [u8; 34];
+
+pub const READER_KEY_P256: u8 = 0x00;
+pub const READER_KEY_ED25519: u8 = 0x01;
+
+/// Reject anything the ring RPC could not verify a signature from, so a grant
+/// never names a key that can never read.
+pub fn check_reader_key(key: &ReaderKey) -> Result<(), CustomRingError> {
+    let valid = match key[0] {
+        READER_KEY_P256 => matches!(key[1], 2 | 3),
+        READER_KEY_ED25519 => key[33] == 0,
+        _ => false,
+    };
+    valid.then_some(()).ok_or(CustomRingError::InvalidReaderKey)
+}
+
 /// A reader the authority delegated ring-scope reads to. The ring RPC accepts
-/// an ed25519 attestation from `reader` as if the authority had signed it, for
-/// as long as this record exists.
+/// an attestation signed by `reader` as if the authority had signed it, for as
+/// long as this record exists.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct ReaderRecord {
     pub discriminator: u8,
-    pub reader: [u8; 32],
+    pub reader: ReaderKey,
     pub bump: u8,
 }
 
@@ -87,16 +107,21 @@ impl ReaderRecord {
     pub const SIZE: usize = core::mem::size_of::<Self>();
     pub const SEED: &'static [u8] = crate::READER_RECORD_PDA_SEED;
 
+    /// The 34-byte key exceeds one seed, so the record is keyed by its hash.
+    pub fn seed_hash(reader: &ReaderKey) -> Result<[u8; 32], CustomRingError> {
+        Sha256::hash(reader).map_err(|_| CustomRingError::HashingFailed)
+    }
+
     pub fn has_discriminator(&self) -> bool {
         self.discriminator == READER_RECORD
     }
 }
 
-const _: () = assert!(ReaderRecord::SIZE == 34);
+const _: () = assert!(ReaderRecord::SIZE == 36);
 const _: () = assert!(core::mem::align_of::<ReaderRecord>() == 1);
 
 pub struct ReaderRecordInitParams {
-    pub reader: [u8; 32],
+    pub reader: ReaderKey,
     pub bump: u8,
 }
 

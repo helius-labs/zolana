@@ -21,6 +21,7 @@ fn error_codes_are_stable() {
         (TooManyAccounts as u32, 8115),
         (ReaderRecordAlreadyExists as u32, 8116),
         (InvalidReaderRecord as u32, 8117),
+        (InvalidReaderKey as u32, 8118),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");

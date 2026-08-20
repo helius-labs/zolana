@@ -33,7 +33,7 @@ solana-program-error = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }
 zolana-account-checks = { workspace = true }
-zolana-hasher = { workspace = true, features = ["poseidon"] }
+zolana-hasher = { workspace = true, features = ["poseidon", "sha256"] }
 zolana-interface = { workspace = true, features = ["solana"] }
 
 [build-dependencies]

@@ -16,7 +16,7 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
 use clap::{Args, Parser, Subcommand};
-use custom_ring_sdk::PROGRAM_ID;
+use custom_ring_sdk::{ReaderKey, PROGRAM_ID};
 use solana_address::Address;
 use solana_signer::Signer;
 use zolana_client::{ProverClient, SolanaRpc, ZolanaIndexer};
@@ -81,9 +81,10 @@ pub enum Command {
 #[derive(Debug, Subcommand)]
 pub enum ReaderCommand {
     /// Let `reader` read every transaction of the ring, signed by the authority.
-    Grant { reader: Address },
+    /// A base58 Solana key or the 66-hex P-256 key of a passkey.
+    Grant { reader: ReaderKey },
     /// Close the reader's record, the rent returns to the authority.
-    Revoke { reader: Address },
+    Revoke { reader: ReaderKey },
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]

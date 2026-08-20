@@ -7,7 +7,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+hex = { workspace = true }
 p256 = { workspace = true }
+sha2 = { workspace = true }
 solana-address = { workspace = true }
 solana-signature = { workspace = true }
 thiserror = { workspace = true }
@@ -19,4 +21,3 @@ zolana-transaction = { workspace = true }
 
 [dev-dependencies]
 borsh = { workspace = true }
-hex = { workspace = true }

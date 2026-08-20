@@ -6,7 +6,7 @@ use std::{future::Future, sync::Arc, time::Duration};
 
 use custom_ring_program::{
     state::{ReaderRecord, RingProgramConfig},
-    CONFIG_PDA_SEED, READER_RECORD_PDA_SEED,
+    CONFIG_PDA_SEED,
 };
 use jsonrpsee::types::{error::ErrorCode, ErrorObjectOwned};
 use log::{error, warn};
@@ -29,6 +29,7 @@ use zolana_client::{
 use zolana_indexer_api::Limit;
 use zolana_interface::{state::SplAssetRegistry, SHIELDED_POOL_PROGRAM_ID};
 use zolana_keypair::{P256Pubkey, PublicKey, ViewingKey};
+use zolana_ring_client::ReaderKey;
 use zolana_ring_client::{audit_transaction, auditor_view_tag, AuditError, AuditedTransaction};
 use zolana_transaction::AssetRegistry;
 
@@ -65,7 +66,7 @@ pub trait TransactionSource: Send + Sync {
     fn reader_granted(
         &self,
         ring: Address,
-        reader: Address,
+        reader: ReaderKey,
     ) -> impl Future<Output = Result<bool, ClientError>> + Send;
 }
 
@@ -171,9 +172,8 @@ impl TransactionSource for ChainSource {
         Ok(config.has_discriminator().then_some(config.authority))
     }
 
-    async fn reader_granted(&self, ring: Address, reader: Address) -> Result<bool, ClientError> {
-        let record =
-            Address::find_program_address(&[READER_RECORD_PDA_SEED, reader.as_ref()], &ring).0;
+    async fn reader_granted(&self, ring: Address, reader: ReaderKey) -> Result<bool, ClientError> {
+        let record = reader.record_address(&ring);
         let Some(account) = self.rpc.get_account(record).await? else {
             return Ok(false);
         };
@@ -301,7 +301,12 @@ impl<S: TransactionSource> AuditService<S> {
             (ReadScope::Ring, Reader::Ed25519(reader)) => {
                 match self.source.ring_authority(self.ring).await? {
                     Some(authority) if authority == reader => Ok(ReadFilter::Ring),
-                    Some(_) if self.source.reader_granted(self.ring, reader).await? => {
+                    Some(_)
+                        if self
+                            .source
+                            .reader_granted(self.ring, ReaderKey::Ed25519(reader))
+                            .await? =>
+                    {
                         Ok(ReadFilter::Ring)
                     }
                     Some(_) => Err(RingRpcError::Unauthorized(

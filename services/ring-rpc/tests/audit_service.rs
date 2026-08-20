@@ -12,7 +12,7 @@ use zolana_client::{ClientError, Context, GetShieldedTransactionsByTagsResponse}
 use zolana_indexer_api::Base64String;
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
-use zolana_ring_client::{auditor_view_tag, AuditorEncryption};
+use zolana_ring_client::{auditor_view_tag, AuditorEncryption, ReaderKey};
 use zolana_ring_rpc::{
     api::{
         auditor_key_attestation, read_attestation, CreateAuditorKeyRequest,
@@ -38,7 +38,7 @@ struct StaticSource {
     /// The ring authority the chain would report for every ring asked.
     authority: Option<Address>,
     /// Readers with a live reader record.
-    granted: HashSet<Address>,
+    granted: HashSet<ReaderKey>,
 }
 
 /// The one Solana signer the source reports for every transaction.
@@ -146,7 +146,7 @@ impl TransactionSource for StaticSource {
     fn reader_granted(
         &self,
         _ring: Address,
-        reader: Address,
+        reader: ReaderKey,
     ) -> impl Future<Output = Result<bool, ClientError>> + Send {
         let granted = self.granted.contains(&reader);
         async move { Ok(granted) }
@@ -290,7 +290,9 @@ fn hub_with_delegate(fixture: &Fixture) -> Hub<StaticSource> {
     let mut source = source(fixture, None);
     source
         .granted
-        .insert(Address::new_from_array(delegate().pubkey().to_bytes()));
+        .insert(ReaderKey::Ed25519(Address::new_from_array(
+            delegate().pubkey().to_bytes(),
+        )));
     Hub::local(
         RING,
         fixture.auditor.clone(),

@@ -8,12 +8,12 @@ use zolana_account_checks::AccountIterator;
 use crate::{
     error::CustomRingError,
     instructions::{loader::load_config, shared::verify_pda},
-    state::{ReaderRecord, ReaderRecordInitParams},
+    state::{check_reader_key, ReaderKey, ReaderRecord, ReaderRecordInitParams},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct ReaderIxData {
-    pub reader: [u8; 32],
+    pub reader: ReaderKey,
 }
 
 /// Delegates ring-scope reads on the ring RPC to `reader`.
@@ -23,6 +23,7 @@ pub struct ReaderIxData {
 pub fn process_grant_reader_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let ReaderIxData { reader } =
         wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
+    check_reader_key(&reader)?;
 
     let mut iter = AccountIterator::new(accounts);
     let payer = iter.next_signer_mut("payer")?;
@@ -39,9 +40,10 @@ pub fn process_grant_reader_ix(accounts: &mut [AccountView], data: &[u8]) -> Pro
         return Err(CustomRingError::UnauthorizedAuthority.into());
     }
 
+    let seed_hash = ReaderRecord::seed_hash(&reader)?;
     let bump = verify_pda(
         record_account.address(),
-        &[ReaderRecord::SEED, &reader],
+        &[ReaderRecord::SEED, &seed_hash],
         CustomRingError::InvalidReaderRecord,
     )?;
     if record_account.data_len() != 0 {
@@ -51,7 +53,7 @@ pub fn process_grant_reader_ix(accounts: &mut [AccountView], data: &[u8]) -> Pro
     let bump_seed = [bump];
     let seeds = [
         Seed::from(ReaderRecord::SEED),
-        Seed::from(reader.as_ref()),
+        Seed::from(seed_hash.as_ref()),
         Seed::from(bump_seed.as_ref()),
     ];
     pinocchio_system::create_account_with_minimum_balance_signed(

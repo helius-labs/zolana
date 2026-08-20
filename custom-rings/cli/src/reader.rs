@@ -3,8 +3,7 @@
 
 use anyhow::{Context, Result};
 use custom_ring_program::state::ReaderRecord;
-use custom_ring_sdk::{reader_record_pda, GrantReader, RevokeReader};
-use solana_address::Address;
+use custom_ring_sdk::{GrantReader, ReaderKey, RevokeReader, PROGRAM_ID};
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc};
 
@@ -19,7 +18,7 @@ pub enum ReaderOutcome {
 }
 
 /// Idempotent: a second grant of the same key changes nothing.
-pub fn grant(rpc: &SolanaRpc, authority: &dyn Signer, reader: Address) -> Result<ReaderOutcome> {
+pub fn grant(rpc: &SolanaRpc, authority: &dyn Signer, reader: ReaderKey) -> Result<ReaderOutcome> {
     if read_record(rpc, reader)?.is_some() {
         return Ok(ReaderOutcome::AlreadyGranted);
     }
@@ -36,7 +35,7 @@ pub fn grant(rpc: &SolanaRpc, authority: &dyn Signer, reader: Address) -> Result
 
 /// Idempotent: revoking a key without a record changes nothing. The rent goes
 /// back to the authority.
-pub fn revoke(rpc: &SolanaRpc, authority: &dyn Signer, reader: Address) -> Result<ReaderOutcome> {
+pub fn revoke(rpc: &SolanaRpc, authority: &dyn Signer, reader: ReaderKey) -> Result<ReaderOutcome> {
     if read_record(rpc, reader)?.is_none() {
         return Ok(ReaderOutcome::NotGranted);
     }
@@ -51,6 +50,6 @@ pub fn revoke(rpc: &SolanaRpc, authority: &dyn Signer, reader: Address) -> Resul
     Ok(ReaderOutcome::Revoked)
 }
 
-pub fn read_record<R: Rpc>(rpc: &R, reader: Address) -> Result<Option<ReaderRecord>> {
-    read_pod(rpc, reader_record_pda(&reader), "reader record")
+pub fn read_record<R: Rpc>(rpc: &R, reader: ReaderKey) -> Result<Option<ReaderRecord>> {
+    read_pod(rpc, reader.record_address(&PROGRAM_ID), "reader record")
 }

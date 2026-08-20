@@ -2,7 +2,7 @@ use custom_ring_program::instructions::grant_reader::ReaderIxData;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 
-use crate::{config_pda, reader_record_pda, tag, PROGRAM_ID};
+use crate::{config_pda, reader_record_pda, shared::ReaderKey, tag, PROGRAM_ID};
 
 /// Delegates ring-scope reads on the ring RPC to `reader`. The record it
 /// creates is what the RPC checks, so a Squads-held authority can delegate by
@@ -11,7 +11,7 @@ pub struct GrantReader {
     pub payer: Address,
     /// The config authority.
     pub authority: Address,
-    pub reader: Address,
+    pub reader: ReaderKey,
 }
 
 impl GrantReader {
@@ -35,7 +35,7 @@ impl GrantReader {
     }
 }
 
-pub(crate) fn reader_ix_data(instruction_tag: u8, reader: Address) -> Vec<u8> {
+pub(crate) fn reader_ix_data(instruction_tag: u8, reader: ReaderKey) -> Vec<u8> {
     let mut data = vec![instruction_tag];
     data.extend_from_slice(
         &wincode::serialize(&ReaderIxData {
