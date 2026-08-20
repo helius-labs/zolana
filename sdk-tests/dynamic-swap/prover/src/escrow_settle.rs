@@ -12,10 +12,6 @@ use crate::{
 /// (`Poseidon(order_blinding, reservation_blinding, domain)`). These MUST stay
 /// byte-for-byte in sync with the Go copies in
 /// `prover/circuits/escrow_settle/escrow_settle.go`.
-pub const RECIPIENT_BLINDING_DOMAIN: u64 = 0x5345_5452_4543_4950; // "SETRECIP"
-pub const MAKER_COUNTER_BLINDING_DOMAIN: u64 = 0x5345_544D_4B43_5452; // "SETMKCTR"
-pub const MAKER_SOURCE_BLINDING_DOMAIN: u64 = 0x5345_544D_4B53_5243; // "SETMKSRC"
-
 /// Proof inputs for the `escrow_settle` circuit -- the single circuit `settle`
 /// uses for both outcomes (settle and price-refund). Exact 2-in (order,
 /// reservation) / 3-out (recipient, maker_counter, maker_source), no padding.

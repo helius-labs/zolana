@@ -34,7 +34,7 @@ use zolana_transaction::{
         confidential::{Confidential, ConfidentialOutputPlaintext},
         DecodeCx, UtxoSerialization,
     },
-    utxo::derive_blinding,
+    utxo::derive_transact_output_blinding,
     AssetRegistry, Data, ExternalData, OutputContext, SppProofOutputUtxo, TransactionError, Utxo,
     Wallet, WalletUtxo, SOL_ASSET_ID, SOL_MINT,
 };
@@ -310,7 +310,7 @@ fn transfer_round_trip_outputs_and_slots() {
         prover.outputs,
         vec![
             SppProofOutputUtxo {
-                blinding: derive_blinding(&seed, 0),
+                blinding: derive_transact_output_blinding(&first_nullifier, &seed, 0).unwrap(),
                 owner_tag: Some(sender.signing_pubkey().confidential_view_tag().unwrap()),
                 ..Default::default()
             },
@@ -318,14 +318,14 @@ fn transfer_round_trip_outputs_and_slots() {
                 owner_address: Some(sender_addr),
                 asset: SOL_MINT,
                 amount: 40,
-                blinding: derive_blinding(&seed, 1),
+                blinding: derive_transact_output_blinding(&first_nullifier, &seed, 1).unwrap(),
                 ..Default::default()
             },
             SppProofOutputUtxo {
                 owner_address: Some(recipient_addr),
                 asset: SOL_MINT,
                 amount: 60,
-                blinding: derive_blinding(&seed, 2),
+                blinding: derive_transact_output_blinding(&first_nullifier, &seed, 2).unwrap(),
                 ..Default::default()
             },
         ]
@@ -366,7 +366,7 @@ fn transfer_round_trip_outputs_and_slots() {
         vec![ConfidentialOutputPlaintext {
             asset_id: SOL_ASSET_ID,
             amount: 40,
-            blinding: derive_blinding(&seed, 1),
+            blinding: derive_transact_output_blinding(&first_nullifier, &seed, 1).unwrap(),
             ring_program_id: None,
             data: Data::default(),
         }]
@@ -378,7 +378,7 @@ fn transfer_round_trip_outputs_and_slots() {
             ConfidentialOutputPlaintext {
                 asset_id: SOL_ASSET_ID,
                 amount: 60,
-                blinding: derive_blinding(&seed, 2),
+                blinding: derive_transact_output_blinding(&first_nullifier, &seed, 2).unwrap(),
                 ring_program_id: None,
                 data: Data::default(),
             }
@@ -603,13 +603,13 @@ fn withdrawal_sets_external_data_and_change() {
     let (change, recipients) = decrypt(&sender, &first_nullifier, &prover.external_data);
 
     // Slots 0 and 1 are the sender's change (empty SPL, 70 SOL), both with
-    // position-derived blinding. Slot 2 is dummy padding to the (2,3) shape with a
-    // random blinding, so it is checked structurally rather than by value.
+    // protocol-derived blinding. Slot 2 is dummy padding to the (2,3) shape and
+    // is subject to the same derivation rule.
     assert_eq!(prover.outputs.len(), 3);
     assert_eq!(
         prover.outputs.first().unwrap(),
         &SppProofOutputUtxo {
-            blinding: derive_blinding(&seed, 0),
+            blinding: derive_transact_output_blinding(&first_nullifier, &seed, 0).unwrap(),
             owner_tag: Some(sender.signing_pubkey().confidential_view_tag().unwrap()),
             ..Default::default()
         }
@@ -620,13 +620,17 @@ fn withdrawal_sets_external_data_and_change() {
             owner_address: Some(sender_addr),
             asset: SOL_MINT,
             amount: 70,
-            blinding: derive_blinding(&seed, 1),
+            blinding: derive_transact_output_blinding(&first_nullifier, &seed, 1).unwrap(),
             ..Default::default()
         }
     );
     let padding = prover.outputs.get(2).unwrap();
     assert!(padding.is_dummy());
     assert_eq!(padding.amount, 0);
+    assert_eq!(
+        padding.blinding,
+        derive_transact_output_blinding(&first_nullifier, &seed, 2).unwrap()
+    );
     // The sender's SOL change (70) decodes on the sender side; the zero-value SPL
     // change and the dummy padding do not, and there are no recipients.
     assert_eq!(
@@ -634,7 +638,7 @@ fn withdrawal_sets_external_data_and_change() {
         vec![ConfidentialOutputPlaintext {
             asset_id: SOL_ASSET_ID,
             amount: 70,
-            blinding: derive_blinding(&seed, 1),
+            blinding: derive_transact_output_blinding(&first_nullifier, &seed, 1).unwrap(),
             ring_program_id: None,
             data: Data::default(),
         }]

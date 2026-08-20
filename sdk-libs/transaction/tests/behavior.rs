@@ -77,6 +77,7 @@ fn asset_registry_and_blinding_rules_are_explicit() {
     cases::asset::duplicate_mint();
     cases::blinding::blindings_deterministic();
     cases::blinding::blinding_top_byte_dropped();
+    cases::blinding::transact_output_blinding_matches_circuit_vector();
 }
 
 #[test]

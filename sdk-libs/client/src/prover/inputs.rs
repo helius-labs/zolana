@@ -129,6 +129,7 @@ pub struct BatchAddressAppendInputs {
 pub struct TransferInputs {
     pub inputs: Vec<TransferInput>,
     pub outputs: Vec<TransferOutput>,
+    pub output_blinding_seed: BigUint,
     pub external_data_hash: BigUint,
     pub private_tx_hash: BigUint,
     /// Uniform public transfer slots (slot 0 = SOL leg, slot 1 = SPL leg); idle
@@ -147,6 +148,7 @@ pub struct TransferInputs {
 pub struct TransferP256Inputs {
     pub inputs: Vec<TransferInput>,
     pub outputs: Vec<TransferOutput>,
+    pub output_blinding_seed: BigUint,
     pub external_data_hash: BigUint,
     pub private_tx_hash: BigUint,
     pub p256_pub_x: BigUint,

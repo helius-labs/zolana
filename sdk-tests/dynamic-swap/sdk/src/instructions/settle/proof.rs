@@ -1,48 +1,12 @@
 use anyhow::{bail, Result};
-use dynamic_swap_program::instructions::{settle::SettlePublicInput, shared::u64_right_align};
-use dynamic_swap_prover::{
-    EscrowSettleProofInputs, ProofInputUtxo, MAKER_COUNTER_BLINDING_DOMAIN,
-    MAKER_SOURCE_BLINDING_DOMAIN, RECIPIENT_BLINDING_DOMAIN,
-};
-use zolana_keypair::hash::poseidon;
-use zolana_transaction::{
-    instructions::{
-        transact::{PrivateTxHash, SppProofOutputUtxo},
-        types::SppProofInputUtxo,
-    },
-    utxo::Blinding,
+use dynamic_swap_program::instructions::settle::SettlePublicInput;
+use dynamic_swap_prover::{EscrowSettleProofInputs, ProofInputUtxo};
+use zolana_transaction::instructions::{
+    transact::{PrivateTxHash, SppProofOutputUtxo},
+    types::SppProofInputUtxo,
 };
 
-use crate::{
-    err,
-    shared::{check_output_utxo, right_align_blinding},
-};
-
-/// Deterministically derives a settle output UTXO's blinding from both escrow
-/// input blindings (the order and reservation notes) and a per-slot `domain`.
-/// The maker and taker -- who both know the two input blindings -- can recompute
-/// their payout notes without an encrypted memo, while a third party (which never
-/// learns the input blindings) cannot, so the settle-vs-refund outcome stays
-/// hidden. Mirrors `escrow_settle.go`'s `DeriveOutputBlinding`: keep bytes
-/// `[1..32]` of the Poseidon output (its low 248 bits).
-pub fn derive_settle_output_blinding(
-    order_blinding: &Blinding,
-    reservation_blinding: &Blinding,
-    domain: u64,
-) -> Result<Blinding> {
-    let derived = poseidon(&[
-        &right_align_blinding(order_blinding),
-        &right_align_blinding(reservation_blinding),
-        &u64_right_align(domain),
-    ])
-    .map_err(err)?;
-    // The swap circuit derives the blinding with a 31-byte truncation
-    // (`DeriveOutputBlinding` keeps the low 248 bits), so mirror it: zero the
-    // top byte of the Poseidon output.
-    let mut blinding = derived;
-    blinding[0] = 0;
-    Ok(blinding)
-}
+use crate::{err, shared::check_output_utxo};
 
 /// Proof-input params for the `escrow_settle` circuit -- the single circuit the
 /// `settle` instruction uses for both outcomes: 2-in (order, reservation) /
@@ -176,35 +140,6 @@ impl SettleProofInputParams {
         )?;
         if maker_source_owner.owner_hash().map_err(err)? != self.authority_owner_hash {
             bail!("maker_source owner does not match the pair's authority_owner_hash");
-        }
-
-        // Every output blinding is fixed by the circuit to a deterministic
-        // derivation from both input blindings; validate the caller's outputs
-        // against it so the proof cannot be built with off-derivation blindings.
-        let order_blinding = &self.order_in.utxo.blinding;
-        let reservation_blinding = &self.reservation_in.utxo.blinding;
-        for (label, output, domain) in [
-            (
-                "recipient_out",
-                &self.recipient_out,
-                RECIPIENT_BLINDING_DOMAIN,
-            ),
-            (
-                "maker_counter",
-                &self.maker_counter,
-                MAKER_COUNTER_BLINDING_DOMAIN,
-            ),
-            (
-                "maker_source",
-                &self.maker_source,
-                MAKER_SOURCE_BLINDING_DOMAIN,
-            ),
-        ] {
-            let expected =
-                derive_settle_output_blinding(order_blinding, reservation_blinding, domain)?;
-            if output.blinding != expected {
-                bail!("{label} blinding does not match the derived settle blinding");
-            }
         }
 
         // 2-in/3-out; output order (recipient, maker_counter, maker_source) must

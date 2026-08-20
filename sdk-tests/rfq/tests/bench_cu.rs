@@ -33,7 +33,7 @@ use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
 use zolana_transaction::{
     instructions::{
         transact::{
-            encrypt_transaction_data, get_transaction_viewing_key,
+            encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
             spp_proof_inputs::BN254_MODULUS_DEC, ExternalData, SppProofInputs, SppProofOutputUtxo,
         },
         types::{InputUtxoContext, SppProofInputUtxo},
@@ -387,14 +387,13 @@ fn bench_settlement(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchm
         .insert(USDC_ASSET_ID, usdc_mint)
         .expect("register usdc");
 
+    let mut transaction_outputs = vec![sol_to_taker, usdc_to_maker];
+    let output_blinding_seed = prepare_output_blindings(&input_utxos, &mut transaction_outputs)
+        .expect("derive output blindings");
     let transaction_viewing_key =
         get_transaction_viewing_key(&maker, &input_utxos).expect("transaction viewing key");
-    let encoded = encrypt_transaction_data(
-        &[sol_to_taker, usdc_to_maker],
-        &assets,
-        &transaction_viewing_key,
-    )
-    .expect("encode settlement slots");
+    let encoded = encrypt_transaction_data(&transaction_outputs, &assets, &transaction_viewing_key)
+        .expect("encode settlement slots");
 
     let external_data = ExternalData::new(
         *transaction_viewing_key.pubkey().as_bytes(),
@@ -409,7 +408,8 @@ fn bench_settlement(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchm
         encoded.output_utxos,
         external_data,
         payer_address,
-    );
+    )
+    .with_output_blinding_seed(output_blinding_seed);
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()

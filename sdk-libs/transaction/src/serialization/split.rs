@@ -6,7 +6,7 @@ use super::{DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
     data::Data,
     error::TransactionError,
-    utxo::{derive_blinding, resolve_ring_program_id, Utxo},
+    utxo::{resolve_ring_program_id, Blinding, Utxo},
     AssetRegistry, EncryptedScheme, P256PubkeySchema, PublicKeySchema, SPLIT,
 };
 
@@ -15,7 +15,6 @@ pub struct SplitEncode {
     pub recipient_pubkey: P256Pubkey,
     pub salt: [u8; SALT_LEN],
     pub slot_index: u32,
-    pub blinding_seed: [u8; 32],
 }
 
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
@@ -25,15 +24,21 @@ pub struct SplitBundlePlaintext {
     pub num_outputs: u8,
     pub asset_id: u64,
     pub asset_amount: u64,
-    pub blinding_seed: [u8; 32],
+    /// Final protocol-derived blindings for all eight physical output slots.
+    /// The private derivation seed is never disclosed to the recipient.
+    pub output_blindings: [Blinding; 8],
     pub data: Data,
 }
 
 impl SplitBundlePlaintext {
-    pub fn output_blindings(&self) -> Vec<crate::utxo::Blinding> {
-        (0..self.num_outputs)
-            .map(|i| derive_blinding(&self.blinding_seed, i))
-            .collect()
+    pub fn output_blindings(&self) -> Result<Vec<Blinding>, TransactionError> {
+        let count = usize::from(self.num_outputs);
+        if count > self.output_blindings.len() {
+            return Err(TransactionError::SplitInvalidPartCount {
+                num_outputs: self.num_outputs,
+            });
+        }
+        Ok(self.output_blindings[..count].to_vec())
     }
 
     pub fn serialize(&self) -> Result<Vec<u8>, TransactionError> {
@@ -43,6 +48,11 @@ impl SplitBundlePlaintext {
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, TransactionError> {
         let parsed: Self = wincode::deserialize_exact(bytes)?;
+        if usize::from(parsed.num_outputs) > parsed.output_blindings.len() {
+            return Err(TransactionError::SplitInvalidPartCount {
+                num_outputs: parsed.num_outputs,
+            });
+        }
         parsed.data.validate()?;
         Ok(parsed)
     }
@@ -52,17 +62,23 @@ impl SplitBundlePlaintext {
         assets: &AssetRegistry,
         ring_program_id: Option<Address>,
     ) -> Result<Vec<Utxo>, TransactionError> {
+        if usize::from(self.num_outputs) > self.output_blindings.len() {
+            return Err(TransactionError::SplitInvalidPartCount {
+                num_outputs: self.num_outputs,
+            });
+        }
         if self.num_outputs == 0 && !self.data.is_empty() {
             return Err(TransactionError::DataWithoutOutput);
         }
         let ring_program_id = resolve_ring_program_id(ring_program_id, &self.data)?;
         let asset = assets.resolve(self.asset_id)?;
-        Ok((0..self.num_outputs)
-            .map(|i| Utxo {
+        Ok(self.output_blindings[..usize::from(self.num_outputs)]
+            .iter()
+            .map(|blinding| Utxo {
                 owner: self.owner_pubkey,
                 asset,
                 amount: self.asset_amount,
-                blinding: derive_blinding(&self.blinding_seed, i),
+                blinding: *blinding,
                 ring_program_id,
                 data: self.data.clone(),
             })
@@ -122,9 +138,12 @@ impl UtxoSerialization for Split {
     fn from_utxos(
         utxos: &[Utxo],
         owner: &OwnerCx,
-        cx: &SplitEncode,
+        _cx: &SplitEncode,
     ) -> Result<Self::Plaintext, TransactionError> {
         let first = utxos.first().ok_or(TransactionError::MissingOutput)?;
+        if utxos.len() > 8 {
+            return Err(TransactionError::TooManyOutputs);
+        }
         let num_outputs =
             u8::try_from(utxos.len()).map_err(|_| TransactionError::TooManyOutputs)?;
         Ok(SplitBundlePlaintext {
@@ -132,7 +151,12 @@ impl UtxoSerialization for Split {
             num_outputs,
             asset_id: owner.assets.asset_id(&first.asset)?,
             asset_amount: first.amount,
-            blinding_seed: cx.blinding_seed,
+            output_blindings: core::array::from_fn(|index| {
+                utxos
+                    .get(index)
+                    .map(|utxo| utxo.blinding)
+                    .unwrap_or_default()
+            }),
             data: first.data.clone(),
         })
     }

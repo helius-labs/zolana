@@ -53,10 +53,11 @@ use zolana_test_utils::nullifier_pda::{
     assert_nullifier_pdas, nullifier_pda_addresses, nullifier_pda_rent, tree_fees,
 };
 use zolana_test_utils::transact::{
-    build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo, fe,
-    inline_outputs, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
-    pack_transact_proof, prove_and_verify_transfer, resolve_outputs, set_output_owner_tags,
-    sol_public_slots, spend_input, SpendInputArgs, TransferProverInputsArgs,
+    build_transfer_prover_inputs, derive_test_transfer_output_blindings, dummy_input,
+    dummy_transfer_output, eddsa_input_utxo, fe, inline_outputs, new_transact_ix_data,
+    nullifier_tree, output_owner_pk_hashes, pack_transact_proof, prove_and_verify_transfer,
+    resolve_outputs, set_output_owner_tags, sol_public_slots, spend_input, SpendInputArgs,
+    TransferProverInputsArgs,
 };
 use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
@@ -138,8 +139,9 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
         .iter()
         .map(|blinding| dummy_transfer_output(blinding).expect("dummy output"))
         .collect();
-    let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
     let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
+    let output_hashes = derive_test_transfer_output_blindings(&nullifier, &mut outputs)
+        .expect("derive output blindings");
 
     let mut transact_ix_data = new_transact_ix_data(
         vec![
@@ -363,8 +365,9 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
             dummy_transfer_output(&[seed; 31]).expect("dummy output")
         })
         .collect();
-    let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
     let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
+    let output_hashes = derive_test_transfer_output_blindings(&nullifier, &mut outputs)
+        .expect("derive output blindings");
 
     let view_tags: Vec<[u8; 32]> = (0..n_outputs).map(|_| payer_bytes).collect();
     let mut transact_ix_data = new_transact_ix_data(

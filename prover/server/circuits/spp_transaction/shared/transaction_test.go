@@ -47,9 +47,10 @@ type testOutput struct {
 // testAssignment carries every value any variant needs; the as<Variant>
 // materializers project it onto the variant Public/Private structs.
 type testAssignment struct {
-	Shape   Shape
-	Inputs  []testInput
-	Outputs []testOutput
+	Shape              Shape
+	Inputs             []testInput
+	Outputs            []testOutput
+	OutputBlindingSeed frontend.Variable
 
 	ExternalDataHash frontend.Variable
 	PrivateTxHash    frontend.Variable
@@ -187,6 +188,7 @@ func asCustomRingEddsaOnly(a *testAssignment) frontend.Circuit {
 			Outputs:             a.outputUtxos(),
 			OutputOwnerPkHashes: a.OutputOwnerPkHashes(),
 			OutputNullifierPks:  a.outputNullifierPks(),
+			OutputBlindingSeed:  a.OutputBlindingSeed,
 		},
 	}
 }
@@ -211,6 +213,7 @@ func asCustomRingAuthority(a *testAssignment) frontend.Circuit {
 			Inputs:             a.coreInputs(),
 			InputOwnerPkHashes: a.InputOwnerPkHashes(),
 			Outputs:            a.outputUtxos(),
+			OutputBlindingSeed: a.OutputBlindingSeed,
 		},
 	}
 }
@@ -236,6 +239,7 @@ func asDefaultRingEddsaOnly(a *testAssignment) frontend.Circuit {
 			InputOwnerPkHashes: a.InputOwnerPkHashes(),
 			Outputs:            a.outputUtxos(),
 			OutputNullifierPks: a.outputNullifierPks(),
+			OutputBlindingSeed: a.OutputBlindingSeed,
 		},
 	}
 }
@@ -351,6 +355,12 @@ func buildCircuitAssignmentExact(
 	}
 	utxoTreeRoots := spptest.RepeatBigInt(stateRoot, shape.NInputs)
 	nullifierTreeRoots := spptest.RepeatBigInt(nullifierTree.Root(), shape.NInputs)
+	outputBlindingSeed := spptest.Fe(4242)
+	firstNullifier := spptest.AsBigInt(nullifiers[0])
+	for i := range outputUtxos {
+		blinding, err := protocol.OutputBlinding(firstNullifier, outputBlindingSeed, i)
+		outputUtxos[i].Blinding = spptest.MustHash(t, blinding, err)
+	}
 
 	outputCircuitUtxos := make([]UtxoCircuitFields, shape.NOutputs)
 	OutputHashes := make([]*big.Int, shape.NOutputs)
@@ -455,15 +465,16 @@ func buildCircuitAssignmentExact(
 	}
 
 	circuit := &testAssignment{
-		Shape:            Shape(shape),
-		Inputs:           inputs,
-		Outputs:          outputs,
-		ExternalDataHash: externalDataHash,
-		PrivateTxHash:    privateTxHash,
-		RingProgramID:    publicInputs.RingProgramID,
-		AllowDummyInputs: publicInputs.AllowDummyInputs,
-		SignerPkHashes:   asFrontendVariables(publicInputs.SignerPkHashes),
-		PublicInputHash:  publicInputHash,
+		Shape:              Shape(shape),
+		Inputs:             inputs,
+		Outputs:            outputs,
+		OutputBlindingSeed: outputBlindingSeed,
+		ExternalDataHash:   externalDataHash,
+		PrivateTxHash:      privateTxHash,
+		RingProgramID:      publicInputs.RingProgramID,
+		AllowDummyInputs:   publicInputs.AllowDummyInputs,
+		SignerPkHashes:     asFrontendVariables(publicInputs.SignerPkHashes),
+		PublicInputHash:    publicInputHash,
 	}
 	for i := 0; i < NPublicSlots; i++ {
 		circuit.PublicAssets[i] = publicInputs.PublicAssets[i]
@@ -648,6 +659,7 @@ func rebuildAfterOwnerChange(t testing.TB, assignment *testAssignment) {
 		assignment.Inputs[i].NullifierLowPathIndex = new(big.Int).SetUint64(nfWitness.LowIndex)
 		assignment.Inputs[i].NullifierTreeRoot = nullifierTree.Root()
 	}
+	refreshDerivedOutputBlindings(t, assignment)
 
 	OutputHashes := spptest.ToBigInts(assignment.OutputHashes())
 	privateTxHash := spptest.MustPrivateTxHash(
@@ -659,6 +671,20 @@ func rebuildAfterOwnerChange(t testing.TB, assignment *testAssignment) {
 	)
 	assignment.PrivateTxHash = privateTxHash
 	refreshPublicInputHash(t, assignment)
+}
+
+func refreshDerivedOutputBlindings(t testing.TB, assignment *testAssignment) {
+	t.Helper()
+	firstNullifier := spptest.AsBigInt(assignment.Inputs[0].Nullifier)
+	seed := spptest.AsBigInt(assignment.OutputBlindingSeed)
+	for i := range assignment.Outputs {
+		blinding, err := protocol.OutputBlinding(firstNullifier, seed, i)
+		assignment.Outputs[i].Utxo.Blinding = spptest.MustHash(t, blinding, err)
+		assignment.Outputs[i].Hash = spptest.MustUtxoHash(
+			t,
+			circuitFieldsToUtxo(assignment.Outputs[i].Utxo),
+		)
+	}
 }
 
 func testOwnerHashForNullifierSecret(nullifierSecret *big.Int) *big.Int {

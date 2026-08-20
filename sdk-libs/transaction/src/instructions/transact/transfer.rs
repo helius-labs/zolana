@@ -13,7 +13,9 @@ use zolana_keypair::{
 use super::{
     shape::{resolve_shape, Shape},
     slots::encode_confidential_slots,
-    spp_proof_inputs::{first_nullifier, inputs_require_p256, SppProofInputs},
+    spp_proof_inputs::{
+        assign_output_blindings, first_nullifier, inputs_require_p256, SppProofInputs,
+    },
     ExternalData, SettlementTransfer, SppProofOutputUtxo,
 };
 use crate::{
@@ -24,13 +26,9 @@ use crate::{
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
         UtxoSerialization,
     },
-    utxo::derive_blinding,
+    utxo::derive_transact_output_blinding,
     AssetRegistry, SOL_ASSET_ID, SOL_MINT,
 };
-
-const SPL_CHANGE_POSITION: u8 = 0;
-const SOL_CHANGE_POSITION: u8 = 1;
-const RECIPIENT_POSITION_BASE: u8 = 2;
 
 /// Fixed number of leading sender-owned output slots in a transfer: SPL change at
 /// slot 0, SOL change at slot 1. Recipients always start at slot 2.
@@ -40,6 +38,7 @@ pub struct PreparedTransfer {
     pub owner: ShieldedAddress,
     pub inputs: Vec<SppProofInputUtxo>,
     pub outputs: Vec<SppProofOutputUtxo>,
+    pub output_blinding_seed: [u8; 32],
     pub first_nullifier: [u8; 32],
     pub shape: Shape,
     pub payer: Address,
@@ -322,21 +321,18 @@ impl ConfidentialTransfer {
             },
         };
 
-        // Change blindings stay bound to their fixed positions, so a compact
-        // transfer commits to the same values a padded one would.
+        let first_nullifier = first_nullifier(&self.inputs)?;
         let mut outputs = Vec::new();
         match spl_change_asset {
             Some(asset) => outputs.push(SppProofOutputUtxo {
                 owner_address: Some(self.owner),
                 asset,
                 amount: spl_change,
-                blinding: derive_blinding(&self.blinding_seed, SPL_CHANGE_POSITION),
                 ring_program_id: self.ring_program_id,
                 ..Default::default()
             }),
             None if self.change_layout == ChangeLayout::Padded => {
                 outputs.push(SppProofOutputUtxo {
-                    blinding: derive_blinding(&self.blinding_seed, SPL_CHANGE_POSITION),
                     owner_tag: Some(self.owner.signing_pubkey.confidential_view_tag()?),
                     ..Default::default()
                 })
@@ -348,25 +344,21 @@ impl ConfidentialTransfer {
                 owner_address: Some(self.owner),
                 asset: SOL_MINT,
                 amount: sol_change,
-                blinding: derive_blinding(&self.blinding_seed, SOL_CHANGE_POSITION),
                 ring_program_id: self.ring_program_id,
                 ..Default::default()
             });
         } else if self.change_layout == ChangeLayout::Padded {
             outputs.push(SppProofOutputUtxo {
-                blinding: derive_blinding(&self.blinding_seed, SOL_CHANGE_POSITION),
                 owner_tag: Some(self.owner.signing_pubkey.confidential_view_tag()?),
                 ..Default::default()
             });
         }
 
-        for (i, recipient) in self.recipients.iter().enumerate() {
-            let position = RECIPIENT_POSITION_BASE + i as u8;
+        for recipient in &self.recipients {
             outputs.push(SppProofOutputUtxo {
                 owner_address: Some(recipient.address),
                 asset: recipient.asset,
                 amount: recipient.amount,
-                blinding: derive_blinding(&self.blinding_seed, position),
                 ring_program_id: match recipient.ring {
                     RecipientRing::OfTransfer => self.ring_program_id,
                     RecipientRing::Default => None,
@@ -375,8 +367,12 @@ impl ConfidentialTransfer {
             });
         }
 
+        // The circuit recomputes every output blinding from the first nullifier,
+        // the private seed, and the slot's final physical index, so a compact
+        // transfer's change blindings differ from a padded one's.
+        assign_output_blindings(&mut outputs, &first_nullifier, &self.blinding_seed)?;
+
         let shape = resolve_shape(self.shape, self.inputs.len(), outputs.len())?;
-        let first_nullifier = first_nullifier(&self.inputs)?;
         let interface_transfers = self
             .public_transfers
             .iter()
@@ -388,6 +384,7 @@ impl ConfidentialTransfer {
             owner: self.owner,
             inputs: self.inputs,
             outputs,
+            output_blinding_seed: self.blinding_seed,
             first_nullifier,
             shape,
             payer: self.payer,
@@ -530,6 +527,8 @@ impl PreparedTransfer {
             owner,
             mut inputs,
             mut outputs,
+            output_blinding_seed,
+            first_nullifier,
             shape,
             payer,
             interface_transfers,
@@ -560,8 +559,14 @@ impl PreparedTransfer {
 
         let dummy_recipient_count = shape.n_outputs().saturating_sub(outputs.len());
         for _ in 0..dummy_recipient_count {
+            let output_index =
+                u32::try_from(outputs.len()).map_err(|_| TransactionError::TooManyOutputs)?;
             outputs.push(SppProofOutputUtxo {
-                blinding: random_blinding(),
+                blinding: derive_transact_output_blinding(
+                    &first_nullifier,
+                    &output_blinding_seed,
+                    output_index,
+                )?,
                 owner_tag: Some(dummy_owner_tag),
                 ..Default::default()
             });
@@ -637,6 +642,7 @@ impl PreparedTransfer {
         Ok(SppProofInputs {
             input_utxos: inputs,
             output_utxos: outputs,
+            output_blinding_seed,
             external_data,
             payer,
         })

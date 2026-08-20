@@ -10,7 +10,8 @@ use crate::{
         field::be,
         resolve_shape,
         transact::assembly::{
-            assemble_inputs, assemble_outputs, OwnerMode, PublicInputs, TransferSpendInput,
+            assemble_inputs, assemble_outputs, validate_output_blindings, OwnerMode, PublicInputs,
+            TransferSpendInput,
         },
         Shape, TransferInputs,
     },
@@ -19,6 +20,7 @@ use crate::{
 pub struct TransferProver {
     pub inputs: Vec<TransferSpendInput>,
     pub outputs: Vec<SppProofOutputUtxo>,
+    pub output_blinding_seed: [u8; 32],
     pub external_data: ExternalData,
     pub public_transfers: PublicTransfers,
     pub signer_pk_hashes: Vec<[u8; 32]>,
@@ -46,6 +48,11 @@ impl TransferProver {
             });
         }
         let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::ConfidentialEddsa)?;
+        let first_nullifier = assembled_inputs
+            .nullifiers
+            .first()
+            .ok_or(ClientError::NoInputs)?;
+        validate_output_blindings(&self.outputs, first_nullifier, &self.output_blinding_seed)?;
         let assembled_outputs = assemble_outputs(&self.outputs)?;
         let external_data_hash = self.external_data.hash()?;
         let private_tx = PrivateTxHash::new(
@@ -72,6 +79,7 @@ impl TransferProver {
         let inputs = TransferInputs {
             inputs: assembled_inputs.inputs,
             outputs: assembled_outputs.outputs,
+            output_blinding_seed: be(&self.output_blinding_seed),
             external_data_hash: be(&external_data_hash),
             private_tx_hash: be(&private_tx),
             public_assets: self.public_transfers.assets.map(|asset| be(&asset)),

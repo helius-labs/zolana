@@ -124,6 +124,9 @@ pub enum ClientError {
     )]
     OutputOwnerTagCountMismatch { outputs: usize, owner_tags: usize },
 
+    #[error("output {index} blinding does not match the transaction seed and first nullifier")]
+    OutputBlindingMismatch { index: usize },
+
     #[error("P256 input {index} is not owned by the supplied authorization key")]
     P256AuthorizationOwnerMismatch { index: usize },
 

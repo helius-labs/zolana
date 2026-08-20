@@ -284,7 +284,6 @@ impl Scenario {
                 recipient_pubkey: self.alice.viewing_pubkey(),
                 salt,
                 slot_index: 0,
-                blinding_seed,
             };
             let ciphertext = Split::encode(&outputs, &owner_cx, sender_view_tag, &cx).unwrap();
 

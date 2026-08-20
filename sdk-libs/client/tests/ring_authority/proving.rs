@@ -3,8 +3,9 @@
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use zolana_client::{
-    InputUtxoContext, PreparedRingAuthority, ProverClient, PublicTransfers, RingAuthorityProver,
-    RingAuthorityWitness, Rpc, Shape, SppProofInputUtxo, TransferSpendInput,
+    assign_spend_output_blindings, InputUtxoContext, PreparedRingAuthority, ProverClient,
+    PublicTransfers, RingAuthorityProver, RingAuthorityWitness, Rpc, Shape, SppProofInputUtxo,
+    TransferSpendInput,
 };
 use zolana_interface::{
     instruction::{
@@ -18,8 +19,8 @@ use zolana_interface::{
 };
 use zolana_keypair::{random_blinding, NullifierKey, PublicKey, ShieldedKeypair, SigningKey};
 use zolana_transaction::{
-    instructions::transact::shape::Shape as TxShape, Data, ExternalData, SppProofOutputUtxo, Utxo,
-    SOL_MINT,
+    instructions::transact::{prepare_output_blindings, shape::Shape as TxShape},
+    Data, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT,
 };
 
 use crate::{
@@ -104,12 +105,17 @@ fn boundary_prover() -> RingAuthorityProver {
         .expect("utxo hash");
     indexer.add_utxo(utxo_hash);
 
+    let inputs = vec![
+        SppProofInputUtxo::new(utxo, &kp),
+        SppProofInputUtxo::new_dummy(),
+    ];
+    let mut outputs = vec![dummy_output(), dummy_output()];
+    let output_blinding_seed =
+        prepare_output_blindings(&inputs, &mut outputs).expect("derive output blindings");
     let prepared = PreparedRingAuthority {
-        inputs: vec![
-            SppProofInputUtxo::new(utxo, &kp),
-            SppProofInputUtxo::new_dummy(),
-        ],
-        outputs: vec![dummy_output(), dummy_output()],
+        output_blinding_seed,
+        inputs,
+        outputs,
         public_transfers: PublicTransfers::default(),
         external_data: ring_external_data(2),
         payer: Address::new_from_array([0u8; 32]),
@@ -160,11 +166,15 @@ fn prove_and_verify(prover: RingAuthorityProver, n_in: usize, n_out: usize) {
 
 fn assemble_prover(
     inputs: Vec<TransferSpendInput>,
-    outputs: Vec<SppProofOutputUtxo>,
+    mut outputs: Vec<SppProofOutputUtxo>,
     n_in: usize,
     n_out: usize,
 ) -> RingAuthorityProver {
+    let output_blinding_seed = [46u8; 32];
+    assign_spend_output_blindings(&inputs, &mut outputs, &output_blinding_seed)
+        .expect("derive output blindings");
     RingAuthorityProver {
+        output_blinding_seed,
         inputs,
         outputs,
         external_data: ring_external_data(n_out),

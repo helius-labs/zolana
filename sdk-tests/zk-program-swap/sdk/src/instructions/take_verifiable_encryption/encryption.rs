@@ -8,7 +8,7 @@ use zolana_transaction::utxo::Blinding;
 
 use crate::{err, shared::right_align_blinding};
 
-pub const DESTINATION_CIPHERTEXT_LEN: usize = 8 + 32 + 31;
+pub const DESTINATION_CIPHERTEXT_LEN: usize = 8 + 32 + 32;
 
 fn take_shared_secret(order_utxo_blinding: &Blinding) -> Result<[u8; 32]> {
     let domain = u64_right_align(TAKE_ENC_KDF_DOMAIN);
@@ -21,12 +21,10 @@ pub fn destination_ciphertext_with_hash(
     destination_amount: u64,
     destination_output_blinding: &Blinding,
 ) -> Result<([u8; DESTINATION_CIPHERTEXT_LEN], [u8; 32])> {
-    // The take circuit packs the blinding as its low 31 bytes; keep that wire
-    // layout (the blinding is a 32-byte field element with a zero top byte).
     let mut plaintext = [0u8; DESTINATION_CIPHERTEXT_LEN];
     plaintext[..8].copy_from_slice(&destination_amount.to_be_bytes());
     plaintext[8..40].copy_from_slice(&hash_bytes(destination_mint.as_array()).map_err(err)?);
-    plaintext[40..].copy_from_slice(&destination_output_blinding[1..]);
+    plaintext[40..].copy_from_slice(destination_output_blinding);
     symmetric_apply(
         &take_shared_secret(order_utxo_blinding)?,
         MERGE_INFO,
@@ -40,7 +38,7 @@ pub fn destination_ciphertext_with_hash(
 pub fn decrypt_destination(
     order_utxo_blinding: &Blinding,
     ciphertext: &[u8; DESTINATION_CIPHERTEXT_LEN],
-) -> Result<([u8; 32], u64)> {
+) -> Result<([u8; 32], u64, Blinding)> {
     let mut plaintext = *ciphertext;
     symmetric_apply(
         &take_shared_secret(order_utxo_blinding)?,
@@ -58,5 +56,10 @@ pub fn decrypt_destination(
         .ok_or_else(|| err("take plaintext asset"))?
         .try_into()
         .map_err(err)?;
-    Ok((asset, u64::from_be_bytes(amount_bytes)))
+    let blinding: Blinding = plaintext
+        .get(40..72)
+        .ok_or_else(|| err("take plaintext blinding"))?
+        .try_into()
+        .map_err(err)?;
+    Ok((asset, u64::from_be_bytes(amount_bytes), blinding))
 }

@@ -1,30 +1,12 @@
 use anyhow::{bail, Result};
-use swap_program::instructions::{shared::u64_right_align, take::TakePublicInput};
-use swap_prover::{
-    OrderTermsProofInput, TakeProofInputs, DESTINATION_BLINDING_DOMAIN, TAKE_MODE_DERIVED,
-};
-use zolana_keypair::hash::poseidon;
+use swap_program::instructions::take::TakePublicInput;
+use swap_prover::{OrderTermsProofInput, TakeProofInputs, TAKE_MODE_DERIVED};
 use zolana_transaction::{
     instructions::transact::{PrivateTxHash, SppProofOutputUtxo},
-    utxo::Blinding,
     ProofInputUtxo,
 };
 
-use crate::{
-    err,
-    shared::{check_output_utxo, right_align_blinding},
-    state::OrderUtxo,
-};
-
-pub fn derive_destination_blinding(order_utxo_blinding: &Blinding) -> Result<Blinding> {
-    let domain = u64_right_align(DESTINATION_BLINDING_DOMAIN);
-    let derived = poseidon(&[&right_align_blinding(order_utxo_blinding), &domain]).map_err(err)?;
-    // The take circuit derives the blinding with a 31-byte truncation, so
-    // mirror it: zero the top byte of the Poseidon output.
-    let mut blinding = derived;
-    blinding[0] = 0;
-    Ok(blinding)
-}
+use crate::{err, shared::check_output_utxo, state::OrderUtxo};
 
 pub struct TakeProofInputParams {
     pub order_utxo: OrderUtxo,
@@ -60,9 +42,6 @@ impl TakeProofInputParams {
         )?;
         if destination_owner != terms.destination {
             bail!("destination output owner does not match the order destination");
-        }
-        if self.destination_output.blinding != self.order_utxo.derived_destination_blinding()? {
-            bail!("destination output blinding does not match the derived blinding");
         }
         if terms.take_mode != TAKE_MODE_DERIVED {
             bail!("order take_mode does not authorize the derived take");

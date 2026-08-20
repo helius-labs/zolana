@@ -22,8 +22,9 @@ func TestP256TransferParametersJSONRoundTrip(t *testing.T) {
 		RingProgramID: zero,
 	}
 	params := P256TransferParameters{
-		NInputs:  1,
-		NOutputs: 1,
+		NInputs:            1,
+		NOutputs:           1,
+		OutputBlindingSeed: big.NewInt(123),
 		Inputs: []InputParams{{
 			Utxo:                     utxo,
 			IsDummy:                  zero,
@@ -82,6 +83,9 @@ func TestP256TransferParametersJSONRoundTrip(t *testing.T) {
 	if _, exists := raw["p256SigningPkField"]; exists {
 		t.Fatal("obsolete p256SigningPkField must not be serialized")
 	}
+	if raw["outputBlindingSeed"] != feHex(big.NewInt(123)) {
+		t.Fatalf("output blinding seed = %v", raw["outputBlindingSeed"])
+	}
 
 	var decoded P256TransferParameters
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
@@ -90,7 +94,19 @@ func TestP256TransferParametersJSONRoundTrip(t *testing.T) {
 	if decoded.NInputs != 1 || decoded.NOutputs != 1 {
 		t.Fatalf("shape = %dx%d", decoded.NInputs, decoded.NOutputs)
 	}
+	if decoded.OutputBlindingSeed.Cmp(big.NewInt(123)) != 0 {
+		t.Fatalf("output blinding seed = %v", decoded.OutputBlindingSeed)
+	}
 	if err := decoded.ValidateShape(); err != nil {
 		t.Fatalf("validate shape: %v", err)
+	}
+
+	delete(raw, "outputBlindingSeed")
+	missingSeed, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatalf("marshal without seed: %v", err)
+	}
+	if err := json.Unmarshal(missingSeed, &decoded); err == nil {
+		t.Fatal("unmarshal without outputBlindingSeed unexpectedly succeeded")
 	}
 }
