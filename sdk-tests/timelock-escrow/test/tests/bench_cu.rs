@@ -43,7 +43,7 @@ use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
 use zolana_transaction::{
     instructions::{
         transact::{
-            encrypt_transaction_data, get_transaction_viewing_key,
+            encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
             spp_proof_inputs::BN254_MODULUS_DEC, ExternalData, SppProofInputs, SppProofOutputUtxo,
         },
         types::SppProofInputUtxo,
@@ -405,6 +405,12 @@ fn bench_escrow(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
         u64::try_from(leftover).expect("insufficient shielded balance for escrow bench");
     let change = SppProofOutputUtxo::new(escrow_asset, change_amount, creator_address)
         .expect("change output");
+    let mut transaction_outputs = vec![change, escrow_output_utxo];
+    let output_blinding_seed = prepare_output_blindings(&input_utxos, &mut transaction_outputs)
+        .expect("derive escrow output blindings");
+    let [change, escrow_output_utxo]: [_; 2] = transaction_outputs
+        .try_into()
+        .expect("escrow transaction has two outputs");
 
     let transaction_viewing_key = get_transaction_viewing_key(&creator, &input_utxos)
         .expect("escrow transaction viewing key");
@@ -427,7 +433,8 @@ fn bench_escrow(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
         encoded.output_utxos,
         external_data,
         payer_address,
-    );
+    )
+    .with_output_blinding_seed(output_blinding_seed);
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
@@ -511,10 +518,13 @@ fn bench_withdraw(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmar
         asset: SOL_MINT,
         amount: LOCK_AMOUNT,
     };
-    let source_output = escrow_utxo.source_output(creator_address, random_blinding());
+    let mut source_output = escrow_utxo.source_output(creator_address, random_blinding());
 
     let escrow_input_utxo = escrow_utxo.to_input_utxo().expect("escrow spend");
     let input_utxos = vec![escrow_input_utxo];
+    let output_blinding_seed =
+        prepare_output_blindings(&input_utxos, std::slice::from_mut(&mut source_output))
+            .expect("derive withdraw output blinding");
 
     let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
     let assets = AssetRegistry::default();
@@ -540,7 +550,8 @@ fn bench_withdraw(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmar
         encoded.output_utxos,
         external_data,
         payer_address,
-    );
+    )
+    .with_output_blinding_seed(output_blinding_seed);
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()

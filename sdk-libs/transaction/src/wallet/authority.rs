@@ -361,7 +361,6 @@ fn encrypt_split_with(
             recipient_pubkey: keypair.viewing_key.pubkey(),
             salt,
             slot_index: 0,
-            blinding_seed: bundle.blinding_seed,
         },
     )?;
     Ok(EncryptedSplit {

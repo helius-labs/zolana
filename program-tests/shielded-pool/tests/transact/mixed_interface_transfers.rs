@@ -26,10 +26,11 @@ use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::{test_blinding, ZolanaProgramTest};
 use zolana_test_utils::transact::{
-    build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
-    external_data_hash, fe, inline_outputs, new_transact_ix_data, nullifier_tree,
-    output_owner_pk_hashes, prove_and_verify_transfer, real_output, set_output_owner_tags,
-    spend_input, transfer_output, SpendInputArgs, TransferProverInputsArgs,
+    build_transfer_prover_inputs, derive_test_transfer_output_blindings, dummy_input,
+    dummy_transfer_output, eddsa_input_utxo, external_data_hash, fe, inline_outputs,
+    new_transact_ix_data, nullifier_tree, output_owner_pk_hashes, prove_and_verify_transfer,
+    real_output, set_output_owner_tags, spend_input, transfer_output, SpendInputArgs,
+    TransferProverInputsArgs,
 };
 use zolana_transaction::{
     instructions::transact::{spp_proof_inputs::signed_to_field, PrivateTxHash},
@@ -51,8 +52,7 @@ struct SpendNote {
 
 struct WitnessOutput {
     transfer: TransferOutput,
-    hash: [u8; 32],
-    private_hash: [u8; 32],
+    is_private: bool,
     nullifier_pk: [u8; 32],
     view_tag: [u8; 32],
 }
@@ -198,11 +198,10 @@ fn dummy_outputs(owner_tag: [u8; 32]) -> Vec<WitnessOutput> {
     [[31u8; 31], [32u8; 31], [33u8; 31]]
         .iter()
         .map(|blinding| {
-            let (transfer, hash) = dummy_transfer_output(blinding).expect("dummy transfer output");
+            let (transfer, _) = dummy_transfer_output(blinding).expect("dummy transfer output");
             WitnessOutput {
                 transfer,
-                hash,
-                private_hash: [0u8; 32],
+                is_private: false,
                 nullifier_pk: [0u8; 32],
                 view_tag: owner_tag,
             }
@@ -218,14 +217,12 @@ fn real_witness_output(
     blinding: [u8; 31],
 ) -> WitnessOutput {
     let output = real_output(signing_pubkey, nullifier_pk, asset, amount, blinding);
-    let hash = output.hash().expect("real output hash");
     let view_tag = signing_pubkey
         .confidential_view_tag()
         .expect("confidential view tag");
     WitnessOutput {
         transfer: transfer_output(&output).expect("real transfer output"),
-        hash,
-        private_hash: hash,
+        is_private: true,
         nullifier_pk,
         view_tag,
     }
@@ -266,14 +263,29 @@ fn prove_spend(
     mut witness_outputs: Vec<WitnessOutput>,
 ) -> TransactIxData {
     assert_eq!(witness_outputs.len(), 3);
-    let output_hashes: Vec<[u8; 32]> = witness_outputs.iter().map(|output| output.hash).collect();
-    let output_private_hashes: Vec<[u8; 32]> = witness_outputs
+    let output_is_private: Vec<bool> = witness_outputs
         .iter()
-        .map(|output| output.private_hash)
+        .map(|output| output.is_private)
         .collect();
     let view_tags: Vec<[u8; 32]> = witness_outputs
         .iter()
         .map(|output| output.view_tag)
+        .collect();
+    let nullifier_pks: Vec<[u8; 32]> = witness_outputs
+        .iter()
+        .map(|output| output.nullifier_pk)
+        .collect();
+    let mut transfer_outputs: Vec<TransferOutput> = witness_outputs
+        .drain(..)
+        .map(|output| output.transfer)
+        .collect();
+    let output_hashes =
+        derive_test_transfer_output_blindings(&note.nullifier, &mut transfer_outputs)
+            .expect("derive output blindings");
+    let output_private_hashes: Vec<[u8; 32]> = output_hashes
+        .iter()
+        .zip(output_is_private)
+        .map(|(hash, is_private)| if is_private { *hash } else { [0u8; 32] })
         .collect();
     let mut ix_data = new_transact_ix_data(
         vec![
@@ -285,14 +297,6 @@ fn prove_spend(
     );
     let output_owner_pk_hashes =
         output_owner_pk_hashes(&ix_data.outputs).expect("output owner pk hashes");
-    let nullifier_pks: Vec<[u8; 32]> = witness_outputs
-        .iter()
-        .map(|output| output.nullifier_pk)
-        .collect();
-    let mut transfer_outputs: Vec<TransferOutput> = witness_outputs
-        .drain(..)
-        .map(|output| output.transfer)
-        .collect();
     set_output_owner_tags(
         &mut transfer_outputs,
         &output_owner_pk_hashes,

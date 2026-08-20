@@ -269,7 +269,9 @@ pub(crate) fn split_round_trips(world: &mut TransactionWorld, name: String) {
         num_outputs: 4,
         asset_id: SPL_ASSET_ID,
         asset_amount: 200,
-        blinding_seed: [3u8; 32],
+        output_blindings: core::array::from_fn(|index| {
+            zolana_transaction::utxo::derive_blinding(&[3u8; 32], index as u8)
+        }),
         data: Data::default(),
     };
     let expected = split_pt.clone().into_utxos(&registry, None).unwrap();
@@ -293,7 +295,6 @@ pub(crate) fn split_round_trips(world: &mut TransactionWorld, name: String) {
             recipient_pubkey: owner.viewing_pubkey(),
             salt,
             slot_index: 0,
-            blinding_seed: [3u8; 32],
         },
     )
     .unwrap();

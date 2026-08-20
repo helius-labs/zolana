@@ -25,9 +25,10 @@ use zolana_program_test::{
     IndexedTransaction, TestIndexer,
 };
 use zolana_test_utils::transact::{
-    build_transfer_prover_inputs, dummy_transfer_output, eddsa_input_utxo, external_data_hash, fe,
-    inline_outputs, new_transact_ix_data, output_owner_pk_hashes, prove_and_verify_transfer,
-    set_output_owner_tags, sol_public_slots, TransferProverInputsArgs,
+    build_transfer_prover_inputs, derive_test_transfer_output_blindings, dummy_transfer_output,
+    eddsa_input_utxo, external_data_hash, fe, inline_outputs, new_transact_ix_data,
+    output_owner_pk_hashes, prove_and_verify_transfer, set_output_owner_tags, sol_public_slots,
+    TransferProverInputsArgs,
 };
 use zolana_transaction::instructions::transact::PrivateTxHash;
 use zolana_tree::TreeAccount;
@@ -297,6 +298,14 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<Tr
         .iter()
         .map(|input| field_bytes(&input.nullifier_tree_root))
         .collect();
+    args.output_hashes = derive_test_transfer_output_blindings(&nullifiers[0], &mut args.outputs)?;
+    for (index, output) in args.outputs.iter().enumerate() {
+        args.private_tx_outputs[index] = if output.is_dummy == 0u8.into() {
+            args.output_hashes[index]
+        } else {
+            [0u8; 32]
+        };
+    }
     let mut ix_data = new_transact_ix_data(
         nullifiers
             .iter()

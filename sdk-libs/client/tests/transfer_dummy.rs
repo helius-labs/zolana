@@ -21,8 +21,8 @@ use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use rand::RngCore;
 use zolana_client::prover::SERVER_ADDRESS;
 use zolana_client::{
-    spawn_prover, InputUtxoContext, ProverClient, PublicTransfers, Rpc, Shape, TransferProver,
-    TransferSpendInput,
+    assign_spend_output_blindings, spawn_prover, InputUtxoContext, ProverClient, PublicTransfers,
+    Rpc, Shape, TransferProver, TransferSpendInput,
 };
 use zolana_hasher::primitives::hash_bytes;
 use zolana_interface::{
@@ -244,11 +244,15 @@ fn prove_and_verify_eddsa_shape(n_in: usize, n_out: usize) {
     for _ in 1..n_in {
         inputs.push(dummy_input());
     }
-    let outputs = (0..n_out).map(|_| dummy_output(owner_tag)).collect();
+    let mut outputs: Vec<_> = (0..n_out).map(|_| dummy_output(owner_tag)).collect();
+    let output_blinding_seed = [42u8; 32];
+    assign_spend_output_blindings(&inputs, &mut outputs, &output_blinding_seed)
+        .expect("derive output blindings");
     let mut signer_pk_hashes = vec![[0u8; 32]; n_in + 1];
     signer_pk_hashes[1] = hash_bytes(&owner_tag).expect("owner signer hash");
 
     let prover = TransferProver {
+        output_blinding_seed,
         inputs,
         outputs,
         external_data: dummy_external_data(owner_tag, n_out),
@@ -312,13 +316,19 @@ fn dummy_transfer_2_3_proof_verifies() {
         .owner
         .confidential_view_tag()
         .expect("real input owner tag");
+    let inputs = vec![real_input, dummy_input()];
+    let mut outputs = vec![
+        dummy_output(owner_tag),
+        dummy_output(owner_tag),
+        dummy_output(owner_tag),
+    ];
+    let output_blinding_seed = [43u8; 32];
+    assign_spend_output_blindings(&inputs, &mut outputs, &output_blinding_seed)
+        .expect("derive output blindings");
     let prover = TransferProver {
-        inputs: vec![real_input, dummy_input()],
-        outputs: vec![
-            dummy_output(owner_tag),
-            dummy_output(owner_tag),
-            dummy_output(owner_tag),
-        ],
+        output_blinding_seed,
+        inputs,
+        outputs,
         external_data: dummy_external_data(owner_tag, 3),
         public_transfers: PublicTransfers::default(),
         signer_pk_hashes: vec![

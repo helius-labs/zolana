@@ -33,7 +33,23 @@ const (
 	DummyDomain   = 1
 	AddressDomain = 2
 	UtxoDomain    = 3
+	// OutputBlindingDomainV1 is the ASCII tag "TXOB".
+	OutputBlindingDomainV1 = 0x54584f42
 )
+
+// OutputBlinding derives one physical SPP transaction output blinding.
+func OutputBlinding(firstNullifier, seed *big.Int, outputIndex int) (*big.Int, error) {
+	h, err := poseidon.Hash([]*big.Int{
+		big.NewInt(OutputBlindingDomainV1),
+		firstNullifier,
+		seed,
+		big.NewInt(int64(outputIndex)),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("spp: output blinding: %w", err)
+	}
+	return h, nil
+}
 
 type Utxo struct {
 	Domain        *big.Int

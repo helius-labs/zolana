@@ -150,13 +150,15 @@ pub(crate) fn split_bundle_round_trips(world: &mut TransactionWorld, name: Strin
         num_outputs: 8,
         asset_id: 2,
         asset_amount: 1000,
-        blinding_seed: [3u8; 32],
+        output_blindings: core::array::from_fn(|index| {
+            zolana_transaction::utxo::derive_blinding(&[3u8; 32], index as u8)
+        }),
         data: Data::default(),
     };
     let bytes = bundle.serialize().unwrap();
     assert_eq!(SplitBundlePlaintext::deserialize(&bytes).unwrap(), bundle);
 
-    let blindings = bundle.output_blindings();
+    let blindings = bundle.output_blindings().unwrap();
     assert_eq!(blindings.len(), 8);
     let mut seen = HashSet::new();
     for blinding in blindings {

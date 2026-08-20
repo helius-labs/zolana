@@ -8,19 +8,6 @@ import (
 	spp "zolana/prover/circuits/spp_transaction/shared"
 )
 
-// Per-output-slot domains folded into DeriveOutputBlinding so the three settle
-// outputs derive independent blindings from the same pair of input blindings.
-// These constants MUST stay in sync with dynamic-swap-prover's Rust copies.
-const (
-	RecipientBlindingDomain    uint64 = 0x5345545245434950 // "SETRECIP"
-	MakerCounterBlindingDomain uint64 = 0x5345544D4B435452 // "SETMKCTR"
-	MakerSourceBlindingDomain  uint64 = 0x5345544D4B535243 // "SETMKSRC"
-)
-
-// settleBlindingBits truncates the Poseidon output to a 31-byte blinding (the
-// SPP Blinding width), matching the Rust derivation's [1..32] byte slice.
-const settleBlindingBits = 248
-
 // Circuit resolves an escrow -- settle or price-refund -- in a single circuit/VK
 // so the resolving transaction never reveals which outcome occurred. The proof
 // shape, account list, and verifying key are identical in both cases; the
@@ -121,20 +108,6 @@ func (c *Circuit) Define(api frontend.API) error {
 	// shape never differs, but valueless when refunding.
 	makerSourceAmount := api.Select(isSettle, c.OrderAmount, 0)
 	makerSourceHash := c.checkMakerSourceOutputUtxo(api, makerSourceAmount)
-
-	// Every output UTXO's blinding is deterministically derived from BOTH escrow
-	// input blindings (the order and reservation notes). Only a holder of both
-	// input secrets can recompute these, so the maker and taker can find and
-	// spend their settle outputs without an encrypted memo; a third-party
-	// observer never learns the input blindings, so this does not weaken the
-	// settle-vs-refund indistinguishability. A distinct domain per output slot
-	// keeps the three blindings independent (no cross-note linkage or collision).
-	api.AssertIsEqual(c.RecipientOut.Blinding,
-		DeriveOutputBlinding(api, c.OrderIn.Blinding, c.ReservationIn.Blinding, RecipientBlindingDomain))
-	api.AssertIsEqual(c.MakerCounter.Blinding,
-		DeriveOutputBlinding(api, c.OrderIn.Blinding, c.ReservationIn.Blinding, MakerCounterBlindingDomain))
-	api.AssertIsEqual(c.MakerSource.Blinding,
-		DeriveOutputBlinding(api, c.OrderIn.Blinding, c.ReservationIn.Blinding, MakerSourceBlindingDomain))
 
 	privateTxHashInputs{
 		OrderInputUtxoHash:         orderInHash,
@@ -274,17 +247,4 @@ func (c *Circuit) checkMakerSourceOutputUtxo(api frontend.API, amount frontend.V
 	api.AssertIsEqual(c.MakerSource.Amount, amount)
 	api.AssertIsEqual(c.MakerSource.Owner, c.Public.AuthorityOwnerHash)
 	return spp.UtxoHashCircuit(api, c.MakerSource)
-}
-
-// DeriveOutputBlinding folds both escrow input blindings and a per-slot domain
-// into a single 31-byte blinding. Truncating the 254-bit Poseidon output to its
-// low 248 bits mirrors the Rust helper, which keeps bytes [1..32] of the hash.
-func DeriveOutputBlinding(api frontend.API, orderBlinding, reservationBlinding frontend.Variable, domain uint64) frontend.Variable {
-	full := gadget.PoseidonHash(api, []frontend.Variable{
-		orderBlinding,
-		reservationBlinding,
-		frontend.Variable(domain),
-	})
-	bits := api.ToBinary(full, 254)
-	return api.FromBinary(bits[:settleBlindingBits]...)
 }

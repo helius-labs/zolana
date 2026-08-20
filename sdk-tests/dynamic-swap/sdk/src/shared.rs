@@ -1,17 +1,9 @@
 use anyhow::Result;
 use solana_address::Address;
 use zolana_keypair::ShieldedAddress;
-use zolana_transaction::{instructions::transact::SppProofOutputUtxo, utxo::Blinding};
+use zolana_transaction::instructions::transact::SppProofOutputUtxo;
 
 use crate::err;
-
-// A Blinding is already a 32-byte big-endian field element. Asserted at compile
-// time so a Blinding width change is a build error, not a silent mismatch.
-const _: () = assert!(core::mem::size_of::<Blinding>() == 32);
-
-pub(crate) fn right_align_blinding(blinding: &Blinding) -> [u8; 32] {
-    *blinding
-}
 
 pub(crate) fn check_output_utxo(
     label: &str,

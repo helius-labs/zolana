@@ -22,6 +22,7 @@ use crate::{
 pub struct PreparedRingAuthority {
     pub inputs: Vec<SppProofInputUtxo>,
     pub outputs: Vec<SppProofOutputUtxo>,
+    pub output_blinding_seed: [u8; 32],
     pub public_transfers: PublicTransfers,
     pub external_data: ExternalData,
     pub payer: Address,

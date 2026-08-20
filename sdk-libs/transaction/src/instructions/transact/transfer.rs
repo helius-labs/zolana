@@ -24,7 +24,7 @@ use crate::{
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
         UtxoSerialization,
     },
-    utxo::derive_blinding,
+    utxo::derive_transact_output_blinding,
     AssetRegistry, SOL_ASSET_ID, SOL_MINT,
 };
 
@@ -40,6 +40,7 @@ pub struct PreparedTransfer {
     pub owner: ShieldedAddress,
     pub inputs: Vec<SppProofInputUtxo>,
     pub outputs: Vec<SppProofOutputUtxo>,
+    pub output_blinding_seed: [u8; 32],
     pub first_nullifier: [u8; 32],
     pub shape: Shape,
     pub payer: Address,
@@ -238,17 +239,26 @@ impl ConfidentialTransfer {
             None => 0,
         };
 
+        let first_nullifier = first_nullifier(&self.inputs)?;
         let mut outputs = Vec::new();
         outputs.push(match spl_asset {
             Some(asset) if spl_change > 0 => SppProofOutputUtxo {
                 owner_address: Some(self.owner),
                 asset,
                 amount: spl_change,
-                blinding: derive_blinding(&self.blinding_seed, SPL_CHANGE_POSITION),
+                blinding: derive_transact_output_blinding(
+                    &first_nullifier,
+                    &self.blinding_seed,
+                    u32::from(SPL_CHANGE_POSITION),
+                )?,
                 ..Default::default()
             },
             _ => SppProofOutputUtxo {
-                blinding: derive_blinding(&self.blinding_seed, SPL_CHANGE_POSITION),
+                blinding: derive_transact_output_blinding(
+                    &first_nullifier,
+                    &self.blinding_seed,
+                    u32::from(SPL_CHANGE_POSITION),
+                )?,
                 owner_tag: Some(self.owner.signing_pubkey.confidential_view_tag()?),
                 ..Default::default()
             },
@@ -258,12 +268,20 @@ impl ConfidentialTransfer {
                 owner_address: Some(self.owner),
                 asset: SOL_MINT,
                 amount: sol_change,
-                blinding: derive_blinding(&self.blinding_seed, SOL_CHANGE_POSITION),
+                blinding: derive_transact_output_blinding(
+                    &first_nullifier,
+                    &self.blinding_seed,
+                    u32::from(SOL_CHANGE_POSITION),
+                )?,
                 ..Default::default()
             }
         } else {
             SppProofOutputUtxo {
-                blinding: derive_blinding(&self.blinding_seed, SOL_CHANGE_POSITION),
+                blinding: derive_transact_output_blinding(
+                    &first_nullifier,
+                    &self.blinding_seed,
+                    u32::from(SOL_CHANGE_POSITION),
+                )?,
                 owner_tag: Some(self.owner.signing_pubkey.confidential_view_tag()?),
                 ..Default::default()
             }
@@ -275,13 +293,16 @@ impl ConfidentialTransfer {
                 owner_address: Some(recipient.address),
                 asset: recipient.asset,
                 amount: recipient.amount,
-                blinding: derive_blinding(&self.blinding_seed, position),
+                blinding: derive_transact_output_blinding(
+                    &first_nullifier,
+                    &self.blinding_seed,
+                    u32::from(position),
+                )?,
                 ..Default::default()
             });
         }
 
         let shape = resolve_shape(self.shape, self.inputs.len(), outputs.len())?;
-        let first_nullifier = first_nullifier(&self.inputs)?;
         let interface_transfers = self
             .public_transfers
             .iter()
@@ -293,6 +314,7 @@ impl ConfidentialTransfer {
             owner: self.owner,
             inputs: self.inputs,
             outputs,
+            output_blinding_seed: self.blinding_seed,
             first_nullifier,
             shape,
             payer: self.payer,
@@ -429,6 +451,8 @@ impl PreparedTransfer {
             owner,
             mut inputs,
             mut outputs,
+            output_blinding_seed,
+            first_nullifier,
             shape,
             payer,
             interface_transfers,
@@ -458,8 +482,14 @@ impl PreparedTransfer {
 
         let dummy_recipient_count = shape.n_outputs().saturating_sub(outputs.len());
         for _ in 0..dummy_recipient_count {
+            let output_index =
+                u32::try_from(outputs.len()).map_err(|_| TransactionError::TooManyOutputs)?;
             outputs.push(SppProofOutputUtxo {
-                blinding: random_blinding(),
+                blinding: derive_transact_output_blinding(
+                    &first_nullifier,
+                    &output_blinding_seed,
+                    output_index,
+                )?,
                 owner_tag: Some(dummy_owner_tag),
                 ..Default::default()
             });
@@ -535,6 +565,7 @@ impl PreparedTransfer {
         Ok(SppProofInputs {
             input_utxos: inputs,
             output_utxos: outputs,
+            output_blinding_seed,
             external_data,
             payer,
         })

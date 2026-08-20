@@ -3,7 +3,9 @@ use zolana_event::is_confidential_encrypted_output;
 use zolana_hasher::hash_chain::{create_hash_chain_from_slice, create_right_hash_chain_from_slice};
 use zolana_keypair::{Curve, NullifierKey};
 use zolana_transaction::{
-    instructions::transact::PublicTransfers, ExternalData, ProofInputUtxo, SppProofOutputUtxo, Utxo,
+    instructions::transact::{assign_output_blindings, PublicTransfers},
+    utxo::derive_transact_output_blinding,
+    ExternalData, ProofInputUtxo, SppProofOutputUtxo, Utxo,
 };
 
 use crate::{
@@ -31,6 +33,28 @@ pub struct TransferSpendInput {
     pub nullifier_proof: Option<NonInclusionProof>,
 }
 
+/// Assigns deterministic final blindings for a low-level prover transaction.
+/// Call this before hashing or encrypting its outputs.
+pub fn assign_spend_output_blindings(
+    inputs: &[TransferSpendInput],
+    outputs: &mut [SppProofOutputUtxo],
+    seed: &[u8; 32],
+) -> Result<(), ClientError> {
+    let first = inputs.first().ok_or(ClientError::NoInputs)?;
+    let nullifier_pubkey = first.nullifier_key.pubkey()?;
+    let input = first.utxo.proof_input(
+        &nullifier_pubkey,
+        &first.data_hash.unwrap_or_default(),
+        &first.ring_data_hash.unwrap_or_default(),
+    )?;
+    let input_hash = input.hash()?;
+    let first_nullifier = first
+        .nullifier_key
+        .nullifier(&input_hash, &first.utxo.blinding)?;
+    assign_output_blindings(outputs, &first_nullifier, seed)?;
+    Ok(())
+}
+
 pub(crate) struct AssembledInputs {
     pub inputs: Vec<TransferInput>,
     pub input_hashes: Vec<[u8; 32]>,
@@ -54,6 +78,24 @@ pub(crate) struct AssembledOutputs {
     /// public-input hash and matches the program's `hash_bytes(view_tag)`
     /// reconstruction.
     pub output_owner_pk_hashes: Vec<[u8; 32]>,
+}
+
+pub(crate) fn validate_output_blindings(
+    outputs: &[SppProofOutputUtxo],
+    first_nullifier: &[u8; 32],
+    seed: &[u8; 32],
+) -> Result<(), ClientError> {
+    for (index, output) in outputs.iter().enumerate() {
+        let output_index = u32::try_from(index).map_err(|_| ClientError::TooManyOutputs {
+            got: outputs.len(),
+            max: u32::MAX as usize,
+        })?;
+        let expected = derive_transact_output_blinding(first_nullifier, seed, output_index)?;
+        if output.blinding != expected {
+            return Err(ClientError::OutputBlindingMismatch { index });
+        }
+    }
+    Ok(())
 }
 
 /// Derive the public per-slot owner vector for owner-signed custom-ring

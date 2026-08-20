@@ -9,10 +9,6 @@ import (
 	spp "zolana/prover/circuits/spp_transaction/shared"
 )
 
-const DestinationBlindingDomain uint64 = 0x46494C4C44455256
-
-const destinationBlindingBits = 248
-
 type Circuit struct {
 	Public PublicInputs
 
@@ -21,7 +17,6 @@ type Circuit struct {
 
 func (c *Circuit) Define(api frontend.API) error {
 	api.AssertIsEqual(c.Core.Order.TakeMode, orderterms.TakeModeDerived)
-	api.AssertIsEqual(c.Core.DestinationOutput.Blinding, DeriveDestinationBlinding(api, c.Core.OrderUtxo.Blinding))
 
 	c.Core.Check(api, c.Public.PrivateTxHash)
 
@@ -127,13 +122,4 @@ func (f Core) checkDestinationOutputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(f.DestinationOutput.Amount, f.Order.DestinationAmount)
 	api.AssertIsEqual(f.DestinationOutput.Owner, f.Order.MakerOwnerHash)
 	return spp.UtxoHashCircuit(api, f.DestinationOutput)
-}
-
-func DeriveDestinationBlinding(api frontend.API, orderUtxoBlinding frontend.Variable) frontend.Variable {
-	full := gadget.PoseidonHash(api, []frontend.Variable{
-		orderUtxoBlinding,
-		frontend.Variable(DestinationBlindingDomain),
-	})
-	bits := api.ToBinary(full, 254)
-	return api.FromBinary(bits[:destinationBlindingBits]...)
 }

@@ -43,6 +43,7 @@ func makeAddressSlot(t testing.TB, assignment *testAssignment, idx int, ownerPkH
 
 func finalizeAddressAssignment(t testing.TB, assignment *testAssignment, requiresP256, confidential bool) {
 	t.Helper()
+	refreshDerivedOutputBlindings(t, assignment)
 	inputHashes := make([]*big.Int, len(assignment.Inputs))
 	addressHashes := make([]*big.Int, len(assignment.Inputs))
 	for i := range assignment.Inputs {

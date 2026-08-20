@@ -8,8 +8,8 @@ use zolana_interface::instruction::Transact;
 use zolana_transaction::{
     instructions::{
         transact::{
-            encrypt_transaction_data, get_transaction_viewing_key, ExternalData, SppProofInputs,
-            SppProofOutputUtxo,
+            encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
+            ExternalData, SppProofInputs, SppProofOutputUtxo,
         },
         types::SppProofInputUtxo,
     },
@@ -55,7 +55,8 @@ fn cosigned_rfq_settlement() -> Result<()> {
 
     let sol_to_taker = SppProofOutputUtxo::new(SOL_MINT, SELL_SOL, taker_address)?;
     let usdc_to_maker = SppProofOutputUtxo::new(usdc_mint, BUY_USDC, maker_address)?;
-    let outputs = vec![sol_to_taker, usdc_to_maker];
+    let mut outputs = vec![sol_to_taker, usdc_to_maker];
+    let output_blinding_seed = prepare_output_blindings(&inputs, &mut outputs)?;
 
     let transaction_viewing_key = get_transaction_viewing_key(&maker.keypair, &inputs)
         .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
@@ -73,7 +74,8 @@ fn cosigned_rfq_settlement() -> Result<()> {
         encoded.output_utxos,
         external_data,
         maker_address.solana_address()?,
-    );
+    )
+    .with_output_blinding_seed(output_blinding_seed);
 
     let data = client
         .prove_transact(Address::new_from_array(tree.to_bytes()), proof_inputs, None)

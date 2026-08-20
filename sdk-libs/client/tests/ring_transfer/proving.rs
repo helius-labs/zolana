@@ -3,8 +3,8 @@
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use zolana_client::{
-    InputUtxoContext, ProverClient, PublicTransfers, RingTransferProver, Rpc, Shape,
-    TransferSpendInput,
+    assign_spend_output_blindings, InputUtxoContext, ProverClient, PublicTransfers,
+    RingTransferProver, Rpc, Shape, TransferSpendInput,
 };
 use zolana_interface::{
     instruction::{
@@ -52,7 +52,10 @@ fn eddsa_prover(n_in: usize, n_out: usize) -> RingTransferProver {
     for _ in 1..n_in {
         inputs.push(dummy_input());
     }
-    let outputs = (0..n_out).map(|_| dummy_output(&signer)).collect();
+    let mut outputs: Vec<_> = (0..n_out).map(|_| dummy_output(&signer)).collect();
+    let output_blinding_seed = [44u8; 32];
+    assign_spend_output_blindings(&inputs, &mut outputs, &output_blinding_seed)
+        .expect("derive output blindings");
     // The authorized signer vector must contain every real input's owner
     // pk-field (payer-first on-chain; any placement satisfies Contains).
     let mut signer_pk_hashes = vec![owner_pk_hash(&signer)];
@@ -60,6 +63,7 @@ fn eddsa_prover(n_in: usize, n_out: usize) -> RingTransferProver {
     RingTransferProver {
         inputs,
         outputs,
+        output_blinding_seed,
         external_data: ring_external_data(n_out),
         public_transfers: PublicTransfers::default(),
         signer_pk_hashes,
@@ -82,14 +86,18 @@ fn eddsa_multi_real() -> RingTransferProver {
     );
     inputs.push(dummy_input());
     let recipient = eddsa_keypair();
-    let outputs = vec![
+    let mut outputs = vec![
         real_output(&recipient, 250),
         dummy_output(&first_signer),
         dummy_output(&first_signer),
     ];
+    let output_blinding_seed = [45u8; 32];
+    assign_spend_output_blindings(&inputs, &mut outputs, &output_blinding_seed)
+        .expect("derive output blindings");
     RingTransferProver {
         inputs,
         outputs,
+        output_blinding_seed,
         external_data: ring_external_data(3),
         public_transfers: PublicTransfers::default(),
         signer_pk_hashes: vec![

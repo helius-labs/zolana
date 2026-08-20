@@ -65,7 +65,8 @@ use zolana_test_utils::{
 };
 use zolana_transaction::{
     instructions::transact::{
-        encrypt_transaction_data, get_transaction_viewing_key, ExternalData, SppProofOutputUtxo,
+        encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
+        ExternalData, SppProofOutputUtxo,
     },
     owner_utxo_hash, Data, LocalWalletAuthority, RingDepositPlaintext, Utxo, DEFAULT_TAG_WINDOW,
     SOL_ASSET_ID, SOL_MINT,
@@ -381,6 +382,11 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
     )?;
     let recipient_output =
         SppProofOutputUtxo::new(SOL_MINT, RING_TRANSFER_AMOUNT, recipient_address)?;
+    let mut transaction_outputs = vec![change_output, recipient_output];
+    let output_blinding_seed = prepare_output_blindings(&input_utxos, &mut transaction_outputs)?;
+    let [change_output, recipient_output]: [_; 2] = transaction_outputs
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("ring transaction must have two outputs"))?;
 
     // 5c. ORDER MATTERS. The auditor message has to be inside `external_data`
     //     BEFORE the SPP proof runs: SPP folds `messages` into
@@ -417,11 +423,13 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         encoded.output_utxos,
         external_data,
         sender_address,
-    );
+    )
+    .with_output_blinding_seed(output_blinding_seed);
 
     // 5d. Prove the SPP ring transfer over the message-bearing external data.
     let tx_shape = proof_inputs.check_shape()?;
     let ring_result = RingTransferProver {
+        output_blinding_seed,
         inputs: ring_spend_inputs(indexer, env.tree, &proof_inputs.input_utxos)?,
         outputs: proof_inputs.output_utxos.clone(),
         external_data: proof_inputs.external_data.clone(),

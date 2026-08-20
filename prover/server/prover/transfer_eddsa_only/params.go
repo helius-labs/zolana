@@ -57,8 +57,9 @@ type TransferParameters struct {
 	NInputs  uint32
 	NOutputs uint32
 
-	Inputs  []InputParams
-	Outputs []OutputParams
+	Inputs             []InputParams
+	Outputs            []OutputParams
+	OutputBlindingSeed *big.Int
 
 	ExternalDataHash *big.Int
 

@@ -235,22 +235,6 @@ impl OrderUtxo {
     }
 }
 
-// take: the take circuit derives the destination blinding from the order utxo
-// blinding, so the maker recomputes the payout from the opening instead of
-// decrypting a ciphertext.
-impl OrderUtxo {
-    pub fn derived_destination_output(
-        &self,
-        recipient: ShieldedAddress,
-    ) -> Result<SppProofOutputUtxo> {
-        Ok(self.destination_output(recipient, self.derived_destination_blinding()?))
-    }
-
-    pub fn derived_destination_blinding(&self) -> Result<Blinding> {
-        crate::instructions::take::derive_destination_blinding(&self.blinding)
-    }
-}
-
 // take_verifiable_encryption: the maker-readable ciphertext of the destination
 // payout; the proof checks it against the payout output.
 impl OrderUtxo {

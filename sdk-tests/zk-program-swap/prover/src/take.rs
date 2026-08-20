@@ -9,8 +9,6 @@ use crate::{
     CircuitId, OrderTermsProofInput,
 };
 
-pub const DESTINATION_BLINDING_DOMAIN: u64 = 0x46494C4C44455256;
-
 #[derive(Debug, Clone)]
 pub struct TakeProofInputs {
     pub public_input_hash: [u8; 32],

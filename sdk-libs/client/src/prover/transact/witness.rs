@@ -167,6 +167,7 @@ pub fn into_prover_with_dummy_policy(
     let SppProofInputs {
         input_utxos: inputs,
         output_utxos: outputs,
+        output_blinding_seed,
         external_data,
         ..
     } = proof_inputs;
@@ -176,6 +177,7 @@ pub fn into_prover_with_dummy_policy(
     let circuit = ProverVariant::Eddsa(TransferProver {
         inputs: spends,
         outputs,
+        output_blinding_seed,
         external_data,
         public_transfers,
         signer_pk_hashes,
