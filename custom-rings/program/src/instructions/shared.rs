@@ -1,15 +1,41 @@
+use pinocchio::Address;
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 use pinocchio::{
     cpi::{invoke_signed_with_slice, Seed, Signer, MAX_CPI_ACCOUNTS},
     instruction::{InstructionAccount, InstructionView},
-    Address,
 };
-use pinocchio::{AccountView, ProgramResult};
+use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 use zolana_interface::{RING_AUTH_PDA_SEED, SHIELDED_POOL_PROGRAM_ID};
 
-#[cfg(any(target_os = "solana", target_arch = "bpf"))]
 use crate::error::CustomRingError;
+
+/// Require `address` to be the canonical derivation of `seeds` under this
+/// program and return its bump. Only account creation needs this: a created
+/// account at a non-canonical address would be unreachable by every later
+/// lookup, and one that collides with another key's address would shadow it.
+#[cfg(any(target_os = "solana", target_arch = "bpf"))]
+#[inline(always)]
+pub fn verify_pda(
+    address: &Address,
+    seeds: &[&[u8]],
+    mismatch: CustomRingError,
+) -> Result<u8, ProgramError> {
+    let (derived, bump) = Address::find_program_address(seeds, &crate::ID);
+    if !pinocchio::address::address_eq(address, &derived) {
+        return Err(mismatch.into());
+    }
+    Ok(bump)
+}
+
+#[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
+pub fn verify_pda(
+    _address: &Address,
+    _seeds: &[&[u8]],
+    _mismatch: CustomRingError,
+) -> Result<u8, ProgramError> {
+    unimplemented!("PDA derivation requires Solana runtime syscalls")
+}
 
 /// Split a 33-byte SEC1-compressed P256 key into the two BN254 field elements
 /// the auditor circuit hashes.

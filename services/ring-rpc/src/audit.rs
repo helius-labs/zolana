@@ -4,7 +4,10 @@
 
 use std::{future::Future, sync::Arc, time::Duration};
 
-use custom_ring_program::{state::RingProgramConfig, CONFIG_PDA_SEED};
+use custom_ring_program::{
+    state::{ReaderRecord, RingProgramConfig},
+    CONFIG_PDA_SEED, READER_RECORD_PDA_SEED,
+};
 use jsonrpsee::types::{error::ErrorCode, ErrorObjectOwned};
 use log::{error, warn};
 use solana_address::Address;
@@ -56,6 +59,14 @@ pub trait TransactionSource: Send + Sync {
         &self,
         ring: Address,
     ) -> impl Future<Output = Result<Option<Address>, ClientError>> + Send;
+
+    /// Whether the ring's authority delegated ring-scope reads to `reader`
+    /// through a live on-chain reader record.
+    fn reader_granted(
+        &self,
+        ring: Address,
+        reader: Address,
+    ) -> impl Future<Output = Result<bool, ClientError>> + Send;
 }
 
 /// The production source: a Photon indexer plus the Solana RPC it follows.
@@ -159,6 +170,21 @@ impl TransactionSource for ChainSource {
             })?;
         Ok(config.has_discriminator().then_some(config.authority))
     }
+
+    async fn reader_granted(&self, ring: Address, reader: Address) -> Result<bool, ClientError> {
+        let record =
+            Address::find_program_address(&[READER_RECORD_PDA_SEED, reader.as_ref()], &ring).0;
+        let Some(account) = self.rpc.get_account(record).await? else {
+            return Ok(false);
+        };
+        if !account.owner.to_bytes().eq(&ring.to_bytes()) {
+            return Ok(false);
+        }
+        let Ok(record) = bytemuck::try_from_bytes::<ReaderRecord>(&account.data) else {
+            return Ok(false);
+        };
+        Ok(record.has_discriminator() && record.reader == reader.to_bytes())
+    }
 }
 
 #[derive(Debug, Error)]
@@ -239,7 +265,8 @@ impl<S: TransactionSource> AuditService<S> {
     }
 
     /// Checks the request's signature and freshness, then what the reader may
-    /// see. Ring scope needs the ring's on-chain authority. Participant scope
+    /// see. Ring scope needs the ring's on-chain authority or a reader it
+    /// granted on chain. Participant scope
     /// accepts any key and returns a filter that keeps only the reader's own
     /// side of each transaction.
     pub async fn authorize_read(
@@ -274,8 +301,11 @@ impl<S: TransactionSource> AuditService<S> {
             (ReadScope::Ring, Reader::Ed25519(reader)) => {
                 match self.source.ring_authority(self.ring).await? {
                     Some(authority) if authority == reader => Ok(ReadFilter::Ring),
+                    Some(_) if self.source.reader_granted(self.ring, reader).await? => {
+                        Ok(ReadFilter::Ring)
+                    }
                     Some(_) => Err(RingRpcError::Unauthorized(
-                        "reader is not the ring authority",
+                        "reader is not the ring authority or a granted reader",
                     )),
                     None => Err(RingRpcError::Unauthorized("ring has no config on chain")),
                 }

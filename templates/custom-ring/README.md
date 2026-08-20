@@ -30,6 +30,8 @@ change it is the upgrade path: `deploy` upgrades in place, `init` finds its
 accounts and does nothing. `cargo run -p {{project-name}} -- authority transfer
 <pubkey>` hands the program to another key (then point `authority_keypair` in
 `ring.toml` at it), `authority renounce --yes` makes it immutable. `just
+grant-reader <pubkey>` lets that key read the whole ring through the ring RPC
+without the authority key, `just revoke-reader <pubkey>` takes it back. `just
 localnet-stop` and `just devnet-stop` tear the services down. On devnet
 deploys and transactions cost real devnet SOL, `status` shows the authority's
 balance, and a hosted ring RPC (`init --trust-ring-rpc`, or `ring_rpc_pubkey`

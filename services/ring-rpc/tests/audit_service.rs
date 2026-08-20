@@ -2,7 +2,7 @@
 //! audited transfer, a transaction tagged for the auditor but encrypted to
 //! another key, and a transaction matched by an output tag only.
 
-use std::{future::Future, sync::Arc};
+use std::{collections::HashSet, future::Future, sync::Arc};
 
 use solana_address::Address;
 use solana_keypair::Keypair;
@@ -37,6 +37,8 @@ struct StaticSource {
     next_cursor: Option<Vec<u8>>,
     /// The ring authority the chain would report for every ring asked.
     authority: Option<Address>,
+    /// Readers with a live reader record.
+    granted: HashSet<Address>,
 }
 
 /// The one Solana signer the source reports for every transaction.
@@ -72,6 +74,22 @@ fn read_auth(ring: Address, signer: &Keypair, timestamp: u64) -> ReadAuth {
 
 /// `GetDecryptedTransactionsRequest::unsigned(..).sign(..)` signs what the service
 /// checks.
+/// A ring-scope attestation signed by a P-256 viewing key.
+fn p256_ring_auth(key: &ViewingKey, timestamp: u64) -> ReadAuth {
+    use p256::ecdsa::signature::hazmat::PrehashSigner;
+    let signing = p256::ecdsa::SigningKey::from_bytes((&*key.secret_bytes()).into())
+        .expect("viewing key scalar");
+    let message = read_attestation(ReadScope::Ring, &RING, timestamp, None, None);
+    let digest = <sha2::Sha256 as sha2::Digest>::digest(&message);
+    let signature: p256::ecdsa::Signature = signing.sign_prehash(&digest).expect("p256 signs");
+    ReadAuth {
+        scope: ReadScope::Ring,
+        reader: key.pubkey().as_bytes().to_vec().into(),
+        timestamp,
+        signature: signature.to_bytes().to_vec().into(),
+    }
+}
+
 fn signed_request(signer: &Keypair) -> serde_json::Map<String, serde_json::Value> {
     let serde_json::Value::Object(request) =
         serde_json::to_value(GetDecryptedTransactionsRequest::unsigned(RING, None).sign(signer))
@@ -123,6 +141,15 @@ impl TransactionSource for StaticSource {
     ) -> impl Future<Output = Result<Option<Address>, ClientError>> + Send {
         let authority = self.authority;
         async move { Ok(authority) }
+    }
+
+    fn reader_granted(
+        &self,
+        _ring: Address,
+        reader: Address,
+    ) -> impl Future<Output = Result<bool, ClientError>> + Send {
+        let granted = self.granted.contains(&reader);
+        async move { Ok(granted) }
     }
 }
 
@@ -250,7 +277,26 @@ fn source(fixture: &Fixture, next_cursor: Option<Vec<u8>>) -> StaticSource {
         ],
         next_cursor,
         authority: Some(Address::new_from_array(reader().pubkey().to_bytes())),
+        granted: HashSet::new(),
     }
+}
+
+/// A reader the authority delegated to on chain.
+fn delegate() -> Keypair {
+    Keypair::new_from_array([45u8; 32])
+}
+
+fn hub_with_delegate(fixture: &Fixture) -> Hub<StaticSource> {
+    let mut source = source(fixture, None);
+    source
+        .granted
+        .insert(Address::new_from_array(delegate().pubkey().to_bytes()));
+    Hub::local(
+        RING,
+        fixture.auditor.clone(),
+        source,
+        AssetRegistry::default(),
+    )
 }
 
 fn hub(fixture: &Fixture, next_cursor: Option<Vec<u8>>) -> Hub<StaticSource> {
@@ -313,6 +359,49 @@ async fn page_opens_audited_transfers_and_reports_the_rest() {
         skipped.reason.contains("does not match"),
         "reason names the key mismatch: {}",
         skipped.reason
+    );
+}
+
+/// Ring scope opens to a granted reader exactly as to the authority, and closes
+/// again once the record is gone. A P-256 key never gets ring scope, granted or
+/// not.
+#[tokio::test]
+async fn granted_reader_reads_ring_scope_until_revoked() {
+    let fixture = fixture();
+    let delegated = hub_with_delegate(&fixture)
+        .ring(None)
+        .expect("local service");
+    let auth = read_auth(RING, &delegate(), now());
+    assert!(matches!(
+        delegated.authorize_read(&auth, None, None).await,
+        Ok(ReadFilter::Ring)
+    ));
+
+    let refused = |result: Result<ReadFilter, RingRpcError>, label: &str, reason: &str| {
+        let Err(error) = result else {
+            panic!("{label} must be refused");
+        };
+        assert!(error.to_string().contains(reason), "{label}: {error}");
+    };
+    let stranger = read_auth(RING, &Keypair::new_from_array([43u8; 32]), now());
+    refused(
+        delegated.authorize_read(&stranger, None, None).await,
+        "ungranted key",
+        "granted reader",
+    );
+    refused(
+        service(&fixture, None)
+            .authorize_read(&auth, None, None)
+            .await,
+        "revoked key",
+        "granted reader",
+    );
+
+    let p256_ring = p256_ring_auth(&fixture.recipient_key, now());
+    refused(
+        delegated.authorize_read(&p256_ring, None, None).await,
+        "p256 ring scope",
+        "ed25519",
     );
 }
 

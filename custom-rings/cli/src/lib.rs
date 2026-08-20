@@ -7,6 +7,7 @@ pub mod authority;
 pub mod config;
 pub mod deploy;
 pub mod init;
+pub mod reader;
 pub mod ring_rpc;
 pub mod status;
 pub mod transfer;
@@ -71,6 +72,18 @@ pub enum Command {
     /// Transfer or renounce the program's upgrade authority.
     #[command(subcommand)]
     Authority(AuthorityCommand),
+    /// Grant or revoke ring-scope reads on the ring RPC for a key other than
+    /// the authority.
+    #[command(subcommand)]
+    Reader(ReaderCommand),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ReaderCommand {
+    /// Let `reader` read every transaction of the ring, signed by the authority.
+    Grant { reader: Address },
+    /// Close the reader's record, the rent returns to the authority.
+    Revoke { reader: Address },
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
@@ -273,6 +286,32 @@ pub fn run(cli: Cli) -> Result<()> {
                     println!("{} is immutable", config.program_id);
                 }
             }
+            Ok(())
+        }
+        Command::Reader(command) => {
+            let authority = config.authority()?;
+            fund_on_localnet(&config, &mut rpc, authority.pubkey())?;
+            let (reader, outcome) = match command {
+                ReaderCommand::Grant { reader } => {
+                    (reader, reader::grant(&rpc, &authority, reader)?)
+                }
+                ReaderCommand::Revoke { reader } => {
+                    (reader, reader::revoke(&rpc, &authority, reader)?)
+                }
+            };
+            println!(
+                "reader      {reader} {}",
+                match outcome {
+                    reader::ReaderOutcome::Granted => "granted",
+                    reader::ReaderOutcome::AlreadyGranted => "already granted",
+                    reader::ReaderOutcome::Revoked => "revoked",
+                    reader::ReaderOutcome::NotGranted => "not granted",
+                }
+            );
+            println!(
+                "record      {}",
+                custom_ring_sdk::reader_record_pda(&reader)
+            );
             Ok(())
         }
         Command::Transact(args) => {

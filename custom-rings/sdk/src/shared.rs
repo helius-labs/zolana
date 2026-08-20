@@ -13,6 +13,15 @@ pub fn config_pda() -> Address {
     pda
 }
 
+/// The record that marks `reader` as a delegated ring-scope reader.
+pub fn reader_record_pda(reader: &Address) -> Address {
+    let (pda, _bump) = Address::find_program_address(
+        &[custom_ring_program::READER_RECORD_PDA_SEED, reader.as_ref()],
+        &custom_ring_program::ID,
+    );
+    pda
+}
+
 /// The ring authority PDA. SPP stores the ring config under this address and
 /// requires it as a signer on ring deposits and ring transacts, which is why the
 /// program signs its CPIs with it.

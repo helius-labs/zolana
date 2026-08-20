@@ -63,7 +63,11 @@ pub fn read_ring_config<R: Rpc>(rpc: &R) -> Result<Option<RingConfig>> {
     read_pod(rpc, ring_auth_pda(), "SPP ring config")
 }
 
-fn read_pod<R: Rpc, T: bytemuck::Pod>(rpc: &R, address: Address, label: &str) -> Result<Option<T>> {
+pub fn read_pod<R: Rpc, T: bytemuck::Pod>(
+    rpc: &R,
+    address: Address,
+    label: &str,
+) -> Result<Option<T>> {
     let Some(account) = rpc.get_account(address)? else {
         return Ok(None);
     };

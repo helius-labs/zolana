@@ -103,6 +103,15 @@ transact:
 status:
     cargo run -q -p {{project-name}} -- status
 
+# Let another key read the ring's transactions through the ring RPC, and take
+# that back. The authority signs, so a Squads-held authority runs the same
+# instruction through a proposal.
+grant-reader reader:
+    cargo run -q -p {{project-name}} -- reader grant {{ "{{reader}}" }}
+
+revoke-reader reader:
+    cargo run -q -p {{project-name}} -- reader revoke {{ "{{reader}}" }}
+
 # Steps 3 to 7 in one go against the active target. The ring RPC is started in
 # the background if none answers at its URL, and stays up afterwards for the
 # auditor (`just rpc-stop` ends it, its log is .localnet/ring-rpc.log).

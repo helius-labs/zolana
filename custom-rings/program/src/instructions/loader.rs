@@ -3,7 +3,10 @@ use pinocchio::{account::Ref, error::ProgramError, AccountView, Address};
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use zolana_interface::{BPF_LOADER_UPGRADEABLE_ID, SHIELDED_POOL_PROGRAM_ID};
 
-use crate::{error::CustomRingError, state::RingProgramConfig};
+use crate::{
+    error::CustomRingError,
+    state::{ReaderRecord, RingProgramConfig},
+};
 
 /// Load the ring config read-only: owned by this program, exact length, and
 /// carrying the config discriminator.
@@ -28,6 +31,28 @@ pub fn load_config(account: &AccountView) -> Result<Ref<'_, RingProgramConfig>, 
         return Err(CustomRingError::ConfigNotInitialized.into());
     }
     Ok(config)
+}
+
+/// Load a reader record read-only: owned by this program, exact length, and
+/// carrying the record discriminator. The length check also refuses the config
+/// account, so a revoke cannot close it.
+#[inline(always)]
+pub fn load_reader_record(account: &AccountView) -> Result<Ref<'_, ReaderRecord>, ProgramError> {
+    if !account.owned_by(&crate::ID) {
+        return Err(CustomRingError::InvalidReaderRecord.into());
+    }
+    let data = account
+        .try_borrow()
+        .map_err(|_| CustomRingError::InvalidReaderRecord)?;
+    if data.len() != ReaderRecord::SIZE {
+        return Err(CustomRingError::InvalidReaderRecord.into());
+    }
+    // Length is checked above and the struct is align 1, so this cannot panic.
+    let record = Ref::map(data, |data| from_bytes::<ReaderRecord>(data));
+    if !record.has_discriminator() {
+        return Err(CustomRingError::InvalidReaderRecord.into());
+    }
+    Ok(record)
 }
 
 /// Require the shielded-pool program to be among `accounts` and executable.

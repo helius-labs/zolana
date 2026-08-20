@@ -1,14 +1,13 @@
 use pinocchio::{
     cpi::{Seed, Signer},
-    error::ProgramError,
-    AccountView, Address, ProgramResult,
+    AccountView, ProgramResult,
 };
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_account_checks::AccountIterator;
 
 use crate::{
     error::CustomRingError,
-    instructions::loader::check_upgrade_authority,
+    instructions::{loader::check_upgrade_authority, shared::verify_pda},
     state::{RingProgramConfig, RingProgramConfigInitParams},
 };
 
@@ -48,7 +47,12 @@ pub fn process_create_config_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
         _ => return Err(CustomRingError::InvalidAuditorPubkey.into()),
     }
 
-    let bump = verify_config_pda(config_account.address())?;
+    // A bump from instruction data is never accepted for account creation.
+    let bump = verify_pda(
+        config_account.address(),
+        &[RingProgramConfig::SEED],
+        CustomRingError::InvalidConfigPda,
+    )?;
     // Reject re-initialization before touching the system program: an already
     // allocated config would otherwise fail inside `Allocate` with an opaque
     // system-program error instead of a named one.
@@ -79,20 +83,4 @@ pub fn process_create_config_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
         bump,
     }
     .init(config_account)
-}
-
-/// The config account must be the canonical derivation of `[b"config"]`; a bump
-/// from instruction data is never accepted for account creation.
-#[cfg(any(target_os = "solana", target_arch = "bpf"))]
-fn verify_config_pda(config: &Address) -> Result<u8, ProgramError> {
-    let (derived, bump) = Address::find_program_address(&[RingProgramConfig::SEED], &crate::ID);
-    if !pinocchio::address::address_eq(config, &derived) {
-        return Err(CustomRingError::InvalidConfigPda.into());
-    }
-    Ok(bump)
-}
-
-#[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
-fn verify_config_pda(_config: &Address) -> Result<u8, ProgramError> {
-    unimplemented!("config PDA derivation requires Solana runtime syscalls")
 }

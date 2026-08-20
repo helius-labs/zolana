@@ -4,9 +4,10 @@
 //! `custom-rings/program/tests/common/mod.rs`.
 
 use custom_ring_sdk::{
-    config_pda, program_data_pda, ring_auth_pda, tag, AuditProof, CreateConfig, CreateConfigIxData,
-    CustomRingTransactIxData, Deposit, InitSppRingConfig, RingTransactWithAudit, CONFIG_PDA_SEED,
-    PROGRAM_ID,
+    config_pda, program_data_pda, reader_record_pda, ring_auth_pda, tag, AuditProof, CreateConfig,
+    CreateConfigIxData, CustomRingTransactIxData, Deposit, GrantReader, InitSppRingConfig,
+    ReaderIxData, RevokeReader, RingTransactWithAudit, CONFIG_PDA_SEED, PROGRAM_ID,
+    READER_RECORD_PDA_SEED,
 };
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -115,6 +116,72 @@ fn init_spp_ring_config_emits_the_program_account_order_and_no_body() {
     // The processor rejects any trailing byte, so the tag has to be the whole
     // instruction data.
     assert_eq!(instruction.data, vec![tag::INIT_SPP_RING_CONFIG]);
+}
+
+fn reader() -> Address {
+    Address::new_from_array([23; 32])
+}
+
+#[test]
+fn grant_reader_emits_the_program_account_order_and_reader() {
+    let instruction = GrantReader {
+        payer: payer(),
+        authority: authority(),
+        reader: reader(),
+    }
+    .instruction();
+
+    assert_eq!(instruction.program_id, PROGRAM_ID);
+    assert_eq!(
+        instruction.accounts,
+        vec![
+            AccountMeta::new(payer(), true),
+            AccountMeta::new_readonly(authority(), true),
+            AccountMeta::new_readonly(config_pda(), false),
+            AccountMeta::new(reader_record_pda(&reader()), false),
+            AccountMeta::new_readonly(SYSTEM_PROGRAM, false),
+        ]
+    );
+    let (ix_tag, body) = split_tag(&instruction);
+    assert_eq!(ix_tag, tag::GRANT_READER);
+    let decoded: ReaderIxData =
+        wincode::deserialize_exact(body).expect("body is a complete ReaderIxData");
+    assert_eq!(decoded.reader, reader().to_bytes());
+}
+
+#[test]
+fn revoke_reader_emits_the_program_account_order_and_reader() {
+    let rent_recipient = Address::new_from_array([24; 32]);
+    let instruction = RevokeReader {
+        authority: authority(),
+        reader: reader(),
+        rent_recipient,
+    }
+    .instruction();
+
+    assert_eq!(instruction.program_id, PROGRAM_ID);
+    assert_eq!(
+        instruction.accounts,
+        vec![
+            AccountMeta::new_readonly(authority(), true),
+            AccountMeta::new_readonly(config_pda(), false),
+            AccountMeta::new(reader_record_pda(&reader()), false),
+            AccountMeta::new(rent_recipient, false),
+        ]
+    );
+    let (ix_tag, body) = split_tag(&instruction);
+    assert_eq!(ix_tag, tag::REVOKE_READER);
+    let decoded: ReaderIxData =
+        wincode::deserialize_exact(body).expect("body is a complete ReaderIxData");
+    assert_eq!(decoded.reader, reader().to_bytes());
+}
+
+#[test]
+fn reader_record_pda_derives_from_the_reader_key() {
+    let (record, _bump) =
+        Address::find_program_address(&[READER_RECORD_PDA_SEED, reader().as_ref()], &PROGRAM_ID);
+    assert_eq!(reader_record_pda(&reader()), record);
+    assert_ne!(reader_record_pda(&payer()), record);
 }
 
 #[test]

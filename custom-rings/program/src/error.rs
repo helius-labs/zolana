@@ -3,7 +3,7 @@ use thiserror::Error;
 
 /// Errors of the minimal custom ring program.
 ///
-/// The 8100..8115 range is reserved for this example and is collision-free
+/// The 8100..8117 range is reserved for this example and is collision-free
 /// against SPP (7000..7047) and the other example programs (zk-program-swap
 /// 8005..8016, the rest 9xxx). Every code is pinned by
 /// `tests/error_codes.rs::error_codes_are_stable`; clients observe them, so they
@@ -43,6 +43,10 @@ pub enum CustomRingError {
     UnauthorizedInitializer = 8114,
     #[error("forwarded account list exceeds the CPI account limit")]
     TooManyAccounts = 8115,
+    #[error("reader record already exists")]
+    ReaderRecordAlreadyExists = 8116,
+    #[error("reader record account is invalid")]
+    InvalidReaderRecord = 8117,
 }
 
 impl From<CustomRingError> for ProgramError {

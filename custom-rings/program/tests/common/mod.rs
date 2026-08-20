@@ -261,3 +261,100 @@ pub fn substitute_account(
         .pubkey = replacement;
     accounts.push((replacement, account(1_000_000_000)));
 }
+
+pub fn reader() -> Pubkey {
+    Pubkey::new_from_array([23; 32])
+}
+
+pub fn rent_recipient() -> Pubkey {
+    Pubkey::new_from_array([24; 32])
+}
+
+pub fn reader_record_pda(reader: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[custom_ring_program::READER_RECORD_PDA_SEED, reader.as_ref()],
+        &program_id(),
+    )
+}
+
+pub fn reader_ix_data(instruction_tag: u8, reader: &Pubkey) -> Vec<u8> {
+    let mut data = vec![instruction_tag];
+    data.extend_from_slice(reader.as_ref());
+    data
+}
+
+/// An initialized reader record as `grant_reader` would have written it.
+pub fn initialized_reader_account(reader: &Pubkey) -> Account {
+    let state = custom_ring_program::state::ReaderRecord {
+        discriminator: custom_ring_program::state::READER_RECORD,
+        reader: *reader.as_array(),
+        bump: reader_record_pda(reader).1,
+    };
+    Account {
+        lamports: 1_128_000,
+        data: bytemuck::bytes_of(&state).to_vec(),
+        owner: program_id(),
+        executable: false,
+        rent_epoch: 0,
+    }
+}
+
+/// Green `grant_reader` fixture: `[payer(w,s), authority(s), config,
+/// reader_record(w), system_program]` over an initialized config.
+pub fn grant_reader_fixture(reader: &Pubkey) -> (Instruction, Vec<(Pubkey, Account)>) {
+    let (config, _) = config_pda();
+    let (record, _) = reader_record_pda(reader);
+    let (system_program, system_program_account) =
+        mollusk_svm::program::keyed_account_for_system_program();
+    (
+        Instruction {
+            program_id: program_id(),
+            accounts: vec![
+                AccountMeta::new(payer(), true),
+                AccountMeta::new_readonly(authority(), true),
+                AccountMeta::new_readonly(config, false),
+                AccountMeta::new(record, false),
+                AccountMeta::new_readonly(system_program, false),
+            ],
+            data: reader_ix_data(tag::GRANT_READER, reader),
+        },
+        vec![
+            (payer(), account(1_000_000_000)),
+            (authority(), account(1_000_000_000)),
+            (
+                config,
+                initialized_config_account(authority(), auditor_pubkey(2)),
+            ),
+            (record, account(0)),
+            (system_program, system_program_account),
+        ],
+    )
+}
+
+/// Green `revoke_reader` fixture: `[authority(s), config, reader_record(w),
+/// rent_recipient(w)]` over an initialized record.
+pub fn revoke_reader_fixture(reader: &Pubkey) -> (Instruction, Vec<(Pubkey, Account)>) {
+    let (config, _) = config_pda();
+    let (record, _) = reader_record_pda(reader);
+    (
+        Instruction {
+            program_id: program_id(),
+            accounts: vec![
+                AccountMeta::new_readonly(authority(), true),
+                AccountMeta::new_readonly(config, false),
+                AccountMeta::new(record, false),
+                AccountMeta::new(rent_recipient(), false),
+            ],
+            data: reader_ix_data(tag::REVOKE_READER, reader),
+        },
+        vec![
+            (authority(), account(1_000_000_000)),
+            (
+                config,
+                initialized_config_account(authority(), auditor_pubkey(2)),
+            ),
+            (record, initialized_reader_account(reader)),
+            (rent_recipient(), account(0)),
+        ],
+    )
+}

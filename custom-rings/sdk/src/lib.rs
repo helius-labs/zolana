@@ -10,9 +10,10 @@ pub mod transfer;
 pub use custom_ring_program::{
     instructions::{
         create_config::CreateConfigIxData,
+        grant_reader::ReaderIxData,
         transact::{AuditProof, CustomRingTransactIxData},
     },
-    tag, CONFIG_PDA_SEED, ID as PROGRAM_ID,
+    tag, CONFIG_PDA_SEED, ID as PROGRAM_ID, READER_RECORD_PDA_SEED,
 };
 
 pub use zolana_ring_client::{
@@ -25,7 +26,9 @@ pub use crate::{
     instructions::{
         create_config::CreateConfig,
         deposit::Deposit,
+        grant_reader::GrantReader,
         init_spp_ring_config::InitSppRingConfig,
+        revoke_reader::RevokeReader,
         transact::{
             to_instruction_proof, AuditProofInputError, AuditProofParams, PendingAuditProof,
             RingTransactWithAudit,
@@ -33,6 +36,6 @@ pub use crate::{
     },
     lookup_table::send_v0_with_lookup_table,
     prover::CustomRingProverClient,
-    shared::{config_pda, program_data_pda, ring_auth_pda},
+    shared::{config_pda, program_data_pda, reader_record_pda, ring_auth_pda},
     transfer::{ring_deposit_sol, AuditedTransfer, ProvenTransfer},
 };
