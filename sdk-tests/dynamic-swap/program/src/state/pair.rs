@@ -45,7 +45,7 @@ pub struct Pair {
     /// so this canonical commitment is client-supplied. `create_escrow` feeds
     /// it as the `escrow_open` circuit's `SourceAsset` public input, binding the
     /// escrowed source UTXO's asset to the pair (without it a caller could
-    /// escrow a worthless token and drain the destination asset on settle).
+    /// escrow a worthless token and deplete the destination asset on settle).
     pub source_asset: [u8; 32],
     pub destination_asset: [u8; 32],
     /// The maker receipt destination: the shielded owner-hash `settle` pays the
