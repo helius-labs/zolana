@@ -53,6 +53,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
                 .with_context(|| format!("loading {}", path.display()))?,
             source,
             assets,
+            args.allow_origins.clone(),
         ),
         (None, Some(path)) => {
             let genesis_hash = source
@@ -68,6 +69,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
                 genesis_hash,
                 source,
                 assets,
+                args.allow_origins.clone(),
             )
         }
         _ => anyhow::bail!("pass exactly one of --auditor-key-file and --root-secret-file"),

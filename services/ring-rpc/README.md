@@ -41,7 +41,7 @@ read once at startup for the SPL asset registry.
 | --- | --- | --- |
 | `health` (also `GET /health`) | none | `{ mode, service_pubkey, auditor_view_tag? }` |
 | `createAuditorKey` | `{ ring_program_id }` | `{ ring_program_id, auditor_pubkey, auditor_view_tag, service_pubkey, signature }` |
-| `getDecryptedTransactions` | `{ ring_program_id?, cursor?, limit?, auth: { scope, reader, timestamp, signature } }` | `{ context, value: { items, skipped, cursor } }` |
+| `getDecryptedTransactions` | `{ ring_program_id?, cursor?, limit?, auth: { scope, reader, timestamp, signature, webauthn? } }` | `{ context, value: { items, skipped, cursor } }` |
 
 `mode` is `local` or `derived`. `ring_program_id` is required in derived mode
 and ignored in local mode, where `--ring-program-id` names the one ring the key
@@ -51,7 +51,12 @@ Reads are signed. `auth.signature` is `auth.reader`'s signature over
 `"zolana/ring-rpc-read/v1" || scope || ring_program_id || timestamp || limit ||
 cursor`, `auth.timestamp` (unix seconds) within a minute of the service clock.
 Two scopes. `ring` needs the ring authority its on-chain config records (an
-ed25519 key) and returns every transaction plus the skipped list. `participant`
+ed25519 key) or a reader the authority granted on chain, an ed25519 key or a
+P-256 passkey, and returns every transaction plus the skipped list. A passkey
+signs through WebAuthn: `auth.signature` is the DER signature,
+`auth.webauthn.{authenticator_data, client_data_json}` the authenticator
+output, the challenge `SHA-256` of the bytes above, and the origin must be one
+named with `--allow-origin` (so no allowed origin, no passkeys). `participant`
 takes any key and returns only that key's side: an ed25519 signer of a
 transaction sees the transactions it signed in full, a P-256 viewing key (SEC1
 compressed, ECDSA over `SHA-256(message)`) sees only the outputs encrypted to

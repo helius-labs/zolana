@@ -37,6 +37,7 @@ use crate::api::{
     read_attestation, DecryptedOutput, DecryptedTransaction, DecryptedTransactionsPage,
     GetDecryptedTransactionsResponse, ReadAuth, ReadScope, SkippedTransaction,
 };
+use crate::webauthn;
 
 /// Where the service reads from. Photon serves the tagged transactions and the
 /// Solana RPC the signers; tests provide both in memory.
@@ -229,13 +230,21 @@ pub struct AuditService<S> {
     view_tag: [u8; 32],
     source: Arc<S>,
     assets: AssetRegistry,
+    /// Browser origins whose passkeys may sign reads, the CORS allowlist.
+    origins: Arc<[String]>,
 }
 
 /// How far a read's `timestamp` may sit from this clock, either way.
 const READ_SKEW: Duration = Duration::from_secs(60);
 
 impl<S: TransactionSource> AuditService<S> {
-    pub fn new(ring: Address, auditor: ViewingKey, source: Arc<S>, assets: AssetRegistry) -> Self {
+    pub fn new(
+        ring: Address,
+        auditor: ViewingKey,
+        source: Arc<S>,
+        assets: AssetRegistry,
+        origins: Arc<[String]>,
+    ) -> Self {
         let view_tag = auditor_view_tag(&auditor.pubkey());
         Self {
             ring,
@@ -243,6 +252,7 @@ impl<S: TransactionSource> AuditService<S> {
             view_tag,
             source,
             assets,
+            origins,
         }
     }
 
@@ -266,7 +276,7 @@ impl<S: TransactionSource> AuditService<S> {
 
     /// Checks the request's signature and freshness, then what the reader may
     /// see. Ring scope needs the ring's on-chain authority or a reader it
-    /// granted on chain. Participant scope
+    /// granted on chain, a P-256 grant signing through WebAuthn. Participant scope
     /// accepts any key and returns a filter that keeps only the reader's own
     /// side of each transaction.
     pub async fn authorize_read(
@@ -282,7 +292,7 @@ impl<S: TransactionSource> AuditService<S> {
         if now.abs_diff(auth.timestamp) > READ_SKEW.as_secs() {
             return Err(RingRpcError::Unauthorized("request timestamp is stale"));
         }
-        let reader = Reader::parse(&auth.reader.0).ok_or(RingRpcError::Unauthorized(
+        let reader = Reader::parse(auth).ok_or(RingRpcError::Unauthorized(
             "reader is not an ed25519 or P-256 key",
         ))?;
         let message = read_attestation(
@@ -292,33 +302,37 @@ impl<S: TransactionSource> AuditService<S> {
             cursor,
             limit.map(|l| l.value()),
         );
-        if !reader.verify(&message, &auth.signature.0) {
-            return Err(RingRpcError::Unauthorized(
-                "signature does not cover this request",
-            ));
-        }
+        reader
+            .verify(auth, &message, &self.origins)
+            .map_err(RingRpcError::Unauthorized)?;
         match (auth.scope, reader) {
             (ReadScope::Ring, Reader::Ed25519(reader)) => {
                 match self.source.ring_authority(self.ring).await? {
                     Some(authority) if authority == reader => Ok(ReadFilter::Ring),
-                    Some(_)
-                        if self
-                            .source
-                            .reader_granted(self.ring, ReaderKey::Ed25519(reader))
-                            .await? =>
-                    {
-                        Ok(ReadFilter::Ring)
-                    }
-                    Some(_) => Err(RingRpcError::Unauthorized(
-                        "reader is not the ring authority or a granted reader",
-                    )),
+                    Some(_) => self.granted(ReaderKey::Ed25519(reader)).await,
                     None => Err(RingRpcError::Unauthorized("ring has no config on chain")),
                 }
             }
+            (ReadScope::Ring, Reader::WebAuthn(pubkey)) => {
+                if self.source.ring_authority(self.ring).await?.is_none() {
+                    return Err(RingRpcError::Unauthorized("ring has no config on chain"));
+                }
+                self.granted(ReaderKey::P256(pubkey)).await
+            }
             (ReadScope::Ring, Reader::P256(_)) => Err(RingRpcError::Unauthorized(
-                "ring scope needs the ring authority's ed25519 key",
+                "ring scope needs the ring authority's ed25519 key or a passkey",
             )),
             (ReadScope::Participant, reader) => Ok(ReadFilter::Participant(reader)),
+        }
+    }
+
+    async fn granted(&self, reader: ReaderKey) -> Result<ReadFilter, RingRpcError> {
+        if self.source.reader_granted(self.ring, reader).await? {
+            Ok(ReadFilter::Ring)
+        } else {
+            Err(RingRpcError::Unauthorized(
+                "reader is not the ring authority or a granted reader",
+            ))
         }
     }
 
@@ -391,25 +405,55 @@ pub enum Reader {
     Ed25519(Address),
     /// A viewing key, what outputs are encrypted to.
     P256(P256Pubkey),
+    /// A passkey, a P-256 key that signs through WebAuthn.
+    WebAuthn(P256Pubkey),
 }
 
 impl Reader {
-    fn parse(bytes: &[u8]) -> Option<Self> {
-        if let Ok(ed25519) = <[u8; 32]>::try_from(bytes) {
-            return Some(Self::Ed25519(Address::new_from_array(ed25519)));
+    fn parse(auth: &ReadAuth) -> Option<Self> {
+        let bytes = &auth.reader.0;
+        if let Ok(ed25519) = <[u8; 32]>::try_from(bytes.as_slice()) {
+            return auth
+                .webauthn
+                .is_none()
+                .then(|| Self::Ed25519(Address::new_from_array(ed25519)));
         }
-        let p256 = <[u8; 33]>::try_from(bytes).ok()?;
-        Some(Self::P256(P256Pubkey::from_bytes(p256).ok()?))
+        let p256 = P256Pubkey::from_bytes(<[u8; 33]>::try_from(bytes.as_slice()).ok()?).ok()?;
+        Some(match auth.webauthn {
+            Some(_) => Self::WebAuthn(p256),
+            None => Self::P256(p256),
+        })
     }
 
-    fn verify(&self, message: &[u8], signature: &[u8]) -> bool {
-        let Ok(signature) = <[u8; 64]>::try_from(signature) else {
-            return false;
+    fn verify(
+        &self,
+        auth: &ReadAuth,
+        message: &[u8],
+        origins: &[String],
+    ) -> Result<(), &'static str> {
+        let signature = &auth.signature.0;
+        let verified = match self {
+            Self::WebAuthn(pubkey) => {
+                let assertion = auth
+                    .webauthn
+                    .as_ref()
+                    .ok_or("passkey read needs an assertion")?;
+                return webauthn::verify(assertion, signature, pubkey, message, origins);
+            }
+            Self::Ed25519(address) => {
+                <[u8; 64]>::try_from(signature.as_slice()).is_ok_and(|signature| {
+                    Signature::from(signature).verify(address.as_ref(), message)
+                })
+            }
+            Self::P256(pubkey) => {
+                <[u8; 64]>::try_from(signature.as_slice()).is_ok_and(|signature| {
+                    PublicKey::from_p256(pubkey).verify_message(message, &signature)
+                })
+            }
         };
-        match self {
-            Self::Ed25519(address) => Signature::from(signature).verify(address.as_ref(), message),
-            Self::P256(pubkey) => PublicKey::from_p256(pubkey).verify_message(message, &signature),
-        }
+        verified
+            .then_some(())
+            .ok_or("signature does not cover this request")
     }
 }
 
@@ -430,7 +474,7 @@ impl ReadFilter {
                 .iter()
                 .any(|signer| signer.0 == *reader)
                 .then_some(item),
-            Self::Participant(Reader::P256(reader)) => {
+            Self::Participant(Reader::P256(reader) | Reader::WebAuthn(reader)) => {
                 item.outputs
                     .retain(|output| output.recipient_viewing_pk.0 == reader.as_bytes());
                 (!item.outputs.is_empty()).then_some(item)
@@ -526,17 +570,30 @@ pub enum Hub<S> {
         genesis_hash: [u8; 32],
         source: Arc<S>,
         assets: AssetRegistry,
+        origins: Arc<[String]>,
         signer: Keypair,
     },
 }
 
 impl<S: TransactionSource> Hub<S> {
     /// `ring` is the one ring this key serves; reads are authorized against
-    /// its on-chain authority.
-    pub fn local(ring: Address, auditor: ViewingKey, source: S, assets: AssetRegistry) -> Self {
+    /// its on-chain authority. `origins` are the pages whose passkeys may read.
+    pub fn local(
+        ring: Address,
+        auditor: ViewingKey,
+        source: S,
+        assets: AssetRegistry,
+        origins: Vec<String>,
+    ) -> Self {
         let signer = service_keypair(auditor.secret_bytes().as_slice());
         Self::Local {
-            service: Arc::new(AuditService::new(ring, auditor, Arc::new(source), assets)),
+            service: Arc::new(AuditService::new(
+                ring,
+                auditor,
+                Arc::new(source),
+                assets,
+                origins.into(),
+            )),
             signer,
         }
     }
@@ -546,6 +603,7 @@ impl<S: TransactionSource> Hub<S> {
         genesis_hash: [u8; 32],
         source: S,
         assets: AssetRegistry,
+        origins: Vec<String>,
     ) -> Self {
         let signer = service_keypair(root.as_slice());
         Self::Derived {
@@ -553,6 +611,7 @@ impl<S: TransactionSource> Hub<S> {
             genesis_hash,
             source: Arc::new(source),
             assets,
+            origins: origins.into(),
             signer,
         }
     }
@@ -576,6 +635,7 @@ impl<S: TransactionSource> Hub<S> {
                 genesis_hash,
                 source,
                 assets,
+                origins,
                 ..
             } => {
                 let ring = ring.ok_or(RingRpcError::RingRequired)?;
@@ -584,6 +644,7 @@ impl<S: TransactionSource> Hub<S> {
                     derive_auditor_key(root, genesis_hash, ring)?,
                     source.clone(),
                     assets.clone(),
+                    origins.clone(),
                 )))
             }
         }

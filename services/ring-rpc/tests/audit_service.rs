@@ -17,8 +17,8 @@ use zolana_ring_rpc::{
     api::{
         auditor_key_attestation, read_attestation, CreateAuditorKeyRequest,
         CreateAuditorKeyResponse, GetDecryptedTransactionsRequest,
-        GetDecryptedTransactionsResponse, HealthResponse, ReadAuth, ReadScope, CREATE_AUDITOR_KEY,
-        GET_DECRYPTED_TRANSACTIONS, HEALTH,
+        GetDecryptedTransactionsResponse, HealthResponse, ReadAuth, ReadScope, WebAuthnAssertion,
+        CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH,
     },
     audit::{derive_auditor_key, AuditService, Hub, ReadFilter, RingRpcError, TransactionSource},
     server::rpc_module,
@@ -69,6 +69,60 @@ fn read_auth(ring: Address, signer: &Keypair, timestamp: u64) -> ReadAuth {
             .as_ref()
             .to_vec()
             .into(),
+        webauthn: None,
+    }
+}
+
+const ORIGIN: &str = "http://localhost:3000";
+
+/// A passkey of the fixture, its WebAuthn assertion built the way a browser
+/// would: `SHA-256(attestation)` as the challenge, rpId the origin's host.
+struct Passkey(p256::ecdsa::SigningKey);
+
+impl Passkey {
+    fn new(byte: u8) -> Self {
+        Self(p256::ecdsa::SigningKey::from_bytes(&[byte; 32].into()).expect("scalar"))
+    }
+
+    fn reader(&self) -> ReaderKey {
+        let sec1 = self.0.verifying_key().to_encoded_point(true);
+        ReaderKey::P256(
+            P256Pubkey::from_bytes(sec1.as_bytes().try_into().expect("33")).expect("key"),
+        )
+    }
+
+    fn assert(&self, origin: &str, rp_id: &str, flags: u8, timestamp: u64) -> ReadAuth {
+        use p256::ecdsa::signature::hazmat::PrehashSigner;
+        use sha2::Digest;
+        let attestation = read_attestation(ReadScope::Ring, &RING, timestamp, None, None);
+        let challenge = base64::Engine::encode(
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+            sha2::Sha256::digest(&attestation),
+        );
+        let client_data = format!(
+            r#"{{"type":"webauthn.get","challenge":"{challenge}","origin":"{origin}","crossOrigin":false}}"#
+        );
+        let mut authenticator_data = sha2::Sha256::digest(rp_id).to_vec();
+        authenticator_data.push(flags);
+        authenticator_data.extend_from_slice(&[0, 0, 0, 1]);
+        let mut signed = sha2::Sha256::new();
+        signed.update(&authenticator_data);
+        signed.update(sha2::Sha256::digest(client_data.as_bytes()));
+        let signature: p256::ecdsa::Signature =
+            self.0.sign_prehash(&signed.finalize()).expect("sign");
+        let ReaderKey::P256(pubkey) = self.reader() else {
+            unreachable!()
+        };
+        ReadAuth {
+            scope: ReadScope::Ring,
+            reader: pubkey.as_bytes().to_vec().into(),
+            timestamp,
+            signature: signature.to_der().as_bytes().to_vec().into(),
+            webauthn: Some(WebAuthnAssertion {
+                authenticator_data: authenticator_data.into(),
+                client_data_json: client_data.into_bytes().into(),
+            }),
+        }
     }
 }
 
@@ -87,6 +141,7 @@ fn p256_ring_auth(key: &ViewingKey, timestamp: u64) -> ReadAuth {
         reader: key.pubkey().as_bytes().to_vec().into(),
         timestamp,
         signature: signature.to_bytes().to_vec().into(),
+        webauthn: None,
     }
 }
 
@@ -293,11 +348,13 @@ fn hub_with_delegate(fixture: &Fixture) -> Hub<StaticSource> {
         .insert(ReaderKey::Ed25519(Address::new_from_array(
             delegate().pubkey().to_bytes(),
         )));
+    source.granted.insert(Passkey::new(46).reader());
     Hub::local(
         RING,
         fixture.auditor.clone(),
         source,
         AssetRegistry::default(),
+        vec![ORIGIN.to_owned()],
     )
 }
 
@@ -307,6 +364,7 @@ fn hub(fixture: &Fixture, next_cursor: Option<Vec<u8>>) -> Hub<StaticSource> {
         fixture.auditor.clone(),
         source(fixture, next_cursor),
         AssetRegistry::default(),
+        vec![ORIGIN.to_owned()],
     )
 }
 
@@ -404,6 +462,98 @@ async fn granted_reader_reads_ring_scope_until_revoked() {
         delegated.authorize_read(&p256_ring, None, None).await,
         "p256 ring scope",
         "ed25519",
+    );
+}
+
+/// A granted passkey reads ring scope through a WebAuthn assertion. Every
+/// envelope check refuses on its own: origin, relying party, user
+/// verification, challenge, the grant itself, and an empty origin allowlist.
+#[tokio::test]
+async fn granted_passkey_reads_ring_scope_through_webauthn() {
+    let fixture = fixture();
+    let delegated = hub_with_delegate(&fixture)
+        .ring(None)
+        .expect("local service");
+    let passkey = Passkey::new(46);
+    const UP_UV: u8 = 0x05;
+    assert!(matches!(
+        delegated
+            .authorize_read(
+                &passkey.assert(ORIGIN, "localhost", UP_UV, now()),
+                None,
+                None
+            )
+            .await,
+        Ok(ReadFilter::Ring)
+    ));
+
+    let refused = |result: Result<ReadFilter, RingRpcError>, label: &str, reason: &str| {
+        let Err(error) = result else {
+            panic!("{label} must be refused");
+        };
+        assert!(error.to_string().contains(reason), "{label}: {error}");
+    };
+    for (label, auth, reason) in [
+        (
+            "other origin",
+            passkey.assert("http://evil.example", "evil.example", UP_UV, now()),
+            "origin",
+        ),
+        (
+            "other relying party",
+            passkey.assert(ORIGIN, "evil.example", UP_UV, now()),
+            "relying party",
+        ),
+        (
+            "no user verification",
+            passkey.assert(ORIGIN, "localhost", 0x01, now()),
+            "user verification",
+        ),
+        (
+            "stale challenge",
+            passkey.assert(ORIGIN, "localhost", UP_UV, now() - 3600),
+            "stale",
+        ),
+        (
+            "ungranted passkey",
+            Passkey::new(47).assert(ORIGIN, "localhost", UP_UV, now()),
+            "granted reader",
+        ),
+    ] {
+        refused(
+            delegated.authorize_read(&auth, None, None).await,
+            label,
+            reason,
+        );
+    }
+
+    let mut tampered = passkey.assert(ORIGIN, "localhost", UP_UV, now());
+    tampered.timestamp += 1;
+    refused(
+        delegated.authorize_read(&tampered, None, None).await,
+        "attestation not in the challenge",
+        "challenge",
+    );
+
+    let no_origins = Hub::local(
+        RING,
+        fixture.auditor.clone(),
+        source(&fixture, None),
+        AssetRegistry::default(),
+        Vec::new(),
+    )
+    .ring(None)
+    .expect("local service");
+    refused(
+        no_origins
+            .authorize_read(
+                &passkey.assert(ORIGIN, "localhost", UP_UV, now()),
+                None,
+                None,
+            )
+            .await,
+        "passkeys disabled",
+        "origin",
     );
 }
 
@@ -544,6 +694,7 @@ async fn derived_keys_are_per_ring_and_stable() {
         genesis,
         source(&fixture, None),
         AssetRegistry::default(),
+        Vec::new(),
     );
     let ring_a = Address::new_from_array([1u8; 32]);
     let ring_b = Address::new_from_array([2u8; 32]);

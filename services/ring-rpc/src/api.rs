@@ -76,11 +76,24 @@ pub struct GetDecryptedTransactionsRequest {
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub struct ReadAuth {
     pub scope: ReadScope,
-    /// An ed25519 pubkey (32 bytes, signs ed25519) or a P-256 viewing pubkey
-    /// (33 bytes SEC1 compressed, signs ECDSA over `SHA-256(message)`).
+    /// An ed25519 pubkey (32 bytes, signs ed25519) or a P-256 pubkey (33 bytes
+    /// SEC1 compressed, signs ECDSA over `SHA-256(message)`, or through
+    /// WebAuthn when `webauthn` is present).
     pub reader: Base64String,
     pub timestamp: u64,
+    /// Raw `r || s`, or DER when `webauthn` is present.
     pub signature: Base64String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webauthn: Option<WebAuthnAssertion>,
+}
+
+/// The authenticator output next to the signature. The challenge inside
+/// `client_data_json` is `SHA-256(read_attestation)`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
+pub struct WebAuthnAssertion {
+    pub authenticator_data: Base64String,
+    pub client_data_json: Base64String,
 }
 
 /// How much of the ring a read may see.
@@ -197,6 +210,7 @@ impl UnsignedRead {
                 reader: reader.into(),
                 timestamp,
                 signature: signature.into(),
+                webauthn: None,
             },
         }
     }
