@@ -47,9 +47,11 @@ read once at startup for the SPL asset registry.
 and ignored in local mode, where `--ring-program-id` names the one ring the key
 serves.
 
-Reads are signed. `auth.signature` is `auth.reader`'s signature over
-`"zolana/ring-rpc-read/v1" || scope || ring_program_id || timestamp || limit ||
-cursor`, `auth.timestamp` (unix seconds) within a minute of the service clock.
+Reads are signed. `auth.signature` is `auth.reader`'s signature over the text
+`zolana/ring-rpc-read/v1` followed by one line each of `scope: <ring|participant>`,
+`ring: <base58>`, `timestamp: <unix seconds>`, `limit: <n or 0>`,
+`cursor: <base64 or empty>`, joined with `\n`, `auth.timestamp` within a minute
+of the service clock. Text, so browser wallets show it and sign it.
 Two scopes. `ring` needs the ring authority its on-chain config records (an
 ed25519 key) or a reader the authority granted on chain, an ed25519 key or a
 P-256 passkey, and returns every transaction plus the skipped list. A passkey

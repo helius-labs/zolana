@@ -110,10 +110,10 @@ pub enum ReadScope {
 }
 
 impl ReadScope {
-    const fn tag(self) -> u8 {
+    const fn name(self) -> &'static str {
         match self {
-            Self::Ring => 0,
-            Self::Participant => 1,
+            Self::Ring => "ring",
+            Self::Participant => "participant",
         }
     }
 }
@@ -217,10 +217,12 @@ impl UnsignedRead {
 }
 
 /// Domain of the read signature.
-const READ_DOMAIN: &[u8] = b"zolana/ring-rpc-read/v1";
+const READ_DOMAIN: &str = "zolana/ring-rpc-read/v1";
 
 /// The bytes a reader signs for `getDecryptedTransactions`: the scope, the
 /// ring, the moment, and the page asked for, so a signature fits one request.
+/// Plain text, one `name: value` line per field, because browser wallets
+/// refuse to sign bytes that could be a transaction and show text as is.
 pub fn read_attestation(
     scope: ReadScope,
     ring_program_id: &Address,
@@ -228,15 +230,35 @@ pub fn read_attestation(
     cursor: Option<&[u8]>,
     limit: Option<u64>,
 ) -> Vec<u8> {
-    [
-        READ_DOMAIN,
-        &[scope.tag()],
-        ring_program_id.as_ref(),
-        &timestamp.to_le_bytes(),
-        &limit.unwrap_or(0).to_le_bytes(),
-        cursor.unwrap_or_default(),
-    ]
-    .concat()
+    use base64::Engine;
+    format!(
+        "{READ_DOMAIN}\nscope: {}\nring: {ring_program_id}\ntimestamp: {timestamp}\nlimit: {}\ncursor: {}",
+        scope.name(),
+        limit.unwrap_or(0),
+        base64::engine::general_purpose::STANDARD.encode(cursor.unwrap_or_default()),
+    )
+    .into_bytes()
+}
+
+#[cfg(test)]
+mod attestation_tests {
+    use super::*;
+
+    /// Pinned byte for byte with the TypeScript SDK (`ringReadAttestation`).
+    #[test]
+    fn read_attestation_is_the_pinned_text() {
+        let message = read_attestation(
+            ReadScope::Participant,
+            &Address::new_from_array([7; 32]),
+            1_700_000_000,
+            Some(&[1, 2, 3]),
+            Some(5),
+        );
+        assert_eq!(
+            String::from_utf8(message).expect("text"),
+            "zolana/ring-rpc-read/v1\nscope: participant\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nlimit: 5\ncursor: AQID"
+        );
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
