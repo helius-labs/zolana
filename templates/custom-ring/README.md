@@ -1,23 +1,114 @@
 # {{project-name}}
 
-A generated repository deploys one confidential custom ring with auditor visibility. Normal transfers use the default Zolana transfer prover. The custom ring program verifies the fixed proof that binds transaction viewing key encryption. Ring RPC decrypts the bound audit message.
+A custom ring on the Solana Privacy Program with an auditor. Transfers inside
+the ring are confidential, amounts and recipients stay hidden on chain, and
+every transfer carries a proof that one auditor key can open it. The program is
+`custom-ring-program` from Zolana revision `{{zolana_revision}}`, deployed at
+`{{program_id}}`. `ring.toml` holds the wizard's answers and the active
+cluster, `.env` holds secrets and `ring.toml` refers to them as `${NAME}`.
 
-## Setup
+## Roles
 
-`just source` obtains Zolana revision `{{zolana_revision}}` when `{{zolana_path}}` is `.zolana`. The revision fixes the program, SDK, native audit circuit, and Ring RPC used by the ring.
+The operator holds the upgrade authority keypair (`{{authority_keypair}}`) and
+this repository. It deploys and upgrades the program, creates the config,
+registers the ring with SPP, and hands the authority over or renounces it.
 
-Keep the authority key and files under `keys/` out of version control. The program keypair fixes program ID `{{program_id}}`. Store `keys/program-keypair.json` and `keys/auditor.key` in the deployment secret store. A fresh checkout must mount both files and set `CUSTOM_RING_PROGRAM_KEYPAIR_FILE` and `CUSTOM_RING_AUDITOR_KEY_FILE` before `just pipeline`.
+The ring authority is the key stored in the ring config, the operator's key by
+default. It grants and revokes readers. A Squads vault can hold it and run the
+same commands through proposals.
 
-Run `just pipeline` to build, deploy, create the auditor key, create the ring config, and register the ring with the shielded pool. The cluster must permit ring creation. A rerun skips config and registration accounts that already exist.
+The auditor is a P-256 viewing key held by a ring RPC. It opens every transfer
+of the ring.
 
-Copy `.env.example` to `.env` and set the cluster endpoints. Set `RING_RPC_ALLOW_ORIGINS` to the production HTTPS browser origins. Set `RING_RPC_WEBAUTHN_RP_ID` to their host or valid parent domain. Run `just ring-rpc` behind a TLS proxy. Ring RPC reads Photon and checks reader grants through Solana RPC.
+A reader is a Solana key or a passkey the authority granted. It reads what the
+auditor reads through the ring RPC. The authority itself has no implicit read
+access, `transact` grants it before reading back.
+
+A participant is a shielded wallet. It deposits into the ring and transfers
+inside it.
+
+## The pipeline
+
+`just localnet` starts a validator with SPP, Photon and the prover from the
+pinned Zolana source and sets `target = "localnet"` in `ring.toml`.
+`just devnet` sets `target = "devnet"` and probes the hosted Photon and prover
+from `ring.toml`, or starts local ones when it points at `127.0.0.1`. Every
+other recipe acts on the recorded target, `just urls` shows it.
+
+`just pipeline` then runs build, deploy, init, ring RPC and transact. Each step
+locks something in.
+
+The program id was fixed when the wizard created `keys/program-keypair.json`.
+`just deploy` deploys the program under the authority, or upgrades it in place
+when it already exists. While the program has an upgrade authority only that
+key may run `init`.
+
+`just init` fixes the auditor. Without `keys/auditor.key.pub` it asks the ring
+RPC in `ring.toml` for a key and writes the public half there. A hosted RPC is
+accepted only when its service key is pinned as `ring_rpc_pubkey` in
+`ring.toml`, or with `init --trust-ring-rpc` for a local instance. The auditor
+key cannot change afterwards, a different auditor is a different ring.
+
+After `init` the authority may move. `authority transfer <pubkey>` hands the
+program to another key, then point `authority_keypair` in `ring.toml` at its
+keypair. `authority renounce --yes` makes the program immutable.
+
+`just rpc` serves the auditor's view from `keys/auditor.key`. `just pipeline`
+starts it in the background when none answers on the ring RPC port and leaves
+it running, `just rpc-stop` ends it.
+
+`just transact` makes two ring deposits, one audited transfer, and reads the
+transfer back through the ring RPC as the authority. The audit proof goes
+through the prover's Redis queue, so `ZOLANA_PROVER_REDIS_URL` in `.env` must
+name a reachable Redis, also for `just localnet`.
+
+Rerunning `just pipeline` after a code change is the upgrade path. Steps whose
+state already exists are skipped.
 
 ## Readers
 
-`just grant-reader <key>` creates the canonical reader record. `just revoke-reader <key>` closes it. A reader key is a canonical Ed25519 public key or a compressed P256 public key.
+`just grant-reader <key>` lets a key read the ring through the ring RPC,
+`just revoke-reader <key>` takes it back and returns the rent to the
+authority. The key is a base58 Solana key or the 66-hex P-256 key of a
+passkey. Reads are signed requests with a timestamp and a nonce, a browser
+needs its origin in `RING_RPC_ALLOW_ORIGINS` and the matching
+`RING_RPC_WEBAUTHN_RP_ID`.
 
-The config authority has no implicit read access. Grant its reader key when it also needs audit access.
+## Features
+
+| Feature | Status | Example |
+| --- | --- | --- |
+{{features_markdown}}
+Features are declared once, in the template's `hooks/wizard.rhai`. The
+`[features]` table in `ring.toml` records the choice. A feature in state
+`ready` is wired to code through a cargo feature of the same name on
+`custom-ring-program`, and on `custom-ring-cli` when it has a CLI side.
+The wizard forwards the enabled ones to both crates.
+
+## Pitfalls
+
+Local rings share the ring RPC port. `just pipeline` replaces an RPC that
+serves another ring's auditor key, `rpc-check` tells the two apart.
+
+`init` refuses an unpinned hosted RPC on purpose. Confirm the service key out
+of band and pin it, `--trust-ring-rpc` is for an RPC on this machine.
+
+The sender of an audited transfer pays its own v0 transaction and the lookup
+table behind it, the instruction does not fit a packet with a separate fee
+payer. `transact` funds the throwaway sender for that.
+
+Deploys and transactions on devnet cost devnet SOL, `just status` shows the
+authority's balance. The Helius API key lives in `.env`, `.env.example` lists
+the keys.
+
+Keep `keys/` and `.env` out of git and in the deployment secret store. A fresh
+checkout mounts the program keypair and the auditor key through
+`CUSTOM_RING_PROGRAM_KEYPAIR_FILE` and `CUSTOM_RING_AUDITOR_KEY_FILE` before
+`just pipeline`.
 
 ## Limits
 
-The auditor can recover outputs created by the supported client. The released transfer proof does not prove that ciphertext matches a committed output. Ring RPC reports undecryptable slots.
+The auditor opens outputs created by the supported clients. Slots in another
+encoding are reported as undecryptable, `transact` prints them. Ring deposits
+are public on chain and are not part of the auditor's view. The released
+transfer proof does not prove that a ciphertext matches a committed output.

@@ -1,12 +1,12 @@
 [package]
-name = "ring-operator"
+name = "{{project-name}}"
 version = "0.1.0"
 edition.workspace = true
 publish = false
-default-run = "ring"
+default-run = "{{project-name}}"
 
 [[bin]]
-name = "ring"
+name = "{{project-name}}"
 path = "src/main.rs"
 
 [[bin]]
@@ -15,19 +15,11 @@ path = "src/auditor_pubkey.rs"
 required-features = ["auditor-key"]
 
 [features]
-auditor-key = ["dep:zolana-ring-rpc"]
+auditor-key = ["dep:zolana-ring-rpc", "dep:clap", "dep:hex"]
 
 [dependencies]
-anyhow.workspace = true
-bytemuck.workspace = true
-clap.workspace = true
-custom-ring-sdk.workspace = true
-hex.workspace = true
-solana-instruction.workspace = true
-solana-address.workspace = true
-solana-keypair.workspace = true
-solana-signer.workspace = true
-zolana-client.workspace = true
-zolana-keypair.workspace = true
-zolana-interface.workspace = true
+anyhow = { workspace = true }
+custom-ring-cli = { workspace = true{% if cargo_features != "" %}, features = [{{cargo_features}}]{% endif %} }
+clap = { workspace = true, optional = true }
+hex = { workspace = true, optional = true }
 zolana-ring-rpc = { workspace = true, optional = true }

@@ -1,5 +1,5 @@
 [package]
-name = "ring-program"
+name = "{{project-name}}-program"
 version = "0.1.0"
 edition.workspace = true
 publish = false
@@ -12,7 +12,7 @@ default = []
 bpf-entrypoint = []
 
 [dependencies]
-custom-ring-program = { workspace = true, features = ["no-entrypoint"] }
+custom-ring-program = { workspace = true, features = ["no-entrypoint"{% if cargo_features != "" %}, {{cargo_features}}{% endif %}] }
 pinocchio.workspace = true
 
 [lints.rust.unexpected_cfgs]

@@ -6,6 +6,7 @@
 mod instructions;
 mod shared;
 mod transfer;
+mod v0;
 
 pub use zolana_interface::custom_ring::{
     tag, AuditProof, CreateConfigIxData, CustomRingTransactIxData, ReaderIxData, CONFIG_PDA_SEED,
@@ -33,4 +34,5 @@ pub use crate::{
         AuditedTransfer, AuditedTransferInput, DepositError, ProvenTransfer, RingDeposit,
         RingDepositReceipt, TransferError, TransferProofEnvironment,
     },
+    v0::{SendV0Error, V0WithLookupTable, TRANSACT_COMPUTE_UNIT_LIMIT},
 };

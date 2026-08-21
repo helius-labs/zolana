@@ -13,6 +13,7 @@ export ZOLANA_PORT_OFFSET := env_var_or_default("ZOLANA_PORT_OFFSET", "0")
 localnet-rpc-port := env_var_or_default("ZOLANA_LOCALNET_RPC_PORT", `echo $((8899 + ${ZOLANA_PORT_OFFSET:-0}))`)
 localnet-photon-port := env_var_or_default("ZOLANA_LOCALNET_PHOTON_PORT", `echo $((8784 + ${ZOLANA_PORT_OFFSET:-0}))`)
 localnet-prover-port := env_var_or_default("ZOLANA_LOCALNET_PROVER_PORT", `echo $((3001 + ${ZOLANA_PORT_OFFSET:-0}))`)
+localnet-ring-rpc-port := env_var_or_default("ZOLANA_LOCALNET_RING_RPC_PORT", `echo $((8785 + ${ZOLANA_PORT_OFFSET:-0}))`)
 localnet-rpc-url := env_var_or_default("ZOLANA_LOCALNET_URL", "http://127.0.0.1:" + localnet-rpc-port)
 localnet-photon-url := env_var_or_default("ZOLANA_LOCALNET_PHOTON_URL", "http://127.0.0.1:" + localnet-photon-port)
 localnet-prover-url := env_var_or_default("ZOLANA_PROVER_URL", "http://127.0.0.1:" + localnet-prover-port)
@@ -105,6 +106,7 @@ test-custom-ring: ensure-custom-ring-prover-key build-programs build-cli test-cu
     cd prover/server && go test ./prover/custom_ring -run TestAuditorKeyEncryptionProofVerifies -count=1
     cargo nextest run -p custom-ring-program --tests
     cargo nextest run -p custom-ring-sdk
+    cargo nextest run -p custom-ring-cli
     cargo nextest run -p zolana-ring-client
     cargo nextest run -p zolana-ring-rpc
 
@@ -118,6 +120,8 @@ test-custom-ring-template:
         --path templates/custom-ring \
         --name invalid-authority \
         --destination "$output" \
+        --silent \
+        --define silent=true \
         --define program_id=8hV3Hp5kaDkV81dms997arFRV3g1hW9TLuV4pX94WsEz \
         --define 'authority_keypair=~operator/key.json' \
         --define zolana_path="$(pwd)" \
@@ -129,6 +133,8 @@ test-custom-ring-template:
         --path templates/custom-ring \
         --name invalid-source \
         --destination "$output" \
+        --silent \
+        --define silent=true \
         --define program_id=8hV3Hp5kaDkV81dms997arFRV3g1hW9TLuV4pX94WsEz \
         --define authority_keypair=/tmp/custom-ring-authority.json \
         --define 'zolana_path=~/zolana' \
@@ -136,55 +142,38 @@ test-custom-ring-template:
         --define zolana_revision="$(git rev-parse HEAD)"; then
         exit 1
     fi
-    cargo generate \
-        --path templates/custom-ring \
-        --name ring-template-test \
-        --destination "$output" \
-        --define program_id=8hV3Hp5kaDkV81dms997arFRV3g1hW9TLuV4pX94WsEz \
-        --define authority_keypair=/tmp/custom-ring-authority.json \
-        --define zolana_path="$(pwd)" \
-        --define zolana_repository=https://github.com/helius-labs/zolana.git \
-        --define zolana_revision="$(git rev-parse HEAD)"
-    cd "$output/ring-template-test"
+    RING_NAME=smoke-ring tools/ring-wizard.sh "$output" --silent \
+        -d authority_keypair=/tmp/custom-ring-authority.json \
+        -d zolana_path="$(pwd)"
+    ring="$output/smoke-ring"
+    cd "$ring"
+    grep -q 'target = "localnet"' ring.toml
+    grep -q 'confidential = true' ring.toml
     grep -Fx 'channel = "1.97.0"' rust-toolchain.toml
-    grep -Fx 'sbf-tools-version := "v1.54"' justfile
     grep -Fx 'RING_RPC_ALLOW_ORIGINS=http://localhost:3000' .env.example
     grep -Fx 'RING_RPC_WEBAUTHN_RP_ID=localhost' .env.example
+    [[ -f keys/program-keypair.json ]]
+    program_id="$(solana-keygen pubkey keys/program-keypair.json)"
+    grep -F "CUSTOM_RING_PROGRAM_ID = \"$program_id\"" .cargo/config.toml
+    grep -F "program_id = \"$program_id\"" ring.toml
     cargo fmt --all -- --check
-    cargo clippy \
-        --workspace \
-        --all-targets \
-        --locked \
-        -- \
-        -D warnings
-    cargo test \
-        --locked \
-        -p ring-program \
-        program_id_matches_generated_value
-    cargo run \
-        --locked \
-        -p ring-operator \
-        -- \
-        --help
-    cargo clippy \
-        --locked \
-        -p ring-operator \
-        --features auditor-key \
-        --bin auditor-pubkey \
-        -- \
-        -D warnings
+    cargo clippy --workspace --all-targets -- -D warnings
+    cargo test -p smoke-ring-program program_id_matches_generated_value
+    cargo run -q -p smoke-ring -- --help
+    [[ "$(cargo run -q -p smoke-ring -- url rpc)" == "{{localnet-rpc-url}}" ]]
+    cargo clippy -p smoke-ring --features auditor-key --bin auditor-pubkey -- -D warnings
     cargo build-sbf \
         --tools-version v1.54 \
         --manifest-path program/Cargo.toml \
         --features bpf-entrypoint
-    [[ -f "$output/ring-template-test/target/deploy/ring_program.so" ]]
+    [[ -f target/deploy/smoke_ring_program.so ]]
     mkdir "$output/key-target"
-    ln -s "$output/key-target" keys
+    ln -s "$output/key-target" keys/auditor.key
     if just auditor-key; then
         exit 1
     fi
     [[ -z "$(find "$output/key-target" -mindepth 1 -print -quit)" ]]
-    unlink keys
+    unlink keys/auditor.key
     printf '00' > "$output/invalid-auditor.key"
     chmod 600 "$output/invalid-auditor.key"
     if CUSTOM_RING_AUDITOR_KEY_FILE="$output/invalid-auditor.key" just auditor-key; then
@@ -198,33 +187,136 @@ test-custom-ring-template:
     mv keys/auditor.key.pub "$output/auditor.key.pub"
     CUSTOM_RING_AUDITOR_KEY_FILE="$output/auditor.key" just auditor-key
     cmp -s keys/auditor.key.pub "$output/auditor.key.pub"
-    cd "$workspace"
-    tools/custom-ring-new.sh ring-wrapper "$output/ring-wrapper"
-    [[ -f "$output/ring-wrapper/keys/program-keypair.json" ]]
-    program_id="$(solana-keygen pubkey "$output/ring-wrapper/keys/program-keypair.json")"
-    grep -F "CUSTOM_RING_PROGRAM_ID = \"$program_id\"" "$output/ring-wrapper/.cargo/config.toml"
-    mkdir "$output/source-target"
-    ln -s "$output/source-target" "$output/ring-wrapper/.zolana"
-    if cd "$output/ring-wrapper" && just source; then
-        exit 1
-    fi
-    cd "$workspace"
-    [[ -z "$(find "$output/source-target" -mindepth 1 -print -quit)" ]]
-    unlink "$output/ring-wrapper/.zolana"
-    mkdir "$output/ring-wrapper/.zolana"
-    ln -s "$output/source-target" "$output/ring-wrapper/.zolana/.git"
-    if cd "$output/ring-wrapper" && just source; then
-        exit 1
-    fi
-    cd "$workspace"
-    [[ -z "$(find "$output/source-target" -mindepth 1 -print -quit)" ]]
-    mv "$output/ring-wrapper/keys/program-keypair.json" "$output/program-keypair.json"
-    cd "$output/ring-wrapper"
+    mv keys/program-keypair.json "$output/program-keypair.json"
     CUSTOM_RING_PROGRAM_KEYPAIR_FILE="$output/program-keypair.json" just program-key
     [[ "$(solana-keygen pubkey keys/program-keypair.json)" == "$program_id" ]]
+    cd "$workspace"
+    RING_NAME=pinned-ring tools/ring-wizard.sh "$output" --silent \
+        -d authority_keypair=/tmp/custom-ring-authority.json
+    pinned="$output/pinned-ring"
+    grep -Fx 'zolana := ".zolana"' "$pinned/justfile"
+    grep -F "$(git rev-parse HEAD)" "$pinned/justfile"
+    mkdir "$output/source-target"
+    ln -s "$output/source-target" "$pinned/.zolana"
+    if cd "$pinned" && just source; then
+        exit 1
+    fi
+    cd "$workspace"
+    [[ -z "$(find "$output/source-target" -mindepth 1 -print -quit)" ]]
+    unlink "$pinned/.zolana"
+    mkdir "$pinned/.zolana"
+    ln -s "$output/source-target" "$pinned/.zolana/.git"
+    if cd "$pinned" && just source; then
+        exit 1
+    fi
+    cd "$workspace"
+    [[ -z "$(find "$output/source-target" -mindepth 1 -print -quit)" ]]
 
-custom-ring-new name destination:
-    tools/custom-ring-new.sh "{{name}}" "{{destination}}"
+# === Custom ring template ===
+
+# Generate a custom ring under `dest`, extra arguments go to `cargo generate`.
+ring-new dest="" *args:
+    tools/ring-wizard.sh {{dest}} {{args}}
+
+# Local validator and services for a generated ring, ring creation is permissionless.
+ring-localnet: ensure-custom-ring-live-keys build-programs build-cli ensure-photon
+    #!/usr/bin/env bash
+    set -euo pipefail
+    : "${ZOLANA_PROVER_REDIS_URL:?set ZOLANA_PROVER_REDIS_URL, the audit proof goes through the prover queue}"
+    eval "$(cargo run -q -p xtask -- program-ids)"
+    bin="target/debug/zolana"
+    workdir="target/ring-localnet"
+    rm -rf "$workdir"
+    mkdir -p "$workdir"
+    photon_bin="{{photon-bin}}"
+    [[ "$photon_bin" = /* ]] || photon_bin="$PWD/$photon_bin"
+    keys_dir="{{spp-keys-dir}}"
+    [[ "$keys_dir" = /* ]] || keys_dir="$PWD/$keys_dir"
+    export ZOLANA_PHOTON_BIN="$photon_bin"
+    export ZOLANA_PROVER_KEYS_DIR="$keys_dir"
+    for port in {{localnet-rpc-port}} {{localnet-photon-port}} {{localnet-prover-port}}; do
+      lsof -ti "tcp:$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    done
+    sleep 2
+    accounts_dir="$workdir/accounts"
+    cargo run -q -p xtask -- generate-account-snapshots \
+      --deploy-dir target/deploy --accounts-dir "$accounts_dir"
+    # SIMD-0500 is off, the ring deploys as SBPF v0 like on devnet. The prover is
+    # started separately, `dev start` runs it without the Redis queue the audit circuit requires.
+    "$bin" dev start --no-use-surfpool --skip-prover \
+      --rpc-port {{localnet-rpc-port}} --photon-port {{localnet-photon-port}} \
+      --account-dir "$accounts_dir" --limit-ledger-size 5000000 \
+      --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so \
+      --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so \
+      -- --deactivate-feature B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g
+    "$bin" dev prover start --prover-port {{localnet-prover-port}} --redis-url "$ZOLANA_PROVER_REDIS_URL"
+    echo
+    echo "localnet ready"
+    echo "  rpc       {{localnet-rpc-url}}"
+    echo "  photon    {{localnet-photon-url}}"
+    echo "  prover    {{localnet-prover-url}}  (redis $ZOLANA_PROVER_REDIS_URL)"
+    echo "  ring rpc  http://127.0.0.1:{{localnet-ring-rpc-port}}  (started per ring by 'just rpc' or 'just pipeline')"
+
+# Stops the validator, photon, the prover, and a ring RPC left on the ring RPC
+# port by a ring's `just pipeline`.
+ring-localnet-stop:
+    lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    lsof -ti "tcp:{{localnet-prover-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    lsof -ti "tcp:{{localnet-ring-rpc-port}}" 2>/dev/null | xargs kill 2>/dev/null || true
+    pkill -f solana-test-validator 2>/dev/null || true
+
+# Photon and the prover against an external cluster, Photon indexes from the current slot.
+ring-devnet-services rpc_url: ensure-custom-ring-live-keys build-prover-server ensure-photon
+    #!/usr/bin/env bash
+    set -euo pipefail
+    : "${ZOLANA_PROVER_REDIS_URL:?set ZOLANA_PROVER_REDIS_URL, the audit proof goes through the prover queue}"
+    workdir="target/ring-devnet"
+    mkdir -p "$workdir"
+    photon_bin="{{photon-bin}}"
+    [[ "$photon_bin" = /* ]] || photon_bin="$PWD/$photon_bin"
+    keys_dir="{{spp-keys-dir}}"
+    [[ "$keys_dir" = /* ]] || keys_dir="$PWD/$keys_dir"
+    lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    lsof -ti "tcp:{{localnet-prover-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    sleep 1
+    nohup "$photon_bin" --rpc-url "{{rpc_url}}" --port {{localnet-photon-port}} --start-slot latest \
+      > "$workdir/photon.log" 2>&1 &
+    nohup target/prover-server start --keys-dir "$keys_dir" \
+      --prover-address 0.0.0.0:{{localnet-prover-port}} --auto-download=true \
+      --redis-url "$ZOLANA_PROVER_REDIS_URL" \
+      > "$workdir/prover.log" 2>&1 &
+    for _ in $(seq 1 120); do
+      if curl -sf "{{localnet-photon-url}}/readiness" >/dev/null 2>&1 \
+         && curl -sf "{{localnet-prover-url}}/health" >/dev/null 2>&1; then
+        break
+      fi
+      sleep 1
+    done
+    curl -sf "{{localnet-photon-url}}/readiness" >/dev/null || { echo "photon did not become ready, see $workdir/photon.log" >&2; exit 1; }
+    curl -sf "{{localnet-prover-url}}/health" >/dev/null || { echo "prover did not become ready, see $workdir/prover.log" >&2; exit 1; }
+    echo "devnet services ready"
+    echo "  photon    {{localnet-photon-url}}  (indexing {{rpc_url}}, log $workdir/photon.log)"
+    echo "  prover    {{localnet-prover-url}}  (log $workdir/prover.log)"
+
+# Stops photon, the prover and a ring RPC started for devnet.
+ring-devnet-services-stop:
+    lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    lsof -ti "tcp:{{localnet-prover-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    lsof -ti "tcp:{{localnet-ring-rpc-port}}" 2>/dev/null | xargs kill 2>/dev/null || true
+
+# Foreground ring RPC in derived mode, one key per ring.
+ring-rpc-derived:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p target/ring-localnet
+    secret="target/ring-localnet/root.secret"
+    if [ ! -f "$secret" ]; then
+        cargo run -q -p zolana-ring-rpc -- keygen --out "$secret" --kind root
+    fi
+    cargo run -q -p zolana-ring-rpc -- serve --port {{localnet-ring-rpc-port}} \
+        --indexer-url {{localnet-photon-url}} --rpc-url {{localnet-rpc-url}} \
+        --root-secret-file "$secret"
 
 # Same contract as swap-keys-tag, for the custom-ring example's single circuit
 # (auditor_key_encryption). gnark's Setup is non-deterministic, so the release
