@@ -117,6 +117,7 @@ pub fn run(ctx: &mut Context, args: DeployArgs) -> Result<(), DeployError> {
         ctx.ring.program_id(),
         authority.pubkey()
     );
+    crate::status::announce(&ctx.config);
     Ok(())
 }
 
