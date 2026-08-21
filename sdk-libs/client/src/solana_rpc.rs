@@ -62,6 +62,15 @@ pub struct ConfirmedInstructionGroups {
 
 const DEFAULT_CONFIRMATION_TIMEOUT: Duration = Duration::from_secs(30);
 
+impl ConfirmedInstructionGroups {
+    pub fn from_confirmed_transaction(
+        signature: &Signature,
+        transaction: EncodedConfirmedTransactionWithStatusMeta,
+    ) -> Result<Self, ClientError> {
+        instruction_groups_from_confirmed_transaction(signature, transaction)
+    }
+}
+
 /// Unique `view_tag`s from a confirmed shielded-pool `TRANSACT` instruction,
 /// found either as the transaction's outer instruction (a direct `Transact`
 /// call) or as an inner instruction (a program CPIing into `transact`, e.g.

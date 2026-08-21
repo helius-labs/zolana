@@ -43,7 +43,7 @@ use zolana_interface::{
 };
 use zolana_keypair::ViewingKey;
 use zolana_program_test::Rejection;
-use zolana_ring_client::{AuditedOutput, RingAudit};
+use zolana_ring_client::{AuditedOutput, RingAudit, RingEnvironment};
 use zolana_test_utils::{
     smart_account,
     test_validator_asserts::{
@@ -467,7 +467,13 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
     );
 
     let audited = RingAudit::new(ring_program, &auditor)
-        .run(indexer, &env.assets)?
+        .run(
+            RingEnvironment {
+                indexer,
+                origin: rpc,
+            },
+            &env.assets,
+        )?
         .transactions;
     assert_eq!(
         audited.len(),
@@ -572,7 +578,13 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
     .send(rpc)?;
     wait_for_indexed_transaction(indexer, auditor_tag, hop_signature);
     let audited = RingAudit::new(ring_program, &auditor)
-        .run(indexer, &env.assets)?
+        .run(
+            RingEnvironment {
+                indexer,
+                origin: rpc,
+            },
+            &env.assets,
+        )?
         .transactions;
     let hop_outputs: Vec<(u64, Option<Address>)> = audited
         .iter()

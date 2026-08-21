@@ -28,23 +28,23 @@ use zeroize::Zeroizing;
 use zolana_api::ZolanaApi;
 use zolana_client::{
     AsyncRpc, AsyncSolanaRpc, AsyncZolanaIndexer, ClientError,
-    GetShieldedTransactionsByTagsResponse, RingShieldedTransactionsByTagRequest, Shape,
-    SPP_SUPPORTED_SHAPES,
+    GetShieldedTransactionsByTagsResponse, Shape, SPP_SUPPORTED_SHAPES,
 };
 use zolana_indexer_api::{Base64String, Limit};
 use zolana_interface::{
     custom_ring::{
         ReaderRecord, RingProgramConfig, CONFIG_PDA_SEED, READER_RECORD, RING_PROGRAM_CONFIG,
     },
-    is_reserved_p256_derivation_point, pda,
+    is_reserved_p256_derivation_point,
     state::SplAssetRegistry,
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{P256Pubkey, ViewingKey};
 use zolana_ring_client::{
-    auditor_view_tag, AuditError, AuditedTransaction, ReaderKey, TransactionAudit,
+    auditor_view_tag, AuditError, AuditedTransaction, ConfirmedTransaction, OriginError, ReaderKey,
+    TransactionAudit, ORIGIN_TRANSACTION_CONFIG,
 };
-use zolana_transaction::{AssetRegistry, RingAssociation};
+use zolana_transaction::AssetRegistry;
 
 use crate::{
     api::{
@@ -82,6 +82,12 @@ pub trait TransactionSource: Send + Sync {
         request: TransactionPage<'_>,
     ) -> impl Future<Output = Result<GetShieldedTransactionsByTagsResponse, ClientError>> + Send;
 
+    fn ring_invoked(
+        &self,
+        signature: Signature,
+        ring: Address,
+    ) -> impl Future<Output = Result<bool, OriginError>> + Send;
+
     fn ring_config(
         &self,
         ring: Address,
@@ -99,7 +105,6 @@ pub trait TransactionSource: Send + Sync {
 
 #[must_use]
 pub struct TransactionPage<'a> {
-    pub ring: Address,
     pub tag: [u8; 32],
     pub page: &'a Page,
 }
@@ -142,8 +147,8 @@ pub enum RingRpcError {
     Derivation(#[from] zolana_keypair::KeypairError),
     #[error(transparent)]
     Upstream(#[from] ClientError),
-    #[error("indexer returned a transaction outside the requested ring")]
-    RingMismatch,
+    #[error(transparent)]
+    Origin(#[from] OriginError),
     #[error("indexer returned data outside the audit bounds")]
     InvalidIndexerResponse,
     #[error("audit service state is unavailable")]
@@ -263,12 +268,29 @@ impl TransactionSource for ChainSource {
         request: TransactionPage<'_>,
     ) -> impl Future<Output = Result<GetShieldedTransactionsByTagsResponse, ClientError>> + Send
     {
-        let mut options = RingShieldedTransactionsByTagRequest::new(request.tag, request.ring)
-            .with_limit(request.page.limit());
-        if let Some(cursor) = request.page.cursor() {
-            options = options.with_cursor(cursor.to_vec());
+        self.indexer.get_shielded_transactions_by_tags(
+            vec![request.tag],
+            request.page.cursor().map(ToOwned::to_owned),
+            Some(request.page.limit().get()),
+            None,
+        )
+    }
+
+    async fn ring_invoked(&self, signature: Signature, ring: Address) -> Result<bool, OriginError> {
+        let transaction = self
+            .rpc
+            .client()
+            .get_transaction_with_config(&signature, ORIGIN_TRANSACTION_CONFIG)
+            .await
+            .map_err(|error| OriginError::Unavailable {
+                signature,
+                message: error.to_string(),
+            })?;
+        ConfirmedTransaction {
+            signature,
+            transaction,
         }
-        self.indexer.get_ring_shielded_transactions_by_tag(options)
+        .ring_invoked(ring)
     }
 
     async fn ring_config(&self, ring: Address) -> Result<Option<RingConfiguration>, ClientError> {
@@ -431,19 +453,18 @@ impl From<RingRpcError> for ErrorObjectOwned {
                 None::<()>,
             ),
             RingRpcError::Upstream(inner) => {
-                let _ = inner;
-                error!("upstream request failed");
+                error!("upstream request failed {inner}");
                 ErrorObjectOwned::owned(
                     ErrorCode::InternalError.code(),
                     "upstream request failed",
                     None::<()>,
                 )
             }
-            RingRpcError::RingMismatch => {
-                error!("indexer returned a transaction outside the requested ring");
+            RingRpcError::Origin(inner) => {
+                error!("transaction origin lookup failed {inner}");
                 ErrorObjectOwned::owned(
                     ErrorCode::InternalError.code(),
-                    "indexer response is invalid",
+                    "upstream request failed",
                     None::<()>,
                 )
             }
@@ -692,7 +713,6 @@ impl<S: TransactionSource> AuditService<S> {
             .shared
             .source
             .transactions_by_tag(TransactionPage {
-                ring: self.ring,
                 tag: self.view_tag,
                 page,
             })
@@ -701,17 +721,25 @@ impl<S: TransactionSource> AuditService<S> {
         let mut assets = self.shared.cached_assets().await;
         let mut refreshed_assets = false;
 
-        if response
-            .transactions
-            .iter()
-            .any(|transaction| !matches_ring(&transaction.ring, self.ring))
-        {
-            return Err(RingRpcError::RingMismatch);
-        }
-
         let mut audited = Vec::new();
         let mut skipped = Vec::new();
+        let mut origins: HashMap<Signature, bool> = HashMap::new();
         for tx in response.transactions {
+            let ring_invoked = match origins.get(&tx.tx_signature) {
+                Some(known) => *known,
+                None => {
+                    let invoked = self
+                        .shared
+                        .source
+                        .ring_invoked(tx.tx_signature, self.ring)
+                        .await?;
+                    origins.insert(tx.tx_signature, invoked);
+                    invoked
+                }
+            };
+            if !ring_invoked {
+                continue;
+            }
             let mut result = (TransactionAudit {
                 auditor: &self.auditor,
                 transaction: &tx,
@@ -838,18 +866,6 @@ fn decrypted_transaction(
             .collect(),
         undecryptable_slots: audited.undecryptable_slots,
         nullifiers: nullifiers.into_iter().map(Into::into).collect(),
-    }
-}
-
-fn matches_ring(association: &RingAssociation, ring: Address) -> bool {
-    let config = pda::ring_auth(&ring).0;
-    match association {
-        RingAssociation::Unresolved { config: actual } => *actual == config,
-        RingAssociation::Resolved {
-            config: actual,
-            program_id,
-        } => *actual == config && *program_id == ring,
-        RingAssociation::None => false,
     }
 }
 

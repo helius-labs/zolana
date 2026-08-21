@@ -8,18 +8,38 @@
 //! and hydrates the matching transactions' messages back, which is what makes it
 //! usable here. `get_encrypted_utxos_by_tags` matches outputs only and would
 //! never see an auditor message.
+//!
+//! The indexer knows nothing about rings. Each matched transaction is
+//! attributed to the ring through its confirmed call stack
+//! ([`TransactionOrigin`]).
 
-use std::num::{NonZeroU32, NonZeroUsize};
+use std::{
+    collections::HashMap,
+    num::{NonZeroU32, NonZeroUsize},
+};
 
-use zolana_client::{RingShieldedTransactionsByTagRequest, Rpc};
-use zolana_interface::pda;
+use solana_signature::Signature;
+use zolana_client::Rpc;
 use zolana_keypair::{P256Pubkey, ViewingKey};
-use zolana_transaction::{AssetRegistry, RingAssociation, ShieldedTransaction};
+use zolana_transaction::{AssetRegistry, ShieldedTransaction};
 
 use crate::{
     decrypt::TransactionAudit, encryption::auditor_view_tag, error::AuditError,
-    types::AuditedTransaction,
+    origin::TransactionOrigin, types::AuditedTransaction,
 };
+
+pub struct RingEnvironment<'a, I, O> {
+    pub indexer: &'a I,
+    pub origin: &'a O,
+}
+
+impl<I, O> Clone for RingEnvironment<'_, I, O> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<I, O> Copy for RingEnvironment<'_, I, O> {}
 
 pub struct RingScanPage {
     pub transactions: Vec<ShieldedTransaction>,
@@ -92,25 +112,43 @@ impl<'a> RingScan<'a> {
         self
     }
 
-    pub fn run<I: Rpc>(self, indexer: &I) -> Result<RingScanPage, AuditError> {
+    pub fn run<I: Rpc, O: TransactionOrigin>(
+        self,
+        env: RingEnvironment<'_, I, O>,
+    ) -> Result<RingScanPage, AuditError> {
         let view_tag = auditor_view_tag(self.auditor_key);
         let mut transactions = Vec::new();
         let mut cursor = self.cursor;
+        let mut origins: HashMap<Signature, bool> = HashMap::new();
         for _ in 0..self.max_pages.get() {
-            let mut request =
-                RingShieldedTransactionsByTagRequest::new(view_tag, self.ring_program_id)
-                    .with_limit(self.page_size);
-            if let Some(cursor) = cursor.clone() {
-                request = request.with_cursor(cursor);
+            let page = env.indexer.get_shielded_transactions_by_tags(
+                vec![view_tag],
+                cursor.clone(),
+                Some(self.page_size.get()),
+                None,
+            )?;
+            for tx in page.transactions {
+                if !tx
+                    .messages
+                    .iter()
+                    .any(|message| message.view_tag == view_tag)
+                {
+                    continue;
+                }
+                let ring_invoked = match origins.get(&tx.tx_signature) {
+                    Some(known) => *known,
+                    None => {
+                        let invoked = env
+                            .origin
+                            .ring_invoked(tx.tx_signature, self.ring_program_id)?;
+                        origins.insert(tx.tx_signature, invoked);
+                        invoked
+                    }
+                };
+                if ring_invoked {
+                    transactions.push(tx);
+                }
             }
-            let page = indexer.get_ring_shielded_transactions_by_tag(request)?;
-            transactions.extend(page.transactions.into_iter().filter(|tx| {
-                matches_expected_ring(&tx.ring, self.ring_program_id)
-                    && tx
-                        .messages
-                        .iter()
-                        .any(|message| message.view_tag == view_tag)
-            }));
             let Some(next) = page.next_cursor else {
                 return Ok(RingScanPage {
                     transactions,
@@ -158,9 +196,9 @@ impl<'a> RingAudit<'a> {
         self
     }
 
-    pub fn run<I: Rpc>(
+    pub fn run<I: Rpc, O: TransactionOrigin>(
         self,
-        indexer: &I,
+        env: RingEnvironment<'_, I, O>,
         assets: &AssetRegistry,
     ) -> Result<AuditedPage, AuditError> {
         let auditor_key = self.auditor.pubkey();
@@ -170,7 +208,7 @@ impl<'a> RingAudit<'a> {
         if let Some(cursor) = self.cursor {
             scan = scan.with_cursor(cursor);
         }
-        let page = scan.run(indexer)?;
+        let page = scan.run(env)?;
         let transactions = page
             .transactions
             .iter()
@@ -187,19 +225,5 @@ impl<'a> RingAudit<'a> {
             transactions,
             next_cursor: page.next_cursor,
         })
-    }
-}
-
-fn matches_expected_ring(
-    ring: &RingAssociation,
-    expected_program: solana_address::Address,
-) -> bool {
-    let expected_config = pda::ring_auth(&expected_program).0;
-    match ring {
-        RingAssociation::Unresolved { config } => *config == expected_config,
-        RingAssociation::Resolved { config, program_id } => {
-            *config == expected_config && *program_id == expected_program
-        }
-        RingAssociation::None => false,
     }
 }
