@@ -24,6 +24,14 @@ type BatchProofSystem struct {
 	ConstraintSystem constraint.ConstraintSystem
 }
 
+type Groth16ProofSystem struct {
+	CircuitType      CircuitType
+	Variant          string
+	ProvingKey       groth16.ProvingKey
+	VerifyingKey     groth16.VerifyingKey
+	ConstraintSystem constraint.ConstraintSystem
+}
+
 // TransferProofSystem holds the keys and constraints for one spp_transaction
 // circuit shape, ownership rail, and confidentiality mode. RequiresP256 selects
 // the P256-capable circuit (true) or the Solana-only variant (false);

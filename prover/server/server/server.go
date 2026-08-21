@@ -10,6 +10,7 @@ import (
 	"time"
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
+	customring "zolana/prover/prover/custom_ring"
 	mergeprover "zolana/prover/prover/merge"
 	nullifiertree "zolana/prover/prover/nullifier_tree"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
@@ -388,10 +389,21 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	forceSync := r.Header.Get("X-Sync") == "true" || r.URL.Query().Get("sync") == "true"
 
 	queueAvailable := handler.enableQueue && handler.redisQueue != nil
+	if proofRequestMeta.CircuitType == common.CustomRingAuditCircuitType && !queueAvailable {
+		(&Error{
+			StatusCode: http.StatusServiceUnavailable,
+			Code:       "queue_unavailable",
+			Message:    "custom ring audit proofs require the audit queue",
+		}).send(w)
+		return
+	}
 	circuitQueued := handler.shouldUseQueueForCircuit(proofRequestMeta.CircuitType)
 	// `use_queue` is the decision, not the circuit's queueability: logging the
 	// latter under that name said use_queue=true on requests that were proved in
 	// the response, which is exactly the question the line exists to answer.
+	if proofRequestMeta.CircuitType == common.CustomRingAuditCircuitType {
+		forceSync = false
+	}
 	queued := useQueue(forceSync, forceAsync, circuitQueued, queueAvailable)
 
 	logging.Logger().Info().
@@ -471,8 +483,8 @@ func (handler queueStatsHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 
 	response := map[string]interface{}{
 		"queues":       stats,
-		"totalPending": stats["zk_address_append_queue"] + stats["zk_transfer_queue"],
-		"totalActive":  stats["zk_address_append_processing_queue"] + stats["zk_transfer_processing_queue"],
+		"totalPending": stats["zk_address_append_queue"] + stats["zk_transfer_queue"] + stats["zk_custom_ring_audit_queue"],
+		"totalActive":  stats["zk_address_append_processing_queue"] + stats["zk_transfer_processing_queue"] + stats["zk_custom_ring_audit_processing_queue"],
 		"totalFailed":  stats["zk_failed_queue"],
 		"timestamp":    time.Now().Unix(),
 	}
@@ -1076,7 +1088,7 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 
 func (handler proveHandler) isBatchOperation(circuitType common.CircuitType) bool {
 	switch circuitType {
-	case common.BatchAddressAppendCircuitType:
+	case common.BatchAddressAppendCircuitType, common.CustomRingAuditCircuitType:
 		return true
 	default:
 		return false
@@ -1094,6 +1106,8 @@ func GetQueueNameForCircuit(circuitType common.CircuitType) string {
 		common.MergeCircuitType,
 		common.MergeRingCircuitType:
 		return "zk_transfer_queue"
+	case common.CustomRingAuditCircuitType:
+		return "zk_custom_ring_audit_queue"
 	default:
 		return ""
 	}
@@ -1103,7 +1117,7 @@ func (handler proveHandler) getEstimatedTime(circuitType common.CircuitType) str
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
 		return "10-30 seconds"
-	case common.TransferP256RingCircuitType:
+	case common.TransferP256RingCircuitType, common.CustomRingAuditCircuitType:
 		return "30-180 seconds"
 	default:
 		return "1-3 seconds"
@@ -1114,7 +1128,7 @@ func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitTy
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
 		return 30
-	case common.TransferP256RingCircuitType:
+	case common.TransferP256RingCircuitType, common.CustomRingAuditCircuitType:
 		return 180
 	case common.TransferConfidentialCircuitType, common.TransferRingCircuitType, common.TransferRingAuthorityCircuitType:
 		return 30
@@ -1145,6 +1159,8 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 		return handler.mergeProof(buf)
 	case common.MergeRingCircuitType:
 		return handler.mergeRingProof(buf)
+	case common.CustomRingAuditCircuitType:
+		return handler.auditorKeyEncryptionProof(buf)
 	default:
 		return nil, malformedBodyError(fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType))
 	}
@@ -1188,6 +1204,24 @@ func (handler proveHandler) mergeRingProof(buf []byte) (*common.Proof, *Error) {
 	if err != nil {
 		logging.Logger().Err(err)
 		return nil, provingError(err)
+	}
+	return proof, nil
+}
+
+func (handler proveHandler) auditorKeyEncryptionProof(buf []byte) (*common.Proof, *Error) {
+	var params customring.AuditorKeyEncryptionParameters
+	if err := json.Unmarshal(buf, &params); err != nil {
+		return nil, malformedBodyError(err)
+	}
+
+	ps, err := handler.keyManager.GetGroth16System(common.CustomRingAuditCircuitType, customring.TransferVariant)
+	if err != nil {
+		return nil, provingError(fmt.Errorf("auditor-key-encryption: %w", err))
+	}
+
+	proof, err := customring.ProveAuditorKeyEncryption(ps, &params)
+	if err != nil {
+		return nil, provingError(errors.New("custom ring audit proof failed"))
 	}
 	return proof, nil
 }
