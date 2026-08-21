@@ -96,8 +96,13 @@ fn cors(origins: &Origins) -> Result<CorsLayer, OriginError> {
     if origins.is_empty() {
         return Ok(CorsLayer::new());
     }
+    let allow = if origins.allows_any() {
+        AllowOrigin::any()
+    } else {
+        AllowOrigin::list(origins.header_values()?)
+    };
     Ok(CorsLayer::new()
-        .allow_origin(AllowOrigin::list(origins.header_values()?))
+        .allow_origin(allow)
         .allow_methods([Method::POST, Method::GET])
         .allow_headers([CONTENT_TYPE]))
 }

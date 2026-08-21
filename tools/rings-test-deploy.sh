@@ -23,8 +23,7 @@
 #   RINGS_TEST_SOLANA_RPC_URL default https://api.devnet.solana.com
 #   AWS_REGION            default eu-north-1
 #   RINGS_TEST_VPC        VPC id, default the account's default VPC
-#   RINGS_TEST_ORIGINS    browser origins for the ring RPC, default http://localhost:3000
-#   RINGS_TEST_RP_ID      WebAuthn relying party id, default localhost
+#   RINGS_TEST_ORIGINS    browser origins for the ring RPC, default * (any page)
 set -euo pipefail
 
 usage() {
@@ -203,8 +202,8 @@ register_ring_rpc() {
         --requires-compatibilities FARGATE --network-mode awsvpc --cpu 512 --memory 1024 \
         --execution-role-arn "$role_arn" --runtime-platform cpuArchitecture=X86_64,operatingSystemFamily=LINUX \
         --container-definitions "$(jq -n --arg image "$image" --arg secret "$secret_arn" \
-            --arg indexer "$indexer" --arg rpc "$rpc" --arg origins "${RINGS_TEST_ORIGINS:-http://localhost:3000}" \
-            --arg rp "${RINGS_TEST_RP_ID:-localhost}" --arg group "$log_group" --arg region "$region" --argjson port "$ring_rpc_port" '[
+            --arg indexer "$indexer" --arg rpc "$rpc" --arg origins "${RINGS_TEST_ORIGINS:-*}" \
+            --arg rp "${RINGS_TEST_RP_ID:-}" --arg group "$log_group" --arg region "$region" --argjson port "$ring_rpc_port" '[
             {name: "ring-rpc", image: $image, essential: true,
              entryPoint: ["/bin/sh", "-c"],
              command: ["umask 077 && printf %s \"$ROOT_SECRET\" > /var/lib/ring-rpc/root.key && exec ring-rpc serve"],
@@ -214,7 +213,8 @@ register_ring_rpc() {
                {name: "RING_RPC_PORT", value: ($port|tostring)},
                {name: "RING_RPC_INDEXER_URL", value: $indexer}, {name: "RING_RPC_SOLANA_RPC_URL", value: $rpc},
                {name: "RING_RPC_ROOT_SECRET_FILE", value: "/var/lib/ring-rpc/root.key"},
-               {name: "RING_RPC_ALLOW_ORIGINS", value: $origins}, {name: "RING_RPC_WEBAUTHN_RP_ID", value: $rp}],
+               {name: "RING_RPC_ALLOW_ORIGINS", value: $origins}]
+               + (if $rp == "" then [] else [{name: "RING_RPC_WEBAUTHN_RP_ID", value: $rp}] end),
              portMappings: [{containerPort: $port, protocol: "tcp"}],
              logConfiguration: {logDriver: "awslogs", options: {"awslogs-group": $group, "awslogs-region": $region, "awslogs-stream-prefix": "ring-rpc"}}}
         ]')" --query 'taskDefinition.taskDefinitionArn' --output text
