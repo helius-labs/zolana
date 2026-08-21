@@ -1385,6 +1385,11 @@ ensure-smart-account:
         just fetch-smart-account
     fi
 
+# Build one service image locally and publish it to ECR by the same rules as
+# the publish-image workflow, `just publish-image prover --push`.
+publish-image service *args:
+    tools/publish-image.sh {{service}} {{args}}
+
 build-prover-server:
     mkdir -p target
     cd prover/server && go build -o ../../target/prover-server .
