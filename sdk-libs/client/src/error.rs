@@ -241,9 +241,6 @@ pub enum ClientError {
     #[error("indexer error: {0}")]
     Indexer(String),
 
-    #[error("indexer ring association is invalid")]
-    InvalidRingAssociation,
-
     /// The indexer answered with a rate-limit or internal JSON-RPC error.
     /// Acted on by `Rpc::should_retry` during the confirmation poll.
     #[error("indexer temporarily unavailable: {0}")]

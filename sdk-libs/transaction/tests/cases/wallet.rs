@@ -6,7 +6,7 @@ use zolana_transaction::{
         OwnerCx, UtxoSerialization,
     },
     wallet::{AssetBalance, PrivateTransactionDirection, PrivateTransactionKind, Wallet},
-    Address, AssetRegistry, Data, LocalWalletAuthority, OutputContext, OutputSlot, RingAssociation,
+    Address, AssetRegistry, Data, LocalWalletAuthority, OutputContext, OutputSlot,
     ShieldedTransaction, Utxo, SOL_ASSET_ID, SOL_MINT,
 };
 
@@ -254,7 +254,6 @@ pub(crate) fn recorded_split(world: &mut TransactionWorld, owner: String, parts:
     }
 
     let transaction = ShieldedTransaction {
-        ring: RingAssociation::None,
         slot: 0,
         tx_signature: solana_signature::Signature::default(),
         tx_viewing_pk: Some(tx_viewing_pk),
