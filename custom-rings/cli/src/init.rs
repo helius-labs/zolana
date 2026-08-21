@@ -3,6 +3,7 @@ use std::path::Path;
 use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
     AccountReadError, CreateConfig, CreateConfigError, CustomRing, InitSppRingConfig,
+    CREATE_CONFIG_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
 use solana_signer::Signer;
@@ -135,6 +136,7 @@ impl Init<'_> {
             rpc,
             authority: self.authority,
             name: "create_config",
+            compute_unit_limit: CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
             hint,
         }
         .ensure_present(
@@ -151,6 +153,7 @@ impl Init<'_> {
             rpc,
             authority: self.authority,
             name: "init_spp_ring_config",
+            compute_unit_limit: INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
             hint,
         }
         .ensure_present(
