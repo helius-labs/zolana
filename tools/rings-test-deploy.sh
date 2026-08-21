@@ -7,14 +7,14 @@
 #   tools/rings-test-deploy.sh status          addresses and health
 #   tools/rings-test-deploy.sh down            delete everything it created
 #
-# Images come from the publish-image workflow (Actions, preview channel) in the
-# zolana-prover and zolana-ring-rpc repositories, this script names their tags.
+# Images live in the zolana-prover and zolana-ring-rpc repositories under
+# <service>-<branch>-<sha12>, built and pushed here when the tag is absent.
 # The prover task fetches the proving keys at start and converts the audit key
 # itself. The ring RPC runs in derived mode, one root secret serves every ring
 # that takes its auditor key from it at `init`. Both services sit behind one
 # network load balancer, its DNS name is stable across task replacements.
 #
-# Needs aws (with write access), jq, openssl, git.
+# Needs aws (with write access), docker, jq, openssl, git.
 #
 # Environment
 #   RINGS_TEST_PROVER_TAG     tag in zolana-prover, default prover-<branch>-<sha12>
@@ -256,8 +256,7 @@ up() {
         tag="$prover_tag"; repository=zolana-prover
         [[ "$service" == prover ]] || { tag="$ring_rpc_tag"; repository=zolana-ring-rpc; }
         if ! aws_ ecr describe-images --repository-name "$repository" --image-ids "imageTag=$tag" >/dev/null 2>&1; then
-            log "no $repository:$tag, publish it first with Actions > publish-image > Run workflow on branch $branch, service=$service, channel=preview, image_tag=$tag"
-            exit 1
+            tools/publish-image.sh "$service" --repository "$repository" --tag "$tag" --push >&2
         fi
     done
 
