@@ -3,17 +3,22 @@
 # Every resource is named zolana-rings-test-* and tagged zolana-rings-test=1,
 # nothing it creates is shared with another deployment.
 #
-#   tools/rings-test-deploy.sh up              build, publish, create, start
+#   tools/rings-test-deploy.sh up              create and start from published images
 #   tools/rings-test-deploy.sh status          addresses and health
 #   tools/rings-test-deploy.sh down            delete everything it created
 #
-# The ring RPC runs in derived mode, one root secret serves every ring that
-# takes its auditor key from it at `init`. Both services sit behind one network
-# load balancer, its DNS name is stable across task replacements.
+# Images come from the publish-image workflow (Actions, preview channel) in the
+# zolana-prover and zolana-ring-rpc repositories, this script names their tags.
+# The prover task fetches the proving keys at start and converts the audit key
+# itself. The ring RPC runs in derived mode, one root secret serves every ring
+# that takes its auditor key from it at `init`. Both services sit behind one
+# network load balancer, its DNS name is stable across task replacements.
 #
-# Needs aws (with write access), docker, jq, just, go, cargo.
+# Needs aws (with write access), jq, openssl, git.
 #
 # Environment
+#   RINGS_TEST_PROVER_TAG     tag in zolana-prover, default prover-<branch>-<sha12>
+#   RINGS_TEST_RING_RPC_TAG   tag in zolana-ring-rpc, default ring-rpc-<branch>-<sha12>
 #   RINGS_TEST_INDEXER_URL    photon the ring RPC reads, required
 #   RINGS_TEST_SOLANA_RPC_URL default https://api.devnet.solana.com
 #   AWS_REGION            default eu-north-1
@@ -23,7 +28,7 @@
 set -euo pipefail
 
 usage() {
-    sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//' >&2
+    sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//' >&2
     exit 2
 }
 
@@ -39,16 +44,19 @@ tag_spec="Key=$prefix,Value=1"
 account="$(aws sts get-caller-identity --query Account --output text)"
 registry="$account.dkr.ecr.$region.amazonaws.com"
 sha="$(git rev-parse HEAD)"
+branch="$(git rev-parse --abbrev-ref HEAD | tr -c 'A-Za-z0-9._\n' '-')"
 cluster="$prefix"
 role="$prefix-exec"
 log_group="/$prefix"
-bucket="$prefix-keys-$account"
 secret="$prefix/root-secret"
 security_group="$prefix-sg"
 load_balancer="$prefix"
 prover_port=3001
 ring_rpc_port=8785
 redis_image="public.ecr.aws/docker/library/redis:7.4.4-alpine3.21"
+fetch_image="public.ecr.aws/docker/library/alpine:3.21"
+keys_release="https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v1"
+published_keys="https://d3gbdb0egjwcw9.cloudfront.net/proving-keys/a5ff0c508cac3f51"
 
 aws_() { aws --region "$region" "$@"; }
 
@@ -104,28 +112,21 @@ ensure_role() {
     aws_ iam get-role --role-name "$role" --query Role.Arn --output text
 }
 
-ensure_keys_bucket() {
-    local lock_prefix
-    lock_prefix="$(jq -r .prefix prover/server/prover/provingkeys/proving-keys.lock)"
-    if ! aws_ s3api head-bucket --bucket "$bucket" >/dev/null 2>&1; then
-        aws_ s3api create-bucket --bucket "$bucket" --create-bucket-configuration "LocationConstraint=$region" >/dev/null
-        aws_ s3api put-bucket-tagging --bucket "$bucket" --tagging "TagSet=[{$tag_spec}]"
-        aws_ s3api put-public-access-block --bucket "$bucket" \
-            --public-access-block-configuration BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false
-        # Proving keys are public setup parameters, the prover pins their sha256 from its embedded lockfile.
-        aws_ s3api put-bucket-policy --bucket "$bucket" --policy "{
-            \"Version\": \"2012-10-17\",
-            \"Statement\": [{\"Effect\": \"Allow\", \"Principal\": \"*\", \"Action\": \"s3:GetObject\",
-                            \"Resource\": \"arn:aws:s3:::$bucket/proving-keys/*\"}]
-        }"
-    fi
-    just ensure-custom-ring-live-keys >&2
-    local name
-    for name in $(jq -r '.keys | keys[]' prover/server/prover/provingkeys/proving-keys.lock); do
-        [[ -f "prover/server/proving-keys/$name" ]] || continue
-        aws_ s3 cp --only-show-errors "prover/server/proving-keys/$name" "s3://$bucket/$lock_prefix/$name"
+# Runs in the fetch container, the audit key is converted by the prover image afterwards.
+key_fetch_script() {
+    local lock="prover/server/prover/provingkeys/proving-keys.lock" checksum="custom-rings/custom-ring-keys.CHECKSUM"
+    local name sha
+    printf 'set -eu\ncd /keys\n'
+    # shellcheck disable=SC2016
+    printf 'fetch() { [ -f "$2" ] && echo "$3  $2" | sha256sum -c -s && return; wget -q -O "$2.part" "$1" && echo "$3  $2.part" | sha256sum -c -s && mv "$2.part" "$2"; }\n'
+    for name in auditor_key_encryption_pk.bin auditor_key_encryption_vk.bin; do
+        sha="$(awk -v n="$name" '$2 == n { print $1 }' "$checksum")"
+        printf 'fetch %s/%s %s %s\n' "$keys_release" "$name" "$name" "$sha"
     done
-    echo "https://$bucket.s3.$region.amazonaws.com"
+    for name in transfer_ring_1_2.key transfer_ring_2_2.key; do
+        sha="$(jq -r --arg n "$name" '.keys[$n].sha256' "$lock")"
+        printf 'fetch %s/%s %s %s\n' "$published_keys" "$name" "$name" "$sha"
+    done
 }
 
 ensure_load_balancer() {
@@ -162,30 +163,36 @@ target_group_arn() {
 # would change every derived auditor key.
 ensure_secret() {
     if ! aws_ secretsmanager describe-secret --secret-id "$secret" >/dev/null 2>&1; then
-        local dir
-        dir="$(mktemp -d)"
-        cargo run -q -p zolana-ring-rpc -- keygen --kind root --out "$dir/root.key" >&2
-        aws_ secretsmanager create-secret --name "$secret" --secret-string "$(cat "$dir/root.key")" --tags "$tag_spec" >/dev/null
-        rm -rf "$dir"
+        aws_ secretsmanager create-secret --name "$secret" --secret-string "$(openssl rand -hex 32)" --tags "$tag_spec" >/dev/null
     fi
     aws_ secretsmanager describe-secret --secret-id "$secret" --query ARN --output text
 }
 
 register_prover() {
-    local image="$1" keys_url="$2" role_arn="$3"
+    local image="$1" role_arn="$2"
     aws_ ecs register-task-definition --family "$prefix-prover" --tags "$tag_spec" \
         --requires-compatibilities FARGATE --network-mode awsvpc --cpu 4096 --memory 16384 \
         --execution-role-arn "$role_arn" --runtime-platform cpuArchitecture=X86_64,operatingSystemFamily=LINUX \
-        --container-definitions "$(jq -n --arg image "$image" --arg redis "$redis_image" --arg keys "$keys_url" \
-            --arg group "$log_group" --arg region "$region" --argjson port "$prover_port" '[
-            {name: "redis", image: $redis, essential: true,
-             logConfiguration: {logDriver: "awslogs", options: {"awslogs-group": $group, "awslogs-region": $region, "awslogs-stream-prefix": "redis"}}},
-            {name: "prover", image: $image, essential: true, dependsOn: [{containerName: "redis", condition: "START"}],
-             command: ["start", "--keys-dir", "/proving-keys/", "--prover-address", ("0.0.0.0:" + ($port|tostring)),
+        --volumes '[{"name": "keys"}]' \
+        --container-definitions "$(jq -n --arg image "$image" --arg redis "$redis_image" --arg fetch "$fetch_image" \
+            --arg script "$(key_fetch_script)" --arg group "$log_group" --arg region "$region" --argjson port "$prover_port" '
+            def logs(p): {logDriver: "awslogs", options: {"awslogs-group": $group, "awslogs-region": $region, "awslogs-stream-prefix": p}};
+            def keys: [{sourceVolume: "keys", containerPath: "/keys"}];
+            [
+            {name: "redis", image: $redis, essential: true, logConfiguration: logs("redis")},
+            {name: "fetch", image: $fetch, essential: false, user: "0", mountPoints: keys,
+             command: ["sh", "-c", ($script + "\nchown -R 65532:65532 /keys")], logConfiguration: logs("fetch")},
+            {name: "convert", image: $image, essential: false, mountPoints: keys,
+             dependsOn: [{containerName: "fetch", condition: "SUCCESS"}],
+             command: ["convert-auditor-key-encryption", "--pk", "/keys/auditor_key_encryption_pk.bin",
+                       "--vk", "/keys/auditor_key_encryption_vk.bin", "--output", "/keys/custom_ring_audit_transfer.key"],
+             logConfiguration: logs("convert")},
+            {name: "prover", image: $image, essential: true, mountPoints: keys,
+             dependsOn: [{containerName: "redis", condition: "START"}, {containerName: "convert", condition: "SUCCESS"}],
+             command: ["start", "--keys-dir", "/keys/", "--prover-address", ("0.0.0.0:" + ($port|tostring)),
                        "--auto-download=true", "--redis-url", "redis://127.0.0.1:6379/0"],
-             environment: [{name: "ZOLANA_PROVING_KEYS_URL", value: $keys}],
              portMappings: [{containerPort: $port, protocol: "tcp"}],
-             logConfiguration: {logDriver: "awslogs", options: {"awslogs-group": $group, "awslogs-region": $region, "awslogs-stream-prefix": "prover"}}}
+             logConfiguration: logs("prover")}
         ]')" --query 'taskDefinition.taskDefinitionArn' --output text
 }
 
@@ -239,20 +246,20 @@ up() {
     [[ $# -eq 0 ]] || usage
     local indexer="${RINGS_TEST_INDEXER_URL:?set RINGS_TEST_INDEXER_URL to the photon the ring RPC reads}"
     local rpc="${RINGS_TEST_SOLANA_RPC_URL:-https://api.devnet.solana.com}"
-    [[ -z "$(git status --porcelain --untracked-files=no)" ]] || { log "working tree is dirty"; exit 1; }
+    local prover_tag="${RINGS_TEST_PROVER_TAG:-prover-$branch-${sha:0:12}}"
+    local ring_rpc_tag="${RINGS_TEST_RING_RPC_TAG:-ring-rpc-$branch-${sha:0:12}}"
 
     log "== images"
-    ensure_repository "$prefix-prover"
-    ensure_repository "$prefix-ring-rpc"
-    local image_tag="${sha:0:12}"
-    tools/publish-image.sh prover --repository "$prefix-prover" --tag "prover-$image_tag" --push >&2 \
-        || [[ "$(aws_ ecr describe-images --repository-name "$prefix-prover" --image-ids "imageTag=prover-$image_tag" --query 'length(imageDetails)' --output text)" == 1 ]]
-    tools/publish-image.sh ring-rpc --repository "$prefix-ring-rpc" --tag "ring-rpc-$image_tag" --push >&2 \
-        || [[ "$(aws_ ecr describe-images --repository-name "$prefix-ring-rpc" --image-ids "imageTag=ring-rpc-$image_tag" --query 'length(imageDetails)' --output text)" == 1 ]]
-
-    log "== proving keys"
-    local keys_url
-    keys_url="$(ensure_keys_bucket)"
+    ensure_repository zolana-ring-rpc
+    local service tag repository
+    for service in prover ring-rpc; do
+        tag="$prover_tag"; repository=zolana-prover
+        [[ "$service" == prover ]] || { tag="$ring_rpc_tag"; repository=zolana-ring-rpc; }
+        if ! aws_ ecr describe-images --repository-name "$repository" --image-ids "imageTag=$tag" >/dev/null 2>&1; then
+            log "no $repository:$tag, publish it first with Actions > publish-image > Run workflow on branch $branch, service=$service, channel=preview, image_tag=$tag"
+            exit 1
+        fi
+    done
 
     log "== network, load balancer, role, logs, cluster, secret"
     read -r vpc subnets <<< "$(vpc_and_subnets)"
@@ -268,8 +275,8 @@ up() {
 
     log "== services"
     local prover_td ring_rpc_td
-    prover_td="$(register_prover "$registry/$prefix-prover:prover-$image_tag" "$keys_url" "$role_arn")"
-    ring_rpc_td="$(register_ring_rpc "$registry/$prefix-ring-rpc:ring-rpc-$image_tag" "$role_arn" "$secret_arn" "$indexer" "$rpc")"
+    prover_td="$(register_prover "$registry/zolana-prover:$prover_tag" "$role_arn")"
+    ring_rpc_td="$(register_ring_rpc "$registry/zolana-ring-rpc:$ring_rpc_tag" "$role_arn" "$secret_arn" "$indexer" "$rpc")"
     ensure_service "$prefix-prover" "$prover_td" "$subnets" "$sg" prover "$prover_port"
     ensure_service "$prefix-ring-rpc" "$ring_rpc_td" "$subnets" "$sg" ring-rpc "$ring_rpc_port"
     log "waiting for the services to stabilize"
@@ -315,13 +322,6 @@ down() {
     [[ "$sg" == None || -z "$sg" ]] || { sleep 20; aws_ ec2 delete-security-group --group-id "$sg"; }
     aws_ logs delete-log-group --log-group-name "$log_group" 2>/dev/null || true
     aws_ secretsmanager delete-secret --secret-id "$secret" --force-delete-without-recovery >/dev/null 2>&1 || true
-    for name in "$prefix-prover" "$prefix-ring-rpc"; do
-        aws_ ecr delete-repository --repository-name "$name" --force >/dev/null 2>&1 || true
-    done
-    if aws_ s3api head-bucket --bucket "$bucket" >/dev/null 2>&1; then
-        aws_ s3 rm --only-show-errors --recursive "s3://$bucket"
-        aws_ s3api delete-bucket --bucket "$bucket"
-    fi
     if aws_ iam get-role --role-name "$role" >/dev/null 2>&1; then
         aws_ iam detach-role-policy --role-name "$role" --policy-arn arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
         aws_ iam delete-role-policy --role-name "$role" --policy-name secrets
