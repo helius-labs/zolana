@@ -208,13 +208,13 @@ register_ring_rpc() {
              entryPoint: ["/bin/sh", "-c"],
              command: ["umask 077 && printf %s \"$ROOT_SECRET\" > /var/lib/ring-rpc/root.key && exec ring-rpc serve"],
              secrets: [{name: "ROOT_SECRET", valueFrom: $secret}],
-             environment: [
+             environment: ([
                {name: "RING_RPC_BIND", value: "0.0.0.0"}, {name: "RING_RPC_INSECURE_PUBLIC_BIND", value: "true"},
                {name: "RING_RPC_PORT", value: ($port|tostring)},
                {name: "RING_RPC_INDEXER_URL", value: $indexer}, {name: "RING_RPC_SOLANA_RPC_URL", value: $rpc},
                {name: "RING_RPC_ROOT_SECRET_FILE", value: "/var/lib/ring-rpc/root.key"},
                {name: "RING_RPC_ALLOW_ORIGINS", value: $origins}]
-               + (if $rp == "" then [] else [{name: "RING_RPC_WEBAUTHN_RP_ID", value: $rp}] end),
+               + (if $rp == "" then [] else [{name: "RING_RPC_WEBAUTHN_RP_ID", value: $rp}] end)),
              portMappings: [{containerPort: $port, protocol: "tcp"}],
              logConfiguration: {logDriver: "awslogs", options: {"awslogs-group": $group, "awslogs-region": $region, "awslogs-stream-prefix": "ring-rpc"}}}
         ]')" --query 'taskDefinition.taskDefinitionArn' --output text
