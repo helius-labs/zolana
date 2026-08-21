@@ -7,20 +7,14 @@
 //! address that no instruction has to create, and `AssetRegistry::default()`
 //! already carries SOL as asset id 1.
 
-use std::time::Duration;
-
 use anyhow::{anyhow, Result};
+use custom_ring_sdk::{V0WithLookupTable, TRANSACT_COMPUTE_UNIT_LIMIT};
 use solana_address::Address;
-use solana_address_lookup_table_interface::instruction::{
-    create_lookup_table, extend_lookup_table,
-};
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
-use solana_message::{v0, AddressLookupTableAccount, Message, VersionedMessage};
 use solana_signature::Signature;
 use solana_signer::Signer;
-use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use zolana_client::{
     prover::SERVER_ADDRESS, AsyncProverClient, AsyncZolanaIndexer, ClientError, ProverClient, Rpc,
     SolanaRpc, ZolanaClient, ZolanaIndexer,
@@ -52,80 +46,6 @@ pub const PROTOCOL_VAULT_AIRDROP: u64 = 5_000_000_000;
 /// Each actor signs its own ring deposits and transacts, and the deposits move
 /// real lamports out of this balance.
 pub const ACTOR_AIRDROP: u64 = 10_000_000_000;
-pub const TRANSACT_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
-
-#[must_use]
-pub struct V0WithLookupTable<'a> {
-    pub payer: &'a dyn Signer,
-    pub signers: &'a [&'a dyn Signer],
-    pub instruction: Instruction,
-}
-
-impl V0WithLookupTable<'_> {
-    pub fn send(self, rpc: &SolanaRpc) -> Result<Signature> {
-        let tx = self.build(rpc)?;
-        rpc.client()
-            .send_and_confirm_transaction(&tx)
-            .map_err(|error| anyhow!("send v0 failed {error}"))
-    }
-
-    pub fn build(self, rpc: &SolanaRpc) -> Result<VersionedTransaction> {
-        let Self {
-            payer,
-            signers,
-            instruction,
-        } = self;
-        let compute = ComputeBudgetInstruction::set_compute_unit_limit(TRANSACT_COMPUTE_UNIT_LIMIT);
-        let addresses = lookup_table_addresses(&instruction, compute.program_id);
-        let client = rpc.client();
-        let recent_slot = client
-            .get_slot()
-            .map_err(|error| anyhow!("get slot failed {error}"))?;
-        wait_past_slot(rpc, recent_slot)?;
-        let (create, table_address) =
-            create_lookup_table(payer.pubkey(), payer.pubkey(), recent_slot);
-        let extend = extend_lookup_table(
-            table_address,
-            payer.pubkey(),
-            Some(payer.pubkey()),
-            addresses.clone(),
-        );
-        let blockhash = client
-            .get_latest_blockhash()
-            .map_err(|error| anyhow!("blockhash request failed {error}"))?;
-        let setup = Transaction::new(
-            &[payer],
-            Message::new(&[create, extend], Some(&payer.pubkey())),
-            blockhash,
-        );
-        client
-            .send_and_confirm_transaction(&setup)
-            .map_err(|error| anyhow!("lookup table setup failed {error}"))?;
-        let extended_slot = client
-            .get_slot()
-            .map_err(|error| anyhow!("get slot failed {error}"))?;
-        wait_past_slot(rpc, extended_slot)?;
-        let table = AddressLookupTableAccount {
-            key: table_address,
-            addresses,
-        };
-        let blockhash = client
-            .get_latest_blockhash()
-            .map_err(|error| anyhow!("blockhash request failed {error}"))?;
-        let message = v0::Message::try_compile(
-            &payer.pubkey(),
-            &[compute, instruction],
-            std::slice::from_ref(&table),
-            blockhash,
-        )
-        .map_err(|error| anyhow!("v0 compile failed {error}"))?;
-        let mut all_signers: Vec<&dyn Signer> = vec![payer];
-        all_signers.extend(signers.iter().copied());
-        VersionedTransaction::try_new(VersionedMessage::V0(message), &all_signers)
-            .map_err(|error| anyhow!("v0 signing failed {error}"))
-    }
-}
-
 /// A live localnet with the protocol bootstrapped and two funded actors. The
 /// custom-ring program's own config account is NOT created here: that is the
 /// first step of the lifecycle under test.
@@ -404,46 +324,5 @@ pub fn send_v0_expecting_rejection(
             operation: "send v0",
             source,
         }),
-    }
-}
-
-fn lookup_table_addresses(instruction: &Instruction, compute_program: Address) -> Vec<Address> {
-    let mut addresses = Vec::new();
-    for address in instruction
-        // Build the v0 transaction: create + extend a throwaway ALT (waiting a slot for
-        // each to root), then compile and sign. The ring transact instruction forwards
-        // SPP's full `RING_TRANSACT` account list, which does not fit a legacy
-        // transaction's 1232-byte packet.
-        // Every key the transaction needs except the fee payer, which has to stay a
-        // static signer. The compute budget program is included too: a key left out
-        // of the table costs 32 message bytes instead of a 1-byte table index, and
-        // the audited ring transact has no such bytes to spare. Duplicates are
-        // dropped so one key never claims two table slots.
-        .accounts
-        .iter()
-        .filter(|meta| !meta.is_signer)
-        .map(|meta| meta.pubkey)
-        .chain([instruction.program_id, compute_program])
-    {
-        if !addresses.contains(&address) {
-            addresses.push(address);
-        }
-    }
-    addresses
-}
-
-/// An address lookup table is only usable from the slot after the one it was
-/// created (and extended) in, so both writes have to root before the v0
-/// transaction that resolves against them.
-fn wait_past_slot(rpc: &SolanaRpc, slot: u64) -> Result<()> {
-    loop {
-        let tip = rpc
-            .client()
-            .get_slot()
-            .map_err(|error| anyhow!("get slot failed {error}"))?;
-        if tip > slot {
-            return Ok(());
-        }
-        std::thread::sleep(Duration::from_millis(100));
     }
 }

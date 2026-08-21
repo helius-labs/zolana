@@ -13,7 +13,7 @@ use rand::RngCore;
 use solana_address::Address;
 use thiserror::Error;
 use zeroize::Zeroizing;
-use zolana_keypair::{KeypairError, ViewingKey};
+use zolana_keypair::{KeypairError, P256Pubkey, ViewingKey};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -293,6 +293,37 @@ pub fn write_root_secret(out: &Path) -> Result<(), KeyFileError> {
     .persist()
 }
 
+pub fn write_auditor_pubkey(path: &Path, pubkey: &P256Pubkey) -> Result<(), KeyFileError> {
+    create_parent(path)?;
+    let mut file = NewFile {
+        path,
+        visibility: FileVisibility::Public,
+    }
+    .open()?;
+    FileWrite {
+        file: &mut file,
+        path,
+        bytes: hex::encode(pubkey.as_bytes()).as_bytes(),
+    }
+    .persist()
+}
+
+pub fn read_auditor_pubkey(path: &Path) -> Result<P256Pubkey, KeyFileError> {
+    let text = std::fs::read_to_string(path).map_err(|source| KeyFileError::Read {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let text = text.trim();
+    if text.len() != PUBKEY_HEX_LEN {
+        return Err(KeyFileError::PubkeyEncoding);
+    }
+    let bytes: [u8; 33] = hex::decode(text)
+        .map_err(|_| KeyFileError::PubkeyEncoding)?
+        .try_into()
+        .map_err(|_| KeyFileError::PubkeyEncoding)?;
+    Ok(P256Pubkey::from_bytes(bytes)?)
+}
+
 pub fn public_key_path(secret: &Path) -> Result<PathBuf, KeyFileError> {
     let mut name = secret
         .file_name()
@@ -303,6 +334,7 @@ pub fn public_key_path(secret: &Path) -> Result<PathBuf, KeyFileError> {
 }
 
 const MAX_KEY_TEXT_LEN: u64 = 64;
+const PUBKEY_HEX_LEN: usize = 66;
 
 struct FileCheck<'a> {
     file: &'a File,
@@ -511,14 +543,38 @@ mod tests {
             .pubkey(),
             key.pubkey()
         );
+        let public_path = public_key_path(&secret).expect("public path");
         assert_eq!(
-            std::fs::read_to_string(public_key_path(&secret).expect("public path"))
-                .expect("pub file"),
+            std::fs::read_to_string(&public_path).expect("pub file"),
             hex::encode(key.pubkey().as_bytes())
+        );
+        assert_eq!(
+            read_auditor_pubkey(&public_path).expect("pubkey"),
+            key.pubkey()
         );
         assert!(matches!(
             write_auditor_key(&secret),
             Err(KeyFileError::Write { .. })
+        ));
+        std::fs::remove_dir_all(dir).expect("cleanup");
+    }
+
+    #[test]
+    fn public_key_files_round_trip_and_reject_other_lengths() {
+        let dir = temp_dir("pubkey");
+        let path = dir.join("nested").join("auditor.key.pub");
+        let key = ViewingKey::new();
+        write_auditor_pubkey(&path, &key.pubkey()).expect("write");
+        assert_eq!(read_auditor_pubkey(&path).expect("read"), key.pubkey());
+        assert!(matches!(
+            write_auditor_pubkey(&path, &key.pubkey()),
+            Err(KeyFileError::Write { .. })
+        ));
+        let short = dir.join("short.pub");
+        std::fs::write(&short, "02ab").expect("short");
+        assert!(matches!(
+            read_auditor_pubkey(&short),
+            Err(KeyFileError::PubkeyEncoding)
         ));
         std::fs::remove_dir_all(dir).expect("cleanup");
     }

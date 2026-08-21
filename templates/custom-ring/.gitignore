@@ -2,3 +2,4 @@
 /.env
 /keys/
 /target/
+/.localnet/

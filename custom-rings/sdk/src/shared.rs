@@ -6,7 +6,9 @@ use thiserror::Error;
 use zolana_client::{ClientError, Rpc};
 use zolana_interface::{
     custom_ring::{ReaderRecord, RingProgramConfig, READER_RECORD, RING_PROGRAM_CONFIG},
-    is_reserved_p256_derivation_point, BPF_LOADER_UPGRADEABLE_ID, RING_AUTH_PDA_SEED,
+    is_reserved_p256_derivation_point, pda,
+    state::RingConfig,
+    BPF_LOADER_UPGRADEABLE_ID, RING_AUTH_PDA_SEED,
 };
 use zolana_keypair::P256Pubkey;
 pub use zolana_ring_client::{ReaderKey, ReaderKeyError};
@@ -113,6 +115,33 @@ impl CustomRing {
             return Err(AccountReadError::InvalidAccount { address });
         }
         Ok(Some(record))
+    }
+
+    /// Owned by SPP, not by the ring program.
+    pub fn read_spp_ring_config<R: Rpc>(
+        self,
+        rpc: &R,
+    ) -> Result<Option<RingConfig>, AccountReadError> {
+        let address = self.ring_auth_pda();
+        let Some(account) = rpc.get_account(address)? else {
+            return Ok(None);
+        };
+        let invalid = || AccountReadError::InvalidAccount { address };
+        if account.owner.to_bytes() != pda::shielded_pool_program_id().to_bytes()
+            || account.data.len() != RingConfig::SIZE
+        {
+            return Err(invalid());
+        }
+        let config =
+            bytemuck::try_from_bytes::<RingConfig>(&account.data).map_err(|_| invalid())?;
+        let bump = Address::find_program_address(&[RING_AUTH_PDA_SEED], &self.program_id).1;
+        if !config.has_discriminator()
+            || config.program_id != self.program_id
+            || config.bump != bump
+        {
+            return Err(invalid());
+        }
+        Ok(Some(*config))
     }
 }
 

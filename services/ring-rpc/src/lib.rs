@@ -20,8 +20,9 @@ pub use audit::{
 };
 pub use authorize::{Claim, ReadCheck, Unauthorized};
 pub use config::{
-    public_key_path, write_auditor_key, write_root_secret, Cli, Command, FileMode, KeyAccess,
-    KeyFile, KeyFileError, KeyKind, KeygenArgs, RootSecret, RootSecretError, ServeArgs,
+    public_key_path, read_auditor_pubkey, write_auditor_key, write_auditor_pubkey,
+    write_root_secret, Cli, Command, FileMode, KeyAccess, KeyFile, KeyFileError, KeyKind,
+    KeygenArgs, RootSecret, RootSecretError, ServeArgs,
 };
 pub use origins::{OriginError, OriginPolicy, Origins};
 pub use server::{rpc_module, run_server, ServerError, ServerOptions};

@@ -24,11 +24,9 @@ use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
     auditor_view_tag, AuditedTransfer, AuditedTransferInput, CreateConfig, CustomRing,
     InitSppRingConfig, RingDeposit, RingDepositReceipt, RingTransactWithAudit,
-    TransferProofEnvironment,
+    TransferProofEnvironment, V0WithLookupTable,
 };
-use shared::{
-    custom_ring_program_id, prover_url, send, send_v0_expecting_rejection, setup, V0WithLookupTable,
-};
+use shared::{custom_ring_program_id, prover_url, send, send_v0_expecting_rejection, setup};
 use solana_address::Address;
 use solana_packet::PACKET_DATA_SIZE;
 use solana_signer::Signer;
