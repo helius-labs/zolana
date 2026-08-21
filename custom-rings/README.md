@@ -57,8 +57,10 @@ an upgrade authority only that key may create the config, so renounce after
 repository. A ring runs its own RPC from a key file, or takes a key from a
 hosted RPC that derives one key per ring from a root secret and signs the key
 it hands out. The ring pins that service key in `ring.toml` so a wrong auditor
-cannot be slipped in at `init`. Every transfer output stays in the ring, the
-SDK binds change and recipient notes to the ring id, so each hop is audited.
+cannot be slipped in at `init`. The SDK binds change and recipient notes to
+the ring id, so a plain transfer keeps value in the ring. Exits stay possible,
+an owner may withdraw or send to a default pool note, and every such transact
+still carries the audit proof, so the auditor sees the exit.
 
 ## The pipeline and what each step locks in
 
