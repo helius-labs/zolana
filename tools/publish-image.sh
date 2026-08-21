@@ -11,6 +11,7 @@
 #                        live service, so it runs only with
 #                        ZOLANA_DEPLOY_CONFIRM=CLUSTER/SVC set to the same value
 #   --container NAME     container name inside the task definition, default <service>
+#   --repository NAME    ECR repository, default zolana-<service>
 #
 # Environment
 #   ZOLANA_ECR_REGISTRY  default 558215002830.dkr.ecr.eu-north-1.amazonaws.com
@@ -34,12 +35,14 @@ tag=""
 push=0
 deploy=""
 container=""
+repository_override=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --tag) tag="$2"; shift 2 ;;
         --push) push=1; shift ;;
         --deploy) deploy="$2"; push=1; shift 2 ;;
         --container) container="$2"; shift 2 ;;
+        --repository) repository_override="$2"; shift 2 ;;
         *) usage ;;
     esac
 done
@@ -59,6 +62,7 @@ case "$service" in
     *) echo "unknown service $service" >&2; exit 2 ;;
 esac
 [[ -f "$file" ]] || { echo "$file is missing on this commit" >&2; exit 1; }
+repository="${repository_override:-$repository}"
 container="${container:-$service}"
 
 if [[ -z "$tag" ]]; then
