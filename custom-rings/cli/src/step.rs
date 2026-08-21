@@ -1,3 +1,4 @@
+use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::{error::InstructionError, Instruction};
 use solana_signer::Signer;
 use solana_transaction_error::TransactionError;
@@ -41,6 +42,7 @@ pub struct IdempotentStep<'a> {
     pub rpc: &'a SolanaRpc,
     pub authority: &'a dyn Signer,
     pub name: &'static str,
+    pub compute_unit_limit: u32,
     pub hint: fn(u32) -> Option<&'static str>,
 }
 
@@ -94,8 +96,12 @@ impl IdempotentStep<'_> {
     }
 
     fn send(&self, instruction: Instruction) -> Result<(), StepError> {
+        let instructions = [
+            ComputeBudgetInstruction::set_compute_unit_limit(self.compute_unit_limit),
+            instruction,
+        ];
         self.rpc
-            .create_and_send_transaction(&[instruction], self.authority.pubkey(), &[self.authority])
+            .create_and_send_transaction(&instructions, self.authority.pubkey(), &[self.authority])
             .map_err(
                 |source| match custom_error_code(&source).and_then(self.hint) {
                     Some(hint) => StepError::Hinted {

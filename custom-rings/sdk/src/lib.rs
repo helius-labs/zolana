@@ -10,7 +10,8 @@ mod v0;
 
 pub use zolana_interface::custom_ring::{
     tag, AuditProof, CreateConfigIxData, CustomRingTransactIxData, ReaderIxData, CONFIG_PDA_SEED,
-    READER_RECORD_PDA_SEED,
+    CREATE_CONFIG_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
+    READER_COMPUTE_UNIT_LIMIT, READER_RECORD_PDA_SEED,
 };
 
 pub use zolana_ring_client::{

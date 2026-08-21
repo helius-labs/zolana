@@ -20,6 +20,12 @@ pub mod tag {
     pub const REVOKE_READER: u8 = 5;
 }
 
+/// Covers the on-chain SEC1 decompression of the auditor key.
+pub const CREATE_CONFIG_COMPUTE_UNIT_LIMIT: u32 = 450_000;
+/// Covers the on-chain SEC1 decompression of a P256 reader key.
+pub const READER_COMPUTE_UNIT_LIMIT: u32 = 450_000;
+pub const INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT: u32 = 50_000;
+
 pub const CONFIG_PDA_SEED: &[u8] = b"config";
 pub const READER_RECORD_PDA_SEED: &[u8] = b"reader";
 pub const READER_KEY_P256: u8 = 0x00;

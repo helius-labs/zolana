@@ -1966,6 +1966,7 @@ dependencies = [
  "serde",
  "serde_json",
  "solana-address 2.6.1",
+ "solana-compute-budget-interface",
  "solana-instruction",
  "solana-keypair",
  "solana-loader-v3-interface 8.0.1",

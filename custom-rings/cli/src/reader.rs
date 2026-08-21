@@ -1,4 +1,6 @@
-use custom_ring_sdk::{AccountReadError, CustomRing, GrantReader, ReaderKey, RevokeReader};
+use custom_ring_sdk::{
+    AccountReadError, CustomRing, GrantReader, ReaderKey, RevokeReader, READER_COMPUTE_UNIT_LIMIT,
+};
 use solana_signer::Signer;
 use thiserror::Error;
 use zolana_client::SolanaRpc;
@@ -104,6 +106,7 @@ impl ReaderAccess<'_> {
             rpc,
             authority: self.authority,
             name,
+            compute_unit_limit: READER_COMPUTE_UNIT_LIMIT,
             hint: no_hint,
         }
     }
