@@ -99,6 +99,9 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
             other => other.label(),
         }
     );
+    if matches!(outcome.ring, StepOutcome::Created | StepOutcome::Present) {
+        crate::status::announce(&ctx.config);
+    }
     Ok(())
 }
 

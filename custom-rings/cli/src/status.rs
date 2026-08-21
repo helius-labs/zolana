@@ -1,13 +1,17 @@
+use std::fmt::Write;
+
 use custom_ring_sdk::{AccountReadError, CustomRing};
 use solana_signer::Signer;
 use thiserror::Error;
 use zolana_client::{ClientError, Rpc, SolanaRpc};
 
 use crate::{
-    config::RingConfig,
+    config::{RingConfig, Target},
     deploy::{read_program_data, DeployError},
     Context,
 };
+
+const EXPLORER: &str = "https://explorer.solana.com/address";
 
 #[derive(Debug, Error)]
 pub enum StatusError {
@@ -44,6 +48,38 @@ pub fn run(ctx: &Context) {
     if let Err(error) = print_chain(config, ctx.ring, &ctx.rpc) {
         println!("chain       unreachable at {} ({error})", config.urls().rpc);
     }
+}
+
+pub fn announce(config: &RingConfig) {
+    println!();
+    println!(
+        "🎉 ring {} is live on {}",
+        config.program_id,
+        config.target.as_str()
+    );
+    println!("🔗 {}", explorer_link(config));
+}
+
+fn explorer_link(config: &RingConfig) -> String {
+    let cluster = match config.target {
+        Target::Devnet => "cluster=devnet".to_owned(),
+        Target::Localnet => format!(
+            "cluster=custom&customUrl={}",
+            percent_encode(&config.urls().rpc)
+        ),
+    };
+    format!("{EXPLORER}/{}?{cluster}", config.program_id)
+}
+
+fn percent_encode(text: &str) -> String {
+    text.bytes().fold(String::new(), |mut out, byte| {
+        if byte.is_ascii_alphanumeric() || b"-_.~".contains(&byte) {
+            out.push(byte as char);
+        } else {
+            let _ = write!(out, "%{byte:02X}");
+        }
+        out
+    })
 }
 
 fn print_chain(config: &RingConfig, ring: CustomRing, rpc: &SolanaRpc) -> Result<(), StatusError> {
@@ -87,4 +123,42 @@ fn print_chain(config: &RingConfig, ring: CustomRing, rpc: &SolanaRpc) -> Result
         None => println!("spp ring    not registered ({})", ring.ring_auth_pda()),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TOML: &str = r#"
+name = "x"
+target = "devnet"
+program_id = "11111111111111111111111111111111"
+authority_keypair = "a.json"
+
+[localnet]
+rpc = "http://127.0.0.1:8899"
+indexer = "i"
+prover = "p"
+ring_rpc = "r"
+
+[devnet]
+rpc = "https://api.devnet.solana.com"
+indexer = "i"
+prover = "p"
+ring_rpc = "r"
+"#;
+
+    #[test]
+    fn explorer_link_names_the_cluster() {
+        let mut config: RingConfig = toml::from_str(TOML).expect("parse");
+        assert_eq!(
+            explorer_link(&config),
+            "https://explorer.solana.com/address/11111111111111111111111111111111?cluster=devnet"
+        );
+        config.target = Target::Localnet;
+        assert_eq!(
+            explorer_link(&config),
+            "https://explorer.solana.com/address/11111111111111111111111111111111?cluster=custom&customUrl=http%3A%2F%2F127.0.0.1%3A8899"
+        );
+    }
 }
