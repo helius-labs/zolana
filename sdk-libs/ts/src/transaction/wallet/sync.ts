@@ -7,7 +7,6 @@ import type { ShieldedKeypair, ViewingKeyLike } from "../../keypair/shielded.js"
 import { TransactionError } from "../error.js";
 import { copy, decodeAddress, equal } from "../internal.js";
 import type { IndexedShieldedTransaction, OutputContext } from "../instructions/transact.js";
-import { SENDER_SLOT_COUNT } from "../instructions/transact.js";
 import {
   EncryptedScheme,
   anonymousRecipientUtxo,
@@ -495,13 +494,7 @@ class SyncPass {
     );
   }
 
-  /**
-   * Reconstruct the outbound history of a confidential transfer the wallet
-   * authored. The unified scheme carries no sender-side recipient list, so the
-   * author re-derives the transaction viewing key and decrypts every output
-   * slot with it: change slots net the spent inputs down, recipient slots
-   * reveal the counterparties. Dummy slots fail the decrypt and are skipped.
-   */
+  /** The embedded viewing key and committed UTXO identify change. */
   recordConfidentialSend(tx: IndexedShieldedTransaction, index: number, key: ViewingKeyLike): void {
     const firstNullifier = tx.nullifiers[0];
     const salt = tx.salt;
@@ -518,15 +511,24 @@ class SyncPass {
     tx.outputSlots.forEach((slot, position) => {
       try {
         const frame = readOutputData(slot.payload);
-        if (frame.encoding !== "encrypted" || frame.scheme !== EncryptedScheme.confidential) return;
-        const plaintext = decryptConfidentialAsSender(txKey, frame.body, salt, position);
-        if (position < SENDER_SLOT_COUNT) {
-          change.push(confidentialUtxo(plaintext, this.#owner, this.#assets));
-        } else {
-          // Each recipient slot stays sealed to its recipient, so the key
-          // prefixed to the ciphertext is the one thing the sender reads out.
-          recipientKeys.push(P256PublicKey.fromBytes(frame.body.slice(0, 33) as Bytes33));
+        if (
+          frame.encoding !== "encrypted" ||
+          (frame.scheme !== EncryptedScheme.confidential &&
+            frame.scheme !== EncryptedScheme.ringConfidential)
+        ) {
+          return;
         }
+        const plaintext = decryptConfidentialAsSender(txKey, frame.body, salt, position);
+        const recipientKey = P256PublicKey.fromBytes(frame.body.slice(0, 33) as Bytes33);
+        const candidate = confidentialUtxo(plaintext, this.#owner, this.#assets);
+        if (
+          equal(recipientKey.toBytes(), this.#selfViewingPublicKey.toBytes()) &&
+          equal(candidate.hash(this.#nullifierPublicKey), slot.outputContext.hash)
+        ) {
+          change.push(candidate);
+          return;
+        }
+        recipientKeys.push(recipientKey);
       } catch {
         // A dummy slot fails the transaction-key decrypt; skip it.
       }
@@ -624,7 +626,11 @@ class SyncPass {
       return;
     }
 
-    if (frame.encoding === "encrypted" && frame.scheme === EncryptedScheme.confidential) {
+    if (
+      frame.encoding === "encrypted" &&
+      (frame.scheme === EncryptedScheme.confidential ||
+        frame.scheme === EncryptedScheme.ringConfidential)
+    ) {
       let utxo: Utxo;
       try {
         const { txViewingPublicKey, salt } = this.#envelope(tx);
