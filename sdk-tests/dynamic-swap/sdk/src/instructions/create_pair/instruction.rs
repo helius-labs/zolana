@@ -17,6 +17,10 @@ pub struct CreatePair {
     pub expiry_slots: u64,
     /// The worst-case owed per escrow; see `Pair::max_order_size`.
     pub max_order_size: u64,
+    /// Absolute public quote tolerance; see `Pair::price_tolerance`.
+    pub price_tolerance: u64,
+    /// Minimum private exact-input amount; see `Pair::min_order_amount`.
+    pub min_order_amount: u64,
     /// The source asset's UTXO commitment (`asset_field(source_mint)`); see
     /// `Pair::source_asset`.
     pub source_asset: [u8; 32],
@@ -36,6 +40,8 @@ impl CreatePair {
             destination_asset_id: self.destination_asset_id,
             expiry_slots: self.expiry_slots,
             max_order_size: self.max_order_size,
+            price_tolerance: self.price_tolerance,
+            min_order_amount: self.min_order_amount,
             source_asset: self.source_asset,
             destination_asset: self.destination_asset,
             maker_receipt_owner_hash: self.maker_receipt_owner_hash,

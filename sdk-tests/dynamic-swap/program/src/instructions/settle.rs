@@ -25,10 +25,8 @@ use crate::{
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct SettleIxData {
     /// `pool_settle` circuit proof (2-in: order UTXO, pool note / 3-out:
-    /// recipient payout, pool change, maker receipt). There is no refund
-    /// branch: an escrow can only exist at an acceptable price (create_escrow
-    /// checks max_price), so settle always settles; the alternative outcome is
-    /// `cancel` after expiry.
+    /// recipient result, pool change, maker receipt). The circuit privately
+    /// fills or refunds according to the order's committed minimum price.
     pub proof: Groth16ProofBytes,
     pub transact: TransactIxData,
 }
@@ -36,8 +34,9 @@ pub struct SettleIxData {
 /// `pool_settle`'s public-input hash: `Poseidon(PrivateTxHash, ExecutionPrice,
 /// OrderInHash, DestinationAsset, PoolAuthorityOwnerHash, MaxOrderSize,
 /// ReceiptOwnerHash)`. The recipient owner-hash is deliberately absent -- it is
-/// re-opened in-circuit from the order UTXO's DataHash (pinned by
-/// `OrderInHash`), which keeps the payout destination confidential.
+/// re-opened in-circuit together with the private minimum price from the order
+/// UTXO's composite DataHash (pinned by `OrderInHash`), which keeps both the
+/// payout destination and fill condition confidential.
 /// `ExecutionPrice` is the escrow's stored price (always nonzero);
 /// `PoolAuthorityOwnerHash` binds the pool input and change to program-locked
 /// liquidity; `MaxOrderSize` enters the change note's booked clamp;
@@ -108,7 +107,7 @@ pub fn process_settle_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     // `rent_recipient` must be the escrow's `owner` (the taker, who paid the
     // escrow account rent). The confidential payout destination is not stored
     // on-chain at all -- it is re-opened in-circuit from the order UTXO's
-    // DataHash.
+    // composite DataHash.
     if !address_eq(&escrow.owner, rent_recipient.address()) {
         return Err(DynamicSwapError::RentRecipientMismatch.into());
     }

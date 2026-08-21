@@ -12,10 +12,9 @@ use crate::{
 /// 2-out (order, taker_change), the exact supported IN1_OUT2 shape with no
 /// padding. Taker-only: the maker's liquidity is reserved program-side and
 /// enters at settle time, so there is no funding input and no maker change; the
-/// circuit caps `owed = order_amount * execution_price <= max_order_size` so
-/// the worst-case reservation always covers the order. `max_price` never
-/// enters the circuit -- the program checks it against the pair price and
-/// discards it.
+/// circuit proves the order amount and private minimum are within pair policy,
+/// and caps the payout at the public window's coverage price so the fixed
+/// reservation always covers the order. The live price is program-side only.
 #[derive(Debug, Clone)]
 pub struct EscrowOpenProofInputs {
     pub public_input_hash: [u8; 32],
@@ -26,12 +25,13 @@ pub struct EscrowOpenProofInputs {
     /// The pair's source-asset commitment (`SourceAsset`), bound to
     /// `SourceIn.Asset`.
     pub source_asset: [u8; 32],
-    /// The pair price at creation (`ExecutionPrice`), the value the program
-    /// stores as `Escrow.execution_price`.
-    pub execution_price: u64,
+    pub public_price_floor: u64,
+    pub price_tolerance: u64,
+    pub min_order_amount: u64,
     /// The pair's immutable `max_order_size` (`MaxOrderSize`), capping owed.
     pub max_order_size: u64,
     pub order_amount: u64,
+    pub min_price: u64,
     pub source_in: ProofInputUtxo,
     pub order_out: ProofInputUtxo,
     pub taker_change: ProofInputUtxo,
@@ -58,8 +58,16 @@ impl EscrowOpenProofInputs {
             vec![bytes_to_decimal_string(&self.source_asset)],
         );
         map.insert(
-            "Public_ExecutionPrice".to_string(),
-            vec![self.execution_price.to_string()],
+            "Public_PublicPriceFloor".to_string(),
+            vec![self.public_price_floor.to_string()],
+        );
+        map.insert(
+            "Public_PriceTolerance".to_string(),
+            vec![self.price_tolerance.to_string()],
+        );
+        map.insert(
+            "Public_MinOrderAmount".to_string(),
+            vec![self.min_order_amount.to_string()],
         );
         map.insert(
             "Public_MaxOrderSize".to_string(),
@@ -69,6 +77,7 @@ impl EscrowOpenProofInputs {
             "OrderAmount".to_string(),
             vec![self.order_amount.to_string()],
         );
+        map.insert("MinPrice".to_string(), vec![self.min_price.to_string()]);
         map.insert(
             "ExternalDataHash".to_string(),
             vec![bytes_to_decimal_string(&self.external_data_hash)],
@@ -100,9 +109,12 @@ mod tests {
             private_tx_hash: [2; 32],
             escrow_authority_owner_hash: [6; 32],
             source_asset: [7; 32],
-            execution_price: 90,
+            public_price_floor: 80,
+            price_tolerance: 10,
+            min_order_amount: 1,
             max_order_size: 100,
             order_amount: 50,
+            min_price: 85,
             source_in: ProofInputUtxo::default(),
             order_out: ProofInputUtxo::default(),
             taker_change: ProofInputUtxo::default(),
@@ -120,9 +132,12 @@ mod tests {
             "Public_PrivateTxHash".to_string(),
             "Public_EscrowAuthorityOwnerHash".to_string(),
             "Public_SourceAsset".to_string(),
-            "Public_ExecutionPrice".to_string(),
+            "Public_PublicPriceFloor".to_string(),
+            "Public_PriceTolerance".to_string(),
+            "Public_MinOrderAmount".to_string(),
             "Public_MaxOrderSize".to_string(),
             "OrderAmount".to_string(),
+            "MinPrice".to_string(),
             "ExternalDataHash".to_string(),
         ];
         for prefix in ["SourceIn", "OrderOut", "TakerChange"] {

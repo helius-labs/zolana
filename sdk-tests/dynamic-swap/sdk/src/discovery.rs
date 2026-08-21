@@ -23,9 +23,10 @@ use crate::{
 pub struct DiscoveredEscrow {
     pub order_amount: u64,
     pub order_blinding: Blinding,
-    /// The taker's owner-hash: the order UTXO's data hash, re-opened by the
-    /// settle proof as the payout destination.
+    /// The taker's owner-hash, reopened with `min_price` from the order UTXO's
+    /// composite data hash by the settle proof.
     pub recipient_owner_hash: [u8; 32],
+    pub min_price: u64,
 }
 
 /// Scans for the `create_escrow` transaction whose order slot committed the
@@ -54,11 +55,12 @@ pub fn discover_escrow_note<I: Rpc>(
             if let Some(plaintext) =
                 decode_order_slot(tx, &tag, order_utxo_hash, owner.viewing_key())?
             {
-                let recipient_owner_hash = decode_order_note(&plaintext.data)?;
+                let note = decode_order_note(&plaintext.data)?;
                 return Ok(DiscoveredEscrow {
                     order_amount: plaintext.amount,
                     order_blinding: plaintext.blinding,
-                    recipient_owner_hash,
+                    recipient_owner_hash: note.recipient_owner_hash,
+                    min_price: note.min_price,
                 });
             }
         }

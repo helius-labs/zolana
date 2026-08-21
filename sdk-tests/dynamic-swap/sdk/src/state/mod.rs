@@ -3,7 +3,7 @@ pub mod pool;
 
 pub use order::{
     decode_order_note, encode_order_note, escrow_authority_address, escrow_authority_identity,
-    escrow_nullifier_key, EscrowUtxo,
+    escrow_nullifier_key, order_data_hash, EscrowUtxo, OrderNote,
 };
 pub use pool::{
     decode_pool_note, encode_pool_note, pool_authority_address, pool_authority_identity,

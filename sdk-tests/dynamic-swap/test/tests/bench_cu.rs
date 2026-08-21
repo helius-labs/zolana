@@ -490,6 +490,8 @@ fn bench_create_pair(
         destination_asset_id: DESTINATION_ASSET_ID,
         expiry_slots: EXPIRY_SLOTS,
         max_order_size: MAX_ORDER_SIZE,
+        price_tolerance: 1,
+        min_order_amount: 1,
         source_asset: [0u8; 32],
         destination_asset: [0u8; 32],
         maker_receipt_owner_hash: [7u8; 32],
@@ -601,6 +603,7 @@ fn escrow_bench_world() -> EscrowBenchWorld {
         recipient_owner_hash,
         asset: source_asset,
         order_amount: ORDER_AMOUNT,
+        min_price: PRICE,
         blinding: random_blinding(),
     };
     let mut assets = AssetRegistry::default();
@@ -638,6 +641,8 @@ impl EscrowBenchWorld {
             price: PRICE,
             expiry_slots: EXPIRY_SLOTS,
             max_order_size: MAX_ORDER_SIZE,
+            price_tolerance: 1,
+            min_order_amount: 1,
             available_liquidity,
             open_reservations,
             source_asset: asset_field(&self.source_asset).expect("source asset field"),
@@ -684,7 +689,7 @@ impl EscrowBenchWorld {
             order_utxo_hash,
             owner: self.user_solana.pubkey(),
             created_at: CREATED_AT,
-            execution_price: PRICE,
+            execution_price: PRICE - 1,
         }
     }
 }
@@ -789,9 +794,12 @@ fn bench_create_escrow(
             .owner_hash()
             .expect("escrow authority owner hash"),
         source_asset: asset_field(&world.source_asset).expect("source asset field"),
-        execution_price: PRICE,
+        public_price_floor: PRICE - 1,
+        price_tolerance: 1,
+        min_order_amount: 1,
         max_order_size: MAX_ORDER_SIZE,
         order_amount: ORDER_AMOUNT,
+        min_price: PRICE,
         external_data_hash,
     }
     .to_proof_inputs()
@@ -813,7 +821,7 @@ fn bench_create_escrow(
             proof_b: order_proof.proof_b,
             proof_c: order_proof.proof_c,
         },
-        max_price: PRICE,
+        public_price_floor: PRICE - 1,
         transact,
     }
     .instruction()
@@ -861,7 +869,8 @@ fn bench_settle(
 
     let (order_in, order_in_hash) = world.order_in();
 
-    // The payout is funded from the committed pool.
+    // Benchmark the private refund branch: the escrow snapshotted a price one
+    // unit below its private minimum.
     let pool_address = world.pool_address();
     let pool_note = PoolUtxo {
         asset: world.destination_asset,
@@ -876,8 +885,8 @@ fn bench_settle(
         .shielded_address()
         .expect("authority shielded address");
     let mut recipient_out = SppProofOutputUtxo::new(
-        world.destination_asset,
-        OWED,
+        world.source_asset,
+        ORDER_AMOUNT,
         world.user_keypair.shielded_address().expect("user address"),
     )
     .expect("recipient_out");
@@ -888,7 +897,7 @@ fn bench_settle(
             .expect("recipient_out blinding");
     let pool_change_note = PoolUtxo {
         asset: world.destination_asset,
-        amount: FUNDING_AMOUNT - OWED,
+        amount: FUNDING_AMOUNT,
         booked: FUNDING_AMOUNT - MAX_ORDER_SIZE,
         blinding: random_blinding(),
     };
@@ -896,8 +905,7 @@ fn bench_settle(
         .output_utxo(&pool_address)
         .expect("pool_change");
     let maker_receipt =
-        SppProofOutputUtxo::new(world.source_asset, ORDER_AMOUNT, authority_address)
-            .expect("maker_receipt");
+        SppProofOutputUtxo::new(world.source_asset, 0, authority_address).expect("maker_receipt");
 
     // All three ciphertexts are kept (the pool change's is the maker's own
     // pool-scan handoff).
@@ -960,8 +968,10 @@ fn bench_settle(
         recipient_out,
         pool_change,
         maker_receipt,
-        execution_price: PRICE,
+        execution_price: PRICE - 1,
         order_amount: ORDER_AMOUNT,
+        recipient_owner_hash: world.user_keypair.owner_hash().expect("user owner hash"),
+        min_price: PRICE,
         order_utxo_hash: order_in_hash,
         destination_asset: asset_field(&world.destination_asset).expect("destination asset field"),
         pool_authority_owner_hash,
@@ -1104,6 +1114,8 @@ fn bench_cancel(
         order_in,
         refund_out,
         order_amount: ORDER_AMOUNT,
+        recipient_owner_hash: world.user_keypair.owner_hash().expect("user owner hash"),
+        min_price: PRICE,
         order_utxo_hash: order_in_hash,
         external_data_hash,
     }

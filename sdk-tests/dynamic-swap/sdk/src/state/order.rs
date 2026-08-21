@@ -2,8 +2,8 @@ use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_pubkey::Pubkey;
 use zolana_keypair::{
-    constants::BLINDING_LEN, pubkey::P256Pubkey, NullifierKey, ShieldedAddress, ShieldedPda,
-    ViewingKey,
+    constants::BLINDING_LEN, hash::poseidon, pubkey::P256Pubkey, NullifierKey, ShieldedAddress,
+    ShieldedPda, ViewingKey,
 };
 use zolana_transaction::{
     instructions::{transact::SppProofOutputUtxo, types::SppProofInputUtxo},
@@ -65,26 +65,28 @@ pub fn escrow_authority_identity(
 /// (taker). Owned by the per-pair `escrow_authority` PDA (seeds
 /// `[ESCROW_AUTHORITY_PDA_SEED, pair]`) with the zero-secret nullifier key, so
 /// whoever holds this preimage can build the spend; the program signs spends
-/// via `invoke_signed`. Its `DataHash` is `recipient_owner_hash` directly --
-/// the taker's owner-hash, the same owner as the escrowed source UTXO
-/// (`SourceIn.Owner`), which the `escrow_open` circuit binds. It is never a
-/// public input or on-chain field, so the payout destination stays
-/// confidential.
+/// via `invoke_signed`. Its `DataHash` is
+/// `Poseidon(recipient_owner_hash, min_price)`; the recipient is the same owner
+/// as the escrowed source UTXO (`SourceIn.Owner`), which the `escrow_open`
+/// circuit binds. Neither value is a public input or on-chain field, so the
+/// payout destination and fill condition stay confidential.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EscrowUtxo {
-    /// The taker's owner-hash: the order UTXO's `DataHash`, re-opened by
-    /// `settle`/`cancel` as the payout destination.
+    /// The taker's owner-hash: one half of the order UTXO's composite
+    /// `DataHash`, re-opened by `settle`/`cancel` as the payout destination.
     pub recipient_owner_hash: [u8; 32],
     /// The pair's source asset -- what the taker escrows.
     pub asset: Address,
     /// The private `OrderAmount` witness; also this UTXO's own amount.
     pub order_amount: u64,
+    /// The taker's private minimum destination-per-source execution price.
+    pub min_price: u64,
     pub blinding: Blinding,
 }
 
 impl EscrowUtxo {
-    pub fn data_hash(&self) -> [u8; 32] {
-        self.recipient_owner_hash
+    pub fn data_hash(&self) -> Result<[u8; 32]> {
+        order_data_hash(&self.recipient_owner_hash, self.min_price)
     }
 
     /// The order UTXO as a `create_escrow` output, owned by the escrow
@@ -94,7 +96,10 @@ impl EscrowUtxo {
     /// slot's own plaintext (asset, amount, blinding) that is the complete
     /// order UTXO data the maker needs to settle.
     pub fn output_utxo(&self, owner: &ShieldedAddress) -> Result<SppProofOutputUtxo> {
-        let note = encode_order_note(&self.recipient_owner_hash);
+        let note = encode_order_note(&OrderNote {
+            recipient_owner_hash: self.recipient_owner_hash,
+            min_price: self.min_price,
+        });
         Ok(SppProofOutputUtxo {
             asset: self.asset,
             amount: self.order_amount,
@@ -102,7 +107,7 @@ impl EscrowUtxo {
             owner_address: Some(*owner),
             ..Default::default()
         }
-        .with_utxo_data(note, self.data_hash()))
+        .with_utxo_data(note, self.data_hash()?))
     }
 
     /// The order UTXO as a `settle`/`cancel` input spend. Only the zero-secret
@@ -116,32 +121,59 @@ impl EscrowUtxo {
             ring_program_id: None,
             data: Data::default(),
         };
-        Ok(SppProofInputUtxo::new(utxo, escrow_nullifier_key()).with_data_hash(self.data_hash()))
+        Ok(SppProofInputUtxo::new(utxo, escrow_nullifier_key()).with_data_hash(self.data_hash()?))
     }
 }
 
-/// The order UTXO's encrypted note: the 32-byte `recipient_owner_hash`. The
-/// confidential slot's own plaintext already carries the asset, amount, and
-/// blinding, so this is the one field the maker cannot otherwise learn -- and
-/// it must, to re-open the order's `DataHash` in the settle proof.
-const ORDER_NOTE_LEN: usize = 32;
-
-/// Encode the order UTXO's note (see `ORDER_NOTE_LEN`).
-pub fn encode_order_note(recipient_owner_hash: &[u8; 32]) -> Vec<u8> {
-    recipient_owner_hash.to_vec()
+pub fn order_data_hash(recipient_owner_hash: &[u8; 32], min_price: u64) -> Result<[u8; 32]> {
+    let mut encoded_min_price = [0u8; 32];
+    encoded_min_price[24..].copy_from_slice(&min_price.to_be_bytes());
+    poseidon(&[recipient_owner_hash, &encoded_min_price]).map_err(err)
 }
 
-/// Decode the order UTXO's note from a decrypted output's `Data` back into the
-/// `recipient_owner_hash`.
-pub fn decode_order_note(data: &Data) -> Result<[u8; 32]> {
+/// The order UTXO's encrypted note: the 32-byte `recipient_owner_hash` followed
+/// by the big-endian 8-byte `min_price`. The confidential slot's own plaintext
+/// already carries the asset, amount, and blinding; the maker needs both note
+/// fields to re-open the order's composite `DataHash` in the settle proof.
+const ORDER_NOTE_LEN: usize = 40;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OrderNote {
+    pub recipient_owner_hash: [u8; 32],
+    pub min_price: u64,
+}
+
+/// Encode the order UTXO's note (see `ORDER_NOTE_LEN`).
+pub fn encode_order_note(note: &OrderNote) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(ORDER_NOTE_LEN);
+    bytes.extend_from_slice(&note.recipient_owner_hash);
+    bytes.extend_from_slice(&note.min_price.to_be_bytes());
+    bytes
+}
+
+/// Decode the order UTXO's note from a decrypted output's `Data`.
+pub fn decode_order_note(data: &Data) -> Result<OrderNote> {
     let bytes = data
         .utxo_data()
         .ok_or_else(|| anyhow!("escrow order note carries no utxo data record"))?;
-    bytes.try_into().map_err(|_| {
-        anyhow!(
+    if bytes.len() != ORDER_NOTE_LEN {
+        return Err(anyhow!(
             "escrow order note is {} bytes, expected {ORDER_NOTE_LEN}",
             bytes.len()
-        )
+        ));
+    }
+    let recipient_owner_hash = bytes
+        .get(..32)
+        .and_then(|value| value.try_into().ok())
+        .ok_or_else(|| anyhow!("escrow order note has an invalid recipient"))?;
+    let encoded_min_price = bytes
+        .get(32..)
+        .and_then(|value| value.try_into().ok())
+        .ok_or_else(|| anyhow!("escrow order note has an invalid minimum price"))?;
+    let min_price = u64::from_be_bytes(encoded_min_price);
+    Ok(OrderNote {
+        recipient_owner_hash,
+        min_price,
     })
 }
 
@@ -153,13 +185,16 @@ mod tests {
 
     #[test]
     fn order_note_round_trips() {
-        let recipient_owner_hash = [7u8; 32];
-        let note = encode_order_note(&recipient_owner_hash);
+        let expected = OrderNote {
+            recipient_owner_hash: [7u8; 32],
+            min_price: 42,
+        };
+        let note = encode_order_note(&expected);
         assert_eq!(note.len(), ORDER_NOTE_LEN);
 
         let data = Data::new(vec![DataRecord::UtxoData(note)]);
         let decoded = decode_order_note(&data).expect("decode");
-        assert_eq!(decoded, recipient_owner_hash);
+        assert_eq!(decoded, expected);
     }
 
     #[test]
@@ -169,7 +204,7 @@ mod tests {
 
     #[test]
     fn decode_rejects_wrong_length() {
-        let data = Data::new(vec![DataRecord::UtxoData(vec![1u8; 31])]);
+        let data = Data::new(vec![DataRecord::UtxoData(vec![1u8; 39])]);
         assert!(decode_order_note(&data).is_err());
     }
 

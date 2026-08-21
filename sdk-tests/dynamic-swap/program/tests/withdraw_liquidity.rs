@@ -44,6 +44,8 @@ fn zero_withdrawal_is_rejected_before_proof_verification() {
         price: 1,
         expiry_slots: 1,
         max_order_size: 1,
+        price_tolerance: 1,
+        min_order_amount: 1,
         available_liquidity: 1,
         open_reservations: 0,
         source_asset: [1u8; 32],

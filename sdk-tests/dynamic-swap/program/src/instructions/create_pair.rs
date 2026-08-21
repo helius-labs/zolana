@@ -19,6 +19,10 @@ pub struct CreatePairData {
     pub expiry_slots: u64,
     /// The worst-case owed per escrow; see `Pair::max_order_size`.
     pub max_order_size: u64,
+    /// Absolute public quote tolerance; see `Pair::price_tolerance`.
+    pub price_tolerance: u64,
+    /// Minimum private exact-input amount; see `Pair::min_order_amount`.
+    pub min_order_amount: u64,
     /// The source asset's UTXO commitment; see `Pair::source_asset`.
     pub source_asset: [u8; 32],
     /// The destination asset's UTXO commitment; see `Pair::destination_asset`.
@@ -38,6 +42,8 @@ pub fn process_create_pair_ix(accounts: &mut [AccountView], data: &[u8]) -> Prog
         destination_asset_id,
         expiry_slots,
         max_order_size,
+        price_tolerance,
+        min_order_amount,
         source_asset,
         destination_asset,
         maker_receipt_owner_hash,
@@ -58,6 +64,15 @@ pub fn process_create_pair_ix(accounts: &mut [AccountView], data: &[u8]) -> Prog
     // nonzero in escrow_open) and every reservation empty.
     if max_order_size == 0 {
         return Err(DynamicSwapError::InvalidMaxOrderSize.into());
+    }
+    if price_tolerance == 0 {
+        return Err(DynamicSwapError::InvalidPriceTolerance.into());
+    }
+    if min_order_amount == 0 {
+        return Err(DynamicSwapError::InvalidMinOrderAmount.into());
+    }
+    if price < price_tolerance {
+        return Err(DynamicSwapError::PriceBelowTolerance.into());
     }
     // The maker encryption pubkey must be a SEC1-compressed P256 point; a
     // malformed key would make every order UTXO handoff undecryptable, leaving
@@ -119,6 +134,8 @@ pub fn process_create_pair_ix(accounts: &mut [AccountView], data: &[u8]) -> Prog
             price,
             expiry_slots,
             max_order_size,
+            price_tolerance,
+            min_order_amount,
             // The pool starts empty and unreserved; deposits and open escrows
             // move these counters from here on.
             available_liquidity: 0,

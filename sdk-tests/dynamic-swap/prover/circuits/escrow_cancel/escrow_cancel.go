@@ -18,8 +18,8 @@ const RefundBlindingDomain uint64 = 0x434E4C5245464E44 // "CNLREFND"
 
 // Circuit refunds one expired escrow: 1-in (order UTXO) / 1-out (refund), the
 // exact supported IN1_OUT1 shape. The full order amount returns, in the source
-// asset, to the recipient committed as OrderIn.DataHash (the taker's
-// owner-hash escrow_open wrote there). The expiry gate is program-side (the
+// asset, to the recipient reopened with the private minimum from
+// OrderIn.DataHash. The expiry gate is program-side (the
 // escrow account's created_at plus the pair's expiry_slots), so the circuit
 // carries no notion of time. The refund output has no DataHash, which is what
 // lets the escrow_authority PDA stay the only owner-signer at IN1_OUT1.
@@ -30,12 +30,17 @@ type Circuit struct {
 
 	RefundOut spp.UtxoCircuitFields
 
-	OrderAmount frontend.Variable
+	OrderAmount        frontend.Variable
+	RecipientOwnerHash frontend.Variable
+	MinPrice           frontend.Variable
 
 	ExternalDataHash frontend.Variable
 }
 
 func (c *Circuit) Define(api frontend.API) error {
+	api.ToBinary(c.MinPrice, 64)
+	orderDataHash := gadget.PoseidonHash(api, []frontend.Variable{c.RecipientOwnerHash, c.MinPrice})
+	api.AssertIsEqual(c.OrderIn.DataHash, orderDataHash)
 	orderInHash := c.checkOrderInputUtxo(api)
 	refundOutHash := c.checkRefundOutputUtxo(api)
 
@@ -52,7 +57,7 @@ func (c *Circuit) Define(api frontend.API) error {
 
 // PublicInputs folds PrivateTxHash with OrderInHash (the witnessed order UTXO's
 // own reconstructed hash, asserted equal in Check below). The recipient
-// owner-hash is re-opened from OrderIn.DataHash, which OrderInHash pins, so the
+// recipient and minimum reopen OrderIn.DataHash, which OrderInHash pins, so the
 // refund destination is enforced without being revealed. The native program
 // recomputes this hash from `Escrow.order_utxo_hash`.
 type PublicInputs struct {
@@ -103,7 +108,7 @@ func (c *Circuit) checkOrderInputUtxo(api frontend.API) frontend.Variable {
 }
 
 // checkRefundOutputUtxo returns the full order amount, in the order's (source)
-// asset, to the recipient committed as OrderIn.DataHash. The blinding derives
+// asset, to the recipient reopened from OrderIn.DataHash. The blinding derives
 // from the order blinding so the taker precomputes its refund note at creation.
 func (c *Circuit) checkRefundOutputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(c.RefundOut.Domain, spp.UtxoDomain)
@@ -112,7 +117,7 @@ func (c *Circuit) checkRefundOutputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(c.RefundOut.DataHash, 0)
 	api.AssertIsEqual(c.RefundOut.Asset, c.OrderIn.Asset)
 	api.AssertIsEqual(c.RefundOut.Amount, c.OrderAmount)
-	api.AssertIsEqual(c.RefundOut.Owner, c.OrderIn.DataHash)
+	api.AssertIsEqual(c.RefundOut.Owner, c.RecipientOwnerHash)
 	api.AssertIsEqual(c.RefundOut.Blinding,
 		blinding.DeriveOutputBlinding(api, c.OrderIn.Blinding, RefundBlindingDomain))
 	return spp.UtxoHashCircuit(api, c.RefundOut)

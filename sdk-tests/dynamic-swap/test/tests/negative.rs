@@ -14,7 +14,10 @@ use dynamic_swap_sdk::{
     state::PoolUtxo,
     Groth16ProofBytes,
 };
-use shared::{escrow_authority_identity, setup, TestEnv, DESTINATION_ASSET_ID, SOURCE_ASSET_ID};
+use shared::{
+    escrow_authority_identity, setup, TestEnv, DESTINATION_ASSET_ID, MIN_ORDER_AMOUNT,
+    PRICE_TOLERANCE, SOURCE_ASSET_ID,
+};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
@@ -35,7 +38,6 @@ const MAX_ORDER_SIZE: u64 = 600_000_000;
 
 const UNAUTHORIZED: u32 = 9012;
 const INVALID_PRICE: u32 = 9016;
-const MAX_PRICE_EXCEEDED: u32 = 9019;
 const INVALID_ENCRYPTION_PUBKEY: u32 = 9020;
 const INVALID_EXPIRY: u32 = 9021;
 const INSUFFICIENT_LIQUIDITY: u32 = 9022;
@@ -44,6 +46,10 @@ const ASSET_MISMATCH: u32 = 9024;
 const INVALID_DEPOSIT_ENTRY: u32 = 9025;
 const INTERFACE_TRANSFER_MISMATCH: u32 = 9026;
 const INVALID_WITHDRAWAL_AMOUNT: u32 = 9027;
+const INVALID_PRICE_TOLERANCE: u32 = 9028;
+const INVALID_MIN_ORDER_AMOUNT: u32 = 9029;
+const PUBLIC_PRICE_FLOOR_OUT_OF_RANGE: u32 = 9030;
+const PRICE_BELOW_TOLERANCE: u32 = 9031;
 
 // A custom program error surfaces in the RPC error two ways: the structured
 // `InstructionError::Custom(<decimal>)` and the program-log line `custom program
@@ -68,6 +74,8 @@ fn create_pair(
     price: u64,
     expiry_slots: u64,
     max_order_size: u64,
+    price_tolerance: u64,
+    min_order_amount: u64,
     maker_encryption_pubkey: [u8; 33],
 ) -> Result<Pubkey> {
     let pair = pair_pda(
@@ -86,6 +94,8 @@ fn create_pair(
         destination_asset_id: DESTINATION_ASSET_ID,
         expiry_slots,
         max_order_size,
+        price_tolerance,
+        min_order_amount,
         source_asset,
         destination_asset,
         maker_receipt_owner_hash: env.authority.owner_hash()?,
@@ -148,7 +158,7 @@ fn dummy_withdraw_transact(env: &TestEnv, amount: u64) -> TransactIxData {
 //   - create_pair with a non-SEC1 encryption key  -> InvalidEncryptionPubkey
 //   - update_price to 0                           -> InvalidPrice
 //   - update_price by a non-authority             -> Unauthorized
-//   - create_escrow with max_price < pair.price   -> MaxPriceExceeded
+//   - create_escrow outside its public range      -> PublicPriceFloorOutOfRange
 #[test]
 fn zero_price_and_authority_checks() -> Result<()> {
     let env = setup()?;
@@ -172,6 +182,8 @@ fn zero_price_and_authority_checks() -> Result<()> {
         0,
         EXPIRY_SLOTS,
         MAX_ORDER_SIZE,
+        PRICE_TOLERANCE,
+        MIN_ORDER_AMOUNT,
         maker_encryption_pubkey,
     )
     .err()
@@ -186,6 +198,8 @@ fn zero_price_and_authority_checks() -> Result<()> {
         PRICE,
         0,
         MAX_ORDER_SIZE,
+        PRICE_TOLERANCE,
+        MIN_ORDER_AMOUNT,
         maker_encryption_pubkey,
     )
     .err()
@@ -200,6 +214,8 @@ fn zero_price_and_authority_checks() -> Result<()> {
         PRICE,
         EXPIRY_SLOTS,
         0,
+        PRICE_TOLERANCE,
+        MIN_ORDER_AMOUNT,
         maker_encryption_pubkey,
     )
     .err()
@@ -208,6 +224,60 @@ fn zero_price_and_authority_checks() -> Result<()> {
         "create_pair zero max_order_size",
         &err,
         INVALID_MAX_ORDER_SIZE,
+    );
+
+    let err = create_pair(
+        &env,
+        &authority_solana,
+        PRICE,
+        EXPIRY_SLOTS,
+        MAX_ORDER_SIZE,
+        0,
+        MIN_ORDER_AMOUNT,
+        maker_encryption_pubkey,
+    )
+    .err()
+    .ok_or_else(|| anyhow!("create_pair with price_tolerance 0 must fail"))?;
+    assert_custom_error(
+        "create_pair zero price_tolerance",
+        &err,
+        INVALID_PRICE_TOLERANCE,
+    );
+
+    let err = create_pair(
+        &env,
+        &authority_solana,
+        PRICE,
+        EXPIRY_SLOTS,
+        MAX_ORDER_SIZE,
+        PRICE_TOLERANCE,
+        0,
+        maker_encryption_pubkey,
+    )
+    .err()
+    .ok_or_else(|| anyhow!("create_pair with min_order_amount 0 must fail"))?;
+    assert_custom_error(
+        "create_pair zero min_order_amount",
+        &err,
+        INVALID_MIN_ORDER_AMOUNT,
+    );
+
+    let err = create_pair(
+        &env,
+        &authority_solana,
+        PRICE_TOLERANCE,
+        EXPIRY_SLOTS,
+        MAX_ORDER_SIZE,
+        PRICE_TOLERANCE + 1,
+        MIN_ORDER_AMOUNT,
+        maker_encryption_pubkey,
+    )
+    .err()
+    .ok_or_else(|| anyhow!("create_pair below its price tolerance must fail"))?;
+    assert_custom_error(
+        "create_pair price below tolerance",
+        &err,
+        PRICE_BELOW_TOLERANCE,
     );
 
     // create_pair rejects an encryption pubkey that is not a SEC1-compressed
@@ -220,6 +290,8 @@ fn zero_price_and_authority_checks() -> Result<()> {
         PRICE,
         EXPIRY_SLOTS,
         MAX_ORDER_SIZE,
+        PRICE_TOLERANCE,
+        MIN_ORDER_AMOUNT,
         bad_encryption_pubkey,
     )
     .err()
@@ -237,6 +309,8 @@ fn zero_price_and_authority_checks() -> Result<()> {
         PRICE,
         EXPIRY_SLOTS,
         MAX_ORDER_SIZE,
+        PRICE_TOLERANCE,
+        MIN_ORDER_AMOUNT,
         maker_encryption_pubkey,
     )?;
 
@@ -283,7 +357,7 @@ fn zero_price_and_authority_checks() -> Result<()> {
         UNAUTHORIZED,
     );
 
-    // create_escrow rejects a max_price below the pair's current price. The gate
+    // create_escrow rejects a public floor above the pair's current price. The gate
     // runs before proof verification, so a garbage proof and an empty transact
     // payload reach it.
     let escrow_ix = CreateEscrow {
@@ -296,7 +370,7 @@ fn zero_price_and_authority_checks() -> Result<()> {
             proof_b: [0u8; 64],
             proof_c: [0u8; 32],
         },
-        max_price: PRICE - 1,
+        public_price_floor: PRICE + 1,
         transact: dummy_transact(),
     }
     .instruction()
@@ -306,11 +380,40 @@ fn zero_price_and_authority_checks() -> Result<()> {
         .rpc()
         .create_and_send_transaction(&[escrow_ix], user_solana.pubkey(), &[&user_solana])
         .err()
-        .ok_or_else(|| anyhow!("create_escrow above max_price must fail"))?;
+        .ok_or_else(|| anyhow!("create_escrow outside its public range must fail"))?;
     assert_custom_error(
-        "create_escrow above max_price",
+        "create_escrow outside public range",
         &anyhow!("{err:?}"),
-        MAX_PRICE_EXCEEDED,
+        PUBLIC_PRICE_FLOOR_OUT_OF_RANGE,
+    );
+
+    // The same public guard rejects a stale floor whose derived coverage edge
+    // is already below the live price.
+    let escrow_ix = CreateEscrow {
+        taker: user_solana.pubkey(),
+        pair,
+        escrow: escrow_pda(&[0u8; 32]),
+        tree: Pubkey::new_unique(),
+        proof: Groth16ProofBytes {
+            proof_a: [0u8; 32],
+            proof_b: [0u8; 64],
+            proof_c: [0u8; 32],
+        },
+        public_price_floor: PRICE - 3 * PRICE_TOLERANCE,
+        transact: dummy_transact(),
+    }
+    .instruction()
+    .map_err(|e| anyhow!("create_escrow instruction: {e:?}"))?;
+    let err = env
+        .client
+        .rpc()
+        .create_and_send_transaction(&[escrow_ix], user_solana.pubkey(), &[&user_solana])
+        .err()
+        .ok_or_else(|| anyhow!("create_escrow above its public coverage must fail"))?;
+    assert_custom_error(
+        "create_escrow above public coverage",
+        &anyhow!("{err:?}"),
+        PUBLIC_PRICE_FLOOR_OUT_OF_RANGE,
     );
 
     // create_escrow at an acceptable price but with an empty pool: the
@@ -326,7 +429,7 @@ fn zero_price_and_authority_checks() -> Result<()> {
             proof_b: [0u8; 64],
             proof_c: [0u8; 32],
         },
-        max_price: PRICE,
+        public_price_floor: PRICE - PRICE_TOLERANCE,
         transact: dummy_transact(),
     }
     .instruction()
@@ -567,7 +670,7 @@ fn client_side_rejections(
     let destination_asset =
         asset_field(&env.dest_mint).map_err(|e| anyhow!("destination asset: {e:?}"))?;
 
-    // escrow_open: owed = order_amount * execution_price must fit
+    // escrow_open: the worst-case payout at the coverage price must fit
     // max_order_size.
     let over_cap_amount = MAX_ORDER_SIZE / PRICE + 1;
     let source_in = SppProofInputUtxo::new(
@@ -600,9 +703,12 @@ fn client_side_rejections(
             taker_change,
             escrow_authority_owner_hash: [1u8; 32],
             source_asset: asset_field(&env.spl_mint).map_err(|e| anyhow!("{e:?}"))?,
-            execution_price: PRICE,
+            public_price_floor: PRICE - PRICE_TOLERANCE,
+            price_tolerance: PRICE_TOLERANCE,
+            min_order_amount: MIN_ORDER_AMOUNT,
             max_order_size: MAX_ORDER_SIZE,
             order_amount: over_cap_amount,
+            min_price: PRICE,
             external_data_hash: [0u8; 32],
         }
         .to_proof_inputs()

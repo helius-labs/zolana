@@ -15,9 +15,8 @@ import (
 // pool liquidity is reserved program-side (available_liquidity -= max_order_size)
 // and enters only at settle time, so there is no funding input and no maker
 // change here -- the circuit's liquidity job is only the owed cap, which makes
-// the worst-case reservation sufficient. max_price never enters the circuit --
-// create_escrow checks it against the pair price in the program and discards
-// it.
+// the worst-case reservation sufficient. The live pair price is deliberately
+// absent: the program checks it against the public floor's configured window.
 type Circuit struct {
 	Public PublicInputs
 
@@ -27,23 +26,34 @@ type Circuit struct {
 	TakerChange spp.UtxoCircuitFields
 
 	OrderAmount frontend.Variable
+	MinPrice    frontend.Variable
 
 	ExternalDataHash frontend.Variable
 }
 
 func (c *Circuit) Define(api frontend.API) error {
-	api.AssertIsDifferent(c.OrderAmount, 0)
-
-	// owed = OrderAmount * ExecutionPrice must fit the pair's max_order_size:
-	// this is what backs the program's worst-case liquidity reservation, so an
-	// order the reservation cannot cover must be unprovable. Both factors are
-	// 64-bit (OrderAmount via the spent source leaf, ExecutionPrice program-fed),
-	// but their product is a free 128-bit value in the field -- pin it to 64
-	// bits before the comparison so it cannot wrap.
-	owed := api.Mul(c.OrderAmount, c.Public.ExecutionPrice)
-	api.ToBinary(owed, 64)
+	api.ToBinary(c.OrderAmount, 64)
+	api.ToBinary(c.MinPrice, 64)
+	api.ToBinary(c.Public.PublicPriceFloor, 64)
+	api.ToBinary(c.Public.PriceTolerance, 64)
+	api.ToBinary(c.Public.MinOrderAmount, 64)
 	api.ToBinary(c.Public.MaxOrderSize, 64)
-	api.AssertIsLessOrEqual(owed, c.Public.MaxOrderSize)
+	api.AssertIsLessOrEqual(c.Public.MinOrderAmount, c.OrderAmount)
+
+	// The private exact sell limit may be stricter than the public floor, but
+	// not outside the quote-time half of the pair's symmetric public window.
+	referencePrice := api.Add(c.Public.PublicPriceFloor, c.Public.PriceTolerance)
+	coveragePrice := api.Add(referencePrice, c.Public.PriceTolerance)
+	api.ToBinary(referencePrice, 64)
+	api.ToBinary(coveragePrice, 64)
+	api.AssertIsLessOrEqual(c.Public.PublicPriceFloor, c.MinPrice)
+	api.AssertIsLessOrEqual(c.MinPrice, referencePrice)
+
+	// Reserve against the highest price the program can accept. The product is
+	// pinned to u64 before comparison so field wraparound cannot satisfy it.
+	worstCaseOwed := api.Mul(c.OrderAmount, coveragePrice)
+	api.ToBinary(worstCaseOwed, 64)
+	api.AssertIsLessOrEqual(worstCaseOwed, c.Public.MaxOrderSize)
 
 	sourceInHash := c.checkSourceInputUtxo(api)
 	orderOutHash := c.checkOrderOutputUtxo(api)
@@ -80,12 +90,12 @@ type PublicInputs struct {
 	// SourceIn.Asset. Without it a caller could escrow a worthless token and
 	// extract the destination asset on settle.
 	SourceAsset frontend.Variable
-	// The pair price at creation, fed on-chain from Pair.price (the same value
-	// the program stores as Escrow.execution_price). Enters the owed cap below.
-	ExecutionPrice frontend.Variable
-	// The pair's immutable max_order_size, fed on-chain from
-	// Pair.max_order_size. Caps owed = OrderAmount * ExecutionPrice so the
-	// program's per-escrow liquidity reservation always covers the order.
+	// Public quote window policy, fed on-chain from instruction data and the pair.
+	PublicPriceFloor frontend.Variable
+	PriceTolerance   frontend.Variable
+	MinOrderAmount   frontend.Variable
+	// The pair's immutable max_order_size, fed on-chain from Pair.max_order_size.
+	// Caps the worst-case covered payout so the fixed reservation is sufficient.
 	MaxOrderSize frontend.Variable
 }
 
@@ -94,7 +104,9 @@ func (p PublicInputs) Check(api frontend.API) {
 		p.PrivateTxHash,
 		p.EscrowAuthorityOwnerHash,
 		p.SourceAsset,
-		p.ExecutionPrice,
+		p.PublicPriceFloor,
+		p.PriceTolerance,
+		p.MinOrderAmount,
 		p.MaxOrderSize,
 	})
 	api.AssertIsEqual(p.PublicInputHash, publicInputHash)
@@ -138,8 +150,8 @@ func (c *Circuit) checkSourceInputUtxo(api frontend.API) frontend.Variable {
 	return spp.UtxoHashCircuit(api, c.SourceIn)
 }
 
-// checkOrderOutputUtxo commits the recipient as the order UTXO's DataHash so
-// settle and cancel can later re-open the payout destination from the UTXO
+// checkOrderOutputUtxo commits the recipient and private minimum as the order
+// UTXO's DataHash so settle and cancel can later reopen them from the UTXO
 // alone. The recipient is bound to SourceIn.Owner: the payout goes to the same
 // party whose source funds are being escrowed (the taker), enforced in-circuit
 // rather than trusted from a caller-supplied field -- SourceIn.Owner is pinned
@@ -154,7 +166,8 @@ func (c *Circuit) checkOrderOutputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(c.OrderOut.Owner, c.Public.EscrowAuthorityOwnerHash)
 	api.AssertIsEqual(c.OrderOut.Asset, c.SourceIn.Asset)
 	api.AssertIsEqual(c.OrderOut.Amount, c.OrderAmount)
-	api.AssertIsEqual(c.OrderOut.DataHash, c.SourceIn.Owner)
+	orderDataHash := gadget.PoseidonHash(api, []frontend.Variable{c.SourceIn.Owner, c.MinPrice})
+	api.AssertIsEqual(c.OrderOut.DataHash, orderDataHash)
 	return spp.UtxoHashCircuit(api, c.OrderOut)
 }
 

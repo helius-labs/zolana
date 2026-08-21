@@ -31,6 +31,10 @@ fn error_codes_are_stable() {
         (InvalidDepositEntry as u32, 9025),
         (InterfaceTransferMismatch as u32, 9026),
         (InvalidWithdrawalAmount as u32, 9027),
+        (InvalidPriceTolerance as u32, 9028),
+        (InvalidMinOrderAmount as u32, 9029),
+        (PublicPriceFloorOutOfRange as u32, 9030),
+        (PriceBelowTolerance as u32, 9031),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");

@@ -158,6 +158,9 @@ pub fn process_withdraw_liquidity_ix(accounts: &mut [AccountView], data: &[u8]) 
     if token_owner != pair.authority.as_array() {
         return Err(DynamicSwapError::InterfaceTransferMismatch.into());
     }
+    // The token account is forwarded writable to the SPP CPI. Release our
+    // validation borrow before invoking it.
+    drop(token_data);
 
     {
         // Step 17: Subtract the amount from available liquidity.

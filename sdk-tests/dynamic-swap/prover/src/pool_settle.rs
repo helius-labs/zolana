@@ -10,15 +10,14 @@ use crate::{
 
 /// Proof inputs for the `pool_settle` circuit: 2-in (order, pool note) / 3-out
 /// (recipient payout, pool change, maker receipt), the exact IN2_OUT3 shape,
-/// no padding. There is no refund branch: an escrow can only exist at an
-/// acceptable price, so settle always pays `order_amount * execution_price` of
-/// the destination asset to the recipient committed as the order UTXO's data
-/// hash. The payout is funded from a pool note locked under the pair's
+/// no padding. The private minimum price committed by the order selects either
+/// a destination-asset fill or a full source-asset refund. A fill is funded
+/// from a pool note locked under the pair's
 /// pool_authority PDA; the change returns to the pool with its booked value
 /// (the note's data hash) reduced by `max(booked_in - max_order_size, 0)`.
 /// `execution_price` is public (the escrow account's stored price); the
-/// recipient owner-hash stays private, re-opened from `OrderIn.DataHash` which
-/// the public `OrderInHash` pins.
+/// recipient owner-hash and minimum stay private, re-opened from the composite
+/// `OrderIn.DataHash` which the public `OrderInHash` pins.
 #[derive(Debug, Clone)]
 pub struct PoolSettleProofInputs {
     pub public_input_hash: [u8; 32],
@@ -39,6 +38,8 @@ pub struct PoolSettleProofInputs {
     /// `Pair.maker_receipt_owner_hash`.
     pub receipt_owner_hash: [u8; 32],
     pub order_amount: u64,
+    pub recipient_owner_hash: [u8; 32],
+    pub min_price: u64,
     pub order_in: ProofInputUtxo,
     pub pool_in: ProofInputUtxo,
     pub recipient_out: ProofInputUtxo,
@@ -87,6 +88,11 @@ impl PoolSettleProofInputs {
             vec![self.order_amount.to_string()],
         );
         map.insert(
+            "RecipientOwnerHash".to_string(),
+            vec![bytes_to_decimal_string(&self.recipient_owner_hash)],
+        );
+        map.insert("MinPrice".to_string(), vec![self.min_price.to_string()]);
+        map.insert(
             "ExternalDataHash".to_string(),
             vec![bytes_to_decimal_string(&self.external_data_hash)],
         );
@@ -124,6 +130,8 @@ mod tests {
             max_order_size: 100,
             receipt_owner_hash: [6; 32],
             order_amount: 50,
+            recipient_owner_hash: [9; 32],
+            min_price: 80,
             order_in: ProofInputUtxo::default(),
             pool_in: ProofInputUtxo::default(),
             recipient_out: ProofInputUtxo::default(),
@@ -148,6 +156,8 @@ mod tests {
             "Public_MaxOrderSize".to_string(),
             "Public_ReceiptOwnerHash".to_string(),
             "OrderAmount".to_string(),
+            "RecipientOwnerHash".to_string(),
+            "MinPrice".to_string(),
             "ExternalDataHash".to_string(),
         ];
         for prefix in [

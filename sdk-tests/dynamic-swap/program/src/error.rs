@@ -66,9 +66,8 @@ pub enum DynamicSwapError {
     // constant `ESCROW_NULLIFIER_PUBKEY`. Kept as a pinned, stable code.
     #[error("escrow-authority nullifier pubkey must be nonzero")]
     InvalidNullifierPubkey = 9018,
-    /// `create_escrow` when the pair's current price exceeds the taker's
-    /// `max_price` -- protection against an `update_price` landing between the
-    /// taker building the transaction and the escrow's creation.
+    // 9019 retired (was MaxPriceExceeded): the taker's exact minimum price is
+    // now private and evaluated by settlement. Kept as a stable code.
     #[error("pair price exceeds the taker's max_price")]
     MaxPriceExceeded = 9019,
     /// `create_pair` with a maker encryption pubkey that is not a
@@ -105,6 +104,14 @@ pub enum DynamicSwapError {
     InterfaceTransferMismatch = 9026,
     #[error("withdrawal amount must be nonzero")]
     InvalidWithdrawalAmount = 9027,
+    #[error("price_tolerance must be nonzero")]
+    InvalidPriceTolerance = 9028,
+    #[error("min_order_amount must be nonzero")]
+    InvalidMinOrderAmount = 9029,
+    #[error("public price floor does not cover the current pair price")]
+    PublicPriceFloorOutOfRange = 9030,
+    #[error("pair price must be at least price_tolerance")]
+    PriceBelowTolerance = 9031,
 }
 
 impl From<DynamicSwapError> for ProgramError {

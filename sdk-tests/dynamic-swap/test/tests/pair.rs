@@ -6,7 +6,10 @@ use dynamic_swap_sdk::{
     instructions::{create_pair::CreatePair, update_price::UpdatePrice},
     pair_pda,
 };
-use shared::{escrow_authority_identity, setup, DESTINATION_ASSET_ID, SOURCE_ASSET_ID};
+use shared::{
+    escrow_authority_identity, setup, DESTINATION_ASSET_ID, MIN_ORDER_AMOUNT, PRICE_TOLERANCE,
+    SOURCE_ASSET_ID,
+};
 use solana_signer::Signer;
 use zolana_client::Rpc;
 use zolana_transaction::instructions::transact::spp_proof_inputs::asset_field;
@@ -46,6 +49,8 @@ fn create_pair_then_update_price() -> Result<()> {
         destination_asset_id: DESTINATION_ASSET_ID,
         expiry_slots: EXPIRY_SLOTS,
         max_order_size: MAX_ORDER_SIZE,
+        price_tolerance: PRICE_TOLERANCE,
+        min_order_amount: MIN_ORDER_AMOUNT,
         source_asset,
         destination_asset,
         maker_receipt_owner_hash,
@@ -90,6 +95,8 @@ fn create_pair_then_update_price() -> Result<()> {
         price: INITIAL_PRICE,
         expiry_slots: EXPIRY_SLOTS,
         max_order_size: MAX_ORDER_SIZE,
+        price_tolerance: PRICE_TOLERANCE,
+        min_order_amount: MIN_ORDER_AMOUNT,
         available_liquidity: 0,
         open_reservations: 0,
         source_asset,

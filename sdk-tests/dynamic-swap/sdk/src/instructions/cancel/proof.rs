@@ -6,16 +6,22 @@ use zolana_transaction::instructions::{
     types::SppProofInputUtxo,
 };
 
-use crate::{err, instructions::settle::derive_output_blinding, shared::check_output_utxo};
+use crate::{
+    err, instructions::settle::derive_output_blinding, shared::check_output_utxo,
+    state::order_data_hash,
+};
 
 /// Proof-input params for the `escrow_cancel` circuit: 1-in (order) / 1-out
 /// (refund), the exact IN1_OUT1 shape. The full order amount returns, in the
-/// source asset, to the recipient committed as the order UTXO's data hash. The
+/// source asset, to the recipient committed with the minimum price as the
+/// order UTXO's data hash. The
 /// expiry gate is program-side; the circuit carries no notion of time.
 pub struct CancelProofInputParams {
     pub order_in: SppProofInputUtxo,
     pub refund_out: SppProofOutputUtxo,
     pub order_amount: u64,
+    pub recipient_owner_hash: [u8; 32],
+    pub min_price: u64,
     /// The `Escrow` account's on-chain `order_utxo_hash`. `order_in` must hash
     /// to this value.
     pub order_utxo_hash: [u8; 32],
@@ -34,11 +40,10 @@ impl CancelProofInputParams {
         if self.order_in.utxo.amount != self.order_amount {
             bail!("order_in amount does not match order_amount");
         }
-        // The recipient the circuit re-opens from the order UTXO's data hash.
-        let recipient_owner_hash = self
-            .order_in
-            .data_hash
-            .ok_or_else(|| err("order_in carries no data hash (recipient)"))?;
+        let expected_data_hash = order_data_hash(&self.recipient_owner_hash, self.min_price)?;
+        if self.order_in.data_hash != Some(expected_data_hash) {
+            bail!("order_in data hash does not commit recipient and min_price");
+        }
 
         let refund_owner = check_output_utxo(
             "refund_out",
@@ -46,7 +51,7 @@ impl CancelProofInputParams {
             &self.order_in.utxo.asset,
             self.order_amount,
         )?;
-        if refund_owner.owner_hash().map_err(err)? != recipient_owner_hash {
+        if refund_owner.owner_hash().map_err(err)? != self.recipient_owner_hash {
             bail!("refund_out owner does not match the order's committed recipient");
         }
         let expected_blinding =
@@ -76,6 +81,8 @@ impl CancelProofInputParams {
             private_tx_hash,
             order_in_hash,
             order_amount: self.order_amount,
+            recipient_owner_hash: self.recipient_owner_hash,
+            min_price: self.min_price,
             order_in,
             refund_out,
             external_data_hash: self.external_data_hash,

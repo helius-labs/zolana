@@ -15,6 +15,7 @@ use dynamic_swap_sdk::{
 };
 use shared::{
     assert_liquidity, deposit_pool_liquidity, get_slot_with_retry, setup_with_pair, wait_for_slot,
+    MIN_ORDER_AMOUNT, PRICE_TOLERANCE,
 };
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signer::Signer;
@@ -95,6 +96,7 @@ fn cancel_after_expiry() -> Result<()> {
         recipient_owner_hash,
         asset: env.spl_mint,
         order_amount: ORDER_AMOUNT,
+        min_price: PRICE,
         blinding: random_blinding(),
     };
     let (escrow, escrow_state) = {
@@ -173,9 +175,12 @@ fn cancel_after_expiry() -> Result<()> {
                 .owner_hash()
                 .map_err(|e| anyhow!("escrow authority owner hash: {e:?}"))?,
             source_asset: asset_field(&env.spl_mint).map_err(|e| anyhow!("source asset: {e:?}"))?,
-            execution_price: PRICE,
+            public_price_floor: PRICE - PRICE_TOLERANCE,
+            price_tolerance: PRICE_TOLERANCE,
+            min_order_amount: MIN_ORDER_AMOUNT,
             max_order_size: MAX_ORDER_SIZE,
             order_amount: ORDER_AMOUNT,
+            min_price: PRICE,
             external_data_hash,
         }
         .to_proof_inputs()
@@ -195,7 +200,7 @@ fn cancel_after_expiry() -> Result<()> {
                 proof_b: order_proof.proof_b,
                 proof_c: order_proof.proof_c,
             },
-            max_price: PRICE,
+            public_price_floor: PRICE - PRICE_TOLERANCE,
             transact,
         }
         .instruction()
@@ -290,6 +295,8 @@ fn cancel_after_expiry() -> Result<()> {
             order_in,
             refund_out,
             order_amount: ORDER_AMOUNT,
+            recipient_owner_hash,
+            min_price: PRICE,
             order_utxo_hash: escrow_state.order_utxo_hash,
             external_data_hash,
         }

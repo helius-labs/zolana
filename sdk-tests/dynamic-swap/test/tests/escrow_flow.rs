@@ -20,7 +20,7 @@ use dynamic_swap_sdk::{
 use shared::{
     assert_liquidity, deposit_pool_liquidity, discover_pool_notes_with_retry,
     escrow_authority_identity, pool_authority_identity, send_v0_with_lookup_table, setup_with_pair,
-    token_balance, MAKER_DEST_BALANCE,
+    token_balance, MAKER_DEST_BALANCE, MIN_ORDER_AMOUNT, PRICE_TOLERANCE,
 };
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signer::Signer;
@@ -122,6 +122,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             recipient_owner_hash,
             asset: env.spl_mint,
             order_amount,
+            min_price: PRICE,
             blinding: random_blinding(),
         };
         let order_out = escrow_utxo
@@ -193,9 +194,12 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             taker_change,
             escrow_authority_owner_hash,
             source_asset,
-            execution_price: PRICE,
+            public_price_floor: PRICE - PRICE_TOLERANCE,
+            price_tolerance: PRICE_TOLERANCE,
+            min_order_amount: MIN_ORDER_AMOUNT,
             max_order_size: MAX_ORDER_SIZE,
             order_amount,
+            min_price: PRICE,
             external_data_hash,
         }
         .to_proof_inputs()
@@ -215,7 +219,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 proof_b: order_proof.proof_b,
                 proof_c: order_proof.proof_c,
             },
-            max_price: PRICE,
+            public_price_floor: PRICE - PRICE_TOLERANCE,
             transact,
         }
         .instruction()
@@ -372,6 +376,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             order_amount,
             order_blinding,
             recipient_owner_hash,
+            min_price,
         } = discovered;
 
         let owed = order_amount
@@ -398,6 +403,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             recipient_owner_hash,
             asset: source_asset,
             order_amount,
+            min_price,
             blinding: order_blinding,
         };
         let order_in = escrow_utxo
@@ -511,6 +517,8 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             maker_receipt,
             execution_price,
             order_amount,
+            recipient_owner_hash,
+            min_price,
             order_utxo_hash,
             destination_asset,
             pool_authority_owner_hash,

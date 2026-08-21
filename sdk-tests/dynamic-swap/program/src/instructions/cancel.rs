@@ -23,15 +23,16 @@ use crate::{
 pub struct CancelIxData {
     /// `escrow_cancel` circuit proof (1-in: order UTXO / 1-out: refund). The
     /// full order amount returns, in the source asset, to the recipient
-    /// committed as the order UTXO's DataHash.
+    /// committed together with the private minimum price as the order UTXO's
+    /// DataHash.
     pub proof: Groth16ProofBytes,
     pub transact: TransactIxData,
 }
 
 /// `escrow_cancel`'s public-input hash: `Poseidon(PrivateTxHash, OrderInHash)`.
-/// The recipient owner-hash is re-opened in-circuit from the order UTXO's
-/// DataHash (pinned by `OrderInHash`), so the refund destination stays
-/// confidential. Field order and encoding must match the circuit's
+/// The recipient owner-hash and private minimum price are re-opened in-circuit
+/// from the order UTXO's composite DataHash (pinned by `OrderInHash`), so both
+/// stay confidential. Field order and encoding must match the circuit's
 /// `PublicInputs.Check`.
 pub struct CancelPublicInput<'a> {
     pub private_tx_hash: &'a [u8; 32],

@@ -16,8 +16,8 @@ pub struct CreateEscrow {
     pub escrow: Pubkey,
     pub tree: Pubkey,
     pub proof: Groth16ProofBytes,
-    /// The taker's price limit; see `CreateEscrowIxData::max_price`.
-    pub max_price: u64,
+    /// Public lower edge of the pair-configured symmetric price window.
+    pub public_price_floor: u64,
     pub transact: TransactIxData,
 }
 
@@ -29,13 +29,13 @@ impl CreateEscrow {
             escrow,
             tree,
             proof,
-            max_price,
+            public_price_floor,
             transact,
         } = self;
 
         let ix_data = CreateEscrowIxData {
             proof,
-            max_price,
+            public_price_floor,
             transact,
         };
         let serialized = wincode::serialize(&ix_data).map_err(err)?;

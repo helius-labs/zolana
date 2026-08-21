@@ -12,10 +12,9 @@ import (
 	spp "zolana/prover/circuits/spp_transaction/shared"
 )
 
-// Circuit fills one escrow. An escrow can only exist at an acceptable price
-// (create_escrow rejects execution_price > max_price in the program), so there
-// is no refund branch: settle always settles, and the only alternative outcome
-// is the separate escrow_cancel circuit after expiry.
+// Circuit resolves one escrow. The private minimum committed by escrow_open
+// selects either an exact-input fill or a full source-asset refund without
+// changing the public IN2_OUT3 shape.
 //
 // 2-in (order, pool note) / 3-out (recipient payout, pool change, maker
 // receipt), the exact IN2_OUT3 shape. The payout is funded from the pool: a
@@ -36,18 +35,25 @@ type Circuit struct {
 	PoolChange   spp.UtxoCircuitFields
 	MakerReceipt spp.UtxoCircuitFields
 
-	OrderAmount frontend.Variable
+	OrderAmount        frontend.Variable
+	RecipientOwnerHash frontend.Variable
+	MinPrice           frontend.Variable
 
 	ExternalDataHash frontend.Variable
 }
 
 func (c *Circuit) Define(api frontend.API) error {
+	api.ToBinary(c.MinPrice, 64)
+	orderDataHash := gadget.PoseidonHash(api, []frontend.Variable{c.RecipientOwnerHash, c.MinPrice})
+	api.AssertIsEqual(c.OrderIn.DataHash, orderDataHash)
 	orderInHash := c.checkOrderInputUtxo(api)
 	poolInHash := c.checkPoolInputUtxo(api)
 
 	// Every escrow is priced at creation, so ExecutionPrice is always nonzero;
 	// assert it so an uncommitted order can never be proven.
 	api.AssertIsDifferent(c.Public.ExecutionPrice, 0)
+	api.ToBinary(c.Public.ExecutionPrice, 64)
+	api.ToBinary(c.OrderAmount, 64)
 
 	// owed = OrderAmount * ExecutionPrice. Both factors are 64-bit (OrderAmount
 	// via the spent order leaf, ExecutionPrice via the program-fed public
@@ -57,10 +63,12 @@ func (c *Circuit) Define(api frontend.API) error {
 	// the reservation was taken.
 	owed := api.Mul(c.OrderAmount, c.Public.ExecutionPrice)
 	api.ToBinary(owed, 64)
+	fills := cmp.IsLessOrEqual(api, c.MinPrice, c.Public.ExecutionPrice)
+	settledOwed := api.Select(fills, owed, frontend.Variable(0))
 
-	recipientOutHash := c.checkRecipientOutputUtxo(api, owed)
-	poolChangeHash := c.checkPoolChangeOutputUtxo(api, owed)
-	makerReceiptHash := c.checkMakerReceiptOutputUtxo(api)
+	recipientOutHash := c.checkRecipientOutputUtxo(api, fills, owed)
+	poolChangeHash := c.checkPoolChangeOutputUtxo(api, settledOwed)
+	makerReceiptHash := c.checkMakerReceiptOutputUtxo(api, fills)
 
 	// The recipient blinding derives from the order blinding so the taker
 	// precomputes its payout note at creation (owed is fixed by the stored
@@ -90,9 +98,9 @@ func (c *Circuit) Define(api frontend.API) error {
 // pubkey), MaxOrderSize (the pair's immutable reservation size, entering the
 // booked clamp), and ReceiptOwnerHash (the maker receipt destination stored on
 // the pair). The recipient owner-hash is deliberately NOT here -- it is
-// re-opened from OrderIn.DataHash, which the public OrderInHash pins, so the
-// payout destination is enforced without ever being revealed on-chain. The
-// native program recomputes this hash from on-chain state.
+// reopened together with the minimum from OrderIn.DataHash, which the public
+// OrderInHash pins, so the payout destination is enforced without ever being
+// revealed on-chain. The native program recomputes this hash from on-chain state.
 type PublicInputs struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 
@@ -172,17 +180,17 @@ func (c *Circuit) checkPoolInputUtxo(api frontend.API) frontend.Variable {
 }
 
 // checkRecipientOutputUtxo pays `owed` of the destination asset to the
-// recipient committed as OrderIn.DataHash (the taker's owner-hash escrow_open
-// wrote there, pinned by the public OrderInHash), so the payout destination is
+// recipient reopened with the minimum from OrderIn.DataHash (pinned by the
+// public OrderInHash), so the payout destination is
 // enforced without being revealed.
-func (c *Circuit) checkRecipientOutputUtxo(api frontend.API, owed frontend.Variable) frontend.Variable {
+func (c *Circuit) checkRecipientOutputUtxo(api frontend.API, fills, owed frontend.Variable) frontend.Variable {
 	api.AssertIsEqual(c.RecipientOut.Domain, spp.UtxoDomain)
 	api.AssertIsEqual(c.RecipientOut.RingDataHash, 0)
 	api.AssertIsEqual(c.RecipientOut.RingProgramID, 0)
 	api.AssertIsEqual(c.RecipientOut.DataHash, 0)
-	api.AssertIsEqual(c.RecipientOut.Asset, c.PoolIn.Asset)
-	api.AssertIsEqual(c.RecipientOut.Amount, owed)
-	api.AssertIsEqual(c.RecipientOut.Owner, c.OrderIn.DataHash)
+	api.AssertIsEqual(c.RecipientOut.Asset, api.Select(fills, c.PoolIn.Asset, c.OrderIn.Asset))
+	api.AssertIsEqual(c.RecipientOut.Amount, api.Select(fills, owed, c.OrderAmount))
+	api.AssertIsEqual(c.RecipientOut.Owner, c.RecipientOwnerHash)
 	return spp.UtxoHashCircuit(api, c.RecipientOut)
 }
 
@@ -219,13 +227,13 @@ func (c *Circuit) checkPoolChangeOutputUtxo(api frontend.API, owed frontend.Vari
 
 // checkMakerReceiptOutputUtxo pays the settled source asset (the full order
 // amount) to the maker receipt owner-hash stored on the pair.
-func (c *Circuit) checkMakerReceiptOutputUtxo(api frontend.API) frontend.Variable {
+func (c *Circuit) checkMakerReceiptOutputUtxo(api frontend.API, fills frontend.Variable) frontend.Variable {
 	api.AssertIsEqual(c.MakerReceipt.Domain, spp.UtxoDomain)
 	api.AssertIsEqual(c.MakerReceipt.RingDataHash, 0)
 	api.AssertIsEqual(c.MakerReceipt.RingProgramID, 0)
 	api.AssertIsEqual(c.MakerReceipt.DataHash, 0)
 	api.AssertIsEqual(c.MakerReceipt.Asset, c.OrderIn.Asset)
-	api.AssertIsEqual(c.MakerReceipt.Amount, c.OrderAmount)
+	api.AssertIsEqual(c.MakerReceipt.Amount, api.Select(fills, c.OrderAmount, frontend.Variable(0)))
 	api.AssertIsEqual(c.MakerReceipt.Owner, c.Public.ReceiptOwnerHash)
 	return spp.UtxoHashCircuit(api, c.MakerReceipt)
 }

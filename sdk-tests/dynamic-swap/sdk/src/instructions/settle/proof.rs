@@ -13,6 +13,7 @@ use zolana_transaction::{
 use crate::{
     err,
     shared::{check_output_utxo, check_pool_output_utxo, right_align_blinding},
+    state::order_data_hash,
 };
 
 /// Deterministically derives a settle/cancel output UTXO's blinding from one
@@ -35,11 +36,9 @@ pub fn derive_output_blinding(blinding: &Blinding, domain: u64) -> Result<Blindi
 
 /// Proof-input params for the `pool_settle` circuit: 2-in (order, pool note) /
 /// 3-out (recipient payout, pool change, maker receipt), the exact IN2_OUT3
-/// shape. There is no refund branch: settle always pays
-/// `order_amount * execution_price` of the destination asset to the recipient
-/// committed as the order UTXO's data hash, funded from the pool note. The
-/// recipient owner-hash is taken from `order_in`'s data hash -- never a public
-/// input, so the payout destination stays confidential.
+/// shape. The committed private minimum selects a destination-asset fill or a
+/// full source-asset refund. The recipient and minimum are reopened from the
+/// order input and never become public inputs.
 pub struct SettleProofInputParams {
     pub order_in: SppProofInputUtxo,
     /// The spent pool note; must be owned by the pool_authority, hold the
@@ -55,6 +54,8 @@ pub struct SettleProofInputParams {
     /// nonzero).
     pub execution_price: u64,
     pub order_amount: u64,
+    pub recipient_owner_hash: [u8; 32],
+    pub min_price: u64,
     /// The `Escrow` account's on-chain `order_utxo_hash`. `order_in` must hash
     /// to this value.
     pub order_utxo_hash: [u8; 32],
@@ -102,36 +103,42 @@ impl SettleProofInputParams {
         if self.pool_in.data_hash != Some(u64_right_align(self.pool_booked_in)) {
             bail!("pool_in data hash does not commit pool_booked_in");
         }
-        // The recipient the circuit re-opens from the order UTXO's data hash.
-        let recipient_owner_hash = self
-            .order_in
-            .data_hash
-            .ok_or_else(|| err("order_in carries no data hash (recipient)"))?;
+        let expected_data_hash = order_data_hash(&self.recipient_owner_hash, self.min_price)?;
+        if self.order_in.data_hash != Some(expected_data_hash) {
+            bail!("order_in data hash does not commit recipient and min_price");
+        }
 
         let owed = self
             .order_amount
             .checked_mul(self.execution_price)
             .ok_or_else(|| err("order_amount * execution_price overflows"))?;
 
-        // The recipient is paid `owed` of the pool's (destination) asset.
+        let fills = self.execution_price >= self.min_price;
+        let recipient_asset = if fills {
+            &self.pool_in.utxo.asset
+        } else {
+            &self.order_in.utxo.asset
+        };
+        let recipient_amount = if fills { owed } else { self.order_amount };
         let recipient_owner = check_output_utxo(
             "recipient_out",
             &self.recipient_out,
-            &self.pool_in.utxo.asset,
-            owed,
+            recipient_asset,
+            recipient_amount,
         )?;
-        if recipient_owner.owner_hash().map_err(err)? != recipient_owner_hash {
+        if recipient_owner.owner_hash().map_err(err)? != self.recipient_owner_hash {
             bail!("recipient_out owner does not match the order's committed recipient");
         }
 
         // The pool change: the unspent pool value, re-locked under the
         // pool_authority with booked reduced by the full reservation (clamped
         // at zero) -- the circuit's `max(booked_in - max_order_size, 0)`.
+        let settled_owed = if fills { owed } else { 0 };
         let expected_change = self
             .pool_in
             .utxo
             .amount
-            .checked_sub(owed)
+            .checked_sub(settled_owed)
             .ok_or_else(|| err("owed exceeds the pool note amount"))?;
         let expected_booked = self.pool_booked_in.saturating_sub(self.max_order_size);
         let change_owner = check_pool_output_utxo(
@@ -145,13 +152,12 @@ impl SettleProofInputParams {
             bail!("pool_change owner is not the pool_authority owner-hash");
         }
 
-        // The maker's receipt: the full settled source-asset amount, to the
-        // receipt owner-hash stored on the pair.
+        let receipt_amount = if fills { self.order_amount } else { 0 };
         let receipt_owner = check_output_utxo(
             "maker_receipt",
             &self.maker_receipt,
             &self.order_in.utxo.asset,
-            self.order_amount,
+            receipt_amount,
         )?;
         if receipt_owner.owner_hash().map_err(err)? != self.receipt_owner_hash {
             bail!("maker_receipt owner does not match the pair's receipt owner-hash");
@@ -203,6 +209,8 @@ impl SettleProofInputParams {
             max_order_size: self.max_order_size,
             receipt_owner_hash: self.receipt_owner_hash,
             order_amount: self.order_amount,
+            recipient_owner_hash: self.recipient_owner_hash,
+            min_price: self.min_price,
             order_in,
             pool_in,
             recipient_out,

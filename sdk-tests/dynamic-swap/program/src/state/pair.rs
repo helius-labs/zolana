@@ -26,10 +26,18 @@ pub struct Pair {
     pub expiry_slots: u64,
     /// The worst-case owed per escrow (destination asset): every open escrow
     /// reserves exactly this much of `available_liquidity`, and the `escrow_open`
-    /// circuit caps `order_amount * execution_price` to it. Set at
+    /// circuit caps `order_amount * (public_price_floor + 2 *
+    /// price_tolerance)` to it. Set at
     /// `create_pair` and immutable: `cancel` must release exactly what
     /// `create_escrow` reserved. Nonzero.
     pub max_order_size: u64,
+    /// Public absolute quote tolerance. For a public floor `F`, escrow
+    /// creation accepts a live price in `[F, F + 2 * price_tolerance]`.
+    /// Immutable so pending escrow-open proofs keep the same range.
+    pub price_tolerance: u64,
+    /// Minimum exact source-asset amount a taker must lock. Enforced privately
+    /// by escrow_open so a dust order cannot reserve `max_order_size`.
+    pub min_order_amount: u64,
     /// Public lower bound on the pool's counted liquidity (destination asset).
     /// Invariant: `sum(booked over pool notes) >= available_liquidity +
     /// open_reservations * max_order_size`, maintained purely by public
@@ -73,7 +81,7 @@ impl Pair {
     }
 }
 
-const _: () = assert!(Pair::SIZE == 232);
+const _: () = assert!(Pair::SIZE == 248);
 
 #[inline(always)]
 pub fn load_pair(account: &AccountView) -> Result<Ref<'_, Pair>, ProgramError> {

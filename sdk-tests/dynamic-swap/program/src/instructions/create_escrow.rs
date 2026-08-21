@@ -30,20 +30,20 @@ pub struct CreateEscrowIxData {
     /// the circuit caps `owed <= max_order_size` so the reservation always
     /// covers the order.
     pub proof: Groth16ProofBytes,
-    /// The taker's price limit: the escrow is rejected if the pair's current
-    /// price exceeds it -- protection against an `update_price` landing between
-    /// the taker building the transaction and the escrow's creation. Checked
-    /// once here and discarded; it never enters a circuit or the account.
-    pub max_price: u64,
+    /// Public lower edge `F` of the accepted price window. With the pair's
+    /// immutable tolerance `X`, the live price must be in `[F, F + 2X]`.
+    pub public_price_floor: u64,
     pub transact: TransactIxData,
 }
 
 /// `escrow_open`'s public-input hash: `Poseidon(PrivateTxHash,
-/// EscrowAuthorityOwnerHash, SourceAsset, ExecutionPrice, MaxOrderSize)`. The
-/// recipient is deliberately absent -- it is bound in-circuit to the source
-/// UTXO's owner and committed as the order UTXO's DataHash, so the payout
-/// destination never appears on-chain. Field order and encoding must match the
-/// circuit's `PublicInputs.Check`.
+/// EscrowAuthorityOwnerHash, SourceAsset, PublicPriceFloor, PriceTolerance,
+/// MinOrderAmount, MaxOrderSize)`. The
+/// recipient and private minimum price are deliberately absent -- the
+/// recipient is bound in-circuit to the source UTXO's owner, and their
+/// composite commitment becomes the order UTXO's DataHash. Neither private
+/// value appears on-chain. Field order and encoding must match the circuit's
+/// `PublicInputs.Check`.
 pub struct EscrowOpenPublicInput<'a> {
     pub private_tx_hash: &'a [u8; 32],
     /// The escrow_authority PDA's owner-hash, recomputed on-chain (see
@@ -52,9 +52,9 @@ pub struct EscrowOpenPublicInput<'a> {
     /// The pair's source-asset commitment (`Pair.source_asset`); binds
     /// `SourceIn.Asset`.
     pub source_asset: &'a [u8; 32],
-    /// The pair price at creation (stored as `Escrow.execution_price`); enters
-    /// the circuit's `owed = order_amount * execution_price` cap.
-    pub execution_price: u64,
+    pub public_price_floor: u64,
+    pub price_tolerance: u64,
+    pub min_order_amount: u64,
     /// The pair's immutable `max_order_size`; the circuit enforces
     /// `owed <= max_order_size` so the reservation taken below always covers
     /// the order.
@@ -67,7 +67,9 @@ impl EscrowOpenPublicInput<'_> {
             self.private_tx_hash.as_slice(),
             self.escrow_authority_owner_hash.as_slice(),
             self.source_asset.as_slice(),
-            u64_right_align(self.execution_price).as_slice(),
+            u64_right_align(self.public_price_floor).as_slice(),
+            u64_right_align(self.price_tolerance).as_slice(),
+            u64_right_align(self.min_order_amount).as_slice(),
             u64_right_align(self.max_order_size).as_slice(),
         ])
         .map_err(|_| DynamicSwapError::HashingFailed.into())
@@ -97,7 +99,7 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
 
     let CreateEscrowIxData {
         proof,
-        max_price,
+        public_price_floor,
         transact,
     } = wincode::deserialize_exact(data).map_err(|_| DynamicSwapError::InvalidInstructionData)?;
 
@@ -112,10 +114,18 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
     if execution_price == 0 {
         return Err(DynamicSwapError::InvalidPrice.into());
     }
-    // The taker's price limit, checked before the proof so the escrow can only
-    // exist at an acceptable price; settle therefore has no refund branch.
-    if execution_price > max_price {
-        return Err(DynamicSwapError::MaxPriceExceeded.into());
+    // The public floor is range-limited by the pair's immutable absolute
+    // tolerance. The proof uses the same upper edge as its worst-case payout,
+    // so accepting outside the range would under-collateralize the reservation.
+    let doubled_tolerance = pair
+        .price_tolerance
+        .checked_mul(2)
+        .ok_or(ProgramError::ArithmeticOverflow)?;
+    let coverage_price = public_price_floor
+        .checked_add(doubled_tolerance)
+        .ok_or(ProgramError::ArithmeticOverflow)?;
+    if execution_price < public_price_floor || execution_price > coverage_price {
+        return Err(DynamicSwapError::PublicPriceFloorOutOfRange.into());
     }
     // The worst-case reservation must be covered by committed liquidity: this
     // is the taker's hard guarantee that funds exist for the escrow's whole
@@ -130,14 +140,16 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
     // zero-secret constant.
     let escrow_authority_owner_hash = escrow_authority_owner_hash(&pair_address)?;
 
-    // The recipient is not a public input: the circuit binds it to the taker's
-    // `SourceIn.Owner` and commits it as the order UTXO's DataHash, so the
-    // program never sees or passes it.
+    // The recipient and minimum price are not public inputs: the circuit binds
+    // the recipient to the taker's `SourceIn.Owner` and commits both private
+    // values as the order UTXO's DataHash, so the program never sees them.
     let public_input_hash = EscrowOpenPublicInput {
         private_tx_hash: &transact.private_tx_hash,
         escrow_authority_owner_hash: &escrow_authority_owner_hash,
         source_asset: &source_asset,
-        execution_price,
+        public_price_floor,
+        price_tolerance: pair.price_tolerance,
+        min_order_amount: pair.min_order_amount,
         max_order_size: pair.max_order_size,
     }
     .hash()?;

@@ -53,6 +53,8 @@ use zolana_wallet::{ensure_registered, Deposit, DepositParams};
 /// the tests pass into `create_pair`.
 pub const SOURCE_ASSET_ID: u64 = 2;
 pub const DESTINATION_ASSET_ID: u64 = 3;
+pub const PRICE_TOLERANCE: u64 = 1;
+pub const MIN_ORDER_AMOUNT: u64 = 1;
 
 pub const USER_SPL_SHIELD: u64 = 1_000_000_000;
 /// Minted to the maker's destination-asset token account; the budget its pool
@@ -446,6 +448,8 @@ pub fn setup_with_pair(
         destination_asset_id: DESTINATION_ASSET_ID,
         expiry_slots,
         max_order_size,
+        price_tolerance: PRICE_TOLERANCE,
+        min_order_amount: MIN_ORDER_AMOUNT,
         source_asset,
         destination_asset,
         maker_receipt_owner_hash,

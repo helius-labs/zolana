@@ -22,6 +22,8 @@ pub struct EscrowCancelProofInputs {
     /// `Escrow.order_utxo_hash`, asserted equal in-circuit to `Hash(order_in)`.
     pub order_in_hash: [u8; 32],
     pub order_amount: u64,
+    pub recipient_owner_hash: [u8; 32],
+    pub min_price: u64,
     pub order_in: ProofInputUtxo,
     pub refund_out: ProofInputUtxo,
     pub external_data_hash: [u8; 32],
@@ -46,6 +48,11 @@ impl EscrowCancelProofInputs {
             "OrderAmount".to_string(),
             vec![self.order_amount.to_string()],
         );
+        map.insert(
+            "RecipientOwnerHash".to_string(),
+            vec![bytes_to_decimal_string(&self.recipient_owner_hash)],
+        );
+        map.insert("MinPrice".to_string(), vec![self.min_price.to_string()]);
         map.insert(
             "ExternalDataHash".to_string(),
             vec![bytes_to_decimal_string(&self.external_data_hash)],
@@ -76,6 +83,8 @@ mod tests {
             private_tx_hash: [2; 32],
             order_in_hash: [3; 32],
             order_amount: 50,
+            recipient_owner_hash: [9; 32],
+            min_price: 80,
             order_in: ProofInputUtxo::default(),
             refund_out: ProofInputUtxo::default(),
             external_data_hash: [4; 32],
@@ -92,6 +101,8 @@ mod tests {
             "Public_PrivateTxHash".to_string(),
             "Public_OrderInHash".to_string(),
             "OrderAmount".to_string(),
+            "RecipientOwnerHash".to_string(),
+            "MinPrice".to_string(),
             "ExternalDataHash".to_string(),
         ];
         for prefix in ["OrderIn", "RefundOut"] {
