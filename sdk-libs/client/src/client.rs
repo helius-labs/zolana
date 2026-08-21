@@ -72,7 +72,7 @@ use crate::{
         AsyncRpc, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
         GetNonInclusionProofsResponse, GetShieldedTransactionsByNullifiersResponse,
         GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-        ProveResult, RingShieldedTransactionsByTagRequest, Rpc, ShieldedTransactionStream,
+        ProveResult, Rpc, ShieldedTransactionStream,
     },
     settlement::SettlementAccountValidation,
 };
@@ -606,17 +606,6 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
             .await
     }
 
-    async fn get_ring_shielded_transactions_by_tag(
-        &self,
-        mut request: RingShieldedTransactionsByTagRequest,
-    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        let config = request.config().unwrap_or(self.indexer_config);
-        request = request.with_config(config);
-        self.async_indexer
-            .get_ring_shielded_transactions_by_tag(request)
-            .await
-    }
-
     async fn get_shielded_transactions_by_signature(
         &self,
         signature: Signature,
@@ -876,16 +865,6 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
             limit,
             Some(config.unwrap_or(self.indexer_config)),
         )
-    }
-
-    fn get_ring_shielded_transactions_by_tag(
-        &self,
-        mut request: RingShieldedTransactionsByTagRequest,
-    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        let config = request.config().unwrap_or(self.indexer_config);
-        request = request.with_config(config);
-        self.blocking_indexer()
-            .get_ring_shielded_transactions_by_tag(request)
     }
 
     fn get_shielded_transactions_by_signature(

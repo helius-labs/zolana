@@ -35,13 +35,6 @@ pub struct ZolanaApi {
     trace_http: bool,
 }
 
-pub struct RingShieldedTransactionsByTagRequest {
-    pub tag: Hash,
-    pub cursor: Option<Base64String>,
-    pub limit: Option<u64>,
-    pub ring_program_id: SerializablePubkey,
-}
-
 #[derive(Clone, Debug)]
 pub struct BlockingZolanaApi {
     base_path: String,
@@ -200,19 +193,6 @@ impl ZolanaApi {
             cursor,
             limit: optional_limit(limit)?,
             ring_program_id: None,
-        })
-        .await
-    }
-
-    pub async fn get_ring_shielded_transactions_by_tag(
-        &self,
-        request: RingShieldedTransactionsByTagRequest,
-    ) -> Result<GetShieldedTransactionsByTagsResponse, ApiError> {
-        self.call::<GetShieldedTransactionsByTags>(GetRingsByTagsRequest {
-            tags: vec![request.tag],
-            cursor: request.cursor,
-            limit: optional_limit(request.limit)?,
-            ring_program_id: Some(request.ring_program_id),
         })
         .await
     }
@@ -376,18 +356,6 @@ impl BlockingZolanaApi {
             cursor,
             limit: optional_limit(limit)?,
             ring_program_id: None,
-        })
-    }
-
-    pub fn get_ring_shielded_transactions_by_tag(
-        &self,
-        request: RingShieldedTransactionsByTagRequest,
-    ) -> Result<GetShieldedTransactionsByTagsResponse, ApiError> {
-        self.call::<GetShieldedTransactionsByTags>(GetRingsByTagsRequest {
-            tags: vec![request.tag],
-            cursor: request.cursor,
-            limit: optional_limit(request.limit)?,
-            ring_program_id: Some(request.ring_program_id),
         })
     }
 

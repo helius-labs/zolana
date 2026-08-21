@@ -10,8 +10,8 @@ use zolana_interface::state::STATE_HEIGHT;
 use zolana_keypair::P256Pubkey;
 use zolana_merkle_tree::MerkleTree;
 use zolana_transaction::{
-    owner_utxo_hash, Address, OutputContext, OutputSlot, ProofInputUtxo, RingAssociation,
-    ShieldedTransaction, TransactionError,
+    owner_utxo_hash, Address, OutputContext, OutputSlot, ProofInputUtxo, ShieldedTransaction,
+    TransactionError,
 };
 
 #[derive(Debug, Error)]
@@ -291,7 +291,6 @@ pub fn shielded_transaction_from_general_event(
     ShieldedTransaction {
         slot: 0,
         tx_signature: signature,
-        ring: RingAssociation::None,
         tx_viewing_pk,
         salt,
         output_slots,

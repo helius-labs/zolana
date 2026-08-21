@@ -964,7 +964,6 @@ fn proofless_deposit_from_indexed_match(
     Ok(Some(ShieldedTransaction {
         slot: item.slot,
         tx_signature: item.tx_signature,
-        ring: zolana_transaction::RingAssociation::None,
         tx_viewing_pk: None,
         salt: None,
         output_slots: vec![OutputSlot {
@@ -985,7 +984,6 @@ fn proofless_deposit_from_indexed_match(
 fn convert_sync_transaction(
     tx: RpcShieldedTransaction,
 ) -> Result<ShieldedTransaction, ClientError> {
-    let ring = tx.ring;
     let output_slots = tx
         .output_slots
         .into_iter()
@@ -1002,7 +1000,6 @@ fn convert_sync_transaction(
     Ok(ShieldedTransaction {
         slot: tx.slot,
         tx_signature: tx.tx_signature,
-        ring,
         tx_viewing_pk: tx.tx_viewing_pk,
         salt: tx.salt,
         output_slots,
@@ -1045,27 +1042,6 @@ mod tests {
         Context, GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByNullifiersResponse,
         GetShieldedTransactionsByTagsResponse, OutputContext, OutputSlot,
     };
-
-    #[test]
-    fn sync_conversion_preserves_resolved_ring_identity() {
-        let ring = zolana_transaction::RingAssociation::Resolved {
-            config: Address::new_from_array([3u8; 32]),
-            program_id: Address::new_from_array([4u8; 32]),
-        };
-        let converted = convert_sync_transaction(RpcShieldedTransaction {
-            slot: 1,
-            tx_signature: Signature::from([2u8; 64]),
-            ring,
-            tx_viewing_pk: None,
-            salt: None,
-            output_slots: Vec::new(),
-            messages: Vec::new(),
-            nullifiers: Vec::new(),
-            proofless: false,
-        })
-        .expect("sync conversion");
-        assert_eq!(converted.ring, ring);
-    }
 
     /// A mock that behaves like photon: filters by tag, honours the cursor, and
     /// orders globally by slot.
@@ -1127,7 +1103,6 @@ mod tests {
                 .map(|(slot, tag)| ShieldedTransaction {
                     slot: *slot,
                     tx_signature: Signature::from([*slot as u8; 64]),
-                    ring: zolana_transaction::RingAssociation::None,
                     tx_viewing_pk: None,
                     salt: None,
                     output_slots: vec![OutputSlot {
@@ -1184,7 +1159,6 @@ mod tests {
                 .map(|(slot, nullifier)| ShieldedTransaction {
                     slot: *slot,
                     tx_signature: Signature::from([*slot as u8; 64]),
-                    ring: zolana_transaction::RingAssociation::None,
                     tx_viewing_pk: None,
                     salt: None,
                     output_slots: Vec::new(),
@@ -2337,7 +2311,6 @@ mod tests {
             transactions: vec![ShieldedTransaction {
                 slot: 1,
                 tx_signature: Signature::default(),
-                ring: zolana_transaction::RingAssociation::None,
                 tx_viewing_pk: None,
                 salt: None,
                 output_slots: vec![OutputSlot {
@@ -2650,7 +2623,6 @@ mod tests {
         ShieldedTransaction {
             slot,
             tx_signature: signature_for_slot(slot),
-            ring: zolana_transaction::RingAssociation::None,
             tx_viewing_pk: Some(
                 zolana_keypair::P256Pubkey::from_bytes(external.tx_viewing_pk)
                     .expect("tx viewing pk"),
@@ -2693,7 +2665,6 @@ mod tests {
         ShieldedTransaction {
             slot,
             tx_signature: signature_for_slot(slot),
-            ring: zolana_transaction::RingAssociation::None,
             tx_viewing_pk: None,
             salt: None,
             output_slots: vec![OutputSlot {

@@ -295,7 +295,6 @@ impl Scenario {
             }
 
             self.txs.push(ShieldedTransaction {
-                ring: zolana_transaction::RingAssociation::None,
                 slot: 0,
                 tx_signature: solana_signature::Signature::default(),
                 tx_viewing_pk: Some(tx_viewing_pk),

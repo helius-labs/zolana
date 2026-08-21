@@ -9,11 +9,10 @@ use async_trait::async_trait;
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_api::{
-    Base64String, BlockingZolanaApi, Hash as ApiHash,
-    RingShieldedTransactionsByTagRequest as ApiRingShieldedTransactionsByTagRequest,
-    RingsOutputSlot as ApiOutputSlot, SerializablePubkey, SerializableSignature, ZolanaApi,
+    Base64String, BlockingZolanaApi, Hash as ApiHash, RingsOutputSlot as ApiOutputSlot,
+    SerializablePubkey, SerializableSignature, ZolanaApi,
 };
-use zolana_interface::{instruction::instruction_data::transact::TransactIxData, pda};
+use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use zolana_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
 use zolana_transaction::instructions::transact::SppProofInputs;
 
@@ -26,8 +25,7 @@ use crate::{
         GetMerkleProofsResponse, GetNonInclusionProofsResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
         GetShieldedTransactionsByTagsResponse, IndexedShieldedTransaction, MerkleContext,
-        MerkleProof, NonInclusionProof, OutputContext, OutputSlot,
-        RingShieldedTransactionsByTagRequest, Rpc, ShieldedTransaction,
+        MerkleProof, NonInclusionProof, OutputContext, OutputSlot, Rpc, ShieldedTransaction,
     },
 };
 
@@ -275,30 +273,6 @@ impl Rpc for ZolanaIndexer {
         )
     }
 
-    fn get_ring_shielded_transactions_by_tag(
-        &self,
-        request: RingShieldedTransactionsByTagRequest,
-    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        wait_for_indexer(
-            request.config(),
-            |response: &GetShieldedTransactionsByTagsResponse| response.context,
-            || {
-                let response = self
-                    .api
-                    .get_ring_shielded_transactions_by_tag(
-                        ApiRingShieldedTransactionsByTagRequest {
-                            tag: encode_hash(request.tag()),
-                            cursor: encode_cursor(request.cursor().map(ToOwned::to_owned)),
-                            limit: request.limit().map(|limit| u64::from(limit.get())),
-                            ring_program_id: encode_pubkey(request.ring_program_id()),
-                        },
-                    )
-                    .map_err(indexer_error)?;
-                convert_shielded_transactions_response(response)
-            },
-        )
-    }
-
     fn get_shielded_transactions_by_signature(
         &self,
         signature: Signature,
@@ -507,32 +481,6 @@ impl AsyncRpc for AsyncZolanaIndexer {
                     .await
                     .map_err(indexer_error)?;
 
-                convert_shielded_transactions_response(response)
-            },
-        )
-        .await
-    }
-
-    async fn get_ring_shielded_transactions_by_tag(
-        &self,
-        request: RingShieldedTransactionsByTagRequest,
-    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        wait_for_indexer_async(
-            request.config(),
-            |response: &GetShieldedTransactionsByTagsResponse| response.context,
-            || async {
-                let response = self
-                    .api
-                    .get_ring_shielded_transactions_by_tag(
-                        ApiRingShieldedTransactionsByTagRequest {
-                            tag: encode_hash(request.tag()),
-                            cursor: encode_cursor(request.cursor().map(ToOwned::to_owned)),
-                            limit: request.limit().map(|limit| u64::from(limit.get())),
-                            ring_program_id: encode_pubkey(request.ring_program_id()),
-                        },
-                    )
-                    .await
-                    .map_err(indexer_error)?;
                 convert_shielded_transactions_response(response)
             },
         )
@@ -759,25 +707,9 @@ fn convert_shielded_transaction(
     path: &str,
     item: zolana_api::ShieldedTransaction,
 ) -> Result<ShieldedTransaction, ClientError> {
-    let ring = match (item.ring_config, item.ring_program_id) {
-        (None, None) => zolana_transaction::RingAssociation::None,
-        (Some(config), None) => zolana_transaction::RingAssociation::Unresolved {
-            config: Address::new_from_array(config.0.to_bytes()),
-        },
-        (Some(config), Some(program_id)) => {
-            let config = Address::new_from_array(config.0.to_bytes());
-            let program_id = Address::new_from_array(program_id.0.to_bytes());
-            if config != pda::ring_auth(&program_id).0 {
-                return Err(ClientError::InvalidRingAssociation);
-            }
-            zolana_transaction::RingAssociation::Resolved { config, program_id }
-        }
-        (None, Some(_)) => return Err(ClientError::InvalidRingAssociation),
-    };
     Ok(ShieldedTransaction {
         slot: item.slot,
         tx_signature: item.tx_signature.0,
-        ring,
         tx_viewing_pk: decode_optional_p256(item.tx_viewing_pk, &format!("{path}.txViewingPk"))?,
         salt: decode_optional_salt(item.salt, &format!("{path}.salt"))?,
         output_slots: item
@@ -927,59 +859,6 @@ mod tests {
         assert_eq!(key.as_bytes(), point.as_bytes());
     }
 
-    fn api_transaction(
-        ring_config: Option<Address>,
-        ring_program_id: Option<Address>,
-    ) -> zolana_api::ShieldedTransaction {
-        zolana_api::ShieldedTransaction {
-            slot: 1,
-            tx_signature: SerializableSignature(signature(1)),
-            tx_viewing_pk: None,
-            salt: None,
-            output_slots: Vec::new(),
-            messages: Vec::new(),
-            nullifiers: Vec::new(),
-            proofless: false,
-            ring_config: ring_config.map(encode_pubkey),
-            ring_program_id: ring_program_id.map(encode_pubkey),
-        }
-    }
-
-    #[test]
-    fn ring_association_decodes_every_wire_state() {
-        let program_id = Address::new_from_array([3u8; 32]);
-        let config = pda::ring_auth(&program_id).0;
-        assert_eq!(
-            convert_shielded_transaction("tx", api_transaction(None, None))
-                .expect("no ring")
-                .ring,
-            zolana_transaction::RingAssociation::None
-        );
-        assert_eq!(
-            convert_shielded_transaction("tx", api_transaction(Some(config), None))
-                .expect("unresolved ring")
-                .ring,
-            zolana_transaction::RingAssociation::Unresolved { config }
-        );
-        assert_eq!(
-            convert_shielded_transaction("tx", api_transaction(Some(config), Some(program_id)),)
-                .expect("resolved ring")
-                .ring,
-            zolana_transaction::RingAssociation::Resolved { config, program_id }
-        );
-        assert!(matches!(
-            convert_shielded_transaction("tx", api_transaction(None, Some(program_id))),
-            Err(ClientError::InvalidRingAssociation)
-        ));
-        assert!(matches!(
-            convert_shielded_transaction(
-                "tx",
-                api_transaction(Some(Address::new_from_array([2u8; 32])), Some(program_id)),
-            ),
-            Err(ClientError::InvalidRingAssociation)
-        ));
-    }
-
     #[test]
     fn get_encrypted_utxos_by_tags_encodes_request_and_decodes_matches() {
         let tag_a = bytes32(1);
@@ -1106,7 +985,6 @@ mod tests {
                 transactions: vec![ShieldedTransaction {
                     slot: 50,
                     tx_signature: signature,
-                    ring: zolana_transaction::RingAssociation::None,
                     tx_viewing_pk: None,
                     salt: None,
                     output_slots: vec![OutputSlot {

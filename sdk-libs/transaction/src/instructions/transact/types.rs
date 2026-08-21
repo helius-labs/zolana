@@ -238,23 +238,10 @@ impl OutputSlot {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RingAssociation {
-    None,
-    Unresolved {
-        config: Address,
-    },
-    Resolved {
-        config: Address,
-        program_id: Address,
-    },
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShieldedTransaction {
     pub slot: u64,
     pub tx_signature: solana_signature::Signature,
-    pub ring: RingAssociation,
     pub tx_viewing_pk: Option<P256Pubkey>,
     pub salt: Option<[u8; 16]>,
     pub output_slots: Vec<OutputSlot>,

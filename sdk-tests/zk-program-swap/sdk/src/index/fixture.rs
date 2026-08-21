@@ -13,7 +13,7 @@ use zolana_transaction::{
         types::SppProofInputUtxo,
     },
     utxo::Utxo,
-    AssetRegistry, Data, RingAssociation, ShieldedTransaction, Wallet, SOL_ASSET_ID, SOL_MINT,
+    AssetRegistry, Data, ShieldedTransaction, Wallet, SOL_ASSET_ID, SOL_MINT,
 };
 
 use crate::{
@@ -57,7 +57,6 @@ fn shielded_transaction(proof_inputs: &SppProofInputs) -> ShieldedTransaction {
         .map(|commitment| commitment.nullifier)
         .collect();
     ShieldedTransaction {
-        ring: RingAssociation::None,
         slot: 0,
         tx_signature: Signature::default(),
         tx_viewing_pk: P256Pubkey::from_bytes(external.tx_viewing_pk).ok(),
