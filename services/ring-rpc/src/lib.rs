@@ -25,4 +25,4 @@ pub use config::{
     KeygenArgs, RootSecret, RootSecretError, ServeArgs,
 };
 pub use origins::{OriginError, OriginPolicy, Origins};
-pub use server::{rpc_module, run_server, ServerError, ServerOptions};
+pub use server::{rpc_module, run_server, BindPolicy, ServerError, ServerOptions};

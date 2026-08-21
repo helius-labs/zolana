@@ -49,6 +49,6 @@ Photon is an integrity boundary for transaction rows, slots, signatures, ciphert
 
 ## Operation
 
-The server accepts loopback binds only. Put a TLS proxy in front of it for remote clients. Keep the proxy request body limit at or below the service limit.
+The server accepts loopback binds only, put a TLS proxy in front of it for remote clients. `--insecure-public-bind` lifts that for a test deployment and serves the decrypted audit data over plain HTTP. Keep the proxy request body limit at or below the service limit.
 
 `GET /health` reports the service identity. `GET /ready` checks Photon, Solana RPC, and the local ring auditor key. Key files must have owner access only unless the operator selects the shared file option.

@@ -35,8 +35,16 @@ use crate::{
 const MAX_REQUEST_BODY_SIZE: u32 = 64 * 1024;
 const MAX_RESPONSE_BODY_SIZE: u32 = 16 * 1024 * 1024;
 
+/// Only a loopback bind keeps the decrypted audit data behind a TLS proxy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BindPolicy {
+    LoopbackOnly,
+    InsecurePublic,
+}
+
 pub struct ServerOptions {
     pub bind: IpAddr,
+    pub bind_policy: BindPolicy,
     pub port: u16,
     pub max_connections: u32,
     pub request_timeout: Duration,
@@ -60,7 +68,7 @@ pub async fn run_server<S: TransactionSource + 'static>(
     hub: Arc<Hub<S>>,
     options: ServerOptions,
 ) -> Result<ServerHandle, ServerError> {
-    if !options.bind.is_loopback() {
+    if options.bind_policy == BindPolicy::LoopbackOnly && !options.bind.is_loopback() {
         return Err(ServerError::PublicBind);
     }
     let addr = SocketAddr::from((options.bind, options.port));
@@ -316,6 +324,7 @@ mod tests {
     fn options(port: u16, timeout: Duration) -> ServerOptions {
         ServerOptions {
             bind: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            bind_policy: BindPolicy::LoopbackOnly,
             port,
             max_connections: 8,
             request_timeout: timeout,
@@ -424,6 +433,7 @@ mod tests {
             ),
             ServerOptions {
                 bind: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+                bind_policy: BindPolicy::LoopbackOnly,
                 port: 0,
                 max_connections: 1,
                 request_timeout: Duration::from_secs(1),
@@ -431,6 +441,26 @@ mod tests {
         )
         .await;
         assert!(matches!(public, Err(ServerError::PublicBind)));
+        let insecure = run_server(
+            hub(
+                TestSource {
+                    healthy: true,
+                    delay: Duration::ZERO,
+                    config: None,
+                },
+                Origins::default(),
+            ),
+            ServerOptions {
+                bind: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+                bind_policy: BindPolicy::InsecurePublic,
+                port: 0,
+                max_connections: 1,
+                request_timeout: Duration::from_secs(1),
+            },
+        )
+        .await
+        .expect("public bind under the insecure policy");
+        insecure.stop().expect("stop");
 
         let failed_port = port();
         let handle = run_server(

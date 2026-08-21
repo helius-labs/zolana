@@ -61,6 +61,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         .to_bytes();
     let options = ServerOptions {
         bind: args.bind,
+        bind_policy: args.bind_policy(),
         port: args.port,
         max_connections: args.max_connections.get(),
         request_timeout: args.request_timeout(),
