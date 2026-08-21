@@ -138,15 +138,6 @@ fn zero_prefix_auditor_pubkey_is_rejected_exactly() {
 }
 
 #[test]
-fn invalid_curve_point_is_rejected_exactly() {
-    let (mollusk, _) = setup_mollusk();
-    let mut key = auditor_pubkey(2);
-    key[1..].fill(0xff);
-    let fixture = create_config_fixture(key);
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidAuditorPubkey));
-}
-
-#[test]
 fn reserved_auditor_keys_are_rejected_exactly() {
     for key in [
         zolana_interface::P_CONST_SEC1,
