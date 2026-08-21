@@ -300,7 +300,8 @@ up() {
     read -r vpc subnets <<< "$(vpc_and_subnets)"
     local sg role_arn secret_arn
     sg="$(ensure_security_group "$vpc")"
-    ensure_load_balancer "$vpc" "$subnets" >/dev/null
+    local dns
+    dns="$(ensure_load_balancer "$vpc" "$subnets")"
     role_arn="$(ensure_role)"
     aws_ logs describe-log-groups --log-group-name-prefix "$log_group" --query "logGroups[?logGroupName=='$log_group']" --output text | grep -q . \
         || aws_ logs create-log-group --log-group-name "$log_group" --tags "$prefix=1"
