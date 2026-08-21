@@ -339,24 +339,7 @@ duplicated in four places that MUST stay in sync:
 `prover/common/lazy_key_manager.go` (`transferSupportedShapes`), and the
 shielded-pool verifier when it exists (`transact/proof.rs`).
 
-### Generate proving keys (`.key`)
-
-```bash
-# All supported shapes, both rails -> prover/server/proving-keys/<rail>_<in>_<out>.key
-prover/server/scripts/generate_keys_transfer.sh
-
-# One shape directly (--circuit flag = transfer (eddsa) | transfer-p256).
-# Key files mirror the vk modules: transfer_<shape>.key / transfer_p256_<shape>.key.
-cd prover/server && go build -o light-prover .
-./light-prover setup-transfer --circuit transfer-p256 --n-inputs 2 --n-outputs 3 \
-    --output proving-keys/transfer_p256_2_3.key
-```
-
-`setup-transfer` runs `groth16.Setup` and writes the full `TransferProofSystem`
-(pk+vk+ccs). Keys are gitignored. The server lazy-loads
-`proving-keys/<rail>_<in>_<out>.key` on first proof request for that shape.
-
-### Distribute proving keys via S3 + CloudFront
+### Rotate and distribute proving keys
 
 The gitignored proving keys (transfer, merge, and the forester's batch
 address-append) are distributed from a private S3 bucket fronted by CloudFront;
@@ -364,41 +347,45 @@ reads are credential-free (the keys are PUBLIC setup parameters, not secrets).
 Which keys, their `sha256`, and the version-hashed prefix
 (`proving-keys/<hash>/<name>.key`) are pinned by the committed lockfile
 `prover/server/prover/provingkeys/proving-keys.lock`, embedded into the prover by
-the `provingkeys` package -- it IS the proving-key version and changes in the same
-commit as the verifying keys, so pk<->vk<->code drift is impossible.
+the `provingkeys` package.
 
 The downloader (`EnsureProvingKey` in `key_downloader.go`) is cache-first: verify
 an on-disk key against the lockfile `sha256` (offline), else HTTPS-GET
 `<base>/<prefix>/<name>` and hard-fail unless the bytes match the pinned `size` +
 `sha256`. The base URL defaults to the CloudFront domain defined in
-`key_downloader.go` and is overridable with `ZOLANA_PROVING_KEYS_URL`; no GitHub
-token, release tag, or `CHECKSUM`. Version-hashed folders are immutable, so a
-rotation writes a NEW folder and leaves old ones untouched (old CLI -> old keys,
-new CLI -> new keys; no CloudFront invalidation). CI caches
-`prover/server/proving-keys` keyed by the lockfile hash.
+`key_downloader.go` and is overridable with `ZOLANA_PROVING_KEYS_URL`.
 
-Rotate keys with (needs the aws CLI + bucket write access):
+`scripts/keys.py` is the only release path. It needs the AWS CLI and local bucket
+write credentials:
 
 ```bash
-prover/server/scripts/rotate_proving_keys.sh   # regen keys + vkeys + lock; upload new version folder
+# Common circuit-change rotations
+python3 -B prover/server/scripts/keys.py rotate --set transfer
+python3 -B prover/server/scripts/keys.py rotate --set transfer-p256-ring
+python3 -B prover/server/scripts/keys.py rotate --set merge
+python3 -B prover/server/scripts/keys.py rotate --set batch
+
+# A deliberate refresh of one key (refused if its circuit fingerprint changed)
+python3 -B prover/server/scripts/keys.py rotate --key transfer_confidential_2_3
+
+# Credential-free release preflight; --full also downloads and hashes all keys
+python3 -B prover/server/scripts/keys.py verify
 ```
 
-It regenerates the proving keys, the interface + batched-merkle-tree verifying
-keys, the circuit fingerprints, and `proving-keys.lock`, then uploads the full set
-to the new `proving-keys/<version-hash>/` folder. Commit the regenerated lockfile
-together with the vkeys in ONE PR.
+The rotation builds `light-prover` and `xtask` once, generates the selected keys
+in a fresh temporary directory, exports their vkeys, and refreshes the circuit
+fingerprints. It then creates a new immutable version folder: unchanged objects
+are copied inside S3 and only regenerated objects cross the laptop's network.
+It verifies that all 38 objects are publicly reachable with their pinned sizes
+before changing any repository file. Finally it replaces the selected Rust
+vkeys, fingerprints, and (last) `proving-keys.lock`. A failed rotation may leave
+an unreferenced S3 folder, but cannot leave the repository pointing to it.
 
-### Regenerate Rust verifying keys (`program-libs/interface/src/verifying_keys/`)
-
-```bash
-prover/server/scripts/regenerate_all_vkeys.sh
-```
-
-Pipeline: `light-prover export-vk` writes the gnark `WriteRawTo` (uncompressed)
-vk binary, then `cargo run -p xtask -- bsb22-vk <vk_bin> <out_dir> <filename>`
+`light-prover export-vk` writes the gnark `WriteRawTo` (uncompressed) vk binary,
+then `xtask bsb22-vk <vk_bin> <out_dir> <filename>`
 calls `groth16_solana::gnark_vk_parser::generate_bsb22_vk_file` to emit a
-`pub const VERIFYINGKEY: Groth16Verifyingkey` per circuit, and `mod.rs` is
-regenerated. The codegen lives in the `xtask` crate, which depends on the
+`pub const VERIFYINGKEY: Groth16Verifyingkey` per circuit. The codegen lives in
+the `xtask` crate, which depends on the
 `groth16-solana` fork (`../groth16-solana`, `features = ["bsb22"]`).
 `zolana-interface` depends on the same fork only to compile the committed
 `verifying_keys/*.rs` constants.

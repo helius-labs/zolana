@@ -13,7 +13,7 @@ import (
 func TestReadMergeKeyDispatch(t *testing.T) {
 	const keyPath = "../../proving-keys/merge_8_1.key"
 	if _, err := os.Stat(keyPath); err != nil {
-		t.Skipf("merge key not present (%s); run scripts/generate_keys_merge.sh", keyPath)
+		t.Skipf("merge key not present (%s); run scripts/keys.py rotate --set merge", keyPath)
 	}
 
 	system, err := common.ReadSystemFromFile(keyPath)
