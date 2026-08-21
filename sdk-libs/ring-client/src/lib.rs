@@ -10,8 +10,8 @@
 //! ## What goes where
 //!
 //! The ring SDK owns instruction construction and proof inputs. This crate owns
-//! auditor encryption, reader keys, ring-scoped indexer scans, and decrypted
-//! audit results.
+//! auditor encryption, reader keys, ring-scoped indexer scans, ring
+//! attribution through the Solana call stack, and decrypted audit results.
 //!
 //! The localnet test drives both crates and compares the audit result with the
 //! transfer inputs.
@@ -27,16 +27,20 @@
 mod decrypt;
 mod encryption;
 mod error;
+mod origin;
 mod reader;
 mod scan;
 mod types;
 
+#[cfg(feature = "solana-rpc")]
+pub use crate::origin::{ConfirmedTransaction, ORIGIN_TRANSACTION_CONFIG};
 pub use crate::{
     decrypt::TransactionAudit,
     encryption::{auditor_view_tag, AuditEncryptionError, AuditorEncryption, AuditorMessage},
     error::AuditError,
+    origin::{ring_invoked_in, OriginError, TransactionOrigin},
     reader::{Ed25519ReaderKey, P256ReaderKey, ReaderKey, ReaderKeyError, READER_RECORD_PDA_SEED},
-    scan::{AuditedPage, RingAudit, RingScan, RingScanPage},
+    scan::{AuditedPage, RingAudit, RingEnvironment, RingScan, RingScanPage},
     types::{AuditedOutput, AuditedTransaction},
 };
 pub use zolana_interface::custom_ring::AUDITOR_MESSAGE_LEN;

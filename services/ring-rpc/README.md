@@ -45,7 +45,7 @@ Each opened output includes the asset mint, amount, recipient viewing key, and r
 
 The released transfer proof does not prove that output ciphertext matches the committed UTXO. The ring program checks Confidential framing. Ring RPC reports output slots that it cannot decrypt. A decrypted value is not proof of the committed plaintext.
 
-Photon is an integrity boundary for transaction rows, slots, signatures, ciphertext, and nullifiers. Ring RPC checks canonical ring association and supported transaction shape. It does not verify transaction inclusion or the default transfer proof.
+Photon is an integrity boundary for transaction rows, slots, signatures, ciphertext, and nullifiers. It needs no ring support. Ring RPC reads the matched transactions by the auditor view tag, then fetches each one from Solana RPC and keeps it only when the shielded pool instruction has the ring program as its direct caller, the position that holds the `ring_auth` signer. It also checks the supported transaction shape. It does not verify the default transfer proof.
 
 ## Operation
 

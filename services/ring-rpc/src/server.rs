@@ -233,8 +233,10 @@ mod tests {
     use std::{future::Future, net::Ipv4Addr};
 
     use solana_address::Address;
+    use solana_signature::Signature;
     use zolana_client::{ClientError, GetShieldedTransactionsByTagsResponse};
     use zolana_keypair::ViewingKey;
+    use zolana_ring_client::OriginError;
     use zolana_transaction::AssetRegistry;
 
     use crate::{
@@ -256,6 +258,14 @@ mod tests {
             _request: TransactionPage<'_>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
             Err(ClientError::Rpc("unused source".to_owned()))
+        }
+
+        async fn ring_invoked(
+            &self,
+            _signature: Signature,
+            _ring: Address,
+        ) -> Result<bool, OriginError> {
+            Ok(false)
         }
 
         async fn ring_config(

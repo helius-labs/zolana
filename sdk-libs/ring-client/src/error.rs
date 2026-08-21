@@ -1,4 +1,4 @@
-use crate::encryption::AuditEncryptionError;
+use crate::{encryption::AuditEncryptionError, origin::OriginError};
 use thiserror::Error;
 use zolana_client::ClientError;
 use zolana_keypair::KeypairError;
@@ -40,4 +40,6 @@ pub enum AuditError {
     Encryption(#[from] AuditEncryptionError),
     #[error(transparent)]
     Indexer(#[from] ClientError),
+    #[error(transparent)]
+    Origin(#[from] OriginError),
 }

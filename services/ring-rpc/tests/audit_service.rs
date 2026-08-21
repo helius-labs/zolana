@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     future::Future,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -16,9 +16,9 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{ClientError, Context, GetShieldedTransactionsByTagsResponse};
 use zolana_indexer_api::{Base64String, Limit};
-use zolana_interface::{instruction::MessageData, pda};
+use zolana_interface::instruction::MessageData;
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
-use zolana_ring_client::{auditor_view_tag, AuditorEncryption, ReaderKey};
+use zolana_ring_client::{auditor_view_tag, AuditorEncryption, OriginError, ReaderKey};
 use zolana_ring_rpc::{
     auditor_key_attestation, rpc_module, unix_now, AuditRead, Claim, CreateAuditorKeyRequest,
     CreateAuditorKeyResponse, GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse,
@@ -29,8 +29,8 @@ use zolana_ring_rpc::{
 };
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
-    AssetRegistry, Data, OutputContext, OutputSlot, RingAssociation, ShieldedTransaction,
-    UtxoSerialization, SOL_ASSET_ID, SOL_MINT,
+    AssetRegistry, Data, OutputContext, OutputSlot, ShieldedTransaction, UtxoSerialization,
+    SOL_ASSET_ID, SOL_MINT,
 };
 
 const SALT: [u8; SALT_LEN] = [3; SALT_LEN];
@@ -263,6 +263,7 @@ fn passkeys_require_canonical_same_origin_assertions() {
 #[derive(Clone)]
 struct StaticSource {
     transactions: Vec<ShieldedTransaction>,
+    origins: HashMap<Signature, bool>,
     next_cursor: Option<Vec<u8>>,
     config: Option<RingConfiguration>,
     granted: HashSet<ReaderKey>,
@@ -272,13 +273,23 @@ struct StaticSource {
     asset_delay: Option<Duration>,
 }
 
+impl StaticSource {
+    fn with_transactions(mut self, transactions: Vec<ShieldedTransaction>) -> Self {
+        self.origins = transactions
+            .iter()
+            .map(|transaction| (transaction.tx_signature, true))
+            .collect();
+        self.transactions = transactions;
+        self
+    }
+}
+
 impl TransactionSource for StaticSource {
     fn transactions_by_tag(
         &self,
         request: TransactionPage<'_>,
     ) -> impl Future<Output = Result<GetShieldedTransactionsByTagsResponse, ClientError>> + Send
     {
-        assert_eq!(request.ring, RING);
         assert_eq!(request.tag.len(), 32);
         assert!(request.page.limit().get() <= 100);
         let response = GetShieldedTransactionsByTagsResponse {
@@ -290,6 +301,23 @@ impl TransactionSource for StaticSource {
             next_cursor: self.next_cursor.clone(),
         };
         async move { Ok(response) }
+    }
+
+    fn ring_invoked(
+        &self,
+        signature: Signature,
+        ring: Address,
+    ) -> impl Future<Output = Result<bool, OriginError>> + Send {
+        assert_eq!(ring, RING);
+        let origin =
+            self.origins
+                .get(&signature)
+                .copied()
+                .ok_or_else(|| OriginError::Unavailable {
+                    signature,
+                    message: "not found".to_owned(),
+                });
+        async move { origin }
     }
 
     fn ring_config(
@@ -391,10 +419,6 @@ fn transaction(
     ShieldedTransaction {
         slot: 42,
         tx_signature: Signature::from([signature_byte; 64]),
-        ring: RingAssociation::Resolved {
-            config: pda::ring_auth(&RING).0,
-            program_id: RING,
-        },
         tx_viewing_pk: Some(tx.pubkey()),
         salt: Some(SALT),
         output_slots,
@@ -450,12 +474,9 @@ impl Fixture {
     }
 
     fn source(&self) -> StaticSource {
-        StaticSource {
-            transactions: vec![
-                self.audited.clone(),
-                self.foreign_key.clone(),
-                self.missing_message.clone(),
-            ],
+        let source = StaticSource {
+            transactions: Vec::new(),
+            origins: HashMap::new(),
             next_cursor: Some(vec![7, 7]),
             config: Some(RingConfiguration {
                 auditor_pubkey: self.auditor.pubkey(),
@@ -468,7 +489,12 @@ impl Fixture {
             assets: Some(AssetRegistry::default()),
             asset_reads: Arc::new(AtomicUsize::new(0)),
             asset_delay: None,
-        }
+        };
+        source.with_transactions(vec![
+            self.audited.clone(),
+            self.foreign_key.clone(),
+            self.missing_message.clone(),
+        ])
     }
 
     fn hub(&self, source: StaticSource) -> Hub<StaticSource> {
@@ -519,8 +545,7 @@ async fn unknown_assets_share_refresh_and_back_off_after_failure() {
     const ASSET_ID: u64 = 2;
     let fixture = Fixture::new();
     let tx = ViewingKey::new();
-    let mut source = fixture.source();
-    source.transactions = vec![transaction(
+    let mut source = fixture.source().with_transactions(vec![transaction(
         8,
         &tx,
         vec![confidential_asset_slot(
@@ -531,7 +556,7 @@ async fn unknown_assets_share_refresh_and_back_off_after_failure() {
             0,
         )],
         vec![auditor_message(&tx, &fixture.auditor.pubkey())],
-    )];
+    )]);
     source.assets = Some(
         AssetRegistry::new([(ASSET_ID, Address::new_from_array([8; 32]))]).expect("asset registry"),
     );
@@ -558,8 +583,9 @@ async fn unknown_assets_share_refresh_and_back_off_after_failure() {
     }
     assert_eq!(reads.load(Ordering::Relaxed), 1);
 
-    let mut source = fixture.source();
-    source.transactions = unknown_transactions.clone();
+    let mut source = fixture
+        .source()
+        .with_transactions(unknown_transactions.clone());
     source.assets = None;
     let reads = source.asset_reads.clone();
     let service = fixture.hub(source).service().expect("service");
@@ -581,8 +607,7 @@ async fn unknown_assets_share_refresh_and_back_off_after_failure() {
         .is_err());
     assert_eq!(reads.load(Ordering::Relaxed), 1);
 
-    let mut source = fixture.source();
-    source.transactions = unknown_transactions;
+    let mut source = fixture.source().with_transactions(unknown_transactions);
     source.asset_delay = Some(Duration::from_secs(1));
     let reads = source.asset_reads.clone();
     let service = fixture.hub(source).service().expect("service");
@@ -654,13 +679,30 @@ async fn only_granted_readers_with_the_configured_auditor_key_can_read() {
 }
 
 #[tokio::test]
-async fn wrong_ring_rows_fail_the_page() {
+async fn rows_outside_the_ring_are_dropped() {
     let fixture = Fixture::new();
     let mut source = fixture.source();
-    source.transactions[0].ring = RingAssociation::Resolved {
-        config: pda::ring_auth(&OTHER_RING).0,
-        program_id: OTHER_RING,
-    };
+    source.origins.insert(fixture.audited.tx_signature, false);
+    let service = fixture.hub(source).service().expect("service");
+    let page = page();
+    let request = auth(&delegate());
+    let response = service
+        .read(AuditRead {
+            auth: &request,
+            page: &page,
+        })
+        .await
+        .expect("read");
+    assert!(response.value.items.is_empty());
+    assert_eq!(response.value.skipped.len(), 2);
+    assert_eq!(response.value.cursor, Some(Base64String(vec![7, 7])));
+}
+
+#[tokio::test]
+async fn unknown_origins_fail_the_page() {
+    let fixture = Fixture::new();
+    let mut source = fixture.source();
+    source.origins.remove(&fixture.audited.tx_signature);
     let service = fixture.hub(source).service().expect("service");
     let page = page();
     let request = auth(&delegate());
@@ -671,7 +713,7 @@ async fn wrong_ring_rows_fail_the_page() {
                 page: &page,
             })
             .await,
-        Err(RingRpcError::RingMismatch)
+        Err(RingRpcError::Origin(OriginError::Unavailable { .. }))
     ));
 }
 
@@ -712,8 +754,9 @@ async fn indexer_pages_must_match_the_attested_bounds() {
     let fixture = Fixture::new();
     let signer = delegate();
 
-    let mut source = fixture.source();
-    source.transactions = vec![fixture.audited.clone(); 101];
+    let source = fixture
+        .source()
+        .with_transactions(vec![fixture.audited.clone(); 101]);
     let service = fixture.hub(source).service().expect("service");
     let request = auth(&signer);
     assert!(matches!(

@@ -99,7 +99,10 @@ where the environment is the indexer, the RPC and the prover. The audited
 instruction forwards SPP's full account list and does not fit a legacy
 transaction, `V0WithLookupTable` submits it behind a throwaway lookup table.
 The auditor side is `zolana-ring-client`, `RingAudit` scans a ring and opens
-its transactions, the ring RPC and the lifecycle test both use it.
+its transactions, the ring RPC and the lifecycle test both use it. The indexer
+only matches the auditor view tag and needs no ring support. A transaction
+belongs to the ring when, in its confirmed call stack read from Solana RPC,
+the shielded pool instruction has the ring program as direct caller.
 
 The operator CLI in `cli` reads a `ring.toml` and exposes `parse_and_run`, a
 generated ring's binary is that one call. Features are declared once, in the

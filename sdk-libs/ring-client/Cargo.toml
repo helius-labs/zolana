@@ -6,19 +6,37 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+solana-rpc = [
+    "zolana-client/solana-rpc",
+    "dep:solana-commitment-config",
+    "dep:solana-rpc-client",
+    "dep:solana-rpc-client-api",
+    "dep:solana-transaction-status-client-types",
+]
+
 [dependencies]
 hex = { workspace = true }
 curve25519-dalek = { version = "4.1", default-features = false }
 p256 = { workspace = true }
 sha2 = { workspace = true }
 solana-address = { workspace = true, features = ["curve25519"] }
+solana-commitment-config = { workspace = true, optional = true }
+solana-rpc-client = { workspace = true, optional = true }
+solana-rpc-client-api = { workspace = true, optional = true }
 solana-signature = { workspace = true }
+solana-transaction-status-client-types = { workspace = true, optional = true }
 thiserror = { workspace = true }
 zeroize = { workspace = true }
 zolana-client = { workspace = true }
+zolana-event = { workspace = true, features = ["program-test"] }
 zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
 
 [dev-dependencies]
 borsh = { workspace = true }
+serde_json = { workspace = true }
+solana-transaction-status-client-types = { workspace = true }
+zolana-ring-client = { path = ".", features = ["solana-rpc"] }
