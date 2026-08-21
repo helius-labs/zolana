@@ -5,8 +5,10 @@
 
 use borsh::BorshSerialize;
 use zolana_event::{
-    decode_output_data, encode_output_data, is_confidential_encrypted_output, OutputDataEncoding,
-    ProoflessOutput, CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, PLAINTEXT_OUTPUT_FIXED_LEN,
+    decode_output_data, encode_output_data, is_confidential_encrypted_output,
+    ring_confidential_encrypted_output_body, OutputDataEncoding, ProoflessOutput,
+    CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, PLAINTEXT_OUTPUT_FIXED_LEN,
+    RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
 };
 
 /// The encoding `encode_output_data` replaced: serialize the scheme byte plus the
@@ -88,6 +90,20 @@ fn confidential_marker_requires_encrypted_encoding_and_exact_body_length() {
     malformed[1] = malformed[1].saturating_add(1);
     assert!(!is_confidential_encrypted_output(&malformed));
     assert!(!is_confidential_encrypted_output(&[]));
+}
+
+#[test]
+fn ring_confidential_marker_has_a_distinct_owner_policy() {
+    let marked = borsh::to_vec(&OutputDataEncoding::Encrypted(vec![
+        RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+        9,
+    ]))
+    .unwrap();
+    assert_eq!(
+        ring_confidential_encrypted_output_body(&marked),
+        Some(&[9][..])
+    );
+    assert!(!is_confidential_encrypted_output(&marked));
 }
 
 fn minimal() -> ProoflessOutput {
