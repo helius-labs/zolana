@@ -99,6 +99,8 @@ impl OutputDataEncoding {
 /// the ciphertext.
 pub const CONFIDENTIAL_ENCRYPTED_SCHEME_TAG: u8 = 3;
 
+pub const RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG: u8 = 4;
+
 /// Enum tag byte.
 const PLAINTEXT_TAG_LEN: usize = 1;
 /// Enum tag plus the `u32` body length prefix; the body starts here.
@@ -112,12 +114,24 @@ pub const PLAINTEXT_OUTPUT_FIXED_LEN: usize = 224;
 /// Returns whether `data` is a structurally valid encrypted output whose first
 /// payload byte selects the confidential encryption scheme.
 pub fn is_confidential_encrypted_output(data: &[u8]) -> bool {
+    confidential_encrypted_output_body(data).is_some()
+}
+
+pub fn confidential_encrypted_output_body(data: &[u8]) -> Option<&[u8]> {
+    encrypted_output_body(data, CONFIDENTIAL_ENCRYPTED_SCHEME_TAG)
+}
+
+pub fn ring_confidential_encrypted_output_body(data: &[u8]) -> Option<&[u8]> {
+    encrypted_output_body(data, RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG)
+}
+
+fn encrypted_output_body(data: &[u8], scheme: u8) -> Option<&[u8]> {
     if data.len() <= PLAINTEXT_BODY_OFFSET || data[0] != OutputDataEncoding::ENCRYPTED_TAG {
-        return false;
+        return None;
     }
     let body_len = u32::from_le_bytes([data[1], data[2], data[3], data[4]]) as usize;
-    body_len == data.len() - PLAINTEXT_BODY_OFFSET
-        && data[PLAINTEXT_BODY_OFFSET] == CONFIDENTIAL_ENCRYPTED_SCHEME_TAG
+    (body_len == data.len() - PLAINTEXT_BODY_OFFSET && data[PLAINTEXT_BODY_OFFSET] == scheme)
+        .then(|| &data[PLAINTEXT_BODY_OFFSET + 1..])
 }
 
 /// Serializes to the same bytes as `borsh(OutputDataEncoding::Plaintext(blob))`

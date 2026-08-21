@@ -7,12 +7,13 @@ use borsh::{BorshDeserialize, BorshSerialize};
 pub use output_data::MessageData;
 pub use output_utxo::OutputUtxo;
 pub use proofless::{
-    encode_encrypted_ring_deposit_output, encode_encrypted_ring_deposit_output_ref,
-    encode_output_data, encode_output_data_ref, encode_verifiably_encrypted,
-    is_confidential_encrypted_output, EncryptedRingDepositData, EncryptedRingDepositDataRef,
+    confidential_encrypted_output_body, encode_encrypted_ring_deposit_output,
+    encode_encrypted_ring_deposit_output_ref, encode_output_data, encode_output_data_ref,
+    encode_verifiably_encrypted, is_confidential_encrypted_output,
+    ring_confidential_encrypted_output_body, EncryptedRingDepositData, EncryptedRingDepositDataRef,
     EncryptedRingDepositOutput, EncryptedRingDepositOutputRef, OutputDataEncoding, ProoflessOutput,
     ProoflessOutputRef, CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, ENCRYPTED_RING_DEPOSIT_SCHEME,
-    PLAINTEXT_OUTPUT_FIXED_LEN,
+    PLAINTEXT_OUTPUT_FIXED_LEN, RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
 };
 
 /// `GeneralEvent`, emitted via the `emit_event` self-CPI by state-changing
