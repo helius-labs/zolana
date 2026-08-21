@@ -277,6 +277,13 @@ type proveHandler struct {
 	admission *syncAdmission
 }
 
+const maxProofRequestBytes int64 = 4 << 20
+
+func readProofRequest(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxProofRequestBytes)
+	return io.ReadAll(r.Body)
+}
+
 func isValidJobID(jobID string) bool {
 	_, err := uuid.Parse(jobID)
 	return err == nil
@@ -371,8 +378,17 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	buf, err := io.ReadAll(r.Body)
+	buf, err := readProofRequest(w, r)
 	if err != nil {
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			(&Error{
+				StatusCode: http.StatusRequestEntityTooLarge,
+				Code:       "request_too_large",
+				Message:    "proof request exceeds the server limit",
+			}).send(w)
+			return
+		}
 		logging.Logger().Error().Err(err).Msg("Error reading request body")
 		malformedBodyError(err).send(w)
 		return
@@ -918,7 +934,7 @@ func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Requ
 			logging.Logger().Error().Err(delErr).Str("job_id", jobID).Msg("Failed to cleanup job metadata after enqueue failure")
 		}
 
-		if handler.isBatchOperation(meta.CircuitType) {
+		if handler.requiresAsyncProof(meta.CircuitType) {
 			serviceUnavailableError := &Error{
 				StatusCode: http.StatusServiceUnavailable,
 				Code:       "queue_unavailable",
@@ -956,16 +972,16 @@ func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Requ
 		Str("job_id", jobID).
 		Str("queue", queueName).
 		Str("circuit_type", string(meta.CircuitType)).
-		Msg("Batch operation job queued successfully")
+		Msg("Proof job queued successfully")
 }
 
 func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Request, buf []byte, meta common.ProofRequestMeta) {
-	if handler.isBatchOperation(meta.CircuitType) {
+	if handler.requiresAsyncProof(meta.CircuitType) {
 		warning := fmt.Sprintf("WARNING: %s is a heavy operation that should be processed asynchronously. Consider using X-Async: true header.", meta.CircuitType)
 		w.Header().Set("X-Warning", warning)
 		logging.Logger().Warn().
 			Str("circuit_type", string(meta.CircuitType)).
-			Msg("Processing batch operation synchronously - this may cause timeouts")
+			Msg("Processing an asynchronous proof on the direct path")
 	}
 
 	estimatedTime := handler.getEstimatedTimeSeconds(meta.CircuitType)
@@ -1074,7 +1090,7 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-func (handler proveHandler) isBatchOperation(circuitType common.CircuitType) bool {
+func (handler proveHandler) requiresAsyncProof(circuitType common.CircuitType) bool {
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
 		return true

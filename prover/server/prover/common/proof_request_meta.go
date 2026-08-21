@@ -54,7 +54,7 @@ func ParseProofRequestMeta(data []byte) (ProofRequestMeta, error) {
 	// Extract CircuitType
 	circuitType, ok := rawInput["circuitType"].(string)
 	if !ok || circuitType == "" {
-		return ProofRequestMeta{}, fmt.Errorf("missing or invalid 'circuitType' %s", rawInput)
+		return ProofRequestMeta{}, fmt.Errorf("missing or invalid circuitType")
 	}
 
 	// Transfer and merge circuits are keyed by their fixed shape instead of a
