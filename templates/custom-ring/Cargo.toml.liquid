@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+members = ["cli", "program"]
+
+[workspace.package]
+edition = "2021"
+
+[workspace.dependencies]
+anyhow = "1.0"
+bytemuck = "1.25"
+clap = { version = "4.5", features = ["derive"] }
+custom-ring-program = { path = "{{zolana_path}}/custom-rings/program" }
+custom-ring-sdk = { path = "{{zolana_path}}/custom-rings/sdk" }
+hex = "0.4"
+pinocchio = "0.11"
+solana-instruction = "3.4"
+solana-address = "2.6"
+solana-keypair = "3.1.2"
+solana-signer = "3.0"
+zolana-client = { path = "{{zolana_path}}/sdk-libs/client", features = ["solana-rpc"] }
+zolana-keypair = { path = "{{zolana_path}}/sdk-libs/keypair" }
+zolana-interface = { path = "{{zolana_path}}/program-libs/interface", features = ["solana"] }
+zolana-ring-rpc = { path = "{{zolana_path}}/services/ring-rpc" }
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1

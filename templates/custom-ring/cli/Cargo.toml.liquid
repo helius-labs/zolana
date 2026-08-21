@@ -1,0 +1,33 @@
+[package]
+name = "ring-operator"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+default-run = "ring"
+
+[[bin]]
+name = "ring"
+path = "src/main.rs"
+
+[[bin]]
+name = "auditor-pubkey"
+path = "src/auditor_pubkey.rs"
+required-features = ["auditor-key"]
+
+[features]
+auditor-key = ["dep:zolana-ring-rpc"]
+
+[dependencies]
+anyhow.workspace = true
+bytemuck.workspace = true
+clap.workspace = true
+custom-ring-sdk.workspace = true
+hex.workspace = true
+solana-instruction.workspace = true
+solana-address.workspace = true
+solana-keypair.workspace = true
+solana-signer.workspace = true
+zolana-client.workspace = true
+zolana-keypair.workspace = true
+zolana-interface.workspace = true
+zolana-ring-rpc = { workspace = true, optional = true }

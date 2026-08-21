@@ -1,0 +1,323 @@
+//! Addresses the client shares across instruction builders.
+
+use bytemuck::Pod;
+use solana_address::Address;
+use thiserror::Error;
+use zolana_client::{ClientError, Rpc};
+use zolana_interface::{
+    custom_ring::{ReaderRecord, RingProgramConfig, READER_RECORD, RING_PROGRAM_CONFIG},
+    is_reserved_p256_derivation_point, BPF_LOADER_UPGRADEABLE_ID, RING_AUTH_PDA_SEED,
+};
+use zolana_keypair::P256Pubkey;
+pub use zolana_ring_client::{ReaderKey, ReaderKeyError};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CustomRing {
+    program_id: Address,
+}
+
+pub struct CustomRingConfig {
+    pub authority: Address,
+    pub auditor_pubkey: P256Pubkey,
+}
+
+#[derive(Debug, Error)]
+pub enum AccountReadError {
+    #[error(transparent)]
+    Client(#[from] ClientError),
+    #[error("custom ring account is invalid")]
+    InvalidAccount { address: Address },
+}
+
+impl CustomRing {
+    pub const fn new(program_id: Address) -> Self {
+        Self { program_id }
+    }
+
+    pub const fn program_id(self) -> Address {
+        self.program_id
+    }
+
+    /// The program's singleton config account, holding the authority and the auditor
+    /// public key.
+    pub fn config_pda(self) -> Address {
+        Address::find_program_address(&[RingProgramConfig::SEED], &self.program_id).0
+    }
+
+    pub fn reader_record_pda(self, reader: &ReaderKey) -> Address {
+        reader.record_address(&self.program_id)
+    }
+
+    /// The ring authority PDA. SPP stores the ring config under this address and
+    /// requires it as a signer on ring deposits and ring transacts, which is why the
+    /// program signs its CPIs with it.
+    pub fn ring_auth_pda(self) -> Address {
+        Address::find_program_address(&[RING_AUTH_PDA_SEED], &self.program_id).0
+    }
+
+    pub fn program_data_pda(self) -> Address {
+        Address::find_program_address(
+            &[self.program_id.as_ref()],
+            &Address::new_from_array(BPF_LOADER_UPGRADEABLE_ID),
+        )
+        .0
+    }
+
+    pub fn read_config<R: Rpc>(
+        self,
+        rpc: &R,
+    ) -> Result<Option<CustomRingConfig>, AccountReadError> {
+        let address = self.config_pda();
+        let Some(config) = (AccountRead {
+            rpc,
+            program_id: self.program_id,
+            address,
+        })
+        .read::<RingProgramConfig>()?
+        else {
+            return Ok(None);
+        };
+        let bump = Address::find_program_address(&[RingProgramConfig::SEED], &self.program_id).1;
+        if config.bump != bump || is_reserved_p256_derivation_point(&config.auditor_pubkey) {
+            return Err(AccountReadError::InvalidAccount { address });
+        }
+        let auditor_pubkey = P256Pubkey::from_bytes(config.auditor_pubkey)
+            .map_err(|_| AccountReadError::InvalidAccount { address })?;
+        Ok(Some(CustomRingConfig {
+            authority: config.authority,
+            auditor_pubkey,
+        }))
+    }
+
+    pub fn read_reader_record<R: Rpc>(
+        self,
+        rpc: &R,
+        reader: &ReaderKey,
+    ) -> Result<Option<ReaderRecord>, AccountReadError> {
+        let address = self.reader_record_pda(reader);
+        let Some(record) = (AccountRead {
+            rpc,
+            program_id: self.program_id,
+            address,
+        })
+        .read::<ReaderRecord>()?
+        else {
+            return Ok(None);
+        };
+        let reader_bytes = reader.to_bytes();
+        let seed_hash = ReaderRecord::seed_hash(&reader_bytes)
+            .map_err(|_| AccountReadError::InvalidAccount { address })?;
+        let bump =
+            Address::find_program_address(&[ReaderRecord::SEED, &seed_hash], &self.program_id).1;
+        if record.reader != reader_bytes || record.bump != bump {
+            return Err(AccountReadError::InvalidAccount { address });
+        }
+        Ok(Some(record))
+    }
+}
+
+trait ReadableAccount: Pod + Copy {
+    const DISCRIMINATOR: u8;
+
+    fn discriminator(self) -> u8;
+}
+
+impl ReadableAccount for RingProgramConfig {
+    const DISCRIMINATOR: u8 = RING_PROGRAM_CONFIG;
+
+    fn discriminator(self) -> u8 {
+        self.discriminator
+    }
+}
+
+impl ReadableAccount for ReaderRecord {
+    const DISCRIMINATOR: u8 = READER_RECORD;
+
+    fn discriminator(self) -> u8 {
+        self.discriminator
+    }
+}
+
+struct AccountRead<'a, R> {
+    rpc: &'a R,
+    program_id: Address,
+    address: Address,
+}
+
+impl<R: Rpc> AccountRead<'_, R> {
+    fn read<T: ReadableAccount>(self) -> Result<Option<T>, AccountReadError> {
+        let Some(account) = self.rpc.get_account(self.address)? else {
+            return Ok(None);
+        };
+        if account.owner.to_bytes() != *self.program_id.as_array()
+            || account.data.len() != core::mem::size_of::<T>()
+        {
+            return Err(AccountReadError::InvalidAccount {
+                address: self.address,
+            });
+        }
+        let value = bytemuck::try_from_bytes::<T>(&account.data).map_err(|_| {
+            AccountReadError::InvalidAccount {
+                address: self.address,
+            }
+        })?;
+        if value.discriminator() != T::DISCRIMINATOR {
+            return Err(AccountReadError::InvalidAccount {
+                address: self.address,
+            });
+        }
+        Ok(Some(*value))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use solana_account::Account;
+    use solana_pubkey::Pubkey;
+    use zolana_interface::{
+        custom_ring::{ReaderRecord, RingProgramConfig},
+        P_DERIVE_SEC1,
+    };
+    use zolana_keypair::ViewingKey;
+
+    use super::*;
+
+    struct AccountRpc {
+        address: Address,
+        account: Option<Account>,
+    }
+
+    impl Rpc for AccountRpc {
+        fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
+            assert_eq!(address, self.address);
+            Ok(self.account.clone())
+        }
+    }
+
+    fn ring() -> CustomRing {
+        CustomRing::new(Address::new_from_array([42u8; 32]))
+    }
+
+    fn account<T: Pod>(value: &T) -> Account {
+        Account {
+            lamports: 1,
+            data: bytemuck::bytes_of(value).to_vec(),
+            owner: Pubkey::new_from_array(ring().program_id().to_bytes()),
+            executable: false,
+            rent_epoch: 0,
+        }
+    }
+
+    fn config() -> RingProgramConfig {
+        RingProgramConfig {
+            discriminator: RING_PROGRAM_CONFIG,
+            authority: Address::new_from_array([3u8; 32]),
+            auditor_pubkey: *ViewingKey::new().pubkey().as_bytes(),
+            bump: Address::find_program_address(&[RingProgramConfig::SEED], &ring().program_id()).1,
+        }
+    }
+
+    fn config_rpc(value: RingProgramConfig) -> AccountRpc {
+        AccountRpc {
+            address: ring().config_pda(),
+            account: Some(account(&value)),
+        }
+    }
+
+    #[test]
+    fn config_read_accepts_only_canonical_typed_state() {
+        let missing = AccountRpc {
+            address: ring().config_pda(),
+            account: None,
+        };
+        assert!(ring()
+            .read_config(&missing)
+            .expect("missing config")
+            .is_none());
+
+        let value = config();
+        let read = ring()
+            .read_config(&config_rpc(value))
+            .expect("valid config")
+            .expect("config");
+        assert_eq!(read.authority, value.authority);
+        assert_eq!(read.auditor_pubkey.as_bytes(), &value.auditor_pubkey);
+
+        let mut wrong_owner = account(&value);
+        wrong_owner.owner = Pubkey::new_from_array([9u8; 32]);
+        let mut wrong_size = account(&value);
+        wrong_size.data.pop();
+        let mut wrong_discriminator = value;
+        wrong_discriminator.discriminator = 0;
+        let mut wrong_bump = value;
+        wrong_bump.bump ^= 1;
+        let mut invalid_key = value;
+        invalid_key.auditor_pubkey = [0u8; 33];
+        let mut reserved_key = value;
+        reserved_key.auditor_pubkey = P_DERIVE_SEC1;
+
+        let invalid = [
+            AccountRpc {
+                address: ring().config_pda(),
+                account: Some(wrong_owner),
+            },
+            AccountRpc {
+                address: ring().config_pda(),
+                account: Some(wrong_size),
+            },
+            config_rpc(wrong_discriminator),
+            config_rpc(wrong_bump),
+            config_rpc(invalid_key),
+            config_rpc(reserved_key),
+        ];
+        for rpc in invalid {
+            assert!(matches!(
+                ring().read_config(&rpc),
+                Err(AccountReadError::InvalidAccount { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn reader_read_rejects_substituted_state() {
+        let reader = ReaderKey::p256(ViewingKey::new().pubkey()).expect("reader");
+        let address = ring().reader_record_pda(&reader);
+        let reader_bytes = reader.to_bytes();
+        let seed_hash = ReaderRecord::seed_hash(&reader_bytes).expect("seed hash");
+        let value = ReaderRecord {
+            discriminator: READER_RECORD,
+            reader: reader_bytes,
+            bump: Address::find_program_address(
+                &[ReaderRecord::SEED, &seed_hash],
+                &ring().program_id(),
+            )
+            .1,
+        };
+        let valid = AccountRpc {
+            address,
+            account: Some(account(&value)),
+        };
+        assert_eq!(
+            ring()
+                .read_reader_record(&valid, &reader)
+                .expect("valid reader")
+                .expect("reader"),
+            value
+        );
+
+        let mut wrong_reader = value;
+        wrong_reader.reader[1] ^= 1;
+        let mut wrong_bump = value;
+        wrong_bump.bump ^= 1;
+        for value in [wrong_reader, wrong_bump] {
+            let rpc = AccountRpc {
+                address,
+                account: Some(account(&value)),
+            };
+            assert!(matches!(
+                ring().read_reader_record(&rpc, &reader),
+                Err(AccountReadError::InvalidAccount { .. })
+            ));
+        }
+    }
+}

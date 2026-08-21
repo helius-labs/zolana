@@ -1,0 +1,20 @@
+[package]
+name = "ring-program"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+default = []
+bpf-entrypoint = []
+
+[dependencies]
+custom-ring-program = { workspace = true, features = ["no-entrypoint"] }
+pinocchio.workspace = true
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = ['cfg(target_os, values("solana"))']

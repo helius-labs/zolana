@@ -1,0 +1,30 @@
+[template]
+cargo_generate_version = ">=0.23.0"
+
+[placeholders.program_id]
+type = "string"
+prompt = "Custom ring program ID"
+regex = "^[1-9A-HJ-NP-Za-km-z]{32,44}$"
+
+[placeholders.authority_keypair]
+type = "string"
+prompt = "Upgrade and ring authority keypair"
+default = "~/.config/solana/id.json"
+regex = "^(~(/[A-Za-z0-9_./-]+)?|[A-Za-z0-9_./-]+)$"
+
+[placeholders.zolana_path]
+type = "string"
+prompt = "Zolana source path"
+default = ".zolana"
+regex = "^[A-Za-z0-9_./-]+$"
+
+[placeholders.zolana_repository]
+type = "string"
+prompt = "Zolana repository"
+default = "https://github.com/helius-labs/zolana.git"
+regex = "^(https://[A-Za-z0-9.-]+/[A-Za-z0-9_./-]+|git@[A-Za-z0-9.-]+:[A-Za-z0-9_./-]+)$"
+
+[placeholders.zolana_revision]
+type = "string"
+prompt = "Zolana revision"
+regex = "^[0-9a-f]{40}$"
