@@ -7,7 +7,9 @@
 #   --tag TAG            image tag, default <service>-<branch>-<sha12>
 #   --push               push to ECR, without it the image is only built and smoke tested
 #   --deploy CLUSTER/SVC register a task definition revision on the pushed image
-#                        and update the ECS service, implies --push
+#                        and update the ECS service, implies --push. Rolls a
+#                        live service, so it runs only with
+#                        ZOLANA_DEPLOY_CONFIRM=CLUSTER/SVC set to the same value
 #   --container NAME     container name inside the task definition, default <service>
 #
 # Environment
@@ -131,6 +133,10 @@ echo "published $tag_image@$digest"
 cluster="${deploy%%/*}"
 ecs_service="${deploy#*/}"
 [[ "$cluster" != "$deploy" && -n "$ecs_service" ]] || { echo "--deploy takes CLUSTER/SERVICE" >&2; exit 1; }
+if [[ "${ZOLANA_DEPLOY_CONFIRM:-}" != "$deploy" ]]; then
+    echo "refusing to roll $deploy, set ZOLANA_DEPLOY_CONFIRM=$deploy to confirm" >&2
+    exit 1
+fi
 current="$(aws ecs describe-services --region "$region" --cluster "$cluster" --services "$ecs_service" \
     --query 'services[0].taskDefinition' --output text)"
 [[ "$current" != None ]] || { echo "service $deploy not found in $cluster" >&2; exit 1; }
