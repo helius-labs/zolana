@@ -616,7 +616,9 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 		admission:   newSyncAdmission(syncPermits()),
 	})
 
-	proverMux.Handle("/health", healthHandler{})
+	proverMux.Handle("/health", healthHandler{
+		circuits: servedCircuits(config.Queue != nil && config.Queue.Enabled),
+	})
 
 	if redisQueue != nil {
 		proverMux.Handle("/prove/status", proofStatusHandler{redisQueue: redisQueue})
@@ -845,6 +847,24 @@ func spawnServerJob(server *http.Server, label string) RunningJob {
 }
 
 type healthHandler struct {
+	circuits []common.CircuitType
+}
+
+// The audit circuit is absent without the queue, it is never proven synchronously.
+func servedCircuits(queueEnabled bool) []common.CircuitType {
+	circuits := []common.CircuitType{
+		common.BatchAddressAppendCircuitType,
+		common.TransferConfidentialCircuitType,
+		common.TransferRingCircuitType,
+		common.TransferP256RingCircuitType,
+		common.TransferRingAuthorityCircuitType,
+		common.MergeCircuitType,
+		common.MergeRingCircuitType,
+	}
+	if queueEnabled {
+		circuits = append(circuits, common.CustomRingAuditCircuitType)
+	}
+	return circuits
 }
 
 func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Request, buf []byte, meta common.ProofRequestMeta) {
@@ -1300,7 +1320,7 @@ func (handler healthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	logging.Logger().Info().Msg("received health check request")
-	responseBytes, err := json.Marshal(map[string]string{"status": "ok"})
+	responseBytes, err := json.Marshal(map[string]interface{}{"status": "ok", "circuits": handler.circuits})
 	if err != nil {
 		logging.Logger().Error().Err(err).Msg("error marshaling response")
 		w.WriteHeader(http.StatusInternalServerError)
