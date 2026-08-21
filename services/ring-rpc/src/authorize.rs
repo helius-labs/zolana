@@ -1,0 +1,210 @@
+use std::time::Duration;
+
+use solana_signature::Signature;
+use thiserror::Error;
+use zolana_ring_client::ReaderKey;
+
+use crate::{
+    api::{ReadAttestation, ReadAuth, WebAuthnAssertion},
+    origins::Origins,
+    webauthn,
+};
+
+pub const READ_SKEW: Duration = Duration::from_secs(60);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
+pub struct Claim {
+    reader: ReaderKey,
+    nonce: [u8; 32],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum Unauthorized {
+    #[error("request timestamp is stale")]
+    StaleTimestamp,
+    #[error("reader is not a tagged ed25519 or P-256 key")]
+    UnknownReaderKey,
+    #[error("a P-256 reader signs through WebAuthn")]
+    PasskeyNeedsAssertion,
+    #[error("an ed25519 reader does not carry a WebAuthn assertion")]
+    UnexpectedAssertion,
+    #[error("signature does not cover the request")]
+    BadSignature,
+    #[error("client data is not a WebAuthn assertion")]
+    NotAnAssertion,
+    #[error("challenge does not cover the request")]
+    ChallengeMismatch,
+    #[error("origin is not allowed to read through a passkey")]
+    OriginNotAllowed,
+    #[error("cross origin WebAuthn assertions are not accepted")]
+    CrossOriginAssertion,
+    #[error("authenticator data names another relying party")]
+    RelyingPartyMismatch,
+    #[error("passkey read needs user verification")]
+    UserVerificationMissing,
+    #[error("ring has no config on chain")]
+    NoConfig,
+    #[error("service auditor key does not match the ring config")]
+    AuditorKeyMismatch,
+    #[error("reader has no active grant")]
+    NotGranted,
+    #[error("read nonce is invalid")]
+    InvalidNonce,
+    #[error("read nonce was already accepted")]
+    Replay,
+}
+
+#[must_use]
+pub struct ReadCheck<'a> {
+    auth: &'a ReadAuth,
+    attestation: &'a ReadAttestation<'a>,
+}
+
+#[must_use]
+pub struct TimedReadCheck<'a> {
+    auth: &'a ReadAuth,
+    now: u64,
+    attestation: &'a ReadAttestation<'a>,
+}
+
+#[must_use]
+pub struct ReadyReadCheck<'a, 'o> {
+    auth: &'a ReadAuth,
+    now: u64,
+    attestation: &'a ReadAttestation<'a>,
+    origins: &'o Origins,
+}
+
+impl Claim {
+    pub fn reader_key(self) -> ReaderKey {
+        self.reader
+    }
+
+    pub fn nonce(self) -> [u8; 32] {
+        self.nonce
+    }
+}
+
+impl<'a> ReadCheck<'a> {
+    pub fn new(auth: &'a ReadAuth, attestation: &'a ReadAttestation<'a>) -> Self {
+        Self { auth, attestation }
+    }
+
+    pub fn at(self, now: u64) -> TimedReadCheck<'a> {
+        TimedReadCheck {
+            auth: self.auth,
+            now,
+            attestation: self.attestation,
+        }
+    }
+}
+
+impl<'a> TimedReadCheck<'a> {
+    pub fn against<'o>(self, origins: &'o Origins) -> ReadyReadCheck<'a, 'o> {
+        ReadyReadCheck {
+            auth: self.auth,
+            now: self.now,
+            attestation: self.attestation,
+            origins,
+        }
+    }
+}
+
+impl ReadyReadCheck<'_, '_> {
+    pub fn decide(self) -> Result<Claim, Unauthorized> {
+        if self.now.abs_diff(self.auth.timestamp) > READ_SKEW.as_secs() {
+            return Err(Unauthorized::StaleTimestamp);
+        }
+        let nonce = self
+            .auth
+            .nonce
+            .0
+            .as_slice()
+            .try_into()
+            .map_err(|_| Unauthorized::InvalidNonce)?;
+        let reader = Proof::decode(self.auth)?.verify(&self.attestation.bytes(), self.origins)?;
+        Ok(Claim { reader, nonce })
+    }
+}
+
+enum Proof<'a> {
+    Ed25519 {
+        reader: ReaderKey,
+        signature: [u8; 64],
+    },
+    Passkey {
+        reader: ReaderKey,
+        assertion: &'a WebAuthnAssertion,
+        signature_der: &'a [u8],
+    },
+}
+
+impl<'a> Proof<'a> {
+    fn decode(auth: &'a ReadAuth) -> Result<Self, Unauthorized> {
+        let tagged: [u8; 34] = auth
+            .reader
+            .0
+            .as_slice()
+            .try_into()
+            .map_err(|_| Unauthorized::UnknownReaderKey)?;
+        let reader = ReaderKey::from_bytes(tagged).map_err(|_| Unauthorized::UnknownReaderKey)?;
+        match reader {
+            ReaderKey::Ed25519(_) => {
+                if auth.webauthn.is_some() {
+                    return Err(Unauthorized::UnexpectedAssertion);
+                }
+                let signature = auth
+                    .signature
+                    .0
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| Unauthorized::BadSignature)?;
+                Ok(Self::Ed25519 { reader, signature })
+            }
+            ReaderKey::P256(_) => {
+                let assertion = auth
+                    .webauthn
+                    .as_ref()
+                    .ok_or(Unauthorized::PasskeyNeedsAssertion)?;
+                Ok(Self::Passkey {
+                    reader,
+                    assertion,
+                    signature_der: &auth.signature.0,
+                })
+            }
+        }
+    }
+
+    fn verify(self, attestation: &[u8], origins: &Origins) -> Result<ReaderKey, Unauthorized> {
+        match self {
+            Self::Ed25519 { reader, signature } => {
+                let ReaderKey::Ed25519(key) = reader else {
+                    return Err(Unauthorized::UnknownReaderKey);
+                };
+                Signature::from(signature)
+                    .verify(key.address().as_ref(), attestation)
+                    .then_some(reader)
+                    .ok_or(Unauthorized::BadSignature)
+            }
+            Self::Passkey {
+                reader,
+                assertion,
+                signature_der,
+            } => {
+                let ReaderKey::P256(key) = reader else {
+                    return Err(Unauthorized::UnknownReaderKey);
+                };
+                webauthn::Verification {
+                    assertion,
+                    signature_der,
+                    pubkey: &key.pubkey(),
+                    attestation,
+                    origins,
+                }
+                .verify()?;
+                Ok(reader)
+            }
+        }
+    }
+}
