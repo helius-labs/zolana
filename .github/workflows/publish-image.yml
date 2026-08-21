@@ -1,4 +1,5 @@
-# Publishes the service images to our own ECR: photon, the prover, the forester.
+# Publishes the service images to our own ECR: photon, the prover, the forester,
+# the ring RPC.
 #
 # These live here, not in the infra repository, because this is the repo that
 # owns the code. Building them from infra meant infra CI checked out this
@@ -62,7 +63,7 @@ on:
         required: true
         default: photon
         type: choice
-        options: [photon, prover, forester]
+        options: [photon, prover, forester, ring-rpc]
       channel:
         description: >-
           release enforces the commit-naming tag and requires the commit to be
@@ -202,6 +203,13 @@ jobs:
               echo "title=Zolana Forester" >> "$GITHUB_OUTPUT"
               echo "description=Zolana queue and tree maintenance service" >> "$GITHUB_OUTPUT"
               ;;
+            ring-rpc)
+              echo "repository=zolana-ring-rpc" >> "$GITHUB_OUTPUT"
+              echo "context=." >> "$GITHUB_OUTPUT"
+              echo "file=services/ring-rpc/Dockerfile" >> "$GITHUB_OUTPUT"
+              echo "title=Zolana Ring RPC" >> "$GITHUB_OUTPUT"
+              echo "description=Zolana custom ring audit RPC" >> "$GITHUB_OUTPUT"
+              ;;
             *)
               echo "::error::unknown service $SERVICE"; exit 1 ;;
           esac
@@ -256,7 +264,7 @@ jobs:
       # Private ECR, so no registry-type override. The role is trusted for this
       # job's OIDC subject specifically -- `repo:helius-labs/zolana:environment:
       # image-publish`, which is what declaring `environment:` above makes
-      # GitHub present instead of the ref. One environment covers all three
+      # GitHub present instead of the ref. One environment covers all four
       # services and both channels: what separates release from preview is what
       # this workflow enforces, not which role the job may assume.
       - uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2
@@ -342,6 +350,10 @@ jobs:
               ;;
             forester)
               docker run --rm "$image" --version
+              ;;
+            ring-rpc)
+              docker run --rm "$image" --help >/dev/null
+              test "$(docker run --rm --entrypoint id "$image" -u)" = 10002
               ;;
           esac
       - name: Publish immutable tags
