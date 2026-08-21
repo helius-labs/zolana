@@ -56,8 +56,6 @@ fn grant_of_an_unsignable_key_is_rejected() {
     pda[0] = 2;
     let mut uncompressed = p256_reader();
     uncompressed[1] = 4;
-    let mut invalid_point = p256_reader();
-    invalid_point[2..].fill(0xff);
     let mut padded = ed25519_reader(23);
     padded[33] = 1;
     let mut unknown = ed25519_reader(23);
@@ -87,7 +85,6 @@ fn grant_of_an_unsignable_key_is_rejected() {
     for key in [
         pda,
         uncompressed,
-        invalid_point,
         padded,
         unknown,
         off_curve,

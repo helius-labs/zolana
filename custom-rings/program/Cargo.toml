@@ -23,7 +23,6 @@ bytemuck = { workspace = true }
 groth16-solana = { workspace = true, features = ["bsb22"] }
 pinocchio = { workspace = true, features = ["cpi"] }
 pinocchio-system = { workspace = true }
-p256 = { version = "0.13", default-features = false, features = ["arithmetic"] }
 solana-loader-v3-interface = { workspace = true, features = ["serde"] }
 solana-address = { workspace = true, features = ["curve25519", "syscalls"] }
 solana-curve25519 = { workspace = true }

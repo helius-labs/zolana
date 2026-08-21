@@ -14,6 +14,7 @@ use crate::{
 #[inline(never)]
 pub fn process_grant_reader_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let reader = parse_reader(data)?;
+    check_reader_key(&reader)?;
 
     let mut iter = AccountIterator::new(accounts);
     let payer = iter.next_signer_mut("payer")?;
@@ -59,6 +60,5 @@ pub fn process_grant_reader_ix(accounts: &mut [AccountView], data: &[u8]) -> Pro
 pub(crate) fn parse_reader(data: &[u8]) -> Result<ReaderKeyBytes, CustomRingError> {
     let ReaderIxData { reader } =
         wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
-    check_reader_key(&reader)?;
     Ok(reader)
 }

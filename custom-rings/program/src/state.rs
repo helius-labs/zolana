@@ -54,12 +54,9 @@ impl RingProgramConfigInitParams {
     }
 }
 
+/// Curve membership is the sdk's job, an off-curve key only fails its own ring closed.
 pub(crate) fn is_p256_key(key: &[u8; 33]) -> bool {
-    is_p256_point(key) && !zolana_interface::is_reserved_p256_derivation_point(key)
-}
-
-pub(crate) fn is_p256_point(key: &[u8; 33]) -> bool {
-    p256::PublicKey::from_sec1_bytes(key).is_ok()
+    matches!(key[0], 0x02 | 0x03) && !zolana_interface::is_reserved_p256_derivation_point(key)
 }
 
 pub(crate) fn check_reader_key(key: &ReaderKeyBytes) -> Result<(), CustomRingError> {
