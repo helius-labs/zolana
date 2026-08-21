@@ -57,9 +57,7 @@ use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::{versioned::VersionedTransaction, Transaction as SolanaTransaction};
 use solana_transaction_status_client_types::TransactionStatus;
-use zolana_interface::instruction::{
-    InterfaceTransfer, Transact, TransactInterfaceTransferAccounts, TransactIxData,
-};
+use zolana_interface::instruction::{Transact, TransactInterfaceTransferAccounts, TransactIxData};
 use zolana_transaction::instructions::{transact::SppProofInputs, types::InputUtxoContext};
 
 use crate::{
@@ -74,8 +72,9 @@ use crate::{
         AsyncRpc, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
         GetNonInclusionProofsResponse, GetShieldedTransactionsByNullifiersResponse,
         GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-        ProveResult, Rpc, ShieldedTransactionStream,
+        ProveResult, RingShieldedTransactionsByTagRequest, Rpc, ShieldedTransactionStream,
     },
+    settlement::SettlementAccountValidation,
 };
 
 /// A signed shielded transaction ready for proof assembly and submission.
@@ -607,6 +606,17 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
             .await
     }
 
+    async fn get_ring_shielded_transactions_by_tag(
+        &self,
+        mut request: RingShieldedTransactionsByTagRequest,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        let config = request.config().unwrap_or(self.indexer_config);
+        request = request.with_config(config);
+        self.async_indexer
+            .get_ring_shielded_transactions_by_tag(request)
+            .await
+    }
+
     async fn get_shielded_transactions_by_signature(
         &self,
         signature: Signature,
@@ -868,6 +878,16 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         )
     }
 
+    fn get_ring_shielded_transactions_by_tag(
+        &self,
+        mut request: RingShieldedTransactionsByTagRequest,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        let config = request.config().unwrap_or(self.indexer_config);
+        request = request.with_config(config);
+        self.blocking_indexer()
+            .get_ring_shielded_transactions_by_tag(request)
+    }
+
     fn get_shielded_transactions_by_signature(
         &self,
         signature: Signature,
@@ -997,7 +1017,11 @@ fn build_unsigned_solana_transaction(
     transact_data: zolana_interface::instruction::instruction_data::transact::TransactIxData,
     recent_blockhash: Hash,
 ) -> Result<SolanaTransaction, ClientError> {
-    validate_settlement_transfers(&transact_data.interface_transfers, &settlement_transfers)?;
+    SettlementAccountValidation {
+        transfers: &transact_data.interface_transfers,
+        accounts: &settlement_transfers,
+    }
+    .validate()?;
     let transact_ix = Transact {
         payer: fee_payer,
         input_tree: trees.input_tree,
@@ -1015,40 +1039,6 @@ fn build_unsigned_solana_transaction(
     let mut message = Message::new(&instructions, Some(&fee_payer));
     message.recent_blockhash = recent_blockhash;
     Ok(SolanaTransaction::new_unsigned(message))
-}
-
-fn validate_settlement_transfers(
-    interface_transfers: &[InterfaceTransfer],
-    settlement_transfers: &[TransactInterfaceTransferAccounts],
-) -> Result<(), ClientError> {
-    if interface_transfers.len() != settlement_transfers.len() {
-        return Err(ClientError::SettlementTransferCountMismatch {
-            interface_transfers: interface_transfers.len(),
-            account_groups: settlement_transfers.len(),
-        });
-    }
-    for (index, (transfer, accounts)) in interface_transfers
-        .iter()
-        .zip(settlement_transfers)
-        .enumerate()
-    {
-        if !matches!(
-            (transfer, accounts),
-            (
-                InterfaceTransfer::SolDeposit { .. } | InterfaceTransfer::SolWithdrawal { .. },
-                TransactInterfaceTransferAccounts::Sol(_)
-            ) | (
-                InterfaceTransfer::SplDeposit { .. },
-                TransactInterfaceTransferAccounts::SplDeposit(_)
-            ) | (
-                InterfaceTransfer::SplWithdrawal { .. },
-                TransactInterfaceTransferAccounts::SplWithdrawal(_)
-            )
-        ) {
-            return Err(ClientError::SettlementTransferTypeMismatch { index });
-        }
-    }
-    Ok(())
 }
 
 fn validate_fee_payer_pubkey(
@@ -1460,8 +1450,12 @@ mod tests {
             }),
         ];
 
-        validate_settlement_transfers(&interface_transfers, &settlement_transfers)
-            .expect("ordered duplicate-asset account groups are valid");
+        SettlementAccountValidation {
+            transfers: &interface_transfers,
+            accounts: &settlement_transfers,
+        }
+        .validate()
+        .expect("ordered duplicate-asset account groups are valid");
     }
 
     #[test]
@@ -1470,20 +1464,25 @@ mod tests {
             recipient: Pubkey::new_unique(),
         });
         assert!(matches!(
-            validate_settlement_transfers(&[InterfaceTransfer::SolWithdrawal { amount: 1 }], &[],),
+            SettlementAccountValidation {
+                transfers: &[InterfaceTransfer::SolWithdrawal { amount: 1 }],
+                accounts: &[],
+            }
+            .validate(),
             Err(ClientError::SettlementTransferCountMismatch {
                 interface_transfers: 1,
                 account_groups: 0,
             })
         ));
         assert!(matches!(
-            validate_settlement_transfers(
-                &[InterfaceTransfer::SplWithdrawal {
+            SettlementAccountValidation {
+                transfers: &[InterfaceTransfer::SplWithdrawal {
                     amount: 1,
                     spl_interface_bump: 42,
                 }],
-                &[sol_accounts],
-            ),
+                accounts: &[sol_accounts],
+            }
+            .validate(),
             Err(ClientError::SettlementTransferTypeMismatch { index: 0 })
         ));
     }

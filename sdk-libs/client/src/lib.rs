@@ -23,6 +23,7 @@ pub mod indexer;
 pub mod prover;
 pub mod retry;
 pub mod rpc;
+mod settlement;
 #[cfg(feature = "solana-rpc")]
 pub mod solana_rpc;
 pub mod timing;
@@ -40,13 +41,14 @@ pub use prover::{
         assemble, assemble_with_dummy_policy, into_prover, into_prover_with_dummy_policy,
         AssembledTransfer, ProverInputs, ProverVariant, SpendProof,
     },
-    AsyncPollConfig, AsyncProverClient, BatchAddressAppendInputs, Commitments,
-    CompressedCommitments, MergeProofResult, MergeProver, MergeRingProver, MergeRingWitness, Proof,
-    ProofCompressed, ProofInputUtxo, ProverClient, PublicInputs, PublicTransfers,
-    RingAuthorityProofResult, RingAuthorityProver, RingAuthorityWitness,
-    RingTransferP256ProofResult, RingTransferP256Prover, RingTransferProofResult,
-    RingTransferProver, Shape, TransferInput, TransferInputs, TransferOutput, TransferP256Inputs,
-    TransferProofResult, TransferProver, TransferSpendInput, SPP_SUPPORTED_SHAPES,
+    AsyncPollConfig, AsyncProverClient, AuditPrivateTxHash, AuditPublicInputHash,
+    AuditorKeyEncryptionWitness, BatchAddressAppendInputs, Commitments, CompressedCommitments,
+    MergeProofResult, MergeProver, MergeRingProver, MergeRingWitness, Proof, ProofCompressed,
+    ProofInputUtxo, ProverClient, PublicInputs, PublicTransfers, RingAuthorityProofResult,
+    RingAuthorityProver, RingAuthorityWitness, RingTransferP256ProofResult, RingTransferP256Prover,
+    RingTransferProofResult, RingTransferProver, Shape, TransferInput, TransferInputs,
+    TransferOutput, TransferP256Inputs, TransferProofResult, TransferProver, TransferSpendInput,
+    SPP_SUPPORTED_SHAPES,
 };
 pub use retry::{IndexerPollConfig, IndexerRpcConfig};
 pub use rpc::{
@@ -54,9 +56,10 @@ pub use rpc::{
     GetMerkleProofsResponse, GetNonInclusionProofsResponse,
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
     IndexedShieldedTransaction, MerkleContext, MerkleProof, NonInclusionProof, OutputContext,
-    OutputSlot, ProveResult, Rpc, ShieldedTransaction, ShieldedTransactionStream,
-    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    OutputSlot, ProveResult, RingShieldedTransactionsByTagRequest, Rpc, ShieldedTransaction,
+    ShieldedTransactionStream, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
+pub use settlement::SettlementAccountValidation;
 #[cfg(feature = "solana-rpc")]
 pub use solana_rpc::{AsyncSolanaRpc, ConfirmedInstructionGroups, SolanaRpc};
 // `SolanaRpc::send_transaction_with_config` is public but names this type,
