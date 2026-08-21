@@ -290,12 +290,13 @@ pub fn wait_for_indexed_transaction<I: Rpc>(
     wait_for(&label, || {
         let mut cursor = None;
         loop {
-            let response = indexer.get_shielded_transactions_by_tags(
-                vec![tag],
-                cursor,
-                Some(TAG_PAGE_LIMIT),
-                None,
-            )?;
+            let limit = zolana_client::Limit::new(u64::from(TAG_PAGE_LIMIT))?;
+            let mut request =
+                zolana_client::ShieldedTransactionsByTagsRequest::new(tag).with_limit(limit);
+            if let Some(value) = cursor {
+                request = request.with_cursor(value);
+            }
+            let response = indexer.get_shielded_transactions_by_tags(request)?;
             if let Some(item) = response
                 .transactions
                 .into_iter()

@@ -10751,6 +10751,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_path_to_error",
+ "tokio",
  "zolana-indexer-api",
 ]
 
@@ -10861,6 +10862,7 @@ dependencies = [
  "zolana-api",
  "zolana-event",
  "zolana-hasher",
+ "zolana-indexer-api",
  "zolana-interface",
  "zolana-keypair",
  "zolana-merkle-tree",

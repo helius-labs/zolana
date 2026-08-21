@@ -14,6 +14,9 @@ use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use solana_transaction_status_client_types::TransactionStatus;
+use thiserror::Error;
+use zolana_indexer_api::PAGE_LIMIT;
+pub use zolana_indexer_api::{Limit, LimitError};
 use zolana_keypair::P256Pubkey;
 use zolana_transaction::instructions::{transact::SppProofInputs, types::InputUtxoContext};
 pub use zolana_transaction::{OutputContext, OutputSlot, ShieldedTransaction};
@@ -66,6 +69,23 @@ pub struct GetShieldedTransactionsByTagsResponse {
     pub context: Context,
     pub transactions: Vec<ShieldedTransaction>,
     pub next_cursor: Option<Vec<u8>>,
+}
+
+#[must_use]
+pub struct ShieldedTransactionsByTagsRequest {
+    tags: Vec<[u8; 32]>,
+    cursor: Option<Vec<u8>>,
+    limit: Option<Limit>,
+    ring_program_id: Option<Address>,
+    config: Option<IndexerRpcConfig>,
+}
+
+#[derive(Debug, Error)]
+pub enum ShieldedTransactionsByTagsRequestError {
+    #[error("tag query requires at least one tag")]
+    EmptyTags,
+    #[error("tag query count {count} exceeds {max}")]
+    TooManyTags { count: usize, max: u64 },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -142,6 +162,84 @@ pub struct ProveResult {
     pub proof: ProofCompressed,
     pub public_inputs: Vec<[u8; 32]>,
     pub circuit_id: u16,
+}
+
+impl ShieldedTransactionsByTagsRequest {
+    pub fn new(tag: [u8; 32]) -> Self {
+        Self {
+            tags: vec![tag],
+            cursor: None,
+            limit: None,
+            ring_program_id: None,
+            config: None,
+        }
+    }
+
+    pub fn from_tags(tags: Vec<[u8; 32]>) -> Result<Self, ShieldedTransactionsByTagsRequestError> {
+        if tags.is_empty() {
+            return Err(ShieldedTransactionsByTagsRequestError::EmptyTags);
+        }
+        if u64::try_from(tags.len())
+            .ok()
+            .is_none_or(|count| count > PAGE_LIMIT)
+        {
+            return Err(ShieldedTransactionsByTagsRequestError::TooManyTags {
+                count: tags.len(),
+                max: PAGE_LIMIT,
+            });
+        }
+        Ok(Self {
+            tags,
+            cursor: None,
+            limit: None,
+            ring_program_id: None,
+            config: None,
+        })
+    }
+
+    #[must_use = "use the updated request"]
+    pub fn with_cursor(mut self, cursor: Vec<u8>) -> Self {
+        self.cursor = Some(cursor);
+        self
+    }
+
+    #[must_use = "use the updated request"]
+    pub fn with_limit(mut self, limit: Limit) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    #[must_use = "use the updated request"]
+    pub fn with_ring(mut self, ring_program_id: Address) -> Self {
+        self.ring_program_id = Some(ring_program_id);
+        self
+    }
+
+    #[must_use = "use the updated request"]
+    pub fn with_config(mut self, config: IndexerRpcConfig) -> Self {
+        self.config = Some(config);
+        self
+    }
+
+    pub fn tags(&self) -> &[[u8; 32]] {
+        &self.tags
+    }
+
+    pub fn cursor(&self) -> Option<&[u8]> {
+        self.cursor.as_deref()
+    }
+
+    pub fn limit(&self) -> Option<&Limit> {
+        self.limit.as_ref()
+    }
+
+    pub fn ring_program_id(&self) -> Option<Address> {
+        self.ring_program_id
+    }
+
+    pub fn config(&self) -> Option<IndexerRpcConfig> {
+        self.config
+    }
 }
 
 /// Combined Solana RPC, SPP indexer, and proving surface used by clients.
@@ -302,10 +400,7 @@ pub trait Rpc {
 
     fn get_shielded_transactions_by_tags(
         &self,
-        tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
-        limit: Option<u32>,
-        config: Option<IndexerRpcConfig>,
+        request: ShieldedTransactionsByTagsRequest,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         Err(unsupported("get_shielded_transactions_by_tags"))
     }
@@ -522,10 +617,7 @@ pub trait AsyncRpc: Send + Sync {
 
     async fn get_shielded_transactions_by_tags(
         &self,
-        tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
-        limit: Option<u32>,
-        config: Option<IndexerRpcConfig>,
+        request: ShieldedTransactionsByTagsRequest,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         Err(unsupported("get_shielded_transactions_by_tags"))
     }
@@ -599,4 +691,25 @@ pub trait AsyncRpc: Send + Sync {
 
 fn unsupported(method: &'static str) -> ClientError {
     ClientError::UnsupportedRpcMethod(method)
+}
+
+#[cfg(test)]
+mod tests {
+    use zolana_indexer_api::PAGE_LIMIT;
+
+    use super::{ShieldedTransactionsByTagsRequest, ShieldedTransactionsByTagsRequestError};
+
+    #[test]
+    fn tag_request_enforces_cardinality_bounds() {
+        assert!(matches!(
+            ShieldedTransactionsByTagsRequest::from_tags(Vec::new()),
+            Err(ShieldedTransactionsByTagsRequestError::EmptyTags)
+        ));
+        let maximum = usize::try_from(PAGE_LIMIT).expect("page limit fits usize");
+        assert!(ShieldedTransactionsByTagsRequest::from_tags(vec![[0; 32]; maximum]).is_ok());
+        assert!(matches!(
+            ShieldedTransactionsByTagsRequest::from_tags(vec![[0; 32]; maximum + 1]),
+            Err(ShieldedTransactionsByTagsRequestError::TooManyTags { .. })
+        ));
+    }
 }

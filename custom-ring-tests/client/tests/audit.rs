@@ -21,7 +21,8 @@ use p256::{
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_client::{
-    Context, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, Rpc, ShieldedTransaction,
+    Context, GetShieldedTransactionsByTagsResponse, Rpc, ShieldedTransaction,
+    ShieldedTransactionsByTagsRequest,
 };
 use zolana_interface::{event::OutputDataEncoding, instruction::MessageData};
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
@@ -528,13 +529,10 @@ struct PagedIndexer {
 impl Rpc for PagedIndexer {
     fn get_shielded_transactions_by_tags(
         &self,
-        tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
-        _limit: Option<u32>,
-        _config: Option<IndexerRpcConfig>,
+        request: ShieldedTransactionsByTagsRequest,
     ) -> Result<GetShieldedTransactionsByTagsResponse, zolana_client::ClientError> {
-        assert_eq!(tags, vec![self.expected_tag]);
-        let page_index = usize::from(*cursor.unwrap_or_default().first().unwrap_or(&0));
+        assert_eq!(request.tags(), [self.expected_tag]);
+        let page_index = usize::from(*request.cursor().unwrap_or_default().first().unwrap_or(&0));
         let transactions = self.pages.get(page_index).cloned().unwrap_or_default();
         let next_cursor = (page_index + 1 < self.pages.len())
             .then(|| vec![u8::try_from(page_index + 1).expect("page index")]);

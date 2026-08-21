@@ -1,6 +1,6 @@
 //! Async and blocking transports for the Zolana indexer JSON-RPC contract.
 
-use std::{error::Error as StdError, fmt};
+use std::{error::Error as StdError, fmt, num::NonZeroUsize};
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use zolana_indexer_api::{
@@ -27,12 +27,20 @@ pub use zolana_indexer_api::{
 const JSON_RPC_VERSION: &str = "2.0";
 const REQUEST_ID: &str = "test-account";
 
+pub struct ShieldedTransactionsByTagsRequest {
+    pub tags: Vec<Hash>,
+    pub cursor: Option<Base64String>,
+    pub limit: Option<u64>,
+    pub ring_program_id: Option<SerializablePubkey>,
+}
+
 #[derive(Clone, Debug)]
 pub struct ZolanaApi {
     base_path: String,
     api_key: Option<String>,
     client: reqwest::Client,
     trace_http: bool,
+    response_limit: Option<NonZeroUsize>,
 }
 
 #[derive(Clone, Debug)]
@@ -57,9 +65,11 @@ pub enum ApiError {
     },
     InvalidRequest {
         field: &'static str,
-        message: &'static str,
+        message: String,
     },
     MissingResult(&'static str),
+    ResponseTooLarge,
+    ResponseEncoding,
 }
 
 impl fmt::Display for ApiError {
@@ -83,6 +93,8 @@ impl fmt::Display for ApiError {
             Self::MissingResult(method) => {
                 write!(formatter, "JSON-RPC response from {method} omitted result")
             }
+            Self::ResponseTooLarge => formatter.write_str("JSON-RPC response exceeds the limit"),
+            Self::ResponseEncoding => formatter.write_str("JSON-RPC response is not UTF-8"),
         }
     }
 }
@@ -141,6 +153,7 @@ impl ZolanaApi {
             api_key,
             client: reqwest::Client::new(),
             trace_http: false,
+            response_limit: None,
         }
     }
 
@@ -151,6 +164,7 @@ impl ZolanaApi {
             api_key,
             client,
             trace_http: false,
+            response_limit: None,
         }
     }
 
@@ -164,6 +178,12 @@ impl ZolanaApi {
 
     pub fn with_http_trace(mut self) -> Self {
         self.trace_http = true;
+        self
+    }
+
+    #[must_use]
+    pub fn with_response_limit(mut self, limit: NonZeroUsize) -> Self {
+        self.response_limit = Some(limit);
         self
     }
 
@@ -184,15 +204,13 @@ impl ZolanaApi {
 
     pub async fn get_shielded_transactions_by_tags(
         &self,
-        tags: Vec<Hash>,
-        cursor: Option<Base64String>,
-        limit: Option<u64>,
+        request: ShieldedTransactionsByTagsRequest,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ApiError> {
         self.call::<GetShieldedTransactionsByTags>(GetRingsByTagsRequest {
-            tags,
-            cursor,
-            limit: optional_limit(limit)?,
-            ring_program_id: None,
+            tags: request.tags,
+            cursor: request.cursor,
+            limit: optional_limit(request.limit)?,
+            ring_program_id: request.ring_program_id,
         })
         .await
     }
@@ -277,9 +295,19 @@ impl ZolanaApi {
         if self.trace_http {
             print_api_request(&url, body);
         }
-        let response = self.client.post(&url).json(body).send().await?;
+        let mut response = self.client.post(&url).json(body).send().await?;
         let status = response.status();
-        let response_body = response.text().await?;
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            if self
+                .response_limit
+                .is_some_and(|limit| bytes.len().saturating_add(chunk.len()) > limit.get())
+            {
+                return Err(ApiError::ResponseTooLarge);
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        let response_body = String::from_utf8(bytes).map_err(|_| ApiError::ResponseEncoding)?;
         if self.trace_http {
             print_api_response(method, status, &response_body);
         }
@@ -347,15 +375,13 @@ impl BlockingZolanaApi {
 
     pub fn get_shielded_transactions_by_tags(
         &self,
-        tags: Vec<Hash>,
-        cursor: Option<Base64String>,
-        limit: Option<u64>,
+        request: ShieldedTransactionsByTagsRequest,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ApiError> {
         self.call::<GetShieldedTransactionsByTags>(GetRingsByTagsRequest {
-            tags,
-            cursor,
-            limit: optional_limit(limit)?,
-            ring_program_id: None,
+            tags: request.tags,
+            cursor: request.cursor,
+            limit: optional_limit(request.limit)?,
+            ring_program_id: request.ring_program_id,
         })
     }
 
@@ -457,18 +483,18 @@ impl BlockingZolanaApi {
 fn optional_limit(value: Option<u64>) -> Result<Option<Limit>, ApiError> {
     value
         .map(|value| {
-            Limit::new(value).map_err(|message| ApiError::InvalidRequest {
+            Limit::new(value).map_err(|error| ApiError::InvalidRequest {
                 field: "limit",
-                message,
+                message: error.to_string(),
             })
         })
         .transpose()
 }
 
 fn required_limit(value: u64) -> Result<Limit, ApiError> {
-    Limit::new(value).map_err(|message| ApiError::InvalidRequest {
+    Limit::new(value).map_err(|error| ApiError::InvalidRequest {
         field: "limit",
-        message,
+        message: error.to_string(),
     })
 }
 
@@ -560,8 +586,32 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        thread::JoinHandle,
+    };
+
     use super::*;
     use zolana_indexer_api::{GET_ENCRYPTED_UTXOS_BY_TAGS, GET_MERKLE_PROOFS};
+
+    fn serve_once(body: Vec<u8>) -> (String, JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let address = listener.local_addr().expect("address");
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("connection");
+            let mut request = [0; 4096];
+            let _ = stream.read(&mut request).expect("request");
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            )
+            .expect("headers");
+            stream.write_all(&body).expect("body");
+        });
+        (format!("http://{address}"), handle)
+    }
 
     #[test]
     fn extracts_api_key_from_url() {
@@ -608,5 +658,36 @@ mod tests {
             Err(ApiError::InvalidRequest { field: "limit", .. })
         ));
         assert!(required_limit(zolana_indexer_api::PAGE_LIMIT).is_ok());
+    }
+
+    #[tokio::test]
+    async fn bounded_async_responses_reject_overflow_and_invalid_text() {
+        let body = br#"{"result":true}"#.to_vec();
+        let (url, server) = serve_once(body.clone());
+        let value: serde_json::Value = ZolanaApi::new(url)
+            .with_response_limit(NonZeroUsize::new(body.len()).expect("limit"))
+            .post("test", &serde_json::json!({}))
+            .await
+            .expect("response at bound");
+        assert_eq!(value, serde_json::json!({ "result": true }));
+        server.join().expect("server");
+
+        let (url, server) = serve_once(body.clone());
+        let error = ZolanaApi::new(url)
+            .with_response_limit(NonZeroUsize::new(body.len() - 1).expect("limit"))
+            .post::<_, serde_json::Value>("test", &serde_json::json!({}))
+            .await
+            .expect_err("overflow");
+        assert!(matches!(error, ApiError::ResponseTooLarge));
+        server.join().expect("server");
+
+        let (url, server) = serve_once(vec![0xff]);
+        let error = ZolanaApi::new(url)
+            .with_response_limit(NonZeroUsize::new(1).expect("limit"))
+            .post::<_, serde_json::Value>("test", &serde_json::json!({}))
+            .await
+            .expect_err("encoding");
+        assert!(matches!(error, ApiError::ResponseEncoding));
+        server.join().expect("server");
     }
 }

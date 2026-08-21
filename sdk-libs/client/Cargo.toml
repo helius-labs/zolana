@@ -15,6 +15,7 @@ client = ["indexer-api", "solana-rpc"]
 
 [dependencies]
 zolana-interface = { workspace = true, features = ["solana"] }
+zolana-indexer-api = { workspace = true }
 zolana-event = { workspace = true, features = ["program-test"] }
 zolana-hasher = { workspace = true, features = ["poseidon", "std"] }
 zolana-keypair = { workspace = true }

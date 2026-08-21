@@ -23,7 +23,10 @@ use zolana_transaction::{
 use zolana_client::{
     error::ClientError,
     retry::{IndexerPollConfig, IndexerRpcConfig},
-    rpc::{AsyncRpc, EncryptedUtxoMatch, Rpc, ShieldedTransaction as RpcShieldedTransaction},
+    rpc::{
+        AsyncRpc, EncryptedUtxoMatch, Limit, Rpc, ShieldedTransaction as RpcShieldedTransaction,
+        ShieldedTransactionsByTagsRequest,
+    },
 };
 
 const DEFAULT_TAG_QUERY_CHUNK: usize = 64;
@@ -682,15 +685,21 @@ fn fetch_shielded_transactions_incremental<I: Rpc>(
     cursors: &mut HashMap<CursorStream, Vec<u8>>,
     scanned_to_tip: &mut HashSet<CursorStream>,
 ) -> Result<(), ClientError> {
+    let limit = Limit::new(u64::from(config.page_limit))?;
     for (start, group) in group_by_resume_point(keys, cursors, scanned_to_tip) {
         for chunk in group.chunks(config.tag_query_chunk) {
             let furthest = read_chunk(start.clone(), |cursor| {
-                let response = indexer.get_shielded_transactions_by_tags(
+                let mut request = ShieldedTransactionsByTagsRequest::from_tags(
                     chunk.iter().copied().map(CursorStream::value).collect(),
-                    cursor,
-                    Some(config.page_limit),
-                    rpc_config,
-                )?;
+                )?
+                .with_limit(limit.clone());
+                if let Some(cursor) = cursor {
+                    request = request.with_cursor(cursor);
+                }
+                if let Some(rpc_config) = rpc_config {
+                    request = request.with_config(rpc_config);
+                }
+                let response = indexer.get_shielded_transactions_by_tags(request)?;
                 for tx in response.transactions {
                     if tx.proofless || tx.tx_viewing_pk.is_none() || tx.salt.is_none() {
                         continue;
@@ -721,19 +730,23 @@ async fn fetch_shielded_transactions_incremental_async<I: AsyncRpc>(
     cursors: &mut HashMap<CursorStream, Vec<u8>>,
     scanned_to_tip: &mut HashSet<CursorStream>,
 ) -> Result<(), ClientError> {
+    let limit = Limit::new(u64::from(config.page_limit))?;
     for (start, group) in group_by_resume_point(keys, cursors, scanned_to_tip) {
         for chunk in group.chunks(config.tag_query_chunk) {
             let mut cursor = start.clone();
             let mut furthest = start.clone();
             loop {
-                let response = indexer
-                    .get_shielded_transactions_by_tags(
-                        chunk.iter().copied().map(CursorStream::value).collect(),
-                        cursor,
-                        Some(config.page_limit),
-                        rpc_config,
-                    )
-                    .await?;
+                let mut request = ShieldedTransactionsByTagsRequest::from_tags(
+                    chunk.iter().copied().map(CursorStream::value).collect(),
+                )?
+                .with_limit(limit.clone());
+                if let Some(value) = cursor.clone() {
+                    request = request.with_cursor(value);
+                }
+                if let Some(rpc_config) = rpc_config {
+                    request = request.with_config(rpc_config);
+                }
+                let response = indexer.get_shielded_transactions_by_tags(request).await?;
                 for tx in response.transactions {
                     if tx.proofless || tx.tx_viewing_pk.is_none() || tx.salt.is_none() {
                         continue;
@@ -1216,10 +1229,7 @@ mod tests {
 
         fn get_shielded_transactions_by_tags(
             &self,
-            _tags: Vec<ViewTag>,
-            _cursor: Option<Vec<u8>>,
-            _limit: Option<u32>,
-            _config: Option<IndexerRpcConfig>,
+            _request: ShieldedTransactionsByTagsRequest,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
             Ok(GetShieldedTransactionsByTagsResponse {
                 context: Context {
@@ -1324,13 +1334,15 @@ mod tests {
 
         fn get_shielded_transactions_by_tags(
             &self,
-            tags: Vec<ViewTag>,
-            cursor: Option<Vec<u8>>,
-            limit: Option<u32>,
-            _config: Option<IndexerRpcConfig>,
+            request: ShieldedTransactionsByTagsRequest,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-            let limit = limit.unwrap_or(1_000).max(1) as usize;
-            let (transactions, next_cursor) = self.matching(&tags, cursor, limit);
+            let limit = usize::try_from(request.limit().map_or(1_000, Limit::value))
+                .expect("page limit fits usize");
+            let (transactions, next_cursor) = self.matching(
+                request.tags(),
+                request.cursor().map(ToOwned::to_owned),
+                limit,
+            );
             Ok(GetShieldedTransactionsByTagsResponse {
                 context: Context {
                     block_time: 0,
@@ -1909,12 +1921,9 @@ mod tests {
 
         async fn get_shielded_transactions_by_tags(
             &self,
-            tags: Vec<ViewTag>,
-            cursor: Option<Vec<u8>>,
-            limit: Option<u32>,
-            config: Option<IndexerRpcConfig>,
+            request: ShieldedTransactionsByTagsRequest,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-            Rpc::get_shielded_transactions_by_tags(self, tags, cursor, limit, config)
+            Rpc::get_shielded_transactions_by_tags(self, request)
         }
 
         async fn get_shielded_transactions_by_nullifiers(
@@ -1949,12 +1958,9 @@ mod tests {
 
         async fn get_shielded_transactions_by_tags(
             &self,
-            tags: Vec<ViewTag>,
-            cursor: Option<Vec<u8>>,
-            limit: Option<u32>,
-            config: Option<IndexerRpcConfig>,
+            request: ShieldedTransactionsByTagsRequest,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-            Rpc::get_shielded_transactions_by_tags(self, tags, cursor, limit, config)
+            Rpc::get_shielded_transactions_by_tags(self, request)
         }
 
         async fn get_shielded_transactions_by_nullifiers(

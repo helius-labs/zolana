@@ -37,8 +37,12 @@ pub fn discover_escrow_note<I: Rpc>(indexer: &I, owner: &ShieldedPda) -> Result<
         .map_err(err)?;
     let mut cursor = None;
     loop {
+        let mut request = zolana_client::ShieldedTransactionsByTagsRequest::new(tag);
+        if let Some(value) = cursor {
+            request = request.with_cursor(value);
+        }
         let page = indexer
-            .get_shielded_transactions_by_tags(vec![tag], cursor, None, None)
+            .get_shielded_transactions_by_tags(request)
             .map_err(err)?;
         for tx in &page.transactions {
             if let Some((order_utxo_hash, plaintext)) =

@@ -193,7 +193,10 @@ fn localnet_bring_up_is_live() -> Result<()> {
     let indexed = env
         .client
         .indexer()
-        .get_shielded_transactions_by_tags(vec![UNUSED_VIEW_TAG], None, Some(10), None)
+        .get_shielded_transactions_by_tags(
+            zolana_client::ShieldedTransactionsByTagsRequest::new(UNUSED_VIEW_TAG)
+                .with_limit(zolana_client::Limit::new(10).expect("valid page limit")),
+        )
         .map_err(|e| anyhow!("indexer {}: {e:?}", env.indexer_url))?;
     assert!(
         indexed.transactions.is_empty(),

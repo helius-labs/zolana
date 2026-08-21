@@ -44,8 +44,10 @@ fn phase_bootstrap() -> TestResult<CycleEnv> {
     let mut rpc = SolanaRpc::new(rpc_url.clone());
     let indexer = ZolanaIndexer::new(indexer_url.clone()).with_http_trace();
     rpc.assert_executable(&program_id)?;
-    let unknown_transactions =
-        indexer.get_shielded_transactions_by_tags(vec![[253u8; 32]], None, Some(10), None)?;
+    let unknown_transactions = indexer.get_shielded_transactions_by_tags(
+        zolana_client::ShieldedTransactionsByTagsRequest::new([253u8; 32])
+            .with_limit(zolana_client::Limit::new(10).expect("valid page limit")),
+    )?;
     assert!(
         unknown_transactions.transactions.is_empty(),
         "unknown tag should not return transactions"
@@ -547,10 +549,8 @@ fn phase_unshield_indexer_assertions(
     // so a limit-1 query must paginate across the two transactions.
     let first_page = wait_for("paginated indexed transactions", || {
         let response = indexer.get_shielded_transactions_by_tags(
-            vec![recipient_view_tag],
-            None,
-            Some(1),
-            None,
+            zolana_client::ShieldedTransactionsByTagsRequest::new(recipient_view_tag)
+                .with_limit(zolana_client::Limit::new(1).expect("valid page limit")),
         )?;
         if response.transactions.len() == 1 && response.next_cursor.is_some() {
             Ok(Some(response))
@@ -558,12 +558,12 @@ fn phase_unshield_indexer_assertions(
             Ok(None)
         }
     })?;
-    let second_page = indexer.get_shielded_transactions_by_tags(
-        vec![recipient_view_tag],
-        first_page.next_cursor,
-        Some(1),
-        None,
-    )?;
+    let mut request = zolana_client::ShieldedTransactionsByTagsRequest::new(recipient_view_tag)
+        .with_limit(zolana_client::Limit::new(1).expect("valid page limit"));
+    if let Some(cursor) = first_page.next_cursor {
+        request = request.with_cursor(cursor);
+    }
+    let second_page = indexer.get_shielded_transactions_by_tags(request)?;
     assert!(
         !second_page.transactions.is_empty(),
         "paginated transaction query should return a second page"

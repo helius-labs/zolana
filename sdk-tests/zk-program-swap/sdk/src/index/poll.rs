@@ -50,8 +50,12 @@ pub(crate) fn collect_tagged<I: Rpc + Sync, T>(
     let mut found = Vec::new();
     let mut cursor = None;
     loop {
+        let mut request = zolana_client::ShieldedTransactionsByTagsRequest::new(owner_tag);
+        if let Some(value) = cursor {
+            request = request.with_cursor(value);
+        }
         let page = indexer
-            .get_shielded_transactions_by_tags(vec![owner_tag], cursor, None, None)
+            .get_shielded_transactions_by_tags(request)
             .map_err(err)?;
         for tx in &page.transactions {
             if let Some(item) = scan(tx)? {

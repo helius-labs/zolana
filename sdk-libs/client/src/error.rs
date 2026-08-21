@@ -5,8 +5,16 @@ use zolana_interface::instruction::DepositBuildError;
 use zolana_keypair::KeypairError;
 use zolana_transaction::TransactionError;
 
+use crate::rpc::{LimitError, ShieldedTransactionsByTagsRequestError};
+
 #[derive(Debug, Error)]
 pub enum ClientError {
+    #[error(transparent)]
+    ShieldedTransactionsByTagsRequest(#[from] ShieldedTransactionsByTagsRequestError),
+
+    #[error(transparent)]
+    Limit(#[from] LimitError),
+
     #[error("deposit builder error: {0}")]
     DepositBuild(#[from] DepositBuildError),
 

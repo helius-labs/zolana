@@ -31,7 +31,11 @@ pub fn scan_ring_transactions<I: Rpc>(
     let mut found = Vec::new();
     let mut cursor = None;
     loop {
-        let page = indexer.get_shielded_transactions_by_tags(vec![view_tag], cursor, None, None)?;
+        let mut request = zolana_client::ShieldedTransactionsByTagsRequest::new(view_tag);
+        if let Some(value) = cursor {
+            request = request.with_cursor(value);
+        }
+        let page = indexer.get_shielded_transactions_by_tags(request)?;
         found.extend(page.transactions.into_iter().filter(|tx| {
             tx.messages
                 .iter()

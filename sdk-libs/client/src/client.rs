@@ -74,7 +74,7 @@ use crate::{
         AsyncRpc, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
         GetNonInclusionProofsResponse, GetShieldedTransactionsByNullifiersResponse,
         GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-        ProveResult, Rpc, ShieldedTransactionStream,
+        ProveResult, Rpc, ShieldedTransactionStream, ShieldedTransactionsByTagsRequest,
     },
 };
 
@@ -592,18 +592,12 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
 
     async fn get_shielded_transactions_by_tags(
         &self,
-        tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
-        limit: Option<u32>,
-        config: Option<IndexerRpcConfig>,
+        mut request: ShieldedTransactionsByTagsRequest,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        let config = request.config().unwrap_or(self.indexer_config);
+        request = request.with_config(config);
         self.async_indexer
-            .get_shielded_transactions_by_tags(
-                tags,
-                cursor,
-                limit,
-                Some(config.unwrap_or(self.indexer_config)),
-            )
+            .get_shielded_transactions_by_tags(request)
             .await
     }
 
@@ -855,17 +849,12 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
 
     fn get_shielded_transactions_by_tags(
         &self,
-        tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
-        limit: Option<u32>,
-        config: Option<IndexerRpcConfig>,
+        mut request: ShieldedTransactionsByTagsRequest,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        self.blocking_indexer().get_shielded_transactions_by_tags(
-            tags,
-            cursor,
-            limit,
-            Some(config.unwrap_or(self.indexer_config)),
-        )
+        let config = request.config().unwrap_or(self.indexer_config);
+        request = request.with_config(config);
+        self.blocking_indexer()
+            .get_shielded_transactions_by_tags(request)
     }
 
     fn get_shielded_transactions_by_signature(

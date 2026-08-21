@@ -23,7 +23,6 @@ pub const GET_NULLIFIER_QUEUE_ELEMENTS: &str = "getNullifierQueueElements";
 
 const MAX_BASE58_32_LEN: usize = 44;
 const LIMIT_EXPECTATION: &str = "a value between 1 and 1000";
-const LIMIT_ERROR: &str = "value must be between 1 and 1000";
 
 /// Associates one canonical JSON-RPC method name with its parameter and result types.
 pub trait RpcMethod {
@@ -433,12 +432,25 @@ impl FromStr for SerializableSignature {
 #[serde(transparent)]
 pub struct Limit(u64);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum LimitError {
+    #[error("page limit {value} is outside {min} through {max}")]
+    OutOfRange { value: u64, min: u64, max: u64 },
+}
+
 impl Limit {
-    pub fn new(value: u64) -> Result<Self, &'static str> {
-        if (MIN_PAGE_LIMIT..=PAGE_LIMIT).contains(&value) {
+    pub const MIN: Self = Self(MIN_PAGE_LIMIT);
+    pub const MAX: Self = Self(PAGE_LIMIT);
+
+    pub const fn new(value: u64) -> Result<Self, LimitError> {
+        if value >= MIN_PAGE_LIMIT && value <= PAGE_LIMIT {
             Ok(Self(value))
         } else {
-            Err(LIMIT_ERROR)
+            Err(LimitError::OutOfRange {
+                value,
+                min: MIN_PAGE_LIMIT,
+                max: PAGE_LIMIT,
+            })
         }
     }
 
@@ -449,7 +461,7 @@ impl Limit {
 
 impl Default for Limit {
     fn default() -> Self {
-        Self(PAGE_LIMIT)
+        Self::MAX
     }
 }
 

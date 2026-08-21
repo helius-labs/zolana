@@ -10,7 +10,8 @@ use solana_address::Address;
 use solana_signature::Signature;
 use zolana_api::{
     Base64String, BlockingZolanaApi, Hash as ApiHash, RingsOutputSlot as ApiOutputSlot,
-    SerializablePubkey, SerializableSignature, ZolanaApi,
+    SerializablePubkey, SerializableSignature,
+    ShieldedTransactionsByTagsRequest as ApiShieldedTransactionsByTagsRequest, ZolanaApi,
 };
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use zolana_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
@@ -24,8 +25,9 @@ use crate::{
         AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
         GetMerkleProofsResponse, GetNonInclusionProofsResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
-        GetShieldedTransactionsByTagsResponse, IndexedShieldedTransaction, MerkleContext,
+        GetShieldedTransactionsByTagsResponse, IndexedShieldedTransaction, Limit, MerkleContext,
         MerkleProof, NonInclusionProof, OutputContext, OutputSlot, Rpc, ShieldedTransaction,
+        ShieldedTransactionsByTagsRequest,
     },
 };
 
@@ -250,22 +252,20 @@ impl Rpc for ZolanaIndexer {
 
     fn get_shielded_transactions_by_tags(
         &self,
-        tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
-        limit: Option<u32>,
-        config: Option<IndexerRpcConfig>,
+        request: ShieldedTransactionsByTagsRequest,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         wait_for_indexer(
-            config,
+            request.config(),
             |response: &GetShieldedTransactionsByTagsResponse| response.context,
             || {
                 let response = self
                     .api
-                    .get_shielded_transactions_by_tags(
-                        tags.iter().copied().map(encode_hash).collect(),
-                        encode_cursor(cursor.clone()),
-                        limit.map(u64::from),
-                    )
+                    .get_shielded_transactions_by_tags(ApiShieldedTransactionsByTagsRequest {
+                        tags: request.tags().iter().copied().map(encode_hash).collect(),
+                        cursor: encode_cursor(request.cursor().map(ToOwned::to_owned)),
+                        limit: request.limit().map(Limit::value),
+                        ring_program_id: request.ring_program_id().map(encode_pubkey),
+                    })
                     .map_err(indexer_error)?;
 
                 convert_shielded_transactions_response(response)
@@ -462,22 +462,20 @@ impl AsyncRpc for AsyncZolanaIndexer {
 
     async fn get_shielded_transactions_by_tags(
         &self,
-        tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
-        limit: Option<u32>,
-        config: Option<IndexerRpcConfig>,
+        request: ShieldedTransactionsByTagsRequest,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         wait_for_indexer_async(
-            config,
+            request.config(),
             |response: &GetShieldedTransactionsByTagsResponse| response.context,
             || async {
                 let response = self
                     .api
-                    .get_shielded_transactions_by_tags(
-                        tags.iter().copied().map(encode_hash).collect(),
-                        encode_cursor(cursor.clone()),
-                        limit.map(u64::from),
-                    )
+                    .get_shielded_transactions_by_tags(ApiShieldedTransactionsByTagsRequest {
+                        tags: request.tags().iter().copied().map(encode_hash).collect(),
+                        cursor: encode_cursor(request.cursor().map(ToOwned::to_owned)),
+                        limit: request.limit().map(Limit::value),
+                        ring_program_id: request.ring_program_id().map(encode_pubkey),
+                    })
                     .await
                     .map_err(indexer_error)?;
 
@@ -962,7 +960,11 @@ mod tests {
         let indexer = ZolanaIndexer::new(server.url());
 
         let got = indexer
-            .get_shielded_transactions_by_tags(vec![tag], None, Some(1), None)
+            .get_shielded_transactions_by_tags(
+                ShieldedTransactionsByTagsRequest::new(tag)
+                    .with_limit(Limit::new(1).expect("valid page limit"))
+                    .with_ring(Address::new_from_array([31u8; 32])),
+            )
             .expect("shielded transaction lookup");
         let request = server.request();
 
@@ -973,6 +975,7 @@ mod tests {
             json!({
                 "tags": [encode_hash_string(tag)],
                 "limit": 1,
+                "ringProgramId": encode_pubkey_string(Address::new_from_array([31u8; 32])),
             })
         );
         assert_eq!(
@@ -1305,7 +1308,7 @@ mod tests {
         let indexer = ZolanaIndexer::new(server.url());
 
         let err = indexer
-            .get_shielded_transactions_by_tags(vec![tag], None, None, None)
+            .get_shielded_transactions_by_tags(ShieldedTransactionsByTagsRequest::new(tag))
             .expect_err("short output hash must fail");
         let _ = server.request();
 

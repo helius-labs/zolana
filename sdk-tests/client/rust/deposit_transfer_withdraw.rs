@@ -80,10 +80,12 @@ fn main() -> Result<()> {
         // The indexer returns encrypted outputs by view tag, the sender's public key in Confidential Rings.
         let sender_tag = sender_shielded_address.confidential_view_tag()?;
         let response = client.get_shielded_transactions_by_tags(
-            vec![sender_tag],
-            None,
-            Some(50),
-            Some(IndexerRpcConfig::at_slot(slot)),
+            zolana_client::ShieldedTransactionsByTagsRequest::new(sender_tag)
+                .with_limit(
+                    zolana_client::Limit::new(50)
+                        .map_err(|error| anyhow!("invalid page limit {error}"))?,
+                )
+                .with_config(IndexerRpcConfig::at_slot(slot)),
         )?;
 
         // 4. The sender decrypts the transaction outputs locally to update the private balance.
@@ -149,10 +151,12 @@ fn main() -> Result<()> {
         // the remaining private balance.
         let sender_tag = sender_shielded_address.confidential_view_tag()?;
         let response = client.get_shielded_transactions_by_tags(
-            vec![sender_tag],
-            None,
-            Some(50),
-            Some(IndexerRpcConfig::at_slot(slot)),
+            zolana_client::ShieldedTransactionsByTagsRequest::new(sender_tag)
+                .with_limit(
+                    zolana_client::Limit::new(50)
+                        .map_err(|error| anyhow!("invalid page limit {error}"))?,
+                )
+                .with_config(IndexerRpcConfig::at_slot(slot)),
         )?;
         let sender_balances = decrypt_transactions(&sender, &response.transactions, &assets)
             .map_err(|e| anyhow!("decrypt sender transactions: {e:?}"))?;
@@ -242,10 +246,12 @@ fn main() -> Result<()> {
         // the remaining private balance.
         let sender_tag = sender_shielded_address.confidential_view_tag()?;
         let response = client.get_shielded_transactions_by_tags(
-            vec![sender_tag],
-            None,
-            Some(50),
-            Some(IndexerRpcConfig::at_slot(slot)),
+            zolana_client::ShieldedTransactionsByTagsRequest::new(sender_tag)
+                .with_limit(
+                    zolana_client::Limit::new(50)
+                        .map_err(|error| anyhow!("invalid page limit {error}"))?,
+                )
+                .with_config(IndexerRpcConfig::at_slot(slot)),
         )?;
         let sender_balances = decrypt_transactions(&sender, &response.transactions, &assets)
             .map_err(|e| anyhow!("decrypt sender transactions: {e:?}"))?;

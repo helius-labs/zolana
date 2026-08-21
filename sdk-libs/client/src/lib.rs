@@ -53,8 +53,9 @@ pub use rpc::{
     AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
     GetMerkleProofsResponse, GetNonInclusionProofsResponse,
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-    IndexedShieldedTransaction, MerkleContext, MerkleProof, NonInclusionProof, OutputContext,
-    OutputSlot, ProveResult, Rpc, ShieldedTransaction, ShieldedTransactionStream,
+    IndexedShieldedTransaction, Limit, LimitError, MerkleContext, MerkleProof, NonInclusionProof,
+    OutputContext, OutputSlot, ProveResult, Rpc, ShieldedTransaction, ShieldedTransactionStream,
+    ShieldedTransactionsByTagsRequest, ShieldedTransactionsByTagsRequestError,
     NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 #[cfg(feature = "solana-rpc")]
