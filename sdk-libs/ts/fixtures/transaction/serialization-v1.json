@@ -109,6 +109,11 @@
         "byte": "7",
         "name": "PlaintextTransfer",
         "roundTripByte": "7"
+      },
+      {
+        "byte": "8",
+        "name": "RingDeposit",
+        "roundTripByte": "8"
       }
     ]
   },

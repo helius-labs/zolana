@@ -1,7 +1,10 @@
+import { bytesToHex } from "@noble/hashes/utils.js";
+
 import type { RequestContext } from "../../interface/types.js";
 
 import { ClientError } from "../error.js";
 import {
+  checkedBytes,
   checkedServiceUrl,
   composeSignal,
   requestError,
@@ -11,6 +14,7 @@ import {
 import { circuitUtxo } from "./assembly.js";
 import { parseProof } from "./proof.js";
 import type {
+  AuditorKeyEncryptionInputs,
   Field,
   MergeInputs,
   Proof,
@@ -38,6 +42,8 @@ const REQUEST_TIMEOUT_MS = 600_000;
  */
 const INITIAL_POLL_INTERVAL_MS = 25;
 const PROVE_PATH = "/prove";
+const HEALTH_PATH = "/health";
+const UNCOMPRESSED_P256_LENGTH = 65;
 
 /// Polling cadence and ceiling for queued (async) proofs. A Redis-backed prover
 /// returns a job handle instead of a proof, and the client polls
@@ -56,6 +62,11 @@ const DEFAULT_ASYNC_POLL_CONFIG: AsyncPollConfig = Object.freeze({
   pollIntervalCapMs: 1_000,
   maxWaitMs: 1_200_000,
 });
+
+export interface ProverHealth {
+  readonly status: string;
+  readonly circuits: readonly string[];
+}
 
 export class ProverClient {
   readonly #fetch: typeof globalThis.fetch;
@@ -77,7 +88,8 @@ export class ProverClient {
     }
     const url = checkedServiceUrl(input.url, "url", input.allowInsecureHttp ?? false);
     url.pathname = `${url.pathname.replace(/\/+$/u, "")}${PROVE_PATH}`;
-    const fetchImplementation = input.fetch ?? globalThis.fetch;
+    // Browsers refuse `fetch` called with another receiver, so the global stays bound.
+    const fetchImplementation = input.fetch ?? ((input, init) => globalThis.fetch(input, init));
     if (typeof fetchImplementation !== "function") {
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "fetch" } });
     }
@@ -92,6 +104,49 @@ export class ProverClient {
 
   async proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
     return this.#send(JSON.stringify(mergeProverRequest(inputs)), context);
+  }
+
+  async proveAuditorKeyEncryption(
+    inputs: AuditorKeyEncryptionInputs,
+    context?: RequestContext,
+  ): Promise<Proof> {
+    return this.#send(JSON.stringify(auditorKeyEncryptionRequest(inputs)), context);
+  }
+
+  /** The circuits the server serves, `custom-ring-audit` among them only with a queue. */
+  async health(context?: RequestContext): Promise<ProverHealth> {
+    const url = new URL(this.#url);
+    url.pathname = url.pathname.replace(/\/prove$/u, HEALTH_PATH);
+    const request = composeSignal(context, "health");
+    try {
+      let response: Response;
+      try {
+        response = await this.#fetch(url, { redirect: "error", signal: request.signal });
+      } catch {
+        if (request.timedOut()) throw requestError("health", request);
+        throw new ClientError("CLIENT_PROVER_REQUEST", {
+          details: { method: "health", attempts: 1 },
+        });
+      }
+      if (!response.ok) {
+        throw new ClientError("CLIENT_PROVER_HTTP", {
+          details: { method: "health", status: response.status },
+        });
+      }
+      const value = await decodeResponse(response);
+      if (!isObject(value) || typeof value["status"] !== "string") {
+        throw new ClientError("CLIENT_PROVER_JSON");
+      }
+      const circuits = Array.isArray(value["circuits"]) ? value["circuits"] : [];
+      return Object.freeze({
+        status: value["status"],
+        circuits: Object.freeze(
+          circuits.filter((circuit): circuit is string => typeof circuit === "string"),
+        ),
+      });
+    } finally {
+      request.cleanup();
+    }
   }
 
   async #send(body: string, context?: RequestContext): Promise<Proof> {
@@ -289,10 +344,33 @@ function mergeOutputJson(output: TransferOutput): Readonly<Record<string, unknow
   });
 }
 
+/** Mirrors Rust `to_json_auditor_key_encryption`, key order included. */
+export function auditorKeyEncryptionRequest(
+  inputs: AuditorKeyEncryptionInputs,
+): Readonly<Record<string, unknown>> {
+  const auditorPublicKey = inputs.auditorPublicKey;
+  if (
+    !(auditorPublicKey instanceof Uint8Array) ||
+    auditorPublicKey.length !== UNCOMPRESSED_P256_LENGTH ||
+    auditorPublicKey[0] !== 0x04
+  ) {
+    throw new ClientError("CLIENT_INVALID_P256_KEY");
+  }
+  return Object.freeze({
+    circuitType: "custom-ring-audit",
+    variant: "transfer",
+    publicInputHash: bytesHex(checkedBytes(inputs.publicInputHash, 32, "publicInputHash")),
+    privateTxHash: bytesHex(checkedBytes(inputs.privateTxHash, 32, "privateTxHash")),
+    txViewingSk: bytesHex(checkedBytes(inputs.txViewingSecret, 32, "txViewingSecret")),
+    ephSk: bytesHex(checkedBytes(inputs.ephemeralSecret, 32, "ephemeralSecret")),
+    auditorPk: bytesHex(auditorPublicKey),
+  });
+}
+
 function proverRequest(inputs: ProverInputs): Readonly<Record<string, unknown>> {
   const payload = inputs.payload;
   return Object.freeze({
-    circuitType: "transfer-confidential",
+    circuitType: inputs.circuit === "transferRing" ? "transfer-ring" : "transfer-confidential",
     nInputs: payload.inputs.length,
     nOutputs: payload.outputs.length,
     inputs: payload.inputs.map(inputJson),
@@ -353,6 +431,10 @@ function utxoJson(value: object): Readonly<Record<string, unknown>> {
 
 function hex(value: Field): string {
   return `0x${value.toString(16)}`;
+}
+
+function bytesHex(bytes: Uint8Array): string {
+  return `0x${bytesToHex(bytes)}`;
 }
 
 async function decodeResponse(response: Response): Promise<unknown> {

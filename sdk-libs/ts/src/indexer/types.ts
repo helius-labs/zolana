@@ -56,6 +56,8 @@ export interface GetEncryptedUtxosByTagsResponse {
   readonly context: IndexerContext;
   readonly matches: readonly EncryptedUtxoMatch[];
   readonly nextCursor?: Base64String;
+  /** As on the nullifier query. Absent from indexers that do not send it. */
+  readonly scannedThrough?: Base64String;
 }
 
 export interface IndexedShieldedTransaction {
@@ -85,6 +87,8 @@ export interface GetShieldedTransactionsByTagsResponse {
   readonly context: IndexerContext;
   readonly transactions: readonly IndexedShieldedTransaction[];
   readonly nextCursor?: Base64String;
+  /** As on the nullifier query. Absent from indexers that do not send it. */
+  readonly scannedThrough?: Base64String;
 }
 
 export interface GetShieldedTransactionsByNullifiersResponse {

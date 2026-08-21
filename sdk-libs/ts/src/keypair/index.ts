@@ -30,11 +30,21 @@ export {
   P_PDA_SEC1,
   TSPP_APPLICATION_DOMAIN,
   ed25519DerivationMessage,
+  ed25519DerivationPayload,
   isDerivationInput,
 } from "./derivation.js";
 export { poseidon } from "./poseidon.js";
 export { ownerHash, sha256Be, sha256Bytes, splitBigEndian128 } from "./hash.js";
 export { symmetricApply } from "./merge/index.js";
+export {
+  auditorMessageData,
+  auditorViewTag,
+  auditPublicInputHash,
+  decryptTransactionViewingSecret,
+  encryptTransactionViewingSecret,
+  parseAuditorMessage,
+} from "./audit.js";
+export type { AuditorEncryption, AuditorMessage } from "./audit.js";
 export { P256PublicKey, ShieldedPublicKey } from "./public-key.js";
 export { SigningKey } from "./signing-key.js";
 export { NullifierKey } from "./nullifier-key.js";

@@ -4,10 +4,12 @@ import { sha256 } from "@noble/hashes/sha2.js";
 
 import { type Bytes16, type Bytes32, checkedBytes, copyBytes, randomBytes } from "./bytes.js";
 import {
+  ENC_INFO_RING_DEPOSIT,
   INFO_TX_VIEWING,
   ecdhX,
   hkdfExpand,
   isDerivationPoint,
+  roleExpansion,
   scalarFromOkm,
   viewRoot,
 } from "./derivation.js";
@@ -54,6 +56,16 @@ export class ViewingKey implements ViewingKeyLike {
       throw new KeypairError("KEYPAIR_INVALID_SECRET_KEY", { type: "p256" });
     }
     return new ViewingKey(secret);
+  }
+
+  /**
+   * The viewing key of the wallet whose ed25519 `derivationSeed` is the
+   * signature over `ed25519DerivationMessage(publicKey)`. Same key as
+   * `LocalWalletAuthority.fromDerivationSeed` holds, without the nullifier
+   * key, so nothing here hashes.
+   */
+  static fromDerivationSeed(derivationSeed: Uint8Array): ViewingKey {
+    return new ViewingKey(roleExpansion(derivationSeed, "ed25519").viewingSecret());
   }
 
   publicKey(): P256PublicKey {
@@ -123,6 +135,43 @@ export class ViewingKey implements ViewingKeyLike {
       ciphertext,
       checkedBytes<Bytes16>(salt, 16, "salt"),
       checkSlotIndex(slotIndex),
+    );
+  }
+
+  /** Mirrors Rust `ViewingKey::encrypt_ring_deposit`. This key is the ephemeral one. The ring deposit label keeps the ciphertext closed under the transfer label. */
+  encryptRingDeposit(
+    recipientPublicKey: P256PublicKey,
+    plaintext: Uint8Array,
+    salt: Salt,
+  ): Uint8Array {
+    this.#assertUsable();
+    return applyTransferCipher(
+      this.#secret,
+      recipientPublicKey,
+      this.publicKey(),
+      recipientPublicKey,
+      plaintext,
+      checkedBytes<Bytes16>(salt, 16, "salt"),
+      0,
+      ENC_INFO_RING_DEPOSIT,
+    );
+  }
+
+  decryptRingDeposit(
+    ciphertext: Uint8Array,
+    txViewingPublicKey: P256PublicKey,
+    salt: Salt,
+  ): Uint8Array {
+    this.#assertUsable();
+    return applyTransferCipher(
+      this.#secret,
+      txViewingPublicKey,
+      txViewingPublicKey,
+      this.publicKey(),
+      ciphertext,
+      checkedBytes<Bytes16>(salt, 16, "salt"),
+      0,
+      ENC_INFO_RING_DEPOSIT,
     );
   }
 

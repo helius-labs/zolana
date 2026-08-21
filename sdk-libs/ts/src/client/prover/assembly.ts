@@ -5,7 +5,8 @@ import type {
   TransactProof,
 } from "../../interface/types.js";
 import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
-import { SppProofInputs } from "../../transaction/instructions/transact.js";
+import { SppProofInputs, type ExternalData } from "../../transaction/instructions/transact.js";
+import { EncryptedScheme } from "../../transaction/serialization/codecs.js";
 import { ProofInputUtxo, type ProofOutputUtxo } from "../../transaction/utxo.js";
 import { SOL_MINT } from "../../transaction/wallet/asset.js";
 
@@ -59,13 +60,15 @@ export function circuitUtxo(value: object): CircuitUtxo {
   return result;
 }
 
+/** With `ring` set, the circuit binds every real input's ring field to `zoneProgramId`. */
 export function assemble(
   proofInputs: SppProofInputs,
   spendProofs: readonly SpendProof[],
   dummyNullifierProofs: readonly NonInclusionProof[] = [],
+  ring?: Address,
 ): AssembledTransfer {
   try {
-    return assembleUnchecked(proofInputs, spendProofs, dummyNullifierProofs);
+    return assembleUnchecked(proofInputs, spendProofs, dummyNullifierProofs, ring);
   } catch (cause) {
     throw fromClientCause(cause);
   }
@@ -75,6 +78,7 @@ function assembleUnchecked(
   proofInputs: SppProofInputs,
   spendProofs: readonly SpendProof[],
   dummyNullifierProofs: readonly NonInclusionProof[],
+  ring: Address | undefined,
 ): AssembledTransfer {
   if (!(proofInputs instanceof SppProofInputs)) {
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
@@ -93,7 +97,10 @@ function assembleUnchecked(
   const privateOutputHashes = proofInputs.outputs.map((output) =>
     output.isDummy() ? 0n : bytesToBigInt(output.hash()),
   );
-  const outputOwnerFields = transferOutputs.map((output) => output.ownerPublicKeyHash);
+  const outputOwnerFields =
+    ring === undefined
+      ? transferOutputs.map((output) => output.ownerPublicKeyHash)
+      : confidentialMarkedOutputOwnerHashes(proofInputs.externalData);
   const externalDataHash = bytesField(proofInputs.externalData.hash(), "external data hash");
   const privateTxHash = poseidon([
     hashChain(inputHashes),
@@ -115,6 +122,7 @@ function assembleUnchecked(
     ...Array.from({ length: inputHashes.length }, () => 0n),
   ];
   const allowDummyInputs = 1n;
+  const zoneProgramId = ring === undefined ? 0n : hashBytesBigInt(addressBytes(ring));
   const publicInputHash = hashChain([
     hashChain(nullifiers.map(bytesToBigInt)),
     hashChain(outputHashes),
@@ -123,7 +131,7 @@ function assembleUnchecked(
     privateTxHash,
     externalDataHash,
     ...publicSlots,
-    0n,
+    zoneProgramId,
     rightHashChain(signerPublicKeyHashes),
     allowDummyInputs,
     hashChain(outputOwnerFields),
@@ -135,19 +143,22 @@ function assembleUnchecked(
     privateTxHash: asField(privateTxHash),
     publicAssets: Object.freeze(movements.assets.map(asField)),
     publicAmounts: Object.freeze(movements.amounts.map(asField)),
-    zoneProgramId: asField(0n),
+    zoneProgramId: asField(zoneProgramId),
     signerPublicKeyHashes: Object.freeze(signerPublicKeyHashes.map(asField)),
     allowDummyInputs: asField(allowDummyInputs),
     publishedOutputOwnerPublicKeyHashes: Object.freeze(outputOwnerFields.map(asField)),
     publicInputHash: asField(publicInputHash),
   });
-  const proverInputs: ProverInputs = Object.freeze({ circuit: "transfer", payload: common });
+  const proverInputs: ProverInputs = Object.freeze({
+    circuit: ring === undefined ? "transfer" : "transferRing",
+    payload: common,
+  });
 
   const instructionData: TransactInstructionData = Object.freeze({
     expiryUnixTs: proofInputs.externalData.expiryUnixTs,
     privateTxHash: bigintToBytes(privateTxHash) as Bytes32,
     circuit: Object.freeze({
-      kind: "confidentialEddsa",
+      kind: ring === undefined ? "confidentialEddsa" : "zoneEddsa",
       inputs: proofInputs.inputUtxos.length,
       outputs: proofInputs.outputs.length,
       publicAssetSlots: 3,
@@ -224,6 +235,31 @@ function assembleUnchecked(
       return Object.freeze({ ...instructionData, proof: copyProof(proof) });
     },
   });
+}
+
+/**
+ * Mirrors Rust `confidential_marked_output_owner_pk_hashes`, the ring rails
+ * publish an owner hash only for a `Confidential` scheme output, a
+ * `RingConfidential` one contributes zero.
+ */
+function confidentialMarkedOutputOwnerHashes(external: ExternalData): bigint[] {
+  if (external.outputs.length !== external.resolvedOwnerTags.length) {
+    throw new ClientError("CLIENT_PROVER_INPUT");
+  }
+  return external.outputs.map((output, index) => {
+    const tag = external.resolvedOwnerTags[index];
+    if (tag === undefined) throw new ClientError("CLIENT_PROVER_INPUT");
+    return output.data !== undefined && isConfidentialEncryptedOutput(output.data)
+      ? hashBytesBigInt(tag)
+      : 0n;
+  });
+}
+
+/** Mirrors Rust `is_confidential_encrypted_output`. */
+function isConfidentialEncryptedOutput(data: Uint8Array): boolean {
+  if (data.length <= 5 || data[0] !== 1) return false;
+  const bodyLength = new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(1, true);
+  return bodyLength === data.length - 5 && data[5] === EncryptedScheme.confidential;
 }
 
 export interface AssembledSlots {

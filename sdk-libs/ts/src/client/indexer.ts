@@ -303,6 +303,9 @@ function convertEncryptedUtxosResponse(
     ...(response.nextCursor === undefined
       ? {}
       : { nextCursor: decodeBase64(response.nextCursor, "nextCursor") }),
+    ...(response.scannedThrough === undefined
+      ? {}
+      : { scannedThrough: decodeBase64(response.scannedThrough, "scannedThrough") }),
   });
 }
 
@@ -336,6 +339,11 @@ function convertShieldedTransactionsResponse(
     ...(response.nextCursor === undefined
       ? {}
       : { nextCursor: decodeBase64(response.nextCursor, "nextCursor") }),
+    // The scan position, without which sync restarts from zero while appearing
+    // to resume.
+    ...(response.scannedThrough === undefined
+      ? {}
+      : { scannedThrough: decodeBase64(response.scannedThrough, "scannedThrough") }),
   });
 }
 
@@ -343,14 +351,7 @@ function convertShieldedTransactionsByNullifiersResponse(
   response: WireGetShieldedTransactionsByNullifiersResponse,
   method: string,
 ): GetShieldedTransactionsByNullifiersResponse {
-  // Delegating alone would drop the scan position, leaving sync restarting from
-  // zero while appearing to resume.
-  return Object.freeze({
-    ...convertShieldedTransactionsResponse(response, method),
-    ...(response.scannedThrough === undefined
-      ? {}
-      : { scannedThrough: decodeBase64(response.scannedThrough, "scannedThrough") }),
-  });
+  return convertShieldedTransactionsResponse(response, method);
 }
 
 function convertShieldedTransactionsBySignatureResponse(

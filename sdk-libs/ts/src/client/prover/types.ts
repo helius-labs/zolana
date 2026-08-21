@@ -64,7 +64,10 @@ export interface MergeInputs {
   readonly zoneProgramId: Field;
 }
 
-export type ProverInputs = Readonly<{ circuit: "transfer"; payload: TransferInputs }>;
+export type ProverInputs = Readonly<{
+  circuit: "transfer" | "transferRing";
+  payload: TransferInputs;
+}>;
 
 export interface AssembledTransfer {
   readonly instructionData: TransactInstructionData;
@@ -78,17 +81,32 @@ export interface AssembledTransfer {
   withProof(proof: TransactProof): TransactInstructionData;
 }
 
+/** Mirrors Rust `AuditorKeyEncryptionInputs`, `auditorPublicKey` is the uncompressed SEC1 point. */
+export interface AuditorKeyEncryptionInputs {
+  readonly publicInputHash: Bytes32;
+  readonly privateTxHash: Bytes32;
+  readonly txViewingSecret: Bytes32;
+  readonly ephemeralSecret: Bytes32;
+  readonly auditorPublicKey: Uint8Array;
+}
+
 export interface Proof {
   readonly a: Bytes64;
   readonly b: Bytes128;
   readonly c: Bytes64;
+  readonly commitment?: Bytes64;
+  readonly commitmentPok?: Bytes64;
 }
 
 export interface CompressedProof {
   readonly a: Bytes32;
   readonly b: Bytes64;
   readonly c: Bytes32;
+  readonly commitment?: Bytes32;
+  readonly commitmentPok?: Bytes32;
   toTransactProof(): TransactProof;
+  /** `a(32) || b(64) || c(32) || commitment(32) || commitmentPok(32)`, Rust `AuditProof`. */
+  toAuditProof(): Uint8Array;
 }
 
 export type { SpendProof };

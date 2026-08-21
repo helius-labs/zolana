@@ -242,7 +242,9 @@ function parseConfig(config: unknown): {
   if (queryKeys.length === 1) url.searchParams.delete("api-key");
   validateApiKey(apiKey);
 
-  const fetchImplementation = config["fetch"] ?? globalThis.fetch;
+  // Browsers refuse `fetch` called with another receiver, so the global stays bound.
+  const boundFetch: typeof globalThis.fetch = (input, init) => globalThis.fetch(input, init);
+  const fetchImplementation: unknown = config["fetch"] ?? boundFetch;
   if (!isFetch(fetchImplementation)) {
     throw new ApiError("API_INVALID_CONFIG", "A fetch implementation is required", {
       details: { field: "fetch" },

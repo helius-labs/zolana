@@ -382,6 +382,8 @@ export interface ProofOutputUtxo {
    * the data setter above it leaves `dataHash` alone.
    */
   withMemo(memo: Uint8Array): ProofOutputUtxo;
+  /** Binds the note to a ring, only that ring's transact can spend it. */
+  withZoneProgramId(zoneProgramId: Address): ProofOutputUtxo;
 }
 
 export interface ProofOutputInit {
@@ -461,6 +463,9 @@ export function createProofOutput(input: ProofOutputInit): ProofOutputUtxo {
         ...init,
         data: withDataRecord(data, { kind: "memo", bytes: memo }),
       });
+    },
+    withZoneProgramId(zoneProgramId: Address): ProofOutputUtxo {
+      return createProofOutput({ ...init, zoneProgramId });
     },
   });
 }
