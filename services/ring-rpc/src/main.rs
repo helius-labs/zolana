@@ -66,7 +66,8 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         max_connections: args.max_connections.get(),
         request_timeout: args.request_timeout(),
     };
-    let mut origin_policy = OriginPolicy::new(args.allow_origins);
+    let origin_transport = args.origin_transport();
+    let mut origin_policy = OriginPolicy::new(args.allow_origins).with_transport(origin_transport);
     if let Some(relying_party_id) = args.webauthn_rp_id {
         origin_policy = origin_policy.with_relying_party_id(relying_party_id);
     }

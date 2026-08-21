@@ -11,6 +11,14 @@ pub struct Origins {
 pub struct OriginPolicy {
     origins: Vec<String>,
     relying_party_id: Option<String>,
+    transport: OriginTransport,
+}
+
+/// Plain HTTP outside loopback exposes the decrypted audit data, test deployments only.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OriginTransport {
+    SecureOnly,
+    InsecureHttp,
 }
 
 #[derive(Debug, Error)]
@@ -38,6 +46,7 @@ impl OriginPolicy {
         Self {
             origins,
             relying_party_id: None,
+            transport: OriginTransport::SecureOnly,
         }
     }
 
@@ -47,11 +56,18 @@ impl OriginPolicy {
         self
     }
 
+    #[must_use = "use the updated policy"]
+    pub fn with_transport(mut self, transport: OriginTransport) -> Self {
+        self.transport = transport;
+        self
+    }
+
     pub fn build(self) -> Result<Origins, OriginError> {
+        let transport = self.transport;
         let allowed = self
             .origins
             .into_iter()
-            .map(parse_origin)
+            .map(|origin| parse_origin(origin, transport))
             .collect::<Result<Vec<_>, _>>()?;
         if allowed.is_empty() {
             return Ok(Origins::default());
@@ -96,7 +112,7 @@ impl Origins {
     }
 }
 
-fn parse_origin(value: String) -> Result<AllowedOrigin, OriginError> {
+fn parse_origin(value: String, transport: OriginTransport) -> Result<AllowedOrigin, OriginError> {
     let url = reqwest::Url::parse(&value).map_err(|_| OriginError::InvalidOrigin)?;
     if url.cannot_be_a_base()
         || url.username() != ""
@@ -116,7 +132,8 @@ fn parse_origin(value: String) -> Result<AllowedOrigin, OriginError> {
         || host
             .parse::<std::net::IpAddr>()
             .is_ok_and(|address| address.is_loopback());
-    if url.scheme() != "https" && !(url.scheme() == "http" && loopback) {
+    let plain_allowed = loopback || transport == OriginTransport::InsecureHttp;
+    if url.scheme() != "https" && !(url.scheme() == "http" && plain_allowed) {
         return Err(OriginError::InsecureOrigin);
     }
     Ok(AllowedOrigin {
@@ -163,6 +180,16 @@ mod tests {
             .with_relying_party_id("::1".to_owned())
             .build();
         assert!(loopback.is_ok());
+    }
+
+    #[test]
+    fn insecure_transport_accepts_plain_http_origins() {
+        let origins = OriginPolicy::new(vec!["http://auditor.example.com".to_owned()])
+            .with_relying_party_id("auditor.example.com".to_owned())
+            .with_transport(OriginTransport::InsecureHttp)
+            .build()
+            .expect("plain origin under the insecure transport");
+        assert!(origins.allows("http://auditor.example.com"));
     }
 
     #[test]

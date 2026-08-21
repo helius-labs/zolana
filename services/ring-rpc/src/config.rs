@@ -15,7 +15,7 @@ use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_keypair::{KeypairError, P256Pubkey, ViewingKey};
 
-use crate::server::BindPolicy;
+use crate::{origins::OriginTransport, server::BindPolicy};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -80,12 +80,20 @@ pub struct ServeArgs {
     pub upstream_timeout_secs: NonZeroU64,
     #[arg(long, env = "RING_RPC_ALLOW_SHARED_KEY_FILE")]
     pub allow_shared_key_file: bool,
-    /// Serve plain HTTP on a public address, test deployments only.
+    /// Serve plain HTTP on a public address and accept plain HTTP origins, test deployments only.
     #[arg(long, env = "RING_RPC_INSECURE_PUBLIC_BIND")]
     pub insecure_public_bind: bool,
 }
 
 impl ServeArgs {
+    pub fn origin_transport(&self) -> OriginTransport {
+        if self.insecure_public_bind {
+            OriginTransport::InsecureHttp
+        } else {
+            OriginTransport::SecureOnly
+        }
+    }
+
     pub fn bind_policy(&self) -> BindPolicy {
         if self.insecure_public_bind {
             BindPolicy::InsecurePublic
