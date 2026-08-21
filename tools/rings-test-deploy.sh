@@ -3,18 +3,19 @@
 # Every resource is named zolana-rings-test-* and tagged zolana-rings-test=1,
 # nothing it creates is shared with another deployment.
 #
-#   tools/rings-test-deploy.sh up RING_DIR     build, publish, create, start
+#   tools/rings-test-deploy.sh up              build, publish, create, start
 #   tools/rings-test-deploy.sh status          addresses and health
 #   tools/rings-test-deploy.sh down            delete everything it created
 #
-# RING_DIR is a generated ring (ring.toml, keys/auditor.key). The ring RPC serves
-# that ring against the indexer and Solana RPC of its [devnet] section. Both
-# services sit behind one network load balancer, its DNS name is stable across
-# task replacements.
+# The ring RPC runs in derived mode, one root secret serves every ring that
+# takes its auditor key from it at `init`. Both services sit behind one network
+# load balancer, its DNS name is stable across task replacements.
 #
-# Needs aws (with write access), docker, jq, just, go, python3.
+# Needs aws (with write access), docker, jq, just, go, cargo.
 #
 # Environment
+#   RINGS_TEST_INDEXER_URL    photon the ring RPC reads, required
+#   RINGS_TEST_SOLANA_RPC_URL default https://api.devnet.solana.com
 #   AWS_REGION            default eu-north-1
 #   RINGS_TEST_VPC        VPC id, default the account's default VPC
 #   RINGS_TEST_ORIGINS    browser origins for the ring RPC, default http://localhost:3000
@@ -22,7 +23,7 @@
 set -euo pipefail
 
 usage() {
-    sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//' >&2
+    sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//' >&2
     exit 2
 }
 
@@ -42,7 +43,7 @@ cluster="$prefix"
 role="$prefix-exec"
 log_group="/$prefix"
 bucket="$prefix-keys-$account"
-secret="$prefix/auditor-key"
+secret="$prefix/root-secret"
 security_group="$prefix-sg"
 load_balancer="$prefix"
 prover_port=3001
@@ -52,29 +53,6 @@ redis_image="public.ecr.aws/docker/library/redis:7.4.4-alpine3.21"
 aws_() { aws --region "$region" "$@"; }
 
 log() { printf '%s\n' "$*" >&2; }
-
-# ring.toml only uses `key = "value"` lines under [section] headers.
-toml_value() {
-    python3 - "$1" "$2" "$3" <<'EOF'
-import re, sys
-path, section, key = sys.argv[1:]
-if not key:
-    section, key = "", section
-current = ""
-for line in open(path):
-    line = line.split("#", 1)[0].strip()
-    header = re.fullmatch(r"\[(.+)\]", line)
-    if header:
-        current = header.group(1)
-        continue
-    pair = re.fullmatch(r'([A-Za-z0-9_]+)\s*=\s*"(.*)"', line)
-    if pair and current == section and pair.group(1) == key:
-        print(pair.group(2))
-        break
-else:
-    sys.exit(f"{key} not found in [{section}] of {path}")
-EOF
-}
 
 ensure_repository() {
     aws_ ecr describe-repositories --repository-names "$1" >/dev/null 2>&1 \
@@ -128,7 +106,7 @@ ensure_role() {
 
 ensure_keys_bucket() {
     local lock_prefix
-    lock_prefix="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["prefix"])' prover/server/prover/provingkeys/proving-keys.lock)"
+    lock_prefix="$(jq -r .prefix prover/server/prover/provingkeys/proving-keys.lock)"
     if ! aws_ s3api head-bucket --bucket "$bucket" >/dev/null 2>&1; then
         aws_ s3api create-bucket --bucket "$bucket" --create-bucket-configuration "LocationConstraint=$region" >/dev/null
         aws_ s3api put-bucket-tagging --bucket "$bucket" --tagging "TagSet=[{$tag_spec}]"
@@ -143,7 +121,7 @@ ensure_keys_bucket() {
     fi
     just ensure-custom-ring-live-keys >&2
     local name
-    for name in $(python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))["keys"]))' prover/server/prover/provingkeys/proving-keys.lock); do
+    for name in $(jq -r '.keys | keys[]' prover/server/prover/provingkeys/proving-keys.lock); do
         [[ -f "prover/server/proving-keys/$name" ]] || continue
         aws_ s3 cp --only-show-errors "prover/server/proving-keys/$name" "s3://$bucket/$lock_prefix/$name"
     done
@@ -180,12 +158,15 @@ target_group_arn() {
     aws_ elbv2 describe-target-groups --names "$prefix-$1" --query 'TargetGroups[0].TargetGroupArn' --output text
 }
 
+# The root secret is created once and never rotated by this script, a rotation
+# would change every derived auditor key.
 ensure_secret() {
-    local key_file="$1"
-    if aws_ secretsmanager describe-secret --secret-id "$secret" >/dev/null 2>&1; then
-        aws_ secretsmanager put-secret-value --secret-id "$secret" --secret-string "$(cat "$key_file")" >/dev/null
-    else
-        aws_ secretsmanager create-secret --name "$secret" --secret-string "$(cat "$key_file")" --tags "$tag_spec" >/dev/null
+    if ! aws_ secretsmanager describe-secret --secret-id "$secret" >/dev/null 2>&1; then
+        local dir
+        dir="$(mktemp -d)"
+        cargo run -q -p zolana-ring-rpc -- keygen --kind root --out "$dir/root.key" >&2
+        aws_ secretsmanager create-secret --name "$secret" --secret-string "$(cat "$dir/root.key")" --tags "$tag_spec" >/dev/null
+        rm -rf "$dir"
     fi
     aws_ secretsmanager describe-secret --secret-id "$secret" --query ARN --output text
 }
@@ -209,21 +190,21 @@ register_prover() {
 }
 
 register_ring_rpc() {
-    local image="$1" role_arn="$2" secret_arn="$3" ring="$4" indexer="$5" rpc="$6"
+    local image="$1" role_arn="$2" secret_arn="$3" indexer="$4" rpc="$5"
     aws_ ecs register-task-definition --family "$prefix-ring-rpc" --tags "$tag_spec" \
         --requires-compatibilities FARGATE --network-mode awsvpc --cpu 512 --memory 1024 \
         --execution-role-arn "$role_arn" --runtime-platform cpuArchitecture=X86_64,operatingSystemFamily=LINUX \
-        --container-definitions "$(jq -n --arg image "$image" --arg secret "$secret_arn" --arg ring "$ring" \
+        --container-definitions "$(jq -n --arg image "$image" --arg secret "$secret_arn" \
             --arg indexer "$indexer" --arg rpc "$rpc" --arg origins "${RINGS_TEST_ORIGINS:-http://localhost:3000}" \
             --arg rp "${RINGS_TEST_RP_ID:-localhost}" --arg group "$log_group" --arg region "$region" --argjson port "$ring_rpc_port" '[
             {name: "ring-rpc", image: $image, essential: true,
              entryPoint: ["/bin/sh", "-c"],
-             command: ["umask 077 && printf %s \"$AUDITOR_KEY\" > /var/lib/ring-rpc/auditor.key && exec ring-rpc serve"],
-             secrets: [{name: "AUDITOR_KEY", valueFrom: $secret}],
+             command: ["umask 077 && printf %s \"$ROOT_SECRET\" > /var/lib/ring-rpc/root.key && exec ring-rpc serve"],
+             secrets: [{name: "ROOT_SECRET", valueFrom: $secret}],
              environment: [
                {name: "RING_RPC_BIND", value: "0.0.0.0"}, {name: "RING_RPC_PORT", value: ($port|tostring)},
                {name: "RING_RPC_INDEXER_URL", value: $indexer}, {name: "RING_RPC_SOLANA_RPC_URL", value: $rpc},
-               {name: "RING_RPC_RING_PROGRAM_ID", value: $ring}, {name: "RING_RPC_AUDITOR_KEY_FILE", value: "/var/lib/ring-rpc/auditor.key"},
+               {name: "RING_RPC_ROOT_SECRET_FILE", value: "/var/lib/ring-rpc/root.key"},
                {name: "RING_RPC_ALLOW_ORIGINS", value: $origins}, {name: "RING_RPC_WEBAUTHN_RP_ID", value: $rp}],
              portMappings: [{containerPort: $port, protocol: "tcp"}],
              logConfiguration: {logDriver: "awslogs", options: {"awslogs-group": $group, "awslogs-region": $region, "awslogs-stream-prefix": "ring-rpc"}}}
@@ -255,14 +236,9 @@ public_ip() {
 }
 
 up() {
-    [[ $# -eq 1 ]] || usage
-    local ring_dir="$1"
-    local ring_toml="$ring_dir/ring.toml" key_file="$ring_dir/keys/auditor.key"
-    [[ -f "$ring_toml" && -f "$key_file" ]] || { log "$ring_dir is not a generated ring with keys/auditor.key"; exit 1; }
-    local ring indexer rpc
-    ring="$(toml_value "$ring_toml" program_id "")"
-    indexer="$(toml_value "$ring_toml" devnet indexer)"
-    rpc="$(toml_value "$ring_toml" devnet rpc)"
+    [[ $# -eq 0 ]] || usage
+    local indexer="${RINGS_TEST_INDEXER_URL:?set RINGS_TEST_INDEXER_URL to the photon the ring RPC reads}"
+    local rpc="${RINGS_TEST_SOLANA_RPC_URL:-https://api.devnet.solana.com}"
     [[ -z "$(git status --porcelain --untracked-files=no)" ]] || { log "working tree is dirty"; exit 1; }
 
     log "== images"
@@ -288,12 +264,12 @@ up() {
         || aws_ logs create-log-group --log-group-name "$log_group" --tags "$prefix=1"
     aws_ ecs describe-clusters --clusters "$cluster" --query "clusters[?status=='ACTIVE']" --output text | grep -q . \
         || aws_ ecs create-cluster --cluster-name "$cluster" --tags "$tag_spec" >/dev/null
-    secret_arn="$(ensure_secret "$key_file")"
+    secret_arn="$(ensure_secret)"
 
     log "== services"
     local prover_td ring_rpc_td
     prover_td="$(register_prover "$registry/$prefix-prover:prover-$image_tag" "$keys_url" "$role_arn")"
-    ring_rpc_td="$(register_ring_rpc "$registry/$prefix-ring-rpc:ring-rpc-$image_tag" "$role_arn" "$secret_arn" "$ring" "$indexer" "$rpc")"
+    ring_rpc_td="$(register_ring_rpc "$registry/$prefix-ring-rpc:ring-rpc-$image_tag" "$role_arn" "$secret_arn" "$indexer" "$rpc")"
     ensure_service "$prefix-prover" "$prover_td" "$subnets" "$sg" prover "$prover_port"
     ensure_service "$prefix-ring-rpc" "$ring_rpc_td" "$subnets" "$sg" ring-rpc "$ring_rpc_port"
     log "waiting for the services to stabilize"

@@ -1355,7 +1355,7 @@ publish-image service *args:
     tools/publish-image.sh {{service}} {{args}}
 
 # Isolated ECS test deployment of the prover and one ring RPC, every resource
-# named zolana-rings-test-*, `just rings-test up ~/rings/neo-bank`.
+# named zolana-rings-test-*, `RINGS_TEST_INDEXER_URL=... just rings-test up`.
 rings-test command *args:
     tools/rings-test-deploy.sh {{command}} {{args}}
 
