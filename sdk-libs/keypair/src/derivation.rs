@@ -247,8 +247,9 @@ pub(crate) fn p_pda() -> P256Pubkey {
 /// through [`view_root`] and the `ecdh_raw` entry points, which bypass this
 /// check.
 pub(crate) fn is_derivation_point(pubkey: &P256Pubkey) -> bool {
-    let bytes = pubkey.as_bytes();
-    bytes == &P_DERIVE_SEC1 || bytes == &P_PDA_SEC1 || bytes == &P_CONST_SEC1
+    // ECDH uses only x, and P and -P share it.
+    let x = &pubkey.as_bytes()[1..];
+    x == &P_DERIVE_SEC1[1..] || x == &P_PDA_SEC1[1..] || x == &P_CONST_SEC1[1..]
 }
 
 /// `view_root = HKDF-Extract(salt=∅, IKM=ECDH(viewing_sk, P_const))` — the PRK

@@ -212,6 +212,16 @@ pub(crate) fn primitives_refuse_derivation_inputs(world: &mut KeypairWorld, key:
     let p_const = P256Pubkey::from_bytes(P_CONST_SEC1).unwrap();
     assert_eq!(sk.ecdh(&p_const), Err(KeypairError::DerivationInput));
 
+    for mut bytes in [P_DERIVE_SEC1, P_PDA_SEC1, P_CONST_SEC1] {
+        bytes[0] ^= 1;
+        let negated = P256Pubkey::from_bytes(bytes).expect("negated derivation point");
+        assert_eq!(sk.ecdh(&negated), Err(KeypairError::DerivationInput));
+        assert_eq!(
+            zolana_keypair::ViewingKey::new().ecdh(&negated),
+            Err(KeypairError::DerivationInput)
+        );
+    }
+
     let vk = zolana_keypair::ViewingKey::new();
     assert_eq!(vk.ecdh(&p_derive), Err(KeypairError::DerivationInput));
     assert_eq!(vk.ecdh(&p_pda), Err(KeypairError::DerivationInput));
