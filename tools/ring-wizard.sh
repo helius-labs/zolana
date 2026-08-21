@@ -101,6 +101,11 @@ mkdir -p "$dest/$name/keys"
 mv "$keys/program-keypair.json" "$dest/$name/keys/program-keypair.json"
 # The ring resolves its dependencies exactly as this checkout does.
 cp "$root/Cargo.lock" "$dest/$name/Cargo.lock"
+# cargo-generate initializes the repository, the first commit records the
+# generated ring without keys/ and .env, both ignored.
+git -C "$dest/$name" checkout -q -B main
+git -C "$dest/$name" add -A
+git -C "$dest/$name" commit -q -m "ring: generate $name for program $program_id"
 
 cat <<MSG
 
