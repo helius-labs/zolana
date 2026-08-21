@@ -8,8 +8,9 @@
 # Two channels, because one rule could not fit both jobs:
 #
 #   release  the tag must name the commit (<service>-zolana-<sha12>) and the
-#            commit must be on main. This is photon's original rule, now
-#            available to every service.
+#            commit must be on main. Taken by every push to main for the
+#            services it touched, by a <service>-zolana-* tag, and by a
+#            dispatch that asks for it.
 #   preview  any branch, any tag. Still immutable, still attested; it just does
 #            not claim to be a release.
 #
@@ -28,13 +29,19 @@
 name: publish-image
 
 on:
+  # A push to main is a landed PR. Every service whose sources it touched is
+  # published on the release channel under <service>-zolana-<sha12>, so a
+  # merge ships the same image a tag would. Tag pushes stay as the manual
+  # release path, one <service>-zolana-* tag per service.
   push:
     branches: [main]
-    tags: ["photon-zolana-*"]
+    tags: ["*-zolana-*"]
     paths:
-      - "services/photon/**"
+      - "services/**"
+      - "forester/**"
+      - "prover/server/**"
       - "program-libs/**"
-      - "sdk-libs/indexer-api/**"
+      - "sdk-libs/**"
       - ".cargo/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -76,13 +83,8 @@ on:
         required: true
         type: string
 
-# Publishing is serialized per service, not globally: GitHub holds at most one
-# pending run per group, so a single 'production' group meant dispatching the
-# prover and then the forester during a photon publish quietly cancelled one of
-# them. Three services can publish at once because ECR tags are immutable -- the
-# registry, not this group, is what prevents two runs claiming one tag.
 concurrency:
-  group: ${{ github.workflow }}-${{ (startsWith(github.ref, 'refs/tags/photon-zolana-') || github.event_name == 'workflow_dispatch') && format('production-{0}', inputs.service || 'photon') || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -97,34 +99,92 @@ env:
   AWS_REGION: eu-north-1
 
 jobs:
+  # Which services this run publishes and under which tag. A dispatch names
+  # one service; a tag names one through its prefix; a push to main names every
+  # service whose paths the push touched.
+  plan:
+    name: plan
+    runs-on: ubuntu-24.04
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    outputs:
+      services: ${{ steps.plan.outputs.services }}
+      channel: ${{ steps.plan.outputs.channel }}
+      image_tag: ${{ steps.plan.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          BEFORE: ${{ github.event.before }}
+          INPUT_SERVICE: ${{ inputs.service }}
+          INPUT_CHANNEL: ${{ inputs.channel }}
+          INPUT_TAG: ${{ inputs.image_tag }}
+        run: |
+          workspace=".cargo Cargo.toml Cargo.lock rust-toolchain.toml LICENSE THIRD_PARTY_NOTICES"
+          workflow=".github/workflows/publish-image.yml"
+          paths_of() {
+            case "$1" in
+              photon)   echo "services/photon program-libs sdk-libs/indexer-api $workspace $workflow" ;;
+              prover)   echo "prover/server $workflow" ;;
+              forester) echo "forester program-libs sdk-libs $workspace $workflow" ;;
+              ring-rpc) echo "services/ring-rpc program-libs sdk-libs $workspace $workflow" ;;
+            esac
+          }
+          services="[]"
+          channel=preview
+          image_tag=""
+          case "$EVENT" in
+            workflow_dispatch)
+              services="[\"$INPUT_SERVICE\"]"
+              channel="$INPUT_CHANNEL"
+              image_tag="$INPUT_TAG"
+              ;;
+            push)
+              channel=release
+              if [[ "$REF" == refs/tags/* ]]; then
+                tag="${REF#refs/tags/}"
+                services="[\"${tag%%-zolana-*}\"]"
+                image_tag="$tag"
+              else
+                changed="$(git diff --name-only "$BEFORE" "$GITHUB_SHA")"
+                list=""
+                for service in photon prover forester ring-rpc; do
+                  [[ "$service" == ring-rpc && ! -f services/ring-rpc/Dockerfile ]] && continue
+                  for path in $(paths_of "$service"); do
+                    if grep -q "^$path\(/\|$\)" <<< "$changed"; then
+                      list="$list $service"
+                      break
+                    fi
+                  done
+                done
+                services="$(printf '%s\n' $list | sed 's/.*/"&"/' | paste -sd, - | sed 's/.*/[&]/')"
+                [[ -n "$list" ]] || services="[]"
+              fi
+              ;;
+            pull_request)
+              ;;
+          esac
+          echo "services=$services" >> "$GITHUB_OUTPUT"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          echo "image_tag=$image_tag" >> "$GITHUB_OUTPUT"
+          echo "services=$services channel=$channel image_tag=$image_tag"
+
   validate:
     name: container / photon
     runs-on: ubuntu-24.04
     # Photon's own image check. The prover and forester are built and tested by
     # prover-server.yml and forester.yml, so this does not gate them.
+    needs: plan
     if: >-
-      (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
-      (github.event_name != 'workflow_dispatch' || inputs.service == 'photon')
+      always() && needs.plan.result == 'success' &&
+      (github.event_name == 'pull_request' || contains(fromJson(needs.plan.outputs.services), 'photon'))
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
-      - name: Validate release source
-        if: startsWith(github.ref, 'refs/tags/photon-zolana-')
-        run: |
-          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "Photon production images must be built from a commit on main" >&2
-            exit 1
-          fi
-
-          if [[ "$GITHUB_REF" == refs/tags/photon-zolana-* ]]; then
-            expected_ref="refs/tags/photon-zolana-${GITHUB_SHA:0:12}"
-            if [[ "$GITHUB_REF" != "$expected_ref" ]]; then
-              echo "Fork release tag $GITHUB_REF must identify Zolana commit ${GITHUB_SHA:0:12}" >&2
-              exit 1
-            fi
-          fi
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
@@ -144,19 +204,28 @@ jobs:
           test "$(docker run --rm --entrypoint id zolana-photon:ci -u)" = 10001
 
   publish:
-    name: publish / ${{ inputs.service || 'photon' }}
+    name: publish / ${{ matrix.service }}
     runs-on: ubuntu-24.04
-    needs: validate
+    needs: [plan, validate]
     # The positive form matters: `!= 'failure'` is also true when validate was
     # cancelled, which would let a tag push publish an image whose smoke test
-    # never finished. 'skipped' is the prover/forester dispatch path, where
+    # never finished. 'skipped' is the path of every service but photon, where
     # validate does not apply.
     if: >-
-      always() &&
-      (needs.validate.result == 'success' || needs.validate.result == 'skipped') && (
-        startsWith(github.ref, 'refs/tags/photon-zolana-') ||
-        github.event_name == 'workflow_dispatch'
-      )
+      always() && needs.plan.result == 'success' &&
+      (needs.validate.result == 'success' || needs.validate.result == 'skipped') &&
+      github.event_name != 'pull_request' && needs.plan.outputs.services != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.plan.outputs.services) }}
+    # Publishing is serialized per service, not globally: GitHub holds at most
+    # one pending run per group, so a single group meant dispatching the prover
+    # and then the forester during a photon publish quietly cancelled one of
+    # them. Services can publish at once because ECR tags are immutable -- the
+    # registry, not this group, is what prevents two runs claiming one tag.
+    concurrency:
+      group: publish-${{ matrix.service }}
     environment: image-publish
     permissions:
       contents: read
@@ -167,14 +236,13 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
-      # Which service, which registry repository, and what to build. A tag push
-      # is always photon on the release channel -- that is the existing
-      # photon-zolana-* release path, unchanged.
+      # Which registry repository and what to build for the planned service.
       - name: Resolve the build
         id: plan
         env:
-          SERVICE: ${{ inputs.service || 'photon' }}
-          CHANNEL: ${{ (github.event_name == 'push' && 'release') || inputs.channel }}
+          SERVICE: ${{ matrix.service }}
+          CHANNEL: ${{ needs.plan.outputs.channel }}
+          IMAGE_TAG: ${{ needs.plan.outputs.image_tag }}
         run: |
           case "$SERVICE" in
             photon)
@@ -205,8 +273,12 @@ jobs:
             *)
               echo "::error::unknown service $SERVICE"; exit 1 ;;
           esac
+          if [[ -z "$IMAGE_TAG" ]]; then
+            IMAGE_TAG="${SERVICE}-zolana-${GITHUB_SHA:0:12}"
+          fi
           echo "service=$SERVICE" >> "$GITHUB_OUTPUT"
           echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+          echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
 
       # Release is the strict channel: the tag must name the commit, and the
       # commit must be on main. Preview exists because that rule would ban what
@@ -220,9 +292,8 @@ jobs:
       # guarantees. Enforcing it on release alone would leave preview free to
       # mint a name it has not earned.
       - name: Validate the tag
-        if: github.event_name == 'workflow_dispatch'
         env:
-          IMAGE_TAG: ${{ inputs.image_tag }}
+          IMAGE_TAG: ${{ steps.plan.outputs.image_tag }}
           SERVICE: ${{ steps.plan.outputs.service }}
           CHANNEL: ${{ steps.plan.outputs.channel }}
         run: |
@@ -265,14 +336,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ steps.plan.outputs.repository }}
           flavor: latest=false
-          # type=match is push-only. Enabled by ref alone it would also fire on a
-          # dispatch started from a photon-zolana-* tag ref, emitting that tag
-          # *and* inputs.image_tag -- and "Publish immutable tags" keeps
-          # whichever it reads last, silently dropping the other onto whichever
-          # repository the dispatch named.
           tags: |
-            type=match,pattern=(photon-zolana-.*),group=1,enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/photon-zolana-') }}
-            type=raw,value=${{ inputs.image_tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=raw,value=${{ steps.plan.outputs.image_tag }}
             type=sha,format=long,prefix=sha-
           labels: |
             org.opencontainers.image.title=${{ steps.plan.outputs.title }}
