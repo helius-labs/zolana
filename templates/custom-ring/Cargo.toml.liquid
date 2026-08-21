@@ -5,8 +5,7 @@ members = ["program", "cli"]
 [workspace.package]
 edition = "2021"
 
-# The ring's behavior lives in the zolana source at `zolana_path`, `just source`
-# pins it to the recorded revision.
+# The ring's behavior lives in the zolana checkout it was generated from.
 [workspace.dependencies]
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }

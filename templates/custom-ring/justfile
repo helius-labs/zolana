@@ -13,27 +13,17 @@ url := "cargo run -q -p {{project-name}} -- url"
 default:
     @just --list
 
-# The zolana source at `zolana`, cloned and pinned to the recorded revision when it is `.zolana`.
+# The ring builds against the zolana checkout it was generated from, `zolana_revision` records the generating commit.
 source:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [[ "{{ "{{zolana}}" }}" == ".zolana" ]]; then
-        if [[ -L .zolana || ( -e .zolana && ! -d .zolana ) ]]; then
-            echo "managed source path is not safe" >&2
-            exit 1
-        fi
-        if [[ -L .zolana/.git || ( -e .zolana/.git && ! -d .zolana/.git ) ]]; then
-            echo "managed Git path is not safe" >&2
-            exit 1
-        fi
+    if [[ ! -f "{{ "{{zolana}}" }}/custom-rings/cli/Cargo.toml" ]]; then
+        echo "zolana checkout missing at {{ "{{zolana}}" }}, regenerate the ring from a clone" >&2
+        exit 1
     fi
-    if [[ "{{ "{{zolana}}" }}" == ".zolana" && ! -d .zolana/.git ]]; then
-        git clone --filter=blob:none "{{zolana_repository}}" .zolana
-    fi
-    if [[ "{{ "{{zolana}}" }}" == ".zolana" ]]; then
-        git -C .zolana fetch origin "{{zolana_revision}}"
-        git -C .zolana checkout --detach FETCH_HEAD
-        [[ "$(git -C .zolana rev-parse HEAD)" == "$(git -C .zolana rev-parse FETCH_HEAD)" ]]
+    head="$(git -C "{{ "{{zolana}}" }}" rev-parse HEAD 2>/dev/null || true)"
+    if [[ -n "$head" && "$head" != "{{zolana_revision}}" ]]; then
+        echo "note: zolana checkout is at $head, the ring was generated at {{zolana_revision}}"
     fi
 
 key-dir:

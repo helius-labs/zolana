@@ -2,7 +2,7 @@
 
 `templates/custom-ring` is a cargo-generate template. One run produces one ring
 repository, a workspace with the ring program at a fresh program id and an
-operator CLI, pinned to the Zolana revision the wizard ran from.
+operator CLI, built against the Zolana checkout the wizard ran from.
 
 ## Running the wizard
 
@@ -19,18 +19,13 @@ without a prompt.
 The localnet URLs the wizard records follow this checkout's `ZOLANA_PORT_OFFSET`,
 so a ring generated from an offset clone talks to that clone's validator.
 
-## The pinned source
+## The source
 
 A generated ring does not vendor Zolana. Its `Cargo.toml` points the program and
-the CLI at `{{zolana_path}}/custom-rings`, by default `.zolana` inside the
-ring. `just source`, a dependency of every build recipe, clones the recorded
-repository there and checks out the recorded revision, so a fresh checkout of
-the ring builds against the same commit it was generated from. The recipe
-refuses to touch `.zolana` when it is a symlink or holds a symlinked `.git`.
-
-For local development pass `RING_ZOLANA_PATH=checkout` to `just ring-new`.
-The ring then uses this checkout in place, nothing is cloned and `just source`
-is a no-op, and edits under `custom-rings/` are picked up on the next build.
+the CLI at `custom-rings/` in the checkout the wizard ran from, and edits there
+are picked up on the next build. `just source`, a dependency of every build
+recipe, fails when that checkout is gone. The recorded revision is the commit
+the ring was generated at, `just source` notes when the checkout has moved.
 
 ## Secrets
 

@@ -25,15 +25,8 @@ regex = "^(~(/[A-Za-z0-9_./-]+)?|[A-Za-z0-9_./-]+)$"
 
 [placeholders.zolana_path]
 type = "string"
-prompt = "Zolana source path"
-default = ".zolana"
+prompt = "Zolana checkout path"
 regex = "^[A-Za-z0-9_./-]+$"
-
-[placeholders.zolana_repository]
-type = "string"
-prompt = "Zolana repository"
-default = "https://github.com/helius-labs/zolana.git"
-regex = "^(https://[A-Za-z0-9.-]+/[A-Za-z0-9_./-]+|git@[A-Za-z0-9.-]+:[A-Za-z0-9_./-]+)$"
 
 [placeholders.zolana_revision]
 type = "string"
