@@ -26,6 +26,7 @@ export const EncryptedScheme = Object.freeze({
   anonymousRecipient: 1,
   anonymousSender: 2,
   confidential: 3,
+  ringConfidential: 4,
   split: 5,
   merge: 6,
   plaintextTransfer: 7,
@@ -42,6 +43,7 @@ export function encryptedSchemeFromByte(byte: number): EncryptedScheme {
     case EncryptedScheme.anonymousRecipient:
     case EncryptedScheme.anonymousSender:
     case EncryptedScheme.confidential:
+    case EncryptedScheme.ringConfidential:
     case EncryptedScheme.split:
     case EncryptedScheme.merge:
     case EncryptedScheme.plaintextTransfer:

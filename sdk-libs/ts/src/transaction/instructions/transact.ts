@@ -912,7 +912,9 @@ export function encodeConfidentialSlots(
     return {
       viewTag: address.signingPublicKey.confidentialViewTag(),
       data: encodeOutputData(
-        EncryptedScheme.confidential,
+        output.zoneProgramId === undefined
+          ? EncryptedScheme.confidential
+          : EncryptedScheme.ringConfidential,
         encryptConfidential(
           tx,
           address.viewingPublicKey,
