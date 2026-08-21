@@ -12,7 +12,8 @@
 # The prover task fetches the proving keys at start and converts the audit key
 # itself. The ring RPC runs in derived mode, one root secret serves every ring
 # that takes its auditor key from it at `init`. Both services sit behind one
-# network load balancer, its DNS name is stable across task replacements.
+# network load balancer and a CloudFront distribution each, so they are reached
+# over HTTPS on a stable amazon hostname.
 #
 # Needs aws (with write access), docker, jq, openssl, git.
 #
@@ -155,6 +156,39 @@ ensure_load_balancer() {
     aws_ elbv2 describe-load-balancers --load-balancer-arns "$arn" --query 'LoadBalancers[0].DNSName' --output text
 }
 
+# CloudFront in front of the load balancer gives HTTPS on an amazon hostname
+# with Amazon's certificate, no domain to validate.
+ensure_distribution() {
+    local name="$1" origin="$2" origin_port="$3" id
+    id="$(aws_ cloudfront list-distributions --query "DistributionList.Items[?Comment=='$name'].Id | [0]" --output text 2>/dev/null || true)"
+    if [[ "$id" == None || -z "$id" ]]; then
+        id="$(aws_ cloudfront create-distribution --distribution-config "$(jq -n --arg name "$name" --arg origin "$origin" --argjson port "$origin_port" '{
+            CallerReference: $name, Comment: $name, Enabled: true, HttpVersion: "http2", PriceClass: "PriceClass_100",
+            Origins: {Quantity: 1, Items: [{Id: "origin", DomainName: $origin,
+                CustomOriginConfig: {HTTPPort: $port, HTTPSPort: 443, OriginProtocolPolicy: "http-only",
+                    OriginReadTimeout: 60, OriginKeepaliveTimeout: 5, OriginSslProtocols: {Quantity: 1, Items: ["TLSv1.2"]}}}]},
+            DefaultCacheBehavior: {TargetOriginId: "origin", ViewerProtocolPolicy: "redirect-to-https",
+                AllowedMethods: {Quantity: 7, Items: ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"],
+                    CachedMethods: {Quantity: 2, Items: ["GET","HEAD"]}},
+                CachePolicyId: "4135ea2d-6df8-44a3-9df3-4b5a84be39ad",
+                OriginRequestPolicyId: "b689b0a8-53d0-40ab-baf2-68738e2966ac", Compress: true}
+        }')" --query 'Distribution.Id' --output text)"
+        aws_ cloudfront tag-resource --resource "arn:aws:cloudfront::$account:distribution/$id" --tags "Items=[{$tag_spec}]"
+    fi
+    aws_ cloudfront get-distribution --id "$id" --query 'Distribution.DomainName' --output text
+}
+
+remove_distribution() {
+    local name="$1" id etag
+    id="$(aws_ cloudfront list-distributions --query "DistributionList.Items[?Comment=='$name'].Id | [0]" --output text 2>/dev/null || true)"
+    [[ "$id" != None && -n "$id" ]] || return 0
+    etag="$(aws_ cloudfront get-distribution-config --id "$id" --query ETag --output text)"
+    aws_ cloudfront get-distribution-config --id "$id" --query DistributionConfig | jq '.Enabled = false' > "/tmp/$name.json"
+    etag="$(aws_ cloudfront update-distribution --id "$id" --if-match "$etag" --distribution-config "file:///tmp/$name.json" --query ETag --output text)"
+    aws_ cloudfront wait distribution-deployed --id "$id"
+    aws_ cloudfront delete-distribution --id "$id" --if-match "$etag"
+}
+
 target_group_arn() {
     aws_ elbv2 describe-target-groups --names "$prefix-$1" --query 'TargetGroups[0].TargetGroupArn' --output text
 }
@@ -280,18 +314,23 @@ up() {
     ring_rpc_td="$(register_ring_rpc "$registry/zolana-ring-rpc:$ring_rpc_tag" "$role_arn" "$secret_arn" "$indexer" "$rpc")"
     ensure_service "$prefix-prover" "$prover_td" "$subnets" "$sg" prover "$prover_port"
     ensure_service "$prefix-ring-rpc" "$ring_rpc_td" "$subnets" "$sg" ring-rpc "$ring_rpc_port"
+    log "== https"
+    ensure_distribution "$prefix-prover" "$dns" "$prover_port" >/dev/null
+    ensure_distribution "$prefix-ring-rpc" "$dns" "$ring_rpc_port" >/dev/null
     log "waiting for the services to stabilize"
     aws_ ecs wait services-stable --cluster "$cluster" --services "$prefix-prover" "$prefix-ring-rpc"
     status
 }
 
 status() {
-    local dns
+    local dns prover_host ring_rpc_host
     dns="$(aws_ elbv2 describe-load-balancers --names "$load_balancer" --query 'LoadBalancers[0].DNSName' --output text 2>/dev/null || echo "-")"
-    echo "prover    http://$dns:$prover_port   (task $(public_ip "$prefix-prover"))"
-    echo "ring rpc  http://$dns:$ring_rpc_port   (task $(public_ip "$prefix-ring-rpc"))"
-    curl -sf --max-time 10 "http://$dns:$prover_port/health" && echo || echo "prover health not reachable yet"
-    curl -sf --max-time 10 "http://$dns:$ring_rpc_port/health" && echo || echo "ring rpc health not reachable yet"
+    prover_host="$(aws_ cloudfront list-distributions --query "DistributionList.Items[?Comment=='$prefix-prover'].DomainName | [0]" --output text)"
+    ring_rpc_host="$(aws_ cloudfront list-distributions --query "DistributionList.Items[?Comment=='$prefix-ring-rpc'].DomainName | [0]" --output text)"
+    echo "prover    https://$prover_host   (http://$dns:$prover_port, task $(public_ip "$prefix-prover"))"
+    echo "ring rpc  https://$ring_rpc_host   (http://$dns:$ring_rpc_port, task $(public_ip "$prefix-ring-rpc"))"
+    curl -sf --max-time 15 "https://$prover_host/health" && echo || echo "prover not reachable over https yet"
+    curl -sf --max-time 15 "https://$ring_rpc_host/health" && echo || echo "ring rpc not reachable over https yet"
     echo "logs      aws logs tail $log_group --region $region --follow"
 }
 
@@ -308,6 +347,8 @@ down() {
         aws_ ecs deregister-task-definition --task-definition "$td" >/dev/null
     done
     aws_ ecs delete-cluster --cluster "$cluster" >/dev/null 2>&1 || true
+    remove_distribution "$prefix-prover"
+    remove_distribution "$prefix-ring-rpc"
     local lb
     lb="$(aws_ elbv2 describe-load-balancers --names "$load_balancer" --query 'LoadBalancers[0].LoadBalancerArn' --output text 2>/dev/null || true)"
     if [[ "$lb" != None && -n "$lb" ]]; then
