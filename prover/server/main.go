@@ -12,6 +12,7 @@ import (
 	"time"
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
+	customring "zolana/prover/prover/custom_ring"
 	"zolana/prover/prover/extractor"
 	mergeprover "zolana/prover/prover/merge"
 	"zolana/prover/prover/nullifier_tree"
@@ -180,6 +181,38 @@ func runCli() {
 				},
 			},
 			{
+				Name: "setup-auditor-key-encryption",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+				},
+				Action: func(context *cli.Context) error {
+					ps, err := customring.SetupAuditorKeyEncryption()
+					if err != nil {
+						return err
+					}
+					return writeGroth16ProofSystem(ps, context.String("output"))
+				},
+			},
+			{
+				Name:  "convert-auditor-key-encryption",
+				Usage: "Wrap an existing gnark pk/vk pair into a proving system file without a new setup",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "pk", Usage: "gnark proving key (pk.WriteTo)", Required: true},
+					&cli.StringFlag{Name: "vk", Usage: "gnark verifying key (vk.WriteRawTo or WriteTo)", Required: true},
+					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+				},
+				Action: func(context *cli.Context) error {
+					ps, err := customring.ConvertAuditorKeyEncryption{
+						ProvingKeyPath:   context.String("pk"),
+						VerifyingKeyPath: context.String("vk"),
+					}.Run()
+					if err != nil {
+						return err
+					}
+					return writeGroth16ProofSystem(ps, context.String("output"))
+				},
+			},
+			{
 				Name: "r1cs",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "output", Usage: "Output file", Required: true},
@@ -307,6 +340,8 @@ func runCli() {
 					case *common.BatchProofSystem:
 						_, err = s.VerifyingKey.WriteRawTo(&buf)
 					case *common.TransferProofSystem:
+						_, err = s.VerifyingKey.WriteRawTo(&buf)
+					case *common.Groth16ProofSystem:
 						_, err = s.VerifyingKey.WriteRawTo(&buf)
 					default:
 						return fmt.Errorf("unknown proving system type")
@@ -451,7 +486,7 @@ func runCli() {
 					&cli.StringFlag{Name: "keys-dir", Usage: "Directory where key files are stored", Value: "./proving-keys/", Required: false},
 					&cli.StringSliceFlag{
 						Name:  "circuit",
-						Usage: "Specify the circuits to enable (address-append, address-append-test, transfer)",
+						Usage: "Specify enabled circuits including custom-ring-audit",
 					},
 					&cli.StringFlag{
 						Name:  "preload-keys",
@@ -614,6 +649,13 @@ func runCli() {
 							workers = append(workers, transferWorker)
 							go transferWorker.Start()
 							workersStarted = append(workersStarted, "transfer")
+						}
+
+						if startAll || enabledCircuitsMap["custom-ring-audit"] {
+							auditWorker := server.NewCustomRingAuditQueueWorker(redisQueue, keyManager)
+							workers = append(workers, auditWorker)
+							go auditWorker.Start()
+							workersStarted = append(workersStarted, "custom-ring-audit")
 						}
 
 						logging.Logger().Info().
@@ -969,4 +1011,30 @@ func startCleanupRoutines(redisQueue *server.RedisQueue) {
 			}
 		}
 	}()
+}
+
+func writeGroth16ProofSystem(ps *common.Groth16ProofSystem, path string) error {
+	expected := fmt.Sprintf("custom_ring_audit_%s.key", ps.Variant)
+	if filepath.Base(path) != expected {
+		return fmt.Errorf("output file must be named %s", expected)
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+
+	written, writeErr := ps.WriteTo(file)
+	closeErr := file.Close()
+	if writeErr != nil {
+		return writeErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	logging.Logger().Info().
+		Str("circuit", string(ps.CircuitType)).
+		Int64("bytes_written", written).
+		Str("output", path).
+		Msg("Proving system written")
+	return nil
 }

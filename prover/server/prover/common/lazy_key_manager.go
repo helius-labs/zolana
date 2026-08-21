@@ -12,6 +12,7 @@ type LazyKeyManager struct {
 	mu                sync.RWMutex
 	batchSystems      map[string]*BatchProofSystem
 	transferSystems   map[string]*TransferProofSystem
+	groth16Systems    map[string]*Groth16ProofSystem
 	keysDir           string
 	downloadConfig    *DownloadConfig
 	loadingInProgress map[string]chan struct{}
@@ -24,10 +25,54 @@ func NewLazyKeyManager(keysDir string, downloadConfig *DownloadConfig) *LazyKeyM
 	return &LazyKeyManager{
 		batchSystems:      make(map[string]*BatchProofSystem),
 		transferSystems:   make(map[string]*TransferProofSystem),
+		groth16Systems:    make(map[string]*Groth16ProofSystem),
 		keysDir:           keysDir,
 		downloadConfig:    downloadConfig,
 		loadingInProgress: make(map[string]chan struct{}),
 	}
+}
+
+func (m *LazyKeyManager) GetGroth16System(circuitType CircuitType, variant string) (*Groth16ProofSystem, error) {
+	key := fmt.Sprintf("%s_%s", circuitType, variant)
+	m.mu.RLock()
+	if ps, exists := m.groth16Systems[key]; exists {
+		m.mu.RUnlock()
+		return ps, nil
+	}
+	m.mu.RUnlock()
+
+	loadChan := m.acquireLoadingLock(key)
+	if loadChan == nil {
+		m.waitForLoading(key)
+		m.mu.RLock()
+		ps, exists := m.groth16Systems[key]
+		m.mu.RUnlock()
+		if exists {
+			return ps, nil
+		}
+		return nil, fmt.Errorf("loading completed but system not found in cache")
+	}
+	defer m.releaseLoadingLock(key, loadChan)
+
+	keyPath := m.determineGroth16KeyPath(circuitType, variant)
+	if keyPath == "" {
+		return nil, fmt.Errorf("no key file mapping for %s variant %s", circuitType, variant)
+	}
+	if err := EnsureProvingKey(keyPath, m.downloadConfig.AutoDownload, m.downloadConfig); err != nil {
+		return nil, fmt.Errorf("failed to download key %s: %w", keyPath, err)
+	}
+	system, err := ReadSystemFromFile(keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load key %s: %w", keyPath, err)
+	}
+	ps, ok := system.(*Groth16ProofSystem)
+	if !ok {
+		return nil, fmt.Errorf("expected Groth16ProofSystem but got %T", system)
+	}
+	m.mu.Lock()
+	m.groth16Systems[key] = ps
+	m.mu.Unlock()
+	return ps, nil
 }
 
 func (m *LazyKeyManager) GetBatchSystem(circuitType CircuitType, treeHeight uint32, batchSize uint32) (*BatchProofSystem, error) {
@@ -265,6 +310,13 @@ func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInpu
 	return ""
 }
 
+func (m *LazyKeyManager) determineGroth16KeyPath(circuitType CircuitType, variant string) string {
+	if circuitType == CustomRingAuditCircuitType && variant == "transfer" {
+		return m.keyPath("custom_ring_audit_transfer.key")
+	}
+	return ""
+}
+
 func (m *LazyKeyManager) GetStats() map[string]interface{} {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -272,6 +324,7 @@ func (m *LazyKeyManager) GetStats() map[string]interface{} {
 	return map[string]interface{}{
 		"batch_systems_loaded":    len(m.batchSystems),
 		"transfer_systems_loaded": len(m.transferSystems),
+		"groth16_systems_loaded":  len(m.groth16Systems),
 		"keys_loading":            len(m.loadingInProgress),
 	}
 }
@@ -397,6 +450,10 @@ func (m *LazyKeyManager) cacheSystem(system interface{}) error {
 		logging.Logger().Debug().
 			Str("cache_key", key).
 			Msg("Cached TransferProofSystem")
+
+	case *Groth16ProofSystem:
+		key := fmt.Sprintf("%s_%s", ps.CircuitType, ps.Variant)
+		m.groth16Systems[key] = ps
 
 	default:
 		return fmt.Errorf("unknown system type: %T", system)

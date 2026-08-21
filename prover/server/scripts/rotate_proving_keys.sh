@@ -38,6 +38,9 @@ bash scripts/generate_keys_transfer.sh "$keys_dir"
 echo "==> generating merge proving keys"
 bash scripts/generate_keys_merge.sh "$keys_dir"
 
+echo "==> generating custom ring proving key"
+bash scripts/generate_keys_custom_ring.sh "$keys_dir"
+
 # The batched nullifier-tree (address-append) circuits build on circuits/gadget
 # just like transfer/merge, so a gadget change rotates them too. Their vkeys are
 # committed in the batched-merkle-tree crate.
@@ -51,7 +54,7 @@ for spec in "10" "250"; do
         --output-vkey "$keys_dir/batch_address-append_40_${spec}.vkey"
 done
 
-echo "==> regenerating interface verifying keys (transfer + merge)"
+echo "==> regenerating interface and custom ring verifying keys"
 bash scripts/regenerate_all_vkeys.sh "$keys_dir"
 
 echo "==> regenerating batched-merkle-tree verifying keys (address-append)"

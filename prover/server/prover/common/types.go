@@ -27,4 +27,6 @@ const (
 	// CPI-calling ring), which is committed as a public input. Otherwise identical
 	// to the default merge.
 	MergeRingCircuitType CircuitType = "merge-ring"
+
+	CustomRingAuditCircuitType CircuitType = "custom-ring-audit"
 )

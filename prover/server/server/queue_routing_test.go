@@ -1,6 +1,10 @@
 package server
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"zolana/prover/prover/common"
 )
@@ -19,11 +23,43 @@ func TestGetQueueNameForCircuit(t *testing.T) {
 		{common.TransferRingAuthorityCircuitType, "zk_transfer_queue"},
 		{common.MergeCircuitType, "zk_transfer_queue"},
 		{common.MergeRingCircuitType, "zk_transfer_queue"},
+		{common.CustomRingAuditCircuitType, "zk_custom_ring_audit_queue"},
 		{common.CircuitType("unknown"), ""},
 	}
 	for _, c := range cases {
 		if got := GetQueueNameForCircuit(c.circuit); got != c.queue {
 			t.Errorf("GetQueueNameForCircuit(%s) = %q, want %q", c.circuit, got, c.queue)
 		}
+	}
+}
+
+func TestAuditWorkerRejectsOtherCircuits(t *testing.T) {
+	worker := &BaseQueueWorker{queueName: "zk_custom_ring_audit_queue"}
+	job := &ProofJob{Payload: json.RawMessage(`{"circuitType":"transfer"}`)}
+
+	if _, err := worker.generateProof(job); err == nil {
+		t.Fatal("audit worker accepted a transfer proof")
+	}
+}
+
+func TestAuditFailureDetailsDoNotContainWitnessData(t *testing.T) {
+	const marker = "private-witness-marker"
+	job := &ProofJob{Payload: json.RawMessage(`{"circuitType":"custom-ring-audit","txViewingSk":"` + marker + `"}`)}
+
+	worker := &BaseQueueWorker{queueName: "zk_custom_ring_audit_queue"}
+	details := worker.failureDetails(job, errors.New(marker))
+	encoded := fmt.Sprint(details)
+	if strings.Contains(encoded, marker) {
+		t.Fatal("failure details contain witness data")
+	}
+}
+
+func TestAuditCachedFailureDoesNotContainWitnessData(t *testing.T) {
+	const marker = "cached-private-witness-marker"
+	worker := &BaseQueueWorker{queueName: "zk_custom_ring_audit_queue"}
+
+	message := worker.cachedFailureMessage(map[string]interface{}{"error": marker})
+	if strings.Contains(message, marker) {
+		t.Fatal("cached failure contains witness data")
 	}
 }

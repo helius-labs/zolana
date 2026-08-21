@@ -246,8 +246,62 @@ func (ps *TransferProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 	return totalRead, nil
 }
 
+func (ps *Groth16ProofSystem) WriteTo(w io.Writer) (int64, error) {
+	var total int64
+
+	written, err := ps.ProvingKey.WriteTo(w)
+	total += written
+	if err != nil {
+		return total, err
+	}
+	written, err = ps.VerifyingKey.WriteTo(w)
+	total += written
+	if err != nil {
+		return total, err
+	}
+	written, err = ps.ConstraintSystem.WriteTo(w)
+	total += written
+	return total, err
+}
+
+func (ps *Groth16ProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
+	var total int64
+	ps.ProvingKey = groth16.NewProvingKey(ecc.BN254)
+	read, err := ps.ProvingKey.UnsafeReadFrom(r)
+	total += read
+	if err != nil {
+		return total, err
+	}
+	ps.VerifyingKey = groth16.NewVerifyingKey(ecc.BN254)
+	read, err = ps.VerifyingKey.UnsafeReadFrom(r)
+	total += read
+	if err != nil {
+		return total, err
+	}
+	ps.ConstraintSystem = groth16.NewCS(ecc.BN254)
+	read, err = ps.ConstraintSystem.ReadFrom(r)
+	total += read
+	return total, err
+}
+
 func ReadSystemFromFile(path string) (interface{}, error) {
-	if strings.Contains(strings.ToLower(path), "transfer") {
+	lowerPath := strings.ToLower(path)
+	if strings.Contains(lowerPath, "custom_ring_audit_transfer") {
+		ps := &Groth16ProofSystem{
+			CircuitType: CustomRingAuditCircuitType,
+			Variant:     "transfer",
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		if _, err = ps.UnsafeReadFrom(file); err != nil {
+			return nil, err
+		}
+		return ps, nil
+	} else if strings.Contains(lowerPath, "transfer") {
 		ps := new(TransferProofSystem)
 		file, err := os.Open(path)
 		if err != nil {
