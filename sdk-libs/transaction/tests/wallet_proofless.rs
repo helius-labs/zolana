@@ -2,7 +2,7 @@ use zolana_event::{encode_output_data, ProoflessOutput};
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{
     Address, AssetRegistry, LocalWalletAuthority, OutputContext, OutputSlot, ProofInputUtxo,
-    ShieldedTransaction, Wallet, DEFAULT_TAG_WINDOW, SOL_MINT,
+    RingAssociation, ShieldedTransaction, Wallet, DEFAULT_TAG_WINDOW, SOL_MINT,
 };
 
 fn self_consistent_deposit(keypair: &ShieldedKeypair, amount: u64) -> ShieldedTransaction {
@@ -29,6 +29,7 @@ fn self_consistent_deposit(keypair: &ShieldedKeypair, amount: u64) -> ShieldedTr
     };
 
     ShieldedTransaction {
+        ring: RingAssociation::None,
         slot: 0,
         tx_signature: solana_signature::Signature::default(),
         tx_viewing_pk: None,
@@ -97,6 +98,7 @@ fn sync_discovers_and_spends_proofless_deposit() {
     assert_eq!(wallet.utxos.len(), 1, "idempotent on re-sync");
 
     let spend = ShieldedTransaction {
+        ring: RingAssociation::None,
         slot: 0,
         tx_signature: solana_signature::Signature::default(),
         tx_viewing_pk: Some(keypair.viewing_pubkey()),

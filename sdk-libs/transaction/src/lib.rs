@@ -21,8 +21,8 @@ pub mod wallet;
 pub use data::{Data, DataRecord};
 pub use error::TransactionError;
 pub use instructions::transact::{
-    EncryptedTransaction, ExternalData, InputUtxo, OutputContext, OutputSlot, ShieldedTransaction,
-    SppProofOutputUtxo,
+    EncryptedTransaction, ExternalData, InputUtxo, OutputContext, OutputSlot, RingAssociation,
+    ShieldedTransaction, SppProofOutputUtxo,
 };
 pub use serialization::{
     scheme::EncryptedScheme, DecodeCx, OwnerCx, RingDepositPlaintext, UtxoSerialization,

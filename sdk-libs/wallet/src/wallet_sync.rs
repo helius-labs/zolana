@@ -964,6 +964,7 @@ fn proofless_deposit_from_indexed_match(
     Ok(Some(ShieldedTransaction {
         slot: item.slot,
         tx_signature: item.tx_signature,
+        ring: zolana_transaction::RingAssociation::None,
         tx_viewing_pk: None,
         salt: None,
         output_slots: vec![OutputSlot {
@@ -984,6 +985,7 @@ fn proofless_deposit_from_indexed_match(
 fn convert_sync_transaction(
     tx: RpcShieldedTransaction,
 ) -> Result<ShieldedTransaction, ClientError> {
+    let ring = tx.ring;
     let output_slots = tx
         .output_slots
         .into_iter()
@@ -1000,6 +1002,7 @@ fn convert_sync_transaction(
     Ok(ShieldedTransaction {
         slot: tx.slot,
         tx_signature: tx.tx_signature,
+        ring,
         tx_viewing_pk: tx.tx_viewing_pk,
         salt: tx.salt,
         output_slots,
@@ -1022,12 +1025,13 @@ mod tests {
 
     use solana_signature::Signature;
     use zolana_interface::event::{encode_output_data, ProoflessOutput};
-    use zolana_keypair::{ShieldedKeypair, SigningKey};
+    use zolana_keypair::{random_salt, ShieldedKeypair, SigningKey};
     use zolana_transaction::{
         instructions::{
             merge::Merge as MergePlan,
             transact::{
-                ConfidentialTransfer, SettlementTarget, SppProofInputs, SPP_SUPPORTED_SHAPES,
+                encode_confidential_slots, ConfidentialTransfer, SettlementTarget, SppProofInputs,
+                SPP_SUPPORTED_SHAPES,
             },
             types::SppProofInputUtxo,
         },
@@ -1041,6 +1045,27 @@ mod tests {
         Context, GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByNullifiersResponse,
         GetShieldedTransactionsByTagsResponse, OutputContext, OutputSlot,
     };
+
+    #[test]
+    fn sync_conversion_preserves_resolved_ring_identity() {
+        let ring = zolana_transaction::RingAssociation::Resolved {
+            config: Address::new_from_array([3u8; 32]),
+            program_id: Address::new_from_array([4u8; 32]),
+        };
+        let converted = convert_sync_transaction(RpcShieldedTransaction {
+            slot: 1,
+            tx_signature: Signature::from([2u8; 64]),
+            ring,
+            tx_viewing_pk: None,
+            salt: None,
+            output_slots: Vec::new(),
+            messages: Vec::new(),
+            nullifiers: Vec::new(),
+            proofless: false,
+        })
+        .expect("sync conversion");
+        assert_eq!(converted.ring, ring);
+    }
 
     /// A mock that behaves like photon: filters by tag, honours the cursor, and
     /// orders globally by slot.
@@ -1102,6 +1127,7 @@ mod tests {
                 .map(|(slot, tag)| ShieldedTransaction {
                     slot: *slot,
                     tx_signature: Signature::from([*slot as u8; 64]),
+                    ring: zolana_transaction::RingAssociation::None,
                     tx_viewing_pk: None,
                     salt: None,
                     output_slots: vec![OutputSlot {
@@ -1158,6 +1184,7 @@ mod tests {
                 .map(|(slot, nullifier)| ShieldedTransaction {
                     slot: *slot,
                     tx_signature: Signature::from([*slot as u8; 64]),
+                    ring: zolana_transaction::RingAssociation::None,
                     tx_viewing_pk: None,
                     salt: None,
                     output_slots: Vec::new(),
@@ -2060,6 +2087,84 @@ mod tests {
     }
 
     #[test]
+    fn sync_wallet_records_shared_viewing_key_recipient_as_payment() {
+        let assets = AssetRegistry::default();
+        let alice = ed25519_keypair(1);
+        let funder = ed25519_keypair(2);
+        let recipient = ShieldedKeypair::with_viewing_key(
+            SigningKey::from_ed25519_bytes(&[3; 32]),
+            alice.viewing_key.clone(),
+        )
+        .expect("recipient");
+        let funding = confidential_transfer_tx(&funder, &alice, SOL_MINT, 100, 1, &assets);
+        let mut wallet = Wallet::new(
+            alice.shielded_address().expect("shielded address"),
+            assets.clone(),
+        )
+        .expect("wallet");
+        sync_wallet(
+            &mut wallet,
+            &local_authority(&alice),
+            &MockIndexer {
+                transactions: vec![funding.clone()],
+                matches: Vec::new(),
+                program_accounts: Vec::new(),
+            },
+        )
+        .expect("sync funding");
+
+        let input = SppProofInputUtxo::new(wallet.utxos[0].utxo.clone(), &alice);
+        let mut transfer = ConfidentialTransfer::new(
+            alice.shielded_address().expect("sender address"),
+            vec![input],
+            Address::default(),
+        );
+        transfer
+            .send(
+                &recipient.shielded_address().expect("recipient address"),
+                SOL_MINT,
+                100,
+            )
+            .expect("send");
+        let prepared = transfer
+            .prepare()
+            .expect("prepare")
+            .compact_outputs()
+            .expect("compact outputs");
+        let tx_key = alice
+            .get_transaction_viewing_key(&prepared.first_nullifier)
+            .expect("transaction viewing key");
+        let salt = random_salt();
+        let slots = encode_confidential_slots(&prepared.outputs, &assets, &tx_key, salt)
+            .expect("encrypt outputs");
+        let outbound = signed_to_shielded_tx(
+            prepared
+                .finalize(tx_key.pubkey(), salt, slots)
+                .expect("finalize"),
+            2,
+        );
+        let indexer = MockIndexer {
+            transactions: vec![funding, outbound],
+            matches: Vec::new(),
+            program_accounts: Vec::new(),
+        };
+
+        sync_wallet(&mut wallet, &local_authority(&alice), &indexer).expect("sync outbound");
+
+        let outbound = wallet
+            .private_transactions()
+            .iter()
+            .find(|tx| tx.direction == PrivateTransactionDirection::Outbound)
+            .expect("outbound row");
+        assert_eq!(outbound.kind, PrivateTransactionKind::PrivateTransfer);
+        assert_eq!(outbound.amount, 100);
+        assert_eq!(
+            outbound.counterparty_viewing_pubkey,
+            Some(recipient.viewing_pubkey())
+        );
+    }
+
+    #[test]
     fn sync_wallet_decodes_confidential_recipient_across_supported_shapes() {
         let assets = AssetRegistry::default();
 
@@ -2232,6 +2337,7 @@ mod tests {
             transactions: vec![ShieldedTransaction {
                 slot: 1,
                 tx_signature: Signature::default(),
+                ring: zolana_transaction::RingAssociation::None,
                 tx_viewing_pk: None,
                 salt: None,
                 output_slots: vec![OutputSlot {
@@ -2544,6 +2650,7 @@ mod tests {
         ShieldedTransaction {
             slot,
             tx_signature: signature_for_slot(slot),
+            ring: zolana_transaction::RingAssociation::None,
             tx_viewing_pk: Some(
                 zolana_keypair::P256Pubkey::from_bytes(external.tx_viewing_pk)
                     .expect("tx viewing pk"),
@@ -2586,6 +2693,7 @@ mod tests {
         ShieldedTransaction {
             slot,
             tx_signature: signature_for_slot(slot),
+            ring: zolana_transaction::RingAssociation::None,
             tx_viewing_pk: None,
             salt: None,
             output_slots: vec![OutputSlot {

@@ -11,7 +11,7 @@ use zolana_keypair::{
 };
 
 use super::{
-    shape::{resolve_shape, Shape},
+    shape::{canonical_shape, resolve_shape, Shape},
     slots::encode_confidential_slots,
     spp_proof_inputs::{first_nullifier, inputs_require_p256, SppProofInputs},
     ExternalData, SettlementTransfer, SppProofOutputUtxo,
@@ -44,6 +44,7 @@ pub struct PreparedTransfer {
     pub shape: Shape,
     pub payer: Address,
     pub interface_transfers: Vec<SettlementTransfer>,
+    output_layout: PreparedOutputLayout,
 }
 
 pub struct Recipient {
@@ -79,6 +80,14 @@ pub struct ConfidentialTransfer {
     pub payer: Address,
     pub blinding_seed: [u8; 32],
     pub shape: Option<Shape>,
+}
+
+#[derive(Clone, Copy)]
+enum PreparedOutputLayout {
+    BothChanges,
+    SplChange,
+    SolChange,
+    Recipients,
 }
 
 impl ConfidentialTransfer {
@@ -297,6 +306,7 @@ impl ConfidentialTransfer {
             shape,
             payer: self.payer,
             interface_transfers,
+            output_layout: PreparedOutputLayout::BothChanges,
         })
     }
 
@@ -409,6 +419,38 @@ fn validate_settlement_target(
 }
 
 impl PreparedTransfer {
+    pub fn compact_outputs(mut self) -> Result<Self, TransactionError> {
+        if !matches!(self.output_layout, PreparedOutputLayout::BothChanges) {
+            return Ok(self);
+        }
+        let mut outputs = self.outputs.into_iter();
+        let spl_change = outputs.next().ok_or(TransactionError::MissingOutput)?;
+        let sol_change = outputs.next().ok_or(TransactionError::MissingOutput)?;
+        let has_spl_change = !spl_change.is_dummy();
+        let has_sol_change = !sol_change.is_dummy();
+        self.outputs = match (has_spl_change, has_sol_change) {
+            (true, true) => {
+                self.output_layout = PreparedOutputLayout::BothChanges;
+                vec![spl_change, sol_change]
+            }
+            (true, false) => {
+                self.output_layout = PreparedOutputLayout::SplChange;
+                vec![spl_change]
+            }
+            (false, true) => {
+                self.output_layout = PreparedOutputLayout::SolChange;
+                vec![sol_change]
+            }
+            (false, false) => {
+                self.output_layout = PreparedOutputLayout::Recipients;
+                Vec::new()
+            }
+        };
+        self.outputs.extend(outputs);
+        self.shape = canonical_shape(self.inputs.len(), self.outputs.len())?;
+        Ok(self)
+    }
+
     pub fn finalize(
         self,
         tx_viewing_pk: P256Pubkey,
@@ -432,6 +474,7 @@ impl PreparedTransfer {
             shape,
             payer,
             interface_transfers,
+            output_layout,
             ..
         } = self;
 
@@ -492,7 +535,7 @@ impl PreparedTransfer {
                     dummy_owner_tag,
                     random_dummy_ciphertext(dummy_len),
                 )
-            } else if position < SENDER_SLOT_COUNT {
+            } else if position < output_layout.sender_output_count() {
                 let data = match slot {
                     Some(output_data) => output_data.data.clone(),
                     None => random_dummy_ciphertext(dummy_len),
@@ -538,6 +581,16 @@ impl PreparedTransfer {
             external_data,
             payer,
         })
+    }
+}
+
+impl PreparedOutputLayout {
+    const fn sender_output_count(self) -> usize {
+        match self {
+            Self::BothChanges => 2,
+            Self::SplChange | Self::SolChange => 1,
+            Self::Recipients => 0,
+        }
     }
 }
 
@@ -607,6 +660,31 @@ mod tests {
 
     use super::*;
 
+    fn sol_transfer(amount: u64) -> ConfidentialTransfer {
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
+        let recipient = ShieldedKeypair::new_ed25519().unwrap();
+        let input = SppProofInputUtxo::new(
+            crate::Utxo {
+                owner: sender.signing_pubkey(),
+                asset: SOL_MINT,
+                amount: 10,
+                blinding: random_blinding(),
+                ring_program_id: None,
+                data: Data::default(),
+            },
+            &sender,
+        );
+        let mut transfer = ConfidentialTransfer::new(
+            sender.shielded_address().unwrap(),
+            vec![input],
+            Address::default(),
+        );
+        transfer
+            .send(&recipient.shielded_address().unwrap(), SOL_MINT, amount)
+            .unwrap();
+        transfer
+    }
+
     /// An ed25519 owner who is also the fee payer at account index 0 is tagged
     /// `Account(0)`; the resolved value is the owner's view tag (the ed25519 key).
     #[test]
@@ -649,6 +727,38 @@ mod tests {
             sender_owner_tag(&pk, &Address::default(), true),
             Ok((OwnerTag::Inline(resolved), resolved))
         );
+    }
+
+    #[test]
+    fn compact_outputs_remove_unused_change_slots() {
+        let prepared = sol_transfer(4)
+            .prepare()
+            .unwrap()
+            .compact_outputs()
+            .unwrap();
+        assert_eq!(prepared.shape, Shape::IN1_OUT2);
+        assert_eq!(prepared.outputs.len(), 2);
+        assert_eq!(prepared.outputs[0].amount, 6);
+        assert_eq!(prepared.outputs[1].amount, 4);
+        assert_eq!(prepared.output_layout.sender_output_count(), 1);
+        let prepared = prepared.compact_outputs().unwrap();
+        assert_eq!(prepared.outputs.len(), 2);
+        assert_eq!(prepared.outputs[0].amount, 6);
+        assert_eq!(prepared.outputs[1].amount, 4);
+        assert_eq!(prepared.output_layout.sender_output_count(), 1);
+    }
+
+    #[test]
+    fn compact_outputs_keep_only_recipient_after_full_spend() {
+        let prepared = sol_transfer(10)
+            .prepare()
+            .unwrap()
+            .compact_outputs()
+            .unwrap();
+        assert_eq!(prepared.shape, Shape::IN1_OUT1);
+        assert_eq!(prepared.outputs.len(), 1);
+        assert_eq!(prepared.outputs[0].amount, 10);
+        assert_eq!(prepared.output_layout.sender_output_count(), 0);
     }
 
     #[test]

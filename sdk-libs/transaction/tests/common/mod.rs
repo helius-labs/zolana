@@ -188,6 +188,7 @@ pub fn build_transfer(
     ];
 
     let tx = ShieldedTransaction {
+        ring: zolana_transaction::RingAssociation::None,
         slot: 0,
         tx_signature: solana_signature::Signature::default(),
         tx_viewing_pk: Some(tx_viewing_pk),
@@ -311,6 +312,7 @@ pub fn build_unified_transfer(
     ];
 
     let tx = ShieldedTransaction {
+        ring: zolana_transaction::RingAssociation::None,
         slot: 0,
         tx_signature: solana_signature::Signature::default(),
         tx_viewing_pk: Some(tx_viewing_pk),
