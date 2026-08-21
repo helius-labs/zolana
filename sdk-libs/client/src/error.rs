@@ -186,6 +186,9 @@ pub enum ClientError {
     #[error("field element exceeds 32 bytes")]
     FieldTooLong,
 
+    #[error("field element is not canonical")]
+    NonCanonicalField,
+
     #[error("prover server error: {0}")]
     ProverServer(String),
 
@@ -237,6 +240,9 @@ pub enum ClientError {
 
     #[error("indexer error: {0}")]
     Indexer(String),
+
+    #[error("indexer ring association is invalid")]
+    InvalidRingAssociation,
 
     /// The indexer answered with a rate-limit or internal JSON-RPC error.
     /// Acted on by `Rpc::should_retry` during the confirmation poll.

@@ -1,4 +1,4 @@
-use std::pin::Pin;
+use std::{num::NonZeroU32, pin::Pin};
 
 use async_trait::async_trait;
 use futures::Stream;
@@ -66,6 +66,15 @@ pub struct GetShieldedTransactionsByTagsResponse {
     pub context: Context,
     pub transactions: Vec<ShieldedTransaction>,
     pub next_cursor: Option<Vec<u8>>,
+}
+
+#[must_use]
+pub struct RingShieldedTransactionsByTagRequest {
+    tag: [u8; 32],
+    cursor: Option<Vec<u8>>,
+    limit: Option<NonZeroU32>,
+    ring_program_id: Address,
+    config: Option<IndexerRpcConfig>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -142,6 +151,56 @@ pub struct ProveResult {
     pub proof: ProofCompressed,
     pub public_inputs: Vec<[u8; 32]>,
     pub circuit_id: u16,
+}
+
+impl RingShieldedTransactionsByTagRequest {
+    pub fn new(tag: [u8; 32], ring_program_id: Address) -> Self {
+        Self {
+            tag,
+            cursor: None,
+            limit: None,
+            ring_program_id,
+            config: None,
+        }
+    }
+
+    #[must_use = "use the updated request"]
+    pub fn with_cursor(mut self, cursor: Vec<u8>) -> Self {
+        self.cursor = Some(cursor);
+        self
+    }
+
+    #[must_use = "use the updated request"]
+    pub fn with_limit(mut self, limit: NonZeroU32) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    #[must_use = "use the updated request"]
+    pub fn with_config(mut self, config: IndexerRpcConfig) -> Self {
+        self.config = Some(config);
+        self
+    }
+
+    pub fn tag(&self) -> [u8; 32] {
+        self.tag
+    }
+
+    pub fn cursor(&self) -> Option<&[u8]> {
+        self.cursor.as_deref()
+    }
+
+    pub fn limit(&self) -> Option<NonZeroU32> {
+        self.limit
+    }
+
+    pub fn ring_program_id(&self) -> Address {
+        self.ring_program_id
+    }
+
+    pub fn config(&self) -> Option<IndexerRpcConfig> {
+        self.config
+    }
 }
 
 /// Combined Solana RPC, SPP indexer, and proving surface used by clients.
@@ -308,6 +367,13 @@ pub trait Rpc {
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         Err(unsupported("get_shielded_transactions_by_tags"))
+    }
+
+    fn get_ring_shielded_transactions_by_tag(
+        &self,
+        request: RingShieldedTransactionsByTagRequest,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        Err(unsupported("get_ring_shielded_transactions_by_tag"))
     }
 
     fn get_shielded_transactions_by_signature(
@@ -528,6 +594,13 @@ pub trait AsyncRpc: Send + Sync {
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         Err(unsupported("get_shielded_transactions_by_tags"))
+    }
+
+    async fn get_ring_shielded_transactions_by_tag(
+        &self,
+        request: RingShieldedTransactionsByTagRequest,
+    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+        Err(unsupported("get_ring_shielded_transactions_by_tag"))
     }
 
     async fn get_shielded_transactions_by_signature(

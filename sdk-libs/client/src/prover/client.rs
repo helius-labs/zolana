@@ -13,10 +13,13 @@ use tokio::time::sleep as async_sleep;
 use crate::{
     error::ClientError,
     prover::{
-        inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs, TransferP256Inputs},
+        inputs::{
+            AuditorKeyEncryptionWitness, BatchAddressAppendInputs, MergeInputs, TransferInputs,
+            TransferP256Inputs,
+        },
         json::{
-            to_json, to_json_batch_address_append, to_json_merge, to_json_merge_ring,
-            to_json_p256_ring, to_json_ring, to_json_ring_authority,
+            to_json, to_json_auditor_key_encryption, to_json_batch_address_append, to_json_merge,
+            to_json_merge_ring, to_json_p256_ring, to_json_ring, to_json_ring_authority,
         },
         proof::{proof_from_gnark_json, Proof},
     },
@@ -240,6 +243,14 @@ impl ProverClient {
         self.send(to_json_p256_ring(inputs), self.delivery)
     }
 
+    pub fn prove_auditor_key_encryption(
+        &self,
+        inputs: &AuditorKeyEncryptionWitness,
+    ) -> Result<Proof, ClientError> {
+        let body = to_json_auditor_key_encryption(inputs)?;
+        self.send(body, Delivery::Queued)
+    }
+
     /// Prove a nullifier-tree batch address-append update, returning the
     /// uncompressed negated proof. Call [`ProofCompressed::try_from`] for the
     /// SPP instruction wire format.
@@ -287,14 +298,14 @@ impl ProverClient {
         Ok((status, text))
     }
 
-    fn send(&self, body: String, delivery: Delivery) -> Result<Proof, ClientError> {
+    fn send(&self, body: impl AsRef<str>, delivery: Delivery) -> Result<Proof, ClientError> {
         let url = format!("{}{}", self.server_address, PROVE_PATH);
-        crate::timing::note(0, "prover_request_bytes", body.len());
+        crate::timing::note(0, "prover_request_bytes", body.as_ref().len());
         // Dropped to `Queued` if the prover sheds the synchronous request, so a
         // busy prover degrades to waiting in line rather than to an error.
         let mut delivery = delivery;
         let (status, text) = loop {
-            let (status, text) = self.post(&url, &body, delivery)?;
+            let (status, text) = self.post(&url, body.as_ref(), delivery)?;
             if status == StatusCode::TOO_MANY_REQUESTS && delivery == Delivery::InResponse {
                 // Retrying synchronously would compete for the same permit that
                 // was just refused; queueing waits for it once instead.
@@ -547,6 +558,14 @@ impl AsyncProverClient {
         self.send(to_json_p256_ring(inputs), self.delivery).await
     }
 
+    pub async fn prove_auditor_key_encryption(
+        &self,
+        inputs: &AuditorKeyEncryptionWitness,
+    ) -> Result<Proof, ClientError> {
+        let body = to_json_auditor_key_encryption(inputs)?;
+        self.send(body, Delivery::Queued).await
+    }
+
     pub async fn prove_batch_address_append(
         &self,
         inputs: &BatchAddressAppendInputs,
@@ -555,11 +574,11 @@ impl AsyncProverClient {
             .await
     }
 
-    async fn send(&self, body: String, delivery: Delivery) -> Result<Proof, ClientError> {
+    async fn send(&self, body: impl AsRef<str>, delivery: Delivery) -> Result<Proof, ClientError> {
         let url = format!("{}{}", self.server_address, PROVE_PATH);
         let mut delivery = delivery;
         let (status, text) = loop {
-            let (status, text) = self.post(&url, &body, delivery).await?;
+            let (status, text) = self.post(&url, body.as_ref(), delivery).await?;
             if status == StatusCode::TOO_MANY_REQUESTS && delivery == Delivery::InResponse {
                 delivery = Delivery::Queued;
                 continue;
@@ -948,7 +967,7 @@ mod tests {
         ]);
         let started = std::time::Instant::now();
         queued_prover_client(server.url())
-            .send("{}".to_string(), Delivery::Queued)
+            .send("{}", Delivery::Queued)
             .expect("queued proof should complete");
         let elapsed = started.elapsed();
 
@@ -1007,7 +1026,7 @@ mod tests {
             ),
         ]);
         let proof = queued_prover_client(server.url())
-            .send("{}".to_string(), Delivery::Queued)
+            .send("{}", Delivery::Queued)
             .expect("queued proof should complete");
         let requests = server.requests();
 
@@ -1038,7 +1057,7 @@ mod tests {
             ),
         ]);
         let err = queued_prover_client(server.url())
-            .send("{}".to_string(), Delivery::Queued)
+            .send("{}", Delivery::Queued)
             .expect_err("failed async status should surface");
         let requests = server.requests();
 
@@ -1076,7 +1095,7 @@ mod tests {
 
         let started = Instant::now();
         let err = queued_prover_client(server.url())
-            .send("{}".to_string(), Delivery::Queued)
+            .send("{}", Delivery::Queued)
             .expect_err("a deadline measured in wall clock must expire");
         let elapsed = started.elapsed();
 
@@ -1106,7 +1125,7 @@ mod tests {
             MockResponse::json(200, json!({ "status": "processing" })),
         ]);
         let err = queued_prover_client(server.url())
-            .send("{}".to_string(), Delivery::Queued)
+            .send("{}", Delivery::Queued)
             .expect_err("slow async proof should time out");
         let requests = server.requests();
 
@@ -1128,7 +1147,7 @@ mod tests {
             MockResponse::text(200, "not json"),
         ]);
         let err = queued_prover_client(server.url())
-            .send("{}".to_string(), Delivery::Queued)
+            .send("{}", Delivery::Queued)
             .expect_err("malformed status body should fail");
         let requests = server.requests();
 
@@ -1149,7 +1168,7 @@ mod tests {
             ),
         ]);
         let err = queued_prover_client(server.url())
-            .send("{}".to_string(), Delivery::Queued)
+            .send("{}", Delivery::Queued)
             .expect_err("404 status should fail immediately");
         let requests = server.requests();
 
@@ -1176,7 +1195,7 @@ mod tests {
             ),
         ]);
         let proof = queued_prover_client(server.url())
-            .send("{}".to_string(), Delivery::Queued)
+            .send("{}", Delivery::Queued)
             .expect("transient poll error should be retried");
         let requests = server.requests();
 
@@ -1208,7 +1227,7 @@ mod tests {
             ),
         ]);
         let proof = async_prover_client(server.url())
-            .send("{}".to_string(), Delivery::Queued)
+            .send("{}", Delivery::Queued)
             .await
             .expect("queued async proof should complete");
         let requests = server.requests();
@@ -1240,7 +1259,7 @@ mod tests {
             ),
         ]);
         async_prover_client(server.url())
-            .send("{}".to_string(), Delivery::Queued)
+            .send("{}", Delivery::Queued)
             .await
             .expect("transient async poll error should be retried");
         let requests = server.requests();
@@ -1264,7 +1283,7 @@ mod tests {
             json!({ "proof": gnark_proof() }),
         )]);
         queued_prover_client(server.url())
-            .send("{}".to_string(), Delivery::InResponse)
+            .send("{}", Delivery::InResponse)
             .expect("a synchronous prover answers with the proof");
 
         let requests = server.requests();
@@ -1297,7 +1316,7 @@ mod tests {
         ]);
 
         let proof = queued_prover_client(server.url())
-            .send("{}".to_string(), Delivery::InResponse)
+            .send("{}", Delivery::InResponse)
             .expect("a shed proof should be queued, not failed");
         assert_eq!(proof.a, [0u8; 64]);
 

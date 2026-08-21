@@ -13,6 +13,7 @@ pub use client::{
     PROVE_PATH, SERVER_ADDRESS,
 };
 pub use inputs::{
+    AuditPrivateTxHash, AuditPublicInputHash, AuditorKeyEncryptionWitness,
     BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
     TransferP256Inputs,
 };
