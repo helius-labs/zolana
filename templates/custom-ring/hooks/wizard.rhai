@@ -32,7 +32,6 @@ const HELIUS_DEVNET_RPC = "https://devnet.helius-rpc.com/?api-key=${HELIUS_API_K
 const PUBLIC_DEVNET_RPC = "https://api.devnet.solana.com";
 const DEVNET_INDEXER = "http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com";
 const DEVNET_PROVER = "http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com:3001";
-const ZOLANA_REPOSITORY = "https://github.com/helius-labs/zolana.git";
 
 fn setting(name, fallback) {
     if variable::is_set(name) {
@@ -94,21 +93,9 @@ ask("program_id", "Program id (base58 pubkey of keys/program-keypair.json)", "")
 if variable::get("program_id") == "" {
     abort("a program id is required, run the wizard through `just ring-new` to have one generated");
 }
-// `.zolana` is a clone `just source` pins to `zolana_revision`, any other path is used as is.
-ask("zolana_path", "Path to the zolana source", ".zolana");
-ask("zolana_repository", "Zolana repository", ZOLANA_REPOSITORY);
-let revision = ask("zolana_revision", "Zolana revision (40 hex, the commit the ring builds against)", "");
-if revision == "" {
-    abort("a zolana revision is required, run the wizard through `just ring-new` to pin the checkout's HEAD");
-}
-let revision_is_hex = revision.len() == 40;
-for c in revision {
-    if !"0123456789abcdef".contains(c) {
-        revision_is_hex = false;
-    }
-}
-if !revision_is_hex {
-    abort(`zolana revision ${revision} is not a 40 hex commit`);
+// The driver supplies zolana_path and zolana_revision from its checkout.
+if !variable::is_set("zolana_path") || !variable::is_set("zolana_revision") {
+    abort("zolana_path and zolana_revision are required, run the wizard through `just ring-new`");
 }
 
 print("");

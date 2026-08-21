@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # Custom ring wizard driver. It prepares what cargo-generate cannot, the program
-# keypair, the per-clone service URLs and the pinned zolana revision, runs the
-# template, and places the keypair in the generated ring.
+# keypair, the per-clone service URLs and this checkout's path and revision, runs
+# the template, and places the keypair in the generated ring.
 #
 #   tools/ring-wizard.sh [destination-dir] [cargo generate args...]
 #
 # RING_NAME skips the name prompt. Extra arguments reach `cargo generate`, for
 # example `--silent -d authority_keypair=...` runs without prompts. The generated
-# ring clones zolana into `.zolana` at this checkout's HEAD. RING_ZOLANA_PATH=checkout
-# points it at this checkout instead, for local development.
+# ring builds against this checkout.
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
@@ -63,10 +62,6 @@ authority=()
 if [ -n "${CUSTOM_RING_AUTHORITY_KEYPAIR:-}" ]; then
     authority=(-d authority_keypair="$CUSTOM_RING_AUTHORITY_KEYPAIR")
 fi
-zolana_path=".zolana"
-if [ "${RING_ZOLANA_PATH:-}" = "checkout" ]; then
-    zolana_path="$root"
-fi
 
 # Service URLs come from the justfile (`just ring-new`), which resolves the
 # per-clone port offset and every explicit override; a direct call falls back to
@@ -94,8 +89,7 @@ cargo generate --path "$root/templates/custom-ring" --destination "$dest" --name
     ${silent[@]+"${silent[@]}"} \
     ${authority[@]+"${authority[@]}"} \
     -d program_id="$program_id" \
-    -d zolana_path="$zolana_path" \
-    -d zolana_repository=https://github.com/helius-labs/zolana.git \
+    -d zolana_path="$root" \
     -d zolana_revision="$revision" \
     -d default_rpc_url="$rpc_url" \
     -d default_indexer_url="$indexer_url" \

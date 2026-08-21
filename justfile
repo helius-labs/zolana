@@ -125,26 +125,11 @@ test-custom-ring-template:
         --define program_id=8hV3Hp5kaDkV81dms997arFRV3g1hW9TLuV4pX94WsEz \
         --define 'authority_keypair=~operator/key.json' \
         --define zolana_path="$(pwd)" \
-        --define zolana_repository=https://github.com/helius-labs/zolana.git \
-        --define zolana_revision="$(git rev-parse HEAD)"; then
-        exit 1
-    fi
-    if cargo generate \
-        --path templates/custom-ring \
-        --name invalid-source \
-        --destination "$output" \
-        --silent \
-        --define silent=true \
-        --define program_id=8hV3Hp5kaDkV81dms997arFRV3g1hW9TLuV4pX94WsEz \
-        --define authority_keypair=/tmp/custom-ring-authority.json \
-        --define 'zolana_path=~/zolana' \
-        --define zolana_repository=https://github.com/helius-labs/zolana.git \
         --define zolana_revision="$(git rev-parse HEAD)"; then
         exit 1
     fi
     RING_NAME=smoke-ring tools/ring-wizard.sh "$output" --silent \
-        -d authority_keypair=/tmp/custom-ring-authority.json \
-        -d zolana_path="$(pwd)"
+        -d authority_keypair=/tmp/custom-ring-authority.json
     ring="$output/smoke-ring"
     cd "$ring"
     grep -q 'target = "localnet"' ring.toml
@@ -190,27 +175,6 @@ test-custom-ring-template:
     mv keys/program-keypair.json "$output/program-keypair.json"
     CUSTOM_RING_PROGRAM_KEYPAIR_FILE="$output/program-keypair.json" just program-key
     [[ "$(solana-keygen pubkey keys/program-keypair.json)" == "$program_id" ]]
-    cd "$workspace"
-    RING_NAME=pinned-ring tools/ring-wizard.sh "$output" --silent \
-        -d authority_keypair=/tmp/custom-ring-authority.json
-    pinned="$output/pinned-ring"
-    grep -Fx 'zolana := ".zolana"' "$pinned/justfile"
-    grep -F "$(git rev-parse HEAD)" "$pinned/justfile"
-    mkdir "$output/source-target"
-    ln -s "$output/source-target" "$pinned/.zolana"
-    if cd "$pinned" && just source; then
-        exit 1
-    fi
-    cd "$workspace"
-    [[ -z "$(find "$output/source-target" -mindepth 1 -print -quit)" ]]
-    unlink "$pinned/.zolana"
-    mkdir "$pinned/.zolana"
-    ln -s "$output/source-target" "$pinned/.zolana/.git"
-    if cd "$pinned" && just source; then
-        exit 1
-    fi
-    cd "$workspace"
-    [[ -z "$(find "$output/source-target" -mindepth 1 -print -quit)" ]]
 
 # === Custom ring template ===
 

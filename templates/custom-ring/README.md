@@ -3,9 +3,10 @@
 A custom ring on the Solana Privacy Program with an auditor. Transfers inside
 the ring are confidential, amounts and recipients stay hidden on chain, and
 every transfer carries a proof that one auditor key can open it. The program is
-`custom-ring-program` from Zolana revision `{{zolana_revision}}`, deployed at
-`{{program_id}}`. `ring.toml` holds the wizard's answers and the active
-cluster, `.env` holds secrets and `ring.toml` refers to them as `${NAME}`.
+`custom-ring-program` from the Zolana checkout at `{{zolana_path}}`, generated
+at revision `{{zolana_revision}}`, deployed at `{{program_id}}`. `ring.toml`
+holds the wizard's answers and the active cluster, `.env` holds secrets and
+`ring.toml` refers to them as `${NAME}`.
 
 ## Roles
 
@@ -30,7 +31,7 @@ inside it.
 ## The pipeline
 
 `just localnet` starts a validator with SPP, Photon and the prover from the
-pinned Zolana source and sets `target = "localnet"` in `ring.toml`.
+Zolana checkout and sets `target = "localnet"` in `ring.toml`.
 `just devnet` sets `target = "devnet"` and probes the hosted Photon and prover
 from `ring.toml`, or starts local ones when it points at `127.0.0.1`. Every
 other recipe acts on the recorded target, `just urls` shows it.
