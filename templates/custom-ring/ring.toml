@@ -15,12 +15,15 @@ ring_rpc = "{{ring_rpc_url}}"
 # ring_rpc_pubkey = "<base58>"
 
 # `${NAME}` is read from .env next to this file, so secrets stay out of git.
-# The ring RPC runs on this machine, `just rpc`.
+# The hosted ring RPC derives this ring's auditor key at `init`, the pinned
+# service pubkey rejects any other key source. Empty the pubkey and use
+# `init --trust-ring-rpc` to accept an unpinned service.
 [devnet]
 rpc = "{{devnet_rpc_url}}"
 indexer = "{{devnet_indexer_url}}"
 prover = "{{devnet_prover_url}}"
-ring_rpc = "{{ring_rpc_url}}"
-
+ring_rpc = "{{devnet_ring_rpc_url}}"
+{% if devnet_ring_rpc_pubkey != "" %}ring_rpc_pubkey = "{{devnet_ring_rpc_pubkey}}"
+{% endif %}
 [features]
 {{features_toml -}}

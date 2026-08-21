@@ -32,8 +32,10 @@ inside it.
 
 `just localnet` starts a validator with SPP, Photon and the prover from the
 Zolana checkout and sets `target = "localnet"` in `ring.toml`.
-`just devnet` sets `target = "devnet"` and probes the hosted Photon and prover
-from `ring.toml`, or starts local ones when it points at `127.0.0.1`. Every
+`just devnet` sets `target = "devnet"` and probes the hosted Photon, prover and
+ring RPC from `ring.toml`, or starts local ones when it points at `127.0.0.1`.
+The generated `[devnet]` section names the hosted services and pins the ring
+RPC service key, so `just pipeline` on devnet needs no local service. Every
 other recipe acts on the recorded target, `just urls` shows it.
 
 `just pipeline` then runs build, deploy, init, ring RPC and transact. Each step
