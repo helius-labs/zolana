@@ -25,6 +25,8 @@ use crate::{
 
 /// Covers the sender's lookup table rent and fees.
 const SENDER_FEE_BUDGET: u64 = 20_000_000;
+/// Lookup table rent, the deposit and transact fees.
+const PAYER_FEE_BUDGET: u64 = 10_000_000;
 const INDEXER_TIMEOUT: Duration = Duration::from_secs(120);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 
@@ -93,6 +95,12 @@ pub enum TransactError {
     AccountRead(#[from] AccountReadError),
     #[error(transparent)]
     Indexer(#[from] WaitError<ClientError>),
+    #[error("authority {authority} holds {balance} lamports, the demo needs {needed}")]
+    InsufficientFunds {
+        authority: Address,
+        balance: u64,
+        needed: u64,
+    },
 }
 
 impl From<ClientError> for TransactError {
@@ -115,6 +123,19 @@ pub fn run(ctx: &mut Context, args: TransactArgs) -> Result<(), TransactError> {
     }
     .grant(&ctx.rpc)?;
     println!("reader      {reader_key} {}", outcome_label(granted));
+    let needed = args
+        .amount
+        .saturating_mul(2)
+        .saturating_add(SENDER_FEE_BUDGET)
+        .saturating_add(PAYER_FEE_BUDGET);
+    let balance = ctx.rpc.get_balance(authority.pubkey())?;
+    if balance < needed {
+        return Err(TransactError::InsufficientFunds {
+            authority: authority.pubkey(),
+            balance,
+            needed,
+        });
+    }
     let indexer = ctx.indexer();
     let prover = ctx.prover();
     let receipt =

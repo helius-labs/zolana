@@ -119,8 +119,8 @@ pub struct InitArgs {
 
 #[derive(Debug, Args)]
 pub struct TransactArgs {
-    /// Lamports the recipient receives.
-    #[arg(long, default_value_t = 1_000_000_000)]
+    /// Lamports the recipient receives, deposited twice by the authority.
+    #[arg(long, default_value_t = 100_000_000)]
     pub amount: u64,
 }
 
