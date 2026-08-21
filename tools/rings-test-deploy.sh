@@ -4,11 +4,13 @@
 # nothing it creates is shared with another deployment.
 #
 #   tools/rings-test-deploy.sh up RING_DIR     build, publish, create, start
-#   tools/rings-test-deploy.sh status          public addresses and health
+#   tools/rings-test-deploy.sh status          addresses and health
 #   tools/rings-test-deploy.sh down            delete everything it created
 #
 # RING_DIR is a generated ring (ring.toml, keys/auditor.key). The ring RPC serves
-# that ring against the indexer and Solana RPC of its [devnet] section.
+# that ring against the indexer and Solana RPC of its [devnet] section. Both
+# services sit behind one network load balancer, its DNS name is stable across
+# task replacements.
 #
 # Needs aws (with write access), docker, jq, just, go, python3.
 #
@@ -20,7 +22,7 @@
 set -euo pipefail
 
 usage() {
-    sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//' >&2
+    sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//' >&2
     exit 2
 }
 
@@ -42,6 +44,7 @@ log_group="/$prefix"
 bucket="$prefix-keys-$account"
 secret="$prefix/auditor-key"
 security_group="$prefix-sg"
+load_balancer="$prefix"
 prover_port=3001
 ring_rpc_port=8785
 redis_image="public.ecr.aws/docker/library/redis:7.4.4-alpine3.21"
@@ -147,6 +150,36 @@ ensure_keys_bucket() {
     echo "https://$bucket.s3.$region.amazonaws.com"
 }
 
+ensure_load_balancer() {
+    local vpc="$1" subnets="$2" arn
+    arn="$(aws_ elbv2 describe-load-balancers --names "$load_balancer" --query 'LoadBalancers[0].LoadBalancerArn' --output text 2>/dev/null || true)"
+    if [[ "$arn" == None || -z "$arn" ]]; then
+        local subnet_list
+        IFS=, read -r -a subnet_list <<< "$subnets"
+        arn="$(aws_ elbv2 create-load-balancer --name "$load_balancer" --type network --scheme internet-facing \
+            --subnets "${subnet_list[@]}" --tags "$tag_spec" --query 'LoadBalancers[0].LoadBalancerArn' --output text)"
+    fi
+    local service port group
+    for service in prover ring-rpc; do
+        port="$prover_port"; [[ "$service" == prover ]] || port="$ring_rpc_port"
+        group="$(aws_ elbv2 describe-target-groups --names "$prefix-$service" --query 'TargetGroups[0].TargetGroupArn' --output text 2>/dev/null || true)"
+        if [[ "$group" == None || -z "$group" ]]; then
+            group="$(aws_ elbv2 create-target-group --name "$prefix-$service" --protocol TCP --port "$port" --vpc-id "$vpc" \
+                --target-type ip --health-check-protocol HTTP --health-check-path /health --tags "$tag_spec" \
+                --query 'TargetGroups[0].TargetGroupArn' --output text)"
+        fi
+        if [[ -z "$(aws_ elbv2 describe-listeners --load-balancer-arn "$arn" --query "Listeners[?Port==\`$port\`].ListenerArn" --output text)" ]]; then
+            aws_ elbv2 create-listener --load-balancer-arn "$arn" --protocol TCP --port "$port" \
+                --default-actions "Type=forward,TargetGroupArn=$group" --tags "$tag_spec" >/dev/null
+        fi
+    done
+    aws_ elbv2 describe-load-balancers --load-balancer-arns "$arn" --query 'LoadBalancers[0].DNSName' --output text
+}
+
+target_group_arn() {
+    aws_ elbv2 describe-target-groups --names "$prefix-$1" --query 'TargetGroups[0].TargetGroupArn' --output text
+}
+
 ensure_secret() {
     local key_file="$1"
     if aws_ secretsmanager describe-secret --secret-id "$secret" >/dev/null 2>&1; then
@@ -198,14 +231,15 @@ register_ring_rpc() {
 }
 
 ensure_service() {
-    local name="$1" task_definition="$2" subnets="$3" sg="$4"
+    local name="$1" task_definition="$2" subnets="$3" sg="$4" container="$5" port="$6"
     local status
     status="$(aws_ ecs describe-services --cluster "$cluster" --services "$name" --query 'services[0].status' --output text 2>/dev/null || true)"
     if [[ "$status" == ACTIVE ]]; then
         aws_ ecs update-service --cluster "$cluster" --service "$name" --task-definition "$task_definition" --force-new-deployment >/dev/null
     else
         aws_ ecs create-service --cluster "$cluster" --service-name "$name" --task-definition "$task_definition" \
-            --desired-count 1 --launch-type FARGATE --tags "$tag_spec" \
+            --desired-count 1 --launch-type FARGATE --tags "$tag_spec" --health-check-grace-period-seconds 120 \
+            --load-balancers "targetGroupArn=$(target_group_arn "$container"),containerName=$container,containerPort=$port" \
             --network-configuration "awsvpcConfiguration={subnets=[$subnets],securityGroups=[$sg],assignPublicIp=ENABLED}" >/dev/null
     fi
 }
@@ -244,10 +278,11 @@ up() {
     local keys_url
     keys_url="$(ensure_keys_bucket)"
 
-    log "== network, role, logs, cluster, secret"
+    log "== network, load balancer, role, logs, cluster, secret"
     read -r vpc subnets <<< "$(vpc_and_subnets)"
     local sg role_arn secret_arn
     sg="$(ensure_security_group "$vpc")"
+    ensure_load_balancer "$vpc" "$subnets" >/dev/null
     role_arn="$(ensure_role)"
     aws_ logs describe-log-groups --log-group-name-prefix "$log_group" --query "logGroups[?logGroupName=='$log_group']" --output text | grep -q . \
         || aws_ logs create-log-group --log-group-name "$log_group" --tags "$prefix=1"
@@ -259,21 +294,20 @@ up() {
     local prover_td ring_rpc_td
     prover_td="$(register_prover "$registry/$prefix-prover:prover-$image_tag" "$keys_url" "$role_arn")"
     ring_rpc_td="$(register_ring_rpc "$registry/$prefix-ring-rpc:ring-rpc-$image_tag" "$role_arn" "$secret_arn" "$ring" "$indexer" "$rpc")"
-    ensure_service "$prefix-prover" "$prover_td" "$subnets" "$sg"
-    ensure_service "$prefix-ring-rpc" "$ring_rpc_td" "$subnets" "$sg"
+    ensure_service "$prefix-prover" "$prover_td" "$subnets" "$sg" prover "$prover_port"
+    ensure_service "$prefix-ring-rpc" "$ring_rpc_td" "$subnets" "$sg" ring-rpc "$ring_rpc_port"
     log "waiting for the services to stabilize"
     aws_ ecs wait services-stable --cluster "$cluster" --services "$prefix-prover" "$prefix-ring-rpc"
     status
 }
 
 status() {
-    local prover_ip ring_rpc_ip
-    prover_ip="$(public_ip "$prefix-prover")"
-    ring_rpc_ip="$(public_ip "$prefix-ring-rpc")"
-    echo "prover    http://$prover_ip:$prover_port"
-    echo "ring rpc  http://$ring_rpc_ip:$ring_rpc_port"
-    curl -sf --max-time 10 "http://$prover_ip:$prover_port/health" && echo || echo "prover health not reachable yet"
-    curl -sf --max-time 10 "http://$ring_rpc_ip:$ring_rpc_port/health" && echo || echo "ring rpc health not reachable yet"
+    local dns
+    dns="$(aws_ elbv2 describe-load-balancers --names "$load_balancer" --query 'LoadBalancers[0].DNSName' --output text 2>/dev/null || echo "-")"
+    echo "prover    http://$dns:$prover_port   (task $(public_ip "$prefix-prover"))"
+    echo "ring rpc  http://$dns:$ring_rpc_port   (task $(public_ip "$prefix-ring-rpc"))"
+    curl -sf --max-time 10 "http://$dns:$prover_port/health" && echo || echo "prover health not reachable yet"
+    curl -sf --max-time 10 "http://$dns:$ring_rpc_port/health" && echo || echo "ring rpc health not reachable yet"
     echo "logs      aws logs tail $log_group --region $region --follow"
 }
 
@@ -290,6 +324,16 @@ down() {
         aws_ ecs deregister-task-definition --task-definition "$td" >/dev/null
     done
     aws_ ecs delete-cluster --cluster "$cluster" >/dev/null 2>&1 || true
+    local lb
+    lb="$(aws_ elbv2 describe-load-balancers --names "$load_balancer" --query 'LoadBalancers[0].LoadBalancerArn' --output text 2>/dev/null || true)"
+    if [[ "$lb" != None && -n "$lb" ]]; then
+        aws_ elbv2 delete-load-balancer --load-balancer-arn "$lb"
+        aws_ elbv2 wait load-balancers-deleted --load-balancer-arns "$lb"
+    fi
+    local group
+    for group in $(aws_ elbv2 describe-target-groups --names "$prefix-prover" "$prefix-ring-rpc" --query 'TargetGroups[].TargetGroupArn' --output text 2>/dev/null); do
+        aws_ elbv2 delete-target-group --target-group-arn "$group"
+    done
     local sg
     sg="$(aws_ ec2 describe-security-groups --filters "Name=group-name,Values=$security_group" --query 'SecurityGroups[0].GroupId' --output text)"
     [[ "$sg" == None || -z "$sg" ]] || { sleep 20; aws_ ec2 delete-security-group --group-id "$sg"; }
