@@ -31,7 +31,9 @@ const FEATURES = [
 const HELIUS_DEVNET_RPC = "https://devnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}";
 const PUBLIC_DEVNET_RPC = "https://api.devnet.solana.com";
 const DEVNET_INDEXER = "http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com";
-const DEVNET_PROVER = "http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com:3001";
+const DEVNET_PROVER = "http://zolana-rings-test-4ad19cabeffa919a.elb.eu-north-1.amazonaws.com:3001";
+const DEVNET_RING_RPC = "http://zolana-rings-test-4ad19cabeffa919a.elb.eu-north-1.amazonaws.com:8785";
+const DEVNET_RING_RPC_PUBKEY = "C8TeRCdueRdXj3y4uFDtNywYThc3qeiH2ZGfcbYZzVSs";
 
 fn setting(name, fallback) {
     if variable::is_set(name) {
@@ -87,6 +89,8 @@ if !variable::is_set("helius_api_key") {
 }
 ask("devnet_indexer_url", "Devnet Photon indexer URL", DEVNET_INDEXER);
 ask("devnet_prover_url", "Devnet prover URL", DEVNET_PROVER);
+ask("devnet_ring_rpc_url", "Devnet ring RPC URL (hosted, derives the auditor key)", DEVNET_RING_RPC);
+ask("devnet_ring_rpc_pubkey", "Devnet ring RPC service pubkey (empty to accept any)", DEVNET_RING_RPC_PUBKEY);
 
 // A hand-typed id needs its keypair in keys/program-keypair.json before `just deploy`.
 ask("program_id", "Program id (base58 pubkey of keys/program-keypair.json)", "");
