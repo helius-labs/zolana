@@ -1354,6 +1354,11 @@ ensure-smart-account:
 publish-image service *args:
     tools/publish-image.sh {{service}} {{args}}
 
+# Isolated ECS test deployment of the prover and one ring RPC, every resource
+# named zolana-rings-test-*, `just rings-test up ~/rings/neo-bank`.
+rings-test command *args:
+    tools/rings-test-deploy.sh {{command}} {{args}}
+
 build-prover-server:
     mkdir -p target
     cd prover/server && go build -o ../../target/prover-server .
