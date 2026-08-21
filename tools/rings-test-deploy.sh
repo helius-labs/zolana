@@ -41,6 +41,7 @@ cd "$root"
 region="${AWS_REGION:-eu-north-1}"
 prefix="zolana-rings-test"
 tag_spec="Key=$prefix,Value=1"
+ecs_tag_spec="key=$prefix,value=1"
 account="$(aws sts get-caller-identity --query Account --output text)"
 registry="$account.dkr.ecr.$region.amazonaws.com"
 sha="$(git rev-parse HEAD)"
@@ -170,7 +171,7 @@ ensure_secret() {
 
 register_prover() {
     local image="$1" role_arn="$2"
-    aws_ ecs register-task-definition --family "$prefix-prover" --tags "$tag_spec" \
+    aws_ ecs register-task-definition --family "$prefix-prover" --tags "$ecs_tag_spec" \
         --requires-compatibilities FARGATE --network-mode awsvpc --cpu 4096 --memory 16384 \
         --execution-role-arn "$role_arn" --runtime-platform cpuArchitecture=X86_64,operatingSystemFamily=LINUX \
         --volumes '[{"name": "keys"}]' \
@@ -198,7 +199,7 @@ register_prover() {
 
 register_ring_rpc() {
     local image="$1" role_arn="$2" secret_arn="$3" indexer="$4" rpc="$5"
-    aws_ ecs register-task-definition --family "$prefix-ring-rpc" --tags "$tag_spec" \
+    aws_ ecs register-task-definition --family "$prefix-ring-rpc" --tags "$ecs_tag_spec" \
         --requires-compatibilities FARGATE --network-mode awsvpc --cpu 512 --memory 1024 \
         --execution-role-arn "$role_arn" --runtime-platform cpuArchitecture=X86_64,operatingSystemFamily=LINUX \
         --container-definitions "$(jq -n --arg image "$image" --arg secret "$secret_arn" \
@@ -226,7 +227,7 @@ ensure_service() {
         aws_ ecs update-service --cluster "$cluster" --service "$name" --task-definition "$task_definition" --force-new-deployment >/dev/null
     else
         aws_ ecs create-service --cluster "$cluster" --service-name "$name" --task-definition "$task_definition" \
-            --desired-count 1 --launch-type FARGATE --tags "$tag_spec" --health-check-grace-period-seconds 120 \
+            --desired-count 1 --launch-type FARGATE --tags "$ecs_tag_spec" --health-check-grace-period-seconds 120 \
             --load-balancers "targetGroupArn=$(target_group_arn "$container"),containerName=$container,containerPort=$port" \
             --network-configuration "awsvpcConfiguration={subnets=[$subnets],securityGroups=[$sg],assignPublicIp=ENABLED}" >/dev/null
     fi
@@ -234,7 +235,7 @@ ensure_service() {
 
 public_ip() {
     local task
-    task="$(aws_ ecs list-tasks --cluster "$cluster" --service-name "$1" --desired-status RUNNING --query 'taskArns[0]' --output text)"
+    task="$(aws_ ecs list-tasks --cluster "$cluster" --service-name "$1" --desired-status RUNNING --query 'taskArns[0]' --output text 2>/dev/null || true)"
     [[ "$task" != None && -n "$task" ]] || { echo "-"; return; }
     local eni
     eni="$(aws_ ecs describe-tasks --cluster "$cluster" --tasks "$task" \
@@ -269,7 +270,7 @@ up() {
     aws_ logs describe-log-groups --log-group-name-prefix "$log_group" --query "logGroups[?logGroupName=='$log_group']" --output text | grep -q . \
         || aws_ logs create-log-group --log-group-name "$log_group" --tags "$prefix=1"
     aws_ ecs describe-clusters --clusters "$cluster" --query "clusters[?status=='ACTIVE']" --output text | grep -q . \
-        || aws_ ecs create-cluster --cluster-name "$cluster" --tags "$tag_spec" >/dev/null
+        || aws_ ecs create-cluster --cluster-name "$cluster" --tags "$ecs_tag_spec" >/dev/null
     secret_arn="$(ensure_secret)"
 
     log "== services"
