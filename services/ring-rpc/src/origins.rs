@@ -5,6 +5,7 @@ use thiserror::Error;
 pub struct Origins {
     allowed: Vec<AllowedOrigin>,
     relying_party_id: Option<String>,
+    any: bool,
 }
 
 #[must_use]
@@ -64,6 +65,17 @@ impl OriginPolicy {
 
     pub fn build(self) -> Result<Origins, OriginError> {
         let transport = self.transport;
+        // `*` opens CORS to every page, only the insecure test transport may ask for it.
+        if self.origins.iter().any(|origin| origin == "*") {
+            if transport != OriginTransport::InsecureHttp || self.origins.len() != 1 {
+                return Err(OriginError::InvalidOrigin);
+            }
+            return Ok(Origins {
+                allowed: Vec::new(),
+                relying_party_id: None,
+                any: true,
+            });
+        }
         let allowed = self
             .origins
             .into_iter()
@@ -85,13 +97,18 @@ impl OriginPolicy {
         Ok(Origins {
             allowed,
             relying_party_id: Some(relying_party_id),
+            any: false,
         })
     }
 }
 
 impl Origins {
     pub fn is_empty(&self) -> bool {
-        self.allowed.is_empty()
+        self.allowed.is_empty() && !self.any
+    }
+
+    pub fn allows_any(&self) -> bool {
+        self.any
     }
 
     pub fn allows(&self, origin: &str) -> bool {
@@ -180,6 +197,22 @@ mod tests {
             .with_relying_party_id("::1".to_owned())
             .build();
         assert!(loopback.is_ok());
+    }
+
+    #[test]
+    fn any_origin_needs_the_insecure_transport() {
+        assert!(OriginPolicy::new(vec!["*".to_owned()]).build().is_err());
+        let origins = OriginPolicy::new(vec!["*".to_owned()])
+            .with_transport(OriginTransport::InsecureHttp)
+            .build()
+            .expect("any origin under the insecure transport");
+        assert!(origins.allows_any() && !origins.is_empty());
+        assert!(
+            OriginPolicy::new(vec!["*".to_owned(), "https://a.example".to_owned()])
+                .with_transport(OriginTransport::InsecureHttp)
+                .build()
+                .is_err()
+        );
     }
 
     #[test]
