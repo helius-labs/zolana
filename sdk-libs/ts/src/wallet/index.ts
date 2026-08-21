@@ -4,6 +4,8 @@ export {
   LocalWalletAuthority,
   type AnonymousRecipientSlot,
   type ApprovalRequest,
+  type AuditWitness,
+  type EncryptedAuditedTransfer,
   type EncryptedEnvelope,
   type EncryptedSplit,
   type EncryptedTransfer,

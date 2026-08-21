@@ -1,0 +1,113 @@
+import { buildUnsignedTransaction } from "../client/kit.js";
+import type { ZolanaClient } from "../client/client.js";
+import { SPL_TOKEN_PROGRAM_ID } from "../interface/program.js";
+import { checkedTransactionSize } from "../interface/transaction-size.js";
+import {
+  type Address,
+  type Bytes32,
+  DepositAsset,
+  type RequestContext,
+  type Transaction,
+} from "../interface/types.js";
+import { associatedTokenAddress } from "../interface/pda/index.js";
+import { ringDepositInstruction } from "../interface/instructions/index.js";
+import { randomBlinding, randomSalt } from "../keypair/bytes.js";
+import { ShieldedAddress } from "../keypair/shielded.js";
+import { ViewingKey } from "../keypair/viewing-key.js";
+import { encodeRingDepositPlaintext } from "../transaction/serialization/ring-deposit.js";
+import { ownerUtxoHash } from "../transaction/utxo.js";
+import { SOL_MINT } from "../transaction/wallet/asset.js";
+import { resolveRegisteredAddress } from "../wallet/registry.js";
+
+import { RingError, wrapRingError } from "./error.js";
+
+const ZERO_32 = new Uint8Array(32) as Bytes32;
+
+export interface RingDepositTransactionParams {
+  readonly client: ZolanaClient;
+  readonly ringProgramId: Address;
+  readonly feePayer: Address;
+  readonly depositor?: Address;
+  readonly tree?: Address;
+  readonly recipient: Address | ShieldedAddress;
+  readonly asset?: Address;
+  readonly amount: bigint;
+  readonly splTokenAccount?: Address;
+  readonly splTokenProgram?: Address | null;
+  readonly memo?: Uint8Array;
+}
+
+/** Mirrors Rust `ring_deposit_sol`. The output is ring-bound, so only the ring's transact can spend it. */
+export async function buildRingDepositTransaction(
+  input: RingDepositTransactionParams,
+  context?: RequestContext,
+): Promise<Transaction> {
+  try {
+    let recipient: ShieldedAddress;
+    if (input.recipient instanceof ShieldedAddress) {
+      recipient = input.recipient;
+    } else {
+      const registered = await resolveRegisteredAddress(
+        { rpc: input.client, owner: input.recipient },
+        context,
+      );
+      if (registered === undefined) {
+        throw new RingError("RING_BUILD_DEPOSIT", {
+          details: { reason: "recipient not registered", recipient: input.recipient },
+        });
+      }
+      recipient = registered.address;
+    }
+    const depositor = input.depositor ?? input.feePayer;
+    const tree = input.tree ?? input.client.tree;
+    const asset = input.asset ?? SOL_MINT;
+    let settlement: DepositAsset = DepositAsset.sol();
+    if (asset !== SOL_MINT) {
+      const tokenProgram = input.splTokenProgram ?? SPL_TOKEN_PROGRAM_ID;
+      settlement = DepositAsset.spl({
+        mint: asset,
+        sourceTokenAccount:
+          input.splTokenAccount ?? (await associatedTokenAddress(depositor, asset, tokenProgram)),
+        tokenProgram,
+      });
+    }
+    const blinding = randomBlinding();
+    const envelope = ViewingKey.generate();
+    const salt = randomSalt();
+    const ciphertext = envelope.encryptRingDeposit(
+      recipient.viewingPublicKey,
+      encodeRingDepositPlaintext({
+        blinding,
+        ...(input.memo === undefined ? {} : { memo: input.memo }),
+        ringData: new Uint8Array(),
+      }),
+      salt,
+    );
+    const instruction = await ringDepositInstruction({
+      ringProgramId: input.ringProgramId,
+      tree,
+      depositor,
+      deposits: [
+        {
+          asset: settlement,
+          viewTag: recipient.viewingPublicKey.x(),
+          ownerUtxoHash: ownerUtxoHash(recipient.ownerHash(), blinding),
+          amount: input.amount,
+          ringDataHash: ZERO_32,
+          encrypted: {
+            txViewingPublicKey: envelope.publicKey().toBytes(),
+            salt,
+            ciphertext,
+          },
+        },
+      ],
+    });
+    envelope.destroy();
+    const lifetime = await input.client.getLatestBlockhash(context);
+    return checkedTransactionSize(
+      buildUnsignedTransaction({ feePayer: input.feePayer, lifetime, instructions: [instruction] }),
+    );
+  } catch (cause) {
+    throw wrapRingError("RING_BUILD_DEPOSIT", cause);
+  }
+}

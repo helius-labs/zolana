@@ -67,6 +67,32 @@ export interface AssetDeposit extends Omit<DepositEntry, "assetIndex"> {
   readonly asset: DepositAsset;
 }
 
+export interface EncryptedRingDepositData {
+  readonly txViewingPublicKey: Bytes33;
+  readonly salt: Bytes16;
+  readonly ciphertext: Uint8Array;
+}
+
+/** The ring is not in the data. The shielded pool reads it from the signing `ring_auth` account. */
+export interface RingDepositEntry {
+  readonly assetIndex: number;
+  readonly viewTag: Bytes32;
+  readonly ownerUtxoHash: Bytes32;
+  readonly amount: bigint;
+  readonly dataHash?: Bytes32;
+  readonly ringDataHash: Bytes32;
+  readonly encrypted: EncryptedRingDepositData;
+}
+
+export interface RingDepositInstructionData {
+  readonly assets: readonly DepositAssetKind[];
+  readonly deposits: readonly RingDepositEntry[];
+}
+
+export interface RingAssetDeposit extends Omit<RingDepositEntry, "assetIndex"> {
+  readonly asset: DepositAsset;
+}
+
 export interface InputUtxo {
   readonly nullifierHash: Bytes32;
   readonly nullifierTreeRootIndex: number;

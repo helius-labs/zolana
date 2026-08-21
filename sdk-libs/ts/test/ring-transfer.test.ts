@@ -1,0 +1,308 @@
+import { p256 } from "@noble/curves/nist.js";
+import { address, getAddressDecoder, getAddressEncoder } from "@solana/kit";
+import { describe, expect, it } from "vitest";
+
+import { InstructionTag } from "../src/interface/program.js";
+import type { Bytes32, Signature } from "../src/interface/types.js";
+import {
+  AUDIT_ENC_INFO,
+  auditSharedSecret,
+  auditorViewTag,
+  parseAuditorMessage,
+} from "../src/keypair/audit.js";
+import { bigIntToBytes, bytesToBigInt } from "../src/keypair/bytes.js";
+import { symmetricApply } from "../src/keypair/merge/index.js";
+import { ShieldedKeypair } from "../src/keypair/shielded.js";
+import { SigningKey } from "../src/keypair/signing-key.js";
+import { ViewingKey } from "../src/keypair/viewing-key.js";
+import {
+  auditRingTransaction,
+  auditorMessage,
+  recoverTransactionViewingKey,
+} from "../src/ring/audit.js";
+import { assemble } from "../src/client/prover/assembly.js";
+import type { SpendProof } from "../src/client/rpc.js";
+import { hashBytesBigInt } from "../src/client/internal.js";
+import { frameDummyOutputs } from "../src/ring/transfer.js";
+import {
+  ConfidentialTransfer,
+  type IndexedShieldedTransaction,
+  type PreparedTransfer,
+  type SppProofInputs,
+} from "../src/transaction/instructions/transact.js";
+import { EncryptedScheme, readOutputData } from "../src/transaction/serialization/codecs.js";
+import { ProofInputUtxo, Utxo } from "../src/transaction/utxo.js";
+import { AssetRegistry, SOL_MINT } from "../src/transaction/wallet/asset.js";
+import { LocalWalletAuthority } from "../src/transaction/wallet/authority.js";
+
+const RING = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
+
+function scalar(value: number): Bytes32 {
+  const bytes = new Uint8Array(32);
+  bytes[31] = value;
+  return bytes as Bytes32;
+}
+
+function actor(seed: number) {
+  const keypair = ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(scalar(seed)));
+  const solanaPublicKey = getAddressDecoder().decode(
+    keypair.signingPublicKey().toBytes().subarray(1),
+  );
+  return {
+    keypair,
+    authority: new LocalWalletAuthority({ solanaPublicKey, keypair }),
+    address: keypair.shieldedAddress(),
+  };
+}
+
+/** A 10 SOL ring note of `sender` sending `amount` to `recipient` and `others` to more actors. */
+function preparedTransfer(
+  amount: bigint,
+  others: readonly bigint[] = [],
+): Readonly<{
+  prepared: PreparedTransfer;
+  sender: ReturnType<typeof actor>;
+  recipient: ReturnType<typeof actor>;
+}> {
+  const sender = actor(3);
+  const recipient = actor(4);
+  const input = new ProofInputUtxo({
+    utxo: new Utxo({
+      owner: sender.keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 10n,
+      blinding: scalar(6),
+      zoneProgramId: RING,
+    }),
+    nullifierKey: sender.keypair.nullifierKey(),
+  });
+  const transfer = new ConfidentialTransfer(
+    sender.address,
+    [input],
+    sender.address.solanaAddress(),
+  );
+  transfer.send(recipient.address, SOL_MINT, amount);
+  others.forEach((other, index) => transfer.send(actor(5 + index).address, SOL_MINT, other));
+  return { prepared: transfer.prepare(), sender, recipient };
+}
+
+async function auditedProofInputs(
+  amount: bigint,
+  auditor: ViewingKey,
+  others: readonly bigint[] = [],
+): Promise<Readonly<{ proofInputs: SppProofInputs; recipient: ReturnType<typeof actor> }>> {
+  const { prepared, sender, recipient } = preparedTransfer(amount, others);
+  const ring = prepared.compactOutputs().withZoneProgramId(RING);
+  const encrypted = await sender.authority.encryptAuditedTransfer({
+    firstNullifier: ring.firstNullifier,
+    outputs: ring.outputs,
+    assets: new AssetRegistry(),
+    auditorPublicKey: auditor.publicKey(),
+  });
+  const proofInputs = frameDummyOutputs(
+    ring.finalize({
+      txViewingPublicKey: encrypted.txViewingPublicKey,
+      salt: encrypted.salt,
+      payload: encrypted.payload,
+      messages: [encrypted.auditorMessage],
+      instructionDiscriminator: InstructionTag.ringTransact,
+    }),
+  );
+  return { proofInputs, recipient };
+}
+
+function indexed(proofInputs: SppProofInputs): IndexedShieldedTransaction {
+  const external = proofInputs.externalData;
+  return {
+    slot: 5n,
+    txSignature: "1".repeat(87) as Signature,
+    txViewingPublicKey: external.txViewingPublicKey,
+    salt: external.salt,
+    outputSlots: external.outputs.map((output, index) => ({
+      viewTag: external.resolvedOwnerTags[index] ?? scalar(0),
+      outputContext: { hash: output.utxoHash, tree: RING, leafIndex: BigInt(index) },
+      payload: output.data ?? new Uint8Array(),
+    })),
+    messages: external.messages,
+    nullifiers: proofInputs.inputUtxos.map((input) => input.nullifier()),
+    proofless: false,
+  };
+}
+
+describe("compactOutputs", () => {
+  it("removes unused change slots like Rust `compact_outputs_remove_unused_change_slots`", () => {
+    const prepared = preparedTransfer(4n).prepared;
+    expect(prepared.senderOutputCount).toBe(2);
+    expect(prepared.outputs).toHaveLength(3);
+    const compact = prepared.compactOutputs();
+    expect(compact.shape).toEqual({ inputs: 1, outputs: 2 });
+    expect(compact.outputs.map((output) => output.amount)).toEqual([6n, 4n]);
+    expect(compact.senderOutputCount).toBe(1);
+    const again = compact.compactOutputs();
+    expect(again.outputs.map((output) => output.amount)).toEqual([6n, 4n]);
+    expect(again.senderOutputCount).toBe(1);
+  });
+
+  it("keeps only the recipient after a full spend like Rust `compact_outputs_keep_only_recipient_after_full_spend`", () => {
+    const compact = preparedTransfer(10n).prepared.compactOutputs();
+    expect(compact.shape).toEqual({ inputs: 1, outputs: 1 });
+    expect(compact.outputs.map((output) => output.amount)).toEqual([10n]);
+    expect(compact.senderOutputCount).toBe(0);
+  });
+
+  it("binds every output to the ring", () => {
+    const ring = preparedTransfer(4n).prepared.compactOutputs().withZoneProgramId(RING);
+    expect(ring.outputs.every((output) => output.zoneProgramId === RING)).toBe(true);
+  });
+});
+
+describe("frameDummyOutputs", () => {
+  it("frames dummy slots as confidential bodies of the real length like Rust `frame_dummy_outputs`", async () => {
+    // Five real outputs pad to the (1, 8) shape.
+    const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate(), [1n, 1n, 1n]);
+    expect(proofInputs.outputs).toHaveLength(8);
+    const external = proofInputs.externalData;
+    const lengths = external.outputs.map((output) => output.data?.length);
+    expect(new Set(lengths).size).toBe(1);
+    const dummies = proofInputs.outputs.flatMap((output, index) =>
+      output.isDummy() ? [index] : [],
+    );
+    expect(dummies.length).toBeGreaterThanOrEqual(1);
+    const keys = dummies.map((index) => {
+      const frame = readOutputData(external.outputs[index]?.data ?? new Uint8Array());
+      expect(frame.encoding).toBe("encrypted");
+      expect(frame.scheme).toBe(EncryptedScheme.confidential);
+      expect([2, 3]).toContain(frame.body[0]);
+      return Buffer.from(frame.body.subarray(0, 33)).toString("hex");
+    });
+    expect(new Set(keys).size).toBe(keys.length);
+    for (const [index, output] of proofInputs.outputs.entries()) {
+      if (output.isDummy()) continue;
+      const frame = readOutputData(external.outputs[index]?.data ?? new Uint8Array());
+      expect(frame.scheme).toBe(EncryptedScheme.ringConfidential);
+    }
+    expect(external.instructionDiscriminator).toBe(InstructionTag.ringTransact);
+    expect(external.messages).toHaveLength(1);
+  });
+});
+
+describe("ring witness", () => {
+  it("publishes owner hashes only for `Confidential` slots like Rust `confidential_marked_output_owner_pk_hashes`", async () => {
+    const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate(), [1n, 1n, 1n]);
+    const input = proofInputs.inputUtxos[0];
+    if (!input) throw new Error("input");
+    const spendProof: SpendProof = {
+      state: {
+        leaf: input.hash(),
+        merkleContext: { treeType: 0, tree: RING },
+        path: Array.from({ length: 32 }, () => scalar(0)),
+        leafIndex: 0n,
+        root: scalar(3),
+        rootSeq: 1n,
+        rootIndex: 4,
+      },
+      nullifier: {
+        leaf: input.nullifier(),
+        merkleContext: { treeType: 1, tree: RING },
+        path: Array.from({ length: 40 }, () => scalar(0)),
+        lowElement: scalar(4),
+        lowElementIndex: 0n,
+        highElement: scalar(5),
+        highElementIndex: 1n,
+        root: scalar(6),
+        rootSeq: 1n,
+        rootIndex: 7,
+      },
+    };
+    const assembled = assemble(proofInputs, [spendProof], [], RING);
+    const published = assembled.proverInputs.payload.publishedOutputOwnerPublicKeyHashes;
+    const tags = proofInputs.externalData.resolvedOwnerTags;
+    expect(published).toHaveLength(8);
+    proofInputs.outputs.forEach((output, index) => {
+      const tag = tags[index];
+      if (!tag) throw new Error("owner tag");
+      expect(published[index]).toBe(output.isDummy() ? hashBytesBigInt(tag) : 0n);
+    });
+    expect(assembled.proverInputs.circuit).toBe("transferRing");
+    expect(assembled.proverInputs.payload.zoneProgramId).toBe(
+      hashBytesBigInt(new Uint8Array(getAddressEncoder().encode(RING))),
+    );
+    expect(assembled.instructionData.circuit.kind).toBe("zoneEddsa");
+  });
+});
+
+describe("ring audit", () => {
+  it("opens every real slot with the recovered transaction key like Rust `TransactionAudit`", async () => {
+    const auditor = ViewingKey.generate();
+    const { proofInputs, recipient } = await auditedProofInputs(4n, auditor, [1n, 1n, 1n]);
+    const transaction = indexed(proofInputs);
+    const audited = auditRingTransaction({ auditor, transaction, assets: new AssetRegistry() });
+    expect(audited.signature).toBe(transaction.txSignature);
+    expect(audited.txViewingPublicKey.toBytes()).toEqual(
+      proofInputs.externalData.txViewingPublicKey.toBytes(),
+    );
+    expect(audited.outputs.map((output) => [output.slotIndex, output.amount])).toEqual([
+      [0, 3n],
+      [1, 4n],
+      [2, 1n],
+      [3, 1n],
+      [4, 1n],
+    ]);
+    expect(audited.outputs[1]?.recipientViewingPublicKey.toBytes()).toEqual(
+      recipient.address.viewingPublicKey.toBytes(),
+    );
+    expect(audited.outputs.every((output) => output.ringProgramId === RING)).toBe(true);
+    expect(audited.undecryptableSlots).toEqual([5, 6, 7]);
+  });
+
+  it("accepts the auditor message only as the unique last entry", async () => {
+    const auditor = ViewingKey.generate();
+    const { proofInputs } = await auditedProofInputs(4n, auditor);
+    const transaction = indexed(proofInputs);
+    const message = transaction.messages[0];
+    if (!message) throw new Error("auditor message");
+    const other = { viewTag: scalar(1), data: Uint8Array.of(9) };
+    expect(() => auditorMessage({ ...transaction, messages: [] }, auditor.publicKey())).toThrow(
+      "RING_AUDIT_MESSAGE",
+    );
+    expect(() =>
+      auditorMessage({ ...transaction, messages: [message, message] }, auditor.publicKey()),
+    ).toThrow("RING_AUDIT_MESSAGE");
+    expect(() =>
+      auditorMessage({ ...transaction, messages: [message, other] }, auditor.publicKey()),
+    ).toThrow("RING_AUDIT_MESSAGE");
+    expect(
+      auditorMessage(
+        { ...transaction, messages: [other, message] },
+        auditor.publicKey(),
+      ).ephemeralPublicKey.toBytes(),
+    ).toEqual(parseAuditorMessage(message.data).ephemeralPublicKey.toBytes());
+    expect(() =>
+      auditRingTransaction({
+        auditor,
+        transaction: { ...transaction, txViewingPublicKey: auditor.publicKey() },
+        assets: new AssetRegistry(),
+      }),
+    ).toThrow("RING_AUDIT_KEY_MISMATCH");
+    expect(auditorViewTag(auditor.publicKey())).toEqual(message.viewTag);
+  });
+
+  it("reduces a noncanonical scalar like Rust `recovery_reduces_a_noncanonical_scalar`", () => {
+    const auditor = ViewingKey.generate();
+    const secret = bigIntToBytes(0x0123_4567_89ab_cdefn) as Bytes32;
+    const viewingKey = ViewingKey.fromBytes(secret);
+    const shifted = bigIntToBytes(bytesToBigInt(secret) + p256.Point.Fn.ORDER) as Bytes32;
+    const ephemeral = ViewingKey.generate();
+    const shared = auditSharedSecret(
+      ephemeral.ecdh(auditor.publicKey()),
+      ephemeral.publicKey(),
+      auditor.publicKey(),
+    );
+    const ciphertext = symmetricApply(shared, AUDIT_ENC_INFO, shifted) as Bytes32;
+    const recovered = recoverTransactionViewingKey(auditor, {
+      ephemeralPublicKey: ephemeral.publicKey(),
+      ciphertext,
+    });
+    expect(recovered.publicKey().toBytes()).toEqual(viewingKey.publicKey().toBytes());
+  });
+});

@@ -26,6 +26,7 @@ import {
   splitBundleUtxos,
   type ProoflessOutput,
 } from "../serialization/codecs.js";
+import { decodeRingDepositOutput, decryptRingDepositUtxo } from "../serialization/ring-deposit.js";
 import { Utxo } from "../utxo.js";
 import type { SyncWalletAuthority, WalletSyncMaterial } from "./authority.js";
 import { SOL_MINT, type AssetRegistry } from "./asset.js";
@@ -651,6 +652,30 @@ class SyncPass {
         // `recordConfidentialSend`, so it must not also be logged here as an
         // inbound receipt.
         if (!this.#authored(tx, key)) this.#recordReceived(tx, site.slot, undefined, utxo);
+      }
+      return;
+    }
+
+    if (frame.encoding === "encrypted" && frame.scheme === EncryptedScheme.ringDeposit) {
+      let utxo: Utxo;
+      let dataHash: Bytes32 | undefined;
+      let zoneDataHash: Bytes32 | undefined;
+      try {
+        const output = decodeRingDepositOutput(body);
+        utxo = decryptRingDepositUtxo(output, key, this.#owner);
+        dataHash = output.dataHash;
+        // A zero ring data hash is absent in the commitment.
+        zoneDataHash = output.ringDataHash.some((byte) => byte !== 0)
+          ? output.ringDataHash
+          : undefined;
+      } catch (error) {
+        this.#noteUndecryptable(error, siteKey);
+        return;
+      }
+      this.#resolveAssetCandidate(siteKey);
+      if (this.#storeRecipientUtxos([utxo], outputContext, dataHash, zoneDataHash)) {
+        this.#processedSlots.add(siteKey);
+        this.#recordDeposit(tx, outputContext, utxo);
       }
       return;
     }

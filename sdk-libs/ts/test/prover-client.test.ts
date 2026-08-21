@@ -1,3 +1,4 @@
+import { p256 } from "@noble/curves/nist.js";
 import { address } from "@solana/kit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -35,6 +36,10 @@ const STANDARD_PROOF = {
   bs: [ZERO_POINT, ZERO_POINT],
   krs: ZERO_POINT,
 };
+
+/** Printed by the Rust test `auditor_key_encryption_json_matches_the_server_wire_format`. */
+const AUDIT_REQUEST_VECTOR =
+  '{"circuitType":"custom-ring-audit","variant":"transfer","publicInputHash":"0x0000000000000000000000000000000000000000000000000000000000000000","privateTxHash":"0x0101010101010101010101010101010101010101010101010101010101010101","txViewingSk":"0x0202020202020202020202020202020202020202020202020202020202020202","ephSk":"0x0303030303030303030303030303030303030303030303030303030303030303","auditorPk":"0x0473103ec30b3ccf57daae08e93534aef144a35940cf6bbba12a0cf7cbd5d65a64d82c8c99e9d3c45f9245ba9b27982c9aea8ec1db94b19c44795942c0eb22aa32"}';
 
 function bytes(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
@@ -132,6 +137,71 @@ describe("prover request routing", () => {
     expect(redirects).toEqual(["error"]);
     expect(urls[0]?.pathname).toBe("/zolana/prove");
     expect(urls[0]?.searchParams.get("api-key")).toBe("k+1");
+    expect(urls[0]?.searchParams.get("tenant")).toBe("alpha");
+  });
+
+  it("encodes the auditor key encryption request byte for byte like Rust `to_json_auditor_key_encryption`", async () => {
+    const raw: string[] = [];
+    const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
+      raw.push(String(init?.body));
+      return new Response(JSON.stringify(STANDARD_PROOF), {
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof globalThis.fetch;
+    const prover = new ProverClient({ url: "https://prover.example", fetch });
+    // The Rust test's inputs, the auditor key is the P-256 point of the scalar [4; 32].
+    const auditorPublicKey = p256.getPublicKey(bytes(4), false);
+
+    await prover.proveAuditorKeyEncryption({
+      publicInputHash: bytes(0),
+      privateTxHash: bytes(1),
+      txViewingSecret: bytes(2),
+      ephemeralSecret: bytes(3),
+      auditorPublicKey,
+    });
+
+    expect(raw[0]).toBe(AUDIT_REQUEST_VECTOR);
+    const body = JSON.parse(raw[0] ?? "") as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual([
+      "auditorPk",
+      "circuitType",
+      "ephSk",
+      "privateTxHash",
+      "publicInputHash",
+      "txViewingSk",
+      "variant",
+    ]);
+    expect(body["circuitType"]).toBe("custom-ring-audit");
+    expect(body["variant"]).toBe("transfer");
+    expect(body["auditorPk"]).toHaveLength(132);
+
+    for (const auditorPublicKey of [new Uint8Array(33).fill(2), new Uint8Array(65).fill(2)]) {
+      await expect(
+        prover.proveAuditorKeyEncryption({
+          publicInputHash: bytes(0),
+          privateTxHash: bytes(1),
+          txViewingSecret: bytes(2),
+          ephemeralSecret: bytes(3),
+          auditorPublicKey,
+        }),
+      ).rejects.toMatchObject({ code: "CLIENT_INVALID_P256_KEY" });
+    }
+    expect(raw).toHaveLength(1);
+  });
+
+  it("reads the served circuits from the health endpoint", async () => {
+    const urls: URL[] = [];
+    const fetch = vi.fn(async (input: URL | string) => {
+      urls.push(new URL(input));
+      return new Response(
+        JSON.stringify({ circuits: ["transfer-ring", "custom-ring-audit"], status: "ok" }),
+        { headers: { "content-type": "application/json" } },
+      );
+    }) as typeof globalThis.fetch;
+    const prover = new ProverClient({ url: "https://prover.example/base?tenant=alpha", fetch });
+    const health = await prover.health();
+    expect(health).toEqual({ status: "ok", circuits: ["transfer-ring", "custom-ring-audit"] });
+    expect(urls[0]?.pathname).toBe("/base/health");
     expect(urls[0]?.searchParams.get("tenant")).toBe("alpha");
   });
 

@@ -1,7 +1,11 @@
 import { address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
-import { encodeRingsByTagsRequest } from "../src/indexer/codec.js";
+import {
+  decodeEncryptedUtxosResponse,
+  decodeShieldedTransactionsResponse,
+  encodeRingsByTagsRequest,
+} from "../src/indexer/codec.js";
 import { hash } from "../src/indexer/scalars.js";
 
 // base58 of 32 zero bytes.
@@ -30,5 +34,30 @@ describe("rings-by-tags request encoding", () => {
         ringProgramId: "not-an-address" as ReturnType<typeof address>,
       }),
     ).toThrow();
+  });
+});
+
+describe("shielded transactions by tags response", () => {
+  const page = { context: { blockTime: 1, slot: 2 }, transactions: [], nextCursor: null };
+
+  it("accepts the scan position newer indexers report, and pages without it", () => {
+    expect(decodeShieldedTransactionsResponse(page)).toEqual({
+      context: { blockTime: 1n, slot: 2n },
+      transactions: [],
+    });
+    expect(decodeShieldedTransactionsResponse({ ...page, scannedThrough: "AQID" })).toEqual({
+      context: { blockTime: 1n, slot: 2n },
+      transactions: [],
+      scannedThrough: "AQID",
+    });
+    expect(() => decodeShieldedTransactionsResponse({ ...page, extra: 1 })).toThrow();
+    expect(
+      decodeEncryptedUtxosResponse({
+        context: page.context,
+        matches: [],
+        nextCursor: null,
+        scannedThrough: "AQID",
+      }),
+    ).toEqual({ context: { blockTime: 1n, slot: 2n }, matches: [], scannedThrough: "AQID" });
   });
 });

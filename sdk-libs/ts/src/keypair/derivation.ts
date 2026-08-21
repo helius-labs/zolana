@@ -67,6 +67,8 @@ export const HPKE_PREFIX = "TSPP/hpke/";
 
 export const ENC_INFO_TRANSFER = "TSPP/tx";
 
+export const ENC_INFO_RING_DEPOSIT = "TSPP/ring_deposit";
+
 export const MERGE_INFO = encoder.encode("TSPP/merge");
 
 export const DOM_SEP_SILO = 0x544d_5349;
@@ -99,6 +101,18 @@ export function ed25519DerivationMessage(signerPublicKey: Bytes32): Uint8Array {
   message[84] = payload.length >> 8;
   message.set(payload, 85);
   return message;
+}
+
+/**
+ * The bare payload, what a browser wallet signs. Phantom refuses the off-chain
+ * envelope because its first byte, `0xff`, reads as a transaction header to
+ * it, so wallets sign `"TSPP/derive/v1"` as text. The guard treats both as
+ * derivation inputs. The seed, and so the keys, differ from the envelope's:
+ * a wallet key gives one shielded address through a browser wallet and
+ * another through a software signer.
+ */
+export function ed25519DerivationPayload(): Uint8Array {
+  return encoder.encode(ED25519_DERIVATION_MSG);
 }
 
 function startsWith(message: Uint8Array, prefix: Uint8Array): boolean {

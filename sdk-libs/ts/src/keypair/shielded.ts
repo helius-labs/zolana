@@ -174,6 +174,11 @@ export interface ViewingKeyLike {
     salt: Salt,
     slotIndex: number,
   ): Uint8Array;
+  decryptRingDeposit(
+    ciphertext: Uint8Array,
+    txViewingPublicKey: P256PublicKey,
+    salt: Salt,
+  ): Uint8Array;
 }
 
 export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
@@ -367,6 +372,14 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
     slotIndex: number,
   ): Uint8Array {
     return this.#viewing.decryptSlotEphemeral(recipientPublicKey, ciphertext, salt, slotIndex);
+  }
+
+  decryptRingDeposit(
+    ciphertext: Uint8Array,
+    txViewingPublicKey: P256PublicKey,
+    salt: Salt,
+  ): Uint8Array {
+    return this.#viewing.decryptRingDeposit(ciphertext, txViewingPublicKey, salt);
   }
 
   sign(message: Uint8Array): Bytes64 {

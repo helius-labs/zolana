@@ -4,6 +4,8 @@ export {
   type ApprovalRequest,
   type EncryptedEnvelope,
   type EncryptedSplit,
+  type AuditWitness,
+  type EncryptedAuditedTransfer,
   type EncryptedTransfer,
   type SplitBundlePlaintext,
   type SyncWalletAuthority,

@@ -1,0 +1,161 @@
+import { COMPUTE_BUDGET_PROGRAM_ADDRESS } from "@solana-program/compute-budget";
+import { AccountRole, type Address, type Instruction } from "@solana/kit";
+
+import {
+  SYSTEM_PROGRAM,
+  meta,
+  ringTransactAccounts,
+  type SignerAccount,
+} from "../interface/instructions/index.js";
+import { encodeTransactInstructionData } from "../interface/codecs/index.js";
+import { SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
+import { protocolConfigAddress, ringAuthAddress } from "../interface/pda/index.js";
+import type { TransactInstructionData } from "../interface/types.js";
+import { isDerivationPoint } from "../keypair/derivation.js";
+import type { P256PublicKey } from "../keypair/public-key.js";
+
+import { checkedAuditProof } from "./codecs.js";
+import { ringConfigAddress, ringProgramDataAddress } from "./config.js";
+import { RingError } from "./error.js";
+
+/** Rust `tag::CREATE_CONFIG`, `tag::INIT_SPP_RING_CONFIG` and `tag::TRANSACT`. */
+const RING_PROGRAM_CREATE_CONFIG_TAG = 1;
+const RING_PROGRAM_INIT_SPP_RING_CONFIG_TAG = 2;
+const RING_PROGRAM_TRANSACT_TAG = 3;
+
+/** Rust `CREATE_CONFIG_COMPUTE_UNIT_LIMIT`, `INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT` and `READER_COMPUTE_UNIT_LIMIT`. */
+export const RING_CREATE_CONFIG_COMPUTE_UNIT_LIMIT = 50_000;
+export const RING_INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT = 50_000;
+export const RING_READER_COMPUTE_UNIT_LIMIT = 50_000;
+
+/** Mirrors Rust `CreateConfig`. The authority signs, so the recorded authority consented to the role. */
+export async function createRingConfigInstruction(
+  input: Readonly<{
+    ringProgramId: Address;
+    payer: SignerAccount;
+    authority: SignerAccount;
+    auditorPublicKey: P256PublicKey;
+  }>,
+): Promise<Instruction> {
+  if (isDerivationPoint(input.auditorPublicKey)) {
+    throw new RingError("RING_RESERVED_AUDITOR_KEY");
+  }
+  const [config, programData] = await Promise.all([
+    ringConfigAddress(input.ringProgramId),
+    ringProgramDataAddress(input.ringProgramId),
+  ]);
+  const data = new Uint8Array(1 + 33);
+  data[0] = RING_PROGRAM_CREATE_CONFIG_TAG;
+  data.set(input.auditorPublicKey.toBytes(), 1);
+  return {
+    programAddress: input.ringProgramId,
+    accounts: [
+      meta(input.payer, true, true),
+      meta(input.authority, true, false),
+      meta(config, false, true),
+      meta(SYSTEM_PROGRAM, false, false),
+      meta(input.ringProgramId, false, false),
+      meta(programData, false, false),
+    ],
+    data,
+  };
+}
+
+/** Mirrors Rust `InitSppRingConfig`. `ringAuth` stays unsigned, the ring program signs it inside its CPI. */
+export async function initSppRingConfigInstruction(
+  input: Readonly<{
+    ringProgramId: Address;
+    payer: SignerAccount;
+    authority: SignerAccount;
+  }>,
+): Promise<Instruction> {
+  const [config, protocolConfig, ringAuth] = await Promise.all([
+    ringConfigAddress(input.ringProgramId),
+    protocolConfigAddress(),
+    ringAuthAddress(input.ringProgramId),
+  ]);
+  return {
+    programAddress: input.ringProgramId,
+    accounts: [
+      meta(input.payer, true, true),
+      meta(input.authority, true, false),
+      meta(config, false, false),
+      meta(protocolConfig, false, false),
+      meta(ringAuth, false, true),
+      meta(SYSTEM_PROGRAM, false, false),
+      meta(SHIELDED_POOL_PROGRAM_ID, false, false),
+    ],
+    data: Uint8Array.of(RING_PROGRAM_INIT_SPP_RING_CONFIG_TAG),
+  };
+}
+
+/** Mirrors Rust `RingTransactWithAudit`. Data layout is `tag || audit proof || transact data`. */
+export async function ringTransactInstruction(
+  input: Readonly<{
+    ringProgramId: Address;
+    payer: SignerAccount;
+    inputTree: Address;
+    outputTree: Address;
+    auditProof: Uint8Array;
+    data: TransactInstructionData;
+  }>,
+): Promise<Instruction> {
+  const [config, ringAuth] = await Promise.all([
+    ringConfigAddress(input.ringProgramId),
+    ringAuthAddress(input.ringProgramId),
+  ]);
+  const payerAddress = typeof input.payer === "string" ? input.payer : input.payer.address;
+  const pool = ringTransactAccounts({
+    payer: input.payer,
+    inputTree: input.inputTree,
+    outputTree: input.outputTree,
+    ringAuth,
+  });
+  const proof = checkedAuditProof(input.auditProof);
+  const transact = encodeTransactInstructionData(input.data);
+  const data = new Uint8Array(1 + proof.length + transact.length);
+  data[0] = RING_PROGRAM_TRANSACT_TAG;
+  data.set(proof, 1);
+  data.set(transact, 1 + proof.length);
+  return {
+    programAddress: input.ringProgramId,
+    accounts: [
+      {
+        address: payerAddress,
+        role: AccountRole.WRITABLE_SIGNER,
+        ...(typeof input.payer === "string" ? {} : { signer: input.payer }),
+      },
+      { address: config, role: AccountRole.READONLY },
+      ...pool,
+    ],
+    data,
+  };
+}
+
+/** Mirrors Rust `lookup_table_addresses`. */
+export async function ringLookupTableAddresses(
+  input: Readonly<{ ringProgramId: Address; tree: Address }>,
+): Promise<readonly Address[]> {
+  const [config, ringAuth] = await Promise.all([
+    ringConfigAddress(input.ringProgramId),
+    ringAuthAddress(input.ringProgramId),
+  ]);
+  const pool = ringTransactAccounts({
+    payer: SHIELDED_POOL_PROGRAM_ID,
+    inputTree: input.tree,
+    outputTree: input.tree,
+    ringAuth,
+  });
+  const addresses = [
+    config,
+    ...pool
+      .filter(
+        (meta) =>
+          meta.role !== AccountRole.WRITABLE_SIGNER && meta.role !== AccountRole.READONLY_SIGNER,
+      )
+      .map((meta) => meta.address),
+    input.ringProgramId,
+    COMPUTE_BUDGET_PROGRAM_ADDRESS,
+  ];
+  return Object.freeze([...new Set(addresses)]);
+}

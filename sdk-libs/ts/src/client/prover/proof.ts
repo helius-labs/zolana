@@ -8,11 +8,28 @@ import type { CompressedProof, Proof } from "./types.js";
 const BN254_BASE_MODULUS =
   21_888_242_871_839_275_222_246_405_745_257_275_088_696_311_157_297_823_662_689_037_894_645_226_208_583n;
 
+export const AUDIT_PROOF_LENGTH = 192;
+
 export function compressProof(proof: Proof): CompressedProof {
   const a = compressG1(checkedBytes(proof.a, 64, "proof.a"), "proof.a");
   const b = compressG2(checkedBytes(proof.b, 128, "proof.b"));
   const c = compressG1(checkedBytes(proof.c, 64, "proof.c"), "proof.c");
-  return compressedProof({ a, b, c });
+  if (proof.commitment === undefined || proof.commitmentPok === undefined) {
+    return compressedProof({ a, b, c });
+  }
+  return compressedProof({
+    a,
+    b,
+    c,
+    commitment: compressG1(
+      checkedBytes(proof.commitment, 64, "proof.commitment"),
+      "proof.commitment",
+    ),
+    commitmentPok: compressG1(
+      checkedBytes(proof.commitmentPok, 64, "proof.commitmentPok"),
+      "proof.commitmentPok",
+    ),
+  });
 }
 
 export function compressedProof(
@@ -20,21 +37,47 @@ export function compressedProof(
     a: Uint8Array;
     b: Uint8Array;
     c: Uint8Array;
+    commitment?: Uint8Array;
+    commitmentPok?: Uint8Array;
   }>,
 ): CompressedProof {
   const a = checkedBytes(input.a, 32, "proof.a");
   const b = checkedBytes(input.b, 64, "proof.b");
   const c = checkedBytes(input.c, 32, "proof.c");
+  const commitment =
+    input.commitment === undefined
+      ? undefined
+      : checkedBytes(input.commitment, 32, "proof.commitment");
+  const commitmentPok =
+    input.commitmentPok === undefined
+      ? undefined
+      : checkedBytes(input.commitmentPok, 32, "proof.commitmentPok");
   return Object.freeze({
     a,
     b,
     c,
+    ...(commitment === undefined ? {} : { commitment }),
+    ...(commitmentPok === undefined ? {} : { commitmentPok }),
     toTransactProof(): TransactProof {
       return Object.freeze({
         a: new Uint8Array(a) as Bytes32,
         b: new Uint8Array(b) as Bytes64,
         c: new Uint8Array(c) as Bytes32,
       });
+    },
+    toAuditProof(): Uint8Array {
+      if (commitment === undefined || commitmentPok === undefined) {
+        throw new ClientError("CLIENT_PROOF_PARSE", {
+          details: { path: "$.proof.proofCommitment", reason: "missing commitment" },
+        });
+      }
+      const bytes = new Uint8Array(AUDIT_PROOF_LENGTH);
+      bytes.set(a, 0);
+      bytes.set(b, 32);
+      bytes.set(c, 96);
+      bytes.set(commitment, 128);
+      bytes.set(commitmentPok, 160);
+      return bytes;
     },
   });
 }
@@ -60,16 +103,15 @@ export function parseProof(value: unknown): Proof {
   a.set(bigintToBytes(y === 0n ? 0n : BN254_BASE_MODULUS - y), 32);
   const b = parseG2(proof["bs"], "$.proof.bs");
   const c = parseG1(proof["krs"], "$.proof.krs");
-  const hasCommitment = present(proof["proofCommitment"]) || present(proof["proofCommitmentPok"]);
-  if (hasCommitment) {
-    throw new ClientError("CLIENT_PROOF_PARSE", {
-      details: { path: "$.proof.proofCommitment", reason: "unsupported commitment proof" },
-    });
+  if (!present(proof["proofCommitment"]) && !present(proof["proofCommitmentPok"])) {
+    return Object.freeze({ a: a as Bytes64, b, c });
   }
   return Object.freeze({
     a: a as Bytes64,
     b,
     c,
+    commitment: parseG1(proof["proofCommitment"], "$.proof.proofCommitment"),
+    commitmentPok: parseG1(proof["proofCommitmentPok"], "$.proof.proofCommitmentPok"),
   });
 }
 
@@ -170,10 +212,7 @@ function parseCoordinate(value: unknown, path: string): bigint {
   return result;
 }
 
-/// Rust reads the two commitment fields as `#[serde(default)] Vec<String>` and
-/// decides the rail on `is_empty()`, so an explicit `[]` means "no commitment"
-/// there. Treat it the same rather than reading a present-but-empty array as a
-/// commitment and failing the rail check.
+/// Rust reads both commitment fields as `#[serde(default)] Vec<String>`, an explicit `[]` is absent.
 function present(value: unknown): boolean {
   return value !== undefined && !(Array.isArray(value) && value.length === 0);
 }

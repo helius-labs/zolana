@@ -578,11 +578,20 @@ export interface PreparedTransfer {
   readonly shape: Shape;
   readonly payer: Address;
   readonly interfaceTransfers: readonly SettlementTransfer[];
+  /** Leading outputs the sender owns, Rust `PreparedOutputLayout::sender_output_count`. */
+  readonly senderOutputCount: number;
+  /** Mirrors Rust `compact_outputs`, drops the change slots a transfer leaves empty. */
+  compactOutputs(): PreparedTransfer;
+  /** Every output joins the ring, without it a note leaves as a default-ring note. */
+  withZoneProgramId(zoneProgramId: Address): PreparedTransfer;
+  /** Ring transacts bind the auditor message and the `RING_TRANSACT` tag into the external data hash. */
   finalize(
     input: Readonly<{
       txViewingPublicKey: P256PublicKey;
       salt: Bytes16;
       payload: readonly (Readonly<{ viewTag: Bytes32; data: Uint8Array }> | undefined)[];
+      messages?: readonly Readonly<{ viewTag: Bytes32; data: Uint8Array }>[];
+      instructionDiscriminator?: number;
     }>,
   ): SppProofInputs;
 }
@@ -767,7 +776,7 @@ export class ConfidentialTransfer {
             ];
     const firstInput = this.#inputs[0];
     if (!firstInput) throw new TransactionError("TRANSACTION_NO_INPUTS");
-    const preparedBase = {
+    return preparedTransfer({
       owner: this.#owner,
       inputs: Object.freeze(inputs),
       outputs: Object.freeze(outputs),
@@ -775,11 +784,7 @@ export class ConfidentialTransfer {
       shape,
       payer: this.#payer,
       interfaceTransfers: Object.freeze(interfaceTransfers),
-    };
-    return Object.freeze({
-      ...preparedBase,
-      finalize: (encrypted: Parameters<PreparedTransfer["finalize"]>[0]): SppProofInputs =>
-        finalizeTransfer(preparedBase, encrypted),
+      senderOutputCount: SENDER_SLOT_COUNT,
     });
   }
 
@@ -801,13 +806,44 @@ export class ConfidentialTransfer {
   }
 }
 
+type PreparedTransferFields = Omit<
+  PreparedTransfer,
+  "finalize" | "compactOutputs" | "withZoneProgramId"
+>;
+
+function preparedTransfer(fields: PreparedTransferFields): PreparedTransfer {
+  return Object.freeze({
+    ...fields,
+    finalize: (encrypted: Parameters<PreparedTransfer["finalize"]>[0]): SppProofInputs =>
+      finalizeTransfer(fields, encrypted),
+    compactOutputs: (): PreparedTransfer => compactOutputs(fields),
+    withZoneProgramId: (zoneProgramId: Address): PreparedTransfer =>
+      preparedTransfer({
+        ...fields,
+        outputs: Object.freeze(
+          fields.outputs.map((output) => output.withZoneProgramId(zoneProgramId)),
+        ),
+      }),
+  });
+}
+
+function compactOutputs(fields: PreparedTransferFields): PreparedTransfer {
+  if (fields.senderOutputCount !== SENDER_SLOT_COUNT) return preparedTransfer(fields);
+  const [splChange, solChange, ...recipients] = fields.outputs;
+  if (!splChange || !solChange) throw new TransactionError("TRANSACTION_MISSING_OUTPUT");
+  const changes = [splChange, solChange].filter((output) => !output.isDummy());
+  const outputs = Object.freeze([...changes, ...recipients]);
+  return preparedTransfer({
+    ...fields,
+    outputs,
+    senderOutputCount: changes.length,
+    shape: canonicalShape(fields.inputs.length, outputs.length),
+  });
+}
+
 function finalizeTransfer(
-  prepared: Omit<PreparedTransfer, "finalize">,
-  encrypted: Readonly<{
-    txViewingPublicKey: P256PublicKey;
-    salt: Bytes16;
-    payload: readonly (Readonly<{ viewTag: Bytes32; data: Uint8Array }> | undefined)[];
-  }>,
+  prepared: PreparedTransferFields,
+  encrypted: Parameters<PreparedTransfer["finalize"]>[0],
 ): SppProofInputs {
   // Slots are read by output position, so a longer list would be dropped
   // without a trace rather than encrypted into the transaction.
@@ -852,7 +888,7 @@ function finalizeTransfer(
     const output = outputUtxos[index];
     if (!output) throw new TransactionError("TRANSACTION_MISSING_OUTPUT", { index });
     const slot = encrypted.payload[index];
-    if (index < SENDER_SLOT_COUNT) {
+    if (index < prepared.senderOutputCount) {
       outputs.push({
         utxoHash: output.hash(),
         ownerTag: senderTag,
@@ -871,14 +907,14 @@ function finalizeTransfer(
     }
   }
   const externalData = createExternalData({
-    instructionDiscriminator: TRANSACT_DISCRIMINATOR,
+    instructionDiscriminator: encrypted.instructionDiscriminator ?? TRANSACT_DISCRIMINATOR,
     expiryUnixTs: 0xffff_ffff_ffff_ffffn,
     interfaceTransfers: prepared.interfaceTransfers,
     txViewingPublicKey: encrypted.txViewingPublicKey,
     salt: encrypted.salt,
     outputs,
     resolvedOwnerTags: resolved,
-    messages: [],
+    messages: encrypted.messages ?? [],
   });
   return new SppProofInputs({
     payer: prepared.payer,

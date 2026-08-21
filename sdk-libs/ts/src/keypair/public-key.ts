@@ -29,8 +29,21 @@ export class P256PublicKey {
     return P256PublicKey.fromBytes(p256.getPublicKey(secret, true) as Bytes33);
   }
 
+  /** A 65-byte `0x04 || x || y` point, what WebAuthn and SPKI carry. */
+  static fromUncompressed(bytes: Uint8Array): P256PublicKey {
+    try {
+      return P256PublicKey.fromBytes(p256.Point.fromBytes(bytes).toBytes(true) as Bytes33);
+    } catch (error) {
+      throw wrapKeypairError("KEYPAIR_INVALID_PUBLIC_KEY", error);
+    }
+  }
+
   toBytes(): Bytes33 {
     return copyBytes(this.#bytes) as Bytes33;
+  }
+
+  toUncompressed(): Uint8Array {
+    return p256.Point.fromBytes(this.#bytes).toBytes(false);
   }
 
   x(): Bytes32 {
