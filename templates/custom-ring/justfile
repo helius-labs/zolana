@@ -218,4 +218,6 @@ pipeline: build deploy init
         curl -sf "$ring_rpc/health" >/dev/null
         echo "ring rpc listening at $ring_rpc (log {{ "{{ring-rpc-log}}" }}, stop with 'just rpc-stop')"
     fi
+    authority="{{authority_keypair}}"
+    just grant-reader "$(solana-keygen pubkey "${authority/#\~/$HOME}")"
     just transact

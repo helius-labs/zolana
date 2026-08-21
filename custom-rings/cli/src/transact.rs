@@ -18,7 +18,6 @@ use zolana_transaction::{
 
 use crate::{
     init::{configured_auditor_pk, InitError},
-    reader::{outcome_label, ReaderAccess, ReaderError},
     ring_rpc::{RingRpcClientError, TransactionLookup},
     Context, ContextError, TransactArgs,
 };
@@ -88,13 +87,13 @@ pub enum TransactError {
     #[error(transparent)]
     ReaderKey(#[from] ReaderKeyError),
     #[error(transparent)]
-    Reader(#[from] ReaderError),
-    #[error(transparent)]
     RingRpc(#[from] RingRpcClientError),
     #[error(transparent)]
     AccountRead(#[from] AccountReadError),
     #[error(transparent)]
     Indexer(#[from] WaitError<ClientError>),
+    #[error("reader {reader} is not granted, run `grant-reader {reader}` first")]
+    ReaderNotGranted { reader: ReaderKey },
     #[error("authority {authority} holds {balance} lamports, the demo needs {needed}")]
     InsufficientFunds {
         authority: Address,
@@ -116,13 +115,9 @@ pub fn run(ctx: &mut Context, args: TransactArgs) -> Result<(), TransactError> {
     let ring_rpc = ctx.ring_rpc();
     ring_rpc.check_serves(ring.program_id(), &auditor_pk)?;
     let reader_key = ReaderKey::ed25519(authority.pubkey())?;
-    let granted = ReaderAccess {
-        ring,
-        authority: &authority,
-        reader: reader_key,
+    if ring.read_reader_record(&ctx.rpc, &reader_key)?.is_none() {
+        return Err(TransactError::ReaderNotGranted { reader: reader_key });
     }
-    .grant(&ctx.rpc)?;
-    println!("reader      {reader_key} {}", outcome_label(granted));
     let needed = args
         .amount
         .saturating_mul(2)

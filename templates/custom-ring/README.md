@@ -23,7 +23,7 @@ of the ring.
 
 A reader is a Solana key or a passkey the authority granted. It reads what the
 auditor reads through the ring RPC. The authority itself has no implicit read
-access, `transact` grants it before reading back.
+access, `pipeline` grants it and `transact` refuses to run without the grant.
 
 A participant is a shielded wallet. It deposits into the ring and transfers
 inside it.
