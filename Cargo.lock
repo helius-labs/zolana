@@ -1952,73 +1952,60 @@ dependencies = [
 ]
 
 [[package]]
-name = "custom-ring-client"
-version = "0.1.0"
-dependencies = [
- "borsh",
- "custom-ring-sdk",
- "p256",
- "solana-address 2.6.1",
- "solana-signature",
- "thiserror 2.0.18",
- "zeroize",
- "zolana-client",
- "zolana-interface",
- "zolana-keypair",
- "zolana-transaction",
-]
-
-[[package]]
 name = "custom-ring-program"
 version = "0.1.0"
 dependencies = [
+ "bincode 2.0.1",
+ "bs58",
  "bytemuck",
+ "curve25519-dalek 4.1.3",
+ "ed25519-dalek 2.2.0",
  "groth16-solana",
  "hex",
  "mollusk-svm",
+ "p256",
  "pinocchio 0.11.2",
  "pinocchio-system",
  "solana-account 4.3.1",
+ "solana-address 2.6.1",
+ "solana-curve25519 4.0.1",
  "solana-instruction",
+ "solana-loader-v3-interface 8.0.1",
  "solana-program-error",
  "solana-pubkey 4.2.0",
  "thiserror 2.0.18",
  "wincode 0.5.5",
  "zolana-account-checks",
- "zolana-hasher",
  "zolana-interface",
  "zolana-test-utils",
-]
-
-[[package]]
-name = "custom-ring-prover"
-version = "0.1.0"
-dependencies = [
- "bindgen",
- "groth16-solana",
- "num-bigint 0.4.8",
- "serde_json",
- "solana-bn254",
- "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "custom-ring-sdk"
 version = "0.1.0"
 dependencies = [
- "custom-ring-program",
- "custom-ring-prover",
+ "borsh",
+ "bytemuck",
+ "curve25519-dalek 4.1.3",
  "groth16-solana",
  "hex",
- "p256",
+ "rand 0.8.7",
+ "sha2 0.10.9",
+ "solana-account 4.3.1",
  "solana-address 2.6.1",
  "solana-instruction",
- "solana-program-error",
+ "solana-pubkey 4.2.0",
+ "solana-signature",
+ "solana-signer",
  "thiserror 2.0.18",
  "wincode 0.5.5",
  "zeroize",
+ "zolana-client",
  "zolana-interface",
  "zolana-keypair",
+ "zolana-ring-client",
+ "zolana-transaction",
+ "zolana-tree",
 ]
 
 [[package]]
@@ -2026,7 +2013,7 @@ name = "custom-ring-test-validator"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "custom-ring-client",
+ "bincode 2.0.1",
  "custom-ring-program",
  "custom-ring-sdk",
  "solana-address 2.6.1",
@@ -2035,14 +2022,17 @@ dependencies = [
  "solana-instruction",
  "solana-keypair",
  "solana-message",
+ "solana-packet 3.0.0",
  "solana-signature",
  "solana-signer",
  "solana-system-interface 3.2.0",
  "solana-transaction",
+ "zeroize",
  "zolana-client",
  "zolana-interface",
  "zolana-keypair",
  "zolana-program-test",
+ "zolana-ring-client",
  "zolana-test-utils",
  "zolana-transaction",
  "zolana-tree",
@@ -5138,6 +5128,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95067976aca6421a523e491fce939a3e65249bac4b977adee0ee9771568e8aa3"
 
 [[package]]
+name = "psl"
+version = "2.1.226"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7bc88482eea924ca3a2f56a547454169af58deef35567965eb4fc2392a834841"
+dependencies = [
+ "psl-types",
+]
+
+[[package]]
+name = "psl-types"
+version = "2.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33cb294fe86a74cbcf50d4445b37da762029549ebeea341421c7c70370f86cac"
+
+[[package]]
 name = "ptr_meta"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6888,7 +6893,7 @@ dependencies = [
  "solana-clock",
  "solana-instruction",
  "solana-loader-v3-interface 7.0.0",
- "solana-packet",
+ "solana-packet 4.2.0",
  "solana-program-runtime",
  "solana-pubkey 4.2.0",
  "solana-sbpf",
@@ -6980,7 +6985,7 @@ dependencies = [
  "solana-compute-budget",
  "solana-compute-budget-interface",
  "solana-instruction",
- "solana-packet",
+ "solana-packet 4.2.0",
  "solana-pubkey 4.2.0",
  "solana-sdk-ids",
  "solana-svm-transaction",
@@ -7497,6 +7502,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec7b49f68ccea949a6ea75f485dbe2e17cf4c1d894ed262371d584269359e1a0"
 dependencies = [
  "bytemuck",
+]
+
+[[package]]
+name = "solana-packet"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6edf2f25743c95229ac0fdc32f8f5893ef738dbf332c669e9861d33ddb0f469d"
+dependencies = [
+ "bitflags 2.13.1",
 ]
 
 [[package]]
@@ -8172,7 +8186,7 @@ dependencies = [
  "solana-instruction",
  "solana-nonce",
  "solana-nonce-account",
- "solana-packet",
+ "solana-packet 4.2.0",
  "solana-program-runtime",
  "solana-pubkey 4.2.0",
  "solana-sdk-ids",
@@ -8391,7 +8405,7 @@ dependencies = [
  "solana-epoch-schedule",
  "solana-hash",
  "solana-instruction",
- "solana-packet",
+ "solana-packet 4.2.0",
  "solana-program-runtime",
  "solana-pubkey 4.2.0",
  "solana-rent 4.3.0",
@@ -10858,6 +10872,7 @@ dependencies = [
  "solana-transaction-status-client-types",
  "thiserror 2.0.18",
  "tokio",
+ "zeroize",
  "zolana-api",
  "zolana-event",
  "zolana-hasher",
@@ -10966,6 +10981,7 @@ dependencies = [
  "tokio",
  "zeroize",
  "zolana-hasher",
+ "zolana-interface",
 ]
 
 [[package]]
@@ -11004,6 +11020,70 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-merkle-tree",
+ "zolana-transaction",
+]
+
+[[package]]
+name = "zolana-ring-client"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "curve25519-dalek 4.1.3",
+ "hex",
+ "p256",
+ "sha2 0.10.9",
+ "solana-address 2.6.1",
+ "solana-signature",
+ "thiserror 2.0.18",
+ "zeroize",
+ "zolana-client",
+ "zolana-interface",
+ "zolana-keypair",
+ "zolana-transaction",
+]
+
+[[package]]
+name = "zolana-ring-rpc"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "bytemuck",
+ "clap",
+ "hex",
+ "hkdf",
+ "hyper 1.10.1",
+ "jsonrpsee",
+ "libc",
+ "log",
+ "p256",
+ "psl",
+ "rand 0.8.7",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "solana-account 4.3.1",
+ "solana-account-decoder-client-types",
+ "solana-address 2.6.1",
+ "solana-commitment-config",
+ "solana-keypair",
+ "solana-rpc-client",
+ "solana-rpc-client-api",
+ "solana-signature",
+ "solana-signer",
+ "thiserror 2.0.18",
+ "tokio",
+ "tower",
+ "tower-http 0.7.0",
+ "tracing-subscriber",
+ "zeroize",
+ "zolana-api",
+ "zolana-client",
+ "zolana-indexer-api",
+ "zolana-interface",
+ "zolana-keypair",
+ "zolana-ring-client",
  "zolana-transaction",
 ]
 

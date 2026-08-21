@@ -96,15 +96,186 @@ test-swap-program: build-programs
     cargo nextest run -p swap-program --tests
 
 # Custom-ring host tests: the program's error-code pins and mollusk negatives
-# (need the SBF build), the prover's link check, the sdk's circuit-consistency
-# and builder tests, and the client's in-memory audit round trips. Needs the
-# canonical keys: the sdk proofs must verify under the committed VERIFYINGKEY,
-# and gnark setup is non-deterministic, so locally generated keys cannot pass.
-test-custom-ring: ensure-custom-ring-keys build-programs
+# (need the SBF build), the Go circuit proof check, the sdk's circuit-consistency
+# and builder tests, the ring client's in-memory audit round trips, the ring
+# RPC, and the cargo-generate template. Needs the canonical keys: the sdk proofs
+# must verify under the committed VERIFYINGKEY, and gnark setup is
+# non-deterministic, so locally generated keys cannot pass.
+test-custom-ring: ensure-custom-ring-prover-key build-programs build-cli test-custom-ring-template
+    cd prover/server && go test ./prover/custom_ring -run TestAuditorKeyEncryptionProofVerifies -count=1
     cargo nextest run -p custom-ring-program --tests
-    cargo nextest run -p custom-ring-prover
     cargo nextest run -p custom-ring-sdk
-    cargo nextest run -p custom-ring-client
+    cargo nextest run -p zolana-ring-client
+    cargo nextest run -p zolana-ring-rpc
+
+test-custom-ring-template:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    workspace="$(pwd)"
+    output="$(mktemp -d)"
+    trap 'rm -rf "$output"' EXIT
+    if cargo generate \
+        --path templates/custom-ring \
+        --name invalid-authority \
+        --destination "$output" \
+        --define program_id=8hV3Hp5kaDkV81dms997arFRV3g1hW9TLuV4pX94WsEz \
+        --define 'authority_keypair=~operator/key.json' \
+        --define zolana_path="$(pwd)" \
+        --define zolana_repository=https://github.com/helius-labs/zolana.git \
+        --define zolana_revision="$(git rev-parse HEAD)"; then
+        exit 1
+    fi
+    if cargo generate \
+        --path templates/custom-ring \
+        --name invalid-source \
+        --destination "$output" \
+        --define program_id=8hV3Hp5kaDkV81dms997arFRV3g1hW9TLuV4pX94WsEz \
+        --define authority_keypair=/tmp/custom-ring-authority.json \
+        --define 'zolana_path=~/zolana' \
+        --define zolana_repository=https://github.com/helius-labs/zolana.git \
+        --define zolana_revision="$(git rev-parse HEAD)"; then
+        exit 1
+    fi
+    cargo generate \
+        --path templates/custom-ring \
+        --name ring-template-test \
+        --destination "$output" \
+        --define program_id=8hV3Hp5kaDkV81dms997arFRV3g1hW9TLuV4pX94WsEz \
+        --define authority_keypair=/tmp/custom-ring-authority.json \
+        --define zolana_path="$(pwd)" \
+        --define zolana_repository=https://github.com/helius-labs/zolana.git \
+        --define zolana_revision="$(git rev-parse HEAD)"
+    cd "$output/ring-template-test"
+    grep -Fx 'channel = "1.97.0"' rust-toolchain.toml
+    grep -Fx 'sbf-tools-version := "v1.54"' justfile
+    grep -Fx 'RING_RPC_ALLOW_ORIGINS=http://localhost:3000' .env.example
+    grep -Fx 'RING_RPC_WEBAUTHN_RP_ID=localhost' .env.example
+    cargo fmt --all -- --check
+    cargo clippy \
+        --workspace \
+        --all-targets \
+        --locked \
+        -- \
+        -D warnings
+    cargo test \
+        --locked \
+        -p ring-program \
+        program_id_matches_generated_value
+    cargo run \
+        --locked \
+        -p ring-operator \
+        -- \
+        --help
+    cargo clippy \
+        --locked \
+        -p ring-operator \
+        --features auditor-key \
+        --bin auditor-pubkey \
+        -- \
+        -D warnings
+    cargo build-sbf \
+        --tools-version v1.54 \
+        --manifest-path program/Cargo.toml \
+        --features bpf-entrypoint
+    [[ -f "$output/ring-template-test/target/deploy/ring_program.so" ]]
+    mkdir "$output/key-target"
+    ln -s "$output/key-target" keys
+    if just auditor-key; then
+        exit 1
+    fi
+    [[ -z "$(find "$output/key-target" -mindepth 1 -print -quit)" ]]
+    unlink keys
+    printf '00' > "$output/invalid-auditor.key"
+    chmod 600 "$output/invalid-auditor.key"
+    if CUSTOM_RING_AUDITOR_KEY_FILE="$output/invalid-auditor.key" just auditor-key; then
+        exit 1
+    fi
+    if [[ -e keys/auditor.key || -e keys/auditor.key.pub ]]; then
+        exit 1
+    fi
+    just auditor-key
+    mv keys/auditor.key "$output/auditor.key"
+    mv keys/auditor.key.pub "$output/auditor.key.pub"
+    CUSTOM_RING_AUDITOR_KEY_FILE="$output/auditor.key" just auditor-key
+    cmp -s keys/auditor.key.pub "$output/auditor.key.pub"
+    cd "$workspace"
+    tools/custom-ring-new.sh ring-wrapper "$output/ring-wrapper"
+    [[ -f "$output/ring-wrapper/keys/program-keypair.json" ]]
+    program_id="$(solana-keygen pubkey "$output/ring-wrapper/keys/program-keypair.json")"
+    grep -F "CUSTOM_RING_PROGRAM_ID = \"$program_id\"" "$output/ring-wrapper/.cargo/config.toml"
+    mkdir "$output/source-target"
+    ln -s "$output/source-target" "$output/ring-wrapper/.zolana"
+    if cd "$output/ring-wrapper" && just source; then
+        exit 1
+    fi
+    cd "$workspace"
+    [[ -z "$(find "$output/source-target" -mindepth 1 -print -quit)" ]]
+    unlink "$output/ring-wrapper/.zolana"
+    mkdir "$output/ring-wrapper/.zolana"
+    ln -s "$output/source-target" "$output/ring-wrapper/.zolana/.git"
+    if cd "$output/ring-wrapper" && just source; then
+        exit 1
+    fi
+    cd "$workspace"
+    [[ -z "$(find "$output/source-target" -mindepth 1 -print -quit)" ]]
+    mv "$output/ring-wrapper/keys/program-keypair.json" "$output/program-keypair.json"
+    cd "$output/ring-wrapper"
+    CUSTOM_RING_PROGRAM_KEYPAIR_FILE="$output/program-keypair.json" just program-key
+    [[ "$(solana-keygen pubkey keys/program-keypair.json)" == "$program_id" ]]
+
+custom-ring-new name destination:
+    tools/custom-ring-new.sh "{{name}}" "{{destination}}"
+
+# Same contract as swap-keys-tag, for the custom-ring example's single circuit
+# (auditor_key_encryption). gnark's Setup is non-deterministic, so the release
+# assets are the only key set matching the committed Rust verifying key; rotating
+# requires publishing a new release and updating custom-ring-keys.CHECKSUM plus
+# the committed verifying key together.
+custom-ring-keys-tag := "custom-ring-keys-v1"
+
+ensure-custom-ring-prover-key: build-prover-server
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source_dir="custom-rings/build/gnark/auditor_key_encryption"
+    mkdir -p "$source_dir" prover/server/proving-keys
+    for kind in pk vk; do
+        file="auditor_key_encryption_${kind}.bin"
+        path="$source_dir/${kind}.bin"
+        if [[ ! -f "$path" ]]; then
+            curl -fsSL "https://github.com/helius-labs/zolana/releases/download/{{custom-ring-keys-tag}}/$file" -o "$path"
+        fi
+        want="$(awk -v name="$file" '$2 == name { print $1 }' custom-rings/custom-ring-keys.CHECKSUM)"
+        got="$(shasum -a 256 "$path" | awk '{ print $1 }')"
+        [[ "$got" == "$want" ]]
+    done
+    target/prover-server convert-auditor-key-encryption \
+        --pk "$source_dir/pk.bin" \
+        --vk "$source_dir/vk.bin" \
+        --output prover/server/proving-keys/custom_ring_audit_transfer.key
+    [[ "$(shasum -a 256 prover/server/proving-keys/custom_ring_audit_transfer.key | awk '{ print $1 }')" == "2e6f285909ea958e8ebbe5a1d479e37305cccc71838f3d438f1755828958a834" ]]
+    verify_dir="$(mktemp -d)"
+    trap 'rm -rf "$verify_dir"' EXIT
+    target/prover-server export-vk \
+        --keys-file prover/server/proving-keys/custom_ring_audit_transfer.key \
+        --output "$verify_dir/vk.bin"
+    cmp "$source_dir/vk.bin" "$verify_dir/vk.bin"
+
+ensure-custom-ring-live-keys: ensure-custom-ring-prover-key
+    #!/usr/bin/env bash
+    set -euo pipefail
+    keys_dir="prover/server/proving-keys"
+    temp_dir="$(mktemp -d)"
+    trap 'rm -rf "$temp_dir"' EXIT
+    for name in transfer_ring_1_2.key transfer_ring_2_2.key; do
+        want="$(python3 -c 'import json, sys; print(json.load(open("prover/server/prover/provingkeys/proving-keys.lock"))["keys"][sys.argv[1]]["sha256"])' "$name")"
+        path="$keys_dir/$name"
+        if [[ -f "$path" ]] && [[ "$(shasum -a 256 "$path" | awk '{ print $1 }')" == "$want" ]]; then
+            continue
+        fi
+        curl -fsSL "https://d3gbdb0egjwcw9.cloudfront.net/proving-keys/a5ff0c508cac3f51/$name" -o "$temp_dir/$name"
+        [[ "$(shasum -a 256 "$temp_dir/$name" | awk '{ print $1 }')" == "$want" ]]
+        install -m 0644 "$temp_dir/$name" "$path"
+    done
 
 # Program-side Groth16 matrices only. CI runs this variant: the client proving
 # matrices' CI home is `test-client-integration` (`--all-features`), so they do
@@ -378,57 +549,6 @@ swap-keys-tag := "swap-keys-v4"
 # (regen-dynamic-swap-keys) requires publishing a new release and updating
 # dynamic-swap-keys.CHECKSUM plus the committed verifying keys together.
 dynamic-swap-keys-tag := "dynamic-swap-keys-v4"
-
-# Same contract as swap-keys-tag, for the custom-ring example's single circuit
-# (auditor_key_encryption). gnark's Setup is non-deterministic, so the release
-# assets are the only key set matching the committed Rust verifying key; rotating
-# locally (regen-custom-ring-keys) requires publishing a new release and updating
-# custom-ring-keys.CHECKSUM plus the committed verifying key together.
-custom-ring-keys-tag := "custom-ring-keys-v1"
-
-ensure-custom-ring-keys:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    base="custom-ring-tests"
-    for c in auditor_key_encryption; do
-        dir="$base/build/gnark/$c"
-        for kind in pk vk; do
-            if [ ! -f "$dir/$kind.bin" ]; then
-                mkdir -p "$dir"
-                gh release download "{{custom-ring-keys-tag}}" --repo helius-labs/zolana \
-                    --pattern "${c}_${kind}.bin" --output "$dir/$kind.bin" --clobber
-            fi
-            want=$(awk -v n="${c}_${kind}.bin" '$2==n {print $1}' "$base/custom-ring-keys.CHECKSUM")
-            got=$(shasum -a 256 "$dir/$kind.bin" | awk '{print $1}')
-            if [ "$want" != "$got" ]; then
-                echo "checksum mismatch for $dir/$kind.bin (want $want, got $got)" >&2
-                echo "refresh from the {{custom-ring-keys-tag}} release (delete the file and rerun)," >&2
-                echo "or rotate keys with 'just regen-custom-ring-keys' and publish a new release" >&2
-                exit 1
-            fi
-        done
-    done
-
-# Rotate the custom-ring proving key: regenerate the circuit, rewriting the
-# committed Rust verifying key and the checksum manifest. Publish the new
-# build/gnark key files to a fresh custom-ring-keys release and bump
-# custom-ring-keys-tag afterwards.
-regen-custom-ring-keys:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    base="custom-ring-tests"
-    for c in auditor_key_encryption; do
-        cargo run --release -p custom-ring-prover --bin custom-ring-prover-setup -- \
-            "$c" "$base/build/gnark/$c" \
-            --rust-vk "$base/program/src/verifying_keys/$c.rs"
-    done
-    : > "$base/custom-ring-keys.CHECKSUM"
-    for c in auditor_key_encryption; do
-        for kind in pk vk; do
-            shasum -a 256 "$base/build/gnark/$c/$kind.bin" \
-                | awk -v n="${c}_${kind}.bin" '{print $1 "  " n}' >> "$base/custom-ring-keys.CHECKSUM"
-        done
-    done
 
 ensure-swap-keys:
     #!/usr/bin/env bash
@@ -992,13 +1112,14 @@ test-swap-validator: ensure-swap-keys build-programs build-prover-server build-c
       cargo nextest run -p swap-test-validator --test swap --test take_verifiable_encryption --test cancel --no-capture
 
 # Minimal custom-ring lifecycle on a local validator
-# (custom-ring-tests/test/tests/ring.rs): create the ring config holding the
+# (custom-rings/test/tests/ring.rs): create the ring config holding the
 # auditor key, register it with SPP, ring-deposit, then a ring transact whose
 # proof binds the verifiable encryption of the transaction viewing key to the
 # auditor key -- and assert the auditor client decrypts the outputs.
-test-custom-ring-validator: ensure-custom-ring-keys build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+test-custom-ring-validator: ensure-custom-ring-live-keys build-programs build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash
     set -euo pipefail
+    : "${ZOLANA_PROVER_REDIS_URL:?set ZOLANA_PROVER_REDIS_URL to a reachable Redis instance}"
     # `eval "$(...)"` alone cannot fail the recipe: a command substitution that
     # exits nonzero is not a `set -e` trigger, so a broken xtask would leave the
     # program ids unset and the test would silently run against its fallbacks.
@@ -1176,17 +1297,19 @@ build-prover-server:
     mkdir -p target
     cd prover/server && go build -o ../../target/prover-server .
 
-# Regenerate all proving keys (transfer, merge, and batch address-append), the
-# committed verifying keys in both crates, and proving-keys.lock. groth16 setup
-# is non-deterministic, so the batched-merkle-tree vkeys are regenerated with
-# the keys -- commit both together. Mirrors scripts/rotate_proving_keys.sh
-# minus the fingerprint refresh and the S3 upload (publish-spp-keys).
+# Regenerate all proving keys (transfer, merge, custom-ring audit, and batch
+# address-append), the committed verifying keys in both crates, and
+# proving-keys.lock. groth16 setup is non-deterministic, so the
+# batched-merkle-tree vkeys are regenerated with the keys -- commit both
+# together. Mirrors scripts/rotate_proving_keys.sh minus the fingerprint refresh
+# and the S3 upload (publish-spp-keys).
 build-spp-keys:
     #!/usr/bin/env bash
     set -euo pipefail
     keys_dir="$(cd "$(dirname "{{spp-keys-dir}}")" && pwd)/$(basename "{{spp-keys-dir}}")"
     prover/server/scripts/generate_keys_transfer.sh "$keys_dir"
     prover/server/scripts/generate_keys_merge.sh "$keys_dir"
+    prover/server/scripts/generate_keys_custom_ring.sh "$keys_dir"
     # The generate_* scripts leave the light-prover binary in prover/server.
     for spec in 10 250; do
         prover/server/light-prover setup \

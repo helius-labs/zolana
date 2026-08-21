@@ -186,11 +186,8 @@ jobs:
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       - name: Install pinned SBF platform tools
         run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
-      - name: Cache custom-ring keys
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: custom-ring-tests/build/gnark
-          key: custom-ring-keys-${{ hashFiles('custom-ring-tests/custom-ring-keys.CHECKSUM') }}
+      - name: Install cargo generate
+        run: cargo install cargo-generate --version 0.23.14 --locked
       - run: just test-custom-ring
 
   build-photon:
@@ -241,6 +238,16 @@ jobs:
             recipe: test-custom-ring-validator
           - name: rfq settlement
             recipe: test-rfq-validator
+    services:
+      redis:
+        image: redis:7.4.4-alpine3.21
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       AGAVE_VERSION: v4.0.2
       # GH_TOKEN is for the gh-release swap/escrow/custom-ring key downloads
@@ -285,6 +292,8 @@ jobs:
         if: steps.squads-cache.outputs.cache-hit != 'true'
         run: just fetch-smart-account
       - run: just ${{ matrix.recipe }}
+        env:
+          ZOLANA_PROVER_REDIS_URL: ${{ matrix.recipe == 'test-custom-ring-validator' && 'redis://127.0.0.1:6379/0' || '' }}
       - name: Dump prover and photon logs on failure
         if: failure()
         run: |

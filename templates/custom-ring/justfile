@@ -1,0 +1,123 @@
+set dotenv-load
+
+sbf-tools-version := "v1.54"
+
+source:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ "{{zolana_path}}" == ".zolana" ]]; then
+        if [[ -L .zolana || ( -e .zolana && ! -d .zolana ) ]]; then
+            echo "managed source path is not safe" >&2
+            exit 1
+        fi
+        if [[ -L .zolana/.git || ( -e .zolana/.git && ! -d .zolana/.git ) ]]; then
+            echo "managed Git path is not safe" >&2
+            exit 1
+        fi
+    fi
+    if [[ "{{zolana_path}}" == ".zolana" && ! -d .zolana/.git ]]; then
+        git clone --filter=blob:none "{{zolana_repository}}" .zolana
+    fi
+    if [[ "{{zolana_path}}" == ".zolana" ]]; then
+        git -C .zolana fetch origin "{{zolana_revision}}"
+        git -C .zolana checkout --detach FETCH_HEAD
+        [[ "$(git -C .zolana rev-parse HEAD)" == "$(git -C .zolana rev-parse FETCH_HEAD)" ]]
+    fi
+
+key-dir:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -L keys || ( -e keys && ! -d keys ) ]]; then
+        echo "key directory path is not safe" >&2
+        exit 1
+    fi
+    mkdir -p keys
+
+auditor-key: source key-dir
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -L keys/auditor.key || ( -e keys/auditor.key && ! -f keys/auditor.key ) ]]; then
+        echo "auditor key path is not safe" >&2
+        exit 1
+    fi
+    if [[ -L keys/auditor.key.pub || ( -e keys/auditor.key.pub && ! -f keys/auditor.key.pub ) ]]; then
+        echo "auditor public key path is not safe" >&2
+        exit 1
+    fi
+    public_key=""
+    if [[ ! -f keys/auditor.key ]]; then
+        source="${CUSTOM_RING_AUDITOR_KEY_FILE:-}"
+        if [[ -n "$source" ]]; then
+            [[ -f "$source" ]]
+            temporary="$(mktemp "$PWD/keys/auditor.XXXXXX")"
+            trap 'rm -f "$temporary"' EXIT
+            install -m 600 "$source" "$temporary"
+            public_key="$(cargo run --quiet -p ring-operator --features auditor-key --bin auditor-pubkey -- "$temporary")"
+            mv "$temporary" keys/auditor.key
+        else
+            cargo run --manifest-path "{{zolana_path}}/services/ring-rpc/Cargo.toml" -- keygen --out keys/auditor.key
+        fi
+    fi
+    chmod 600 keys/auditor.key
+    if [[ -z "$public_key" ]]; then
+        public_key="$(cargo run --quiet -p ring-operator --features auditor-key --bin auditor-pubkey -- keys/auditor.key)"
+    fi
+    temporary="$(mktemp "$PWD/keys/auditor-public.XXXXXX")"
+    trap 'rm -f "$temporary"' EXIT
+    printf '%s' "$public_key" > "$temporary"
+    chmod 644 "$temporary"
+    if [[ -f keys/auditor.key.pub ]]; then
+        cmp -s keys/auditor.key.pub "$temporary"
+    else
+        mv "$temporary" keys/auditor.key.pub
+    fi
+    if [[ ! -f keys/auditor.key.pub || -L keys/auditor.key.pub ]]; then
+        echo "auditor public key path is not safe" >&2
+        exit 1
+    fi
+
+build: source
+    cargo build-sbf --tools-version {{sbf-tools-version}} --manifest-path program/Cargo.toml --features bpf-entrypoint
+
+program-key: key-dir
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -L keys/program-keypair.json || ( -e keys/program-keypair.json && ! -f keys/program-keypair.json ) ]]; then
+        echo "program key path is not safe" >&2
+        exit 1
+    fi
+    if [[ ! -f keys/program-keypair.json ]]; then
+        source="${CUSTOM_RING_PROGRAM_KEYPAIR_FILE:-}"
+        [[ -f "$source" ]]
+        temporary="$(mktemp "$PWD/keys/program-keypair.XXXXXX")"
+        trap 'rm -f "$temporary"' EXIT
+        install -m 600 "$source" "$temporary"
+        [[ "$(solana-keygen pubkey "$temporary")" == "{{program_id}}" ]]
+        mv "$temporary" keys/program-keypair.json
+    fi
+    chmod 600 keys/program-keypair.json
+    [[ "$(solana-keygen pubkey keys/program-keypair.json)" == "{{program_id}}" ]]
+
+deploy: build program-key
+    #!/usr/bin/env bash
+    set -euo pipefail
+    authority="{{authority_keypair}}"
+    authority="${authority/#\~/$HOME}"
+    solana program deploy --url "${CUSTOM_RING_RPC_URL:-http://127.0.0.1:8899}" --keypair "$authority" --upgrade-authority "$authority" --program-id keys/program-keypair.json target/deploy/ring_program.so
+
+init: auditor-key
+    cargo run -p ring-operator -- --rpc-url "${CUSTOM_RING_RPC_URL:-http://127.0.0.1:8899}" --authority "{{authority_keypair}}" init
+
+status: source
+    cargo run -p ring-operator -- --rpc-url "${CUSTOM_RING_RPC_URL:-http://127.0.0.1:8899}" --authority "{{authority_keypair}}" status
+
+grant-reader reader: source
+    cargo run -p ring-operator -- --rpc-url "${CUSTOM_RING_RPC_URL:-http://127.0.0.1:8899}" --authority "{{authority_keypair}}" grant-reader "{{reader}}"
+
+revoke-reader reader: source
+    cargo run -p ring-operator -- --rpc-url "${CUSTOM_RING_RPC_URL:-http://127.0.0.1:8899}" --authority "{{authority_keypair}}" revoke-reader "{{reader}}"
+
+ring-rpc: auditor-key
+    cargo run --manifest-path "{{zolana_path}}/services/ring-rpc/Cargo.toml" -- serve --indexer-url "${CUSTOM_RING_INDEXER_URL:-http://127.0.0.1:8784}" --rpc-url "${CUSTOM_RING_RPC_URL:-http://127.0.0.1:8899}" --auditor-key-file keys/auditor.key --ring-program-id "{{program_id}}"
+
+pipeline: deploy init
