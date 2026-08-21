@@ -8,7 +8,8 @@ use zolana_transaction::{
         split::{Split, SplitBundlePlaintext, SplitEncode},
         DecodeCx, OwnerCx, UtxoSerialization,
     },
-    Address, AssetRegistry, OutputContext, OutputSlot, ShieldedTransaction, TransactionError,
+    Address, AssetRegistry, OutputContext, OutputSlot, RingAssociation, ShieldedTransaction,
+    TransactionError,
 };
 
 use crate::TransactionWorld;
@@ -54,6 +55,7 @@ pub(crate) fn build_split_tx(
     .unwrap();
 
     ShieldedTransaction {
+        ring: RingAssociation::None,
         slot: 0,
         tx_signature: solana_signature::Signature::default(),
         tx_viewing_pk: Some(tx_viewing_pk),

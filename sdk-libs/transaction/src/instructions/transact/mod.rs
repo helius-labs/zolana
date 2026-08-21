@@ -28,6 +28,6 @@ pub use transfer::{
     SENDER_SLOT_COUNT,
 };
 pub use types::{
-    EncryptedTransaction, InputUtxo, OutputContext, OutputSlot, PrivateTxHash, ShieldedTransaction,
-    SppProofOutputUtxo,
+    EncryptedTransaction, InputUtxo, OutputContext, OutputSlot, PrivateTxHash, RingAssociation,
+    ShieldedTransaction, SppProofOutputUtxo,
 };

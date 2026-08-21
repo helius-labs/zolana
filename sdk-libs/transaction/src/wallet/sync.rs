@@ -19,7 +19,7 @@ use crate::{
     error::TransactionError,
     instructions::{
         merge::{merge_dummy_nullifier, merge_output_blinding},
-        transact::{OutputContext, ShieldedTransaction, SENDER_SLOT_COUNT},
+        transact::{OutputContext, ShieldedTransaction},
     },
     serialization::{
         anonymous::{AnonymousRecipient, AnonymousSenderBundle},
@@ -78,6 +78,7 @@ impl TxIndex {
                 match scheme {
                     EncryptedScheme::AnonymousRecipient
                     | EncryptedScheme::Confidential
+                    | EncryptedScheme::RingConfidential
                     | EncryptedScheme::Proofless
                     | EncryptedScheme::PlaintextTransfer
                     | EncryptedScheme::Merge
@@ -387,12 +388,6 @@ impl SyncCtx<'_> {
         }
     }
 
-    /// Reconstruct the outbound history of a confidential transfer the wallet
-    /// authored. The unified scheme carries no sender-side recipient list, so the
-    /// author re-derives the transaction viewing key and decrypts every output
-    /// slot with it: change slots (positions below `SENDER_SLOT_COUNT`) net the
-    /// spent inputs down; recipient slots reveal the counterparties. Dummy slots
-    /// fail the tx-key decrypt and are skipped.
     fn record_confidential_send(
         &mut self,
         tx: &ShieldedTransaction,
@@ -423,7 +418,10 @@ impl SyncCtx<'_> {
             let Some((&scheme_byte, body)) = blob.split_first() else {
                 continue;
             };
-            if EncryptedScheme::from_byte(scheme_byte) != Ok(EncryptedScheme::Confidential) {
+            if !matches!(
+                EncryptedScheme::from_byte(scheme_byte),
+                Ok(EncryptedScheme::Confidential | EncryptedScheme::RingConfidential)
+            ) {
                 continue;
             }
             let encrypted_slot_index = position as u32;
@@ -432,13 +430,21 @@ impl SyncCtx<'_> {
             else {
                 continue;
             };
-            if position < SENDER_SLOT_COUNT {
-                if let Ok(utxo) = plaintext.into_utxo(self.owner, assets) {
-                    change.push(utxo);
+            let Ok(recipient_pk) = Confidential::embedded_viewing_pk(body) else {
+                continue;
+            };
+            if recipient_pk == key.pubkey() {
+                if let Ok(candidate) = plaintext.into_utxo(self.owner, assets) {
+                    let matches_commitment = candidate
+                        .hash(&self.nullifier_pk, &[0; 32], &[0; 32])
+                        .is_ok_and(|hash| hash == slot.output_context.hash);
+                    if matches_commitment {
+                        change.push(candidate);
+                        continue;
+                    }
                 }
-            } else if let Ok(pubkey) = Confidential::embedded_viewing_pk(body) {
-                recipient_pks.push(pubkey);
             }
+            recipient_pks.push(recipient_pk);
         }
 
         let spent = self.spent_amounts(&tx.nullifiers);
@@ -616,7 +622,7 @@ impl SyncCtx<'_> {
                             }
                         }
                     }
-                    EncryptedScheme::Confidential => {
+                    EncryptedScheme::Confidential | EncryptedScheme::RingConfidential => {
                         let Ok(plaintext) = Confidential::decode(body, &cx) else {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);

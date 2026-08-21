@@ -10,7 +10,7 @@ use zolana_transaction::{
         },
         DecodeCx, OwnerCx, UtxoSerialization,
     },
-    AssetRegistry, OutputContext, OutputSlot, ShieldedTransaction, Utxo,
+    AssetRegistry, OutputContext, OutputSlot, RingAssociation, ShieldedTransaction, Utxo,
 };
 
 use crate::TransactionWorld;
@@ -166,6 +166,7 @@ pub(crate) fn build_anonymous_transfer(
     }
 
     let transaction = ShieldedTransaction {
+        ring: RingAssociation::None,
         slot: 0,
         tx_signature: solana_signature::Signature::default(),
         tx_viewing_pk: Some(tx_viewing_pk),
