@@ -369,16 +369,7 @@ pub async fn fetch_user_record_optional_checked_async<R: AsyncRpc>(
     )?))
 }
 
-/// Every published viewing key, indexed to the owner that published it.
-///
-/// The registry is a record per owner, so a viewing key alone addresses nothing
-/// and the reverse direction reads the whole registry once. One call answers a
-/// whole page of audited outputs, which is why this returns the index and not
-/// one owner. A record this version cannot decode names no owner and is
-/// skipped, so a newer registry does not fail the lookup of the records it
-/// shares.
-///
-/// Mirrors the TypeScript `fetchViewingKeyOwners`.
+/// Reads the whole registry. A record this version cannot decode is skipped.
 pub fn fetch_viewing_key_owners<R: Rpc>(
     rpc: &R,
 ) -> Result<HashMap<[u8; P256_PUBKEY_LEN], Pubkey>, ClientError> {
@@ -387,7 +378,6 @@ pub fn fetch_viewing_key_owners<R: Rpc>(
     )?))
 }
 
-/// The asynchronous `fetch_viewing_key_owners`.
 pub async fn fetch_viewing_key_owners_async<R: AsyncRpc>(
     rpc: &R,
 ) -> Result<HashMap<[u8; P256_PUBKEY_LEN], Pubkey>, ClientError> {

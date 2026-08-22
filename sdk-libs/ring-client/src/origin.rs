@@ -10,9 +10,21 @@ use zolana_client::ClientError;
 use zolana_event::InstructionGroup;
 use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
 
+/// What a confirmed transaction says about its ring and its signers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RingOrigin {
+    pub ring_invoked: bool,
+    /// Required signers, fee payer first. Every real input owner signs.
+    pub signers: Vec<Address>,
+}
+
 /// Whether a confirmed transaction ran the shielded pool under `ring`.
 pub trait TransactionOrigin {
-    fn ring_invoked(&self, signature: Signature, ring: Address) -> Result<bool, OriginError>;
+    fn ring_invoked(&self, signature: Signature, ring: Address) -> Result<bool, OriginError> {
+        Ok(self.origin(signature, ring)?.ring_invoked)
+    }
+
+    fn origin(&self, signature: Signature, ring: Address) -> Result<RingOrigin, OriginError>;
 }
 
 #[derive(Debug, Error)]
@@ -63,11 +75,12 @@ mod rpc {
     use solana_rpc_client_api::config::RpcTransactionConfig;
     use solana_signature::Signature;
     use solana_transaction_status_client_types::{
-        EncodedConfirmedTransactionWithStatusMeta, UiTransactionEncoding,
+        EncodedConfirmedTransactionWithStatusMeta, EncodedTransaction, UiMessage,
+        UiTransactionEncoding,
     };
     use zolana_client::{ConfirmedInstructionGroups, SolanaRpc};
 
-    use super::{ring_invoked_in, OriginError, TransactionOrigin};
+    use super::{ring_invoked_in, OriginError, RingOrigin, TransactionOrigin};
 
     pub const ORIGIN_TRANSACTION_CONFIG: RpcTransactionConfig = RpcTransactionConfig {
         encoding: Some(UiTransactionEncoding::Json),
@@ -83,16 +96,50 @@ mod rpc {
 
     impl ConfirmedTransaction {
         pub fn ring_invoked(self, ring: Address) -> Result<bool, OriginError> {
+            Ok(self.origin(ring)?.ring_invoked)
+        }
+
+        pub fn origin(self, ring: Address) -> Result<RingOrigin, OriginError> {
+            let signers = signers_of(&self.transaction);
             let groups = ConfirmedInstructionGroups::from_confirmed_transaction(
                 &self.signature,
                 self.transaction,
             )?;
-            ring_invoked_in(&groups.groups, ring)
+            Ok(RingOrigin {
+                ring_invoked: ring_invoked_in(&groups.groups, ring)?,
+                signers,
+            })
         }
     }
 
+    /// The first `num_required_signatures` account keys. An unknown encoding
+    /// names no signer.
+    fn signers_of(transaction: &EncodedConfirmedTransactionWithStatusMeta) -> Vec<Address> {
+        let EncodedTransaction::Json(ui) = &transaction.transaction.transaction else {
+            return Vec::new();
+        };
+        let (keys, required) = match &ui.message {
+            UiMessage::Raw(raw) => (
+                raw.account_keys.clone(),
+                usize::from(raw.header.num_required_signatures),
+            ),
+            UiMessage::Parsed(parsed) => (
+                parsed
+                    .account_keys
+                    .iter()
+                    .map(|key| key.pubkey.clone())
+                    .collect(),
+                parsed.account_keys.iter().filter(|key| key.signer).count(),
+            ),
+        };
+        keys.into_iter()
+            .take(required)
+            .filter_map(|key| key.parse().ok())
+            .collect()
+    }
+
     impl TransactionOrigin for SolanaRpc {
-        fn ring_invoked(&self, signature: Signature, ring: Address) -> Result<bool, OriginError> {
+        fn origin(&self, signature: Signature, ring: Address) -> Result<RingOrigin, OriginError> {
             let transaction = self
                 .client()
                 .get_transaction_with_config(&signature, ORIGIN_TRANSACTION_CONFIG)
@@ -104,7 +151,7 @@ mod rpc {
                 signature,
                 transaction,
             }
-            .ring_invoked(ring)
+            .origin(ring)
         }
     }
 }

@@ -38,7 +38,7 @@ pub use crate::{
     decrypt::TransactionAudit,
     encryption::{auditor_view_tag, AuditEncryptionError, AuditorEncryption, AuditorMessage},
     error::AuditError,
-    origin::{ring_invoked_in, OriginError, TransactionOrigin},
+    origin::{ring_invoked_in, OriginError, RingOrigin, TransactionOrigin},
     reader::{Ed25519ReaderKey, P256ReaderKey, ReaderKey, ReaderKeyError, READER_RECORD_PDA_SEED},
     scan::{AuditedPage, RingAudit, RingEnvironment, RingScan, RingScanPage},
     types::{AuditedOutput, AuditedTransaction},

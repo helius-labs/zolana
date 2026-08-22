@@ -14,6 +14,7 @@ export {
   type WalletSyncMaterial,
 } from "../transaction/wallet/authority.js";
 export { buildDepositTransaction, type DepositTransactionParams } from "./deposit.js";
+export { fetchOwnerTags, type OwnerTags } from "./parties.js";
 export {
   buildSplitTransaction,
   buildTransferTransaction,

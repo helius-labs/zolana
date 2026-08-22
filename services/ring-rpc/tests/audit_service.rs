@@ -18,7 +18,7 @@ use zolana_client::{ClientError, Context, GetShieldedTransactionsByTagsResponse}
 use zolana_indexer_api::{Base64String, Limit};
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
-use zolana_ring_client::{auditor_view_tag, AuditorEncryption, OriginError, ReaderKey};
+use zolana_ring_client::{auditor_view_tag, AuditorEncryption, OriginError, ReaderKey, RingOrigin};
 use zolana_ring_rpc::{
     auditor_key_attestation, rpc_module, unix_now, AuditRead, Claim, CreateAuditorKeyRequest,
     CreateAuditorKeyResponse, GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse,
@@ -37,6 +37,7 @@ const SALT: [u8; SALT_LEN] = [3; SALT_LEN];
 const TREE: Address = Address::new_from_array([4; 32]);
 const RING: Address = Address::new_from_array([5; 32]);
 const OTHER_RING: Address = Address::new_from_array([6; 32]);
+const SENDER: Address = Address::new_from_array([7; 32]);
 const ORIGIN: &str = "http://localhost:3000";
 const USER_PRESENT_AND_VERIFIED: u8 = 0x05;
 
@@ -303,20 +304,24 @@ impl TransactionSource for StaticSource {
         async move { Ok(response) }
     }
 
-    fn ring_invoked(
+    fn transaction_origin(
         &self,
         signature: Signature,
         ring: Address,
-    ) -> impl Future<Output = Result<bool, OriginError>> + Send {
+    ) -> impl Future<Output = Result<RingOrigin, OriginError>> + Send {
         assert_eq!(ring, RING);
-        let origin =
-            self.origins
-                .get(&signature)
-                .copied()
-                .ok_or_else(|| OriginError::Unavailable {
-                    signature,
-                    message: "not found".to_owned(),
-                });
+        let origin = self
+            .origins
+            .get(&signature)
+            .copied()
+            .map(|ring_invoked| RingOrigin {
+                ring_invoked,
+                signers: vec![SENDER],
+            })
+            .ok_or_else(|| OriginError::Unavailable {
+                signature,
+                message: "not found".to_owned(),
+            });
         async move { origin }
     }
 
@@ -532,6 +537,10 @@ async fn granted_reader_opens_audited_transfers_and_reports_the_rest() {
     assert_eq!(item.outputs[0].amount, 500);
     assert_eq!(item.outputs[1].amount, 7);
     assert_eq!(item.outputs[0].asset.0.to_bytes(), SOL_MINT.to_bytes());
+    // The slot's own tag, not anything recovered from the ciphertext.
+    assert_eq!(item.outputs[0].owner_tag.0, [0x80; 32]);
+    assert_eq!(item.outputs[1].owner_tag.0, [0x81; 32]);
+    assert_eq!(item.signers, vec![SENDER.to_bytes().into()]);
     assert_eq!(
         item.outputs[0].recipient_viewing_pk,
         Base64String(fixture.recipient.as_bytes().to_vec())

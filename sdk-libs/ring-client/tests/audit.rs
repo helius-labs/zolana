@@ -23,8 +23,8 @@ use zolana_interface::{
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
 use zolana_ring_client::{
     auditor_view_tag, AuditError, AuditedOutput, AuditedTransaction, AuditorEncryption,
-    OriginError, RingAudit, RingEnvironment, RingScan, TransactionAudit, TransactionOrigin,
-    AUDITOR_MESSAGE_LEN,
+    OriginError, RingAudit, RingEnvironment, RingOrigin, RingScan, TransactionAudit,
+    TransactionOrigin, AUDITOR_MESSAGE_LEN,
 };
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
@@ -190,6 +190,7 @@ fn audit_returns_the_amounts_assets_and_blindings_that_were_encrypted() {
                 AuditedOutput {
                     slot_index: 0,
                     recipient_viewing_pk: recipient_one.pubkey(),
+                    owner_tag: [0x80; 32],
                     asset: SOL_MINT,
                     amount: 1_234_567,
                     blinding: Zeroizing::new([0x21; 32]),
@@ -198,6 +199,7 @@ fn audit_returns_the_amounts_assets_and_blindings_that_were_encrypted() {
                 AuditedOutput {
                     slot_index: 1,
                     recipient_viewing_pk: recipient_two.pubkey(),
+                    owner_tag: [0x81; 32],
                     asset: TOKEN_MINT,
                     amount: 99,
                     blinding: Zeroizing::new([0x22; 32]),
@@ -237,6 +239,7 @@ fn ring_owned_output_keeps_its_ring_program_id() {
         vec![AuditedOutput {
             slot_index: 0,
             recipient_viewing_pk: recipient.pubkey(),
+            owner_tag: [0x80; 32],
             asset: SOL_MINT,
             amount: 500,
             blinding: Zeroizing::new([0x31; 32]),
@@ -282,6 +285,7 @@ fn dummy_and_foreign_slots_are_reported_not_fatal() {
                 AuditedOutput {
                     slot_index: 0,
                     recipient_viewing_pk: recipient_one.pubkey(),
+                    owner_tag: [0x80; 32],
                     asset: SOL_MINT,
                     amount: 10,
                     blinding: Zeroizing::new([0x41; 32]),
@@ -290,6 +294,7 @@ fn dummy_and_foreign_slots_are_reported_not_fatal() {
                 AuditedOutput {
                     slot_index: 2,
                     recipient_viewing_pk: recipient_two.pubkey(),
+                    owner_tag: [0x82; 32],
                     asset: TOKEN_MINT,
                     amount: 20,
                     blinding: Zeroizing::new([0x42; 32]),
@@ -576,12 +581,16 @@ struct KnownOrigins {
 }
 
 impl TransactionOrigin for KnownOrigins {
-    fn ring_invoked(&self, signature: Signature, ring: Address) -> Result<bool, OriginError> {
+    fn origin(&self, signature: Signature, ring: Address) -> Result<RingOrigin, OriginError> {
         assert_eq!(ring, self.ring);
         self.lookups.set(self.lookups.get() + 1);
         self.origins
             .get(&signature)
             .copied()
+            .map(|ring_invoked| RingOrigin {
+                ring_invoked,
+                signers: Vec::new(),
+            })
             .ok_or_else(|| OriginError::Unavailable {
                 signature,
                 message: "not found".to_owned(),
@@ -693,6 +702,7 @@ fn scan_walks_every_page_and_keeps_only_ring_transactions_tagged_for_the_auditor
         &[AuditedOutput {
             slot_index: 0,
             recipient_viewing_pk: recipient.pubkey(),
+            owner_tag: [0x80; 32],
             asset: SOL_MINT,
             amount: 111,
             blinding: Zeroizing::new([0xa1; 32]),
@@ -705,6 +715,7 @@ fn scan_walks_every_page_and_keeps_only_ring_transactions_tagged_for_the_auditor
         &[AuditedOutput {
             slot_index: 0,
             recipient_viewing_pk: recipient.pubkey(),
+            owner_tag: [0x80; 32],
             asset: TOKEN_MINT,
             amount: 222,
             blinding: Zeroizing::new([0xa2; 32]),

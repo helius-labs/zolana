@@ -161,6 +161,7 @@ impl OutputAudit<'_> {
         Ok(Some(AuditedOutput {
             slot_index: self.slot_index,
             recipient_viewing_pk,
+            owner_tag: self.slot.view_tag,
             asset,
             amount: plaintext.amount,
             blinding: Zeroizing::new(plaintext.blinding),

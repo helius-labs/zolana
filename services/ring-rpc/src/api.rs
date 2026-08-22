@@ -151,6 +151,9 @@ pub struct DecryptedTransaction {
     pub outputs: Vec<DecryptedOutput>,
     pub undecryptable_slots: Vec<u32>,
     pub nullifiers: Vec<Hash>,
+    /// Required signers, fee payer first. The sender is the one matching an
+    /// output owner tag.
+    pub signers: Vec<SerializablePubkey>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -158,6 +161,9 @@ pub struct DecryptedTransaction {
 pub struct DecryptedOutput {
     pub slot_index: u32,
     pub recipient_viewing_pk: Base64String,
+    /// The output slot's owner tag. Base58 of it is the Solana address of an
+    /// Ed25519 or PDA owner.
+    pub owner_tag: Hash,
     pub asset: SerializablePubkey,
     pub amount: u64,
     pub ring_program_id: Option<SerializablePubkey>,

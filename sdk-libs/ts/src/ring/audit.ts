@@ -19,7 +19,10 @@ import { bigIntToBytes, bytesToBigInt } from "../keypair/bytes.js";
 import { P256PublicKey } from "../keypair/public-key.js";
 import { ViewingKey } from "../keypair/viewing-key.js";
 import { equal } from "../transaction/internal.js";
-import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
+import type {
+  IndexedShieldedTransaction,
+  OutputSlot,
+} from "../transaction/instructions/transact.js";
 import {
   EncryptedScheme,
   decryptConfidentialAsSender,
@@ -34,6 +37,8 @@ import { CachedTransactionOrigin, RpcTransactionOrigin, type TransactionOrigin }
 export interface AuditedRingOutput {
   readonly slotIndex: number;
   readonly recipientViewingPublicKey: P256PublicKey;
+  /** `OutputSlot.viewTag`, which the circuit binds to the output's owner. */
+  readonly ownerTag: Bytes32;
   readonly asset: Address;
   readonly amount: bigint;
   readonly blinding: Bytes32;
@@ -127,7 +132,7 @@ export function auditRingTransaction(
     const outputs: AuditedRingOutput[] = [];
     const undecryptableSlots: number[] = [];
     transaction.outputSlots.forEach((slot, slotIndex) => {
-      const output = auditOutput(txKey, slot.payload, salt, slotIndex, input.assets);
+      const output = auditOutput(txKey, slot, salt, slotIndex, input.assets);
       if (output === undefined) undecryptableSlots.push(slotIndex);
       else outputs.push(output);
     });
@@ -204,7 +209,7 @@ export async function auditRing(
 /** `undefined` for a slot this audit cannot open, Rust `OutputAudit::run`. */
 function auditOutput(
   txKey: ViewingKey,
-  payload: Uint8Array,
+  slot: OutputSlot,
   salt: Bytes16,
   slotIndex: number,
   assets: AssetRegistry,
@@ -212,7 +217,7 @@ function auditOutput(
   let plaintext;
   let recipient: P256PublicKey;
   try {
-    const frame = readOutputData(payload);
+    const frame = readOutputData(slot.payload);
     if (
       frame.encoding !== "encrypted" ||
       (frame.scheme !== EncryptedScheme.confidential &&
@@ -228,6 +233,7 @@ function auditOutput(
   return Object.freeze({
     slotIndex,
     recipientViewingPublicKey: recipient,
+    ownerTag: slot.viewTag,
     asset: assets.resolve(plaintext.assetId),
     amount: plaintext.amount,
     blinding: plaintext.blinding,

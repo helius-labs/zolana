@@ -75,6 +75,7 @@ export {
   buildSplitTransaction,
   buildTransferTransaction,
   buildWithdrawalTransaction,
+  fetchOwnerTags,
   fetchViewingKeyOwners,
   getPrivateTokenBalances,
   getPrivateTransactions,

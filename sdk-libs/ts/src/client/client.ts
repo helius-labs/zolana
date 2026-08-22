@@ -233,12 +233,7 @@ export class ZolanaClient {
     return value === null ? undefined : decodeRpcAccount(value, "getAccountInfo");
   }
 
-  /**
-   * Every account of one program, as Rust's `Rpc::get_program_accounts`.
-   *
-   * The caller indexes what it needs; a registry keyed by one field answers no
-   * question about another without reading the whole of it.
-   */
+  /** Every account of one program, as Rust's `Rpc::get_program_accounts`. */
   async getProgramAccounts(
     programId: Address,
     context?: RequestContext,

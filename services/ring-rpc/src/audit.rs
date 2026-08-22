@@ -42,7 +42,7 @@ use zolana_interface::{
 use zolana_keypair::{P256Pubkey, ViewingKey};
 use zolana_ring_client::{
     auditor_view_tag, AuditError, AuditedTransaction, ConfirmedTransaction, OriginError, ReaderKey,
-    TransactionAudit, ORIGIN_TRANSACTION_CONFIG,
+    RingOrigin, TransactionAudit, ORIGIN_TRANSACTION_CONFIG,
 };
 use zolana_transaction::AssetRegistry;
 
@@ -82,11 +82,11 @@ pub trait TransactionSource: Send + Sync {
         request: TransactionPage<'_>,
     ) -> impl Future<Output = Result<GetShieldedTransactionsByTagsResponse, ClientError>> + Send;
 
-    fn ring_invoked(
+    fn transaction_origin(
         &self,
         signature: Signature,
         ring: Address,
-    ) -> impl Future<Output = Result<bool, OriginError>> + Send;
+    ) -> impl Future<Output = Result<RingOrigin, OriginError>> + Send;
 
     fn ring_config(
         &self,
@@ -276,7 +276,11 @@ impl TransactionSource for ChainSource {
         )
     }
 
-    async fn ring_invoked(&self, signature: Signature, ring: Address) -> Result<bool, OriginError> {
+    async fn transaction_origin(
+        &self,
+        signature: Signature,
+        ring: Address,
+    ) -> Result<RingOrigin, OriginError> {
         let transaction = self
             .rpc
             .client()
@@ -290,7 +294,7 @@ impl TransactionSource for ChainSource {
             signature,
             transaction,
         }
-        .ring_invoked(ring)
+        .origin(ring)
     }
 
     async fn ring_config(&self, ring: Address) -> Result<Option<RingConfiguration>, ClientError> {
@@ -723,21 +727,21 @@ impl<S: TransactionSource> AuditService<S> {
 
         let mut audited = Vec::new();
         let mut skipped = Vec::new();
-        let mut origins: HashMap<Signature, bool> = HashMap::new();
+        let mut origins: HashMap<Signature, RingOrigin> = HashMap::new();
         for tx in response.transactions {
-            let ring_invoked = match origins.get(&tx.tx_signature) {
-                Some(known) => *known,
+            let origin = match origins.get(&tx.tx_signature) {
+                Some(known) => known.clone(),
                 None => {
-                    let invoked = self
+                    let found = self
                         .shared
                         .source
-                        .ring_invoked(tx.tx_signature, self.ring)
+                        .transaction_origin(tx.tx_signature, self.ring)
                         .await?;
-                    origins.insert(tx.tx_signature, invoked);
-                    invoked
+                    origins.insert(tx.tx_signature, found.clone());
+                    found
                 }
             };
-            if !ring_invoked {
+            if !origin.ring_invoked {
                 continue;
             }
             let mut result = (TransactionAudit {
@@ -757,7 +761,7 @@ impl<S: TransactionSource> AuditService<S> {
                 .run();
             }
             match result {
-                Ok(opened) => audited.push((opened, tx.nullifiers)),
+                Ok(opened) => audited.push((opened, tx.nullifiers, origin.signers)),
                 Err(reason) => skipped.push(SkippedTransaction {
                     slot: tx.slot,
                     tx_signature: tx.tx_signature.into(),
@@ -767,7 +771,7 @@ impl<S: TransactionSource> AuditService<S> {
         }
         let items = audited
             .into_iter()
-            .map(|(opened, nullifiers)| decrypted_transaction(opened, nullifiers))
+            .map(|(opened, nullifiers, signers)| decrypted_transaction(opened, nullifiers, signers))
             .collect();
 
         Ok(GetDecryptedTransactionsResponse {
@@ -848,6 +852,7 @@ fn validate_indexer_response(
 fn decrypted_transaction(
     audited: AuditedTransaction,
     nullifiers: Vec<[u8; 32]>,
+    signers: Vec<Address>,
 ) -> DecryptedTransaction {
     DecryptedTransaction {
         slot: audited.slot,
@@ -859,6 +864,7 @@ fn decrypted_transaction(
             .map(|output| DecryptedOutput {
                 slot_index: output.slot_index,
                 recipient_viewing_pk: output.recipient_viewing_pk.as_bytes().to_vec().into(),
+                owner_tag: output.owner_tag.into(),
                 asset: output.asset.to_bytes().into(),
                 amount: output.amount,
                 ring_program_id: output.ring_program_id.map(|id| id.to_bytes().into()),
@@ -866,6 +872,10 @@ fn decrypted_transaction(
             .collect(),
         undecryptable_slots: audited.undecryptable_slots,
         nullifiers: nullifiers.into_iter().map(Into::into).collect(),
+        signers: signers
+            .into_iter()
+            .map(|key| key.to_bytes().into())
+            .collect(),
     }
 }
 

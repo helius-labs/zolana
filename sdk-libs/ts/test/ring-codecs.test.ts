@@ -530,6 +530,9 @@ describe("ring read request", () => {
       amount: 7n,
       ringProgramId: RING,
     });
+    // A ring RPC older than the owner tag sends neither field.
+    expect(item?.outputs[0]?.ownerTag).toBeUndefined();
+    expect(item?.signers).toBeUndefined();
     const params = bodies[0]?.["params"] as Record<string, unknown>;
     expect(Object.keys(params).sort()).toEqual(["auth", "cursor", "limit", "ringProgramId"]);
     const auth = params["auth"] as Record<string, unknown>;
@@ -553,6 +556,55 @@ describe("ring read request", () => {
         }),
       ),
     );
+  });
+
+  it("reads the owner tag and the signers a newer ring RPC sends", async () => {
+    const signerAddress = getAddressDecoder().decode(ed25519.getPublicKey(filled(9, 32)));
+    const reader = messageSignerReader({
+      address: signerAddress,
+      signMessages: (messages: readonly { content: Uint8Array }[]) =>
+        Promise.resolve(messages.map(() => ({ [signerAddress]: filled(5, 64) }))),
+    } as unknown as MessagePartialSigner);
+    const fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          result: {
+            context: { blockTime: 1_700_000_000, slot: 9 },
+            value: {
+              items: [
+                {
+                  slot: 8,
+                  txSignature: "1".repeat(87),
+                  txViewingPk: Buffer.from(hex(P256_HEX)).toString("base64"),
+                  outputs: [
+                    {
+                      slotIndex: 0,
+                      recipientViewingPk: Buffer.from(hex(P256_HEX)).toString("base64"),
+                      ownerTag: addressOf(11),
+                      asset: "11111111111111111111111111111111",
+                      amount: 7,
+                    },
+                  ],
+                  undecryptableSlots: [],
+                  nullifiers: [],
+                  signers: [addressOf(11), addressOf(12)],
+                },
+              ],
+              skipped: [],
+            },
+          },
+        }),
+      )) as typeof globalThis.fetch;
+
+    const page = await new RingRpc("http://ring.example", { fetch }).getDecryptedTransactions({
+      ringProgramId: addressOf(7),
+      signer: reader,
+    });
+
+    expect(page.items[0]?.outputs[0]?.ownerTag).toEqual(filled(11, 32));
+    expect(page.items[0]?.signers).toEqual([addressOf(11), addressOf(12)]);
   });
 
   it("sends a passkey assertion under camelCase keys", async () => {

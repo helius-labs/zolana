@@ -251,12 +251,7 @@ function signingPublicKeyFromRecord(owner: Address, record: UserRecord): Shielde
     : ShieldedPublicKey.fromP256(P256PublicKey.fromBytes(record.ownerP256));
 }
 
-/**
- * The key of `fetchViewingKeyOwners`, the compressed viewing key as hex.
- *
- * An audited output names its recipient by viewing key, so a caller holding one
- * looks the owner up under this key.
- */
+/** The key format of `fetchViewingKeyOwners`, the compressed viewing key as hex. */
 export function viewingKeyIndex(viewingPublicKey: Uint8Array | P256PublicKey): string {
   return hex(
     viewingPublicKey instanceof P256PublicKey ? viewingPublicKey.toBytes() : viewingPublicKey,
@@ -264,13 +259,8 @@ export function viewingKeyIndex(viewingPublicKey: Uint8Array | P256PublicKey): s
 }
 
 /**
- * Every published viewing key, indexed to the owner that published it.
- *
- * The registry is a record per owner, so a viewing key alone addresses nothing
- * and the reverse direction reads the whole registry once. One call answers a
- * whole page of outputs, which is why this returns the index and not one owner.
- * A record this version cannot decode names no owner and is skipped, so a newer
- * registry does not fail the lookup of the records it shares.
+ * Reads the whole registry in one call. Records this version cannot decode are
+ * skipped.
  */
 export async function fetchViewingKeyOwners(
   input: Readonly<{ rpc: ProgramAccountReader }>,

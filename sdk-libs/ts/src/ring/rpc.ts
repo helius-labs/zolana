@@ -186,6 +186,11 @@ export interface RingAuditorKey {
 export interface DecryptedRingOutput {
   readonly slotIndex: number;
   readonly recipientViewingPublicKey: P256PublicKey;
+  /**
+   * `OutputSlot.viewTag`, the Solana address of an Ed25519 or PDA owner.
+   * Absent from an older ring RPC.
+   */
+  readonly ownerTag?: Bytes32;
   readonly asset: Address;
   readonly amount: bigint;
   readonly ringProgramId?: Address;
@@ -198,6 +203,8 @@ export interface DecryptedRingTransaction {
   readonly outputs: readonly DecryptedRingOutput[];
   readonly undecryptableSlots: readonly number[];
   readonly nullifiers: readonly Bytes32[];
+  /** Required signers, fee payer first. Absent from an older ring RPC. */
+  readonly signers?: readonly Address[];
 }
 
 /** Mirrors Rust `SkippedReason`. */
@@ -388,14 +395,23 @@ function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransact
     nullifiers: Object.freeze(
       list(wire["nullifiers"], "nullifiers").map((nullifier) => hash(nullifier, "nullifiers")),
     ),
+    ...(wire["signers"] === undefined || wire["signers"] === null
+      ? {}
+      : {
+          signers: Object.freeze(
+            list(wire["signers"], "signers").map((key) => string(key, "signers") as Address),
+          ),
+        }),
   });
 }
 
 function decodeOutput(output: Record<string, unknown>): DecryptedRingOutput {
   const ring = output["ringProgramId"];
+  const tag = output["ownerTag"];
   return Object.freeze({
     slotIndex: Number(integer(output["slotIndex"], "slotIndex")),
     recipientViewingPublicKey: p256Key(output["recipientViewingPk"], "recipientViewingPk"),
+    ...(tag === undefined || tag === null ? {} : { ownerTag: hash(tag, "ownerTag") }),
     asset: string(output["asset"], "asset") as Address,
     amount: integer(output["amount"], "amount"),
     ...(ring === undefined || ring === null

@@ -249,7 +249,7 @@ mod tests {
     use solana_signature::Signature;
     use zolana_client::{ClientError, GetShieldedTransactionsByTagsResponse};
     use zolana_keypair::ViewingKey;
-    use zolana_ring_client::OriginError;
+    use zolana_ring_client::{OriginError, RingOrigin};
     use zolana_transaction::AssetRegistry;
 
     use crate::{
@@ -273,12 +273,15 @@ mod tests {
             Err(ClientError::Rpc("unused source".to_owned()))
         }
 
-        async fn ring_invoked(
+        async fn transaction_origin(
             &self,
             _signature: Signature,
             _ring: Address,
-        ) -> Result<bool, OriginError> {
-            Ok(false)
+        ) -> Result<RingOrigin, OriginError> {
+            Ok(RingOrigin {
+                ring_invoked: false,
+                signers: Vec::new(),
+            })
         }
 
         async fn ring_config(
