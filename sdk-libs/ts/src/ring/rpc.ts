@@ -183,6 +183,16 @@ export interface RingAuditorKey {
   readonly signature: Uint8Array;
 }
 
+/** Value entering a ring, which carries no auditor message. */
+export interface RingDeposit {
+  readonly signature: Signature;
+  readonly slot: bigint;
+  /** The owner tag of the note the deposit created. */
+  readonly depositor: Address;
+  readonly asset: Address;
+  readonly amount: bigint;
+}
+
 /** Mirrors Rust `RingState`. */
 export type RingState = "served" | "foreignAuditor" | "uninitialized";
 
@@ -302,6 +312,29 @@ export class RingRpc {
       servicePublicKey,
       signature,
     });
+  }
+
+  /** Deposits publish their asset and amount, so this read is unsigned. */
+  async ringDeposits(ringProgramId: Address, limit?: number): Promise<readonly RingDeposit[]> {
+    const wire = record(
+      await this.#call("ringDeposits", {
+        ringProgramId,
+        ...(limit === undefined ? {} : { limit }),
+      }),
+      "result",
+    );
+    return Object.freeze(
+      list(wire["deposits"], "result.deposits").map((entry) => {
+        const deposit = record(entry, "result.deposits");
+        return Object.freeze({
+          signature: string(deposit["signature"], "deposits.signature") as Signature,
+          slot: integer(deposit["slot"], "deposits.slot"),
+          depositor: string(deposit["depositor"], "deposits.depositor") as Address,
+          asset: string(deposit["asset"], "deposits.asset") as Address,
+          amount: integer(deposit["amount"], "deposits.amount"),
+        });
+      }),
+    );
   }
 
   /** Whether this service can open the ring, before a read is attempted. */

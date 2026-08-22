@@ -25,6 +25,7 @@
 //! instruction or event rather than by decryption.
 
 mod decrypt;
+mod deposit;
 mod encryption;
 mod error;
 mod origin;
@@ -36,6 +37,7 @@ mod types;
 pub use crate::origin::{ConfirmedTransaction, ORIGIN_TRANSACTION_CONFIG};
 pub use crate::{
     decrypt::TransactionAudit,
+    deposit::{ring_deposits_in, RingDeposit},
     encryption::{auditor_view_tag, AuditEncryptionError, AuditorEncryption, AuditorMessage},
     error::AuditError,
     origin::{ring_invoked_in, OriginError, RingOrigin, RingWithdrawal, TransactionOrigin},

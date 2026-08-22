@@ -41,16 +41,17 @@ use zolana_interface::{
 };
 use zolana_keypair::{P256Pubkey, ViewingKey};
 use zolana_ring_client::{
-    auditor_view_tag, AuditError, AuditedTransaction, ConfirmedTransaction, OriginError, ReaderKey,
-    RingOrigin, RingWithdrawal, TransactionAudit, ORIGIN_TRANSACTION_CONFIG,
+    auditor_view_tag, ring_deposits_in, AuditError, AuditedTransaction, ConfirmedTransaction,
+    OriginError, ReaderKey, RingOrigin, RingWithdrawal, TransactionAudit,
+    ORIGIN_TRANSACTION_CONFIG,
 };
 use zolana_transaction::AssetRegistry;
 
 use crate::{
     api::{
         unix_now, DecryptedOutput, DecryptedTransaction, DecryptedTransactionsPage,
-        DecryptedWithdrawal, GetDecryptedTransactionsResponse, ReadAttestation, ReadAuth,
-        SkippedReason, SkippedTransaction, AUDIT_CURSOR_LIMIT, AUDIT_PAGE_LIMIT,
+        DecryptedWithdrawal, DepositRecord, GetDecryptedTransactionsResponse, ReadAttestation,
+        ReadAuth, SkippedReason, SkippedTransaction, AUDIT_CURSOR_LIMIT, AUDIT_PAGE_LIMIT,
     },
     authorize::{ReadCheck, Unauthorized, READ_SKEW},
     config::RootSecret,
@@ -87,6 +88,12 @@ pub trait TransactionSource: Send + Sync {
         signature: Signature,
         ring: Address,
     ) -> impl Future<Output = Result<RingOrigin, OriginError>> + Send;
+
+    fn ring_deposits(
+        &self,
+        ring: Address,
+        limit: usize,
+    ) -> impl Future<Output = Result<Vec<DepositRecord>, ClientError>> + Send;
 
     fn ring_config(
         &self,
@@ -274,6 +281,48 @@ impl TransactionSource for ChainSource {
             Some(request.page.limit().get()),
             None,
         )
+    }
+
+    /// The ring's own signatures name the candidates, and every deposit field
+    /// this reports is public.
+    async fn ring_deposits(
+        &self,
+        ring: Address,
+        limit: usize,
+    ) -> Result<Vec<DepositRecord>, ClientError> {
+        let signatures = self
+            .rpc
+            .client()
+            .get_signatures_for_address(&ring)
+            .await
+            .map_err(|error| ClientError::Rpc(format!("signatures for {ring}: {error}")))?;
+        let mut deposits = Vec::new();
+        for entry in signatures.into_iter().take(limit) {
+            let Ok(signature) = entry.signature.parse::<Signature>() else {
+                continue;
+            };
+            let response = self
+                .indexer
+                .get_shielded_transactions_by_signature(signature, None)
+                .await?;
+            for indexed in response.transactions {
+                let slots = indexed
+                    .transaction
+                    .output_slots
+                    .iter()
+                    .map(|slot| (slot.view_tag, slot.payload.clone()));
+                for found in ring_deposits_in(slots, ring) {
+                    deposits.push(DepositRecord {
+                        signature: signature.into(),
+                        slot: indexed.transaction.slot,
+                        depositor: found.depositor.into(),
+                        asset: found.asset.to_bytes().into(),
+                        amount: found.amount,
+                    });
+                }
+            }
+        }
+        Ok(deposits)
     }
 
     async fn transaction_origin(
@@ -978,6 +1027,15 @@ impl<S: TransactionSource> Hub<S> {
             KeySource::Local { .. } => KeyMode::Local,
             KeySource::Derived { .. } => KeyMode::Derived,
         }
+    }
+
+    /// Value entering the ring, which no auditor message announces.
+    pub async fn ring_deposits(
+        &self,
+        ring: Address,
+        limit: usize,
+    ) -> Result<Vec<DepositRecord>, RingRpcError> {
+        Ok(self.shared.source.ring_deposits(ring, limit).await?)
     }
 
     pub fn service_pubkey(&self) -> Address {
