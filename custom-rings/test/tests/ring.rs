@@ -497,6 +497,12 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
             AuditedOutput {
                 slot_index: CHANGE_SLOT,
                 recipient_viewing_pk: env.sender.keypair.viewing_pubkey(),
+                owner_tag: env
+                    .sender
+                    .keypair
+                    .signing_pubkey()
+                    .confidential_view_tag()
+                    .expect("sender owner tag"),
                 asset: SOL_MINT,
                 amount: RING_CHANGE,
                 blinding: Zeroizing::new(change_output.blinding),
@@ -505,6 +511,12 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
             AuditedOutput {
                 slot_index: RECIPIENT_SLOT,
                 recipient_viewing_pk: env.recipient.keypair.viewing_pubkey(),
+                owner_tag: env
+                    .recipient
+                    .keypair
+                    .signing_pubkey()
+                    .confidential_view_tag()
+                    .expect("recipient owner tag"),
                 asset: SOL_MINT,
                 amount: RING_TRANSFER_AMOUNT,
                 blinding: Zeroizing::new(recipient_output.blinding),

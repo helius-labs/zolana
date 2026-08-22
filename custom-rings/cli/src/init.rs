@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
@@ -57,6 +57,8 @@ pub enum InitError {
     ConfigMismatch { authority: Address, auditor: String },
     #[error("ring config not created, run `init` first")]
     NotInitialized,
+    #[error("{path} holds an auditor key, but the ring rpc at {url} is not on this machine and holds its own. Pinning this key means only a ring rpc serving it can ever open the ring: delete the file to take the service's key, or pass --local-auditor to keep it")]
+    LocalAuditorAgainstRemoteRpc { path: PathBuf, url: String },
 }
 
 pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
@@ -67,6 +69,17 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
     } else {
         Trust::Refuse
     };
+    // The config fixes the auditor for good, so a local key must not be pinned
+    // by accident against a service that holds its own.
+    if args.auditor_pubkey_file.exists()
+        && !ctx.config.urls().ring_rpc_is_local()
+        && !args.local_auditor
+    {
+        return Err(InitError::LocalAuditorAgainstRemoteRpc {
+            path: args.auditor_pubkey_file.clone(),
+            url: ctx.config.urls().ring_rpc.clone(),
+        });
+    }
     let source = if args.auditor_pubkey_file.exists() {
         AuditorKeySource::File(&args.auditor_pubkey_file)
     } else {

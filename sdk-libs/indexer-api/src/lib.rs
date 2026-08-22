@@ -607,6 +607,10 @@ pub struct GetShieldedTransactionsByTagsResponse {
     /// output view tag and includes all of its output slots.
     pub transactions: Vec<ShieldedTransaction>,
     pub next_cursor: Option<Base64String>,
+    /// As on the nullifier query, and absent from an index that does not
+    /// report it, this one included. No caller resumes a tag scan from it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scanned_through: Option<Base64String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -806,6 +810,32 @@ mod tests {
         assert!(value.get("next_cursor").is_none());
         assert!(value["context"].get("blockTime").is_some());
         assert!(value["context"].get("block_time").is_none());
+    }
+
+    #[test]
+    fn a_tag_page_reads_an_index_that_reports_its_resume_point() {
+        // A reader that refuses the field cannot open the ring.
+        let page = serde_json::json!({
+            "context": { "blockTime": 3, "slot": 1 },
+            "transactions": [],
+            "nextCursor": null,
+            "scannedThrough": "AQID",
+        });
+        let response: GetShieldedTransactionsByTagsResponse =
+            serde_json::from_value(page).expect("a reported resume point is readable");
+        assert_eq!(response.scanned_through, Some(Base64String(vec![1, 2, 3])));
+
+        // An index that reports none sends no such key.
+        let quiet = serde_json::json!({
+            "context": { "blockTime": 3, "slot": 1 },
+            "transactions": [],
+            "nextCursor": null,
+        });
+        let response: GetShieldedTransactionsByTagsResponse =
+            serde_json::from_value(quiet).expect("an absent resume point is readable");
+        assert_eq!(response.scanned_through, None);
+        let value = serde_json::to_value(&response).expect("serialize");
+        assert!(value.get("scannedThrough").is_none());
     }
 
     #[test]

@@ -24,6 +24,7 @@ import { ShieldedAddress } from "../keypair/shielded.js";
 import { ViewingKey } from "../keypair/viewing-key.js";
 import {
   ConfidentialTransfer,
+  WithdrawalTarget,
   SppProofInputs,
   createExternalData,
   type PreparedTransfer,
@@ -53,6 +54,21 @@ export interface RingTransferTransactionParams {
   readonly authority: WalletAuthority;
   readonly feePayer: Address;
   readonly recipient: Address | ShieldedAddress;
+  readonly asset?: Address;
+  readonly amount: bigint;
+  /** Must be at least one slot old. */
+  readonly lookupTable: Address;
+  readonly computeUnitLimit?: number;
+}
+
+export interface RingWithdrawalTransactionParams {
+  readonly client: ZolanaClient;
+  readonly ringProgramId: Address;
+  readonly wallet: Wallet;
+  readonly authority: WalletAuthority;
+  readonly feePayer: Address;
+  /** Any Solana account. It needs no registry record and need not exist yet. */
+  readonly recipient: Address;
   readonly asset?: Address;
   readonly amount: bigint;
   /** Must be at least one slot old. */
@@ -161,6 +177,97 @@ export async function buildRingTransferTransaction(
     });
   } catch (cause) {
     throw wrapRingError("RING_BUILD_TRANSFER", cause);
+  }
+}
+
+/**
+ * Value leaves the ring to a plain Solana account. The recipient, the amount
+ * and the asset are public, and the audit proof still covers the exit.
+ */
+export async function buildRingWithdrawalTransaction(
+  input: RingWithdrawalTransactionParams,
+  context?: RequestContext,
+): Promise<Transaction> {
+  try {
+    const asset = input.asset ?? SOL_MINT;
+    if (asset !== SOL_MINT) {
+      throw new RingError("RING_BUILD_WITHDRAWAL", { details: { reason: "SOL only" } });
+    }
+    const [address, nullifierKey] = await Promise.all([
+      input.authority.shieldedAddress(),
+      input.authority.spendNullifierKey(),
+    ]);
+    const selected = selectRingInputs(input.wallet, input.ringProgramId, asset, input.amount);
+    const inputs = selected.map(
+      ({ entry }) =>
+        new ProofInputUtxo({
+          utxo: entry.utxo,
+          nullifierKey,
+          ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),
+          ...(entry.zoneDataHash === undefined ? {} : { zoneDataHash: entry.zoneDataHash }),
+        }),
+    );
+    const transfer = new ConfidentialTransfer(address, inputs, input.feePayer);
+    transfer.withdraw(asset, input.amount, WithdrawalTarget.sol({ recipient: input.recipient }));
+    const tree = selected[0]?.tree ?? input.client.tree;
+    await input.authority.requestUserApproval({
+      solanaPublicKey: input.authority.solanaPublicKey(),
+      summary: `public withdrawal of ${String(input.amount)} from the ring to ${input.recipient}`,
+    });
+    const proven = await proveAuditedTransfer(
+      {
+        client: input.client,
+        ringProgramId: input.ringProgramId,
+        prepared: transfer.prepare(),
+        authority: input.authority,
+        assets: input.wallet.registry,
+        tree,
+      },
+      context,
+    );
+    const [instruction, tableAddresses, lifetime] = await Promise.all([
+      ringTransactInstruction({
+        ringProgramId: input.ringProgramId,
+        payer: proven.payer,
+        inputTree: proven.tree,
+        outputTree: proven.tree,
+        auditProof: proven.auditProof,
+        data: proven.data,
+        withdrawal: { kind: "sol", recipient: input.recipient },
+      }),
+      fetchRingLookupTable({
+        client: input.client,
+        ringProgramId: input.ringProgramId,
+        address: input.lookupTable,
+        tree: proven.tree,
+      }),
+      input.client.getLatestBlockhash(context),
+    ]);
+    const message = pipe(
+      createTransactionMessage({ version: 0 }),
+      (tx) => setTransactionMessageFeePayer(input.feePayer, tx),
+      (tx) => setTransactionMessageLifetimeUsingBlockhash(lifetime, tx),
+      (tx) =>
+        appendTransactionMessageInstructions(
+          [
+            getSetComputeUnitLimitInstruction({
+              units: input.computeUnitLimit ?? RING_TRANSACT_COMPUTE_UNIT_LIMIT,
+            }),
+            instruction,
+          ],
+          tx,
+        ),
+      (tx) =>
+        compressTransactionMessageUsingAddressLookupTables(tx, {
+          [input.lookupTable]: [...tableAddresses],
+        }),
+    );
+    return checkedTransactionSize(compileTransaction(message), {
+      inputs: proven.data.inputs.length,
+      outputs: proven.data.outputs.length,
+    });
+  } catch (cause) {
+    throw wrapRingError("RING_BUILD_WITHDRAWAL", cause);
   }
 }
 

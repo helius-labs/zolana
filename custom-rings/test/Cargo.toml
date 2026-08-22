@@ -13,18 +13,15 @@ bincode = { workspace = true }
 custom-ring-program = { path = "../program" }
 custom-ring-sdk = { path = "../sdk" }
 solana-address = { workspace = true }
-solana-address-lookup-table-interface = { workspace = true }
 solana-compute-budget-interface = { workspace = true }
 solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
-solana-message = { workspace = true }
 solana-packet = "3.0"
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-system-interface = { workspace = true }
 # `serde` is what makes `Transaction`/`VersionedTransaction` serializable for the
 # RPC send path; declared here rather than inherited from another crate's features.
-solana-transaction = { workspace = true, features = ["serde"] }
 zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
 # `solana` pulls in the ring deposit instruction-data types (`RingAssetDeposit`,
 # `DepositAsset`) the lifecycle builds its deposits from.

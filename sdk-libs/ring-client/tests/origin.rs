@@ -3,13 +3,18 @@
 use solana_address::Address;
 use solana_signature::Signature;
 use solana_transaction_status_client_types::EncodedConfirmedTransactionWithStatusMeta;
-use zolana_event::{InstructionGroup, ParsedInstruction};
-use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
-use zolana_ring_client::{ring_invoked_in, ConfirmedTransaction, OriginError};
+use zolana_event::{tag, InstructionGroup, ParsedInstruction};
+use zolana_interface::{
+    instruction::{CircuitId, InterfaceTransfer, TransactIxData, TransactProof},
+    SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE,
+};
+use zolana_ring_client::{ring_invoked_in, ConfirmedTransaction, OriginError, RingWithdrawal};
 
 const RING: Address = Address::new_from_array([9u8; 32]);
 const OTHER: Address = Address::new_from_array([8u8; 32]);
 const POOL: Address = Address::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+const SOL: Address = Address::new_from_array(SOL_INTERFACE);
+const RECIPIENT: Address = Address::new_from_array([3u8; 32]);
 
 fn instruction(program_id: Address, stack_height: Option<u32>) -> ParsedInstruction {
     ParsedInstruction::new(program_id, Vec::new(), Vec::new(), stack_height)
@@ -122,4 +127,133 @@ fn v0_transactions_resolve_program_ids_from_loaded_addresses() {
     .ring_invoked(RING)
     .expect("walk");
     assert!(invoked);
+}
+
+fn ring_transact_data(interface_transfers: Vec<InterfaceTransfer>) -> String {
+    let data = TransactIxData {
+        expiry_unix_ts: u64::MAX,
+        private_tx_hash: [0u8; 32],
+        circuit: CircuitId::RingEddsa(0, 0, 3),
+        tx_viewing_pk: [0u8; 33],
+        salt: [0u8; 16],
+        proof: TransactProof::zeroed(),
+        inputs: Vec::new(),
+        interface_transfers,
+        data_hash: None,
+        ring_data_hash: None,
+        outputs: Vec::new(),
+        messages: Vec::new(),
+    };
+    let mut encoded = vec![tag::RING_TRANSACT];
+    encoded.extend_from_slice(&data.serialize().expect("serialize"));
+    bs58::encode(encoded).into_string()
+}
+
+/// A ring transact CPI with `accounts` as its pool-instruction account indices.
+fn withdrawing_transaction(
+    interface_transfers: Vec<InterfaceTransfer>,
+    accounts: Vec<u8>,
+) -> EncodedConfirmedTransactionWithStatusMeta {
+    let payer = Address::new_from_array([1u8; 32]);
+    let tree = Address::new_from_array([2u8; 32]);
+    let json = serde_json::json!({
+        "slot": 7,
+        "blockTime": null,
+        "transaction": {
+            "signatures": [Signature::from([6u8; 64]).to_string()],
+            "message": {
+                "header": {
+                    "numRequiredSignatures": 1,
+                    "numReadonlySignedAccounts": 0,
+                    "numReadonlyUnsignedAccounts": 6
+                },
+                "accountKeys": [
+                    payer.to_string(),
+                    RING.to_string(),
+                    POOL.to_string(),
+                    Address::default().to_string(),
+                    OTHER.to_string(),
+                    tree.to_string(),
+                    SOL.to_string(),
+                    RECIPIENT.to_string()
+                ],
+                "recentBlockhash": Address::default().to_string(),
+                "instructions": [
+                    { "programIdIndex": 1, "accounts": [0], "data": "", "stackHeight": null }
+                ]
+            }
+        },
+        "meta": {
+            "err": null,
+            "status": { "Ok": null },
+            "fee": 5000,
+            "preBalances": [1, 0],
+            "postBalances": [0, 0],
+            "innerInstructions": [
+                {
+                    "index": 0,
+                    "instructions": [{
+                        "programIdIndex": 2,
+                        "accounts": accounts,
+                        "data": ring_transact_data(interface_transfers),
+                        "stackHeight": 2
+                    }]
+                }
+            ]
+        }
+    });
+    serde_json::from_value(json).expect("rpc shape")
+}
+
+/// The recipient is the account following `SOL_INTERFACE` in the settlement
+/// accounts appended to the pool instruction.
+#[test]
+fn sol_withdrawal_reports_its_recipient_and_amount() {
+    let origin = ConfirmedTransaction {
+        signature: Signature::from([6u8; 64]),
+        transaction: withdrawing_transaction(
+            vec![InterfaceTransfer::SolWithdrawal { amount: 4_200 }],
+            vec![0, 5, 5, 2, 3, 4, 6, 7],
+        ),
+    }
+    .origin(RING)
+    .expect("walk");
+
+    assert!(origin.ring_invoked);
+    assert_eq!(
+        origin.withdrawals,
+        vec![RingWithdrawal {
+            recipient: RECIPIENT,
+            amount: 4_200,
+        }]
+    );
+}
+
+/// A preceding SPL withdrawal shifts the SOL settlement group and is itself
+/// left out.
+#[test]
+fn spl_withdrawals_are_skipped_without_losing_the_sol_leg() {
+    let origin = ConfirmedTransaction {
+        signature: Signature::from([6u8; 64]),
+        transaction: withdrawing_transaction(
+            vec![
+                InterfaceTransfer::SplWithdrawal {
+                    amount: 9,
+                    spl_interface_bump: 42,
+                },
+                InterfaceTransfer::SolWithdrawal { amount: 11 },
+            ],
+            vec![0, 5, 5, 2, 3, 4, 4, 4, 4, 4, 4, 6, 7],
+        ),
+    }
+    .origin(RING)
+    .expect("walk");
+
+    assert_eq!(
+        origin.withdrawals,
+        vec![RingWithdrawal {
+            recipient: RECIPIENT,
+            amount: 11,
+        }]
+    );
 }

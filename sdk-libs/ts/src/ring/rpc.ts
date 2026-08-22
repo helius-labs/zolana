@@ -183,12 +183,38 @@ export interface RingAuditorKey {
   readonly signature: Uint8Array;
 }
 
+/** Mirrors Rust `RingState`. */
+export type RingState = "served" | "foreignAuditor" | "uninitialized";
+
+/** Mirrors Rust `RingStatusResponse`. Unsigned, for diagnosis only. */
+export interface RingStatus {
+  readonly ringProgramId: Address;
+  readonly state: RingState;
+  /** The key this service holds for the ring. */
+  readonly auditorPublicKey: P256PublicKey;
+  readonly auditorViewTag: Bytes32;
+  /** The key the ring's config names, absent until the config exists. */
+  readonly configAuditorPublicKey?: P256PublicKey;
+  readonly servicePublicKey: Address;
+}
+
 export interface DecryptedRingOutput {
   readonly slotIndex: number;
   readonly recipientViewingPublicKey: P256PublicKey;
+  /**
+   * `OutputSlot.viewTag`, the Solana address of an Ed25519 or PDA owner.
+   * Absent from an older ring RPC.
+   */
+  readonly ownerTag?: Bytes32;
   readonly asset: Address;
   readonly amount: bigint;
   readonly ringProgramId?: Address;
+}
+
+/** A public settlement leg. Value left the ring to a plain account. */
+export interface DecryptedRingWithdrawal {
+  readonly recipient: Address;
+  readonly amount: bigint;
 }
 
 export interface DecryptedRingTransaction {
@@ -198,6 +224,10 @@ export interface DecryptedRingTransaction {
   readonly outputs: readonly DecryptedRingOutput[];
   readonly undecryptableSlots: readonly number[];
   readonly nullifiers: readonly Bytes32[];
+  /** Required signers, fee payer first. Absent from an older ring RPC. */
+  readonly signers?: readonly Address[];
+  /** Absent from an older ring RPC, empty when nothing left the ring. */
+  readonly withdrawals?: readonly DecryptedRingWithdrawal[];
 }
 
 /** Mirrors Rust `SkippedReason`. */
@@ -271,6 +301,26 @@ export class RingRpc {
       auditorViewTag: hash(wire["auditorViewTag"], "result.auditorViewTag"),
       servicePublicKey,
       signature,
+    });
+  }
+
+  /** Whether this service can open the ring, before a read is attempted. */
+  async ringStatus(ringProgramId: Address): Promise<RingStatus> {
+    const wire = record(await this.#call("ringStatus", { ringProgramId }), "result");
+    const state = string(wire["state"], "result.state");
+    if (state !== "served" && state !== "foreignAuditor" && state !== "uninitialized") {
+      throw invalid("result.state");
+    }
+    const config = wire["configAuditorPubkey"];
+    return Object.freeze({
+      ringProgramId: string(wire["ringProgramId"], "result.ringProgramId") as Address,
+      state,
+      auditorPublicKey: p256Key(wire["auditorPubkey"], "result.auditorPubkey"),
+      auditorViewTag: hash(wire["auditorViewTag"], "result.auditorViewTag"),
+      ...(config === undefined || config === null
+        ? {}
+        : { configAuditorPublicKey: p256Key(config, "result.configAuditorPubkey") }),
+      servicePublicKey: string(wire["servicePubkey"], "result.servicePubkey") as Address,
     });
   }
 
@@ -388,14 +438,36 @@ function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransact
     nullifiers: Object.freeze(
       list(wire["nullifiers"], "nullifiers").map((nullifier) => hash(nullifier, "nullifiers")),
     ),
+    ...(wire["signers"] === undefined || wire["signers"] === null
+      ? {}
+      : {
+          signers: Object.freeze(
+            list(wire["signers"], "signers").map((key) => string(key, "signers") as Address),
+          ),
+        }),
+    ...(wire["withdrawals"] === undefined || wire["withdrawals"] === null
+      ? {}
+      : {
+          withdrawals: Object.freeze(
+            list(wire["withdrawals"], "withdrawals").map((entry) => {
+              const leg = record(entry, "withdrawals");
+              return Object.freeze({
+                recipient: string(leg["recipient"], "withdrawals.recipient") as Address,
+                amount: integer(leg["amount"], "withdrawals.amount"),
+              });
+            }),
+          ),
+        }),
   });
 }
 
 function decodeOutput(output: Record<string, unknown>): DecryptedRingOutput {
   const ring = output["ringProgramId"];
+  const tag = output["ownerTag"];
   return Object.freeze({
     slotIndex: Number(integer(output["slotIndex"], "slotIndex")),
     recipientViewingPublicKey: p256Key(output["recipientViewingPk"], "recipientViewingPk"),
+    ...(tag === undefined || tag === null ? {} : { ownerTag: hash(tag, "ownerTag") }),
     asset: string(output["asset"], "asset") as Address,
     amount: integer(output["amount"], "amount"),
     ...(ring === undefined || ring === null

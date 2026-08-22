@@ -17,6 +17,9 @@ pub struct AuditedOutput {
     /// the slot index the ciphertext is bound to.
     pub slot_index: u32,
     pub recipient_viewing_pk: P256Pubkey,
+    /// The slot's view tag, bound by the circuit to the output owner. The Solana
+    /// address of an Ed25519 or PDA owner, an x-coordinate for P256.
+    pub owner_tag: [u8; 32],
     pub asset: Address,
     pub amount: u64,
     pub blinding: Zeroizing<[u8; 32]>,
@@ -30,6 +33,7 @@ impl fmt::Debug for AuditedOutput {
             .debug_struct("AuditedOutput")
             .field("slot_index", &self.slot_index)
             .field("recipient_viewing_pk", &self.recipient_viewing_pk)
+            .field("owner_tag", &self.owner_tag)
             .field("asset", &self.asset)
             .field("amount", &self.amount)
             .field("blinding", &"redacted")

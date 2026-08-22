@@ -20,7 +20,9 @@
 # Environment
 #   RINGS_TEST_PROVER_TAG     tag in zolana-prover, default prover-<branch>-<sha12>
 #   RINGS_TEST_RING_RPC_TAG   tag in zolana-ring-rpc, default ring-rpc-<branch>-<sha12>
-#   RINGS_TEST_INDEXER_URL    photon the ring RPC reads, required
+#   RINGS_TEST_INDEXER_URL    photon the ring RPC reads, required. A plain HTTP
+#                             one also gets a distribution of this stack in
+#                             front of it, the photon itself is not changed.
 #   RINGS_TEST_SOLANA_RPC_URL default https://api.devnet.solana.com
 #   AWS_REGION            default eu-north-1
 #   RINGS_TEST_VPC        VPC id, default the account's default VPC
@@ -124,7 +126,8 @@ key_fetch_script() {
         sha="$(awk -v n="$name" '$2 == n { print $1 }' "$checksum")"
         printf 'fetch %s/%s %s %s\n' "$keys_release" "$name" "$name" "$sha"
     done
-    for name in transfer_ring_1_2.key transfer_ring_2_2.key; do
+    # 1_1 is the withdrawal shape, which has no recipient output.
+    for name in transfer_ring_1_1.key transfer_ring_1_2.key transfer_ring_2_2.key; do
         sha="$(jq -r --arg n "$name" '.keys[$n].sha256' "$lock")"
         printf 'fetch %s/%s %s %s\n' "$published_keys" "$name" "$name" "$sha"
     done
@@ -139,6 +142,12 @@ ensure_load_balancer() {
         arn="$(aws_ elbv2 create-load-balancer --name "$load_balancer" --type network --scheme internet-facing \
             --subnets "${subnet_list[@]}" --tags "$tag_spec" --query 'LoadBalancers[0].LoadBalancerArn' --output text)"
     fi
+    # The prover task and the ring RPC task each run in one zone, and not the
+    # same one. Without cross-zone the nodes of the other zones have no target,
+    # accept the connection and never answer, so two of the three balancer
+    # addresses time out.
+    aws_ elbv2 modify-load-balancer-attributes --load-balancer-arn "$arn" \
+        --attributes Key=load_balancing.cross_zone.enabled,Value=true >/dev/null
     local service port group
     for service in prover ring-rpc; do
         port="$prover_port"; [[ "$service" == prover ]] || port="$ring_rpc_port"
@@ -176,6 +185,19 @@ ensure_distribution() {
         aws_ cloudfront tag-resource --resource "arn:aws:cloudfront::$account:distribution/$id" --tags "Items=[{$tag_spec}]"
     fi
     aws_ cloudfront get-distribution --id "$id" --query 'Distribution.DomainName' --output text
+}
+
+# The photon named by RINGS_TEST_INDEXER_URL belongs to another stack and is
+# never changed here. It only becomes the origin of a distribution of this
+# stack, so a page served over HTTPS reads it without a mixed content block.
+ensure_indexer_distribution() {
+    local url="$1" hostport host port=80
+    [[ "$url" == http://* ]] || return 0
+    hostport="${url#http://}"
+    hostport="${hostport%%/*}"
+    host="${hostport%%:*}"
+    [[ "$hostport" != *:* ]] || port="${hostport##*:}"
+    ensure_distribution "$prefix-indexer" "$host" "$port" >/dev/null
 }
 
 remove_distribution() {
@@ -318,19 +340,22 @@ up() {
     log "== https"
     ensure_distribution "$prefix-prover" "$dns" "$prover_port" >/dev/null
     ensure_distribution "$prefix-ring-rpc" "$dns" "$ring_rpc_port" >/dev/null
+    ensure_indexer_distribution "$indexer"
     log "waiting for the services to stabilize"
     aws_ ecs wait services-stable --cluster "$cluster" --services "$prefix-prover" "$prefix-ring-rpc"
     status
 }
 
 status() {
-    local dns prover_host ring_rpc_host
+    local dns prover_host ring_rpc_host indexer_host
     dns="$(aws_ elbv2 describe-load-balancers --names "$load_balancer" --query 'LoadBalancers[0].DNSName' --output text 2>/dev/null || echo "-")"
     prover_host="$(aws_ cloudfront list-distributions --query "DistributionList.Items[?Comment=='$prefix-prover'].DomainName | [0]" --output text)"
     ring_rpc_host="$(aws_ cloudfront list-distributions --query "DistributionList.Items[?Comment=='$prefix-ring-rpc'].DomainName | [0]" --output text)"
+    indexer_host="$(aws_ cloudfront list-distributions --query "DistributionList.Items[?Comment=='$prefix-indexer'].DomainName | [0]" --output text)"
     echo "prover    https://$prover_host   (http://$dns:$prover_port, task $(public_ip "$prefix-prover"))"
     echo "ring rpc  https://$ring_rpc_host   (http://$dns:$ring_rpc_port, task $(public_ip "$prefix-ring-rpc"))"
     curl -sf --max-time 15 "https://$prover_host/health" && echo || echo "prover not reachable over https yet"
+    [[ "$indexer_host" == None || -z "$indexer_host" ]] || echo "indexer   https://$indexer_host   (the photon of another stack, read only)"
     curl -sf --max-time 15 "https://$ring_rpc_host/health" && echo || echo "ring rpc not reachable over https yet"
     echo "logs      aws logs tail $log_group --region $region --follow"
 }
@@ -350,6 +375,7 @@ down() {
     aws_ ecs delete-cluster --cluster "$cluster" >/dev/null 2>&1 || true
     remove_distribution "$prefix-prover"
     remove_distribution "$prefix-ring-rpc"
+    remove_distribution "$prefix-indexer"
     local lb
     lb="$(aws_ elbv2 describe-load-balancers --names "$load_balancer" --query 'LoadBalancers[0].LoadBalancerArn' --output text 2>/dev/null || true)"
     if [[ "$lb" != None && -n "$lb" ]]; then

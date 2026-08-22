@@ -118,3 +118,9 @@ export interface RpcAccount {
   readonly data: Uint8Array;
   readonly lamports: bigint;
 }
+
+/** One account of a program listing, which carries its own address. */
+export interface ProgramAccount {
+  readonly address: Address;
+  readonly account: RpcAccount;
+}

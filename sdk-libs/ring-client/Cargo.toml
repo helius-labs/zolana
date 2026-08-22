@@ -11,7 +11,6 @@ default = []
 solana-rpc = [
     "zolana-client/solana-rpc",
     "dep:solana-commitment-config",
-    "dep:solana-rpc-client",
     "dep:solana-rpc-client-api",
     "dep:solana-transaction-status-client-types",
 ]
@@ -23,7 +22,6 @@ p256 = { workspace = true }
 sha2 = { workspace = true }
 solana-address = { workspace = true, features = ["curve25519"] }
 solana-commitment-config = { workspace = true, optional = true }
-solana-rpc-client = { workspace = true, optional = true }
 solana-rpc-client-api = { workspace = true, optional = true }
 solana-signature = { workspace = true }
 solana-transaction-status-client-types = { workspace = true, optional = true }
@@ -37,6 +35,7 @@ zolana-transaction = { workspace = true }
 
 [dev-dependencies]
 borsh = { workspace = true }
+bs58 = { workspace = true }
 serde_json = { workspace = true }
 solana-transaction-status-client-types = { workspace = true }
 zolana-ring-client = { path = ".", features = ["solana-rpc"] }
