@@ -166,6 +166,14 @@ function ensureViewingKeyEntries(
   return entries;
 }
 
+/** Whether the kept outputs account for every asset the transaction spent. */
+function covered(spent: ReadonlyMap<Address, bigint>, kept: readonly Utxo[]): boolean {
+  if (spent.size === 0) return false;
+  const byAsset = new Map<Address, bigint>();
+  for (const utxo of kept) byAsset.set(utxo.asset, (byAsset.get(utxo.asset) ?? 0n) + utxo.amount);
+  return [...spent].every(([asset, amount]) => (byAsset.get(asset) ?? 0n) >= amount);
+}
+
 function historyId(tx: IndexedShieldedTransaction, index: bigint): PrivateTransactionId {
   return { signature: tx.txSignature, slot: tx.slot, index };
 }
@@ -535,10 +543,17 @@ class SyncPass {
       }
     });
 
+    const spent = this.#spentAmounts(tx.nullifiers);
+    // Paying yourself keeps every output, so nothing distinguishes it from
+    // change except that the change covers the whole spend.
+    if (recipientKeys.length === 0 && covered(spent, change)) {
+      this.#recordSplit(tx, spent);
+      return;
+    }
     const kind = recipientKeys.length === 0 ? "publicWithdrawal" : "privateTransfer";
     this.#recordOutboundTransfer(
       tx,
-      this.#spentAmounts(tx.nullifiers),
+      spent,
       change,
       kind,
       recipientKeys.length === 1 ? recipientKeys[0] : undefined,
