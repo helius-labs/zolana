@@ -17,7 +17,9 @@ cargo run -p zolana-ring-rpc -- serve \
 
 The command writes the secret with owner access only. It writes the compressed public key to `keys/auditor.key.pub`.
 
-Derived mode serves a stable key for each ring and cluster. Generate a root secret with `keygen --kind root`. Protect one root as carefully as all keys derived from it.
+Derived mode serves a stable key for each ring and cluster, for as many rings as ask. Generate a root secret with `keygen --kind root`. Protect one root as carefully as all keys derived from it. The key comes from the root, the cluster genesis hash and the ring program id, so a new ring needs no configuration, no restart, and nothing stored. Repointing the service at another cluster changes every derived key and orphans every ring already registered.
+
+A ring must take its auditor key from the service before it creates its config. The config fixes the auditor for the life of the ring, so a ring registered with any other key can never be read here, whatever the service derives for it. `ringStatus` reports which of the three cases a ring is in.
 
 `createAuditorKey` returns a service signature over the ring and auditor key. The current ring program does not verify the service signature. Operators must verify and pin the service public key through a separate trusted channel.
 
@@ -29,6 +31,7 @@ All wire fields use camel case.
 | --- | --- | --- |
 | `health` | none | Service mode, service public key, and local view tag |
 | `createAuditorKey` | Ring program ID | Auditor key and service attestation |
+| `ringStatus` | Ring program ID | The key held for the ring, and whether its config names that key (`served`), another one (`foreignAuditor`), or does not exist yet (`uninitialized`) |
 | `getDecryptedTransactions` | Ring, page, and read authorization | Decrypted transaction page |
 
 The read authorization contains a canonical reader key, Unix timestamp, random nonce, and signature. The signature binds the ring, timestamp, nonce, cursor, and limit. Ed25519 readers sign the attestation bytes. P256 readers use WebAuthn with user verification.
@@ -51,4 +54,4 @@ Photon is an integrity boundary for transaction rows, slots, signatures, ciphert
 
 The server accepts loopback binds only, put a TLS proxy in front of it for remote clients. `--insecure-public-bind` lifts that for a test deployment and serves the decrypted audit data over plain HTTP. Keep the proxy request body limit at or below the service limit.
 
-`GET /health` reports the service identity. `GET /ready` checks Photon, Solana RPC, and the local ring auditor key. Key files must have owner access only unless the operator selects the shared file option.
+`GET /health` reports the service identity. `GET /ready` checks Photon, Solana RPC, and the local ring auditor key; in derived mode it checks nothing ring specific, `ringStatus` answers for one ring. `createAuditorKey` and `ringStatus` are unauthenticated and share the read rate limit. Key files must have owner access only unless the operator selects the shared file option.

@@ -11,8 +11,9 @@ pub use api::{
     CreateAuditorKeyResponse, DecryptedOutput, DecryptedTransaction, DecryptedTransactionsPage,
     DecryptedWithdrawal, GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse,
     HealthResponse, ReadAttestation, ReadAuth, ReadBuildError, ReadRequest, ReadSignature,
-    ReadSigner, SkippedReason, SkippedTransaction, WebAuthnAssertion, CREATE_AUDITOR_KEY,
-    GET_DECRYPTED_TRANSACTIONS, HEALTH,
+    ReadSigner, RingState, RingStatusRequest, RingStatusResponse, SkippedReason,
+    SkippedTransaction, WebAuthnAssertion, CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH,
+    RING_STATUS,
 };
 pub use audit::{
     AuditRead, AuditService, ChainSource, Hub, HubBuilder, KeyMode, Page, PageOptions, ReaderGrant,

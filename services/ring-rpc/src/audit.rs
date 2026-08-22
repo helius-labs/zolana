@@ -644,6 +644,25 @@ impl<S: TransactionSource> AuditService<S> {
         self.view_tag
     }
 
+    /// Metered like a read, so deriving keys for arbitrary rings cannot be a
+    /// free loop.
+    pub fn accept_request(&self) -> Result<(), RingRpcError> {
+        self.shared.request_rate.accept(Instant::now())
+    }
+
+    /// The auditor key the ring's config names, `None` until the config exists.
+    /// The config fixes it forever, so a ring whose key is not this service's
+    /// can never be read here.
+    pub async fn configured_auditor(&self) -> Result<Option<P256Pubkey>, RingRpcError> {
+        self.accept_request()?;
+        Ok(self
+            .shared
+            .source
+            .ring_config(self.ring)
+            .await?
+            .map(|config| config.auditor_pubkey))
+    }
+
     pub async fn read(
         &self,
         request: AuditRead<'_>,

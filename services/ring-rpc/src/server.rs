@@ -25,8 +25,8 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 use crate::{
     api::{
         auditor_key_attestation, CreateAuditorKeyRequest, CreateAuditorKeyResponse,
-        GetDecryptedTransactionsRequest, HealthResponse, CREATE_AUDITOR_KEY,
-        GET_DECRYPTED_TRANSACTIONS, HEALTH,
+        GetDecryptedTransactionsRequest, HealthResponse, RingState, RingStatusRequest,
+        RingStatusResponse, CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_STATUS,
     },
     audit::{AuditRead, Hub, PageOptions, TransactionSource},
     origins::{OriginError, Origins},
@@ -124,6 +124,7 @@ pub fn rpc_module<S: TransactionSource + 'static>(
         let request = params.parse::<CreateAuditorKeyRequest>()?;
         let ring = request.ring_program_id.0;
         let service = hub.service_for(ring).map_err(ErrorObjectOwned::from)?;
+        service.accept_request().map_err(ErrorObjectOwned::from)?;
         let ring = service.ring();
         let auditor_pubkey = service.auditor_pubkey();
         let signature = hub.sign_attestation(&auditor_key_attestation(&ring, &auditor_pubkey));
@@ -133,6 +134,30 @@ pub fn rpc_module<S: TransactionSource + 'static>(
             auditor_view_tag: service.auditor_view_tag().into(),
             service_pubkey: hub.service_pubkey().into(),
             signature: signature.into(),
+        })
+    })?;
+
+    module.register_async_method(RING_STATUS, |params, hub, _extensions| async move {
+        let request = params.parse::<RingStatusRequest>()?;
+        let ring = request.ring_program_id.0;
+        let service = hub.service_for(ring).map_err(ErrorObjectOwned::from)?;
+        let auditor_pubkey = service.auditor_pubkey();
+        let configured = service
+            .configured_auditor()
+            .await
+            .map_err(ErrorObjectOwned::from)?;
+        let state = match configured {
+            None => RingState::Uninitialized,
+            Some(key) if key == auditor_pubkey => RingState::Served,
+            Some(_) => RingState::ForeignAuditor,
+        };
+        Ok::<_, ErrorObjectOwned>(RingStatusResponse {
+            ring_program_id: service.ring().into(),
+            state,
+            auditor_pubkey: auditor_pubkey.into(),
+            auditor_view_tag: service.auditor_view_tag().into(),
+            config_auditor_pubkey: configured.map(Into::into),
+            service_pubkey: hub.service_pubkey().into(),
         })
     })?;
 
