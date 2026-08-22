@@ -1,7 +1,7 @@
 import { isAddress } from "@solana/kit";
 
 import { runKitRpc, type SolanaRpc } from "../client/kit.js";
-import { SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
+import { SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE } from "../interface/program.js";
 import type { Address, RequestContext, Signature } from "../interface/types.js";
 
 import { RingError } from "./error.js";
@@ -106,6 +106,44 @@ export function confirmedInstructionGroups(
   return groups.map((group) =>
     Object.freeze({ outer: Object.freeze(group.outer), inner: Object.freeze(group.inner) }),
   );
+}
+
+/**
+ * The accounts a transaction settled SOL to, so the recipients of a public
+ * withdrawal. The pool's interface account precedes each one, which holds
+ * however the fee was paid. Mirrors Rust `ring_withdrawals_of`, without the
+ * per-leg amounts the instruction data carries.
+ */
+export function confirmedWithdrawalRecipients(transaction: unknown): readonly Address[] {
+  const wire = record(transaction, "transaction");
+  const encoded = record(wire["transaction"], "transaction.transaction");
+  const message = record(encoded["message"], "transaction.transaction.message");
+  const recipients: Address[] = [];
+  for (const [index, instruction] of list(
+    message["instructions"],
+    "message.instructions",
+  ).entries()) {
+    const accounts = record(instruction, `message.instructions[${index}]`)["accounts"];
+    if (accounts === undefined) continue;
+    const named = addresses(accounts, `message.instructions[${index}].accounts`);
+    named.forEach((account, at) => {
+      const next = named[at + 1];
+      if (account === SOL_INTERFACE && next !== undefined) recipients.push(next);
+    });
+  }
+  return Object.freeze(recipients);
+}
+
+/**
+ * The signer that owns one of the transaction's outputs, so the one that spent.
+ * Slot position says nothing, a full spend leaves no change.
+ */
+export function senderOf(
+  signers: readonly Address[],
+  ownerTags: readonly (Address | undefined)[],
+): Address | undefined {
+  const owned = new Set(ownerTags.filter((tag): tag is Address => tag !== undefined));
+  return signers.find((signer) => owned.has(signer));
 }
 
 /** Mirrors the Rust `TransactionOrigin` impl for `SolanaRpc`. */
