@@ -1,0 +1,181 @@
+name: fuzz-submit
+
+# Build the shielded-pool program from source, build the fuzz harness against that
+# build, and submit the bundle to FuzzCorp. Every push to main refuzzes the current
+# program: the harness is never fuzzed against a checked-in binary, so an instruction
+# added or changed here is compiled and covered on the next run.
+#
+# Submission only. This workflow does not run a campaign locally; the campaign runs
+# remotely on FuzzCorp against the uploaded bundle.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "prover/server/**"
+      - "**/*.md"
+      - "LICENSE*"
+      - ".gitignore"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  SBF_TOOLS_VERSION: v1.54
+  AGAVE_VERSION: v4.0.2
+
+jobs:
+  submit:
+    name: build program + submit bundle
+    # MUST match the FuzzCorp fleet's architecture. `ubuntu-latest` is amd64,
+    # which is what the workers run; build-bundle.sh stamps the manifest from
+    # `uname -m`, so a runner change silently changes the bundle's declared arch.
+    # A mismatched bundle uploads and validates cleanly and is then never picked
+    # up by a worker -- it fails as silence, not as an error.
+    runs-on: ubuntu-latest
+    # Bound the job: without this a run can sit for hours (6h GitHub default).
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          shared-key: fuzz
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+
+      - name: Install Anza CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      # No separate install step: some cargo-build-sbf builds reject --install-only
+      # ("Found argument '--install-only' which wasn't expected"), which fails the
+      # job before anything is built -- it did exactly that on onre. The real
+      # `cargo build-sbf --tools-version` calls below download the pinned toolchain
+      # on first use anyway, so the step buys nothing and can only break things.
+
+      # Rule: fuzz what this commit actually builds. The harness loads these two
+      # artifacts, and nothing in the repo ships them prebuilt.
+      #
+      # LTO is disabled for this build ONLY, and that is what makes coverage work.
+      # The repo's release profile uses lto="fat" + codegen-units=1, which merges
+      # the program into ~28 compile units; the resulting DWARF still names
+      # programs/shielded-pool/src but the LCOV matches no source file at all
+      # ("SourcesOriginalPath ... does not match any source file"). With LTO off
+      # the same profile keeps per-CU line tables (434 units), which is what the
+      # bundle that rendered 96% line coverage was built with.
+      #
+      # Critically this is ONE build serving BOTH artifacts: the .so the harness
+      # executes and the unstripped twin the cover task reads. Building symbols
+      # separately gives them a different code layout, and the cover task then
+      # resolves 0 PCs and renders nothing -- silently.
+      - name: Build programs from source
+        env:
+          CARGO_PROFILE_RELEASE_LTO: "false"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+          CARGO_PROFILE_RELEASE_DEBUG: "2"
+          CARGO_PROFILE_RELEASE_STRIP: "none"
+        run: just build-programs
+
+      # An unstripped SBF build of the program under test. Optional to the driver,
+      # but without it coverage is reported against program counters instead of
+      # source lines, which makes a coverage regression unreadable.
+      #
+      # The DWARF MUST come from the SAME build as the executed .so, or the PCs do
+      # not correspond and whatever renders is meaningless. `--debug` builds a
+      # DIFFERENT profile: it fails outright here (15+ "A function call in method
+      # ... overwrites values in the frame" out of zolana_interface's wincode
+      # SchemaWrite impls), and even if it linked, its code layout would not match
+      # the release binary the harness loads.
+      #
+      # One release build with debug info retained yields both artifacts:
+      # target/deploy/*.so stays loadable and is what gets executed, while the
+      # unstripped intermediate under the target-triple dir carries the DWARF. The
+      # triple dir name depends on the toolchain (sbf- vs sbpf-solana-solana), so
+      # probe both rather than hardcoding one and silently shipping stale symbols.
+      #
+      # `--debug` (the debug PROFILE), not CARGO_PROFILE_RELEASE_DEBUG=2. This is
+      # measured, not stylistic: the release profile's lto="fat" + codegen-units=1
+      # collapse the whole program into ~28 compile units, and the resulting LCOV
+      # matches no source file at all ("SourcesOriginalPath ... does not match any
+      # source file") even though the DWARF still lists programs/shielded-pool/src.
+      # The debug profile keeps per-CU line tables -- 434 units against 28 -- which
+      # is what the bundle rendering 96% line coverage was built with.
+      #
+      # Isolated CARGO_TARGET_DIR so this never overwrites the artifact that
+      # `just build-programs` produced and the harness actually executes.
+      # NO second build. `cargo build-sbf` strips only what it copies into
+      # target/deploy; the unstripped object from the SAME invocation is left under
+      # the target-triple dir, so the DWARF here belongs to the exact binary the
+      # harness executes. A separate `--debug` build was tried and is wrong twice
+      # over: it fails to link (frame-space overflows in unoptimized dependencies --
+      # core::slice::sort::driftsort_main, zolana_event's wincode SchemaWrite), so
+      # the bundle shipped with no symbols at all; and even when it links its code
+      # layout differs from the executed .so, so the cover task resolves 0 PCs.
+      - name: Locate unstripped program for coverage symbols
+        run: |
+          set -uo pipefail
+          : > /tmp/symbols_path
+          # The triple dir name varies with the toolchain (sbf- vs sbpf-solana-solana).
+          for t in sbpf-solana-solana sbf-solana-solana; do
+            c="target/$t/release/shielded_pool_program.so"
+            if [ -f "$c" ]; then echo "$c" > /tmp/symbols_path; break; fi
+          done
+          if [ -s /tmp/symbols_path ]; then
+            echo "symbols: $(cat /tmp/symbols_path)"
+          else
+            echo "::error::no unstripped intermediate found -- coverage would render"
+            echo "::error::EMPTY. Check that the build kept DEBUG=2 / STRIP=none."
+            exit 1
+          fi
+
+      - name: Stage program artifacts into the harness
+        run: |
+          mkdir -p fuzz/shielded-pool/programs fuzz/shielded-pool/fixtures
+          cp target/deploy/shielded_pool_program.so fuzz/shielded-pool/programs/
+          cp target/deploy/ring_test_program.so fuzz/shielded-pool/fixtures/
+          # Best-effort: build-bundle.sh omits the symbols entry when absent.
+          symbols="$(cat /tmp/symbols_path 2>/dev/null || true)"
+          if [ -n "$symbols" ] && [ -f "$symbols" ]; then
+            cp "$symbols" fuzz/shielded-pool/programs/shielded_pool_symbols.so
+          fi
+
+      # crucible is public, so cargo resolves its git deps anonymously -- no token.
+      # llvm-dwarfdump lets build-bundle.sh prove the staged symbols actually carry
+      # DWARF before uploading. Without the tool that check silently degrades to
+      # "unknown" and a bundle with no debug info can ship, rendering EMPTY coverage
+      # while every step still reports success.
+      - name: Install llvm-dwarfdump (coverage gate)
+        run: sudo apt-get update && sudo apt-get install -y llvm
+
+      - name: Build harness and assemble bundle
+        working-directory: fuzz/shielded-pool
+        run: ./build-bundle.sh
+
+      # Fail-closed pre-upload checks. Everything this catches is otherwise SILENT:
+      # the bundle validates, uploads, runs and quietly produces nothing. It also
+      # stages any first-party source root the DWARF references but the bundle is
+      # missing (a program spanning programs/ + libraries/ loses the second one).
+      - name: Bundle guard (pre-upload)
+        run: ./fuzz/shielded-pool/bundle-guard.sh fuzz/shielded-pool/bundle .
+
+      - uses: asymmetric-research/fuzz-upload-action@bee03d6c44529f8fc1bae349c7090ad33cd50ca6 # v2.1.0
+        with:
+          # The action's ONLY inputs are upload_type/upload_path/upload_args.
+          # Credentials come from the environment below -- passing them as
+          # inputs fails its own 'Validate env' step and nothing uploads.
+          upload_type: bundle
+          upload_path: fuzz/shielded-pool/bundle
+        env:
+          FUZZ_ORGANIZATION: ${{ vars.FUZZ_ORGANIZATION || vars.FUZZ_ORG || 'helius' }}
+          FUZZ_PROJECT: ${{ vars.FUZZ_PROJECT || 'zolana' }}
+          FUZZ_API_KEY: ${{ secrets.FUZZ_API_KEY }}
