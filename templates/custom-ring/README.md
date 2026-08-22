@@ -46,11 +46,11 @@ on localnet, the validator and services, so its prerequisites apply to
 
 `just localnet` starts a validator with SPP, Photon and the prover from the
 Zolana checkout and sets `target = "localnet"` in `ring.toml`.
-`just devnet` sets `target = "devnet"` and probes the hosted Photon, prover and
-ring RPC from `ring.toml`, or starts local ones when it points at `127.0.0.1`.
-The generated `[devnet]` section names the hosted services and pins the ring
-RPC service key, so `just pipeline` on devnet needs no local service. Every
-other recipe acts on the recorded target, `just urls` shows it.
+`just devnet` sets `target = "devnet"` and probes the deployed Photon, prover
+and ring RPC named in `ring.toml`. It starts nothing: on devnet the only things
+built here are the ring's own program and CLI, and the only service it can run
+is a ring RPC of your own, when `ring.toml` names `127.0.0.1`. Every other
+recipe acts on the recorded target, `just urls` shows it.
 
 `just pipeline` then runs build, deploy, init, ring RPC and transact. Each step
 locks something in.
@@ -73,10 +73,13 @@ accepted only when its service key is pinned as `ring_rpc_pubkey` in
 `ring.toml`, or with `init --trust-ring-rpc` for a local instance. The auditor
 key cannot change afterwards, a different auditor is a different ring.
 
-Where the ring RPC is hosted, devnet by default, that service holds the
-auditor key: `just auditor-key` creates nothing and `init` fetches the public
-half under the pinned service key. Only a ring RPC on `127.0.0.1` reads
-`keys/`.
+Where the ring RPC is hosted, devnet by default, that service holds the auditor
+key: it derives one per ring, `just auditor-key` creates nothing and `init`
+fetches the public half under the pinned service key. Only a ring RPC on
+`127.0.0.1` reads `keys/`, and `init` refuses to pin a key from `keys/` against
+a hosted service unless `init --local-auditor` says that is deliberate: a ring
+that pins a key the service does not hold can never be read through it. On
+devnet `just pipeline` asks the service about this ring before `init` runs.
 
 After `init` the authority may move. `authority transfer <pubkey>` hands the
 program to another key, then point `authority_keypair` in `ring.toml` at its

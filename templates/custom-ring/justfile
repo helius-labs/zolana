@@ -48,34 +48,29 @@ localnet: build-cli
 localnet-stop: rpc-stop
     just -f {{ "{{zolana}}" }}/justfile ring-localnet-stop
 
-# ring.toml set to devnet. Photon and the prover are probed, or started here when ring.toml points at 127.0.0.1.
+# ring.toml set to devnet. Every service is already deployed, this only probes them.
 devnet: build-cli
     #!/usr/bin/env bash
     set -euo pipefail
     cargo run -q -p {{project-name}} -- target devnet
     just urls
+    echo
+    # A service that is down must fail in seconds, not sit in a connect.
+    probe() {
+        printf 'probing %-8s %s ... ' "$1" "$2"
+        if curl -sf --connect-timeout 5 --max-time 30 "$3" >/dev/null; then
+            echo ready
+        else
+            echo "not ready"
+            echo "devnet $1 $2 is not ready" >&2
+            exit 1
+        fi
+    }
     indexer="$({{ "{{url}}" }} indexer)"
     prover="$({{ "{{url}}" }} prover)"
-    case "$indexer" in
-      http://127.0.0.1*|http://localhost*)
-        just -f {{ "{{zolana}}" }}/justfile ring-devnet-services "$({{ "{{url}}" }} rpc)" ;;
-      *)
-        echo
-        # A service that is down must fail in seconds, not sit in a connect.
-        probe() {
-            printf 'probing %-8s %s ... ' "$1" "$2"
-            if curl -sf --connect-timeout 5 --max-time 30 "$3" >/dev/null; then
-                echo ready
-            else
-                echo "not ready"
-                echo "devnet $1 $2 is not ready" >&2
-                exit 1
-            fi
-        }
-        probe indexer "$indexer" "$indexer/readiness"
-        probe prover "$prover" "$prover/health"
-        echo "devnet services ready (hosted)" ;;
-    esac
+    probe indexer "$indexer" "$indexer/readiness"
+    probe prover "$prover" "$prover/health"
+    echo "devnet services ready"
     ring_rpc="$({{ "{{url}}" }} ring-rpc)"
     case "$ring_rpc" in
       http://127.0.0.1*|http://localhost*)
@@ -93,8 +88,8 @@ devnet: build-cli
     echo
     echo "   each step is its own recipe, 'just status' shows how far a run got"
 
+# Only a ring RPC can have been started here, devnet runs no other local service.
 devnet-stop: rpc-stop
-    just -f {{ "{{zolana}}" }}/justfile ring-devnet-services-stop
 
 # The active target and where its services are.
 urls:
@@ -228,16 +223,10 @@ rpc-stop:
 
 # Two ring deposits and one audited transfer, read back through the ring RPC.
 transact: build-cli
-    #!/usr/bin/env bash
-    set -euo pipefail
-    : "${ZOLANA_PROVER_REDIS_URL:?set ZOLANA_PROVER_REDIS_URL in .env, the audit proof goes through the prover queue}"
     cargo run -q -p {{project-name}} -- transact
 
 # Deposit `lamports` and send all of it to a base58 shielded address in the ring.
 transfer to lamports="100000000": build-cli
-    #!/usr/bin/env bash
-    set -euo pipefail
-    : "${ZOLANA_PROVER_REDIS_URL:?set ZOLANA_PROVER_REDIS_URL in .env, the audit proof goes through the prover queue}"
     cargo run -q -p {{project-name}} -- transfer {{ "{{to}}" }} --amount {{ "{{lamports}}" }}
 
 status: build-cli
@@ -251,7 +240,7 @@ revoke-reader reader: build-cli
     cargo run -q -p {{project-name}} -- reader revoke {{ "{{reader}}" }}
 
 # Build, deploy, init, ring RPC and transact. A local ring RPC is started in the background when none answers and stays up, log in .localnet/ring-rpc.log; a hosted one is only checked.
-pipeline: build deploy init
+pipeline: build deploy
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p .localnet
@@ -259,11 +248,14 @@ pipeline: build deploy init
     case "$ring_rpc" in
       http://127.0.0.1*|http://localhost*) ;;
       *)
-        # It serves the ring already, it only has to hold this ring's key.
+        # `init` fixes the auditor for good, so ask first whether this service
+        # can serve the ring at all.
         cargo run -q -p {{project-name}} -- rpc-check
+        just init
         just _transact-as-reader
         exit 0 ;;
     esac
+    just init
     # Local rings share the port, an RPC of another ring is replaced.
     start_rpc=true
     if curl -sf --max-time 5 "$ring_rpc/health" >/dev/null 2>&1; then
