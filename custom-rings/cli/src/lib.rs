@@ -4,6 +4,7 @@ pub mod authority;
 pub mod config;
 pub mod deploy;
 pub mod error;
+pub mod fund;
 pub mod init;
 pub mod reader;
 pub mod ring_rpc;
@@ -19,15 +20,17 @@ use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{ClientError, ProverClient, SolanaRpc, ZolanaIndexer};
+use zolana_client::{ClientError, ProverClient, Rpc, SolanaRpc, ZolanaIndexer};
 
 pub use crate::{
     config::{ConfigError, RingConfig, Target, RING_TOML},
     error::CliError,
+    fund::FundError,
     init::InitError,
     ring_rpc::{RingRpcClient, Trust},
 };
 
+/// What localnet tops the authority up to.
 const LOCALNET_AUTHORITY_BALANCE: u64 = 100_000_000_000;
 
 #[derive(Debug, Parser)]
@@ -136,6 +139,8 @@ pub enum ContextError {
     #[error(transparent)]
     Config(#[from] ConfigError),
     #[error(transparent)]
+    Fund(#[from] FundError),
+    #[error(transparent)]
     Client(Box<ClientError>),
 }
 
@@ -157,21 +162,36 @@ impl Context {
         }
     }
 
-    /// Airdrops on localnet when below half of `LOCALNET_AUTHORITY_BALANCE`.
+    /// For a step that only pays fees and small rent.
     pub fn funded_authority(&mut self) -> Result<Keypair, ContextError> {
+        self.authority_funded_for(fund::MIN_AUTHORITY_BALANCE)
+    }
+
+    pub fn authority_funded_for(&mut self, required: u64) -> Result<Keypair, ContextError> {
         let authority = self.config.authority()?;
-        if self.config.target == Target::Localnet {
-            let balance = self
-                .rpc
-                .client()
-                .get_balance(&authority.pubkey())
-                .map_err(|error| ClientError::Rpc(error.to_string()))?;
-            if balance < LOCALNET_AUTHORITY_BALANCE / 2 {
-                self.rpc
-                    .airdrop(&authority.pubkey(), LOCALNET_AUTHORITY_BALANCE)?;
-            }
-        }
+        self.fund_authority(&authority, required)?;
         Ok(authority)
+    }
+
+    /// Localnet airdrops what the step spends, devnet waits at the faucet.
+    pub fn fund_authority(
+        &mut self,
+        authority: &Keypair,
+        required: u64,
+    ) -> Result<(), ContextError> {
+        match self.config.target {
+            Target::Localnet => {
+                let balance = self.rpc.get_balance(authority.pubkey())?;
+                if balance < required.max(LOCALNET_AUTHORITY_BALANCE / 2) {
+                    self.rpc.airdrop(
+                        &authority.pubkey(),
+                        required.max(LOCALNET_AUTHORITY_BALANCE),
+                    )?;
+                }
+            }
+            Target::Devnet => fund::wait_for_balance(&self.rpc, authority.pubkey(), required)?,
+        }
+        Ok(())
     }
 
     pub fn ring_rpc(&self) -> RingRpcClient {

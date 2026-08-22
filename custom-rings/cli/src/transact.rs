@@ -94,12 +94,6 @@ pub enum TransactError {
     Indexer(#[from] WaitError<ClientError>),
     #[error("reader {reader} is not granted, run `grant-reader {reader}` first")]
     ReaderNotGranted { reader: ReaderKey },
-    #[error("authority {authority} holds {balance} lamports, the demo needs {needed}")]
-    InsufficientFunds {
-        authority: Address,
-        balance: u64,
-        needed: u64,
-    },
 }
 
 impl From<ClientError> for TransactError {
@@ -109,7 +103,13 @@ impl From<ClientError> for TransactError {
 }
 
 pub fn run(ctx: &mut Context, args: TransactArgs) -> Result<(), TransactError> {
-    let authority = ctx.funded_authority()?;
+    // The whole cost of the demo, funded before the first deposit.
+    let needed = args
+        .amount
+        .saturating_mul(2)
+        .saturating_add(SENDER_FEE_BUDGET)
+        .saturating_add(PAYER_FEE_BUDGET);
+    let authority = ctx.authority_funded_for(needed)?;
     let ring = ctx.ring;
     let auditor_pk = configured_auditor_pk(&ctx.rpc, ring)?;
     let ring_rpc = ctx.ring_rpc();
@@ -117,19 +117,6 @@ pub fn run(ctx: &mut Context, args: TransactArgs) -> Result<(), TransactError> {
     let reader_key = ReaderKey::ed25519(authority.pubkey())?;
     if ring.read_reader_record(&ctx.rpc, &reader_key)?.is_none() {
         return Err(TransactError::ReaderNotGranted { reader: reader_key });
-    }
-    let needed = args
-        .amount
-        .saturating_mul(2)
-        .saturating_add(SENDER_FEE_BUDGET)
-        .saturating_add(PAYER_FEE_BUDGET);
-    let balance = ctx.rpc.get_balance(authority.pubkey())?;
-    if balance < needed {
-        return Err(TransactError::InsufficientFunds {
-            authority: authority.pubkey(),
-            balance,
-            needed,
-        });
     }
     let indexer = ctx.indexer();
     let prover = ctx.prover();
