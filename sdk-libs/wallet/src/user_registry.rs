@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_message::Message;
@@ -13,6 +15,7 @@ use zolana_user_registry_interface::{
         p256_key_binding_message, p256_verify_instruction, register, update_keys, RegisterData,
         UpdateKeysData, P256_KEY_BINDING_MESSAGE_LEN,
     },
+    state::P256_PUBKEY_LEN,
     user_record_pda, user_registry_program_id, UserRecord,
 };
 
@@ -364,6 +367,51 @@ pub async fn fetch_user_record_optional_checked_async<R: AsyncRpc>(
     Ok(Some(parse_user_record_account(
         owner, record_pda, bump, &account,
     )?))
+}
+
+/// Every published viewing key, indexed to the owner that published it.
+///
+/// The registry is a record per owner, so a viewing key alone addresses nothing
+/// and the reverse direction reads the whole registry once. One call answers a
+/// whole page of audited outputs, which is why this returns the index and not
+/// one owner. A record this version cannot decode names no owner and is
+/// skipped, so a newer registry does not fail the lookup of the records it
+/// shares.
+///
+/// Mirrors the TypeScript `fetchViewingKeyOwners`.
+pub fn fetch_viewing_key_owners<R: Rpc>(
+    rpc: &R,
+) -> Result<HashMap<[u8; P256_PUBKEY_LEN], Pubkey>, ClientError> {
+    Ok(index_viewing_keys(rpc.get_program_accounts(
+        Address::new_from_array(user_registry_program_id().to_bytes()),
+    )?))
+}
+
+/// The asynchronous `fetch_viewing_key_owners`.
+pub async fn fetch_viewing_key_owners_async<R: AsyncRpc>(
+    rpc: &R,
+) -> Result<HashMap<[u8; P256_PUBKEY_LEN], Pubkey>, ClientError> {
+    Ok(index_viewing_keys(
+        rpc.get_program_accounts(Address::new_from_array(
+            user_registry_program_id().to_bytes(),
+        ))
+        .await?,
+    ))
+}
+
+fn index_viewing_keys(
+    accounts: Vec<(Address, solana_account::Account)>,
+) -> HashMap<[u8; P256_PUBKEY_LEN], Pubkey> {
+    accounts
+        .iter()
+        .filter_map(|(_, account)| decode_user_record_account(account).ok())
+        .map(|record| {
+            (
+                record.viewing_pubkey,
+                Pubkey::new_from_array(record.owner.to_bytes()),
+            )
+        })
+        .collect()
 }
 
 pub fn decode_user_record_account(
@@ -1121,5 +1169,63 @@ mod tests {
         let outcome = register_if_absent(&rpc, &funding, &keypair).expect("register_if_absent");
         assert_eq!(outcome, StrictRegistration::Mismatch);
         assert!(rpc.sent.borrow().is_none());
+    }
+
+    struct RegistryRpc {
+        accounts: Vec<(Address, Account)>,
+    }
+
+    impl Rpc for RegistryRpc {
+        fn get_program_accounts(
+            &self,
+            program_id: Address,
+        ) -> Result<Vec<(Address, Account)>, ClientError> {
+            assert_eq!(
+                program_id,
+                Address::new_from_array(user_registry_program_id().to_bytes())
+            );
+            Ok(self.accounts.clone())
+        }
+    }
+
+    fn record_with_viewing_key(owner: Pubkey, viewing_pubkey: [u8; P256_PUBKEY_LEN]) -> UserRecord {
+        UserRecord {
+            viewing_pubkey,
+            ..user_record(owner, 254)
+        }
+    }
+
+    fn listed(account: Account) -> (Address, Account) {
+        (
+            Address::new_from_array(Pubkey::new_unique().to_bytes()),
+            account,
+        )
+    }
+
+    #[test]
+    fn fetch_viewing_key_owners_indexes_every_readable_record() {
+        let first = Pubkey::new_unique();
+        let second = Pubkey::new_unique();
+        let unreadable = Account {
+            lamports: 1,
+            data: vec![0u8; UserRecord::SIZE],
+            owner: user_registry_program_id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        let rpc = RegistryRpc {
+            accounts: vec![
+                listed(account_for(&record_with_viewing_key(first, [7u8; 33]))),
+                listed(account_for(&record_with_viewing_key(second, [8u8; 33]))),
+                listed(unreadable),
+            ],
+        };
+
+        let owners = fetch_viewing_key_owners(&rpc).expect("index the registry");
+
+        // The record the discriminator rejects names no owner, the rest do.
+        assert_eq!(owners.len(), 2);
+        assert_eq!(owners.get(&[7u8; 33]), Some(&first));
+        assert_eq!(owners.get(&[8u8; 33]), Some(&second));
     }
 }

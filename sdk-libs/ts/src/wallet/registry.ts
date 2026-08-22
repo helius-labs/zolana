@@ -22,10 +22,12 @@ import {
 import { P256PublicKey, ShieldedPublicKey } from "../keypair/public-key.js";
 import { ShieldedAddress, type ShieldedKeypair } from "../keypair/shielded.js";
 
+import { hex } from "../transaction/wallet/state.js";
 import { WalletError, wrapWalletError } from "./error.js";
 import { concat, equalBytes } from "./internal.js";
 
 type AccountReader = Pick<ZolanaClient, "getAccount">;
+type ProgramAccountReader = Pick<ZolanaClient, "getProgramAccounts">;
 
 const SYSTEM_PROGRAM = address("11111111111111111111111111111111");
 const RECORD_SEED = new TextEncoder().encode("zolana/registry/v0");
@@ -247,6 +249,45 @@ function signingPublicKeyFromRecord(owner: Address, record: UserRecord): Shielde
   return record.ownerP256 === undefined
     ? ShieldedPublicKey.fromEd25519(new Uint8Array(addressEncoder.encode(owner)) as Bytes32)
     : ShieldedPublicKey.fromP256(P256PublicKey.fromBytes(record.ownerP256));
+}
+
+/**
+ * The key of `fetchViewingKeyOwners`, the compressed viewing key as hex.
+ *
+ * An audited output names its recipient by viewing key, so a caller holding one
+ * looks the owner up under this key.
+ */
+export function viewingKeyIndex(viewingPublicKey: Uint8Array | P256PublicKey): string {
+  return hex(
+    viewingPublicKey instanceof P256PublicKey ? viewingPublicKey.toBytes() : viewingPublicKey,
+  );
+}
+
+/**
+ * Every published viewing key, indexed to the owner that published it.
+ *
+ * The registry is a record per owner, so a viewing key alone addresses nothing
+ * and the reverse direction reads the whole registry once. One call answers a
+ * whole page of outputs, which is why this returns the index and not one owner.
+ * A record this version cannot decode names no owner and is skipped, so a newer
+ * registry does not fail the lookup of the records it shares.
+ */
+export async function fetchViewingKeyOwners(
+  input: Readonly<{ rpc: ProgramAccountReader }>,
+  context?: RequestContext,
+): Promise<ReadonlyMap<string, Address>> {
+  const accounts = await input.rpc.getProgramAccounts(USER_REGISTRY_PROGRAM_ID, context);
+  const owners = new Map<string, Address>();
+  for (const { account } of accounts) {
+    let record: UserRecord;
+    try {
+      record = decodeUserRecordAccount(account);
+    } catch {
+      continue;
+    }
+    owners.set(viewingKeyIndex(record.viewingPublicKey), record.owner);
+  }
+  return owners;
 }
 
 export function resolvedAddressFromRecord(owner: Address, record: UserRecord): ResolvedAddress {
