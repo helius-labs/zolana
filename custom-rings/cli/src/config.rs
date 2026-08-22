@@ -48,6 +48,26 @@ pub struct Urls {
     pub ring_rpc_pubkey: Option<String>,
 }
 
+impl Urls {
+    /// Only a ring RPC on this machine takes its auditor key from `keys/`; any
+    /// other one holds a key of its own.
+    pub fn ring_rpc_is_local(&self) -> bool {
+        let rest = match self.ring_rpc.split_once("://") {
+            Some((_, rest)) => rest,
+            None => &self.ring_rpc,
+        };
+        let authority = rest.split(['/', '?']).next().unwrap_or_default();
+        let host = match authority.rsplit_once(':') {
+            Some((host, port)) if port.chars().all(|c| c.is_ascii_digit()) => host,
+            _ => authority,
+        };
+        matches!(
+            host.trim_start_matches('[').trim_end_matches(']'),
+            "127.0.0.1" | "localhost" | "0.0.0.0" | "::1"
+        )
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum ConfigError {
     #[error("cannot read {path}")]
@@ -289,6 +309,22 @@ anonymous = false
     fn unknown_keys_are_rejected() {
         let text = format!("{EXAMPLE}\nextra = 1\n");
         assert!(toml::from_str::<RingConfig>(&text).is_err());
+    }
+
+    #[test]
+    fn only_a_loopback_ring_rpc_counts_as_local() {
+        let local = |url: &str| {
+            let mut config: RingConfig = toml::from_str(EXAMPLE).expect("parse");
+            config.localnet.ring_rpc = url.to_owned();
+            config.urls().ring_rpc_is_local()
+        };
+        assert!(local("http://127.0.0.1:8785"));
+        assert!(local("http://localhost:8785/"));
+        assert!(local("http://[::1]:8785"));
+        assert!(!local("https://d1ojzfopdqqs5r.cloudfront.net"));
+        assert!(!local("http://ring.example.com:8785"));
+        // A host that merely starts with a loopback name is not one.
+        assert!(!local("http://localhost.example.com:8785"));
     }
 
     #[test]

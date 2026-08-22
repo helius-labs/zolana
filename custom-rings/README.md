@@ -92,6 +92,15 @@ come and go, and the program can be upgraded by running `just deploy` again.
 and one audited transfer and reads it back. `just pipeline` runs build to
 transact. The generated README is the operator's guide.
 
+On devnet the ring builds only its own program and CLI; the prover, the indexer
+and the ring RPC are already deployed and are probed, never started. The hosted
+ring RPC derives one auditor key per ring from a root secret, so it serves any
+ring that asks and a new ring needs no restart. The order is what matters: a
+ring takes its key from the service before `create_config`, because the config
+fixes the auditor for good. `rpc-check` reports which of the three cases a ring
+is in: served, registered with another auditor, or not yet initialized. `init`
+refuses to pin a key from `keys/` against a service that holds its own.
+
 The authority pays for every step. Localnet airdrops what a step spends,
 devnet cannot, so a step it cannot pay for stops at the web faucet and
 continues on the next keypress; without a terminal the shortfall is an error.

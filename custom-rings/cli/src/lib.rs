@@ -121,6 +121,10 @@ pub struct InitArgs {
     /// Accept the ring RPC's auditor key without a pinned service key in ring.toml.
     #[arg(long)]
     pub trust_ring_rpc: bool,
+    /// Pin the key in `keys/` even though the ring RPC is not on this machine.
+    /// Only a ring RPC holding that key can ever open the ring.
+    #[arg(long)]
+    pub local_auditor: bool,
 }
 
 #[derive(Debug, Args)]

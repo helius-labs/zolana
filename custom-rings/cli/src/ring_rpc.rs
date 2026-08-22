@@ -10,13 +10,13 @@ use zolana_ring_client::auditor_view_tag;
 use zolana_ring_rpc::{
     auditor_key_attestation, CreateAuditorKeyRequest, CreateAuditorKeyResponse,
     DecryptedTransaction, GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse,
-    ReadBuildError, SkippedReason, CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS,
+    ReadBuildError, RingState, RingStatusRequest, RingStatusResponse, SkippedReason,
+    CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, RING_STATUS,
 };
 
 use crate::{
-    init::configured_auditor_pk,
     transact::{wait_for, Probe, WaitError},
-    Context, InitError,
+    Context,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,8 +70,8 @@ pub enum RingRpcClientError {
     PinMismatch { pinned: Address, actual: Address },
     #[error("ring.toml pins no ring rpc service key, the rpc signs with {service_pubkey}. Put it in ring_rpc_pubkey after confirming it out of band, or pass --trust-ring-rpc for a local instance")]
     Unpinned { service_pubkey: Address },
-    #[error("the ring rpc at {url} serves auditor tag {served_tag} but this ring's key has tag {expected_tag}, stop it or point ring.toml at another port")]
-    ServesAnotherRing {
+    #[error("the ring rpc at {url} holds auditor {served_tag} for this ring, but the ring's config names {expected_tag}. A config fixes its auditor when it is created, so this service can never open the ring: serve the ring from a ring rpc holding its key, or deploy a new ring")]
+    ForeignAuditor {
         url: String,
         served_tag: Hash,
         expected_tag: Hash,
@@ -94,8 +94,6 @@ pub enum RingRpcClientError {
 #[derive(Debug, Error)]
 pub enum RpcCheckError {
     #[error(transparent)]
-    Init(#[from] InitError),
-    #[error(transparent)]
     RingRpc(#[from] RingRpcClientError),
 }
 
@@ -105,14 +103,30 @@ struct JsonRpcResponse<T> {
     error: Option<serde_json::Value>,
 }
 
+/// Answers before the ring has a config, so a pipeline can stop before `init`
+/// pins an auditor the service does not hold.
 pub fn run_check(ctx: &Context) -> Result<(), RpcCheckError> {
-    let auditor_pk = configured_auditor_pk(&ctx.rpc, ctx.ring)?;
-    ctx.ring_rpc()
-        .check_serves(ctx.ring.program_id(), &auditor_pk)?;
-    println!(
-        "ring rpc    {} serves this ring",
-        ctx.config.urls().ring_rpc
-    );
+    let url = ctx.config.urls().ring_rpc.clone();
+    let status = ctx.ring_rpc().ring_status(ctx.ring.program_id())?;
+    let served = Hash(auditor_view_tag(status.auditor_pubkey.as_key()));
+    match status.state {
+        RingState::Served => println!("ring rpc    {url} serves this ring, auditor {served}"),
+        RingState::Uninitialized => {
+            println!("ring rpc    {url} holds auditor {served} for this ring, `init` pins it")
+        }
+        RingState::ForeignAuditor => {
+            let configured = status
+                .config_auditor_pubkey
+                .map(|key| Hash(auditor_view_tag(key.as_key())))
+                .unwrap_or_else(|| served.clone());
+            return Err(RingRpcClientError::ForeignAuditor {
+                url,
+                served_tag: served,
+                expected_tag: configured,
+            }
+            .into());
+        }
+    }
     Ok(())
 }
 
@@ -165,7 +179,18 @@ impl RingRpcClient {
         })
     }
 
-    /// Another ring's RPC on the same port answers `health` but can open nothing here.
+    /// Unsigned, so it decides nothing a key is pinned from; `auditor_pubkey`
+    /// is the attested path `init` uses.
+    pub fn ring_status(&self, ring: Address) -> Result<RingStatusResponse, RingRpcClientError> {
+        self.call(
+            RING_STATUS,
+            serde_json::to_value(RingStatusRequest {
+                ring_program_id: ring.to_bytes().into(),
+            })?,
+        )
+    }
+
+    /// A service that holds another key for this ring can open nothing here.
     pub fn check_serves(
         &self,
         ring: Address,
@@ -173,7 +198,7 @@ impl RingRpcClient {
     ) -> Result<(), RingRpcClientError> {
         let served = self.auditor_pubkey(ring)?.auditor_pk;
         if served != *auditor_pk {
-            return Err(RingRpcClientError::ServesAnotherRing {
+            return Err(RingRpcClientError::ForeignAuditor {
                 url: self.url.clone(),
                 served_tag: Hash(auditor_view_tag(&served)),
                 expected_tag: Hash(auditor_view_tag(auditor_pk)),
