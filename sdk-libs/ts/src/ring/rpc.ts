@@ -183,6 +183,21 @@ export interface RingAuditorKey {
   readonly signature: Uint8Array;
 }
 
+/** Mirrors Rust `RingState`. */
+export type RingState = "served" | "foreignAuditor" | "uninitialized";
+
+/** Mirrors Rust `RingStatusResponse`. Unsigned, for diagnosis only. */
+export interface RingStatus {
+  readonly ringProgramId: Address;
+  readonly state: RingState;
+  /** The key this service holds for the ring. */
+  readonly auditorPublicKey: P256PublicKey;
+  readonly auditorViewTag: Bytes32;
+  /** The key the ring's config names, absent until the config exists. */
+  readonly configAuditorPublicKey?: P256PublicKey;
+  readonly servicePublicKey: Address;
+}
+
 export interface DecryptedRingOutput {
   readonly slotIndex: number;
   readonly recipientViewingPublicKey: P256PublicKey;
@@ -286,6 +301,26 @@ export class RingRpc {
       auditorViewTag: hash(wire["auditorViewTag"], "result.auditorViewTag"),
       servicePublicKey,
       signature,
+    });
+  }
+
+  /** Whether this service can open the ring, before a read is attempted. */
+  async ringStatus(ringProgramId: Address): Promise<RingStatus> {
+    const wire = record(await this.#call("ringStatus", { ringProgramId }), "result");
+    const state = string(wire["state"], "result.state");
+    if (state !== "served" && state !== "foreignAuditor" && state !== "uninitialized") {
+      throw invalid("result.state");
+    }
+    const config = wire["configAuditorPubkey"];
+    return Object.freeze({
+      ringProgramId: string(wire["ringProgramId"], "result.ringProgramId") as Address,
+      state,
+      auditorPublicKey: p256Key(wire["auditorPubkey"], "result.auditorPubkey"),
+      auditorViewTag: hash(wire["auditorViewTag"], "result.auditorViewTag"),
+      ...(config === undefined || config === null
+        ? {}
+        : { configAuditorPublicKey: p256Key(config, "result.configAuditorPubkey") }),
+      servicePublicKey: string(wire["servicePubkey"], "result.servicePubkey") as Address,
     });
   }
 

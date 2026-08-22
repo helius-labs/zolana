@@ -217,6 +217,52 @@ describe("ring config", () => {
   });
 });
 
+describe("ring status", () => {
+  it("reads the three states and both keys", async () => {
+    const wire = {
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        ringProgramId: addressOf(7),
+        state: "foreignAuditor",
+        auditorPubkey: Buffer.from(hex(P256_HEX)).toString("base64"),
+        auditorViewTag: addressOf(21),
+        configAuditorPubkey: Buffer.from(hex(P256_HEX)).toString("base64"),
+        servicePubkey: addressOf(22),
+      },
+    };
+    const fetch = (async () => new Response(JSON.stringify(wire))) as typeof globalThis.fetch;
+
+    const status = await new RingRpc("http://ring.example", { fetch }).ringStatus(addressOf(7));
+
+    expect(status.state).toBe("foreignAuditor");
+    expect(status.configAuditorPublicKey?.toBytes()).toEqual(hex(P256_HEX));
+    expect(status.servicePublicKey).toBe(addressOf(22));
+  });
+
+  it("leaves the config key absent before a ring is initialized", async () => {
+    const fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          result: {
+            ringProgramId: addressOf(7),
+            state: "uninitialized",
+            auditorPubkey: Buffer.from(hex(P256_HEX)).toString("base64"),
+            auditorViewTag: addressOf(21),
+            servicePubkey: addressOf(22),
+          },
+        }),
+      )) as typeof globalThis.fetch;
+
+    const status = await new RingRpc("http://ring.example", { fetch }).ringStatus(addressOf(7));
+
+    expect(status.state).toBe("uninitialized");
+    expect(status.configAuditorPublicKey).toBeUndefined();
+  });
+});
+
 describe("ring transact", () => {
   it("appends the settlement accounts of a public withdrawal", async () => {
     const recipient = addressOf(31);
