@@ -139,6 +139,12 @@ ensure_load_balancer() {
         arn="$(aws_ elbv2 create-load-balancer --name "$load_balancer" --type network --scheme internet-facing \
             --subnets "${subnet_list[@]}" --tags "$tag_spec" --query 'LoadBalancers[0].LoadBalancerArn' --output text)"
     fi
+    # The prover task and the ring RPC task each run in one zone, and not the
+    # same one. Without cross-zone the nodes of the other zones have no target,
+    # accept the connection and never answer, so two of the three balancer
+    # addresses time out.
+    aws_ elbv2 modify-load-balancer-attributes --load-balancer-arn "$arn" \
+        --attributes Key=load_balancing.cross_zone.enabled,Value=true >/dev/null
     local service port group
     for service in prover ring-rpc; do
         port="$prover_port"; [[ "$service" == prover ]] || port="$ring_rpc_port"
