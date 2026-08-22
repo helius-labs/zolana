@@ -8,7 +8,9 @@ use zolana_interface::{
     instruction::{CircuitId, InterfaceTransfer, TransactIxData, TransactProof},
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE,
 };
-use zolana_ring_client::{ring_invoked_in, ConfirmedTransaction, OriginError, RingWithdrawal};
+use zolana_ring_client::{
+    ring_invoked_in, ring_withdrawals_in, ConfirmedTransaction, OriginError, RingWithdrawal,
+};
 use zolana_transaction::SOL_MINT;
 
 const RING: Address = Address::new_from_array([9u8; 32]);
@@ -133,7 +135,42 @@ fn v0_transactions_resolve_program_ids_from_loaded_addresses() {
     assert!(invoked);
 }
 
-fn ring_transact_data(interface_transfers: Vec<InterfaceTransfer>) -> String {
+/// The settlement walk reads instruction groups, so it needs no confirmed
+/// transaction and no RPC.
+#[test]
+fn withdrawals_read_from_instruction_groups_without_a_transaction() {
+    let mut pool = instruction(POOL, Some(2));
+    pool.data = ring_transact_bytes(vec![InterfaceTransfer::SolWithdrawal { amount: 77 }]);
+    pool.accounts = vec![Address::default(), SOL, RECIPIENT];
+    let groups = [InstructionGroup {
+        outer: instruction(RING, Some(1)),
+        inner: vec![pool],
+    }];
+
+    assert_eq!(
+        ring_withdrawals_in(&groups, RING).expect("walk"),
+        vec![RingWithdrawal {
+            recipient: RECIPIENT,
+            asset: SOL_MINT,
+            amount: 77,
+        }]
+    );
+}
+
+#[test]
+fn withdrawals_of_a_ring_that_did_not_sign_are_not_reported() {
+    let mut pool = instruction(POOL, Some(2));
+    pool.data = ring_transact_bytes(vec![InterfaceTransfer::SolWithdrawal { amount: 77 }]);
+    pool.accounts = vec![Address::default(), SOL, RECIPIENT];
+    let groups = [InstructionGroup {
+        outer: instruction(OTHER, Some(1)),
+        inner: vec![pool],
+    }];
+
+    assert!(ring_withdrawals_in(&groups, RING).expect("walk").is_empty());
+}
+
+fn ring_transact_bytes(interface_transfers: Vec<InterfaceTransfer>) -> Vec<u8> {
     let data = TransactIxData {
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [0u8; 32],
@@ -150,7 +187,11 @@ fn ring_transact_data(interface_transfers: Vec<InterfaceTransfer>) -> String {
     };
     let mut encoded = vec![tag::RING_TRANSACT];
     encoded.extend_from_slice(&data.serialize().expect("serialize"));
-    bs58::encode(encoded).into_string()
+    encoded
+}
+
+fn ring_transact_data(interface_transfers: Vec<InterfaceTransfer>) -> String {
+    bs58::encode(ring_transact_bytes(interface_transfers)).into_string()
 }
 
 /// A ring transact CPI with `accounts` as its pool-instruction account indices.

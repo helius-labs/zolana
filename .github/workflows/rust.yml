@@ -164,6 +164,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
+      AGAVE_VERSION: v4.0.2
       # GH_TOKEN is for the gh-release custom-ring key download
       # (ensure-custom-ring-keys). The circuit proof check proves with the
       # released pk and must verify under the committed VERIFYINGKEY, so a
@@ -179,6 +180,11 @@ jobs:
         with:
           shared-key: custom-ring
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      # ring-wizard.sh, which the template smoke drives, keygens the ring program.
+      - name: Install Anza CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       - name: Install cargo generate
         run: cargo install cargo-generate --version 0.23.14 --locked
       - run: just test-custom-ring
@@ -340,8 +346,8 @@ jobs:
       - uses: taiki-e/install-action@43aecc8d72668fbcfe75c31400bc4f890f1c5853 # v2
         with:
           tool: cargo-llvm-cov
-      # Collect once, then re-render from the same profile data: `report` only
-      # reads what the two passes wrote, so the extra formats are nearly free.
+      # Collect once, then re-render from the same profile data, so the extra
+      # formats are nearly free.
       - run: just coverage --lcov --output-path lcov.info
       - name: Render coverage reports
         run: |

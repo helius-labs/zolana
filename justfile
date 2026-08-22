@@ -478,7 +478,7 @@ coverage-ignore-paths := '(program-tests|sdk-tests|bench)/'
 # Line/region coverage via cargo-llvm-cov over the library and binary crates.
 # Default prints a summary; `just coverage --html` writes target/llvm-cov/html,
 # `just coverage --lcov --output-path lcov.info` for CI upload. `{{args}}` reaches
-# the report step, so the two collection passes stay fixed.
+# the report step, so the collection pass stays fixed.
 #
 # Which crates are measured is decided by manifest PATH in
 # tools/coverage-packages.py, not by a list of names here: #181 renamed

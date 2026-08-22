@@ -67,6 +67,14 @@ pub fn ring_invoked_in(groups: &[InstructionGroup], ring: Address) -> Result<boo
     Ok(!ring_instructions_in(groups, ring)?.is_empty())
 }
 
+/// The value the ring settled out in the clear, in call order.
+pub fn ring_withdrawals_in(
+    groups: &[InstructionGroup],
+    ring: Address,
+) -> Result<Vec<RingWithdrawal>, OriginError> {
+    ring_withdrawals_of(&ring_instructions_in(groups, ring)?)
+}
+
 /// Every pool instruction the ring itself invoked, in call order.
 fn ring_instructions_in(
     groups: &[InstructionGroup],
