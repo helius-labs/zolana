@@ -9,9 +9,9 @@ mod webauthn;
 pub use api::{
     auditor_key_attestation, unix_now, AuditorPubkey, CreateAuditorKeyRequest,
     CreateAuditorKeyResponse, DecryptedOutput, DecryptedTransaction, DecryptedTransactionsPage,
-    GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse, HealthResponse,
-    ReadAttestation, ReadAuth, ReadBuildError, ReadRequest, ReadSignature, ReadSigner,
-    SkippedReason, SkippedTransaction, WebAuthnAssertion, CREATE_AUDITOR_KEY,
+    DecryptedWithdrawal, GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse,
+    HealthResponse, ReadAttestation, ReadAuth, ReadBuildError, ReadRequest, ReadSignature,
+    ReadSigner, SkippedReason, SkippedTransaction, WebAuthnAssertion, CREATE_AUDITOR_KEY,
     GET_DECRYPTED_TRANSACTIONS, HEALTH,
 };
 pub use audit::{

@@ -154,6 +154,16 @@ pub struct DecryptedTransaction {
     /// Required signers, fee payer first. The sender is the one matching an
     /// output owner tag.
     pub signers: Vec<SerializablePubkey>,
+    /// Public settlement legs, where value left the ring.
+    pub withdrawals: Vec<DecryptedWithdrawal>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct DecryptedWithdrawal {
+    /// The account the lamports were settled to.
+    pub recipient: SerializablePubkey,
+    pub amount: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

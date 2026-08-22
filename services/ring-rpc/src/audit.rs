@@ -42,15 +42,15 @@ use zolana_interface::{
 use zolana_keypair::{P256Pubkey, ViewingKey};
 use zolana_ring_client::{
     auditor_view_tag, AuditError, AuditedTransaction, ConfirmedTransaction, OriginError, ReaderKey,
-    RingOrigin, TransactionAudit, ORIGIN_TRANSACTION_CONFIG,
+    RingOrigin, RingWithdrawal, TransactionAudit, ORIGIN_TRANSACTION_CONFIG,
 };
 use zolana_transaction::AssetRegistry;
 
 use crate::{
     api::{
         unix_now, DecryptedOutput, DecryptedTransaction, DecryptedTransactionsPage,
-        GetDecryptedTransactionsResponse, ReadAttestation, ReadAuth, SkippedReason,
-        SkippedTransaction, AUDIT_CURSOR_LIMIT, AUDIT_PAGE_LIMIT,
+        DecryptedWithdrawal, GetDecryptedTransactionsResponse, ReadAttestation, ReadAuth,
+        SkippedReason, SkippedTransaction, AUDIT_CURSOR_LIMIT, AUDIT_PAGE_LIMIT,
     },
     authorize::{ReadCheck, Unauthorized, READ_SKEW},
     config::RootSecret,
@@ -761,7 +761,9 @@ impl<S: TransactionSource> AuditService<S> {
                 .run();
             }
             match result {
-                Ok(opened) => audited.push((opened, tx.nullifiers, origin.signers)),
+                Ok(opened) => {
+                    audited.push((opened, tx.nullifiers, origin.signers, origin.withdrawals))
+                }
                 Err(reason) => skipped.push(SkippedTransaction {
                     slot: tx.slot,
                     tx_signature: tx.tx_signature.into(),
@@ -771,7 +773,9 @@ impl<S: TransactionSource> AuditService<S> {
         }
         let items = audited
             .into_iter()
-            .map(|(opened, nullifiers, signers)| decrypted_transaction(opened, nullifiers, signers))
+            .map(|(opened, nullifiers, signers, withdrawals)| {
+                decrypted_transaction(opened, nullifiers, signers, withdrawals)
+            })
             .collect();
 
         Ok(GetDecryptedTransactionsResponse {
@@ -853,6 +857,7 @@ fn decrypted_transaction(
     audited: AuditedTransaction,
     nullifiers: Vec<[u8; 32]>,
     signers: Vec<Address>,
+    withdrawals: Vec<RingWithdrawal>,
 ) -> DecryptedTransaction {
     DecryptedTransaction {
         slot: audited.slot,
@@ -875,6 +880,13 @@ fn decrypted_transaction(
         signers: signers
             .into_iter()
             .map(|key| key.to_bytes().into())
+            .collect(),
+        withdrawals: withdrawals
+            .into_iter()
+            .map(|withdrawal| DecryptedWithdrawal {
+                recipient: withdrawal.recipient.to_bytes().into(),
+                amount: withdrawal.amount,
+            })
             .collect(),
     }
 }

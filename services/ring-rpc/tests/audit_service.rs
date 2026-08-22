@@ -18,14 +18,16 @@ use zolana_client::{ClientError, Context, GetShieldedTransactionsByTagsResponse}
 use zolana_indexer_api::{Base64String, Limit};
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
-use zolana_ring_client::{auditor_view_tag, AuditorEncryption, OriginError, ReaderKey, RingOrigin};
+use zolana_ring_client::{
+    auditor_view_tag, AuditorEncryption, OriginError, ReaderKey, RingOrigin, RingWithdrawal,
+};
 use zolana_ring_rpc::{
     auditor_key_attestation, rpc_module, unix_now, AuditRead, Claim, CreateAuditorKeyRequest,
-    CreateAuditorKeyResponse, GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse,
-    HealthResponse, Hub, KeyMode, OriginPolicy, Origins, Page, PageOptions, ReadAttestation,
-    ReadAuth, ReadBuildError, ReadCheck, ReadSignature, ReadSigner, ReaderGrant, RingConfiguration,
-    RingRpcError, RootSecret, TransactionPage, TransactionSource, Unauthorized, WebAuthnAssertion,
-    CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH,
+    CreateAuditorKeyResponse, DecryptedWithdrawal, GetDecryptedTransactionsRequest,
+    GetDecryptedTransactionsResponse, HealthResponse, Hub, KeyMode, OriginPolicy, Origins, Page,
+    PageOptions, ReadAttestation, ReadAuth, ReadBuildError, ReadCheck, ReadSignature, ReadSigner,
+    ReaderGrant, RingConfiguration, RingRpcError, RootSecret, TransactionPage, TransactionSource,
+    Unauthorized, WebAuthnAssertion, CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH,
 };
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
@@ -38,6 +40,8 @@ const TREE: Address = Address::new_from_array([4; 32]);
 const RING: Address = Address::new_from_array([5; 32]);
 const OTHER_RING: Address = Address::new_from_array([6; 32]);
 const SENDER: Address = Address::new_from_array([7; 32]);
+const RECIPIENT: Address = Address::new_from_array([8; 32]);
+const WITHDRAWN: u64 = 250;
 const ORIGIN: &str = "http://localhost:3000";
 const USER_PRESENT_AND_VERIFIED: u8 = 0x05;
 
@@ -317,6 +321,10 @@ impl TransactionSource for StaticSource {
             .map(|ring_invoked| RingOrigin {
                 ring_invoked,
                 signers: vec![SENDER],
+                withdrawals: vec![RingWithdrawal {
+                    recipient: RECIPIENT,
+                    amount: WITHDRAWN,
+                }],
             })
             .ok_or_else(|| OriginError::Unavailable {
                 signature,
@@ -541,6 +549,13 @@ async fn granted_reader_opens_audited_transfers_and_reports_the_rest() {
     assert_eq!(item.outputs[0].owner_tag.0, [0x80; 32]);
     assert_eq!(item.outputs[1].owner_tag.0, [0x81; 32]);
     assert_eq!(item.signers, vec![SENDER.to_bytes().into()]);
+    assert_eq!(
+        item.withdrawals,
+        vec![DecryptedWithdrawal {
+            recipient: RECIPIENT.to_bytes().into(),
+            amount: WITHDRAWN,
+        }]
+    );
     assert_eq!(
         item.outputs[0].recipient_viewing_pk,
         Base64String(fixture.recipient.as_bytes().to_vec())
@@ -875,6 +890,14 @@ async fn rpc_wire_uses_camel_case_and_rejects_another_local_ring() {
         .await
         .expect("read");
     assert_eq!(page.value.items.len(), 1);
+    let item = as_object(&page.value.items[0]);
+    assert_eq!(
+        item.get("withdrawals"),
+        Some(&serde_json::json!([{
+            "recipient": RECIPIENT.to_string(),
+            "amount": WITHDRAWN,
+        }]))
+    );
 
     let result: Result<CreateAuditorKeyResponse, _> = module
         .call(

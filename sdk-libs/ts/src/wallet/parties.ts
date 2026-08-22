@@ -7,17 +7,21 @@ type SignatureReader = Pick<ZolanaClient, "getShieldedTransactionsBySignature">;
 
 const addressDecoder = getAddressDecoder();
 
-/** Owner tag per output slot index, as base58. */
-export type OwnerTags = ReadonlyMap<number, Address>;
+export interface TransactionSlots {
+  /** Owner tag by output slot index. */
+  readonly ownerTags: ReadonlyMap<number, Address>;
+  /** Tree leaf by output slot index, which ties a slot to a wallet's note. */
+  readonly leaves: ReadonlyMap<number, bigint>;
+}
 
 /**
- * Readable without a viewing key. The tag matching the fee payer is the sender's,
- * the rest are recipients'.
+ * Readable without a viewing key. The tag matching the fee payer is the
+ * sender's, the rest are recipients'.
  */
-export async function fetchOwnerTags(
+export async function fetchTransactionSlots(
   input: Readonly<{ rpc: SignatureReader; signature: Signature; leafIndex?: bigint }>,
   context?: RequestContext,
-): Promise<OwnerTags> {
+): Promise<TransactionSlots> {
   const { transactions } = await input.rpc.getShieldedTransactionsBySignature(
     input.signature,
     undefined,
@@ -30,9 +34,11 @@ export async function fetchOwnerTags(
       : (transactions.find(({ transaction }) =>
           transaction.outputSlots.some((slot) => slot.outputContext.leafIndex === input.leafIndex),
         ) ?? transactions[0]);
-  const tags = new Map<number, Address>();
+  const ownerTags = new Map<number, Address>();
+  const leaves = new Map<number, bigint>();
   event?.transaction.outputSlots.forEach((slot, slotIndex) => {
-    tags.set(slotIndex, addressDecoder.decode(slot.viewTag));
+    ownerTags.set(slotIndex, addressDecoder.decode(slot.viewTag));
+    leaves.set(slotIndex, slot.outputContext.leafIndex);
   });
-  return tags;
+  return { ownerTags, leaves };
 }

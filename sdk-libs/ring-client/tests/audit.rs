@@ -590,6 +590,7 @@ impl TransactionOrigin for KnownOrigins {
             .map(|ring_invoked| RingOrigin {
                 ring_invoked,
                 signers: Vec::new(),
+                withdrawals: Vec::new(),
             })
             .ok_or_else(|| OriginError::Unavailable {
                 signature,

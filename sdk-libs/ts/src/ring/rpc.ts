@@ -196,6 +196,12 @@ export interface DecryptedRingOutput {
   readonly ringProgramId?: Address;
 }
 
+/** A public settlement leg. Value left the ring to a plain account. */
+export interface DecryptedRingWithdrawal {
+  readonly recipient: Address;
+  readonly amount: bigint;
+}
+
 export interface DecryptedRingTransaction {
   readonly slot: bigint;
   readonly signature: Signature;
@@ -205,6 +211,8 @@ export interface DecryptedRingTransaction {
   readonly nullifiers: readonly Bytes32[];
   /** Required signers, fee payer first. Absent from an older ring RPC. */
   readonly signers?: readonly Address[];
+  /** Absent from an older ring RPC, empty when nothing left the ring. */
+  readonly withdrawals?: readonly DecryptedRingWithdrawal[];
 }
 
 /** Mirrors Rust `SkippedReason`. */
@@ -400,6 +408,19 @@ function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransact
       : {
           signers: Object.freeze(
             list(wire["signers"], "signers").map((key) => string(key, "signers") as Address),
+          ),
+        }),
+    ...(wire["withdrawals"] === undefined || wire["withdrawals"] === null
+      ? {}
+      : {
+          withdrawals: Object.freeze(
+            list(wire["withdrawals"], "withdrawals").map((entry) => {
+              const leg = record(entry, "withdrawals");
+              return Object.freeze({
+                recipient: string(leg["recipient"], "withdrawals.recipient") as Address,
+                amount: integer(leg["amount"], "withdrawals.amount"),
+              });
+            }),
           ),
         }),
   });

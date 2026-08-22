@@ -4,7 +4,7 @@ import type { ZolanaClient } from "../src/client/client.js";
 import { getAddressDecoder } from "@solana/kit";
 
 import type { Bytes32, Signature } from "../src/interface/types.js";
-import { fetchOwnerTags } from "../src/wallet/parties.js";
+import { fetchTransactionSlots } from "../src/wallet/parties.js";
 
 const SIGNATURE = "1".repeat(87) as Signature;
 const filled = (byte: number) => new Uint8Array(32).fill(byte) as Bytes32;
@@ -31,7 +31,7 @@ function reader(events: readonly { leaf: bigint; tags: readonly Bytes32[] }[]) {
 
 describe("owner tags", () => {
   it("reads a tag per output slot", async () => {
-    const tags = await fetchOwnerTags({
+    const { ownerTags: tags } = await fetchTransactionSlots({
       rpc: reader([{ leaf: 0n, tags: [filled(7), filled(8)] }]),
       signature: SIGNATURE,
     });
@@ -43,7 +43,7 @@ describe("owner tags", () => {
   });
 
   it("picks the event holding the leaf, not the first one", async () => {
-    const tags = await fetchOwnerTags({
+    const { ownerTags: tags } = await fetchTransactionSlots({
       rpc: reader([
         { leaf: 0n, tags: [filled(1)] },
         { leaf: 50n, tags: [filled(2)] },

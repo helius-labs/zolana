@@ -281,6 +281,7 @@ mod tests {
             Ok(RingOrigin {
                 ring_invoked: false,
                 signers: Vec::new(),
+                withdrawals: Vec::new(),
             })
         }
 

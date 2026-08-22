@@ -7,15 +7,27 @@ use solana_address::Address;
 use solana_signature::Signature;
 use thiserror::Error;
 use zolana_client::ClientError;
-use zolana_event::InstructionGroup;
-use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
+use zolana_event::{tag, InstructionGroup, ParsedInstruction};
+use zolana_interface::{
+    instruction::{InterfaceTransfer, TransactIxData},
+    SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE,
+};
 
-/// What a confirmed transaction says about its ring and its signers.
+/// What a confirmed transaction says about its ring, its signers, and the value
+/// it settled out of the ring.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RingOrigin {
     pub ring_invoked: bool,
     /// Required signers, fee payer first. Every real input owner signs.
     pub signers: Vec<Address>,
+    pub withdrawals: Vec<RingWithdrawal>,
+}
+
+/// One public settlement leg out of the ring.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RingWithdrawal {
+    pub recipient: Address,
+    pub amount: u64,
 }
 
 /// Whether a confirmed transaction ran the shielded pool under `ring`.
@@ -40,12 +52,25 @@ pub enum OriginError {
     MissingStackHeight,
     #[error("inner instruction stack height {0} has no parent")]
     InvalidStackHeight(u32),
+    #[error("ring transact instruction data is undecodable {0}")]
+    InvalidTransactData(String),
+    #[error("ring transact settlement accounts do not match its interface transfers")]
+    SettlementAccounts,
 }
 
 /// `ring_transact` needs the ring's `ring_auth` PDA as signer, so only a pool
 /// instruction whose direct caller is `ring` belongs to the ring.
 pub fn ring_invoked_in(groups: &[InstructionGroup], ring: Address) -> Result<bool, OriginError> {
+    Ok(!ring_instructions_in(groups, ring)?.is_empty())
+}
+
+/// Every pool instruction the ring itself invoked, in call order.
+fn ring_instructions_in(
+    groups: &[InstructionGroup],
+    ring: Address,
+) -> Result<Vec<&ParsedInstruction>, OriginError> {
     let pool = Address::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+    let mut found = Vec::new();
     for group in groups {
         let mut callers = vec![group.outer.program_id];
         for inner in &group.inner {
@@ -56,13 +81,70 @@ pub fn ring_invoked_in(groups: &[InstructionGroup], ring: Address) -> Result<boo
                 .filter(|depth| *depth < callers.len())
                 .ok_or(OriginError::InvalidStackHeight(height))?;
             if inner.program_id == pool && callers[parent_depth] == ring {
-                return Ok(true);
+                found.push(inner);
             }
             callers.truncate(parent_depth + 1);
             callers.push(inner.program_id);
         }
     }
-    Ok(false)
+    Ok(found)
+}
+
+/// The public settlement legs of the ring's pool instructions. SPL withdrawals
+/// settle to a token account rather than to a wallet and are left out.
+fn ring_withdrawals_of(
+    instructions: &[&ParsedInstruction],
+) -> Result<Vec<RingWithdrawal>, OriginError> {
+    let sol_interface = Address::new_from_array(SOL_INTERFACE);
+    let mut withdrawals = Vec::new();
+    for instruction in instructions {
+        let Some(transfers) = interface_transfers(instruction)? else {
+            continue;
+        };
+        let total: usize = transfers.iter().map(|t| settlement_width(*t)).sum();
+        let start = instruction
+            .accounts
+            .len()
+            .checked_sub(total)
+            .ok_or(OriginError::SettlementAccounts)?;
+        let mut settlement = &instruction.accounts[start..];
+        for transfer in transfers {
+            let (group, rest) = settlement.split_at(settlement_width(transfer));
+            settlement = rest;
+            if let InterfaceTransfer::SolWithdrawal { amount } = transfer {
+                if group[0] != sol_interface {
+                    return Err(OriginError::SettlementAccounts);
+                }
+                withdrawals.push(RingWithdrawal {
+                    recipient: group[1],
+                    amount,
+                });
+            }
+        }
+    }
+    Ok(withdrawals)
+}
+
+/// `None` for a pool instruction that is not a `ring_transact`.
+fn interface_transfers(
+    instruction: &ParsedInstruction,
+) -> Result<Option<Vec<InterfaceTransfer>>, OriginError> {
+    let Some((&tag::RING_TRANSACT, payload)) = instruction.data.split_first() else {
+        return Ok(None);
+    };
+    let data = TransactIxData::deserialize(payload)
+        .map_err(|error| OriginError::InvalidTransactData(error.to_string()))?;
+    Ok(Some(data.interface_transfers))
+}
+
+/// Settlement accounts appended per interface transfer, mirroring
+/// `append_interface_transfer_accounts`.
+const fn settlement_width(transfer: InterfaceTransfer) -> usize {
+    if transfer.is_spl() {
+        5
+    } else {
+        2
+    }
 }
 
 #[cfg(feature = "solana-rpc")]
@@ -80,7 +162,9 @@ mod rpc {
     };
     use zolana_client::{ConfirmedInstructionGroups, SolanaRpc};
 
-    use super::{ring_invoked_in, OriginError, RingOrigin, TransactionOrigin};
+    use super::{
+        ring_instructions_in, ring_withdrawals_of, OriginError, RingOrigin, TransactionOrigin,
+    };
 
     pub const ORIGIN_TRANSACTION_CONFIG: RpcTransactionConfig = RpcTransactionConfig {
         encoding: Some(UiTransactionEncoding::Json),
@@ -105,8 +189,10 @@ mod rpc {
                 &self.signature,
                 self.transaction,
             )?;
+            let instructions = ring_instructions_in(&groups.groups, ring)?;
             Ok(RingOrigin {
-                ring_invoked: ring_invoked_in(&groups.groups, ring)?,
+                ring_invoked: !instructions.is_empty(),
+                withdrawals: ring_withdrawals_of(&instructions)?,
                 signers,
             })
         }
