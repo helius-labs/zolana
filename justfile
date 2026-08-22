@@ -19,9 +19,10 @@ localnet-photon-url := env_var_or_default("ZOLANA_LOCALNET_PHOTON_URL", "http://
 localnet-prover-url := env_var_or_default("ZOLANA_PROVER_URL", "http://127.0.0.1:" + localnet-prover-port)
 photon-bin := env_var_or_default("ZOLANA_PHOTON_BIN", "target/debug/photon")
 spp-keys-dir := env_var_or_default("ZOLANA_SPP_KEYS_DIR", "prover/server/proving-keys")
-# Published proving keys. The lockfile carries the sha256 of every key but its
-# own `prefix` field no longer resolves, so the object prefix is pinned here.
-proving-keys-url := "https://d3gbdb0egjwcw9.cloudfront.net/proving-keys/a5ff0c508cac3f51"
+# Published proving keys, prefixed by the lockfile the prover embeds so the two
+# cannot drift.
+proving-keys-base := env_var_or_default("ZOLANA_PROVING_KEYS_URL", "https://d3gbdb0egjwcw9.cloudfront.net")
+proving-keys-url := proving-keys-base + "/" + `python3 -c "import json;print(json.load(open('prover/server/prover/provingkeys/proving-keys.lock'))['prefix'])"`
 
 # Exported so every `cargo test` recipe (and the prover the tests spawn) picks up
 # the per-clone prover address without each recipe wiring it explicitly. The
