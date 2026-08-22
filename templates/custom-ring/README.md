@@ -28,6 +28,20 @@ access, `pipeline` grants it and `transact` refuses to run without the grant.
 A participant is a shielded wallet. It deposits into the ring and transfers
 inside it.
 
+## Prerequisites
+
+On `PATH` in a fresh checkout:
+
+- **Rust** 1.97.0, pinned by `rust-toolchain.toml`.
+- **`just`** — `cargo install just --locked`.
+- **Anza / Solana CLI** 4.x —
+  `sh -c "$(curl -sSfL https://release.anza.xyz/v4.0.2/install)"`, for
+  `cargo build-sbf`, `solana program deploy` and the key checks.
+
+The Zolana checkout at `{{zolana_path}}` supplies the program, the ring RPC and,
+on localnet, the validator and services, so its prerequisites apply to
+`just localnet`. `just transact` needs the Redis in `ZOLANA_PROVER_REDIS_URL`.
+
 ## The pipeline
 
 `just localnet` starts a validator with SPP, Photon and the prover from the
@@ -46,19 +60,33 @@ The program id was fixed when the wizard created `keys/program-keypair.json`.
 when it already exists. While the program has an upgrade authority only that
 key may run `init`.
 
+The authority pays for every step. Localnet airdrops what a step spends,
+devnet does not: a step it cannot pay for prints the address and the amount and
+waits for an airdrop at [the faucet](https://faucet.solana.com), then continues
+on the next keypress. `solana airdrop` draws on the same quota and is rate
+limited to refusing, so the pause does not suggest it. In CI, without a
+terminal, the shortfall is an error.
+
 `just init` fixes the auditor. Without `keys/auditor.key.pub` it asks the ring
 RPC in `ring.toml` for a key and writes the public half there. A hosted RPC is
 accepted only when its service key is pinned as `ring_rpc_pubkey` in
 `ring.toml`, or with `init --trust-ring-rpc` for a local instance. The auditor
 key cannot change afterwards, a different auditor is a different ring.
 
+Where the ring RPC is hosted, devnet by default, that service holds the
+auditor key: `just auditor-key` creates nothing and `init` fetches the public
+half under the pinned service key. Only a ring RPC on `127.0.0.1` reads
+`keys/`.
+
 After `init` the authority may move. `authority transfer <pubkey>` hands the
 program to another key, then point `authority_keypair` in `ring.toml` at its
 keypair. `authority renounce --yes` makes the program immutable.
 
-`just rpc` serves the auditor's view from `keys/auditor.key`. `just pipeline`
-starts it in the background when none answers on the ring RPC port and leaves
-it running, `just rpc-stop` ends it.
+`just rpc` serves the auditor's view from `keys/auditor.key`; against a hosted
+ring RPC it refuses, that service already serves the ring. `just pipeline`
+starts a local one in the background when none answers and leaves it running,
+`just rpc-stop` ends it; on a hosted one it starts nothing and only runs
+`rpc-check`.
 
 `just transact` makes two ring deposits, one audited transfer, and reads the
 transfer back through the ring RPC as the authority. The audit proof goes
@@ -90,8 +118,9 @@ The wizard forwards the enabled ones to both crates.
 
 ## Pitfalls
 
-Local rings share the ring RPC port. `just pipeline` replaces an RPC that
-serves another ring's auditor key, `rpc-check` tells the two apart.
+Local rings share the ring RPC port. `just pipeline` replaces a local RPC that
+serves another ring's auditor key, `rpc-check` tells the two apart. It never
+replaces a hosted one.
 
 `init` refuses an unpinned hosted RPC on purpose. Confirm the service key out
 of band and pin it, `--trust-ring-rpc` is for an RPC on this machine.
@@ -101,7 +130,8 @@ table behind it, the instruction does not fit a packet with a separate fee
 payer. `transact` funds the throwaway sender for that.
 
 Deploys and transactions on devnet cost devnet SOL, `just status` shows the
-authority's balance. The Helius API key lives in `.env`, `.env.example` lists
+authority's balance and the pipeline stops for a faucet airdrop when it runs
+short. The Helius API key lives in `.env`, `.env.example` lists
 the keys.
 
 Keep `keys/` and `.env` out of git and in the deployment secret store. A fresh

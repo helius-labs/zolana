@@ -1,15 +1,5 @@
 // Every answer is a template variable, a `-d name=value` answer is kept. FEATURES is the one place a feature is declared.
 
-const PIPELINE = [
-    "cargo generate template (this wizard)",
-    "create the GitHub repository from the generated ring (`just repo`)",
-    "build the program (`just build`)",
-    "deploy with your key as upgrade authority (`just deploy`)",
-    "initialize the ring for the selected features (`just init`)",
-    "start the ring RPC holding the auditor key (`just rpc`)",
-    "transact in the ring (`just transact`)",
-];
-
 const FEATURES = [
     #{ id: "confidential", name: "Confidential", example: "Amounts and recipients are hidden on chain", state: "always" },
     #{ id: "auditor_visibility", name: "Auditor visibility", example: "Let compliance, accounting, or regulators view ring activity", state: "always" },
@@ -31,8 +21,10 @@ const FEATURES = [
 const HELIUS_DEVNET_RPC = "https://devnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}";
 const PUBLIC_DEVNET_RPC = "https://api.devnet.solana.com";
 const DEVNET_INDEXER = "http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com";
-const DEVNET_PROVER = "http://zolana-rings-test-4ad19cabeffa919a.elb.eu-north-1.amazonaws.com:3001";
-const DEVNET_RING_RPC = "http://zolana-rings-test-4ad19cabeffa919a.elb.eu-north-1.amazonaws.com:8785";
+// The CloudFront distributions in front of the ring test stack, printed by
+// `just rings-test status`. No browser page can read their http origin.
+const DEVNET_PROVER = "https://d30sgubc9yxiri.cloudfront.net";
+const DEVNET_RING_RPC = "https://d1ojzfopdqqs5r.cloudfront.net";
 const DEVNET_RING_RPC_PUBKEY = "C8TeRCdueRdXj3y4uFDtNywYThc3qeiH2ZGfcbYZzVSs";
 
 fn setting(name, fallback) {
@@ -60,16 +52,8 @@ fn ask(name, text, fallback) {
     variable::get(name)
 }
 
-print("");
-print("Custom ring pipeline");
-let step = 1;
-for line in PIPELINE {
-    print(`  ${step}. ${line}`);
-    step += 1;
-}
-print("");
-
-ask("authority_keypair", "Deployer and ring authority keypair", "~/.config/solana/id.json");
+// The driver owns the default, it creates that keypair when the answer keeps it.
+ask("authority_keypair", "Deployer and ring authority keypair", setting("default_authority_keypair", "~/.config/solana/id.json"));
 
 // localnet defaults come from the driver.
 let ring_rpc_port = setting("default_ring_rpc_port", "8785");

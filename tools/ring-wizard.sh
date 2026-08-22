@@ -57,7 +57,9 @@ solana-keygen new --no-bip39-passphrase --silent --force -o "$keys/program-keypa
 program_id="$(solana-keygen pubkey "$keys/program-keypair.json")"
 
 revision="$(git -C "$root" rev-parse HEAD)"
-# Without it the wizard asks, default ~/.config/solana/id.json.
+# Without it the wizard asks, with this default: the one path the driver
+# creates. The recorded form keeps `~` so the ring works on another machine.
+default_authority_keypair="~/.config/solana/id.json"
 authority=()
 if [ -n "${CUSTOM_RING_AUTHORITY_KEYPAIR:-}" ]; then
     authority=(-d authority_keypair="$CUSTOM_RING_AUTHORITY_KEYPAIR")
@@ -95,17 +97,40 @@ cargo generate --path "$root/templates/custom-ring" --destination "$dest" --name
     -d default_indexer_url="$indexer_url" \
     -d default_prover_url="$prover_url" \
     -d default_ring_rpc_port="$ring_rpc_port" \
+    -d default_authority_keypair="$default_authority_keypair" \
     "$@"
 
 mkdir -p "$dest/$name/keys"
 mv "$keys/program-keypair.json" "$dest/$name/keys/program-keypair.json"
+
+# A fresh machine has no Solana CLI keypair yet, so the default answer is
+# created here rather than missed at `just deploy`. Any other path is the
+# operator's, mounted from the secret store, so it is only reported.
+authority_keypair="$(sed -n 's/^authority_keypair = "\(.*\)"/\1/p' "$dest/$name/ring.toml")"
+authority_file="${authority_keypair/#\~/$HOME}"
+if [ -n "$authority_file" ] && [ -f "$authority_file" ]; then
+    echo "authority $(solana-keygen pubkey "$authority_file") from $authority_keypair"
+elif [ "$authority_keypair" = "$default_authority_keypair" ]; then
+    mkdir -p "$(dirname "$authority_file")"
+    solana-keygen new --no-bip39-passphrase -o "$authority_file"
+    echo "authority $(solana-keygen pubkey "$authority_file") created at $authority_keypair"
+else
+    echo "note: no authority keypair at $authority_keypair, mount it before 'just deploy'" >&2
+fi
 # The ring resolves its dependencies exactly as this checkout does.
 cp "$root/Cargo.lock" "$dest/$name/Cargo.lock"
 # cargo-generate initializes the repository, the first commit records the
 # generated ring without keys/ and .env, both ignored.
 git -C "$dest/$name" checkout -q -B main
 git -C "$dest/$name" add -A
-git -C "$dest/$name" commit -q -m "ring: generate $name for program $program_id"
+# A machine with no git identity, a CI runner, cannot author a commit.
+identity=()
+if ! git -C "$dest/$name" config user.email >/dev/null 2>&1 \
+    || ! git -C "$dest/$name" config user.name >/dev/null 2>&1; then
+    identity=(-c user.name="ring wizard" -c user.email="ring-wizard@invalid")
+fi
+git -C "$dest/$name" ${identity[@]+"${identity[@]}"} \
+    commit -q -m "ring: generate $name for program $program_id"
 
 cat <<MSG
 

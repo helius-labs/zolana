@@ -53,29 +53,64 @@ devnet: build-cli
     #!/usr/bin/env bash
     set -euo pipefail
     cargo run -q -p {{project-name}} -- target devnet
+    just urls
     indexer="$({{ "{{url}}" }} indexer)"
     prover="$({{ "{{url}}" }} prover)"
     case "$indexer" in
       http://127.0.0.1*|http://localhost*)
         just -f {{ "{{zolana}}" }}/justfile ring-devnet-services "$({{ "{{url}}" }} rpc)" ;;
       *)
-        curl -sf "$indexer/readiness" >/dev/null || { echo "devnet indexer $indexer is not ready" >&2; exit 1; }
-        curl -sf "$prover/health" >/dev/null || { echo "devnet prover $prover is not ready" >&2; exit 1; }
+        echo
+        # A service that is down must fail in seconds, not sit in a connect.
+        probe() {
+            printf 'probing %-8s %s ... ' "$1" "$2"
+            if curl -sf --connect-timeout 5 --max-time 30 "$3" >/dev/null; then
+                echo ready
+            else
+                echo "not ready"
+                echo "devnet $1 $2 is not ready" >&2
+                exit 1
+            fi
+        }
+        probe indexer "$indexer" "$indexer/readiness"
+        probe prover "$prover" "$prover/health"
         echo "devnet services ready (hosted)" ;;
     esac
-    just urls
+    ring_rpc="$({{ "{{url}}" }} ring-rpc)"
+    case "$ring_rpc" in
+      http://127.0.0.1*|http://localhost*)
+        rpc_step="start the ring rpc here, serving keys/auditor.key" ;;
+      *)
+        rpc_step="check that the hosted ring rpc holds this ring's auditor key" ;;
+    esac
+    echo
+    echo "👻 next: just pipeline"
+    echo "   1 build     the ring program"
+    echo "   2 deploy    it under the authority, pausing for a faucet airdrop when its devnet SOL runs short"
+    echo "   3 init      create the config with the auditor key and register the ring with SPP"
+    echo "   4 ring rpc  $rpc_step"
+    echo "   5 transact  grant the authority a reader, deposit twice, transfer once, read it back"
+    echo
+    echo "   each step is its own recipe, 'just status' shows how far a run got"
 
 devnet-stop: rpc-stop
     just -f {{ "{{zolana}}" }}/justfile ring-devnet-services-stop
 
 # The active target and where its services are.
 urls:
-    @echo
-    @echo "{{project-name}} points at $(sed -n 's/^target = "\(.*\)"/\1/p' ring.toml)"
-    @echo "  rpc       $({{ "{{url}}" }} rpc)"
-    @echo "  indexer   $({{ "{{url}}" }} indexer)"
-    @echo "  prover    $({{ "{{url}}" }} prover)"
-    @echo "  ring rpc  $({{ "{{url}}" }} ring-rpc)  (just rpc)"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ring_rpc="$({{ "{{url}}" }} ring-rpc)"
+    case "$ring_rpc" in
+      http://127.0.0.1*|http://localhost*) served="(just rpc)" ;;
+      *) served="(hosted, it serves this ring)" ;;
+    esac
+    echo
+    echo "{{project-name}} points at $(sed -n 's/^target = "\(.*\)"/\1/p' ring.toml)"
+    echo "  rpc       $({{ "{{url}}" }} rpc)"
+    echo "  indexer   $({{ "{{url}}" }} indexer)"
+    echo "  prover    $({{ "{{url}}" }} prover)"
+    echo "  ring rpc  $ring_rpc  $served"
 
 # Build the ring program at its pinned address.
 build: source
@@ -115,6 +150,14 @@ deploy: build program-key build-cli
 auditor-key: source key-dir
     #!/usr/bin/env bash
     set -euo pipefail
+    # A hosted ring RPC derives this ring's key and `init` fetches it.
+    ring_rpc="$({{ "{{url}}" }} ring-rpc)"
+    case "$ring_rpc" in
+      http://127.0.0.1*|http://localhost*) ;;
+      *)
+        echo "auditor key  derived by the hosted ring rpc $ring_rpc, fetched by 'just init'"
+        exit 0 ;;
+    esac
     if [[ -L keys/auditor.key || ( -e keys/auditor.key && ! -f keys/auditor.key ) ]]; then
         echo "auditor key path is not safe" >&2
         exit 1
@@ -159,8 +202,17 @@ auditor-key: source key-dir
 init: build-cli auditor-key
     cargo run -q -p {{project-name}} -- init
 
-# Serve decrypted ring transactions to the auditor, foreground.
+# Serve decrypted ring transactions to the auditor, foreground. Only for a ring RPC on this machine, the hosted one already serves the ring.
 rpc: auditor-key
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ring_rpc="$({{ "{{url}}" }} ring-rpc)"
+    case "$ring_rpc" in
+      http://127.0.0.1*|http://localhost*) ;;
+      *)
+        echo "ring rpc $ring_rpc is hosted and already serves this ring, nothing to run here" >&2
+        exit 1 ;;
+    esac
     cargo run -q --manifest-path "{{ "{{zolana}}" }}/services/ring-rpc/Cargo.toml" -- serve \
         --port {{ring_rpc_port}} --indexer-url "$({{ "{{url}}" }} indexer)" --rpc-url "$({{ "{{url}}" }} rpc)" \
         --auditor-key-file keys/auditor.key --ring-program-id {{program_id}} \
@@ -191,16 +243,25 @@ grant-reader reader: build-cli
 revoke-reader reader: build-cli
     cargo run -q -p {{project-name}} -- reader revoke {{ "{{reader}}" }}
 
-# Steps 4 to 8. The ring RPC is started in the background when none answers and stays up, log in .localnet/ring-rpc.log.
+# Build, deploy, init, ring RPC and transact. A local ring RPC is started in the background when none answers and stays up, log in .localnet/ring-rpc.log; a hosted one is only checked.
 pipeline: build deploy init
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p .localnet
     ring_rpc="$({{ "{{url}}" }} ring-rpc)"
+    case "$ring_rpc" in
+      http://127.0.0.1*|http://localhost*) ;;
+      *)
+        # It serves the ring already, it only has to hold this ring's key.
+        cargo run -q -p {{project-name}} -- rpc-check
+        just _transact-as-reader
+        exit 0 ;;
+    esac
     # Local rings share the port, an RPC of another ring is replaced.
     start_rpc=true
-    if curl -sf "$ring_rpc/health" >/dev/null 2>&1; then
+    if curl -sf --max-time 5 "$ring_rpc/health" >/dev/null 2>&1; then
         if cargo run -q -p {{project-name}} -- rpc-check >/dev/null 2>&1; then
+            echo "ring rpc    $ring_rpc already serves this ring"
             start_rpc=false
         else
             echo "replacing the ring rpc on port {{ring_rpc_port}}, it served another ring"
@@ -211,13 +272,26 @@ pipeline: build deploy init
     if [ "$start_rpc" = true ]; then
         nohup just rpc > {{ "{{ring-rpc-log}}" }} 2>&1 &
         echo $! > .localnet/ring-rpc.pid
+        # A fresh checkout builds the ring RPC first, so the wait ticks.
+        printf 'starting the ring rpc at %s ' "$ring_rpc"
         for _ in $(seq 1 180); do
-            if curl -sf "$ring_rpc/health" >/dev/null 2>&1; then break; fi
+            if curl -sf --max-time 5 "$ring_rpc/health" >/dev/null 2>&1; then break; fi
+            printf '.'
             sleep 1
         done
-        curl -sf "$ring_rpc/health" >/dev/null
-        echo "ring rpc listening at $ring_rpc (log {{ "{{ring-rpc-log}}" }}, stop with 'just rpc-stop')"
+        if ! curl -sf --max-time 5 "$ring_rpc/health" >/dev/null 2>&1; then
+            echo " did not come up"
+            echo "the ring rpc did not answer, see {{ "{{ring-rpc-log}}" }}" >&2
+            exit 1
+        fi
+        echo " listening (log {{ "{{ring-rpc-log}}" }}, stop with 'just rpc-stop')"
     fi
+    just _transact-as-reader
+
+# The authority reads its own ring, `transact` refuses without the grant.
+_transact-as-reader:
+    #!/usr/bin/env bash
+    set -euo pipefail
     authority="{{authority_keypair}}"
     just grant-reader "$(solana-keygen pubkey "${authority/#\~/$HOME}")"
     just transact
