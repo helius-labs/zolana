@@ -864,6 +864,13 @@ paths:
                         oneOf:
                         - type: 'null'
                         - $ref: '#/components/schemas/Base64String'
+                      scannedThrough:
+                        oneOf:
+                        - type: 'null'
+                        - $ref: '#/components/schemas/Base64String'
+                          description: |-
+                            As on the nullifier query, and absent from an index that does not
+                            report it, this one included. No caller resumes a tag scan from it.
                       transactions:
                         type: array
                         items:
