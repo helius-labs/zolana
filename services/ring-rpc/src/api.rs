@@ -14,6 +14,7 @@ use crate::audit::KeyMode;
 pub const HEALTH: &str = "health";
 pub const CREATE_AUDITOR_KEY: &str = "createAuditorKey";
 pub const RING_STATUS: &str = "ringStatus";
+pub const RING_DEPOSITS: &str = "ringDeposits";
 pub const GET_DECRYPTED_TRANSACTIONS: &str = "getDecryptedTransactions";
 pub(crate) const AUDIT_CURSOR_LIMIT: usize = 256;
 pub(crate) const AUDIT_PAGE_LIMIT: u64 = 100;
@@ -41,6 +42,33 @@ pub struct CreateAuditorKeyResponse {
     pub auditor_view_tag: Hash,
     pub service_pubkey: SerializablePubkey,
     pub signature: SerializableSignature,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct RingDepositsRequest {
+    pub ring_program_id: SerializablePubkey,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+/// Value entering the ring. A deposit publishes its asset and amount, so this
+/// needs no auditor key.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct DepositRecord {
+    pub signature: SerializableSignature,
+    pub slot: u64,
+    /// The owner tag of the note the deposit created.
+    pub depositor: Hash,
+    pub asset: SerializablePubkey,
+    pub amount: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct RingDepositsResponse {
+    pub deposits: Vec<DepositRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

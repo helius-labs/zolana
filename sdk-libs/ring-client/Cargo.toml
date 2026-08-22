@@ -27,6 +27,7 @@ solana-signature = { workspace = true }
 solana-transaction-status-client-types = { workspace = true, optional = true }
 thiserror = { workspace = true }
 zeroize = { workspace = true }
+borsh = { workspace = true }
 zolana-client = { workspace = true }
 zolana-event = { workspace = true, features = ["program-test"] }
 zolana-interface = { workspace = true }
