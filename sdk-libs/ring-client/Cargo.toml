@@ -35,6 +35,7 @@ zolana-transaction = { workspace = true }
 
 [dev-dependencies]
 borsh = { workspace = true }
+bs58 = { workspace = true }
 serde_json = { workspace = true }
 solana-transaction-status-client-types = { workspace = true }
 zolana-ring-client = { path = ".", features = ["solana-rpc"] }

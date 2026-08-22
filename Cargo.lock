@@ -11122,6 +11122,7 @@ name = "zolana-ring-client"
 version = "0.1.0"
 dependencies = [
  "borsh",
+ "bs58",
  "curve25519-dalek 4.1.3",
  "hex",
  "p256",
