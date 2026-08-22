@@ -126,7 +126,8 @@ key_fetch_script() {
         sha="$(awk -v n="$name" '$2 == n { print $1 }' "$checksum")"
         printf 'fetch %s/%s %s %s\n' "$keys_release" "$name" "$name" "$sha"
     done
-    for name in transfer_ring_1_2.key transfer_ring_2_2.key; do
+    # 1_1 is the withdrawal shape, which has no recipient output.
+    for name in transfer_ring_1_1.key transfer_ring_1_2.key transfer_ring_2_2.key; do
         sha="$(jq -r --arg n "$name" '.keys[$n].sha256' "$lock")"
         printf 'fetch %s/%s %s %s\n' "$published_keys" "$name" "$name" "$sha"
     done
