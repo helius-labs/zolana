@@ -59,7 +59,8 @@ ring_rpc_port=8785
 redis_image="public.ecr.aws/docker/library/redis:7.4.4-alpine3.21"
 fetch_image="public.ecr.aws/docker/library/alpine:3.21"
 keys_release="https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v1"
-published_keys="https://d3gbdb0egjwcw9.cloudfront.net/proving-keys/a5ff0c508cac3f51"
+# The prover embeds this lockfile, so reading the prefix here keeps the two aligned.
+published_keys="https://d3gbdb0egjwcw9.cloudfront.net/$(python3 -c "import json;print(json.load(open('$(dirname "$0")/../prover/server/prover/provingkeys/proving-keys.lock'))['prefix'])")"
 
 aws_() { aws --region "$region" "$@"; }
 

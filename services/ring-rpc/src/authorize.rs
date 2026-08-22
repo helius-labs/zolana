@@ -208,3 +208,97 @@ impl<'a> Proof<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use solana_address::Address;
+    use solana_keypair::Keypair;
+    use solana_signer::Signer;
+    use zolana_keypair::ViewingKey;
+
+    use crate::api::{unix_now, GetDecryptedTransactionsRequest};
+
+    use super::*;
+
+    const RING: Address = Address::new_from_array([5; 32]);
+
+    fn wallet() -> Keypair {
+        Keypair::new_from_array([42; 32])
+    }
+
+    fn signed_auth() -> ReadAuth {
+        GetDecryptedTransactionsRequest::read(RING)
+            .at(unix_now().expect("clock"))
+            .sign(&wallet())
+            .expect("signed request")
+            .auth
+    }
+
+    fn decide(auth: &ReadAuth) -> Result<Claim, Unauthorized> {
+        let nonce: [u8; 32] = auth.nonce.0.as_slice().try_into().unwrap_or([0; 32]);
+        ReadCheck::new(
+            auth,
+            &ReadAttestation {
+                ring: RING,
+                timestamp: auth.timestamp,
+                nonce: &nonce,
+                cursor: None,
+                limit: None,
+            },
+        )
+        .at(unix_now().expect("clock"))
+        .against(&Origins::default())
+        .decide()
+    }
+
+    fn assertion() -> WebAuthnAssertion {
+        WebAuthnAssertion {
+            authenticator_data: vec![1; 37].into(),
+            client_data_json: b"{}".to_vec().into(),
+        }
+    }
+
+    #[test]
+    fn a_reader_key_the_service_cannot_verify_a_signature_against_is_refused() {
+        assert_eq!(
+            decide(&signed_auth()).expect("wallet claim").reader_key(),
+            ReaderKey::ed25519(wallet().pubkey()).expect("reader key")
+        );
+
+        // A PDA tag, and reader bytes that are not a tagged key at all.
+        let mut pda = signed_auth();
+        pda.reader.0[0] = 2;
+        let mut short = signed_auth();
+        short.reader.0.pop();
+        for auth in [pda, short] {
+            assert_eq!(decide(&auth), Err(Unauthorized::UnknownReaderKey));
+        }
+    }
+
+    /// The reader key tag picks the verifier, so an assertion and a raw
+    /// signature are never interchangeable.
+    #[test]
+    fn the_signature_scheme_must_match_the_declared_reader_key() {
+        let mut passkey_tag = signed_auth();
+        passkey_tag.reader = ReaderKey::p256(ViewingKey::new().pubkey())
+            .expect("passkey reader")
+            .to_bytes()
+            .to_vec()
+            .into();
+        assert_eq!(
+            decide(&passkey_tag),
+            Err(Unauthorized::PasskeyNeedsAssertion)
+        );
+
+        let mut wallet_tag = signed_auth();
+        wallet_tag.webauthn = Some(assertion());
+        assert_eq!(decide(&wallet_tag), Err(Unauthorized::UnexpectedAssertion));
+    }
+
+    #[test]
+    fn a_nonce_that_is_not_thirty_two_bytes_is_refused() {
+        let mut auth = signed_auth();
+        auth.nonce.0.pop();
+        assert_eq!(decide(&auth), Err(Unauthorized::InvalidNonce));
+    }
+}

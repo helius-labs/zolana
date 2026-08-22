@@ -72,6 +72,8 @@ export type {
   DecryptedRingTransactionsPage,
   DecryptedRingWithdrawal,
   RingAuditorKey,
+  RingDeposit,
+  RingDepositsPage,
   RingKeyMode,
   RingReadSigner,
   RingRpcHealth,
@@ -92,13 +94,20 @@ export type { AuditedRingOutput, AuditedRingTransaction, RingAuditPage } from ".
 export {
   CachedTransactionOrigin,
   confirmedInstructionGroups,
-  confirmedWithdrawalRecipients,
+  confirmedRingWithdrawals,
   senderOf,
   ORIGIN_TRANSACTION_CONFIG,
+  ringInstructionsIn,
   ringInvokedIn,
+  ringWithdrawalsOf,
   RpcTransactionOrigin,
 } from "./origin.js";
-export type { OriginInstruction, OriginInstructionGroup, TransactionOrigin } from "./origin.js";
+export type {
+  OriginInstruction,
+  OriginInstructionGroup,
+  RingWithdrawal,
+  TransactionOrigin,
+} from "./origin.js";
 export {
   buildRingTransferTransaction,
   buildRingWithdrawalTransaction,

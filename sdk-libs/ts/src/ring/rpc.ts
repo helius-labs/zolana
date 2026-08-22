@@ -193,6 +193,14 @@ export interface RingDeposit {
   readonly amount: bigint;
 }
 
+/** One page of ring deposits. The cursor is opaque, pass it back to reach older history. */
+export interface RingDepositsPage {
+  readonly deposits: readonly RingDeposit[];
+  readonly cursor?: Uint8Array;
+  /** The oldest slot this page examined, so a caller can merge the stream with an audit read by slot. */
+  readonly oldestSlot?: bigint;
+}
+
 /** Mirrors Rust `RingState`. */
 export type RingState = "served" | "foreignAuditor" | "uninitialized";
 
@@ -211,11 +219,8 @@ export interface RingStatus {
 export interface DecryptedRingOutput {
   readonly slotIndex: number;
   readonly recipientViewingPublicKey: P256PublicKey;
-  /**
-   * `OutputSlot.viewTag`, the Solana address of an Ed25519 or PDA owner.
-   * Absent from an older ring RPC.
-   */
-  readonly ownerTag?: Bytes32;
+  /** `OutputSlot.viewTag`, the Solana address of an Ed25519 or PDA owner. */
+  readonly ownerTag: Bytes32;
   readonly asset: Address;
   readonly amount: bigint;
   readonly ringProgramId?: Address;
@@ -223,7 +228,10 @@ export interface DecryptedRingOutput {
 
 /** A public settlement leg. Value left the ring to a plain account. */
 export interface DecryptedRingWithdrawal {
+  /** A token account for an SPL leg, a wallet for a SOL leg. */
   readonly recipient: Address;
+  /** The mint of an SPL leg or the native SOL mint. */
+  readonly asset: Address;
   readonly amount: bigint;
 }
 
@@ -234,10 +242,10 @@ export interface DecryptedRingTransaction {
   readonly outputs: readonly DecryptedRingOutput[];
   readonly undecryptableSlots: readonly number[];
   readonly nullifiers: readonly Bytes32[];
-  /** Required signers, fee payer first. Absent from an older ring RPC. */
-  readonly signers?: readonly Address[];
-  /** Absent from an older ring RPC, empty when nothing left the ring. */
-  readonly withdrawals?: readonly DecryptedRingWithdrawal[];
+  /** Required signers, fee payer first. */
+  readonly signers: readonly Address[];
+  /** Empty when nothing left the ring. */
+  readonly withdrawals: readonly DecryptedRingWithdrawal[];
 }
 
 /** Mirrors Rust `SkippedReason`. */
@@ -314,27 +322,43 @@ export class RingRpc {
     });
   }
 
-  /** Deposits publish their asset and amount, so this read is unsigned. */
-  async ringDeposits(ringProgramId: Address, limit?: number): Promise<readonly RingDeposit[]> {
+  /**
+   * Deposits publish their asset and amount, so this read is unsigned.
+   * `limit` counts signatures examined, so an empty page can still carry a cursor over older history.
+   */
+  async ringDeposits(
+    input: Readonly<{ ringProgramId: Address; limit?: number; cursor?: Uint8Array }>,
+  ): Promise<RingDepositsPage> {
     const wire = record(
       await this.#call("ringDeposits", {
-        ringProgramId,
-        ...(limit === undefined ? {} : { limit }),
+        ringProgramId: input.ringProgramId,
+        ...(input.limit === undefined ? {} : { limit: input.limit }),
+        ...(input.cursor === undefined ? {} : { cursor: base64Decoder.decode(input.cursor) }),
       }),
       "result",
     );
-    return Object.freeze(
-      list(wire["deposits"], "result.deposits").map((entry) => {
-        const deposit = record(entry, "result.deposits");
-        return Object.freeze({
-          signature: string(deposit["signature"], "deposits.signature") as Signature,
-          slot: integer(deposit["slot"], "deposits.slot"),
-          depositor: string(deposit["depositor"], "deposits.depositor") as Address,
-          asset: string(deposit["asset"], "deposits.asset") as Address,
-          amount: integer(deposit["amount"], "deposits.amount"),
-        });
-      }),
-    );
+    const cursor = wire["cursor"];
+    const oldestSlot = wire["oldestSlot"];
+    return Object.freeze({
+      deposits: Object.freeze(
+        list(wire["deposits"], "result.deposits").map((entry) => {
+          const deposit = record(entry, "result.deposits");
+          return Object.freeze({
+            signature: string(deposit["signature"], "deposits.signature") as Signature,
+            slot: integer(deposit["slot"], "deposits.slot"),
+            depositor: string(deposit["depositor"], "deposits.depositor") as Address,
+            asset: string(deposit["asset"], "deposits.asset") as Address,
+            amount: integer(deposit["amount"], "deposits.amount"),
+          });
+        }),
+      ),
+      ...(cursor === undefined || cursor === null
+        ? {}
+        : { cursor: base64(cursor, "result.cursor") }),
+      ...(oldestSlot === undefined || oldestSlot === null
+        ? {}
+        : { oldestSlot: integer(oldestSlot, "result.oldestSlot") }),
+    });
   }
 
   /** Whether this service can open the ring, before a read is attempted. */
@@ -471,36 +495,28 @@ function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransact
     nullifiers: Object.freeze(
       list(wire["nullifiers"], "nullifiers").map((nullifier) => hash(nullifier, "nullifiers")),
     ),
-    ...(wire["signers"] === undefined || wire["signers"] === null
-      ? {}
-      : {
-          signers: Object.freeze(
-            list(wire["signers"], "signers").map((key) => string(key, "signers") as Address),
-          ),
-        }),
-    ...(wire["withdrawals"] === undefined || wire["withdrawals"] === null
-      ? {}
-      : {
-          withdrawals: Object.freeze(
-            list(wire["withdrawals"], "withdrawals").map((entry) => {
-              const leg = record(entry, "withdrawals");
-              return Object.freeze({
-                recipient: string(leg["recipient"], "withdrawals.recipient") as Address,
-                amount: integer(leg["amount"], "withdrawals.amount"),
-              });
-            }),
-          ),
-        }),
+    signers: Object.freeze(
+      list(wire["signers"], "signers").map((key) => string(key, "signers") as Address),
+    ),
+    withdrawals: Object.freeze(
+      list(wire["withdrawals"], "withdrawals").map((entry) => {
+        const leg = record(entry, "withdrawals");
+        return Object.freeze({
+          recipient: string(leg["recipient"], "withdrawals.recipient") as Address,
+          asset: string(leg["asset"], "withdrawals.asset") as Address,
+          amount: integer(leg["amount"], "withdrawals.amount"),
+        });
+      }),
+    ),
   });
 }
 
 function decodeOutput(output: Record<string, unknown>): DecryptedRingOutput {
   const ring = output["ringProgramId"];
-  const tag = output["ownerTag"];
   return Object.freeze({
     slotIndex: Number(integer(output["slotIndex"], "slotIndex")),
     recipientViewingPublicKey: p256Key(output["recipientViewingPk"], "recipientViewingPk"),
-    ...(tag === undefined || tag === null ? {} : { ownerTag: hash(tag, "ownerTag") }),
+    ownerTag: hash(output["ownerTag"], "ownerTag"),
     asset: string(output["asset"], "asset") as Address,
     amount: integer(output["amount"], "amount"),
     ...(ring === undefined || ring === null

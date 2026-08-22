@@ -1,11 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { address, type Address, type Signature } from "@solana/kit";
+import { address, getBase58Decoder, type Address, type Signature } from "@solana/kit";
 
-import { SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
+import { encodeTransactInstructionData } from "../src/interface/codecs/index.js";
+import {
+  InstructionTag,
+  SHIELDED_POOL_CPI_AUTHORITY,
+  SHIELDED_POOL_PROGRAM_ID,
+  SOL_INTERFACE,
+} from "../src/interface/program.js";
+import type {
+  Bytes16,
+  Bytes32,
+  Bytes33,
+  Bytes64,
+  InterfaceTransfer,
+} from "../src/interface/types.js";
+import { SOL_MINT } from "../src/transaction/wallet/asset.js";
 import { RingError } from "../src/ring/error.js";
 import {
   CachedTransactionOrigin,
   confirmedInstructionGroups,
+  confirmedRingWithdrawals,
   ringInvokedIn,
   RpcTransactionOrigin,
   type OriginInstructionGroup,
@@ -23,9 +38,10 @@ function group(
   outer: Address,
   inner: readonly (readonly [Address, number])[],
 ): OriginInstructionGroup {
+  const empty = { accounts: [], data: new Uint8Array() };
   return {
-    outer: { programId: outer, stackHeight: 1 },
-    inner: inner.map(([programId, stackHeight]) => ({ programId, stackHeight })),
+    outer: { programId: outer, stackHeight: 1, ...empty },
+    inner: inner.map(([programId, stackHeight]) => ({ programId, stackHeight, ...empty })),
   };
 }
 
@@ -104,7 +120,10 @@ describe("ringInvokedIn", () => {
 
   it("rejects malformed stack heights", () => {
     origin("missing stack height", [
-      { outer: { programId: RING, stackHeight: 1 }, inner: [{ programId: POOL }] },
+      {
+        outer: { programId: RING, stackHeight: 1, accounts: [], data: new Uint8Array() },
+        inner: [{ programId: POOL, accounts: [], data: new Uint8Array() }],
+      },
     ]);
     origin("no parent", [group(RING, [[POOL, 4]])]);
     origin("no parent", [group(RING, [[POOL, 1]])]);
@@ -151,7 +170,10 @@ describe("confirmedInstructionGroups", () => {
   it("resolves v0 program ids from loadedAddresses", () => {
     const groups = confirmedInstructionGroups(v0Transaction());
     expect(groups).toEqual([
-      { outer: { programId: RING }, inner: [{ programId: POOL, stackHeight: 2 }] },
+      {
+        outer: { programId: RING, accounts: [PAYER], data: new Uint8Array() },
+        inner: [{ programId: POOL, accounts: [OTHER], data: new Uint8Array(), stackHeight: 2 }],
+      },
     ]);
     expect(ringInvokedIn(groups, RING)).toBe(true);
   });
@@ -160,6 +182,173 @@ describe("confirmedInstructionGroups", () => {
     const transaction = v0Transaction() as { meta: Record<string, unknown> };
     delete transaction.meta["innerInstructions"];
     expect(() => confirmedInstructionGroups(transaction)).toThrow(RingError);
+  });
+});
+
+const RECIPIENT = address("So11111111111111111111111111111111111111112");
+const DEPOSITOR = address("Vote111111111111111111111111111111111111111");
+const MINT = address("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+const SPL_INTERFACE = address("SysvarRent111111111111111111111111111111111");
+const TOKEN_ACCOUNT = address("Stake11111111111111111111111111111111111111");
+const TOKEN_PROGRAM = address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+const SETTLEMENT_KEYS: readonly Address[] = [
+  PAYER,
+  RING,
+  OTHER,
+  POOL,
+  SOL_INTERFACE,
+  RECIPIENT,
+  DEPOSITOR,
+  SHIELDED_POOL_CPI_AUTHORITY,
+  MINT,
+  SPL_INTERFACE,
+  TOKEN_ACCOUNT,
+  TOKEN_PROGRAM,
+];
+
+const keyIndex = (account: Address) => SETTLEMENT_KEYS.indexOf(account);
+const zeros = (length: number) => new Uint8Array(length);
+
+/** A real `ring_transact` payload, so the tail is read against decoded transfers. */
+function transactData(transfers: readonly InterfaceTransfer[]): string {
+  const encoded = encodeTransactInstructionData({
+    expiryUnixTs: 0n,
+    privateTxHash: zeros(32) as Bytes32,
+    circuit: { kind: "zoneEddsa", inputs: 1, outputs: 2, publicAssetSlots: 1 },
+    txViewingPk: zeros(33) as Bytes33,
+    salt: zeros(16) as Bytes16,
+    proof: { a: zeros(32) as Bytes32, b: zeros(64) as Bytes64, c: zeros(32) as Bytes32 },
+    inputs: [
+      { nullifierHash: zeros(32) as Bytes32, nullifierTreeRootIndex: 0, utxoTreeRootIndex: 0 },
+    ],
+    interfaceTransfers: transfers,
+    outputs: [],
+    messages: [],
+  });
+  return getBase58Decoder().decode(Uint8Array.from([InstructionTag.ringTransact, ...encoded]));
+}
+
+function poolInstruction(
+  transfers: readonly InterfaceTransfer[],
+  tail: readonly Address[],
+  stackHeight = 2,
+): unknown {
+  return {
+    programIdIndex: keyIndex(POOL),
+    accounts: [keyIndex(PAYER), ...tail.map(keyIndex)],
+    data: transactData(transfers),
+    stackHeight,
+  };
+}
+
+function callerInstruction(programId: Address, accounts: readonly Address[] = []): unknown {
+  return { programIdIndex: keyIndex(programId), accounts: accounts.map(keyIndex), data: "" };
+}
+
+function settlementTransaction(outer: readonly unknown[], inner: readonly unknown[]): unknown {
+  return {
+    slot: 7,
+    blockTime: null,
+    transaction: {
+      signatures: [SIGNATURE],
+      message: {
+        accountKeys: [...SETTLEMENT_KEYS],
+        recentBlockhash: PAYER,
+        instructions: outer,
+        addressTableLookups: [],
+      },
+    },
+    meta: {
+      err: null,
+      innerInstructions: inner.length === 0 ? [] : [{ index: 0, instructions: inner }],
+    },
+    version: 0,
+  };
+}
+
+const SOL_LEG = { recipient: RECIPIENT, asset: SOL_MINT, amount: 7n };
+
+describe("confirmedRingWithdrawals", () => {
+  it("names the recipient of a SOL withdrawal", () => {
+    const transaction = settlementTransaction(
+      [callerInstruction(RING)],
+      [poolInstruction([{ kind: "solWithdrawal", amount: 7n }], [SOL_INTERFACE, RECIPIENT])],
+    );
+    expect(confirmedRingWithdrawals(transaction, RING)).toEqual([SOL_LEG]);
+  });
+
+  it("leaves a SOL deposit out", () => {
+    const transaction = settlementTransaction(
+      [callerInstruction(RING)],
+      [poolInstruction([{ kind: "solDeposit", amount: 7n }], [SOL_INTERFACE, DEPOSITOR])],
+    );
+    expect(confirmedRingWithdrawals(transaction, RING)).toEqual([]);
+  });
+
+  it("names the recipient when the same instruction also deposits", () => {
+    const transaction = settlementTransaction(
+      [callerInstruction(RING)],
+      [
+        poolInstruction(
+          [
+            { kind: "solDeposit", amount: 3n },
+            { kind: "solWithdrawal", amount: 7n },
+          ],
+          [SOL_INTERFACE, DEPOSITOR, SOL_INTERFACE, RECIPIENT],
+        ),
+      ],
+    );
+    expect(confirmedRingWithdrawals(transaction, RING)).toEqual([SOL_LEG]);
+  });
+
+  it("follows the ring nested under another program", () => {
+    const transaction = settlementTransaction(
+      [callerInstruction(OTHER)],
+      [
+        { programIdIndex: keyIndex(RING), accounts: [], data: "", stackHeight: 2 },
+        poolInstruction([{ kind: "solWithdrawal", amount: 7n }], [SOL_INTERFACE, RECIPIENT], 3),
+      ],
+    );
+    expect(confirmedRingWithdrawals(transaction, RING)).toEqual([SOL_LEG]);
+  });
+
+  it("ignores an unrelated instruction that names the interface", () => {
+    const transaction = settlementTransaction(
+      [callerInstruction(OTHER, [SOL_INTERFACE, RECIPIENT])],
+      [],
+    );
+    expect(confirmedRingWithdrawals(transaction, RING)).toEqual([]);
+  });
+
+  it("ignores a pool instruction another program invoked", () => {
+    const transaction = settlementTransaction(
+      [callerInstruction(OTHER)],
+      [poolInstruction([{ kind: "solWithdrawal", amount: 7n }], [SOL_INTERFACE, RECIPIENT])],
+    );
+    expect(confirmedRingWithdrawals(transaction, RING)).toEqual([]);
+  });
+
+  it("names the token account and the mint of an SPL withdrawal", () => {
+    const transaction = settlementTransaction(
+      [callerInstruction(RING)],
+      [
+        poolInstruction(
+          [{ kind: "splWithdrawal", amount: 9n, splInterfaceBump: 254 }],
+          [SHIELDED_POOL_CPI_AUTHORITY, MINT, SPL_INTERFACE, TOKEN_ACCOUNT, TOKEN_PROGRAM],
+        ),
+      ],
+    );
+    expect(confirmedRingWithdrawals(transaction, RING)).toEqual([
+      { recipient: TOKEN_ACCOUNT, asset: MINT, amount: 9n },
+    ]);
+  });
+
+  it("refuses a settlement tail that does not match its transfers", () => {
+    const transaction = settlementTransaction(
+      [callerInstruction(RING)],
+      [poolInstruction([{ kind: "solWithdrawal", amount: 7n }], [RECIPIENT, SOL_INTERFACE])],
+    );
+    expect(() => confirmedRingWithdrawals(transaction, RING)).toThrow(RingError);
   });
 });
 

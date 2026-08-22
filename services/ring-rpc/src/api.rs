@@ -1,6 +1,7 @@
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use solana_address::Address;
+use solana_signature::Signature;
 use solana_signer::{Signer, SignerError};
 use thiserror::Error;
 use zolana_indexer_api::{
@@ -9,7 +10,7 @@ use zolana_indexer_api::{
 use zolana_keypair::P256Pubkey;
 use zolana_ring_client::{ReaderKey, ReaderKeyError};
 
-use crate::audit::KeyMode;
+use crate::{error::RingRpcError, keys::KeyMode, upstream::DepositHistory};
 
 pub const HEALTH: &str = "health";
 pub const CREATE_AUDITOR_KEY: &str = "createAuditorKey";
@@ -18,6 +19,18 @@ pub const RING_DEPOSITS: &str = "ringDeposits";
 pub const GET_DECRYPTED_TRANSACTIONS: &str = "getDecryptedTransactions";
 pub(crate) const AUDIT_CURSOR_LIMIT: usize = 256;
 pub(crate) const AUDIT_PAGE_LIMIT: u64 = 100;
+pub(crate) const DEPOSITS_PAGE_LIMIT: u32 = 50;
+pub(crate) const MAX_DEPOSITS_PAGE_LIMIT: u32 = 200;
+
+/// The one cursor rule, shared by the request builder, the page options and
+/// the indexer response check.
+pub(crate) fn cursor_in_bounds(cursor: &[u8]) -> bool {
+    !cursor.is_empty() && cursor.len() <= AUDIT_CURSOR_LIMIT
+}
+
+pub(crate) fn limit_in_bounds(limit: &Limit) -> bool {
+    limit.value() <= AUDIT_PAGE_LIMIT
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -48,8 +61,12 @@ pub struct CreateAuditorKeyResponse {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct RingDepositsRequest {
     pub ring_program_id: SerializablePubkey,
+    /// Signatures examined, which is not the number of deposits found.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
+    /// Opaque, taken from the previous page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<Base64String>,
 }
 
 /// Value entering the ring. A deposit publishes its asset and amount, so this
@@ -69,6 +86,45 @@ pub struct DepositRecord {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct RingDepositsResponse {
     pub deposits: Vec<DepositRecord>,
+    /// Absent once the ring has no older history.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<Base64String>,
+    /// Slot of the oldest signature examined, absent when the page examined
+    /// nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oldest_slot: Option<u64>,
+}
+
+impl RingDepositsRequest {
+    pub fn page_limit(&self) -> usize {
+        self.limit
+            .unwrap_or(DEPOSITS_PAGE_LIMIT)
+            .clamp(1, MAX_DEPOSITS_PAGE_LIMIT) as usize
+    }
+
+    /// The Solana `before` bound the cursor carries.
+    pub fn before(&self) -> Result<Option<Signature>, RingRpcError> {
+        self.cursor
+            .as_ref()
+            .map(|cursor| {
+                <[u8; 64]>::try_from(cursor.0.as_slice())
+                    .map(Signature::from)
+                    .map_err(|_| RingRpcError::InvalidPage)
+            })
+            .transpose()
+    }
+}
+
+impl From<DepositHistory> for RingDepositsResponse {
+    fn from(history: DepositHistory) -> Self {
+        Self {
+            deposits: history.deposits,
+            cursor: history
+                .cursor
+                .map(|signature| signature.as_ref().to_vec().into()),
+            oldest_slot: history.oldest_slot,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -224,8 +280,9 @@ pub struct DecryptedTransaction {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct DecryptedWithdrawal {
-    /// The account the lamports were settled to.
+    /// A token account for an SPL leg, a wallet for a SOL leg.
     pub recipient: SerializablePubkey,
+    pub asset: SerializablePubkey,
     pub amount: u64,
 }
 
@@ -328,7 +385,7 @@ impl GetDecryptedTransactionsRequest {
 impl ReadRequest {
     #[must_use = "use the updated request"]
     pub fn with_cursor(mut self, cursor: Base64String) -> Result<Self, ReadBuildError> {
-        if cursor.0.is_empty() || cursor.0.len() > AUDIT_CURSOR_LIMIT {
+        if !cursor_in_bounds(&cursor.0) {
             return Err(ReadBuildError::Cursor);
         }
         self.cursor = Some(cursor);
@@ -337,7 +394,7 @@ impl ReadRequest {
 
     #[must_use = "use the updated request"]
     pub fn with_limit(mut self, limit: Limit) -> Result<Self, ReadBuildError> {
-        if limit.value() > AUDIT_PAGE_LIMIT {
+        if !limit_in_bounds(&limit) {
             return Err(ReadBuildError::Limit);
         }
         self.limit = Some(limit);
@@ -415,6 +472,72 @@ impl ReadAttestation<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn deposits_request(limit: Option<u32>, cursor: Option<Vec<u8>>) -> RingDepositsRequest {
+        RingDepositsRequest {
+            ring_program_id: Address::new_from_array([5; 32]).to_bytes().into(),
+            limit,
+            cursor: cursor.map(Into::into),
+        }
+    }
+
+    /// `Limit` cannot hold zero, so the smallest audit page the wire can carry
+    /// is one.
+    #[test]
+    fn an_audit_page_holds_at_its_cursor_and_limit_bounds() {
+        assert!(!cursor_in_bounds(&[]));
+        assert!(cursor_in_bounds(&vec![1; AUDIT_CURSOR_LIMIT]));
+        assert!(!cursor_in_bounds(&vec![1; AUDIT_CURSOR_LIMIT + 1]));
+
+        assert!(limit_in_bounds(&Limit::new(1).expect("indexer limit")));
+        assert!(limit_in_bounds(
+            &Limit::new(AUDIT_PAGE_LIMIT).expect("indexer limit")
+        ));
+        assert!(!limit_in_bounds(
+            &Limit::new(AUDIT_PAGE_LIMIT + 1).expect("indexer limit")
+        ));
+    }
+
+    /// The deposits limit counts signatures examined, so it is clamped into
+    /// range rather than refused.
+    #[test]
+    fn a_deposits_page_clamps_its_limit_into_range() {
+        for (limit, expected) in [
+            (None, DEPOSITS_PAGE_LIMIT),
+            (Some(0), 1),
+            (Some(1), 1),
+            (Some(MAX_DEPOSITS_PAGE_LIMIT), MAX_DEPOSITS_PAGE_LIMIT),
+            (Some(MAX_DEPOSITS_PAGE_LIMIT + 1), MAX_DEPOSITS_PAGE_LIMIT),
+            (Some(u32::MAX), MAX_DEPOSITS_PAGE_LIMIT),
+        ] {
+            assert_eq!(
+                deposits_request(limit, None).page_limit(),
+                expected as usize
+            );
+        }
+    }
+
+    /// The deposits cursor is a Solana signature, a different rule from the
+    /// opaque audit cursor.
+    #[test]
+    fn a_deposits_cursor_is_exactly_one_signature() {
+        assert_eq!(
+            deposits_request(None, Some(vec![1; 64]))
+                .before()
+                .expect("cursor"),
+            Some(Signature::from([1; 64]))
+        );
+        assert_eq!(
+            deposits_request(None, None).before().expect("no cursor"),
+            None
+        );
+        for length in [0, 63, 65, AUDIT_CURSOR_LIMIT] {
+            assert!(matches!(
+                deposits_request(None, Some(vec![1; length])).before(),
+                Err(RingRpcError::InvalidPage)
+            ));
+        }
+    }
 
     #[test]
     fn read_attestation_is_stable() {

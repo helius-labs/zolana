@@ -47,11 +47,6 @@ EXCLUDED_DIRS = (
     "xtask",
 )
 
-# Collected by a separate `--lib` pass: this crate's integration targets declare
-# no required-features, so selecting the whole package would build and run the
-# proving suites, which need a live prover server.
-SEPARATE_PASS = ("zolana-client",)
-
 
 def main():
     meta = json.loads(
@@ -68,8 +63,6 @@ def main():
     for package in meta["packages"]:
         rel = os.path.relpath(package["manifest_path"], root)
         if rel.split(os.sep)[0] in EXCLUDED_DIRS:
-            continue
-        if package["name"] in SEPARATE_PASS:
             continue
         selected.append(package["name"])
 

@@ -7,7 +7,7 @@ use zolana_ring_client::auditor_view_tag;
 use zolana_ring_rpc::{
     public_key_path, run_server, write_auditor_key, write_root_secret, ChainSource, Cli, Command,
     Hub, KeyAccess, KeyFile, KeyKind, KeyMode, KeygenArgs, OriginPolicy, ServeArgs, ServerOptions,
-    Upstreams,
+    TransactionSource, Upstreams,
 };
 
 #[tokio::main]
@@ -53,12 +53,9 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         timeout: args.upstream_timeout(),
     })?;
     let genesis_hash = source
-        .rpc()
-        .client()
-        .get_genesis_hash()
+        .genesis_hash()
         .await
-        .context("reading the cluster genesis hash")?
-        .to_bytes();
+        .context("reading the cluster genesis hash")?;
     let options = ServerOptions {
         bind: args.bind,
         bind_policy: args.bind_policy(),
