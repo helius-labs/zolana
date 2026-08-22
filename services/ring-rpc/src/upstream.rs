@@ -67,6 +67,9 @@ pub trait TransactionSource: Send + Sync {
 
     fn health(&self) -> impl Future<Output = Result<(), ClientError>> + Send;
 
+    /// Binds every derived auditor key to one cluster.
+    fn genesis_hash(&self) -> impl Future<Output = Result<[u8; 32], ClientError>> + Send;
+
     fn asset_registry(&self) -> impl Future<Output = Result<AssetRegistry, ClientError>> + Send;
 }
 
@@ -267,6 +270,15 @@ impl TransactionSource for ChainSource {
             .get_shielded_transactions_by_tags(vec![[0; 32]], None, Some(1), None)
             .await?;
         self.rpc.health().await
+    }
+
+    async fn genesis_hash(&self) -> Result<[u8; 32], ClientError> {
+        self.rpc
+            .client()
+            .get_genesis_hash()
+            .await
+            .map(|hash| hash.to_bytes())
+            .map_err(|error| ClientError::Rpc(format!("genesis hash: {error}")))
     }
 
     async fn asset_registry(&self) -> Result<AssetRegistry, ClientError> {

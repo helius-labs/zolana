@@ -1,9 +1,4 @@
-use std::{
-    collections::HashMap,
-    num::NonZeroU32,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{collections::HashMap, num::NonZeroU32, sync::Arc, time::Duration};
 
 use solana_address::Address;
 use solana_signature::Signature;
@@ -16,9 +11,9 @@ use zolana_ring_client::{
 
 use crate::{
     api::{
-        unix_now, DecryptedOutput, DecryptedTransaction, DecryptedTransactionsPage,
-        DecryptedWithdrawal, GetDecryptedTransactionsResponse, ReadAttestation, ReadAuth,
-        SkippedReason, SkippedTransaction, AUDIT_CURSOR_LIMIT, AUDIT_PAGE_LIMIT,
+        cursor_in_bounds, limit_in_bounds, unix_now, DecryptedOutput, DecryptedTransaction,
+        DecryptedTransactionsPage, DecryptedWithdrawal, GetDecryptedTransactionsResponse,
+        ReadAttestation, ReadAuth, SkippedReason, SkippedTransaction, AUDIT_PAGE_LIMIT,
     },
     authorize::{ReadCheck, Unauthorized},
     error::RingRpcError,
@@ -60,7 +55,7 @@ pub struct AuditRead<'a> {
 impl PageOptions {
     #[must_use = "use the updated options"]
     pub fn with_cursor(mut self, cursor: Base64String) -> Result<Self, RingRpcError> {
-        if cursor.0.is_empty() || cursor.0.len() > AUDIT_CURSOR_LIMIT {
+        if !cursor_in_bounds(&cursor.0) {
             return Err(RingRpcError::InvalidPage);
         }
         self.cursor = Some(cursor.0);
@@ -69,7 +64,7 @@ impl PageOptions {
 
     #[must_use = "use the updated options"]
     pub fn with_limit(mut self, limit: Limit) -> Result<Self, RingRpcError> {
-        if limit.value() > AUDIT_PAGE_LIMIT {
+        if !limit_in_bounds(&limit) {
             return Err(RingRpcError::InvalidPage);
         }
         self.limit = Some(limit);
@@ -116,17 +111,10 @@ impl<S: TransactionSource> AuditService<S> {
         self.view_tag
     }
 
-    /// Metered like a read, so deriving keys for arbitrary rings cannot be a
-    /// free loop.
-    pub fn accept_request(&self) -> Result<(), RingRpcError> {
-        self.shared.request_rate.accept(Instant::now())
-    }
-
     /// The auditor key the ring's config names, `None` until the config exists.
     /// The config fixes it forever, so a ring whose key is not this service's
     /// can never be read here.
     pub async fn configured_auditor(&self) -> Result<Option<P256Pubkey>, RingRpcError> {
-        self.accept_request()?;
         Ok(self
             .shared
             .source
@@ -139,12 +127,6 @@ impl<S: TransactionSource> AuditService<S> {
         &self,
         request: AuditRead<'_>,
     ) -> Result<GetDecryptedTransactionsResponse, RingRpcError> {
-        self.shared.request_rate.accept(Instant::now())?;
-        let _global = self
-            .shared
-            .read_limit
-            .try_acquire()
-            .map_err(|_| RingRpcError::Busy)?;
         let _reader = self.authorize_read(request.auth, request.page).await?;
         self.decrypted_transactions(request.page).await
     }
@@ -154,6 +136,8 @@ impl<S: TransactionSource> AuditService<S> {
         auth: &ReadAuth,
         page: &Page,
     ) -> Result<ReaderPermit<'a>, RingRpcError> {
+        // One reading for the skew rule and for the nonce eviction window.
+        let now = unix_now().map_err(|_| RingRpcError::StateUnavailable)?;
         let nonce = auth
             .nonce
             .0
@@ -168,7 +152,7 @@ impl<S: TransactionSource> AuditService<S> {
             limit: page.attested_limit.clone(),
         };
         let claim = ReadCheck::new(auth, &attestation)
-            .at(unix_now().map_err(|_| RingRpcError::StateUnavailable)?)
+            .at(now)
             .against(&self.shared.origins)
             .decide()?;
         let permit =
@@ -195,7 +179,7 @@ impl<S: TransactionSource> AuditService<S> {
             ring: self.ring,
             nonce: claim.nonce(),
             timestamp: auth.timestamp,
-            now: unix_now().map_err(|_| RingRpcError::StateUnavailable)?,
+            now,
         })?;
         Ok(permit)
     }
@@ -296,11 +280,10 @@ fn validate_indexer_response(
     auditor_tag: [u8; 32],
 ) -> Result<(), RingRpcError> {
     if response.transactions.len() > page.limit.get() as usize
-        || response.next_cursor.as_ref().is_some_and(|cursor| {
-            cursor.is_empty()
-                || cursor.len() > AUDIT_CURSOR_LIMIT
-                || page.cursor.as_ref() == Some(cursor)
-        })
+        || response
+            .next_cursor
+            .as_ref()
+            .is_some_and(|cursor| !cursor_in_bounds(cursor) || page.cursor.as_ref() == Some(cursor))
     {
         return Err(RingRpcError::InvalidIndexerResponse);
     }

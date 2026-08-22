@@ -8,7 +8,8 @@ use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use tokio::sync::{Mutex as AsyncMutex, Semaphore};
+use thiserror::Error;
+use tokio::sync::{Mutex as AsyncMutex, Semaphore, SemaphorePermit};
 use zolana_client::ClientError;
 use zolana_keypair::ViewingKey;
 use zolana_ring_client::{auditor_view_tag, ReaderKey};
@@ -30,6 +31,27 @@ pub struct Hub<S> {
     signer: Keypair,
     shared: Arc<Shared<S>>,
     keys: KeySource,
+}
+
+/// Names the readiness check that failed, which `/ready` reports.
+#[derive(Debug, Error)]
+pub enum NotReady {
+    #[error("upstream probe failed because {0}")]
+    Upstream(#[source] RingRpcError),
+    #[error("the local ring config is unusable because {0}")]
+    AuditorKey(#[source] Unauthorized),
+    #[error("the cluster genesis hash differs from the one captured at boot")]
+    Cluster,
+}
+
+impl NotReady {
+    pub fn check(&self) -> &'static str {
+        match self {
+            Self::Upstream(_) => "unavailable upstream",
+            Self::AuditorKey(_) => "unavailable auditor key",
+            Self::Cluster => "unavailable cluster",
+        }
+    }
 }
 
 #[must_use]
@@ -111,6 +133,19 @@ impl<S: TransactionSource> Hub<S> {
         }
     }
 
+    /// The one rate gate, which every endpoint opens with.
+    pub fn accept_request(&self) -> Result<(), RingRpcError> {
+        self.shared.request_rate.accept(Instant::now())
+    }
+
+    /// Held for a whole decrypting page, which no other method needs.
+    pub(crate) fn read_slot(&self) -> Result<SemaphorePermit<'_>, RingRpcError> {
+        self.shared
+            .read_limit
+            .try_acquire()
+            .map_err(|_| RingRpcError::Busy)
+    }
+
     pub fn mode(&self) -> KeyMode {
         match self.keys {
             KeySource::Local { .. } => KeyMode::Local,
@@ -187,17 +222,37 @@ impl<S: TransactionSource> Hub<S> {
         }
     }
 
-    pub async fn probe_upstreams(&self) -> Result<(), RingRpcError> {
-        self.shared.source.health().await?;
-        if let KeySource::Local { ring, auditor } = &self.keys {
-            let config = self
-                .shared
-                .source
-                .ring_config(*ring)
-                .await?
-                .ok_or(Unauthorized::NoConfig)?;
-            if config.auditor_pubkey != auditor.pubkey() {
-                return Err(Unauthorized::AuditorKeyMismatch.into());
+    /// Local mode holds one key for one ring, and every derived key is bound
+    /// to the boot genesis hash, so each mode has its own ring check.
+    pub async fn probe_upstreams(&self) -> Result<(), NotReady> {
+        self.shared
+            .source
+            .health()
+            .await
+            .map_err(|error| NotReady::Upstream(error.into()))?;
+        match &self.keys {
+            KeySource::Local { ring, auditor } => {
+                let config = self
+                    .shared
+                    .source
+                    .ring_config(*ring)
+                    .await
+                    .map_err(|error| NotReady::Upstream(error.into()))?
+                    .ok_or(NotReady::AuditorKey(Unauthorized::NoConfig))?;
+                if config.auditor_pubkey != auditor.pubkey() {
+                    return Err(NotReady::AuditorKey(Unauthorized::AuditorKeyMismatch));
+                }
+            }
+            KeySource::Derived { genesis_hash, .. } => {
+                let current = self
+                    .shared
+                    .source
+                    .genesis_hash()
+                    .await
+                    .map_err(|error| NotReady::Upstream(error.into()))?;
+                if current != *genesis_hash {
+                    return Err(NotReady::Cluster);
+                }
             }
         }
         Ok(())

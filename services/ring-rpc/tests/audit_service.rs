@@ -420,6 +420,10 @@ impl TransactionSource for StaticSource {
         }
     }
 
+    async fn genesis_hash(&self) -> Result<[u8; 32], ClientError> {
+        Ok([9; 32])
+    }
+
     async fn asset_registry(&self) -> Result<AssetRegistry, ClientError> {
         self.asset_reads.fetch_add(1, Ordering::Relaxed);
         if let Some(delay) = self.asset_delay {

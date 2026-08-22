@@ -29,7 +29,7 @@ pub use config::{
     KeygenArgs, RootSecret, RootSecretError, ServeArgs,
 };
 pub use error::RingRpcError;
-pub use hub::{Hub, HubBuilder};
+pub use hub::{Hub, HubBuilder, NotReady};
 pub use keys::KeyMode;
 pub use origins::{OriginError, OriginPolicy, OriginTransport, Origins};
 pub use server::{rpc_module, run_server, BindPolicy, ServerError, ServerOptions};

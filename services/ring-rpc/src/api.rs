@@ -22,6 +22,16 @@ pub(crate) const AUDIT_PAGE_LIMIT: u64 = 100;
 pub(crate) const DEPOSITS_PAGE_LIMIT: u32 = 50;
 pub(crate) const MAX_DEPOSITS_PAGE_LIMIT: u32 = 200;
 
+/// The one cursor rule, shared by the request builder, the page options and
+/// the indexer response check.
+pub(crate) fn cursor_in_bounds(cursor: &[u8]) -> bool {
+    !cursor.is_empty() && cursor.len() <= AUDIT_CURSOR_LIMIT
+}
+
+pub(crate) fn limit_in_bounds(limit: &Limit) -> bool {
+    limit.value() <= AUDIT_PAGE_LIMIT
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct HealthResponse {
@@ -375,7 +385,7 @@ impl GetDecryptedTransactionsRequest {
 impl ReadRequest {
     #[must_use = "use the updated request"]
     pub fn with_cursor(mut self, cursor: Base64String) -> Result<Self, ReadBuildError> {
-        if cursor.0.is_empty() || cursor.0.len() > AUDIT_CURSOR_LIMIT {
+        if !cursor_in_bounds(&cursor.0) {
             return Err(ReadBuildError::Cursor);
         }
         self.cursor = Some(cursor);
@@ -384,7 +394,7 @@ impl ReadRequest {
 
     #[must_use = "use the updated request"]
     pub fn with_limit(mut self, limit: Limit) -> Result<Self, ReadBuildError> {
-        if limit.value() > AUDIT_PAGE_LIMIT {
+        if !limit_in_bounds(&limit) {
             return Err(ReadBuildError::Limit);
         }
         self.limit = Some(limit);

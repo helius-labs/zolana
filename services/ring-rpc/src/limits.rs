@@ -10,7 +10,7 @@ use zolana_ring_client::ReaderKey;
 use crate::error::RingRpcError;
 
 pub(crate) const MAX_CONCURRENT_READS: usize = 32;
-const MAX_READS_PER_SECOND: usize = 256;
+pub(crate) const MAX_READS_PER_SECOND: usize = 256;
 
 pub(crate) struct RequestRate(Mutex<RequestWindow>);
 
