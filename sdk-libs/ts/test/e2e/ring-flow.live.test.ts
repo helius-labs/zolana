@@ -1,7 +1,8 @@
 // Needs a running ring with its RPC started with RING_RPC_ALLOW_ORIGINS naming
 // RING_ORIGIN (default http://localhost:3000). Reads ZOLANA_LOCALNET_URL,
 // ZOLANA_INDEXER_URL, ZOLANA_PROVER_URL, ZOLANA_TREE, RING_PROGRAM_ID, RING_RPC_URL
-// and RING_AUTHORITY_KEYPAIR.
+// and RING_AUTHORITY_KEYPAIR. That key owns the ring config and holds a reader
+// grant, every ring read is grant only.
 import { readFile } from "node:fs/promises";
 
 import { ed25519 } from "@noble/curves/ed25519.js";
@@ -171,13 +172,15 @@ describe("ring flow", () => {
     await airdrop(client, sender.signer.address);
 
     const amount = 1_000_000_000n;
-    for (let index = 0; index < 2; index++) {
+    // Input selection stops at the first note that covers the transfer, so the
+    // deposits differ and the sender keeps a change output next to the recipient's.
+    for (const deposited of [amount * 3n, amount]) {
       const deposit = await buildRingDepositTransaction({
         client,
         ringProgramId,
         feePayer: sender.signer.address,
         recipient: sender.keypair.shieldedAddress(),
-        amount,
+        amount: deposited,
       });
       await signSendAndConfirm(client, deposit, [sender.signer]);
     }
@@ -270,7 +273,7 @@ describe("ring flow", () => {
 
     // A delegated reader reads after the grant and not after the revoke.
     const delegate = (await freshActor()).signer;
-    expect(await ringReadError(ringRpc, ringProgramId, delegate)).toContain("granted reader");
+    expect(await ringReadError(ringRpc, ringProgramId, delegate)).toContain("no active grant");
     await sendInstruction(
       client,
       await grantReaderInstruction({
@@ -287,7 +290,7 @@ describe("ring flow", () => {
       signer: messageSignerReader(delegate),
     });
     expect(delegatedView.items.map((item) => item.signature)).toContain(signature);
-    expect(await ringReadError(ringRpc, ringProgramId, sender.signer)).toContain("granted reader");
+    expect(await ringReadError(ringRpc, ringProgramId, sender.signer)).toContain("no active grant");
     await sendInstruction(
       client,
       await revokeReaderInstruction({
@@ -299,11 +302,11 @@ describe("ring flow", () => {
       authoritySigner,
     );
     expect(await fetchReaderGrant(client, ringProgramId, delegate.address)).toBe(false);
-    expect(await ringReadError(ringRpc, ringProgramId, delegate)).toContain("granted reader");
+    expect(await ringReadError(ringRpc, ringProgramId, delegate)).toContain("no active grant");
 
     // The same through a passkey.
     const passkey = syntheticPasskey(process.env.RING_ORIGIN ?? "http://localhost:3000");
-    expect(await ringReadError(ringRpc, ringProgramId, passkey)).toContain("granted reader");
+    expect(await ringReadError(ringRpc, ringProgramId, passkey)).toContain("no active grant");
     await sendInstruction(
       client,
       await grantReaderInstruction({
@@ -332,6 +335,6 @@ describe("ring flow", () => {
       }),
       authoritySigner,
     );
-    expect(await ringReadError(ringRpc, ringProgramId, passkey)).toContain("granted reader");
+    expect(await ringReadError(ringRpc, ringProgramId, passkey)).toContain("no active grant");
   }, 600_000);
 });

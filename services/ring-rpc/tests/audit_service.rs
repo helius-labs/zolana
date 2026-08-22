@@ -23,12 +23,13 @@ use zolana_ring_client::{
 };
 use zolana_ring_rpc::{
     auditor_key_attestation, rpc_module, unix_now, AuditRead, Claim, CreateAuditorKeyRequest,
-    CreateAuditorKeyResponse, DecryptedWithdrawal, DepositRecord, GetDecryptedTransactionsRequest,
-    GetDecryptedTransactionsResponse, HealthResponse, Hub, KeyMode, OriginPolicy, Origins, Page,
-    PageOptions, ReadAttestation, ReadAuth, ReadBuildError, ReadCheck, ReadSignature, ReadSigner,
-    ReaderGrant, RingConfiguration, RingRpcError, RingState, RingStatusRequest, RingStatusResponse,
+    CreateAuditorKeyResponse, DecryptedWithdrawal, DepositHistory, DepositPage, DepositRecord,
+    GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse, HealthResponse, Hub,
+    KeyMode, OriginPolicy, Origins, Page, PageOptions, ReadAttestation, ReadAuth, ReadBuildError,
+    ReadCheck, ReadSignature, ReadSigner, ReaderGrant, RingConfiguration, RingDepositsRequest,
+    RingDepositsResponse, RingRpcError, RingState, RingStatusRequest, RingStatusResponse,
     RootSecret, TransactionPage, TransactionSource, Unauthorized, WebAuthnAssertion,
-    CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_STATUS,
+    CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS, RING_STATUS,
 };
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
@@ -43,6 +44,9 @@ const OTHER_RING: Address = Address::new_from_array([6; 32]);
 const SENDER: Address = Address::new_from_array([7; 32]);
 const RECIPIENT: Address = Address::new_from_array([8; 32]);
 const WITHDRAWN: u64 = 250;
+const TOKEN_ACCOUNT: Address = Address::new_from_array([9; 32]);
+const MINT: Address = Address::new_from_array([10; 32]);
+const SPL_WITHDRAWN: u64 = 75;
 const ORIGIN: &str = "http://localhost:3000";
 const USER_PRESENT_AND_VERIFIED: u8 = 0x05;
 
@@ -281,6 +285,17 @@ struct StaticSource {
     assets: Option<AssetRegistry>,
     asset_reads: Arc<AtomicUsize>,
     asset_delay: Option<Duration>,
+    /// Ring history, newest first.
+    history: Vec<Examined>,
+    examined_limit: Arc<AtomicUsize>,
+}
+
+/// One ring signature and the deposits it made.
+#[derive(Clone)]
+struct Examined {
+    signature: Signature,
+    slot: u64,
+    deposits: Vec<DepositRecord>,
 }
 
 impl StaticSource {
@@ -329,10 +344,18 @@ impl TransactionSource for StaticSource {
             .map(|ring_invoked| RingOrigin {
                 ring_invoked,
                 signers: vec![SENDER],
-                withdrawals: vec![RingWithdrawal {
-                    recipient: RECIPIENT,
-                    amount: WITHDRAWN,
-                }],
+                withdrawals: vec![
+                    RingWithdrawal {
+                        recipient: RECIPIENT,
+                        asset: SOL_MINT,
+                        amount: WITHDRAWN,
+                    },
+                    RingWithdrawal {
+                        recipient: TOKEN_ACCOUNT,
+                        asset: MINT,
+                        amount: SPL_WITHDRAWN,
+                    },
+                ],
             })
             .ok_or_else(|| OriginError::Unavailable {
                 signature,
@@ -341,12 +364,35 @@ impl TransactionSource for StaticSource {
         async move { origin }
     }
 
-    async fn ring_deposits(
-        &self,
-        _ring: Address,
-        _limit: usize,
-    ) -> Result<Vec<DepositRecord>, ClientError> {
-        Ok(Vec::new())
+    async fn ring_deposits(&self, page: DepositPage) -> Result<DepositHistory, ClientError> {
+        self.examined_limit.store(page.limit, Ordering::Relaxed);
+        let start = match page.before {
+            Some(before) => self
+                .history
+                .iter()
+                .position(|entry| entry.signature == before)
+                .map(|index| index + 1)
+                .ok_or_else(|| ClientError::Rpc("unknown cursor".to_owned()))?,
+            None => 0,
+        };
+        let examined: Vec<_> = self
+            .history
+            .get(start..)
+            .unwrap_or_default()
+            .iter()
+            .take(page.limit)
+            .collect();
+        Ok(DepositHistory {
+            deposits: examined
+                .iter()
+                .flat_map(|entry| entry.deposits.clone())
+                .collect(),
+            cursor: examined
+                .last()
+                .map(|entry| entry.signature)
+                .filter(|_| examined.len() == page.limit),
+            oldest_slot: examined.last().map(|entry| entry.slot),
+        })
     }
 
     fn ring_config(
@@ -372,6 +418,10 @@ impl TransactionSource for StaticSource {
                 .then_some(())
                 .ok_or_else(|| ClientError::Rpc("unavailable".to_owned()))
         }
+    }
+
+    async fn genesis_hash(&self) -> Result<[u8; 32], ClientError> {
+        Ok([9; 32])
     }
 
     async fn asset_registry(&self) -> Result<AssetRegistry, ClientError> {
@@ -521,6 +571,8 @@ impl Fixture {
             assets: Some(AssetRegistry::default()),
             asset_reads: Arc::new(AtomicUsize::new(0)),
             asset_delay: None,
+            history: Vec::new(),
+            examined_limit: Arc::new(AtomicUsize::new(0)),
         };
         source.with_transactions(vec![
             self.audited.clone(),
@@ -570,10 +622,18 @@ async fn granted_reader_opens_audited_transfers_and_reports_the_rest() {
     assert_eq!(item.signers, vec![SENDER.to_bytes().into()]);
     assert_eq!(
         item.withdrawals,
-        vec![DecryptedWithdrawal {
-            recipient: RECIPIENT.to_bytes().into(),
-            amount: WITHDRAWN,
-        }]
+        vec![
+            DecryptedWithdrawal {
+                recipient: RECIPIENT.to_bytes().into(),
+                asset: SOL_MINT.to_bytes().into(),
+                amount: WITHDRAWN,
+            },
+            DecryptedWithdrawal {
+                recipient: TOKEN_ACCOUNT.to_bytes().into(),
+                asset: MINT.to_bytes().into(),
+                amount: SPL_WITHDRAWN,
+            }
+        ]
     );
     assert_eq!(
         item.outputs[0].recipient_viewing_pk,
@@ -915,10 +975,18 @@ async fn rpc_wire_uses_camel_case_and_rejects_another_local_ring() {
     let item = as_object(&page.value.items[0]);
     assert_eq!(
         item.get("withdrawals"),
-        Some(&serde_json::json!([{
-            "recipient": RECIPIENT.to_string(),
-            "amount": WITHDRAWN,
-        }]))
+        Some(&serde_json::json!([
+            {
+                "recipient": RECIPIENT.to_string(),
+                "asset": SOL_MINT.to_string(),
+                "amount": WITHDRAWN,
+            },
+            {
+                "recipient": TOKEN_ACCOUNT.to_string(),
+                "asset": MINT.to_string(),
+                "amount": SPL_WITHDRAWN,
+            }
+        ]))
     );
 
     let result: Result<CreateAuditorKeyResponse, _> = module
@@ -927,6 +995,123 @@ async fn rpc_wire_uses_camel_case_and_rejects_another_local_ring() {
             as_object(CreateAuditorKeyRequest {
                 ring_program_id: OTHER_RING.to_bytes().into(),
             }),
+        )
+        .await;
+    assert!(result.is_err());
+}
+
+fn deposit(byte: u8, slot: u64, amount: u64) -> DepositRecord {
+    DepositRecord {
+        signature: Signature::from([byte; 64]).into(),
+        slot,
+        depositor: [byte; 32].into(),
+        asset: SOL_MINT.to_bytes().into(),
+        amount,
+    }
+}
+
+fn examined(byte: u8, slot: u64, deposits: Vec<DepositRecord>) -> Examined {
+    Examined {
+        signature: Signature::from([byte; 64]),
+        slot,
+        deposits,
+    }
+}
+
+fn deposits_request(limit: Option<u32>, cursor: Option<Base64String>) -> RingDepositsRequest {
+    RingDepositsRequest {
+        ring_program_id: RING.to_bytes().into(),
+        limit,
+        cursor,
+    }
+}
+
+/// The limit counts signatures examined, so a page can hold fewer deposits
+/// than the limit and still carry a cursor over older history.
+#[tokio::test]
+async fn deposit_pages_walk_the_whole_ring_history() {
+    let fixture = Fixture::new();
+    let mut source = fixture.source();
+    source.history = vec![
+        examined(21, 30, vec![deposit(21, 30, 500)]),
+        examined(22, 20, Vec::new()),
+        examined(23, 10, vec![deposit(23, 10, 7)]),
+    ];
+    let module = rpc_module(Arc::new(fixture.hub(source))).expect("module");
+
+    let first: RingDepositsResponse = module
+        .call(RING_DEPOSITS, as_object(deposits_request(Some(2), None)))
+        .await
+        .expect("first page");
+    let wire = as_object(&first);
+    assert!(wire.contains_key("oldestSlot"));
+    assert!(wire.contains_key("cursor"));
+    assert_eq!(first.deposits.len(), 1);
+    assert_eq!(first.deposits[0].amount, 500);
+    assert_eq!(first.oldest_slot, Some(20));
+    let cursor = first.cursor.clone().expect("older history");
+    assert_eq!(
+        cursor,
+        Base64String(Signature::from([22; 64]).as_ref().to_vec())
+    );
+
+    let second: RingDepositsResponse = module
+        .call(
+            RING_DEPOSITS,
+            as_object(deposits_request(Some(2), Some(cursor))),
+        )
+        .await
+        .expect("second page");
+    assert_eq!(second.deposits.len(), 1);
+    assert_eq!(second.deposits[0].amount, 7);
+    assert_eq!(second.oldest_slot, Some(10));
+    assert_eq!(second.cursor, None);
+    assert!(!as_object(&second).contains_key("cursor"));
+}
+
+/// A page over signatures that made no deposit reports how far back it
+/// reached, which the cursor alone does not say.
+#[tokio::test]
+async fn a_deposit_page_without_deposits_reports_its_frontier() {
+    let fixture = Fixture::new();
+    let mut source = fixture.source();
+    source.history = vec![examined(24, 40, Vec::new()), examined(25, 30, Vec::new())];
+    let module = rpc_module(Arc::new(fixture.hub(source))).expect("module");
+
+    let page: RingDepositsResponse = module
+        .call(RING_DEPOSITS, as_object(deposits_request(Some(1), None)))
+        .await
+        .expect("page");
+    assert!(page.deposits.is_empty());
+    assert_eq!(page.oldest_slot, Some(40));
+    assert_eq!(
+        page.cursor,
+        Some(Base64String(Signature::from([24; 64]).as_ref().to_vec()))
+    );
+}
+
+#[tokio::test]
+async fn deposit_pages_clamp_the_examined_limit_and_reject_bad_cursors() {
+    let fixture = Fixture::new();
+    let source = fixture.source();
+    let examined_limit = source.examined_limit.clone();
+    let module = rpc_module(Arc::new(fixture.hub(source))).expect("module");
+
+    for (limit, expected) in [(None, 50), (Some(7), 7), (Some(500), 200)] {
+        let page: RingDepositsResponse = module
+            .call(RING_DEPOSITS, as_object(deposits_request(limit, None)))
+            .await
+            .expect("page");
+        assert_eq!(examined_limit.load(Ordering::Relaxed), expected);
+        assert!(page.deposits.is_empty());
+        assert_eq!(page.cursor, None);
+        assert_eq!(page.oldest_slot, None);
+    }
+
+    let result: Result<RingDepositsResponse, _> = module
+        .call(
+            RING_DEPOSITS,
+            as_object(deposits_request(None, Some(Base64String(vec![1, 2, 3])))),
         )
         .await;
     assert!(result.is_err());

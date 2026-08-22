@@ -40,7 +40,10 @@ pub use crate::{
     deposit::{ring_deposits_in, RingDeposit},
     encryption::{auditor_view_tag, AuditEncryptionError, AuditorEncryption, AuditorMessage},
     error::AuditError,
-    origin::{ring_invoked_in, OriginError, RingOrigin, RingWithdrawal, TransactionOrigin},
+    origin::{
+        ring_invoked_in, ring_withdrawals_in, OriginError, RingOrigin, RingWithdrawal,
+        TransactionOrigin,
+    },
     reader::{Ed25519ReaderKey, P256ReaderKey, ReaderKey, ReaderKeyError, READER_RECORD_PDA_SEED},
     scan::{AuditedPage, RingAudit, RingEnvironment, RingScan, RingScanPage},
     types::{AuditedOutput, AuditedTransaction},

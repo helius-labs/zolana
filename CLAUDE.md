@@ -87,12 +87,19 @@ Use `just` recipes for normal workflows:
 
 ```bash
 just check-all
+just test-hermetic
 just test-shielded-pool
 just test-sdk-libs
 just test-programs
 just test-cli
 just clippy
 ```
+
+`just test-hermetic` is the whole suite that needs nothing running, and CI runs
+these same suites on every push. `just test-all` adds the prover-backed suites,
+and the validator suites stay in their own recipes. Those tiers sit behind the
+`proofs` and `localnet` Cargo features, so a plain `cargo test -p <crate>` never
+starts a prover.
 
 Program tests that load real SBF binaries need the local builds:
 

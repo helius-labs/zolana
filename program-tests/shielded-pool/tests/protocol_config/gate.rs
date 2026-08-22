@@ -7,6 +7,7 @@
 //! directly in LiteSVM, mirroring the bytes a real `solana program deploy`
 //! writes.
 
+use shielded_pool_tests::support::runtime::program_test;
 use solana_account::Account;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
@@ -16,20 +17,7 @@ use zolana_interface::{
     error::ShieldedPoolError, instruction::CreateProtocolConfig, pda,
     BPF_LOADER_UPGRADEABLE_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_program_test::{ProgramTestError, Rejection, ZolanaProgramTest};
-
-/// Boot LiteSVM with the shielded-pool program, skipping when the `.so` is
-/// missing (run `cargo build-sbf -p shielded-pool-program`).
-fn program_test() -> Option<ZolanaProgramTest> {
-    match ZolanaProgramTest::new() {
-        Ok(r) => Some(r),
-        Err(ProgramTestError::MissingProgram(_)) => {
-            eprintln!("skipping program test: shielded_pool_program.so missing");
-            None
-        }
-        Err(e) => panic!("program test boot failed: {e}"),
-    }
-}
+use zolana_program_test::{Rejection, ZolanaProgramTest};
 
 /// Loader-v3 `Program` state: u32 tag 2 || programdata address. Owner is the
 /// upgradeable loader, matching a `solana program deploy` deployment.
@@ -97,15 +85,12 @@ fn create_ix_for(authority: &Keypair) -> Instruction {
     .instruction()
 }
 
-fn boot_with_deploy(
-    upgrade_authority: Option<&Pubkey>,
-    payer: &Keypair,
-) -> Option<ZolanaProgramTest> {
-    let mut rpc = program_test()?;
+fn boot_with_deploy(upgrade_authority: Option<&Pubkey>, payer: &Keypair) -> ZolanaProgramTest {
+    let mut rpc = program_test();
     rpc.airdrop(&payer.pubkey(), 10_000_000_000)
         .expect("airdrop");
     install_upgradeable_deploy(&mut rpc, upgrade_authority);
-    Some(rpc)
+    rpc
 }
 
 /// A fee payer other than the upgrade authority must not initialize the
@@ -114,9 +99,7 @@ fn boot_with_deploy(
 fn create_rejects_a_fee_payer_that_is_not_the_upgrade_authority() {
     let deployer = Keypair::new();
     let attacker = Keypair::new();
-    let Some(mut rpc) = boot_with_deploy(Some(&deployer.pubkey()), &attacker) else {
-        return;
-    };
+    let mut rpc = boot_with_deploy(Some(&deployer.pubkey()), &attacker);
 
     let error = rpc
         .create_and_send_default_payer_transaction(&[create_ix_for(&attacker)], &[&attacker])
@@ -132,9 +115,7 @@ fn create_rejects_a_fee_payer_that_is_not_the_upgrade_authority() {
 #[test]
 fn create_accepts_the_upgrade_authority() {
     let deployer = Keypair::new();
-    let Some(mut rpc) = boot_with_deploy(Some(&deployer.pubkey()), &deployer) else {
-        return;
-    };
+    let mut rpc = boot_with_deploy(Some(&deployer.pubkey()), &deployer);
 
     rpc.create_and_send_default_payer_transaction(&[create_ix_for(&deployer)], &[&deployer])
         .expect("the upgrade authority initializes");
@@ -148,9 +129,7 @@ fn create_accepts_the_upgrade_authority() {
 #[test]
 fn create_skips_the_check_without_an_upgrade_authority() {
     let payer = Keypair::new();
-    let Some(mut rpc) = boot_with_deploy(None, &payer) else {
-        return;
-    };
+    let mut rpc = boot_with_deploy(None, &payer);
 
     rpc.create_and_send_default_payer_transaction(&[create_ix_for(&payer)], &[&payer])
         .expect("unset upgrade authority skips the check");
@@ -166,9 +145,7 @@ fn create_skips_the_check_without_an_upgrade_authority() {
 fn create_skips_the_check_with_a_zeroed_upgrade_authority() {
     let payer = Keypair::new();
     let zeroed = Pubkey::default();
-    let Some(mut rpc) = boot_with_deploy(Some(&zeroed), &payer) else {
-        return;
-    };
+    let mut rpc = boot_with_deploy(Some(&zeroed), &payer);
 
     rpc.create_and_send_default_payer_transaction(&[create_ix_for(&payer)], &[&payer])
         .expect("zeroed upgrade authority skips the check");
