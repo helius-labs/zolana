@@ -399,16 +399,25 @@ test-ts-e2e: (_test-ts-live "test:ts:e2e")
 # Public TypeScript SDK example against a fresh validator, Photon, and prover.
 test-ts-example: (_test-ts-live "test:ts:example")
 
-_test-ts-live test-script: build-programs build-prover-server build-cli ensure-photon
+_test-ts-live test-script: build-programs build-prover-server build-cli ensure-photon ensure-custom-ring-live-keys
     #!/usr/bin/env bash
     set -euo pipefail
-    eval "$(cargo run -q -p xtask -- program-ids)"
+    : "${ZOLANA_PROVER_REDIS_URL:?set ZOLANA_PROVER_REDIS_URL, the ring audit proof goes through the prover queue}"
+    # A command substitution that exits nonzero is no `set -e` trigger, so the
+    # ids are captured first and each one the recipe reads is required.
+    program_ids="$(cargo run -q -p xtask -- program-ids)"
+    eval "$program_ids"
+    : "${SHIELDED_POOL_PROGRAM_ID:?xtask did not emit SHIELDED_POOL_PROGRAM_ID}"
+    : "${USER_REGISTRY_PROGRAM_ID:?xtask did not emit USER_REGISTRY_PROGRAM_ID}"
+    : "${CUSTOM_RING_PROGRAM_ID:?xtask did not emit CUSTOM_RING_PROGRAM_ID}"
+    : "${DEFAULT_TREE_ADDRESS:?xtask did not emit DEFAULT_TREE_ADDRESS}"
     bin="target/debug/zolana"
     workdir="target/ts-sdk-e2e"
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
       lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
       lsof -ti "tcp:{{localnet-prover-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-ring-rpc-port}}" 2>/dev/null | xargs kill 2>/dev/null || true
     }
     trap cleanup EXIT
     rm -rf "$workdir"
@@ -427,16 +436,31 @@ _test-ts-live test-script: build-programs build-prover-server build-cli ensure-p
     # and the state Merkle tree that stores private token accounts (UTXOs) at
     # DEFAULT_TREE_ADDRESS) from the current local build and load them at
     # validator boot, so the localnet matches production addresses and no tree
-    # is created at runtime.
+    # is created at runtime. The snapshot leaves ring creation permissionless,
+    # so the ring registers itself with SPP without a Squads vault co-signer.
     accounts_dir="$workdir/accounts"
     cargo run -q -p xtask -- generate-account-snapshots \
       --deploy-dir target/deploy --accounts-dir "$accounts_dir"
 
-    "$bin" dev start --no-use-surfpool \
-      --rpc-port {{localnet-rpc-port}} --prover-port {{localnet-prover-port}} \
+    ring_dir="$workdir/ring"
+    ring_origin="http://localhost:3000"
+    ring_rpc_url="http://127.0.0.1:{{localnet-ring-rpc-port}}"
+    mkdir -p "$ring_dir"
+    solana-keygen new --no-bip39-passphrase --silent --force -o "$ring_dir/authority.json"
+    ring_authority="$(solana-keygen pubkey "$ring_dir/authority.json")"
+
+    # The ring program is loaded upgradeable, only its upgrade authority may
+    # create the ring config.
+    "$bin" dev start --no-use-surfpool --skip-prover \
+      --rpc-port {{localnet-rpc-port}} \
       --photon-port {{localnet-photon-port}} --account-dir "$accounts_dir" \
       --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so \
-      --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so
+      --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so \
+      --upgradeable-program "$CUSTOM_RING_PROGRAM_ID" target/deploy/custom_ring_program.so \
+      "$ring_authority"
+    # The audit circuit is only ever proven through the queue, which `dev start` runs without.
+    "$bin" dev prover start --prover-port {{localnet-prover-port}} \
+      --redis-url "$ZOLANA_PROVER_REDIS_URL"
     "$bin" config set --rpc-url {{localnet-rpc-url}} \
       --indexer-url {{localnet-photon-url}} --prover-url {{localnet-prover-url}} >/dev/null
     "$bin" wallet new --outfile "$workdir/authority.json"
@@ -454,6 +478,52 @@ _test-ts-live test-script: build-programs build-prover-server build-cli ensure-p
     test -n "$token_2022_mint"
     test -n "$token_2022_account"
 
+    # The ring CLI parses both targets even though this ring only acts on localnet.
+    cat > "$ring_dir/ring.toml" <<TOML
+    name = "ts-sdk-e2e-ring"
+    program_id = "$CUSTOM_RING_PROGRAM_ID"
+    authority_keypair = "$PWD/$ring_dir/authority.json"
+    target = "localnet"
+
+    [localnet]
+    rpc = "{{localnet-rpc-url}}"
+    indexer = "{{localnet-photon-url}}"
+    prover = "{{localnet-prover-url}}"
+    ring_rpc = "$ring_rpc_url"
+
+    [devnet]
+    rpc = "{{localnet-rpc-url}}"
+    indexer = "{{localnet-photon-url}}"
+    prover = "{{localnet-prover-url}}"
+    ring_rpc = "$ring_rpc_url"
+    TOML
+    cargo run -q -p zolana-ring-rpc -- keygen --out "$ring_dir/auditor.key"
+    cargo run -q -p custom-ring-cli -- --config "$ring_dir/ring.toml" \
+      init --auditor-pubkey-file "$ring_dir/auditor.key.pub"
+    # Reads are grant only, the ring authority included.
+    cargo run -q -p custom-ring-cli -- --config "$ring_dir/ring.toml" \
+      reader grant "$ring_authority"
+
+    # Local mode, the served key is the one the ring config pins.
+    cargo build -q -p zolana-ring-rpc
+    nohup target/debug/ring-rpc serve --port {{localnet-ring-rpc-port}} \
+      --indexer-url {{localnet-photon-url}} --rpc-url {{localnet-rpc-url}} \
+      --auditor-key-file "$ring_dir/auditor.key" --ring-program-id "$CUSTOM_RING_PROGRAM_ID" \
+      --allow-origin "$ring_origin" --webauthn-rp-id localhost \
+      > "$workdir/ring-rpc.log" 2>&1 &
+    printf 'waiting for ring rpc %s ' "$ring_rpc_url"
+    for _ in $(seq 1 60); do
+      if curl -sf --max-time 5 "$ring_rpc_url/health" >/dev/null 2>&1; then break; fi
+      printf '.'
+      sleep 1
+    done
+    if ! curl -sf --max-time 5 "$ring_rpc_url/health" >/dev/null 2>&1; then
+      echo " timed out"
+      echo "the ring rpc did not answer, see $workdir/ring-rpc.log" >&2
+      exit 1
+    fi
+    echo " ready"
+
     ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" \
       ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       ZOLANA_PROVER_URL="{{localnet-prover-url}}" \
@@ -462,6 +532,10 @@ _test-ts-live test-script: build-programs build-prover-server build-cli ensure-p
       ZOLANA_TEST_TOKEN_ACCOUNT="$token_account" \
       ZOLANA_TEST_TOKEN_2022_MINT="$token_2022_mint" \
       ZOLANA_TEST_TOKEN_2022_ACCOUNT="$token_2022_account" \
+      RING_PROGRAM_ID="$CUSTOM_RING_PROGRAM_ID" \
+      RING_RPC_URL="$ring_rpc_url" \
+      RING_AUTHORITY_KEYPAIR="$PWD/$ring_dir/authority.json" \
+      RING_ORIGIN="$ring_origin" \
       ZOLANA_TEST_AUTHORITY_WALLET="$PWD/$workdir/authority.json" npm run "{{test-script}}"
 
 test-ts-all: test-ts test-ts-e2e
