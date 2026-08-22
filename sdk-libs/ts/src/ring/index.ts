@@ -23,6 +23,7 @@ export type {
   RingDepositPlaintext,
 } from "../transaction/serialization/ring-deposit.js";
 export { AUDIT_PROOF_LENGTH, checkedAuditProof, decodeRingProgramConfig } from "./codecs.js";
+export { ringRole, type RingRole } from "./role.js";
 export type { RingProgramConfig } from "./codecs.js";
 export { fetchRingProgramConfig, ringConfigAddress, ringProgramDataAddress } from "./config.js";
 export { buildRingDepositTransaction } from "./deposit.js";
@@ -69,10 +70,13 @@ export type {
   DecryptedRingOutput,
   DecryptedRingTransaction,
   DecryptedRingTransactionsPage,
+  DecryptedRingWithdrawal,
   RingAuditorKey,
   RingKeyMode,
   RingReadSigner,
   RingRpcHealth,
+  RingState,
+  RingStatus,
   SignedRingRead,
   SkippedReason,
   SkippedRingTransaction,
@@ -88,6 +92,8 @@ export type { AuditedRingOutput, AuditedRingTransaction, RingAuditPage } from ".
 export {
   CachedTransactionOrigin,
   confirmedInstructionGroups,
+  confirmedWithdrawalRecipients,
+  senderOf,
   ORIGIN_TRANSACTION_CONFIG,
   ringInvokedIn,
   RpcTransactionOrigin,
@@ -95,6 +101,7 @@ export {
 export type { OriginInstruction, OriginInstructionGroup, TransactionOrigin } from "./origin.js";
 export {
   buildRingTransferTransaction,
+  buildRingWithdrawalTransaction,
   frameDummyOutputs,
   proveAuditedTransfer,
   RING_TRANSACT_COMPUTE_UNIT_LIMIT,

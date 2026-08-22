@@ -65,6 +65,7 @@ import {
   type GetShieldedTransactionsBySignatureResponse,
   type GetShieldedTransactionsByTagsResponse,
   type IndexerRpcConfig,
+  type ProgramAccount,
   type RpcAccount,
   type SpendProof,
 } from "./rpc.js";
@@ -230,6 +231,25 @@ export class ZolanaClient {
         .send({ abortSignal }),
     );
     return value === null ? undefined : decodeRpcAccount(value, "getAccountInfo");
+  }
+
+  /** Every account of one program, as Rust's `Rpc::get_program_accounts`. */
+  async getProgramAccounts(
+    programId: Address,
+    context?: RequestContext,
+  ): Promise<readonly ProgramAccount[]> {
+    checkedAddress(programId, "programId");
+    const accounts = await runKitRpc("getProgramAccounts", context, (abortSignal) =>
+      this.solanaRpc
+        .getProgramAccounts(programId, { commitment: this.commitment, encoding: "base64" })
+        .send({ abortSignal }),
+    );
+    return accounts.map((entry) =>
+      Object.freeze({
+        address: entry.pubkey,
+        account: decodeRpcAccount(entry.account, "getProgramAccounts"),
+      }),
+    );
   }
 
   async getMultipleAccounts(

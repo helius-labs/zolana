@@ -4,6 +4,7 @@ pub mod authority;
 pub mod config;
 pub mod deploy;
 pub mod error;
+pub mod fund;
 pub mod init;
 pub mod reader;
 pub mod ring_rpc;
@@ -19,15 +20,18 @@ use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{ClientError, ProverClient, SolanaRpc, ZolanaIndexer};
+use zolana_client::{ClientError, ProverClient, Rpc, SolanaRpc, ZolanaIndexer};
+use zolana_keypair::ShieldedAddress;
 
 pub use crate::{
     config::{ConfigError, RingConfig, Target, RING_TOML},
     error::CliError,
+    fund::FundError,
     init::InitError,
     ring_rpc::{RingRpcClient, Trust},
 };
 
+/// What localnet tops the authority up to.
 const LOCALNET_AUTHORITY_BALANCE: u64 = 100_000_000_000;
 
 #[derive(Debug, Parser)]
@@ -60,6 +64,8 @@ pub enum Command {
     Init(InitArgs),
     /// Two ring deposits and one audited transfer, read back from the ring RPC.
     Transact(TransactArgs),
+    /// Deposit an amount and send all of it to a shielded address inside the ring.
+    Transfer(TransferArgs),
     /// Confirm the ring RPC in `ring.toml` is up and holds the ring's auditor key.
     RpcCheck,
     /// Transfer or renounce the program's upgrade authority.
@@ -115,11 +121,24 @@ pub struct InitArgs {
     /// Accept the ring RPC's auditor key without a pinned service key in ring.toml.
     #[arg(long)]
     pub trust_ring_rpc: bool,
+    /// Pin the key in `keys/` even though the ring RPC is not on this machine.
+    /// Only a ring RPC holding that key can ever open the ring.
+    #[arg(long)]
+    pub local_auditor: bool,
 }
 
 #[derive(Debug, Args)]
 pub struct TransactArgs {
     /// Lamports the recipient receives, deposited twice by the authority.
+    #[arg(long, default_value_t = 100_000_000)]
+    pub amount: u64,
+}
+
+#[derive(Debug, Args)]
+pub struct TransferArgs {
+    /// The recipient's base58 shielded address, `signing_pk || nullifier_pk || viewing_pk`.
+    pub to: ShieldedAddress,
+    /// Lamports the recipient receives, deposited by the authority.
     #[arg(long, default_value_t = 100_000_000)]
     pub amount: u64,
 }
@@ -135,6 +154,8 @@ pub struct Context {
 pub enum ContextError {
     #[error(transparent)]
     Config(#[from] ConfigError),
+    #[error(transparent)]
+    Fund(#[from] FundError),
     #[error(transparent)]
     Client(Box<ClientError>),
 }
@@ -157,21 +178,36 @@ impl Context {
         }
     }
 
-    /// Airdrops on localnet when below half of `LOCALNET_AUTHORITY_BALANCE`.
+    /// For a step that only pays fees and small rent.
     pub fn funded_authority(&mut self) -> Result<Keypair, ContextError> {
+        self.authority_funded_for(fund::MIN_AUTHORITY_BALANCE)
+    }
+
+    pub fn authority_funded_for(&mut self, required: u64) -> Result<Keypair, ContextError> {
         let authority = self.config.authority()?;
-        if self.config.target == Target::Localnet {
-            let balance = self
-                .rpc
-                .client()
-                .get_balance(&authority.pubkey())
-                .map_err(|error| ClientError::Rpc(error.to_string()))?;
-            if balance < LOCALNET_AUTHORITY_BALANCE / 2 {
-                self.rpc
-                    .airdrop(&authority.pubkey(), LOCALNET_AUTHORITY_BALANCE)?;
-            }
-        }
+        self.fund_authority(&authority, required)?;
         Ok(authority)
+    }
+
+    /// Localnet airdrops what the step spends, devnet waits at the faucet.
+    pub fn fund_authority(
+        &mut self,
+        authority: &Keypair,
+        required: u64,
+    ) -> Result<(), ContextError> {
+        match self.config.target {
+            Target::Localnet => {
+                let balance = self.rpc.get_balance(authority.pubkey())?;
+                if balance < required.max(LOCALNET_AUTHORITY_BALANCE / 2) {
+                    self.rpc.airdrop(
+                        &authority.pubkey(),
+                        required.max(LOCALNET_AUTHORITY_BALANCE),
+                    )?;
+                }
+            }
+            Target::Devnet => fund::wait_for_balance(&self.rpc, authority.pubkey(), required)?,
+        }
+        Ok(())
     }
 
     pub fn ring_rpc(&self) -> RingRpcClient {
@@ -238,6 +274,7 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
         Command::Deploy(args) => Ok(deploy::run(&mut ctx, args)?),
         Command::Init(args) => Ok(init::run(&mut ctx, args)?),
         Command::Transact(args) => Ok(transact::run(&mut ctx, args)?),
+        Command::Transfer(args) => Ok(transact::run_transfer(&mut ctx, args)?),
         Command::RpcCheck => Ok(ring_rpc::run_check(&ctx)?),
         Command::Authority(command) => Ok(authority::run(&ctx, command)?),
         Command::Reader(command) => Ok(reader::run(&mut ctx, command)?),

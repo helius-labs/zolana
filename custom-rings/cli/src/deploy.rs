@@ -36,6 +36,13 @@ pub struct ProgramDataInfo {
     pub capacity: usize,
 }
 
+pub struct DeployPlan {
+    pub so_len: usize,
+    /// `None` on the first deploy.
+    pub deployed: Option<ProgramDataInfo>,
+    pub required_balance: u64,
+}
+
 #[derive(Debug, Error)]
 pub enum DeployError {
     #[error(transparent)]
@@ -93,21 +100,27 @@ impl From<ClientError> for DeployError {
 
 /// The smallest growth of `ProgramData` the loader accepts.
 const MIN_EXTEND_BYTES: usize = 10_240;
+/// A deploy is hundreds of writes plus the loader calls.
+const DEPLOY_FEE_BUDGET: u64 = 20_000_000;
 
 pub fn run(ctx: &mut Context, args: DeployArgs) -> Result<(), DeployError> {
-    let authority = ctx.funded_authority()?;
     let program_so = args
         .program_so
         .unwrap_or_else(|| default_program_so(&ctx.config.name));
-    let outcome = Deploy {
+    let authority = ctx.config.authority().map_err(ContextError::from)?;
+    let authority_keypair =
+        expand_tilde(&ctx.config.authority_keypair).map_err(ContextError::from)?;
+    let deploy = Deploy {
         ring: ctx.ring,
-        authority_keypair: &expand_tilde(&ctx.config.authority_keypair)
-            .map_err(ContextError::from)?,
+        authority_keypair: &authority_keypair,
         authority: authority.pubkey(),
         program_keypair: &args.program_keypair,
         program_so: &program_so,
-    }
-    .run(&ctx.rpc)?;
+    };
+    let planned = deploy.plan(&ctx.rpc)?;
+    // Stop before the loader's write sequence, not inside it.
+    ctx.fund_authority(&authority, planned.required_balance)?;
+    let outcome = deploy.apply(&ctx.rpc, planned)?;
     println!(
         "{} {} under {}",
         match outcome {
@@ -117,12 +130,12 @@ pub fn run(ctx: &mut Context, args: DeployArgs) -> Result<(), DeployError> {
         ctx.ring.program_id(),
         authority.pubkey()
     );
-    crate::status::announce(&ctx.config);
+    // `init` announces the live ring, a deploy alone does not make one.
     Ok(())
 }
 
 impl Deploy<'_> {
-    pub fn run(self, rpc: &SolanaRpc) -> Result<DeployOutcome, DeployError> {
+    pub fn plan(&self, rpc: &SolanaRpc) -> Result<DeployPlan, DeployError> {
         for (label, path) in [
             ("authority keypair", self.authority_keypair),
             ("program binary", self.program_so),
@@ -155,14 +168,26 @@ impl Deploy<'_> {
                 }
                 None => return Err(DeployError::Immutable { program }),
             }
-            if so_len > info.capacity {
-                self.extend(
-                    rpc.client().url(),
-                    (so_len - info.capacity).max(MIN_EXTEND_BYTES),
-                )?;
-            }
         } else {
             self.check_program_keypair()?;
+        }
+        let required_balance = required_balance(rpc, so_len, deployed.as_ref())?;
+        Ok(DeployPlan {
+            so_len,
+            deployed,
+            required_balance,
+        })
+    }
+
+    pub fn apply(self, rpc: &SolanaRpc, plan: DeployPlan) -> Result<DeployOutcome, DeployError> {
+        let program = self.ring.program_id();
+        if let Some(info) = &plan.deployed {
+            if plan.so_len > info.capacity {
+                self.extend(
+                    rpc.client().url(),
+                    (plan.so_len - info.capacity).max(MIN_EXTEND_BYTES),
+                )?;
+            }
         }
 
         let mut command = Command::new("solana");
@@ -178,7 +203,7 @@ impl Deploy<'_> {
             .arg("--upgrade-authority")
             .arg(self.authority_keypair)
             .arg("--program-id");
-        if deployed.is_some() {
+        if plan.deployed.is_some() {
             command.arg(program.to_string());
         } else {
             command.arg(self.program_keypair);
@@ -202,7 +227,7 @@ impl Deploy<'_> {
                 program,
                 source: Box::new(source),
             })?;
-        Ok(if deployed.is_some() {
+        Ok(if plan.deployed.is_some() {
             DeployOutcome::Upgraded
         } else {
             DeployOutcome::Deployed
@@ -252,6 +277,35 @@ impl Deploy<'_> {
     }
 }
 
+/// A first deploy pays rent for the program and its data account, an upgrade
+/// only for the growth. Both pay for the write buffer, refunded when the
+/// deploy finishes.
+pub fn required_balance<R: Rpc>(
+    rpc: &R,
+    so_len: usize,
+    deployed: Option<&ProgramDataInfo>,
+) -> Result<u64, DeployError> {
+    let rent = |bytes: usize| rpc.get_minimum_balance_for_rent_exemption(bytes);
+    let mut lamports = DEPLOY_FEE_BUDGET + rent(UpgradeableLoaderState::size_of_buffer(so_len))?;
+    match deployed {
+        None => {
+            lamports += rent(UpgradeableLoaderState::size_of_program())?;
+            lamports += rent(UpgradeableLoaderState::size_of_programdata(so_len))?;
+        }
+        Some(info) if so_len > info.capacity => {
+            let grown = (so_len - info.capacity).max(MIN_EXTEND_BYTES);
+            lamports += rent(UpgradeableLoaderState::size_of_programdata(
+                info.capacity + grown,
+            ))?
+            .saturating_sub(rent(UpgradeableLoaderState::size_of_programdata(
+                info.capacity,
+            ))?);
+        }
+        Some(_) => {}
+    }
+    Ok(lamports)
+}
+
 /// `None` when the program is not deployed under the upgradeable loader.
 pub fn read_program_data<R: Rpc>(
     rpc: &R,
@@ -292,4 +346,58 @@ fn default_program_so(name: &str) -> PathBuf {
         "target/deploy/{}_program.so",
         name.replace('-', "_")
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Rent as the cluster prices it, 3480 lamports per byte-year over two years.
+    struct Rent;
+
+    impl Rpc for Rent {
+        fn get_minimum_balance_for_rent_exemption(
+            &self,
+            data_len: usize,
+        ) -> Result<u64, ClientError> {
+            Ok((128 + data_len as u64) * 3480 * 2)
+        }
+    }
+
+    fn rent(data_len: usize) -> u64 {
+        Rent.get_minimum_balance_for_rent_exemption(data_len)
+            .expect("priced")
+    }
+
+    #[test]
+    fn a_first_deploy_pays_program_data_and_buffer() {
+        let so_len = 300_000;
+        assert_eq!(
+            required_balance(&Rent, so_len, None).expect("priced"),
+            DEPLOY_FEE_BUDGET
+                + rent(UpgradeableLoaderState::size_of_buffer(so_len))
+                + rent(UpgradeableLoaderState::size_of_program())
+                + rent(UpgradeableLoaderState::size_of_programdata(so_len))
+        );
+    }
+
+    #[test]
+    fn an_upgrade_pays_the_buffer_and_only_the_growth() {
+        let deployed = ProgramDataInfo {
+            upgrade_authority: None,
+            capacity: 300_000,
+        };
+        let fits = required_balance(&Rent, deployed.capacity, Some(&deployed)).expect("priced");
+        assert_eq!(
+            fits,
+            DEPLOY_FEE_BUDGET + rent(UpgradeableLoaderState::size_of_buffer(deployed.capacity))
+        );
+        // One byte too big still extends by the loader's minimum.
+        let grows =
+            required_balance(&Rent, deployed.capacity + 1, Some(&deployed)).expect("priced");
+        assert_eq!(
+            grows - fits,
+            (rent(MIN_EXTEND_BYTES) - rent(0)) + (rent(1) - rent(0))
+        );
+    }
 }

@@ -13,6 +13,7 @@ use crate::audit::KeyMode;
 
 pub const HEALTH: &str = "health";
 pub const CREATE_AUDITOR_KEY: &str = "createAuditorKey";
+pub const RING_STATUS: &str = "ringStatus";
 pub const GET_DECRYPTED_TRANSACTIONS: &str = "getDecryptedTransactions";
 pub(crate) const AUDIT_CURSOR_LIMIT: usize = 256;
 pub(crate) const AUDIT_PAGE_LIMIT: u64 = 100;
@@ -40,6 +41,40 @@ pub struct CreateAuditorKeyResponse {
     pub auditor_view_tag: Hash,
     pub service_pubkey: SerializablePubkey,
     pub signature: SerializableSignature,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct RingStatusRequest {
+    pub ring_program_id: SerializablePubkey,
+}
+
+/// Unsigned, for diagnosis only. A ring pins its auditor from the attested
+/// `createAuditorKey` response, never from this.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct RingStatusResponse {
+    pub ring_program_id: SerializablePubkey,
+    pub state: RingState,
+    /// The key this service holds for the ring.
+    pub auditor_pubkey: AuditorPubkey,
+    pub auditor_view_tag: Hash,
+    /// The key the ring's config names, absent until the config exists.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_auditor_pubkey: Option<AuditorPubkey>,
+    pub service_pubkey: SerializablePubkey,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RingState {
+    /// The config names this service's key, reads work.
+    Served,
+    /// The config names another auditor, and it cannot change, so this service
+    /// can never open the ring.
+    ForeignAuditor,
+    /// No config yet, so `init` is free to pin this service's key.
+    Uninitialized,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -151,6 +186,19 @@ pub struct DecryptedTransaction {
     pub outputs: Vec<DecryptedOutput>,
     pub undecryptable_slots: Vec<u32>,
     pub nullifiers: Vec<Hash>,
+    /// Required signers, fee payer first. The sender is the one matching an
+    /// output owner tag.
+    pub signers: Vec<SerializablePubkey>,
+    /// Public settlement legs, where value left the ring.
+    pub withdrawals: Vec<DecryptedWithdrawal>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct DecryptedWithdrawal {
+    /// The account the lamports were settled to.
+    pub recipient: SerializablePubkey,
+    pub amount: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -158,6 +206,9 @@ pub struct DecryptedTransaction {
 pub struct DecryptedOutput {
     pub slot_index: u32,
     pub recipient_viewing_pk: Base64String,
+    /// The output slot's owner tag. Base58 of it is the Solana address of an
+    /// Ed25519 or PDA owner.
+    pub owner_tag: Hash,
     pub asset: SerializablePubkey,
     pub amount: u64,
     pub ring_program_id: Option<SerializablePubkey>,

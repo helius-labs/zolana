@@ -250,15 +250,23 @@ ring-devnet-services rpc_url: ensure-custom-ring-live-keys build-prover-server e
       --prover-address 0.0.0.0:{{localnet-prover-port}} --auto-download=true \
       --redis-url "$ZOLANA_PROVER_REDIS_URL" \
       > "$workdir/prover.log" 2>&1 &
-    for _ in $(seq 1 120); do
-      if curl -sf "{{localnet-photon-url}}/readiness" >/dev/null 2>&1 \
-         && curl -sf "{{localnet-prover-url}}/health" >/dev/null 2>&1; then
-        break
-      fi
-      sleep 1
-    done
-    curl -sf "{{localnet-photon-url}}/readiness" >/dev/null || { echo "photon did not become ready, see $workdir/photon.log" >&2; exit 1; }
-    curl -sf "{{localnet-prover-url}}/health" >/dev/null || { echo "prover did not become ready, see $workdir/prover.log" >&2; exit 1; }
+    # A slow start must look different from a hang.
+    wait_for() {
+      printf 'waiting for %-7s %s ' "$1" "$2"
+      for _ in $(seq 1 120); do
+        if curl -sf --max-time 5 "$3" >/dev/null 2>&1; then
+          echo " ready"
+          return 0
+        fi
+        printf '.'
+        sleep 1
+      done
+      echo " timed out"
+      echo "$1 did not become ready, see $4" >&2
+      return 1
+    }
+    wait_for photon "{{localnet-photon-url}}" "{{localnet-photon-url}}/readiness" "$workdir/photon.log"
+    wait_for prover "{{localnet-prover-url}}" "{{localnet-prover-url}}/health" "$workdir/prover.log"
     echo "devnet services ready"
     echo "  photon    {{localnet-photon-url}}  (indexing {{rpc_url}}, log $workdir/photon.log)"
     echo "  prover    {{localnet-prover-url}}  (log $workdir/prover.log)"

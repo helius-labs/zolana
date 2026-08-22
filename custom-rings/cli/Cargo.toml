@@ -15,7 +15,6 @@ path = "src/main.rs"
 [dependencies]
 anyhow = { workspace = true }
 bincode = { workspace = true }
-bytemuck = { workspace = true }
 clap = { workspace = true }
 custom-ring-program = { path = "../program", features = ["no-entrypoint"] }
 custom-ring-sdk = { path = "../sdk" }

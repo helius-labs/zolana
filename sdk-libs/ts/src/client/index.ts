@@ -35,6 +35,7 @@ export type {
   MerkleContext,
   MerkleProof,
   NonInclusionProof,
+  ProgramAccount,
   RpcAccount,
   RpcContext,
   SpendProof,

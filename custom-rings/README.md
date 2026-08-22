@@ -62,18 +62,50 @@ the ring id, so a plain transfer keeps value in the ring. Exits stay possible,
 an owner may withdraw or send to a default pool note, and every such transact
 still carries the audit proof, so the auditor sees the exit.
 
+## Prerequisites
+
+On `PATH` before `just ring-new`:
+
+- **Rust** 1.97.0, pinned by `rust-toolchain.toml` here and in the ring.
+- **`just`** — `cargo install just --locked`.
+- **Anza / Solana CLI** 4.x, the version CI pins —
+  `sh -c "$(curl -sSfL https://release.anza.xyz/v4.0.2/install)"`. It keys the
+  program and the authority, builds the program (`cargo build-sbf`, SBF tools
+  `v1.54` unless `SBF_TOOLS_VERSION` says otherwise) and deploys it.
+
+The wizard offers to install `cargo-generate` when it is missing.
+`just ring-localnet` also needs this repository's localnet prerequisites and a
+Redis in `ZOLANA_PROVER_REDIS_URL` for the audit proof.
+
 ## The pipeline and what each step locks in
 
 `just ring-new` in a Zolana checkout generates the ring repository and fixes
-the program id, the address of the program keypair in the ring's `keys/`. In
-the ring, `just localnet` or `just devnet` picks the cluster and starts or
-probes its services. `just deploy` fixes who may `init`, the upgrade
-authority. `just init` fixes the auditor. After `init` the authority can be
-transferred or renounced, readers come and go, and the program can be
-upgraded by running `just deploy` again. `just rpc` serves the auditor's view,
-`just transact` makes two ring deposits and one audited transfer and reads it
-back. `just pipeline` runs build to transact. The generated README is the
-operator's guide.
+the program id, the address of the program keypair in the ring's `keys/`. It
+creates the authority keypair when the answer keeps the default
+`~/.config/solana/id.json` and no file is there; any other path is the
+operator's and a missing one is only reported. In the ring, `just localnet` or
+`just devnet` picks the cluster and starts or probes its services.
+`just deploy` fixes who may `init`, the upgrade authority. `just init` fixes
+the auditor. After `init` the authority can be transferred or renounced, readers
+come and go, and the program can be upgraded by running `just deploy` again.
+`just rpc` serves the auditor's view, `just transact` makes two ring deposits
+and one audited transfer and reads it back. `just pipeline` runs build to
+transact. The generated README is the operator's guide.
+
+On devnet the ring builds only its own program and CLI; the prover, the indexer
+and the ring RPC are already deployed and are probed, never started. The hosted
+ring RPC derives one auditor key per ring from a root secret, so it serves any
+ring that asks and a new ring needs no restart. The order is what matters: a
+ring takes its key from the service before `create_config`, because the config
+fixes the auditor for good. `rpc-check` reports which of the three cases a ring
+is in: served, registered with another auditor, or not yet initialized. `init`
+refuses to pin a key from `keys/` against a service that holds its own.
+
+The authority pays for every step. Localnet airdrops what a step spends,
+devnet cannot, so a step it cannot pay for stops at the web faucet and
+continues on the next keypress; without a terminal the shortfall is an error.
+`deploy` prices the loader's rent from the built binary and `transact` its
+deposits, so the pause names the amount instead of failing inside the deploy.
 
 `ring-localnet` starts the validator without the bundled prover and starts the
 prover separately with a Redis queue, the audit circuit is served only through
@@ -113,10 +145,11 @@ template's wizard, and reach the code as cargo features of the same name.
 ## Pitfalls and limits
 
 Local rings share the ring RPC port, `just pipeline` replaces an RPC that
-serves another ring. `init` refuses an unpinned hosted RPC, `--trust-ring-rpc`
-is for a local instance. The sender of an audited transfer pays its own v0
-transaction. Keys and `.env` belong in the secret store, a fresh checkout
-mounts them before its first pipeline run.
+serves another ring; a hosted ring RPC is only checked, never replaced, and a
+ring pointed at one creates no local auditor key. `init` refuses an unpinned
+hosted RPC, `--trust-ring-rpc` is for a local instance. The sender of an
+audited transfer pays its own v0 transaction. Keys and `.env` belong in the
+secret store, a fresh checkout mounts them before its first pipeline run.
 
 The auditor opens outputs created by the supported clients and reports slots
 in another encoding as undecryptable. Ring deposits are public on chain and

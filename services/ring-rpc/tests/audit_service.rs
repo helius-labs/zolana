@@ -18,14 +18,17 @@ use zolana_client::{ClientError, Context, GetShieldedTransactionsByTagsResponse}
 use zolana_indexer_api::{Base64String, Limit};
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
-use zolana_ring_client::{auditor_view_tag, AuditorEncryption, OriginError, ReaderKey};
+use zolana_ring_client::{
+    auditor_view_tag, AuditorEncryption, OriginError, ReaderKey, RingOrigin, RingWithdrawal,
+};
 use zolana_ring_rpc::{
     auditor_key_attestation, rpc_module, unix_now, AuditRead, Claim, CreateAuditorKeyRequest,
-    CreateAuditorKeyResponse, GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse,
-    HealthResponse, Hub, KeyMode, OriginPolicy, Origins, Page, PageOptions, ReadAttestation,
-    ReadAuth, ReadBuildError, ReadCheck, ReadSignature, ReadSigner, ReaderGrant, RingConfiguration,
-    RingRpcError, RootSecret, TransactionPage, TransactionSource, Unauthorized, WebAuthnAssertion,
-    CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH,
+    CreateAuditorKeyResponse, DecryptedWithdrawal, GetDecryptedTransactionsRequest,
+    GetDecryptedTransactionsResponse, HealthResponse, Hub, KeyMode, OriginPolicy, Origins, Page,
+    PageOptions, ReadAttestation, ReadAuth, ReadBuildError, ReadCheck, ReadSignature, ReadSigner,
+    ReaderGrant, RingConfiguration, RingRpcError, RingState, RingStatusRequest, RingStatusResponse,
+    RootSecret, TransactionPage, TransactionSource, Unauthorized, WebAuthnAssertion,
+    CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_STATUS,
 };
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
@@ -37,6 +40,9 @@ const SALT: [u8; SALT_LEN] = [3; SALT_LEN];
 const TREE: Address = Address::new_from_array([4; 32]);
 const RING: Address = Address::new_from_array([5; 32]);
 const OTHER_RING: Address = Address::new_from_array([6; 32]);
+const SENDER: Address = Address::new_from_array([7; 32]);
+const RECIPIENT: Address = Address::new_from_array([8; 32]);
+const WITHDRAWN: u64 = 250;
 const ORIGIN: &str = "http://localhost:3000";
 const USER_PRESENT_AND_VERIFIED: u8 = 0x05;
 
@@ -265,7 +271,11 @@ struct StaticSource {
     transactions: Vec<ShieldedTransaction>,
     origins: HashMap<Signature, bool>,
     next_cursor: Option<Vec<u8>>,
-    config: Option<RingConfiguration>,
+    /// Per ring, so a read can never be authorized against another ring's
+    /// config.
+    configs: HashMap<Address, RingConfiguration>,
+    /// Per auditor view tag, empty when every read shares `transactions`.
+    by_tag: HashMap<[u8; 32], Vec<ShieldedTransaction>>,
     granted: HashSet<ReaderKey>,
     healthy: bool,
     assets: Option<AssetRegistry>,
@@ -290,41 +300,52 @@ impl TransactionSource for StaticSource {
         request: TransactionPage<'_>,
     ) -> impl Future<Output = Result<GetShieldedTransactionsByTagsResponse, ClientError>> + Send
     {
-        assert_eq!(request.tag.len(), 32);
         assert!(request.page.limit().get() <= 100);
+        let transactions = self
+            .by_tag
+            .get(&request.tag)
+            .cloned()
+            .unwrap_or_else(|| self.transactions.clone());
         let response = GetShieldedTransactionsByTagsResponse {
             context: Context {
                 block_time: 0,
                 slot: 99,
             },
-            transactions: self.transactions.clone(),
+            transactions,
             next_cursor: self.next_cursor.clone(),
         };
         async move { Ok(response) }
     }
 
-    fn ring_invoked(
+    fn transaction_origin(
         &self,
         signature: Signature,
-        ring: Address,
-    ) -> impl Future<Output = Result<bool, OriginError>> + Send {
-        assert_eq!(ring, RING);
-        let origin =
-            self.origins
-                .get(&signature)
-                .copied()
-                .ok_or_else(|| OriginError::Unavailable {
-                    signature,
-                    message: "not found".to_owned(),
-                });
+        _ring: Address,
+    ) -> impl Future<Output = Result<RingOrigin, OriginError>> + Send {
+        let origin = self
+            .origins
+            .get(&signature)
+            .copied()
+            .map(|ring_invoked| RingOrigin {
+                ring_invoked,
+                signers: vec![SENDER],
+                withdrawals: vec![RingWithdrawal {
+                    recipient: RECIPIENT,
+                    amount: WITHDRAWN,
+                }],
+            })
+            .ok_or_else(|| OriginError::Unavailable {
+                signature,
+                message: "not found".to_owned(),
+            });
         async move { origin }
     }
 
     fn ring_config(
         &self,
-        _ring: Address,
+        ring: Address,
     ) -> impl Future<Output = Result<Option<RingConfiguration>, ClientError>> + Send {
-        let config = self.config;
+        let config = self.configs.get(&ring).copied();
         async move { Ok(config) }
     }
 
@@ -332,7 +353,6 @@ impl TransactionSource for StaticSource {
         &self,
         request: ReaderGrant,
     ) -> impl Future<Output = Result<bool, ClientError>> + Send {
-        assert_eq!(request.ring, RING);
         let granted = self.granted.contains(&request.reader);
         async move { Ok(granted) }
     }
@@ -478,9 +498,13 @@ impl Fixture {
             transactions: Vec::new(),
             origins: HashMap::new(),
             next_cursor: Some(vec![7, 7]),
-            config: Some(RingConfiguration {
-                auditor_pubkey: self.auditor.pubkey(),
-            }),
+            configs: HashMap::from([(
+                RING,
+                RingConfiguration {
+                    auditor_pubkey: self.auditor.pubkey(),
+                },
+            )]),
+            by_tag: HashMap::new(),
             granted: HashSet::from([
                 ReaderKey::ed25519(delegate().pubkey()).expect("delegate reader"),
                 ReaderKey::p256(Passkey::new(46).pubkey()).expect("passkey reader"),
@@ -532,6 +556,17 @@ async fn granted_reader_opens_audited_transfers_and_reports_the_rest() {
     assert_eq!(item.outputs[0].amount, 500);
     assert_eq!(item.outputs[1].amount, 7);
     assert_eq!(item.outputs[0].asset.0.to_bytes(), SOL_MINT.to_bytes());
+    // The slot's own tag, not anything recovered from the ciphertext.
+    assert_eq!(item.outputs[0].owner_tag.0, [0x80; 32]);
+    assert_eq!(item.outputs[1].owner_tag.0, [0x81; 32]);
+    assert_eq!(item.signers, vec![SENDER.to_bytes().into()]);
+    assert_eq!(
+        item.withdrawals,
+        vec![DecryptedWithdrawal {
+            recipient: RECIPIENT.to_bytes().into(),
+            amount: WITHDRAWN,
+        }]
+    );
     assert_eq!(
         item.outputs[0].recipient_viewing_pk,
         Base64String(fixture.recipient.as_bytes().to_vec())
@@ -662,9 +697,12 @@ async fn only_granted_readers_with_the_configured_auditor_key_can_read() {
     }
 
     let mut source = fixture.source();
-    source.config = Some(RingConfiguration {
-        auditor_pubkey: ViewingKey::new().pubkey(),
-    });
+    source.configs.insert(
+        RING,
+        RingConfiguration {
+            auditor_pubkey: ViewingKey::new().pubkey(),
+        },
+    );
     let service = fixture.hub(source).service().expect("service");
     let request = auth(&delegate());
     assert!(matches!(
@@ -866,6 +904,14 @@ async fn rpc_wire_uses_camel_case_and_rejects_another_local_ring() {
         .await
         .expect("read");
     assert_eq!(page.value.items.len(), 1);
+    let item = as_object(&page.value.items[0]);
+    assert_eq!(
+        item.get("withdrawals"),
+        Some(&serde_json::json!([{
+            "recipient": RECIPIENT.to_string(),
+            "amount": WITHDRAWN,
+        }]))
+    );
 
     let result: Result<CreateAuditorKeyResponse, _> = module
         .call(
@@ -876,6 +922,208 @@ async fn rpc_wire_uses_camel_case_and_rejects_another_local_ring() {
         )
         .await;
     assert!(result.is_err());
+}
+
+/// The state a ring is in decides whether `init` may pin a key, so it travels
+/// over the wire for every ring the caller names.
+#[tokio::test]
+async fn ring_status_reports_the_state_of_each_ring() {
+    let fixture = Fixture::new();
+    let served = Address::new_from_array([1; 32]);
+    let foreign = Address::new_from_array([3; 32]);
+    let uninitialized = Address::new_from_array([4; 32]);
+    let mut source = fixture.source();
+    source.configs = HashMap::from([(
+        foreign,
+        RingConfiguration {
+            auditor_pubkey: fixture.auditor.pubkey(),
+        },
+    )]);
+    let hub = Arc::new(
+        Hub::builder(source)
+            .with_origins(origins())
+            .derived(RootSecret::from_bytes([7; 32]).expect("root"), [9; 32])
+            .expect("hub"),
+    );
+    let derived = hub.service_for(served).expect("service").auditor_pubkey();
+    let mut source = fixture.source();
+    source.configs = HashMap::from([
+        (
+            served,
+            RingConfiguration {
+                auditor_pubkey: derived,
+            },
+        ),
+        (
+            foreign,
+            RingConfiguration {
+                auditor_pubkey: fixture.auditor.pubkey(),
+            },
+        ),
+    ]);
+    let module = rpc_module(Arc::new(
+        Hub::builder(source)
+            .with_origins(origins())
+            .derived(RootSecret::from_bytes([7; 32]).expect("root"), [9; 32])
+            .expect("hub"),
+    ))
+    .expect("module");
+
+    for (ring, state) in [
+        (served, RingState::Served),
+        (foreign, RingState::ForeignAuditor),
+        (uninitialized, RingState::Uninitialized),
+    ] {
+        let status: RingStatusResponse = module
+            .call(
+                RING_STATUS,
+                as_object(RingStatusRequest {
+                    ring_program_id: ring.to_bytes().into(),
+                }),
+            )
+            .await
+            .expect("status");
+        assert_eq!(status.state, state);
+        assert_eq!(status.ring_program_id.0, ring);
+        assert_eq!(status.service_pubkey.0, hub.service_pubkey());
+    }
+
+    let object = as_object(RingStatusRequest {
+        ring_program_id: served.to_bytes().into(),
+    });
+    assert!(object.contains_key("ringProgramId"));
+    let raw: serde_json::Value = module.call(RING_STATUS, object).await.expect("status");
+    assert_eq!(raw.get("state"), Some(&serde_json::json!("served")));
+    assert!(raw.get("auditorViewTag").is_some());
+    assert!(raw.get("configAuditorPubkey").is_some());
+}
+
+/// One instance, two rings: each read must use its own derived key, its own
+/// view tag and its own config.
+#[tokio::test]
+async fn two_rings_read_only_their_own_transactions() {
+    let fixture = Fixture::new();
+    let hub_of = |source: StaticSource| {
+        Hub::builder(source)
+            .with_origins(origins())
+            .derived(RootSecret::from_bytes([7; 32]).expect("root"), [9; 32])
+            .expect("hub")
+    };
+    let probe = hub_of(fixture.source());
+    let ring_a = Address::new_from_array([1; 32]);
+    let ring_b = Address::new_from_array([2; 32]);
+    let key_a = probe.service_for(ring_a).expect("ring a").auditor_pubkey();
+    let key_b = probe.service_for(ring_b).expect("ring b").auditor_pubkey();
+    assert_ne!(key_a, key_b);
+
+    let tx_a = ViewingKey::new();
+    let audited_a = transaction(
+        11,
+        &tx_a,
+        vec![confidential_slot(&tx_a, &fixture.recipient, 500, 0)],
+        vec![auditor_message(&tx_a, &key_a)],
+    );
+    let tx_b = ViewingKey::new();
+    let audited_b = transaction(
+        12,
+        &tx_b,
+        vec![confidential_slot(&tx_b, &fixture.recipient, 7, 0)],
+        vec![auditor_message(&tx_b, &key_b)],
+    );
+    let mut source = fixture.source();
+    source.origins = HashMap::from([
+        (audited_a.tx_signature, true),
+        (audited_b.tx_signature, true),
+    ]);
+    source.transactions = Vec::new();
+    source.by_tag = HashMap::from([
+        (auditor_view_tag(&key_a), vec![audited_a.clone()]),
+        (auditor_view_tag(&key_b), vec![audited_b.clone()]),
+    ]);
+    source.configs = HashMap::from([
+        (
+            ring_a,
+            RingConfiguration {
+                auditor_pubkey: key_a,
+            },
+        ),
+        (
+            ring_b,
+            RingConfiguration {
+                auditor_pubkey: key_b,
+            },
+        ),
+    ]);
+    let hub = hub_of(source);
+    let page = page();
+
+    for (ring, expected, amount) in [
+        (ring_a, audited_a.tx_signature, 500),
+        (ring_b, audited_b.tx_signature, 7),
+    ] {
+        let request = signed_request(&delegate(), ring, unix_now().expect("clock")).auth;
+        let response = hub
+            .service_for(ring)
+            .expect("service")
+            .read(AuditRead {
+                auth: &request,
+                page: &page,
+            })
+            .await
+            .expect("read");
+        let [item] = response.value.items.as_slice() else {
+            panic!("expected one audited transaction for {ring}");
+        };
+        assert_eq!(item.tx_signature.0, expected);
+        assert_eq!(item.outputs[0].amount, amount);
+    }
+}
+
+/// A ring registered with a key this instance did not derive stays closed, and
+/// says so before anything is decrypted.
+#[tokio::test]
+async fn a_ring_registered_with_another_auditor_stays_closed() {
+    let fixture = Fixture::new();
+    let ring = Address::new_from_array([3; 32]);
+    let uninitialized = Address::new_from_array([4; 32]);
+    let mut source = fixture.source();
+    source.configs = HashMap::from([(
+        ring,
+        RingConfiguration {
+            auditor_pubkey: fixture.auditor.pubkey(),
+        },
+    )]);
+    let hub = Hub::builder(source)
+        .with_origins(origins())
+        .derived(RootSecret::from_bytes([7; 32]).expect("root"), [9; 32])
+        .expect("hub");
+    let service = hub.service_for(ring).expect("service");
+    assert_ne!(service.auditor_pubkey(), fixture.auditor.pubkey());
+
+    assert_eq!(
+        service.configured_auditor().await.expect("status"),
+        Some(fixture.auditor.pubkey())
+    );
+    assert_eq!(
+        hub.service_for(uninitialized)
+            .expect("service")
+            .configured_auditor()
+            .await
+            .expect("status"),
+        None
+    );
+
+    let request = signed_request(&delegate(), ring, unix_now().expect("clock")).auth;
+    let page = page();
+    assert!(matches!(
+        service
+            .read(AuditRead {
+                auth: &request,
+                page: &page,
+            })
+            .await,
+        Err(RingRpcError::Unauthorized(Unauthorized::AuditorKeyMismatch))
+    ));
 }
 
 #[tokio::test]
