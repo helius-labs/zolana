@@ -10,7 +10,7 @@ use solana_signer::Signer;
 use thiserror::Error;
 use zolana_client::{ClientError, Rpc, SolanaRpc, SppProofInputUtxo, ZolanaIndexer};
 use zolana_interface::DEFAULT_TREE_ADDRESS;
-use zolana_keypair::{KeypairError, ShieldedKeypair};
+use zolana_keypair::{shielded::ShieldedAddress, KeypairError, ShieldedKeypair};
 use zolana_ring_client::{ReaderKey, ReaderKeyError};
 use zolana_transaction::{
     instructions::transact::ConfidentialTransfer, AssetRegistry, TransactionError, SOL_MINT,
@@ -18,8 +18,8 @@ use zolana_transaction::{
 
 use crate::{
     init::{configured_auditor_pk, InitError},
-    ring_rpc::{RingRpcClientError, TransactionLookup},
-    Context, ContextError, TransactArgs,
+    ring_rpc::{RingRpcClient, RingRpcClientError, TransactionLookup},
+    Context, ContextError, TransactArgs, TransferArgs,
 };
 
 /// Covers the sender's lookup table rent and fees.
@@ -39,6 +39,25 @@ pub struct DemoTransfer<'a> {
     tree: Option<Address>,
     /// `AssetRegistry::default()` unless set.
     assets: Option<&'a AssetRegistry>,
+}
+
+/// One transfer out of a throwaway sender the payer funds and then abandons.
+/// The two deposits fill both input slots the transfer's shape declares; what
+/// they hold above `amount` stays with the sender and is unreachable.
+struct RingTransfer<'a> {
+    ring: CustomRing,
+    payer: &'a dyn Signer,
+    deposits: [u64; 2],
+    recipient: ShieldedAddress,
+    amount: u64,
+    tree: Address,
+    assets: &'a AssetRegistry,
+}
+
+struct SentTransfer {
+    sender: ShieldedKeypair,
+    deposits: Vec<Signature>,
+    transact: Signature,
 }
 
 pub struct TransferReceipt {
@@ -94,6 +113,8 @@ pub enum TransactError {
     Indexer(#[from] WaitError<ClientError>),
     #[error("reader {reader} is not granted, run `grant-reader {reader}` first")]
     ReaderNotGranted { reader: ReaderKey },
+    #[error("amount {amount} does not split across the two deposits a ring transfer spends")]
+    AmountTooSmall { amount: u64 },
 }
 
 impl From<ClientError> for TransactError {
@@ -143,14 +164,84 @@ pub fn run(ctx: &mut Context, args: TransactArgs) -> Result<(), TransactError> {
     for line in program_logs(&ctx.rpc, &receipt.transact)? {
         println!("  log       {line}");
     }
+    read_back(&indexer, &ring_rpc, ring, &authority, receipt.transact)?;
+    Ok(())
+}
+
+/// Deposit the amount into the ring and send all of it to a shielded address.
+/// The sender is a throwaway key, so nothing of the amount stays behind.
+pub fn run_transfer(ctx: &mut Context, args: TransferArgs) -> Result<(), TransactError> {
+    if args.amount < 2 {
+        return Err(TransactError::AmountTooSmall {
+            amount: args.amount,
+        });
+    }
+    let needed = args
+        .amount
+        .saturating_add(SENDER_FEE_BUDGET)
+        .saturating_add(PAYER_FEE_BUDGET);
+    let authority = ctx.authority_funded_for(needed)?;
+    let ring = ctx.ring;
+    let auditor_pk = configured_auditor_pk(&ctx.rpc, ring)?;
+    let ring_rpc = ctx.ring_rpc();
+    ring_rpc.check_serves(ring.program_id(), &auditor_pk)?;
+    let indexer = ctx.indexer();
+    let prover = ctx.prover();
+    // The recipient takes the whole amount, so the two deposits split it.
+    let half = args.amount / 2;
+    let sent = RingTransfer {
+        ring,
+        payer: &authority,
+        deposits: [half, args.amount - half],
+        recipient: args.to,
+        amount: args.amount,
+        tree: Address::from_str_const(DEFAULT_TREE_ADDRESS),
+        assets: &AssetRegistry::default(),
+    }
+    .send(TransferProofEnvironment {
+        indexer: &indexer,
+        rpc: &ctx.rpc,
+        prover: &prover,
+    })?;
+    println!("to          {}", args.to);
+    println!("amount      {} lamports", args.amount);
+    println!(
+        "sender      {}  a throwaway key, funded and abandoned",
+        sent.sender.pubkey()
+    );
+    for signature in &sent.deposits {
+        println!("deposit     {signature}");
+    }
+    println!("transact    {}", sent.transact);
+    for line in program_logs(&ctx.rpc, &sent.transact)? {
+        println!("  log       {line}");
+    }
+    // Reading the transfer back is a courtesy, the payment is already on chain.
+    let reader_key = ReaderKey::ed25519(authority.pubkey())?;
+    if ring.read_reader_record(&ctx.rpc, &reader_key)?.is_none() {
+        println!("auditor view skipped, grant-reader {reader_key} to read the ring");
+        return Ok(());
+    }
+    read_back(&indexer, &ring_rpc, ring, &authority, sent.transact)?;
+    Ok(())
+}
+
+/// What the auditor opens for a granted reader, once the indexer has the slot.
+fn read_back(
+    indexer: &ZolanaIndexer,
+    ring_rpc: &RingRpcClient,
+    ring: CustomRing,
+    reader: &solana_keypair::Keypair,
+    signature: Signature,
+) -> Result<(), TransactError> {
     println!("waiting for the indexer and the ring rpc to open the transaction");
-    wait_for_indexed_transaction(&indexer, receipt.transact)?;
+    wait_for_indexed_transaction(indexer, signature)?;
     let opened = ring_rpc.wait_for_decrypted(TransactionLookup {
         ring: ring.program_id(),
-        reader: &authority,
-        signature: receipt.transact,
+        reader,
+        signature,
     })?;
-    println!("auditor sees slot {} at {}", opened.slot, receipt.transact);
+    println!("auditor sees slot {} at {signature}", opened.slot);
     println!("  nullifiers {}", opened.nullifiers.len());
     for output in &opened.outputs {
         println!(
@@ -194,9 +285,6 @@ impl<'a> DemoTransfer<'a> {
         self,
         env: TransferProofEnvironment<'_, ZolanaIndexer, SolanaRpc>,
     ) -> Result<TransferReceipt, TransactError> {
-        let tree = self
-            .tree
-            .unwrap_or(Address::from_str_const(DEFAULT_TREE_ADDRESS));
         let default_assets;
         let assets = match self.assets {
             Some(assets) => assets,
@@ -205,25 +293,57 @@ impl<'a> DemoTransfer<'a> {
                 &default_assets
             }
         };
+        let recipient = ShieldedKeypair::new_ed25519()?;
+        // The demo deposits the amount twice and keeps the change, so the
+        // sender's balance shows in the auditor's view next to the payment.
+        let sent = RingTransfer {
+            ring: self.ring,
+            payer: self.payer,
+            deposits: [self.amount; 2],
+            recipient: recipient.shielded_address()?,
+            amount: self.amount,
+            tree: self
+                .tree
+                .unwrap_or(Address::from_str_const(DEFAULT_TREE_ADDRESS)),
+            assets,
+        }
+        .send(env)?;
+
+        Ok(TransferReceipt {
+            sender: sent.sender,
+            recipient,
+            deposits: sent.deposits,
+            transact: sent.transact,
+        })
+    }
+}
+
+impl RingTransfer<'_> {
+    fn send(
+        self,
+        env: TransferProofEnvironment<'_, ZolanaIndexer, SolanaRpc>,
+    ) -> Result<SentTransfer, TransactError> {
         let rpc = env.rpc;
         let sender = ShieldedKeypair::new_ed25519()?;
-        let recipient = ShieldedKeypair::new_ed25519()?;
 
-        // Two deposits give the (2, 2) shape SPP's ring transfer key supports.
-        let mut utxos = Vec::with_capacity(2);
-        let mut deposits = Vec::with_capacity(2);
-        for _ in 0..2 {
+        // Two deposits fill both input slots of IN2_OUT3, the shape the three
+        // outputs (two change slots and the recipient) resolve to.
+        let mut utxos = Vec::with_capacity(self.deposits.len());
+        let mut deposits = Vec::with_capacity(self.deposits.len());
+        for amount in self.deposits {
             let RingDepositReceipt { signature, utxo } = RingDeposit {
                 ring: self.ring,
                 payer: self.payer,
                 recipient: &sender,
-                tree,
-                amount: self.amount,
+                tree: self.tree,
+                amount,
             }
             .send(env.rpc)?;
             utxos.push(utxo);
             deposits.push(signature);
         }
+        // The instruction does not fit a packet with a separate fee payer, so
+        // the sender pays its own v0 transaction and the lookup table behind it.
         let fee = solana_system_interface::instruction::transfer(
             &self.payer.pubkey(),
             &sender.pubkey(),
@@ -238,15 +358,15 @@ impl<'a> DemoTransfer<'a> {
             .collect();
         let mut transfer =
             ConfidentialTransfer::new(sender.shielded_address()?, inputs, sender.pubkey());
-        transfer.send(&recipient.shielded_address()?, SOL_MINT, self.amount)?;
+        transfer.send(&self.recipient, SOL_MINT, self.amount)?;
         let prepared = transfer.prepare()?;
         let proven = AuditedTransfer::new(AuditedTransferInput {
             ring: self.ring,
             sender: &sender,
             prepared,
         })
-        .with_tree(tree)
-        .with_assets(assets)
+        .with_tree(self.tree)
+        .with_assets(self.assets)
         .prove(env)?;
         let transact = V0WithLookupTable {
             payer: &sender,
@@ -255,9 +375,8 @@ impl<'a> DemoTransfer<'a> {
         }
         .send(rpc)?;
 
-        Ok(TransferReceipt {
+        Ok(SentTransfer {
             sender,
-            recipient,
             deposits,
             transact,
         })

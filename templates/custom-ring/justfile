@@ -233,6 +233,13 @@ transact: build-cli
     : "${ZOLANA_PROVER_REDIS_URL:?set ZOLANA_PROVER_REDIS_URL in .env, the audit proof goes through the prover queue}"
     cargo run -q -p {{project-name}} -- transact
 
+# Deposit `lamports` and send all of it to a base58 shielded address in the ring.
+transfer to lamports="100000000": build-cli
+    #!/usr/bin/env bash
+    set -euo pipefail
+    : "${ZOLANA_PROVER_REDIS_URL:?set ZOLANA_PROVER_REDIS_URL in .env, the audit proof goes through the prover queue}"
+    cargo run -q -p {{project-name}} -- transfer {{ "{{to}}" }} --amount {{ "{{lamports}}" }}
+
 status: build-cli
     cargo run -q -p {{project-name}} -- status
 

@@ -93,6 +93,14 @@ transfer back through the ring RPC as the authority. The audit proof goes
 through the prover's Redis queue, so `ZOLANA_PROVER_REDIS_URL` in `.env` must
 name a reachable Redis, also for `just localnet`.
 
+`just transfer <address> <lamports>` pays one shielded address inside the ring.
+The address is the base58 form of `signing_pk || nullifier_pk || viewing_pk`, 99
+bytes, the whole recipient, so the ring needs no registry entry for it. The
+authority deposits the lamports, a throwaway sender spends all of them in one
+audited transfer and keeps no change. Where the authority is a granted reader
+the transfer is read back through the ring RPC, otherwise the command stops at
+the signature.
+
 Rerunning `just pipeline` after a code change is the upgrade path. Steps whose
 state already exists are skipped.
 

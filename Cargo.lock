@@ -11055,6 +11055,7 @@ dependencies = [
  "aes",
  "aws-sdk-kms",
  "aws-smithy-mocks",
+ "bs58",
  "ctr",
  "ed25519-dalek 2.2.0",
  "ed25519-dalek-bip32",

@@ -21,6 +21,7 @@ use solana_keypair::Keypair;
 use solana_signer::Signer;
 use thiserror::Error;
 use zolana_client::{ClientError, ProverClient, Rpc, SolanaRpc, ZolanaIndexer};
+use zolana_keypair::ShieldedAddress;
 
 pub use crate::{
     config::{ConfigError, RingConfig, Target, RING_TOML},
@@ -63,6 +64,8 @@ pub enum Command {
     Init(InitArgs),
     /// Two ring deposits and one audited transfer, read back from the ring RPC.
     Transact(TransactArgs),
+    /// Deposit an amount and send all of it to a shielded address inside the ring.
+    Transfer(TransferArgs),
     /// Confirm the ring RPC in `ring.toml` is up and holds the ring's auditor key.
     RpcCheck,
     /// Transfer or renounce the program's upgrade authority.
@@ -123,6 +126,15 @@ pub struct InitArgs {
 #[derive(Debug, Args)]
 pub struct TransactArgs {
     /// Lamports the recipient receives, deposited twice by the authority.
+    #[arg(long, default_value_t = 100_000_000)]
+    pub amount: u64,
+}
+
+#[derive(Debug, Args)]
+pub struct TransferArgs {
+    /// The recipient's base58 shielded address, `signing_pk || nullifier_pk || viewing_pk`.
+    pub to: ShieldedAddress,
+    /// Lamports the recipient receives, deposited by the authority.
     #[arg(long, default_value_t = 100_000_000)]
     pub amount: u64,
 }
@@ -258,6 +270,7 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
         Command::Deploy(args) => Ok(deploy::run(&mut ctx, args)?),
         Command::Init(args) => Ok(init::run(&mut ctx, args)?),
         Command::Transact(args) => Ok(transact::run(&mut ctx, args)?),
+        Command::Transfer(args) => Ok(transact::run_transfer(&mut ctx, args)?),
         Command::RpcCheck => Ok(ring_rpc::run_check(&ctx)?),
         Command::Authority(command) => Ok(authority::run(&ctx, command)?),
         Command::Reader(command) => Ok(reader::run(&mut ctx, command)?),
