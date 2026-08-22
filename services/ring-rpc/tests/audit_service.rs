@@ -23,7 +23,7 @@ use zolana_ring_client::{
 };
 use zolana_ring_rpc::{
     auditor_key_attestation, rpc_module, unix_now, AuditRead, Claim, CreateAuditorKeyRequest,
-    CreateAuditorKeyResponse, DecryptedWithdrawal, GetDecryptedTransactionsRequest,
+    CreateAuditorKeyResponse, DecryptedWithdrawal, DepositRecord, GetDecryptedTransactionsRequest,
     GetDecryptedTransactionsResponse, HealthResponse, Hub, KeyMode, OriginPolicy, Origins, Page,
     PageOptions, ReadAttestation, ReadAuth, ReadBuildError, ReadCheck, ReadSignature, ReadSigner,
     ReaderGrant, RingConfiguration, RingRpcError, RingState, RingStatusRequest, RingStatusResponse,
@@ -339,6 +339,14 @@ impl TransactionSource for StaticSource {
                 message: "not found".to_owned(),
             });
         async move { origin }
+    }
+
+    async fn ring_deposits(
+        &self,
+        _ring: Address,
+        _limit: usize,
+    ) -> Result<Vec<DepositRecord>, ClientError> {
+        Ok(Vec::new())
     }
 
     fn ring_config(
