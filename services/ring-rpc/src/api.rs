@@ -1,6 +1,7 @@
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use solana_address::Address;
+use solana_signature::Signature;
 use solana_signer::{Signer, SignerError};
 use thiserror::Error;
 use zolana_indexer_api::{
@@ -9,7 +10,7 @@ use zolana_indexer_api::{
 use zolana_keypair::P256Pubkey;
 use zolana_ring_client::{ReaderKey, ReaderKeyError};
 
-use crate::audit::KeyMode;
+use crate::{error::RingRpcError, keys::KeyMode, upstream::DepositHistory};
 
 pub const HEALTH: &str = "health";
 pub const CREATE_AUDITOR_KEY: &str = "createAuditorKey";
@@ -18,6 +19,8 @@ pub const RING_DEPOSITS: &str = "ringDeposits";
 pub const GET_DECRYPTED_TRANSACTIONS: &str = "getDecryptedTransactions";
 pub(crate) const AUDIT_CURSOR_LIMIT: usize = 256;
 pub(crate) const AUDIT_PAGE_LIMIT: u64 = 100;
+pub(crate) const DEPOSITS_PAGE_LIMIT: u32 = 50;
+pub(crate) const MAX_DEPOSITS_PAGE_LIMIT: u32 = 200;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -48,8 +51,12 @@ pub struct CreateAuditorKeyResponse {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct RingDepositsRequest {
     pub ring_program_id: SerializablePubkey,
+    /// Signatures examined, which is not the number of deposits found.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
+    /// Opaque, taken from the previous page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<Base64String>,
 }
 
 /// Value entering the ring. A deposit publishes its asset and amount, so this
@@ -69,6 +76,45 @@ pub struct DepositRecord {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct RingDepositsResponse {
     pub deposits: Vec<DepositRecord>,
+    /// Absent once the ring has no older history.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<Base64String>,
+    /// Slot of the oldest signature examined, absent when the page examined
+    /// nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oldest_slot: Option<u64>,
+}
+
+impl RingDepositsRequest {
+    pub fn page_limit(&self) -> usize {
+        self.limit
+            .unwrap_or(DEPOSITS_PAGE_LIMIT)
+            .clamp(1, MAX_DEPOSITS_PAGE_LIMIT) as usize
+    }
+
+    /// The Solana `before` bound the cursor carries.
+    pub fn before(&self) -> Result<Option<Signature>, RingRpcError> {
+        self.cursor
+            .as_ref()
+            .map(|cursor| {
+                <[u8; 64]>::try_from(cursor.0.as_slice())
+                    .map(Signature::from)
+                    .map_err(|_| RingRpcError::InvalidPage)
+            })
+            .transpose()
+    }
+}
+
+impl From<DepositHistory> for RingDepositsResponse {
+    fn from(history: DepositHistory) -> Self {
+        Self {
+            deposits: history.deposits,
+            cursor: history
+                .cursor
+                .map(|signature| signature.as_ref().to_vec().into()),
+            oldest_slot: history.oldest_slot,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -224,8 +270,9 @@ pub struct DecryptedTransaction {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct DecryptedWithdrawal {
-    /// The account the lamports were settled to.
+    /// A token account for an SPL leg, a wallet for a SOL leg.
     pub recipient: SerializablePubkey,
+    pub asset: SerializablePubkey,
     pub amount: u64,
 }
 

@@ -6,15 +6,19 @@ use solana_transaction_status_client_types::EncodedConfirmedTransactionWithStatu
 use zolana_event::{tag, InstructionGroup, ParsedInstruction};
 use zolana_interface::{
     instruction::{CircuitId, InterfaceTransfer, TransactIxData, TransactProof},
-    SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE,
+    SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE,
 };
 use zolana_ring_client::{ring_invoked_in, ConfirmedTransaction, OriginError, RingWithdrawal};
+use zolana_transaction::SOL_MINT;
 
 const RING: Address = Address::new_from_array([9u8; 32]);
 const OTHER: Address = Address::new_from_array([8u8; 32]);
 const POOL: Address = Address::new_from_array(SHIELDED_POOL_PROGRAM_ID);
 const SOL: Address = Address::new_from_array(SOL_INTERFACE);
 const RECIPIENT: Address = Address::new_from_array([3u8; 32]);
+const CPI_AUTHORITY: Address = Address::new_from_array(SHIELDED_POOL_CPI_AUTHORITY);
+const MINT: Address = Address::new_from_array([4u8; 32]);
+const TOKEN_ACCOUNT: Address = Address::new_from_array([5u8; 32]);
 
 fn instruction(program_id: Address, stack_height: Option<u32>) -> ParsedInstruction {
     ParsedInstruction::new(program_id, Vec::new(), Vec::new(), stack_height)
@@ -175,7 +179,10 @@ fn withdrawing_transaction(
                     OTHER.to_string(),
                     tree.to_string(),
                     SOL.to_string(),
-                    RECIPIENT.to_string()
+                    RECIPIENT.to_string(),
+                    CPI_AUTHORITY.to_string(),
+                    MINT.to_string(),
+                    TOKEN_ACCOUNT.to_string()
                 ],
                 "recentBlockhash": Address::default().to_string(),
                 "instructions": [
@@ -224,15 +231,42 @@ fn sol_withdrawal_reports_its_recipient_and_amount() {
         origin.withdrawals,
         vec![RingWithdrawal {
             recipient: RECIPIENT,
+            asset: SOL_MINT,
             amount: 4_200,
         }]
     );
 }
 
-/// A preceding SPL withdrawal shifts the SOL settlement group and is itself
-/// left out.
+/// The credited token account and the mint sit at indices 3 and 1 of the SPL
+/// settlement group.
 #[test]
-fn spl_withdrawals_are_skipped_without_losing_the_sol_leg() {
+fn spl_withdrawal_reports_its_mint_and_token_account() {
+    let origin = ConfirmedTransaction {
+        signature: Signature::from([6u8; 64]),
+        transaction: withdrawing_transaction(
+            vec![InterfaceTransfer::SplWithdrawal {
+                amount: 9,
+                spl_interface_bump: 42,
+            }],
+            vec![0, 5, 5, 2, 3, 8, 9, 4, 10, 4],
+        ),
+    }
+    .origin(RING)
+    .expect("walk");
+
+    assert_eq!(
+        origin.withdrawals,
+        vec![RingWithdrawal {
+            recipient: TOKEN_ACCOUNT,
+            asset: MINT,
+            amount: 9,
+        }]
+    );
+}
+
+/// A preceding SPL withdrawal shifts the SOL settlement group by five accounts.
+#[test]
+fn mixed_spl_and_sol_legs_are_both_reported() {
     let origin = ConfirmedTransaction {
         signature: Signature::from([6u8; 64]),
         transaction: withdrawing_transaction(
@@ -243,7 +277,7 @@ fn spl_withdrawals_are_skipped_without_losing_the_sol_leg() {
                 },
                 InterfaceTransfer::SolWithdrawal { amount: 11 },
             ],
-            vec![0, 5, 5, 2, 3, 4, 4, 4, 4, 4, 4, 6, 7],
+            vec![0, 5, 5, 2, 3, 8, 9, 4, 10, 4, 6, 7],
         ),
     }
     .origin(RING)
@@ -251,9 +285,34 @@ fn spl_withdrawals_are_skipped_without_losing_the_sol_leg() {
 
     assert_eq!(
         origin.withdrawals,
-        vec![RingWithdrawal {
-            recipient: RECIPIENT,
-            amount: 11,
-        }]
+        vec![
+            RingWithdrawal {
+                recipient: TOKEN_ACCOUNT,
+                asset: MINT,
+                amount: 9,
+            },
+            RingWithdrawal {
+                recipient: RECIPIENT,
+                asset: SOL_MINT,
+                amount: 11,
+            }
+        ]
     );
+}
+
+#[test]
+fn spl_settlement_group_without_the_cpi_authority_is_an_error() {
+    let origin = ConfirmedTransaction {
+        signature: Signature::from([6u8; 64]),
+        transaction: withdrawing_transaction(
+            vec![InterfaceTransfer::SplWithdrawal {
+                amount: 9,
+                spl_interface_bump: 42,
+            }],
+            vec![0, 5, 5, 2, 3, 4, 9, 4, 10, 4],
+        ),
+    }
+    .origin(RING);
+
+    assert!(matches!(origin, Err(OriginError::SettlementAccounts)));
 }

@@ -29,8 +29,10 @@ use crate::{
         RingState, RingStatusRequest, RingStatusResponse, CREATE_AUDITOR_KEY,
         GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS, RING_STATUS,
     },
-    audit::{AuditRead, Hub, PageOptions, TransactionSource},
+    audit::{AuditRead, PageOptions},
+    hub::Hub,
     origins::{OriginError, Origins},
+    upstream::{DepositPage, TransactionSource},
 };
 
 const MAX_REQUEST_BODY_SIZE: u32 = 64 * 1024;
@@ -140,14 +142,15 @@ pub fn rpc_module<S: TransactionSource + 'static>(
 
     module.register_async_method(RING_DEPOSITS, |params, hub, _extensions| async move {
         let request = params.parse::<RingDepositsRequest>()?;
-        let limit = usize::try_from(request.limit.unwrap_or(50))
-            .unwrap_or(50)
-            .min(200);
-        let deposits = hub
-            .ring_deposits(request.ring_program_id.0, limit)
+        let history = hub
+            .ring_deposits(DepositPage {
+                ring: request.ring_program_id.0,
+                limit: request.page_limit(),
+                before: request.before().map_err(ErrorObjectOwned::from)?,
+            })
             .await
             .map_err(ErrorObjectOwned::from)?;
-        Ok::<_, ErrorObjectOwned>(RingDepositsResponse { deposits })
+        Ok::<_, ErrorObjectOwned>(RingDepositsResponse::from(history))
     })?;
 
     module.register_async_method(RING_STATUS, |params, hub, _extensions| async move {
@@ -283,7 +286,6 @@ fn text_response(status: StatusCode, body: &'static str) -> HttpResponse {
 mod tests {
     use std::{future::Future, net::Ipv4Addr};
 
-    use crate::api::DepositRecord;
     use solana_address::Address;
     use solana_signature::Signature;
     use zolana_client::{ClientError, GetShieldedTransactionsByTagsResponse};
@@ -292,8 +294,8 @@ mod tests {
     use zolana_transaction::AssetRegistry;
 
     use crate::{
-        audit::{ReaderGrant, RingConfiguration, TransactionPage},
         origins::OriginPolicy,
+        upstream::{DepositHistory, ReaderGrant, RingConfiguration, TransactionPage},
     };
 
     use super::*;
@@ -324,12 +326,12 @@ mod tests {
             })
         }
 
-        async fn ring_deposits(
-            &self,
-            _ring: Address,
-            _limit: usize,
-        ) -> Result<Vec<DepositRecord>, ClientError> {
-            Ok(Vec::new())
+        async fn ring_deposits(&self, _page: DepositPage) -> Result<DepositHistory, ClientError> {
+            Ok(DepositHistory {
+                deposits: Vec::new(),
+                cursor: None,
+                oldest_slot: None,
+            })
         }
 
         async fn ring_config(

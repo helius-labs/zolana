@@ -1,10 +1,25 @@
-import { isAddress } from "@solana/kit";
+import { getBase58Encoder, isAddress } from "@solana/kit";
 
 import { runKitRpc, type SolanaRpc } from "../client/kit.js";
-import { SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE } from "../interface/program.js";
-import type { Address, RequestContext, Signature } from "../interface/types.js";
+import { Reader } from "../interface/internal.js";
+import {
+  InstructionTag,
+  SHIELDED_POOL_CPI_AUTHORITY,
+  SHIELDED_POOL_PROGRAM_ID,
+  SOL_INTERFACE,
+} from "../interface/program.js";
+import type { Address, InterfaceTransfer, RequestContext, Signature } from "../interface/types.js";
+import { SOL_MINT } from "../transaction/wallet/asset.js";
 
 import { RingError } from "./error.js";
+
+const base58Encoder = getBase58Encoder();
+
+/** The `circuit` selector that carries a BSB22 commitment and an owner tag inline. */
+const RING_P256_CIRCUIT = 3;
+
+/** Bytes of one `InputUtxo`, a nullifier hash and two root indexes. */
+const INPUT_UTXO_SIZE = 36;
 
 /** Mirrors Rust `TransactionOrigin`, an unknown signature is an error, never `false`. */
 export interface TransactionOrigin {
@@ -15,12 +30,22 @@ export interface OriginInstruction {
   readonly programId: Address;
   /** 1 for an outer instruction, absent when the RPC reports none. */
   readonly stackHeight?: number;
+  readonly accounts: readonly Address[];
+  readonly data: Uint8Array;
 }
 
 /** Mirrors Rust `InstructionGroup`, one outer instruction with its inner instructions in execution order. */
 export interface OriginInstructionGroup {
   readonly outer: OriginInstruction;
   readonly inner: readonly OriginInstruction[];
+}
+
+/** Mirrors Rust `RingWithdrawal`, one public settlement leg out of the ring. */
+export interface RingWithdrawal {
+  /** The wallet of a SOL leg, the credited token account of an SPL leg. */
+  readonly recipient: Address;
+  readonly asset: Address;
+  readonly amount: bigint;
 }
 
 /** Mirrors Rust `ORIGIN_TRANSACTION_CONFIG`. */
@@ -31,11 +56,15 @@ export const ORIGIN_TRANSACTION_CONFIG = Object.freeze({
 } as const);
 
 /**
- * Mirrors Rust `ring_invoked_in`. `ring_transact` needs the ring's `ring_auth`
- * PDA as signer, so only a pool instruction whose direct caller is `ring`
- * belongs to the ring.
+ * Mirrors Rust `ring_instructions_in`. `ring_transact` needs the ring's
+ * `ring_auth` PDA as signer, so only a pool instruction whose direct caller is
+ * `ring` belongs to the ring.
  */
-export function ringInvokedIn(groups: readonly OriginInstructionGroup[], ring: Address): boolean {
+export function ringInstructionsIn(
+  groups: readonly OriginInstructionGroup[],
+  ring: Address,
+): readonly OriginInstruction[] {
+  const found: OriginInstruction[] = [];
   for (const group of groups) {
     const callers: Address[] = [group.outer.programId];
     for (const inner of group.inner) {
@@ -48,13 +77,42 @@ export function ringInvokedIn(groups: readonly OriginInstructionGroup[], ring: A
         throw new RingError("RING_ORIGIN_STACK", { details: { reason: "no parent", height } });
       }
       if (inner.programId === SHIELDED_POOL_PROGRAM_ID && callers[parentDepth] === ring) {
-        return true;
+        found.push(inner);
       }
       callers.length = parentDepth + 1;
       callers.push(inner.programId);
     }
   }
-  return false;
+  return Object.freeze(found);
+}
+
+/** Mirrors Rust `ring_invoked_in`. */
+export function ringInvokedIn(groups: readonly OriginInstructionGroup[], ring: Address): boolean {
+  return ringInstructionsIn(groups, ring).length > 0;
+}
+
+/**
+ * Mirrors Rust `ring_withdrawals_of`. One settlement account group per interface
+ * transfer sits at the tail of the account list, in transfer order.
+ */
+export function ringWithdrawalsOf(
+  instructions: readonly OriginInstruction[],
+): readonly RingWithdrawal[] {
+  const withdrawals: RingWithdrawal[] = [];
+  for (const instruction of instructions) {
+    const transfers = interfaceTransfersOf(instruction);
+    if (transfers === undefined) continue;
+    const total = transfers.reduce((sum, transfer) => sum + settlementWidth(transfer), 0);
+    let at = instruction.accounts.length - total;
+    if (at < 0) throw invalid("settlementAccounts");
+    for (const transfer of transfers) {
+      const width = settlementWidth(transfer);
+      const leg = withdrawalLeg(transfer, instruction.accounts.slice(at, at + width));
+      at += width;
+      if (leg !== undefined) withdrawals.push(leg);
+    }
+  }
+  return Object.freeze(withdrawals);
 }
 
 /**
@@ -80,7 +138,7 @@ export function confirmedInstructionGroups(
   }
   const groups = list(message["instructions"], "message.instructions").map(
     (instruction, index): { outer: OriginInstruction; inner: OriginInstruction[] } => ({
-      outer: { programId: programId(accountKeys, instruction, `message.instructions[${index}]`) },
+      outer: parsed(accountKeys, instruction, `message.instructions[${index}]`),
       inner: [],
     }),
   );
@@ -97,7 +155,7 @@ export function confirmedInstructionGroups(
         const instructionPath = `${path}.instructions[${index}]`;
         const height = record(instruction, instructionPath)["stackHeight"];
         return {
-          programId: programId(accountKeys, instruction, instructionPath),
+          ...parsed(accountKeys, instruction, instructionPath),
           ...(height === undefined || height === null ? {} : { stackHeight: stackHeight(height) }),
         };
       },
@@ -108,30 +166,12 @@ export function confirmedInstructionGroups(
   );
 }
 
-/**
- * The accounts a transaction settled SOL to, so the recipients of a public
- * withdrawal. The pool's interface account precedes each one, which holds
- * however the fee was paid. Mirrors Rust `ring_withdrawals_of`, without the
- * per-leg amounts the instruction data carries.
- */
-export function confirmedWithdrawalRecipients(transaction: unknown): readonly Address[] {
-  const wire = record(transaction, "transaction");
-  const encoded = record(wire["transaction"], "transaction.transaction");
-  const message = record(encoded["message"], "transaction.transaction.message");
-  const recipients: Address[] = [];
-  for (const [index, instruction] of list(
-    message["instructions"],
-    "message.instructions",
-  ).entries()) {
-    const accounts = record(instruction, `message.instructions[${index}]`)["accounts"];
-    if (accounts === undefined) continue;
-    const named = addresses(accounts, `message.instructions[${index}].accounts`);
-    named.forEach((account, at) => {
-      const next = named[at + 1];
-      if (account === SOL_INTERFACE && next !== undefined) recipients.push(next);
-    });
-  }
-  return Object.freeze(recipients);
+/** The public settlement legs a confirmed transaction paid out of `ring`. */
+export function confirmedRingWithdrawals(
+  transaction: unknown,
+  ring: Address,
+): readonly RingWithdrawal[] {
+  return ringWithdrawalsOf(ringInstructionsIn(confirmedInstructionGroups(transaction), ring));
 }
 
 /**
@@ -193,6 +233,108 @@ export class CachedTransactionOrigin implements TransactionOrigin {
     const invoked = await this.#origin.ringInvoked(signature, ring, context);
     this.#known.set(signature, invoked);
     return invoked;
+  }
+}
+
+/** Mirrors Rust `settlement_width`, the accounts `append_interface_transfer_accounts` adds. */
+function settlementWidth(transfer: InterfaceTransfer): number {
+  return transfer.kind === "splDeposit" || transfer.kind === "splWithdrawal" ? 5 : 2;
+}
+
+/** A deposit settles value into the pool and names no recipient. */
+function withdrawalLeg(
+  transfer: InterfaceTransfer,
+  group: readonly Address[],
+): RingWithdrawal | undefined {
+  if (transfer.kind === "solWithdrawal") {
+    const recipient = group[1];
+    if (group[0] !== SOL_INTERFACE || recipient === undefined) throw invalid("settlementAccounts");
+    return Object.freeze({ recipient, asset: SOL_MINT, amount: transfer.amount });
+  }
+  if (transfer.kind === "splWithdrawal") {
+    const asset = group[1];
+    const recipient = group[3];
+    if (group[0] !== SHIELDED_POOL_CPI_AUTHORITY || asset === undefined) {
+      throw invalid("settlementAccounts");
+    }
+    if (recipient === undefined) throw invalid("settlementAccounts");
+    return Object.freeze({ recipient, asset, amount: transfer.amount });
+  }
+  return undefined;
+}
+
+/** Mirrors Rust `interface_transfers`, `undefined` for a pool instruction that is not a `ring_transact`. */
+function interfaceTransfersOf(
+  instruction: OriginInstruction,
+): readonly InterfaceTransfer[] | undefined {
+  if (instruction.data[0] !== InstructionTag.ringTransact) return undefined;
+  try {
+    return readInterfaceTransfers(new Reader(instruction.data.slice(1)));
+  } catch (cause) {
+    throw new RingError("RING_ORIGIN_DECODE", { details: { path: "ringTransact" }, cause });
+  }
+}
+
+/** Reads the fixed `TransactIxData` prefix, then the transfers, and leaves the rest. */
+function readInterfaceTransfers(reader: Reader): readonly InterfaceTransfer[] {
+  reader.u64("expiryUnixTs");
+  reader.bytes(32, "privateTxHash");
+  const circuit = reader.u16("circuit.kind");
+  reader.bytes(3, "circuit.shape");
+  if (circuit === RING_P256_CIRCUIT) reader.bytes(97, "circuit.ringP256");
+  reader.bytes(33, "txViewingPk");
+  reader.bytes(16, "salt");
+  reader.bytes(128, "proof");
+  reader.bytes(reader.u8("inputs.length") * INPUT_UTXO_SIZE, "inputs");
+  const count = reader.u8("interfaceTransfers.length");
+  return Array.from({ length: count }, () => readInterfaceTransfer(reader));
+}
+
+function readInterfaceTransfer(reader: Reader): InterfaceTransfer {
+  const kind = reader.u8("interfaceTransfer.kind");
+  const amount = reader.u64("interfaceTransfer.amount");
+  switch (kind) {
+    case 0:
+      return { kind: "solDeposit", amount };
+    case 1:
+      return { kind: "solWithdrawal", amount };
+    case 2:
+    case 3:
+      return {
+        kind: kind === 2 ? "splDeposit" : "splWithdrawal",
+        amount,
+        splInterfaceBump: reader.u8("interfaceTransfer.splInterfaceBump"),
+      };
+    default:
+      throw invalid("interfaceTransfer.kind");
+  }
+}
+
+function parsed(
+  accountKeys: readonly Address[],
+  instruction: unknown,
+  path: string,
+): OriginInstruction {
+  const fields = record(instruction, path);
+  const accounts = list(fields["accounts"], `${path}.accounts`).map((index, at) => {
+    const account = typeof index === "number" ? accountKeys[index] : undefined;
+    if (account === undefined) throw invalid(`${path}.accounts[${at}]`);
+    return account;
+  });
+  return {
+    programId: programId(accountKeys, instruction, path),
+    accounts,
+    data: bytes(fields, path),
+  };
+}
+
+function bytes(fields: Record<string, unknown>, path: string): Uint8Array {
+  const data = fields["data"];
+  if (typeof data !== "string") throw invalid(`${path}.data`);
+  try {
+    return new Uint8Array(base58Encoder.encode(data));
+  } catch (cause) {
+    throw new RingError("RING_ORIGIN_DECODE", { details: { path: `${path}.data` }, cause });
   }
 }
 

@@ -10,8 +10,9 @@ use zolana_client::ClientError;
 use zolana_event::{tag, InstructionGroup, ParsedInstruction};
 use zolana_interface::{
     instruction::{InterfaceTransfer, TransactIxData},
-    SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE,
+    SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE,
 };
+use zolana_transaction::SOL_MINT;
 
 /// What a confirmed transaction says about its ring, its signers, and the value
 /// it settled out of the ring.
@@ -26,7 +27,9 @@ pub struct RingOrigin {
 /// One public settlement leg out of the ring.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RingWithdrawal {
+    /// A token account for an SPL leg, a wallet for a SOL leg.
     pub recipient: Address,
+    pub asset: Address,
     pub amount: u64,
 }
 
@@ -90,12 +93,13 @@ fn ring_instructions_in(
     Ok(found)
 }
 
-/// The public settlement legs of the ring's pool instructions. SPL withdrawals
-/// settle to a token account rather than to a wallet and are left out.
+/// The public settlement legs of the ring's pool instructions. An SPL leg
+/// reports the group's mint and credits a token account rather than a wallet.
 fn ring_withdrawals_of(
     instructions: &[&ParsedInstruction],
 ) -> Result<Vec<RingWithdrawal>, OriginError> {
     let sol_interface = Address::new_from_array(SOL_INTERFACE);
+    let cpi_authority = Address::new_from_array(SHIELDED_POOL_CPI_AUTHORITY);
     let mut withdrawals = Vec::new();
     for instruction in instructions {
         let Some(transfers) = interface_transfers(instruction)? else {
@@ -111,14 +115,28 @@ fn ring_withdrawals_of(
         for transfer in transfers {
             let (group, rest) = settlement.split_at(settlement_width(transfer));
             settlement = rest;
-            if let InterfaceTransfer::SolWithdrawal { amount } = transfer {
-                if group[0] != sol_interface {
-                    return Err(OriginError::SettlementAccounts);
+            match transfer {
+                InterfaceTransfer::SolWithdrawal { amount } => {
+                    if group[0] != sol_interface {
+                        return Err(OriginError::SettlementAccounts);
+                    }
+                    withdrawals.push(RingWithdrawal {
+                        recipient: group[1],
+                        asset: SOL_MINT,
+                        amount,
+                    });
                 }
-                withdrawals.push(RingWithdrawal {
-                    recipient: group[1],
-                    amount,
-                });
+                InterfaceTransfer::SplWithdrawal { amount, .. } => {
+                    if group[0] != cpi_authority {
+                        return Err(OriginError::SettlementAccounts);
+                    }
+                    withdrawals.push(RingWithdrawal {
+                        recipient: group[3],
+                        asset: group[1],
+                        amount,
+                    });
+                }
+                InterfaceTransfer::SolDeposit { .. } | InterfaceTransfer::SplDeposit { .. } => {}
             }
         }
     }

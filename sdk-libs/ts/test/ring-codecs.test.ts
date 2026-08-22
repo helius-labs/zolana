@@ -263,6 +263,79 @@ describe("ring status", () => {
   });
 });
 
+describe("ring deposits", () => {
+  const queue = (results: readonly unknown[]) => {
+    const bodies: Record<string, unknown>[] = [];
+    let call = 0;
+    const fetch = (async (_input: URL | string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: results[call++] }));
+    }) as typeof globalThis.fetch;
+    return { bodies, fetch };
+  };
+  const deposit = (byte: number, slot: number) => ({
+    signature: String(byte).repeat(87),
+    slot,
+    depositor: addressOf(byte),
+    asset: "11111111111111111111111111111111",
+    amount: byte,
+  });
+
+  it("pages the ring history until the cursor is absent", async () => {
+    const { bodies, fetch } = queue([
+      { deposits: [deposit(1, 9)], cursor: "AQID", oldestSlot: 9 },
+      { deposits: [deposit(2, 4)], oldestSlot: 4 },
+    ]);
+    const rpc = new RingRpc("http://ring.example", { fetch });
+
+    const first = await rpc.ringDeposits({ ringProgramId: addressOf(7), limit: 20 });
+    expect(first.deposits).toHaveLength(1);
+    expect(first.deposits[0]).toEqual({
+      signature: "1".repeat(87),
+      slot: 9n,
+      depositor: addressOf(1),
+      asset: "11111111111111111111111111111111",
+      amount: 1n,
+    });
+    expect(first.cursor).toEqual(Uint8Array.of(1, 2, 3));
+    expect(first.oldestSlot).toBe(9n);
+
+    const second = await rpc.ringDeposits({
+      ringProgramId: addressOf(7),
+      cursor: first.cursor as Uint8Array,
+    });
+    expect(second.deposits[0]?.slot).toBe(4n);
+    expect(second.cursor).toBeUndefined();
+    expect(second.oldestSlot).toBe(4n);
+
+    expect(bodies[0]?.["params"]).toEqual({ ringProgramId: addressOf(7), limit: 20 });
+    expect(bodies[1]?.["params"]).toEqual({ ringProgramId: addressOf(7), cursor: "AQID" });
+  });
+
+  it("keeps a cursor over a page whose signatures held no deposit", async () => {
+    const { fetch } = queue([{ deposits: [], cursor: "BAUG", oldestSlot: 12 }]);
+
+    const page = await new RingRpc("http://ring.example", { fetch }).ringDeposits({
+      ringProgramId: addressOf(7),
+    });
+
+    expect(page.deposits).toEqual([]);
+    expect(page.cursor).toEqual(Uint8Array.of(4, 5, 6));
+    expect(page.oldestSlot).toBe(12n);
+  });
+
+  it("leaves the oldest slot absent when the page examined nothing", async () => {
+    const { fetch } = queue([{ deposits: [] }]);
+
+    const page = await new RingRpc("http://ring.example", { fetch }).ringDeposits({
+      ringProgramId: addressOf(7),
+    });
+
+    expect(page.cursor).toBeUndefined();
+    expect(page.oldestSlot).toBeUndefined();
+  });
+});
+
 describe("ring transact", () => {
   it("appends the settlement accounts of a public withdrawal", async () => {
     const recipient = addressOf(31);
@@ -574,6 +647,7 @@ describe("ring read request", () => {
                     {
                       slotIndex: 1,
                       recipientViewingPk: Buffer.from(hex(P256_HEX)).toString("base64"),
+                      ownerTag: addressOf(11),
                       asset: "11111111111111111111111111111111",
                       amount: 7,
                       ringProgramId: RING,
@@ -581,6 +655,8 @@ describe("ring read request", () => {
                   ],
                   undecryptableSlots: [0],
                   nullifiers: [addressOf(3)],
+                  signers: [addressOf(11)],
+                  withdrawals: [],
                 },
               ],
               skipped: [{ slot: 7, txSignature: "2".repeat(87), reason: "invalidAuditData" }],
@@ -614,9 +690,9 @@ describe("ring read request", () => {
       amount: 7n,
       ringProgramId: RING,
     });
-    // A ring RPC older than the owner tag sends neither field.
-    expect(item?.outputs[0]?.ownerTag).toBeUndefined();
-    expect(item?.signers).toBeUndefined();
+    expect(item?.outputs[0]?.ownerTag).toEqual(filled(11, 32));
+    expect(item?.signers).toEqual([addressOf(11)]);
+    expect(item?.withdrawals).toEqual([]);
     const params = bodies[0]?.["params"] as Record<string, unknown>;
     expect(Object.keys(params).sort()).toEqual(["auth", "cursor", "limit", "ringProgramId"]);
     const auth = params["auth"] as Record<string, unknown>;
@@ -642,7 +718,7 @@ describe("ring read request", () => {
     );
   });
 
-  it("reads the owner tag and the signers a newer ring RPC sends", async () => {
+  it("reads the owner tag and the signers of every output", async () => {
     const signerAddress = getAddressDecoder().decode(ed25519.getPublicKey(filled(9, 32)));
     const reader = messageSignerReader({
       address: signerAddress,
@@ -674,6 +750,7 @@ describe("ring read request", () => {
                   undecryptableSlots: [],
                   nullifiers: [],
                   signers: [addressOf(11), addressOf(12)],
+                  withdrawals: [],
                 },
               ],
               skipped: [],
@@ -689,6 +766,60 @@ describe("ring read request", () => {
 
     expect(page.items[0]?.outputs[0]?.ownerTag).toEqual(filled(11, 32));
     expect(page.items[0]?.signers).toEqual([addressOf(11), addressOf(12)]);
+  });
+
+  const withdrawalPage = (withdrawals: readonly Record<string, unknown>[]) =>
+    (async () =>
+      new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          result: {
+            context: { blockTime: 1_700_000_000, slot: 9 },
+            value: {
+              items: [
+                {
+                  slot: 8,
+                  txSignature: "1".repeat(87),
+                  txViewingPk: Buffer.from(hex(P256_HEX)).toString("base64"),
+                  outputs: [],
+                  undecryptableSlots: [],
+                  nullifiers: [],
+                  signers: [],
+                  withdrawals,
+                },
+              ],
+              skipped: [],
+            },
+          },
+        }),
+      )) as typeof globalThis.fetch;
+
+  const anyReader = () => {
+    const signerAddress = getAddressDecoder().decode(ed25519.getPublicKey(filled(9, 32)));
+    return messageSignerReader({
+      address: signerAddress,
+      signMessages: (messages: readonly { content: Uint8Array }[]) =>
+        Promise.resolve(messages.map(() => ({ [signerAddress]: filled(5, 64) }))),
+    } as unknown as MessagePartialSigner);
+  };
+
+  it("reads the withdrawal asset of an SPL leg and a SOL leg", async () => {
+    const solMint = address("So11111111111111111111111111111111111111112");
+    const fetch = withdrawalPage([
+      { recipient: addressOf(31), asset: addressOf(13), amount: 5 },
+      { recipient: addressOf(32), asset: solMint, amount: 6 },
+    ]);
+
+    const page = await new RingRpc("http://ring.example", { fetch }).getDecryptedTransactions({
+      ringProgramId: addressOf(7),
+      signer: anyReader(),
+    });
+
+    expect(page.items[0]?.withdrawals).toEqual([
+      { recipient: addressOf(31), asset: addressOf(13), amount: 5n },
+      { recipient: addressOf(32), asset: solMint, amount: 6n },
+    ]);
   });
 
   it("sends a passkey assertion under camelCase keys", async () => {
