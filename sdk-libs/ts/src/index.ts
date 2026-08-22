@@ -96,6 +96,7 @@ export {
   buildRingDepositTransaction,
   buildRingLookupTableTransaction,
   buildRingTransferTransaction,
+  buildRingWithdrawalTransaction,
   createPasskey,
   fetchReaderGrant,
   fetchRingProgramConfig,

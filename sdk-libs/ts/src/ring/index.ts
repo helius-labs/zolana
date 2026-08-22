@@ -95,6 +95,7 @@ export {
 export type { OriginInstruction, OriginInstructionGroup, TransactionOrigin } from "./origin.js";
 export {
   buildRingTransferTransaction,
+  buildRingWithdrawalTransaction,
   frameDummyOutputs,
   proveAuditedTransfer,
   RING_TRANSACT_COMPUTE_UNIT_LIMIT,

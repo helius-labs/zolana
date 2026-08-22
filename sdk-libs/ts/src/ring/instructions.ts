@@ -10,7 +10,7 @@ import {
 import { encodeTransactInstructionData } from "../interface/codecs/index.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
 import { protocolConfigAddress, ringAuthAddress } from "../interface/pda/index.js";
-import type { TransactInstructionData } from "../interface/types.js";
+import type { TransactInstructionData, TransactWithdrawal } from "../interface/types.js";
 import { isDerivationPoint } from "../keypair/derivation.js";
 import type { P256PublicKey } from "../keypair/public-key.js";
 
@@ -98,6 +98,10 @@ export async function ringTransactInstruction(
     outputTree: Address;
     auditProof: Uint8Array;
     data: TransactInstructionData;
+    /** Non-payer input owners, which the ed25519 rail makes sign. */
+    ownerSigners?: readonly SignerAccount[];
+    /** Settlement accounts for a public withdrawal in `data.interfaceTransfers`. */
+    withdrawal?: TransactWithdrawal;
   }>,
 ): Promise<Instruction> {
   const [config, ringAuth] = await Promise.all([
@@ -110,6 +114,8 @@ export async function ringTransactInstruction(
     inputTree: input.inputTree,
     outputTree: input.outputTree,
     ringAuth,
+    ...(input.ownerSigners === undefined ? {} : { ownerSigners: input.ownerSigners }),
+    ...(input.withdrawal === undefined ? {} : { withdrawal: input.withdrawal }),
   });
   const proof = checkedAuditProof(input.auditProof);
   const transact = encodeTransactInstructionData(input.data);
