@@ -24,7 +24,6 @@ groth16-solana = { workspace = true, features = ["bsb22"] }
 pinocchio = { workspace = true, features = ["cpi"] }
 pinocchio-system = { workspace = true }
 solana-loader-v3-interface = { workspace = true, features = ["serde"] }
-solana-address = { workspace = true, features = ["curve25519", "syscalls"] }
 solana-curve25519 = { workspace = true }
 solana-program-error = { workspace = true }
 thiserror = { workspace = true }
