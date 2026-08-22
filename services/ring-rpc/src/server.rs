@@ -314,7 +314,8 @@ mod tests {
 
     use crate::{
         config::RootSecret,
-        limits::MAX_READS_PER_SECOND,
+        error::RingRpcError,
+        limits::{MAX_CONCURRENT_READS, MAX_READS_PER_SECOND},
         origins::OriginPolicy,
         upstream::{DepositHistory, ReaderGrant, RingConfiguration, TransactionPage},
     };
@@ -629,6 +630,20 @@ mod tests {
             .await
             .expect_err("exhausted window");
         assert!(busy.to_string().contains("busy"), "{busy}");
+    }
+
+    /// A decrypting page holds its slot for the whole page, and the gate
+    /// refuses the next reader rather than queueing it behind them.
+    #[test]
+    fn concurrent_reads_are_capped_and_refused_rather_than_queued() {
+        let hub = hub(source(), Origins::default());
+        let held = (0..MAX_CONCURRENT_READS)
+            .map(|_| hub.read_slot().expect("read slot"))
+            .collect::<Vec<_>>();
+
+        assert!(matches!(hub.read_slot(), Err(RingRpcError::Busy)));
+        drop(held);
+        let _reopened = hub.read_slot().expect("released slot");
     }
 
     /// Every derived key is bound to the genesis hash captured at boot, so

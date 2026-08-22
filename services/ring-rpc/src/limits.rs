@@ -71,7 +71,37 @@ impl Drop for ReaderPermit<'_> {
 
 #[cfg(test)]
 mod tests {
+    use solana_keypair::Keypair;
+    use solana_signer::Signer;
+
     use super::*;
+
+    fn reader(byte: u8) -> ReaderKey {
+        ReaderKey::ed25519(Keypair::new_from_array([byte; 32]).pubkey()).expect("reader key")
+    }
+
+    /// One read at a time per reader and ring, released as soon as the page
+    /// finishes.
+    #[test]
+    fn a_reader_holds_one_permit_per_ring_at_a_time() {
+        let active = Mutex::new(HashSet::new());
+        let ring = Address::new_from_array([1; 32]);
+        let other = Address::new_from_array([2; 32]);
+        let permit = ReaderPermit::acquire(&active, (ring, reader(7))).expect("first read");
+
+        assert!(matches!(
+            ReaderPermit::acquire(&active, (ring, reader(7))),
+            Err(RingRpcError::Busy)
+        ));
+        let concurrent = [
+            ReaderPermit::acquire(&active, (other, reader(7))).expect("another ring"),
+            ReaderPermit::acquire(&active, (ring, reader(8))).expect("another reader"),
+        ];
+
+        drop(permit);
+        drop(concurrent);
+        ReaderPermit::acquire(&active, (ring, reader(7))).expect("released permit");
+    }
 
     #[test]
     fn request_rate_recovers_after_its_window() {

@@ -164,11 +164,10 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
-      AGAVE_VERSION: v4.0.2
       # GH_TOKEN is for the gh-release custom-ring key download
-      # (ensure-custom-ring-keys): the sdk circuit tests prove with the released
-      # pk and must verify under the committed VERIFYINGKEY, so a locally
-      # generated key set cannot substitute.
+      # (ensure-custom-ring-keys). The circuit proof check proves with the
+      # released pk and must verify under the committed VERIFYINGKEY, so a
+      # locally generated key set cannot substitute.
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -180,12 +179,6 @@ jobs:
         with:
           shared-key: custom-ring
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
-      - name: Install Anza CLI
-        run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
-      - name: Install pinned SBF platform tools
-        run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
       - name: Install cargo generate
         run: cargo install cargo-generate --version 0.23.14 --locked
       - run: just test-custom-ring

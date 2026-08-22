@@ -4,14 +4,20 @@ Program behavior is covered in layers. A failure should identify the smallest
 boundary that is broken, while the local-validator suites remain the final
 end-to-end check.
 
-| Layer | What it proves | Primary command |
-| --- | --- | --- |
-| Rust unit/property | Serialization, builders, wallet rules, and pure invariants | `just test-sdk-libs` |
-| LiteSVM | Real SBF dispatch, state transitions, signatures, balances, and exact errors | `just test-program-fast` |
-| Mollusk | Exact malformed-input failures, account-contract mutations, and deterministic execution for shielded-pool and swap SBF | `just test-program-mollusk` |
-| Groth16 integration | Every supported transfer/merge shape and ownership rail proves and verifies | `just test-program-proofs` |
-| Validator + Photon | RPC submission, CPI, indexing, wallet sync, lifecycle rollback, and seed-replayable randomized workloads | `just test-spp-validator`, `just test-ring-validator` |
-| Cross-program swap | Swap, shielded pool, registry, smart-account, prover, and indexer compose correctly | `just test-swap-validator` |
+| Layer | What it proves | Needs running | Primary command |
+| --- | --- | --- | --- |
+| Rust unit/property | Serialization, builders, wallet rules, and pure invariants | nothing | `just test-sdk-libs` |
+| LiteSVM | Real SBF dispatch, state transitions, signatures, balances, and exact errors | the SBF build | `just test-program-fast` |
+| Mollusk | Exact malformed-input failures, account-contract mutations, and deterministic execution for shielded-pool and swap SBF | the SBF build | `just test-program-mollusk` |
+| Groth16 integration | Every supported transfer/merge shape and ownership rail proves and verifies | prover server, proving keys | `just test-program-proofs` |
+| Validator + Photon | RPC submission, CPI, indexing, wallet sync, lifecycle rollback, and seed-replayable randomized workloads | validator, Photon, prover, proving keys | `just test-spp-validator`, `just test-ring-validator` |
+| Cross-program swap | Swap, shielded pool, registry, smart-account, prover, and indexer compose correctly | validator, Photon, prover, proving keys | `just test-swap-validator` |
+
+The first three layers are hermetic and run together as `just test-hermetic`.
+CI runs these same suites on every push. `just test-all` adds the Groth16
+layer, and the validator layers stay in their own recipes. Each non-hermetic
+tier is behind a Cargo feature, `proofs` or `localnet`, so a plain `cargo test
+-p <crate>` selects only the hermetic binaries.
 
 ## Coverage map
 
@@ -142,7 +148,8 @@ the dedicated CI `test-user-registry-litesvm` job.
 
 ## Artifact contract
 
-Tests never silently skip because an artifact is absent.
+Tests never silently skip because an artifact is absent. A test that needs an
+artifact panics with the command that produces it.
 
 - `just build-programs` must produce the SBF files in `target/deploy`.
 - `just build-cli` must produce `target/debug/zolana`.

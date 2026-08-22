@@ -19,6 +19,9 @@ localnet-photon-url := env_var_or_default("ZOLANA_LOCALNET_PHOTON_URL", "http://
 localnet-prover-url := env_var_or_default("ZOLANA_PROVER_URL", "http://127.0.0.1:" + localnet-prover-port)
 photon-bin := env_var_or_default("ZOLANA_PHOTON_BIN", "target/debug/photon")
 spp-keys-dir := env_var_or_default("ZOLANA_SPP_KEYS_DIR", "prover/server/proving-keys")
+# Published proving keys. The lockfile carries the sha256 of every key but its
+# own `prefix` field no longer resolves, so the object prefix is pinned here.
+proving-keys-url := "https://d3gbdb0egjwcw9.cloudfront.net/proving-keys/a5ff0c508cac3f51"
 
 # Exported so every `cargo test` recipe (and the prover the tests spawn) picks up
 # the per-clone prover address without each recipe wiring it explicitly. The
@@ -50,12 +53,17 @@ build-release:
 check:
     cargo check
 
-# Check the entire workspace.
+# Check the entire workspace. `zolana-client/proofs` keeps its prover-backed
+# test binaries in the type check without letting `cargo test` run them.
 check-all:
-    cargo check --workspace --all-targets
+    cargo check --workspace --all-targets --features zolana-client/proofs
 
 # Default test target.
 test: test-shielded-pool test-sdk-libs test-photon
+
+# Everything that needs nothing running. No prover, no validator, no network,
+# and no proving keys. CI runs these same suites on every push, one job each.
+test-hermetic: test-cli test-program-fast test-user-registry-litesvm test-sdk-libs test-photon
 
 # Program/interface tests for the shielded-pool implementation.
 # Depends on build-programs so the litesvm tests load a fresh .so and actually
@@ -80,6 +88,7 @@ test-program-fast: build-programs
     cargo nextest run -p zolana-user-registry --tests
     cargo nextest run -p shielded-pool-tests
     cargo nextest run -p swap-program --tests
+    cargo nextest run -p custom-ring-program --tests
 
 # Run one shielded-pool intent-level binary, for example:
 # `just test-shielded-pool-case deposit_model`.
@@ -96,19 +105,13 @@ test-program-mollusk: build-programs
 test-swap-program: build-programs
     cargo nextest run -p swap-program --tests
 
-# Custom-ring host tests: the program's error-code pins and mollusk negatives
-# (need the SBF build), the Go circuit proof check, the sdk's circuit-consistency
-# and builder tests, the ring client's in-memory audit round trips, the ring
-# RPC, and the cargo-generate template. Needs the canonical keys: the sdk proofs
-# must verify under the committed VERIFYINGKEY, and gnark setup is
-# non-deterministic, so locally generated keys cannot pass.
-test-custom-ring: ensure-custom-ring-prover-key build-programs build-cli test-custom-ring-template
+# The Go circuit proof check and the cargo-generate template smoke. Needs the
+# canonical keys, because the proof must verify under the committed
+# VERIFYINGKEY and gnark setup is non-deterministic, so locally generated keys
+# cannot pass. The hermetic custom-ring crates run in test-program-fast and
+# test-sdk-libs.
+test-custom-ring: ensure-custom-ring-prover-key test-custom-ring-template
     cd prover/server && go test ./prover/custom_ring -run TestAuditorKeyEncryptionProofVerifies -count=1
-    cargo nextest run -p custom-ring-program --tests
-    cargo nextest run -p custom-ring-sdk
-    cargo nextest run -p custom-ring-cli
-    cargo nextest run -p zolana-ring-client
-    cargo nextest run -p zolana-ring-rpc
 
 test-custom-ring-template:
     #!/usr/bin/env bash
@@ -336,7 +339,7 @@ ensure-custom-ring-live-keys: ensure-custom-ring-prover-key
         if [[ -f "$path" ]] && [[ "$(shasum -a 256 "$path" | awk '{ print $1 }')" == "$want" ]]; then
             continue
         fi
-        curl -fsSL "https://d3gbdb0egjwcw9.cloudfront.net/proving-keys/a5ff0c508cac3f51/$name" -o "$temp_dir/$name"
+        curl -fsSL "{{proving-keys-url}}/$name" -o "$temp_dir/$name"
         [[ "$(shasum -a 256 "$temp_dir/$name" | awk '{ print $1 }')" == "$want" ]]
         install -m 0644 "$temp_dir/$name" "$path"
     done
@@ -350,7 +353,7 @@ test-program-proofs-programs-only: build-programs build-prover-server build-cli
 # Groth16-backed program and client matrices, separated from fast state tests.
 # The full local gate; CI splits it (see test-program-proofs-programs-only).
 test-program-proofs: test-program-proofs-programs-only
-    cargo nextest run -p zolana-client --test transaction_proving --test merge_proving --test merge_ring_proving --test ring_authority_proving --test ring_transfer_proving --test-threads 1
+    cargo nextest run -p zolana-client --features proofs --test transaction_proving --test merge_proving --test merge_ring_proving --test ring_authority_proving --test ring_transfer_proving --test-threads 1
 
 # Export Mollusk's exact-error cases as replayable fuzz fixtures. Only the
 # Mollusk-backed cases in tests/deposit/rejection.rs (the `deposit_rejection`
@@ -369,15 +372,21 @@ eject-mollusk-fixtures output="target/fuzz-fixtures": build-programs
 test-user-registry-litesvm: build-programs
     cargo nextest run -p user-registry-tests
 
-# Unit, integration, and property tests for the client-side SDK crates. nextest
-# skips doctests, so the `--doc` line keeps the zolana-keypair doctest covered.
+# Unit, integration, and property tests for the client-side SDK crates, plus
+# the ring service and the custom-ring host crates, which all run against
+# in-memory fakes. nextest skips doctests, so the `--doc` line keeps the
+# zolana-keypair doctest covered. The zolana-client proving binaries are behind
+# its `proofs` feature, so `--features client` stays hermetic.
 test-sdk-libs:
     cargo nextest run -p zolana-keypair
     cargo test --doc -p zolana-keypair
     cargo nextest run -p zolana-transaction
-    cargo nextest run -p zolana-client --lib --features indexer-api
-    cargo nextest run -p zolana-client --test solana_rpc --features solana-rpc
+    cargo nextest run -p zolana-client --features client
     cargo nextest run -p zolana-wallet
+    cargo nextest run -p zolana-ring-client
+    cargo nextest run -p zolana-ring-rpc
+    cargo nextest run -p custom-ring-sdk
+    cargo nextest run -p custom-ring-cli
 
 # TypeScript SDK formatting, linting, types, unit tests, and package build.
 test-ts:
@@ -476,10 +485,8 @@ coverage-ignore-paths := '(program-tests|sdk-tests|bench)/'
 # matching, and a test crate silently entered the coverage set and failed the
 # job. See that script for what each excluded directory is and why.
 #
-# `zolana-client` runs as its own pass restricted to `--lib`: its integration
-# targets (transaction_proving, merge_proving, …) declare no required-features,
-# so a plain `-p zolana-client` would build and run them and they need a live
-# prover server. Keeping this hermetic means no prover, validator, or network.
+# `zolana-client/client` reaches its indexer and RPC surfaces. Its proving
+# binaries need the `proofs` feature, which stays off, so this run is hermetic.
 coverage *args="--summary-only":
     #!/usr/bin/env bash
     # `set -e` matters here: without it a failing coverage-packages.py expands to
@@ -490,8 +497,7 @@ coverage *args="--summary-only":
     packages="$(python3 tools/coverage-packages.py)"
     cargo llvm-cov clean --workspace
     # Unquoted on purpose: the flags must word-split into separate arguments.
-    cargo llvm-cov --no-report $packages --features zolana-interface/solana
-    cargo llvm-cov --no-report -p zolana-client --lib --all-features
+    cargo llvm-cov --no-report $packages --features zolana-interface/solana,zolana-client/client
     just coverage-report {{args}}
 
 # Re-render the collected profile data. Split out so `just coverage` and the CI
@@ -521,7 +527,7 @@ test-client-async-transfer-queue: build-prover-server build-cli
     set -euo pipefail
     : "${ZOLANA_PROVER_REDIS_URL:?set ZOLANA_PROVER_REDIS_URL to a reachable Redis instance}"
     ZOLANA_EXPECT_ASYNC_PROVER=true \
-        cargo nextest run -p zolana-client --test transfer_dummy -E 'test(=dummy_transfer_2_3_proof_verifies)' --test-threads 1
+        cargo nextest run -p zolana-client --features proofs --test transfer_dummy -E 'test(=dummy_transfer_2_3_proof_verifies)' --test-threads 1
 
 # Program integration tests backed by LiteSVM. Transact tests spawn the prover
 # through the zolana CLI.
@@ -538,7 +544,8 @@ test-proofless-programs: build-programs
     cargo test -p shielded-pool-program --lib --tests
     cargo nextest run -p shielded-pool-tests
 
-# Aggregate of all CI-runnable Rust tests.
+# Aggregate of all CI-runnable Rust tests. Needs a prover and the released
+# custom-ring keys. `just test-hermetic` is the subset that needs nothing.
 test-all: test test-programs test-user-registry-litesvm test-swap-program test-custom-ring
 
 # Rust-only verification for machines without Go installed.
@@ -1455,7 +1462,7 @@ fmt-check:
     cargo fmt --all -- --check
 
 clippy:
-    cargo clippy --workspace --all-targets -- -D warnings
+    cargo clippy --workspace --all-targets --features zolana-client/proofs -- -D warnings
 
 check-test-hygiene:
     ./tools/check-test-hygiene.sh
@@ -1485,17 +1492,31 @@ prover-server-test:
 xtask-create-verifying-keys:
     cargo run -p xtask -- create-verifying-keys
 
+# Exports one verifying key end to end. The xtask shells out to the Go prover,
+# so Go is required. The single 8 MB proving key is fetched into a scratch
+# directory and checked against the lockfile sha256.
 [private]
 xtask-create-verifying-keys-smoke:
     #!/usr/bin/env bash
     set -euo pipefail
-    keys_dir=prover/server/proving-keys
-    if [[ ! -d "$keys_dir" ]] || [[ -z "$(ls -A "$keys_dir" 2>/dev/null)" ]]; then
-        echo "$keys_dir is missing or empty; skipping xtask verifying-keys smoke."
-        echo "Populate $keys_dir locally (e.g. from the upstream gnark keys) to run this for real."
-        exit 0
+    if ! command -v go >/dev/null 2>&1; then
+        echo "go is required because xtask create-verifying-keys runs the prover server's export-vk" >&2
+        exit 1
     fi
-    cargo run -p xtask -- create-verifying-keys --limit 1
+    name=transfer_confidential_1_1.key
+    smoke_dir=target/verifying-keys-smoke
+    keys_dir="$smoke_dir/keys"
+    out_dir="$smoke_dir/out"
+    mkdir -p "$keys_dir"
+    want="$(python3 -c 'import json, sys; print(json.load(open("prover/server/prover/provingkeys/proving-keys.lock"))["keys"][sys.argv[1]]["sha256"])' "$name")"
+    path="$keys_dir/$name"
+    if [[ ! -f "$path" ]] || [[ "$(shasum -a 256 "$path" | awk '{ print $1 }')" != "$want" ]]; then
+        curl -fsSL "{{proving-keys-url}}/$name" -o "$path"
+        [[ "$(shasum -a 256 "$path" | awk '{ print $1 }')" == "$want" ]]
+    fi
+    cargo run -p xtask -- create-verifying-keys --keys-dir "$keys_dir" --out-dir "$out_dir" --limit 1
+    [[ -s "$out_dir/transfer_confidential_1_1.vkey" ]]
+    grep -q transfer_confidential_1_1.vkey "$out_dir/MANIFEST.txt"
 
 # === Maintenance ===
 

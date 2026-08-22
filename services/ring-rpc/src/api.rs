@@ -473,6 +473,72 @@ impl ReadAttestation<'_> {
 mod tests {
     use super::*;
 
+    fn deposits_request(limit: Option<u32>, cursor: Option<Vec<u8>>) -> RingDepositsRequest {
+        RingDepositsRequest {
+            ring_program_id: Address::new_from_array([5; 32]).to_bytes().into(),
+            limit,
+            cursor: cursor.map(Into::into),
+        }
+    }
+
+    /// `Limit` cannot hold zero, so the smallest audit page the wire can carry
+    /// is one.
+    #[test]
+    fn an_audit_page_holds_at_its_cursor_and_limit_bounds() {
+        assert!(!cursor_in_bounds(&[]));
+        assert!(cursor_in_bounds(&vec![1; AUDIT_CURSOR_LIMIT]));
+        assert!(!cursor_in_bounds(&vec![1; AUDIT_CURSOR_LIMIT + 1]));
+
+        assert!(limit_in_bounds(&Limit::new(1).expect("indexer limit")));
+        assert!(limit_in_bounds(
+            &Limit::new(AUDIT_PAGE_LIMIT).expect("indexer limit")
+        ));
+        assert!(!limit_in_bounds(
+            &Limit::new(AUDIT_PAGE_LIMIT + 1).expect("indexer limit")
+        ));
+    }
+
+    /// The deposits limit counts signatures examined, so it is clamped into
+    /// range rather than refused.
+    #[test]
+    fn a_deposits_page_clamps_its_limit_into_range() {
+        for (limit, expected) in [
+            (None, DEPOSITS_PAGE_LIMIT),
+            (Some(0), 1),
+            (Some(1), 1),
+            (Some(MAX_DEPOSITS_PAGE_LIMIT), MAX_DEPOSITS_PAGE_LIMIT),
+            (Some(MAX_DEPOSITS_PAGE_LIMIT + 1), MAX_DEPOSITS_PAGE_LIMIT),
+            (Some(u32::MAX), MAX_DEPOSITS_PAGE_LIMIT),
+        ] {
+            assert_eq!(
+                deposits_request(limit, None).page_limit(),
+                expected as usize
+            );
+        }
+    }
+
+    /// The deposits cursor is a Solana signature, a different rule from the
+    /// opaque audit cursor.
+    #[test]
+    fn a_deposits_cursor_is_exactly_one_signature() {
+        assert_eq!(
+            deposits_request(None, Some(vec![1; 64]))
+                .before()
+                .expect("cursor"),
+            Some(Signature::from([1; 64]))
+        );
+        assert_eq!(
+            deposits_request(None, None).before().expect("no cursor"),
+            None
+        );
+        for length in [0, 63, 65, AUDIT_CURSOR_LIMIT] {
+            assert!(matches!(
+                deposits_request(None, Some(vec![1; length])).before(),
+                Err(RingRpcError::InvalidPage)
+            ));
+        }
+    }
+
     #[test]
     fn read_attestation_is_stable() {
         let message = ReadAttestation {
