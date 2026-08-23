@@ -1,4 +1,4 @@
-package auditor_key_encryption
+package audit
 
 import (
 	stdaes "crypto/aes"

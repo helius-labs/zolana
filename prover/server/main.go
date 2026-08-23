@@ -181,20 +181,20 @@ func runCli() {
 				},
 			},
 			{
-				Name: "setup-auditor-key-encryption",
+				Name: "setup-custom-ring-audit",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
 				},
 				Action: func(context *cli.Context) error {
-					ps, err := customring.SetupAuditorKeyEncryption()
+					ps, err := customring.SetupCustomRingAudit()
 					if err != nil {
 						return err
 					}
-					return writeGroth16ProofSystem(ps, context.String("output"))
+					return writeRingProofSystem(ps, context.String("output"))
 				},
 			},
 			{
-				Name:  "convert-auditor-key-encryption",
+				Name:  "convert-custom-ring-audit",
 				Usage: "Wrap an existing gnark pk/vk pair into a proving system file without a new setup",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "pk", Usage: "gnark proving key (pk.WriteTo)", Required: true},
@@ -202,14 +202,14 @@ func runCli() {
 					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
 				},
 				Action: func(context *cli.Context) error {
-					ps, err := customring.ConvertAuditorKeyEncryption{
+					ps, err := customring.ConvertCustomRingAudit{
 						ProvingKeyPath:   context.String("pk"),
 						VerifyingKeyPath: context.String("vk"),
 					}.Run()
 					if err != nil {
 						return err
 					}
-					return writeGroth16ProofSystem(ps, context.String("output"))
+					return writeRingProofSystem(ps, context.String("output"))
 				},
 			},
 			{
@@ -341,7 +341,7 @@ func runCli() {
 						_, err = s.VerifyingKey.WriteRawTo(&buf)
 					case *common.TransferProofSystem:
 						_, err = s.VerifyingKey.WriteRawTo(&buf)
-					case *common.Groth16ProofSystem:
+					case *common.RingProofSystem:
 						_, err = s.VerifyingKey.WriteRawTo(&buf)
 					default:
 						return fmt.Errorf("unknown proving system type")
@@ -1013,7 +1013,7 @@ func startCleanupRoutines(redisQueue *server.RedisQueue) {
 	}()
 }
 
-func writeGroth16ProofSystem(ps *common.Groth16ProofSystem, path string) error {
+func writeRingProofSystem(ps *common.RingProofSystem, path string) error {
 	expected := fmt.Sprintf("custom_ring_audit_%s.key", ps.Variant)
 	if filepath.Base(path) != expected {
 		return fmt.Errorf("output file must be named %s", expected)

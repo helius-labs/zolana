@@ -112,7 +112,7 @@ test-swap-program: build-programs
 # cannot pass. The hermetic custom-ring crates run in test-program-fast and
 # test-sdk-libs.
 test-custom-ring: ensure-custom-ring-prover-key test-custom-ring-template
-    cd prover/server && go test ./prover/custom_ring -run TestAuditorKeyEncryptionProofVerifies -count=1
+    cd prover/server && go test ./prover/custom_ring -run TestCustomRingAuditProofVerifies -count=1
 
 test-custom-ring-template:
     #!/usr/bin/env bash
@@ -295,8 +295,8 @@ ring-rpc-derived:
         --root-secret-file "$secret"
 
 # Same contract as swap-keys-tag, for the custom-ring example's single circuit
-# (auditor_key_encryption). gnark's Setup is non-deterministic, so the release
-# assets are the only key set matching the committed Rust verifying key; rotating
+# (audit). gnark's Setup is non-deterministic, so the release assets are the
+# only key set matching the committed Rust verifying key; rotating
 # requires publishing a new release and updating custom-ring-keys.CHECKSUM plus
 # the committed verifying key together.
 custom-ring-keys-tag := "custom-ring-keys-v1"
@@ -304,8 +304,9 @@ custom-ring-keys-tag := "custom-ring-keys-v1"
 ensure-custom-ring-prover-key: build-prover-server
     #!/usr/bin/env bash
     set -euo pipefail
-    source_dir="custom-rings/build/gnark/auditor_key_encryption"
+    source_dir="custom-rings/build/gnark/audit"
     mkdir -p "$source_dir" prover/server/proving-keys
+    # The v1 release assets keep the retired circuit name.
     for kind in pk vk; do
         file="auditor_key_encryption_${kind}.bin"
         path="$source_dir/${kind}.bin"
@@ -316,7 +317,7 @@ ensure-custom-ring-prover-key: build-prover-server
         got="$(shasum -a 256 "$path" | awk '{ print $1 }')"
         [[ "$got" == "$want" ]]
     done
-    target/prover-server convert-auditor-key-encryption \
+    target/prover-server convert-custom-ring-audit \
         --pk "$source_dir/pk.bin" \
         --vk "$source_dir/vk.bin" \
         --output prover/server/proving-keys/custom_ring_audit_transfer.key

@@ -637,7 +637,7 @@ func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
 	case common.MergeRingCircuitType:
 		proof, proofError = w.processMergeProof(job.Payload, common.MergeRingCircuitType)
 	case common.CustomRingAuditCircuitType:
-		proof, proofError = w.processAuditorKeyEncryptionProof(job.Payload)
+		proof, proofError = w.processCustomRingAuditProof(job.Payload)
 	default:
 		return nil, fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType)
 	}
@@ -718,16 +718,16 @@ func (w *BaseQueueWorker) processMergeProof(payload json.RawMessage, circuitType
 	return mergeprover.ProveMerge(ps, &params)
 }
 
-func (w *BaseQueueWorker) processAuditorKeyEncryptionProof(payload json.RawMessage) (*common.Proof, error) {
-	var params customring.AuditorKeyEncryptionParameters
+func (w *BaseQueueWorker) processCustomRingAuditProof(payload json.RawMessage) (*common.Proof, error) {
+	var params customring.CustomRingAuditParameters
 	if err := json.Unmarshal(payload, &params); err != nil {
-		return nil, fmt.Errorf("unmarshal auditor-key-encryption params: %w", err)
+		return nil, fmt.Errorf("unmarshal custom-ring-audit params: %w", err)
 	}
-	ps, err := w.keyManager.GetGroth16System(common.CustomRingAuditCircuitType, customring.TransferVariant)
+	ps, err := w.keyManager.GetRingSystem(common.CustomRingAuditCircuitType, customring.TransferVariant)
 	if err != nil {
-		return nil, fmt.Errorf("auditor-key-encryption: %w", err)
+		return nil, fmt.Errorf("custom-ring-audit: %w", err)
 	}
-	return customring.ProveAuditorKeyEncryption(ps, &params)
+	return customring.ProveCustomRingAudit(ps, &params)
 }
 
 // removeFromProcessingQueue drops the entry a worker added when it started, by

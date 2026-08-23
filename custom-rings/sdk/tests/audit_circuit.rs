@@ -1,4 +1,4 @@
-//! The cross-language consistency gate for the `auditor_key_encryption` circuit.
+//! The cross-language consistency gate for the `audit` circuit.
 //!
 //! Every other test in this crate checks one side of the statement. This one
 //! closes the loop: the sdk's own encryption and proof-input path produces a
@@ -8,8 +8,8 @@
 //! the Go circuit test solves against.
 //!
 //! Two verifying keys are checked on purpose. The committed
-//! `verifying_keys::auditor_key_encryption::VERIFYINGKEY` is what the on-chain
-//! program uses; `build/gnark/auditor_key_encryption/vk.bin` is what the proving
+//! `audit_vk::VERIFYINGKEY` is what the on-chain program uses;
+//! `build/gnark/audit/vk.bin` is what the proving
 //! key was generated with. gnark's setup is randomized, so a regenerated proving
 //! key silently stops matching the committed constant -- verifying against both is
 //! what catches that drift here instead of on-chain.
@@ -28,7 +28,7 @@ use zolana_client::ProverClient;
 use zolana_keypair::{P256Pubkey, ViewingKey};
 
 /// The `sdk/tests/go_vectors.rs` fixture, which is also the Go circuit test's
-/// (`prover/server/circuits/custom_ring/auditor_key_encryption/circuit_test.go`, scalars 0x11 / 0x22
+/// (`prover/server/circuits/custom_ring/audit/circuit_test.go`, scalars 0x11 / 0x22
 /// / 0x33).
 const TX_SK: &str = "011013121514171619181b1a1d1c1f1e010003020504070609080b0a0d0c0f0e";
 const EPH_SK: &str = "01232021262724252a2b28292e2f2c2d32333031363734353a3b38393e3f3c3d";
@@ -40,7 +40,7 @@ const PRIVATE_TX_HASH: &str = "0000000000000000000000000000000000000000000000000
 
 /// The public input the compiled circuit is known to solve for that fixture. It
 /// is pinned identically in `program/src/instructions/transact.rs` and in
-/// `prover/tests/auditor_key_encryption.rs`; reproducing it from the sdk's own
+/// `sdk-libs/ts/test/ring-audit.test.ts`; reproducing it from the sdk's own
 /// encryption path is what proves all three agree on the eight-element chain.
 const PINNED_PUBLIC_INPUT_HASH: &str =
     "18bf7563a64675c110ae7d408b973c98005afac6d06b8ae177f4435d7e6e020b";

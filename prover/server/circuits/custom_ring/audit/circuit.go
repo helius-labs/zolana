@@ -1,4 +1,4 @@
-// Package auditor_key_encryption holds the single circuit of the minimal custom
+// Package audit holds the single circuit of the minimal custom
 // ring example: it proves that the per-transaction viewing secret key of an SPP
 // transaction is verifiably encrypted to the ring's auditor public key, and that
 // the transaction's published viewing public key really is that secret's public
@@ -24,7 +24,7 @@
 // (== zolana_interface::merge_utils::ciphertext_hash::<32>) there, and the
 // packing of elements 2..7 is defined by pack.go. Every comment step below is
 // tagged with the chain element(s) it produces.
-package auditor_key_encryption
+package audit
 
 import (
 	"github.com/consensys/gnark/frontend"
