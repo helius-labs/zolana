@@ -37,7 +37,7 @@ const STANDARD_PROOF = {
   krs: ZERO_POINT,
 };
 
-/** Printed by the Rust test `auditor_key_encryption_json_matches_the_server_wire_format`. */
+/** Printed by the Rust test `audit_request_json_matches_the_server_wire_format`. */
 const AUDIT_REQUEST_VECTOR =
   '{"circuitType":"custom-ring-audit","variant":"transfer","publicInputHash":"0x0000000000000000000000000000000000000000000000000000000000000000","privateTxHash":"0x0101010101010101010101010101010101010101010101010101010101010101","txViewingSk":"0x0202020202020202020202020202020202020202020202020202020202020202","ephSk":"0x0303030303030303030303030303030303030303030303030303030303030303","auditorPk":"0x0473103ec30b3ccf57daae08e93534aef144a35940cf6bbba12a0cf7cbd5d65a64d82c8c99e9d3c45f9245ba9b27982c9aea8ec1db94b19c44795942c0eb22aa32"}';
 
@@ -140,7 +140,7 @@ describe("prover request routing", () => {
     expect(urls[0]?.searchParams.get("tenant")).toBe("alpha");
   });
 
-  it("encodes the auditor key encryption request byte for byte like Rust `to_json_auditor_key_encryption`", async () => {
+  it("encodes the audit request byte for byte like Rust `AuditProofRequest::body`", async () => {
     const raw: string[] = [];
     const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
       raw.push(String(init?.body));
@@ -152,7 +152,7 @@ describe("prover request routing", () => {
     // The Rust test's inputs, the auditor key is the P-256 point of the scalar [4; 32].
     const auditorPublicKey = p256.getPublicKey(bytes(4), false);
 
-    await prover.proveAuditorKeyEncryption({
+    await prover.proveCustomRingAudit({
       publicInputHash: bytes(0),
       privateTxHash: bytes(1),
       txViewingSecret: bytes(2),
@@ -177,7 +177,7 @@ describe("prover request routing", () => {
 
     for (const auditorPublicKey of [new Uint8Array(33).fill(2), new Uint8Array(65).fill(2)]) {
       await expect(
-        prover.proveAuditorKeyEncryption({
+        prover.proveCustomRingAudit({
           publicInputHash: bytes(0),
           privateTxHash: bytes(1),
           txViewingSecret: bytes(2),

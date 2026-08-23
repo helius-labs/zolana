@@ -14,7 +14,7 @@ import {
 import { circuitUtxo } from "./assembly.js";
 import { parseProof } from "./proof.js";
 import type {
-  AuditorKeyEncryptionInputs,
+  AuditProofRequest,
   Field,
   MergeInputs,
   Proof,
@@ -106,11 +106,8 @@ export class ProverClient {
     return this.#send(JSON.stringify(mergeProverRequest(inputs)), context);
   }
 
-  async proveAuditorKeyEncryption(
-    inputs: AuditorKeyEncryptionInputs,
-    context?: RequestContext,
-  ): Promise<Proof> {
-    return this.#send(JSON.stringify(auditorKeyEncryptionRequest(inputs)), context);
+  async proveCustomRingAudit(inputs: AuditProofRequest, context?: RequestContext): Promise<Proof> {
+    return this.#send(JSON.stringify(customRingAuditRequest(inputs)), context);
   }
 
   /** The circuits the server serves, `custom-ring-audit` among them only with a queue. */
@@ -344,9 +341,9 @@ function mergeOutputJson(output: TransferOutput): Readonly<Record<string, unknow
   });
 }
 
-/** Mirrors Rust `to_json_auditor_key_encryption`, key order included. */
-export function auditorKeyEncryptionRequest(
-  inputs: AuditorKeyEncryptionInputs,
+/** Mirrors Rust `AuditProofRequest::body`, key order included. */
+export function customRingAuditRequest(
+  inputs: AuditProofRequest,
 ): Readonly<Record<string, unknown>> {
   const auditorPublicKey = inputs.auditorPublicKey;
   if (
