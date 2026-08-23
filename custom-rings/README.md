@@ -12,7 +12,7 @@ services. The ring in this directory adds an auditor.
 
 `program` is the ring program, `sdk` the Rust client for it, `cli` the
 operator CLI, `test` the lifecycle test on a local validator. The ring RPC in
-`services/ring-rpc` holds the auditor key, `sdk-libs/ring-client` is the
+`services/ring-rpc` holds the auditor key, `custom-rings/client` is the
 auditor side it is built on. `templates/custom-ring` generates a ring
 repository that is a thin shim over `cli`.
 
