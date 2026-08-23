@@ -4,11 +4,11 @@
 //! binary is not loaded here), so only the pre-CPI validation is asserted. The
 //! successful path is covered by the localnet end-to-end test.
 
+use custom_ring_interface::tag;
 use custom_ring_program::CustomRingError;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use zolana_account_checks::AccountError;
-use zolana_interface::custom_ring::tag;
 
 use crate::common::{
     account, auditor_pubkey, authority, init_spp_ring_config_fixture, initialized_config_account,

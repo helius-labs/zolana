@@ -1,6 +1,9 @@
 use std::{future::Future, marker::PhantomData, time::Duration};
 
 use bytemuck::Pod;
+use custom_ring_interface::{
+    ReaderRecord, RingProgramConfig, CONFIG_PDA_SEED, READER_RECORD, RING_PROGRAM_CONFIG,
+};
 use solana_account_decoder_client_types::UiAccountEncoding;
 use solana_address::Address;
 use solana_commitment_config::CommitmentConfig;
@@ -19,12 +22,7 @@ use zolana_client::{
     GetShieldedTransactionsByTagsResponse,
 };
 use zolana_interface::{
-    custom_ring::{
-        ReaderRecord, RingProgramConfig, CONFIG_PDA_SEED, READER_RECORD, RING_PROGRAM_CONFIG,
-    },
-    is_reserved_p256_derivation_point,
-    state::SplAssetRegistry,
-    SHIELDED_POOL_PROGRAM_ID,
+    is_reserved_p256_derivation_point, state::SplAssetRegistry, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::P256Pubkey;
 use zolana_ring_client::{

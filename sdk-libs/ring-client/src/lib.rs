@@ -48,4 +48,4 @@ pub use crate::{
     scan::{AuditedPage, RingAudit, RingEnvironment, RingScan, RingScanPage},
     types::{AuditedOutput, AuditedTransaction},
 };
-pub use zolana_interface::custom_ring::AUDITOR_MESSAGE_LEN;
+pub use custom_ring_interface::AUDITOR_MESSAGE_LEN;

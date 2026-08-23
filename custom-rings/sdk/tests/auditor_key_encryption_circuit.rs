@@ -16,14 +16,14 @@
 
 use std::sync::OnceLock;
 
+use custom_ring_interface::audit_vk::VERIFYINGKEY;
+use custom_ring_interface::{AuditProof, AuditPublicInput};
 use custom_ring_sdk::{to_instruction_proof, AuditProofParams, AuditorMessage, EncryptedAudit};
 use groth16_solana::{
     decompression::{decompress_g1, decompress_g2},
     groth16::Groth16Verifier,
 };
 use zolana_client::{AuditorKeyEncryptionWitness, ProverClient};
-use zolana_interface::custom_ring::{AuditProof, AuditPublicInput};
-use zolana_interface::verifying_keys::auditor_key_encryption::VERIFYINGKEY;
 use zolana_keypair::{P256Pubkey, ViewingKey};
 
 /// The `sdk/tests/go_vectors.rs` fixture, which is also the Go circuit test's

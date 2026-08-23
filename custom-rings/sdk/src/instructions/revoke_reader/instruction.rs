@@ -2,7 +2,7 @@ use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 
 use crate::{instructions::grant_reader::reader_ix_data, shared::ReaderKey, CustomRing};
-use zolana_interface::custom_ring::tag;
+use custom_ring_interface::tag;
 
 #[must_use]
 pub struct RevokeReader {

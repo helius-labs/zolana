@@ -11,8 +11,8 @@ mod state;
 
 pub use error::CustomRingError;
 
+use custom_ring_interface::tag;
 use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address, ProgramResult};
-use zolana_interface::custom_ring::tag;
 
 use crate::instructions::{
     process_create_config_ix, process_deposit_ix, process_grant_reader_ix,

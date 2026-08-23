@@ -24,13 +24,13 @@
 //! [`AuditProofParams`]) and invalidates an SPP proof taken over the first
 //! message, so it is called once per transaction.
 
+use custom_ring_interface::{AuditProof, AuditPublicInput};
 use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_client::{
     AuditPrivateTxHash, AuditPublicInputHash, AuditorKeyEncryptionWitness, ClientError, Proof,
     ProofCompressed,
 };
-use zolana_interface::custom_ring::{AuditProof, AuditPublicInput};
 use zolana_keypair::{KeypairError, P256Pubkey, ViewingKey};
 
 use zolana_ring_client::{AuditEncryptionError, AuditorEncryption, AuditorMessage};

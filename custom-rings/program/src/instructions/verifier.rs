@@ -36,7 +36,7 @@ pub(crate) fn verify_groth16(
     let commitment = decompress_g1(proof.commitment).map_err(|_| PROOF_ERR)?;
     let commitment_pok = decompress_g1(proof.commitment_pok).map_err(|_| PROOF_ERR)?;
     let public_inputs = [public_input_hash];
-    let verifying_key = &zolana_interface::verifying_keys::auditor_key_encryption::VERIFYINGKEY;
+    let verifying_key = &custom_ring_interface::audit_vk::VERIFYINGKEY;
     let mut verifier = Groth16Verifier::new_with_commitment(
         &proof_a,
         &proof_b,

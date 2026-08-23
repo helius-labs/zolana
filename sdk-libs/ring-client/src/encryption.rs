@@ -21,13 +21,11 @@
 //! [`zolana_keypair::symmetric_apply`], whose Poseidon silo/key/nonce separators
 //! are the ones `ve.KeySchedule` uses.
 
+use custom_ring_interface::{pack32_to_2fe, pack33_to_2fe, FieldPair, AUDITOR_MESSAGE_LEN};
+use custom_ring_interface::{AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN};
 use thiserror::Error;
 use zeroize::Zeroizing;
-use zolana_interface::custom_ring::{pack32_to_2fe, pack33_to_2fe, FieldPair, AUDITOR_MESSAGE_LEN};
-use zolana_interface::{
-    custom_ring::{AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN},
-    instruction::MessageData,
-};
+use zolana_interface::instruction::MessageData;
 use zolana_keypair::{
     hash::{poseidon, right_align},
     symmetric_apply, KeypairError, P256Pubkey, ViewingKey,

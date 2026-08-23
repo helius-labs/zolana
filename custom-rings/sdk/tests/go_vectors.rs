@@ -8,8 +8,8 @@
 //! below the group order. Every expected value below was printed by the Go
 //! implementation, so a divergence in either language fails this file.
 
+use custom_ring_interface::{pack32_to_2fe, pack33_to_2fe, FieldPair};
 use custom_ring_sdk::AuditorMessage;
-use zolana_interface::custom_ring::{pack32_to_2fe, pack33_to_2fe, FieldPair};
 use zolana_keypair::{P256Pubkey, ViewingKey};
 
 const TX_SK: &str = "011013121514171619181b1a1d1c1f1e010003020504070609080b0a0d0c0f0e";

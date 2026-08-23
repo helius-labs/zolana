@@ -17,6 +17,7 @@ test-sbf = []
 
 [dependencies]
 bincode = { workspace = true }
+custom-ring-interface = { workspace = true }
 bytemuck = { workspace = true }
 # `bsb22`: the auditor circuit's emulated P256 arithmetic adds one BSB22
 # commitment, so its proofs verify through `Groth16Verifier::new_with_commitment`.

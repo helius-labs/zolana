@@ -1,6 +1,6 @@
 //! Client library for the custom ring program: instruction builders, proof-input
 //! builders, and the auditor encryption codec. Instruction data, tags, and the
-//! canonical public-input hashing are defined in `zolana-interface` so a single
+//! canonical public-input hashing are defined in `custom-ring-interface` so a single
 //! definition serves both sides.
 
 mod instructions;
@@ -8,7 +8,7 @@ mod shared;
 mod transfer;
 mod v0;
 
-pub use zolana_interface::custom_ring::{
+pub use custom_ring_interface::{
     tag, AuditProof, CreateConfigIxData, CustomRingTransactIxData, ReaderIxData, CONFIG_PDA_SEED,
     CREATE_CONFIG_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
     READER_COMPUTE_UNIT_LIMIT, READER_RECORD_PDA_SEED,

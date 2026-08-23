@@ -1,12 +1,12 @@
 use curve25519_dalek::constants::{ED25519_BASEPOINT_POINT, EIGHT_TORSION};
+use custom_ring_interface::{
+    tag, ReaderRecord, READER_KEY_ED25519, READER_KEY_P256, READER_RECORD,
+};
 use custom_ring_program::CustomRingError;
 use mollusk_svm::result::ProgramResult;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use zolana_account_checks::AccountError;
-use zolana_interface::custom_ring::{
-    tag, ReaderRecord, READER_KEY_ED25519, READER_KEY_P256, READER_RECORD,
-};
 
 use crate::common::{
     account, auditor_pubkey, config_pda, ed25519_reader, grant_reader_fixture,

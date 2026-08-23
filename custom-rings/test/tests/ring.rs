@@ -20,6 +20,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Context, Result};
+use custom_ring_interface::{RingProgramConfig, CONFIG_PDA_SEED, RING_PROGRAM_CONFIG};
 use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
     auditor_view_tag, AuditedTransfer, AuditedTransferInput, CreateConfig, CustomRing,
@@ -33,7 +34,6 @@ use solana_signer::Signer;
 use zeroize::Zeroizing;
 use zolana_client::{ProverClient, Rpc};
 use zolana_interface::{
-    custom_ring::{RingProgramConfig, CONFIG_PDA_SEED, RING_PROGRAM_CONFIG},
     pda,
     state::{
         discriminator::{PROTOCOL_CONFIG, RING_CONFIG, TREE_ACCOUNT_DISCRIMINATOR},

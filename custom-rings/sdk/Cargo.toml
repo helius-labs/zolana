@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 borsh = { workspace = true }
+custom-ring-interface = { workspace = true }
 bytemuck = { workspace = true }
 rand = { workspace = true }
 # Only for the uncompressed SEC1 encoding of the auditor key that the circuit

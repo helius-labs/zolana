@@ -3,7 +3,7 @@ use crate::common::{
     init_spp_ring_config_fixture, initialized_config_account, p256_reader, revoke_reader_fixture,
     setup_mollusk, Fixture,
 };
-use zolana_interface::custom_ring::{
+use custom_ring_interface::{
     CREATE_CONFIG_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
     READER_COMPUTE_UNIT_LIMIT,
 };

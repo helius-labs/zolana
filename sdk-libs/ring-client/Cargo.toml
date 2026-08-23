@@ -17,6 +17,7 @@ solana-rpc = [
 
 [dependencies]
 hex = { workspace = true }
+custom-ring-interface = { workspace = true }
 curve25519-dalek = { version = "4.1", default-features = false }
 p256 = { workspace = true }
 sha2 = { workspace = true }

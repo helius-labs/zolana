@@ -1,14 +1,13 @@
 //! Addresses the client shares across instruction builders.
 
 use bytemuck::Pod;
+use custom_ring_interface::{ReaderRecord, RingProgramConfig, READER_RECORD, RING_PROGRAM_CONFIG};
 use solana_address::Address;
 use thiserror::Error;
 use zolana_client::{ClientError, Rpc};
 use zolana_interface::{
-    custom_ring::{ReaderRecord, RingProgramConfig, READER_RECORD, RING_PROGRAM_CONFIG},
-    is_reserved_p256_derivation_point, pda,
-    state::RingConfig,
-    BPF_LOADER_UPGRADEABLE_ID, RING_AUTH_PDA_SEED,
+    is_reserved_p256_derivation_point, pda, state::RingConfig, BPF_LOADER_UPGRADEABLE_ID,
+    RING_AUTH_PDA_SEED,
 };
 use zolana_keypair::P256Pubkey;
 pub use zolana_ring_client::{ReaderKey, ReaderKeyError};
@@ -201,12 +200,10 @@ impl<R: Rpc> AccountRead<'_, R> {
 
 #[cfg(test)]
 mod tests {
+    use custom_ring_interface::{ReaderRecord, RingProgramConfig};
     use solana_account::Account;
     use solana_pubkey::Pubkey;
-    use zolana_interface::{
-        custom_ring::{ReaderRecord, RingProgramConfig},
-        P_DERIVE_SEC1,
-    };
+    use zolana_interface::P_DERIVE_SEC1;
     use zolana_keypair::ViewingKey;
 
     use super::*;

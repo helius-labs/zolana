@@ -1,7 +1,7 @@
+use custom_ring_interface::tag;
 use pinocchio::Address;
 use solana_instruction::Instruction;
 use solana_program_error::ProgramError;
-use zolana_interface::custom_ring::tag;
 use zolana_test_utils::mollusk::expect_err_exact;
 
 use crate::common::setup_mollusk;

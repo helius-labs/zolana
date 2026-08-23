@@ -1,7 +1,7 @@
 use bytemuck::from_bytes;
+use custom_ring_interface::{ReaderKeyBytes, ReaderRecord, RingProgramConfig};
 use pinocchio::{account::Ref, error::ProgramError, AccountView, Address};
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
-use zolana_interface::custom_ring::{ReaderKeyBytes, ReaderRecord, RingProgramConfig};
 use zolana_interface::{BPF_LOADER_UPGRADEABLE_ID, SHIELDED_POOL_PROGRAM_ID};
 
 use crate::{error::CustomRingError, instructions::shared::PdaCheck, state::Account};

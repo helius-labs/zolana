@@ -1,10 +1,10 @@
+use custom_ring_interface::{tag, RingProgramConfig, RING_PROGRAM_CONFIG};
 use custom_ring_program::CustomRingError;
 use mollusk_svm::result::ProgramResult;
 use solana_instruction::Instruction;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use zolana_account_checks::AccountError;
-use zolana_interface::custom_ring::{tag, RingProgramConfig, RING_PROGRAM_CONFIG};
 use zolana_test_utils::mollusk::expect_err_exact;
 
 use crate::common::{

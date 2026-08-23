@@ -1,6 +1,6 @@
+use custom_ring_interface::{tag, ReaderIxData};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
-use zolana_interface::custom_ring::{tag, ReaderIxData};
 
 use crate::{shared::ReaderKey, CustomRing};
 

@@ -1,8 +1,8 @@
+use custom_ring_interface::{tag, AuditProof, CustomRingTransactIxData};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
-use zolana_interface::{
-    custom_ring::{tag, AuditProof, CustomRingTransactIxData},
-    instruction::{RingTransact, TransactInterfaceTransferAccounts, TransactIxData},
+use zolana_interface::instruction::{
+    RingTransact, TransactInterfaceTransferAccounts, TransactIxData,
 };
 
 use crate::CustomRing;

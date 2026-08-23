@@ -1,9 +1,7 @@
 //! Behavior of the host mirror of the `auditor_key_encryption` circuit crypto.
 
-use zolana_interface::{
-    custom_ring::{pack32_to_2fe, pack33_to_2fe, FieldPair},
-    instruction::MessageData,
-};
+use custom_ring_interface::{pack32_to_2fe, pack33_to_2fe, FieldPair};
+use zolana_interface::instruction::MessageData;
 use zolana_keypair::{KeypairError, ViewingKey};
 use zolana_ring_client::{
     auditor_view_tag, AuditEncryptionError, AuditorEncryption, AuditorMessage, AUDITOR_MESSAGE_LEN,

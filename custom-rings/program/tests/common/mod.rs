@@ -1,3 +1,8 @@
+use custom_ring_interface::{
+    tag, CreateConfigIxData, ReaderKeyBytes, ReaderRecord, RingProgramConfig, CONFIG_PDA_SEED,
+    READER_KEY_ED25519, READER_KEY_P256, READER_RECORD, READER_RECORD_PDA_SEED,
+    RING_PROGRAM_CONFIG,
+};
 use mollusk_svm::Mollusk;
 use pinocchio::Address;
 use solana_account::Account;
@@ -5,11 +10,6 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    custom_ring::{
-        tag, CreateConfigIxData, ReaderKeyBytes, ReaderRecord, RingProgramConfig, CONFIG_PDA_SEED,
-        READER_KEY_ED25519, READER_KEY_P256, READER_RECORD, READER_RECORD_PDA_SEED,
-        RING_PROGRAM_CONFIG,
-    },
     BPF_LOADER_UPGRADEABLE_PUBKEY, RING_AUTH_PDA_SEED, SHIELDED_POOL_PROGRAM_ID,
 };
 

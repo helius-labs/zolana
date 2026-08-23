@@ -1,9 +1,9 @@
+use custom_ring_interface::{ReaderIxData, ReaderKeyBytes, ReaderRecord};
 use pinocchio::{
     cpi::{Seed, Signer},
     AccountView, ProgramResult,
 };
 use zolana_account_checks::AccountIterator;
-use zolana_interface::custom_ring::{ReaderIxData, ReaderKeyBytes, ReaderRecord};
 
 use crate::{
     error::CustomRingError,

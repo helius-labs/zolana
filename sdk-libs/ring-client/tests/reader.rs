@@ -2,8 +2,8 @@
 //! verbatim.
 
 use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
+use custom_ring_interface::{READER_KEY_ED25519, READER_KEY_P256};
 use solana_address::Address;
-use zolana_interface::custom_ring::{READER_KEY_ED25519, READER_KEY_P256};
 use zolana_keypair::ViewingKey;
 use zolana_ring_client::{ReaderKey, ReaderKeyError};
 
