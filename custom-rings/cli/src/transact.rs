@@ -357,7 +357,8 @@ impl RingTransfer<'_> {
             .map(|utxo| SppProofInputUtxo::new(utxo, &sender))
             .collect();
         let mut transfer =
-            ConfidentialTransfer::new(sender.shielded_address()?, inputs, sender.pubkey());
+            ConfidentialTransfer::new(sender.shielded_address()?, inputs, sender.pubkey())
+                .with_compact_change();
         transfer.send(&self.recipient, SOL_MINT, self.amount)?;
         let prepared = transfer.prepare()?;
         let proven = AuditedTransfer::new(AuditedTransferInput {

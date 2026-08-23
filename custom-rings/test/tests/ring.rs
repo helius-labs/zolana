@@ -355,7 +355,8 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         env.sender.keypair.shielded_address()?,
         inputs,
         sender_address,
-    );
+    )
+    .with_compact_change();
     transfer.send(
         &env.recipient.keypair.shielded_address()?,
         SOL_MINT,
@@ -563,7 +564,8 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         env.recipient.keypair.shielded_address()?,
         hop_inputs,
         env.recipient.keypair.pubkey(),
-    );
+    )
+    .with_compact_change();
     hop_transfer.send(
         &env.sender.keypair.shielded_address()?,
         SOL_MINT,
