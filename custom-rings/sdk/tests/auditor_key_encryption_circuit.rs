@@ -18,12 +18,13 @@ use std::sync::OnceLock;
 
 use custom_ring_interface::audit_vk::VERIFYINGKEY;
 use custom_ring_interface::{AuditProof, AuditPublicInput};
+use custom_ring_sdk::AuditProofRequest;
 use custom_ring_sdk::{to_instruction_proof, AuditProofParams, AuditorMessage, EncryptedAudit};
 use groth16_solana::{
     decompression::{decompress_g1, decompress_g2},
     groth16::Groth16Verifier,
 };
-use zolana_client::{AuditorKeyEncryptionWitness, ProverClient};
+use zolana_client::ProverClient;
 use zolana_keypair::{P256Pubkey, ViewingKey};
 
 /// The `sdk/tests/go_vectors.rs` fixture, which is also the Go circuit test's
@@ -123,9 +124,9 @@ fn fixture_public_input(ciphertext: &[u8; 32]) -> [u8; 32] {
     .expect("public input hash")
 }
 
-fn fixture_inputs() -> AuditorKeyEncryptionWitness {
+fn fixture_inputs() -> AuditProofRequest {
     let auditor_pk = auditor_pubkey();
-    AuditorKeyEncryptionWitness {
+    AuditProofRequest {
         public_input_hash: fixture_public_input(&fixture_ciphertext())
             .try_into()
             .expect("canonical field"),
@@ -187,7 +188,7 @@ fn prove_and_verify_both_witnesses() {
     let fixture = fixture_inputs();
     let proof = to_instruction_proof(
         prover
-            .prove_auditor_key_encryption(&fixture)
+            .prove(&fixture)
             .expect("prove the Go fixture witness"),
     )
     .expect("compress the fixture proof");
@@ -234,9 +235,7 @@ fn prove_and_verify_both_witnesses() {
     );
 
     let sdk_proof = to_instruction_proof(
-        prover
-            .prove_auditor_key_encryption(&sdk_inputs)
-            .expect("prove the sdk witness"),
+        prover.prove(&sdk_inputs).expect("prove the sdk witness"),
         // The message the caller publishes is the ciphertext the proof commits to.
     )
     .expect("compress the sdk proof");
@@ -254,5 +253,5 @@ fn a_tampered_witness_does_not_prove() {
     let prover = prover();
     let mut inputs = fixture_inputs();
     inputs.private_tx_hash = [7u8; 32].try_into().expect("canonical field");
-    assert!(prover.prove_auditor_key_encryption(&inputs).is_err());
+    assert!(prover.prove(&inputs).is_err());
 }

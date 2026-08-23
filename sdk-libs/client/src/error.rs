@@ -183,11 +183,8 @@ pub enum ClientError {
     #[error("P256-owned inputs are unsupported by transact")]
     P256TransactUnsupported,
 
-    #[error("field element exceeds 32 bytes")]
-    FieldTooLong,
-
-    #[error("field element is not canonical")]
-    NonCanonicalField,
+    #[error("value exceeds 32 bytes")]
+    ValueTooLong,
 
     #[error("prover server error: {0}")]
     ProverServer(String),
@@ -276,4 +273,13 @@ pub enum ClientError {
 
     #[error("SOL deposit funding account {sender:?} must be the signing authority")]
     DepositSenderNotSigner { sender: [u8; 32] },
+}
+
+impl ClientError {
+    pub fn for_signature(self, signature: &solana_signature::Signature) -> Self {
+        match self {
+            Self::Rpc(message) => Self::Rpc(format!("{signature}: {message}")),
+            other => other,
+        }
+    }
 }

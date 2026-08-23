@@ -259,15 +259,11 @@ impl<'a> AuditedTransfer<'a> {
         .to_transact_proof();
 
         // Now the real `private_tx_hash` exists, so the pending encryption can be
-        // finished into a witness over the unchanged ciphertext. The program
+        // finished into the proof request over the unchanged ciphertext. The program
         // recomputes that same public-input chain from the payload and the config
         // account.
-        let audit_inputs = pending_audit_proof.finish(ring_result.private_tx_hash.try_into()?)?;
-        let audit_proof = to_instruction_proof(
-            environment
-                .prover
-                .prove_auditor_key_encryption(&audit_inputs)?,
-        )?;
+        let audit_request = pending_audit_proof.finish(ring_result.private_tx_hash.try_into()?)?;
+        let audit_proof = to_instruction_proof(environment.prover.prove(&audit_request)?)?;
 
         Ok(ProvenTransfer {
             tx_viewing_key,

@@ -8,6 +8,7 @@ publish = false
 borsh = { workspace = true }
 custom-ring-interface = { workspace = true }
 bytemuck = { workspace = true }
+p256 = { workspace = true }
 rand = { workspace = true }
 # Only for the uncompressed SEC1 encoding of the auditor key that the circuit
 # witnesses; `zolana-keypair` hands out compressed keys.
@@ -19,6 +20,8 @@ solana-message = { workspace = true }
 solana-rpc-client-api = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 solana-transaction = { workspace = true, features = ["serde"] }
 thiserror = { workspace = true }
 wincode = { workspace = true }

@@ -26,8 +26,9 @@ pub use crate::{
         init_spp_ring_config::InitSppRingConfig,
         revoke_reader::RevokeReader,
         transact::{
-            to_instruction_proof, AuditProofError, AuditProofInputError, AuditProofParams,
-            EncryptedAudit, PendingAuditProof, RingTransactWithAudit,
+            to_instruction_proof, AuditPrivateTxHash, AuditProofError, AuditProofInputError,
+            AuditProofParams, AuditProofRequest, AuditPublicInputHash, EncryptedAudit,
+            PendingAuditProof, RingTransactWithAudit,
         },
     },
     shared::{AccountReadError, CustomRing, CustomRingConfig, ReaderKey, ReaderKeyError},

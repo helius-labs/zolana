@@ -9,17 +9,15 @@ use std::{
 
 use reqwest::StatusCode;
 use tokio::time::sleep as async_sleep;
+use zeroize::Zeroizing;
 
 use crate::{
     error::ClientError,
     prover::{
-        inputs::{
-            AuditorKeyEncryptionWitness, BatchAddressAppendInputs, MergeInputs, TransferInputs,
-            TransferP256Inputs,
-        },
+        inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs, TransferP256Inputs},
         json::{
-            to_json, to_json_auditor_key_encryption, to_json_batch_address_append, to_json_merge,
-            to_json_merge_ring, to_json_p256_ring, to_json_ring, to_json_ring_authority,
+            to_json, to_json_batch_address_append, to_json_merge, to_json_merge_ring,
+            to_json_p256_ring, to_json_ring, to_json_ring_authority,
         },
         proof::{proof_from_gnark_json, Proof},
     },
@@ -71,12 +69,24 @@ static IS_LOADING: AtomicBool = AtomicBool::new(false);
 /// difference. Batch proofs are the other way round: they run far longer than a
 /// connection or a load balancer's idle timeout should be held open.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Delivery {
+pub enum Delivery {
     /// Ask for the proof in the response, falling back to the queue if the
     /// prover says it is at its concurrency limit.
     InResponse,
     /// Let the prover queue it and poll for the result.
     Queued,
+}
+
+/// A `/prove` body from a downstream crate, sent through the client's retry,
+/// queue-fallback, and poll handling.
+pub trait ProveRequest {
+    /// `Zeroizing`, a body may carry key material.
+    fn body(&self) -> Result<Zeroizing<String>, ClientError>;
+
+    /// The queue suits anything heavier than a transfer-shaped proof.
+    fn delivery(&self) -> Delivery {
+        Delivery::Queued
+    }
 }
 
 const PROVE_MAX_ATTEMPTS: usize = 3;
@@ -243,12 +253,8 @@ impl ProverClient {
         self.send(to_json_p256_ring(inputs), self.delivery)
     }
 
-    pub fn prove_auditor_key_encryption(
-        &self,
-        inputs: &AuditorKeyEncryptionWitness,
-    ) -> Result<Proof, ClientError> {
-        let body = to_json_auditor_key_encryption(inputs)?;
-        self.send(body, Delivery::Queued)
+    pub fn prove(&self, request: &impl ProveRequest) -> Result<Proof, ClientError> {
+        self.send(request.body()?, request.delivery())
     }
 
     /// Prove a nullifier-tree batch address-append update, returning the
@@ -558,12 +564,8 @@ impl AsyncProverClient {
         self.send(to_json_p256_ring(inputs), self.delivery).await
     }
 
-    pub async fn prove_auditor_key_encryption(
-        &self,
-        inputs: &AuditorKeyEncryptionWitness,
-    ) -> Result<Proof, ClientError> {
-        let body = to_json_auditor_key_encryption(inputs)?;
-        self.send(body, Delivery::Queued).await
+    pub async fn prove(&self, request: &impl ProveRequest) -> Result<Proof, ClientError> {
+        self.send(request.body()?, request.delivery()).await
     }
 
     pub async fn prove_batch_address_append(
@@ -975,6 +977,38 @@ mod tests {
             elapsed < std::time::Duration::from_millis(500),
             "collecting a ready proof took {elapsed:?}; the poll interval is a \
              ceiling, not a floor"
+        );
+    }
+
+    #[test]
+    fn a_custom_prove_request_takes_the_queued_rail() {
+        struct StaticRequest;
+
+        impl ProveRequest for StaticRequest {
+            fn body(&self) -> Result<Zeroizing<String>, ClientError> {
+                Ok(Zeroizing::new("{}".to_string()))
+            }
+        }
+
+        let server = MockServer::respond_with(vec![
+            MockResponse::json(202, json!({ "jobId": "job-custom", "status": "queued" })),
+            MockResponse::json(
+                200,
+                json!({
+                    "status": "completed",
+                    "result": { "proof": gnark_proof(), "proofDurationMs": 7 },
+                }),
+            ),
+        ]);
+        queued_prover_client(server.url())
+            .prove(&StaticRequest)
+            .expect("queued proof should complete");
+
+        let requests = server.requests();
+        assert_paths(&requests, ["/prove", "/prove/status?jobId=job-custom"]);
+        assert!(
+            requests.iter().all(|request| !request.sync_requested),
+            "a custom request must not ask for a synchronous answer"
         );
     }
 

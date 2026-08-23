@@ -211,10 +211,7 @@ mod rpc {
 
         pub fn origin(self, ring: Address) -> Result<RingOrigin, OriginError> {
             let signers = signers_of(&self.transaction);
-            let groups = ConfirmedInstructionGroups::from_confirmed_transaction(
-                &self.signature,
-                self.transaction,
-            )?;
+            let groups = ConfirmedInstructionGroups::try_from(self.transaction)?;
             let instructions = ring_instructions_in(&groups.groups, ring)?;
             Ok(RingOrigin {
                 ring_invoked: !instructions.is_empty(),
