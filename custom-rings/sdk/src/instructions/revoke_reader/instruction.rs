@@ -4,6 +4,8 @@ use solana_instruction::{AccountMeta, Instruction};
 use crate::{instructions::grant_reader::reader_ix_data, shared::ReaderKey, CustomRing};
 use custom_ring_interface::tag;
 
+/// Closes the reader record for `reader` and returns its rent to
+/// `rent_recipient`.
 #[must_use]
 pub struct RevokeReader {
     pub ring: CustomRing,

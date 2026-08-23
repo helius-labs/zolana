@@ -4,6 +4,8 @@ use solana_instruction::{AccountMeta, Instruction};
 
 use crate::{shared::ReaderKey, CustomRing};
 
+/// Creates the ring's reader record for `reader`, authorizing it to read the
+/// ring through the ring RPC.
 #[must_use]
 pub struct GrantReader {
     pub ring: CustomRing,
@@ -27,6 +29,7 @@ impl GrantReader {
                 AccountMeta::new_readonly(authority, true),
                 AccountMeta::new_readonly(ring.config_pda(), false),
                 AccountMeta::new(ring.reader_record_pda(&reader), false),
+                // The system program is the all-zero address.
                 AccountMeta::new_readonly(Address::default(), false),
             ],
             data: reader_ix_data(tag::GRANT_READER, reader)?,
