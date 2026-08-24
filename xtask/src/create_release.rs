@@ -219,7 +219,9 @@ fn build_binaries(options: &Options, staging: &Path, host: (&str, &str)) -> Resu
     Ok(out)
 }
 
-/// Build the `zolana` CLI binary for each target and stage it. Called AFTER the
+/// Build the `zolana` and `zolana-ring` binaries for each target and stage
+/// them. `zolana` embeds the lockfile written above, `zolana-ring` follows the
+/// same no-lock-entry treatment. Called AFTER the
 /// lockfile is regenerated so the binary embeds the final lockfile (the CLI
 /// itself is therefore not a lockfile entry -- that would be circular). Returns
 /// the staged asset paths to upload alongside the lockfile-tracked assets.
@@ -231,10 +233,15 @@ fn build_cli_binaries(
     let repo = repo_root()?;
     let mut assets = Vec::new();
     for (os, arch) in release_targets(host) {
-        let asset = format!("zolana-{os}-{arch}-{}", options.tag);
-        let path = staging.join(&asset);
-        build_rust_binary(&repo, "zolana-cli", "zolana", &path, (os, arch) == host)?;
-        assets.push(path);
+        for (package, bin, stem) in [
+            ("zolana-cli", "zolana", "zolana"),
+            ("custom-ring-cli", "zolana-ring", "zolana-ring"),
+        ] {
+            let asset = format!("{stem}-{os}-{arch}-{}", options.tag);
+            let path = staging.join(&asset);
+            build_rust_binary(&repo, package, bin, &path, (os, arch) == host)?;
+            assets.push(path);
+        }
     }
     Ok(assets)
 }

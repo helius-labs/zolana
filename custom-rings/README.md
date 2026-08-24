@@ -11,10 +11,12 @@ Each ring is its own program deployment with its own authority, config and
 services. The ring in this directory adds an auditor.
 
 `program` is the ring program, `sdk` the Rust client for it, `cli` the
-operator CLI, `test` the lifecycle test on a local validator. The ring RPC in
-`services/ring-rpc` holds the auditor key, `custom-rings/client` is the
-auditor side it is built on. `templates/custom-ring` generates a ring
-repository that is a thin shim over `cli`.
+`zolana-ring` operator binary, `test` the lifecycle test on a local validator.
+The ring RPC in `services/ring-rpc` holds the auditor key,
+`custom-rings/client` is the auditor side it is built on. `zolana-ring new`
+generates a ring repository from the
+[zolana-ring](https://github.com/helius-labs/zolana-ring) template, a thin
+program shim over a pinned zolana revision.
 
 ## Roles
 
@@ -65,33 +67,35 @@ still carries the audit proof, so the auditor sees the exit.
 
 ## Prerequisites
 
-On `PATH` before `just ring-new`:
+On `PATH` before `zolana-ring new`:
 
 - **Rust** 1.97.0, pinned by `rust-toolchain.toml` here and in the ring.
-- **`just`** — `cargo install just --locked`.
+- **`cargo-generate`** — `cargo install cargo-generate --locked`, `new`
+  refuses to run without it.
 - **Anza / Solana CLI** 4.x, the version CI pins —
-  `sh -c "$(curl -sSfL https://release.anza.xyz/v4.0.2/install)"`. It keys the
-  program and the authority, builds the program (`cargo build-sbf`, SBF tools
-  `v1.54` unless `SBF_TOOLS_VERSION` says otherwise) and deploys it.
+  `sh -c "$(curl -sSfL https://release.anza.xyz/v4.0.2/install)"`. It builds
+  the program (`cargo build-sbf`, SBF tools `v1.54` unless `SBF_TOOLS_VERSION`
+  says otherwise) and deploys it.
 
-The wizard offers to install `cargo-generate` when it is missing.
 `just ring-localnet` also needs this repository's localnet prerequisites and a
 Redis in `ZOLANA_PROVER_REDIS_URL` for the audit proof.
 
 ## The pipeline and what each step locks in
 
-`just ring-new` in a Zolana checkout generates the ring repository and fixes
+`zolana-ring new` generates the ring repository from the
+[zolana-ring](https://github.com/helius-labs/zolana-ring) template and fixes
 the program id, the address of the program keypair in the ring's `keys/`. It
 creates the authority keypair when the answer keeps the default
 `~/.config/solana/id.json` and no file is there; any other path is the
-operator's and a missing one is only reported. In the ring, `just localnet` or
-`just devnet` picks the cluster and starts or probes its services.
-`just deploy` fixes who may `init`, the upgrade authority. `just init` fixes
-the auditor. After `init` the authority can be transferred or renounced, readers
-come and go, and the program can be upgraded by running `just deploy` again.
-`just rpc` serves the auditor's view, `just transact` makes two ring deposits
-and one audited transfer and reads it back. `just pipeline` runs build to
-transact. The generated README is the operator's guide.
+operator's and a missing one is only reported. In the ring, `zolana-ring
+localnet` or `zolana-ring devnet` picks the cluster and probes its services.
+`zolana-ring deploy` fixes who may `init`, the upgrade authority.
+`zolana-ring init` fixes the auditor. After `init` the authority can be
+transferred or renounced, readers come and go, and the program can be
+upgraded by running `zolana-ring deploy` again. `zolana-ring transact` makes
+two ring
+deposits and one audited transfer and reads it back. `zolana-ring pipeline`
+runs build to transact. The generated README is the operator's guide.
 
 On devnet the ring builds only its own program and CLI; the prover, the indexer
 and the ring RPC are already deployed and are probed, never started. The hosted
@@ -127,8 +131,9 @@ is in `services/ring-rpc/README.md`.
 `custom-ring-sdk` starts from `CustomRing::new(program_id)`, the handle that
 derives the config, read access record and `ring_auth` addresses and reads the
 typed accounts. The authority builds `CreateConfig`, `InitSppRingConfig`,
-`GrantReadAccess`, `RevokeReadAccess` and `SetAuthority` from it. A participant sends
-`RingDeposit`, prepares a `ConfidentialTransfer` from the SPP transaction SDK
+`GrantReadAccess`, `RevokeReadAccess` and `SetAuthority` from it. A
+participant sends `RingDeposit`, prepares a `ConfidentialTransfer` from the
+SPP transaction SDK
 and proves it with
 `AuditedTransfer::new(..).with_tree(..).with_assets(..).prove(env)`,
 where the environment is the indexer, the RPC and the prover. The audited
@@ -146,7 +151,7 @@ template's wizard, and reach the code as cargo features of the same name.
 
 ## Pitfalls and limits
 
-Local rings share the ring RPC port, `just pipeline` replaces an RPC that
+Local rings share the ring RPC port, `zolana-ring pipeline` replaces an RPC that
 serves another ring; a hosted ring RPC is only checked, never replaced, and a
 ring pointed at one creates no local auditor key. `init` refuses an unpinned
 hosted RPC, `--trust-ring-rpc` is for a local instance. The sender of an

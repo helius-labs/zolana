@@ -9,7 +9,7 @@ name = "custom_ring_cli"
 path = "src/lib.rs"
 
 [[bin]]
-name = "custom-ring"
+name = "zolana-ring"
 path = "src/main.rs"
 
 [dependencies]

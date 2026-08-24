@@ -168,7 +168,6 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
-      AGAVE_VERSION: v4.0.2
       # GH_TOKEN is for the gh-release custom-ring key download
       # (ensure-custom-ring-keys). The circuit proof check proves with the
       # released pk and must verify under the committed VERIFYINGKEY, so a
@@ -184,13 +183,6 @@ jobs:
         with:
           shared-key: custom-ring
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
-      # ring-wizard.sh, which the template smoke drives, keygens the ring program.
-      - name: Install Anza CLI
-        run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
-      - name: Install cargo generate
-        run: cargo install cargo-generate --version 0.23.14 --locked
       - run: just test-custom-ring
 
   build-photon:
