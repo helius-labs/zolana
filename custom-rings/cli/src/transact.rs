@@ -18,6 +18,7 @@ use zolana_transaction::{
 
 use crate::{
     init::{configured_auditor_pk, InitError},
+    line,
     ring_rpc::{RingRpcClient, RingRpcClientError, TransactionLookup},
     Context, ContextError, TransactArgs, TransferArgs,
 };
@@ -31,19 +32,14 @@ const POLL_INTERVAL: Duration = Duration::from_millis(500);
 
 #[must_use]
 pub struct DemoTransfer<'a> {
-    ring: CustomRing,
+    pub ring: CustomRing,
     /// The sender is funded from here and then pays its own v0 transaction.
-    payer: &'a dyn Signer,
-    amount: u64,
-    /// `DEFAULT_TREE_ADDRESS` unless set.
-    tree: Option<Address>,
-    /// `AssetRegistry::default()` unless set.
-    assets: Option<&'a AssetRegistry>,
+    pub payer: &'a dyn Signer,
+    pub amount: u64,
 }
 
 /// One transfer out of a throwaway sender the payer funds and then abandons.
-/// The two deposits fill both input slots the transfer's shape declares; what
-/// they hold above `amount` stays with the sender and is unreachable.
+/// Whatever the two deposits hold above `amount` stays with the sender.
 struct RingTransfer<'a> {
     ring: CustomRing,
     payer: &'a dyn Signer,
@@ -117,54 +113,47 @@ pub enum TransactError {
     AmountTooSmall { amount: u64 },
 }
 
-impl From<ClientError> for TransactError {
-    fn from(error: ClientError) -> Self {
-        Self::Client(Box::new(error))
-    }
-}
-
 pub fn run(ctx: &mut Context, args: TransactArgs) -> Result<(), TransactError> {
-    // The whole cost of the demo, funded before the first deposit.
-    let needed = args
-        .amount
-        .saturating_mul(2)
-        .saturating_add(SENDER_FEE_BUDGET)
-        .saturating_add(PAYER_FEE_BUDGET);
-    let authority = ctx.authority_funded_for(needed)?;
-    let ring = ctx.ring;
-    let auditor_pk = configured_auditor_pk(&ctx.rpc, ring)?;
-    let ring_rpc = ctx.ring_rpc();
-    ring_rpc.check_serves(ring.program_id(), &auditor_pk)?;
-    let reader_key = ReaderKey::ed25519(authority.pubkey())?;
-    if ring.read_access_record(&ctx.rpc, &reader_key)?.is_none() {
+    // The demo deposits the amount twice, funded before the first deposit.
+    let session = Session::open(ctx, args.amount.saturating_mul(2))?;
+    let reader_key = ReaderKey::ed25519(session.authority.pubkey())?;
+    if ctx
+        .ring
+        .read_access_record(&ctx.rpc, &reader_key)?
+        .is_none()
+    {
         return Err(TransactError::ReaderNotGranted { reader: reader_key });
     }
-    let indexer = ctx.indexer();
-    let prover = ctx.prover();
-    let receipt =
-        DemoTransfer::new(ring, &authority, args.amount).run(TransferProofEnvironment {
-            indexer: &indexer,
-            rpc: &ctx.rpc,
-            prover: &prover,
-        })?;
-    println!(
-        "sender      {}  viewing pk {}",
-        receipt.sender.pubkey(),
-        hex::encode(receipt.sender.viewing_pubkey().as_bytes())
-    );
-    println!(
-        "recipient   {}  viewing pk {}",
-        receipt.recipient.pubkey(),
-        hex::encode(receipt.recipient.viewing_pubkey().as_bytes())
-    );
-    for signature in &receipt.deposits {
-        println!("deposit     {signature}");
+    let receipt = DemoTransfer {
+        ring: ctx.ring,
+        payer: &session.authority,
+        amount: args.amount,
     }
-    println!("transact    {}", receipt.transact);
-    for line in program_logs(&ctx.rpc, &receipt.transact)? {
-        println!("  log       {line}");
-    }
-    read_back(&indexer, &ring_rpc, ring, &authority, receipt.transact)?;
+    .run(session.env(ctx))?;
+    line(
+        "sender",
+        format_args!(
+            "{}  viewing pk {}",
+            receipt.sender.pubkey(),
+            hex::encode(receipt.sender.viewing_pubkey().as_bytes())
+        ),
+    );
+    line(
+        "recipient",
+        format_args!(
+            "{}  viewing pk {}",
+            receipt.recipient.pubkey(),
+            hex::encode(receipt.recipient.viewing_pubkey().as_bytes())
+        ),
+    );
+    print_signatures(ctx, &receipt.deposits, receipt.transact)?;
+    read_back(
+        &session.indexer,
+        &session.ring_rpc,
+        ctx.ring,
+        &session.authority,
+        receipt.transact,
+    )?;
     Ok(())
 }
 
@@ -176,53 +165,98 @@ pub fn run_transfer(ctx: &mut Context, args: TransferArgs) -> Result<(), Transac
             amount: args.amount,
         });
     }
-    let needed = args
-        .amount
-        .saturating_add(SENDER_FEE_BUDGET)
-        .saturating_add(PAYER_FEE_BUDGET);
-    let authority = ctx.authority_funded_for(needed)?;
-    let ring = ctx.ring;
-    let auditor_pk = configured_auditor_pk(&ctx.rpc, ring)?;
-    let ring_rpc = ctx.ring_rpc();
-    ring_rpc.check_serves(ring.program_id(), &auditor_pk)?;
-    let indexer = ctx.indexer();
-    let prover = ctx.prover();
+    let session = Session::open(ctx, args.amount)?;
     // The recipient takes the whole amount, so the two deposits split it.
     let half = args.amount / 2;
     let sent = RingTransfer {
-        ring,
-        payer: &authority,
+        ring: ctx.ring,
+        payer: &session.authority,
         deposits: [half, args.amount - half],
         recipient: args.to,
         amount: args.amount,
         tree: Address::from_str_const(DEFAULT_TREE_ADDRESS),
         assets: &AssetRegistry::default(),
     }
-    .send(TransferProofEnvironment {
-        indexer: &indexer,
-        rpc: &ctx.rpc,
-        prover: &prover,
-    })?;
-    println!("to          {}", args.to);
-    println!("amount      {} lamports", args.amount);
-    println!(
-        "sender      {}  a throwaway key, funded and abandoned",
-        sent.sender.pubkey()
+    .send(session.env(ctx))?;
+    line("to", args.to);
+    line("amount", format_args!("{} lamports", args.amount));
+    line(
+        "sender",
+        format_args!(
+            "{}  a throwaway key, funded and abandoned",
+            sent.sender.pubkey()
+        ),
     );
-    for signature in &sent.deposits {
-        println!("deposit     {signature}");
-    }
-    println!("transact    {}", sent.transact);
-    for line in program_logs(&ctx.rpc, &sent.transact)? {
-        println!("  log       {line}");
-    }
+    print_signatures(ctx, &sent.deposits, sent.transact)?;
     // Reading the transfer back is a courtesy, the payment is already on chain.
-    let reader_key = ReaderKey::ed25519(authority.pubkey())?;
-    if ring.read_access_record(&ctx.rpc, &reader_key)?.is_none() {
+    let reader_key = ReaderKey::ed25519(session.authority.pubkey())?;
+    if ctx
+        .ring
+        .read_access_record(&ctx.rpc, &reader_key)?
+        .is_none()
+    {
         println!("auditor view skipped, grant-reader {reader_key} to read the ring");
         return Ok(());
     }
-    read_back(&indexer, &ring_rpc, ring, &authority, sent.transact)?;
+    read_back(
+        &session.indexer,
+        &session.ring_rpc,
+        ctx.ring,
+        &session.authority,
+        sent.transact,
+    )?;
+    Ok(())
+}
+
+/// Opened only after the ring rpc serves the configured auditor.
+struct Session {
+    authority: solana_keypair::Keypair,
+    ring_rpc: RingRpcClient,
+    indexer: ZolanaIndexer,
+    prover: zolana_client::ProverClient,
+}
+
+impl Session {
+    fn open(ctx: &mut Context, deposited: u64) -> Result<Self, TransactError> {
+        let needed = deposited
+            .saturating_add(SENDER_FEE_BUDGET)
+            .saturating_add(PAYER_FEE_BUDGET);
+        let authority = ctx.authority_funded_for(needed)?;
+        let auditor_pk = configured_auditor_pk(&ctx.rpc, ctx.ring)?;
+        let ring_rpc = ctx.ring_rpc();
+        ring_rpc.check_serves(ctx.ring.program_id(), &auditor_pk)?;
+        Ok(Self {
+            authority,
+            ring_rpc,
+            indexer: ctx.indexer(),
+            prover: ctx.prover(),
+        })
+    }
+
+    fn env<'a>(
+        &'a self,
+        ctx: &'a Context,
+    ) -> TransferProofEnvironment<'a, ZolanaIndexer, SolanaRpc> {
+        TransferProofEnvironment {
+            indexer: &self.indexer,
+            rpc: &ctx.rpc,
+            prover: &self.prover,
+        }
+    }
+}
+
+fn print_signatures(
+    ctx: &Context,
+    deposits: &[Signature],
+    transact: Signature,
+) -> Result<(), TransactError> {
+    for signature in deposits {
+        line("deposit", signature);
+    }
+    line("transact", transact);
+    for line in program_logs(&ctx.rpc, &transact)? {
+        println!("  log       {line}");
+    }
     Ok(())
 }
 
@@ -258,41 +292,11 @@ fn read_back(
     Ok(())
 }
 
-impl<'a> DemoTransfer<'a> {
-    pub fn new(ring: CustomRing, payer: &'a dyn Signer, amount: u64) -> Self {
-        Self {
-            ring,
-            payer,
-            amount,
-            tree: None,
-            assets: None,
-        }
-    }
-
-    #[must_use = "use the updated transfer"]
-    pub fn with_tree(mut self, tree: Address) -> Self {
-        self.tree = Some(tree);
-        self
-    }
-
-    #[must_use = "use the updated transfer"]
-    pub fn with_assets(mut self, assets: &'a AssetRegistry) -> Self {
-        self.assets = Some(assets);
-        self
-    }
-
+impl DemoTransfer<'_> {
     pub fn run(
         self,
         env: TransferProofEnvironment<'_, ZolanaIndexer, SolanaRpc>,
     ) -> Result<TransferReceipt, TransactError> {
-        let default_assets;
-        let assets = match self.assets {
-            Some(assets) => assets,
-            None => {
-                default_assets = AssetRegistry::default();
-                &default_assets
-            }
-        };
         let recipient = ShieldedKeypair::new_ed25519()?;
         // The demo deposits the amount twice and keeps the change, so the
         // sender's balance shows in the auditor's view next to the payment.
@@ -302,10 +306,8 @@ impl<'a> DemoTransfer<'a> {
             deposits: [self.amount; 2],
             recipient: recipient.shielded_address()?,
             amount: self.amount,
-            tree: self
-                .tree
-                .unwrap_or(Address::from_str_const(DEFAULT_TREE_ADDRESS)),
-            assets,
+            tree: Address::from_str_const(DEFAULT_TREE_ADDRESS),
+            assets: &AssetRegistry::default(),
         }
         .send(env)?;
 

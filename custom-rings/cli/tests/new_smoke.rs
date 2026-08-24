@@ -45,6 +45,9 @@ fn copy_tree(source: &Path, dest: &Path) {
     fs::create_dir_all(dest).expect("dest dir");
     for entry in fs::read_dir(source).expect("read template") {
         let entry = entry.expect("entry");
+        if entry.file_name() == ".git" {
+            continue;
+        }
         let target = dest.join(entry.file_name());
         if entry.file_type().expect("type").is_dir() {
             copy_tree(&entry.path(), &target);

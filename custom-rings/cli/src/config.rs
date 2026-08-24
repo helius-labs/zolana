@@ -8,8 +8,10 @@ use std::{
 
 use serde::Deserialize;
 use solana_address::Address;
-use solana_keypair::{read_keypair_file, Keypair};
+use solana_keypair::Keypair;
 use thiserror::Error;
+
+use crate::file::{self, FileError};
 
 pub const RING_TOML: &str = "ring.toml";
 
@@ -51,8 +53,7 @@ pub struct Urls {
 }
 
 impl Urls {
-    /// Only a ring RPC on this machine takes its auditor key from `keys/`; any
-    /// other one holds a key of its own.
+    /// Only a ring RPC on this machine takes its auditor key from `keys/`.
     pub fn ring_rpc_is_local(&self) -> bool {
         let rest = match self.ring_rpc.split_once("://") {
             Some((_, rest)) => rest,
@@ -72,24 +73,8 @@ impl Urls {
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
-    #[error("cannot read {path}")]
-    Read {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error("cannot parse {path}")]
-    Parse {
-        path: PathBuf,
-        #[source]
-        source: toml::de::Error,
-    },
-    #[error("cannot write {path}")]
-    Write {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
+    #[error(transparent)]
+    File(#[from] FileError),
     #[error("{path} has no target line")]
     NoTargetLine { path: PathBuf },
     #[error("{path} line is not KEY=VALUE, {line}")]
@@ -100,8 +85,6 @@ pub enum ConfigError {
     UnclosedPlaceholder { text: String },
     #[error("HOME is not set")]
     HomeUnset,
-    #[error("cannot read authority keypair {path}, {message}")]
-    Keypair { path: PathBuf, message: String },
     #[error("ring_rpc_pubkey {key} is not a base58 key")]
     RingRpcPubkey { key: String },
 }
@@ -118,11 +101,7 @@ impl Target {
 impl RingConfig {
     /// `.env` next to ring.toml fills `${NAME}` placeholders, the environment wins.
     pub fn load(path: &Path) -> Result<Self, ConfigError> {
-        let text = read(path)?;
-        let mut config: Self = toml::from_str(&text).map_err(|source| ConfigError::Parse {
-            path: path.to_path_buf(),
-            source,
-        })?;
+        let mut config: Self = file::parse_toml(path)?;
         load_dotenv(&path.with_file_name(".env"))?;
         for urls in [&mut config.localnet, &mut config.devnet] {
             for url in [
@@ -146,7 +125,7 @@ impl RingConfig {
 
     /// The rest of the file stays byte for byte.
     pub fn set_target(path: &Path, target: Target) -> Result<(), ConfigError> {
-        let text = read(path)?;
+        let text = file::read(path)?;
         let mut replaced = false;
         let updated: Vec<String> = text
             .lines()
@@ -164,18 +143,11 @@ impl RingConfig {
                 path: path.to_path_buf(),
             });
         }
-        std::fs::write(path, updated.join("\n") + "\n").map_err(|source| ConfigError::Write {
-            path: path.to_path_buf(),
-            source,
-        })
+        Ok(file::write(path, updated.join("\n") + "\n")?)
     }
 
     pub fn authority(&self) -> Result<Keypair, ConfigError> {
-        let path = expand_tilde(&self.authority_keypair)?;
-        read_keypair_file(&path).map_err(|error| ConfigError::Keypair {
-            path,
-            message: error.to_string(),
-        })
+        Ok(file::read_keypair(&expand_tilde(&self.authority_keypair)?)?)
     }
 
     pub fn enabled_features(&self) -> impl Iterator<Item = &str> {
@@ -205,23 +177,17 @@ mod base58_address {
     }
 }
 
-fn read(path: &Path) -> Result<String, ConfigError> {
-    std::fs::read_to_string(path).map_err(|source| ConfigError::Read {
-        path: path.to_path_buf(),
-        source,
-    })
-}
-
 /// Never overrides a variable already set.
 fn load_dotenv(path: &Path) -> Result<(), ConfigError> {
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(source) => {
-            return Err(ConfigError::Read {
+            return Err(FileError::Read {
                 path: path.to_path_buf(),
                 source,
-            })
+            }
+            .into())
         }
     };
     for line in text.lines() {

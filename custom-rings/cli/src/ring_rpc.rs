@@ -15,6 +15,7 @@ use zolana_ring_rpc::{
 };
 
 use crate::{
+    probe,
     transact::{wait_for, Probe, WaitError},
     Context,
 };
@@ -70,7 +71,7 @@ pub enum RingRpcClientError {
     PinMismatch { pinned: Address, actual: Address },
     #[error("ring.toml pins no ring rpc service key, the rpc signs with {service_pubkey}. Put it in ring_rpc_pubkey after confirming it out of band, or pass --trust-ring-rpc for a local instance")]
     Unpinned { service_pubkey: Address },
-    #[error("the ring rpc at {url} holds auditor {served_tag} for this ring, but the ring's config names {expected_tag}. A config fixes its auditor when it is created, so this service can never open the ring: serve the ring from a ring rpc holding its key, or deploy a new ring")]
+    #[error("the ring rpc at {url} holds auditor {served_tag} for this ring, but the ring's config names {expected_tag}. A config fixes its auditor when it is created, so this service can never open the ring. Serve the ring from a ring rpc holding its key, or deploy a new ring")]
     ForeignAuditor {
         url: String,
         served_tag: Hash,
@@ -91,12 +92,6 @@ pub enum RingRpcClientError {
     },
 }
 
-#[derive(Debug, Error)]
-pub enum RpcCheckError {
-    #[error(transparent)]
-    RingRpc(#[from] RingRpcClientError),
-}
-
 #[derive(Deserialize)]
 struct JsonRpcResponse<T> {
     result: Option<T>,
@@ -105,15 +100,19 @@ struct JsonRpcResponse<T> {
 
 /// Answers before the ring has a config, so a pipeline can stop before `init`
 /// pins an auditor the service does not hold.
-pub fn run_check(ctx: &Context) -> Result<(), RpcCheckError> {
+pub fn run_check(ctx: &Context) -> Result<(), RingRpcClientError> {
     let url = ctx.config.urls().ring_rpc.clone();
     let status = ctx.ring_rpc().ring_status(ctx.ring.program_id())?;
     let served = Hash(auditor_view_tag(status.auditor_pubkey.as_key()));
     match status.state {
-        RingState::Served => println!("ring rpc    {url} serves this ring, auditor {served}"),
-        RingState::Uninitialized => {
-            println!("ring rpc    {url} holds auditor {served} for this ring, `init` pins it")
-        }
+        RingState::Served => crate::line(
+            "ring rpc",
+            format_args!("{url} serves this ring, auditor {served}"),
+        ),
+        RingState::Uninitialized => crate::line(
+            "ring rpc",
+            format_args!("{url} holds auditor {served} for the ring, `init` pins it"),
+        ),
         RingState::ForeignAuditor => {
             let configured = status
                 .config_auditor_pubkey
@@ -123,8 +122,7 @@ pub fn run_check(ctx: &Context) -> Result<(), RpcCheckError> {
                 url,
                 served_tag: served,
                 expected_tag: configured,
-            }
-            .into());
+            });
         }
     }
     Ok(())
@@ -150,7 +148,7 @@ impl RingRpcClient {
     pub fn new(url: impl Into<String>) -> Self {
         Self {
             url: url.into(),
-            http: reqwest::blocking::Client::new(),
+            http: probe::http(probe::CONNECT_TIMEOUT, probe::TOTAL_TIMEOUT),
         }
     }
 
@@ -179,8 +177,7 @@ impl RingRpcClient {
         })
     }
 
-    /// Unsigned, so it decides nothing a key is pinned from; `auditor_pubkey`
-    /// is the attested path `init` uses.
+    /// Unsigned, `auditor_pubkey` is the attested path `init` pins from.
     pub fn ring_status(&self, ring: Address) -> Result<RingStatusResponse, RingRpcClientError> {
         self.call(
             RING_STATUS,

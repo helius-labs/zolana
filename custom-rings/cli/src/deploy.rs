@@ -1,20 +1,23 @@
 //! The Solana CLI owns the loader v3 write protocol.
 
 use std::{
-    io,
     path::{Path, PathBuf},
-    process::{Command, ExitStatus},
+    process::Command,
 };
 
 use custom_ring_sdk::CustomRing;
 use solana_address::Address;
-use solana_keypair::read_keypair_file;
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_signer::Signer;
 use thiserror::Error;
 use zolana_client::{ClientError, Rpc, SolanaRpc};
 
-use crate::{config::expand_tilde, Context, ContextError, DeployArgs};
+use crate::{
+    config::expand_tilde,
+    file::{self, FileError},
+    tool::{ToolError, SOLANA},
+    Context, ContextError, DeployArgs,
+};
 
 pub struct Deploy<'a> {
     pub ring: CustomRing,
@@ -49,12 +52,8 @@ pub enum DeployError {
     Context(#[from] ContextError),
     #[error("{label} not found at {path}")]
     MissingFile { label: &'static str, path: PathBuf },
-    #[error("cannot read {path}")]
-    Metadata {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
+    #[error(transparent)]
+    File(#[from] FileError),
     #[error("program {program} is upgradeable by {authority}, ring.toml names {expected}")]
     ForeignAuthority {
         program: Address,
@@ -65,21 +64,10 @@ pub enum DeployError {
     Immutable { program: Address },
     #[error("program keypair not found at {path}, the first deploy needs it")]
     MissingProgramKeypair { path: PathBuf },
-    #[error("cannot read program keypair {path}, {message}")]
-    ProgramKeypair { path: PathBuf, message: String },
     #[error("program keypair is {found}, ring.toml names {expected}")]
     ProgramKeypairMismatch { expected: Address, found: Address },
-    #[error("cannot run `solana program {command}`, is the Solana CLI installed")]
-    SolanaCli {
-        command: &'static str,
-        #[source]
-        source: io::Error,
-    },
-    #[error("`solana program {command}` exited with {status}")]
-    SolanaCliStatus {
-        command: &'static str,
-        status: ExitStatus,
-    },
+    #[error(transparent)]
+    Tool(#[from] ToolError),
     #[error("program {program} is not executable after deploy")]
     NotExecutable {
         program: Address,
@@ -90,12 +78,6 @@ pub enum DeployError {
     ProgramData { address: Address },
     #[error(transparent)]
     Client(Box<ClientError>),
-}
-
-impl From<ClientError> for DeployError {
-    fn from(error: ClientError) -> Self {
-        Self::Client(Box::new(error))
-    }
 }
 
 /// The smallest growth of `ProgramData` the loader accepts.
@@ -128,7 +110,6 @@ pub fn run(ctx: &mut Context, args: DeployArgs) -> Result<(), DeployError> {
         ctx.ring.program_id(),
         authority.pubkey()
     );
-    // `init` announces the live ring, a deploy alone does not make one.
     Ok(())
 }
 
@@ -146,7 +127,7 @@ impl Deploy<'_> {
             }
         }
         let so_len = std::fs::metadata(self.program_so)
-            .map_err(|source| DeployError::Metadata {
+            .map_err(|source| FileError::Read {
                 path: self.program_so.to_path_buf(),
                 source,
             })?
@@ -206,20 +187,9 @@ impl Deploy<'_> {
         } else {
             command.arg(self.program_keypair);
         }
-        let status =
-            command
-                .arg(self.program_so)
-                .status()
-                .map_err(|source| DeployError::SolanaCli {
-                    command: "deploy",
-                    source,
-                })?;
-        if !status.success() {
-            return Err(DeployError::SolanaCliStatus {
-                command: "deploy",
-                status,
-            });
-        }
+        SOLANA
+            .named("solana program deploy")
+            .run(command.arg(self.program_so))?;
         rpc.assert_executable(&program)
             .map_err(|source| DeployError::NotExecutable {
                 program,
@@ -238,12 +208,7 @@ impl Deploy<'_> {
                 path: self.program_keypair.to_path_buf(),
             });
         }
-        let found = read_keypair_file(self.program_keypair)
-            .map_err(|error| DeployError::ProgramKeypair {
-                path: self.program_keypair.to_path_buf(),
-                message: error.to_string(),
-            })?
-            .pubkey();
+        let found = file::read_keypair(self.program_keypair)?.pubkey();
         if found != self.ring.program_id() {
             return Err(DeployError::ProgramKeypairMismatch {
                 expected: self.ring.program_id(),
@@ -255,23 +220,13 @@ impl Deploy<'_> {
 
     fn extend(&self, url: String, additional_bytes: usize) -> Result<(), DeployError> {
         println!("extending program data by {additional_bytes} bytes");
-        let status = Command::new("solana")
-            .args(["program", "extend", "--url", &url, "--keypair"])
-            .arg(self.authority_keypair)
-            .arg(self.ring.program_id().to_string())
-            .arg(additional_bytes.to_string())
-            .status()
-            .map_err(|source| DeployError::SolanaCli {
-                command: "extend",
-                source,
-            })?;
-        if !status.success() {
-            return Err(DeployError::SolanaCliStatus {
-                command: "extend",
-                status,
-            });
-        }
-        Ok(())
+        Ok(SOLANA.named("solana program extend").run(
+            Command::new("solana")
+                .args(["program", "extend", "--url", &url, "--keypair"])
+                .arg(self.authority_keypair)
+                .arg(self.ring.program_id().to_string())
+                .arg(additional_bytes.to_string()),
+        )?)
     }
 }
 

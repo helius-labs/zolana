@@ -1,8 +1,4 @@
-use std::{
-    io,
-    path::Path,
-    process::{Command, ExitStatus},
-};
+use std::{path::Path, process::Command};
 
 use custom_ring_sdk::{CustomRing, SetAuthority, SET_AUTHORITY_COMPUTE_UNIT_LIMIT};
 use solana_address::Address;
@@ -15,6 +11,7 @@ use zolana_client::{Rpc, SolanaRpc};
 use crate::{
     config::{expand_tilde, ConfigError},
     deploy::{read_program_data, DeployError, ProgramDataInfo},
+    tool::{ToolError, SOLANA},
     AuthorityCommand, Context,
 };
 
@@ -30,23 +27,13 @@ pub enum AuthorityError {
     #[error(transparent)]
     Config(#[from] ConfigError),
     #[error(transparent)]
-    Deploy(#[from] DeployError),
+    Deploy(Box<DeployError>),
     #[error("program {program} is not deployed under the upgradeable loader")]
     NotDeployed { program: Address },
-    #[error("program {program} is upgradeable by {authority}, ring.toml names {expected}")]
-    ForeignAuthority {
-        program: Address,
-        authority: Address,
-        expected: Address,
-    },
-    #[error("program {program} is already immutable")]
-    Immutable { program: Address },
     #[error("renouncing is irreversible, pass --yes to make {program} immutable")]
     NeedsConfirmation { program: Address },
-    #[error("cannot run `solana program set-upgrade-authority`, is the Solana CLI installed")]
-    SolanaCli(#[source] io::Error),
-    #[error("`solana program set-upgrade-authority` exited with {status}")]
-    SolanaCliStatus { status: ExitStatus },
+    #[error(transparent)]
+    Tool(#[from] ToolError),
     #[error("cannot read the new authority keypair {path}")]
     NewAuthorityKeypair { path: String },
     #[error("sending set_authority failed")]
@@ -142,33 +129,30 @@ impl SetUpgradeAuthority<'_> {
         let program = self.ring.program_id();
         match self.current.upgrade_authority {
             Some(authority) if authority == self.authority => Ok(()),
-            Some(authority) => Err(AuthorityError::ForeignAuthority {
+            Some(authority) => Err(DeployError::ForeignAuthority {
                 program,
                 authority,
                 expected: self.authority,
-            }),
-            None => Err(AuthorityError::Immutable { program }),
+            }
+            .into()),
+            None => Err(DeployError::Immutable { program }.into()),
         }
     }
 
     fn run(&self, rpc: &SolanaRpc, args: &[&str]) -> Result<(), AuthorityError> {
-        let status = Command::new("solana")
-            .args([
-                "program",
-                "set-upgrade-authority",
-                "--url",
-                &rpc.client().url(),
-                "--keypair",
-            ])
-            .arg(self.authority_keypair)
-            .arg(self.ring.program_id().to_string())
-            .args(args)
-            .status()
-            .map_err(AuthorityError::SolanaCli)?;
-        if !status.success() {
-            return Err(AuthorityError::SolanaCliStatus { status });
-        }
-        Ok(())
+        Ok(SOLANA.named("solana program set-upgrade-authority").run(
+            Command::new("solana")
+                .args([
+                    "program",
+                    "set-upgrade-authority",
+                    "--url",
+                    &rpc.client().url(),
+                    "--keypair",
+                ])
+                .arg(self.authority_keypair)
+                .arg(self.ring.program_id().to_string())
+                .args(args),
+        )?)
     }
 }
 
@@ -179,4 +163,10 @@ pub fn deployed_program_data<R: Rpc>(
     read_program_data(rpc, ring)?.ok_or(AuthorityError::NotDeployed {
         program: ring.program_id(),
     })
+}
+
+impl From<DeployError> for AuthorityError {
+    fn from(error: DeployError) -> Self {
+        Self::Deploy(Box::new(error))
+    }
 }
