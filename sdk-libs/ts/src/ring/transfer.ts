@@ -117,7 +117,7 @@ export async function buildRingTransferTransaction(
           ...(entry.zoneDataHash === undefined ? {} : { zoneDataHash: entry.zoneDataHash }),
         }),
     );
-    const transfer = new ConfidentialTransfer(address, inputs, input.feePayer);
+    const transfer = new ConfidentialTransfer(address, inputs, input.feePayer).withCompactChange();
     transfer.send(recipient, asset, input.amount);
     const tree = selected[0]?.tree ?? input.client.tree;
     await input.authority.requestUserApproval({
@@ -207,7 +207,7 @@ export async function buildRingWithdrawalTransaction(
           ...(entry.zoneDataHash === undefined ? {} : { zoneDataHash: entry.zoneDataHash }),
         }),
     );
-    const transfer = new ConfidentialTransfer(address, inputs, input.feePayer);
+    const transfer = new ConfidentialTransfer(address, inputs, input.feePayer).withCompactChange();
     transfer.withdraw(asset, input.amount, WithdrawalTarget.sol({ recipient: input.recipient }));
     const tree = selected[0]?.tree ?? input.client.tree;
     await input.authority.requestUserApproval({
@@ -277,7 +277,14 @@ export async function proveAuditedTransfer(
   context?: RequestContext,
 ): Promise<ProvenRingTransfer> {
   const config = await fetchRingProgramConfig(input.client, input.ringProgramId, context);
-  const prepared = input.prepared.compactOutputs().withZoneProgramId(input.ringProgramId);
+  // A padded change slot pushes the audited instruction past the packet limit
+  // even behind an address lookup table.
+  if (input.prepared.changeLayout !== "compact") {
+    throw new RingError("RING_PADDED_CHANGE", {
+      details: { remedy: "prepare the transfer with ConfidentialTransfer.withCompactChange" },
+    });
+  }
+  const prepared = input.prepared.withZoneProgramId(input.ringProgramId);
   checkRingMembership(prepared, input.ringProgramId);
   const encrypted = await input.authority.encryptAuditedTransfer({
     firstNullifier: prepared.firstNullifier,
@@ -301,7 +308,7 @@ export async function proveAuditedTransfer(
       undefined,
       context,
     );
-    const auditProof = await input.client.proveAuditorKeyEncryption(
+    const auditProof = await input.client.proveCustomRingAudit(
       {
         publicInputHash: auditPublicInputHash({
           privateTxHash: data.privateTxHash,

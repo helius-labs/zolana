@@ -24,6 +24,7 @@ export {
   slotOrdinal,
 } from "./transact.js";
 export type {
+  ChangeLayout,
   EncryptedTransaction,
   ExternalData,
   ExternalDataInit,

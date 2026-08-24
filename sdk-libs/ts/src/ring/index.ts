@@ -25,7 +25,12 @@ export type {
 export { AUDIT_PROOF_LENGTH, checkedAuditProof, decodeRingProgramConfig } from "./codecs.js";
 export { ringRole, type RingRole } from "./role.js";
 export type { RingProgramConfig } from "./codecs.js";
-export { fetchRingProgramConfig, ringConfigAddress, ringProgramDataAddress } from "./config.js";
+export {
+  fetchRingProgramConfig,
+  ringConfigAddress,
+  ringProgramDataAddress,
+  setRingAuthorityInstruction,
+} from "./config.js";
 export { buildRingDepositTransaction } from "./deposit.js";
 export type { RingDepositTransactionParams } from "./deposit.js";
 export { RING_ERROR_CODES, RingError, wrapRingError } from "./error.js";
@@ -33,7 +38,7 @@ export type { RingErrorCode } from "./error.js";
 export {
   RING_CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
   RING_INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
-  RING_READER_COMPUTE_UNIT_LIMIT,
+  RING_READ_ACCESS_COMPUTE_UNIT_LIMIT,
   createRingConfigInstruction,
   initSppRingConfigInstruction,
   ringLookupTableAddresses,
@@ -45,18 +50,18 @@ export { createPasskey, passkeyReader } from "./passkey.js";
 export type { Passkey } from "./passkey.js";
 export {
   checkedReaderKey,
-  decodeReaderRecord,
+  decodeReadAccessRecord,
   fetchReaderGrant,
-  grantReaderInstruction,
+  grantReadAccessInstruction,
   parseReaderKey,
   readerKeyBytes,
   readerKeyEquals,
   readerKeyFromBytes,
   readerKeyToString,
-  readerRecordAddress,
-  revokeReaderInstruction,
+  readAccessRecordAddress,
+  revokeReadAccessInstruction,
 } from "./reader.js";
-export type { ReaderKey, ReaderRecord } from "./reader.js";
+export type { ReaderKey, ReadAccessRecord } from "./reader.js";
 export {
   auditorKeyAttestation,
   messageSignerReader,

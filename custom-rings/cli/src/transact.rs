@@ -136,7 +136,7 @@ pub fn run(ctx: &mut Context, args: TransactArgs) -> Result<(), TransactError> {
     let ring_rpc = ctx.ring_rpc();
     ring_rpc.check_serves(ring.program_id(), &auditor_pk)?;
     let reader_key = ReaderKey::ed25519(authority.pubkey())?;
-    if ring.read_reader_record(&ctx.rpc, &reader_key)?.is_none() {
+    if ring.read_access_record(&ctx.rpc, &reader_key)?.is_none() {
         return Err(TransactError::ReaderNotGranted { reader: reader_key });
     }
     let indexer = ctx.indexer();
@@ -218,7 +218,7 @@ pub fn run_transfer(ctx: &mut Context, args: TransferArgs) -> Result<(), Transac
     }
     // Reading the transfer back is a courtesy, the payment is already on chain.
     let reader_key = ReaderKey::ed25519(authority.pubkey())?;
-    if ring.read_reader_record(&ctx.rpc, &reader_key)?.is_none() {
+    if ring.read_access_record(&ctx.rpc, &reader_key)?.is_none() {
         println!("auditor view skipped, grant-reader {reader_key} to read the ring");
         return Ok(());
     }
@@ -357,7 +357,8 @@ impl RingTransfer<'_> {
             .map(|utxo| SppProofInputUtxo::new(utxo, &sender))
             .collect();
         let mut transfer =
-            ConfidentialTransfer::new(sender.shielded_address()?, inputs, sender.pubkey());
+            ConfidentialTransfer::new(sender.shielded_address()?, inputs, sender.pubkey())
+                .with_compact_change();
         transfer.send(&self.recipient, SOL_MINT, self.amount)?;
         let prepared = transfer.prepare()?;
         let proven = AuditedTransfer::new(AuditedTransferInput {

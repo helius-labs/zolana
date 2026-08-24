@@ -20,7 +20,9 @@ use zolana_interface::{
 };
 use zolana_keypair::{random_blinding, random_salt, KeypairError, ShieldedKeypair, ViewingKey};
 use zolana_transaction::{
-    instructions::transact::{encode_confidential_slots, PreparedTransfer, SppProofOutputUtxo},
+    instructions::transact::{
+        encode_confidential_slots, ChangeLayout, PreparedTransfer, SppProofOutputUtxo,
+    },
     owner_utxo_hash, AssetRegistry, Data, EncryptedScheme, RingDepositPlaintext, TransactionError,
     Utxo, SOL_MINT,
 };
@@ -113,6 +115,8 @@ pub enum TransferError {
     TreeRequired,
     #[error("custom ring config does not exist")]
     MissingRingConfig,
+    #[error("transfer was prepared with padded change slots, prepare it with ConfidentialTransfer::with_compact_change")]
+    PaddedChange,
     #[error("asset registry is required")]
     MissingAssetRegistry,
     #[error("dummy output framing is invalid")]
@@ -179,13 +183,13 @@ impl<'a> AuditedTransfer<'a> {
             .read_config(environment.rpc)?
             .ok_or(TransferError::MissingRingConfig)?
             .auditor_pubkey;
-        // Two explicit outputs -- the sender's change and the recipient -- are the
-        // (2, 2) shape. `ConfidentialTransfer` first emits three outputs: a fixed
-        // SPL change slot, padded for a SOL-only transfer, plus the SOL change and
-        // recipient. The padded slot pushes the audited instruction past the packet
-        // limit even behind an address lookup table. Compaction removes that slot,
-        // and every remaining published slot is one the auditor must be able to open.
-        let mut prepared = self.prepared.compact_outputs()?;
+        // A padded change slot pushes the audited instruction past the packet
+        // limit even behind an address lookup table, and every published slot
+        // must be one the auditor can open.
+        if self.prepared.change_layout() != ChangeLayout::Compact {
+            return Err(TransferError::PaddedChange);
+        }
+        let mut prepared = self.prepared;
         let program_id = self.ring.program_id();
         for output in &mut prepared.outputs {
             output.ring_program_id = Some(program_id);
@@ -255,15 +259,11 @@ impl<'a> AuditedTransfer<'a> {
         .to_transact_proof();
 
         // Now the real `private_tx_hash` exists, so the pending encryption can be
-        // finished into a witness over the unchanged ciphertext. The program
+        // finished into the proof request over the unchanged ciphertext. The program
         // recomputes that same public-input chain from the payload and the config
         // account.
-        let audit_inputs = pending_audit_proof.finish(ring_result.private_tx_hash.try_into()?)?;
-        let audit_proof = to_instruction_proof(
-            environment
-                .prover
-                .prove_auditor_key_encryption(&audit_inputs)?,
-        )?;
+        let audit_request = pending_audit_proof.finish(ring_result.private_tx_hash.try_into()?)?;
+        let audit_proof = to_instruction_proof(environment.prover.prove(&audit_request)?)?;
 
         Ok(ProvenTransfer {
             tx_viewing_key,

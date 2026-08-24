@@ -1,6 +1,6 @@
 //! Client library for the custom ring program: instruction builders, proof-input
 //! builders, and the auditor encryption codec. Instruction data, tags, and the
-//! canonical public-input hashing are defined in `zolana-interface` so a single
+//! canonical public-input hashing are defined in `custom-ring-interface` so a single
 //! definition serves both sides.
 
 mod instructions;
@@ -8,10 +8,10 @@ mod shared;
 mod transfer;
 mod v0;
 
-pub use zolana_interface::custom_ring::{
+pub use custom_ring_interface::{
     tag, AuditProof, CreateConfigIxData, CustomRingTransactIxData, ReaderIxData, CONFIG_PDA_SEED,
     CREATE_CONFIG_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
-    READER_COMPUTE_UNIT_LIMIT, READER_RECORD_PDA_SEED,
+    READ_ACCESS_COMPUTE_UNIT_LIMIT, READ_ACCESS_RECORD_PDA_SEED, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
 };
 
 pub use zolana_ring_client::{
@@ -22,12 +22,14 @@ pub use crate::{
     instructions::{
         create_config::{CreateConfig, CreateConfigError},
         deposit::Deposit,
-        grant_reader::GrantReader,
+        grant_read_access::GrantReadAccess,
         init_spp_ring_config::InitSppRingConfig,
-        revoke_reader::RevokeReader,
+        revoke_read_access::RevokeReadAccess,
+        set_authority::SetAuthority,
         transact::{
-            to_instruction_proof, AuditProofError, AuditProofInputError, AuditProofParams,
-            EncryptedAudit, PendingAuditProof, RingTransactWithAudit,
+            to_instruction_proof, AuditPrivateTxHash, AuditProofError, AuditProofInputError,
+            AuditProofParams, AuditProofRequest, AuditPublicInputHash, EncryptedAudit,
+            PendingAuditProof, RingTransactWithAudit,
         },
     },
     shared::{AccountReadError, CustomRing, CustomRingConfig, ReaderKey, ReaderKeyError},

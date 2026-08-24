@@ -11,8 +11,8 @@ import (
 	"github.com/consensys/gnark/frontend"
 )
 
-func sampleParams() *AuditorKeyEncryptionParameters {
-	p := &AuditorKeyEncryptionParameters{
+func sampleParams() *CustomRingAuditParameters {
+	p := &CustomRingAuditParameters{
 		PublicInputHash: big.NewInt(0x1234),
 		PrivateTxHash:   big.NewInt(0xabcdef),
 	}
@@ -24,13 +24,13 @@ func sampleParams() *AuditorKeyEncryptionParameters {
 	return p
 }
 
-func TestAuditorKeyEncryptionParametersJSONRoundTrip(t *testing.T) {
+func TestCustomRingAuditParametersJSONRoundTrip(t *testing.T) {
 	p := sampleParams()
 	data, err := json.Marshal(p)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	var got AuditorKeyEncryptionParameters
+	var got CustomRingAuditParameters
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestAuditorKeyEncryptionParametersJSONRoundTrip(t *testing.T) {
 	}
 }
 
-func TestAuditorKeyEncryptionParametersWireFormat(t *testing.T) {
+func TestCustomRingAuditParametersWireFormat(t *testing.T) {
 	data, err := json.Marshal(sampleParams())
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -70,7 +70,7 @@ func TestAuditorKeyEncryptionParametersWireFormat(t *testing.T) {
 	}
 }
 
-func TestAuditorKeyEncryptionParametersRejectBadInput(t *testing.T) {
+func TestCustomRingAuditParametersRejectBadInput(t *testing.T) {
 	base, err := json.Marshal(sampleParams())
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -102,7 +102,7 @@ func TestAuditorKeyEncryptionParametersRejectBadInput(t *testing.T) {
 			if err != nil {
 				t.Fatalf("marshal: %v", err)
 			}
-			var got AuditorKeyEncryptionParameters
+			var got CustomRingAuditParameters
 			if err := json.Unmarshal(data, &got); err == nil {
 				t.Fatalf("expected an error")
 			}
@@ -110,7 +110,7 @@ func TestAuditorKeyEncryptionParametersRejectBadInput(t *testing.T) {
 	}
 }
 
-func TestAuditorKeyEncryptionParametersCreateWitness(t *testing.T) {
+func TestCustomRingAuditParametersCreateWitness(t *testing.T) {
 	assignment, err := sampleParams().CreateWitness()
 	if err != nil {
 		t.Fatalf("create assignment: %v", err)

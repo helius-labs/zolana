@@ -62,12 +62,13 @@ pub struct ConfirmedInstructionGroups {
 
 const DEFAULT_CONFIRMATION_TIMEOUT: Duration = Duration::from_secs(30);
 
-impl ConfirmedInstructionGroups {
-    pub fn from_confirmed_transaction(
-        signature: &Signature,
+impl TryFrom<EncodedConfirmedTransactionWithStatusMeta> for ConfirmedInstructionGroups {
+    type Error = ClientError;
+
+    fn try_from(
         transaction: EncodedConfirmedTransactionWithStatusMeta,
-    ) -> Result<Self, ClientError> {
-        instruction_groups_from_confirmed_transaction(signature, transaction)
+    ) -> Result<Self, Self::Error> {
+        instruction_groups_from_confirmed_transaction(transaction)
     }
 }
 
@@ -188,7 +189,8 @@ impl SolanaRpc {
         signature: &Signature,
     ) -> Result<ConfirmedInstructionGroups, ClientError> {
         let transaction = self.fetch_confirmed_transaction(signature)?;
-        instruction_groups_from_confirmed_transaction(signature, transaction)
+        instruction_groups_from_confirmed_transaction(transaction)
+            .map_err(|err| err.for_signature(signature))
     }
 
     pub fn transact_output_view_tags_from_signature(
@@ -275,7 +277,8 @@ impl AsyncSolanaRpc {
         signature: &Signature,
     ) -> Result<ConfirmedInstructionGroups, ClientError> {
         let transaction = self.fetch_confirmed_transaction(signature).await?;
-        instruction_groups_from_confirmed_transaction(signature, transaction)
+        instruction_groups_from_confirmed_transaction(transaction)
+            .map_err(|err| err.for_signature(signature))
     }
 
     pub async fn transact_output_view_tags_from_signature(
@@ -288,7 +291,6 @@ impl AsyncSolanaRpc {
 }
 
 fn instruction_groups_from_confirmed_transaction(
-    signature: &Signature,
     transaction: EncodedConfirmedTransactionWithStatusMeta,
 ) -> Result<ConfirmedInstructionGroups, ClientError> {
     let encoded = transaction.transaction;
@@ -300,9 +302,9 @@ fn instruction_groups_from_confirmed_transaction(
     let inner = match meta.inner_instructions {
         OptionSerializer::Some(inner) => inner,
         OptionSerializer::None | OptionSerializer::Skip => {
-            return Err(ClientError::Rpc(format!(
-                "transaction missing inner instructions: {signature}"
-            )));
+            return Err(ClientError::Rpc(
+                "transaction missing inner instructions".to_string(),
+            ));
         }
     };
 

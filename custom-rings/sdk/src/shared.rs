@@ -1,14 +1,15 @@
 //! Addresses the client shares across instruction builders.
 
 use bytemuck::Pod;
+use custom_ring_interface::{
+    ReadAccessRecord, RingProgramConfig, READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
+};
 use solana_address::Address;
 use thiserror::Error;
 use zolana_client::{ClientError, Rpc};
 use zolana_interface::{
-    custom_ring::{ReaderRecord, RingProgramConfig, READER_RECORD, RING_PROGRAM_CONFIG},
-    is_reserved_p256_derivation_point, pda,
-    state::RingConfig,
-    BPF_LOADER_UPGRADEABLE_ID, RING_AUTH_PDA_SEED,
+    is_reserved_p256_derivation_point, pda, state::RingConfig, BPF_LOADER_UPGRADEABLE_ID,
+    RING_AUTH_PDA_SEED,
 };
 use zolana_keypair::P256Pubkey;
 pub use zolana_ring_client::{ReaderKey, ReaderKeyError};
@@ -46,7 +47,7 @@ impl CustomRing {
         Address::find_program_address(&[RingProgramConfig::SEED], &self.program_id).0
     }
 
-    pub fn reader_record_pda(self, reader: &ReaderKey) -> Address {
+    pub fn read_access_record_pda(self, reader: &ReaderKey) -> Address {
         reader.record_address(&self.program_id)
     }
 
@@ -91,26 +92,27 @@ impl CustomRing {
         }))
     }
 
-    pub fn read_reader_record<R: Rpc>(
+    pub fn read_access_record<R: Rpc>(
         self,
         rpc: &R,
         reader: &ReaderKey,
-    ) -> Result<Option<ReaderRecord>, AccountReadError> {
-        let address = self.reader_record_pda(reader);
+    ) -> Result<Option<ReadAccessRecord>, AccountReadError> {
+        let address = self.read_access_record_pda(reader);
         let Some(record) = (AccountRead {
             rpc,
             program_id: self.program_id,
             address,
         })
-        .read::<ReaderRecord>()?
+        .read::<ReadAccessRecord>()?
         else {
             return Ok(None);
         };
         let reader_bytes = reader.to_bytes();
-        let seed_hash = ReaderRecord::seed_hash(&reader_bytes)
+        let seed_hash = ReadAccessRecord::seed_hash(&reader_bytes)
             .map_err(|_| AccountReadError::InvalidAccount { address })?;
         let bump =
-            Address::find_program_address(&[ReaderRecord::SEED, &seed_hash], &self.program_id).1;
+            Address::find_program_address(&[ReadAccessRecord::SEED, &seed_hash], &self.program_id)
+                .1;
         if record.reader != reader_bytes || record.bump != bump {
             return Err(AccountReadError::InvalidAccount { address });
         }
@@ -159,8 +161,8 @@ impl ReadableAccount for RingProgramConfig {
     }
 }
 
-impl ReadableAccount for ReaderRecord {
-    const DISCRIMINATOR: u8 = READER_RECORD;
+impl ReadableAccount for ReadAccessRecord {
+    const DISCRIMINATOR: u8 = READ_ACCESS_RECORD;
 
     fn discriminator(self) -> u8 {
         self.discriminator
@@ -201,12 +203,10 @@ impl<R: Rpc> AccountRead<'_, R> {
 
 #[cfg(test)]
 mod tests {
+    use custom_ring_interface::{ReadAccessRecord, RingProgramConfig};
     use solana_account::Account;
     use solana_pubkey::Pubkey;
-    use zolana_interface::{
-        custom_ring::{ReaderRecord, RingProgramConfig},
-        P_DERIVE_SEC1,
-    };
+    use zolana_interface::P_DERIVE_SEC1;
     use zolana_keypair::ViewingKey;
 
     use super::*;
@@ -310,14 +310,14 @@ mod tests {
     #[test]
     fn reader_read_rejects_substituted_state() {
         let reader = ReaderKey::p256(ViewingKey::new().pubkey()).expect("reader");
-        let address = ring().reader_record_pda(&reader);
+        let address = ring().read_access_record_pda(&reader);
         let reader_bytes = reader.to_bytes();
-        let seed_hash = ReaderRecord::seed_hash(&reader_bytes).expect("seed hash");
-        let value = ReaderRecord {
-            discriminator: READER_RECORD,
+        let seed_hash = ReadAccessRecord::seed_hash(&reader_bytes).expect("seed hash");
+        let value = ReadAccessRecord {
+            discriminator: READ_ACCESS_RECORD,
             reader: reader_bytes,
             bump: Address::find_program_address(
-                &[ReaderRecord::SEED, &seed_hash],
+                &[ReadAccessRecord::SEED, &seed_hash],
                 &ring().program_id(),
             )
             .1,
@@ -328,7 +328,7 @@ mod tests {
         };
         assert_eq!(
             ring()
-                .read_reader_record(&valid, &reader)
+                .read_access_record(&valid, &reader)
                 .expect("valid reader")
                 .expect("reader"),
             value
@@ -344,7 +344,7 @@ mod tests {
                 account: Some(account(&value)),
             };
             assert!(matches!(
-                ring().read_reader_record(&rpc, &reader),
+                ring().read_access_record(&rpc, &reader),
                 Err(AccountReadError::InvalidAccount { .. })
             ));
         }

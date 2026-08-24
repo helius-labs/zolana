@@ -10,7 +10,7 @@ import (
 	"zolana/prover/prover/common"
 )
 
-func ProveAuditorKeyEncryption(ps *common.Groth16ProofSystem, params *AuditorKeyEncryptionParameters) (*common.Proof, error) {
+func ProveCustomRingAudit(ps *common.RingProofSystem, params *CustomRingAuditParameters) (*common.Proof, error) {
 	assignment, err := params.CreateWitness()
 	if err != nil {
 		return nil, err

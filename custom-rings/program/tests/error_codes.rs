@@ -19,8 +19,8 @@ fn error_codes_are_stable() {
         (UnsupportedCircuit as u32, 8113),
         (UnauthorizedInitializer as u32, 8114),
         (TooManyAccounts as u32, 8115),
-        (ReaderRecordAlreadyExists as u32, 8116),
-        (InvalidReaderRecord as u32, 8117),
+        (ReadAccessRecordAlreadyExists as u32, 8116),
+        (InvalidReadAccessRecord as u32, 8117),
         (InvalidReaderKey as u32, 8118),
         (UnsupportedOutputScheme as u32, 8119),
     ];

@@ -6,8 +6,9 @@
 use curve25519_dalek::constants::{ED25519_BASEPOINT_POINT, EIGHT_TORSION};
 use custom_ring_sdk::{
     tag, AuditProof, CreateConfig, CreateConfigIxData, CustomRing, CustomRingTransactIxData,
-    Deposit, GrantReader, InitSppRingConfig, ReaderIxData, ReaderKey, ReaderKeyError, RevokeReader,
-    RingTransactWithAudit, CONFIG_PDA_SEED, READER_RECORD_PDA_SEED,
+    Deposit, GrantReadAccess, InitSppRingConfig, ReaderIxData, ReaderKey, ReaderKeyError,
+    RevokeReadAccess, RingTransactWithAudit, SetAuthority, CONFIG_PDA_SEED,
+    READ_ACCESS_RECORD_PDA_SEED,
 };
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -163,8 +164,8 @@ fn p256_reader() -> ReaderKey {
 }
 
 #[test]
-fn grant_reader_emits_the_program_account_order_and_reader() {
-    let instruction = GrantReader {
+fn grant_read_access_emits_the_program_account_order_and_reader() {
+    let instruction = GrantReadAccess {
         ring: ring(),
         payer: payer(),
         authority: authority(),
@@ -180,12 +181,12 @@ fn grant_reader_emits_the_program_account_order_and_reader() {
             AccountMeta::new(payer(), true),
             AccountMeta::new_readonly(authority(), true),
             AccountMeta::new_readonly(ring().config_pda(), false),
-            AccountMeta::new(ring().reader_record_pda(&reader()), false),
+            AccountMeta::new(ring().read_access_record_pda(&reader()), false),
             AccountMeta::new_readonly(SYSTEM_PROGRAM, false),
         ]
     );
     let (ix_tag, body) = split_tag(&instruction);
-    assert_eq!(ix_tag, tag::GRANT_READER);
+    assert_eq!(ix_tag, tag::GRANT_READ_ACCESS);
     let decoded: ReaderIxData =
         wincode::deserialize_exact(body).expect("body is a complete ReaderIxData");
     assert_eq!(decoded.reader, reader().to_bytes());
@@ -246,9 +247,9 @@ fn reserved_p256_reader_key_is_rejected() {
 }
 
 #[test]
-fn revoke_reader_emits_the_program_account_order_and_reader() {
+fn revoke_read_access_emits_the_program_account_order_and_reader() {
     let rent_recipient = Address::new_from_array([24; 32]);
-    let instruction = RevokeReader {
+    let instruction = RevokeReadAccess {
         ring: ring(),
         authority: authority(),
         reader: reader(),
@@ -263,32 +264,54 @@ fn revoke_reader_emits_the_program_account_order_and_reader() {
         vec![
             AccountMeta::new_readonly(authority(), true),
             AccountMeta::new_readonly(ring().config_pda(), false),
-            AccountMeta::new(ring().reader_record_pda(&reader()), false),
+            AccountMeta::new(ring().read_access_record_pda(&reader()), false),
             AccountMeta::new(rent_recipient, false),
         ]
     );
     let (ix_tag, body) = split_tag(&instruction);
-    assert_eq!(ix_tag, tag::REVOKE_READER);
+    assert_eq!(ix_tag, tag::REVOKE_READ_ACCESS);
     let decoded: ReaderIxData =
         wincode::deserialize_exact(body).expect("body is a complete ReaderIxData");
     assert_eq!(decoded.reader, reader().to_bytes());
 }
 
 #[test]
-fn reader_record_pda_derives_from_the_hashed_tagged_key() {
+fn set_authority_emits_both_signers_and_the_config() {
+    let new_authority = Address::new_from_array([31; 32]);
+    let instruction = SetAuthority {
+        ring: ring(),
+        authority: authority(),
+        new_authority,
+    }
+    .instruction();
+
+    assert_eq!(instruction.program_id, ring().program_id());
+    assert_eq!(
+        instruction.accounts,
+        vec![
+            AccountMeta::new_readonly(authority(), true),
+            AccountMeta::new_readonly(new_authority, true),
+            AccountMeta::new(ring().config_pda(), false),
+        ]
+    );
+    assert_eq!(instruction.data, vec![tag::SET_AUTHORITY]);
+}
+
+#[test]
+fn read_access_record_pda_derives_from_the_hashed_tagged_key() {
     use sha2::Digest;
     for key in [reader(), p256_reader()] {
         let seed_hash: [u8; 32] = sha2::Sha256::digest(key.to_bytes()).into();
         let (record, _bump) = Address::find_program_address(
-            &[READER_RECORD_PDA_SEED, &seed_hash],
+            &[READ_ACCESS_RECORD_PDA_SEED, &seed_hash],
             &ring().program_id(),
         );
-        assert_eq!(ring().reader_record_pda(&key), record);
+        assert_eq!(ring().read_access_record_pda(&key), record);
         assert_eq!(key.record_address(&ring().program_id()), record);
     }
     assert_ne!(
-        ring().reader_record_pda(&reader()),
-        ring().reader_record_pda(&p256_reader())
+        ring().read_access_record_pda(&reader()),
+        ring().read_access_record_pda(&p256_reader())
     );
 }
 

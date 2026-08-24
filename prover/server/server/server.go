@@ -1180,7 +1180,7 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 	case common.MergeRingCircuitType:
 		return handler.mergeRingProof(buf)
 	case common.CustomRingAuditCircuitType:
-		return handler.auditorKeyEncryptionProof(buf)
+		return handler.customRingAuditProof(buf)
 	default:
 		return nil, malformedBodyError(fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType))
 	}
@@ -1228,18 +1228,18 @@ func (handler proveHandler) mergeRingProof(buf []byte) (*common.Proof, *Error) {
 	return proof, nil
 }
 
-func (handler proveHandler) auditorKeyEncryptionProof(buf []byte) (*common.Proof, *Error) {
-	var params customring.AuditorKeyEncryptionParameters
+func (handler proveHandler) customRingAuditProof(buf []byte) (*common.Proof, *Error) {
+	var params customring.CustomRingAuditParameters
 	if err := json.Unmarshal(buf, &params); err != nil {
 		return nil, malformedBodyError(err)
 	}
 
-	ps, err := handler.keyManager.GetGroth16System(common.CustomRingAuditCircuitType, customring.TransferVariant)
+	ps, err := handler.keyManager.GetRingSystem(common.CustomRingAuditCircuitType, customring.TransferVariant)
 	if err != nil {
-		return nil, provingError(fmt.Errorf("auditor-key-encryption: %w", err))
+		return nil, provingError(fmt.Errorf("custom-ring-audit: %w", err))
 	}
 
-	proof, err := customring.ProveAuditorKeyEncryption(ps, &params)
+	proof, err := customring.ProveCustomRingAudit(ps, &params)
 	if err != nil {
 		return nil, provingError(errors.New("custom ring audit proof failed"))
 	}

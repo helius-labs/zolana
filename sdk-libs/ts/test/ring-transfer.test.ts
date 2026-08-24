@@ -80,7 +80,7 @@ function preparedTransfer(
     sender.address,
     [input],
     sender.address.solanaAddress(),
-  );
+  ).withCompactChange();
   transfer.send(recipient.address, SOL_MINT, amount);
   others.forEach((other, index) => transfer.send(actor(5 + index).address, SOL_MINT, other));
   return { prepared: transfer.prepare(), sender, recipient };
@@ -92,7 +92,7 @@ async function auditedProofInputs(
   others: readonly bigint[] = [],
 ): Promise<Readonly<{ proofInputs: SppProofInputs; recipient: ReturnType<typeof actor> }>> {
   const { prepared, sender, recipient } = preparedTransfer(amount, others);
-  const ring = prepared.compactOutputs().withZoneProgramId(RING);
+  const ring = prepared.withZoneProgramId(RING);
   const encrypted = await sender.authority.encryptAuditedTransfer({
     firstNullifier: ring.firstNullifier,
     outputs: ring.outputs,
@@ -129,29 +129,49 @@ function indexed(proofInputs: SppProofInputs): IndexedShieldedTransaction {
   };
 }
 
-describe("compactOutputs", () => {
-  it("removes unused change slots like Rust `compact_outputs_remove_unused_change_slots`", () => {
-    const prepared = preparedTransfer(4n).prepared;
-    expect(prepared.senderOutputCount).toBe(2);
-    expect(prepared.outputs).toHaveLength(3);
-    const compact = prepared.compactOutputs();
+describe("withCompactChange", () => {
+  it("removes unused change slots like Rust `compact_change_removes_unused_change_slots`", () => {
+    const compact = preparedTransfer(4n).prepared;
+    expect(compact.changeLayout).toBe("compact");
     expect(compact.shape).toEqual({ inputs: 1, outputs: 2 });
     expect(compact.outputs.map((output) => output.amount)).toEqual([6n, 4n]);
     expect(compact.senderOutputCount).toBe(1);
-    const again = compact.compactOutputs();
-    expect(again.outputs.map((output) => output.amount)).toEqual([6n, 4n]);
-    expect(again.senderOutputCount).toBe(1);
   });
 
-  it("keeps only the recipient after a full spend like Rust `compact_outputs_keep_only_recipient_after_full_spend`", () => {
-    const compact = preparedTransfer(10n).prepared.compactOutputs();
+  it("keeps only the recipient after a full spend like Rust `compact_change_keeps_only_the_recipient_after_a_full_spend`", () => {
+    const compact = preparedTransfer(10n).prepared;
     expect(compact.shape).toEqual({ inputs: 1, outputs: 1 });
     expect(compact.outputs.map((output) => output.amount)).toEqual([10n]);
     expect(compact.senderOutputCount).toBe(0);
   });
 
+  it("keeps both slots under the padded default like Rust `padded_change_keeps_both_slots`", () => {
+    const sender = actor(3);
+    const recipient = actor(4);
+    const input = new ProofInputUtxo({
+      utxo: new Utxo({
+        owner: sender.keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 10n,
+        blinding: scalar(6),
+        zoneProgramId: RING,
+      }),
+      nullifierKey: sender.keypair.nullifierKey(),
+    });
+    const transfer = new ConfidentialTransfer(
+      sender.address,
+      [input],
+      sender.address.solanaAddress(),
+    );
+    transfer.send(recipient.address, SOL_MINT, 4n);
+    const padded = transfer.prepare();
+    expect(padded.changeLayout).toBe("padded");
+    expect(padded.senderOutputCount).toBe(2);
+    expect(padded.outputs).toHaveLength(3);
+  });
+
   it("binds every output to the ring", () => {
-    const ring = preparedTransfer(4n).prepared.compactOutputs().withZoneProgramId(RING);
+    const ring = preparedTransfer(4n).prepared.withZoneProgramId(RING);
     expect(ring.outputs.every((output) => output.zoneProgramId === RING)).toBe(true);
   });
 });

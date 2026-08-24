@@ -21,6 +21,8 @@ members = [
     "bench/tree",
     "cli",
     "custom-rings/cli",
+    "custom-rings/client",
+    "custom-rings/interface",
     "custom-rings/program",
     "custom-rings/sdk",
     "custom-rings/test",
@@ -31,7 +33,6 @@ members = [
     "sdk-libs/smart-account-client",
     "sdk-libs/zolana-api",
     "sdk-libs/program-test",
-    "sdk-libs/ring-client",
     "sdk-libs/transaction",
     "sdk-libs/wallet",
     "services/photon",
@@ -80,7 +81,8 @@ zolana-program-test = { path = "sdk-libs/program-test", version = "0.23.0" }
 zolana-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }
 zolana-wallet = { path = "sdk-libs/wallet", version = "0.1.0" }
 zolana-client = { path = "sdk-libs/client", version = "0.1.0" }
-zolana-ring-client = { path = "sdk-libs/ring-client", version = "0.1.0" }
+custom-ring-interface = { path = "custom-rings/interface", version = "0.1.0" }
+zolana-ring-client = { path = "custom-rings/client", version = "0.1.0" }
 zolana-indexer-api = { path = "sdk-libs/indexer-api", version = "0.1.0" }
 zolana-merkle-tree = { path = "sdk-libs/merkle-tree", version = "4.0.0" }
 zolana-smart-account-client = { path = "sdk-libs/smart-account-client", version = "0.1.0" }

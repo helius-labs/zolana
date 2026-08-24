@@ -41,7 +41,7 @@ The response `cursor` is opaque and goes back in the next request. It is present
 
 The read authorization contains a canonical reader key, Unix timestamp, random nonce, and signature. The signature binds the ring, timestamp, nonce, cursor, and limit. Ed25519 readers sign the attestation bytes. P256 readers use WebAuthn with user verification.
 
-Only a canonical reader record grants access. The config authority has no implicit access. The onchain auditor public key must match the auditor key held by Ring RPC.
+Only a canonical read access record grants access. The config authority has no implicit access. The onchain auditor public key must match the auditor key held by Ring RPC.
 
 Allowed WebAuthn origins need an explicit RP ID. The RP ID can be the origin host or a valid parent domain. Cross origin assertions are rejected.
 

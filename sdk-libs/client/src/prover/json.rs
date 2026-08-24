@@ -1,15 +1,10 @@
 use num_bigint::BigUint;
-use p256::elliptic_curve::sec1::ToEncodedPoint;
 use serde::Serialize;
-use zeroize::Zeroizing;
 use zolana_transaction::ProofInputUtxo;
 
-use crate::{
-    error::ClientError,
-    prover::inputs::{
-        AuditorKeyEncryptionWitness, BatchAddressAppendInputs, MergeInputs, TransferInput,
-        TransferInputs, TransferOutput, TransferP256Inputs,
-    },
+use crate::prover::inputs::{
+    BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
+    TransferP256Inputs,
 };
 
 fn big_uint_to_string(value: &BigUint) -> String {
@@ -18,13 +13,6 @@ fn big_uint_to_string(value: &BigUint) -> String {
 
 fn fe_to_string(bytes: &[u8; 32]) -> String {
     big_uint_to_string(&BigUint::from_bytes_be(bytes))
-}
-
-fn bytes_to_hex(bytes: &[u8]) -> String {
-    bytes.iter().fold(String::from("0x"), |mut out, byte| {
-        out.push_str(&format!("{byte:02x}"));
-        out
-    })
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -526,105 +514,6 @@ pub(crate) fn to_json_p256_ring(inputs: &TransferP256Inputs) -> String {
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
     };
     serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
-}
-
-struct SecretHex<'a>(&'a [u8]);
-
-impl Serialize for SecretHex<'_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let encoded = Zeroizing::new(bytes_to_hex(self.0));
-        serializer.serialize_str(&encoded)
-    }
-}
-
-#[derive(Serialize)]
-struct AuditorKeyEncryptionWitnessJson<'a> {
-    #[serde(rename = "circuitType")]
-    circuit_type: &'static str,
-    variant: &'static str,
-    #[serde(rename = "publicInputHash")]
-    public_input_hash: String,
-    #[serde(rename = "privateTxHash")]
-    private_tx_hash: String,
-    #[serde(rename = "txViewingSk")]
-    tx_viewing_sk: SecretHex<'a>,
-    #[serde(rename = "ephSk")]
-    eph_sk: SecretHex<'a>,
-    #[serde(rename = "auditorPk")]
-    auditor_pk: String,
-}
-
-pub(crate) fn to_json_auditor_key_encryption(
-    inputs: &AuditorKeyEncryptionWitness,
-) -> Result<Zeroizing<String>, ClientError> {
-    let tx_viewing_secret = inputs.tx_viewing_key.secret_bytes();
-    let ephemeral_secret = inputs.ephemeral_key.secret_bytes();
-    let auditor_key = inputs
-        .auditor_key
-        .to_p256()
-        .map_err(|_| ClientError::Prover("invalid audit public key".to_string()))?;
-    let auditor_pk = auditor_key.to_encoded_point(false);
-    let json = AuditorKeyEncryptionWitnessJson {
-        circuit_type: "custom-ring-audit",
-        variant: "transfer",
-        public_input_hash: bytes_to_hex(inputs.public_input_hash.as_ref()),
-        private_tx_hash: bytes_to_hex(inputs.private_tx_hash.as_ref()),
-        tx_viewing_sk: SecretHex(tx_viewing_secret.as_slice()),
-        eph_sk: SecretHex(ephemeral_secret.as_slice()),
-        auditor_pk: bytes_to_hex(auditor_pk.as_bytes()),
-    };
-    serde_json::to_string(&json)
-        .map(Zeroizing::new)
-        .map_err(|_| ClientError::Prover("audit request serialization failed".to_string()))
-}
-
-#[cfg(test)]
-mod auditor_key_encryption_tests {
-    use zolana_keypair::ViewingKey;
-
-    use super::*;
-
-    #[test]
-    fn auditor_key_encryption_json_matches_the_server_wire_format() {
-        let tx_viewing_key = ViewingKey::from_bytes(&[2u8; 32]).expect("valid key");
-        let ephemeral_key = ViewingKey::from_bytes(&[3u8; 32]).expect("valid key");
-        let auditor_key = ViewingKey::from_bytes(&[4u8; 32]).expect("valid key");
-        let inputs = AuditorKeyEncryptionWitness {
-            public_input_hash: [0u8; 32].try_into().expect("canonical field"),
-            private_tx_hash: [1u8; 32].try_into().expect("canonical field"),
-            tx_viewing_key,
-            ephemeral_key,
-            auditor_key: auditor_key.pubkey(),
-        };
-        let encoded = to_json_auditor_key_encryption(&inputs).expect("valid json");
-        let value: serde_json::Value = serde_json::from_str(&encoded).expect("valid json");
-        let object = value.as_object().expect("object");
-
-        let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
-        keys.sort_unstable();
-        assert_eq!(
-            keys,
-            [
-                "auditorPk",
-                "circuitType",
-                "ephSk",
-                "privateTxHash",
-                "publicInputHash",
-                "txViewingSk",
-                "variant",
-            ]
-        );
-        assert_eq!(value["circuitType"], "custom-ring-audit");
-        assert_eq!(value["variant"], "transfer");
-        assert_eq!(value["publicInputHash"], format!("0x{}", "00".repeat(32)));
-        assert_eq!(value["privateTxHash"], format!("0x{}", "01".repeat(32)));
-        assert_eq!(value["txViewingSk"], format!("0x{}", "02".repeat(32)));
-        assert_eq!(value["ephSk"], format!("0x{}", "03".repeat(32)));
-        assert_eq!(value["auditorPk"].as_str().expect("public key").len(), 132);
-    }
 }
 
 #[cfg(test)]

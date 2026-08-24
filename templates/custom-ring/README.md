@@ -82,8 +82,10 @@ that pins a key the service does not hold can never be read through it. On
 devnet `just pipeline` asks the service about this ring before `init` runs.
 
 After `init` the authority may move. `authority transfer <pubkey>` hands the
-program to another key, then point `authority_keypair` in `ring.toml` at its
-keypair. `authority renounce --yes` makes the program immutable.
+program to another key, and `authority transfer-config <keypair>` hands the
+ring config authority over, signed by the old and the new key. After both
+handovers point `authority_keypair` in `ring.toml` at the new keypair.
+`authority renounce --yes` makes the program immutable.
 
 `just rpc` serves the auditor's view from `keys/auditor.key`; against a hosted
 ring RPC it refuses, that service already serves the ring. `just pipeline`

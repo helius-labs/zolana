@@ -241,7 +241,7 @@ register_prover() {
              command: ["sh", "-c", ($script + "\nchown -R 65532:65532 /keys")], logConfiguration: logs("fetch")},
             {name: "convert", image: $image, essential: false, mountPoints: keys,
              dependsOn: [{containerName: "fetch", condition: "SUCCESS"}],
-             command: ["convert-auditor-key-encryption", "--pk", "/keys/auditor_key_encryption_pk.bin",
+             command: ["convert-custom-ring-audit", "--pk", "/keys/auditor_key_encryption_pk.bin",
                        "--vk", "/keys/auditor_key_encryption_vk.bin", "--output", "/keys/custom_ring_audit_transfer.key"],
              logConfiguration: logs("convert")},
             {name: "prover", image: $image, essential: true, mountPoints: keys,

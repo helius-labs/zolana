@@ -570,6 +570,9 @@ export const WithdrawalTarget = Object.freeze({
   },
 });
 
+/** Whether `prepare` keeps a change slot holding no value. */
+export type ChangeLayout = "padded" | "compact";
+
 export interface PreparedTransfer {
   readonly owner: ShieldedAddress;
   readonly inputs: readonly ProofInputUtxo[];
@@ -580,8 +583,8 @@ export interface PreparedTransfer {
   readonly interfaceTransfers: readonly SettlementTransfer[];
   /** Leading outputs the sender owns, Rust `PreparedOutputLayout::sender_output_count`. */
   readonly senderOutputCount: number;
-  /** Mirrors Rust `compact_outputs`, drops the change slots a transfer leaves empty. */
-  compactOutputs(): PreparedTransfer;
+  /** Mirrors Rust `ChangeLayout`. */
+  readonly changeLayout: ChangeLayout;
   /** Every output joins the ring, without it a note leaves as a default-ring note. */
   withZoneProgramId(zoneProgramId: Address): PreparedTransfer;
   /** Ring transacts bind the auditor message and the `RING_TRANSACT` tag into the external data hash. */
@@ -612,6 +615,7 @@ export class ConfidentialTransfer {
   readonly #blindingSeed = randomBlinding();
   #withdrawal?: Readonly<{ asset: Address; amount: bigint; target: WithdrawalTarget }>;
   #shape?: Shape;
+  #changeLayout: ChangeLayout = "padded";
 
   constructor(owner: ShieldedAddress, inputs: readonly ProofInputUtxo[], feePayer: Address) {
     if (inputs.length === 0) throw new TransactionError("TRANSACTION_NO_INPUTS");
@@ -642,12 +646,14 @@ export class ConfidentialTransfer {
     this.#payer = feePayer;
   }
 
+  /** Mirrors Rust `ConfidentialTransfer::with_compact_change`. */
+  withCompactChange(): this {
+    this.#changeLayout = "compact";
+    return this;
+  }
+
   withShape(shape: Shape): this {
-    this.#shape = resolveShape(
-      this.#inputs.length,
-      SENDER_SLOT_COUNT + this.#recipients.length,
-      shape,
-    );
+    this.#shape = shape;
     return this;
   }
 
@@ -710,33 +716,50 @@ export class ConfidentialTransfer {
       }
       return result;
     };
-    const outputs: ProofOutputUtxo[] = [
-      splAsset && change(splAsset, publicSpl) > 0n
-        ? createProofOutput({
-            ownerAddress: this.#owner,
-            asset: splAsset,
-            amount: change(splAsset, publicSpl),
-            blinding: deriveBlinding(this.#blindingSeed, 0),
-          })
-        : createProofOutput({
-            asset: ZERO_ADDRESS,
-            amount: 0n,
-            blinding: deriveBlinding(this.#blindingSeed, 0),
-            ownerTag: this.#owner.confidentialViewTag(),
-          }),
-      change(ZERO_ADDRESS, publicSol) > 0n
-        ? createProofOutput({
-            ownerAddress: this.#owner,
-            asset: ZERO_ADDRESS,
-            amount: change(ZERO_ADDRESS, publicSol),
-            blinding: deriveBlinding(this.#blindingSeed, 1),
-          })
-        : createProofOutput({
-            asset: ZERO_ADDRESS,
-            amount: 0n,
-            blinding: deriveBlinding(this.#blindingSeed, 1),
-            ownerTag: this.#owner.confidentialViewTag(),
-          }),
+    const splChange = splAsset ? change(splAsset, publicSpl) : 0n;
+    const solChange = change(ZERO_ADDRESS, publicSol);
+    // Change blindings stay bound to their fixed positions, matching Rust.
+    const outputs: ProofOutputUtxo[] = [];
+    if (splAsset && splChange > 0n) {
+      outputs.push(
+        createProofOutput({
+          ownerAddress: this.#owner,
+          asset: splAsset,
+          amount: splChange,
+          blinding: deriveBlinding(this.#blindingSeed, 0),
+        }),
+      );
+    } else if (this.#changeLayout === "padded") {
+      outputs.push(
+        createProofOutput({
+          asset: ZERO_ADDRESS,
+          amount: 0n,
+          blinding: deriveBlinding(this.#blindingSeed, 0),
+          ownerTag: this.#owner.confidentialViewTag(),
+        }),
+      );
+    }
+    if (solChange > 0n) {
+      outputs.push(
+        createProofOutput({
+          ownerAddress: this.#owner,
+          asset: ZERO_ADDRESS,
+          amount: solChange,
+          blinding: deriveBlinding(this.#blindingSeed, 1),
+        }),
+      );
+    } else if (this.#changeLayout === "padded") {
+      outputs.push(
+        createProofOutput({
+          asset: ZERO_ADDRESS,
+          amount: 0n,
+          blinding: deriveBlinding(this.#blindingSeed, 1),
+          ownerTag: this.#owner.confidentialViewTag(),
+        }),
+      );
+    }
+    const senderOutputCount = outputs.length;
+    outputs.push(
       ...this.#recipients.map((recipient, index) =>
         createProofOutput({
           ownerAddress: recipient.address,
@@ -745,7 +768,7 @@ export class ConfidentialTransfer {
           blinding: deriveBlinding(this.#blindingSeed, index + SENDER_SLOT_COUNT),
         }),
       ),
-    ];
+    );
     const shape = resolveShape(this.#inputs.length, outputs.length, this.#shape);
     // Padding belongs to `finalize`, where Rust does it: the slots handed to an
     // authority for encryption are the real outputs only.
@@ -784,7 +807,8 @@ export class ConfidentialTransfer {
       shape,
       payer: this.#payer,
       interfaceTransfers: Object.freeze(interfaceTransfers),
-      senderOutputCount: SENDER_SLOT_COUNT,
+      senderOutputCount,
+      changeLayout: this.#changeLayout,
     });
   }
 
@@ -806,17 +830,13 @@ export class ConfidentialTransfer {
   }
 }
 
-type PreparedTransferFields = Omit<
-  PreparedTransfer,
-  "finalize" | "compactOutputs" | "withZoneProgramId"
->;
+type PreparedTransferFields = Omit<PreparedTransfer, "finalize" | "withZoneProgramId">;
 
 function preparedTransfer(fields: PreparedTransferFields): PreparedTransfer {
   return Object.freeze({
     ...fields,
     finalize: (encrypted: Parameters<PreparedTransfer["finalize"]>[0]): SppProofInputs =>
       finalizeTransfer(fields, encrypted),
-    compactOutputs: (): PreparedTransfer => compactOutputs(fields),
     withZoneProgramId: (zoneProgramId: Address): PreparedTransfer =>
       preparedTransfer({
         ...fields,
@@ -824,20 +844,6 @@ function preparedTransfer(fields: PreparedTransferFields): PreparedTransfer {
           fields.outputs.map((output) => output.withZoneProgramId(zoneProgramId)),
         ),
       }),
-  });
-}
-
-function compactOutputs(fields: PreparedTransferFields): PreparedTransfer {
-  if (fields.senderOutputCount !== SENDER_SLOT_COUNT) return preparedTransfer(fields);
-  const [splChange, solChange, ...recipients] = fields.outputs;
-  if (!splChange || !solChange) throw new TransactionError("TRANSACTION_MISSING_OUTPUT");
-  const changes = [splChange, solChange].filter((output) => !output.isDummy());
-  const outputs = Object.freeze([...changes, ...recipients]);
-  return preparedTransfer({
-    ...fields,
-    outputs,
-    senderOutputCount: changes.length,
-    shape: canonicalShape(fields.inputs.length, outputs.length),
   });
 }
 

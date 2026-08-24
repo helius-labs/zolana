@@ -4,11 +4,11 @@
 //! keystream, and that the split across the two calls puts `private_tx_hash` on
 //! the `finish` side alone.
 
+use custom_ring_interface::AuditPublicInput;
 use custom_ring_sdk::{
     to_instruction_proof, AuditProofError, AuditProofParams, AuditorMessage, EncryptedAudit,
 };
 use zolana_client::Proof;
-use zolana_interface::custom_ring::AuditPublicInput;
 use zolana_keypair::{P256Pubkey, ViewingKey};
 
 /// The `custom-rings/sdk/tests/go_vectors.rs` fixture, which is the Go

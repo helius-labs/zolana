@@ -27,7 +27,7 @@ import {
   type TransactionOrigin,
 } from "../src/ring/origin.js";
 
-// Mirrors sdk-libs/ring-client/tests/origin.rs.
+// Mirrors custom-rings/client/tests/origin.rs.
 const RING = address("zYYvj4LTBF4Lz2FBhDaAbJ7CsVWvHjyanxQJPmN2dSU");
 const OTHER = address("ComputeBudget111111111111111111111111111111");
 const POOL = SHIELDED_POOL_PROGRAM_ID;

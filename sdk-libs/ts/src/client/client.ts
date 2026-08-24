@@ -48,7 +48,7 @@ import { assemble } from "./prover/assembly.js";
 import { ProverClient, type AsyncPollConfig, type ProverHealth } from "./prover/client.js";
 import { assembleMerge } from "./prover/merge.js";
 import { compressProof } from "./prover/proof.js";
-import type { AuditorKeyEncryptionInputs } from "./prover/types.js";
+import type { AuditProofRequest } from "./prover/types.js";
 import {
   DEFAULT_INDEXER_RPC_CONFIG,
   indexerPollTimeout,
@@ -582,12 +582,12 @@ export class ZolanaClient {
     }
   }
 
-  async proveAuditorKeyEncryption(
-    inputs: AuditorKeyEncryptionInputs,
+  async proveCustomRingAudit(
+    inputs: AuditProofRequest,
     context?: RequestContext,
   ): Promise<Uint8Array> {
     try {
-      const proof = await this.#prover.proveAuditorKeyEncryption(inputs, context);
+      const proof = await this.#prover.proveCustomRingAudit(inputs, context);
       return compressProof(proof).toAuditProof();
     } catch (cause) {
       throw fromClientCause(cause);

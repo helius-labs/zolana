@@ -96,6 +96,8 @@ pub enum Service {
 pub enum AuthorityCommand {
     /// Hand the program to another key, then update `authority_keypair` in ring.toml.
     Transfer { new_authority: Address },
+    /// Hand the ring config authority to another keypair, both keys sign.
+    TransferConfig { new_authority_keypair: PathBuf },
     /// Make the program immutable, irreversible.
     Renounce {
         /// Confirms the irreversible step.
