@@ -239,6 +239,30 @@ func TestPrivateTxHashChangesWithBlinding(t *testing.T) {
 	}
 }
 
+func TestPrivateTxHashBlindingBreaksCandidateOracle(t *testing.T) {
+	candidates := []*big.Int{fe(11), fe(13)}
+	inputs := []*big.Int{candidates[0], fe(0)}
+	outputs := []*big.Int{fe(21), fe(22)}
+	addresses := []*big.Int{fe(0), fe(0)}
+	externalDataHash := fe(31)
+	blinding := fe(32)
+
+	published := mustPrivateTxHash(t, inputs, outputs, addresses, externalDataHash, blinding)
+	outputChain := mustHashChain(t, outputs)
+	addressChain := mustHashChain(t, addresses)
+	for i, candidate := range candidates {
+		legacyGuess := mustPoseidon(t, 5, []*big.Int{
+			mustHashChain(t, []*big.Int{candidate, fe(0)}),
+			outputChain,
+			addressChain,
+			externalDataHash,
+		})
+		if published.Cmp(legacyGuess) == 0 {
+			t.Fatalf("candidate %d matched private transaction hash without the blinding", i)
+		}
+	}
+}
+
 func TestHashRejectsInvalidFieldElements(t *testing.T) {
 	if _, err := HashChain([]*big.Int{nil}); err == nil {
 		t.Fatal("expected nil hash-chain input to fail")
