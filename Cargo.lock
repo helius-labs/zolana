@@ -1981,6 +1981,7 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-ring-client",
+ "zolana-ring-rpc",
  "zolana-transaction",
 ]
 
@@ -11138,29 +11139,23 @@ dependencies = [
 name = "zolana-ring-client"
 version = "0.1.0"
 dependencies = [
- "base64",
  "borsh",
  "bs58",
  "curve25519-dalek 4.1.3",
  "custom-ring-interface",
  "hex",
- "libc",
  "p256",
- "rand 0.8.7",
- "serde",
  "serde_json",
  "sha2 0.10.9",
  "solana-address 2.6.1",
  "solana-commitment-config",
  "solana-rpc-client-api",
  "solana-signature",
- "solana-signer",
  "solana-transaction-status-client-types",
  "thiserror 2.0.18",
  "zeroize",
  "zolana-client",
  "zolana-event",
- "zolana-indexer-api",
  "zolana-interface",
  "zolana-keypair",
  "zolana-ring-client",

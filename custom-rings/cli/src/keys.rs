@@ -1,7 +1,7 @@
 //! `auditor-key`, the key file a local ring rpc serves.
 
 use thiserror::Error;
-use zolana_ring_client::keyfile::{write_auditor_key, KeyAccess, KeyFile, KeyFileError};
+use zolana_ring_rpc::{write_auditor_key, KeyAccess, KeyFile, KeyFileError};
 
 use crate::AuditorKeyArgs;
 

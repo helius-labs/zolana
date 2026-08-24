@@ -30,7 +30,6 @@ use crate::{
         GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS, RING_STATUS,
     },
     audit::{AuditRead, PageOptions},
-    error::RingRpcError,
     hub::Hub,
     origins::{OriginError, Origins},
     upstream::{DepositPage, TransactionSource},
@@ -156,9 +155,7 @@ pub fn rpc_module<S: TransactionSource + 'static>(
             .ring_deposits(DepositPage {
                 ring: service.ring(),
                 limit: request.page_limit(),
-                before: request
-                    .before()
-                    .map_err(|_| ErrorObjectOwned::from(RingRpcError::InvalidPage))?,
+                before: request.before().map_err(ErrorObjectOwned::from)?,
             })
             .await
             .map_err(ErrorObjectOwned::from)?;
