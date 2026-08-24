@@ -1,12 +1,23 @@
 use light_program_profiler::profile;
 use pinocchio::{AccountView, ProgramResult};
 use wincode::{SchemaRead, SchemaWrite};
-use zolana_interface::instruction::instruction_data::transact::TransactIxData;
+use zolana_interface::{
+    event::MessageData,
+    instruction::{
+        instruction_data::transact::{
+            CircuitId, ExternalDataHash, OwnerTag, ResolvedOutput, TransactIxData,
+        },
+        tag::TRANSACT,
+    },
+    N_PUBLIC_SLOTS,
+};
 
 use crate::{
     error::CompressionError,
-    instructions::shared::{
-        cpi_spp_transact_signed, validate_transact, Transition, TransitionAccounts,
+    instructions::shared::{cpi_spp_transact_signed, private_tx_hash, TransitionAccounts},
+    state::{
+        derive_address, derive_blinding, derive_state, nullifier, plaintext_payload,
+        state_utxo_hash,
     },
 };
 
@@ -33,16 +44,77 @@ pub fn process_update_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     let parsed = TransitionAccounts::validate_and_parse(accounts)?;
     let authority = *parsed.authority.address();
     let (pda, bump) = (parsed.pda, parsed.bump);
-    validate_transact(
-        &authority,
-        &pda,
-        &Transition {
-            old: Some((old_value, old_blinding)),
-            new_value,
-            output_seed,
-        },
-        &transact,
+
+    if transact.expiry_unix_ts != u64::MAX
+        || transact.circuit != CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8)
+        || transact.tx_viewing_pk != [0u8; 33]
+        || transact.salt != [0u8; 16]
+        || !transact.interface_transfers.is_empty()
+        || transact.data_hash.is_some()
+        || transact.ring_data_hash.is_some()
+        || !transact.messages.is_empty()
+    {
+        return Err(CompressionError::InvalidTransact.into());
+    }
+    let [input] = transact.inputs.as_slice() else {
+        return Err(CompressionError::InvalidTransact.into());
+    };
+    let [output] = transact.outputs.as_slice() else {
+        return Err(CompressionError::InvalidTransact.into());
+    };
+    let Some(output_data) = output.data.as_deref() else {
+        return Err(CompressionError::InvalidTransact.into());
+    };
+
+    let pda_bytes = pda.to_bytes();
+    let address = derive_address(&pda_bytes)?;
+    let state = derive_state(&address.address, authority.as_array(), new_value)?;
+    let output_blinding = derive_blinding(&output_seed)?;
+    let expected_output_hash =
+        state_utxo_hash(&address.owner_hash, &state.data_hash, &output_blinding)?;
+    if output.utxo_hash != expected_output_hash || output.owner_tag != OwnerTag::Inline(pda_bytes) {
+        return Err(CompressionError::InvalidState.into());
+    }
+    let expected_payload = plaintext_payload(&pda_bytes, &state.state_data, output_seed)?;
+    if output_data != expected_payload.as_slice() {
+        return Err(CompressionError::InvalidState.into());
+    }
+
+    let resolved_output = [ResolvedOutput {
+        utxo_hash: &output.utxo_hash,
+        owner_tag: pda_bytes,
+        data: Some(output_data),
+    }];
+    let messages: &[MessageData] = &[];
+    let external_data_hash = ExternalDataHash {
+        spp_instruction_discriminator: TRANSACT,
+        expiry_unix_ts: transact.expiry_unix_ts,
+        interface_transfers: &[],
+        data_hash: None,
+        ring_data_hash: None,
+        tx_viewing_pk: &transact.tx_viewing_pk,
+        salt: &transact.salt,
+        outputs: &resolved_output,
+        messages,
+    }
+    .hash()
+    .map_err(|_| CompressionError::HashingFailed)?;
+
+    let old_state = derive_state(&address.address, authority.as_array(), old_value)?;
+    let old_hash = state_utxo_hash(&address.owner_hash, &old_state.data_hash, &old_blinding)?;
+    let expected_nullifier = nullifier(&old_hash, &old_blinding)?;
+    if input.nullifier_hash != expected_nullifier {
+        return Err(CompressionError::InvalidAddress.into());
+    }
+    let expected_private_tx = private_tx_hash(
+        old_hash,
+        expected_output_hash,
+        [0u8; 32],
+        &external_data_hash,
     )?;
+    if transact.private_tx_hash != expected_private_tx {
+        return Err(CompressionError::InvalidTransact.into());
+    }
 
     let transact_bytes = transact
         .serialize()
