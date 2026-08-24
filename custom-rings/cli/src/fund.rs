@@ -32,14 +32,8 @@ pub enum FundError {
     Client(Box<ClientError>),
 }
 
-impl From<ClientError> for FundError {
-    fn from(error: ClientError) -> Self {
-        Self::Client(Box::new(error))
-    }
-}
-
-/// Rechecks as long as the operator answers, so a pipeline resumes where it
-/// stopped. Without a terminal it fails instead of hanging.
+/// Rechecks as long as the operator answers, without a terminal it fails
+/// instead of hanging.
 pub fn wait_for_balance<R: Rpc>(
     rpc: &R,
     authority: Address,

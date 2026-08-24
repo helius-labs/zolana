@@ -13,7 +13,22 @@ use zolana_interface::{
     BPF_LOADER_UPGRADEABLE_PUBKEY, RING_AUTH_PDA_SEED, SHIELDED_POOL_PROGRAM_ID,
 };
 
-const SBF_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/deploy");
+/// Nearest ancestor `target/deploy`, the program crate sits one level deeper in
+/// zolana than in a generated ring.
+fn sbf_dir() -> String {
+    let mut dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    loop {
+        let candidate = dir.join("target/deploy");
+        if candidate.is_dir() {
+            return candidate.to_string_lossy().into_owned();
+        }
+        assert!(
+            dir.pop(),
+            "no target/deploy above {}",
+            env!("CARGO_MANIFEST_DIR")
+        );
+    }
+}
 
 pub struct Slot {
     pub label: &'static str,
@@ -118,7 +133,7 @@ impl Fixture {
 
 pub fn setup_mollusk() -> (Mollusk, Pubkey) {
     let (mut mollusk, program_id) = zolana_test_utils::mollusk::mollusk_with_program(
-        SBF_DIR,
+        &sbf_dir(),
         *program_id().as_array(),
         "custom_ring_program",
     );

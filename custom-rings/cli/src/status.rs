@@ -8,7 +8,7 @@ use zolana_client::{ClientError, Rpc, SolanaRpc};
 use crate::{
     config::{RingConfig, Target},
     deploy::{read_program_data, DeployError},
-    Context,
+    line, Context,
 };
 
 const EXPLORER: &str = "https://explorer.solana.com/address";
@@ -18,35 +18,38 @@ pub enum StatusError {
     #[error(transparent)]
     Client(Box<ClientError>),
     #[error(transparent)]
-    Deploy(#[from] DeployError),
+    Deploy(Box<DeployError>),
     #[error(transparent)]
     AccountRead(#[from] AccountReadError),
 }
 
-impl From<ClientError> for StatusError {
-    fn from(error: ClientError) -> Self {
-        Self::Client(Box::new(error))
+impl From<DeployError> for StatusError {
+    fn from(error: DeployError) -> Self {
+        Self::Deploy(Box::new(error))
     }
 }
 
 pub fn run(ctx: &Context) {
     let config = &ctx.config;
-    println!("ring        {}", config.name);
-    println!("target      {}", config.target.as_str());
-    println!("program id  {}", config.program_id);
+    line("ring", &config.name);
+    line("target", config.target.as_str());
+    line("program id", config.program_id);
     match config.authority() {
-        Ok(authority) => println!("authority   {}", authority.pubkey()),
-        Err(error) => println!("authority   unavailable ({error})"),
+        Ok(authority) => line("authority", authority.pubkey()),
+        Err(error) => line("authority", format_args!("unavailable ({error})")),
     }
-    println!("rpc         {}", config.urls().rpc);
-    println!("indexer     {}", config.urls().indexer);
-    println!("prover      {}", config.urls().prover);
-    println!("ring rpc    {}", config.urls().ring_rpc);
+    line("rpc", &config.urls().rpc);
+    line("indexer", &config.urls().indexer);
+    line("prover", &config.urls().prover);
+    line("ring rpc", &config.urls().ring_rpc);
     let features: Vec<&str> = config.enabled_features().collect();
-    println!("features    {}", features.join(", "));
+    line("features", features.join(", "));
 
     if let Err(error) = print_chain(config, ctx.ring, &ctx.rpc) {
-        println!("chain       unreachable at {} ({error})", config.urls().rpc);
+        line(
+            "chain",
+            format_args!("unreachable at {} ({error})", config.urls().rpc),
+        );
     }
 }
 
@@ -85,42 +88,57 @@ fn percent_encode(text: &str) -> String {
 fn print_chain(config: &RingConfig, ring: CustomRing, rpc: &SolanaRpc) -> Result<(), StatusError> {
     if let Ok(authority) = config.authority() {
         let lamports = rpc.get_balance(authority.pubkey())?;
-        println!(
-            "balance     {} SOL ({lamports} lamports)",
-            lamports as f64 / 1_000_000_000.0
+        line(
+            "balance",
+            format_args!("{} SOL ({lamports} lamports)", lamports as f64 / 1e9),
         );
     }
     match rpc.get_account(ring.program_id())? {
         Some(account) if account.executable => match read_program_data(rpc, ring)? {
-            Some(info) => println!(
-                "program     deployed, upgrade authority {}, capacity {} bytes",
-                info.upgrade_authority
-                    .map(|key| key.to_string())
-                    .unwrap_or_else(|| "none (immutable)".to_owned()),
-                info.capacity
+            Some(info) => line(
+                "program",
+                format_args!(
+                    "deployed, upgrade authority {}, capacity {} bytes",
+                    info.upgrade_authority
+                        .map(|key| key.to_string())
+                        .unwrap_or_else(|| "none (immutable)".to_owned()),
+                    info.capacity
+                ),
             ),
-            None => println!("program     deployed (not upgradeable)"),
+            None => line("program", "deployed (not upgradeable)"),
         },
-        Some(_) => println!("program     account exists but is not executable"),
-        None => println!("program     not deployed"),
+        Some(_) => line("program", "account exists but is not executable"),
+        None => line("program", "not deployed"),
     }
     match ring.read_config(rpc)? {
-        Some(state) => println!(
-            "config      {} authority {} auditor {}",
-            ring.config_pda(),
-            state.authority,
-            hex::encode(state.auditor_pubkey.as_bytes())
+        Some(state) => line(
+            "config",
+            format_args!(
+                "{} authority {} auditor {}",
+                ring.config_pda(),
+                state.authority,
+                hex::encode(state.auditor_pubkey.as_bytes())
+            ),
         ),
-        None => println!("config      not created ({})", ring.config_pda()),
+        None => line(
+            "config",
+            format_args!("not created ({})", ring.config_pda()),
+        ),
     }
     match ring.read_spp_ring_config(rpc)? {
-        Some(state) => println!(
-            "spp ring    {} paused={} authority_transact={}",
-            ring.ring_auth_pda(),
-            state.is_paused(),
-            state.enabled()
+        Some(state) => line(
+            "spp ring",
+            format_args!(
+                "{} paused={} authority_transact={}",
+                ring.ring_auth_pda(),
+                state.is_paused(),
+                state.enabled()
+            ),
         ),
-        None => println!("spp ring    not registered ({})", ring.ring_auth_pda()),
+        None => line(
+            "spp ring",
+            format_args!("not registered ({})", ring.ring_auth_pda()),
+        ),
     }
     Ok(())
 }
@@ -134,6 +152,7 @@ name = "x"
 target = "devnet"
 program_id = "11111111111111111111111111111111"
 authority_keypair = "a.json"
+zolana_revision = "851680f7fcc99ccbd88119942760e9309ace0a58"
 
 [localnet]
 rpc = "http://127.0.0.1:8899"

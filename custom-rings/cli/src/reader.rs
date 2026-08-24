@@ -7,6 +7,7 @@ use thiserror::Error;
 use zolana_client::SolanaRpc;
 
 use crate::{
+    line,
     step::{no_hint, IdempotentStep, Observed, StepError, StepOutcome},
     Context, ContextError, ReaderCommand,
 };
@@ -52,12 +53,15 @@ pub fn run(ctx: &mut Context, command: ReaderCommand) -> Result<(), ReaderError>
             .revoke(&ctx.rpc)?,
         ),
     };
-    println!("reader      {reader} {}", outcome_label(outcome));
-    println!("record      {}", ctx.ring.read_access_record_pda(&reader));
+    line(
+        "reader",
+        format_args!("{reader} {}", outcome_label(outcome)),
+    );
+    line("record", ctx.ring.read_access_record_pda(&reader));
     Ok(())
 }
 
-pub fn outcome_label(outcome: StepOutcome) -> &'static str {
+fn outcome_label(outcome: StepOutcome) -> &'static str {
     match outcome {
         StepOutcome::Created => "granted",
         StepOutcome::Present => "already granted",
@@ -81,7 +85,6 @@ impl ReaderAccess<'_> {
         )?)
     }
 
-    /// The rent returns to the authority.
     pub fn revoke(self, rpc: &SolanaRpc) -> Result<StepOutcome, ReaderError> {
         let observed = self.observed(rpc)?;
         Ok(self.step(rpc, "revoke_read_access").ensure_absent(

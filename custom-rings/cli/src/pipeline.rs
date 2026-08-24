@@ -7,8 +7,8 @@ use thiserror::Error;
 use zolana_ring_client::{ReaderKey, ReaderKeyError};
 
 use crate::{
-    build_program, deploy, error::CliError, init, probe::service_url, reader, ring_rpc, transact,
-    BuildArgs, Context, DeployArgs, InitArgs, ReaderCommand, TransactArgs,
+    build_program, deploy, error::CliError, init, probe, reader, ring_rpc, transact, BuildArgs,
+    Context, DeployArgs, InitArgs, ReaderCommand, TransactArgs,
 };
 
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(5);
@@ -17,8 +17,6 @@ const HEALTH_TIMEOUT: Duration = Duration::from_secs(5);
 pub enum PipelineError {
     #[error(transparent)]
     ReaderKey(#[from] ReaderKeyError),
-    #[error("cannot build the health probe client")]
-    Client(#[source] reqwest::Error),
     #[error("no ring rpc answers at {url}, create its key with `zolana-ring auditor-key --create` and run the ring rpc from a zolana checkout serving keys/auditor.key")]
     RingRpcDown {
         url: String,
@@ -29,7 +27,7 @@ pub enum PipelineError {
 
 /// Steps already on chain are skipped, a rerun resumes where it stopped.
 pub fn run(ctx: &mut Context, build: BuildArgs) -> Result<(), CliError> {
-    build_program::run(&ctx.config, build)?;
+    build_program::run(build)?;
     deploy::run(ctx, DeployArgs::default())?;
     let hosted = !ctx.config.urls().ring_rpc_is_local();
     if hosted {
@@ -51,19 +49,13 @@ pub fn run(ctx: &mut Context, build: BuildArgs) -> Result<(), CliError> {
 /// The binary starts no services, a missing local ring rpc is the operator's step.
 fn check_local_ring_rpc(ctx: &Context) -> Result<(), PipelineError> {
     let base = &ctx.config.urls().ring_rpc;
-    let url = service_url(base, "/health");
-    let http = reqwest::blocking::Client::builder()
-        .connect_timeout(HEALTH_TIMEOUT)
-        .timeout(HEALTH_TIMEOUT)
-        .build()
-        .map_err(PipelineError::Client)?;
-    http.get(&url)
-        .send()
-        .and_then(|response| response.error_for_status())
-        .map_err(|source| PipelineError::RingRpcDown {
+    let http = probe::http(HEALTH_TIMEOUT, HEALTH_TIMEOUT);
+    probe::check(&http, &probe::service_url(base, "/health")).map_err(|source| {
+        PipelineError::RingRpcDown {
             url: base.clone(),
             source,
-        })?;
-    println!("ring rpc    {base} answers");
+        }
+    })?;
+    crate::line("ring rpc", format_args!("{base} answers"));
     Ok(())
 }
