@@ -134,6 +134,7 @@ name = "x"
 target = "devnet"
 program_id = "11111111111111111111111111111111"
 authority_keypair = "a.json"
+zolana_revision = "851680f7fcc99ccbd88119942760e9309ace0a58"
 
 [localnet]
 rpc = "http://127.0.0.1:8899"

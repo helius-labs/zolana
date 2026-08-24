@@ -1,0 +1,12 @@
+# Stage two of `zolana-ring new`, the ring source template.
+[template]
+cargo_generate_version = ">=0.23.0"
+ignore = [
+    "build",
+    "cli",
+    "client",
+    "interface",
+    "README.md",
+    "custom-ring-keys.CHECKSUM",
+]
+exclude = ["**/*"]

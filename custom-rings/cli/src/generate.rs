@@ -19,6 +19,11 @@ use crate::{
 pub const TEMPLATE_GIT: &str = "https://github.com/helius-labs/zolana-ring";
 /// A dev build follows the branch, a release pins its tag here.
 pub const TEMPLATE_REV: &str = "main";
+/// The ring source arrives from here at the revision ring.toml pins.
+pub const ZOLANA_GIT: &str = "https://github.com/helius-labs/zolana";
+const SOURCE_SUBFOLDER: &str = "custom-rings";
+/// Seeds the ring resolution with the versions zolana builds with.
+const WORKSPACE_LOCK: &str = include_str!("../../../Cargo.lock");
 pub const DEFAULT_AUTHORITY_KEYPAIR: &str = "~/.config/solana/id.json";
 
 #[derive(Debug, Error)]
@@ -47,6 +52,8 @@ pub enum GenerateError {
     },
     #[error("{path} records no authority_keypair")]
     NoAuthorityRecorded { path: PathBuf },
+    #[error("{path} records no 40-hex zolana_revision")]
+    NoRevisionRecorded { path: PathBuf },
     #[error("cannot run {tool}")]
     Spawn {
         tool: &'static str,
@@ -93,43 +100,16 @@ pub fn run(args: NewArgs) -> Result<(), GenerateError> {
     restrict_mode(&staged_keypair)?;
     let program_id = program_keypair.pubkey();
 
-    let silent = args.silent || !io::stdin().is_terminal();
-    let mut command = Command::new("cargo");
-    command.arg("generate");
-    template.apply(&mut command, &revision);
-    command.arg("--destination").arg(&args.dest);
-    command.args(["--name", &args.name]);
-    if silent {
-        command.arg("--silent");
-    }
-    for define in [
-        format!("silent={silent}"),
-        format!("program_id={program_id}"),
-        format!("default_authority_keypair={}", args.authority_keypair),
-    ] {
-        command.arg("-d").arg(define);
-    }
-    if let Some(rev) = &args.zolana_rev {
-        command.arg("-d").arg(format!("zolana_revision={rev}"));
-    }
-    run_tool("cargo generate", &mut command)?;
-
-    let keys_dir = ring_dir.join("keys");
-    fs::create_dir_all(&keys_dir).map_err(|source| GenerateError::Io {
-        path: keys_dir.clone(),
-        source,
-    })?;
-    let keypair_path = ring_dir.join(PROGRAM_KEYPAIR_FILE);
-    fs::rename(&staged_keypair, &keypair_path).map_err(|source| GenerateError::Io {
-        path: keypair_path.clone(),
-        source,
-    })?;
+    render_template(&args, &template, &revision, &program_id.to_string())?;
+    let source_rev = copy_ring_source(&args, &ring_dir)?;
+    write_lockfile(&ring_dir)?;
+    place_program_keypair(&ring_dir, &staged_keypair)?;
     ensure_authority(&ring_dir)?;
     commit_generated(&ring_dir, &args.name, &program_id.to_string())?;
 
     println!();
     println!(
-        "generated {} for program {program_id} at template {revision}",
+        "generated {} for program {program_id}, template {revision}, source {source_rev}",
         ring_dir.display()
     );
     println!();
@@ -213,6 +193,69 @@ impl TemplateSource {
     }
 }
 
+/// Renders the ring configuration, ring.toml, guide, and workspace manifest.
+fn render_template(
+    args: &NewArgs,
+    template: &TemplateSource,
+    revision: &str,
+    program_id: &str,
+) -> Result<(), GenerateError> {
+    let silent = args.silent || !io::stdin().is_terminal();
+    let mut command = Command::new("cargo");
+    command.arg("generate");
+    template.apply(&mut command, revision);
+    command.arg("--destination").arg(&args.dest);
+    command.args(["--name", &args.name]);
+    if silent {
+        command.arg("--silent");
+    }
+    for define in [
+        format!("silent={silent}"),
+        format!("program_id={program_id}"),
+        format!("default_authority_keypair={}", args.authority_keypair),
+    ] {
+        command.arg("-d").arg(define);
+    }
+    command
+        .arg("-d")
+        .arg(format!("zolana_git={}", args.zolana_git));
+    if let Some(rev) = &args.zolana_rev {
+        command.arg("-d").arg(format!("zolana_revision={rev}"));
+    }
+    run_tool("cargo generate", &mut command)
+}
+
+/// Copies `program`, `sdk`, and `test` verbatim from zolana at the revision
+/// ring.toml pins.
+fn copy_ring_source(args: &NewArgs, ring_dir: &Path) -> Result<String, GenerateError> {
+    let source_rev = recorded_revision(ring_dir)?;
+    let mut source = Command::new("cargo");
+    source.current_dir(ring_dir);
+    source.args(["generate", "--git", &args.zolana_git, SOURCE_SUBFOLDER]);
+    source.args(["--revision", &source_rev]);
+    source.args(["--init", "--vcs", "none", "--silent"]);
+    source.args(["--name", &args.name]);
+    run_tool("cargo generate (ring source)", &mut source)?;
+    Ok(source_rev)
+}
+
+/// The embedded lock is hints, cargo prunes it to the ring's graph and keeps
+/// registry versions in step with zolana.
+fn write_lockfile(ring_dir: &Path) -> Result<(), GenerateError> {
+    let path = ring_dir.join("Cargo.lock");
+    fs::write(&path, WORKSPACE_LOCK).map_err(|source| GenerateError::Io { path, source })
+}
+
+fn place_program_keypair(ring_dir: &Path, staged: &Path) -> Result<(), GenerateError> {
+    let keys_dir = ring_dir.join("keys");
+    fs::create_dir_all(&keys_dir).map_err(|source| GenerateError::Io {
+        path: keys_dir,
+        source,
+    })?;
+    let path = ring_dir.join(PROGRAM_KEYPAIR_FILE);
+    fs::rename(staged, &path).map_err(|source| GenerateError::Io { path, source })
+}
+
 /// The default path is created on a fresh machine, any other missing path is
 /// the operator's secret to mount.
 fn ensure_authority(ring_dir: &Path) -> Result<(), GenerateError> {
@@ -249,6 +292,21 @@ fn ensure_authority(ring_dir: &Path) -> Result<(), GenerateError> {
 /// Read the recorded path alone, a full config load would expand `${...}` URL
 /// placeholders the operator has not set yet.
 fn recorded_authority(ring_dir: &Path) -> Result<String, GenerateError> {
+    recorded_key(ring_dir, "authority_keypair")?.ok_or_else(|| GenerateError::NoAuthorityRecorded {
+        path: ring_dir.join(RING_TOML),
+    })
+}
+
+/// The revision stage one rendered, stage two takes the source from it.
+fn recorded_revision(ring_dir: &Path) -> Result<String, GenerateError> {
+    recorded_key(ring_dir, "zolana_revision")?
+        .filter(|revision| is_commit(revision))
+        .ok_or_else(|| GenerateError::NoRevisionRecorded {
+            path: ring_dir.join(RING_TOML),
+        })
+}
+
+fn recorded_key(ring_dir: &Path, key: &str) -> Result<Option<String>, GenerateError> {
     let path = ring_dir.join(RING_TOML);
     let text = fs::read_to_string(&path).map_err(|source| GenerateError::Io {
         path: path.clone(),
@@ -258,11 +316,10 @@ fn recorded_authority(ring_dir: &Path) -> Result<String, GenerateError> {
         path: path.clone(),
         source,
     })?;
-    value
-        .get("authority_keypair")
+    Ok(value
+        .get(key)
         .and_then(|value| value.as_str())
-        .map(str::to_owned)
-        .ok_or(GenerateError::NoAuthorityRecorded { path })
+        .map(str::to_owned))
 }
 
 /// The first commit records the generated ring without keys/ and .env, both ignored.

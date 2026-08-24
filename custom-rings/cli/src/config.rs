@@ -23,6 +23,8 @@ pub struct RingConfig {
     pub program_id: Address,
     /// Upgrade authority and ring authority, `~` expands to `$HOME`.
     pub authority_keypair: PathBuf,
+    /// Zolana revision the ring source was generated from.
+    pub zolana_revision: String,
     pub localnet: Urls,
     pub devnet: Urls,
     #[serde(default)]
@@ -272,6 +274,7 @@ mod tests {
 name = "demo-ring"
 target = "localnet"
 program_id = "9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh"
+zolana_revision = "851680f7fcc99ccbd88119942760e9309ace0a58"
 authority_keypair = "~/.config/solana/id.json"
 
 [localnet]

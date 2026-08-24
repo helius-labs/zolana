@@ -34,13 +34,11 @@ pub enum BuildError {
 }
 
 pub struct BuildProgram<'a> {
-    pub name: &'a str,
     pub tools_version: &'a str,
 }
 
-pub fn run(config: &RingConfig, args: BuildArgs) -> Result<(), BuildError> {
+pub fn run(_config: &RingConfig, args: BuildArgs) -> Result<(), BuildError> {
     let artifact = BuildProgram {
-        name: &config.name,
         tools_version: &args.tools_version,
     }
     .build()?;
@@ -63,7 +61,7 @@ impl BuildProgram<'_> {
         if !status.success() {
             return Err(BuildError::BuildFailed { status });
         }
-        let artifact = default_program_so(self.name);
+        let artifact = default_program_so();
         if !artifact.exists() {
             return Err(BuildError::ArtifactMissing { path: artifact });
         }
@@ -107,18 +105,5 @@ fn spawn_error(source: io::Error) -> BuildError {
         BuildError::CargoBuildSbfMissing(source)
     } else {
         BuildError::Spawn(source)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_artifact_path_replaces_dashes() {
-        assert_eq!(
-            default_program_so("my-demo-ring"),
-            PathBuf::from("target/deploy/my_demo_ring_program.so")
-        );
     }
 }
