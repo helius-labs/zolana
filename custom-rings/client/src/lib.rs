@@ -44,7 +44,9 @@ pub use crate::{
         ring_invoked_in, ring_withdrawals_in, OriginError, RingOrigin, RingWithdrawal,
         TransactionOrigin,
     },
-    reader::{Ed25519ReaderKey, P256ReaderKey, ReaderKey, ReaderKeyError, READER_RECORD_PDA_SEED},
+    reader::{
+        Ed25519ReaderKey, P256ReaderKey, ReaderKey, ReaderKeyError, READ_ACCESS_RECORD_PDA_SEED,
+    },
     scan::{AuditedPage, RingAudit, RingEnvironment, RingScan, RingScanPage},
     types::{AuditedOutput, AuditedTransaction},
 };

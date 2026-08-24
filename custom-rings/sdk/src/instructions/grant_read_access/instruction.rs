@@ -4,17 +4,17 @@ use solana_instruction::{AccountMeta, Instruction};
 
 use crate::{shared::ReaderKey, CustomRing};
 
-/// Creates the ring's reader record for `reader`, authorizing it to read the
-/// ring through the ring RPC.
+/// Creates the ring's read access record for `reader`, authorizing it to read
+/// the ring through the ring RPC.
 #[must_use]
-pub struct GrantReader {
+pub struct GrantReadAccess {
     pub ring: CustomRing,
     pub payer: Address,
     pub authority: Address,
     pub reader: ReaderKey,
 }
 
-impl GrantReader {
+impl GrantReadAccess {
     pub fn instruction(self) -> Result<Instruction, wincode::Error> {
         let Self {
             ring,
@@ -28,11 +28,11 @@ impl GrantReader {
                 AccountMeta::new(payer, true),
                 AccountMeta::new_readonly(authority, true),
                 AccountMeta::new_readonly(ring.config_pda(), false),
-                AccountMeta::new(ring.reader_record_pda(&reader), false),
+                AccountMeta::new(ring.read_access_record_pda(&reader), false),
                 // The system program is the all-zero address.
                 AccountMeta::new_readonly(Address::default(), false),
             ],
-            data: reader_ix_data(tag::GRANT_READER, reader)?,
+            data: reader_ix_data(tag::GRANT_READ_ACCESS, reader)?,
         })
     }
 }

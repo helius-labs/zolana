@@ -5,11 +5,11 @@ use zolana_hasher::{sha256::Sha256, Hasher, HasherError};
 use crate::{ReaderKeyBytes, COMPRESSED_P256_KEY_LEN};
 
 pub const CONFIG_PDA_SEED: &[u8] = b"config";
-pub const READER_RECORD_PDA_SEED: &[u8] = b"reader";
+pub const READ_ACCESS_RECORD_PDA_SEED: &[u8] = b"reader";
 /// Discriminator of [`RingProgramConfig`]. Value 0 stays reserved for
 /// uninitialized accounts.
 pub const RING_PROGRAM_CONFIG: u8 = 1;
-pub const READER_RECORD: u8 = 2;
+pub const READ_ACCESS_RECORD: u8 = 2;
 
 /// The ring's singleton config: who may register the ring with SPP, and the
 /// auditor key every `transact` must verifiably encrypt the transaction viewing
@@ -26,7 +26,7 @@ pub struct RingProgramConfig {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
-pub struct ReaderRecord {
+pub struct ReadAccessRecord {
     pub discriminator: u8,
     pub reader: ReaderKeyBytes,
     pub bump: u8,
@@ -37,8 +37,8 @@ impl RingProgramConfig {
     pub const SIZE: usize = core::mem::size_of::<Self>();
 }
 
-impl ReaderRecord {
-    pub const SEED: &'static [u8] = READER_RECORD_PDA_SEED;
+impl ReadAccessRecord {
+    pub const SEED: &'static [u8] = READ_ACCESS_RECORD_PDA_SEED;
     pub const SIZE: usize = core::mem::size_of::<Self>();
 
     pub fn seed_hash(reader: &ReaderKeyBytes) -> Result<[u8; 32], HasherError> {
@@ -51,5 +51,5 @@ impl ReaderRecord {
 // `SIZE` is the on-chain account length.
 const _: () = assert!(RingProgramConfig::SIZE == 67);
 const _: () = assert!(core::mem::align_of::<RingProgramConfig>() == 1);
-const _: () = assert!(ReaderRecord::SIZE == 36);
-const _: () = assert!(core::mem::align_of::<ReaderRecord>() == 1);
+const _: () = assert!(ReadAccessRecord::SIZE == 36);
+const _: () = assert!(core::mem::align_of::<ReadAccessRecord>() == 1);

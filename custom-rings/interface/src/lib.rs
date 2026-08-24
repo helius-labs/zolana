@@ -11,11 +11,11 @@ pub use audit::{pack32_to_2fe, pack33_to_2fe, AuditPublicInput, FieldPair};
 pub use instruction::{
     tag, AuditProof, CreateConfigIxData, CustomRingTransactIxData, ReaderIxData,
     CREATE_CONFIG_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
-    READER_COMPUTE_UNIT_LIMIT,
+    READ_ACCESS_COMPUTE_UNIT_LIMIT,
 };
 pub use state::{
-    ReaderRecord, RingProgramConfig, CONFIG_PDA_SEED, READER_RECORD, READER_RECORD_PDA_SEED,
-    RING_PROGRAM_CONFIG,
+    ReadAccessRecord, RingProgramConfig, CONFIG_PDA_SEED, READ_ACCESS_RECORD,
+    READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG,
 };
 
 /// SEC1-compressed public key length.

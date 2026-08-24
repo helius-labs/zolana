@@ -1,4 +1,4 @@
-use custom_ring_interface::{ReaderIxData, ReaderKeyBytes, ReaderRecord};
+use custom_ring_interface::{ReadAccessRecord, ReaderIxData, ReaderKeyBytes};
 use pinocchio::{
     cpi::{Seed, Signer},
     AccountView, ProgramResult,
@@ -8,11 +8,11 @@ use zolana_account_checks::AccountIterator;
 use crate::{
     error::CustomRingError,
     instructions::{loader::load_authorized_config, shared::PdaCheck},
-    state::{check_reader_key, ReaderRecordInitParams},
+    state::{check_reader_key, ReadAccessRecordInitParams},
 };
 
 #[inline(never)]
-pub fn process_grant_reader_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+pub fn process_grant_read_access_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let reader = parse_reader(data)?;
     check_reader_key(&reader)?;
 
@@ -20,7 +20,7 @@ pub fn process_grant_reader_ix(accounts: &mut [AccountView], data: &[u8]) -> Pro
     let payer = iter.next_signer_mut("payer")?;
     let authority = iter.next_signer("authority")?;
     let config_account = iter.next_account("config")?;
-    let record_account = iter.next_mut("reader_record")?;
+    let record_account = iter.next_mut("read_access_record")?;
     let system_program = iter.next_account("system_program")?;
 
     if !pinocchio_system::check_id(system_program.address()) {
@@ -28,33 +28,34 @@ pub fn process_grant_reader_ix(accounts: &mut [AccountView], data: &[u8]) -> Pro
     }
     load_authorized_config(config_account, authority)?;
 
-    let seed_hash = ReaderRecord::seed_hash(&reader).map_err(|_| CustomRingError::HashingFailed)?;
+    let seed_hash =
+        ReadAccessRecord::seed_hash(&reader).map_err(|_| CustomRingError::HashingFailed)?;
     let bump = PdaCheck {
         address: record_account.address(),
-        seeds: &[ReaderRecord::SEED, &seed_hash],
-        mismatch: CustomRingError::InvalidReaderRecord,
+        seeds: &[ReadAccessRecord::SEED, &seed_hash],
+        mismatch: CustomRingError::InvalidReadAccessRecord,
     }
     .verify()?;
     if record_account.data_len() != 0 {
-        return Err(CustomRingError::ReaderRecordAlreadyExists.into());
+        return Err(CustomRingError::ReadAccessRecordAlreadyExists.into());
     }
 
     let bump_seed = [bump];
     let seeds = [
-        Seed::from(ReaderRecord::SEED),
+        Seed::from(ReadAccessRecord::SEED),
         Seed::from(seed_hash.as_ref()),
         Seed::from(bump_seed.as_ref()),
     ];
     pinocchio_system::create_account_with_minimum_balance_signed(
         record_account,
-        ReaderRecord::SIZE,
+        ReadAccessRecord::SIZE,
         &crate::ID,
         payer,
         None,
         &[Signer::from(seeds.as_ref())],
     )?;
 
-    ReaderRecordInitParams { reader, bump }.init(record_account)
+    ReadAccessRecordInitParams { reader, bump }.init(record_account)
 }
 
 pub(crate) fn parse_reader(data: &[u8]) -> Result<ReaderKeyBytes, CustomRingError> {

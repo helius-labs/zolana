@@ -24,15 +24,15 @@ import { getProtocolConfigAddress } from "../src/addresses.js";
 import { passkeyReader } from "../src/ring/passkey.js";
 import {
   checkedReaderKey,
-  decodeReaderRecord,
-  grantReaderInstruction,
+  decodeReadAccessRecord,
+  grantReadAccessInstruction,
   parseReaderKey,
   readerKeyBytes,
   readerKeyEquals,
   readerKeyFromBytes,
   readerKeyToString,
-  readerRecordAddress,
-  revokeReaderInstruction,
+  readAccessRecordAddress,
+  revokeReadAccessInstruction,
   type ReaderKey,
 } from "../src/ring/reader.js";
 import { P_CONST_SEC1, P_DERIVE_SEC1, P_PDA_SEC1 } from "../src/keypair/derivation.js";
@@ -447,7 +447,7 @@ describe("ring reader delegation", () => {
   it("encodes both key kinds and derives the record like Rust `ReaderKey`", async () => {
     for (const { key, record, bytes } of KEYS) {
       expect(Buffer.from(readerKeyBytes(key)).toString("hex")).toBe(bytes);
-      expect(await readerRecordAddress(RING, key)).toBe(record);
+      expect(await readAccessRecordAddress(RING, key)).toBe(record);
       expect(readerKeyEquals(parseReaderKey(readerKeyToString(key)), key)).toBe(true);
       expect(readerKeyEquals(readerKeyFromBytes(hex(bytes)), key)).toBe(true);
     }
@@ -484,9 +484,9 @@ describe("ring reader delegation", () => {
     expect(() => parseReaderKey("04".repeat(33))).toThrow("RING_READER_KEY");
   });
 
-  it("builds grant and revoke like Rust `GrantReader` and `RevokeReader`", async () => {
+  it("builds grant and revoke like Rust `GrantReadAccess` and `RevokeReadAccess`", async () => {
     for (const { key, record, bytes } of KEYS) {
-      const grant = await grantReaderInstruction({
+      const grant = await grantReadAccessInstruction({
         ringProgramId: RING,
         payer: PAYER,
         authority: AUTHORITY,
@@ -502,7 +502,7 @@ describe("ring reader delegation", () => {
       ]);
       expect(Buffer.from(grant.data ?? []).toString("hex")).toBe(`04${bytes}`);
 
-      const revoke = await revokeReaderInstruction({
+      const revoke = await revokeReadAccessInstruction({
         ringProgramId: RING,
         authority: AUTHORITY,
         reader: key,
@@ -520,14 +520,14 @@ describe("ring reader delegation", () => {
 
   it("decodes the record the program writes and rejects anything else", () => {
     for (const { key, bytes } of KEYS) {
-      const record = decodeReaderRecord(Uint8Array.from([2, ...hex(bytes), 254]));
+      const record = decodeReadAccessRecord(Uint8Array.from([2, ...hex(bytes), 254]));
       expect(readerKeyEquals(record.reader, key)).toBe(true);
       expect(record.bump).toBe(254);
     }
-    expect(() => decodeReaderRecord(Uint8Array.from([1, ...filled(23, 34), 254]))).toThrow(
-      "RING_READER_RECORD_INVALID",
+    expect(() => decodeReadAccessRecord(Uint8Array.from([1, ...filled(23, 34), 254]))).toThrow(
+      "RING_READ_ACCESS_RECORD_INVALID",
     );
-    expect(() => decodeReaderRecord(filled(2, 35))).toThrow("RING_READER_RECORD_INVALID");
+    expect(() => decodeReadAccessRecord(filled(2, 35))).toThrow("RING_READ_ACCESS_RECORD_INVALID");
   });
 });
 

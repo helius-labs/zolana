@@ -4,26 +4,26 @@ use zolana_account_checks::AccountIterator;
 use crate::{
     error::CustomRingError,
     instructions::{
-        grant_reader::parse_reader,
-        loader::{load_authorized_config, load_reader_record},
+        grant_read_access::parse_reader,
+        loader::{load_authorized_config, load_read_access_record},
     },
 };
 
 #[inline(never)]
-pub fn process_revoke_reader_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+pub fn process_revoke_read_access_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let reader = parse_reader(data)?;
 
     let mut iter = AccountIterator::new(accounts);
     let authority = iter.next_signer("authority")?;
     let config_account = iter.next_account("config")?;
-    let record_account = iter.next_mut("reader_record")?;
+    let record_account = iter.next_mut("read_access_record")?;
     let rent_recipient = iter.next_mut("rent_recipient")?;
     if record_account.address() == rent_recipient.address() {
-        return Err(CustomRingError::InvalidReaderRecord.into());
+        return Err(CustomRingError::InvalidReadAccessRecord.into());
     }
 
     load_authorized_config(config_account, authority)?;
-    load_reader_record(record_account, &reader)?;
+    load_read_access_record(record_account, &reader)?;
 
     let refund = rent_recipient
         .lamports()

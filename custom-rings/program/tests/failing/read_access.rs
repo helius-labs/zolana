@@ -1,6 +1,6 @@
 use curve25519_dalek::constants::{ED25519_BASEPOINT_POINT, EIGHT_TORSION};
 use custom_ring_interface::{
-    tag, ReaderRecord, READER_KEY_ED25519, READER_KEY_P256, READER_RECORD,
+    tag, ReadAccessRecord, READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD,
 };
 use custom_ring_program::CustomRingError;
 use mollusk_svm::result::ProgramResult;
@@ -9,9 +9,10 @@ use solana_pubkey::Pubkey;
 use zolana_account_checks::AccountError;
 
 use crate::common::{
-    account, auditor_pubkey, config_pda, ed25519_reader, grant_reader_fixture,
-    initialized_config_account, initialized_reader_account, p256_reader, payer, program_id, reader,
-    reader_ix_data, reader_record_pda, rent_recipient, revoke_reader_fixture, setup_mollusk,
+    account, auditor_pubkey, config_pda, ed25519_reader, grant_read_access_fixture,
+    initialized_config_account, initialized_reader_account, p256_reader, payer, program_id,
+    read_access_record_pda, reader, reader_ix_data, rent_recipient, revoke_read_access_fixture,
+    setup_mollusk,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -19,32 +20,32 @@ fn custom(error: CustomRingError) -> ProgramError {
 }
 
 #[test]
-fn grant_reader_writes_the_record() {
+fn grant_read_access_writes_the_record() {
     for key in [reader(), p256_reader()] {
         let (mollusk, _) = setup_mollusk();
-        let grant = grant_reader_fixture(&key);
+        let grant = grant_read_access_fixture(&key);
         let result = mollusk.process_instruction(grant.instruction(), grant.accounts());
         assert_eq!(result.program_result, ProgramResult::Success);
 
-        let (record, bump) = reader_record_pda(&key);
+        let (record, bump) = read_access_record_pda(&key);
         let written = result
             .resulting_accounts
             .iter()
             .find(|(key, _)| key == &record)
             .map(|(_, account)| account.clone())
-            .expect("reader record in result");
+            .expect("read access record in result");
         assert_eq!(written.owner, program_id());
-        assert_eq!(written.data.len(), core::mem::size_of::<ReaderRecord>());
+        assert_eq!(written.data.len(), core::mem::size_of::<ReadAccessRecord>());
         assert_eq!(
-            bytemuck::from_bytes::<ReaderRecord>(&written.data),
-            &ReaderRecord {
-                discriminator: READER_RECORD,
+            bytemuck::from_bytes::<ReadAccessRecord>(&written.data),
+            &ReadAccessRecord {
+                discriminator: READ_ACCESS_RECORD,
                 reader: key,
                 bump,
             }
         );
 
-        let revoke = revoke_reader_fixture(&key);
+        let revoke = revoke_read_access_fixture(&key);
         let result = mollusk.process_instruction(revoke.instruction(), revoke.accounts());
         assert_eq!(result.program_result, ProgramResult::Success);
     }
@@ -95,8 +96,8 @@ fn grant_of_an_unsignable_key_is_rejected() {
         mixed_torsion,
     ] {
         let (mollusk, _) = setup_mollusk();
-        let mut fixture = grant_reader_fixture(&reader());
-        *fixture.data_mut() = reader_ix_data(tag::GRANT_READER, &key);
+        let mut fixture = grant_read_access_fixture(&reader());
+        *fixture.data_mut() = reader_ix_data(tag::GRANT_READ_ACCESS, &key);
         fixture.expect_err(&mollusk, custom(CustomRingError::InvalidReaderKey));
     }
 }
@@ -104,7 +105,7 @@ fn grant_of_an_unsignable_key_is_rejected() {
 #[test]
 fn grant_by_a_non_authority_signer_is_rejected() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = grant_reader_fixture(&reader());
+    let mut fixture = grant_read_access_fixture(&reader());
     fixture.substitute("authority", Pubkey::new_from_array([66; 32]));
     fixture.expect_err(&mollusk, custom(CustomRingError::UnauthorizedAuthority));
 }
@@ -112,7 +113,7 @@ fn grant_by_a_non_authority_signer_is_rejected() {
 #[test]
 fn grant_with_an_unsigned_authority_is_rejected() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = grant_reader_fixture(&reader());
+    let mut fixture = grant_read_access_fixture(&reader());
     fixture.unsign("authority");
     fixture.expect_err(
         &mollusk,
@@ -123,7 +124,7 @@ fn grant_with_an_unsigned_authority_is_rejected() {
 #[test]
 fn grant_before_the_config_exists_is_rejected() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = grant_reader_fixture(&reader());
+    let mut fixture = grant_read_access_fixture(&reader());
     fixture.set_account("config", account(0));
     fixture.expect_err(&mollusk, custom(CustomRingError::ConfigNotInitialized));
 }
@@ -131,23 +132,29 @@ fn grant_before_the_config_exists_is_rejected() {
 #[test]
 fn grant_into_a_non_canonical_record_is_rejected() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = grant_reader_fixture(&reader());
-    fixture.substitute("reader_record", reader_record_pda(&ed25519_reader(67)).0);
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidReaderRecord));
+    let mut fixture = grant_read_access_fixture(&reader());
+    fixture.substitute(
+        "read_access_record",
+        read_access_record_pda(&ed25519_reader(67)).0,
+    );
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidReadAccessRecord));
 }
 
 #[test]
 fn double_grant_is_rejected() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = grant_reader_fixture(&reader());
-    fixture.set_account("reader_record", initialized_reader_account(&reader()));
-    fixture.expect_err(&mollusk, custom(CustomRingError::ReaderRecordAlreadyExists));
+    let mut fixture = grant_read_access_fixture(&reader());
+    fixture.set_account("read_access_record", initialized_reader_account(&reader()));
+    fixture.expect_err(
+        &mollusk,
+        custom(CustomRingError::ReadAccessRecordAlreadyExists),
+    );
 }
 
 #[test]
 fn grant_with_trailing_data_is_rejected() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = grant_reader_fixture(&reader());
+    let mut fixture = grant_read_access_fixture(&reader());
     fixture.data_mut().push(0);
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
 }
@@ -155,7 +162,7 @@ fn grant_with_trailing_data_is_rejected() {
 #[test]
 fn grant_with_truncated_data_is_rejected() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = grant_reader_fixture(&reader());
+    let mut fixture = grant_read_access_fixture(&reader());
     fixture.data_mut().truncate(16);
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
 }
@@ -163,7 +170,7 @@ fn grant_with_truncated_data_is_rejected() {
 #[test]
 fn grant_with_a_wrong_system_program_is_rejected() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = grant_reader_fixture(&reader());
+    let mut fixture = grant_read_access_fixture(&reader());
     fixture.substitute("system_program", Pubkey::new_from_array([68; 32]));
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidSystemProgram));
 }
@@ -171,8 +178,8 @@ fn grant_with_a_wrong_system_program_is_rejected() {
 #[test]
 fn revoke_closes_the_record_to_the_rent_recipient() {
     let (mollusk, _) = setup_mollusk();
-    let fixture = revoke_reader_fixture(&reader());
-    let (record, _) = reader_record_pda(&reader());
+    let fixture = revoke_read_access_fixture(&reader());
+    let (record, _) = read_access_record_pda(&reader());
     let rent = fixture
         .accounts()
         .iter()
@@ -200,7 +207,7 @@ fn revoke_closes_the_record_to_the_rent_recipient() {
 #[test]
 fn revoke_by_a_non_authority_signer_is_rejected() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = revoke_reader_fixture(&reader());
+    let mut fixture = revoke_read_access_fixture(&reader());
     fixture.substitute("authority", Pubkey::new_from_array([66; 32]));
     fixture.expect_err(&mollusk, custom(CustomRingError::UnauthorizedAuthority));
 }
@@ -208,51 +215,51 @@ fn revoke_by_a_non_authority_signer_is_rejected() {
 #[test]
 fn revoke_of_a_mismatched_record_is_rejected() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = revoke_reader_fixture(&reader());
-    *fixture.data_mut() = reader_ix_data(tag::REVOKE_READER, &ed25519_reader(67));
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidReaderRecord));
+    let mut fixture = revoke_read_access_fixture(&reader());
+    *fixture.data_mut() = reader_ix_data(tag::REVOKE_READ_ACCESS, &ed25519_reader(67));
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidReadAccessRecord));
 }
 
 #[test]
 fn revoke_of_a_non_canonical_record_is_rejected() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = revoke_reader_fixture(&reader());
-    fixture.substitute("reader_record", Pubkey::new_from_array([74; 32]));
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidReaderRecord));
+    let mut fixture = revoke_read_access_fixture(&reader());
+    fixture.substitute("read_access_record", Pubkey::new_from_array([74; 32]));
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidReadAccessRecord));
 }
 
 #[test]
 fn revoke_of_a_record_with_a_wrong_bump_is_rejected() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = revoke_reader_fixture(&reader());
+    let mut fixture = revoke_read_access_fixture(&reader());
     let mut record = initialized_reader_account(&reader());
-    bytemuck::from_bytes_mut::<ReaderRecord>(&mut record.data).bump ^= 1;
-    fixture.set_account("reader_record", record);
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidReaderRecord));
+    bytemuck::from_bytes_mut::<ReadAccessRecord>(&mut record.data).bump ^= 1;
+    fixture.set_account("read_access_record", record);
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidReadAccessRecord));
 }
 
 #[test]
 fn revoke_of_an_uninitialized_record_is_rejected() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = revoke_reader_fixture(&reader());
-    fixture.set_account("reader_record", account(1_000_000));
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidReaderRecord));
+    let mut fixture = revoke_read_access_fixture(&reader());
+    fixture.set_account("read_access_record", account(1_000_000));
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidReadAccessRecord));
 }
 
 #[test]
 fn revoke_of_a_foreign_owned_record_is_rejected() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = revoke_reader_fixture(&reader());
+    let mut fixture = revoke_read_access_fixture(&reader());
     let mut record = initialized_reader_account(&reader());
     record.owner = Pubkey::new_from_array([69; 32]);
-    fixture.set_account("reader_record", record);
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidReaderRecord));
+    fixture.set_account("read_access_record", record);
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidReadAccessRecord));
 }
 
 #[test]
 fn revoke_with_trailing_data_is_rejected() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = revoke_reader_fixture(&reader());
+    let mut fixture = revoke_read_access_fixture(&reader());
     fixture.data_mut().push(0);
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
 }
@@ -260,19 +267,19 @@ fn revoke_with_trailing_data_is_rejected() {
 #[test]
 fn regrant_after_revoke_succeeds() {
     let (mollusk, _) = setup_mollusk();
-    let revoke = revoke_reader_fixture(&reader());
+    let revoke = revoke_read_access_fixture(&reader());
     let result = mollusk.process_instruction(revoke.instruction(), revoke.accounts());
     assert_eq!(result.program_result, ProgramResult::Success);
 
-    let (record, _) = reader_record_pda(&reader());
+    let (record, _) = read_access_record_pda(&reader());
     let closed = result
         .resulting_accounts
         .iter()
         .find(|(key, _)| key == &record)
         .map(|(_, account)| account.clone())
         .expect("closed record");
-    let mut grant = grant_reader_fixture(&reader());
-    grant.set_account("reader_record", closed);
+    let mut grant = grant_read_access_fixture(&reader());
+    grant.set_account("read_access_record", closed);
     let regrant = mollusk.process_instruction(grant.instruction(), grant.accounts());
     assert_eq!(regrant.program_result, ProgramResult::Success);
 }
@@ -280,7 +287,7 @@ fn regrant_after_revoke_succeeds() {
 #[test]
 fn grant_with_payer_as_authority_slot_is_rejected() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = grant_reader_fixture(&reader());
+    let mut fixture = grant_read_access_fixture(&reader());
     fixture.substitute("authority", payer());
     fixture.expect_err(&mollusk, custom(CustomRingError::UnauthorizedAuthority));
 }
@@ -288,23 +295,23 @@ fn grant_with_payer_as_authority_slot_is_rejected() {
 #[test]
 fn revoke_aimed_at_the_config_account_is_rejected() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = revoke_reader_fixture(&reader());
-    fixture.substitute("reader_record", config_pda().0);
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidReaderRecord));
+    let mut fixture = revoke_read_access_fixture(&reader());
+    fixture.substitute("read_access_record", config_pda().0);
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidReadAccessRecord));
 }
 
 #[test]
-fn revoke_to_the_reader_record_is_rejected() {
+fn revoke_to_the_read_access_record_is_rejected() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = revoke_reader_fixture(&reader());
-    fixture.substitute("rent_recipient", reader_record_pda(&reader()).0);
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidReaderRecord));
+    let mut fixture = revoke_read_access_fixture(&reader());
+    fixture.substitute("rent_recipient", read_access_record_pda(&reader()).0);
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidReadAccessRecord));
 }
 
 #[test]
 fn grant_under_a_config_with_another_authority_is_rejected() {
     let (mollusk, _) = setup_mollusk();
-    let mut fixture = grant_reader_fixture(&reader());
+    let mut fixture = grant_read_access_fixture(&reader());
     let other = Pubkey::new_from_array([70; 32]);
     fixture.set_account(
         "config",

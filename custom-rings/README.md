@@ -117,18 +117,19 @@ The ring RPC answers signed reads. A reader signs an attestation naming the
 ring, the time, a nonce and the page, a wallet as a message and a passkey
 through WebAuthn, and gets the opened transactions back. The timestamp must be
 within sixty seconds of the server's clock and a nonce is accepted once. Every
-reader needs a reader record, the config authority has no implicit access. A
-browser page needs its origin allowed on the RPC. The wire contract is in
-`services/ring-rpc/README.md`.
+reader needs a read access record, the config authority has no implicit
+access. A browser page needs its origin allowed on the RPC. The wire contract
+is in `services/ring-rpc/README.md`.
 
 ## Building on it
 
 `custom-ring-sdk` starts from `CustomRing::new(program_id)`, the handle that
-derives the config, reader record and `ring_auth` addresses and reads the
+derives the config, read access record and `ring_auth` addresses and reads the
 typed accounts. The authority builds `CreateConfig`, `InitSppRingConfig`,
-`GrantReader` and `RevokeReader` from it. A participant sends `RingDeposit`,
-prepares a `ConfidentialTransfer` from the SPP transaction SDK and proves it
-with `AuditedTransfer::new(..).with_tree(..).with_assets(..).prove(env)`,
+`GrantReadAccess` and `RevokeReadAccess` from it. A participant sends
+`RingDeposit`, prepares a `ConfidentialTransfer` from the SPP transaction SDK
+and proves it with
+`AuditedTransfer::new(..).with_tree(..).with_assets(..).prove(env)`,
 where the environment is the indexer, the RPC and the prover. The audited
 instruction forwards SPP's full account list and does not fit a legacy
 transaction, `V0WithLookupTable` submits it behind a throwaway lookup table.

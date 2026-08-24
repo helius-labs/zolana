@@ -2,7 +2,7 @@ use std::{future::Future, marker::PhantomData, time::Duration};
 
 use bytemuck::Pod;
 use custom_ring_interface::{
-    ReaderRecord, RingProgramConfig, CONFIG_PDA_SEED, READER_RECORD, RING_PROGRAM_CONFIG,
+    ReadAccessRecord, RingProgramConfig, CONFIG_PDA_SEED, READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
 };
 use solana_account_decoder_client_types::UiAccountEncoding;
 use solana_address::Address;
@@ -346,19 +346,20 @@ struct ReaderAccount<'a> {
 
 impl ReaderAccount<'_> {
     fn validate(self) -> Result<(), ClientError> {
-        let record = AccountCheck::<ReaderRecord> {
+        let record = AccountCheck::<ReadAccessRecord> {
             account: self.account,
             owner: self.grant.ring,
-            discriminator: READER_RECORD,
+            discriminator: READ_ACCESS_RECORD,
             error: "custom ring reader account is invalid",
             account_type: PhantomData,
         }
         .decode()?;
         let reader = self.grant.reader.to_bytes();
-        let seed_hash = ReaderRecord::seed_hash(&reader)
+        let seed_hash = ReadAccessRecord::seed_hash(&reader)
             .map_err(|_| ClientError::Rpc("custom ring reader account is invalid".to_owned()))?;
         let bump =
-            Address::find_program_address(&[ReaderRecord::SEED, &seed_hash], &self.grant.ring).1;
+            Address::find_program_address(&[ReadAccessRecord::SEED, &seed_hash], &self.grant.ring)
+                .1;
         if record.reader != reader || record.bump != bump {
             return Err(ClientError::Rpc(
                 "custom ring reader account is invalid".to_owned(),
@@ -474,8 +475,8 @@ mod tests {
     }
 
     fn reader_account(ring: Address, reader: ReaderKey, bump: u8) -> Account {
-        let mut record = ReaderRecord::zeroed();
-        record.discriminator = READER_RECORD;
+        let mut record = ReadAccessRecord::zeroed();
+        record.discriminator = READ_ACCESS_RECORD;
         record.reader = reader.to_bytes();
         record.bump = bump;
         account(ring, &record)
@@ -492,8 +493,8 @@ mod tests {
             let grant = ReaderGrant { ring, reader };
             let bump = Address::find_program_address(
                 &[
-                    ReaderRecord::SEED,
-                    &ReaderRecord::seed_hash(&reader.to_bytes()).expect("seed"),
+                    ReadAccessRecord::SEED,
+                    &ReadAccessRecord::seed_hash(&reader.to_bytes()).expect("seed"),
                 ],
                 &ring,
             )

@@ -1,6 +1,6 @@
 use custom_ring_interface::{
-    tag, CreateConfigIxData, ReaderKeyBytes, ReaderRecord, RingProgramConfig, CONFIG_PDA_SEED,
-    READER_KEY_ED25519, READER_KEY_P256, READER_RECORD, READER_RECORD_PDA_SEED,
+    tag, CreateConfigIxData, ReadAccessRecord, ReaderKeyBytes, RingProgramConfig, CONFIG_PDA_SEED,
+    READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED,
     RING_PROGRAM_CONFIG,
 };
 use mollusk_svm::Mollusk;
@@ -430,9 +430,9 @@ pub fn p256_reader() -> ReaderKeyBytes {
     key
 }
 
-pub fn reader_record_pda(reader: &ReaderKeyBytes) -> (Pubkey, u8) {
-    let seed_hash = ReaderRecord::seed_hash(reader).expect("sha256");
-    Pubkey::find_program_address(&[READER_RECORD_PDA_SEED, &seed_hash], &program_id())
+pub fn read_access_record_pda(reader: &ReaderKeyBytes) -> (Pubkey, u8) {
+    let seed_hash = ReadAccessRecord::seed_hash(reader).expect("sha256");
+    Pubkey::find_program_address(&[READ_ACCESS_RECORD_PDA_SEED, &seed_hash], &program_id())
 }
 
 pub fn reader_ix_data(instruction_tag: u8, reader: &ReaderKeyBytes) -> Vec<u8> {
@@ -442,10 +442,10 @@ pub fn reader_ix_data(instruction_tag: u8, reader: &ReaderKeyBytes) -> Vec<u8> {
 }
 
 pub fn initialized_reader_account(reader: &ReaderKeyBytes) -> Account {
-    let state = ReaderRecord {
-        discriminator: READER_RECORD,
+    let state = ReadAccessRecord {
+        discriminator: READ_ACCESS_RECORD,
         reader: *reader,
-        bump: reader_record_pda(reader).1,
+        bump: read_access_record_pda(reader).1,
     };
     Account {
         lamports: 1_128_000,
@@ -456,9 +456,9 @@ pub fn initialized_reader_account(reader: &ReaderKeyBytes) -> Account {
     }
 }
 
-pub fn grant_reader_fixture(reader: &ReaderKeyBytes) -> Fixture {
+pub fn grant_read_access_fixture(reader: &ReaderKeyBytes) -> Fixture {
     Fixture::new(
-        reader_ix_data(tag::GRANT_READER, reader),
+        reader_ix_data(tag::GRANT_READ_ACCESS, reader),
         vec![
             Slot {
                 label: "payer",
@@ -476,8 +476,8 @@ pub fn grant_reader_fixture(reader: &ReaderKeyBytes) -> Fixture {
                 account: initialized_config_account(authority(), auditor_pubkey(2)),
             },
             Slot {
-                label: "reader_record",
-                meta: AccountMeta::new(reader_record_pda(reader).0, false),
+                label: "read_access_record",
+                meta: AccountMeta::new(read_access_record_pda(reader).0, false),
                 account: account(0),
             },
             system_program_slot(),
@@ -485,9 +485,9 @@ pub fn grant_reader_fixture(reader: &ReaderKeyBytes) -> Fixture {
     )
 }
 
-pub fn revoke_reader_fixture(reader: &ReaderKeyBytes) -> Fixture {
+pub fn revoke_read_access_fixture(reader: &ReaderKeyBytes) -> Fixture {
     Fixture::new(
-        reader_ix_data(tag::REVOKE_READER, reader),
+        reader_ix_data(tag::REVOKE_READ_ACCESS, reader),
         vec![
             Slot {
                 label: "authority",
@@ -500,8 +500,8 @@ pub fn revoke_reader_fixture(reader: &ReaderKeyBytes) -> Fixture {
                 account: initialized_config_account(authority(), auditor_pubkey(2)),
             },
             Slot {
-                label: "reader_record",
-                meta: AccountMeta::new(reader_record_pda(reader).0, false),
+                label: "read_access_record",
+                meta: AccountMeta::new(read_access_record_pda(reader).0, false),
                 account: initialized_reader_account(reader),
             },
             Slot {

@@ -1,7 +1,7 @@
 use std::{fmt, str::FromStr};
 
 use curve25519_dalek::edwards::CompressedEdwardsY;
-pub use custom_ring_interface::READER_RECORD_PDA_SEED;
+pub use custom_ring_interface::READ_ACCESS_RECORD_PDA_SEED;
 use custom_ring_interface::{READER_KEY_ED25519, READER_KEY_P256};
 use sha2::{Digest, Sha256};
 use solana_address::Address;
@@ -60,7 +60,7 @@ impl ReaderKey {
 
     pub fn record_address(self, ring: &Address) -> Address {
         let seed_hash: [u8; 32] = Sha256::digest(self.to_bytes()).into();
-        Address::find_program_address(&[READER_RECORD_PDA_SEED, &seed_hash], ring).0
+        Address::find_program_address(&[READ_ACCESS_RECORD_PDA_SEED, &seed_hash], ring).0
     }
 }
 

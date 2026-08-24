@@ -1,6 +1,6 @@
 pub mod create_config;
 pub mod deposit;
-pub mod grant_reader;
+pub mod grant_read_access;
 pub mod init_spp_ring_config;
-pub mod revoke_reader;
+pub mod revoke_read_access;
 pub mod transact;

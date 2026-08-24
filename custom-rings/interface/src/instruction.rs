@@ -12,12 +12,12 @@ pub mod tag {
     /// one: the client builds the SPP-shaped instruction and only re-targets the
     /// program id.
     pub const DEPOSIT: u8 = zolana_interface::instruction::tag::RING_DEPOSIT;
-    pub const GRANT_READER: u8 = 4;
-    pub const REVOKE_READER: u8 = 5;
+    pub const GRANT_READ_ACCESS: u8 = 4;
+    pub const REVOKE_READ_ACCESS: u8 = 5;
 }
 
 pub const CREATE_CONFIG_COMPUTE_UNIT_LIMIT: u32 = 50_000;
-pub const READER_COMPUTE_UNIT_LIMIT: u32 = 50_000;
+pub const READ_ACCESS_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
