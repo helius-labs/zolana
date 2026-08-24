@@ -69,6 +69,7 @@ type Transaction struct {
 	OwnerPkHash         frontend.Variable
 	UserNullifierPk     frontend.Variable
 	UserNullifierSecret frontend.Variable
+	PrivateTxBlinding   frontend.Variable
 
 	Public        CommonPublicInputs
 	RingProgramID frontend.Variable
@@ -240,6 +241,7 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 		[]frontend.Variable{outputHash},
 		addressHashes,
 		t.Public.ExternalDataHash,
+		t.PrivateTxBlinding,
 	)
 	api.AssertIsEqual(privateTxHash, t.Public.PrivateTxHash)
 

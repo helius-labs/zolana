@@ -10,6 +10,7 @@ use crate::{err, state::OrderUtxo};
 pub struct SppTxHashes {
     pub source_input_hash: [u8; 32],
     pub external_data_hash: [u8; 32],
+    pub private_tx_blinding: [u8; 32],
 }
 
 impl SppTxHashes {
@@ -21,6 +22,7 @@ impl SppTxHashes {
         Ok(Self {
             source_input_hash: source_input.hash().map_err(err)?,
             external_data_hash: spp_proof_inputs.external_data.hash().map_err(err)?,
+            private_tx_blinding: spp_proof_inputs.private_tx_blinding,
         })
     }
 }
@@ -54,6 +56,7 @@ impl MakeProofInputParams {
             &[self.spp_tx_hashes.source_input_hash, [0u8; 32]],
             &[change.hash().map_err(err)?, order_utxo.hash().map_err(err)?],
             &self.spp_tx_hashes.external_data_hash,
+            &self.spp_tx_hashes.private_tx_blinding,
         )
         .hash()
         .map_err(err)?;
@@ -64,6 +67,7 @@ impl MakeProofInputParams {
             change,
             source_input_hash: self.spp_tx_hashes.source_input_hash,
             external_data_hash: self.spp_tx_hashes.external_data_hash,
+            private_tx_blinding: self.spp_tx_hashes.private_tx_blinding,
         })
     }
 }
@@ -107,13 +111,17 @@ mod tests {
             destination_asset_id: 1,
         };
         let change = SppProofOutputUtxo::new(SOL_MINT, 0, destination).expect("change output");
+        let mut private_tx_blinding = [0u8; 32];
+        private_tx_blinding[31] = 5;
         let spp_tx_hashes = SppTxHashes {
             source_input_hash: [3u8; 32],
             external_data_hash: [4u8; 32],
+            private_tx_blinding,
         };
 
         let source_input_hash = spp_tx_hashes.source_input_hash;
         let external_data_hash = spp_tx_hashes.external_data_hash;
+        let private_tx_blinding = spp_tx_hashes.private_tx_blinding;
         let change_hash = change.hash().expect("change hash");
         let order_utxo_hash = order_utxo
             .to_input_utxo()
@@ -135,6 +143,7 @@ mod tests {
             &[source_input_hash, [0u8; 32]],
             &[change_hash, order_utxo_hash],
             &external_data_hash,
+            &private_tx_blinding,
         )
         .hash()
         .expect("private tx hash");

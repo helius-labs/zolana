@@ -95,6 +95,8 @@ pub(crate) struct TransferInputsJson {
     pub external_data_hash: String,
     #[serde(rename = "privateTxHash")]
     pub private_tx_hash: String,
+    #[serde(rename = "privateTxBlinding")]
+    pub private_tx_blinding: String,
     #[serde(rename = "publicAssets")]
     pub public_assets: Vec<String>,
     #[serde(rename = "publicAmounts")]
@@ -127,6 +129,8 @@ pub(crate) struct TransferP256InputsJson {
     pub external_data_hash: String,
     #[serde(rename = "privateTxHash")]
     pub private_tx_hash: String,
+    #[serde(rename = "privateTxBlinding")]
+    pub private_tx_blinding: String,
     #[serde(rename = "p256PubX")]
     pub p256_pub_x: String,
     #[serde(rename = "p256PubY")]
@@ -271,6 +275,8 @@ pub(crate) struct MergeParametersJson {
     pub external_data_hash: String,
     #[serde(rename = "privateTxHash")]
     pub private_tx_hash: String,
+    #[serde(rename = "privateTxBlinding")]
+    pub private_tx_blinding: String,
     #[serde(rename = "publicInputHash")]
     pub public_input_hash: String,
     #[serde(rename = "allowDummyInputs")]
@@ -332,6 +338,7 @@ fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
         user_nullifier_secret: big_uint_to_string(&inputs.user_nullifier_secret),
         external_data_hash: big_uint_to_string(&inputs.external_data_hash),
         private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
+        private_tx_blinding: big_uint_to_string(&inputs.private_tx_blinding),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
         allow_dummy_inputs: big_uint_to_string(&inputs.allow_dummy_inputs),
         output_ring_data_hash: big_uint_to_string(&inputs.output_ring_data_hash),
@@ -427,6 +434,7 @@ fn transfer_inputs_json(inputs: &TransferInputs, circuit_type: &str) -> String {
         outputs: inputs.outputs.iter().map(output_to_json).collect(),
         external_data_hash: big_uint_to_string(&inputs.external_data_hash),
         private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
+        private_tx_blinding: big_uint_to_string(&inputs.private_tx_blinding),
         public_assets: inputs
             .public_assets
             .iter()
@@ -482,6 +490,7 @@ pub(crate) fn to_json_p256_ring(inputs: &TransferP256Inputs) -> String {
         outputs: inputs.outputs.iter().map(output_to_json).collect(),
         external_data_hash: big_uint_to_string(&inputs.external_data_hash),
         private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
+        private_tx_blinding: big_uint_to_string(&inputs.private_tx_blinding),
         p256_pub_x: big_uint_to_string(&inputs.p256_pub_x),
         p256_pub_y: big_uint_to_string(&inputs.p256_pub_y),
         p256_sig_r: big_uint_to_string(&inputs.p256_sig_r),
@@ -547,6 +556,7 @@ mod merge_tests {
             outputs: Vec::new(),
             external_data_hash: BigUint::from(1u8),
             private_tx_hash: BigUint::from(2u8),
+            private_tx_blinding: BigUint::from(3u8),
             p256_pub_x: BigUint::from(3u8),
             p256_pub_y: BigUint::from(4u8),
             p256_sig_r: BigUint::from(5u8),
@@ -608,6 +618,7 @@ mod merge_tests {
             user_nullifier_secret: BigUint::from(4u8),
             external_data_hash: BigUint::from(6u8),
             private_tx_hash: BigUint::from(7u8),
+            private_tx_blinding: BigUint::from(8u8),
             allow_dummy_inputs: BigUint::from(1u8),
             public_input_hash: BigUint::from(8u8),
             output_ring_data_hash: BigUint::ZERO,
@@ -694,6 +705,7 @@ mod merge_tests {
             }],
             external_data_hash: BigUint::from(6u8),
             private_tx_hash: BigUint::from(7u8),
+            private_tx_blinding: BigUint::from(8u8),
             public_assets: core::array::from_fn(|_| BigUint::ZERO),
             public_amounts: core::array::from_fn(|_| BigUint::ZERO),
             ring_program_id: BigUint::from(0x55u8),

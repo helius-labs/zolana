@@ -51,6 +51,7 @@ type Transaction struct {
 	Outputs []UtxoCircuitFields
 
 	PrivateTxHash     frontend.Variable
+	PrivateTxBlinding frontend.Variable
 	ExternalDataHash  frontend.Variable
 	PublicAssets      [NPublicSlots]frontend.Variable
 	PublicAmounts     [NPublicSlots]frontend.Variable
@@ -154,6 +155,7 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 		outputHashes,
 		addressHashes,
 		t.ExternalDataHash,
+		t.PrivateTxBlinding,
 	)
 	api.AssertIsEqual(privateTxHash, t.PrivateTxHash)
 

@@ -69,9 +69,9 @@ func mustHashChain(t *testing.T, inputs []*big.Int) *big.Int {
 	return mustHash(t, value, err)
 }
 
-func mustPrivateTxHash(t *testing.T, inputs, outputs, addresses []*big.Int, externalDataHash *big.Int) *big.Int {
+func mustPrivateTxHash(t *testing.T, inputs, outputs, addresses []*big.Int, externalDataHash, blinding *big.Int) *big.Int {
 	t.Helper()
-	value, err := PrivateTxHash(inputs, outputs, addresses, externalDataHash)
+	value, err := PrivateTxHash(inputs, outputs, addresses, externalDataHash, blinding)
 	return mustHash(t, value, err)
 }
 
@@ -206,21 +206,36 @@ func TestPrivateTxHashMatchesSpecFormula(t *testing.T) {
 	outputs := []*big.Int{fe(21), fe(22)}
 	addresses := []*big.Int{fe(41), fe(42)}
 	externalDataHash := fe(31)
+	blinding := fe(32)
 
 	// expiry_unix_ts is NOT a private_tx_hash input — it is bound through
 	// external_data_hash (tested in the prover's external_data tests).
-	got := mustPrivateTxHash(t, inputs, outputs, addresses, externalDataHash)
+	got := mustPrivateTxHash(t, inputs, outputs, addresses, externalDataHash, blinding)
 	inputChain := mustHashChain(t, inputs)
 	outputChain := mustHashChain(t, outputs)
 	addressChain := mustHashChain(t, addresses)
-	want := mustPoseidon(t, 5, []*big.Int{
+	want := mustPoseidon(t, 6, []*big.Int{
 		inputChain,
 		outputChain,
 		addressChain,
 		externalDataHash,
+		blinding,
 	})
 	if got.Cmp(want) != 0 {
 		t.Fatalf("private tx hash mismatch: got %s want %s", got, want)
+	}
+}
+
+func TestPrivateTxHashChangesWithBlinding(t *testing.T) {
+	inputs := []*big.Int{fe(11), fe(12)}
+	outputs := []*big.Int{fe(21), fe(22)}
+	addresses := []*big.Int{fe(41), fe(42)}
+	externalDataHash := fe(31)
+
+	first := mustPrivateTxHash(t, inputs, outputs, addresses, externalDataHash, fe(32))
+	second := mustPrivateTxHash(t, inputs, outputs, addresses, externalDataHash, fe(33))
+	if first.Cmp(second) == 0 {
+		t.Fatal("private tx hash did not change with blinding")
 	}
 }
 

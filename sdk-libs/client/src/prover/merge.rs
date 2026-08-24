@@ -152,6 +152,7 @@ pub(crate) struct CommonMerge {
     owner_pk_hash: BigUint,
     user_nullifier_pk: [u8; 32],
     user_nullifier_secret: [u8; 32],
+    private_tx_blinding: [u8; 32],
 }
 
 impl MergeProver {
@@ -212,10 +213,13 @@ impl MergeProver {
         }
         .hash()?;
 
+        let private_tx_blinding =
+            zolana_transaction::instructions::transact::new_private_tx_blinding();
         let private_tx = PrivateTxHash::new(
             &assembled_inputs.input_hashes,
             &assembled_outputs.private_tx_output_hashes,
             &external_data_hash,
+            &private_tx_blinding,
         )
         .hash()?;
 
@@ -261,6 +265,7 @@ impl MergeProver {
             owner_pk_hash,
             user_nullifier_pk,
             user_nullifier_secret,
+            private_tx_blinding,
         })
     }
 }
@@ -283,6 +288,7 @@ impl CommonMerge {
             user_nullifier_secret: be(&self.user_nullifier_secret),
             external_data_hash: be(&self.external_data_hash),
             private_tx_hash: be(&self.private_tx_hash),
+            private_tx_blinding: be(&self.private_tx_blinding),
             allow_dummy_inputs: BigUint::from(1u8),
             public_input_hash: be(&public_input),
             output_ring_data_hash,

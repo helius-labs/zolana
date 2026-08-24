@@ -192,6 +192,7 @@ func buildRingAuthorityAssignmentWithAddressInput(
 		spptest.ToBigInts(assignment.OutputHashes()),
 		addressHashes,
 		spptest.AsBigInt(assignment.ExternalDataHash),
+		spptest.AsBigInt(assignment.PrivateTxBlinding),
 	)
 	refreshRingAuthorityPublicInputHash(t, assignment)
 	return assignment

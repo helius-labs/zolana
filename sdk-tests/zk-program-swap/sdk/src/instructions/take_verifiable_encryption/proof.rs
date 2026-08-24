@@ -17,6 +17,7 @@ pub struct TakeVerifiableEncryptionProofInputParams {
     pub source_output: SppProofOutputUtxo,
     pub destination_output: SppProofOutputUtxo,
     pub external_data_hash: [u8; 32],
+    pub private_tx_blinding: [u8; 32],
 }
 
 impl TakeVerifiableEncryptionProofInputParams {
@@ -65,6 +66,7 @@ impl TakeVerifiableEncryptionProofInputParams {
                 destination_output.hash().map_err(err)?,
             ],
             &self.external_data_hash,
+            &self.private_tx_blinding,
         )
         .hash()
         .map_err(err)?;
@@ -91,6 +93,7 @@ impl TakeVerifiableEncryptionProofInputParams {
             source_output,
             destination_output,
             external_data_hash: self.external_data_hash,
+            private_tx_blinding: self.private_tx_blinding,
         })
     }
 }

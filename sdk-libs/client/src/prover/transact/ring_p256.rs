@@ -32,6 +32,7 @@ pub struct RingTransferP256Prover {
     pub inputs: Vec<TransferSpendInput>,
     pub outputs: Vec<SppProofOutputUtxo>,
     pub external_data: ExternalData,
+    pub private_tx_blinding: [u8; 32],
     pub public_transfers: PublicTransfers,
     pub signer_pk_hashes: Vec<[u8; 32]>,
     pub allow_dummy_inputs: bool,
@@ -72,6 +73,7 @@ impl RingTransferP256Prover {
             &assembled_inputs.input_hashes,
             &assembled_outputs.private_tx_output_hashes,
             &external_data_hash,
+            &self.private_tx_blinding,
         )
         .hash()?;
         let message_digest = sha256(&private_tx);
@@ -113,6 +115,7 @@ impl RingTransferP256Prover {
             outputs: assembled_outputs.outputs,
             external_data_hash: be(&external_data_hash),
             private_tx_hash: be(&private_tx),
+            private_tx_blinding: be(&self.private_tx_blinding),
             p256_pub_x: be(&pub_x),
             p256_pub_y: be(&pub_y),
             p256_sig_r: be(&self.authorization.sig_r),

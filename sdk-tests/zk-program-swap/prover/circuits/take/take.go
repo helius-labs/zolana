@@ -48,7 +48,8 @@ type Core struct {
 	SourceOutput      spp.UtxoCircuitFields
 	DestinationOutput spp.UtxoCircuitFields
 
-	ExternalDataHash frontend.Variable
+	ExternalDataHash  frontend.Variable
+	PrivateTxBlinding frontend.Variable
 }
 
 func (f Core) Check(api frontend.API, privateTxHash frontend.Variable) {
@@ -67,6 +68,7 @@ func (f Core) Check(api frontend.API, privateTxHash frontend.Variable) {
 		DestinationOutputUtxoHash: destinationOutputUtxoHash,
 		ExternalDataHash:          f.ExternalDataHash,
 		PrivateTxHash:             privateTxHash,
+		PrivateTxBlinding:         f.PrivateTxBlinding,
 	}.Check(api)
 }
 
@@ -77,6 +79,7 @@ type privateTxHashInputs struct {
 	DestinationOutputUtxoHash frontend.Variable
 	ExternalDataHash          frontend.Variable
 	PrivateTxHash             frontend.Variable
+	PrivateTxBlinding         frontend.Variable
 }
 
 func (t privateTxHashInputs) Check(api frontend.API) {
@@ -84,7 +87,7 @@ func (t privateTxHashInputs) Check(api frontend.API) {
 	outputHashes := []frontend.Variable{t.SourceOutputUtxoHash, t.DestinationOutputUtxoHash}
 	addressHashes := []frontend.Variable{frontend.Variable(0), frontend.Variable(0)}
 
-	privateTxHash := spp.PrivateTxHashCircuit(api, inputHashes, outputHashes, addressHashes, t.ExternalDataHash)
+	privateTxHash := spp.PrivateTxHashCircuit(api, inputHashes, outputHashes, addressHashes, t.ExternalDataHash, t.PrivateTxBlinding)
 	api.AssertIsEqual(privateTxHash, t.PrivateTxHash)
 }
 

@@ -43,6 +43,7 @@ type Circuit struct {
 	OwnerPkHash         frontend.Variable
 	UserNullifierPk     frontend.Variable
 	UserNullifierSecret frontend.Variable
+	PrivateTxBlinding   frontend.Variable
 
 	mergeshared.CommonPublicInputs
 
@@ -67,6 +68,7 @@ func (c *Circuit) transaction() mergeshared.Transaction {
 		OwnerPkHash:         c.OwnerPkHash,
 		UserNullifierPk:     c.UserNullifierPk,
 		UserNullifierSecret: c.UserNullifierSecret,
+		PrivateTxBlinding:   c.PrivateTxBlinding,
 		Public:              c.CommonPublicInputs,
 		RingProgramID:       frontend.Variable(0),
 	}

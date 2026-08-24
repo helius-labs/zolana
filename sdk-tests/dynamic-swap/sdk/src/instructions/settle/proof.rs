@@ -85,6 +85,7 @@ pub struct SettleProofInputParams {
     /// The `Pair` account's on-chain `authority_owner_hash`.
     pub authority_owner_hash: [u8; 32],
     pub external_data_hash: [u8; 32],
+    pub private_tx_blinding: [u8; 32],
 }
 
 impl SettleProofInputParams {
@@ -217,6 +218,7 @@ impl SettleProofInputParams {
                 maker_source.hash().map_err(err)?,
             ],
             &self.external_data_hash,
+            &self.private_tx_blinding,
         )
         .hash()
         .map_err(err)?;
@@ -248,6 +250,7 @@ impl SettleProofInputParams {
             maker_counter,
             maker_source,
             external_data_hash: self.external_data_hash,
+            private_tx_blinding: self.private_tx_blinding,
         })
     }
 }

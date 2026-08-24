@@ -302,6 +302,7 @@ pub struct TransferProverInputsArgs {
     pub outputs: Vec<TransferOutput>,
     pub external_data_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
+    pub private_tx_blinding: [u8; 32],
     pub public_slot_assets: [[u8; 32]; N_PUBLIC_SLOTS],
     pub public_slot_amounts: [[u8; 32]; N_PUBLIC_SLOTS],
     /// The signer run the proof binds: payer first, then unique owner signers,
@@ -325,6 +326,7 @@ pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferI
         outputs: args.outputs,
         external_data_hash: be(&args.external_data_hash),
         private_tx_hash: be(&args.private_tx_hash),
+        private_tx_blinding: be(&args.private_tx_blinding),
         public_assets: args.public_slot_assets.map(|asset| be(&asset)),
         public_amounts: args.public_slot_amounts.map(|amount| be(&amount)),
         ring_program_id: be(&zero),
@@ -666,9 +668,15 @@ pub fn build_spl_withdrawal(
     set_output_owner_tags(&mut outputs, &output_owner_hashes, &[zero, zero, zero]);
     let external_hash = external_data_hash_spl(&data, &user_token.to_bytes(), &vault.to_bytes())
         .expect("external data hash");
-    let private_tx = PrivateTxHash::new(&[utxo_hash, zero], &[zero, zero, zero], &external_hash)
-        .hash()
-        .expect("private transaction hash");
+    let private_tx_blinding = fe(9);
+    let private_tx = PrivateTxHash::new(
+        &[utxo_hash, zero],
+        &[zero, zero, zero],
+        &external_hash,
+        &private_tx_blinding,
+    )
+    .hash()
+    .expect("private transaction hash");
     let public_spl_field = public_sol_field(Some(-(amount as i64)));
     let payer_hash = hash_bytes(&payer_bytes).expect("payer hash");
     let mint_bytes = mint.to_bytes();
@@ -698,6 +706,7 @@ pub fn build_spl_withdrawal(
         outputs,
         external_data_hash: external_hash,
         private_tx_hash: private_tx,
+        private_tx_blinding,
         public_slot_assets,
         public_slot_amounts,
         signer_pk_hashes: vec![payer_hash],

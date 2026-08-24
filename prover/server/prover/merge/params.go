@@ -70,9 +70,10 @@ type MergeParameters struct {
 	// default rail.
 	OutputRingDataHash *big.Int
 
-	ExternalDataHash *big.Int
-	PrivateTxHash    *big.Int
-	AllowDummyInputs *big.Int
+	ExternalDataHash  *big.Int
+	PrivateTxHash     *big.Int
+	PrivateTxBlinding *big.Int
+	AllowDummyInputs  *big.Int
 
 	PublicInputHash *big.Int
 }

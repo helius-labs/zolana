@@ -22,15 +22,17 @@ pub struct TakeVerifiableEncryptionProofInputs {
     pub source_output: ProofInputUtxo,
     pub destination_output: ProofInputUtxo,
     pub external_data_hash: [u8; 32],
+    pub private_tx_blinding: [u8; 32],
 }
 
 impl TakeVerifiableEncryptionProofInputs {
     fn witness(&self) -> ffi::WitnessMap {
-        let scalars: [(&str, [u8; 32]); 4] = [
+        let scalars: [(&str, [u8; 32]); 5] = [
             ("Public_PublicInputHash", self.public_input_hash),
             ("Public_PrivateTxHash", self.private_tx_hash),
             ("Core_ExternalDataHash", self.external_data_hash),
             ("TakerNullifierPk", self.taker_nullifier_pk),
+            ("Core_PrivateTxBlinding", self.private_tx_blinding),
         ];
         let mut map = HashMap::new();
         for (key, value) in scalars.iter() {

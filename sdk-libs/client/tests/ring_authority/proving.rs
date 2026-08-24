@@ -165,6 +165,7 @@ fn assemble_prover(
     n_out: usize,
 ) -> RingAuthorityProver {
     RingAuthorityProver {
+        private_tx_blinding: zolana_transaction::instructions::transact::new_private_tx_blinding(),
         inputs,
         outputs,
         external_data: ring_external_data(n_out),

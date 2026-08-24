@@ -418,6 +418,7 @@ impl RingHarness {
                     allow_dummy_inputs: true,
                     ring_program_id: Some(ring),
                     shape: Some(shape),
+                    private_tx_blinding: proof_inputs.private_tx_blinding,
                 };
                 let result = prover.build()?;
                 let proof = ProverClient::local().prove_transfer_ring(&result.inputs)?;
@@ -464,6 +465,7 @@ impl RingHarness {
                     authorization,
                     ring_program_id: Some(ring),
                     shape: Some(shape),
+                    private_tx_blinding: proof_inputs.private_tx_blinding,
                 };
                 let result = prover.build()?;
                 let proof = ProverClient::local().prove_transfer_p256_ring(&result.inputs)?;
@@ -703,6 +705,7 @@ impl RingHarness {
             allow_dummy_inputs: true,
             ring_program_id: Some(ring),
             shape: Some(Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs())),
+            private_tx_blinding: proof_inputs.private_tx_blinding,
         };
         let result = prover.build()?;
         let data = assemble_ix_data(

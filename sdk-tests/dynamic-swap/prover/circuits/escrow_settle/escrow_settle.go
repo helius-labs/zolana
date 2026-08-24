@@ -64,7 +64,8 @@ type Circuit struct {
 	MaxPrice           frontend.Variable
 	CreatedAt          frontend.Variable
 
-	ExternalDataHash frontend.Variable
+	ExternalDataHash  frontend.Variable
+	PrivateTxBlinding frontend.Variable
 }
 
 func (c *Circuit) Define(api frontend.API) error {
@@ -143,6 +144,7 @@ func (c *Circuit) Define(api frontend.API) error {
 		MakerCounterOutputUtxoHash: makerCounterHash,
 		MakerSourceOutputUtxoHash:  makerSourceHash,
 		ExternalDataHash:           c.ExternalDataHash,
+		PrivateTxBlinding:          c.PrivateTxBlinding,
 		PrivateTxHash:              c.Public.PrivateTxHash,
 	}.Check(api)
 
@@ -192,6 +194,7 @@ type privateTxHashInputs struct {
 	MakerCounterOutputUtxoHash frontend.Variable
 	MakerSourceOutputUtxoHash  frontend.Variable
 	ExternalDataHash           frontend.Variable
+	PrivateTxBlinding          frontend.Variable
 	PrivateTxHash              frontend.Variable
 }
 
@@ -212,7 +215,7 @@ func (t privateTxHashInputs) Check(api frontend.API) {
 		frontend.Variable(0),
 	}
 
-	privateTxHash := spp.PrivateTxHashCircuit(api, inputHashes, outputHashes, addressHashes, t.ExternalDataHash)
+	privateTxHash := spp.PrivateTxHashCircuit(api, inputHashes, outputHashes, addressHashes, t.ExternalDataHash, t.PrivateTxBlinding)
 	api.AssertIsEqual(privateTxHash, t.PrivateTxHash)
 }
 

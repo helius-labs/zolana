@@ -61,6 +61,7 @@ func asCustomRingP256(a *testAssignment, authorization p256Authorization) fronte
 			Outputs:             a.outputUtxos(),
 			OutputOwnerPkHashes: a.OutputOwnerPkHashes(),
 			OutputNullifierPks:  a.outputNullifierPks(),
+			PrivateTxBlinding:   a.PrivateTxBlinding,
 			P256Pub:             authorization.pub,
 			P256Sig:             authorization.sig,
 		},

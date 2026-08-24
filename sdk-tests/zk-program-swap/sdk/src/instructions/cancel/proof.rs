@@ -14,6 +14,7 @@ pub struct CancelProofInputParams {
     pub taker_viewing_pubkey: P256Pubkey,
     pub source_output: SppProofOutputUtxo,
     pub external_data_hash: [u8; 32],
+    pub private_tx_blinding: [u8; 32],
 }
 
 impl CancelProofInputParams {
@@ -37,6 +38,7 @@ impl CancelProofInputParams {
             &[order_utxo.hash().map_err(err)?],
             &[source_output.hash().map_err(err)?],
             &self.external_data_hash,
+            &self.private_tx_blinding,
         )
         .hash()
         .map_err(err)?;
@@ -56,6 +58,7 @@ impl CancelProofInputParams {
             order_utxo,
             source_output,
             external_data_hash: self.external_data_hash,
+            private_tx_blinding: self.private_tx_blinding,
         })
     }
 }

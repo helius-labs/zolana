@@ -265,10 +265,15 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
 
     // private_tx_hash uses the real input's utxo hash; the dummy input and all
     // outputs contribute zero.
-    let private_tx =
-        PrivateTxHash::new(&[utxo_hash, zero], &[zero, zero, zero], &external_data_hash)
-            .hash()
-            .expect("private tx hash");
+    let private_tx_blinding = zolana_transaction::instructions::transact::new_private_tx_blinding();
+    let private_tx = PrivateTxHash::new(
+        &[utxo_hash, zero],
+        &[zero, zero, zero],
+        &external_data_hash,
+        &private_tx_blinding,
+    )
+    .hash()
+    .expect("private tx hash");
     let public_sol_field = public_sol_field(Some(-(AMOUNT as i64)));
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(public_sol_field);
     let payer_pubkey_hash = hash_bytes(&payer_bytes).expect("payer hash");
@@ -297,6 +302,7 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
         outputs,
         external_data_hash,
         private_tx_hash: private_tx,
+        private_tx_blinding,
         public_slot_assets,
         public_slot_amounts,
         signer_pk_hashes: vec![payer_pubkey_hash],
@@ -472,10 +478,12 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
     }];
     let external_data_hash =
         external_data_hash(&transact_ix_data, &resolved_transfers).expect("external data hash");
+    let private_tx_blinding = zolana_transaction::instructions::transact::new_private_tx_blinding();
     let private_tx = PrivateTxHash::new(
         &[zero, zero],
         &[shielded_hash, zero, zero],
         &external_data_hash,
+        &private_tx_blinding,
     )
     .hash()
     .expect("private tx hash");
@@ -506,6 +514,7 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
         outputs,
         external_data_hash,
         private_tx_hash: private_tx,
+        private_tx_blinding,
         public_slot_assets,
         public_slot_amounts,
         signer_pk_hashes: vec![payer_pubkey_hash],
@@ -660,10 +669,15 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
     );
     let external_hash = external_data_hash_spl(&data, &user_token.to_bytes(), &vault.to_bytes())
         .expect("external data hash");
-    let private_tx =
-        PrivateTxHash::new(&[zero, zero], &[shielded_hash, zero, zero], &external_hash)
-            .hash()
-            .expect("private transaction hash");
+    let private_tx_blinding = zolana_transaction::instructions::transact::new_private_tx_blinding();
+    let private_tx = PrivateTxHash::new(
+        &[zero, zero],
+        &[shielded_hash, zero, zero],
+        &external_hash,
+        &private_tx_blinding,
+    )
+    .hash()
+    .expect("private transaction hash");
     let public_spl_field = public_sol_field(Some(SPL_AMOUNT as i64));
     let payer_hash = hash_bytes(&payer_bytes).expect("payer hash");
     let mint_bytes = mint.to_bytes();
@@ -692,6 +706,7 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
         outputs,
         external_data_hash: external_hash,
         private_tx_hash: private_tx,
+        private_tx_blinding,
         public_slot_assets,
         public_slot_amounts,
         signer_pk_hashes: vec![payer_hash],
@@ -960,10 +975,13 @@ fn phase_transfer_to_recipient(
     );
     let transfer_external_hash =
         external_data_hash(&transfer_ix_data, &[]).expect("transfer external data hash");
+    let transfer_private_tx_blinding =
+        zolana_transaction::instructions::transact::new_private_tx_blinding();
     let transfer_private_tx = PrivateTxHash::new(
         &[payer_utxo_hash, zero],
         &[change_hash, recipient_hash, zero],
         &transfer_external_hash,
+        &transfer_private_tx_blinding,
     )
     .hash()
     .expect("transfer private tx hash");
@@ -992,6 +1010,7 @@ fn phase_transfer_to_recipient(
         outputs: transfer_outputs,
         external_data_hash: transfer_external_hash,
         private_tx_hash: transfer_private_tx,
+        private_tx_blinding: transfer_private_tx_blinding,
         public_slot_assets: transfer_public_slot_assets,
         public_slot_amounts: transfer_public_slot_amounts,
         signer_pk_hashes: vec![payer_pubkey_hash],
@@ -1166,10 +1185,13 @@ fn phase_withdraw_recipient_utxo(
     let withdraw_external_hash =
         external_data_hash(&withdraw_ix_data, &withdraw_resolved_transfers)
             .expect("withdraw external data hash");
+    let withdraw_private_tx_blinding =
+        zolana_transaction::instructions::transact::new_private_tx_blinding();
     let withdraw_private_tx = PrivateTxHash::new(
         &[recipient_hash, zero],
         &[zero, zero, zero],
         &withdraw_external_hash,
+        &withdraw_private_tx_blinding,
     )
     .hash()
     .expect("withdraw private tx hash");
@@ -1199,6 +1221,7 @@ fn phase_withdraw_recipient_utxo(
         outputs: withdraw_outputs,
         external_data_hash: withdraw_external_hash,
         private_tx_hash: withdraw_private_tx,
+        private_tx_blinding: withdraw_private_tx_blinding,
         public_slot_assets,
         public_slot_amounts,
         signer_pk_hashes: vec![recipient_pubkey_hash],

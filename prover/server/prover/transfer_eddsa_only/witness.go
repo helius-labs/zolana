@@ -161,6 +161,7 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 				InputOwnerPkHashes: core.inputOwnerPkHashes,
 				Outputs:            core.outputs,
 				OutputNullifierPks: outputNullifierPks,
+				PrivateTxBlinding:  p.PrivateTxBlinding,
 			},
 		}, nil
 	case RingAuthorityVariant:
@@ -184,6 +185,7 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 				Inputs:             core.inputs,
 				InputOwnerPkHashes: core.inputOwnerPkHashes,
 				Outputs:            core.outputs,
+				PrivateTxBlinding:  p.PrivateTxBlinding,
 			},
 		}, nil
 	default:
@@ -216,6 +218,7 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 				Outputs:             core.outputs,
 				OutputOwnerPkHashes: outputOwnerPkHashes,
 				OutputNullifierPks:  outputNullifierPks,
+				PrivateTxBlinding:   p.PrivateTxBlinding,
 			},
 		}, nil
 	}

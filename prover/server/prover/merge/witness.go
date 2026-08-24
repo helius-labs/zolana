@@ -29,6 +29,7 @@ func (p *MergeParameters) createDefaultWitness() *mergecircuit.Circuit {
 	circuit.Asset = p.Asset
 	circuit.ExternalDataHash = p.ExternalDataHash
 	circuit.PrivateTxHash = p.PrivateTxHash
+	circuit.PrivateTxBlinding = p.PrivateTxBlinding
 	circuit.OutputHash = p.Output.Hash
 	circuit.AllowDummyInputs = p.AllowDummyInputs
 	circuit.UserSigningPkHash = p.OwnerPkHash
@@ -57,6 +58,7 @@ func (p *MergeParameters) createRingWitness() *mergecircuit.RingCircuit {
 	circuit.Asset = p.Asset
 	circuit.ExternalDataHash = p.ExternalDataHash
 	circuit.PrivateTxHash = p.PrivateTxHash
+	circuit.PrivateTxBlinding = p.PrivateTxBlinding
 	circuit.OutputHash = p.Output.Hash
 	circuit.AllowDummyInputs = p.AllowDummyInputs
 	circuit.OutputRingDataHash = p.OutputRingDataHash

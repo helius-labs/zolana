@@ -87,6 +87,7 @@ fn build_inputs(destination_output_blinding: Blinding) -> TakeProofInputs {
     )
     .expect("destination output utxo");
     let external_data_hash = fe(8);
+    let private_tx_blinding = fe(9);
     let private_tx_hash = PrivateTxHash::new(
         &[
             order_utxo.hash().expect("order utxo hash"),
@@ -97,6 +98,7 @@ fn build_inputs(destination_output_blinding: Blinding) -> TakeProofInputs {
             destination_output.hash().expect("destination output hash"),
         ],
         &external_data_hash,
+        &private_tx_blinding,
     )
     .hash()
     .expect("private tx hash");
@@ -115,6 +117,7 @@ fn build_inputs(destination_output_blinding: Blinding) -> TakeProofInputs {
         source_output,
         destination_output,
         external_data_hash,
+        private_tx_blinding,
     }
 }
 

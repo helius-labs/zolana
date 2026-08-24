@@ -25,8 +25,9 @@ type P256TransferParameters struct {
 	Inputs  []InputParams
 	Outputs []OutputParams
 
-	ExternalDataHash *big.Int
-	PrivateTxHash    *big.Int
+	ExternalDataHash  *big.Int
+	PrivateTxHash     *big.Int
+	PrivateTxBlinding *big.Int
 
 	P256PubX               *big.Int
 	P256PubY               *big.Int
@@ -53,6 +54,7 @@ type P256TransferParametersJSON struct {
 	Outputs                      []OutputParamsJSON `json:"outputs"`
 	ExternalDataHash             string             `json:"externalDataHash"`
 	PrivateTxHash                string             `json:"privateTxHash"`
+	PrivateTxBlinding            string             `json:"privateTxBlinding"`
 	P256PubX                     string             `json:"p256PubX"`
 	P256PubY                     string             `json:"p256PubY"`
 	P256SigR                     string             `json:"p256SigR"`
@@ -77,6 +79,7 @@ func (p *P256TransferParameters) MarshalJSON() ([]byte, error) {
 		Outputs:                      p.Outputs,
 		ExternalDataHash:             p.ExternalDataHash,
 		PrivateTxHash:                p.PrivateTxHash,
+		PrivateTxBlinding:            p.PrivateTxBlinding,
 		PublicAssets:                 p.PublicAssets,
 		PublicAmounts:                p.PublicAmounts,
 		RingProgramID:                p.RingProgramID,
@@ -94,6 +97,7 @@ func (p *P256TransferParameters) MarshalJSON() ([]byte, error) {
 		Outputs:                      base.Outputs,
 		ExternalDataHash:             base.ExternalDataHash,
 		PrivateTxHash:                base.PrivateTxHash,
+		PrivateTxBlinding:            base.PrivateTxBlinding,
 		P256PubX:                     feHex(p.P256PubX),
 		P256PubY:                     feHex(p.P256PubY),
 		P256SigR:                     feHex(p.P256SigR),
@@ -128,6 +132,7 @@ func (p *P256TransferParameters) UnmarshalJSON(data []byte) error {
 		Outputs:                      params.Outputs,
 		ExternalDataHash:             params.ExternalDataHash,
 		PrivateTxHash:                params.PrivateTxHash,
+		PrivateTxBlinding:            params.PrivateTxBlinding,
 		PublicAssets:                 params.PublicAssets,
 		PublicAmounts:                params.PublicAmounts,
 		RingProgramID:                params.RingProgramID,
@@ -144,6 +149,7 @@ func (p *P256TransferParameters) UnmarshalJSON(data []byte) error {
 	p.Outputs = base.Outputs
 	p.ExternalDataHash = base.ExternalDataHash
 	p.PrivateTxHash = base.PrivateTxHash
+	p.PrivateTxBlinding = base.PrivateTxBlinding
 	p.PublicAssets = base.PublicAssets
 	p.PublicAmounts = base.PublicAmounts
 	p.RingProgramID = base.RingProgramID
@@ -237,6 +243,7 @@ func (p *P256TransferParameters) CreateWitness() (frontend.Circuit, error) {
 			Outputs:             core.outputs,
 			OutputOwnerPkHashes: outputOwnerPkHashes,
 			OutputNullifierPks:  outputNullifierPks,
+			PrivateTxBlinding:   p.PrivateTxBlinding,
 			P256Pub: customring.P256PublicKey{
 				X: emulated.ValueOf[emulated.P256Fp](p.P256PubX),
 				Y: emulated.ValueOf[emulated.P256Fp](p.P256PubY),

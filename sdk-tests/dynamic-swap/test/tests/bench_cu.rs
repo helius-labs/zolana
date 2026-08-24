@@ -660,6 +660,7 @@ fn bench_create_escrow(
         root_index,
     );
 
+    let private_tx_blinding = spp_proof_inputs.private_tx_blinding;
     let prover = ProverClient::local();
     let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
 
@@ -683,6 +684,7 @@ fn bench_create_escrow(
         created_at: CREATED_AT,
         order_amount: ORDER_AMOUNT,
         external_data_hash,
+        private_tx_blinding,
     }
     .to_proof_inputs()
     .expect("escrow_open proof inputs");
@@ -924,6 +926,7 @@ fn bench_settle(
         root_index,
     );
 
+    let private_tx_blinding = spp_proof_inputs.private_tx_blinding;
     let prover = ProverClient::local();
     let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
 
@@ -942,6 +945,7 @@ fn bench_settle(
         recipient_owner_hash,
         authority_owner_hash,
         external_data_hash,
+        private_tx_blinding,
     }
     .to_proof_inputs()
     .expect("escrow_settle proof inputs");

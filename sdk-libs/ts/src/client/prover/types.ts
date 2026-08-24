@@ -41,6 +41,7 @@ export interface TransferInputs {
   readonly outputs: readonly TransferOutput[];
   readonly externalDataHash: Field;
   readonly privateTxHash: Field;
+  readonly privateTxBlinding: Field;
   readonly publicAssets: readonly Field[];
   readonly publicAmounts: readonly Field[];
   readonly zoneProgramId: Field;
@@ -58,6 +59,7 @@ export interface MergeInputs {
   readonly userNullifierSecret: Field;
   readonly externalDataHash: Field;
   readonly privateTxHash: Field;
+  readonly privateTxBlinding: Field;
   readonly allowDummyInputs: Field;
   readonly publicInputHash: Field;
   readonly outputZoneDataHash: Field;

@@ -17,14 +17,16 @@ pub struct MakeProofInputs {
     pub change: ProofInputUtxo,
     pub source_input_hash: [u8; 32],
     pub external_data_hash: [u8; 32],
+    pub private_tx_blinding: [u8; 32],
 }
 
 impl MakeProofInputs {
     fn witness(&self) -> ffi::WitnessMap {
-        let scalars: [(&str, [u8; 32]); 3] = [
+        let scalars: [(&str, [u8; 32]); 4] = [
             ("PrivateTxHash", self.private_tx_hash),
             ("SourceInputHash", self.source_input_hash),
             ("ExternalDataHash", self.external_data_hash),
+            ("PrivateTxBlinding", self.private_tx_blinding),
         ];
         let mut map = HashMap::new();
         for (key, value) in scalars.iter() {

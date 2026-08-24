@@ -49,6 +49,7 @@ type CustomRingP256Private struct {
 	Outputs             []shared.UtxoCircuitFields
 	OutputOwnerPkHashes []frontend.Variable
 	OutputNullifierPks  []frontend.Variable
+	PrivateTxBlinding   frontend.Variable
 	P256Pub             P256PublicKey
 	P256Sig             P256Signature
 }
@@ -96,6 +97,7 @@ func (c *CustomRingP256Circuit) transaction(
 		Inputs:             c.Private.Inputs,
 		Outputs:            c.Private.Outputs,
 		PrivateTxHash:      c.Public.PrivateTxHash,
+		PrivateTxBlinding:  c.Private.PrivateTxBlinding,
 		ExternalDataHash:   c.Public.ExternalDataHash,
 		PublicAssets:       c.Public.PublicAssets,
 		PublicAmounts:      c.Public.PublicAmounts,

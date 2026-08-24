@@ -313,10 +313,12 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<Tr
         &args.output_nullifier_pks,
     );
     let external_hash = external_data_hash(&ix_data, &args.resolved_transfers)?;
+    let private_tx_blinding = zolana_transaction::instructions::transact::new_private_tx_blinding();
     let private_tx = PrivateTxHash::new(
         &args.private_tx_inputs,
         &args.private_tx_outputs,
         &external_hash,
+        &private_tx_blinding,
     )
     .hash()?;
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(args.public_sol_amount);
@@ -343,6 +345,7 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<Tr
         outputs: args.outputs,
         external_data_hash: external_hash,
         private_tx_hash: private_tx,
+        private_tx_blinding,
         public_slot_assets,
         public_slot_amounts,
         signer_pk_hashes: signer_hashes.to_vec(),

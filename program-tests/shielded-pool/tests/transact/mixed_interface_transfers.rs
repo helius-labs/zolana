@@ -301,10 +301,12 @@ fn prove_spend(
 
     let external_hash =
         external_data_hash(&ix_data, resolved_transfers).expect("external data hash");
+    let private_tx_blinding = zolana_transaction::instructions::transact::new_private_tx_blinding();
     let private_tx = PrivateTxHash::new(
         &[note.utxo_hash, [0u8; 32]],
         &output_private_hashes,
         &external_hash,
+        &private_tx_blinding,
     )
     .hash()
     .expect("private tx hash");
@@ -335,6 +337,7 @@ fn prove_spend(
         outputs: transfer_outputs,
         external_data_hash: external_hash,
         private_tx_hash: private_tx,
+        private_tx_blinding,
         public_slot_assets,
         public_slot_amounts,
         signer_pk_hashes: signer_hashes.to_vec(),

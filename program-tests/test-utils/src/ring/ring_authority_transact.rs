@@ -276,6 +276,8 @@ impl RingHarness {
             allow_dummy_inputs: true,
             ring_program_id: Some(ring),
             shape: Some(Shape::new(1, 1)),
+            private_tx_blinding:
+                zolana_transaction::instructions::transact::new_private_tx_blinding(),
         }
         .build()?;
         let proof = ProverClient::local().prove_ring_authority(&result.inputs)?;

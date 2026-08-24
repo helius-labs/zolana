@@ -8,6 +8,7 @@ import { mergeExternalDataHash } from "../../interface/codecs/index.js";
 import { NullifierKey } from "../../keypair/nullifier-key.js";
 import { ShieldedPublicKey } from "../../keypair/public-key.js";
 import { MERGE_INPUTS, PreparedMerge } from "../../transaction/instructions/builders.js";
+import { newPrivateTxBlinding } from "../../transaction/instructions/transact.js";
 
 import type { ZolanaClient } from "../client.js";
 import { ClientError, fromClientCause } from "../error.js";
@@ -200,12 +201,14 @@ function assembleMergeUnchecked(
     expiryUnixTs: prepared.expiryUnixTs,
     outputUtxoHash: outputHash,
   });
+  const privateTxBlinding = newPrivateTxBlinding();
   const privateTxHash = bigintToBytes(
     poseidon([
       hashChain(inputHashes),
       bytesToBigInt(outputHash),
       hashChain(Array.from({ length: MERGE_INPUTS }, () => 0n)),
       bytesToBigInt(externalDataHash),
+      bytesToBigInt(privateTxBlinding),
     ]),
   ) as Bytes32;
   const eddsaOwner = prepared.signingPublicKey.signatureType() === "ed25519";
@@ -237,6 +240,7 @@ function assembleMergeUnchecked(
     ),
     externalDataHash: asField(bytesToBigInt(externalDataHash)),
     privateTxHash: asField(bytesToBigInt(privateTxHash)),
+    privateTxBlinding: asField(bytesToBigInt(privateTxBlinding)),
     allowDummyInputs: asField(1n),
     publicInputHash: asField(bytesToBigInt(publicInputHash)),
     outputZoneDataHash: asField(0n),

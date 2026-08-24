@@ -89,6 +89,7 @@ pub struct MergeInputs {
     pub user_nullifier_secret: BigUint,
     pub external_data_hash: BigUint,
     pub private_tx_hash: BigUint,
+    pub private_tx_blinding: BigUint,
     /// Merges always legitimately pad with dummy slots, so the dummy-input
     /// guard is `1` here.
     pub allow_dummy_inputs: BigUint,
@@ -131,6 +132,7 @@ pub struct TransferInputs {
     pub outputs: Vec<TransferOutput>,
     pub external_data_hash: BigUint,
     pub private_tx_hash: BigUint,
+    pub private_tx_blinding: BigUint,
     /// Uniform public transfer slots (slot 0 = SOL leg, slot 1 = SPL leg); idle
     /// slots are (0, 0).
     pub public_assets: [BigUint; N_PUBLIC_SLOTS],
@@ -149,6 +151,7 @@ pub struct TransferP256Inputs {
     pub outputs: Vec<TransferOutput>,
     pub external_data_hash: BigUint,
     pub private_tx_hash: BigUint,
+    pub private_tx_blinding: BigUint,
     pub p256_pub_x: BigUint,
     pub p256_pub_y: BigUint,
     pub p256_sig_r: BigUint,

@@ -18,6 +18,7 @@ export {
   createExternalData,
   createInputUtxo,
   encodeConfidentialSlots,
+  newPrivateTxBlinding,
   privateTxHash,
   resolveShape,
   signedToField,

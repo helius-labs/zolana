@@ -1,4 +1,5 @@
 use borsh::BorshDeserialize;
+use rand::{rngs::OsRng, RngCore};
 use solana_address::Address;
 use zolana_event::{MessageData, OutputDataEncoding};
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
@@ -163,6 +164,7 @@ pub struct EncryptedTransaction {
     pub inputs: Vec<InputUtxo>,
     pub outputs: Vec<SppProofOutputUtxo>,
     pub external_data: ExternalData,
+    pub private_tx_blinding: [u8; 32],
 }
 
 impl EncryptedTransaction {
@@ -177,7 +179,13 @@ impl EncryptedTransaction {
             .iter()
             .map(SppProofOutputUtxo::hash)
             .collect::<Result<Vec<_>, _>>()?;
-        PrivateTxHash::new(&input_hashes, &output_hashes, &self.external_data.hash()?).hash()
+        PrivateTxHash::new(
+            &input_hashes,
+            &output_hashes,
+            &self.external_data.hash()?,
+            &self.private_tx_blinding,
+        )
+        .hash()
     }
 }
 
@@ -186,6 +194,7 @@ pub struct PrivateTxHash<'a> {
     pub output_hashes: &'a [[u8; 32]],
     pub address_hashes: Option<&'a [[u8; 32]]>,
     pub external_data_hash: &'a [u8; 32],
+    pub blinding: &'a [u8; 32],
 }
 
 impl<'a> PrivateTxHash<'a> {
@@ -193,12 +202,14 @@ impl<'a> PrivateTxHash<'a> {
         input_hashes: &'a [[u8; 32]],
         output_hashes: &'a [[u8; 32]],
         external_data_hash: &'a [u8; 32],
+        blinding: &'a [u8; 32],
     ) -> Self {
         Self {
             input_hashes,
             output_hashes,
             address_hashes: None,
             external_data_hash,
+            blinding,
         }
     }
 
@@ -214,7 +225,18 @@ impl<'a> PrivateTxHash<'a> {
             &output_chain,
             &address_chain,
             self.external_data_hash,
+            self.blinding,
         ])?)
+    }
+}
+
+pub fn new_private_tx_blinding() -> [u8; 32] {
+    let mut blinding = [0u8; 32];
+    loop {
+        OsRng.fill_bytes(&mut blinding[1..]);
+        if blinding[1..].iter().any(|byte| *byte != 0) {
+            return blinding;
+        }
     }
 }
 
