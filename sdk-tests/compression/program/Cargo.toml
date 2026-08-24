@@ -1,0 +1,32 @@
+[package]
+name = "compression-example-program"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[lib]
+name = "compression_example_program"
+crate-type = ["cdylib", "lib"]
+
+[features]
+default = []
+bpf-entrypoint = []
+no-entrypoint = []
+cpi = ["no-entrypoint"]
+
+[dependencies]
+pinocchio = { workspace = true, features = ["cpi"] }
+solana-address = { workspace = true }
+zolana-hasher = { workspace = true, features = ["poseidon", "sha256"] }
+zolana-interface = { workspace = true }
+
+[dev-dependencies]
+zolana-keypair = { workspace = true }
+zolana-transaction = { workspace = true }
+
+[lints.rust.unexpected_cfgs]
+level = "allow"
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+]
