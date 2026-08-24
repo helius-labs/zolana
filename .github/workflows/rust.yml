@@ -116,7 +116,9 @@ jobs:
           sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       - name: Install pinned SBF platform tools
-        run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
+        uses: ./.github/actions/install-sbf-tools
+        with:
+          version: ${{ env.SBF_TOOLS_VERSION }}
       - run: just test-program-fast
 
   test-sdk-libs:
@@ -151,7 +153,9 @@ jobs:
           sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       - name: Install pinned SBF platform tools
-        run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
+        uses: ./.github/actions/install-sbf-tools
+        with:
+          version: ${{ env.SBF_TOOLS_VERSION }}
       - name: Cache proving keys
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -269,7 +273,9 @@ jobs:
           sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       - name: Install pinned SBF platform tools
-        run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
+        uses: ./.github/actions/install-sbf-tools
+        with:
+          version: ${{ env.SBF_TOOLS_VERSION }}
       - name: Cache proving keys
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -322,7 +328,9 @@ jobs:
           sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       - name: Install pinned SBF platform tools
-        run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
+        uses: ./.github/actions/install-sbf-tools
+        with:
+          version: ${{ env.SBF_TOOLS_VERSION }}
       - run: just test-user-registry-litesvm
 
   # Line/region coverage over the library and binary crates: the program-libs,
