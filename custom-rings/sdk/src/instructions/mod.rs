@@ -3,4 +3,5 @@ pub mod deposit;
 pub mod grant_read_access;
 pub mod init_spp_ring_config;
 pub mod revoke_read_access;
+pub mod set_authority;
 pub mod transact;

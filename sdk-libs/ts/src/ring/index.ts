@@ -25,7 +25,12 @@ export type {
 export { AUDIT_PROOF_LENGTH, checkedAuditProof, decodeRingProgramConfig } from "./codecs.js";
 export { ringRole, type RingRole } from "./role.js";
 export type { RingProgramConfig } from "./codecs.js";
-export { fetchRingProgramConfig, ringConfigAddress, ringProgramDataAddress } from "./config.js";
+export {
+  fetchRingProgramConfig,
+  ringConfigAddress,
+  ringProgramDataAddress,
+  setRingAuthorityInstruction,
+} from "./config.js";
 export { buildRingDepositTransaction } from "./deposit.js";
 export type { RingDepositTransactionParams } from "./deposit.js";
 export { RING_ERROR_CODES, RingError, wrapRingError } from "./error.js";

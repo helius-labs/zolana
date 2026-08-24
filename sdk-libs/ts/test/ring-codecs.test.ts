@@ -20,6 +20,7 @@ import {
   ringTransactInstruction,
 } from "../src/ring/instructions.js";
 import { decodeRingProgramConfig } from "../src/ring/codecs.js";
+import { setRingAuthorityInstruction } from "../src/ring/config.js";
 import { getProtocolConfigAddress } from "../src/addresses.js";
 import { passkeyReader } from "../src/ring/passkey.js";
 import {
@@ -214,6 +215,21 @@ describe("ring config", () => {
     expect(() => decodeRingProgramConfig(Uint8Array.from([2, ...data.subarray(1)]))).toThrow(
       "RING_CONFIG_INVALID",
     );
+  });
+
+  it("builds the authority handover like Rust `SetAuthority`", async () => {
+    const handover = await setRingAuthorityInstruction({
+      ringProgramId: RING,
+      authority: AUTHORITY,
+      newAuthority: PAYER,
+    });
+    expect(handover.programAddress).toBe(RING);
+    expect(handover.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
+      [AUTHORITY, AccountRole.READONLY_SIGNER],
+      [PAYER, AccountRole.READONLY_SIGNER],
+      [RING_CONFIG, AccountRole.WRITABLE],
+    ]);
+    expect(Buffer.from(handover.data ?? []).toString("hex")).toBe("06");
   });
 });
 

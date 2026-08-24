@@ -11,7 +11,7 @@ mod v0;
 pub use custom_ring_interface::{
     tag, AuditProof, CreateConfigIxData, CustomRingTransactIxData, ReaderIxData, CONFIG_PDA_SEED,
     CREATE_CONFIG_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
-    READ_ACCESS_COMPUTE_UNIT_LIMIT, READ_ACCESS_RECORD_PDA_SEED,
+    READ_ACCESS_COMPUTE_UNIT_LIMIT, READ_ACCESS_RECORD_PDA_SEED, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
 };
 
 pub use zolana_ring_client::{
@@ -25,6 +25,7 @@ pub use crate::{
         grant_read_access::GrantReadAccess,
         init_spp_ring_config::InitSppRingConfig,
         revoke_read_access::RevokeReadAccess,
+        set_authority::SetAuthority,
         transact::{
             to_instruction_proof, AuditPrivateTxHash, AuditProofError, AuditProofInputError,
             AuditProofParams, AuditProofRequest, AuditPublicInputHash, EncryptedAudit,

@@ -7,7 +7,8 @@ use curve25519_dalek::constants::{ED25519_BASEPOINT_POINT, EIGHT_TORSION};
 use custom_ring_sdk::{
     tag, AuditProof, CreateConfig, CreateConfigIxData, CustomRing, CustomRingTransactIxData,
     Deposit, GrantReadAccess, InitSppRingConfig, ReaderIxData, ReaderKey, ReaderKeyError,
-    RevokeReadAccess, RingTransactWithAudit, CONFIG_PDA_SEED, READ_ACCESS_RECORD_PDA_SEED,
+    RevokeReadAccess, RingTransactWithAudit, SetAuthority, CONFIG_PDA_SEED,
+    READ_ACCESS_RECORD_PDA_SEED,
 };
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -272,6 +273,28 @@ fn revoke_read_access_emits_the_program_account_order_and_reader() {
     let decoded: ReaderIxData =
         wincode::deserialize_exact(body).expect("body is a complete ReaderIxData");
     assert_eq!(decoded.reader, reader().to_bytes());
+}
+
+#[test]
+fn set_authority_emits_both_signers_and_the_config() {
+    let new_authority = Address::new_from_array([31; 32]);
+    let instruction = SetAuthority {
+        ring: ring(),
+        authority: authority(),
+        new_authority,
+    }
+    .instruction();
+
+    assert_eq!(instruction.program_id, ring().program_id());
+    assert_eq!(
+        instruction.accounts,
+        vec![
+            AccountMeta::new_readonly(authority(), true),
+            AccountMeta::new_readonly(new_authority, true),
+            AccountMeta::new(ring().config_pda(), false),
+        ]
+    );
+    assert_eq!(instruction.data, vec![tag::SET_AUTHORITY]);
 }
 
 #[test]

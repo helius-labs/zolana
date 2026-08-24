@@ -456,6 +456,33 @@ pub fn initialized_reader_account(reader: &ReaderKeyBytes) -> Account {
     }
 }
 
+pub fn new_authority() -> Pubkey {
+    Pubkey::new_from_array([31u8; 32])
+}
+
+pub fn set_authority_fixture() -> Fixture {
+    Fixture::new(
+        vec![tag::SET_AUTHORITY],
+        vec![
+            Slot {
+                label: "authority",
+                meta: AccountMeta::new_readonly(authority(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "new_authority",
+                meta: AccountMeta::new_readonly(new_authority(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "config",
+                meta: AccountMeta::new(config_pda().0, false),
+                account: initialized_config_account(authority(), auditor_pubkey(2)),
+            },
+        ],
+    )
+}
+
 pub fn grant_read_access_fixture(reader: &ReaderKeyBytes) -> Fixture {
     Fixture::new(
         reader_ix_data(tag::GRANT_READ_ACCESS, reader),

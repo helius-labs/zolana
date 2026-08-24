@@ -11,7 +11,7 @@ pub use audit::{pack32_to_2fe, pack33_to_2fe, AuditPublicInput, FieldPair};
 pub use instruction::{
     tag, AuditProof, CreateConfigIxData, CustomRingTransactIxData, ReaderIxData,
     CREATE_CONFIG_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
-    READ_ACCESS_COMPUTE_UNIT_LIMIT,
+    READ_ACCESS_COMPUTE_UNIT_LIMIT, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
 };
 pub use state::{
     ReadAccessRecord, RingProgramConfig, CONFIG_PDA_SEED, READ_ACCESS_RECORD,

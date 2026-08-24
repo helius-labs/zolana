@@ -27,7 +27,8 @@ of the ring. A reader is a Solana key or a passkey the authority granted and
 reads what the auditor reads. A participant is a shielded wallet that deposits
 into the ring and transfers inside it.
 
-The authority is a plain signer, a Squads vault holds it through proposals.
+The authority is a plain signer, a Squads vault holds it through proposals,
+and `SetAuthority` hands it to another key, signed by both.
 Readers are on-chain records, so the same proposal flow grants a regulator a
 passkey without anyone sharing a key.
 
@@ -126,7 +127,7 @@ is in `services/ring-rpc/README.md`.
 `custom-ring-sdk` starts from `CustomRing::new(program_id)`, the handle that
 derives the config, read access record and `ring_auth` addresses and reads the
 typed accounts. The authority builds `CreateConfig`, `InitSppRingConfig`,
-`GrantReadAccess` and `RevokeReadAccess` from it. A participant sends
+`GrantReadAccess`, `RevokeReadAccess` and `SetAuthority` from it. A participant sends
 `RingDeposit`, prepares a `ConfidentialTransfer` from the SPP transaction SDK
 and proves it with
 `AuditedTransfer::new(..).with_tree(..).with_assets(..).prove(env)`,

@@ -14,11 +14,13 @@ pub mod tag {
     pub const DEPOSIT: u8 = zolana_interface::instruction::tag::RING_DEPOSIT;
     pub const GRANT_READ_ACCESS: u8 = 4;
     pub const REVOKE_READ_ACCESS: u8 = 5;
+    pub const SET_AUTHORITY: u8 = 6;
 }
 
 pub const CREATE_CONFIG_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const READ_ACCESS_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT: u32 = 50_000;
+pub const SET_AUTHORITY_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CreateConfigIxData {

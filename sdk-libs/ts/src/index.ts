@@ -107,6 +107,7 @@ export {
   readerKeyToString,
   readAccessRecordAddress,
   revokeReadAccessInstruction,
+  setRingAuthorityInstruction,
   RingError,
   RingRpc,
   type DecryptedRingTransaction,

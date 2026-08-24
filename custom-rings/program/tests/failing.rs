@@ -12,5 +12,7 @@ mod dispatch;
 mod init_spp_ring_config;
 #[path = "failing/read_access.rs"]
 mod read_access;
+#[path = "failing/set_authority.rs"]
+mod set_authority;
 #[path = "failing/transact.rs"]
 mod transact;
