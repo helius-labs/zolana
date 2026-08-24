@@ -117,7 +117,7 @@ export async function buildRingTransferTransaction(
           ...(entry.zoneDataHash === undefined ? {} : { zoneDataHash: entry.zoneDataHash }),
         }),
     );
-    const transfer = new ConfidentialTransfer(address, inputs, input.feePayer);
+    const transfer = new ConfidentialTransfer(address, inputs, input.feePayer).withCompactChange();
     transfer.send(recipient, asset, input.amount);
     const tree = selected[0]?.tree ?? input.client.tree;
     await input.authority.requestUserApproval({
@@ -207,7 +207,7 @@ export async function buildRingWithdrawalTransaction(
           ...(entry.zoneDataHash === undefined ? {} : { zoneDataHash: entry.zoneDataHash }),
         }),
     );
-    const transfer = new ConfidentialTransfer(address, inputs, input.feePayer);
+    const transfer = new ConfidentialTransfer(address, inputs, input.feePayer).withCompactChange();
     transfer.withdraw(asset, input.amount, WithdrawalTarget.sol({ recipient: input.recipient }));
     const tree = selected[0]?.tree ?? input.client.tree;
     await input.authority.requestUserApproval({
