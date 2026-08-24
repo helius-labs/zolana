@@ -167,9 +167,8 @@ fn render_template(
         command.arg("--silent");
     }
     for define in [
-        format!("silent={silent}"),
         format!("program_id={program_id}"),
-        format!("default_authority_keypair={}", args.authority_keypair),
+        format!("authority_keypair={}", args.authority_keypair),
     ] {
         command.arg("-d").arg(define);
     }
