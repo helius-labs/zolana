@@ -252,26 +252,14 @@ pub fn setup() -> Result<TestEnv> {
     })
 }
 
-/// The deployed custom-ring program id. `CUSTOM_RING_PROGRAM_ID` (exported by
-/// the justfile from `xtask program-ids`) must agree with the compiled-in id,
-/// otherwise the loaded binary and the instruction builders disagree.
 pub fn custom_ring_program_id() -> Result<Address> {
-    let compiled = Address::new_from_array(*custom_ring_program::ID.as_array());
-    match std::env::var("CUSTOM_RING_PROGRAM_ID") {
-        Ok(id) if !id.trim().is_empty() => {
-            let from_env: Address = id
-                .trim()
-                .parse()
-                .map_err(|e| anyhow!("CUSTOM_RING_PROGRAM_ID {id} failed {e}"))?;
-            if from_env != compiled {
-                return Err(anyhow!(
-                    "CUSTOM_RING_PROGRAM_ID {from_env} does not match the compiled id {compiled}"
-                ));
-            }
-            Ok(from_env)
-        }
-        _ => Ok(compiled),
-    }
+    let id = match std::env::var("CUSTOM_RING_PROGRAM_ID") {
+        Ok(id) if !id.trim().is_empty() => id,
+        _ => zolana_test_utils::localnet::CUSTOM_RING_PROGRAM_ADDRESS.to_string(),
+    };
+    id.trim()
+        .parse()
+        .map_err(|e| anyhow!("CUSTOM_RING_PROGRAM_ID {id} failed {e}"))
 }
 
 /// A fresh ed25519 actor: one keypair funded on chain, its shielded address,

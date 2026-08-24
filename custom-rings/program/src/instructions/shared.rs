@@ -12,6 +12,7 @@ use crate::error::CustomRingError;
 
 #[must_use]
 pub(crate) struct PdaCheck<'a> {
+    pub program_id: &'a Address,
     pub address: &'a Address,
     pub seeds: &'a [&'a [u8]],
     pub mismatch: CustomRingError,
@@ -21,7 +22,7 @@ pub(crate) struct PdaCheck<'a> {
 impl PdaCheck<'_> {
     #[inline(always)]
     pub fn verify(self) -> Result<u8, ProgramError> {
-        let (derived, bump) = Address::find_program_address(self.seeds, &crate::ID);
+        let (derived, bump) = Address::find_program_address(self.seeds, self.program_id);
         if !pinocchio::address::address_eq(self.address, &derived) {
             return Err(self.mismatch.into());
         }
@@ -33,11 +34,12 @@ impl PdaCheck<'_> {
 impl PdaCheck<'_> {
     pub fn verify(self) -> Result<u8, ProgramError> {
         let Self {
+            program_id,
             address,
             seeds,
             mismatch,
         } = self;
-        let _ = (address, seeds);
+        let _ = (program_id, address, seeds);
         Err(mismatch.into())
     }
 }
@@ -57,8 +59,12 @@ impl PdaCheck<'_> {
 /// (`deposit`, `transact`) or hand-pick a reordered subset (`init_spp_ring_config`).
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 #[inline(never)]
-pub(crate) fn cpi_spp_signed<A: AsRef<AccountView>>(accounts: &[A], data: &[u8]) -> ProgramResult {
-    let (ring_auth, bump) = Address::find_program_address(&[RING_AUTH_PDA_SEED], &crate::ID);
+pub(crate) fn cpi_spp_signed<A: AsRef<AccountView>>(
+    program_id: &Address,
+    accounts: &[A],
+    data: &[u8],
+) -> ProgramResult {
+    let (ring_auth, bump) = Address::find_program_address(&[RING_AUTH_PDA_SEED], program_id);
     if !accounts
         .iter()
         .any(|account| account.as_ref().address() == &ring_auth)
@@ -95,6 +101,7 @@ pub(crate) fn cpi_spp_signed<A: AsRef<AccountView>>(accounts: &[A], data: &[u8])
 #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
 #[inline(never)]
 pub(crate) fn cpi_spp_signed<A: AsRef<AccountView>>(
+    _program_id: &Address,
     _accounts: &[A],
     _data: &[u8],
 ) -> ProgramResult {

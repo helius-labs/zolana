@@ -1,7 +1,7 @@
 use custom_ring_interface::{
     AuditPublicInput, CustomRingTransactIxData, AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN,
 };
-use pinocchio::{error::ProgramError, AccountView, ProgramResult};
+use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::instruction::{
     instruction_data::transact::{
@@ -28,7 +28,11 @@ use crate::{
 /// position with only `ring_config` (this ring's `ring_auth` PDA) gaining a
 /// signature.
 #[inline(never)]
-pub fn process_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+pub fn process_transact_ix(
+    program_id: &Address,
+    accounts: &mut [AccountView],
+    data: &[u8],
+) -> ProgramResult {
     let mut iter = AccountIterator::new(accounts);
     iter.next_signer_mut("payer")?;
     let config_account = iter.next_account("config")?;
@@ -42,7 +46,7 @@ pub fn process_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Program
     validate_spp_program(spp_accounts)?;
 
     // The typed loader releases the account borrow before the CPI.
-    let auditor_pubkey = load_config(config_account)?.auditor_pubkey;
+    let auditor_pubkey = load_config(program_id, config_account)?.auditor_pubkey;
 
     if !matches!(transact.circuit, CircuitId::RingEddsa(..)) {
         return Err(CustomRingError::UnsupportedCircuit.into());
@@ -89,7 +93,7 @@ pub fn process_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Program
     let mut instruction_data = Vec::with_capacity(1 + transact_bytes.len());
     instruction_data.push(tag::RING_TRANSACT);
     instruction_data.extend_from_slice(&transact_bytes);
-    cpi_spp_signed(spp_accounts, &instruction_data)
+    cpi_spp_signed(program_id, spp_accounts, &instruction_data)
 }
 
 /// The auditor message of a transaction: `eph_pk(33) || ciphertext(32)` split out

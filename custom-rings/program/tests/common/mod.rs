@@ -119,15 +119,16 @@ impl Fixture {
 pub fn setup_mollusk() -> (Mollusk, Pubkey) {
     let (mut mollusk, program_id) = zolana_test_utils::mollusk::mollusk_with_program(
         SBF_DIR,
-        *custom_ring_program::ID.as_array(),
+        *program_id().as_array(),
         "custom_ring_program",
     );
     mollusk.compute_budget.compute_unit_limit = 1_400_000;
     (mollusk, program_id)
 }
 
+/// Arbitrary, the shared binary serves any deployment address.
 pub fn program_id() -> Pubkey {
-    Pubkey::new_from_array(*custom_ring_program::ID.as_array())
+    Pubkey::new_from_array([77u8; 32])
 }
 
 pub fn payer() -> Pubkey {

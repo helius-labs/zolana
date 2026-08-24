@@ -1,4 +1,4 @@
-use pinocchio::{AccountView, ProgramResult};
+use pinocchio::{AccountView, Address, ProgramResult};
 
 use crate::instructions::{loader::validate_spp_program, shared::cpi_spp_signed};
 
@@ -11,7 +11,11 @@ use crate::instructions::{loader::validate_spp_program, shared::cpi_spp_signed};
 /// out exactly as SPP's deposit loader expects, so the forward is verbatim and
 /// nothing is re-tagged.
 #[inline(never)]
-pub fn process_deposit_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+pub fn process_deposit_ix(
+    program_id: &Address,
+    accounts: &mut [AccountView],
+    data: &[u8],
+) -> ProgramResult {
     validate_spp_program(accounts)?;
-    cpi_spp_signed(accounts, data)
+    cpi_spp_signed(program_id, accounts, data)
 }
