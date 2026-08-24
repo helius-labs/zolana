@@ -1,22 +1,40 @@
-use pinocchio::error::ProgramError;
+use solana_program_error::ProgramError;
+use thiserror::Error;
+use zolana_hasher::HasherError;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 #[repr(u32)]
-pub(crate) enum CompressionError {
-    InvalidInstructionData = 1,
-    InvalidAccounts = 2,
-    InvalidAuthority = 3,
-    InvalidPda = 4,
-    InvalidTree = 5,
-    InvalidTransact = 6,
-    InvalidAddress = 7,
-    InvalidState = 8,
-    HashingFailed = 9,
-    SerializationFailed = 10,
+pub enum CompressionError {
+    #[error("instruction data is invalid")]
+    InvalidInstructionData = 12000,
+    #[error("account list is invalid")]
+    InvalidAccounts = 12001,
+    #[error("authority account is invalid")]
+    InvalidAuthority = 12002,
+    #[error("account PDA does not match the authority derivation")]
+    InvalidPda = 12003,
+    #[error("tree account is not the default tree")]
+    InvalidTree = 12004,
+    #[error("transact data violates the compressed-account shape")]
+    InvalidTransact = 12005,
+    #[error("compressed address mismatch")]
+    InvalidAddress = 12006,
+    #[error("compressed state mismatch")]
+    InvalidState = 12007,
+    #[error("hashing failed")]
+    HashingFailed = 12008,
+    #[error("serialization failed")]
+    SerializationFailed = 12009,
 }
 
 impl From<CompressionError> for ProgramError {
     fn from(error: CompressionError) -> Self {
-        Self::Custom(error as u32)
+        ProgramError::Custom(error as u32)
+    }
+}
+
+impl From<HasherError> for CompressionError {
+    fn from(_: HasherError) -> Self {
+        Self::HashingFailed
     }
 }

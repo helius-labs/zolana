@@ -37,6 +37,7 @@ members = [
     "services/photon",
     "sdk-tests/client/rust",
     "sdk-tests/compression/program",
+    "sdk-tests/compression/sdk",
     "sdk-tests/compression/test",
     "sdk-tests/dynamic-swap/program",
     "sdk-tests/dynamic-swap/prover",

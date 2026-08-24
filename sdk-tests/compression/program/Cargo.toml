@@ -13,10 +13,17 @@ default = []
 bpf-entrypoint = []
 no-entrypoint = []
 cpi = ["no-entrypoint"]
+test-sbf = []
+profile-program = ["light-program-profiler/profile-program"]
 
 [dependencies]
+light-program-profiler = { workspace = true }
 pinocchio = { workspace = true, features = ["cpi"] }
 solana-address = { workspace = true }
+solana-program-error = { workspace = true }
+thiserror = { workspace = true }
+wincode = { workspace = true }
+zolana-account-checks = { workspace = true }
 zolana-hasher = { workspace = true, features = ["poseidon", "sha256"] }
 zolana-interface = { workspace = true }
 

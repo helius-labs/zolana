@@ -1651,8 +1651,30 @@ checksum = "cc14f565cf027a105f7a44ccf9e5b424348421a1d8952a8fc9d499d313107789"
 name = "compression-example-program"
 version = "0.1.0"
 dependencies = [
+ "light-program-profiler",
  "pinocchio 0.11.2",
  "solana-address 2.6.1",
+ "solana-program-error",
+ "thiserror 2.0.18",
+ "wincode 0.5.5",
+ "zolana-account-checks",
+ "zolana-hasher",
+ "zolana-interface",
+ "zolana-keypair",
+ "zolana-transaction",
+]
+
+[[package]]
+name = "compression-example-sdk"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "compression-example-program",
+ "num-bigint 0.4.8",
+ "solana-address 2.6.1",
+ "solana-instruction",
+ "wincode 0.5.5",
+ "zolana-client",
  "zolana-hasher",
  "zolana-interface",
  "zolana-keypair",
@@ -1665,7 +1687,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "compression-example-program",
- "num-bigint 0.4.8",
+ "compression-example-sdk",
  "solana-address 2.6.1",
  "solana-compute-budget-interface",
  "solana-instruction",
@@ -1673,9 +1695,7 @@ dependencies = [
  "solana-signature",
  "solana-signer",
  "zolana-client",
- "zolana-hasher",
  "zolana-interface",
- "zolana-keypair",
  "zolana-test-utils",
  "zolana-transaction",
  "zolana-tree",

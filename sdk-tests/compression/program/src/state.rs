@@ -8,24 +8,28 @@ use zolana_interface::{ADDRESS_DOMAIN, SOL_ASSET_FIELD, UTXO_DOMAIN};
 
 use crate::error::CompressionError;
 
-pub(crate) const STATE_DATA_LEN: usize = 72;
+pub const STATE_DATA_LEN: usize = 72;
 const PDA_OWNER_TAG: u8 = 2;
 const SOL_ASSET_ID: u64 = 1;
 const TRANSFER_PLAINTEXT: u8 = 4;
-const PLAINTEXT_TRANSFER_SCHEME: u8 = 7;
-const RECIPIENT_POSITION: u8 = 2;
-const ACCOUNT_DATA_DOMAIN: &[u8; 42] = b"zolana:compression-example:account-data:v1";
+pub const PLAINTEXT_TRANSFER_SCHEME: u8 = 7;
+pub const RECIPIENT_POSITION: u8 = 2;
+pub const ACCOUNT_DATA_DOMAIN: &[u8; 42] = b"zolana:compression-example:account-data:v1";
 const STATE_DATA_LEN_U16: u16 = STATE_DATA_LEN as u16;
 const PLAINTEXT_TRANSFER_LEN: usize = 161;
 const PLAINTEXT_BLOB_LEN: usize = 1 + PLAINTEXT_TRANSFER_LEN;
 const ENCODED_PAYLOAD_LEN: usize = 1 + 4 + PLAINTEXT_BLOB_LEN;
 
-pub(crate) struct DerivedState {
+pub struct DerivedAddress {
+    pub owner_hash: [u8; 32],
+    pub address_seed: [u8; 32],
     pub address_utxo_hash: [u8; 32],
     pub address: [u8; 32],
+}
+
+pub struct DerivedState {
     pub state_data: [u8; STATE_DATA_LEN],
     pub data_hash: [u8; 32],
-    pub owner_hash: [u8; 32],
 }
 
 fn hashv(values: &[&[u8]]) -> Result<[u8; 32], ProgramError> {
@@ -36,26 +40,22 @@ fn hash_bytes_field<const N: usize>(bytes: &[u8; N]) -> Result<[u8; 32], Program
     hash_bytes(bytes).map_err(|_| CompressionError::HashingFailed.into())
 }
 
-pub(crate) fn field_u16(value: u16) -> [u8; 32] {
+pub fn field_u16(value: u16) -> [u8; 32] {
     right_align(&value.to_be_bytes())
 }
 
-pub(crate) fn field_u64(value: u64) -> [u8; 32] {
+pub fn field_u64(value: u64) -> [u8; 32] {
     right_align(&value.to_be_bytes())
 }
 
-pub(crate) fn derive_blinding(seed: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
+pub fn derive_blinding(seed: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
     let mut preimage = [0u8; 32];
     preimage[..31].copy_from_slice(&seed[1..]);
     preimage[31] = RECIPIENT_POSITION;
     Sha256BE::hash(&preimage).map_err(|_| CompressionError::HashingFailed.into())
 }
 
-pub(crate) fn derive_state(
-    pda: &[u8; 32],
-    authority: &[u8; 32],
-    value: u64,
-) -> Result<DerivedState, ProgramError> {
+pub fn derive_address(pda: &[u8; 32]) -> Result<DerivedAddress, ProgramError> {
     let owner_pk_field = hash_bytes_field(pda)?;
     let zero = [0u8; 32];
     let nullifier_pk = hashv(&[&zero])?;
@@ -73,49 +73,65 @@ pub(crate) fn derive_state(
     ])?;
     let address = hashv(&[&address_utxo_hash, &address_seed, &zero])?;
 
+    Ok(DerivedAddress {
+        owner_hash,
+        address_seed,
+        address_utxo_hash,
+        address,
+    })
+}
+
+pub fn account_data_hash(
+    address: &[u8; 32],
+    authority: &[u8; 32],
+    value: u64,
+) -> Result<[u8; 32], ProgramError> {
     let authority_field = hash_bytes_field(authority)?;
     let data_domain = hash_bytes_field(ACCOUNT_DATA_DOMAIN)?;
-    let data_hash = hashv(&[&address, &data_domain, &authority_field, &field_u64(value)])?;
+    hashv(&[address, &data_domain, &authority_field, &field_u64(value)])
+}
+
+pub fn derive_state(
+    address: &[u8; 32],
+    authority: &[u8; 32],
+    value: u64,
+) -> Result<DerivedState, ProgramError> {
+    let data_hash = account_data_hash(address, authority, value)?;
 
     let mut state_data = [0u8; STATE_DATA_LEN];
-    state_data[..32].copy_from_slice(&address);
+    state_data[..32].copy_from_slice(address);
     state_data[32..64].copy_from_slice(authority);
     state_data[64..].copy_from_slice(&value.to_le_bytes());
 
     Ok(DerivedState {
-        address_utxo_hash,
-        address,
         state_data,
         data_hash,
-        owner_hash,
     })
 }
 
-pub(crate) fn state_utxo_hash(
-    state: &DerivedState,
+pub fn state_utxo_hash(
+    owner_hash: &[u8; 32],
+    data_hash: &[u8; 32],
     blinding: &[u8; 32],
 ) -> Result<[u8; 32], ProgramError> {
     let zero = [0u8; 32];
     let ring_hash = hashv(&[&zero, &zero])?;
-    let owner_utxo_hash = hashv(&[&state.owner_hash, blinding])?;
+    let owner_utxo_hash = hashv(&[owner_hash, blinding])?;
     hashv(&[
         &field_u16(UTXO_DOMAIN),
         &SOL_ASSET_FIELD,
         &zero,
-        &state.data_hash,
+        data_hash,
         &ring_hash,
         &owner_utxo_hash,
     ])
 }
 
-pub(crate) fn nullifier(
-    utxo_hash: &[u8; 32],
-    blinding: &[u8; 32],
-) -> Result<[u8; 32], ProgramError> {
+pub fn nullifier(utxo_hash: &[u8; 32], blinding: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
     hashv(&[utxo_hash, blinding, &[0u8; 32]])
 }
 
-pub(crate) fn plaintext_payload(
+pub fn plaintext_payload(
     pda: &[u8; 32],
     state_data: &[u8; STATE_DATA_LEN],
     output_seed: [u8; 32],
@@ -169,12 +185,13 @@ mod tests {
     fn commitments_match_existing_utxo_types() {
         let authority = [8u8; 32];
         let output_seed = [9u8; 32];
-        let state = derive_state(TEST_PDA.as_array(), &authority, 42).unwrap();
+        let address = derive_address(TEST_PDA.as_array()).unwrap();
+        let state = derive_state(&address.address, &authority, 42).unwrap();
         let owner = PublicKey::from_pda(&TEST_PDA);
         let nullifier_key = NullifierKey::from_secret([0u8; 31]);
         let nullifier_pk = nullifier_key.pubkey().unwrap();
         let expected_owner_hash = owner_hash(&owner, &nullifier_pk).unwrap();
-        assert_eq!(state.owner_hash, expected_owner_hash);
+        assert_eq!(address.owner_hash, expected_owner_hash);
 
         let address_seed = hash_bytes(TEST_PDA.as_array()).unwrap();
         let address_input = ProofInputUtxo {
@@ -183,11 +200,11 @@ mod tests {
             blinding: address_seed,
             ..ProofInputUtxo::default()
         };
-        assert_eq!(state.address_utxo_hash, address_input.hash().unwrap());
+        assert_eq!(address.address_utxo_hash, address_input.hash().unwrap());
         assert_eq!(
-            state.address,
+            address.address,
             nullifier_key
-                .nullifier(&state.address_utxo_hash, &address_seed)
+                .nullifier(&address.address_utxo_hash, &address_seed)
                 .unwrap()
         );
 
@@ -196,7 +213,7 @@ mod tests {
             .unwrap()
             .with_data_hash(state.data_hash);
         assert_eq!(
-            state_utxo_hash(&state, &output_blinding).unwrap(),
+            state_utxo_hash(&address.owner_hash, &state.data_hash, &output_blinding).unwrap(),
             output.hash().unwrap()
         );
     }
@@ -205,7 +222,8 @@ mod tests {
     fn payload_matches_existing_plaintext_utxo_encoding() {
         let authority = [8u8; 32];
         let seed = [9u8; 32];
-        let state = derive_state(TEST_PDA.as_array(), &authority, 42).unwrap();
+        let address = derive_address(TEST_PDA.as_array()).unwrap();
+        let state = derive_state(&address.address, &authority, 42).unwrap();
         let expected = plaintext_payload(TEST_PDA.as_array(), &state.state_data, seed).unwrap();
         let owner = PublicKey::from_pda(&TEST_PDA);
         let utxo = Utxo {

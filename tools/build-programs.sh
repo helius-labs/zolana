@@ -34,5 +34,9 @@ cargo build-sbf --tools-version "$sbf_tools_version" \
     -- --locked --features bpf-entrypoint
 cargo build-sbf --tools-version "$sbf_tools_version" \
     --sbf-out-dir target/deploy \
+    --manifest-path sdk-tests/compression/program/Cargo.toml \
+    -- --locked --features bpf-entrypoint
+cargo build-sbf --tools-version "$sbf_tools_version" \
+    --sbf-out-dir target/deploy \
     --manifest-path custom-ring-tests/program/Cargo.toml \
     -- --locked --features bpf-entrypoint

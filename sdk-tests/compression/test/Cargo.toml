@@ -8,7 +8,7 @@ autotests = false
 [dependencies]
 anyhow = { workspace = true }
 compression-example-program = { path = "../program" }
-num-bigint = { workspace = true }
+compression-example-sdk = { path = "../sdk" }
 solana-address = { workspace = true }
 solana-compute-budget-interface = { workspace = true }
 solana-instruction = { workspace = true }
@@ -16,9 +16,7 @@ solana-keypair = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
-zolana-hasher = { workspace = true, features = ["poseidon"] }
 zolana-interface = { workspace = true }
-zolana-keypair = { workspace = true }
 zolana-test-utils = { workspace = true }
 zolana-transaction = { workspace = true }
 zolana-tree = { workspace = true }
