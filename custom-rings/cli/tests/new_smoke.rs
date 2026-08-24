@@ -91,6 +91,7 @@ fn new_generates_a_committed_ring_from_the_local_template() {
     assert!(ring.join("ring.toml").is_file());
     assert!(ring.join("keys/program-keypair.json").is_file());
     assert!(ring.join("program/src/instructions/transact.rs").is_file());
+    assert!(ring.join("Cargo.lock").is_file());
     assert!(ring.join("sdk/src/transfer.rs").is_file());
     assert!(!ring.join("cli").exists());
     assert!(!ring.join("interface").exists());
