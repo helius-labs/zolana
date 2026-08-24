@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Parser;
-use zolana_ring_rpc::{KeyAccess, KeyFile};
+use zolana_ring_client::keyfile::{KeyAccess, KeyFile};
 
 #[derive(Parser)]
 struct Cli {

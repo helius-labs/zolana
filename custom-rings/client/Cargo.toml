@@ -16,24 +16,32 @@ solana-rpc = [
 ]
 
 [dependencies]
+base64 = { workspace = true }
 hex = { workspace = true }
 custom-ring-interface = { workspace = true }
 curve25519-dalek = { version = "4.1", default-features = false }
 p256 = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
 sha2 = { workspace = true }
 solana-address = { workspace = true, features = ["curve25519"] }
 solana-commitment-config = { workspace = true, optional = true }
 solana-rpc-client-api = { workspace = true, optional = true }
 solana-signature = { workspace = true }
+solana-signer = { workspace = true }
 solana-transaction-status-client-types = { workspace = true, optional = true }
 thiserror = { workspace = true }
 zeroize = { workspace = true }
 borsh = { workspace = true }
 zolana-client = { workspace = true }
 zolana-event = { workspace = true, features = ["program-test"] }
+zolana-indexer-api = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
 
 [dev-dependencies]
 borsh = { workspace = true }

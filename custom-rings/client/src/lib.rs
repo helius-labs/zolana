@@ -11,7 +11,8 @@
 //!
 //! The ring SDK owns instruction construction and proof inputs. This crate owns
 //! auditor encryption, reader keys, ring-scoped indexer scans, ring
-//! attribution through the Solana call stack, and decrypted audit results.
+//! attribution through the Solana call stack, decrypted audit results, the
+//! ring RPC wire contract, and auditor key files.
 //!
 //! The localnet test drives both crates and compares the audit result with the
 //! transfer inputs.
@@ -28,8 +29,10 @@ mod decrypt;
 mod deposit;
 mod encryption;
 mod error;
+pub mod keyfile;
 mod origin;
 mod reader;
+pub mod rpc;
 mod scan;
 mod types;
 

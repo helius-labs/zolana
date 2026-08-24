@@ -6,12 +6,14 @@ use solana_signer::Signer;
 use thiserror::Error;
 use zolana_indexer_api::Hash;
 use zolana_keypair::P256Pubkey;
-use zolana_ring_client::auditor_view_tag;
-use zolana_ring_rpc::{
-    auditor_key_attestation, CreateAuditorKeyRequest, CreateAuditorKeyResponse,
-    DecryptedTransaction, GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse,
-    ReadBuildError, RingState, RingStatusRequest, RingStatusResponse, SkippedReason,
-    CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, RING_STATUS,
+use zolana_ring_client::{
+    auditor_view_tag,
+    rpc::{
+        auditor_key_attestation, CreateAuditorKeyRequest, CreateAuditorKeyResponse,
+        DecryptedTransaction, GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse,
+        ReadBuildError, RingState, RingStatusRequest, RingStatusResponse, SkippedReason,
+        CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, RING_STATUS,
+    },
 };
 
 use crate::{
