@@ -1,0 +1,296 @@
+# One recipe per pipeline step, `just pipeline` runs them against the target in ring.toml.
+
+set dotenv-load
+
+zolana := "{{zolana_path}}"
+# Same platform tools as the zolana checkout.
+sbf-tools-version := env_var_or_default("SBF_TOOLS_VERSION", "v1.54")
+program-so := "target/deploy/{{crate_name}}_program.so"
+ring-rpc-log := ".localnet/ring-rpc.log"
+# Service URLs of the active target, from ring.toml.
+url := "cargo run -q -p {{project-name}} -- url"
+
+default:
+    @just --list
+
+# The ring builds against the zolana checkout it was generated from, `zolana_revision` records the generating commit.
+source:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ ! -f "{{ "{{zolana}}" }}/custom-rings/cli/Cargo.toml" ]]; then
+        echo "zolana checkout missing at {{ "{{zolana}}" }}, regenerate the ring from a clone" >&2
+        exit 1
+    fi
+    head="$(git -C "{{ "{{zolana}}" }}" rev-parse HEAD 2>/dev/null || true)"
+    if [[ -n "$head" && "$head" != "{{zolana_revision}}" ]]; then
+        echo "note: zolana checkout is at $head, the ring was generated at {{zolana_revision}}"
+    fi
+
+key-dir:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -L keys || ( -e keys && ! -d keys ) ]]; then
+        echo "key directory path is not safe" >&2
+        exit 1
+    fi
+    mkdir -p keys
+
+# Built once with cargo's progress visible, every recipe then calls it with `cargo run -q`.
+build-cli: source
+    cargo build -p {{project-name}}
+
+# Local validator with SPP, photon and the prover, ring.toml set to localnet. The ring RPC is `just rpc`.
+localnet: build-cli
+    cargo run -q -p {{project-name}} -- target localnet
+    just -f {{ "{{zolana}}" }}/justfile ring-localnet
+    just urls
+
+localnet-stop: rpc-stop
+    just -f {{ "{{zolana}}" }}/justfile ring-localnet-stop
+
+# ring.toml set to devnet. Every service is already deployed, this only probes them.
+devnet: build-cli
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo run -q -p {{project-name}} -- target devnet
+    just urls
+    echo
+    # A service that is down must fail in seconds, not sit in a connect.
+    probe() {
+        printf 'probing %-8s %s ... ' "$1" "$2"
+        if curl -sf --connect-timeout 5 --max-time 30 "$3" >/dev/null; then
+            echo ready
+        else
+            echo "not ready"
+            echo "devnet $1 $2 is not ready" >&2
+            exit 1
+        fi
+    }
+    indexer="$({{ "{{url}}" }} indexer)"
+    prover="$({{ "{{url}}" }} prover)"
+    probe indexer "$indexer" "$indexer/readiness"
+    probe prover "$prover" "$prover/health"
+    echo "devnet services ready"
+    ring_rpc="$({{ "{{url}}" }} ring-rpc)"
+    case "$ring_rpc" in
+      http://127.0.0.1*|http://localhost*)
+        rpc_step="start the ring rpc here, serving keys/auditor.key" ;;
+      *)
+        rpc_step="check that the hosted ring rpc holds this ring's auditor key" ;;
+    esac
+    echo
+    echo "👻 next: just pipeline"
+    echo "   1 build     the ring program"
+    echo "   2 deploy    it under the authority, pausing for a faucet airdrop when its devnet SOL runs short"
+    echo "   3 init      create the config with the auditor key and register the ring with SPP"
+    echo "   4 ring rpc  $rpc_step"
+    echo "   5 transact  grant the authority a reader, deposit twice, transfer once, read it back"
+    echo
+    echo "   each step is its own recipe, 'just status' shows how far a run got"
+
+# Only a ring RPC can have been started here, devnet runs no other local service.
+devnet-stop: rpc-stop
+
+# The active target and where its services are.
+urls:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ring_rpc="$({{ "{{url}}" }} ring-rpc)"
+    case "$ring_rpc" in
+      http://127.0.0.1*|http://localhost*) served="(just rpc)" ;;
+      *) served="(hosted, it serves this ring)" ;;
+    esac
+    echo
+    echo "{{project-name}} points at $(sed -n 's/^target = "\(.*\)"/\1/p' ring.toml)"
+    echo "  rpc       $({{ "{{url}}" }} rpc)"
+    echo "  indexer   $({{ "{{url}}" }} indexer)"
+    echo "  prover    $({{ "{{url}}" }} prover)"
+    echo "  ring rpc  $ring_rpc  $served"
+
+# Build the ring program at its pinned address.
+build: source
+    cargo build-sbf --tools-version {{ "{{sbf-tools-version}}" }} --manifest-path program/Cargo.toml --features bpf-entrypoint
+
+# Create the GitHub repository for this ring and push it.
+repo:
+    git init -q 2>/dev/null || true
+    git add -A && git commit -q -m "chore: generate custom ring" || true
+    gh repo create {{project-name}} --private --source . --push
+
+# The program keypair behind `program_id`, mounted from CUSTOM_RING_PROGRAM_KEYPAIR_FILE on a fresh checkout.
+program-key: key-dir
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -L keys/program-keypair.json || ( -e keys/program-keypair.json && ! -f keys/program-keypair.json ) ]]; then
+        echo "program key path is not safe" >&2
+        exit 1
+    fi
+    if [[ ! -f keys/program-keypair.json ]]; then
+        source="${CUSTOM_RING_PROGRAM_KEYPAIR_FILE:-}"
+        [[ -f "$source" ]]
+        temporary="$(mktemp "$PWD/keys/program-keypair.XXXXXX")"
+        trap 'rm -f "$temporary"' EXIT
+        install -m 600 "$source" "$temporary"
+        [[ "$(solana-keygen pubkey "$temporary")" == "{{program_id}}" ]]
+        mv "$temporary" keys/program-keypair.json
+    fi
+    chmod 600 keys/program-keypair.json
+    [[ "$(solana-keygen pubkey keys/program-keypair.json)" == "{{program_id}}" ]]
+
+# Deploy under the authority, or upgrade in place.
+deploy: build program-key build-cli
+    cargo run -q -p {{project-name}} -- deploy --program-so {{ "{{program-so}}" }}
+
+# The auditor key, created here or mounted from CUSTOM_RING_AUDITOR_KEY_FILE. The secret stays on this machine.
+auditor-key: source key-dir
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # A hosted ring RPC derives this ring's key and `init` fetches it.
+    ring_rpc="$({{ "{{url}}" }} ring-rpc)"
+    case "$ring_rpc" in
+      http://127.0.0.1*|http://localhost*) ;;
+      *)
+        echo "auditor key  derived by the hosted ring rpc $ring_rpc, fetched by 'just init'"
+        exit 0 ;;
+    esac
+    if [[ -L keys/auditor.key || ( -e keys/auditor.key && ! -f keys/auditor.key ) ]]; then
+        echo "auditor key path is not safe" >&2
+        exit 1
+    fi
+    if [[ -L keys/auditor.key.pub || ( -e keys/auditor.key.pub && ! -f keys/auditor.key.pub ) ]]; then
+        echo "auditor public key path is not safe" >&2
+        exit 1
+    fi
+    public_key=""
+    if [[ ! -f keys/auditor.key ]]; then
+        source="${CUSTOM_RING_AUDITOR_KEY_FILE:-}"
+        if [[ -n "$source" ]]; then
+            [[ -f "$source" ]]
+            temporary="$(mktemp "$PWD/keys/auditor.XXXXXX")"
+            trap 'rm -f "$temporary"' EXIT
+            install -m 600 "$source" "$temporary"
+            public_key="$(cargo run --quiet -p {{project-name}} --features auditor-key --bin auditor-pubkey -- "$temporary")"
+            mv "$temporary" keys/auditor.key
+        else
+            cargo run --manifest-path "{{ "{{zolana}}" }}/services/ring-rpc/Cargo.toml" -- keygen --out keys/auditor.key
+        fi
+    fi
+    chmod 600 keys/auditor.key
+    if [[ -z "$public_key" ]]; then
+        public_key="$(cargo run --quiet -p {{project-name}} --features auditor-key --bin auditor-pubkey -- keys/auditor.key)"
+    fi
+    temporary="$(mktemp "$PWD/keys/auditor-public.XXXXXX")"
+    trap 'rm -f "$temporary"' EXIT
+    printf '%s' "$public_key" > "$temporary"
+    chmod 644 "$temporary"
+    if [[ -f keys/auditor.key.pub ]]; then
+        cmp -s keys/auditor.key.pub "$temporary"
+    else
+        mv "$temporary" keys/auditor.key.pub
+    fi
+    if [[ ! -f keys/auditor.key.pub || -L keys/auditor.key.pub ]]; then
+        echo "auditor public key path is not safe" >&2
+        exit 1
+    fi
+
+# Create the ring config with the auditor key and register the ring with SPP.
+init: build-cli auditor-key
+    cargo run -q -p {{project-name}} -- init
+
+# Serve decrypted ring transactions to the auditor, foreground. Only for a ring RPC on this machine, the hosted one already serves the ring.
+rpc: auditor-key
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ring_rpc="$({{ "{{url}}" }} ring-rpc)"
+    case "$ring_rpc" in
+      http://127.0.0.1*|http://localhost*) ;;
+      *)
+        echo "ring rpc $ring_rpc is hosted and already serves this ring, nothing to run here" >&2
+        exit 1 ;;
+    esac
+    cargo run -q --manifest-path "{{ "{{zolana}}" }}/services/ring-rpc/Cargo.toml" -- serve \
+        --port {{ring_rpc_port}} --indexer-url "$({{ "{{url}}" }} indexer)" --rpc-url "$({{ "{{url}}" }} rpc)" \
+        --auditor-key-file keys/auditor.key --ring-program-id {{program_id}} \
+        --allow-origin "${RING_RPC_ALLOW_ORIGINS:-http://localhost:3000}" \
+        --webauthn-rp-id "${RING_RPC_WEBAUTHN_RP_ID:-localhost}"
+
+# Stop a ring RPC started by `just pipeline`.
+rpc-stop:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    lsof -ti "tcp:{{ring_rpc_port}}" 2>/dev/null | xargs kill 2>/dev/null || true
+    rm -f .localnet/ring-rpc.pid
+
+# Two ring deposits and one audited transfer, read back through the ring RPC.
+transact: build-cli
+    cargo run -q -p {{project-name}} -- transact
+
+# Deposit `lamports` and send all of it to a base58 shielded address in the ring.
+transfer to lamports="100000000": build-cli
+    cargo run -q -p {{project-name}} -- transfer {{ "{{to}}" }} --amount {{ "{{lamports}}" }}
+
+status: build-cli
+    cargo run -q -p {{project-name}} -- status
+
+# Let another key read the ring through the ring RPC.
+grant-reader reader: build-cli
+    cargo run -q -p {{project-name}} -- reader grant {{ "{{reader}}" }}
+
+revoke-reader reader: build-cli
+    cargo run -q -p {{project-name}} -- reader revoke {{ "{{reader}}" }}
+
+# Build, deploy, init, ring RPC and transact. A local ring RPC is started in the background when none answers and stays up, log in .localnet/ring-rpc.log; a hosted one is only checked.
+pipeline: build deploy
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p .localnet
+    ring_rpc="$({{ "{{url}}" }} ring-rpc)"
+    case "$ring_rpc" in
+      http://127.0.0.1*|http://localhost*) ;;
+      *)
+        # `init` fixes the auditor for good, so ask first whether this service
+        # can serve the ring at all.
+        cargo run -q -p {{project-name}} -- rpc-check
+        just init
+        just _transact-as-reader
+        exit 0 ;;
+    esac
+    just init
+    # Local rings share the port, an RPC of another ring is replaced.
+    start_rpc=true
+    if curl -sf --max-time 5 "$ring_rpc/health" >/dev/null 2>&1; then
+        if cargo run -q -p {{project-name}} -- rpc-check >/dev/null 2>&1; then
+            echo "ring rpc    $ring_rpc already serves this ring"
+            start_rpc=false
+        else
+            echo "replacing the ring rpc on port {{ring_rpc_port}}, it served another ring"
+            just rpc-stop
+            sleep 1
+        fi
+    fi
+    if [ "$start_rpc" = true ]; then
+        nohup just rpc > {{ "{{ring-rpc-log}}" }} 2>&1 &
+        echo $! > .localnet/ring-rpc.pid
+        # A fresh checkout builds the ring RPC first, so the wait ticks.
+        printf 'starting the ring rpc at %s ' "$ring_rpc"
+        for _ in $(seq 1 180); do
+            if curl -sf --max-time 5 "$ring_rpc/health" >/dev/null 2>&1; then break; fi
+            printf '.'
+            sleep 1
+        done
+        if ! curl -sf --max-time 5 "$ring_rpc/health" >/dev/null 2>&1; then
+            echo " did not come up"
+            echo "the ring rpc did not answer, see {{ "{{ring-rpc-log}}" }}" >&2
+            exit 1
+        fi
+        echo " listening (log {{ "{{ring-rpc-log}}" }}, stop with 'just rpc-stop')"
+    fi
+    just _transact-as-reader
+
+# The authority reads its own ring, `transact` refuses without the grant.
+_transact-as-reader:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    authority="{{authority_keypair}}"
+    just grant-reader "$(solana-keygen pubkey "${authority/#\~/$HOME}")"
+    just transact

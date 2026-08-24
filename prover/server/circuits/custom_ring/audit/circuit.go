@@ -17,7 +17,7 @@
 //  8. ct_hash            -- Poseidon commitment of the 32-byte ciphertext
 //
 // The on-chain Rust recompute in
-// zolana-ring program/src/instructions/transact.rs
+// custom-rings/program/src/instructions/transact.rs
 // (AuditPublicInput::hash) MUST mirror this chain order element for element:
 // gadget.HashChain here == zolana_hasher::hash_chain::create_hash_chain_from_slice
 // there, gadget.HashBytes here == zolana_hasher::primitives::hash_bytes

@@ -34,7 +34,7 @@ const CIPHERTEXT = hex(
   "6de7c18c3c3676ca517647a25df33a7150ace3e07b410bc296fac11b1355382b",
 ) as Bytes32;
 
-// Fixture from zolana-ring program/src/instructions/transact.rs.
+// Fixture from custom-rings/program/src/instructions/transact.rs.
 const TX_PK = hex("0268737cf1d852483220d399b5321261d5e9e90d8214dc62b4f7e4d0fee955c5d5") as Bytes33;
 const PRIVATE_TX_HASH = hex(
   "0000000000000000000000000000000000000000000000000000000000abcdef",

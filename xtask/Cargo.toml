@@ -36,3 +36,4 @@ zolana-test-utils = { workspace = true }
 zolana-user-registry-interface = { workspace = true }
 zolana-program-test = { workspace = true }
 swap-program = { path = "../sdk-tests/zk-program-swap/program" }
+custom-ring-program = { path = "../custom-rings/program" }

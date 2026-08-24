@@ -1,0 +1,29 @@
+# Answers recorded by the custom ring wizard. `just` and the `{{project-name}}`
+# CLI read this file. Edit it to retarget the ring.
+name = "{{project-name}}"
+program_id = "{{program_id}}"
+authority_keypair = "{{authority_keypair}}"
+# The cluster the CLI and `just` act on. `just localnet` and `just devnet` set it.
+target = "localnet"
+
+[localnet]
+rpc = "{{rpc_url}}"
+indexer = "{{indexer_url}}"
+prover = "{{prover_url}}"
+ring_rpc = "{{ring_rpc_url}}"
+# When set, `init` accepts the auditor key only under this service key.
+# ring_rpc_pubkey = "<base58>"
+
+# `${NAME}` is read from .env next to this file, so secrets stay out of git.
+# The hosted ring RPC derives this ring's auditor key at `init`, the pinned
+# service pubkey rejects any other key source. Empty the pubkey and use
+# `init --trust-ring-rpc` to accept an unpinned service.
+[devnet]
+rpc = "{{devnet_rpc_url}}"
+indexer = "{{devnet_indexer_url}}"
+prover = "{{devnet_prover_url}}"
+ring_rpc = "{{devnet_ring_rpc_url}}"
+{% if devnet_ring_rpc_pubkey != "" %}ring_rpc_pubkey = "{{devnet_ring_rpc_pubkey}}"
+{% endif %}
+[features]
+{{features_toml -}}

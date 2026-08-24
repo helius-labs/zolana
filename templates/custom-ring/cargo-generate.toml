@@ -1,0 +1,34 @@
+# The wizard in hooks/wizard.rhai asks for everything a generated ring needs and
+# records the answers in ring.toml. Every variable can also be passed with
+# `-d name=value`, the way the driver and CI run it. The placeholders below
+# validate the answers the driver supplies.
+[template]
+cargo_generate_version = ">=0.23.0"
+# The wizard script is not part of a generated ring.
+ignore = ["hooks"]
+# Not liquid: a keypair placeholder the driver fills after generation.
+exclude = ["keys/.gitkeep"]
+
+[hooks]
+pre = ["hooks/wizard.rhai"]
+
+[placeholders.program_id]
+type = "string"
+prompt = "Custom ring program ID"
+regex = "^[1-9A-HJ-NP-Za-km-z]{32,44}$"
+
+[placeholders.authority_keypair]
+type = "string"
+prompt = "Upgrade and ring authority keypair"
+default = "~/.config/solana/id.json"
+regex = "^(~(/[A-Za-z0-9_./-]+)?|[A-Za-z0-9_./-]+)$"
+
+[placeholders.zolana_path]
+type = "string"
+prompt = "Zolana checkout path"
+regex = "^[A-Za-z0-9_./-]+$"
+
+[placeholders.zolana_revision]
+type = "string"
+prompt = "Zolana revision"
+regex = "^[0-9a-f]{40}$"

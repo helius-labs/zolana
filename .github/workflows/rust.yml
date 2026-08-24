@@ -167,6 +167,13 @@ jobs:
     name: tests / custom-ring
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    env:
+      AGAVE_VERSION: v4.0.2
+      # GH_TOKEN is for the gh-release custom-ring key download
+      # (ensure-custom-ring-keys). The circuit proof check proves with the
+      # released pk and must verify under the committed VERIFYINGKEY, so a
+      # locally generated key set cannot substitute.
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -177,6 +184,13 @@ jobs:
         with:
           shared-key: custom-ring
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      # ring-wizard.sh, which the template smoke drives, keygens the ring program.
+      - name: Install Anza CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - name: Install cargo generate
+        run: cargo install cargo-generate --version 0.23.14 --locked
       - run: just test-custom-ring
 
   build-photon:
@@ -223,12 +237,24 @@ jobs:
             recipe: test-swap-and-escrow-validator
           - name: dynamic-swap lifecycle
             recipe: test-dynamic-swap
+          - name: custom-ring auditor lifecycle
+            recipe: test-custom-ring-validator
           - name: rfq settlement
             recipe: test-rfq-validator
+    services:
+      redis:
+        image: redis:7.4.4-alpine3.21
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       AGAVE_VERSION: v4.0.2
-      # GH_TOKEN is for the gh-release swap/escrow key downloads
-      # (ensure-swap-keys / ensure-escrow-keys); SPP
+      # GH_TOKEN is for the gh-release swap/escrow/custom-ring key downloads
+      # (ensure-swap-keys / ensure-escrow-keys / ensure-custom-ring-keys); SPP
       # proving keys come from CloudFront and need no token.
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ZOLANA_PHOTON_BIN: target/bin/photon
@@ -271,6 +297,8 @@ jobs:
         if: steps.squads-cache.outputs.cache-hit != 'true'
         run: just fetch-smart-account
       - run: just ${{ matrix.recipe }}
+        env:
+          ZOLANA_PROVER_REDIS_URL: ${{ matrix.recipe == 'test-custom-ring-validator' && 'redis://127.0.0.1:6379/0' || '' }}
       - name: Dump prover and photon logs on failure
         if: failure()
         run: |
