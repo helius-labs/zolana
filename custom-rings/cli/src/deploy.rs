@@ -341,7 +341,7 @@ pub fn read_program_data<R: Rpc>(
     }))
 }
 
-fn default_program_so(name: &str) -> PathBuf {
+pub(crate) fn default_program_so(name: &str) -> PathBuf {
     PathBuf::from(format!(
         "target/deploy/{}_program.so",
         name.replace('-', "_")

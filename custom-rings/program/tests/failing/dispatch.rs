@@ -1,5 +1,3 @@
-use custom_ring_interface::tag;
-use pinocchio::Address;
 use solana_instruction::Instruction;
 use solana_program_error::ProgramError;
 use zolana_test_utils::mollusk::expect_err_exact;
@@ -35,17 +33,5 @@ fn unknown_instruction_tag_is_rejected_exactly() {
         &instruction,
         &[],
         ProgramError::InvalidInstructionData,
-    );
-}
-
-/// The runtime never routes an instruction to the wrong program, so this branch
-/// is unreachable through mollusk; call the dispatcher directly instead of
-/// leaving the guard untested.
-#[test]
-fn foreign_program_id_is_rejected() {
-    let foreign = Address::new_from_array([9u8; 32]);
-    assert_eq!(
-        custom_ring_program::process_instruction(&foreign, &mut [], &[tag::CREATE_CONFIG]),
-        Err(pinocchio::error::ProgramError::IncorrectProgramId),
     );
 }

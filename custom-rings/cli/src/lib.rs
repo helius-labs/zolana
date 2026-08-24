@@ -1,12 +1,18 @@
-//! Every command reads `ring.toml`, the answers the wizard recorded.
+//! Every command but `new` reads `ring.toml`, the answers `new` recorded.
 
 pub mod authority;
+pub mod build_program;
 pub mod config;
 pub mod deploy;
 pub mod error;
 pub mod fund;
+pub mod generate;
 pub mod init;
+pub mod keys;
+pub mod pipeline;
+pub mod probe;
 pub mod reader;
+pub mod repo;
 pub mod ring_rpc;
 pub mod status;
 pub mod step;
@@ -34,9 +40,14 @@ pub use crate::{
 /// What localnet tops the authority up to.
 const LOCALNET_AUTHORITY_BALANCE: u64 = 100_000_000_000;
 
+pub const PROGRAM_KEYPAIR_FILE: &str = "keys/program-keypair.json";
+pub const AUDITOR_KEY_FILE: &str = "keys/auditor.key";
+pub const AUDITOR_PUBKEY_FILE: &str = "keys/auditor.key.pub";
+pub const DEFAULT_TRANSACT_AMOUNT: u64 = 100_000_000;
+
 #[derive(Debug, Parser)]
 #[command(
-    name = "custom-ring",
+    name = "zolana-ring",
     about = "Operate a custom ring generated from the template"
 )]
 pub struct Cli {
@@ -52,16 +63,26 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Generate a ring repository from the template, no ring.toml needed yet.
+    New(NewArgs),
     /// Recorded answers and on-chain state.
     Status,
     /// Record the cluster the ring acts on in ring.toml.
     Target { target: Target },
     /// Print one service URL of the active target.
     Url { service: Service },
+    /// Record devnet in ring.toml and probe the deployed services.
+    Devnet,
+    /// Record localnet in ring.toml, the services run from a zolana checkout.
+    Localnet,
+    /// Build the ring program with the pinned SBF platform tools.
+    Build(BuildArgs),
     /// Deploy the program under the authority, or upgrade it in place.
     Deploy(DeployArgs),
     /// Create the config with the auditor key and register the ring with SPP.
     Init(InitArgs),
+    /// Build, deploy, init, check the ring rpc, grant the authority and transact.
+    Pipeline(BuildArgs),
     /// Two ring deposits and one audited transfer, read back from the ring RPC.
     Transact(TransactArgs),
     /// Deposit an amount and send all of it to a shielded address inside the ring.
@@ -74,6 +95,10 @@ pub enum Command {
     /// Grant or revoke reads on the ring RPC.
     #[command(subcommand)]
     Reader(ReaderCommand),
+    /// Print the local auditor key's public key, or create the key file.
+    AuditorKey(AuditorKeyArgs),
+    /// Create the private GitHub repository for the ring and push it.
+    Repo,
 }
 
 #[derive(Debug, Subcommand)]
@@ -107,18 +132,67 @@ pub enum AuthorityCommand {
 }
 
 #[derive(Debug, Args)]
+pub struct NewArgs {
+    /// Ring and repository name in kebab-case.
+    pub name: String,
+    /// Parent directory the ring is generated into.
+    #[arg(long, default_value = ".")]
+    pub dest: PathBuf,
+    /// Answer every wizard question with its default.
+    #[arg(long)]
+    pub silent: bool,
+    /// Recorded in ring.toml, `~` stays literal for other machines.
+    #[arg(long, default_value = generate::DEFAULT_AUTHORITY_KEYPAIR)]
+    pub authority_keypair: String,
+    /// Git repository holding the template.
+    #[arg(long, default_value = generate::TEMPLATE_GIT, conflicts_with = "template_path")]
+    pub template_git: String,
+    /// Branch, tag or 40-hex commit of the template repository.
+    #[arg(long, default_value = generate::TEMPLATE_REV, conflicts_with = "template_path")]
+    pub template_rev: String,
+    /// Local template directory instead of git.
+    #[arg(long)]
+    pub template_path: Option<PathBuf>,
+    /// Zolana revision the generated ring builds its program from, the
+    /// template's pinned default rules when absent.
+    #[arg(long)]
+    pub zolana_rev: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct BuildArgs {
+    /// SBF platform tools pin, the version the zolana checkout builds with.
+    #[arg(
+        long,
+        env = "SBF_TOOLS_VERSION",
+        default_value = build_program::DEFAULT_SBF_TOOLS_VERSION
+    )]
+    pub tools_version: String,
+}
+
+#[derive(Debug, Args)]
+pub struct AuditorKeyArgs {
+    /// The auditor secret a local ring rpc serves, its `.pub` sits beside it.
+    #[arg(long, default_value = AUDITOR_KEY_FILE)]
+    pub key_file: PathBuf,
+    /// Create the key and its `.pub` instead of reading it, refuses to overwrite.
+    #[arg(long)]
+    pub create: bool,
+}
+
+#[derive(Debug, Args)]
 pub struct DeployArgs {
     /// Defaults to `target/deploy/<name>_program.so`.
     #[arg(long)]
     pub program_so: Option<PathBuf>,
-    #[arg(long, default_value = "keys/program-keypair.json")]
+    #[arg(long, default_value = PROGRAM_KEYPAIR_FILE)]
     pub program_keypair: PathBuf,
 }
 
 #[derive(Debug, Args)]
 pub struct InitArgs {
     /// Hex SEC1 compressed auditor key, created by the ring RPC and written here when absent.
-    #[arg(long, default_value = "keys/auditor.key.pub")]
+    #[arg(long, default_value = AUDITOR_PUBKEY_FILE)]
     pub auditor_pubkey_file: PathBuf,
     /// Accept the ring RPC's auditor key without a pinned service key in ring.toml.
     #[arg(long)]
@@ -132,7 +206,7 @@ pub struct InitArgs {
 #[derive(Debug, Args)]
 pub struct TransactArgs {
     /// Lamports the recipient receives, deposited twice by the authority.
-    #[arg(long, default_value_t = 100_000_000)]
+    #[arg(long, default_value_t = DEFAULT_TRANSACT_AMOUNT)]
     pub amount: u64,
 }
 
@@ -141,8 +215,36 @@ pub struct TransferArgs {
     /// The recipient's base58 shielded address, `signing_pk || nullifier_pk || viewing_pk`.
     pub to: ShieldedAddress,
     /// Lamports the recipient receives, deposited by the authority.
-    #[arg(long, default_value_t = 100_000_000)]
+    #[arg(long, default_value_t = DEFAULT_TRANSACT_AMOUNT)]
     pub amount: u64,
+}
+
+/// The pipeline runs each step with the same answers its command defaults to.
+impl Default for DeployArgs {
+    fn default() -> Self {
+        Self {
+            program_so: None,
+            program_keypair: PathBuf::from(PROGRAM_KEYPAIR_FILE),
+        }
+    }
+}
+
+impl Default for InitArgs {
+    fn default() -> Self {
+        Self {
+            auditor_pubkey_file: PathBuf::from(AUDITOR_PUBKEY_FILE),
+            trust_ring_rpc: false,
+            local_auditor: false,
+        }
+    }
+}
+
+impl Default for TransactArgs {
+    fn default() -> Self {
+        Self {
+            amount: DEFAULT_TRANSACT_AMOUNT,
+        }
+    }
 }
 
 pub struct Context {
@@ -242,13 +344,30 @@ pub fn parse_and_run() -> Result<(), CliError> {
     run(Cli::parse())
 }
 
-/// `Target` and `Url` finish before any RPC client exists.
+/// `New` runs before any ring.toml exists, `Target` and `Url` before any RPC client.
 pub fn run(cli: Cli) -> Result<(), CliError> {
+    if let Command::New(args) = cli.command {
+        return Ok(generate::run(args)?);
+    }
     let mut config = RingConfig::load(&cli.config)?;
-    if let Command::Target { target } = cli.command {
-        RingConfig::set_target(&cli.config, target)?;
-        println!("target      {}", target.as_str());
-        return Ok(());
+    match cli.command {
+        Command::Target { target } => {
+            RingConfig::set_target(&cli.config, target)?;
+            println!("target      {}", target.as_str());
+            return Ok(());
+        }
+        Command::Devnet => {
+            RingConfig::set_target(&cli.config, Target::Devnet)?;
+            config.target = Target::Devnet;
+            return Ok(probe::run_devnet(&config)?);
+        }
+        Command::Localnet => {
+            RingConfig::set_target(&cli.config, Target::Localnet)?;
+            config.target = Target::Localnet;
+            probe::run_localnet(&config);
+            return Ok(());
+        }
+        _ => {}
     }
     if let Some(target) = cli.target {
         config.target = target;
@@ -268,17 +387,25 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
     }
     let mut ctx = Context::load(cli.config, config);
     match cli.command {
-        Command::Target { .. } | Command::Url { .. } => Ok(()),
+        Command::New(_)
+        | Command::Target { .. }
+        | Command::Url { .. }
+        | Command::Devnet
+        | Command::Localnet => Ok(()),
         Command::Status => {
             status::run(&ctx);
             Ok(())
         }
+        Command::Build(args) => Ok(build_program::run(&ctx.config, args)?),
         Command::Deploy(args) => Ok(deploy::run(&mut ctx, args)?),
         Command::Init(args) => Ok(init::run(&mut ctx, args)?),
+        Command::Pipeline(args) => pipeline::run(&mut ctx, args),
         Command::Transact(args) => Ok(transact::run(&mut ctx, args)?),
         Command::Transfer(args) => Ok(transact::run_transfer(&mut ctx, args)?),
         Command::RpcCheck => Ok(ring_rpc::run_check(&ctx)?),
         Command::Authority(command) => Ok(authority::run(&ctx, command)?),
         Command::Reader(command) => Ok(reader::run(&mut ctx, command)?),
+        Command::AuditorKey(args) => Ok(keys::run(args)?),
+        Command::Repo => Ok(repo::run(&ctx.config)?),
     }
 }

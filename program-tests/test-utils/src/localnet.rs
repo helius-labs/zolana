@@ -16,6 +16,9 @@ use zolana_interface::instruction::instruction_data::merge_transact::MergeProof;
 use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
 use zolana_user_registry_interface::user_registry_program_id;
 
+/// Arbitrary, the shared binary serves any genesis address.
+pub const CUSTOM_RING_PROGRAM_ADDRESS: &str = "9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh";
+
 pub const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 pub const DEFAULT_INDEXER_URL: &str = "http://127.0.0.1:8784";
 pub const ZERO: [u8; 32] = [0u8; 32];

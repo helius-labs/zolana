@@ -8,14 +8,18 @@ use crate::{error::CustomRingError, instructions::shared::PdaCheck, state::Accou
 
 /// Loads only the canonical config PDA and stored bump.
 #[inline(always)]
-pub fn load_config(account: &AccountView) -> Result<Ref<'_, RingProgramConfig>, ProgramError> {
+pub fn load_config<'a>(
+    program_id: &Address,
+    account: &'a AccountView,
+) -> Result<Ref<'a, RingProgramConfig>, ProgramError> {
     let bump = PdaCheck {
+        program_id,
         address: account.address(),
         seeds: &[RingProgramConfig::SEED],
         mismatch: CustomRingError::InvalidConfigPda,
     }
     .verify()?;
-    let config = load_account::<RingProgramConfig>(account)?;
+    let config = load_account::<RingProgramConfig>(program_id, account)?;
     if config.bump != bump {
         return Err(CustomRingError::InvalidConfigPda.into());
     }
@@ -24,10 +28,11 @@ pub fn load_config(account: &AccountView) -> Result<Ref<'_, RingProgramConfig>, 
 
 #[inline(always)]
 pub fn load_authorized_config<'a>(
+    program_id: &Address,
     config: &'a AccountView,
     authority: &AccountView,
 ) -> Result<Ref<'a, RingProgramConfig>, ProgramError> {
-    let config = load_config(config)?;
+    let config = load_config(program_id, config)?;
     if authority.address() != &config.authority {
         return Err(CustomRingError::UnauthorizedAuthority.into());
     }
@@ -36,13 +41,15 @@ pub fn load_authorized_config<'a>(
 
 #[inline(always)]
 pub fn load_read_access_record<'a>(
+    program_id: &Address,
     account: &'a AccountView,
     reader: &ReaderKeyBytes,
 ) -> Result<Ref<'a, ReadAccessRecord>, ProgramError> {
-    let record = load_account::<ReadAccessRecord>(account)?;
+    let record = load_account::<ReadAccessRecord>(program_id, account)?;
     let seed_hash =
         ReadAccessRecord::seed_hash(reader).map_err(|_| CustomRingError::HashingFailed)?;
     let bump = PdaCheck {
+        program_id,
         address: account.address(),
         seeds: &[ReadAccessRecord::SEED, &seed_hash],
         mismatch: CustomRingError::InvalidReadAccessRecord,
@@ -76,6 +83,7 @@ pub fn validate_spp_program(accounts: &[AccountView]) -> Result<(), ProgramError
 
 #[must_use]
 pub(crate) struct UpgradeAuthorityCheck<'a> {
+    pub program_id: &'a Address,
     pub authority: &'a AccountView,
     pub program: &'a AccountView,
     pub program_data: &'a AccountView,
@@ -83,7 +91,7 @@ pub(crate) struct UpgradeAuthorityCheck<'a> {
 
 impl UpgradeAuthorityCheck<'_> {
     pub fn verify(self) -> Result<(), ProgramError> {
-        if self.program.address() != &crate::ID {
+        if self.program.address() != self.program_id {
             return Err(CustomRingError::UnauthorizedInitializer.into());
         }
         if self.program.owner().as_array() != &BPF_LOADER_UPGRADEABLE_ID {
@@ -125,8 +133,11 @@ impl UpgradeAuthorityCheck<'_> {
 }
 
 #[inline(always)]
-fn load_account<T: Account>(account: &AccountView) -> Result<Ref<'_, T>, ProgramError> {
-    if !account.owned_by(&crate::ID) {
+fn load_account<'a, T: Account>(
+    program_id: &Address,
+    account: &'a AccountView,
+) -> Result<Ref<'a, T>, ProgramError> {
+    if !account.owned_by(program_id) {
         return Err(T::NOT_INITIALIZED.into());
     }
     let data = account.try_borrow().map_err(|_| T::NOT_INITIALIZED)?;

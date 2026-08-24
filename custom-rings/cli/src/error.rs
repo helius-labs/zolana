@@ -1,14 +1,28 @@
 use thiserror::Error;
 
 use crate::{
-    authority::AuthorityError, config::ConfigError, deploy::DeployError, init::InitError,
-    reader::ReaderError, ring_rpc::RpcCheckError, transact::TransactError,
+    authority::AuthorityError, build_program::BuildError, config::ConfigError, deploy::DeployError,
+    generate::GenerateError, init::InitError, keys::AuditorKeyError, pipeline::PipelineError,
+    probe::ProbeError, reader::ReaderError, repo::RepoError, ring_rpc::RpcCheckError,
+    transact::TransactError,
 };
 
 #[derive(Debug, Error)]
 pub enum CliError {
     #[error(transparent)]
     Config(#[from] ConfigError),
+    #[error(transparent)]
+    Generate(Box<GenerateError>),
+    #[error(transparent)]
+    Build(Box<BuildError>),
+    #[error(transparent)]
+    Probe(Box<ProbeError>),
+    #[error(transparent)]
+    Pipeline(Box<PipelineError>),
+    #[error(transparent)]
+    AuditorKey(Box<AuditorKeyError>),
+    #[error(transparent)]
+    Repo(Box<RepoError>),
     #[error(transparent)]
     Deploy(Box<DeployError>),
     #[error(transparent)]
@@ -36,6 +50,12 @@ macro_rules! boxed_from {
 }
 
 boxed_from!(
+    Generate(GenerateError),
+    Build(BuildError),
+    Probe(ProbeError),
+    Pipeline(PipelineError),
+    AuditorKey(AuditorKeyError),
+    Repo(RepoError),
     Deploy(DeployError),
     Init(InitError),
     Transact(TransactError),

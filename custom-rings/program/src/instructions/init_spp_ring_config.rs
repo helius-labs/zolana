@@ -1,4 +1,4 @@
-use pinocchio::{AccountView, ProgramResult};
+use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::instruction::{encode_instruction, tag, CreateRingConfigData};
 
@@ -16,7 +16,11 @@ use crate::{
 /// SPP checks the `ring_auth` derivation at creation time and never again, so
 /// this is the single point where the ring's identity is bound on the SPP side.
 #[inline(never)]
-pub fn process_init_spp_ring_config_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+pub fn process_init_spp_ring_config_ix(
+    program_id: &Address,
+    accounts: &mut [AccountView],
+    data: &[u8],
+) -> ProgramResult {
     if !data.is_empty() {
         return Err(CustomRingError::InvalidInstructionData.into());
     }
@@ -30,7 +34,7 @@ pub fn process_init_spp_ring_config_ix(accounts: &mut [AccountView], data: &[u8]
     let system_program = iter.next_account("system_program")?;
     let spp_program = iter.next_account("spp_program")?;
 
-    let ring_authority = load_authorized_config(config_account, authority)?.authority;
+    let ring_authority = load_authorized_config(program_id, config_account, authority)?.authority;
     // The borrow is scoped so the config account is not still borrowed across the
     // CPI.
 
@@ -39,7 +43,7 @@ pub fn process_init_spp_ring_config_ix(accounts: &mut [AccountView], data: &[u8]
     let instruction_data = encode_instruction(
         tag::CREATE_RING_CONFIG,
         &CreateRingConfigData {
-            program_id: crate::ID,
+            program_id: *program_id,
             authority: ring_authority,
             // This ring exposes no authority-transact rail: every transaction has
             // to carry an auditor proof, so the shortcut stays disabled.
@@ -52,5 +56,5 @@ pub fn process_init_spp_ring_config_ix(accounts: &mut [AccountView], data: &[u8]
     // carries the authority, the ring config and the SPP program, so the CPI list
     // is selected explicitly instead of forwarded whole.
     let cpi_accounts = [&*payer, &*protocol_config, &*ring_auth, &*system_program];
-    cpi_spp_signed(cpi_accounts.as_slice(), &instruction_data)
+    cpi_spp_signed(program_id, cpi_accounts.as_slice(), &instruction_data)
 }

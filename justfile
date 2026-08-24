@@ -106,85 +106,18 @@ test-program-mollusk: build-programs
 test-swap-program: build-programs
     cargo nextest run -p swap-program --tests
 
-# The Go circuit proof check and the cargo-generate template smoke. Needs the
-# canonical keys, because the proof must verify under the committed
-# VERIFYINGKEY and gnark setup is non-deterministic, so locally generated keys
-# cannot pass. The hermetic custom-ring crates run in test-program-fast and
-# test-sdk-libs.
-test-custom-ring: ensure-custom-ring-prover-key test-custom-ring-template
+# The Go circuit proof check. Needs the canonical keys, because the proof must
+# verify under the committed VERIFYINGKEY and gnark setup is non-deterministic,
+# so locally generated keys cannot pass. The template render smoke lives in the
+# zolana-ring repository.
+test-custom-ring: ensure-custom-ring-prover-key
     cd prover/server && go test ./prover/custom_ring -run TestCustomRingAuditProofVerifies -count=1
 
-test-custom-ring-template:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    workspace="$(pwd)"
-    output="$(mktemp -d)"
-    trap 'rm -rf "$output"' EXIT
-    if cargo generate \
-        --path templates/custom-ring \
-        --name invalid-authority \
-        --destination "$output" \
-        --silent \
-        --define silent=true \
-        --define program_id=8hV3Hp5kaDkV81dms997arFRV3g1hW9TLuV4pX94WsEz \
-        --define 'authority_keypair=~operator/key.json' \
-        --define zolana_path="$(pwd)" \
-        --define zolana_revision="$(git rev-parse HEAD)"; then
-        exit 1
-    fi
-    RING_NAME=smoke-ring tools/ring-wizard.sh "$output" --silent \
-        -d authority_keypair=/tmp/custom-ring-authority.json
-    ring="$output/smoke-ring"
-    cd "$ring"
-    grep -q 'target = "localnet"' ring.toml
-    grep -q 'confidential = true' ring.toml
-    grep -Fx 'channel = "1.97.0"' rust-toolchain.toml
-    grep -Fx 'RING_RPC_ALLOW_ORIGINS=http://localhost:3000' .env.example
-    grep -Fx 'RING_RPC_WEBAUTHN_RP_ID=localhost' .env.example
-    [[ -f keys/program-keypair.json ]]
-    program_id="$(solana-keygen pubkey keys/program-keypair.json)"
-    grep -F "CUSTOM_RING_PROGRAM_ID = \"$program_id\"" .cargo/config.toml
-    grep -F "program_id = \"$program_id\"" ring.toml
-    cargo fmt --all -- --check
-    cargo clippy --workspace --all-targets -- -D warnings
-    cargo test -p smoke-ring-program program_id_matches_generated_value
-    cargo run -q -p smoke-ring -- --help
-    [[ "$(cargo run -q -p smoke-ring -- url rpc)" == "{{localnet-rpc-url}}" ]]
-    cargo clippy -p smoke-ring --features auditor-key --bin auditor-pubkey -- -D warnings
-    cargo build-sbf \
-        --tools-version v1.54 \
-        --manifest-path program/Cargo.toml \
-        --features bpf-entrypoint
-    [[ -f target/deploy/smoke_ring_program.so ]]
-    mkdir "$output/key-target"
-    ln -s "$output/key-target" keys/auditor.key
-    if just auditor-key; then
-        exit 1
-    fi
-    [[ -z "$(find "$output/key-target" -mindepth 1 -print -quit)" ]]
-    unlink keys/auditor.key
-    printf '00' > "$output/invalid-auditor.key"
-    chmod 600 "$output/invalid-auditor.key"
-    if CUSTOM_RING_AUDITOR_KEY_FILE="$output/invalid-auditor.key" just auditor-key; then
-        exit 1
-    fi
-    if [[ -e keys/auditor.key || -e keys/auditor.key.pub ]]; then
-        exit 1
-    fi
-    just auditor-key
-    mv keys/auditor.key "$output/auditor.key"
-    mv keys/auditor.key.pub "$output/auditor.key.pub"
-    CUSTOM_RING_AUDITOR_KEY_FILE="$output/auditor.key" just auditor-key
-    cmp -s keys/auditor.key.pub "$output/auditor.key.pub"
-    mv keys/program-keypair.json "$output/program-keypair.json"
-    CUSTOM_RING_PROGRAM_KEYPAIR_FILE="$output/program-keypair.json" just program-key
-    [[ "$(solana-keygen pubkey keys/program-keypair.json)" == "$program_id" ]]
+# === Custom rings ===
 
-# === Custom ring template ===
-
-# Generate a custom ring under `dest`, extra arguments go to `cargo generate`.
-ring-new dest="" *args:
-    tools/ring-wizard.sh {{dest}} {{args}}
+# Generate a custom ring, the template comes from the zolana-ring repository.
+ring-new *args:
+    cargo run -q -p custom-ring-cli -- new {{args}}
 
 # Local validator and services for a generated ring, ring creation is permissionless.
 ring-localnet: ensure-custom-ring-live-keys build-programs build-cli ensure-photon
