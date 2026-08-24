@@ -9,13 +9,11 @@ use thiserror::Error;
 
 use crate::config::RingConfig;
 
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-const TOTAL_TIMEOUT: Duration = Duration::from_secs(30);
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+pub const TOTAL_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Error)]
 pub enum ProbeError {
-    #[error("cannot build the probe client")]
-    Client(#[source] reqwest::Error),
     #[error("devnet {service} at {url} is not ready")]
     NotReady {
         service: &'static str,
@@ -29,7 +27,7 @@ pub enum ProbeError {
 pub fn run_devnet(config: &RingConfig) -> Result<(), ProbeError> {
     print_urls(config);
     println!();
-    let http = probe_client()?;
+    let http = http(CONNECT_TIMEOUT, TOTAL_TIMEOUT);
     let urls = config.urls();
     for (service, base, path) in [
         ("indexer", &urls.indexer, "/readiness"),
@@ -38,8 +36,8 @@ pub fn run_devnet(config: &RingConfig) -> Result<(), ProbeError> {
         let url = service_url(base, path);
         print!("probing {service:<8} {url} ... ");
         let _ = io::stdout().flush();
-        match http.get(&url).send().and_then(|r| r.error_for_status()) {
-            Ok(_) => println!("ready"),
+        match check(&http, &url) {
+            Ok(()) => println!("ready"),
             Err(source) => {
                 println!("not ready");
                 return Err(ProbeError::NotReady {
@@ -76,12 +74,18 @@ pub fn print_urls(config: &RingConfig) {
     println!("  ring rpc  {}  {served}", urls.ring_rpc);
 }
 
-pub fn probe_client() -> Result<reqwest::blocking::Client, ProbeError> {
+/// Panics only where `reqwest::blocking::Client::new` panics, a broken TLS backend.
+pub fn http(connect: Duration, total: Duration) -> reqwest::blocking::Client {
     reqwest::blocking::Client::builder()
-        .connect_timeout(CONNECT_TIMEOUT)
-        .timeout(TOTAL_TIMEOUT)
+        .connect_timeout(connect)
+        .timeout(total)
         .build()
-        .map_err(ProbeError::Client)
+        .expect("reqwest client")
+}
+
+pub fn check(http: &reqwest::blocking::Client, url: &str) -> Result<(), reqwest::Error> {
+    http.get(url).send().and_then(|r| r.error_for_status())?;
+    Ok(())
 }
 
 pub fn service_url(base: &str, path: &str) -> String {

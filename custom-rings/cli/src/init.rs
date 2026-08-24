@@ -14,6 +14,7 @@ use zolana_keypair::P256Pubkey;
 use zolana_ring_rpc::{read_auditor_pubkey, write_auditor_pubkey, KeyFileError};
 
 use crate::{
+    line,
     ring_rpc::{RingRpcClient, RingRpcClientError, Trust},
     step::{IdempotentStep, Observed, StepError, StepOutcome},
     Context, ContextError, InitArgs,
@@ -57,7 +58,7 @@ pub enum InitError {
     ConfigMismatch { authority: Address, auditor: String },
     #[error("ring config not created, run `init` first")]
     NotInitialized,
-    #[error("{path} holds an auditor key, but the ring rpc at {url} is not on this machine and holds its own. Pinning this key means only a ring rpc serving it can ever open the ring: delete the file to take the service's key, or pass --local-auditor to keep it")]
+    #[error("{path} holds an auditor key, but the ring rpc at {url} is not on this machine and holds its own. Pinning this key means only a ring rpc serving it can ever open the ring. Delete the file to take the service's key, or pass --local-auditor to keep it")]
     LocalAuditorAgainstRemoteRpc { path: PathBuf, url: String },
 }
 
@@ -91,11 +92,14 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
     };
     let auditor_pk = source.resolve(ctx.ring.program_id())?;
     if let AuditorKeySource::RingRpc { write_to, .. } = source {
-        println!(
-            "auditor pk  {} (from {}, written to {})",
-            hex::encode(auditor_pk.as_bytes()),
-            ctx.config.urls().ring_rpc,
-            write_to.display()
+        line(
+            "auditor pk",
+            format_args!(
+                "{} (from {}, written to {})",
+                hex::encode(auditor_pk.as_bytes()),
+                ctx.config.urls().ring_rpc,
+                write_to.display()
+            ),
         );
     }
     let outcome = Init {
@@ -104,13 +108,13 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
         auditor_pk,
     }
     .run(&ctx.rpc)?;
-    println!("config      {}", outcome.config.label());
-    println!(
-        "spp ring    {}",
+    line("config", outcome.config.label());
+    line(
+        "spp ring",
         match outcome.ring {
             StepOutcome::Created => "registered",
             other => other.label(),
-        }
+        },
     );
     if matches!(outcome.ring, StepOutcome::Created | StepOutcome::Present) {
         crate::status::announce(&ctx.config);
@@ -136,7 +140,6 @@ impl AuditorKeySource<'_> {
 }
 
 impl Init<'_> {
-    /// A rerun after a partial failure finishes the job.
     pub fn run(self, rpc: &SolanaRpc) -> Result<InitOutcome, InitError> {
         let payer = self.authority.pubkey();
         let existing = self.ring.read_config(rpc)?;

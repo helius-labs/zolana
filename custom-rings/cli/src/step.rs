@@ -36,7 +36,7 @@ pub enum StepError {
     },
 }
 
-/// One instruction signed and paid by the authority, skipped when the chain already agrees.
+/// One authority-signed instruction, skipped when the chain already agrees.
 #[must_use]
 pub struct IdempotentStep<'a> {
     pub rpc: &'a SolanaRpc,

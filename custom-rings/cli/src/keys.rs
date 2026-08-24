@@ -1,17 +1,10 @@
 //! `auditor-key`, the key file a local ring rpc serves.
 
-use thiserror::Error;
 use zolana_ring_rpc::{write_auditor_key, KeyAccess, KeyFile, KeyFileError};
 
 use crate::AuditorKeyArgs;
 
-#[derive(Debug, Error)]
-pub enum AuditorKeyError {
-    #[error(transparent)]
-    KeyFile(#[from] KeyFileError),
-}
-
-pub fn run(args: AuditorKeyArgs) -> Result<(), AuditorKeyError> {
+pub fn run(args: AuditorKeyArgs) -> Result<(), KeyFileError> {
     if args.create {
         let key = write_auditor_key(&args.key_file)?;
         println!(

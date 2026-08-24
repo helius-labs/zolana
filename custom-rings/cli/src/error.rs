@@ -2,10 +2,10 @@ use thiserror::Error;
 
 use crate::{
     authority::AuthorityError, build_program::BuildError, config::ConfigError, deploy::DeployError,
-    generate::GenerateError, init::InitError, keys::AuditorKeyError, pipeline::PipelineError,
-    probe::ProbeError, reader::ReaderError, repo::RepoError, ring_rpc::RpcCheckError,
-    transact::TransactError,
+    generate::GenerateError, init::InitError, pipeline::PipelineError, probe::ProbeError,
+    reader::ReaderError, ring_rpc::RingRpcClientError, tool::ToolError, transact::TransactError,
 };
+use zolana_ring_rpc::KeyFileError;
 
 #[derive(Debug, Error)]
 pub enum CliError {
@@ -20,9 +20,9 @@ pub enum CliError {
     #[error(transparent)]
     Pipeline(Box<PipelineError>),
     #[error(transparent)]
-    AuditorKey(Box<AuditorKeyError>),
+    KeyFile(Box<KeyFileError>),
     #[error(transparent)]
-    Repo(Box<RepoError>),
+    Tool(Box<ToolError>),
     #[error(transparent)]
     Deploy(Box<DeployError>),
     #[error(transparent)]
@@ -30,7 +30,7 @@ pub enum CliError {
     #[error(transparent)]
     Transact(Box<TransactError>),
     #[error(transparent)]
-    RpcCheck(Box<RpcCheckError>),
+    RingRpc(Box<RingRpcClientError>),
     #[error(transparent)]
     Authority(Box<AuthorityError>),
     #[error(transparent)]
@@ -54,12 +54,31 @@ boxed_from!(
     Build(BuildError),
     Probe(ProbeError),
     Pipeline(PipelineError),
-    AuditorKey(AuditorKeyError),
-    Repo(RepoError),
+    KeyFile(KeyFileError),
+    Tool(ToolError),
     Deploy(DeployError),
     Init(InitError),
     Transact(TransactError),
-    RpcCheck(RpcCheckError),
+    RingRpc(RingRpcClientError),
     Authority(AuthorityError),
     Reader(ReaderError),
+);
+
+/// One `Client` variant per module, boxed for enum size.
+macro_rules! client_from {
+    ($($error:ty),* $(,)?) => {$(
+        impl From<zolana_client::ClientError> for $error {
+            fn from(error: zolana_client::ClientError) -> Self {
+                Self::Client(Box::new(error))
+            }
+        }
+    )*};
+}
+
+client_from!(
+    crate::ContextError,
+    crate::deploy::DeployError,
+    crate::fund::FundError,
+    crate::status::StatusError,
+    crate::transact::TransactError,
 );
