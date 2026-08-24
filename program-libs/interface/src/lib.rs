@@ -1,4 +1,3 @@
-pub mod custom_ring;
 pub mod error;
 pub use zolana_event as event;
 pub mod instruction;

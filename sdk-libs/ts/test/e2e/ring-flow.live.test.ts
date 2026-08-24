@@ -36,9 +36,9 @@ import {
   buildRingTransferTransaction,
   fetchReaderGrant,
   fetchRingProgramConfig,
-  grantReaderInstruction,
+  grantReadAccessInstruction,
   messageSignerReader,
-  revokeReaderInstruction,
+  revokeReadAccessInstruction,
   readerKeyBytes,
   type RingReadSigner,
 } from "../../src/ring/index.js";
@@ -276,7 +276,7 @@ describe("ring flow", () => {
     expect(await ringReadError(ringRpc, ringProgramId, delegate)).toContain("no active grant");
     await sendInstruction(
       client,
-      await grantReaderInstruction({
+      await grantReadAccessInstruction({
         ringProgramId,
         payer: authoritySigner,
         authority: authoritySigner,
@@ -293,7 +293,7 @@ describe("ring flow", () => {
     expect(await ringReadError(ringRpc, ringProgramId, sender.signer)).toContain("no active grant");
     await sendInstruction(
       client,
-      await revokeReaderInstruction({
+      await revokeReadAccessInstruction({
         ringProgramId,
         authority: authoritySigner,
         reader: delegate.address,
@@ -309,7 +309,7 @@ describe("ring flow", () => {
     expect(await ringReadError(ringRpc, ringProgramId, passkey)).toContain("no active grant");
     await sendInstruction(
       client,
-      await grantReaderInstruction({
+      await grantReadAccessInstruction({
         ringProgramId,
         payer: authoritySigner,
         authority: authoritySigner,
@@ -327,7 +327,7 @@ describe("ring flow", () => {
     expect(await ringReadError(ringRpc, ringProgramId, elsewhere)).toContain("origin");
     await sendInstruction(
       client,
-      await revokeReaderInstruction({
+      await revokeReadAccessInstruction({
         ringProgramId,
         authority: authoritySigner,
         reader: passkey.publicKey,

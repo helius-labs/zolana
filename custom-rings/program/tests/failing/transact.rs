@@ -6,12 +6,12 @@
 //! real BSB22 verifier against the committed verifying key, which is what proves
 //! the recomputed public-input hash path is reached.
 
+use custom_ring_interface::{tag, AuditProof, CustomRingTransactIxData, AUDITOR_MESSAGE_LEN};
 use custom_ring_program::CustomRingError;
 use solana_account::Account;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    custom_ring::{tag, AuditProof, CustomRingTransactIxData, AUDITOR_MESSAGE_LEN},
     event::{CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG},
     instruction::{
         CircuitId, MessageData, OwnerTag, TransactIxData, TransactOutput, TransactProof,
@@ -164,9 +164,8 @@ fn non_canonical_config_is_rejected_exactly() {
 fn config_with_a_wrong_bump_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut config = valid_config();
-    let state = bytemuck::from_bytes_mut::<zolana_interface::custom_ring::RingProgramConfig>(
-        &mut config.data,
-    );
+    let state =
+        bytemuck::from_bytes_mut::<custom_ring_interface::RingProgramConfig>(&mut config.data);
     state.bump ^= 1;
     let fixture = transact_fixture(
         config,

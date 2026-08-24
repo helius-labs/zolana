@@ -6,14 +6,14 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
-	"zolana/prover/circuits/custom_ring/auditor_key_encryption"
+	"zolana/prover/circuits/custom_ring/audit"
 )
 
-func R1CSAuditorKeyEncryption() (constraint.ConstraintSystem, error) {
+func R1CSCustomRingAudit() (constraint.ConstraintSystem, error) {
 	return frontend.Compile(
 		ecc.BN254.ScalarField(),
 		r1cs.NewBuilder,
-		&auditor_key_encryption.Circuit{},
+		&audit.Circuit{},
 		frontend.WithCompressThreshold(300),
 	)
 }

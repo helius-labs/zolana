@@ -9,11 +9,10 @@ pub mod ring_authority;
 pub mod transact;
 
 pub use client::{
-    spawn_prover, spawn_prover_with_artifacts, AsyncPollConfig, AsyncProverClient, ProverClient,
-    PROVE_PATH, SERVER_ADDRESS,
+    spawn_prover, spawn_prover_with_artifacts, AsyncPollConfig, AsyncProverClient, Delivery,
+    ProveRequest, ProverClient, PROVE_PATH, SERVER_ADDRESS,
 };
 pub use inputs::{
-    AuditPrivateTxHash, AuditPublicInputHash, AuditorKeyEncryptionWitness,
     BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
     TransferP256Inputs,
 };

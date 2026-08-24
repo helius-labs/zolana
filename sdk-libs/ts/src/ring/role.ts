@@ -6,9 +6,9 @@ import { decodeRingProgramConfig } from "./codecs.js";
 import { ringConfigAddress } from "./config.js";
 import { RingError } from "./error.js";
 import {
-  decodeReaderRecord,
+  decodeReadAccessRecord,
   readerKeyEquals,
-  readerRecordAddress,
+  readAccessRecordAddress,
   type ReaderKey,
 } from "./reader.js";
 
@@ -16,14 +16,14 @@ type AccountReader = Pick<ZolanaClient, "getMultipleAccounts">;
 
 export type RingRole = "authority" | "delegated reader" | "participant only";
 
-/** What a ring's config and reader records say about one key. */
+/** What a ring's config and read access records say about one key. */
 export async function ringRole(
   input: Readonly<{ rpc: AccountReader; ring: Address; reader: ReaderKey }>,
   context?: RequestContext,
 ): Promise<RingRole> {
   const [config, record] = await Promise.all([
     ringConfigAddress(input.ring),
-    readerRecordAddress(input.ring, input.reader),
+    readAccessRecordAddress(input.ring, input.reader),
   ]);
   const [configAccount, recordAccount] = await input.rpc.getMultipleAccounts(
     [config, record],
@@ -37,7 +37,7 @@ export async function ringRole(
     return "authority";
   }
   const recordData = owned(recordAccount, input.ring);
-  if (recordData && readerKeyEquals(decodeReaderRecord(recordData).reader, input.reader)) {
+  if (recordData && readerKeyEquals(decodeReadAccessRecord(recordData).reader, input.reader)) {
     return "delegated reader";
   }
   return "participant only";

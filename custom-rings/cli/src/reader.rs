@@ -1,5 +1,6 @@
 use custom_ring_sdk::{
-    AccountReadError, CustomRing, GrantReader, ReaderKey, RevokeReader, READER_COMPUTE_UNIT_LIMIT,
+    AccountReadError, CustomRing, GrantReadAccess, ReaderKey, RevokeReadAccess,
+    READ_ACCESS_COMPUTE_UNIT_LIMIT,
 };
 use solana_signer::Signer;
 use thiserror::Error;
@@ -52,7 +53,7 @@ pub fn run(ctx: &mut Context, command: ReaderCommand) -> Result<(), ReaderError>
         ),
     };
     println!("reader      {reader} {}", outcome_label(outcome));
-    println!("record      {}", ctx.ring.reader_record_pda(&reader));
+    println!("record      {}", ctx.ring.read_access_record_pda(&reader));
     Ok(())
 }
 
@@ -68,9 +69,9 @@ pub fn outcome_label(outcome: StepOutcome) -> &'static str {
 impl ReaderAccess<'_> {
     pub fn grant(self, rpc: &SolanaRpc) -> Result<StepOutcome, ReaderError> {
         let observed = self.observed(rpc)?;
-        Ok(self.step(rpc, "grant_reader").ensure_present(
+        Ok(self.step(rpc, "grant_read_access").ensure_present(
             observed,
-            GrantReader {
+            GrantReadAccess {
                 ring: self.ring,
                 payer: self.authority.pubkey(),
                 authority: self.authority.pubkey(),
@@ -83,9 +84,9 @@ impl ReaderAccess<'_> {
     /// The rent returns to the authority.
     pub fn revoke(self, rpc: &SolanaRpc) -> Result<StepOutcome, ReaderError> {
         let observed = self.observed(rpc)?;
-        Ok(self.step(rpc, "revoke_reader").ensure_absent(
+        Ok(self.step(rpc, "revoke_read_access").ensure_absent(
             observed,
-            RevokeReader {
+            RevokeReadAccess {
                 ring: self.ring,
                 authority: self.authority.pubkey(),
                 reader: self.reader,
@@ -97,7 +98,7 @@ impl ReaderAccess<'_> {
 
     fn observed(&self, rpc: &SolanaRpc) -> Result<Observed, ReaderError> {
         Ok(Observed::of(
-            &self.ring.read_reader_record(rpc, &self.reader)?,
+            &self.ring.read_access_record(rpc, &self.reader)?,
         ))
     }
 
@@ -106,7 +107,7 @@ impl ReaderAccess<'_> {
             rpc,
             authority: self.authority,
             name,
-            compute_unit_limit: READER_COMPUTE_UNIT_LIMIT,
+            compute_unit_limit: READ_ACCESS_COMPUTE_UNIT_LIMIT,
             hint: no_hint,
         }
     }

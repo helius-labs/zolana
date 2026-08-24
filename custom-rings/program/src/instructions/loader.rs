@@ -1,7 +1,7 @@
 use bytemuck::from_bytes;
+use custom_ring_interface::{ReadAccessRecord, ReaderKeyBytes, RingProgramConfig};
 use pinocchio::{account::Ref, error::ProgramError, AccountView, Address};
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
-use zolana_interface::custom_ring::{ReaderKeyBytes, ReaderRecord, RingProgramConfig};
 use zolana_interface::{BPF_LOADER_UPGRADEABLE_ID, SHIELDED_POOL_PROGRAM_ID};
 
 use crate::{error::CustomRingError, instructions::shared::PdaCheck, state::Account};
@@ -35,20 +35,21 @@ pub fn load_authorized_config<'a>(
 }
 
 #[inline(always)]
-pub fn load_reader_record<'a>(
+pub fn load_read_access_record<'a>(
     account: &'a AccountView,
     reader: &ReaderKeyBytes,
-) -> Result<Ref<'a, ReaderRecord>, ProgramError> {
-    let record = load_account::<ReaderRecord>(account)?;
-    let seed_hash = ReaderRecord::seed_hash(reader).map_err(|_| CustomRingError::HashingFailed)?;
+) -> Result<Ref<'a, ReadAccessRecord>, ProgramError> {
+    let record = load_account::<ReadAccessRecord>(account)?;
+    let seed_hash =
+        ReadAccessRecord::seed_hash(reader).map_err(|_| CustomRingError::HashingFailed)?;
     let bump = PdaCheck {
         address: account.address(),
-        seeds: &[ReaderRecord::SEED, &seed_hash],
-        mismatch: CustomRingError::InvalidReaderRecord,
+        seeds: &[ReadAccessRecord::SEED, &seed_hash],
+        mismatch: CustomRingError::InvalidReadAccessRecord,
     }
     .verify()?;
     if record.reader != *reader || record.bump != bump {
-        return Err(CustomRingError::InvalidReaderRecord.into());
+        return Err(CustomRingError::InvalidReadAccessRecord.into());
     }
     Ok(record)
 }

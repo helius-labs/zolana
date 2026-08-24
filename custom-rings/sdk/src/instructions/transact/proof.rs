@@ -24,14 +24,13 @@
 //! [`AuditProofParams`]) and invalidates an SPP proof taken over the first
 //! message, so it is called once per transaction.
 
+use custom_ring_interface::{AuditProof, AuditPublicInput};
 use thiserror::Error;
 use zeroize::Zeroizing;
-use zolana_client::{
-    AuditPrivateTxHash, AuditPublicInputHash, AuditorKeyEncryptionWitness, ClientError, Proof,
-    ProofCompressed,
-};
-use zolana_interface::custom_ring::{AuditProof, AuditPublicInput};
+use zolana_client::{ClientError, Proof, ProofCompressed};
 use zolana_keypair::{KeypairError, P256Pubkey, ViewingKey};
+
+use super::request::{AuditPrivateTxHash, AuditProofRequest, AuditPublicInputHash};
 
 use zolana_ring_client::{AuditEncryptionError, AuditorEncryption, AuditorMessage};
 
@@ -45,6 +44,8 @@ pub enum AuditProofInputError {
     Client(#[from] ClientError),
     #[error("public input hashing failed")]
     Hashing,
+    #[error("hash is not below the BN254 scalar modulus")]
+    GreaterThanB254FieldSize,
 }
 
 #[derive(Debug, Error)]
@@ -154,7 +155,7 @@ impl PendingAuditProof {
     pub fn finish(
         self,
         private_tx_hash: AuditPrivateTxHash,
-    ) -> Result<AuditorKeyEncryptionWitness, AuditProofInputError> {
+    ) -> Result<AuditProofRequest, AuditProofInputError> {
         let Self {
             tx_viewing_key,
             tx_viewing_pk,
@@ -172,7 +173,7 @@ impl PendingAuditProof {
         .hash()
         .map_err(|_| AuditProofInputError::Hashing)?;
 
-        Ok(AuditorKeyEncryptionWitness {
+        Ok(AuditProofRequest {
             public_input_hash: AuditPublicInputHash::try_from(public_input_hash)?,
             private_tx_hash,
             tx_viewing_key,

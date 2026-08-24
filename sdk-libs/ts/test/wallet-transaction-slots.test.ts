@@ -4,7 +4,7 @@ import type { ZolanaClient } from "../src/client/client.js";
 import { getAddressDecoder } from "@solana/kit";
 
 import type { Bytes32, Signature } from "../src/interface/types.js";
-import { fetchTransactionSlots } from "../src/wallet/parties.js";
+import { fetchTransactionSlots } from "../src/wallet/transaction-slots.js";
 
 const SIGNATURE = "1".repeat(87) as Signature;
 const filled = (byte: number) => new Uint8Array(32).fill(byte) as Bytes32;

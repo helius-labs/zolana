@@ -246,7 +246,7 @@ func (ps *TransferProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 	return totalRead, nil
 }
 
-func (ps *Groth16ProofSystem) WriteTo(w io.Writer) (int64, error) {
+func (ps *RingProofSystem) WriteTo(w io.Writer) (int64, error) {
 	var total int64
 
 	written, err := ps.ProvingKey.WriteTo(w)
@@ -264,7 +264,7 @@ func (ps *Groth16ProofSystem) WriteTo(w io.Writer) (int64, error) {
 	return total, err
 }
 
-func (ps *Groth16ProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
+func (ps *RingProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 	var total int64
 	ps.ProvingKey = groth16.NewProvingKey(ecc.BN254)
 	read, err := ps.ProvingKey.UnsafeReadFrom(r)
@@ -287,7 +287,7 @@ func (ps *Groth16ProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 func ReadSystemFromFile(path string) (interface{}, error) {
 	lowerPath := strings.ToLower(path)
 	if strings.Contains(lowerPath, "custom_ring_audit_transfer") {
-		ps := &Groth16ProofSystem{
+		ps := &RingProofSystem{
 			CircuitType: CustomRingAuditCircuitType,
 			Variant:     "transfer",
 		}

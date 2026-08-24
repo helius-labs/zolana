@@ -2092,7 +2092,8 @@ mod tests {
             alice.shielded_address().expect("sender address"),
             vec![input],
             Address::default(),
-        );
+        )
+        .with_compact_change();
         transfer
             .send(
                 &recipient.shielded_address().expect("recipient address"),
@@ -2100,11 +2101,7 @@ mod tests {
                 100,
             )
             .expect("send");
-        let prepared = transfer
-            .prepare()
-            .expect("prepare")
-            .compact_outputs()
-            .expect("compact outputs");
+        let prepared = transfer.prepare().expect("prepare");
         let tx_key = alice
             .get_transaction_viewing_key(&prepared.first_nullifier)
             .expect("transaction viewing key");

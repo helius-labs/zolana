@@ -81,8 +81,8 @@ export interface AssembledTransfer {
   withProof(proof: TransactProof): TransactInstructionData;
 }
 
-/** Mirrors Rust `AuditorKeyEncryptionInputs`, `auditorPublicKey` is the uncompressed SEC1 point. */
-export interface AuditorKeyEncryptionInputs {
+/** Mirrors Rust `AuditProofRequest`, `auditorPublicKey` is the uncompressed SEC1 point. */
+export interface AuditProofRequest {
   readonly publicInputHash: Bytes32;
   readonly privateTxHash: Bytes32;
   readonly txViewingSecret: Bytes32;

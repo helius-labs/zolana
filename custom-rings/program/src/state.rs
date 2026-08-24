@@ -1,12 +1,12 @@
 use bytemuck::{from_bytes_mut, Pod};
+use custom_ring_interface::{
+    ReadAccessRecord, ReaderKeyBytes, RingProgramConfig, READER_KEY_ED25519, READER_KEY_P256,
+    READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
+};
 use pinocchio::{AccountView, Address, ProgramResult};
 use solana_curve25519::{
     edwards::{add_edwards, multiply_edwards, validate_edwards, PodEdwardsPoint},
     scalar::PodScalar,
-};
-use zolana_interface::custom_ring::{
-    ReaderKeyBytes, ReaderRecord, RingProgramConfig, READER_KEY_ED25519, READER_KEY_P256,
-    READER_RECORD, RING_PROGRAM_CONFIG,
 };
 
 use crate::error::CustomRingError;
@@ -96,29 +96,29 @@ fn is_signing_ed25519_key(body: [u8; 32]) -> bool {
             .is_some_and(|point| point == IDENTITY)
 }
 
-impl Account for ReaderRecord {
-    const DISCRIMINATOR: u8 = READER_RECORD;
-    const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidReaderRecord;
-    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::ReaderRecordAlreadyExists;
-    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidReaderRecord;
+impl Account for ReadAccessRecord {
+    const DISCRIMINATOR: u8 = READ_ACCESS_RECORD;
+    const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidReadAccessRecord;
+    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::ReadAccessRecordAlreadyExists;
+    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidReadAccessRecord;
 
     fn discriminator(&self) -> u8 {
         self.discriminator
     }
 }
 
-pub(crate) struct ReaderRecordInitParams {
+pub(crate) struct ReadAccessRecordInitParams {
     pub reader: ReaderKeyBytes,
     pub bump: u8,
 }
 
-impl ReaderRecordInitParams {
+impl ReadAccessRecordInitParams {
     #[inline(always)]
     pub fn init(self, account: &mut AccountView) -> ProgramResult {
         init_account(
             account,
-            ReaderRecord {
-                discriminator: READER_RECORD,
+            ReadAccessRecord {
+                discriminator: READ_ACCESS_RECORD,
                 reader: self.reader,
                 bump: self.bump,
             },
@@ -129,7 +129,7 @@ impl ReaderRecordInitParams {
 mod sealed {
     pub trait Sealed {}
     impl Sealed for super::RingProgramConfig {}
-    impl Sealed for super::ReaderRecord {}
+    impl Sealed for super::ReadAccessRecord {}
 }
 
 #[inline(always)]

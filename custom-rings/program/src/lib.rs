@@ -11,12 +11,13 @@ mod state;
 
 pub use error::CustomRingError;
 
+use custom_ring_interface::tag;
 use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address, ProgramResult};
-use zolana_interface::custom_ring::tag;
 
 use crate::instructions::{
-    process_create_config_ix, process_deposit_ix, process_grant_reader_ix,
-    process_init_spp_ring_config_ix, process_revoke_reader_ix, process_transact_ix,
+    process_create_config_ix, process_deposit_ix, process_grant_read_access_ix,
+    process_init_spp_ring_config_ix, process_revoke_read_access_ix, process_set_authority_ix,
+    process_transact_ix,
 };
 
 #[cfg(all(feature = "bpf-entrypoint", not(feature = "no-entrypoint")))]
@@ -44,8 +45,9 @@ pub fn process_instruction(
         tag::TRANSACT => process_transact_ix(accounts, ix_data),
         // The forwarder passes the tag byte on as well: SPP's dispatcher strips it.
         tag::DEPOSIT => process_deposit_ix(accounts, instruction_data),
-        tag::GRANT_READER => process_grant_reader_ix(accounts, ix_data),
-        tag::REVOKE_READER => process_revoke_reader_ix(accounts, ix_data),
+        tag::GRANT_READ_ACCESS => process_grant_read_access_ix(accounts, ix_data),
+        tag::REVOKE_READ_ACCESS => process_revoke_read_access_ix(accounts, ix_data),
+        tag::SET_AUTHORITY => process_set_authority_ix(accounts, ix_data),
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }

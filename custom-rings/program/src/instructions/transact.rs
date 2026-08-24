@@ -1,15 +1,13 @@
+use custom_ring_interface::{
+    AuditPublicInput, CustomRingTransactIxData, AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN,
+};
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use zolana_account_checks::AccountIterator;
-use zolana_interface::{
-    custom_ring::{
-        AuditPublicInput, CustomRingTransactIxData, AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN,
+use zolana_interface::instruction::{
+    instruction_data::transact::{
+        confidential_encrypted_output_body, ring_confidential_encrypted_output_body,
     },
-    instruction::{
-        instruction_data::transact::{
-            confidential_encrypted_output_body, ring_confidential_encrypted_output_body,
-        },
-        tag, CircuitId, MessageData,
-    },
+    tag, CircuitId, MessageData,
 };
 
 use crate::{
@@ -153,13 +151,11 @@ fn is_valid_confidential_output(data: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zolana_interface::{
-        custom_ring::{pack33_to_2fe, AUDITOR_MESSAGE_LEN},
-        merge_utils::ciphertext_hash,
-    };
+    use custom_ring_interface::{pack33_to_2fe, AUDITOR_MESSAGE_LEN};
+    use zolana_interface::merge_utils::ciphertext_hash;
 
     /// Fixture of the circuit's Go test
-    /// (`prover/server/circuits/custom_ring/auditor_key_encryption/circuit_test.go`, scalars
+    /// (`prover/server/circuits/custom_ring/audit/circuit_test.go`, scalars
     /// 0x11/0x22/0x33) and of the SDK's cross-language vectors
     /// (`custom-rings/sdk/tests/go_vectors.rs`). The compressed keys and the
     /// ciphertext are the values Go printed and the Go test feeds to the compiled
@@ -192,7 +188,7 @@ mod tests {
     fn pack33_to_2fe_matches_go() {
         assert_eq!(
             pack33_to_2fe(&bytes::<33>(TX_PK)),
-            zolana_interface::custom_ring::FieldPair {
+            custom_ring_interface::FieldPair {
                 lo: bytes::<32>(TX_PK_LO),
                 hi: bytes::<32>(TX_PK_HI),
             }

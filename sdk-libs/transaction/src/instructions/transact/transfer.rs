@@ -11,7 +11,7 @@ use zolana_keypair::{
 };
 
 use super::{
-    shape::{canonical_shape, resolve_shape, Shape},
+    shape::{resolve_shape, Shape},
     slots::encode_confidential_slots,
     spp_proof_inputs::{first_nullifier, inputs_require_p256, SppProofInputs},
     ExternalData, SettlementTransfer, SppProofOutputUtxo,
@@ -45,6 +45,7 @@ pub struct PreparedTransfer {
     pub payer: Address,
     pub interface_transfers: Vec<SettlementTransfer>,
     output_layout: PreparedOutputLayout,
+    change_layout: ChangeLayout,
 }
 
 pub struct Recipient {
@@ -80,6 +81,18 @@ pub struct ConfidentialTransfer {
     pub payer: Address,
     pub blinding_seed: [u8; 32],
     pub shape: Option<Shape>,
+    change_layout: ChangeLayout,
+}
+
+/// Whether [`ConfidentialTransfer::prepare`] keeps a change slot that holds no
+/// value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChangeLayout {
+    /// Every transfer carries both change slots, dummy or not.
+    Padded,
+    /// Only change slots holding value are emitted, and the shape shrinks with
+    /// them.
+    Compact,
 }
 
 #[derive(Clone, Copy)]
@@ -100,7 +113,16 @@ impl ConfidentialTransfer {
             payer,
             blinding_seed: random_blinding(),
             shape: None,
+            change_layout: ChangeLayout::Padded,
         }
+    }
+
+    /// An explicit shape passed to [`Self::with_shape`] is resolved against the
+    /// compact output count.
+    #[must_use]
+    pub fn with_compact_change(mut self) -> Self {
+        self.change_layout = ChangeLayout::Compact;
+        self
     }
 
     pub fn with_shape(mut self, shape: Shape) -> Self {
@@ -247,36 +269,53 @@ impl ConfidentialTransfer {
             None => 0,
         };
 
+        let spl_change_asset = spl_asset.filter(|_| spl_change > 0);
+        let has_sol_change = sol_change > 0;
+        let output_layout = match self.change_layout {
+            ChangeLayout::Padded => PreparedOutputLayout::BothChanges,
+            ChangeLayout::Compact => match (spl_change_asset.is_some(), has_sol_change) {
+                (true, true) => PreparedOutputLayout::BothChanges,
+                (true, false) => PreparedOutputLayout::SplChange,
+                (false, true) => PreparedOutputLayout::SolChange,
+                (false, false) => PreparedOutputLayout::Recipients,
+            },
+        };
+
+        // Change blindings stay bound to their fixed positions, so a compact
+        // transfer commits to the same values a padded one would.
         let mut outputs = Vec::new();
-        outputs.push(match spl_asset {
-            Some(asset) if spl_change > 0 => SppProofOutputUtxo {
+        match spl_change_asset {
+            Some(asset) => outputs.push(SppProofOutputUtxo {
                 owner_address: Some(self.owner),
                 asset,
                 amount: spl_change,
                 blinding: derive_blinding(&self.blinding_seed, SPL_CHANGE_POSITION),
                 ..Default::default()
-            },
-            _ => SppProofOutputUtxo {
-                blinding: derive_blinding(&self.blinding_seed, SPL_CHANGE_POSITION),
-                owner_tag: Some(self.owner.signing_pubkey.confidential_view_tag()?),
-                ..Default::default()
-            },
-        });
-        outputs.push(if sol_change > 0 {
-            SppProofOutputUtxo {
+            }),
+            None if self.change_layout == ChangeLayout::Padded => {
+                outputs.push(SppProofOutputUtxo {
+                    blinding: derive_blinding(&self.blinding_seed, SPL_CHANGE_POSITION),
+                    owner_tag: Some(self.owner.signing_pubkey.confidential_view_tag()?),
+                    ..Default::default()
+                })
+            }
+            None => {}
+        }
+        if has_sol_change {
+            outputs.push(SppProofOutputUtxo {
                 owner_address: Some(self.owner),
                 asset: SOL_MINT,
                 amount: sol_change,
                 blinding: derive_blinding(&self.blinding_seed, SOL_CHANGE_POSITION),
                 ..Default::default()
-            }
-        } else {
-            SppProofOutputUtxo {
+            });
+        } else if self.change_layout == ChangeLayout::Padded {
+            outputs.push(SppProofOutputUtxo {
                 blinding: derive_blinding(&self.blinding_seed, SOL_CHANGE_POSITION),
                 owner_tag: Some(self.owner.signing_pubkey.confidential_view_tag()?),
                 ..Default::default()
-            }
-        });
+            });
+        }
 
         for (i, recipient) in self.recipients.iter().enumerate() {
             let position = RECIPIENT_POSITION_BASE + i as u8;
@@ -306,7 +345,8 @@ impl ConfidentialTransfer {
             shape,
             payer: self.payer,
             interface_transfers,
-            output_layout: PreparedOutputLayout::BothChanges,
+            output_layout,
+            change_layout: self.change_layout,
         })
     }
 
@@ -419,36 +459,8 @@ fn validate_settlement_target(
 }
 
 impl PreparedTransfer {
-    pub fn compact_outputs(mut self) -> Result<Self, TransactionError> {
-        if !matches!(self.output_layout, PreparedOutputLayout::BothChanges) {
-            return Ok(self);
-        }
-        let mut outputs = self.outputs.into_iter();
-        let spl_change = outputs.next().ok_or(TransactionError::MissingOutput)?;
-        let sol_change = outputs.next().ok_or(TransactionError::MissingOutput)?;
-        let has_spl_change = !spl_change.is_dummy();
-        let has_sol_change = !sol_change.is_dummy();
-        self.outputs = match (has_spl_change, has_sol_change) {
-            (true, true) => {
-                self.output_layout = PreparedOutputLayout::BothChanges;
-                vec![spl_change, sol_change]
-            }
-            (true, false) => {
-                self.output_layout = PreparedOutputLayout::SplChange;
-                vec![spl_change]
-            }
-            (false, true) => {
-                self.output_layout = PreparedOutputLayout::SolChange;
-                vec![sol_change]
-            }
-            (false, false) => {
-                self.output_layout = PreparedOutputLayout::Recipients;
-                Vec::new()
-            }
-        };
-        self.outputs.extend(outputs);
-        self.shape = canonical_shape(self.inputs.len(), self.outputs.len())?;
-        Ok(self)
+    pub fn change_layout(&self) -> ChangeLayout {
+        self.change_layout
     }
 
     pub fn finalize(
@@ -730,35 +742,30 @@ mod tests {
     }
 
     #[test]
-    fn compact_outputs_remove_unused_change_slots() {
-        let prepared = sol_transfer(4)
-            .prepare()
-            .unwrap()
-            .compact_outputs()
-            .unwrap();
+    fn compact_change_removes_unused_change_slots() {
+        let prepared = sol_transfer(4).with_compact_change().prepare().unwrap();
         assert_eq!(prepared.shape, Shape::IN1_OUT2);
         assert_eq!(prepared.outputs.len(), 2);
         assert_eq!(prepared.outputs[0].amount, 6);
         assert_eq!(prepared.outputs[1].amount, 4);
         assert_eq!(prepared.output_layout.sender_output_count(), 1);
-        let prepared = prepared.compact_outputs().unwrap();
-        assert_eq!(prepared.outputs.len(), 2);
-        assert_eq!(prepared.outputs[0].amount, 6);
-        assert_eq!(prepared.outputs[1].amount, 4);
-        assert_eq!(prepared.output_layout.sender_output_count(), 1);
+        assert_eq!(prepared.change_layout(), ChangeLayout::Compact);
     }
 
     #[test]
-    fn compact_outputs_keep_only_recipient_after_full_spend() {
-        let prepared = sol_transfer(10)
-            .prepare()
-            .unwrap()
-            .compact_outputs()
-            .unwrap();
+    fn compact_change_keeps_only_the_recipient_after_a_full_spend() {
+        let prepared = sol_transfer(10).with_compact_change().prepare().unwrap();
         assert_eq!(prepared.shape, Shape::IN1_OUT1);
         assert_eq!(prepared.outputs.len(), 1);
         assert_eq!(prepared.outputs[0].amount, 10);
         assert_eq!(prepared.output_layout.sender_output_count(), 0);
+    }
+
+    #[test]
+    fn padded_change_keeps_both_slots() {
+        let prepared = sol_transfer(10).prepare().unwrap();
+        assert_eq!(prepared.outputs.len(), 3);
+        assert_eq!(prepared.change_layout(), ChangeLayout::Padded);
     }
 
     #[test]

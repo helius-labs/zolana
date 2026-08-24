@@ -63,7 +63,7 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 	p256Ring, err := eddsaprover.R1CSP256Transfer(2, 3)
 	add("transfer_p256_ring_2_3", p256Ring, err)
 
-	audit, err := customring.R1CSAuditorKeyEncryption()
+	audit, err := customring.R1CSCustomRingAudit()
 	add("custom_ring_audit_transfer", audit, err)
 
 	merged, err := mergeprover.R1CSMerge()

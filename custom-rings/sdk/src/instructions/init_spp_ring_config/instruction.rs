@@ -1,6 +1,7 @@
+use custom_ring_interface::tag;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
-use zolana_interface::{custom_ring::tag, pda};
+use zolana_interface::pda;
 
 use crate::CustomRing;
 

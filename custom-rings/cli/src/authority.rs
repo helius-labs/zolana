@@ -4,8 +4,10 @@ use std::{
     process::{Command, ExitStatus},
 };
 
-use custom_ring_sdk::CustomRing;
+use custom_ring_sdk::{CustomRing, SetAuthority, SET_AUTHORITY_COMPUTE_UNIT_LIMIT};
 use solana_address::Address;
+use solana_compute_budget_interface::ComputeBudgetInstruction;
+use solana_keypair::read_keypair_file;
 use solana_signer::Signer;
 use thiserror::Error;
 use zolana_client::{Rpc, SolanaRpc};
@@ -45,23 +47,57 @@ pub enum AuthorityError {
     SolanaCli(#[source] io::Error),
     #[error("`solana program set-upgrade-authority` exited with {status}")]
     SolanaCliStatus { status: ExitStatus },
+    #[error("cannot read the new authority keypair {path}")]
+    NewAuthorityKeypair { path: String },
+    #[error("sending set_authority failed")]
+    SetAuthority(#[source] Box<zolana_client::ClientError>),
 }
 
 pub fn run(ctx: &Context, command: AuthorityCommand) -> Result<(), AuthorityError> {
     let authority = ctx.config.authority()?;
     let program = ctx.ring.program_id();
-    let current = deployed_program_data(&ctx.rpc, ctx.ring)?;
-    let set = SetUpgradeAuthority {
-        ring: ctx.ring,
-        authority_keypair: &expand_tilde(&ctx.config.authority_keypair)?,
-        authority: authority.pubkey(),
-        current: &current,
-    };
     match command {
         AuthorityCommand::Transfer { new_authority } => {
-            set.transfer(new_authority, &ctx.rpc)?;
+            let current = deployed_program_data(&ctx.rpc, ctx.ring)?;
+            SetUpgradeAuthority {
+                ring: ctx.ring,
+                authority_keypair: &expand_tilde(&ctx.config.authority_keypair)?,
+                authority: authority.pubkey(),
+                current: &current,
+            }
+            .transfer(new_authority, &ctx.rpc)?;
             println!(
                 "upgrade authority of {program} is now {new_authority}, point authority_keypair in {} at its keypair",
+                ctx.config_path.display()
+            );
+        }
+        AuthorityCommand::TransferConfig {
+            new_authority_keypair,
+        } => {
+            let path = expand_tilde(&new_authority_keypair)?;
+            let new_authority =
+                read_keypair_file(&path).map_err(|_| AuthorityError::NewAuthorityKeypair {
+                    path: path.display().to_string(),
+                })?;
+            let instructions = [
+                ComputeBudgetInstruction::set_compute_unit_limit(SET_AUTHORITY_COMPUTE_UNIT_LIMIT),
+                SetAuthority {
+                    ring: ctx.ring,
+                    authority: authority.pubkey(),
+                    new_authority: new_authority.pubkey(),
+                }
+                .instruction(),
+            ];
+            ctx.rpc
+                .create_and_send_transaction(
+                    &instructions,
+                    authority.pubkey(),
+                    &[&authority, &new_authority],
+                )
+                .map_err(|source| AuthorityError::SetAuthority(Box::new(source)))?;
+            println!(
+                "ring config authority of {program} is now {}, point authority_keypair in {} at its keypair",
+                new_authority.pubkey(),
                 ctx.config_path.display()
             );
         }
@@ -69,7 +105,14 @@ pub fn run(ctx: &Context, command: AuthorityCommand) -> Result<(), AuthorityErro
             if !yes {
                 return Err(AuthorityError::NeedsConfirmation { program });
             }
-            set.renounce(&ctx.rpc)?;
+            let current = deployed_program_data(&ctx.rpc, ctx.ring)?;
+            SetUpgradeAuthority {
+                ring: ctx.ring,
+                authority_keypair: &expand_tilde(&ctx.config.authority_keypair)?,
+                authority: authority.pubkey(),
+                current: &current,
+            }
+            .renounce(&ctx.rpc)?;
             println!("{program} is immutable");
         }
     }

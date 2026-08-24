@@ -17,8 +17,8 @@ import (
 	"zolana/prover/prover/common"
 )
 
-func TestAuditorKeyEncryptionProofVerifies(t *testing.T) {
-	params := &AuditorKeyEncryptionParameters{
+func TestCustomRingAuditProofVerifies(t *testing.T) {
+	params := &CustomRingAuditParameters{
 		PublicInputHash: value([]byte{
 			24, 191, 117, 99, 166, 70, 117, 193, 16, 174, 125, 64, 139, 151, 60, 152,
 			0, 90, 250, 198, 208, 107, 138, 225, 119, 244, 67, 93, 126, 110, 2, 11,
@@ -52,7 +52,7 @@ func TestAuditorKeyEncryptionProofVerifies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	loadedSystem, ok := loaded.(*common.Groth16ProofSystem)
+	loadedSystem, ok := loaded.(*common.RingProofSystem)
 	if !ok {
 		t.Fatalf("unexpected proof system %T", loaded)
 	}
@@ -64,7 +64,7 @@ func TestAuditorKeyEncryptionProofVerifies(t *testing.T) {
 	if hex.EncodeToString(verifierHash[:]) != "fb77674f86d7ed835559bd817b2b36a0687ecea6b09534d178f2e94313824ca9" {
 		t.Fatal("audit verifier does not match the program")
 	}
-	proof, err := ProveAuditorKeyEncryption(loadedSystem, params)
+	proof, err := ProveCustomRingAudit(loadedSystem, params)
 	if err != nil {
 		t.Fatal(err)
 	}

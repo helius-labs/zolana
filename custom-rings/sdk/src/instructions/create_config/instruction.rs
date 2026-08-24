@@ -1,7 +1,7 @@
+use custom_ring_interface::{tag, CreateConfigIxData};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use thiserror::Error;
-use zolana_interface::custom_ring::{tag, CreateConfigIxData};
 use zolana_keypair::P256Pubkey;
 
 use crate::CustomRing;

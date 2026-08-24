@@ -1,6 +1,5 @@
 use num_bigint::BigUint;
 use zolana_interface::N_PUBLIC_SLOTS;
-use zolana_keypair::{P256Pubkey, ViewingKey};
 use zolana_transaction::{instructions::types::SppProofInputUtxo, ProofInputUtxo};
 
 use crate::{
@@ -168,76 +167,4 @@ pub struct TransferP256Inputs {
     pub allow_dummy_inputs: BigUint,
     pub published_output_owner_pk_hashes: Vec<BigUint>,
     pub public_input_hash: BigUint,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub struct AuditPublicInputHash([u8; 32]);
-
-impl TryFrom<[u8; 32]> for AuditPublicInputHash {
-    type Error = ClientError;
-
-    fn try_from(value: [u8; 32]) -> Result<Self, Self::Error> {
-        canonical_audit_hash(value).map(Self)
-    }
-}
-
-impl AsRef<[u8; 32]> for AuditPublicInputHash {
-    fn as_ref(&self) -> &[u8; 32] {
-        &self.0
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub struct AuditPrivateTxHash([u8; 32]);
-
-impl TryFrom<[u8; 32]> for AuditPrivateTxHash {
-    type Error = ClientError;
-
-    fn try_from(value: [u8; 32]) -> Result<Self, Self::Error> {
-        canonical_audit_hash(value).map(Self)
-    }
-}
-
-impl AsRef<[u8; 32]> for AuditPrivateTxHash {
-    fn as_ref(&self) -> &[u8; 32] {
-        &self.0
-    }
-}
-
-pub struct AuditorKeyEncryptionWitness {
-    pub public_input_hash: AuditPublicInputHash,
-    pub private_tx_hash: AuditPrivateTxHash,
-    pub tx_viewing_key: ViewingKey,
-    pub ephemeral_key: ViewingKey,
-    pub auditor_key: P256Pubkey,
-}
-
-const BN254_SCALAR_MODULUS: [u8; 32] = [
-    0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x29, 0xb8, 0x50, 0x45, 0xb6, 0x81, 0x81, 0x58, 0x5d,
-    0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x70, 0x91, 0x43, 0xe1, 0xf5, 0x93, 0xf0, 0x00, 0x00, 0x01,
-];
-
-fn canonical_audit_hash(value: [u8; 32]) -> Result<[u8; 32], ClientError> {
-    if value >= BN254_SCALAR_MODULUS {
-        return Err(ClientError::NonCanonicalField);
-    }
-    Ok(value)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{AuditPrivateTxHash, AuditPublicInputHash, BN254_SCALAR_MODULUS};
-    use crate::error::ClientError;
-
-    #[test]
-    fn rejects_noncanonical_audit_hashes() {
-        assert!(matches!(
-            AuditPublicInputHash::try_from(BN254_SCALAR_MODULUS),
-            Err(ClientError::NonCanonicalField)
-        ));
-        assert!(matches!(
-            AuditPrivateTxHash::try_from(BN254_SCALAR_MODULUS),
-            Err(ClientError::NonCanonicalField)
-        ));
-    }
 }

@@ -1,8 +1,8 @@
+use custom_ring_interface::{tag, AuditProof, CustomRingTransactIxData};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
-use zolana_interface::{
-    custom_ring::{tag, AuditProof, CustomRingTransactIxData},
-    instruction::{RingTransact, TransactInterfaceTransferAccounts, TransactIxData},
+use zolana_interface::instruction::{
+    RingTransact, TransactInterfaceTransferAccounts, TransactIxData,
 };
 
 use crate::CustomRing;
@@ -32,8 +32,8 @@ pub struct RingTransactWithAudit {
     /// Settlement accounts for the payload's `interface_transfers`, in the same
     /// order.
     pub interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
-    /// Proof of the `auditor_key_encryption` circuit, in the program's wire
-    /// encoding. Convert a prover result with `AuditProof::from(..)`.
+    /// Proof of the `audit` circuit, in the program's wire encoding. Convert a
+    /// prover result with `AuditProof::from(..)`.
     pub audit_proof: AuditProof,
     /// The SPP payload. Its `messages` must already carry the auditor message that
     /// the proof commits to, and its `private_tx_hash` must be the one the SPP
