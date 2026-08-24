@@ -417,6 +417,7 @@ _test-ts-live test-script: build-programs build-prover-server build-cli ensure-p
     name = "ts-sdk-e2e-ring"
     program_id = "$CUSTOM_RING_PROGRAM_ID"
     authority_keypair = "$PWD/$ring_dir/authority.json"
+    zolana_revision = "$(git rev-parse HEAD)"
     target = "localnet"
 
     [localnet]
