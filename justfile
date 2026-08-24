@@ -89,7 +89,6 @@ test-program-fast: build-programs
     cargo nextest run -p zolana-user-registry --tests
     cargo nextest run -p shielded-pool-tests
     cargo nextest run -p swap-program --tests
-    cargo nextest run -p custom-ring-program --tests
 
 # Run one shielded-pool intent-level binary, for example:
 # `just test-shielded-pool-case deposit_model`.
@@ -106,85 +105,13 @@ test-program-mollusk: build-programs
 test-swap-program: build-programs
     cargo nextest run -p swap-program --tests
 
-# The Go circuit proof check and the cargo-generate template smoke. Needs the
-# canonical keys, because the proof must verify under the committed
-# VERIFYINGKEY and gnark setup is non-deterministic, so locally generated keys
-# cannot pass. The hermetic custom-ring crates run in test-program-fast and
-# test-sdk-libs.
-test-custom-ring: ensure-custom-ring-prover-key test-custom-ring-template
+# The Go circuit proof check. Needs the canonical keys, because the proof must
+# verify under the committed VERIFYINGKEY and gnark setup is non-deterministic,
+# so locally generated keys cannot pass.
+test-custom-ring: ensure-custom-ring-prover-key
     cd prover/server && go test ./prover/custom_ring -run TestCustomRingAuditProofVerifies -count=1
 
-test-custom-ring-template:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    workspace="$(pwd)"
-    output="$(mktemp -d)"
-    trap 'rm -rf "$output"' EXIT
-    if cargo generate \
-        --path templates/custom-ring \
-        --name invalid-authority \
-        --destination "$output" \
-        --silent \
-        --define silent=true \
-        --define program_id=8hV3Hp5kaDkV81dms997arFRV3g1hW9TLuV4pX94WsEz \
-        --define 'authority_keypair=~operator/key.json' \
-        --define zolana_path="$(pwd)" \
-        --define zolana_revision="$(git rev-parse HEAD)"; then
-        exit 1
-    fi
-    RING_NAME=smoke-ring tools/ring-wizard.sh "$output" --silent \
-        -d authority_keypair=/tmp/custom-ring-authority.json
-    ring="$output/smoke-ring"
-    cd "$ring"
-    grep -q 'target = "localnet"' ring.toml
-    grep -q 'confidential = true' ring.toml
-    grep -Fx 'channel = "1.97.0"' rust-toolchain.toml
-    grep -Fx 'RING_RPC_ALLOW_ORIGINS=http://localhost:3000' .env.example
-    grep -Fx 'RING_RPC_WEBAUTHN_RP_ID=localhost' .env.example
-    [[ -f keys/program-keypair.json ]]
-    program_id="$(solana-keygen pubkey keys/program-keypair.json)"
-    grep -F "CUSTOM_RING_PROGRAM_ID = \"$program_id\"" .cargo/config.toml
-    grep -F "program_id = \"$program_id\"" ring.toml
-    cargo fmt --all -- --check
-    cargo clippy --workspace --all-targets -- -D warnings
-    cargo test -p smoke-ring-program program_id_matches_generated_value
-    cargo run -q -p smoke-ring -- --help
-    [[ "$(cargo run -q -p smoke-ring -- url rpc)" == "{{localnet-rpc-url}}" ]]
-    cargo clippy -p smoke-ring --features auditor-key --bin auditor-pubkey -- -D warnings
-    cargo build-sbf \
-        --tools-version v1.54 \
-        --manifest-path program/Cargo.toml \
-        --features bpf-entrypoint
-    [[ -f target/deploy/smoke_ring_program.so ]]
-    mkdir "$output/key-target"
-    ln -s "$output/key-target" keys/auditor.key
-    if just auditor-key; then
-        exit 1
-    fi
-    [[ -z "$(find "$output/key-target" -mindepth 1 -print -quit)" ]]
-    unlink keys/auditor.key
-    printf '00' > "$output/invalid-auditor.key"
-    chmod 600 "$output/invalid-auditor.key"
-    if CUSTOM_RING_AUDITOR_KEY_FILE="$output/invalid-auditor.key" just auditor-key; then
-        exit 1
-    fi
-    if [[ -e keys/auditor.key || -e keys/auditor.key.pub ]]; then
-        exit 1
-    fi
-    just auditor-key
-    mv keys/auditor.key "$output/auditor.key"
-    mv keys/auditor.key.pub "$output/auditor.key.pub"
-    CUSTOM_RING_AUDITOR_KEY_FILE="$output/auditor.key" just auditor-key
-    cmp -s keys/auditor.key.pub "$output/auditor.key.pub"
-    mv keys/program-keypair.json "$output/program-keypair.json"
-    CUSTOM_RING_PROGRAM_KEYPAIR_FILE="$output/program-keypair.json" just program-key
-    [[ "$(solana-keygen pubkey keys/program-keypair.json)" == "$program_id" ]]
-
-# === Custom ring template ===
-
-# Generate a custom ring under `dest`, extra arguments go to `cargo generate`.
-ring-new dest="" *args:
-    tools/ring-wizard.sh {{dest}} {{args}}
+# === Custom ring services ===
 
 # Local validator and services for a generated ring, ring creation is permissionless.
 ring-localnet: ensure-custom-ring-live-keys build-programs build-cli ensure-photon
@@ -388,7 +315,6 @@ test-sdk-libs:
     cargo nextest run -p zolana-ring-client
     cargo nextest run -p zolana-ring-rpc
     cargo nextest run -p custom-ring-sdk
-    cargo nextest run -p custom-ring-cli
 
 # TypeScript SDK formatting, linting, types, unit tests, and package build.
 test-ts:
@@ -400,17 +326,16 @@ test-ts-e2e: (_test-ts-live "test:ts:e2e")
 # Public TypeScript SDK example against a fresh validator, Photon, and prover.
 test-ts-example: (_test-ts-live "test:ts:example")
 
-_test-ts-live test-script: build-programs build-prover-server build-cli ensure-photon ensure-custom-ring-live-keys
+_test-ts-live test-script: build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
-    : "${ZOLANA_PROVER_REDIS_URL:?set ZOLANA_PROVER_REDIS_URL, the ring audit proof goes through the prover queue}"
+    : "${ZOLANA_PROVER_REDIS_URL:?set ZOLANA_PROVER_REDIS_URL, merge proofs go through the prover queue}"
     # A command substitution that exits nonzero is no `set -e` trigger, so the
     # ids are captured first and each one the recipe reads is required.
     program_ids="$(cargo run -q -p xtask -- program-ids)"
     eval "$program_ids"
     : "${SHIELDED_POOL_PROGRAM_ID:?xtask did not emit SHIELDED_POOL_PROGRAM_ID}"
     : "${USER_REGISTRY_PROGRAM_ID:?xtask did not emit USER_REGISTRY_PROGRAM_ID}"
-    : "${CUSTOM_RING_PROGRAM_ID:?xtask did not emit CUSTOM_RING_PROGRAM_ID}"
     : "${DEFAULT_TREE_ADDRESS:?xtask did not emit DEFAULT_TREE_ADDRESS}"
     bin="target/debug/zolana"
     workdir="target/ts-sdk-e2e"
@@ -418,7 +343,6 @@ _test-ts-live test-script: build-programs build-prover-server build-cli ensure-p
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
       lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
       lsof -ti "tcp:{{localnet-prover-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      lsof -ti "tcp:{{localnet-ring-rpc-port}}" 2>/dev/null | xargs kill 2>/dev/null || true
     }
     trap cleanup EXIT
     rm -rf "$workdir"
@@ -437,29 +361,17 @@ _test-ts-live test-script: build-programs build-prover-server build-cli ensure-p
     # and the state Merkle tree that stores private token accounts (UTXOs) at
     # DEFAULT_TREE_ADDRESS) from the current local build and load them at
     # validator boot, so the localnet matches production addresses and no tree
-    # is created at runtime. The snapshot leaves ring creation permissionless,
-    # so the ring registers itself with SPP without a Squads vault co-signer.
+    # is created at runtime.
     accounts_dir="$workdir/accounts"
     cargo run -q -p xtask -- generate-account-snapshots \
       --deploy-dir target/deploy --accounts-dir "$accounts_dir"
 
-    ring_dir="$workdir/ring"
-    ring_origin="http://localhost:3000"
-    ring_rpc_url="http://127.0.0.1:{{localnet-ring-rpc-port}}"
-    mkdir -p "$ring_dir"
-    solana-keygen new --no-bip39-passphrase --silent --force -o "$ring_dir/authority.json"
-    ring_authority="$(solana-keygen pubkey "$ring_dir/authority.json")"
-
-    # The ring program is loaded upgradeable, only its upgrade authority may
-    # create the ring config.
     "$bin" dev start --no-use-surfpool --skip-prover \
       --rpc-port {{localnet-rpc-port}} \
       --photon-port {{localnet-photon-port}} --account-dir "$accounts_dir" \
       --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so \
-      --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so \
-      --upgradeable-program "$CUSTOM_RING_PROGRAM_ID" target/deploy/custom_ring_program.so \
-      "$ring_authority"
-    # The audit circuit is only ever proven through the queue, which `dev start` runs without.
+      --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so
+    # Merge proofs are only ever proven through the queue, which `dev start` runs without.
     "$bin" dev prover start --prover-port {{localnet-prover-port}} \
       --redis-url "$ZOLANA_PROVER_REDIS_URL"
     "$bin" config set --rpc-url {{localnet-rpc-url}} \
@@ -479,52 +391,6 @@ _test-ts-live test-script: build-programs build-prover-server build-cli ensure-p
     test -n "$token_2022_mint"
     test -n "$token_2022_account"
 
-    # The ring CLI parses both targets even though this ring only acts on localnet.
-    cat > "$ring_dir/ring.toml" <<TOML
-    name = "ts-sdk-e2e-ring"
-    program_id = "$CUSTOM_RING_PROGRAM_ID"
-    authority_keypair = "$PWD/$ring_dir/authority.json"
-    target = "localnet"
-
-    [localnet]
-    rpc = "{{localnet-rpc-url}}"
-    indexer = "{{localnet-photon-url}}"
-    prover = "{{localnet-prover-url}}"
-    ring_rpc = "$ring_rpc_url"
-
-    [devnet]
-    rpc = "{{localnet-rpc-url}}"
-    indexer = "{{localnet-photon-url}}"
-    prover = "{{localnet-prover-url}}"
-    ring_rpc = "$ring_rpc_url"
-    TOML
-    cargo run -q -p zolana-ring-rpc -- keygen --out "$ring_dir/auditor.key"
-    cargo run -q -p custom-ring-cli -- --config "$ring_dir/ring.toml" \
-      init --auditor-pubkey-file "$ring_dir/auditor.key.pub"
-    # Reads are grant only, the ring authority included.
-    cargo run -q -p custom-ring-cli -- --config "$ring_dir/ring.toml" \
-      reader grant "$ring_authority"
-
-    # Local mode, the served key is the one the ring config pins.
-    cargo build -q -p zolana-ring-rpc
-    nohup target/debug/ring-rpc serve --port {{localnet-ring-rpc-port}} \
-      --indexer-url {{localnet-photon-url}} --rpc-url {{localnet-rpc-url}} \
-      --auditor-key-file "$ring_dir/auditor.key" --ring-program-id "$CUSTOM_RING_PROGRAM_ID" \
-      --allow-origin "$ring_origin" --webauthn-rp-id localhost \
-      > "$workdir/ring-rpc.log" 2>&1 &
-    printf 'waiting for ring rpc %s ' "$ring_rpc_url"
-    for _ in $(seq 1 60); do
-      if curl -sf --max-time 5 "$ring_rpc_url/health" >/dev/null 2>&1; then break; fi
-      printf '.'
-      sleep 1
-    done
-    if ! curl -sf --max-time 5 "$ring_rpc_url/health" >/dev/null 2>&1; then
-      echo " timed out"
-      echo "the ring rpc did not answer, see $workdir/ring-rpc.log" >&2
-      exit 1
-    fi
-    echo " ready"
-
     ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" \
       ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       ZOLANA_PROVER_URL="{{localnet-prover-url}}" \
@@ -533,10 +399,6 @@ _test-ts-live test-script: build-programs build-prover-server build-cli ensure-p
       ZOLANA_TEST_TOKEN_ACCOUNT="$token_account" \
       ZOLANA_TEST_TOKEN_2022_MINT="$token_2022_mint" \
       ZOLANA_TEST_TOKEN_2022_ACCOUNT="$token_2022_account" \
-      RING_PROGRAM_ID="$CUSTOM_RING_PROGRAM_ID" \
-      RING_RPC_URL="$ring_rpc_url" \
-      RING_AUTHORITY_KEYPAIR="$PWD/$ring_dir/authority.json" \
-      RING_ORIGIN="$ring_origin" \
       ZOLANA_TEST_AUTHORITY_WALLET="$PWD/$workdir/authority.json" npm run "{{test-script}}"
 
 test-ts-all: test-ts test-ts-e2e
@@ -1257,36 +1119,6 @@ test-swap-validator: ensure-swap-keys build-programs build-prover-server build-c
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo nextest run -p swap-test-validator --test swap --test take_verifiable_encryption --test cancel --no-capture
-
-# Minimal custom-ring lifecycle on a local validator
-# (custom-rings/test/tests/ring.rs): create the ring config holding the
-# auditor key, register it with SPP, ring-deposit, then a ring transact whose
-# proof binds the verifiable encryption of the transaction viewing key to the
-# auditor key -- and assert the auditor client decrypts the outputs.
-test-custom-ring-validator: ensure-custom-ring-live-keys build-programs build-cli ensure-photon ensure-smart-account
-    #!/usr/bin/env bash
-    set -euo pipefail
-    : "${ZOLANA_PROVER_REDIS_URL:?set ZOLANA_PROVER_REDIS_URL to a reachable Redis instance}"
-    # `eval "$(...)"` alone cannot fail the recipe: a command substitution that
-    # exits nonzero is not a `set -e` trigger, so a broken xtask would leave the
-    # program ids unset and the test would silently run against its fallbacks.
-    program_ids=$(cargo run -q -p xtask -- program-ids)
-    eval "$program_ids"
-    : "${CUSTOM_RING_PROGRAM_ID:?xtask did not emit CUSTOM_RING_PROGRAM_ID}"
-    : "${SHIELDED_POOL_PROGRAM_ID:?xtask did not emit SHIELDED_POOL_PROGRAM_ID}"
-    cleanup() {
-      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      pkill -f solana-test-validator 2>/dev/null || true
-    }
-    trap cleanup EXIT
-    export CUSTOM_RING_PROGRAM_ID
-    export SHIELDED_POOL_PROGRAM_ID
-    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
-    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
-    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      cargo nextest run -p custom-ring-test-validator --test ring --no-capture
 
 # Timelock escrow lifecycle on a local validator, driven against a real
 # localnet (sdk-tests/timelock-escrow/test/tests/escrow.rs). Boots

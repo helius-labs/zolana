@@ -86,7 +86,7 @@ jobs:
           --health-retries 5
     env:
       AGAVE_VERSION: v4.0.2
-      # The ring audit proof goes through the prover queue.
+      # Merge proofs go through the prover queue.
       ZOLANA_PROVER_REDIS_URL: redis://127.0.0.1:6379/0
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4

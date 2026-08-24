@@ -1,7 +1,7 @@
 //! The instruction builders must reproduce the account order, privileges and
 //! instruction data the program's processors and SPP's loaders expect. Each
 //! expected list below is the one asserted by the program's own fixtures in
-//! `custom-rings/program/tests/common/mod.rs`.
+//! `the zolana-ring program fixtures`.
 
 use curve25519_dalek::constants::{ED25519_BASEPOINT_POINT, EIGHT_TORSION};
 use custom_ring_sdk::{

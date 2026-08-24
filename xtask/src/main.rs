@@ -156,10 +156,9 @@ fn print_program_ids() {
         "SWAP_PROGRAM_ID={}",
         bs58::encode(swap_program::ID).into_string()
     );
-    println!(
-        "CUSTOM_RING_PROGRAM_ID={}",
-        bs58::encode(custom_ring_program::ID).into_string()
-    );
+    // The ring program lives in the zolana-ring repository, localnet loads it
+    // at the address its default build bakes in.
+    println!("CUSTOM_RING_PROGRAM_ID=9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
     // The canonical account snapshots pre-allocate the state Merkle tree that
     // stores private token accounts (UTXOs) at this address, so localnet
     // callers never create one.
