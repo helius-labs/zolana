@@ -426,6 +426,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         outputs: proof_inputs.output_utxos.clone(),
         external_data: proof_inputs.external_data.clone(),
         public_transfers: proof_inputs.public_transfers()?,
+        private_tx_blinding: proof_inputs.private_tx_blinding,
         signer_pk_hashes: proof_inputs.signer_pk_hashes(tx_shape.n_inputs() + 1)?,
         allow_dummy_inputs: true,
         ring_program_id: Some(PROGRAM_ID),

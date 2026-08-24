@@ -370,14 +370,14 @@ bench-shielded-pool: build-programs
 # published keys are the only set matching the committed Rust verifying keys;
 # regenerating locally (regen-swap-keys) requires publishing a new release and
 # updating swap-keys.CHECKSUM plus the committed verifying keys together.
-swap-keys-tag := "swap-keys-v4"
+swap-keys-tag := "swap-keys-v5"
 
 # Same contract as swap-keys-tag, for the dynamic-swap example's two circuits
 # (escrow_open/escrow_settle). The release assets are
 # the only key set matching the committed Rust verifying keys; rotating locally
 # (regen-dynamic-swap-keys) requires publishing a new release and updating
 # dynamic-swap-keys.CHECKSUM plus the committed verifying keys together.
-dynamic-swap-keys-tag := "dynamic-swap-keys-v4"
+dynamic-swap-keys-tag := "dynamic-swap-keys-v5"
 
 # Same contract as swap-keys-tag, for the custom-ring example's single circuit
 # (auditor_key_encryption). gnark's Setup is non-deterministic, so the release
@@ -551,7 +551,7 @@ bench-rfq:
 # committed Rust verifying keys; regenerating locally (regen-escrow-keys)
 # requires publishing a new release and updating timelock-escrow-keys.CHECKSUM
 # plus the committed verifying keys together.
-escrow-keys-tag := "escrow-keys-v2"
+escrow-keys-tag := "escrow-keys-v3"
 
 ensure-escrow-keys:
     #!/usr/bin/env bash
