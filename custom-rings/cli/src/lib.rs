@@ -153,8 +153,11 @@ pub struct NewArgs {
     /// Local template directory instead of git.
     #[arg(long)]
     pub template_path: Option<PathBuf>,
-    /// Zolana revision the generated ring builds its program from, the
-    /// template's pinned default rules when absent.
+    /// Git repository the ring source and its crates are taken from.
+    #[arg(long, default_value = generate::ZOLANA_GIT)]
+    pub zolana_git: String,
+    /// Zolana revision of the ring source and its crates, the template's
+    /// pinned default rules when absent.
     #[arg(long)]
     pub zolana_rev: Option<String>,
 }

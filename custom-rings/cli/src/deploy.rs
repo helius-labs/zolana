@@ -104,9 +104,7 @@ const MIN_EXTEND_BYTES: usize = 10_240;
 const DEPLOY_FEE_BUDGET: u64 = 20_000_000;
 
 pub fn run(ctx: &mut Context, args: DeployArgs) -> Result<(), DeployError> {
-    let program_so = args
-        .program_so
-        .unwrap_or_else(|| default_program_so(&ctx.config.name));
+    let program_so = args.program_so.unwrap_or_else(default_program_so);
     let authority = ctx.config.authority().map_err(ContextError::from)?;
     let authority_keypair =
         expand_tilde(&ctx.config.authority_keypair).map_err(ContextError::from)?;
@@ -341,11 +339,9 @@ pub fn read_program_data<R: Rpc>(
     }))
 }
 
-pub(crate) fn default_program_so(name: &str) -> PathBuf {
-    PathBuf::from(format!(
-        "target/deploy/{}_program.so",
-        name.replace('-', "_")
-    ))
+/// The ring source keeps the upstream crate name, every ring builds the same file.
+pub(crate) fn default_program_so() -> PathBuf {
+    PathBuf::from("target/deploy/custom_ring_program.so")
 }
 
 #[cfg(test)]

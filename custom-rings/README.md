@@ -82,9 +82,10 @@ Redis in `ZOLANA_PROVER_REDIS_URL` for the audit proof.
 
 ## The pipeline and what each step locks in
 
-`zolana-ring new` generates the ring repository from the
-[zolana-ring](https://github.com/helius-labs/zolana-ring) template and fixes
-the program id, the address of the program keypair in the ring's `keys/`. It
+`zolana-ring new` renders the
+[zolana-ring](https://github.com/helius-labs/zolana-ring) template, copies the
+ring source from zolana at the revision the template pins, and fixes the
+program id, the address of the program keypair in the ring's `keys/`. It
 creates the authority keypair when the answer keeps the default
 `~/.config/solana/id.json` and no file is there; any other path is the
 operator's and a missing one is only reported. In the ring, `zolana-ring
@@ -145,9 +146,10 @@ only matches the auditor view tag and needs no ring support. A transaction
 belongs to the ring when, in its confirmed call stack read from Solana RPC,
 the shielded pool instruction has the ring program as direct caller.
 
-The operator CLI in `cli` reads a `ring.toml` and exposes `parse_and_run`, a
-generated ring's binary is that one call. Features are declared once, in the
-template's wizard, and reach the code as cargo features of the same name.
+The operator CLI in `cli` reads a `ring.toml`, a generated ring is driven by
+the globally installed `zolana-ring`. Features are declared once, in the
+template's wizard, recorded in `ring.toml`, and land as code in the ring's
+`program`.
 
 ## Pitfalls and limits
 
