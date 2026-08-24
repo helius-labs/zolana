@@ -1,7 +1,7 @@
 use custom_ring_interface::{CreateConfigIxData, RingProgramConfig};
 use pinocchio::{
     cpi::{Seed, Signer},
-    AccountView, ProgramResult,
+    AccountView, Address, ProgramResult,
 };
 use zolana_account_checks::AccountIterator;
 
@@ -15,7 +15,11 @@ use crate::{
 ///
 /// Only the active Loader v3 upgrade authority can initialize the config.
 #[inline(never)]
-pub fn process_create_config_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+pub fn process_create_config_ix(
+    program_id: &Address,
+    accounts: &mut [AccountView],
+    data: &[u8],
+) -> ProgramResult {
     let CreateConfigIxData { auditor_pubkey } =
         wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
 
@@ -31,6 +35,7 @@ pub fn process_create_config_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
         return Err(CustomRingError::InvalidSystemProgram.into());
     }
     UpgradeAuthorityCheck {
+        program_id,
         authority,
         program,
         program_data,
@@ -46,6 +51,7 @@ pub fn process_create_config_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
     // The config account must be the canonical derivation of `[b"config"]`; a bump
     // from instruction data is never accepted for account creation.
     let bump = PdaCheck {
+        program_id,
         address: config_account.address(),
         seeds: &[RingProgramConfig::SEED],
         mismatch: CustomRingError::InvalidConfigPda,
@@ -69,7 +75,7 @@ pub fn process_create_config_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
     pinocchio_system::create_account_with_minimum_balance_signed(
         config_account,
         RingProgramConfig::SIZE,
-        &crate::ID,
+        program_id,
         payer,
         None,
         &[Signer::from(seeds.as_ref())],

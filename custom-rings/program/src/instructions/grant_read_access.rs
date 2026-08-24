@@ -1,7 +1,7 @@
 use custom_ring_interface::{ReadAccessRecord, ReaderIxData, ReaderKeyBytes};
 use pinocchio::{
     cpi::{Seed, Signer},
-    AccountView, ProgramResult,
+    AccountView, Address, ProgramResult,
 };
 use zolana_account_checks::AccountIterator;
 
@@ -12,7 +12,11 @@ use crate::{
 };
 
 #[inline(never)]
-pub fn process_grant_read_access_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+pub fn process_grant_read_access_ix(
+    program_id: &Address,
+    accounts: &mut [AccountView],
+    data: &[u8],
+) -> ProgramResult {
     let reader = parse_reader(data)?;
     check_reader_key(&reader)?;
 
@@ -26,11 +30,12 @@ pub fn process_grant_read_access_ix(accounts: &mut [AccountView], data: &[u8]) -
     if !pinocchio_system::check_id(system_program.address()) {
         return Err(CustomRingError::InvalidSystemProgram.into());
     }
-    load_authorized_config(config_account, authority)?;
+    load_authorized_config(program_id, config_account, authority)?;
 
     let seed_hash =
         ReadAccessRecord::seed_hash(&reader).map_err(|_| CustomRingError::HashingFailed)?;
     let bump = PdaCheck {
+        program_id,
         address: record_account.address(),
         seeds: &[ReadAccessRecord::SEED, &seed_hash],
         mismatch: CustomRingError::InvalidReadAccessRecord,
@@ -49,7 +54,7 @@ pub fn process_grant_read_access_ix(accounts: &mut [AccountView], data: &[u8]) -
     pinocchio_system::create_account_with_minimum_balance_signed(
         record_account,
         ReadAccessRecord::SIZE,
-        &crate::ID,
+        program_id,
         payer,
         None,
         &[Signer::from(seeds.as_ref())],

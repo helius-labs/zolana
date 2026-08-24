@@ -32,9 +32,6 @@ wincode = { workspace = true }
 zolana-account-checks = { workspace = true }
 zolana-interface = { workspace = true, features = ["solana"] }
 
-[build-dependencies]
-bs58 = { workspace = true }
-
 [dev-dependencies]
 curve25519-dalek = "4.1"
 ed25519-dalek = { workspace = true }

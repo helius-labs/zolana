@@ -1,4 +1,4 @@
-use pinocchio::{error::ProgramError, AccountView, ProgramResult};
+use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 
 use crate::{
@@ -10,7 +10,11 @@ use crate::{
 };
 
 #[inline(never)]
-pub fn process_revoke_read_access_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+pub fn process_revoke_read_access_ix(
+    program_id: &Address,
+    accounts: &mut [AccountView],
+    data: &[u8],
+) -> ProgramResult {
     let reader = parse_reader(data)?;
 
     let mut iter = AccountIterator::new(accounts);
@@ -22,8 +26,8 @@ pub fn process_revoke_read_access_ix(accounts: &mut [AccountView], data: &[u8]) 
         return Err(CustomRingError::InvalidReadAccessRecord.into());
     }
 
-    load_authorized_config(config_account, authority)?;
-    load_read_access_record(record_account, &reader)?;
+    load_authorized_config(program_id, config_account, authority)?;
+    load_read_access_record(program_id, record_account, &reader)?;
 
     let refund = rent_recipient
         .lamports()
