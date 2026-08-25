@@ -23,7 +23,6 @@ use zolana_transaction::{
 
 use crate::{
     file::{self, FileError},
-    init::InitError,
     line,
     ring_rpc::{RingRpcClient, RingRpcClientError, TransactionLookup},
     Context, ContextError, TransactArgs, TransferArgs, SENDER_KEYPAIR_FILE,
@@ -104,8 +103,6 @@ pub enum TransactError {
     SendV0(#[from] SendV0Error),
     #[error(transparent)]
     Client(Box<ClientError>),
-    #[error(transparent)]
-    Init(#[from] InitError),
     #[error(transparent)]
     File(#[from] FileError),
     #[error(transparent)]

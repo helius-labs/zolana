@@ -13,6 +13,7 @@ custom-ring-interface = { workspace = true }
 # returned plaintexts the lifecycle asserts against what the sender sent.
 custom-ring-program = { path = "../program" }
 custom-ring-sdk = { path = "../sdk" }
+hex = { workspace = true }
 solana-address = { workspace = true }
 solana-compute-budget-interface = { workspace = true }
 solana-instruction = { workspace = true }

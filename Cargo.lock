@@ -2129,6 +2129,7 @@ dependencies = [
  "custom-ring-interface",
  "custom-ring-program",
  "custom-ring-sdk",
+ "hex",
  "solana-address 2.6.1",
  "solana-compute-budget-interface",
  "solana-instruction",

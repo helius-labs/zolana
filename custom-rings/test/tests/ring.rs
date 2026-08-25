@@ -337,6 +337,88 @@ fn auditor_key_is_released_only_to_the_ring_authority() -> Result<()> {
     Ok(())
 }
 
+/// The operator cli against the deployed program, the config authority is a
+/// second key and the rerun sees the config through a hosted-looking ring rpc.
+#[test]
+fn cli_init_hands_the_config_over_and_reruns_from_the_chain() -> Result<()> {
+    let env = setup()?;
+    let rpc = env.client.rpc();
+    let ring_program = custom_ring_program_id()?;
+    let ring = CustomRing::new(ring_program);
+    let dir = std::env::temp_dir().join(format!("zolana-ring-cli-{}", std::process::id()));
+    let keys = dir.join("keys");
+    std::fs::create_dir_all(&keys)?;
+    let config_authority = Keypair::new();
+    let upgrade_path = dir.join("upgrade.json");
+    let config_path = dir.join("config.json");
+    solana_keypair::write_keypair_file(&env.payer, &upgrade_path)
+        .map_err(|e| anyhow!("write upgrade keypair {e}"))?;
+    solana_keypair::write_keypair_file(&config_authority, &config_path)
+        .map_err(|e| anyhow!("write config keypair {e}"))?;
+    let auditor = ViewingKey::new();
+    std::fs::write(
+        keys.join("auditor.key.pub"),
+        format!("{}\n", hex::encode(auditor.pubkey().as_bytes())),
+    )?;
+    let ring_toml = dir.join("ring.toml");
+    let write_config = |ring_rpc: &str| {
+        std::fs::write(
+            &ring_toml,
+            format!(
+                "name = \"cli\"\ntarget = \"localnet\"\nprogram_id = \"{ring_program}\"\n\
+                 authority_keypair = \"{}\"\nconfig_authority_keypair = \"{}\"\n\n\
+                 [localnet]\nrpc = \"{}\"\nindexer = \"{}\"\nprover = \"{}\"\nring_rpc = \"{ring_rpc}\"\n\n\
+                 [devnet]\nrpc = \"https://api.devnet.solana.com\"\nindexer = \"http://indexer.invalid\"\n\
+                 prover = \"http://prover.invalid\"\nring_rpc = \"http://ring.invalid\"\n",
+                upgrade_path.display(),
+                config_path.display(),
+                env.rpc_url,
+                env.indexer_url,
+                prover_url(),
+            ),
+        )
+    };
+    let cli = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../target/debug/zolana-ring"
+    );
+    let init = || -> Result<String> {
+        let output = std::process::Command::new(cli)
+            .args(["--config", &ring_toml.to_string_lossy(), "init"])
+            .output()
+            .context("run zolana-ring init")?;
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        if !output.status.success() {
+            return Err(anyhow!("init failed\n{text}"));
+        }
+        Ok(text)
+    };
+
+    // 1. A local ring rpc lets the key file through, the config is created
+    //    under the deployer and handed over in the same run.
+    write_config("http://127.0.0.1:1")?;
+    let first = init()?;
+    assert!(first.contains("authority   transferred"), "{first}");
+    let config = ring
+        .read_config(rpc)?
+        .ok_or_else(|| anyhow!("config after init"))?;
+    assert_eq!(config.authority, config_authority.pubkey());
+    assert_eq!(config.auditor_pubkey, auditor.pubkey());
+
+    // 2. The rerun takes the key from the chain, so the hosted-looking rpc is
+    //    never asked and the key file is not mistaken for a local key.
+    write_config("http://ring.invalid:1")?;
+    let second = init()?;
+    assert!(second.contains("config      already present"), "{second}");
+    assert!(second.contains("authority   already present"), "{second}");
+    std::fs::remove_dir_all(dir)?;
+    Ok(())
+}
+
 /// The full custom-ring lifecycle: config creation, SPP registration, two ring SOL
 /// deposits, one custom-ring transfer, and then the assertion that matters --
 /// the auditor client's decrypted amounts, assets and blindings equal what the
