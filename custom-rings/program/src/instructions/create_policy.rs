@@ -5,6 +5,9 @@ use pinocchio::{
     AccountView, Address, ProgramResult,
 };
 use zolana_account_checks::AccountIterator;
+use zolana_interface::{
+    state::discriminator::TREE_ACCOUNT_DISCRIMINATOR, SHIELDED_POOL_PROGRAM_ID,
+};
 use zolana_ring_policy::RecordsOwner;
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 use zolana_ring_policy::POLICY_RECORDS_PDA_SEED;
@@ -32,6 +35,7 @@ pub fn process_create_policy_ix(
     let payer = iter.next_signer_mut("payer")?;
     let authority = iter.next_signer("authority")?;
     let policy_config = iter.next_mut("policy_config")?;
+    let records_tree = iter.next_account("records_tree")?;
     let system_program = iter.next_account("system_program")?;
     let program = iter.next_account("program")?;
     let program_data = iter.next_account("program_data")?;
@@ -39,6 +43,7 @@ pub fn process_create_policy_ix(
     if !pinocchio_system::check_id(system_program.address()) {
         return Err(CustomRingError::InvalidSystemProgram.into());
     }
+    check_records_tree(records_tree)?;
     UpgradeAuthorityCheck {
         program_id,
         authority,
@@ -84,10 +89,24 @@ pub fn process_create_policy_ix(
 
     PolicyConfigInitParams {
         policy_hash,
+        records_tree: *records_tree.address(),
         records_bump,
         bump,
     }
     .init(policy_config)
+}
+
+fn check_records_tree(account: &AccountView) -> ProgramResult {
+    if account.owner().as_array() != &SHIELDED_POOL_PROGRAM_ID {
+        return Err(CustomRingError::InvalidRecordsTree.into());
+    }
+    let data = account
+        .try_borrow()
+        .map_err(|_| CustomRingError::InvalidRecordsTree)?;
+    if data.first() != Some(&TREE_ACCOUNT_DISCRIMINATOR) {
+        return Err(CustomRingError::InvalidRecordsTree.into());
+    }
+    Ok(())
 }
 
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]

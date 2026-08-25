@@ -31,13 +31,33 @@ pub enum BuildError {
     ArtifactMissing { path: PathBuf },
 }
 
-pub fn run(project_root: &ProjectRoot, args: BuildArgs) -> Result<(), BuildError> {
-    let artifact = build(project_root, &args.tools_version)?;
+pub fn run(
+    project_root: &ProjectRoot,
+    features: impl Iterator<Item = String>,
+    args: BuildArgs,
+) -> Result<(), BuildError> {
+    let features = feature_list(features);
+    let artifact = build(project_root, &args.tools_version, &features)?;
+    crate::line("features", &features);
     crate::line("built", artifact.display());
     Ok(())
 }
 
-fn build(project_root: &ProjectRoot, tools_version: &str) -> Result<PathBuf, BuildError> {
+/// A `ring.toml` feature id names a cargo feature of the rendered program.
+fn feature_list(features: impl Iterator<Item = String>) -> String {
+    let mut list = String::from("bpf-entrypoint");
+    for feature in features {
+        list.push(',');
+        list.push_str(&feature);
+    }
+    list
+}
+
+fn build(
+    project_root: &ProjectRoot,
+    tools_version: &str,
+    features: &str,
+) -> Result<PathBuf, BuildError> {
     install_tools(tools_version)?;
     let mut build = command(
         tools_version,
@@ -45,7 +65,7 @@ fn build(project_root: &ProjectRoot, tools_version: &str) -> Result<PathBuf, Bui
             "--manifest-path",
             "program/Cargo.toml",
             "--features",
-            "bpf-entrypoint",
+            features,
         ],
     );
     build.current_dir(project_root.as_path());

@@ -2039,6 +2039,7 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-ring-client",
+ "zolana-ring-policy",
  "zolana-ring-rpc",
  "zolana-transaction",
 ]
@@ -2094,6 +2095,7 @@ dependencies = [
  "custom-ring-interface",
  "groth16-solana",
  "hex",
+ "num-bigint 0.4.8",
  "p256",
  "rand 0.8.7",
  "serde",
@@ -2114,9 +2116,11 @@ dependencies = [
  "wincode 0.5.5",
  "zeroize",
  "zolana-client",
+ "zolana-hasher",
  "zolana-interface",
  "zolana-keypair",
  "zolana-ring-client",
+ "zolana-ring-policy",
  "zolana-transaction",
  "zolana-tree",
 ]

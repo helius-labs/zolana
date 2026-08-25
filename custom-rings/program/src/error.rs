@@ -75,6 +75,8 @@ pub enum CustomRingError {
     RecordVersionOverflow = 8130,
     #[error("records account is not the canonical records PDA")]
     InvalidRecordsPda = 8131,
+    #[error("records tree account is not a shielded pool tree")]
+    InvalidRecordsTree = 8132,
 }
 
 impl From<CustomRingError> for ProgramError {

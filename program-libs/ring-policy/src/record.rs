@@ -112,6 +112,18 @@ impl PolicyRecord {
         field_u64(self.version)
     }
 
+    /// Takes the payload of [`PolicyRecord::to_output_data`], without its envelope.
+    pub fn from_payload(payload: &[u8]) -> Option<Self> {
+        let payload: &[u8; RECORD_PAYLOAD_LEN] = payload.try_into().ok()?;
+        Some(Self {
+            kind: RecordKind::try_from(payload[0]).ok()?,
+            member: PolicyMember::from_bytes(payload[1..33].try_into().ok()?).ok()?,
+            state: RecordState::try_from(payload[33]).ok()?,
+            version: u64::from_le_bytes(payload[34..42].try_into().ok()?),
+            payload_hash: payload[42..74].try_into().ok()?,
+        })
+    }
+
     /// The published plaintext payload, discovery re-derives `data_hash` from
     /// it and compares against the on-chain leaf before trusting it.
     pub fn to_output_data(&self) -> [u8; RECORD_OUTPUT_DATA_LEN] {
@@ -219,6 +231,20 @@ mod tests {
             address,
             owner.address(cleared.kind, &cleared.member).unwrap()
         );
+    }
+
+    #[test]
+    fn the_payload_round_trips_through_the_published_envelope() {
+        let record = PolicyRecord {
+            kind: RecordKind::Frozen,
+            member: member(5),
+            state: RecordState::Cleared,
+            version: 7,
+            payload_hash: [4u8; 32],
+        };
+        let encoded = record.to_output_data();
+        assert_eq!(PolicyRecord::from_payload(&encoded[5..]), Some(record));
+        assert_eq!(PolicyRecord::from_payload(&encoded), None);
     }
 
     #[test]

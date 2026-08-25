@@ -9,9 +9,11 @@ mod transfer;
 mod v0;
 
 pub use custom_ring_interface::{
-    tag, AuditProof, CreateConfigIxData, CustomRingTransactIxData, ReaderIxData, CONFIG_PDA_SEED,
-    CREATE_CONFIG_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
-    READ_ACCESS_COMPUTE_UNIT_LIMIT, READ_ACCESS_RECORD_PDA_SEED, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
+    tag, AuditProof, CreateConfigIxData, CustomRingTransactIxData, PolicyConfig, ReaderIxData,
+    CONFIG_PDA_SEED, CREATE_CONFIG_COMPUTE_UNIT_LIMIT, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
+    INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT, READ_ACCESS_COMPUTE_UNIT_LIMIT,
+    READ_ACCESS_RECORD_PDA_SEED, RECORD_MUTATION_COMPUTE_UNIT_LIMIT,
+    SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
 };
 
 pub use zolana_ring_client::{
@@ -24,6 +26,10 @@ pub use crate::{
         deposit::Deposit,
         grant_read_access::GrantReadAccess,
         init_spp_ring_config::InitSppRingConfig,
+        record::{
+            read_record, CreatePolicy, CreateRecord, LiveRecord, ProvenRecord, RecordError,
+            RecordProof, RecordProofEnvironment, RecordProofError, UpdateRecord,
+        },
         revoke_read_access::RevokeReadAccess,
         set_authority::SetAuthority,
         transact::{

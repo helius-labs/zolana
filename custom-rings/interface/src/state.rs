@@ -64,6 +64,8 @@ pub const POLICY_CONFIG: u8 = 3;
 pub struct PolicyConfig {
     pub discriminator: u8,
     pub policy_hash: [u8; 32],
+    /// All records live in one tree, presence and absence stay provable against its roots.
+    pub records_tree: Address,
     pub records_bump: u8,
     pub bump: u8,
 }
@@ -73,5 +75,5 @@ impl PolicyConfig {
     pub const SIZE: usize = core::mem::size_of::<Self>();
 }
 
-const _: () = assert!(PolicyConfig::SIZE == 35);
+const _: () = assert!(PolicyConfig::SIZE == 67);
 const _: () = assert!(core::mem::align_of::<PolicyConfig>() == 1);

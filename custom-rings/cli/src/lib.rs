@@ -13,6 +13,7 @@ pub mod keys;
 pub mod pipeline;
 pub mod probe;
 pub mod reader;
+pub mod record;
 pub mod repo;
 pub mod ring_rpc;
 pub mod status;
@@ -97,10 +98,54 @@ pub enum Command {
     /// Grant or revoke reads on the ring RPC.
     #[command(subcommand)]
     Reader(ReaderCommand),
+    /// Read and mutate the ring's policy records.
+    #[command(subcommand)]
+    Record(RecordCommand),
     /// Print the local auditor key's public key, or create the key file.
     AuditorKey(AuditorKeyArgs),
     /// Create the private GitHub repository for the ring and push it.
     Repo,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum RecordCommand {
+    /// Create the policy config, pinning the compiled table and the tree.
+    Init { records_tree: Address },
+    /// Claim or reactivate the member's record of the kind.
+    Add {
+        #[arg(value_enum)]
+        kind: RecordKindArg,
+        member: Address,
+    },
+    /// Clear the member's record, leaving the address claimed.
+    Clear {
+        #[arg(value_enum)]
+        kind: RecordKindArg,
+        member: Address,
+    },
+    /// Print the member's live record.
+    Show {
+        #[arg(value_enum)]
+        kind: RecordKindArg,
+        member: Address,
+    },
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum RecordKindArg {
+    Allow,
+    Block,
+    Frozen,
+}
+
+impl From<RecordKindArg> for zolana_ring_policy::RecordKind {
+    fn from(kind: RecordKindArg) -> Self {
+        match kind {
+            RecordKindArg::Allow => Self::Allow,
+            RecordKindArg::Block => Self::Block,
+            RecordKindArg::Frozen => Self::Frozen,
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -429,7 +474,11 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
     let mut ctx = Context::load(cli.config, config);
     match cli.command {
         Command::Status => status::run(&ctx),
-        Command::Build(args) => build_program::run(&ctx.project_root, args)?,
+        Command::Build(args) => build_program::run(
+            &ctx.project_root,
+            ctx.config.enabled_features().map(str::to_owned),
+            args,
+        )?,
         Command::Deploy(args) => deploy::run(&mut ctx, args)?,
         Command::Init(args) => init::run(&mut ctx, args)?,
         Command::Pipeline(args) => pipeline::run(&mut ctx, args)?,
@@ -438,6 +487,7 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
         Command::RpcCheck => ring_rpc::run_check(&ctx)?,
         Command::Authority(command) => authority::run(&ctx, command)?,
         Command::Reader(command) => reader::run(&mut ctx, command)?,
+        Command::Record(command) => record::run(&mut ctx, command)?,
         Command::AuditorKey(args) => keys::run(&ctx.project_root, args)?,
         Command::Repo => repo::run(&ctx)?,
         // Handled before the context loads.

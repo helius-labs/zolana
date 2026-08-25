@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 borsh = { workspace = true }
+num-bigint = { workspace = true }
 custom-ring-interface = { workspace = true }
 bytemuck = { workspace = true }
 p256 = { workspace = true }
@@ -29,8 +30,10 @@ zeroize = { workspace = true }
 zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
 # `solana` pulls in the instruction builders this crate wraps for ring deposits.
 zolana-interface = { workspace = true, features = ["solana"] }
+zolana-hasher = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-ring-client = { workspace = true }
+zolana-ring-policy = { workspace = true }
 zolana-transaction = { workspace = true }
 zolana-tree = { workspace = true }
 
