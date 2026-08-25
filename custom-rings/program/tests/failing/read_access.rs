@@ -319,3 +319,67 @@ fn grant_under_a_config_with_another_authority_is_rejected() {
     );
     fixture.expect_err(&mollusk, custom(CustomRingError::UnauthorizedAuthority));
 }
+
+#[test]
+fn grant_with_an_unsigned_payer_is_rejected() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = grant_read_access_fixture(&reader());
+    fixture.unsign("payer");
+    fixture.expect_err(
+        &mollusk,
+        ProgramError::Custom(u32::from(AccountError::InvalidSigner)),
+    );
+}
+
+#[test]
+fn grant_into_a_readonly_record_is_rejected() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = grant_read_access_fixture(&reader());
+    fixture.set_writable("read_access_record", false);
+    fixture.expect_err(
+        &mollusk,
+        ProgramError::Custom(u32::from(AccountError::AccountNotMutable)),
+    );
+}
+
+/// Attacker-donated lamports at the record PDA take the cold creation path.
+#[test]
+fn donated_lamports_at_the_record_pda_still_grant() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = grant_read_access_fixture(&reader());
+    fixture.set_account("read_access_record", account(1));
+    let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
+    assert_eq!(result.program_result, ProgramResult::Success);
+    let written = result
+        .resulting_accounts
+        .iter()
+        .find(|(key, _)| key == &read_access_record_pda(&reader()).0)
+        .map(|(_, account)| account.clone())
+        .expect("record in result");
+    assert_eq!(
+        bytemuck::from_bytes::<ReadAccessRecord>(&written.data).discriminator,
+        READ_ACCESS_RECORD
+    );
+}
+
+#[test]
+fn revoke_of_a_readonly_record_is_rejected() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = revoke_read_access_fixture(&reader());
+    fixture.set_writable("read_access_record", false);
+    fixture.expect_err(
+        &mollusk,
+        ProgramError::Custom(u32::from(AccountError::AccountNotMutable)),
+    );
+}
+
+#[test]
+fn revoke_into_a_readonly_rent_recipient_is_rejected() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = revoke_read_access_fixture(&reader());
+    fixture.set_writable("rent_recipient", false);
+    fixture.expect_err(
+        &mollusk,
+        ProgramError::Custom(u32::from(AccountError::AccountNotMutable)),
+    );
+}

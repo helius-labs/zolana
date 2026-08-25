@@ -288,9 +288,21 @@ jobs:
       - name: Fetch Squads smart account binary
         if: steps.squads-cache.outputs.cache-hit != 'true'
         run: just fetch-smart-account
+      - name: Check out the ring template
+        if: matrix.recipe == 'test-custom-ring-validator'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: helius-labs/zolana-ring
+          path: target/zolana-ring
+      - name: Install cargo-generate
+        if: matrix.recipe == 'test-custom-ring-validator'
+        uses: taiki-e/install-action@43aecc8d72668fbcfe75c31400bc4f890f1c5853 # v2
+        with:
+          tool: cargo-generate@0.23.14
       - run: just ${{ matrix.recipe }}
         env:
           ZOLANA_PROVER_REDIS_URL: ${{ matrix.recipe == 'test-custom-ring-validator' && 'redis://127.0.0.1:6379/0' || '' }}
+          ZOLANA_RING_TEMPLATE_DIR: ${{ matrix.recipe == 'test-custom-ring-validator' && format('{0}/target/zolana-ring', github.workspace) || '' }}
       - name: Dump prover and photon logs on failure
         if: failure()
         run: |

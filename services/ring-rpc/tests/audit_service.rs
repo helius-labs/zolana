@@ -28,7 +28,7 @@ use zolana_ring_rpc::{
     KeyMode, OriginPolicy, Origins, Page, PageOptions, ReadAttestation, ReadAuth, ReadBuildError,
     ReadCheck, ReadSignature, ReadSigner, ReaderGrant, RingConfiguration, RingDepositsRequest,
     RingDepositsResponse, RingRpcError, RingState, RingStatusRequest, RingStatusResponse,
-    RootSecret, TransactionPage, TransactionSource, Unauthorized, WebAuthnAssertion,
+    RootSecret, SkippedReason, TransactionPage, TransactionSource, Unauthorized, WebAuthnAssertion,
     CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS, RING_STATUS,
 };
 use zolana_transaction::{
@@ -251,6 +251,10 @@ fn passkeys_require_canonical_same_origin_assertions() {
         ),
         (
             Passkey::new(46).flags(0x01),
+            Unauthorized::UserVerificationMissing,
+        ),
+        (
+            Passkey::new(46).flags(0x04),
             Unauthorized::UserVerificationMissing,
         ),
         (
@@ -640,7 +644,25 @@ async fn granted_reader_opens_audited_transfers_and_reports_the_rest() {
         Base64String(fixture.recipient.as_bytes().to_vec())
     );
     assert_eq!(item.nullifiers.len(), 1);
-    assert_eq!(response.value.skipped.len(), 2);
+    let reasons: Vec<(Signature, SkippedReason)> = response
+        .value
+        .skipped
+        .iter()
+        .map(|skipped| (skipped.tx_signature.0, skipped.reason))
+        .collect();
+    assert_eq!(
+        reasons,
+        vec![
+            (
+                fixture.foreign_key.tx_signature,
+                SkippedReason::InvalidAuditData
+            ),
+            (
+                fixture.missing_message.tx_signature,
+                SkippedReason::MissingAuditorMessage
+            ),
+        ]
+    );
 }
 
 #[tokio::test]
@@ -1333,6 +1355,16 @@ async fn derived_keys_are_ring_and_cluster_specific() {
     let ring_b = Address::new_from_array([2; 32]);
     let key_a = hub.service_for(ring_a).expect("ring a").auditor_pubkey();
     let key_b = hub.service_for(ring_b).expect("ring b").auditor_pubkey();
+    let other_genesis = Hub::builder(fixture.source())
+        .derived(RootSecret::from_bytes(root_bytes).expect("root"), [10; 32])
+        .expect("hub");
+    assert_ne!(
+        other_genesis
+            .service_for(ring_a)
+            .expect("ring a")
+            .auditor_pubkey(),
+        key_a
+    );
     assert_eq!(
         hub.service_pubkey().to_string(),
         "FQ7ZZ4DEkoubT5Ca9BzzbgXDTmjKdRh6a3snGfPjpEZT"

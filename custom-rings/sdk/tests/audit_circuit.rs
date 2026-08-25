@@ -1,18 +1,13 @@
 //! The cross-language consistency gate for the `audit` circuit.
 //!
 //! Every other test in this crate checks one side of the statement. This one
-//! closes the loop: the sdk's own encryption and proof-input path produces a
-//! witness the compiled Go circuit solves, the resulting proof verifies under the
-//! verifying key the program has committed AND under the one on disk next to the
-//! proving key, and the public input the whole chain lands on is the exact value
-//! the Go circuit test solves against.
-//!
-//! Two verifying keys are checked on purpose. The committed
-//! `audit_vk::VERIFYINGKEY` is what the on-chain program uses;
-//! `build/gnark/audit/vk.bin` is what the proving
-//! key was generated with. gnark's setup is randomized, so a regenerated proving
-//! key silently stops matching the committed constant -- verifying against both is
-//! what catches that drift here instead of on-chain.
+//! closes the loop, the sdk's own encryption and proof-input path produces a
+//! witness the compiled Go circuit solves, the resulting proof verifies under
+//! the committed `audit_vk::VERIFYINGKEY` the on-chain program uses, and the
+//! public input the whole chain lands on is the exact value the Go circuit
+//! test solves against. gnark's setup is randomized, a regenerated proving
+//! key stops proving under the committed constant, and the proof-then-verify
+//! round trip here catches that drift before it reaches the chain.
 
 use std::sync::OnceLock;
 

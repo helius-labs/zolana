@@ -322,6 +322,7 @@ test-sdk-libs:
     cargo nextest run -p zolana-ring-rpc
     cargo nextest run -p custom-ring-sdk
     cargo nextest run -p custom-ring-cli
+    cargo nextest run -p custom-ring-interface
 
 # TypeScript SDK formatting, linting, types, unit tests, and package build.
 test-ts:
@@ -458,6 +459,8 @@ _test-ts-live test-script: build-programs build-prover-server build-cli ensure-p
       exit 1
     fi
     echo " ready"
+    # The ring-status probe, otherwise exercised only against a hosted rpc.
+    cargo run -q -p custom-ring-cli -- --config "$ring_dir/ring.toml" rpc-check
 
     ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" \
       ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
@@ -1221,6 +1224,11 @@ test-custom-ring-validator: ensure-custom-ring-live-keys build-programs build-cl
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo nextest run -p custom-ring-test-validator --test ring --no-capture
+    # Redis and the audit proving key are guaranteed here.
+    cargo nextest run -p custom-ring-sdk --run-ignored all -E 'binary(audit_circuit)'
+    if [ -n "${ZOLANA_RING_TEMPLATE_DIR:-}" ]; then
+      cargo nextest run -p custom-ring-cli --run-ignored all -E 'binary(new_smoke)'
+    fi
 
 # Timelock escrow lifecycle on a local validator, driven against a real
 # localnet (sdk-tests/timelock-escrow/test/tests/escrow.rs). Boots

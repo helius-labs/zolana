@@ -170,3 +170,40 @@ impl From<DeployError> for AuthorityError {
         Self::Deploy(Box::new(error))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use custom_ring_sdk::CustomRing;
+
+    use super::*;
+
+    fn check(upgrade_authority: Option<Address>) -> Result<(), AuthorityError> {
+        let current = ProgramDataInfo {
+            upgrade_authority,
+            capacity: 0,
+        };
+        SetUpgradeAuthority {
+            ring: CustomRing::new(Address::new_from_array([1; 32])),
+            authority_keypair: Path::new("unused"),
+            authority: Address::new_from_array([2; 32]),
+            current: &current,
+        }
+        .check_current()
+    }
+
+    #[test]
+    fn only_the_recorded_upgrade_authority_may_move_the_program() {
+        assert!(check(Some(Address::new_from_array([2; 32]))).is_ok());
+        assert!(matches!(
+            check(Some(Address::new_from_array([3; 32]))),
+            Err(AuthorityError::Deploy(error))
+                if matches!(*error, DeployError::ForeignAuthority { .. })
+        ));
+        assert!(matches!(
+            check(None),
+            Err(AuthorityError::Deploy(error)) if matches!(*error, DeployError::Immutable { .. })
+        ));
+    }
+}

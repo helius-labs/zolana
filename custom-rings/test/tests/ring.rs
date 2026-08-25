@@ -93,7 +93,6 @@ const RECIPIENT_SLOT: u32 = 1;
 const AUDITOR_CIPHERTEXT_OFFSET: usize = 33;
 
 const AUDITED_RING_TRANSACT_CU_LIMIT: u64 = 486_000;
-/// A UTXO's `data_hash` / `ring_data_hash` when it carries neither.
 
 #[test]
 fn localnet_bring_up_is_live() -> Result<()> {
@@ -461,6 +460,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         Some(auditor_tag),
         "the auditor message is the last published message"
     );
+    assert_eq!(indexed.nullifiers.len(), 2, "both inputs spend");
     assert_eq!(
         indexed.tx_viewing_pk,
         Some(tx_viewing_pk),

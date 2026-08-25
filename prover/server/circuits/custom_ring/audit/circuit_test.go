@@ -127,6 +127,22 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 				c.EphSk[0] = 256
 			},
 		},
+		{
+			// The attack shape, a well-formed key that is not the one the
+			// public input hash commits to.
+			name: "valid but different auditor key",
+			tamper: func(t *testing.T, c *Circuit) {
+				other := scalar(t, 0x44)
+				priv, err := ecdh.P256().NewPrivateKey(other[:])
+				if err != nil {
+					t.Fatalf("other auditor key: %v", err)
+				}
+				substitute := uncompressed(t, priv.PublicKey().Bytes())
+				for i, value := range substitute {
+					c.AuditorPk[i] = value
+				}
+			},
+		},
 	}
 
 	for _, test := range tests {
