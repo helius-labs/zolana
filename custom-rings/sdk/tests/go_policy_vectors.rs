@@ -1,9 +1,8 @@
-#![cfg(feature = "policy")]
 //! Pins the record and policy hashing to the Go circuit. The values are the
-//! fixture `prover/server/circuits/custom_ring/policy/circuit_test.go` prints
+//! fixture `prover/server/circuits/custom_ring/transfer/circuit_test.go` prints
 //! under `PRINT_POLICY_VECTORS=1`, so a change on either side fails here.
 
-use custom_ring_interface::{AuditPublicInput, PolicyPublicInput};
+use custom_ring_interface::{AuditPublicInput, CustomRingPublicInput};
 use zolana_ring_policy::{
     record_nullifier, record_seed, Guard, Mode, Policy, PolicyMember, PolicyRecord, RecordKind,
     RecordState, RecordsOwner, Rule, Subject,
@@ -156,7 +155,7 @@ fn the_public_input_chain_extends_the_audit_chain() {
         ciphertext: &[5u8; 32],
     };
     let elements = audit.elements().expect("elements");
-    let policy = PolicyPublicInput {
+    let policy = CustomRingPublicInput {
         audit,
         policy_hash: &hex32(POLICY_HASH),
         state_root: &[6u8; 32],

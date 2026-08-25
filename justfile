@@ -90,8 +90,8 @@ test-program-fast: build-programs
     cargo nextest run -p shielded-pool-tests
     cargo nextest run -p swap-program --tests
     cargo nextest run -p custom-ring-program --tests
-    # The policy build is a second artifact with its own transact wire.
-    cargo nextest run -p custom-ring-program --features allowlist,blocklist,freeze --test policy
+    # Rule features only add table rows, so a build is the only check they need.
+    cargo build -p custom-ring-program --features allowlist,blocklist,freeze
 
 # Run one shielded-pool intent-level binary, for example:
 # `just test-shielded-pool-case deposit_model`.
@@ -229,57 +229,23 @@ ring-rpc-derived:
         --indexer-url {{localnet-photon-url}} --rpc-url {{localnet-rpc-url}} \
         --root-secret-file "$secret"
 
-# Same contract as swap-keys-tag, for the custom-ring example's single circuit
-# (audit). gnark's Setup is non-deterministic, so the release assets are the
-# only key set matching the committed Rust verifying key; rotating
-# requires publishing a new release and updating custom-ring-keys.CHECKSUM plus
+# gnark's Setup is non-deterministic, one run must produce the proving key and
 # the committed verifying key together.
-custom-ring-keys-tag := "custom-ring-keys-v1"
-
 ensure-custom-ring-prover-key: build-prover-server
     #!/usr/bin/env bash
     set -euo pipefail
-    source_dir="custom-rings/build/gnark/audit"
-    mkdir -p "$source_dir" prover/server/proving-keys
-    # The v1 release assets keep the retired circuit name.
-    for kind in pk vk; do
-        file="auditor_key_encryption_${kind}.bin"
-        path="$source_dir/${kind}.bin"
-        if [[ ! -f "$path" ]]; then
-            curl -fsSL "https://github.com/helius-labs/zolana/releases/download/{{custom-ring-keys-tag}}/$file" -o "$path"
-        fi
-        want="$(awk -v name="$file" '$2 == name { print $1 }' custom-rings/custom-ring-keys.CHECKSUM)"
-        got="$(shasum -a 256 "$path" | awk '{ print $1 }')"
-        [[ "$got" == "$want" ]]
-    done
-    target/prover-server convert-custom-ring-audit \
-        --pk "$source_dir/pk.bin" \
-        --vk "$source_dir/vk.bin" \
-        --output prover/server/proving-keys/custom_ring_audit_transfer.key
-    [[ "$(shasum -a 256 prover/server/proving-keys/custom_ring_audit_transfer.key | awk '{ print $1 }')" == "2e6f285909ea958e8ebbe5a1d479e37305cccc71838f3d438f1755828958a834" ]]
-    verify_dir="$(mktemp -d)"
-    trap 'rm -rf "$verify_dir"' EXIT
-    target/prover-server export-vk \
-        --keys-file prover/server/proving-keys/custom_ring_audit_transfer.key \
-        --output "$verify_dir/vk.bin"
-    cmp "$source_dir/vk.bin" "$verify_dir/vk.bin"
-
-# The policy key has no release artifact, a local setup produces it.
-ensure-custom-ring-policy-key: build-prover-server
-    #!/usr/bin/env bash
-    set -euo pipefail
-    key="prover/server/proving-keys/custom_ring_policy_transfer.key"
+    key="prover/server/proving-keys/custom_ring_transfer.key"
     mkdir -p prover/server/proving-keys
     if [[ -f "$key" ]]; then
-        echo "policy proving key present"
+        echo "custom-ring proving key present"
         exit 0
     fi
-    target/prover-server setup-custom-ring-policy --output "$key"
+    target/prover-server setup-custom-ring --output "$key"
     export_dir="$(mktemp -d)"
     trap 'rm -rf "$export_dir"' EXIT
     target/prover-server export-vk --keys-file "$key" --output "$export_dir/vk.bin"
-    cargo run -q -p xtask -- bsb22-vk "$export_dir/vk.bin" custom-rings/interface/src policy_vk.rs
-    rustfmt custom-rings/interface/src/policy_vk.rs
+    cargo run -q -p xtask -- bsb22-vk "$export_dir/vk.bin" custom-rings/interface/src custom_ring_vk.rs
+    rustfmt custom-rings/interface/src/custom_ring_vk.rs
 
 ensure-custom-ring-live-keys: ensure-custom-ring-prover-key
     #!/usr/bin/env bash
@@ -340,8 +306,6 @@ test-sdk-libs:
     cargo nextest run -p zolana-ring-client
     cargo nextest run -p zolana-ring-rpc
     cargo nextest run -p custom-ring-sdk
-    # The policy feature adds the ring circuit's request and its Go vectors.
-    cargo nextest run -p custom-ring-sdk --features policy
     cargo nextest run -p custom-ring-cli
     cargo nextest run -p custom-ring-interface
     cargo nextest run -p zolana-ring-policy
@@ -1246,8 +1210,6 @@ test-custom-ring-validator: ensure-custom-ring-live-keys build-programs build-cl
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo nextest run -p custom-ring-test-validator --test ring --no-capture
-    # Redis and the audit proving key are guaranteed here.
-    cargo nextest run -p custom-ring-sdk --run-ignored all -E 'binary(audit_circuit)'
     if [ -n "${ZOLANA_RING_TEMPLATE_DIR:-}" ]; then
       cargo nextest run -p custom-ring-cli --run-ignored all -E 'binary(new_smoke)'
     fi

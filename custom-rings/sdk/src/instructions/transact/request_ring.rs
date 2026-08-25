@@ -24,7 +24,7 @@ pub const NULLIFIER_PATH_LEN: usize = 40;
 
 /// One opened UTXO slot, in the order the circuit hashes it.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct PolicyOpening {
+pub struct CustomRingOpening {
     pub domain: [u8; 32],
     pub owner_pk_hash: [u8; 32],
     pub nullifier_pk: [u8; 32],
@@ -38,7 +38,7 @@ pub struct PolicyOpening {
 
 /// One record fact, proven against the two roots the program resolved.
 #[derive(Clone, Debug)]
-pub struct PolicyPoolEntry {
+pub struct CustomRingPoolEntry {
     pub enabled: bool,
     pub mode: u8,
     pub kind: u8,
@@ -55,7 +55,7 @@ pub struct PolicyPoolEntry {
     pub state_path_index: u64,
 }
 
-impl Default for PolicyPoolEntry {
+impl Default for CustomRingPoolEntry {
     fn default() -> Self {
         Self {
             enabled: false,
@@ -76,7 +76,7 @@ impl Default for PolicyPoolEntry {
     }
 }
 
-pub struct PolicyProofRequest {
+pub struct CustomRingProofRequest {
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
     pub tx_viewing_key: ViewingKey,
@@ -84,8 +84,8 @@ pub struct PolicyProofRequest {
     pub auditor_key: P256Pubkey,
     pub n_in: u8,
     pub n_out: u8,
-    pub inputs: [PolicyOpening; POLICY_INPUT_SLOTS],
-    pub outputs: [PolicyOpening; POLICY_OUTPUT_SLOTS],
+    pub inputs: [CustomRingOpening; POLICY_INPUT_SLOTS],
+    pub outputs: [CustomRingOpening; POLICY_OUTPUT_SLOTS],
     pub address_chain: [u8; 32],
     pub external_data_hash: [u8; 32],
     pub records_owner_hash: [u8; 32],
@@ -95,10 +95,10 @@ pub struct PolicyProofRequest {
     pub inline_count: u8,
     pub state_root: [u8; 32],
     pub nullifier_root: [u8; 32],
-    pub pool: Vec<PolicyPoolEntry>,
+    pub pool: Vec<CustomRingPoolEntry>,
 }
 
-impl ProveRequest for PolicyProofRequest {
+impl ProveRequest for CustomRingProofRequest {
     fn body(&self) -> Result<Zeroizing<String>, ClientError> {
         let tx_viewing_secret = self.tx_viewing_key.secret_bytes();
         let ephemeral_secret = self.ephemeral_key.secret_bytes();
@@ -107,8 +107,8 @@ impl ProveRequest for PolicyProofRequest {
             .to_p256()
             .map_err(|_| ClientError::Prover("invalid audit public key".to_string()))?;
         let auditor_pk = auditor_key.to_encoded_point(false);
-        let json = PolicyProofRequestJson {
-            circuit_type: "custom-ring-policy",
+        let json = CustomRingProofRequestJson {
+            circuit_type: "custom-ring",
             variant: "transfer",
             public_input_hash: field_hex(&self.public_input_hash),
             private_tx_hash: field_hex(&self.private_tx_hash),
@@ -140,8 +140,8 @@ impl ProveRequest for PolicyProofRequest {
     }
 }
 
-fn opening_json(opening: &PolicyOpening) -> PolicyOpeningJson {
-    PolicyOpeningJson {
+fn opening_json(opening: &CustomRingOpening) -> CustomRingOpeningJson {
+    CustomRingOpeningJson {
         domain: field_hex(&opening.domain),
         owner_pk_hash: field_hex(&opening.owner_pk_hash),
         nullifier_pk: field_hex(&opening.nullifier_pk),
@@ -154,8 +154,8 @@ fn opening_json(opening: &PolicyOpening) -> PolicyOpeningJson {
     }
 }
 
-fn pool_json(entry: &PolicyPoolEntry) -> PolicyPoolEntryJson {
-    PolicyPoolEntryJson {
+fn pool_json(entry: &CustomRingPoolEntry) -> CustomRingPoolEntryJson {
+    CustomRingPoolEntryJson {
         enabled: entry.enabled,
         mode: entry.mode,
         kind: entry.kind,
@@ -174,7 +174,7 @@ fn pool_json(entry: &PolicyPoolEntry) -> PolicyPoolEntryJson {
 }
 
 #[derive(Serialize)]
-struct PolicyOpeningJson {
+struct CustomRingOpeningJson {
     domain: String,
     #[serde(rename = "ownerPkHash")]
     owner_pk_hash: String,
@@ -192,7 +192,7 @@ struct PolicyOpeningJson {
 }
 
 #[derive(Serialize)]
-struct PolicyPoolEntryJson {
+struct CustomRingPoolEntryJson {
     enabled: bool,
     mode: u8,
     kind: u8,
@@ -216,7 +216,7 @@ struct PolicyPoolEntryJson {
 }
 
 #[derive(Serialize)]
-struct PolicyProofRequestJson<'a> {
+struct CustomRingProofRequestJson<'a> {
     #[serde(rename = "circuitType")]
     circuit_type: &'static str,
     variant: &'static str,
@@ -234,8 +234,8 @@ struct PolicyProofRequestJson<'a> {
     n_in: u8,
     #[serde(rename = "nOut")]
     n_out: u8,
-    inputs: Vec<PolicyOpeningJson>,
-    outputs: Vec<PolicyOpeningJson>,
+    inputs: Vec<CustomRingOpeningJson>,
+    outputs: Vec<CustomRingOpeningJson>,
     #[serde(rename = "addressChain")]
     address_chain: String,
     #[serde(rename = "externalDataHash")]
@@ -254,15 +254,15 @@ struct PolicyProofRequestJson<'a> {
     state_root: String,
     #[serde(rename = "nullifierRoot")]
     nullifier_root: String,
-    pool: Vec<PolicyPoolEntryJson>,
+    pool: Vec<CustomRingPoolEntryJson>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn request() -> PolicyProofRequest {
-        PolicyProofRequest {
+    fn request() -> CustomRingProofRequest {
+        CustomRingProofRequest {
             public_input_hash: [1u8; 32],
             private_tx_hash: [2u8; 32],
             tx_viewing_key: ViewingKey::from_bytes(&[3u8; 32]).expect("viewing key"),
@@ -272,8 +272,8 @@ mod tests {
                 .pubkey(),
             n_in: 2,
             n_out: 2,
-            inputs: [PolicyOpening::default(); POLICY_INPUT_SLOTS],
-            outputs: [PolicyOpening::default(); POLICY_OUTPUT_SLOTS],
+            inputs: [CustomRingOpening::default(); POLICY_INPUT_SLOTS],
+            outputs: [CustomRingOpening::default(); POLICY_OUTPUT_SLOTS],
             address_chain: [0u8; 32],
             external_data_hash: [6u8; 32],
             records_owner_hash: [7u8; 32],
@@ -283,7 +283,7 @@ mod tests {
             inline_count: 0,
             state_root: [8u8; 32],
             nullifier_root: [9u8; 32],
-            pool: vec![PolicyPoolEntry::default(); POLICY_POOL_SLOTS],
+            pool: vec![CustomRingPoolEntry::default(); POLICY_POOL_SLOTS],
         }
     }
 
@@ -320,7 +320,7 @@ mod tests {
                 "variant",
             ]
         );
-        assert_eq!(object["circuitType"], "custom-ring-policy");
+        assert_eq!(object["circuitType"], "custom-ring");
         assert_eq!(
             object["ruleEnc"].as_array().expect("rules").len(),
             MAX_RULES

@@ -49,9 +49,6 @@ pub fn process_create_policy_ix(
         program_data,
     }
     .verify()?;
-    if POLICY.is_empty() {
-        return Err(CustomRingError::EmptyPolicy.into());
-    }
 
     let bump = PdaCheck {
         program_id,

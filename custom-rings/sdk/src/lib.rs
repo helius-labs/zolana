@@ -4,11 +4,10 @@
 //! definition serves both sides.
 
 mod instructions;
-#[cfg(feature = "policy")]
-mod policy_witness;
 mod shared;
 mod transfer;
 mod v0;
+mod witness;
 
 pub use custom_ring_interface::{
     tag, AuditProof, CreateConfigIxData, CustomRingTransactIxData, PolicyConfig, ReaderIxData,
@@ -36,8 +35,8 @@ pub use crate::{
         set_authority::SetAuthority,
         transact::{
             to_instruction_proof, AuditPrivateTxHash, AuditProofError, AuditProofInputError,
-            AuditProofParams, AuditProofRequest, AuditPublicInputHash, EncryptedAudit,
-            PendingAuditProof, RingTransactWithAudit,
+            AuditProofParams, CustomRingProofRequest, EncryptedAudit, PendingAuditProof,
+            RingTransactWithAudit,
         },
     },
     shared::{AccountReadError, CustomRing, CustomRingConfig, ReaderKey, ReaderKeyError},

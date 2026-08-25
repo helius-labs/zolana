@@ -581,7 +581,6 @@ fn ring_transact_with_audit_prepends_payer_and_config_to_the_spp_list() {
         vec![
             AccountMeta::new(payer(), true),
             AccountMeta::new_readonly(ring().config_pda(), false),
-            #[cfg(feature = "policy")]
             AccountMeta::new_readonly(ring().policy_config_pda(), false),
             AccountMeta::new(payer(), true),
             AccountMeta::new(input_tree(), false),
@@ -629,8 +628,8 @@ fn ring_transact_with_audit_leaves_ring_config_unsigned() {
     .instruction()
     .expect("serialize the audited transact payload");
 
-    // The policy build inserts its config before the forwarded SPP list.
-    let ring_config_index = if cfg!(feature = "policy") { 8 } else { 7 };
+    // The policy config sits before the forwarded SPP list.
+    let ring_config_index = 8;
     let ring_config = instruction
         .accounts
         .get(ring_config_index)
@@ -665,7 +664,7 @@ fn ring_transact_with_audit_forwards_settlement_accounts() {
     assert_eq!(
         instruction
             .accounts
-            .get(if cfg!(feature = "policy") { 9 } else { 8 }..)
+            .get(9..)
             .expect("owner signer and settlement metas")
             .to_vec(),
         vec![

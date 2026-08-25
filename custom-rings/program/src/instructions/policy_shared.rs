@@ -52,6 +52,27 @@ pub(crate) fn records_owner(program_id: &Address) -> Result<RecordsOwner, Custom
         .map_err(|_| CustomRingError::HashingFailed)
 }
 
+/// `bump` is the canonical records bump `create_policy` stored.
+#[cfg(any(target_os = "solana", target_arch = "bpf"))]
+pub(crate) fn records_owner_with_bump(
+    program_id: &Address,
+    bump: u8,
+) -> Result<RecordsOwner, CustomRingError> {
+    let seed_bump = [bump];
+    let address =
+        Address::create_program_address(&[POLICY_RECORDS_PDA_SEED, &seed_bump], program_id)
+            .map_err(|_| CustomRingError::InvalidRecordsPda)?;
+    RecordsOwner::new(address.as_array()).map_err(|_| CustomRingError::HashingFailed)
+}
+
+#[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
+pub(crate) fn records_owner_with_bump(
+    _program_id: &Address,
+    _bump: u8,
+) -> Result<RecordsOwner, CustomRingError> {
+    Err(CustomRingError::InvalidRecordsPda)
+}
+
 pub(crate) struct MutationAccounts<'a> {
     pub payer: &'a AccountView,
     pub records_address: Address,

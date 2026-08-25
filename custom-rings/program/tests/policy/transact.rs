@@ -14,7 +14,7 @@ use zolana_interface::{
 
 use crate::common::{
     auditor_pubkey, authority, initialized_config_account, initialized_policy_config_account,
-    records_tree, records_tree_account, setup_policy_mollusk, transact_fixture, Fixture,
+    records_tree, records_tree_account, setup_mollusk, transact_fixture, Fixture,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -89,7 +89,7 @@ fn policy_fixture(state_root_index: u16, nullifier_root_index: u16) -> Fixture {
 /// The stored hash is what a rebuilt table must reproduce.
 #[test]
 fn a_drifted_policy_hash_is_rejected_exactly() {
-    let (mollusk, _) = setup_policy_mollusk();
+    let (mollusk, _) = setup_mollusk();
     let mut fixture = policy_fixture(0, 0);
     let mut config = initialized_policy_config_account();
     config.data[1] ^= 0xFF;
@@ -100,7 +100,7 @@ fn a_drifted_policy_hash_is_rejected_exactly() {
 /// The roots come from a real tree account, a stub never yields one.
 #[test]
 fn a_records_tree_that_is_not_a_tree_is_rejected_exactly() {
-    let (mollusk, _) = setup_policy_mollusk();
+    let (mollusk, _) = setup_mollusk();
     let fixture = policy_fixture(0, 0);
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidRecordsTree));
 }
