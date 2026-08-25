@@ -63,11 +63,8 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 	p256Ring, err := eddsaprover.R1CSP256Transfer(2, 3)
 	add("transfer_p256_ring_2_3", p256Ring, err)
 
-	audit, err := customring.R1CSCustomRingAudit()
-	add("custom_ring_audit_transfer", audit, err)
-
-	policy, err := customring.R1CSCustomRingPolicy()
-	add("custom_ring_policy_transfer", policy, err)
+	customRing, err := customring.R1CSCustomRing()
+	add("custom_ring_transfer", customRing, err)
 
 	merged, err := mergeprover.R1CSMerge()
 	add("merge_8_1", merged, err)
@@ -89,8 +86,7 @@ var expectedFingerprints = map[string]fingerprint{
 	"transfer_ring_2_3":           {constraints: 54136, public: 2},
 	"transfer_ring_authority_2_2": {constraints: 50574, public: 2},
 	"transfer_p256_ring_2_3":      {constraints: 245645, public: 2},
-	"custom_ring_audit_transfer":  {constraints: 327883, public: 2},
-	"custom_ring_policy_transfer": {constraints: 583132, public: 2},
+	"custom_ring_transfer":        {constraints: 583132, public: 2},
 	"merge_8_1":                   {constraints: 180470, public: 2},
 	"merge_ring_8_1":              {constraints: 180740, public: 2},
 	"batch_address-append_40_10":  {constraints: 423683, public: 2},
