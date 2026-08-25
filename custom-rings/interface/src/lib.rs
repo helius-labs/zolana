@@ -1,18 +1,18 @@
 //! Account layouts, instruction data, and audit statement hashing of the
 //! custom ring program, shared by the program, the SDK, and the services.
 
-pub mod audit;
-#[cfg(feature = "verifying-keys")]
-pub mod audit_vk;
 pub mod instruction;
+pub mod proof;
 pub mod state;
+#[cfg(feature = "verifying-keys")]
+pub mod verifying_key;
 
-pub use audit::{pack32_to_2fe, pack33_to_2fe, AuditPublicInput, FieldPair};
 pub use instruction::{
-    tag, AuditProof, CreateConfigIxData, CustomRingTransactIxData, ReaderIxData,
+    tag, CreateConfigIxData, CustomRingProof, CustomRingTransactIxData, ReaderIxData,
     CREATE_CONFIG_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
     READ_ACCESS_COMPUTE_UNIT_LIMIT, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
 };
+pub use proof::{pack32_to_2fe, pack33_to_2fe, CustomRingPublicInput, FieldPair};
 pub use state::{
     ReadAccessRecord, RingProgramConfig, CONFIG_PDA_SEED, READ_ACCESS_RECORD,
     READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG,

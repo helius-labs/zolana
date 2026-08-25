@@ -4,51 +4,51 @@ use zeroize::Zeroizing;
 use zolana_client::{ClientError, Delivery, ProveRequest};
 use zolana_keypair::{P256Pubkey, ViewingKey};
 
-use super::proof::AuditProofInputError;
+use super::proof::CustomRingProofInputError;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct AuditPublicInputHash([u8; 32]);
+pub struct CustomRingPublicInputHash([u8; 32]);
 
-impl TryFrom<[u8; 32]> for AuditPublicInputHash {
-    type Error = AuditProofInputError;
+impl TryFrom<[u8; 32]> for CustomRingPublicInputHash {
+    type Error = CustomRingProofInputError;
 
     fn try_from(value: [u8; 32]) -> Result<Self, Self::Error> {
-        canonical_audit_hash(value).map(Self)
+        canonical_field_hash(value).map(Self)
     }
 }
 
-impl AsRef<[u8; 32]> for AuditPublicInputHash {
+impl AsRef<[u8; 32]> for CustomRingPublicInputHash {
     fn as_ref(&self) -> &[u8; 32] {
         &self.0
     }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct AuditPrivateTxHash([u8; 32]);
+pub struct CustomRingPrivateTxHash([u8; 32]);
 
-impl TryFrom<[u8; 32]> for AuditPrivateTxHash {
-    type Error = AuditProofInputError;
+impl TryFrom<[u8; 32]> for CustomRingPrivateTxHash {
+    type Error = CustomRingProofInputError;
 
     fn try_from(value: [u8; 32]) -> Result<Self, Self::Error> {
-        canonical_audit_hash(value).map(Self)
+        canonical_field_hash(value).map(Self)
     }
 }
 
-impl AsRef<[u8; 32]> for AuditPrivateTxHash {
+impl AsRef<[u8; 32]> for CustomRingPrivateTxHash {
     fn as_ref(&self) -> &[u8; 32] {
         &self.0
     }
 }
 
-pub struct AuditProofRequest {
-    pub public_input_hash: AuditPublicInputHash,
-    pub private_tx_hash: AuditPrivateTxHash,
+pub struct CustomRingProofRequest {
+    pub public_input_hash: CustomRingPublicInputHash,
+    pub private_tx_hash: CustomRingPrivateTxHash,
     pub tx_viewing_key: ViewingKey,
     pub ephemeral_key: ViewingKey,
     pub auditor_key: P256Pubkey,
 }
 
-impl ProveRequest for AuditProofRequest {
+impl ProveRequest for CustomRingProofRequest {
     fn body(&self) -> Result<Zeroizing<String>, ClientError> {
         let tx_viewing_secret = self.tx_viewing_key.secret_bytes();
         let ephemeral_secret = self.ephemeral_key.secret_bytes();
@@ -57,8 +57,8 @@ impl ProveRequest for AuditProofRequest {
             .to_p256()
             .map_err(|_| ClientError::Prover("invalid audit public key".to_string()))?;
         let auditor_pk = auditor_key.to_encoded_point(false);
-        let json = AuditProofRequestJson {
-            circuit_type: "custom-ring-audit",
+        let json = CustomRingProofRequestJson {
+            circuit_type: "custom-ring",
             variant: "transfer",
             public_input_hash: bytes_to_hex(self.public_input_hash.as_ref()),
             private_tx_hash: bytes_to_hex(self.private_tx_hash.as_ref()),
@@ -68,7 +68,7 @@ impl ProveRequest for AuditProofRequest {
         };
         serde_json::to_string(&json)
             .map(Zeroizing::new)
-            .map_err(|_| ClientError::Prover("audit request serialization failed".to_string()))
+            .map_err(|_| ClientError::Prover("proof request serialization failed".to_string()))
     }
 
     fn delivery(&self) -> Delivery {
@@ -77,7 +77,7 @@ impl ProveRequest for AuditProofRequest {
 }
 
 #[derive(Serialize)]
-struct AuditProofRequestJson<'a> {
+struct CustomRingProofRequestJson<'a> {
     #[serde(rename = "circuitType")]
     circuit_type: &'static str,
     variant: &'static str,
@@ -117,9 +117,9 @@ const BN254_SCALAR_MODULUS: [u8; 32] = [
     0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x70, 0x91, 0x43, 0xe1, 0xf5, 0x93, 0xf0, 0x00, 0x00, 0x01,
 ];
 
-fn canonical_audit_hash(value: [u8; 32]) -> Result<[u8; 32], AuditProofInputError> {
+fn canonical_field_hash(value: [u8; 32]) -> Result<[u8; 32], CustomRingProofInputError> {
     if value >= BN254_SCALAR_MODULUS {
-        return Err(AuditProofInputError::GreaterThanB254FieldSize);
+        return Err(CustomRingProofInputError::GreaterThanB254FieldSize);
     }
     Ok(value)
 }
@@ -132,23 +132,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rejects_noncanonical_audit_hashes() {
+    fn rejects_noncanonical_field_hashes() {
         assert!(matches!(
-            AuditPublicInputHash::try_from(BN254_SCALAR_MODULUS),
-            Err(AuditProofInputError::GreaterThanB254FieldSize)
+            CustomRingPublicInputHash::try_from(BN254_SCALAR_MODULUS),
+            Err(CustomRingProofInputError::GreaterThanB254FieldSize)
         ));
         assert!(matches!(
-            AuditPrivateTxHash::try_from(BN254_SCALAR_MODULUS),
-            Err(AuditProofInputError::GreaterThanB254FieldSize)
+            CustomRingPrivateTxHash::try_from(BN254_SCALAR_MODULUS),
+            Err(CustomRingProofInputError::GreaterThanB254FieldSize)
         ));
     }
 
     #[test]
-    fn audit_request_json_matches_the_server_wire_format() {
+    fn proof_request_json_matches_the_server_wire_format() {
         let tx_viewing_key = ViewingKey::from_bytes(&[2u8; 32]).expect("valid key");
         let ephemeral_key = ViewingKey::from_bytes(&[3u8; 32]).expect("valid key");
         let auditor_key = ViewingKey::from_bytes(&[4u8; 32]).expect("valid key");
-        let request = AuditProofRequest {
+        let request = CustomRingProofRequest {
             public_input_hash: [0u8; 32].try_into().expect("canonical field"),
             private_tx_hash: [1u8; 32].try_into().expect("canonical field"),
             tx_viewing_key,
@@ -173,7 +173,7 @@ mod tests {
                 "variant",
             ]
         );
-        assert_eq!(value["circuitType"], "custom-ring-audit");
+        assert_eq!(value["circuitType"], "custom-ring");
         assert_eq!(value["variant"], "transfer");
         assert_eq!(value["publicInputHash"], format!("0x{}", "00".repeat(32)));
         assert_eq!(value["privateTxHash"], format!("0x{}", "01".repeat(32)));

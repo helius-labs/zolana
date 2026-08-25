@@ -23,8 +23,8 @@ use anyhow::{anyhow, Context, Result};
 use custom_ring_interface::{RingProgramConfig, CONFIG_PDA_SEED, RING_PROGRAM_CONFIG};
 use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
-    auditor_view_tag, CreateConfig, CustomRing, CustomRingTransfer, CustomRingTransferInput,
-    InitSppRingConfig, RingDeposit, RingDepositReceipt, RingTransactWithAudit,
+    auditor_view_tag, CreateConfig, CustomRing, CustomRingTransact, CustomRingTransfer,
+    CustomRingTransferInput, InitSppRingConfig, RingDeposit, RingDepositReceipt,
     TransferProofEnvironment, V0WithLookupTable,
 };
 use shared::{custom_ring_program_id, prover_url, send, send_v0_expecting_rejection, setup};
@@ -395,7 +395,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         // 6. Negative, before the real spend so the tree snapshot is meaningful: flip
         //    one ciphertext byte of the auditor message with both proofs already
         //    fixed. The program recomputes the public input from the message it is
-        //    handed, so the audit proof no longer verifies and the SPP CPI is never
+        //    handed, so the custom-ring proof no longer verifies and the SPP CPI is never
         //    reached -- nothing is nullified and no leaf is appended.
         .messages
         .last_mut()
@@ -409,14 +409,14 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
     let rejection = send_v0_expecting_rejection(
         rpc,
         &env.sender.keypair,
-        RingTransactWithAudit {
+        CustomRingTransact {
             ring,
             payer: sender_address,
             input_tree: env.tree,
             output_tree: env.tree,
             owner_signers: proven.owner_signers.clone(),
             interface_transfer_accounts: Vec::new(),
-            audit_proof: proven.audit_proof,
+            proof: proven.proof,
             transact: tampered_data,
         }
         .instruction()?,

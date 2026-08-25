@@ -8,7 +8,9 @@ every transfer in the ring enters through the ring program. The ring program
 checks its policy and CPIs into SPP with that signature, SPP verifies the
 transfer proof and the owner signatures and keeps the trees and nullifiers.
 Each ring is its own program deployment with its own authority, config and
-services. The ring in this directory adds an auditor.
+services. Every custom ring is audited. The custom-ring circuit binds each
+transfer to the ring's auditor and the program accepts no transact without
+that proof.
 
 `program` is the ring program, `sdk` the Rust client for it, `cli` the
 `zolana-ring` operator binary, `test` the lifecycle test on a local validator.
@@ -45,12 +47,12 @@ output with it.
 
 The order is fixed by the hashes. SPP folds the messages into
 `external_data_hash` and that into `private_tx_hash`, and `private_tx_hash` is
-a public input of the audit circuit. `CustomRingTransfer::prove` therefore
-encrypts the message first, runs the SPP proof over the message-bearing
-external data, and only then finishes the audit proof over the resulting
-`private_tx_hash`. `AuditProofParams::encrypt` returns a `PendingAuditProof`
-that only `finish` turns into proof inputs, so the order cannot be broken by
-accident.
+a public input of the custom-ring circuit. `CustomRingTransfer::prove`
+therefore encrypts the message first, runs the SPP proof over the
+message-bearing external data, and only then finishes the custom-ring proof
+over the resulting `private_tx_hash`. `CustomRingProofParams::encrypt` returns
+a `PendingCustomRingProof` that only `finish` turns into proof inputs, so the
+order cannot be broken by accident.
 
 What this means when operating a ring. The auditor key is fixed at
 `create_config`, changing the auditor means a new ring. While the program has
@@ -62,7 +64,7 @@ it hands out. The ring pins that service key in `ring.toml` so a wrong auditor
 cannot be slipped in at `init`. The SDK binds change and recipient notes to
 the ring id, so a plain transfer keeps value in the ring. Exits stay possible,
 an owner may withdraw or send to a default pool note, and every such transact
-still carries the audit proof, so the auditor sees the exit.
+still carries the custom-ring proof, so the auditor sees the exit.
 
 ## Prerequisites
 
@@ -74,7 +76,7 @@ ring program it deploys. On `PATH` before `zolana-ring deploy`:
   the program.
 
 `just ring-localnet` also needs this repository's localnet prerequisites and a
-Redis in `ZOLANA_PROVER_REDIS_URL` for the audit proof.
+Redis in `ZOLANA_PROVER_REDIS_URL` for the custom-ring proof.
 
 ## The pipeline and what each step locks in
 
@@ -116,8 +118,8 @@ continues on the next keypress; without a terminal the shortfall is an error.
 deposits, so the pause names the amount instead of failing inside the deploy.
 
 `ring-localnet` starts the validator without the bundled prover and starts the
-prover separately with a Redis queue, the audit circuit is served only through
-that queue. `ZOLANA_PROVER_REDIS_URL` is required for it and for `transact`.
+prover separately with a Redis queue, the custom-ring circuit is served only
+through that queue. `ZOLANA_PROVER_REDIS_URL` is required for it and for `transact`.
 
 ## Limits
 

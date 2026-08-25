@@ -1,12 +1,13 @@
-//! `AuditProofParams::encrypt` + `PendingAuditProof::finish` is the only place the
+//! `CustomRingProofParams::encrypt` + `PendingCustomRingProof::finish` is the only place the
 //! sdk turns domain values into a witness, so what is pinned here is that it lands
 //! on the public input the program recomputes, that it never reuses an AES-CTR
 //! keystream, and that the split across the two calls puts `private_tx_hash` on
 //! the `finish` side alone.
 
-use custom_ring_interface::AuditPublicInput;
+use custom_ring_interface::CustomRingPublicInput;
 use custom_ring_sdk::{
-    to_instruction_proof, AuditProofError, AuditProofParams, AuditorMessage, EncryptedAudit,
+    to_instruction_proof, AuditorMessage, CustomRingProofError, CustomRingProofParams,
+    EncryptedAudit,
 };
 use zolana_client::Proof;
 use zolana_keypair::{P256Pubkey, ViewingKey};
@@ -26,7 +27,7 @@ fn hex_bytes<const N: usize>(hex_str: &str) -> [u8; N] {
 }
 
 fn encrypt(auditor_pk: P256Pubkey) -> EncryptedAudit {
-    AuditProofParams {
+    CustomRingProofParams {
         tx_viewing_key: ViewingKey::from_bytes(&hex_bytes::<32>(TX_SK))
             .expect("valid P-256 scalar"),
         auditor_pk,
@@ -40,7 +41,7 @@ fn auditor() -> ViewingKey {
 }
 
 /// The gate against sdk/program drift: the witness's single public input must be
-/// exactly what the on-chain `AuditPublicInput::hash()` produces from the values
+/// exactly what the on-chain `CustomRingPublicInput::hash()` produces from the values
 /// the program itself trusts -- the payload's `private_tx_hash` and
 /// `tx_viewing_pk`, the config account's auditor key, and the published message.
 #[test]
@@ -56,7 +57,7 @@ fn proof_inputs_carry_the_public_input_the_program_recomputes() {
     let tx_viewing_pk = ViewingKey::from_bytes(&hex_bytes::<32>(TX_SK))
         .expect("valid P-256 scalar")
         .pubkey();
-    let expected = AuditPublicInput {
+    let expected = CustomRingPublicInput {
         private_tx_hash: &private_tx_hash,
         tx_viewing_pk: tx_viewing_pk.as_bytes(),
         auditor_pk: auditor_pk.as_bytes(),
@@ -149,6 +150,6 @@ fn instruction_proof_conversion_requires_the_commitment() {
 
     assert!(matches!(
         to_instruction_proof(proof),
-        Err(AuditProofError::MissingCommitment)
+        Err(CustomRingProofError::MissingCommitment)
     ));
 }

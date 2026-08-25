@@ -29,8 +29,8 @@ use zolana_transaction::{
 use zolana_tree::{TreeAccount, TreeError};
 
 use crate::{
-    to_instruction_proof, AccountReadError, AuditProof, AuditProofError, AuditProofInputError,
-    AuditProofParams, CustomRing, Deposit, EncryptedAudit, RingTransactWithAudit,
+    to_instruction_proof, AccountReadError, CustomRing, CustomRingProof, CustomRingProofError,
+    CustomRingProofInputError, CustomRingProofParams, CustomRingTransact, Deposit, EncryptedAudit,
 };
 
 const NO_RING_DATA_HASH: [u8; 32] = [0u8; 32];
@@ -61,7 +61,7 @@ pub struct TransferProofEnvironment<'a, I: Rpc, R: Rpc> {
 pub struct ProvenTransfer {
     pub tx_viewing_key: ViewingKey,
     pub data: TransactIxData,
-    pub audit_proof: AuditProof,
+    pub proof: CustomRingProof,
     pub owner_signers: Vec<Address>,
     pub interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     payer: Address,
@@ -94,9 +94,9 @@ pub enum TransferError {
     #[error(transparent)]
     AccountRead(#[from] AccountReadError),
     #[error(transparent)]
-    ProofInput(#[from] AuditProofInputError),
+    ProofInput(#[from] CustomRingProofInputError),
     #[error(transparent)]
-    Proof(#[from] AuditProofError),
+    Proof(#[from] CustomRingProofError),
     #[error(transparent)]
     Instruction(#[from] wincode::Error),
     #[error(transparent)]
@@ -210,16 +210,16 @@ impl<'a> CustomRingTransfer<'a> {
         // ORDER MATTERS. The auditor message has to be inside `external_data`
         // BEFORE the SPP proof runs: SPP folds `messages` into
         // `external_data_hash` and that into `private_tx_hash`, which is element 1
-        // of the audit circuit's public-input chain. Proving SPP first and
+        // of the custom-ring circuit's public-input chain. Proving SPP first and
         // appending the message afterwards yields two irreconcilable
         // `private_tx_hash` values -- whichever one the ring proof commits to, the
-        // other is the one SPP checks. `encrypt` returning a `PendingAuditProof`
+        // other is the one SPP checks. `encrypt` returning a `PendingCustomRingProof`
         // that only `finish` can turn into a witness is what makes the order
         // unforgettable: there is no `private_tx_hash` to supply yet.
         let EncryptedAudit {
-            pending: pending_audit_proof,
+            pending: pending_proof,
             message: auditor_message,
-        } = AuditProofParams {
+        } = CustomRingProofParams {
             tx_viewing_key: tx_viewing_key.clone(),
             auditor_pk,
         }
@@ -262,8 +262,8 @@ impl<'a> CustomRingTransfer<'a> {
         // finished into the proof request over the unchanged ciphertext. The program
         // recomputes that same public-input chain from the payload and the config
         // account.
-        let audit_request = pending_audit_proof.finish(ring_result.private_tx_hash.try_into()?)?;
-        let audit_proof = to_instruction_proof(environment.prover.prove(&audit_request)?)?;
+        let proof_request = pending_proof.finish(ring_result.private_tx_hash.try_into()?)?;
+        let proof = to_instruction_proof(environment.prover.prove(&proof_request)?)?;
 
         Ok(ProvenTransfer {
             tx_viewing_key,
@@ -273,7 +273,7 @@ impl<'a> CustomRingTransfer<'a> {
                 proof: spp_proof,
             }
             .assemble()?,
-            audit_proof,
+            proof,
             owner_signers: proof_inputs.owner_signer_pubkeys()?,
             interface_transfer_accounts: self.interface_transfer_accounts,
             payer,
@@ -285,14 +285,14 @@ impl<'a> CustomRingTransfer<'a> {
 
 impl ProvenTransfer {
     pub fn instruction(&self) -> Result<Instruction, TransferError> {
-        RingTransactWithAudit {
+        CustomRingTransact {
             ring: self.ring,
             payer: self.payer,
             input_tree: self.tree,
             output_tree: self.tree,
             owner_signers: self.owner_signers.clone(),
             interface_transfer_accounts: self.interface_transfer_accounts.clone(),
-            audit_proof: self.audit_proof,
+            proof: self.proof,
             transact: self.data.clone(),
         }
         .instruction()
