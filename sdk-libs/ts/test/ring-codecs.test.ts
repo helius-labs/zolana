@@ -6,6 +6,7 @@ import {
   getAddressEncoder,
   getBase58Decoder,
   getProgramDerivedAddress,
+  generateKeyPairSigner,
   type MessagePartialSigner,
 } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
@@ -43,6 +44,7 @@ import {
   RingReadRequest,
   RingRpc,
   auditorKeyAttestation,
+  auditorKeyRequestAttestation,
   messageSignerReader,
   ringReadAttestation,
 } from "../src/ring/rpc.js";
@@ -234,15 +236,13 @@ describe("ring config", () => {
 });
 
 describe("ring status", () => {
-  it("reads the three states and both keys", async () => {
+  it("reads the state and the config key", async () => {
     const wire = {
       jsonrpc: "2.0",
       id: 1,
       result: {
         ringProgramId: addressOf(7),
         state: "foreignAuditor",
-        auditorPubkey: Buffer.from(hex(P256_HEX)).toString("base64"),
-        auditorViewTag: addressOf(21),
         configAuditorPubkey: Buffer.from(hex(P256_HEX)).toString("base64"),
         servicePubkey: addressOf(22),
       },
@@ -265,8 +265,6 @@ describe("ring status", () => {
           result: {
             ringProgramId: addressOf(7),
             state: "uninitialized",
-            auditorPubkey: Buffer.from(hex(P256_HEX)).toString("base64"),
-            auditorViewTag: addressOf(21),
             servicePubkey: addressOf(22),
           },
         }),
@@ -607,6 +605,18 @@ describe("ring read attestation", () => {
     );
   });
 
+  it("matches the Rust `auditor_key_request_attestation_is_stable` vector", () => {
+    const message = auditorKeyRequestAttestation({
+      genesisHash: filled(9, 32) as Bytes32,
+      ringProgramId: addressOf(5),
+      timestamp: 1_700_000_000n,
+      nonce: filled(7, 32) as Bytes32,
+    });
+    expect(new TextDecoder().decode(message)).toBe(
+      "zolana/ring-rpc-auditor-key-request/v1\ngenesis: cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN\nring: LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\ntimestamp: 1700000000\nnonce: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
+    );
+  });
+
   it("omits limit and cursor as 0 and empty", () => {
     const message = ringReadAttestation({
       ringProgramId: addressOf(7),
@@ -889,9 +899,13 @@ describe("ring read request", () => {
       new TextEncoder().encode("zolana/ring-auditor-key/v1"),
     );
     expect(attestation).toHaveLength(26 + 32 + 33);
+    const authority = await generateKeyPairSigner();
+    const genesisHash = filled(4, 32) as Bytes32;
+    const bodies: Record<string, unknown>[] = [];
     const respond = (signature: Uint8Array) =>
-      (async () =>
-        new Response(
+      (async (_input: URL | string, init?: RequestInit) => {
+        bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return new Response(
           JSON.stringify({
             jsonrpc: "2.0",
             id: 1,
@@ -903,15 +917,61 @@ describe("ring read request", () => {
               signature: getBase58Decoder().decode(signature),
             },
           }),
-        )) as typeof globalThis.fetch;
+        );
+      }) as typeof globalThis.fetch;
     const key = await new RingRpc("http://ring.example", {
       fetch: respond(ed25519.sign(attestation, serviceSecret)),
-    }).createAuditorKey(RING);
+    }).createAuditorKey({
+      ringProgramId: RING,
+      genesisHash,
+      signer: authority,
+      timestamp: 1_700_000_000n,
+    });
     expect(key.auditorPublicKey.equals(auditor)).toBe(true);
     expect(key.auditorViewTag).toEqual(auditor.x());
     expect(key.servicePublicKey).toBe(servicePublicKey);
+
+    const params = bodies[0]?.["params"] as Record<string, unknown>;
+    expect(Object.keys(params).sort()).toEqual(["auth", "ringProgramId"]);
+    expect(params["ringProgramId"]).toBe(RING);
+    const auth = params["auth"] as Record<string, unknown>;
+    expect(Object.keys(auth).sort()).toEqual([
+      "authority",
+      "genesisHash",
+      "nonce",
+      "signature",
+      "timestamp",
+    ]);
+    expect(auth["authority"]).toBe(authority.address);
+    expect(auth["genesisHash"]).toBe(getBase58Decoder().decode(genesisHash));
+    expect(auth["timestamp"]).toBe(1_700_000_000);
+    const nonce = Uint8Array.from(Buffer.from(String(auth["nonce"]), "base64"));
+    expect(nonce).toHaveLength(32);
+    const request = auditorKeyRequestAttestation({
+      genesisHash,
+      ringProgramId: RING,
+      timestamp: 1_700_000_000n,
+      nonce: nonce as Bytes32,
+    });
+    expect(
+      new TextDecoder()
+        .decode(request)
+        .startsWith("zolana/ring-rpc-auditor-key-request/v1\ngenesis: "),
+    ).toBe(true);
+    expect(
+      ed25519.verify(
+        Uint8Array.from(Buffer.from(String(auth["signature"]), "base64")),
+        request,
+        new Uint8Array(getAddressEncoder().encode(authority.address)),
+      ),
+    ).toBe(true);
+
     await expect(
-      new RingRpc("http://ring.example", { fetch: respond(filled(1, 64)) }).createAuditorKey(RING),
+      new RingRpc("http://ring.example", { fetch: respond(filled(1, 64)) }).createAuditorKey({
+        ringProgramId: RING,
+        genesisHash,
+        signer: authority,
+      }),
     ).rejects.toMatchObject({ code: "RING_RPC" });
   });
 });
