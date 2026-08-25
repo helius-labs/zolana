@@ -1,6 +1,7 @@
 export { initializePoseidon, isPoseidonInitialized } from "../hasher/index.js";
 export { WALLET_ERROR_CODES, WalletError, type WalletErrorCode } from "./error.js";
 export {
+  ClientEd25519WalletAuthority,
   KeypairWalletAuthority,
   type AnonymousRecipientSlot,
   type ApprovalRequest,

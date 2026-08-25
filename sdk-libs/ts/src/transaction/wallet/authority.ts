@@ -1,9 +1,14 @@
-import type { Address, Bytes16, Bytes32, MessageData } from "../../interface/types.js";
-import { randomSalt } from "../../keypair/bytes.js";
-import type { NullifierKey } from "../../keypair/nullifier-key.js";
-import type { P256PublicKey } from "../../keypair/public-key.js";
-import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
-import type { ViewingKey } from "../../keypair/viewing-key.js";
+import { ed25519 } from "@noble/curves/ed25519.js";
+import { getAddressEncoder } from "@solana/kit";
+
+import type { Address, Bytes16, Bytes32, Bytes64, MessageData } from "../../interface/types.js";
+import { checkedBytes, randomSalt } from "../../keypair/bytes.js";
+import { ed25519DerivationMessage, roleExpansion } from "../../keypair/derivation.js";
+import { KeypairError } from "../../keypair/error.js";
+import { NullifierKey } from "../../keypair/nullifier-key.js";
+import { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
+import { ShieldedAddress, type ShieldedKeypair } from "../../keypair/shielded.js";
+import { ViewingKey } from "../../keypair/viewing-key.js";
 
 import {
   EncryptedScheme,
@@ -98,6 +103,216 @@ export interface WalletAuthority {
     }>,
   ): Promise<EncryptedSplit>;
   requestUserApproval(request: ApprovalRequest): Promise<void>;
+}
+
+const addressEncoder = getAddressEncoder();
+
+/**
+ * Client-owned privacy roles derived from a deterministic Ed25519 signature
+ * produced by a remote signer.
+ *
+ * This authority contains no Solana signing key. It verifies the derivation
+ * signature, expands the viewing/nullifier roles in this process, and supports
+ * local wallet sync and proof construction. The completed transaction must be
+ * authorized through a separate, typed remote operation.
+ */
+export class ClientEd25519WalletAuthority implements WalletAuthority {
+  readonly #solanaPublicKey: Address;
+  readonly #signingPublicKey: ShieldedPublicKey;
+  readonly #nullifierKey: NullifierKey;
+  readonly #viewingKey: ViewingKey;
+
+  private constructor(
+    solanaPublicKey: Address,
+    signingPublicKey: ShieldedPublicKey,
+    nullifierKey: NullifierKey,
+    viewingKey: ViewingKey,
+  ) {
+    this.#solanaPublicKey = solanaPublicKey;
+    this.#signingPublicKey = signingPublicKey;
+    this.#nullifierKey = nullifierKey;
+    this.#viewingKey = viewingKey;
+  }
+
+  static fromDerivationSeed(
+    input: Readonly<{
+      solanaPublicKey: Address;
+      derivationSeed: Bytes64;
+    }>,
+  ): ClientEd25519WalletAuthority {
+    const publicKey = checkedBytes<Bytes32>(
+      new Uint8Array(addressEncoder.encode(input.solanaPublicKey)),
+      32,
+      "Ed25519 public key",
+    );
+    const seed = checkedBytes<Bytes64>(input.derivationSeed, 64, "Ed25519 derivation seed");
+    const message = ed25519DerivationMessage(publicKey);
+    if (!ed25519.verify(seed, message, publicKey, { zip215: false })) {
+      seed.fill(0);
+      throw new KeypairError("KEYPAIR_INVALID_SECRET_KEY", {
+        type: "ed25519DerivationSeed",
+      });
+    }
+
+    try {
+      const expansion = roleExpansion(seed, "ed25519");
+      const nullifierSecret = expansion.nullifierSecret();
+      const viewingSecret = expansion.viewingSecret();
+      try {
+        return new ClientEd25519WalletAuthority(
+          input.solanaPublicKey,
+          ShieldedPublicKey.fromEd25519(publicKey),
+          NullifierKey.fromSecret(nullifierSecret),
+          ViewingKey.fromBytes(viewingSecret),
+        );
+      } finally {
+        nullifierSecret.fill(0);
+        viewingSecret.fill(0);
+      }
+    } finally {
+      seed.fill(0);
+    }
+  }
+
+  solanaPublicKey(): Address {
+    return this.#solanaPublicKey;
+  }
+
+  shieldedAddress(): Promise<ShieldedAddress> {
+    return Promise.resolve(
+      ShieldedAddress.fromPublicKeys(
+        this.#signingPublicKey,
+        this.#nullifierKey.publicKey(),
+        this.#viewingKey.publicKey(),
+      ),
+    );
+  }
+
+  viewingKeys(): Promise<readonly ViewingKey[]> {
+    return Promise.resolve([this.#copyViewingKey()]);
+  }
+
+  spendNullifierKey(): Promise<NullifierKey> {
+    return Promise.resolve(this.#copyNullifierKey());
+  }
+
+  async syncMaterial(): Promise<WalletSyncMaterial> {
+    return {
+      identity: await this.shieldedAddress(),
+      viewingKeys: [this.#copyViewingKey()],
+      nullifierKey: this.#copyNullifierKey(),
+    };
+  }
+
+  encryptConfidentialTransfer(
+    input: Readonly<{
+      firstNullifier: Bytes32;
+      outputs: readonly ProofOutputUtxo[];
+      assets: AssetRegistry;
+    }>,
+  ): Promise<EncryptedTransfer> {
+    const tx = this.#viewingKey.transactionViewingKey(input.firstNullifier);
+    const salt = randomSalt();
+    return Promise.resolve({
+      txViewingPublicKey: tx.publicKey(),
+      salt,
+      payload: encodeConfidentialSlots(input.outputs, input.assets, tx, salt),
+    });
+  }
+
+  encryptAnonymousTransfer(
+    input: Readonly<{
+      firstNullifier: Bytes32;
+      senderViewTag: Bytes32;
+      sender: AnonymousSenderPlaintext;
+      recipients: readonly AnonymousRecipientSlot[];
+    }>,
+  ): Promise<EncryptedTransfer> {
+    const tx = this.#viewingKey.transactionViewingKey(input.firstNullifier);
+    const salt = randomSalt();
+    const slot = (
+      scheme: EncryptedScheme,
+      recipient: P256PublicKey,
+      plaintext: Uint8Array,
+      slotIndex: number,
+      viewTag: Bytes32,
+    ): MessageData => ({
+      viewTag,
+      data: encodeOutputData(
+        scheme,
+        encryptAnonymous(tx, recipient, plaintext, salt, slotIndex),
+        "encrypted",
+      ),
+    });
+    return Promise.resolve({
+      txViewingPublicKey: tx.publicKey(),
+      salt,
+      payload: [
+        slot(
+          EncryptedScheme.anonymousSender,
+          this.#viewingKey.publicKey(),
+          encodeAnonymousSender(input.sender),
+          0,
+          input.senderViewTag,
+        ),
+        ...input.recipients.map((recipient, index) =>
+          slot(
+            EncryptedScheme.anonymousRecipient,
+            recipient.recipientPublicKey,
+            encodeAnonymousRecipient(recipient.plaintext),
+            index + 1,
+            recipient.viewTag,
+          ),
+        ),
+      ],
+    });
+  }
+
+  encryptSplit(
+    input: Readonly<{
+      firstNullifier: Bytes32;
+      viewTag: Bytes32;
+      bundle: SplitBundlePlaintext;
+    }>,
+  ): Promise<EncryptedSplit> {
+    const tx = this.#viewingKey.transactionViewingKey(input.firstNullifier);
+    const salt = randomSalt();
+    return Promise.resolve({
+      txViewingPublicKey: tx.publicKey(),
+      salt,
+      payload: {
+        viewTag: input.viewTag,
+        data: encodeOutputData(
+          EncryptedScheme.split,
+          encryptSplit(tx, this.#viewingKey.publicKey(), encodeSplitBundle(input.bundle), salt, 0),
+          "encrypted",
+        ),
+      },
+    });
+  }
+
+  requestUserApproval(request: ApprovalRequest): Promise<void> {
+    void request;
+    return Promise.resolve();
+  }
+
+  #copyViewingKey(): ViewingKey {
+    const secret = this.#viewingKey.secretBytes();
+    try {
+      return ViewingKey.fromBytes(secret);
+    } finally {
+      secret.fill(0);
+    }
+  }
+
+  #copyNullifierKey(): NullifierKey {
+    const secret = this.#nullifierKey.secretBytes();
+    try {
+      return NullifierKey.fromSecret(secret);
+    } finally {
+      secret.fill(0);
+    }
+  }
 }
 
 /** Binds a shielded keypair to the Solana address that publishes it. */

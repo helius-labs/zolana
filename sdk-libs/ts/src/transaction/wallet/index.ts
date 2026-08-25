@@ -1,4 +1,5 @@
 export {
+  ClientEd25519WalletAuthority,
   KeypairWalletAuthority,
   type AnonymousRecipientSlot,
   type ApprovalRequest,

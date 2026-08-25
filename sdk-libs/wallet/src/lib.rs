@@ -46,9 +46,9 @@ pub use user_registry::{
     try_resolve_registered_address_async, validate_registered_keypair, P256KeyBindingProof,
 };
 pub use wallet_authority::{
-    AnonymousRecipientSlot, ApprovalRequest, EncryptedEnvelope, EncryptedSplit, EncryptedTransfer,
-    KeypairWalletAuthority, P256Signature, SyncWalletAuthority, WalletAuthority,
-    WalletSyncMaterial,
+    AnonymousRecipientSlot, ApprovalRequest, ClientEd25519WalletAuthority, EncryptedEnvelope,
+    EncryptedSplit, EncryptedTransfer, KeypairWalletAuthority, P256Signature, SyncWalletAuthority,
+    WalletAuthority, WalletSyncMaterial,
 };
 pub use wallet_sync::{
     get_private_token_balances, get_private_transactions, sync_wallet, sync_wallet_async,

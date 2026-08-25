@@ -2,9 +2,10 @@ use async_trait::async_trait;
 use solana_address::Address;
 use zolana_event::MessageData;
 use zolana_keypair::{
+    derivation,
     shielded::{ShieldedAddress, ShieldedKeypair},
     viewing_key::{random_salt, Salt, ViewTag},
-    NullifierKey, P256Pubkey, ShieldedKeypairTrait, ViewingKey, ViewingKeyTrait,
+    Curve, NullifierKey, P256Pubkey, PublicKey, ShieldedKeypairTrait, ViewingKey, ViewingKeyTrait,
 };
 
 use crate::{
@@ -268,6 +269,57 @@ pub struct KeypairWalletAuthority<'a, K = ShieldedKeypair> {
     viewing_keys: Vec<ViewingKey>,
 }
 
+/// Client-owned privacy roles derived from a remote Ed25519 signer.
+///
+/// The authority never contains the Solana signing key. It verifies the
+/// deterministic derivation signature returned by the signer, expands the
+/// nullifier and viewing roles locally, and supplies those roles to wallet
+/// sync, transaction construction, and the prover. The final Solana
+/// transaction must be authorized separately by the remote signer.
+///
+/// This split is useful for a remote-custody wallet: the custodian can produce
+/// the fixed derivation signature and later authorize a constrained
+/// transaction, while indexer and prover calls remain in the client.
+pub struct ClientEd25519WalletAuthority {
+    solana_pubkey: Address,
+    signing_pubkey: PublicKey,
+    nullifier_key: NullifierKey,
+    viewing_key: ViewingKey,
+}
+
+impl ClientEd25519WalletAuthority {
+    /// Verifies and consumes an Ed25519 derivation seed produced for
+    /// `solana_pubkey`.
+    ///
+    /// The seed is the 64-byte Ed25519 signature over the canonical Zolana
+    /// derivation message. It is not retained after the nullifier and viewing
+    /// roles have been expanded. The caller remains responsible for clearing
+    /// its own seed buffer after this returns.
+    pub fn from_derivation_seed(
+        solana_pubkey: impl Into<Address>,
+        derivation_seed: &[u8; derivation::ED25519_SEED_LEN],
+    ) -> Result<Self, TransactionError> {
+        let solana_pubkey = solana_pubkey.into();
+        let ed25519_pubkey = *solana_pubkey.as_array();
+        let signing_pubkey = PublicKey::from_ed25519(&ed25519_pubkey);
+        let message = derivation::ed25519_derivation_message(&ed25519_pubkey);
+        if !signing_pubkey.verify_message(&message, derivation_seed) {
+            return Err(TransactionError::Authority(
+                "invalid Ed25519 derivation seed".to_owned(),
+            ));
+        }
+
+        let (nullifier_key, viewing_key) =
+            derivation::expand_roles(derivation_seed, Curve::Ed25519)?;
+        Ok(Self {
+            solana_pubkey,
+            signing_pubkey,
+            nullifier_key,
+            viewing_key,
+        })
+    }
+}
+
 impl<'a> KeypairWalletAuthority<'a, ShieldedKeypair> {
     /// Scans with the keypair's own viewing key. Use
     /// [`Self::with_viewing_keys`] to add rotated-out keys, or for a backend
@@ -438,6 +490,66 @@ fn sign_p256_with<K: ShieldedKeypairTrait>(
     })
 }
 
+impl SyncWalletAuthority for ClientEd25519WalletAuthority {
+    fn solana_pubkey(&self) -> Address {
+        self.solana_pubkey
+    }
+
+    fn shielded_address(&self) -> Result<ShieldedAddress, TransactionError> {
+        Ok(ShieldedAddress {
+            signing_pubkey: self.signing_pubkey,
+            nullifier_pubkey: self.nullifier_key.pubkey()?,
+            viewing_pubkey: self.viewing_key.pubkey(),
+        })
+    }
+
+    fn viewing_keys(&self) -> Result<Vec<ViewingKey>, TransactionError> {
+        Ok(vec![self.viewing_key.clone()])
+    }
+
+    fn encrypt_confidential_transfer(
+        &self,
+        first_nullifier: &[u8; 32],
+        outputs: &[SppProofOutputUtxo],
+        assets: &AssetRegistry,
+    ) -> Result<EncryptedTransfer, TransactionError> {
+        encrypt_confidential_transfer_with(&self.viewing_key, first_nullifier, outputs, assets)
+    }
+
+    fn encrypt_anonymous_transfer(
+        &self,
+        first_nullifier: &[u8; 32],
+        sender_view_tag: ViewTag,
+        sender: &AnonymousTransferSenderPlaintext,
+        recipients: &[AnonymousRecipientSlot],
+    ) -> Result<EncryptedTransfer, TransactionError> {
+        encrypt_anonymous_transfer_with(
+            &self.viewing_key,
+            first_nullifier,
+            sender_view_tag,
+            sender,
+            recipients,
+        )
+    }
+
+    fn encrypt_split(
+        &self,
+        first_nullifier: &[u8; 32],
+        view_tag: ViewTag,
+        bundle: &SplitBundlePlaintext,
+    ) -> Result<EncryptedSplit, TransactionError> {
+        encrypt_split_with(&self.viewing_key, first_nullifier, view_tag, bundle)
+    }
+
+    fn sign_p256(&self, _message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError> {
+        Err(TransactionError::P256TransactUnsupported)
+    }
+
+    fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError> {
+        Ok(self.nullifier_key.clone())
+    }
+}
+
 impl<K: ShieldedKeypairTrait + ViewingKeyTrait + Sync> SyncWalletAuthority
     for KeypairWalletAuthority<'_, K>
 {
@@ -546,5 +658,101 @@ impl SyncWalletAuthority for ShieldedKeypair {
 
     fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError> {
         Ok(self.nullifier_key.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zolana_keypair::SigningKey;
+
+    fn authority_fixture() -> (
+        ShieldedKeypair,
+        ClientEd25519WalletAuthority,
+        [u8; derivation::ED25519_SEED_LEN],
+    ) {
+        let signing_key = SigningKey::from_ed25519_bytes(&[42; 32]);
+        let solana_pubkey = Address::new_from_array(
+            signing_key
+                .pubkey()
+                .as_ed25519()
+                .expect("fixture is Ed25519"),
+        );
+        let seed: [u8; derivation::ED25519_SEED_LEN] = signing_key
+            .derivation_seed()
+            .expect("derive fixture seed")
+            .as_slice()
+            .try_into()
+            .expect("Ed25519 seed has fixed width");
+        let software = ShieldedKeypair::from_keypair(signing_key).expect("build software keypair");
+        let client = ClientEd25519WalletAuthority::from_derivation_seed(solana_pubkey, &seed)
+            .expect("build client authority");
+        (software, client, seed)
+    }
+
+    #[test]
+    fn derivation_seed_reproduces_the_software_identity() {
+        let (software, client, _) = authority_fixture();
+
+        assert_eq!(
+            SyncWalletAuthority::shielded_address(&client).expect("client address"),
+            software.shielded_address().expect("software address")
+        );
+        assert_eq!(
+            SyncWalletAuthority::spend_nullifier_key(&client)
+                .expect("client nullifier key")
+                .secret(),
+            software.nullifier_key.secret()
+        );
+        assert_eq!(
+            SyncWalletAuthority::viewing_keys(&client).expect("client viewing key")[0]
+                .secret_bytes(),
+            software.viewing_key.secret_bytes()
+        );
+    }
+
+    #[test]
+    fn derivation_seed_is_bound_to_the_solana_public_key() {
+        let (_, _, mut seed) = authority_fixture();
+        seed[0] ^= 1;
+
+        let error = ClientEd25519WalletAuthority::from_derivation_seed(
+            Address::new_from_array(
+                SigningKey::from_ed25519_bytes(&[42; 32])
+                    .pubkey()
+                    .as_ed25519()
+                    .expect("fixture is Ed25519"),
+            ),
+            &seed,
+        )
+        .err()
+        .expect("mutated seed must fail");
+
+        assert_eq!(
+            error,
+            TransactionError::Authority("invalid Ed25519 derivation seed".to_owned())
+        );
+    }
+
+    #[test]
+    fn client_authority_exposes_sync_material_but_no_signer() {
+        let (_, client, _) = authority_fixture();
+        let material = SyncWalletAuthority::sync_material(&client).expect("sync material");
+
+        assert_eq!(
+            material.identity.solana_address().unwrap(),
+            SyncWalletAuthority::solana_pubkey(&client)
+        );
+        assert_eq!(material.viewing_keys.len(), 1);
+        assert_eq!(
+            material.nullifier_key.secret(),
+            SyncWalletAuthority::spend_nullifier_key(&client)
+                .unwrap()
+                .secret()
+        );
+        assert_eq!(
+            SyncWalletAuthority::sign_p256(&client, &[0; 32]),
+            Err(TransactionError::P256TransactUnsupported)
+        );
     }
 }
