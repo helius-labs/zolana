@@ -28,9 +28,6 @@ pub fn field_u64(value: u64) -> [u8; 32] {
     right_align(&value.to_be_bytes())
 }
 
-// The blinding is the account version: 0 on create, incremented by one on
-// every update. A changing blinding keeps every state UTXO commitment unique
-// even when the value repeats, so the nullifier never collides.
 pub fn version_blinding(version: u64) -> [u8; 32] {
     field_u64(version)
 }
@@ -65,8 +62,6 @@ impl PdaOwner {
         ])
     }
 
-    // The compressed address is the nullifier of the address UTXO: unique per
-    // PDA and provably consumed once, on create.
     pub fn address(&self) -> Result<[u8; 32], ProgramError> {
         nullifier(&self.address_utxo_hash()?, &self.address_seed)
     }
@@ -108,11 +103,6 @@ impl AccountState {
         Ok(bytes)
     }
 
-    // The example's custom output payload is the account state itself, whose
-    // version is also the blinding; owner, asset, and amount are fixed by the
-    // program and not published. The state is wrapped in the protocol's
-    // `OutputDataEncoding::Plaintext(Vec<u8>)` Borsh envelope so wallets can
-    // still classify the output.
     pub fn to_output_data(&self) -> Result<Vec<u8>, ProgramError> {
         let mut payload = Vec::with_capacity(1 + 4 + STATE_DATA_LEN);
         payload.push(OUTPUT_DATA_PLAINTEXT);
