@@ -435,7 +435,7 @@ _test-ts-live test-script: build-programs build-prover-server build-cli ensure-p
     TOML
     cargo run -q -p zolana-ring-rpc -- keygen --out "$ring_dir/auditor.key"
     cargo run -q -p custom-ring-cli -- --config "$ring_dir/ring.toml" \
-      init --auditor-pubkey-file "$ring_dir/auditor.key.pub"
+      init --auditor-pubkey-file "auditor.key.pub"
     # Reads are grant only, the ring authority included.
     cargo run -q -p custom-ring-cli -- --config "$ring_dir/ring.toml" \
       reader grant "$ring_authority"
