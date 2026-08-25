@@ -95,7 +95,7 @@ fn a_remote_keypair_backend_is_a_wallet_authority() {
     cases::remote_authority::remote_backend_encrypts_with_the_same_transaction_key();
     cases::remote_authority::historical_viewing_keys_are_carried_through();
     cases::remote_authority::viewing_keys_must_contain_the_keypairs_own();
-    cases::remote_authority::remote_backend_refuses_derivation_shaped_payloads();
+    cases::remote_authority::derivation_shaped_payloads_are_refused_before_signing();
 }
 
 #[test]

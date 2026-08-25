@@ -166,6 +166,14 @@ pub enum TransactionError {
     #[error("viewing keys do not include the keypair's own, so this authority would encrypt to one key and scan with another")]
     AuthorityViewingKeyMismatch,
 
+    /// The seed is the right width but is not a valid signature over the
+    /// canonical derivation message for this key, so it cannot be the seed this
+    /// wallet's roles expand from. Distinct from
+    /// [`zolana_keypair::KeypairError::InvalidDerivationSeed`], which is a
+    /// wrong-width seed.
+    #[error("derivation seed is not a valid signature over the derivation message for this key")]
+    InvalidDerivationSeed,
+
     #[error("wallet authority error: {0}")]
     Authority(String),
 }

@@ -304,9 +304,7 @@ impl ClientEd25519WalletAuthority {
         let signing_pubkey = PublicKey::from_ed25519(&ed25519_pubkey);
         let message = derivation::ed25519_derivation_message(&ed25519_pubkey);
         if !signing_pubkey.verify_message(&message, derivation_seed) {
-            return Err(TransactionError::Authority(
-                "invalid Ed25519 derivation seed".to_owned(),
-            ));
+            return Err(TransactionError::InvalidDerivationSeed);
         }
 
         let (nullifier_key, viewing_key) =
@@ -741,10 +739,7 @@ mod tests {
         .err()
         .expect("mutated seed must fail");
 
-        assert_eq!(
-            error,
-            TransactionError::Authority("invalid Ed25519 derivation seed".to_owned())
-        );
+        assert_eq!(error, TransactionError::InvalidDerivationSeed);
     }
 
     #[test]

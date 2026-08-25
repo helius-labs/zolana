@@ -1,32 +1,28 @@
 //! Local verification for proofs returned by a prover service.
 
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
-use zolana_interface::verifying_keys::{
-    transfer_confidential_1_1, transfer_confidential_1_2, transfer_confidential_1_8,
-    transfer_confidential_2_2, transfer_confidential_2_3, transfer_confidential_3_3,
-    transfer_confidential_4_3, transfer_confidential_4_4, transfer_confidential_5_3,
-    transfer_confidential_5_4,
-};
+use zolana_interface::{verifying_keys::CircuitId, N_PUBLIC_SLOTS};
 
 use crate::{ClientError, Proof, TransferInputs, TransferProofResult};
 
+/// Resolved through [`CircuitId::verifying_key`], which the on-chain verifier
+/// dispatches on too. A local shape-to-key table here would be a second place
+/// to update when a shape is added, and a client that verified against a
+/// different key than the program would accept a proof the chain rejects.
 fn confidential_verifying_key(
     n_inputs: usize,
     n_outputs: usize,
 ) -> Result<&'static Groth16Verifyingkey<'static>, ClientError> {
-    match (n_inputs, n_outputs) {
-        (1, 1) => Ok(&transfer_confidential_1_1::VERIFYINGKEY),
-        (1, 2) => Ok(&transfer_confidential_1_2::VERIFYINGKEY),
-        (1, 8) => Ok(&transfer_confidential_1_8::VERIFYINGKEY),
-        (2, 2) => Ok(&transfer_confidential_2_2::VERIFYINGKEY),
-        (2, 3) => Ok(&transfer_confidential_2_3::VERIFYINGKEY),
-        (3, 3) => Ok(&transfer_confidential_3_3::VERIFYINGKEY),
-        (4, 3) => Ok(&transfer_confidential_4_3::VERIFYINGKEY),
-        (4, 4) => Ok(&transfer_confidential_4_4::VERIFYINGKEY),
-        (5, 3) => Ok(&transfer_confidential_5_3::VERIFYINGKEY),
-        (5, 4) => Ok(&transfer_confidential_5_4::VERIFYINGKEY),
-        (n_in, n_out) => Err(ClientError::UnsupportedShape { n_in, n_out }),
-    }
+    let shape_err = || ClientError::UnsupportedShape {
+        n_in: n_inputs,
+        n_out: n_outputs,
+    };
+    let n_in = u8::try_from(n_inputs).map_err(|_| shape_err())?;
+    let n_out = u8::try_from(n_outputs).map_err(|_| shape_err())?;
+    let slots = u8::try_from(N_PUBLIC_SLOTS).map_err(|_| shape_err())?;
+    CircuitId::ConfidentialEddsa(n_in, n_out, slots)
+        .verifying_key()
+        .ok_or_else(shape_err)
 }
 
 /// Verify a default-ring Ed25519 transfer proof against the committed

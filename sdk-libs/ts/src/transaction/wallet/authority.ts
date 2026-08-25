@@ -8,10 +8,10 @@ import {
   ed25519DerivationMessage,
   roleExpansion,
 } from "../../keypair/derivation.js";
-import { KeypairError } from "../../keypair/error.js";
 import { NullifierKey } from "../../keypair/nullifier-key.js";
 import { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
 import { ShieldedAddress, type ShieldedKeypair } from "../../keypair/shielded.js";
+import { TransactionError } from "../error.js";
 import { ViewingKey } from "../../keypair/viewing-key.js";
 
 import {
@@ -153,9 +153,10 @@ export class ClientEd25519WalletAuthority implements WalletAuthority {
     const message = ed25519DerivationMessage(publicKey);
     if (!ed25519.verify(seed, message, publicKey, { zip215: false })) {
       seed.fill(0);
-      throw new KeypairError("KEYPAIR_INVALID_SECRET_KEY", {
-        type: "ed25519DerivationSeed",
-      });
+      // Mirrors Rust `TransactionError::InvalidDerivationSeed`. The seed is the
+      // right width but is not a signature over this key's derivation message,
+      // which is a different failure from a wrong-width seed.
+      throw new TransactionError("TRANSACTION_INVALID_DERIVATION_SEED");
     }
 
     try {

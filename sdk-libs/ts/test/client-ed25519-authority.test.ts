@@ -60,8 +60,8 @@ describe("ClientEd25519WalletAuthority", () => {
       }),
     ).toThrowError(
       expect.objectContaining({
-        name: "KeypairError",
-        code: "KEYPAIR_INVALID_SECRET_KEY",
+        name: "TransactionError",
+        code: "TRANSACTION_INVALID_DERIVATION_SEED",
       }),
     );
   });
