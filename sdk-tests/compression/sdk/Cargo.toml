@@ -1,0 +1,19 @@
+[package]
+name = "compression-example-sdk"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+borsh = { workspace = true }
+compression-example-program = { path = "../program" }
+num-bigint = { workspace = true }
+solana-address = { workspace = true }
+solana-instruction = { workspace = true }
+wincode = { workspace = true }
+zolana-client = { workspace = true, features = ["indexer-api"] }
+zolana-hasher = { workspace = true, features = ["poseidon"] }
+zolana-interface = { workspace = true }
+zolana-keypair = { workspace = true }
+zolana-transaction = { workspace = true }
