@@ -100,12 +100,20 @@ const PROGRAM_SOURCES: [ProgramSource; 3] = [
     },
 ];
 
+/// Deployed per ring under its own id, not a `programs` entry.
+const RING_PROGRAM_SOURCE: ProgramSource = ProgramSource {
+    role: "ring_program",
+    file: "custom_ring_program.so",
+    asset_stem: "custom-ring-program",
+};
+
 pub fn run(options: Options) -> Result<()> {
     let (os, arch) = current_platform()?;
 
     // Fail early with actionable guidance if any source artifact is missing.
     let program_paths = PROGRAM_SOURCES
         .iter()
+        .chain([&RING_PROGRAM_SOURCE])
         .map(|source| {
             let path = options.deploy_dir.join(source.file);
             require_file(
@@ -128,15 +136,21 @@ pub fn run(options: Options) -> Result<()> {
     tar_gz(&accounts_dir, &accounts_archive)?;
 
     let mut programs_json = Vec::new();
+    let mut ring_program_json = Value::Null;
     for (source, path) in &program_paths {
         let asset = format!("{}-{}.so", source.asset_stem, options.tag);
         let staged = stage_file(path, &staging.join(&asset))?;
-        programs_json.push(json!({
-            "role": source.role,
+        let mut entry = json!({
             "asset": asset,
             "size": staged.size,
             "sha256": staged.sha256,
-        }));
+        });
+        if source.role == RING_PROGRAM_SOURCE.role {
+            ring_program_json = entry;
+        } else {
+            entry["role"] = json!(source.role);
+            programs_json.push(entry);
+        }
     }
 
     let accounts_staged = checksum_file(&accounts_archive)?;
@@ -154,6 +168,7 @@ pub fn run(options: Options) -> Result<()> {
         "surfpool_tag": surfpool_tag,
         "surfpool_version": surfpool_version,
         "programs": programs_json,
+        "ring_program": ring_program_json,
         "accounts": accounts_json,
         "binaries": binaries_json,
     });
@@ -219,12 +234,7 @@ fn build_binaries(options: &Options, staging: &Path, host: (&str, &str)) -> Resu
     Ok(out)
 }
 
-/// Build the `zolana` and `zolana-ring` binaries for each target and stage
-/// them. `zolana` embeds the lockfile written above, `zolana-ring` follows the
-/// same no-lock-entry treatment. Called AFTER the
-/// lockfile is regenerated so the binary embeds the final lockfile (the CLI
-/// itself is therefore not a lockfile entry -- that would be circular). Returns
-/// the staged asset paths to upload alongside the lockfile-tracked assets.
+/// Both binaries embed the lockfile, so they are built after it and are not entries in it.
 fn build_cli_binaries(
     options: &Options,
     staging: &Path,
@@ -527,8 +537,10 @@ fn staged_asset_paths(staging: &Path, lock: &Value) -> Vec<PathBuf> {
     if let Some(programs) = lock.get("programs").and_then(Value::as_array) {
         names.extend(programs.iter().filter_map(asset_name));
     }
-    if let Some(name) = lock.get("accounts").and_then(asset_name) {
-        names.push(name);
+    for key in ["ring_program", "accounts"] {
+        if let Some(name) = lock.get(key).and_then(asset_name) {
+            names.push(name);
+        }
     }
     if let Some(binaries) = lock.get("binaries").and_then(Value::as_array) {
         names.extend(binaries.iter().filter_map(asset_name));
@@ -734,6 +746,7 @@ mod tests {
             "surfpool_tag": "s",
             "surfpool_version": "1",
             "programs": [{"role": "shielded_pool", "asset": "a.so", "size": 1, "sha256": "x"}],
+            "ring_program": {"asset": "ring.so", "size": 1, "sha256": "x"},
             "accounts": {"asset": "accounts.tar.gz", "size": 1, "sha256": "x"},
             "binaries": [{
                 "role": "prover", "os": "linux", "arch": "x64",
@@ -744,11 +757,10 @@ mod tests {
         for key in ["role", "asset", "size", "sha256"] {
             assert!(program.get(key).is_some(), "program missing {key}");
         }
-        for key in ["asset", "size", "sha256"] {
-            assert!(
-                lock["accounts"].get(key).is_some(),
-                "accounts missing {key}"
-            );
+        for section in ["ring_program", "accounts"] {
+            for key in ["asset", "size", "sha256"] {
+                assert!(lock[section].get(key).is_some(), "{section} missing {key}");
+            }
         }
         let binary = &lock["binaries"][0];
         for key in ["role", "os", "arch", "asset", "size", "sha256"] {
@@ -760,6 +772,7 @@ mod tests {
     fn staged_asset_paths_lists_every_asset() {
         let lock = json!({
             "programs": [{"asset": "a.so"}, {"asset": "b.so"}],
+            "ring_program": {"asset": "ring.so"},
             "accounts": {"asset": "accounts.tar.gz"},
             "binaries": [{"asset": "prover"}, {"asset": "photon"}],
         });
@@ -770,7 +783,14 @@ mod tests {
             .collect();
         assert_eq!(
             names,
-            ["a.so", "b.so", "accounts.tar.gz", "prover", "photon"]
+            [
+                "a.so",
+                "b.so",
+                "ring.so",
+                "accounts.tar.gz",
+                "prover",
+                "photon"
+            ]
         );
     }
 }
