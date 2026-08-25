@@ -228,8 +228,8 @@ describe("ring flow", () => {
     }
     expect(audited).toBeDefined();
     // The 3x deposit is the covering note, the change slot keeps 2x.
-    const amounts = [...(audited?.outputs.map((output) => output.amount) ?? [])].sort(
-      (a, b) => (a < b ? -1 : 1),
+    const amounts = [...(audited?.outputs.map((output) => output.amount) ?? [])].sort((a, b) =>
+      a < b ? -1 : 1,
     );
     expect(amounts).toEqual([amount, amount * 2n]);
     expect(audited?.outputs.map((output) => output.ringProgramId)).toEqual([
