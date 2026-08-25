@@ -1,11 +1,12 @@
 use std::time::Duration;
 
+use solana_address::Address;
 use solana_signature::Signature;
 use thiserror::Error;
 use zolana_ring_client::ReaderKey;
 
 use crate::{
-    api::{ReadAttestation, ReadAuth, WebAuthnAssertion},
+    api::{AuditorKeyAttestation, AuthorityAuth, ReadAttestation, ReadAuth, WebAuthnAssertion},
     origins::Origins,
     webauthn,
 };
@@ -53,6 +54,85 @@ pub enum Unauthorized {
     InvalidNonce,
     #[error("read nonce was already accepted")]
     Replay,
+    #[error("request names another cluster")]
+    ClusterMismatch,
+    #[error("signer is neither the program upgrade authority nor the config authority")]
+    NotRingAuthority,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
+pub struct AuthorityClaim {
+    authority: Address,
+    nonce: [u8; 32],
+}
+
+#[must_use]
+pub struct AuthorityCheck<'a> {
+    auth: &'a AuthorityAuth,
+    attestation: &'a AuditorKeyAttestation<'a>,
+}
+
+#[must_use]
+pub struct TimedAuthorityCheck<'a> {
+    auth: &'a AuthorityAuth,
+    now: u64,
+    attestation: &'a AuditorKeyAttestation<'a>,
+}
+
+impl AuthorityClaim {
+    pub fn authority(self) -> Address {
+        self.authority
+    }
+
+    pub fn nonce(self) -> [u8; 32] {
+        self.nonce
+    }
+}
+
+impl<'a> AuthorityCheck<'a> {
+    pub fn new(auth: &'a AuthorityAuth, attestation: &'a AuditorKeyAttestation<'a>) -> Self {
+        Self { auth, attestation }
+    }
+
+    pub fn at(self, now: u64) -> TimedAuthorityCheck<'a> {
+        TimedAuthorityCheck {
+            auth: self.auth,
+            now,
+            attestation: self.attestation,
+        }
+    }
+}
+
+impl TimedAuthorityCheck<'_> {
+    /// The attestation carries the service genesis hash, the explicit compare only names the error.
+    pub fn decide(self) -> Result<AuthorityClaim, Unauthorized> {
+        if self.now.abs_diff(self.auth.timestamp) > READ_SKEW.as_secs() {
+            return Err(Unauthorized::StaleTimestamp);
+        }
+        if self.auth.genesis_hash.0 != *self.attestation.genesis_hash {
+            return Err(Unauthorized::ClusterMismatch);
+        }
+        let nonce: [u8; 32] = self
+            .auth
+            .nonce
+            .0
+            .as_slice()
+            .try_into()
+            .map_err(|_| Unauthorized::InvalidNonce)?;
+        let signature: [u8; 64] = self
+            .auth
+            .signature
+            .0
+            .as_slice()
+            .try_into()
+            .map_err(|_| Unauthorized::BadSignature)?;
+        let authority = self.auth.authority.0;
+        Signature::from(signature)
+            .verify(authority.as_ref(), &self.attestation.bytes())
+            .then_some(AuthorityClaim { authority, nonce })
+            .ok_or(Unauthorized::BadSignature)
+    }
 }
 
 #[must_use]
