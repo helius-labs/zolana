@@ -360,7 +360,7 @@ describe("ring transact", () => {
       payer: PAYER,
       inputTree: TREE,
       outputTree: OUTPUT_TREE,
-      auditProof: Uint8Array.from([
+      proof: Uint8Array.from([
         ...filled(51, 32),
         ...filled(52, 64),
         ...filled(53, 32),
@@ -391,13 +391,13 @@ describe("ring transact", () => {
     expect(tail).toEqual([SOL_INTERFACE, recipient]);
   });
 
-  it("wraps the pool's account list and data like Rust `RingTransactWithAudit`", async () => {
+  it("wraps the pool's account list and data like Rust `CustomRingTransact`", async () => {
     const instruction = await ringTransactInstruction({
       ringProgramId: RING,
       payer: PAYER,
       inputTree: TREE,
       outputTree: OUTPUT_TREE,
-      auditProof: Uint8Array.from([
+      proof: Uint8Array.from([
         ...filled(51, 32),
         ...filled(52, 64),
         ...filled(53, 32),

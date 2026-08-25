@@ -18,7 +18,7 @@ import type {
   Transaction,
   TransactInstructionData,
 } from "../interface/types.js";
-import { auditPublicInputHash, parseAuditorMessage } from "../keypair/audit.js";
+import { customRingPublicInputHash, parseAuditorMessage } from "../keypair/audit.js";
 import type { P256PublicKey } from "../keypair/public-key.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
 import { ViewingKey } from "../keypair/viewing-key.js";
@@ -89,7 +89,7 @@ export interface CustomRingTransferParams {
 /** Mirrors Rust `ProvenTransfer`. */
 export interface ProvenRingTransfer {
   readonly data: TransactInstructionData;
-  readonly auditProof: Uint8Array;
+  readonly proof: Uint8Array;
   readonly txViewingPublicKey: P256PublicKey;
   readonly payer: Address;
   readonly tree: Address;
@@ -141,7 +141,7 @@ export async function buildRingTransferTransaction(
         payer: proven.payer,
         inputTree: proven.tree,
         outputTree: proven.tree,
-        auditProof: proven.auditProof,
+        proof: proven.proof,
         data: proven.data,
       }),
       fetchRingLookupTable({
@@ -182,7 +182,7 @@ export async function buildRingTransferTransaction(
 
 /**
  * Value leaves the ring to a plain Solana account. The recipient, the amount
- * and the asset are public, and the audit proof still covers the exit.
+ * and the asset are public, and the custom-ring proof still covers the exit.
  */
 export async function buildRingWithdrawalTransaction(
   input: RingWithdrawalTransactionParams,
@@ -231,7 +231,7 @@ export async function buildRingWithdrawalTransaction(
         payer: proven.payer,
         inputTree: proven.tree,
         outputTree: proven.tree,
-        auditProof: proven.auditProof,
+        proof: proven.proof,
         data: proven.data,
         withdrawal: { kind: "sol", recipient: input.recipient },
       }),
@@ -308,9 +308,9 @@ export async function proveCustomRingTransfer(
       undefined,
       context,
     );
-    const auditProof = await input.client.proveCustomRing(
+    const proof = await input.client.proveCustomRing(
       {
-        publicInputHash: auditPublicInputHash({
+        publicInputHash: customRingPublicInputHash({
           privateTxHash: data.privateTxHash,
           txViewingPublicKey: encrypted.txViewingPublicKey,
           auditorPublicKey: config.auditorPublicKey,
@@ -325,7 +325,7 @@ export async function proveCustomRingTransfer(
     );
     return Object.freeze({
       data,
-      auditProof,
+      proof,
       txViewingPublicKey: encrypted.txViewingPublicKey,
       payer: prepared.payer,
       tree: input.tree,

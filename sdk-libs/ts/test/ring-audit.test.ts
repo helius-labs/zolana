@@ -4,7 +4,7 @@ import { P256PublicKey } from "../src/keypair/public-key.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
 import type { Bytes32, Bytes33 } from "../src/interface/types.js";
 import {
-  auditPublicInputHash,
+  customRingPublicInputHash,
   auditSharedSecret,
   auditorMessageData,
   decryptTransactionViewingSecret,
@@ -75,7 +75,7 @@ describe("ring audit encryption", () => {
 
   it("hashes the public input like the ring program", () => {
     expect(
-      auditPublicInputHash({
+      customRingPublicInputHash({
         privateTxHash: PRIVATE_TX_HASH,
         txViewingPublicKey: P256PublicKey.fromBytes(TX_PK),
         auditorPublicKey: P256PublicKey.fromBytes(AUDITOR_PK),

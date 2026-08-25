@@ -81,8 +81,8 @@ export interface AssembledTransfer {
   withProof(proof: TransactProof): TransactInstructionData;
 }
 
-/** Mirrors Rust `AuditProofRequest`, `auditorPublicKey` is the uncompressed SEC1 point. */
-export interface AuditProofRequest {
+/** Mirrors Rust `CustomRingProofRequest`, `auditorPublicKey` is the uncompressed SEC1 point. */
+export interface CustomRingProofRequest {
   readonly publicInputHash: Bytes32;
   readonly privateTxHash: Bytes32;
   readonly txViewingSecret: Bytes32;
@@ -105,7 +105,7 @@ export interface CompressedProof {
   readonly commitment?: Bytes32;
   readonly commitmentPok?: Bytes32;
   toTransactProof(): TransactProof;
-  /** `a(32) || b(64) || c(32) || commitment(32) || commitmentPok(32)`, Rust `AuditProof`. */
+  /** `a(32) || b(64) || c(32) || commitment(32) || commitmentPok(32)`, Rust `CustomRingProof`. */
   toCustomRingProof(): Uint8Array;
 }
 

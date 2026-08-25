@@ -48,7 +48,7 @@ import { assemble } from "./prover/assembly.js";
 import { ProverClient, type AsyncPollConfig, type ProverHealth } from "./prover/client.js";
 import { assembleMerge } from "./prover/merge.js";
 import { compressProof } from "./prover/proof.js";
-import type { AuditProofRequest } from "./prover/types.js";
+import type { CustomRingProofRequest } from "./prover/types.js";
 import {
   DEFAULT_INDEXER_RPC_CONFIG,
   indexerPollTimeout,
@@ -582,7 +582,10 @@ export class ZolanaClient {
     }
   }
 
-  async proveCustomRing(inputs: AuditProofRequest, context?: RequestContext): Promise<Uint8Array> {
+  async proveCustomRing(
+    inputs: CustomRingProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array> {
     try {
       const proof = await this.#prover.proveCustomRing(inputs, context);
       return compressProof(proof).toCustomRingProof();
