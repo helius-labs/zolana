@@ -10,8 +10,8 @@ use zolana_ring_client::auditor_view_tag;
 use zolana_ring_rpc::{
     auditor_key_attestation, CreateAuditorKeyRequest, CreateAuditorKeyResponse,
     DecryptedTransaction, GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse,
-    ReadBuildError, RingState, RingStatusRequest, RingStatusResponse, SkippedReason,
-    CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, RING_STATUS,
+    ReadBuildError, RequestBuildError, RingState, RingStatusRequest, RingStatusResponse,
+    SkippedReason, CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, RING_STATUS,
 };
 
 use crate::{
@@ -44,8 +44,7 @@ pub struct TransactionLookup<'a> {
 }
 
 /// `authority` is the upgrade authority or, once the config exists, the config authority.
-#[derive(Clone, Copy)]
-pub struct AuditorKeyLookup<'a> {
+pub struct AuditorKeyRelease<'a> {
     pub ring: Address,
     pub genesis_hash: [u8; 32],
     pub authority: &'a dyn Signer,
@@ -79,13 +78,14 @@ pub enum RingRpcClientError {
     PinMismatch { pinned: Address, actual: Address },
     #[error("ring.toml pins no ring rpc service key, the rpc signs with {service_pubkey}. Put it in ring_rpc_pubkey after confirming it out of band, or pass --trust-ring-rpc for a local instance")]
     Unpinned { service_pubkey: Address },
-    #[error("the ring rpc at {url} holds another auditor key for this ring than the one its config names ({}). A config fixes its auditor when it is created, so this service can never open the ring. Serve the ring from a ring rpc holding its key, or deploy a new ring", expected_tag.as_ref().map_or_else(|| "unknown".to_owned(), ToString::to_string))]
-    ForeignAuditor {
-        url: String,
-        expected_tag: Option<Hash>,
-    },
+    #[error("the ring rpc at {url} holds another auditor key for this ring than the one its config names ({expected_tag}). A config fixes its auditor when it is created, so this service can never open the ring. Serve the ring from a ring rpc holding its key, or deploy a new ring")]
+    ForeignAuditor { url: String, expected_tag: Hash },
+    #[error("the ring has no config yet, run `zolana-ring init` before `transact`")]
+    NotInitialized,
     #[error(transparent)]
     Read(#[from] ReadBuildError),
+    #[error(transparent)]
+    Request(#[from] RequestBuildError),
     #[error("ring rpc could not open {signature}, {reason:?}")]
     Skipped {
         signature: Signature,
@@ -119,13 +119,19 @@ pub fn run_check(ctx: &Context) -> Result<(), RingRpcClientError> {
         RingState::ForeignAuditor => {
             return Err(RingRpcClientError::ForeignAuditor {
                 url,
-                expected_tag: status
-                    .config_auditor_pubkey
-                    .map(|key| Hash(auditor_view_tag(key.as_key()))),
+                expected_tag: config_view_tag(&status),
             });
         }
     }
     Ok(())
+}
+
+/// The config names a key whenever the state is `ForeignAuditor`.
+fn config_view_tag(status: &RingStatusResponse) -> Hash {
+    status
+        .config_auditor_pubkey
+        .map(|key| Hash(auditor_view_tag(key.as_key())))
+        .unwrap_or_default()
 }
 
 impl AttestedAuditorKey {
@@ -153,13 +159,13 @@ impl RingRpcClient {
     }
 
     /// Verified against the service key the response names, the caller decides whether to trust that key.
-    pub fn auditor_pubkey(
+    pub fn release_auditor_key(
         &self,
-        lookup: AuditorKeyLookup<'_>,
+        release: &AuditorKeyRelease<'_>,
     ) -> Result<AttestedAuditorKey, RingRpcClientError> {
-        let ring = lookup.ring;
-        let request =
-            CreateAuditorKeyRequest::for_ring(ring, lookup.genesis_hash).sign(lookup.authority)?;
+        let ring = release.ring;
+        let request = CreateAuditorKeyRequest::for_ring(ring, release.genesis_hash)
+            .sign(release.authority)?;
         let created: CreateAuditorKeyResponse =
             self.call(CREATE_AUDITOR_KEY, serde_json::to_value(request)?)?;
         let service_pubkey = created.service_pubkey.0;
@@ -179,7 +185,7 @@ impl RingRpcClient {
         })
     }
 
-    /// Unsigned, `auditor_pubkey` is the attested path `init` pins from.
+    /// Unsigned, `release_auditor_key` is the attested path `init` pins from.
     pub fn ring_status(&self, ring: Address) -> Result<RingStatusResponse, RingRpcClientError> {
         self.call(
             RING_STATUS,
@@ -192,15 +198,14 @@ impl RingRpcClient {
     /// A service that holds another key for this ring can open nothing here.
     pub fn check_serves(&self, ring: Address) -> Result<(), RingRpcClientError> {
         let status = self.ring_status(ring)?;
-        if status.state != RingState::Served {
-            return Err(RingRpcClientError::ForeignAuditor {
+        match status.state {
+            RingState::Served => Ok(()),
+            RingState::Uninitialized => Err(RingRpcClientError::NotInitialized),
+            RingState::ForeignAuditor => Err(RingRpcClientError::ForeignAuditor {
                 url: self.url.clone(),
-                expected_tag: status
-                    .config_auditor_pubkey
-                    .map(|key| Hash(auditor_view_tag(key.as_key()))),
-            });
+                expected_tag: config_view_tag(&status),
+            }),
         }
-        Ok(())
     }
 
     pub fn decrypted_transactions(

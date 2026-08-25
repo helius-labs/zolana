@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 
 use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
-    AccountReadError, CreateConfig, CreateConfigError, CustomRing, InitSppRingConfig,
-    CREATE_CONFIG_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
+    AccountReadError, CreateConfig, CreateConfigError, CustomRing, CustomRingConfig,
+    InitSppRingConfig, CREATE_CONFIG_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
 use solana_signer::Signer;
@@ -15,16 +15,18 @@ use zolana_ring_rpc::{read_auditor_pubkey, write_auditor_pubkey, KeyFileError};
 
 use crate::{
     line,
-    ring_rpc::{AuditorKeyLookup, RingRpcClient, RingRpcClientError, Trust},
+    ring_rpc::{AuditorKeyRelease, RingRpcClient, RingRpcClientError, Trust},
     step::{IdempotentStep, Observed, StepError, StepOutcome},
     Context, ContextError, InitArgs,
 };
 
 pub enum AuditorKeySource<'a> {
     File(&'a Path),
+    /// The config already pins the key.
+    Chain(P256Pubkey),
     RingRpc {
         client: &'a RingRpcClient,
-        lookup: AuditorKeyLookup<'a>,
+        release: AuditorKeyRelease<'a>,
         trust: Trust,
         write_to: &'a Path,
     },
@@ -34,6 +36,7 @@ pub struct Init<'a> {
     pub ring: CustomRing,
     pub authority: &'a dyn Signer,
     pub auditor_pk: P256Pubkey,
+    pub existing: Option<CustomRingConfig>,
 }
 
 pub struct InitOutcome {
@@ -67,13 +70,6 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
     let auditor_pubkey_file = ctx.project_path(&args.auditor_pubkey_file);
     let authority = ctx.funded_authority()?;
     let ring_rpc = ctx.ring_rpc();
-    // No config exists yet, so only the upgrade authority can ask the service.
-    let upgrade_authority = ctx.config.upgrade_authority().map_err(ContextError::from)?;
-    let lookup = AuditorKeyLookup {
-        ring: ctx.ring.program_id(),
-        genesis_hash: ctx.genesis_hash()?,
-        authority: &upgrade_authority,
-    };
     let unpinned = if args.trust_ring_rpc {
         Trust::Unpinned
     } else {
@@ -88,18 +84,27 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
             url: ctx.config.urls().ring_rpc.clone(),
         });
     }
-    let source = if auditor_pubkey_file.exists() {
-        AuditorKeySource::File(&auditor_pubkey_file)
-    } else {
-        AuditorKeySource::RingRpc {
-            client: &ring_rpc,
-            lookup,
-            trust: ctx.trust(unpinned).map_err(ContextError::from)?,
-            write_to: &auditor_pubkey_file,
+    let existing = ctx.ring.read_config(&ctx.rpc)?;
+    let upgrade_authority;
+    let source = match (auditor_pubkey_file.exists(), &existing) {
+        (true, _) => AuditorKeySource::File(&auditor_pubkey_file),
+        (false, Some(config)) => AuditorKeySource::Chain(config.auditor_pubkey),
+        (false, None) => {
+            upgrade_authority = ctx.config.upgrade_authority().map_err(ContextError::from)?;
+            AuditorKeySource::RingRpc {
+                client: &ring_rpc,
+                release: AuditorKeyRelease {
+                    ring: ctx.ring.program_id(),
+                    genesis_hash: ctx.genesis_hash()?,
+                    authority: &upgrade_authority,
+                },
+                trust: ctx.trust(unpinned).map_err(ContextError::from)?,
+                write_to: &auditor_pubkey_file,
+            }
         }
     };
     let auditor_pk = source.resolve()?;
-    if let AuditorKeySource::RingRpc { write_to, .. } = source {
+    if let AuditorKeySource::RingRpc { write_to, .. } = &source {
         line(
             "auditor pk",
             format_args!(
@@ -114,6 +119,7 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
         ring: ctx.ring,
         authority: &authority,
         auditor_pk,
+        existing,
     }
     .run(&ctx.rpc)?;
     line("config", outcome.config.label());
@@ -132,15 +138,16 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
 
 impl AuditorKeySource<'_> {
     pub fn resolve(&self) -> Result<P256Pubkey, InitError> {
-        match *self {
+        match self {
             Self::File(path) => Ok(read_auditor_pubkey(path)?),
+            Self::Chain(auditor_pk) => Ok(*auditor_pk),
             Self::RingRpc {
                 client,
-                lookup,
+                release,
                 trust,
                 write_to,
             } => {
-                let auditor_pk = client.auditor_pubkey(lookup)?.require(trust)?;
+                let auditor_pk = client.release_auditor_key(release)?.require(*trust)?;
                 write_auditor_pubkey(write_to, &auditor_pk)?;
                 Ok(auditor_pk)
             }
@@ -151,8 +158,7 @@ impl AuditorKeySource<'_> {
 impl Init<'_> {
     pub fn run(self, rpc: &SolanaRpc) -> Result<InitOutcome, InitError> {
         let payer = self.authority.pubkey();
-        let existing = self.ring.read_config(rpc)?;
-        if let Some(config) = &existing {
+        if let Some(config) = &self.existing {
             if config.auditor_pubkey != self.auditor_pk || config.authority != payer {
                 return Err(InitError::ConfigMismatch {
                     authority: config.authority,
@@ -168,7 +174,7 @@ impl Init<'_> {
             hint,
         }
         .ensure_present(
-            Observed::of(&existing),
+            Observed::of(&self.existing),
             CreateConfig {
                 ring: self.ring,
                 payer,
