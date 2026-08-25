@@ -51,6 +51,7 @@ pub const ACTOR_AIRDROP: u64 = 10_000_000_000;
 /// first step of the lifecycle under test.
 pub struct TestEnv {
     pub client: ZolanaClient<SolanaRpc>,
+    pub rpc_url: String,
     pub indexer_url: String,
     /// Fee payer for bootstrap and for instructions no actor must sign.
     pub payer: Keypair,
@@ -141,7 +142,7 @@ pub fn setup() -> Result<TestEnv> {
         .unwrap_or_else(|_| "http://127.0.0.1:8899".to_string());
     let indexer_url =
         std::env::var("ZOLANA_INDEXER_URL").unwrap_or_else(|_| "http://127.0.0.1:8784".to_string());
-    let mut rpc = SolanaRpc::new(rpc_url);
+    let mut rpc = SolanaRpc::new(rpc_url.clone());
     let indexer = ZolanaIndexer::new(indexer_url.clone());
 
     let authority = Keypair::new();
@@ -243,6 +244,7 @@ pub fn setup() -> Result<TestEnv> {
 
     Ok(TestEnv {
         client,
+        rpc_url,
         indexer_url,
         payer,
         tree,

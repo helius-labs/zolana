@@ -21,6 +21,7 @@ solana-packet = "3.0"
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-system-interface = { workspace = true }
+tokio = { workspace = true }
 # `serde` is what makes `Transaction`/`VersionedTransaction` serializable for the
 # RPC send path; declared here rather than inherited from another crate's features.
 zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
@@ -30,6 +31,8 @@ zolana-interface = { workspace = true, features = ["solana"] }
 zolana-keypair = { workspace = true }
 zolana-program-test = { workspace = true }
 zolana-ring-client = { workspace = true, features = ["solana-rpc"] }
+# The auditor key release under test reads ProgramData and the config on chain.
+zolana-ring-rpc = { path = "../../services/ring-rpc" }
 zolana-test-utils = { workspace = true }
 zolana-transaction = { workspace = true }
 zolana-tree = { workspace = true }

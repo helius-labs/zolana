@@ -23,7 +23,7 @@ use zolana_transaction::{
 
 use crate::{
     file::{self, FileError},
-    init::{configured_auditor_pk, InitError},
+    init::InitError,
     line,
     ring_rpc::{RingRpcClient, RingRpcClientError, TransactionLookup},
     Context, ContextError, TransactArgs, TransferArgs, SENDER_KEYPAIR_FILE,
@@ -232,9 +232,8 @@ impl Session {
             .saturating_add(SENDER_FEE_BUDGET)
             .saturating_add(PAYER_FEE_BUDGET);
         let authority = ctx.authority_funded_for(needed)?;
-        let auditor_pk = configured_auditor_pk(&ctx.rpc, ctx.ring)?;
         let ring_rpc = ctx.ring_rpc();
-        ring_rpc.check_serves(ctx.ring.program_id(), &auditor_pk)?;
+        ring_rpc.check_serves(ctx.ring.program_id())?;
         Ok(Self {
             authority,
             ring_rpc,
