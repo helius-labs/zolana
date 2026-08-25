@@ -11,12 +11,12 @@ use zolana_ring_client::{
 
 use crate::{
     api::{
-        cursor_in_bounds, limit_in_bounds, unix_now, AuditorKeyAttestation, AuthorityAuth,
-        DecryptedOutput, DecryptedTransaction, DecryptedTransactionsPage, DecryptedWithdrawal,
+        cursor_in_bounds, limit_in_bounds, unix_now, AuthorityAuth, DecryptedOutput,
+        DecryptedTransaction, DecryptedTransactionsPage, DecryptedWithdrawal,
         GetDecryptedTransactionsResponse, ReadAttestation, ReadAuth, SkippedReason,
         SkippedTransaction, AUDIT_PAGE_LIMIT,
     },
-    authorize::{AuthorityCheck, ReadCheck, Unauthorized},
+    authorize::{self, AuthorityCheck, ReadCheck, Unauthorized},
     error::RingRpcError,
     hub::Shared,
     limits::ReaderPermit,
@@ -142,26 +142,19 @@ impl<S: TransactionSource> AuditService<S> {
     /// only the config authority, the same split the program enforces.
     pub async fn authorize_auditor_key(&self, auth: &AuthorityAuth) -> Result<(), RingRpcError> {
         let now = unix_now().map_err(|_| RingRpcError::StateUnavailable)?;
-        let nonce = auth
-            .nonce
-            .0
-            .as_slice()
-            .try_into()
-            .map_err(|_| Unauthorized::InvalidNonce)?;
-        let attestation = AuditorKeyAttestation {
-            genesis_hash: &self.shared.genesis_hash,
+        let claim = AuthorityCheck {
+            auth,
             ring: self.ring,
-            timestamp: auth.timestamp,
-            nonce: &nonce,
-        };
-        let claim = AuthorityCheck::new(auth, &attestation).at(now).decide()?;
+            genesis_hash: &self.shared.genesis_hash,
+            now,
+        }
+        .decide()?;
         let source = &self.shared.source;
-        let expected = match source.ring_config(self.ring).await? {
+        let ring_authority = match source.ring_config(self.ring).await? {
             Some(config) => Some(config.authority),
             None => source.upgrade_authority(self.ring).await?,
-        }
-        .filter(|authority| *authority != Address::default());
-        if expected != Some(claim.authority()) {
+        };
+        if ring_authority != Some(claim.authority()) {
             return Err(Unauthorized::NotRingAuthority.into());
         }
         self.shared.replay.accept(ReplayCheck {
@@ -179,13 +172,7 @@ impl<S: TransactionSource> AuditService<S> {
     ) -> Result<AuthorizedRead<'a, S>, RingRpcError> {
         // One reading for the skew rule and for the nonce eviction window.
         let now = unix_now().map_err(|_| RingRpcError::StateUnavailable)?;
-        let nonce = request
-            .auth
-            .nonce
-            .0
-            .as_slice()
-            .try_into()
-            .map_err(|_| Unauthorized::InvalidNonce)?;
+        let nonce = authorize::nonce(&request.auth.nonce)?;
         let attestation = ReadAttestation {
             ring: self.ring,
             timestamp: request.auth.timestamp,

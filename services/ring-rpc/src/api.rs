@@ -51,6 +51,7 @@ pub struct CreateAuditorKeyRequest {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct AuthorityAuth {
     pub authority: SerializablePubkey,
+    /// Diagnostic only, the service signs its own cluster into the attestation.
     pub genesis_hash: Hash,
     pub timestamp: u64,
     pub nonce: Base64String,
@@ -60,7 +61,7 @@ pub struct AuthorityAuth {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[must_use]
-pub struct AuditorKeyAttestation<'a> {
+pub(crate) struct AuditorKeyAttestation<'a> {
     pub genesis_hash: &'a [u8; 32],
     pub ring: Address,
     pub timestamp: u64,
@@ -238,17 +239,23 @@ pub trait ReadSigner {
 }
 
 #[derive(Debug, Error)]
+pub enum RequestBuildError {
+    #[error("request signature failed")]
+    Signature(#[source] SignerError),
+    #[error("system clock is before the Unix epoch")]
+    Clock,
+}
+
+#[derive(Debug, Error)]
 pub enum ReadBuildError {
     #[error(transparent)]
+    Request(#[from] RequestBuildError),
+    #[error(transparent)]
     Reader(#[from] ReaderKeyError),
-    #[error("reader signature failed")]
-    Signature(#[source] SignerError),
     #[error("audit cursor is invalid")]
     Cursor,
     #[error("audit page limit is invalid")]
     Limit,
-    #[error("system clock is before the Unix epoch")]
-    Clock,
 }
 
 #[must_use]
@@ -340,73 +347,6 @@ pub enum SkippedReason {
 }
 
 const ATTESTATION_DOMAIN: &[u8] = b"zolana/ring-auditor-key/v1";
-const AUDITOR_KEY_REQUEST_DOMAIN: &str = "zolana/ring-rpc-auditor-key-request/v1";
-
-impl CreateAuditorKeyRequest {
-    /// `genesis_hash` names the cluster, a signature never carries over to another one.
-    pub fn for_ring(ring: Address, genesis_hash: [u8; 32]) -> AuditorKeyRequest {
-        let mut nonce = [0u8; 32];
-        rand::rngs::OsRng.fill_bytes(&mut nonce);
-        AuditorKeyRequest {
-            ring,
-            genesis_hash,
-            timestamp: None,
-            nonce,
-        }
-    }
-}
-
-impl AuditorKeyRequest {
-    #[must_use = "use the updated request"]
-    pub fn at(mut self, timestamp: u64) -> Self {
-        self.timestamp = Some(timestamp);
-        self
-    }
-
-    pub fn sign<S: Signer + ?Sized>(
-        self,
-        authority: &S,
-    ) -> Result<CreateAuditorKeyRequest, ReadBuildError> {
-        let timestamp = match self.timestamp {
-            Some(timestamp) => timestamp,
-            None => unix_now()?,
-        };
-        let attestation = AuditorKeyAttestation {
-            genesis_hash: &self.genesis_hash,
-            ring: self.ring,
-            timestamp,
-            nonce: &self.nonce,
-        }
-        .bytes();
-        let signature = authority
-            .try_sign_message(&attestation)
-            .map_err(ReadBuildError::Signature)?;
-        Ok(CreateAuditorKeyRequest {
-            ring_program_id: self.ring.to_bytes().into(),
-            auth: AuthorityAuth {
-                authority: authority.pubkey().to_bytes().into(),
-                genesis_hash: Hash(self.genesis_hash),
-                timestamp,
-                nonce: self.nonce.to_vec().into(),
-                signature: signature.as_ref().to_vec().into(),
-            },
-        })
-    }
-}
-
-impl AuditorKeyAttestation<'_> {
-    pub fn bytes(&self) -> Vec<u8> {
-        use base64::Engine;
-        format!(
-            "{AUDITOR_KEY_REQUEST_DOMAIN}\ngenesis: {}\nring: {}\ntimestamp: {}\nnonce: {}",
-            Hash(*self.genesis_hash).to_base58(),
-            self.ring,
-            self.timestamp,
-            base64::engine::general_purpose::STANDARD.encode(self.nonce),
-        )
-        .into_bytes()
-    }
-}
 
 pub fn auditor_key_attestation(ring_program_id: &Address, auditor_pubkey: &P256Pubkey) -> Vec<u8> {
     [
@@ -456,26 +396,24 @@ impl<T: Signer + ?Sized> ReadSigner for T {
     fn sign(&self, attestation: &[u8]) -> Result<ReadSignature, ReadBuildError> {
         self.try_sign_message(attestation)
             .map(|signature| ReadSignature::Ed25519(*signature.as_array()))
-            .map_err(ReadBuildError::Signature)
+            .map_err(RequestBuildError::Signature)
+            .map_err(Into::into)
     }
 }
 
 impl GetDecryptedTransactionsRequest {
     pub fn read(ring: Address) -> ReadRequest {
-        let mut nonce = [0u8; 32];
-        rand::rngs::OsRng.fill_bytes(&mut nonce);
         ReadRequest {
             ring,
             cursor: None,
             limit: None,
             timestamp: None,
-            nonce,
+            nonce: fresh_nonce(),
         }
     }
 }
 
 impl ReadRequest {
-    #[must_use = "use the updated request"]
     pub fn with_cursor(mut self, cursor: Base64String) -> Result<Self, ReadBuildError> {
         if !cursor_in_bounds(&cursor.0) {
             return Err(ReadBuildError::Cursor);
@@ -484,7 +422,6 @@ impl ReadRequest {
         Ok(self)
     }
 
-    #[must_use = "use the updated request"]
     pub fn with_limit(mut self, limit: Limit) -> Result<Self, ReadBuildError> {
         if !limit_in_bounds(&limit) {
             return Err(ReadBuildError::Limit);
@@ -493,7 +430,6 @@ impl ReadRequest {
         Ok(self)
     }
 
-    #[must_use = "use the updated request"]
     pub fn at(mut self, timestamp: u64) -> Self {
         self.timestamp = Some(timestamp);
         self
@@ -503,10 +439,7 @@ impl ReadRequest {
         self,
         signer: &S,
     ) -> Result<GetDecryptedTransactionsRequest, ReadBuildError> {
-        let timestamp = match self.timestamp {
-            Some(timestamp) => timestamp,
-            None => unix_now()?,
-        };
+        let timestamp = self.timestamp.map_or_else(unix_now, Ok)?;
         let attestation = ReadAttestation {
             ring: self.ring,
             timestamp,
@@ -537,28 +470,98 @@ impl ReadRequest {
     }
 }
 
-pub fn unix_now() -> Result<u64, ReadBuildError> {
+impl CreateAuditorKeyRequest {
+    /// `genesis_hash` names the cluster, a signature never carries over to another one.
+    pub fn for_ring(ring: Address, genesis_hash: [u8; 32]) -> AuditorKeyRequest {
+        AuditorKeyRequest {
+            ring,
+            genesis_hash,
+            timestamp: None,
+            nonce: fresh_nonce(),
+        }
+    }
+}
+
+impl AuditorKeyRequest {
+    pub fn at(mut self, timestamp: u64) -> Self {
+        self.timestamp = Some(timestamp);
+        self
+    }
+
+    pub fn sign<S: Signer + ?Sized>(
+        self,
+        authority: &S,
+    ) -> Result<CreateAuditorKeyRequest, RequestBuildError> {
+        let timestamp = self.timestamp.map_or_else(unix_now, Ok)?;
+        let attestation = AuditorKeyAttestation {
+            genesis_hash: &self.genesis_hash,
+            ring: self.ring,
+            timestamp,
+            nonce: &self.nonce,
+        }
+        .bytes();
+        let signature = authority
+            .try_sign_message(&attestation)
+            .map_err(RequestBuildError::Signature)?;
+        Ok(CreateAuditorKeyRequest {
+            ring_program_id: self.ring.to_bytes().into(),
+            auth: AuthorityAuth {
+                authority: authority.pubkey().to_bytes().into(),
+                genesis_hash: Hash(self.genesis_hash),
+                timestamp,
+                nonce: self.nonce.to_vec().into(),
+                signature: signature.as_ref().to_vec().into(),
+            },
+        })
+    }
+}
+
+pub fn unix_now() -> Result<u64, RequestBuildError> {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_secs())
-        .map_err(|_| ReadBuildError::Clock)
+        .map_err(|_| RequestBuildError::Clock)
 }
 
 const READ_DOMAIN: &str = "zolana/ring-rpc-read/v1";
+const AUDITOR_KEY_REQUEST_DOMAIN: &str = "zolana/ring-rpc-auditor-key-request/v1";
 
 impl ReadAttestation<'_> {
     pub fn bytes(&self) -> Vec<u8> {
-        use base64::Engine;
         format!(
             "{READ_DOMAIN}\nring: {}\ntimestamp: {}\nnonce: {}\nlimit: {}\ncursor: {}",
             self.ring,
             self.timestamp,
-            base64::engine::general_purpose::STANDARD.encode(self.nonce),
+            base64(self.nonce),
             self.limit.as_ref().map_or(0, Limit::value),
-            base64::engine::general_purpose::STANDARD.encode(self.cursor.unwrap_or_default()),
+            base64(self.cursor.unwrap_or_default()),
         )
         .into_bytes()
     }
+}
+
+impl AuditorKeyAttestation<'_> {
+    pub fn bytes(&self) -> Vec<u8> {
+        format!(
+            "{AUDITOR_KEY_REQUEST_DOMAIN}\ngenesis: {}\nring: {}\ntimestamp: {}\nnonce: {}",
+            Hash(*self.genesis_hash).to_base58(),
+            self.ring,
+            self.timestamp,
+            base64(self.nonce),
+        )
+        .into_bytes()
+    }
+}
+
+fn fresh_nonce() -> [u8; 32] {
+    let mut nonce = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut nonce);
+    nonce
+}
+
+fn base64(bytes: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
 #[cfg(test)]

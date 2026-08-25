@@ -7,7 +7,7 @@ use custom_ring_interface::{
 use solana_account_decoder_client_types::UiAccountEncoding;
 use solana_address::Address;
 use solana_commitment_config::CommitmentConfig;
-use solana_loader_v3_interface::state::UpgradeableLoaderState;
+use solana_loader_v3_interface::{get_program_data_address, state::UpgradeableLoaderState};
 use solana_rpc_client::{
     nonblocking::rpc_client::RpcClient as NonblockingRpcClient,
     rpc_client::GetConfirmedSignaturesForAddress2Config,
@@ -153,6 +153,20 @@ impl ChainSource {
     pub fn rpc(&self) -> &AsyncSolanaRpc {
         &self.rpc
     }
+
+    /// A foreign owner means the account does not exist for its program, not
+    /// that it is broken.
+    async fn owned_account(
+        &self,
+        address: Address,
+        owner: Address,
+    ) -> Result<Option<solana_account::Account>, ClientError> {
+        Ok(self
+            .rpc
+            .get_account(address)
+            .await?
+            .filter(|account| account.owner == owner))
+    }
 }
 
 impl TransactionSource for ChainSource {
@@ -247,13 +261,7 @@ impl TransactionSource for ChainSource {
 
     async fn ring_config(&self, ring: Address) -> Result<Option<RingConfiguration>, ClientError> {
         let (address, bump) = Address::find_program_address(&[CONFIG_PDA_SEED], &ring);
-        // A stranger can fund the address, only the ring can own it.
-        let Some(account) = self
-            .rpc
-            .get_account(address)
-            .await?
-            .filter(|account| account.owner == ring)
-        else {
+        let Some(account) = self.owned_account(address, ring).await? else {
             return Ok(None);
         };
         Ok(Some(
@@ -267,13 +275,10 @@ impl TransactionSource for ChainSource {
     }
 
     async fn upgrade_authority(&self, program: Address) -> Result<Option<Address>, ClientError> {
-        let loader = Address::new_from_array(BPF_LOADER_UPGRADEABLE_ID);
-        let (address, _) = Address::find_program_address(&[program.as_ref()], &loader);
+        let address = get_program_data_address(&program);
         let Some(account) = self
-            .rpc
-            .get_account(address)
+            .owned_account(address, Address::new_from_array(BPF_LOADER_UPGRADEABLE_ID))
             .await?
-            .filter(|account| account.owner == loader)
         else {
             return Ok(None);
         };
@@ -301,12 +306,7 @@ impl TransactionSource for ChainSource {
     }
 
     async fn genesis_hash(&self) -> Result<[u8; 32], ClientError> {
-        self.rpc
-            .client()
-            .get_genesis_hash()
-            .await
-            .map(|hash| hash.to_bytes())
-            .map_err(|error| ClientError::Rpc(format!("genesis hash: {error}")))
+        self.rpc.genesis_hash().await
     }
 
     async fn asset_registry(&self) -> Result<AssetRegistry, ClientError> {

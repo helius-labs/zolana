@@ -8,7 +8,6 @@ use std::{
     time::Duration,
 };
 
-use jsonrpsee::RpcModule;
 use p256::ecdsa::signature::hazmat::PrehashSigner;
 use sha2::Digest;
 use solana_address::Address;
@@ -30,7 +29,7 @@ use zolana_ring_rpc::{
     ReadCheck, ReadSignature, ReadSigner, ReaderGrant, RingConfiguration, RingDepositsRequest,
     RingDepositsResponse, RingRpcError, RingState, RingStatusRequest, RingStatusResponse,
     RootSecret, SkippedReason, TransactionPage, TransactionSource, Unauthorized, WebAuthnAssertion,
-    CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH, READ_SKEW, RING_DEPOSITS, RING_STATUS,
+    AUTH_SKEW, CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS, RING_STATUS,
 };
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
@@ -1030,33 +1029,32 @@ async fn rpc_wire_uses_camel_case_and_rejects_another_local_ring() {
         ]))
     );
 
-    let result: Result<CreateAuditorKeyResponse, _> = module
-        .call(
-            CREATE_AUDITOR_KEY,
-            as_object(auditor_key_request(OTHER_RING, GENESIS, &authority())),
-        )
-        .await;
+    let other_ring = CreateAuditorKeyRequest::for_ring(OTHER_RING, GENESIS)
+        .sign(&authority())
+        .expect("signed request");
+    let result: Result<CreateAuditorKeyResponse, _> =
+        module.call(CREATE_AUDITOR_KEY, as_object(other_ring)).await;
     assert!(result.is_err());
 }
 
-fn auditor_key_request(
-    ring: Address,
-    genesis_hash: [u8; 32],
-    signer: &Keypair,
-) -> CreateAuditorKeyRequest {
-    CreateAuditorKeyRequest::for_ring(ring, genesis_hash)
-        .sign(signer)
+fn signed_by(authority: &Keypair) -> CreateAuditorKeyRequest {
+    CreateAuditorKeyRequest::for_ring(RING, GENESIS)
+        .sign(authority)
         .expect("signed request")
 }
 
-async fn create_auditor_key(
-    module: &RpcModule<Arc<Hub<StaticSource>>>,
-    request: CreateAuditorKeyRequest,
-) -> Result<CreateAuditorKeyResponse, String> {
-    module
-        .call(CREATE_AUDITOR_KEY, as_object(request))
+async fn authorize(
+    hub: &Hub<StaticSource>,
+    request: &CreateAuditorKeyRequest,
+) -> Result<(), RingRpcError> {
+    hub.service_for(RING)
+        .expect("service")
+        .authorize_auditor_key(&request.auth)
         .await
-        .map_err(|error| error.to_string())
+}
+
+fn refused(result: Result<(), RingRpcError>, expected: Unauthorized) -> bool {
+    matches!(result, Err(RingRpcError::Unauthorized(reason)) if reason == expected)
 }
 
 #[tokio::test]
@@ -1064,8 +1062,10 @@ async fn auditor_keys_are_released_to_the_ring_authorities_only() {
     let fixture = Fixture::new();
     let mut source = fixture.source();
     source.configs.clear();
-    let module = rpc_module(Arc::new(fixture.hub(source))).expect("module");
-    let created = create_auditor_key(&module, auditor_key_request(RING, GENESIS, &deployer()))
+    let hub = Arc::new(fixture.hub(source));
+    let module = rpc_module(hub.clone()).expect("module");
+    let created: CreateAuditorKeyResponse = module
+        .call(CREATE_AUDITOR_KEY, as_object(signed_by(&deployer())))
         .await
         .expect("deployer before config");
     assert_eq!(created.auditor_pubkey.as_key(), &fixture.auditor.pubkey());
@@ -1073,104 +1073,97 @@ async fn auditor_keys_are_released_to_the_ring_authorities_only() {
         created.service_pubkey.0.as_ref(),
         &auditor_key_attestation(&RING, created.auditor_pubkey.as_key())
     ));
-    assert!(
-        create_auditor_key(&module, auditor_key_request(RING, GENESIS, &authority()))
-            .await
-            .is_err()
-    );
+    assert!(refused(
+        authorize(&hub, &signed_by(&authority())).await,
+        Unauthorized::NotRingAuthority
+    ));
 
-    let module = rpc_module(Arc::new(fixture.hub(fixture.source()))).expect("module");
-    create_auditor_key(&module, auditor_key_request(RING, GENESIS, &authority()))
+    let hub = fixture.hub(fixture.source());
+    authorize(&hub, &signed_by(&authority()))
         .await
         .expect("config authority");
     for signer in [deployer(), stranger(), delegate()] {
-        let error = create_auditor_key(&module, auditor_key_request(RING, GENESIS, &signer))
-            .await
-            .expect_err("not a ring authority");
-        assert!(error
-            .to_string()
-            .contains("neither the program upgrade authority"));
+        assert!(refused(
+            authorize(&hub, &signed_by(&signer)).await,
+            Unauthorized::NotRingAuthority
+        ));
     }
 
     let mut immutable = fixture.source();
     immutable.configs.clear();
     immutable.upgrade_authorities.clear();
-    let module = rpc_module(Arc::new(fixture.hub(immutable))).expect("module");
-    assert!(
-        create_auditor_key(&module, auditor_key_request(RING, GENESIS, &deployer()))
-            .await
-            .is_err()
-    );
+    let hub = fixture.hub(immutable);
+    assert!(refused(
+        authorize(&hub, &signed_by(&deployer())).await,
+        Unauthorized::NotRingAuthority
+    ));
 }
 
 #[tokio::test]
 async fn an_unsigned_auditor_key_request_is_refused() {
     let fixture = Fixture::new();
-    let module = rpc_module(Arc::new(fixture.hub(fixture.source()))).expect("module");
-    let mut unsigned = serde_json::Map::new();
-    unsigned.insert(
-        "ringProgramId".to_owned(),
-        serde_json::Value::String(RING.to_string()),
-    );
-    let result: Result<CreateAuditorKeyResponse, _> =
-        module.call(CREATE_AUDITOR_KEY, unsigned).await;
-    assert!(result.is_err());
-
-    let mut blank = auditor_key_request(RING, GENESIS, &authority());
+    let hub = fixture.hub(fixture.source());
+    let mut blank = signed_by(&authority());
     blank.auth.signature = vec![0; 64].into();
-    let error = create_auditor_key(&module, blank)
-        .await
-        .expect_err("blank signature");
-    assert!(error.contains("signature does not cover"));
+    assert!(refused(
+        authorize(&hub, &blank).await,
+        Unauthorized::BadSignature
+    ));
 }
 
 #[tokio::test]
 async fn auditor_key_requests_bind_cluster_ring_time_and_nonce() {
     let fixture = Fixture::new();
-    let module = rpc_module(Arc::new(fixture.hub(fixture.source()))).expect("module");
+    let hub = fixture.hub(fixture.source());
     let now = unix_now().expect("clock");
 
-    let other_cluster = auditor_key_request(RING, [10; 32], &authority());
-    let error = create_auditor_key(&module, other_cluster)
-        .await
-        .expect_err("other cluster");
-    assert!(error.contains("another cluster"));
+    let other_cluster = CreateAuditorKeyRequest::for_ring(RING, [10; 32])
+        .sign(&authority())
+        .expect("signed request");
+    assert!(refused(
+        authorize(&hub, &other_cluster).await,
+        Unauthorized::ClusterMismatch
+    ));
 
-    let mut relabelled = auditor_key_request(RING, [10; 32], &authority());
+    let mut relabelled = other_cluster;
     relabelled.auth.genesis_hash = Hash(GENESIS);
-    let error = create_auditor_key(&module, relabelled)
-        .await
-        .expect_err("signature over another cluster");
-    assert!(error.contains("signature does not cover"));
+    assert!(refused(
+        authorize(&hub, &relabelled).await,
+        Unauthorized::BadSignature
+    ));
 
-    let mut other_ring = auditor_key_request(OTHER_RING, GENESIS, &authority());
-    other_ring.ring_program_id = RING.to_bytes().into();
-    assert!(create_auditor_key(&module, other_ring).await.is_err());
+    let other_ring = CreateAuditorKeyRequest::for_ring(OTHER_RING, GENESIS)
+        .sign(&authority())
+        .expect("signed request");
+    assert!(refused(
+        authorize(&hub, &other_ring).await,
+        Unauthorized::BadSignature
+    ));
 
-    let mut forged = auditor_key_request(RING, GENESIS, &stranger());
+    let mut forged = signed_by(&stranger());
     forged.auth.authority = authority().pubkey().to_bytes().into();
-    let error = create_auditor_key(&module, forged)
-        .await
-        .expect_err("forged authority");
-    assert!(error.contains("signature does not cover"));
+    assert!(refused(
+        authorize(&hub, &forged).await,
+        Unauthorized::BadSignature
+    ));
 
-    for timestamp in [now - READ_SKEW.as_secs() - 1, now + READ_SKEW.as_secs() + 1] {
+    for timestamp in [now - AUTH_SKEW.as_secs() - 1, now + AUTH_SKEW.as_secs() + 1] {
         let stale = CreateAuditorKeyRequest::for_ring(RING, GENESIS)
             .at(timestamp)
             .sign(&authority())
             .expect("signed request");
-        let error = create_auditor_key(&module, stale).await.expect_err("stale");
-        assert!(error.contains("stale"));
+        assert!(refused(
+            authorize(&hub, &stale).await,
+            Unauthorized::StaleTimestamp
+        ));
     }
 
-    let request = auditor_key_request(RING, GENESIS, &authority());
-    create_auditor_key(&module, request.clone())
-        .await
-        .expect("first use");
-    let error = create_auditor_key(&module, request)
-        .await
-        .expect_err("replay");
-    assert!(error.contains("already accepted"));
+    let request = signed_by(&authority());
+    authorize(&hub, &request).await.expect("first use");
+    assert!(refused(
+        authorize(&hub, &request).await,
+        Unauthorized::Replay
+    ));
 }
 
 #[tokio::test]
@@ -1575,12 +1568,13 @@ async fn derived_keys_are_ring_and_cluster_specific() {
     let module = rpc_module(Arc::new(hub)).expect("module");
     let health: HealthResponse = module.call(HEALTH, [(); 0]).await.expect("health");
     assert_eq!(health.mode, KeyMode::Derived);
-    let created = create_auditor_key(
-        &module,
-        auditor_key_request(ring_a, genesis_hash, &deployer()),
-    )
-    .await
-    .expect("auditor key");
+    let request = CreateAuditorKeyRequest::for_ring(ring_a, genesis_hash)
+        .sign(&deployer())
+        .expect("signed request");
+    let created: CreateAuditorKeyResponse = module
+        .call(CREATE_AUDITOR_KEY, as_object(request))
+        .await
+        .expect("auditor key");
     assert_eq!(created.auditor_pubkey.as_key(), &key_a);
     assert!(created.signature.0.verify(
         created.service_pubkey.0.as_ref(),

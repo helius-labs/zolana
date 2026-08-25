@@ -3,6 +3,7 @@ use std::time::Duration;
 use solana_address::Address;
 use solana_signature::Signature;
 use thiserror::Error;
+use zolana_indexer_api::Base64String;
 use zolana_ring_client::ReaderKey;
 
 use crate::{
@@ -11,7 +12,7 @@ use crate::{
     webauthn,
 };
 
-pub const READ_SKEW: Duration = Duration::from_secs(60);
+pub const AUTH_SKEW: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[must_use]
@@ -50,9 +51,9 @@ pub enum Unauthorized {
     AuditorKeyMismatch,
     #[error("reader has no active grant")]
     NotGranted,
-    #[error("read nonce is invalid")]
+    #[error("nonce is invalid")]
     InvalidNonce,
-    #[error("read nonce was already accepted")]
+    #[error("nonce was already accepted")]
     Replay,
     #[error("request names another cluster")]
     ClusterMismatch,
@@ -62,22 +63,19 @@ pub enum Unauthorized {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[must_use]
-pub struct AuthorityClaim {
+pub(crate) struct AuthorityClaim {
     authority: Address,
     nonce: [u8; 32],
 }
 
+/// The attestation is rebuilt from the service's own ring and cluster, a client
+/// names them in the request but never chooses them.
 #[must_use]
-pub struct AuthorityCheck<'a> {
-    auth: &'a AuthorityAuth,
-    attestation: &'a AuditorKeyAttestation<'a>,
-}
-
-#[must_use]
-pub struct TimedAuthorityCheck<'a> {
-    auth: &'a AuthorityAuth,
-    now: u64,
-    attestation: &'a AuditorKeyAttestation<'a>,
+pub(crate) struct AuthorityCheck<'a> {
+    pub auth: &'a AuthorityAuth,
+    pub ring: Address,
+    pub genesis_hash: &'a [u8; 32],
+    pub now: u64,
 }
 
 impl AuthorityClaim {
@@ -90,48 +88,27 @@ impl AuthorityClaim {
     }
 }
 
-impl<'a> AuthorityCheck<'a> {
-    pub fn new(auth: &'a AuthorityAuth, attestation: &'a AuditorKeyAttestation<'a>) -> Self {
-        Self { auth, attestation }
-    }
-
-    pub fn at(self, now: u64) -> TimedAuthorityCheck<'a> {
-        TimedAuthorityCheck {
-            auth: self.auth,
-            now,
-            attestation: self.attestation,
-        }
-    }
-}
-
-impl TimedAuthorityCheck<'_> {
-    /// The attestation carries the service genesis hash, the explicit compare only names the error.
-    pub fn decide(self) -> Result<AuthorityClaim, Unauthorized> {
-        if self.now.abs_diff(self.auth.timestamp) > READ_SKEW.as_secs() {
-            return Err(Unauthorized::StaleTimestamp);
-        }
-        if self.auth.genesis_hash.0 != *self.attestation.genesis_hash {
+impl AuthorityCheck<'_> {
+    pub(crate) fn decide(self) -> Result<AuthorityClaim, Unauthorized> {
+        fresh(self.now, self.auth.timestamp)?;
+        if self.auth.genesis_hash.0 != *self.genesis_hash {
             return Err(Unauthorized::ClusterMismatch);
         }
-        let nonce: [u8; 32] = self
-            .auth
-            .nonce
-            .0
-            .as_slice()
-            .try_into()
-            .map_err(|_| Unauthorized::InvalidNonce)?;
-        let signature: [u8; 64] = self
-            .auth
-            .signature
-            .0
-            .as_slice()
-            .try_into()
-            .map_err(|_| Unauthorized::BadSignature)?;
+        let nonce = nonce(&self.auth.nonce)?;
+        let attestation = AuditorKeyAttestation {
+            genesis_hash: self.genesis_hash,
+            ring: self.ring,
+            timestamp: self.auth.timestamp,
+            nonce: &nonce,
+        }
+        .bytes();
         let authority = self.auth.authority.0;
-        Signature::from(signature)
-            .verify(authority.as_ref(), &self.attestation.bytes())
-            .then_some(AuthorityClaim { authority, nonce })
-            .ok_or(Unauthorized::BadSignature)
+        Ed25519Proof {
+            signer: authority,
+            signature: &self.auth.signature.0,
+        }
+        .verify(&attestation)?;
+        Ok(AuthorityClaim { authority, nonce })
     }
 }
 
@@ -193,25 +170,19 @@ impl<'a> TimedReadCheck<'a> {
 
 impl ReadyReadCheck<'_, '_> {
     pub fn decide(self) -> Result<Claim, Unauthorized> {
-        if self.now.abs_diff(self.auth.timestamp) > READ_SKEW.as_secs() {
-            return Err(Unauthorized::StaleTimestamp);
-        }
-        let nonce = self
-            .auth
-            .nonce
-            .0
-            .as_slice()
-            .try_into()
-            .map_err(|_| Unauthorized::InvalidNonce)?;
+        fresh(self.now, self.auth.timestamp)?;
         let reader = Proof::decode(self.auth)?.verify(&self.attestation.bytes(), self.origins)?;
-        Ok(Claim { reader, nonce })
+        Ok(Claim {
+            reader,
+            nonce: *self.attestation.nonce,
+        })
     }
 }
 
 enum Proof<'a> {
     Ed25519 {
         reader: ReaderKey,
-        signature: [u8; 64],
+        signature: &'a [u8],
     },
     Passkey {
         reader: ReaderKey,
@@ -234,13 +205,10 @@ impl<'a> Proof<'a> {
                 if auth.webauthn.is_some() {
                     return Err(Unauthorized::UnexpectedAssertion);
                 }
-                let signature = auth
-                    .signature
-                    .0
-                    .as_slice()
-                    .try_into()
-                    .map_err(|_| Unauthorized::BadSignature)?;
-                Ok(Self::Ed25519 { reader, signature })
+                Ok(Self::Ed25519 {
+                    reader,
+                    signature: &auth.signature.0,
+                })
             }
             ReaderKey::P256(_) => {
                 let assertion = auth
@@ -262,10 +230,12 @@ impl<'a> Proof<'a> {
                 let ReaderKey::Ed25519(key) = reader else {
                     return Err(Unauthorized::UnknownReaderKey);
                 };
-                Signature::from(signature)
-                    .verify(key.address().as_ref(), attestation)
-                    .then_some(reader)
-                    .ok_or(Unauthorized::BadSignature)
+                Ed25519Proof {
+                    signer: key.address(),
+                    signature,
+                }
+                .verify(attestation)?;
+                Ok(reader)
             }
             Self::Passkey {
                 reader,
@@ -287,6 +257,39 @@ impl<'a> Proof<'a> {
             }
         }
     }
+}
+
+struct Ed25519Proof<'a> {
+    signer: Address,
+    signature: &'a [u8],
+}
+
+impl Ed25519Proof<'_> {
+    fn verify(self, message: &[u8]) -> Result<(), Unauthorized> {
+        let signature: [u8; 64] = self
+            .signature
+            .try_into()
+            .map_err(|_| Unauthorized::BadSignature)?;
+        Signature::from(signature)
+            .verify(self.signer.as_ref(), message)
+            .then_some(())
+            .ok_or(Unauthorized::BadSignature)
+    }
+}
+
+/// One reading serves the skew rule and the nonce eviction window.
+fn fresh(now: u64, timestamp: u64) -> Result<(), Unauthorized> {
+    if now.abs_diff(timestamp) > AUTH_SKEW.as_secs() {
+        return Err(Unauthorized::StaleTimestamp);
+    }
+    Ok(())
+}
+
+pub(crate) fn nonce(raw: &Base64String) -> Result<[u8; 32], Unauthorized> {
+    raw.0
+        .as_slice()
+        .try_into()
+        .map_err(|_| Unauthorized::InvalidNonce)
 }
 
 #[cfg(test)]
@@ -378,7 +381,7 @@ mod tests {
     #[test]
     fn a_timestamp_outside_the_skew_is_refused_in_both_directions() {
         let now = unix_now().expect("clock");
-        for timestamp in [now - READ_SKEW.as_secs() - 1, now + READ_SKEW.as_secs() + 1] {
+        for timestamp in [now - AUTH_SKEW.as_secs() - 1, now + AUTH_SKEW.as_secs() + 1] {
             let auth = GetDecryptedTransactionsRequest::read(RING)
                 .at(timestamp)
                 .sign(&wallet())
@@ -392,6 +395,6 @@ mod tests {
     fn a_nonce_that_is_not_thirty_two_bytes_is_refused() {
         let mut auth = signed_auth();
         auth.nonce.0.pop();
-        assert_eq!(decide(&auth), Err(Unauthorized::InvalidNonce));
+        assert_eq!(nonce(&auth.nonce), Err(Unauthorized::InvalidNonce));
     }
 }
