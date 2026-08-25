@@ -11092,7 +11092,6 @@ dependencies = [
  "tokio",
  "zeroize",
  "zolana-hasher",
- "zolana-interface",
 ]
 
 [[package]]
