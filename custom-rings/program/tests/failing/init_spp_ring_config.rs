@@ -87,3 +87,15 @@ fn non_canonical_ring_auth_is_rejected_exactly() {
     fixture.substitute("ring_auth", Pubkey::new_from_array([62; 32]));
     fixture.expect_err(&mollusk, custom(CustomRingError::MissingRingAuth));
 }
+
+#[test]
+fn init_with_an_unsigned_payer_is_rejected() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture =
+        init_spp_ring_config_fixture(initialized_config_account(authority(), auditor_pubkey(2)));
+    fixture.unsign("payer");
+    fixture.expect_err(
+        &mollusk,
+        ProgramError::Custom(u32::from(AccountError::InvalidSigner)),
+    );
+}

@@ -34,9 +34,13 @@ pub fn run(ctx: &Context) {
     line("ring", &config.name);
     line("target", config.target.as_str());
     line("program id", config.program_id);
-    match config.authority() {
-        Ok(authority) => line("authority", authority.pubkey()),
-        Err(error) => line("authority", format_args!("unavailable ({error})")),
+    match config.config_authority() {
+        Ok(authority) => line("config key", authority.pubkey()),
+        Err(error) => line("config key", format_args!("unavailable ({error})")),
+    }
+    match config.upgrade_authority() {
+        Ok(authority) => line("upgrade key", authority.pubkey()),
+        Err(error) => line("upgrade key", format_args!("unavailable ({error})")),
     }
     line("rpc", &config.urls().rpc);
     line("indexer", &config.urls().indexer);
@@ -86,7 +90,7 @@ fn percent_encode(text: &str) -> String {
 }
 
 fn print_chain(config: &RingConfig, ring: CustomRing, rpc: &SolanaRpc) -> Result<(), StatusError> {
-    if let Ok(authority) = config.authority() {
+    if let Ok(authority) = config.config_authority() {
         let lamports = rpc.get_balance(authority.pubkey())?;
         line(
             "balance",
@@ -95,16 +99,30 @@ fn print_chain(config: &RingConfig, ring: CustomRing, rpc: &SolanaRpc) -> Result
     }
     match rpc.get_account(ring.program_id())? {
         Some(account) if account.executable => match read_program_data(rpc, ring)? {
-            Some(info) => line(
-                "program",
-                format_args!(
-                    "deployed, upgrade authority {}, capacity {} bytes",
-                    info.upgrade_authority
-                        .map(|key| key.to_string())
-                        .unwrap_or_else(|| "none (immutable)".to_owned()),
-                    info.capacity
-                ),
-            ),
+            Some(info) => {
+                let authority = info
+                    .upgrade_authority
+                    .map(|key| key.to_string())
+                    .unwrap_or_else(|| "none (immutable)".to_owned());
+                let configured = config
+                    .upgrade_authority()
+                    .map(|key| key.pubkey().to_string())
+                    .unwrap_or_else(|error| format!("unavailable ({error})"));
+                let relation = if info.upgrade_authority.map(|key| key.to_string())
+                    == Some(configured.clone())
+                {
+                    "matches"
+                } else {
+                    "differs from"
+                };
+                line(
+                    "program",
+                    format_args!(
+                        "deployed, upgrade authority {authority}, {relation} ring.toml {configured}, capacity {} bytes",
+                        info.capacity
+                    ),
+                );
+            }
             None => line("program", "deployed (not upgradeable)"),
         },
         Some(_) => line("program", "account exists but is not executable"),

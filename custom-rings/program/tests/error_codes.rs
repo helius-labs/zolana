@@ -28,3 +28,30 @@ fn error_codes_are_stable() {
         assert_eq!(got, want, "error code drifted");
     }
 }
+
+/// A new variant fails the build until the match covers it.
+#[allow(dead_code)]
+fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
+    match error {
+        InvalidInstructionData
+        | ProofVerificationFailed
+        | HashingFailed
+        | InvalidShieldedPoolProgram
+        | MissingRingAuth
+        | ConfigAlreadyInitialized
+        | ConfigNotInitialized
+        | UnauthorizedAuthority
+        | InvalidAuditorPubkey
+        | MissingAuditorMessage
+        | InvalidAuditorMessage
+        | InvalidSystemProgram
+        | InvalidConfigPda
+        | UnsupportedCircuit
+        | UnauthorizedInitializer
+        | TooManyAccounts
+        | ReadAccessRecordAlreadyExists
+        | InvalidReadAccessRecord
+        | InvalidReaderKey
+        | UnsupportedOutputScheme => {}
+    }
+}

@@ -1,3 +1,5 @@
+use mollusk_svm::result::ProgramResult;
+
 use crate::common::{
     auditor_pubkey, authority, create_config_fixture, ed25519_reader, grant_read_access_fixture,
     init_spp_ring_config_fixture, initialized_config_account, p256_reader,
@@ -10,9 +12,20 @@ use custom_ring_interface::{
 
 fn consumed(fixture: Fixture) -> u64 {
     let (mollusk, _) = setup_mollusk();
-    mollusk
-        .process_instruction(fixture.instruction(), fixture.accounts())
-        .compute_units_consumed
+    let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
+    assert_eq!(result.program_result, ProgramResult::Success);
+    result.compute_units_consumed
+}
+
+/// SPP is absent from mollusk, the run stops at the CPI.
+fn consumed_until_spp_cpi(fixture: Fixture) -> u64 {
+    let (mollusk, _) = setup_mollusk();
+    let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
+    assert!(matches!(
+        result.program_result,
+        ProgramResult::UnknownError(_)
+    ));
+    result.compute_units_consumed
 }
 
 #[test]
@@ -22,7 +35,7 @@ fn operator_instructions_fit_their_published_budgets() {
             <= u64::from(CREATE_CONFIG_COMPUTE_UNIT_LIMIT)
     );
     assert!(
-        consumed(init_spp_ring_config_fixture(initialized_config_account(
+        consumed_until_spp_cpi(init_spp_ring_config_fixture(initialized_config_account(
             authority(),
             auditor_pubkey(2)
         ))) <= u64::from(INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT)

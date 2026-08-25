@@ -8,7 +8,7 @@ use zolana_account_checks::AccountError;
 use zolana_test_utils::mollusk::expect_err_exact;
 
 use crate::common::{
-    auditor_pubkey, authority, config_pda, create_config_data, create_config_fixture,
+    account, auditor_pubkey, authority, config_pda, create_config_data, create_config_fixture,
     create_config_fixture_deployed_by, initialized_config_account, program_data_account,
     program_id, setup_mollusk,
 };
@@ -216,5 +216,34 @@ fn truncated_program_data_is_rejected_exactly() {
     let mut truncated = program_data_account(Some(&authority()));
     truncated.data.truncate(8);
     fixture.set_account("program_data", truncated);
+    fixture.expect_err(&mollusk, custom(CustomRingError::UnauthorizedInitializer));
+}
+
+/// Attacker-donated lamports at the config PDA take the cold creation path.
+#[test]
+fn donated_lamports_at_the_config_pda_still_initialize() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = create_config_fixture(auditor_pubkey(2));
+    fixture.set_account("config", account(1));
+    let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
+    assert_eq!(result.program_result, ProgramResult::Success);
+    let written = result
+        .resulting_accounts
+        .iter()
+        .find(|(key, _)| key == &config_pda().0)
+        .map(|(_, account)| account.clone())
+        .expect("config account in result");
+    assert_eq!(
+        bytemuck::from_bytes::<RingProgramConfig>(&written.data).discriminator,
+        RING_PROGRAM_CONFIG
+    );
+}
+
+/// ProgramData-shaped bytes at the program address fail the state check.
+#[test]
+fn a_program_account_without_program_state_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = create_config_fixture(auditor_pubkey(2));
+    fixture.set_account("program", program_data_account(Some(&authority())));
     fixture.expect_err(&mollusk, custom(CustomRingError::UnauthorizedInitializer));
 }

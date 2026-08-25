@@ -11,7 +11,10 @@ use solana_address::Address;
 use solana_keypair::Keypair;
 use thiserror::Error;
 
-use crate::file::{self, FileError};
+use crate::{
+    file::{self, FileError},
+    ProjectRoot,
+};
 
 pub const RING_TOML: &str = "ring.toml";
 
@@ -23,8 +26,12 @@ pub struct RingConfig {
     pub target: Target,
     #[serde(deserialize_with = "base58_address::deserialize")]
     pub program_id: Address,
-    /// Upgrade authority and ring authority, `~` expands to `$HOME`.
+    /// Fallback for both authority keypairs.
     pub authority_keypair: PathBuf,
+    #[serde(default)]
+    pub upgrade_authority_keypair: Option<PathBuf>,
+    #[serde(default)]
+    pub config_authority_keypair: Option<PathBuf>,
     /// Zolana revision the ring source was generated from.
     pub zolana_revision: String,
     pub localnet: Urls,
@@ -146,8 +153,28 @@ impl RingConfig {
         Ok(file::write(path, updated.join("\n") + "\n")?)
     }
 
-    pub fn authority(&self) -> Result<Keypair, ConfigError> {
-        Ok(file::read_keypair(&expand_tilde(&self.authority_keypair)?)?)
+    pub fn config_authority(&self) -> Result<Keypair, ConfigError> {
+        Ok(file::read_keypair(&expand_tilde(
+            self.config_authority_keypair(),
+        )?)?)
+    }
+
+    pub fn upgrade_authority(&self) -> Result<Keypair, ConfigError> {
+        Ok(file::read_keypair(&expand_tilde(
+            self.upgrade_authority_keypair(),
+        )?)?)
+    }
+
+    pub fn config_authority_keypair(&self) -> &Path {
+        self.config_authority_keypair
+            .as_deref()
+            .unwrap_or(&self.authority_keypair)
+    }
+
+    pub fn upgrade_authority_keypair(&self) -> &Path {
+        self.upgrade_authority_keypair
+            .as_deref()
+            .unwrap_or(&self.authority_keypair)
     }
 
     pub fn enabled_features(&self) -> impl Iterator<Item = &str> {
@@ -155,6 +182,18 @@ impl RingConfig {
             .iter()
             .filter(|(_, enabled)| **enabled)
             .map(|(id, _)| id.as_str())
+    }
+
+    pub(crate) fn resolve_keypair_paths(&mut self, root: &ProjectRoot) {
+        self.authority_keypair = root.resolve(&self.authority_keypair);
+        self.config_authority_keypair = self
+            .config_authority_keypair
+            .take()
+            .map(|path| root.resolve(&path));
+        self.upgrade_authority_keypair = self
+            .upgrade_authority_keypair
+            .take()
+            .map(|path| root.resolve(&path));
     }
 }
 
@@ -272,6 +311,25 @@ anonymous = false
             vec!["auditor_visibility", "confidential"]
         );
         assert_eq!(config.urls().ring_rpc, "http://127.0.0.1:8785");
+    }
+
+    #[test]
+    fn authority_paths_split_without_breaking_legacy_configs() {
+        let split = EXAMPLE.replacen(
+            "\n[localnet]",
+            "\nconfig_authority_keypair = \"config.json\"\nupgrade_authority_keypair = \"upgrade.json\"\n\n[localnet]",
+            1,
+        );
+        let config: RingConfig = toml::from_str(&split).expect("parse split authorities");
+        assert_eq!(config.config_authority_keypair(), Path::new("config.json"));
+        assert_eq!(
+            config.upgrade_authority_keypair(),
+            Path::new("upgrade.json")
+        );
+
+        let legacy: RingConfig = toml::from_str(EXAMPLE).expect("parse legacy authority");
+        assert_eq!(legacy.config_authority_keypair(), legacy.authority_keypair);
+        assert_eq!(legacy.upgrade_authority_keypair(), legacy.authority_keypair);
     }
 
     #[test]

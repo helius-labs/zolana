@@ -20,7 +20,7 @@ pub mod step;
 pub mod tool;
 pub mod transact;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{Args, Parser, Subcommand};
 use custom_ring_sdk::{CustomRing, ReaderKey};
@@ -121,7 +121,7 @@ pub enum Service {
 
 #[derive(Debug, Subcommand)]
 pub enum AuthorityCommand {
-    /// Hand the program to another key, then update `authority_keypair` in ring.toml.
+    /// Hand the program to another key, then set `upgrade_authority_keypair`.
     Transfer { new_authority: Address },
     /// Hand the ring config authority to another keypair, both keys sign.
     TransferConfig { new_authority_keypair: PathBuf },
@@ -255,10 +255,14 @@ impl Default for TransactArgs {
 
 pub struct Context {
     pub config_path: PathBuf,
+    pub project_root: ProjectRoot,
     pub config: RingConfig,
     pub ring: CustomRing,
     pub rpc: SolanaRpc,
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProjectRoot(PathBuf);
 
 #[derive(Debug, Error)]
 pub enum ContextError {
@@ -271,11 +275,14 @@ pub enum ContextError {
 }
 
 impl Context {
-    pub fn load(config_path: PathBuf, config: RingConfig) -> Self {
+    pub fn load(config_path: PathBuf, mut config: RingConfig) -> Self {
+        let project_root = ProjectRoot::for_config(&config_path);
+        config.resolve_keypair_paths(&project_root);
         let ring = CustomRing::new(config.program_id);
         let rpc = SolanaRpc::new(config.urls().rpc.clone());
         Self {
             config_path,
+            project_root,
             config,
             ring,
             rpc,
@@ -288,7 +295,7 @@ impl Context {
     }
 
     pub fn authority_funded_for(&mut self, required: u64) -> Result<Keypair, ContextError> {
-        let authority = self.config.authority()?;
+        let authority = self.config.config_authority()?;
         self.fund_authority(&authority, required)?;
         Ok(authority)
     }
@@ -318,6 +325,10 @@ impl Context {
         RingRpcClient::new(&self.config.urls().ring_rpc)
     }
 
+    pub fn project_path(&self, path: &Path) -> PathBuf {
+        self.project_root.resolve(path)
+    }
+
     pub fn indexer(&self) -> ZolanaIndexer {
         ZolanaIndexer::new(&self.config.urls().indexer)
     }
@@ -337,6 +348,30 @@ impl Context {
                 }),
             None => Ok(unpinned),
         }
+    }
+}
+
+impl ProjectRoot {
+    pub fn for_config(config_path: &Path) -> Self {
+        Self(
+            config_path
+                .parent()
+                .filter(|path| !path.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."))
+                .to_path_buf(),
+        )
+    }
+
+    pub fn resolve(&self, path: &Path) -> PathBuf {
+        if path.is_absolute() || path.starts_with("~") {
+            path.to_path_buf()
+        } else {
+            self.0.join(path)
+        }
+    }
+
+    pub fn as_path(&self) -> &Path {
+        &self.0
     }
 }
 
@@ -394,7 +429,7 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
     let mut ctx = Context::load(cli.config, config);
     match cli.command {
         Command::Status => status::run(&ctx),
-        Command::Build(args) => build_program::run(args)?,
+        Command::Build(args) => build_program::run(&ctx.project_root, args)?,
         Command::Deploy(args) => deploy::run(&mut ctx, args)?,
         Command::Init(args) => init::run(&mut ctx, args)?,
         Command::Pipeline(args) => pipeline::run(&mut ctx, args)?,
@@ -403,8 +438,8 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
         Command::RpcCheck => ring_rpc::run_check(&ctx)?,
         Command::Authority(command) => authority::run(&ctx, command)?,
         Command::Reader(command) => reader::run(&mut ctx, command)?,
-        Command::AuditorKey(args) => keys::run(args)?,
-        Command::Repo => repo::run(&ctx.config)?,
+        Command::AuditorKey(args) => keys::run(&ctx.project_root, args)?,
+        Command::Repo => repo::run(&ctx)?,
         // Handled before the context loads.
         Command::New(_)
         | Command::Target { .. }
@@ -413,4 +448,52 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
         | Command::Localnet => {}
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn explicit_config_roots_local_key_output() {
+        let root = std::env::temp_dir().join(format!("ring-config-root-{}", std::process::id()));
+        let config_path = root.join(RING_TOML);
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("temp root");
+        std::fs::write(
+            &config_path,
+            r#"name = "rooted"
+target = "localnet"
+program_id = "11111111111111111111111111111111"
+authority_keypair = "keys/authority.json"
+zolana_revision = "851680f7fcc99ccbd88119942760e9309ace0a58"
+
+[localnet]
+rpc = "http://127.0.0.1:8899"
+indexer = "http://127.0.0.1:8784"
+prover = "http://127.0.0.1:3001"
+ring_rpc = "http://127.0.0.1:8785"
+
+[devnet]
+rpc = "https://api.devnet.solana.com"
+indexer = "i"
+prover = "p"
+ring_rpc = "r"
+"#,
+        )
+        .expect("write config");
+
+        run(Cli {
+            config: config_path,
+            target: None,
+            command: Command::AuditorKey(AuditorKeyArgs {
+                key_file: PathBuf::from(AUDITOR_KEY_FILE),
+                create: true,
+            }),
+        })
+        .expect("create rooted key");
+
+        assert!(root.join(AUDITOR_KEY_FILE).is_file());
+        std::fs::remove_dir_all(root).expect("cleanup");
+    }
 }

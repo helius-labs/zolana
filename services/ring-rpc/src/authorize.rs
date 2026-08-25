@@ -296,6 +296,19 @@ mod tests {
     }
 
     #[test]
+    fn a_timestamp_outside_the_skew_is_refused_in_both_directions() {
+        let now = unix_now().expect("clock");
+        for timestamp in [now - READ_SKEW.as_secs() - 1, now + READ_SKEW.as_secs() + 1] {
+            let auth = GetDecryptedTransactionsRequest::read(RING)
+                .at(timestamp)
+                .sign(&wallet())
+                .expect("signed request")
+                .auth;
+            assert_eq!(decide(&auth), Err(Unauthorized::StaleTimestamp));
+        }
+    }
+
+    #[test]
     fn a_nonce_that_is_not_thirty_two_bytes_is_refused() {
         let mut auth = signed_auth();
         auth.nonce.0.pop();

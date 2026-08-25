@@ -1969,6 +1969,7 @@ dependencies = [
  "solana-instruction",
  "solana-keypair",
  "solana-loader-v3-interface 8.0.1",
+ "solana-rpc-client-api",
  "solana-signature",
  "solana-signer",
  "solana-system-interface 3.2.0",
@@ -11091,7 +11092,6 @@ dependencies = [
  "tokio",
  "zeroize",
  "zolana-hasher",
- "zolana-interface",
 ]
 
 [[package]]

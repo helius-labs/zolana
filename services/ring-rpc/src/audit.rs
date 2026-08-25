@@ -46,6 +46,13 @@ pub struct AuditService<S> {
     pub(crate) shared: Arc<Shared<S>>,
 }
 
+pub(crate) struct AuthorizedRead<'a, S> {
+    service: &'a AuditService<S>,
+    page: &'a Page,
+    replay: ReplayCheck,
+    _reader: ReaderPermit<'a>,
+}
+
 #[must_use]
 pub struct AuditRead<'a> {
     pub auth: &'a ReadAuth,
@@ -127,18 +134,17 @@ impl<S: TransactionSource> AuditService<S> {
         &self,
         request: AuditRead<'_>,
     ) -> Result<GetDecryptedTransactionsResponse, RingRpcError> {
-        let _reader = self.authorize_read(request.auth, request.page).await?;
-        self.decrypted_transactions(request.page).await
+        self.authorize(request).await?.execute().await
     }
 
-    async fn authorize_read<'a>(
+    pub(crate) async fn authorize<'a>(
         &'a self,
-        auth: &ReadAuth,
-        page: &Page,
-    ) -> Result<ReaderPermit<'a>, RingRpcError> {
+        request: AuditRead<'a>,
+    ) -> Result<AuthorizedRead<'a, S>, RingRpcError> {
         // One reading for the skew rule and for the nonce eviction window.
         let now = unix_now().map_err(|_| RingRpcError::StateUnavailable)?;
-        let nonce = auth
+        let nonce = request
+            .auth
             .nonce
             .0
             .as_slice()
@@ -146,12 +152,12 @@ impl<S: TransactionSource> AuditService<S> {
             .map_err(|_| Unauthorized::InvalidNonce)?;
         let attestation = ReadAttestation {
             ring: self.ring,
-            timestamp: auth.timestamp,
+            timestamp: request.auth.timestamp,
             nonce: &nonce,
-            cursor: page.cursor.as_deref(),
-            limit: page.attested_limit.clone(),
+            cursor: request.page.cursor.as_deref(),
+            limit: request.page.attested_limit.clone(),
         };
-        let claim = ReadCheck::new(auth, &attestation)
+        let claim = ReadCheck::new(request.auth, &attestation)
             .at(now)
             .against(&self.shared.origins)
             .decide()?;
@@ -175,13 +181,17 @@ impl<S: TransactionSource> AuditService<S> {
             .await?
             .then_some(())
             .ok_or(Unauthorized::NotGranted)?;
-        self.shared.replay.accept(ReplayCheck {
-            ring: self.ring,
-            nonce: claim.nonce(),
-            timestamp: auth.timestamp,
-            now,
-        })?;
-        Ok(permit)
+        Ok(AuthorizedRead {
+            service: self,
+            page: request.page,
+            replay: ReplayCheck {
+                ring: self.ring,
+                nonce: claim.nonce(),
+                timestamp: request.auth.timestamp,
+                now,
+            },
+            _reader: permit,
+        })
     }
 
     async fn decrypted_transactions(
@@ -264,6 +274,13 @@ impl<S: TransactionSource> AuditService<S> {
                 cursor: response.next_cursor.map(Into::into),
             },
         })
+    }
+}
+
+impl<S: TransactionSource> AuthorizedRead<'_, S> {
+    pub(crate) async fn execute(self) -> Result<GetDecryptedTransactionsResponse, RingRpcError> {
+        self.service.shared.replay.accept(self.replay)?;
+        self.service.decrypted_transactions(self.page).await
     }
 }
 

@@ -227,8 +227,11 @@ describe("ring flow", () => {
       if (audited === undefined) await new Promise((resolve) => setTimeout(resolve, 500));
     }
     expect(audited).toBeDefined();
-    const amounts = audited?.outputs.map((output) => output.amount);
-    expect(amounts).toContain(amount);
+    // The 3x deposit is the covering note, the change slot keeps 2x.
+    const amounts = [...(audited?.outputs.map((output) => output.amount) ?? [])].sort((a, b) =>
+      a < b ? -1 : 1,
+    );
+    expect(amounts).toEqual([amount, amount * 2n]);
     expect(audited?.outputs.map((output) => output.ringProgramId)).toEqual([
       ringProgramId,
       ringProgramId,
@@ -270,6 +273,11 @@ describe("ring flow", () => {
       ringProgramId,
       ringProgramId,
     ]);
+    // The hop pays half the note onward, the change slot keeps the rest.
+    const hopAmounts = [...(hopAudited?.outputs.map((output) => output.amount) ?? [])].sort(
+      (a, b) => (a < b ? -1 : 1),
+    );
+    expect(hopAmounts).toEqual([amount / 2n, amount / 2n]);
 
     // A delegated reader reads after the grant and not after the revoke.
     const delegate = (await freshActor()).signer;

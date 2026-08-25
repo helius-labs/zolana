@@ -30,7 +30,8 @@ use crate::{
         GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS, RING_STATUS,
     },
     audit::{AuditRead, PageOptions},
-    hub::Hub,
+    hub::{Hub, ReadinessStatus},
+    limits::PublicRequest,
     origins::{OriginError, Origins},
     upstream::{DepositPage, TransactionSource},
 };
@@ -115,10 +116,7 @@ pub fn rpc_module<S: TransactionSource + 'static>(
 ) -> Result<RpcModule<Arc<Hub<S>>>, RegisterMethodError> {
     let mut module = RpcModule::new(hub);
 
-    // Every method opens with the one rate gate, so nothing reaches an
-    // upstream unmetered.
     module.register_async_method(HEALTH, |_params, hub, _extensions| async move {
-        hub.accept_request().map_err(ErrorObjectOwned::from)?;
         Ok::<_, ErrorObjectOwned>(HealthResponse {
             mode: hub.mode(),
             service_pubkey: hub.service_pubkey().into(),
@@ -127,8 +125,9 @@ pub fn rpc_module<S: TransactionSource + 'static>(
     })?;
 
     module.register_async_method(CREATE_AUDITOR_KEY, |params, hub, _extensions| async move {
-        hub.accept_request().map_err(ErrorObjectOwned::from)?;
         let request = params.parse::<CreateAuditorKeyRequest>()?;
+        hub.accept_public(PublicRequest::Standard)
+            .map_err(ErrorObjectOwned::from)?;
         let ring = request.ring_program_id.0;
         let service = hub.service_for(ring).map_err(ErrorObjectOwned::from)?;
         let ring = service.ring();
@@ -143,19 +142,23 @@ pub fn rpc_module<S: TransactionSource + 'static>(
         })
     })?;
 
-    // One indexer round trip for each signature examined, so the ring is
-    // resolved first and a local instance answers for its own ring only.
     module.register_async_method(RING_DEPOSITS, |params, hub, _extensions| async move {
-        hub.accept_request().map_err(ErrorObjectOwned::from)?;
         let request = params.parse::<RingDepositsRequest>()?;
+        let limit = request.page_limit();
+        let before = request.before().map_err(ErrorObjectOwned::from)?;
+        hub.validate_ring(request.ring_program_id.0)
+            .map_err(ErrorObjectOwned::from)?;
+        hub.accept_public(PublicRequest::DepositScan { signatures: limit })
+            .map_err(ErrorObjectOwned::from)?;
+        let _scan = hub.deposit_slot().map_err(ErrorObjectOwned::from)?;
         let service = hub
             .service_for(request.ring_program_id.0)
             .map_err(ErrorObjectOwned::from)?;
         let history = hub
             .ring_deposits(DepositPage {
                 ring: service.ring(),
-                limit: request.page_limit(),
-                before: request.before().map_err(ErrorObjectOwned::from)?,
+                limit,
+                before,
             })
             .await
             .map_err(ErrorObjectOwned::from)?;
@@ -163,8 +166,9 @@ pub fn rpc_module<S: TransactionSource + 'static>(
     })?;
 
     module.register_async_method(RING_STATUS, |params, hub, _extensions| async move {
-        hub.accept_request().map_err(ErrorObjectOwned::from)?;
         let request = params.parse::<RingStatusRequest>()?;
+        hub.accept_public(PublicRequest::Standard)
+            .map_err(ErrorObjectOwned::from)?;
         let ring = request.ring_program_id.0;
         let service = hub.service_for(ring).map_err(ErrorObjectOwned::from)?;
         let auditor_pubkey = service.auditor_pubkey();
@@ -190,9 +194,10 @@ pub fn rpc_module<S: TransactionSource + 'static>(
     module.register_async_method(
         GET_DECRYPTED_TRANSACTIONS,
         |params, hub, _extensions| async move {
-            hub.accept_request().map_err(ErrorObjectOwned::from)?;
-            let _slot = hub.read_slot().map_err(ErrorObjectOwned::from)?;
             let request = params.parse::<GetDecryptedTransactionsRequest>()?;
+            hub.accept_authentication()
+                .map_err(ErrorObjectOwned::from)?;
+            let authentication = hub.authentication_slot().map_err(ErrorObjectOwned::from)?;
             let service = match request.ring_program_id {
                 Some(ring) => hub.service_for(ring.0),
                 None => hub.service(),
@@ -206,15 +211,17 @@ pub fn rpc_module<S: TransactionSource + 'static>(
                 page = page.with_limit(limit).map_err(ErrorObjectOwned::from)?;
             }
             let page = page.build().map_err(ErrorObjectOwned::from)?;
-            // The read adds the signature, the grant, the replay nonce and one
-            // page at a time for each reader.
-            service
-                .read(AuditRead {
+            let read = service
+                .authorize(AuditRead {
                     auth: &request.auth,
                     page: &page,
                 })
                 .await
-                .map_err(ErrorObjectOwned::from)
+                .map_err(ErrorObjectOwned::from)?;
+            drop(authentication);
+            hub.accept_audit().map_err(ErrorObjectOwned::from)?;
+            let _slot = hub.read_slot().map_err(ErrorObjectOwned::from)?;
+            read.execute().await.map_err(ErrorObjectOwned::from)
         },
     )?;
 
@@ -276,17 +283,11 @@ where
     }
 }
 
-async fn readiness<S: TransactionSource>(hub: &Hub<S>) -> HttpResponse {
-    // The probe reaches both upstreams, so it takes the gate as well.
-    if let Err(error) = hub.accept_request() {
-        log::error!("readiness probe rejected because {error}");
-        return text_response(StatusCode::TOO_MANY_REQUESTS, "busy");
-    }
-    match hub.probe_upstreams().await {
-        Ok(()) => text_response(StatusCode::OK, "ready"),
-        Err(error) => {
-            log::error!("readiness probe failed because {error}");
-            text_response(StatusCode::SERVICE_UNAVAILABLE, error.check())
+async fn readiness<S: TransactionSource + 'static>(hub: &Arc<Hub<S>>) -> HttpResponse {
+    match hub.readiness().await {
+        ReadinessStatus::Ready => text_response(StatusCode::OK, "ready"),
+        ReadinessStatus::Unavailable(check) => {
+            text_response(StatusCode::SERVICE_UNAVAILABLE, check)
         }
     }
 }
@@ -303,7 +304,11 @@ fn text_response(status: StatusCode, body: &'static str) -> HttpResponse {
 
 #[cfg(test)]
 mod tests {
-    use std::{future::Future, net::Ipv4Addr};
+    use std::{
+        future::Future,
+        net::Ipv4Addr,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
 
     use solana_address::Address;
     use solana_signature::Signature;
@@ -313,9 +318,14 @@ mod tests {
     use zolana_transaction::AssetRegistry;
 
     use crate::{
+        api::DEPOSITS_PAGE_LIMIT,
         config::RootSecret,
         error::RingRpcError,
-        limits::{MAX_CONCURRENT_READS, MAX_READS_PER_SECOND},
+        keys::KeyMode,
+        limits::{
+            MAX_CONCURRENT_AUTHENTICATIONS, MAX_CONCURRENT_DEPOSIT_SCANS, MAX_CONCURRENT_READS,
+            MAX_REQUEST_UNITS_PER_SECOND,
+        },
         origins::OriginPolicy,
         upstream::{DepositHistory, ReaderGrant, RingConfiguration, TransactionPage},
     };
@@ -329,6 +339,7 @@ mod tests {
         healthy: bool,
         delay: Duration,
         config: Option<RingConfiguration>,
+        health_calls: Arc<AtomicUsize>,
     }
 
     impl TransactionSource for TestSource {
@@ -373,7 +384,9 @@ mod tests {
         fn health(&self) -> impl Future<Output = Result<(), ClientError>> + Send {
             let healthy = self.healthy;
             let delay = self.delay;
+            let calls = self.health_calls.clone();
             async move {
+                calls.fetch_add(1, Ordering::Relaxed);
                 tokio::time::sleep(delay).await;
                 healthy
                     .then_some(())
@@ -421,6 +434,7 @@ mod tests {
             healthy: true,
             delay: Duration::ZERO,
             config: None,
+            health_calls: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -565,8 +579,7 @@ mod tests {
             hub(
                 TestSource {
                     healthy: false,
-                    delay: Duration::ZERO,
-                    config: None,
+                    ..source()
                 },
                 Origins::default(),
             ),
@@ -585,9 +598,8 @@ mod tests {
         let handle = run_server(
             hub(
                 TestSource {
-                    healthy: true,
                     delay: Duration::from_millis(50),
-                    config: None,
+                    ..source()
                 },
                 Origins::default(),
             ),
@@ -604,8 +616,6 @@ mod tests {
         handle.stopped().await;
     }
 
-    /// The deposit fan out makes one indexer round trip for each signature
-    /// examined, so it takes the gate like every other method.
     #[tokio::test]
     async fn deposit_pages_are_metered_and_serve_one_ring() {
         let module = rpc_module(hub(source(), Origins::default())).expect("module");
@@ -619,7 +629,7 @@ mod tests {
             .expect_err("another ring");
         assert!(foreign.to_string().contains("not served"), "{foreign}");
 
-        for _ in 1..MAX_READS_PER_SECOND {
+        for _ in 0..MAX_REQUEST_UNITS_PER_SECOND / DEPOSITS_PAGE_LIMIT as usize {
             module
                 .call::<_, RingDepositsResponse>(RING_DEPOSITS, params(deposits(SERVED_RING)))
                 .await
@@ -630,6 +640,51 @@ mod tests {
             .await
             .expect_err("exhausted window");
         assert!(busy.to_string().contains("busy"), "{busy}");
+
+        let health: HealthResponse = module.call(HEALTH, [(); 0]).await.expect("health");
+        assert_eq!(health.mode, KeyMode::Local);
+        let status: RingStatusResponse = module
+            .call(
+                RING_STATUS,
+                params(RingStatusRequest {
+                    ring_program_id: SERVED_RING.to_bytes().into(),
+                }),
+            )
+            .await
+            .expect("status");
+        assert_eq!(status.state, RingState::Served);
+    }
+
+    #[tokio::test]
+    async fn readiness_probes_share_a_cached_result() {
+        let source = source();
+        let calls = source.health_calls.clone();
+        let hub = hub(source, Origins::default());
+
+        assert_eq!(hub.readiness().await, ReadinessStatus::Ready);
+        assert_eq!(hub.readiness().await, ReadinessStatus::Ready);
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn cancelled_readiness_waiters_leave_one_probe() {
+        let source = TestSource {
+            delay: Duration::from_millis(10),
+            ..source()
+        };
+        let calls = source.health_calls.clone();
+        let hub = hub(source, Origins::default());
+        let waiter = tokio::spawn({
+            let hub = hub.clone();
+            async move { hub.readiness().await }
+        });
+        while calls.load(Ordering::Relaxed) == 0 {
+            tokio::task::yield_now().await;
+        }
+        waiter.abort();
+
+        assert_eq!(hub.readiness().await, ReadinessStatus::Ready);
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
     }
 
     /// A decrypting page holds its slot for the whole page, and the gate
@@ -644,6 +699,43 @@ mod tests {
         assert!(matches!(hub.read_slot(), Err(RingRpcError::Busy)));
         drop(held);
         let _reopened = hub.read_slot().expect("released slot");
+    }
+
+    #[test]
+    fn concurrent_deposit_scans_are_capped() {
+        let hub = hub(source(), Origins::default());
+        let held = (0..MAX_CONCURRENT_DEPOSIT_SCANS)
+            .map(|_| hub.deposit_slot().expect("deposit slot"))
+            .collect::<Vec<_>>();
+
+        assert!(matches!(hub.deposit_slot(), Err(RingRpcError::Busy)));
+        drop(held);
+        let _reopened = hub.deposit_slot().expect("released slot");
+    }
+
+    #[test]
+    fn authentication_attempts_do_not_consume_audit_capacity() {
+        let hub = hub(source(), Origins::default());
+        for _ in 0..MAX_REQUEST_UNITS_PER_SECOND {
+            hub.accept_authentication().expect("authentication");
+        }
+        assert!(matches!(
+            hub.accept_authentication(),
+            Err(RingRpcError::Busy)
+        ));
+        hub.accept_audit().expect("audit capacity");
+    }
+
+    #[test]
+    fn concurrent_authentication_attempts_are_capped() {
+        let hub = hub(source(), Origins::default());
+        let held = (0..MAX_CONCURRENT_AUTHENTICATIONS)
+            .map(|_| hub.authentication_slot().expect("authentication slot"))
+            .collect::<Vec<_>>();
+
+        assert!(matches!(hub.authentication_slot(), Err(RingRpcError::Busy)));
+        drop(held);
+        let _reopened = hub.authentication_slot().expect("released slot");
     }
 
     /// Every derived key is bound to the genesis hash captured at boot, so

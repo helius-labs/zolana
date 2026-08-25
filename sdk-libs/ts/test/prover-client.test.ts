@@ -116,11 +116,13 @@ describe("queued prover polling", () => {
 describe("prover request routing", () => {
   it("routes merge through its canonical circuit type", async () => {
     const bodies: unknown[] = [];
+    const deliveries: (string | null)[] = [];
     const urls: URL[] = [];
     const redirects: (RequestRedirect | undefined)[] = [];
     const fetch = vi.fn(async (input: URL | string, init?: RequestInit) => {
       urls.push(new URL(String(input)));
       bodies.push(JSON.parse(String(init?.body)));
+      deliveries.push(new Headers(init?.headers).get("X-Sync"));
       redirects.push(init?.redirect);
       return new Response(JSON.stringify(STANDARD_PROOF), {
         headers: { "content-type": "application/json" },
@@ -134,6 +136,7 @@ describe("prover request routing", () => {
     await prover.proveMerge(mergeInputs());
 
     expect(bodies).toMatchObject([{ circuitType: "merge" }]);
+    expect(deliveries).toEqual(["true"]);
     expect(redirects).toEqual(["error"]);
     expect(urls[0]?.pathname).toBe("/zolana/prove");
     expect(urls[0]?.searchParams.get("api-key")).toBe("k+1");
@@ -142,8 +145,10 @@ describe("prover request routing", () => {
 
   it("encodes the audit request byte for byte like Rust `AuditProofRequest::body`", async () => {
     const raw: string[] = [];
+    const deliveries: (string | null)[] = [];
     const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
       raw.push(String(init?.body));
+      deliveries.push(new Headers(init?.headers).get("X-Sync"));
       return new Response(JSON.stringify(STANDARD_PROOF), {
         headers: { "content-type": "application/json" },
       });
@@ -161,6 +166,7 @@ describe("prover request routing", () => {
     });
 
     expect(raw[0]).toBe(AUDIT_REQUEST_VECTOR);
+    expect(deliveries).toEqual([null]);
     const body = JSON.parse(raw[0] ?? "") as Record<string, unknown>;
     expect(Object.keys(body).sort()).toEqual([
       "auditorPk",
@@ -187,6 +193,30 @@ describe("prover request routing", () => {
       ).rejects.toMatchObject({ code: "CLIENT_INVALID_P256_KEY" });
     }
     expect(raw).toHaveLength(1);
+  });
+
+  it("queues a transfer after sync admission is refused", async () => {
+    const deliveries: (string | null)[] = [];
+    const refusal = new Response("busy", { status: 429 });
+    const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        deliveries.push(new Headers(init.headers).get("X-Sync"));
+        if (deliveries.length === 1) return refusal;
+        return new Response(JSON.stringify({ jobId: "job-123" }), {
+          status: 202,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ status: "completed", result: STANDARD_PROOF }), {
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof globalThis.fetch;
+    const prover = new ProverClient({ url: "https://prover.example", fetch });
+
+    await prover.prove(INPUTS);
+
+    expect(deliveries).toEqual(["true", null]);
+    expect(refusal.bodyUsed).toBe(true);
   });
 
   it("reads the served circuits from the health endpoint", async () => {
