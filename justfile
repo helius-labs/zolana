@@ -1496,6 +1496,10 @@ ensure-photon:
 release tag *args: build-programs fetch-smart-account
     cargo run -p xtask -- create-release --tag {{tag}} {{args}}
 
+# The ring program and the zolana-ring cli only, under their own lockfile.
+release-custom-rings tag *args: build-programs
+    cargo run -p xtask -- create-release --custom-rings --tag {{tag}} {{args}}
+
 # === Formatting and linting ===
 
 fmt:

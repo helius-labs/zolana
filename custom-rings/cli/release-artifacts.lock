@@ -1,0 +1,8 @@
+{
+  "release_tag": "v0.1.0-alpha.2",
+  "ring_program": {
+    "asset": "custom-ring-program-v0.1.0-alpha.2.so",
+    "sha256": "041b94f53ff0ee291473b3cf407b7c8b535d87f2beb7a18c48e2034aa2235d81",
+    "size": 175896
+  }
+}
