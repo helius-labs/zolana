@@ -7,7 +7,6 @@ use pinocchio::{
     cpi::{invoke_signed_with_bounds, Seed, Signer},
     instruction::{InstructionAccount, InstructionView},
 };
-use solana_address::address;
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     event::MessageData,
@@ -33,10 +32,6 @@ use crate::{
     },
     policy::POLICY,
 };
-
-/// All records live in one tree, presence and absence stay provable against
-/// its roots.
-pub const DEFAULT_TREE: Address = address!("trEEbaNobcTESNmtsPBj3FX27q5sDCQePV2kb12FYho");
 
 pub(crate) struct MutationAccounts<'a> {
     pub payer: &'a AccountView,
@@ -74,14 +69,13 @@ impl<'a> MutationAccounts<'a> {
         {
             return Err(CustomRingError::InvalidShieldedPoolProgram.into());
         }
-        if !address_eq(input_tree.address(), &DEFAULT_TREE)
-            || !address_eq(output_tree.address(), &DEFAULT_TREE)
+        let config = load_config(program_id, config)?;
+        let policy_config: Ref<'_, PolicyConfig> = load_policy_config(program_id, policy_config)?;
+        if !address_eq(input_tree.address(), &policy_config.records_tree)
+            || !address_eq(output_tree.address(), &policy_config.records_tree)
         {
             return Err(CustomRingError::InvalidPolicyTree.into());
         }
-
-        let config = load_config(program_id, config)?;
-        let policy_config: Ref<'_, PolicyConfig> = load_policy_config(program_id, policy_config)?;
         let records_bump = PdaCheck {
             program_id,
             address: records.address(),

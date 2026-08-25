@@ -40,3 +40,13 @@ cargo build-sbf --tools-version "$sbf_tools_version" \
     --sbf-out-dir target/deploy \
     --manifest-path custom-rings/program/Cargo.toml \
     -- --locked --features bpf-entrypoint
+
+# The policy build is a second artifact, both share one crate name so they
+# cannot land in one directory.
+cargo build-sbf --tools-version "$sbf_tools_version" \
+    --sbf-out-dir target/deploy-policy \
+    --manifest-path custom-rings/program/Cargo.toml \
+    -- --locked --features bpf-entrypoint,allowlist,blocklist,freeze
+mv target/deploy-policy/custom_ring_program.so \
+    target/deploy/custom_ring_program_policy.so
+rm -rf target/deploy-policy

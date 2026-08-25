@@ -1,5 +1,6 @@
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::{error::InstructionError, Instruction};
+use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction_error::TransactionError;
 use thiserror::Error;
@@ -75,7 +76,7 @@ impl IdempotentStep<'_> {
         match observed {
             Observed::Present => Ok(StepOutcome::Present),
             Observed::Absent => {
-                self.send(instruction)?;
+                let _ = self.send(instruction)?;
                 Ok(StepOutcome::Created)
             }
         }
@@ -89,13 +90,13 @@ impl IdempotentStep<'_> {
         match observed {
             Observed::Absent => Ok(StepOutcome::Absent),
             Observed::Present => {
-                self.send(instruction)?;
+                let _ = self.send(instruction)?;
                 Ok(StepOutcome::Closed)
             }
         }
     }
 
-    fn send(&self, instruction: Instruction) -> Result<(), StepError> {
+    pub fn send(&self, instruction: Instruction) -> Result<Signature, StepError> {
         let instructions = [
             ComputeBudgetInstruction::set_compute_unit_limit(self.compute_unit_limit),
             instruction,
@@ -114,8 +115,7 @@ impl IdempotentStep<'_> {
                         source: Box::new(source),
                     },
                 },
-            )?;
-        Ok(())
+            )
     }
 }
 

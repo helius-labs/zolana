@@ -2,7 +2,8 @@
 
 use bytemuck::Pod;
 use custom_ring_interface::{
-    ReadAccessRecord, RingProgramConfig, READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
+    PolicyConfig, ReadAccessRecord, RingProgramConfig, POLICY_CONFIG, READ_ACCESS_RECORD,
+    RING_PROGRAM_CONFIG,
 };
 use solana_address::Address;
 use thiserror::Error;
@@ -13,6 +14,7 @@ use zolana_interface::{
 };
 use zolana_keypair::P256Pubkey;
 pub use zolana_ring_client::{ReaderKey, ReaderKeyError};
+use zolana_ring_policy::POLICY_RECORDS_PDA_SEED;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CustomRing {
@@ -45,6 +47,15 @@ impl CustomRing {
     /// public key.
     pub fn config_pda(self) -> Address {
         Address::find_program_address(&[RingProgramConfig::SEED], &self.program_id).0
+    }
+
+    pub fn policy_config_pda(self) -> Address {
+        Address::find_program_address(&[PolicyConfig::SEED], &self.program_id).0
+    }
+
+    /// The shielded owner of every policy record.
+    pub fn records_pda(self) -> Address {
+        Address::find_program_address(&[POLICY_RECORDS_PDA_SEED], &self.program_id).0
     }
 
     pub fn read_access_record_pda(self, reader: &ReaderKey) -> Address {
@@ -90,6 +101,27 @@ impl CustomRing {
             authority: config.authority,
             auditor_pubkey,
         }))
+    }
+
+    pub fn read_policy_config<R: Rpc>(
+        self,
+        rpc: &R,
+    ) -> Result<Option<PolicyConfig>, AccountReadError> {
+        let address = self.policy_config_pda();
+        let Some(config) = (AccountRead {
+            rpc,
+            program_id: self.program_id,
+            address,
+        })
+        .read::<PolicyConfig>()?
+        else {
+            return Ok(None);
+        };
+        let bump = Address::find_program_address(&[PolicyConfig::SEED], &self.program_id).1;
+        if config.bump != bump {
+            return Err(AccountReadError::InvalidAccount { address });
+        }
+        Ok(Some(config))
     }
 
     pub fn read_access_record<R: Rpc>(
@@ -155,6 +187,14 @@ trait ReadableAccount: Pod + Copy {
 
 impl ReadableAccount for RingProgramConfig {
     const DISCRIMINATOR: u8 = RING_PROGRAM_CONFIG;
+
+    fn discriminator(self) -> u8 {
+        self.discriminator
+    }
+}
+
+impl ReadableAccount for PolicyConfig {
+    const DISCRIMINATOR: u8 = POLICY_CONFIG;
 
     fn discriminator(self) -> u8 {
         self.discriminator

@@ -143,6 +143,7 @@ impl Account for PolicyConfig {
 #[cfg(feature = "policy")]
 pub(crate) struct PolicyConfigInitParams {
     pub policy_hash: [u8; 32],
+    pub records_tree: Address,
     pub records_bump: u8,
     pub bump: u8,
 }
@@ -156,6 +157,7 @@ impl PolicyConfigInitParams {
             PolicyConfig {
                 discriminator: POLICY_CONFIG,
                 policy_hash: self.policy_hash,
+                records_tree: self.records_tree,
                 records_bump: self.records_bump,
                 bump: self.bump,
             },
