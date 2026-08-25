@@ -1,5 +1,5 @@
 use light_program_profiler::profile;
-use pinocchio::{AccountView, ProgramResult};
+use pinocchio::{address::address_eq, AccountView, ProgramResult};
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_interface::{
     event::MessageData,
@@ -15,7 +15,9 @@ use zolana_interface::{
 
 use crate::{
     error::CompressionError,
-    instructions::shared::{cpi_spp_transact_signed, private_tx_hash, TransitionAccounts},
+    instructions::shared::{
+        cpi_spp_transact_signed, private_tx_hash, TransitionAccounts, DEFAULT_TREE,
+    },
     state::{nullifier, AccountState, PdaOwner},
 };
 
@@ -38,6 +40,11 @@ pub fn process_create_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     } = wincode::deserialize_exact(data).map_err(|_| CompressionError::InvalidInstructionData)?;
 
     let parsed = TransitionAccounts::validate_and_parse(accounts)?;
+    if !address_eq(parsed.input_tree.address(), &DEFAULT_TREE)
+        || !address_eq(parsed.output_tree.address(), &DEFAULT_TREE)
+    {
+        return Err(CompressionError::InvalidTree.into());
+    }
     let authority = *parsed.authority.address();
     let (pda, bump) = (parsed.pda, parsed.bump);
 

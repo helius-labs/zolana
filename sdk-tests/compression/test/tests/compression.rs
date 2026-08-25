@@ -122,7 +122,8 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
     }
     let update_ix = Update {
         payer: env.authority.pubkey(),
-        tree: env.tree,
+        input_tree: env.tree,
+        output_tree: env.tree,
         old_value,
         version,
         new_value: 2,

@@ -49,13 +49,7 @@ impl<'a> TransitionAccounts<'a> {
             return Err(CompressionError::InvalidAuthority.into());
         }
         let input_tree = iter.next_account("input_tree")?;
-        if !address_eq(input_tree.address(), &DEFAULT_TREE) {
-            return Err(CompressionError::InvalidTree.into());
-        }
         let output_tree = iter.next_account("output_tree")?;
-        if !address_eq(output_tree.address(), &DEFAULT_TREE) {
-            return Err(CompressionError::InvalidTree.into());
-        }
         let spp_program = iter.next_account("spp_program")?;
         if !address_eq(spp_program.address(), &SPP_PROGRAM) {
             return Err(CompressionError::InvalidAccounts.into());

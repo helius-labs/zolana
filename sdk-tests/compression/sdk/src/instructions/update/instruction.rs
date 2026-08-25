@@ -9,7 +9,8 @@ use crate::{account_pda, err, tag, UpdateIxData};
 
 pub struct Update {
     pub payer: Address,
-    pub tree: Address,
+    pub input_tree: Address,
+    pub output_tree: Address,
     pub old_value: u64,
     pub version: u64,
     pub new_value: u64,
@@ -20,7 +21,8 @@ impl Update {
     pub fn instruction(self) -> Result<Instruction> {
         let Self {
             payer,
-            tree,
+            input_tree,
+            output_tree,
             old_value,
             version,
             new_value,
@@ -43,8 +45,8 @@ impl Update {
         let accounts = vec![
             AccountMeta::new(payer, true),
             AccountMeta::new(payer, true),
-            AccountMeta::new(tree, false),
-            AccountMeta::new(tree, false),
+            AccountMeta::new(input_tree, false),
+            AccountMeta::new(output_tree, false),
             AccountMeta::new_readonly(Address::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
             AccountMeta::new_readonly(Address::default(), false),
             AccountMeta::new_readonly(account_pda(&payer), false),
