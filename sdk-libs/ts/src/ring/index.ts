@@ -68,8 +68,10 @@ export {
 export type { ReaderKey, ReadAccessRecord } from "./reader.js";
 export {
   auditorKeyAttestation,
+  auditorKeyRequestAttestation,
   messageSignerReader,
   ringReadAttestation,
+  RingAuditorKeyRequest,
   RingReadRequest,
   RingRpc,
   RING_READ_CURSOR_LIMIT,
@@ -88,6 +90,7 @@ export type {
   RingRpcHealth,
   RingState,
   RingStatus,
+  SignedAuditorKeyRequest,
   SignedRingRead,
   SkippedReason,
   SkippedRingTransaction,
