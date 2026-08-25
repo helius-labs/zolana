@@ -275,13 +275,13 @@ fn auditor_key_is_released_only_to_the_ring_authority() -> Result<()> {
     let service = hub
         .service_for(ring_program)
         .map_err(|e| anyhow!("service {e:?}"))?;
-    let authorize = |signer: &Keypair, genesis: [u8; 32]| {
-        let request = CreateAuditorKeyRequest::for_ring(ring_program, genesis)
-            .sign(signer)
-            .expect("signed request");
+    let request = |authority: &Keypair, genesis: [u8; 32]| {
+        CreateAuditorKeyRequest::for_ring(ring_program, genesis).sign(authority)
+    };
+    let authorize = |request: &CreateAuditorKeyRequest| {
         runtime.block_on(service.authorize_auditor_key(&request.auth))
     };
-    let refused = |result: Result<(), RingRpcError>, expected: Unauthorized| match result {
+    let expect_refusal = |result: Result<(), RingRpcError>, expected: Unauthorized| match result {
         Err(RingRpcError::Unauthorized(reason)) if reason == expected => Ok(()),
         other => Err(anyhow!("expected {expected:?}, got {other:?}")),
     };
@@ -289,27 +289,21 @@ fn auditor_key_is_released_only_to_the_ring_authority() -> Result<()> {
     let config_authority = Keypair::new();
 
     // 1. No config yet, so only the program's upgrade authority is accepted.
-    refused(
-        authorize(&stranger, genesis_hash),
+    expect_refusal(
+        authorize(&request(&stranger, genesis_hash)?),
         Unauthorized::NotRingAuthority,
     )?;
-    refused(
-        authorize(&config_authority, genesis_hash),
+    expect_refusal(
+        authorize(&request(&config_authority, genesis_hash)?),
         Unauthorized::NotRingAuthority,
     )?;
-    refused(
-        authorize(&env.payer, [0; 32]),
+    expect_refusal(
+        authorize(&request(&env.payer, [0; 32])?),
         Unauthorized::ClusterMismatch,
     )?;
-    authorize(&env.payer, genesis_hash).map_err(|e| anyhow!("upgrade authority {e:?}"))?;
-    let signed = CreateAuditorKeyRequest::for_ring(ring_program, genesis_hash).sign(&env.payer)?;
-    runtime
-        .block_on(service.authorize_auditor_key(&signed.auth))
-        .map_err(|e| anyhow!("first use {e:?}"))?;
-    refused(
-        runtime.block_on(service.authorize_auditor_key(&signed.auth)),
-        Unauthorized::Replay,
-    )?;
+    let released = request(&env.payer, genesis_hash)?;
+    authorize(&released).map_err(|e| anyhow!("upgrade authority {e:?}"))?;
+    expect_refusal(authorize(&released), Unauthorized::Replay)?;
 
     // 2. Once the config exists its authority alone is accepted, even after
     //    the deployer hands it over.
@@ -332,15 +326,14 @@ fn auditor_key_is_released_only_to_the_ring_authority() -> Result<()> {
         env.payer.pubkey(),
         &[&env.payer, &config_authority],
     )?;
-    authorize(&config_authority, genesis_hash).map_err(|e| anyhow!("config authority {e:?}"))?;
-    refused(
-        authorize(&env.payer, genesis_hash),
-        Unauthorized::NotRingAuthority,
-    )?;
-    refused(
-        authorize(&stranger, genesis_hash),
-        Unauthorized::NotRingAuthority,
-    )?;
+    authorize(&request(&config_authority, genesis_hash)?)
+        .map_err(|e| anyhow!("config authority {e:?}"))?;
+    for refused in [&env.payer, &stranger] {
+        expect_refusal(
+            authorize(&request(refused, genesis_hash)?),
+            Unauthorized::NotRingAuthority,
+        )?;
+    }
     Ok(())
 }
 

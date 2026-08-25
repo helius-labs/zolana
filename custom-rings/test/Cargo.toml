@@ -31,7 +31,6 @@ zolana-interface = { workspace = true, features = ["solana"] }
 zolana-keypair = { workspace = true }
 zolana-program-test = { workspace = true }
 zolana-ring-client = { workspace = true, features = ["solana-rpc"] }
-# The auditor key release under test reads ProgramData and the config on chain.
 zolana-ring-rpc = { path = "../../services/ring-rpc" }
 zolana-test-utils = { workspace = true }
 zolana-transaction = { workspace = true }

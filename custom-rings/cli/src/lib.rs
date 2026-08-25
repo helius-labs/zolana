@@ -301,13 +301,7 @@ impl Context {
 
     /// Pins a ring rpc authority signature to the cluster the configured RPC serves.
     pub fn genesis_hash(&self) -> Result<[u8; 32], ContextError> {
-        self.rpc
-            .client()
-            .get_genesis_hash()
-            .map(|hash| hash.to_bytes())
-            .map_err(|error| {
-                ContextError::Client(Box::new(ClientError::Rpc(format!("genesis hash: {error}"))))
-            })
+        Ok(self.rpc.genesis_hash()?)
     }
 
     pub fn project_path(&self, path: &Path) -> PathBuf {
