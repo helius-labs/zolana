@@ -39,6 +39,9 @@ pub struct RingTransactWithAudit {
     /// the proof commits to, and its `private_tx_hash` must be the one the SPP
     /// proof was generated for.
     pub transact: TransactIxData,
+    /// History entries a policy statement binds, unread by a ring without rules.
+    pub state_root_index: u16,
+    pub nullifier_root_index: u16,
 }
 
 impl RingTransactWithAudit {
@@ -52,6 +55,8 @@ impl RingTransactWithAudit {
             interface_transfer_accounts,
             audit_proof,
             transact,
+            state_root_index,
+            nullifier_root_index,
         } = self;
 
         let ring = RingTransact {
@@ -68,13 +73,20 @@ impl RingTransactWithAudit {
         let spp_accounts = ring.instruction().accounts;
         let transact = ring.data;
 
-        let mut accounts = Vec::with_capacity(2 + spp_accounts.len());
+        let mut accounts = Vec::with_capacity(3 + spp_accounts.len());
         accounts.push(AccountMeta::new(payer, true));
         accounts.push(AccountMeta::new_readonly(deployment.config_pda(), false));
+        #[cfg(feature = "policy")]
+        accounts.push(AccountMeta::new_readonly(
+            deployment.policy_config_pda(),
+            false,
+        ));
         accounts.extend(spp_accounts);
 
         let body = wincode::serialize(&CustomRingTransactIxData {
             proof: audit_proof,
+            state_root_index,
+            nullifier_root_index,
             transact,
         })?;
         let mut data = Vec::with_capacity(1 + body.len());

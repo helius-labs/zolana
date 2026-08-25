@@ -4,6 +4,13 @@ version = "0.1.0"
 edition.workspace = true
 publish = false
 
+[features]
+default = []
+policy = ["custom-ring-interface/policy"]
+allowlist = ["policy", "custom-ring-interface/allowlist"]
+blocklist = ["policy", "custom-ring-interface/blocklist"]
+freeze = ["policy", "custom-ring-interface/freeze"]
+
 [dependencies]
 borsh = { workspace = true }
 num-bigint = { workspace = true }

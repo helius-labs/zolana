@@ -39,11 +39,16 @@ impl AuditPublicInput<'_> {
     /// canonical implementation: the SDK builds its proof inputs through it
     /// rather than duplicating the chain.
     pub fn hash(&self) -> Result<[u8; 32], HasherError> {
+        create_hash_chain_from_slice(&self.elements()?)
+    }
+
+    /// The chain elements, in the order the circuit assembles them.
+    pub fn elements(&self) -> Result<[[u8; 32]; 8], HasherError> {
         let tx = pack33_to_2fe(self.tx_viewing_pk);
         let auditor = pack33_to_2fe(self.auditor_pk);
         let eph = pack33_to_2fe(self.eph_pk);
         let ct_hash = ciphertext_hash(self.ciphertext)?;
-        create_hash_chain_from_slice(&[
+        Ok([
             *self.private_tx_hash,
             tx.lo,
             tx.hi,

@@ -1,4 +1,4 @@
-use custom_ring_interface::PolicyConfig;
+use custom_ring_interface::{PolicyConfig, POLICY};
 use pinocchio::{
     account::Ref, address::address_eq, error::ProgramError, AccountView, Address, ProgramResult,
 };
@@ -30,8 +30,27 @@ use crate::{
         loader::{load_config, load_policy_config},
         shared::PdaCheck,
     },
-    policy::POLICY,
 };
+
+/// Derived from the program id alone, no instruction can name another records
+/// account.
+#[cfg(any(target_os = "solana", target_arch = "bpf"))]
+pub(crate) fn records_pda(program_id: &Address) -> Result<(Address, u8), CustomRingError> {
+    Ok(Address::find_program_address(
+        &[POLICY_RECORDS_PDA_SEED],
+        program_id,
+    ))
+}
+
+#[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
+pub(crate) fn records_pda(_program_id: &Address) -> Result<(Address, u8), CustomRingError> {
+    Err(CustomRingError::InvalidRecordsPda)
+}
+
+pub(crate) fn records_owner(program_id: &Address) -> Result<RecordsOwner, CustomRingError> {
+    RecordsOwner::new(records_pda(program_id)?.0.as_array())
+        .map_err(|_| CustomRingError::HashingFailed)
+}
 
 pub(crate) struct MutationAccounts<'a> {
     pub payer: &'a AccountView,

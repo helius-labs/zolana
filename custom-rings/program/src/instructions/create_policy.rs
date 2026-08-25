@@ -1,22 +1,20 @@
-use custom_ring_interface::PolicyConfig;
+use crate::{
+    error::CustomRingError,
+    instructions::{
+        loader::UpgradeAuthorityCheck,
+        policy_shared::{records_owner, records_pda},
+        shared::PdaCheck,
+    },
+    state::PolicyConfigInitParams,
+};
+use custom_ring_interface::{PolicyConfig, POLICY};
 use pinocchio::{
     cpi::{Seed, Signer},
-    error::ProgramError,
     AccountView, Address, ProgramResult,
 };
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR, SHIELDED_POOL_PROGRAM_ID,
-};
-use zolana_ring_policy::RecordsOwner;
-#[cfg(any(target_os = "solana", target_arch = "bpf"))]
-use zolana_ring_policy::POLICY_RECORDS_PDA_SEED;
-
-use crate::{
-    error::CustomRingError,
-    instructions::{loader::UpgradeAuthorityCheck, shared::PdaCheck},
-    policy::POLICY,
-    state::PolicyConfigInitParams,
 };
 
 /// The table is part of the deployed program, only its upgrade authority can
@@ -66,11 +64,9 @@ pub fn process_create_policy_ix(
         return Err(CustomRingError::PolicyConfigAlreadyInitialized.into());
     }
 
-    let (records_address, records_bump) = derive_records_pda(program_id)?;
-    let owner = RecordsOwner::new(records_address.as_array())
-        .map_err(|_| CustomRingError::HashingFailed)?;
+    let (_, records_bump) = records_pda(program_id)?;
     let policy_hash = POLICY
-        .hash(&owner.owner_hash)
+        .hash(&records_owner(program_id)?.owner_hash)
         .map_err(|_| CustomRingError::HashingFailed)?;
 
     let bump_seed = [bump];
@@ -107,17 +103,4 @@ fn check_records_tree(account: &AccountView) -> ProgramResult {
         return Err(CustomRingError::InvalidRecordsTree.into());
     }
     Ok(())
-}
-
-#[cfg(any(target_os = "solana", target_arch = "bpf"))]
-fn derive_records_pda(program_id: &Address) -> Result<(Address, u8), ProgramError> {
-    Ok(Address::find_program_address(
-        &[POLICY_RECORDS_PDA_SEED],
-        program_id,
-    ))
-}
-
-#[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
-fn derive_records_pda(_program_id: &Address) -> Result<(Address, u8), ProgramError> {
-    Err(CustomRingError::InvalidRecordsPda.into())
 }

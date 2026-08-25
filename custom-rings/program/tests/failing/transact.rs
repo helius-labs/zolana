@@ -94,8 +94,13 @@ fn bogus_proof() -> AuditProof {
 fn instruction_data(proof: AuditProof, transact: TransactIxData) -> Vec<u8> {
     let mut data = vec![tag::TRANSACT];
     data.extend_from_slice(
-        &wincode::serialize(&CustomRingTransactIxData { proof, transact })
-            .expect("serialize transact body"),
+        &wincode::serialize(&CustomRingTransactIxData {
+            proof,
+            state_root_index: 0,
+            nullifier_root_index: 0,
+            transact,
+        })
+        .expect("serialize transact body"),
     );
     data
 }

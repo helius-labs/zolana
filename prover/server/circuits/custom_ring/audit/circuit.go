@@ -69,46 +69,68 @@ type Circuit struct {
 	AuditorPk [65]frontend.Variable
 }
 
+// BlockWires carries the audit block's witnesses into a folding circuit.
+type BlockWires struct {
+	PrivateTxHash frontend.Variable
+	TxViewingSk   [32]frontend.Variable
+	EphSk         [32]frontend.Variable
+	AuditorPk     [65]frontend.Variable
+}
+
 func (c *Circuit) Define(api frontend.API) error {
+	elements := DefineBlock(api, BlockWires{
+		PrivateTxHash: c.PrivateTxHash,
+		TxViewingSk:   c.TxViewingSk,
+		EphSk:         c.EphSk,
+		AuditorPk:     c.AuditorPk,
+	})
+
+	// (k) The single public input, chain order pinned by the package comment.
+	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, elements[:]))
+	return nil
+}
+
+// DefineBlock constrains steps (a) to (j) and returns chain elements 1 to 8.
+func DefineBlock(api frontend.API, w BlockWires) [8]frontend.Variable {
 	// (a) Range-check all 129 witnessed bytes to 8 bits. rangecheck.New reuses
 	// the range checker the emulated P-256 arithmetic already instantiates, so
 	// these checks share its lookup table.
 	checker := rangecheck.New(api)
-	for _, b := range c.TxViewingSk {
+	for _, b := range w.TxViewingSk {
 		checker.Check(b, 8)
 	}
-	for _, b := range c.EphSk {
+	for _, b := range w.EphSk {
 		checker.Check(b, 8)
 	}
-	for _, b := range c.AuditorPk {
+	for _, b := range w.AuditorPk {
 		checker.Check(b, 8)
 	}
 	// The p256 compression gadget derives the SEC1 prefix from the y parity and
 	// ignores byte 0, so the uncompressed prefix has to be constrained here.
-	api.AssertIsEqual(c.AuditorPk[0], 4)
+	api.AssertIsEqual(w.AuditorPk[0], 4)
 
 	// (b) Never trust a witnessed point: an off-curve auditor key would make the
 	// ECDH output attacker-chosen.
-	p256.PointOnCurve(api, c.AuditorPk)
+	p256.PointOnCurve(api, w.AuditorPk)
 
 	// (c) Chain elements 2 and 3. This is the binding that the transaction's
 	// published tx_viewing_pk equals TxViewingSk * G, which is what makes the
 	// ciphertext below worth anything.
-	txCompressed := p256.CompressPubkey(api, p256.ScalarMulGenerator(api, c.TxViewingSk))
+	txCompressed := p256.CompressPubkey(api, p256.ScalarMulGenerator(api, w.TxViewingSk))
 	txLo, txHi := Pack33To2FECircuit(api, txCompressed)
 
 	// (d) Chain elements 4 and 5: the auditor key the program reads from its
 	// config account.
-	auditorCompressed := p256.CompressPubkey(api, c.AuditorPk)
+	auditorCompressed := p256.CompressPubkey(api, w.AuditorPk)
 	auditorLo, auditorHi := Pack33To2FECircuit(api, auditorCompressed)
 
 	// (e) Chain elements 6 and 7: the ephemeral key that rides in the message
 	// data, so the auditor can rederive the shared secret.
-	ephCompressed := p256.CompressPubkey(api, p256.ScalarMulGenerator(api, c.EphSk))
+	ephCompressed := p256.CompressPubkey(api, p256.ScalarMulGenerator(api, w.EphSk))
 	ephLo, ephHi := Pack33To2FECircuit(api, ephCompressed)
 
 	// (f) ECDH: the 32-byte big-endian x-coordinate of EphSk * AuditorPk.
-	dh := p256.ECDH(api, c.EphSk, c.AuditorPk)
+	dh := p256.ECDH(api, w.EphSk, w.AuditorPk)
 
 	// (g) Bind the raw ECDH output to both public keys (see pack.go).
 	sharedSecret := DeriveAuditSharedSecret(api, dh, ephCompressed, auditorCompressed)
@@ -119,20 +141,18 @@ func (c *Circuit) Define(api frontend.API) error {
 
 	// (i) AES-256-CTR over the 32-byte plaintext scalar. Ciphertext integrity
 	// comes from the hash in (j), not from a GCM tag.
-	ciphertext := aes.CTREncrypt(api, aes.NewAESGadget(api), key, nonce, c.TxViewingSk[:])
+	ciphertext := aes.CTREncrypt(api, aes.NewAESGadget(api), key, nonce, w.TxViewingSk[:])
 
 	// (j) Chain element 8.
 	ciphertextHash := gadget.HashBytes(api, ciphertext)
 
-	// (k) The single public input, chain order pinned by the package comment.
-	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, []frontend.Variable{
-		c.PrivateTxHash,
+	return [8]frontend.Variable{
+		w.PrivateTxHash,
 		txLo, txHi,
 		auditorLo, auditorHi,
 		ephLo, ephHi,
 		ciphertextHash,
-	}))
-	return nil
+	}
 }
 
 func auditEncInfoVars() []frontend.Variable {

@@ -65,6 +65,12 @@ impl Fixture {
         self.labels.push(slot.label);
     }
 
+    /// Appends to the instruction data, negatives use it for trailing bytes.
+    #[cfg(feature = "policy")]
+    pub fn push_data(&mut self, byte: u8) {
+        self.instruction.data.push(byte);
+    }
+
     pub fn truncate(&mut self, len: usize) {
         self.instruction.accounts.truncate(len);
         self.labels.truncate(len);
@@ -243,6 +249,118 @@ pub fn auditor_pubkey(prefix: u8) -> [u8; 33] {
     key
 }
 
+#[cfg(feature = "policy")]
+pub fn policy_config_pda() -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[custom_ring_interface::POLICY_CONFIG_PDA_SEED],
+        &program_id(),
+    )
+}
+
+#[cfg(feature = "policy")]
+pub fn records_pda() -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[zolana_ring_policy::POLICY_RECORDS_PDA_SEED],
+        &program_id(),
+    )
+}
+
+/// Carries the deployed table's hash, so a fixture reaches the proof.
+#[cfg(feature = "policy")]
+pub fn initialized_policy_config_account() -> Account {
+    let owner =
+        zolana_ring_policy::RecordsOwner::new(&records_pda().0.to_bytes()).expect("records owner");
+    let state = custom_ring_interface::PolicyConfig {
+        discriminator: custom_ring_interface::POLICY_CONFIG,
+        policy_hash: custom_ring_interface::POLICY
+            .hash(&owner.owner_hash)
+            .expect("policy hash"),
+        records_tree: Address::new_from_array([41; 32]),
+        records_bump: records_pda().1,
+        bump: policy_config_pda().1,
+    };
+    Account {
+        lamports: 1_000_000_000,
+        data: bytemuck::bytes_of(&state).to_vec(),
+        owner: program_id(),
+        executable: false,
+        rent_epoch: 0,
+    }
+}
+
+/// The tree records live in. Its bytes need only satisfy the owner and
+/// discriminator checks, no fixture here reads a root.
+#[cfg(feature = "policy")]
+pub fn records_tree() -> Pubkey {
+    Pubkey::new_from_array([41; 32])
+}
+
+#[cfg(feature = "policy")]
+pub fn records_tree_account() -> Account {
+    Account {
+        lamports: 1_000_000_000,
+        data: vec![zolana_interface::state::discriminator::TREE_ACCOUNT_DISCRIMINATOR; 1],
+        owner: Pubkey::new_from_array(zolana_interface::SHIELDED_POOL_PROGRAM_ID),
+        executable: false,
+        rent_epoch: 0,
+    }
+}
+
+/// Green `create_policy` fixture, `[payer(w,s), authority(s), policy_config(w),
+/// records_tree, system_program, program, program_data]`.
+#[cfg(feature = "policy")]
+pub fn create_policy_fixture() -> Fixture {
+    Fixture::new(
+        vec![custom_ring_interface::tag::CREATE_POLICY],
+        vec![
+            Slot {
+                label: "payer",
+                meta: AccountMeta::new(payer(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "authority",
+                meta: AccountMeta::new_readonly(authority(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "policy_config",
+                meta: AccountMeta::new(policy_config_pda().0, false),
+                account: account(0),
+            },
+            Slot {
+                label: "records_tree",
+                meta: AccountMeta::new_readonly(records_tree(), false),
+                account: records_tree_account(),
+            },
+            system_program_slot(),
+            Slot {
+                label: "program",
+                meta: AccountMeta::new_readonly(program_id(), false),
+                account: mollusk_svm::program::create_program_account_loader_v3(&program_id()),
+            },
+            Slot {
+                label: "program_data",
+                meta: AccountMeta::new_readonly(program_data_pda(), false),
+                account: program_data_account(Some(&authority())),
+            },
+        ],
+    )
+}
+
+/// The policy artifact, whose transact wire and prefix differ from the
+/// audit-only build.
+#[cfg(feature = "policy")]
+pub fn setup_policy_mollusk() -> (Mollusk, Pubkey) {
+    let (mut mollusk, program_id) = zolana_test_utils::mollusk::mollusk_with_program(
+        &sbf_dir(),
+        *program_id().as_array(),
+        "custom_ring_program_policy",
+    );
+    mollusk.compute_budget.compute_unit_limit = 1_400_000;
+    (mollusk, program_id)
+}
+
 /// An initialized config account as this program would have written it.
 pub fn initialized_config_account(authority: Pubkey, auditor_pubkey: [u8; 33]) -> Account {
     let state = RingProgramConfig {
@@ -398,6 +516,12 @@ pub fn transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
                 label: "config",
                 meta: AccountMeta::new_readonly(config_pda().0, false),
                 account: config,
+            },
+            #[cfg(feature = "policy")]
+            Slot {
+                label: "policy_config",
+                meta: AccountMeta::new_readonly(policy_config_pda().0, false),
+                account: initialized_policy_config_account(),
             },
             Slot {
                 label: "spp_payer",

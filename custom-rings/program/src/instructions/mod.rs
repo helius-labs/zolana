@@ -8,6 +8,8 @@ mod grant_read_access;
 mod init_spp_ring_config;
 mod loader;
 #[cfg(feature = "policy")]
+mod policy_roots;
+#[cfg(feature = "policy")]
 mod policy_shared;
 mod revoke_read_access;
 mod set_authority;

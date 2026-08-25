@@ -36,6 +36,7 @@ fn error_codes_are_stable() {
         (RecordVersionOverflow as u32, 8130),
         (InvalidRecordsPda as u32, 8131),
         (InvalidRecordsTree as u32, 8132),
+        (StalePolicyRoot as u32, 8133),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -78,6 +79,7 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | InvalidPolicyTree
         | RecordVersionOverflow
         | InvalidRecordsPda
-        | InvalidRecordsTree => {}
+        | InvalidRecordsTree
+        | StalePolicyRoot => {}
     }
 }

@@ -90,6 +90,8 @@ test-program-fast: build-programs
     cargo nextest run -p shielded-pool-tests
     cargo nextest run -p swap-program --tests
     cargo nextest run -p custom-ring-program --tests
+    # The policy build is a second artifact with its own transact wire.
+    cargo nextest run -p custom-ring-program --features allowlist,blocklist,freeze --test policy
 
 # Run one shielded-pool intent-level binary, for example:
 # `just test-shielded-pool-case deposit_model`.
@@ -262,6 +264,23 @@ ensure-custom-ring-prover-key: build-prover-server
         --output "$verify_dir/vk.bin"
     cmp "$source_dir/vk.bin" "$verify_dir/vk.bin"
 
+# The policy key has no release artifact, a local setup produces it.
+ensure-custom-ring-policy-key: build-prover-server
+    #!/usr/bin/env bash
+    set -euo pipefail
+    key="prover/server/proving-keys/custom_ring_policy_transfer.key"
+    mkdir -p prover/server/proving-keys
+    if [[ -f "$key" ]]; then
+        echo "policy proving key present"
+        exit 0
+    fi
+    target/prover-server setup-custom-ring-policy --output "$key"
+    export_dir="$(mktemp -d)"
+    trap 'rm -rf "$export_dir"' EXIT
+    target/prover-server export-vk --keys-file "$key" --output "$export_dir/vk.bin"
+    cargo run -q -p xtask -- bsb22-vk "$export_dir/vk.bin" custom-rings/interface/src policy_vk.rs
+    rustfmt custom-rings/interface/src/policy_vk.rs
+
 ensure-custom-ring-live-keys: ensure-custom-ring-prover-key
     #!/usr/bin/env bash
     set -euo pipefail
@@ -321,8 +340,11 @@ test-sdk-libs:
     cargo nextest run -p zolana-ring-client
     cargo nextest run -p zolana-ring-rpc
     cargo nextest run -p custom-ring-sdk
+    # The policy feature adds the ring circuit's request and its Go vectors.
+    cargo nextest run -p custom-ring-sdk --features policy
     cargo nextest run -p custom-ring-cli
     cargo nextest run -p custom-ring-interface
+    cargo nextest run -p zolana-ring-policy
 
 # TypeScript SDK formatting, linting, types, unit tests, and package build.
 test-ts:

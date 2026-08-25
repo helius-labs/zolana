@@ -4,6 +4,8 @@
 //! definition serves both sides.
 
 mod instructions;
+#[cfg(feature = "policy")]
+mod policy_witness;
 mod shared;
 mod transfer;
 mod v0;

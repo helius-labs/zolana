@@ -418,6 +418,8 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
             interface_transfer_accounts: Vec::new(),
             audit_proof: proven.audit_proof,
             transact: tampered_data,
+            state_root_index: 0,
+            nullifier_root_index: 0,
         }
         .instruction()?,
     )?;

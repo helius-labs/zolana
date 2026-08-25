@@ -29,4 +29,8 @@ const (
 	MergeRingCircuitType CircuitType = "merge-ring"
 
 	CustomRingAuditCircuitType CircuitType = "custom-ring-audit"
+
+	// CustomRingPolicyCircuitType proves the audit statement and the ring's rule
+	// table in one proof, so a policy ring verifies one proof per transact.
+	CustomRingPolicyCircuitType CircuitType = "custom-ring-policy"
 )
