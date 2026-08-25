@@ -21,8 +21,8 @@ use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use rand::RngCore;
 use zolana_client::prover::SERVER_ADDRESS;
 use zolana_client::{
-    spawn_prover, InputUtxoContext, ProverClient, PublicTransfers, Rpc, Shape, TransferProver,
-    TransferSpendInput,
+    spawn_prover, verify_confidential_transfer_proof, InputUtxoContext, ProverClient,
+    PublicTransfers, Rpc, Shape, TransferProver, TransferSpendInput,
 };
 use zolana_hasher::primitives::hash_bytes;
 use zolana_interface::{
@@ -345,16 +345,7 @@ fn dummy_transfer_2_3_proof_verifies() {
         .prove_transfer(&result.inputs)
         .expect("prove transfer-eddsa");
 
-    let public_inputs: [[u8; 32]; 1] = [result.public_input_hash];
-    let mut verifier = Groth16Verifier::new(
-        &proof.a,
-        &proof.b,
-        &proof.c,
-        &public_inputs,
-        &transfer_confidential_2_3::VERIFYINGKEY,
-    )
-    .expect("construct verifier");
-    verifier.verify().expect("groth16 proof verifies");
+    verify_confidential_transfer_proof(&result, &proof).expect("groth16 proof verifies");
 
     if let Some(before) = queued_results_before {
         let after = async_queue_result_count().expect("async queue stats remain available");

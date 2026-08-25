@@ -67,7 +67,8 @@ use crate::{
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
     prover::{
         transact::witness::{assemble, ProverInputs, SpendProof},
-        AsyncProverClient, ProofCompressed, ProverClient,
+        verify_confidential_transfer_inputs, verify_confidential_transfer_proof, AsyncProverClient,
+        ProofCompressed, ProverClient, TransferProofResult,
     },
     retry::{IndexerPollConfig, IndexerRpcConfig},
     rpc::{
@@ -158,8 +159,10 @@ impl<R> ZolanaClient<R> {
 
     /// [`Self::from_urls`] without the transport check.
     ///
-    /// Only for a network that is already private. On a public endpoint this
-    /// publishes the wallet's UTXO set and every proof witness in the clear.
+    /// Only for a network that is already private or an explicitly disposable
+    /// development profile that accepts zero transport-privacy. On a public
+    /// endpoint this publishes the wallet's UTXO set and every proof input in
+    /// the clear. Never use this constructor for production funds.
     pub fn from_urls_allowing_insecure_http(
         rpc: R,
         indexer_url: impl AsRef<str>,
@@ -181,6 +184,17 @@ impl<R> ZolanaClient<R> {
             cu_price_micro_lamports: None,
             indexer_config: IndexerRpcConfig::default(),
         }
+    }
+
+    /// Ask the configured prover for a default-ring Ed25519 transfer proof and
+    /// verify it locally before returning its transaction wire encoding.
+    pub async fn prove_confidential_transfer_result(
+        &self,
+        result: &TransferProofResult,
+    ) -> Result<ProofCompressed, ClientError> {
+        let proof = self.async_prover.prove_transfer(&result.inputs).await?;
+        verify_confidential_transfer_proof(result, &proof)?;
+        ProofCompressed::try_from(proof)
     }
 
     pub fn with_compute_unit_limit(mut self, cu_limit: u32) -> Self {
@@ -313,7 +327,9 @@ impl<R: Rpc> ZolanaClient<R> {
         let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
         let proof = {
             let _t = crate::timing::Phase::start("prove_transfer", 0);
-            self.blocking_prover().prove_transfer(inputs)?
+            let proof = self.blocking_prover().prove_transfer(inputs)?;
+            verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
+            proof
         };
         let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
         // Last thing before building, so the blockhash is as young as it can be
@@ -415,6 +431,7 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         let assembled = assemble(signed.transaction.clone(), &spend_proofs, &dummy_proofs)?;
         let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
         let proof = self.async_prover.prove_transfer(inputs).await?;
+        verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
         let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
         build_unsigned_solana_transaction(
             ComputeBudgetConfig {
@@ -718,6 +735,7 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         let assembled = assemble(transaction, &input_merkle_proofs, &dummy_proofs)?;
         let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
         let proof = self.async_prover.prove_transfer(inputs).await?;
+        verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
         let circuit_id = 0;
         Ok(ProveResult {
             proof: ProofCompressed::try_from(proof)?,
@@ -969,6 +987,7 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         let assembled = assemble(transaction, &input_merkle_proofs, &dummy_proofs)?;
         let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
         let proof = self.blocking_prover().prove_transfer(inputs)?;
+        verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
         let circuit_id = 0;
         Ok(ProveResult {
             proof: ProofCompressed::try_from(proof)?,

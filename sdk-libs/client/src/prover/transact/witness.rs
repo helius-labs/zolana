@@ -125,7 +125,15 @@ impl ProverClient {
             allow_dummy_inputs,
         )?;
         let proof = match &assembled.prover_inputs {
-            ProverInputs::Eddsa(inputs) => self.prove_transfer(inputs)?,
+            ProverInputs::Eddsa(inputs) => {
+                let proof = self.prove_transfer(inputs)?;
+                crate::verify_confidential_transfer_inputs(
+                    inputs,
+                    assembled.public_input_hash,
+                    &proof,
+                )?;
+                proof
+            }
         };
         Ok(assembled.with_proof(ProofCompressed::try_from(proof)?.to_transact_proof()))
     }
