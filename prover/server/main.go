@@ -184,11 +184,26 @@ func runCli() {
 				Name: "setup-custom-ring",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+					&cli.StringFlag{Name: "pk-out", Usage: "Also write the gnark proving key (pk.WriteTo), the release asset convert-custom-ring reads"},
+					&cli.StringFlag{Name: "vk-out", Usage: "Also write the raw gnark verifying key (vk.WriteRawTo)"},
 				},
 				Action: func(context *cli.Context) error {
+					if err := checkRingKeyName(context.String("output")); err != nil {
+						return err
+					}
 					ps, err := customring.SetupCustomRing()
 					if err != nil {
 						return err
+					}
+					if path := context.String("pk-out"); path != "" {
+						if err := writeKey(path, ps.ProvingKey.WriteTo); err != nil {
+							return err
+						}
+					}
+					if path := context.String("vk-out"); path != "" {
+						if err := writeKey(path, ps.VerifyingKey.WriteRawTo); err != nil {
+							return err
+						}
 					}
 					return writeRingProofSystem(ps, context.String("output"))
 				},
@@ -1013,9 +1028,28 @@ func startCleanupRoutines(redisQueue *server.RedisQueue) {
 	}()
 }
 
-func writeRingProofSystem(ps *common.RingProofSystem, path string) error {
+func writeKey(path string, write func(io.Writer) (int64, error)) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	if _, err := write(file); err != nil {
+		file.Close()
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return file.Close()
+}
+
+func checkRingKeyName(path string) error {
 	if filepath.Base(path) != common.CustomRingKeyFile {
 		return fmt.Errorf("output file must be named %s", common.CustomRingKeyFile)
+	}
+	return nil
+}
+
+func writeRingProofSystem(ps *common.RingProofSystem, path string) error {
+	if err := checkRingKeyName(path); err != nil {
+		return err
 	}
 	file, err := os.Create(path)
 	if err != nil {
