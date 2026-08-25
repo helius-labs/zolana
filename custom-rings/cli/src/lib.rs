@@ -80,7 +80,7 @@ pub enum Command {
     Init(InitArgs),
     /// Deploy, init, check the ring rpc, grant the authority and transact.
     Pipeline,
-    /// Two ring deposits and one audited transfer, read back from the ring RPC.
+    /// Two ring deposits and one custom-ring transfer, read back from the ring RPC.
     Transact(TransactArgs),
     /// Deposit an amount and send all of it to a shielded address inside the ring.
     Transfer(TransferArgs),

@@ -4,8 +4,9 @@ use std::{
 };
 
 use custom_ring_sdk::{
-    AccountReadError, AuditedTransfer, AuditedTransferInput, CustomRing, DepositError, RingDeposit,
-    RingDepositReceipt, SendV0Error, TransferError, TransferProofEnvironment, V0WithLookupTable,
+    AccountReadError, CustomRing, CustomRingTransfer, CustomRingTransferInput, DepositError,
+    RingDeposit, RingDepositReceipt, SendV0Error, TransferError, TransferProofEnvironment,
+    V0WithLookupTable,
 };
 use solana_address::Address;
 use solana_keypair::Keypair;
@@ -373,7 +374,7 @@ impl RingTransfer<'_> {
                 .with_compact_change();
         transfer.send(&self.recipient, SOL_MINT, self.amount)?;
         let prepared = transfer.prepare()?;
-        let proven = AuditedTransfer::new(AuditedTransferInput {
+        let proven = CustomRingTransfer::new(CustomRingTransferInput {
             ring: self.ring,
             sender: &sender,
             prepared,

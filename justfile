@@ -226,7 +226,7 @@ ring-rpc-derived:
         --indexer-url {{localnet-photon-url}} --rpc-url {{localnet-rpc-url}} \
         --root-secret-file "$secret"
 
-# Same contract as swap-keys-tag, for the custom-ring example's single circuit
+# Same contract as swap-keys-tag, for the custom-ring program's single circuit
 # (audit). gnark's Setup is non-deterministic, so the release assets are the
 # only key set matching the committed Rust verifying key; rotating
 # requires publishing a new release and updating custom-ring-keys.CHECKSUM plus
@@ -1193,7 +1193,7 @@ test-swap-validator: ensure-swap-keys build-programs build-prover-server build-c
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo nextest run -p swap-test-validator --test swap --test take_verifiable_encryption --test cancel --no-capture
 
-# Minimal custom-ring lifecycle on a local validator
+# Custom-ring lifecycle on a local validator
 # (custom-rings/test/tests/ring.rs): create the ring config holding the
 # auditor key, register it with SPP, ring-deposit, then a ring transact whose
 # proof binds the verifiable encryption of the transaction viewing key to the

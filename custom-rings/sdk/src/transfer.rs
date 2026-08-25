@@ -36,7 +36,7 @@ use crate::{
 const NO_RING_DATA_HASH: [u8; 32] = [0u8; 32];
 
 #[must_use = "prove or discard the transfer explicitly"]
-pub struct AuditedTransfer<'a> {
+pub struct CustomRingTransfer<'a> {
     ring: CustomRing,
     sender: &'a ShieldedKeypair,
     prepared: PreparedTransfer,
@@ -45,7 +45,7 @@ pub struct AuditedTransfer<'a> {
     assets: Option<&'a AssetRegistry>,
 }
 
-pub struct AuditedTransferInput<'a> {
+pub struct CustomRingTransferInput<'a> {
     pub ring: CustomRing,
     pub sender: &'a ShieldedKeypair,
     pub prepared: PreparedTransfer,
@@ -94,9 +94,9 @@ pub enum TransferError {
     #[error(transparent)]
     AccountRead(#[from] AccountReadError),
     #[error(transparent)]
-    AuditInput(#[from] AuditProofInputError),
+    ProofInput(#[from] AuditProofInputError),
     #[error(transparent)]
-    AuditProof(#[from] AuditProofError),
+    Proof(#[from] AuditProofError),
     #[error(transparent)]
     Instruction(#[from] wincode::Error),
     #[error(transparent)]
@@ -139,8 +139,8 @@ pub enum DepositError {
     Client(#[from] ClientError),
 }
 
-impl<'a> AuditedTransfer<'a> {
-    pub fn new(input: AuditedTransferInput<'a>) -> Self {
+impl<'a> CustomRingTransfer<'a> {
+    pub fn new(input: CustomRingTransferInput<'a>) -> Self {
         Self {
             ring: input.ring,
             sender: input.sender,
@@ -183,7 +183,7 @@ impl<'a> AuditedTransfer<'a> {
             .read_config(environment.rpc)?
             .ok_or(TransferError::MissingRingConfig)?
             .auditor_pubkey;
-        // A padded change slot pushes the audited instruction past the packet
+        // A padded change slot pushes the custom-ring instruction past the packet
         // limit even behind an address lookup table, and every published slot
         // must be one the auditor can open.
         if self.prepared.change_layout() != ChangeLayout::Compact {
