@@ -205,7 +205,7 @@ impl<S: TransactionSource> Hub<S> {
     pub fn mode(&self) -> KeyMode {
         match self.keys {
             KeySource::Local { .. } => KeyMode::Local,
-            KeySource::Derived { .. } => KeyMode::Derived,
+            KeySource::Derived(_) => KeyMode::Derived,
         }
     }
 
@@ -229,7 +229,7 @@ impl<S: TransactionSource> Hub<S> {
     pub fn local_view_tag(&self) -> Option<[u8; 32]> {
         match &self.keys {
             KeySource::Local { auditor, .. } => Some(auditor_view_tag(&auditor.pubkey())),
-            KeySource::Derived { .. } => None,
+            KeySource::Derived(_) => None,
         }
     }
 
@@ -261,10 +261,10 @@ impl<S: TransactionSource> Hub<S> {
                 })
                 .build())
             }
-            KeySource::Derived { root, genesis_hash } => {
+            KeySource::Derived(root) => {
                 let auditor = AuditorKeyDerivation {
                     root,
-                    genesis_hash,
+                    genesis_hash: &self.shared.genesis_hash,
                     ring,
                 }
                 .derive()?;
@@ -283,7 +283,7 @@ impl<S: TransactionSource> Hub<S> {
             KeySource::Local {
                 ring: configured, ..
             } if ring != *configured => Err(RingRpcError::RingNotServed),
-            KeySource::Local { .. } | KeySource::Derived { .. } => Ok(()),
+            KeySource::Local { .. } | KeySource::Derived(_) => Ok(()),
         }
     }
 
@@ -392,11 +392,10 @@ impl<S: TransactionSource> HubBuilder<S> {
 
     pub fn derived(self, root: RootSecret) -> Result<Hub<S>, RingRpcError> {
         let signer = service_keypair(root.as_bytes())?;
-        let genesis_hash = self.genesis_hash;
         Ok(Hub {
             signer,
             shared: self.shared(),
-            keys: KeySource::Derived { root, genesis_hash },
+            keys: KeySource::Derived(root),
         })
     }
 

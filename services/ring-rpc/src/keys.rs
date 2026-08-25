@@ -57,14 +57,8 @@ pub(crate) fn service_keypair(secret: &[u8]) -> Result<Keypair, RingRpcError> {
 }
 
 pub(crate) enum KeySource {
-    Local {
-        ring: Address,
-        auditor: ViewingKey,
-    },
-    Derived {
-        root: RootSecret,
-        genesis_hash: [u8; 32],
-    },
+    Local { ring: Address, auditor: ViewingKey },
+    Derived(RootSecret),
 }
 
 #[cfg(test)]
