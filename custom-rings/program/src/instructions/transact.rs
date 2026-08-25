@@ -1,5 +1,5 @@
 use custom_ring_interface::{
-    AuditPublicInput, CustomRingTransactIxData, AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN,
+    CustomRingPublicInput, CustomRingTransactIxData, AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN,
 };
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
@@ -19,7 +19,7 @@ use crate::{
     },
 };
 
-/// Verifies the auditor key-encryption proof against the recomputed public-input
+/// Verifies the custom-ring proof against the recomputed public-input
 /// hash, then CPIs SPP `RING_TRANSACT` with the `ring_auth` PDA as signer.
 ///
 /// Accounts: `[payer(w,s), config]` followed by SPP's own `RING_TRANSACT` list
@@ -73,7 +73,7 @@ pub fn process_transact_ix(
             commitment: &proof.commitment,
             commitment_pok: &proof.commitment_pok,
         },
-        AuditPublicInput {
+        CustomRingPublicInput {
             private_tx_hash: &transact.private_tx_hash,
             tx_viewing_pk: &transact.tx_viewing_pk,
             auditor_pk: &auditor_pubkey,
@@ -159,7 +159,7 @@ mod tests {
     use zolana_interface::merge_utils::ciphertext_hash;
 
     /// Fixture of the circuit's Go test
-    /// (`prover/server/circuits/custom_ring/audit/circuit_test.go`, scalars
+    /// (`prover/server/circuits/custom_ring/circuit_test.go`, scalars
     /// 0x11/0x22/0x33) and of the SDK's cross-language vectors
     /// (`custom-rings/sdk/tests/go_vectors.rs`). The compressed keys and the
     /// ciphertext are the values Go printed and the Go test feeds to the compiled
@@ -215,7 +215,7 @@ mod tests {
     /// or differently packed chain element changes this value.
     #[test]
     fn public_input_hash_matches_go_fixture() {
-        let hash = AuditPublicInput {
+        let hash = CustomRingPublicInput {
             private_tx_hash: &bytes::<32>(PRIVATE_TX_HASH),
             tx_viewing_pk: &bytes::<33>(TX_PK),
             auditor_pk: &bytes::<33>(AUDITOR_PK),

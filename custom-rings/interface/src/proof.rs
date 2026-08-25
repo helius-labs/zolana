@@ -3,18 +3,18 @@ use zolana_interface::merge_utils::ciphertext_hash;
 
 use crate::{AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN};
 
-/// Inputs of the auditor circuit's single public input.
+/// Inputs of the custom-ring circuit's single public input.
 ///
 /// The chain order is pinned by the circuit's package comment
-/// (`prover/server/circuits/custom_ring/audit/circuit.go`) and is
-/// numbered 1..8 there; [`AuditPublicInput::hash`] mirrors it element for
+/// (`prover/server/circuits/custom_ring/circuit.go`) and is
+/// numbered 1..8 there; [`CustomRingPublicInput::hash`] mirrors it element for
 /// element. Recomputing the hash on-chain from values the program itself trusts
 /// -- `private_tx_hash` and `tx_viewing_pk` from the forwarded SPP payload, the
 /// auditor key from the ring config account, the ephemeral key and ciphertext
 /// from the published message -- is what binds the proof to this transaction: a
 /// proof for any other transaction, viewing key, auditor, or ciphertext hashes
 /// to a different public input and fails verification.
-pub struct AuditPublicInput<'a> {
+pub struct CustomRingPublicInput<'a> {
     pub private_tx_hash: &'a [u8; 32],
     pub tx_viewing_pk: &'a [u8; COMPRESSED_P256_KEY_LEN],
     pub auditor_pk: &'a [u8; COMPRESSED_P256_KEY_LEN],
@@ -28,7 +28,7 @@ pub struct FieldPair {
     pub hi: [u8; 32],
 }
 
-impl AuditPublicInput<'_> {
+impl CustomRingPublicInput<'_> {
     /// Input order binds the audit statement.
     /// `HashChain([private_tx_hash, tx_pk_lo, tx_pk_hi, auditor_lo, auditor_hi,
     /// eph_lo, eph_hi, ct_hash])`.
@@ -69,10 +69,10 @@ pub fn pack32_to_2fe(bytes: &[u8; 32]) -> FieldPair {
 }
 
 /// Split a 33-byte SEC1-compressed P256 key into the two BN254 field elements
-/// the auditor circuit hashes.
+/// the custom-ring circuit hashes.
 ///
 /// Mirrors `Pack33To2FECircuit` in
-/// `prover/server/circuits/custom_ring/audit/pack.go`.
+/// `prover/server/circuits/custom_ring/pack.go`.
 ///
 /// ```text
 /// lo = 0x00 || key[0..31]        (the SEC1 prefix is the most significant data byte)

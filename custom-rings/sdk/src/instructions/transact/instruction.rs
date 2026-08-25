@@ -1,4 +1,4 @@
-use custom_ring_interface::{tag, AuditProof, CustomRingTransactIxData};
+use custom_ring_interface::{tag, CustomRingProof, CustomRingTransactIxData};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use zolana_interface::instruction::{
@@ -8,7 +8,7 @@ use zolana_interface::instruction::{
 use crate::CustomRing;
 
 #[must_use]
-/// Custom-ring transact: the ring's auditor key-encryption proof followed by the
+/// Custom-ring transact: the custom-ring proof followed by the
 /// SPP payload it forwards.
 ///
 /// The account list is `[payer, config]` prepended to SPP's own `RING_TRANSACT`
@@ -22,7 +22,7 @@ use crate::CustomRing;
 /// `ring_config` (this program's `ring_auth` PDA) stays unsigned: no keypair
 /// exists for it, and the program is what flips the meta to a signer inside its
 /// CPI. Marking it a signer here would make the transaction unsignable.
-pub struct RingTransactWithAudit {
+pub struct CustomRingTransact {
     pub ring: CustomRing,
     pub payer: Address,
     pub input_tree: Address,
@@ -32,16 +32,16 @@ pub struct RingTransactWithAudit {
     /// Settlement accounts for the payload's `interface_transfers`, in the same
     /// order.
     pub interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
-    /// Proof of the `audit` circuit, in the program's wire encoding. Convert a
-    /// prover result with `AuditProof::from(..)`.
-    pub audit_proof: AuditProof,
+    /// Proof of the custom-ring circuit, in the program's wire encoding. Convert a
+    /// prover result with `to_instruction_proof`.
+    pub proof: CustomRingProof,
     /// The SPP payload. Its `messages` must already carry the auditor message that
     /// the proof commits to, and its `private_tx_hash` must be the one the SPP
     /// proof was generated for.
     pub transact: TransactIxData,
 }
 
-impl RingTransactWithAudit {
+impl CustomRingTransact {
     pub fn instruction(self) -> Result<Instruction, wincode::Error> {
         let Self {
             ring: deployment,
@@ -50,7 +50,7 @@ impl RingTransactWithAudit {
             output_tree,
             owner_signers,
             interface_transfer_accounts,
-            audit_proof,
+            proof,
             transact,
         } = self;
 
@@ -73,10 +73,7 @@ impl RingTransactWithAudit {
         accounts.push(AccountMeta::new_readonly(deployment.config_pda(), false));
         accounts.extend(spp_accounts);
 
-        let body = wincode::serialize(&CustomRingTransactIxData {
-            proof: audit_proof,
-            transact,
-        })?;
+        let body = wincode::serialize(&CustomRingTransactIxData { proof, transact })?;
         let mut data = Vec::with_capacity(1 + body.len());
         data.push(tag::TRANSACT);
         data.extend_from_slice(&body);

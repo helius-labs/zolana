@@ -22,7 +22,7 @@ pub(crate) struct CompressedGroth16Proof<'a> {
 /// a commitment-carrying key requires the Pedersen proof-of-knowledge pairing,
 /// so accepting a commitment-less proof against it would skip a constraint the
 /// circuit relies on. The mismatched combinations are therefore rejected rather
-/// than coerced. The auditor circuit's emulated P256 arithmetic always produces
+/// than coerced. The custom-ring circuit's emulated P256 arithmetic always produces
 /// a commitment, so this program only ever takes the first arm; the second is
 /// kept so the helper stays a faithful copy of the shared pattern.
 #[inline(never)]
@@ -36,7 +36,7 @@ pub(crate) fn verify_groth16(
     let commitment = decompress_g1(proof.commitment).map_err(|_| PROOF_ERR)?;
     let commitment_pok = decompress_g1(proof.commitment_pok).map_err(|_| PROOF_ERR)?;
     let public_inputs = [public_input_hash];
-    let verifying_key = &custom_ring_interface::audit_vk::VERIFYINGKEY;
+    let verifying_key = &custom_ring_interface::verifying_key::VERIFYINGKEY;
     let mut verifier = Groth16Verifier::new_with_commitment(
         &proof_a,
         &proof_b,

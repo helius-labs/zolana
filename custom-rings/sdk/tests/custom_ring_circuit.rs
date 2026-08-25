@@ -1,9 +1,9 @@
-//! The cross-language consistency gate for the `audit` circuit.
+//! The cross-language consistency gate for the custom-ring circuit.
 //!
 //! Every other test in this crate checks one side of the statement. This one
 //! closes the loop, the sdk's own encryption and proof-input path produces a
 //! witness the compiled Go circuit solves, the resulting proof verifies under
-//! the committed `audit_vk::VERIFYINGKEY` the on-chain program uses, and the
+//! the committed `verifying_key::VERIFYINGKEY` the on-chain program uses, and the
 //! public input the whole chain lands on is the exact value the Go circuit
 //! test solves against. gnark's setup is randomized, a regenerated proving
 //! key stops proving under the committed constant, and the proof-then-verify
@@ -11,10 +11,12 @@
 
 use std::sync::OnceLock;
 
-use custom_ring_interface::audit_vk::VERIFYINGKEY;
-use custom_ring_interface::{AuditProof, AuditPublicInput};
-use custom_ring_sdk::AuditProofRequest;
-use custom_ring_sdk::{to_instruction_proof, AuditProofParams, AuditorMessage, EncryptedAudit};
+use custom_ring_interface::verifying_key::VERIFYINGKEY;
+use custom_ring_interface::{CustomRingProof, CustomRingPublicInput};
+use custom_ring_sdk::CustomRingProofRequest;
+use custom_ring_sdk::{
+    to_instruction_proof, AuditorMessage, CustomRingProofParams, EncryptedAudit,
+};
 use groth16_solana::{
     decompression::{decompress_g1, decompress_g2},
     groth16::Groth16Verifier,
@@ -23,7 +25,7 @@ use zolana_client::ProverClient;
 use zolana_keypair::{P256Pubkey, ViewingKey};
 
 /// The `sdk/tests/go_vectors.rs` fixture, which is also the Go circuit test's
-/// (`prover/server/circuits/custom_ring/audit/circuit_test.go`, scalars 0x11 / 0x22
+/// (`prover/server/circuits/custom_ring/circuit_test.go`, scalars 0x11 / 0x22
 /// / 0x33).
 const TX_SK: &str = "011013121514171619181b1a1d1c1f1e010003020504070609080b0a0d0c0f0e";
 const EPH_SK: &str = "01232021262724252a2b28292e2f2c2d32333031363734353a3b38393e3f3c3d";
@@ -71,7 +73,7 @@ fn prover() -> ProverClient {
 /// The committed verifier must match the verifier in the native Prover key.
 /// Runs the program's own verifier, so what is exercised is the on-chain code
 /// path and not a test-local reimplementation of it.
-fn verify(proof: &AuditProof, public_input_hash: [u8; 32]) -> bool {
+fn verify(proof: &CustomRingProof, public_input_hash: [u8; 32]) -> bool {
     let Ok(proof_a) = decompress_g1(&proof.proof_a) else {
         return false;
     };
@@ -105,10 +107,10 @@ fn fixture_ciphertext() -> [u8; 32] {
     hex_bytes::<32>("6de7c18c3c3676ca517647a25df33a7150ace3e07b410bc296fac11b1355382b")
 }
 /// The Go fixture's witness, rebuilt through the sdk's encryption and the
-/// program's canonical hashing. Unlike [`AuditProofParams::encrypt`] this pins the
+/// program's canonical hashing. Unlike [`CustomRingProofParams::encrypt`] this pins the
 /// ephemeral scalar, which is the only way to reproduce a fixed public input.
 fn fixture_public_input(ciphertext: &[u8; 32]) -> [u8; 32] {
-    AuditPublicInput {
+    CustomRingPublicInput {
         private_tx_hash: &hex_bytes::<32>(PRIVATE_TX_HASH),
         tx_viewing_pk: viewing_key(TX_SK).pubkey().as_bytes(),
         auditor_pk: auditor_pubkey().as_bytes(),
@@ -119,9 +121,9 @@ fn fixture_public_input(ciphertext: &[u8; 32]) -> [u8; 32] {
     .expect("public input hash")
 }
 
-fn fixture_inputs() -> AuditProofRequest {
+fn fixture_inputs() -> CustomRingProofRequest {
     let auditor_pk = auditor_pubkey();
-    AuditProofRequest {
+    CustomRingProofRequest {
         public_input_hash: fixture_public_input(&fixture_ciphertext())
             .try_into()
             .expect("canonical field"),
@@ -173,10 +175,10 @@ fn the_auditor_recovers_the_exact_scalar() {
 /// coverage.
 ///
 /// The two witnesses are complementary: the fixture witness is the one the Go
-/// circuit test is known to solve, and the `AuditProofParams` witness is what the
+/// circuit test is known to solve, and the `CustomRingProofParams` witness is what the
 /// sdk API actually hands callers -- fresh ephemeral scalar and all.
 #[test]
-#[ignore = "requires Redis and the published audit proving key"]
+#[ignore = "requires Redis and the published custom-ring proving key"]
 fn prove_and_verify_both_witnesses() {
     let prover = prover();
 
@@ -209,7 +211,7 @@ fn prove_and_verify_both_witnesses() {
     assert_ne!(&flipped_public_input, fixture.public_input_hash.as_ref());
     assert!(!verify(&proof, flipped_public_input));
 
-    let EncryptedAudit { pending, message } = AuditProofParams {
+    let EncryptedAudit { pending, message } = CustomRingProofParams {
         tx_viewing_key: viewing_key(TX_SK),
         // The witness the sdk API produces must solve the same circuit. Its ephemeral
         // scalar is fresh, so its public input differs from the fixture's every run.
@@ -243,7 +245,7 @@ fn prove_and_verify_both_witnesses() {
 }
 
 #[test]
-#[ignore = "requires Redis and the published audit proving key"]
+#[ignore = "requires Redis and the published custom-ring proving key"]
 fn a_tampered_witness_does_not_prove() {
     let prover = prover();
     let mut inputs = fixture_inputs();
