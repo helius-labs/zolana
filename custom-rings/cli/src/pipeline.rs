@@ -39,7 +39,7 @@ pub fn run(ctx: &mut Context, build: BuildArgs) -> Result<(), CliError> {
     if !hosted {
         check_local_ring_rpc(ctx)?;
     }
-    let authority = ctx.config.authority()?;
+    let authority = ctx.config.config_authority()?;
     let reader = ReaderKey::ed25519(authority.pubkey()).map_err(PipelineError::from)?;
     reader::run(ctx, ReaderCommand::Grant { reader })?;
     transact::run(ctx, TransactArgs::default())?;

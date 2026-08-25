@@ -54,26 +54,28 @@ pub enum AuthorityError {
 }
 
 pub fn run(ctx: &Context, command: AuthorityCommand) -> Result<(), AuthorityError> {
-    let authority = ctx.config.authority()?;
     let program = ctx.ring.program_id();
     match command {
         AuthorityCommand::Transfer { new_authority } => {
+            require_initialized(ctx)?;
+            let authority = ctx.config.upgrade_authority()?;
             let current = deployed_program_data(&ctx.rpc, ctx.ring)?;
             SetUpgradeAuthority {
                 ring: ctx.ring,
-                authority_keypair: &expand_tilde(&ctx.config.authority_keypair)?,
+                authority_keypair: &expand_tilde(ctx.config.upgrade_authority_keypair())?,
                 authority: authority.pubkey(),
                 current: &current,
             }
             .transfer(new_authority, &ctx.rpc)?;
             println!(
-                "upgrade authority of {program} is now {new_authority}, point authority_keypair in {} at its keypair",
+                "upgrade authority of {program} is now {new_authority}, set upgrade_authority_keypair in {}",
                 ctx.config_path.display()
             );
         }
         AuthorityCommand::TransferConfig {
             new_authority_keypair,
         } => {
+            let authority = ctx.config.config_authority()?;
             let path = expand_tilde(&new_authority_keypair)?;
             let new_authority =
                 read_keypair_file(&path).map_err(|_| AuthorityError::NewAuthorityKeypair {
@@ -96,24 +98,22 @@ pub fn run(ctx: &Context, command: AuthorityCommand) -> Result<(), AuthorityErro
                 )
                 .map_err(|source| AuthorityError::SetAuthority(Box::new(source)))?;
             println!(
-                "ring config authority of {program} is now {}, point authority_keypair in {} at its keypair",
+                "ring config authority of {program} is now {}, set config_authority_keypair in {} to {}",
                 new_authority.pubkey(),
-                ctx.config_path.display()
+                ctx.config_path.display(),
+                new_authority_keypair.display()
             );
         }
         AuthorityCommand::Renounce { yes } => {
             if !yes {
                 return Err(AuthorityError::NeedsConfirmation { program });
             }
-            InitializationState::observe(
-                ctx.ring.read_config(&ctx.rpc)?,
-                ctx.ring.read_spp_ring_config(&ctx.rpc)?,
-            )
-            .require(program)?;
+            let authority = ctx.config.upgrade_authority()?;
+            require_initialized(ctx)?;
             let current = deployed_program_data(&ctx.rpc, ctx.ring)?;
             SetUpgradeAuthority {
                 ring: ctx.ring,
-                authority_keypair: &expand_tilde(&ctx.config.authority_keypair)?,
+                authority_keypair: &expand_tilde(ctx.config.upgrade_authority_keypair())?,
                 authority: authority.pubkey(),
                 current: &current,
             }
@@ -122,6 +122,14 @@ pub fn run(ctx: &Context, command: AuthorityCommand) -> Result<(), AuthorityErro
         }
     }
     Ok(())
+}
+
+fn require_initialized(ctx: &Context) -> Result<(), AuthorityError> {
+    InitializationState::observe(
+        ctx.ring.read_config(&ctx.rpc)?,
+        ctx.ring.read_spp_ring_config(&ctx.rpc)?,
+    )
+    .require(ctx.ring.program_id())
 }
 
 impl InitializationState {

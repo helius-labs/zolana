@@ -121,7 +121,7 @@ pub enum Service {
 
 #[derive(Debug, Subcommand)]
 pub enum AuthorityCommand {
-    /// Hand the program to another key, then update `authority_keypair` in ring.toml.
+    /// Hand the program to another key, then set `upgrade_authority_keypair`.
     Transfer { new_authority: Address },
     /// Hand the ring config authority to another keypair, both keys sign.
     TransferConfig { new_authority_keypair: PathBuf },
@@ -288,7 +288,7 @@ impl Context {
     }
 
     pub fn authority_funded_for(&mut self, required: u64) -> Result<Keypair, ContextError> {
-        let authority = self.config.authority()?;
+        let authority = self.config.config_authority()?;
         self.fund_authority(&authority, required)?;
         Ok(authority)
     }

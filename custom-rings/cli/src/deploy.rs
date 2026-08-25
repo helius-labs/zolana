@@ -87,9 +87,9 @@ const DEPLOY_FEE_BUDGET: u64 = 20_000_000;
 
 pub fn run(ctx: &mut Context, args: DeployArgs) -> Result<(), DeployError> {
     let program_so = args.program_so.unwrap_or_else(default_program_so);
-    let authority = ctx.config.authority().map_err(ContextError::from)?;
+    let authority = ctx.config.upgrade_authority().map_err(ContextError::from)?;
     let authority_keypair =
-        expand_tilde(&ctx.config.authority_keypair).map_err(ContextError::from)?;
+        expand_tilde(ctx.config.upgrade_authority_keypair()).map_err(ContextError::from)?;
     let deploy = Deploy {
         ring: ctx.ring,
         authority_keypair: &authority_keypair,
