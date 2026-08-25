@@ -125,6 +125,8 @@ pub enum TransferError {
     Tree(#[from] TreeError),
     #[error("transfer references another ring {0}")]
     ForeignRing(Address),
+    #[error("a default-ring note carries ring data")]
+    RingDataOutsideRing,
 }
 
 #[derive(Debug, Error)]
@@ -189,11 +191,8 @@ impl<'a> CustomRingTransfer<'a> {
         if self.prepared.change_layout() != ChangeLayout::Compact {
             return Err(TransferError::PaddedChange);
         }
-        let mut prepared = self.prepared;
+        let prepared = self.prepared;
         let program_id = self.ring.program_id();
-        for output in &mut prepared.outputs {
-            output.ring_program_id = Some(program_id);
-        }
         let allow_dummy_inputs = read_dummy_input_policy(environment.rpc, tree)?;
         RingMembership {
             program_id,
@@ -369,10 +368,23 @@ impl RingMembership<'_> {
             .chain(self.outputs.iter().map(|output| output.ring_program_id))
             .flatten()
             .find(|program_id| *program_id != self.program_id);
-        match foreign {
-            Some(program_id) => Err(TransferError::ForeignRing(program_id)),
-            None => Ok(()),
+        if let Some(program_id) = foreign {
+            return Err(TransferError::ForeignRing(program_id));
         }
+        let data_outside = self
+            .inputs
+            .iter()
+            .map(|input| (input.utxo.ring_program_id, input.ring_data_hash))
+            .chain(
+                self.outputs
+                    .iter()
+                    .map(|output| (output.ring_program_id, output.ring_data_hash)),
+            )
+            .any(|(ring, data)| ring.is_none() && data.is_some());
+        if data_outside {
+            return Err(TransferError::RingDataOutsideRing);
+        }
+        Ok(())
     }
 }
 
@@ -394,23 +406,21 @@ fn validate_transfer_accounts(
     Ok(())
 }
 
+/// A dummy copies the length of a real slot with its ring binding, else of the first real slot.
 fn frame_dummy_outputs(proof_inputs: &mut SppProofInputs) -> Result<(), TransferError> {
-    let encoded_len = proof_inputs
-        .output_utxos
-        .iter()
-        .zip(&proof_inputs.external_data.outputs)
-        .find(|(output, _)| !output.is_dummy())
-        .and_then(|(_, encoded)| encoded.data.as_ref().map(Vec::len))
-        .ok_or(TransferError::InvalidDummyOutput)?;
-    if proof_inputs
+    let templates: Vec<(bool, usize)> = proof_inputs
         .output_utxos
         .iter()
         .zip(&proof_inputs.external_data.outputs)
         .filter(|(output, _)| !output.is_dummy())
-        .any(|(_, encoded)| encoded.data.as_ref().map(Vec::len) != Some(encoded_len))
-    {
-        return Err(TransferError::InvalidDummyOutput);
-    }
+        .map(|(output, encoded)| {
+            encoded
+                .data
+                .as_ref()
+                .map(|data| (output.ring_program_id.is_some(), data.len()))
+                .ok_or(TransferError::InvalidDummyOutput)
+        })
+        .collect::<Result<_, _>>()?;
     for (output, encoded) in proof_inputs
         .output_utxos
         .iter()
@@ -419,6 +429,13 @@ fn frame_dummy_outputs(proof_inputs: &mut SppProofInputs) -> Result<(), Transfer
         if !output.is_dummy() {
             continue;
         }
+        let in_ring = output.ring_program_id.is_some();
+        let (_, encoded_len) = templates
+            .iter()
+            .find(|(ring, _)| *ring == in_ring)
+            .or_else(|| templates.first())
+            .copied()
+            .ok_or(TransferError::InvalidDummyOutput)?;
         let key = ViewingKey::new().pubkey();
         let ciphertext_len = encoded_len
             .checked_sub(1 + 4 + 1 + key.as_bytes().len())
@@ -427,7 +444,7 @@ fn frame_dummy_outputs(proof_inputs: &mut SppProofInputs) -> Result<(), Transfer
         let mut ciphertext = vec![0u8; ciphertext_len];
         OsRng.fill_bytes(&mut ciphertext);
         let mut body = Vec::with_capacity(1 + key.as_bytes().len() + ciphertext_len);
-        body.push(if output.ring_program_id.is_some() {
+        body.push(if in_ring {
             EncryptedScheme::RingConfidential.as_byte()
         } else {
             EncryptedScheme::Confidential.as_byte()
@@ -624,6 +641,29 @@ mod tests {
     }
 
     #[test]
+    fn membership_refuses_ring_data_outside_a_ring() {
+        let (_sender, mut prepared) = prepared_transfer(4);
+        prepared.outputs[1].ring_data_hash = Some([3u8; 32]);
+        assert!(matches!(
+            RingMembership {
+                program_id: ring().program_id(),
+                inputs: &prepared.inputs,
+                outputs: &prepared.outputs,
+            }
+            .validate(),
+            Err(TransferError::RingDataOutsideRing)
+        ));
+        prepared.outputs[1].ring_program_id = Some(ring().program_id());
+        RingMembership {
+            program_id: ring().program_id(),
+            inputs: &prepared.inputs,
+            outputs: &prepared.outputs,
+        }
+        .validate()
+        .expect("ring data inside the ring");
+    }
+
+    #[test]
     fn withdrawal_accounts_are_validated_before_proving() {
         let (sender, _) = prepared_transfer(4);
         let input = SppProofInputUtxo::new(
@@ -701,6 +741,56 @@ mod tests {
             ring_confidential_encrypted_output_body(&slot.data).is_some()
                 && confidential_encrypted_output_body(&slot.data).is_none()
         }));
+    }
+
+    #[test]
+    fn a_dummy_takes_the_length_of_a_real_slot_with_its_own_binding() {
+        // Padded layout, the SPL change slot is a dummy, the SOL change is real.
+        let (sender, mut prepared) = prepared_transfer(4);
+        prepared.outputs[1].ring_program_id = Some(ring().program_id());
+        let tx_viewing_key = sender
+            .get_transaction_viewing_key(&prepared.first_nullifier)
+            .expect("transaction viewing key");
+        let salt = random_salt();
+        let slots = encode_confidential_slots(
+            &prepared.outputs,
+            &AssetRegistry::default(),
+            &tx_viewing_key,
+            salt,
+        )
+        .expect("slots");
+        let mut proof_inputs = prepared
+            .finalize(tx_viewing_key.pubkey(), salt, slots)
+            .expect("proof inputs");
+        let real_len = |in_ring: bool| {
+            proof_inputs
+                .output_utxos
+                .iter()
+                .zip(&proof_inputs.external_data.outputs)
+                .find(|(output, _)| {
+                    !output.is_dummy() && output.ring_program_id.is_some() == in_ring
+                })
+                .and_then(|(_, output)| output.data.as_ref().map(Vec::len))
+                .expect("real output data")
+        };
+        let (ring_len, default_len) = (real_len(true), real_len(false));
+        assert_ne!(ring_len, default_len);
+        frame_dummy_outputs(&mut proof_inputs).expect("mixed framing");
+        assert!(proof_inputs
+            .output_utxos
+            .iter()
+            .any(|output| output.is_dummy()));
+        for (output, encoded) in proof_inputs
+            .output_utxos
+            .iter()
+            .zip(&proof_inputs.external_data.outputs)
+            .filter(|(output, _)| output.is_dummy())
+        {
+            let data = encoded.data.as_deref().expect("dummy output data");
+            assert_eq!(data.len(), default_len);
+            assert!(output.ring_program_id.is_none());
+            assert!(ring_confidential_encrypted_output_body(data).is_none());
+        }
     }
 
     #[test]

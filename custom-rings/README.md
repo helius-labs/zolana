@@ -61,10 +61,13 @@ an upgrade authority only that key may create the config, so renounce after
 repository. A ring runs its own RPC from a key file, or takes a key from a
 hosted RPC that derives one key per ring from a root secret and signs the key
 it hands out. The ring pins that service key in `ring.toml` so a wrong auditor
-cannot be slipped in at `init`. The SDK binds change and recipient notes to
-the ring id, so a plain transfer keeps value in the ring. Exits stay possible,
-an owner may withdraw or send to a default pool note, and every such transact
-still carries the custom-ring proof, so the auditor sees the exit.
+cannot be slipped in at `init`. A transfer built with `with_ring_program_id`
+binds its change and recipient notes to the ring, so value stays in the ring.
+Exits are explicit, an owner may withdraw or `send_default_ring` to a default
+pool note, and every such transact still carries the custom-ring proof, so the
+auditor sees the exit. An exit slot is a default-ring slot on chain, its owner
+tag is public like any default note. An entry moves the change into the ring
+with the sent amount. A note bound to another ring is refused before proving.
 
 ## Prerequisites
 
