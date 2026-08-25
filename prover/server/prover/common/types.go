@@ -28,5 +28,7 @@ const (
 	// to the default merge.
 	MergeRingCircuitType CircuitType = "merge-ring"
 
-	CustomRingAuditCircuitType CircuitType = "custom-ring-audit"
+	CustomRingCircuitType CircuitType = "custom-ring"
 )
+
+const CustomRingKeyFile = "custom_ring.key"

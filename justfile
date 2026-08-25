@@ -110,7 +110,7 @@ test-swap-program: build-programs
 # verify under the committed VERIFYINGKEY and gnark setup is non-deterministic,
 # so locally generated keys cannot pass.
 test-custom-ring: ensure-custom-ring-prover-key
-    cd prover/server && go test ./prover/custom_ring -run TestCustomRingAuditProofVerifies -count=1
+    cd prover/server && go test ./prover/custom_ring -run TestCustomRingProofVerifies -count=1
 
 # === Custom rings ===
 
@@ -122,7 +122,7 @@ ring-new *args:
 ring-localnet: ensure-custom-ring-live-keys build-programs build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
-    : "${ZOLANA_PROVER_REDIS_URL:?set ZOLANA_PROVER_REDIS_URL, the audit proof goes through the prover queue}"
+    : "${ZOLANA_PROVER_REDIS_URL:?set ZOLANA_PROVER_REDIS_URL, the custom-ring proof goes through the prover queue}"
     eval "$(cargo run -q -p xtask -- program-ids)"
     bin="target/debug/zolana"
     workdir="target/ring-localnet"
@@ -142,7 +142,7 @@ ring-localnet: ensure-custom-ring-live-keys build-programs build-cli ensure-phot
     cargo run -q -p xtask -- generate-account-snapshots \
       --deploy-dir target/deploy --accounts-dir "$accounts_dir"
     # SIMD-0500 is off, the ring deploys as SBPF v0 like on devnet. The prover is
-    # started separately, `dev start` runs it without the Redis queue the audit circuit requires.
+    # started separately, `dev start` runs it without the Redis queue the custom-ring circuit requires.
     "$bin" dev start --no-use-surfpool --skip-prover \
       --rpc-port {{localnet-rpc-port}} --photon-port {{localnet-photon-port}} \
       --account-dir "$accounts_dir" --limit-ledger-size 5000000 \
@@ -170,7 +170,7 @@ ring-localnet-stop:
 ring-devnet-services rpc_url: ensure-custom-ring-live-keys build-prover-server ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
-    : "${ZOLANA_PROVER_REDIS_URL:?set ZOLANA_PROVER_REDIS_URL, the audit proof goes through the prover queue}"
+    : "${ZOLANA_PROVER_REDIS_URL:?set ZOLANA_PROVER_REDIS_URL, the custom-ring proof goes through the prover queue}"
     workdir="target/ring-devnet"
     mkdir -p "$workdir"
     photon_bin="{{photon-bin}}"
@@ -226,8 +226,8 @@ ring-rpc-derived:
         --indexer-url {{localnet-photon-url}} --rpc-url {{localnet-rpc-url}} \
         --root-secret-file "$secret"
 
-# Same contract as swap-keys-tag, for the custom-ring program's single circuit
-# (audit). gnark's Setup is non-deterministic, so the release assets are the
+# Same contract as swap-keys-tag, for the custom-ring program's single circuit.
+# gnark's Setup is non-deterministic, so the release assets are the
 # only key set matching the committed Rust verifying key; rotating
 # requires publishing a new release and updating custom-ring-keys.CHECKSUM plus
 # the committed verifying key together.
@@ -249,15 +249,15 @@ ensure-custom-ring-prover-key: build-prover-server
         got="$(shasum -a 256 "$path" | awk '{ print $1 }')"
         [[ "$got" == "$want" ]]
     done
-    target/prover-server convert-custom-ring-audit \
+    target/prover-server convert-custom-ring \
         --pk "$source_dir/pk.bin" \
         --vk "$source_dir/vk.bin" \
-        --output prover/server/proving-keys/custom_ring_audit_transfer.key
-    [[ "$(shasum -a 256 prover/server/proving-keys/custom_ring_audit_transfer.key | awk '{ print $1 }')" == "2e6f285909ea958e8ebbe5a1d479e37305cccc71838f3d438f1755828958a834" ]]
+        --output prover/server/proving-keys/custom_ring.key
+    [[ "$(shasum -a 256 prover/server/proving-keys/custom_ring.key | awk '{ print $1 }')" == "2e6f285909ea958e8ebbe5a1d479e37305cccc71838f3d438f1755828958a834" ]]
     verify_dir="$(mktemp -d)"
     trap 'rm -rf "$verify_dir"' EXIT
     target/prover-server export-vk \
-        --keys-file prover/server/proving-keys/custom_ring_audit_transfer.key \
+        --keys-file prover/server/proving-keys/custom_ring.key \
         --output "$verify_dir/vk.bin"
     cmp "$source_dir/vk.bin" "$verify_dir/vk.bin"
 
@@ -336,7 +336,7 @@ test-ts-example: (_test-ts-live "test:ts:example")
 _test-ts-live test-script: build-programs build-prover-server build-cli ensure-photon ensure-custom-ring-live-keys
     #!/usr/bin/env bash
     set -euo pipefail
-    : "${ZOLANA_PROVER_REDIS_URL:?set ZOLANA_PROVER_REDIS_URL, the ring audit proof goes through the prover queue}"
+    : "${ZOLANA_PROVER_REDIS_URL:?set ZOLANA_PROVER_REDIS_URL, the custom-ring proof goes through the prover queue}"
     # A command substitution that exits nonzero is no `set -e` trigger, so the
     # ids are captured first and each one the recipe reads is required.
     program_ids="$(cargo run -q -p xtask -- program-ids)"
@@ -392,7 +392,7 @@ _test-ts-live test-script: build-programs build-prover-server build-cli ensure-p
       --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so \
       --upgradeable-program "$CUSTOM_RING_PROGRAM_ID" target/deploy/custom_ring_program.so \
       "$ring_authority"
-    # The audit circuit is only ever proven through the queue, which `dev start` runs without.
+    # The custom-ring circuit is only ever proven through the queue, which `dev start` runs without.
     "$bin" dev prover start --prover-port {{localnet-prover-port}} \
       --redis-url "$ZOLANA_PROVER_REDIS_URL"
     "$bin" config set --rpc-url {{localnet-rpc-url}} \
@@ -1222,8 +1222,8 @@ test-custom-ring-validator: ensure-custom-ring-live-keys build-programs build-cl
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo nextest run -p custom-ring-test-validator --test ring --no-capture
-    # Redis and the audit proving key are guaranteed here.
-    cargo nextest run -p custom-ring-sdk --run-ignored all -E 'binary(audit_circuit)'
+    # Redis and the custom-ring proving key are guaranteed here.
+    cargo nextest run -p custom-ring-sdk --run-ignored all -E 'binary(custom_ring_circuit)'
 
 # Timelock escrow lifecycle on a local validator, driven against a real
 # localnet (sdk-tests/timelock-escrow/test/tests/escrow.rs). Boots
@@ -1414,7 +1414,7 @@ build-prover-server:
     mkdir -p target
     cd prover/server && go build -o ../../target/prover-server .
 
-# Regenerate all proving keys (transfer, merge, custom-ring audit, and batch
+# Regenerate all proving keys (transfer, merge, custom ring, and batch
 # address-append), the committed verifying keys in both crates, and
 # proving-keys.lock. groth16 setup is non-deterministic, so the
 # batched-merkle-tree vkeys are regenerated with the keys -- commit both

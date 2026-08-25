@@ -94,12 +94,12 @@ func getTransferMaxConcurrency() int {
 	return getMaxConcurrency()
 }
 
-func getCustomRingAuditMaxConcurrency() int {
-	if val := os.Getenv("CUSTOM_RING_AUDIT_WORKER_CONCURRENCY"); val != "" {
+func getCustomRingMaxConcurrency() int {
+	if val := os.Getenv("CUSTOM_RING_WORKER_CONCURRENCY"); val != "" {
 		if concurrency, err := strconv.Atoi(val); err == nil && concurrency > 0 {
 			logging.Logger().Info().
 				Int("max_concurrency", concurrency).
-				Msg("Using CUSTOM_RING_AUDIT_WORKER_CONCURRENCY")
+				Msg("Using CUSTOM_RING_WORKER_CONCURRENCY")
 			return concurrency
 		}
 	}
@@ -160,7 +160,7 @@ type AddressAppendQueueWorker struct {
 	*BaseQueueWorker
 }
 
-type CustomRingAuditQueueWorker struct {
+type CustomRingQueueWorker struct {
 	*BaseQueueWorker
 }
 
@@ -179,14 +179,14 @@ func NewAddressAppendQueueWorker(redisQueue *RedisQueue, keyManager *common.Lazy
 	}
 }
 
-func NewCustomRingAuditQueueWorker(redisQueue *RedisQueue, keyManager *common.LazyKeyManager) *CustomRingAuditQueueWorker {
-	maxConcurrency := getCustomRingAuditMaxConcurrency()
-	return &CustomRingAuditQueueWorker{BaseQueueWorker: &BaseQueueWorker{
+func NewCustomRingQueueWorker(redisQueue *RedisQueue, keyManager *common.LazyKeyManager) *CustomRingQueueWorker {
+	maxConcurrency := getCustomRingMaxConcurrency()
+	return &CustomRingQueueWorker{BaseQueueWorker: &BaseQueueWorker{
 		queue:               redisQueue,
 		keyManager:          keyManager,
 		stopChan:            make(chan struct{}),
-		queueName:           "zk_custom_ring_audit_queue",
-		processingQueueName: "zk_custom_ring_audit_processing_queue",
+		queueName:           "zk_custom_ring_queue",
+		processingQueueName: "zk_custom_ring_processing_queue",
 		maxConcurrency:      maxConcurrency,
 		semaphore:           make(chan struct{}, maxConcurrency),
 	}}
@@ -268,8 +268,8 @@ func (w *BaseQueueWorker) processJobs() {
 			circuitType = "address-append"
 		case "zk_transfer_queue":
 			circuitType = "transfer"
-		case "zk_custom_ring_audit_queue":
-			circuitType = "custom-ring-audit"
+		case "zk_custom_ring_queue":
+			circuitType = "custom-ring"
 		}
 		QueueWaitTime.WithLabelValues(circuitType).Observe(queueWaitTime)
 	}
@@ -566,11 +566,11 @@ func (w *AddressAppendQueueWorker) Stop() {
 	w.BaseQueueWorker.Stop()
 }
 
-func (w *CustomRingAuditQueueWorker) Start() {
+func (w *CustomRingQueueWorker) Start() {
 	w.BaseQueueWorker.Start()
 }
 
-func (w *CustomRingAuditQueueWorker) Stop() {
+func (w *CustomRingQueueWorker) Stop() {
 	w.BaseQueueWorker.Stop()
 }
 
@@ -636,8 +636,8 @@ func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
 		proof, proofError = w.processMergeProof(job.Payload, common.MergeCircuitType)
 	case common.MergeRingCircuitType:
 		proof, proofError = w.processMergeProof(job.Payload, common.MergeRingCircuitType)
-	case common.CustomRingAuditCircuitType:
-		proof, proofError = w.processCustomRingAuditProof(job.Payload)
+	case common.CustomRingCircuitType:
+		proof, proofError = w.processCustomRingProof(job.Payload)
 	default:
 		return nil, fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType)
 	}
@@ -718,16 +718,16 @@ func (w *BaseQueueWorker) processMergeProof(payload json.RawMessage, circuitType
 	return mergeprover.ProveMerge(ps, &params)
 }
 
-func (w *BaseQueueWorker) processCustomRingAuditProof(payload json.RawMessage) (*common.Proof, error) {
-	var params customring.CustomRingAuditParameters
+func (w *BaseQueueWorker) processCustomRingProof(payload json.RawMessage) (*common.Proof, error) {
+	var params customring.CustomRingParameters
 	if err := json.Unmarshal(payload, &params); err != nil {
-		return nil, fmt.Errorf("unmarshal custom-ring-audit params: %w", err)
+		return nil, fmt.Errorf("unmarshal custom-ring params: %w", err)
 	}
-	ps, err := w.keyManager.GetRingSystem(common.CustomRingAuditCircuitType, customring.TransferVariant)
+	ps, err := w.keyManager.GetRingSystem(common.CustomRingCircuitType, customring.TransferVariant)
 	if err != nil {
-		return nil, fmt.Errorf("custom-ring-audit: %w", err)
+		return nil, fmt.Errorf("custom-ring: %w", err)
 	}
-	return customring.ProveCustomRingAudit(ps, &params)
+	return customring.ProveCustomRing(ps, &params)
 }
 
 // removeFromProcessingQueue drops the entry a worker added when it started, by
@@ -756,11 +756,11 @@ func (w *BaseQueueWorker) removeFromProcessingQueue(item string) {
 	}
 }
 
-var errCustomRingAuditProof = errors.New("custom ring audit proof failed")
+var errCustomRingProof = errors.New("custom ring proof failed")
 
 func (w *BaseQueueWorker) redactProofError(err error) error {
-	if w.queueName == "zk_custom_ring_audit_queue" {
-		return errCustomRingAuditProof
+	if w.queueName == "zk_custom_ring_queue" {
+		return errCustomRingProof
 	}
 	return err
 }

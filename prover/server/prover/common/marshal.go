@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/big"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/consensys/gnark-crypto/ecc"
@@ -286,9 +287,9 @@ func (ps *RingProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 
 func ReadSystemFromFile(path string) (interface{}, error) {
 	lowerPath := strings.ToLower(path)
-	if strings.Contains(lowerPath, "custom_ring_audit_transfer") {
+	if filepath.Base(lowerPath) == CustomRingKeyFile {
 		ps := &RingProofSystem{
-			CircuitType: CustomRingAuditCircuitType,
+			CircuitType: CustomRingCircuitType,
 			Variant:     "transfer",
 		}
 		file, err := os.Open(path)

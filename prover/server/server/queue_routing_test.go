@@ -23,7 +23,7 @@ func TestGetQueueNameForCircuit(t *testing.T) {
 		{common.TransferRingAuthorityCircuitType, "zk_transfer_queue"},
 		{common.MergeCircuitType, "zk_transfer_queue"},
 		{common.MergeRingCircuitType, "zk_transfer_queue"},
-		{common.CustomRingAuditCircuitType, "zk_custom_ring_audit_queue"},
+		{common.CustomRingCircuitType, "zk_custom_ring_queue"},
 		{common.CircuitType("unknown"), ""},
 	}
 	for _, c := range cases {
@@ -33,20 +33,20 @@ func TestGetQueueNameForCircuit(t *testing.T) {
 	}
 }
 
-func TestAuditWorkerRejectsOtherCircuits(t *testing.T) {
-	worker := &BaseQueueWorker{queueName: "zk_custom_ring_audit_queue"}
+func TestCustomRingWorkerRejectsOtherCircuits(t *testing.T) {
+	worker := &BaseQueueWorker{queueName: "zk_custom_ring_queue"}
 	job := &ProofJob{Payload: json.RawMessage(`{"circuitType":"transfer"}`)}
 
 	if _, err := worker.generateProof(job); err == nil {
-		t.Fatal("audit worker accepted a transfer proof")
+		t.Fatal("custom ring worker accepted a transfer proof")
 	}
 }
 
-func TestAuditFailureDetailsDoNotContainWitnessData(t *testing.T) {
+func TestCustomRingFailureDetailsDoNotContainWitnessData(t *testing.T) {
 	const marker = "private-witness-marker"
-	job := &ProofJob{Payload: json.RawMessage(`{"circuitType":"custom-ring-audit","txViewingSk":"` + marker + `"}`)}
+	job := &ProofJob{Payload: json.RawMessage(`{"circuitType":"custom-ring","txViewingSk":"` + marker + `"}`)}
 
-	worker := &BaseQueueWorker{queueName: "zk_custom_ring_audit_queue"}
+	worker := &BaseQueueWorker{queueName: "zk_custom_ring_queue"}
 	details := worker.failureDetails(job, errors.New(marker))
 	encoded := fmt.Sprint(details)
 	if strings.Contains(encoded, marker) {
@@ -54,9 +54,9 @@ func TestAuditFailureDetailsDoNotContainWitnessData(t *testing.T) {
 	}
 }
 
-func TestAuditCachedFailureDoesNotContainWitnessData(t *testing.T) {
+func TestCustomRingCachedFailureDoesNotContainWitnessData(t *testing.T) {
 	const marker = "cached-private-witness-marker"
-	worker := &BaseQueueWorker{queueName: "zk_custom_ring_audit_queue"}
+	worker := &BaseQueueWorker{queueName: "zk_custom_ring_queue"}
 
 	message := worker.cachedFailureMessage(map[string]interface{}{"error": marker})
 	if strings.Contains(message, marker) {

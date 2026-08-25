@@ -1,10 +1,5 @@
 {
   "keys": {
-    "custom_ring_audit_transfer.key": {
-      "sha256": "2e6f285909ea958e8ebbe5a1d479e37305cccc71838f3d438f1755828958a834",
-      "size": 88981614,
-      "source": "release"
-    },
     "batch_address-append_40_10.key": {
       "sha256": "681348a6071c5ac1dda489ba774471c07f0b68a3a3212638d3cfdb30fd4be955",
       "size": 137141216
@@ -12,6 +7,11 @@
     "batch_address-append_40_250.key": {
       "sha256": "6b239feff3b56f023d53d7cb473d455b64b2b115a552b40d359dd974ce741c12",
       "size": 3764027068
+    },
+    "custom_ring.key": {
+      "sha256": "2e6f285909ea958e8ebbe5a1d479e37305cccc71838f3d438f1755828958a834",
+      "size": 88981614,
+      "source": "release"
     },
     "merge_8_1.key": {
       "sha256": "cac18f8d859d5dac2ec3c069b22c9f985d37e0727b582f7d1bfca877d10392c9",

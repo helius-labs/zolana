@@ -6,14 +6,14 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
-	"zolana/prover/circuits/custom_ring/audit"
+	ringcircuit "zolana/prover/circuits/custom_ring"
 )
 
-func R1CSCustomRingAudit() (constraint.ConstraintSystem, error) {
+func R1CSCustomRing() (constraint.ConstraintSystem, error) {
 	return frontend.Compile(
 		ecc.BN254.ScalarField(),
 		r1cs.NewBuilder,
-		&audit.Circuit{},
+		&ringcircuit.Circuit{},
 		frontend.WithCompressThreshold(300),
 	)
 }
