@@ -1,4 +1,7 @@
-use std::{path::Path, process::Command};
+use std::{
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use custom_ring_sdk::{
     AccountReadError, CustomRing, SetAuthority, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
@@ -12,7 +15,9 @@ use zolana_client::{Rpc, SolanaRpc};
 
 use crate::{
     config::{expand_tilde, ConfigError},
-    deploy::{read_program_data, DeployError, ProgramDataInfo},
+    deploy::{read_program_data, DeployError, ProgramBinary, ProgramDataInfo},
+    file::FileError,
+    release::{ReleaseError, RingProgram},
     tool::{ToolError, SOLANA},
     AuthorityCommand, Context,
 };
@@ -41,6 +46,18 @@ pub enum AuthorityError {
     NotDeployed { program: Address },
     #[error("renouncing is irreversible, pass --yes to make {program} immutable")]
     NeedsConfirmation { program: Address },
+    #[error("pass --yes to hand {program} on {target} to {new_authority}, only that key can hand it back")]
+    NeedsTransferConfirmation {
+        program: Address,
+        target: &'static str,
+        new_authority: Address,
+    },
+    #[error(transparent)]
+    Release(#[from] ReleaseError),
+    #[error(transparent)]
+    File(#[from] FileError),
+    #[error("release lock sha256 {sha256} is not hex")]
+    LockDigest { sha256: String },
     #[error("ring {program} is not initialized, run `init` before renouncing")]
     NotInitialized { program: Address },
     #[error(transparent)]
@@ -56,7 +73,14 @@ pub enum AuthorityError {
 pub fn run(ctx: &Context, command: AuthorityCommand) -> Result<(), AuthorityError> {
     let program = ctx.ring.program_id();
     match command {
-        AuthorityCommand::Transfer { new_authority } => {
+        AuthorityCommand::Transfer { new_authority, yes } => {
+            if !yes {
+                return Err(AuthorityError::NeedsTransferConfirmation {
+                    program,
+                    target: ctx.config.target.as_str(),
+                    new_authority,
+                });
+            }
             require_initialized(ctx)?;
             let authority = ctx.config.upgrade_authority()?;
             let current = deployed_program_data(&ctx.rpc, ctx.ring)?;
@@ -104,12 +128,13 @@ pub fn run(ctx: &Context, command: AuthorityCommand) -> Result<(), AuthorityErro
                 new_authority_keypair.display()
             );
         }
-        AuthorityCommand::Renounce { yes } => {
+        AuthorityCommand::Renounce { yes, program_so } => {
             if !yes {
                 return Err(AuthorityError::NeedsConfirmation { program });
             }
             let authority = ctx.config.upgrade_authority()?;
             require_initialized(ctx)?;
+            expected_binary(ctx, program_so)?.verify_deployed(&ctx.rpc, ctx.ring)?;
             let current = deployed_program_data(&ctx.rpc, ctx.ring)?;
             SetUpgradeAuthority {
                 ring: ctx.ring,
@@ -122,6 +147,26 @@ pub fn run(ctx: &Context, command: AuthorityCommand) -> Result<(), AuthorityErro
         }
     }
     Ok(())
+}
+
+fn expected_binary(
+    ctx: &Context,
+    program_so: Option<PathBuf>,
+) -> Result<ProgramBinary, AuthorityError> {
+    if let Some(path) = program_so {
+        return Ok(ProgramBinary::read(&ctx.project_path(&path))?);
+    }
+    let program = RingProgram::from_lock()?;
+    let sha256 = hex::decode(&program.asset.sha256)
+        .ok()
+        .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok())
+        .ok_or_else(|| AuthorityError::LockDigest {
+            sha256: program.asset.sha256.clone(),
+        })?;
+    Ok(ProgramBinary {
+        len: program.asset.size as usize,
+        sha256,
+    })
 }
 
 fn require_initialized(ctx: &Context) -> Result<(), AuthorityError> {

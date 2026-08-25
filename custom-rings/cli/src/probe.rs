@@ -7,7 +7,7 @@ use std::{
 
 use thiserror::Error;
 
-use crate::config::RingConfig;
+use crate::config::{redact_url, RingConfig};
 
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 pub const TOTAL_TIMEOUT: Duration = Duration::from_secs(30);
@@ -68,10 +68,10 @@ pub fn print_urls(config: &RingConfig) {
         "(hosted, it serves this ring)"
     };
     println!("{} points at {}", config.name, config.target.as_str());
-    println!("  rpc       {}", urls.rpc);
-    println!("  indexer   {}", urls.indexer);
-    println!("  prover    {}", urls.prover);
-    println!("  ring rpc  {}  {served}", urls.ring_rpc);
+    println!("  rpc       {}", redact_url(&urls.rpc));
+    println!("  indexer   {}", redact_url(&urls.indexer));
+    println!("  prover    {}", redact_url(&urls.prover));
+    println!("  ring rpc  {}  {served}", redact_url(&urls.ring_rpc));
 }
 
 /// Panics only where `reqwest::blocking::Client::new` panics, a broken TLS backend.
@@ -99,12 +99,11 @@ fn next_steps(config: &RingConfig) {
         "check that the hosted ring rpc holds this ring's auditor key"
     };
     println!("next: zolana-ring pipeline");
-    println!("  1 build     the ring program");
-    println!("  2 deploy    it under the authority, pausing for a faucet airdrop when its devnet SOL runs short");
-    println!("  3 init      create the config with the auditor key and register the ring with SPP");
-    println!("  4 ring rpc  {rpc_step}");
+    println!("  1 deploy    the released ring program under the authority, pausing for a faucet airdrop when its devnet SOL runs short");
+    println!("  2 init      create the config with the auditor key and register the ring with SPP");
+    println!("  3 ring rpc  {rpc_step}");
     println!(
-        "  5 transact  grant the authority a reader, deposit twice, transfer once, read it back"
+        "  4 transact  grant the authority a reader, deposit twice, transfer once, read it back"
     );
     println!();
     println!("  each step is its own command, `zolana-ring status` shows how far a run got");

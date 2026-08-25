@@ -6,7 +6,7 @@ use thiserror::Error;
 use zolana_client::{ClientError, Rpc, SolanaRpc};
 
 use crate::{
-    config::{RingConfig, Target},
+    config::{redact_text, redact_url, RingConfig, Target},
     deploy::{read_program_data, DeployError},
     line,
     release::RingProgram,
@@ -44,10 +44,10 @@ pub fn run(ctx: &Context) {
         Ok(authority) => line("upgrade key", authority.pubkey()),
         Err(error) => line("upgrade key", format_args!("unavailable ({error})")),
     }
-    line("rpc", &config.urls().rpc);
-    line("indexer", &config.urls().indexer);
-    line("prover", &config.urls().prover);
-    line("ring rpc", &config.urls().ring_rpc);
+    line("rpc", redact_url(&config.urls().rpc));
+    line("indexer", redact_url(&config.urls().indexer));
+    line("prover", redact_url(&config.urls().prover));
+    line("ring rpc", redact_url(&config.urls().ring_rpc));
     match RingProgram::from_lock() {
         Ok(program) => line(
             "release",
@@ -59,7 +59,11 @@ pub fn run(ctx: &Context) {
     if let Err(error) = print_chain(config, ctx.ring, &ctx.rpc) {
         line(
             "chain",
-            format_args!("unreachable at {} ({error})", config.urls().rpc),
+            format_args!(
+                "unreachable at {} ({})",
+                redact_url(&config.urls().rpc),
+                redact_text(&error.to_string())
+            ),
         );
     }
 }

@@ -64,6 +64,7 @@ pub fn run(args: NewArgs) -> Result<(), NewError> {
     file::create_dir_all(&ring_dir.join("keys"))?;
     file::write_keypair(&program, &ring_dir.join(PROGRAM_KEYPAIR_FILE))?;
     file::write(&ring_dir.join(RING_TOML), toml::to_string(&config)?)?;
+    file::write(&ring_dir.join(".gitignore"), "keys/\n.env\n")?;
     ensure_authority(&args.authority_keypair)?;
 
     line("ring", ring_dir.display());
@@ -214,6 +215,10 @@ mod tests {
             Some(DEVNET_RING_RPC_PUBKEY)
         );
         assert!(config.localnet.ring_rpc_is_local());
+        assert_eq!(
+            std::fs::read_to_string(ring_dir.join(".gitignore")).expect("gitignore"),
+            "keys/\n.env\n"
+        );
         assert!(matches!(run(args()), Err(NewError::Exists { .. })));
         std::fs::remove_dir_all(dest).expect("cleanup");
     }

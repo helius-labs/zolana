@@ -1,6 +1,11 @@
 //! The ring program of the release this binary was built from.
 
-use std::{env, fs, path::PathBuf, time::Duration};
+use std::{
+    env, fs,
+    io::{self, Read},
+    path::PathBuf,
+    time::Duration,
+};
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -36,6 +41,12 @@ pub enum ReleaseError {
         url: String,
         #[source]
         source: reqwest::Error,
+    },
+    #[error("cannot read {url}")]
+    Body {
+        url: String,
+        #[source]
+        source: io::Error,
     },
     #[error("{name} is {found} bytes, the release lock pins {expected}")]
     Size {
@@ -82,7 +93,7 @@ impl RingProgram {
         }
         let url = format!("{}/{}/{}", release_base_url(), self.tag, self.asset.name);
         crate::line("download", &url);
-        let bytes = download(&url)?;
+        let bytes = download(&url, &self.asset)?;
         verify(&bytes, &self.asset)?;
         if let Some(parent) = path.parent() {
             file::create_dir_all(parent)?;
@@ -108,7 +119,8 @@ fn release_base_url() -> String {
     env::var("ZOLANA_RELEASE_URL").unwrap_or_else(|_| DEFAULT_RELEASE_BASE_URL.to_owned())
 }
 
-fn download(url: &str) -> Result<Vec<u8>, ReleaseError> {
+/// Reads at most one byte past the pinned size, a longer body fails on size.
+fn download(url: &str, asset: &Asset) -> Result<Vec<u8>, ReleaseError> {
     let failed = |source| ReleaseError::Download {
         url: url.to_owned(),
         source,
@@ -117,13 +129,30 @@ fn download(url: &str) -> Result<Vec<u8>, ReleaseError> {
         .timeout(DOWNLOAD_TIMEOUT)
         .build()
         .map_err(failed)?;
-    let bytes = client
+    let response = client
         .get(url)
         .send()
         .and_then(reqwest::blocking::Response::error_for_status)
-        .and_then(|response| response.bytes())
         .map_err(failed)?;
-    Ok(bytes.to_vec())
+    if let Some(length) = response
+        .content_length()
+        .filter(|length| *length != asset.size)
+    {
+        return Err(ReleaseError::Size {
+            name: asset.name.clone(),
+            expected: asset.size,
+            found: length,
+        });
+    }
+    let mut bytes = Vec::with_capacity(asset.size as usize);
+    response
+        .take(asset.size.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|source| ReleaseError::Body {
+            url: url.to_owned(),
+            source,
+        })?;
+    Ok(bytes)
 }
 
 fn verify(bytes: &[u8], asset: &Asset) -> Result<(), ReleaseError> {

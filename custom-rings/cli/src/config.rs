@@ -185,6 +185,30 @@ impl RingConfig {
     }
 }
 
+pub fn redact_url(url: &str) -> String {
+    match url.split_once('?') {
+        Some((base, _)) => format!("{base}?…"),
+        None => url.to_owned(),
+    }
+}
+
+pub fn redact_text(text: &str) -> String {
+    const KEY: &str = "api-key=";
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find(KEY) {
+        let after = start + KEY.len();
+        out.push_str(&rest[..after]);
+        out.push('…');
+        let value_end = rest[after..]
+            .find(|c: char| c == '&' || c == ')' || c == '"' || c.is_whitespace())
+            .map_or(rest.len(), |end| after + end);
+        rest = &rest[value_end..];
+    }
+    out.push_str(rest);
+    out
+}
+
 pub fn expand_tilde(path: &Path) -> Result<PathBuf, ConfigError> {
     let Ok(rest) = path.strip_prefix("~") else {
         return Ok(path.to_path_buf());
@@ -341,6 +365,21 @@ ring_rpc = "http://127.0.0.1:8785"
         assert!(!local("http://ring.example.com:8785"));
         // A host that merely starts with a loopback name is not one.
         assert!(!local("http://localhost.example.com:8785"));
+    }
+
+    #[test]
+    fn redaction_masks_query_strings_and_api_keys() {
+        assert_eq!(
+            redact_url("https://devnet.helius-rpc.com/?api-key=secret"),
+            "https://devnet.helius-rpc.com/?…"
+        );
+        assert_eq!(redact_url("http://127.0.0.1:8899"), "http://127.0.0.1:8899");
+        assert_eq!(
+            redact_text("error sending request for url (https://x/?api-key=abc&x=1): timeout"),
+            "error sending request for url (https://x/?api-key=…&x=1): timeout"
+        );
+        assert_eq!(redact_text("api-key=abc"), "api-key=…");
+        assert_eq!(redact_text("no key here"), "no key here");
     }
 
     #[test]
