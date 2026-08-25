@@ -168,10 +168,10 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
-      # GH_TOKEN is for the gh-release custom-ring key download
-      # (ensure-custom-ring-keys). The circuit proof check proves with the
-      # released pk and must verify under the committed VERIFYINGKEY, so a
-      # locally generated key set cannot substitute.
+      # The custom-ring key comes from the custom-ring-keys release
+      # (ensure-custom-ring-prover-key, no token). The circuit proof check
+      # proves with the released pk and must verify under the committed
+      # VERIFYINGKEY, so a locally generated key set cannot substitute.
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4

@@ -228,32 +228,38 @@ ring-rpc-derived:
 
 # Same contract as swap-keys-tag, for the custom-ring program's single circuit.
 # gnark's Setup is non-deterministic, so the release assets are the
-# only key set matching the committed Rust verifying key; rotating
-# requires publishing a new release and updating custom-ring-keys.CHECKSUM plus
-# the committed verifying key together.
-custom-ring-keys-tag := "custom-ring-keys-v1"
+# only key set matching the committed Rust verifying key. A circuit change
+# rotates them with `setup-custom-ring --pk-out --vk-out`, a new release tag
+# here and in tools/rings-test-deploy.sh, custom-ring-keys.CHECKSUM, the key
+# sha256 below and in proving-keys.lock, verifying_key.rs with its fingerprint
+# test, the vk hash in prove_test.go and the circuit fingerprint test.
+custom-ring-keys-tag := "custom-ring-keys-v2"
 
 ensure-custom-ring-prover-key: build-prover-server
     #!/usr/bin/env bash
     set -euo pipefail
     source_dir="custom-rings/build/gnark/audit"
     mkdir -p "$source_dir" prover/server/proving-keys
-    # The v1 release assets keep the retired circuit name.
+    # The release assets keep the retired circuit name.
     for kind in pk vk; do
         file="auditor_key_encryption_${kind}.bin"
         path="$source_dir/${kind}.bin"
-        if [[ ! -f "$path" ]]; then
+        want="$(awk -v name="$file" '$2 == name { print $1 }' custom-rings/custom-ring-keys.CHECKSUM)"
+        # A file from an earlier release fails the checksum and is fetched again.
+        if [[ ! -f "$path" ]] || [[ "$(shasum -a 256 "$path" | awk '{ print $1 }')" != "$want" ]]; then
             curl -fsSL "https://github.com/helius-labs/zolana/releases/download/{{custom-ring-keys-tag}}/$file" -o "$path"
         fi
-        want="$(awk -v name="$file" '$2 == name { print $1 }' custom-rings/custom-ring-keys.CHECKSUM)"
         got="$(shasum -a 256 "$path" | awk '{ print $1 }')"
-        [[ "$got" == "$want" ]]
+        if [[ "$got" != "$want" ]]; then
+            echo "$file from {{custom-ring-keys-tag}} hashes to $got, custom-ring-keys.CHECKSUM pins $want" >&2
+            exit 1
+        fi
     done
     target/prover-server convert-custom-ring \
         --pk "$source_dir/pk.bin" \
         --vk "$source_dir/vk.bin" \
         --output prover/server/proving-keys/custom_ring.key
-    [[ "$(shasum -a 256 prover/server/proving-keys/custom_ring.key | awk '{ print $1 }')" == "2e6f285909ea958e8ebbe5a1d479e37305cccc71838f3d438f1755828958a834" ]]
+    [[ "$(shasum -a 256 prover/server/proving-keys/custom_ring.key | awk '{ print $1 }')" == "506ed2dcfc207c34126de083288457c01609bee3e62184c201e2bdef6ef20249" ]]
     verify_dir="$(mktemp -d)"
     trap 'rm -rf "$verify_dir"' EXIT
     target/prover-server export-vk \
@@ -1220,6 +1226,7 @@ test-custom-ring-validator: ensure-custom-ring-live-keys build-programs build-cl
     export ZOLANA_PHOTON_BIN="{{photon-bin}}"
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    cargo build -q -p custom-ring-cli
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo nextest run -p custom-ring-test-validator --test ring --no-capture
     # Redis and the custom-ring proving key are guaranteed here.

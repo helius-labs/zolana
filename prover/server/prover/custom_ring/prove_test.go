@@ -61,7 +61,7 @@ func TestCustomRingProofVerifies(t *testing.T) {
 		t.Fatal(err)
 	}
 	verifierHash := sha256.Sum256(verifier.Bytes())
-	if hex.EncodeToString(verifierHash[:]) != "fb77674f86d7ed835559bd817b2b36a0687ecea6b09534d178f2e94313824ca9" {
+	if hex.EncodeToString(verifierHash[:]) != "94624b9d0191d3fabee4635ae780d6d53fc090c0ae59296cfa045f023132e167" {
 		t.Fatal("custom ring verifier does not match the program")
 	}
 	proof, err := ProveCustomRing(loadedSystem, params)
