@@ -13,16 +13,17 @@ mod upstream;
 mod webauthn;
 
 pub use api::{
-    auditor_key_attestation, unix_now, AuditorPubkey, CreateAuditorKeyRequest,
-    CreateAuditorKeyResponse, DecryptedOutput, DecryptedTransaction, DecryptedTransactionsPage,
-    DecryptedWithdrawal, DepositRecord, GetDecryptedTransactionsRequest,
-    GetDecryptedTransactionsResponse, HealthResponse, ReadAttestation, ReadAuth, ReadBuildError,
-    ReadRequest, ReadSignature, ReadSigner, RingDepositsRequest, RingDepositsResponse, RingState,
-    RingStatusRequest, RingStatusResponse, SkippedReason, SkippedTransaction, WebAuthnAssertion,
-    CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS, RING_STATUS,
+    auditor_key_attestation, unix_now, AuditorKeyAttestation, AuditorKeyRequest, AuditorPubkey,
+    AuthorityAuth, CreateAuditorKeyRequest, CreateAuditorKeyResponse, DecryptedOutput,
+    DecryptedTransaction, DecryptedTransactionsPage, DecryptedWithdrawal, DepositRecord,
+    GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse, HealthResponse,
+    ReadAttestation, ReadAuth, ReadBuildError, ReadRequest, ReadSignature, ReadSigner,
+    RingDepositsRequest, RingDepositsResponse, RingState, RingStatusRequest, RingStatusResponse,
+    SkippedReason, SkippedTransaction, WebAuthnAssertion, CREATE_AUDITOR_KEY,
+    GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS, RING_STATUS,
 };
 pub use audit::{AuditRead, AuditService, Page, PageOptions};
-pub use authorize::{Claim, ReadCheck, Unauthorized};
+pub use authorize::{AuthorityCheck, AuthorityClaim, Claim, ReadCheck, Unauthorized, READ_SKEW};
 pub use config::{
     public_key_path, read_auditor_pubkey, write_auditor_key, write_auditor_pubkey,
     write_root_secret, Cli, Command, FileMode, KeyAccess, KeyFile, KeyFileError, KeyKind,

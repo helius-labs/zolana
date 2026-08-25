@@ -11,11 +11,12 @@ use zolana_ring_client::{
 
 use crate::{
     api::{
-        cursor_in_bounds, limit_in_bounds, unix_now, DecryptedOutput, DecryptedTransaction,
-        DecryptedTransactionsPage, DecryptedWithdrawal, GetDecryptedTransactionsResponse,
-        ReadAttestation, ReadAuth, SkippedReason, SkippedTransaction, AUDIT_PAGE_LIMIT,
+        cursor_in_bounds, limit_in_bounds, unix_now, AuditorKeyAttestation, AuthorityAuth,
+        DecryptedOutput, DecryptedTransaction, DecryptedTransactionsPage, DecryptedWithdrawal,
+        GetDecryptedTransactionsResponse, ReadAttestation, ReadAuth, SkippedReason,
+        SkippedTransaction, AUDIT_PAGE_LIMIT,
     },
-    authorize::{ReadCheck, Unauthorized},
+    authorize::{AuthorityCheck, ReadCheck, Unauthorized},
     error::RingRpcError,
     hub::Shared,
     limits::ReaderPermit,
@@ -135,6 +136,41 @@ impl<S: TransactionSource> AuditService<S> {
         request: AuditRead<'_>,
     ) -> Result<GetDecryptedTransactionsResponse, RingRpcError> {
         self.authorize(request).await?.execute().await
+    }
+
+    /// Before the config exists only the upgrade authority can ask, afterwards
+    /// only the config authority, the same split the program enforces.
+    pub async fn authorize_auditor_key(&self, auth: &AuthorityAuth) -> Result<(), RingRpcError> {
+        let now = unix_now().map_err(|_| RingRpcError::StateUnavailable)?;
+        let nonce = auth
+            .nonce
+            .0
+            .as_slice()
+            .try_into()
+            .map_err(|_| Unauthorized::InvalidNonce)?;
+        let attestation = AuditorKeyAttestation {
+            genesis_hash: &self.shared.genesis_hash,
+            ring: self.ring,
+            timestamp: auth.timestamp,
+            nonce: &nonce,
+        };
+        let claim = AuthorityCheck::new(auth, &attestation).at(now).decide()?;
+        let source = &self.shared.source;
+        let expected = match source.ring_config(self.ring).await? {
+            Some(config) => Some(config.authority),
+            None => source.upgrade_authority(self.ring).await?,
+        }
+        .filter(|authority| *authority != Address::default());
+        if expected != Some(claim.authority()) {
+            return Err(Unauthorized::NotRingAuthority.into());
+        }
+        self.shared.replay.accept(ReplayCheck {
+            ring: self.ring,
+            nonce: claim.nonce(),
+            timestamp: auth.timestamp,
+            now,
+        })?;
+        Ok(())
     }
 
     pub(crate) async fn authorize<'a>(

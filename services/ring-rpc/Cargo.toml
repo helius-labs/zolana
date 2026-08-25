@@ -12,6 +12,7 @@ name = "ring-rpc"
 path = "src/main.rs"
 
 [dependencies]
+bincode = { workspace = true }
 bytemuck = { workspace = true }
 custom-ring-interface = { workspace = true }
 anyhow = { workspace = true }
@@ -34,6 +35,7 @@ solana-address = { workspace = true }
 solana-account = { workspace = true }
 solana-account-decoder-client-types = { workspace = true, features = ["agave-unstable-api"] }
 solana-keypair = { workspace = true }
+solana-loader-v3-interface = { workspace = true, features = ["serde"] }
 solana-signer = { workspace = true }
 solana-commitment-config = { workspace = true }
 solana-rpc-client = { workspace = true }

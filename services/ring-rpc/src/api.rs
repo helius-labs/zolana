@@ -37,14 +37,42 @@ pub(crate) fn limit_in_bounds(limit: &Limit) -> bool {
 pub struct HealthResponse {
     pub mode: KeyMode,
     pub service_pubkey: SerializablePubkey,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub auditor_view_tag: Option<Hash>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct CreateAuditorKeyRequest {
     pub ring_program_id: SerializablePubkey,
+    pub auth: AuthorityAuth,
+}
+
+/// Signed by the ring's Loader v3 upgrade authority or its config authority.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct AuthorityAuth {
+    pub authority: SerializablePubkey,
+    pub genesis_hash: Hash,
+    pub timestamp: u64,
+    pub nonce: Base64String,
+    /// Raw Ed25519 over `AuditorKeyAttestation::bytes`.
+    pub signature: Base64String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use]
+pub struct AuditorKeyAttestation<'a> {
+    pub genesis_hash: &'a [u8; 32],
+    pub ring: Address,
+    pub timestamp: u64,
+    pub nonce: &'a [u8; 32],
+}
+
+#[must_use]
+pub struct AuditorKeyRequest {
+    ring: Address,
+    genesis_hash: [u8; 32],
+    timestamp: Option<u64>,
+    nonce: [u8; 32],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -133,16 +161,13 @@ pub struct RingStatusRequest {
     pub ring_program_id: SerializablePubkey,
 }
 
-/// Unsigned, for diagnosis only. A ring pins its auditor from the attested
-/// `createAuditorKey` response, never from this.
+/// Unsigned, so it never carries the key this service holds, only the one the
+/// chain already publishes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct RingStatusResponse {
     pub ring_program_id: SerializablePubkey,
     pub state: RingState,
-    /// The key this service holds for the ring.
-    pub auditor_pubkey: AuditorPubkey,
-    pub auditor_view_tag: Hash,
     /// The key the ring's config names, absent until the config exists.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub config_auditor_pubkey: Option<AuditorPubkey>,
@@ -315,6 +340,73 @@ pub enum SkippedReason {
 }
 
 const ATTESTATION_DOMAIN: &[u8] = b"zolana/ring-auditor-key/v1";
+const AUDITOR_KEY_REQUEST_DOMAIN: &str = "zolana/ring-rpc-auditor-key-request/v1";
+
+impl CreateAuditorKeyRequest {
+    /// `genesis_hash` names the cluster, a signature never carries over to another one.
+    pub fn for_ring(ring: Address, genesis_hash: [u8; 32]) -> AuditorKeyRequest {
+        let mut nonce = [0u8; 32];
+        rand::rngs::OsRng.fill_bytes(&mut nonce);
+        AuditorKeyRequest {
+            ring,
+            genesis_hash,
+            timestamp: None,
+            nonce,
+        }
+    }
+}
+
+impl AuditorKeyRequest {
+    #[must_use = "use the updated request"]
+    pub fn at(mut self, timestamp: u64) -> Self {
+        self.timestamp = Some(timestamp);
+        self
+    }
+
+    pub fn sign<S: Signer + ?Sized>(
+        self,
+        authority: &S,
+    ) -> Result<CreateAuditorKeyRequest, ReadBuildError> {
+        let timestamp = match self.timestamp {
+            Some(timestamp) => timestamp,
+            None => unix_now()?,
+        };
+        let attestation = AuditorKeyAttestation {
+            genesis_hash: &self.genesis_hash,
+            ring: self.ring,
+            timestamp,
+            nonce: &self.nonce,
+        }
+        .bytes();
+        let signature = authority
+            .try_sign_message(&attestation)
+            .map_err(ReadBuildError::Signature)?;
+        Ok(CreateAuditorKeyRequest {
+            ring_program_id: self.ring.to_bytes().into(),
+            auth: AuthorityAuth {
+                authority: authority.pubkey().to_bytes().into(),
+                genesis_hash: Hash(self.genesis_hash),
+                timestamp,
+                nonce: self.nonce.to_vec().into(),
+                signature: signature.as_ref().to_vec().into(),
+            },
+        })
+    }
+}
+
+impl AuditorKeyAttestation<'_> {
+    pub fn bytes(&self) -> Vec<u8> {
+        use base64::Engine;
+        format!(
+            "{AUDITOR_KEY_REQUEST_DOMAIN}\ngenesis: {}\nring: {}\ntimestamp: {}\nnonce: {}",
+            Hash(*self.genesis_hash).to_base58(),
+            self.ring,
+            self.timestamp,
+            base64::engine::general_purpose::STANDARD.encode(self.nonce),
+        )
+        .into_bytes()
+    }
+}
 
 pub fn auditor_key_attestation(ring_program_id: &Address, auditor_pubkey: &P256Pubkey) -> Vec<u8> {
     [
@@ -472,6 +564,25 @@ impl ReadAttestation<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn auditor_key_request_attestation_is_stable() {
+        let attestation = AuditorKeyAttestation {
+            genesis_hash: &[9; 32],
+            ring: Address::new_from_array([5; 32]),
+            timestamp: 1_700_000_000,
+            nonce: &[7; 32],
+        }
+        .bytes();
+        assert_eq!(
+            String::from_utf8(attestation).expect("utf8"),
+            "zolana/ring-rpc-auditor-key-request/v1\n\
+             genesis: cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN\n\
+             ring: LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\n\
+             timestamp: 1700000000\n\
+             nonce: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc="
+        );
+    }
 
     fn deposits_request(limit: Option<u32>, cursor: Option<Vec<u8>>) -> RingDepositsRequest {
         RingDepositsRequest {
