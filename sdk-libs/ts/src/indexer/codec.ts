@@ -7,7 +7,6 @@ import type {
   GetNonInclusionProofsResponse,
   GetRingsByNullifiersRequest,
   GetRingsByTagsRequest,
-  GetShieldedTransactionsByNullifiersResponse,
   GetShieldedTransactionsBySignatureRequest,
   GetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse,
@@ -439,12 +438,6 @@ export function decodeShieldedTransactionsResponse(
     ...(nextCursor === undefined ? {} : { nextCursor }),
     ...(scannedThrough === undefined ? {} : { scannedThrough }),
   };
-}
-
-export function decodeShieldedTransactionsByNullifiersResponse(
-  value: unknown,
-): GetShieldedTransactionsByNullifiersResponse {
-  return decodeShieldedTransactionsResponse(value);
 }
 
 export function decodeShieldedTransactionsBySignatureResponse(

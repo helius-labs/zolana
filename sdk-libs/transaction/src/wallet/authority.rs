@@ -545,6 +545,19 @@ impl SyncWalletAuthority for ClientEd25519WalletAuthority {
         Err(TransactionError::P256TransactUnsupported)
     }
 
+    /// Deliberately a no-op rather than the inherited trait default, so that
+    /// this authority's approval story is a decision on the type instead of one
+    /// it silently picked up.
+    ///
+    /// This authority holds no signing key and cannot reach a user: the remote
+    /// signer authorizes the finished Solana transaction in a separate step,
+    /// and that step is the approval gate. Refusing here instead would make the
+    /// type unusable, since transaction construction — which this authority
+    /// exists to serve — calls this before it has a transaction to approve.
+    fn request_user_approval(&self, _request: ApprovalRequest) -> Result<(), TransactionError> {
+        Ok(())
+    }
+
     fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError> {
         Ok(self.nullifier_key.clone())
     }

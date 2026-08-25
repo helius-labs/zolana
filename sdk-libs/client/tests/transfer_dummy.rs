@@ -17,7 +17,6 @@
 
 mod test_indexer;
 
-use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use rand::RngCore;
 use zolana_client::prover::SERVER_ADDRESS;
 use zolana_client::{
@@ -25,15 +24,7 @@ use zolana_client::{
     PublicTransfers, Rpc, Shape, TransferProver, TransferSpendInput,
 };
 use zolana_hasher::primitives::hash_bytes;
-use zolana_interface::{
-    instruction::instruction_data::transact::{OwnerTag, TransactOutput},
-    verifying_keys::{
-        transfer_confidential_1_1, transfer_confidential_1_2, transfer_confidential_1_8,
-        transfer_confidential_2_2, transfer_confidential_2_3, transfer_confidential_3_3,
-        transfer_confidential_4_3, transfer_confidential_4_4, transfer_confidential_5_3,
-        transfer_confidential_5_4,
-    },
-};
+use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
 use zolana_keypair::{NullifierKey, PublicKey};
 use zolana_transaction::{
     instructions::types::SppProofInputUtxo, Data, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT,
@@ -212,27 +203,12 @@ fn dummy_output(owner_tag: [u8; 32]) -> SppProofOutputUtxo {
     }
 }
 
-/// The committed eddsa-rail (confidential) verifying key for a shape.
-fn eddsa_confidential_vk(n_in: usize, n_out: usize) -> &'static Groth16Verifyingkey<'static> {
-    match (n_in, n_out) {
-        (1, 1) => &transfer_confidential_1_1::VERIFYINGKEY,
-        (1, 2) => &transfer_confidential_1_2::VERIFYINGKEY,
-        (2, 2) => &transfer_confidential_2_2::VERIFYINGKEY,
-        (2, 3) => &transfer_confidential_2_3::VERIFYINGKEY,
-        (3, 3) => &transfer_confidential_3_3::VERIFYINGKEY,
-        (4, 3) => &transfer_confidential_4_3::VERIFYINGKEY,
-        (4, 4) => &transfer_confidential_4_4::VERIFYINGKEY,
-        (5, 3) => &transfer_confidential_5_3::VERIFYINGKEY,
-        (5, 4) => &transfer_confidential_5_4::VERIFYINGKEY,
-        (1, 8) => &transfer_confidential_1_8::VERIFYINGKEY,
-        _ => panic!("unsupported shape {n_in}x{n_out}"),
-    }
-}
-
 /// Generate a dummy eddsa transfer proof for `shape` (one real input padded with
-/// dummies) on the prover server and verify it against the committed
-/// `transfer_confidential_{shape}` verifying key. Exercises proof generation +
-/// on-chain-style Groth16 verification for every supported shape, not just (2,3).
+/// dummies) on the prover server and verify it through the shipped verifier,
+/// which resolves the committed `transfer_confidential_{shape}` key itself.
+/// Exercises proof generation + on-chain-style Groth16 verification for every
+/// supported shape, not just (2,3) -- and, because it is the shipped path, the
+/// shape-to-key mapping the SDK will use in production rather than a copy.
 fn prove_and_verify_eddsa_shape(n_in: usize, n_out: usize) {
     let real_input = real_input();
     let owner_tag = real_input
@@ -265,17 +241,7 @@ fn prove_and_verify_eddsa_shape(n_in: usize, n_out: usize) {
         .prove_transfer(&result.inputs)
         .unwrap_or_else(|e| panic!("prove {n_in}x{n_out}: {e:?}"));
 
-    let public_inputs: [[u8; 32]; 1] = [result.public_input_hash];
-    let mut verifier = Groth16Verifier::new(
-        &proof.a,
-        &proof.b,
-        &proof.c,
-        &public_inputs,
-        eddsa_confidential_vk(n_in, n_out),
-    )
-    .unwrap_or_else(|e| panic!("construct {n_in}x{n_out} verifier: {e:?}"));
-    verifier
-        .verify()
+    verify_confidential_transfer_proof(&result, &proof)
         .unwrap_or_else(|e| panic!("verify {n_in}x{n_out}: {e:?}"));
 }
 

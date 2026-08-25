@@ -3,7 +3,11 @@ import { getAddressEncoder } from "@solana/kit";
 
 import type { Address, Bytes16, Bytes32, Bytes64, MessageData } from "../../interface/types.js";
 import { checkedBytes, randomSalt } from "../../keypair/bytes.js";
-import { ed25519DerivationMessage, roleExpansion } from "../../keypair/derivation.js";
+import {
+  checkedDerivationSeed,
+  ed25519DerivationMessage,
+  roleExpansion,
+} from "../../keypair/derivation.js";
 import { KeypairError } from "../../keypair/error.js";
 import { NullifierKey } from "../../keypair/nullifier-key.js";
 import { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
@@ -145,7 +149,7 @@ export class ClientEd25519WalletAuthority implements WalletAuthority {
       32,
       "Ed25519 public key",
     );
-    const seed = checkedBytes<Bytes64>(input.derivationSeed, 64, "Ed25519 derivation seed");
+    const seed = checkedDerivationSeed<Bytes64>(input.derivationSeed, "ed25519");
     const message = ed25519DerivationMessage(publicKey);
     if (!ed25519.verify(seed, message, publicKey, { zip215: false })) {
       seed.fill(0);
@@ -291,6 +295,14 @@ export class ClientEd25519WalletAuthority implements WalletAuthority {
     });
   }
 
+  /**
+   * Deliberately a no-op. This authority holds no signing key and cannot reach
+   * a user: the remote signer authorizes the finished Solana transaction in a
+   * separate step, and that step is the approval gate. Rejecting here instead
+   * would make the type unusable, since transaction construction — which this
+   * authority exists to serve — calls this before it has a transaction to
+   * approve.
+   */
   requestUserApproval(request: ApprovalRequest): Promise<void> {
     void request;
     return Promise.resolve();

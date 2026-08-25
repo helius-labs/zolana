@@ -213,6 +213,21 @@ fn wallet_sync_restores_contacts_counters_spends_and_history() {
     cases::wallet::inbound_from(&mut world, 10, "bob".into());
 }
 
+/// The anonymous rail classifies a send whose only recipient is the sender as a
+/// self transfer, matching the confidential rail. Both the sender-bundle row and
+/// the recipient receipt say `SelfTransfer`, so no row contradicts the other.
+#[test]
+fn wallet_sync_classifies_an_anonymous_send_to_self() {
+    let mut world = TransactionWorld::default();
+    add_keypairs(&mut world, &["alice", "bob"]);
+    cases::wallet::bootstrap_transfer(&mut world, 40, "bob".into(), "alice".into());
+    cases::wallet::spending_transfer(&mut world, 25, "alice".into(), "alice".into());
+    cases::wallet::sync_fresh_wallet(&mut world, "alice".into());
+    cases::wallet::self_transfer_recorded(&mut world, 25);
+    #[cfg(feature = "parallel")]
+    cases::wallet::parallel_scan_agrees(&mut world);
+}
+
 #[test]
 fn wallet_sync_restores_split_and_payment_request_history() {
     let mut world = TransactionWorld::default();
