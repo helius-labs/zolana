@@ -44,6 +44,7 @@ const LOCALNET_AUTHORITY_BALANCE: u64 = 100_000_000_000;
 pub const PROGRAM_KEYPAIR_FILE: &str = "keys/program-keypair.json";
 pub const AUDITOR_KEY_FILE: &str = "keys/auditor.key";
 pub const AUDITOR_PUBKEY_FILE: &str = "keys/auditor.key.pub";
+pub const SENDER_KEYPAIR_FILE: &str = "keys/sender-keypair.json";
 pub const DEFAULT_TRANSACT_AMOUNT: u64 = 100_000_000;
 
 #[derive(Debug, Parser)]
@@ -114,7 +115,12 @@ pub enum Service {
 #[derive(Debug, Subcommand)]
 pub enum AuthorityCommand {
     /// Hand the program to another key, then set `upgrade_authority_keypair`.
-    Transfer { new_authority: Address },
+    Transfer {
+        new_authority: Address,
+        /// Confirms the new key, nobody else can hand the program back.
+        #[arg(long)]
+        yes: bool,
+    },
     /// Hand the ring config authority to another keypair, both keys sign.
     TransferConfig { new_authority_keypair: PathBuf },
     /// Make the program immutable, irreversible.
@@ -122,6 +128,9 @@ pub enum AuthorityCommand {
         /// Confirms the irreversible step.
         #[arg(long)]
         yes: bool,
+        /// The binary the deployment must match, the released ring program by default.
+        #[arg(long)]
+        program_so: Option<PathBuf>,
     },
 }
 

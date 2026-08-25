@@ -6,6 +6,7 @@ use std::{
 };
 
 use custom_ring_sdk::CustomRing;
+use sha2::{Digest, Sha256};
 use solana_address::Address;
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_signer::Signer;
@@ -41,8 +42,14 @@ pub struct ProgramDataInfo {
     pub capacity: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProgramBinary {
+    pub len: usize,
+    pub sha256: [u8; 32],
+}
+
 pub struct DeployPlan {
-    pub so_len: usize,
+    pub binary: ProgramBinary,
     /// `None` on the first deploy.
     pub deployed: Option<ProgramDataInfo>,
     pub required_balance: u64,
@@ -80,6 +87,12 @@ pub enum DeployError {
     },
     #[error("{address} is not a ProgramData account")]
     ProgramData { address: Address },
+    #[error("program {program} holds {found} on chain, expected {expected}")]
+    DeployedMismatch {
+        program: Address,
+        expected: String,
+        found: String,
+    },
     #[error(transparent)]
     Client(Box<ClientError>),
 }
@@ -135,12 +148,7 @@ impl Deploy<'_> {
                 });
             }
         }
-        let so_len = std::fs::metadata(self.program_so)
-            .map_err(|source| FileError::Read {
-                path: self.program_so.to_path_buf(),
-                source,
-            })?
-            .len() as usize;
+        let binary = ProgramBinary::read(self.program_so)?;
         let program = self.ring.program_id();
 
         let deployed = read_program_data(rpc, self.ring)?;
@@ -159,9 +167,9 @@ impl Deploy<'_> {
         } else {
             self.check_program_keypair()?;
         }
-        let required_balance = required_balance(rpc, so_len, deployed.as_ref())?;
+        let required_balance = required_balance(rpc, binary.len, deployed.as_ref())?;
         Ok(DeployPlan {
-            so_len,
+            binary,
             deployed,
             required_balance,
         })
@@ -170,10 +178,10 @@ impl Deploy<'_> {
     pub fn apply(self, rpc: &SolanaRpc, plan: DeployPlan) -> Result<DeployOutcome, DeployError> {
         let program = self.ring.program_id();
         if let Some(info) = &plan.deployed {
-            if plan.so_len > info.capacity {
+            if plan.binary.len > info.capacity {
                 self.extend(
                     rpc.client().url(),
-                    (plan.so_len - info.capacity).max(MIN_EXTEND_BYTES),
+                    (plan.binary.len - info.capacity).max(MIN_EXTEND_BYTES),
                 )?;
             }
         }
@@ -204,6 +212,7 @@ impl Deploy<'_> {
                 program,
                 source: Box::new(source),
             })?;
+        plan.binary.verify_deployed(rpc, self.ring)?;
         Ok(if plan.deployed.is_some() {
             DeployOutcome::Upgraded
         } else {
@@ -236,6 +245,37 @@ impl Deploy<'_> {
                 .arg(self.ring.program_id().to_string())
                 .arg(additional_bytes.to_string()),
         )?)
+    }
+}
+
+impl ProgramBinary {
+    pub fn read(path: &Path) -> Result<Self, FileError> {
+        let bytes = std::fs::read(path).map_err(|source| FileError::Read {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        Ok(Self {
+            len: bytes.len(),
+            sha256: Sha256::digest(&bytes).into(),
+        })
+    }
+
+    pub fn verify_deployed<R: Rpc>(&self, rpc: &R, ring: CustomRing) -> Result<(), DeployError> {
+        let address = ring.program_data_pda();
+        let account = rpc
+            .get_account(address)?
+            .ok_or(DeployError::ProgramData { address })?;
+        let deployed =
+            deployed_bytes(&account.data, self.len).ok_or(DeployError::ProgramData { address })?;
+        let found: [u8; 32] = Sha256::digest(deployed).into();
+        if found != self.sha256 {
+            return Err(DeployError::DeployedMismatch {
+                program: ring.program_id(),
+                expected: hex::encode(self.sha256),
+                found: hex::encode(found),
+            });
+        }
+        Ok(())
     }
 }
 
@@ -303,6 +343,12 @@ pub fn read_program_data<R: Rpc>(
     }))
 }
 
+/// The loader writes the binary as given, padded to the account's capacity.
+fn deployed_bytes(program_data: &[u8], so_len: usize) -> Option<&[u8]> {
+    let start = UpgradeableLoaderState::size_of_programdata_metadata();
+    program_data.get(start..start.checked_add(so_len)?)
+}
+
 fn released_program_so() -> Result<PathBuf, ReleaseError> {
     let program = RingProgram::from_lock()?;
     line(
@@ -331,6 +377,18 @@ mod tests {
     fn rent(data_len: usize) -> u64 {
         Rent.get_minimum_balance_for_rent_exemption(data_len)
             .expect("priced")
+    }
+
+    #[test]
+    fn deployed_bytes_skip_the_metadata_and_stop_at_the_binary_length() {
+        let meta = UpgradeableLoaderState::size_of_programdata_metadata();
+        let mut data = vec![0u8; meta];
+        data.extend_from_slice(b"elf");
+        data.extend_from_slice(&[0u8; 8]);
+        assert_eq!(deployed_bytes(&data, 3), Some(&b"elf"[..]));
+        assert_eq!(deployed_bytes(&data, 3 + 8), Some(&data[meta..]));
+        assert_eq!(deployed_bytes(&data, 3 + 9), None);
+        assert_eq!(deployed_bytes(&data[..meta - 1], 0), None);
     }
 
     #[test]

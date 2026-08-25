@@ -87,11 +87,18 @@ path is the operator's and a missing one is only reported. In the ring,
 its services. `zolana-ring deploy` downloads the ring program of the release
 the CLI came from, checks it against the lockfile built into the CLI, and
 fixes who may `init`, the upgrade authority; `--program-so` deploys a local
-build instead. `zolana-ring init` fixes the auditor. After `init` the
-authority can be transferred or renounced, readers come and go, and the
-program can be upgraded by running `zolana-ring deploy` again. `zolana-ring
-transact` makes two ring deposits and one audited transfer and reads it back.
-`zolana-ring pipeline` runs deploy to transact.
+build instead. After the loader finishes, `deploy` reads the program back and
+refuses to report success unless the bytes on chain hash to the file it
+deployed. `zolana-ring init` fixes the auditor. After `init` the authority
+can be transferred (`--yes`, the new key alone can hand it back) or renounced
+(`--yes`, and only when the bytes on chain match the released program or the
+`--program-so` given), readers come and go, and the program can be upgraded
+by running `zolana-ring deploy` again. `zolana-ring transact` makes two ring
+deposits and one audited transfer and reads it back, `zolana-ring transfer`
+sends an amount to a shielded address. Both spend from
+`keys/sender-keypair.json`, created on first use. Its change and fee budget
+stay spendable with that key, keep it with the other keys. `zolana-ring
+pipeline` runs deploy to transact.
 
 On devnet the prover, the indexer and the ring RPC are already deployed and
 are probed, never started. The hosted ring RPC derives one auditor key per
@@ -162,7 +169,10 @@ serves another ring; a hosted ring RPC is only checked, never replaced, and a
 ring pointed at one creates no local auditor key. `init` refuses an unpinned
 hosted RPC, `--trust-ring-rpc` is for a local instance. The sender of an
 audited transfer pays its own v0 transaction. Keys and `.env` belong in the
-secret store, a fresh machine mounts them before its first pipeline run.
+secret store, `new` writes a `.gitignore` for both, and a fresh machine mounts
+them before its first pipeline run. `status`, `devnet`, `localnet` and error
+output mask a `?api-key=` in a service URL, `zolana-ring url` prints it in
+full.
 
 The auditor opens outputs created by the supported clients and reports slots
 in another encoding as undecryptable. Ring deposits are public on chain and
