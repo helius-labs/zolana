@@ -416,32 +416,20 @@ export function encodeShieldedTransactionsBySignatureRequest(
 }
 
 export function decodeEncryptedUtxosResponse(value: unknown): GetEncryptedUtxosByTagsResponse {
-  const record = object(value, "$", ["context", "matches", "nextCursor"]);
+  const record = object(value, "$", ["context", "matches", "nextCursor", "scannedThrough"]);
   const nextCursor = optional(record["nextCursor"], "$.nextCursor", checkedBase64);
+  const scannedThrough = optional(record["scannedThrough"], "$.scannedThrough", checkedBase64);
   return {
     context: context(record["context"], "$.context"),
     matches: array(record["matches"], "$.matches", encryptedUtxoMatch),
     ...(nextCursor === undefined ? {} : { nextCursor }),
+    ...(scannedThrough === undefined ? {} : { scannedThrough }),
   };
 }
 
 export function decodeShieldedTransactionsResponse(
   value: unknown,
 ): GetShieldedTransactionsByTagsResponse {
-  const record = object(value, "$", ["context", "transactions", "nextCursor"]);
-  const nextCursor = optional(record["nextCursor"], "$.nextCursor", checkedBase64);
-  return {
-    context: context(record["context"], "$.context"),
-    transactions: array(record["transactions"], "$.transactions", indexedTransaction),
-    ...(nextCursor === undefined ? {} : { nextCursor }),
-  };
-}
-
-export function decodeShieldedTransactionsByNullifiersResponse(
-  value: unknown,
-): GetShieldedTransactionsByNullifiersResponse {
-  // Not `decodeShieldedTransactionsResponse`: `object` rejects any key it was
-  // not told about, and this response carries one more.
   const record = object(value, "$", ["context", "transactions", "nextCursor", "scannedThrough"]);
   const nextCursor = optional(record["nextCursor"], "$.nextCursor", checkedBase64);
   const scannedThrough = optional(record["scannedThrough"], "$.scannedThrough", checkedBase64);
@@ -451,6 +439,12 @@ export function decodeShieldedTransactionsByNullifiersResponse(
     ...(nextCursor === undefined ? {} : { nextCursor }),
     ...(scannedThrough === undefined ? {} : { scannedThrough }),
   };
+}
+
+export function decodeShieldedTransactionsByNullifiersResponse(
+  value: unknown,
+): GetShieldedTransactionsByNullifiersResponse {
+  return decodeShieldedTransactionsResponse(value);
 }
 
 export function decodeShieldedTransactionsBySignatureResponse(

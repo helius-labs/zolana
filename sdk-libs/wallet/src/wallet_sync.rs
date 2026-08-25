@@ -700,7 +700,7 @@ fn fetch_shielded_transactions_incremental<I: Rpc>(
                 }
                 Ok(Page {
                     next_cursor: response.next_cursor,
-                    scanned_through: None,
+                    scanned_through: response.scanned_through,
                 })
             })?;
 
@@ -743,7 +743,7 @@ async fn fetch_shielded_transactions_incremental_async<I: AsyncRpc>(
                 }
                 let page = Page {
                     next_cursor: response.next_cursor,
-                    scanned_through: None,
+                    scanned_through: response.scanned_through,
                 };
                 let Some(next) = advance(&mut furthest, page) else {
                     break;
@@ -884,7 +884,7 @@ where
                 }
                 Ok(Page {
                     next_cursor: response.next_cursor,
-                    scanned_through: None,
+                    scanned_through: response.scanned_through,
                 })
             })?;
 
@@ -935,7 +935,7 @@ async fn fetch_proofless_deposits_async<I: AsyncRpc>(
                 }
                 let page = Page {
                     next_cursor: response.next_cursor,
-                    scanned_through: None,
+                    scanned_through: response.scanned_through,
                 };
                 let Some(next) = advance(&mut furthest, page) else {
                     break;
@@ -1211,6 +1211,7 @@ mod tests {
                 },
                 matches: self.matches.clone(),
                 next_cursor: None,
+                scanned_through: None,
             })
         }
 
@@ -1228,6 +1229,7 @@ mod tests {
                 },
                 transactions: self.transactions.clone(),
                 next_cursor: None,
+                scanned_through: None,
             })
         }
 
@@ -1319,6 +1321,7 @@ mod tests {
                 },
                 matches,
                 next_cursor,
+                scanned_through: None,
             })
         }
 
@@ -1338,6 +1341,7 @@ mod tests {
                 },
                 transactions,
                 next_cursor,
+                scanned_through: None,
             })
         }
 

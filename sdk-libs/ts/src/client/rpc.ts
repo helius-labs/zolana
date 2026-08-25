@@ -40,12 +40,14 @@ export interface GetEncryptedUtxosByTagsResponse {
   readonly context: RpcContext;
   readonly matches: readonly EncryptedUtxoMatch[];
   readonly nextCursor?: Uint8Array;
+  readonly scannedThrough?: Uint8Array;
 }
 
 export interface GetShieldedTransactionsByTagsResponse {
   readonly context: RpcContext;
   readonly transactions: readonly IndexedShieldedTransaction[];
   readonly nextCursor?: Uint8Array;
+  readonly scannedThrough?: Uint8Array;
 }
 
 export interface GetShieldedTransactionsByNullifiersResponse {
