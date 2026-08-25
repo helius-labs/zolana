@@ -1,10 +1,10 @@
 use solana_program_error::ProgramError;
 use thiserror::Error;
 
-/// Errors of the minimal custom ring program.
+/// Errors of the custom ring program.
 ///
-/// The 8100..8113 range is reserved for this example and is collision-free
-/// against SPP (7000..7047) and the other example programs (zk-program-swap
+/// The 8100..8113 range is reserved for this program and is collision-free
+/// against SPP (7000..7047) and the other programs (zk-program-swap
 /// 8005..8016, the rest 9xxx). Every code is pinned by
 /// `tests/error_codes.rs::error_codes_are_stable`; clients observe them, so they
 /// are never renumbered.

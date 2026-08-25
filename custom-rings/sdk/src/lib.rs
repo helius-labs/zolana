@@ -34,7 +34,7 @@ pub use crate::{
     },
     shared::{AccountReadError, CustomRing, CustomRingConfig, ReaderKey, ReaderKeyError},
     transfer::{
-        AuditedTransfer, AuditedTransferInput, DepositError, ProvenTransfer, RingDeposit,
+        CustomRingTransfer, CustomRingTransferInput, DepositError, ProvenTransfer, RingDeposit,
         RingDepositReceipt, TransferError, TransferProofEnvironment,
     },
     v0::{SendV0Error, V0WithLookupTable, TRANSACT_COMPUTE_UNIT_LIMIT},

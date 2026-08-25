@@ -8,7 +8,7 @@ use zolana_interface::instruction::{
 use crate::CustomRing;
 
 #[must_use]
-/// Audited ring transact: the ring's auditor key-encryption proof followed by the
+/// Custom-ring transact: the ring's auditor key-encryption proof followed by the
 /// SPP payload it forwards.
 ///
 /// The account list is `[payer, config]` prepended to SPP's own `RING_TRANSACT`

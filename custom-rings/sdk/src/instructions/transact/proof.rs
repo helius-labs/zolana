@@ -1,4 +1,4 @@
-//! Proof inputs for the audited ring transact.
+//! Proof inputs for the custom-ring transact.
 //!
 //! # The auditor message must be in `messages` before the SPP proof is generated
 //!

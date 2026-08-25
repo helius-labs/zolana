@@ -571,7 +571,7 @@ fn ring_transact_with_audit_prepends_payer_and_config_to_the_spp_list() {
         transact: transact.clone(),
     }
     .instruction()
-    .expect("serialize the audited transact payload");
+    .expect("serialize the custom-ring transact payload");
 
     assert_eq!(instruction.program_id, ring().program_id());
     assert_eq!(
@@ -613,7 +613,7 @@ fn ring_transact_with_audit_leaves_ring_config_unsigned() {
         transact: transact_data(Vec::new()),
     }
     .instruction()
-    .expect("serialize the audited transact payload");
+    .expect("serialize the custom-ring transact payload");
 
     let ring_config = instruction.accounts.get(7).expect("ring_config meta");
     assert_eq!(ring_config.pubkey, ring().ring_auth_pda());
@@ -639,7 +639,7 @@ fn ring_transact_with_audit_forwards_settlement_accounts() {
         transact: transact_data(vec![InterfaceTransfer::SolWithdrawal { amount: 5 }]),
     }
     .instruction()
-    .expect("serialize the audited transact payload");
+    .expect("serialize the custom-ring transact payload");
 
     assert_eq!(
         instruction

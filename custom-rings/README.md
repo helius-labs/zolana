@@ -45,7 +45,7 @@ output with it.
 
 The order is fixed by the hashes. SPP folds the messages into
 `external_data_hash` and that into `private_tx_hash`, and `private_tx_hash` is
-a public input of the audit circuit. `AuditedTransfer::prove` therefore
+a public input of the audit circuit. `CustomRingTransfer::prove` therefore
 encrypts the message first, runs the SPP proof over the message-bearing
 external data, and only then finishes the audit proof over the resulting
 `private_tx_hash`. `AuditProofParams::encrypt` returns a `PendingAuditProof`
@@ -94,7 +94,7 @@ can be transferred (`--yes`, the new key alone can hand it back) or renounced
 (`--yes`, and only when the bytes on chain match the released program or the
 `--program-so` given), readers come and go, and the program can be upgraded
 by running `zolana-ring deploy` again. `zolana-ring transact` makes two ring
-deposits and one audited transfer and reads it back, `zolana-ring transfer`
+deposits and one custom-ring transfer and reads it back, `zolana-ring transfer`
 sends an amount to a shielded address. Both spend from
 `keys/sender-keypair.json`, created on first use. Its change and fee budget
 stay spendable with that key, keep it with the other keys. `zolana-ring
@@ -150,8 +150,8 @@ typed accounts. The authority builds `CreateConfig`, `InitSppRingConfig`,
 participant sends `RingDeposit`, prepares a `ConfidentialTransfer` from the
 SPP transaction SDK
 and proves it with
-`AuditedTransfer::new(..).with_tree(..).with_assets(..).prove(env)`,
-where the environment is the indexer, the RPC and the prover. The audited
+`CustomRingTransfer::new(..).with_tree(..).with_assets(..).prove(env)`,
+where the environment is the indexer, the RPC and the prover. The custom-ring
 instruction forwards SPP's full account list and does not fit a legacy
 transaction, `V0WithLookupTable` submits it behind a throwaway lookup table.
 The auditor side is `zolana-ring-client`, `RingAudit` scans a ring and opens
@@ -167,8 +167,8 @@ The operator CLI in `cli` reads a `ring.toml` and exposes `parse_and_run`.
 Local rings share the ring RPC port, `zolana-ring pipeline` replaces an RPC that
 serves another ring; a hosted ring RPC is only checked, never replaced, and a
 ring pointed at one creates no local auditor key. `init` refuses an unpinned
-hosted RPC, `--trust-ring-rpc` is for a local instance. The sender of an
-audited transfer pays its own v0 transaction. Keys and `.env` belong in the
+hosted RPC, `--trust-ring-rpc` is for a local instance. The sender of a
+custom-ring transfer pays its own v0 transaction. Keys and `.env` belong in the
 secret store, `new` writes a `.gitignore` for both, and a fresh machine mounts
 them before its first pipeline run. `status`, `devnet`, `localnet` and error
 output mask a `?api-key=` in a service URL, `zolana-ring url` prints it in

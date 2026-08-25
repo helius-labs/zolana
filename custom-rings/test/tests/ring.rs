@@ -23,7 +23,7 @@ use anyhow::{anyhow, Context, Result};
 use custom_ring_interface::{RingProgramConfig, CONFIG_PDA_SEED, RING_PROGRAM_CONFIG};
 use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
-    auditor_view_tag, AuditedTransfer, AuditedTransferInput, CreateConfig, CustomRing,
+    auditor_view_tag, CreateConfig, CustomRing, CustomRingTransfer, CustomRingTransferInput,
     InitSppRingConfig, RingDeposit, RingDepositReceipt, RingTransactWithAudit,
     TransferProofEnvironment, V0WithLookupTable,
 };
@@ -66,7 +66,7 @@ const PROBE_TRANSFER: u64 = 1_234_567;
 /// tag is only used to make the indexer answer a well-formed query.
 const UNUSED_VIEW_TAG: [u8; 32] = [7u8; 32];
 
-/// The two ring SOL deposits the audited transfer spends. Two inputs and two
+/// The two ring SOL deposits the custom-ring transfer spends. Two inputs and two
 /// outputs (sender change, recipient) are the (2, 2) transfer shape, which the
 /// ring eddsa prover and SPP's `transfer_ring_2_2` verifying key both support.
 const RING_DEPOSIT_A: u64 = 3_000_000_000;
@@ -92,7 +92,7 @@ const RECIPIENT_SLOT: u32 = 1;
 /// case tampers with.
 const AUDITOR_CIPHERTEXT_OFFSET: usize = 33;
 
-const AUDITED_RING_TRANSACT_CU_LIMIT: u64 = 486_000;
+const CUSTOM_RING_TRANSACT_CU_LIMIT: u64 = 486_000;
 
 #[test]
 fn localnet_bring_up_is_live() -> Result<()> {
@@ -246,8 +246,8 @@ fn localnet_bring_up_is_live() -> Result<()> {
     Ok(())
 }
 
-/// The full auditor lifecycle: config creation, SPP registration, two ring SOL
-/// deposits, one audited ring transfer, and then the assertion that matters --
+/// The full custom-ring lifecycle: config creation, SPP registration, two ring SOL
+/// deposits, one custom-ring transfer, and then the assertion that matters --
 /// the auditor client's decrypted amounts, assets and blindings equal what the
 /// sender actually sent.
 #[test]
@@ -376,7 +376,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         .ok_or_else(|| anyhow!("ring recipient output"))?;
 
     let prover = ProverClient::local();
-    let proven = AuditedTransfer::new(AuditedTransferInput {
+    let proven = CustomRingTransfer::new(CustomRingTransferInput {
         ring,
         sender: &env.sender.keypair,
         prepared,
@@ -443,11 +443,11 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         .send_and_confirm_transaction(&transaction)
         .map_err(|error| anyhow!("send v0 failed {error}"))?;
     assert_transaction_compute_units(
-        // 7. The real audited transfer.
+        // 7. The real custom-ring transfer.
         rpc,
         &signature,
-        "audited ring transact 2x2",
-        AUDITED_RING_TRANSACT_CU_LIMIT,
+        "custom-ring transact 2x2",
+        CUSTOM_RING_TRANSACT_CU_LIMIT,
     )?;
 
     // 8. What the auditor sees. Photon matches the auditor view tag against
@@ -572,7 +572,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         SECOND_HOP_AMOUNT,
     )?;
     let hop_prepared = hop_transfer.prepare()?;
-    let hop = AuditedTransfer::new(AuditedTransferInput {
+    let hop = CustomRingTransfer::new(CustomRingTransferInput {
         ring,
         sender: &env.recipient.keypair,
         prepared: hop_prepared,
