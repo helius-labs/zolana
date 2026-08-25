@@ -116,6 +116,18 @@ deposits, so the pause names the amount instead of failing inside the deploy.
 prover separately with a Redis queue, the audit circuit is served only through
 that queue. `ZOLANA_PROVER_REDIS_URL` is required for it and for `transact`.
 
+## Limits
+
+Senders are not anonymous and deposits are public. Supported SDK paths accept
+validated P-256 auditor keys. Raw config data is checked only for compressed
+form and reserved points. An invalid P-256 curve point makes its ring unable
+to transact.
+
+The proofs bind output commitments and ciphertext bytes to one private
+transaction hash. They do not prove that decrypted output plaintext opens its
+commitment. The RPC reports what it decrypts and marks unreadable slots. It
+cannot prove that reported values equal the committed UTXOs.
+
 ## Reading a ring
 
 The ring RPC answers signed reads. A reader signs an attestation naming the
