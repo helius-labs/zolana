@@ -229,6 +229,8 @@ jobs:
             recipe: test-swap-and-escrow-validator
           - name: dynamic-swap lifecycle
             recipe: test-dynamic-swap
+          - name: compression lifecycle
+            recipe: test-compression-validator
           - name: custom-ring auditor lifecycle
             recipe: test-custom-ring-validator
           - name: rfq settlement

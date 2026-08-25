@@ -1253,6 +1253,29 @@ test-escrow-validator: ensure-escrow-keys build-programs build-prover-server bui
 # Runs the swap and escrow lifecycle suites back to back in one CI job.
 test-swap-and-escrow-validator: test-swap-validator test-escrow-validator
 
+# Plaintext compressed-account lifecycle on a local validator
+# (sdk-tests/compression/test/tests/compression.rs). The test binary runs
+# `xtask generate-account-snapshots` itself and boots solana-test-validator
+# via the `zolana` CLI with the compression example program and the shielded
+# pool loaded, plus Photon and the persistent SPP prover -- mirroring
+# test-escrow-validator. The test resolves target/debug/{zolana,xtask} itself,
+# so build-cli and the explicit xtask build must run first.
+test-compression-validator: build-programs build-prover-server build-cli ensure-photon
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo build -q -p xtask
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      pkill -f solana-test-validator 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo nextest run -p compression-example-test --test compression --no-capture
+
 # Minimal zolana-client SDK example: deposit, shielded transfer, and withdrawal
 # building the SPP instructions by hand and submitting them
 # (sdk-tests/client/rust/deposit_transfer_withdraw.rs). Boots
