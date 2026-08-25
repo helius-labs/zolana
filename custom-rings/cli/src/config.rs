@@ -11,7 +11,10 @@ use solana_address::Address;
 use solana_keypair::Keypair;
 use thiserror::Error;
 
-use crate::file::{self, FileError};
+use crate::{
+    file::{self, FileError},
+    ProjectRoot,
+};
 
 pub const RING_TOML: &str = "ring.toml";
 
@@ -179,6 +182,18 @@ impl RingConfig {
             .iter()
             .filter(|(_, enabled)| **enabled)
             .map(|(id, _)| id.as_str())
+    }
+
+    pub(crate) fn resolve_keypair_paths(&mut self, root: &ProjectRoot) {
+        self.authority_keypair = root.resolve(&self.authority_keypair);
+        self.config_authority_keypair = self
+            .config_authority_keypair
+            .take()
+            .map(|path| root.resolve(&path));
+        self.upgrade_authority_keypair = self
+            .upgrade_authority_keypair
+            .take()
+            .map(|path| root.resolve(&path));
     }
 }
 

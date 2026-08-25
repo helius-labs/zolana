@@ -12,7 +12,7 @@ use thiserror::Error;
 use crate::{
     deploy::default_program_so,
     tool::{ToolError, CARGO_BUILD_SBF},
-    BuildArgs,
+    BuildArgs, ProjectRoot,
 };
 
 /// The platform tools pin the zolana checkout builds with.
@@ -31,15 +31,15 @@ pub enum BuildError {
     ArtifactMissing { path: PathBuf },
 }
 
-pub fn run(args: BuildArgs) -> Result<(), BuildError> {
-    let artifact = build(&args.tools_version)?;
+pub fn run(project_root: &ProjectRoot, args: BuildArgs) -> Result<(), BuildError> {
+    let artifact = build(project_root, &args.tools_version)?;
     crate::line("built", artifact.display());
     Ok(())
 }
 
-fn build(tools_version: &str) -> Result<PathBuf, BuildError> {
+fn build(project_root: &ProjectRoot, tools_version: &str) -> Result<PathBuf, BuildError> {
     install_tools(tools_version)?;
-    CARGO_BUILD_SBF.run(&mut command(
+    let mut build = command(
         tools_version,
         &[
             "--manifest-path",
@@ -47,8 +47,10 @@ fn build(tools_version: &str) -> Result<PathBuf, BuildError> {
             "--features",
             "bpf-entrypoint",
         ],
-    ))?;
-    let artifact = default_program_so();
+    );
+    build.current_dir(project_root.as_path());
+    CARGO_BUILD_SBF.run(&mut build)?;
+    let artifact = default_program_so(project_root);
     if !artifact.exists() {
         return Err(BuildError::ArtifactMissing { path: artifact });
     }

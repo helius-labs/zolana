@@ -27,7 +27,7 @@ pub enum PipelineError {
 
 /// Steps already on chain are skipped, a rerun resumes where it stopped.
 pub fn run(ctx: &mut Context, build: BuildArgs) -> Result<(), CliError> {
-    build_program::run(build)?;
+    build_program::run(&ctx.project_root, build)?;
     deploy::run(ctx, DeployArgs::default())?;
     let hosted = !ctx.config.urls().ring_rpc_is_local();
     if hosted {

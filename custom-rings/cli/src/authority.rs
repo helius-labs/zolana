@@ -76,7 +76,7 @@ pub fn run(ctx: &Context, command: AuthorityCommand) -> Result<(), AuthorityErro
             new_authority_keypair,
         } => {
             let authority = ctx.config.config_authority()?;
-            let path = expand_tilde(&new_authority_keypair)?;
+            let path = expand_tilde(&ctx.project_path(&new_authority_keypair))?;
             let new_authority =
                 read_keypair_file(&path).map_err(|_| AuthorityError::NewAuthorityKeypair {
                     path: path.display().to_string(),
