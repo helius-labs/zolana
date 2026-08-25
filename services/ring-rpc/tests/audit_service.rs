@@ -1022,6 +1022,32 @@ async fn rpc_wire_uses_camel_case_and_rejects_another_local_ring() {
     assert!(result.is_err());
 }
 
+#[tokio::test]
+async fn invalid_audit_requests_do_not_consume_valid_capacity() {
+    let fixture = Fixture::new();
+    let module = rpc_module(Arc::new(fixture.hub(fixture.source()))).expect("module");
+
+    let mut request = signed_request(&delegate(), RING, unix_now().expect("clock"));
+    request.auth.timestamp += 1;
+    let result: Result<GetDecryptedTransactionsResponse, _> = module
+        .call(GET_DECRYPTED_TRANSACTIONS, as_object(request))
+        .await;
+    assert!(result.is_err());
+
+    let response: GetDecryptedTransactionsResponse = module
+        .call(
+            GET_DECRYPTED_TRANSACTIONS,
+            as_object(signed_request(
+                &delegate(),
+                RING,
+                unix_now().expect("clock"),
+            )),
+        )
+        .await
+        .expect("valid request");
+    assert_eq!(response.value.items.len(), 1);
+}
+
 fn deposit(byte: u8, slot: u64, amount: u64) -> DepositRecord {
     DepositRecord {
         signature: Signature::from([byte; 64]).into(),
@@ -1115,11 +1141,11 @@ async fn a_deposit_page_without_deposits_reports_its_frontier() {
 #[tokio::test]
 async fn deposit_pages_clamp_the_examined_limit_and_reject_bad_cursors() {
     let fixture = Fixture::new();
-    let source = fixture.source();
-    let examined_limit = source.examined_limit.clone();
-    let module = rpc_module(Arc::new(fixture.hub(source))).expect("module");
 
     for (limit, expected) in [(None, 50), (Some(7), 7), (Some(500), 200)] {
+        let source = fixture.source();
+        let examined_limit = source.examined_limit.clone();
+        let module = rpc_module(Arc::new(fixture.hub(source))).expect("module");
         let page: RingDepositsResponse = module
             .call(RING_DEPOSITS, as_object(deposits_request(limit, None)))
             .await
@@ -1130,6 +1156,7 @@ async fn deposit_pages_clamp_the_examined_limit_and_reject_bad_cursors() {
         assert_eq!(page.oldest_slot, None);
     }
 
+    let module = rpc_module(Arc::new(fixture.hub(fixture.source()))).expect("module");
     let result: Result<RingDepositsResponse, _> = module
         .call(
             RING_DEPOSITS,

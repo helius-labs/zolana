@@ -1,7 +1,7 @@
 use std::{
     collections::HashSet,
     sync::{Arc, Mutex},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use solana_address::Address;
@@ -9,7 +9,7 @@ use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use thiserror::Error;
-use tokio::sync::{Mutex as AsyncMutex, Semaphore, SemaphorePermit};
+use tokio::sync::{watch, Mutex as AsyncMutex, Semaphore, SemaphorePermit};
 use zolana_client::ClientError;
 use zolana_keypair::ViewingKey;
 use zolana_ring_client::{auditor_view_tag, ReaderKey};
@@ -21,7 +21,10 @@ use crate::{
     config::RootSecret,
     error::RingRpcError,
     keys::{service_keypair, AuditorKeyDerivation, KeyMode, KeySource},
-    limits::{RequestRate, MAX_CONCURRENT_READS},
+    limits::{
+        PublicRequest, RequestRate, MAX_CONCURRENT_AUTHENTICATIONS, MAX_CONCURRENT_DEPOSIT_SCANS,
+        MAX_CONCURRENT_READS,
+    },
     origins::Origins,
     replay::ReplayGuard,
     upstream::{DepositHistory, DepositPage, TransactionSource},
@@ -31,6 +34,14 @@ pub struct Hub<S> {
     signer: Keypair,
     shared: Arc<Shared<S>>,
     keys: KeySource,
+}
+
+const READINESS_CACHE_INTERVAL: Duration = Duration::from_secs(1);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ReadinessStatus {
+    Ready,
+    Unavailable(&'static str),
 }
 
 /// Names the readiness check that failed, which `/ready` reports.
@@ -68,12 +79,24 @@ pub(crate) struct Shared<S> {
     pub(crate) replay: ReplayGuard,
     pub(crate) active_readers: Mutex<HashSet<(Address, ReaderKey)>>,
     pub(crate) read_limit: Semaphore,
-    pub(crate) request_rate: RequestRate,
+    authentication_limit: Semaphore,
+    deposit_limit: Semaphore,
+    standard_rate: RequestRate,
+    deposit_rate: RequestRate,
+    authentication_rate: RequestRate,
+    audit_rate: RequestRate,
+    readiness: AsyncMutex<ReadinessCache>,
 }
 
 struct AssetCache {
     registry: AssetRegistry,
     refresh: RefreshState,
+}
+
+struct ReadinessCache {
+    checked_at: Option<Instant>,
+    status: ReadinessStatus,
+    in_flight: Option<watch::Receiver<Option<ReadinessStatus>>>,
 }
 
 enum RefreshState {
@@ -133,15 +156,44 @@ impl<S: TransactionSource> Hub<S> {
         }
     }
 
-    /// The one rate gate, which every endpoint opens with.
-    pub fn accept_request(&self) -> Result<(), RingRpcError> {
-        self.shared.request_rate.accept(Instant::now())
+    pub(crate) fn accept_public(&self, request: PublicRequest) -> Result<(), RingRpcError> {
+        match request {
+            PublicRequest::Standard => &self.shared.standard_rate,
+            PublicRequest::DepositScan { .. } => &self.shared.deposit_rate,
+        }
+        .accept(Instant::now(), request)
+    }
+
+    pub(crate) fn accept_audit(&self) -> Result<(), RingRpcError> {
+        self.shared
+            .audit_rate
+            .accept(Instant::now(), PublicRequest::Standard)
+    }
+
+    pub(crate) fn accept_authentication(&self) -> Result<(), RingRpcError> {
+        self.shared
+            .authentication_rate
+            .accept(Instant::now(), PublicRequest::Standard)
+    }
+
+    pub(crate) fn authentication_slot(&self) -> Result<SemaphorePermit<'_>, RingRpcError> {
+        self.shared
+            .authentication_limit
+            .try_acquire()
+            .map_err(|_| RingRpcError::Busy)
     }
 
     /// Held for a whole decrypting page, which no other method needs.
     pub(crate) fn read_slot(&self) -> Result<SemaphorePermit<'_>, RingRpcError> {
         self.shared
             .read_limit
+            .try_acquire()
+            .map_err(|_| RingRpcError::Busy)
+    }
+
+    pub(crate) fn deposit_slot(&self) -> Result<SemaphorePermit<'_>, RingRpcError> {
+        self.shared
+            .deposit_limit
             .try_acquire()
             .map_err(|_| RingRpcError::Busy)
     }
@@ -222,6 +274,15 @@ impl<S: TransactionSource> Hub<S> {
         }
     }
 
+    pub(crate) fn validate_ring(&self, ring: Address) -> Result<(), RingRpcError> {
+        match &self.keys {
+            KeySource::Local {
+                ring: configured, ..
+            } if ring != *configured => Err(RingRpcError::RingNotServed),
+            KeySource::Local { .. } | KeySource::Derived { .. } => Ok(()),
+        }
+    }
+
     /// Local mode holds one key for one ring, and every derived key is bound
     /// to the boot genesis hash, so each mode has its own ring check.
     pub async fn probe_upstreams(&self) -> Result<(), NotReady> {
@@ -256,6 +317,55 @@ impl<S: TransactionSource> Hub<S> {
             }
         }
         Ok(())
+    }
+
+    pub(crate) async fn readiness(self: &Arc<Self>) -> ReadinessStatus
+    where
+        S: 'static,
+    {
+        let mut receiver = {
+            let mut cache = self.shared.readiness.lock().await;
+            if cache
+                .checked_at
+                .is_some_and(|checked_at| checked_at.elapsed() < READINESS_CACHE_INTERVAL)
+            {
+                return cache.status;
+            }
+            if let Some(receiver) = &cache.in_flight {
+                receiver.clone()
+            } else {
+                let (sender, receiver) = watch::channel(None);
+                cache.in_flight = Some(receiver.clone());
+                let probe_hub = self.clone();
+                let probe = tokio::spawn(async move { probe_hub.probe_upstreams().await });
+                let hub = self.clone();
+                tokio::spawn(async move {
+                    let status = match probe.await {
+                        Ok(Ok(())) => ReadinessStatus::Ready,
+                        Ok(Err(error)) => {
+                            log::error!("readiness probe failed because {error}");
+                            ReadinessStatus::Unavailable(error.check())
+                        }
+                        Err(error) => {
+                            log::error!("readiness task failed because {error}");
+                            ReadinessStatus::Unavailable("unavailable readiness task")
+                        }
+                    };
+                    let mut cache = hub.shared.readiness.lock().await;
+                    cache.status = status;
+                    cache.checked_at = Some(Instant::now());
+                    cache.in_flight = None;
+                    drop(cache);
+                    let _ = sender.send(Some(status));
+                });
+                receiver
+            }
+        };
+        let status = match receiver.wait_for(Option::is_some).await {
+            Ok(status) => status.unwrap_or(ReadinessStatus::Unavailable("unavailable probe")),
+            Err(_) => ReadinessStatus::Unavailable("unavailable readiness task"),
+        };
+        status
     }
 }
 
@@ -301,7 +411,17 @@ impl<S: TransactionSource> HubBuilder<S> {
             replay: ReplayGuard::default(),
             active_readers: Mutex::new(HashSet::new()),
             read_limit: Semaphore::new(MAX_CONCURRENT_READS),
-            request_rate: RequestRate::default(),
+            authentication_limit: Semaphore::new(MAX_CONCURRENT_AUTHENTICATIONS),
+            deposit_limit: Semaphore::new(MAX_CONCURRENT_DEPOSIT_SCANS),
+            standard_rate: RequestRate::default(),
+            deposit_rate: RequestRate::default(),
+            authentication_rate: RequestRate::default(),
+            audit_rate: RequestRate::default(),
+            readiness: AsyncMutex::new(ReadinessCache {
+                checked_at: None,
+                status: ReadinessStatus::Unavailable("not checked"),
+                in_flight: None,
+            }),
         })
     }
 }
