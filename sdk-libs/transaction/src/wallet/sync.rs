@@ -185,7 +185,15 @@ impl SyncCtx<'_> {
     }
 
     fn record(&mut self, tx: PrivateTransaction) {
-        if !self.transactions.contains(&tx) {
+        if let Some(index) = self.transactions.iter().position(|stored| {
+            stored.id == tx.id
+                && stored.kind == tx.kind
+                && stored.asset == tx.asset
+                && stored.amount == tx.amount
+                && stored.counterparty_viewing_pubkey == tx.counterparty_viewing_pubkey
+        }) {
+            self.transactions[index] = tx;
+        } else {
             self.transactions.push(tx);
         }
     }
@@ -265,6 +273,7 @@ impl SyncCtx<'_> {
         change: &[Utxo],
         kind: PrivateTransactionKind,
         counterparty: Option<P256Pubkey>,
+        direction: PrivateTransactionDirection,
     ) {
         let mut by_asset = spent;
         for utxo in change {
@@ -285,7 +294,7 @@ impl SyncCtx<'_> {
                     index: SENDER_HISTORY_ROW_BASE + row as u64,
                 },
                 kind,
-                direction: PrivateTransactionDirection::Outbound,
+                direction,
                 status: PrivateTransactionStatus::Confirmed,
                 asset,
                 amount,
@@ -450,7 +459,16 @@ impl SyncCtx<'_> {
         let counterparty = (recipient_pks.len() == 1)
             .then(|| recipient_pks.first().copied())
             .flatten();
-        self.record_outbound_transfer(tx, spent, &change, kind, counterparty);
+        let direction = if !recipient_pks.is_empty()
+            && recipient_pks
+                .iter()
+                .all(|recipient| *recipient == self.self_viewing_pubkey)
+        {
+            PrivateTransactionDirection::SelfTransfer
+        } else {
+            PrivateTransactionDirection::Outbound
+        };
+        self.record_outbound_transfer(tx, spent, &change, kind, counterparty, direction);
         for pubkey in recipient_pks {
             known_recipients.entry(pubkey).or_insert(0);
         }
@@ -670,7 +688,14 @@ impl SyncCtx<'_> {
                             let counterparty = (real_recipient_count == 1)
                                 .then(|| pks.first().copied())
                                 .flatten();
-                            self.record_outbound_transfer(tx, spent, &change, kind, counterparty);
+                            self.record_outbound_transfer(
+                                tx,
+                                spent,
+                                &change,
+                                kind,
+                                counterparty,
+                                PrivateTransactionDirection::Outbound,
+                            );
                         }
                     }
                     EncryptedScheme::Split => {

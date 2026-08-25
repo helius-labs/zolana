@@ -7,8 +7,10 @@ import { mergeDummyNullifier, mergeOutputBlinding } from "../src/keypair/merge/i
 import { SHIELDED_POOL_PROGRAM_ID, type Bytes16, type Bytes32 } from "../src/interface/index.js";
 import { StateDiscriminator } from "../src/interface/state.js";
 import {
+  ConfidentialTransfer,
   Data,
   KeypairWalletAuthority,
+  ProofInputUtxo,
   SOL_MINT,
   Utxo,
   Wallet,
@@ -292,6 +294,93 @@ describe("wallet sync", () => {
 
     expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
     expect(wallet.balance(SOL_MINT).amount).toBe(42n);
+  });
+
+  it("classifies a confidential send to the same wallet as a self transfer", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const identity = keypair.shieldedAddress();
+    const wallet = new Wallet({ identity });
+    const blinding = bytes(14);
+    const utxo = new Utxo({
+      owner: keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 100n,
+      blinding,
+    });
+    const hash = utxo.hash(keypair.nullifierPublicKey());
+    wallet._replace({
+      ...wallet._state(),
+      utxos: [
+        {
+          utxo,
+          outputContext: { hash, tree: TREE, leafIndex: 0n },
+          nullifier: keypair.nullifier(hash, blinding),
+          spent: false,
+        },
+      ],
+    });
+    const transfer = new ConfidentialTransfer(
+      identity,
+      [new ProofInputUtxo({ utxo, nullifierKey: keypair.nullifierKey() })],
+      identity.solanaAddress(),
+    );
+    transfer.send(identity, SOL_MINT, 40n);
+    const signed = transfer.sign(keypair, wallet.registry);
+    const external = signed.externalData;
+    const authority = new KeypairWalletAuthority({
+      solanaPublicKey: identity.solanaAddress(),
+      keypair,
+    });
+    const indexedTransactions = [
+      {
+        slot: 1n,
+        txSignature: SIGNATURE,
+        txViewingPublicKey: external.txViewingPublicKey,
+        salt: external.salt,
+        outputSlots: external.outputs.map((output, index) => ({
+          viewTag: external.resolvedOwnerTags[index]!,
+          outputContext: {
+            hash: output.utxoHash,
+            tree: TREE,
+            leafIndex: BigInt(index + 1),
+          },
+          payload: output.data ?? new Uint8Array(),
+        })),
+        messages: [],
+        nullifiers: signed.inputContexts().map((input) => input.nullifier),
+        proofless: false,
+      },
+    ];
+
+    await decryptTransactions({
+      wallet,
+      authority,
+      transactions: indexedTransactions,
+    });
+
+    let transactions = wallet.privateTransactions();
+    expect(transactions).toHaveLength(1);
+    expect(transactions[0]).toMatchObject({
+      kind: "privateTransfer",
+      direction: "selfTransfer",
+      asset: SOL_MINT,
+      amount: 40n,
+    });
+    expect(transactions[0]?.counterpartyViewingPublicKey?.toBytes()).toEqual(
+      keypair.viewingPublicKey().toBytes(),
+    );
+
+    wallet._replace({
+      ...wallet._state(),
+      transactions: transactions.map((transaction) => ({
+        ...transaction,
+        direction: "outbound",
+      })),
+    });
+    await decryptTransactions({ wallet, authority, transactions: indexedTransactions });
+    transactions = wallet.privateTransactions();
+    expect(transactions).toHaveLength(1);
+    expect(transactions[0]?.direction).toBe("selfTransfer");
   });
 
   it("ignores a merge whose first nullifier is not owned", async () => {

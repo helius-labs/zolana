@@ -2064,6 +2064,45 @@ mod tests {
     }
 
     #[test]
+    fn sync_wallet_classifies_confidential_send_to_self() {
+        let assets = AssetRegistry::default();
+        let alice = ed25519_keypair(3);
+        let mut wallet = wallet_with_utxo(&alice, SOL_MINT, 100, 4);
+        let spend = SppProofInputUtxo::new(wallet.utxos[0].utxo.clone(), &alice);
+        let transfer = signed_to_shielded_tx(
+            confidential_send(&alice, vec![spend], &alice, SOL_MINT, 40, &assets),
+            1,
+        );
+        let indexer = MockIndexer {
+            transactions: vec![transfer],
+            matches: Vec::new(),
+            program_accounts: Vec::new(),
+        };
+
+        sync_wallet(&mut wallet, &local_authority(&alice), &indexer).expect("sync self transfer");
+        wallet.transactions[0].direction = PrivateTransactionDirection::Outbound;
+        sync_wallet(&mut wallet, &local_authority(&alice), &indexer)
+            .expect("replace stale outbound classification");
+
+        let transactions = wallet.private_transactions();
+        assert_eq!(transactions.len(), 1);
+        assert_eq!(
+            transactions[0].direction,
+            PrivateTransactionDirection::SelfTransfer
+        );
+        assert_eq!(
+            transactions[0].kind,
+            PrivateTransactionKind::PrivateTransfer
+        );
+        assert_eq!(transactions[0].asset, SOL_MINT);
+        assert_eq!(transactions[0].amount, 40);
+        assert_eq!(
+            transactions[0].counterparty_viewing_pubkey,
+            Some(alice.viewing_pubkey())
+        );
+    }
+
+    #[test]
     fn sync_wallet_decodes_confidential_recipient_across_supported_shapes() {
         let assets = AssetRegistry::default();
 

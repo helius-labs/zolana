@@ -176,8 +176,6 @@ function rowKey(row: PrivateTransaction): string {
     row.id.slot,
     row.id.index,
     row.kind,
-    row.direction,
-    row.status,
     row.asset,
     row.amount,
     row.counterpartyViewingPublicKey === undefined
@@ -202,7 +200,7 @@ class SyncPass {
   readonly #transactions: readonly IndexedShieldedTransaction[];
   readonly #utxos: WalletUtxo[];
   readonly #rows: PrivateTransaction[];
-  readonly #rowKeys: Set<string>;
+  readonly #rowIndexes: Map<string, number>;
   readonly #outputHashes: Set<string>;
   readonly #processedSlots = new Set<string>();
   readonly #processedOutbound = new Set<number>();
@@ -229,8 +227,9 @@ class SyncPass {
     this.#assets = input.assets;
     this.#transactions = input.transactions;
     this.#utxos = [...input.utxos];
-    this.#rows = [...input.rows];
-    this.#rowKeys = new Set(this.#rows.map(rowKey));
+    this.#rows = [];
+    this.#rowIndexes = new Map();
+    for (const row of input.rows) this.#record(row);
     this.#outputHashes = new Set(this.#utxos.map((entry) => hex(entry.outputContext.hash)));
   }
 
@@ -328,9 +327,14 @@ class SyncPass {
 
   #record(row: PrivateTransaction): void {
     const key = rowKey(row);
-    if (this.#rowKeys.has(key)) return;
-    this.#rowKeys.add(key);
-    this.#rows.push(Object.freeze({ ...row, id: Object.freeze({ ...row.id }) }));
+    const snapshot = Object.freeze({ ...row, id: Object.freeze({ ...row.id }) });
+    const existing = this.#rowIndexes.get(key);
+    if (existing === undefined) {
+      this.#rowIndexes.set(key, this.#rows.length);
+      this.#rows.push(snapshot);
+    } else {
+      this.#rows[existing] = snapshot;
+    }
   }
 
   /**
@@ -430,6 +434,7 @@ class SyncPass {
     change: readonly Utxo[],
     kind: PrivateTransactionKind,
     counterparty: P256PublicKey | undefined,
+    direction: PrivateTransactionDirection = "outbound",
   ): void {
     const byAsset = new Map(spent);
     for (const utxo of change) {
@@ -444,7 +449,7 @@ class SyncPass {
         this.#record({
           id: historyId(tx, SENDER_HISTORY_ROW_BASE + BigInt(row)),
           kind,
-          direction: "outbound",
+          direction,
           status: "confirmed",
           asset,
           amount,
@@ -533,12 +538,20 @@ class SyncPass {
     });
 
     const kind = recipientKeys.length === 0 ? "publicWithdrawal" : "privateTransfer";
+    const direction: PrivateTransactionDirection =
+      recipientKeys.length > 0 &&
+      recipientKeys.every((recipient) =>
+        equal(recipient.toBytes(), this.#selfViewingPublicKey.toBytes()),
+      )
+        ? "selfTransfer"
+        : "outbound";
     this.#recordOutboundTransfer(
       tx,
       this.#spentAmounts(tx.nullifiers),
       change,
       kind,
       recipientKeys.length === 1 ? recipientKeys[0] : undefined,
+      direction,
     );
   }
 
