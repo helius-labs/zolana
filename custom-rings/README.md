@@ -15,9 +15,10 @@ that proof.
 `program` is the ring program, `sdk` the Rust client for it, `cli` the
 `zolana-ring` operator binary, `test` the lifecycle test on a local validator.
 The ring RPC in `services/ring-rpc` holds the auditor key,
-`custom-rings/client` is the auditor side it is built on. A release of this
-repository ships `zolana-ring` and the ring program binary together, the CLI
-deploys the binary of the release it was built from.
+`custom-rings/client` is the auditor side it is built on. A custom-rings release
+(`just release-custom-rings <tag> --upload --prerelease`) ships `zolana-ring`
+and the ring program binary together, the CLI deploys the binary of the
+release it was built from.
 
 ## Roles
 
@@ -71,8 +72,8 @@ with the sent amount. A note bound to another ring is refused before proving.
 
 ## Prerequisites
 
-`zolana-ring` from a release of this repository, the release also carries the
-ring program it deploys. On `PATH` before `zolana-ring deploy`:
+`zolana-ring` from a custom-rings release of this repository, the release also
+carries the ring program it deploys. On `PATH` before `zolana-ring deploy`:
 
 - **Anza / Solana CLI** 4.x, the version CI pins —
   `sh -c "$(curl -sSfL https://release.anza.xyz/v4.0.2/install)"`. It deploys

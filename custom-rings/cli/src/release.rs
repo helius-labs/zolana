@@ -13,7 +13,7 @@ use thiserror::Error;
 
 use crate::file::{self, FileError};
 
-const LOCK_JSON: &str = include_str!("../../../cli/release-artifacts.lock");
+const LOCK_JSON: &str = include_str!("../release-artifacts.lock");
 const DEFAULT_RELEASE_BASE_URL: &str = "https://github.com/helius-labs/zolana/releases/download";
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(600);
 
