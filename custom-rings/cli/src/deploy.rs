@@ -15,8 +15,10 @@ use zolana_client::{ClientError, Rpc, SolanaRpc};
 use crate::{
     config::expand_tilde,
     file::{self, FileError},
+    line,
+    release::{ReleaseError, RingProgram},
     tool::{ToolError, SOLANA},
-    Context, ContextError, DeployArgs, ProjectRoot,
+    Context, ContextError, DeployArgs,
 };
 
 pub struct Deploy<'a> {
@@ -68,6 +70,8 @@ pub enum DeployError {
     ProgramKeypairMismatch { expected: Address, found: Address },
     #[error(transparent)]
     Tool(#[from] ToolError),
+    #[error(transparent)]
+    Release(#[from] ReleaseError),
     #[error("program {program} is not executable after deploy")]
     NotExecutable {
         program: Address,
@@ -86,10 +90,11 @@ const MIN_EXTEND_BYTES: usize = 10_240;
 const DEPLOY_FEE_BUDGET: u64 = 20_000_000;
 
 pub fn run(ctx: &mut Context, args: DeployArgs) -> Result<(), DeployError> {
-    let program_so = args
-        .program_so
-        .map(|path| ctx.project_path(&path))
-        .unwrap_or_else(|| default_program_so(&ctx.project_root));
+    let program_so = match args.program_so {
+        Some(path) => ctx.project_path(&path),
+        None => released_program_so()?,
+    };
+    line("binary", program_so.display());
     let program_keypair = ctx.project_path(&args.program_keypair);
     let authority = ctx.config.upgrade_authority().map_err(ContextError::from)?;
     let authority_keypair =
@@ -298,9 +303,13 @@ pub fn read_program_data<R: Rpc>(
     }))
 }
 
-/// The ring source keeps the upstream crate name, every ring builds the same file.
-pub(crate) fn default_program_so(project_root: &ProjectRoot) -> PathBuf {
-    project_root.resolve(Path::new("target/deploy/custom_ring_program.so"))
+fn released_program_so() -> Result<PathBuf, ReleaseError> {
+    let program = RingProgram::from_lock()?;
+    line(
+        "release",
+        format_args!("{} {}", program.tag, program.asset.name),
+    );
+    program.ensure()
 }
 
 #[cfg(test)]
