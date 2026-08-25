@@ -9,7 +9,7 @@
 #
 # Images live in the zolana-prover and zolana-ring-rpc repositories under
 # <service>-<branch>-<sha12>, built and pushed here when the tag is absent.
-# The prover task fetches the proving keys at start and converts the audit key
+# The prover task fetches the proving keys at start and converts the custom-ring key
 # itself. The ring RPC runs in derived mode, one root secret serves every ring
 # that takes its auditor key from it at `init`. Both services sit behind one
 # network load balancer and a CloudFront distribution each, so they are reached
@@ -116,7 +116,7 @@ ensure_role() {
     aws_ iam get-role --role-name "$role" --query Role.Arn --output text
 }
 
-# Runs in the fetch container, the audit key is converted by the prover image afterwards.
+# Runs in the fetch container, the custom-ring key is converted by the prover image afterwards.
 key_fetch_script() {
     local lock="prover/server/prover/provingkeys/proving-keys.lock" checksum="custom-rings/custom-ring-keys.CHECKSUM"
     local name sha
@@ -241,8 +241,8 @@ register_prover() {
              command: ["sh", "-c", ($script + "\nchown -R 65532:65532 /keys")], logConfiguration: logs("fetch")},
             {name: "convert", image: $image, essential: false, mountPoints: keys,
              dependsOn: [{containerName: "fetch", condition: "SUCCESS"}],
-             command: ["convert-custom-ring-audit", "--pk", "/keys/auditor_key_encryption_pk.bin",
-                       "--vk", "/keys/auditor_key_encryption_vk.bin", "--output", "/keys/custom_ring_audit_transfer.key"],
+             command: ["convert-custom-ring", "--pk", "/keys/auditor_key_encryption_pk.bin",
+                       "--vk", "/keys/auditor_key_encryption_vk.bin", "--output", "/keys/custom_ring.key"],
              logConfiguration: logs("convert")},
             {name: "prover", image: $image, essential: true, mountPoints: keys,
              dependsOn: [{containerName: "redis", condition: "START"}, {containerName: "convert", condition: "SUCCESS"}],

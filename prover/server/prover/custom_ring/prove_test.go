@@ -17,8 +17,8 @@ import (
 	"zolana/prover/prover/common"
 )
 
-func TestCustomRingAuditProofVerifies(t *testing.T) {
-	params := &CustomRingAuditParameters{
+func TestCustomRingProofVerifies(t *testing.T) {
+	params := &CustomRingParameters{
 		PublicInputHash: value([]byte{
 			24, 191, 117, 99, 166, 70, 117, 193, 16, 174, 125, 64, 139, 151, 60, 152,
 			0, 90, 250, 198, 208, 107, 138, 225, 119, 244, 67, 93, 126, 110, 2, 11,
@@ -44,9 +44,9 @@ func TestCustomRingAuditProofVerifies(t *testing.T) {
 	if !ok {
 		t.Fatal("source path unavailable")
 	}
-	keyPath := filepath.Join(filepath.Dir(source), "..", "..", "proving-keys", "custom_ring_audit_transfer.key")
+	keyPath := filepath.Join(filepath.Dir(source), "..", "..", "proving-keys", common.CustomRingKeyFile)
 	if _, err := os.Stat(keyPath); err != nil {
-		t.Skip("audit proving key is not available")
+		t.Skip("custom ring proving key is not available")
 	}
 	loaded, err := common.ReadSystemFromFile(keyPath)
 	if err != nil {
@@ -62,9 +62,9 @@ func TestCustomRingAuditProofVerifies(t *testing.T) {
 	}
 	verifierHash := sha256.Sum256(verifier.Bytes())
 	if hex.EncodeToString(verifierHash[:]) != "fb77674f86d7ed835559bd817b2b36a0687ecea6b09534d178f2e94313824ca9" {
-		t.Fatal("audit verifier does not match the program")
+		t.Fatal("custom ring verifier does not match the program")
 	}
-	proof, err := ProveCustomRingAudit(loadedSystem, params)
+	proof, err := ProveCustomRing(loadedSystem, params)
 	if err != nil {
 		t.Fatal(err)
 	}

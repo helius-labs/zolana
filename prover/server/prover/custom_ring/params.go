@@ -11,7 +11,7 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 
-	"zolana/prover/circuits/custom_ring/audit"
+	ringcircuit "zolana/prover/circuits/custom_ring"
 	"zolana/prover/prover/common"
 )
 
@@ -21,7 +21,7 @@ const (
 	TransferVariant       = "transfer"
 )
 
-type CustomRingAuditParameters struct {
+type CustomRingParameters struct {
 	PublicInputHash *big.Int
 	PrivateTxHash   *big.Int
 	TxViewingSk     [scalarLen]byte
@@ -29,7 +29,7 @@ type CustomRingAuditParameters struct {
 	AuditorPk       [uncompressedPubkeyLen]byte
 }
 
-type customRingAuditParametersJSON struct {
+type customRingParametersJSON struct {
 	CircuitType     common.CircuitType `json:"circuitType"`
 	Variant         string             `json:"variant"`
 	PublicInputHash string             `json:"publicInputHash"`
@@ -39,9 +39,9 @@ type customRingAuditParametersJSON struct {
 	AuditorPk       string             `json:"auditorPk"`
 }
 
-func (p *CustomRingAuditParameters) MarshalJSON() ([]byte, error) {
-	return json.Marshal(customRingAuditParametersJSON{
-		CircuitType:     common.CustomRingAuditCircuitType,
+func (p *CustomRingParameters) MarshalJSON() ([]byte, error) {
+	return json.Marshal(customRingParametersJSON{
+		CircuitType:     common.CustomRingCircuitType,
 		Variant:         TransferVariant,
 		PublicInputHash: common.ToHex(p.PublicInputHash),
 		PrivateTxHash:   common.ToHex(p.PrivateTxHash),
@@ -51,20 +51,20 @@ func (p *CustomRingAuditParameters) MarshalJSON() ([]byte, error) {
 	})
 }
 
-func (p *CustomRingAuditParameters) UnmarshalJSON(data []byte) error {
-	var params customRingAuditParametersJSON
+func (p *CustomRingParameters) UnmarshalJSON(data []byte) error {
+	var params customRingParametersJSON
 	if err := json.Unmarshal(data, &params); err != nil {
 		return err
 	}
-	if params.CircuitType != common.CustomRingAuditCircuitType {
-		return fmt.Errorf("custom-ring-audit: invalid circuit type %q", params.CircuitType)
+	if params.CircuitType != common.CustomRingCircuitType {
+		return fmt.Errorf("custom-ring: invalid circuit type %q", params.CircuitType)
 	}
 	var err error
 	if p.PublicInputHash, err = fieldFromHex(params.PublicInputHash, "publicInputHash"); err != nil {
 		return err
 	}
 	if params.Variant != TransferVariant {
-		return fmt.Errorf("custom-ring-audit: unsupported variant %q", params.Variant)
+		return fmt.Errorf("custom-ring: unsupported variant %q", params.Variant)
 	}
 	if p.PrivateTxHash, err = fieldFromHex(params.PrivateTxHash, "privateTxHash"); err != nil {
 		return err
@@ -86,16 +86,16 @@ func (p *CustomRingAuditParameters) UnmarshalJSON(data []byte) error {
 	}
 	x, y := elliptic.Unmarshal(elliptic.P256(), p.AuditorPk[:])
 	if x == nil || y == nil {
-		return fmt.Errorf("custom-ring-audit: auditorPk is not a P256 point")
+		return fmt.Errorf("custom-ring: auditorPk is not a P256 point")
 	}
 	return nil
 }
 
-func (p *CustomRingAuditParameters) CreateWitness() (*audit.Circuit, error) {
+func (p *CustomRingParameters) CreateWitness() (*ringcircuit.Circuit, error) {
 	if p.PublicInputHash == nil || p.PrivateTxHash == nil {
-		return nil, fmt.Errorf("custom-ring-audit: missing hash")
+		return nil, fmt.Errorf("custom-ring: missing hash")
 	}
-	circuit := &audit.Circuit{
+	circuit := &ringcircuit.Circuit{
 		PublicInputHash: p.PublicInputHash,
 		PrivateTxHash:   p.PrivateTxHash,
 	}
@@ -117,14 +117,14 @@ func bytesHex(b []byte) string {
 
 func bytesFromHex(dst []byte, s string, name string) error {
 	if len(s) != 2+2*len(dst) || !strings.HasPrefix(s, "0x") || strings.ToLower(s) != s {
-		return fmt.Errorf("custom-ring-audit: %s is not canonical hex", name)
+		return fmt.Errorf("custom-ring: %s is not canonical hex", name)
 	}
 	decoded, err := hex.DecodeString(s[2:])
 	if err != nil {
-		return fmt.Errorf("custom-ring-audit: %s: %w", name, err)
+		return fmt.Errorf("custom-ring: %s: %w", name, err)
 	}
 	if len(decoded) != len(dst) {
-		return fmt.Errorf("custom-ring-audit: %s: got %d bytes, expected %d", name, len(decoded), len(dst))
+		return fmt.Errorf("custom-ring: %s: got %d bytes, expected %d", name, len(decoded), len(dst))
 	}
 	copy(dst, decoded)
 	return nil
@@ -133,7 +133,7 @@ func bytesFromHex(dst []byte, s string, name string) error {
 func validateP256Scalar(value []byte, name string) error {
 	scalar := new(big.Int).SetBytes(value)
 	if scalar.Sign() == 0 || scalar.Cmp(elliptic.P256().Params().N) >= 0 {
-		return fmt.Errorf("custom-ring-audit: %s is not a canonical P256 scalar", name)
+		return fmt.Errorf("custom-ring: %s is not a canonical P256 scalar", name)
 	}
 	return nil
 }
@@ -141,14 +141,14 @@ func validateP256Scalar(value []byte, name string) error {
 // Canonical fields prevent silent modular reduction.
 func fieldFromHex(s string, name string) (*big.Int, error) {
 	if len(s) != 66 || !strings.HasPrefix(s, "0x") || strings.ToLower(s) != s {
-		return nil, fmt.Errorf("custom-ring-audit: %s is not canonical hex", name)
+		return nil, fmt.Errorf("custom-ring: %s is not canonical hex", name)
 	}
 	v := new(big.Int)
 	if err := common.FromHex(v, s); err != nil {
-		return nil, fmt.Errorf("custom-ring-audit: %s: %w", name, err)
+		return nil, fmt.Errorf("custom-ring: %s: %w", name, err)
 	}
 	if v.Sign() < 0 || v.Cmp(ecc.BN254.ScalarField()) >= 0 {
-		return nil, fmt.Errorf("custom-ring-audit: %s is not a canonical field element", name)
+		return nil, fmt.Errorf("custom-ring: %s is not a canonical field element", name)
 	}
 	return v, nil
 }

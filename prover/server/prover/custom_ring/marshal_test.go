@@ -11,8 +11,8 @@ import (
 	"github.com/consensys/gnark/frontend"
 )
 
-func sampleParams() *CustomRingAuditParameters {
-	p := &CustomRingAuditParameters{
+func sampleParams() *CustomRingParameters {
+	p := &CustomRingParameters{
 		PublicInputHash: big.NewInt(0x1234),
 		PrivateTxHash:   big.NewInt(0xabcdef),
 	}
@@ -24,13 +24,13 @@ func sampleParams() *CustomRingAuditParameters {
 	return p
 }
 
-func TestCustomRingAuditParametersJSONRoundTrip(t *testing.T) {
+func TestCustomRingParametersJSONRoundTrip(t *testing.T) {
 	p := sampleParams()
 	data, err := json.Marshal(p)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	var got CustomRingAuditParameters
+	var got CustomRingParameters
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestCustomRingAuditParametersJSONRoundTrip(t *testing.T) {
 	}
 }
 
-func TestCustomRingAuditParametersWireFormat(t *testing.T) {
+func TestCustomRingParametersWireFormat(t *testing.T) {
 	data, err := json.Marshal(sampleParams())
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -52,7 +52,7 @@ func TestCustomRingAuditParametersWireFormat(t *testing.T) {
 		t.Fatalf("unmarshal raw: %v", err)
 	}
 	want := map[string]int{
-		"circuitType":     len("custom-ring-audit"),
+		"circuitType":     len("custom-ring"),
 		"variant":         len(TransferVariant),
 		"publicInputHash": 2 + 64,
 		"privateTxHash":   2 + 64,
@@ -70,7 +70,7 @@ func TestCustomRingAuditParametersWireFormat(t *testing.T) {
 	}
 }
 
-func TestCustomRingAuditParametersRejectBadInput(t *testing.T) {
+func TestCustomRingParametersRejectBadInput(t *testing.T) {
 	base, err := json.Marshal(sampleParams())
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -102,7 +102,7 @@ func TestCustomRingAuditParametersRejectBadInput(t *testing.T) {
 			if err != nil {
 				t.Fatalf("marshal: %v", err)
 			}
-			var got CustomRingAuditParameters
+			var got CustomRingParameters
 			if err := json.Unmarshal(data, &got); err == nil {
 				t.Fatalf("expected an error")
 			}
@@ -110,7 +110,7 @@ func TestCustomRingAuditParametersRejectBadInput(t *testing.T) {
 	}
 }
 
-func TestCustomRingAuditParametersCreateWitness(t *testing.T) {
+func TestCustomRingParametersCreateWitness(t *testing.T) {
 	assignment, err := sampleParams().CreateWitness()
 	if err != nil {
 		t.Fatalf("create assignment: %v", err)
