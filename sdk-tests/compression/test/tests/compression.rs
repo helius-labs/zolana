@@ -6,7 +6,7 @@ use compression_example_sdk::{
     discovery::discover_account,
     instructions::{
         create::{address_input, Create, CreateProofInputParams},
-        update::{Update, UpdateProofInputParams, UpdateTransfer},
+        update::{Update, UpdateCompressedAccount, UpdateProofInputParams},
     },
     state::AccountState,
 };
@@ -63,14 +63,16 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
         utxo_root,
         utxo_root_index,
     }
-    .to_transfer_inputs()?;
+    .to_proof_inputs()?;
     let proof = ProverClient::local().prove_transfer(&create.transfer_inputs)?;
     let create_ix = Create {
         payer: env.authority.pubkey(),
         tree: env.tree,
         new_value: 1,
         output_seed: [11u8; 32],
-        spp_proof: create.with_proof(ProofCompressed::try_from(proof)?),
+        nullifier_tree_root_index: create.nullifier_tree_root_index,
+        utxo_tree_root_index: create.utxo_tree_root_index,
+        proof: ProofCompressed::try_from(proof)?.to_transact_proof(),
     }
     .instruction()?;
 
@@ -100,7 +102,7 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
         bail!("duplicate create unexpectedly succeeded");
     }
 
-    let UpdateTransfer {
+    let UpdateCompressedAccount {
         spp_proof_inputs,
         old_value,
         old_blinding,

@@ -3,16 +3,11 @@ use compression_example_program::state::field_u64;
 use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_client::{
-    prover::field::be, NonInclusionProof, ProofCompressed, PublicInputs, PublicTransfers,
-    TransferInput, TransferInputs, TransferOutput, STATE_TREE_HEIGHT,
+    prover::field::be, NonInclusionProof, PublicInputs, PublicTransfers, TransferInput,
+    TransferInputs, TransferOutput, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::primitives::{hash_bytes, right_align};
-use zolana_interface::{
-    instruction::instruction_data::transact::{
-        CircuitId, InputUtxo, TransactIxData, TransactProof,
-    },
-    ADDRESS_DOMAIN, N_PUBLIC_SLOTS,
-};
+use zolana_interface::ADDRESS_DOMAIN;
 use zolana_keypair::{hash::owner_hash, PublicKey};
 use zolana_transaction::{instructions::transact::PrivateTxHash, ProofInputUtxo, Utxo};
 
@@ -47,16 +42,17 @@ pub struct CreateProofInputParams {
     pub utxo_root_index: u16,
 }
 
-pub struct CreateTransfer {
+pub struct CreateCompressedAccount {
     pub transfer_inputs: TransferInputs,
-    pub transact: TransactIxData,
+    pub nullifier_tree_root_index: u16,
+    pub utxo_tree_root_index: u16,
     pub output: Utxo,
     pub output_hash: [u8; 32],
     pub input_nullifier: [u8; 32],
 }
 
 impl CreateProofInputParams {
-    pub fn to_transfer_inputs(&self) -> Result<CreateTransfer> {
+    pub fn to_proof_inputs(&self) -> Result<CreateCompressedAccount> {
         let pda = account_pda(&self.authority);
         let (address_utxo, address_hash, address_nullifier) = address_input(&pda)?;
         let zero = [0u8; 32];
@@ -138,38 +134,13 @@ impl CreateProofInputParams {
             published_output_owner_pk_hashes: output_owner_hashes.iter().map(be).collect(),
             public_input_hash: be(&public_hash),
         };
-        let transact = TransactIxData {
-            expiry_unix_ts: u64::MAX,
-            private_tx_hash: private_tx,
-            circuit: CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8),
-            tx_viewing_pk: [0u8; 33],
-            salt: [0u8; 16],
-            proof: TransactProof::zeroed(),
-            inputs: vec![InputUtxo {
-                nullifier_hash: address_nullifier,
-                nullifier_tree_root_index: self.non_inclusion.root_index,
-                utxo_tree_root_index: self.utxo_root_index,
-            }],
-            interface_transfers: Vec::new(),
-            data_hash: None,
-            ring_data_hash: None,
-            outputs: external.outputs.clone(),
-            messages: Vec::new(),
-        };
-        Ok(CreateTransfer {
+        Ok(CreateCompressedAccount {
             transfer_inputs,
-            transact,
+            nullifier_tree_root_index: self.non_inclusion.root_index,
+            utxo_tree_root_index: self.utxo_root_index,
             output: account_utxo.utxo(),
             output_hash,
             input_nullifier: address_nullifier,
         })
-    }
-}
-
-impl CreateTransfer {
-    pub fn with_proof(&self, proof: ProofCompressed) -> TransactIxData {
-        let mut transact = self.transact.clone();
-        transact.proof = proof.to_transact_proof();
-        transact
     }
 }

@@ -5,7 +5,8 @@ use zolana_interface::{
     event::MessageData,
     instruction::{
         instruction_data::transact::{
-            CircuitId, ExternalDataHash, OwnerTag, ResolvedOutput, TransactIxData,
+            CircuitId, ExternalDataHash, InputUtxo, OwnerTag, ResolvedOutput, TransactIxData,
+            TransactOutput, TransactProof,
         },
         tag::TRANSACT,
     },
@@ -27,7 +28,9 @@ pub struct UpdateIxData {
     pub old_blinding: [u8; 32],
     pub new_value: u64,
     pub output_seed: [u8; 32],
-    pub transact: TransactIxData,
+    pub nullifier_tree_root_index: u16,
+    pub utxo_tree_root_index: u16,
+    pub proof: TransactProof,
 }
 
 #[inline(never)]
@@ -38,62 +41,36 @@ pub fn process_update_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
         old_blinding,
         new_value,
         output_seed,
-        transact,
+        nullifier_tree_root_index,
+        utxo_tree_root_index,
+        proof,
     } = wincode::deserialize_exact(data).map_err(|_| CompressionError::InvalidInstructionData)?;
 
     let parsed = TransitionAccounts::validate_and_parse(accounts)?;
     let authority = *parsed.authority.address();
     let (pda, bump) = (parsed.pda, parsed.bump);
 
-    if transact.expiry_unix_ts != u64::MAX
-        || transact.circuit != CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8)
-        || transact.tx_viewing_pk != [0u8; 33]
-        || transact.salt != [0u8; 16]
-        || !transact.interface_transfers.is_empty()
-        || transact.data_hash.is_some()
-        || transact.ring_data_hash.is_some()
-        || !transact.messages.is_empty()
-    {
-        return Err(CompressionError::InvalidTransact.into());
-    }
-    let [input] = transact.inputs.as_slice() else {
-        return Err(CompressionError::InvalidTransact.into());
-    };
-    let [output] = transact.outputs.as_slice() else {
-        return Err(CompressionError::InvalidTransact.into());
-    };
-    let Some(output_data) = output.data.as_deref() else {
-        return Err(CompressionError::InvalidTransact.into());
-    };
-
     let pda_bytes = pda.to_bytes();
     let address = derive_address(&pda_bytes)?;
     let state = derive_state(&address.address, authority.as_array(), new_value)?;
     let output_blinding = derive_blinding(&output_seed)?;
-    let expected_output_hash =
-        state_utxo_hash(&address.owner_hash, &state.data_hash, &output_blinding)?;
-    if output.utxo_hash != expected_output_hash || output.owner_tag != OwnerTag::Inline(pda_bytes) {
-        return Err(CompressionError::InvalidState.into());
-    }
-    let expected_payload = plaintext_payload(&pda_bytes, &state.state_data, output_seed)?;
-    if output_data != expected_payload.as_slice() {
-        return Err(CompressionError::InvalidState.into());
-    }
+    let output_hash = state_utxo_hash(&address.owner_hash, &state.data_hash, &output_blinding)?;
+    let payload = plaintext_payload(&pda_bytes, &state.state_data, output_seed)?;
 
     let resolved_output = [ResolvedOutput {
-        utxo_hash: &output.utxo_hash,
+        utxo_hash: &output_hash,
         owner_tag: pda_bytes,
-        data: Some(output_data),
+        data: Some(payload.as_slice()),
     }];
     let messages: &[MessageData] = &[];
     let external_data_hash = ExternalDataHash {
         spp_instruction_discriminator: TRANSACT,
-        expiry_unix_ts: transact.expiry_unix_ts,
+        expiry_unix_ts: u64::MAX,
         interface_transfers: &[],
         data_hash: None,
         ring_data_hash: None,
-        tx_viewing_pk: &transact.tx_viewing_pk,
-        salt: &transact.salt,
+        tx_viewing_pk: &[0u8; 33],
+        salt: &[0u8; 16],
         outputs: &resolved_output,
         messages,
     }
@@ -102,20 +79,31 @@ pub fn process_update_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
 
     let old_state = derive_state(&address.address, authority.as_array(), old_value)?;
     let old_hash = state_utxo_hash(&address.owner_hash, &old_state.data_hash, &old_blinding)?;
-    let expected_nullifier = nullifier(&old_hash, &old_blinding)?;
-    if input.nullifier_hash != expected_nullifier {
-        return Err(CompressionError::InvalidAddress.into());
-    }
-    let expected_private_tx = private_tx_hash(
-        old_hash,
-        expected_output_hash,
-        [0u8; 32],
-        &external_data_hash,
-    )?;
-    if transact.private_tx_hash != expected_private_tx {
-        return Err(CompressionError::InvalidTransact.into());
-    }
+    let nullifier_hash = nullifier(&old_hash, &old_blinding)?;
+    let private_tx = private_tx_hash(old_hash, output_hash, [0u8; 32], &external_data_hash)?;
 
+    let transact = TransactIxData {
+        expiry_unix_ts: u64::MAX,
+        private_tx_hash: private_tx,
+        circuit: CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8),
+        tx_viewing_pk: [0u8; 33],
+        salt: [0u8; 16],
+        proof,
+        inputs: vec![InputUtxo {
+            nullifier_hash,
+            nullifier_tree_root_index,
+            utxo_tree_root_index,
+        }],
+        interface_transfers: Vec::new(),
+        data_hash: None,
+        ring_data_hash: None,
+        outputs: vec![TransactOutput {
+            utxo_hash: output_hash,
+            owner_tag: OwnerTag::Inline(pda_bytes),
+            data: Some(payload),
+        }],
+        messages: Vec::new(),
+    };
     let transact_bytes = transact
         .serialize()
         .map_err(|_| CompressionError::SerializationFailed)?;

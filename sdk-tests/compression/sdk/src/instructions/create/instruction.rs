@@ -2,7 +2,7 @@ use anyhow::Result;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use zolana_interface::{
-    instruction::instruction_data::transact::TransactIxData, SHIELDED_POOL_PROGRAM_ID,
+    instruction::instruction_data::transact::TransactProof, SHIELDED_POOL_PROGRAM_ID,
 };
 
 use crate::{account_pda, err, tag, CreateIxData};
@@ -12,7 +12,9 @@ pub struct Create {
     pub tree: Address,
     pub new_value: u64,
     pub output_seed: [u8; 32],
-    pub spp_proof: TransactIxData,
+    pub nullifier_tree_root_index: u16,
+    pub utxo_tree_root_index: u16,
+    pub proof: TransactProof,
 }
 
 impl Create {
@@ -22,13 +24,17 @@ impl Create {
             tree,
             new_value,
             output_seed,
-            spp_proof,
+            nullifier_tree_root_index,
+            utxo_tree_root_index,
+            proof,
         } = self;
 
         let serialized_ix = wincode::serialize(&CreateIxData {
             new_value,
             output_seed,
-            transact: spp_proof,
+            nullifier_tree_root_index,
+            utxo_tree_root_index,
+            proof,
         })
         .map_err(err)?;
 

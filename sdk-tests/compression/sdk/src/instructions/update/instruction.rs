@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use zolana_interface::{
@@ -29,12 +29,17 @@ impl Update {
             spp_proof,
         } = self;
 
+        let [input] = spp_proof.inputs.as_slice() else {
+            return Err(anyhow!("SPP transact must spend exactly one input"));
+        };
         let serialized_ix = wincode::serialize(&UpdateIxData {
             old_value,
             old_blinding,
             new_value,
             output_seed,
-            transact: spp_proof,
+            nullifier_tree_root_index: input.nullifier_tree_root_index,
+            utxo_tree_root_index: input.utxo_tree_root_index,
+            proof: spp_proof.proof,
         })
         .map_err(err)?;
 

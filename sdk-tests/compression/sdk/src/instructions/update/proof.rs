@@ -18,7 +18,7 @@ pub struct UpdateProofInputParams {
     pub output_seed: [u8; 32],
 }
 
-pub struct UpdateTransfer {
+pub struct UpdateCompressedAccount {
     pub spp_proof_inputs: SppProofInputs,
     pub old_value: u64,
     pub old_blinding: [u8; 32],
@@ -28,7 +28,7 @@ pub struct UpdateTransfer {
 }
 
 impl UpdateProofInputParams {
-    pub fn to_proof_inputs(&self) -> Result<UpdateTransfer> {
+    pub fn to_proof_inputs(&self) -> Result<UpdateCompressedAccount> {
         let pda = account_pda(&self.authority);
         let current_data = self
             .current
@@ -58,7 +58,7 @@ impl UpdateProofInputParams {
             );
         let spp_proof_inputs =
             SppProofInputs::new(vec![input], vec![output], external, self.authority);
-        Ok(UpdateTransfer {
+        Ok(UpdateCompressedAccount {
             spp_proof_inputs,
             old_value: current_state.value,
             old_blinding: self.current.utxo.blinding,

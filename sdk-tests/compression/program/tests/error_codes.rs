@@ -8,9 +8,6 @@ fn error_codes_are_stable() {
         (InvalidAuthority as u32, 12002),
         (InvalidPda as u32, 12003),
         (InvalidTree as u32, 12004),
-        (InvalidTransact as u32, 12005),
-        (InvalidAddress as u32, 12006),
-        (InvalidState as u32, 12007),
         (HashingFailed as u32, 12008),
         (SerializationFailed as u32, 12009),
     ];

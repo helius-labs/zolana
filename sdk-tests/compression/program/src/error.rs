@@ -15,12 +15,6 @@ pub enum CompressionError {
     InvalidPda = 12003,
     #[error("tree account is not the default tree")]
     InvalidTree = 12004,
-    #[error("transact data violates the compressed-account shape")]
-    InvalidTransact = 12005,
-    #[error("compressed address mismatch")]
-    InvalidAddress = 12006,
-    #[error("compressed state mismatch")]
-    InvalidState = 12007,
     #[error("hashing failed")]
     HashingFailed = 12008,
     #[error("serialization failed")]
