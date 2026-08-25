@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 anyhow = { workspace = true }
+borsh = { workspace = true }
 compression-example-program = { path = "../program" }
 num-bigint = { workspace = true }
 solana-address = { workspace = true }

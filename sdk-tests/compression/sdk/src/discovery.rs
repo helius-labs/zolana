@@ -1,17 +1,20 @@
 use anyhow::{anyhow, bail, Result};
-use compression_example_program::state::PLAINTEXT_TRANSFER_SCHEME;
 use solana_address::Address;
 use zolana_client::{EncryptedUtxoMatch, Rpc, ZolanaIndexer};
 use zolana_interface::event::OutputDataEncoding;
-use zolana_keypair::PublicKey;
-use zolana_transaction::{
-    serialization::{plaintext::PlaintextTransfer, UtxoSerialization},
-    AssetRegistry, WalletUtxo,
+use zolana_transaction::WalletUtxo;
+
+use crate::{
+    shared::zero_nullifier_key,
+    state::{decode_state, AccountUtxo},
 };
 
-use crate::{shared::zero_nullifier_key, state::AccountState};
+pub struct DiscoveredAccount {
+    pub utxo: WalletUtxo,
+    pub version: u64,
+}
 
-pub fn decode_wallet_utxo(indexed: EncryptedUtxoMatch, pda: &Address) -> Result<WalletUtxo> {
+pub fn decode_wallet_utxo(indexed: EncryptedUtxoMatch, pda: &Address) -> Result<DiscoveredAccount> {
     if indexed.tx_viewing_pk.is_some() || indexed.salt.is_some() {
         bail!("indexed output is encrypted");
     }
@@ -22,42 +25,33 @@ pub fn decode_wallet_utxo(indexed: EncryptedUtxoMatch, pda: &Address) -> Result<
     let OutputDataEncoding::Plaintext(blob) = output_data else {
         bail!("indexed output is not plaintext");
     };
-    let (scheme, body) = blob
-        .split_first()
-        .ok_or_else(|| anyhow!("empty plaintext output"))?;
-    if *scheme != PLAINTEXT_TRANSFER_SCHEME {
-        bail!("unexpected plaintext scheme {scheme}");
-    }
-    let plaintext = PlaintextTransfer::deserialize(body)?;
-    let owner = PublicKey::from_pda(pda);
-    let utxo = plaintext
-        .into_utxos(&AssetRegistry::default(), None)?
-        .into_iter()
-        .find(|utxo| utxo.owner == owner)
-        .ok_or_else(|| anyhow!("plaintext output has no PDA-owned UTXO"))?;
-    let state = AccountState::decode(
-        utxo.data
-            .utxo_data()
-            .ok_or_else(|| anyhow!("plaintext UTXO has no state data"))?,
-    )?;
-    let data_hash = state.data_hash()?;
+    let account_utxo = AccountUtxo {
+        pda: *pda,
+        state: decode_state(&blob)?,
+    };
+    let version = account_utxo.state.version;
+    let data_hash = account_utxo.state.data_hash()?;
+    let utxo = account_utxo.utxo()?;
     let nullifier_key = zero_nullifier_key();
     let hash = utxo.hash(&nullifier_key.pubkey()?, &data_hash, &[0u8; 32])?;
     if hash != indexed.output_slot.output_context.hash {
         bail!("decoded UTXO commitment does not match indexed output");
     }
     let nullifier = nullifier_key.nullifier(&hash, &utxo.blinding)?;
-    Ok(WalletUtxo {
-        utxo,
-        output_context: indexed.output_slot.output_context,
-        nullifier,
-        data_hash: Some(data_hash),
-        ring_data_hash: None,
-        spent: false,
+    Ok(DiscoveredAccount {
+        utxo: WalletUtxo {
+            utxo,
+            output_context: indexed.output_slot.output_context,
+            nullifier,
+            data_hash: Some(data_hash),
+            ring_data_hash: None,
+            spent: false,
+        },
+        version,
     })
 }
 
-pub fn discover_account(indexer: &ZolanaIndexer, pda: Address) -> Result<WalletUtxo> {
+pub fn discover_account(indexer: &ZolanaIndexer, pda: Address) -> Result<DiscoveredAccount> {
     let mut cursor = None;
     let mut candidates = Vec::new();
     loop {
@@ -66,7 +60,7 @@ pub fn discover_account(indexer: &ZolanaIndexer, pda: Address) -> Result<WalletU
         for indexed in response.matches {
             let candidate = decode_wallet_utxo(indexed, &pda)?;
             let spend = indexer.get_shielded_transactions_by_nullifiers(
-                vec![candidate.nullifier],
+                vec![candidate.utxo.nullifier],
                 None,
                 Some(1),
                 None,
@@ -82,6 +76,6 @@ pub fn discover_account(indexer: &ZolanaIndexer, pda: Address) -> Result<WalletU
     }
     candidates
         .into_iter()
-        .max_by_key(|candidate| candidate.output_context.leaf_index)
+        .max_by_key(|candidate| candidate.utxo.output_context.leaf_index)
         .ok_or_else(|| anyhow!("no unspent UTXO found for PDA {pda}"))
 }

@@ -1,35 +1,22 @@
+use borsh::{BorshDeserialize, BorshSerialize};
 use pinocchio::error::ProgramError;
 use zolana_hasher::{
     primitives::{hash_bytes, right_align},
-    sha256::Sha256BE,
     Hasher, Poseidon,
 };
 use zolana_interface::{ADDRESS_DOMAIN, SOL_ASSET_FIELD, UTXO_DOMAIN};
 
 use crate::error::CompressionError;
 
-pub const STATE_DATA_LEN: usize = 72;
-const PDA_OWNER_TAG: u8 = 2;
-const SOL_ASSET_ID: u64 = 1;
-const TRANSFER_PLAINTEXT: u8 = 4;
-pub const PLAINTEXT_TRANSFER_SCHEME: u8 = 7;
-pub const RECIPIENT_POSITION: u8 = 2;
+pub const STATE_DATA_LEN: usize = 80;
+const OUTPUT_DATA_PLAINTEXT: u8 = 0;
 pub const ACCOUNT_DATA_DOMAIN: &[u8; 42] = b"zolana:compression-example:account-data:v1";
-const STATE_DATA_LEN_U16: u16 = STATE_DATA_LEN as u16;
-const PLAINTEXT_TRANSFER_LEN: usize = 161;
-const PLAINTEXT_BLOB_LEN: usize = 1 + PLAINTEXT_TRANSFER_LEN;
-const ENCODED_PAYLOAD_LEN: usize = 1 + 4 + PLAINTEXT_BLOB_LEN;
 
 pub struct DerivedAddress {
     pub owner_hash: [u8; 32],
     pub address_seed: [u8; 32],
     pub address_utxo_hash: [u8; 32],
     pub address: [u8; 32],
-}
-
-pub struct DerivedState {
-    pub state_data: [u8; STATE_DATA_LEN],
-    pub data_hash: [u8; 32],
 }
 
 fn hashv(values: &[&[u8]]) -> Result<[u8; 32], ProgramError> {
@@ -48,11 +35,11 @@ pub fn field_u64(value: u64) -> [u8; 32] {
     right_align(&value.to_be_bytes())
 }
 
-pub fn derive_blinding(seed: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
-    let mut preimage = [0u8; 32];
-    preimage[..31].copy_from_slice(&seed[1..]);
-    preimage[31] = RECIPIENT_POSITION;
-    Sha256BE::hash(&preimage).map_err(|_| CompressionError::HashingFailed.into())
+// The blinding is the account version: 0 on create, incremented by one on
+// every update. A changing blinding keeps every state UTXO commitment unique
+// even when the value repeats, so the nullifier never collides.
+pub fn version_blinding(version: u64) -> [u8; 32] {
+    field_u64(version)
 }
 
 pub fn derive_address(pda: &[u8; 32]) -> Result<DerivedAddress, ProgramError> {
@@ -81,35 +68,58 @@ pub fn derive_address(pda: &[u8; 32]) -> Result<DerivedAddress, ProgramError> {
     })
 }
 
-pub fn account_data_hash(
-    address: &[u8; 32],
-    authority: &[u8; 32],
-    value: u64,
-) -> Result<[u8; 32], ProgramError> {
-    let authority_field = hash_bytes_field(authority)?;
-    let data_domain = hash_bytes_field(ACCOUNT_DATA_DOMAIN)?;
-    hashv(&[address, &data_domain, &authority_field, &field_u64(value)])
+#[derive(BorshDeserialize, BorshSerialize, Clone, Debug, PartialEq, Eq)]
+pub struct AccountState {
+    pub address: [u8; 32],
+    pub authority: [u8; 32],
+    pub value: u64,
+    pub version: u64,
 }
 
-pub fn derive_state(
-    address: &[u8; 32],
-    authority: &[u8; 32],
-    value: u64,
-) -> Result<DerivedState, ProgramError> {
-    let data_hash = account_data_hash(address, authority, value)?;
+impl AccountState {
+    pub fn data_hash(&self) -> Result<[u8; 32], ProgramError> {
+        let authority_field = hash_bytes_field(&self.authority)?;
+        let data_domain = hash_bytes_field(ACCOUNT_DATA_DOMAIN)?;
+        hashv(&[
+            &self.address,
+            &data_domain,
+            &authority_field,
+            &field_u64(self.value),
+            &field_u64(self.version),
+        ])
+    }
 
-    let mut state_data = [0u8; STATE_DATA_LEN];
-    state_data[..32].copy_from_slice(address);
-    state_data[32..64].copy_from_slice(authority);
-    state_data[64..].copy_from_slice(&value.to_le_bytes());
+    pub fn blinding(&self) -> [u8; 32] {
+        version_blinding(self.version)
+    }
 
-    Ok(DerivedState {
-        state_data,
-        data_hash,
-    })
+    pub fn utxo_hash(&self, owner_hash: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
+        state_utxo_hash(owner_hash, &self.data_hash()?, &self.blinding())
+    }
+
+    pub fn to_vec(&self) -> Result<Vec<u8>, ProgramError> {
+        let mut bytes = Vec::with_capacity(STATE_DATA_LEN);
+        self.serialize(&mut bytes)
+            .map_err(|_| CompressionError::SerializationFailed)?;
+        Ok(bytes)
+    }
+
+    // The example's custom output payload is the account state itself, whose
+    // version is also the blinding; owner, asset, and amount are fixed by the
+    // program and not published. The state is wrapped in the protocol's
+    // `OutputDataEncoding::Plaintext(Vec<u8>)` Borsh envelope so wallets can
+    // still classify the output.
+    pub fn to_output_data(&self) -> Result<Vec<u8>, ProgramError> {
+        let mut payload = Vec::with_capacity(1 + 4 + STATE_DATA_LEN);
+        payload.push(OUTPUT_DATA_PLAINTEXT);
+        payload.extend_from_slice(&(STATE_DATA_LEN as u32).to_le_bytes());
+        self.serialize(&mut payload)
+            .map_err(|_| CompressionError::SerializationFailed)?;
+        Ok(payload)
+    }
 }
 
-pub fn state_utxo_hash(
+fn state_utxo_hash(
     owner_hash: &[u8; 32],
     data_hash: &[u8; 32],
     blinding: &[u8; 32],
@@ -131,52 +141,13 @@ pub fn nullifier(utxo_hash: &[u8; 32], blinding: &[u8; 32]) -> Result<[u8; 32], 
     hashv(&[utxo_hash, blinding, &[0u8; 32]])
 }
 
-pub fn plaintext_payload(
-    pda: &[u8; 32],
-    state_data: &[u8; STATE_DATA_LEN],
-    output_seed: [u8; 32],
-) -> Result<Vec<u8>, ProgramError> {
-    let mut payload = Vec::with_capacity(ENCODED_PAYLOAD_LEN);
-
-    // OutputDataEncoding::Plaintext(Vec<u8>) in Borsh.
-    payload.push(0);
-    payload.extend_from_slice(&(PLAINTEXT_BLOB_LEN as u32).to_le_bytes());
-    payload.push(PLAINTEXT_TRANSFER_SCHEME);
-
-    // PlaintextTransfer in its existing wincode schema.
-    payload.push(TRANSFER_PLAINTEXT);
-    payload.extend_from_slice(&output_seed);
-    payload.push(0); // sender: None
-    payload.push(1); // one recipient
-    payload.push(PDA_OWNER_TAG);
-    payload.extend_from_slice(pda);
-    payload.push(0); // final unused byte of PublicKey's fixed [u8; 34] representation
-    payload.extend_from_slice(&SOL_ASSET_ID.to_le_bytes());
-    payload.extend_from_slice(&0u64.to_le_bytes());
-    payload.push(1); // one data record
-    payload.push(2); // DataRecord::UtxoData
-    payload.extend_from_slice(&STATE_DATA_LEN_U16.to_le_bytes());
-    payload.extend_from_slice(state_data);
-
-    if payload.len() != ENCODED_PAYLOAD_LEN {
-        return Err(CompressionError::SerializationFailed.into());
-    }
-    Ok(payload)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use solana_address::address;
+    use zolana_interface::event::OutputDataEncoding;
     use zolana_keypair::{hash::owner_hash, NullifierKey, PublicKey};
-    use zolana_transaction::{
-        serialization::{
-            plaintext::{PlaintextEncode, PlaintextTransfer},
-            OwnerCx, UtxoSerialization,
-        },
-        AssetRegistry, Data as TransactionData, DataRecord as TransactionDataRecord,
-        ProofInputUtxo, Utxo, SOL_MINT,
-    };
+    use zolana_transaction::{ProofInputUtxo, SOL_MINT};
 
     const TEST_PDA: solana_address::Address =
         address!("6ZKEgsScJbL6JVDpbHLCFCUiPEVgmMSt1j6NudNLqEvh");
@@ -184,9 +155,14 @@ mod tests {
     #[test]
     fn commitments_match_existing_utxo_types() {
         let authority = [8u8; 32];
-        let output_seed = [9u8; 32];
         let address = derive_address(TEST_PDA.as_array()).unwrap();
-        let state = derive_state(&address.address, &authority, 42).unwrap();
+        let state = AccountState {
+            address: address.address,
+            authority,
+            value: 42,
+            version: 9,
+        };
+        let data_hash = state.data_hash().unwrap();
         let owner = PublicKey::from_pda(&TEST_PDA);
         let nullifier_key = NullifierKey::from_secret([0u8; 31]);
         let nullifier_pk = nullifier_key.pubkey().unwrap();
@@ -208,47 +184,33 @@ mod tests {
                 .unwrap()
         );
 
-        let output_blinding = zolana_transaction::derive_blinding(&output_seed, RECIPIENT_POSITION);
+        let output_blinding = state.blinding();
         let output = ProofInputUtxo::new(expected_owner_hash, &SOL_MINT, 0, &output_blinding)
             .unwrap()
-            .with_data_hash(state.data_hash);
+            .with_data_hash(data_hash);
         assert_eq!(
-            state_utxo_hash(&address.owner_hash, &state.data_hash, &output_blinding).unwrap(),
+            state.utxo_hash(&address.owner_hash).unwrap(),
             output.hash().unwrap()
         );
     }
 
     #[test]
-    fn payload_matches_existing_plaintext_utxo_encoding() {
-        let authority = [8u8; 32];
-        let seed = [9u8; 32];
+    fn payload_envelope_is_a_plaintext_output_data_encoding() {
         let address = derive_address(TEST_PDA.as_array()).unwrap();
-        let state = derive_state(&address.address, &authority, 42).unwrap();
-        let expected = plaintext_payload(TEST_PDA.as_array(), &state.state_data, seed).unwrap();
-        let owner = PublicKey::from_pda(&TEST_PDA);
-        let utxo = Utxo {
-            owner,
-            asset: SOL_MINT,
-            amount: 0,
-            blinding: zolana_transaction::derive_blinding(&seed, RECIPIENT_POSITION),
-            ring_program_id: None,
-            data: TransactionData::new(vec![TransactionDataRecord::UtxoData(
-                state.state_data.to_vec(),
-            )]),
+        let state = AccountState {
+            address: address.address,
+            authority: [8u8; 32],
+            value: 42,
+            version: 9,
         };
-        let encoded = PlaintextTransfer::encode(
-            &[utxo],
-            &OwnerCx {
-                owner,
-                assets: &AssetRegistry::default(),
-                ring_program_id: None,
-            },
-            TEST_PDA.to_bytes(),
-            &PlaintextEncode {
-                blinding_seed: seed,
-            },
-        )
-        .unwrap();
-        assert_eq!(expected, encoded.data);
+        let encoded = state.to_output_data().unwrap();
+        let envelope: OutputDataEncoding = borsh::from_slice(&encoded).unwrap();
+        let OutputDataEncoding::Plaintext(blob) = envelope else {
+            panic!("payload envelope is not plaintext");
+        };
+        assert_eq!(blob.len(), STATE_DATA_LEN);
+        assert_eq!(state.to_vec().unwrap(), blob);
+        let decoded: AccountState = borsh::from_slice(&blob).unwrap();
+        assert_eq!(decoded, state);
     }
 }

@@ -11,7 +11,6 @@ pub struct Create {
     pub payer: Address,
     pub tree: Address,
     pub new_value: u64,
-    pub output_seed: [u8; 32],
     pub nullifier_tree_root_index: u16,
     pub utxo_tree_root_index: u16,
     pub proof: TransactProof,
@@ -23,7 +22,6 @@ impl Create {
             payer,
             tree,
             new_value,
-            output_seed,
             nullifier_tree_root_index,
             utxo_tree_root_index,
             proof,
@@ -31,7 +29,6 @@ impl Create {
 
         let serialized_ix = wincode::serialize(&CreateIxData {
             new_value,
-            output_seed,
             nullifier_tree_root_index,
             utxo_tree_root_index,
             proof,

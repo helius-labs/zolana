@@ -11,9 +11,8 @@ pub struct Update {
     pub payer: Address,
     pub tree: Address,
     pub old_value: u64,
-    pub old_blinding: [u8; 32],
+    pub version: u64,
     pub new_value: u64,
-    pub output_seed: [u8; 32],
     pub spp_proof: TransactIxData,
 }
 
@@ -23,9 +22,8 @@ impl Update {
             payer,
             tree,
             old_value,
-            old_blinding,
+            version,
             new_value,
-            output_seed,
             spp_proof,
         } = self;
 
@@ -34,9 +32,8 @@ impl Update {
         };
         let serialized_ix = wincode::serialize(&UpdateIxData {
             old_value,
-            old_blinding,
+            version,
             new_value,
-            output_seed,
             nullifier_tree_root_index: input.nullifier_tree_root_index,
             utxo_tree_root_index: input.utxo_tree_root_index,
             proof: spp_proof.proof,

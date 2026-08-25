@@ -16,18 +16,14 @@ use zolana_interface::{
 use crate::{
     error::CompressionError,
     instructions::shared::{cpi_spp_transact_signed, private_tx_hash, TransitionAccounts},
-    state::{
-        derive_address, derive_blinding, derive_state, nullifier, plaintext_payload,
-        state_utxo_hash,
-    },
+    state::{derive_address, nullifier, AccountState},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct UpdateIxData {
     pub old_value: u64,
-    pub old_blinding: [u8; 32],
+    pub version: u64,
     pub new_value: u64,
-    pub output_seed: [u8; 32],
     pub nullifier_tree_root_index: u16,
     pub utxo_tree_root_index: u16,
     pub proof: TransactProof,
@@ -38,9 +34,8 @@ pub struct UpdateIxData {
 pub fn process_update_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let UpdateIxData {
         old_value,
-        old_blinding,
+        version,
         new_value,
-        output_seed,
         nullifier_tree_root_index,
         utxo_tree_root_index,
         proof,
@@ -52,10 +47,16 @@ pub fn process_update_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
 
     let pda_bytes = pda.to_bytes();
     let address = derive_address(&pda_bytes)?;
-    let state = derive_state(&address.address, authority.as_array(), new_value)?;
-    let output_blinding = derive_blinding(&output_seed)?;
-    let output_hash = state_utxo_hash(&address.owner_hash, &state.data_hash, &output_blinding)?;
-    let payload = plaintext_payload(&pda_bytes, &state.state_data, output_seed)?;
+    let state = AccountState {
+        address: address.address,
+        authority: authority.to_bytes(),
+        value: new_value,
+        version: version
+            .checked_add(1)
+            .ok_or(CompressionError::InvalidInstructionData)?,
+    };
+    let output_hash = state.utxo_hash(&address.owner_hash)?;
+    let payload = state.to_output_data()?;
 
     let resolved_output = [ResolvedOutput {
         utxo_hash: &output_hash,
@@ -77,9 +78,14 @@ pub fn process_update_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     .hash()
     .map_err(|_| CompressionError::HashingFailed)?;
 
-    let old_state = derive_state(&address.address, authority.as_array(), old_value)?;
-    let old_hash = state_utxo_hash(&address.owner_hash, &old_state.data_hash, &old_blinding)?;
-    let nullifier_hash = nullifier(&old_hash, &old_blinding)?;
+    let old_state = AccountState {
+        address: address.address,
+        authority: authority.to_bytes(),
+        value: old_value,
+        version,
+    };
+    let old_hash = old_state.utxo_hash(&address.owner_hash)?;
+    let nullifier_hash = nullifier(&old_hash, &old_state.blinding())?;
     let private_tx = private_tx_hash(old_hash, output_hash, [0u8; 32], &external_data_hash)?;
 
     let transact = TransactIxData {

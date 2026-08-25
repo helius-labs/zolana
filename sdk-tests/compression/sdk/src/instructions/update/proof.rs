@@ -8,20 +8,19 @@ use zolana_transaction::{
 use crate::{
     account_pda,
     shared::{external_data, zero_nullifier_key},
-    state::{AccountState, AccountUtxo},
+    state::{decode_state, AccountState, AccountUtxo},
 };
 
 pub struct UpdateProofInputParams {
     pub authority: Address,
     pub current: WalletUtxo,
     pub new_value: u64,
-    pub output_seed: [u8; 32],
 }
 
 pub struct UpdateCompressedAccount {
     pub spp_proof_inputs: SppProofInputs,
     pub old_value: u64,
-    pub old_blinding: [u8; 32],
+    pub version: u64,
     pub output: Utxo,
     pub output_hash: [u8; 32],
     pub input_nullifier: [u8; 32],
@@ -36,18 +35,24 @@ impl UpdateProofInputParams {
             .data
             .utxo_data()
             .ok_or_else(|| anyhow!("current UTXO has no state data"))?;
-        let current_state = AccountState::decode(current_data)?;
+        let current_state = decode_state(current_data)?;
+        if self.current.utxo.blinding != current_state.blinding() {
+            return Err(anyhow!("current UTXO blinding does not match the version"));
+        }
         let account_utxo = AccountUtxo {
             pda,
             state: AccountState {
                 address: current_state.address,
                 authority: self.authority.to_bytes(),
                 value: self.new_value,
+                version: current_state
+                    .version
+                    .checked_add(1)
+                    .ok_or_else(|| anyhow!("account version overflow"))?,
             },
-            output_seed: self.output_seed,
         };
         let output = account_utxo.output_utxo()?;
-        let payload = account_utxo.plaintext_payload()?;
+        let payload = account_utxo.output_data()?;
         let output_hash = output.hash()?;
         let external = external_data(output_hash, &pda, payload);
         let input = SppProofInputUtxo::new(self.current.utxo.clone(), zero_nullifier_key())
@@ -61,8 +66,8 @@ impl UpdateProofInputParams {
         Ok(UpdateCompressedAccount {
             spp_proof_inputs,
             old_value: current_state.value,
-            old_blinding: self.current.utxo.blinding,
-            output: account_utxo.utxo(),
+            version: current_state.version,
+            output: account_utxo.utxo()?,
             output_hash,
             input_nullifier: self.current.nullifier,
         })

@@ -36,7 +36,6 @@ pub fn address_input(pda: &Address) -> Result<(ProofInputUtxo, [u8; 32], [u8; 32
 pub struct CreateProofInputParams {
     pub authority: Address,
     pub new_value: u64,
-    pub output_seed: [u8; 32],
     pub non_inclusion: NonInclusionProof,
     pub utxo_root: [u8; 32],
     pub utxo_root_index: u16,
@@ -79,11 +78,11 @@ impl CreateProofInputParams {
                 address: address_nullifier,
                 authority: self.authority.to_bytes(),
                 value: self.new_value,
+                version: 0,
             },
-            output_seed: self.output_seed,
         };
         let output = account_utxo.output_utxo()?;
-        let payload = account_utxo.plaintext_payload()?;
+        let payload = account_utxo.output_data()?;
         let output_hash = output.hash()?;
         let proof_output = ProofInputUtxo::try_from(&output)?;
         let transfer_output = TransferOutput {
@@ -138,7 +137,7 @@ impl CreateProofInputParams {
             transfer_inputs,
             nullifier_tree_root_index: self.non_inclusion.root_index,
             utxo_tree_root_index: self.utxo_root_index,
-            output: account_utxo.utxo(),
+            output: account_utxo.utxo()?,
             output_hash,
             input_nullifier: address_nullifier,
         })

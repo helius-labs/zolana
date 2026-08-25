@@ -1,3 +1,3 @@
 mod account;
 
-pub use account::{pda_shielded_address, AccountState, AccountUtxo};
+pub use account::{decode_state, pda_shielded_address, AccountState, AccountUtxo};

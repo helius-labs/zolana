@@ -8,7 +8,7 @@ use compression_example_sdk::{
         create::{address_input, Create, CreateProofInputParams},
         update::{Update, UpdateCompressedAccount, UpdateProofInputParams},
     },
-    state::AccountState,
+    state::decode_state,
 };
 use shared::{send, setup, tree_root};
 use solana_address::Address;
@@ -27,7 +27,7 @@ fn assert_account(
     expected_value: u64,
     expected_tree: Address,
 ) -> Result<()> {
-    let state = AccountState::decode(
+    let state = decode_state(
         wallet_utxo
             .utxo
             .data
@@ -58,7 +58,6 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
     let create = CreateProofInputParams {
         authority: env.authority.pubkey(),
         new_value: 1,
-        output_seed: [11u8; 32],
         non_inclusion,
         utxo_root,
         utxo_root_index,
@@ -69,7 +68,6 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
         payer: env.authority.pubkey(),
         tree: env.tree,
         new_value: 1,
-        output_seed: [11u8; 32],
         nullifier_tree_root_index: create.nullifier_tree_root_index,
         utxo_tree_root_index: create.utxo_tree_root_index,
         proof: ProofCompressed::try_from(proof)?.to_transact_proof(),
@@ -80,15 +78,19 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
     wait_for_indexed_utxo(&env.indexer, pda.to_bytes(), create_signature);
     let current = discover_account(&env.indexer, pda)?;
     assert_account(
-        &current,
+        &current.utxo,
         &create.output,
         create.output_hash,
         env.authority.pubkey(),
         1,
         env.tree,
     )?;
-    let created_state = AccountState::decode(
+    if current.version != 0 {
+        bail!("created account version is not 0");
+    }
+    let created_state = decode_state(
         current
+            .utxo
             .utxo
             .data
             .utxo_data()
@@ -105,27 +107,25 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
     let UpdateCompressedAccount {
         spp_proof_inputs,
         old_value,
-        old_blinding,
+        version,
         output: update_output,
         output_hash: update_output_hash,
         input_nullifier: update_input_nullifier,
     } = UpdateProofInputParams {
         authority: env.authority.pubkey(),
-        current: current.clone(),
+        current: current.utxo.clone(),
         new_value: 2,
-        output_seed: [12u8; 32],
     }
     .to_proof_inputs()?;
-    if update_input_nullifier != current.nullifier {
+    if update_input_nullifier != current.utxo.nullifier {
         bail!("update does not spend the discovered UTXO nullifier");
     }
     let update_ix = Update {
         payer: env.authority.pubkey(),
         tree: env.tree,
         old_value,
-        old_blinding,
+        version,
         new_value: 2,
-        output_seed: [12u8; 32],
         spp_proof: env.indexer.prove_transact(env.tree, spp_proof_inputs)?,
     }
     .instruction()?;
@@ -134,28 +134,34 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
     wait_for_indexed_utxo(&env.indexer, pda.to_bytes(), update_signature);
     let updated = discover_account(&env.indexer, pda)?;
     assert_account(
-        &updated,
+        &updated.utxo,
         &update_output,
         update_output_hash,
         env.authority.pubkey(),
         2,
         env.tree,
     )?;
-    let old_state = AccountState::decode(
+    if updated.version != 1 {
+        bail!("updated account version is not 1");
+    }
+    let old_state = decode_state(
         current
+            .utxo
             .utxo
             .data
             .utxo_data()
             .ok_or_else(|| anyhow!("old state data missing"))?,
     )?;
-    let new_state = AccountState::decode(
+    let new_state = decode_state(
         updated
+            .utxo
             .utxo
             .data
             .utxo_data()
             .ok_or_else(|| anyhow!("new state data missing"))?,
     )?;
-    if old_state.address != new_state.address || current.utxo.owner != updated.utxo.owner {
+    if old_state.address != new_state.address || current.utxo.utxo.owner != updated.utxo.utxo.owner
+    {
         bail!("update changed the compressed address or PDA owner");
     }
     if send(&env, update_ix, Some(1)).is_ok() {

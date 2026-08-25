@@ -1651,6 +1651,7 @@ checksum = "cc14f565cf027a105f7a44ccf9e5b424348421a1d8952a8fc9d499d313107789"
 name = "compression-example-program"
 version = "0.1.0"
 dependencies = [
+ "borsh",
  "light-program-profiler",
  "pinocchio 0.11.2",
  "solana-address 2.6.1",
@@ -1669,6 +1670,7 @@ name = "compression-example-sdk"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "borsh",
  "compression-example-program",
  "num-bigint 0.4.8",
  "solana-address 2.6.1",

@@ -17,6 +17,7 @@ test-sbf = []
 profile-program = ["light-program-profiler/profile-program"]
 
 [dependencies]
+borsh = { workspace = true }
 light-program-profiler = { workspace = true }
 pinocchio = { workspace = true, features = ["cpi"] }
 solana-address = { workspace = true }
