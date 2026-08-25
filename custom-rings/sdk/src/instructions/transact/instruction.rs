@@ -76,7 +76,6 @@ impl RingTransactWithAudit {
         let mut accounts = Vec::with_capacity(3 + spp_accounts.len());
         accounts.push(AccountMeta::new(payer, true));
         accounts.push(AccountMeta::new_readonly(deployment.config_pda(), false));
-        #[cfg(feature = "policy")]
         accounts.push(AccountMeta::new_readonly(
             deployment.policy_config_pda(),
             false,

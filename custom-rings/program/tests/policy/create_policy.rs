@@ -5,7 +5,7 @@ use solana_program_error::ProgramError;
 
 use crate::common::{
     create_policy_fixture, policy_config_pda, program_id, records_pda, records_tree,
-    records_tree_account, setup_policy_mollusk,
+    records_tree_account, setup_mollusk,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -16,7 +16,7 @@ fn custom(error: CustomRingError) -> ProgramError {
 /// reason.
 #[test]
 fn create_policy_pins_the_compiled_table() {
-    let (mollusk, _) = setup_policy_mollusk();
+    let (mollusk, _) = setup_mollusk();
     let fixture = create_policy_fixture();
     let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
     assert_eq!(result.program_result, ProgramResult::Success);
@@ -41,7 +41,7 @@ fn create_policy_pins_the_compiled_table() {
 
 #[test]
 fn a_records_tree_owned_by_another_program_is_rejected_exactly() {
-    let (mollusk, _) = setup_policy_mollusk();
+    let (mollusk, _) = setup_mollusk();
     let mut fixture = create_policy_fixture();
     let mut foreign = records_tree_account();
     foreign.owner = program_id();
@@ -51,7 +51,7 @@ fn a_records_tree_owned_by_another_program_is_rejected_exactly() {
 
 #[test]
 fn a_records_tree_without_the_tree_discriminator_is_rejected_exactly() {
-    let (mollusk, _) = setup_policy_mollusk();
+    let (mollusk, _) = setup_mollusk();
     let mut fixture = create_policy_fixture();
     let mut wrong = records_tree_account();
     wrong.data[0] = 0;
@@ -61,7 +61,7 @@ fn a_records_tree_without_the_tree_discriminator_is_rejected_exactly() {
 
 #[test]
 fn a_second_create_policy_is_rejected_exactly() {
-    let (mollusk, _) = setup_policy_mollusk();
+    let (mollusk, _) = setup_mollusk();
     let mut fixture = create_policy_fixture();
     fixture.set_account(
         "policy_config",
@@ -75,7 +75,7 @@ fn a_second_create_policy_is_rejected_exactly() {
 
 #[test]
 fn create_policy_by_a_non_upgrade_authority_is_rejected_exactly() {
-    let (mollusk, _) = setup_policy_mollusk();
+    let (mollusk, _) = setup_mollusk();
     let mut fixture = create_policy_fixture();
     fixture.set_account(
         "program_data",
@@ -86,7 +86,7 @@ fn create_policy_by_a_non_upgrade_authority_is_rejected_exactly() {
 
 #[test]
 fn create_policy_rejects_trailing_instruction_data() {
-    let (mollusk, _) = setup_policy_mollusk();
+    let (mollusk, _) = setup_mollusk();
     let mut fixture = create_policy_fixture();
     fixture.push_data(0);
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
@@ -94,7 +94,7 @@ fn create_policy_rejects_trailing_instruction_data() {
 
 #[test]
 fn a_policy_config_at_a_foreign_address_is_rejected_exactly() {
-    let (mollusk, _) = setup_policy_mollusk();
+    let (mollusk, _) = setup_mollusk();
     let mut fixture = create_policy_fixture();
     fixture.substitute(
         "policy_config",
@@ -106,7 +106,7 @@ fn a_policy_config_at_a_foreign_address_is_rejected_exactly() {
 /// Missing accounts must not reach the table hash.
 #[test]
 fn a_short_account_list_is_rejected() {
-    let (mollusk, _) = setup_policy_mollusk();
+    let (mollusk, _) = setup_mollusk();
     let mut fixture = create_policy_fixture();
     fixture.truncate(3);
     let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());

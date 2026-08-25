@@ -1,8 +1,7 @@
 use custom_ring_interface::{
-    AuditPublicInput, CustomRingTransactIxData, AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN,
+    AuditPublicInput, CustomRingPublicInput, CustomRingTransactIxData, AUDIT_CIPHERTEXT_LEN,
+    COMPRESSED_P256_KEY_LEN, POLICY,
 };
-#[cfg(feature = "policy")]
-use custom_ring_interface::{PolicyPublicInput, POLICY};
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::instruction::{
@@ -12,27 +11,25 @@ use zolana_interface::instruction::{
     tag, CircuitId, MessageData,
 };
 
-#[cfg(feature = "policy")]
-use crate::instructions::{
-    loader::load_policy_config, policy_roots::load_policy_roots, policy_shared::records_owner,
-};
 use crate::{
     error::CustomRingError,
     instructions::{
-        loader::{load_config, validate_spp_program},
+        loader::{load_config, load_policy_config, validate_spp_program},
+        policy_shared::records_owner_with_bump,
+        roots::load_roots,
         shared::cpi_spp_signed,
         verifier::{verify_groth16, CompressedGroth16Proof},
     },
 };
 
-/// Verifies the auditor key-encryption proof against the recomputed public-input
-/// hash, then CPIs SPP `RING_TRANSACT` with the `ring_auth` PDA as signer.
+/// Verifies the folded ring proof against the recomputed public input, then
+/// CPIs SPP `RING_TRANSACT` with the `ring_auth` PDA as signer.
 ///
-/// Accounts: `[payer(w,s), config]` followed by SPP's own `RING_TRANSACT` list
-/// (`payer, input_tree, output_tree, spp_program, system_program, ring_config,
-/// owner signers, settlement accounts`), which is forwarded position for
-/// position with only `ring_config` (this ring's `ring_auth` PDA) gaining a
-/// signature.
+/// Accounts: `[payer(w,s), config, policy_config]` followed by SPP's own
+/// `RING_TRANSACT` list (`payer, input_tree, output_tree, spp_program,
+/// system_program, ring_config, owner signers, settlement accounts`),
+/// forwarded position for position with only `ring_config` (the ring's
+/// `ring_auth` PDA) gaining a signature.
 #[inline(never)]
 pub fn process_transact_ix(
     program_id: &Address,
@@ -42,7 +39,6 @@ pub fn process_transact_ix(
     let mut iter = AccountIterator::new(accounts);
     iter.next_signer_mut("payer")?;
     let config_account = iter.next_account("config")?;
-    #[cfg(feature = "policy")]
     let policy_config_account = iter.next_account("policy_config")?;
 
     let CustomRingTransactIxData {
@@ -51,14 +47,9 @@ pub fn process_transact_ix(
         nullifier_root_index,
         transact,
     } = wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
-    #[cfg(not(feature = "policy"))]
-    let _ = (state_root_index, nullifier_root_index);
 
     // The forwarded list is taken before the expensive work so a malformed
     // account list costs no pairing.
-    #[cfg(not(feature = "policy"))]
-    let spp_accounts = iter.remaining()?;
-    #[cfg(feature = "policy")]
     let spp_accounts = iter.remaining_mut()?;
     validate_spp_program(spp_accounts)?;
 
@@ -96,49 +87,43 @@ pub fn process_transact_ix(
         commitment: &proof.commitment,
         commitment_pok: &proof.commitment_pok,
     };
-    #[cfg(not(feature = "policy"))]
+
+    let (policy_hash, records_tree, records_bump) = {
+        let policy = load_policy_config(program_id, policy_config_account)?;
+        (policy.policy_hash, policy.records_tree, policy.records_bump)
+    };
+    // A rebuilt table hashing differently must not spend under the rules the
+    // deployed one pinned.
+    let owner = records_owner_with_bump(program_id, records_bump)?;
+    if POLICY
+        .hash(&owner.owner_hash)
+        .map_err(|_| CustomRingError::HashingFailed)?
+        != policy_hash
+    {
+        return Err(CustomRingError::PolicyHashMismatch.into());
+    }
+    // SPP's own list puts the input tree at slot 1, and records share it.
+    let tree_account = spp_accounts
+        .get_mut(1)
+        .ok_or(ProgramError::NotEnoughAccountKeys)?;
+    let roots = load_roots(
+        tree_account,
+        &records_tree,
+        state_root_index,
+        nullifier_root_index,
+    )?;
     verify_groth16(
         compressed,
-        audit.hash().map_err(|_| CustomRingError::HashingFailed)?,
-        &custom_ring_interface::audit_vk::VERIFYINGKEY,
-    )?;
-    #[cfg(feature = "policy")]
-    {
-        let (policy_hash, records_tree) = {
-            let policy = load_policy_config(program_id, policy_config_account)?;
-            (policy.policy_hash, policy.records_tree)
-        };
-        let owner = records_owner(program_id)?;
-        if POLICY
-            .hash(&owner.owner_hash)
-            .map_err(|_| CustomRingError::HashingFailed)?
-            != policy_hash
-        {
-            return Err(CustomRingError::PolicyHashMismatch.into());
+        CustomRingPublicInput {
+            audit,
+            policy_hash: &policy_hash,
+            state_root: &roots.state,
+            nullifier_root: &roots.nullifier,
         }
-        // SPP's own list puts the input tree at slot 1, and records share it.
-        let tree_account = spp_accounts
-            .get_mut(1)
-            .ok_or(ProgramError::NotEnoughAccountKeys)?;
-        let roots = load_policy_roots(
-            tree_account,
-            &records_tree,
-            state_root_index,
-            nullifier_root_index,
-        )?;
-        verify_groth16(
-            compressed,
-            PolicyPublicInput {
-                audit,
-                policy_hash: &policy_hash,
-                state_root: &roots.state,
-                nullifier_root: &roots.nullifier,
-            }
-            .hash()
-            .map_err(|_| CustomRingError::HashingFailed)?,
-            &custom_ring_interface::policy_vk::VERIFYINGKEY,
-        )?;
-    }
+        .hash()
+        .map_err(|_| CustomRingError::HashingFailed)?,
+        &custom_ring_interface::custom_ring_vk::VERIFYINGKEY,
+    )?;
 
     // Reserialized from the parsed struct rather than sliced out of `data`: the
     // proof is verified against the parsed payload, so the bytes SPP sees must be

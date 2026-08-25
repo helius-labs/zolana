@@ -26,6 +26,7 @@ use std::path::{Path, PathBuf};
 use clap::{Args, Parser, Subcommand};
 use custom_ring_sdk::{CustomRing, ReaderKey};
 use solana_address::Address;
+use std::str::FromStr;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 use thiserror::Error;
@@ -251,6 +252,9 @@ pub struct InitArgs {
     /// Only a ring RPC holding that key can ever open the ring.
     #[arg(long)]
     pub local_auditor: bool,
+    /// The tree the ring's policy records live in.
+    #[arg(long, default_value = zolana_interface::DEFAULT_TREE_ADDRESS)]
+    pub records_tree: Address,
 }
 
 #[derive(Debug, Args)]
@@ -286,6 +290,8 @@ impl Default for InitArgs {
             auditor_pubkey_file: PathBuf::from(AUDITOR_PUBKEY_FILE),
             trust_ring_rpc: false,
             local_auditor: false,
+            records_tree: Address::from_str(zolana_interface::DEFAULT_TREE_ADDRESS)
+                .expect("default tree address is valid"),
         }
     }
 }

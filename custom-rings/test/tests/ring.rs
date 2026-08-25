@@ -23,8 +23,8 @@ use anyhow::{anyhow, Context, Result};
 use custom_ring_interface::{RingProgramConfig, CONFIG_PDA_SEED, RING_PROGRAM_CONFIG};
 use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
-    auditor_view_tag, AuditedTransfer, AuditedTransferInput, CreateConfig, CustomRing,
-    InitSppRingConfig, RingDeposit, RingDepositReceipt, RingTransactWithAudit,
+    auditor_view_tag, AuditedTransfer, AuditedTransferInput, CreateConfig, CreatePolicy,
+    CustomRing, InitSppRingConfig, RingDeposit, RingDepositReceipt, RingTransactWithAudit,
     TransferProofEnvironment, V0WithLookupTable,
 };
 use shared::{custom_ring_program_id, prover_url, send, send_v0_expecting_rejection, setup};
@@ -92,7 +92,7 @@ const RECIPIENT_SLOT: u32 = 1;
 /// case tampers with.
 const AUDITOR_CIPHERTEXT_OFFSET: usize = 33;
 
-const AUDITED_RING_TRANSACT_CU_LIMIT: u64 = 486_000;
+const AUDITED_RING_TRANSACT_CU_LIMIT: u64 = 520_000;
 
 #[test]
 fn localnet_bring_up_is_live() -> Result<()> {
@@ -324,6 +324,20 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         },
         "SPP ring config"
     );
+
+    // The ring holds an empty policy table, so every transfer proves the
+    // rules-free statement against records in its own tree.
+    send(
+        rpc,
+        &env.payer,
+        &[CreatePolicy {
+            ring,
+            payer: authority,
+            authority,
+            records_tree: env.tree,
+        }
+        .instruction()],
+    )?;
 
     // 4. Two ring SOL deposits give the sender the ring-owned UTXOs the transfer
     //    spends. Their blindings come back from the deposit builder, so the spend

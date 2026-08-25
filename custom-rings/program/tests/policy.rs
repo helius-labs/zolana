@@ -1,6 +1,4 @@
-#![cfg(feature = "policy")]
-//! Negatives of the policy build. They load the policy artifact, whose transact
-//! wire and account prefix differ from the audit-only one.
+//! Negatives specific to the policy config and its transact accounts.
 
 mod common;
 

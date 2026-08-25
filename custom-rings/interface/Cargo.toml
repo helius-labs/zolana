@@ -9,10 +9,10 @@ publish = false
 [features]
 default = ["verifying-keys"]
 verifying-keys = ["dep:groth16-solana"]
-policy = ["dep:zolana-ring-policy"]
-allowlist = ["policy"]
-blocklist = ["policy"]
-freeze = ["policy"]
+# Rule features only add rows to the compiled policy table.
+allowlist = []
+blocklist = []
+freeze = []
 
 [dependencies]
 # Required for Pod on the compressed auditor key.
@@ -20,6 +20,6 @@ bytemuck = { workspace = true, features = ["min_const_generics"] }
 groth16-solana = { workspace = true, optional = true }
 solana-address = { workspace = true, features = ["bytemuck"] }
 wincode = { workspace = true }
-zolana-ring-policy = { workspace = true, optional = true }
+zolana-ring-policy = { workspace = true }
 zolana-hasher = { workspace = true, features = ["poseidon", "sha256"] }
 zolana-interface = { workspace = true }

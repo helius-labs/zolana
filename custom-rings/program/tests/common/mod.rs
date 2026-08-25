@@ -1,3 +1,6 @@
+//! Shared mollusk fixtures, each test binary uses a subset.
+#![allow(dead_code)]
+
 use custom_ring_interface::{
     tag, CreateConfigIxData, ReadAccessRecord, ReaderKeyBytes, RingProgramConfig, CONFIG_PDA_SEED,
     READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED,
@@ -66,7 +69,6 @@ impl Fixture {
     }
 
     /// Appends to the instruction data, negatives use it for trailing bytes.
-    #[cfg(feature = "policy")]
     pub fn push_data(&mut self, byte: u8) {
         self.instruction.data.push(byte);
     }
@@ -249,7 +251,6 @@ pub fn auditor_pubkey(prefix: u8) -> [u8; 33] {
     key
 }
 
-#[cfg(feature = "policy")]
 pub fn policy_config_pda() -> (Pubkey, u8) {
     Pubkey::find_program_address(
         &[custom_ring_interface::POLICY_CONFIG_PDA_SEED],
@@ -257,7 +258,6 @@ pub fn policy_config_pda() -> (Pubkey, u8) {
     )
 }
 
-#[cfg(feature = "policy")]
 pub fn records_pda() -> (Pubkey, u8) {
     Pubkey::find_program_address(
         &[zolana_ring_policy::POLICY_RECORDS_PDA_SEED],
@@ -266,7 +266,6 @@ pub fn records_pda() -> (Pubkey, u8) {
 }
 
 /// Carries the deployed table's hash, so a fixture reaches the proof.
-#[cfg(feature = "policy")]
 pub fn initialized_policy_config_account() -> Account {
     let owner =
         zolana_ring_policy::RecordsOwner::new(&records_pda().0.to_bytes()).expect("records owner");
@@ -290,12 +289,10 @@ pub fn initialized_policy_config_account() -> Account {
 
 /// The tree records live in. Its bytes need only satisfy the owner and
 /// discriminator checks, no fixture here reads a root.
-#[cfg(feature = "policy")]
 pub fn records_tree() -> Pubkey {
     Pubkey::new_from_array([41; 32])
 }
 
-#[cfg(feature = "policy")]
 pub fn records_tree_account() -> Account {
     Account {
         lamports: 1_000_000_000,
@@ -306,9 +303,29 @@ pub fn records_tree_account() -> Account {
     }
 }
 
+/// A real SPP tree at the records address, so the transact path reaches proof
+/// verification.
+pub fn initialized_records_tree_account() -> Account {
+    let mut data = vec![0u8; zolana_tree::TreeAccount::account_size()];
+    zolana_tree::TreeAccount::init(
+        &mut data,
+        zolana_interface::state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
+        zolana_tree::UTXO_TREE_HEIGHT as u8,
+        records_tree().to_bytes(),
+        zolana_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccountsInstructionData::default(),
+    )
+    .expect("initialize records tree");
+    Account {
+        lamports: 1_000_000_000,
+        data,
+        owner: Pubkey::new_from_array(zolana_interface::SHIELDED_POOL_PROGRAM_ID),
+        executable: false,
+        rent_epoch: 0,
+    }
+}
+
 /// Green `create_policy` fixture, `[payer(w,s), authority(s), policy_config(w),
 /// records_tree, system_program, program, program_data]`.
-#[cfg(feature = "policy")]
 pub fn create_policy_fixture() -> Fixture {
     Fixture::new(
         vec![custom_ring_interface::tag::CREATE_POLICY],
@@ -346,19 +363,6 @@ pub fn create_policy_fixture() -> Fixture {
             },
         ],
     )
-}
-
-/// The policy artifact, whose transact wire and prefix differ from the
-/// audit-only build.
-#[cfg(feature = "policy")]
-pub fn setup_policy_mollusk() -> (Mollusk, Pubkey) {
-    let (mut mollusk, program_id) = zolana_test_utils::mollusk::mollusk_with_program(
-        &sbf_dir(),
-        *program_id().as_array(),
-        "custom_ring_program_policy",
-    );
-    mollusk.compute_budget.compute_unit_limit = 1_400_000;
-    (mollusk, program_id)
 }
 
 /// An initialized config account as this program would have written it.
@@ -517,7 +521,6 @@ pub fn transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
                 meta: AccountMeta::new_readonly(config_pda().0, false),
                 account: config,
             },
-            #[cfg(feature = "policy")]
             Slot {
                 label: "policy_config",
                 meta: AccountMeta::new_readonly(policy_config_pda().0, false),
@@ -530,8 +533,8 @@ pub fn transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
             },
             Slot {
                 label: "input_tree",
-                meta: AccountMeta::new(Pubkey::new_from_array([41; 32]), false),
-                account: account(1_000_000_000),
+                meta: AccountMeta::new(records_tree(), false),
+                account: initialized_records_tree_account(),
             },
             Slot {
                 label: "output_tree",

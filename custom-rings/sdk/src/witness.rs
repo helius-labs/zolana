@@ -19,7 +19,7 @@ use zolana_tree::TreeAccount;
 use crate::{
     instructions::record::read_record,
     instructions::transact::{
-        PolicyOpening, PolicyPoolEntry, NULLIFIER_PATH_LEN, POLICY_INPUT_SLOTS,
+        CustomRingOpening, CustomRingPoolEntry, NULLIFIER_PATH_LEN, POLICY_INPUT_SLOTS,
         POLICY_OUTPUT_SLOTS, POLICY_POOL_SLOTS, STATE_PATH_LEN,
     },
     TransferError,
@@ -27,28 +27,28 @@ use crate::{
 
 /// Roots the statement binds, with the history entries they were read from.
 #[derive(Clone, Copy, Debug)]
-pub struct PolicyRoots {
+pub struct TransactRoots {
     pub state: [u8; 32],
     pub state_index: u16,
     pub nullifier: [u8; 32],
     pub nullifier_index: u16,
 }
 
-pub struct PolicyWitness {
-    pub roots: PolicyRoots,
+pub struct CustomRingWitness {
+    pub roots: TransactRoots,
     pub records_owner_hash: [u8; 32],
-    pub inputs: [PolicyOpening; POLICY_INPUT_SLOTS],
-    pub outputs: [PolicyOpening; POLICY_OUTPUT_SLOTS],
+    pub inputs: [CustomRingOpening; POLICY_INPUT_SLOTS],
+    pub outputs: [CustomRingOpening; POLICY_OUTPUT_SLOTS],
     pub n_in: u8,
     pub n_out: u8,
     pub rules: [[u8; 32]; MAX_RULES],
     pub policy_len: u8,
     pub inline_assets: [[u8; 32]; MAX_INLINE_ASSETS],
     pub inline_count: u8,
-    pub pool: Vec<PolicyPoolEntry>,
+    pub pool: Vec<CustomRingPoolEntry>,
 }
 
-pub struct PolicyWitnessInput<'a> {
+pub struct CustomRingWitnessInput<'a> {
     pub policy: &'a Policy,
     pub records: Address,
     pub records_tree: Address,
@@ -56,12 +56,12 @@ pub struct PolicyWitnessInput<'a> {
     pub outputs: &'a [SppProofOutputUtxo],
 }
 
-impl PolicyWitnessInput<'_> {
+impl CustomRingWitnessInput<'_> {
     pub fn build<I: Rpc, R: Rpc>(
         self,
         indexer: &I,
         rpc: &R,
-    ) -> Result<PolicyWitness, TransferError> {
+    ) -> Result<CustomRingWitness, TransferError> {
         if self.inputs.len() > POLICY_INPUT_SLOTS || self.outputs.len() > POLICY_OUTPUT_SLOTS {
             return Err(TransferError::PolicyShapeUnsupported);
         }
@@ -69,18 +69,18 @@ impl PolicyWitnessInput<'_> {
             RecordsOwner::new(self.records.as_array()).map_err(|_| TransferError::PolicyHashing)?;
         let roots = read_roots(rpc, self.records_tree)?;
 
-        let mut inputs = [PolicyOpening::default(); POLICY_INPUT_SLOTS];
+        let mut inputs = [CustomRingOpening::default(); POLICY_INPUT_SLOTS];
         for (slot, spend) in inputs.iter_mut().zip(self.inputs) {
             *slot = input_opening(spend)?;
         }
-        let mut outputs = [PolicyOpening::default(); POLICY_OUTPUT_SLOTS];
+        let mut outputs = [CustomRingOpening::default(); POLICY_OUTPUT_SLOTS];
         for (slot, output) in outputs.iter_mut().zip(self.outputs) {
             *slot = output_opening(output)?;
         }
 
         let (rules, inline_assets, inline_count) = encode_table(self.policy);
         let pool = self.build_pool(indexer, &owner)?;
-        Ok(PolicyWitness {
+        Ok(CustomRingWitness {
             roots,
             records_owner_hash: owner.owner_hash,
             inputs,
@@ -100,8 +100,8 @@ impl PolicyWitnessInput<'_> {
         &self,
         indexer: &I,
         owner: &RecordsOwner,
-    ) -> Result<Vec<PolicyPoolEntry>, TransferError> {
-        let mut pool: Vec<PolicyPoolEntry> = Vec::new();
+    ) -> Result<Vec<CustomRingPoolEntry>, TransferError> {
+        let mut pool: Vec<CustomRingPoolEntry> = Vec::new();
         for rule in self.policy.rules() {
             let RuleSource::Records(kind) = rule.source else {
                 continue;
@@ -120,7 +120,7 @@ impl PolicyWitnessInput<'_> {
         if pool.len() > POLICY_POOL_SLOTS {
             return Err(TransferError::PolicyShapeUnsupported);
         }
-        pool.resize_with(POLICY_POOL_SLOTS, PolicyPoolEntry::default);
+        pool.resize_with(POLICY_POOL_SLOTS, CustomRingPoolEntry::default);
         Ok(pool)
     }
 
@@ -154,18 +154,18 @@ impl PolicyWitnessInput<'_> {
         kind: RecordKind,
         member: &PolicyMember,
         mode: Mode,
-    ) -> Result<PolicyPoolEntry, TransferError> {
+    ) -> Result<CustomRingPoolEntry, TransferError> {
         let address = owner
             .address(kind, member)
             .map_err(|_| TransferError::PolicyHashing)?;
         let live = read_record(indexer, self.records, kind, member)
             .map_err(|error| TransferError::PolicyRecord(Box::new(error)))?;
-        let mut entry = PolicyPoolEntry {
+        let mut entry = CustomRingPoolEntry {
             enabled: true,
             mode: mode as u8,
             kind: kind as u8,
             member: *member.as_bytes(),
-            ..PolicyPoolEntry::default()
+            ..CustomRingPoolEntry::default()
         };
         match live {
             // A never claimed address proves absence by its own non-inclusion.
@@ -208,11 +208,11 @@ impl PolicyWitnessInput<'_> {
     }
 }
 
-fn input_opening(spend: &SppProofInputUtxo) -> Result<PolicyOpening, TransferError> {
+fn input_opening(spend: &SppProofInputUtxo) -> Result<CustomRingOpening, TransferError> {
     if spend.is_dummy() {
-        return Ok(PolicyOpening {
+        return Ok(CustomRingOpening {
             domain: right_align(&DUMMY_DOMAIN.to_be_bytes()),
-            ..PolicyOpening::default()
+            ..CustomRingOpening::default()
         });
     }
     let tag = spend
@@ -220,7 +220,7 @@ fn input_opening(spend: &SppProofInputUtxo) -> Result<PolicyOpening, TransferErr
         .owner
         .confidential_view_tag()
         .map_err(|_| TransferError::PolicyHashing)?;
-    Ok(PolicyOpening {
+    Ok(CustomRingOpening {
         domain: right_align(&UTXO_DOMAIN.to_be_bytes()),
         owner_pk_hash: hash_bytes(&tag).map_err(|_| TransferError::PolicyHashing)?,
         nullifier_pk: spend
@@ -236,17 +236,17 @@ fn input_opening(spend: &SppProofInputUtxo) -> Result<PolicyOpening, TransferErr
     })
 }
 
-fn output_opening(output: &SppProofOutputUtxo) -> Result<PolicyOpening, TransferError> {
+fn output_opening(output: &SppProofOutputUtxo) -> Result<CustomRingOpening, TransferError> {
     let Some(address) = output.owner_address.as_ref() else {
-        return Ok(PolicyOpening {
+        return Ok(CustomRingOpening {
             domain: right_align(&DUMMY_DOMAIN.to_be_bytes()),
-            ..PolicyOpening::default()
+            ..CustomRingOpening::default()
         });
     };
     let tag = address
         .confidential_view_tag()
         .map_err(|_| TransferError::PolicyHashing)?;
-    Ok(PolicyOpening {
+    Ok(CustomRingOpening {
         domain: right_align(&UTXO_DOMAIN.to_be_bytes()),
         owner_pk_hash: hash_bytes(&tag).map_err(|_| TransferError::PolicyHashing)?,
         nullifier_pk: address.nullifier_pubkey,
@@ -335,7 +335,7 @@ fn non_inclusion<I: Rpc>(
     })
 }
 
-fn read_roots<R: Rpc>(rpc: &R, tree: Address) -> Result<PolicyRoots, TransferError> {
+fn read_roots<R: Rpc>(rpc: &R, tree: Address) -> Result<TransactRoots, TransferError> {
     let mut account = rpc
         .get_account(tree)?
         .ok_or(TransferError::MissingTree)?
@@ -351,7 +351,7 @@ fn read_roots<R: Rpc>(rpc: &R, tree: Address) -> Result<PolicyRoots, TransferErr
     let state = tree_account.get_utxo_tree_root(state_index)?;
     let nullifier_index = tree_account.nullifer_tree().get_root_index() as u16;
     let nullifier = tree_account.get_nullifier_tree_root(nullifier_index)?;
-    Ok(PolicyRoots {
+    Ok(TransactRoots {
         state,
         state_index,
         nullifier,

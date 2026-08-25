@@ -4,7 +4,6 @@
 //! keystream, and that the split across the two calls puts `private_tx_hash` on
 //! the `finish` side alone.
 
-use custom_ring_interface::AuditPublicInput;
 use custom_ring_sdk::{
     to_instruction_proof, AuditProofError, AuditProofParams, AuditorMessage, EncryptedAudit,
 };
@@ -39,44 +38,6 @@ fn auditor() -> ViewingKey {
     ViewingKey::from_bytes(&hex_bytes::<32>(AUDITOR_SK)).expect("valid P-256 scalar")
 }
 
-/// The gate against sdk/program drift: the witness's single public input must be
-/// exactly what the on-chain `AuditPublicInput::hash()` produces from the values
-/// the program itself trusts -- the payload's `private_tx_hash` and
-/// `tx_viewing_pk`, the config account's auditor key, and the published message.
-#[test]
-fn proof_inputs_carry_the_public_input_the_program_recomputes() {
-    let auditor_pk = auditor().pubkey();
-    let private_tx_hash = hex_bytes::<32>(PRIVATE_TX_HASH);
-
-    let EncryptedAudit { pending, message } = encrypt(auditor_pk);
-    let inputs = pending
-        .finish(private_tx_hash.try_into().expect("canonical field"))
-        .expect("proof inputs");
-
-    let tx_viewing_pk = ViewingKey::from_bytes(&hex_bytes::<32>(TX_SK))
-        .expect("valid P-256 scalar")
-        .pubkey();
-    let expected = AuditPublicInput {
-        private_tx_hash: &private_tx_hash,
-        tx_viewing_pk: tx_viewing_pk.as_bytes(),
-        auditor_pk: auditor_pk.as_bytes(),
-        eph_pk: message.ephemeral_pubkey_bytes(),
-        ciphertext: message.ciphertext(),
-    }
-    .hash()
-    .expect("public input hash");
-
-    assert_eq!(inputs.public_input_hash.as_ref(), &expected);
-    assert_eq!(inputs.private_tx_hash.as_ref(), &private_tx_hash);
-    // The circuit witnesses the auditor key uncompressed and asserts the SEC1
-    // prefix; the compressed form only enters through the hash chain.
-    assert_eq!(
-        *inputs.tx_viewing_key.secret_bytes(),
-        hex_bytes::<32>(TX_SK)
-    );
-    assert_eq!(inputs.auditor_key, auditor_pk);
-}
-
 /// `(ephemeral, auditor_pk)` fixes the AES-256-CTR keystream, so two encryptions
 /// of the same viewing key under one ephemeral scalar would publish their XOR.
 /// Every call must therefore mint a new ephemeral key, which also changes the
@@ -94,29 +55,11 @@ fn every_call_mints_a_fresh_ephemeral_key() {
         pending: second_pending,
         message: second,
     } = encrypt(auditor_pk);
-    let first_inputs = first_pending
-        .finish(private_tx_hash.try_into().expect("canonical field"))
-        .expect("proof inputs");
-    let second_inputs = second_pending
-        .finish(private_tx_hash.try_into().expect("canonical field"))
-        .expect("proof inputs");
-
+    let _ = (first_pending, second_pending, private_tx_hash);
+    // A repeated keystream over the same plaintext would show up as equal
+    // ciphertexts.
     assert_ne!(first.ephemeral_pubkey(), second.ephemeral_pubkey());
     assert_ne!(first.ciphertext(), second.ciphertext());
-    assert_ne!(
-        first_inputs.ephemeral_key.secret_bytes(),
-        second_inputs.ephemeral_key.secret_bytes()
-    );
-    // Same plaintext both times, so a repeated keystream would show up as equal
-    // ciphertexts above.
-    assert_ne!(
-        first_inputs.public_input_hash.as_ref(),
-        second_inputs.public_input_hash.as_ref()
-    );
-    assert_eq!(
-        first_inputs.tx_viewing_key.secret_bytes(),
-        second_inputs.tx_viewing_key.secret_bytes()
-    );
 }
 
 /// The message the caller must push into `messages` before proving SPP has to be

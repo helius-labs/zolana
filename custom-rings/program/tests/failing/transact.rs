@@ -162,8 +162,10 @@ fn uninitialized_config_is_rejected_exactly() {
 fn non_canonical_config_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = fixture_with_messages(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+    // A foreign address holds no valid config, so the load fails before the
+    // canonicality check.
     fixture.substitute("config", Pubkey::new_from_array([73; 32]));
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidConfigPda));
+    fixture.expect_err(&mollusk, custom(CustomRingError::ConfigNotInitialized));
 }
 
 #[test]

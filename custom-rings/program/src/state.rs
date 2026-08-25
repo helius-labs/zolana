@@ -1,5 +1,4 @@
 use bytemuck::{from_bytes_mut, Pod};
-#[cfg(feature = "policy")]
 use custom_ring_interface::{PolicyConfig, POLICY_CONFIG};
 use custom_ring_interface::{
     ReadAccessRecord, ReaderKeyBytes, RingProgramConfig, READER_KEY_ED25519, READER_KEY_P256,
@@ -128,7 +127,6 @@ impl ReadAccessRecordInitParams {
     }
 }
 
-#[cfg(feature = "policy")]
 impl Account for PolicyConfig {
     const DISCRIMINATOR: u8 = POLICY_CONFIG;
     const NOT_INITIALIZED: CustomRingError = CustomRingError::PolicyConfigNotInitialized;
@@ -140,7 +138,6 @@ impl Account for PolicyConfig {
     }
 }
 
-#[cfg(feature = "policy")]
 pub(crate) struct PolicyConfigInitParams {
     pub policy_hash: [u8; 32],
     pub records_tree: Address,
@@ -148,7 +145,6 @@ pub(crate) struct PolicyConfigInitParams {
     pub bump: u8,
 }
 
-#[cfg(feature = "policy")]
 impl PolicyConfigInitParams {
     #[inline(always)]
     pub fn init(self, account: &mut AccountView) -> ProgramResult {
@@ -169,7 +165,6 @@ mod sealed {
     pub trait Sealed {}
     impl Sealed for super::RingProgramConfig {}
     impl Sealed for super::ReadAccessRecord {}
-    #[cfg(feature = "policy")]
     impl Sealed for super::PolicyConfig {}
 }
 

@@ -11,7 +11,7 @@ use crate::error::CustomRingError;
 /// record current.
 pub const NULLIFIER_ROOT_WINDOW: u32 = 8;
 
-pub struct PolicyRoots {
+pub struct TransactRoots {
     pub state: [u8; 32],
     pub nullifier: [u8; 32],
 }
@@ -19,12 +19,12 @@ pub struct PolicyRoots {
 /// Any live state root is admissible, inclusion is monotone, while a nullifier
 /// root older than [`NULLIFIER_ROOT_WINDOW`] misses a retirement the absence
 /// proof must see.
-pub fn load_policy_roots(
+pub fn load_roots(
     tree_account: &mut AccountView,
     records_tree: &Address,
     state_root_index: u16,
     nullifier_root_index: u16,
-) -> Result<PolicyRoots, CustomRingError> {
+) -> Result<TransactRoots, CustomRingError> {
     if tree_account.address() != records_tree {
         return Err(CustomRingError::InvalidRecordsTree);
     }
@@ -42,7 +42,7 @@ pub fn load_policy_roots(
     if !within_window(u32::from(nullifier_root_index), cursor) {
         return Err(CustomRingError::StalePolicyRoot);
     }
-    Ok(PolicyRoots { state, nullifier })
+    Ok(TransactRoots { state, nullifier })
 }
 
 fn within_window(index: u32, cursor: u32) -> bool {

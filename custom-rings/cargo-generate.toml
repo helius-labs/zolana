@@ -7,6 +7,5 @@ ignore = [
     "client",
     "interface",
     "README.md",
-    "custom-ring-keys.CHECKSUM",
 ]
 exclude = ["**/*"]

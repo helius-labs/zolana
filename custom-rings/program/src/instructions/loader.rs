@@ -1,5 +1,4 @@
 use bytemuck::from_bytes;
-#[cfg(feature = "policy")]
 use custom_ring_interface::PolicyConfig;
 use custom_ring_interface::{ReadAccessRecord, ReaderKeyBytes, RingProgramConfig};
 use pinocchio::{account::Ref, error::ProgramError, AccountView, Address};
@@ -14,17 +13,14 @@ pub fn load_config<'a>(
     program_id: &Address,
     account: &'a AccountView,
 ) -> Result<Ref<'a, RingProgramConfig>, ProgramError> {
-    let bump = PdaCheck {
+    let config = load_account::<RingProgramConfig>(program_id, account)?;
+    PdaCheck {
         program_id,
         address: account.address(),
         seeds: &[RingProgramConfig::SEED],
         mismatch: CustomRingError::InvalidConfigPda,
     }
-    .verify()?;
-    let config = load_account::<RingProgramConfig>(program_id, account)?;
-    if config.bump != bump {
-        return Err(CustomRingError::InvalidConfigPda.into());
-    }
+    .verify_stored_bump(config.bump)?;
     Ok(config)
 }
 
@@ -41,23 +37,19 @@ pub fn load_authorized_config<'a>(
     Ok(config)
 }
 
-#[cfg(feature = "policy")]
 #[inline(always)]
 pub fn load_policy_config<'a>(
     program_id: &Address,
     account: &'a AccountView,
 ) -> Result<Ref<'a, PolicyConfig>, ProgramError> {
-    let bump = PdaCheck {
+    let config = load_account::<PolicyConfig>(program_id, account)?;
+    PdaCheck {
         program_id,
         address: account.address(),
         seeds: &[PolicyConfig::SEED],
         mismatch: CustomRingError::InvalidPolicyConfigPda,
     }
-    .verify()?;
-    let config = load_account::<PolicyConfig>(program_id, account)?;
-    if config.bump != bump {
-        return Err(CustomRingError::InvalidPolicyConfigPda.into());
-    }
+    .verify_stored_bump(config.bump)?;
     Ok(config)
 }
 

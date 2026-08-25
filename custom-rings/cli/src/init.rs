@@ -2,8 +2,9 @@ use std::path::{Path, PathBuf};
 
 use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
-    AccountReadError, CreateConfig, CreateConfigError, CustomRing, InitSppRingConfig,
-    CREATE_CONFIG_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
+    AccountReadError, CreateConfig, CreateConfigError, CreatePolicy, CustomRing, InitSppRingConfig,
+    CREATE_CONFIG_COMPUTE_UNIT_LIMIT, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
+    INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
 use solana_signer::Signer;
@@ -33,11 +34,13 @@ pub struct Init<'a> {
     pub ring: CustomRing,
     pub authority: &'a dyn Signer,
     pub auditor_pk: P256Pubkey,
+    pub records_tree: Address,
 }
 
 pub struct InitOutcome {
     pub config: StepOutcome,
     pub ring: StepOutcome,
+    pub policy: StepOutcome,
 }
 
 #[derive(Debug, Error)]
@@ -105,6 +108,7 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
         ring: ctx.ring,
         authority: &authority,
         auditor_pk,
+        records_tree: args.records_tree,
     }
     .run(&ctx.rpc)?;
     line("config", outcome.config.label());
@@ -115,6 +119,7 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
             other => other.label(),
         },
     );
+    line("policy", outcome.policy.label());
     if matches!(outcome.ring, StepOutcome::Created | StepOutcome::Present) {
         crate::status::announce(&ctx.config);
     }
@@ -183,7 +188,28 @@ impl Init<'_> {
             }
             .instruction(),
         )?;
-        Ok(InitOutcome { config, ring })
+        let policy = IdempotentStep {
+            rpc,
+            authority: self.authority,
+            name: "create_policy",
+            compute_unit_limit: CREATE_POLICY_COMPUTE_UNIT_LIMIT,
+            hint,
+        }
+        .ensure_present(
+            Observed::of(&self.ring.read_policy_config(rpc)?),
+            CreatePolicy {
+                ring: self.ring,
+                payer,
+                authority: payer,
+                records_tree: self.records_tree,
+            }
+            .instruction(),
+        )?;
+        Ok(InitOutcome {
+            config,
+            ring,
+            policy,
+        })
     }
 }
 

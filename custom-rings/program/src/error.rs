@@ -67,8 +67,7 @@ pub enum CustomRingError {
     InvalidRecordKind = 8126,
     #[error("record state is unknown")]
     InvalidRecordState = 8127,
-    #[error("compiled policy has no rules")]
-    EmptyPolicy = 8128,
+    // 8128 retired, an empty policy table is valid.
     #[error("record mutations must use the default tree")]
     InvalidPolicyTree = 8129,
     #[error("record version overflows")]

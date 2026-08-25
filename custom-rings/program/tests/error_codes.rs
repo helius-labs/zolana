@@ -31,7 +31,6 @@ fn error_codes_are_stable() {
         (UnauthorizedRecordSigner as u32, 8125),
         (InvalidRecordKind as u32, 8126),
         (InvalidRecordState as u32, 8127),
-        (EmptyPolicy as u32, 8128),
         (InvalidPolicyTree as u32, 8129),
         (RecordVersionOverflow as u32, 8130),
         (InvalidRecordsPda as u32, 8131),
@@ -75,7 +74,6 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | UnauthorizedRecordSigner
         | InvalidRecordKind
         | InvalidRecordState
-        | EmptyPolicy
         | InvalidPolicyTree
         | RecordVersionOverflow
         | InvalidRecordsPda

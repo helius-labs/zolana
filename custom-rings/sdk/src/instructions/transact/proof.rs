@@ -30,7 +30,7 @@ use zeroize::Zeroizing;
 use zolana_client::{ClientError, Proof, ProofCompressed};
 use zolana_keypair::{KeypairError, P256Pubkey, ViewingKey};
 
-use super::request::{AuditPrivateTxHash, AuditProofRequest, AuditPublicInputHash};
+use super::request::AuditPrivateTxHash;
 
 use zolana_ring_client::{AuditEncryptionError, AuditorEncryption, AuditorMessage};
 
@@ -133,66 +133,16 @@ impl AuditProofParams {
 }
 
 /// An encryption waiting for the `private_tx_hash` it will be bound to.
-///
-/// Holds every value the audit proof is already committed to -- the plaintext,
-/// the ephemeral scalar the circuit witnesses, both encodings of the auditor key,
-/// and the published ciphertext -- so that [`Self::finish`] adds nothing but the
-/// public-input hash.
 impl PendingAuditProof {
-    /// Binds the encryption to the `private_tx_hash` of the SPP proof that
-    /// published its message, yielding the circuit inputs.
-    ///
-    /// `public_input_hash` is produced by the program's own
-    /// [`AuditPublicInput::hash`], the single canonical implementation of the
-    /// pinned eight-element chain: the sdk cannot drift from what the program
-    /// recomputes on-chain because it calls the same code.
-    ///
-    /// Borrowing rather than consuming: unlike [`AuditProofParams::encrypt`] this
-    /// derives no key material and touches no keystream, so a second call is not a
-    /// reuse hazard -- it only rehashes the already published ciphertext under a
-    /// different `private_tx_hash`, and only the hash of the SPP proof that
-    /// actually carries this message yields a witness the program accepts.
+    /// The public input recomputed from `CustomRingPublicInput`, the one
+    /// implementation the program calls on-chain, so a folded request cannot
+    /// drift from what verification recomputes.
     pub fn finish(
         self,
         private_tx_hash: AuditPrivateTxHash,
-    ) -> Result<AuditProofRequest, AuditProofInputError> {
-        let Self {
-            tx_viewing_key,
-            tx_viewing_pk,
-            auditor_pk,
-            ephemeral_sk,
-            message,
-        } = self;
-        let public_input_hash = AuditPublicInput {
-            private_tx_hash: private_tx_hash.as_ref(),
-            tx_viewing_pk: tx_viewing_pk.as_bytes(),
-            auditor_pk: auditor_pk.as_bytes(),
-            eph_pk: message.ephemeral_pubkey_bytes(),
-            ciphertext: message.ciphertext(),
-        }
-        .hash()
-        .map_err(|_| AuditProofInputError::Hashing)?;
-
-        Ok(AuditProofRequest {
-            public_input_hash: AuditPublicInputHash::try_from(public_input_hash)?,
-            private_tx_hash,
-            tx_viewing_key,
-            ephemeral_key: ViewingKey::from_bytes(&ephemeral_sk)?,
-            auditor_key: auditor_pk,
-        })
-    }
-}
-
-#[cfg(feature = "policy")]
-impl PendingAuditProof {
-    /// The ring statement over the same ciphertext, with the policy half of the
-    /// witness supplied by the caller.
-    pub fn finish_policy(
-        self,
-        private_tx_hash: AuditPrivateTxHash,
-        witness: crate::policy_witness::PolicyWitness,
+        witness: crate::witness::CustomRingWitness,
         policy_hash: &[u8; 32],
-    ) -> Result<crate::instructions::transact::PolicyProofRequest, AuditProofInputError> {
+    ) -> Result<crate::instructions::transact::CustomRingProofRequest, AuditProofInputError> {
         let Self {
             tx_viewing_key,
             tx_viewing_pk,
@@ -200,7 +150,7 @@ impl PendingAuditProof {
             ephemeral_sk,
             message,
         } = self;
-        let public_input_hash = custom_ring_interface::PolicyPublicInput {
+        let public_input_hash = custom_ring_interface::CustomRingPublicInput {
             audit: AuditPublicInput {
                 private_tx_hash: private_tx_hash.as_ref(),
                 tx_viewing_pk: tx_viewing_pk.as_bytes(),
@@ -215,7 +165,7 @@ impl PendingAuditProof {
         .hash()
         .map_err(|_| AuditProofInputError::Hashing)?;
 
-        Ok(crate::instructions::transact::PolicyProofRequest {
+        Ok(crate::instructions::transact::CustomRingProofRequest {
             public_input_hash,
             private_tx_hash: *private_tx_hash.as_ref(),
             tx_viewing_key,
