@@ -3,7 +3,7 @@ mod common;
 use common::{
     build_unified_transfer, keypair_from_index, unique31, unique_nullifier, UnifiedTransferSpec,
 };
-use zolana_transaction::{Address, AssetRegistry, LocalWalletAuthority, Wallet};
+use zolana_transaction::{Address, AssetRegistry, KeypairWalletAuthority, Wallet};
 
 const WINDOW: u64 = 8;
 
@@ -27,7 +27,7 @@ fn sync_stores_unified_change_and_recipient_utxos() {
         },
     );
 
-    let alice_authority = LocalWalletAuthority::new(Address::default(), &alice);
+    let alice_authority = KeypairWalletAuthority::new(Address::default(), &alice);
     let mut alice_wallet = Wallet::new(alice.shielded_address().unwrap(), assets.clone()).unwrap();
     alice_wallet
         .sync(&alice_authority, std::slice::from_ref(&tx), 1, WINDOW)
@@ -41,7 +41,7 @@ fn sync_stores_unified_change_and_recipient_utxos() {
         vec![change_utxo]
     );
 
-    let bob_authority = LocalWalletAuthority::new(Address::default(), &bob);
+    let bob_authority = KeypairWalletAuthority::new(Address::default(), &bob);
     let mut bob_wallet = Wallet::new(bob.shielded_address().unwrap(), assets).unwrap();
     bob_wallet
         .sync(&bob_authority, std::slice::from_ref(&tx), 1, WINDOW)

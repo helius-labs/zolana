@@ -28,7 +28,7 @@ use zolana_interface::{
 };
 use zolana_program_test::RING_TEST_PROGRAM_ID;
 use zolana_transaction::{
-    serialization::confidential::Confidential, LocalWalletAuthority, ShieldedTransaction, Utxo,
+    serialization::confidential::Confidential, KeypairWalletAuthority, ShieldedTransaction, Utxo,
     WalletUtxo, DEFAULT_TAG_WINDOW,
 };
 
@@ -164,7 +164,7 @@ impl RingHarness {
         self.ensure_fresh_actor(name)?;
         let indexed = self.indexed.clone();
         let actor = self.actor_mut(name);
-        let authority = LocalWalletAuthority::new(Address::default(), &actor.keypair);
+        let authority = KeypairWalletAuthority::new(Address::default(), &actor.keypair);
         actor
             .wallet
             .sync(&authority, &indexed, 0, DEFAULT_TAG_WINDOW)?;

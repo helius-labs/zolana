@@ -222,6 +222,13 @@ fn domain_separation_tags_are_pairwise_distinct() {
 }
 
 #[test]
+fn role_expansion_from_a_device_seed_matches_the_software_path() {
+    cases::derivation::expand_roles_matches_the_software_constructor();
+    cases::derivation::expand_roles_rejects_a_seed_of_the_wrong_width();
+    cases::derivation::expand_roles_rejects_the_pda_curve();
+}
+
+#[test]
 fn offchain_derivation_message_is_pinned_and_detected() {
     cases::derivation::application_domain_is_payload_hash();
     cases::derivation::offchain_derivation_message_golden();

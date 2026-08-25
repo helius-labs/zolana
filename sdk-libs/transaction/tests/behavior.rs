@@ -89,6 +89,16 @@ fn merge_recovery_derivations_match_circuit_vectors() {
 }
 
 #[test]
+fn a_remote_keypair_backend_is_a_wallet_authority() {
+    cases::remote_authority::remote_backend_publishes_the_same_identity();
+    cases::remote_authority::remote_backend_signs_through_the_trait();
+    cases::remote_authority::remote_backend_encrypts_with_the_same_transaction_key();
+    cases::remote_authority::historical_viewing_keys_are_carried_through();
+    cases::remote_authority::viewing_keys_must_contain_the_keypairs_own();
+    cases::remote_authority::remote_backend_refuses_derivation_shaped_payloads();
+}
+
+#[test]
 fn plaintext_transfers_are_canonical_and_indexed_by_owner() {
     let mut world = TransactionWorld::default();
     add_keypairs(&mut world, &["alice", "bob", "carol"]);

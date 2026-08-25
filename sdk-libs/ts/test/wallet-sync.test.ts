@@ -8,7 +8,7 @@ import { SHIELDED_POOL_PROGRAM_ID, type Bytes16, type Bytes32 } from "../src/int
 import { StateDiscriminator } from "../src/interface/state.js";
 import {
   Data,
-  LocalWalletAuthority,
+  KeypairWalletAuthority,
   SOL_MINT,
   Utxo,
   Wallet,
@@ -53,7 +53,7 @@ describe("wallet sync", () => {
 
     const report = await syncWallet({
       wallet,
-      authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
       client,
     });
 
@@ -86,7 +86,7 @@ describe("wallet sync", () => {
       })),
       getShieldedTransactionsByNullifiers: vi.fn(),
     } as unknown as ZolanaClient;
-    const authority = new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair });
+    const authority = new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair });
 
     await syncWallet({ wallet, authority, client });
     const calls = () =>
@@ -123,7 +123,7 @@ describe("wallet sync", () => {
 
     await syncWallet({
       wallet,
-      authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
       client,
     });
 
@@ -221,7 +221,7 @@ describe("wallet sync", () => {
 
     const report = await syncWallet({
       wallet,
-      authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
       client,
     });
 
@@ -267,7 +267,7 @@ describe("wallet sync", () => {
 
     const report = await decryptTransactions({
       wallet,
-      authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
       transactions: [
         {
           slot: 1n,
@@ -426,7 +426,7 @@ describe("wallet sync", () => {
 
     await syncWallet({
       wallet,
-      authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
       client,
     });
 
@@ -491,7 +491,7 @@ describe("wallet sync", () => {
 
     await syncWallet({
       wallet,
-      authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
       client,
     });
 
@@ -546,7 +546,7 @@ describe("wallet sync", () => {
       })),
       getShieldedTransactionsByNullifiers,
     } as unknown as ZolanaClient;
-    const authority = new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair });
+    const authority = new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair });
 
     await syncWallet({ wallet, authority, client });
     expect(getShieldedTransactionsByNullifiers.mock.calls[0]?.[0]?.cursor).toBeUndefined();
@@ -588,7 +588,7 @@ describe("wallet sync", () => {
     await expect(
       syncWallet({
         wallet,
-        authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+        authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
         client: {
           getShieldedTransactionsByTags: vi.fn(async () => ({
             context: { blockTime: 1n },
@@ -662,7 +662,7 @@ describe("wallet sync", () => {
 
     await syncWallet({
       wallet,
-      authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
       client,
     });
 
@@ -691,7 +691,7 @@ describe("wallet sync", () => {
     await expect(
       syncWallet({
         wallet: new Wallet({ identity: keypair.shieldedAddress() }),
-        authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+        authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
         client,
       }),
     ).rejects.toMatchObject({
@@ -736,7 +736,7 @@ describe("wallet sync", () => {
 
     const report = await syncWallet({
       wallet: new Wallet({ identity: keypair.shieldedAddress() }),
-      authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
       client,
     });
 

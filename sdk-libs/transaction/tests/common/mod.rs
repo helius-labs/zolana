@@ -10,8 +10,8 @@ use zolana_transaction::{
         },
         confidential::{Confidential, ConfidentialEncode},
     },
-    Address, AssetRegistry, Data, EncryptedScheme, LocalWalletAuthority, OutputContext, OutputSlot,
-    OwnerCx, ShieldedTransaction, Utxo, UtxoSerialization, Wallet, SOL_MINT,
+    Address, AssetRegistry, Data, EncryptedScheme, KeypairWalletAuthority, OutputContext,
+    OutputSlot, OwnerCx, ShieldedTransaction, Utxo, UtxoSerialization, Wallet, SOL_MINT,
 };
 
 pub fn keypair_from_index(index: u16) -> ShieldedKeypair {
@@ -26,8 +26,8 @@ pub fn keypair_from_index(index: u16) -> ShieldedKeypair {
     ShieldedKeypair::with_viewing_key(signing, viewing).unwrap()
 }
 
-pub fn local_authority(keypair: &ShieldedKeypair) -> LocalWalletAuthority<'_> {
-    LocalWalletAuthority::new(Address::default(), keypair)
+pub fn local_authority(keypair: &ShieldedKeypair) -> KeypairWalletAuthority<'_> {
+    KeypairWalletAuthority::new(Address::default(), keypair)
 }
 
 pub fn wallet_for(keypair: &ShieldedKeypair, registry: AssetRegistry) -> Wallet {

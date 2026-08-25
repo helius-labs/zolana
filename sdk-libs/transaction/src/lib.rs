@@ -32,7 +32,7 @@ pub use utxo::{derive_blinding, owner_utxo_hash, Blinding, ProofInputUtxo, Utxo}
 pub use wallet::{
     asset::{AssetRegistry, SOL_ASSET_ID, SOL_MINT},
     AnonymousRecipientSlot, ApprovalRequest, AssetBalance, Balances, CursorStream,
-    EncryptedEnvelope, EncryptedSplit, EncryptedTransfer, Filter, LocalWalletAuthority,
+    EncryptedEnvelope, EncryptedSplit, EncryptedTransfer, Filter, KeypairWalletAuthority,
     P256Signature, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,
     PrivateTransactionKind, PrivateTransactionStatus, SyncReport, SyncWalletAuthority,
     ViewingKeyEntry, Wallet, WalletAuthority, WalletSyncMaterial, WalletUtxo, DEFAULT_TAG_WINDOW,

@@ -6,7 +6,7 @@ use zolana_transaction::{
         OwnerCx, UtxoSerialization,
     },
     wallet::{AssetBalance, PrivateTransactionDirection, PrivateTransactionKind, Wallet},
-    Address, AssetRegistry, Data, LocalWalletAuthority, OutputContext, OutputSlot,
+    Address, AssetRegistry, Data, KeypairWalletAuthority, OutputContext, OutputSlot,
     ShieldedTransaction, Utxo, SOL_ASSET_ID, SOL_MINT,
 };
 
@@ -277,7 +277,7 @@ pub(crate) fn sync_fresh_wallet(world: &mut TransactionWorld, name: String) {
         AssetRegistry::default(),
     )
     .unwrap();
-    let authority = LocalWalletAuthority::new(Address::default(), &keypair);
+    let authority = KeypairWalletAuthority::new(Address::default(), &keypair);
     let report = wallet
         .sync(&authority, &world.sync_transactions, 1_700_000_000, 8)
         .unwrap();

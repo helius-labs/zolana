@@ -160,6 +160,12 @@ pub enum TransactionError {
     #[error("wallet authority did not provide its current viewing key")]
     MissingCurrentViewingKey,
 
+    /// Raised when the authority is built, not when it is used, so it is
+    /// distinct from [`Self::MissingCurrentViewingKey`]: that one means a scan
+    /// was handed a snapshot without the current key.
+    #[error("viewing keys do not include the keypair's own, so this authority would encrypt to one key and scan with another")]
+    AuthorityViewingKeyMismatch,
+
     #[error("wallet authority error: {0}")]
     Authority(String),
 }

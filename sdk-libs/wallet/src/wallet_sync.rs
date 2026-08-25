@@ -1032,7 +1032,7 @@ mod tests {
             types::SppProofInputUtxo,
         },
         serialization::Proofless,
-        Address, AssetRegistry, Data, LocalWalletAuthority, OwnerCx, PrivateTransactionDirection,
+        Address, AssetRegistry, Data, KeypairWalletAuthority, OwnerCx, PrivateTransactionDirection,
         PrivateTransactionKind, Utxo, UtxoSerialization, WalletUtxo, SOL_MINT,
     };
 
@@ -1971,8 +1971,8 @@ mod tests {
     const SPL_ASSET_ID: u64 = 2;
     const SPL_MINT: Address = Address::new_from_array([2u8; 32]);
 
-    fn local_authority(keypair: &ShieldedKeypair) -> LocalWalletAuthority<'_> {
-        LocalWalletAuthority::new(Address::default(), keypair)
+    fn local_authority(keypair: &ShieldedKeypair) -> KeypairWalletAuthority<'_> {
+        KeypairWalletAuthority::new(Address::default(), keypair)
     }
 
     fn ed25519_keypair(seed: u8) -> ShieldedKeypair {
