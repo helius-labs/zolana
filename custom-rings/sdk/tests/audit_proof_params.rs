@@ -138,8 +138,6 @@ fn the_returned_message_opens_with_the_auditor_key() {
     );
 }
 
-/// The prover and the program hold structurally identical proofs in unrelated
-/// types; the conversion must not permute the five points.
 #[test]
 fn instruction_proof_conversion_requires_the_commitment() {
     let proof = Proof {

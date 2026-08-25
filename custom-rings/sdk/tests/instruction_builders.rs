@@ -654,3 +654,15 @@ fn ring_transact_with_audit_forwards_settlement_accounts() {
         ]
     );
 }
+
+/// The TS SDK hardcodes the numbers, a renumbering must fail here.
+#[test]
+fn ring_instruction_tags_are_stable() {
+    assert_eq!(tag::CREATE_CONFIG, 1);
+    assert_eq!(tag::INIT_SPP_RING_CONFIG, 2);
+    assert_eq!(tag::TRANSACT, 3);
+    assert_eq!(tag::GRANT_READ_ACCESS, 4);
+    assert_eq!(tag::REVOKE_READ_ACCESS, 5);
+    assert_eq!(tag::SET_AUTHORITY, 6);
+    assert_eq!(tag::DEPOSIT, 14);
+}

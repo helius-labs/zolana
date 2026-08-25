@@ -11,6 +11,7 @@ use custom_ring_program::CustomRingError;
 use solana_account::Account;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
+use zolana_account_checks::AccountError;
 use zolana_interface::{
     event::{CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG},
     instruction::{
@@ -188,16 +189,16 @@ fn impostor_shielded_pool_program_is_rejected_exactly() {
     );
 }
 
-/// The P256 ownership rail is a different proof shape with ownership semantics
-/// this ring never reviewed, so it is refused instead of forwarded.
+/// The eddsa ring reviewed exactly one proof shape, every other selector is
+/// refused instead of forwarded.
 #[test]
-fn ring_p256_circuit_selector_is_rejected_exactly() {
+fn non_ring_eddsa_circuit_selectors_are_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let mut data = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
-    data.circuit = CircuitId::RingP256(
+    let slots = N_PUBLIC_SLOTS as u8;
+    let p256 = CircuitId::RingP256(
         2,
         3,
-        N_PUBLIC_SLOTS as u8,
+        slots,
         RingP256ProofData {
             bsb22_commitment: Bsb22Commitment {
                 commitment: [6; 32],
@@ -206,26 +207,52 @@ fn ring_p256_circuit_selector_is_rejected_exactly() {
             default_owner_tag: None,
         },
     );
-    let fixture = transact_fixture(valid_config(), instruction_data(bogus_proof(), data));
-    fixture.expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
+    for circuit in [
+        p256,
+        CircuitId::RingAuthority(2, 3, slots),
+        CircuitId::ConfidentialEddsa(2, 3, slots),
+    ] {
+        let mut data = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+        data.circuit = circuit;
+        let fixture = transact_fixture(valid_config(), instruction_data(bogus_proof(), data));
+        fixture.expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
+    }
 }
 
 #[test]
-fn invalid_transaction_viewing_key_is_rejected_exactly() {
+fn an_unexecutable_spp_program_account_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let mut data = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
-    data.tx_viewing_pk = [0u8; 33];
-    let fixture = transact_fixture(valid_config(), instruction_data(bogus_proof(), data));
-    fixture.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+    let mut fixture = fixture_with_messages(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+    fixture.set_account("spp_program", account(1));
+    fixture.expect_err(
+        &mollusk,
+        custom(CustomRingError::InvalidShieldedPoolProgram),
+    );
 }
 
 #[test]
-fn invalid_ephemeral_key_is_rejected_exactly() {
+fn an_unsigned_payer_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let mut message = auditor_message(AUDITOR_MESSAGE_LEN);
-    message.data[..33].fill(0);
-    let fixture = fixture_with_messages(vec![message]);
-    fixture.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+    let mut fixture = fixture_with_messages(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+    // The spp_payer meta shares the pubkey, one signing meta would keep the
+    // account's merged signer privilege.
+    fixture.unsign("payer");
+    fixture.unsign("spp_payer");
+    fixture.expect_err(
+        &mollusk,
+        ProgramError::Custom(u32::from(AccountError::InvalidSigner)),
+    );
+}
+
+#[test]
+fn missing_forwarded_accounts_are_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = fixture_with_messages(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+    fixture.truncate(2);
+    fixture.expect_err(
+        &mollusk,
+        ProgramError::Custom(u32::from(AccountError::NotEnoughAccountKeys)),
+    );
 }
 
 fn encrypted_output(scheme: u8) -> TransactOutput {

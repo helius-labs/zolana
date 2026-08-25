@@ -14,7 +14,6 @@ aes = { workspace = true }
 ctr = { workspace = true }
 hkdf = { workspace = true }
 zeroize = { workspace = true }
-zolana-interface = { path = "../../program-libs/interface", default-features = false }
 sha2 = { workspace = true }
 zolana-hasher = { workspace = true, features = ["poseidon", "std"] }
 rand = { workspace = true }

@@ -125,3 +125,29 @@ mod tests {
         wait_for_balance(&Rich, Address::default(), 9).expect("covered");
     }
 }
+
+#[cfg(test)]
+mod underfunded {
+    use super::*;
+
+    #[test]
+    fn a_shortfall_without_a_terminal_is_an_error() {
+        struct Poor;
+        impl Rpc for Poor {
+            fn get_balance(&self, _address: Address) -> Result<u64, ClientError> {
+                Ok(3)
+            }
+        }
+        if io::stdin().is_terminal() {
+            return;
+        }
+        assert!(matches!(
+            wait_for_balance(&Poor, Address::default(), 9),
+            Err(FundError::Underfunded {
+                holds: 3,
+                required: 9,
+                ..
+            })
+        ));
+    }
+}

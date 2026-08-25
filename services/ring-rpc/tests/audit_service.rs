@@ -28,7 +28,7 @@ use zolana_ring_rpc::{
     KeyMode, OriginPolicy, Origins, Page, PageOptions, ReadAttestation, ReadAuth, ReadBuildError,
     ReadCheck, ReadSignature, ReadSigner, ReaderGrant, RingConfiguration, RingDepositsRequest,
     RingDepositsResponse, RingRpcError, RingState, RingStatusRequest, RingStatusResponse,
-    RootSecret, TransactionPage, TransactionSource, Unauthorized, WebAuthnAssertion,
+    RootSecret, SkippedReason, TransactionPage, TransactionSource, Unauthorized, WebAuthnAssertion,
     CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS, RING_STATUS,
 };
 use zolana_transaction::{
@@ -251,6 +251,10 @@ fn passkeys_require_canonical_same_origin_assertions() {
         ),
         (
             Passkey::new(46).flags(0x01),
+            Unauthorized::UserVerificationMissing,
+        ),
+        (
+            Passkey::new(46).flags(0x04),
             Unauthorized::UserVerificationMissing,
         ),
         (
@@ -640,7 +644,25 @@ async fn granted_reader_opens_audited_transfers_and_reports_the_rest() {
         Base64String(fixture.recipient.as_bytes().to_vec())
     );
     assert_eq!(item.nullifiers.len(), 1);
-    assert_eq!(response.value.skipped.len(), 2);
+    let reasons: Vec<(Signature, SkippedReason)> = response
+        .value
+        .skipped
+        .iter()
+        .map(|skipped| (skipped.tx_signature.0, skipped.reason))
+        .collect();
+    assert_eq!(
+        reasons,
+        vec![
+            (
+                fixture.foreign_key.tx_signature,
+                SkippedReason::InvalidAuditData
+            ),
+            (
+                fixture.missing_message.tx_signature,
+                SkippedReason::MissingAuditorMessage
+            ),
+        ]
+    );
 }
 
 #[tokio::test]
@@ -1000,6 +1022,32 @@ async fn rpc_wire_uses_camel_case_and_rejects_another_local_ring() {
     assert!(result.is_err());
 }
 
+#[tokio::test]
+async fn invalid_audit_requests_do_not_consume_valid_capacity() {
+    let fixture = Fixture::new();
+    let module = rpc_module(Arc::new(fixture.hub(fixture.source()))).expect("module");
+
+    let mut request = signed_request(&delegate(), RING, unix_now().expect("clock"));
+    request.auth.timestamp += 1;
+    let result: Result<GetDecryptedTransactionsResponse, _> = module
+        .call(GET_DECRYPTED_TRANSACTIONS, as_object(request))
+        .await;
+    assert!(result.is_err());
+
+    let response: GetDecryptedTransactionsResponse = module
+        .call(
+            GET_DECRYPTED_TRANSACTIONS,
+            as_object(signed_request(
+                &delegate(),
+                RING,
+                unix_now().expect("clock"),
+            )),
+        )
+        .await
+        .expect("valid request");
+    assert_eq!(response.value.items.len(), 1);
+}
+
 fn deposit(byte: u8, slot: u64, amount: u64) -> DepositRecord {
     DepositRecord {
         signature: Signature::from([byte; 64]).into(),
@@ -1093,11 +1141,11 @@ async fn a_deposit_page_without_deposits_reports_its_frontier() {
 #[tokio::test]
 async fn deposit_pages_clamp_the_examined_limit_and_reject_bad_cursors() {
     let fixture = Fixture::new();
-    let source = fixture.source();
-    let examined_limit = source.examined_limit.clone();
-    let module = rpc_module(Arc::new(fixture.hub(source))).expect("module");
 
     for (limit, expected) in [(None, 50), (Some(7), 7), (Some(500), 200)] {
+        let source = fixture.source();
+        let examined_limit = source.examined_limit.clone();
+        let module = rpc_module(Arc::new(fixture.hub(source))).expect("module");
         let page: RingDepositsResponse = module
             .call(RING_DEPOSITS, as_object(deposits_request(limit, None)))
             .await
@@ -1108,6 +1156,7 @@ async fn deposit_pages_clamp_the_examined_limit_and_reject_bad_cursors() {
         assert_eq!(page.oldest_slot, None);
     }
 
+    let module = rpc_module(Arc::new(fixture.hub(fixture.source()))).expect("module");
     let result: Result<RingDepositsResponse, _> = module
         .call(
             RING_DEPOSITS,
@@ -1333,6 +1382,16 @@ async fn derived_keys_are_ring_and_cluster_specific() {
     let ring_b = Address::new_from_array([2; 32]);
     let key_a = hub.service_for(ring_a).expect("ring a").auditor_pubkey();
     let key_b = hub.service_for(ring_b).expect("ring b").auditor_pubkey();
+    let other_genesis = Hub::builder(fixture.source())
+        .derived(RootSecret::from_bytes(root_bytes).expect("root"), [10; 32])
+        .expect("hub");
+    assert_ne!(
+        other_genesis
+            .service_for(ring_a)
+            .expect("ring a")
+            .auditor_pubkey(),
+        key_a
+    );
     assert_eq!(
         hub.service_pubkey().to_string(),
         "FQ7ZZ4DEkoubT5Ca9BzzbgXDTmjKdRh6a3snGfPjpEZT"

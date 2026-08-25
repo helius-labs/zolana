@@ -1,6 +1,8 @@
 use std::{path::Path, process::Command};
 
-use custom_ring_sdk::{CustomRing, SetAuthority, SET_AUTHORITY_COMPUTE_UNIT_LIMIT};
+use custom_ring_sdk::{
+    AccountReadError, CustomRing, SetAuthority, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
+};
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::read_keypair_file;
@@ -22,6 +24,13 @@ pub struct SetUpgradeAuthority<'a> {
     pub current: &'a ProgramDataInfo,
 }
 
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InitializationState {
+    Complete,
+    Incomplete,
+}
+
 #[derive(Debug, Error)]
 pub enum AuthorityError {
     #[error(transparent)]
@@ -32,6 +41,10 @@ pub enum AuthorityError {
     NotDeployed { program: Address },
     #[error("renouncing is irreversible, pass --yes to make {program} immutable")]
     NeedsConfirmation { program: Address },
+    #[error("ring {program} is not initialized, run `init` before renouncing")]
+    NotInitialized { program: Address },
+    #[error(transparent)]
+    AccountRead(#[from] AccountReadError),
     #[error(transparent)]
     Tool(#[from] ToolError),
     #[error("cannot read the new authority keypair {path}")]
@@ -41,27 +54,29 @@ pub enum AuthorityError {
 }
 
 pub fn run(ctx: &Context, command: AuthorityCommand) -> Result<(), AuthorityError> {
-    let authority = ctx.config.authority()?;
     let program = ctx.ring.program_id();
     match command {
         AuthorityCommand::Transfer { new_authority } => {
+            require_initialized(ctx)?;
+            let authority = ctx.config.upgrade_authority()?;
             let current = deployed_program_data(&ctx.rpc, ctx.ring)?;
             SetUpgradeAuthority {
                 ring: ctx.ring,
-                authority_keypair: &expand_tilde(&ctx.config.authority_keypair)?,
+                authority_keypair: &expand_tilde(ctx.config.upgrade_authority_keypair())?,
                 authority: authority.pubkey(),
                 current: &current,
             }
             .transfer(new_authority, &ctx.rpc)?;
             println!(
-                "upgrade authority of {program} is now {new_authority}, point authority_keypair in {} at its keypair",
+                "upgrade authority of {program} is now {new_authority}, set upgrade_authority_keypair in {}",
                 ctx.config_path.display()
             );
         }
         AuthorityCommand::TransferConfig {
             new_authority_keypair,
         } => {
-            let path = expand_tilde(&new_authority_keypair)?;
+            let authority = ctx.config.config_authority()?;
+            let path = expand_tilde(&ctx.project_path(&new_authority_keypair))?;
             let new_authority =
                 read_keypair_file(&path).map_err(|_| AuthorityError::NewAuthorityKeypair {
                     path: path.display().to_string(),
@@ -83,19 +98,22 @@ pub fn run(ctx: &Context, command: AuthorityCommand) -> Result<(), AuthorityErro
                 )
                 .map_err(|source| AuthorityError::SetAuthority(Box::new(source)))?;
             println!(
-                "ring config authority of {program} is now {}, point authority_keypair in {} at its keypair",
+                "ring config authority of {program} is now {}, set config_authority_keypair in {} to {}",
                 new_authority.pubkey(),
-                ctx.config_path.display()
+                ctx.config_path.display(),
+                new_authority_keypair.display()
             );
         }
         AuthorityCommand::Renounce { yes } => {
             if !yes {
                 return Err(AuthorityError::NeedsConfirmation { program });
             }
+            let authority = ctx.config.upgrade_authority()?;
+            require_initialized(ctx)?;
             let current = deployed_program_data(&ctx.rpc, ctx.ring)?;
             SetUpgradeAuthority {
                 ring: ctx.ring,
-                authority_keypair: &expand_tilde(&ctx.config.authority_keypair)?,
+                authority_keypair: &expand_tilde(ctx.config.upgrade_authority_keypair())?,
                 authority: authority.pubkey(),
                 current: &current,
             }
@@ -104,6 +122,31 @@ pub fn run(ctx: &Context, command: AuthorityCommand) -> Result<(), AuthorityErro
         }
     }
     Ok(())
+}
+
+fn require_initialized(ctx: &Context) -> Result<(), AuthorityError> {
+    InitializationState::observe(
+        ctx.ring.read_config(&ctx.rpc)?,
+        ctx.ring.read_spp_ring_config(&ctx.rpc)?,
+    )
+    .require(ctx.ring.program_id())
+}
+
+impl InitializationState {
+    fn observe<C, R>(config: Option<C>, spp_ring: Option<R>) -> Self {
+        if config.is_some() && spp_ring.is_some() {
+            Self::Complete
+        } else {
+            Self::Incomplete
+        }
+    }
+
+    fn require(self, program: Address) -> Result<(), AuthorityError> {
+        match self {
+            Self::Complete => Ok(()),
+            Self::Incomplete => Err(AuthorityError::NotInitialized { program }),
+        }
+    }
 }
 
 impl SetUpgradeAuthority<'_> {
@@ -119,7 +162,6 @@ impl SetUpgradeAuthority<'_> {
         )
     }
 
-    /// Irreversible, and `create_config` falls back to plain authority gating afterwards.
     pub fn renounce(self, rpc: &SolanaRpc) -> Result<(), AuthorityError> {
         self.check_current()?;
         self.run(rpc, &["--final"])
@@ -168,5 +210,60 @@ pub fn deployed_program_data<R: Rpc>(
 impl From<DeployError> for AuthorityError {
     fn from(error: DeployError) -> Self {
         Self::Deploy(Box::new(error))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use custom_ring_sdk::CustomRing;
+
+    use super::*;
+
+    fn check(upgrade_authority: Option<Address>) -> Result<(), AuthorityError> {
+        let current = ProgramDataInfo {
+            upgrade_authority,
+            capacity: 0,
+        };
+        SetUpgradeAuthority {
+            ring: CustomRing::new(Address::new_from_array([1; 32])),
+            authority_keypair: Path::new("unused"),
+            authority: Address::new_from_array([2; 32]),
+            current: &current,
+        }
+        .check_current()
+    }
+
+    #[test]
+    fn only_the_recorded_upgrade_authority_may_move_the_program() {
+        assert!(check(Some(Address::new_from_array([2; 32]))).is_ok());
+        assert!(matches!(
+            check(Some(Address::new_from_array([3; 32]))),
+            Err(AuthorityError::Deploy(error))
+                if matches!(*error, DeployError::ForeignAuthority { .. })
+        ));
+        assert!(matches!(
+            check(None),
+            Err(AuthorityError::Deploy(error)) if matches!(*error, DeployError::Immutable { .. })
+        ));
+    }
+
+    #[test]
+    fn renounce_requires_both_ring_accounts() {
+        let program = Address::new_from_array([1; 32]);
+        for state in [
+            InitializationState::observe(None::<()>, None::<()>),
+            InitializationState::observe(Some(()), None::<()>),
+            InitializationState::observe(None::<()>, Some(())),
+        ] {
+            assert!(matches!(
+                state.require(program),
+                Err(AuthorityError::NotInitialized { program: found }) if found == program
+            ));
+        }
+        assert!(InitializationState::observe(Some(()), Some(()))
+            .require(program)
+            .is_ok());
     }
 }

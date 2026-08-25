@@ -63,6 +63,7 @@ pub enum InitError {
 }
 
 pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
+    let auditor_pubkey_file = ctx.project_path(&args.auditor_pubkey_file);
     let authority = ctx.funded_authority()?;
     let ring_rpc = ctx.ring_rpc();
     let unpinned = if args.trust_ring_rpc {
@@ -72,22 +73,20 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
     };
     // The config fixes the auditor for good, so a local key must not be pinned
     // by accident against a service that holds its own.
-    if args.auditor_pubkey_file.exists()
-        && !ctx.config.urls().ring_rpc_is_local()
-        && !args.local_auditor
+    if auditor_pubkey_file.exists() && !ctx.config.urls().ring_rpc_is_local() && !args.local_auditor
     {
         return Err(InitError::LocalAuditorAgainstRemoteRpc {
-            path: args.auditor_pubkey_file.clone(),
+            path: auditor_pubkey_file.clone(),
             url: ctx.config.urls().ring_rpc.clone(),
         });
     }
-    let source = if args.auditor_pubkey_file.exists() {
-        AuditorKeySource::File(&args.auditor_pubkey_file)
+    let source = if auditor_pubkey_file.exists() {
+        AuditorKeySource::File(&auditor_pubkey_file)
     } else {
         AuditorKeySource::RingRpc {
             client: &ring_rpc,
             trust: ctx.trust(unpinned).map_err(ContextError::from)?,
-            write_to: &args.auditor_pubkey_file,
+            write_to: &auditor_pubkey_file,
         }
     };
     let auditor_pk = source.resolve(ctx.ring.program_id())?;

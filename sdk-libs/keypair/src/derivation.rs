@@ -26,15 +26,15 @@ use crate::{
 
 pub const DST_VIEW_ROOT_P_CONST: &[u8] = b"TSPP/view_root/P_const/v1";
 
-pub const P_CONST_SEC1: [u8; P256_PUBKEY_LEN] = zolana_interface::P_CONST_SEC1;
+pub const P_CONST_SEC1: [u8; P256_PUBKEY_LEN] = zolana_hasher::p256::P_CONST_SEC1;
 
 pub const DST_DERIVE_P_DERIVE: &[u8] = b"TSPP/nullifier/P_nullifier/v1";
 
-pub const P_DERIVE_SEC1: [u8; P256_PUBKEY_LEN] = zolana_interface::P_DERIVE_SEC1;
+pub const P_DERIVE_SEC1: [u8; P256_PUBKEY_LEN] = zolana_hasher::p256::P_DERIVE_SEC1;
 
 pub const DST_PDA_ROOT_P_PDA: &[u8] = b"TSPP/pda_root/P_pda/v1";
 
-pub const P_PDA_SEC1: [u8; P256_PUBKEY_LEN] = zolana_interface::P_PDA_SEC1;
+pub const P_PDA_SEC1: [u8; P256_PUBKEY_LEN] = zolana_hasher::p256::P_PDA_SEC1;
 
 pub const INFO_NF_KEY_ED25519: &[u8] = b"TSPP/nf_key/ed25519/v1";
 
@@ -235,7 +235,7 @@ pub(crate) fn p_pda() -> P256Pubkey {
 /// through [`view_root`] and the `ecdh_raw` entry points, which bypass this
 /// check.
 pub(crate) fn is_derivation_point(pubkey: &P256Pubkey) -> bool {
-    zolana_interface::is_reserved_p256_derivation_point(pubkey.as_bytes())
+    zolana_hasher::p256::is_reserved_derivation_point(pubkey.as_bytes())
 }
 
 /// `view_root = HKDF-Extract(salt=∅, IKM=ECDH(viewing_sk, P_const))` — the PRK

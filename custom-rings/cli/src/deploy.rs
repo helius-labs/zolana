@@ -16,7 +16,7 @@ use crate::{
     config::expand_tilde,
     file::{self, FileError},
     tool::{ToolError, SOLANA},
-    Context, ContextError, DeployArgs,
+    Context, ContextError, DeployArgs, ProjectRoot,
 };
 
 pub struct Deploy<'a> {
@@ -86,15 +86,19 @@ const MIN_EXTEND_BYTES: usize = 10_240;
 const DEPLOY_FEE_BUDGET: u64 = 20_000_000;
 
 pub fn run(ctx: &mut Context, args: DeployArgs) -> Result<(), DeployError> {
-    let program_so = args.program_so.unwrap_or_else(default_program_so);
-    let authority = ctx.config.authority().map_err(ContextError::from)?;
+    let program_so = args
+        .program_so
+        .map(|path| ctx.project_path(&path))
+        .unwrap_or_else(|| default_program_so(&ctx.project_root));
+    let program_keypair = ctx.project_path(&args.program_keypair);
+    let authority = ctx.config.upgrade_authority().map_err(ContextError::from)?;
     let authority_keypair =
-        expand_tilde(&ctx.config.authority_keypair).map_err(ContextError::from)?;
+        expand_tilde(ctx.config.upgrade_authority_keypair()).map_err(ContextError::from)?;
     let deploy = Deploy {
         ring: ctx.ring,
         authority_keypair: &authority_keypair,
         authority: authority.pubkey(),
-        program_keypair: &args.program_keypair,
+        program_keypair: &program_keypair,
         program_so: &program_so,
     };
     let planned = deploy.plan(&ctx.rpc)?;
@@ -295,8 +299,8 @@ pub fn read_program_data<R: Rpc>(
 }
 
 /// The ring source keeps the upstream crate name, every ring builds the same file.
-pub(crate) fn default_program_so() -> PathBuf {
-    PathBuf::from("target/deploy/custom_ring_program.so")
+pub(crate) fn default_program_so(project_root: &ProjectRoot) -> PathBuf {
+    project_root.resolve(Path::new("target/deploy/custom_ring_program.so"))
 }
 
 #[cfg(test)]

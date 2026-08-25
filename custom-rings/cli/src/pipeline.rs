@@ -27,7 +27,7 @@ pub enum PipelineError {
 
 /// Steps already on chain are skipped, a rerun resumes where it stopped.
 pub fn run(ctx: &mut Context, build: BuildArgs) -> Result<(), CliError> {
-    build_program::run(build)?;
+    build_program::run(&ctx.project_root, build)?;
     deploy::run(ctx, DeployArgs::default())?;
     let hosted = !ctx.config.urls().ring_rpc_is_local();
     if hosted {
@@ -39,7 +39,7 @@ pub fn run(ctx: &mut Context, build: BuildArgs) -> Result<(), CliError> {
     if !hosted {
         check_local_ring_rpc(ctx)?;
     }
-    let authority = ctx.config.authority()?;
+    let authority = ctx.config.config_authority()?;
     let reader = ReaderKey::ed25519(authority.pubkey()).map_err(PipelineError::from)?;
     reader::run(ctx, ReaderCommand::Grant { reader })?;
     transact::run(ctx, TransactArgs::default())?;

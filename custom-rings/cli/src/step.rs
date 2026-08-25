@@ -135,11 +135,35 @@ fn custom_error_code(error: &ClientError) -> Option<u32> {
 
 #[cfg(test)]
 mod tests {
+    use solana_transaction_error::TransactionError;
+
     use super::*;
 
+    fn transaction_error(error: TransactionError) -> ClientError {
+        ClientError::SolanaRpcTransaction {
+            operation: "test",
+            source: solana_rpc_client_api::client_error::Error {
+                request: None,
+                kind: Box::new(
+                    solana_rpc_client_api::client_error::ErrorKind::TransactionError(error),
+                ),
+            },
+        }
+    }
+
     #[test]
-    fn observed_follows_the_option() {
-        assert_eq!(Observed::of(&Some(1)), Observed::Present);
-        assert_eq!(Observed::of::<u8>(&None), Observed::Absent);
+    fn only_a_custom_instruction_error_yields_a_hint_code() {
+        assert_eq!(
+            custom_error_code(&transaction_error(TransactionError::InstructionError(
+                1,
+                InstructionError::Custom(8114),
+            ))),
+            Some(8114)
+        );
+        assert_eq!(
+            custom_error_code(&transaction_error(TransactionError::AlreadyProcessed)),
+            None
+        );
+        assert_eq!(custom_error_code(&ClientError::Rpc(String::new())), None);
     }
 }

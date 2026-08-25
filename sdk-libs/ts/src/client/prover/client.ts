@@ -44,6 +44,7 @@ const INITIAL_POLL_INTERVAL_MS = 25;
 const PROVE_PATH = "/prove";
 const HEALTH_PATH = "/health";
 const UNCOMPRESSED_P256_LENGTH = 65;
+type Delivery = "inResponse" | "queued";
 
 /// Polling cadence and ceiling for queued (async) proofs. A Redis-backed prover
 /// returns a job handle instead of a proof, and the client polls
@@ -99,15 +100,15 @@ export class ProverClient {
   }
 
   async prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
-    return this.#send(JSON.stringify(proverRequest(inputs)), context);
+    return this.#send(JSON.stringify(proverRequest(inputs)), "inResponse", context);
   }
 
   async proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
-    return this.#send(JSON.stringify(mergeProverRequest(inputs)), context);
+    return this.#send(JSON.stringify(mergeProverRequest(inputs)), "inResponse", context);
   }
 
   async proveCustomRingAudit(inputs: AuditProofRequest, context?: RequestContext): Promise<Proof> {
-    return this.#send(JSON.stringify(customRingAuditRequest(inputs)), context);
+    return this.#send(JSON.stringify(customRingAuditRequest(inputs)), "queued", context);
   }
 
   /** The circuits the server serves, `custom-ring-audit` among them only with a queue. */
@@ -146,62 +147,72 @@ export class ProverClient {
     }
   }
 
-  async #send(body: string, context?: RequestContext): Promise<Proof> {
+  async #send(body: string, delivery: Delivery, context?: RequestContext): Promise<Proof> {
     const signal = composeSignal(context, "prove");
     try {
-      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        if (attempt > 1) await sleep(RETRY_DELAY_MS, { signal: signal.signal });
-        const request = composeSignal(
-          { signal: signal.signal, timeoutMs: REQUEST_TIMEOUT_MS },
-          "prove",
-        );
-        try {
-          let response: Response;
+      deliveryAttempt: for (;;) {
+        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+          if (attempt > 1) await sleep(RETRY_DELAY_MS, { signal: signal.signal });
+          const request = composeSignal(
+            { signal: signal.signal, timeoutMs: REQUEST_TIMEOUT_MS },
+            "prove",
+          );
           try {
-            response = await this.#fetch(this.#url, {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body,
-              redirect: "error",
-              signal: request.signal,
-            });
-          } catch {
-            if (signal.signal.aborted) throw requestError("prove", signal);
-            if (attempt < MAX_ATTEMPTS) continue;
-            if (request.timedOut()) throw requestError("prove", request);
-            throw new ClientError("CLIENT_PROVER_REQUEST", {
-              details: { method: "prove", attempts: attempt },
-            });
+            let response: Response;
+            try {
+              response = await this.#fetch(this.#url, {
+                method: "POST",
+                headers: {
+                  "content-type": "application/json",
+                  ...(delivery === "inResponse" ? { "X-Sync": "true" } : {}),
+                },
+                body,
+                redirect: "error",
+                signal: request.signal,
+              });
+            } catch {
+              if (signal.signal.aborted) throw requestError("prove", signal);
+              if (attempt < MAX_ATTEMPTS) continue;
+              if (request.timedOut()) throw requestError("prove", request);
+              throw new ClientError("CLIENT_PROVER_REQUEST", {
+                details: { method: "prove", attempts: attempt },
+              });
+            }
+            if (response.status === 429 && delivery === "inResponse") {
+              await response.body?.cancel();
+              delivery = "queued";
+              continue deliveryAttempt;
+            }
+            // Rust fails fast on any non-success status; only a transport failure retries.
+            if (!response.ok) {
+              throw new ClientError("CLIENT_PROVER_HTTP", {
+                details: { method: "prove", status: response.status, attempts: attempt },
+              });
+            }
+            let value: unknown;
+            try {
+              value = await decodeResponse(response);
+            } catch (error) {
+              if (signal.signal.aborted) throw requestError("prove", signal);
+              if (request.timedOut()) throw requestError("prove", request);
+              throw error;
+            }
+            if (
+              isObject(value) &&
+              typeof value["jobId"] === "string" &&
+              value["proof"] === undefined
+            ) {
+              return await this.#poll(value["jobId"], signal);
+            }
+            return parseProof(value);
+          } finally {
+            request.cleanup();
           }
-          // Rust fails fast on any non-success status; only a transport failure retries.
-          if (!response.ok) {
-            throw new ClientError("CLIENT_PROVER_HTTP", {
-              details: { method: "prove", status: response.status, attempts: attempt },
-            });
-          }
-          let value: unknown;
-          try {
-            value = await decodeResponse(response);
-          } catch (error) {
-            if (signal.signal.aborted) throw requestError("prove", signal);
-            if (request.timedOut()) throw requestError("prove", request);
-            throw error;
-          }
-          if (
-            isObject(value) &&
-            typeof value["jobId"] === "string" &&
-            value["proof"] === undefined
-          ) {
-            return await this.#poll(value["jobId"], signal);
-          }
-          return parseProof(value);
-        } finally {
-          request.cleanup();
         }
+        throw new ClientError("CLIENT_PROVER_REQUEST", {
+          details: { method: "prove", attempts: MAX_ATTEMPTS },
+        });
       }
-      throw new ClientError("CLIENT_PROVER_REQUEST", {
-        details: { method: "prove", attempts: MAX_ATTEMPTS },
-      });
     } finally {
       signal.cleanup();
     }

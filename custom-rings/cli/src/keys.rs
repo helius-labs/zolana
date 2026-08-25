@@ -2,19 +2,20 @@
 
 use zolana_ring_rpc::{write_auditor_key, KeyAccess, KeyFile, KeyFileError};
 
-use crate::AuditorKeyArgs;
+use crate::{AuditorKeyArgs, ProjectRoot};
 
-pub fn run(args: AuditorKeyArgs) -> Result<(), KeyFileError> {
+pub fn run(project_root: &ProjectRoot, args: AuditorKeyArgs) -> Result<(), KeyFileError> {
+    let key_file = project_root.resolve(&args.key_file);
     if args.create {
-        let key = write_auditor_key(&args.key_file)?;
+        let key = write_auditor_key(&key_file)?;
         println!(
             "auditor key {} created at {}",
             hex::encode(key.pubkey().as_bytes()),
-            args.key_file.display()
+            key_file.display()
         );
     } else {
         let key = KeyFile {
-            path: &args.key_file,
+            path: &key_file,
             access: KeyAccess::OwnerOnly,
         }
         .auditor_key()?;
