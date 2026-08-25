@@ -33,7 +33,7 @@ pub use error::ClientError;
 #[cfg(feature = "indexer-api")]
 pub use indexer::{AsyncZolanaIndexer, ZolanaIndexer};
 pub use prover::{
-    canonical_shape,
+    assign_spend_output_blindings, canonical_shape,
     merge::MergeWitness,
     resolve_shape, spawn_prover, spawn_prover_with_artifacts,
     transact::{

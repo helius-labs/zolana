@@ -19,8 +19,8 @@ use zolana_keypair::random_blinding;
 use zolana_transaction::{
     instructions::{
         transact::{
-            encrypt_transaction_data, get_transaction_viewing_key, ExternalData, SppProofInputs,
-            SppProofOutputUtxo,
+            encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
+            ExternalData, SppProofInputs, SppProofOutputUtxo,
         },
         types::SppProofInputUtxo,
     },
@@ -85,7 +85,7 @@ fn make_and_take_swap_inline() -> Result<()> {
         };
 
         let maker_address = maker.keypair.shielded_address()?;
-        let order_utxo = OrderUtxo {
+        let mut order_utxo = OrderUtxo {
             terms,
             blinding: random_blinding(),
             source_mint: spl_mint,
@@ -105,6 +105,13 @@ fn make_and_take_swap_inline() -> Result<()> {
         let change_amount = u64::try_from(leftover)
             .map_err(|_| anyhow!("insufficient order balance: {leftover}"))?;
         let change = SppProofOutputUtxo::new(order_utxo_asset, change_amount, maker_address)?;
+        let mut transaction_outputs = vec![change, order_output_utxo];
+        let output_blinding_seed =
+            prepare_output_blindings(&input_utxos, &mut transaction_outputs)?;
+        let [change, order_output_utxo]: [_; 2] = transaction_outputs
+            .try_into()
+            .map_err(|_| anyhow!("make transaction must have two outputs"))?;
+        order_utxo.blinding = order_output_utxo.blinding;
 
         let order_utxo_hash = order_output_utxo
             .hash()
@@ -139,7 +146,8 @@ fn make_and_take_swap_inline() -> Result<()> {
             encoded_transaction_data.output_utxos,
             external_data,
             maker_address.solana_address()?,
-        );
+        )
+        .with_output_blinding_seed(output_blinding_seed);
 
         let spp_tx_hashes = SppTxHashes::new(&spp_proof_inputs)?;
         // 5. create spp proof.
@@ -203,22 +211,24 @@ fn make_and_take_swap_inline() -> Result<()> {
             })?;
         let taker_in = order_utxo.destination_output(taker_address, taker_input_utxo.blinding);
         let source_output = order_utxo.source_output(taker_address, random_blinding());
-        let destination_output = order_utxo
-            .derived_destination_output(terms.destination)
-            .map_err(|e| anyhow!("destination output: {e:?}"))?;
+        let destination_output =
+            order_utxo.destination_output(terms.destination, random_blinding());
+        let order_input_utxo = order_utxo
+            .to_input_utxo()
+            .map_err(|e| anyhow!("order spend: {e:?}"))?;
+        let taker_spend = SppProofInputUtxo::new(taker_input_utxo, &taker.keypair);
+        let inputs = vec![order_input_utxo, taker_spend];
+        let mut transaction_outputs = vec![source_output, destination_output];
+        let output_blinding_seed = prepare_output_blindings(&inputs, &mut transaction_outputs)?;
+        let [source_output, destination_output]: [_; 2] = transaction_outputs
+            .try_into()
+            .map_err(|_| anyhow!("take transaction must have two outputs"))?;
         let source_output_hash = source_output
             .hash()
             .map_err(|e| anyhow!("source output hash: {e:?}"))?;
         let destination_output_hash = destination_output
             .hash()
             .map_err(|e| anyhow!("destination output hash: {e:?}"))?;
-
-        let order_input_utxo = order_utxo
-            .to_input_utxo()
-            .map_err(|e| anyhow!("order spend: {e:?}"))?;
-        let taker_spend = SppProofInputUtxo::new(taker_input_utxo, &taker.keypair);
-
-        let inputs = vec![order_input_utxo, taker_spend];
 
         let transaction_viewing_key = get_transaction_viewing_key(&taker.keypair, &inputs)
             .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
@@ -242,7 +252,8 @@ fn make_and_take_swap_inline() -> Result<()> {
             encoded.output_utxos,
             external_data,
             taker_address.solana_address()?,
-        );
+        )
+        .with_output_blinding_seed(output_blinding_seed);
 
         let take_proof_inputs = TakeProofInputParams {
             order_utxo,

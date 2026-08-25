@@ -32,11 +32,12 @@ use shielded_pool_tests::support::{fixtures::Pool, mollusk, transact::tree_roots
 use zolana_test_utils::{
     prover::spawn_workspace_prover,
     transact::{
-        build_spl_withdrawal, build_transfer_prover_inputs, dummy_input, dummy_transfer_output,
-        eddsa_input_utxo, external_data_hash, fe, inline_outputs, new_transact_ix_data,
-        nullifier_tree, output_owner_pk_hashes, pack_transact_proof, prove_and_verify_transfer,
-        public_sol_field, real_output, set_output_owner_tags, sol_public_slots, spend_input,
-        transfer_output, SpendInputArgs, TransferProverInputsArgs,
+        build_spl_withdrawal, build_transfer_prover_inputs, derive_test_transfer_output_blindings,
+        dummy_input, dummy_transfer_output, eddsa_input_utxo, external_data_hash, fe,
+        inline_outputs, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
+        pack_transact_proof, prove_and_verify_transfer, public_sol_field, real_output,
+        set_output_owner_tags, sol_public_slots, spend_input, transfer_output, SpendInputArgs,
+        TransferProverInputsArgs,
     },
 };
 
@@ -453,14 +454,16 @@ fn bench_transfer_shape(
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let owner = PublicKey::from_ed25519(&payer_bytes);
     let real = real_output(owner, nullifier_pk, SOL_MINT, 0, [23u8; 31]);
-    let real_hash = real.hash().expect("real output hash");
     let mut outputs = vec![transfer_output(&real).expect("real transfer output")];
-    let mut output_hashes = vec![real_hash];
     for index in 1..n_outputs {
-        let (output, hash) = dummy_transfer_output(&[index as u8; 31]).expect("dummy output");
+        let (output, _) = dummy_transfer_output(&[index as u8; 31]).expect("dummy output");
         outputs.push(output);
-        output_hashes.push(hash);
     }
+    let output_hashes = derive_test_transfer_output_blindings(
+        nullifiers.first().expect("transfer shape has an input"),
+        &mut outputs,
+    )
+    .expect("derive output blindings");
 
     // Real outputs tag by owner; dummy slots reuse the payer's tag (both rules
     // on `set_output_owner_tags`).
@@ -482,7 +485,7 @@ fn bench_transfer_shape(
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &nullifier_pks);
     let external_data_hash =
         external_data_hash(&transact_ix_data, &[]).expect("external data hash");
-    let mut private_outputs = vec![real_hash];
+    let mut private_outputs = vec![output_hashes[0]];
     private_outputs.extend(std::iter::repeat_n(zero, n_outputs - 1));
     let private_tx =
         PrivateTxHash::new(&vec![zero; n_inputs], &private_outputs, &external_data_hash)
@@ -622,8 +625,9 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
         .iter()
         .map(|blinding| dummy_transfer_output(blinding).expect("dummy output"))
         .collect();
-    let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
     let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
+    let output_hashes = derive_test_transfer_output_blindings(&nullifier, &mut outputs)
+        .expect("derive output blindings");
 
     // Dummy slots carry the payer's tag (the AssertDummyTags rule; see
     // `set_output_owner_tags`).

@@ -43,11 +43,12 @@ use zolana_transaction::{
 };
 
 use zolana_test_utils::transact::{
-    build_spl_withdrawal, build_transfer_prover_inputs, dummy_input, dummy_transfer_output,
-    eddsa_input_utxo, external_data_hash, external_data_hash_spl, fe, inline_outputs,
-    new_transact_ix_data, nullifier_tree, output_owner_pk_hashes, prove_and_verify_transfer,
-    public_sol_field, real_output, set_output_owner_tags, sol_public_slots, spend_input,
-    spl_public_slots, transfer_output, SpendInputArgs, TransferProverInputsArgs,
+    build_spl_withdrawal, build_transfer_prover_inputs, derive_test_transfer_output_blindings,
+    dummy_input, dummy_transfer_output, eddsa_input_utxo, external_data_hash,
+    external_data_hash_spl, fe, inline_outputs, new_transact_ix_data, nullifier_tree,
+    output_owner_pk_hashes, prove_and_verify_transfer, public_sol_field, real_output,
+    set_output_owner_tags, sol_public_slots, spend_input, spl_public_slots, transfer_output,
+    SpendInputArgs, TransferProverInputsArgs,
 };
 
 const AMOUNT: u64 = 1_000_000_000;
@@ -233,8 +234,9 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
         .iter()
         .map(|blinding| dummy_transfer_output(blinding).expect("dummy output"))
         .collect();
-    let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
     let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
+    let output_hashes = derive_test_transfer_output_blindings(&nullifier, &mut outputs)
+        .expect("derive output blindings");
 
     let view_tags = [payer_bytes; 3];
     let mut transact_ix_data = new_transact_ix_data(
@@ -408,10 +410,16 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let owner_public_key = PublicKey::from_ed25519(&payer_bytes);
     let shielded_output = real_output(owner_public_key, nullifier_pk, SOL_MINT, AMOUNT, [23u8; 31]);
-    let shielded_hash = shielded_output.hash().expect("shielded output hash");
-    let (dummy_output_a, dummy_hash_a) = dummy_transfer_output(&[1u8; 31]).expect("dummy output");
-    let (dummy_output_b, dummy_hash_b) = dummy_transfer_output(&[2u8; 31]).expect("dummy output");
-    let output_hashes = [shielded_hash, dummy_hash_a, dummy_hash_b];
+    let (dummy_output_a, _) = dummy_transfer_output(&[1u8; 31]).expect("dummy output");
+    let (dummy_output_b, _) = dummy_transfer_output(&[2u8; 31]).expect("dummy output");
+    let mut outputs = vec![
+        transfer_output(&shielded_output).expect("real transfer output"),
+        dummy_output_a,
+        dummy_output_b,
+    ];
+    let output_hashes = derive_test_transfer_output_blindings(&nullifiers[0], &mut outputs)
+        .expect("derive output blindings");
+    let shielded_hash = output_hashes[0];
 
     // The real output tags by owner (`confidential_view_tag`; see
     // `set_output_owner_tags`).
@@ -434,7 +442,7 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
     // `external_data_hash` below, before proving.
     let proofless_payload = ProoflessOutput {
         owner: owner_hash(&owner_public_key, &nullifier_pk).expect("deposit owner field"),
-        blinding: [23u8; 32],
+        blinding: outputs[0].utxo.blinding,
         asset: SOL_MINT.to_bytes(),
         amount: AMOUNT,
         data_hash: None,
@@ -459,11 +467,6 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
 
     let owner_pk_hashes =
         output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
-    let mut outputs = vec![
-        transfer_output(&shielded_output).expect("real transfer output"),
-        dummy_output_a,
-        dummy_output_b,
-    ];
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[nullifier_pk, zero, zero]);
 
     let resolved_transfers = [ResolvedInterfaceTransfer::SolDeposit {
@@ -610,10 +613,16 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
 
     let asset = solana_address::Address::new_from_array(mint.to_bytes());
     let shielded_output = real_output(owner, nullifier_pk, asset, SPL_AMOUNT, [27u8; 31]);
-    let shielded_hash = shielded_output.hash().expect("shielded output hash");
-    let (dummy_a, dummy_hash_a) = dummy_transfer_output(&[1u8; 31]).expect("dummy output");
-    let (dummy_b, dummy_hash_b) = dummy_transfer_output(&[2u8; 31]).expect("dummy output");
-    let output_hashes = [shielded_hash, dummy_hash_a, dummy_hash_b];
+    let (dummy_a, _) = dummy_transfer_output(&[1u8; 31]).expect("dummy output");
+    let (dummy_b, _) = dummy_transfer_output(&[2u8; 31]).expect("dummy output");
+    let mut outputs = vec![
+        transfer_output(&shielded_output).expect("real output"),
+        dummy_a,
+        dummy_b,
+    ];
+    let output_hashes = derive_test_transfer_output_blindings(&nullifiers[0], &mut outputs)
+        .expect("derive output blindings");
+    let shielded_hash = output_hashes[0];
     let owner_view_tag = owner.confidential_view_tag().expect("owner view tag");
     // Dummy slots share the real output's owner tag (the AssertDummyTags rule;
     // see `set_output_owner_tags`).
@@ -631,7 +640,7 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
     );
     let proofless = ProoflessOutput {
         owner: owner_hash(&owner, &nullifier_pk).expect("owner field"),
-        blinding: [27u8; 32],
+        blinding: outputs[0].utxo.blinding,
         asset: mint.to_bytes(),
         amount: SPL_AMOUNT,
         data_hash: None,
@@ -648,11 +657,6 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
     data.outputs[0].data =
         Some(borsh::to_vec(&OutputDataEncoding::Plaintext(plaintext)).expect("encode output data"));
     let output_owner_hashes = output_owner_pk_hashes(&data.outputs).expect("output owner hashes");
-    let mut outputs = vec![
-        transfer_output(&shielded_output).expect("real output"),
-        dummy_a,
-        dummy_b,
-    ];
     set_output_owner_tags(
         &mut outputs,
         &output_owner_hashes,
@@ -899,29 +903,39 @@ fn phase_transfer_to_recipient(
     let recipient_owner_field =
         owner_hash(&recipient_public_key, &recipient_nullifier_pk).expect("recipient owner field");
 
-    let change_output = real_output(
+    let mut change_output = real_output(
         payer_utxo.owner,
         payer_nullifier_pk,
         SOL_MINT,
         CHANGE_AMOUNT,
         [13u8; 31],
     );
-    let recipient_output = real_output(
+    let mut recipient_output = real_output(
         recipient_public_key,
         recipient_nullifier_pk,
         SOL_MINT,
         TRANSFER_AMOUNT,
         [17u8; 31],
     );
-    let change_hash = change_output.hash().expect("change output hash");
-    let recipient_hash = recipient_output.hash().expect("recipient output hash");
     let transfer_roots = (shield_utxo_root, nullifier_root);
     let (transfer_dummy_input, transfer_dummy_nullifier) =
         dummy_input(&[20u8; 31], &nf_tree, transfer_roots).expect("transfer dummy input");
     // The transfer's third output is a dummy (`owner_hash = 0`): a real `utxo_hash`
     // the program appends and the proof commits, contributing `0` to private_tx_hash.
-    let (transfer_dummy_output, transfer_dummy_hash) =
+    let (transfer_dummy_output, _) =
         dummy_transfer_output(&[19u8; 31]).expect("transfer dummy output");
+    let mut transfer_outputs = vec![
+        transfer_output(&change_output).expect("change transfer output"),
+        transfer_output(&recipient_output).expect("recipient transfer output"),
+        transfer_dummy_output,
+    ];
+    let transfer_output_hashes =
+        derive_test_transfer_output_blindings(&payer_nullifier, &mut transfer_outputs)
+            .expect("derive transfer output blindings");
+    let change_hash = transfer_output_hashes[0];
+    let recipient_hash = transfer_output_hashes[1];
+    change_output.blinding = transfer_outputs[0].utxo.blinding;
+    recipient_output.blinding = transfer_outputs[1].utxo.blinding;
 
     // Real outputs tag by owner; the dummy slot reuses the sender's tag (both
     // rules on `set_output_owner_tags`).
@@ -939,18 +953,10 @@ fn phase_transfer_to_recipient(
             eddsa_input_utxo(transfer_dummy_nullifier, 1),
         ],
         Vec::new(),
-        inline_outputs(
-            &[change_hash, recipient_hash, transfer_dummy_hash],
-            &transfer_view_tags,
-        ),
+        inline_outputs(&transfer_output_hashes, &transfer_view_tags),
     );
     let transfer_owner_pk_hashes =
         output_owner_pk_hashes(&transfer_ix_data.outputs).expect("transfer output owner pk hashes");
-    let mut transfer_outputs = vec![
-        transfer_output(&change_output).expect("change transfer output"),
-        transfer_output(&recipient_output).expect("recipient transfer output"),
-        transfer_dummy_output,
-    ];
     // The real change/recipient outputs bind to their owner via `nullifier_pk`; the
     // dummy's owner is unconstrained (nullifier_pk 0).
     set_output_owner_tags(
@@ -971,7 +977,7 @@ fn phase_transfer_to_recipient(
     let (transfer_public_slot_assets, transfer_public_slot_amounts) = sol_public_slots(zero);
     let transfer_public_input_hash = PublicInputs {
         nullifiers: &[payer_nullifier, transfer_dummy_nullifier],
-        output_hashes: &[change_hash, recipient_hash, transfer_dummy_hash],
+        output_hashes: &transfer_output_hashes,
         utxo_roots: &[shield_utxo_root, shield_utxo_root],
         nullifier_tree_roots: &[nullifier_root, nullifier_root],
         private_tx: &transfer_private_tx,
@@ -1024,7 +1030,7 @@ fn phase_transfer_to_recipient(
         .append(&recipient_hash)
         .expect("append recipient leaf");
     state_tree
-        .append(&transfer_dummy_hash)
+        .append(&transfer_output_hashes[2])
         .expect("append dummy leaf");
     // init=0, post-deposit=1, post-transfer=2.
     let (transfer_utxo_root, transfer_nullifier_root) = tree_roots(&env.rpc, &tree, 2);
@@ -1132,14 +1138,13 @@ fn phase_withdraw_recipient_utxo(
         .iter()
         .map(|blinding| dummy_transfer_output(blinding).expect("withdraw dummy output"))
         .collect();
-    let withdraw_output_hashes: Vec<[u8; 32]> = withdraw_dummy_outputs
-        .iter()
-        .map(|(_, hash)| *hash)
-        .collect();
     let mut withdraw_outputs: Vec<TransferOutput> = withdraw_dummy_outputs
         .into_iter()
         .map(|(out, _)| out)
         .collect();
+    let withdraw_output_hashes =
+        derive_test_transfer_output_blindings(&recipient_nullifier, &mut withdraw_outputs)
+            .expect("derive withdraw output blindings");
 
     let withdraw_view_tags = [recipient_bytes; 3];
     let mut withdraw_ix_data = new_transact_ix_data(

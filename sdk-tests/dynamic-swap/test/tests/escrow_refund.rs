@@ -11,10 +11,7 @@ use dynamic_swap_sdk::{
     instructions::{
         create_escrow::{CreateEscrow, EscrowOpenProofInputParams},
         create_pair::CreatePair,
-        settle::{
-            derive_settle_output_blinding, Settle, SettleProofInputParams,
-            MAKER_COUNTER_BLINDING_DOMAIN, MAKER_SOURCE_BLINDING_DOMAIN, RECIPIENT_BLINDING_DOMAIN,
-        },
+        settle::{Settle, SettleProofInputParams},
     },
     pair_pda,
     prover::DynamicSwapProverClient,
@@ -30,11 +27,12 @@ use zolana_interface::instruction::Transact;
 use zolana_keypair::random_blinding;
 use zolana_transaction::{
     instructions::transact::{
-        encrypt_transaction_data, get_transaction_viewing_key, spp_proof_inputs::asset_field,
+        assign_output_blindings, encrypt_transaction_data, first_nullifier,
+        get_transaction_viewing_key, prepare_output_blindings, spp_proof_inputs::asset_field,
         ExternalData, SppProofInputs, SppProofOutputUtxo,
     },
     instructions::types::SppProofInputUtxo,
-    utxo::Utxo,
+    utxo::{derive_transact_output_blinding, Utxo},
     Data, SOL_MINT,
 };
 use zolana_wallet::{resolve_registered_address, Deposit, DepositParams};
@@ -124,16 +122,18 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
         let user_address = env.user.address()?;
         let split_out = SppProofOutputUtxo::new(env.spl_mint, ORDER_AMOUNT, user_address)
             .map_err(|e| anyhow!("split_out: {e:?}"))?;
-        let split_blinding = split_out.blinding;
         let remainder_out = SppProofOutputUtxo::new(env.spl_mint, remainder_amount, user_address)
             .map_err(|e| anyhow!("remainder_out: {e:?}"))?;
 
         let input_utxos = vec![source_in];
+        let mut transaction_outputs = vec![split_out, remainder_out];
+        let output_blinding_seed =
+            prepare_output_blindings(&input_utxos, &mut transaction_outputs)?;
+        let split_blinding = transaction_outputs[0].blinding;
         let viewing_key = get_transaction_viewing_key(&env.user.keypair, &input_utxos)
             .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
-        let encoded =
-            encrypt_transaction_data(&[split_out, remainder_out], &env.assets, &viewing_key)
-                .map_err(|e| anyhow!("encode outputs: {e:?}"))?;
+        let encoded = encrypt_transaction_data(&transaction_outputs, &env.assets, &viewing_key)
+            .map_err(|e| anyhow!("encode outputs: {e:?}"))?;
         let external_data = ExternalData::new(
             *viewing_key.pubkey().as_bytes(),
             encoded.salt,
@@ -146,7 +146,8 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             encoded.output_utxos,
             external_data,
             user_solana.pubkey(),
-        );
+        )
+        .with_output_blinding_seed(output_blinding_seed);
         let split_transact = env
             .client
             .indexer()
@@ -227,11 +228,13 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
         // Both parties derive the same viewing key from their registered viewing
         // pubkeys; the order UTXO's note is encrypted to it so either can rebuild
         // the escrow on settle. The reservation blinding rides in that note, so
-        // it is chosen up front and fed into the order output.
-        let reservation_blinding = random_blinding();
-
         let source_in = SppProofInputUtxo::new(source_utxo.clone(), &env.user.keypair);
         let maker_funding_in = SppProofInputUtxo::new(maker_funding.clone(), &escrow_owner);
+        let input_utxos = vec![source_in.clone(), maker_funding_in.clone()];
+        let output_blinding_seed = random_blinding();
+        let first_nullifier = first_nullifier(&input_utxos)?;
+        let reservation_blinding =
+            derive_transact_output_blinding(&first_nullifier, &output_blinding_seed, 1)?;
 
         let escrow_terms = EscrowTerms {
             recipient_owner_hash,
@@ -244,9 +247,11 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             order_amount,
             blinding: random_blinding(),
         };
-        let order_out = escrow_utxo
+        let mut order_out = escrow_utxo
             .output_utxo(&escrow_owner, &reservation_blinding)
             .map_err(|e| anyhow!("order_out: {e:?}"))?;
+        order_out.blinding =
+            derive_transact_output_blinding(&first_nullifier, &output_blinding_seed, 0)?;
         let order_utxo_hash = order_out
             .hash()
             .map_err(|e| anyhow!("order_utxo hash: {e:?}"))?;
@@ -267,16 +272,17 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             .amount
             .checked_sub(reserved)
             .ok_or_else(|| anyhow!("reservation exceeds the maker funding amount"))?;
-        let maker_change = SppProofOutputUtxo::new(
+        let mut maker_change = SppProofOutputUtxo::new(
             SOL_MINT,
             maker_change_amount,
             escrow_owner.shielded_address()?,
         )
         .map_err(|e| anyhow!("maker_change: {e:?}"))?;
+        maker_change.blinding =
+            derive_transact_output_blinding(&first_nullifier, &output_blinding_seed, 2)?;
 
         // Output order (order, reservation, maker_change) matches the program's own
         // output indices and the circuit.
-        let input_utxos = vec![source_in.clone(), maker_funding_in.clone()];
         let viewing_key = get_transaction_viewing_key(&env.user.keypair, &input_utxos)
             .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
         let encoded = encrypt_transaction_data(
@@ -313,7 +319,8 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             encoded.output_utxos,
             external_data,
             authority_solana.pubkey(),
-        );
+        )
+        .with_output_blinding_seed(output_blinding_seed);
         let transact = env
             .client
             .indexer()
@@ -486,38 +493,28 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
         let (recipient_asset, recipient_amount, maker_counter_amount, maker_source_amount) =
             (source_asset, order_amount, reserved, 0);
 
-        let mut recipient_out =
-            SppProofOutputUtxo::new(recipient_asset, recipient_amount, recipient)
-                .map_err(|e| anyhow!("recipient_out: {e:?}"))?;
+        let recipient_out = SppProofOutputUtxo::new(recipient_asset, recipient_amount, recipient)
+            .map_err(|e| anyhow!("recipient_out: {e:?}"))?;
         let authority_address = env.authority.address()?;
-        let mut maker_counter =
+        let maker_counter =
             SppProofOutputUtxo::new(SOL_MINT, maker_counter_amount, authority_address)
                 .map_err(|e| anyhow!("maker_counter: {e:?}"))?;
-        let mut maker_source =
+        let maker_source =
             SppProofOutputUtxo::new(source_asset, maker_source_amount, authority_address)
                 .map_err(|e| anyhow!("maker_source: {e:?}"))?;
 
-        // The circuit fixes each output blinding to a derivation over both input
-        // blindings, so the same value must be used here (this output feeds both
-        // the SPP transaction and the escrow_settle proof below).
-        recipient_out.blinding = derive_settle_output_blinding(
-            &order_blinding,
-            &reservation_blinding,
-            RECIPIENT_BLINDING_DOMAIN,
-        )
-        .map_err(|e| anyhow!("recipient_out blinding: {e:?}"))?;
-        maker_counter.blinding = derive_settle_output_blinding(
-            &order_blinding,
-            &reservation_blinding,
-            MAKER_COUNTER_BLINDING_DOMAIN,
-        )
-        .map_err(|e| anyhow!("maker_counter blinding: {e:?}"))?;
-        maker_source.blinding = derive_settle_output_blinding(
-            &order_blinding,
-            &reservation_blinding,
-            MAKER_SOURCE_BLINDING_DOMAIN,
-        )
-        .map_err(|e| anyhow!("maker_source blinding: {e:?}"))?;
+        let input_utxos = vec![order_in.clone(), reservation_in.clone()];
+        let output_blinding_seed = random_blinding();
+        let mut transaction_outputs = vec![recipient_out, maker_counter, maker_source];
+        assign_output_blindings(
+            &mut transaction_outputs,
+            &first_nullifier(&input_utxos)?,
+            &output_blinding_seed,
+        )?;
+        let [recipient_out, maker_counter, maker_source]: [_; 3] =
+            transaction_outputs
+                .try_into()
+                .map_err(|_| anyhow!("settle transaction must have three outputs"))?;
 
         let recipient_out_hash = recipient_out
             .hash()
@@ -533,7 +530,6 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
         // off-chain, so its ciphertext is dropped to keep the transaction under
         // Solana's size limit.
         const MAKER_COUNTER_INDEX: usize = 1;
-        let input_utxos = vec![order_in.clone(), reservation_in.clone()];
         let viewing_key = get_transaction_viewing_key(&env.authority.keypair, &input_utxos)
             .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
         let encoded = encrypt_transaction_data(
@@ -566,7 +562,8 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             encoded.output_utxos,
             external_data,
             authority_solana.pubkey(),
-        );
+        )
+        .with_output_blinding_seed(output_blinding_seed);
         let transact = env
             .client
             .indexer()

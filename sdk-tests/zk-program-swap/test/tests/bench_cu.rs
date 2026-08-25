@@ -47,7 +47,7 @@ use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
 use zolana_transaction::{
     instructions::{
         transact::{
-            encrypt_transaction_data, get_transaction_viewing_key,
+            encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
             spp_proof_inputs::BN254_MODULUS_DEC, ExternalData, SppProofInputs, SppProofOutputUtxo,
         },
         types::SppProofInputUtxo,
@@ -388,7 +388,7 @@ fn bench_make(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
         expiry: EXPIRY,
         take_mode: swap_prover::TAKE_MODE_VERIFIABLE,
     };
-    let order_utxo = OrderUtxo {
+    let mut order_utxo = OrderUtxo {
         terms,
         blinding: random_blinding(),
         source_mint: SOL_MINT,
@@ -414,6 +414,13 @@ fn bench_make(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
         maker.shielded_address().expect("maker address"),
     )
     .expect("change output");
+    let mut transaction_outputs = vec![change, order_output_utxo];
+    let output_blinding_seed = prepare_output_blindings(&input_utxos, &mut transaction_outputs)
+        .expect("derive make output blindings");
+    let [change, order_output_utxo]: [_; 2] = transaction_outputs
+        .try_into()
+        .expect("make transaction has two outputs");
+    order_utxo.blinding = order_output_utxo.blinding;
 
     let order_utxo_hash = order_output_utxo.hash().expect("order output hash");
     let marker_message = OrderMarker {
@@ -446,7 +453,8 @@ fn bench_make(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
         encoded.output_utxos,
         external_data,
         payer_address,
-    );
+    )
+    .with_output_blinding_seed(output_blinding_seed);
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
@@ -544,9 +552,7 @@ fn bench_take_derived(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenc
 
     let taker_in = order_utxo.destination_output(taker_address, taker_in_blinding);
     let source_output = order_utxo.source_output(taker_address, source_output_blinding);
-    let destination_output = order_utxo
-        .derived_destination_output(maker_address)
-        .expect("destination output");
+    let destination_output = order_utxo.destination_output(maker_address, random_blinding());
 
     let order_input_utxo = order_utxo.to_input_utxo().expect("order spend");
     let taker_utxo = Utxo {
@@ -562,6 +568,12 @@ fn bench_take_derived(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenc
     let payer_address = Address::new_from_array(taker_payer.pubkey().to_bytes());
     let assets = AssetRegistry::default();
     let input_utxos = vec![order_input_utxo, taker_spend];
+    let mut transaction_outputs = vec![source_output, destination_output];
+    let output_blinding_seed = prepare_output_blindings(&input_utxos, &mut transaction_outputs)
+        .expect("derive take output blindings");
+    let [source_output, destination_output]: [_; 2] = transaction_outputs
+        .try_into()
+        .expect("take transaction has two outputs");
     let transaction_viewing_key =
         get_transaction_viewing_key(&taker, &input_utxos).expect("take transaction viewing key");
 
@@ -585,7 +597,8 @@ fn bench_take_derived(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenc
         encoded.output_utxos,
         external_data,
         payer_address,
-    );
+    )
+    .with_output_blinding_seed(output_blinding_seed);
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
@@ -691,10 +704,6 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
     let source_output = order_utxo.source_output(taker_address, source_output_blinding);
     let destination_output =
         order_utxo.destination_output(maker_address, destination_output_blinding);
-    let destination_ciphertext = order_utxo
-        .destination_ciphertext(&destination_output)
-        .expect("destination ciphertext");
-
     let order_input_utxo = order_utxo.to_input_utxo().expect("order spend");
     let taker_utxo = Utxo {
         owner: taker.signing_pubkey(),
@@ -713,6 +722,15 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
         .confidential_view_tag()
         .expect("maker view tag");
     let input_utxos = vec![order_input_utxo, taker_spend];
+    let mut transaction_outputs = vec![source_output, destination_output];
+    let output_blinding_seed = prepare_output_blindings(&input_utxos, &mut transaction_outputs)
+        .expect("derive verifiable take output blindings");
+    let [source_output, destination_output]: [_; 2] = transaction_outputs
+        .try_into()
+        .expect("take transaction has two outputs");
+    let destination_ciphertext = order_utxo
+        .destination_ciphertext(&destination_output)
+        .expect("destination ciphertext");
     let transaction_viewing_key =
         get_transaction_viewing_key(&taker, &input_utxos).expect("take transaction viewing key");
 
@@ -744,7 +762,8 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
         encoded.output_utxos,
         external_data,
         payer_address,
-    );
+    )
+    .with_output_blinding_seed(output_blinding_seed);
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
@@ -856,13 +875,16 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
     };
     let source_output_blinding = random_blinding();
 
-    let source_output = order_utxo.source_output(maker_address, source_output_blinding);
+    let mut source_output = order_utxo.source_output(maker_address, source_output_blinding);
 
     let order_input_utxo = order_utxo.to_input_utxo().expect("order spend");
 
     let payer_address = Address::new_from_array(maker_payer.pubkey().to_bytes());
     let assets = AssetRegistry::default();
     let input_utxos = vec![order_input_utxo];
+    let output_blinding_seed =
+        prepare_output_blindings(&input_utxos, std::slice::from_mut(&mut source_output))
+            .expect("derive cancel output blinding");
     let transaction_viewing_key =
         get_transaction_viewing_key(&maker, &input_utxos).expect("cancel transaction viewing key");
 
@@ -886,7 +908,8 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
         encoded.output_utxos,
         external_data,
         payer_address,
-    );
+    )
+    .with_output_blinding_seed(output_blinding_seed);
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()

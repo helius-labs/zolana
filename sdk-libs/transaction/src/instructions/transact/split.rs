@@ -18,7 +18,7 @@ use crate::{
         split::{Split, SplitBundlePlaintext, SplitEncode},
         UtxoSerialization,
     },
-    utxo::derive_blinding,
+    utxo::derive_transact_output_blinding,
     AssetRegistry,
 };
 
@@ -97,6 +97,7 @@ impl ConfidentialSplit {
         let slot_count = Shape::IN1_OUT8.n_outputs();
         let num_outputs = usize::from(self.num_outputs);
 
+        let first_nullifier = self.input.nullifier()?;
         let mut outputs = Vec::with_capacity(slot_count);
         for position in 0..slot_count {
             let amount = if position < num_outputs {
@@ -108,12 +109,14 @@ impl ConfidentialSplit {
                 owner_address: Some(self.owner),
                 asset: self.asset,
                 amount,
-                blinding: derive_blinding(&self.blinding_seed, position as u8),
+                blinding: derive_transact_output_blinding(
+                    &first_nullifier,
+                    &self.blinding_seed,
+                    u32::try_from(position).map_err(|_| TransactionError::TooManyOutputs)?,
+                )?,
                 ..Default::default()
             });
         }
-
-        let first_nullifier = self.input.nullifier()?;
 
         Ok(PreparedSplit {
             owner: self.owner,
@@ -153,7 +156,6 @@ impl ConfidentialSplit {
                 recipient_pubkey: prepared.owner.viewing_pubkey,
                 salt,
                 slot_index: 0,
-                blinding_seed: prepared.blinding_seed,
             },
         )?;
 
@@ -174,19 +176,31 @@ pub struct PreparedSplit {
 }
 
 impl PreparedSplit {
-    /// The `Split` bundle plaintext that covers every real output: it carries
-    /// the owner pubkey, the shared blinding seed, and the per-output amount, so
-    /// the recipient re-derives all `num_outputs` utxos from slot 0 alone.
+    /// The `Split` bundle plaintext that covers every real output. It carries
+    /// the final blinding for each physical slot, never the private seed.
     pub fn bundle_plaintext(
         &self,
         assets: &AssetRegistry,
     ) -> Result<SplitBundlePlaintext, TransactionError> {
+        if self.outputs.len() < 8 {
+            return Err(TransactionError::MissingOutput);
+        }
+        if self.outputs.len() > 8 {
+            return Err(TransactionError::TooManyOutputs);
+        }
+        let output_blindings = self
+            .outputs
+            .iter()
+            .map(|output| output.blinding)
+            .collect::<Vec<_>>()
+            .try_into()
+            .map_err(|_| TransactionError::MissingOutput)?;
         Ok(SplitBundlePlaintext {
             owner_pubkey: self.owner.signing_pubkey,
             num_outputs: self.num_outputs,
             asset_id: assets.asset_id(&self.asset)?,
             asset_amount: self.per_output_amount,
-            blinding_seed: self.blinding_seed,
+            output_blindings,
             data: Data::default(),
         })
     }
@@ -218,6 +232,7 @@ impl PreparedSplit {
             owner,
             input,
             outputs,
+            blinding_seed,
             payer,
             ..
         } = self;
@@ -250,6 +265,7 @@ impl PreparedSplit {
         Ok(SppProofInputs {
             input_utxos: vec![input],
             output_utxos: outputs,
+            output_blinding_seed: blinding_seed,
             external_data,
             payer,
         })

@@ -18,7 +18,7 @@ use zolana_client::{
     STATE_TREE_HEIGHT,
 };
 use zolana_hasher::primitives::hash_bytes;
-use zolana_hasher::Poseidon;
+use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{
@@ -42,6 +42,7 @@ use zolana_transaction::{
     instructions::transact::spp_proof_inputs::{signed_to_field, BN254_MODULUS_DEC},
     instructions::transact::PrivateTxHash,
     instructions::types::SppProofInputUtxo,
+    utxo::derive_transact_output_blinding,
     Data, SppProofOutputUtxo, Utxo,
 };
 use zolana_tree::TreeAccount;
@@ -310,6 +311,59 @@ pub struct TransferProverInputsArgs {
     pub public_input_hash: [u8; 32],
 }
 
+/// Rebind manual program-test outputs to the protocol derivation before their
+/// hashes and public inputs are assembled. Production builders use a random
+/// seed; fixtures use zero for reproducibility while retaining nullifier/index
+/// uniqueness.
+pub fn derive_test_output_blindings(
+    first_nullifier: &[u8; 32],
+    outputs: &mut [SppProofOutputUtxo],
+) -> Result<()> {
+    let seed = [0u8; 32];
+    for (index, output) in outputs.iter_mut().enumerate() {
+        output.blinding = derive_transact_output_blinding(
+            first_nullifier,
+            &seed,
+            u32::try_from(index).map_err(|_| anyhow!("too many test outputs"))?,
+        )?;
+    }
+    Ok(())
+}
+
+/// Equivalent helper for already-materialized prover outputs.
+pub fn derive_test_transfer_output_blindings(
+    first_nullifier: &[u8; 32],
+    outputs: &mut [TransferOutput],
+) -> Result<Vec<[u8; 32]>> {
+    let seed = [0u8; 32];
+    outputs
+        .iter_mut()
+        .enumerate()
+        .map(|(index, output)| {
+            let blinding = derive_transact_output_blinding(
+                first_nullifier,
+                &seed,
+                u32::try_from(index).map_err(|_| anyhow!("too many test outputs"))?,
+            )?;
+            output.utxo.blinding = blinding;
+            let ring_hash =
+                Poseidon::hashv(&[&output.utxo.ring_data_hash, &output.utxo.ring_program_id])?;
+            let owner_utxo_hash =
+                Poseidon::hashv(&[&output.utxo.owner_hash, &output.utxo.blinding])?;
+            let hash = Poseidon::hashv(&[
+                &output.utxo.domain,
+                &output.utxo.asset,
+                &output.utxo.amount,
+                &output.utxo.data_hash,
+                &ring_hash,
+                &owner_utxo_hash,
+            ])?;
+            output.hash = be(&hash);
+            Ok(hash)
+        })
+        .collect()
+}
+
 pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferInputs {
     let zero = [0u8; 32];
     let mut signer_pk_hashes: Vec<BigUint> = args.signer_pk_hashes.iter().map(be).collect();
@@ -321,6 +375,7 @@ pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferI
         .map(|output| output.owner_pk_hash.clone())
         .collect();
     TransferInputs {
+        output_blinding_seed: BigUint::ZERO,
         inputs: args.inputs,
         outputs: args.outputs,
         external_data_hash: be(&args.external_data_hash),
@@ -647,8 +702,9 @@ pub fn build_spl_withdrawal(
         .iter()
         .map(|blinding| dummy_transfer_output(blinding).expect("dummy output"))
         .collect();
-    let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
     let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
+    let output_hashes = derive_test_transfer_output_blindings(&nullifier, &mut outputs)
+        .expect("derive output blindings");
     // Dummy slots carry the payer's tag (the AssertDummyTags rule; see
     // `set_output_owner_tags`).
     let mut data = new_transact_ix_data(

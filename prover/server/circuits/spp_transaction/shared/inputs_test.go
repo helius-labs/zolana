@@ -245,6 +245,7 @@ func buildDummyInputShield(t testing.TB, deposit int64) *testAssignment {
 		spptest.AsBigInt(in.Utxo.Blinding),
 		spptest.AsBigInt(in.NullifierSecret),
 	)
+	refreshDerivedOutputBlindings(t, assignment)
 
 	// The dummy contributes 0 to the private-tx-hash chain, so recompute it with
 	// the input hash zeroed, then refresh the public-input hash from the

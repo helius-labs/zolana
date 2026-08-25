@@ -410,6 +410,7 @@ impl RingHarness {
         match rail {
             RingRail::Eddsa => {
                 let prover = RingTransferProver {
+                    output_blinding_seed: proof_inputs.output_blinding_seed,
                     inputs: spend_inputs,
                     outputs: proof_inputs.output_utxos.clone(),
                     external_data: proof_inputs.external_data.clone(),
@@ -455,6 +456,7 @@ impl RingHarness {
                 let authorization =
                     SyncWalletAuthority::sign_p256(signer, &proof_inputs.message_hash()?)?;
                 let prover = RingTransferP256Prover {
+                    output_blinding_seed: proof_inputs.output_blinding_seed,
                     inputs: spend_inputs,
                     outputs: proof_inputs.output_utxos.clone(),
                     external_data: proof_inputs.external_data.clone(),
@@ -695,6 +697,7 @@ impl RingHarness {
         let ring = Address::new_from_array(self.ring_program_id.to_bytes());
         let tx_shape = proof_inputs.check_shape()?;
         let prover = RingTransferProver {
+            output_blinding_seed: proof_inputs.output_blinding_seed,
             inputs: self.ring_spend_inputs(&proof_inputs.input_utxos)?,
             outputs: proof_inputs.output_utxos.clone(),
             external_data: proof_inputs.external_data.clone(),

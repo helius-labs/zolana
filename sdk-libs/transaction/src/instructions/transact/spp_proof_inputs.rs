@@ -1,7 +1,7 @@
 use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_interface::{MAX_INTERFACE_TRANSFERS, N_PUBLIC_SLOTS, SOL_ASSET_FIELD};
-use zolana_keypair::{hash::sha256, Curve, ViewingKey, ViewingKeyTrait};
+use zolana_keypair::{hash::sha256, random_blinding, Curve, ViewingKey, ViewingKeyTrait};
 
 use super::{
     shape::{Shape, SPP_SUPPORTED_SHAPES},
@@ -10,6 +10,7 @@ use super::{
 use crate::{
     error::TransactionError,
     instructions::types::{InputUtxoContext, SppProofInputUtxo},
+    utxo::derive_transact_output_blinding,
     ExternalData, SppProofOutputUtxo, SOL_MINT,
 };
 
@@ -69,6 +70,31 @@ pub fn first_nullifier(input_utxos: &[SppProofInputUtxo]) -> Result<[u8; 32], Tr
         .nullifier()
 }
 
+/// Assigns the final deterministic blinding to every physical output slot.
+/// Call this before hashing or encrypting any output.
+pub fn assign_output_blindings(
+    outputs: &mut [SppProofOutputUtxo],
+    first_nullifier: &[u8; 32],
+    seed: &[u8; 32],
+) -> Result<(), TransactionError> {
+    for (index, output) in outputs.iter_mut().enumerate() {
+        let index = u32::try_from(index).map_err(|_| TransactionError::TooManyOutputs)?;
+        output.blinding = derive_transact_output_blinding(first_nullifier, seed, index)?;
+    }
+    Ok(())
+}
+
+/// Generates a private seed and assigns every final output blinding. Call this
+/// before hashing or encrypting the outputs.
+pub fn prepare_output_blindings(
+    input_utxos: &[SppProofInputUtxo],
+    outputs: &mut [SppProofOutputUtxo],
+) -> Result<[u8; 32], TransactionError> {
+    let seed = random_blinding();
+    assign_output_blindings(outputs, &first_nullifier(input_utxos)?, &seed)?;
+    Ok(seed)
+}
+
 pub fn get_transaction_viewing_key<K: ViewingKeyTrait>(
     keypair: &K,
     input_utxos: &[SppProofInputUtxo],
@@ -104,6 +130,9 @@ impl PublicTransfers {
 pub struct SppProofInputs {
     pub input_utxos: Vec<SppProofInputUtxo>,
     pub output_utxos: Vec<SppProofOutputUtxo>,
+    /// Private transaction seed used to derive every physical output blinding.
+    /// Recipients receive only the derived final blinding.
+    pub output_blinding_seed: [u8; 32],
     pub external_data: ExternalData,
     pub payer: Address,
 }
@@ -118,9 +147,15 @@ impl SppProofInputs {
         Self {
             input_utxos,
             output_utxos,
+            output_blinding_seed: [0u8; 32],
             external_data,
             payer,
         }
+    }
+
+    pub fn with_output_blinding_seed(mut self, output_blinding_seed: [u8; 32]) -> Self {
+        self.output_blinding_seed = output_blinding_seed;
+        self
     }
 
     /// Unique non-payer Ed25519 and PDA input owners in first-input order. This

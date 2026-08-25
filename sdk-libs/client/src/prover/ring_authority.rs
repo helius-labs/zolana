@@ -24,7 +24,10 @@ use crate::{
         field::be,
         resolve_shape,
         transact::{
-            assembly::{assemble_inputs, assemble_outputs, OwnerMode, TransferSpendInput},
+            assembly::{
+                assemble_inputs, assemble_outputs, validate_output_blindings, OwnerMode,
+                TransferSpendInput,
+            },
             witness::{attach_input_proofs, SpendProof},
         },
         Shape, TransferInputs,
@@ -41,6 +44,7 @@ pub struct RingAuthorityProver {
     /// input's `nullifier_key` is supplied by the ring authority.
     pub inputs: Vec<TransferSpendInput>,
     pub outputs: Vec<SppProofOutputUtxo>,
+    pub output_blinding_seed: [u8; 32],
     /// Transaction-level public data; its `instruction_discriminator` must be
     /// `RING_AUTHORITY_TRANSACT` (tag 17) so `external_data_hash` matches on-chain.
     pub external_data: ExternalData,
@@ -70,6 +74,11 @@ impl RingAuthorityProver {
         resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
 
         let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::RingAuthority)?;
+        let first_nullifier = assembled_inputs
+            .nullifiers
+            .first()
+            .ok_or(ClientError::NoInputs)?;
+        validate_output_blindings(&self.outputs, first_nullifier, &self.output_blinding_seed)?;
         let assembled_outputs = assemble_outputs(&self.outputs)?;
         let external_data_hash = self.external_data.hash()?;
         let private_tx = PrivateTxHash::new(
@@ -110,6 +119,7 @@ impl RingAuthorityProver {
         let inputs = TransferInputs {
             inputs: assembled_inputs.inputs,
             outputs: assembled_outputs.outputs,
+            output_blinding_seed: be(&self.output_blinding_seed),
             external_data_hash: be(&external_data_hash),
             private_tx_hash: be(&private_tx),
             public_assets: self.public_transfers.assets.map(|asset| be(&asset)),
@@ -156,6 +166,7 @@ impl TryFrom<RingAuthorityWitness> for RingAuthorityProver {
         let PreparedRingAuthority {
             inputs,
             outputs,
+            output_blinding_seed,
             public_transfers,
             external_data,
             payer,
@@ -168,6 +179,7 @@ impl TryFrom<RingAuthorityWitness> for RingAuthorityProver {
         Ok(RingAuthorityProver {
             inputs: spends,
             outputs,
+            output_blinding_seed,
             external_data,
             public_transfers,
             payer,

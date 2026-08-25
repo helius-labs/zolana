@@ -49,6 +49,9 @@ type Transaction struct {
 
 	Inputs  []Input
 	Outputs []UtxoCircuitFields
+	// OutputBlindingSeed is private transaction material. Every physical output
+	// blinding is derived from it, the first nullifier, and the output index.
+	OutputBlindingSeed frontend.Variable
 
 	PrivateTxHash     frontend.Variable
 	ExternalDataHash  frontend.Variable
@@ -135,6 +138,10 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 	// 2. check outputs
 	outputHashes := make([]frontend.Variable, t.Shape.NOutputs)
 	for i, utxo := range t.Outputs {
+		api.AssertIsEqual(
+			utxo.Blinding,
+			DeriveOutputBlinding(api, t.Nullifiers[0], t.OutputBlindingSeed, i),
+		)
 		outputHashes[i] = ConstrainOutput(api, utxo, t.OutputHashes[i], outputSigned[i])
 	}
 

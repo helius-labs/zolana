@@ -21,9 +21,9 @@ pub use merge_ring::{MergeRingProver, MergeRingWitness};
 pub use proof::{Commitments, CompressedCommitments, Proof, ProofCompressed};
 pub use ring_authority::{RingAuthorityProofResult, RingAuthorityProver, RingAuthorityWitness};
 pub use transact::{
-    PublicInputs, PublicTransfers, RingTransferP256ProofResult, RingTransferP256Prover,
-    RingTransferProofResult, RingTransferProver, TransferProofResult, TransferProver,
-    TransferSpendInput,
+    assign_spend_output_blindings, PublicInputs, PublicTransfers, RingTransferP256ProofResult,
+    RingTransferP256Prover, RingTransferProofResult, RingTransferProver, TransferProofResult,
+    TransferProver, TransferSpendInput,
 };
 pub use zolana_transaction::instructions::transact::{
     canonical_shape, resolve_shape, Shape, SPP_SUPPORTED_SHAPES,

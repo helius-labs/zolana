@@ -227,7 +227,6 @@ fn decrypt(c: &mut Criterion) {
         recipient_pubkey: alice.viewing_pubkey(),
         salt: split_salt,
         slot_index: 0,
-        blinding_seed: split_blinding_seed,
     };
     let split_plaintext = Split::from_utxos(&split_outputs, &split_owner_cx, &split_cx).unwrap();
     let split_bytes = Split::serialize(&split_plaintext).unwrap();
