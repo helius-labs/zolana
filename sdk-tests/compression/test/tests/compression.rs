@@ -8,16 +8,31 @@ use compression_example_sdk::{
         create::{address_input, Create, CreateProofInputParams},
         update::{Update, UpdateCompressedAccount, UpdateProofInputParams},
     },
-    state::decode_state,
+    state::{decode_state, pda_shielded_address},
 };
-use shared::{send, setup, tree_root};
+use shared::{send, send_from, setup, tree_root, Environment};
 use solana_address::Address;
+use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{ProofCompressed, ProverClient};
-use zolana_test_utils::test_validator_asserts::{
-    wait_for_indexed_utxo, wait_for_non_inclusion_proof,
+use zolana_interface::{
+    event::OutputDataEncoding,
+    instruction::{
+        instruction_data::transact::{OwnerTag, TransactOutput},
+        AssetDeposit, Deposit, DepositAsset, Transact,
+    },
 };
-use zolana_transaction::{Utxo, WalletUtxo};
+use zolana_keypair::{random_blinding, ShieldedKeypair};
+use zolana_test_utils::test_validator_asserts::{
+    wait_for_indexed_utxo, wait_for_merkle_proof, wait_for_non_inclusion_proof,
+};
+use zolana_transaction::{
+    instructions::transact::{ExternalData, SppProofInputs, SppProofOutputUtxo},
+    instructions::types::SppProofInputUtxo,
+    Data, Utxo, WalletUtxo, SOL_MINT,
+};
+
+const POISON_AMOUNT: u64 = 1_000_000;
 
 fn assert_account(
     wallet_utxo: &WalletUtxo,
@@ -47,9 +62,99 @@ fn assert_account(
     Ok(())
 }
 
+fn malformed_plaintext_payload() -> Vec<u8> {
+    let mut payload = vec![OutputDataEncoding::PLAINTEXT_TAG];
+    payload.extend_from_slice(&3u32.to_le_bytes());
+    payload.extend_from_slice(&[0xff; 3]);
+    payload
+}
+
+fn land_malformed_tagged_output(env: &mut Environment, pda: Address) -> Result<Signature> {
+    let attacker = ShieldedKeypair::new_ed25519()?;
+    env.rpc.airdrop(&attacker.pubkey(), 10_000_000_000)?;
+    let attacker_address = attacker.shielded_address()?;
+    let blinding = random_blinding();
+    let deposit_ix = Deposit {
+        tree: env.tree,
+        depositor: attacker.pubkey(),
+        deposits: vec![AssetDeposit {
+            asset: DepositAsset::Sol,
+            view_tag: attacker_address.confidential_view_tag()?,
+            owner: attacker_address.owner_hash()?,
+            blinding,
+            amount: POISON_AMOUNT,
+            utxo_data: None,
+            memo: None,
+        }],
+    }
+    .instruction()?;
+    let deposit_signature = send_from(env, deposit_ix, &attacker, None)?;
+    wait_for_indexed_utxo(
+        &env.indexer,
+        attacker_address.confidential_view_tag()?,
+        deposit_signature,
+    );
+
+    let spend = SppProofInputUtxo::new(
+        Utxo {
+            owner: attacker.signing_pubkey(),
+            asset: SOL_MINT,
+            amount: POISON_AMOUNT,
+            blinding,
+            ring_program_id: None,
+            data: Data::default(),
+        },
+        &attacker,
+    );
+    wait_for_merkle_proof(&env.indexer, env.tree, spend.hash()?);
+
+    let poison_output = SppProofOutputUtxo {
+        asset: SOL_MINT,
+        amount: POISON_AMOUNT,
+        blinding: random_blinding(),
+        owner_address: Some(pda_shielded_address(&pda)?),
+        owner_tag: Some(pda.to_bytes()),
+        data: Data::default(),
+        ..SppProofOutputUtxo::default()
+    };
+    let output_hash = poison_output.hash()?;
+    let external = ExternalData::new(
+        [0u8; 33],
+        [0u8; 16],
+        vec![TransactOutput {
+            utxo_hash: output_hash,
+            owner_tag: OwnerTag::Inline(pda.to_bytes()),
+            data: Some(malformed_plaintext_payload()),
+        }],
+        vec![pda.to_bytes()],
+        Vec::new(),
+    );
+    let transact = env.indexer.prove_transact(
+        env.tree,
+        SppProofInputs::new(
+            vec![spend],
+            vec![poison_output],
+            external,
+            attacker.pubkey(),
+        ),
+    )?;
+    let poison_ix = Transact {
+        payer: attacker.pubkey(),
+        input_tree: env.tree,
+        output_tree: env.tree,
+        owner_signers: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
+        data: transact,
+    }
+    .instruction();
+    let poison_signature = send_from(env, poison_ix, &attacker, None)?;
+    wait_for_indexed_utxo(&env.indexer, pda.to_bytes(), poison_signature);
+    Ok(poison_signature)
+}
+
 #[test]
 fn create_and_update_plaintext_compressed_account() -> Result<()> {
-    let env = setup()?;
+    let mut env = setup()?;
     let pda = account_pda(&env.authority.pubkey());
 
     let (_, _, address) = address_input(&pda)?;
@@ -98,6 +203,20 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
     )?;
     if created_state.address != create.input_nullifier {
         bail!("compressed address is not the address-input nullifier");
+    }
+
+    land_malformed_tagged_output(&mut env, pda)?;
+    let after_poison = discover_account(&env.indexer, pda)?;
+    assert_account(
+        &after_poison.utxo,
+        &create.output,
+        create.output_hash,
+        env.authority.pubkey(),
+        1,
+        env.tree,
+    )?;
+    if after_poison.version != 0 {
+        bail!("poisoned scan did not keep the created account");
     }
 
     if send(&env, create_ix, Some(1)).is_ok() {
