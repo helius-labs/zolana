@@ -5,7 +5,7 @@ export {
   type EncryptedEnvelope,
   type EncryptedSplit,
   type AuditWitness,
-  type EncryptedAuditedTransfer,
+  type EncryptedCustomRingTransfer,
   type EncryptedTransfer,
   type SplitBundlePlaintext,
   type SyncWalletAuthority,

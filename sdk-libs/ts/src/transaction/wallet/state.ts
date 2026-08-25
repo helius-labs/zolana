@@ -129,7 +129,7 @@ export interface WalletUtxo {
   }>;
   readonly nullifier: Bytes32;
   readonly dataHash?: Bytes32;
-  readonly zoneDataHash?: Bytes32;
+  readonly ringDataHash?: Bytes32;
   readonly spent: boolean;
 }
 
@@ -140,7 +140,7 @@ function copyUtxo(value: Utxo): Utxo {
     amount: value.amount,
     blinding: value.blinding,
     data: value.data,
-    ...(value.zoneProgramId === undefined ? {} : { zoneProgramId: value.zoneProgramId }),
+    ...(value.ringProgramId === undefined ? {} : { ringProgramId: value.ringProgramId }),
   });
 }
 
@@ -154,7 +154,7 @@ function snapshotUtxo(value: WalletUtxo): WalletUtxo {
     }),
     nullifier: copy(value.nullifier),
     ...(value.dataHash === undefined ? {} : { dataHash: copy(value.dataHash) }),
-    ...(value.zoneDataHash === undefined ? {} : { zoneDataHash: copy(value.zoneDataHash) }),
+    ...(value.ringDataHash === undefined ? {} : { ringDataHash: copy(value.ringDataHash) }),
   });
 }
 

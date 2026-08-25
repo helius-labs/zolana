@@ -41,7 +41,7 @@ import { RingError, wrapRingError } from "./error.js";
 import { ringTransactInstruction } from "./instructions.js";
 import { fetchRingLookupTable } from "./lookup-table.js";
 
-/** Rust `TRANSACT_COMPUTE_UNIT_LIMIT`. The audited transact verifies two proofs. */
+/** Rust `TRANSACT_COMPUTE_UNIT_LIMIT`. The custom-ring transact verifies two proofs. */
 export const RING_TRANSACT_COMPUTE_UNIT_LIMIT = 1_400_000;
 const MAX_INPUTS = 5;
 /** Borsh `Encrypted` tag, its length, the scheme byte and the embedded P-256 key. */
@@ -76,8 +76,8 @@ export interface RingWithdrawalTransactionParams {
   readonly computeUnitLimit?: number;
 }
 
-/** Mirrors Rust `AuditedTransferInput`. `prepared` is what `ConfidentialTransfer.prepare` returned. */
-export interface AuditedTransferParams {
+/** Mirrors Rust `CustomRingTransferInput`. `prepared` is what `ConfidentialTransfer.prepare` returned. */
+export interface CustomRingTransferParams {
   readonly client: ZolanaClient;
   readonly ringProgramId: Address;
   readonly prepared: PreparedTransfer;
@@ -114,7 +114,7 @@ export async function buildRingTransferTransaction(
           utxo: entry.utxo,
           nullifierKey,
           ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),
-          ...(entry.zoneDataHash === undefined ? {} : { zoneDataHash: entry.zoneDataHash }),
+          ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
         }),
     );
     const transfer = new ConfidentialTransfer(address, inputs, input.feePayer).withCompactChange();
@@ -124,7 +124,7 @@ export async function buildRingTransferTransaction(
       solanaPublicKey: input.authority.solanaPublicKey(),
       summary: `ring transfer of ${String(input.amount)} to a shielded address`,
     });
-    const proven = await proveAuditedTransfer(
+    const proven = await proveCustomRingTransfer(
       {
         client: input.client,
         ringProgramId: input.ringProgramId,
@@ -204,7 +204,7 @@ export async function buildRingWithdrawalTransaction(
           utxo: entry.utxo,
           nullifierKey,
           ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),
-          ...(entry.zoneDataHash === undefined ? {} : { zoneDataHash: entry.zoneDataHash }),
+          ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
         }),
     );
     const transfer = new ConfidentialTransfer(address, inputs, input.feePayer).withCompactChange();
@@ -214,7 +214,7 @@ export async function buildRingWithdrawalTransaction(
       solanaPublicKey: input.authority.solanaPublicKey(),
       summary: `public withdrawal of ${String(input.amount)} from the ring to ${input.recipient}`,
     });
-    const proven = await proveAuditedTransfer(
+    const proven = await proveCustomRingTransfer(
       {
         client: input.client,
         ringProgramId: input.ringProgramId,
@@ -271,22 +271,22 @@ export async function buildRingWithdrawalTransaction(
   }
 }
 
-/** Mirrors Rust `AuditedTransfer::prove`, the auditor message enters the external data before the SPP proof folds it into `privateTxHash`. */
-export async function proveAuditedTransfer(
-  input: AuditedTransferParams,
+/** Mirrors Rust `CustomRingTransfer::prove`, the auditor message enters the external data before the SPP proof folds it into `privateTxHash`. */
+export async function proveCustomRingTransfer(
+  input: CustomRingTransferParams,
   context?: RequestContext,
 ): Promise<ProvenRingTransfer> {
   const config = await fetchRingProgramConfig(input.client, input.ringProgramId, context);
-  // A padded change slot pushes the audited instruction past the packet limit
+  // A padded change slot pushes the custom-ring instruction past the packet limit
   // even behind an address lookup table.
   if (input.prepared.changeLayout !== "compact") {
     throw new RingError("RING_PADDED_CHANGE", {
       details: { remedy: "prepare the transfer with ConfidentialTransfer.withCompactChange" },
     });
   }
-  const prepared = input.prepared.withZoneProgramId(input.ringProgramId);
+  const prepared = input.prepared.withRingProgramId(input.ringProgramId);
   checkRingMembership(prepared, input.ringProgramId);
-  const encrypted = await input.authority.encryptAuditedTransfer({
+  const encrypted = await input.authority.encryptCustomRingTransfer({
     firstNullifier: prepared.firstNullifier,
     outputs: prepared.outputs,
     assets: input.assets,
@@ -308,7 +308,7 @@ export async function proveAuditedTransfer(
       undefined,
       context,
     );
-    const auditProof = await input.client.proveCustomRingAudit(
+    const auditProof = await input.client.proveCustomRing(
       {
         publicInputHash: auditPublicInputHash({
           privateTxHash: data.privateTxHash,
@@ -339,9 +339,9 @@ export async function proveAuditedTransfer(
 /** Mirrors Rust `RingMembership::validate`. */
 function checkRingMembership(prepared: PreparedTransfer, ringProgramId: Address): void {
   const foreign = [
-    ...prepared.inputs.map((input) => input.utxo.zoneProgramId),
-    ...prepared.outputs.map((output) => output.zoneProgramId),
-  ].find((zone) => zone !== undefined && zone !== ringProgramId);
+    ...prepared.inputs.map((input) => input.utxo.ringProgramId),
+    ...prepared.outputs.map((output) => output.ringProgramId),
+  ].find((ring) => ring !== undefined && ring !== ringProgramId);
   if (foreign !== undefined) {
     throw new RingError("RING_FOREIGN_RING", { details: { ringProgramId: foreign } });
   }
@@ -370,7 +370,7 @@ export function frameDummyOutputs(proofInputs: SppProofInputs): SppProofInputs {
     key.destroy();
     globalThis.crypto.getRandomValues(body.subarray(33));
     const scheme =
-      output.zoneProgramId === undefined
+      output.ringProgramId === undefined
         ? EncryptedScheme.confidential
         : EncryptedScheme.ringConfidential;
     return { ...encoded, data: encodeOutputData(scheme, body, "encrypted") };
@@ -416,7 +416,7 @@ function selectRingInputs(
     .utxos()
     .filter(
       (entry) =>
-        !entry.spent && entry.utxo.asset === asset && entry.utxo.zoneProgramId === ringProgramId,
+        !entry.spent && entry.utxo.asset === asset && entry.utxo.ringProgramId === ringProgramId,
     );
   const trees = new Set(candidates.map((entry) => entry.outputContext.tree));
   if (trees.size > 1) {

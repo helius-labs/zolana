@@ -22,7 +22,11 @@ export type {
   RingDepositOutput,
   RingDepositPlaintext,
 } from "../transaction/serialization/ring-deposit.js";
-export { AUDIT_PROOF_LENGTH, checkedAuditProof, decodeRingProgramConfig } from "./codecs.js";
+export {
+  CUSTOM_RING_PROOF_LENGTH,
+  checkedCustomRingProof,
+  decodeRingProgramConfig,
+} from "./codecs.js";
 export { ringRole, type RingRole } from "./role.js";
 export type { RingProgramConfig } from "./codecs.js";
 export {
@@ -117,11 +121,11 @@ export {
   buildRingTransferTransaction,
   buildRingWithdrawalTransaction,
   frameDummyOutputs,
-  proveAuditedTransfer,
+  proveCustomRingTransfer,
   RING_TRANSACT_COMPUTE_UNIT_LIMIT,
 } from "./transfer.js";
 export type {
-  AuditedTransferParams,
+  CustomRingTransferParams,
   ProvenRingTransfer,
   RingTransferTransactionParams,
 } from "./transfer.js";

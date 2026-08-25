@@ -30,25 +30,25 @@ export interface UtxoInit {
   readonly amount: bigint;
   readonly blinding: Blinding;
   readonly data?: Data;
-  readonly zoneProgramId?: Address;
+  readonly ringProgramId?: Address;
 }
 
 /**
- * The zone binding a reconstructed UTXO carries, given the id its reader was
- * configured with. A reader that supplies none cannot bind zone data to a
- * policy nobody can enforce, so a payload carrying zone data is refused; a
- * payload carrying none drops the id rather than committing to a zone the
- * plaintext never mentioned. Mirrors Rust `resolve_zone_program_id`.
+ * The ring binding a reconstructed UTXO carries, given the id its reader was
+ * configured with. A reader that supplies none cannot bind ring data to a
+ * policy nobody can enforce, so a payload carrying ring data is refused; a
+ * payload carrying none drops the id rather than committing to a ring the
+ * plaintext never mentioned. Mirrors Rust `resolve_ring_program_id`.
  */
-export function resolveZoneProgramId(
-  zoneProgramId: Address | undefined,
+export function resolveRingProgramId(
+  ringProgramId: Address | undefined,
   data: Data,
 ): Address | undefined {
-  if (!data.zoneData()) return undefined;
-  if (zoneProgramId === undefined) {
-    throw new TransactionError("TRANSACTION_MISSING_ZONE_PROGRAM_ID");
+  if (!data.ringData()) return undefined;
+  if (ringProgramId === undefined) {
+    throw new TransactionError("TRANSACTION_MISSING_RING_PROGRAM_ID");
   }
-  return zoneProgramId;
+  return ringProgramId;
 }
 
 export function deriveBlinding(seed: Bytes32, position: number): Blinding {
@@ -70,21 +70,21 @@ function commitmentFields(
     amount: bigint;
     blinding: Bytes32;
     dataHash?: Bytes32;
-    zoneDataHash?: Bytes32;
-    zoneProgramId?: Address;
+    ringDataHash?: Bytes32;
+    ringProgramId?: Address;
   }>,
 ): readonly Bytes32[] {
   checkU64(input.amount, "amount");
-  const zoneDataHash = input.zoneDataHash
-    ? checked<Bytes32>(input.zoneDataHash, 32, "zone data hash")
+  const ringDataHash = input.ringDataHash
+    ? checked<Bytes32>(input.ringDataHash, 32, "ring data hash")
     : ZERO_32;
-  if (!input.zoneProgramId && !isZero(zoneDataHash)) {
-    throw new TransactionError("TRANSACTION_MISSING_ZONE_PROGRAM_ID");
+  if (!input.ringProgramId && !isZero(ringDataHash)) {
+    throw new TransactionError("TRANSACTION_MISSING_RING_PROGRAM_ID");
   }
-  const zoneProgramId = input.zoneProgramId
-    ? hashBytes(decodeAddress(input.zoneProgramId))
+  const ringProgramId = input.ringProgramId
+    ? hashBytes(decodeAddress(input.ringProgramId))
     : ZERO_32;
-  const zoneHash = commitmentPoseidon([zoneDataHash, zoneProgramId]);
+  const ringHash = commitmentPoseidon([ringDataHash, ringProgramId]);
   const ownerCommitment = commitmentPoseidon([
     checked<Bytes32>(input.owner, 32, "owner hash"),
     checked<Bytes32>(input.blinding, 32, "blinding"),
@@ -94,21 +94,21 @@ function commitmentFields(
     hashBytes(decodeAddress(input.asset)) as Bytes32,
     rightAlign(bigintToU64(input.amount)),
     input.dataHash ? checked<Bytes32>(input.dataHash, 32, "data hash") : ZERO_32,
-    zoneHash,
+    ringHash,
     ownerCommitment,
   ];
 }
 
 /**
- * An all-zero zone data hash reaches the commitment as the same field an absent
+ * An all-zero ring data hash reaches the commitment as the same field an absent
  * one does, so the two spellings must not survive as distinct stored values.
- * This normalizes the hash only; the zone address is deliberately left alone,
- * because a zero `zoneProgramId` commits to `pk_field(0)`, a non-zero field the
- * circuit reads as zone-bound.
+ * This normalizes the hash only; the ring address is deliberately left alone,
+ * because a zero `ringProgramId` commits to `pk_field(0)`, a non-zero field the
+ * circuit reads as ring-bound.
  */
-function normalizeZoneDataHash(zoneDataHash?: Bytes32): Bytes32 | undefined {
-  if (zoneDataHash === undefined) return undefined;
-  const value = checked<Bytes32>(zoneDataHash, 32, "zone data hash");
+function normalizeRingDataHash(ringDataHash?: Bytes32): Bytes32 | undefined {
+  if (ringDataHash === undefined) return undefined;
+  const value = checked<Bytes32>(ringDataHash, 32, "ring data hash");
   return isZero(value) ? undefined : value;
 }
 
@@ -125,8 +125,8 @@ function fullOwnerUtxoHash(
     amount: bigint;
     blinding: Bytes32;
     dataHash?: Bytes32;
-    zoneDataHash?: Bytes32;
-    zoneProgramId?: Address;
+    ringDataHash?: Bytes32;
+    ringProgramId?: Address;
   }>,
   dummy = false,
 ): Bytes32 {
@@ -151,8 +151,8 @@ export function ownerUtxoHash(
     amount: bigint;
     blinding: Bytes32;
     dataHash?: Bytes32;
-    zoneDataHash?: Bytes32;
-    zoneProgramId?: Address;
+    ringDataHash?: Bytes32;
+    ringProgramId?: Address;
   }>,
 ): Bytes32;
 export function ownerUtxoHash(
@@ -164,8 +164,8 @@ export function ownerUtxoHash(
         amount: bigint;
         blinding: Bytes32;
         dataHash?: Bytes32;
-        zoneDataHash?: Bytes32;
-        zoneProgramId?: Address;
+        ringDataHash?: Bytes32;
+        ringProgramId?: Address;
       }>,
   blinding?: Bytes32,
 ): Bytes32 {
@@ -185,7 +185,7 @@ export class Utxo {
   readonly amount: bigint;
   readonly blinding: Blinding;
   readonly data: Data;
-  readonly zoneProgramId?: Address;
+  readonly ringProgramId?: Address;
 
   constructor(input: UtxoInit) {
     this.owner = input.owner;
@@ -193,13 +193,13 @@ export class Utxo {
     this.amount = checkU64(input.amount, "amount");
     this.blinding = checked<Blinding>(input.blinding, 32, "blinding");
     this.data = new Data((input.data ?? new Data()).records());
-    if (input.zoneProgramId !== undefined) this.zoneProgramId = input.zoneProgramId;
+    if (input.ringProgramId !== undefined) this.ringProgramId = input.ringProgramId;
   }
 
   proofInput(
     nullifierPublicKey: Bytes32,
     dataHash?: Bytes32,
-    zoneDataHash?: Bytes32,
+    ringDataHash?: Bytes32,
   ): Readonly<{ hash(): Bytes32 }> {
     const owner = poseidon([
       this.owner.ownerProofInputHash(),
@@ -211,14 +211,14 @@ export class Utxo {
       amount: this.amount,
       blinding: this.blinding,
       ...(dataHash === undefined ? {} : { dataHash }),
-      ...(zoneDataHash === undefined ? {} : { zoneDataHash }),
-      ...(this.zoneProgramId === undefined ? {} : { zoneProgramId: this.zoneProgramId }),
+      ...(ringDataHash === undefined ? {} : { ringDataHash }),
+      ...(this.ringProgramId === undefined ? {} : { ringProgramId: this.ringProgramId }),
     };
     return Object.freeze({ hash: (): Bytes32 => fullOwnerUtxoHash(input) });
   }
 
-  hash(nullifierPublicKey: Bytes32, dataHash?: Bytes32, zoneDataHash?: Bytes32): Bytes32 {
-    return this.proofInput(nullifierPublicKey, dataHash, zoneDataHash).hash();
+  hash(nullifierPublicKey: Bytes32, dataHash?: Bytes32, ringDataHash?: Bytes32): Bytes32 {
+    return this.proofInput(nullifierPublicKey, dataHash, ringDataHash).hash();
   }
 
   nullifier(utxoHash: Bytes32, nullifierKey: NullifierKey): Bytes32 {
@@ -230,14 +230,14 @@ export class ProofInputUtxo {
   readonly utxo: Utxo;
   readonly nullifierKey: NullifierKey;
   readonly dataHash?: Bytes32;
-  readonly zoneDataHash?: Bytes32;
+  readonly ringDataHash?: Bytes32;
 
   constructor(
     input: Readonly<{
       utxo: Utxo;
       nullifierKey: NullifierKey;
       dataHash?: Bytes32;
-      zoneDataHash?: Bytes32;
+      ringDataHash?: Bytes32;
     }>,
   ) {
     if (!(input.utxo instanceof Utxo) || !(input.nullifierKey instanceof NullifierKey)) {
@@ -251,17 +251,17 @@ export class ProofInputUtxo {
       amount: input.utxo.amount,
       blinding: input.utxo.blinding,
       data: input.utxo.data,
-      ...(input.utxo.zoneProgramId === undefined
+      ...(input.utxo.ringProgramId === undefined
         ? {}
-        : { zoneProgramId: input.utxo.zoneProgramId }),
+        : { ringProgramId: input.utxo.ringProgramId }),
     });
     this.nullifierKey = cloneNullifierKey(input.nullifierKey);
     if (input.dataHash) {
       this.dataHash = checked<Bytes32>(input.dataHash, 32, "data hash");
     }
-    const zoneDataHash = normalizeZoneDataHash(input.zoneDataHash);
-    if (zoneDataHash !== undefined) {
-      this.zoneDataHash = zoneDataHash;
+    const ringDataHash = normalizeRingDataHash(input.ringDataHash);
+    if (ringDataHash !== undefined) {
+      this.ringDataHash = ringDataHash;
     }
     this.checkCanonicalDummy();
   }
@@ -302,7 +302,7 @@ export class ProofInputUtxo {
    * treats the slot as absent, and anything carried here would be committed
    * under an owner hash no key can reproduce.
    *
-   * `zoneProgramId` is checked for presence rather than for a zero value,
+   * `ringProgramId` is checked for presence rather than for a zero value,
    * unlike the two hashes: the zero address commits to `pk_field(0)`, a
    * non-zero field, so it is carried rather than absent.
    */
@@ -326,10 +326,10 @@ export class ProofInputUtxo {
         amount: this.utxo.amount,
         blinding: this.utxo.blinding,
         ...(this.dataHash === undefined ? {} : { dataHash: this.dataHash }),
-        ...(this.zoneDataHash === undefined ? {} : { zoneDataHash: this.zoneDataHash }),
-        ...(this.utxo.zoneProgramId === undefined
+        ...(this.ringDataHash === undefined ? {} : { ringDataHash: this.ringDataHash }),
+        ...(this.utxo.ringProgramId === undefined
           ? {}
-          : { zoneProgramId: this.utxo.zoneProgramId }),
+          : { ringProgramId: this.utxo.ringProgramId }),
       },
       this.isDummy(),
     );
@@ -356,9 +356,9 @@ function noncanonicalDummyField(input: ProofInputUtxo): string | undefined {
   if (input.utxo.asset !== DUMMY_ASSET) return "asset";
   if (input.utxo.amount !== 0n) return "amount";
   if (!input.utxo.data.isEmpty()) return "data";
-  if (input.utxo.zoneProgramId !== undefined) return "zone_program_id";
+  if (input.utxo.ringProgramId !== undefined) return "ring_program_id";
   if (!isZero(committedHash(input.dataHash))) return "data_hash";
-  if (!isZero(committedHash(input.zoneDataHash))) return "zone_data_hash";
+  if (!isZero(committedHash(input.ringDataHash))) return "ring_data_hash";
   if (!isZeroNullifierKey(input.nullifierKey)) return "nullifier_key";
   return undefined;
 }
@@ -368,8 +368,8 @@ export interface ProofOutputUtxo {
   readonly asset: Address;
   readonly amount: bigint;
   readonly blinding: Bytes32;
-  readonly zoneProgramId?: Address;
-  readonly zoneDataHash?: Bytes32;
+  readonly ringProgramId?: Address;
+  readonly ringDataHash?: Bytes32;
   readonly dataHash?: Bytes32;
   readonly ownerTag?: Bytes32;
   readonly data: Data;
@@ -383,7 +383,7 @@ export interface ProofOutputUtxo {
    */
   withMemo(memo: Uint8Array): ProofOutputUtxo;
   /** Binds the note to a ring, only that ring's transact can spend it. */
-  withZoneProgramId(zoneProgramId: Address): ProofOutputUtxo;
+  withRingProgramId(ringProgramId: Address): ProofOutputUtxo;
 }
 
 export interface ProofOutputInit {
@@ -391,15 +391,15 @@ export interface ProofOutputInit {
   readonly asset: Address;
   readonly amount: bigint;
   readonly blinding?: Bytes32;
-  readonly zoneProgramId?: Address;
-  readonly zoneDataHash?: Bytes32;
+  readonly ringProgramId?: Address;
+  readonly ringDataHash?: Bytes32;
   readonly dataHash?: Bytes32;
   readonly ownerTag?: Bytes32;
   readonly data?: Data;
 }
 
 const DATA_RECORD_ORDER: Readonly<Record<DataRecord["kind"], number>> = Object.freeze({
-  zoneData: 0,
+  ringData: 0,
   utxoData: 1,
   memo: 2,
 });
@@ -417,14 +417,14 @@ export function createProofOutput(input: ProofOutputInit): ProofOutputUtxo {
   const blinding = checked<Bytes32>(input.blinding ?? randomBlinding(), 32, "output blinding");
   const amount = checkU64(input.amount, "output amount");
   const data = new Data((input.data ?? new Data()).records());
-  const { zoneDataHash: suppliedZoneDataHash, ...rest } = input;
-  const zoneDataHash = normalizeZoneDataHash(suppliedZoneDataHash);
+  const { ringDataHash: suppliedRingDataHash, ...rest } = input;
+  const ringDataHash = normalizeRingDataHash(suppliedRingDataHash);
   const init: ProofOutputInit = {
     ...rest,
     amount,
     blinding,
     data,
-    ...(zoneDataHash === undefined ? {} : { zoneDataHash }),
+    ...(ringDataHash === undefined ? {} : { ringDataHash }),
   };
   const ownerHash = (): Bytes32 =>
     input.ownerAddress ? input.ownerAddress.ownerHash() : copy(ZERO_32);
@@ -442,8 +442,8 @@ export function createProofOutput(input: ProofOutputInit): ProofOutputUtxo {
           amount,
           blinding,
           ...(input.dataHash === undefined ? {} : { dataHash: input.dataHash }),
-          ...(zoneDataHash === undefined ? {} : { zoneDataHash }),
-          ...(input.zoneProgramId === undefined ? {} : { zoneProgramId: input.zoneProgramId }),
+          ...(ringDataHash === undefined ? {} : { ringDataHash }),
+          ...(input.ringProgramId === undefined ? {} : { ringProgramId: input.ringProgramId }),
         },
         input.ownerAddress === undefined,
       );
@@ -464,8 +464,8 @@ export function createProofOutput(input: ProofOutputInit): ProofOutputUtxo {
         data: withDataRecord(data, { kind: "memo", bytes: memo }),
       });
     },
-    withZoneProgramId(zoneProgramId: Address): ProofOutputUtxo {
-      return createProofOutput({ ...init, zoneProgramId });
+    withRingProgramId(ringProgramId: Address): ProofOutputUtxo {
+      return createProofOutput({ ...init, ringProgramId });
     },
   });
 }

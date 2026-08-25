@@ -14,7 +14,7 @@ import type { TransactInstructionData, TransactWithdrawal } from "../interface/t
 import { isDerivationPoint } from "../keypair/derivation.js";
 import type { P256PublicKey } from "../keypair/public-key.js";
 
-import { checkedAuditProof } from "./codecs.js";
+import { checkedCustomRingProof } from "./codecs.js";
 import { ringConfigAddress, ringProgramDataAddress } from "./config.js";
 import { RingError } from "./error.js";
 
@@ -117,7 +117,7 @@ export async function ringTransactInstruction(
     ...(input.ownerSigners === undefined ? {} : { ownerSigners: input.ownerSigners }),
     ...(input.withdrawal === undefined ? {} : { withdrawal: input.withdrawal }),
   });
-  const proof = checkedAuditProof(input.auditProof);
+  const proof = checkedCustomRingProof(input.auditProof);
   const transact = encodeTransactInstructionData(input.data);
   const data = new Uint8Array(1 + proof.length + transact.length);
   data[0] = RING_PROGRAM_TRANSACT_TAG;

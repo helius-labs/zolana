@@ -1,7 +1,7 @@
 export const StateDiscriminator = Object.freeze({
   treeAccount: 1,
   protocolConfig: 3,
-  zoneConfig: 4,
+  ringConfig: 4,
   splAssetRegistry: 5,
   splAssetCounter: 6,
 } as const);
