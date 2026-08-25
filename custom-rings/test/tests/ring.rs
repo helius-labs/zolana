@@ -24,11 +24,12 @@ use custom_ring_interface::{RingProgramConfig, CONFIG_PDA_SEED, RING_PROGRAM_CON
 use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
     auditor_view_tag, CreateConfig, CustomRing, CustomRingTransact, CustomRingTransfer,
-    CustomRingTransferInput, InitSppRingConfig, RingDeposit, RingDepositReceipt,
+    CustomRingTransferInput, InitSppRingConfig, RingDeposit, RingDepositReceipt, SetAuthority,
     TransferProofEnvironment, V0WithLookupTable,
 };
 use shared::{custom_ring_program_id, prover_url, send, send_v0_expecting_rejection, setup};
 use solana_address::Address;
+use solana_keypair::Keypair;
 use solana_packet::PACKET_DATA_SIZE;
 use solana_signer::Signer;
 use zeroize::Zeroizing;
@@ -44,6 +45,10 @@ use zolana_interface::{
 use zolana_keypair::ViewingKey;
 use zolana_program_test::Rejection;
 use zolana_ring_client::{AuditedOutput, RingAudit, RingEnvironment};
+use zolana_ring_rpc::{
+    ChainSource, CreateAuditorKeyRequest, Hub, RingRpcError, RootSecret, TransactionSource,
+    Unauthorized, Upstreams,
+};
 use zolana_test_utils::{
     smart_account,
     test_validator_asserts::{
@@ -243,6 +248,99 @@ fn localnet_bring_up_is_live() -> Result<()> {
         "lookup-table v0 transfer credited the recipient"
     );
 
+    Ok(())
+}
+
+/// The ring rpc reads the Loader v3 upgrade authority and the config authority
+/// from the chain, so this runs against the deployed program, not a mock.
+#[test]
+fn auditor_key_is_released_only_to_the_ring_authority() -> Result<()> {
+    let env = setup()?;
+    let rpc = env.client.rpc();
+    let ring_program = custom_ring_program_id()?;
+    let ring = CustomRing::new(ring_program);
+    let runtime = tokio::runtime::Runtime::new()?;
+    let source = ChainSource::connect(Upstreams {
+        indexer_url: &env.indexer_url,
+        rpc_url: &env.rpc_url,
+        timeout: Duration::from_secs(30),
+    })
+    .map_err(|e| anyhow!("ring rpc upstreams {e:?}"))?;
+    let genesis_hash = runtime
+        .block_on(source.genesis_hash())
+        .map_err(|e| anyhow!("genesis hash {e:?}"))?;
+    let hub = Hub::builder(source, genesis_hash)
+        .derived(RootSecret::from_bytes([7; 32])?)
+        .map_err(|e| anyhow!("hub {e:?}"))?;
+    let service = hub
+        .service_for(ring_program)
+        .map_err(|e| anyhow!("service {e:?}"))?;
+    let authorize = |signer: &Keypair, genesis: [u8; 32]| {
+        let request = CreateAuditorKeyRequest::for_ring(ring_program, genesis)
+            .sign(signer)
+            .expect("signed request");
+        runtime.block_on(service.authorize_auditor_key(&request.auth))
+    };
+    let refused = |result: Result<(), RingRpcError>, expected: Unauthorized| match result {
+        Err(RingRpcError::Unauthorized(reason)) if reason == expected => Ok(()),
+        other => Err(anyhow!("expected {expected:?}, got {other:?}")),
+    };
+    let stranger = Keypair::new();
+    let config_authority = Keypair::new();
+
+    // 1. No config yet, so only the program's upgrade authority is accepted.
+    refused(
+        authorize(&stranger, genesis_hash),
+        Unauthorized::NotRingAuthority,
+    )?;
+    refused(
+        authorize(&config_authority, genesis_hash),
+        Unauthorized::NotRingAuthority,
+    )?;
+    refused(
+        authorize(&env.payer, [0; 32]),
+        Unauthorized::ClusterMismatch,
+    )?;
+    authorize(&env.payer, genesis_hash).map_err(|e| anyhow!("upgrade authority {e:?}"))?;
+    let signed = CreateAuditorKeyRequest::for_ring(ring_program, genesis_hash).sign(&env.payer)?;
+    runtime
+        .block_on(service.authorize_auditor_key(&signed.auth))
+        .map_err(|e| anyhow!("first use {e:?}"))?;
+    refused(
+        runtime.block_on(service.authorize_auditor_key(&signed.auth)),
+        Unauthorized::Replay,
+    )?;
+
+    // 2. Once the config exists its authority alone is accepted, even after
+    //    the deployer hands it over.
+    rpc.create_and_send_transaction(
+        &[
+            CreateConfig {
+                ring,
+                payer: env.payer.pubkey(),
+                authority: env.payer.pubkey(),
+                auditor_pubkey: service.auditor_pubkey(),
+            }
+            .instruction()?,
+            SetAuthority {
+                ring,
+                authority: env.payer.pubkey(),
+                new_authority: config_authority.pubkey(),
+            }
+            .instruction(),
+        ],
+        env.payer.pubkey(),
+        &[&env.payer, &config_authority],
+    )?;
+    authorize(&config_authority, genesis_hash).map_err(|e| anyhow!("config authority {e:?}"))?;
+    refused(
+        authorize(&env.payer, genesis_hash),
+        Unauthorized::NotRingAuthority,
+    )?;
+    refused(
+        authorize(&stranger, genesis_hash),
+        Unauthorized::NotRingAuthority,
+    )?;
     Ok(())
 }
 

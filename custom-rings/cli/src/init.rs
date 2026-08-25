@@ -15,7 +15,7 @@ use zolana_ring_rpc::{read_auditor_pubkey, write_auditor_pubkey, KeyFileError};
 
 use crate::{
     line,
-    ring_rpc::{RingRpcClient, RingRpcClientError, Trust},
+    ring_rpc::{AuditorKeyLookup, RingRpcClient, RingRpcClientError, Trust},
     step::{IdempotentStep, Observed, StepError, StepOutcome},
     Context, ContextError, InitArgs,
 };
@@ -24,6 +24,7 @@ pub enum AuditorKeySource<'a> {
     File(&'a Path),
     RingRpc {
         client: &'a RingRpcClient,
+        lookup: AuditorKeyLookup<'a>,
         trust: Trust,
         write_to: &'a Path,
     },
@@ -66,6 +67,13 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
     let auditor_pubkey_file = ctx.project_path(&args.auditor_pubkey_file);
     let authority = ctx.funded_authority()?;
     let ring_rpc = ctx.ring_rpc();
+    // No config exists yet, so only the upgrade authority can ask the service.
+    let upgrade_authority = ctx.config.upgrade_authority().map_err(ContextError::from)?;
+    let lookup = AuditorKeyLookup {
+        ring: ctx.ring.program_id(),
+        genesis_hash: ctx.genesis_hash()?,
+        authority: &upgrade_authority,
+    };
     let unpinned = if args.trust_ring_rpc {
         Trust::Unpinned
     } else {
@@ -85,11 +93,12 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
     } else {
         AuditorKeySource::RingRpc {
             client: &ring_rpc,
+            lookup,
             trust: ctx.trust(unpinned).map_err(ContextError::from)?,
             write_to: &auditor_pubkey_file,
         }
     };
-    let auditor_pk = source.resolve(ctx.ring.program_id())?;
+    let auditor_pk = source.resolve()?;
     if let AuditorKeySource::RingRpc { write_to, .. } = source {
         line(
             "auditor pk",
@@ -122,15 +131,16 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
 }
 
 impl AuditorKeySource<'_> {
-    pub fn resolve(&self, ring: Address) -> Result<P256Pubkey, InitError> {
+    pub fn resolve(&self) -> Result<P256Pubkey, InitError> {
         match *self {
             Self::File(path) => Ok(read_auditor_pubkey(path)?),
             Self::RingRpc {
                 client,
+                lookup,
                 trust,
                 write_to,
             } => {
-                let auditor_pk = client.auditor_pubkey(ring)?.require(trust)?;
+                let auditor_pk = client.auditor_pubkey(lookup)?.require(trust)?;
                 write_auditor_pubkey(write_to, &auditor_pk)?;
                 Ok(auditor_pk)
             }
