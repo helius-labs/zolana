@@ -108,18 +108,17 @@ test-swap-program: build-programs
 
 # The Go circuit proof check. Needs the canonical keys, because the proof must
 # verify under the committed VERIFYINGKEY and gnark setup is non-deterministic,
-# so locally generated keys cannot pass. The template render smoke lives in the
-# zolana-ring repository.
+# so locally generated keys cannot pass.
 test-custom-ring: ensure-custom-ring-prover-key
     cd prover/server && go test ./prover/custom_ring -run TestCustomRingAuditProofVerifies -count=1
 
 # === Custom rings ===
 
-# Generate a custom ring, the template comes from the zolana-ring repository.
+# Create a ring directory, ring.toml and the program keypair.
 ring-new *args:
     cargo run -q -p custom-ring-cli -- new {{args}}
 
-# Local validator and services for a generated ring, ring creation is permissionless.
+# Local validator and services for a ring, ring creation is permissionless.
 ring-localnet: ensure-custom-ring-live-keys build-programs build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
@@ -156,7 +155,7 @@ ring-localnet: ensure-custom-ring-live-keys build-programs build-cli ensure-phot
     echo "  rpc       {{localnet-rpc-url}}"
     echo "  photon    {{localnet-photon-url}}"
     echo "  prover    {{localnet-prover-url}}  (redis $ZOLANA_PROVER_REDIS_URL)"
-    echo "  ring rpc  http://127.0.0.1:{{localnet-ring-rpc-port}}  (started per ring by 'just rpc' or 'just pipeline')"
+    echo "  ring rpc  http://127.0.0.1:{{localnet-ring-rpc-port}}  (started by 'just ring-rpc-derived')"
 
 # Stops the validator, photon, the prover, and a ring RPC left on the ring RPC
 # port by a ring's `just pipeline`.
@@ -418,7 +417,6 @@ _test-ts-live test-script: build-programs build-prover-server build-cli ensure-p
     name = "ts-sdk-e2e-ring"
     program_id = "$CUSTOM_RING_PROGRAM_ID"
     authority_keypair = "$PWD/$ring_dir/authority.json"
-    zolana_revision = "$(git rev-parse HEAD)"
     target = "localnet"
 
     [localnet]
@@ -1226,9 +1224,6 @@ test-custom-ring-validator: ensure-custom-ring-live-keys build-programs build-cl
       cargo nextest run -p custom-ring-test-validator --test ring --no-capture
     # Redis and the audit proving key are guaranteed here.
     cargo nextest run -p custom-ring-sdk --run-ignored all -E 'binary(audit_circuit)'
-    if [ -n "${ZOLANA_RING_TEMPLATE_DIR:-}" ]; then
-      cargo nextest run -p custom-ring-cli --run-ignored all -E 'binary(new_smoke)'
-    fi
 
 # Timelock escrow lifecycle on a local validator, driven against a real
 # localnet (sdk-tests/timelock-escrow/test/tests/escrow.rs). Boots

@@ -56,13 +56,6 @@ pub fn create_dir_all(path: &Path) -> Result<(), FileError> {
     })
 }
 
-pub fn rename(from: &Path, to: &Path) -> Result<(), FileError> {
-    fs::rename(from, to).map_err(|source| FileError::Write {
-        path: to.to_path_buf(),
-        source,
-    })
-}
-
 pub fn parse_toml<T: DeserializeOwned>(path: &Path) -> Result<T, FileError> {
     toml::from_str(&read(path)?).map_err(|source| FileError::Parse {
         path: path.to_path_buf(),
