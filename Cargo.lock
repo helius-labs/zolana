@@ -1698,6 +1698,7 @@ dependencies = [
  "solana-signer",
  "zolana-client",
  "zolana-interface",
+ "zolana-keypair",
  "zolana-test-utils",
  "zolana-transaction",
  "zolana-tree",

@@ -115,6 +115,15 @@ pub fn send(
     instruction: Instruction,
     cu_price: Option<u64>,
 ) -> Result<Signature> {
+    send_from(env, instruction, &env.authority, cu_price)
+}
+
+pub fn send_from(
+    env: &Environment,
+    instruction: Instruction,
+    payer: &dyn Signer,
+    cu_price: Option<u64>,
+) -> Result<Signature> {
     let mut instructions = vec![ComputeBudgetInstruction::set_compute_unit_limit(
         TRANSACT_CU_LIMIT,
     )];
@@ -122,9 +131,7 @@ pub fn send(
         instructions.push(ComputeBudgetInstruction::set_compute_unit_price(price));
     }
     instructions.push(instruction);
-    Ok(env.rpc.create_and_send_transaction(
-        &instructions,
-        env.authority.pubkey(),
-        &[&env.authority],
-    )?)
+    Ok(env
+        .rpc
+        .create_and_send_transaction(&instructions, payer.pubkey(), &[payer])?)
 }
