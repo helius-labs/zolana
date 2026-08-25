@@ -2013,6 +2013,7 @@ dependencies = [
  "pinocchio 0.11.2",
  "pinocchio-system",
  "solana-account 4.3.1",
+ "solana-address 2.6.1",
  "solana-curve25519 4.0.1",
  "solana-instruction",
  "solana-loader-v3-interface 8.0.1",
@@ -2022,6 +2023,7 @@ dependencies = [
  "wincode 0.5.5",
  "zolana-account-checks",
  "zolana-interface",
+ "zolana-ring-policy",
  "zolana-test-utils",
 ]
 
@@ -11157,6 +11159,18 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-ring-client",
+ "zolana-transaction",
+]
+
+[[package]]
+name = "zolana-ring-policy"
+version = "0.1.0"
+dependencies = [
+ "solana-address 2.6.1",
+ "thiserror 2.0.18",
+ "zolana-hasher",
+ "zolana-interface",
+ "zolana-keypair",
  "zolana-transaction",
 ]
 

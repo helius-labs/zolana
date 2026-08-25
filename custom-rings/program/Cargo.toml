@@ -14,6 +14,10 @@ bpf-entrypoint = []
 no-entrypoint = []
 cpi = ["no-entrypoint"]
 test-sbf = []
+policy = ["dep:solana-address", "dep:zolana-ring-policy"]
+allowlist = ["policy"]
+blocklist = ["policy"]
+freeze = ["policy"]
 
 [dependencies]
 bincode = { workspace = true }
@@ -24,6 +28,7 @@ bytemuck = { workspace = true }
 groth16-solana = { workspace = true, features = ["bsb22"] }
 pinocchio = { workspace = true, features = ["cpi"] }
 pinocchio-system = { workspace = true }
+solana-address = { workspace = true, optional = true }
 solana-loader-v3-interface = { workspace = true, features = ["serde"] }
 solana-curve25519 = { workspace = true }
 solana-program-error = { workspace = true }
@@ -31,6 +36,7 @@ thiserror = { workspace = true }
 wincode = { workspace = true }
 zolana-account-checks = { workspace = true }
 zolana-interface = { workspace = true, features = ["solana"] }
+zolana-ring-policy = { workspace = true, optional = true }
 
 [dev-dependencies]
 curve25519-dalek = "4.1"

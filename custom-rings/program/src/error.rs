@@ -51,6 +51,30 @@ pub enum CustomRingError {
     InvalidReaderKey = 8118,
     #[error("output data must use confidential framing")]
     UnsupportedOutputScheme = 8119,
+    #[error("policy config account is already initialized")]
+    PolicyConfigAlreadyInitialized = 8120,
+    #[error("policy config account is not initialized")]
+    PolicyConfigNotInitialized = 8121,
+    #[error("policy config account is not the canonical policy PDA")]
+    InvalidPolicyConfigPda = 8122,
+    #[error("compiled policy does not match the stored policy hash")]
+    PolicyHashMismatch = 8123,
+    #[error("policy member is invalid")]
+    InvalidPolicyMember = 8124,
+    #[error("signer may not mutate records of the kind")]
+    UnauthorizedRecordSigner = 8125,
+    #[error("record kind is unknown")]
+    InvalidRecordKind = 8126,
+    #[error("record state is unknown")]
+    InvalidRecordState = 8127,
+    #[error("compiled policy has no rules")]
+    EmptyPolicy = 8128,
+    #[error("record mutations must use the default tree")]
+    InvalidPolicyTree = 8129,
+    #[error("record version overflows")]
+    RecordVersionOverflow = 8130,
+    #[error("records account is not the canonical records PDA")]
+    InvalidRecordsPda = 8131,
 }
 
 impl From<CustomRingError> for ProgramError {
