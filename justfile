@@ -52,6 +52,7 @@ check:
 # Check the entire workspace.
 check-all:
     cargo check --workspace --all-targets
+    cargo check -p zolana-transaction --features parallel --all-targets
 
 # Default test target.
 test: test-shielded-pool test-sdk-libs test-photon
@@ -140,6 +141,10 @@ test-sdk-libs:
     cargo nextest run -p zolana-keypair
     cargo test --doc -p zolana-keypair
     cargo nextest run -p zolana-transaction
+    # `parallel` is off by default, so the default run compiles neither
+    # wallet::parallel nor the tests that hold the two scan strategies to the
+    # same results. Without this the strategies can drift unnoticed.
+    cargo nextest run -p zolana-transaction --features parallel
     cargo nextest run -p zolana-client --lib --features indexer-api
     cargo nextest run -p zolana-client --test solana_rpc --features solana-rpc
     cargo nextest run -p zolana-wallet
@@ -1259,6 +1264,9 @@ fmt-check:
 
 clippy:
     cargo clippy --workspace --all-targets -- -D warnings
+    # Not covered by `--workspace`: an optional feature's module is only
+    # compiled when the feature is on.
+    cargo clippy -p zolana-transaction --features parallel --all-targets -- -D warnings
 
 check-test-hygiene:
     ./tools/check-test-hygiene.sh
