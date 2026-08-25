@@ -67,7 +67,7 @@ describe("proof compression", () => {
     expect(bareCoordinates.a).toEqual(prefixedCoordinates.a);
   });
 
-  it("carries the BSB22 commitment pair and lays out the audit proof", () => {
+  it("carries the BSB22 commitment pair and lays out the custom-ring proof", () => {
     const generator = ["0x1", "0x2"];
     const plain = parseProof(ZERO_PROOF);
     expect(plain.commitment).toBeUndefined();

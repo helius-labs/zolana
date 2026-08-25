@@ -14,7 +14,7 @@ import {
 import { circuitUtxo } from "./assembly.js";
 import { parseProof } from "./proof.js";
 import type {
-  AuditProofRequest,
+  CustomRingProofRequest,
   Field,
   MergeInputs,
   Proof,
@@ -107,11 +107,11 @@ export class ProverClient {
     return this.#send(JSON.stringify(mergeProverRequest(inputs)), "inResponse", context);
   }
 
-  async proveCustomRing(inputs: AuditProofRequest, context?: RequestContext): Promise<Proof> {
+  async proveCustomRing(inputs: CustomRingProofRequest, context?: RequestContext): Promise<Proof> {
     return this.#send(JSON.stringify(customRingProofRequest(inputs)), "queued", context);
   }
 
-  /** The circuits the server serves, `custom-ring-audit` among them only with a queue. */
+  /** The circuits the server serves, `custom-ring` among them only with a queue. */
   async health(context?: RequestContext): Promise<ProverHealth> {
     const url = new URL(this.#url);
     url.pathname = url.pathname.replace(/\/prove$/u, HEALTH_PATH);
@@ -352,9 +352,9 @@ function mergeOutputJson(output: TransferOutput): Readonly<Record<string, unknow
   });
 }
 
-/** Mirrors Rust `AuditProofRequest::body`, key order included. */
+/** Mirrors Rust `CustomRingProofRequest::body`, key order included. */
 export function customRingProofRequest(
-  inputs: AuditProofRequest,
+  inputs: CustomRingProofRequest,
 ): Readonly<Record<string, unknown>> {
   const auditorPublicKey = inputs.auditorPublicKey;
   if (
@@ -365,7 +365,7 @@ export function customRingProofRequest(
     throw new ClientError("CLIENT_INVALID_P256_KEY");
   }
   return Object.freeze({
-    circuitType: "custom-ring-audit",
+    circuitType: "custom-ring",
     variant: "transfer",
     publicInputHash: bytesHex(checkedBytes(inputs.publicInputHash, 32, "publicInputHash")),
     privateTxHash: bytesHex(checkedBytes(inputs.privateTxHash, 32, "privateTxHash")),

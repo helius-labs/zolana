@@ -127,7 +127,7 @@ export function parseAuditorMessage(data: Uint8Array): AuditorMessage {
 }
 
 /** Poseidon chain over `[private_tx_hash, tx_pk, auditor_pk, eph_pk, hash(ciphertext)]`, keys packed into two fields. */
-export function auditPublicInputHash(
+export function customRingPublicInputHash(
   input: Readonly<{
     privateTxHash: Bytes32;
     txViewingPublicKey: P256PublicKey;

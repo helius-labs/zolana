@@ -89,14 +89,14 @@ export async function initSppRingConfigInstruction(
   };
 }
 
-/** Mirrors Rust `RingTransactWithAudit`. Data layout is `tag || audit proof || transact data`. */
+/** Mirrors Rust `CustomRingTransact`. Data layout is `tag || proof || transact data`. */
 export async function ringTransactInstruction(
   input: Readonly<{
     ringProgramId: Address;
     payer: SignerAccount;
     inputTree: Address;
     outputTree: Address;
-    auditProof: Uint8Array;
+    proof: Uint8Array;
     data: TransactInstructionData;
     /** Non-payer input owners, which the ed25519 rail makes sign. */
     ownerSigners?: readonly SignerAccount[];
@@ -117,7 +117,7 @@ export async function ringTransactInstruction(
     ...(input.ownerSigners === undefined ? {} : { ownerSigners: input.ownerSigners }),
     ...(input.withdrawal === undefined ? {} : { withdrawal: input.withdrawal }),
   });
-  const proof = checkedCustomRingProof(input.auditProof);
+  const proof = checkedCustomRingProof(input.proof);
   const transact = encodeTransactInstructionData(input.data);
   const data = new Uint8Array(1 + proof.length + transact.length);
   data[0] = RING_PROGRAM_TRANSACT_TAG;

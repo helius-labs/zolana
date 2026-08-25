@@ -57,8 +57,8 @@ describe("public package surface", () => {
     expect(client.solanaRpc).toBeDefined();
     expect(client.proveTransact).toBeTypeOf("function");
     expect("rpc" in client).toBe(false);
-    expect("proveMergeRing" in client).toBe(false);
-    expect("finishMergeRingSubmissionUnsigned" in client).toBe(false);
+    expect(client.proveRingTransact).toBeTypeOf("function");
+    expect(client.proveCustomRing).toBeTypeOf("function");
   });
 
   it("exposes only the objects needed for the common wallet flow", () => {
@@ -180,24 +180,26 @@ describe("public package surface", () => {
     expect(getLatestBlockhash).toHaveBeenCalledOnce();
   });
 
-  it("does not expose partial ring builders", async () => {
-    const [addresses, instructions, protocol, transaction] = await Promise.all([
+  it("keeps the ring instruction surface in the ring entry point only", async () => {
+    const [ring, ...others] = await Promise.all([
+      import("../src/ring.js"),
+      import("../src/index.js"),
+      import("../src/client/index.js"),
       import("../src/addresses.js"),
       import("../src/instructions.js"),
       import("../src/interface/index.js"),
       import("../src/transaction/index.js"),
     ]);
-    expect(addresses).not.toHaveProperty("getRingConfigAddress");
-    expect(instructions).not.toHaveProperty("getCreateRingConfigInstructionAsync");
-    expect(instructions).not.toHaveProperty("getUpdateRingConfigInstruction");
-    expect(instructions).not.toHaveProperty("getUpdateRingConfigOwnerInstruction");
-    expect(instructions).not.toHaveProperty("getRingDepositInstructionAsync");
-    expect(instructions).not.toHaveProperty("getRingTransactInstructionAsync");
-    expect(instructions).not.toHaveProperty("getRingAuthorityTransactInstructionAsync");
-    expect(instructions).not.toHaveProperty("getMergeRingInstructionAsync");
-    expect(transaction).not.toHaveProperty("MergeRing");
-    expect(transaction).not.toHaveProperty("PreparedMergeRing");
-    expect(protocol.decodeRingConfig).toBeTypeOf("function");
+    for (const name of [
+      "ringConfigAddress",
+      "createRingConfigInstruction",
+      "initSppRingConfigInstruction",
+      "ringTransactInstruction",
+      "proveCustomRingTransfer",
+    ] as const) {
+      expect(ring[name]).toBeTypeOf("function");
+      for (const other of others) expect(other).not.toHaveProperty(name);
+    }
   });
 
   it("builds the merging opt-in as an unsigned transaction", async () => {

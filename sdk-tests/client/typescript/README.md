@@ -29,8 +29,8 @@ ZOLANA_PROVER_REDIS_URL=redis://127.0.0.1:6379/0 just test-ts-example
 The command starts a validator, Photon, and the prover, loads the canonical
 protocol accounts including the state Merkle tree that stores private token
 accounts (UTXOs), creates test mints, and runs the example against them. The
-same bring-up serves the ring flow of `just test-ts-e2e`, whose audit proof
-needs the prover queue, so a reachable Redis is required.
+same bring-up serves the ring flow of `just test-ts-e2e`, whose custom-ring
+proof needs the prover queue, so a reachable Redis is required.
 
 The example connects with `createZolanaClient()`: the local validator, Photon,
 and prover on their default ports (8899, 8784, 3001) and the state Merkle tree
