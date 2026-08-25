@@ -7,12 +7,12 @@
 // and public-variable counts. A change here means the circuit changed; the fix
 // is NOT to blindly update these numbers but to run the full rotation:
 //
-//	prover/server/scripts/rotate_proving_keys.sh
+//	python3 -B prover/server/scripts/keys.py rotate --set <affected-set>
 //
 // which regenerates proving keys, regenerates and commits the Rust verifying
 // keys (interface + batched-merkle-tree crates), regenerates proving-keys.lock,
-// and uploads the keys to a new immutable version folder in S3. Only then update
-// the pinned values below (UPDATE_FINGERPRINTS=1 prints the current ones).
+// and uploads the keys to a new immutable version folder in S3. The tool updates
+// the pinned values only after the complete folder is publicly reachable.
 package fingerprint
 
 import (
@@ -76,7 +76,7 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 
 // Pinned to the current key set; the version hash is in
 // prover/server/prover/provingkeys/proving-keys.lock. Regenerate with
-// UPDATE_FINGERPRINTS=1 after a full key rotation.
+// scripts/keys.py after rotating every affected key family.
 var expectedFingerprints = map[string]fingerprint{
 	"transfer_confidential_2_3":   {constraints: 54031, public: 2},
 	"transfer_ring_2_3":           {constraints: 54136, public: 2},
@@ -94,7 +94,7 @@ func TestCircuitFingerprintsMatchRotatedKeys(t *testing.T) {
 		for name, fp := range got {
 			fmt.Printf("\t%q: {constraints: %d, public: %d},\n", name, fp.constraints, fp.public)
 		}
-		t.Skip("UPDATE_FINGERPRINTS=1: printed current fingerprints; paste into expectedFingerprints")
+		t.Skip("UPDATE_FINGERPRINTS=1: printed current fingerprints for rotation tooling")
 	}
 
 	for name, want := range expectedFingerprints {
@@ -107,8 +107,7 @@ func TestCircuitFingerprintsMatchRotatedKeys(t *testing.T) {
 			t.Errorf(
 				"circuit %s changed (constraints %d->%d, public %d->%d).\n"+
 					"Circuit changes require a key rotation: run "+
-					"prover/server/scripts/rotate_proving_keys.sh <new-tag>, then "+
-					"update expectedFingerprints (UPDATE_FINGERPRINTS=1 prints the values).",
+					"python3 -B prover/server/scripts/keys.py rotate --set <affected-set>.",
 				name, want.constraints, have.constraints, want.public, have.public,
 			)
 		}

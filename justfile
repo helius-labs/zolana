@@ -1209,50 +1209,15 @@ build-prover-server:
     mkdir -p target
     cd prover/server && go build -o ../../target/prover-server .
 
-# Regenerate all proving keys (transfer, merge, and batch address-append), the
-# committed verifying keys in both crates, and proving-keys.lock. groth16 setup
-# is non-deterministic, so the batched-merkle-tree vkeys are regenerated with
-# the keys -- commit both together. Mirrors scripts/rotate_proving_keys.sh
-# minus the fingerprint refresh and the S3 upload (publish-spp-keys).
-build-spp-keys:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    keys_dir="$(cd "$(dirname "{{spp-keys-dir}}")" && pwd)/$(basename "{{spp-keys-dir}}")"
-    prover/server/scripts/generate_keys_transfer.sh "$keys_dir"
-    prover/server/scripts/generate_keys_merge.sh "$keys_dir"
-    # The generate_* scripts leave the light-prover binary in prover/server.
-    for spec in 10 250; do
-        prover/server/light-prover setup \
-            --circuit address-append \
-            --address-append-tree-height 40 \
-            --address-append-batch-size "$spec" \
-            --output "$keys_dir/batch_address-append_40_${spec}.key" \
-            --output-vkey "$keys_dir/batch_address-append_40_${spec}.vkey"
-    done
-    prover/server/scripts/regenerate_all_vkeys.sh "$keys_dir"
-    tmp_dir="$(mktemp -d)"
-    trap 'rm -rf "$tmp_dir"' EXIT
-    for spec in 10 250; do
-        stem="batch_address-append_40_${spec}"
-        module="batch_address_append_40_${spec}"
-        prover/server/light-prover export-vk --keys-file "$keys_dir/${stem}.key" --output "$tmp_dir/${stem}.vkbin" >/dev/null
-        cargo run -q -p xtask -- bsb22-vk \
-            "$tmp_dir/${stem}.vkbin" \
-            "program-libs/batched-merkle-tree/src/verify/verifying_keys" \
-            "${module}.rs"
-    done
-    python3 prover/server/scripts/generate_lockfile.py "$keys_dir"
+# Laptop-operated proving-key release. The tool generates only the requested
+# set, copies unchanged keys inside S3, uploads changed keys, verifies the whole
+# new prefix, then updates the repository pins. Requires local AWS credentials.
+rotate-spp-keys set:
+    python3 -B prover/server/scripts/keys.py rotate --set {{set}}
 
-# Upload the local proving keys to their immutable S3 version folder; the prefix
-# (proving-keys/<version-hash>) comes from the committed lockfile. Needs the aws
-# CLI with bucket write access. Full rotation (regen keys + vkeys + lock + upload)
-# is scripts/rotate_proving_keys.sh.
-publish-spp-keys:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    bucket="${ZOLANA_PROVING_KEYS_BUCKET:-zolana-proving-keys}"
-    prefix="$(python3 -c "import json; print(json.load(open('prover/server/prover/provingkeys/proving-keys.lock'))['prefix'])")"
-    aws s3 sync "{{spp-keys-dir}}/" "s3://$bucket/$prefix/" --exclude '*' --include '*.key'
+# Credential-free availability/size check for every object in the lockfile.
+verify-spp-keys:
+    python3 -B prover/server/scripts/keys.py verify
 
 build-photon:
     cargo build --locked -p photon-indexer --bin photon --target-dir target
