@@ -14,8 +14,10 @@ import type { TransactInstructionData, TransactWithdrawal } from "../interface/t
 import { isDerivationPoint } from "../keypair/derivation.js";
 import type { P256PublicKey } from "../keypair/public-key.js";
 
+import { Writer } from "../interface/internal.js";
+
 import { checkedAuditProof } from "./codecs.js";
-import { ringConfigAddress, ringProgramDataAddress } from "./config.js";
+import { ringConfigAddress, ringPolicyConfigAddress, ringProgramDataAddress } from "./config.js";
 import { RingError } from "./error.js";
 
 /** Rust `tag::CREATE_CONFIG`, `tag::INIT_SPP_RING_CONFIG` and `tag::TRANSACT`. */
@@ -89,7 +91,10 @@ export async function initSppRingConfigInstruction(
   };
 }
 
-/** Mirrors Rust `RingTransactWithAudit`. Data layout is `tag || audit proof || transact data`. */
+/**
+ * Mirrors Rust `RingTransactWithAudit`. Data layout is
+ * `tag || audit proof || state root index || nullifier root index || transact data`.
+ */
 export async function ringTransactInstruction(
   input: Readonly<{
     ringProgramId: Address;
@@ -97,6 +102,9 @@ export async function ringTransactInstruction(
     inputTree: Address;
     outputTree: Address;
     auditProof: Uint8Array;
+    /** History entries the ring statement binds, unread by a ring without rules. */
+    stateRootIndex: number;
+    nullifierRootIndex: number;
     data: TransactInstructionData;
     /** Non-payer input owners, which the ed25519 rail makes sign. */
     ownerSigners?: readonly SignerAccount[];
@@ -104,8 +112,9 @@ export async function ringTransactInstruction(
     withdrawal?: TransactWithdrawal;
   }>,
 ): Promise<Instruction> {
-  const [config, ringAuth] = await Promise.all([
+  const [config, policyConfig, ringAuth] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
+    ringPolicyConfigAddress(input.ringProgramId),
     ringAuthAddress(input.ringProgramId),
   ]);
   const payerAddress = typeof input.payer === "string" ? input.payer : input.payer.address;
@@ -118,11 +127,16 @@ export async function ringTransactInstruction(
     ...(input.withdrawal === undefined ? {} : { withdrawal: input.withdrawal }),
   });
   const proof = checkedAuditProof(input.auditProof);
+  const rootIndexes = new Writer()
+    .u16(input.stateRootIndex, "stateRootIndex")
+    .u16(input.nullifierRootIndex, "nullifierRootIndex")
+    .finish();
   const transact = encodeTransactInstructionData(input.data);
-  const data = new Uint8Array(1 + proof.length + transact.length);
+  const data = new Uint8Array(1 + proof.length + rootIndexes.length + transact.length);
   data[0] = RING_PROGRAM_TRANSACT_TAG;
   data.set(proof, 1);
-  data.set(transact, 1 + proof.length);
+  data.set(rootIndexes, 1 + proof.length);
+  data.set(transact, 1 + proof.length + rootIndexes.length);
   return {
     programAddress: input.ringProgramId,
     accounts: [
@@ -132,6 +146,7 @@ export async function ringTransactInstruction(
         ...(typeof input.payer === "string" ? {} : { signer: input.payer }),
       },
       { address: config, role: AccountRole.READONLY },
+      { address: policyConfig, role: AccountRole.READONLY },
       ...pool,
     ],
     data,
@@ -142,8 +157,9 @@ export async function ringTransactInstruction(
 export async function ringLookupTableAddresses(
   input: Readonly<{ ringProgramId: Address; tree: Address }>,
 ): Promise<readonly Address[]> {
-  const [config, ringAuth] = await Promise.all([
+  const [config, policyConfig, ringAuth] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
+    ringPolicyConfigAddress(input.ringProgramId),
     ringAuthAddress(input.ringProgramId),
   ]);
   const pool = ringTransactAccounts({
@@ -154,6 +170,7 @@ export async function ringLookupTableAddresses(
   });
   const addresses = [
     config,
+    policyConfig,
     ...pool
       .filter(
         (meta) =>

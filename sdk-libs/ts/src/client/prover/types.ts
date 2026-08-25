@@ -69,6 +69,14 @@ export type ProverInputs = Readonly<{
   payload: TransferInputs;
 }>;
 
+/** The tree history entries the ring statement binds. */
+export interface RingTransactRoots {
+  readonly stateRoot: Bytes32;
+  readonly stateRootIndex: number;
+  readonly nullifierRoot: Bytes32;
+  readonly nullifierRootIndex: number;
+}
+
 export interface AssembledTransfer {
   readonly instructionData: TransactInstructionData;
   readonly proverInputs: ProverInputs;
@@ -78,16 +86,95 @@ export interface AssembledTransfer {
   readonly privateTxHash: Bytes32;
   /// Per input, `[utxoTreeRootIndex, nullifierTreeRootIndex]`, in input order.
   readonly inputRootIndexes: readonly (readonly [number, number])[];
+  /// The first input's roots and indices, the pair the ring statement binds.
+  readonly roots: RingTransactRoots;
   withProof(proof: TransactProof): TransactInstructionData;
 }
 
-/** Mirrors Rust `AuditProofRequest`, `auditorPublicKey` is the uncompressed SEC1 point. */
-export interface AuditProofRequest {
+/** Rust `POLICY_INPUT_SLOTS` and `POLICY_OUTPUT_SLOTS`, the ring circuit's slot counts. */
+export const RING_INPUT_SLOTS = 5;
+export const RING_OUTPUT_SLOTS = 4;
+/** Rust `MAX_RULES` and `MAX_INLINE_ASSETS`, the fixed rule table width. */
+export const RING_RULE_SLOTS = 16;
+export const RING_INLINE_ASSET_SLOTS = 8;
+/** Rust `POLICY_POOL_SLOTS`, the server rejects any other pool length. */
+export const RING_POOL_SLOTS = 10;
+export const RING_STATE_PATH_LENGTH = 32;
+export const RING_NULLIFIER_PATH_LENGTH = 40;
+
+/** Mirrors Rust `CustomRingOpening`, one opened UTXO slot in circuit hash order. */
+export interface CustomRingOpening {
+  readonly domain: Bytes32;
+  readonly ownerPkHash: Bytes32;
+  readonly nullifierPk: Bytes32;
+  readonly asset: Bytes32;
+  readonly amount: Bytes32;
+  readonly blinding: Bytes32;
+  readonly dataHash: Bytes32;
+  readonly ringDataHash: Bytes32;
+  readonly ringProgramId: Bytes32;
+}
+
+/** Mirrors Rust `CustomRingPoolEntry`, one record fact proven against the roots. */
+export interface CustomRingPoolEntry {
+  readonly enabled: boolean;
+  readonly mode: number;
+  readonly kind: number;
+  readonly state: number;
+  readonly absentBranch: number;
+  readonly member: Bytes32;
+  readonly payloadHash: Bytes32;
+  readonly version: bigint;
+  readonly low: Bytes32;
+  readonly next: Bytes32;
+  readonly nullifierPath: readonly Bytes32[];
+  readonly nullifierPathIndex: bigint;
+  readonly statePath: readonly Bytes32[];
+  readonly statePathIndex: bigint;
+}
+
+/** Mirrors Rust `CustomRingPoolEntry::default`. */
+export function disabledPoolEntry(): CustomRingPoolEntry {
+  const zero = (): Bytes32 => new Uint8Array(32) as Bytes32;
+  return Object.freeze({
+    enabled: false,
+    mode: 1,
+    kind: 1,
+    state: 1,
+    absentBranch: 1,
+    member: zero(),
+    payloadHash: zero(),
+    version: 0n,
+    low: zero(),
+    next: zero(),
+    nullifierPath: Object.freeze(Array.from({ length: RING_NULLIFIER_PATH_LENGTH }, () => zero())),
+    nullifierPathIndex: 0n,
+    statePath: Object.freeze(Array.from({ length: RING_STATE_PATH_LENGTH }, () => zero())),
+    statePathIndex: 0n,
+  });
+}
+
+/** Mirrors Rust `CustomRingProofRequest`, `auditorPublicKey` is the uncompressed SEC1 point. */
+export interface CustomRingProofRequest {
   readonly publicInputHash: Bytes32;
   readonly privateTxHash: Bytes32;
   readonly txViewingSecret: Bytes32;
   readonly ephemeralSecret: Bytes32;
   readonly auditorPublicKey: Uint8Array;
+  readonly nIn: number;
+  readonly nOut: number;
+  readonly inputs: readonly CustomRingOpening[];
+  readonly outputs: readonly CustomRingOpening[];
+  readonly addressChain: Bytes32;
+  readonly externalDataHash: Bytes32;
+  readonly recordsOwnerHash: Bytes32;
+  readonly policyLen: number;
+  readonly rules: readonly Bytes32[];
+  readonly inlineAssets: readonly Bytes32[];
+  readonly inlineCount: number;
+  readonly stateRoot: Bytes32;
+  readonly nullifierRoot: Bytes32;
+  readonly pool: readonly CustomRingPoolEntry[];
 }
 
 export interface Proof {

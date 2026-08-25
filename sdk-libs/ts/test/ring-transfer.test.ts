@@ -20,18 +20,19 @@ import {
   auditorMessage,
   recoverTransactionViewingKey,
 } from "../src/ring/audit.js";
-import { assemble } from "../src/client/prover/assembly.js";
+import { assemble, ringOpenings } from "../src/client/prover/assembly.js";
 import type { SpendProof } from "../src/client/rpc.js";
 import { hashBytesBigInt } from "../src/client/internal.js";
-import { frameDummyOutputs } from "../src/ring/transfer.js";
+import { hashBytes } from "../src/hasher/index.js";
+import { frameDummyOutputs, ringRecordsOwnerHash } from "../src/ring/transfer.js";
 import {
   ConfidentialTransfer,
+  SppProofInputs,
   type IndexedShieldedTransaction,
   type PreparedTransfer,
-  type SppProofInputs,
 } from "../src/transaction/instructions/transact.js";
 import { EncryptedScheme, readOutputData } from "../src/transaction/serialization/codecs.js";
-import { ProofInputUtxo, Utxo } from "../src/transaction/utxo.js";
+import { ProofInputUtxo, Utxo, createProofOutput } from "../src/transaction/utxo.js";
 import { AssetRegistry, SOL_MINT } from "../src/transaction/wallet/asset.js";
 import { LocalWalletAuthority } from "../src/transaction/wallet/authority.js";
 
@@ -248,6 +249,96 @@ describe("ring witness", () => {
       hashBytesBigInt(new Uint8Array(getAddressEncoder().encode(RING))),
     );
     expect(assembled.instructionData.circuit.kind).toBe("zoneEddsa");
+    // The first input's roots and indices, the pair a ring statement binds.
+    expect(assembled.roots).toEqual({
+      stateRoot: scalar(3),
+      stateRootIndex: 4,
+      nullifierRoot: scalar(6),
+      nullifierRootIndex: 7,
+    });
+  });
+});
+
+describe("ring openings", () => {
+  const zeroOpening = (domain: number) => ({
+    domain: scalar(domain),
+    ownerPkHash: scalar(0),
+    nullifierPk: scalar(0),
+    asset: scalar(0),
+    amount: scalar(0),
+    blinding: scalar(0),
+    dataHash: scalar(0),
+    ringDataHash: scalar(0),
+    ringProgramId: scalar(0),
+  });
+
+  it("opens every slot like Rust `CustomRingWitnessInput`", async () => {
+    // Change 5, recipient 4, other 1 fill the (2, 3) shape with one dummy input.
+    const { proofInputs, recipient } = await auditedProofInputs(4n, ViewingKey.generate(), [1n]);
+    const openings = ringOpenings(proofInputs);
+    expect(openings.nIn).toBe(2);
+    expect(openings.nOut).toBe(3);
+
+    const spend = proofInputs.inputUtxos[0];
+    if (!spend) throw new Error("input");
+    expect(openings.inputs[0]).toEqual({
+      domain: scalar(3),
+      ownerPkHash: hashBytes(spend.utxo.owner.confidentialViewTag()),
+      nullifierPk: spend.nullifierKey.publicKey(),
+      asset: hashBytes(new Uint8Array(getAddressEncoder().encode(SOL_MINT))),
+      amount: scalar(10),
+      blinding: scalar(6),
+      dataHash: scalar(0),
+      ringDataHash: scalar(0),
+      ringProgramId: hashBytes(new Uint8Array(getAddressEncoder().encode(RING))),
+    });
+    // A dummy slot is the DUMMY-domain all-zero opening, its blinding included.
+    expect(openings.inputs[1]).toEqual(zeroOpening(1));
+    expect(openings.inputs.slice(2)).toEqual([zeroOpening(0), zeroOpening(0), zeroOpening(0)]);
+
+    const change = openings.outputs[0];
+    const paid = openings.outputs[1];
+    if (!change || !paid) throw new Error("outputs");
+    expect(change.domain).toEqual(scalar(3));
+    expect(change.amount).toEqual(scalar(5));
+    expect(paid.amount).toEqual(scalar(4));
+    expect(paid.ownerPkHash).toEqual(hashBytes(recipient.address.confidentialViewTag()));
+    expect(paid.nullifierPk).toEqual(recipient.address.nullifierPublicKey);
+    expect(openings.outputs[3]).toEqual(zeroOpening(0));
+  });
+
+  it("opens an owner-tagged slot without an address as a dummy, like Rust", async () => {
+    const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate(), [1n]);
+    const outputs = [...proofInputs.outputs];
+    outputs[2] = createProofOutput({
+      asset: SOL_MINT,
+      amount: 0n,
+      blinding: scalar(9),
+      ownerTag: scalar(7),
+    });
+    const swapped = new SppProofInputs({
+      payer: proofInputs.payer,
+      inputUtxos: proofInputs.inputUtxos,
+      outputs,
+      externalData: proofInputs.externalData,
+    });
+    // Never the `hashBytes(ownerTag)` fallback the SPP owner field publishes.
+    expect(ringOpenings(swapped).outputs[2]).toEqual(zeroOpening(1));
+  });
+
+  it("refuses a transfer wider than the ring slots", async () => {
+    const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate(), [1n, 1n, 1n]);
+    expect(proofInputs.outputs).toHaveLength(8);
+    expect(() => ringOpenings(proofInputs)).toThrow("CLIENT_PROVER_INPUT");
+  });
+
+  it("derives the records owner hash the Go policy fixture pins", () => {
+    const recordsPda = getAddressDecoder().decode(new Uint8Array(32).fill(0x11));
+    expect(ringRecordsOwnerHash(recordsPda)).toEqual(
+      Uint8Array.from(
+        Buffer.from("1e99b255125d8e5d1a8ee78945c3197b227182301b2c5d263dd5410b5ff476be", "hex"),
+      ),
+    );
   });
 });
 

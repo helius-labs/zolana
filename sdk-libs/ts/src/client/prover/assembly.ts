@@ -24,8 +24,10 @@ import {
   rightHashChain,
 } from "../internal.js";
 import type { NonInclusionProof, SpendProof } from "../rpc.js";
+import { RING_INPUT_SLOTS, RING_OUTPUT_SLOTS } from "./types.js";
 import type {
   AssembledTransfer,
+  CustomRingOpening,
   Field,
   ProverInputs,
   TransferInput,
@@ -223,6 +225,10 @@ function assembleUnchecked(
       ),
     ),
   });
+  // Slot 0 is always a real spend, its roots are the pair a ring statement binds.
+  const firstInput = transferInputs[0];
+  const firstRootIndexes = rootIndexes[0];
+  if (!firstInput || !firstRootIndexes) throw new ClientError("CLIENT_NO_INPUTS");
   return Object.freeze({
     instructionData,
     proverInputs,
@@ -231,6 +237,12 @@ function assembleUnchecked(
     outputHashes: Object.freeze(outputHashes.map((hash) => bigintToBytes(hash) as Bytes32)),
     privateTxHash: bigintToBytes(privateTxHash) as Bytes32,
     inputRootIndexes: Object.freeze(rootIndexes),
+    roots: Object.freeze({
+      stateRoot: bigintToBytes(firstInput.utxoTreeRoot) as Bytes32,
+      stateRootIndex: firstRootIndexes[0],
+      nullifierRoot: bigintToBytes(firstInput.nullifierTreeRoot) as Bytes32,
+      nullifierRootIndex: firstRootIndexes[1],
+    }),
     withProof(proof: TransactProof): TransactInstructionData {
       return Object.freeze({ ...instructionData, proof: copyProof(proof) });
     },
@@ -475,6 +487,95 @@ function outputCircuitUtxo(output: ProofOutputUtxo): CircuitUtxo {
       dummy ? 0n : output.zoneProgramId ? hashBytesBigInt(addressBytes(output.zoneProgramId)) : 0n,
     ),
   });
+}
+
+export interface RingOpenings {
+  readonly nIn: number;
+  readonly nOut: number;
+  readonly inputs: readonly CustomRingOpening[];
+  readonly outputs: readonly CustomRingOpening[];
+}
+
+/**
+ * Mirrors Rust `CustomRingWitnessInput`, a dummy slot is the DUMMY-domain
+ * all-zero opening and a slot past the shape stays fully zero.
+ */
+export function ringOpenings(proofInputs: SppProofInputs): RingOpenings {
+  if (!(proofInputs instanceof SppProofInputs)) {
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  }
+  if (
+    proofInputs.inputUtxos.length > RING_INPUT_SLOTS ||
+    proofInputs.outputs.length > RING_OUTPUT_SLOTS
+  ) {
+    throw new ClientError("CLIENT_PROVER_INPUT");
+  }
+  const inputs = Array.from({ length: RING_INPUT_SLOTS }, (_, index) => {
+    const input = proofInputs.inputUtxos[index];
+    return input === undefined ? zeroOpening(0) : inputOpening(input);
+  });
+  const outputs = Array.from({ length: RING_OUTPUT_SLOTS }, (_, index) => {
+    const output = proofInputs.outputs[index];
+    return output === undefined ? zeroOpening(0) : outputOpening(output);
+  });
+  return Object.freeze({
+    nIn: proofInputs.inputUtxos.length,
+    nOut: proofInputs.outputs.length,
+    inputs: Object.freeze(inputs),
+    outputs: Object.freeze(outputs),
+  });
+}
+
+function inputOpening(input: ProofInputUtxo): CustomRingOpening {
+  if (input.isDummy()) return zeroOpening(DUMMY_DOMAIN);
+  const utxo = inputCircuitUtxo(input);
+  return Object.freeze({
+    domain: openingField(BigInt(UTXO_DOMAIN)),
+    ownerPkHash: input.utxo.owner.ownerProofInputHash(),
+    nullifierPk: input.nullifierKey.publicKey(),
+    asset: openingField(utxo.asset),
+    amount: openingField(utxo.amount),
+    blinding: openingField(utxo.blinding),
+    dataHash: openingField(utxo.dataHash),
+    ringDataHash: openingField(utxo.zoneDataHash),
+    ringProgramId: openingField(utxo.zoneProgramId),
+  });
+}
+
+/** Rust keys a dummy output on its absent owner address, never on the owner tag. */
+function outputOpening(output: ProofOutputUtxo): CustomRingOpening {
+  const owner = output.ownerAddress;
+  if (owner === undefined) return zeroOpening(DUMMY_DOMAIN);
+  const utxo = outputCircuitUtxo(output);
+  return Object.freeze({
+    domain: openingField(BigInt(UTXO_DOMAIN)),
+    ownerPkHash: owner.signingPublicKey.ownerProofInputHash(),
+    nullifierPk: owner.nullifierPublicKey,
+    asset: openingField(utxo.asset),
+    amount: openingField(utxo.amount),
+    blinding: openingField(utxo.blinding),
+    dataHash: openingField(utxo.dataHash),
+    ringDataHash: openingField(utxo.zoneDataHash),
+    ringProgramId: openingField(utxo.zoneProgramId),
+  });
+}
+
+function zeroOpening(domain: number): CustomRingOpening {
+  return Object.freeze({
+    domain: openingField(BigInt(domain)),
+    ownerPkHash: openingField(0n),
+    nullifierPk: openingField(0n),
+    asset: openingField(0n),
+    amount: openingField(0n),
+    blinding: openingField(0n),
+    dataHash: openingField(0n),
+    ringDataHash: openingField(0n),
+    ringProgramId: openingField(0n),
+  });
+}
+
+function openingField(value: bigint): Bytes32 {
+  return bigintToBytes(value) as Bytes32;
 }
 
 export function validateSpendProof(input: ProofInputUtxo, proof: SpendProof, index: number): void {

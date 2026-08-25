@@ -11,7 +11,12 @@ import { addressBytes } from "../interface/internal.js";
 import type { RequestContext } from "../interface/types.js";
 import { isDerivationPoint } from "../keypair/derivation.js";
 
-import { type RingProgramConfig, decodeRingProgramConfig } from "./codecs.js";
+import {
+  type RingPolicyConfig,
+  type RingProgramConfig,
+  decodeRingPolicyConfig,
+  decodeRingProgramConfig,
+} from "./codecs.js";
 import { RingError } from "./error.js";
 
 const encoder = new TextEncoder();
@@ -27,6 +32,27 @@ function ringConfigPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
     programAddress: ringProgramId,
     seeds: [encoder.encode("config")],
   });
+}
+
+/** Mirrors Rust `CustomRing::policy_config_pda`. */
+export async function ringPolicyConfigAddress(ringProgramId: Address): Promise<Address> {
+  return (await ringPolicyConfigPda(ringProgramId))[0];
+}
+
+function ringPolicyConfigPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
+  return getProgramDerivedAddress({
+    programAddress: ringProgramId,
+    seeds: [encoder.encode("policy")],
+  });
+}
+
+/** Mirrors Rust `CustomRing::records_pda`, the shielded owner of every policy record. */
+export async function ringPolicyRecordsAddress(ringProgramId: Address): Promise<Address> {
+  const [address] = await getProgramDerivedAddress({
+    programAddress: ringProgramId,
+    seeds: [encoder.encode("policy_records")],
+  });
+  return address;
 }
 
 /** Mirrors Rust `CustomRing::program_data_pda`. */
@@ -57,6 +83,29 @@ export async function fetchRingProgramConfig(
   const config = decodeRingProgramConfig(account.data);
   if (config.bump !== bump || isDerivationPoint(config.auditorPublicKey)) {
     throw new RingError("RING_CONFIG_INVALID", { details: { ringProgramId, address } });
+  }
+  return config;
+}
+
+/** Mirrors Rust `CustomRing::read_policy_config`, a non-canonical bump is invalid. */
+export async function fetchRingPolicyConfig(
+  client: ZolanaClient,
+  ringProgramId: Address,
+  context?: RequestContext,
+): Promise<RingPolicyConfig> {
+  const [address, bump] = await ringPolicyConfigPda(ringProgramId);
+  const account = await client.getAccount(address, context);
+  if (account === undefined) {
+    throw new RingError("RING_POLICY_CONFIG_NOT_FOUND", { details: { ringProgramId, address } });
+  }
+  if (account.owner !== ringProgramId) {
+    throw new RingError("RING_POLICY_CONFIG_INVALID", {
+      details: { ringProgramId, owner: account.owner },
+    });
+  }
+  const config = decodeRingPolicyConfig(account.data);
+  if (config.bump !== bump) {
+    throw new RingError("RING_POLICY_CONFIG_INVALID", { details: { ringProgramId, address } });
   }
   return config;
 }

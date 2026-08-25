@@ -48,7 +48,7 @@ import { assemble } from "./prover/assembly.js";
 import { ProverClient, type AsyncPollConfig, type ProverHealth } from "./prover/client.js";
 import { assembleMerge } from "./prover/merge.js";
 import { compressProof } from "./prover/proof.js";
-import type { AuditProofRequest } from "./prover/types.js";
+import type { CustomRingProofRequest, RingTransactRoots } from "./prover/types.js";
 import {
   DEFAULT_INDEXER_RPC_CONFIG,
   indexerPollTimeout,
@@ -117,6 +117,12 @@ export interface MergeMaterialInput {
 export interface ProvedMerge {
   readonly data: MergeTransactInstructionData;
   readonly outputHash: Bytes32;
+}
+
+/** A proved ring transfer with the tree history entries the ring statement binds. */
+export interface ProvenRingTransact {
+  readonly data: TransactInstructionData;
+  readonly roots: RingTransactRoots;
 }
 
 export class ZolanaClient {
@@ -561,7 +567,7 @@ export class ZolanaClient {
     config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<TransactInstructionData> {
-    return this.#proveTransfer(proofInputs, undefined, config, context);
+    return (await this.#proveTransfer(proofInputs, undefined, config, context)).data;
   }
 
   async proveRingTransact(
@@ -569,7 +575,7 @@ export class ZolanaClient {
     ringProgramId: Address,
     config?: IndexerRpcConfig,
     context?: RequestContext,
-  ): Promise<TransactInstructionData> {
+  ): Promise<ProvenRingTransact> {
     checkedAddress(ringProgramId, "ringProgramId");
     return this.#proveTransfer(proofInputs, ringProgramId, config, context);
   }
@@ -582,12 +588,12 @@ export class ZolanaClient {
     }
   }
 
-  async proveCustomRingAudit(
-    inputs: AuditProofRequest,
+  async proveCustomRing(
+    inputs: CustomRingProofRequest,
     context?: RequestContext,
   ): Promise<Uint8Array> {
     try {
-      const proof = await this.#prover.proveCustomRingAudit(inputs, context);
+      const proof = await this.#prover.proveCustomRing(inputs, context);
       return compressProof(proof).toAuditProof();
     } catch (cause) {
       throw fromClientCause(cause);
@@ -599,7 +605,7 @@ export class ZolanaClient {
     ring: Address | undefined,
     config: IndexerRpcConfig | undefined,
     context: RequestContext | undefined,
-  ): Promise<TransactInstructionData> {
+  ): Promise<ProvenRingTransact> {
     if (!(proofInputs instanceof SppProofInputs)) {
       throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
     }
@@ -630,7 +636,10 @@ export class ZolanaClient {
       });
       const assembled = assemble(proofInputs, proofs, dummyProofs, ring);
       const proof = await this.#prover.prove(assembled.proverInputs, context);
-      return assembled.withProof(compressProof(proof).toTransactProof());
+      return Object.freeze({
+        data: assembled.withProof(compressProof(proof).toTransactProof()),
+        roots: assembled.roots,
+      });
     } catch (cause) {
       throw fromClientCause(cause);
     }

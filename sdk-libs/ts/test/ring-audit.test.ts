@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { poseidon } from "../src/keypair/poseidon.js";
 import { P256PublicKey } from "../src/keypair/public-key.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
 import type { Bytes32, Bytes33 } from "../src/interface/types.js";
@@ -73,7 +74,15 @@ describe("ring audit encryption", () => {
     );
   });
 
-  it("hashes the public input like the ring program", () => {
+  // The pinned Go fixture is the eight-element prefix and the policy tail folds onto it.
+  it("extends the audit chain like Rust `the_public_input_chain_extends_the_audit_chain`", () => {
+    const policyHash = new Uint8Array(32).fill(0x2a) as Bytes32;
+    const stateRoot = new Uint8Array(32).fill(6) as Bytes32;
+    const nullifierRoot = new Uint8Array(32).fill(7) as Bytes32;
+    const extended = poseidon([
+      poseidon([poseidon([PUBLIC_INPUT_HASH, policyHash]), stateRoot]),
+      nullifierRoot,
+    ]);
     expect(
       auditPublicInputHash({
         privateTxHash: PRIVATE_TX_HASH,
@@ -83,8 +92,11 @@ describe("ring audit encryption", () => {
           ephemeralPublicKey: P256PublicKey.fromBytes(EPH_PK),
           ciphertext: CIPHERTEXT,
         },
+        policyHash,
+        stateRoot,
+        nullifierRoot,
       }),
-    ).toEqual(PUBLIC_INPUT_HASH);
+    ).toEqual(extended);
   });
 
   it("decompresses the auditor key to the 65-byte point the circuit witnesses", () => {
