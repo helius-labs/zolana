@@ -93,7 +93,7 @@ struct AuditProofRequestJson<'a> {
     auditor_pk: String,
 }
 
-struct SecretHex<'a>(&'a [u8]);
+pub(crate) struct SecretHex<'a>(pub &'a [u8]);
 
 impl Serialize for SecretHex<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -105,7 +105,13 @@ impl Serialize for SecretHex<'_> {
     }
 }
 
-fn bytes_to_hex(bytes: &[u8]) -> String {
+/// A field element as the fixed-width hex the prover requires.
+#[cfg(feature = "policy")]
+pub(crate) fn field_hex(value: &[u8; 32]) -> String {
+    bytes_to_hex(value)
+}
+
+pub(crate) fn bytes_to_hex(bytes: &[u8]) -> String {
     bytes.iter().fold(String::from("0x"), |mut out, byte| {
         out.push_str(&format!("{byte:02x}"));
         out

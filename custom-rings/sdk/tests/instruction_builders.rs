@@ -568,6 +568,8 @@ fn ring_transact_with_audit_prepends_payer_and_config_to_the_spp_list() {
         owner_signers: vec![owner_signer()],
         interface_transfer_accounts: Vec::new(),
         audit_proof: proof,
+        state_root_index: 0,
+        nullifier_root_index: 0,
         transact: transact.clone(),
     }
     .instruction()
@@ -579,6 +581,8 @@ fn ring_transact_with_audit_prepends_payer_and_config_to_the_spp_list() {
         vec![
             AccountMeta::new(payer(), true),
             AccountMeta::new_readonly(ring().config_pda(), false),
+            #[cfg(feature = "policy")]
+            AccountMeta::new_readonly(ring().policy_config_pda(), false),
             AccountMeta::new(payer(), true),
             AccountMeta::new(input_tree(), false),
             AccountMeta::new(output_tree(), false),
@@ -594,7 +598,15 @@ fn ring_transact_with_audit_prepends_payer_and_config_to_the_spp_list() {
     assert_eq!(ix_tag, 3);
     let decoded: CustomRingTransactIxData =
         wincode::deserialize_exact(body).expect("body is a complete CustomRingTransactIxData");
-    assert_eq!(decoded, CustomRingTransactIxData { proof, transact });
+    assert_eq!(
+        decoded,
+        CustomRingTransactIxData {
+            proof,
+            state_root_index: 0,
+            nullifier_root_index: 0,
+            transact,
+        }
+    );
 }
 
 /// `ring_config` is this program's `ring_auth` PDA, and no keypair exists for it:
@@ -610,12 +622,19 @@ fn ring_transact_with_audit_leaves_ring_config_unsigned() {
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         audit_proof: audit_proof(),
+        state_root_index: 0,
+        nullifier_root_index: 0,
         transact: transact_data(Vec::new()),
     }
     .instruction()
     .expect("serialize the audited transact payload");
 
-    let ring_config = instruction.accounts.get(7).expect("ring_config meta");
+    // The policy build inserts its config before the forwarded SPP list.
+    let ring_config_index = if cfg!(feature = "policy") { 8 } else { 7 };
+    let ring_config = instruction
+        .accounts
+        .get(ring_config_index)
+        .expect("ring_config meta");
     assert_eq!(ring_config.pubkey, ring().ring_auth_pda());
     assert!(!ring_config.is_signer);
 }
@@ -636,6 +655,8 @@ fn ring_transact_with_audit_forwards_settlement_accounts() {
             TransactSolTransferAccounts { recipient },
         )],
         audit_proof: audit_proof(),
+        state_root_index: 0,
+        nullifier_root_index: 0,
         transact: transact_data(vec![InterfaceTransfer::SolWithdrawal { amount: 5 }]),
     }
     .instruction()
@@ -644,7 +665,7 @@ fn ring_transact_with_audit_forwards_settlement_accounts() {
     assert_eq!(
         instruction
             .accounts
-            .get(8..)
+            .get(if cfg!(feature = "policy") { 9 } else { 8 }..)
             .expect("owner signer and settlement metas")
             .to_vec(),
         vec![

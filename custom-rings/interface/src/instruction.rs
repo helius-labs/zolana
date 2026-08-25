@@ -48,11 +48,17 @@ pub struct AuditProof {
     pub commitment_pok: [u8; 32],
 }
 
-/// Wire format of tag 3: the ring's own proof followed by the SPP payload this
+/// Wire format of tag 3, the ring's own proof followed by the SPP payload this
 /// ring forwards verbatim.
+///
+/// The root indices name the tree history entries a policy statement binds. A
+/// ring without rules carries them unread, so one encoding serves both builds
+/// and a feature set cannot change what the program parses.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CustomRingTransactIxData {
     pub proof: AuditProof,
+    pub state_root_index: u16,
+    pub nullifier_root_index: u16,
     pub transact: TransactIxData,
 }
 

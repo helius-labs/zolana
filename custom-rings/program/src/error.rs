@@ -77,6 +77,8 @@ pub enum CustomRingError {
     InvalidRecordsPda = 8131,
     #[error("records tree account is not a shielded pool tree")]
     InvalidRecordsTree = 8132,
+    #[error("policy root index is outside the window the statement admits")]
+    StalePolicyRoot = 8133,
 }
 
 impl From<CustomRingError> for ProgramError {

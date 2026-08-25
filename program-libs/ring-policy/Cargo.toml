@@ -13,5 +13,6 @@ zolana-hasher = { workspace = true }
 zolana-interface = { workspace = true }
 
 [dev-dependencies]
+hex = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }

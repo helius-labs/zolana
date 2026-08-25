@@ -14,10 +14,16 @@ bpf-entrypoint = []
 no-entrypoint = []
 cpi = ["no-entrypoint"]
 test-sbf = []
-policy = ["dep:solana-address", "dep:zolana-ring-policy"]
-allowlist = ["policy"]
-blocklist = ["policy"]
-freeze = ["policy"]
+policy = [
+    "dep:solana-address",
+    "dep:zolana-batched-merkle-tree",
+    "dep:zolana-ring-policy",
+    "dep:zolana-tree",
+    "custom-ring-interface/policy",
+]
+allowlist = ["policy", "custom-ring-interface/allowlist"]
+blocklist = ["policy", "custom-ring-interface/blocklist"]
+freeze = ["policy", "custom-ring-interface/freeze"]
 
 [dependencies]
 bincode = { workspace = true }
@@ -36,10 +42,13 @@ thiserror = { workspace = true }
 wincode = { workspace = true }
 zolana-account-checks = { workspace = true }
 zolana-interface = { workspace = true, features = ["solana"] }
+zolana-batched-merkle-tree = { workspace = true, optional = true }
 zolana-ring-policy = { workspace = true, optional = true }
+zolana-tree = { workspace = true, optional = true }
 
 [dev-dependencies]
 curve25519-dalek = "4.1"
+zolana-ring-policy = { workspace = true }
 ed25519-dalek = { workspace = true }
 hex = { workspace = true }
 mollusk-svm = { workspace = true }
@@ -55,3 +64,7 @@ check-cfg = [
     'cfg(target_os, values("solana"))',
     'cfg(feature, values("frozen-abi", "no-entrypoint"))',
 ]
+
+[[test]]
+name = "policy"
+required-features = ["policy"]

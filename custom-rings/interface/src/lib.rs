@@ -5,6 +5,10 @@ pub mod audit;
 #[cfg(feature = "verifying-keys")]
 pub mod audit_vk;
 pub mod instruction;
+#[cfg(feature = "policy")]
+pub mod policy;
+#[cfg(all(feature = "policy", feature = "verifying-keys"))]
+pub mod policy_vk;
 pub mod state;
 
 pub use audit::{pack32_to_2fe, pack33_to_2fe, AuditPublicInput, FieldPair};
@@ -15,6 +19,8 @@ pub use instruction::{
     READ_ACCESS_COMPUTE_UNIT_LIMIT, RECORD_MUTATION_COMPUTE_UNIT_LIMIT,
     SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
 };
+#[cfg(feature = "policy")]
+pub use policy::{PolicyPublicInput, POLICY};
 pub use state::{
     PolicyConfig, ReadAccessRecord, RingProgramConfig, CONFIG_PDA_SEED, POLICY_CONFIG,
     POLICY_CONFIG_PDA_SEED, READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG,

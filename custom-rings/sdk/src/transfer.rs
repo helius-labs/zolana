@@ -64,6 +64,9 @@ pub struct ProvenTransfer {
     pub audit_proof: AuditProof,
     pub owner_signers: Vec<Address>,
     pub interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
+    /// History entries a policy statement binds, zero without rules.
+    pub state_root_index: u16,
+    pub nullifier_root_index: u16,
     payer: Address,
     tree: Address,
     ring: CustomRing,
@@ -115,6 +118,21 @@ pub enum TransferError {
     TreeRequired,
     #[error("custom ring config does not exist")]
     MissingRingConfig,
+    #[cfg(feature = "policy")]
+    #[error("the ring has no policy config")]
+    MissingPolicyConfig,
+    #[cfg(feature = "policy")]
+    #[error("policy hashing failed")]
+    PolicyHashing,
+    #[cfg(feature = "policy")]
+    #[error("the transfer needs more policy slots than the circuit holds")]
+    PolicyShapeUnsupported,
+    #[cfg(feature = "policy")]
+    #[error("a policy rule refuses the transfer")]
+    PolicyRuleUnsatisfied,
+    #[cfg(feature = "policy")]
+    #[error(transparent)]
+    PolicyRecord(Box<crate::RecordProofError>),
     #[error("transfer was prepared with padded change slots, prepare it with ConfidentialTransfer::with_compact_change")]
     PaddedChange,
     #[error("asset registry is required")]
@@ -262,8 +280,39 @@ impl<'a> AuditedTransfer<'a> {
         // finished into the proof request over the unchanged ciphertext. The program
         // recomputes that same public-input chain from the payload and the config
         // account.
-        let audit_request = pending_audit_proof.finish(ring_result.private_tx_hash.try_into()?)?;
-        let audit_proof = to_instruction_proof(environment.prover.prove(&audit_request)?)?;
+        let private_tx_hash = ring_result.private_tx_hash.try_into()?;
+        #[cfg(not(feature = "policy"))]
+        let audit_proof = to_instruction_proof(
+            environment
+                .prover
+                .prove(&pending_audit_proof.finish(private_tx_hash)?)?,
+        )?;
+        // One proof carries both statements on a policy ring.
+        #[cfg(feature = "policy")]
+        let (audit_proof, policy_roots) = {
+            let policy_config = self
+                .ring
+                .read_policy_config(environment.rpc)?
+                .ok_or(TransferError::MissingPolicyConfig)?;
+            let witness = crate::policy_witness::PolicyWitnessInput {
+                policy: &custom_ring_interface::POLICY,
+                records: self.ring.records_pda(),
+                records_tree: policy_config.records_tree,
+                inputs: &proof_inputs.input_utxos,
+                outputs: &proof_inputs.output_utxos,
+            }
+            .build(environment.indexer, environment.rpc)?;
+            let roots = crate::policy_witness::PolicyRoots { ..witness.roots };
+            let request = pending_audit_proof.finish_policy(
+                private_tx_hash,
+                witness,
+                &policy_config.policy_hash,
+            )?;
+            (
+                to_instruction_proof(environment.prover.prove(&request)?)?,
+                roots,
+            )
+        };
 
         Ok(ProvenTransfer {
             tx_viewing_key,
@@ -276,6 +325,14 @@ impl<'a> AuditedTransfer<'a> {
             audit_proof,
             owner_signers: proof_inputs.owner_signer_pubkeys()?,
             interface_transfer_accounts: self.interface_transfer_accounts,
+            #[cfg(feature = "policy")]
+            state_root_index: policy_roots.state_index,
+            #[cfg(feature = "policy")]
+            nullifier_root_index: policy_roots.nullifier_index,
+            #[cfg(not(feature = "policy"))]
+            state_root_index: 0,
+            #[cfg(not(feature = "policy"))]
+            nullifier_root_index: 0,
             payer,
             tree,
             ring: self.ring,
@@ -294,6 +351,8 @@ impl ProvenTransfer {
             interface_transfer_accounts: self.interface_transfer_accounts.clone(),
             audit_proof: self.audit_proof,
             transact: self.data.clone(),
+            state_root_index: self.state_root_index,
+            nullifier_root_index: self.nullifier_root_index,
         }
         .instruction()
         .map_err(Into::into)

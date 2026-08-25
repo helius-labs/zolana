@@ -638,6 +638,8 @@ func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
 		proof, proofError = w.processMergeProof(job.Payload, common.MergeRingCircuitType)
 	case common.CustomRingAuditCircuitType:
 		proof, proofError = w.processCustomRingAuditProof(job.Payload)
+	case common.CustomRingPolicyCircuitType:
+		proof, proofError = w.processCustomRingPolicyProof(job.Payload)
 	default:
 		return nil, fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType)
 	}
@@ -728,6 +730,18 @@ func (w *BaseQueueWorker) processCustomRingAuditProof(payload json.RawMessage) (
 		return nil, fmt.Errorf("custom-ring-audit: %w", err)
 	}
 	return customring.ProveCustomRingAudit(ps, &params)
+}
+
+func (w *BaseQueueWorker) processCustomRingPolicyProof(payload json.RawMessage) (*common.Proof, error) {
+	var params customring.CustomRingPolicyParameters
+	if err := json.Unmarshal(payload, &params); err != nil {
+		return nil, fmt.Errorf("unmarshal custom-ring-policy params: %w", err)
+	}
+	ps, err := w.keyManager.GetRingSystem(common.CustomRingPolicyCircuitType, customring.TransferVariant)
+	if err != nil {
+		return nil, fmt.Errorf("custom-ring-policy: %w", err)
+	}
+	return customring.ProveCustomRingPolicy(ps, &params)
 }
 
 // removeFromProcessingQueue drops the entry a worker added when it started, by

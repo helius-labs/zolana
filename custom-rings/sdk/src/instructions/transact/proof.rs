@@ -183,6 +183,62 @@ impl PendingAuditProof {
     }
 }
 
+#[cfg(feature = "policy")]
+impl PendingAuditProof {
+    /// The ring statement over the same ciphertext, with the policy half of the
+    /// witness supplied by the caller.
+    pub fn finish_policy(
+        self,
+        private_tx_hash: AuditPrivateTxHash,
+        witness: crate::policy_witness::PolicyWitness,
+        policy_hash: &[u8; 32],
+    ) -> Result<crate::instructions::transact::PolicyProofRequest, AuditProofInputError> {
+        let Self {
+            tx_viewing_key,
+            tx_viewing_pk,
+            auditor_pk,
+            ephemeral_sk,
+            message,
+        } = self;
+        let public_input_hash = custom_ring_interface::PolicyPublicInput {
+            audit: AuditPublicInput {
+                private_tx_hash: private_tx_hash.as_ref(),
+                tx_viewing_pk: tx_viewing_pk.as_bytes(),
+                auditor_pk: auditor_pk.as_bytes(),
+                eph_pk: message.ephemeral_pubkey_bytes(),
+                ciphertext: message.ciphertext(),
+            },
+            policy_hash,
+            state_root: &witness.roots.state,
+            nullifier_root: &witness.roots.nullifier,
+        }
+        .hash()
+        .map_err(|_| AuditProofInputError::Hashing)?;
+
+        Ok(crate::instructions::transact::PolicyProofRequest {
+            public_input_hash,
+            private_tx_hash: *private_tx_hash.as_ref(),
+            tx_viewing_key,
+            ephemeral_key: ViewingKey::from_bytes(&ephemeral_sk)?,
+            auditor_key: auditor_pk,
+            n_in: witness.n_in,
+            n_out: witness.n_out,
+            inputs: witness.inputs,
+            outputs: witness.outputs,
+            address_chain: [0u8; 32],
+            external_data_hash: [0u8; 32],
+            records_owner_hash: witness.records_owner_hash,
+            policy_len: witness.policy_len,
+            rules: witness.rules,
+            inline_assets: witness.inline_assets,
+            inline_count: witness.inline_count,
+            state_root: witness.roots.state,
+            nullifier_root: witness.roots.nullifier,
+            pool: witness.pool,
+        })
+    }
+}
+
 /// Re-encodes a prover result as the proof the instruction carries.
 ///
 /// The SDK is the only crate that owns both proof representations.

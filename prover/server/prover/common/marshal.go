@@ -286,7 +286,24 @@ func (ps *RingProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 
 func ReadSystemFromFile(path string) (interface{}, error) {
 	lowerPath := strings.ToLower(path)
-	if strings.Contains(lowerPath, "custom_ring_audit_transfer") {
+	// Both ring names contain "transfer", so they are matched before the generic
+	// transfer arm below.
+	if strings.Contains(lowerPath, "custom_ring_policy_transfer") {
+		ps := &RingProofSystem{
+			CircuitType: CustomRingPolicyCircuitType,
+			Variant:     "transfer",
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		if _, err = ps.UnsafeReadFrom(file); err != nil {
+			return nil, err
+		}
+		return ps, nil
+	} else if strings.Contains(lowerPath, "custom_ring_audit_transfer") {
 		ps := &RingProofSystem{
 			CircuitType: CustomRingAuditCircuitType,
 			Variant:     "transfer",

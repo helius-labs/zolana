@@ -7,8 +7,6 @@
 
 mod error;
 mod instructions;
-#[cfg(feature = "policy")]
-pub mod policy;
 mod state;
 
 pub use error::CustomRingError;

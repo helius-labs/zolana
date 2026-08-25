@@ -121,7 +121,7 @@ impl Rule {
 
     /// Injective over every rule field, byte 29 is zero exactly for inline
     /// sources.
-    pub(crate) fn encode(&self) -> [u8; 32] {
+    pub fn encoded(&self) -> [u8; 32] {
         let mut field = [0u8; 32];
         let (guard_tag, threshold) = match self.guard {
             Guard::Always => (0u8, 0u64),
@@ -182,7 +182,7 @@ impl Policy {
         elements.push(*records_owner_hash);
         elements.push(field_u8(self.len as u8));
         for rule in self.rules() {
-            elements.push(rule.encode());
+            elements.push(rule.encoded());
         }
         for rule in self.rules() {
             if let RuleSource::InlineAssets(members) = rule.source {
@@ -257,6 +257,10 @@ impl PolicyBuilder {
                     && matches!(rule.guard, Guard::AboveAmount(_))),
                 "sender rules take no amount guard"
             );
+            assert!(
+                !matches!(rule.subject, Subject::ExitDestination),
+                "exit destinations are enforced by no plane yet"
+            );
             if let Guard::AboveAmount(amount) = rule.guard {
                 assert!(amount > 0, "a zero threshold is Guard::Always");
             }
@@ -313,7 +317,7 @@ mod tests {
         ];
         for (i, a) in variants.iter().enumerate() {
             for b in variants.iter().skip(i + 1) {
-                assert_ne!(a.encode(), b.encode());
+                assert_ne!(a.encoded(), b.encoded());
             }
         }
     }
