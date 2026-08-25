@@ -246,9 +246,14 @@ pub(crate) fn p_pda() -> P256Pubkey {
 /// tag and the transaction-viewing secret. The roots themselves are reached
 /// through [`view_root`] and the `ecdh_raw` entry points, which bypass this
 /// check.
+///
+/// Compares x-coordinates rather than full SEC1 encodings. ECDH uses only x,
+/// so `x(sk·P) == x(sk·-P)`, and the negation `-P` carries the same x under the
+/// opposite parity byte (`0x03`→`0x02`). A byte-equality guard would accept
+/// `-P` while it still produces the protected shared secret.
 pub(crate) fn is_derivation_point(pubkey: &P256Pubkey) -> bool {
-    let bytes = pubkey.as_bytes();
-    bytes == &P_DERIVE_SEC1 || bytes == &P_PDA_SEC1 || bytes == &P_CONST_SEC1
+    let x = pubkey.x();
+    x == P_DERIVE_SEC1[1..] || x == P_PDA_SEC1[1..] || x == P_CONST_SEC1[1..]
 }
 
 /// `view_root = HKDF-Extract(salt=∅, IKM=ECDH(viewing_sk, P_const))` — the PRK

@@ -79,6 +79,21 @@ pub(crate) fn last_byte_zero(world: &mut KeypairWorld, name: String) {
     assert_eq!(world.tag(&name).as_bytes()[PUBLIC_KEY_LEN - 1], 0);
 }
 
+/// The all-zero dummy marker reads as a P256 tag, so identity derivation must
+/// reject it explicitly rather than rely on SEC1 parsing to fail downstream.
+pub(crate) fn zeroed_owner_is_rejected() {
+    let zeroed = PublicKey::zeroed();
+    assert!(zeroed.is_zero());
+    assert_eq!(
+        zeroed.confidential_view_tag(),
+        Err(KeypairError::InvalidPublicKey)
+    );
+    assert_eq!(
+        zeroed.owner_proof_input_hash(),
+        Err(KeypairError::InvalidPublicKey)
+    );
+}
+
 pub(crate) fn parse_public_key_bad_prefix(world: &mut KeypairWorld, prefix: u8) {
     let mut bytes = [0u8; PUBLIC_KEY_LEN];
     bytes[0] = prefix;

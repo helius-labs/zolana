@@ -137,6 +137,19 @@ pub(crate) fn solana_signer_matches_solana_keypair() {
         .is_err());
 }
 
+/// The infallible `Signer::pubkey` on an ed25519 keypair returns the real
+/// address; the P-256 panic path is pinned by the `#[should_panic]` tests in
+/// `keypair.rs`.
+pub(crate) fn signer_infallible_pubkey_matches_ed25519() {
+    use solana_signer::Signer;
+
+    let ed = ShieldedKeypair::new_ed25519().unwrap();
+    assert_eq!(
+        Signer::pubkey(&ed).to_bytes(),
+        ed.signing_pubkey().as_ed25519().unwrap()
+    );
+}
+
 pub(crate) fn facade_sign_nullifier(world: &mut KeypairWorld, name: String) {
     let kp = world.keypair(&name);
     let msg = [7u8; 32];

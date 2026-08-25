@@ -217,6 +217,18 @@ pub(crate) fn primitives_refuse_derivation_inputs(world: &mut KeypairWorld, key:
     assert_eq!(vk.ecdh(&p_pda), Err(KeypairError::DerivationInput));
     assert_eq!(vk.ecdh(&p_const), Err(KeypairError::DerivationInput));
     assert!(vk.ecdh(&benign).is_ok());
+
+    // The negation of a committed point (same x, flipped parity byte) is a
+    // valid on-curve point with the same ECDH x-coordinate. A byte-equality
+    // guard would accept it; this one must reject it.
+    for mut point in [P_DERIVE_SEC1, P_PDA_SEC1, P_CONST_SEC1] {
+        let canonical = point;
+        point[0] ^= 0x01;
+        let neg = P256Pubkey::from_bytes(point).expect("negated committed point is valid SEC1");
+        assert_ne!(neg.as_bytes(), &canonical, "negation differs in bytes");
+        assert_eq!(sk.ecdh(&neg), Err(KeypairError::DerivationInput));
+        assert_eq!(vk.ecdh(&neg), Err(KeypairError::DerivationInput));
+    }
 }
 
 pub(crate) fn nullifier_deterministic(world: &mut KeypairWorld, key: String) {

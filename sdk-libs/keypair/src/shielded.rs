@@ -104,6 +104,20 @@ impl Signer for ShieldedKeypair {
         Ok(solana_keypair::Signature::from(self.sign_message(message)?))
     }
 
+    // The `Signer` defaults route the infallible forms through
+    // `unwrap_or_default()`, so a non-ed25519 keypair would return the all-zero
+    // `Address` (the system program) and a zero signature. Override both to
+    // panic instead.
+    fn pubkey(&self) -> solana_address::Address {
+        self.try_pubkey()
+            .expect("ShieldedKeypair::pubkey is ed25519-only; P-256/PDA owners have no Solana address, use try_pubkey")
+    }
+
+    fn sign_message(&self, message: &[u8]) -> solana_keypair::Signature {
+        self.try_sign_message(message)
+            .expect("ShieldedKeypair::sign_message is ed25519-only; use try_sign_message")
+    }
+
     fn is_interactive(&self) -> bool {
         false
     }

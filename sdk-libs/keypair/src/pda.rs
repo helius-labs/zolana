@@ -37,8 +37,14 @@ impl AsRef<NullifierKey> for ShieldedPda {
 impl ShieldedPda {
     /// Derives both roles from `ECDH(own, counterparty)`, so either
     /// participant reconstructs the identity from its own viewing key and the
-    /// counterparty's viewing public key; nothing is transported. A sole
-    /// holder passes its own viewing public key as the counterparty.
+    /// counterparty's viewing public key; nothing is transported. This is the
+    /// two-or-more-party exchange; for a sole holder use [`Self::from_viewing_key`].
+    ///
+    /// Passing `own.pubkey()` as the counterparty yields a different identity
+    /// than [`Self::from_viewing_key`] for the same `(pda, own)`: this root is
+    /// `ECDH(own, own.pubkey())`, that one `ECDH(own, P_pda)`. The two roots do
+    /// not collide, so the constructors are not interchangeable; an account
+    /// created with one cannot be reopened with the other.
     pub fn from_key_exchange(
         pda: Address,
         own: &ViewingKey,
@@ -53,11 +59,14 @@ impl ShieldedPda {
         })
     }
 
-    /// Derives both roles from the holder's viewing key alone via
-    /// `ECDH(own, P_pda)`, a committed point with unknown discrete log, so the
-    /// identity exists before any counterparty does and its `nullifier_pk` can
-    /// be published at account-creation time. The holder set is the same as
-    /// the sole-holder exchange; only the holder of `own` derives it.
+    /// The sole-holder constructor. Derives both roles from the holder's
+    /// viewing key alone via `ECDH(own, P_pda)`, a committed point with unknown
+    /// discrete log, so the identity exists before any counterparty does and its
+    /// `nullifier_pk` can be published at account-creation time. Only the holder
+    /// of `own` can derive it.
+    ///
+    /// This root differs from [`Self::from_key_exchange`] with `own.pubkey()` as
+    /// the counterparty; see that constructor for the disjointness.
     pub fn from_viewing_key(pda: Address, own: &ViewingKey) -> Result<Self, KeypairError> {
         let shared = Zeroizing::new(own.ecdh_raw(&p_pda())?);
         let expansion = PdaRoleExpansion::new(&shared, pda.to_bytes());
