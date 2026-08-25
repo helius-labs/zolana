@@ -582,13 +582,10 @@ export class ZolanaClient {
     }
   }
 
-  async proveCustomRingAudit(
-    inputs: AuditProofRequest,
-    context?: RequestContext,
-  ): Promise<Uint8Array> {
+  async proveCustomRing(inputs: AuditProofRequest, context?: RequestContext): Promise<Uint8Array> {
     try {
-      const proof = await this.#prover.proveCustomRingAudit(inputs, context);
-      return compressProof(proof).toAuditProof();
+      const proof = await this.#prover.proveCustomRing(inputs, context);
+      return compressProof(proof).toCustomRingProof();
     } catch (cause) {
       throw fromClientCause(cause);
     }

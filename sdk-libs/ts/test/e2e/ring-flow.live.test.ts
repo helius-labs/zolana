@@ -186,7 +186,7 @@ describe("ring flow", () => {
     }
     await sync(client, sender);
     expect(
-      sender.wallet.utxos().filter((entry) => entry.utxo.zoneProgramId === ringProgramId),
+      sender.wallet.utxos().filter((entry) => entry.utxo.ringProgramId === ringProgramId),
     ).toHaveLength(2);
 
     const table = await buildRingLookupTableTransaction({
@@ -242,11 +242,11 @@ describe("ring flow", () => {
     await sync(client, recipient);
     const notes = recipient.wallet.utxos().filter((entry) => !entry.spent);
     expect(notes.map((entry) => entry.utxo.amount)).toContain(amount);
-    expect(notes.map((entry) => entry.utxo.zoneProgramId)).toEqual([ringProgramId]);
+    expect(notes.map((entry) => entry.utxo.ringProgramId)).toEqual([ringProgramId]);
     await sync(client, sender);
     const change = sender.wallet.utxos().filter((entry) => !entry.spent);
     expect(change.length).toBeGreaterThan(0);
-    expect(change.every((entry) => entry.utxo.zoneProgramId === ringProgramId)).toBe(true);
+    expect(change.every((entry) => entry.utxo.ringProgramId === ringProgramId)).toBe(true);
 
     // The received note spends inside the ring again.
     const hop = await buildRingTransferTransaction({

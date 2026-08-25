@@ -371,7 +371,7 @@ describe("ring transact", () => {
       data: {
         expiryUnixTs: 0xffff_ffff_ffff_ffffn,
         privateTxHash: filled(41, 32) as Bytes32,
-        circuit: { kind: "zoneEddsa", inputs: 2, outputs: 3, publicAssetSlots: 3 },
+        circuit: { kind: "ringEddsa", inputs: 2, outputs: 3, publicAssetSlots: 3 },
         txViewingPk: filled(3, 33) as Bytes33,
         salt: filled(42, 16) as Bytes16,
         proof: {
@@ -407,7 +407,7 @@ describe("ring transact", () => {
       data: {
         expiryUnixTs: 0xffff_ffff_ffff_ffffn,
         privateTxHash: filled(41, 32) as Bytes32,
-        circuit: { kind: "zoneEddsa", inputs: 2, outputs: 3, publicAssetSlots: 3 },
+        circuit: { kind: "ringEddsa", inputs: 2, outputs: 3, publicAssetSlots: 3 },
         txViewingPk: filled(3, 33) as Bytes33,
         salt: filled(42, 16) as Bytes16,
         proof: {

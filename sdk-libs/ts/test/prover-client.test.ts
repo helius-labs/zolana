@@ -23,7 +23,7 @@ const INPUTS = {
     privateTxHash: 0n,
     publicAssets: [0n, 0n, 0n],
     publicAmounts: [0n, 0n, 0n],
-    zoneProgramId: 0n,
+    ringProgramId: 0n,
     signerPublicKeyHashes: [0n],
     allowDummyInputs: 1n,
     publishedOutputOwnerPublicKeyHashes: [],
@@ -62,8 +62,8 @@ function mergeInputs(): MergeInputs {
     privateTxHash: 0n,
     allowDummyInputs: 1n,
     publicInputHash: 0n,
-    outputZoneDataHash: 0n,
-    zoneProgramId: 0n,
+    outputRingDataHash: 0n,
+    ringProgramId: 0n,
   } as unknown as MergeInputs;
 }
 
@@ -157,7 +157,7 @@ describe("prover request routing", () => {
     // The Rust test's inputs, the auditor key is the P-256 point of the scalar [4; 32].
     const auditorPublicKey = p256.getPublicKey(bytes(4), false);
 
-    await prover.proveCustomRingAudit({
+    await prover.proveCustomRing({
       publicInputHash: bytes(0),
       privateTxHash: bytes(1),
       txViewingSecret: bytes(2),
@@ -183,7 +183,7 @@ describe("prover request routing", () => {
 
     for (const auditorPublicKey of [new Uint8Array(33).fill(2), new Uint8Array(65).fill(2)]) {
       await expect(
-        prover.proveCustomRingAudit({
+        prover.proveCustomRing({
           publicInputHash: bytes(0),
           privateTxHash: bytes(1),
           txViewingSecret: bytes(2),
@@ -293,8 +293,8 @@ describe("dummy prover inputs", () => {
       amount: 0n,
       blinding: BigInt(`0x${"07".repeat(32)}`),
       dataHash: 0n,
-      zoneDataHash: 0n,
-      zoneProgramId: 0n,
+      ringDataHash: 0n,
+      ringProgramId: 0n,
     });
   });
 });

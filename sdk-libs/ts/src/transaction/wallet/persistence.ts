@@ -46,7 +46,7 @@ interface SerializedWalletUtxo {
   readonly amount: string;
   readonly blinding: string;
   readonly data: readonly SerializedDataRecord[];
-  readonly zoneProgramId?: Address;
+  readonly ringProgramId?: Address;
   readonly outputContext: Readonly<{
     hash: string;
     tree: Address;
@@ -54,7 +54,7 @@ interface SerializedWalletUtxo {
   }>;
   readonly nullifier: string;
   readonly dataHash?: string;
-  readonly zoneDataHash?: string;
+  readonly ringDataHash?: string;
   readonly spent: boolean;
 }
 
@@ -78,7 +78,7 @@ interface SerializedPrivateTransaction {
  * must still encrypt it at rest.
  */
 export interface SerializedWalletState {
-  readonly version: 1;
+  readonly version: 2;
   readonly identity: Readonly<{
     signingPublicKey: string;
     nullifierPublicKey: string;
@@ -96,7 +96,7 @@ export function serializeWallet(wallet: Wallet): string {
   if (!(wallet instanceof Wallet)) fail("wallet");
   const state = wallet._state();
   const snapshot: SerializedWalletState = {
-    version: 1,
+    version: 2,
     identity: {
       signingPublicKey: encode(wallet.identity.signingPublicKey.toBytes()),
       nullifierPublicKey: encode(wallet.identity.nullifierPublicKey),
@@ -127,7 +127,7 @@ export function deserializeWallet(serialized: string): Wallet {
 
 function hydrate(value: unknown): Wallet {
   const snapshot = record(value, "wallet");
-  if (snapshot["version"] !== 1) fail("version");
+  if (snapshot["version"] !== 2) fail("version");
   const identityValue = record(snapshot["identity"], "identity");
   const identity = ShieldedAddress.fromPublicKeys(
     ShieldedPublicKey.fromBytes(
@@ -216,7 +216,7 @@ function serializeUtxo(value: WalletUtxo): SerializedWalletUtxo {
       kind: record.kind,
       bytes: encode(record.bytes),
     })),
-    ...(value.utxo.zoneProgramId === undefined ? {} : { zoneProgramId: value.utxo.zoneProgramId }),
+    ...(value.utxo.ringProgramId === undefined ? {} : { ringProgramId: value.utxo.ringProgramId }),
     outputContext: {
       hash: encode(value.outputContext.hash),
       tree: value.outputContext.tree,
@@ -224,7 +224,7 @@ function serializeUtxo(value: WalletUtxo): SerializedWalletUtxo {
     },
     nullifier: encode(value.nullifier),
     ...(value.dataHash === undefined ? {} : { dataHash: encode(value.dataHash) }),
-    ...(value.zoneDataHash === undefined ? {} : { zoneDataHash: encode(value.zoneDataHash) }),
+    ...(value.ringDataHash === undefined ? {} : { ringDataHash: encode(value.ringDataHash) }),
     spent: value.spent,
   };
 }
@@ -237,7 +237,7 @@ function deserializeUtxo(value: unknown, index: number): WalletUtxo {
     const recordPath = `${path}.data[${String(recordIndex)}]`;
     const item = record(value, recordPath);
     const kind = item["kind"];
-    if (kind !== "zoneData" && kind !== "utxoData" && kind !== "memo") {
+    if (kind !== "ringData" && kind !== "utxoData" && kind !== "memo") {
       fail(`${recordPath}.kind`);
     }
     return {
@@ -252,9 +252,9 @@ function deserializeUtxo(value: unknown, index: number): WalletUtxo {
       amount: unsigned(entry["amount"], `${path}.amount`),
       blinding: bytes(entry["blinding"], 32, `${path}.blinding`) as Bytes32,
       data: new Data(records),
-      ...(entry["zoneProgramId"] === undefined
+      ...(entry["ringProgramId"] === undefined
         ? {}
-        : { zoneProgramId: address(entry["zoneProgramId"], `${path}.zoneProgramId`) }),
+        : { ringProgramId: address(entry["ringProgramId"], `${path}.ringProgramId`) }),
     }),
     outputContext: {
       hash: bytes(context["hash"], 32, `${path}.outputContext.hash`) as Bytes32,
@@ -265,9 +265,9 @@ function deserializeUtxo(value: unknown, index: number): WalletUtxo {
     ...(entry["dataHash"] === undefined
       ? {}
       : { dataHash: bytes(entry["dataHash"], 32, `${path}.dataHash`) as Bytes32 }),
-    ...(entry["zoneDataHash"] === undefined
+    ...(entry["ringDataHash"] === undefined
       ? {}
-      : { zoneDataHash: bytes(entry["zoneDataHash"], 32, `${path}.zoneDataHash`) as Bytes32 }),
+      : { ringDataHash: bytes(entry["ringDataHash"], 32, `${path}.ringDataHash`) as Bytes32 }),
     spent: boolean(entry["spent"], `${path}.spent`),
   };
 }

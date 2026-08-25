@@ -201,7 +201,7 @@ export interface ExternalData {
   readonly expiryUnixTs: bigint;
   readonly interfaceTransfers: readonly SettlementTransfer[];
   readonly dataHash?: Bytes32;
-  readonly zoneDataHash?: Bytes32;
+  readonly ringDataHash?: Bytes32;
   readonly txViewingPublicKey: P256PublicKey;
   readonly salt: Bytes16;
   readonly outputs: readonly TransactOutput[];
@@ -222,7 +222,7 @@ export interface ExternalDataInit {
   readonly expiryUnixTs?: bigint;
   readonly interfaceTransfers?: readonly SettlementTransfer[];
   readonly dataHash?: Bytes32;
-  readonly zoneDataHash?: Bytes32;
+  readonly ringDataHash?: Bytes32;
   readonly txViewingPublicKey: P256PublicKey;
   readonly salt: Bytes16;
   readonly outputs: readonly TransactOutput[];
@@ -302,7 +302,7 @@ function externalDataHash(data: ExternalDataFields): Bytes32 {
           },
     ),
     ...(data.dataHash === undefined ? {} : { dataHash: data.dataHash }),
-    ...(data.zoneDataHash === undefined ? {} : { zoneDataHash: data.zoneDataHash }),
+    ...(data.ringDataHash === undefined ? {} : { ringDataHash: data.ringDataHash }),
     txViewingPk: data.txViewingPublicKey.toBytes(),
     salt: data.salt,
     outputs: data.outputs.map((output, index) => ({
@@ -384,7 +384,7 @@ function sealExternalData(fields: ExternalDataFields): ExternalData {
 export interface InputUtxo {
   readonly utxo: Utxo;
   readonly nullifierPublicKey: Bytes32;
-  readonly zoneDataHash?: Bytes32;
+  readonly ringDataHash?: Bytes32;
   readonly dataHash?: Bytes32;
   hash(): Bytes32;
   isDummy(): boolean;
@@ -394,7 +394,7 @@ export function createInputUtxo(
   input: Readonly<{
     utxo: Utxo;
     nullifierPublicKey: Bytes32;
-    zoneDataHash?: Bytes32;
+    ringDataHash?: Bytes32;
     dataHash?: Bytes32;
   }>,
 ): InputUtxo {
@@ -405,7 +405,7 @@ export function createInputUtxo(
     utxo,
     nullifierPublicKey,
     hash(): Bytes32 {
-      return utxo.hash(nullifierPublicKey, input.dataHash, input.zoneDataHash);
+      return utxo.hash(nullifierPublicKey, input.dataHash, input.ringDataHash);
     },
     isDummy(): boolean {
       return utxo.owner.isZero();
@@ -586,7 +586,7 @@ export interface PreparedTransfer {
   /** Mirrors Rust `ChangeLayout`. */
   readonly changeLayout: ChangeLayout;
   /** Every output joins the ring, without it a note leaves as a default-ring note. */
-  withZoneProgramId(zoneProgramId: Address): PreparedTransfer;
+  withRingProgramId(ringProgramId: Address): PreparedTransfer;
   /** Ring transacts bind the auditor message and the `RING_TRANSACT` tag into the external data hash. */
   finalize(
     input: Readonly<{
@@ -830,18 +830,18 @@ export class ConfidentialTransfer {
   }
 }
 
-type PreparedTransferFields = Omit<PreparedTransfer, "finalize" | "withZoneProgramId">;
+type PreparedTransferFields = Omit<PreparedTransfer, "finalize" | "withRingProgramId">;
 
 function preparedTransfer(fields: PreparedTransferFields): PreparedTransfer {
   return Object.freeze({
     ...fields,
     finalize: (encrypted: Parameters<PreparedTransfer["finalize"]>[0]): SppProofInputs =>
       finalizeTransfer(fields, encrypted),
-    withZoneProgramId: (zoneProgramId: Address): PreparedTransfer =>
+    withRingProgramId: (ringProgramId: Address): PreparedTransfer =>
       preparedTransfer({
         ...fields,
         outputs: Object.freeze(
-          fields.outputs.map((output) => output.withZoneProgramId(zoneProgramId)),
+          fields.outputs.map((output) => output.withRingProgramId(ringProgramId)),
         ),
       }),
   });
@@ -954,7 +954,7 @@ export function encodeConfidentialSlots(
     return {
       viewTag: address.signingPublicKey.confidentialViewTag(),
       data: encodeOutputData(
-        output.zoneProgramId === undefined
+        output.ringProgramId === undefined
           ? EncryptedScheme.confidential
           : EncryptedScheme.ringConfidential,
         encryptConfidential(
@@ -964,7 +964,7 @@ export function encodeConfidentialSlots(
             assetId: assets.assetId(output.asset),
             amount: output.amount,
             blinding: output.blinding,
-            ...(output.zoneProgramId === undefined ? {} : { zoneProgramId: output.zoneProgramId }),
+            ...(output.ringProgramId === undefined ? {} : { ringProgramId: output.ringProgramId }),
             data: output.data,
           },
           salt,

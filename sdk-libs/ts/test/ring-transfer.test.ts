@@ -72,7 +72,7 @@ function preparedTransfer(
       asset: SOL_MINT,
       amount: 10n,
       blinding: scalar(6),
-      zoneProgramId: RING,
+      ringProgramId: RING,
     }),
     nullifierKey: sender.keypair.nullifierKey(),
   });
@@ -92,8 +92,8 @@ async function auditedProofInputs(
   others: readonly bigint[] = [],
 ): Promise<Readonly<{ proofInputs: SppProofInputs; recipient: ReturnType<typeof actor> }>> {
   const { prepared, sender, recipient } = preparedTransfer(amount, others);
-  const ring = prepared.withZoneProgramId(RING);
-  const encrypted = await sender.authority.encryptAuditedTransfer({
+  const ring = prepared.withRingProgramId(RING);
+  const encrypted = await sender.authority.encryptCustomRingTransfer({
     firstNullifier: ring.firstNullifier,
     outputs: ring.outputs,
     assets: new AssetRegistry(),
@@ -154,7 +154,7 @@ describe("withCompactChange", () => {
         asset: SOL_MINT,
         amount: 10n,
         blinding: scalar(6),
-        zoneProgramId: RING,
+        ringProgramId: RING,
       }),
       nullifierKey: sender.keypair.nullifierKey(),
     });
@@ -171,8 +171,8 @@ describe("withCompactChange", () => {
   });
 
   it("binds every output to the ring", () => {
-    const ring = preparedTransfer(4n).prepared.withZoneProgramId(RING);
-    expect(ring.outputs.every((output) => output.zoneProgramId === RING)).toBe(true);
+    const ring = preparedTransfer(4n).prepared.withRingProgramId(RING);
+    expect(ring.outputs.every((output) => output.ringProgramId === RING)).toBe(true);
   });
 });
 
@@ -244,10 +244,10 @@ describe("ring witness", () => {
       expect(published[index]).toBe(output.isDummy() ? hashBytesBigInt(tag) : 0n);
     });
     expect(assembled.proverInputs.circuit).toBe("transferRing");
-    expect(assembled.proverInputs.payload.zoneProgramId).toBe(
+    expect(assembled.proverInputs.payload.ringProgramId).toBe(
       hashBytesBigInt(new Uint8Array(getAddressEncoder().encode(RING))),
     );
-    expect(assembled.instructionData.circuit.kind).toBe("zoneEddsa");
+    expect(assembled.instructionData.circuit.kind).toBe("ringEddsa");
   });
 });
 
