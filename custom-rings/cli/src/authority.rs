@@ -1,6 +1,8 @@
 use std::{path::Path, process::Command};
 
-use custom_ring_sdk::{CustomRing, SetAuthority, SET_AUTHORITY_COMPUTE_UNIT_LIMIT};
+use custom_ring_sdk::{
+    AccountReadError, CustomRing, SetAuthority, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
+};
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::read_keypair_file;
@@ -22,6 +24,13 @@ pub struct SetUpgradeAuthority<'a> {
     pub current: &'a ProgramDataInfo,
 }
 
+#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InitializationState {
+    Complete,
+    Incomplete,
+}
+
 #[derive(Debug, Error)]
 pub enum AuthorityError {
     #[error(transparent)]
@@ -32,6 +41,10 @@ pub enum AuthorityError {
     NotDeployed { program: Address },
     #[error("renouncing is irreversible, pass --yes to make {program} immutable")]
     NeedsConfirmation { program: Address },
+    #[error("ring {program} is not initialized, run `init` before renouncing")]
+    NotInitialized { program: Address },
+    #[error(transparent)]
+    AccountRead(#[from] AccountReadError),
     #[error(transparent)]
     Tool(#[from] ToolError),
     #[error("cannot read the new authority keypair {path}")]
@@ -92,6 +105,11 @@ pub fn run(ctx: &Context, command: AuthorityCommand) -> Result<(), AuthorityErro
             if !yes {
                 return Err(AuthorityError::NeedsConfirmation { program });
             }
+            InitializationState::observe(
+                ctx.ring.read_config(&ctx.rpc)?,
+                ctx.ring.read_spp_ring_config(&ctx.rpc)?,
+            )
+            .require(program)?;
             let current = deployed_program_data(&ctx.rpc, ctx.ring)?;
             SetUpgradeAuthority {
                 ring: ctx.ring,
@@ -104,6 +122,23 @@ pub fn run(ctx: &Context, command: AuthorityCommand) -> Result<(), AuthorityErro
         }
     }
     Ok(())
+}
+
+impl InitializationState {
+    fn observe<C, R>(config: Option<C>, spp_ring: Option<R>) -> Self {
+        if config.is_some() && spp_ring.is_some() {
+            Self::Complete
+        } else {
+            Self::Incomplete
+        }
+    }
+
+    fn require(self, program: Address) -> Result<(), AuthorityError> {
+        match self {
+            Self::Complete => Ok(()),
+            Self::Incomplete => Err(AuthorityError::NotInitialized { program }),
+        }
+    }
 }
 
 impl SetUpgradeAuthority<'_> {
@@ -119,7 +154,6 @@ impl SetUpgradeAuthority<'_> {
         )
     }
 
-    /// Irreversible, and `create_config` falls back to plain authority gating afterwards.
     pub fn renounce(self, rpc: &SolanaRpc) -> Result<(), AuthorityError> {
         self.check_current()?;
         self.run(rpc, &["--final"])
@@ -205,5 +239,23 @@ mod tests {
             check(None),
             Err(AuthorityError::Deploy(error)) if matches!(*error, DeployError::Immutable { .. })
         ));
+    }
+
+    #[test]
+    fn renounce_requires_both_ring_accounts() {
+        let program = Address::new_from_array([1; 32]);
+        for state in [
+            InitializationState::observe(None::<()>, None::<()>),
+            InitializationState::observe(Some(()), None::<()>),
+            InitializationState::observe(None::<()>, Some(())),
+        ] {
+            assert!(matches!(
+                state.require(program),
+                Err(AuthorityError::NotInitialized { program: found }) if found == program
+            ));
+        }
+        assert!(InitializationState::observe(Some(()), Some(()))
+            .require(program)
+            .is_ok());
     }
 }
