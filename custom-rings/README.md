@@ -171,7 +171,9 @@ serves another ring; a hosted ring RPC is only checked, never replaced, and a
 ring pointed at one creates no local auditor key. `init` refuses an unpinned
 hosted RPC, `--trust-ring-rpc` is for a local instance. The ring RPC releases
 the key only to a request the upgrade authority signs while no config exists,
-so `init` needs that keypair and the program must be deployed first. The sender of a
+so `init` needs that keypair and the program must be deployed first. `init`
+creates the config under the upgrade authority and hands it to
+`config_authority_keypair` when that key differs. The sender of a
 custom-ring transfer pays its own v0 transaction. Keys and `.env` belong in the
 secret store, `new` writes a `.gitignore` for both, and a fresh machine mounts
 them before its first pipeline run. `status`, `devnet`, `localnet` and error
