@@ -42,7 +42,7 @@ pub fn process_create_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     let (pda, bump) = (parsed.pda, parsed.bump);
 
     let pda_bytes = pda.to_bytes();
-    let owner = PdaOwner::derive(&pda_bytes)?;
+    let owner = PdaOwner::new(&pda_bytes)?;
     let address_utxo_hash = owner.address_utxo_hash()?;
     let address = nullifier(&address_utxo_hash, &owner.address_seed)?;
     let state = AccountState {

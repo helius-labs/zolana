@@ -46,7 +46,7 @@ pub fn process_update_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     let (pda, bump) = (parsed.pda, parsed.bump);
 
     let pda_bytes = pda.to_bytes();
-    let owner = PdaOwner::derive(&pda_bytes)?;
+    let owner = PdaOwner::new(&pda_bytes)?;
     let address = owner.address()?;
     let state = AccountState {
         address,

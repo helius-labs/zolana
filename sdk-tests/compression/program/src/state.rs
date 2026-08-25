@@ -41,7 +41,7 @@ pub struct PdaOwner {
 }
 
 impl PdaOwner {
-    pub fn derive(pda: &[u8; 32]) -> Result<Self, ProgramError> {
+    pub fn new(pda: &[u8; 32]) -> Result<Self, ProgramError> {
         let owner_pk_field = hash_bytes_field(pda)?;
         let nullifier_pk = hashv(&[&[0u8; 32]])?;
         let owner_hash = hashv(&[&owner_pk_field, &nullifier_pk])?;
@@ -159,7 +159,7 @@ mod tests {
     #[test]
     fn commitments_match_existing_utxo_types() {
         let authority = [8u8; 32];
-        let pda_owner = PdaOwner::derive(TEST_PDA.as_array()).unwrap();
+        let pda_owner = PdaOwner::new(TEST_PDA.as_array()).unwrap();
         let state = AccountState {
             address: pda_owner.address().unwrap(),
             authority,
@@ -201,7 +201,7 @@ mod tests {
 
     #[test]
     fn payload_envelope_is_a_plaintext_output_data_encoding() {
-        let pda_owner = PdaOwner::derive(TEST_PDA.as_array()).unwrap();
+        let pda_owner = PdaOwner::new(TEST_PDA.as_array()).unwrap();
         let state = AccountState {
             address: pda_owner.address().unwrap(),
             authority: [8u8; 32],
