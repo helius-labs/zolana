@@ -16,7 +16,7 @@ use zolana_interface::{
 use crate::{
     error::CompressionError,
     instructions::shared::{cpi_spp_transact_signed, private_tx_hash, TransitionAccounts},
-    state::{derive_address, nullifier, AccountState},
+    state::{nullifier, AccountState, PdaOwner},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
@@ -42,14 +42,16 @@ pub fn process_create_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     let (pda, bump) = (parsed.pda, parsed.bump);
 
     let pda_bytes = pda.to_bytes();
-    let address = derive_address(&pda_bytes)?;
+    let owner = PdaOwner::derive(&pda_bytes)?;
+    let address_utxo_hash = owner.address_utxo_hash()?;
+    let address = nullifier(&address_utxo_hash, &owner.address_seed)?;
     let state = AccountState {
-        address: address.address,
+        address,
         authority: authority.to_bytes(),
         value: new_value,
         version: 0,
     };
-    let output_hash = state.utxo_hash(&address.owner_hash)?;
+    let output_hash = state.utxo_hash(&owner.owner_hash)?;
     let payload = state.to_output_data()?;
 
     let resolved_output = [ResolvedOutput {
@@ -71,12 +73,10 @@ pub fn process_create_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     }
     .hash()
     .map_err(|_| CompressionError::HashingFailed)?;
-    // Address
-    let nullifier_hash = nullifier(&address.address_utxo_hash, &address.address_seed)?;
     let private_tx = private_tx_hash(
         [0u8; 32],
         output_hash,
-        address.address_utxo_hash,
+        address_utxo_hash,
         &external_data_hash,
     )?;
 
@@ -88,7 +88,7 @@ pub fn process_create_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
         salt: [0u8; 16],
         proof,
         inputs: vec![InputUtxo {
-            nullifier_hash,
+            nullifier_hash: address,
             nullifier_tree_root_index,
             utxo_tree_root_index,
         }],

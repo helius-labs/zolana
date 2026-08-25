@@ -12,13 +12,6 @@ pub const STATE_DATA_LEN: usize = 80;
 const OUTPUT_DATA_PLAINTEXT: u8 = 0;
 pub const ACCOUNT_DATA_DOMAIN: &[u8; 42] = b"zolana:compression-example:account-data:v1";
 
-pub struct DerivedAddress {
-    pub owner_hash: [u8; 32],
-    pub address_seed: [u8; 32],
-    pub address_utxo_hash: [u8; 32],
-    pub address: [u8; 32],
-}
-
 fn hashv(values: &[&[u8]]) -> Result<[u8; 32], ProgramError> {
     Poseidon::hashv(values).map_err(|_| CompressionError::HashingFailed.into())
 }
@@ -42,30 +35,41 @@ pub fn version_blinding(version: u64) -> [u8; 32] {
     field_u64(version)
 }
 
-pub fn derive_address(pda: &[u8; 32]) -> Result<DerivedAddress, ProgramError> {
-    let owner_pk_field = hash_bytes_field(pda)?;
-    let zero = [0u8; 32];
-    let nullifier_pk = hashv(&[&zero])?;
-    let owner_hash = hashv(&[&owner_pk_field, &nullifier_pk])?;
-    let address_seed = owner_pk_field;
-    let owner_utxo_hash = hashv(&[&owner_hash, &address_seed])?;
-    let ring_hash = hashv(&[&zero, &zero])?;
-    let address_utxo_hash = hashv(&[
-        &field_u16(ADDRESS_DOMAIN),
-        &zero,
-        &zero,
-        &zero,
-        &ring_hash,
-        &owner_utxo_hash,
-    ])?;
-    let address = hashv(&[&address_utxo_hash, &address_seed, &zero])?;
+pub struct PdaOwner {
+    pub owner_hash: [u8; 32],
+    pub address_seed: [u8; 32],
+}
 
-    Ok(DerivedAddress {
-        owner_hash,
-        address_seed,
-        address_utxo_hash,
-        address,
-    })
+impl PdaOwner {
+    pub fn derive(pda: &[u8; 32]) -> Result<Self, ProgramError> {
+        let owner_pk_field = hash_bytes_field(pda)?;
+        let nullifier_pk = hashv(&[&[0u8; 32]])?;
+        let owner_hash = hashv(&[&owner_pk_field, &nullifier_pk])?;
+        Ok(Self {
+            owner_hash,
+            address_seed: owner_pk_field,
+        })
+    }
+
+    pub fn address_utxo_hash(&self) -> Result<[u8; 32], ProgramError> {
+        let zero = [0u8; 32];
+        let owner_utxo_hash = hashv(&[&self.owner_hash, &self.address_seed])?;
+        let ring_hash = hashv(&[&zero, &zero])?;
+        hashv(&[
+            &field_u16(ADDRESS_DOMAIN),
+            &zero,
+            &zero,
+            &zero,
+            &ring_hash,
+            &owner_utxo_hash,
+        ])
+    }
+
+    // The compressed address is the nullifier of the address UTXO: unique per
+    // PDA and provably consumed once, on create.
+    pub fn address(&self) -> Result<[u8; 32], ProgramError> {
+        nullifier(&self.address_utxo_hash()?, &self.address_seed)
+    }
 }
 
 #[derive(BorshDeserialize, BorshSerialize, Clone, Debug, PartialEq, Eq)]
@@ -155,9 +159,9 @@ mod tests {
     #[test]
     fn commitments_match_existing_utxo_types() {
         let authority = [8u8; 32];
-        let address = derive_address(TEST_PDA.as_array()).unwrap();
+        let pda_owner = PdaOwner::derive(TEST_PDA.as_array()).unwrap();
         let state = AccountState {
-            address: address.address,
+            address: pda_owner.address().unwrap(),
             authority,
             value: 42,
             version: 9,
@@ -167,7 +171,7 @@ mod tests {
         let nullifier_key = NullifierKey::from_secret([0u8; 31]);
         let nullifier_pk = nullifier_key.pubkey().unwrap();
         let expected_owner_hash = owner_hash(&owner, &nullifier_pk).unwrap();
-        assert_eq!(address.owner_hash, expected_owner_hash);
+        assert_eq!(pda_owner.owner_hash, expected_owner_hash);
 
         let address_seed = hash_bytes(TEST_PDA.as_array()).unwrap();
         let address_input = ProofInputUtxo {
@@ -176,11 +180,12 @@ mod tests {
             blinding: address_seed,
             ..ProofInputUtxo::default()
         };
-        assert_eq!(address.address_utxo_hash, address_input.hash().unwrap());
+        let address_utxo_hash = pda_owner.address_utxo_hash().unwrap();
+        assert_eq!(address_utxo_hash, address_input.hash().unwrap());
         assert_eq!(
-            address.address,
+            state.address,
             nullifier_key
-                .nullifier(&address.address_utxo_hash, &address_seed)
+                .nullifier(&address_utxo_hash, &address_seed)
                 .unwrap()
         );
 
@@ -189,16 +194,16 @@ mod tests {
             .unwrap()
             .with_data_hash(data_hash);
         assert_eq!(
-            state.utxo_hash(&address.owner_hash).unwrap(),
+            state.utxo_hash(&pda_owner.owner_hash).unwrap(),
             output.hash().unwrap()
         );
     }
 
     #[test]
     fn payload_envelope_is_a_plaintext_output_data_encoding() {
-        let address = derive_address(TEST_PDA.as_array()).unwrap();
+        let pda_owner = PdaOwner::derive(TEST_PDA.as_array()).unwrap();
         let state = AccountState {
-            address: address.address,
+            address: pda_owner.address().unwrap(),
             authority: [8u8; 32],
             value: 42,
             version: 9,

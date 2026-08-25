@@ -16,7 +16,7 @@ use zolana_interface::{
 use crate::{
     error::CompressionError,
     instructions::shared::{cpi_spp_transact_signed, private_tx_hash, TransitionAccounts},
-    state::{derive_address, nullifier, AccountState},
+    state::{nullifier, AccountState, PdaOwner},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
@@ -46,16 +46,17 @@ pub fn process_update_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     let (pda, bump) = (parsed.pda, parsed.bump);
 
     let pda_bytes = pda.to_bytes();
-    let address = derive_address(&pda_bytes)?;
+    let owner = PdaOwner::derive(&pda_bytes)?;
+    let address = owner.address()?;
     let state = AccountState {
-        address: address.address,
+        address,
         authority: authority.to_bytes(),
         value: new_value,
         version: version
             .checked_add(1)
             .ok_or(CompressionError::InvalidInstructionData)?,
     };
-    let output_hash = state.utxo_hash(&address.owner_hash)?;
+    let output_hash = state.utxo_hash(&owner.owner_hash)?;
     let payload = state.to_output_data()?;
 
     let resolved_output = [ResolvedOutput {
@@ -79,12 +80,12 @@ pub fn process_update_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     .map_err(|_| CompressionError::HashingFailed)?;
 
     let old_state = AccountState {
-        address: address.address,
+        address,
         authority: authority.to_bytes(),
         value: old_value,
         version,
     };
-    let old_hash = old_state.utxo_hash(&address.owner_hash)?;
+    let old_hash = old_state.utxo_hash(&owner.owner_hash)?;
     let nullifier_hash = nullifier(&old_hash, &old_state.blinding())?;
     let private_tx = private_tx_hash(old_hash, output_hash, [0u8; 32], &external_data_hash)?;
 
