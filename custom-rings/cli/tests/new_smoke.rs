@@ -8,6 +8,49 @@ use std::{
     process::Command,
 };
 
+struct AdvertisedHead {
+    repository: PathBuf,
+    name: String,
+    commit: String,
+}
+
+impl AdvertisedHead {
+    fn create(repository: &Path) -> Self {
+        let head = Command::new("git")
+            .arg("-C")
+            .arg(repository)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .expect("git rev-parse");
+        assert!(head.status.success());
+        let commit = String::from_utf8_lossy(&head.stdout).trim().to_owned();
+        let name = format!("refs/heads/ring-new-smoke-source-{}", std::process::id());
+        let zero = "0".repeat(commit.len());
+        let status = Command::new("git")
+            .arg("-C")
+            .arg(repository)
+            .args(["update-ref", &name, &commit, &zero])
+            .status()
+            .expect("git update-ref");
+        assert!(status.success());
+        Self {
+            repository: repository.to_path_buf(),
+            name,
+            commit,
+        }
+    }
+}
+
+impl Drop for AdvertisedHead {
+    fn drop(&mut self) {
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&self.repository)
+            .args(["update-ref", "-d", &self.name, &self.commit])
+            .status();
+    }
+}
+
 /// The scratch copy provides the HEAD `--template-path` resolves.
 fn stage_template(dest: &Path) -> PathBuf {
     let source = PathBuf::from(
@@ -66,14 +109,7 @@ fn new_generates_a_committed_ring_from_the_local_template() {
     let template = stage_template(&dest);
 
     let zolana_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let head = Command::new("git")
-        .arg("-C")
-        .arg(&zolana_root)
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .expect("git rev-parse");
-    assert!(head.status.success());
-    let head = String::from_utf8_lossy(&head.stdout).trim().to_owned();
+    let source = AdvertisedHead::create(&zolana_root);
 
     let status = Command::new(env!("CARGO_BIN_EXE_zolana-ring"))
         .args(["new", "smoke-ring", "--silent", "--template-path"])
@@ -83,7 +119,7 @@ fn new_generates_a_committed_ring_from_the_local_template() {
             "file://{}",
             zolana_root.canonicalize().expect("root").display()
         ))
-        .args(["--zolana-rev", &head])
+        .args(["--zolana-rev", &source.commit])
         .arg("--dest")
         .arg(&dest)
         .status()
