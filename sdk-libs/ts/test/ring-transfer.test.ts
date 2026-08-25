@@ -23,7 +23,7 @@ import {
 import { assemble } from "../src/client/prover/assembly.js";
 import type { SpendProof } from "../src/client/rpc.js";
 import { hashBytesBigInt } from "../src/client/internal.js";
-import { frameDummyOutputs } from "../src/ring/transfer.js";
+import { frameDummyOutputs, checkRingMembership } from "../src/ring/transfer.js";
 import {
   ConfidentialTransfer,
   type IndexedShieldedTransaction,
@@ -59,6 +59,7 @@ function actor(seed: number) {
 function preparedTransfer(
   amount: bigint,
   others: readonly bigint[] = [],
+  exits: readonly bigint[] = [],
 ): Readonly<{
   prepared: PreparedTransfer;
   sender: ReturnType<typeof actor>;
@@ -76,13 +77,14 @@ function preparedTransfer(
     }),
     nullifierKey: sender.keypair.nullifierKey(),
   });
-  const transfer = new ConfidentialTransfer(
-    sender.address,
-    [input],
-    sender.address.solanaAddress(),
-  ).withCompactChange();
+  const transfer = new ConfidentialTransfer(sender.address, [input], sender.address.solanaAddress())
+    .withCompactChange()
+    .withRingProgramId(RING);
   transfer.send(recipient.address, SOL_MINT, amount);
   others.forEach((other, index) => transfer.send(actor(5 + index).address, SOL_MINT, other));
+  exits.forEach((exit, index) =>
+    transfer.sendDefaultRing(actor(20 + index).address, SOL_MINT, exit),
+  );
   return { prepared: transfer.prepare(), sender, recipient };
 }
 
@@ -90,9 +92,9 @@ async function auditedProofInputs(
   amount: bigint,
   auditor: ViewingKey,
   others: readonly bigint[] = [],
+  exits: readonly bigint[] = [],
 ): Promise<Readonly<{ proofInputs: SppProofInputs; recipient: ReturnType<typeof actor> }>> {
-  const { prepared, sender, recipient } = preparedTransfer(amount, others);
-  const ring = prepared.withRingProgramId(RING);
+  const { prepared: ring, sender, recipient } = preparedTransfer(amount, others, exits);
   const encrypted = await sender.authority.encryptCustomRingTransfer({
     firstNullifier: ring.firstNullifier,
     outputs: ring.outputs,
@@ -170,9 +172,38 @@ describe("withCompactChange", () => {
     expect(padded.outputs).toHaveLength(3);
   });
 
-  it("binds every output to the ring", () => {
-    const ring = preparedTransfer(4n).prepared.withRingProgramId(RING);
+  it("binds the change and the recipients to the ring the transfer runs in", () => {
+    const ring = preparedTransfer(4n).prepared;
     expect(ring.outputs.every((output) => output.ringProgramId === RING)).toBe(true);
+  });
+
+  it("keeps a default-ring recipient out of the ring and refuses a foreign one", () => {
+    const sender = actor(3);
+    const input = new ProofInputUtxo({
+      utxo: new Utxo({
+        owner: sender.keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 10n,
+        blinding: scalar(6),
+        ringProgramId: RING,
+      }),
+      nullifierKey: sender.keypair.nullifierKey(),
+    });
+    const transfer = new ConfidentialTransfer(
+      sender.address,
+      [input],
+      sender.address.solanaAddress(),
+    )
+      .withCompactChange()
+      .withRingProgramId(RING);
+    transfer.sendDefaultRing(actor(4).address, SOL_MINT, 4n);
+    const prepared = transfer.prepare();
+    expect(prepared.outputs.map((output) => output.ringProgramId)).toEqual([RING, undefined]);
+
+    const foreign = prepared.outputs[1]?.withRingProgramId(actor(9).address.solanaAddress());
+    expect(() =>
+      checkRingMembership({ ...prepared, outputs: [prepared.outputs[0]!, foreign!] }, RING),
+    ).toThrow("RING_FOREIGN_RING");
   });
 });
 
@@ -203,6 +234,28 @@ describe("frameDummyOutputs", () => {
     }
     expect(external.instructionDiscriminator).toBe(InstructionTag.ringTransact);
     expect(external.messages).toHaveLength(1);
+  });
+});
+
+describe("frameDummyOutputs with an exit", () => {
+  it("frames a dummy after the default-ring slot, 32 bytes shorter than a ring slot", async () => {
+    const { proofInputs } = await auditedProofInputs(3n, ViewingKey.generate(), [1n, 1n], [1n]);
+    expect(proofInputs.outputs).toHaveLength(8);
+    const external = proofInputs.externalData;
+    const lengthOf = (index: number): number => external.outputs[index]?.data?.length ?? 0;
+    const ringSlot = proofInputs.outputs.findIndex(
+      (output) => !output.isDummy() && output.ringProgramId === RING,
+    );
+    const exitSlot = proofInputs.outputs.findIndex(
+      (output) => !output.isDummy() && output.ringProgramId === undefined,
+    );
+    expect(lengthOf(ringSlot) - lengthOf(exitSlot)).toBe(32);
+    for (const [index, output] of proofInputs.outputs.entries()) {
+      if (!output.isDummy()) continue;
+      expect(lengthOf(index)).toBe(lengthOf(exitSlot));
+      const frame = readOutputData(external.outputs[index]?.data ?? new Uint8Array());
+      expect(frame.scheme).toBe(EncryptedScheme.confidential);
+    }
   });
 });
 

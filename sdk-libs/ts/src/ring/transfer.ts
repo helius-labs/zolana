@@ -117,7 +117,9 @@ export async function buildRingTransferTransaction(
           ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
         }),
     );
-    const transfer = new ConfidentialTransfer(address, inputs, input.feePayer).withCompactChange();
+    const transfer = new ConfidentialTransfer(address, inputs, input.feePayer)
+      .withCompactChange()
+      .withRingProgramId(input.ringProgramId);
     transfer.send(recipient, asset, input.amount);
     const tree = selected[0]?.tree ?? input.client.tree;
     await input.authority.requestUserApproval({
@@ -207,7 +209,9 @@ export async function buildRingWithdrawalTransaction(
           ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
         }),
     );
-    const transfer = new ConfidentialTransfer(address, inputs, input.feePayer).withCompactChange();
+    const transfer = new ConfidentialTransfer(address, inputs, input.feePayer)
+      .withCompactChange()
+      .withRingProgramId(input.ringProgramId);
     transfer.withdraw(asset, input.amount, WithdrawalTarget.sol({ recipient: input.recipient }));
     const tree = selected[0]?.tree ?? input.client.tree;
     await input.authority.requestUserApproval({
@@ -284,7 +288,7 @@ export async function proveCustomRingTransfer(
       details: { remedy: "prepare the transfer with ConfidentialTransfer.withCompactChange" },
     });
   }
-  const prepared = input.prepared.withRingProgramId(input.ringProgramId);
+  const prepared = input.prepared;
   checkRingMembership(prepared, input.ringProgramId);
   const encrypted = await input.authority.encryptCustomRingTransfer({
     firstNullifier: prepared.firstNullifier,
@@ -336,43 +340,54 @@ export async function proveCustomRingTransfer(
   }
 }
 
-/** Mirrors Rust `RingMembership::validate`. */
-function checkRingMembership(prepared: PreparedTransfer, ringProgramId: Address): void {
-  const foreign = [
-    ...prepared.inputs.map((input) => input.utxo.ringProgramId),
-    ...prepared.outputs.map((output) => output.ringProgramId),
-  ].find((ring) => ring !== undefined && ring !== ringProgramId);
-  if (foreign !== undefined) {
-    throw new RingError("RING_FOREIGN_RING", { details: { ringProgramId: foreign } });
+/** Mirrors Rust `RingMembership::validate`. @internal */
+export function checkRingMembership(prepared: PreparedTransfer, ringProgramId: Address): void {
+  const notes = [
+    ...prepared.inputs.map((input) => ({
+      ring: input.utxo.ringProgramId,
+      data: input.ringDataHash,
+    })),
+    ...prepared.outputs.map((output) => ({
+      ring: output.ringProgramId,
+      data: output.ringDataHash,
+    })),
+  ];
+  const foreign = notes.find((note) => note.ring !== undefined && note.ring !== ringProgramId);
+  if (foreign?.ring !== undefined) {
+    throw new RingError("RING_FOREIGN_RING", { details: { ringProgramId: foreign.ring } });
+  }
+  if (notes.some((note) => note.ring === undefined && note.data !== undefined)) {
+    throw new RingError("RING_DATA_OUTSIDE_RING");
   }
 }
 
-/** Mirrors Rust `frame_dummy_outputs`, the ring program accepts only confidential bodies. */
+/** A dummy copies the length of a real slot with its ring binding, else of the first real slot, mirrors Rust `frame_dummy_outputs`. */
 export function frameDummyOutputs(proofInputs: SppProofInputs): SppProofInputs {
   const external = proofInputs.externalData;
-  const realLengths = proofInputs.outputs.flatMap((output, index) =>
-    output.isDummy() ? [] : [external.outputs[index]?.data?.length],
-  );
-  const encodedLength = realLengths[0];
-  if (encodedLength === undefined || realLengths.some((length) => length !== encodedLength)) {
-    throw new RingError("RING_BUILD_TRANSFER", { details: { reason: "invalid dummy output" } });
-  }
-  const ciphertextLength = encodedLength - CONFIDENTIAL_BODY_OVERHEAD;
-  if (ciphertextLength <= 0) {
-    throw new RingError("RING_BUILD_TRANSFER", { details: { reason: "invalid dummy output" } });
-  }
+  const templates = proofInputs.outputs.flatMap((output, index) => {
+    if (output.isDummy()) return [];
+    const length = external.outputs[index]?.data?.length;
+    if (length === undefined) {
+      throw new RingError("RING_BUILD_TRANSFER", { details: { reason: "invalid dummy output" } });
+    }
+    return [{ inRing: output.ringProgramId !== undefined, length }];
+  });
   const outputs = external.outputs.map((encoded, index) => {
     const output = proofInputs.outputs[index];
     if (output === undefined || !output.isDummy()) return encoded;
+    const inRing = output.ringProgramId !== undefined;
+    const template = templates.find((candidate) => candidate.inRing === inRing) ?? templates[0];
+    const ciphertextLength =
+      template === undefined ? 0 : template.length - CONFIDENTIAL_BODY_OVERHEAD;
+    if (template === undefined || ciphertextLength <= 0) {
+      throw new RingError("RING_BUILD_TRANSFER", { details: { reason: "invalid dummy output" } });
+    }
     const key = ViewingKey.generate();
     const body = new Uint8Array(33 + ciphertextLength);
     body.set(key.publicKey().toBytes(), 0);
     key.destroy();
     globalThis.crypto.getRandomValues(body.subarray(33));
-    const scheme =
-      output.ringProgramId === undefined
-        ? EncryptedScheme.confidential
-        : EncryptedScheme.ringConfidential;
+    const scheme = inRing ? EncryptedScheme.ringConfidential : EncryptedScheme.confidential;
     return { ...encoded, data: encodeOutputData(scheme, body, "encrypted") };
   });
   return new SppProofInputs({

@@ -335,8 +335,8 @@ impl RingTransfer<'_> {
         let rpc = env.rpc;
         let sender = self.sender;
 
-        // Two deposits fill both input slots of IN2_OUT3, the shape the three
-        // outputs (two change slots and the recipient) resolve to.
+        // Two deposits fill both input slots of IN2_OUT2, the compact change and
+        // the recipient fill the outputs.
         let mut utxos = Vec::with_capacity(self.deposits.len());
         let mut deposits = Vec::with_capacity(self.deposits.len());
         for amount in self.deposits {
@@ -367,7 +367,8 @@ impl RingTransfer<'_> {
             .collect();
         let mut transfer =
             ConfidentialTransfer::new(sender.shielded_address()?, inputs, sender.pubkey())
-                .with_compact_change();
+                .with_compact_change()
+                .with_ring_program_id(self.ring.program_id());
         transfer.send(&self.recipient, SOL_MINT, self.amount)?;
         let prepared = transfer.prepare()?;
         let proven = CustomRingTransfer::new(CustomRingTransferInput {
