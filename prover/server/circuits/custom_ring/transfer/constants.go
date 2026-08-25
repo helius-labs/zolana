@@ -1,4 +1,4 @@
-package policy
+package transfer
 
 import "math/big"
 
@@ -81,7 +81,7 @@ var ruleShift = [4]*big.Int{
 // field modulus.
 func packedASCII(tag string) *big.Int {
 	if len(tag) > 31 {
-		panic("policy: domain tag exceeds 31 bytes")
+		panic("transfer: domain tag exceeds 31 bytes")
 	}
 	return new(big.Int).SetBytes([]byte(tag))
 }

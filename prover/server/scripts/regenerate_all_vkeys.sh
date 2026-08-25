@@ -61,17 +61,14 @@ rustfmt "$vkey_dir"/*.rs
 echo "Regenerated verifying keys into $vkey_dir"
 
 ring_vkey_dir="$repo_root/custom-rings/interface/src"
-for ring_circuit in audit policy; do
-    ring_key="$keys_dir/custom_ring_${ring_circuit}_transfer.key"
-    # A ring may run without the policy key, its circuit is opt in.
-    if [ ! -f "$ring_key" ]; then
-        echo "skipping ${ring_circuit}_vk, $ring_key is absent"
-        continue
-    fi
-    ring_vk_bin="$tmp_dir/${ring_circuit}_vk.vkbin"
-    echo "exporting raw vk: ${ring_circuit}_vk"
+ring_key="$keys_dir/custom_ring_transfer.key"
+if [ -f "$ring_key" ]; then
+    ring_vk_bin="$tmp_dir/custom_ring_vk.vkbin"
+    echo "exporting raw vk: custom_ring_vk"
     ./light-prover export-vk --keys-file "$ring_key" --output "$ring_vk_bin" >/dev/null
-    "$xtask" bsb22-vk "$ring_vk_bin" "$ring_vkey_dir" "${ring_circuit}_vk.rs"
-    rustfmt "$ring_vkey_dir/${ring_circuit}_vk.rs"
-done
-echo "Regenerated ring verifying keys into $ring_vkey_dir"
+    "$xtask" bsb22-vk "$ring_vk_bin" "$ring_vkey_dir" "custom_ring_vk.rs"
+    rustfmt "$ring_vkey_dir/custom_ring_vk.rs"
+    echo "Regenerated ring verifying key into $ring_vkey_dir"
+else
+    echo "skipping custom_ring_vk, $ring_key is absent"
+fi

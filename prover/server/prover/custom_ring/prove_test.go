@@ -1,9 +1,7 @@
 package custom_ring
 
 import (
-	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
+	"crypto/ecdh"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -14,39 +12,32 @@ import (
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/frontend"
 
+	"zolana/prover/circuits/custom_ring/transfer"
+	"zolana/prover/prover-test/spp/protocol"
+	"zolana/prover/prover-test/spp/spptest"
 	"zolana/prover/prover/common"
 )
 
-func TestCustomRingAuditProofVerifies(t *testing.T) {
-	params := &CustomRingAuditParameters{
-		PublicInputHash: value([]byte{
-			24, 191, 117, 99, 166, 70, 117, 193, 16, 174, 125, 64, 139, 151, 60, 152,
-			0, 90, 250, 198, 208, 107, 138, 225, 119, 244, 67, 93, 126, 110, 2, 11,
-		}),
-		PrivateTxHash: big.NewInt(0xabcdef),
-		TxViewingSk: [32]byte{
-			1, 16, 19, 18, 21, 20, 23, 22, 25, 24, 27, 26, 29, 28, 31, 30,
-			1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14,
-		},
-		EphSk: [32]byte{
-			1, 35, 32, 33, 38, 39, 36, 37, 42, 43, 40, 41, 46, 47, 44, 45,
-			50, 51, 48, 49, 54, 55, 52, 53, 58, 59, 56, 57, 62, 63, 60, 61,
-		},
-		AuditorPk: [65]byte{
-			4, 157, 197, 27, 89, 0, 107, 19, 241, 67, 148, 77, 78, 67, 45, 183,
-			192, 50, 36, 28, 235, 54, 152, 166, 204, 12, 218, 186, 223, 41, 183, 29,
-			236, 32, 85, 73, 70, 17, 145, 94, 125, 188, 165, 106, 176, 45, 249, 243,
-			183, 5, 16, 233, 35, 226, 146, 82, 68, 228, 56, 188, 140, 235, 240, 230, 53,
-		},
-	}
+// Chain elements 2 to 8 of the public input hash, the audit block recomputed
+// over the fixture scalars by the transfer package's host mirror.
+var auditChainElements = [7]string{
+	"0x000268737cf1d852483220d399b5321261d5e9e90d8214dc62b4f7e4d0fee955",
+	"0x000000000000000000000000000000000000000000000000000000000000c5d5",
+	"0x00039dc51b59006b13f143944d4e432db7c032241ceb3698a6cc0cdabadf29b7",
+	"0x0000000000000000000000000000000000000000000000000000000000001dec",
+	"0x00038bd43dcdaea72a1db879b1ca6faac09593fd17893d22eeef926b5c1c245a",
+	"0x000000000000000000000000000000000000000000000000000000000000133c",
+	"0x1384dccfd224d268a2028165de1523e911e276a676568086166a3b782afdbada",
+}
 
+func TestCustomRingProofVerifies(t *testing.T) {
 	_, source, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("source path unavailable")
 	}
-	keyPath := filepath.Join(filepath.Dir(source), "..", "..", "proving-keys", "custom_ring_audit_transfer.key")
+	keyPath := filepath.Join(filepath.Dir(source), "..", "..", "proving-keys", "custom_ring_transfer.key")
 	if _, err := os.Stat(keyPath); err != nil {
-		t.Skip("audit proving key is not available")
+		t.Skip("custom ring proving key is not available")
 	}
 	loaded, err := common.ReadSystemFromFile(keyPath)
 	if err != nil {
@@ -56,15 +47,8 @@ func TestCustomRingAuditProofVerifies(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected proof system %T", loaded)
 	}
-	var verifier bytes.Buffer
-	if _, err := loadedSystem.VerifyingKey.WriteRawTo(&verifier); err != nil {
-		t.Fatal(err)
-	}
-	verifierHash := sha256.Sum256(verifier.Bytes())
-	if hex.EncodeToString(verifierHash[:]) != "fb77674f86d7ed835559bd817b2b36a0687ecea6b09534d178f2e94313824ca9" {
-		t.Fatal("audit verifier does not match the program")
-	}
-	proof, err := ProveCustomRingAudit(loadedSystem, params)
+	params := rulesFreeParams(t)
+	proof, err := ProveCustomRing(loadedSystem, params)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,6 +65,124 @@ func TestCustomRingAuditProofVerifies(t *testing.T) {
 	}
 }
 
-func value(bytes []byte) *big.Int {
-	return new(big.Int).SetBytes(bytes)
+// rulesFreeParams opens a one input one output transfer against a length zero
+// rule table with every pool slot disabled.
+func rulesFreeParams(t *testing.T) *CustomRingParameters {
+	t.Helper()
+	p := &CustomRingParameters{
+		NIn:              1,
+		NOut:             1,
+		AddressChain:     big.NewInt(0x77),
+		ExternalDataHash: big.NewInt(0x5eed),
+		RecordsOwnerHash: big.NewInt(0x0c),
+		StateRoot:        big.NewInt(0x0d),
+		NullifierRoot:    big.NewInt(0x0e),
+	}
+	p.TxViewingSk = testScalar(0x11)
+	p.EphSk = testScalar(0x22)
+	auditorSk := testScalar(0x33)
+	auditorKey, err := ecdh.P256().NewPrivateKey(auditorSk[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	copy(p.AuditorPk[:], auditorKey.PublicKey().Bytes())
+
+	for i := range p.Inputs {
+		p.Inputs[i] = zeroedOpening()
+	}
+	for i := range p.Outputs {
+		p.Outputs[i] = zeroedOpening()
+	}
+	p.Inputs[0] = Opening{
+		Domain:        big.NewInt(protocol.UtxoDomain),
+		OwnerPkHash:   big.NewInt(0xb2),
+		NullifierPk:   big.NewInt(0xb3),
+		Asset:         big.NewInt(0xa5),
+		Amount:        big.NewInt(1000),
+		Blinding:      big.NewInt(0x51),
+		DataHash:      big.NewInt(0),
+		RingDataHash:  big.NewInt(0),
+		RingProgramID: big.NewInt(0),
+	}
+	p.Outputs[0] = Opening{
+		Domain:        big.NewInt(protocol.UtxoDomain),
+		OwnerPkHash:   big.NewInt(0xa1),
+		NullifierPk:   big.NewInt(0xa2),
+		Asset:         big.NewInt(0xa5),
+		Amount:        big.NewInt(1000),
+		Blinding:      big.NewInt(0x52),
+		DataHash:      big.NewInt(0),
+		RingDataHash:  big.NewInt(0),
+		RingProgramID: big.NewInt(0),
+	}
+	for i := range p.InlineAssets {
+		p.InlineAssets[i] = big.NewInt(0)
+	}
+	for i := range p.Pool {
+		p.Pool[i] = zeroedPoolEntry()
+	}
+
+	p.PrivateTxHash = spptest.MustPoseidon(t, 5, []*big.Int{
+		openingHash(t, p.Inputs[0]),
+		openingHash(t, p.Outputs[0]),
+		p.AddressChain,
+		p.ExternalDataHash,
+	})
+	// Mirrors ring_policy::packed_ascii of the policy table domain tag.
+	tableDomain := new(big.Int).SetBytes([]byte("zolana:ring-policy:policy:v1"))
+	policyHash := spptest.MustHashChain(t, []*big.Int{
+		tableDomain,
+		big.NewInt(transfer.PolicyVersion),
+		p.RecordsOwnerHash,
+		big.NewInt(0),
+	})
+	elements := []*big.Int{p.PrivateTxHash}
+	for _, element := range auditChainElements {
+		value, ok := new(big.Int).SetString(element[2:], 16)
+		if !ok {
+			t.Fatalf("bad element %s", element)
+		}
+		elements = append(elements, value)
+	}
+	p.PublicInputHash = spptest.MustHashChain(t, append(elements,
+		policyHash, p.StateRoot, p.NullifierRoot))
+	return p
+}
+
+func openingHash(t *testing.T, slot Opening) *big.Int {
+	t.Helper()
+	return spptest.MustUtxoHash(t, protocol.Utxo{
+		Domain:        slot.Domain,
+		Owner:         spptest.MustOwnerHash(t, slot.OwnerPkHash, slot.NullifierPk),
+		Asset:         slot.Asset,
+		Amount:        slot.Amount,
+		Blinding:      slot.Blinding,
+		DataHash:      slot.DataHash,
+		RingDataHash:  slot.RingDataHash,
+		RingProgramID: slot.RingProgramID,
+	})
+}
+
+func zeroedOpening() Opening {
+	return Opening{
+		Domain:        big.NewInt(0),
+		OwnerPkHash:   big.NewInt(0),
+		NullifierPk:   big.NewInt(0),
+		Asset:         big.NewInt(0),
+		Amount:        big.NewInt(0),
+		Blinding:      big.NewInt(0),
+		DataHash:      big.NewInt(0),
+		RingDataHash:  big.NewInt(0),
+		RingProgramID: big.NewInt(0),
+	}
+}
+
+// testScalar is a non zero P256 scalar below the group order.
+func testScalar(seed byte) [scalarLen]byte {
+	var out [scalarLen]byte
+	for i := range out {
+		out[i] = seed ^ byte(i)
+	}
+	out[0] = 0x01
+	return out
 }

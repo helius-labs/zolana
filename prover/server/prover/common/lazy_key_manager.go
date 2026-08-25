@@ -311,11 +311,8 @@ func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInpu
 }
 
 func (m *LazyKeyManager) determineRingKeyPath(circuitType CircuitType, variant string) string {
-	if circuitType == CustomRingAuditCircuitType && variant == "transfer" {
-		return m.keyPath("custom_ring_audit_transfer.key")
-	}
-	if circuitType == CustomRingPolicyCircuitType && variant == "transfer" {
-		return m.keyPath("custom_ring_policy_transfer.key")
+	if circuitType == CustomRingCircuitType && variant == "transfer" {
+		return m.keyPath("custom_ring_transfer.key")
 	}
 	return ""
 }

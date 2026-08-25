@@ -181,12 +181,12 @@ func runCli() {
 				},
 			},
 			{
-				Name: "setup-custom-ring-audit",
+				Name: "setup-custom-ring",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
 				},
 				Action: func(context *cli.Context) error {
-					ps, err := customring.SetupCustomRingAudit()
+					ps, err := customring.SetupCustomRing()
 					if err != nil {
 						return err
 					}
@@ -194,20 +194,7 @@ func runCli() {
 				},
 			},
 			{
-				Name: "setup-custom-ring-policy",
-				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
-				},
-				Action: func(context *cli.Context) error {
-					ps, err := customring.SetupCustomRingPolicy()
-					if err != nil {
-						return err
-					}
-					return writeRingProofSystem(ps, context.String("output"))
-				},
-			},
-			{
-				Name:  "convert-custom-ring-policy",
+				Name:  "convert-custom-ring",
 				Usage: "Wrap an existing gnark pk/vk pair into a proving system file without a new setup",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "pk", Usage: "gnark proving key (pk.WriteTo)", Required: true},
@@ -215,26 +202,7 @@ func runCli() {
 					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
 				},
 				Action: func(context *cli.Context) error {
-					ps, err := customring.ConvertCustomRingPolicy{
-						ProvingKeyPath:   context.String("pk"),
-						VerifyingKeyPath: context.String("vk"),
-					}.Run()
-					if err != nil {
-						return err
-					}
-					return writeRingProofSystem(ps, context.String("output"))
-				},
-			},
-			{
-				Name:  "convert-custom-ring-audit",
-				Usage: "Wrap an existing gnark pk/vk pair into a proving system file without a new setup",
-				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "pk", Usage: "gnark proving key (pk.WriteTo)", Required: true},
-					&cli.StringFlag{Name: "vk", Usage: "gnark verifying key (vk.WriteRawTo or WriteTo)", Required: true},
-					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
-				},
-				Action: func(context *cli.Context) error {
-					ps, err := customring.ConvertCustomRingAudit{
+					ps, err := customring.ConvertCustomRing{
 						ProvingKeyPath:   context.String("pk"),
 						VerifyingKeyPath: context.String("vk"),
 					}.Run()
@@ -518,7 +486,7 @@ func runCli() {
 					&cli.StringFlag{Name: "keys-dir", Usage: "Directory where key files are stored", Value: "./proving-keys/", Required: false},
 					&cli.StringSliceFlag{
 						Name:  "circuit",
-						Usage: "Specify enabled circuits including custom-ring-audit and custom-ring-policy",
+						Usage: "Specify enabled circuits including custom-ring",
 					},
 					&cli.StringFlag{
 						Name:  "preload-keys",
@@ -683,14 +651,11 @@ func runCli() {
 							workersStarted = append(workersStarted, "transfer")
 						}
 
-						// One worker drains the shared ring queue, both circuits
-						// land on it.
-						if startAll || enabledCircuitsMap["custom-ring-audit"] ||
-							enabledCircuitsMap["custom-ring-policy"] {
-							auditWorker := server.NewCustomRingAuditQueueWorker(redisQueue, keyManager)
-							workers = append(workers, auditWorker)
-							go auditWorker.Start()
-							workersStarted = append(workersStarted, "custom-ring-audit")
+						if startAll || enabledCircuitsMap["custom-ring"] {
+							ringWorker := server.NewCustomRingQueueWorker(redisQueue, keyManager)
+							workers = append(workers, ringWorker)
+							go ringWorker.Start()
+							workersStarted = append(workersStarted, "custom-ring")
 						}
 
 						logging.Logger().Info().
@@ -1051,16 +1016,10 @@ func startCleanupRoutines(redisQueue *server.RedisQueue) {
 func writeRingProofSystem(ps *common.RingProofSystem, path string) error {
 	// The name is what `ReadSystemFromFile` dispatches on, so a key written under
 	// the wrong one loads as the wrong circuit.
-	var family string
-	switch ps.CircuitType {
-	case common.CustomRingAuditCircuitType:
-		family = "custom_ring_audit"
-	case common.CustomRingPolicyCircuitType:
-		family = "custom_ring_policy"
-	default:
+	if ps.CircuitType != common.CustomRingCircuitType {
 		return fmt.Errorf("unknown ring circuit type: %s", ps.CircuitType)
 	}
-	expected := fmt.Sprintf("%s_%s.key", family, ps.Variant)
+	expected := fmt.Sprintf("custom_ring_%s.key", ps.Variant)
 	if filepath.Base(path) != expected {
 		return fmt.Errorf("output file must be named %s", expected)
 	}

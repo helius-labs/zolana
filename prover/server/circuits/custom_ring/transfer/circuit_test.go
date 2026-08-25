@@ -1,4 +1,4 @@
-package policy
+package transfer
 
 import (
 	stdaes "crypto/aes"
@@ -115,6 +115,14 @@ func TestCircuitSolvesValidWitness(t *testing.T) {
 	cs := testConstraintSystem(t)
 
 	solve(t, cs, validAssignment(t))
+}
+
+func TestCircuitSolvesRulesFreeWitness(t *testing.T) {
+	cs := testConstraintSystem(t)
+
+	f := defaultFixture()
+	f.rulesFree = true
+	solve(t, cs, buildAssignment(t, f))
 }
 
 func TestCircuitRejectsTamperedWitness(t *testing.T) {
@@ -308,6 +316,7 @@ type fixture struct {
 	amount      uint64
 	transferred [32]byte
 	inlineAsset [32]byte
+	rulesFree   bool
 }
 
 func defaultFixture() fixture {
@@ -420,6 +429,10 @@ func newStatement(t *testing.T, f fixture) *statement {
 		{subject: SubjectOutputOwner, mode: ModePresent, kind: kindApproval, guardTag: GuardAboveAmount, threshold: guardThreshold},
 	}
 	s.inlineAssets = []*big.Int{pkField(t, f.inlineAsset)}
+	if f.rulesFree {
+		s.rules = nil
+		s.inlineAssets = nil
+	}
 	s.policyHash = hostPolicyHash(t, s)
 
 	s.buildTrees(t)
@@ -565,6 +578,9 @@ func buildAssignment(t *testing.T, f fixture) *Circuit {
 
 	for e := range c.Pool {
 		c.Pool[e] = zeroPoolEntry()
+	}
+	if f.rulesFree {
+		return c
 	}
 	c.Pool[0] = s.poolEntry(t, 0, ModePresent, 0, 0)
 	c.Pool[1] = s.poolEntry(t, 1, ModeAbsent, AbsentBranchNoAddress, 0)

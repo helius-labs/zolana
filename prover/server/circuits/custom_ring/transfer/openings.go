@@ -1,4 +1,4 @@
-package policy
+package transfer
 
 import (
 	"github.com/consensys/gnark/frontend"

@@ -1,4 +1,4 @@
-// Package policy holds the universal custom ring circuit: package audit's
+// Package transfer holds the universal custom ring circuit: package audit's
 // verifiable-encryption statement, unchanged, folded with a policy block that
 // decides one SPP transaction against a compiled rule table and a pool of
 // policy record proofs.
@@ -22,7 +22,7 @@
 // policy.rs over the record derivation in record.rs. Element 1 comes from the
 // SPP transaction circuit, elements 10 and 11 from the tree account, and
 // elements 2 to 8 keep the mirror named in package audit.
-package policy
+package transfer
 
 import (
 	"github.com/consensys/gnark/frontend"
