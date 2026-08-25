@@ -1,4 +1,6 @@
 use bytemuck::from_bytes;
+#[cfg(feature = "policy")]
+use custom_ring_interface::PolicyConfig;
 use custom_ring_interface::{ReadAccessRecord, ReaderKeyBytes, RingProgramConfig};
 use pinocchio::{account::Ref, error::ProgramError, AccountView, Address};
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
@@ -35,6 +37,26 @@ pub fn load_authorized_config<'a>(
     let config = load_config(program_id, config)?;
     if authority.address() != &config.authority {
         return Err(CustomRingError::UnauthorizedAuthority.into());
+    }
+    Ok(config)
+}
+
+#[cfg(feature = "policy")]
+#[inline(always)]
+pub fn load_policy_config<'a>(
+    program_id: &Address,
+    account: &'a AccountView,
+) -> Result<Ref<'a, PolicyConfig>, ProgramError> {
+    let bump = PdaCheck {
+        program_id,
+        address: account.address(),
+        seeds: &[PolicyConfig::SEED],
+        mismatch: CustomRingError::InvalidPolicyConfigPda,
+    }
+    .verify()?;
+    let config = load_account::<PolicyConfig>(program_id, account)?;
+    if config.bump != bump {
+        return Err(CustomRingError::InvalidPolicyConfigPda.into());
     }
     Ok(config)
 }

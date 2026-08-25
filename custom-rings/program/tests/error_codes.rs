@@ -23,6 +23,18 @@ fn error_codes_are_stable() {
         (InvalidReadAccessRecord as u32, 8117),
         (InvalidReaderKey as u32, 8118),
         (UnsupportedOutputScheme as u32, 8119),
+        (PolicyConfigAlreadyInitialized as u32, 8120),
+        (PolicyConfigNotInitialized as u32, 8121),
+        (InvalidPolicyConfigPda as u32, 8122),
+        (PolicyHashMismatch as u32, 8123),
+        (InvalidPolicyMember as u32, 8124),
+        (UnauthorizedRecordSigner as u32, 8125),
+        (InvalidRecordKind as u32, 8126),
+        (InvalidRecordState as u32, 8127),
+        (EmptyPolicy as u32, 8128),
+        (InvalidPolicyTree as u32, 8129),
+        (RecordVersionOverflow as u32, 8130),
+        (InvalidRecordsPda as u32, 8131),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -52,6 +64,18 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | ReadAccessRecordAlreadyExists
         | InvalidReadAccessRecord
         | InvalidReaderKey
-        | UnsupportedOutputScheme => {}
+        | UnsupportedOutputScheme
+        | PolicyConfigAlreadyInitialized
+        | PolicyConfigNotInitialized
+        | InvalidPolicyConfigPda
+        | PolicyHashMismatch
+        | InvalidPolicyMember
+        | UnauthorizedRecordSigner
+        | InvalidRecordKind
+        | InvalidRecordState
+        | EmptyPolicy
+        | InvalidPolicyTree
+        | RecordVersionOverflow
+        | InvalidRecordsPda => {}
     }
 }

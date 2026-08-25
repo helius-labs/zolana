@@ -53,3 +53,25 @@ const _: () = assert!(RingProgramConfig::SIZE == 67);
 const _: () = assert!(core::mem::align_of::<RingProgramConfig>() == 1);
 const _: () = assert!(ReadAccessRecord::SIZE == 36);
 const _: () = assert!(core::mem::align_of::<ReadAccessRecord>() == 1);
+
+pub const POLICY_CONFIG_PDA_SEED: &[u8] = b"policy";
+pub const POLICY_CONFIG: u8 = 3;
+
+/// Written once at `create_policy`, a mutation that recomputes a different
+/// `policy_hash` fails closed.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
+#[repr(C)]
+pub struct PolicyConfig {
+    pub discriminator: u8,
+    pub policy_hash: [u8; 32],
+    pub records_bump: u8,
+    pub bump: u8,
+}
+
+impl PolicyConfig {
+    pub const SEED: &'static [u8] = POLICY_CONFIG_PDA_SEED;
+    pub const SIZE: usize = core::mem::size_of::<Self>();
+}
+
+const _: () = assert!(PolicyConfig::SIZE == 35);
+const _: () = assert!(core::mem::align_of::<PolicyConfig>() == 1);

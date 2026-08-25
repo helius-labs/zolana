@@ -7,6 +7,8 @@
 
 mod error;
 mod instructions;
+#[cfg(feature = "policy")]
+pub mod policy;
 mod state;
 
 pub use error::CustomRingError;
@@ -18,6 +20,10 @@ use crate::instructions::{
     process_create_config_ix, process_deposit_ix, process_grant_read_access_ix,
     process_init_spp_ring_config_ix, process_revoke_read_access_ix, process_set_authority_ix,
     process_transact_ix,
+};
+#[cfg(feature = "policy")]
+use crate::instructions::{
+    process_create_policy_ix, process_create_record_ix, process_update_record_ix,
 };
 
 #[cfg(all(feature = "bpf-entrypoint", not(feature = "no-entrypoint")))]
@@ -43,6 +49,12 @@ pub fn process_instruction(
         tag::GRANT_READ_ACCESS => process_grant_read_access_ix(program_id, accounts, ix_data),
         tag::REVOKE_READ_ACCESS => process_revoke_read_access_ix(program_id, accounts, ix_data),
         tag::SET_AUTHORITY => process_set_authority_ix(program_id, accounts, ix_data),
+        #[cfg(feature = "policy")]
+        tag::CREATE_POLICY => process_create_policy_ix(program_id, accounts, ix_data),
+        #[cfg(feature = "policy")]
+        tag::CREATE_RECORD => process_create_record_ix(program_id, accounts, ix_data),
+        #[cfg(feature = "policy")]
+        tag::UPDATE_RECORD => process_update_record_ix(program_id, accounts, ix_data),
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }
