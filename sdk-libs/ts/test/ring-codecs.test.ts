@@ -38,7 +38,7 @@ import {
   type ReaderKey,
 } from "../src/ring/reader.js";
 import { P_CONST_SEC1, P_DERIVE_SEC1, P_PDA_SEC1 } from "../src/keypair/derivation.js";
-import { sha256 } from "../src/interface/internal.js";
+import { addressBytes, sha256 } from "../src/interface/internal.js";
 import { P256PublicKey } from "../src/keypair/public-key.js";
 import {
   RingReadRequest,
@@ -65,6 +65,18 @@ function filled(byte: number, length: number): Uint8Array {
 
 function addressOf(byte: number) {
   return getAddressDecoder().decode(filled(byte, 32));
+}
+
+function capturingFetch(result: unknown): {
+  fetch: typeof globalThis.fetch;
+  bodies: Record<string, unknown>[];
+} {
+  const bodies: Record<string, unknown>[] = [];
+  const fetch = (async (_input: URL | string, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }));
+  }) as typeof globalThis.fetch;
+  return { fetch, bodies };
 }
 
 // Byte strings from custom-rings/sdk/tests/instruction_builders.rs.
@@ -890,46 +902,50 @@ describe("ring read request", () => {
     });
   });
 
+  const serviceSecret = filled(9, 32);
+  const servicePublicKey = getAddressDecoder().decode(ed25519.getPublicKey(serviceSecret));
+  const auditor = P256PublicKey.fromBytes(hex(P256_HEX) as Bytes33);
+  const genesisHash = filled(4, 32) as Bytes32;
+  const auditorKeyResult = (signature: Uint8Array) => ({
+    ringProgramId: RING,
+    auditorPubkey: Buffer.from(auditor.toBytes()).toString("base64"),
+    auditorViewTag: getAddressDecoder().decode(auditor.x()),
+    servicePubkey: servicePublicKey,
+    signature: getBase58Decoder().decode(signature),
+  });
+
   it("verifies the auditor key attestation before trusting the key", async () => {
-    const serviceSecret = filled(9, 32);
-    const servicePublicKey = getAddressDecoder().decode(ed25519.getPublicKey(serviceSecret));
-    const auditor = P256PublicKey.fromBytes(hex(P256_HEX) as Bytes33);
     const attestation = auditorKeyAttestation(RING, auditor);
     expect(attestation.subarray(0, 26)).toEqual(
       new TextEncoder().encode("zolana/ring-auditor-key/v1"),
     );
     expect(attestation).toHaveLength(26 + 32 + 33);
     const authority = await generateKeyPairSigner();
-    const genesisHash = filled(4, 32) as Bytes32;
-    const bodies: Record<string, unknown>[] = [];
-    const respond = (signature: Uint8Array) =>
-      (async (_input: URL | string, init?: RequestInit) => {
-        bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
-        return new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            result: {
-              ringProgramId: RING,
-              auditorPubkey: Buffer.from(auditor.toBytes()).toString("base64"),
-              auditorViewTag: getAddressDecoder().decode(auditor.x()),
-              servicePubkey: servicePublicKey,
-              signature: getBase58Decoder().decode(signature),
-            },
-          }),
-        );
-      }) as typeof globalThis.fetch;
     const key = await new RingRpc("http://ring.example", {
-      fetch: respond(ed25519.sign(attestation, serviceSecret)),
-    }).createAuditorKey({
-      ringProgramId: RING,
-      genesisHash,
-      signer: authority,
-      timestamp: 1_700_000_000n,
-    });
+      fetch: capturingFetch(auditorKeyResult(ed25519.sign(attestation, serviceSecret))).fetch,
+    }).createAuditorKey({ ringProgramId: RING, genesisHash, authority });
     expect(key.auditorPublicKey.equals(auditor)).toBe(true);
     expect(key.auditorViewTag).toEqual(auditor.x());
     expect(key.servicePublicKey).toBe(servicePublicKey);
+
+    await expect(
+      new RingRpc("http://ring.example", {
+        fetch: capturingFetch(auditorKeyResult(filled(1, 64))).fetch,
+      }).createAuditorKey({ ringProgramId: RING, genesisHash, authority }),
+    ).rejects.toMatchObject({ code: "RING_RPC" });
+  });
+
+  it("signs the auditor key request with the authority and sends it under camelCase keys", async () => {
+    const authority = await generateKeyPairSigner();
+    const { fetch, bodies } = capturingFetch(
+      auditorKeyResult(ed25519.sign(auditorKeyAttestation(RING, auditor), serviceSecret)),
+    );
+    await new RingRpc("http://ring.example", { fetch }).createAuditorKey({
+      ringProgramId: RING,
+      genesisHash,
+      authority,
+      timestamp: 1_700_000_000n,
+    });
 
     const params = bodies[0]?.["params"] as Record<string, unknown>;
     expect(Object.keys(params).sort()).toEqual(["auth", "ringProgramId"]);
@@ -943,35 +959,21 @@ describe("ring read request", () => {
       "timestamp",
     ]);
     expect(auth["authority"]).toBe(authority.address);
-    expect(auth["genesisHash"]).toBe(getBase58Decoder().decode(genesisHash));
+    expect(auth["genesisHash"]).toBe("GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq");
     expect(auth["timestamp"]).toBe(1_700_000_000);
     const nonce = Uint8Array.from(Buffer.from(String(auth["nonce"]), "base64"));
     expect(nonce).toHaveLength(32);
-    const request = auditorKeyRequestAttestation({
-      genesisHash,
-      ringProgramId: RING,
-      timestamp: 1_700_000_000n,
-      nonce: nonce as Bytes32,
-    });
-    expect(
-      new TextDecoder()
-        .decode(request)
-        .startsWith("zolana/ring-rpc-auditor-key-request/v1\ngenesis: "),
-    ).toBe(true);
     expect(
       ed25519.verify(
         Uint8Array.from(Buffer.from(String(auth["signature"]), "base64")),
-        request,
-        new Uint8Array(getAddressEncoder().encode(authority.address)),
+        auditorKeyRequestAttestation({
+          genesisHash,
+          ringProgramId: RING,
+          timestamp: 1_700_000_000n,
+          nonce: nonce as Bytes32,
+        }),
+        addressBytes(authority.address),
       ),
     ).toBe(true);
-
-    await expect(
-      new RingRpc("http://ring.example", { fetch: respond(filled(1, 64)) }).createAuditorKey({
-        ringProgramId: RING,
-        genesisHash,
-        signer: authority,
-      }),
-    ).rejects.toMatchObject({ code: "RING_RPC" });
   });
 });
