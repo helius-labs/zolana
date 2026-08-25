@@ -11,7 +11,13 @@ import {
 import { ProverClient } from "../src/client/prover/client.js";
 import type { NonInclusionProof } from "../src/client/rpc.js";
 import type { Bytes32 } from "../src/interface/index.js";
-import type { MergeInputs, ProverInputs } from "../src/client/prover/types.js";
+import { disabledPoolEntry } from "../src/client/prover/types.js";
+import type {
+  CustomRingOpening,
+  CustomRingProofRequest,
+  MergeInputs,
+  ProverInputs,
+} from "../src/client/prover/types.js";
 import { ProofInputUtxo, createProofOutput } from "../src/transaction/index.js";
 
 const INPUTS = {
@@ -37,13 +43,110 @@ const STANDARD_PROOF = {
   krs: ZERO_POINT,
 };
 
-/** Printed by the Rust test `audit_request_json_matches_the_server_wire_format`. */
-const AUDIT_REQUEST_VECTOR =
-  '{"circuitType":"custom-ring-audit","variant":"transfer","publicInputHash":"0x0000000000000000000000000000000000000000000000000000000000000000","privateTxHash":"0x0101010101010101010101010101010101010101010101010101010101010101","txViewingSk":"0x0202020202020202020202020202020202020202020202020202020202020202","ephSk":"0x0303030303030303030303030303030303030303030303030303030303030303","auditorPk":"0x0473103ec30b3ccf57daae08e93534aef144a35940cf6bbba12a0cf7cbd5d65a64d82c8c99e9d3c45f9245ba9b27982c9aea8ec1db94b19c44795942c0eb22aa32"}';
+/** The uncompressed P-256 point of the scalar [4; 32]. */
+const AUDITOR_PK_HEX =
+  "0x0473103ec30b3ccf57daae08e93534aef144a35940cf6bbba12a0cf7cbd5d65a64d82c8c99e9d3c45f9245ba9b27982c9aea8ec1db94b19c44795942c0eb22aa32";
 
 function bytes(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
 }
+
+function fieldHex(byte: number): string {
+  return `0x${byte.toString(16).padStart(2, "0").repeat(32)}`;
+}
+
+function zeroOpening(): CustomRingOpening {
+  return {
+    domain: bytes(0),
+    ownerPkHash: bytes(0),
+    nullifierPk: bytes(0),
+    asset: bytes(0),
+    amount: bytes(0),
+    blinding: bytes(0),
+    dataHash: bytes(0),
+    ringDataHash: bytes(0),
+    ringProgramId: bytes(0),
+  };
+}
+
+/** The Rust wire-format test's request, `the_request_matches_the_server_wire_format`. */
+function ringRequest(auditorPublicKey: Uint8Array): CustomRingProofRequest {
+  return {
+    publicInputHash: bytes(0),
+    privateTxHash: bytes(1),
+    txViewingSecret: bytes(2),
+    ephemeralSecret: bytes(3),
+    auditorPublicKey,
+    nIn: 2,
+    nOut: 2,
+    inputs: Array.from({ length: 5 }, () => zeroOpening()),
+    outputs: Array.from({ length: 4 }, () => zeroOpening()),
+    addressChain: bytes(0),
+    externalDataHash: bytes(6),
+    recordsOwnerHash: bytes(7),
+    policyLen: 1,
+    rules: Array.from({ length: 16 }, () => bytes(0)),
+    inlineAssets: Array.from({ length: 8 }, () => bytes(0)),
+    inlineCount: 0,
+    stateRoot: bytes(8),
+    nullifierRoot: bytes(9),
+    pool: Array.from({ length: 10 }, () => disabledPoolEntry()),
+  };
+}
+
+const EXPECTED_OPENING = {
+  domain: fieldHex(0),
+  ownerPkHash: fieldHex(0),
+  nullifierPk: fieldHex(0),
+  asset: fieldHex(0),
+  amount: fieldHex(0),
+  blinding: fieldHex(0),
+  dataHash: fieldHex(0),
+  ringDataHash: fieldHex(0),
+  ringProgramId: fieldHex(0),
+};
+
+const EXPECTED_POOL_ENTRY = {
+  enabled: false,
+  mode: 1,
+  kind: 1,
+  state: 1,
+  absentBranch: 1,
+  member: fieldHex(0),
+  payloadHash: fieldHex(0),
+  version: 0,
+  low: fieldHex(0),
+  next: fieldHex(0),
+  nfPathElements: Array.from({ length: 40 }, () => fieldHex(0)),
+  nfPathIndex: 0,
+  statePathElements: Array.from({ length: 32 }, () => fieldHex(0)),
+  statePathIndex: 0,
+};
+
+/** Key order from Rust `CustomRingProofRequestJson` in `request_ring.rs`. */
+const EXPECTED_RING_BODY = {
+  circuitType: "custom-ring",
+  variant: "transfer",
+  publicInputHash: fieldHex(0),
+  privateTxHash: fieldHex(1),
+  txViewingSk: fieldHex(2),
+  ephSk: fieldHex(3),
+  auditorPk: AUDITOR_PK_HEX,
+  nIn: 2,
+  nOut: 2,
+  inputs: Array.from({ length: 5 }, () => EXPECTED_OPENING),
+  outputs: Array.from({ length: 4 }, () => EXPECTED_OPENING),
+  addressChain: fieldHex(0),
+  externalDataHash: fieldHex(6),
+  recordsOwnerHash: fieldHex(7),
+  policyLen: 1,
+  ruleEnc: Array.from({ length: 16 }, () => fieldHex(0)),
+  inlineAssets: Array.from({ length: 8 }, () => fieldHex(0)),
+  inlineCount: 0,
+  stateRoot: fieldHex(8),
+  nullifierRoot: fieldHex(9),
+  pool: Array.from({ length: 10 }, () => EXPECTED_POOL_ENTRY),
+};
 
 function mergeInputs(): MergeInputs {
   return {
@@ -143,7 +246,7 @@ describe("prover request routing", () => {
     expect(urls[0]?.searchParams.get("tenant")).toBe("alpha");
   });
 
-  it("encodes the audit request byte for byte like Rust `AuditProofRequest::body`", async () => {
+  it("encodes the ring request byte for byte like Rust `CustomRingProofRequest::body`", async () => {
     const raw: string[] = [];
     const deliveries: (string | null)[] = [];
     const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
@@ -157,41 +260,53 @@ describe("prover request routing", () => {
     // The Rust test's inputs, the auditor key is the P-256 point of the scalar [4; 32].
     const auditorPublicKey = p256.getPublicKey(bytes(4), false);
 
-    await prover.proveCustomRingAudit({
-      publicInputHash: bytes(0),
-      privateTxHash: bytes(1),
-      txViewingSecret: bytes(2),
-      ephemeralSecret: bytes(3),
-      auditorPublicKey,
-    });
+    await prover.proveCustomRing(ringRequest(auditorPublicKey));
 
-    expect(raw[0]).toBe(AUDIT_REQUEST_VECTOR);
+    expect(raw[0]).toBe(JSON.stringify(EXPECTED_RING_BODY));
     expect(deliveries).toEqual([null]);
     const body = JSON.parse(raw[0] ?? "") as Record<string, unknown>;
+    // The sorted key set of Rust `the_request_matches_the_server_wire_format`.
     expect(Object.keys(body).sort()).toEqual([
+      "addressChain",
       "auditorPk",
       "circuitType",
       "ephSk",
+      "externalDataHash",
+      "inlineAssets",
+      "inlineCount",
+      "inputs",
+      "nIn",
+      "nOut",
+      "nullifierRoot",
+      "outputs",
+      "policyLen",
+      "pool",
       "privateTxHash",
       "publicInputHash",
+      "recordsOwnerHash",
+      "ruleEnc",
+      "stateRoot",
       "txViewingSk",
       "variant",
     ]);
-    expect(body["circuitType"]).toBe("custom-ring-audit");
+    expect(body["circuitType"]).toBe("custom-ring");
     expect(body["variant"]).toBe("transfer");
     expect(body["auditorPk"]).toHaveLength(132);
+    expect(body["publicInputHash"]).toHaveLength(66);
+    const pool = body["pool"] as Record<string, unknown>[];
+    expect(pool).toHaveLength(10);
+    expect(pool[0]?.["nfPathElements"]).toHaveLength(40);
+    expect(pool[0]?.["statePathElements"]).toHaveLength(32);
 
     for (const auditorPublicKey of [new Uint8Array(33).fill(2), new Uint8Array(65).fill(2)]) {
-      await expect(
-        prover.proveCustomRingAudit({
-          publicInputHash: bytes(0),
-          privateTxHash: bytes(1),
-          txViewingSecret: bytes(2),
-          ephemeralSecret: bytes(3),
-          auditorPublicKey,
-        }),
-      ).rejects.toMatchObject({ code: "CLIENT_INVALID_P256_KEY" });
+      await expect(prover.proveCustomRing(ringRequest(auditorPublicKey))).rejects.toMatchObject({
+        code: "CLIENT_INVALID_P256_KEY",
+      });
     }
+    // The server rejects `pool.len() != 10`, an unpadded pool must not leave the client.
+    await expect(
+      prover.proveCustomRing({ ...ringRequest(auditorPublicKey), pool: [] }),
+    ).rejects.toMatchObject({ code: "CLIENT_INVALID_LENGTH" });
     expect(raw).toHaveLength(1);
   });
 
@@ -224,13 +339,13 @@ describe("prover request routing", () => {
     const fetch = vi.fn(async (input: URL | string) => {
       urls.push(new URL(input));
       return new Response(
-        JSON.stringify({ circuits: ["transfer-ring", "custom-ring-audit"], status: "ok" }),
+        JSON.stringify({ circuits: ["transfer-ring", "custom-ring"], status: "ok" }),
         { headers: { "content-type": "application/json" } },
       );
     }) as typeof globalThis.fetch;
     const prover = new ProverClient({ url: "https://prover.example/base?tenant=alpha", fetch });
     const health = await prover.health();
-    expect(health).toEqual({ status: "ok", circuits: ["transfer-ring", "custom-ring-audit"] });
+    expect(health).toEqual({ status: "ok", circuits: ["transfer-ring", "custom-ring"] });
     expect(urls[0]?.pathname).toBe("/base/health");
     expect(urls[0]?.searchParams.get("tenant")).toBe("alpha");
   });

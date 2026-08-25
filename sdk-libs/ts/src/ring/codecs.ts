@@ -1,5 +1,5 @@
 import { AUDIT_PROOF_LENGTH } from "../client/prover/proof.js";
-import type { Address, Bytes33 } from "../interface/types.js";
+import type { Address, Bytes32, Bytes33 } from "../interface/types.js";
 import { Reader, encodeBase58 } from "../interface/internal.js";
 import { P256PublicKey } from "../keypair/public-key.js";
 
@@ -8,6 +8,14 @@ import { RingError } from "./error.js";
 export interface RingProgramConfig {
   readonly authority: Address;
   readonly auditorPublicKey: P256PublicKey;
+  readonly bump: number;
+}
+
+/** Mirrors Rust `PolicyConfig`. */
+export interface RingPolicyConfig {
+  readonly policyHash: Bytes32;
+  readonly recordsTree: Address;
+  readonly recordsBump: number;
   readonly bump: number;
 }
 
@@ -27,6 +35,26 @@ export function decodeRingProgramConfig(data: Uint8Array): RingProgramConfig {
   const bump = reader.u8("bump");
   reader.done();
   return Object.freeze({ authority, auditorPublicKey, bump });
+}
+
+/** Rust `POLICY_CONFIG` and `PolicyConfig::SIZE`. */
+const RING_POLICY_CONFIG_DISCRIMINATOR = 3;
+const RING_POLICY_CONFIG_SIZE = 67;
+
+export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
+  if (data.length !== RING_POLICY_CONFIG_SIZE || data[0] !== RING_POLICY_CONFIG_DISCRIMINATOR) {
+    throw new RingError("RING_POLICY_CONFIG_INVALID", {
+      details: { length: data.length, discriminator: data[0] },
+    });
+  }
+  const reader = new Reader(data);
+  reader.u8("discriminator");
+  const policyHash = reader.bytes(32, "policyHash") as Bytes32;
+  const recordsTree = encodeBase58(reader.bytes(32, "recordsTree"));
+  const recordsBump = reader.u8("recordsBump");
+  const bump = reader.u8("bump");
+  reader.done();
+  return Object.freeze({ policyHash, recordsTree, recordsBump, bump });
 }
 
 export { AUDIT_PROOF_LENGTH };

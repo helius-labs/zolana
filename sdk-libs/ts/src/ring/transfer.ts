@@ -10,15 +10,27 @@ import {
 } from "@solana/kit";
 
 import type { ZolanaClient } from "../client/client.js";
+import { ringOpenings } from "../client/prover/assembly.js";
+import {
+  RING_INLINE_ASSET_SLOTS,
+  RING_POOL_SLOTS,
+  RING_RULE_SLOTS,
+  disabledPoolEntry,
+} from "../client/prover/types.js";
+import { hashBytes } from "../hasher/index.js";
+import { addressBytes } from "../interface/internal.js";
 import { InstructionTag } from "../interface/program.js";
 import { checkedTransactionSize } from "../interface/transaction-size.js";
 import type {
   Address,
+  Bytes32,
   RequestContext,
   Transaction,
   TransactInstructionData,
 } from "../interface/types.js";
 import { auditPublicInputHash, parseAuditorMessage } from "../keypair/audit.js";
+import { ownerHash } from "../keypair/hash.js";
+import { poseidon } from "../keypair/poseidon.js";
 import type { P256PublicKey } from "../keypair/public-key.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
 import { ViewingKey } from "../keypair/viewing-key.js";
@@ -36,7 +48,11 @@ import { SOL_MINT, type AssetRegistry } from "../transaction/wallet/asset.js";
 import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 import { resolveRegisteredAddress } from "../wallet/registry.js";
 
-import { fetchRingProgramConfig } from "./config.js";
+import {
+  fetchRingPolicyConfig,
+  fetchRingProgramConfig,
+  ringPolicyRecordsAddress,
+} from "./config.js";
 import { RingError, wrapRingError } from "./error.js";
 import { ringTransactInstruction } from "./instructions.js";
 import { fetchRingLookupTable } from "./lookup-table.js";
@@ -93,6 +109,9 @@ export interface ProvenRingTransfer {
   readonly txViewingPublicKey: P256PublicKey;
   readonly payer: Address;
   readonly tree: Address;
+  /** History entries the ring proof binds, sent on the tag-3 wire. */
+  readonly stateRootIndex: number;
+  readonly nullifierRootIndex: number;
 }
 
 /** Returns a v0 transaction over `lookupTable`, signed by the fee payer only. */
@@ -142,6 +161,8 @@ export async function buildRingTransferTransaction(
         inputTree: proven.tree,
         outputTree: proven.tree,
         auditProof: proven.auditProof,
+        stateRootIndex: proven.stateRootIndex,
+        nullifierRootIndex: proven.nullifierRootIndex,
         data: proven.data,
       }),
       fetchRingLookupTable({
@@ -232,6 +253,8 @@ export async function buildRingWithdrawalTransaction(
         inputTree: proven.tree,
         outputTree: proven.tree,
         auditProof: proven.auditProof,
+        stateRootIndex: proven.stateRootIndex,
+        nullifierRootIndex: proven.nullifierRootIndex,
         data: proven.data,
         withdrawal: { kind: "sol", recipient: input.recipient },
       }),
@@ -271,12 +294,30 @@ export async function buildRingWithdrawalTransaction(
   }
 }
 
+/** Mirrors Rust `RecordsOwner::new`, the shielded owner hash of the ring's record notes. */
+export function ringRecordsOwnerHash(recordsPda: Address): Bytes32 {
+  return ownerHash(
+    hashBytes(addressBytes(recordsPda, "recordsPda")),
+    poseidon([new Uint8Array(32)]),
+  ) as Bytes32;
+}
+
 /** Mirrors Rust `AuditedTransfer::prove`, the auditor message enters the external data before the SPP proof folds it into `privateTxHash`. */
 export async function proveAuditedTransfer(
   input: AuditedTransferParams,
   context?: RequestContext,
 ): Promise<ProvenRingTransfer> {
-  const config = await fetchRingProgramConfig(input.client, input.ringProgramId, context);
+  const [config, policyConfig, recordsPda] = await Promise.all([
+    fetchRingProgramConfig(input.client, input.ringProgramId, context),
+    fetchRingPolicyConfig(input.client, input.ringProgramId, context),
+    ringPolicyRecordsAddress(input.ringProgramId),
+  ]);
+  // The program enforces `records_tree == input tree`, a mismatch cannot verify.
+  if (policyConfig.recordsTree !== input.tree) {
+    throw new RingError("RING_RECORDS_TREE_MISMATCH", {
+      details: { recordsTree: policyConfig.recordsTree, tree: input.tree },
+    });
+  }
   // A padded change slot pushes the audited instruction past the packet limit
   // even behind an address lookup table.
   if (input.prepared.changeLayout !== "compact") {
@@ -302,24 +343,44 @@ export async function proveAuditedTransfer(
         instructionDiscriminator: InstructionTag.ringTransact,
       }),
     );
-    const data = await input.client.proveRingTransact(
+    const openings = ringOpenings(proofInputs);
+    const { data, roots } = await input.client.proveRingTransact(
       proofInputs,
       input.ringProgramId,
       undefined,
       context,
     );
-    const auditProof = await input.client.proveCustomRingAudit(
+    // A ring without rules proves the empty table over its own openings, every
+    // further policy field is zero or disabled.
+    const auditProof = await input.client.proveCustomRing(
       {
         publicInputHash: auditPublicInputHash({
           privateTxHash: data.privateTxHash,
           txViewingPublicKey: encrypted.txViewingPublicKey,
           auditorPublicKey: config.auditorPublicKey,
           message: parseAuditorMessage(encrypted.auditorMessage.data),
+          policyHash: policyConfig.policyHash,
+          stateRoot: roots.stateRoot,
+          nullifierRoot: roots.nullifierRoot,
         }),
         privateTxHash: data.privateTxHash,
         txViewingSecret: encrypted.audit.txViewingSecret,
         ephemeralSecret: encrypted.audit.ephemeralSecret,
         auditorPublicKey: config.auditorPublicKey.toUncompressed(),
+        nIn: openings.nIn,
+        nOut: openings.nOut,
+        inputs: openings.inputs,
+        outputs: openings.outputs,
+        addressChain: new Uint8Array(32) as Bytes32,
+        externalDataHash: new Uint8Array(32) as Bytes32,
+        recordsOwnerHash: ringRecordsOwnerHash(recordsPda),
+        policyLen: 0,
+        rules: zeroFields(RING_RULE_SLOTS),
+        inlineAssets: zeroFields(RING_INLINE_ASSET_SLOTS),
+        inlineCount: 0,
+        stateRoot: roots.stateRoot,
+        nullifierRoot: roots.nullifierRoot,
+        pool: Array.from({ length: RING_POOL_SLOTS }, () => disabledPoolEntry()),
       },
       context,
     );
@@ -329,11 +390,17 @@ export async function proveAuditedTransfer(
       txViewingPublicKey: encrypted.txViewingPublicKey,
       payer: prepared.payer,
       tree: input.tree,
+      stateRootIndex: roots.stateRootIndex,
+      nullifierRootIndex: roots.nullifierRootIndex,
     });
   } finally {
     encrypted.audit.txViewingSecret.fill(0);
     encrypted.audit.ephemeralSecret.fill(0);
   }
+}
+
+function zeroFields(count: number): readonly Bytes32[] {
+  return Object.freeze(Array.from({ length: count }, () => new Uint8Array(32) as Bytes32));
 }
 
 /** Mirrors Rust `RingMembership::validate`. */

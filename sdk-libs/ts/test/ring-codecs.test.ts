@@ -19,7 +19,7 @@ import {
   initSppRingConfigInstruction,
   ringTransactInstruction,
 } from "../src/ring/instructions.js";
-import { decodeRingProgramConfig } from "../src/ring/codecs.js";
+import { decodeRingPolicyConfig, decodeRingProgramConfig } from "../src/ring/codecs.js";
 import { setRingAuthorityInstruction } from "../src/ring/config.js";
 import { getProtocolConfigAddress } from "../src/addresses.js";
 import { passkeyReader } from "../src/ring/passkey.js";
@@ -217,6 +217,19 @@ describe("ring config", () => {
     );
   });
 
+  it("decodes the policy config account and rejects another layout", () => {
+    const data = Uint8Array.from([3, ...filled(42, 32), ...filled(43, 32), 253, 252]);
+    const config = decodeRingPolicyConfig(data);
+    expect(config.policyHash).toEqual(filled(42, 32));
+    expect(config.recordsTree).toBe(addressOf(43));
+    expect(config.recordsBump).toBe(253);
+    expect(config.bump).toBe(252);
+    expect(() => decodeRingPolicyConfig(data.subarray(1))).toThrow("RING_POLICY_CONFIG_INVALID");
+    expect(() => decodeRingPolicyConfig(Uint8Array.from([1, ...data.subarray(1)]))).toThrow(
+      "RING_POLICY_CONFIG_INVALID",
+    );
+  });
+
   it("builds the authority handover like Rust `SetAuthority`", async () => {
     const handover = await setRingAuthorityInstruction({
       ringProgramId: RING,
@@ -353,6 +366,32 @@ describe("ring deposits", () => {
 });
 
 describe("ring transact", () => {
+  const auditProof = () =>
+    Uint8Array.from([
+      ...filled(51, 32),
+      ...filled(52, 64),
+      ...filled(53, 32),
+      ...filled(54, 32),
+      ...filled(55, 32),
+    ]);
+
+  const transactData = () => ({
+    expiryUnixTs: 0xffff_ffff_ffff_ffffn,
+    privateTxHash: filled(41, 32) as Bytes32,
+    circuit: { kind: "zoneEddsa", inputs: 2, outputs: 3, publicAssetSlots: 3 } as const,
+    txViewingPk: filled(3, 33) as Bytes33,
+    salt: filled(42, 16) as Bytes16,
+    proof: {
+      a: filled(43, 32) as Bytes32,
+      b: filled(44, 64) as never,
+      c: filled(45, 32) as Bytes32,
+    },
+    inputs: [],
+    interfaceTransfers: [],
+    outputs: [],
+    messages: [],
+  });
+
   it("appends the settlement accounts of a public withdrawal", async () => {
     const recipient = addressOf(31);
     const instruction = await ringTransactInstruction({
@@ -360,30 +399,11 @@ describe("ring transact", () => {
       payer: PAYER,
       inputTree: TREE,
       outputTree: OUTPUT_TREE,
-      auditProof: Uint8Array.from([
-        ...filled(51, 32),
-        ...filled(52, 64),
-        ...filled(53, 32),
-        ...filled(54, 32),
-        ...filled(55, 32),
-      ]),
+      auditProof: auditProof(),
+      stateRootIndex: 0,
+      nullifierRootIndex: 0,
       withdrawal: { kind: "sol", recipient },
-      data: {
-        expiryUnixTs: 0xffff_ffff_ffff_ffffn,
-        privateTxHash: filled(41, 32) as Bytes32,
-        circuit: { kind: "zoneEddsa", inputs: 2, outputs: 3, publicAssetSlots: 3 },
-        txViewingPk: filled(3, 33) as Bytes33,
-        salt: filled(42, 16) as Bytes16,
-        proof: {
-          a: filled(43, 32) as Bytes32,
-          b: filled(44, 64) as never,
-          c: filled(45, 32) as Bytes32,
-        },
-        inputs: [],
-        interfaceTransfers: [],
-        outputs: [],
-        messages: [],
-      },
+      data: transactData(),
     });
 
     // Without these the pool cannot settle and the ring cannot pay an address.
@@ -392,39 +412,25 @@ describe("ring transact", () => {
   });
 
   it("wraps the pool's account list and data like Rust `RingTransactWithAudit`", async () => {
+    const [policyConfig] = await getProgramDerivedAddress({
+      programAddress: RING,
+      seeds: [new TextEncoder().encode("policy")],
+    });
     const instruction = await ringTransactInstruction({
       ringProgramId: RING,
       payer: PAYER,
       inputTree: TREE,
       outputTree: OUTPUT_TREE,
-      auditProof: Uint8Array.from([
-        ...filled(51, 32),
-        ...filled(52, 64),
-        ...filled(53, 32),
-        ...filled(54, 32),
-        ...filled(55, 32),
-      ]),
-      data: {
-        expiryUnixTs: 0xffff_ffff_ffff_ffffn,
-        privateTxHash: filled(41, 32) as Bytes32,
-        circuit: { kind: "zoneEddsa", inputs: 2, outputs: 3, publicAssetSlots: 3 },
-        txViewingPk: filled(3, 33) as Bytes33,
-        salt: filled(42, 16) as Bytes16,
-        proof: {
-          a: filled(43, 32) as Bytes32,
-          b: filled(44, 64) as never,
-          c: filled(45, 32) as Bytes32,
-        },
-        inputs: [],
-        interfaceTransfers: [],
-        outputs: [],
-        messages: [],
-      },
+      auditProof: auditProof(),
+      stateRootIndex: 0,
+      nullifierRootIndex: 0,
+      data: transactData(),
     });
     expect(instruction.programAddress).toBe(RING);
     expect(instruction.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
       [PAYER, AccountRole.WRITABLE_SIGNER],
       [RING_CONFIG, AccountRole.READONLY],
+      [policyConfig, AccountRole.READONLY],
       [PAYER, AccountRole.WRITABLE_SIGNER],
       [TREE, AccountRole.WRITABLE],
       [OUTPUT_TREE, AccountRole.WRITABLE],
@@ -433,8 +439,24 @@ describe("ring transact", () => {
       [RING_AUTH, AccountRole.READONLY],
     ]);
     expect(Buffer.from(instruction.data ?? []).toString("hex")).toBe(
-      "03333333333333333333333333333333333333333333333333333333333333333334343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434353535353535353535353535353535353535353535353535353535353535353536363636363636363636363636363636363636363636363636363636363636363737373737373737373737373737373737373737373737373737373737373737ffffffffffffffff292929292929292929292929292929292929292929292929292929292929292901000203030303030303030303030303030303030303030303030303030303030303030303032a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d000000000000",
+      "0333333333333333333333333333333333333333333333333333333333333333333434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343435353535353535353535353535353535353535353535353535353535353535353636363636363636363636363636363636363636363636363636363636363636373737373737373737373737373737373737373737373737373737373737373700000000ffffffffffffffff292929292929292929292929292929292929292929292929292929292929292901000203030303030303030303030303030303030303030303030303030303030303030303032a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d000000000000",
     );
+  });
+
+  it("encodes the root indices little endian between proof and payload", async () => {
+    const instruction = await ringTransactInstruction({
+      ringProgramId: RING,
+      payer: PAYER,
+      inputTree: TREE,
+      outputTree: OUTPUT_TREE,
+      auditProof: auditProof(),
+      stateRootIndex: 0x0102,
+      nullifierRootIndex: 0x0304,
+      data: transactData(),
+    });
+    expect(Array.from((instruction.data ?? new Uint8Array()).slice(193, 197))).toEqual([
+      2, 1, 4, 3,
+    ]);
   });
 });
 

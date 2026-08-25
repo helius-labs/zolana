@@ -22,12 +22,20 @@ export type {
   RingDepositOutput,
   RingDepositPlaintext,
 } from "../transaction/serialization/ring-deposit.js";
-export { AUDIT_PROOF_LENGTH, checkedAuditProof, decodeRingProgramConfig } from "./codecs.js";
-export { ringRole, type RingRole } from "./role.js";
-export type { RingProgramConfig } from "./codecs.js";
 export {
+  AUDIT_PROOF_LENGTH,
+  checkedAuditProof,
+  decodeRingPolicyConfig,
+  decodeRingProgramConfig,
+} from "./codecs.js";
+export { ringRole, type RingRole } from "./role.js";
+export type { RingPolicyConfig, RingProgramConfig } from "./codecs.js";
+export {
+  fetchRingPolicyConfig,
   fetchRingProgramConfig,
   ringConfigAddress,
+  ringPolicyConfigAddress,
+  ringPolicyRecordsAddress,
   ringProgramDataAddress,
   setRingAuthorityInstruction,
 } from "./config.js";
@@ -118,6 +126,7 @@ export {
   buildRingWithdrawalTransaction,
   frameDummyOutputs,
   proveAuditedTransfer,
+  ringRecordsOwnerHash,
   RING_TRANSACT_COMPUTE_UNIT_LIMIT,
 } from "./transfer.js";
 export type {

@@ -126,13 +126,20 @@ export function parseAuditorMessage(data: Uint8Array): AuditorMessage {
   });
 }
 
-/** Poseidon chain over `[private_tx_hash, tx_pk, auditor_pk, eph_pk, hash(ciphertext)]`, keys packed into two fields. */
+/**
+ * Poseidon chain over `[private_tx_hash, tx_pk, auditor_pk, eph_pk,
+ * hash(ciphertext), policy_hash, state_root, nullifier_root]` with keys packed
+ * into two fields, Rust `CustomRingPublicInput::hash`.
+ */
 export function auditPublicInputHash(
   input: Readonly<{
     privateTxHash: Bytes32;
     txViewingPublicKey: P256PublicKey;
     auditorPublicKey: P256PublicKey;
     message: AuditorMessage;
+    policyHash: Bytes32;
+    stateRoot: Bytes32;
+    nullifierRoot: Bytes32;
   }>,
 ): Bytes32 {
   const [txLow, txHigh] = pack33(input.txViewingPublicKey.toBytes());
@@ -147,5 +154,8 @@ export function auditPublicInputHash(
     ephLow,
     ephHigh,
     hashBytes(input.message.ciphertext) as Bytes32,
+    checkedBytes(input.policyHash, 32, "policy hash"),
+    checkedBytes(input.stateRoot, 32, "state root"),
+    checkedBytes(input.nullifierRoot, 32, "nullifier root"),
   ]);
 }
