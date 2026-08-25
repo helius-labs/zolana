@@ -36,6 +36,16 @@ forester *args:
 prover *args:
     just --justfile prover/server/justfile {{args}}
 
+# Render all documentation diagrams from their DOT sources.
+render-diagrams:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for diagram_source in docs/diagrams/*.dot; do
+      diagram_base="${diagram_source%.dot}"
+      dot -Tpng -Gdpi=144 "$diagram_source" -o "$diagram_base.png"
+      dot -Tsvg "$diagram_source" -o "$diagram_base.svg"
+    done
+
 # === Rust workspace ===
 
 # Build default workspace members.
