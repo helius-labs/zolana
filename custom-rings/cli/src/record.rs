@@ -6,7 +6,7 @@ use custom_ring_sdk::{
 use solana_address::Address;
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_ring_policy::{PolicyMember, PolicyMemberError, RecordKind, RecordState};
+use zolana_ring_policy::{Member, MemberError, RecordKind, RecordState};
 
 use crate::{
     line,
@@ -25,7 +25,7 @@ pub enum RecordError {
     #[error(transparent)]
     Proof(#[from] Box<RecordProofError>),
     #[error(transparent)]
-    Member(#[from] PolicyMemberError),
+    Member(#[from] MemberError),
     #[error(transparent)]
     Step(#[from] StepError),
     #[error("the ring has no policy config, run `zolana-ring record init` first")]
@@ -94,7 +94,7 @@ fn mutate(
 ) -> Result<(), RecordError> {
     let authority = ctx.funded_authority()?;
     let records_tree = records_tree(ctx)?;
-    let member_field = PolicyMember::owner_tag(member.as_array())?;
+    let member_field = Member::owner_tag(member.as_array())?;
     let indexer = ctx.indexer();
     let prover = ctx.prover();
     let environment = RecordProofEnvironment {
@@ -151,7 +151,7 @@ fn mutate(
 }
 
 fn show(ctx: &mut Context, kind: RecordKind, member: Address) -> Result<(), RecordError> {
-    let member_field = PolicyMember::owner_tag(member.as_array())?;
+    let member_field = Member::owner_tag(member.as_array())?;
     let indexer = ctx.indexer();
     let live = read_record(&indexer, ctx.ring.records_pda(), kind, &member_field)?
         .ok_or(RecordError::NoRecord { kind, member })?;

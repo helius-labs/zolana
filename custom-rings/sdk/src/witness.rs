@@ -10,7 +10,7 @@ use zolana_interface::{
     UTXO_DOMAIN,
 };
 use zolana_ring_policy::{
-    record_nullifier, Mode, Policy, PolicyMember, RecordKind, RecordState, RecordsOwner, Rule,
+    record_nullifier, Mode, Policy, Member, RecordKind, RecordState, RecordsOwner, Rule,
     RuleSource, Subject, MAX_INLINE_ASSETS, MAX_RULES,
 };
 use zolana_transaction::instructions::{transact::SppProofOutputUtxo, types::SppProofInputUtxo};
@@ -124,7 +124,7 @@ impl CustomRingWitnessInput<'_> {
         Ok(pool)
     }
 
-    fn subjects(&self, rule: &Rule) -> Result<Vec<PolicyMember>, TransferError> {
+    fn subjects(&self, rule: &Rule) -> Result<Vec<Member>, TransferError> {
         let tags = match rule.subject {
             Subject::OutputOwner => self
                 .outputs
@@ -143,7 +143,7 @@ impl CustomRingWitnessInput<'_> {
         }
         .map_err(|_| TransferError::PolicyHashing)?;
         tags.iter()
-            .map(|tag| PolicyMember::owner_tag(tag).map_err(|_| TransferError::PolicyHashing))
+            .map(|tag| Member::owner_tag(tag).map_err(|_| TransferError::PolicyHashing))
             .collect()
     }
 
@@ -152,14 +152,14 @@ impl CustomRingWitnessInput<'_> {
         indexer: &I,
         owner: &RecordsOwner,
         kind: RecordKind,
-        member: &PolicyMember,
+        member: &Member,
         mode: Mode,
     ) -> Result<CustomRingPoolEntry, TransferError> {
         let address = owner
             .address(kind, member)
             .map_err(|_| TransferError::PolicyHashing)?;
         let live = read_record(indexer, self.records, kind, member)
-            .map_err(|error| TransferError::PolicyRecord(Box::new(error)))?;
+            .map_err(|error| TransferError::Record(Box::new(error)))?;
         let mut entry = CustomRingPoolEntry {
             enabled: true,
             mode: mode as u8,

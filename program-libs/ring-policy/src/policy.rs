@@ -1,6 +1,6 @@
 use zolana_hasher::{hash_chain::create_hash_chain_from_slice, HasherError};
 
-use crate::{field_u8, POLICY_TABLE_DOMAIN};
+use crate::{field_u8, RecordKind, POLICY_TABLE_DOMAIN};
 
 pub const MAX_RULES: usize = 16;
 pub const MAX_INLINE_ASSETS: usize = 8;
@@ -27,45 +27,6 @@ pub enum Mode {
 pub enum Guard {
     Always,
     AboveAmount(u64),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(u8)]
-pub enum RecordKind {
-    Allow = 1,
-    Block = 2,
-    Frozen = 3,
-    RingViewing = 4,
-    Recovery = 5,
-    Reader = 6,
-    Approval = 7,
-    Escrow = 8,
-}
-
-impl RecordKind {
-    /// A held kind is mutated by the member, any other kind by the ring
-    /// authority.
-    pub const fn held_by_member(self) -> bool {
-        matches!(self, Self::RingViewing | Self::Recovery | Self::Escrow)
-    }
-}
-
-impl TryFrom<u8> for RecordKind {
-    type Error = ();
-
-    fn try_from(value: u8) -> Result<Self, ()> {
-        Ok(match value {
-            1 => Self::Allow,
-            2 => Self::Block,
-            3 => Self::Frozen,
-            4 => Self::RingViewing,
-            5 => Self::Recovery,
-            6 => Self::Reader,
-            7 => Self::Approval,
-            8 => Self::Escrow,
-            _ => return Err(()),
-        })
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

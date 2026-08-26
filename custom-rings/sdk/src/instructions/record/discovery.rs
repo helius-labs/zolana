@@ -3,13 +3,13 @@
 use solana_address::Address;
 use zolana_client::{ClientError, Rpc};
 use zolana_interface::event::OutputDataEncoding;
-use zolana_ring_policy::{record_nullifier, PolicyMember, PolicyRecord, RecordKind, RecordsOwner};
+use zolana_ring_policy::{record_nullifier, Member, Record, RecordKind, RecordsOwner};
 
 use crate::instructions::record::proof::RecordProofError;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LiveRecord {
-    pub record: PolicyRecord,
+    pub record: Record,
     pub utxo_hash: [u8; 32],
     pub nullifier: [u8; 32],
 }
@@ -19,7 +19,7 @@ pub fn read_record<I: Rpc>(
     indexer: &I,
     records: Address,
     kind: RecordKind,
-    member: &PolicyMember,
+    member: &Member,
 ) -> Result<Option<LiveRecord>, RecordProofError> {
     let owner = RecordsOwner::new(records.as_array()).map_err(|_| RecordProofError::Hashing)?;
     let address = owner
@@ -63,13 +63,13 @@ fn decode(
     owner: &RecordsOwner,
     address: &[u8; 32],
     kind: RecordKind,
-    member: &PolicyMember,
+    member: &Member,
     indexed: &zolana_client::EncryptedUtxoMatch,
 ) -> Option<LiveRecord> {
     let OutputDataEncoding::Plaintext(payload) = indexed.output_slot.output_data()? else {
         return None;
     };
-    let record = PolicyRecord::from_payload(&payload)?;
+    let record = Record::from_payload(&payload)?;
     if record.kind != kind || record.member != *member {
         return None;
     }

@@ -5,7 +5,7 @@ use zolana_hasher::primitives::{hash_bytes, right_align};
 use zolana_interface::ADDRESS_DOMAIN;
 use zolana_keypair::{hash::owner_hash, NullifierKey, PublicKey};
 use zolana_ring_policy::{
-    record_nullifier, record_seed, PolicyMember, PolicyRecord, RecordKind, RecordState,
+    record_nullifier, record_seed, Member, Record, RecordKind, RecordState,
     RecordsOwner,
 };
 use zolana_transaction::{ProofInputUtxo, SOL_MINT};
@@ -23,7 +23,7 @@ fn record_commitments_match_the_canonical_utxo_types() {
     .unwrap();
     assert_eq!(owner.owner_hash, expected_owner_hash);
 
-    let member = PolicyMember::owner_tag(&[7u8; 32]).unwrap();
+    let member = Member::owner_tag(&[7u8; 32]).unwrap();
     assert_eq!(member.as_bytes(), &hash_bytes(&[7u8; 32]).unwrap());
 
     let seed = record_seed(RecordKind::Block, &member).unwrap();
@@ -40,7 +40,7 @@ fn record_commitments_match_the_canonical_utxo_types() {
         nullifier_key.nullifier(&address_utxo_hash, &seed).unwrap()
     );
 
-    let record = PolicyRecord {
+    let record = Record {
         kind: RecordKind::Block,
         member,
         state: RecordState::Active,

@@ -1,20 +1,26 @@
-//! Policy records for custom rings and the compiled rule table that governs
-//! them. One record per `(kind, member)` lives as a zero-amount data UTXO in
-//! the SPP state tree, owned by the ring's records PDA. Presence and absence
-//! of a member stay provable against SPP's own roots.
+//! The record-list primitive for custom rings and the compiled rule table that
+//! is one consumer of it.
+//!
+//! One record per `(kind, member)` lives as a zero-amount data UTXO in the SPP
+//! state tree, owned by the ring's records PDA, present or absent provably
+//! against SPP's own roots. [`RecordKind`] names each list, [`RecordsOwner`]
+//! keys it, and [`Record`] carries it on the wire. [`Policy`] compiles a rule
+//! table over these lists, and [`list`] is the typed extension point where a new
+//! list (a roster of auditors or co-signers) is one trait impl.
 
+pub mod list;
 mod member;
 mod policy;
 mod record;
 
-pub use member::{PolicyMember, PolicyMemberError};
+pub use member::{Member, MemberError};
 pub use policy::{
-    Guard, Mode, Policy, PolicyBuilder, RecordKind, Rule, RuleSource, Subject, MAX_INLINE_ASSETS,
-    MAX_RULES, POLICY_VERSION,
+    Guard, Mode, Policy, PolicyBuilder, Rule, RuleSource, Subject, MAX_INLINE_ASSETS, MAX_RULES,
+    POLICY_VERSION,
 };
 pub use record::{
-    mutation_private_tx_hash, record_nullifier, record_seed, PolicyRecord, RecordState,
-    RecordsOwner, POLICY_RECORDS_PDA_SEED, RECORD_OUTPUT_DATA_LEN, RECORD_PAYLOAD_LEN,
+    mutation_private_tx_hash, record_nullifier, record_seed, Holder, Record, RecordKind,
+    RecordState, RecordsOwner, POLICY_RECORDS_PDA_SEED, RECORD_OUTPUT_DATA_LEN, RECORD_PAYLOAD_LEN,
 };
 
 /// At most 31 bytes keeps the packed value below the field modulus.

@@ -4,7 +4,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use thiserror::Error;
 use zolana_client::{ProverClient, Rpc};
 use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
-use zolana_ring_policy::{PolicyMember, PolicyRecord, RecordKind, RecordState, RecordsOwner};
+use zolana_ring_policy::{Member, Record, RecordKind, RecordState, RecordsOwner};
 
 use crate::{
     instructions::record::proof::{RecordProof, RecordProofError, RecordWitness},
@@ -61,7 +61,7 @@ pub struct CreateRecord {
     pub payer: Address,
     pub records_tree: Address,
     pub kind: RecordKind,
-    pub member: PolicyMember,
+    pub member: Member,
     pub state: RecordState,
     pub payload_hash: [u8; 32],
 }
@@ -73,7 +73,7 @@ impl CreateRecord {
     ) -> Result<ProvenRecord, RecordError> {
         let records = self.ring.records_pda();
         let owner = RecordsOwner::new(records.as_array()).map_err(|_| RecordError::Hashing)?;
-        let record = PolicyRecord {
+        let record = Record {
             kind: self.kind,
             member: self.member,
             state: self.state,
@@ -105,7 +105,7 @@ pub struct UpdateRecord {
     pub ring: CustomRing,
     pub payer: Address,
     pub records_tree: Address,
-    pub spent: PolicyRecord,
+    pub spent: Record,
     pub state: RecordState,
     pub payload_hash: [u8; 32],
 }
@@ -117,7 +117,7 @@ impl UpdateRecord {
     ) -> Result<ProvenRecord, RecordError> {
         let records = self.ring.records_pda();
         let owner = RecordsOwner::new(records.as_array()).map_err(|_| RecordError::Hashing)?;
-        let record = PolicyRecord {
+        let record = Record {
             kind: self.spent.kind,
             member: self.spent.member,
             state: self.state,
@@ -159,13 +159,13 @@ pub struct ProvenRecord {
     ring: CustomRing,
     payer: Address,
     records_tree: Address,
-    record: PolicyRecord,
-    spent: Option<PolicyRecord>,
+    record: Record,
+    spent: Option<Record>,
     proof: RecordProof,
 }
 
 impl ProvenRecord {
-    pub const fn record(&self) -> PolicyRecord {
+    pub const fn record(&self) -> Record {
         self.record
     }
 

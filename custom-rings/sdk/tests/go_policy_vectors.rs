@@ -4,7 +4,7 @@
 
 use custom_ring_interface::{AuditPublicInput, CustomRingPublicInput};
 use zolana_ring_policy::{
-    record_nullifier, record_seed, Guard, Mode, Policy, PolicyMember, PolicyRecord, RecordKind,
+    record_nullifier, record_seed, Guard, Mode, Policy, Member, Record, RecordKind,
     RecordState, RecordsOwner, Rule, Subject,
 };
 
@@ -62,7 +62,7 @@ fn owner() -> RecordsOwner {
 
 fn check(vector: &Vector, kind: RecordKind, tag: [u8; 32], state: RecordState, version: u64) {
     let owner = owner();
-    let member = PolicyMember::owner_tag(&tag).expect("member");
+    let member = Member::owner_tag(&tag).expect("member");
     assert_eq!(
         record_seed(kind, &member).expect("seed"),
         hex32(vector.seed),
@@ -71,7 +71,7 @@ fn check(vector: &Vector, kind: RecordKind, tag: [u8; 32], state: RecordState, v
     let address = owner.address(kind, &member).expect("address");
     assert_eq!(address, hex32(vector.address), "address");
 
-    let record = PolicyRecord {
+    let record = Record {
         kind,
         member,
         state,
@@ -102,7 +102,7 @@ fn record_hashing_matches_the_go_fixture() {
         RecordState::Active,
         0,
     );
-    let sender = PolicyMember::owner_tag(&SENDER_TAG).expect("member");
+    let sender = Member::owner_tag(&SENDER_TAG).expect("member");
     assert_eq!(
         record_seed(RecordKind::Frozen, &sender).expect("seed"),
         hex32(FROZEN_SEED)
@@ -140,7 +140,7 @@ fn policy_hashing_matches_the_go_fixture() {
 
 #[test]
 fn the_inline_asset_member_is_the_utxo_asset_field() {
-    let member = PolicyMember::asset(&solana_address::Address::new_from_array(ASSET_MINT))
+    let member = Member::asset(&solana_address::Address::new_from_array(ASSET_MINT))
         .expect("asset member");
     assert_eq!(member.as_bytes(), &ASSET_MEMBERS[0]);
 }
