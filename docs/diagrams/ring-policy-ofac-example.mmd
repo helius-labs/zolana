@@ -1,29 +1,30 @@
 sequenceDiagram
     participant OFAC as OFAC SDN feed
-    actor Auth as Ring authority
+    actor Curator as Curator ring authority
+    actor Sub as Subscriber ring authority
     actor Crazy as Mr. Crazy's wallet
-    participant Photon as Indexer
-    participant Ring as Ring program
+    participant CurRing as Curator ring
+    participant SubRing as Subscriber ring
     participant SPP
 
-    OFAC->>Auth: designates Mr. Evil
-    Auth->>Ring: create_record(Block, evil_tag, Active)
-    Ring->>Ring: check_mutator, Block is authority held
-    Ring->>SPP: 1-in 1-out transact, claims the address, inserts the record UTXO
-    Note over SPP: the pair (Block, evil) now has its one lineage
+    Sub->>SubRing: create_policy, Block source = curator
+    SubRing->>SubRing: copies the curator's resolved records owner
+    Note over SubRing: the Block slot now names the curator's records PDA
 
-    Crazy->>Photon: read_record(Block, evil_tag)
-    Photon-->>Crazy: live Active record
-    Note over Crazy: entry() returns PolicyRuleUnsatisfied, no proof is attempted
-    Note over Crazy,Ring: a patched wallet fares no better, the claimed address admits no non-inclusion witness, the circuit refuses
+    OFAC->>Curator: designates Mr. Evil
+    Curator->>CurRing: create_record(Block, evil_tag, Active)
+    CurRing->>SPP: one transact, the record UTXO lands in the shared tree
+    Note over SPP: one write serves every subscriber
 
-    OFAC->>Auth: de-lists Mr. Evil
-    Auth->>Ring: update_record(Block, evil_tag, Cleared)
-    Ring->>SPP: spends v0, inserts Cleared v1 at the same address
+    Crazy->>Crazy: witness resolves Block to the curator's records
+    Note over Crazy: entry() finds the live record, PolicyRuleUnsatisfied, no proof
+    Note over Crazy,SubRing: a patched wallet fails at the circuit, the claimed address admits no non-inclusion witness
 
-    Crazy->>Photon: proofs for the cleared record and its nullifier
-    Crazy->>Crazy: pool slot, absent_branch 2, cleared record
-    Crazy->>Ring: transact with one proof
-    Ring->>Ring: recomputes POLICY.hash, resolves both roots, verifies
-    Ring->>SPP: CPI ring_transact
-    Note over SPP: the transfer settles, nothing on chain names Mr. Evil as the recipient
+    OFAC->>Curator: de-lists Mr. Evil
+    Curator->>CurRing: update_record(Block, evil_tag, Cleared)
+    Crazy->>SubRing: transact with one proof over the cleared record
+    SubRing->>SubRing: recomputes the hash over the stored source map, verifies
+    SubRing->>SPP: CPI ring_transact
+
+    Sub->>SubRing: set_policy_source(Block, own)
+    Note over SubRing: allowed only while the stored hash matches the deployed table
