@@ -403,7 +403,15 @@ fn cli_init_hands_the_config_over_and_reruns_from_the_chain() -> Result<()> {
     );
     let init = || -> Result<String> {
         let output = std::process::Command::new(cli)
-            .args(["--config", &ring_toml.to_string_lossy(), "init"])
+            // The harness tree is not the default address, the policy step
+            // must name it.
+            .args([
+                "--config",
+                &ring_toml.to_string_lossy(),
+                "init",
+                "--records-tree",
+                &env.tree.to_string(),
+            ])
             .output()
             .context("run zolana-ring init")?;
         let text = format!(
@@ -463,6 +471,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         ring,
         payer: &env.payer,
         auditor_pubkey: auditor_pk,
+        records_tree: env.tree,
     }
     .send(rpc)?;
 
@@ -500,21 +509,6 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         },
         "SPP ring config"
     );
-
-    // The ring holds an empty policy table, so every transfer proves the
-    // rules-free statement against records in its own tree.
-    send(
-        rpc,
-        &env.payer,
-        &[CreatePolicy {
-            ring,
-            payer: authority,
-            authority,
-            records_tree: env.tree,
-            shared_sources: vec![],
-        }
-        .instruction()?],
-    )?;
 
     // 4. Two ring SOL deposits give the sender the ring-owned UTXOs the transfer
     //    spends. Their blindings come back from the deposit builder, so the spend
@@ -811,6 +805,7 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
         ring,
         payer: &env.payer,
         auditor_pubkey: auditor.pubkey(),
+        records_tree: env.tree,
     }
     .send(rpc)?;
     let prover = ProverClient::local();
@@ -993,6 +988,7 @@ struct RegisterRing<'a> {
     ring: CustomRing,
     payer: &'a Keypair,
     auditor_pubkey: P256Pubkey,
+    records_tree: Address,
 }
 
 impl RegisterRing<'_> {
@@ -1018,6 +1014,20 @@ impl RegisterRing<'_> {
                 authority,
             }
             .instruction()],
+        )?;
+        // Every transact loads the policy config, a rules-free ring pins the
+        // empty table.
+        send(
+            rpc,
+            self.payer,
+            &[CreatePolicy {
+                ring: self.ring,
+                payer: authority,
+                authority,
+                records_tree: self.records_tree,
+                shared_sources: vec![],
+            }
+            .instruction()?],
         )?;
         Ok(())
     }
