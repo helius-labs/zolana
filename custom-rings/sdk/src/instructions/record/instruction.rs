@@ -1,4 +1,6 @@
-use custom_ring_interface::{tag, CreateRecordIxData, UpdateRecordIxData};
+use custom_ring_interface::{
+    tag, CreatePolicyIxData, CreateRecordIxData, PolicySourceSpec, UpdateRecordIxData,
+};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use thiserror::Error;
@@ -19,6 +21,8 @@ pub enum RecordError {
     Hashing,
     #[error("record version overflows")]
     VersionOverflow,
+    #[error("the compiled table does not reference the kind")]
+    UnreferencedKind(RecordKind),
     #[error(transparent)]
     Encoding(#[from] wincode::WriteError),
 }
@@ -29,29 +33,83 @@ pub struct CreatePolicy {
     pub payer: Address,
     pub authority: Address,
     pub records_tree: Address,
+    /// Referenced kinds reading a curator ring's records, every other
+    /// referenced kind defaults to the ring's own records.
+    pub shared_sources: Vec<(RecordKind, CustomRing)>,
 }
 
 impl CreatePolicy {
-    pub fn instruction(self) -> Instruction {
+    pub fn instruction(self) -> Result<Instruction, RecordError> {
         let Self {
             ring,
             payer,
             authority,
             records_tree,
+            shared_sources,
         } = self;
-        Instruction {
-            program_id: ring.program_id(),
-            accounts: vec![
-                AccountMeta::new(payer, true),
-                AccountMeta::new_readonly(authority, true),
-                AccountMeta::new(ring.policy_config_pda(), false),
-                AccountMeta::new_readonly(records_tree, false),
-                AccountMeta::new_readonly(Address::default(), false),
-                AccountMeta::new_readonly(ring.program_id(), false),
-                AccountMeta::new_readonly(ring.program_data_pda(), false),
-            ],
-            data: vec![tag::CREATE_POLICY],
+        let referenced: Vec<RecordKind> = custom_ring_interface::POLICY
+            .rules()
+            .iter()
+            .filter_map(|rule| match rule.source {
+                zolana_ring_policy::RuleSource::Records(kind) => Some(kind),
+                zolana_ring_policy::RuleSource::InlineAssets(_) => None,
+            })
+            .collect();
+        for (kind, _) in &shared_sources {
+            if !referenced.contains(kind) {
+                return Err(RecordError::UnreferencedKind(*kind));
+            }
         }
+        let mut curators: Vec<CustomRing> = Vec::new();
+        let mut specs: Vec<PolicySourceSpec> = Vec::new();
+        for kind in 1u8..=custom_ring_interface::N_POLICY_SOURCE_SLOTS as u8 {
+            let Ok(record_kind) = RecordKind::try_from(kind) else {
+                continue;
+            };
+            if !referenced.contains(&record_kind) {
+                continue;
+            }
+            let source = match shared_sources
+                .iter()
+                .find(|(shared, _)| *shared == record_kind)
+            {
+                None => 0,
+                Some((_, curator)) => {
+                    let index = curators
+                        .iter()
+                        .position(|known| known == curator)
+                        .unwrap_or_else(|| {
+                            curators.push(*curator);
+                            curators.len() - 1
+                        });
+                    1 + index as u8
+                }
+            };
+            specs.push(PolicySourceSpec { kind, source });
+        }
+        let mut instruction_data = vec![tag::CREATE_POLICY];
+        instruction_data
+            .extend_from_slice(&wincode::serialize(&CreatePolicyIxData { sources: specs })?);
+        let mut accounts = vec![
+            AccountMeta::new(payer, true),
+            AccountMeta::new_readonly(authority, true),
+            AccountMeta::new(ring.policy_config_pda(), false),
+            AccountMeta::new_readonly(records_tree, false),
+            AccountMeta::new_readonly(Address::default(), false),
+            AccountMeta::new_readonly(ring.program_id(), false),
+            AccountMeta::new_readonly(ring.program_data_pda(), false),
+        ];
+        for curator in &curators {
+            accounts.push(AccountMeta::new_readonly(
+                curator.policy_config_pda(),
+                false,
+            ));
+        }
+        Ok(Instruction {
+            program_id: ring.program_id(),
+            accounts,
+            data: instruction_data,
+        })
     }
 }
 
