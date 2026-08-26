@@ -1,0 +1,37 @@
+flowchart TB
+    subgraph BUILD["Build time, the ring program binary"]
+        POL["POLICY table
+        forbid OutputOwner Block
+        forbid Sender Frozen"]
+        HOL["RecordKind::holder()
+        Block, Frozen are authority held"]
+    end
+    subgraph CHAIN["On chain, accounts"]
+        PC["PolicyConfig
+        policy_hash, records_tree"]
+        PDA["policy_records PDA
+        signer, holds no data"]
+        RING["ring program
+        drift check, verify, CPI"]
+    end
+    subgraph TREES["SPP trees, the record set"]
+        REC["Record UTXOs
+        one lineage per kind and member"]
+        ADDR["claimed addresses
+        indexed nullifier tree"]
+        ROOTS["state root, nullifier root"]
+    end
+    subgraph WALLET["Per transfer, wallet and prover"]
+        POOLD["Pool, 10 slots
+        proven answers to the rules"]
+        PRF["one Groth16 proof"]
+    end
+
+    POL -- "create_policy pins Policy::hash" --> PC
+    POL -. "recomputed each transact, mismatch fails closed" .-> RING
+    PDA -- "owns and signs mutations" --> REC
+    REC --- ADDR
+    PC -- "names the tree" --> TREES
+    ROOTS -- "Merkle paths" --> POOLD
+    POOLD --> PRF
+    PRF -- "public input binds policy_hash and both roots" --> RING
