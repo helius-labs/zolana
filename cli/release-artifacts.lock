@@ -1,8 +1,8 @@
 {
   "accounts": {
     "asset": "accounts-v0.1.0-alpha.3.tar.gz",
-    "sha256": "b43773c4bc2f63a05e487e3a49a186d07816bb7edc6e6fadab8ce0599ab2f594",
-    "size": 4208
+    "sha256": "3f2a3b75b3df4af7d24a40528685a9f938664408a934c66921344099daf28765",
+    "size": 4204
   },
   "binaries": [
     {
@@ -10,7 +10,7 @@
       "asset": "prover-darwin-arm64-v0.1.0-alpha.3",
       "os": "darwin",
       "role": "prover",
-      "sha256": "1a594f4d88681a96603f00d13f3313d2e49d5d86f864376b94a7434b49206ddb",
+      "sha256": "0682c20862daf8830bc19a09ed800b77e4c70140734ed1db9e7638ca068baf4e",
       "size": 36419250
     },
     {
@@ -26,7 +26,7 @@
       "asset": "prover-linux-x64-v0.1.0-alpha.3",
       "os": "linux",
       "role": "prover",
-      "sha256": "18e6269a806c955daf400dc492308ca82bc821efbdc080e8682a68d99a1db957",
+      "sha256": "b85ad3acb641870d947160a42c1f438a0813a50757cc180ce9249707f453afbd",
       "size": 38044309
     },
     {
