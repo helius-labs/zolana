@@ -90,8 +90,8 @@ test-program-fast: build-programs
     cargo nextest run -p shielded-pool-tests
     cargo nextest run -p swap-program --tests
     cargo nextest run -p custom-ring-program --tests
-    # Rule features only add table rows, so a build is the only check they need.
-    cargo build -p custom-ring-program --features allowlist,blocklist,freeze
+    # The featured suite compiles the rule features the deploy-ring-rules image carries.
+    cargo nextest run -p custom-ring-program --test policy_sources --features allowlist,blocklist,freeze
 
 # Run one shielded-pool intent-level binary, for example:
 # `just test-shielded-pool-case deposit_model`.
