@@ -1,4 +1,5 @@
 import { CUSTOM_RING_PROOF_LENGTH } from "../client/prover/proof.js";
+import { RING_SOURCE_SLOTS } from "../client/prover/types.js";
 import type { Address, Bytes32, Bytes33 } from "../interface/types.js";
 import { Reader, encodeBase58 } from "../interface/internal.js";
 import { P256PublicKey } from "../keypair/public-key.js";
@@ -11,12 +12,19 @@ export interface RingProgramConfig {
   readonly bump: number;
 }
 
+/** Mirrors Rust `PolicySourceSlot`, slot `i` is empty (`kind === 0`) or serves kind `i + 1`. */
+export interface RingPolicySource {
+  readonly kind: number;
+  readonly records: Address;
+}
+
 /** Mirrors Rust `PolicyConfig`. */
 export interface RingPolicyConfig {
   readonly policyHash: Bytes32;
   readonly recordsTree: Address;
   readonly recordsBump: number;
   readonly bump: number;
+  readonly sources: readonly RingPolicySource[];
 }
 
 const RING_PROGRAM_CONFIG_DISCRIMINATOR = 1;
@@ -39,7 +47,7 @@ export function decodeRingProgramConfig(data: Uint8Array): RingProgramConfig {
 
 /** Rust `POLICY_CONFIG` and `PolicyConfig::SIZE`. */
 const RING_POLICY_CONFIG_DISCRIMINATOR = 3;
-const RING_POLICY_CONFIG_SIZE = 67;
+const RING_POLICY_CONFIG_SIZE = 331;
 
 export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
   if (data.length !== RING_POLICY_CONFIG_SIZE || data[0] !== RING_POLICY_CONFIG_DISCRIMINATOR) {
@@ -53,8 +61,16 @@ export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
   const recordsTree = encodeBase58(reader.bytes(32, "recordsTree"));
   const recordsBump = reader.u8("recordsBump");
   const bump = reader.u8("bump");
+  const sources = Object.freeze(
+    Array.from({ length: RING_SOURCE_SLOTS }, () =>
+      Object.freeze({
+        kind: reader.u8("kind"),
+        records: encodeBase58(reader.bytes(32, "records")),
+      }),
+    ),
+  );
   reader.done();
-  return Object.freeze({ policyHash, recordsTree, recordsBump, bump });
+  return Object.freeze({ policyHash, recordsTree, recordsBump, bump, sources });
 }
 
 export { CUSTOM_RING_PROOF_LENGTH };

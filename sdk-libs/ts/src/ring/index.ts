@@ -29,7 +29,7 @@ export {
   decodeRingProgramConfig,
 } from "./codecs.js";
 export { ringRole, type RingRole } from "./role.js";
-export type { RingPolicyConfig, RingProgramConfig } from "./codecs.js";
+export type { RingPolicyConfig, RingPolicySource, RingProgramConfig } from "./codecs.js";
 export {
   fetchRingPolicyConfig,
   fetchRingProgramConfig,

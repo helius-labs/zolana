@@ -178,7 +178,7 @@ impl PendingCustomRingProof {
             outputs: witness.outputs,
             address_chain: [0u8; 32],
             external_data_hash: [0u8; 32],
-            records_owner_hash: witness.records_owner_hash,
+            sources: witness.sources,
             policy_len: witness.policy_len,
             rules: witness.rules,
             inline_assets: witness.inline_assets,

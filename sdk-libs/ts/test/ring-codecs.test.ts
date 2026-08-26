@@ -232,16 +232,41 @@ describe("ring config", () => {
   });
 
   it("decodes the policy config account and rejects another layout", () => {
-    const data = Uint8Array.from([3, ...filled(42, 32), ...filled(43, 32), 253, 252]);
+    const data = Uint8Array.from([
+      3,
+      ...filled(42, 32),
+      ...filled(43, 32),
+      253,
+      252,
+      ...new Uint8Array(33 * 8),
+    ]);
     const config = decodeRingPolicyConfig(data);
     expect(config.policyHash).toEqual(filled(42, 32));
     expect(config.recordsTree).toBe(addressOf(43));
     expect(config.recordsBump).toBe(253);
     expect(config.bump).toBe(252);
+    expect(config.sources).toHaveLength(8);
+    expect(config.sources.every((slot) => slot.kind === 0)).toBe(true);
     expect(() => decodeRingPolicyConfig(data.subarray(1))).toThrow("RING_POLICY_CONFIG_INVALID");
     expect(() => decodeRingPolicyConfig(Uint8Array.from([1, ...data.subarray(1)]))).toThrow(
       "RING_POLICY_CONFIG_INVALID",
     );
+  });
+
+  it("decodes a live policy source slot", () => {
+    const data = Uint8Array.from([
+      3,
+      ...filled(42, 32),
+      ...filled(43, 32),
+      253,
+      252,
+      1,
+      ...filled(44, 32),
+      ...new Uint8Array(33 * 7),
+    ]);
+    const config = decodeRingPolicyConfig(data);
+    expect(config.sources[0]).toEqual({ kind: 1, records: addressOf(44) });
+    expect(config.sources[1]).toEqual({ kind: 0, records: addressOf(0) });
   });
 
   it("builds the authority handover like Rust `SetAuthority`", async () => {
