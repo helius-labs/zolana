@@ -20,6 +20,7 @@ use dynamic_swap_sdk::{
 };
 use shared::{
     escrow_authority_identity, get_slot_with_retry, send_v0_with_lookup_table, setup_with_pair,
+    wait_until,
 };
 use solana_signer::Signer;
 use zolana_client::Rpc;
@@ -84,17 +85,16 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             // deposit blinding the test happens to know client-side.
             let mut user_wallet = Wallet::new(env.user.address()?, env.assets.clone())
                 .map_err(|e| anyhow!("user wallet: {e:?}"))?;
-            sync_wallet(&mut user_wallet, &env.user.keypair, env.client.indexer())
-                .map_err(|e| anyhow!("sync user wallet: {e:?}"))?;
-            let funding_utxo = user_wallet
-                .balance(env.spl_mint, Some(Filter::MinAmount(ORDER_AMOUNT)))
-                .map_err(|e| anyhow!("user balance: {e:?}"))?
-                .utxos
-                .first()
-                .cloned()
-                .ok_or_else(|| {
-                    anyhow!("no spendable utxo of {} >= {ORDER_AMOUNT}", env.spl_mint)
-                })?;
+            let funding_utxo = wait_until("funding note", || {
+                sync_wallet(&mut user_wallet, &env.user.keypair, env.client.indexer())
+                    .map_err(|e| anyhow!("sync user wallet: {e:?}"))?;
+                Ok(user_wallet
+                    .balance(env.spl_mint, Some(Filter::MinAmount(ORDER_AMOUNT)))
+                    .map_err(|e| anyhow!("user balance: {e:?}"))?
+                    .utxos
+                    .first()
+                    .cloned())
+            })?;
             let source_in = SppProofInputUtxo::new(funding_utxo.clone(), &env.user.keypair);
             let remainder_amount = funding_utxo
                 .amount
@@ -148,15 +148,16 @@ fn create_pair_escrow_and_settle() -> Result<()> {
 
             // Re-sync and select the freshly created exact-`ORDER_AMOUNT` note
             // from Photon, rather than reconstructing it from the split blinding.
-            sync_wallet(&mut user_wallet, &env.user.keypair, env.client.indexer())
-                .map_err(|e| anyhow!("resync user wallet: {e:?}"))?;
-            user_wallet
-                .balance(env.spl_mint, None)
-                .map_err(|e| anyhow!("user balance after split: {e:?}"))?
-                .utxos
-                .into_iter()
-                .find(|utxo| utxo.amount == ORDER_AMOUNT)
-                .ok_or_else(|| anyhow!("no exact-{ORDER_AMOUNT} utxo after split"))?
+            wait_until("exact split note", || {
+                sync_wallet(&mut user_wallet, &env.user.keypair, env.client.indexer())
+                    .map_err(|e| anyhow!("resync user wallet: {e:?}"))?;
+                Ok(user_wallet
+                    .balance(env.spl_mint, None)
+                    .map_err(|e| anyhow!("user balance after split: {e:?}"))?
+                    .utxos
+                    .into_iter()
+                    .find(|utxo| utxo.amount == ORDER_AMOUNT))
+            })?
         };
 
         let escrow_owner = escrow_authority_identity(&env.authority.keypair, &pair)?;
