@@ -1,7 +1,7 @@
 use custom_ring_interface::CreateRecordIxData;
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_interface::instruction::instruction_data::transact::InputUtxo;
-use zolana_ring_policy::{PolicyMember, PolicyRecord, RecordKind, RecordState};
+use zolana_ring_policy::{Member, Record, RecordKind, RecordState};
 
 use crate::{
     error::CustomRingError,
@@ -23,14 +23,14 @@ pub fn process_create_record_ix(
     let kind = RecordKind::try_from(ix.kind).map_err(|_| CustomRingError::InvalidRecordKind)?;
     let state = RecordState::try_from(ix.state).map_err(|_| CustomRingError::InvalidRecordState)?;
     let member =
-        PolicyMember::from_bytes(ix.member).map_err(|_| CustomRingError::InvalidPolicyMember)?;
+        Member::from_bytes(ix.member).map_err(|_| CustomRingError::InvalidPolicyMember)?;
 
     let parsed = MutationAccounts::validate_and_parse(program_id, accounts)?;
     parsed.check_mutator(kind, &member)?;
 
     let (address_utxo_hash, address) = record_address_input(&parsed.owner, kind, &member)?;
     let transact = RecordTransition {
-        record: PolicyRecord {
+        record: Record {
             kind,
             member,
             state,

@@ -4,9 +4,57 @@ use zolana_hasher::{
 use zolana_interface::{ADDRESS_DOMAIN, SOL_ASSET_FIELD, UTXO_DOMAIN};
 
 use crate::{
-    field_u16, field_u64, field_u8, PolicyMember, RecordKind, POLICY_ADDRESS_DOMAIN,
-    POLICY_RECORD_DOMAIN,
+    field_u16, field_u64, field_u8, Member, POLICY_ADDRESS_DOMAIN, POLICY_RECORD_DOMAIN,
 };
+
+/// The on-chain discriminant of a record list, never `0` (the circuit reserves it as the inline-asset sentinel).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum RecordKind {
+    Allow = 1,
+    Block = 2,
+    Frozen = 3,
+    RingViewing = 4,
+    Recovery = 5,
+    Reader = 6,
+    Approval = 7,
+    Escrow = 8,
+}
+
+/// Who may mutate a record list, the sole authorization axis the program gates on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Holder {
+    Authority,
+    Member,
+}
+
+impl RecordKind {
+    /// The single source of truth the program and every `List` impl read.
+    pub const fn holder(self) -> Holder {
+        match self {
+            Self::RingViewing | Self::Recovery | Self::Escrow => Holder::Member,
+            _ => Holder::Authority,
+        }
+    }
+}
+
+impl TryFrom<u8> for RecordKind {
+    type Error = ();
+
+    fn try_from(value: u8) -> Result<Self, ()> {
+        Ok(match value {
+            1 => Self::Allow,
+            2 => Self::Block,
+            3 => Self::Frozen,
+            4 => Self::RingViewing,
+            5 => Self::Recovery,
+            6 => Self::Reader,
+            7 => Self::Approval,
+            8 => Self::Escrow,
+            _ => return Err(()),
+        })
+    }
+}
 
 pub const POLICY_RECORDS_PDA_SEED: &[u8] = b"policy_records";
 
@@ -69,14 +117,14 @@ impl RecordsOwner {
     pub fn address(
         &self,
         kind: RecordKind,
-        member: &PolicyMember,
+        member: &Member,
     ) -> Result<[u8; 32], HasherError> {
         let seed = record_seed(kind, member)?;
         record_nullifier(&self.address_utxo_hash(&seed)?, &seed)
     }
 }
 
-pub fn record_seed(kind: RecordKind, member: &PolicyMember) -> Result<[u8; 32], HasherError> {
+pub fn record_seed(kind: RecordKind, member: &Member) -> Result<[u8; 32], HasherError> {
     Poseidon::hashv(&[
         &POLICY_ADDRESS_DOMAIN,
         &field_u8(kind as u8),
@@ -87,15 +135,15 @@ pub fn record_seed(kind: RecordKind, member: &PolicyMember) -> Result<[u8; 32], 
 /// The blinding is the version, a re-added member never repeats a commitment
 /// or a nullifier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PolicyRecord {
+pub struct Record {
     pub kind: RecordKind,
-    pub member: PolicyMember,
+    pub member: Member,
     pub state: RecordState,
     pub version: u64,
     pub payload_hash: [u8; 32],
 }
 
-impl PolicyRecord {
+impl Record {
     pub fn data_hash(&self, address: &[u8; 32]) -> Result<[u8; 32], HasherError> {
         Poseidon::hashv(&[
             &POLICY_RECORD_DOMAIN,
@@ -112,12 +160,12 @@ impl PolicyRecord {
         field_u64(self.version)
     }
 
-    /// Takes the payload of [`PolicyRecord::to_output_data`], without its envelope.
+    /// Takes the payload of [`Record::to_output_data`], without its envelope.
     pub fn from_payload(payload: &[u8]) -> Option<Self> {
         let payload: &[u8; RECORD_PAYLOAD_LEN] = payload.try_into().ok()?;
         Some(Self {
             kind: RecordKind::try_from(payload[0]).ok()?,
-            member: PolicyMember::from_bytes(payload[1..33].try_into().ok()?).ok()?,
+            member: Member::from_bytes(payload[1..33].try_into().ok()?).ok()?,
             state: RecordState::try_from(payload[33]).ok()?,
             version: u64::from_le_bytes(payload[34..42].try_into().ok()?),
             payload_hash: payload[42..74].try_into().ok()?,
@@ -189,8 +237,8 @@ mod tests {
         RecordsOwner::new(&[11u8; 32]).unwrap()
     }
 
-    fn member(byte: u8) -> PolicyMember {
-        PolicyMember::owner_tag(&[byte; 32]).unwrap()
+    fn member(byte: u8) -> Member {
+        Member::owner_tag(&[byte; 32]).unwrap()
     }
 
     #[test]
@@ -212,7 +260,7 @@ mod tests {
     #[test]
     fn state_and_version_move_the_commitment_but_not_the_address() {
         let owner = owner();
-        let record = PolicyRecord {
+        let record = Record {
             kind: RecordKind::Block,
             member: member(1),
             state: RecordState::Active,
@@ -221,7 +269,7 @@ mod tests {
         };
         let address = owner.address(record.kind, &record.member).unwrap();
         let active = record.utxo_hash(&owner, &address).unwrap();
-        let cleared = PolicyRecord {
+        let cleared = Record {
             state: RecordState::Cleared,
             version: 1,
             ..record
@@ -235,7 +283,7 @@ mod tests {
 
     #[test]
     fn the_payload_round_trips_through_the_published_envelope() {
-        let record = PolicyRecord {
+        let record = Record {
             kind: RecordKind::Frozen,
             member: member(5),
             state: RecordState::Cleared,
@@ -243,14 +291,14 @@ mod tests {
             payload_hash: [4u8; 32],
         };
         let encoded = record.to_output_data();
-        assert_eq!(PolicyRecord::from_payload(&encoded[5..]), Some(record));
-        assert_eq!(PolicyRecord::from_payload(&encoded), None);
+        assert_eq!(Record::from_payload(&encoded[5..]), Some(record));
+        assert_eq!(Record::from_payload(&encoded), None);
     }
 
     #[test]
     fn version_uniqueness_separates_nullifiers_of_equal_states() {
         let owner = owner();
-        let record = PolicyRecord {
+        let record = Record {
             kind: RecordKind::Allow,
             member: member(3),
             state: RecordState::Active,
@@ -258,7 +306,7 @@ mod tests {
             payload_hash: [0u8; 32],
         };
         let address = owner.address(record.kind, &record.member).unwrap();
-        let re_added = PolicyRecord {
+        let re_added = Record {
             version: 2,
             ..record
         };

@@ -1,7 +1,7 @@
 use custom_ring_interface::UpdateRecordIxData;
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_interface::instruction::instruction_data::transact::InputUtxo;
-use zolana_ring_policy::{PolicyMember, PolicyRecord, RecordKind, RecordState};
+use zolana_ring_policy::{Member, Record, RecordKind, RecordState};
 
 use crate::{
     error::CustomRingError,
@@ -25,12 +25,12 @@ pub fn process_update_record_ix(
         RecordState::try_from(ix.spent_state).map_err(|_| CustomRingError::InvalidRecordState)?;
     let state = RecordState::try_from(ix.state).map_err(|_| CustomRingError::InvalidRecordState)?;
     let member =
-        PolicyMember::from_bytes(ix.member).map_err(|_| CustomRingError::InvalidPolicyMember)?;
+        Member::from_bytes(ix.member).map_err(|_| CustomRingError::InvalidPolicyMember)?;
 
     let parsed = MutationAccounts::validate_and_parse(program_id, accounts)?;
     parsed.check_mutator(kind, &member)?;
 
-    let spent = PolicyRecord {
+    let spent = Record {
         kind,
         member,
         state: spent_state,
@@ -43,7 +43,7 @@ pub fn process_update_record_ix(
         .checked_add(1)
         .ok_or(CustomRingError::RecordVersionOverflow)?;
     let transact = RecordTransition {
-        record: PolicyRecord {
+        record: Record {
             kind,
             member,
             state,

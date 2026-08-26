@@ -20,8 +20,8 @@ use zolana_interface::{
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_ring_policy::{
-    mutation_private_tx_hash, record_nullifier, record_seed, PolicyMember, PolicyRecord,
-    RecordKind, RecordsOwner, POLICY_RECORDS_PDA_SEED,
+    mutation_private_tx_hash, record_nullifier, record_seed, Holder, Member, Record, RecordKind,
+    RecordsOwner, POLICY_RECORDS_PDA_SEED,
 };
 
 use crate::{
@@ -145,22 +145,27 @@ impl<'a> MutationAccounts<'a> {
         })
     }
 
-    pub fn check_mutator(&self, kind: RecordKind, member: &PolicyMember) -> ProgramResult {
-        if kind.held_by_member() {
-            let signer = PolicyMember::owner_tag(self.payer.address().as_array())
-                .map_err(|_| CustomRingError::HashingFailed)?;
-            if signer != *member {
-                return Err(CustomRingError::UnauthorizedRecordSigner.into());
+    pub fn check_mutator(&self, kind: RecordKind, member: &Member) -> ProgramResult {
+        match kind.holder() {
+            Holder::Member => {
+                let signer = Member::owner_tag(self.payer.address().as_array())
+                    .map_err(|_| CustomRingError::HashingFailed)?;
+                if signer != *member {
+                    return Err(CustomRingError::UnauthorizedRecordSigner.into());
+                }
             }
-        } else if self.payer.address() != &self.authority {
-            return Err(CustomRingError::UnauthorizedRecordSigner.into());
+            Holder::Authority => {
+                if self.payer.address() != &self.authority {
+                    return Err(CustomRingError::UnauthorizedRecordSigner.into());
+                }
+            }
         }
         Ok(())
     }
 }
 
 pub(crate) struct RecordTransition {
-    pub record: PolicyRecord,
+    pub record: Record,
     pub input: InputUtxo,
     pub input_hash: [u8; 32],
     pub address_utxo_hash: [u8; 32],
@@ -232,7 +237,7 @@ impl RecordTransition {
 
 pub(crate) fn record_spend_input(
     owner: &RecordsOwner,
-    record: &PolicyRecord,
+    record: &Record,
 ) -> Result<([u8; 32], [u8; 32]), ProgramError> {
     let address = owner
         .address(record.kind, &record.member)
@@ -248,7 +253,7 @@ pub(crate) fn record_spend_input(
 pub(crate) fn record_address_input(
     owner: &RecordsOwner,
     kind: RecordKind,
-    member: &PolicyMember,
+    member: &Member,
 ) -> Result<([u8; 32], [u8; 32]), ProgramError> {
     let seed = record_seed(kind, member).map_err(|_| CustomRingError::HashingFailed)?;
     let address_utxo_hash = owner

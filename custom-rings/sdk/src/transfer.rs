@@ -127,7 +127,7 @@ pub enum TransferError {
     #[error("a policy rule refuses the transfer")]
     PolicyRuleUnsatisfied,
     #[error(transparent)]
-    PolicyRecord(Box<crate::RecordProofError>),
+    Record(Box<crate::RecordProofError>),
     #[error("transfer was prepared with padded change slots, prepare it with ConfidentialTransfer::with_compact_change")]
     PaddedChange,
     #[error("asset registry is required")]

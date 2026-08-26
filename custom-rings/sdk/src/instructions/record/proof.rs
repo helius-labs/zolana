@@ -17,7 +17,7 @@ use zolana_interface::{
     ADDRESS_DOMAIN, SHIELDED_POOL_PROGRAM_ID, SOL_ASSET_FIELD, UTXO_DOMAIN,
 };
 use zolana_ring_policy::{
-    record_nullifier, record_seed, PolicyMember, PolicyRecord, RecordKind, RecordsOwner,
+    record_nullifier, record_seed, Member, Record, RecordKind, RecordsOwner,
 };
 use zolana_transaction::{
     instructions::transact::{ExternalData, PrivateTxHash},
@@ -60,8 +60,8 @@ pub(super) struct RecordWitness<'a> {
     pub records: Address,
     pub records_tree: Address,
     pub payer: Address,
-    pub record: PolicyRecord,
-    pub spent: Option<PolicyRecord>,
+    pub record: Record,
+    pub spent: Option<Record>,
 }
 
 impl RecordWitness<'_> {
@@ -226,7 +226,7 @@ impl InputSlot {
     fn claim(
         owner: &RecordsOwner,
         kind: RecordKind,
-        member: &PolicyMember,
+        member: &Member,
         address: [u8; 32],
     ) -> Result<Self, RecordProofError> {
         let seed = record_seed(kind, member).map_err(|_| RecordProofError::Hashing)?;
@@ -250,7 +250,7 @@ impl InputSlot {
         indexer: &I,
         tree: Address,
         owner: &RecordsOwner,
-        spent: &PolicyRecord,
+        spent: &Record,
         address: [u8; 32],
     ) -> Result<Self, RecordProofError> {
         let input_hash = spent
