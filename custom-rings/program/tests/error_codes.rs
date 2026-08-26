@@ -40,6 +40,7 @@ fn error_codes_are_stable() {
         (InvalidCuratorPolicyConfig as u32, 8135),
         (CuratorTreeMismatch as u32, 8136),
         (CuratorSourceMissing as u32, 8137),
+        (ForeignRecordSource as u32, 8138),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -86,6 +87,7 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | InvalidPolicySource
         | InvalidCuratorPolicyConfig
         | CuratorTreeMismatch
-        | CuratorSourceMissing => {}
+        | CuratorSourceMissing
+        | ForeignRecordSource => {}
     }
 }

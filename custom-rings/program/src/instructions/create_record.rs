@@ -24,7 +24,7 @@ pub fn process_create_record_ix(
     let state = RecordState::try_from(ix.state).map_err(|_| CustomRingError::InvalidRecordState)?;
     let member = Member::from_bytes(ix.member).map_err(|_| CustomRingError::InvalidPolicyMember)?;
 
-    let parsed = MutationAccounts::validate_and_parse(program_id, accounts)?;
+    let parsed = MutationAccounts::validate_and_parse(program_id, accounts, kind)?;
     parsed.check_mutator(kind, &member)?;
 
     let (address_utxo_hash, address) = record_address_input(&parsed.owner, kind, &member)?;
