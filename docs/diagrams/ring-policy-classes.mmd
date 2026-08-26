@@ -1,0 +1,92 @@
+classDiagram
+    direction TB
+
+    namespace Account {
+        class PolicyConfig {
+            policy_hash
+            records_tree
+        }
+    }
+    namespace Program {
+        class Policy {
+            rules
+            len
+        }
+        class Rule {
+            subject
+            mode
+            guard
+            source
+        }
+        class RuleSource {
+            <<enumeration>>
+            Records
+            InlineAssets
+        }
+        class RecordKind {
+            <<enumeration>>
+            Allow
+            Block
+            Frozen
+            RingViewing
+            Recovery
+            Reader
+            Approval
+            Escrow
+        }
+        class Holder {
+            <<enumeration>>
+            Authority
+            Member
+        }
+    }
+    namespace RecordSet {
+        class RecordsOwner {
+            owner_hash
+        }
+        class Record {
+            kind
+            member
+            state
+            version
+            payload_hash
+        }
+        class RecordState {
+            <<enumeration>>
+            Active
+            Cleared
+        }
+        class Member {
+            field_element
+        }
+    }
+    namespace Witness {
+        class Pool {
+            entries
+        }
+        class CustomRingPoolEntry {
+            enabled
+            kind
+            member
+            mode
+            absent_branch
+        }
+    }
+
+    PolicyConfig ..> Policy : pins hash at create_policy
+    Policy ..> RecordsOwner : hash binds owner_hash
+    Policy "1" *-- "0..MAX_RULES" Rule : live rules only hashed
+    Rule --> RuleSource
+    RuleSource "1" --> "0..1" RecordKind : Records variant only
+    RecordKind --> Holder : holder() gates mutation
+    Record --> RecordKind
+    Record --> Member
+    Record --> RecordState
+    RecordsOwner "1" --> "0..*" Record : one lineage per pair
+    Pool "1" *-- "POLICY_POOL_SLOTS" CustomRingPoolEntry : all slots serialized
+    Rule ..> CustomRingPoolEntry : one entry per kind+member+mode
+    CustomRingPoolEntry ..> Record : proves present or absent
+
+    note for Policy "hash covers rules up to len, padding invisible"
+    note for Pool "disabled slots zero filled, circuit gates on enabled"
+    note for Member "zero reserved as padding, never a member"
