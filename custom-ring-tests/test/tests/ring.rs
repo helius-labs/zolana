@@ -67,7 +67,7 @@ use zolana_transaction::{
     instructions::transact::{
         encrypt_transaction_data, get_transaction_viewing_key, ExternalData, SppProofOutputUtxo,
     },
-    owner_utxo_hash, Data, LocalWalletAuthority, RingDepositPlaintext, Utxo, DEFAULT_TAG_WINDOW,
+    owner_utxo_hash, Data, KeypairWalletAuthority, RingDepositPlaintext, Utxo, DEFAULT_TAG_WINDOW,
     SOL_ASSET_ID, SOL_MINT,
 };
 use zolana_tree::TreeAccount;
@@ -548,7 +548,8 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
 
     // 9. Normal operation is undisturbed: the recipient still discovers its
     //    output through `Wallet::sync` on its own view tag, with no auditor key.
-    let recipient_authority = LocalWalletAuthority::new(Address::default(), &env.recipient.keypair);
+    let recipient_authority =
+        KeypairWalletAuthority::new(Address::default(), &env.recipient.keypair);
     env.recipient.wallet.sync(
         &recipient_authority,
         std::slice::from_ref(&indexed),

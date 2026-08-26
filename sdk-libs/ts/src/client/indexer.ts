@@ -3,7 +3,6 @@ import { base64String, hash, hashBytes, limit } from "../indexer/scalars.js";
 import type {
   EncryptedUtxoMatch as WireEncryptedUtxoMatch,
   GetEncryptedUtxosByTagsResponse as WireGetEncryptedUtxosByTagsResponse,
-  GetShieldedTransactionsByNullifiersResponse as WireGetShieldedTransactionsByNullifiersResponse,
   GetShieldedTransactionsBySignatureResponse as WireGetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse as WireGetShieldedTransactionsByTagsResponse,
   IndexedShieldedTransaction as WireShieldedTransaction,
@@ -121,7 +120,7 @@ export class ZolanaIndexer {
           },
           context,
         );
-        return convertShieldedTransactionsByNullifiersResponse(response, method);
+        return convertShieldedTransactionsResponse(response, method);
       } catch (cause) {
         throw wrapIndexer(cause, method);
       }
@@ -303,6 +302,9 @@ function convertEncryptedUtxosResponse(
     ...(response.nextCursor === undefined
       ? {}
       : { nextCursor: decodeBase64(response.nextCursor, "nextCursor") }),
+    ...(response.scannedThrough === undefined
+      ? {}
+      : { scannedThrough: decodeBase64(response.scannedThrough, "scannedThrough") }),
   });
 }
 
@@ -336,17 +338,6 @@ function convertShieldedTransactionsResponse(
     ...(response.nextCursor === undefined
       ? {}
       : { nextCursor: decodeBase64(response.nextCursor, "nextCursor") }),
-  });
-}
-
-function convertShieldedTransactionsByNullifiersResponse(
-  response: WireGetShieldedTransactionsByNullifiersResponse,
-  method: string,
-): GetShieldedTransactionsByNullifiersResponse {
-  // Delegating alone would drop the scan position, leaving sync restarting from
-  // zero while appearing to resume.
-  return Object.freeze({
-    ...convertShieldedTransactionsResponse(response, method),
     ...(response.scannedThrough === undefined
       ? {}
       : { scannedThrough: decodeBase64(response.scannedThrough, "scannedThrough") }),

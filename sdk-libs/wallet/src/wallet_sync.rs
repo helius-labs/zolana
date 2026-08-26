@@ -700,7 +700,7 @@ fn fetch_shielded_transactions_incremental<I: Rpc>(
                 }
                 Ok(Page {
                     next_cursor: response.next_cursor,
-                    scanned_through: None,
+                    scanned_through: response.scanned_through,
                 })
             })?;
 
@@ -743,7 +743,7 @@ async fn fetch_shielded_transactions_incremental_async<I: AsyncRpc>(
                 }
                 let page = Page {
                     next_cursor: response.next_cursor,
-                    scanned_through: None,
+                    scanned_through: response.scanned_through,
                 };
                 let Some(next) = advance(&mut furthest, page) else {
                     break;
@@ -884,7 +884,7 @@ where
                 }
                 Ok(Page {
                     next_cursor: response.next_cursor,
-                    scanned_through: None,
+                    scanned_through: response.scanned_through,
                 })
             })?;
 
@@ -935,7 +935,7 @@ async fn fetch_proofless_deposits_async<I: AsyncRpc>(
                 }
                 let page = Page {
                     next_cursor: response.next_cursor,
-                    scanned_through: None,
+                    scanned_through: response.scanned_through,
                 };
                 let Some(next) = advance(&mut furthest, page) else {
                     break;
@@ -1022,7 +1022,7 @@ mod tests {
 
     use solana_signature::Signature;
     use zolana_interface::event::{encode_output_data, ProoflessOutput};
-    use zolana_keypair::{ShieldedKeypair, SigningKey};
+    use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
     use zolana_transaction::{
         instructions::{
             merge::Merge as MergePlan,
@@ -1032,8 +1032,9 @@ mod tests {
             types::SppProofInputUtxo,
         },
         serialization::Proofless,
-        Address, AssetRegistry, Data, LocalWalletAuthority, OwnerCx, PrivateTransactionDirection,
-        PrivateTransactionKind, Utxo, UtxoSerialization, WalletUtxo, SOL_MINT,
+        Address, AssetRegistry, Data, KeypairWalletAuthority, OwnerCx, PrivateTransaction,
+        PrivateTransactionDirection, PrivateTransactionKind, PrivateTransactionStatus, Utxo,
+        UtxoSerialization, WalletUtxo, SOL_MINT,
     };
 
     use super::*;
@@ -1211,6 +1212,7 @@ mod tests {
                 },
                 matches: self.matches.clone(),
                 next_cursor: None,
+                scanned_through: None,
             })
         }
 
@@ -1228,6 +1230,7 @@ mod tests {
                 },
                 transactions: self.transactions.clone(),
                 next_cursor: None,
+                scanned_through: None,
             })
         }
 
@@ -1319,6 +1322,7 @@ mod tests {
                 },
                 matches,
                 next_cursor,
+                scanned_through: None,
             })
         }
 
@@ -1338,6 +1342,7 @@ mod tests {
                 },
                 transactions,
                 next_cursor,
+                scanned_through: None,
             })
         }
 
@@ -1971,8 +1976,8 @@ mod tests {
     const SPL_ASSET_ID: u64 = 2;
     const SPL_MINT: Address = Address::new_from_array([2u8; 32]);
 
-    fn local_authority(keypair: &ShieldedKeypair) -> LocalWalletAuthority<'_> {
-        LocalWalletAuthority::new(Address::default(), keypair)
+    fn local_authority(keypair: &ShieldedKeypair) -> KeypairWalletAuthority<'_> {
+        KeypairWalletAuthority::new(Address::default(), keypair)
     }
 
     fn ed25519_keypair(seed: u8) -> ShieldedKeypair {
@@ -2056,6 +2061,140 @@ mod tests {
         assert_eq!(
             outbound.counterparty_viewing_pubkey,
             Some(bob.viewing_pubkey())
+        );
+    }
+
+    #[test]
+    fn sync_wallet_classifies_confidential_send_to_self() {
+        let assets = AssetRegistry::default();
+        let alice = ed25519_keypair(3);
+        let mut wallet = wallet_with_utxo(&alice, SOL_MINT, 100, 4);
+        let funded = wallet
+            .utxos
+            .first()
+            .expect("the wallet was funded with one UTXO")
+            .utxo
+            .clone();
+        let spend = SppProofInputUtxo::new(funded, &alice);
+        let transfer = signed_to_shielded_tx(
+            confidential_send(&alice, vec![spend], &alice, SOL_MINT, 40, &assets),
+            1,
+        );
+        let indexer = MockIndexer {
+            transactions: vec![transfer],
+            matches: Vec::new(),
+            program_accounts: Vec::new(),
+        };
+
+        sync_wallet(&mut wallet, &local_authority(&alice), &indexer).expect("sync self transfer");
+
+        // A wallet synced by an older build carries the outbound classification.
+        // The rescan must replace that row, not add a second one beside it.
+        wallet
+            .transactions
+            .first_mut()
+            .expect("the first sync recorded the row")
+            .direction = PrivateTransactionDirection::Outbound;
+        sync_wallet(&mut wallet, &local_authority(&alice), &indexer)
+            .expect("replace stale outbound classification");
+
+        let transactions = wallet.private_transactions();
+        let [row] = transactions else {
+            panic!("expected exactly one row, got {}", transactions.len());
+        };
+        assert_eq!(
+            *row,
+            PrivateTransaction {
+                // Derived from the built transaction, so it is read back rather
+                // than hardcoded; every other field is pinned.
+                id: row.id.clone(),
+                kind: PrivateTransactionKind::PrivateTransfer,
+                direction: PrivateTransactionDirection::SelfTransfer,
+                status: PrivateTransactionStatus::Confirmed,
+                asset: SOL_MINT,
+                amount: 40,
+                counterparty_viewing_pubkey: Some(alice.viewing_pubkey()),
+            }
+        );
+    }
+
+    /// A self transfer addressed to a viewing key the wallet has since rotated
+    /// out is still a self transfer. Recognizing only the current key would
+    /// classify it as `Outbound` -- and only wallets that use the historical-key
+    /// support can reach it, since a rotated-out key has no other way in.
+    #[test]
+    fn sync_wallet_classifies_a_send_to_a_rotated_out_viewing_key_as_self() {
+        let assets = AssetRegistry::default();
+        let signing = SigningKey::from_ed25519_bytes(&[11u8; 32]);
+        // Same signing and nullifier roles, two viewing keys: the wallet before
+        // and after a rotation. The UTXO owner and nullifiers are unchanged, so
+        // the pre-rotation transaction is still this wallet's to decode.
+        let retired = ShieldedKeypair::with_viewing_key(
+            signing.clone(),
+            ViewingKey::from_bytes(&[21u8; 32]).expect("retired viewing key"),
+        )
+        .expect("pre-rotation keypair");
+        let current = ShieldedKeypair::with_viewing_key(
+            signing,
+            ViewingKey::from_bytes(&[22u8; 32]).expect("current viewing key"),
+        )
+        .expect("post-rotation keypair");
+
+        let mut wallet = wallet_with_utxo(&current, SOL_MINT, 100, 12);
+        let funded = wallet
+            .utxos
+            .first()
+            .expect("the wallet was funded with one UTXO")
+            .utxo
+            .clone();
+        let transfer = signed_to_shielded_tx(
+            confidential_send(
+                &retired,
+                vec![SppProofInputUtxo::new(funded, &retired)],
+                &retired,
+                SOL_MINT,
+                40,
+                &assets,
+            ),
+            1,
+        );
+        let authority = KeypairWalletAuthority::with_viewing_keys(
+            Address::default(),
+            &current,
+            vec![current.viewing_key.clone(), retired.viewing_key.clone()],
+        )
+        .expect("current key is present alongside the retired one");
+
+        sync_wallet(
+            &mut wallet,
+            &authority,
+            &MockIndexer {
+                transactions: vec![transfer],
+                matches: Vec::new(),
+                program_accounts: Vec::new(),
+            },
+        )
+        .expect("sync across the rotation");
+
+        let self_rows = wallet
+            .private_transactions()
+            .iter()
+            .filter(|tx| tx.direction == PrivateTransactionDirection::SelfTransfer)
+            .map(|tx| (tx.asset, tx.amount, tx.counterparty_viewing_pubkey))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            self_rows,
+            vec![(SOL_MINT, 40, Some(retired.viewing_pubkey()))],
+            "history={:?}",
+            wallet.private_transactions()
+        );
+        assert!(
+            !wallet
+                .private_transactions()
+                .iter()
+                .any(|tx| tx.direction == PrivateTransactionDirection::Outbound),
+            "a send to a retired own key must leave no outbound row; history={:?}",
+            wallet.private_transactions()
         );
     }
 

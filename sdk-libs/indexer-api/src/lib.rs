@@ -542,6 +542,9 @@ pub struct GetEncryptedUtxosByTagsResponse {
     /// Output-level matches; every returned output slot has a view tag from the request.
     pub matches: Vec<EncryptedUtxoMatch>,
     pub next_cursor: Option<Base64String>,
+    /// Where the scan reached on a terminal page, including an empty page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scanned_through: Option<Base64String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -607,6 +610,9 @@ pub struct GetShieldedTransactionsByTagsResponse {
     /// output view tag and includes all of its output slots.
     pub transactions: Vec<ShieldedTransaction>,
     pub next_cursor: Option<Base64String>,
+    /// Where the scan reached on a terminal page, including an empty page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scanned_through: Option<Base64String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -800,6 +806,7 @@ mod tests {
             },
             matches: Vec::new(),
             next_cursor: Some(Base64String(vec![1])),
+            scanned_through: None,
         })
         .unwrap();
         assert!(value.get("nextCursor").is_some());

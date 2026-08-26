@@ -2,9 +2,10 @@ use async_trait::async_trait;
 use solana_address::Address;
 use zolana_event::MessageData;
 use zolana_keypair::{
+    derivation,
     shielded::{ShieldedAddress, ShieldedKeypair},
     viewing_key::{random_salt, Salt, ViewTag},
-    NullifierKey, P256Pubkey, ViewingKey,
+    Curve, NullifierKey, P256Pubkey, PublicKey, ShieldedKeypairTrait, ViewingKey, ViewingKeyTrait,
 };
 
 use crate::{
@@ -248,18 +249,118 @@ where
     }
 }
 
-/// Binds local shielded keys to the Solana address that publishes them.
-pub struct LocalWalletAuthority<'a> {
+/// Binds a shielded keypair to the Solana address that publishes it.
+///
+/// Generic over the keypair so a backend whose signing key is hardware-resident
+/// — an HSM, a KMS, a remote custodian — becomes a [`WalletAuthority`] by
+/// implementing [`ShieldedKeypairTrait`] and [`ViewingKeyTrait`], with no
+/// reimplementation of the encryption bodies below.
+///
+/// Wherever the signing key lives, the encryption and scan material is in this
+/// process: both role secrets are private proof inputs, so no signing device can
+/// hold them on the wallet's behalf.
+///
+/// `K` defaults to [`ShieldedKeypair`] because a software keypair is the
+/// ordinary case, the way `HashMap` defaults its hasher — not to keep older
+/// call sites compiling.
+pub struct KeypairWalletAuthority<'a, K = ShieldedKeypair> {
     solana_pubkey: Address,
-    keypair: &'a ShieldedKeypair,
+    keypair: &'a K,
+    viewing_keys: Vec<ViewingKey>,
 }
 
-impl<'a> LocalWalletAuthority<'a> {
+/// Client-owned privacy roles derived from a remote Ed25519 signer.
+///
+/// The authority never contains the Solana signing key. It verifies the
+/// deterministic derivation signature returned by the signer, expands the
+/// nullifier and viewing roles locally, and supplies those roles to wallet
+/// sync, transaction construction, and the prover. The final Solana
+/// transaction must be authorized separately by the remote signer.
+///
+/// This split is useful for a remote-custody wallet: the custodian can produce
+/// the fixed derivation signature and later authorize a constrained
+/// transaction, while indexer and prover calls remain in the client.
+pub struct ClientEd25519WalletAuthority {
+    solana_pubkey: Address,
+    signing_pubkey: PublicKey,
+    nullifier_key: NullifierKey,
+    viewing_key: ViewingKey,
+}
+
+impl ClientEd25519WalletAuthority {
+    /// Verifies and consumes an Ed25519 derivation seed produced for
+    /// `solana_pubkey`.
+    ///
+    /// The seed is the 64-byte Ed25519 signature over the canonical Zolana
+    /// derivation message. It is not retained after the nullifier and viewing
+    /// roles have been expanded. The caller remains responsible for clearing
+    /// its own seed buffer after this returns.
+    pub fn from_derivation_seed(
+        solana_pubkey: impl Into<Address>,
+        derivation_seed: &[u8; derivation::ED25519_SEED_LEN],
+    ) -> Result<Self, TransactionError> {
+        let solana_pubkey = solana_pubkey.into();
+        let ed25519_pubkey = *solana_pubkey.as_array();
+        let signing_pubkey = PublicKey::from_ed25519(&ed25519_pubkey);
+        let message = derivation::ed25519_derivation_message(&ed25519_pubkey);
+        if !signing_pubkey.verify_message(&message, derivation_seed) {
+            return Err(TransactionError::InvalidDerivationSeed);
+        }
+
+        let (nullifier_key, viewing_key) =
+            derivation::expand_roles(derivation_seed, Curve::Ed25519)?;
+        Ok(Self {
+            solana_pubkey,
+            signing_pubkey,
+            nullifier_key,
+            viewing_key,
+        })
+    }
+}
+
+impl<'a> KeypairWalletAuthority<'a, ShieldedKeypair> {
+    /// Scans with the keypair's own viewing key. Use
+    /// [`Self::with_viewing_keys`] to add rotated-out keys, or for a backend
+    /// that is not a [`ShieldedKeypair`].
     pub fn new(solana_pubkey: impl Into<Address>, keypair: &'a ShieldedKeypair) -> Self {
+        let viewing_keys = vec![keypair.viewing_key.clone()];
         Self {
             solana_pubkey: solana_pubkey.into(),
             keypair,
+            viewing_keys,
         }
+    }
+}
+
+impl<'a, K: ViewingKeyTrait> KeypairWalletAuthority<'a, K> {
+    /// Binds any shielded keypair backend to the viewing keys a scan needs:
+    /// every current and historical key.
+    ///
+    /// `viewing_keys` must contain the keypair's own, or this fails with
+    /// [`TransactionError::AuthorityViewingKeyMismatch`]. That check is why this constructor is fallible while
+    /// [`Self::new`] is not: `new` reads the key off the keypair and cannot
+    /// disagree with it, whereas a generic backend cannot hand over its viewing
+    /// key at all — [`ViewingKeyTrait`] deliberately exposes operations rather
+    /// than the secret — so the caller supplies it and the two could drift.
+    ///
+    /// A drift is not cosmetic. The encryption bodies key off the *keypair*
+    /// while a scan keys off this vector, so a wallet built from a mismatched
+    /// pair would encrypt to one key and scan with another. Rejecting it at
+    /// construction fails at the mistake instead of later, inside a scan.
+    pub fn with_viewing_keys(
+        solana_pubkey: impl Into<Address>,
+        keypair: &'a K,
+        viewing_keys: Vec<ViewingKey>,
+    ) -> Result<Self, TransactionError> {
+        let current = keypair.pubkey();
+        if !viewing_keys.iter().any(|key| key.pubkey() == current) {
+            return Err(TransactionError::AuthorityViewingKeyMismatch);
+        }
+        Ok(Self {
+            solana_pubkey: solana_pubkey.into(),
+            keypair,
+            viewing_keys,
+        })
     }
 }
 
@@ -271,18 +372,20 @@ fn recipient_slot_index(i: usize) -> Result<u32, TransactionError> {
     })
 }
 
-/// Shared bodies for every local authority over a [`ShieldedKeypair`]
-/// ([`LocalWalletAuthority`] and the bare keypair impl below), so the
+/// Shared bodies for every authority over a shielded keypair
+/// ([`KeypairWalletAuthority`] and the bare keypair impl below), so the
 /// encryption and signing logic exists once.
-fn encrypt_confidential_transfer_with(
-    keypair: &ShieldedKeypair,
+///
+/// Written against [`ViewingKeyTrait`] and [`ShieldedKeypairTrait`] rather than
+/// a concrete keypair: these are exactly the capabilities the bodies need, so
+/// any backend that has them gets the same code.
+fn encrypt_confidential_transfer_with<K: ViewingKeyTrait>(
+    keypair: &K,
     first_nullifier: &[u8; 32],
     outputs: &[SppProofOutputUtxo],
     assets: &AssetRegistry,
 ) -> Result<EncryptedTransfer, TransactionError> {
-    let tx = keypair
-        .viewing_key
-        .get_transaction_viewing_key(first_nullifier)?;
+    let tx = keypair.get_transaction_viewing_key(first_nullifier)?;
     let salt = random_salt();
     let slots = encode_confidential_slots(outputs, assets, &tx, salt)?;
     Ok(EncryptedTransfer {
@@ -292,18 +395,16 @@ fn encrypt_confidential_transfer_with(
     })
 }
 
-fn encrypt_anonymous_transfer_with(
-    keypair: &ShieldedKeypair,
+fn encrypt_anonymous_transfer_with<K: ViewingKeyTrait>(
+    keypair: &K,
     first_nullifier: &[u8; 32],
     sender_view_tag: ViewTag,
     sender: &AnonymousTransferSenderPlaintext,
     recipients: &[AnonymousRecipientSlot],
 ) -> Result<EncryptedTransfer, TransactionError> {
-    let tx = keypair
-        .viewing_key
-        .get_transaction_viewing_key(first_nullifier)?;
+    let tx = keypair.get_transaction_viewing_key(first_nullifier)?;
     let salt = random_salt();
-    let self_pubkey = keypair.viewing_key.pubkey();
+    let self_pubkey = keypair.pubkey();
 
     let mut slots = Vec::with_capacity(1 + recipients.len());
     let sender_cx = AnonymousSenderEncode {
@@ -342,15 +443,13 @@ fn encrypt_anonymous_transfer_with(
     })
 }
 
-fn encrypt_split_with(
-    keypair: &ShieldedKeypair,
+fn encrypt_split_with<K: ViewingKeyTrait>(
+    keypair: &K,
     first_nullifier: &[u8; 32],
     view_tag: ViewTag,
     bundle: &SplitBundlePlaintext,
 ) -> Result<EncryptedSplit, TransactionError> {
-    let tx = keypair
-        .viewing_key
-        .get_transaction_viewing_key(first_nullifier)?;
+    let tx = keypair.get_transaction_viewing_key(first_nullifier)?;
     let salt = random_salt();
     let tx_viewing_pk = tx.pubkey();
     let message = Split::encode_plaintext(
@@ -358,7 +457,7 @@ fn encrypt_split_with(
         view_tag,
         &SplitEncode {
             tx,
-            recipient_pubkey: keypair.viewing_key.pubkey(),
+            recipient_pubkey: keypair.pubkey(),
             salt,
             slot_index: 0,
             blinding_seed: bundle.blinding_seed,
@@ -371,8 +470,8 @@ fn encrypt_split_with(
     })
 }
 
-fn sign_p256_with(
-    keypair: &ShieldedKeypair,
+fn sign_p256_with<K: ShieldedKeypairTrait>(
+    keypair: &K,
     message_hash: &[u8; 32],
 ) -> Result<P256Signature, TransactionError> {
     let bytes = keypair
@@ -389,17 +488,92 @@ fn sign_p256_with(
     })
 }
 
-impl SyncWalletAuthority for LocalWalletAuthority<'_> {
+impl SyncWalletAuthority for ClientEd25519WalletAuthority {
     fn solana_pubkey(&self) -> Address {
         self.solana_pubkey
     }
 
     fn shielded_address(&self) -> Result<ShieldedAddress, TransactionError> {
-        Ok(self.keypair.shielded_address()?)
+        Ok(ShieldedAddress {
+            signing_pubkey: self.signing_pubkey,
+            nullifier_pubkey: self.nullifier_key.pubkey()?,
+            viewing_pubkey: self.viewing_key.pubkey(),
+        })
     }
 
     fn viewing_keys(&self) -> Result<Vec<ViewingKey>, TransactionError> {
-        Ok(vec![self.keypair.viewing_key.clone()])
+        Ok(vec![self.viewing_key.clone()])
+    }
+
+    fn encrypt_confidential_transfer(
+        &self,
+        first_nullifier: &[u8; 32],
+        outputs: &[SppProofOutputUtxo],
+        assets: &AssetRegistry,
+    ) -> Result<EncryptedTransfer, TransactionError> {
+        encrypt_confidential_transfer_with(&self.viewing_key, first_nullifier, outputs, assets)
+    }
+
+    fn encrypt_anonymous_transfer(
+        &self,
+        first_nullifier: &[u8; 32],
+        sender_view_tag: ViewTag,
+        sender: &AnonymousTransferSenderPlaintext,
+        recipients: &[AnonymousRecipientSlot],
+    ) -> Result<EncryptedTransfer, TransactionError> {
+        encrypt_anonymous_transfer_with(
+            &self.viewing_key,
+            first_nullifier,
+            sender_view_tag,
+            sender,
+            recipients,
+        )
+    }
+
+    fn encrypt_split(
+        &self,
+        first_nullifier: &[u8; 32],
+        view_tag: ViewTag,
+        bundle: &SplitBundlePlaintext,
+    ) -> Result<EncryptedSplit, TransactionError> {
+        encrypt_split_with(&self.viewing_key, first_nullifier, view_tag, bundle)
+    }
+
+    fn sign_p256(&self, _message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError> {
+        Err(TransactionError::P256TransactUnsupported)
+    }
+
+    /// Deliberately a no-op rather than the inherited trait default, so that
+    /// this authority's approval story is a decision on the type instead of one
+    /// it silently picked up.
+    ///
+    /// This authority holds no signing key and cannot reach a user: the remote
+    /// signer authorizes the finished Solana transaction in a separate step,
+    /// and that step is the approval gate. Refusing here instead would make the
+    /// type unusable, since transaction construction — which this authority
+    /// exists to serve — calls this before it has a transaction to approve.
+    fn request_user_approval(&self, _request: ApprovalRequest) -> Result<(), TransactionError> {
+        Ok(())
+    }
+
+    fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError> {
+        Ok(self.nullifier_key.clone())
+    }
+}
+
+impl<K: ShieldedKeypairTrait + ViewingKeyTrait + Sync> SyncWalletAuthority
+    for KeypairWalletAuthority<'_, K>
+{
+    fn solana_pubkey(&self) -> Address {
+        self.solana_pubkey
+    }
+
+    fn shielded_address(&self) -> Result<ShieldedAddress, TransactionError> {
+        Ok(ShieldedKeypairTrait::shielded_address(self.keypair)?)
+    }
+
+    fn viewing_keys(&self) -> Result<Vec<ViewingKey>, TransactionError> {
+        Ok(self.viewing_keys.clone())
     }
 
     fn encrypt_confidential_transfer(
@@ -441,7 +615,7 @@ impl SyncWalletAuthority for LocalWalletAuthority<'_> {
     }
 
     fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError> {
-        Ok(self.keypair.nullifier_key.clone())
+        Ok(ShieldedKeypairTrait::nullifier_key(self.keypair))
     }
 }
 
@@ -495,5 +669,98 @@ impl SyncWalletAuthority for ShieldedKeypair {
 
     fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError> {
         Ok(self.nullifier_key.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zolana_keypair::SigningKey;
+
+    fn authority_fixture() -> (
+        ShieldedKeypair,
+        ClientEd25519WalletAuthority,
+        [u8; derivation::ED25519_SEED_LEN],
+    ) {
+        let signing_key = SigningKey::from_ed25519_bytes(&[42; 32]);
+        let solana_pubkey = Address::new_from_array(
+            signing_key
+                .pubkey()
+                .as_ed25519()
+                .expect("fixture is Ed25519"),
+        );
+        let seed: [u8; derivation::ED25519_SEED_LEN] = signing_key
+            .derivation_seed()
+            .expect("derive fixture seed")
+            .as_slice()
+            .try_into()
+            .expect("Ed25519 seed has fixed width");
+        let software = ShieldedKeypair::from_keypair(signing_key).expect("build software keypair");
+        let client = ClientEd25519WalletAuthority::from_derivation_seed(solana_pubkey, &seed)
+            .expect("build client authority");
+        (software, client, seed)
+    }
+
+    #[test]
+    fn derivation_seed_reproduces_the_software_identity() {
+        let (software, client, _) = authority_fixture();
+
+        assert_eq!(
+            SyncWalletAuthority::shielded_address(&client).expect("client address"),
+            software.shielded_address().expect("software address")
+        );
+        assert_eq!(
+            SyncWalletAuthority::spend_nullifier_key(&client)
+                .expect("client nullifier key")
+                .secret(),
+            software.nullifier_key.secret()
+        );
+        assert_eq!(
+            SyncWalletAuthority::viewing_keys(&client).expect("client viewing key")[0]
+                .secret_bytes(),
+            software.viewing_key.secret_bytes()
+        );
+    }
+
+    #[test]
+    fn derivation_seed_is_bound_to_the_solana_public_key() {
+        let (_, _, mut seed) = authority_fixture();
+        seed[0] ^= 1;
+
+        let error = ClientEd25519WalletAuthority::from_derivation_seed(
+            Address::new_from_array(
+                SigningKey::from_ed25519_bytes(&[42; 32])
+                    .pubkey()
+                    .as_ed25519()
+                    .expect("fixture is Ed25519"),
+            ),
+            &seed,
+        )
+        .err()
+        .expect("mutated seed must fail");
+
+        assert_eq!(error, TransactionError::InvalidDerivationSeed);
+    }
+
+    #[test]
+    fn client_authority_exposes_sync_material_but_no_signer() {
+        let (_, client, _) = authority_fixture();
+        let material = SyncWalletAuthority::sync_material(&client).expect("sync material");
+
+        assert_eq!(
+            material.identity.solana_address().unwrap(),
+            SyncWalletAuthority::solana_pubkey(&client)
+        );
+        assert_eq!(material.viewing_keys.len(), 1);
+        assert_eq!(
+            material.nullifier_key.secret(),
+            SyncWalletAuthority::spend_nullifier_key(&client)
+                .unwrap()
+                .secret()
+        );
+        assert_eq!(
+            SyncWalletAuthority::sign_p256(&client, &[0; 32]),
+            Err(TransactionError::P256TransactUnsupported)
+        );
     }
 }

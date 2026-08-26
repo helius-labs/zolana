@@ -61,7 +61,7 @@ use zolana_test_utils::{
 };
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
-    AssetRegistry, Data, LocalWalletAuthority, Utxo, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW,
+    AssetRegistry, Data, KeypairWalletAuthority, Utxo, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW,
     SOL_MINT,
 };
 use zolana_tree::TreeAccount;

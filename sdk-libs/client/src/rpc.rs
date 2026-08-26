@@ -59,6 +59,7 @@ pub struct GetEncryptedUtxosByTagsResponse {
     pub context: Context,
     pub matches: Vec<EncryptedUtxoMatch>,
     pub next_cursor: Option<Vec<u8>>,
+    pub scanned_through: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -66,6 +67,7 @@ pub struct GetShieldedTransactionsByTagsResponse {
     pub context: Context,
     pub transactions: Vec<ShieldedTransaction>,
     pub next_cursor: Option<Vec<u8>>,
+    pub scanned_through: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

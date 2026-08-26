@@ -66,6 +66,13 @@ pub const INFO_PDA_VIEW_KEY: &[u8] = b"TSPP/pda_view/v1";
 /// [`ed25519_derivation_message`], never this bare payload.
 pub const ED25519_DERIVATION_MSG: &[u8] = b"TSPP/derive/v1";
 
+/// An ed25519 `derivation_seed` is the RFC 8032 signature over
+/// [`ed25519_derivation_message`].
+pub const ED25519_SEED_LEN: usize = 64;
+
+/// A P-256 `derivation_seed` is the x-coordinate of `ECDH(signing_sk, P_derive)`.
+pub const P256_SEED_LEN: usize = 32;
+
 /// Every payload under this prefix is a derivation-seed payload (the PDA
 /// payload family carries an address, so the guard matches the prefix).
 pub const DERIVATION_PAYLOAD_PREFIX: &[u8] = b"TSPP/derive/";
@@ -263,6 +270,22 @@ pub(crate) fn view_root(secret: &SecretKey) -> Zeroizing<[u8; 32]> {
     out
 }
 
+/// Expands both role secrets from a `derivation_seed` produced by a
+/// hardware-resident signing key: an ed25519 signature over
+/// [`ed25519_derivation_message`], or `ECDH(signing_sk, P_derive)`.
+pub fn expand_roles(seed: &[u8], curve: Curve) -> Result<(NullifierKey, ViewingKey), KeypairError> {
+    let rail = Rail::from_curve(curve)?;
+    let expected = rail.seed_len();
+    if seed.len() != expected {
+        return Err(KeypairError::InvalidDerivationSeed {
+            got: seed.len(),
+            expected,
+        });
+    }
+    let expansion = RoleExpansion::new(seed, rail);
+    Ok((expansion.nullifier_key()?, expansion.viewing_key()?))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Rail {
     Ed25519,
@@ -275,6 +298,13 @@ impl Rail {
             Curve::Ed25519 => Ok(Self::Ed25519),
             Curve::P256 => Ok(Self::Ecdh),
             Curve::Pda => Err(KeypairError::PdaCannotSign),
+        }
+    }
+
+    fn seed_len(self) -> usize {
+        match self {
+            Self::Ed25519 => ED25519_SEED_LEN,
+            Self::Ecdh => P256_SEED_LEN,
         }
     }
 

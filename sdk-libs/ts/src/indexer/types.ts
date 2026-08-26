@@ -56,6 +56,8 @@ export interface GetEncryptedUtxosByTagsResponse {
   readonly context: IndexerContext;
   readonly matches: readonly EncryptedUtxoMatch[];
   readonly nextCursor?: Base64String;
+  /** Where the scan reached on a terminal page, including an empty page. */
+  readonly scannedThrough?: Base64String;
 }
 
 export interface IndexedShieldedTransaction {
@@ -85,6 +87,8 @@ export interface GetShieldedTransactionsByTagsResponse {
   readonly context: IndexerContext;
   readonly transactions: readonly IndexedShieldedTransaction[];
   readonly nextCursor?: Base64String;
+  /** Where the scan reached on a terminal page, including an empty page. */
+  readonly scannedThrough?: Base64String;
 }
 
 export interface GetShieldedTransactionsByNullifiersResponse {
