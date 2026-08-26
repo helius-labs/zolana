@@ -389,21 +389,10 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	forceSync := r.Header.Get("X-Sync") == "true" || r.URL.Query().Get("sync") == "true"
 
 	queueAvailable := handler.enableQueue && handler.redisQueue != nil
-	if proofRequestMeta.CircuitType == common.CustomRingCircuitType && !queueAvailable {
-		(&Error{
-			StatusCode: http.StatusServiceUnavailable,
-			Code:       "queue_unavailable",
-			Message:    "custom ring proofs require the queue",
-		}).send(w)
-		return
-	}
 	circuitQueued := handler.shouldUseQueueForCircuit(proofRequestMeta.CircuitType)
 	// `use_queue` is the decision, not the circuit's queueability: logging the
 	// latter under that name said use_queue=true on requests that were proved in
 	// the response, which is exactly the question the line exists to answer.
-	if proofRequestMeta.CircuitType == common.CustomRingCircuitType {
-		forceSync = false
-	}
 	queued := useQueue(forceSync, forceAsync, circuitQueued, queueAvailable)
 
 	logging.Logger().Info().
@@ -617,7 +606,7 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 	})
 
 	proverMux.Handle("/health", healthHandler{
-		circuits: servedCircuits(config.Queue != nil && config.Queue.Enabled),
+		circuits: servedCircuits(),
 	})
 
 	if redisQueue != nil {
@@ -850,9 +839,8 @@ type healthHandler struct {
 	circuits []common.CircuitType
 }
 
-// The custom-ring circuit is absent without the queue, it is never proven synchronously.
-func servedCircuits(queueEnabled bool) []common.CircuitType {
-	circuits := []common.CircuitType{
+func servedCircuits() []common.CircuitType {
+	return []common.CircuitType{
 		common.BatchAddressAppendCircuitType,
 		common.TransferConfidentialCircuitType,
 		common.TransferRingCircuitType,
@@ -860,11 +848,8 @@ func servedCircuits(queueEnabled bool) []common.CircuitType {
 		common.TransferRingAuthorityCircuitType,
 		common.MergeCircuitType,
 		common.MergeRingCircuitType,
+		common.CustomRingCircuitType,
 	}
-	if queueEnabled {
-		circuits = append(circuits, common.CustomRingCircuitType)
-	}
-	return circuits
 }
 
 func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Request, buf []byte, meta common.ProofRequestMeta) {
@@ -1108,7 +1093,7 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 
 func (handler proveHandler) isBatchOperation(circuitType common.CircuitType) bool {
 	switch circuitType {
-	case common.BatchAddressAppendCircuitType, common.CustomRingCircuitType:
+	case common.BatchAddressAppendCircuitType:
 		return true
 	default:
 		return false
