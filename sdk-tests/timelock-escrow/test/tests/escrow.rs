@@ -203,6 +203,7 @@ fn escrow_then_withdraw() -> Result<()> {
             .external_data
             .hash()
             .map_err(|e| anyhow!("withdraw external data hash: {e:?}"))?,
+        private_tx_blinding: withdraw_spp_proof_inputs.private_tx_blinding,
     };
 
     let spp_proof = client

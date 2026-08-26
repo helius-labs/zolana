@@ -16,8 +16,9 @@ type Circuit struct {
 	EscrowUtxo spp.UtxoCircuitFields
 	Change     spp.UtxoCircuitFields
 
-	SourceInputHash  frontend.Variable
-	ExternalDataHash frontend.Variable
+	SourceInputHash   frontend.Variable
+	ExternalDataHash  frontend.Variable
+	PrivateTxBlinding frontend.Variable
 }
 
 func (c *Circuit) Define(api frontend.API) error {
@@ -29,6 +30,7 @@ func (c *Circuit) Define(api frontend.API) error {
 		ChangeOutputUtxoHash: changeOutputUtxoHash,
 		EscrowOutputUtxoHash: escrowOutputUtxoHash,
 		ExternalDataHash:     c.ExternalDataHash,
+		PrivateTxBlinding:    c.PrivateTxBlinding,
 		PrivateTxHash:        c.PrivateTxHash,
 	}.Check(api)
 
@@ -40,6 +42,7 @@ type privateTxHashInputs struct {
 	ChangeOutputUtxoHash frontend.Variable
 	EscrowOutputUtxoHash frontend.Variable
 	ExternalDataHash     frontend.Variable
+	PrivateTxBlinding    frontend.Variable
 	PrivateTxHash        frontend.Variable
 }
 
@@ -48,7 +51,7 @@ func (t privateTxHashInputs) Check(api frontend.API) {
 	outputHashes := []frontend.Variable{t.ChangeOutputUtxoHash, t.EscrowOutputUtxoHash}
 	addressHashes := []frontend.Variable{frontend.Variable(0), frontend.Variable(0)}
 
-	privateTxHash := spp.PrivateTxHashCircuit(api, inputHashes, outputHashes, addressHashes, t.ExternalDataHash)
+	privateTxHash := spp.PrivateTxHashCircuit(api, inputHashes, outputHashes, addressHashes, t.ExternalDataHash, t.PrivateTxBlinding)
 	api.AssertIsEqual(privateTxHash, t.PrivateTxHash)
 }
 

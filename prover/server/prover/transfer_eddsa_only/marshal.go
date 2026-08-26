@@ -52,6 +52,7 @@ type TransferParametersJSON struct {
 	Outputs                      []OutputParamsJSON `json:"outputs"`
 	ExternalDataHash             string             `json:"externalDataHash"`
 	PrivateTxHash                string             `json:"privateTxHash"`
+	PrivateTxBlinding            string             `json:"privateTxBlinding"`
 	PublicAssets                 []string           `json:"publicAssets"`
 	PublicAmounts                []string           `json:"publicAmounts"`
 	RingProgramID                string             `json:"ringProgramId"`
@@ -81,6 +82,7 @@ func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJS
 		NOutputs:                     p.NOutputs,
 		ExternalDataHash:             feHex(p.ExternalDataHash),
 		PrivateTxHash:                feHex(p.PrivateTxHash),
+		PrivateTxBlinding:            feHex(p.PrivateTxBlinding),
 		PublicAssets:                 feHexSlice(p.PublicAssets),
 		PublicAmounts:                feHexSlice(p.PublicAmounts),
 		RingProgramID:                feHex(p.RingProgramID),
@@ -133,6 +135,9 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 		return err
 	}
 	if p.PrivateTxHash, err = feFromHex(params.PrivateTxHash); err != nil {
+		return err
+	}
+	if p.PrivateTxBlinding, err = feFromHex(params.PrivateTxBlinding); err != nil {
 		return err
 	}
 	if len(params.PublicAssets) != txcircuit.NPublicSlots || len(params.PublicAmounts) != txcircuit.NPublicSlots {

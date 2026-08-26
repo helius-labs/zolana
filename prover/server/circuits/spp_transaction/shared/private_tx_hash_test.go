@@ -21,3 +21,14 @@ func TestCircuitRejectsExternalDataHashMismatch(t *testing.T) {
 
 	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
+
+func TestCircuitRejectsZeroPrivateTxBlinding(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
+	assignment := buildCircuitAssignment(t, shape)
+	assignment.PrivateTxBlinding = 0
+	rebuildAfterOwnerChange(t, assignment)
+
+	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+}

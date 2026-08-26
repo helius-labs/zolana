@@ -615,6 +615,7 @@ fn bench_take_derived(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenc
             .external_data
             .hash()
             .expect("external data hash"),
+        private_tx_blinding: spp_proof_inputs.private_tx_blinding,
     };
 
     let prover = ProverClient::local();
@@ -774,6 +775,7 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
             .external_data
             .hash()
             .expect("external data hash"),
+        private_tx_blinding: spp_proof_inputs.private_tx_blinding,
     };
 
     let prover = ProverClient::local();
@@ -915,6 +917,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
             .external_data
             .hash()
             .expect("external data hash"),
+        private_tx_blinding: spp_proof_inputs.private_tx_blinding,
     };
 
     let prover = ProverClient::local();

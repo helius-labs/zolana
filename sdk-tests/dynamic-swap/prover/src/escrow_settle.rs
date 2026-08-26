@@ -53,6 +53,7 @@ pub struct EscrowSettleProofInputs {
     pub maker_counter: ProofInputUtxo,
     pub maker_source: ProofInputUtxo,
     pub external_data_hash: [u8; 32],
+    pub private_tx_blinding: [u8; 32],
 }
 
 impl EscrowSettleProofInputs {
@@ -98,6 +99,10 @@ impl EscrowSettleProofInputs {
             "ExternalDataHash".to_string(),
             vec![bytes_to_decimal_string(&self.external_data_hash)],
         );
+        map.insert(
+            "PrivateTxBlinding".to_string(),
+            vec![bytes_to_decimal_string(&self.private_tx_blinding)],
+        );
         for (key, value) in utxo_witness_entries(&self.order_in, "OrderIn")
             .into_iter()
             .chain(utxo_witness_entries(&self.reservation_in, "ReservationIn"))
@@ -139,6 +144,7 @@ mod tests {
             maker_counter: ProofInputUtxo::default(),
             maker_source: ProofInputUtxo::default(),
             external_data_hash: [8; 32],
+            private_tx_blinding: [9; 32],
         }
     }
 
@@ -159,6 +165,7 @@ mod tests {
             "CreatedAt".to_string(),
             "OrderAmount".to_string(),
             "ExternalDataHash".to_string(),
+            "PrivateTxBlinding".to_string(),
         ];
         for prefix in [
             "OrderIn",

@@ -223,6 +223,7 @@ mod tests {
             &[source_input_hash, [0u8; 32]],
             &[change_hash, order_utxo_hash],
             &external_data_hash,
+            &spp_proof_inputs.private_tx_blinding,
         )
         .hash()
         .expect("private tx hash");
@@ -319,6 +320,7 @@ mod tests {
                 order_output_utxo.hash().expect("order hash"),
             ],
             &external_data_hash,
+            &spp_proof_inputs.private_tx_blinding,
         )
         .hash()
         .expect("private tx hash");

@@ -314,6 +314,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             external_data,
             authority_solana.pubkey(),
         );
+        let private_tx_blinding = spp_proof_inputs.private_tx_blinding;
         let transact = env
             .client
             .indexer()
@@ -341,6 +342,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             created_at,
             order_amount,
             external_data_hash,
+            private_tx_blinding,
         }
         .to_proof_inputs()
         .map_err(|e| anyhow!("escrow_open proof inputs: {e:?}"))?;
@@ -567,6 +569,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             external_data,
             authority_solana.pubkey(),
         );
+        let private_tx_blinding = spp_proof_inputs.private_tx_blinding;
         let transact = env
             .client
             .indexer()
@@ -592,6 +595,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             recipient_owner_hash,
             authority_owner_hash,
             external_data_hash,
+            private_tx_blinding,
         }
         .to_proof_inputs()
         .map_err(|e| anyhow!("settle proof inputs: {e:?}"))?;

@@ -419,6 +419,7 @@ export interface PrivateTxHashInput {
   /** One per input slot; omitted means a chain of zeros of the same length. */
   readonly addressHashes?: readonly Bytes32[];
   readonly externalDataHash: Bytes32;
+  readonly blinding: Bytes32;
 }
 
 /**
@@ -441,13 +442,22 @@ export function privateTxHash(input: PrivateTxHashInput): Bytes32 {
     hashChain(input.outputHashes),
     hashChain(addressHashes),
     input.externalDataHash,
+    input.blinding,
   ]);
+}
+
+export function newPrivateTxBlinding(): Bytes32 {
+  let blinding: Bytes32;
+  do blinding = randomBlinding();
+  while (blinding.every((byte) => byte === 0));
+  return blinding;
 }
 
 export interface EncryptedTransaction {
   readonly inputs: readonly InputUtxo[];
   readonly outputs: readonly ProofOutputUtxo[];
   readonly externalData: ExternalData;
+  readonly privateTxBlinding: Bytes32;
   hash(): Bytes32;
 }
 
@@ -460,10 +470,12 @@ export function createEncryptedTransaction(
 ): EncryptedTransaction {
   const inputs = Object.freeze([...input.inputs]);
   const outputs = Object.freeze([...input.outputs]);
+  const privateTxBlinding = newPrivateTxBlinding();
   return Object.freeze({
     ...input,
     inputs,
     outputs,
+    privateTxBlinding,
     // An unused slot contributes a zero hash, matching the circuit and
     // `SppProofInputs.messageHash`.
     hash(): Bytes32 {
@@ -471,6 +483,7 @@ export function createEncryptedTransaction(
         inputHashes: inputs.map((entry) => (entry.isDummy() ? copy(ZERO_32) : entry.hash())),
         outputHashes: outputs.map((entry) => (entry.isDummy() ? copy(ZERO_32) : entry.hash())),
         externalDataHash: input.externalData.hash(),
+        blinding: privateTxBlinding,
       });
     },
   });
@@ -481,6 +494,7 @@ export class SppProofInputs {
   readonly inputUtxos: readonly ProofInputUtxo[];
   readonly outputs: readonly ProofOutputUtxo[];
   readonly externalData: ExternalData;
+  readonly privateTxBlinding: Bytes32;
   constructor(
     input: Readonly<{
       payer: Address;
@@ -500,6 +514,7 @@ export class SppProofInputs {
     }
     this.outputs = Object.freeze([...input.outputs]);
     this.externalData = input.externalData;
+    this.privateTxBlinding = newPrivateTxBlinding();
     this.checkShape();
   }
 
@@ -541,6 +556,7 @@ export class SppProofInputs {
         inputHashes,
         outputHashes,
         externalDataHash: this.externalData.hash(),
+        blinding: this.privateTxBlinding,
       }),
     );
   }

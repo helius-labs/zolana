@@ -96,7 +96,14 @@ func buildProofAssignment(
 	for i := range addressHashes {
 		addressHashes[i] = big.NewInt(0)
 	}
-	privateTxHash, err := protocol.PrivateTxHash(inputs.hashes, outputs.privateTxHashes, addressHashes, external.hash)
+	privateTxBlinding := big.NewInt(0xB11D)
+	privateTxHash, err := protocol.PrivateTxHash(
+		inputs.hashes,
+		outputs.privateTxHashes,
+		addressHashes,
+		external.hash,
+		privateTxBlinding,
+	)
 	if err != nil {
 		return proofAssignment{}, err
 	}
@@ -116,6 +123,7 @@ func buildProofAssignment(
 		outputs,
 		publicInputs,
 		publicInputHash,
+		privateTxBlinding,
 	)
 	transcript := assignmentTranscript{
 		inputHashes:        inputs.hashes,
@@ -154,6 +162,7 @@ func customRingWitness(
 	outputs outputWitnesses,
 	publicInputs protocol.PublicInputs,
 	publicInputHash *big.Int,
+	privateTxBlinding *big.Int,
 ) frontend.Circuit {
 	var publicAssets, publicAmounts [txcircuit.NPublicSlots]frontend.Variable
 	for i := 0; i < txcircuit.NPublicSlots; i++ {
@@ -182,6 +191,7 @@ func customRingWitness(
 			Outputs:             outputs.outputs,
 			OutputOwnerPkHashes: fieldVariables(outputs.outputOwnerPkHashes),
 			OutputNullifierPks:  fieldVariables(outputs.outputNullifierPks),
+			PrivateTxBlinding:   privateTxBlinding,
 		},
 	}
 }

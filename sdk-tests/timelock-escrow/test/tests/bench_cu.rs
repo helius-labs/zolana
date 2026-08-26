@@ -568,6 +568,7 @@ fn bench_withdraw(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmar
             .external_data
             .hash()
             .expect("external data hash"),
+        private_tx_blinding: spp_proof_inputs.private_tx_blinding,
     };
 
     let prover = ProverClient::local();

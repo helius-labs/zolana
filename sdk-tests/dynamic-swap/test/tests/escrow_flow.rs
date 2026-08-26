@@ -298,6 +298,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 external_data,
                 authority_solana.pubkey(),
             );
+            let private_tx_blinding = spp_proof_inputs.private_tx_blinding;
             let transact = env
                 .client
                 .indexer()
@@ -325,6 +326,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 created_at,
                 order_amount,
                 external_data_hash,
+                private_tx_blinding,
             }
             .to_proof_inputs()
             .map_err(|e| anyhow!("escrow_open proof inputs: {e:?}"))?;
@@ -577,6 +579,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             external_data,
             authority_solana.pubkey(),
         );
+        let private_tx_blinding = spp_proof_inputs.private_tx_blinding;
         let transact = env
             .client
             .indexer()
@@ -602,6 +605,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             recipient_owner_hash,
             authority_owner_hash,
             external_data_hash,
+            private_tx_blinding,
         }
         .to_proof_inputs()
         .map_err(|e| anyhow!("settle proof inputs: {e:?}"))?;

@@ -262,6 +262,7 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
                 .external_data
                 .hash()
                 .map_err(|e| anyhow!("take external data hash: {e:?}"))?,
+            private_tx_blinding: take_spp_proof_inputs.private_tx_blinding,
         };
 
         let spp_proof = client

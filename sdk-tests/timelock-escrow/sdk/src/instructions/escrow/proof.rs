@@ -10,6 +10,7 @@ use crate::{err, state::EscrowUtxo};
 pub struct SppTxHashes {
     pub source_input_hash: [u8; 32],
     pub external_data_hash: [u8; 32],
+    pub private_tx_blinding: [u8; 32],
 }
 
 impl SppTxHashes {
@@ -21,6 +22,7 @@ impl SppTxHashes {
         Ok(Self {
             source_input_hash: source_input.hash().map_err(err)?,
             external_data_hash: spp_proof_inputs.external_data.hash().map_err(err)?,
+            private_tx_blinding: spp_proof_inputs.private_tx_blinding,
         })
     }
 }
@@ -57,6 +59,7 @@ impl EscrowProofInputParams {
                 escrow_utxo.hash().map_err(err)?,
             ],
             &self.spp_tx_hashes.external_data_hash,
+            &self.spp_tx_hashes.private_tx_blinding,
         )
         .hash()
         .map_err(err)?;
@@ -67,6 +70,7 @@ impl EscrowProofInputParams {
             change,
             source_input_hash: self.spp_tx_hashes.source_input_hash,
             external_data_hash: self.spp_tx_hashes.external_data_hash,
+            private_tx_blinding: self.spp_tx_hashes.private_tx_blinding,
         })
     }
 }

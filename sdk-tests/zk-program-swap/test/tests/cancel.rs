@@ -217,6 +217,7 @@ fn make_and_cancel_swap_inline() -> Result<()> {
                 .external_data
                 .hash()
                 .map_err(|e| anyhow!("cancel external data hash: {e:?}"))?,
+            private_tx_blinding: cancel_spp_proof_inputs.private_tx_blinding,
         };
 
         let spp_proof = client

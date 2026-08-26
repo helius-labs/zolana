@@ -5,7 +5,7 @@ use zolana_keypair::{hash::sha256, Curve, ViewingKey, ViewingKeyTrait};
 
 use super::{
     shape::{Shape, SPP_SUPPORTED_SHAPES},
-    types::PrivateTxHash,
+    types::{new_private_tx_blinding, PrivateTxHash},
 };
 use crate::{
     error::TransactionError,
@@ -106,6 +106,7 @@ pub struct SppProofInputs {
     pub output_utxos: Vec<SppProofOutputUtxo>,
     pub external_data: ExternalData,
     pub payer: Address,
+    pub private_tx_blinding: [u8; 32],
 }
 
 impl SppProofInputs {
@@ -120,6 +121,7 @@ impl SppProofInputs {
             output_utxos,
             external_data,
             payer,
+            private_tx_blinding: new_private_tx_blinding(),
         }
     }
 
@@ -293,8 +295,13 @@ impl SppProofInputs {
         }
 
         let external_data_hash = self.external_data.hash()?;
-        let private_tx =
-            PrivateTxHash::new(&input_hashes, &output_hashes, &external_data_hash).hash()?;
+        let private_tx = PrivateTxHash::new(
+            &input_hashes,
+            &output_hashes,
+            &external_data_hash,
+            &self.private_tx_blinding,
+        )
+        .hash()?;
         Ok(sha256(&private_tx))
     }
 }

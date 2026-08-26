@@ -58,6 +58,7 @@ fn eddsa_prover(n_in: usize, n_out: usize) -> RingTransferProver {
     let mut signer_pk_hashes = vec![owner_pk_hash(&signer)];
     signer_pk_hashes.resize(n_in + 1, [0u8; 32]);
     RingTransferProver {
+        private_tx_blinding: zolana_transaction::instructions::transact::new_private_tx_blinding(),
         inputs,
         outputs,
         external_data: ring_external_data(n_out),
@@ -88,6 +89,7 @@ fn eddsa_multi_real() -> RingTransferProver {
         dummy_output(&first_signer),
     ];
     RingTransferProver {
+        private_tx_blinding: zolana_transaction::instructions::transact::new_private_tx_blinding(),
         inputs,
         outputs,
         external_data: ring_external_data(3),

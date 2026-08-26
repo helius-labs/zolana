@@ -155,10 +155,15 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
 
     // The real input contributes its utxo hash to private_tx_hash; the dummy
     // input and all outputs contribute zero.
-    let private_tx =
-        PrivateTxHash::new(&[utxo_hash, zero], &[zero, zero, zero], &external_data_hash)
-            .hash()
-            .expect("private tx hash");
+    let private_tx_blinding = zolana_transaction::instructions::transact::new_private_tx_blinding();
+    let private_tx = PrivateTxHash::new(
+        &[utxo_hash, zero],
+        &[zero, zero, zero],
+        &external_data_hash,
+        &private_tx_blinding,
+    )
+    .hash()
+    .expect("private tx hash");
 
     // The signer run the proof binds: payer first, then the input owner when
     // it differs from the payer, zero-padded to the circuit width.
@@ -194,6 +199,7 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
         outputs,
         external_data_hash,
         private_tx_hash: private_tx,
+        private_tx_blinding,
         public_slot_assets,
         public_slot_amounts,
         signer_pk_hashes: signer_hashes.to_vec(),
@@ -395,10 +401,12 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
         .chain(std::iter::repeat(zero).take(usize::from(n_inputs) - 1))
         .collect();
     let private_output_hashes = vec![zero; usize::from(n_outputs)];
+    let private_tx_blinding = zolana_transaction::instructions::transact::new_private_tx_blinding();
     let private_tx = PrivateTxHash::new(
         &private_input_hashes,
         &private_output_hashes,
         &external_data_hash,
+        &private_tx_blinding,
     )
     .hash()
     .expect("private tx hash");
@@ -448,6 +456,7 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
         outputs,
         external_data_hash,
         private_tx_hash: private_tx,
+        private_tx_blinding,
         public_slot_assets,
         public_slot_amounts,
         signer_pk_hashes: signer_hashes,

@@ -484,10 +484,15 @@ fn bench_transfer_shape(
         external_data_hash(&transact_ix_data, &[]).expect("external data hash");
     let mut private_outputs = vec![real_hash];
     private_outputs.extend(std::iter::repeat_n(zero, n_outputs - 1));
-    let private_tx =
-        PrivateTxHash::new(&vec![zero; n_inputs], &private_outputs, &external_data_hash)
-            .hash()
-            .expect("private tx hash");
+    let private_tx_blinding = zolana_transaction::instructions::transact::new_private_tx_blinding();
+    let private_tx = PrivateTxHash::new(
+        &vec![zero; n_inputs],
+        &private_outputs,
+        &external_data_hash,
+        &private_tx_blinding,
+    )
+    .hash()
+    .expect("private tx hash");
     // The signer run the proof binds: the payer owns every input here, so the
     // unique run is just the payer hash, zero-padded to the n_inputs + 1
     // circuit width. The program derives the same value with `hash_bytes`.
@@ -518,6 +523,7 @@ fn bench_transfer_shape(
         outputs,
         external_data_hash,
         private_tx_hash: private_tx,
+        private_tx_blinding,
         public_slot_assets,
         public_slot_amounts,
         signer_pk_hashes: signer_pk_hashes.clone(),
@@ -645,10 +651,15 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
     }];
     let external_data_hash =
         external_data_hash(&transact_ix_data, &resolved_transfers).expect("external data hash");
-    let private_tx =
-        PrivateTxHash::new(&[utxo_hash, zero], &[zero, zero, zero], &external_data_hash)
-            .hash()
-            .expect("private tx hash");
+    let private_tx_blinding = zolana_transaction::instructions::transact::new_private_tx_blinding();
+    let private_tx = PrivateTxHash::new(
+        &[utxo_hash, zero],
+        &[zero, zero, zero],
+        &external_data_hash,
+        &private_tx_blinding,
+    )
+    .hash()
+    .expect("private tx hash");
     let public_sol_field = public_sol_field(Some(-(AMOUNT as i64)));
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(public_sol_field);
     // Both inputs are the payer's, so the unique signer run is one entry,
@@ -678,6 +689,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
         outputs,
         external_data_hash,
         private_tx_hash: private_tx,
+        private_tx_blinding,
         public_slot_assets,
         public_slot_amounts,
         signer_pk_hashes: signer_pk_hashes.to_vec(),

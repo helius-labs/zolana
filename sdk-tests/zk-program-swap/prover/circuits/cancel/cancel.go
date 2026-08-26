@@ -20,7 +20,8 @@ type Circuit struct {
 	MakerOwnerPkField frontend.Variable
 	MakerNullifierPk  frontend.Variable
 
-	ExternalDataHash frontend.Variable
+	ExternalDataHash  frontend.Variable
+	PrivateTxBlinding frontend.Variable
 }
 
 func (c *Circuit) Define(api frontend.API) error {
@@ -35,6 +36,7 @@ func (c *Circuit) Define(api frontend.API) error {
 		SourceOutputUtxoHash: sourceOutputUtxoHash,
 		ExternalDataHash:     c.ExternalDataHash,
 		PrivateTxHash:        c.Public.PrivateTxHash,
+		PrivateTxBlinding:    c.PrivateTxBlinding,
 	}.Check(api)
 
 	c.Public.Check(api, c.Order.Expiry, c.MakerOwnerPkField)
@@ -57,6 +59,7 @@ type privateTxHashInputs struct {
 	SourceOutputUtxoHash frontend.Variable
 	ExternalDataHash     frontend.Variable
 	PrivateTxHash        frontend.Variable
+	PrivateTxBlinding    frontend.Variable
 }
 
 func (t privateTxHashInputs) Check(api frontend.API) {
@@ -64,7 +67,7 @@ func (t privateTxHashInputs) Check(api frontend.API) {
 	outputHashes := []frontend.Variable{t.SourceOutputUtxoHash}
 	addressHashes := []frontend.Variable{frontend.Variable(0)}
 
-	privateTxHash := spp.PrivateTxHashCircuit(api, inputHashes, outputHashes, addressHashes, t.ExternalDataHash)
+	privateTxHash := spp.PrivateTxHashCircuit(api, inputHashes, outputHashes, addressHashes, t.ExternalDataHash, t.PrivateTxBlinding)
 	api.AssertIsEqual(privateTxHash, t.PrivateTxHash)
 }
 

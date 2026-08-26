@@ -62,7 +62,8 @@ type TransferParameters struct {
 
 	ExternalDataHash *big.Int
 
-	PrivateTxHash *big.Int
+	PrivateTxHash     *big.Int
+	PrivateTxBlinding *big.Int
 	// PublicAssets/PublicAmounts are the uniform public movement slots, both of
 	// length shared.NPublicSlots.
 	PublicAssets                 []*big.Int

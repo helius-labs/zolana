@@ -242,7 +242,8 @@ UTXO in; change + escrow UTXO out), padded to the SPP `(2, 2)` proving shape.
 - **Constraints:**
   - The `private_tx_hash` recomputation mirrors the padded transact exactly: the input hash chain
     covers `[source_input, 0]`, the output hash chain covers `[change, escrow_utxo]`, and the
-    address hash chain covers `[0, 0]` (see [private_tx_hash](../../docs/spec.md#spp-proof---solana-privacy-zk-proof)).
+    address hash chain covers `[0, 0]`; it uses the same `private_tx_blinding` as the SPP proof
+    (see [private_tx_hash](../../docs/spec.md#spp-proof---solana-privacy-zk-proof)).
     The source input hash is supplied directly, not recomputed by the circuit; the change slot
     contributes 0 when the change amount is 0.
   - The escrow UTXO output committed in `private_tx_hash` has `data_hash = Poseidon(escrow terms)`,

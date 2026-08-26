@@ -95,11 +95,13 @@ function assembleUnchecked(
   );
   const outputOwnerFields = transferOutputs.map((output) => output.ownerPublicKeyHash);
   const externalDataHash = bytesField(proofInputs.externalData.hash(), "external data hash");
+  const privateTxBlinding = bytesField(proofInputs.privateTxBlinding, "private tx blinding");
   const privateTxHash = poseidon([
     hashChain(inputHashes),
     hashChain(privateOutputHashes),
     hashChain(Array.from({ length: inputHashes.length }, () => 0n)),
     externalDataHash,
+    privateTxBlinding,
   ]);
   const movements = publicMovements(proofInputs);
   const publicSlots = movements.assets.flatMap((asset, index) => [
@@ -133,6 +135,7 @@ function assembleUnchecked(
     outputs: Object.freeze(transferOutputs),
     externalDataHash: asField(externalDataHash),
     privateTxHash: asField(privateTxHash),
+    privateTxBlinding: asField(privateTxBlinding),
     publicAssets: Object.freeze(movements.assets.map(asField)),
     publicAmounts: Object.freeze(movements.amounts.map(asField)),
     zoneProgramId: asField(0n),

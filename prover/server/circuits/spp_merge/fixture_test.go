@@ -53,6 +53,7 @@ type mergeWitnessFixture struct {
 	ownerPkHash         *big.Int
 	userNullifierPk     *big.Int
 	userNullifierSecret *big.Int
+	privateTxBlinding   *big.Int
 	public              mergeshared.CommonPublicInputs
 	userSigningPkHash   *big.Int
 	outputRingDataHash  *big.Int
@@ -236,7 +237,14 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	for i := range addressHashes {
 		addressHashes[i] = big.NewInt(0)
 	}
-	privateTxHash, err := protocol.PrivateTxHash(inputHashChainInputs, []*big.Int{outHash}, addressHashes, externalDataHash)
+	privateTxBlinding := big.NewInt(0xB11D)
+	privateTxHash, err := protocol.PrivateTxHash(
+		inputHashChainInputs,
+		[]*big.Int{outHash},
+		addressHashes,
+		externalDataHash,
+		privateTxBlinding,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,6 +371,7 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 		ownerPkHash:         ownerKeyHash,
 		userNullifierPk:     userNullifierPk,
 		userNullifierSecret: nullifierSecret,
+		privateTxBlinding:   privateTxBlinding,
 		public:              public,
 		userSigningPkHash:   userSigningPkHash,
 		outputRingDataHash:  outputRingData,
@@ -379,6 +388,7 @@ func (f *mergeWitnessFixture) defaultCircuit() *merge.Circuit {
 	assignment.OwnerPkHash = f.ownerPkHash
 	assignment.UserNullifierPk = f.userNullifierPk
 	assignment.UserNullifierSecret = f.userNullifierSecret
+	assignment.PrivateTxBlinding = f.privateTxBlinding
 	assignment.CommonPublicInputs = f.public
 	assignment.UserSigningPkHash = f.userSigningPkHash
 	assignment.PublicInputHash = f.publicInputHash
@@ -393,6 +403,7 @@ func (f *mergeWitnessFixture) ringCircuit() *merge.RingCircuit {
 	assignment.OwnerPkHash = f.ownerPkHash
 	assignment.UserNullifierPk = f.userNullifierPk
 	assignment.UserNullifierSecret = f.userNullifierSecret
+	assignment.PrivateTxBlinding = f.privateTxBlinding
 	assignment.CommonPublicInputs = f.public
 	assignment.OutputRingDataHash = f.outputRingDataHash
 	assignment.RingProgramID = f.ringProgramID

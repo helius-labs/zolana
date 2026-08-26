@@ -42,6 +42,7 @@ pub struct EscrowOpenProofInputParams {
     pub created_at: u64,
     pub order_amount: u64,
     pub external_data_hash: [u8; 32],
+    pub private_tx_blinding: [u8; 32],
 }
 
 impl EscrowOpenProofInputParams {
@@ -114,6 +115,7 @@ impl EscrowOpenProofInputParams {
                 maker_change.hash().map_err(err)?,
             ],
             &self.external_data_hash,
+            &self.private_tx_blinding,
         )
         .hash()
         .map_err(err)?;
@@ -143,6 +145,7 @@ impl EscrowOpenProofInputParams {
             reservation_out,
             maker_change,
             external_data_hash: self.external_data_hash,
+            private_tx_blinding: self.private_tx_blinding,
         })
     }
 }

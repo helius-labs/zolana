@@ -398,8 +398,8 @@ by the SPP proof.
 - **Constraints:**
   - The `private_tx_hash` recomputation mirrors the padded transact exactly: `chain([source_input,
     0])` over inputs, `chain([change, order_utxo])` over outputs, `chain([0, 0])` over
-    addresses. The source input hash and external-data hash are free witnesses; the change slot
-    contributes 0 when the change amount is 0.
+    addresses, and the same `private_tx_blinding` used by the SPP proof. The source input hash and
+    external-data hash are free witnesses; the change slot contributes 0 when the change amount is 0.
   - The order UTXO output committed in `private_tx_hash` has `data_hash = Poseidon(order terms)`
     with `maker_address` hashed in as a field element, ring fields 0, and a nonzero amount, so the
     public SPP order UTXO output commits the terms.

@@ -225,6 +225,7 @@ fn prove_and_verify_eddsa_shape(n_in: usize, n_out: usize) {
     signer_pk_hashes[1] = hash_bytes(&owner_tag).expect("owner signer hash");
 
     let prover = TransferProver {
+        private_tx_blinding: zolana_transaction::instructions::transact::new_private_tx_blinding(),
         inputs,
         outputs,
         external_data: dummy_external_data(owner_tag, n_out),
@@ -279,6 +280,7 @@ fn dummy_transfer_2_3_proof_verifies() {
         .confidential_view_tag()
         .expect("real input owner tag");
     let prover = TransferProver {
+        private_tx_blinding: zolana_transaction::instructions::transact::new_private_tx_blinding(),
         inputs: vec![real_input, dummy_input()],
         outputs: vec![
             dummy_output(owner_tag),

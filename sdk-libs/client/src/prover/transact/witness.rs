@@ -176,6 +176,7 @@ pub fn into_prover_with_dummy_policy(
         input_utxos: inputs,
         output_utxos: outputs,
         external_data,
+        private_tx_blinding,
         ..
     } = proof_inputs;
 
@@ -185,6 +186,7 @@ pub fn into_prover_with_dummy_policy(
         inputs: spends,
         outputs,
         external_data,
+        private_tx_blinding,
         public_transfers,
         signer_pk_hashes,
         allow_dummy_inputs,

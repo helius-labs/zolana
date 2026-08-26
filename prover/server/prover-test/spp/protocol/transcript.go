@@ -64,6 +64,7 @@ func PrivateTxHash(
 	outputUtxoHashes []*big.Int,
 	addressUtxoHashes []*big.Int,
 	externalDataHash *big.Int,
+	blinding *big.Int,
 ) (*big.Int, error) {
 	inputChain, err := HashChain(inputUtxoHashes)
 	if err != nil {
@@ -83,6 +84,7 @@ func PrivateTxHash(
 		outputChain,
 		addressChain,
 		externalDataHash,
+		blinding,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("spp: private tx hash: %w", err)

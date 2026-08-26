@@ -252,6 +252,7 @@ impl PreparedSplit {
             output_utxos: outputs,
             external_data,
             payer,
+            private_tx_blinding: super::types::new_private_tx_blinding(),
         })
     }
 }

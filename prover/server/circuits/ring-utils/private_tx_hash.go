@@ -53,11 +53,12 @@ type PublicInputs struct {
 // PrivateTxHashCircuit proves the witnessed inputs and outputs fold, with the
 // external data hash, into the public PrivateTxHash.
 type PrivateTxHashCircuit struct {
-	Public           PublicInputs
-	Inputs           [NumInputs]Utxo
-	Outputs          [NumOutputs]Utxo
-	AddressHashes    [NumInputs]frontend.Variable
-	ExternalDataHash frontend.Variable
+	Public            PublicInputs
+	Inputs            [NumInputs]Utxo
+	Outputs           [NumOutputs]Utxo
+	AddressHashes     [NumInputs]frontend.Variable
+	ExternalDataHash  frontend.Variable
+	PrivateTxBlinding frontend.Variable
 }
 
 func (c *PrivateTxHashCircuit) Define(api frontend.API) error {
@@ -73,7 +74,14 @@ func (c *PrivateTxHashCircuit) Define(api frontend.API) error {
 	for i := range c.AddressHashes {
 		addressHashes[i] = c.AddressHashes[i]
 	}
-	h := transaction.PrivateTxHashCircuit(api, inputHashes, outputHashes, addressHashes, c.ExternalDataHash)
+	h := transaction.PrivateTxHashCircuit(
+		api,
+		inputHashes,
+		outputHashes,
+		addressHashes,
+		c.ExternalDataHash,
+		c.PrivateTxBlinding,
+	)
 	api.AssertIsEqual(c.Public.PrivateTxHash, h)
 	_ = c.Public.RingProgramID
 	return nil
