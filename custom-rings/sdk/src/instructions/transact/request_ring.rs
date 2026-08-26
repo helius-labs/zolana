@@ -10,7 +10,7 @@ use zolana_client::{
     ClientError,
 };
 use zolana_keypair::{P256Pubkey, ViewingKey};
-use zolana_ring_policy::{MAX_INLINE_ASSETS, MAX_RULES};
+use zolana_ring_policy::{MAX_INLINE_ASSETS, MAX_POLICY_SOURCES, MAX_RULES};
 
 use crate::instructions::transact::request::{bytes_to_hex, field_hex, SecretHex};
 
@@ -76,6 +76,13 @@ impl Default for CustomRingPoolEntry {
     }
 }
 
+/// One positional source slot, slot `i` is empty or serves kind `i + 1`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PolicySourceEntry {
+    pub kind: u8,
+    pub owner_hash: [u8; 32],
+}
+
 pub struct CustomRingProofRequest {
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
@@ -88,7 +95,7 @@ pub struct CustomRingProofRequest {
     pub outputs: [CustomRingOpening; POLICY_OUTPUT_SLOTS],
     pub address_chain: [u8; 32],
     pub external_data_hash: [u8; 32],
-    pub records_owner_hash: [u8; 32],
+    pub sources: [PolicySourceEntry; MAX_POLICY_SOURCES],
     pub policy_len: u8,
     pub rules: [[u8; 32]; MAX_RULES],
     pub inline_assets: [[u8; 32]; MAX_INLINE_ASSETS],
@@ -121,7 +128,7 @@ impl ProveRequest for CustomRingProofRequest {
             outputs: self.outputs.iter().map(opening_json).collect(),
             address_chain: field_hex(&self.address_chain),
             external_data_hash: field_hex(&self.external_data_hash),
-            records_owner_hash: field_hex(&self.records_owner_hash),
+            sources: self.sources.iter().map(source_json).collect(),
             policy_len: self.policy_len,
             rule_enc: self.rules.iter().map(field_hex).collect(),
             inline_assets: self.inline_assets.iter().map(field_hex).collect(),
@@ -151,6 +158,13 @@ fn opening_json(opening: &CustomRingOpening) -> CustomRingOpeningJson {
         data_hash: field_hex(&opening.data_hash),
         ring_data_hash: field_hex(&opening.ring_data_hash),
         ring_program_id: field_hex(&opening.ring_program_id),
+    }
+}
+
+fn source_json(source: &PolicySourceEntry) -> CustomRingSourceJson {
+    CustomRingSourceJson {
+        kind: source.kind,
+        owner_hash: field_hex(&source.owner_hash),
     }
 }
 
@@ -189,6 +203,13 @@ struct CustomRingOpeningJson {
     ring_data_hash: String,
     #[serde(rename = "ringProgramId")]
     ring_program_id: String,
+}
+
+#[derive(Serialize)]
+struct CustomRingSourceJson {
+    kind: u8,
+    #[serde(rename = "ownerHash")]
+    owner_hash: String,
 }
 
 #[derive(Serialize)]
@@ -240,8 +261,7 @@ struct CustomRingProofRequestJson<'a> {
     address_chain: String,
     #[serde(rename = "externalDataHash")]
     external_data_hash: String,
-    #[serde(rename = "recordsOwnerHash")]
-    records_owner_hash: String,
+    sources: Vec<CustomRingSourceJson>,
     #[serde(rename = "policyLen")]
     policy_len: u8,
     #[serde(rename = "ruleEnc")]
@@ -276,7 +296,7 @@ mod tests {
             outputs: [CustomRingOpening::default(); POLICY_OUTPUT_SLOTS],
             address_chain: [0u8; 32],
             external_data_hash: [6u8; 32],
-            records_owner_hash: [7u8; 32],
+            sources: [PolicySourceEntry::default(); MAX_POLICY_SOURCES],
             policy_len: 1,
             rules: [[0u8; 32]; MAX_RULES],
             inline_assets: [[0u8; 32]; MAX_INLINE_ASSETS],
@@ -313,8 +333,8 @@ mod tests {
                 "pool",
                 "privateTxHash",
                 "publicInputHash",
-                "recordsOwnerHash",
                 "ruleEnc",
+                "sources",
                 "stateRoot",
                 "txViewingSk",
                 "variant",
@@ -329,6 +349,18 @@ mod tests {
             object["pool"].as_array().expect("pool").len(),
             POLICY_POOL_SLOTS
         );
+        assert_eq!(
+            object["sources"].as_array().expect("sources").len(),
+            MAX_POLICY_SOURCES
+        );
+        let mut slot_keys: Vec<&str> = object["sources"][0]
+            .as_object()
+            .expect("slot")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        slot_keys.sort_unstable();
+        assert_eq!(slot_keys, ["kind", "ownerHash"]);
     }
 
     #[test]

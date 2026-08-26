@@ -48,11 +48,7 @@ import { SOL_MINT, type AssetRegistry } from "../transaction/wallet/asset.js";
 import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 import { resolveRegisteredAddress } from "../wallet/registry.js";
 
-import {
-  fetchRingPolicyConfig,
-  fetchRingProgramConfig,
-  ringPolicyRecordsAddress,
-} from "./config.js";
+import { fetchRingPolicyConfig, fetchRingProgramConfig } from "./config.js";
 import { RingError, wrapRingError } from "./error.js";
 import { ringTransactInstruction } from "./instructions.js";
 import { fetchRingLookupTable } from "./lookup-table.js";
@@ -311,10 +307,9 @@ export async function proveCustomRingTransfer(
   input: CustomRingTransferParams,
   context?: RequestContext,
 ): Promise<ProvenRingTransfer> {
-  const [config, policyConfig, recordsPda] = await Promise.all([
+  const [config, policyConfig] = await Promise.all([
     fetchRingProgramConfig(input.client, input.ringProgramId, context),
     fetchRingPolicyConfig(input.client, input.ringProgramId, context),
-    ringPolicyRecordsAddress(input.ringProgramId),
   ]);
   // The program enforces `records_tree == input tree`, a mismatch cannot verify.
   if (policyConfig.recordsTree !== input.tree) {
@@ -377,7 +372,11 @@ export async function proveCustomRingTransfer(
         outputs: openings.outputs,
         addressChain: new Uint8Array(32) as Bytes32,
         externalDataHash: new Uint8Array(32) as Bytes32,
-        recordsOwnerHash: ringRecordsOwnerHash(recordsPda),
+        sources: policyConfig.sources.map((slot) =>
+          slot.kind === 0
+            ? { kind: 0, ownerHash: new Uint8Array(32) as Bytes32 }
+            : { kind: slot.kind, ownerHash: ringRecordsOwnerHash(slot.records) },
+        ),
         policyLen: 0,
         rules: zeroFields(RING_RULE_SLOTS),
         inlineAssets: zeroFields(RING_INLINE_ASSET_SLOTS),

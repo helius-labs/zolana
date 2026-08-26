@@ -10,6 +10,6 @@ pub use proof::{
 };
 pub use request::CustomRingPrivateTxHash;
 pub use request_ring::{
-    CustomRingOpening, CustomRingPoolEntry, CustomRingProofRequest, NULLIFIER_PATH_LEN,
-    POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS, POLICY_POOL_SLOTS, STATE_PATH_LEN,
+    CustomRingOpening, CustomRingPoolEntry, CustomRingProofRequest, PolicySourceEntry,
+    NULLIFIER_PATH_LEN, POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS, POLICY_POOL_SLOTS, STATE_PATH_LEN,
 };

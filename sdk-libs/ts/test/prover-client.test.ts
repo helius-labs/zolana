@@ -84,7 +84,7 @@ function ringRequest(auditorPublicKey: Uint8Array): CustomRingProofRequest {
     outputs: Array.from({ length: 4 }, () => zeroOpening()),
     addressChain: bytes(0),
     externalDataHash: bytes(6),
-    recordsOwnerHash: bytes(7),
+    sources: Array.from({ length: 8 }, () => ({ kind: 0, ownerHash: bytes(0) })),
     policyLen: 1,
     rules: Array.from({ length: 16 }, () => bytes(0)),
     inlineAssets: Array.from({ length: 8 }, () => bytes(0)),
@@ -139,7 +139,7 @@ const EXPECTED_RING_BODY = {
   outputs: Array.from({ length: 4 }, () => EXPECTED_OPENING),
   addressChain: fieldHex(0),
   externalDataHash: fieldHex(6),
-  recordsOwnerHash: fieldHex(7),
+  sources: Array.from({ length: 8 }, () => ({ kind: 0, ownerHash: fieldHex(0) })),
   policyLen: 1,
   ruleEnc: Array.from({ length: 16 }, () => fieldHex(0)),
   inlineAssets: Array.from({ length: 8 }, () => fieldHex(0)),
@@ -318,8 +318,8 @@ describe("prover request routing", () => {
       "pool",
       "privateTxHash",
       "publicInputHash",
-      "recordsOwnerHash",
       "ruleEnc",
+      "sources",
       "stateRoot",
       "txViewingSk",
       "variant",
@@ -332,6 +332,9 @@ describe("prover request routing", () => {
     expect(pool).toHaveLength(10);
     expect(pool[0]?.["nfPathElements"]).toHaveLength(40);
     expect(pool[0]?.["statePathElements"]).toHaveLength(32);
+    const sources = body["sources"] as Record<string, unknown>[];
+    expect(sources).toHaveLength(8);
+    expect(Object.keys(sources[0] ?? {}).sort()).toEqual(["kind", "ownerHash"]);
 
     for (const auditorPublicKey of [new Uint8Array(33).fill(2), new Uint8Array(65).fill(2)]) {
       await expect(prover.proveCustomRing(ringRequest(auditorPublicKey))).rejects.toMatchObject({
