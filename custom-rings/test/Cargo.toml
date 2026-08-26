@@ -5,6 +5,10 @@ edition.workspace = true
 publish = false
 autotests = false
 
+[features]
+# Must match the image the validator loads, the compiled table is hashed on chain.
+blocklist = ["custom-ring-interface/blocklist"]
+
 [dependencies]
 anyhow = { workspace = true }
 bincode = { workspace = true }
@@ -32,6 +36,7 @@ zolana-interface = { workspace = true, features = ["solana"] }
 zolana-keypair = { workspace = true }
 zolana-program-test = { workspace = true }
 zolana-ring-client = { workspace = true, features = ["solana-rpc"] }
+zolana-ring-policy = { workspace = true }
 zolana-ring-rpc = { path = "../../services/ring-rpc" }
 zolana-test-utils = { workspace = true }
 zolana-transaction = { workspace = true }
@@ -42,3 +47,8 @@ zeroize = { workspace = true }
 [[test]]
 name = "ring"
 path = "tests/ring.rs"
+
+[[test]]
+name = "shared_sources"
+path = "tests/shared_sources.rs"
+required-features = ["blocklist"]
