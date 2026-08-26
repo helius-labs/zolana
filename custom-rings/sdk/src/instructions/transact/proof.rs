@@ -137,9 +137,12 @@ impl PendingCustomRingProof {
     /// The public input recomputed from `CustomRingPublicInput`, the one
     /// implementation the program calls on-chain, so a folded request cannot
     /// drift from what verification recomputes.
+    /// The circuit recomputes `private_tx_hash` over the chains and the
+    /// external data hash, a value the SPP proof did not fold cannot prove.
     pub fn finish(
         self,
         private_tx_hash: CustomRingPrivateTxHash,
+        external_data_hash: &[u8; 32],
         witness: crate::witness::CustomRingWitness,
         policy_hash: &[u8; 32],
     ) -> Result<crate::instructions::transact::CustomRingProofRequest, CustomRingProofInputError>
@@ -176,8 +179,14 @@ impl PendingCustomRingProof {
             n_out: witness.n_out,
             inputs: witness.inputs,
             outputs: witness.outputs,
-            address_chain: [0u8; 32],
-            external_data_hash: [0u8; 32],
+            // SPP folds a zero address slot per input into `private_tx_hash`.
+            address_chain: zolana_hasher::hash_chain::create_hash_chain_from_slice(&vec![
+                [0u8; 32];
+                witness.n_in
+                    as usize
+            ])
+            .map_err(|_| CustomRingProofInputError::Hashing)?,
+            external_data_hash: *external_data_hash,
             sources: witness.sources,
             policy_len: witness.policy_len,
             rules: witness.rules,
