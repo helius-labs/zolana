@@ -17,7 +17,9 @@ const HEALTH_TIMEOUT: Duration = Duration::from_secs(5);
 pub enum PipelineError {
     #[error(transparent)]
     ReaderKey(#[from] ReaderKeyError),
-    #[error("no ring rpc answers at {url}, create its key with `zolana-ring auditor-key --create` and run the ring rpc from a zolana checkout serving keys/auditor.key")]
+    #[error(
+        "no ring rpc answers at {url}, `zolana-ring localnet` starts one serving keys/auditor.key"
+    )]
     RingRpcDown {
         url: String,
         #[source]
@@ -45,7 +47,7 @@ pub fn run(ctx: &mut Context) -> Result<(), CliError> {
     Ok(())
 }
 
-/// The binary starts no services, a missing local ring rpc is the operator's step.
+/// `localnet` starts the ring rpc, `pipeline` only checks it.
 fn check_local_ring_rpc(ctx: &Context) -> Result<(), PipelineError> {
     let base = &ctx.config.urls().ring_rpc;
     let http = probe::http(HEALTH_TIMEOUT, HEALTH_TIMEOUT);

@@ -1,9 +1,9 @@
-//! The ring program of the release this binary was built from.
+//! The release the binary was built from.
 
 use std::{
     env, fs,
     io::{self, Read},
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::Duration,
 };
 
@@ -22,6 +22,15 @@ pub struct RingProgram {
     pub asset: Asset,
 }
 
+/// Everything a custom-rings release ships, parsed from the embedded lock.
+pub struct RingRelease {
+    pub tag: String,
+    pub program: Asset,
+    /// Absent from a lock older than the key.
+    pub proving_key: Option<Asset>,
+    pub binaries: Vec<Binary>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Asset {
     #[serde(rename = "asset")]
@@ -30,12 +39,32 @@ pub struct Asset {
     pub sha256: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Binary {
+    pub role: String,
+    pub os: String,
+    pub arch: String,
+    #[serde(flatten)]
+    pub asset: Asset,
+}
+
 #[derive(Debug, Error)]
 pub enum ReleaseError {
     #[error("the embedded release lock does not parse")]
     Lock(#[from] serde_json::Error),
     #[error("release {tag} ships no ring program, pass --program-so")]
     NoRingProgram { tag: String },
+    #[error("release {tag} ships no proving key for the prover")]
+    NoProvingKey { tag: String },
+    #[error("release {tag} ships no {role} for {os}-{arch}")]
+    NoBinary {
+        tag: String,
+        role: String,
+        os: &'static str,
+        arch: &'static str,
+    },
+    #[error("unsupported platform {os} {arch}")]
+    Platform { os: String, arch: String },
     #[error("cannot download {url}")]
     Download {
         url: String,
@@ -69,50 +98,133 @@ struct ReleaseLock {
     release_tag: String,
     #[serde(default)]
     ring_program: Option<Asset>,
+    #[serde(default)]
+    proving_key: Option<Asset>,
+    #[serde(default)]
+    binaries: Vec<Binary>,
 }
 
-impl RingProgram {
+impl RingRelease {
     pub fn from_lock() -> Result<Self, ReleaseError> {
         let lock: ReleaseLock = serde_json::from_str(LOCK_JSON)?;
-        let asset = lock
+        let program = lock
             .ring_program
             .ok_or_else(|| ReleaseError::NoRingProgram {
                 tag: lock.release_tag.clone(),
             })?;
         Ok(Self {
             tag: lock.release_tag,
-            asset,
+            program,
+            proving_key: lock.proving_key,
+            binaries: lock.binaries,
         })
     }
 
-    /// A cached file is verified on every use, only a missing or wrong one is downloaded.
-    pub fn ensure(&self) -> Result<PathBuf, ReleaseError> {
-        let path = cache_dir(&self.tag).join(&self.asset.name);
-        if fs::read(&path).is_ok_and(|bytes| verify(&bytes, &self.asset).is_ok()) {
-            return Ok(path);
-        }
-        let url = format!("{}/{}/{}", release_base_url(), self.tag, self.asset.name);
-        crate::line("download", &url);
-        let bytes = download(&url, &self.asset)?;
-        verify(&bytes, &self.asset)?;
-        if let Some(parent) = path.parent() {
-            file::create_dir_all(parent)?;
-        }
-        file::write(&path, &bytes)?;
-        Ok(path)
+    pub fn proving_key(&self) -> Result<&Asset, ReleaseError> {
+        self.proving_key
+            .as_ref()
+            .ok_or_else(|| ReleaseError::NoProvingKey {
+                tag: self.tag.clone(),
+            })
     }
+
+    pub fn binary(
+        &self,
+        role: &str,
+        os: &'static str,
+        arch: &'static str,
+    ) -> Result<&Asset, ReleaseError> {
+        self.binaries
+            .iter()
+            .find(|binary| binary.role == role && binary.os == os && binary.arch == arch)
+            .map(|binary| &binary.asset)
+            .ok_or_else(|| ReleaseError::NoBinary {
+                tag: self.tag.clone(),
+                role: role.to_owned(),
+                os,
+                arch,
+            })
+    }
+
+    pub fn ensure(&self, asset: &Asset) -> Result<PathBuf, ReleaseError> {
+        ensure_cached(&self.tag, asset)
+    }
+
+    pub fn ensure_as(&self, asset: &Asset, path: &Path) -> Result<(), ReleaseError> {
+        ensure_at(&self.tag, asset, path)
+    }
+}
+
+impl RingProgram {
+    pub fn from_lock() -> Result<Self, ReleaseError> {
+        let release = RingRelease::from_lock()?;
+        Ok(Self {
+            tag: release.tag,
+            asset: release.program,
+        })
+    }
+
+    pub fn ensure(&self) -> Result<PathBuf, ReleaseError> {
+        ensure_cached(&self.tag, &self.asset)
+    }
+}
+
+/// A cached file is verified on every use, only a missing or wrong one is downloaded.
+fn ensure_cached(tag: &str, asset: &Asset) -> Result<PathBuf, ReleaseError> {
+    let path = cache_dir(tag).join(&asset.name);
+    ensure_at(tag, asset, &path)?;
+    Ok(path)
+}
+
+fn ensure_at(tag: &str, asset: &Asset, path: &Path) -> Result<(), ReleaseError> {
+    if fs::read(path).is_ok_and(|bytes| verify(&bytes, asset).is_ok()) {
+        return Ok(());
+    }
+    let url = format!("{}/{}/{}", release_base_url(), tag, asset.name);
+    crate::line("download", &url);
+    let bytes = download(&url, asset)?;
+    verify(&bytes, asset)?;
+    if let Some(parent) = path.parent() {
+        file::create_dir_all(parent)?;
+    }
+    file::write(path, &bytes)?;
+    Ok(())
+}
+
+/// The `os-arch` pair the release names its binaries by.
+pub fn host_platform() -> Result<(&'static str, &'static str), ReleaseError> {
+    let platform = |os: String, arch: String| ReleaseError::Platform { os, arch };
+    let os = match std::env::consts::OS {
+        "linux" => "linux",
+        "macos" => "darwin",
+        other => {
+            return Err(platform(
+                other.to_owned(),
+                std::env::consts::ARCH.to_owned(),
+            ))
+        }
+    };
+    let arch = match std::env::consts::ARCH {
+        "x86_64" => "x64",
+        "aarch64" => "arm64",
+        other => return Err(platform(os.to_owned(), other.to_owned())),
+    };
+    Ok((os, arch))
 }
 
 /// The same cache the `zolana` cli fills.
 fn cache_dir(tag: &str) -> PathBuf {
-    let config_dir = match env::var_os("ZOLANA_CONFIG_DIR") {
+    config_dir().join("cache").join(tag)
+}
+
+pub fn config_dir() -> PathBuf {
+    match env::var_os("ZOLANA_CONFIG_DIR") {
         Some(path) => PathBuf::from(path),
         None => match env::var_os("HOME") {
             Some(home) => PathBuf::from(home).join(".config").join("zolana"),
             None => PathBuf::from(".zolana"),
         },
-    };
-    config_dir.join("cache").join(tag)
+    }
 }
 
 fn release_base_url() -> String {

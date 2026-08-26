@@ -79,8 +79,15 @@ carries the ring program it deploys. On `PATH` before `zolana-ring deploy`:
   `sh -c "$(curl -sSfL https://release.anza.xyz/v4.0.2/install)"`. It deploys
   the program.
 
-`just ring-localnet` also needs this repository's localnet prerequisites and a
-Redis in `ZOLANA_PROVER_REDIS_URL` for the custom-ring proof.
+`zolana-ring localnet` runs `zolana dev start`, so the `zolana` cli of a
+localnet release of this repository is on `PATH` too. Photon, the prover, the
+SPP programs and their protocol accounts come from that release, the
+validator is the Anza `solana-test-validator`, the ring RPC and the prover's
+`custom_ring.key` come from the custom-rings release the ring cli came from,
+and the ring RPC serves `keys/auditor.key`, created when missing. A rerun
+replaces every service, a ring RPC left on the port included. `pipeline` then
+deploys the released program on that validator. `just ring-localnet` needs
+this repository's localnet prerequisites instead.
 
 ## The pipeline and what each step locks in
 
@@ -89,9 +96,10 @@ it asked for and `keys/program-keypair.json`, and fixes the program id, the
 address of that keypair. It creates the authority keypair when the answer
 keeps the default `~/.config/solana/id.json` and no file is there; any other
 path is the operator's and a missing one is only reported. In the ring,
-`zolana-ring localnet` or `zolana-ring devnet` picks the cluster and probes
-its services. `zolana-ring deploy` downloads the ring program of the release
-the CLI came from, checks it against the lockfile built into the CLI, and
+`zolana-ring devnet` picks devnet and probes its services, `zolana-ring
+localnet` picks localnet and starts them. `zolana-ring deploy` downloads the
+ring program of the release the CLI came from, checks it against the lockfile
+built into the CLI, and
 fixes who may `init`, the upgrade authority; `--program-so` deploys a local
 build instead. After the loader finishes, `deploy` reads the program back and
 refuses to report success unless the bytes on chain hash to the file it
@@ -120,10 +128,6 @@ devnet cannot, so a step it cannot pay for stops at the web faucet and
 continues on the next keypress; without a terminal the shortfall is an error.
 `deploy` prices the loader's rent from the binary and `transact` its
 deposits, so the pause names the amount instead of failing inside the deploy.
-
-`ring-localnet` starts the validator without the bundled prover and starts the
-prover separately with a Redis queue, the custom-ring circuit is served only
-through that queue. `ZOLANA_PROVER_REDIS_URL` is required for it and for `transact`.
 
 ## Limits
 

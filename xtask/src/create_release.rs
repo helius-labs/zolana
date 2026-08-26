@@ -143,6 +143,9 @@ const PROGRAM_SOURCES: [ProgramSource; 3] = [
     },
 ];
 
+/// The prover key the custom-rings set ships, the same file the prover lock pins.
+const RING_PROVING_KEY_SOURCE: &str = "prover/server/proving-keys/custom_ring.key";
+
 /// Deployed per ring under its own id, shipped by the custom-rings set alone.
 const RING_PROGRAM_SOURCE: ProgramSource = ProgramSource {
     role: "ring_program",
@@ -156,7 +159,7 @@ pub fn run(options: Options) -> Result<()> {
     reset_dir(staging)?;
     let lock = match options.set {
         ReleaseSet::Localnet => localnet_lock(&options, staging, (os, arch))?,
-        ReleaseSet::CustomRings => custom_rings_lock(&options, staging)?,
+        ReleaseSet::CustomRings => custom_rings_lock(&options, staging, (os, arch))?,
     };
     let mut serialized = serde_json::to_string_pretty(&lock)?;
     serialized.push('\n');
@@ -234,13 +237,41 @@ fn localnet_lock(options: &Options, staging: &Path, host: (&str, &str)) -> Resul
     }))
 }
 
-/// The ring program alone, the ring cli embeds the lock and is uploaded next to it.
-fn custom_rings_lock(options: &Options, staging: &Path) -> Result<Value> {
+/// The ring program, the prover's ring key and the ring rpc, the ring cli
+/// embeds the lock and is uploaded next to them.
+fn custom_rings_lock(options: &Options, staging: &Path, host: (&str, &str)) -> Result<Value> {
     let path = options.deploy_dir.join(RING_PROGRAM_SOURCE.file);
     require_file(&path, "run `just build-programs` first")?;
+    let repo = repo_root()?;
+    let key_source = repo.join(RING_PROVING_KEY_SOURCE);
+    require_file(
+        &key_source,
+        "run `just ensure-custom-ring-prover-key` first",
+    )?;
+    let key_asset = format!("custom-ring-key-{}.key", options.tag);
+    let key_staged = stage_file(&key_source, &staging.join(&key_asset))?;
+    let mut binaries = Vec::new();
+    for (os, arch) in release_targets(host) {
+        let asset = format!("ring-rpc-{os}-{arch}-{}", options.tag);
+        let path = staging.join(&asset);
+        build_rust_binary(
+            &repo,
+            "zolana-ring-rpc",
+            "ring-rpc",
+            &path,
+            (os, arch) == host,
+        )?;
+        binaries.push(binary_json("ring_rpc", os, arch, &asset, &path)?);
+    }
     Ok(json!({
         "release_tag": options.tag,
         "ring_program": stage_program(&RING_PROGRAM_SOURCE, &path, &options.tag, staging)?,
+        "proving_key": {
+            "asset": key_asset,
+            "size": key_staged.size,
+            "sha256": key_staged.sha256,
+        },
+        "binaries": binaries,
     }))
 }
 
@@ -589,7 +620,7 @@ fn staged_asset_paths(staging: &Path, lock: &Value) -> Vec<PathBuf> {
     if let Some(programs) = lock.get("programs").and_then(Value::as_array) {
         names.extend(programs.iter().filter_map(asset_name));
     }
-    for key in ["ring_program", "accounts"] {
+    for key in ["ring_program", "proving_key", "accounts"] {
         if let Some(name) = lock.get(key).and_then(asset_name) {
             names.push(name);
         }
@@ -739,12 +770,16 @@ fn print_help() {
     println!("prover; Docker for the linux Rust binaries). Regenerates");
     println!("cli/release-artifacts.lock; the CLI binary is built last so it embeds the");
     println!("final lockfile (and is therefore uploaded but not a lockfile entry).");
-    println!("With --custom-rings the set is the ring program and the zolana-ring cli.");
+    println!("With --custom-rings the set is the ring program, its prover key, the ring rpc");
+    println!("and the zolana-ring cli.");
     println!();
     println!("Requires: go, cargo, and docker (for the linux-x64 photon build).");
     println!();
     println!("Options:");
-    println!("  --custom-rings          Release the ring program and the zolana-ring cli only,");
+    println!(
+        "  --custom-rings          Release the ring program, its prover key, the ring rpc and"
+    );
+    println!("                          the zolana-ring cli only,");
     println!("                          regenerating custom-rings/cli/release-artifacts.lock");
     println!("  --deploy-dir <dir>      Program .so directory (default target/deploy)");
     println!("  --staging-dir <dir>     Asset staging dir (default target/release-staging)");
@@ -821,22 +856,27 @@ mod tests {
         }
     }
 
-    /// The ring cli reads `release_tag` and `ring_program` and nothing else.
+    /// The ring cli reads `release_tag`, `ring_program`, `proving_key` and `binaries`.
     #[test]
     fn custom_rings_lock_shape_matches_the_ring_cli_parser() {
         let lock = json!({
             "release_tag": "v1",
             "ring_program": {"asset": "custom-ring-program-v1.so", "size": 1, "sha256": "x"},
+            "proving_key": {"asset": "custom-ring-key-v1.key", "size": 1, "sha256": "x"},
+            "binaries": [{"role": "ring_rpc", "os": "linux", "arch": "x64", "asset": "ring-rpc-linux-x64-v1", "size": 1, "sha256": "x"}],
         });
-        for key in ["asset", "size", "sha256"] {
-            assert!(
-                lock["ring_program"].get(key).is_some(),
-                "ring_program missing {key}"
-            );
+        for section in ["ring_program", "proving_key"] {
+            for key in ["asset", "size", "sha256"] {
+                assert!(lock[section].get(key).is_some(), "{section} missing {key}");
+            }
         }
         assert_eq!(
             staged_asset_paths(Path::new("/stage"), &lock),
-            vec![PathBuf::from("/stage/custom-ring-program-v1.so")]
+            vec![
+                PathBuf::from("/stage/custom-ring-program-v1.so"),
+                PathBuf::from("/stage/custom-ring-key-v1.key"),
+                PathBuf::from("/stage/ring-rpc-linux-x64-v1"),
+            ]
         );
         assert_eq!(ReleaseSet::CustomRings.cli_binaries().len(), 1);
         assert_eq!(ReleaseSet::CustomRings.title("v1"), "custom-rings v1");

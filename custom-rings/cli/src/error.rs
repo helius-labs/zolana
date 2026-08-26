@@ -2,8 +2,8 @@ use thiserror::Error;
 
 use crate::{
     authority::AuthorityError, config::ConfigError, deploy::DeployError, init::InitError,
-    new::NewError, pipeline::PipelineError, probe::ProbeError, reader::ReaderError,
-    ring_rpc::RingRpcClientError, tool::ToolError, transact::TransactError,
+    localnet::LocalnetError, new::NewError, pipeline::PipelineError, probe::ProbeError,
+    reader::ReaderError, ring_rpc::RingRpcClientError, tool::ToolError, transact::TransactError,
 };
 use zolana_ring_rpc::KeyFileError;
 
@@ -17,6 +17,8 @@ pub enum CliError {
     Probe(Box<ProbeError>),
     #[error(transparent)]
     Pipeline(Box<PipelineError>),
+    #[error(transparent)]
+    Localnet(Box<LocalnetError>),
     #[error(transparent)]
     KeyFile(Box<KeyFileError>),
     #[error(transparent)]
@@ -51,6 +53,7 @@ boxed_from!(
     New(NewError),
     Probe(ProbeError),
     Pipeline(PipelineError),
+    Localnet(LocalnetError),
     KeyFile(KeyFileError),
     Tool(ToolError),
     Deploy(DeployError),
