@@ -124,6 +124,16 @@ pub enum RecordCommand {
         kind: RecordKindArg,
         member: Address,
     },
+    /// Point the kind at the ring's own records or a curator ring's.
+    SetSource {
+        #[arg(value_enum)]
+        kind: RecordKindArg,
+        /// Curator ring program id.
+        #[arg(long, conflicts_with = "own", required_unless_present = "own")]
+        curator: Option<Address>,
+        #[arg(long)]
+        own: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
