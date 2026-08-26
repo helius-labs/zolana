@@ -63,3 +63,7 @@ check-cfg = [
 
 [[test]]
 name = "policy"
+
+[[test]]
+name = "policy_sources"
+required-features = ["allowlist", "blocklist", "freeze"]

@@ -16,17 +16,17 @@ use zolana_interface::{
     BPF_LOADER_UPGRADEABLE_PUBKEY, RING_AUTH_PDA_SEED, SHIELDED_POOL_PROGRAM_ID,
 };
 
-/// The workspace `target/deploy`, filled by `just build-programs`.
-fn sbf_dir() -> String {
+/// A workspace deploy dir, filled by `just build-programs`.
+fn sbf_dir(relative: &str) -> String {
     let mut dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     loop {
-        let candidate = dir.join("target/deploy");
+        let candidate = dir.join(relative);
         if candidate.is_dir() {
             return candidate.to_string_lossy().into_owned();
         }
         assert!(
             dir.pop(),
-            "no target/deploy above {}",
+            "no {relative} above {}",
             env!("CARGO_MANIFEST_DIR")
         );
     }
@@ -139,8 +139,17 @@ impl Fixture {
 }
 
 pub fn setup_mollusk() -> (Mollusk, Pubkey) {
+    setup_mollusk_in("target/deploy")
+}
+
+/// The rule-featured image, one process must never mix the two deploy dirs.
+pub fn setup_mollusk_rules() -> (Mollusk, Pubkey) {
+    setup_mollusk_in("target/deploy-ring-rules")
+}
+
+fn setup_mollusk_in(deploy_dir: &str) -> (Mollusk, Pubkey) {
     let (mut mollusk, program_id) = zolana_test_utils::mollusk::mollusk_with_program(
-        &sbf_dir(),
+        &sbf_dir(deploy_dir),
         *program_id().as_array(),
         "custom_ring_program",
     );
@@ -309,7 +318,13 @@ pub fn policy_hash_for(
 
 /// Carries the deployed table's hash, so a fixture reaches the proof.
 pub fn initialized_policy_config_account() -> Account {
-    let sources = own_source_slots();
+    policy_config_account_with(own_source_slots())
+}
+
+pub fn policy_config_account_with(
+    sources: [custom_ring_interface::PolicySourceSlot;
+        custom_ring_interface::N_POLICY_SOURCE_SLOTS],
+) -> Account {
     let state = custom_ring_interface::PolicyConfig {
         discriminator: custom_ring_interface::POLICY_CONFIG,
         policy_hash: policy_hash_for(&sources),
@@ -322,6 +337,65 @@ pub fn initialized_policy_config_account() -> Account {
         lamports: 1_000_000_000,
         data: bytemuck::bytes_of(&state).to_vec(),
         owner: program_id(),
+        executable: false,
+        rent_epoch: 0,
+    }
+}
+
+/// A foreign curator ring, its policy and records PDAs derive from this id.
+pub fn curator_program_id() -> Pubkey {
+    Pubkey::new_from_array([88u8; 32])
+}
+
+pub fn curator_policy_config_pda() -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[custom_ring_interface::POLICY_CONFIG_PDA_SEED],
+        &curator_program_id(),
+    )
+}
+
+pub fn curator_records_pda() -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[zolana_ring_policy::POLICY_RECORDS_PDA_SEED],
+        &curator_program_id(),
+    )
+}
+
+/// The curator's own-mode map, one slot per referenced kind.
+pub fn curator_source_slots(
+) -> [custom_ring_interface::PolicySourceSlot; custom_ring_interface::N_POLICY_SOURCE_SLOTS] {
+    let records = Address::new_from_array(curator_records_pda().0.to_bytes());
+    let mut sources = own_source_slots();
+    for slot in &mut sources {
+        if slot.kind != 0 {
+            slot.records = records;
+        }
+    }
+    sources
+}
+
+pub fn initialized_curator_policy_config_account() -> Account {
+    curator_policy_config_account_with(records_tree(), curator_source_slots())
+}
+
+/// The loader never rechecks the curator's stored hash.
+pub fn curator_policy_config_account_with(
+    records_tree: Pubkey,
+    sources: [custom_ring_interface::PolicySourceSlot;
+        custom_ring_interface::N_POLICY_SOURCE_SLOTS],
+) -> Account {
+    let state = custom_ring_interface::PolicyConfig {
+        discriminator: custom_ring_interface::POLICY_CONFIG,
+        policy_hash: policy_hash_for(&sources),
+        records_tree: Address::new_from_array(records_tree.to_bytes()),
+        records_bump: curator_records_pda().1,
+        bump: curator_policy_config_pda().1,
+        sources,
+    };
+    Account {
+        lamports: 1_000_000_000,
+        data: bytemuck::bytes_of(&state).to_vec(),
+        owner: curator_program_id(),
         executable: false,
         rent_epoch: 0,
     }
@@ -376,11 +450,15 @@ pub fn create_policy_data(specs: &[custom_ring_interface::PolicySourceSpec]) -> 
     data
 }
 
-/// Green `create_policy` fixture, `[payer(w,s), authority(s), policy_config(w),
-/// records_tree, system_program, program, program_data]`.
 pub fn create_policy_fixture() -> Fixture {
+    create_policy_fixture_with(&[])
+}
+
+/// Green `create_policy` fixture, `[payer(w,s), authority(s), policy_config(w),
+/// records_tree, system_program, program, program_data]`, curators trail.
+pub fn create_policy_fixture_with(specs: &[custom_ring_interface::PolicySourceSpec]) -> Fixture {
     Fixture::new(
-        create_policy_data(&[]),
+        create_policy_data(specs),
         vec![
             Slot {
                 label: "payer",
@@ -412,6 +490,98 @@ pub fn create_policy_fixture() -> Fixture {
                 label: "program_data",
                 meta: AccountMeta::new_readonly(program_data_pda(), false),
                 account: program_data_account(Some(&authority())),
+            },
+        ],
+    )
+}
+
+pub fn set_policy_source_data(kind: u8, source: u8) -> Vec<u8> {
+    let mut data = vec![tag::SET_POLICY_SOURCE];
+    data.extend_from_slice(
+        &wincode::serialize(&custom_ring_interface::SetPolicySourceIxData { kind, source })
+            .expect("set_policy_source data"),
+    );
+    data
+}
+
+/// Green `set_policy_source` fixture, `[authority(s), config, policy_config(w)]`,
+/// shared mode pushes one trailing curator.
+pub fn set_policy_source_fixture(policy_config: Account, kind: u8, source: u8) -> Fixture {
+    Fixture::new(
+        set_policy_source_data(kind, source),
+        vec![
+            Slot {
+                label: "authority",
+                meta: AccountMeta::new_readonly(authority(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "config",
+                meta: AccountMeta::new_readonly(config_pda().0, false),
+                account: initialized_config_account(authority(), auditor_pubkey(2)),
+            },
+            Slot {
+                label: "policy_config",
+                meta: AccountMeta::new(policy_config_pda().0, false),
+                account: policy_config,
+            },
+        ],
+    )
+}
+
+/// `create_record` fixture, `[config, policy_config, payer(w,s), input_tree(w),
+/// output_tree(w), spp_program, system_program, records]`. SPP is not loaded,
+/// only the ring's pre-CPI validation is assertable.
+pub fn create_record_fixture(policy_config: Account, kind: u8, payer: Pubkey) -> Fixture {
+    let member = zolana_ring_policy::Member::owner_tag(&[61u8; 32]).expect("member");
+    let mut data = vec![tag::CREATE_RECORD];
+    data.extend_from_slice(
+        &wincode::serialize(&custom_ring_interface::CreateRecordIxData {
+            kind,
+            member: *member.as_bytes(),
+            state: 1,
+            payload_hash: [7u8; 32],
+            nullifier_tree_root_index: 0,
+            utxo_tree_root_index: 0,
+            proof: zolana_interface::instruction::instruction_data::transact::TransactProof::zeroed(
+            ),
+        })
+        .expect("create_record data"),
+    );
+    Fixture::new(
+        data,
+        vec![
+            Slot {
+                label: "config",
+                meta: AccountMeta::new_readonly(config_pda().0, false),
+                account: initialized_config_account(authority(), auditor_pubkey(2)),
+            },
+            Slot {
+                label: "policy_config",
+                meta: AccountMeta::new_readonly(policy_config_pda().0, false),
+                account: policy_config,
+            },
+            Slot {
+                label: "payer",
+                meta: AccountMeta::new(payer, true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "input_tree",
+                meta: AccountMeta::new(records_tree(), false),
+                account: records_tree_account(),
+            },
+            Slot {
+                label: "output_tree",
+                meta: AccountMeta::new(records_tree(), false),
+                account: records_tree_account(),
+            },
+            spp_program_slot(),
+            system_program_slot(),
+            Slot {
+                label: "records",
+                meta: AccountMeta::new_readonly(records_pda().0, false),
+                account: account(1_000_000_000),
             },
         ],
     )
