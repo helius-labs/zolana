@@ -11,17 +11,17 @@ sequenceDiagram
     SubRing->>SubRing: copies the curator's resolved records owner
     Note over SubRing: the Block slot now names the curator's records PDA
 
-    OFAC->>Curator: designates Mr. Evil
-    Curator->>CurRing: create_record(Block, evil_tag, Active)
-    CurRing->>SPP: one transact, the record UTXO lands in the shared tree
-    Note over SPP: one write serves every subscriber
+    OFAC-->>Curator: the sanctions list adds Mr. Evil's address
+    Curator->>CurRing: create_record bans the address under Block
+    CurRing->>SPP: one transact, the ban lands in the shared tree
+    Note over SPP: one ban serves every subscriber
 
     Crazy->>Crazy: witness resolves Block to the curator's records
-    Note over Crazy: entry() finds the live record, PolicyRuleUnsatisfied, no proof
-    Note over Crazy,SubRing: a patched wallet fails at the circuit, the claimed address admits no non-inclusion witness
+    Note over Crazy: the banned address holds a live Block record, PolicyRuleUnsatisfied, no proof
+    Note over Crazy,SubRing: a patched wallet fails at the circuit, the ban record admits no non-inclusion witness
 
-    OFAC->>Curator: de-lists Mr. Evil
-    Curator->>CurRing: update_record(Block, evil_tag, Cleared)
+    OFAC-->>Curator: the sanctions list drops the address
+    Curator->>CurRing: update_record clears the ban
     Crazy->>SubRing: transact with one proof over the cleared record
     SubRing->>SubRing: recomputes the hash over the stored source map, verifies
     SubRing->>SPP: CPI ring_transact
