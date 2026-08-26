@@ -7,7 +7,6 @@ import (
 	"zolana/prover/circuits/gadget"
 )
 
-// resolveOwner returns the records owner the map names for the entry's kind.
 // An enabled entry must match exactly one slot, a disabled entry resolves to
 // garbage no downstream assertion reads.
 func resolveOwner(api frontend.API, sources [NSources]SourceWires, entry PoolEntryWires) frontend.Variable {

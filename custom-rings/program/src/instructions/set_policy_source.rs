@@ -12,10 +12,9 @@ use crate::{
     },
 };
 
-/// Re-points one referenced kind's records source. The stored hash must be
-/// reproducible from the stored map under the current compiled table before
-/// anything is written, a table upgrade stays fail closed and only
-/// `create_policy` pins a table.
+/// The stored hash must be reproducible from the stored map under the
+/// compiled table before anything is written, a table upgrade stays fail
+/// closed and only `create_policy` pins a table.
 #[inline(never)]
 pub fn process_set_policy_source_ix(
     program_id: &Address,

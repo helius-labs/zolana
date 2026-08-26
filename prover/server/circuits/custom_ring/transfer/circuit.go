@@ -32,8 +32,8 @@ import (
 	"zolana/prover/circuits/gadget"
 )
 
-// SourceWires is one kind and owner slot of the policy source map, bound to
-// the on-chain map through the policy hash alone.
+// SourceWires is bound to the on-chain source map through the policy hash
+// alone.
 type SourceWires struct {
 	Kind      frontend.Variable
 	OwnerHash frontend.Variable
