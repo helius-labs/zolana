@@ -1,68 +1,80 @@
 mod shared;
 
 use anyhow::{anyhow, bail, Result};
-use dynamic_swap_program::{
-    instructions::{create_escrow::EscrowOpenProof, settle::SettleProof},
-    state::{Escrow, Pair},
-};
+use dynamic_swap_program::state::{Escrow, Pair};
 use dynamic_swap_sdk::{
     discovery::{discover_escrow_note, DiscoveredEscrow},
     escrow_pda,
     instructions::{
         create_escrow::{CreateEscrow, EscrowOpenProofInputParams},
+        rebalance_liquidity::{RebalanceLiquidity, RebalanceProofInputParams},
         settle::{
-            derive_settle_output_blinding, Settle, SettleProofInputParams,
-            MAKER_COUNTER_BLINDING_DOMAIN, MAKER_SOURCE_BLINDING_DOMAIN, RECIPIENT_BLINDING_DOMAIN,
+            derive_output_blinding, Settle, SettleProofInputParams, RECIPIENT_BLINDING_DOMAIN,
         },
+        withdraw_liquidity::{WithdrawLiquidity, WithdrawProofInputParams, WithdrawSplAccounts},
     },
     prover::DynamicSwapProverClient,
-    state::{EscrowTerms, EscrowUtxo, Reservation},
+    state::{escrow_authority_address, EscrowUtxo, PoolUtxo},
+    Groth16ProofBytes,
 };
 use shared::{
-    escrow_authority_identity, get_slot_with_retry, send_v0_with_lookup_table, setup_with_pair,
+    assert_liquidity, deposit_pool_liquidity, discover_pool_notes_with_retry,
+    escrow_authority_identity, pool_authority_identity, send_v0_with_lookup_table, setup_with_pair,
+    token_balance, MAKER_DEST_BALANCE, MIN_ORDER_AMOUNT, PRICE_TOLERANCE,
 };
+use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signer::Signer;
 use zolana_client::Rpc;
-use zolana_interface::instruction::Transact;
 use zolana_keypair::random_blinding;
 use zolana_transaction::{
     instructions::transact::{
         encrypt_transaction_data, get_transaction_viewing_key, spp_proof_inputs::asset_field,
-        ExternalData, SppProofInputs, SppProofOutputUtxo,
+        ExternalData, SettlementTransfer, SppProofInputs, SppProofOutputUtxo,
     },
     instructions::types::SppProofInputUtxo,
-    Data, Filter, Utxo, Wallet, SOL_MINT,
+    Filter, Wallet,
 };
-use zolana_wallet::{resolve_registered_address, sync_wallet, Deposit, DepositParams};
+use zolana_wallet::{resolve_registered_address, sync_wallet};
 
 const PRICE: u64 = 5;
 const ORDER_AMOUNT: u64 = 100_000_000;
+const OWED: u64 = ORDER_AMOUNT * PRICE;
+/// Covers OWED with slack, so a settle leaves recoverable surplus in the pool
+/// change note (MAX_ORDER_SIZE - OWED).
+const MAX_ORDER_SIZE: u64 = 600_000_000;
+/// Committed before the escrow so the reservation is covered.
+const POOL_DEPOSIT: u64 = 1_000_000_000;
+/// Wide enough that the settle proof (~14s of in-process proving) always lands
+/// inside the window; the cancel flow uses its own small window.
+const EXPIRY_SLOTS: u64 = 100_000;
 
-// Full happy path: create_pair -> create_escrow (the taker escrows the source
-// asset; the maker funds the reservation on demand from its own wallet; priced
-// at creation) -> settle (settle branch, since execution_price <= max_price by
-// construction) -> the escrow account closes and both legs land as real UTXOs.
-//
-// Flow:
-//   1. setup_with_pair (in setup): register the SPL(source)->SOL(destination) pair at
-//      PRICE. There is no shared pool; the maker funds each escrow directly.
-//   2. create_escrow: split the taker's funding UTXO into an exact-ORDER_AMOUNT source
-//      UTXO; the maker deposits exactly `order_amount * max_price` of SOL as reservation
-//      funding; the escrow_open proof spends both -> order UTXO + reservation UTXO (held
-//      under the escrow-authority PDA) + maker change. Prices the order at creation
-//      (execution_price := pair.price) and opens the escrow account. ZK proof, v0 tx via ALT.
-//   3. settle (settle branch, execution_price <= max_price): recover the note purely from
-//      Solana, the registry, and the indexer, spend the order + reservation UTXOs -> recipient paid
-//      `order_amount * execution_price` SOL, maker counter leg (reservation remainder,
-//      zero here), maker source leg (full escrowed SPL). ZK settle proof, v0 tx.
-//   4. Assert all three settle legs are indexed as real UTXOs and the escrow account closed.
+// Full happy path over the committed-liquidity design:
+//   1. setup_with_pair: register the SPL(source)->SPL(destination) pair at
+//      PRICE with MAX_ORDER_SIZE and the maker encryption pubkey.
+//   2. deposit_liquidity: the maker shields POOL_DEPOSIT of the destination
+//      asset into a public pool note; available_liquidity = POOL_DEPOSIT.
+//   3. create_escrow: the taker spends its funding UTXO (IN1_OUT2), priced at
+//      creation; the reservation moves MAX_ORDER_SIZE out of the bound.
+//   4. settle: the maker recovers the order and pool notes purely from Solana
+//      and the indexer, and spends order + pool -> recipient paid OWED of the
+//      destination asset, pool change re-locked with booked clamped down by
+//      MAX_ORDER_SIZE, maker receipt (the full escrowed SPL). Maker-only.
+//   5. rebalance_liquidity: the maker publishes the settle surplus
+//      (MAX_ORDER_SIZE - OWED) back into available_liquidity.
+//   6. withdraw_liquidity: the maker unshields the whole remaining pool back
+//      to its token account; the pool and the bound return to zero.
 #[test]
 fn create_pair_escrow_and_settle() -> Result<()> {
-    // 1. setup_with_pair: register the SPL(source)->SOL(destination) pair at PRICE.
-    // There is no shared pool; the maker funds each escrow directly.
-    let (env, pair) = setup_with_pair(PRICE)?;
+    // 1. setup_with_pair: register the SPL(source)->SPL(destination) pair.
+    let (env, pair) = setup_with_pair(PRICE, EXPIRY_SLOTS, MAX_ORDER_SIZE)?;
     let authority_solana = &env.authority.keypair;
     let user_solana = &env.user.keypair;
+    let prover = DynamicSwapProverClient::new();
+
+    // 2. Commit liquidity. The deposit is fully public, so the bound rises by
+    // exactly the deposited amount.
+    let pool_note = deposit_pool_liquidity(&env, pair, POOL_DEPOSIT)?;
+    assert_liquidity(&env, pair, POOL_DEPOSIT, 0, "after deposit")?;
 
     let recipient_owner_hash = env
         .user
@@ -71,296 +83,191 @@ fn create_pair_escrow_and_settle() -> Result<()> {
     // create_escrow: the escrow account key and its state are all that cross into
     // settle -- everything else settle needs is fetched fresh there.
     let (escrow, escrow_state) = {
-        // 2. create_escrow. First split the user's funding UTXO into an
-        // exact-`ORDER_AMOUNT` UTXO (create_escrow no longer supports a change
-        // output, so `escrow_open` must be handed a source UTXO matching
-        // `order_amount` exactly); the remainder is left unspent like a real
-        // wallet's change note. This split does not depend on `created_at`, so it
-        // happens once, up front.
-        let source_utxo = {
-            // Discover the user's funding UTXO the way a real wallet would: sync
-            // from Photon and pick a spendable note of the source asset large
-            // enough to cover the order, rather than reconstructing it from the
-            // deposit blinding the test happens to know client-side.
-            let mut user_wallet = Wallet::new(env.user.address()?, env.assets.clone())
-                .map_err(|e| anyhow!("user wallet: {e:?}"))?;
-            sync_wallet(&mut user_wallet, &env.user.keypair, env.client.indexer())
-                .map_err(|e| anyhow!("sync user wallet: {e:?}"))?;
-            let funding_utxo = user_wallet
-                .balance(env.spl_mint, Some(Filter::MinAmount(ORDER_AMOUNT)))
-                .map_err(|e| anyhow!("user balance: {e:?}"))?
-                .utxos
-                .first()
-                .cloned()
-                .ok_or_else(|| {
-                    anyhow!("no spendable utxo of {} >= {ORDER_AMOUNT}", env.spl_mint)
-                })?;
-            let source_in = SppProofInputUtxo::new(funding_utxo.clone(), &env.user.keypair);
-            let remainder_amount = funding_utxo
-                .amount
-                .checked_sub(ORDER_AMOUNT)
-                .ok_or_else(|| anyhow!("order_amount exceeds the user's funding UTXO"))?;
-            let user_address = env.user.address()?;
-            let split_out = SppProofOutputUtxo::new(env.spl_mint, ORDER_AMOUNT, user_address)
-                .map_err(|e| anyhow!("split_out: {e:?}"))?;
-            let remainder_out =
-                SppProofOutputUtxo::new(env.spl_mint, remainder_amount, user_address)
-                    .map_err(|e| anyhow!("remainder_out: {e:?}"))?;
+        // 3. create_escrow. Discover the taker's funding UTXO the way a real
+        // wallet would: sync from Photon and pick a spendable note of the source
+        // asset large enough to cover the order; the circuit's change output
+        // returns the remainder, so no pre-split is needed.
+        let mut user_wallet = Wallet::new(env.user.address()?, env.assets.clone())
+            .map_err(|e| anyhow!("user wallet: {e:?}"))?;
+        sync_wallet(&mut user_wallet, &env.user.keypair, env.client.indexer())
+            .map_err(|e| anyhow!("sync user wallet: {e:?}"))?;
+        let funding_utxo = user_wallet
+            .balance(env.spl_mint, Some(Filter::MinAmount(ORDER_AMOUNT)))
+            .map_err(|e| anyhow!("user balance: {e:?}"))?
+            .utxos
+            .first()
+            .cloned()
+            .ok_or_else(|| anyhow!("no spendable utxo of {} >= {ORDER_AMOUNT}", env.spl_mint))?;
 
-            let input_utxos = vec![source_in];
-            let viewing_key = get_transaction_viewing_key(&env.user.keypair, &input_utxos)
-                .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
-            let encoded =
-                encrypt_transaction_data(&[split_out, remainder_out], &env.assets, &viewing_key)
-                    .map_err(|e| anyhow!("encode outputs: {e:?}"))?;
-            let external_data = ExternalData::new(
-                *viewing_key.pubkey().as_bytes(),
-                encoded.salt,
-                encoded.outputs,
-                encoded.resolved_owner_tags,
-                vec![],
-            );
-            let spp_proof_inputs = SppProofInputs::new(
-                input_utxos,
-                encoded.output_utxos,
-                external_data,
-                user_solana.pubkey(),
-            );
-            let split_transact = env
+        // The taker builds the order owner from public data alone: the pair
+        // account's maker encryption pubkey plus the hardcoded zero-secret
+        // nullifier pubkey.
+        let maker_encryption_pubkey = {
+            let pair_account = env
                 .client
-                .indexer()
-                .prove_transact(env.tree, spp_proof_inputs)
-                .map_err(|e| anyhow!("prove_transact: {e:?}"))?;
-
-            let split_ix = Transact {
-                payer: user_solana.pubkey(),
-                input_tree: env.tree,
-                output_tree: env.tree,
-                owner_signers: Vec::new(),
-                interface_transfer_accounts: Vec::new(),
-                data: split_transact,
-            }
-            .instruction();
-            env.client
                 .rpc()
-                .create_and_send_transaction(&[split_ix], user_solana.pubkey(), &[&user_solana])
-                .map_err(|e| anyhow!("send split transact: {e:?}"))?;
+                .get_account(pair)
+                .map_err(|e| anyhow!("get pair account: {e:?}"))?
+                .ok_or_else(|| anyhow!("pair account not found"))?;
+            bytemuck::from_bytes::<Pair>(&pair_account.data).maker_encryption_pubkey
+        };
+        let escrow_authority = escrow_authority_address(&pair, &maker_encryption_pubkey)
+            .map_err(|e| anyhow!("escrow authority address: {e:?}"))?;
 
-            // Re-sync and select the freshly created exact-`ORDER_AMOUNT` note
-            // from Photon, rather than reconstructing it from the split blinding.
+        let order_amount = ORDER_AMOUNT;
+
+        let source_in = SppProofInputUtxo::new(funding_utxo.clone(), &env.user.keypair);
+
+        let escrow_utxo = EscrowUtxo {
+            recipient_owner_hash,
+            asset: env.spl_mint,
+            order_amount,
+            min_price: PRICE,
+            blinding: random_blinding(),
+        };
+        let order_out = escrow_utxo
+            .output_utxo(&escrow_authority)
+            .map_err(|e| anyhow!("order_out: {e:?}"))?;
+        let order_utxo_hash = order_out
+            .hash()
+            .map_err(|e| anyhow!("order_utxo hash: {e:?}"))?;
+
+        let change_amount = funding_utxo
+            .amount
+            .checked_sub(order_amount)
+            .ok_or_else(|| anyhow!("order_amount exceeds the taker's funding UTXO"))?;
+        let taker_change =
+            SppProofOutputUtxo::new(env.spl_mint, change_amount, env.user.address()?)
+                .map_err(|e| anyhow!("taker_change: {e:?}"))?;
+
+        // Output order (order, taker_change) matches the program's own output
+        // index and the circuit. Both ciphertexts are kept: the order slot is
+        // the maker handoff, the change slot is the taker's own note.
+        let input_utxos = vec![source_in.clone()];
+        let viewing_key = get_transaction_viewing_key(&env.user.keypair, &input_utxos)
+            .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
+        let encoded = encrypt_transaction_data(
+            &[order_out.clone(), taker_change.clone()],
+            &env.assets,
+            &viewing_key,
+        )
+        .map_err(|e| anyhow!("encode outputs: {e:?}"))?;
+        let external_data = ExternalData::new(
+            *viewing_key.pubkey().as_bytes(),
+            encoded.salt,
+            encoded.outputs,
+            encoded.resolved_owner_tags,
+            vec![],
+        );
+        let external_data_hash = external_data
+            .hash()
+            .map_err(|e| anyhow!("external data hash: {e:?}"))?;
+        // The escrow authority owns the data-bearing order output but spends no
+        // input, so it must be declared as the extra owner signer (the program's
+        // CPI flips its account); the circuit requires a data-carrying output's
+        // owner in the authorized signer set.
+        let spp_proof_inputs = SppProofInputs::new(
+            input_utxos,
+            encoded.output_utxos,
+            external_data,
+            user_solana.pubkey(),
+        )
+        .with_owner_signer(
+            escrow_authority
+                .solana_address()
+                .map_err(|e| anyhow!("escrow authority solana address: {e:?}"))?,
+        );
+        let transact = env
+            .client
+            .indexer()
+            .prove_transact(env.tree, spp_proof_inputs)
+            .map_err(|e| anyhow!("prove_transact: {e:?}"))?;
+
+        let escrow_authority_owner_hash = escrow_authority
+            .owner_hash()
+            .map_err(|e| anyhow!("escrow authority owner hash: {e:?}"))?;
+        let source_asset =
+            asset_field(&env.spl_mint).map_err(|e| anyhow!("source asset: {e:?}"))?;
+        let proof_inputs = EscrowOpenProofInputParams {
+            source_in,
+            order_out,
+            taker_change,
+            escrow_authority_owner_hash,
+            source_asset,
+            public_price_floor: PRICE - PRICE_TOLERANCE,
+            price_tolerance: PRICE_TOLERANCE,
+            min_order_amount: MIN_ORDER_AMOUNT,
+            max_order_size: MAX_ORDER_SIZE,
+            order_amount,
+            min_price: PRICE,
+            external_data_hash,
+        }
+        .to_proof_inputs()
+        .map_err(|e| anyhow!("escrow_open proof inputs: {e:?}"))?;
+        let order_proof = prover
+            .prove_escrow_open(&proof_inputs)
+            .map_err(|e| anyhow!("prove escrow_open: {e:?}"))?;
+
+        let escrow = escrow_pda(&order_utxo_hash);
+        let ix = CreateEscrow {
+            taker: user_solana.pubkey(),
+            pair,
+            escrow,
+            tree: env.tree,
+            proof: Groth16ProofBytes {
+                proof_a: order_proof.proof_a,
+                proof_b: order_proof.proof_b,
+                proof_c: order_proof.proof_c,
+            },
+            public_price_floor: PRICE - PRICE_TOLERANCE,
+            transact,
+        }
+        .instruction()
+        .map_err(|e| anyhow!("create_escrow instruction: {e:?}"))?;
+
+        // The taker signs alone and pays fees + escrow rent. create_escrow fits
+        // as a legacy transaction (see BENCHMARK.md).
+        let compute = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+        env.client
+            .rpc()
+            .create_and_send_transaction(&[compute, ix], user_solana.pubkey(), &[&user_solana])
+            .map_err(|e| anyhow!("send create_escrow: {e:?}"))?;
+
+        // The reservation moved MAX_ORDER_SIZE out of the public bound.
+        assert_liquidity(
+            &env,
+            pair,
+            POOL_DEPOSIT - MAX_ORDER_SIZE,
+            1,
+            "after create_escrow",
+        )?;
+
+        // The taker's change landed as a wallet-discoverable note (its
+        // ciphertext carries the taker's own view tag, distinct from the order
+        // slot's escrow-authority tag). Retried: the resync can race photon's
+        // indexing of the transaction this test just sent.
+        let mut change_found = false;
+        for _ in 0..40 {
             sync_wallet(&mut user_wallet, &env.user.keypair, env.client.indexer())
                 .map_err(|e| anyhow!("resync user wallet: {e:?}"))?;
-            user_wallet
+            change_found = user_wallet
                 .balance(env.spl_mint, None)
-                .map_err(|e| anyhow!("user balance after split: {e:?}"))?
+                .map_err(|e| anyhow!("user balance after escrow: {e:?}"))?
                 .utxos
                 .into_iter()
-                .find(|utxo| utxo.amount == ORDER_AMOUNT)
-                .ok_or_else(|| anyhow!("no exact-{ORDER_AMOUNT} utxo after split"))?
-        };
-
-        let escrow_owner = escrow_authority_identity(&env.authority.keypair, &pair)?;
-
-        // The maker funds this escrow's reservation on demand: a fresh deposit
-        // owned by the escrow-authority PDA and spent by `escrow_open`.
-        let reserved = ORDER_AMOUNT
-            .checked_mul(PRICE)
-            .ok_or_else(|| anyhow!("order_amount * max_price overflows"))?;
-        let maker_funding = {
-            let escrow_address = escrow_owner.shielded_address()?;
-            let deposit = Deposit::new(DepositParams {
-                recipient: &escrow_address,
-                asset: SOL_MINT,
-                amount: reserved,
-                spl_token_account: None,
-                spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
-                memo: None,
-            })
-            .map_err(|e| anyhow!("maker funding deposit: {e:?}"))?;
-            deposit
-                .send(
-                    env.client.rpc(),
-                    &authority_solana,
-                    env.tree,
-                    &authority_solana,
-                )
-                .map_err(|e| anyhow!("send maker funding deposit: {e:?}"))?;
-            Utxo {
-                owner: escrow_address.signing_pubkey,
-                asset: SOL_MINT,
-                amount: reserved,
-                blinding: deposit.deposit.blinding,
-                ring_program_id: None,
-                data: Data::default(),
+                .any(|utxo| utxo.amount == change_amount);
+            if change_found {
+                break;
             }
-        };
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        if !change_found {
+            bail!("taker change note not discovered after create_escrow");
+        }
 
-        // create_escrow: build the order and reservation output UTXOs, prove
-        // escrow_open over both inputs, and open the escrow account.
-        let escrow = {
-            // create_escrow's proof commits to a `created_at` slot the program
-            // processor tolerance-checks against `Clock::get()?.slot`
-            // (CREATED_AT_SLOT_TOLERANCE). Read the current slot and use it as-is: it
-            // is <= the landing slot, and the tolerance window absorbs the proving
-            // and landing latency, so the landing slot is not estimated.
-            let created_at = get_slot_with_retry(env.client.rpc().client())?;
-            let order_amount = ORDER_AMOUNT;
-            let max_price = PRICE;
-            let prover = DynamicSwapProverClient::new();
-
-            // The escrow-authority PDA owns the order/reservation UTXOs; both parties
-            // derive the same shared viewing key from their registered viewing
-            // pubkeys, so either can encrypt the order note and decrypt it on settle.
-            // The reservation blinding is part of that note, chosen up front.
-            let reservation_blinding = random_blinding();
-
-            let source_in = SppProofInputUtxo::new(source_utxo.clone(), &env.user.keypair);
-            let maker_funding_in = SppProofInputUtxo::new(maker_funding.clone(), &escrow_owner);
-
-            let escrow_terms = EscrowTerms {
-                recipient_owner_hash,
-                max_price,
-            };
-            let escrow_utxo = EscrowUtxo {
-                terms: escrow_terms,
-                created_at,
-                asset: env.spl_mint,
-                order_amount,
-                blinding: random_blinding(),
-            };
-            let order_out = escrow_utxo
-                .output_utxo(&escrow_owner, &reservation_blinding)
-                .map_err(|e| anyhow!("order_out: {e:?}"))?;
-            let order_utxo_hash = order_out
-                .hash()
-                .map_err(|e| anyhow!("order_utxo hash: {e:?}"))?;
-
-            let reserved = order_amount
-                .checked_mul(max_price)
-                .ok_or_else(|| anyhow!("order_amount * max_price overflows"))?;
-            let reservation = Reservation {
-                asset: SOL_MINT,
-                amount: reserved,
-                blinding: reservation_blinding,
-            };
-            let reservation_out = reservation
-                .output_utxo(&escrow_owner, order_utxo_hash)
-                .map_err(|e| anyhow!("reservation_out: {e:?}"))?;
-
-            let maker_change_amount = maker_funding
-                .amount
-                .checked_sub(reserved)
-                .ok_or_else(|| anyhow!("reservation exceeds the maker funding amount"))?;
-            let maker_change = SppProofOutputUtxo::new(
-                SOL_MINT,
-                maker_change_amount,
-                escrow_owner.shielded_address()?,
-            )
-            .map_err(|e| anyhow!("maker_change: {e:?}"))?;
-
-            // Output order (order, reservation, maker_change) matches the program's
-            // own output indices and the circuit.
-            let input_utxos = vec![source_in.clone(), maker_funding_in.clone()];
-            let viewing_key = get_transaction_viewing_key(&env.user.keypair, &input_utxos)
-                .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
-            let encoded = encrypt_transaction_data(
-                &[
-                    order_out.clone(),
-                    reservation_out.clone(),
-                    maker_change.clone(),
-                ],
-                &env.assets,
-                &viewing_key,
-            )
-            .map_err(|e| anyhow!("encode outputs: {e:?}"))?;
-            // reservation_out (index 1) is spent only by the program later (settle),
-            // rebuilt from the order note's reservation blinding, so its ciphertext
-            // is dropped to keep the transaction under Solana's size limit.
-            const RESERVATION_OUTPUT_INDEX: usize = 1;
-            let mut outputs = encoded.outputs;
-            outputs
-                .get_mut(RESERVATION_OUTPUT_INDEX)
-                .ok_or_else(|| anyhow!("reservation output index out of range"))?
-                .data = None;
-            let external_data = ExternalData::new(
-                *viewing_key.pubkey().as_bytes(),
-                encoded.salt,
-                outputs,
-                encoded.resolved_owner_tags,
-                vec![],
-            );
-            let external_data_hash = external_data
-                .hash()
-                .map_err(|e| anyhow!("external data hash: {e:?}"))?;
-            let spp_proof_inputs = SppProofInputs::new(
-                input_utxos,
-                encoded.output_utxos,
-                external_data,
-                authority_solana.pubkey(),
-            );
-            let transact = env
-                .client
-                .indexer()
-                .prove_transact(env.tree, spp_proof_inputs)
-                .map_err(|e| anyhow!("prove_transact: {e:?}"))?;
-
-            let escrow_authority_owner_hash = escrow_owner
-                .shielded_address()?
-                .owner_hash()
-                .map_err(|e| anyhow!("escrow authority owner hash: {e:?}"))?;
-            let source_asset =
-                asset_field(&env.spl_mint).map_err(|e| anyhow!("source asset: {e:?}"))?;
-            let destination_asset =
-                asset_field(&SOL_MINT).map_err(|e| anyhow!("destination asset: {e:?}"))?;
-            let proof_inputs = EscrowOpenProofInputParams {
-                source_in,
-                maker_funding: maker_funding_in,
-                order_out,
-                reservation_out,
-                maker_change,
-                max_price,
-                escrow_authority_owner_hash,
-                source_asset,
-                destination_asset,
-                created_at,
-                order_amount,
-                external_data_hash,
-            }
-            .to_proof_inputs()
-            .map_err(|e| anyhow!("escrow_open proof inputs: {e:?}"))?;
-            let order_proof = prover
-                .prove_escrow_open(&proof_inputs)
-                .map_err(|e| anyhow!("prove escrow_open: {e:?}"))?;
-
-            let escrow = escrow_pda(&user_solana.pubkey());
-            let ix = CreateEscrow {
-                authority: authority_solana.pubkey(),
-                owner: user_solana.pubkey(),
-                pair,
-                escrow,
-                tree: env.tree,
-                proof: EscrowOpenProof {
-                    proof_a: order_proof.proof_a,
-                    proof_b: order_proof.proof_b,
-                    proof_c: order_proof.proof_c,
-                },
-                created_at,
-                transact,
-            }
-            .instruction()
-            .map_err(|e| anyhow!("create_escrow instruction: {e:?}"))?;
-
-            send_v0_with_lookup_table(env.client.rpc(), &authority_solana, &[&user_solana], ix)
-                .map_err(|e| anyhow!("send create_escrow: {e:?}"))?;
-
-            escrow
-        };
-
-        // create_escrow prices the order at creation: the escrow is already
-        // committed with execution_price := pair.price. The committed
-        // leaves and created_at are internal to create_escrow; settle re-derives and
-        // verifies them against the decrypted note + registry, so here we pin the
-        // client-controlled terms (pair, owner, execution price).
+        // create_escrow prices the order at creation and stores the order leaf
+        // as the PDA seed; `created_at` is program-stamped from the Clock, so it
+        // is the one field read back rather than predicted.
         let escrow_account = env
             .client
             .rpc()
@@ -369,7 +276,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             .ok_or_else(|| anyhow!("escrow account not found"))?;
         let escrow_state: Escrow = *bytemuck::from_bytes::<Escrow>(&escrow_account.data);
         let escrow_bump = solana_pubkey::Pubkey::find_program_address(
-            &[Escrow::SEED_PREFIX, user_solana.pubkey().as_ref()],
+            &[Escrow::SEED_PREFIX, &order_utxo_hash],
             &dynamic_swap_program::ID,
         )
         .1;
@@ -378,8 +285,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             bump: escrow_bump,
             _pad: [0u8; 6],
             pair,
-            escrow_utxo_hash: escrow_state.escrow_utxo_hash,
-            reservation_utxo_hash: escrow_state.reservation_utxo_hash,
+            order_utxo_hash,
             owner: user_solana.pubkey(),
             created_at: escrow_state.created_at,
             execution_price: PRICE,
@@ -389,28 +295,57 @@ fn create_pair_escrow_and_settle() -> Result<()> {
         (escrow, escrow_state)
     };
 
-    // 3. settle: execution_price (PRICE) <= max_price (PRICE) -> settle branch.
-    // The recipient is paid `order_amount * execution_price` of the destination
-    // asset (SOL); the maker's counter leg is the unspent reservation remainder
-    // (zero here, since execution_price == max_price); the maker's source leg is
-    // the full escrowed source amount (SPL).
-    let (recipient_out_hash, maker_counter_hash, maker_source_hash) = {
-        let prover = DynamicSwapProverClient::new();
-
-        // Recover everything settle needs purely from Solana, the registry, and the
-        // indexer, isolated in its own scope so the settlement math below can only
-        // use recovered values, not create-time state or test-env conveniences.
-        let (escrow_owner, recipient, discovered, source_asset) = {
+    // 4. settle: the payout is funded from the committed pool. The recipient is
+    // paid `order_amount * execution_price` of the destination asset; the pool
+    // change re-locks with its booked value clamped down by the reservation;
+    // the maker receipt (the full escrowed SPL) goes to the pair's stored
+    // receipt owner-hash.
+    let (recipient_out_hash, pool_change_hash, maker_receipt_hash, pool_change_note) = {
+        // Recover everything settle needs purely from Solana, the registry, and
+        // the indexer, isolated in its own scope so the settlement math below can
+        // only use recovered values, not create-time state or test-env
+        // conveniences.
+        let (escrow_owner, pool_owner, recipient, discovered, discovered_pool, source_asset) = {
             let recipient = resolve_registered_address(env.client.rpc(), user_solana.pubkey())
                 .map_err(|e| anyhow!("resolve recipient: {e:?}"))?
                 .address;
             let escrow_owner = escrow_authority_identity(&env.authority.keypair, &pair)?;
-            let discovered = discover_escrow_note(env.client.indexer(), &escrow_owner)?;
-            // The scan matches the shared authority tag alone, so pin the
-            // discovered order UTXO to the escrow account being settled.
-            if discovered.order_utxo_hash != escrow_state.escrow_utxo_hash {
-                bail!("discovered order utxo does not match the escrow account");
+            let pool_owner = pool_authority_identity(&env.authority.keypair, &pair)?;
+            // The scan is keyed by the committed order leaf from the escrow
+            // account being settled, so the result is pinned to this escrow.
+            // Retried: it can race photon's indexing of create_escrow.
+            let discovered = {
+                let mut found = None;
+                for _ in 0..40 {
+                    match discover_escrow_note(
+                        env.client.indexer(),
+                        &escrow_owner,
+                        &escrow_state.order_utxo_hash,
+                    ) {
+                        Ok(note) => {
+                            found = Some(note);
+                            break;
+                        }
+                        Err(_) => std::thread::sleep(std::time::Duration::from_millis(500)),
+                    }
+                }
+                found.ok_or_else(|| anyhow!("escrow order note not discovered"))?
+            };
+            // The registry-resolved recipient must be the one the order's data
+            // hash commits -- the settle proof re-opens exactly that owner-hash.
+            if recipient
+                .owner_hash()
+                .map_err(|e| anyhow!("recipient owner hash: {e:?}"))?
+                != discovered.recipient_owner_hash
+            {
+                bail!("registered recipient does not match the order's committed recipient");
             }
+            // The maker's pool scan finds the public deposit note without any
+            // client-side tracking.
+            let discovered_pool = discover_pool_notes_with_retry(&env, &pool_owner, 1)?
+                .into_iter()
+                .find(|note| note.booked == POOL_DEPOSIT)
+                .ok_or_else(|| anyhow!("pool deposit note not discovered"))?;
             // The pair stores the source asset as an id + a hashed field element,
             // not the mint; resolve the mint from that id via the asset registry.
             let source_asset = {
@@ -426,151 +361,138 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                     .resolve(source_asset_id)
                     .map_err(|e| anyhow!("resolve source asset: {e:?}"))?
             };
-            (escrow_owner, recipient, discovered, source_asset)
+            (
+                escrow_owner,
+                pool_owner,
+                recipient,
+                discovered,
+                discovered_pool,
+                source_asset,
+            )
         };
-        let recipient_owner_hash = recipient
-            .owner_hash()
-            .map_err(|e| anyhow!("recipient owner hash: {e:?}"))?;
         let execution_price = escrow_state.execution_price;
-        let created_at = escrow_state.created_at;
+        let order_utxo_hash = escrow_state.order_utxo_hash;
         let DiscoveredEscrow {
-            order_utxo_hash,
             order_amount,
             order_blinding,
-            max_price,
-            reservation_blinding,
+            recipient_owner_hash,
+            min_price,
         } = discovered;
 
-        let escrow_utxo = EscrowUtxo {
-            terms: EscrowTerms {
-                recipient_owner_hash,
-                max_price,
-            },
-            created_at,
-            asset: source_asset,
-            order_amount,
-            blinding: order_blinding,
-        };
-        let order_in = escrow_utxo
-            .to_input_utxo(&escrow_owner)
-            .map_err(|e| anyhow!("order_in: {e:?}"))?;
-        let reserved = order_amount
-            .checked_mul(max_price)
-            .ok_or_else(|| anyhow!("order_amount * max_price overflows"))?;
-        let reservation = Reservation {
-            asset: SOL_MINT,
-            amount: reserved,
-            blinding: reservation_blinding,
-        };
-        let reservation_in = reservation
-            .to_input_utxo(&escrow_owner, order_utxo_hash)
-            .map_err(|e| anyhow!("reservation_in: {e:?}"))?;
-
-        // The reconstructed inputs must hash back to the leaves create_escrow
-        // committed on Solana: this pins the registry owner hash and the decrypted
-        // note against the commitment before we spend them.
-        if order_in
-            .hash()
-            .map_err(|e| anyhow!("order_in hash: {e:?}"))?
-            != escrow_state.escrow_utxo_hash
-        {
-            bail!("reconstructed order utxo does not match the committed escrow leaf");
-        }
-        if reservation_in
-            .hash()
-            .map_err(|e| anyhow!("reservation_in hash: {e:?}"))?
-            != escrow_state.reservation_utxo_hash
-        {
-            bail!("reconstructed reservation utxo does not match the committed escrow leaf");
-        }
-
-        // execution_price <= max_price -> settle: recipient receives destination
-        // asset `owed`; the maker gets the unspent remainder plus the escrowed
-        // source asset.
         let owed = order_amount
             .checked_mul(execution_price)
             .ok_or_else(|| anyhow!("order_amount * execution_price overflows"))?;
-        let remainder = reserved
-            .checked_sub(owed)
-            .ok_or_else(|| anyhow!("owed exceeds reserved"))?;
-        let (recipient_asset, recipient_amount, maker_counter_amount, maker_source_amount) =
-            (SOL_MINT, owed, remainder, order_amount);
 
-        let mut recipient_out =
-            SppProofOutputUtxo::new(recipient_asset, recipient_amount, recipient)
-                .map_err(|e| anyhow!("recipient_out: {e:?}"))?;
+        // The discovered pool note must match the one the deposit created.
+        let pool_in_note = PoolUtxo {
+            asset: env.dest_mint,
+            amount: discovered_pool.amount,
+            booked: discovered_pool.booked,
+            blinding: discovered_pool.blinding,
+        };
+        assert_eq!(pool_in_note, pool_note, "discovered pool note mismatch");
+
+        let pool_address = pool_owner
+            .shielded_address()
+            .map_err(|e| anyhow!("pool authority address: {e:?}"))?;
+        let pool_authority_owner_hash = pool_address
+            .owner_hash()
+            .map_err(|e| anyhow!("pool authority owner hash: {e:?}"))?;
+
+        let escrow_utxo = EscrowUtxo {
+            recipient_owner_hash,
+            asset: source_asset,
+            order_amount,
+            min_price,
+            blinding: order_blinding,
+        };
+        let order_in = escrow_utxo
+            .to_input_utxo(
+                &escrow_owner
+                    .shielded_address()
+                    .map_err(|e| anyhow!("escrow authority address: {e:?}"))?,
+            )
+            .map_err(|e| anyhow!("order_in: {e:?}"))?;
+        // The reconstructed input must hash back to the leaf create_escrow
+        // committed on Solana: this pins the decrypted order UTXO data against
+        // the commitment before we spend it.
+        if order_in
+            .hash()
+            .map_err(|e| anyhow!("order_in hash: {e:?}"))?
+            != escrow_state.order_utxo_hash
+        {
+            bail!("reconstructed order utxo does not match the committed escrow leaf");
+        }
+        let pool_in = pool_in_note
+            .to_input_utxo(&pool_address)
+            .map_err(|e| anyhow!("pool_in: {e:?}"))?;
+
+        // The pool change: booked drops by the full reservation (clamped at
+        // zero) while only owed actually leaves -- the gap stays in the note as
+        // surplus, published later by the rebalance below.
+        let pool_change_note = PoolUtxo {
+            asset: env.dest_mint,
+            amount: pool_in_note
+                .amount
+                .checked_sub(owed)
+                .ok_or_else(|| anyhow!("owed exceeds the pool note amount"))?,
+            booked: pool_in_note.booked.saturating_sub(MAX_ORDER_SIZE),
+            blinding: random_blinding(),
+        };
+
+        let mut recipient_out = SppProofOutputUtxo::new(env.dest_mint, owed, recipient)
+            .map_err(|e| anyhow!("recipient_out: {e:?}"))?;
+        // The recipient blinding derives from the order blinding (the taker
+        // precomputed this note at creation); the pool change and receipt
+        // blindings are the maker's own fresh choices.
+        recipient_out.blinding = derive_output_blinding(&order_blinding, RECIPIENT_BLINDING_DOMAIN)
+            .map_err(|e| anyhow!("recipient_out blinding: {e:?}"))?;
+        let pool_change_out = pool_change_note
+            .output_utxo(&pool_address)
+            .map_err(|e| anyhow!("pool_change: {e:?}"))?;
         let authority_address = env.authority.address()?;
-        let mut maker_counter =
-            SppProofOutputUtxo::new(SOL_MINT, maker_counter_amount, authority_address)
-                .map_err(|e| anyhow!("maker_counter: {e:?}"))?;
-        let mut maker_source =
-            SppProofOutputUtxo::new(source_asset, maker_source_amount, authority_address)
-                .map_err(|e| anyhow!("maker_source: {e:?}"))?;
-
-        // The circuit fixes each output blinding to a derivation over both input
-        // blindings, so the same value must be used here (this output feeds both
-        // the SPP transaction and the escrow_settle proof below).
-        recipient_out.blinding = derive_settle_output_blinding(
-            &order_blinding,
-            &reservation_blinding,
-            RECIPIENT_BLINDING_DOMAIN,
-        )
-        .map_err(|e| anyhow!("recipient_out blinding: {e:?}"))?;
-        maker_counter.blinding = derive_settle_output_blinding(
-            &order_blinding,
-            &reservation_blinding,
-            MAKER_COUNTER_BLINDING_DOMAIN,
-        )
-        .map_err(|e| anyhow!("maker_counter blinding: {e:?}"))?;
-        maker_source.blinding = derive_settle_output_blinding(
-            &order_blinding,
-            &reservation_blinding,
-            MAKER_SOURCE_BLINDING_DOMAIN,
-        )
-        .map_err(|e| anyhow!("maker_source blinding: {e:?}"))?;
+        let maker_receipt = SppProofOutputUtxo::new(source_asset, order_amount, authority_address)
+            .map_err(|e| anyhow!("maker_receipt: {e:?}"))?;
 
         let recipient_out_hash = recipient_out
             .hash()
             .map_err(|e| anyhow!("recipient_out hash: {e:?}"))?;
-        let maker_counter_hash = maker_counter
+        let pool_change_hash = pool_change_out
             .hash()
-            .map_err(|e| anyhow!("maker_counter hash: {e:?}"))?;
-        let maker_source_hash = maker_source
+            .map_err(|e| anyhow!("pool_change hash: {e:?}"))?;
+        let maker_receipt_hash = maker_receipt
             .hash()
-            .map_err(|e| anyhow!("maker_source hash: {e:?}"))?;
+            .map_err(|e| anyhow!("maker_receipt hash: {e:?}"))?;
 
-        // maker_counter (output index 1) returns to the maker and is tracked
-        // client-side, so its ciphertext is dropped to keep the transaction under
-        // Solana's size limit.
-        const MAKER_COUNTER_INDEX: usize = 1;
-        let input_utxos = vec![order_in.clone(), reservation_in.clone()];
+        // All three ciphertexts are kept: the recipient's for the taker's
+        // wallet, the pool change's for the maker's pool scan, the receipt's
+        // for the maker's wallet.
+        let input_utxos = vec![order_in.clone(), pool_in.clone()];
         let viewing_key = get_transaction_viewing_key(&env.authority.keypair, &input_utxos)
             .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
         let encoded = encrypt_transaction_data(
             &[
                 recipient_out.clone(),
-                maker_counter.clone(),
-                maker_source.clone(),
+                pool_change_out.clone(),
+                maker_receipt.clone(),
             ],
             &env.assets,
             &viewing_key,
         )
         .map_err(|e| anyhow!("encode outputs: {e:?}"))?;
-        let mut outputs = encoded.outputs;
-        outputs
-            .get_mut(MAKER_COUNTER_INDEX)
-            .ok_or_else(|| anyhow!("maker_counter output index out of range"))?
-            .data = None;
         let external_data = ExternalData::new(
             *viewing_key.pubkey().as_bytes(),
             encoded.salt,
-            outputs,
+            encoded.outputs,
             encoded.resolved_owner_tags,
             vec![],
         );
         let external_data_hash = external_data
             .hash()
             .map_err(|e| anyhow!("external data hash: {e:?}"))?;
+        // Both authorities own inputs, so both are owner signers by
+        // construction (escrow_authority first-input order, pool_authority
+        // second) -- matching the Settle builder's account tail.
         let spp_proof_inputs = SppProofInputs::new(
             input_utxos,
             encoded.output_utxos,
@@ -583,39 +505,40 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             .prove_transact(env.tree, spp_proof_inputs)
             .map_err(|e| anyhow!("prove_transact: {e:?}"))?;
 
-        let authority_owner_hash = env
-            .authority
-            .owner_hash()
-            .map_err(|e| anyhow!("authority owner hash: {e:?}"))?;
+        let destination_asset =
+            asset_field(&env.dest_mint).map_err(|e| anyhow!("destination asset: {e:?}"))?;
+        let receipt_owner_hash = env.authority.owner_hash()?;
         let proof_inputs = SettleProofInputParams {
             order_in,
-            reservation_in,
+            pool_in,
+            pool_booked_in: pool_in_note.booked,
             recipient_out,
-            maker_counter,
-            maker_source,
+            pool_change: pool_change_out,
+            maker_receipt,
             execution_price,
-            max_price,
-            created_at,
             order_amount,
-            escrow_utxo_hash: order_utxo_hash,
-            reservation_utxo_hash: escrow_state.reservation_utxo_hash,
             recipient_owner_hash,
-            authority_owner_hash,
+            min_price,
+            order_utxo_hash,
+            destination_asset,
+            pool_authority_owner_hash,
+            max_order_size: MAX_ORDER_SIZE,
+            receipt_owner_hash,
             external_data_hash,
         }
         .to_proof_inputs()
         .map_err(|e| anyhow!("settle proof inputs: {e:?}"))?;
         let order_proof = prover
-            .prove_escrow_settle(&proof_inputs)
-            .map_err(|e| anyhow!("prove escrow_settle: {e:?}"))?;
+            .prove_pool_settle(&proof_inputs)
+            .map_err(|e| anyhow!("prove pool_settle: {e:?}"))?;
 
         let settle_ix = Settle {
-            caller: authority_solana.pubkey(),
+            authority: authority_solana.pubkey(),
             pair,
             escrow,
             rent_recipient: user_solana.pubkey(),
             tree: env.tree,
-            proof: SettleProof {
+            proof: Groth16ProofBytes {
                 proof_a: order_proof.proof_a,
                 proof_b: order_proof.proof_b,
                 proof_c: order_proof.proof_c,
@@ -624,20 +547,24 @@ fn create_pair_escrow_and_settle() -> Result<()> {
         }
         .instruction()
         .map_err(|e| anyhow!("settle instruction: {e:?}"))?;
+        // Maker-only: the pair authority signs; the program's CPI signs for
+        // both the order and pool inputs.
         send_v0_with_lookup_table(env.client.rpc(), &authority_solana, &[], settle_ix)
             .map_err(|e| anyhow!("send settle: {e:?}"))?;
 
-        (recipient_out_hash, maker_counter_hash, maker_source_hash)
+        (
+            recipient_out_hash,
+            pool_change_hash,
+            maker_receipt_hash,
+            pool_change_note,
+        )
     };
 
-    // Settle branch payout (encoded in the leaf hashes asserted below): recipient
-    // paid `order_amount * execution_price` of SOL; maker's counter leg is the
-    // zero reservation remainder (execution_price == max_price); maker's source
-    // leg is the full escrowed SPL. A wrong asset or amount would hash
-    // differently and fail the tree inclusion check.
-
-    // All three legs landed as real UTXOs in the pool tree.
-    let leaves = vec![recipient_out_hash, maker_counter_hash, maker_source_hash];
+    // Settle payout (encoded in the leaf hashes asserted below): recipient paid
+    // `order_amount * execution_price` of the destination asset; the pool
+    // change re-locked; the maker receipt is the full escrowed SPL. A wrong
+    // asset or amount would hash differently and fail the tree inclusion check.
+    let leaves = vec![recipient_out_hash, pool_change_hash, maker_receipt_hash];
     let response = env
         .client
         .indexer()
@@ -651,7 +578,9 @@ fn create_pair_escrow_and_settle() -> Result<()> {
         );
     }
 
-    // Settlement closes the escrow account.
+    // Settlement closes the escrow account and releases the reservation; the
+    // bound stays untouched (the unspent reservation lives in the change note
+    // as surplus).
     assert!(
         env.client
             .rpc()
@@ -660,6 +589,192 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             .is_none(),
         "escrow account must be closed after settlement"
     );
+    assert_liquidity(&env, pair, POOL_DEPOSIT - MAX_ORDER_SIZE, 0, "after settle")?;
+
+    // 5. rebalance_liquidity: publish the settle surplus. The change note holds
+    // amount = POOL_DEPOSIT - OWED with booked = POOL_DEPOSIT - MAX_ORDER_SIZE,
+    // so the full surplus (MAX_ORDER_SIZE - OWED) is creditable.
+    let credit = MAX_ORDER_SIZE - OWED;
+    let rebalanced_note = {
+        let pool_owner = pool_authority_identity(&env.authority.keypair, &pair)?;
+        let pool_address = pool_owner
+            .shielded_address()
+            .map_err(|e| anyhow!("pool authority address: {e:?}"))?;
+        let destination_asset =
+            asset_field(&env.dest_mint).map_err(|e| anyhow!("destination asset: {e:?}"))?;
+
+        let rebalanced_note = PoolUtxo {
+            asset: env.dest_mint,
+            amount: pool_change_note.amount,
+            booked: pool_change_note.booked + credit,
+            blinding: random_blinding(),
+        };
+        let prepared = RebalanceProofInputParams {
+            inputs: vec![pool_change_note.clone()],
+            outputs: vec![rebalanced_note.clone()],
+            pool_authority: pool_address,
+            credit,
+            destination_asset,
+        }
+        .prepare()
+        .map_err(|e| anyhow!("rebalance prepare: {e:?}"))?;
+
+        let spp_proof_inputs = prepared
+            .spp_proof_inputs(
+                &env.authority.keypair,
+                &env.assets,
+                authority_solana.pubkey(),
+            )
+            .map_err(|e| anyhow!("rebalance spp inputs: {e:?}"))?;
+        let external_data_hash = spp_proof_inputs
+            .external_data
+            .hash()
+            .map_err(|e| anyhow!("external data hash: {e:?}"))?;
+        let bundle = prepared
+            .to_proof_inputs(external_data_hash)
+            .map_err(|e| anyhow!("rebalance proof inputs: {e:?}"))?;
+        let rebalance_proof = prover
+            .prove_pool_rebalance(&bundle.proof_inputs)
+            .map_err(|e| anyhow!("prove pool_rebalance: {e:?}"))?;
+
+        let transact = env
+            .client
+            .indexer()
+            .prove_transact(env.tree, spp_proof_inputs)
+            .map_err(|e| anyhow!("prove_transact: {e:?}"))?;
+
+        let rebalance_ix = RebalanceLiquidity {
+            authority: authority_solana.pubkey(),
+            pair,
+            tree: env.tree,
+            credit,
+            proof: Groth16ProofBytes {
+                proof_a: rebalance_proof.proof_a,
+                proof_b: rebalance_proof.proof_b,
+                proof_c: rebalance_proof.proof_c,
+            },
+            transact,
+        }
+        .instruction()
+        .map_err(|e| anyhow!("rebalance instruction: {e:?}"))?;
+        send_v0_with_lookup_table(env.client.rpc(), &authority_solana, &[], rebalance_ix)
+            .map_err(|e| anyhow!("send rebalance: {e:?}"))?;
+        rebalanced_note
+    };
+    assert_liquidity(&env, pair, POOL_DEPOSIT - OWED, 0, "after rebalance")?;
+
+    // 6. withdraw_liquidity: unshield the entire remaining pool back to the
+    // maker's token account. The pool note is fully booked after the
+    // rebalance, so the whole amount is withdrawable.
+    {
+        let pool_owner = pool_authority_identity(&env.authority.keypair, &pair)?;
+        let pool_address = pool_owner
+            .shielded_address()
+            .map_err(|e| anyhow!("pool authority address: {e:?}"))?;
+        let destination_asset =
+            asset_field(&env.dest_mint).map_err(|e| anyhow!("destination asset: {e:?}"))?;
+        let amount = rebalanced_note.amount;
+        let pool_out = PoolUtxo {
+            asset: env.dest_mint,
+            amount: 0,
+            booked: 0,
+            blinding: random_blinding(),
+        };
+
+        // The wire output is deterministic from the PoolUtxo (its blinding is
+        // caller-fixed), so external data can be built before the proof
+        // inputs.
+        let spp_output = pool_out
+            .output_utxo(&pool_address)
+            .map_err(|e| anyhow!("pool_out: {e:?}"))?;
+        let spp_input = rebalanced_note
+            .to_input_utxo(&pool_address)
+            .map_err(|e| anyhow!("pool_in: {e:?}"))?;
+        let viewing_key =
+            get_transaction_viewing_key(&env.authority.keypair, std::slice::from_ref(&spp_input))
+                .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
+        let encoded =
+            encrypt_transaction_data(std::slice::from_ref(&spp_output), &env.assets, &viewing_key)
+                .map_err(|e| anyhow!("encode outputs: {e:?}"))?;
+        let external_data = ExternalData::new(
+            *viewing_key.pubkey().as_bytes(),
+            encoded.salt,
+            encoded.outputs,
+            encoded.resolved_owner_tags,
+            vec![],
+        )
+        .with_interface_transfer(SettlementTransfer::Spl {
+            mint: env.dest_mint,
+            is_deposit: false,
+            amount,
+            user_spl_token: env.authority_dest_token,
+            spl_token_interface: zolana_interface::pda::spl_interface(&env.dest_mint),
+        })
+        .map_err(|e| anyhow!("interface transfer: {e:?}"))?;
+        let external_data_hash = external_data
+            .hash()
+            .map_err(|e| anyhow!("external data hash: {e:?}"))?;
+
+        let withdraw_proof_inputs = WithdrawProofInputParams {
+            pool_in: rebalanced_note.clone(),
+            pool_out: pool_out.clone(),
+            pool_authority: pool_address,
+            amount,
+            destination_asset,
+            external_data_hash,
+        }
+        .to_proof_inputs()
+        .map_err(|e| anyhow!("withdraw proof inputs: {e:?}"))?;
+        let withdraw_proof = prover
+            .prove_pool_withdraw(&withdraw_proof_inputs)
+            .map_err(|e| anyhow!("prove pool_withdraw: {e:?}"))?;
+
+        let spp_proof_inputs = SppProofInputs::new(
+            vec![spp_input],
+            encoded.output_utxos,
+            external_data,
+            authority_solana.pubkey(),
+        );
+        let transact = env
+            .client
+            .indexer()
+            .prove_transact(env.tree, spp_proof_inputs)
+            .map_err(|e| anyhow!("prove_transact: {e:?}"))?;
+
+        let balance_before = token_balance(&env, env.authority_dest_token)?;
+        let withdraw_ix = WithdrawLiquidity {
+            authority: authority_solana.pubkey(),
+            pair,
+            tree: env.tree,
+            amount,
+            spl: WithdrawSplAccounts {
+                mint: env.dest_mint,
+                user_token: env.authority_dest_token,
+                token_program: zolana_interface::pda::spl_token_program_id(),
+            },
+            proof: Groth16ProofBytes {
+                proof_a: withdraw_proof.proof_a,
+                proof_b: withdraw_proof.proof_b,
+                proof_c: withdraw_proof.proof_c,
+            },
+            transact,
+        }
+        .instruction()
+        .map_err(|e| anyhow!("withdraw instruction: {e:?}"))?;
+        send_v0_with_lookup_table(env.client.rpc(), &authority_solana, &[], withdraw_ix)
+            .map_err(|e| anyhow!("send withdraw: {e:?}"))?;
+
+        let balance_after = token_balance(&env, env.authority_dest_token)?;
+        assert_eq!(
+            balance_after,
+            balance_before + amount,
+            "withdrawal must land in the maker's token account"
+        );
+        // Deposited POOL_DEPOSIT, paid OWED to the recipient, recovered the
+        // rest: the maker's net destination-asset spend is exactly OWED.
+        assert_eq!(balance_after, MAKER_DEST_BALANCE - OWED);
+    }
+    assert_liquidity(&env, pair, 0, 0, "after withdraw")?;
 
     Ok(())
 }

@@ -387,12 +387,13 @@ bench-shielded-pool: build-programs
 # updating swap-keys.CHECKSUM plus the committed verifying keys together.
 swap-keys-tag := "swap-keys-v4"
 
-# Same contract as swap-keys-tag, for the dynamic-swap example's two circuits
-# (escrow_open/escrow_settle). The release assets are
-# the only key set matching the committed Rust verifying keys; rotating locally
-# (regen-dynamic-swap-keys) requires publishing a new release and updating
-# dynamic-swap-keys.CHECKSUM plus the committed verifying keys together.
-dynamic-swap-keys-tag := "dynamic-swap-keys-v4"
+# Same contract as swap-keys-tag, for the dynamic-swap example's five circuits
+# (escrow_open/pool_settle/escrow_cancel/pool_withdraw/pool_rebalance). The
+# release assets are the only key set matching the committed Rust verifying
+# keys; rotating locally (regen-dynamic-swap-keys) requires publishing a new
+# release and updating dynamic-swap-keys.CHECKSUM plus the committed verifying
+# keys together.
+dynamic-swap-keys-tag := "dynamic-swap-keys-v6"
 
 # Same contract as swap-keys-tag, for the custom-ring example's single circuit
 # (auditor_key_encryption). gnark's Setup is non-deterministic, so the release
@@ -492,7 +493,7 @@ ensure-dynamic-swap-keys:
     #!/usr/bin/env bash
     set -euo pipefail
     base="sdk-tests/dynamic-swap"
-    for c in escrow_open escrow_settle; do
+    for c in escrow_open pool_settle escrow_cancel pool_withdraw pool_rebalance; do
         dir="$base/build/gnark/$c"
         for kind in pk vk; do
             if [ ! -f "$dir/$kind.bin" ]; then
@@ -519,13 +520,13 @@ regen-dynamic-swap-keys:
     #!/usr/bin/env bash
     set -euo pipefail
     base="sdk-tests/dynamic-swap"
-    for c in escrow_open escrow_settle; do
+    for c in escrow_open pool_settle escrow_cancel pool_withdraw pool_rebalance; do
         cargo run --release -p dynamic-swap-prover --bin dynamic-swap-prover-setup -- \
             "$c" "$base/build/gnark/$c" \
             --rust-vk "$base/program/src/verifying_keys/$c.rs"
     done
     : > "$base/dynamic-swap-keys.CHECKSUM"
-    for c in escrow_open escrow_settle; do
+    for c in escrow_open pool_settle escrow_cancel pool_withdraw pool_rebalance; do
         for kind in pk vk; do
             shasum -a 256 "$base/build/gnark/$c/$kind.bin" \
                 | awk -v n="${c}_${kind}.bin" '{print $1 "  " n}' >> "$base/dynamic-swap-keys.CHECKSUM"
@@ -632,10 +633,11 @@ bench-escrow: ensure-escrow-keys
 # solana-test-validator does not register, so it must never land in
 # target/deploy either -- build the bench programs into their own dedicated
 # dir, matching PROFILING_SBF_DIR in dynamic-swap's bench_cu.rs. dynamic-swap's
-# own gnark keys (build/gnark/{escrow_open,escrow_settle}) are
-# generated locally and gitignored; there is no release download step for them
-# yet, so this assumes they already exist.
-bench-dynamic-swap:
+# own gnark keys (build/gnark/{escrow_open,escrow_settle,escrow_cancel}) are
+# gitignored; fetch or verify them with ensure-dynamic-swap-keys first.
+bench-dynamic-swap: ensure-dynamic-swap-keys
+    test -f target/deploy/spl_token.so || \
+        solana program dump TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA target/deploy/spl_token.so --url mainnet-beta
     cargo build-sbf --tools-version {{sbf-tools-version}} \
         --sbf-out-dir target/dynamic-swap-bench \
         --manifest-path programs/shielded-pool/Cargo.toml \
@@ -1105,11 +1107,11 @@ test-client-example: build-programs build-prover-server build-cli ensure-photon 
       cargo run -p client-example --example deposit_transfer_withdraw
 
 # Dynamic-swap example lifecycle tests
-# (sdk-tests/dynamic-swap/test/tests/{pair,escrow_flow,escrow_refund}.rs). Each
-# test binary boots its own solana-test-validator +
+# (sdk-tests/dynamic-swap/test/tests/{pair,negative,escrow_flow,escrow_cancel}.rs).
+# Each test binary boots its own solana-test-validator +
 # Photon via the `zolana` CLI and starts the shared SPP prover server itself
 # (spawn_prover); dynamic-swap's own circuits (escrow_open/
-# escrow_settle) prove in-process through an embedded gnark FFI,
+# escrow_settle/escrow_cancel) prove in-process through an embedded gnark FFI,
 # no separate prover process for those. Needs the Squads smart-account binary
 # (ensure-smart-account) since setup() always loads it, and exports the
 # per-clone ZOLANA_PORT_OFFSET-derived ports/URLs like the other localnet

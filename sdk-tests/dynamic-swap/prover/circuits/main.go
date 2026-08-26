@@ -32,14 +32,21 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
+	"circuits/escrow_cancel"
 	"circuits/escrow_open"
-	"circuits/escrow_settle"
+	"circuits/pool_rebalance"
+	"circuits/pool_settle"
+	"circuits/pool_withdraw"
 	"circuits/witness"
 )
 
+// Circuit ids; must match dynamic-swap-prover's Rust CircuitId (ffi.rs).
 const (
-	CircuitEscrowOpen   = 1
-	CircuitEscrowSettle = 2
+	CircuitEscrowOpen    = 1
+	CircuitPoolSettle    = 2
+	CircuitEscrowCancel  = 3
+	CircuitPoolWithdraw  = 4
+	CircuitPoolRebalance = 5
 )
 
 var (
@@ -67,8 +74,14 @@ func compileCircuit(id int) (constraint.ConstraintSystem, error) {
 	switch id {
 	case CircuitEscrowOpen:
 		circuit = &escrow_open.Circuit{}
-	case CircuitEscrowSettle:
-		circuit = &escrow_settle.Circuit{}
+	case CircuitPoolSettle:
+		circuit = &pool_settle.Circuit{}
+	case CircuitEscrowCancel:
+		circuit = &escrow_cancel.Circuit{}
+	case CircuitPoolWithdraw:
+		circuit = &pool_withdraw.Circuit{}
+	case CircuitPoolRebalance:
+		circuit = &pool_rebalance.Circuit{}
 	default:
 		return nil, fmt.Errorf("unknown circuit id %d", id)
 	}
@@ -86,8 +99,14 @@ func assignFromWitness(id int, witnessValues map[string][]string) (frontend.Circ
 	switch id {
 	case CircuitEscrowOpen:
 		circuit = &escrow_open.Circuit{}
-	case CircuitEscrowSettle:
-		circuit = &escrow_settle.Circuit{}
+	case CircuitPoolSettle:
+		circuit = &pool_settle.Circuit{}
+	case CircuitEscrowCancel:
+		circuit = &escrow_cancel.Circuit{}
+	case CircuitPoolWithdraw:
+		circuit = &pool_withdraw.Circuit{}
+	case CircuitPoolRebalance:
+		circuit = &pool_rebalance.Circuit{}
 	default:
 		return nil, fmt.Errorf("unknown circuit id %d", id)
 	}

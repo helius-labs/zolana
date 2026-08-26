@@ -9,7 +9,12 @@
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
-use dynamic_swap_sdk::{escrow_authority_pda, instructions::create_pair::CreatePair, pair_pda};
+use dynamic_swap_program::state::Pair;
+use dynamic_swap_sdk::{
+    instructions::{create_pair::CreatePair, deposit_liquidity::DepositLiquidity},
+    pair_pda,
+    state::PoolUtxo,
+};
 use solana_address::Address;
 use solana_address_lookup_table_interface::instruction::{
     create_lookup_table, extend_lookup_table,
@@ -29,7 +34,7 @@ use zolana_interface::{
     state::tree_account_size,
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{ShieldedKeypair, ShieldedPda, SigningKey};
+use zolana_keypair::{random_blinding, ShieldedKeypair, ShieldedPda, SigningKey};
 use zolana_program_test::system_create_account_ix;
 use zolana_test_utils::{
     localnet::LocalnetValidator,
@@ -37,18 +42,24 @@ use zolana_test_utils::{
     spl::{create_mint, create_token_account, mint_to},
 };
 use zolana_transaction::{
-    instructions::transact::spp_proof_inputs::asset_field, utxo::Blinding, AssetRegistry, SOL_MINT,
+    instructions::transact::spp_proof_inputs::asset_field, utxo::Blinding, AssetRegistry,
 };
 use zolana_user_registry_interface::user_registry_program_id;
 use zolana_wallet::{ensure_registered, Deposit, DepositParams};
 
-/// SPL is the pair's source asset (escrowed by the taker); SOL is the pair's
-/// destination asset (the maker funds it, the recipient is paid it on settle).
+/// One SPL mint is the pair's source asset (escrowed by the taker); a second
+/// SPL mint is the destination asset (the maker deposits it into the pool, the
+/// recipient is paid it on settle). Both ids are the client-side registry keys
+/// the tests pass into `create_pair`.
 pub const SOURCE_ASSET_ID: u64 = 2;
-pub const DESTINATION_ASSET_ID: u64 = 1; // SOL_ASSET_ID
+pub const DESTINATION_ASSET_ID: u64 = 3;
+pub const PRICE_TOLERANCE: u64 = 1;
+pub const MIN_ORDER_AMOUNT: u64 = 1;
 
 pub const USER_SPL_SHIELD: u64 = 1_000_000_000;
-pub const AUTHORITY_SOL_SHIELD: u64 = 2_000_000_000;
+/// Minted to the maker's destination-asset token account; the budget its pool
+/// deposits draw from.
+pub const MAKER_DEST_BALANCE: u64 = 10_000_000_000;
 
 /// Each actor is one ed25519 identity: the wallet's signing key doubles as the
 /// Solana fee payer (`to_solana_keypair`), and the wallet holds the asset
@@ -77,6 +88,13 @@ pub struct TestEnv {
     pub authority: TestWallet,
     pub user: TestWallet,
     pub spl_mint: Address,
+    /// The pair's destination asset: a second SPL mint the maker deposits into
+    /// the pool and the recipient is paid on settle.
+    pub dest_mint: Address,
+    /// The maker's destination-asset token account (`MAKER_DEST_BALANCE`
+    /// minted in `setup()`): the pool deposit source and the withdrawal
+    /// destination.
+    pub authority_dest_token: Pubkey,
     pub assets: AssetRegistry,
     /// The blinding of the user's own funding UTXO shielded in `setup()`
     /// (`USER_SPL_SHIELD` of `spl_mint`). Since the test itself created this
@@ -152,10 +170,7 @@ pub fn setup() -> Result<TestEnv> {
     let tree_creation_authority = Keypair::new();
     let ring_creation_authority = Keypair::new();
     rpc.airdrop(&payer.pubkey(), 100_000_000_000)?;
-    rpc.airdrop(
-        &authority_solana.pubkey(),
-        AUTHORITY_SOL_SHIELD + 10_000_000_000,
-    )?;
+    rpc.airdrop(&authority_solana.pubkey(), 10_000_000_000)?;
     rpc.airdrop(&forester_authority.pubkey(), 1_000_000_000)?;
     rpc.airdrop(&merge_authority.pubkey(), 1_000_000_000)?;
     rpc.airdrop(&tree_creation_authority.pubkey(), 1_000_000_000)?;
@@ -273,6 +288,37 @@ pub fn setup() -> Result<TestEnv> {
     let spl_funding = create_token_account(&rpc, &payer, &spl_mint, &payer.pubkey())?;
     mint_to(&rpc, &payer, &spl_mint, &spl_funding, USER_SPL_SHIELD)?;
 
+    // Register a second SPL asset as the pair's destination: the maker
+    // deposits it into the pool from a plain token account and withdraws back
+    // to the same account.
+    let dest_mint = create_mint(&rpc, &payer)?;
+    let dest_interface_ix = CreateSplInterface {
+        authority: accounts.protocol_vault,
+        mint: dest_mint,
+        token_program: zolana_interface::pda::spl_token_program_id(),
+    }
+    .instruction();
+    let dest_interface_sync = smart_account::execute_sync_ix(
+        &accounts.protocol_settings,
+        0,
+        &[authority_solana.pubkey()],
+        &[dest_interface_ix],
+    );
+    rpc.create_and_send_transaction(
+        &[dest_interface_sync],
+        payer_address,
+        &[&payer, &authority_solana],
+    )?;
+    let authority_dest_token =
+        create_token_account(&rpc, &payer, &dest_mint, &authority_solana.pubkey())?;
+    mint_to(
+        &rpc,
+        &payer,
+        &dest_mint,
+        &authority_dest_token,
+        MAKER_DEST_BALANCE,
+    )?;
+
     let authority_seed: [u8; 32] = authority_solana.to_bytes()[..32]
         .try_into()
         .expect("ed25519 seed is the first 32 bytes");
@@ -317,6 +363,9 @@ pub fn setup() -> Result<TestEnv> {
     assets
         .insert(SOURCE_ASSET_ID, spl_mint)
         .map_err(|e| anyhow!("asset registry insert: {e:?}"))?;
+    assets
+        .insert(DESTINATION_ASSET_ID, dest_mint)
+        .map_err(|e| anyhow!("asset registry insert: {e:?}"))?;
 
     let client = ZolanaClient::new(
         rpc,
@@ -337,28 +386,44 @@ pub fn setup() -> Result<TestEnv> {
             keypair: user_shielded_keypair,
         },
         spl_mint,
+        dest_mint,
+        authority_dest_token,
         assets,
         user_spl_blinding,
     })
 }
 
-/// The maker-derived shielded identity of the pair's escrow_authority PDA
-/// (`ShieldedPda::from_viewing_key`); its nullifier pubkey is published in the
-/// `Pair` account at `create_pair`, so `create_escrow` binds
-/// `Poseidon(hash_bytes(pda), nullifier_pk)` as the order owner hash.
+/// The maker's shielded identity of the pair's escrow_authority PDA: the
+/// PDA-role viewing key derived from the maker's own viewing key, paired with
+/// the public zero-secret nullifier key (see
+/// `dynamic_swap_sdk::state::escrow_authority_identity`). The viewing pubkey is
+/// what `create_pair` publishes as `Pair::maker_encryption_pubkey`.
 pub fn escrow_authority_identity(
     authority: &ShieldedKeypair,
     pair: &Pubkey,
 ) -> Result<ShieldedPda> {
-    ShieldedPda::from_viewing_key(escrow_authority_pda(pair), &authority.viewing_key)
+    dynamic_swap_sdk::state::escrow_authority_identity(pair, &authority.viewing_key)
         .map_err(|e| anyhow!("escrow authority identity: {e:?}"))
 }
 
-/// `setup()` plus a registered SPL(source)->SOL(destination) pair at `price`.
-/// There is no shared pool; the maker funds each escrow directly, so this only
-/// creates the pair account. Returns the env and the pair PDA. Tests that
-/// exercise `create_pair` itself (pair/negative) keep plain `setup()`.
-pub fn setup_with_pair(price: u64) -> Result<(TestEnv, Pubkey)> {
+/// The maker's shielded identity of the pair's pool_authority PDA, for pool
+/// note discovery/decryption (see `dynamic_swap_sdk::state::pool_authority_identity`).
+pub fn pool_authority_identity(authority: &ShieldedKeypair, pair: &Pubkey) -> Result<ShieldedPda> {
+    dynamic_swap_sdk::state::pool_authority_identity(pair, &authority.viewing_key)
+        .map_err(|e| anyhow!("pool authority identity: {e:?}"))
+}
+
+/// `setup()` plus a registered SPL(source)->SPL(destination) pair at `price`
+/// with the maker's settle window `expiry_slots` and the per-escrow
+/// reservation size `max_order_size`. The pool starts empty; tests commit
+/// liquidity with `deposit_pool_liquidity`. Returns the env and the pair PDA.
+/// Tests that exercise `create_pair` itself (pair/negative) keep plain
+/// `setup()`.
+pub fn setup_with_pair(
+    price: u64,
+    expiry_slots: u64,
+    max_order_size: u64,
+) -> Result<(TestEnv, Pubkey)> {
     let env = setup()?;
     let authority_solana = &env.authority.keypair;
     let pair = pair_pda(
@@ -366,24 +431,29 @@ pub fn setup_with_pair(price: u64) -> Result<(TestEnv, Pubkey)> {
         SOURCE_ASSET_ID,
         DESTINATION_ASSET_ID,
     );
-    let authority_owner_hash = env.authority.owner_hash()?;
     let source_asset = asset_field(&env.spl_mint).map_err(|e| anyhow!("source asset: {e:?}"))?;
     let destination_asset =
-        asset_field(&SOL_MINT).map_err(|e| anyhow!("destination asset: {e:?}"))?;
-    let escrow_authority_nullifier_pubkey =
-        escrow_authority_identity(&env.authority.keypair, &pair)?
-            .nullifier_pubkey()
-            .map_err(|e| anyhow!("escrow authority nullifier pubkey: {e:?}"))?;
+        asset_field(&env.dest_mint).map_err(|e| anyhow!("destination asset: {e:?}"))?;
+    let maker_encryption_pubkey = *escrow_authority_identity(&env.authority.keypair, &pair)?
+        .viewing_pubkey()
+        .as_bytes();
+    // The settle receipt (the escrowed source asset) goes to the maker's own
+    // wallet.
+    let maker_receipt_owner_hash = env.authority.owner_hash()?;
     let create_pair_ix = CreatePair {
         payer: authority_solana.pubkey(),
         pair,
         price,
         source_asset_id: SOURCE_ASSET_ID,
         destination_asset_id: DESTINATION_ASSET_ID,
-        authority_owner_hash,
+        expiry_slots,
+        max_order_size,
+        price_tolerance: PRICE_TOLERANCE,
+        min_order_amount: MIN_ORDER_AMOUNT,
         source_asset,
         destination_asset,
-        escrow_authority_nullifier_pubkey,
+        maker_receipt_owner_hash,
+        maker_encryption_pubkey,
     }
     .instruction()
     .map_err(|e| anyhow!("create_pair instruction: {e:?}"))?;
@@ -396,6 +466,137 @@ pub fn setup_with_pair(price: u64) -> Result<(TestEnv, Pubkey)> {
         )
         .map_err(|e| anyhow!("send create_pair: {e:?}"))?;
     Ok((env, pair))
+}
+
+/// Commit `amount` of the destination asset to the pair's pool: the maker
+/// deposits from its SPL token account into a new fully public pool note
+/// (`booked = amount`). Returns the created note's full preimage -- the maker
+/// made it, so no discovery is needed to spend it later.
+pub fn deposit_pool_liquidity(env: &TestEnv, pair: Pubkey, amount: u64) -> Result<PoolUtxo> {
+    let authority_solana = &env.authority.keypair;
+    let blinding = random_blinding();
+    let ix = DepositLiquidity {
+        depositor: authority_solana.pubkey(),
+        pair,
+        tree: env.tree,
+        mint: env.dest_mint,
+        user_token: env.authority_dest_token,
+        token_program: zolana_interface::pda::spl_token_program_id(),
+        amount,
+        blinding,
+    }
+    .instruction()
+    .map_err(|e| anyhow!("deposit_liquidity instruction: {e:?}"))?;
+    env.client
+        .rpc()
+        .create_and_send_transaction(&[ix], authority_solana.pubkey(), &[&authority_solana])
+        .map_err(|e| anyhow!("send deposit_liquidity: {e:?}"))?;
+    Ok(PoolUtxo {
+        asset: env.dest_mint,
+        amount,
+        booked: amount,
+        blinding,
+    })
+}
+
+/// `discover_pool_notes` with a short retry: the scan can race photon's
+/// indexing of a transaction this same test just sent.
+pub fn discover_pool_notes_with_retry(
+    env: &TestEnv,
+    owner: &ShieldedPda,
+    expected_min: usize,
+) -> Result<Vec<dynamic_swap_sdk::discovery::DiscoveredPoolNote>> {
+    const MAX_ATTEMPTS: usize = 40;
+    for _ in 0..MAX_ATTEMPTS {
+        let notes = dynamic_swap_sdk::discovery::discover_pool_notes(env.client.indexer(), owner)
+            .map_err(|e| anyhow!("discover pool notes: {e:?}"))?;
+        if notes.len() >= expected_min {
+            return Ok(notes);
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    // Debug context for a scan that never converged: what does each endpoint
+    // hold for the tag?
+    let tag = owner
+        .shielded_address()
+        .map_err(|e| anyhow!("{e:?}"))?
+        .confidential_view_tag()
+        .map_err(|e| anyhow!("{e:?}"))?;
+    let utxos = env
+        .client
+        .indexer()
+        .get_encrypted_utxos_by_tags(vec![tag], None, None, None)
+        .map(|r| r.matches.len());
+    let txs = env
+        .client
+        .indexer()
+        .get_shielded_transactions_by_tags(vec![tag], None, None, None)
+        .map(|r| r.transactions.len());
+    Err(anyhow!(
+        "expected at least {expected_min} pool notes to be indexed; tag {} -> encrypted_utxos: {utxos:?}, shielded_txs: {txs:?}",
+        hex(&tag),
+    ))
+}
+
+fn hex(bytes: &[u8; 32]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Read the pair account's state.
+pub fn read_pair(env: &TestEnv, pair: Pubkey) -> Result<Pair> {
+    let account = env
+        .client
+        .rpc()
+        .get_account(pair)
+        .map_err(|e| anyhow!("get pair account: {e:?}"))?
+        .ok_or_else(|| anyhow!("pair account not found"))?;
+    Ok(*bytemuck::from_bytes::<Pair>(&account.data))
+}
+
+/// Assert the pair's public liquidity accounting.
+pub fn assert_liquidity(
+    env: &TestEnv,
+    pair: Pubkey,
+    expected_available_liquidity: u64,
+    expected_reservations: u64,
+    context: &str,
+) -> Result<()> {
+    let state = read_pair(env, pair)?;
+    assert_eq!(
+        (state.available_liquidity, state.open_reservations),
+        (expected_available_liquidity, expected_reservations),
+        "{context}: (available_liquidity, open_reservations) mismatch"
+    );
+    Ok(())
+}
+
+/// The SPL token account's balance (amount field at bytes 64..72).
+pub fn token_balance(env: &TestEnv, token_account: Pubkey) -> Result<u64> {
+    let account = env
+        .client
+        .rpc()
+        .get_account(token_account)
+        .map_err(|e| anyhow!("get token account: {e:?}"))?
+        .ok_or_else(|| anyhow!("token account not found"))?;
+    let bytes: [u8; 8] = account
+        .data
+        .get(64..72)
+        .ok_or_else(|| anyhow!("token account data too short"))?
+        .try_into()
+        .expect("8-byte slice");
+    Ok(u64::from_le_bytes(bytes))
+}
+
+/// Poll until the validator's slot is strictly past `target`. Used by the
+/// cancel flow to cross an escrow's expiry (`created_at + expiry_slots`)
+/// deterministically instead of sleeping a guessed duration.
+pub fn wait_for_slot(client: &solana_rpc_client::rpc_client::RpcClient, target: u64) -> Result<()> {
+    loop {
+        if get_slot_with_retry(client)? > target {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
 }
 
 /// The validator's RPC connection can transiently drop a request right after

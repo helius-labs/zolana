@@ -1,17 +1,22 @@
+pub mod blinding;
+pub mod escrow_cancel;
 pub mod escrow_open;
-pub mod escrow_settle;
 pub mod ffi;
+pub mod pool_rebalance;
+pub mod pool_settle;
+pub mod pool_withdraw;
 pub mod proof;
 mod utxo;
 
 use num_bigint::BigUint;
 
+pub use blinding::{CANCEL_REFUND_BLINDING_DOMAIN, RECIPIENT_BLINDING_DOMAIN};
+pub use escrow_cancel::EscrowCancelProofInputs;
 pub use escrow_open::EscrowOpenProofInputs;
-pub use escrow_settle::{
-    EscrowSettleProofInputs, MAKER_COUNTER_BLINDING_DOMAIN, MAKER_SOURCE_BLINDING_DOMAIN,
-    RECIPIENT_BLINDING_DOMAIN,
-};
 pub use ffi::{preload, prove, setup, CircuitId, WitnessMap};
+pub use pool_rebalance::{PoolRebalanceProofInputs, REBALANCE_INPUT_SLOTS, REBALANCE_OUTPUT_SLOTS};
+pub use pool_settle::PoolSettleProofInputs;
+pub use pool_withdraw::PoolWithdrawProofInputs;
 pub use proof::{OrderProof, ProofError};
 pub use zolana_transaction::ProofInputUtxo;
 

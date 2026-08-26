@@ -8,33 +8,33 @@ use crate::{
     ProofInputUtxo,
 };
 
-/// Proof inputs for the `escrow_open` circuit (`create_escrow`): 2-in (source,
-/// maker_funding) / 3-out (order, reservation, maker_change), the exact supported
-/// IN2_OUT3 shape with no padding. No source change output: the source UTXO must
-/// match `order_amount` exactly. `order_amount` is the one private witness shared
-/// across the order UTXO, the reservation size (`order_amount * max_price`), and
-/// the maker-change decrement.
+/// Proof inputs for the `escrow_open` circuit (`create_escrow`): 1-in (source) /
+/// 2-out (order, taker_change), the exact supported IN1_OUT2 shape with no
+/// padding. Taker-only: the maker's liquidity is reserved program-side and
+/// enters at settle time, so there is no funding input and no maker change; the
+/// circuit proves the order amount and private minimum are within pair policy,
+/// and caps the payout at the public window's coverage price so the fixed
+/// reservation always covers the order. The live price is program-side only.
 #[derive(Debug, Clone)]
 pub struct EscrowOpenProofInputs {
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
-    pub max_price: u64,
-    pub created_at: u64,
     /// The escrow_authority PDA's owner-hash (`EscrowAuthorityOwnerHash`),
     /// bound to `OrderOut.Owner`.
     pub escrow_authority_owner_hash: [u8; 32],
     /// The pair's source-asset commitment (`SourceAsset`), bound to
     /// `SourceIn.Asset`.
     pub source_asset: [u8; 32],
-    /// The pair's destination-asset commitment (`DestinationAsset`), bound to
-    /// `MakerFunding.Asset`.
-    pub destination_asset: [u8; 32],
+    pub public_price_floor: u64,
+    pub price_tolerance: u64,
+    pub min_order_amount: u64,
+    /// The pair's immutable `max_order_size` (`MaxOrderSize`), capping owed.
+    pub max_order_size: u64,
     pub order_amount: u64,
+    pub min_price: u64,
     pub source_in: ProofInputUtxo,
-    pub maker_funding: ProofInputUtxo,
     pub order_out: ProofInputUtxo,
-    pub reservation_out: ProofInputUtxo,
-    pub maker_change: ProofInputUtxo,
+    pub taker_change: ProofInputUtxo,
     pub external_data_hash: [u8; 32],
 }
 
@@ -49,11 +49,6 @@ impl EscrowOpenProofInputs {
             "Public_PrivateTxHash".to_string(),
             vec![bytes_to_decimal_string(&self.private_tx_hash)],
         );
-        map.insert("MaxPrice".to_string(), vec![self.max_price.to_string()]);
-        map.insert(
-            "Public_CreatedAt".to_string(),
-            vec![self.created_at.to_string()],
-        );
         map.insert(
             "Public_EscrowAuthorityOwnerHash".to_string(),
             vec![bytes_to_decimal_string(&self.escrow_authority_owner_hash)],
@@ -63,26 +58,34 @@ impl EscrowOpenProofInputs {
             vec![bytes_to_decimal_string(&self.source_asset)],
         );
         map.insert(
-            "Public_DestinationAsset".to_string(),
-            vec![bytes_to_decimal_string(&self.destination_asset)],
+            "Public_PublicPriceFloor".to_string(),
+            vec![self.public_price_floor.to_string()],
+        );
+        map.insert(
+            "Public_PriceTolerance".to_string(),
+            vec![self.price_tolerance.to_string()],
+        );
+        map.insert(
+            "Public_MinOrderAmount".to_string(),
+            vec![self.min_order_amount.to_string()],
+        );
+        map.insert(
+            "Public_MaxOrderSize".to_string(),
+            vec![self.max_order_size.to_string()],
         );
         map.insert(
             "OrderAmount".to_string(),
             vec![self.order_amount.to_string()],
         );
+        map.insert("MinPrice".to_string(), vec![self.min_price.to_string()]);
         map.insert(
             "ExternalDataHash".to_string(),
             vec![bytes_to_decimal_string(&self.external_data_hash)],
         );
         for (key, value) in utxo_witness_entries(&self.source_in, "SourceIn")
             .into_iter()
-            .chain(utxo_witness_entries(&self.maker_funding, "MakerFunding"))
             .chain(utxo_witness_entries(&self.order_out, "OrderOut"))
-            .chain(utxo_witness_entries(
-                &self.reservation_out,
-                "ReservationOut",
-            ))
-            .chain(utxo_witness_entries(&self.maker_change, "MakerChange"))
+            .chain(utxo_witness_entries(&self.taker_change, "TakerChange"))
         {
             map.insert(key, value);
         }
@@ -104,17 +107,17 @@ mod tests {
         EscrowOpenProofInputs {
             public_input_hash: [1; 32],
             private_tx_hash: [2; 32],
-            max_price: 100,
-            created_at: 1_700_000_000,
             escrow_authority_owner_hash: [6; 32],
             source_asset: [7; 32],
-            destination_asset: [8; 32],
+            public_price_floor: 80,
+            price_tolerance: 10,
+            min_order_amount: 1,
+            max_order_size: 100,
             order_amount: 50,
+            min_price: 85,
             source_in: ProofInputUtxo::default(),
-            maker_funding: ProofInputUtxo::default(),
             order_out: ProofInputUtxo::default(),
-            reservation_out: ProofInputUtxo::default(),
-            maker_change: ProofInputUtxo::default(),
+            taker_change: ProofInputUtxo::default(),
             external_data_hash: [5; 32],
         }
     }
@@ -127,21 +130,17 @@ mod tests {
         let mut expected: Vec<String> = vec![
             "Public_PublicInputHash".to_string(),
             "Public_PrivateTxHash".to_string(),
-            "MaxPrice".to_string(),
-            "Public_CreatedAt".to_string(),
             "Public_EscrowAuthorityOwnerHash".to_string(),
             "Public_SourceAsset".to_string(),
-            "Public_DestinationAsset".to_string(),
+            "Public_PublicPriceFloor".to_string(),
+            "Public_PriceTolerance".to_string(),
+            "Public_MinOrderAmount".to_string(),
+            "Public_MaxOrderSize".to_string(),
             "OrderAmount".to_string(),
+            "MinPrice".to_string(),
             "ExternalDataHash".to_string(),
         ];
-        for prefix in [
-            "SourceIn",
-            "MakerFunding",
-            "OrderOut",
-            "ReservationOut",
-            "MakerChange",
-        ] {
+        for prefix in ["SourceIn", "OrderOut", "TakerChange"] {
             for suffix in [
                 "Domain",
                 "Owner",

@@ -1,11 +1,19 @@
+pub mod cancel;
 pub mod create_escrow;
 pub mod create_pair;
+pub mod deposit_liquidity;
+pub mod rebalance_liquidity;
 pub mod settle;
 pub mod shared;
 pub mod update_price;
 pub mod verifier;
+pub mod withdraw_liquidity;
 
+pub use cancel::process_cancel_ix;
 pub use create_escrow::process_create_escrow_ix;
 pub use create_pair::process_create_pair_ix;
+pub use deposit_liquidity::process_deposit_liquidity_ix;
+pub use rebalance_liquidity::process_rebalance_liquidity_ix;
 pub use settle::process_settle_ix;
 pub use update_price::process_update_price_ix;
+pub use withdraw_liquidity::process_withdraw_liquidity_ix;

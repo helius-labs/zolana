@@ -9,7 +9,10 @@ use pinocchio::{
 };
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 use zolana_hasher::{primitives::hash_bytes, Hasher, Poseidon};
-use zolana_interface::{instruction::tag::TRANSACT, SHIELDED_POOL_PROGRAM_ID};
+use zolana_interface::{
+    instruction::tag::{DEPOSIT, TRANSACT},
+    SHIELDED_POOL_PROGRAM_ID,
+};
 
 use crate::error::DynamicSwapError;
 
@@ -19,32 +22,78 @@ pub fn u64_right_align(value: u64) -> [u8; 32] {
     bytes
 }
 
-/// The escrow_authority PDA's owner-hash for `pair`:
-/// `Poseidon(hash_bytes(derived PDA), nullifier_pubkey)`, with the PDA derived
-/// here so the program never trusts a client value for the PDA binding of the
-/// `escrow_open` circuit's `EscrowAuthorityOwnerHash` public input.
-/// `nullifier_pubkey` is the value published in
-/// `Pair::escrow_authority_nullifier_pubkey`: the maker derives the identity's
-/// nullifier secret from its viewing key, so who can build spend proofs is
-/// maker-chosen, while the order/reservation UTXOs stay bound to the
-/// program-controlled PDA that only `settle` can sign for.
+/// An already-derived authority PDA's owner-hash:
+/// `Poseidon(hash_bytes(pda), ESCROW_NULLIFIER_PUBKEY)`. The nullifier pubkey
+/// is the hardcoded zero-secret constant (see `crate::ESCROW_NULLIFIER_PUBKEY`),
+/// shared by both authorities: spend linkage is public by design and spends
+/// are gated by the proofs, the signer checks, and the liquidity accounting.
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
-pub fn escrow_authority_owner_hash(
-    pair: &Address,
-    nullifier_pubkey: &[u8; 32],
-) -> Result<[u8; 32], ProgramError> {
-    let (pda, _bump) = derive_authority_pda(crate::ESCROW_AUTHORITY_PDA_SEED, pair);
+pub fn pda_owner_hash(pda: &Address) -> Result<[u8; 32], ProgramError> {
     let owner_pk_field = hash_bytes(pda.as_array()).map_err(DynamicSwapError::from)?;
-    Poseidon::hashv(&[owner_pk_field.as_slice(), nullifier_pubkey.as_slice()])
-        .map_err(|_| DynamicSwapError::HashingFailed.into())
+    Poseidon::hashv(&[
+        owner_pk_field.as_slice(),
+        crate::ESCROW_NULLIFIER_PUBKEY.as_slice(),
+    ])
+    .map_err(|_| DynamicSwapError::HashingFailed.into())
 }
 
 #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
-pub fn escrow_authority_owner_hash(
-    _pair: &Address,
-    _nullifier_pubkey: &[u8; 32],
+pub fn pda_owner_hash(_pda: &Address) -> Result<[u8; 32], ProgramError> {
+    unimplemented!("pda_owner_hash requires Solana runtime syscalls")
+}
+
+/// A named authority PDA's owner-hash for `pair`, with the PDA derived here so
+/// the program never trusts a client value for the PDA binding of the
+/// circuits' owner-hash public inputs.
+pub fn authority_owner_hash(
+    seed_label: &'static [u8],
+    pair: &Address,
 ) -> Result<[u8; 32], ProgramError> {
-    unimplemented!("escrow_authority_owner_hash requires Solana runtime syscalls")
+    let (pda, _bump) = derive_authority_pda(seed_label, pair);
+    pda_owner_hash(&pda)
+}
+
+/// The escrow_authority PDA's owner-hash: owns every order UTXO for the pair.
+pub fn escrow_authority_owner_hash(pair: &Address) -> Result<[u8; 32], ProgramError> {
+    authority_owner_hash(crate::ESCROW_AUTHORITY_PDA_SEED, pair)
+}
+
+/// The canonical UTXO asset commitment of a mint: `hash_bytes(mint)`, the same
+/// value the SPP deposit processor computes. Used to check a deposit's mint
+/// against `Pair.destination_asset`.
+#[cfg(any(target_os = "solana", target_arch = "bpf"))]
+pub fn asset_field(mint: &Address) -> Result<[u8; 32], ProgramError> {
+    hash_bytes(mint.as_array()).map_err(|_| DynamicSwapError::HashingFailed.into())
+}
+
+#[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
+pub fn asset_field(_mint: &Address) -> Result<[u8; 32], ProgramError> {
+    unimplemented!("asset_field requires Solana runtime syscalls")
+}
+
+/// The pool_authority PDA's owner-hash: owns every pool (liquidity) UTXO for
+/// the pair.
+pub fn pool_authority_owner_hash(pair: &Address) -> Result<[u8; 32], ProgramError> {
+    authority_owner_hash(crate::POOL_AUTHORITY_PDA_SEED, pair)
+}
+
+/// Move the escrow account's rent to `rent_recipient` and close the account.
+/// The rent must move before the account is closed, or the instruction is
+/// unbalanced. Shared by `settle` and `cancel`, the two escrow-resolving
+/// instructions.
+pub fn close_escrow_account(
+    escrow_account: &mut AccountView,
+    rent_recipient: &mut AccountView,
+) -> ProgramResult {
+    let rent_lamports = escrow_account.lamports();
+    rent_recipient.set_lamports(
+        rent_recipient
+            .lamports()
+            .checked_add(rent_lamports)
+            .ok_or(ProgramError::ArithmeticOverflow)?,
+    );
+    escrow_account.set_lamports(0);
+    escrow_account.close()
 }
 
 /// Create a program-derived account. Handles both the hot path (the account has
@@ -183,6 +232,46 @@ pub fn derive_authority_pda(seed_label: &'static [u8], pair: &Address) -> (Addre
 #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
 pub fn derive_authority_pda(_seed_label: &'static [u8], _pair: &Address) -> (Address, u8) {
     unimplemented!("derive_authority_pda requires Solana runtime syscalls")
+}
+
+/// Forward a proofless SPP `deposit` (tag 11) unsigned: the depositor's outer
+/// signature authorizes the SPL transfer, and the created pool note needs no
+/// owner signature (SPP deposits are payer-authorized). `spp_accounts` is the
+/// verbatim SPP deposit tail: `tree, depositor, spp_program, token_program,
+/// mint, user_token, spl_interface` -- the SPP program sits at index 2 here,
+/// unlike the transact tail's index 3.
+#[inline(never)]
+#[profile]
+pub fn cpi_spp_deposit(spp_accounts: &[AccountView], deposit_bytes: &[u8]) -> ProgramResult {
+    let spp_program_account = spp_accounts
+        .get(2)
+        .ok_or(ProgramError::NotEnoughAccountKeys)?;
+    let spp_id = Address::from(SHIELDED_POOL_PROGRAM_ID);
+    if spp_program_account.address() != &spp_id {
+        return Err(DynamicSwapError::InvalidShieldedPoolProgram.into());
+    }
+
+    let metas: Vec<InstructionAccount> = spp_accounts
+        .iter()
+        .map(|account| {
+            InstructionAccount::new(
+                account.address(),
+                account.is_writable(),
+                account.is_signer(),
+            )
+        })
+        .collect();
+
+    let mut instruction_data = Vec::with_capacity(1 + deposit_bytes.len());
+    instruction_data.push(DEPOSIT);
+    instruction_data.extend_from_slice(deposit_bytes);
+
+    let instruction = InstructionView {
+        program_id: &spp_id,
+        accounts: &metas,
+        data: &instruction_data,
+    };
+    invoke_with_bounds::<16, _>(&instruction, spp_accounts)
 }
 
 #[inline(never)]

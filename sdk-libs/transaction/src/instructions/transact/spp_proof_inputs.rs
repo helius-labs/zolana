@@ -106,6 +106,14 @@ pub struct SppProofInputs {
     pub output_utxos: Vec<SppProofOutputUtxo>,
     pub external_data: ExternalData,
     pub payer: Address,
+    /// Owner-signer identities beyond the input owners, appended after them in
+    /// the signer vector. The circuit requires a data-bearing OUTPUT's owner in
+    /// the authorized signer set, so a program PDA that owns such an output
+    /// without spending any input must be declared here (and occupy the
+    /// matching owner-signer account slot, flipped to a signer by the owning
+    /// program's CPI). Bounded by the circuit's signer width (`n_inputs`
+    /// owner-signer slots).
+    pub extra_owner_signers: Vec<Address>,
 }
 
 impl SppProofInputs {
@@ -120,15 +128,23 @@ impl SppProofInputs {
             output_utxos,
             external_data,
             payer,
+            extra_owner_signers: Vec::new(),
         }
     }
 
-    /// Unique non-payer Ed25519 and PDA input owners in first-input order. This
-    /// is the account vector appended by the high-level instruction builder; the
-    /// program applies the same payer-seeded first-occurrence normalization. A
-    /// PDA owner occupies an owner-signer slot like any Ed25519 owner; the
-    /// owning program flips its account to signer via CPI, so only wallet
-    /// signature collection treats it differently.
+    /// Declare an owner signer that owns no input (see `extra_owner_signers`).
+    pub fn with_owner_signer(mut self, owner: Address) -> Self {
+        self.extra_owner_signers.push(owner);
+        self
+    }
+
+    /// Unique non-payer Ed25519 and PDA input owners in first-input order,
+    /// followed by the declared `extra_owner_signers`. This is the account
+    /// vector appended by the high-level instruction builder; the program
+    /// applies the same payer-seeded first-occurrence normalization. A PDA
+    /// owner occupies an owner-signer slot like any Ed25519 owner; the owning
+    /// program flips its account to signer via CPI, so only wallet signature
+    /// collection treats it differently.
     pub fn owner_signer_pubkeys(&self) -> Result<Vec<Address>, TransactionError> {
         let mut signers = Vec::new();
         let mut signer_hashes: Vec<[u8; 32]> = Vec::new();
@@ -145,6 +161,14 @@ impl SppProofInputs {
             }
             signer_hashes.push(hash);
             signers.push(address);
+        }
+        for extra in &self.extra_owner_signers {
+            let hash = zolana_hasher::primitives::hash_bytes(extra.as_array())?;
+            if *extra == self.payer || signer_hashes.contains(&hash) {
+                continue;
+            }
+            signer_hashes.push(hash);
+            signers.push(*extra);
         }
         Ok(signers)
     }
@@ -424,6 +448,43 @@ mod tests {
                 [0u8; 32],
                 [0u8; 32],
                 [0u8; 32],
+            ]
+        );
+    }
+
+    /// An extra owner signer (a PDA owning a data-bearing output but no input)
+    /// is appended after the input-derived owners, deduplicated against the
+    /// payer and the input owners.
+    #[test]
+    fn extra_owner_signer_appends_and_deduplicates() {
+        let payer = ed25519_keypair(3);
+        let payer_address = Address::new_from_array(
+            payer
+                .signing_pubkey()
+                .as_ed25519()
+                .expect("payer Ed25519 pubkey"),
+        );
+        let pda = Address::new_from_array([5u8; 32]);
+        let proof_inputs = SppProofInputs::new(
+            vec![input(&payer)],
+            Vec::new(),
+            ExternalData::new([0u8; 33], [0u8; 16], Vec::new(), Vec::new(), Vec::new()),
+            payer_address,
+        )
+        .with_owner_signer(pda)
+        // Duplicates of the pda and the payer are dropped.
+        .with_owner_signer(pda)
+        .with_owner_signer(payer_address);
+
+        assert_eq!(proof_inputs.owner_signer_pubkeys().unwrap(), vec![pda]);
+        assert_eq!(
+            proof_inputs.signer_pk_hashes(2).unwrap(),
+            vec![
+                payer
+                    .signing_pubkey()
+                    .owner_proof_input_hash()
+                    .expect("payer owner hash"),
+                zolana_hasher::primitives::hash_bytes(pda.as_array()).expect("pda hash"),
             ]
         );
     }

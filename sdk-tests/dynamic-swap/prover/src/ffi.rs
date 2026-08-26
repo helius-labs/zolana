@@ -12,11 +12,15 @@ mod bind {
 
 pub type WitnessMap = HashMap<String, Vec<String>>;
 
+/// Circuit ids; must match the Go consts in `circuits/main.go`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
 pub enum CircuitId {
     EscrowOpen = 1,
-    EscrowSettle = 2,
+    PoolSettle = 2,
+    EscrowCancel = 3,
+    PoolWithdraw = 4,
+    PoolRebalance = 5,
 }
 
 #[derive(Debug, Clone)]
@@ -117,7 +121,10 @@ fn build_dir(circuit: CircuitId) -> PathBuf {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../build/gnark");
     let sub = match circuit {
         CircuitId::EscrowOpen => "escrow_open",
-        CircuitId::EscrowSettle => "escrow_settle",
+        CircuitId::PoolSettle => "pool_settle",
+        CircuitId::EscrowCancel => "escrow_cancel",
+        CircuitId::PoolWithdraw => "pool_withdraw",
+        CircuitId::PoolRebalance => "pool_rebalance",
     };
     base.join(sub)
 }
@@ -134,10 +141,16 @@ enum KeyStatus {
 
 fn circuit_key_status(circuit: CircuitId) -> &'static OnceLock<KeyStatus> {
     static ESCROW_OPEN: OnceLock<KeyStatus> = OnceLock::new();
-    static ESCROW_SETTLE: OnceLock<KeyStatus> = OnceLock::new();
+    static POOL_SETTLE: OnceLock<KeyStatus> = OnceLock::new();
+    static ESCROW_CANCEL: OnceLock<KeyStatus> = OnceLock::new();
+    static POOL_WITHDRAW: OnceLock<KeyStatus> = OnceLock::new();
+    static POOL_REBALANCE: OnceLock<KeyStatus> = OnceLock::new();
     match circuit {
         CircuitId::EscrowOpen => &ESCROW_OPEN,
-        CircuitId::EscrowSettle => &ESCROW_SETTLE,
+        CircuitId::PoolSettle => &POOL_SETTLE,
+        CircuitId::EscrowCancel => &ESCROW_CANCEL,
+        CircuitId::PoolWithdraw => &POOL_WITHDRAW,
+        CircuitId::PoolRebalance => &POOL_REBALANCE,
     }
 }
 
