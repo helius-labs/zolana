@@ -67,6 +67,7 @@ pub struct Init<'a> {
     pub config_authority: &'a dyn Signer,
     pub auditor_pk: P256Pubkey,
     pub records_tree: Address,
+    pub shared_sources: Vec<(zolana_ring_policy::RecordKind, CustomRing)>,
     pub existing: Option<CustomRingConfig>,
 }
 
@@ -113,6 +114,8 @@ pub enum InitError {
     Build(#[from] CreateConfigError),
     #[error(transparent)]
     Policy(#[from] custom_ring_sdk::RecordError),
+    #[error(transparent)]
+    PolicySources(Box<crate::record::RecordError>),
     #[error(transparent)]
     Step(#[from] StepError),
     #[error("ring config exists under authority {authority} with auditor {auditor}, ring.toml names another operator")]
@@ -225,6 +228,8 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
         config_authority: &config_authority,
         auditor_pk,
         records_tree: args.records_tree,
+        shared_sources: crate::record::shared_sources(ctx.config.policy.as_ref())
+            .map_err(|error| InitError::PolicySources(Box::new(error)))?,
         existing,
     }
     .run(&ctx.rpc)?;
@@ -412,7 +417,7 @@ impl Init<'_> {
                         payer: config_authority,
                         authority: deployer.pubkey(),
                         records_tree: self.records_tree,
-                        shared_sources: vec![],
+                        shared_sources: self.shared_sources.clone(),
                     }
                     .instruction()?],
                 )?

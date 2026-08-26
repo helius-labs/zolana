@@ -57,6 +57,7 @@ pub fn run(args: NewArgs) -> Result<(), NewError> {
         authority_keypair: PathBuf::from(&args.authority_keypair),
         upgrade_authority_keypair: None,
         config_authority_keypair: None,
+        policy: None,
         localnet,
         devnet,
     };

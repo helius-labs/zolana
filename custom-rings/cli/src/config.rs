@@ -1,6 +1,7 @@
 //! `ring.toml`, the answers `new` recorded.
 
 use std::{
+    collections::BTreeMap,
     io,
     path::{Path, PathBuf},
 };
@@ -31,8 +32,35 @@ pub struct RingConfig {
     pub upgrade_authority_keypair: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub config_authority_keypair: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy: Option<PolicyTable>,
     pub localnet: Urls,
     pub devnet: Urls,
+}
+
+/// Curator sources by lowercase kind name, absent kinds use the ring's own
+/// records.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PolicyTable {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub sources: BTreeMap<String, Base58Address>,
+}
+
+/// Map values take no `#[serde(with)]`, the newtype carries the codec.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Base58Address(pub Address);
+
+impl<'de> serde::Deserialize<'de> for Base58Address {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        base58_address::deserialize(deserializer).map(Self)
+    }
+}
+
+impl serde::Serialize for Base58Address {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        base58_address::serialize(&self.0, serializer)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, clap::ValueEnum)]
