@@ -50,8 +50,8 @@ interface CircuitUtxo {
   readonly amount: Field;
   readonly blinding: Field;
   readonly dataHash: Field;
-  readonly zoneDataHash: Field;
-  readonly zoneProgramId: Field;
+  readonly ringDataHash: Field;
+  readonly ringProgramId: Field;
 }
 
 const CIRCUIT_UTXOS = new WeakMap<object, CircuitUtxo>();
@@ -62,7 +62,7 @@ export function circuitUtxo(value: object): CircuitUtxo {
   return result;
 }
 
-/** With `ring` set, the circuit binds every real input's ring field to `zoneProgramId`. */
+/** With `ring` set, the circuit binds every real input's ring field to `ringProgramId`. */
 export function assemble(
   proofInputs: SppProofInputs,
   spendProofs: readonly SpendProof[],
@@ -124,7 +124,7 @@ function assembleUnchecked(
     ...Array.from({ length: inputHashes.length }, () => 0n),
   ];
   const allowDummyInputs = 1n;
-  const zoneProgramId = ring === undefined ? 0n : hashBytesBigInt(addressBytes(ring));
+  const ringProgramId = ring === undefined ? 0n : hashBytesBigInt(addressBytes(ring));
   const publicInputHash = hashChain([
     hashChain(nullifiers.map(bytesToBigInt)),
     hashChain(outputHashes),
@@ -133,7 +133,7 @@ function assembleUnchecked(
     privateTxHash,
     externalDataHash,
     ...publicSlots,
-    zoneProgramId,
+    ringProgramId,
     rightHashChain(signerPublicKeyHashes),
     allowDummyInputs,
     hashChain(outputOwnerFields),
@@ -145,7 +145,7 @@ function assembleUnchecked(
     privateTxHash: asField(privateTxHash),
     publicAssets: Object.freeze(movements.assets.map(asField)),
     publicAmounts: Object.freeze(movements.amounts.map(asField)),
-    zoneProgramId: asField(zoneProgramId),
+    ringProgramId: asField(ringProgramId),
     signerPublicKeyHashes: Object.freeze(signerPublicKeyHashes.map(asField)),
     allowDummyInputs: asField(allowDummyInputs),
     publishedOutputOwnerPublicKeyHashes: Object.freeze(outputOwnerFields.map(asField)),
@@ -160,7 +160,7 @@ function assembleUnchecked(
     expiryUnixTs: proofInputs.externalData.expiryUnixTs,
     privateTxHash: bigintToBytes(privateTxHash) as Bytes32,
     circuit: Object.freeze({
-      kind: ring === undefined ? "confidentialEddsa" : "zoneEddsa",
+      kind: ring === undefined ? "confidentialEddsa" : "ringEddsa",
       inputs: proofInputs.inputUtxos.length,
       outputs: proofInputs.outputs.length,
       publicAssetSlots: 3,
@@ -204,9 +204,9 @@ function assembleUnchecked(
     ...(proofInputs.externalData.dataHash === undefined
       ? {}
       : { dataHash: new Uint8Array(proofInputs.externalData.dataHash) as Bytes32 }),
-    ...(proofInputs.externalData.zoneDataHash === undefined
+    ...(proofInputs.externalData.ringDataHash === undefined
       ? {}
-      : { zoneDataHash: new Uint8Array(proofInputs.externalData.zoneDataHash) as Bytes32 }),
+      : { ringDataHash: new Uint8Array(proofInputs.externalData.ringDataHash) as Bytes32 }),
     outputs: Object.freeze(
       proofInputs.externalData.outputs.map((output) =>
         Object.freeze({
@@ -452,14 +452,14 @@ function inputCircuitUtxo(input: ProofInputUtxo, dummy = false): CircuitUtxo {
     amount: asField(dummy ? 0n : input.utxo.amount),
     blinding: asField(bytesToBigInt(input.utxo.blinding)),
     dataHash: asField(dummy ? 0n : input.dataHash ? bytesField(input.dataHash, "data hash") : 0n),
-    zoneDataHash: asField(
-      dummy ? 0n : input.zoneDataHash ? bytesField(input.zoneDataHash, "zone data hash") : 0n,
+    ringDataHash: asField(
+      dummy ? 0n : input.ringDataHash ? bytesField(input.ringDataHash, "ring data hash") : 0n,
     ),
-    zoneProgramId: asField(
+    ringProgramId: asField(
       dummy
         ? 0n
-        : input.utxo.zoneProgramId
-          ? hashBytesBigInt(addressBytes(input.utxo.zoneProgramId))
+        : input.utxo.ringProgramId
+          ? hashBytesBigInt(addressBytes(input.utxo.ringProgramId))
           : 0n,
     ),
   });
@@ -476,15 +476,15 @@ function outputCircuitUtxo(output: ProofOutputUtxo): CircuitUtxo {
     dataHash: asField(
       dummy ? 0n : output.dataHash ? bytesField(output.dataHash, "output data hash") : 0n,
     ),
-    zoneDataHash: asField(
+    ringDataHash: asField(
       dummy
         ? 0n
-        : output.zoneDataHash
-          ? bytesField(output.zoneDataHash, "output zone data hash")
+        : output.ringDataHash
+          ? bytesField(output.ringDataHash, "output ring data hash")
           : 0n,
     ),
-    zoneProgramId: asField(
-      dummy ? 0n : output.zoneProgramId ? hashBytesBigInt(addressBytes(output.zoneProgramId)) : 0n,
+    ringProgramId: asField(
+      dummy ? 0n : output.ringProgramId ? hashBytesBigInt(addressBytes(output.ringProgramId)) : 0n,
     ),
   });
 }
@@ -537,8 +537,8 @@ function inputOpening(input: ProofInputUtxo): CustomRingOpening {
     amount: openingField(utxo.amount),
     blinding: openingField(utxo.blinding),
     dataHash: openingField(utxo.dataHash),
-    ringDataHash: openingField(utxo.zoneDataHash),
-    ringProgramId: openingField(utxo.zoneProgramId),
+    ringDataHash: openingField(utxo.ringDataHash),
+    ringProgramId: openingField(utxo.ringProgramId),
   });
 }
 
@@ -555,8 +555,8 @@ function outputOpening(output: ProofOutputUtxo): CustomRingOpening {
     amount: openingField(utxo.amount),
     blinding: openingField(utxo.blinding),
     dataHash: openingField(utxo.dataHash),
-    ringDataHash: openingField(utxo.zoneDataHash),
-    ringProgramId: openingField(utxo.zoneProgramId),
+    ringDataHash: openingField(utxo.ringDataHash),
+    ringProgramId: openingField(utxo.ringProgramId),
   });
 }
 

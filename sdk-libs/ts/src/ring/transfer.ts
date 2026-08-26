@@ -28,7 +28,7 @@ import type {
   Transaction,
   TransactInstructionData,
 } from "../interface/types.js";
-import { auditPublicInputHash, parseAuditorMessage } from "../keypair/audit.js";
+import { customRingPublicInputHash, parseAuditorMessage } from "../keypair/audit.js";
 import { ownerHash } from "../keypair/hash.js";
 import { poseidon } from "../keypair/poseidon.js";
 import type { P256PublicKey } from "../keypair/public-key.js";
@@ -57,7 +57,7 @@ import { RingError, wrapRingError } from "./error.js";
 import { ringTransactInstruction } from "./instructions.js";
 import { fetchRingLookupTable } from "./lookup-table.js";
 
-/** Rust `TRANSACT_COMPUTE_UNIT_LIMIT`. The audited transact verifies two proofs. */
+/** Rust `TRANSACT_COMPUTE_UNIT_LIMIT`. The custom-ring transact verifies two proofs. */
 export const RING_TRANSACT_COMPUTE_UNIT_LIMIT = 1_400_000;
 const MAX_INPUTS = 5;
 /** Borsh `Encrypted` tag, its length, the scheme byte and the embedded P-256 key. */
@@ -92,8 +92,8 @@ export interface RingWithdrawalTransactionParams {
   readonly computeUnitLimit?: number;
 }
 
-/** Mirrors Rust `AuditedTransferInput`. `prepared` is what `ConfidentialTransfer.prepare` returned. */
-export interface AuditedTransferParams {
+/** Mirrors Rust `CustomRingTransferInput`. `prepared` is what `ConfidentialTransfer.prepare` returned. */
+export interface CustomRingTransferParams {
   readonly client: ZolanaClient;
   readonly ringProgramId: Address;
   readonly prepared: PreparedTransfer;
@@ -105,7 +105,7 @@ export interface AuditedTransferParams {
 /** Mirrors Rust `ProvenTransfer`. */
 export interface ProvenRingTransfer {
   readonly data: TransactInstructionData;
-  readonly auditProof: Uint8Array;
+  readonly proof: Uint8Array;
   readonly txViewingPublicKey: P256PublicKey;
   readonly payer: Address;
   readonly tree: Address;
@@ -133,17 +133,19 @@ export async function buildRingTransferTransaction(
           utxo: entry.utxo,
           nullifierKey,
           ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),
-          ...(entry.zoneDataHash === undefined ? {} : { zoneDataHash: entry.zoneDataHash }),
+          ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
         }),
     );
-    const transfer = new ConfidentialTransfer(address, inputs, input.feePayer).withCompactChange();
+    const transfer = new ConfidentialTransfer(address, inputs, input.feePayer)
+      .withCompactChange()
+      .withRingProgramId(input.ringProgramId);
     transfer.send(recipient, asset, input.amount);
     const tree = selected[0]?.tree ?? input.client.tree;
     await input.authority.requestUserApproval({
       solanaPublicKey: input.authority.solanaPublicKey(),
       summary: `ring transfer of ${String(input.amount)} to a shielded address`,
     });
-    const proven = await proveAuditedTransfer(
+    const proven = await proveCustomRingTransfer(
       {
         client: input.client,
         ringProgramId: input.ringProgramId,
@@ -160,7 +162,7 @@ export async function buildRingTransferTransaction(
         payer: proven.payer,
         inputTree: proven.tree,
         outputTree: proven.tree,
-        auditProof: proven.auditProof,
+        proof: proven.proof,
         stateRootIndex: proven.stateRootIndex,
         nullifierRootIndex: proven.nullifierRootIndex,
         data: proven.data,
@@ -203,7 +205,7 @@ export async function buildRingTransferTransaction(
 
 /**
  * Value leaves the ring to a plain Solana account. The recipient, the amount
- * and the asset are public, and the audit proof still covers the exit.
+ * and the asset are public, and the custom-ring proof still covers the exit.
  */
 export async function buildRingWithdrawalTransaction(
   input: RingWithdrawalTransactionParams,
@@ -225,17 +227,19 @@ export async function buildRingWithdrawalTransaction(
           utxo: entry.utxo,
           nullifierKey,
           ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),
-          ...(entry.zoneDataHash === undefined ? {} : { zoneDataHash: entry.zoneDataHash }),
+          ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
         }),
     );
-    const transfer = new ConfidentialTransfer(address, inputs, input.feePayer).withCompactChange();
+    const transfer = new ConfidentialTransfer(address, inputs, input.feePayer)
+      .withCompactChange()
+      .withRingProgramId(input.ringProgramId);
     transfer.withdraw(asset, input.amount, WithdrawalTarget.sol({ recipient: input.recipient }));
     const tree = selected[0]?.tree ?? input.client.tree;
     await input.authority.requestUserApproval({
       solanaPublicKey: input.authority.solanaPublicKey(),
       summary: `public withdrawal of ${String(input.amount)} from the ring to ${input.recipient}`,
     });
-    const proven = await proveAuditedTransfer(
+    const proven = await proveCustomRingTransfer(
       {
         client: input.client,
         ringProgramId: input.ringProgramId,
@@ -252,7 +256,7 @@ export async function buildRingWithdrawalTransaction(
         payer: proven.payer,
         inputTree: proven.tree,
         outputTree: proven.tree,
-        auditProof: proven.auditProof,
+        proof: proven.proof,
         stateRootIndex: proven.stateRootIndex,
         nullifierRootIndex: proven.nullifierRootIndex,
         data: proven.data,
@@ -302,9 +306,9 @@ export function ringRecordsOwnerHash(recordsPda: Address): Bytes32 {
   ) as Bytes32;
 }
 
-/** Mirrors Rust `AuditedTransfer::prove`, the auditor message enters the external data before the SPP proof folds it into `privateTxHash`. */
-export async function proveAuditedTransfer(
-  input: AuditedTransferParams,
+/** Mirrors Rust `CustomRingTransfer::prove`, the auditor message enters the external data before the SPP proof folds it into `privateTxHash`. */
+export async function proveCustomRingTransfer(
+  input: CustomRingTransferParams,
   context?: RequestContext,
 ): Promise<ProvenRingTransfer> {
   const [config, policyConfig, recordsPda] = await Promise.all([
@@ -318,16 +322,16 @@ export async function proveAuditedTransfer(
       details: { recordsTree: policyConfig.recordsTree, tree: input.tree },
     });
   }
-  // A padded change slot pushes the audited instruction past the packet limit
+  // A padded change slot pushes the custom-ring instruction past the packet limit
   // even behind an address lookup table.
   if (input.prepared.changeLayout !== "compact") {
     throw new RingError("RING_PADDED_CHANGE", {
       details: { remedy: "prepare the transfer with ConfidentialTransfer.withCompactChange" },
     });
   }
-  const prepared = input.prepared.withZoneProgramId(input.ringProgramId);
+  const prepared = input.prepared;
   checkRingMembership(prepared, input.ringProgramId);
-  const encrypted = await input.authority.encryptAuditedTransfer({
+  const encrypted = await input.authority.encryptCustomRingTransfer({
     firstNullifier: prepared.firstNullifier,
     outputs: prepared.outputs,
     assets: input.assets,
@@ -352,9 +356,9 @@ export async function proveAuditedTransfer(
     );
     // A ring without rules proves the empty table over its own openings, every
     // further policy field is zero or disabled.
-    const auditProof = await input.client.proveCustomRing(
+    const proof = await input.client.proveCustomRing(
       {
-        publicInputHash: auditPublicInputHash({
+        publicInputHash: customRingPublicInputHash({
           privateTxHash: data.privateTxHash,
           txViewingPublicKey: encrypted.txViewingPublicKey,
           auditorPublicKey: config.auditorPublicKey,
@@ -386,7 +390,7 @@ export async function proveAuditedTransfer(
     );
     return Object.freeze({
       data,
-      auditProof,
+      proof,
       txViewingPublicKey: encrypted.txViewingPublicKey,
       payer: prepared.payer,
       tree: input.tree,
@@ -403,43 +407,54 @@ function zeroFields(count: number): readonly Bytes32[] {
   return Object.freeze(Array.from({ length: count }, () => new Uint8Array(32) as Bytes32));
 }
 
-/** Mirrors Rust `RingMembership::validate`. */
-function checkRingMembership(prepared: PreparedTransfer, ringProgramId: Address): void {
-  const foreign = [
-    ...prepared.inputs.map((input) => input.utxo.zoneProgramId),
-    ...prepared.outputs.map((output) => output.zoneProgramId),
-  ].find((zone) => zone !== undefined && zone !== ringProgramId);
-  if (foreign !== undefined) {
-    throw new RingError("RING_FOREIGN_RING", { details: { ringProgramId: foreign } });
+/** Mirrors Rust `RingMembership::validate`. @internal */
+export function checkRingMembership(prepared: PreparedTransfer, ringProgramId: Address): void {
+  const notes = [
+    ...prepared.inputs.map((input) => ({
+      ring: input.utxo.ringProgramId,
+      data: input.ringDataHash,
+    })),
+    ...prepared.outputs.map((output) => ({
+      ring: output.ringProgramId,
+      data: output.ringDataHash,
+    })),
+  ];
+  const foreign = notes.find((note) => note.ring !== undefined && note.ring !== ringProgramId);
+  if (foreign?.ring !== undefined) {
+    throw new RingError("RING_FOREIGN_RING", { details: { ringProgramId: foreign.ring } });
+  }
+  if (notes.some((note) => note.ring === undefined && note.data !== undefined)) {
+    throw new RingError("RING_DATA_OUTSIDE_RING");
   }
 }
 
-/** Mirrors Rust `frame_dummy_outputs`, the ring program accepts only confidential bodies. */
+/** A dummy copies the length of a real slot with its ring binding, else of the first real slot, mirrors Rust `frame_dummy_outputs`. */
 export function frameDummyOutputs(proofInputs: SppProofInputs): SppProofInputs {
   const external = proofInputs.externalData;
-  const realLengths = proofInputs.outputs.flatMap((output, index) =>
-    output.isDummy() ? [] : [external.outputs[index]?.data?.length],
-  );
-  const encodedLength = realLengths[0];
-  if (encodedLength === undefined || realLengths.some((length) => length !== encodedLength)) {
-    throw new RingError("RING_BUILD_TRANSFER", { details: { reason: "invalid dummy output" } });
-  }
-  const ciphertextLength = encodedLength - CONFIDENTIAL_BODY_OVERHEAD;
-  if (ciphertextLength <= 0) {
-    throw new RingError("RING_BUILD_TRANSFER", { details: { reason: "invalid dummy output" } });
-  }
+  const templates = proofInputs.outputs.flatMap((output, index) => {
+    if (output.isDummy()) return [];
+    const length = external.outputs[index]?.data?.length;
+    if (length === undefined) {
+      throw new RingError("RING_BUILD_TRANSFER", { details: { reason: "invalid dummy output" } });
+    }
+    return [{ inRing: output.ringProgramId !== undefined, length }];
+  });
   const outputs = external.outputs.map((encoded, index) => {
     const output = proofInputs.outputs[index];
     if (output === undefined || !output.isDummy()) return encoded;
+    const inRing = output.ringProgramId !== undefined;
+    const template = templates.find((candidate) => candidate.inRing === inRing) ?? templates[0];
+    const ciphertextLength =
+      template === undefined ? 0 : template.length - CONFIDENTIAL_BODY_OVERHEAD;
+    if (template === undefined || ciphertextLength <= 0) {
+      throw new RingError("RING_BUILD_TRANSFER", { details: { reason: "invalid dummy output" } });
+    }
     const key = ViewingKey.generate();
     const body = new Uint8Array(33 + ciphertextLength);
     body.set(key.publicKey().toBytes(), 0);
     key.destroy();
     globalThis.crypto.getRandomValues(body.subarray(33));
-    const scheme =
-      output.zoneProgramId === undefined
-        ? EncryptedScheme.confidential
-        : EncryptedScheme.ringConfidential;
+    const scheme = inRing ? EncryptedScheme.ringConfidential : EncryptedScheme.confidential;
     return { ...encoded, data: encodeOutputData(scheme, body, "encrypted") };
   });
   return new SppProofInputs({
@@ -483,7 +498,7 @@ function selectRingInputs(
     .utxos()
     .filter(
       (entry) =>
-        !entry.spent && entry.utxo.asset === asset && entry.utxo.zoneProgramId === ringProgramId,
+        !entry.spent && entry.utxo.asset === asset && entry.utxo.ringProgramId === ringProgramId,
     );
   const trees = new Set(candidates.map((entry) => entry.outputContext.tree));
   if (trees.size > 1) {

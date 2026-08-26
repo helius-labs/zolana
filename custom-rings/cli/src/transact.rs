@@ -1,10 +1,15 @@
-use std::time::{Duration, Instant};
+use std::{
+    path::Path,
+    time::{Duration, Instant},
+};
 
 use custom_ring_sdk::{
-    AccountReadError, AuditedTransfer, AuditedTransferInput, CustomRing, DepositError, RingDeposit,
-    RingDepositReceipt, SendV0Error, TransferError, TransferProofEnvironment, V0WithLookupTable,
+    AccountReadError, CustomRing, CustomRingTransfer, CustomRingTransferInput, DepositError,
+    RingDeposit, RingDepositReceipt, SendV0Error, TransferError, TransferProofEnvironment,
+    V0WithLookupTable,
 };
 use solana_address::Address;
+use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use thiserror::Error;
@@ -17,10 +22,10 @@ use zolana_transaction::{
 };
 
 use crate::{
-    init::{configured_auditor_pk, InitError},
+    file::{self, FileError},
     line,
     ring_rpc::{RingRpcClient, RingRpcClientError, TransactionLookup},
-    Context, ContextError, TransactArgs, TransferArgs,
+    Context, ContextError, TransactArgs, TransferArgs, SENDER_KEYPAIR_FILE,
 };
 
 /// Covers the sender's lookup table rent and fees.
@@ -35,14 +40,15 @@ pub struct DemoTransfer<'a> {
     pub ring: CustomRing,
     /// The sender is funded from here and then pays its own v0 transaction.
     pub payer: &'a dyn Signer,
+    pub sender: ShieldedKeypair,
     pub amount: u64,
 }
 
-/// One transfer out of a throwaway sender the payer funds and then abandons.
 /// Whatever the two deposits hold above `amount` stays with the sender.
 struct RingTransfer<'a> {
     ring: CustomRing,
     payer: &'a dyn Signer,
+    sender: ShieldedKeypair,
     deposits: [u64; 2],
     recipient: ShieldedAddress,
     amount: u64,
@@ -98,7 +104,7 @@ pub enum TransactError {
     #[error(transparent)]
     Client(Box<ClientError>),
     #[error(transparent)]
-    Init(#[from] InitError),
+    File(#[from] FileError),
     #[error(transparent)]
     ReaderKey(#[from] ReaderKeyError),
     #[error(transparent)]
@@ -127,6 +133,7 @@ pub fn run(ctx: &mut Context, args: TransactArgs) -> Result<(), TransactError> {
     let receipt = DemoTransfer {
         ring: ctx.ring,
         payer: &session.authority,
+        sender: sender_keypair(ctx)?,
         amount: args.amount,
     }
     .run(session.env(ctx))?;
@@ -158,7 +165,6 @@ pub fn run(ctx: &mut Context, args: TransactArgs) -> Result<(), TransactError> {
 }
 
 /// Deposit the amount into the ring and send all of it to a shielded address.
-/// The sender is a throwaway key, so nothing of the amount stays behind.
 pub fn run_transfer(ctx: &mut Context, args: TransferArgs) -> Result<(), TransactError> {
     if args.amount < 2 {
         return Err(TransactError::AmountTooSmall {
@@ -171,6 +177,7 @@ pub fn run_transfer(ctx: &mut Context, args: TransferArgs) -> Result<(), Transac
     let sent = RingTransfer {
         ring: ctx.ring,
         payer: &session.authority,
+        sender: sender_keypair(ctx)?,
         deposits: [half, args.amount - half],
         recipient: args.to,
         amount: args.amount,
@@ -222,9 +229,8 @@ impl Session {
             .saturating_add(SENDER_FEE_BUDGET)
             .saturating_add(PAYER_FEE_BUDGET);
         let authority = ctx.authority_funded_for(needed)?;
-        let auditor_pk = configured_auditor_pk(&ctx.rpc, ctx.ring)?;
         let ring_rpc = ctx.ring_rpc();
-        ring_rpc.check_serves(ctx.ring.program_id(), &auditor_pk)?;
+        ring_rpc.check_serves(ctx.ring.program_id())?;
         Ok(Self {
             authority,
             ring_rpc,
@@ -303,6 +309,7 @@ impl DemoTransfer<'_> {
         let sent = RingTransfer {
             ring: self.ring,
             payer: self.payer,
+            sender: self.sender,
             deposits: [self.amount; 2],
             recipient: recipient.shielded_address()?,
             amount: self.amount,
@@ -326,10 +333,10 @@ impl RingTransfer<'_> {
         env: TransferProofEnvironment<'_, ZolanaIndexer, SolanaRpc>,
     ) -> Result<SentTransfer, TransactError> {
         let rpc = env.rpc;
-        let sender = ShieldedKeypair::new_ed25519()?;
+        let sender = self.sender;
 
-        // Two deposits fill both input slots of IN2_OUT3, the shape the three
-        // outputs (two change slots and the recipient) resolve to.
+        // Two deposits fill both input slots of IN2_OUT2, the compact change and
+        // the recipient fill the outputs.
         let mut utxos = Vec::with_capacity(self.deposits.len());
         let mut deposits = Vec::with_capacity(self.deposits.len());
         for amount in self.deposits {
@@ -360,10 +367,11 @@ impl RingTransfer<'_> {
             .collect();
         let mut transfer =
             ConfidentialTransfer::new(sender.shielded_address()?, inputs, sender.pubkey())
-                .with_compact_change();
+                .with_compact_change()
+                .with_ring_program_id(self.ring.program_id());
         transfer.send(&self.recipient, SOL_MINT, self.amount)?;
         let prepared = transfer.prepare()?;
-        let proven = AuditedTransfer::new(AuditedTransferInput {
+        let proven = CustomRingTransfer::new(CustomRingTransferInput {
             ring: self.ring,
             sender: &sender,
             prepared,
@@ -384,6 +392,19 @@ impl RingTransfer<'_> {
             transact,
         })
     }
+}
+
+/// Kept between runs, earlier change stays spendable with it.
+fn sender_keypair(ctx: &Context) -> Result<ShieldedKeypair, TransactError> {
+    let path = ctx.project_path(Path::new(SENDER_KEYPAIR_FILE));
+    let keypair = if path.is_file() {
+        file::read_keypair(&path)?
+    } else {
+        let keypair = Keypair::new();
+        file::write_keypair(&keypair, &path)?;
+        keypair
+    };
+    Ok(ShieldedKeypair::from_keypair(&keypair)?)
 }
 
 /// An `Err` from `probe` is final, `Retry` is kept for the timeout message.

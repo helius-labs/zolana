@@ -8,7 +8,7 @@ import { Data, type DataRecord } from "../data.js";
 import { TransactionError } from "../error.js";
 import { checked, concat, copy, decodeAddress, encodeAddress, equal } from "../internal.js";
 import { SOL_MINT, type AssetRegistry } from "../wallet/asset.js";
-import { Utxo, deriveBlinding, resolveZoneProgramId } from "../utxo.js";
+import { Utxo, deriveBlinding, resolveRingProgramId } from "../utxo.js";
 
 /**
  * The type prefix each encrypted family writes into its plaintext body. These
@@ -76,7 +76,7 @@ export interface ConfidentialOutputPlaintext {
   readonly assetId: bigint;
   readonly amount: bigint;
   readonly blinding: Bytes32;
-  readonly zoneProgramId?: Address;
+  readonly ringProgramId?: Address;
   readonly data: Data;
 }
 
@@ -150,9 +150,9 @@ export interface ProoflessOutput {
   readonly amount: bigint;
   readonly dataHash?: Bytes32;
   readonly utxoData?: Uint8Array;
-  readonly zoneProgramId?: Address;
-  readonly zoneDataHash?: Bytes32;
-  readonly zoneData?: Uint8Array;
+  readonly ringProgramId?: Address;
+  readonly ringDataHash?: Bytes32;
+  readonly ringData?: Uint8Array;
   readonly memo?: Uint8Array;
 }
 
@@ -293,7 +293,7 @@ function writeData(writer: Writer, data: Data): void {
 
 function dataRecordTag(kind: DataRecord["kind"]): number {
   switch (kind) {
-    case "zoneData":
+    case "ringData":
       return 1;
     case "utxoData":
       return 2;
@@ -308,7 +308,7 @@ function readData(reader: Reader): Data {
   for (let index = 0; index < count; index++) {
     const tag = reader.u8();
     const bytes = reader.take(reader.u16());
-    const kind = tag === 1 ? "zoneData" : tag === 2 ? "utxoData" : tag === 3 ? "memo" : undefined;
+    const kind = tag === 1 ? "ringData" : tag === 2 ? "utxoData" : tag === 3 ? "memo" : undefined;
     if (!kind) {
       throw new TransactionError("TRANSACTION_DESERIALIZE", {
         field: "dataRecordTag",
@@ -338,7 +338,7 @@ export function encodeConfidential(value: ConfidentialOutputPlaintext): Uint8Arr
   writer.u64(value.assetId);
   writer.u64(value.amount);
   writer.bytes(checked<Bytes32>(value.blinding, 32, "blinding"));
-  writer.option(value.zoneProgramId, (address) => {
+  writer.option(value.ringProgramId, (address) => {
     writer.bytes(decodeAddress(address));
   });
   writeData(writer, value.data);
@@ -350,12 +350,12 @@ export function decodeConfidential(bytes: Uint8Array): ConfidentialOutputPlainte
   const assetId = reader.u64();
   const amount = reader.u64();
   const blinding = reader.take(32) as Bytes32;
-  const zoneProgramId = reader.option(() => encodeAddress(reader.take(32)));
+  const ringProgramId = reader.option(() => encodeAddress(reader.take(32)));
   const result: ConfidentialOutputPlaintext = {
     assetId,
     amount,
     blinding,
-    ...(zoneProgramId === undefined ? {} : { zoneProgramId }),
+    ...(ringProgramId === undefined ? {} : { ringProgramId }),
     data: readData(reader),
   };
   reader.exact();
@@ -367,10 +367,10 @@ export function confidentialUtxo(
   owner: ShieldedPublicKey,
   assets: AssetRegistry,
 ): Utxo {
-  // The zone id rides in the payload rather than coming from the reader, so
-  // the plaintext has to carry one itself before its zone data means anything.
-  if (value.data.zoneData() && value.zoneProgramId === undefined) {
-    throw new TransactionError("TRANSACTION_MISSING_ZONE_PROGRAM_ID");
+  // The ring id rides in the payload rather than coming from the reader, so
+  // the plaintext has to carry one itself before its ring data means anything.
+  if (value.data.ringData() && value.ringProgramId === undefined) {
+    throw new TransactionError("TRANSACTION_MISSING_RING_PROGRAM_ID");
   }
   return new Utxo({
     owner,
@@ -378,7 +378,7 @@ export function confidentialUtxo(
     amount: value.amount,
     blinding: value.blinding,
     data: value.data,
-    ...(value.zoneProgramId === undefined ? {} : { zoneProgramId: value.zoneProgramId }),
+    ...(value.ringProgramId === undefined ? {} : { ringProgramId: value.ringProgramId }),
   });
 }
 
@@ -392,7 +392,7 @@ export function confidentialPlaintextFromUtxo(
     assetId: assets.assetId(utxo.asset),
     amount: utxo.amount,
     blinding: copy(utxo.blinding),
-    ...(utxo.zoneProgramId === undefined ? {} : { zoneProgramId: utxo.zoneProgramId }),
+    ...(utxo.ringProgramId === undefined ? {} : { ringProgramId: utxo.ringProgramId }),
     data: new Data(utxo.data.records()),
   };
 }
@@ -425,16 +425,16 @@ export function decodeAnonymousRecipient(bytes: Uint8Array): AnonymousRecipientP
 export function anonymousRecipientUtxo(
   value: AnonymousRecipientPlaintext,
   assets: AssetRegistry,
-  zoneProgramId?: Address,
+  ringProgramId?: Address,
 ): Utxo {
-  const zone = resolveZoneProgramId(zoneProgramId, value.data);
+  const ring = resolveRingProgramId(ringProgramId, value.data);
   return new Utxo({
     owner: value.ownerPublicKey,
     asset: assets.resolve(value.assetId),
     amount: value.amount,
     blinding: value.blinding,
     data: value.data,
-    ...(zone === undefined ? {} : { zoneProgramId: zone }),
+    ...(ring === undefined ? {} : { ringProgramId: ring }),
   });
 }
 
@@ -489,7 +489,7 @@ export function anonymousSenderUtxos(
   value: AnonymousSenderPlaintext,
   assets: AssetRegistry,
   solMint: Address,
-  zoneProgramId?: Address,
+  ringProgramId?: Address,
 ): readonly Utxo[] {
   if (value.splAmount === 0n && !value.splData.isEmpty()) {
     throw new TransactionError("TRANSACTION_DATA_WITHOUT_OUTPUT");
@@ -499,7 +499,7 @@ export function anonymousSenderUtxos(
   }
   const values: Utxo[] = [];
   if (value.splAmount > 0n) {
-    const zone = resolveZoneProgramId(zoneProgramId, value.splData);
+    const ring = resolveRingProgramId(ringProgramId, value.splData);
     values.push(
       new Utxo({
         owner: value.ownerPublicKey,
@@ -507,12 +507,12 @@ export function anonymousSenderUtxos(
         amount: value.splAmount,
         blinding: deriveBlinding(value.blindingSeed, 0),
         data: value.splData,
-        ...(zone === undefined ? {} : { zoneProgramId: zone }),
+        ...(ring === undefined ? {} : { ringProgramId: ring }),
       }),
     );
   }
   if (value.solAmount > 0n) {
-    const zone = resolveZoneProgramId(zoneProgramId, value.solData);
+    const ring = resolveRingProgramId(ringProgramId, value.solData);
     values.push(
       new Utxo({
         owner: value.ownerPublicKey,
@@ -520,7 +520,7 @@ export function anonymousSenderUtxos(
         amount: value.solAmount,
         blinding: deriveBlinding(value.blindingSeed, 1),
         data: value.solData,
-        ...(zone === undefined ? {} : { zoneProgramId: zone }),
+        ...(ring === undefined ? {} : { ringProgramId: ring }),
       }),
     );
   }
@@ -609,7 +609,7 @@ export function plaintextTransferUtxos(
   value: TransferPlaintextUtxos,
   assets: AssetRegistry,
   solMint: Address,
-  zoneProgramId?: Address,
+  ringProgramId?: Address,
 ): readonly Utxo[] {
   const values: Utxo[] = [];
   const { sender } = value;
@@ -621,7 +621,7 @@ export function plaintextTransferUtxos(
       throw new TransactionError("TRANSACTION_DATA_WITHOUT_OUTPUT");
     }
     if (sender.spl) {
-      const zone = resolveZoneProgramId(zoneProgramId, sender.splData);
+      const ring = resolveRingProgramId(ringProgramId, sender.splData);
       values.push(
         new Utxo({
           owner: sender.ownerPublicKey,
@@ -629,12 +629,12 @@ export function plaintextTransferUtxos(
           amount: sender.spl.amount,
           blinding: deriveBlinding(value.blindingSeed, 0),
           data: sender.splData,
-          ...(zone === undefined ? {} : { zoneProgramId: zone }),
+          ...(ring === undefined ? {} : { ringProgramId: ring }),
         }),
       );
     }
     if (sender.solAmount !== undefined) {
-      const zone = resolveZoneProgramId(zoneProgramId, sender.solData);
+      const ring = resolveRingProgramId(ringProgramId, sender.solData);
       values.push(
         new Utxo({
           owner: sender.ownerPublicKey,
@@ -642,7 +642,7 @@ export function plaintextTransferUtxos(
           amount: sender.solAmount,
           blinding: deriveBlinding(value.blindingSeed, 1),
           data: sender.solData,
-          ...(zone === undefined ? {} : { zoneProgramId: zone }),
+          ...(ring === undefined ? {} : { ringProgramId: ring }),
         }),
       );
     }
@@ -650,7 +650,7 @@ export function plaintextTransferUtxos(
   value.recipientSlots.forEach((recipient, index) => {
     const position = index + 2;
     if (position > 0xff) throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS");
-    const zone = resolveZoneProgramId(zoneProgramId, recipient.data);
+    const ring = resolveRingProgramId(ringProgramId, recipient.data);
     values.push(
       new Utxo({
         owner: recipient.ownerPublicKey,
@@ -658,7 +658,7 @@ export function plaintextTransferUtxos(
         amount: recipient.amount,
         blinding: deriveBlinding(value.blindingSeed, position),
         data: recipient.data,
-        ...(zone === undefined ? {} : { zoneProgramId: zone }),
+        ...(ring === undefined ? {} : { ringProgramId: ring }),
       }),
     );
   });
@@ -728,12 +728,12 @@ export function decodeSplitEncrypted(bytes: Uint8Array): SplitEncryptedUtxos {
 export function splitBundleUtxos(
   value: SplitBundlePlaintext,
   assets: AssetRegistry,
-  zoneProgramId?: Address,
+  ringProgramId?: Address,
 ): readonly Utxo[] {
   if (value.numOutputs === 0 && !value.data.isEmpty()) {
     throw new TransactionError("TRANSACTION_DATA_WITHOUT_OUTPUT");
   }
-  const zone = resolveZoneProgramId(zoneProgramId, value.data);
+  const ring = resolveRingProgramId(ringProgramId, value.data);
   const asset = assets.resolve(value.assetId);
   return Array.from(
     { length: value.numOutputs },
@@ -744,7 +744,7 @@ export function splitBundleUtxos(
         amount: value.assetAmount,
         blinding: deriveBlinding(value.blindingSeed, position),
         data: value.data,
-        ...(zone === undefined ? {} : { zoneProgramId: zone }),
+        ...(ring === undefined ? {} : { ringProgramId: ring }),
       }),
   );
 }
@@ -858,13 +858,13 @@ export function encodeProofless(value: ProoflessOutput): Uint8Array {
     writer.bytes(checked<Bytes32>(hash, 32, "data hash"));
   });
   optionalBytes(value.utxoData);
-  writer.option(value.zoneProgramId, (address) => {
+  writer.option(value.ringProgramId, (address) => {
     writer.bytes(decodeAddress(address));
   });
-  writer.option(value.zoneDataHash, (hash) => {
-    writer.bytes(checked<Bytes32>(hash, 32, "zone data hash"));
+  writer.option(value.ringDataHash, (hash) => {
+    writer.bytes(checked<Bytes32>(hash, 32, "ring data hash"));
   });
-  optionalBytes(value.zoneData);
+  optionalBytes(value.ringData);
   optionalBytes(value.memo);
   return writer.finish();
 }
@@ -879,9 +879,9 @@ export function decodeProofless(bytes: Uint8Array): ProoflessOutput {
   const optionalBytes = (): Uint8Array | undefined =>
     reader.option(() => reader.take(reader.u32()));
   const utxoData = optionalBytes();
-  const zoneProgramId = reader.option(() => encodeAddress(reader.take(32)));
-  const zoneDataHash = reader.option(() => reader.take(32) as Bytes32);
-  const zoneData = optionalBytes();
+  const ringProgramId = reader.option(() => encodeAddress(reader.take(32)));
+  const ringDataHash = reader.option(() => reader.take(32) as Bytes32);
+  const ringData = optionalBytes();
   const memo = optionalBytes();
   reader.exact();
   return {
@@ -891,22 +891,22 @@ export function decodeProofless(bytes: Uint8Array): ProoflessOutput {
     amount,
     ...(dataHash === undefined ? {} : { dataHash }),
     ...(utxoData === undefined ? {} : { utxoData }),
-    ...(zoneProgramId === undefined ? {} : { zoneProgramId }),
-    ...(zoneDataHash === undefined ? {} : { zoneDataHash }),
-    ...(zoneData === undefined ? {} : { zoneData }),
+    ...(ringProgramId === undefined ? {} : { ringProgramId }),
+    ...(ringDataHash === undefined ? {} : { ringDataHash }),
+    ...(ringData === undefined ? {} : { ringData }),
     ...(memo === undefined ? {} : { memo }),
   };
 }
 
 /**
- * Rust `Proofless::into_utxos`. The deposit rail publishes its zone binding in
- * the payload beside the zone data, so unlike the reader-supplied rails there
- * is nothing to resolve; a zone data hash that contradicts the binding is
+ * Rust `Proofless::into_utxos`. The deposit rail publishes its ring binding in
+ * the payload beside the ring data, so unlike the reader-supplied rails there
+ * is nothing to resolve; a ring data hash that contradicts the binding is
  * caught when the commitment is computed.
  */
 export function prooflessUtxo(value: ProoflessOutput, owner: ShieldedPublicKey): Utxo {
   const records: DataRecord[] = [];
-  if (value.zoneData) records.push({ kind: "zoneData", bytes: value.zoneData });
+  if (value.ringData) records.push({ kind: "ringData", bytes: value.ringData });
   if (value.utxoData) records.push({ kind: "utxoData", bytes: value.utxoData });
   if (value.memo) records.push({ kind: "memo", bytes: value.memo });
   return new Utxo({
@@ -915,7 +915,7 @@ export function prooflessUtxo(value: ProoflessOutput, owner: ShieldedPublicKey):
     amount: value.amount,
     blinding: value.blinding,
     data: new Data(records),
-    ...(value.zoneProgramId === undefined ? {} : { zoneProgramId: value.zoneProgramId }),
+    ...(value.ringProgramId === undefined ? {} : { ringProgramId: value.ringProgramId }),
   });
 }
 
@@ -1070,7 +1070,7 @@ export function decodeContextForSlot(
 }
 
 /**
- * The owner, registry, and zone a set of output UTXOs is converted under, the
+ * The owner, registry, and ring a set of output UTXOs is converted under, the
  * counterpart of Rust `OwnerCx`. The conversions below are the counterparts of
  * the `UtxoSerialization::from_utxos` implementations, which is where a builder
  * turns the UTXOs it just derived back into the plaintext it will encrypt.
@@ -1078,7 +1078,7 @@ export function decodeContextForSlot(
 export interface OwnerContext {
   readonly owner: ShieldedPublicKey;
   readonly assets: AssetRegistry;
-  readonly zoneProgramId?: Address;
+  readonly ringProgramId?: Address;
 }
 
 function singleUtxo(utxos: readonly Utxo[]): Utxo {
@@ -1098,9 +1098,9 @@ function validateOwner(utxo: Utxo, owner: ShieldedPublicKey, index: number): voi
   }
 }
 
-function validateZone(utxo: Utxo, zoneProgramId: Address | undefined, index: number): void {
-  if (utxo.zoneProgramId !== zoneProgramId) {
-    throw new TransactionError("TRANSACTION_OUTPUT_ZONE_MISMATCH", { index });
+function validateRing(utxo: Utxo, ringProgramId: Address | undefined, index: number): void {
+  if (utxo.ringProgramId !== ringProgramId) {
+    throw new TransactionError("TRANSACTION_OUTPUT_RING_MISMATCH", { index });
   }
 }
 
@@ -1126,7 +1126,7 @@ export function plaintextTransferFromUtxos(
   const recipients: (readonly [number, TransferPlaintextRecipient])[] = [];
   const seen = new Set<number>();
   for (const [index, utxo] of utxos.entries()) {
-    validateZone(utxo, owner.zoneProgramId, index);
+    validateRing(utxo, owner.ringProgramId, index);
     const position = blindingPosition(blindingSeed, utxo.blinding);
     if (position === undefined) throw new TransactionError("TRANSACTION_MISSING_OUTPUT", { index });
     if (seen.has(position)) {
@@ -1194,7 +1194,7 @@ export function anonymousRecipientFromUtxos(
 ): AnonymousRecipientPlaintext {
   const first = singleUtxo(utxos);
   validateOwner(first, owner.owner, 0);
-  validateZone(first, owner.zoneProgramId, 0);
+  validateRing(first, owner.ringProgramId, 0);
   return {
     ownerPublicKey: first.owner,
     senderPublicKey: cx.senderPublicKey,
@@ -1224,7 +1224,7 @@ export function anonymousSenderFromUtxos(
   let solSeen = false;
   for (const [index, utxo] of utxos.entries()) {
     validateOwner(utxo, owner.owner, index);
-    validateZone(utxo, owner.zoneProgramId, index);
+    validateRing(utxo, owner.ringProgramId, index);
     if (utxo.asset === SOL_MINT) {
       if (solSeen || !equal(utxo.blinding, deriveBlinding(blindingSeed, 1))) {
         throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", { position: 1 });
@@ -1265,7 +1265,7 @@ export function splitBundleFromUtxos(
   const blindingSeed = checked<Bytes32>(cx.blindingSeed, 32, "blinding seed");
   for (const [index, utxo] of utxos.entries()) {
     validateOwner(utxo, owner.owner, index);
-    validateZone(utxo, owner.zoneProgramId, index);
+    validateRing(utxo, owner.ringProgramId, index);
     if (utxo.asset !== first.asset) {
       throw new TransactionError("TRANSACTION_OUTPUT_ASSET_MISMATCH", { index });
     }
@@ -1292,13 +1292,13 @@ export function splitBundleFromUtxos(
 export function prooflessFromUtxos(
   utxos: readonly Utxo[],
   owner: OwnerContext,
-  cx: Readonly<{ ownerHash: Bytes32; dataHash?: Bytes32; zoneDataHash?: Bytes32 }>,
+  cx: Readonly<{ ownerHash: Bytes32; dataHash?: Bytes32; ringDataHash?: Bytes32 }>,
 ): ProoflessOutput {
   const utxo = singleUtxo(utxos);
   validateOwner(utxo, owner.owner, 0);
-  validateZone(utxo, owner.zoneProgramId, 0);
+  validateRing(utxo, owner.ringProgramId, 0);
   const utxoData = utxo.data.utxoData();
-  const zoneData = utxo.data.zoneData();
+  const ringData = utxo.data.ringData();
   const memo = utxo.data.memo();
   return {
     owner: checked<Bytes32>(cx.ownerHash, 32, "owner hash"),
@@ -1307,9 +1307,9 @@ export function prooflessFromUtxos(
     amount: utxo.amount,
     ...(cx.dataHash === undefined ? {} : { dataHash: cx.dataHash }),
     ...(utxoData === undefined ? {} : { utxoData }),
-    ...(utxo.zoneProgramId === undefined ? {} : { zoneProgramId: utxo.zoneProgramId }),
-    ...(cx.zoneDataHash === undefined ? {} : { zoneDataHash: cx.zoneDataHash }),
-    ...(zoneData === undefined ? {} : { zoneData }),
+    ...(utxo.ringProgramId === undefined ? {} : { ringProgramId: utxo.ringProgramId }),
+    ...(cx.ringDataHash === undefined ? {} : { ringDataHash: cx.ringDataHash }),
+    ...(ringData === undefined ? {} : { ringData }),
     ...(memo === undefined ? {} : { memo }),
   };
 }

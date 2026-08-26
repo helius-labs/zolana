@@ -1,4 +1,4 @@
-use custom_ring_interface::{tag, AuditProof, CustomRingTransactIxData};
+use custom_ring_interface::{tag, CustomRingProof, CustomRingTransactIxData};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use zolana_interface::instruction::{
@@ -22,7 +22,7 @@ use crate::CustomRing;
 /// `ring_config` (this program's `ring_auth` PDA) stays unsigned: no keypair
 /// exists for it, and the program is what flips the meta to a signer inside its
 /// CPI. Marking it a signer here would make the transaction unsignable.
-pub struct RingTransactWithAudit {
+pub struct CustomRingTransact {
     pub ring: CustomRing,
     pub payer: Address,
     pub input_tree: Address,
@@ -33,8 +33,8 @@ pub struct RingTransactWithAudit {
     /// order.
     pub interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     /// Proof of the `audit` circuit, in the program's wire encoding. Convert a
-    /// prover result with `AuditProof::from(..)`.
-    pub audit_proof: AuditProof,
+    /// prover result with `CustomRingProof::from(..)`.
+    pub proof: CustomRingProof,
     /// The SPP payload. Its `messages` must already carry the auditor message that
     /// the proof commits to, and its `private_tx_hash` must be the one the SPP
     /// proof was generated for.
@@ -44,7 +44,7 @@ pub struct RingTransactWithAudit {
     pub nullifier_root_index: u16,
 }
 
-impl RingTransactWithAudit {
+impl CustomRingTransact {
     pub fn instruction(self) -> Result<Instruction, wincode::Error> {
         let Self {
             ring: deployment,
@@ -53,7 +53,7 @@ impl RingTransactWithAudit {
             output_tree,
             owner_signers,
             interface_transfer_accounts,
-            audit_proof,
+            proof,
             transact,
             state_root_index,
             nullifier_root_index,
@@ -83,7 +83,7 @@ impl RingTransactWithAudit {
         accounts.extend(spp_accounts);
 
         let body = wincode::serialize(&CustomRingTransactIxData {
-            proof: audit_proof,
+            proof,
             state_root_index,
             nullifier_root_index,
             transact,

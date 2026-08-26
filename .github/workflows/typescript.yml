@@ -74,20 +74,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: check
     timeout-minutes: 120
-    services:
-      redis:
-        image: redis:7.4.4-alpine3.21
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     env:
       AGAVE_VERSION: v4.0.2
-      # The ring audit proof goes through the prover queue.
-      ZOLANA_PROVER_REDIS_URL: redis://127.0.0.1:6379/0
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -103,9 +91,9 @@ jobs:
           shared-key: typescript-e2e
       - run: rustup target add wasm32-unknown-unknown
       - name: Install Anza CLI
-        run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+        uses: ./.github/actions/install-anza
+        with:
+          version: ${{ env.AGAVE_VERSION }}
       - name: Install SBF platform tools
         uses: ./.github/actions/install-sbf-tools
         with:

@@ -398,8 +398,8 @@ export async function createProtocolConfigInstruction(
     treeCreationAuthority: Address;
     treeCreationIsPermissionless: boolean;
     foresterAuthority: Address;
-    zoneCreationAuthority: Address;
-    zoneCreationIsPermissionless: boolean;
+    ringCreationAuthority: Address;
+    ringCreationIsPermissionless: boolean;
     splInterfaceCreationIsPermissionless: boolean;
   }>,
 ): Promise<Instruction> {
@@ -408,8 +408,8 @@ export async function createProtocolConfigInstruction(
     .bytes(addressBytes(input.treeCreationAuthority, "treeCreationAuthority"))
     .bool(input.treeCreationIsPermissionless, "treeCreationIsPermissionless")
     .bytes(addressBytes(input.foresterAuthority, "foresterAuthority"))
-    .bytes(addressBytes(input.zoneCreationAuthority, "zoneCreationAuthority"))
-    .bool(input.zoneCreationIsPermissionless, "zoneCreationIsPermissionless")
+    .bytes(addressBytes(input.ringCreationAuthority, "ringCreationAuthority"))
+    .bool(input.ringCreationIsPermissionless, "ringCreationIsPermissionless")
     .bool(input.splInterfaceCreationIsPermissionless, "splInterfaceCreationIsPermissionless")
     .finish();
   return instruction(tagged(InstructionTag.createProtocolConfig, payload), [
@@ -423,9 +423,9 @@ export type ProtocolConfigUpdate =
   | Readonly<{ field: "protocolAuthority"; value: SignerAccount }>
   | Readonly<{ field: "treeCreationAuthority"; value: Address }>
   | Readonly<{ field: "foresterAuthority"; value: Address }>
-  | Readonly<{ field: "zoneCreationAuthority"; value: Address }>
+  | Readonly<{ field: "ringCreationAuthority"; value: Address }>
   | Readonly<{ field: "treeCreationPermissionless"; value: boolean }>
-  | Readonly<{ field: "zoneCreationPermissionless"; value: boolean }>
+  | Readonly<{ field: "ringCreationPermissionless"; value: boolean }>
   | Readonly<{ field: "splInterfaceCreationPermissionless"; value: boolean }>;
 
 export async function updateProtocolConfigInstruction(
@@ -444,13 +444,13 @@ export async function updateProtocolConfigInstruction(
     case "foresterAuthority":
       writer.u8(2, "update.field").bytes(addressBytes(input.update.value));
       break;
-    case "zoneCreationAuthority":
+    case "ringCreationAuthority":
       writer.u8(3, "update.field").bytes(addressBytes(input.update.value));
       break;
     case "treeCreationPermissionless":
       writer.u8(4, "update.field").bool(input.update.value, "update.value");
       break;
-    case "zoneCreationPermissionless":
+    case "ringCreationPermissionless":
       writer.u8(5, "update.field").bool(input.update.value, "update.value");
       break;
     case "splInterfaceCreationPermissionless":

@@ -34,7 +34,7 @@ pub enum SendV0Error {
     Send(#[source] RpcError),
 }
 
-/// The payer funds a throwaway lookup table, the audited transact does not fit a legacy packet.
+/// The payer funds a throwaway lookup table, the custom-ring transact does not fit a legacy packet.
 #[must_use]
 pub struct V0WithLookupTable<'a> {
     pub payer: &'a dyn Signer,

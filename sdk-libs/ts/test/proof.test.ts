@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { AUDIT_PROOF_LENGTH, compressProof, parseProof } from "../src/client/prover/proof.js";
+import { CUSTOM_RING_PROOF_LENGTH, compressProof, parseProof } from "../src/client/prover/proof.js";
 import type { Proof } from "../src/client/prover/types.js";
 
 const ZERO_POINT = ["0x0", "0x0"];
@@ -67,12 +67,12 @@ describe("proof compression", () => {
     expect(bareCoordinates.a).toEqual(prefixedCoordinates.a);
   });
 
-  it("carries the BSB22 commitment pair and lays out the audit proof", () => {
+  it("carries the BSB22 commitment pair and lays out the custom-ring proof", () => {
     const generator = ["0x1", "0x2"];
     const plain = parseProof(ZERO_PROOF);
     expect(plain.commitment).toBeUndefined();
     expect(plain.commitmentPok).toBeUndefined();
-    expect(() => compressProof(plain).toAuditProof()).toThrow(
+    expect(() => compressProof(plain).toCustomRingProof()).toThrow(
       expect.objectContaining({ code: "CLIENT_PROOF_PARSE" }),
     );
 
@@ -87,8 +87,8 @@ describe("proof compression", () => {
     expect(proof.commitmentPok).toEqual(new Uint8Array(64));
 
     const compressed = compressProof(proof);
-    const audit = compressed.toAuditProof();
-    expect(audit).toHaveLength(AUDIT_PROOF_LENGTH);
+    const audit = compressed.toCustomRingProof();
+    expect(audit).toHaveLength(CUSTOM_RING_PROOF_LENGTH);
     expect(audit.subarray(0, 32)).toEqual(compressed.a);
     expect(audit.subarray(32, 96)).toEqual(compressed.b);
     expect(audit.subarray(96, 128)).toEqual(compressed.c);

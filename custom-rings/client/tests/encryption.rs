@@ -1,4 +1,4 @@
-//! Behavior of the host mirror of the `audit` circuit crypto.
+//! Behavior of the host mirror of the custom-ring circuit crypto.
 
 use custom_ring_interface::{pack32_to_2fe, pack33_to_2fe, FieldPair};
 use zolana_interface::instruction::MessageData;

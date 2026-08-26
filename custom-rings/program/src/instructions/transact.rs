@@ -122,7 +122,7 @@ pub fn process_transact_ix(
         }
         .hash()
         .map_err(|_| CustomRingError::HashingFailed)?,
-        &custom_ring_interface::custom_ring_vk::VERIFYINGKEY,
+        &custom_ring_interface::verifying_key::VERIFYINGKEY,
     )?;
 
     // Reserialized from the parsed struct rather than sliced out of `data`: the

@@ -18,7 +18,7 @@ export type {
 export type { AsyncPollConfig, ProverHealth } from "./prover/client.js";
 export { ringOpenings } from "./prover/assembly.js";
 export type { RingOpenings } from "./prover/assembly.js";
-export { AUDIT_PROOF_LENGTH, compressProof, parseProof } from "./prover/proof.js";
+export { CUSTOM_RING_PROOF_LENGTH, compressProof, parseProof } from "./prover/proof.js";
 export {
   RING_INLINE_ASSET_SLOTS,
   RING_INPUT_SLOTS,

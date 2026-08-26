@@ -68,7 +68,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
     if let Some(relying_party_id) = args.webauthn_rp_id {
         origin_policy = origin_policy.with_relying_party_id(relying_party_id);
     }
-    let builder = Hub::builder(source).with_origins(origin_policy.build()?);
+    let builder = Hub::builder(source, genesis_hash).with_origins(origin_policy.build()?);
     let hub = match (&args.auditor_key_file, &args.root_secret_file) {
         (Some(path), None) => {
             let ring = args
@@ -97,7 +97,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
             }
             .root_secret()
             .with_context(|| format!("loading {}", path.display()))?;
-            builder.derived(root, genesis_hash)?
+            builder.derived(root)?
         }
         _ => anyhow::bail!("pass exactly one of --auditor-key-file and --root-secret-file"),
     };

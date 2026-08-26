@@ -33,16 +33,16 @@ func TestGetQueueNameForCircuit(t *testing.T) {
 	}
 }
 
-func TestRingWorkerRejectsOtherCircuits(t *testing.T) {
+func TestCustomRingWorkerRejectsOtherCircuits(t *testing.T) {
 	worker := &BaseQueueWorker{queueName: "zk_custom_ring_queue"}
 	job := &ProofJob{Payload: json.RawMessage(`{"circuitType":"transfer"}`)}
 
 	if _, err := worker.generateProof(job); err == nil {
-		t.Fatal("ring worker accepted a transfer proof")
+		t.Fatal("custom ring worker accepted a transfer proof")
 	}
 }
 
-func TestRingFailureDetailsDoNotContainWitnessData(t *testing.T) {
+func TestCustomRingFailureDetailsDoNotContainWitnessData(t *testing.T) {
 	const marker = "private-witness-marker"
 	job := &ProofJob{Payload: json.RawMessage(`{"circuitType":"custom-ring","txViewingSk":"` + marker + `"}`)}
 
@@ -54,7 +54,7 @@ func TestRingFailureDetailsDoNotContainWitnessData(t *testing.T) {
 	}
 }
 
-func TestRingCachedFailureDoesNotContainWitnessData(t *testing.T) {
+func TestCustomRingCachedFailureDoesNotContainWitnessData(t *testing.T) {
 	const marker = "cached-private-witness-marker"
 	worker := &BaseQueueWorker{queueName: "zk_custom_ring_queue"}
 
@@ -62,4 +62,20 @@ func TestRingCachedFailureDoesNotContainWitnessData(t *testing.T) {
 	if strings.Contains(message, marker) {
 		t.Fatal("cached failure contains witness data")
 	}
+}
+
+func TestCustomRingIsServedOnEveryRail(t *testing.T) {
+	if (proveHandler{}).shouldUseQueueForCircuit(common.CustomRingCircuitType) {
+		t.Fatal("custom ring routed to a queue the server does not have")
+	}
+	queued := proveHandler{enableQueue: true, redisQueue: &RedisQueue{}}
+	if !queued.shouldUseQueueForCircuit(common.CustomRingCircuitType) {
+		t.Fatal("custom ring skipped the queue the server has")
+	}
+	for _, circuit := range servedCircuits() {
+		if circuit == common.CustomRingCircuitType {
+			return
+		}
+	}
+	t.Fatal("custom ring missing from the served circuits")
 }

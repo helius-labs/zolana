@@ -13,6 +13,7 @@ custom-ring-interface = { workspace = true }
 # returned plaintexts the lifecycle asserts against what the sender sent.
 custom-ring-program = { path = "../program" }
 custom-ring-sdk = { path = "../sdk" }
+hex = { workspace = true }
 solana-address = { workspace = true }
 solana-compute-budget-interface = { workspace = true }
 solana-instruction = { workspace = true }
@@ -21,6 +22,7 @@ solana-packet = "3.0"
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-system-interface = { workspace = true }
+tokio = { workspace = true }
 # `serde` is what makes `Transaction`/`VersionedTransaction` serializable for the
 # RPC send path; declared here rather than inherited from another crate's features.
 zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
@@ -30,6 +32,7 @@ zolana-interface = { workspace = true, features = ["solana"] }
 zolana-keypair = { workspace = true }
 zolana-program-test = { workspace = true }
 zolana-ring-client = { workspace = true, features = ["solana-rpc"] }
+zolana-ring-rpc = { path = "../../services/ring-rpc" }
 zolana-test-utils = { workspace = true }
 zolana-transaction = { workspace = true }
 zolana-tree = { workspace = true }

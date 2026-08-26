@@ -49,16 +49,25 @@ pub fn write(path: &Path, contents: impl AsRef<[u8]>) -> Result<(), FileError> {
     })
 }
 
-pub fn create_dir_all(path: &Path) -> Result<(), FileError> {
-    fs::create_dir_all(path).map_err(|source| FileError::Write {
-        path: path.to_path_buf(),
-        source,
+#[cfg(unix)]
+pub fn make_executable(path: &Path) -> Result<(), FileError> {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).map_err(|source| {
+        FileError::Write {
+            path: path.to_path_buf(),
+            source,
+        }
     })
 }
 
-pub fn rename(from: &Path, to: &Path) -> Result<(), FileError> {
-    fs::rename(from, to).map_err(|source| FileError::Write {
-        path: to.to_path_buf(),
+#[cfg(not(unix))]
+pub fn make_executable(_path: &Path) -> Result<(), FileError> {
+    Ok(())
+}
+
+pub fn create_dir_all(path: &Path) -> Result<(), FileError> {
+    fs::create_dir_all(path).map_err(|source| FileError::Write {
+        path: path.to_path_buf(),
         source,
     })
 }

@@ -105,7 +105,7 @@ export function decryptRingDepositUtxo(
       output.encrypted.salt,
     ),
   );
-  const records: DataRecord[] = [{ kind: "zoneData", bytes: plaintext.ringData }];
+  const records: DataRecord[] = [{ kind: "ringData", bytes: plaintext.ringData }];
   if (plaintext.utxoData) records.push({ kind: "utxoData", bytes: plaintext.utxoData });
   if (plaintext.memo) records.push({ kind: "memo", bytes: plaintext.memo });
   return new Utxo({
@@ -114,6 +114,6 @@ export function decryptRingDepositUtxo(
     amount: output.amount,
     blinding: plaintext.blinding,
     data: new Data(records),
-    zoneProgramId: output.ringProgramId,
+    ringProgramId: output.ringProgramId,
   });
 }

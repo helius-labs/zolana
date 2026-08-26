@@ -10,7 +10,7 @@ mod v0;
 mod witness;
 
 pub use custom_ring_interface::{
-    tag, AuditProof, CreateConfigIxData, CustomRingTransactIxData, PolicyConfig, ReaderIxData,
+    tag, CustomRingProof, CreateConfigIxData, CustomRingTransactIxData, PolicyConfig, ReaderIxData,
     CONFIG_PDA_SEED, CREATE_CONFIG_COMPUTE_UNIT_LIMIT, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
     INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT, READ_ACCESS_COMPUTE_UNIT_LIMIT,
     READ_ACCESS_RECORD_PDA_SEED, RECORD_MUTATION_COMPUTE_UNIT_LIMIT,
@@ -34,14 +34,14 @@ pub use crate::{
         revoke_read_access::RevokeReadAccess,
         set_authority::SetAuthority,
         transact::{
-            to_instruction_proof, AuditPrivateTxHash, AuditProofError, AuditProofInputError,
-            AuditProofParams, CustomRingProofRequest, EncryptedAudit, PendingAuditProof,
-            RingTransactWithAudit,
+            to_instruction_proof, CustomRingPrivateTxHash, CustomRingProofError, CustomRingProofInputError,
+            CustomRingProofParams, CustomRingProofRequest, EncryptedAudit, PendingCustomRingProof,
+            CustomRingTransact,
         },
     },
     shared::{AccountReadError, CustomRing, CustomRingConfig, ReaderKey, ReaderKeyError},
     transfer::{
-        AuditedTransfer, AuditedTransferInput, DepositError, ProvenTransfer, RingDeposit,
+        CustomRingTransfer, CustomRingTransferInput, DepositError, ProvenTransfer, RingDeposit,
         RingDepositReceipt, TransferError, TransferProofEnvironment,
     },
     v0::{SendV0Error, V0WithLookupTable, TRANSACT_COMPUTE_UNIT_LIMIT},

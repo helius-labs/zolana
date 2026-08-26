@@ -184,14 +184,14 @@ fn the_public_input_chain_extends_the_audit_chain() {
 fn the_policy_transact_carries_the_policy_config() {
     use custom_ring_sdk::CustomRing;
     let ring = CustomRing::new(solana_address::Address::new_from_array([3u8; 32]));
-    let instruction = custom_ring_sdk::RingTransactWithAudit {
+    let instruction = custom_ring_sdk::CustomRingTransact {
         ring,
         payer: solana_address::Address::new_from_array([1u8; 32]),
         input_tree: solana_address::Address::new_from_array([2u8; 32]),
         output_tree: solana_address::Address::new_from_array([2u8; 32]),
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
-        audit_proof: custom_ring_sdk::AuditProof {
+        proof: custom_ring_sdk::CustomRingProof {
             proof_a: [0; 32],
             proof_b: [0; 64],
             proof_c: [0; 32],

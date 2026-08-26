@@ -94,8 +94,7 @@ func ParseProofRequestMeta(data []byte) (ProofRequestMeta, error) {
 		numInputs = len(inclusionInputs)
 	}
 	// Transfer circuits report their shape via nInputs/nOutputs.
-	if isFixedShape &&
-		CircuitType(circuitType) != CustomRingCircuitType {
+	if isFixedShape && CircuitType(circuitType) != CustomRingCircuitType {
 		numInputs = int(nInputs)
 	}
 

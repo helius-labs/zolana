@@ -16,7 +16,7 @@ import type { P256PublicKey } from "../keypair/public-key.js";
 
 import { Writer } from "../interface/internal.js";
 
-import { checkedAuditProof } from "./codecs.js";
+import { checkedCustomRingProof } from "./codecs.js";
 import { ringConfigAddress, ringPolicyConfigAddress, ringProgramDataAddress } from "./config.js";
 import { RingError } from "./error.js";
 
@@ -92,8 +92,8 @@ export async function initSppRingConfigInstruction(
 }
 
 /**
- * Mirrors Rust `RingTransactWithAudit`. Data layout is
- * `tag || audit proof || state root index || nullifier root index || transact data`.
+ * Mirrors Rust `CustomRingTransact`. Data layout is
+ * `tag || proof || state root index || nullifier root index || transact data`.
  */
 export async function ringTransactInstruction(
   input: Readonly<{
@@ -101,7 +101,7 @@ export async function ringTransactInstruction(
     payer: SignerAccount;
     inputTree: Address;
     outputTree: Address;
-    auditProof: Uint8Array;
+    proof: Uint8Array;
     /** History entries the ring statement binds, unread by a ring without rules. */
     stateRootIndex: number;
     nullifierRootIndex: number;
@@ -126,7 +126,7 @@ export async function ringTransactInstruction(
     ...(input.ownerSigners === undefined ? {} : { ownerSigners: input.ownerSigners }),
     ...(input.withdrawal === undefined ? {} : { withdrawal: input.withdrawal }),
   });
-  const proof = checkedAuditProof(input.auditProof);
+  const proof = checkedCustomRingProof(input.proof);
   const rootIndexes = new Writer()
     .u16(input.stateRootIndex, "stateRootIndex")
     .u16(input.nullifierRootIndex, "nullifierRootIndex")

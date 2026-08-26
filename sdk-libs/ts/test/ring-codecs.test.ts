@@ -6,6 +6,7 @@ import {
   getAddressEncoder,
   getBase58Decoder,
   getProgramDerivedAddress,
+  generateKeyPairSigner,
   type MessagePartialSigner,
 } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
@@ -37,12 +38,13 @@ import {
   type ReaderKey,
 } from "../src/ring/reader.js";
 import { P_CONST_SEC1, P_DERIVE_SEC1, P_PDA_SEC1 } from "../src/keypair/derivation.js";
-import { sha256 } from "../src/interface/internal.js";
+import { addressBytes, sha256 } from "../src/interface/internal.js";
 import { P256PublicKey } from "../src/keypair/public-key.js";
 import {
   RingReadRequest,
   RingRpc,
   auditorKeyAttestation,
+  auditorKeyRequestAttestation,
   messageSignerReader,
   ringReadAttestation,
 } from "../src/ring/rpc.js";
@@ -63,6 +65,18 @@ function filled(byte: number, length: number): Uint8Array {
 
 function addressOf(byte: number) {
   return getAddressDecoder().decode(filled(byte, 32));
+}
+
+function capturingFetch(result: unknown): {
+  fetch: typeof globalThis.fetch;
+  bodies: Record<string, unknown>[];
+} {
+  const bodies: Record<string, unknown>[] = [];
+  const fetch = (async (_input: URL | string, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }));
+  }) as typeof globalThis.fetch;
+  return { fetch, bodies };
 }
 
 // Byte strings from custom-rings/sdk/tests/instruction_builders.rs.
@@ -247,15 +261,13 @@ describe("ring config", () => {
 });
 
 describe("ring status", () => {
-  it("reads the three states and both keys", async () => {
+  it("reads the state and the config key", async () => {
     const wire = {
       jsonrpc: "2.0",
       id: 1,
       result: {
         ringProgramId: addressOf(7),
         state: "foreignAuditor",
-        auditorPubkey: Buffer.from(hex(P256_HEX)).toString("base64"),
-        auditorViewTag: addressOf(21),
         configAuditorPubkey: Buffer.from(hex(P256_HEX)).toString("base64"),
         servicePubkey: addressOf(22),
       },
@@ -278,8 +290,6 @@ describe("ring status", () => {
           result: {
             ringProgramId: addressOf(7),
             state: "uninitialized",
-            auditorPubkey: Buffer.from(hex(P256_HEX)).toString("base64"),
-            auditorViewTag: addressOf(21),
             servicePubkey: addressOf(22),
           },
         }),
@@ -366,7 +376,7 @@ describe("ring deposits", () => {
 });
 
 describe("ring transact", () => {
-  const auditProof = () =>
+  const customRingProof = () =>
     Uint8Array.from([
       ...filled(51, 32),
       ...filled(52, 64),
@@ -378,7 +388,7 @@ describe("ring transact", () => {
   const transactData = () => ({
     expiryUnixTs: 0xffff_ffff_ffff_ffffn,
     privateTxHash: filled(41, 32) as Bytes32,
-    circuit: { kind: "zoneEddsa", inputs: 2, outputs: 3, publicAssetSlots: 3 } as const,
+    circuit: { kind: "ringEddsa", inputs: 2, outputs: 3, publicAssetSlots: 3 } as const,
     txViewingPk: filled(3, 33) as Bytes33,
     salt: filled(42, 16) as Bytes16,
     proof: {
@@ -399,7 +409,7 @@ describe("ring transact", () => {
       payer: PAYER,
       inputTree: TREE,
       outputTree: OUTPUT_TREE,
-      auditProof: auditProof(),
+      proof: customRingProof(),
       stateRootIndex: 0,
       nullifierRootIndex: 0,
       withdrawal: { kind: "sol", recipient },
@@ -411,7 +421,7 @@ describe("ring transact", () => {
     expect(tail).toEqual([SOL_INTERFACE, recipient]);
   });
 
-  it("wraps the pool's account list and data like Rust `RingTransactWithAudit`", async () => {
+  it("wraps the pool's account list and data like Rust `CustomRingTransact`", async () => {
     const [policyConfig] = await getProgramDerivedAddress({
       programAddress: RING,
       seeds: [new TextEncoder().encode("policy")],
@@ -421,7 +431,7 @@ describe("ring transact", () => {
       payer: PAYER,
       inputTree: TREE,
       outputTree: OUTPUT_TREE,
-      auditProof: auditProof(),
+      proof: customRingProof(),
       stateRootIndex: 0,
       nullifierRootIndex: 0,
       data: transactData(),
@@ -449,7 +459,7 @@ describe("ring transact", () => {
       payer: PAYER,
       inputTree: TREE,
       outputTree: OUTPUT_TREE,
-      auditProof: auditProof(),
+      proof: customRingProof(),
       stateRootIndex: 0x0102,
       nullifierRootIndex: 0x0304,
       data: transactData(),
@@ -626,6 +636,18 @@ describe("ring read attestation", () => {
     });
     expect(new TextDecoder().decode(message)).toBe(
       "zolana/ring-rpc-read/v1\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 5\ncursor: AQID",
+    );
+  });
+
+  it("matches the Rust `auditor_key_request_attestation_is_stable` vector", () => {
+    const message = auditorKeyRequestAttestation({
+      genesisHash: filled(9, 32) as Bytes32,
+      ringProgramId: addressOf(5),
+      timestamp: 1_700_000_000n,
+      nonce: filled(7, 32) as Bytes32,
+    });
+    expect(new TextDecoder().decode(message)).toBe(
+      "zolana/ring-rpc-auditor-key-request/v1\ngenesis: cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN\nring: LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY\ntimestamp: 1700000000\nnonce: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
     );
   });
 
@@ -902,38 +924,78 @@ describe("ring read request", () => {
     });
   });
 
+  const serviceSecret = filled(9, 32);
+  const servicePublicKey = getAddressDecoder().decode(ed25519.getPublicKey(serviceSecret));
+  const auditor = P256PublicKey.fromBytes(hex(P256_HEX) as Bytes33);
+  const genesisHash = filled(4, 32) as Bytes32;
+  const auditorKeyResult = (signature: Uint8Array) => ({
+    ringProgramId: RING,
+    auditorPubkey: Buffer.from(auditor.toBytes()).toString("base64"),
+    auditorViewTag: getAddressDecoder().decode(auditor.x()),
+    servicePubkey: servicePublicKey,
+    signature: getBase58Decoder().decode(signature),
+  });
+
   it("verifies the auditor key attestation before trusting the key", async () => {
-    const serviceSecret = filled(9, 32);
-    const servicePublicKey = getAddressDecoder().decode(ed25519.getPublicKey(serviceSecret));
-    const auditor = P256PublicKey.fromBytes(hex(P256_HEX) as Bytes33);
     const attestation = auditorKeyAttestation(RING, auditor);
     expect(attestation.subarray(0, 26)).toEqual(
       new TextEncoder().encode("zolana/ring-auditor-key/v1"),
     );
     expect(attestation).toHaveLength(26 + 32 + 33);
-    const respond = (signature: Uint8Array) =>
-      (async () =>
-        new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            result: {
-              ringProgramId: RING,
-              auditorPubkey: Buffer.from(auditor.toBytes()).toString("base64"),
-              auditorViewTag: getAddressDecoder().decode(auditor.x()),
-              servicePubkey: servicePublicKey,
-              signature: getBase58Decoder().decode(signature),
-            },
-          }),
-        )) as typeof globalThis.fetch;
+    const authority = await generateKeyPairSigner();
     const key = await new RingRpc("http://ring.example", {
-      fetch: respond(ed25519.sign(attestation, serviceSecret)),
-    }).createAuditorKey(RING);
+      fetch: capturingFetch(auditorKeyResult(ed25519.sign(attestation, serviceSecret))).fetch,
+    }).createAuditorKey({ ringProgramId: RING, genesisHash, authority });
     expect(key.auditorPublicKey.equals(auditor)).toBe(true);
     expect(key.auditorViewTag).toEqual(auditor.x());
     expect(key.servicePublicKey).toBe(servicePublicKey);
+
     await expect(
-      new RingRpc("http://ring.example", { fetch: respond(filled(1, 64)) }).createAuditorKey(RING),
+      new RingRpc("http://ring.example", {
+        fetch: capturingFetch(auditorKeyResult(filled(1, 64))).fetch,
+      }).createAuditorKey({ ringProgramId: RING, genesisHash, authority }),
     ).rejects.toMatchObject({ code: "RING_RPC" });
+  });
+
+  it("signs the auditor key request with the authority and sends it under camelCase keys", async () => {
+    const authority = await generateKeyPairSigner();
+    const { fetch, bodies } = capturingFetch(
+      auditorKeyResult(ed25519.sign(auditorKeyAttestation(RING, auditor), serviceSecret)),
+    );
+    await new RingRpc("http://ring.example", { fetch }).createAuditorKey({
+      ringProgramId: RING,
+      genesisHash,
+      authority,
+      timestamp: 1_700_000_000n,
+    });
+
+    const params = bodies[0]?.["params"] as Record<string, unknown>;
+    expect(Object.keys(params).sort()).toEqual(["auth", "ringProgramId"]);
+    expect(params["ringProgramId"]).toBe(RING);
+    const auth = params["auth"] as Record<string, unknown>;
+    expect(Object.keys(auth).sort()).toEqual([
+      "authority",
+      "genesisHash",
+      "nonce",
+      "signature",
+      "timestamp",
+    ]);
+    expect(auth["authority"]).toBe(authority.address);
+    expect(auth["genesisHash"]).toBe("GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq");
+    expect(auth["timestamp"]).toBe(1_700_000_000);
+    const nonce = Uint8Array.from(Buffer.from(String(auth["nonce"]), "base64"));
+    expect(nonce).toHaveLength(32);
+    expect(
+      ed25519.verify(
+        Uint8Array.from(Buffer.from(String(auth["signature"]), "base64")),
+        auditorKeyRequestAttestation({
+          genesisHash,
+          ringProgramId: RING,
+          timestamp: 1_700_000_000n,
+          nonce: nonce as Bytes32,
+        }),
+        addressBytes(authority.address),
+      ),
+    ).toBe(true);
   });
 });

@@ -16,8 +16,7 @@ use zolana_interface::{
     BPF_LOADER_UPGRADEABLE_PUBKEY, RING_AUTH_PDA_SEED, SHIELDED_POOL_PROGRAM_ID,
 };
 
-/// Nearest ancestor `target/deploy`, the program crate sits one level deeper in
-/// zolana than in a generated ring.
+/// The workspace `target/deploy`, filled by `just build-programs`.
 fn sbf_dir() -> String {
     let mut dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     loop {

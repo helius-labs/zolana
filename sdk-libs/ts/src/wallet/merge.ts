@@ -51,7 +51,7 @@ export function createMerge(params: MergeParams): CreatedMerge {
         utxo: entry.utxo,
         nullifierKey,
         ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),
-        ...(entry.zoneDataHash === undefined ? {} : { zoneDataHash: entry.zoneDataHash }),
+        ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
       }),
   );
   const prepared = new Merge(
@@ -75,9 +75,9 @@ export function createMerge(params: MergeParams): CreatedMerge {
 
 function isPlain(entry: WalletUtxo): boolean {
   return (
-    entry.utxo.zoneProgramId === undefined &&
+    entry.utxo.ringProgramId === undefined &&
     entry.dataHash === undefined &&
-    entry.zoneDataHash === undefined &&
+    entry.ringDataHash === undefined &&
     entry.utxo.data.isEmpty()
   );
 }

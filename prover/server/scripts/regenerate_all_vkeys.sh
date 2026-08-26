@@ -60,15 +60,11 @@ rustfmt "$vkey_dir"/*.rs
 
 echo "Regenerated verifying keys into $vkey_dir"
 
+ring_key="$keys_dir/custom_ring.key"
 ring_vkey_dir="$repo_root/custom-rings/interface/src"
-ring_key="$keys_dir/custom_ring_transfer.key"
-if [ -f "$ring_key" ]; then
-    ring_vk_bin="$tmp_dir/custom_ring_vk.vkbin"
-    echo "exporting raw vk: custom_ring_vk"
-    ./light-prover export-vk --keys-file "$ring_key" --output "$ring_vk_bin" >/dev/null
-    "$xtask" bsb22-vk "$ring_vk_bin" "$ring_vkey_dir" "custom_ring_vk.rs"
-    rustfmt "$ring_vkey_dir/custom_ring_vk.rs"
-    echo "Regenerated ring verifying key into $ring_vkey_dir"
-else
-    echo "skipping custom_ring_vk, $ring_key is absent"
-fi
+ring_vk_bin="$tmp_dir/verifying_key.vkbin"
+echo "exporting raw vk: verifying_key"
+./light-prover export-vk --keys-file "$ring_key" --output "$ring_vk_bin" >/dev/null
+"$xtask" bsb22-vk "$ring_vk_bin" "$ring_vkey_dir" "verifying_key.rs"
+rustfmt "$ring_vkey_dir/verifying_key.rs"
+echo "Regenerated verifying key into $ring_vkey_dir"

@@ -15,7 +15,7 @@ use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{ClientError, Context, GetShieldedTransactionsByTagsResponse};
-use zolana_indexer_api::{Base64String, Limit};
+use zolana_indexer_api::{Base64String, Hash, Limit};
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
 use zolana_ring_client::{
@@ -29,7 +29,7 @@ use zolana_ring_rpc::{
     ReadCheck, ReadSignature, ReadSigner, ReaderGrant, RingConfiguration, RingDepositsRequest,
     RingDepositsResponse, RingRpcError, RingState, RingStatusRequest, RingStatusResponse,
     RootSecret, SkippedReason, TransactionPage, TransactionSource, Unauthorized, WebAuthnAssertion,
-    CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS, RING_STATUS,
+    AUTH_SKEW, CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS, RING_STATUS,
 };
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
@@ -40,6 +40,7 @@ use zolana_transaction::{
 const SALT: [u8; SALT_LEN] = [3; SALT_LEN];
 const TREE: Address = Address::new_from_array([4; 32]);
 const RING: Address = Address::new_from_array([5; 32]);
+const GENESIS: [u8; 32] = [9; 32];
 const OTHER_RING: Address = Address::new_from_array([6; 32]);
 const SENDER: Address = Address::new_from_array([7; 32]);
 const RECIPIENT: Address = Address::new_from_array([8; 32]);
@@ -56,6 +57,10 @@ fn authority() -> Keypair {
 
 fn delegate() -> Keypair {
     Keypair::new_from_array([45; 32])
+}
+
+fn deployer() -> Keypair {
+    Keypair::new_from_array([44; 32])
 }
 
 fn stranger() -> Keypair {
@@ -285,6 +290,8 @@ struct StaticSource {
     /// Per auditor view tag, empty when every read shares `transactions`.
     by_tag: HashMap<[u8; 32], Vec<ShieldedTransaction>>,
     granted: HashSet<ReaderKey>,
+    /// Per program, absent when immutable or not deployed.
+    upgrade_authorities: HashMap<Address, Address>,
     healthy: bool,
     assets: Option<AssetRegistry>,
     asset_reads: Arc<AtomicUsize>,
@@ -415,6 +422,14 @@ impl TransactionSource for StaticSource {
         async move { Ok(granted) }
     }
 
+    fn upgrade_authority(
+        &self,
+        program: Address,
+    ) -> impl Future<Output = Result<Option<Address>, ClientError>> + Send {
+        let authority = self.upgrade_authorities.get(&program).copied();
+        async move { Ok(authority) }
+    }
+
     fn health(&self) -> impl Future<Output = Result<(), ClientError>> + Send {
         let healthy = self.healthy;
         async move {
@@ -425,7 +440,7 @@ impl TransactionSource for StaticSource {
     }
 
     async fn genesis_hash(&self) -> Result<[u8; 32], ClientError> {
-        Ok([9; 32])
+        Ok(GENESIS)
     }
 
     async fn asset_registry(&self) -> Result<AssetRegistry, ClientError> {
@@ -564,6 +579,7 @@ impl Fixture {
                 RING,
                 RingConfiguration {
                     auditor_pubkey: self.auditor.pubkey(),
+                    authority: authority().pubkey(),
                 },
             )]),
             by_tag: HashMap::new(),
@@ -571,6 +587,7 @@ impl Fixture {
                 ReaderKey::ed25519(delegate().pubkey()).expect("delegate reader"),
                 ReaderKey::p256(Passkey::new(46).pubkey()).expect("passkey reader"),
             ]),
+            upgrade_authorities: HashMap::from([(RING, deployer().pubkey())]),
             healthy: true,
             assets: Some(AssetRegistry::default()),
             asset_reads: Arc::new(AtomicUsize::new(0)),
@@ -586,7 +603,7 @@ impl Fixture {
     }
 
     fn hub(&self, source: StaticSource) -> Hub<StaticSource> {
-        Hub::builder(source)
+        Hub::builder(source, GENESIS)
             .with_origins(origins())
             .local(RING, self.auditor.clone())
             .expect("hub")
@@ -791,6 +808,7 @@ async fn only_granted_readers_with_the_configured_auditor_key_can_read() {
         RING,
         RingConfiguration {
             auditor_pubkey: ViewingKey::new().pubkey(),
+            authority: authority().pubkey(),
         },
     );
     let service = fixture.hub(source).service().expect("service");
@@ -1011,15 +1029,141 @@ async fn rpc_wire_uses_camel_case_and_rejects_another_local_ring() {
         ]))
     );
 
-    let result: Result<CreateAuditorKeyResponse, _> = module
-        .call(
-            CREATE_AUDITOR_KEY,
-            as_object(CreateAuditorKeyRequest {
-                ring_program_id: OTHER_RING.to_bytes().into(),
-            }),
-        )
-        .await;
+    let other_ring = CreateAuditorKeyRequest::for_ring(OTHER_RING, GENESIS)
+        .sign(&authority())
+        .expect("signed request");
+    let result: Result<CreateAuditorKeyResponse, _> =
+        module.call(CREATE_AUDITOR_KEY, as_object(other_ring)).await;
     assert!(result.is_err());
+}
+
+fn signed_by(authority: &Keypair) -> CreateAuditorKeyRequest {
+    CreateAuditorKeyRequest::for_ring(RING, GENESIS)
+        .sign(authority)
+        .expect("signed request")
+}
+
+async fn authorize(
+    hub: &Hub<StaticSource>,
+    request: &CreateAuditorKeyRequest,
+) -> Result<(), RingRpcError> {
+    hub.service_for(RING)
+        .expect("service")
+        .authorize_auditor_key(&request.auth)
+        .await
+}
+
+fn refused(result: Result<(), RingRpcError>, expected: Unauthorized) -> bool {
+    matches!(result, Err(RingRpcError::Unauthorized(reason)) if reason == expected)
+}
+
+#[tokio::test]
+async fn auditor_keys_are_released_to_the_ring_authorities_only() {
+    let fixture = Fixture::new();
+    let mut source = fixture.source();
+    source.configs.clear();
+    let hub = Arc::new(fixture.hub(source));
+    let module = rpc_module(hub.clone()).expect("module");
+    let created: CreateAuditorKeyResponse = module
+        .call(CREATE_AUDITOR_KEY, as_object(signed_by(&deployer())))
+        .await
+        .expect("deployer before config");
+    assert_eq!(created.auditor_pubkey.as_key(), &fixture.auditor.pubkey());
+    assert!(created.signature.0.verify(
+        created.service_pubkey.0.as_ref(),
+        &auditor_key_attestation(&RING, created.auditor_pubkey.as_key())
+    ));
+    assert!(refused(
+        authorize(&hub, &signed_by(&authority())).await,
+        Unauthorized::NotRingAuthority
+    ));
+
+    let hub = fixture.hub(fixture.source());
+    authorize(&hub, &signed_by(&authority()))
+        .await
+        .expect("config authority");
+    for signer in [deployer(), stranger(), delegate()] {
+        assert!(refused(
+            authorize(&hub, &signed_by(&signer)).await,
+            Unauthorized::NotRingAuthority
+        ));
+    }
+
+    let mut immutable = fixture.source();
+    immutable.configs.clear();
+    immutable.upgrade_authorities.clear();
+    let hub = fixture.hub(immutable);
+    assert!(refused(
+        authorize(&hub, &signed_by(&deployer())).await,
+        Unauthorized::NotRingAuthority
+    ));
+}
+
+#[tokio::test]
+async fn an_unsigned_auditor_key_request_is_refused() {
+    let fixture = Fixture::new();
+    let hub = fixture.hub(fixture.source());
+    let mut blank = signed_by(&authority());
+    blank.auth.signature = vec![0; 64].into();
+    assert!(refused(
+        authorize(&hub, &blank).await,
+        Unauthorized::BadSignature
+    ));
+}
+
+#[tokio::test]
+async fn auditor_key_requests_bind_cluster_ring_time_and_nonce() {
+    let fixture = Fixture::new();
+    let hub = fixture.hub(fixture.source());
+    let now = unix_now().expect("clock");
+
+    let other_cluster = CreateAuditorKeyRequest::for_ring(RING, [10; 32])
+        .sign(&authority())
+        .expect("signed request");
+    assert!(refused(
+        authorize(&hub, &other_cluster).await,
+        Unauthorized::ClusterMismatch
+    ));
+
+    let mut relabelled = other_cluster;
+    relabelled.auth.genesis_hash = Hash(GENESIS);
+    assert!(refused(
+        authorize(&hub, &relabelled).await,
+        Unauthorized::BadSignature
+    ));
+
+    let other_ring = CreateAuditorKeyRequest::for_ring(OTHER_RING, GENESIS)
+        .sign(&authority())
+        .expect("signed request");
+    assert!(refused(
+        authorize(&hub, &other_ring).await,
+        Unauthorized::BadSignature
+    ));
+
+    let mut forged = signed_by(&stranger());
+    forged.auth.authority = authority().pubkey().to_bytes().into();
+    assert!(refused(
+        authorize(&hub, &forged).await,
+        Unauthorized::BadSignature
+    ));
+
+    for timestamp in [now - AUTH_SKEW.as_secs() - 1, now + AUTH_SKEW.as_secs() + 1] {
+        let stale = CreateAuditorKeyRequest::for_ring(RING, GENESIS)
+            .at(timestamp)
+            .sign(&authority())
+            .expect("signed request");
+        assert!(refused(
+            authorize(&hub, &stale).await,
+            Unauthorized::StaleTimestamp
+        ));
+    }
+
+    let request = signed_by(&authority());
+    authorize(&hub, &request).await.expect("first use");
+    assert!(refused(
+        authorize(&hub, &request).await,
+        Unauthorized::Replay
+    ));
 }
 
 #[tokio::test]
@@ -1179,12 +1323,13 @@ async fn ring_status_reports_the_state_of_each_ring() {
         foreign,
         RingConfiguration {
             auditor_pubkey: fixture.auditor.pubkey(),
+            authority: authority().pubkey(),
         },
     )]);
     let hub = Arc::new(
-        Hub::builder(source)
+        Hub::builder(source, GENESIS)
             .with_origins(origins())
-            .derived(RootSecret::from_bytes([7; 32]).expect("root"), [9; 32])
+            .derived(RootSecret::from_bytes([7; 32]).expect("root"))
             .expect("hub"),
     );
     let derived = hub.service_for(served).expect("service").auditor_pubkey();
@@ -1194,19 +1339,21 @@ async fn ring_status_reports_the_state_of_each_ring() {
             served,
             RingConfiguration {
                 auditor_pubkey: derived,
+                authority: authority().pubkey(),
             },
         ),
         (
             foreign,
             RingConfiguration {
                 auditor_pubkey: fixture.auditor.pubkey(),
+                authority: authority().pubkey(),
             },
         ),
     ]);
     let module = rpc_module(Arc::new(
-        Hub::builder(source)
+        Hub::builder(source, GENESIS)
             .with_origins(origins())
-            .derived(RootSecret::from_bytes([7; 32]).expect("root"), [9; 32])
+            .derived(RootSecret::from_bytes([7; 32]).expect("root"))
             .expect("hub"),
     ))
     .expect("module");
@@ -1236,7 +1383,8 @@ async fn ring_status_reports_the_state_of_each_ring() {
     assert!(object.contains_key("ringProgramId"));
     let raw: serde_json::Value = module.call(RING_STATUS, object).await.expect("status");
     assert_eq!(raw.get("state"), Some(&serde_json::json!("served")));
-    assert!(raw.get("auditorViewTag").is_some());
+    assert!(raw.get("auditorPubkey").is_none());
+    assert!(raw.get("auditorViewTag").is_none());
     assert!(raw.get("configAuditorPubkey").is_some());
 }
 
@@ -1246,9 +1394,9 @@ async fn ring_status_reports_the_state_of_each_ring() {
 async fn two_rings_read_only_their_own_transactions() {
     let fixture = Fixture::new();
     let hub_of = |source: StaticSource| {
-        Hub::builder(source)
+        Hub::builder(source, GENESIS)
             .with_origins(origins())
-            .derived(RootSecret::from_bytes([7; 32]).expect("root"), [9; 32])
+            .derived(RootSecret::from_bytes([7; 32]).expect("root"))
             .expect("hub")
     };
     let probe = hub_of(fixture.source());
@@ -1287,12 +1435,14 @@ async fn two_rings_read_only_their_own_transactions() {
             ring_a,
             RingConfiguration {
                 auditor_pubkey: key_a,
+                authority: authority().pubkey(),
             },
         ),
         (
             ring_b,
             RingConfiguration {
                 auditor_pubkey: key_b,
+                authority: authority().pubkey(),
             },
         ),
     ]);
@@ -1333,11 +1483,12 @@ async fn a_ring_registered_with_another_auditor_stays_closed() {
         ring,
         RingConfiguration {
             auditor_pubkey: fixture.auditor.pubkey(),
+            authority: authority().pubkey(),
         },
     )]);
-    let hub = Hub::builder(source)
+    let hub = Hub::builder(source, GENESIS)
         .with_origins(origins())
-        .derived(RootSecret::from_bytes([7; 32]).expect("root"), [9; 32])
+        .derived(RootSecret::from_bytes([7; 32]).expect("root"))
         .expect("hub");
     let service = hub.service_for(ring).expect("service");
     assert_ne!(service.auditor_pubkey(), fixture.auditor.pubkey());
@@ -1375,15 +1526,19 @@ async fn derived_keys_are_ring_and_cluster_specific() {
     let root = RootSecret::from_bytes(root_bytes).expect("root");
     let derivation_root = RootSecret::from_bytes(root_bytes).expect("root");
     let genesis_hash = [9; 32];
-    let hub = Hub::builder(fixture.source())
-        .derived(root, genesis_hash)
-        .expect("hub");
     let ring_a = Address::new_from_array([1; 32]);
     let ring_b = Address::new_from_array([2; 32]);
+    let mut source = fixture.source();
+    source
+        .upgrade_authorities
+        .insert(ring_a, deployer().pubkey());
+    let hub = Hub::builder(source, genesis_hash)
+        .derived(root)
+        .expect("hub");
     let key_a = hub.service_for(ring_a).expect("ring a").auditor_pubkey();
     let key_b = hub.service_for(ring_b).expect("ring b").auditor_pubkey();
-    let other_genesis = Hub::builder(fixture.source())
-        .derived(RootSecret::from_bytes(root_bytes).expect("root"), [10; 32])
+    let other_genesis = Hub::builder(fixture.source(), [10; 32])
+        .derived(RootSecret::from_bytes(root_bytes).expect("root"))
         .expect("hub");
     assert_ne!(
         other_genesis
@@ -1401,8 +1556,8 @@ async fn derived_keys_are_ring_and_cluster_specific() {
         "029b177a781c3adfce4d089128bdbd53d006ae9d5166b257d7e394cd1ee31f06b5"
     );
     assert_ne!(key_a, key_b);
-    let second = Hub::builder(fixture.source())
-        .derived(derivation_root, genesis_hash)
+    let second = Hub::builder(fixture.source(), genesis_hash)
+        .derived(derivation_root)
         .expect("hub");
     assert_eq!(
         second.service_for(ring_a).expect("ring a").auditor_pubkey(),
@@ -1413,13 +1568,11 @@ async fn derived_keys_are_ring_and_cluster_specific() {
     let module = rpc_module(Arc::new(hub)).expect("module");
     let health: HealthResponse = module.call(HEALTH, [(); 0]).await.expect("health");
     assert_eq!(health.mode, KeyMode::Derived);
+    let request = CreateAuditorKeyRequest::for_ring(ring_a, genesis_hash)
+        .sign(&deployer())
+        .expect("signed request");
     let created: CreateAuditorKeyResponse = module
-        .call(
-            CREATE_AUDITOR_KEY,
-            as_object(CreateAuditorKeyRequest {
-                ring_program_id: ring_a.to_bytes().into(),
-            }),
-        )
+        .call(CREATE_AUDITOR_KEY, as_object(request))
         .await
         .expect("auditor key");
     assert_eq!(created.auditor_pubkey.as_key(), &key_a);

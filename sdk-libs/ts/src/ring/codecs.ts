@@ -1,4 +1,4 @@
-import { AUDIT_PROOF_LENGTH } from "../client/prover/proof.js";
+import { CUSTOM_RING_PROOF_LENGTH } from "../client/prover/proof.js";
 import type { Address, Bytes32, Bytes33 } from "../interface/types.js";
 import { Reader, encodeBase58 } from "../interface/internal.js";
 import { P256PublicKey } from "../keypair/public-key.js";
@@ -57,12 +57,12 @@ export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
   return Object.freeze({ policyHash, recordsTree, recordsBump, bump });
 }
 
-export { AUDIT_PROOF_LENGTH };
+export { CUSTOM_RING_PROOF_LENGTH };
 
-export function checkedAuditProof(proof: Uint8Array): Uint8Array {
-  if (proof.length !== AUDIT_PROOF_LENGTH) {
-    throw new RingError("RING_AUDIT_PROOF_LENGTH", {
-      details: { expected: AUDIT_PROOF_LENGTH, actual: proof.length },
+export function checkedCustomRingProof(proof: Uint8Array): Uint8Array {
+  if (proof.length !== CUSTOM_RING_PROOF_LENGTH) {
+    throw new RingError("RING_PROOF_LENGTH", {
+      details: { expected: CUSTOM_RING_PROOF_LENGTH, actual: proof.length },
     });
   }
   return new Uint8Array(proof);

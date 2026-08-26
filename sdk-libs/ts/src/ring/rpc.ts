@@ -1,19 +1,21 @@
 import { ed25519 } from "@noble/curves/ed25519.js";
 import {
   createSignableMessage,
+  getBase58Decoder,
   getBase58Encoder,
   getBase64Decoder,
   getBase64Encoder,
   type MessagePartialSigner,
 } from "@solana/kit";
 
-import type { Address, Bytes32, Bytes33, Signature } from "../interface/types.js";
-import { addressBytes } from "../interface/internal.js";
+import type { Address, Bytes32, Bytes33, Bytes64, Signature } from "../interface/types.js";
+import { addressBytes, copyBytes, unsignedBigint } from "../interface/internal.js";
 import { P256PublicKey } from "../keypair/public-key.js";
 
 import { RingError } from "./error.js";
 import { checkedReaderKey, readerKeyBytes } from "./reader.js";
 
+const base58Decoder = getBase58Decoder();
 const base58Encoder = getBase58Encoder();
 const base64Decoder = getBase64Decoder();
 const base64Encoder = getBase64Encoder();
@@ -34,6 +36,7 @@ export interface WebAuthnSignature {
 
 const READ_DOMAIN = "zolana/ring-rpc-read/v1";
 const AUDITOR_KEY_DOMAIN = "zolana/ring-auditor-key/v1";
+const AUDITOR_KEY_REQUEST_DOMAIN = "zolana/ring-rpc-auditor-key-request/v1";
 /** Rust `AUDIT_PAGE_LIMIT`. */
 export const RING_READ_PAGE_LIMIT = 100n;
 /** Rust `AUDIT_CURSOR_LIMIT`. */
@@ -77,17 +80,30 @@ export function auditorKeyAttestation(
   return bytes;
 }
 
+/** Mirrors Rust `AuditorKeyAttestation::bytes`, the genesis hash pins the cluster. */
+export function auditorKeyRequestAttestation(
+  input: Readonly<{
+    genesisHash: Bytes32;
+    ringProgramId: Address;
+    timestamp: bigint;
+    nonce: Bytes32;
+  }>,
+): Uint8Array {
+  return encoder.encode(
+    [
+      AUDITOR_KEY_REQUEST_DOMAIN,
+      `genesis: ${base58Decoder.decode(input.genesisHash)}`,
+      `ring: ${input.ringProgramId}`,
+      `timestamp: ${input.timestamp}`,
+      `nonce: ${base64Decoder.decode(input.nonce)}`,
+    ].join("\n"),
+  );
+}
+
 export function messageSignerReader(signer: MessagePartialSigner): RingReadSigner {
   return Object.freeze({
     reader: readerKeyBytes(checkedReaderKey(signer.address)),
-    async sign(message: Uint8Array): Promise<Uint8Array> {
-      const [signatures] = await signer.signMessages([createSignableMessage(message)]);
-      const signature = signatures?.[signer.address];
-      if (signature === undefined) {
-        throw new RingError("RING_RPC", { details: { reason: "signer returned no signature" } });
-      }
-      return new Uint8Array(signature);
-    },
+    sign: (message: Uint8Array) => signMessage(signer, message),
   });
 }
 
@@ -102,7 +118,7 @@ export interface SignedRingRead {
   readonly signature: Uint8Array | WebAuthnSignature;
 }
 
-/** Mirrors Rust `ReadRequest`. The nonce is minted here, one per request. */
+/** Mirrors Rust `ReadRequest`. */
 export class RingReadRequest {
   readonly #ringProgramId: Address;
   readonly #nonce: Bytes32;
@@ -112,9 +128,7 @@ export class RingReadRequest {
 
   private constructor(ringProgramId: Address) {
     this.#ringProgramId = ringProgramId;
-    const nonce = new Uint8Array(32);
-    globalThis.crypto.getRandomValues(nonce);
-    this.#nonce = nonce as Bytes32;
+    this.#nonce = freshNonce();
   }
 
   static read(ringProgramId: Address): RingReadRequest {
@@ -139,12 +153,12 @@ export class RingReadRequest {
 
   /** Unix seconds, the RPC rejects a clock more than its skew away. */
   at(timestamp: bigint): this {
-    this.#timestamp = timestamp;
+    this.#timestamp = unsignedBigint(timestamp, BigInt(Number.MAX_SAFE_INTEGER), "timestamp");
     return this;
   }
 
   async sign(signer: RingReadSigner): Promise<SignedRingRead> {
-    const timestamp = this.#timestamp ?? BigInt(Math.floor(Date.now() / 1000));
+    const timestamp = timestampOrNow(this.#timestamp);
     const signature = await signer.sign(
       ringReadAttestation({
         ringProgramId: this.#ringProgramId,
@@ -166,12 +180,69 @@ export class RingReadRequest {
   }
 }
 
+/** Mirrors Rust `CreateAuditorKeyRequest` after `AuditorKeyRequest::sign`. */
+export interface SignedAuditorKeyRequest {
+  readonly ringProgramId: Address;
+  readonly authority: Address;
+  readonly genesisHash: Bytes32;
+  readonly timestamp: bigint;
+  readonly nonce: Bytes32;
+  readonly signature: Bytes64;
+}
+
+/** Mirrors Rust `AuditorKeyRequest`. */
+export class RingAuditorKeyRequest {
+  readonly #ringProgramId: Address;
+  readonly #genesisHash: Bytes32;
+  readonly #nonce: Bytes32;
+  #timestamp?: bigint;
+
+  private constructor(ringProgramId: Address, genesisHash: Bytes32) {
+    this.#ringProgramId = ringProgramId;
+    this.#genesisHash = genesisHash;
+    this.#nonce = freshNonce();
+  }
+
+  static forRing(ringProgramId: Address, genesisHash: Bytes32): RingAuditorKeyRequest {
+    return new RingAuditorKeyRequest(
+      ringProgramId,
+      copyBytes(genesisHash, 32, "genesisHash") as Bytes32,
+    );
+  }
+
+  /** Unix seconds, the RPC rejects a clock more than its skew away. */
+  at(timestamp: bigint): this {
+    this.#timestamp = unsignedBigint(timestamp, BigInt(Number.MAX_SAFE_INTEGER), "timestamp");
+    return this;
+  }
+
+  async sign(authority: MessagePartialSigner): Promise<SignedAuditorKeyRequest> {
+    const timestamp = timestampOrNow(this.#timestamp);
+    const signature = await signMessage(
+      authority,
+      auditorKeyRequestAttestation({
+        genesisHash: this.#genesisHash,
+        ringProgramId: this.#ringProgramId,
+        timestamp,
+        nonce: this.#nonce,
+      }),
+    );
+    return Object.freeze({
+      ringProgramId: this.#ringProgramId,
+      authority: authority.address,
+      genesisHash: this.#genesisHash,
+      timestamp,
+      nonce: this.#nonce,
+      signature,
+    });
+  }
+}
+
 export type RingKeyMode = "local" | "derived";
 
 export interface RingRpcHealth {
   readonly mode: RingKeyMode;
   readonly servicePublicKey: Address;
-  readonly auditorViewTag?: Bytes32;
 }
 
 /** Mirrors Rust `CreateAuditorKeyResponse`, the signature covers `auditorKeyAttestation`. */
@@ -204,13 +275,10 @@ export interface RingDepositsPage {
 /** Mirrors Rust `RingState`. */
 export type RingState = "served" | "foreignAuditor" | "uninitialized";
 
-/** Mirrors Rust `RingStatusResponse`. Unsigned, for diagnosis only. */
+/** Mirrors Rust `RingStatusResponse`. Unsigned, carries only the key the chain publishes. */
 export interface RingStatus {
   readonly ringProgramId: Address;
   readonly state: RingState;
-  /** The key this service holds for the ring. */
-  readonly auditorPublicKey: P256PublicKey;
-  readonly auditorViewTag: Bytes32;
   /** The key the ring's config names, absent until the config exists. */
   readonly configAuditorPublicKey?: P256PublicKey;
   readonly servicePublicKey: Address;
@@ -283,26 +351,46 @@ export class RingRpc {
     const wire = record(await this.#call("health"), "result");
     const mode = wire["mode"];
     if (mode !== "local" && mode !== "derived") throw invalid("result.mode");
-    const auditorViewTag = wire["auditorViewTag"];
     return Object.freeze({
       mode,
       servicePublicKey: string(wire["servicePubkey"], "result.servicePubkey") as Address,
-      ...(auditorViewTag === undefined || auditorViewTag === null
-        ? {}
-        : { auditorViewTag: hash(auditorViewTag, "result.auditorViewTag") }),
     });
   }
 
-  /** The attestation is verified against `servicePubkey` before the key is returned. */
-  async createAuditorKey(ringProgramId: Address): Promise<RingAuditorKey> {
-    const wire = record(await this.#call("createAuditorKey", { ringProgramId }), "result");
+  /** Verified against `servicePubkey` before the key is returned. */
+  async createAuditorKey(
+    input: Readonly<{
+      ringProgramId: Address;
+      genesisHash: Bytes32;
+      /** The upgrade authority, or the config authority once the config exists. */
+      authority: MessagePartialSigner;
+      timestamp?: bigint;
+    }>,
+  ): Promise<RingAuditorKey> {
+    let request = RingAuditorKeyRequest.forRing(input.ringProgramId, input.genesisHash);
+    if (input.timestamp !== undefined) request = request.at(input.timestamp);
+    return this.createAuditorKeySigned(await request.sign(input.authority));
+  }
+
+  async createAuditorKeySigned(request: SignedAuditorKeyRequest): Promise<RingAuditorKey> {
+    const wire = record(
+      await this.#call("createAuditorKey", {
+        ringProgramId: request.ringProgramId,
+        auth: {
+          authority: request.authority,
+          genesisHash: base58Decoder.decode(request.genesisHash),
+          ...authWire(request),
+        },
+      }),
+      "result",
+    );
     const key = base64(wire["auditorPubkey"], "result.auditorPubkey");
     if (key.length !== 33) throw invalid("result.auditorPubkey");
     const auditorPublicKey = P256PublicKey.fromBytes(key as Bytes33);
     const servicePublicKey = string(wire["servicePubkey"], "result.servicePubkey") as Address;
     const signature = base58(wire["signature"], "result.signature");
     const ring = string(wire["ringProgramId"], "result.ringProgramId") as Address;
-    if (ring !== ringProgramId) throw invalid("result.ringProgramId");
+    if (ring !== request.ringProgramId) throw invalid("result.ringProgramId");
     const attested = ed25519.verify(
       signature,
       auditorKeyAttestation(ring, auditorPublicKey),
@@ -372,8 +460,6 @@ export class RingRpc {
     return Object.freeze({
       ringProgramId: string(wire["ringProgramId"], "result.ringProgramId") as Address,
       state,
-      auditorPublicKey: p256Key(wire["auditorPubkey"], "result.auditorPubkey"),
-      auditorViewTag: hash(wire["auditorViewTag"], "result.auditorViewTag"),
       ...(config === undefined || config === null
         ? {}
         : { configAuditorPublicKey: p256Key(config, "result.configAuditorPubkey") }),
@@ -399,7 +485,7 @@ export class RingRpc {
   }
 
   async readSigned(read: SignedRingRead): Promise<DecryptedRingTransactionsPage> {
-    const signature = read.signature;
+    const { signature } = read;
     const wire = record(
       await this.#call("getDecryptedTransactions", {
         ringProgramId: read.ringProgramId,
@@ -407,12 +493,14 @@ export class RingRpc {
         ...(read.limit === undefined ? {} : { limit: Number(read.limit) }),
         auth: {
           reader: base64Decoder.decode(read.reader),
-          timestamp: Number(read.timestamp),
-          nonce: base64Decoder.decode(read.nonce),
+          ...authWire({
+            timestamp: read.timestamp,
+            nonce: read.nonce,
+            signature: signature instanceof Uint8Array ? signature : signature.signature,
+          }),
           ...(signature instanceof Uint8Array
-            ? { signature: base64Decoder.decode(signature) }
+            ? {}
             : {
-                signature: base64Decoder.decode(signature.signature),
                 webauthn: {
                   authenticatorData: base64Decoder.decode(signature.authenticatorData),
                   clientDataJson: base64Decoder.decode(signature.clientDataJSON),
@@ -475,6 +563,36 @@ export class RingRpc {
     }
     return body.result;
   }
+}
+
+/** Minted once per request. */
+function freshNonce(): Bytes32 {
+  const nonce = new Uint8Array(32);
+  globalThis.crypto.getRandomValues(nonce);
+  return nonce as Bytes32;
+}
+
+function timestampOrNow(timestamp: bigint | undefined): bigint {
+  return timestamp ?? BigInt(Math.floor(Date.now() / 1000));
+}
+
+function authWire(
+  auth: Readonly<{ timestamp: bigint; nonce: Bytes32; signature: Uint8Array }>,
+): Readonly<{ timestamp: number; nonce: string; signature: string }> {
+  return {
+    timestamp: Number(auth.timestamp),
+    nonce: base64Decoder.decode(auth.nonce),
+    signature: base64Decoder.decode(auth.signature),
+  };
+}
+
+async function signMessage(signer: MessagePartialSigner, message: Uint8Array): Promise<Bytes64> {
+  const [signatures] = await signer.signMessages([createSignableMessage(message)]);
+  const signature = signatures?.[signer.address];
+  if (signature === undefined) {
+    throw new RingError("RING_RPC", { details: { reason: "signer returned no signature" } });
+  }
+  return copyBytes(signature, 64, "signature") as Bytes64;
 }
 
 function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransaction {

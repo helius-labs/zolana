@@ -6,7 +6,7 @@
 //! real BSB22 verifier against the committed verifying key, which is what proves
 //! the recomputed public-input hash path is reached.
 
-use custom_ring_interface::{tag, AuditProof, CustomRingTransactIxData, AUDITOR_MESSAGE_LEN};
+use custom_ring_interface::{tag, CustomRingProof, CustomRingTransactIxData, AUDITOR_MESSAGE_LEN};
 use custom_ring_program::CustomRingError;
 use solana_account::Account;
 use solana_program_error::ProgramError;
@@ -81,8 +81,8 @@ fn transact(messages: Vec<MessageData>) -> TransactIxData {
 /// A syntactically well-formed proof that cannot verify. Zeroed points decompress
 /// to the identity, so a `0xFF` commitment is the first point the verifier fails
 /// on, which exercises the BSB22 commitment path itself.
-fn bogus_proof() -> AuditProof {
-    AuditProof {
+fn bogus_proof() -> CustomRingProof {
+    CustomRingProof {
         proof_a: [0; 32],
         proof_b: [0; 64],
         proof_c: [0; 32],
@@ -91,7 +91,7 @@ fn bogus_proof() -> AuditProof {
     }
 }
 
-fn instruction_data(proof: AuditProof, transact: TransactIxData) -> Vec<u8> {
+fn instruction_data(proof: CustomRingProof, transact: TransactIxData) -> Vec<u8> {
     let mut data = vec![tag::TRANSACT];
     data.extend_from_slice(
         &wincode::serialize(&CustomRingTransactIxData {
@@ -418,7 +418,7 @@ fn zeroed_proof_is_rejected_exactly() {
     let fixture = transact_fixture(
         valid_config(),
         instruction_data(
-            AuditProof {
+            CustomRingProof {
                 proof_a: [0; 32],
                 proof_b: [0; 64],
                 proof_c: [0; 32],

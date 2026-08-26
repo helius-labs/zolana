@@ -75,13 +75,13 @@ impl ReaderAccess<'_> {
         let observed = self.observed(rpc)?;
         Ok(self.step(rpc, "grant_read_access").ensure_present(
             observed,
-            GrantReadAccess {
+            &[GrantReadAccess {
                 ring: self.ring,
                 payer: self.authority.pubkey(),
                 authority: self.authority.pubkey(),
                 reader: self.reader,
             }
-            .instruction()?,
+            .instruction()?],
         )?)
     }
 
@@ -89,13 +89,13 @@ impl ReaderAccess<'_> {
         let observed = self.observed(rpc)?;
         Ok(self.step(rpc, "revoke_read_access").ensure_absent(
             observed,
-            RevokeReadAccess {
+            &[RevokeReadAccess {
                 ring: self.ring,
                 authority: self.authority.pubkey(),
                 reader: self.reader,
                 rent_recipient: self.authority.pubkey(),
             }
-            .instruction()?,
+            .instruction()?],
         )?)
     }
 
@@ -109,6 +109,7 @@ impl ReaderAccess<'_> {
         IdempotentStep {
             rpc,
             authority: self.authority,
+            co_signers: &[],
             name,
             compute_unit_limit: READ_ACCESS_COMPUTE_UNIT_LIMIT,
             hint: no_hint,

@@ -9,10 +9,10 @@
 //!
 //! The two steps are therefore separate calls rather than one:
 //!
-//! 1. [`AuditProofParams::encrypt`] -> `(PendingAuditProof, AuditorMessage)`,
+//! 1. [`CustomRingProofParams::encrypt`] -> `(PendingCustomRingProof, AuditorMessage)`,
 //! 2. push `message.to_message_data(&auditor_pk)` into `external_data.messages`,
 //! 3. prove the SPP transfer to obtain `private_tx_hash`,
-//! 4. [`PendingAuditProof::finish`] with that hash -> the circuit inputs.
+//! 4. [`PendingCustomRingProof::finish`] with that hash -> the circuit inputs.
 //!
 //! This is possible because the ciphertext depends only on `tx_viewing_sk`, the
 //! auditor key, and a fresh ephemeral scalar -- never on `private_tx_hash`.
@@ -21,21 +21,21 @@
 //! published message describing one encryption.
 //!
 //! Calling `encrypt` twice produces a different ciphertext (see
-//! [`AuditProofParams`]) and invalidates an SPP proof taken over the first
+//! [`CustomRingProofParams`]) and invalidates an SPP proof taken over the first
 //! message, so it is called once per transaction.
 
-use custom_ring_interface::{AuditProof, AuditPublicInput};
+use custom_ring_interface::{CustomRingProof, AuditPublicInput};
 use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_client::{ClientError, Proof, ProofCompressed};
 use zolana_keypair::{KeypairError, P256Pubkey, ViewingKey};
 
-use super::request::AuditPrivateTxHash;
+use super::request::CustomRingPrivateTxHash;
 
 use zolana_ring_client::{AuditEncryptionError, AuditorEncryption, AuditorMessage};
 
 #[derive(Debug, Error)]
-pub enum AuditProofInputError {
+pub enum CustomRingProofInputError {
     #[error(transparent)]
     Encryption(#[from] AuditEncryptionError),
     #[error(transparent)]
@@ -49,7 +49,7 @@ pub enum AuditProofInputError {
 }
 
 #[derive(Debug, Error)]
-pub enum AuditProofError {
+pub enum CustomRingProofError {
     #[error(transparent)]
     Compression(#[from] ClientError),
     #[error("the auditor key encryption proof is missing its BSB22 commitment")]
@@ -64,7 +64,7 @@ pub enum AuditProofError {
 /// and the plaintext here is the transaction viewing secret key. Accepting one
 /// from the caller would make that reuse expressible.
 #[must_use]
-pub struct AuditProofParams {
+pub struct CustomRingProofParams {
     /// The transaction viewing key used as the AES plaintext.
     pub tx_viewing_key: ViewingKey,
     /// The auditor key stored in the ring's config account.
@@ -73,12 +73,12 @@ pub struct AuditProofParams {
 
 #[must_use]
 pub struct EncryptedAudit {
-    pub pending: PendingAuditProof,
+    pub pending: PendingCustomRingProof,
     pub message: AuditorMessage,
 }
 
 #[must_use]
-pub struct PendingAuditProof {
+pub struct PendingCustomRingProof {
     tx_viewing_key: ViewingKey,
     tx_viewing_pk: P256Pubkey,
     auditor_pk: P256Pubkey,
@@ -86,7 +86,7 @@ pub struct PendingAuditProof {
     message: AuditorMessage,
 }
 
-impl AuditProofParams {
+impl CustomRingProofParams {
     /// Encrypts the viewing key to the auditor under a fresh ephemeral scalar.
     ///
     /// # Ordering contract
@@ -95,7 +95,7 @@ impl AuditProofParams {
     /// `external_data.messages` (as `message.to_message_data(&auditor_pk)`)
     /// **before** the SPP transfer is proved, because SPP folds `messages` into
     /// `external_data_hash` and that into `private_tx_hash`. Feed the
-    /// `private_tx_hash` the SPP proof yields to [`PendingAuditProof::finish`] to
+    /// `private_tx_hash` the SPP proof yields to [`PendingCustomRingProof::finish`] to
     /// obtain the circuit inputs. Proving SPP first and appending the message
     /// afterwards produces two irreconcilable `private_tx_hash` values: whichever
     /// one the ring proof commits to, the other is the one SPP checks.
@@ -103,7 +103,7 @@ impl AuditProofParams {
     /// Consuming, because the message is bound to the one ephemeral scalar this
     /// call generated; re-deriving from the same params would encrypt under a new
     /// one and publish a different ciphertext.
-    pub fn encrypt(self) -> Result<EncryptedAudit, AuditProofInputError> {
+    pub fn encrypt(self) -> Result<EncryptedAudit, CustomRingProofInputError> {
         let Self {
             tx_viewing_key,
             auditor_pk,
@@ -120,7 +120,7 @@ impl AuditProofParams {
         } = AuditorEncryption::new(&tx_viewing_key, &auditor_pk)?;
 
         Ok(EncryptedAudit {
-            pending: PendingAuditProof {
+            pending: PendingCustomRingProof {
                 tx_viewing_key,
                 tx_viewing_pk,
                 auditor_pk,
@@ -133,16 +133,16 @@ impl AuditProofParams {
 }
 
 /// An encryption waiting for the `private_tx_hash` it will be bound to.
-impl PendingAuditProof {
+impl PendingCustomRingProof {
     /// The public input recomputed from `CustomRingPublicInput`, the one
     /// implementation the program calls on-chain, so a folded request cannot
     /// drift from what verification recomputes.
     pub fn finish(
         self,
-        private_tx_hash: AuditPrivateTxHash,
+        private_tx_hash: CustomRingPrivateTxHash,
         witness: crate::witness::CustomRingWitness,
         policy_hash: &[u8; 32],
-    ) -> Result<crate::instructions::transact::CustomRingProofRequest, AuditProofInputError> {
+    ) -> Result<crate::instructions::transact::CustomRingProofRequest, CustomRingProofInputError> {
         let Self {
             tx_viewing_key,
             tx_viewing_pk,
@@ -163,7 +163,7 @@ impl PendingAuditProof {
             nullifier_root: &witness.roots.nullifier,
         }
         .hash()
-        .map_err(|_| AuditProofInputError::Hashing)?;
+        .map_err(|_| CustomRingProofInputError::Hashing)?;
 
         Ok(crate::instructions::transact::CustomRingProofRequest {
             public_input_hash,
@@ -192,12 +192,12 @@ impl PendingAuditProof {
 /// Re-encodes a prover result as the proof the instruction carries.
 ///
 /// The SDK is the only crate that owns both proof representations.
-pub fn to_instruction_proof(proof: Proof) -> Result<AuditProof, AuditProofError> {
+pub fn to_instruction_proof(proof: Proof) -> Result<CustomRingProof, CustomRingProofError> {
     let compressed = ProofCompressed::try_from(proof)?;
     let commitment = compressed
         .commitment
-        .ok_or(AuditProofError::MissingCommitment)?;
-    Ok(AuditProof {
+        .ok_or(CustomRingProofError::MissingCommitment)?;
+    Ok(CustomRingProof {
         proof_a: compressed.a,
         proof_b: compressed.b,
         proof_c: compressed.c,

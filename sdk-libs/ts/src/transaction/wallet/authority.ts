@@ -62,7 +62,7 @@ export interface AuditWitness {
   readonly ephemeralSecret: Bytes32;
 }
 
-export interface EncryptedAuditedTransfer extends EncryptedTransfer {
+export interface EncryptedCustomRingTransfer extends EncryptedTransfer {
   readonly auditorMessage: MessageData;
   readonly audit: AuditWitness;
 }
@@ -96,14 +96,14 @@ export interface WalletAuthority {
       assets: AssetRegistry;
     }>,
   ): Promise<EncryptedTransfer>;
-  encryptAuditedTransfer(
+  encryptCustomRingTransfer(
     input: Readonly<{
       firstNullifier: Bytes32;
       outputs: readonly ProofOutputUtxo[];
       assets: AssetRegistry;
       auditorPublicKey: P256PublicKey;
     }>,
-  ): Promise<EncryptedAuditedTransfer>;
+  ): Promise<EncryptedCustomRingTransfer>;
   encryptAnonymousTransfer(
     input: Readonly<{
       firstNullifier: Bytes32;
@@ -233,14 +233,14 @@ export class LocalWalletAuthority implements WalletAuthority {
     });
   }
 
-  encryptAuditedTransfer(
+  encryptCustomRingTransfer(
     input: Readonly<{
       firstNullifier: Bytes32;
       outputs: readonly ProofOutputUtxo[];
       assets: AssetRegistry;
       auditorPublicKey: P256PublicKey;
     }>,
-  ): Promise<EncryptedAuditedTransfer> {
+  ): Promise<EncryptedCustomRingTransfer> {
     const tx = this.#viewing.transactionViewingKey(input.firstNullifier);
     const salt = randomSalt();
     const txViewingSecret = tx.secretBytes();

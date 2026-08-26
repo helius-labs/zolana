@@ -7,6 +7,7 @@ use custom_ring_interface::{
 use solana_account_decoder_client_types::UiAccountEncoding;
 use solana_address::Address;
 use solana_commitment_config::CommitmentConfig;
+use solana_loader_v3_interface::{get_program_data_address, state::UpgradeableLoaderState};
 use solana_rpc_client::{
     nonblocking::rpc_client::RpcClient as NonblockingRpcClient,
     rpc_client::GetConfirmedSignaturesForAddress2Config,
@@ -22,7 +23,8 @@ use zolana_client::{
     GetShieldedTransactionsByTagsResponse,
 };
 use zolana_interface::{
-    is_reserved_p256_derivation_point, state::SplAssetRegistry, SHIELDED_POOL_PROGRAM_ID,
+    is_reserved_p256_derivation_point, state::SplAssetRegistry, BPF_LOADER_UPGRADEABLE_ID,
+    SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::P256Pubkey;
 use zolana_ring_client::{
@@ -62,6 +64,12 @@ pub trait TransactionSource: Send + Sync {
         &self,
         request: ReaderGrant,
     ) -> impl Future<Output = Result<bool, ClientError>> + Send;
+
+    /// `None` for a program that is immutable or not deployed.
+    fn upgrade_authority(
+        &self,
+        program: Address,
+    ) -> impl Future<Output = Result<Option<Address>, ClientError>> + Send;
 
     fn health(&self) -> impl Future<Output = Result<(), ClientError>> + Send;
 
@@ -106,6 +114,7 @@ pub struct ReaderGrant {
 #[derive(Clone, Copy)]
 pub struct RingConfiguration {
     pub auditor_pubkey: P256Pubkey,
+    pub authority: Address,
 }
 
 #[must_use]
@@ -143,6 +152,20 @@ impl ChainSource {
 
     pub fn rpc(&self) -> &AsyncSolanaRpc {
         &self.rpc
+    }
+
+    /// A foreign owner means the account does not exist for its program, not
+    /// that it is broken.
+    async fn owned_account(
+        &self,
+        address: Address,
+        owner: Address,
+    ) -> Result<Option<solana_account::Account>, ClientError> {
+        Ok(self
+            .rpc
+            .get_account(address)
+            .await?
+            .filter(|account| account.owner == owner))
     }
 }
 
@@ -238,16 +261,28 @@ impl TransactionSource for ChainSource {
 
     async fn ring_config(&self, ring: Address) -> Result<Option<RingConfiguration>, ClientError> {
         let (address, bump) = Address::find_program_address(&[CONFIG_PDA_SEED], &ring);
-        let Some(account) = self.rpc.get_account(address).await? else {
+        let Some(account) = self.owned_account(address, ring).await? else {
             return Ok(None);
         };
-        let auditor_pubkey = ConfigAccount {
-            account: &account,
-            ring,
-            bump,
-        }
-        .decode()?;
-        Ok(Some(RingConfiguration { auditor_pubkey }))
+        Ok(Some(
+            ConfigAccount {
+                account: &account,
+                ring,
+                bump,
+            }
+            .decode()?,
+        ))
+    }
+
+    async fn upgrade_authority(&self, program: Address) -> Result<Option<Address>, ClientError> {
+        let address = get_program_data_address(&program);
+        let Some(account) = self
+            .owned_account(address, Address::new_from_array(BPF_LOADER_UPGRADEABLE_ID))
+            .await?
+        else {
+            return Ok(None);
+        };
+        ProgramDataAccount { account: &account }.upgrade_authority()
     }
 
     async fn reader_granted(&self, request: ReaderGrant) -> Result<bool, ClientError> {
@@ -271,12 +306,7 @@ impl TransactionSource for ChainSource {
     }
 
     async fn genesis_hash(&self) -> Result<[u8; 32], ClientError> {
-        self.rpc
-            .client()
-            .get_genesis_hash()
-            .await
-            .map(|hash| hash.to_bytes())
-            .map_err(|error| ClientError::Rpc(format!("genesis hash: {error}")))
+        self.rpc.genesis_hash().await
     }
 
     async fn asset_registry(&self) -> Result<AssetRegistry, ClientError> {
@@ -320,7 +350,7 @@ struct ConfigAccount<'a> {
 }
 
 impl ConfigAccount<'_> {
-    fn decode(self) -> Result<P256Pubkey, ClientError> {
+    fn decode(self) -> Result<RingConfiguration, ClientError> {
         let config = AccountCheck::<RingProgramConfig> {
             account: self.account,
             owner: self.ring,
@@ -334,8 +364,35 @@ impl ConfigAccount<'_> {
                 "custom ring config account is invalid".to_owned(),
             ));
         }
-        P256Pubkey::from_bytes(config.auditor_pubkey)
-            .map_err(|_| ClientError::Rpc("custom ring config account is invalid".to_owned()))
+        let auditor_pubkey = P256Pubkey::from_bytes(config.auditor_pubkey)
+            .map_err(|_| ClientError::Rpc("custom ring config account is invalid".to_owned()))?;
+        Ok(RingConfiguration {
+            auditor_pubkey,
+            authority: config.authority,
+        })
+    }
+}
+
+struct ProgramDataAccount<'a> {
+    account: &'a solana_account::Account,
+}
+
+impl ProgramDataAccount<'_> {
+    fn upgrade_authority(self) -> Result<Option<Address>, ClientError> {
+        let invalid = || ClientError::Rpc("program data account is invalid".to_owned());
+        let (state, _) = bincode::serde::decode_from_slice::<UpgradeableLoaderState, _>(
+            &self.account.data,
+            bincode::config::legacy(),
+        )
+        .map_err(|_| invalid())?;
+        let UpgradeableLoaderState::ProgramData {
+            upgrade_authority_address,
+            ..
+        } = state
+        else {
+            return Err(invalid());
+        };
+        Ok(upgrade_authority_address.filter(|key| *key != Address::default()))
     }
 }
 
@@ -415,12 +472,67 @@ mod tests {
         }
     }
 
+    const AUTHORITY: Address = Address::new_from_array([7; 32]);
+
     fn config_account(ring: Address, key: [u8; 33], bump: u8) -> Account {
         let mut config = RingProgramConfig::zeroed();
         config.discriminator = RING_PROGRAM_CONFIG;
+        config.authority = AUTHORITY;
         config.auditor_pubkey = key;
         config.bump = bump;
         account(ring, &config)
+    }
+
+    fn program_data(state: &UpgradeableLoaderState, owner: Address) -> Account {
+        Account {
+            lamports: 1,
+            data: bincode::serde::encode_to_vec(state, bincode::config::legacy()).expect("state"),
+            owner,
+            executable: false,
+            rent_epoch: 0,
+        }
+    }
+
+    #[test]
+    fn program_data_reports_the_upgrade_authority_or_none_when_immutable() {
+        let loader = Address::new_from_array(BPF_LOADER_UPGRADEABLE_ID);
+        let authority = Address::new_from_array([6; 32]);
+        let upgradeable = program_data(
+            &UpgradeableLoaderState::ProgramData {
+                slot: 1,
+                upgrade_authority_address: Some(authority),
+            },
+            loader,
+        );
+        assert_eq!(
+            ProgramDataAccount {
+                account: &upgradeable
+            }
+            .upgrade_authority()
+            .expect("program data"),
+            Some(authority)
+        );
+        let immutable = program_data(
+            &UpgradeableLoaderState::ProgramData {
+                slot: 1,
+                upgrade_authority_address: None,
+            },
+            loader,
+        );
+        assert_eq!(
+            ProgramDataAccount {
+                account: &immutable
+            }
+            .upgrade_authority()
+            .expect("program data"),
+            None
+        );
+        let not_program_data = program_data(&UpgradeableLoaderState::Uninitialized, loader);
+        assert!(ProgramDataAccount {
+            account: &not_program_data
+        }
+        .upgrade_authority()
+        .is_err());
     }
 
     #[test]
@@ -436,8 +548,20 @@ mod tests {
                 bump,
             }
             .decode()
-            .expect("config"),
+            .expect("config")
+            .auditor_pubkey,
             key
+        );
+        assert_eq!(
+            ConfigAccount {
+                account: &valid,
+                ring,
+                bump,
+            }
+            .decode()
+            .expect("config")
+            .authority,
+            AUTHORITY
         );
 
         let mut wrong_owner = valid.clone();

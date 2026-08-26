@@ -1,7 +1,7 @@
 export {
   auditorMessageData,
   auditorViewTag,
-  auditPublicInputHash,
+  customRingPublicInputHash,
   auditSharedSecret,
   AUDIT_ENC_INFO,
   AUDITOR_MESSAGE_LENGTH,
@@ -23,8 +23,8 @@ export type {
   RingDepositPlaintext,
 } from "../transaction/serialization/ring-deposit.js";
 export {
-  AUDIT_PROOF_LENGTH,
-  checkedAuditProof,
+  CUSTOM_RING_PROOF_LENGTH,
+  checkedCustomRingProof,
   decodeRingPolicyConfig,
   decodeRingProgramConfig,
 } from "./codecs.js";
@@ -72,7 +72,9 @@ export {
 export type { ReaderKey, ReadAccessRecord } from "./reader.js";
 export {
   auditorKeyAttestation,
+  auditorKeyRequestAttestation,
   messageSignerReader,
+  RingAuditorKeyRequest,
   ringReadAttestation,
   RingReadRequest,
   RingRpc,
@@ -92,6 +94,7 @@ export type {
   RingRpcHealth,
   RingState,
   RingStatus,
+  SignedAuditorKeyRequest,
   SignedRingRead,
   SkippedReason,
   SkippedRingTransaction,
@@ -125,12 +128,12 @@ export {
   buildRingTransferTransaction,
   buildRingWithdrawalTransaction,
   frameDummyOutputs,
-  proveAuditedTransfer,
+  proveCustomRingTransfer,
   ringRecordsOwnerHash,
   RING_TRANSACT_COMPUTE_UNIT_LIMIT,
 } from "./transfer.js";
 export type {
-  AuditedTransferParams,
+  CustomRingTransferParams,
   ProvenRingTransfer,
   RingTransferTransactionParams,
 } from "./transfer.js";

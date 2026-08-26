@@ -1,4 +1,4 @@
-use custom_ring_interface::{tag, AuditProof, CustomRingTransactIxData, AUDITOR_MESSAGE_LEN};
+use custom_ring_interface::{tag, CustomRingProof, CustomRingTransactIxData, AUDITOR_MESSAGE_LEN};
 use custom_ring_program::CustomRingError;
 use solana_program_error::ProgramError;
 use zolana_interface::N_PUBLIC_SLOTS;
@@ -65,7 +65,7 @@ fn policy_fixture(state_root_index: u16, nullifier_root_index: u16) -> Fixture {
     let mut data = vec![tag::TRANSACT];
     data.extend_from_slice(
         &wincode::serialize(&CustomRingTransactIxData {
-            proof: AuditProof {
+            proof: CustomRingProof {
                 proof_a: [0; 32],
                 proof_b: [0; 64],
                 proof_c: [0; 32],

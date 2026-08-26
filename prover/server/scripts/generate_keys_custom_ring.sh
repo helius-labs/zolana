@@ -8,8 +8,10 @@ mkdir -p "$keys_dir"
 
 go build -o light-prover .
 
-output="${keys_dir}/custom_ring_transfer.key"
+output="${keys_dir}/custom_ring.key"
 echo "Generating custom-ring -> ${output}"
-./light-prover setup-custom-ring --output "$output"
+./light-prover setup-custom-ring --output "$output" \
+    --pk-out "${keys_dir}/auditor_key_encryption_pk.bin" \
+    --vk-out "${keys_dir}/auditor_key_encryption_vk.bin"
 
-echo "Done. Custom ring proving key written to ${keys_dir}"
+echo "Done. Custom ring proving key and its release assets written to ${keys_dir}"

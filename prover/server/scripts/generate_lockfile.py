@@ -48,6 +48,13 @@ def main() -> int:
         default="proving-keys",
         help="object key prefix under the distribution base URL",
     )
+    parser.add_argument(
+        "--release",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="key built from release assets, pinned but never served from the object store",
+    )
     args = parser.parse_args()
 
     keys_dir = os.path.abspath(args.keys_dir)
@@ -78,6 +85,8 @@ def main() -> int:
         size = os.path.getsize(path)
         digest = sha256_file(path)
         keys[name] = {"sha256": digest, "size": size}
+        if name in args.release:
+            keys[name]["source"] = "release"
         print(f"  {name}  {size}  {digest}", file=sys.stderr)
 
     # The version hash is derived from the key set (each name + its sha256), so it
@@ -86,7 +95,7 @@ def main() -> int:
     # versions untouched. 16 hex chars (64 bits) is collision-safe across the
     # handful of key-set versions this project will ever have.
     canonical = json.dumps(
-        {name: entry["sha256"] for name, entry in keys.items()},
+        {name: entry["sha256"] for name, entry in keys.items() if "source" not in entry},
         sort_keys=True,
         separators=(",", ":"),
     ).encode()
