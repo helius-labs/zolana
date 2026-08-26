@@ -1205,9 +1205,7 @@ test-custom-ring-validator: ensure-custom-ring-live-keys build-programs build-cl
       cargo nextest run -p custom-ring-cli --run-ignored all -E 'binary(new_smoke)'
     fi
 
-# Two-ring shared policy source lifecycle on a local validator
-# (custom-rings/test/tests/shared_sources.rs): both rings run the blocklist
-# image, the subscriber's Block kind reads the curator's records, one curator
+# Two-ring shared policy source lifecycle on a local validator. One curator
 # write refuses the subscriber's transfer, clearing it or re-pointing the
 # source re-admits it. The `blocklist` test feature must match the image, the
 # on-chain policy hash pins the compiled table.
