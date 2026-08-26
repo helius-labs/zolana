@@ -438,7 +438,6 @@ pub fn initialized_records_tree_account() -> Account {
     }
 }
 
-/// `tag` followed by the wincode source declarations.
 pub fn create_policy_data(specs: &[custom_ring_interface::PolicySourceSpec]) -> Vec<u8> {
     let mut data = vec![custom_ring_interface::tag::CREATE_POLICY];
     data.extend_from_slice(

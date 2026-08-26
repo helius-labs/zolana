@@ -97,8 +97,7 @@ pub fn process_create_policy_ix(
     .init(policy_config)
 }
 
-/// The stored map is a bijection with the kinds the compiled table references,
-/// a curator entry copies the curator's resolved owner for the kind.
+/// The stored map is a bijection with the kinds the compiled table references.
 pub(crate) fn resolve_sources(
     specs: &[PolicySourceSpec],
     curators: &[AccountView],
@@ -128,7 +127,7 @@ pub(crate) fn resolve_sources(
                     .get(usize::from(n) - 1)
                     .ok_or(CustomRingError::InvalidPolicySource)?;
                 // Copies the curator's resolved owner, a curator of a curator
-                // never chains on chain.
+                // never chains.
                 load_curator_policy_config(curator, records_tree)?
                     .source_for(kind as u8)
                     .ok_or(CustomRingError::CuratorSourceMissing)?
