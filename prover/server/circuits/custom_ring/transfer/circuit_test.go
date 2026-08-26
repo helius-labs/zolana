@@ -215,6 +215,39 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
+			name: "curator slot dropped from the map",
+			build: func(t *testing.T) *Circuit {
+				f := defaultFixture()
+				f.dropCuratorSlot = true
+				return buildAssignment(t, f)
+			},
+		},
+		{
+			name: "live source slots swapped in the witness",
+			build: func(t *testing.T) *Circuit {
+				c := validAssignment(t)
+				c.Sources[kindAllow-1], c.Sources[kindFrozen-1] =
+					c.Sources[kindFrozen-1], c.Sources[kindAllow-1]
+				return c
+			},
+		},
+		{
+			name: "curator slot repointed at the own owner",
+			build: func(t *testing.T) *Circuit {
+				f := defaultFixture()
+				f.curatorSlotOwn = true
+				return buildAssignment(t, f)
+			},
+		},
+		{
+			name: "live kind duplicated into a second slot in the witness",
+			build: func(t *testing.T) *Circuit {
+				c := validAssignment(t)
+				c.Sources[4] = c.Sources[kindFrozen-1]
+				return c
+			},
+		},
+		{
 			name: "guard bypassed above the threshold",
 			build: func(t *testing.T) *Circuit {
 				f := defaultFixture()
@@ -278,7 +311,8 @@ func TestPrintPolicyVectors(t *testing.T) {
 	}
 	s := newStatement(t, defaultFixture())
 
-	fmt.Printf("records_owner_hash   %s\n", hex32(s.recordsOwnerHash))
+	fmt.Printf("own_owner_hash       %s\n", hex32(s.ownOwnerHash))
+	fmt.Printf("curator_owner_hash   %s\n", hex32(s.curatorOwnerHash))
 	fmt.Printf("policy_hash          %s\n", hex32(s.policyHash))
 	for i, name := range []string{"r1_allow_present", "r2_frozen_absent", "r3_block_cleared"} {
 		d := s.derived[i]
@@ -292,6 +326,16 @@ func TestPrintPolicyVectors(t *testing.T) {
 	fmt.Printf("nullifier_root       %s\n", hex32(s.nullifierRoot))
 	fmt.Printf("private_tx_hash      %s\n", hex32(s.privateTxHash))
 	fmt.Printf("public_input_hash    %s\n", hex32(s.publicInputHash))
+
+	fmt.Printf("empty_policy_hash    %s\n", hex32(hostPolicyHash(t, nil, nil, emptySources())))
+	oneMap := emptySources()
+	oneMap[kindAllow-1] = source{kind: kindAllow, owner: s.ownOwnerHash}
+	oneRule := []rule{{subject: SubjectOutputOwner, mode: ModePresent, kind: kindAllow}}
+	fmt.Printf("one_rule_policy_hash %s\n", hex32(hostPolicyHash(t, oneRule, nil, oneMap)))
+	twoMap := oneMap
+	twoMap[kindFrozen-1] = source{kind: kindFrozen, owner: s.curatorOwnerHash}
+	twoRules := append(oneRule, rule{subject: SubjectSender, mode: ModeAbsent, kind: kindFrozen})
+	fmt.Printf("two_rule_policy_hash %s\n", hex32(hostPolicyHash(t, twoRules, nil, twoMap)))
 }
 
 func solve(t *testing.T, cs constraint.ConstraintSystem, assignment *Circuit) {
@@ -313,14 +357,30 @@ func validAssignment(t *testing.T) *Circuit {
 // fixture is the knob set of one statement, a tamper row needing a
 // self-consistent witness rebuilds with one knob changed.
 type fixture struct {
-	amount      uint64
-	transferred [32]byte
-	inlineAsset [32]byte
-	rulesFree   bool
+	amount          uint64
+	transferred     [32]byte
+	inlineAsset     [32]byte
+	rulesFree       bool
+	dropCuratorSlot bool
+	curatorSlotOwn  bool
 }
 
 func defaultFixture() fixture {
 	return fixture{amount: transferAmount, transferred: fill(0xd4), inlineAsset: fill(0xd4)}
+}
+
+// source is one host-side slot of the positional policy source map.
+type source struct {
+	kind  int64
+	owner *big.Int
+}
+
+func emptySources() [NSources]source {
+	var out [NSources]source
+	for i := range out {
+		out[i] = source{kind: 0, owner: big.NewInt(0)}
+	}
+	return out
 }
 
 // record is one host-side policy record, mirroring ring_policy::PolicyRecord.
@@ -369,7 +429,9 @@ func (r rule) wires() RuleWires {
 }
 
 type statement struct {
-	recordsOwnerHash *big.Int
+	ownOwnerHash     *big.Int
+	curatorOwnerHash *big.Int
+	sources          [NSources]source
 	rules            []rule
 	inlineAssets     []*big.Int
 	policyHash       *big.Int
@@ -398,15 +460,25 @@ type statement struct {
 // newStatement builds a ring whose records allow the recipient, hold no Frozen
 // record for the sender and carry a cleared Block record, a policy demanding
 // all three plus a guarded Approval rule, and a two-in two-out transaction that
-// satisfies them.
+// satisfies them. The Frozen kind is sourced from a curator's records, every
+// other kind from the ring's own.
 func newStatement(t *testing.T, f fixture) *statement {
 	t.Helper()
 	s := &statement{}
 
-	s.recordsOwnerHash = spptest.MustOwnerHash(t,
+	s.ownOwnerHash = spptest.MustOwnerHash(t,
 		pkField(t, fill(0x11)),
 		spptest.MustNullifierPk(t, big.NewInt(0)),
 	)
+	s.curatorOwnerHash = spptest.MustOwnerHash(t,
+		pkField(t, fill(0x12)),
+		spptest.MustNullifierPk(t, big.NewInt(0)),
+	)
+	s.sources = emptySources()
+	for _, kind := range []int64{kindAllow, kindBlock, kindApproval} {
+		s.sources[kind-1] = source{kind: kind, owner: s.ownOwnerHash}
+	}
+	s.sources[kindFrozen-1] = source{kind: kindFrozen, owner: s.curatorOwnerHash}
 
 	recipient := pkField(t, fill(0xa1))
 	sender := pkField(t, fill(0xb2))
@@ -419,7 +491,15 @@ func newStatement(t *testing.T, f fixture) *statement {
 		{kind: kindBlock, member: blocked, state: RecordStateCleared, version: 1, payload: big.NewInt(0)},
 	}
 	for _, r := range s.records {
-		s.derived = append(s.derived, deriveRecord(t, s.recordsOwnerHash, r))
+		s.derived = append(s.derived, deriveRecord(t, s.sources[r.kind-1].owner, r))
+	}
+	// The knobs repoint the map after derivation, leaving the record fixtures
+	// under the curator.
+	if f.dropCuratorSlot {
+		s.sources[kindFrozen-1] = source{kind: 0, owner: big.NewInt(0)}
+	}
+	if f.curatorSlotOwn {
+		s.sources[kindFrozen-1].owner = s.ownOwnerHash
 	}
 
 	s.rules = []rule{
@@ -432,8 +512,9 @@ func newStatement(t *testing.T, f fixture) *statement {
 	if f.rulesFree {
 		s.rules = nil
 		s.inlineAssets = nil
+		s.sources = emptySources()
 	}
-	s.policyHash = hostPolicyHash(t, s)
+	s.policyHash = hostPolicyHash(t, s.rules, s.inlineAssets, s.sources)
 
 	s.buildTrees(t)
 	s.buildTransaction(t, recipient, sender, asset, f.amount)
@@ -522,9 +603,11 @@ func buildAssignment(t *testing.T, f fixture) *Circuit {
 		PrivateTxHash:    s.privateTxHash,
 		AddressChain:     s.addressChain,
 		ExternalDataHash: s.externalDataHash,
-		RecordsOwnerHash: s.recordsOwnerHash,
 		StateRoot:        s.stateRoot,
 		NullifierRoot:    s.nullifierRoot,
+	}
+	for i, slot := range s.sources {
+		c.Sources[i] = SourceWires{Kind: big.NewInt(slot.kind), OwnerHash: slot.owner}
 	}
 	for i, b := range s.txViewingSk {
 		c.TxViewingSk[i] = int(b)
@@ -673,18 +756,17 @@ func deriveRecord(t *testing.T, ownerHash *big.Int, r record) derived {
 }
 
 // hostPolicyHash mirrors ring_policy::Policy::hash.
-func hostPolicyHash(t *testing.T, s *statement) *big.Int {
+func hostPolicyHash(t *testing.T, rules []rule, inlineAssets []*big.Int, sources [NSources]source) *big.Int {
 	t.Helper()
-	elements := []*big.Int{
-		policyTableDomain,
-		big.NewInt(PolicyVersion),
-		s.recordsOwnerHash,
-		big.NewInt(int64(len(s.rules))),
+	elements := []*big.Int{policyTableDomain, big.NewInt(PolicyVersion)}
+	for _, slot := range sources {
+		elements = append(elements, big.NewInt(slot.kind), slot.owner)
 	}
-	for _, r := range s.rules {
+	elements = append(elements, big.NewInt(int64(len(rules))))
+	for _, r := range rules {
 		elements = append(elements, r.packed())
 	}
-	return spptest.MustHashChain(t, append(elements, s.inlineAssets...))
+	return spptest.MustHashChain(t, append(elements, inlineAssets...))
 }
 
 func hostUtxoHash(t *testing.T, w OpeningWires) *big.Int {

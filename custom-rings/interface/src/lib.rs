@@ -20,8 +20,9 @@ pub use instruction::{
 pub use policy::POLICY;
 pub use public_input::CustomRingPublicInput;
 pub use state::{
-    PolicyConfig, ReadAccessRecord, RingProgramConfig, CONFIG_PDA_SEED, POLICY_CONFIG,
-    POLICY_CONFIG_PDA_SEED, READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG,
+    PolicyConfig, PolicySourceSlot, ReadAccessRecord, RingProgramConfig, CONFIG_PDA_SEED,
+    N_POLICY_SOURCE_SLOTS, POLICY_CONFIG, POLICY_CONFIG_PDA_SEED, READ_ACCESS_RECORD,
+    READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG,
 };
 
 /// SEC1-compressed public key length.

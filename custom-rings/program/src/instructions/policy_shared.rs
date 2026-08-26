@@ -1,4 +1,4 @@
-use custom_ring_interface::{PolicyConfig, POLICY};
+use custom_ring_interface::{PolicyConfig, PolicySourceSlot, N_POLICY_SOURCE_SLOTS, POLICY};
 use pinocchio::{
     account::Ref, address::address_eq, error::ProgramError, AccountView, Address, ProgramResult,
 };
@@ -20,8 +20,8 @@ use zolana_interface::{
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_ring_policy::{
-    mutation_private_tx_hash, record_nullifier, record_seed, Holder, Member, Record, RecordKind,
-    RecordsOwner, POLICY_RECORDS_PDA_SEED,
+    mutation_private_tx_hash, record_nullifier, record_seed, Holder, Member, PolicySource,
+    PolicySources, Record, RecordKind, RecordsOwner, MAX_POLICY_SOURCES, POLICY_RECORDS_PDA_SEED,
 };
 
 use crate::{
@@ -32,8 +32,8 @@ use crate::{
     },
 };
 
-/// Derived from the program id alone, no instruction can name another records
-/// account.
+/// The ring's own records owner, curator sources enter only through the
+/// authority gated source map writes.
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 pub(crate) fn records_pda(program_id: &Address) -> Result<(Address, u8), CustomRingError> {
     Ok(Address::find_program_address(
@@ -47,30 +47,23 @@ pub(crate) fn records_pda(_program_id: &Address) -> Result<(Address, u8), Custom
     Err(CustomRingError::InvalidRecordsPda)
 }
 
-pub(crate) fn records_owner(program_id: &Address) -> Result<RecordsOwner, CustomRingError> {
-    RecordsOwner::new(records_pda(program_id)?.0.as_array())
-        .map_err(|_| CustomRingError::HashingFailed)
-}
-
-/// `bump` is the canonical records bump `create_policy` stored.
-#[cfg(any(target_os = "solana", target_arch = "bpf"))]
-pub(crate) fn records_owner_with_bump(
-    program_id: &Address,
-    bump: u8,
-) -> Result<RecordsOwner, CustomRingError> {
-    let seed_bump = [bump];
-    let address =
-        Address::create_program_address(&[POLICY_RECORDS_PDA_SEED, &seed_bump], program_id)
-            .map_err(|_| CustomRingError::InvalidRecordsPda)?;
-    RecordsOwner::new(address.as_array()).map_err(|_| CustomRingError::HashingFailed)
-}
-
-#[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
-pub(crate) fn records_owner_with_bump(
-    _program_id: &Address,
-    _bump: u8,
-) -> Result<RecordsOwner, CustomRingError> {
-    Err(CustomRingError::InvalidRecordsPda)
+/// The map `Policy::hash` binds, rebuilt from the stored slots.
+pub(crate) fn kind_owners(
+    sources: &[PolicySourceSlot; N_POLICY_SOURCE_SLOTS],
+) -> Result<PolicySources, CustomRingError> {
+    let mut slots = [PolicySource::default(); MAX_POLICY_SOURCES];
+    for (slot, stored) in slots.iter_mut().zip(sources) {
+        if stored.kind == 0 {
+            continue;
+        }
+        *slot = PolicySource {
+            kind: stored.kind,
+            owner_hash: RecordsOwner::new(stored.records.as_array())
+                .map_err(|_| CustomRingError::HashingFailed)?
+                .owner_hash,
+        };
+    }
+    PolicySources::from_slots(slots).map_err(|_| CustomRingError::InvalidPolicyConfigPda)
 }
 
 pub(crate) struct MutationAccounts<'a> {
@@ -130,7 +123,7 @@ impl<'a> MutationAccounts<'a> {
         let owner = RecordsOwner::new(records.address().as_array())
             .map_err(|_| CustomRingError::HashingFailed)?;
         let compiled = POLICY
-            .hash(&owner.owner_hash)
+            .hash(&kind_owners(&policy_config.sources)?)
             .map_err(|_| CustomRingError::HashingFailed)?;
         if compiled != policy_config.policy_hash {
             return Err(CustomRingError::PolicyHashMismatch.into());

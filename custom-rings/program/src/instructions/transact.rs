@@ -15,7 +15,7 @@ use crate::{
     error::CustomRingError,
     instructions::{
         loader::{load_config, load_policy_config, validate_spp_program},
-        policy_shared::records_owner_with_bump,
+        policy_shared::kind_owners,
         roots::load_roots,
         shared::cpi_spp_signed,
         verifier::{verify_groth16, CompressedGroth16Proof},
@@ -88,15 +88,14 @@ pub fn process_transact_ix(
         commitment_pok: &proof.commitment_pok,
     };
 
-    let (policy_hash, records_tree, records_bump) = {
+    let (policy_hash, records_tree, sources) = {
         let policy = load_policy_config(program_id, policy_config_account)?;
-        (policy.policy_hash, policy.records_tree, policy.records_bump)
+        (policy.policy_hash, policy.records_tree, policy.sources)
     };
     // A rebuilt table hashing differently must not spend under the rules the
     // deployed one pinned.
-    let owner = records_owner_with_bump(program_id, records_bump)?;
     if POLICY
-        .hash(&owner.owner_hash)
+        .hash(&kind_owners(&sources)?)
         .map_err(|_| CustomRingError::HashingFailed)?
         != policy_hash
     {

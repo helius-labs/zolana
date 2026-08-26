@@ -1,10 +1,10 @@
-use custom_ring_interface::{PolicyConfig, POLICY, POLICY_CONFIG};
+use custom_ring_interface::{PolicyConfig, POLICY_CONFIG};
 use custom_ring_program::CustomRingError;
 use mollusk_svm::result::ProgramResult;
 use solana_program_error::ProgramError;
 
 use crate::common::{
-    create_policy_fixture, policy_config_pda, program_id, records_pda, records_tree,
+    self, create_policy_fixture, policy_config_pda, program_id, records_pda, records_tree,
     records_tree_account, setup_mollusk,
 };
 
@@ -30,11 +30,9 @@ fn create_policy_pins_the_compiled_table() {
     assert_eq!(written.owner, program_id());
     let config: &PolicyConfig = bytemuck::from_bytes(&written.data);
     assert_eq!(config.discriminator, POLICY_CONFIG);
-    let owner = zolana_ring_policy::RecordsOwner::new(&records_pda().0.to_bytes()).expect("owner");
-    assert_eq!(
-        config.policy_hash,
-        POLICY.hash(&owner.owner_hash).expect("policy hash")
-    );
+    let sources = common::own_source_slots();
+    assert_eq!(config.sources, sources);
+    assert_eq!(config.policy_hash, common::policy_hash_for(&sources));
     assert_eq!(config.records_tree.to_bytes(), records_tree().to_bytes());
     assert_eq!(config.records_bump, records_pda().1);
 }

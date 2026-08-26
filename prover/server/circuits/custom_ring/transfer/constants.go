@@ -9,11 +9,12 @@ const (
 	NRules        = 16
 	NPool         = 10
 	NInlineAssets = 8
+	NSources      = 8
 )
 
 // PolicyVersion enters the policy_hash preimage, mirroring
 // ring_policy::POLICY_VERSION.
-const PolicyVersion = 1
+const PolicyVersion = 2
 
 // What a rule ranges over, ExitDestination having no in-circuit instance.
 const (
