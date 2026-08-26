@@ -1,30 +1,25 @@
 sequenceDiagram
     participant OFAC as OFAC SDN feed
     actor Curator as Curator ring authority
-    actor Sub as Subscriber ring authority
     actor Crazy as Mr. Crazy's wallet
+    actor Evil as Mr. Evil's wallet
     participant CurRing as Curator ring
     participant SubRing as Subscriber ring
     participant SPP
 
-    Sub->>SubRing: create_policy, Block source = curator
-    SubRing->>SubRing: copies the curator's resolved records owner
-    Note over SubRing: the Block slot now names the curator's records PDA
+    Note over SubRing: Block source = curator, pinned at create_policy
 
-    OFAC-->>Curator: the sanctions list adds Mr. Evil's address
-    Curator->>CurRing: create_record bans the address under Block
-    CurRing->>SPP: one transact, the ban lands in the shared tree
-    Note over SPP: one ban serves every subscriber
+    OFAC-->>Curator: the sanctions list names Mr. Evil's pubkey
+    Curator->>CurRing: create_record(Block, evil_pubkey)
+    CurRing->>SPP: the ban record lands in the shared tree
+    Note over CurRing,SubRing: the ban binds the pubkey's owner tag, enforcement is in ring only
 
-    Crazy->>Crazy: witness resolves Block to the curator's records
-    Note over Crazy: the banned address holds a live Block record, PolicyRuleUnsatisfied, no proof
+    Crazy--xEvil: ring transfer refused, the recipient owner tag holds a live Block record
+    Note over Crazy: the wallet finds the ban at witness build, no proof exists for the payment
     Note over Crazy,SubRing: a patched wallet fails at the circuit, the ban record admits no non-inclusion witness
 
-    OFAC-->>Curator: the sanctions list drops the address
+    OFAC-->>Curator: the sanctions list drops the pubkey
     Curator->>CurRing: update_record clears the ban
-    Crazy->>SubRing: transact with one proof over the cleared record
-    SubRing->>SubRing: recomputes the hash over the stored source map, verifies
+    Crazy->>Evil: ring transfer lands, absence proved through the cleared record
+    Crazy->>SubRing: transact with one proof
     SubRing->>SPP: CPI ring_transact
-
-    Sub->>SubRing: set_policy_source(Block, own)
-    Note over SubRing: allowed only while the stored hash matches the deployed table
