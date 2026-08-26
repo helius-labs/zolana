@@ -178,7 +178,7 @@ fn the_auditor_recovers_the_exact_scalar() {
 /// circuit test is known to solve, and the `CustomRingProofParams` witness is what the
 /// sdk API actually hands callers -- fresh ephemeral scalar and all.
 #[test]
-#[ignore = "requires Redis and the published custom-ring proving key"]
+#[ignore = "requires the published custom-ring proving key"]
 fn prove_and_verify_both_witnesses() {
     let prover = prover();
 
@@ -245,7 +245,7 @@ fn prove_and_verify_both_witnesses() {
 }
 
 #[test]
-#[ignore = "requires Redis and the published custom-ring proving key"]
+#[ignore = "requires the published custom-ring proving key"]
 fn a_tampered_witness_does_not_prove() {
     let prover = prover();
     let mut inputs = fixture_inputs();

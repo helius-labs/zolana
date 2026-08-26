@@ -111,7 +111,7 @@ export class ProverClient {
     return this.#send(JSON.stringify(customRingProofRequest(inputs)), "queued", context);
   }
 
-  /** The circuits the server serves, `custom-ring` among them only with a queue. */
+  /** The circuits the server serves. */
   async health(context?: RequestContext): Promise<ProverHealth> {
     const url = new URL(this.#url);
     url.pathname = url.pathname.replace(/\/prove$/u, HEALTH_PATH);

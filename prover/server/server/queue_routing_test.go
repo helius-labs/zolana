@@ -63,3 +63,19 @@ func TestCustomRingCachedFailureDoesNotContainWitnessData(t *testing.T) {
 		t.Fatal("cached failure contains witness data")
 	}
 }
+
+func TestCustomRingIsServedOnEveryRail(t *testing.T) {
+	if (proveHandler{}).shouldUseQueueForCircuit(common.CustomRingCircuitType) {
+		t.Fatal("custom ring routed to a queue the server does not have")
+	}
+	queued := proveHandler{enableQueue: true, redisQueue: &RedisQueue{}}
+	if !queued.shouldUseQueueForCircuit(common.CustomRingCircuitType) {
+		t.Fatal("custom ring skipped the queue the server has")
+	}
+	for _, circuit := range servedCircuits() {
+		if circuit == common.CustomRingCircuitType {
+			return
+		}
+	}
+	t.Fatal("custom ring missing from the served circuits")
+}
