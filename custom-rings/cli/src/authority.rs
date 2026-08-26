@@ -270,6 +270,7 @@ mod tests {
         let current = ProgramDataInfo {
             upgrade_authority,
             capacity: 0,
+            slot: 0,
         };
         SetUpgradeAuthority {
             ring: CustomRing::new(Address::new_from_array([1; 32])),

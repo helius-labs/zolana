@@ -3,6 +3,8 @@
 use std::{
     path::{Path, PathBuf},
     process::Command,
+    thread,
+    time::{Duration, Instant},
 };
 
 use custom_ring_sdk::CustomRing;
@@ -40,6 +42,8 @@ pub enum DeployOutcome {
 pub struct ProgramDataInfo {
     pub upgrade_authority: Option<Address>,
     pub capacity: usize,
+    /// The loader serves the program only after this slot.
+    pub slot: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,6 +91,10 @@ pub enum DeployError {
     },
     #[error("{address} is not a ProgramData account")]
     ProgramData { address: Address },
+    #[error(
+        "program {program} deployed at slot {slot} stays unusable, the validator does not advance"
+    )]
+    NotUsable { program: Address, slot: u64 },
     #[error("program {program} holds {found} on chain, expected {expected}")]
     DeployedMismatch {
         program: Address,
@@ -101,6 +109,8 @@ pub enum DeployError {
 const MIN_EXTEND_BYTES: usize = 10_240;
 /// A deploy is hundreds of writes plus the loader calls.
 const DEPLOY_FEE_BUDGET: u64 = 20_000_000;
+const USABLE_TIMEOUT: Duration = Duration::from_secs(60);
+const SLOT_POLL: Duration = Duration::from_millis(400);
 
 pub fn run(ctx: &mut Context, args: DeployArgs) -> Result<(), DeployError> {
     let program_so = match args.program_so {
@@ -213,6 +223,10 @@ impl Deploy<'_> {
                 source: Box::new(source),
             })?;
         plan.binary.verify_deployed(rpc, self.ring)?;
+        let deployed = read_program_data(rpc, self.ring)?.ok_or(DeployError::ProgramData {
+            address: self.ring.program_data_pda(),
+        })?;
+        wait_until_usable(rpc, program, deployed.slot)?;
         Ok(if plan.deployed.is_some() {
             DeployOutcome::Upgraded
         } else {
@@ -326,8 +340,8 @@ pub fn read_program_data<R: Rpc>(
     )
     .map_err(|_| DeployError::ProgramData { address })?;
     let UpgradeableLoaderState::ProgramData {
+        slot,
         upgrade_authority_address,
-        ..
     } = state
     else {
         return Err(DeployError::ProgramData { address });
@@ -340,7 +354,29 @@ pub fn read_program_data<R: Rpc>(
             .data
             .len()
             .saturating_sub(UpgradeableLoaderState::size_of_programdata_metadata()),
+        slot,
     }))
+}
+
+/// The loader refuses a program in the slot it was deployed in.
+fn wait_until_usable<R: Rpc>(
+    rpc: &R,
+    program: Address,
+    deployed_slot: u64,
+) -> Result<(), DeployError> {
+    let started = Instant::now();
+    loop {
+        if rpc.get_slot()? > deployed_slot {
+            return Ok(());
+        }
+        if started.elapsed() > USABLE_TIMEOUT {
+            return Err(DeployError::NotUsable {
+                program,
+                slot: deployed_slot,
+            });
+        }
+        thread::sleep(SLOT_POLL);
+    }
 }
 
 /// The loader writes the binary as given, padded to the account's capacity.
@@ -360,6 +396,8 @@ fn released_program_so() -> Result<PathBuf, ReleaseError> {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+
     use super::*;
 
     /// Rent as the cluster prices it, 3480 lamports per byte-year over two years.
@@ -408,6 +446,7 @@ mod tests {
         let deployed = ProgramDataInfo {
             upgrade_authority: None,
             capacity: 300_000,
+            slot: 0,
         };
         let fits = required_balance(&Rent, deployed.capacity, Some(&deployed)).expect("priced");
         assert_eq!(
@@ -421,5 +460,20 @@ mod tests {
             grows - fits,
             (rent(MIN_EXTEND_BYTES) - rent(0)) + (rent(1) - rent(0))
         );
+    }
+
+    #[test]
+    fn a_deploy_is_usable_from_the_next_slot() {
+        struct Advancing(Cell<u64>);
+        impl Rpc for Advancing {
+            fn get_slot(&self) -> Result<u64, ClientError> {
+                let slot = self.0.get();
+                self.0.set(slot + 1);
+                Ok(slot)
+            }
+        }
+        let rpc = Advancing(Cell::new(7));
+        wait_until_usable(&rpc, Address::default(), 8).expect("usable");
+        assert_eq!(rpc.0.get(), 10);
     }
 }
