@@ -1,4 +1,6 @@
-use custom_ring_interface::{PolicyConfig, PolicySourceSlot, N_POLICY_SOURCE_SLOTS, POLICY};
+use custom_ring_interface::{
+    PolicyConfig, PolicySourceSlot, N_POLICY_SOURCE_SLOTS, POLICY, POLICY_CONFIG,
+};
 use pinocchio::{
     account::Ref, address::address_eq, error::ProgramError, AccountView, Address, ProgramResult,
 };
@@ -45,6 +47,36 @@ pub(crate) fn records_pda(program_id: &Address) -> Result<(Address, u8), CustomR
 #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
 pub(crate) fn records_pda(_program_id: &Address) -> Result<(Address, u8), CustomRingError> {
     Err(CustomRingError::InvalidRecordsPda)
+}
+
+/// A curator's policy config, the canonical `b"policy"` PDA of the program
+/// that owns the account, pinned to the same records tree.
+pub(crate) fn load_curator_policy_config<'a>(
+    account: &'a AccountView,
+    records_tree: &Address,
+) -> Result<Ref<'a, PolicyConfig>, ProgramError> {
+    let curator_program = *account.owner();
+    let data = account
+        .try_borrow()
+        .map_err(|_| CustomRingError::InvalidCuratorPolicyConfig)?;
+    if data.len() != PolicyConfig::SIZE {
+        return Err(CustomRingError::InvalidCuratorPolicyConfig.into());
+    }
+    let config: Ref<'a, PolicyConfig> = Ref::map(data, |data| bytemuck::from_bytes(data));
+    if config.discriminator != POLICY_CONFIG {
+        return Err(CustomRingError::InvalidCuratorPolicyConfig.into());
+    }
+    PdaCheck {
+        program_id: &curator_program,
+        address: account.address(),
+        seeds: &[PolicyConfig::SEED],
+        mismatch: CustomRingError::InvalidCuratorPolicyConfig,
+    }
+    .verify_stored_bump(config.bump)?;
+    if !address_eq(&config.records_tree, records_tree) {
+        return Err(CustomRingError::CuratorTreeMismatch.into());
+    }
+    Ok(config)
 }
 
 /// The map `Policy::hash` binds, rebuilt from the stored slots.

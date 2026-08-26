@@ -1,4 +1,4 @@
-use wincode::{SchemaRead, SchemaWrite};
+use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_interface::instruction::TransactIxData;
 
 use crate::{ReaderKeyBytes, COMPRESSED_P256_KEY_LEN};
@@ -18,6 +18,7 @@ pub mod tag {
     pub const CREATE_POLICY: u8 = 7;
     pub const CREATE_RECORD: u8 = 8;
     pub const UPDATE_RECORD: u8 = 9;
+    pub const SET_POLICY_SOURCE: u8 = 10;
 }
 
 pub const CREATE_CONFIG_COMPUTE_UNIT_LIMIT: u32 = 50_000;
@@ -62,9 +63,25 @@ pub struct CustomRingTransactIxData {
     pub transact: TransactIxData,
 }
 
-pub const CREATE_POLICY_COMPUTE_UNIT_LIMIT: u32 = 50_000;
+/// Covers one v2 hash pin plus up to eight curator config loads.
+pub const CREATE_POLICY_COMPUTE_UNIT_LIMIT: u32 = 150_000;
 /// Record mutations CPI a full SPP transact with its proof verification.
 pub const RECORD_MUTATION_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
+
+/// `source` 0 is the ring's own records, `1 + i` the `i`-th trailing curator
+/// policy config account.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct PolicySourceSpec {
+    pub kind: u8,
+    pub source: u8,
+}
+
+/// One entry per record kind the compiled table references.
+#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct CreatePolicyIxData {
+    #[wincode(with = "containers::Vec<PolicySourceSpec, FixIntLen<u8>>")]
+    pub sources: Vec<PolicySourceSpec>,
+}
 
 /// `member` is pre-derived, member-held kinds require the signer to derive to it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]

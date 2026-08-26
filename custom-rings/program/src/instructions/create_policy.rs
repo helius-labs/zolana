@@ -2,22 +2,26 @@ use crate::{
     error::CustomRingError,
     instructions::{
         loader::UpgradeAuthorityCheck,
-        policy_shared::{kind_owners, records_pda},
+        policy_shared::{kind_owners, load_curator_policy_config, records_pda},
         shared::PdaCheck,
     },
     state::PolicyConfigInitParams,
 };
 use bytemuck::Zeroable;
-use custom_ring_interface::{PolicyConfig, PolicySourceSlot, N_POLICY_SOURCE_SLOTS, POLICY};
+use custom_ring_interface::{
+    CreatePolicyIxData, PolicyConfig, PolicySourceSlot, PolicySourceSpec, N_POLICY_SOURCE_SLOTS,
+    POLICY,
+};
 use pinocchio::{
     cpi::{Seed, Signer},
+    error::ProgramError,
     AccountView, Address, ProgramResult,
 };
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_ring_policy::RuleSource;
+use zolana_ring_policy::{RecordKind, RuleSource};
 
 /// The table is part of the deployed program, only its upgrade authority can
 /// pin the hash.
@@ -27,9 +31,8 @@ pub fn process_create_policy_ix(
     accounts: &mut [AccountView],
     data: &[u8],
 ) -> ProgramResult {
-    if !data.is_empty() {
-        return Err(CustomRingError::InvalidInstructionData.into());
-    }
+    let ix: CreatePolicyIxData =
+        wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
 
     let mut iter = AccountIterator::new(accounts);
     let payer = iter.next_signer_mut("payer")?;
@@ -39,6 +42,7 @@ pub fn process_create_policy_ix(
     let system_program = iter.next_account("system_program")?;
     let program = iter.next_account("program")?;
     let program_data = iter.next_account("program_data")?;
+    let curators = iter.remaining_unchecked()?;
 
     if !pinocchio_system::check_id(system_program.address()) {
         return Err(CustomRingError::InvalidSystemProgram.into());
@@ -64,7 +68,7 @@ pub fn process_create_policy_ix(
     }
 
     let (own_records, records_bump) = records_pda(program_id)?;
-    let sources = own_sources(&own_records);
+    let sources = resolve_sources(&ix.sources, curators, &own_records, records_tree.address())?;
     let policy_hash = POLICY
         .hash(&kind_owners(&sources)?)
         .map_err(|_| CustomRingError::HashingFailed)?;
@@ -93,19 +97,52 @@ pub fn process_create_policy_ix(
     .init(policy_config)
 }
 
-/// One slot per kind the compiled table references, all serving the ring's
-/// own records.
-fn own_sources(own_records: &Address) -> [PolicySourceSlot; N_POLICY_SOURCE_SLOTS] {
-    let mut sources = [PolicySourceSlot::zeroed(); N_POLICY_SOURCE_SLOTS];
+/// The stored map is a bijection with the kinds the compiled table references,
+/// a curator entry copies the curator's resolved owner for the kind.
+pub(crate) fn resolve_sources(
+    specs: &[PolicySourceSpec],
+    curators: &[AccountView],
+    own_records: &Address,
+    records_tree: &Address,
+) -> Result<[PolicySourceSlot; N_POLICY_SOURCE_SLOTS], ProgramError> {
+    let mut referenced = [false; N_POLICY_SOURCE_SLOTS];
     for rule in POLICY.rules() {
         if let RuleSource::Records(kind) = rule.source {
-            sources[kind as usize - 1] = PolicySourceSlot {
-                kind: kind as u8,
-                records: *own_records,
-            };
+            referenced[kind as usize - 1] = true;
         }
     }
-    sources
+    let mut sources = [PolicySourceSlot::zeroed(); N_POLICY_SOURCE_SLOTS];
+    let mut seen = [false; N_POLICY_SOURCE_SLOTS];
+    for spec in specs {
+        let kind =
+            RecordKind::try_from(spec.kind).map_err(|_| CustomRingError::InvalidPolicySource)?;
+        let index = kind as usize - 1;
+        if !referenced[index] || seen[index] {
+            return Err(CustomRingError::InvalidPolicySource.into());
+        }
+        seen[index] = true;
+        let records = match spec.source {
+            0 => *own_records,
+            n => {
+                let curator = curators
+                    .get(usize::from(n) - 1)
+                    .ok_or(CustomRingError::InvalidPolicySource)?;
+                // Copies the curator's resolved owner, a curator of a curator
+                // never chains on chain.
+                load_curator_policy_config(curator, records_tree)?
+                    .source_for(kind as u8)
+                    .ok_or(CustomRingError::CuratorSourceMissing)?
+            }
+        };
+        sources[index] = PolicySourceSlot {
+            kind: kind as u8,
+            records,
+        };
+    }
+    if seen != referenced {
+        return Err(CustomRingError::InvalidPolicySource.into());
+    }
+    Ok(sources)
 }
 
 fn check_records_tree(account: &AccountView) -> ProgramResult {
