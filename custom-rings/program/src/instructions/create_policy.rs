@@ -2,12 +2,13 @@ use crate::{
     error::CustomRingError,
     instructions::{
         loader::UpgradeAuthorityCheck,
-        policy_shared::{records_owner, records_pda},
+        policy_shared::{kind_owners, records_pda},
         shared::PdaCheck,
     },
     state::PolicyConfigInitParams,
 };
-use custom_ring_interface::{PolicyConfig, POLICY};
+use bytemuck::Zeroable;
+use custom_ring_interface::{PolicyConfig, PolicySourceSlot, N_POLICY_SOURCE_SLOTS, POLICY};
 use pinocchio::{
     cpi::{Seed, Signer},
     AccountView, Address, ProgramResult,
@@ -16,6 +17,7 @@ use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR, SHIELDED_POOL_PROGRAM_ID,
 };
+use zolana_ring_policy::RuleSource;
 
 /// The table is part of the deployed program, only its upgrade authority can
 /// pin the hash.
@@ -61,9 +63,10 @@ pub fn process_create_policy_ix(
         return Err(CustomRingError::PolicyConfigAlreadyInitialized.into());
     }
 
-    let (_, records_bump) = records_pda(program_id)?;
+    let (own_records, records_bump) = records_pda(program_id)?;
+    let sources = own_sources(&own_records);
     let policy_hash = POLICY
-        .hash(&records_owner(program_id)?.owner_hash)
+        .hash(&kind_owners(&sources)?)
         .map_err(|_| CustomRingError::HashingFailed)?;
 
     let bump_seed = [bump];
@@ -85,8 +88,24 @@ pub fn process_create_policy_ix(
         records_tree: *records_tree.address(),
         records_bump,
         bump,
+        sources,
     }
     .init(policy_config)
+}
+
+/// One slot per kind the compiled table references, all serving the ring's
+/// own records.
+fn own_sources(own_records: &Address) -> [PolicySourceSlot; N_POLICY_SOURCE_SLOTS] {
+    let mut sources = [PolicySourceSlot::zeroed(); N_POLICY_SOURCE_SLOTS];
+    for rule in POLICY.rules() {
+        if let RuleSource::Records(kind) = rule.source {
+            sources[kind as usize - 1] = PolicySourceSlot {
+                kind: kind as u8,
+                records: *own_records,
+            };
+        }
+    }
+    sources
 }
 
 fn check_records_tree(account: &AccountView) -> ProgramResult {
