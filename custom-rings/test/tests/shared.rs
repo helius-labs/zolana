@@ -93,6 +93,12 @@ pub fn prover_url() -> String {
 }
 
 pub fn setup() -> Result<TestEnv> {
+    setup_with_extra_rings(&[])
+}
+
+/// Every extra address deploys the same ring image again as a full second ring,
+/// every PDA derives from the runtime program id.
+pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv> {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let artifacts = WorkspaceArtifacts::new(root);
     let cli =
@@ -130,11 +136,20 @@ pub fn setup() -> Result<TestEnv> {
             (smart_account.to_string(), smart_account_so),
         ],
     };
-    validator.start_with_upgradeable_programs(&[UpgradeableProgram {
-        address: &ring_program.to_string(),
-        path: &ring_program_so,
-        authority: &payer_address.to_string(),
-    }]);
+    let upgrade_authority = payer_address.to_string();
+    let ring_addresses: Vec<String> = std::iter::once(ring_program)
+        .chain(extra_ring_programs.iter().copied())
+        .map(|address| address.to_string())
+        .collect();
+    let ring_deployments: Vec<UpgradeableProgram<'_>> = ring_addresses
+        .iter()
+        .map(|address| UpgradeableProgram {
+            address,
+            path: &ring_program_so,
+            authority: &upgrade_authority,
+        })
+        .collect();
+    validator.start_with_upgradeable_programs(&ring_deployments);
 
     spawn_workspace_prover();
 
