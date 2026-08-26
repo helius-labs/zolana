@@ -12,10 +12,11 @@ pub mod verifying_key;
 pub use audit::{pack32_to_2fe, pack33_to_2fe, AuditPublicInput, FieldPair};
 pub use instruction::{
     tag, CreateConfigIxData, CreatePolicyIxData, CreateRecordIxData, CustomRingProof,
-    CustomRingTransactIxData, PolicySourceSpec, ReaderIxData, UpdateRecordIxData,
-    CREATE_CONFIG_COMPUTE_UNIT_LIMIT, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
+    CustomRingTransactIxData, PolicySourceSpec, ReaderIxData, SetPolicySourceIxData,
+    UpdateRecordIxData, CREATE_CONFIG_COMPUTE_UNIT_LIMIT, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
     INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT, READ_ACCESS_COMPUTE_UNIT_LIMIT,
     RECORD_MUTATION_COMPUTE_UNIT_LIMIT, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
+    SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
 };
 pub use policy::POLICY;
 pub use public_input::CustomRingPublicInput;
