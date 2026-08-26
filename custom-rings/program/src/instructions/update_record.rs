@@ -24,8 +24,7 @@ pub fn process_update_record_ix(
     let spent_state =
         RecordState::try_from(ix.spent_state).map_err(|_| CustomRingError::InvalidRecordState)?;
     let state = RecordState::try_from(ix.state).map_err(|_| CustomRingError::InvalidRecordState)?;
-    let member =
-        Member::from_bytes(ix.member).map_err(|_| CustomRingError::InvalidPolicyMember)?;
+    let member = Member::from_bytes(ix.member).map_err(|_| CustomRingError::InvalidPolicyMember)?;
 
     let parsed = MutationAccounts::validate_and_parse(program_id, accounts)?;
     parsed.check_mutator(kind, &member)?;

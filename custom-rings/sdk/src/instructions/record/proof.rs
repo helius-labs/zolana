@@ -16,9 +16,7 @@ use zolana_interface::{
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     ADDRESS_DOMAIN, SHIELDED_POOL_PROGRAM_ID, SOL_ASSET_FIELD, UTXO_DOMAIN,
 };
-use zolana_ring_policy::{
-    record_nullifier, record_seed, Member, Record, RecordKind, RecordsOwner,
-};
+use zolana_ring_policy::{record_nullifier, record_seed, Member, Record, RecordKind, RecordsOwner};
 use zolana_transaction::{
     instructions::transact::{ExternalData, PrivateTxHash},
     ProofInputUtxo,

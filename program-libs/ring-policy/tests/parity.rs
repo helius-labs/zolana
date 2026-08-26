@@ -5,8 +5,7 @@ use zolana_hasher::primitives::{hash_bytes, right_align};
 use zolana_interface::ADDRESS_DOMAIN;
 use zolana_keypair::{hash::owner_hash, NullifierKey, PublicKey};
 use zolana_ring_policy::{
-    record_nullifier, record_seed, Member, Record, RecordKind, RecordState,
-    RecordsOwner,
+    record_nullifier, record_seed, Member, Record, RecordKind, RecordState, RecordsOwner,
 };
 use zolana_transaction::{ProofInputUtxo, SOL_MINT};
 

@@ -3,9 +3,7 @@ use zolana_hasher::{
 };
 use zolana_interface::{ADDRESS_DOMAIN, SOL_ASSET_FIELD, UTXO_DOMAIN};
 
-use crate::{
-    field_u16, field_u64, field_u8, Member, POLICY_ADDRESS_DOMAIN, POLICY_RECORD_DOMAIN,
-};
+use crate::{field_u16, field_u64, field_u8, Member, POLICY_ADDRESS_DOMAIN, POLICY_RECORD_DOMAIN};
 
 /// The on-chain discriminant of a record list, never `0` (the circuit reserves it as the inline-asset sentinel).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -30,10 +28,13 @@ pub enum Holder {
 
 impl RecordKind {
     /// The single source of truth the program and every `List` impl read.
+    /// Exhaustive on purpose, a new kind must declare its holder to compile.
     pub const fn holder(self) -> Holder {
         match self {
             Self::RingViewing | Self::Recovery | Self::Escrow => Holder::Member,
-            _ => Holder::Authority,
+            Self::Allow | Self::Block | Self::Frozen | Self::Reader | Self::Approval => {
+                Holder::Authority
+            }
         }
     }
 }
@@ -114,11 +115,7 @@ impl RecordsOwner {
 
     /// Deterministic, the nullifier tree admits one record lineage per
     /// `(kind, member)`.
-    pub fn address(
-        &self,
-        kind: RecordKind,
-        member: &Member,
-    ) -> Result<[u8; 32], HasherError> {
+    pub fn address(&self, kind: RecordKind, member: &Member) -> Result<[u8; 32], HasherError> {
         let seed = record_seed(kind, member)?;
         record_nullifier(&self.address_utxo_hash(&seed)?, &seed)
     }

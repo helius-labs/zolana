@@ -5,7 +5,8 @@
 //! the `finish` side alone.
 
 use custom_ring_sdk::{
-    to_instruction_proof, CustomRingProofError, CustomRingProofParams, AuditorMessage, EncryptedAudit,
+    to_instruction_proof, AuditorMessage, CustomRingProofError, CustomRingProofParams,
+    EncryptedAudit,
 };
 use zolana_client::Proof;
 use zolana_keypair::{P256Pubkey, ViewingKey};

@@ -9,6 +9,7 @@ pub mod state;
 #[cfg(feature = "verifying-keys")]
 pub mod verifying_key;
 
+pub use audit::{pack32_to_2fe, pack33_to_2fe, AuditPublicInput, FieldPair};
 pub use instruction::{
     tag, CreateConfigIxData, CreateRecordIxData, CustomRingProof, CustomRingTransactIxData,
     ReaderIxData, UpdateRecordIxData, CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
@@ -16,7 +17,6 @@ pub use instruction::{
     READ_ACCESS_COMPUTE_UNIT_LIMIT, RECORD_MUTATION_COMPUTE_UNIT_LIMIT,
     SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
 };
-pub use audit::{pack32_to_2fe, pack33_to_2fe, AuditPublicInput, FieldPair};
 pub use policy::POLICY;
 pub use public_input::CustomRingPublicInput;
 pub use state::{
