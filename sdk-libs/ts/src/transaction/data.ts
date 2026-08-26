@@ -1,12 +1,12 @@
 import { TransactionError } from "./error.js";
 
 export type DataRecord =
-  | Readonly<{ kind: "zoneData"; bytes: Uint8Array }>
+  | Readonly<{ kind: "ringData"; bytes: Uint8Array }>
   | Readonly<{ kind: "utxoData"; bytes: Uint8Array }>
   | Readonly<{ kind: "memo"; bytes: Uint8Array }>;
 
 const ORDER: Readonly<Record<DataRecord["kind"], number>> = {
-  zoneData: 1,
+  ringData: 1,
   utxoData: 2,
   memo: 3,
 };
@@ -48,8 +48,8 @@ export class Data {
     return this.#records.map(copyRecord);
   }
 
-  zoneData(): Uint8Array | undefined {
-    return this.#get("zoneData");
+  ringData(): Uint8Array | undefined {
+    return this.#get("ringData");
   }
 
   utxoData(): Uint8Array | undefined {
@@ -75,7 +75,7 @@ function checkedRecord(value: unknown, index: number): DataRecord {
     throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "record", index });
   }
   const record = value as Readonly<{ kind?: unknown; bytes?: unknown }>;
-  if (record.kind !== "zoneData" && record.kind !== "utxoData" && record.kind !== "memo") {
+  if (record.kind !== "ringData" && record.kind !== "utxoData" && record.kind !== "memo") {
     throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", {
       field: "dataRecordKind",
       index,

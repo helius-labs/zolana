@@ -52,6 +52,16 @@ pub struct Recipient {
     pub address: ShieldedAddress,
     pub asset: Address,
     pub amount: u64,
+    pub ring: RecipientRing,
+}
+
+/// Resolved when the transfer is prepared, so `send` and the ring binding may
+/// come in any order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecipientRing {
+    OfTransfer,
+    /// An exit when the transfer runs in a ring.
+    Default,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,6 +92,8 @@ pub struct ConfidentialTransfer {
     pub blinding_seed: [u8; 32],
     pub shape: Option<Shape>,
     change_layout: ChangeLayout,
+    /// Binds the change and every later `send` to one ring.
+    ring_program_id: Option<Address>,
 }
 
 /// Whether [`ConfidentialTransfer::prepare`] keeps a change slot that holds no
@@ -114,7 +126,15 @@ impl ConfidentialTransfer {
             blinding_seed: random_blinding(),
             shape: None,
             change_layout: ChangeLayout::Padded,
+            ring_program_id: None,
         }
+    }
+
+    /// Binds the change and every `send` to one ring.
+    #[must_use]
+    pub fn with_ring_program_id(mut self, ring_program_id: Address) -> Self {
+        self.ring_program_id = Some(ring_program_id);
+        self
     }
 
     /// An explicit shape passed to [`Self::with_shape`] is resolved against the
@@ -134,20 +154,41 @@ impl ConfidentialTransfer {
         inputs_require_p256(&self.inputs)
     }
 
+    /// The note joins the ring of the transfer, the default ring without one.
     pub fn send(
         &mut self,
         recipient: &ShieldedAddress,
         asset: Address,
         amount: u64,
     ) -> Result<&mut Self, TransactionError> {
-        if recipient.signing_pubkey.curve()? == Curve::P256 {
-            return Err(TransactionError::P256TransactUnsupported);
-        }
-        self.recipients.push(Recipient {
+        self.push(Recipient {
             address: *recipient,
             asset,
             amount,
-        });
+            ring: RecipientRing::OfTransfer,
+        })
+    }
+
+    /// The note leaves the ring of the transfer for the default ring.
+    pub fn send_default_ring(
+        &mut self,
+        recipient: &ShieldedAddress,
+        asset: Address,
+        amount: u64,
+    ) -> Result<&mut Self, TransactionError> {
+        self.push(Recipient {
+            address: *recipient,
+            asset,
+            amount,
+            ring: RecipientRing::Default,
+        })
+    }
+
+    fn push(&mut self, recipient: Recipient) -> Result<&mut Self, TransactionError> {
+        if recipient.address.signing_pubkey.curve()? == Curve::P256 {
+            return Err(TransactionError::P256TransactUnsupported);
+        }
+        self.recipients.push(recipient);
         Ok(self)
     }
 
@@ -290,6 +331,7 @@ impl ConfidentialTransfer {
                 asset,
                 amount: spl_change,
                 blinding: derive_blinding(&self.blinding_seed, SPL_CHANGE_POSITION),
+                ring_program_id: self.ring_program_id,
                 ..Default::default()
             }),
             None if self.change_layout == ChangeLayout::Padded => {
@@ -307,6 +349,7 @@ impl ConfidentialTransfer {
                 asset: SOL_MINT,
                 amount: sol_change,
                 blinding: derive_blinding(&self.blinding_seed, SOL_CHANGE_POSITION),
+                ring_program_id: self.ring_program_id,
                 ..Default::default()
             });
         } else if self.change_layout == ChangeLayout::Padded {
@@ -324,6 +367,10 @@ impl ConfidentialTransfer {
                 asset: recipient.asset,
                 amount: recipient.amount,
                 blinding: derive_blinding(&self.blinding_seed, position),
+                ring_program_id: match recipient.ring {
+                    RecipientRing::OfTransfer => self.ring_program_id,
+                    RecipientRing::Default => None,
+                },
                 ..Default::default()
             });
         }
@@ -695,6 +742,36 @@ mod tests {
             .send(&recipient.shielded_address().unwrap(), SOL_MINT, amount)
             .unwrap();
         transfer
+    }
+
+    #[test]
+    fn ring_binding_covers_change_and_every_send_in_any_order() {
+        let ring = Address::new_from_array([5u8; 32]);
+        let mut transfer = sol_transfer(4)
+            .with_compact_change()
+            .with_ring_program_id(ring);
+        let inside = ShieldedKeypair::new_ed25519().unwrap();
+        let outside = ShieldedKeypair::new_ed25519().unwrap();
+        transfer
+            .send(&inside.shielded_address().unwrap(), SOL_MINT, 1)
+            .unwrap();
+        transfer
+            .send_default_ring(&outside.shielded_address().unwrap(), SOL_MINT, 1)
+            .unwrap();
+        let prepared = transfer.prepare().unwrap();
+        let rings: Vec<Option<Address>> = prepared
+            .outputs
+            .iter()
+            .map(|output| output.ring_program_id)
+            .collect();
+        assert_eq!(rings, vec![Some(ring), Some(ring), Some(ring), None]);
+        assert_eq!(prepared.outputs[0].amount, 4);
+        assert!(sol_transfer(4)
+            .prepare()
+            .unwrap()
+            .outputs
+            .iter()
+            .all(|output| output.ring_program_id.is_none()));
     }
 
     /// An ed25519 owner who is also the fee payer at account index 0 is tagged

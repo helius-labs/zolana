@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Mutex};
 
 use solana_address::Address;
 
-use crate::authorize::{Unauthorized, READ_SKEW};
+use crate::authorize::{Unauthorized, AUTH_SKEW};
 
 const MAX_REPLAY_ENTRIES: usize = 65_536;
 
@@ -23,7 +23,7 @@ impl ReplayGuard {
     pub(crate) fn accept(&self, check: ReplayCheck) -> Result<(), Unauthorized> {
         let mut rings = self.0.lock().map_err(|_| Unauthorized::Replay)?;
         let accepted = rings.entry(check.ring).or_default();
-        accepted.retain(|_, timestamp| check.now.abs_diff(*timestamp) <= READ_SKEW.as_secs());
+        accepted.retain(|_, timestamp| check.now.abs_diff(*timestamp) <= AUTH_SKEW.as_secs());
         if accepted.len() >= MAX_REPLAY_ENTRIES {
             return Err(Unauthorized::Replay);
         }
@@ -54,7 +54,7 @@ mod tests {
     #[test]
     fn a_nonce_leaves_the_set_when_it_leaves_the_skew_window() {
         let guard = ReplayGuard::default();
-        let skew = READ_SKEW.as_secs();
+        let skew = AUTH_SKEW.as_secs();
         guard
             .accept(check(RING, 7, 1_000, 1_000))
             .expect("first use");
@@ -104,7 +104,7 @@ mod tests {
             guard.accept(check(RING, 0xff, now, now)),
             Err(Unauthorized::Replay)
         ));
-        let later = now + READ_SKEW.as_secs() + 1;
+        let later = now + AUTH_SKEW.as_secs() + 1;
         guard
             .accept(check(RING, 0xff, later, later))
             .expect("expired entries evicted");

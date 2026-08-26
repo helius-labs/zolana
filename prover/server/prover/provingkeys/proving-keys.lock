@@ -8,6 +8,11 @@
       "sha256": "6b239feff3b56f023d53d7cb473d455b64b2b115a552b40d359dd974ce741c12",
       "size": 3764027068
     },
+    "custom_ring.key": {
+      "sha256": "506ed2dcfc207c34126de083288457c01609bee3e62184c201e2bdef6ef20249",
+      "size": 89710022,
+      "source": "release"
+    },
     "merge_8_1.key": {
       "sha256": "cac18f8d859d5dac2ec3c069b22c9f985d37e0727b582f7d1bfca877d10392c9",
       "size": 56250158

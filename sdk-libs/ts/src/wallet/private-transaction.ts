@@ -38,7 +38,7 @@ function sameUtxo(left: Utxo, right: Utxo): boolean {
     left.asset === right.asset &&
     left.amount === right.amount &&
     equalBytes(left.blinding, right.blinding) &&
-    left.zoneProgramId === right.zoneProgramId &&
+    left.ringProgramId === right.ringProgramId &&
     sameData(left.data, right.data)
   );
 }
@@ -63,7 +63,7 @@ function matchingInput(
         equalBytes(entry.outputContext.hash, expected.outputContext.hash) &&
         equalBytes(entry.nullifier, expected.nullifier) &&
         sameOptionalHash(entry.dataHash, expected.dataHash) &&
-        sameOptionalHash(entry.zoneDataHash, expected.zoneDataHash) &&
+        sameOptionalHash(entry.ringDataHash, expected.ringDataHash) &&
         sameUtxo(entry.utxo, expected.utxo),
     );
 }
@@ -92,7 +92,7 @@ export async function authorizePrivateTransaction(
         utxo: entry.utxo,
         nullifierKey,
         ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),
-        ...(entry.zoneDataHash === undefined ? {} : { zoneDataHash: entry.zoneDataHash }),
+        ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
       }),
   );
   const action = transaction._action();

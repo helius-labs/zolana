@@ -1,4 +1,4 @@
-//! Minimal custom ring program: proves that the per-transaction viewing secret
+//! Custom ring program: proves that the per-transaction viewing secret
 //! key of an SPP `transact` is verifiably encrypted to the ring's auditor key,
 //! then forwards the transaction to SPP signed with the ring authority PDA.
 //!

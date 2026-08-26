@@ -17,6 +17,7 @@ import type {
   CustomRingProofRequest,
   MergeInputs,
   ProverInputs,
+  TransferInput,
 } from "../src/client/prover/types.js";
 import { ProofInputUtxo, createProofOutput } from "../src/transaction/index.js";
 
@@ -29,7 +30,7 @@ const INPUTS = {
     privateTxHash: 0n,
     publicAssets: [0n, 0n, 0n],
     publicAmounts: [0n, 0n, 0n],
-    zoneProgramId: 0n,
+    ringProgramId: 0n,
     signerPublicKeyHashes: [0n],
     allowDummyInputs: 1n,
     publishedOutputOwnerPublicKeyHashes: [],
@@ -165,9 +166,43 @@ function mergeInputs(): MergeInputs {
     privateTxHash: 0n,
     allowDummyInputs: 1n,
     publicInputHash: 0n,
-    outputZoneDataHash: 0n,
-    zoneProgramId: 0n,
+    outputRingDataHash: 0n,
+    ringProgramId: 0n,
   } as unknown as MergeInputs;
+}
+
+function dummyTransferInput(): TransferInput {
+  const utxo = ProofInputUtxo.dummy(bytes(7));
+  return createDummyTransferInput(utxo, 4n, {
+    leaf: utxo.nullifier(),
+    merkleContext: { treeType: 0, tree: address("11111111111111111111111111111111") },
+    lowElement: bytes(1),
+    highElement: bytes(2),
+    highElementIndex: 1n,
+    path: [],
+    lowElementIndex: 0n,
+    root: bytes(3),
+    rootSeq: 0n,
+    rootIndex: 0,
+  } as NonInclusionProof);
+}
+
+async function sentBody(
+  send: (prover: ProverClient) => Promise<unknown>,
+): Promise<Record<string, unknown>> {
+  const raw: string[] = [];
+  const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
+    raw.push(String(init?.body));
+    return new Response(JSON.stringify(STANDARD_PROOF), {
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof globalThis.fetch;
+  await send(new ProverClient({ url: "https://prover.example", fetch }));
+  return JSON.parse(raw[0] ?? "") as Record<string, unknown>;
+}
+
+function keysOf(value: unknown): string[] {
+  return Object.keys(value as object).sort();
 }
 
 describe("queued prover polling", () => {
@@ -246,7 +281,7 @@ describe("prover request routing", () => {
     expect(urls[0]?.searchParams.get("tenant")).toBe("alpha");
   });
 
-  it("encodes the ring request byte for byte like Rust `CustomRingProofRequest::body`", async () => {
+  it("encodes the custom-ring request byte for byte like Rust `CustomRingProofRequest::body`", async () => {
     const raw: string[] = [];
     const deliveries: (string | null)[] = [];
     const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
@@ -308,6 +343,115 @@ describe("prover request routing", () => {
       prover.proveCustomRing({ ...ringRequest(auditorPublicKey), pool: [] }),
     ).rejects.toMatchObject({ code: "CLIENT_INVALID_LENGTH" });
     expect(raw).toHaveLength(1);
+  });
+
+  it("pins the merge request keys to the Go `MergeParametersJSON` tags", async () => {
+    const body = await sentBody((prover) =>
+      prover.proveMerge({ ...mergeInputs(), inputs: [dummyTransferInput()] }),
+    );
+    const [input] = body["inputs"] as unknown[];
+
+    expect(keysOf(body)).toEqual(
+      [
+        "circuitType",
+        "inputs",
+        "output",
+        "asset",
+        "ownerPkHash",
+        "userNullifierPk",
+        "userNullifierSecret",
+        "externalDataHash",
+        "privateTxHash",
+        "publicInputHash",
+        "allowDummyInputs",
+        "outputRingDataHash",
+        "ringProgramId",
+      ].sort(),
+    );
+    expect(keysOf(input)).toEqual(
+      [
+        "domain",
+        "amount",
+        "blinding",
+        "ringDataHash",
+        "statePathElements",
+        "statePathIndex",
+        "nullifierLowValue",
+        "nullifierNextValue",
+        "nullifierLowPathElements",
+        "nullifierLowPathIndex",
+        "utxoTreeRoot",
+        "nullifierTreeRoot",
+        "nullifier",
+      ].sort(),
+    );
+    expect(keysOf(body["output"])).toEqual(["ringDataHash", "hash"].sort());
+  });
+
+  it("pins the transfer request keys to the Go `TransferParametersJSON` tags", async () => {
+    const body = await sentBody((prover) =>
+      prover.prove({
+        ...INPUTS,
+        payload: {
+          ...INPUTS.payload,
+          inputs: [dummyTransferInput()],
+          outputs: [mergeInputs().output],
+        },
+      }),
+    );
+    const [input] = body["inputs"] as Record<string, unknown>[];
+    const [output] = body["outputs"] as unknown[];
+
+    expect(keysOf(body)).toEqual(
+      [
+        "circuitType",
+        "nInputs",
+        "nOutputs",
+        "inputs",
+        "outputs",
+        "externalDataHash",
+        "privateTxHash",
+        "publicAssets",
+        "publicAmounts",
+        "ringProgramId",
+        "signerPkHashes",
+        "allowDummyInputs",
+        "publishedOutputOwnerPkHashes",
+        "publicInputHash",
+      ].sort(),
+    );
+    expect(keysOf(input)).toEqual(
+      [
+        "utxo",
+        "isDummy",
+        "statePathElements",
+        "statePathIndex",
+        "nullifierLowValue",
+        "nullifierNextValue",
+        "nullifierLowPathElements",
+        "nullifierLowPathIndex",
+        "utxoTreeRoot",
+        "nullifierTreeRoot",
+        "nullifier",
+        "ownerPkHash",
+        "nullifierSecret",
+      ].sort(),
+    );
+    expect(keysOf(output)).toEqual(
+      ["utxo", "isDummy", "hash", "ownerPkHash", "nullifierPk"].sort(),
+    );
+    expect(keysOf(input?.["utxo"])).toEqual(
+      [
+        "domain",
+        "owner",
+        "asset",
+        "amount",
+        "blinding",
+        "dataHash",
+        "ringDataHash",
+        "ringProgramId",
+      ].sort(),
+    );
   });
 
   it("queues a transfer after sync admission is refused", async () => {
@@ -408,8 +552,8 @@ describe("dummy prover inputs", () => {
       amount: 0n,
       blinding: BigInt(`0x${"07".repeat(32)}`),
       dataHash: 0n,
-      zoneDataHash: 0n,
-      zoneProgramId: 0n,
+      ringDataHash: 0n,
+      ringProgramId: 0n,
     });
   });
 });

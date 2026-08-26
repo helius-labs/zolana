@@ -32,3 +32,5 @@ const (
 	// table in one proof, one verification per transact.
 	CustomRingCircuitType CircuitType = "custom-ring"
 )
+
+const CustomRingKeyFile = "custom_ring.key"

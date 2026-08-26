@@ -16,7 +16,7 @@
     },
     {
       "path": "transaction/wallet-state-v1.json",
-      "sha256": "79522f567aecff83b365f94e05fdf8f4d5b7b50e4d853e6bdb82739607d38065"
+      "sha256": "0828e94fa2eb8768f1cd533f4aad83f087a12692ce52c94334369e950f447004"
     },
     {
       "path": "transaction/wallet-sync-v1.json",

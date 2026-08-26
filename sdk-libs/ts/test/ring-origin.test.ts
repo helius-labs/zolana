@@ -214,7 +214,7 @@ function transactData(transfers: readonly InterfaceTransfer[]): string {
   const encoded = encodeTransactInstructionData({
     expiryUnixTs: 0n,
     privateTxHash: zeros(32) as Bytes32,
-    circuit: { kind: "zoneEddsa", inputs: 1, outputs: 2, publicAssetSlots: 1 },
+    circuit: { kind: "ringEddsa", inputs: 1, outputs: 2, publicAssetSlots: 1 },
     txViewingPk: zeros(33) as Bytes33,
     salt: zeros(16) as Bytes16,
     proof: { a: zeros(32) as Bytes32, b: zeros(64) as Bytes64, c: zeros(32) as Bytes32 },

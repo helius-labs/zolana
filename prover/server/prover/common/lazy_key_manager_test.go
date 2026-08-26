@@ -32,7 +32,7 @@ func TestLazyKeyManagerBuildsCustomRingKeyPaths(t *testing.T) {
 	manager := NewLazyKeyManager(keysDir, &DownloadConfig{})
 
 	got := manager.determineRingKeyPath(CustomRingCircuitType, "transfer")
-	want := filepath.Join(keysDir, "custom_ring_transfer.key")
+	want := filepath.Join(keysDir, CustomRingKeyFile)
 	if got != want {
 		t.Fatalf("path mismatch: got %q, want %q", got, want)
 	}

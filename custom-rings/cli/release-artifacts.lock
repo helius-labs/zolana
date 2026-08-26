@@ -1,0 +1,31 @@
+{
+  "binaries": [
+    {
+      "arch": "arm64",
+      "asset": "ring-rpc-darwin-arm64-v0.1.0-alpha.2",
+      "os": "darwin",
+      "role": "ring_rpc",
+      "sha256": "b8edbb77c9da602e13ab43e7e0b1d906222bbb23fa0c1da5e3808cfab3e0051f",
+      "size": 14160704
+    },
+    {
+      "arch": "x64",
+      "asset": "ring-rpc-linux-x64-v0.1.0-alpha.2",
+      "os": "linux",
+      "role": "ring_rpc",
+      "sha256": "d3b1310f8964405cce3c2c2247b5fea5a6e07b0f13b7138550f1eeb75ba978bb",
+      "size": 17408696
+    }
+  ],
+  "proving_key": {
+    "asset": "custom-ring-key-v0.1.0-alpha.2.key",
+    "sha256": "506ed2dcfc207c34126de083288457c01609bee3e62184c201e2bdef6ef20249",
+    "size": 89710022
+  },
+  "release_tag": "v0.1.0-alpha.2",
+  "ring_program": {
+    "asset": "custom-ring-program-v0.1.0-alpha.2.so",
+    "sha256": "041b94f53ff0ee291473b3cf407b7c8b535d87f2beb7a18c48e2034aa2235d81",
+    "size": 175896
+  }
+}

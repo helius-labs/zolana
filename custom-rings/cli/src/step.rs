@@ -1,6 +1,5 @@
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::{error::InstructionError, Instruction};
-use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction_error::TransactionError;
 use thiserror::Error;
@@ -41,7 +40,9 @@ pub enum StepError {
 #[must_use]
 pub struct IdempotentStep<'a> {
     pub rpc: &'a SolanaRpc,
+    /// Pays and signs, `co_signers` only sign.
     pub authority: &'a dyn Signer,
+    pub co_signers: &'a [&'a dyn Signer],
     pub name: &'static str,
     pub compute_unit_limit: u32,
     pub hint: fn(u32) -> Option<&'static str>,
@@ -71,12 +72,12 @@ impl IdempotentStep<'_> {
     pub fn ensure_present(
         self,
         observed: Observed,
-        instruction: Instruction,
+        instructions: &[Instruction],
     ) -> Result<StepOutcome, StepError> {
         match observed {
             Observed::Present => Ok(StepOutcome::Present),
             Observed::Absent => {
-                let _ = self.send(instruction)?;
+                self.send(instructions)?;
                 Ok(StepOutcome::Created)
             }
         }
@@ -85,24 +86,28 @@ impl IdempotentStep<'_> {
     pub fn ensure_absent(
         self,
         observed: Observed,
-        instruction: Instruction,
+        instructions: &[Instruction],
     ) -> Result<StepOutcome, StepError> {
         match observed {
             Observed::Absent => Ok(StepOutcome::Absent),
             Observed::Present => {
-                let _ = self.send(instruction)?;
+                self.send(instructions)?;
                 Ok(StepOutcome::Closed)
             }
         }
     }
 
-    pub fn send(&self, instruction: Instruction) -> Result<Signature, StepError> {
-        let instructions = [
+    fn send(&self, instructions: &[Instruction]) -> Result<(), StepError> {
+        let instructions: Vec<Instruction> = std::iter::once(
             ComputeBudgetInstruction::set_compute_unit_limit(self.compute_unit_limit),
-            instruction,
-        ];
+        )
+        .chain(instructions.iter().cloned())
+        .collect();
+        let signers: Vec<&dyn Signer> = std::iter::once(self.authority)
+            .chain(self.co_signers.iter().copied())
+            .collect();
         self.rpc
-            .create_and_send_transaction(&instructions, self.authority.pubkey(), &[self.authority])
+            .create_and_send_transaction(&instructions, self.authority.pubkey(), &signers)
             .map_err(
                 |source| match custom_error_code(&source).and_then(self.hint) {
                     Some(hint) => StepError::Hinted {
@@ -115,7 +120,8 @@ impl IdempotentStep<'_> {
                         source: Box::new(source),
                     },
                 },
-            )
+            )?;
+        Ok(())
     }
 }
 

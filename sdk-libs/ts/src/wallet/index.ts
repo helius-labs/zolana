@@ -5,7 +5,7 @@ export {
   type AnonymousRecipientSlot,
   type ApprovalRequest,
   type AuditWitness,
-  type EncryptedAuditedTransfer,
+  type EncryptedCustomRingTransfer,
   type EncryptedEnvelope,
   type EncryptedSplit,
   type EncryptedTransfer,

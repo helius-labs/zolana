@@ -2,21 +2,21 @@
 //! custom ring program, shared by the program, the SDK, and the services.
 
 pub mod audit;
-#[cfg(feature = "verifying-keys")]
-pub mod custom_ring_vk;
 pub mod instruction;
 pub mod policy;
 pub mod public_input;
 pub mod state;
+#[cfg(feature = "verifying-keys")]
+pub mod verifying_key;
 
-pub use audit::{pack32_to_2fe, pack33_to_2fe, AuditPublicInput, FieldPair};
 pub use instruction::{
-    tag, AuditProof, CreateConfigIxData, CreateRecordIxData, CustomRingTransactIxData,
+    tag, CreateConfigIxData, CreateRecordIxData, CustomRingProof, CustomRingTransactIxData,
     ReaderIxData, UpdateRecordIxData, CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
     CREATE_POLICY_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
     READ_ACCESS_COMPUTE_UNIT_LIMIT, RECORD_MUTATION_COMPUTE_UNIT_LIMIT,
     SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
 };
+pub use audit::{pack32_to_2fe, pack33_to_2fe, AuditPublicInput, FieldPair};
 pub use policy::POLICY;
 pub use public_input::CustomRingPublicInput;
 pub use state::{

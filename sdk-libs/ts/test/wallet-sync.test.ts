@@ -308,7 +308,7 @@ describe("wallet sync", () => {
       asset: SOL_MINT,
       amount: 42n,
       blinding: bytes(31),
-      zoneProgramId: OWNER,
+      ringProgramId: OWNER,
     });
     const payload = encodeOutputData(
       EncryptedScheme.ringConfidential,
@@ -319,7 +319,7 @@ describe("wallet sync", () => {
           assetId: 1n,
           amount: output.amount,
           blinding: output.blinding,
-          zoneProgramId: OWNER,
+          ringProgramId: OWNER,
           data: output.data,
         },
         salt,
@@ -356,7 +356,7 @@ describe("wallet sync", () => {
     });
 
     expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
-    expect(wallet.utxos()[0]?.utxo.zoneProgramId).toBe(OWNER);
+    expect(wallet.utxos()[0]?.utxo.ringProgramId).toBe(OWNER);
   });
 
   it("selects the ring confidential marker for a ring output", () => {
@@ -368,7 +368,7 @@ describe("wallet sync", () => {
           ownerAddress: recipient.shieldedAddress(),
           asset: SOL_MINT,
           amount: 1n,
-          zoneProgramId: OWNER,
+          ringProgramId: OWNER,
         }),
       ],
       wallet.registry,
@@ -391,7 +391,7 @@ describe("wallet sync", () => {
       asset: SOL_MINT,
       amount: 10n,
       blinding: inputBlinding,
-      zoneProgramId: OWNER,
+      ringProgramId: OWNER,
     });
     const inputHash = input.hash(sender.nullifierPublicKey());
     const nullifier = sender.nullifier(inputHash, inputBlinding);
@@ -413,14 +413,14 @@ describe("wallet sync", () => {
       asset: SOL_MINT,
       amount: 3n,
       blinding: bytes(34),
-      zoneProgramId: OWNER,
+      ringProgramId: OWNER,
     });
     const payment = new Utxo({
       owner: recipient.signingPublicKey(),
       asset: SOL_MINT,
       amount: 7n,
       blinding: bytes(35),
-      zoneProgramId: OWNER,
+      ringProgramId: OWNER,
     });
     const changePayload = encodeOutputData(
       EncryptedScheme.ringConfidential,
@@ -431,7 +431,7 @@ describe("wallet sync", () => {
           assetId: 1n,
           amount: change.amount,
           blinding: change.blinding,
-          zoneProgramId: OWNER,
+          ringProgramId: OWNER,
           data: change.data,
         },
         salt,
@@ -448,7 +448,7 @@ describe("wallet sync", () => {
           assetId: 1n,
           amount: payment.amount,
           blinding: payment.blinding,
-          zoneProgramId: OWNER,
+          ringProgramId: OWNER,
           data: payment.data,
         },
         salt,
@@ -493,7 +493,7 @@ describe("wallet sync", () => {
       ],
     });
 
-    expect(wallet.utxos().find((entry) => !entry.spent)?.utxo.zoneProgramId).toBe(OWNER);
+    expect(wallet.utxos().find((entry) => !entry.spent)?.utxo.ringProgramId).toBe(OWNER);
     expect(wallet.privateTransactions()).toContainEqual(
       expect.objectContaining({ kind: "privateTransfer", direction: "outbound", amount: 7n }),
     );

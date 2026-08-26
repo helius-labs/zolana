@@ -43,7 +43,7 @@ export interface TransferInputs {
   readonly privateTxHash: Field;
   readonly publicAssets: readonly Field[];
   readonly publicAmounts: readonly Field[];
-  readonly zoneProgramId: Field;
+  readonly ringProgramId: Field;
   readonly signerPublicKeyHashes: readonly Field[];
   readonly allowDummyInputs: Field;
   readonly publishedOutputOwnerPublicKeyHashes: readonly Field[];
@@ -60,8 +60,8 @@ export interface MergeInputs {
   readonly privateTxHash: Field;
   readonly allowDummyInputs: Field;
   readonly publicInputHash: Field;
-  readonly outputZoneDataHash: Field;
-  readonly zoneProgramId: Field;
+  readonly outputRingDataHash: Field;
+  readonly ringProgramId: Field;
 }
 
 export type ProverInputs = Readonly<{
@@ -192,8 +192,8 @@ export interface CompressedProof {
   readonly commitment?: Bytes32;
   readonly commitmentPok?: Bytes32;
   toTransactProof(): TransactProof;
-  /** `a(32) || b(64) || c(32) || commitment(32) || commitmentPok(32)`, Rust `AuditProof`. */
-  toAuditProof(): Uint8Array;
+  /** `a(32) || b(64) || c(32) || commitment(32) || commitmentPok(32)`, Rust `CustomRingProof`. */
+  toCustomRingProof(): Uint8Array;
 }
 
 export type { SpendProof };

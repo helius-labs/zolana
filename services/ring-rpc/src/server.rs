@@ -120,16 +120,20 @@ pub fn rpc_module<S: TransactionSource + 'static>(
         Ok::<_, ErrorObjectOwned>(HealthResponse {
             mode: hub.mode(),
             service_pubkey: hub.service_pubkey().into(),
-            auditor_view_tag: hub.local_view_tag().map(Into::into),
         })
     })?;
 
     module.register_async_method(CREATE_AUDITOR_KEY, |params, hub, _extensions| async move {
         let request = params.parse::<CreateAuditorKeyRequest>()?;
-        hub.accept_public(PublicRequest::Standard)
+        hub.accept_authentication()
             .map_err(ErrorObjectOwned::from)?;
+        let _authentication = hub.authentication_slot().map_err(ErrorObjectOwned::from)?;
         let ring = request.ring_program_id.0;
         let service = hub.service_for(ring).map_err(ErrorObjectOwned::from)?;
+        service
+            .authorize_auditor_key(&request.auth)
+            .await
+            .map_err(ErrorObjectOwned::from)?;
         let ring = service.ring();
         let auditor_pubkey = service.auditor_pubkey();
         let signature = hub.sign_attestation(&auditor_key_attestation(&ring, &auditor_pubkey));
@@ -184,8 +188,6 @@ pub fn rpc_module<S: TransactionSource + 'static>(
         Ok::<_, ErrorObjectOwned>(RingStatusResponse {
             ring_program_id: service.ring().into(),
             state,
-            auditor_pubkey: auditor_pubkey.into(),
-            auditor_view_tag: service.auditor_view_tag().into(),
             config_auditor_pubkey: configured.map(Into::into),
             service_pubkey: hub.service_pubkey().into(),
         })
@@ -381,6 +383,13 @@ mod tests {
             Ok(false)
         }
 
+        async fn upgrade_authority(
+            &self,
+            _program: Address,
+        ) -> Result<Option<Address>, ClientError> {
+            Ok(None)
+        }
+
         fn health(&self) -> impl Future<Output = Result<(), ClientError>> + Send {
             let healthy = self.healthy;
             let delay = self.delay;
@@ -412,9 +421,10 @@ mod tests {
         let auditor = ViewingKey::new();
         source.config = Some(RingConfiguration {
             auditor_pubkey: auditor.pubkey(),
+            authority: Address::new_from_array([2; 32]),
         });
         Arc::new(
-            Hub::builder(source)
+            Hub::builder(source, TEST_GENESIS)
                 .with_origins(origins)
                 .local(SERVED_RING, auditor)
                 .expect("hub"),
@@ -423,8 +433,8 @@ mod tests {
 
     fn derived_hub(source: TestSource, genesis: [u8; 32]) -> Arc<Hub<TestSource>> {
         Arc::new(
-            Hub::builder(source)
-                .derived(RootSecret::from_bytes([5; 32]).expect("root"), genesis)
+            Hub::builder(source, genesis)
+                .derived(RootSecret::from_bytes([5; 32]).expect("root"))
                 .expect("hub"),
         )
     }

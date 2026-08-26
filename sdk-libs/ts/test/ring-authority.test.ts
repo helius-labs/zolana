@@ -52,7 +52,7 @@ describe("LocalWalletAuthority", () => {
     expect(derivedNullifier.publicKey()).toEqual(localNullifier.publicKey());
   });
 
-  it("seals the transaction viewing secret to the auditor in an audited transfer", async () => {
+  it("seals the transaction viewing secret to the auditor in a custom-ring transfer", async () => {
     const keypair = ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(seed(8)));
     const solanaPublicKey = getAddressDecoder().decode(
       keypair.signingPublicKey().toBytes().subarray(1),
@@ -60,7 +60,7 @@ describe("LocalWalletAuthority", () => {
     const authority = new LocalWalletAuthority({ solanaPublicKey, keypair });
     const auditor = ViewingKey.generate();
     const firstNullifier = seed(9);
-    const encrypted = await authority.encryptAuditedTransfer({
+    const encrypted = await authority.encryptCustomRingTransfer({
       firstNullifier,
       outputs: [
         createProofOutput({

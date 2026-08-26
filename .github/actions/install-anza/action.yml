@@ -1,0 +1,33 @@
+name: Install Anza CLI
+description: Cache the pinned Anza release, install it with retries on a miss, fail when the binaries are absent.
+inputs:
+  version:
+    description: Agave release tag, the AGAVE_VERSION pin.
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: ~/.local/share/solana/install
+        key: anza-${{ runner.os }}-${{ inputs.version }}
+    - name: Install the Anza toolchain
+      shell: bash
+      run: |
+        set -euo pipefail
+        bin="$HOME/.local/share/solana/install/active_release/bin"
+        if [[ ! -x "$bin/solana" ]]; then
+          installer="$(mktemp)"
+          for attempt in 1 2 3 4 5; do
+            if curl -sSfL --retry 5 --retry-all-errors --retry-delay 5 \
+                 "https://release.anza.xyz/${{ inputs.version }}/install" -o "$installer" \
+               && sh "$installer"; then
+              break
+            fi
+            echo "anza install failed, attempt $attempt"
+            sleep $((attempt * 15))
+          done
+        fi
+        "$bin/solana" --version
+        "$bin/cargo-build-sbf" --version
+        echo "$bin" >> "$GITHUB_PATH"

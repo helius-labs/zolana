@@ -1,12 +1,11 @@
-//! `ring.toml`, the answers the wizard recorded for a generated ring.
+//! `ring.toml`, the answers `new` recorded.
 
 use std::{
-    collections::BTreeMap,
     io,
     path::{Path, PathBuf},
 };
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use solana_address::Address;
 use solana_keypair::Keypair;
 use thiserror::Error;
@@ -18,36 +17,32 @@ use crate::{
 
 pub const RING_TOML: &str = "ring.toml";
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RingConfig {
     pub name: String,
     /// `--target` overrides it for one command.
     pub target: Target,
-    #[serde(deserialize_with = "base58_address::deserialize")]
+    #[serde(with = "base58_address")]
     pub program_id: Address,
     /// Fallback for both authority keypairs.
     pub authority_keypair: PathBuf,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub upgrade_authority_keypair: Option<PathBuf>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub config_authority_keypair: Option<PathBuf>,
-    /// Zolana revision the ring source was generated from.
-    pub zolana_revision: String,
     pub localnet: Urls,
     pub devnet: Urls,
-    #[serde(default)]
-    pub features: BTreeMap<String, bool>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, clap::ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum Target {
     Localnet,
     Devnet,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Urls {
     pub rpc: String,
@@ -55,11 +50,17 @@ pub struct Urls {
     pub prover: String,
     pub ring_rpc: String,
     /// When set, `init` accepts an auditor key only under this service key.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ring_rpc_pubkey: Option<String>,
 }
 
 impl Urls {
+    pub fn port(url: &str) -> Option<u16> {
+        let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+        let authority = rest.split(['/', '?']).next().unwrap_or_default();
+        authority.rsplit_once(':')?.1.parse().ok()
+    }
+
     /// Only a ring RPC on this machine takes its auditor key from `keys/`.
     pub fn ring_rpc_is_local(&self) -> bool {
         let rest = match self.ring_rpc.split_once("://") {
@@ -177,13 +178,6 @@ impl RingConfig {
             .unwrap_or(&self.authority_keypair)
     }
 
-    pub fn enabled_features(&self) -> impl Iterator<Item = &str> {
-        self.features
-            .iter()
-            .filter(|(_, enabled)| **enabled)
-            .map(|(id, _)| id.as_str())
-    }
-
     pub(crate) fn resolve_keypair_paths(&mut self, root: &ProjectRoot) {
         self.authority_keypair = root.resolve(&self.authority_keypair);
         self.config_authority_keypair = self
@@ -197,6 +191,30 @@ impl RingConfig {
     }
 }
 
+pub fn redact_url(url: &str) -> String {
+    match url.split_once('?') {
+        Some((base, _)) => format!("{base}?…"),
+        None => url.to_owned(),
+    }
+}
+
+pub fn redact_text(text: &str) -> String {
+    const KEY: &str = "api-key=";
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find(KEY) {
+        let after = start + KEY.len();
+        out.push_str(&rest[..after]);
+        out.push('…');
+        let value_end = rest[after..]
+            .find(|c: char| c == '&' || c == ')' || c == '"' || c.is_whitespace())
+            .map_or(rest.len(), |end| after + end);
+        rest = &rest[value_end..];
+    }
+    out.push_str(rest);
+    out
+}
+
 pub fn expand_tilde(path: &Path) -> Result<PathBuf, ConfigError> {
     let Ok(rest) = path.strip_prefix("~") else {
         return Ok(path.to_path_buf());
@@ -207,12 +225,16 @@ pub fn expand_tilde(path: &Path) -> Result<PathBuf, ConfigError> {
 
 /// The file carries base58, not the default byte form.
 mod base58_address {
-    use serde::{Deserialize, Deserializer};
+    use serde::{Deserialize, Deserializer, Serializer};
     use solana_address::Address;
 
     pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Address, D::Error> {
         let text = String::deserialize(deserializer)?;
         text.parse().map_err(serde::de::Error::custom)
+    }
+
+    pub fn serialize<S: Serializer>(address: &Address, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&address.to_string())
     }
 }
 
@@ -279,7 +301,6 @@ mod tests {
 name = "demo-ring"
 target = "localnet"
 program_id = "9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh"
-zolana_revision = "851680f7fcc99ccbd88119942760e9309ace0a58"
 authority_keypair = "~/.config/solana/id.json"
 
 [localnet]
@@ -293,24 +314,30 @@ rpc = "https://api.devnet.solana.com"
 indexer = "http://127.0.0.1:8784"
 prover = "http://127.0.0.1:3001"
 ring_rpc = "http://127.0.0.1:8785"
-
-[features]
-confidential = true
-auditor_visibility = true
-anonymous = false
 "#;
 
     #[test]
-    fn parses_the_wizard_output_and_lists_enabled_features() {
+    fn port_reads_the_authority_only() {
+        assert_eq!(Urls::port("http://127.0.0.1:8899"), Some(8899));
+        assert_eq!(Urls::port("http://[::1]:8785/path?x=1:2"), Some(8785));
+        assert_eq!(Urls::port("http://localhost"), None);
+        assert_eq!(Urls::port("https://example.com/?key=1:2"), None);
+    }
+
+    #[test]
+    fn parses_the_recorded_answers_and_round_trips() {
         let config: RingConfig = toml::from_str(EXAMPLE).expect("parse");
         assert_eq!(config.target, Target::Localnet);
         assert_eq!(config.urls().rpc, "http://127.0.0.1:8899");
         assert_eq!(config.devnet.rpc, "https://api.devnet.solana.com");
-        assert_eq!(
-            config.enabled_features().collect::<Vec<_>>(),
-            vec!["auditor_visibility", "confidential"]
-        );
         assert_eq!(config.urls().ring_rpc, "http://127.0.0.1:8785");
+        let written = toml::to_string(&config).expect("serialize");
+        assert!(!written.contains("upgrade_authority_keypair"));
+        assert!(!written.contains("ring_rpc_pubkey"));
+        assert_eq!(
+            toml::from_str::<RingConfig>(&written).expect("reparse"),
+            config
+        );
     }
 
     #[test]
@@ -352,6 +379,21 @@ anonymous = false
         assert!(!local("http://ring.example.com:8785"));
         // A host that merely starts with a loopback name is not one.
         assert!(!local("http://localhost.example.com:8785"));
+    }
+
+    #[test]
+    fn redaction_masks_query_strings_and_api_keys() {
+        assert_eq!(
+            redact_url("https://devnet.helius-rpc.com/?api-key=secret"),
+            "https://devnet.helius-rpc.com/?…"
+        );
+        assert_eq!(redact_url("http://127.0.0.1:8899"), "http://127.0.0.1:8899");
+        assert_eq!(
+            redact_text("error sending request for url (https://x/?api-key=abc&x=1): timeout"),
+            "error sending request for url (https://x/?api-key=…&x=1): timeout"
+        );
+        assert_eq!(redact_text("api-key=abc"), "api-key=…");
+        assert_eq!(redact_text("no key here"), "no key here");
     }
 
     #[test]

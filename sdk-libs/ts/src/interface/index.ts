@@ -4,7 +4,7 @@ export {
   decodeProtocolConfig,
   decodeSplAssetCounter,
   decodeSplAssetRegistry,
-  decodeZoneConfig,
+  decodeRingConfig,
 } from "./accounts.js";
 export { MERGE_INPUT_COUNT } from "./constants.js";
 export { InterfaceError, ShieldedPoolError, decodeShieldedPoolError } from "./errors.js";

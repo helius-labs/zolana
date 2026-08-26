@@ -5,10 +5,9 @@
 
 use curve25519_dalek::constants::{ED25519_BASEPOINT_POINT, EIGHT_TORSION};
 use custom_ring_sdk::{
-    tag, AuditProof, CreateConfig, CreateConfigIxData, CustomRing, CustomRingTransactIxData,
-    Deposit, GrantReadAccess, InitSppRingConfig, ReaderIxData, ReaderKey, ReaderKeyError,
-    RevokeReadAccess, RingTransactWithAudit, SetAuthority, CONFIG_PDA_SEED,
-    READ_ACCESS_RECORD_PDA_SEED,
+    tag, CreateConfig, CreateConfigIxData, CustomRing, CustomRingProof, CustomRingTransact,
+    CustomRingTransactIxData, Deposit, GrantReadAccess, InitSppRingConfig, ReaderIxData, ReaderKey,
+    ReaderKeyError, RevokeReadAccess, SetAuthority, CONFIG_PDA_SEED, READ_ACCESS_RECORD_PDA_SEED,
 };
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -520,8 +519,8 @@ fn owner_signer() -> Address {
     Address::new_from_array([43; 32])
 }
 
-fn audit_proof() -> AuditProof {
-    AuditProof {
+fn sample_proof() -> CustomRingProof {
+    CustomRingProof {
         proof_a: [51; 32],
         proof_b: [52; 64],
         proof_c: [53; 32],
@@ -556,24 +555,24 @@ fn transact_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData 
 /// `[payer, config]` prefix followed by SPP's `RING_TRANSACT` list, which the
 /// builder takes from the interface builder instead of re-listing.
 #[test]
-fn ring_transact_with_audit_prepends_payer_and_config_to_the_spp_list() {
-    let proof = audit_proof();
+fn custom_ring_transact_prepends_payer_and_config_to_the_spp_list() {
+    let proof = sample_proof();
     let transact = transact_data(Vec::new());
 
-    let instruction = RingTransactWithAudit {
+    let instruction = CustomRingTransact {
         ring: ring(),
         payer: payer(),
         input_tree: input_tree(),
         output_tree: output_tree(),
         owner_signers: vec![owner_signer()],
         interface_transfer_accounts: Vec::new(),
-        audit_proof: proof,
+        proof,
         state_root_index: 0,
         nullifier_root_index: 0,
         transact: transact.clone(),
     }
     .instruction()
-    .expect("serialize the audited transact payload");
+    .expect("serialize the custom-ring transact payload");
 
     assert_eq!(instruction.program_id, ring().program_id());
     assert_eq!(
@@ -612,21 +611,21 @@ fn ring_transact_with_audit_prepends_payer_and_config_to_the_spp_list() {
 /// only the program can sign for it, inside its CPI. A signer meta here would make
 /// the transaction unsignable.
 #[test]
-fn ring_transact_with_audit_leaves_ring_config_unsigned() {
-    let instruction = RingTransactWithAudit {
+fn custom_ring_transact_leaves_ring_config_unsigned() {
+    let instruction = CustomRingTransact {
         ring: ring(),
         payer: payer(),
         input_tree: input_tree(),
         output_tree: output_tree(),
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
-        audit_proof: audit_proof(),
+        proof: sample_proof(),
         state_root_index: 0,
         nullifier_root_index: 0,
         transact: transact_data(Vec::new()),
     }
     .instruction()
-    .expect("serialize the audited transact payload");
+    .expect("serialize the custom-ring transact payload");
 
     // The policy config sits before the forwarded SPP list.
     let ring_config_index = 8;
@@ -641,10 +640,10 @@ fn ring_transact_with_audit_leaves_ring_config_unsigned() {
 /// Settlement accounts come from the same interface builder, so a withdrawal's
 /// group has to appear after the owner signers untouched.
 #[test]
-fn ring_transact_with_audit_forwards_settlement_accounts() {
+fn custom_ring_transact_forwards_settlement_accounts() {
     let recipient = Address::new_from_array([44; 32]);
 
-    let instruction = RingTransactWithAudit {
+    let instruction = CustomRingTransact {
         ring: ring(),
         payer: payer(),
         input_tree: input_tree(),
@@ -653,13 +652,13 @@ fn ring_transact_with_audit_forwards_settlement_accounts() {
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts { recipient },
         )],
-        audit_proof: audit_proof(),
+        proof: sample_proof(),
         state_root_index: 0,
         nullifier_root_index: 0,
         transact: transact_data(vec![InterfaceTransfer::SolWithdrawal { amount: 5 }]),
     }
     .instruction()
-    .expect("serialize the audited transact payload");
+    .expect("serialize the custom-ring transact payload");
 
     assert_eq!(
         instruction

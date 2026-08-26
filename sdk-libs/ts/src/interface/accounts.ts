@@ -2,13 +2,13 @@ import {
   decodeProtocolConfigAccount,
   decodeSplAssetCounterAccount,
   decodeSplAssetRegistryAccount,
-  decodeZoneConfigAccount,
+  decodeRingConfigAccount,
 } from "./codecs/index.js";
 import type {
   ProtocolConfigAccount,
   SplAssetCounterAccount,
   SplAssetRegistryAccount,
-  ZoneConfigAccount,
+  RingConfigAccount,
 } from "./types.js";
 
 export function decodeProtocolConfig(data: Uint8Array): ProtocolConfigAccount {
@@ -23,6 +23,6 @@ export function decodeSplAssetRegistry(data: Uint8Array): SplAssetRegistryAccoun
   return decodeSplAssetRegistryAccount(data);
 }
 
-export function decodeZoneConfig(data: Uint8Array): ZoneConfigAccount {
-  return decodeZoneConfigAccount(data);
+export function decodeRingConfig(data: Uint8Array): RingConfigAccount {
+  return decodeRingConfigAccount(data);
 }

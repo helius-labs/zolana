@@ -65,19 +65,20 @@ fn init(ctx: &mut Context, records_tree: Address) -> Result<(), RecordError> {
     let outcome = IdempotentStep {
         rpc: &ctx.rpc,
         authority: &authority,
+        co_signers: &[],
         name: "create_policy",
         compute_unit_limit: CREATE_POLICY_COMPUTE_UNIT_LIMIT,
         hint: no_hint,
     }
     .ensure_present(
         observed,
-        CreatePolicy {
+        &[CreatePolicy {
             ring: ctx.ring,
             payer: authority.pubkey(),
             authority: authority.pubkey(),
             records_tree,
         }
-        .instruction(),
+        .instruction()],
     )?;
     line("policy", outcome_label(outcome));
     line("records", ctx.ring.records_pda());
@@ -136,16 +137,16 @@ fn mutate(
         }
     };
     let version = proven.record().version;
-    let signature = IdempotentStep {
+    IdempotentStep {
         rpc: &ctx.rpc,
         authority: &authority,
+        co_signers: &[],
         name: "record_mutation",
         compute_unit_limit: RECORD_MUTATION_COMPUTE_UNIT_LIMIT,
         hint: no_hint,
     }
-    .send(proven.instruction()?)?;
+    .ensure_present(Observed::Absent, &[proven.instruction()?])?;
     line("version", version);
-    line("signature", signature);
     Ok(())
 }
 

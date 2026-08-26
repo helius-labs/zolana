@@ -110,4 +110,7 @@ Maintainers publish the release with
 stages assets and regenerates the lockfile). It builds the programs, the host +
 linux-x64 prover/photon binaries, snapshots the initialized accounts in-process
 with LiteSVM (no keypairs or running validator needed), and regenerates the
-lockfile.
+lockfile. The `zolana` CLI is built last so it embeds that lockfile. The custom
+ring program and the `zolana-ring` CLI form a release of their own,
+`just release-custom-rings <tag> --upload --prerelease`, under
+`custom-rings/cli/release-artifacts.lock`.

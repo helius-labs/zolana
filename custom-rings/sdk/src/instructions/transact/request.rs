@@ -1,20 +1,20 @@
 use serde::Serialize;
 use zeroize::Zeroizing;
 
-use super::proof::AuditProofInputError;
+use super::proof::CustomRingProofInputError;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct AuditPrivateTxHash([u8; 32]);
+pub struct CustomRingPrivateTxHash([u8; 32]);
 
-impl TryFrom<[u8; 32]> for AuditPrivateTxHash {
-    type Error = AuditProofInputError;
+impl TryFrom<[u8; 32]> for CustomRingPrivateTxHash {
+    type Error = CustomRingProofInputError;
 
     fn try_from(value: [u8; 32]) -> Result<Self, Self::Error> {
         canonical_audit_hash(value).map(Self)
     }
 }
 
-impl AsRef<[u8; 32]> for AuditPrivateTxHash {
+impl AsRef<[u8; 32]> for CustomRingPrivateTxHash {
     fn as_ref(&self) -> &[u8; 32] {
         &self.0
     }
@@ -49,9 +49,9 @@ const BN254_SCALAR_MODULUS: [u8; 32] = [
     0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x70, 0x91, 0x43, 0xe1, 0xf5, 0x93, 0xf0, 0x00, 0x00, 0x01,
 ];
 
-fn canonical_audit_hash(value: [u8; 32]) -> Result<[u8; 32], AuditProofInputError> {
+fn canonical_audit_hash(value: [u8; 32]) -> Result<[u8; 32], CustomRingProofInputError> {
     if value >= BN254_SCALAR_MODULUS {
-        return Err(AuditProofInputError::GreaterThanB254FieldSize);
+        return Err(CustomRingProofInputError::GreaterThanB254FieldSize);
     }
     Ok(value)
 }
@@ -63,8 +63,8 @@ mod tests {
     #[test]
     fn rejects_noncanonical_audit_hashes() {
         assert!(matches!(
-            AuditPrivateTxHash::try_from(BN254_SCALAR_MODULUS),
-            Err(AuditProofInputError::GreaterThanB254FieldSize)
+            CustomRingPrivateTxHash::try_from(BN254_SCALAR_MODULUS),
+            Err(CustomRingProofInputError::GreaterThanB254FieldSize)
         ));
     }
 }

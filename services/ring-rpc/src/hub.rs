@@ -68,12 +68,15 @@ impl NotReady {
 #[must_use]
 pub struct HubBuilder<S> {
     source: S,
+    genesis_hash: [u8; 32],
     assets: AssetRegistry,
     origins: Origins,
 }
 
 pub(crate) struct Shared<S> {
     pub(crate) source: S,
+    /// Captured at boot, every authority signature and derived key binds to it.
+    pub(crate) genesis_hash: [u8; 32],
     assets: AsyncMutex<AssetCache>,
     pub(crate) origins: Origins,
     pub(crate) replay: ReplayGuard,
@@ -148,9 +151,10 @@ impl<S: TransactionSource> Shared<S> {
 }
 
 impl<S: TransactionSource> Hub<S> {
-    pub fn builder(source: S) -> HubBuilder<S> {
+    pub fn builder(source: S, genesis_hash: [u8; 32]) -> HubBuilder<S> {
         HubBuilder {
             source,
+            genesis_hash,
             assets: AssetRegistry::default(),
             origins: Origins::default(),
         }
@@ -201,7 +205,7 @@ impl<S: TransactionSource> Hub<S> {
     pub fn mode(&self) -> KeyMode {
         match self.keys {
             KeySource::Local { .. } => KeyMode::Local,
-            KeySource::Derived { .. } => KeyMode::Derived,
+            KeySource::Derived(_) => KeyMode::Derived,
         }
     }
 
@@ -225,7 +229,7 @@ impl<S: TransactionSource> Hub<S> {
     pub fn local_view_tag(&self) -> Option<[u8; 32]> {
         match &self.keys {
             KeySource::Local { auditor, .. } => Some(auditor_view_tag(&auditor.pubkey())),
-            KeySource::Derived { .. } => None,
+            KeySource::Derived(_) => None,
         }
     }
 
@@ -257,10 +261,10 @@ impl<S: TransactionSource> Hub<S> {
                 })
                 .build())
             }
-            KeySource::Derived { root, genesis_hash } => {
+            KeySource::Derived(root) => {
                 let auditor = AuditorKeyDerivation {
                     root,
-                    genesis_hash,
+                    genesis_hash: &self.shared.genesis_hash,
                     ring,
                 }
                 .derive()?;
@@ -279,41 +283,36 @@ impl<S: TransactionSource> Hub<S> {
             KeySource::Local {
                 ring: configured, ..
             } if ring != *configured => Err(RingRpcError::RingNotServed),
-            KeySource::Local { .. } | KeySource::Derived { .. } => Ok(()),
+            KeySource::Local { .. } | KeySource::Derived(_) => Ok(()),
         }
     }
 
-    /// Local mode holds one key for one ring, and every derived key is bound
-    /// to the boot genesis hash, so each mode has its own ring check.
+    /// Local mode holds one key for one ring, so it also checks the config.
     pub async fn probe_upstreams(&self) -> Result<(), NotReady> {
         self.shared
             .source
             .health()
             .await
             .map_err(|error| NotReady::Upstream(error.into()))?;
-        match &self.keys {
-            KeySource::Local { ring, auditor } => {
-                let config = self
-                    .shared
-                    .source
-                    .ring_config(*ring)
-                    .await
-                    .map_err(|error| NotReady::Upstream(error.into()))?
-                    .ok_or(NotReady::AuditorKey(Unauthorized::NoConfig))?;
-                if config.auditor_pubkey != auditor.pubkey() {
-                    return Err(NotReady::AuditorKey(Unauthorized::AuditorKeyMismatch));
-                }
-            }
-            KeySource::Derived { genesis_hash, .. } => {
-                let current = self
-                    .shared
-                    .source
-                    .genesis_hash()
-                    .await
-                    .map_err(|error| NotReady::Upstream(error.into()))?;
-                if current != *genesis_hash {
-                    return Err(NotReady::Cluster);
-                }
+        let current = self
+            .shared
+            .source
+            .genesis_hash()
+            .await
+            .map_err(|error| NotReady::Upstream(error.into()))?;
+        if current != self.shared.genesis_hash {
+            return Err(NotReady::Cluster);
+        }
+        if let KeySource::Local { ring, auditor } = &self.keys {
+            let config = self
+                .shared
+                .source
+                .ring_config(*ring)
+                .await
+                .map_err(|error| NotReady::Upstream(error.into()))?
+                .ok_or(NotReady::AuditorKey(Unauthorized::NoConfig))?;
+            if config.auditor_pubkey != auditor.pubkey() {
+                return Err(NotReady::AuditorKey(Unauthorized::AuditorKeyMismatch));
             }
         }
         Ok(())
@@ -391,18 +390,19 @@ impl<S: TransactionSource> HubBuilder<S> {
         })
     }
 
-    pub fn derived(self, root: RootSecret, genesis_hash: [u8; 32]) -> Result<Hub<S>, RingRpcError> {
+    pub fn derived(self, root: RootSecret) -> Result<Hub<S>, RingRpcError> {
         let signer = service_keypair(root.as_bytes())?;
         Ok(Hub {
             signer,
             shared: self.shared(),
-            keys: KeySource::Derived { root, genesis_hash },
+            keys: KeySource::Derived(root),
         })
     }
 
     fn shared(self) -> Arc<Shared<S>> {
         Arc::new(Shared {
             source: self.source,
+            genesis_hash: self.genesis_hash,
             assets: AsyncMutex::new(AssetCache {
                 registry: self.assets,
                 refresh: RefreshState::Never,

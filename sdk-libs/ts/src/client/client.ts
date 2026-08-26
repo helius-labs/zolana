@@ -594,7 +594,7 @@ export class ZolanaClient {
   ): Promise<Uint8Array> {
     try {
       const proof = await this.#prover.proveCustomRing(inputs, context);
-      return compressProof(proof).toAuditProof();
+      return compressProof(proof).toCustomRingProof();
     } catch (cause) {
       throw fromClientCause(cause);
     }

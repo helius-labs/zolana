@@ -332,8 +332,8 @@ function mergeProverRequest(inputs: MergeInputs): Readonly<Record<string, unknow
     privateTxHash: hex(inputs.privateTxHash),
     publicInputHash: hex(inputs.publicInputHash),
     allowDummyInputs: hex(inputs.allowDummyInputs),
-    outputZoneDataHash: hex(inputs.outputZoneDataHash),
-    zoneProgramId: hex(inputs.zoneProgramId),
+    outputRingDataHash: hex(inputs.outputRingDataHash),
+    ringProgramId: hex(inputs.ringProgramId),
   });
 }
 
@@ -343,7 +343,7 @@ function mergeInputJson(input: TransferInput): Readonly<Record<string, unknown>>
     domain: hex(utxo.domain),
     amount: hex(utxo.amount),
     blinding: hex(utxo.blinding),
-    zoneDataHash: hex(utxo.zoneDataHash),
+    ringDataHash: hex(utxo.ringDataHash),
     statePathElements: input.statePathElements.map(hex),
     statePathIndex: hex(input.statePathIndex),
     nullifierLowValue: hex(input.nullifierLowValue),
@@ -358,7 +358,7 @@ function mergeInputJson(input: TransferInput): Readonly<Record<string, unknown>>
 
 function mergeOutputJson(output: TransferOutput): Readonly<Record<string, unknown>> {
   return Object.freeze({
-    zoneDataHash: hex(circuitUtxo(output).zoneDataHash),
+    ringDataHash: hex(circuitUtxo(output).ringDataHash),
     hash: hex(output.hash),
   });
 }
@@ -480,7 +480,7 @@ function proverRequest(inputs: ProverInputs): Readonly<Record<string, unknown>> 
     privateTxHash: hex(payload.privateTxHash),
     publicAssets: payload.publicAssets.map(hex),
     publicAmounts: payload.publicAmounts.map(hex),
-    ringProgramId: hex(payload.zoneProgramId),
+    ringProgramId: hex(payload.ringProgramId),
     signerPkHashes: payload.signerPublicKeyHashes.map(hex),
     allowDummyInputs: hex(payload.allowDummyInputs),
     publishedOutputOwnerPkHashes: payload.publishedOutputOwnerPublicKeyHashes.map(hex),
@@ -525,8 +525,8 @@ function utxoJson(value: object): Readonly<Record<string, unknown>> {
     amount: hex(utxo.amount),
     blinding: hex(utxo.blinding),
     dataHash: hex(utxo.dataHash),
-    ringDataHash: hex(utxo.zoneDataHash),
-    ringProgramId: hex(utxo.zoneProgramId),
+    ringDataHash: hex(utxo.ringDataHash),
+    ringProgramId: hex(utxo.ringProgramId),
   });
 }
 

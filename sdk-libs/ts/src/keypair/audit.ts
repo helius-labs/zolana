@@ -131,7 +131,7 @@ export function parseAuditorMessage(data: Uint8Array): AuditorMessage {
  * hash(ciphertext), policy_hash, state_root, nullifier_root]` with keys packed
  * into two fields, Rust `CustomRingPublicInput::hash`.
  */
-export function auditPublicInputHash(
+export function customRingPublicInputHash(
   input: Readonly<{
     privateTxHash: Bytes32;
     txViewingPublicKey: P256PublicKey;

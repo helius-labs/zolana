@@ -9,8 +9,8 @@
 #
 # Images live in the zolana-prover and zolana-ring-rpc repositories under
 # <service>-<branch>-<sha12>, built and pushed here when the tag is absent.
-# The prover task fetches the proving keys at start and converts the audit key
-# itself. The ring RPC runs in derived mode, one root secret serves every ring
+# The prover task fetches the SPP transfer proving keys at start. The ring RPC
+# runs in derived mode, one root secret serves every ring
 # that takes its auditor key from it at `init`. Both services sit behind one
 # network load balancer and a CloudFront distribution each, so they are reached
 # over HTTPS on a stable amazon hostname.

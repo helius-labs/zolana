@@ -67,7 +67,7 @@ export type {
   AssetBalance,
   AuditWitness,
   PrivateBalances,
-  EncryptedAuditedTransfer,
+  EncryptedCustomRingTransfer,
   EncryptedEnvelope,
   EncryptedSplit,
   EncryptedTransfer,

@@ -39,7 +39,7 @@ export { symmetricApply } from "./merge/index.js";
 export {
   auditorMessageData,
   auditorViewTag,
-  auditPublicInputHash,
+  customRingPublicInputHash,
   decryptTransactionViewingSecret,
   encryptTransactionViewingSecret,
   parseAuditorMessage,

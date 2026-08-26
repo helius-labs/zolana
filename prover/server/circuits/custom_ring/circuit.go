@@ -1,5 +1,5 @@
-// Package audit holds the single circuit of the minimal custom
-// ring example: it proves that the per-transaction viewing secret key of an SPP
+// Package customring holds the single circuit of the custom ring
+// program. It proves that the per-transaction viewing secret key of an SPP
 // transaction is verifiably encrypted to the ring's auditor public key, and that
 // the transaction's published viewing public key really is that secret's public
 // key.
@@ -18,13 +18,13 @@
 //
 // The on-chain Rust recompute in
 // custom-rings/program/src/instructions/transact.rs
-// (AuditPublicInput::hash) MUST mirror this chain order element for element:
+// (CustomRingPublicInput::hash) MUST mirror this chain order element for element:
 // gadget.HashChain here == zolana_hasher::hash_chain::create_hash_chain_from_slice
 // there, gadget.HashBytes here == zolana_hasher::primitives::hash_bytes
 // (== zolana_interface::merge_utils::ciphertext_hash::<32>) there, and the
 // packing of elements 2..7 is defined by pack.go. Every comment step below is
 // tagged with the chain element(s) it produces.
-package audit
+package customring
 
 import (
 	"github.com/consensys/gnark/frontend"
@@ -40,7 +40,7 @@ import (
 // AUDIT_ENC_INFO constant byte for byte.
 const auditEncInfo = "CRING/adt1"
 
-// Circuit is the auditor key encryption proof.
+// Circuit is the custom-ring proof.
 //
 // Both scalars are witnessed as 32 big-endian bytes and the auditor key as the
 // 65-byte uncompressed SEC1 point, because that is what the p256 gadgets

@@ -152,17 +152,17 @@ describe("manifest-verified transaction serialization", () => {
         new AssetRegistry(),
       ).data.utxoData(),
     ).toEqual(Uint8Array.of(1));
-    const zoneProgramId = "SysvarRent111111111111111111111111111111111" as Address;
+    const ringProgramId = "SysvarRent111111111111111111111111111111111" as Address;
     expect(
       anonymousRecipientUtxo(
         {
           ...anonymousRecipient,
-          data: new Data([{ kind: "zoneData", bytes: Uint8Array.of(2) }]),
+          data: new Data([{ kind: "ringData", bytes: Uint8Array.of(2) }]),
         },
         new AssetRegistry(),
-        zoneProgramId,
-      ).zoneProgramId,
-    ).toBe(zoneProgramId);
+        ringProgramId,
+      ).ringProgramId,
+    ).toBe(ringProgramId);
 
     const anonymousSender = {
       ownerPublicKey: keypair.signingPublicKey(),

@@ -28,7 +28,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/rangecheck"
 
-	"zolana/prover/circuits/custom_ring/audit"
+	audit "zolana/prover/circuits/custom_ring"
 	"zolana/prover/circuits/gadget"
 )
 

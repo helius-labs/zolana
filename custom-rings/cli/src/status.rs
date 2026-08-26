@@ -6,9 +6,11 @@ use thiserror::Error;
 use zolana_client::{ClientError, Rpc, SolanaRpc};
 
 use crate::{
-    config::{RingConfig, Target},
+    config::{redact_text, redact_url, RingConfig, Target},
     deploy::{read_program_data, DeployError},
-    line, Context,
+    line,
+    release::RingProgram,
+    Context,
 };
 
 const EXPLORER: &str = "https://explorer.solana.com/address";
@@ -42,17 +44,26 @@ pub fn run(ctx: &Context) {
         Ok(authority) => line("upgrade key", authority.pubkey()),
         Err(error) => line("upgrade key", format_args!("unavailable ({error})")),
     }
-    line("rpc", &config.urls().rpc);
-    line("indexer", &config.urls().indexer);
-    line("prover", &config.urls().prover);
-    line("ring rpc", &config.urls().ring_rpc);
-    let features: Vec<&str> = config.enabled_features().collect();
-    line("features", features.join(", "));
+    line("rpc", redact_url(&config.urls().rpc));
+    line("indexer", redact_url(&config.urls().indexer));
+    line("prover", redact_url(&config.urls().prover));
+    line("ring rpc", redact_url(&config.urls().ring_rpc));
+    match RingProgram::from_lock() {
+        Ok(program) => line(
+            "release",
+            format_args!("{} {}", program.tag, program.asset.name),
+        ),
+        Err(error) => line("release", error),
+    }
 
     if let Err(error) = print_chain(config, ctx.ring, &ctx.rpc) {
         line(
             "chain",
-            format_args!("unreachable at {} ({error})", config.urls().rpc),
+            format_args!(
+                "unreachable at {} ({})",
+                redact_url(&config.urls().rpc),
+                redact_text(&error.to_string())
+            ),
         );
     }
 }
@@ -170,7 +181,6 @@ name = "x"
 target = "devnet"
 program_id = "11111111111111111111111111111111"
 authority_keypair = "a.json"
-zolana_revision = "851680f7fcc99ccbd88119942760e9309ace0a58"
 
 [localnet]
 rpc = "http://127.0.0.1:8899"

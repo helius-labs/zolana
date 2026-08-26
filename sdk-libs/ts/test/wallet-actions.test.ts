@@ -28,7 +28,7 @@ const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
 const PAYER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 const RECIPIENT = address("8qbHbw2BbbTHBW1sbeqakYXV9q2RZ1R6MUi6nEZa6wJk");
 const SPL_MINT = address("So11111111111111111111111111111111111111112");
-const ZONE = address("9EwHno8C1T1vVGjasGnDH1GubiEu8qbgLX9qDjBshFhz");
+const RING = address("9EwHno8C1T1vVGjasGnDH1GubiEu8qbgLX9qDjBshFhz");
 const BLOCKHASH = "11111111111111111111111111111111" as Blockhash;
 const TRANSACTION = Object.freeze({
   messageBytes: new Uint8Array(),
@@ -46,7 +46,7 @@ function spendingKeypair(): ShieldedKeypair {
 function fundedWallet(
   keypair: ShieldedKeypair,
   amounts: readonly bigint[],
-  options: Readonly<{ asset?: Address; zoneProgramId?: Address }> = {},
+  options: Readonly<{ asset?: Address; ringProgramId?: Address }> = {},
 ): Wallet {
   const asset = options.asset ?? SOL_MINT;
   const wallet = new Wallet({
@@ -61,7 +61,7 @@ function fundedWallet(
         amount,
         blinding: new Uint8Array(32).fill(index + 1) as Bytes32,
         data: new Data(),
-        ...(options.zoneProgramId === undefined ? {} : { zoneProgramId: options.zoneProgramId }),
+        ...(options.ringProgramId === undefined ? {} : { ringProgramId: options.ringProgramId }),
       }),
       outputContext: {
         hash: filled(index + 1),
@@ -162,11 +162,11 @@ describe("private transaction construction", () => {
     ).rejects.toMatchObject({ code: "TRANSACTION_ED25519_PAYER_MISMATCH" });
   });
 
-  it("does not spend zone-bound notes through a default-zone action", async () => {
+  it("does not spend ring-bound notes through a default-ring action", async () => {
     const keypair = ShieldedKeypair.generate();
     await expect(
       createWithdrawal({
-        wallet: fundedWallet(keypair, [100n], { zoneProgramId: ZONE }),
+        wallet: fundedWallet(keypair, [100n], { ringProgramId: RING }),
         payer: PAYER,
         recipient: RECIPIENT,
         asset: SOL_MINT,

@@ -35,7 +35,7 @@ func TestCustomRingProofVerifies(t *testing.T) {
 	if !ok {
 		t.Fatal("source path unavailable")
 	}
-	keyPath := filepath.Join(filepath.Dir(source), "..", "..", "proving-keys", "custom_ring_transfer.key")
+	keyPath := filepath.Join(filepath.Dir(source), "..", "..", "proving-keys", common.CustomRingKeyFile)
 	if _, err := os.Stat(keyPath); err != nil {
 		t.Skip("custom ring proving key is not available")
 	}

@@ -80,10 +80,10 @@ export class PreparedMerge {
   }
 }
 
-/** An input carrying program or zone data, which the plain merge rail never consolidates. */
+/** An input carrying program or ring data, which the plain merge rail never consolidates. */
 function hasData(input: ProofInputUtxo): boolean {
   return (
-    input.dataHash !== undefined || input.zoneDataHash !== undefined || !input.utxo.data.isEmpty()
+    input.dataHash !== undefined || input.ringDataHash !== undefined || !input.utxo.data.isEmpty()
   );
 }
 
@@ -148,10 +148,10 @@ export class Merge {
       if (input.utxo.asset !== asset) {
         throw new TransactionError("TRANSACTION_MERGE_INPUT_ASSET_MISMATCH", { index });
       }
-      if (input.utxo.zoneProgramId !== undefined) {
-        throw new TransactionError("TRANSACTION_MERGE_INPUT_ZONE_MISMATCH", { index });
+      if (input.utxo.ringProgramId !== undefined) {
+        throw new TransactionError("TRANSACTION_MERGE_INPUT_RING_MISMATCH", { index });
       }
-      if (!input.utxo.data.isEmpty() || input.dataHash || input.zoneDataHash) {
+      if (!input.utxo.data.isEmpty() || input.dataHash || input.ringDataHash) {
         throw new TransactionError("TRANSACTION_MERGE_INPUT_HAS_DATA", { index });
       }
       amount += input.utxo.amount;
@@ -239,12 +239,12 @@ export class ConfidentialSplit {
     if (input.input.utxo.asset !== input.asset) {
       throw new TransactionError("TRANSACTION_SPLIT_INPUT_ASSET_MISMATCH");
     }
-    if (input.input.utxo.zoneProgramId !== undefined) {
-      throw new TransactionError("TRANSACTION_SPLIT_INPUT_ZONE_MISMATCH");
+    if (input.input.utxo.ringProgramId !== undefined) {
+      throw new TransactionError("TRANSACTION_SPLIT_INPUT_RING_MISMATCH");
     }
     if (
       input.input.dataHash !== undefined ||
-      input.input.zoneDataHash !== undefined ||
+      input.input.ringDataHash !== undefined ||
       !input.input.utxo.data.isEmpty()
     ) {
       throw new TransactionError("TRANSACTION_SPLIT_INPUT_HAS_DATA");
@@ -354,8 +354,8 @@ export class PreparedSplit {
         output.asset !== input.input.utxo.asset ||
         output.amount !== expectedAmount ||
         !equal(output.blinding, deriveBlinding(blindingSeed, index)) ||
-        output.zoneProgramId !== undefined ||
-        output.zoneDataHash !== undefined ||
+        output.ringProgramId !== undefined ||
+        output.ringDataHash !== undefined ||
         output.dataHash !== undefined ||
         !output.data.isEmpty()
       ) {

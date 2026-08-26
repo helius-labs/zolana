@@ -13,7 +13,7 @@ export interface ExternalDataHashInput {
   readonly expiryUnixTs: bigint;
   readonly interfaceTransfers: readonly ResolvedInterfaceTransfer[];
   readonly dataHash?: Bytes32;
-  readonly zoneDataHash?: Bytes32;
+  readonly ringDataHash?: Bytes32;
   readonly txViewingPk: Bytes33;
   readonly salt: Bytes16;
   readonly outputs: readonly ResolvedOutput[];
@@ -49,7 +49,7 @@ export function externalDataHash(input: ExternalDataHashInput): Bytes32 {
   });
   parts.push(
     optionalBytes(input.dataHash, "dataHash"),
-    optionalBytes(input.zoneDataHash, "zoneDataHash"),
+    optionalBytes(input.ringDataHash, "ringDataHash"),
     copyBytes(input.txViewingPk, 33, "txViewingPk"),
     copyBytes(input.salt, 16, "salt"),
     count(input.outputs.length, "outputs"),

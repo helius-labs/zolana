@@ -79,7 +79,7 @@
           "blindingBytes": "00e53c9fac0a490cfffdcc6ecd0e7f353da83e116a42dc134de57997a90e45d0",
           "data": [],
           "ownerBytes": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",
-          "zoneProgramIdBytes": null
+          "ringProgramIdBytes": null
         }
       },
       {
@@ -93,7 +93,7 @@
           "blindingBytes": "0015875e98abbb4043bbd77fa2d8846e15833eaaae791ab2fe1e7b60aa98b3df",
           "data": [],
           "ownerBytes": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",
-          "zoneProgramIdBytes": null
+          "ringProgramIdBytes": null
         }
       },
       {
@@ -107,7 +107,7 @@
           "blindingBytes": "004c6a2e8b5ff71af86b3ab97bce0da8cfd29b43991e23bc14048b2f5bc34d12",
           "data": [],
           "ownerBytes": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",
-          "zoneProgramIdBytes": null
+          "ringProgramIdBytes": null
         }
       }
     ]

@@ -1,8 +1,8 @@
 use thiserror::Error;
 
 use crate::{
-    authority::AuthorityError, build_program::BuildError, config::ConfigError, deploy::DeployError,
-    generate::GenerateError, init::InitError, pipeline::PipelineError, probe::ProbeError,
+    authority::AuthorityError, config::ConfigError, deploy::DeployError, init::InitError,
+    localnet::LocalnetError, new::NewError, pipeline::PipelineError, probe::ProbeError,
     reader::ReaderError, record::RecordError, ring_rpc::RingRpcClientError, tool::ToolError,
     transact::TransactError,
 };
@@ -13,13 +13,13 @@ pub enum CliError {
     #[error(transparent)]
     Config(#[from] ConfigError),
     #[error(transparent)]
-    Generate(Box<GenerateError>),
-    #[error(transparent)]
-    Build(Box<BuildError>),
+    New(Box<NewError>),
     #[error(transparent)]
     Probe(Box<ProbeError>),
     #[error(transparent)]
     Pipeline(Box<PipelineError>),
+    #[error(transparent)]
+    Localnet(Box<LocalnetError>),
     #[error(transparent)]
     KeyFile(Box<KeyFileError>),
     #[error(transparent)]
@@ -53,10 +53,10 @@ macro_rules! boxed_from {
 }
 
 boxed_from!(
-    Generate(GenerateError),
-    Build(BuildError),
+    New(NewError),
     Probe(ProbeError),
     Pipeline(PipelineError),
+    Localnet(LocalnetError),
     KeyFile(KeyFileError),
     Tool(ToolError),
     Deploy(DeployError),

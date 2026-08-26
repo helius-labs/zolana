@@ -1,4 +1,4 @@
-//! Pins a SHA-256 fingerprint over the committed ring verifying key. The key
+//! Pins a SHA-256 fingerprint over the committed custom-ring verifying key. The key
 //! is a generated artifact (`prover/server/scripts/regenerate_all_vkeys.sh`);
 //! a regeneration rewrites an opaque constant file that is effectively
 //! unreviewable by diff. This test turns any VK change into an explicit
@@ -35,8 +35,8 @@ fn verifying_key_fingerprint_is_pinned() {
     let mut preimage = Vec::new();
     absorb(
         &mut preimage,
-        "custom_ring_vk",
-        &custom_ring_interface::custom_ring_vk::VERIFYINGKEY,
+        "verifying_key",
+        &custom_ring_interface::verifying_key::VERIFYINGKEY,
     );
     let digest = Sha256BE::hash(&preimage).expect("fingerprint digest");
     let fingerprint: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
@@ -44,7 +44,7 @@ fn verifying_key_fingerprint_is_pinned() {
     // `Sha256BE` zeroes the leading byte (field-element convention), so the
     // fingerprint always starts with `00`.
     assert_eq!(
-        fingerprint, "00396e137eeb069c1b48d64d4d2194170f092282428ddf44a971c5664ab86494",
+        fingerprint, "000ed97d6328e570fa324ed01cbf29935906acbbdc3c012e536f98cbba7b368c",
         "verifying key changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }

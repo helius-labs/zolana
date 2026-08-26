@@ -36,11 +36,11 @@ pub struct ReaderIxData {
     pub reader: ReaderKeyBytes,
 }
 
-/// Groth16 proof of the ring audit circuit. The circuit's emulated P256
+/// Groth16 proof of the custom-ring circuit. The circuit's emulated P256
 /// arithmetic adds one BSB22 commitment, so the commitment and its
 /// proof-of-knowledge are not optional here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct AuditProof {
+pub struct CustomRingProof {
     pub proof_a: [u8; 32],
     pub proof_b: [u8; 64],
     pub proof_c: [u8; 32],
@@ -56,7 +56,7 @@ pub struct AuditProof {
 /// and a feature set cannot change what the program parses.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CustomRingTransactIxData {
-    pub proof: AuditProof,
+    pub proof: CustomRingProof,
     pub state_root_index: u16,
     pub nullifier_root_index: u16,
     pub transact: TransactIxData,

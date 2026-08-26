@@ -237,6 +237,6 @@ function auditOutput(
     asset: assets.resolve(plaintext.assetId),
     amount: plaintext.amount,
     blinding: plaintext.blinding,
-    ...(plaintext.zoneProgramId === undefined ? {} : { ringProgramId: plaintext.zoneProgramId }),
+    ...(plaintext.ringProgramId === undefined ? {} : { ringProgramId: plaintext.ringProgramId }),
   });
 }

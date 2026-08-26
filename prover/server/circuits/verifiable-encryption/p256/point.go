@@ -131,16 +131,15 @@ func limbToBytes(api frontend.API, limb frontend.Variable) [8]frontend.Variable 
 }
 
 // emulatedFpToBytes converts a P256Fp emulated element to 32 big-endian bytes.
-// The element must be reduced (canonical form) before calling.
+// Strict, a representation of x + p would spell a second byte string for the same point.
 func emulatedFpToBytes(api frontend.API, elem *emulated.Element[emulated.P256Fp]) [32]frontend.Variable {
 	// Element has 4 limbs in little-endian order, each 64 bits
 	// limb[0] = least significant, limb[3] = most significant
-	// Reduce to canonical form first
 	field, err := emulated.NewField[emulated.P256Fp](api)
 	if err != nil {
 		panic(err)
 	}
-	reduced := field.Reduce(elem)
+	reduced := field.ReduceStrict(elem)
 
 	var result [32]frontend.Variable
 	// limb[3] -> bytes[0..7] (MSB), limb[2] -> bytes[8..15], etc.
