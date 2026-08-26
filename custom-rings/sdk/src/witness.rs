@@ -95,7 +95,7 @@ impl CustomRingWitnessInput<'_> {
         })
     }
 
-    /// One entry per distinct `(kind, member)` the table asks about.
+    /// One entry per distinct `(kind, member, mode)` the table asks about.
     fn build_pool<I: Rpc>(
         &self,
         indexer: &I,
