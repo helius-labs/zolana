@@ -16,12 +16,12 @@ use thiserror::Error;
 use zolana_ring_rpc::KeyFileError;
 
 use crate::{
-    config::{ConfigError, RingConfig, Urls},
+    config::{ConfigError, RingConfig, Target, Urls},
     file::{self, FileError},
     keys, line, probe,
     release::{self, ReleaseError, RingRelease},
     tool::{Tool, ToolError, SOLANA_TEST_VALIDATOR, ZOLANA},
-    AuditorKeyArgs, LocalnetArgs, ProjectRoot, AUDITOR_KEY_FILE,
+    AuditorKeyArgs, Context, LocalnetArgs, ProjectRoot, AUDITOR_KEY_FILE,
 };
 
 /// SIMD-0500 off, the ring program deploys as SBPF v0 like on devnet.
@@ -81,6 +81,12 @@ struct Ports {
     ring_rpc: u16,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum LiveRingRpc {
+    Keep,
+    Replace,
+}
+
 #[must_use]
 struct RingRpc<'a> {
     release: &'a RingRelease,
@@ -100,18 +106,46 @@ pub fn run(
     if args.no_start {
         return Ok(());
     }
+    bring_up(config_path, config, LiveRingRpc::Replace)?;
+    println!();
+    println!("localnet ready, next `zolana-ring pipeline`");
+    Ok(())
+}
+
+/// Localnet only, `devnet` probes its services instead of starting them.
+pub fn ensure(ctx: &Context) -> Result<(), LocalnetError> {
+    if matches!(ctx.config.target, Target::Localnet) {
+        bring_up(&ctx.config_path, &ctx.config, LiveRingRpc::Keep)?;
+    }
+    Ok(())
+}
+
+/// A live validator keeps its ledger, the ring rpc is replaced only on request.
+fn bring_up(
+    config_path: &Path,
+    config: &RingConfig,
+    live_ring_rpc: LiveRingRpc,
+) -> Result<(), LocalnetError> {
     let urls = config.urls();
     let ports = Ports::of(urls)?;
-    for tool in [ZOLANA, SOLANA_TEST_VALIDATOR] {
-        tool.check_installed()?;
-    }
     let release = RingRelease::from_lock()?;
-    release.ensure_as(
-        release.proving_key()?,
-        &prover_keys_dir()?.join(PROVING_KEY_FILE),
-    )?;
-    start_validator(ports)?;
+    if answers(local(ports.rpc)) {
+        line("validator", format_args!("{} answers", urls.rpc));
+    } else {
+        for tool in [ZOLANA, SOLANA_TEST_VALIDATOR] {
+            tool.check_installed()?;
+        }
+        release.ensure_as(
+            release.proving_key()?,
+            &prover_keys_dir()?.join(PROVING_KEY_FILE),
+        )?;
+        start_validator(ports)?;
+    }
     check_prover_serves_custom_ring(&urls.prover)?;
+    if matches!(live_ring_rpc, LiveRingRpc::Keep) && answers(local(ports.ring_rpc)) {
+        line("ring rpc", format_args!("{} answers", urls.ring_rpc));
+        return Ok(());
+    }
     let project_root = ProjectRoot::for_config(config_path);
     let auditor_key = project_root.resolve(Path::new(AUDITOR_KEY_FILE));
     if !auditor_key.is_file() {
@@ -130,10 +164,11 @@ pub fn run(
         program_id: config.program_id,
         log_dir: &release::config_dir().join("localnet"),
     }
-    .start(ports.ring_rpc)?;
-    println!();
-    println!("localnet ready, next `zolana-ring pipeline`");
-    Ok(())
+    .start(ports.ring_rpc)
+}
+
+fn local(port: u16) -> SocketAddr {
+    SocketAddr::from(([127, 0, 0, 1], port))
 }
 
 impl Ports {
@@ -214,7 +249,7 @@ impl RingRpc<'_> {
         file::make_executable(&path)?;
         file::create_dir_all(self.log_dir)?;
         let log = self.log_dir.join("ring-rpc.log");
-        let addr = SocketAddr::from(([127, 0, 0, 1], port));
+        let addr = local(port);
         stop_listeners(addr)?;
         let open = || {
             File::create(&log).map_err(|source| LocalnetError::Log {

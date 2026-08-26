@@ -85,9 +85,10 @@ SPP programs and their protocol accounts come from that release, the
 validator is the Anza `solana-test-validator`, the ring RPC and the prover's
 `custom_ring.key` come from the custom-rings release the ring cli came from,
 and the ring RPC serves `keys/auditor.key`, created when missing. A rerun
-replaces every service, a ring RPC left on the port included. `pipeline` then
-deploys the released program on that validator. `just ring-localnet` needs
-this repository's localnet prerequisites instead.
+keeps a live validator and its ledger and replaces the ring RPC with this
+ring's. `pipeline` and `deploy` on localnet start whatever does not answer
+before deploying, so `zolana-ring pipeline` alone brings a ring up. `just
+ring-localnet` needs this repository's localnet prerequisites instead.
 
 ## The pipeline and what each step locks in
 
@@ -174,8 +175,8 @@ The operator CLI in `cli` reads a `ring.toml` and exposes `parse_and_run`.
 
 ## Pitfalls and limits
 
-Local rings share the ring RPC port, `zolana-ring pipeline` replaces an RPC that
-serves another ring; a hosted ring RPC is only checked, never replaced, and a
+Local rings share the ring RPC port, `zolana-ring localnet` replaces an RPC left
+by another ring and `pipeline` keeps one that answers; a hosted ring RPC is only checked, never replaced, and a
 ring pointed at one creates no local auditor key. `init` refuses an unpinned
 hosted RPC, `--trust-ring-rpc` is for a local instance. The ring RPC releases
 the key only to a request the upgrade authority signs while no config exists,
