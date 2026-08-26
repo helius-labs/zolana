@@ -91,9 +91,9 @@ jobs:
           shared-key: typescript-e2e
       - run: rustup target add wasm32-unknown-unknown
       - name: Install Anza CLI
-        run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+        uses: ./.github/actions/install-anza
+        with:
+          version: ${{ env.AGAVE_VERSION }}
       - name: Install SBF platform tools
         uses: ./.github/actions/install-sbf-tools
         with:
