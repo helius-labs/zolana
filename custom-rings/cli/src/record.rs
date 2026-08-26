@@ -236,7 +236,6 @@ fn mutate(
 
 fn show(ctx: &mut Context, kind: RecordKind, member: Address) -> Result<(), RecordError> {
     let member_field = Member::owner_tag(member.as_array())?;
-    // A curator sourced kind reads the curator's records.
     let records = ctx
         .ring
         .read_policy_config(&ctx.rpc)?

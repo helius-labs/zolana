@@ -49,8 +49,8 @@ pub(crate) fn records_pda(_program_id: &Address) -> Result<(Address, u8), Custom
     Err(CustomRingError::InvalidRecordsPda)
 }
 
-/// A curator's policy config, the canonical `b"policy"` PDA of the program
-/// that owns the account, pinned to the same records tree.
+/// A curator's policy config, the `b"policy"` PDA of the program that owns
+/// it, pinned to the same records tree.
 pub(crate) fn load_curator_policy_config<'a>(
     account: &'a AccountView,
     records_tree: &Address,

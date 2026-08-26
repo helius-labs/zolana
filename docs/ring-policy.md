@@ -110,9 +110,9 @@ binds all eight slots and the circuit resolves every pool entry's owner from
 the committed map. One curated list serves every subscriber from one write.
 
 `set_policy_source` lets the ring authority re-point one kind. The instruction
-first reproves the stored hash from the stored map under the deployed table, a
-rebuilt table stays fail closed and only `create_policy` pins a table. All
-sources live in one records tree, the transfer's input tree.
+first checks the deployed table still reproduces the stored hash from the
+stored map. A rebuilt table stays fail closed, only `create_policy` pins a
+table. All sources live in one records tree, the transfer's input tree.
 
 Mutations of a curator sourced kind fail on the subscriber with
 `ForeignRecordSource`, the list is mutated on its curator ring. Members enroll
