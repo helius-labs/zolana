@@ -13,7 +13,7 @@ trees.
 
 ## The model
 
-Six terms carry the whole design.
+Seven terms carry the whole design.
 
 - The **rule table** is the compiled `Policy`, a fixed array of at most
   `MAX_RULES` rules built into the ring program.
@@ -27,6 +27,8 @@ Six terms carry the whole design.
   the ring authority or the member.
 - The **pool** is the transfer proof's set of record checks, one slot per
   distinct `(kind, member, mode)` triple the rules name.
+- The **source map** binds each referenced kind to the records owner serving
+  it, the ring's own records or a curator ring's.
 
 A blocklist ring runs through every section below. Its table holds one rule,
 `Rule::forbid(Subject::OutputOwner, RecordKind::Block)`. The authority records
@@ -47,19 +49,20 @@ below the threshold without a membership check.
 table the circuit cannot enforce. Duplicate rules, guarded sender rules, and
 zero-valued inline assets fail the build, never a transaction.
 
-`Policy::hash` chains the table domain, `POLICY_VERSION`, the records owner
-hash, the rule count, every `Rule::encoded()`, and the inline assets. The
-count closes the variable-length preimage. The owner hash ties the table to
-one ring's records.
+`Policy::hash` chains the table domain, `POLICY_VERSION`, the eight source
+slots, the rule count, every `Rule::encoded()`, and the inline assets. The
+count closes the variable-length preimage. The source map ties the table to
+the records serving each kind.
 
 The ring's table is the `POLICY` const in
 `custom-rings/interface/src/policy.rs`. Cargo features add rows through
 `rule_if`, a build without features compiles an empty table.
 
 `create_policy` pins the table hash into the `PolicyConfig` account together
-with the records tree. Only the upgrade authority may sign it, the table is
-part of the deployed program. Every transact and record mutation recomputes
-`POLICY.hash` and refuses a mismatch, a changed table fails closed.
+with the source map and the records tree. Only the upgrade authority may sign
+it, the table is part of the deployed program. Every transact and record
+mutation recomputes `POLICY.hash` and refuses a mismatch, a changed table
+fails closed.
 
 ## Records
 
@@ -98,6 +101,23 @@ exhaustive, a new kind does not compile until it declares its holder.
 their own mutations. Every other kind is authority-held. `check_mutator` in
 the ring program enforces the matching signer on every mutation.
 
+## Sources
+
+`create_policy` declares each referenced kind's source and stores the map in
+`PolicyConfig.sources`. A curator entry copies the curator's resolved owner
+for the kind, a curator of a curator collapses at copy time. `Policy::hash`
+binds all eight slots and the circuit resolves every pool entry's owner from
+the committed map. One curated list serves every subscriber from one write.
+
+`set_policy_source` lets the ring authority re-point one kind. The instruction
+first reproves the stored hash from the stored map under the deployed table, a
+rebuilt table stays fail closed and only `create_policy` pins a table. All
+sources live in one records tree, the transfer's input tree.
+
+Mutations of a curator sourced kind fail on the subscriber with
+`ForeignRecordSource`, the list is mutated on its curator ring. Members enroll
+member held kinds at the curator directly, every subscriber sees the record.
+
 ## Proving compliance
 
 The wallet builds the pool in `build_pool`
@@ -133,6 +153,10 @@ the membership proofs, and the circuit are reused unchanged.
   on maintenance, nothing rolls its roots forward or drains its nullifier
   queue. Records as SPP UTXOs inherit the forester, the root history, and the
   indexer.
+- A curator on another records tree is refused at `create_policy`. The proof
+  runs against one root pair, every source shares the transfer's tree.
+- A subscriber trusts its curator wholly. A curator mutation takes effect on
+  every subscriber at the next transfer, with no per-ring review step.
 
 ## Limits
 
@@ -148,9 +172,10 @@ the membership proofs, and the circuit are reused unchanged.
 ## The cycle
 
 1. The operator deploys the ring program with its compiled table.
-2. `create_policy` pins `policy_hash` and the records tree, signed by the
-   upgrade authority.
-3. Each list's holder creates and updates records through SPP transacts.
+2. `create_policy` pins `policy_hash`, the source map, and the records tree,
+   signed by the upgrade authority.
+3. Each list's holder creates and updates records through SPP transacts on
+   the ring the source map names.
 4. The wallet reads the policy config and the records, then builds the pool
    witness.
 5. The prover produces one proof over the audit statement and the table

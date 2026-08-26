@@ -5,6 +5,7 @@ classDiagram
         class PolicyConfig {
             policy_hash
             records_tree
+            sources
         }
     }
     namespace Program {
@@ -74,7 +75,8 @@ classDiagram
     }
 
     PolicyConfig ..> Policy : pins hash at create_policy
-    Policy ..> RecordsOwner : hash binds owner_hash
+    PolicyConfig "1" --> "0..8" RecordsOwner : sources map kind to owner
+    Policy ..> RecordsOwner : hash binds the source map
     Policy "1" *-- "0..MAX_RULES" Rule : live rules only hashed
     Rule --> RuleSource
     RuleSource "1" --> "0..1" RecordKind : Records variant only
