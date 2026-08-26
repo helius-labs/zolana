@@ -8,30 +8,39 @@ flowchart TB
     end
     subgraph CHAIN["On chain, accounts"]
         PC["PolicyConfig
-        policy_hash, records_tree"]
-        PDA["policy_records PDA
+        policy_hash, records_tree,
+        sources kind to records PDA"]
+        PDA["own policy_records PDA
         signer, holds no data"]
         RING["ring program
-        drift check, verify, CPI"]
+        map drift check, verify, CPI"]
     end
-    subgraph TREES["SPP trees, the record set"]
+    subgraph TREES["SPP trees, one shared record set"]
         REC["Record UTXOs
-        one lineage per kind and member"]
+        one lineage per kind and member,
+        own or a curator ring's"]
         ADDR["claimed addresses
         indexed nullifier tree"]
         ROOTS["state root, nullifier root"]
     end
     subgraph WALLET["Per transfer, wallet and prover"]
+        SRC["per kind source resolution
+        from the stored map"]
         POOLD["Pool, 10 slots
         proven answers to the rules"]
-        PRF["one Groth16 proof"]
+        PRF["one Groth16 proof
+        the circuit muxes each entry's
+        owner from the committed map"]
     end
 
-    POL -- "create_policy pins Policy::hash" --> PC
+    POL -- "create_policy binds Policy::hash over the map" --> PC
+    PC -. "set_policy_source re-points a kind, the table alone is pinned" .-> PC
     POL -. "recomputed each transact, mismatch fails closed" .-> RING
-    PDA -- "owns and signs mutations" --> REC
+    PDA -- "owns and signs mutations of own sourced kinds" --> REC
     REC --- ADDR
-    PC -- "names the tree" --> TREES
+    PC -- "names the tree, curator sources share it" --> TREES
+    PC -- "source map" --> SRC
+    SRC --> POOLD
     ROOTS -- "Merkle paths" --> POOLD
     POOLD --> PRF
     PRF -- "public input binds policy_hash and both roots" --> RING

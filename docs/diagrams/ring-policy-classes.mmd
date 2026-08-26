@@ -7,6 +7,10 @@ classDiagram
             records_tree
             sources
         }
+        class PolicySourceSlot {
+            kind
+            records
+        }
     }
     namespace Program {
         class Policy {
@@ -74,8 +78,9 @@ classDiagram
         }
     }
 
-    PolicyConfig ..> Policy : pins hash at create_policy
-    PolicyConfig "1" --> "0..8" RecordsOwner : sources map kind to owner
+    PolicyConfig ..> Policy : binds hash at create_policy
+    PolicyConfig "1" *-- "8" PolicySourceSlot : positional by kind
+    PolicySourceSlot "0..1" --> RecordsOwner : records PDA derives the owner
     Policy ..> RecordsOwner : hash binds the source map
     Policy "1" *-- "0..MAX_RULES" Rule : live rules only hashed
     Rule --> RuleSource
@@ -89,6 +94,7 @@ classDiagram
     Rule ..> CustomRingPoolEntry : one entry per kind+member+mode
     CustomRingPoolEntry ..> Record : proves present or absent
 
-    note for Policy "hash covers rules up to len, padding invisible"
+    note for Policy "hash covers rules up to len and all eight source slots"
     note for Pool "disabled slots zero filled, circuit gates on enabled"
     note for Member "zero reserved as padding, never a member"
+    note for PolicyConfig "set_policy_source re-points a kind, the table alone is pinned"
