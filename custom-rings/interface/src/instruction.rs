@@ -83,6 +83,17 @@ pub struct CreatePolicyIxData {
     pub sources: Vec<PolicySourceSpec>,
 }
 
+/// Two full hash recomputations plus one curator verification.
+pub const SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT: u32 = 150_000;
+
+/// `source` 0 is the ring's own records, 1 the single trailing curator policy
+/// config account.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct SetPolicySourceIxData {
+    pub kind: u8,
+    pub source: u8,
+}
+
 /// `member` is pre-derived, member-held kinds require the signer to derive to it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CreateRecordIxData {
