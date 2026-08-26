@@ -14,7 +14,7 @@ pub use custom_ring_interface::{
     CONFIG_PDA_SEED, CREATE_CONFIG_COMPUTE_UNIT_LIMIT, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
     INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT, READ_ACCESS_COMPUTE_UNIT_LIMIT,
     READ_ACCESS_RECORD_PDA_SEED, RECORD_MUTATION_COMPUTE_UNIT_LIMIT,
-    SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
+    SET_AUTHORITY_COMPUTE_UNIT_LIMIT, SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
 };
 
 pub use zolana_ring_client::{
@@ -33,6 +33,7 @@ pub use crate::{
         },
         revoke_read_access::RevokeReadAccess,
         set_authority::SetAuthority,
+        set_policy_source::{PolicySource, SetPolicySource},
         transact::{
             to_instruction_proof, CustomRingPrivateTxHash, CustomRingProofError,
             CustomRingProofInputError, CustomRingProofParams, CustomRingProofRequest,
