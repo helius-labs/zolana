@@ -8,6 +8,7 @@ pub mod file;
 pub mod fund;
 pub mod init;
 pub mod keys;
+pub mod localnet;
 pub mod new;
 pub mod pipeline;
 pub mod probe;
@@ -72,8 +73,8 @@ pub enum Command {
     Url { service: Service },
     /// Record devnet in ring.toml and probe the deployed services.
     Devnet,
-    /// Record localnet in ring.toml, the services run from a zolana checkout.
-    Localnet,
+    /// Record localnet in ring.toml and start the validator, Photon, the prover and the ring rpc.
+    Localnet(LocalnetArgs),
     /// Deploy the released program under the authority, or upgrade it in place.
     Deploy(DeployArgs),
     /// Create the config with the auditor key and register the ring with SPP.
@@ -147,6 +148,13 @@ pub struct NewArgs {
     /// Recorded in ring.toml, `~` stays literal for other machines.
     #[arg(long, default_value = new::DEFAULT_AUTHORITY_KEYPAIR)]
     pub authority_keypair: String,
+}
+
+#[derive(Debug, Args)]
+pub struct LocalnetArgs {
+    /// Record the target and print the URLs, start nothing.
+    #[arg(long)]
+    pub no_start: bool,
 }
 
 #[derive(Debug, Args)]
@@ -381,10 +389,10 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
             probe::run_devnet(&config)?;
             return Ok(());
         }
-        Command::Localnet => {
+        Command::Localnet(args) => {
             RingConfig::set_target(&cli.config, Target::Localnet)?;
             config.target = Target::Localnet;
-            probe::run_localnet(&config);
+            localnet::run(&cli.config, &config, args)?;
             return Ok(());
         }
         _ => {}
@@ -422,7 +430,7 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
         | Command::Target { .. }
         | Command::Url { .. }
         | Command::Devnet
-        | Command::Localnet => {}
+        | Command::Localnet(_) => {}
     }
     Ok(())
 }

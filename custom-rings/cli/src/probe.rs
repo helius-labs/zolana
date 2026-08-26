@@ -1,4 +1,4 @@
-//! `devnet` and `localnet`, the target switch with service probes.
+//! `devnet`, the target switch with service probes.
 
 use std::{
     io::{self, Write},
@@ -52,12 +52,6 @@ pub fn run_devnet(config: &RingConfig) -> Result<(), ProbeError> {
     println!();
     next_steps(config);
     Ok(())
-}
-
-pub fn run_localnet(config: &RingConfig) {
-    print_urls(config);
-    println!();
-    println!("the localnet services come from a zolana checkout, run `just ring-localnet` there");
 }
 
 pub fn print_urls(config: &RingConfig) {

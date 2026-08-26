@@ -55,6 +55,12 @@ pub struct Urls {
 }
 
 impl Urls {
+    pub fn port(url: &str) -> Option<u16> {
+        let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+        let authority = rest.split(['/', '?']).next().unwrap_or_default();
+        authority.rsplit_once(':')?.1.parse().ok()
+    }
+
     /// Only a ring RPC on this machine takes its auditor key from `keys/`.
     pub fn ring_rpc_is_local(&self) -> bool {
         let rest = match self.ring_rpc.split_once("://") {
@@ -309,6 +315,14 @@ indexer = "http://127.0.0.1:8784"
 prover = "http://127.0.0.1:3001"
 ring_rpc = "http://127.0.0.1:8785"
 "#;
+
+    #[test]
+    fn port_reads_the_authority_only() {
+        assert_eq!(Urls::port("http://127.0.0.1:8899"), Some(8899));
+        assert_eq!(Urls::port("http://[::1]:8785/path?x=1:2"), Some(8785));
+        assert_eq!(Urls::port("http://localhost"), None);
+        assert_eq!(Urls::port("https://example.com/?key=1:2"), None);
+    }
 
     #[test]
     fn parses_the_recorded_answers_and_round_trips() {

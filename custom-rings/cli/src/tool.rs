@@ -14,6 +14,16 @@ pub const SOLANA: Tool = Tool {
     install: ANZA_INSTALL,
 };
 
+pub const ZOLANA: Tool = Tool {
+    name: "zolana",
+    install: "install the zolana cli from the latest zolana release",
+};
+
+pub const SOLANA_TEST_VALIDATOR: Tool = Tool {
+    name: "solana-test-validator",
+    install: ANZA_INSTALL,
+};
+
 #[derive(Debug, Clone, Copy)]
 pub struct Tool {
     pub name: &'static str,
@@ -47,8 +57,27 @@ impl Tool {
     }
 
     pub fn run(self, command: &mut Command) -> Result<(), ToolError> {
-        let status = command.status().map_err(|source| self.spawn(source))?;
+        let status = command
+            .status()
+            .map_err(|source| self.spawn_error(source))?;
         self.check(status)
+    }
+
+    /// The child is left running, its handle dropped.
+    pub fn spawn(self, command: &mut Command) -> Result<(), ToolError> {
+        command.spawn().map_err(|source| self.spawn_error(source))?;
+        Ok(())
+    }
+
+    /// `--version` is the one flag every tool here answers.
+    pub fn check_installed(self) -> Result<(), ToolError> {
+        Command::new(self.name)
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map_err(|source| self.spawn_error(source))?;
+        Ok(())
     }
 
     pub fn check(self, status: ExitStatus) -> Result<(), ToolError> {
@@ -62,7 +91,7 @@ impl Tool {
         }
     }
 
-    fn spawn(self, source: io::Error) -> ToolError {
+    fn spawn_error(self, source: io::Error) -> ToolError {
         match source.kind() {
             io::ErrorKind::NotFound => ToolError::Missing {
                 name: self.name,
