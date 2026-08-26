@@ -3,6 +3,7 @@
 use zolana_event::OutputDataEncoding;
 use zolana_keypair::{viewing_key::ViewTag, ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_transaction::{
+    instructions::transact::SENDER_SLOT_COUNT,
     serialization::{
         anonymous::{
             AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle,
@@ -10,8 +11,8 @@ use zolana_transaction::{
         },
         confidential::{Confidential, ConfidentialEncode},
     },
-    Address, AssetRegistry, Data, EncryptedScheme, LocalWalletAuthority, OutputContext, OutputSlot,
-    OwnerCx, ShieldedTransaction, Utxo, UtxoSerialization, Wallet, SOL_MINT,
+    Address, AssetRegistry, Data, EncryptedScheme, KeypairWalletAuthority, OutputContext,
+    OutputSlot, OwnerCx, ShieldedTransaction, Utxo, UtxoSerialization, Wallet, SOL_MINT,
 };
 
 pub fn keypair_from_index(index: u16) -> ShieldedKeypair {
@@ -26,8 +27,8 @@ pub fn keypair_from_index(index: u16) -> ShieldedKeypair {
     ShieldedKeypair::with_viewing_key(signing, viewing).unwrap()
 }
 
-pub fn local_authority(keypair: &ShieldedKeypair) -> LocalWalletAuthority<'_> {
-    LocalWalletAuthority::new(Address::default(), keypair)
+pub fn local_authority(keypair: &ShieldedKeypair) -> KeypairWalletAuthority<'_> {
+    KeypairWalletAuthority::new(Address::default(), keypair)
 }
 
 pub fn wallet_for(keypair: &ShieldedKeypair, registry: AssetRegistry) -> Wallet {
@@ -277,7 +278,7 @@ pub fn build_unified_transfer(
             tx: tx_key,
             recipient_pubkey: spec.recipient.viewing_pubkey(),
             salt,
-            slot_index: 1,
+            slot_index: SENDER_SLOT_COUNT as u32,
         },
     )
     .unwrap();
@@ -297,18 +298,20 @@ pub fn build_unified_transfer(
         )
         .unwrap();
 
-    let output_slots = vec![
-        slot(
-            change_ciphertext.view_tag,
-            change_hash,
-            change_ciphertext.data,
-        ),
-        slot(
-            recipient_ciphertext.view_tag,
-            recipient_hash,
-            recipient_ciphertext.data,
-        ),
-    ];
+    // The first `SENDER_SLOT_COUNT` positions are the sender's own change;
+    // recipients start after them. A recipient parked inside that range reads
+    // back as change, which nets the sender's history row to zero.
+    let mut output_slots = vec![slot(
+        change_ciphertext.view_tag,
+        change_hash,
+        change_ciphertext.data,
+    )];
+    output_slots.resize_with(SENDER_SLOT_COUNT, empty_slot);
+    output_slots.push(slot(
+        recipient_ciphertext.view_tag,
+        recipient_hash,
+        recipient_ciphertext.data,
+    ));
 
     let tx = ShieldedTransaction {
         slot: 0,

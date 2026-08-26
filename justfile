@@ -41,6 +41,16 @@ forester *args:
 prover *args:
     just --justfile prover/server/justfile {{args}}
 
+# Render all documentation diagrams from their DOT sources.
+render-diagrams:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for diagram_source in docs/diagrams/*.dot; do
+      diagram_base="${diagram_source%.dot}"
+      dot -Tpng -Gdpi=144 "$diagram_source" -o "$diagram_base.png"
+      dot -Tsvg "$diagram_source" -o "$diagram_base.svg"
+    done
+
 # === Rust workspace ===
 
 # Build default workspace members.
@@ -58,6 +68,7 @@ check:
 # test binaries in the type check without letting `cargo test` run them.
 check-all:
     cargo check --workspace --all-targets --features zolana-client/proofs
+    cargo check -p zolana-transaction --features parallel --all-targets
 
 # Default test target.
 test: test-shielded-pool test-sdk-libs test-photon
@@ -318,6 +329,10 @@ test-sdk-libs:
     cargo nextest run -p zolana-keypair
     cargo test --doc -p zolana-keypair
     cargo nextest run -p zolana-transaction
+    # `parallel` is off by default, so the default run compiles neither
+    # wallet::parallel nor the tests that hold the two scan strategies to the
+    # same results. Without this the strategies can drift unnoticed.
+    cargo nextest run -p zolana-transaction --features parallel
     cargo nextest run -p zolana-client --features client
     cargo nextest run -p zolana-wallet
     cargo nextest run -p zolana-ring-client
@@ -1502,6 +1517,9 @@ fmt-check:
 
 clippy:
     cargo clippy --workspace --all-targets --features zolana-client/proofs -- -D warnings
+    # Not covered by `--workspace`: an optional feature's module is only
+    # compiled when the feature is on.
+    cargo clippy -p zolana-transaction --features parallel --all-targets -- -D warnings
 
 check-test-hygiene:
     ./tools/check-test-hygiene.sh

@@ -69,7 +69,7 @@ use zolana_transaction::{
         transact::{ConfidentialTransfer, PreparedTransfer},
         types::SppProofInputUtxo,
     },
-    Data, LocalWalletAuthority, Utxo, Wallet, DEFAULT_TAG_WINDOW, SOL_ASSET_ID, SOL_MINT,
+    Data, KeypairWalletAuthority, Utxo, Wallet, DEFAULT_TAG_WINDOW, SOL_ASSET_ID, SOL_MINT,
 };
 use zolana_tree::TreeAccount;
 use zolana_user_registry_interface::user_registry_program_id;
@@ -707,7 +707,8 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
 
     // 9. Normal operation is undisturbed: the recipient still discovers its
     //    output through `Wallet::sync` on its own view tag, with no auditor key.
-    let recipient_authority = LocalWalletAuthority::new(Address::default(), &env.recipient.keypair);
+    let recipient_authority =
+        KeypairWalletAuthority::new(Address::default(), &env.recipient.keypair);
     env.recipient.wallet.sync(
         &recipient_authority,
         std::slice::from_ref(&indexed),
@@ -801,7 +802,7 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
     let recipient = &env.recipient.keypair;
     let sender_address = sender.shielded_address()?;
     let recipient_address = recipient.shielded_address()?;
-    let recipient_authority = LocalWalletAuthority::new(Address::default(), recipient);
+    let recipient_authority = KeypairWalletAuthority::new(Address::default(), recipient);
 
     // 1. Entry, a default-ring deposit is spent into ring-bound notes.
     let deposited = DefaultRingDeposit {

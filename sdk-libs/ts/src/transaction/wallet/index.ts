@@ -1,5 +1,6 @@
 export {
-  LocalWalletAuthority,
+  ClientEd25519WalletAuthority,
+  KeypairWalletAuthority,
   type AnonymousRecipientSlot,
   type ApprovalRequest,
   type EncryptedEnvelope,
