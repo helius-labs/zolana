@@ -1,0 +1,31 @@
+%%{init: {'sequence': {'wrap': true}}}%%
+sequenceDiagram
+    autonumber
+    box Curator ring
+    actor CurOp as Curator operator<br/>(upgrade authority)
+    participant CurRing as Curator ring program
+    end
+    box Chain state
+    participant CurPC as Curator PolicyConfig
+    participant SubPC as Subscriber PolicyConfig
+    end
+    box Subscriber ring
+    participant SubRing as Subscriber ring program
+    actor SubOp as Subscriber operator<br/>(upgrade authority)
+    end
+
+    rect rgba(128, 128, 128, 0.07)
+    Note over CurOp, CurPC: the curator provisions first, a curator without a policy config fails the subscriber with CuratorSourceMissing
+    CurOp->>CurRing: create_config, init_spp_ring_config
+    CurOp->>+CurRing: create_policy, Block reads its own records PDA
+    CurRing->>-CurPC: writes the map, policy_hash binds all eight slots
+    end
+
+    rect rgba(128, 128, 128, 0.07)
+    SubOp->>+SubRing: create_policy, sources = [(Block, curator policy config)]
+    SubRing->>CurPC: reads the curator's resolved records owner
+    Note right of SubRing: copies the RESOLVED address, delegation does not chain, the records tree must equal the curator's and the transfer's input tree
+    SubRing->>-SubPC: writes the map, policy_hash binds it under the compiled table
+    end
+
+    Note over CurOp, SubOp: create_policy signs with the upgrade authority, the later set_policy_source with the config authority

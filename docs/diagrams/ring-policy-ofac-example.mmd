@@ -1,25 +1,78 @@
+%%{init: {'sequence': {'wrap': true}}}%%
 sequenceDiagram
-    participant OFAC as OFAC SDN feed
+    autonumber
+    box Curator side
+    participant OFAC as OFAC SDN list<br/>(published file)
     actor Curator as Curator ring authority
+    participant CurRing as Curator ring program
+    end
+    box Shared rails
+    participant SPP as SPP<br/>(policy agnostic)
+    participant Photon as Photon indexer
+    participant Prover as Prover
+    end
+    box Subscriber side
+    participant SubRing as Subscriber ring program
+    actor SubOp as Subscriber ring authority
     actor Crazy as Mr. Crazy's wallet
-    actor Evil as Mr. Evil's wallet
-    participant CurRing as Curator ring
-    participant SubRing as Subscriber ring
-    participant SPP
+    participant Others as Other subscriber rings
+    end
 
-    Note over SubRing: Block source = curator, pinned at create_policy
+    rect rgba(100, 160, 100, 0.08)
+    Note over SubRing, Crazy: baseline, a transfer to a clean recipient
+    Crazy->>SubRing: reads the source map, Block resolves to the curator's records PDA
+    Crazy->>Photon: reads the recipient member's record, none exists
+    Photon-->>Crazy: address non-inclusion proof and both roots
+    Crazy->>Prover: one proof over the audit statement, policy_hash, both roots
+    Note over Crazy: every live output owner is screened, the sender's change too
+    Crazy->>+SubRing: transact(proof, root indices)
+    Note over SubRing: recomputes POLICY.hash over the stored map, resolves the roots by index, verifies one Groth16
+    SubRing->>-SPP: CPI ring_transact
+    Note over SPP: the instruction carries no member, no kind, no pool, the chain cannot tell who was screened
+    end
 
-    OFAC-->>Curator: the sanctions list names Mr. Evil's pubkey
-    Curator->>CurRing: create_record(Block, evil_pubkey)
-    CurRing->>SPP: the ban record lands in the shared tree
-    Note over CurRing,SubRing: the ban binds the pubkey's owner tag, enforcement is in ring only
+    rect rgba(180, 100, 100, 0.08)
+    Note over OFAC, CurRing: the ban, one write
+    Note over OFAC: the list names Mr. Evil's address, the curator ingests it off chain
+    Curator->>Prover: proves the record mutation
+    Curator->>+CurRing: create_record(Block, member)<br/>member = hash(confidential view tag)
+    Note over CurRing: an ed25519 tag equals the pubkey, a P256 identity hashes its x coordinate, an address ban does not cover it
+    CurRing->>-SPP: CPI transact signed by the records PDA, carrying its own SPP proof
+    Photon->>SPP: polls the chain, indexes the record
+    Note over Photon: a plaintext zero amount UTXO at the claimed address, v0 Active, publicly auditable
+    Note over Others: the same record now governs every subscriber, no further write exists
+    Note over SPP: not instant, the forester rolls roots forward and the eight root window still admits pre ban proofs
+    end
 
-    Crazy--xEvil: ring transfer refused, the recipient owner tag holds a live Block record
-    Note over Crazy: the wallet finds the ban at witness build, no proof exists for the payment
-    Note over Crazy,SubRing: a patched wallet fails at the circuit, the ban record admits no non-inclusion witness
+    rect rgba(180, 100, 100, 0.08)
+    Note over Crazy: the same transfer, the recipient is Mr. Evil
+    Crazy->>Photon: reads the member's record
+    Photon-->>Crazy: live Active Block record
+    alt honest wallet
+        Note over Crazy: the SPP proof is already made, build_pool refuses with PolicyRuleUnsatisfied, nothing reaches the chain, the input UTXO stays unspent
+    else patched wallet
+        Crazy->>Prover: forged witness
+        Note over Prover: unsatisfiable, coverage forces an answered pool entry and no absence branch exists against a live Active record
+    end
+    end
 
-    OFAC-->>Curator: the sanctions list drops the pubkey
-    Curator->>CurRing: update_record clears the ban
-    Crazy->>Evil: ring transfer lands, absence proved through the cleared record
-    Crazy->>SubRing: transact with one proof
-    SubRing->>SPP: CPI ring_transact
+    rect rgba(128, 128, 128, 0.07)
+    Note over SubRing, SubOp: no local override
+    SubOp->>SubRing: create_record(Block, member) on the subscriber's own ring
+    SubRing-->>SubOp: ForeignRecordSource, the kind is served by the curator's records
+    end
+
+    rect rgba(100, 160, 100, 0.08)
+    Note over Curator, CurRing: the clear
+    Curator->>CurRing: update_record, v1 Cleared at the same address, no delete exists
+    Crazy->>Photon: reads the member's record
+    Photon-->>Crazy: cleared record, inclusion plus nullifier non-inclusion
+    Crazy->>SubRing: the same input UTXO lands through the cleared branch
+    end
+
+    rect rgba(128, 128, 128, 0.07)
+    Note over Curator, SubOp: the real escape is the subscriber's, not the sanctions list's
+    Curator->>CurRing: re-bans the member, v2 Active
+    SubOp->>SubRing: set_policy_source(Block, own) by the config authority
+    Note over SubRing: allowed only while the stored hash reproduces under the deployed table, the next transfer lands with the curator record Active
+    end

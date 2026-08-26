@@ -182,3 +182,14 @@ the membership proofs, and the circuit are reused unchanged.
    statement.
 6. The ring program recomputes the table hash, resolves the roots, verifies
    the proof, and CPIs into SPP.
+
+## Diagrams
+
+- [`diagrams/ring-policy-classes.mmd`](diagrams/ring-policy-classes.mmd), the
+  type relationships by domain.
+- [`diagrams/ring-policy-domains.mmd`](diagrams/ring-policy-domains.mmd),
+  what lives where and the hash and proof bridges between the layers.
+- [`diagrams/ring-policy-ofac-setup.mmd`](diagrams/ring-policy-ofac-setup.mmd),
+  a subscriber pins a curator's blocklist at `create_policy`.
+- [`diagrams/ring-policy-ofac-example.mmd`](diagrams/ring-policy-ofac-example.mmd),
+  the enforcement cycle, baseline, ban, refusal, clear, source switch.
