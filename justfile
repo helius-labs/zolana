@@ -90,7 +90,7 @@ test-program-fast: build-programs
     cargo nextest run -p shielded-pool-tests
     cargo nextest run -p swap-program --tests
     cargo nextest run -p custom-ring-program --tests
-    # The featured suite compiles the rule features the deploy-ring-rules image carries.
+    # The featured suite compiles with the rule features the deploy-ring-rules image carries.
     cargo nextest run -p custom-ring-program --test policy_sources --features allowlist,blocklist,freeze
 
 # Run one shielded-pool intent-level binary, for example:
@@ -1204,6 +1204,34 @@ test-custom-ring-validator: ensure-custom-ring-live-keys build-programs build-cl
     if [ -n "${ZOLANA_RING_TEMPLATE_DIR:-}" ]; then
       cargo nextest run -p custom-ring-cli --run-ignored all -E 'binary(new_smoke)'
     fi
+
+# Two-ring shared policy source lifecycle on a local validator
+# (custom-rings/test/tests/shared_sources.rs): both rings run the blocklist
+# image, the subscriber's Block kind reads the curator's records, one curator
+# write refuses the subscriber's transfer, clearing it or re-pointing the
+# source re-admits it. The `blocklist` test feature must match the image, the
+# on-chain policy hash pins the compiled table.
+test-custom-ring-shared: ensure-custom-ring-live-keys build-programs build-cli ensure-photon ensure-smart-account
+    #!/usr/bin/env bash
+    set -euo pipefail
+    program_ids=$(cargo run -q -p xtask -- program-ids)
+    eval "$program_ids"
+    : "${CUSTOM_RING_PROGRAM_ID:?xtask did not emit CUSTOM_RING_PROGRAM_ID}"
+    : "${SHIELDED_POOL_PROGRAM_ID:?xtask did not emit SHIELDED_POOL_PROGRAM_ID}"
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      pkill -f solana-test-validator 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    export CUSTOM_RING_PROGRAM_ID
+    export SHIELDED_POOL_PROGRAM_ID
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    export CUSTOM_RING_PROGRAM_SO="$PWD/target/deploy-ring-blocklist/custom_ring_program.so"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo nextest run -p custom-ring-test-validator --test shared_sources --features blocklist --no-capture
 
 # Timelock escrow lifecycle on a local validator, driven against a real
 # localnet (sdk-tests/timelock-escrow/test/tests/escrow.rs). Boots
