@@ -364,11 +364,23 @@ pub fn initialized_records_tree_account() -> Account {
     }
 }
 
+/// `tag` followed by the wincode source declarations.
+pub fn create_policy_data(specs: &[custom_ring_interface::PolicySourceSpec]) -> Vec<u8> {
+    let mut data = vec![custom_ring_interface::tag::CREATE_POLICY];
+    data.extend_from_slice(
+        &wincode::serialize(&custom_ring_interface::CreatePolicyIxData {
+            sources: specs.to_vec(),
+        })
+        .expect("create_policy data"),
+    );
+    data
+}
+
 /// Green `create_policy` fixture, `[payer(w,s), authority(s), policy_config(w),
 /// records_tree, system_program, program, program_data]`.
 pub fn create_policy_fixture() -> Fixture {
     Fixture::new(
-        vec![custom_ring_interface::tag::CREATE_POLICY],
+        create_policy_data(&[]),
         vec![
             Slot {
                 label: "payer",

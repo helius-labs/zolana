@@ -36,6 +36,10 @@ fn error_codes_are_stable() {
         (InvalidRecordsPda as u32, 8131),
         (InvalidRecordsTree as u32, 8132),
         (StalePolicyRoot as u32, 8133),
+        (InvalidPolicySource as u32, 8134),
+        (InvalidCuratorPolicyConfig as u32, 8135),
+        (CuratorTreeMismatch as u32, 8136),
+        (CuratorSourceMissing as u32, 8137),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -78,6 +82,10 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | RecordVersionOverflow
         | InvalidRecordsPda
         | InvalidRecordsTree
-        | StalePolicyRoot => {}
+        | StalePolicyRoot
+        | InvalidPolicySource
+        | InvalidCuratorPolicyConfig
+        | CuratorTreeMismatch
+        | CuratorSourceMissing => {}
     }
 }

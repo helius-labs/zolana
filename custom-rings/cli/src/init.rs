@@ -112,6 +112,8 @@ pub enum InitError {
     #[error(transparent)]
     Build(#[from] CreateConfigError),
     #[error(transparent)]
+    Policy(#[from] custom_ring_sdk::RecordError),
+    #[error(transparent)]
     Step(#[from] StepError),
     #[error("ring config exists under authority {authority} with auditor {auditor}, ring.toml names another operator")]
     ConfigMismatch { authority: Address, auditor: String },
@@ -410,8 +412,9 @@ impl Init<'_> {
                         payer: config_authority,
                         authority: deployer.pubkey(),
                         records_tree: self.records_tree,
+                        shared_sources: vec![],
                     }
-                    .instruction()],
+                    .instruction()?],
                 )?
             }
         };

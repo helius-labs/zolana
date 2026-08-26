@@ -77,8 +77,9 @@ fn init(ctx: &mut Context, records_tree: Address) -> Result<(), RecordError> {
             payer: authority.pubkey(),
             authority: authority.pubkey(),
             records_tree,
+            shared_sources: vec![],
         }
-        .instruction()],
+        .instruction()?],
     )?;
     line("policy", outcome_label(outcome));
     line("records", ctx.ring.records_pda());

@@ -511,8 +511,9 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
             payer: authority,
             authority,
             records_tree: env.tree,
+            shared_sources: vec![],
         }
-        .instruction()],
+        .instruction()?],
     )?;
 
     // 4. Two ring SOL deposits give the sender the ring-owned UTXOs the transfer
