@@ -290,7 +290,16 @@ impl<'a> CustomRingTransfer<'a> {
         }
         .build(environment.indexer, environment.rpc)?;
         let policy_roots = witness.roots;
-        let request = pending_proof.finish(private_tx_hash, witness, &policy_config.policy_hash)?;
+        let external_data_hash = proof_inputs
+            .external_data
+            .hash()
+            .map_err(|_| TransferError::PolicyHashing)?;
+        let request = pending_proof.finish(
+            private_tx_hash,
+            &external_data_hash,
+            witness,
+            &policy_config.policy_hash,
+        )?;
         let proof = to_instruction_proof(environment.prover.prove(&request)?)?;
 
         Ok(ProvenTransfer {
