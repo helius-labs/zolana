@@ -1,7 +1,8 @@
 use custom_ring_sdk::{
-    read_record, AccountReadError, CreatePolicy, CreateRecord, LiveRecord,
-    RecordError as SdkRecordError, RecordProofEnvironment, RecordProofError, UpdateRecord,
-    CREATE_POLICY_COMPUTE_UNIT_LIMIT, RECORD_MUTATION_COMPUTE_UNIT_LIMIT,
+    read_record, AccountReadError, CreatePolicy, CreateRecord, CustomRing, LiveRecord,
+    PolicySource, RecordError as SdkRecordError, RecordProofEnvironment, RecordProofError,
+    SetPolicySource, UpdateRecord, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
+    RECORD_MUTATION_COMPUTE_UNIT_LIMIT, SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
 use solana_signer::Signer;
@@ -9,6 +10,7 @@ use thiserror::Error;
 use zolana_ring_policy::{Member, MemberError, RecordKind, RecordState};
 
 use crate::{
+    config::PolicyTable,
     line,
     step::{no_hint, IdempotentStep, Observed, StepError, StepOutcome},
     Context, ContextError, RecordCommand,
@@ -32,6 +34,32 @@ pub enum RecordError {
     NoPolicy,
     #[error("{kind:?} record for {member} does not exist")]
     NoRecord { kind: RecordKind, member: Address },
+    #[error("{kind:?} reads curator {curator} records, mutate it on the curator ring")]
+    SharedKind { kind: RecordKind, curator: Address },
+    #[error("ring.toml names an unknown source kind {name}")]
+    UnknownSourceKind { name: String },
+}
+
+/// The `[policy.sources]` block as builder input.
+pub fn shared_sources(
+    policy: Option<&PolicyTable>,
+) -> Result<Vec<(RecordKind, CustomRing)>, RecordError> {
+    let Some(policy) = policy else {
+        return Ok(Vec::new());
+    };
+    policy
+        .sources
+        .iter()
+        .map(|(name, curator)| {
+            let kind = match name.as_str() {
+                "allow" => RecordKind::Allow,
+                "block" => RecordKind::Block,
+                "frozen" => RecordKind::Frozen,
+                _ => return Err(RecordError::UnknownSourceKind { name: name.clone() }),
+            };
+            Ok((kind, CustomRing::new(curator.0)))
+        })
+        .collect()
 }
 
 impl From<SdkRecordError> for RecordError {
@@ -56,7 +84,49 @@ pub fn run(ctx: &mut Context, command: RecordCommand) -> Result<(), RecordError>
             mutate(ctx, kind.into(), member, RecordState::Cleared)
         }
         RecordCommand::Show { kind, member } => show(ctx, kind.into(), member),
+        RecordCommand::SetSource { kind, curator, own } => {
+            let source = match (curator, own) {
+                (Some(curator), false) => PolicySource::Shared(CustomRing::new(curator)),
+                _ => PolicySource::Own,
+            };
+            set_source(ctx, kind.into(), source)
+        }
     }
+}
+
+fn set_source(
+    ctx: &mut Context,
+    kind: RecordKind,
+    source: PolicySource,
+) -> Result<(), RecordError> {
+    let authority = ctx.funded_authority()?;
+    IdempotentStep {
+        rpc: &ctx.rpc,
+        authority: &authority,
+        co_signers: &[],
+        name: "set_policy_source",
+        compute_unit_limit: SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
+        hint: no_hint,
+    }
+    .ensure_present(
+        Observed::Absent,
+        &[SetPolicySource {
+            ring: ctx.ring,
+            authority: authority.pubkey(),
+            kind,
+            source,
+        }
+        .instruction()?],
+    )?;
+    let records = ctx
+        .ring
+        .read_policy_config(&ctx.rpc)?
+        .ok_or(RecordError::NoPolicy)?
+        .source_for(kind as u8)
+        .ok_or(RecordError::NoPolicy)?;
+    line("kind", format_args!("{kind:?}"));
+    line("records", records);
+    Ok(())
 }
 
 fn init(ctx: &mut Context, records_tree: Address) -> Result<(), RecordError> {
@@ -77,7 +147,7 @@ fn init(ctx: &mut Context, records_tree: Address) -> Result<(), RecordError> {
             payer: authority.pubkey(),
             authority: authority.pubkey(),
             records_tree,
-            shared_sources: vec![],
+            shared_sources: shared_sources(ctx.config.policy.as_ref())?,
         }
         .instruction()?],
     )?;
@@ -94,7 +164,20 @@ fn mutate(
     state: RecordState,
 ) -> Result<(), RecordError> {
     let authority = ctx.funded_authority()?;
-    let records_tree = records_tree(ctx)?;
+    let config = ctx
+        .ring
+        .read_policy_config(&ctx.rpc)?
+        .ok_or(RecordError::NoPolicy)?;
+    let records_tree = config.records_tree;
+    // Mutations serve the ring's own records only, the program refuses the rest.
+    if let Some(records) = config.source_for(kind as u8) {
+        if records != ctx.ring.records_pda() {
+            return Err(RecordError::SharedKind {
+                kind,
+                curator: records,
+            });
+        }
+    }
     let member_field = Member::owner_tag(member.as_array())?;
     let indexer = ctx.indexer();
     let prover = ctx.prover();
@@ -153,20 +236,20 @@ fn mutate(
 
 fn show(ctx: &mut Context, kind: RecordKind, member: Address) -> Result<(), RecordError> {
     let member_field = Member::owner_tag(member.as_array())?;
+    // A curator sourced kind reads the curator's records.
+    let records = ctx
+        .ring
+        .read_policy_config(&ctx.rpc)?
+        .ok_or(RecordError::NoPolicy)?
+        .source_for(kind as u8)
+        .unwrap_or_else(|| ctx.ring.records_pda());
     let indexer = ctx.indexer();
-    let live = read_record(&indexer, ctx.ring.records_pda(), kind, &member_field)?
+    let live = read_record(&indexer, records, kind, &member_field)?
         .ok_or(RecordError::NoRecord { kind, member })?;
     line("record", format_args!("{kind:?} {member}"));
     line("state", format_args!("{:?}", live.record.state));
     line("version", live.record.version);
     Ok(())
-}
-
-fn records_tree(ctx: &Context) -> Result<Address, RecordError> {
-    ctx.ring
-        .read_policy_config(&ctx.rpc)?
-        .map(|config| config.records_tree)
-        .ok_or(RecordError::NoPolicy)
 }
 
 fn outcome_label(outcome: StepOutcome) -> &'static str {
