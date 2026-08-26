@@ -10,7 +10,7 @@ use zolana_interface::{
     UTXO_DOMAIN,
 };
 use zolana_ring_policy::{
-    record_nullifier, Mode, Policy, Member, RecordKind, RecordState, RecordsOwner, Rule,
+    record_nullifier, Member, Mode, Policy, RecordKind, RecordState, RecordsOwner, Rule,
     RuleSource, Subject, MAX_INLINE_ASSETS, MAX_RULES,
 };
 use zolana_transaction::instructions::{transact::SppProofOutputUtxo, types::SppProofInputUtxo};

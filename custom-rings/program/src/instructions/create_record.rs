@@ -22,8 +22,7 @@ pub fn process_create_record_ix(
         wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
     let kind = RecordKind::try_from(ix.kind).map_err(|_| CustomRingError::InvalidRecordKind)?;
     let state = RecordState::try_from(ix.state).map_err(|_| CustomRingError::InvalidRecordState)?;
-    let member =
-        Member::from_bytes(ix.member).map_err(|_| CustomRingError::InvalidPolicyMember)?;
+    let member = Member::from_bytes(ix.member).map_err(|_| CustomRingError::InvalidPolicyMember)?;
 
     let parsed = MutationAccounts::validate_and_parse(program_id, accounts)?;
     parsed.check_mutator(kind, &member)?;

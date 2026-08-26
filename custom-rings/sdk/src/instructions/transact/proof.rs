@@ -24,7 +24,7 @@
 //! [`CustomRingProofParams`]) and invalidates an SPP proof taken over the first
 //! message, so it is called once per transaction.
 
-use custom_ring_interface::{CustomRingProof, AuditPublicInput};
+use custom_ring_interface::{AuditPublicInput, CustomRingProof};
 use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_client::{ClientError, Proof, ProofCompressed};
@@ -142,7 +142,8 @@ impl PendingCustomRingProof {
         private_tx_hash: CustomRingPrivateTxHash,
         witness: crate::witness::CustomRingWitness,
         policy_hash: &[u8; 32],
-    ) -> Result<crate::instructions::transact::CustomRingProofRequest, CustomRingProofInputError> {
+    ) -> Result<crate::instructions::transact::CustomRingProofRequest, CustomRingProofInputError>
+    {
         let Self {
             tx_viewing_key,
             tx_viewing_pk,

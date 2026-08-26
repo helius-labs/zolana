@@ -4,8 +4,8 @@
 
 use custom_ring_interface::{AuditPublicInput, CustomRingPublicInput};
 use zolana_ring_policy::{
-    record_nullifier, record_seed, Guard, Mode, Policy, Member, Record, RecordKind,
-    RecordState, RecordsOwner, Rule, Subject,
+    record_nullifier, record_seed, Guard, Member, Mode, Policy, Record, RecordKind, RecordState,
+    RecordsOwner, Rule, Subject,
 };
 
 const RECORDS_PDA: [u8; 32] = [0x11; 32];
@@ -140,8 +140,8 @@ fn policy_hashing_matches_the_go_fixture() {
 
 #[test]
 fn the_inline_asset_member_is_the_utxo_asset_field() {
-    let member = Member::asset(&solana_address::Address::new_from_array(ASSET_MINT))
-        .expect("asset member");
+    let member =
+        Member::asset(&solana_address::Address::new_from_array(ASSET_MINT)).expect("asset member");
     assert_eq!(member.as_bytes(), &ASSET_MEMBERS[0]);
 }
 

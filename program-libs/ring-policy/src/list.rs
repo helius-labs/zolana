@@ -11,8 +11,9 @@
 //!    reserves it as the inline-asset sentinel) and its `TryFrom<u8>` arm.
 //! 2. Place the variant in [`RecordKind::holder`]. The total match makes the
 //!    compiler demand it.
-//! 3. Pick a [`Payload`] (`()` when the member is the whole record, [`ViewingKey`]
-//!    or a new type when a value is committed beside it).
+//! 3. Pick a [`Payload`] (`()` when the member is the whole record, [`CoSignerKey`]
+//!    or a new type when a value is committed beside it, a value above 32 bytes
+//!    hashes in `commit` and implements only [`Payload`]).
 //! 4. Declare a zero-sized type and `impl List` for it. `HOLDER` derives itself.
 //!
 //! The keying, the 74-byte envelope, the present-absent membership proofs, the
@@ -62,22 +63,6 @@ impl InlinePayload for () {
     }
 }
 
-/// A compressed viewing key stored by identity.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ViewingKey(pub [u8; 32]);
-
-impl Payload for ViewingKey {
-    fn commit(&self) -> [u8; 32] {
-        self.0
-    }
-}
-
-impl InlinePayload for ViewingKey {
-    fn from_commit(commit: [u8; 32]) -> Option<Self> {
-        Some(Self(commit))
-    }
-}
-
 /// A co-signer key stored by identity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CoSignerKey(pub [u8; 32]);
@@ -96,12 +81,15 @@ impl InlinePayload for CoSignerKey {
 
 macro_rules! list_kind {
     ($name:ident, $kind:expr, $payload:ty) => {
+        #[derive(Clone, Copy, Debug)]
         pub struct $name;
         impl sealed::Sealed for $name {}
         impl List for $name {
             const KIND: RecordKind = $kind;
             type Payload = $payload;
         }
+        // Zero is the circuit's inline-asset sentinel, never a kind.
+        const _: () = assert!($kind as u8 != 0);
     };
 }
 
@@ -164,11 +152,16 @@ mod tests {
 
     #[test]
     fn holder_derives_from_the_kind_for_every_list() {
-        assert_eq!(Allow::HOLDER, RecordKind::Allow.holder());
         assert_eq!(Allow::HOLDER, Holder::Authority);
+        assert_eq!(Block::HOLDER, Holder::Authority);
+        assert_eq!(Frozen::HOLDER, Holder::Authority);
         assert_eq!(RingViewing::HOLDER, Holder::Member);
-        assert_eq!(Escrow::HOLDER, Holder::Member);
+        assert_eq!(Recovery::HOLDER, Holder::Member);
         assert_eq!(Reader::HOLDER, Holder::Authority);
+        assert_eq!(Approval::HOLDER, Holder::Authority);
+        assert_eq!(Escrow::HOLDER, Holder::Member);
+        assert_eq!(Allow::HOLDER, RecordKind::Allow.holder());
+        assert_eq!(Escrow::HOLDER, RecordKind::Escrow.holder());
     }
 
     #[test]
@@ -190,9 +183,22 @@ mod tests {
 
     #[test]
     fn inline_payloads_round_trip_through_the_commitment() {
-        let key = ViewingKey([7u8; 32]);
-        assert_eq!(ViewingKey::from_commit(key.commit()), Some(key));
         let cosigner = CoSignerKey([9u8; 32]);
         assert_eq!(CoSignerKey::from_commit(cosigner.commit()), Some(cosigner));
+    }
+
+    #[test]
+    fn a_nonzero_commitment_on_a_unit_payload_list_reads_back_as_none() {
+        let typed = Typed::<Allow> {
+            member: member(2),
+            state: RecordState::Active,
+            version: 0,
+            payload: (),
+        };
+        let copied = typed;
+        let mut record = copied.erase();
+        record.payload_hash = [1u8; 32];
+        assert!(Typed::<Allow>::from_record(&record).is_none());
+        assert!(Typed::<Allow>::from_record(&typed.erase()).is_some());
     }
 }

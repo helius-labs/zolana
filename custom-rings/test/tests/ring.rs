@@ -27,9 +27,9 @@ use anyhow::{anyhow, Context, Result};
 use custom_ring_interface::{RingProgramConfig, CONFIG_PDA_SEED, RING_PROGRAM_CONFIG};
 use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
-    auditor_view_tag, CreateConfig, CreatePolicy, CustomRing, CustomRingTransact, CustomRingTransfer,
-    CustomRingTransferInput, InitSppRingConfig, ProvenTransfer, RingDeposit, RingDepositReceipt,
-    SetAuthority, TransferError, TransferProofEnvironment, V0WithLookupTable,
+    auditor_view_tag, CreateConfig, CreatePolicy, CustomRing, CustomRingTransact,
+    CustomRingTransfer, CustomRingTransferInput, InitSppRingConfig, ProvenTransfer, RingDeposit,
+    RingDepositReceipt, SetAuthority, TransferError, TransferProofEnvironment, V0WithLookupTable,
 };
 use shared::{
     custom_ring_program_id, prover_url, send, send_v0_expecting_rejection, setup, TestEnv,

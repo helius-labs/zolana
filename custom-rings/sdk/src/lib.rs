@@ -10,7 +10,7 @@ mod v0;
 mod witness;
 
 pub use custom_ring_interface::{
-    tag, CustomRingProof, CreateConfigIxData, CustomRingTransactIxData, PolicyConfig, ReaderIxData,
+    tag, CreateConfigIxData, CustomRingProof, CustomRingTransactIxData, PolicyConfig, ReaderIxData,
     CONFIG_PDA_SEED, CREATE_CONFIG_COMPUTE_UNIT_LIMIT, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
     INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT, READ_ACCESS_COMPUTE_UNIT_LIMIT,
     READ_ACCESS_RECORD_PDA_SEED, RECORD_MUTATION_COMPUTE_UNIT_LIMIT,
@@ -34,9 +34,9 @@ pub use crate::{
         revoke_read_access::RevokeReadAccess,
         set_authority::SetAuthority,
         transact::{
-            to_instruction_proof, CustomRingPrivateTxHash, CustomRingProofError, CustomRingProofInputError,
-            CustomRingProofParams, CustomRingProofRequest, EncryptedAudit, PendingCustomRingProof,
-            CustomRingTransact,
+            to_instruction_proof, CustomRingPrivateTxHash, CustomRingProofError,
+            CustomRingProofInputError, CustomRingProofParams, CustomRingProofRequest,
+            CustomRingTransact, EncryptedAudit, PendingCustomRingProof,
         },
     },
     shared::{AccountReadError, CustomRing, CustomRingConfig, ReaderKey, ReaderKeyError},
