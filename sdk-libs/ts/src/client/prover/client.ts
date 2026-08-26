@@ -1,7 +1,10 @@
+import { bytesToHex } from "@noble/hashes/utils.js";
+
 import type { RequestContext } from "../../interface/types.js";
 
 import { ClientError } from "../error.js";
 import {
+  checkedBytes,
   checkedServiceUrl,
   composeSignal,
   requestError,
@@ -11,6 +14,7 @@ import {
 import { circuitUtxo } from "./assembly.js";
 import { parseProof } from "./proof.js";
 import type {
+  CustomRingProofRequest,
   Field,
   MergeInputs,
   Proof,
@@ -38,6 +42,9 @@ const REQUEST_TIMEOUT_MS = 600_000;
  */
 const INITIAL_POLL_INTERVAL_MS = 25;
 const PROVE_PATH = "/prove";
+const HEALTH_PATH = "/health";
+const UNCOMPRESSED_P256_LENGTH = 65;
+type Delivery = "inResponse" | "queued";
 
 /// Polling cadence and ceiling for queued (async) proofs. A Redis-backed prover
 /// returns a job handle instead of a proof, and the client polls
@@ -56,6 +63,11 @@ const DEFAULT_ASYNC_POLL_CONFIG: AsyncPollConfig = Object.freeze({
   pollIntervalCapMs: 1_000,
   maxWaitMs: 1_200_000,
 });
+
+export interface ProverHealth {
+  readonly status: string;
+  readonly circuits: readonly string[];
+}
 
 export class ProverClient {
   readonly #fetch: typeof globalThis.fetch;
@@ -77,7 +89,8 @@ export class ProverClient {
     }
     const url = checkedServiceUrl(input.url, "url", input.allowInsecureHttp ?? false);
     url.pathname = `${url.pathname.replace(/\/+$/u, "")}${PROVE_PATH}`;
-    const fetchImplementation = input.fetch ?? globalThis.fetch;
+    // Browsers refuse `fetch` called with another receiver, so the global stays bound.
+    const fetchImplementation = input.fetch ?? ((input, init) => globalThis.fetch(input, init));
     if (typeof fetchImplementation !== "function") {
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "fetch" } });
     }
@@ -87,69 +100,119 @@ export class ProverClient {
   }
 
   async prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
-    return this.#send(JSON.stringify(proverRequest(inputs)), context);
+    return this.#send(JSON.stringify(proverRequest(inputs)), "inResponse", context);
   }
 
   async proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
-    return this.#send(JSON.stringify(mergeProverRequest(inputs)), context);
+    return this.#send(JSON.stringify(mergeProverRequest(inputs)), "inResponse", context);
   }
 
-  async #send(body: string, context?: RequestContext): Promise<Proof> {
+  async proveCustomRing(inputs: CustomRingProofRequest, context?: RequestContext): Promise<Proof> {
+    return this.#send(JSON.stringify(customRingProofRequest(inputs)), "queued", context);
+  }
+
+  /** The circuits the server serves. */
+  async health(context?: RequestContext): Promise<ProverHealth> {
+    const url = new URL(this.#url);
+    url.pathname = url.pathname.replace(/\/prove$/u, HEALTH_PATH);
+    const request = composeSignal(context, "health");
+    try {
+      let response: Response;
+      try {
+        response = await this.#fetch(url, { redirect: "error", signal: request.signal });
+      } catch {
+        if (request.timedOut()) throw requestError("health", request);
+        throw new ClientError("CLIENT_PROVER_REQUEST", {
+          details: { method: "health", attempts: 1 },
+        });
+      }
+      if (!response.ok) {
+        throw new ClientError("CLIENT_PROVER_HTTP", {
+          details: { method: "health", status: response.status },
+        });
+      }
+      const value = await decodeResponse(response);
+      if (!isObject(value) || typeof value["status"] !== "string") {
+        throw new ClientError("CLIENT_PROVER_JSON");
+      }
+      const circuits = Array.isArray(value["circuits"]) ? value["circuits"] : [];
+      return Object.freeze({
+        status: value["status"],
+        circuits: Object.freeze(
+          circuits.filter((circuit): circuit is string => typeof circuit === "string"),
+        ),
+      });
+    } finally {
+      request.cleanup();
+    }
+  }
+
+  async #send(body: string, delivery: Delivery, context?: RequestContext): Promise<Proof> {
     const signal = composeSignal(context, "prove");
     try {
-      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        if (attempt > 1) await sleep(RETRY_DELAY_MS, { signal: signal.signal });
-        const request = composeSignal(
-          { signal: signal.signal, timeoutMs: REQUEST_TIMEOUT_MS },
-          "prove",
-        );
-        try {
-          let response: Response;
+      deliveryAttempt: for (;;) {
+        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+          if (attempt > 1) await sleep(RETRY_DELAY_MS, { signal: signal.signal });
+          const request = composeSignal(
+            { signal: signal.signal, timeoutMs: REQUEST_TIMEOUT_MS },
+            "prove",
+          );
           try {
-            response = await this.#fetch(this.#url, {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body,
-              redirect: "error",
-              signal: request.signal,
-            });
-          } catch {
-            if (signal.signal.aborted) throw requestError("prove", signal);
-            if (attempt < MAX_ATTEMPTS) continue;
-            if (request.timedOut()) throw requestError("prove", request);
-            throw new ClientError("CLIENT_PROVER_REQUEST", {
-              details: { method: "prove", attempts: attempt },
-            });
+            let response: Response;
+            try {
+              response = await this.#fetch(this.#url, {
+                method: "POST",
+                headers: {
+                  "content-type": "application/json",
+                  ...(delivery === "inResponse" ? { "X-Sync": "true" } : {}),
+                },
+                body,
+                redirect: "error",
+                signal: request.signal,
+              });
+            } catch {
+              if (signal.signal.aborted) throw requestError("prove", signal);
+              if (attempt < MAX_ATTEMPTS) continue;
+              if (request.timedOut()) throw requestError("prove", request);
+              throw new ClientError("CLIENT_PROVER_REQUEST", {
+                details: { method: "prove", attempts: attempt },
+              });
+            }
+            if (response.status === 429 && delivery === "inResponse") {
+              await response.body?.cancel();
+              delivery = "queued";
+              continue deliveryAttempt;
+            }
+            // Rust fails fast on any non-success status; only a transport failure retries.
+            if (!response.ok) {
+              throw new ClientError("CLIENT_PROVER_HTTP", {
+                details: { method: "prove", status: response.status, attempts: attempt },
+              });
+            }
+            let value: unknown;
+            try {
+              value = await decodeResponse(response);
+            } catch (error) {
+              if (signal.signal.aborted) throw requestError("prove", signal);
+              if (request.timedOut()) throw requestError("prove", request);
+              throw error;
+            }
+            if (
+              isObject(value) &&
+              typeof value["jobId"] === "string" &&
+              value["proof"] === undefined
+            ) {
+              return await this.#poll(value["jobId"], signal);
+            }
+            return parseProof(value);
+          } finally {
+            request.cleanup();
           }
-          // Rust fails fast on any non-success status; only a transport failure retries.
-          if (!response.ok) {
-            throw new ClientError("CLIENT_PROVER_HTTP", {
-              details: { method: "prove", status: response.status, attempts: attempt },
-            });
-          }
-          let value: unknown;
-          try {
-            value = await decodeResponse(response);
-          } catch (error) {
-            if (signal.signal.aborted) throw requestError("prove", signal);
-            if (request.timedOut()) throw requestError("prove", request);
-            throw error;
-          }
-          if (
-            isObject(value) &&
-            typeof value["jobId"] === "string" &&
-            value["proof"] === undefined
-          ) {
-            return await this.#poll(value["jobId"], signal);
-          }
-          return parseProof(value);
-        } finally {
-          request.cleanup();
         }
+        throw new ClientError("CLIENT_PROVER_REQUEST", {
+          details: { method: "prove", attempts: MAX_ATTEMPTS },
+        });
       }
-      throw new ClientError("CLIENT_PROVER_REQUEST", {
-        details: { method: "prove", attempts: MAX_ATTEMPTS },
-      });
     } finally {
       signal.cleanup();
     }
@@ -258,8 +321,8 @@ function mergeProverRequest(inputs: MergeInputs): Readonly<Record<string, unknow
     privateTxHash: hex(inputs.privateTxHash),
     publicInputHash: hex(inputs.publicInputHash),
     allowDummyInputs: hex(inputs.allowDummyInputs),
-    outputZoneDataHash: hex(inputs.outputZoneDataHash),
-    zoneProgramId: hex(inputs.zoneProgramId),
+    outputRingDataHash: hex(inputs.outputRingDataHash),
+    ringProgramId: hex(inputs.ringProgramId),
   });
 }
 
@@ -269,7 +332,7 @@ function mergeInputJson(input: TransferInput): Readonly<Record<string, unknown>>
     domain: hex(utxo.domain),
     amount: hex(utxo.amount),
     blinding: hex(utxo.blinding),
-    zoneDataHash: hex(utxo.zoneDataHash),
+    ringDataHash: hex(utxo.ringDataHash),
     statePathElements: input.statePathElements.map(hex),
     statePathIndex: hex(input.statePathIndex),
     nullifierLowValue: hex(input.nullifierLowValue),
@@ -284,15 +347,38 @@ function mergeInputJson(input: TransferInput): Readonly<Record<string, unknown>>
 
 function mergeOutputJson(output: TransferOutput): Readonly<Record<string, unknown>> {
   return Object.freeze({
-    zoneDataHash: hex(circuitUtxo(output).zoneDataHash),
+    ringDataHash: hex(circuitUtxo(output).ringDataHash),
     hash: hex(output.hash),
+  });
+}
+
+/** Mirrors Rust `CustomRingProofRequest::body`, key order included. */
+export function customRingProofRequest(
+  inputs: CustomRingProofRequest,
+): Readonly<Record<string, unknown>> {
+  const auditorPublicKey = inputs.auditorPublicKey;
+  if (
+    !(auditorPublicKey instanceof Uint8Array) ||
+    auditorPublicKey.length !== UNCOMPRESSED_P256_LENGTH ||
+    auditorPublicKey[0] !== 0x04
+  ) {
+    throw new ClientError("CLIENT_INVALID_P256_KEY");
+  }
+  return Object.freeze({
+    circuitType: "custom-ring",
+    variant: "transfer",
+    publicInputHash: bytesHex(checkedBytes(inputs.publicInputHash, 32, "publicInputHash")),
+    privateTxHash: bytesHex(checkedBytes(inputs.privateTxHash, 32, "privateTxHash")),
+    txViewingSk: bytesHex(checkedBytes(inputs.txViewingSecret, 32, "txViewingSecret")),
+    ephSk: bytesHex(checkedBytes(inputs.ephemeralSecret, 32, "ephemeralSecret")),
+    auditorPk: bytesHex(auditorPublicKey),
   });
 }
 
 function proverRequest(inputs: ProverInputs): Readonly<Record<string, unknown>> {
   const payload = inputs.payload;
   return Object.freeze({
-    circuitType: "transfer-confidential",
+    circuitType: inputs.circuit === "transferRing" ? "transfer-ring" : "transfer-confidential",
     nInputs: payload.inputs.length,
     nOutputs: payload.outputs.length,
     inputs: payload.inputs.map(inputJson),
@@ -301,7 +387,7 @@ function proverRequest(inputs: ProverInputs): Readonly<Record<string, unknown>> 
     privateTxHash: hex(payload.privateTxHash),
     publicAssets: payload.publicAssets.map(hex),
     publicAmounts: payload.publicAmounts.map(hex),
-    ringProgramId: hex(payload.zoneProgramId),
+    ringProgramId: hex(payload.ringProgramId),
     signerPkHashes: payload.signerPublicKeyHashes.map(hex),
     allowDummyInputs: hex(payload.allowDummyInputs),
     publishedOutputOwnerPkHashes: payload.publishedOutputOwnerPublicKeyHashes.map(hex),
@@ -346,13 +432,17 @@ function utxoJson(value: object): Readonly<Record<string, unknown>> {
     amount: hex(utxo.amount),
     blinding: hex(utxo.blinding),
     dataHash: hex(utxo.dataHash),
-    ringDataHash: hex(utxo.zoneDataHash),
-    ringProgramId: hex(utxo.zoneProgramId),
+    ringDataHash: hex(utxo.ringDataHash),
+    ringProgramId: hex(utxo.ringProgramId),
   });
 }
 
 function hex(value: Field): string {
   return `0x${value.toString(16)}`;
+}
+
+function bytesHex(bytes: Uint8Array): string {
+  return `0x${bytesToHex(bytes)}`;
 }
 
 async function decodeResponse(response: Response): Promise<unknown> {

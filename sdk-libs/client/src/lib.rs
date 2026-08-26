@@ -23,6 +23,7 @@ pub mod indexer;
 pub mod prover;
 pub mod retry;
 pub mod rpc;
+mod settlement;
 #[cfg(feature = "solana-rpc")]
 pub mod solana_rpc;
 pub mod timing;
@@ -41,13 +42,13 @@ pub use prover::{
         AssembledTransfer, ProverInputs, ProverVariant, SpendProof,
     },
     verify_confidential_transfer_inputs, verify_confidential_transfer_proof, AsyncPollConfig,
-    AsyncProverClient, BatchAddressAppendInputs, Commitments, CompressedCommitments,
+    AsyncProverClient, BatchAddressAppendInputs, Commitments, CompressedCommitments, Delivery,
     MergeProofResult, MergeProver, MergeRingProver, MergeRingWitness, Proof, ProofCompressed,
-    ProofInputUtxo, ProverClient, PublicInputs, PublicTransfers, RingAuthorityProofResult,
-    RingAuthorityProver, RingAuthorityWitness, RingTransferP256ProofResult, RingTransferP256Prover,
-    RingTransferProofResult, RingTransferProver, Shape, TransferInput, TransferInputs,
-    TransferOutput, TransferP256Inputs, TransferProofResult, TransferProver, TransferSpendInput,
-    SPP_SUPPORTED_SHAPES,
+    ProofInputUtxo, ProveRequest, ProverClient, PublicInputs, PublicTransfers,
+    RingAuthorityProofResult, RingAuthorityProver, RingAuthorityWitness,
+    RingTransferP256ProofResult, RingTransferP256Prover, RingTransferProofResult,
+    RingTransferProver, Shape, TransferInput, TransferInputs, TransferOutput, TransferP256Inputs,
+    TransferProofResult, TransferProver, TransferSpendInput, SPP_SUPPORTED_SHAPES,
 };
 pub use retry::{IndexerPollConfig, IndexerRpcConfig};
 pub use rpc::{
@@ -58,6 +59,7 @@ pub use rpc::{
     OutputSlot, ProveResult, Rpc, ShieldedTransaction, ShieldedTransactionStream,
     NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
+pub use settlement::SettlementAccountValidation;
 #[cfg(feature = "solana-rpc")]
 pub use solana_rpc::{AsyncSolanaRpc, ConfirmedInstructionGroups, SolanaRpc};
 // `SolanaRpc::send_transaction_with_config` is public but names this type,

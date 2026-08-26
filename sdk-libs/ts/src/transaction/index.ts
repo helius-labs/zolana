@@ -34,6 +34,7 @@ export {
   slotOrdinal,
 } from "./instructions/index.js";
 export type {
+  ChangeLayout,
   EncryptedTransaction,
   ExternalData,
   ExternalDataInit,
@@ -65,7 +66,9 @@ export type {
   AnonymousRecipientSlot,
   ApprovalRequest,
   AssetBalance,
+  AuditWitness,
   PrivateBalances,
+  EncryptedCustomRingTransfer,
   EncryptedEnvelope,
   EncryptedSplit,
   EncryptedTransfer,

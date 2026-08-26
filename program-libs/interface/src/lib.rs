@@ -7,6 +7,8 @@ pub mod shape;
 pub mod state;
 pub mod verifying_keys;
 
+pub use zolana_hasher::p256::{P_CONST_SEC1, P_DERIVE_SEC1, P_PDA_SEC1};
+
 /// Decode a base58 program id into a `[u8; 32]` const at compile time.
 #[macro_export]
 macro_rules! pubkey_array {
@@ -26,6 +28,10 @@ pub const UTXO_DOMAIN: u16 = 3;
 /// circuit. Ordered interface transfers are aggregated by resolved asset before
 /// filling these slots.
 pub const N_PUBLIC_SLOTS: usize = 3;
+
+pub fn is_reserved_p256_derivation_point(key: &[u8; 33]) -> bool {
+    zolana_hasher::p256::is_reserved_derivation_point(key)
+}
 
 /// Protocol maximum number of interface-transfer legs in one transaction.
 ///

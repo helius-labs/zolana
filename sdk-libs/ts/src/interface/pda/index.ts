@@ -26,6 +26,14 @@ function derive(seed: string, address?: Address): Promise<ProgramDerivedAddress>
   });
 }
 
+export async function ringAuthAddress(ringProgramId: Address): Promise<Address> {
+  const [address] = await getProgramDerivedAddress({
+    programAddress: ringProgramId,
+    seeds: [encoder.encode("ring_auth")],
+  });
+  return address;
+}
+
 export async function protocolConfigAddress(): Promise<Address> {
   return (await derive("protocol_config"))[0];
 }

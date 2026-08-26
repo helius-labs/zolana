@@ -1,4 +1,5 @@
-use zolana_event::MessageData;
+use borsh::BorshDeserialize;
+use zolana_event::{MessageData, OutputDataEncoding};
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
 use zolana_keypair::{constants::SALT_LEN, random_salt, ShieldedAddress, ViewingKey};
 
@@ -9,7 +10,7 @@ use crate::{
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
         UtxoSerialization,
     },
-    AssetRegistry, SOL_ASSET_ID, SOL_MINT,
+    AssetRegistry, EncryptedScheme, SOL_ASSET_ID, SOL_MINT,
 };
 
 pub struct EncryptedTransactionData {
@@ -27,7 +28,7 @@ fn confidential_ciphertext(
     salt: [u8; SALT_LEN],
     slot_index: u32,
 ) -> Result<MessageData, TransactionError> {
-    Confidential::encode_plaintext(
+    let mut message = Confidential::encode_plaintext(
         &ConfidentialOutputPlaintext {
             asset_id,
             amount: output.amount,
@@ -42,7 +43,22 @@ fn confidential_ciphertext(
             salt,
             slot_index,
         },
-    )
+    )?;
+    if output.ring_program_id.is_some() {
+        let OutputDataEncoding::Encrypted(mut blob) =
+            OutputDataEncoding::try_from_slice(&message.data)
+                .map_err(|error| TransactionError::Deserialize(error.to_string()))?
+        else {
+            return Err(TransactionError::BadDiscriminator(
+                EncryptedScheme::Confidential.as_byte(),
+            ));
+        };
+        *blob.first_mut().ok_or(TransactionError::MissingOutput)? =
+            EncryptedScheme::RingConfidential.as_byte();
+        message.data = borsh::to_vec(&OutputDataEncoding::Encrypted(blob))
+            .map_err(|error| TransactionError::Deserialize(error.to_string()))?;
+    }
+    Ok(message)
 }
 
 pub fn encrypt_transaction_data(

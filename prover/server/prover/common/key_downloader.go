@@ -300,6 +300,14 @@ func EnsureProvingKey(keyPath string, autoDownload bool, config *DownloadConfig)
 		}
 	}
 
+	if entry.Source != "" {
+		return fmt.Errorf(
+			"key %s is built from the %s artifact and is not on the object store: run just ensure-custom-ring-prover-key",
+			filename,
+			entry.Source,
+		)
+	}
+
 	if !autoDownload {
 		if fileExists {
 			return fmt.Errorf("key file %s exists but does not match the lockfile checksum (auto-download disabled)", filename)

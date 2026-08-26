@@ -1,0 +1,175 @@
+use solana_compute_budget_interface::ComputeBudgetInstruction;
+use solana_instruction::{error::InstructionError, Instruction};
+use solana_signer::Signer;
+use solana_transaction_error::TransactionError;
+use thiserror::Error;
+use zolana_client::{ClientError, Rpc, SolanaRpc};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Observed {
+    Present,
+    Absent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StepOutcome {
+    Created,
+    Present,
+    Closed,
+    Absent,
+}
+
+#[derive(Debug, Error)]
+pub enum StepError {
+    #[error("{name} failed, {hint}")]
+    Hinted {
+        name: &'static str,
+        hint: &'static str,
+        #[source]
+        source: Box<ClientError>,
+    },
+    #[error("{name} failed")]
+    Send {
+        name: &'static str,
+        #[source]
+        source: Box<ClientError>,
+    },
+}
+
+/// One authority-signed instruction, skipped when the chain already agrees.
+#[must_use]
+pub struct IdempotentStep<'a> {
+    pub rpc: &'a SolanaRpc,
+    /// Pays and signs, `co_signers` only sign.
+    pub authority: &'a dyn Signer,
+    pub co_signers: &'a [&'a dyn Signer],
+    pub name: &'static str,
+    pub compute_unit_limit: u32,
+    pub hint: fn(u32) -> Option<&'static str>,
+}
+
+impl Observed {
+    pub fn of<T>(value: &Option<T>) -> Self {
+        match value {
+            Some(_) => Self::Present,
+            None => Self::Absent,
+        }
+    }
+}
+
+impl StepOutcome {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Created => "created",
+            Self::Present => "already present",
+            Self::Closed => "closed",
+            Self::Absent => "absent",
+        }
+    }
+}
+
+impl IdempotentStep<'_> {
+    pub fn ensure_present(
+        self,
+        observed: Observed,
+        instructions: &[Instruction],
+    ) -> Result<StepOutcome, StepError> {
+        match observed {
+            Observed::Present => Ok(StepOutcome::Present),
+            Observed::Absent => {
+                self.send(instructions)?;
+                Ok(StepOutcome::Created)
+            }
+        }
+    }
+
+    pub fn ensure_absent(
+        self,
+        observed: Observed,
+        instructions: &[Instruction],
+    ) -> Result<StepOutcome, StepError> {
+        match observed {
+            Observed::Absent => Ok(StepOutcome::Absent),
+            Observed::Present => {
+                self.send(instructions)?;
+                Ok(StepOutcome::Closed)
+            }
+        }
+    }
+
+    fn send(&self, instructions: &[Instruction]) -> Result<(), StepError> {
+        let instructions: Vec<Instruction> = std::iter::once(
+            ComputeBudgetInstruction::set_compute_unit_limit(self.compute_unit_limit),
+        )
+        .chain(instructions.iter().cloned())
+        .collect();
+        let signers: Vec<&dyn Signer> = std::iter::once(self.authority)
+            .chain(self.co_signers.iter().copied())
+            .collect();
+        self.rpc
+            .create_and_send_transaction(&instructions, self.authority.pubkey(), &signers)
+            .map_err(
+                |source| match custom_error_code(&source).and_then(self.hint) {
+                    Some(hint) => StepError::Hinted {
+                        name: self.name,
+                        hint,
+                        source: Box::new(source),
+                    },
+                    None => StepError::Send {
+                        name: self.name,
+                        source: Box::new(source),
+                    },
+                },
+            )?;
+        Ok(())
+    }
+}
+
+pub fn no_hint(_code: u32) -> Option<&'static str> {
+    None
+}
+
+fn custom_error_code(error: &ClientError) -> Option<u32> {
+    let ClientError::SolanaRpcTransaction { source, .. } = error else {
+        return None;
+    };
+    match source.get_transaction_error()? {
+        TransactionError::InstructionError(_, InstructionError::Custom(code)) => Some(code),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use solana_transaction_error::TransactionError;
+
+    use super::*;
+
+    fn transaction_error(error: TransactionError) -> ClientError {
+        ClientError::SolanaRpcTransaction {
+            operation: "test",
+            source: solana_rpc_client_api::client_error::Error {
+                request: None,
+                kind: Box::new(
+                    solana_rpc_client_api::client_error::ErrorKind::TransactionError(error),
+                ),
+            },
+        }
+    }
+
+    #[test]
+    fn only_a_custom_instruction_error_yields_a_hint_code() {
+        assert_eq!(
+            custom_error_code(&transaction_error(TransactionError::InstructionError(
+                1,
+                InstructionError::Custom(8114),
+            ))),
+            Some(8114)
+        );
+        assert_eq!(
+            custom_error_code(&transaction_error(TransactionError::AlreadyProcessed)),
+            None
+        );
+        assert_eq!(custom_error_code(&ClientError::Rpc(String::new())), None);
+    }
+}

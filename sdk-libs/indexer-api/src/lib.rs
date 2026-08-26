@@ -816,6 +816,32 @@ mod tests {
     }
 
     #[test]
+    fn a_tag_page_reads_an_index_that_reports_its_resume_point() {
+        // A reader that refuses the field cannot open the ring.
+        let page = serde_json::json!({
+            "context": { "blockTime": 3, "slot": 1 },
+            "transactions": [],
+            "nextCursor": null,
+            "scannedThrough": "AQID",
+        });
+        let response: GetShieldedTransactionsByTagsResponse =
+            serde_json::from_value(page).expect("a reported resume point is readable");
+        assert_eq!(response.scanned_through, Some(Base64String(vec![1, 2, 3])));
+
+        // An index that reports none sends no such key.
+        let quiet = serde_json::json!({
+            "context": { "blockTime": 3, "slot": 1 },
+            "transactions": [],
+            "nextCursor": null,
+        });
+        let response: GetShieldedTransactionsByTagsResponse =
+            serde_json::from_value(quiet).expect("an absent resume point is readable");
+        assert_eq!(response.scanned_through, None);
+        let value = serde_json::to_value(&response).expect("serialize");
+        assert!(value.get("scannedThrough").is_none());
+    }
+
+    #[test]
     fn signature_lookup_contract_rejects_malformed_signatures() {
         let invalid = serde_json::json!({ "txSignature": "not-a-signature" });
         assert!(

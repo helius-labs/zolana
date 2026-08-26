@@ -20,11 +20,12 @@ members = [
     "bench/bloom-filter",
     "bench/tree",
     "cli",
-    "custom-ring-tests/program",
-    "custom-ring-tests/prover",
-    "custom-ring-tests/sdk",
-    "custom-ring-tests/client",
-    "custom-ring-tests/test",
+    "custom-rings/cli",
+    "custom-rings/client",
+    "custom-rings/interface",
+    "custom-rings/program",
+    "custom-rings/sdk",
+    "custom-rings/test",
     "sdk-libs/client",
     "sdk-libs/indexer-api",
     "sdk-libs/keypair",
@@ -35,6 +36,7 @@ members = [
     "sdk-libs/transaction",
     "sdk-libs/wallet",
     "services/photon",
+    "services/ring-rpc",
     "sdk-tests/client/rust",
     "sdk-tests/compression/program",
     "sdk-tests/compression/sdk",
@@ -82,6 +84,8 @@ zolana-program-test = { path = "sdk-libs/program-test", version = "0.23.0" }
 zolana-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }
 zolana-wallet = { path = "sdk-libs/wallet", version = "0.1.0" }
 zolana-client = { path = "sdk-libs/client", version = "0.1.0" }
+custom-ring-interface = { path = "custom-rings/interface", version = "0.1.0" }
+zolana-ring-client = { path = "custom-rings/client", version = "0.1.0" }
 zolana-indexer-api = { path = "sdk-libs/indexer-api", version = "0.1.0" }
 zolana-merkle-tree = { path = "sdk-libs/merkle-tree", version = "4.0.0" }
 zolana-smart-account-client = { path = "sdk-libs/smart-account-client", version = "0.1.0" }
@@ -125,6 +129,7 @@ solana-commitment-config = "3.1"
 solana-compute-budget = "3.1"
 solana-compute-budget-interface = "3.0"
 solana-cpi = "3.1"
+solana-curve25519 = "4.0"
 solana-derivation-path = "3.0.0"
 solana-epoch-info = "3.1"
 # Pin solana-hash to 4.5.0: the agave 4.1 graph (agave-feature-set,
@@ -193,6 +198,7 @@ futures = "0.3.31"
 governor = "0.8.0"
 heck = "0.5"
 hex = "0.4"
+libc = "0.2"
 http-body-util = "0.1.3"
 hyper = "1.10.1"
 hyper-util = { version = "0.1.20", features = ["server-auto", "tokio"] }
@@ -223,6 +229,7 @@ sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio
 syn = { version = "2.0", features = ["visit-mut", "full"] }
 tabled = "0.20"
 thiserror = "2.0"
+toml = "0.8"
 tinyvec = "1.10.0"
 tokio = { version = "1.48.0", features = ["rt", "macros", "rt-multi-thread"] }
 tower = { version = "0.5.3", features = ["util"] }
@@ -244,6 +251,7 @@ ark-std = "0.5"
 
 # Client keypair crypto.
 p256 = { version = "0.13", default-features = false, features = ["ecdh", "arithmetic", "ecdsa", "hash2curve", "std"] }
+psl = "2"
 ed25519-dalek = "2.2.0"
 ed25519-dalek-bip32 = "0.3.0"
 aes = { version = "0.8", default-features = false }

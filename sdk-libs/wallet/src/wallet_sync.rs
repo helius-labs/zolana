@@ -1022,12 +1022,13 @@ mod tests {
 
     use solana_signature::Signature;
     use zolana_interface::event::{encode_output_data, ProoflessOutput};
-    use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
+    use zolana_keypair::{random_salt, ShieldedKeypair, SigningKey, ViewingKey};
     use zolana_transaction::{
         instructions::{
             merge::Merge as MergePlan,
             transact::{
-                ConfidentialTransfer, SettlementTarget, SppProofInputs, SPP_SUPPORTED_SHAPES,
+                encode_confidential_slots, ConfidentialTransfer, SettlementTarget, SppProofInputs,
+                SPP_SUPPORTED_SHAPES,
             },
             types::SppProofInputUtxo,
         },
@@ -2061,6 +2062,90 @@ mod tests {
         assert_eq!(
             outbound.counterparty_viewing_pubkey,
             Some(bob.viewing_pubkey())
+        );
+    }
+
+    /// Recipients are judged by viewing key alone, a distinct signing key changes nothing.
+    #[test]
+    fn sync_wallet_classifies_shared_viewing_key_recipient_as_self_transfer() {
+        let assets = AssetRegistry::default();
+        let alice = ed25519_keypair(1);
+        let funder = ed25519_keypair(2);
+        let recipient = ShieldedKeypair::with_viewing_key(
+            SigningKey::from_ed25519_bytes(&[3; 32]),
+            alice.viewing_key.clone(),
+        )
+        .expect("recipient");
+        let funding = confidential_transfer_tx(&funder, &alice, SOL_MINT, 100, 1, &assets);
+        let mut wallet = Wallet::new(
+            alice.shielded_address().expect("shielded address"),
+            assets.clone(),
+        )
+        .expect("wallet");
+        sync_wallet(
+            &mut wallet,
+            &local_authority(&alice),
+            &MockIndexer {
+                transactions: vec![funding.clone()],
+                matches: Vec::new(),
+                program_accounts: Vec::new(),
+            },
+        )
+        .expect("sync funding");
+
+        let input = SppProofInputUtxo::new(wallet.utxos[0].utxo.clone(), &alice);
+        let mut transfer = ConfidentialTransfer::new(
+            alice.shielded_address().expect("sender address"),
+            vec![input],
+            Address::default(),
+        )
+        .with_compact_change();
+        transfer
+            .send(
+                &recipient.shielded_address().expect("recipient address"),
+                SOL_MINT,
+                100,
+            )
+            .expect("send");
+        let prepared = transfer.prepare().expect("prepare");
+        let tx_key = alice
+            .get_transaction_viewing_key(&prepared.first_nullifier)
+            .expect("transaction viewing key");
+        let salt = random_salt();
+        let slots = encode_confidential_slots(&prepared.outputs, &assets, &tx_key, salt)
+            .expect("encrypt outputs");
+        let outbound = signed_to_shielded_tx(
+            prepared
+                .finalize(tx_key.pubkey(), salt, slots)
+                .expect("finalize"),
+            2,
+        );
+        let indexer = MockIndexer {
+            transactions: vec![funding, outbound],
+            matches: Vec::new(),
+            program_accounts: Vec::new(),
+        };
+
+        sync_wallet(&mut wallet, &local_authority(&alice), &indexer).expect("sync transfer");
+
+        let row = wallet
+            .private_transactions()
+            .iter()
+            .find(|tx| tx.direction == PrivateTransactionDirection::SelfTransfer)
+            .expect("self transfer row");
+        assert_eq!(row.kind, PrivateTransactionKind::PrivateTransfer);
+        assert_eq!(row.amount, 100);
+        assert_eq!(
+            row.counterparty_viewing_pubkey,
+            Some(recipient.viewing_pubkey())
+        );
+        assert!(
+            !wallet
+                .private_transactions()
+                .iter()
+                .any(|tx| tx.direction == PrivateTransactionDirection::Outbound),
+            "history={:?}",
+            wallet.private_transactions()
         );
     }
 

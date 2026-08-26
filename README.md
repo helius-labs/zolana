@@ -20,12 +20,31 @@ All workflows go through `just`. Run `just` with no arguments for the full list.
 
 ```bash
 just check-all         # cargo check across the workspace
-just test-all          # Rust tests + litesvm program tests
+just test-hermetic     # fast suite that needs nothing running
+just test-all          # adds the prover-backed suites
 just test-photon       # Photon unit and SQLite-backed integration tests
 just build-photon      # Build the same Photon binary localnet tests execute
 just verify-rust       # check + Rust tests
 just verify            # verify-rust + prover/server go tests
 ```
+
+## Fast versus full
+
+Tests are split by what has to be running.
+
+- `just test-hermetic` is the whole hermetic suite of SDK, ring, LiteSVM,
+  Mollusk, and Photon tests. It needs no prover, no validator, no network, and no
+  proving keys, only the local SBF build that `build-programs` produces. CI
+  runs these same suites on every push.
+- `just test-all` adds the prover-backed suites. They spawn a prover server and
+  pull proving keys, up to 5.4 GB for the full set. Run them when you touch a
+  circuit or a proof path.
+- The validator suites are separate recipes, `just test-spp-validator` and
+  friends. They start a local validator, Photon, and a prover.
+
+Everything prover-backed is behind a Cargo feature, so a plain `cargo test -p
+<crate>` never starts a prover. `zolana-client` uses `proofs`, and
+`shielded-pool-tests` uses `proofs` and `localnet`.
 
 The Cargo workspace's `default-members` is deliberately narrow — `forester`,
 `program-libs/interface`, and `programs/shielded-pool` — so a bare `cargo check` from the root
@@ -70,6 +89,6 @@ The workflow is a backstop, not the enforcement.
 - Anza / Solana CLI 4.x for `cargo build-sbf` (only needed for SBF program builds)
 - `just build-cli`, `just install-surfpool`,
   `just build-prover-server`, and `just build-programs` for local validator flows
-- Proving keys in `prover/server/proving-keys/` only if you want to run
-  `just xtask-create-verifying-keys-smoke` — the directory is gitignored; obtain the keys from
-  upstream's `scripts/install.sh`.
+- Go for `just xtask-create-verifying-keys-smoke`, which exports through the
+  prover server. It fetches the one proving key it needs into `target/` and
+  checks it against the lockfile sha256.

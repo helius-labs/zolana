@@ -44,12 +44,24 @@ pub struct PreparedTransfer {
     pub shape: Shape,
     pub payer: Address,
     pub interface_transfers: Vec<SettlementTransfer>,
+    output_layout: PreparedOutputLayout,
+    change_layout: ChangeLayout,
 }
 
 pub struct Recipient {
     pub address: ShieldedAddress,
     pub asset: Address,
     pub amount: u64,
+    pub ring: RecipientRing,
+}
+
+/// Resolved when the transfer is prepared, so `send` and the ring binding may
+/// come in any order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecipientRing {
+    OfTransfer,
+    /// An exit when the transfer runs in a ring.
+    Default,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,6 +91,28 @@ pub struct ConfidentialTransfer {
     pub payer: Address,
     pub blinding_seed: [u8; 32],
     pub shape: Option<Shape>,
+    change_layout: ChangeLayout,
+    /// Binds the change and every later `send` to one ring.
+    ring_program_id: Option<Address>,
+}
+
+/// Whether [`ConfidentialTransfer::prepare`] keeps a change slot that holds no
+/// value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChangeLayout {
+    /// Every transfer carries both change slots, dummy or not.
+    Padded,
+    /// Only change slots holding value are emitted, and the shape shrinks with
+    /// them.
+    Compact,
+}
+
+#[derive(Clone, Copy)]
+enum PreparedOutputLayout {
+    BothChanges,
+    SplChange,
+    SolChange,
+    Recipients,
 }
 
 impl ConfidentialTransfer {
@@ -91,7 +125,24 @@ impl ConfidentialTransfer {
             payer,
             blinding_seed: random_blinding(),
             shape: None,
+            change_layout: ChangeLayout::Padded,
+            ring_program_id: None,
         }
+    }
+
+    /// Binds the change and every `send` to one ring.
+    #[must_use]
+    pub fn with_ring_program_id(mut self, ring_program_id: Address) -> Self {
+        self.ring_program_id = Some(ring_program_id);
+        self
+    }
+
+    /// An explicit shape passed to [`Self::with_shape`] is resolved against the
+    /// compact output count.
+    #[must_use]
+    pub fn with_compact_change(mut self) -> Self {
+        self.change_layout = ChangeLayout::Compact;
+        self
     }
 
     pub fn with_shape(mut self, shape: Shape) -> Self {
@@ -103,20 +154,41 @@ impl ConfidentialTransfer {
         inputs_require_p256(&self.inputs)
     }
 
+    /// The note joins the ring of the transfer, the default ring without one.
     pub fn send(
         &mut self,
         recipient: &ShieldedAddress,
         asset: Address,
         amount: u64,
     ) -> Result<&mut Self, TransactionError> {
-        if recipient.signing_pubkey.curve()? == Curve::P256 {
-            return Err(TransactionError::P256TransactUnsupported);
-        }
-        self.recipients.push(Recipient {
+        self.push(Recipient {
             address: *recipient,
             asset,
             amount,
-        });
+            ring: RecipientRing::OfTransfer,
+        })
+    }
+
+    /// The note leaves the ring of the transfer for the default ring.
+    pub fn send_default_ring(
+        &mut self,
+        recipient: &ShieldedAddress,
+        asset: Address,
+        amount: u64,
+    ) -> Result<&mut Self, TransactionError> {
+        self.push(Recipient {
+            address: *recipient,
+            asset,
+            amount,
+            ring: RecipientRing::Default,
+        })
+    }
+
+    fn push(&mut self, recipient: Recipient) -> Result<&mut Self, TransactionError> {
+        if recipient.address.signing_pubkey.curve()? == Curve::P256 {
+            return Err(TransactionError::P256TransactUnsupported);
+        }
+        self.recipients.push(recipient);
         Ok(self)
     }
 
@@ -238,36 +310,55 @@ impl ConfidentialTransfer {
             None => 0,
         };
 
+        let spl_change_asset = spl_asset.filter(|_| spl_change > 0);
+        let has_sol_change = sol_change > 0;
+        let output_layout = match self.change_layout {
+            ChangeLayout::Padded => PreparedOutputLayout::BothChanges,
+            ChangeLayout::Compact => match (spl_change_asset.is_some(), has_sol_change) {
+                (true, true) => PreparedOutputLayout::BothChanges,
+                (true, false) => PreparedOutputLayout::SplChange,
+                (false, true) => PreparedOutputLayout::SolChange,
+                (false, false) => PreparedOutputLayout::Recipients,
+            },
+        };
+
+        // Change blindings stay bound to their fixed positions, so a compact
+        // transfer commits to the same values a padded one would.
         let mut outputs = Vec::new();
-        outputs.push(match spl_asset {
-            Some(asset) if spl_change > 0 => SppProofOutputUtxo {
+        match spl_change_asset {
+            Some(asset) => outputs.push(SppProofOutputUtxo {
                 owner_address: Some(self.owner),
                 asset,
                 amount: spl_change,
                 blinding: derive_blinding(&self.blinding_seed, SPL_CHANGE_POSITION),
+                ring_program_id: self.ring_program_id,
                 ..Default::default()
-            },
-            _ => SppProofOutputUtxo {
-                blinding: derive_blinding(&self.blinding_seed, SPL_CHANGE_POSITION),
-                owner_tag: Some(self.owner.signing_pubkey.confidential_view_tag()?),
-                ..Default::default()
-            },
-        });
-        outputs.push(if sol_change > 0 {
-            SppProofOutputUtxo {
+            }),
+            None if self.change_layout == ChangeLayout::Padded => {
+                outputs.push(SppProofOutputUtxo {
+                    blinding: derive_blinding(&self.blinding_seed, SPL_CHANGE_POSITION),
+                    owner_tag: Some(self.owner.signing_pubkey.confidential_view_tag()?),
+                    ..Default::default()
+                })
+            }
+            None => {}
+        }
+        if has_sol_change {
+            outputs.push(SppProofOutputUtxo {
                 owner_address: Some(self.owner),
                 asset: SOL_MINT,
                 amount: sol_change,
                 blinding: derive_blinding(&self.blinding_seed, SOL_CHANGE_POSITION),
+                ring_program_id: self.ring_program_id,
                 ..Default::default()
-            }
-        } else {
-            SppProofOutputUtxo {
+            });
+        } else if self.change_layout == ChangeLayout::Padded {
+            outputs.push(SppProofOutputUtxo {
                 blinding: derive_blinding(&self.blinding_seed, SOL_CHANGE_POSITION),
                 owner_tag: Some(self.owner.signing_pubkey.confidential_view_tag()?),
                 ..Default::default()
-            }
-        });
+            });
+        }
 
         for (i, recipient) in self.recipients.iter().enumerate() {
             let position = RECIPIENT_POSITION_BASE + i as u8;
@@ -276,6 +367,10 @@ impl ConfidentialTransfer {
                 asset: recipient.asset,
                 amount: recipient.amount,
                 blinding: derive_blinding(&self.blinding_seed, position),
+                ring_program_id: match recipient.ring {
+                    RecipientRing::OfTransfer => self.ring_program_id,
+                    RecipientRing::Default => None,
+                },
                 ..Default::default()
             });
         }
@@ -297,6 +392,8 @@ impl ConfidentialTransfer {
             shape,
             payer: self.payer,
             interface_transfers,
+            output_layout,
+            change_layout: self.change_layout,
         })
     }
 
@@ -409,6 +506,10 @@ fn validate_settlement_target(
 }
 
 impl PreparedTransfer {
+    pub fn change_layout(&self) -> ChangeLayout {
+        self.change_layout
+    }
+
     pub fn finalize(
         self,
         tx_viewing_pk: P256Pubkey,
@@ -432,6 +533,7 @@ impl PreparedTransfer {
             shape,
             payer,
             interface_transfers,
+            output_layout,
             ..
         } = self;
 
@@ -492,7 +594,7 @@ impl PreparedTransfer {
                     dummy_owner_tag,
                     random_dummy_ciphertext(dummy_len),
                 )
-            } else if position < SENDER_SLOT_COUNT {
+            } else if position < output_layout.sender_output_count() {
                 let data = match slot {
                     Some(output_data) => output_data.data.clone(),
                     None => random_dummy_ciphertext(dummy_len),
@@ -538,6 +640,16 @@ impl PreparedTransfer {
             external_data,
             payer,
         })
+    }
+}
+
+impl PreparedOutputLayout {
+    const fn sender_output_count(self) -> usize {
+        match self {
+            Self::BothChanges => 2,
+            Self::SplChange | Self::SolChange => 1,
+            Self::Recipients => 0,
+        }
     }
 }
 
@@ -607,6 +719,61 @@ mod tests {
 
     use super::*;
 
+    fn sol_transfer(amount: u64) -> ConfidentialTransfer {
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
+        let recipient = ShieldedKeypair::new_ed25519().unwrap();
+        let input = SppProofInputUtxo::new(
+            crate::Utxo {
+                owner: sender.signing_pubkey(),
+                asset: SOL_MINT,
+                amount: 10,
+                blinding: random_blinding(),
+                ring_program_id: None,
+                data: Data::default(),
+            },
+            &sender,
+        );
+        let mut transfer = ConfidentialTransfer::new(
+            sender.shielded_address().unwrap(),
+            vec![input],
+            Address::default(),
+        );
+        transfer
+            .send(&recipient.shielded_address().unwrap(), SOL_MINT, amount)
+            .unwrap();
+        transfer
+    }
+
+    #[test]
+    fn ring_binding_covers_change_and_every_send_in_any_order() {
+        let ring = Address::new_from_array([5u8; 32]);
+        let mut transfer = sol_transfer(4)
+            .with_compact_change()
+            .with_ring_program_id(ring);
+        let inside = ShieldedKeypair::new_ed25519().unwrap();
+        let outside = ShieldedKeypair::new_ed25519().unwrap();
+        transfer
+            .send(&inside.shielded_address().unwrap(), SOL_MINT, 1)
+            .unwrap();
+        transfer
+            .send_default_ring(&outside.shielded_address().unwrap(), SOL_MINT, 1)
+            .unwrap();
+        let prepared = transfer.prepare().unwrap();
+        let rings: Vec<Option<Address>> = prepared
+            .outputs
+            .iter()
+            .map(|output| output.ring_program_id)
+            .collect();
+        assert_eq!(rings, vec![Some(ring), Some(ring), Some(ring), None]);
+        assert_eq!(prepared.outputs[0].amount, 4);
+        assert!(sol_transfer(4)
+            .prepare()
+            .unwrap()
+            .outputs
+            .iter()
+            .all(|output| output.ring_program_id.is_none()));
+    }
+
     /// An ed25519 owner who is also the fee payer at account index 0 is tagged
     /// `Account(0)`; the resolved value is the owner's view tag (the ed25519 key).
     #[test]
@@ -649,6 +816,33 @@ mod tests {
             sender_owner_tag(&pk, &Address::default(), true),
             Ok((OwnerTag::Inline(resolved), resolved))
         );
+    }
+
+    #[test]
+    fn compact_change_removes_unused_change_slots() {
+        let prepared = sol_transfer(4).with_compact_change().prepare().unwrap();
+        assert_eq!(prepared.shape, Shape::IN1_OUT2);
+        assert_eq!(prepared.outputs.len(), 2);
+        assert_eq!(prepared.outputs[0].amount, 6);
+        assert_eq!(prepared.outputs[1].amount, 4);
+        assert_eq!(prepared.output_layout.sender_output_count(), 1);
+        assert_eq!(prepared.change_layout(), ChangeLayout::Compact);
+    }
+
+    #[test]
+    fn compact_change_keeps_only_the_recipient_after_a_full_spend() {
+        let prepared = sol_transfer(10).with_compact_change().prepare().unwrap();
+        assert_eq!(prepared.shape, Shape::IN1_OUT1);
+        assert_eq!(prepared.outputs.len(), 1);
+        assert_eq!(prepared.outputs[0].amount, 10);
+        assert_eq!(prepared.output_layout.sender_output_count(), 0);
+    }
+
+    #[test]
+    fn padded_change_keeps_both_slots() {
+        let prepared = sol_transfer(10).prepare().unwrap();
+        assert_eq!(prepared.outputs.len(), 3);
+        assert_eq!(prepared.change_layout(), ChangeLayout::Padded);
     }
 
     #[test]

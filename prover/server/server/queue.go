@@ -504,6 +504,8 @@ func (rq *RedisQueue) GetQueueStats() (map[string]int64, error) {
 		"zk_address_append_processing_queue",
 		"zk_transfer_queue",
 		"zk_transfer_processing_queue",
+		"zk_custom_ring_queue",
+		"zk_custom_ring_processing_queue",
 		"zk_failed_queue",
 		"zk_results_queue",
 	}
@@ -546,8 +548,8 @@ func (rq *RedisQueue) GetQueueHealth() (map[string]interface{}, error) {
 	health["queueLengths"] = stats
 	health["timestamp"] = time.Now().Unix()
 
-	health["totalPending"] = stats["zk_address_append_queue"] + stats["zk_transfer_queue"]
-	health["totalProcessing"] = stats["zk_address_append_processing_queue"] + stats["zk_transfer_processing_queue"]
+	health["totalPending"] = stats["zk_address_append_queue"] + stats["zk_transfer_queue"] + stats["zk_custom_ring_queue"]
+	health["totalProcessing"] = stats["zk_address_append_processing_queue"] + stats["zk_transfer_processing_queue"] + stats["zk_custom_ring_processing_queue"]
 	health["totalFailed"] = stats["zk_failed_queue"]
 	health["totalResults"] = stats["zk_results_queue"]
 
@@ -571,6 +573,7 @@ func (rq *RedisQueue) countStuckJobs() int64 {
 	processingQueues := []string{
 		"zk_address_append_processing_queue",
 		"zk_transfer_processing_queue",
+		"zk_custom_ring_processing_queue",
 	}
 
 	var totalStuck int64
@@ -728,6 +731,7 @@ func (rq *RedisQueue) CleanupOldRequests() error {
 	queuesToClean := []string{
 		"zk_address_append_queue",
 		"zk_transfer_queue",
+		"zk_custom_ring_queue",
 	}
 
 	totalRemoved := int64(0)
@@ -831,6 +835,7 @@ func (rq *RedisQueue) CleanupStuckProcessingJobs() error {
 	processingQueues := []string{
 		"zk_address_append_processing_queue",
 		"zk_transfer_processing_queue",
+		"zk_custom_ring_processing_queue",
 	}
 
 	totalFailed := int64(0)

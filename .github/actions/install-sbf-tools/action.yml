@@ -1,0 +1,22 @@
+name: Install pinned SBF platform tools
+description: Cache the platform tools and install them only on a cache miss, with retries.
+inputs:
+  version:
+    description: Platform tools version, the SBF_TOOLS_VERSION pin.
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: ~/.cache/solana/${{ inputs.version }}
+        key: sbf-tools-${{ runner.os }}-${{ inputs.version }}
+    - name: Install platform tools
+      shell: bash
+      run: |
+        for attempt in 1 2 3; do
+          cargo build-sbf --tools-version "${{ inputs.version }}" --install-only && exit 0
+          echo "platform tools install failed, attempt $attempt"
+          sleep $((attempt * 15))
+        done
+        exit 1

@@ -112,11 +112,13 @@ jobs:
           shared-key: litesvm
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - name: Install Anza CLI
-        run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+        uses: ./.github/actions/install-anza
+        with:
+          version: ${{ env.AGAVE_VERSION }}
       - name: Install pinned SBF platform tools
-        run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
+        uses: ./.github/actions/install-sbf-tools
+        with:
+          version: ${{ env.SBF_TOOLS_VERSION }}
       - run: just test-program-fast
 
   test-sdk-libs:
@@ -147,11 +149,13 @@ jobs:
           shared-key: programs
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - name: Install Anza CLI
-        run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+        uses: ./.github/actions/install-anza
+        with:
+          version: ${{ env.AGAVE_VERSION }}
       - name: Install pinned SBF platform tools
-        run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
+        uses: ./.github/actions/install-sbf-tools
+        with:
+          version: ${{ env.SBF_TOOLS_VERSION }}
       - name: Cache proving keys
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -164,11 +168,10 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
-      AGAVE_VERSION: v4.0.2
-      # GH_TOKEN is for the gh-release custom-ring key download
-      # (ensure-custom-ring-keys): the sdk circuit tests prove with the released
-      # pk and must verify under the committed VERIFYINGKEY, so a locally
-      # generated key set cannot substitute.
+      # The custom-ring key comes from the custom-ring-keys release
+      # (ensure-custom-ring-prover-key, no token). The circuit proof check
+      # proves with the released pk and must verify under the committed
+      # VERIFYINGKEY, so a locally generated key set cannot substitute.
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -180,17 +183,6 @@ jobs:
         with:
           shared-key: custom-ring
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
-      - name: Install Anza CLI
-        run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
-      - name: Install pinned SBF platform tools
-        run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
-      - name: Cache custom-ring keys
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: custom-ring-tests/build/gnark
-          key: custom-ring-keys-${{ hashFiles('custom-ring-tests/custom-ring-keys.CHECKSUM') }}
       - run: just test-custom-ring
 
   build-photon:
@@ -239,7 +231,7 @@ jobs:
             recipe: test-dynamic-swap
           - name: compression lifecycle
             recipe: test-compression-validator
-          - name: custom-ring auditor lifecycle
+          - name: custom-ring lifecycle
             recipe: test-custom-ring-validator
           - name: rfq settlement
             recipe: test-rfq-validator
@@ -261,11 +253,13 @@ jobs:
           shared-key: localnet-photon
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - name: Install Anza CLI
-        run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+        uses: ./.github/actions/install-anza
+        with:
+          version: ${{ env.AGAVE_VERSION }}
       - name: Install pinned SBF platform tools
-        run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
+        uses: ./.github/actions/install-sbf-tools
+        with:
+          version: ${{ env.SBF_TOOLS_VERSION }}
       - name: Cache proving keys
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -312,11 +306,13 @@ jobs:
           shared-key: litesvm
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - name: Install Anza CLI
-        run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+        uses: ./.github/actions/install-anza
+        with:
+          version: ${{ env.AGAVE_VERSION }}
       - name: Install pinned SBF platform tools
-        run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
+        uses: ./.github/actions/install-sbf-tools
+        with:
+          version: ${{ env.SBF_TOOLS_VERSION }}
       - run: just test-user-registry-litesvm
 
   # Line/region coverage over the library and binary crates: the program-libs,
@@ -340,8 +336,8 @@ jobs:
       - uses: taiki-e/install-action@43aecc8d72668fbcfe75c31400bc4f890f1c5853 # v2
         with:
           tool: cargo-llvm-cov
-      # Collect once, then re-render from the same profile data: `report` only
-      # reads what the two passes wrote, so the extra formats are nearly free.
+      # Collect once, then re-render from the same profile data, so the extra
+      # formats are nearly free.
       - run: just coverage --lcov --output-path lcov.info
       - name: Render coverage reports
         run: |

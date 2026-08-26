@@ -10,6 +10,9 @@ pub enum KeypairError {
     #[error("invalid public key")]
     InvalidPublicKey,
 
+    #[error("invalid shielded address")]
+    InvalidShieldedAddress,
+
     #[error("invalid secret key")]
     InvalidSecretKey,
 

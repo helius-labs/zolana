@@ -2,6 +2,7 @@ import { ed25519 } from "@noble/curves/ed25519.js";
 import { getAddressEncoder } from "@solana/kit";
 
 import type { Address, Bytes16, Bytes32, Bytes64, MessageData } from "../../interface/types.js";
+import { auditorMessageData, encryptTransactionViewingSecret } from "../../keypair/audit.js";
 import { checkedBytes, randomSalt } from "../../keypair/bytes.js";
 import {
   checkedDerivationSeed,
@@ -27,6 +28,7 @@ import {
   type SplitBundlePlaintext,
 } from "../serialization/codecs.js";
 import { encodeConfidentialSlots } from "../instructions/transact.js";
+import { decodeAddress } from "../internal.js";
 import type { ProofOutputUtxo } from "../utxo.js";
 import type { AssetRegistry } from "./asset.js";
 
@@ -62,6 +64,17 @@ export type EncryptedTransfer = EncryptedEnvelope<readonly (MessageData | undefi
  */
 export type EncryptedSplit = EncryptedEnvelope<MessageData>;
 
+/** `txViewingSecret` is what the auditor key opens. It leaves the authority only for the ring's own prover. */
+export interface AuditWitness {
+  readonly txViewingSecret: Bytes32;
+  readonly ephemeralSecret: Bytes32;
+}
+
+export interface EncryptedCustomRingTransfer extends EncryptedTransfer {
+  readonly auditorMessage: MessageData;
+  readonly audit: AuditWitness;
+}
+
 export interface AnonymousRecipientSlot {
   readonly viewTag: Bytes32;
   readonly recipientPublicKey: P256PublicKey;
@@ -91,6 +104,14 @@ export interface WalletAuthority {
       assets: AssetRegistry;
     }>,
   ): Promise<EncryptedTransfer>;
+  encryptCustomRingTransfer(
+    input: Readonly<{
+      firstNullifier: Bytes32;
+      outputs: readonly ProofOutputUtxo[];
+      assets: AssetRegistry;
+      auditorPublicKey: P256PublicKey;
+    }>,
+  ): Promise<EncryptedCustomRingTransfer>;
   encryptAnonymousTransfer(
     input: Readonly<{
       firstNullifier: Bytes32;
@@ -225,6 +246,27 @@ export class ClientEd25519WalletAuthority implements WalletAuthority {
     });
   }
 
+  encryptCustomRingTransfer(
+    input: Readonly<{
+      firstNullifier: Bytes32;
+      outputs: readonly ProofOutputUtxo[];
+      assets: AssetRegistry;
+      auditorPublicKey: P256PublicKey;
+    }>,
+  ): Promise<EncryptedCustomRingTransfer> {
+    const tx = this.#viewingKey.transactionViewingKey(input.firstNullifier);
+    const salt = randomSalt();
+    const txViewingSecret = tx.secretBytes();
+    const encryption = encryptTransactionViewingSecret(txViewingSecret, input.auditorPublicKey);
+    return Promise.resolve({
+      txViewingPublicKey: tx.publicKey(),
+      salt,
+      payload: encodeConfidentialSlots(input.outputs, input.assets, tx, salt),
+      auditorMessage: auditorMessageData(encryption.message, input.auditorPublicKey),
+      audit: Object.freeze({ txViewingSecret, ephemeralSecret: encryption.ephemeralSecret }),
+    });
+  }
+
   encryptAnonymousTransfer(
     input: Readonly<{
       firstNullifier: Bytes32;
@@ -328,37 +370,98 @@ export class ClientEd25519WalletAuthority implements WalletAuthority {
   }
 }
 
-/** Binds a shielded keypair to the Solana address that publishes it. */
+/**
+ * Binds a shielded keypair to the Solana address that publishes it. The Solana
+ * signature of the transaction authorizes the spend, so the signing secret is
+ * not held here.
+ */
 export class KeypairWalletAuthority implements WalletAuthority {
   readonly #solanaPublicKey: Address;
-  readonly #keypair: ShieldedKeypair;
+  readonly #address: ShieldedAddress;
+  readonly #viewing: ViewingKey;
+  readonly #nullifier: NullifierKey;
 
-  constructor(input: Readonly<{ solanaPublicKey: Address; keypair: ShieldedKeypair }>) {
+  constructor(
+    input: Readonly<
+      { solanaPublicKey: Address } & (
+        | { keypair: ShieldedKeypair }
+        | { address: ShieldedAddress; viewingKey: ViewingKey; nullifierKey: NullifierKey }
+      )
+    >,
+  ) {
     this.#solanaPublicKey = input.solanaPublicKey;
-    this.#keypair = input.keypair;
+    if ("keypair" in input) {
+      this.#address = input.keypair.shieldedAddress();
+      this.#viewing = input.keypair.viewingKey();
+      this.#nullifier = input.keypair.nullifierKey();
+    } else {
+      this.#address = input.address;
+      this.#viewing = input.viewingKey;
+      this.#nullifier = input.nullifierKey;
+    }
+  }
+
+  /** `derivationSeed` is the wallet's signature over `ed25519DerivationMessage(publicKey)`. */
+  static fromDerivationSeed(
+    input: Readonly<{ solanaPublicKey: Address; derivationSeed: Uint8Array }>,
+  ): KeypairWalletAuthority {
+    const expansion = roleExpansion(input.derivationSeed, "ed25519");
+    const viewing = ViewingKey.fromBytes(expansion.viewingSecret());
+    const nullifier = NullifierKey.fromSecret(expansion.nullifierSecret());
+    const signing = ShieldedPublicKey.fromEd25519(decodeAddress(input.solanaPublicKey));
+    const address = ShieldedAddress.fromPublicKeys(
+      signing,
+      nullifier.publicKey(),
+      viewing.publicKey(),
+    );
+    return new KeypairWalletAuthority({
+      solanaPublicKey: input.solanaPublicKey,
+      address,
+      viewingKey: viewing,
+      nullifierKey: nullifier,
+    });
   }
 
   solanaPublicKey(): Address {
     return this.#solanaPublicKey;
   }
 
+  // A fresh key object per call, so a caller that destroys one cannot disarm the authority.
+  #viewingKey(): ViewingKey {
+    const secret = this.#viewing.secretBytes();
+    try {
+      return ViewingKey.fromBytes(secret);
+    } finally {
+      secret.fill(0);
+    }
+  }
+
+  #nullifierKey(): NullifierKey {
+    const secret = this.#nullifier.secretBytes();
+    try {
+      return NullifierKey.fromSecret(secret);
+    } finally {
+      secret.fill(0);
+    }
+  }
+
   shieldedAddress(): Promise<ShieldedAddress> {
-    return Promise.resolve(this.#keypair.shieldedAddress());
+    return Promise.resolve(this.#address);
   }
 
   viewingKeys(): Promise<readonly ViewingKey[]> {
-    return Promise.resolve([this.#keypair.viewingKey()]);
+    return Promise.resolve([this.#viewingKey()]);
   }
 
   spendNullifierKey(): Promise<NullifierKey> {
-    return Promise.resolve(this.#keypair.nullifierKey());
+    return Promise.resolve(this.#nullifierKey());
   }
 
   syncMaterial(): Promise<WalletSyncMaterial> {
     return Promise.resolve({
-      identity: this.#keypair.shieldedAddress(),
-      viewingKeys: [this.#keypair.viewingKey()],
-      nullifierKey: this.#keypair.nullifierKey(),
+      identity: this.#address,
+      viewingKeys: [this.#viewingKey()],
+      nullifierKey: this.#nullifierKey(),
     });
   }
 
@@ -369,12 +472,33 @@ export class KeypairWalletAuthority implements WalletAuthority {
       assets: AssetRegistry;
     }>,
   ): Promise<EncryptedTransfer> {
-    const tx = this.#keypair.viewingKey().transactionViewingKey(input.firstNullifier);
+    const tx = this.#viewing.transactionViewingKey(input.firstNullifier);
     const salt = randomSalt();
     return Promise.resolve({
       txViewingPublicKey: tx.publicKey(),
       salt,
       payload: encodeConfidentialSlots(input.outputs, input.assets, tx, salt),
+    });
+  }
+
+  encryptCustomRingTransfer(
+    input: Readonly<{
+      firstNullifier: Bytes32;
+      outputs: readonly ProofOutputUtxo[];
+      assets: AssetRegistry;
+      auditorPublicKey: P256PublicKey;
+    }>,
+  ): Promise<EncryptedCustomRingTransfer> {
+    const tx = this.#viewing.transactionViewingKey(input.firstNullifier);
+    const salt = randomSalt();
+    const txViewingSecret = tx.secretBytes();
+    const encryption = encryptTransactionViewingSecret(txViewingSecret, input.auditorPublicKey);
+    return Promise.resolve({
+      txViewingPublicKey: tx.publicKey(),
+      salt,
+      payload: encodeConfidentialSlots(input.outputs, input.assets, tx, salt),
+      auditorMessage: auditorMessageData(encryption.message, input.auditorPublicKey),
+      audit: Object.freeze({ txViewingSecret, ephemeralSecret: encryption.ephemeralSecret }),
     });
   }
 
@@ -392,7 +516,7 @@ export class KeypairWalletAuthority implements WalletAuthority {
       recipients: readonly AnonymousRecipientSlot[];
     }>,
   ): Promise<EncryptedTransfer> {
-    const viewingKey = this.#keypair.viewingKey();
+    const viewingKey = this.#viewing;
     const tx = viewingKey.transactionViewingKey(input.firstNullifier);
     const salt = randomSalt();
     const slot = (
@@ -440,7 +564,7 @@ export class KeypairWalletAuthority implements WalletAuthority {
       bundle: SplitBundlePlaintext;
     }>,
   ): Promise<EncryptedSplit> {
-    const viewingKey = this.#keypair.viewingKey();
+    const viewingKey = this.#viewing;
     const tx = viewingKey.transactionViewingKey(input.firstNullifier);
     const salt = randomSalt();
     const body = encryptSplit(tx, viewingKey.publicKey(), encodeSplitBundle(input.bundle), salt, 0);
@@ -460,3 +584,5 @@ export class KeypairWalletAuthority implements WalletAuthority {
     return Promise.resolve();
   }
 }
+
+export { KeypairWalletAuthority as LocalWalletAuthority };

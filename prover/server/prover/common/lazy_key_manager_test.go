@@ -26,3 +26,14 @@ func TestLazyKeyManagerBuildsTransferKeyPaths(t *testing.T) {
 		}
 	}
 }
+
+func TestLazyKeyManagerBuildsCustomRingKeyPaths(t *testing.T) {
+	keysDir := filepath.Join("tmp", "proving-keys")
+	manager := NewLazyKeyManager(keysDir, &DownloadConfig{})
+
+	got := manager.determineRingKeyPath(CustomRingCircuitType, "transfer")
+	want := filepath.Join(keysDir, CustomRingKeyFile)
+	if got != want {
+		t.Fatalf("path mismatch: got %q, want %q", got, want)
+	}
+}

@@ -28,7 +28,8 @@ just test-ts-example
 
 The command starts a validator, Photon, and the prover, loads the canonical
 protocol accounts including the state Merkle tree that stores private token
-accounts (UTXOs), creates test mints, and runs the example against them.
+accounts (UTXOs), creates test mints, and runs the example against them. The
+same bring-up serves the ring flow of `just test-ts-e2e`.
 
 The example connects with `createZolanaClient()`: the local validator, Photon,
 and prover on their default ports (8899, 8784, 3001) and the state Merkle tree

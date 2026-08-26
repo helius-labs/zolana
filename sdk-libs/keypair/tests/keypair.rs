@@ -144,6 +144,9 @@ fn shielded_keypair_facade_round_trips_full_transfers() {
     cases::common::random_shielded_keypair(&mut world, "recipient".into());
     cases::shielded::facade_shared_tags(&mut world, "sender".into(), "recipient".into());
     cases::shielded::facade_transfer(&mut world, "sender".into(), "recipient".into());
+
+    cases::shielded::text_address_round_trips(&mut world, "sender".into());
+    cases::shielded::text_address_rejects_malformed();
 }
 
 #[test]

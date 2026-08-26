@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"time"
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
+	customring "zolana/prover/prover/custom_ring"
 	mergeprover "zolana/prover/prover/merge"
 	"zolana/prover/prover/nullifier_tree"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
@@ -92,6 +94,18 @@ func getTransferMaxConcurrency() int {
 	return getMaxConcurrency()
 }
 
+func getCustomRingMaxConcurrency() int {
+	if val := os.Getenv("CUSTOM_RING_WORKER_CONCURRENCY"); val != "" {
+		if concurrency, err := strconv.Atoi(val); err == nil && concurrency > 0 {
+			logging.Logger().Info().
+				Int("max_concurrency", concurrency).
+				Msg("Using CUSTOM_RING_WORKER_CONCURRENCY")
+			return concurrency
+		}
+	}
+	return getMaxConcurrency()
+}
+
 // calculateConcurrency computes per-worker concurrency from total memory.
 // Formula: (TotalRAM - Reserve) / (MemoryPerProof * NumWorkers)
 func calculateConcurrency(totalMemGB int) int {
@@ -146,6 +160,10 @@ type AddressAppendQueueWorker struct {
 	*BaseQueueWorker
 }
 
+type CustomRingQueueWorker struct {
+	*BaseQueueWorker
+}
+
 func NewAddressAppendQueueWorker(redisQueue *RedisQueue, keyManager *common.LazyKeyManager) *AddressAppendQueueWorker {
 	maxConcurrency := getMaxConcurrency()
 	return &AddressAppendQueueWorker{
@@ -159,6 +177,19 @@ func NewAddressAppendQueueWorker(redisQueue *RedisQueue, keyManager *common.Lazy
 			semaphore:           make(chan struct{}, maxConcurrency),
 		},
 	}
+}
+
+func NewCustomRingQueueWorker(redisQueue *RedisQueue, keyManager *common.LazyKeyManager) *CustomRingQueueWorker {
+	maxConcurrency := getCustomRingMaxConcurrency()
+	return &CustomRingQueueWorker{BaseQueueWorker: &BaseQueueWorker{
+		queue:               redisQueue,
+		keyManager:          keyManager,
+		stopChan:            make(chan struct{}),
+		queueName:           "zk_custom_ring_queue",
+		processingQueueName: "zk_custom_ring_processing_queue",
+		maxConcurrency:      maxConcurrency,
+		semaphore:           make(chan struct{}, maxConcurrency),
+	}}
 }
 
 func (w *BaseQueueWorker) Start() {
@@ -221,7 +252,7 @@ func (w *BaseQueueWorker) processJobs() {
 			expirationErr := fmt.Errorf("job expired after %v (max: %v)", jobAge, JobExpirationTimeout)
 			expiredInputHash := ComputeInputHash(job.Payload)
 			w.addToFailedQueue(job, expiredInputHash, expirationErr)
-			if metaErr := w.queue.MarkJobFailed(job.ID, failureDetails(job, expirationErr)); metaErr != nil {
+			if metaErr := w.queue.MarkJobFailed(job.ID, w.failureDetails(job, expirationErr)); metaErr != nil {
 				logging.Logger().Warn().
 					Err(metaErr).
 					Str("job_id", job.ID).
@@ -237,6 +268,8 @@ func (w *BaseQueueWorker) processJobs() {
 			circuitType = "address-append"
 		case "zk_transfer_queue":
 			circuitType = "transfer"
+		case "zk_custom_ring_queue":
+			circuitType = "custom-ring"
 		}
 		QueueWaitTime.WithLabelValues(circuitType).Observe(queueWaitTime)
 	}
@@ -305,13 +338,7 @@ func (w *BaseQueueWorker) processJobs() {
 			Str("input_hash", inputHash).
 			Msg("Returning cached failure without re-processing")
 
-		// Extract error message from cached failure
-		var errorMsg string
-		if errMsg, ok := cachedFailure["error"].(string); ok {
-			errorMsg = errMsg
-		} else {
-			errorMsg = "Proof generation failed (cached failure)"
-		}
+		errorMsg := w.cachedFailureMessage(cachedFailure)
 
 		// Add to failed queue with new job ID (without full payload to save memory)
 		failedJob := map[string]interface{}{
@@ -380,9 +407,9 @@ func (w *BaseQueueWorker) processJobs() {
 				}
 				ProofPanicsTotal.WithLabelValues(circuitType).Inc()
 
-				panicErr := fmt.Errorf("panic: %v", r)
+				panicErr := w.redactProofError(fmt.Errorf("panic: %v", r))
 				logging.Logger().Error().
-					Interface("panic", r).
+					Err(panicErr).
 					Str("job_id", job.ID).
 					Str("queue", w.queueName).
 					Str("circuit_type", circuitType).
@@ -401,7 +428,7 @@ func (w *BaseQueueWorker) processJobs() {
 				// Keep the metadata and record why. Deleting it here left the
 				// status endpoint with nothing to answer from, which is what
 				// forced it to scan zk_failed_queue on every poll.
-				if metaErr := w.queue.MarkJobFailed(job.ID, failureDetails(job, panicErr)); metaErr != nil {
+				if metaErr := w.queue.MarkJobFailed(job.ID, w.failureDetails(job, panicErr)); metaErr != nil {
 					logging.Logger().Warn().
 						Err(metaErr).
 						Str("job_id", job.ID).
@@ -449,6 +476,7 @@ func (w *BaseQueueWorker) processJobs() {
 		proofDuration := time.Since(proofStartTime)
 
 		if err != nil {
+			err = w.redactProofError(err)
 			logging.Logger().Error().
 				Err(err).
 				Str("job_id", job.ID).
@@ -469,7 +497,7 @@ func (w *BaseQueueWorker) processJobs() {
 			// Record the failure in the metadata rather than dropping it: this
 			// is the only record a polling client can be answered from once the
 			// status endpoint stops scanning zk_failed_queue.
-			if metaErr := w.queue.MarkJobFailed(job.ID, failureDetails(job, err)); metaErr != nil {
+			if metaErr := w.queue.MarkJobFailed(job.ID, w.failureDetails(job, err)); metaErr != nil {
 				logging.Logger().Warn().
 					Err(metaErr).
 					Str("job_id", job.ID).
@@ -538,6 +566,14 @@ func (w *AddressAppendQueueWorker) Stop() {
 	w.BaseQueueWorker.Stop()
 }
 
+func (w *CustomRingQueueWorker) Start() {
+	w.BaseQueueWorker.Start()
+}
+
+func (w *CustomRingQueueWorker) Stop() {
+	w.BaseQueueWorker.Stop()
+}
+
 // TransferQueueWorker drains the transfer/merge proof queue. Transfers are
 // synchronous-fast individually but flood a shared prover under concurrency; the
 // queue bounds in-flight proofs so many clients can submit without stampeding.
@@ -575,6 +611,9 @@ func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse proof request: %w", err)
 	}
+	if GetQueueNameForCircuit(proofRequestMeta.CircuitType) != w.queueName {
+		return nil, fmt.Errorf("circuit %s cannot run on %s", proofRequestMeta.CircuitType, w.queueName)
+	}
 
 	timer := StartProofTimer(string(proofRequestMeta.CircuitType))
 	RecordCircuitInputSize(string(proofRequestMeta.CircuitType), len(job.Payload))
@@ -597,6 +636,8 @@ func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
 		proof, proofError = w.processMergeProof(job.Payload, common.MergeCircuitType)
 	case common.MergeRingCircuitType:
 		proof, proofError = w.processMergeProof(job.Payload, common.MergeRingCircuitType)
+	case common.CustomRingCircuitType:
+		proof, proofError = w.processCustomRingProof(job.Payload)
 	default:
 		return nil, fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType)
 	}
@@ -677,6 +718,18 @@ func (w *BaseQueueWorker) processMergeProof(payload json.RawMessage, circuitType
 	return mergeprover.ProveMerge(ps, &params)
 }
 
+func (w *BaseQueueWorker) processCustomRingProof(payload json.RawMessage) (*common.Proof, error) {
+	var params customring.CustomRingParameters
+	if err := json.Unmarshal(payload, &params); err != nil {
+		return nil, fmt.Errorf("unmarshal custom-ring params: %w", err)
+	}
+	ps, err := w.keyManager.GetRingSystem(common.CustomRingCircuitType, customring.TransferVariant)
+	if err != nil {
+		return nil, fmt.Errorf("custom-ring: %w", err)
+	}
+	return customring.ProveCustomRing(ps, &params)
+}
+
 // removeFromProcessingQueue drops the entry a worker added when it started, by
 // value, in one command.
 //
@@ -703,13 +756,30 @@ func (w *BaseQueueWorker) removeFromProcessingQueue(item string) {
 	}
 }
 
+var errCustomRingProof = errors.New("custom ring proof failed")
+
+func (w *BaseQueueWorker) redactProofError(err error) error {
+	if w.queueName == "zk_custom_ring_queue" {
+		return errCustomRingProof
+	}
+	return err
+}
+
+func (w *BaseQueueWorker) cachedFailureMessage(cachedFailure map[string]interface{}) string {
+	errorMessage, ok := cachedFailure["error"].(string)
+	if !ok {
+		errorMessage = "Proof generation failed (cached failure)"
+	}
+	return w.redactProofError(errors.New(errorMessage)).Error()
+}
+
 // failureDetails describes a failed job for both the failed queue and the job
 // metadata, so a caller sees the same thing wherever it is read from.
 //
 // The full payload is deliberately omitted -- payloads run to hundreds of KB,
 // and this is stored once per failure on a path that already has memory
 // pressure.
-func failureDetails(job *ProofJob, err error) map[string]interface{} {
+func (w *BaseQueueWorker) failureDetails(job *ProofJob, err error) map[string]interface{} {
 	var circuitType string
 	var payloadMeta map[string]interface{}
 	if json.Unmarshal(job.Payload, &payloadMeta) == nil {
@@ -717,6 +787,8 @@ func failureDetails(job *ProofJob, err error) map[string]interface{} {
 			circuitType = ct
 		}
 	}
+
+	errorMessage := w.redactProofError(err).Error()
 
 	return map[string]interface{}{
 		"originalJob": map[string]interface{}{
@@ -726,13 +798,13 @@ func failureDetails(job *ProofJob, err error) map[string]interface{} {
 			"payloadSize": len(job.Payload),
 			"createdAt":   job.CreatedAt,
 		},
-		"error":    err.Error(),
+		"error":    errorMessage,
 		"failedAt": time.Now(),
 	}
 }
 
 func (w *BaseQueueWorker) addToFailedQueue(job *ProofJob, inputHash string, err error) {
-	failedData, _ := json.Marshal(failureDetails(job, err))
+	failedData, _ := json.Marshal(w.failureDetails(job, err))
 	failedJobStruct := &ProofJob{
 		ID:        job.ID + "_failed",
 		Type:      "failed",

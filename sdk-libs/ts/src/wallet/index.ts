@@ -5,6 +5,8 @@ export {
   KeypairWalletAuthority,
   type AnonymousRecipientSlot,
   type ApprovalRequest,
+  type AuditWitness,
+  type EncryptedCustomRingTransfer,
   type EncryptedEnvelope,
   type EncryptedSplit,
   type EncryptedTransfer,
@@ -13,6 +15,7 @@ export {
   type WalletSyncMaterial,
 } from "../transaction/wallet/authority.js";
 export { buildDepositTransaction, type DepositTransactionParams } from "./deposit.js";
+export { fetchTransactionSlots, type TransactionSlots } from "./transaction-slots.js";
 export {
   buildSplitTransaction,
   buildTransferTransaction,
@@ -37,11 +40,13 @@ export {
   decodeUserRecordAccount,
   fetchUserRecord,
   fetchUserRecordChecked,
+  fetchViewingKeyOwners,
   isWalletRegistered,
   recipientConfidentialViewTag,
   resolveRegisteredAddress,
   resolvedAddressFromRecord,
   validateRegisteredKeypair,
+  viewingKeyIndex,
   type ResolvedAddress,
   type UserRecord,
 } from "./registry.js";

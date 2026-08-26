@@ -65,7 +65,7 @@ describe("wallet persistence", () => {
   });
 
   it("rejects unsupported or malformed persisted state", () => {
-    expect(() => deserializeWallet('{"version":2}')).toThrow("TRANSACTION_DESERIALIZE");
+    expect(() => deserializeWallet('{"version":1}')).toThrow("TRANSACTION_DESERIALIZE");
     expect(() => deserializeWallet("not json")).toThrow("TRANSACTION_DESERIALIZE");
 
     const wallet = new Wallet({ identity: ShieldedKeypair.generate().shieldedAddress() });

@@ -12,6 +12,7 @@ import (
 	"time"
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
+	customring "zolana/prover/prover/custom_ring"
 	"zolana/prover/prover/extractor"
 	mergeprover "zolana/prover/prover/merge"
 	"zolana/prover/prover/nullifier_tree"
@@ -180,6 +181,53 @@ func runCli() {
 				},
 			},
 			{
+				Name: "setup-custom-ring",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+					&cli.StringFlag{Name: "pk-out", Usage: "Also write the gnark proving key (pk.WriteTo), the release asset convert-custom-ring reads"},
+					&cli.StringFlag{Name: "vk-out", Usage: "Also write the raw gnark verifying key (vk.WriteRawTo)"},
+				},
+				Action: func(context *cli.Context) error {
+					if err := checkRingKeyName(context.String("output")); err != nil {
+						return err
+					}
+					ps, err := customring.SetupCustomRing()
+					if err != nil {
+						return err
+					}
+					if path := context.String("pk-out"); path != "" {
+						if err := writeKey(path, ps.ProvingKey.WriteTo); err != nil {
+							return err
+						}
+					}
+					if path := context.String("vk-out"); path != "" {
+						if err := writeKey(path, ps.VerifyingKey.WriteRawTo); err != nil {
+							return err
+						}
+					}
+					return writeRingProofSystem(ps, context.String("output"))
+				},
+			},
+			{
+				Name:  "convert-custom-ring",
+				Usage: "Wrap an existing gnark pk/vk pair into a proving system file without a new setup",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "pk", Usage: "gnark proving key (pk.WriteTo)", Required: true},
+					&cli.StringFlag{Name: "vk", Usage: "gnark verifying key (vk.WriteRawTo or WriteTo)", Required: true},
+					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+				},
+				Action: func(context *cli.Context) error {
+					ps, err := customring.ConvertCustomRing{
+						ProvingKeyPath:   context.String("pk"),
+						VerifyingKeyPath: context.String("vk"),
+					}.Run()
+					if err != nil {
+						return err
+					}
+					return writeRingProofSystem(ps, context.String("output"))
+				},
+			},
+			{
 				Name: "r1cs",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "output", Usage: "Output file", Required: true},
@@ -307,6 +355,8 @@ func runCli() {
 					case *common.BatchProofSystem:
 						_, err = s.VerifyingKey.WriteRawTo(&buf)
 					case *common.TransferProofSystem:
+						_, err = s.VerifyingKey.WriteRawTo(&buf)
+					case *common.RingProofSystem:
 						_, err = s.VerifyingKey.WriteRawTo(&buf)
 					default:
 						return fmt.Errorf("unknown proving system type")
@@ -451,7 +501,7 @@ func runCli() {
 					&cli.StringFlag{Name: "keys-dir", Usage: "Directory where key files are stored", Value: "./proving-keys/", Required: false},
 					&cli.StringSliceFlag{
 						Name:  "circuit",
-						Usage: "Specify the circuits to enable (address-append, address-append-test, transfer)",
+						Usage: "Specify enabled circuits including custom-ring",
 					},
 					&cli.StringFlag{
 						Name:  "preload-keys",
@@ -614,6 +664,13 @@ func runCli() {
 							workers = append(workers, transferWorker)
 							go transferWorker.Start()
 							workersStarted = append(workersStarted, "transfer")
+						}
+
+						if startAll || enabledCircuitsMap["custom-ring"] {
+							customRingWorker := server.NewCustomRingQueueWorker(redisQueue, keyManager)
+							workers = append(workers, customRingWorker)
+							go customRingWorker.Start()
+							workersStarted = append(workersStarted, "custom-ring")
 						}
 
 						logging.Logger().Info().
@@ -969,4 +1026,48 @@ func startCleanupRoutines(redisQueue *server.RedisQueue) {
 			}
 		}
 	}()
+}
+
+func writeKey(path string, write func(io.Writer) (int64, error)) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	if _, err := write(file); err != nil {
+		file.Close()
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return file.Close()
+}
+
+func checkRingKeyName(path string) error {
+	if filepath.Base(path) != common.CustomRingKeyFile {
+		return fmt.Errorf("output file must be named %s", common.CustomRingKeyFile)
+	}
+	return nil
+}
+
+func writeRingProofSystem(ps *common.RingProofSystem, path string) error {
+	if err := checkRingKeyName(path); err != nil {
+		return err
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+
+	written, writeErr := ps.WriteTo(file)
+	closeErr := file.Close()
+	if writeErr != nil {
+		return writeErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	logging.Logger().Info().
+		Str("circuit", string(ps.CircuitType)).
+		Int64("bytes_written", written).
+		Str("output", path).
+		Msg("Proving system written")
+	return nil
 }

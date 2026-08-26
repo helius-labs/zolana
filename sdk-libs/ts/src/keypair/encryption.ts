@@ -12,11 +12,12 @@ function deriveKeyNonce(
   recipientPublicKey: P256PublicKey,
   salt: Uint8Array,
   slotIndex: number,
+  infoLabel: string,
 ): readonly [Uint8Array, Uint8Array] {
   const ikm = concatBytes(dh, ephemeralPublicKey.toBytes(), recipientPublicKey.toBytes());
   const info = concatBytes(
     encoder.encode(HPKE_PREFIX),
-    encoder.encode(ENC_INFO_TRANSFER),
+    encoder.encode(infoLabel),
     salt,
     u32be(slotIndex),
   );
@@ -36,6 +37,7 @@ export function applyTransferCipher(
   input: Uint8Array,
   salt: Uint8Array,
   slotIndex: number,
+  infoLabel: string = ENC_INFO_TRANSFER,
 ): Uint8Array {
   // Every derived secret is wiped on the way out, including when HKDF or the
   // cipher throws: a rejected ciphertext must not leave the shared secret or
@@ -44,7 +46,14 @@ export function applyTransferCipher(
   let key: Uint8Array | undefined;
   try {
     let nonce: Uint8Array;
-    [key, nonce] = deriveKeyNonce(shared, ephemeralPublicKey, recipientPublicKey, salt, slotIndex);
+    [key, nonce] = deriveKeyNonce(
+      shared,
+      ephemeralPublicKey,
+      recipientPublicKey,
+      salt,
+      slotIndex,
+      infoLabel,
+    );
     const counter = new Uint8Array(16);
     counter.set(nonce);
     counter[15] = 2;

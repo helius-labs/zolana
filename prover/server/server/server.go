@@ -10,6 +10,7 @@ import (
 	"time"
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
+	customring "zolana/prover/prover/custom_ring"
 	mergeprover "zolana/prover/prover/merge"
 	nullifiertree "zolana/prover/prover/nullifier_tree"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
@@ -471,8 +472,8 @@ func (handler queueStatsHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 
 	response := map[string]interface{}{
 		"queues":       stats,
-		"totalPending": stats["zk_address_append_queue"] + stats["zk_transfer_queue"],
-		"totalActive":  stats["zk_address_append_processing_queue"] + stats["zk_transfer_processing_queue"],
+		"totalPending": stats["zk_address_append_queue"] + stats["zk_transfer_queue"] + stats["zk_custom_ring_queue"],
+		"totalActive":  stats["zk_address_append_processing_queue"] + stats["zk_transfer_processing_queue"] + stats["zk_custom_ring_processing_queue"],
 		"totalFailed":  stats["zk_failed_queue"],
 		"timestamp":    time.Now().Unix(),
 	}
@@ -604,7 +605,9 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 		admission:   newSyncAdmission(syncPermits()),
 	})
 
-	proverMux.Handle("/health", healthHandler{})
+	proverMux.Handle("/health", healthHandler{
+		circuits: servedCircuits(),
+	})
 
 	if redisQueue != nil {
 		proverMux.Handle("/prove/status", proofStatusHandler{redisQueue: redisQueue})
@@ -833,6 +836,20 @@ func spawnServerJob(server *http.Server, label string) RunningJob {
 }
 
 type healthHandler struct {
+	circuits []common.CircuitType
+}
+
+func servedCircuits() []common.CircuitType {
+	return []common.CircuitType{
+		common.BatchAddressAppendCircuitType,
+		common.TransferConfidentialCircuitType,
+		common.TransferRingCircuitType,
+		common.TransferP256RingCircuitType,
+		common.TransferRingAuthorityCircuitType,
+		common.MergeCircuitType,
+		common.MergeRingCircuitType,
+		common.CustomRingCircuitType,
+	}
 }
 
 func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Request, buf []byte, meta common.ProofRequestMeta) {
@@ -1094,6 +1111,8 @@ func GetQueueNameForCircuit(circuitType common.CircuitType) string {
 		common.MergeCircuitType,
 		common.MergeRingCircuitType:
 		return "zk_transfer_queue"
+	case common.CustomRingCircuitType:
+		return "zk_custom_ring_queue"
 	default:
 		return ""
 	}
@@ -1103,7 +1122,7 @@ func (handler proveHandler) getEstimatedTime(circuitType common.CircuitType) str
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
 		return "10-30 seconds"
-	case common.TransferP256RingCircuitType:
+	case common.TransferP256RingCircuitType, common.CustomRingCircuitType:
 		return "30-180 seconds"
 	default:
 		return "1-3 seconds"
@@ -1114,7 +1133,7 @@ func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitTy
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
 		return 30
-	case common.TransferP256RingCircuitType:
+	case common.TransferP256RingCircuitType, common.CustomRingCircuitType:
 		return 180
 	case common.TransferConfidentialCircuitType, common.TransferRingCircuitType, common.TransferRingAuthorityCircuitType:
 		return 30
@@ -1145,6 +1164,8 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 		return handler.mergeProof(buf)
 	case common.MergeRingCircuitType:
 		return handler.mergeRingProof(buf)
+	case common.CustomRingCircuitType:
+		return handler.customRingProof(buf)
 	default:
 		return nil, malformedBodyError(fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType))
 	}
@@ -1188,6 +1209,24 @@ func (handler proveHandler) mergeRingProof(buf []byte) (*common.Proof, *Error) {
 	if err != nil {
 		logging.Logger().Err(err)
 		return nil, provingError(err)
+	}
+	return proof, nil
+}
+
+func (handler proveHandler) customRingProof(buf []byte) (*common.Proof, *Error) {
+	var params customring.CustomRingParameters
+	if err := json.Unmarshal(buf, &params); err != nil {
+		return nil, malformedBodyError(err)
+	}
+
+	ps, err := handler.keyManager.GetRingSystem(common.CustomRingCircuitType, customring.TransferVariant)
+	if err != nil {
+		return nil, provingError(fmt.Errorf("custom-ring: %w", err))
+	}
+
+	proof, err := customring.ProveCustomRing(ps, &params)
+	if err != nil {
+		return nil, provingError(errors.New("custom ring proof failed"))
 	}
 	return proof, nil
 }
@@ -1266,7 +1305,7 @@ func (handler healthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	logging.Logger().Info().Msg("received health check request")
-	responseBytes, err := json.Marshal(map[string]string{"status": "ok"})
+	responseBytes, err := json.Marshal(map[string]interface{}{"status": "ok", "circuits": handler.circuits})
 	if err != nil {
 		logging.Logger().Error().Err(err).Msg("error marshaling response")
 		w.WriteHeader(http.StatusInternalServerError)
