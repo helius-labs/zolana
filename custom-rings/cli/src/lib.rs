@@ -416,7 +416,10 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
     let mut ctx = Context::load(cli.config, config);
     match cli.command {
         Command::Status => status::run(&ctx),
-        Command::Deploy(args) => deploy::run(&mut ctx, args)?,
+        Command::Deploy(args) => {
+            localnet::ensure(&ctx)?;
+            deploy::run(&mut ctx, args)?;
+        }
         Command::Init(args) => init::run(&mut ctx, args)?,
         Command::Pipeline => pipeline::run(&mut ctx)?,
         Command::Transact(args) => transact::run(&mut ctx, args)?,

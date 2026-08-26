@@ -7,8 +7,8 @@ use thiserror::Error;
 use zolana_ring_client::{ReaderKey, ReaderKeyError};
 
 use crate::{
-    deploy, error::CliError, init, probe, reader, ring_rpc, transact, Context, DeployArgs,
-    InitArgs, ReaderCommand, TransactArgs,
+    deploy, error::CliError, init, localnet, probe, reader, ring_rpc, transact, Context,
+    DeployArgs, InitArgs, ReaderCommand, TransactArgs,
 };
 
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(5);
@@ -29,6 +29,7 @@ pub enum PipelineError {
 
 /// Steps already on chain are skipped, a rerun resumes where it stopped.
 pub fn run(ctx: &mut Context) -> Result<(), CliError> {
+    localnet::ensure(ctx)?;
     deploy::run(ctx, DeployArgs::default())?;
     let hosted = !ctx.config.urls().ring_rpc_is_local();
     if hosted {
@@ -47,7 +48,7 @@ pub fn run(ctx: &mut Context) -> Result<(), CliError> {
     Ok(())
 }
 
-/// `localnet` starts the ring rpc, `pipeline` only checks it.
+/// Started before `deploy`, checked again after `init` in case it died.
 fn check_local_ring_rpc(ctx: &Context) -> Result<(), PipelineError> {
     let base = &ctx.config.urls().ring_rpc;
     let http = probe::http(HEALTH_TIMEOUT, HEALTH_TIMEOUT);

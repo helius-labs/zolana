@@ -57,7 +57,7 @@ pub fn run_devnet(config: &RingConfig) -> Result<(), ProbeError> {
 pub fn print_urls(config: &RingConfig) {
     let urls = config.urls();
     let served = if urls.ring_rpc_is_local() {
-        "(local, run it on this machine)"
+        "(local, `zolana-ring localnet` runs it)"
     } else {
         "(hosted, it serves this ring)"
     };
@@ -88,7 +88,7 @@ pub fn service_url(base: &str, path: &str) -> String {
 
 fn next_steps(config: &RingConfig) {
     let rpc_step = if config.urls().ring_rpc_is_local() {
-        "start the ring rpc here, serving keys/auditor.key"
+        "started by `zolana-ring localnet` or `pipeline`, serving keys/auditor.key"
     } else {
         "check that the hosted ring rpc holds this ring's auditor key"
     };
