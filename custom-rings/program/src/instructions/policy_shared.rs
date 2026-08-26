@@ -112,6 +112,7 @@ impl<'a> MutationAccounts<'a> {
     pub fn validate_and_parse(
         program_id: &Address,
         accounts: &'a mut [AccountView],
+        kind: RecordKind,
     ) -> Result<Self, ProgramError> {
         let mut iter = AccountIterator::new(accounts);
         let config = iter.next_account("config")?;
@@ -150,6 +151,12 @@ impl<'a> MutationAccounts<'a> {
         .verify()?;
         if records_bump != policy_config.records_bump {
             return Err(CustomRingError::InvalidRecordsPda.into());
+        }
+        // A referenced kind serves its mapped records only, an unmapped kind
+        // stays mutable against the ring's own.
+        let slot = policy_config.sources[kind as usize - 1];
+        if slot.kind != 0 && !address_eq(&slot.records, records.address()) {
+            return Err(CustomRingError::ForeignRecordSource.into());
         }
 
         let owner = RecordsOwner::new(records.address().as_array())

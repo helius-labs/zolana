@@ -86,6 +86,8 @@ pub enum CustomRingError {
     CuratorTreeMismatch = 8136,
     #[error("curator has no source for the record kind")]
     CuratorSourceMissing = 8137,
+    #[error("the kind is served by a curator's records, mutate it on the curator ring")]
+    ForeignRecordSource = 8138,
 }
 
 impl From<CustomRingError> for ProgramError {
