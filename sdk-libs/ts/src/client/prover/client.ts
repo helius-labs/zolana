@@ -20,10 +20,12 @@ import {
   RING_OUTPUT_SLOTS,
   RING_POOL_SLOTS,
   RING_RULE_SLOTS,
+  RING_SOURCE_SLOTS,
   RING_STATE_PATH_LENGTH,
 } from "./types.js";
 import type {
   CustomRingOpening,
+  CustomRingPolicySource,
   CustomRingPoolEntry,
   CustomRingProofRequest,
   Field,
@@ -389,7 +391,7 @@ export function customRingProofRequest(
     outputs: sized(inputs.outputs, RING_OUTPUT_SLOTS, "outputs").map(openingJson),
     addressChain: hex32(inputs.addressChain, "addressChain"),
     externalDataHash: hex32(inputs.externalDataHash, "externalDataHash"),
-    recordsOwnerHash: hex32(inputs.recordsOwnerHash, "recordsOwnerHash"),
+    sources: sized(inputs.sources, RING_SOURCE_SLOTS, "sources").map(sourceJson),
     policyLen: u8(inputs.policyLen, "policyLen"),
     ruleEnc: sized(inputs.rules, RING_RULE_SLOTS, "rules").map((rule) => hex32(rule, "rules")),
     inlineAssets: sized(inputs.inlineAssets, RING_INLINE_ASSET_SLOTS, "inlineAssets").map((asset) =>
@@ -413,6 +415,13 @@ function openingJson(opening: CustomRingOpening): Readonly<Record<string, unknow
     dataHash: hex32(opening.dataHash, "dataHash"),
     ringDataHash: hex32(opening.ringDataHash, "ringDataHash"),
     ringProgramId: hex32(opening.ringProgramId, "ringProgramId"),
+  });
+}
+
+function sourceJson(source: CustomRingPolicySource): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    kind: u8(source.kind, "kind"),
+    ownerHash: hex32(source.ownerHash, "ownerHash"),
   });
 }
 

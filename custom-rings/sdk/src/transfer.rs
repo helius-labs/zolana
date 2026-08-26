@@ -126,6 +126,8 @@ pub enum TransferError {
     PolicyShapeUnsupported,
     #[error("a policy rule refuses the transfer")]
     PolicyRuleUnsatisfied,
+    #[error("no policy source serves the record kind")]
+    MissingPolicySource,
     #[error(transparent)]
     Record(Box<crate::RecordProofError>),
     #[error("transfer was prepared with padded change slots, prepare it with ConfidentialTransfer::with_compact_change")]
@@ -282,8 +284,7 @@ impl<'a> CustomRingTransfer<'a> {
             .ok_or(TransferError::MissingPolicyConfig)?;
         let witness = crate::witness::CustomRingWitnessInput {
             policy: &custom_ring_interface::POLICY,
-            records: self.ring.records_pda(),
-            records_tree: policy_config.records_tree,
+            policy_config: &policy_config,
             inputs: &proof_inputs.input_utxos,
             outputs: &proof_inputs.output_utxos,
         }

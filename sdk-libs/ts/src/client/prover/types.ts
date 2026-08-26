@@ -99,6 +99,8 @@ export const RING_RULE_SLOTS = 16;
 export const RING_INLINE_ASSET_SLOTS = 8;
 /** Rust `POLICY_POOL_SLOTS`, the server rejects any other pool length. */
 export const RING_POOL_SLOTS = 10;
+/** Rust `MAX_POLICY_SOURCES`, the positional source map width. */
+export const RING_SOURCE_SLOTS = 8;
 export const RING_STATE_PATH_LENGTH = 32;
 export const RING_NULLIFIER_PATH_LENGTH = 40;
 
@@ -154,6 +156,12 @@ export function disabledPoolEntry(): CustomRingPoolEntry {
   });
 }
 
+/** Mirrors Rust `PolicySourceEntry`, slot `i` is empty or serves kind `i + 1`. */
+export interface CustomRingPolicySource {
+  readonly kind: number;
+  readonly ownerHash: Bytes32;
+}
+
 /** Mirrors Rust `CustomRingProofRequest`, `auditorPublicKey` is the uncompressed SEC1 point. */
 export interface CustomRingProofRequest {
   readonly publicInputHash: Bytes32;
@@ -167,7 +175,7 @@ export interface CustomRingProofRequest {
   readonly outputs: readonly CustomRingOpening[];
   readonly addressChain: Bytes32;
   readonly externalDataHash: Bytes32;
-  readonly recordsOwnerHash: Bytes32;
+  readonly sources: readonly CustomRingPolicySource[];
   readonly policyLen: number;
   readonly rules: readonly Bytes32[];
   readonly inlineAssets: readonly Bytes32[];
