@@ -318,6 +318,10 @@ mod tests {
     }
 
     fn decide(auth: &ReadAuth) -> Result<Claim, Unauthorized> {
+        decide_at(auth, unix_now().expect("clock"))
+    }
+
+    fn decide_at(auth: &ReadAuth, now: u64) -> Result<Claim, Unauthorized> {
         let nonce: [u8; 32] = auth.nonce.0.as_slice().try_into().unwrap_or([0; 32]);
         ReadCheck::new(
             auth,
@@ -329,7 +333,7 @@ mod tests {
                 limit: None,
             },
         )
-        .at(unix_now().expect("clock"))
+        .at(now)
         .against(&Origins::default())
         .decide()
     }
@@ -387,7 +391,20 @@ mod tests {
                 .sign(&wallet())
                 .expect("signed request")
                 .auth;
-            assert_eq!(decide(&auth), Err(Unauthorized::StaleTimestamp));
+            assert_eq!(decide_at(&auth, now), Err(Unauthorized::StaleTimestamp));
+        }
+    }
+
+    #[test]
+    fn a_timestamp_on_the_skew_boundary_is_accepted() {
+        let now = unix_now().expect("clock");
+        for timestamp in [now - AUTH_SKEW.as_secs(), now + AUTH_SKEW.as_secs()] {
+            let auth = GetDecryptedTransactionsRequest::read(RING)
+                .at(timestamp)
+                .sign(&wallet())
+                .expect("signed request")
+                .auth;
+            assert!(decide_at(&auth, now).is_ok());
         }
     }
 
