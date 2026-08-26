@@ -76,28 +76,6 @@ pub trait ViewingKeyTrait {
     ) -> Result<Vec<u8>, KeypairError>;
 }
 
-/// Implements [`ViewingKeyTrait`] for a type that owns a [`ViewingKey`], by
-/// forwarding every method to the named field:
-///
-/// ```ignore
-/// zolana_keypair::forward_viewing_key_trait!(MyBackend => viewing_key);
-/// ```
-///
-/// Call sites inside this crate spell it `crate::forward_viewing_key_trait!`:
-/// an exported macro is only in textual scope after its definition, and some
-/// modules here are declared before this one. A doc comment cannot attach to
-/// the invocation either, so the call sites explain themselves with `//`.
-///
-/// The trait is twelve methods and a host-side viewing key forwards all of
-/// them identically, so writing it out is pure noise that can silently drift
-/// between backends.
-///
-/// A blanket impl over an accessor trait would be the tidier-looking fix and is
-/// the wrong tool: it would make it impossible for a downstream crate to
-/// implement [`ViewingKeyTrait`] by hand, since coherence must assume that type
-/// could pick up the accessor later. Hand-written impls are exactly what a
-/// device-resident viewing key needs — one that performs ECDH in an HSM and can
-/// never produce a `&ViewingKey` to forward to. A macro leaves that door open.
 #[macro_export]
 macro_rules! forward_viewing_key_trait {
     ($backend:ty => $field:ident) => {
@@ -190,12 +168,6 @@ macro_rules! forward_viewing_key_trait {
     };
 }
 
-/// Forwards to the inherent `ViewingKey` methods. Inherent methods win method
-/// resolution over trait methods of the same name, so `self.foo()` calls the
-/// concrete impl, not the trait method being defined.
-///
-/// Not written with [`forward_viewing_key_trait!`]: this is the base case the
-/// macro forwards *to*, and it has no field to name.
 impl ViewingKeyTrait for ViewingKey {
     fn pubkey(&self) -> P256Pubkey {
         self.pubkey()

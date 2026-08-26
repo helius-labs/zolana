@@ -270,22 +270,9 @@ pub(crate) fn view_root(secret: &SecretKey) -> Zeroizing<[u8; 32]> {
     out
 }
 
-/// Expands both role secrets from a `derivation_seed` produced outside this
-/// crate, for backends whose signing key is hardware-resident and therefore
-/// cannot go through [`crate::ShieldedKeypair::from_keypair`]: the seed is
-/// whatever the device returns for its rail (an ed25519 signature over
-/// [`ed25519_derivation_message`], or `ECDH(signing_sk, P_derive)`), and the
-/// expansion here is bit-identical to the software path.
-///
-/// A remote backend must derive both roles through this function rather than
-/// reimplementing the HKDF schedule. A divergent expansion yields a well-formed
-/// but *different* identity: every signature still verifies and every address
-/// still looks correct, so nothing downstream catches it.
-///
-/// The seed width is fixed per rail ([`ED25519_SEED_LEN`], [`P256_SEED_LEN`])
-/// and checked here for the same reason. HKDF-Extract accepts any input length,
-/// so a device that returned a truncated seed would otherwise expand cleanly
-/// into that same wrong-but-valid identity.
+/// Expands both role secrets from a `derivation_seed` produced by a
+/// hardware-resident signing key: an ed25519 signature over
+/// [`ed25519_derivation_message`], or `ECDH(signing_sk, P_derive)`.
 pub fn expand_roles(seed: &[u8], curve: Curve) -> Result<(NullifierKey, ViewingKey), KeypairError> {
     let rail = Rail::from_curve(curve)?;
     let expected = rail.seed_len();
@@ -314,8 +301,6 @@ impl Rail {
         }
     }
 
-    /// The width of the seed this rail produces: an RFC 8032 signature, or a
-    /// P-256 ECDH x-coordinate.
     fn seed_len(self) -> usize {
         match self {
             Self::Ed25519 => ED25519_SEED_LEN,
