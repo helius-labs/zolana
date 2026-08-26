@@ -60,6 +60,13 @@ type PoolEntry struct {
 	StatePathIndex    uint64
 }
 
+// PolicySource is one slot of the positional source map, slot i empty or
+// serving kind i+1.
+type PolicySource struct {
+	Kind      uint8
+	OwnerHash *big.Int
+}
+
 type CustomRingParameters struct {
 	PublicInputHash *big.Int
 	PrivateTxHash   *big.Int
@@ -75,11 +82,11 @@ type CustomRingParameters struct {
 	AddressChain     *big.Int
 	ExternalDataHash *big.Int
 
-	RecordsOwnerHash *big.Int
-	PolicyLen        uint8
-	RuleEnc          [transfer.NRules][ruleEncLen]byte
-	InlineAssets     [transfer.NInlineAssets]*big.Int
-	InlineCount      uint8
+	Sources      [transfer.NSources]PolicySource
+	PolicyLen    uint8
+	RuleEnc      [transfer.NRules][ruleEncLen]byte
+	InlineAssets [transfer.NInlineAssets]*big.Int
+	InlineCount  uint8
 
 	StateRoot     *big.Int
 	NullifierRoot *big.Int
@@ -97,6 +104,11 @@ type openingJSON struct {
 	DataHash      string `json:"dataHash"`
 	RingDataHash  string `json:"ringDataHash"`
 	RingProgramID string `json:"ringProgramId"`
+}
+
+type policySourceJSON struct {
+	Kind      uint8  `json:"kind"`
+	OwnerHash string `json:"ownerHash"`
 }
 
 type poolEntryJSON struct {
@@ -117,27 +129,27 @@ type poolEntryJSON struct {
 }
 
 type customRingParametersJSON struct {
-	CircuitType      string          `json:"circuitType"`
-	Variant          string          `json:"variant"`
-	PublicInputHash  string          `json:"publicInputHash"`
-	PrivateTxHash    string          `json:"privateTxHash"`
-	TxViewingSk      string          `json:"txViewingSk"`
-	EphSk            string          `json:"ephSk"`
-	AuditorPk        string          `json:"auditorPk"`
-	NIn              uint8           `json:"nIn"`
-	NOut             uint8           `json:"nOut"`
-	Inputs           []openingJSON   `json:"inputs"`
-	Outputs          []openingJSON   `json:"outputs"`
-	AddressChain     string          `json:"addressChain"`
-	ExternalDataHash string          `json:"externalDataHash"`
-	RecordsOwnerHash string          `json:"recordsOwnerHash"`
-	PolicyLen        uint8           `json:"policyLen"`
-	RuleEnc          []string        `json:"ruleEnc"`
-	InlineAssets     []string        `json:"inlineAssets"`
-	InlineCount      uint8           `json:"inlineCount"`
-	StateRoot        string          `json:"stateRoot"`
-	NullifierRoot    string          `json:"nullifierRoot"`
-	Pool             []poolEntryJSON `json:"pool"`
+	CircuitType      string             `json:"circuitType"`
+	Variant          string             `json:"variant"`
+	PublicInputHash  string             `json:"publicInputHash"`
+	PrivateTxHash    string             `json:"privateTxHash"`
+	TxViewingSk      string             `json:"txViewingSk"`
+	EphSk            string             `json:"ephSk"`
+	AuditorPk        string             `json:"auditorPk"`
+	NIn              uint8              `json:"nIn"`
+	NOut             uint8              `json:"nOut"`
+	Inputs           []openingJSON      `json:"inputs"`
+	Outputs          []openingJSON      `json:"outputs"`
+	AddressChain     string             `json:"addressChain"`
+	ExternalDataHash string             `json:"externalDataHash"`
+	Sources          []policySourceJSON `json:"sources"`
+	PolicyLen        uint8              `json:"policyLen"`
+	RuleEnc          []string           `json:"ruleEnc"`
+	InlineAssets     []string           `json:"inlineAssets"`
+	InlineCount      uint8              `json:"inlineCount"`
+	StateRoot        string             `json:"stateRoot"`
+	NullifierRoot    string             `json:"nullifierRoot"`
+	Pool             []poolEntryJSON    `json:"pool"`
 }
 
 func (p *CustomRingParameters) MarshalJSON() ([]byte, error) {
@@ -155,7 +167,7 @@ func (p *CustomRingParameters) MarshalJSON() ([]byte, error) {
 		Outputs:          writeOpenings(p.Outputs[:]),
 		AddressChain:     common.ToHex(p.AddressChain),
 		ExternalDataHash: common.ToHex(p.ExternalDataHash),
-		RecordsOwnerHash: common.ToHex(p.RecordsOwnerHash),
+		Sources:          make([]policySourceJSON, 0, len(p.Sources)),
 		PolicyLen:        p.PolicyLen,
 		RuleEnc:          make([]string, 0, len(p.RuleEnc)),
 		InlineAssets:     make([]string, 0, len(p.InlineAssets)),
@@ -163,6 +175,12 @@ func (p *CustomRingParameters) MarshalJSON() ([]byte, error) {
 		StateRoot:        common.ToHex(p.StateRoot),
 		NullifierRoot:    common.ToHex(p.NullifierRoot),
 		Pool:             make([]poolEntryJSON, 0, len(p.Pool)),
+	}
+	for _, src := range p.Sources {
+		raw.Sources = append(raw.Sources, policySourceJSON{
+			Kind:      src.Kind,
+			OwnerHash: common.ToHex(src.OwnerHash),
+		})
 	}
 	for _, encoded := range p.RuleEnc {
 		raw.RuleEnc = append(raw.RuleEnc, bytesHex(encoded[:]))
@@ -231,8 +249,21 @@ func (p *CustomRingParameters) UnmarshalJSON(data []byte) error {
 	if p.ExternalDataHash, err = fieldFromHex(raw.ExternalDataHash, "externalDataHash"); err != nil {
 		return err
 	}
-	if p.RecordsOwnerHash, err = fieldFromHex(raw.RecordsOwnerHash, "recordsOwnerHash"); err != nil {
-		return err
+	if len(raw.Sources) != transfer.NSources {
+		return fmt.Errorf("custom-ring: sources holds %d slots, expected %d", len(raw.Sources), transfer.NSources)
+	}
+	for i, src := range raw.Sources {
+		owner, err := fieldFromHex(src.OwnerHash, "sources")
+		if err != nil {
+			return err
+		}
+		// Mirrors ring_policy::PolicySources::from_slots.
+		empty := src.Kind == 0 && owner.Sign() == 0
+		positional := int(src.Kind) == i+1 && owner.Sign() != 0
+		if !empty && !positional {
+			return fmt.Errorf("custom-ring: sources slot %d breaks the positional layout", i)
+		}
+		p.Sources[i] = PolicySource{Kind: src.Kind, OwnerHash: owner}
 	}
 	if p.StateRoot, err = fieldFromHex(raw.StateRoot, "stateRoot"); err != nil {
 		return err
@@ -409,9 +440,14 @@ func (p *CustomRingParameters) CreateWitness() (*transfer.Circuit, error) {
 		PrivateTxHash:    p.PrivateTxHash,
 		AddressChain:     p.AddressChain,
 		ExternalDataHash: p.ExternalDataHash,
-		RecordsOwnerHash: p.RecordsOwnerHash,
 		StateRoot:        p.StateRoot,
 		NullifierRoot:    p.NullifierRoot,
+	}
+	for i, src := range p.Sources {
+		circuit.Sources[i] = transfer.SourceWires{
+			Kind:      src.Kind,
+			OwnerHash: src.OwnerHash,
+		}
 	}
 	assignBytes(circuit.TxViewingSk[:], p.TxViewingSk[:])
 	assignBytes(circuit.EphSk[:], p.EphSk[:])

@@ -1,5 +1,5 @@
 use bytemuck::{from_bytes_mut, Pod};
-use custom_ring_interface::{PolicyConfig, POLICY_CONFIG};
+use custom_ring_interface::{PolicyConfig, PolicySourceSlot, N_POLICY_SOURCE_SLOTS, POLICY_CONFIG};
 use custom_ring_interface::{
     ReadAccessRecord, ReaderKeyBytes, RingProgramConfig, READER_KEY_ED25519, READER_KEY_P256,
     READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
@@ -143,6 +143,7 @@ pub(crate) struct PolicyConfigInitParams {
     pub records_tree: Address,
     pub records_bump: u8,
     pub bump: u8,
+    pub sources: [PolicySourceSlot; N_POLICY_SOURCE_SLOTS],
 }
 
 impl PolicyConfigInitParams {
@@ -156,6 +157,7 @@ impl PolicyConfigInitParams {
                 records_tree: self.records_tree,
                 records_bump: self.records_bump,
                 bump: self.bump,
+                sources: self.sources,
             },
         )
     }

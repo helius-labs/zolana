@@ -63,12 +63,12 @@ func (c *Circuit) policyHash(api frontend.API) frontend.Variable {
 	for size, bit := range c.LenOneHot {
 		length = api.Add(length, api.Mul(bit, size))
 	}
-	head := gadget.HashChain(api, []frontend.Variable{
-		policyTableDomain,
-		PolicyVersion,
-		c.RecordsOwnerHash,
-		length,
-	})
+	preimage := make([]frontend.Variable, 0, 3+2*NSources)
+	preimage = append(preimage, policyTableDomain, PolicyVersion)
+	for _, src := range c.Sources {
+		preimage = append(preimage, src.Kind, src.OwnerHash)
+	}
+	head := gadget.HashChain(api, append(preimage, length))
 
 	packed := make([]frontend.Variable, NRules)
 	for k, rule := range c.Rules {

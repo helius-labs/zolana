@@ -15,8 +15,9 @@ mod record;
 
 pub use member::{Member, MemberError};
 pub use policy::{
-    Guard, Mode, Policy, PolicyBuilder, Rule, RuleSource, Subject, MAX_INLINE_ASSETS, MAX_RULES,
-    POLICY_VERSION,
+    Guard, Mode, Policy, PolicyBuilder, PolicyHashError, PolicySource, PolicySources,
+    PolicySourcesError, Rule, RuleSource, Subject, MAX_INLINE_ASSETS, MAX_POLICY_SOURCES,
+    MAX_RULES, POLICY_VERSION,
 };
 pub use record::{
     mutation_private_tx_hash, record_nullifier, record_seed, Holder, Record, RecordKind,

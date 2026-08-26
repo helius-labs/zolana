@@ -43,14 +43,13 @@ type records struct {
 }
 
 func (c *Circuit) definePool(api frontend.API, checker frontend.Rangechecker) [NPool]poolView {
-	ring := records{
-		ownerHash:     c.RecordsOwnerHash,
-		stateRoot:     c.StateRoot,
-		nullifierRoot: c.NullifierRoot,
-	}
 	var out [NPool]poolView
 	for i, entry := range c.Pool {
-		out[i] = entry.define(api, checker, ring)
+		out[i] = entry.define(api, checker, records{
+			ownerHash:     resolveOwner(api, c.Sources, entry),
+			stateRoot:     c.StateRoot,
+			nullifierRoot: c.NullifierRoot,
+		})
 	}
 	return out
 }
@@ -60,7 +59,8 @@ func (w PoolEntryWires) define(api frontend.API, checker frontend.Rangechecker, 
 	api.AssertIsBoolean(w.Enabled)
 	checker.Check(w.Kind, 8)
 	checker.Check(w.Version, 64)
-	// Neither the zero padding member nor the inline kind 0 names a record.
+	// Neither the zero padding member nor the inline kind 0 names a record,
+	// and kind 0 could only resolve against empty source slots.
 	shared.AssertWhen(api, w.Enabled, nonZero(api, w.Member))
 	shared.AssertWhen(api, w.Enabled, nonZero(api, w.Kind))
 

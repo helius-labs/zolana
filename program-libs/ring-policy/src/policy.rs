@@ -1,11 +1,96 @@
-use zolana_hasher::{hash_chain::create_hash_chain_from_slice, HasherError};
+use thiserror::Error;
+use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 
 use crate::{field_u8, RecordKind, POLICY_TABLE_DOMAIN};
 
 pub const MAX_RULES: usize = 16;
 pub const MAX_INLINE_ASSETS: usize = 8;
+pub const MAX_POLICY_SOURCES: usize = 8;
 /// Enters `policy_hash`, bump it with any change of the encoding below.
-pub const POLICY_VERSION: u8 = 1;
+pub const POLICY_VERSION: u8 = 2;
+
+/// One kind and owner pair, kind 0 marks an empty slot with a zero hash.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PolicySource {
+    pub kind: u8,
+    pub owner_hash: [u8; 32],
+}
+
+/// Positional source map, slot `i` is empty or serves kind `i + 1`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PolicySources {
+    slots: [PolicySource; MAX_POLICY_SOURCES],
+}
+
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+pub enum PolicySourcesError {
+    #[error("slot breaks the positional layout")]
+    NotPositional,
+    #[error("kind is already mapped")]
+    Duplicate,
+    #[error("owner hash is zero")]
+    ZeroOwner,
+}
+
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+pub enum PolicyHashError {
+    #[error("hashing failed")]
+    Hashing,
+    #[error("no source for the record kind")]
+    MissingSource(RecordKind),
+}
+
+impl PolicySources {
+    pub const fn empty() -> Self {
+        Self {
+            slots: [PolicySource {
+                kind: 0,
+                owner_hash: [0u8; 32],
+            }; MAX_POLICY_SOURCES],
+        }
+    }
+
+    pub fn new(entries: &[(RecordKind, [u8; 32])]) -> Result<Self, PolicySourcesError> {
+        let mut sources = Self::empty();
+        for (kind, owner_hash) in entries {
+            if *owner_hash == [0u8; 32] {
+                return Err(PolicySourcesError::ZeroOwner);
+            }
+            let slot = &mut sources.slots[*kind as usize - 1];
+            if slot.kind != 0 {
+                return Err(PolicySourcesError::Duplicate);
+            }
+            *slot = PolicySource {
+                kind: *kind as u8,
+                owner_hash: *owner_hash,
+            };
+        }
+        Ok(sources)
+    }
+
+    /// Validates stored slots instead of re-canonicalizing them.
+    pub fn from_slots(
+        slots: [PolicySource; MAX_POLICY_SOURCES],
+    ) -> Result<Self, PolicySourcesError> {
+        for (index, slot) in slots.iter().enumerate() {
+            let empty = slot.kind == 0 && slot.owner_hash == [0u8; 32];
+            let positional = slot.kind as usize == index + 1 && slot.owner_hash != [0u8; 32];
+            if !empty && !positional {
+                return Err(PolicySourcesError::NotPositional);
+            }
+        }
+        Ok(Self { slots })
+    }
+
+    pub fn owner_hash(&self, kind: RecordKind) -> Option<&[u8; 32]> {
+        let slot = &self.slots[kind as usize - 1];
+        (slot.kind != 0).then_some(&slot.owner_hash)
+    }
+
+    pub const fn slots(&self) -> &[PolicySource; MAX_POLICY_SOURCES] {
+        &self.slots
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -135,12 +220,24 @@ impl Policy {
         self.len == 0
     }
 
-    /// The owner hash binds the table to one ring's records.
-    pub fn hash(&self, records_owner_hash: &[u8; 32]) -> Result<[u8; 32], HasherError> {
-        let mut elements = Vec::with_capacity(4 + self.len + MAX_INLINE_ASSETS);
+    /// The map binds each referenced kind to one records owner, an uncovered
+    /// rule fails closed.
+    pub fn hash(&self, sources: &PolicySources) -> Result<[u8; 32], PolicyHashError> {
+        for rule in self.rules() {
+            if let RuleSource::Records(kind) = rule.source {
+                if sources.owner_hash(kind).is_none() {
+                    return Err(PolicyHashError::MissingSource(kind));
+                }
+            }
+        }
+        let mut elements =
+            Vec::with_capacity(3 + 2 * MAX_POLICY_SOURCES + self.len + MAX_INLINE_ASSETS);
         elements.push(POLICY_TABLE_DOMAIN);
         elements.push(field_u8(POLICY_VERSION));
-        elements.push(*records_owner_hash);
+        for slot in sources.slots() {
+            elements.push(field_u8(slot.kind));
+            elements.push(slot.owner_hash);
+        }
         elements.push(field_u8(self.len as u8));
         for rule in self.rules() {
             elements.push(rule.encoded());
@@ -150,7 +247,7 @@ impl Policy {
                 elements.extend_from_slice(members);
             }
         }
-        create_hash_chain_from_slice(&elements)
+        create_hash_chain_from_slice(&elements).map_err(|_| PolicyHashError::Hashing)
     }
 }
 
@@ -283,23 +380,86 @@ mod tests {
         }
     }
 
+    fn sources(entries: &[(RecordKind, [u8; 32])]) -> PolicySources {
+        PolicySources::new(entries).unwrap()
+    }
+
     #[test]
-    fn policy_hash_binds_the_owner_and_the_inline_members() {
-        let owner = [4u8; 32];
-        let baseline = TABLE.hash(&owner).unwrap();
-        assert_ne!(baseline, TABLE.hash(&[5u8; 32]).unwrap());
+    fn policy_hash_binds_the_sources_and_the_inline_members() {
+        let map = sources(&[
+            (RecordKind::Allow, [4u8; 32]),
+            (RecordKind::Frozen, [5u8; 32]),
+        ]);
+        let baseline = TABLE.hash(&map).unwrap();
+        let other_owner = sources(&[
+            (RecordKind::Allow, [4u8; 32]),
+            (RecordKind::Frozen, [6u8; 32]),
+        ]);
+        assert_ne!(baseline, TABLE.hash(&other_owner).unwrap());
+        let extra_slot = sources(&[
+            (RecordKind::Allow, [4u8; 32]),
+            (RecordKind::Frozen, [5u8; 32]),
+            (RecordKind::Escrow, [7u8; 32]),
+        ]);
+        assert_ne!(baseline, TABLE.hash(&extra_slot).unwrap());
         const REORDERED: Policy = Policy::builder()
             .rule(Rule::forbid(Subject::Sender, RecordKind::Frozen))
             .rule(Rule::require(Subject::OutputOwner, RecordKind::Allow))
             .rule(Rule::allow_only_assets(ASSETS))
             .build();
-        assert_ne!(baseline, REORDERED.hash(&owner).unwrap());
+        assert_ne!(baseline, REORDERED.hash(&map).unwrap());
         const OTHER_ASSETS: Policy = Policy::builder()
             .rule(Rule::require(Subject::OutputOwner, RecordKind::Allow))
             .rule(Rule::forbid(Subject::Sender, RecordKind::Frozen))
             .rule(Rule::allow_only_assets(&[[6u8; 32]]))
             .build();
-        assert_ne!(baseline, OTHER_ASSETS.hash(&owner).unwrap());
+        assert_ne!(baseline, OTHER_ASSETS.hash(&map).unwrap());
+    }
+
+    #[test]
+    fn a_records_rule_without_a_source_fails_closed() {
+        let map = sources(&[(RecordKind::Allow, [4u8; 32])]);
+        assert_eq!(
+            TABLE.hash(&map),
+            Err(PolicyHashError::MissingSource(RecordKind::Frozen))
+        );
+    }
+
+    #[test]
+    fn an_empty_table_hashes_the_empty_map() {
+        const EMPTY: Policy = Policy::builder().build();
+        let baseline = EMPTY.hash(&PolicySources::empty()).unwrap();
+        let with_slot = sources(&[(RecordKind::Allow, [4u8; 32])]);
+        assert_ne!(baseline, EMPTY.hash(&with_slot).unwrap());
+    }
+
+    #[test]
+    fn the_source_map_is_positional_and_rejects_duplicates() {
+        assert_eq!(
+            PolicySources::new(&[
+                (RecordKind::Allow, [4u8; 32]),
+                (RecordKind::Allow, [5u8; 32]),
+            ]),
+            Err(PolicySourcesError::Duplicate)
+        );
+        assert_eq!(
+            PolicySources::new(&[(RecordKind::Allow, [0u8; 32])]),
+            Err(PolicySourcesError::ZeroOwner)
+        );
+        let map = sources(&[(RecordKind::Frozen, [5u8; 32])]);
+        assert_eq!(PolicySources::from_slots(*map.slots()), Ok(map));
+        let mut slots = *map.slots();
+        slots.swap(0, 2);
+        assert_eq!(
+            PolicySources::from_slots(slots),
+            Err(PolicySourcesError::NotPositional)
+        );
+        let mut zero_owner = *map.slots();
+        zero_owner[2].owner_hash = [0u8; 32];
+        assert_eq!(
+            PolicySources::from_slots(zero_owner),
+            Err(PolicySourcesError::NotPositional)
+        );
     }
 
     #[test]

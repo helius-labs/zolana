@@ -14,7 +14,7 @@
 //  6. eph_pk_lo
 //  7. eph_pk_hi
 //  8. ct_hash
-//  9. policy_hash        -- recomputed, never witnessed
+//  9. policy_hash        -- recomputed, binds the per-kind records owner map
 //  10. state_root        -- the SPP roots the record proofs open against
 //  11. nullifier_root
 //
@@ -32,6 +32,13 @@ import (
 	"zolana/prover/circuits/gadget"
 )
 
+// SourceWires is one kind and owner slot of the policy source map, bound to
+// the on-chain map through the policy hash alone.
+type SourceWires struct {
+	Kind      frontend.Variable
+	OwnerHash frontend.Variable
+}
+
 type Circuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 
@@ -48,7 +55,7 @@ type Circuit struct {
 	AddressChain     frontend.Variable
 	ExternalDataHash frontend.Variable
 
-	RecordsOwnerHash  frontend.Variable
+	Sources           [NSources]SourceWires
 	LenOneHot         [NRules + 1]frontend.Variable
 	Rules             [NRules]RuleWires
 	InlineAssets      [NInlineAssets]frontend.Variable

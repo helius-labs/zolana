@@ -4,11 +4,12 @@
 
 use custom_ring_interface::{AuditPublicInput, CustomRingPublicInput};
 use zolana_ring_policy::{
-    record_nullifier, record_seed, Guard, Member, Mode, Policy, Record, RecordKind, RecordState,
-    RecordsOwner, Rule, Subject,
+    record_nullifier, record_seed, Guard, Member, Mode, Policy, PolicySources, Record, RecordKind,
+    RecordState, RecordsOwner, Rule, Subject,
 };
 
 const RECORDS_PDA: [u8; 32] = [0x11; 32];
+const CURATOR_PDA: [u8; 32] = [0x12; 32];
 const RECIPIENT_TAG: [u8; 32] = [0xa1; 32];
 const SENDER_TAG: [u8; 32] = [0xb2; 32];
 const BLOCKED_TAG: [u8; 32] = [0xc3; 32];
@@ -20,7 +21,13 @@ const ASSET_MEMBERS: &[[u8; 32]] = &[[
 ]];
 
 const RECORDS_OWNER_HASH: &str = "1e99b255125d8e5d1a8ee78945c3197b227182301b2c5d263dd5410b5ff476be";
-const POLICY_HASH: &str = "26e0fdcb7e8179a16c8e93ac37f839a34d6aa98dc6d4d318716b1e80efcbdd5e";
+const CURATOR_OWNER_HASH: &str = "2719a8eec7b597c45bf36e95b85af000cbceef719715713fadec78fe81c88280";
+const POLICY_HASH: &str = "0c2bbc39f5d6f5f48710e265fe931dcd8b4541709691ee2dbd4a30e4d8acb5eb";
+const EMPTY_POLICY_HASH: &str = "25cc39e678cf0a5b3e48b56b6447c6676667e8775d2615daf11358d3d55d3f4b";
+const ONE_RULE_POLICY_HASH: &str =
+    "266fde7b61dc5b48e96950e3af27f13ed47d15611f478eafb8155d05edae764b";
+const TWO_RULE_POLICY_HASH: &str =
+    "2aeeded57fb1cfcdb332399210f4a1b7bd838dcdb1aae17756bb8b37a2474bc9";
 
 struct Vector {
     seed: &'static str,
@@ -38,9 +45,10 @@ const ALLOW_PRESENT: Vector = Vector {
     nullifier: "23ea6084012812863119d78a52a0ecdaa1431254e08d0f0d2c95a8accb9f1e68",
 };
 
-/// The frozen record was never created, so only its address is pinned.
+/// The frozen record was never created and its kind reads a curator's
+/// records, so only its curator owned address is pinned.
 const FROZEN_SEED: &str = "08e7b574f94761ce516d508af775433829e11b046e54e02912756d8fc0926db4";
-const FROZEN_ADDRESS: &str = "1f951dd874310f3d77ede13b5c4a95f8eb7b9fc63db1642d85d6dae218a0d7dc";
+const FROZEN_ADDRESS: &str = "061a65b955d92905ed3ac1ea36026f9171850fdcdb1ff5442fe90402da8b9f58";
 
 const BLOCK_CLEARED: Vector = Vector {
     seed: "1f01f29f76e08896530395ef0169b0bcb96b52ce50f3f0350b791eb2f1356d18",
@@ -58,6 +66,21 @@ fn hex32(value: &str) -> [u8; 32] {
 
 fn owner() -> RecordsOwner {
     RecordsOwner::new(&RECORDS_PDA).expect("records owner")
+}
+
+fn curator() -> RecordsOwner {
+    RecordsOwner::new(&CURATOR_PDA).expect("curator owner")
+}
+
+/// The fixture map, the frozen kind reads the curator's records.
+fn fixture_sources() -> PolicySources {
+    PolicySources::new(&[
+        (RecordKind::Allow, owner().owner_hash),
+        (RecordKind::Block, owner().owner_hash),
+        (RecordKind::Frozen, curator().owner_hash),
+        (RecordKind::Approval, owner().owner_hash),
+    ])
+    .expect("sources")
 }
 
 fn check(vector: &Vector, kind: RecordKind, tag: [u8; 32], state: RecordState, version: u64) {
@@ -95,6 +118,7 @@ fn check(vector: &Vector, kind: RecordKind, tag: [u8; 32], state: RecordState, v
 #[test]
 fn record_hashing_matches_the_go_fixture() {
     assert_eq!(owner().owner_hash, hex32(RECORDS_OWNER_HASH));
+    assert_eq!(curator().owner_hash, hex32(CURATOR_OWNER_HASH));
     check(
         &ALLOW_PRESENT,
         RecordKind::Allow,
@@ -108,7 +132,7 @@ fn record_hashing_matches_the_go_fixture() {
         hex32(FROZEN_SEED)
     );
     assert_eq!(
-        owner()
+        curator()
             .address(RecordKind::Frozen, &sender)
             .expect("address"),
         hex32(FROZEN_ADDRESS)
@@ -131,11 +155,42 @@ fn policy_hashing_matches_the_go_fixture() {
         .rule(Rule::require(Subject::OutputOwner, RecordKind::Approval).above(2000))
         .build();
     assert_eq!(
-        table.hash(&owner().owner_hash).expect("policy hash"),
+        table.hash(&fixture_sources()).expect("policy hash"),
         hex32(POLICY_HASH)
     );
     assert!(matches!(table.rules()[3].guard, Guard::AboveAmount(2000)));
     assert!(matches!(table.rules()[1].mode, Mode::Absent));
+}
+
+#[test]
+fn source_map_hashing_matches_the_go_fixture() {
+    const EMPTY: Policy = Policy::builder().build();
+    assert_eq!(
+        EMPTY.hash(&PolicySources::empty()).expect("empty hash"),
+        hex32(EMPTY_POLICY_HASH)
+    );
+    const ONE_RULE: Policy = Policy::builder()
+        .rule(Rule::require(Subject::OutputOwner, RecordKind::Allow))
+        .build();
+    let one_map =
+        PolicySources::new(&[(RecordKind::Allow, owner().owner_hash)]).expect("one source");
+    assert_eq!(
+        ONE_RULE.hash(&one_map).expect("one rule hash"),
+        hex32(ONE_RULE_POLICY_HASH)
+    );
+    const TWO_RULES: Policy = Policy::builder()
+        .rule(Rule::require(Subject::OutputOwner, RecordKind::Allow))
+        .rule(Rule::forbid(Subject::Sender, RecordKind::Frozen))
+        .build();
+    let two_map = PolicySources::new(&[
+        (RecordKind::Allow, owner().owner_hash),
+        (RecordKind::Frozen, curator().owner_hash),
+    ])
+    .expect("two sources");
+    assert_eq!(
+        TWO_RULES.hash(&two_map).expect("two rule hash"),
+        hex32(TWO_RULE_POLICY_HASH)
+    );
 }
 
 #[test]

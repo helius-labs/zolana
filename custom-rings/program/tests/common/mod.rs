@@ -264,18 +264,59 @@ pub fn records_pda() -> (Pubkey, u8) {
     )
 }
 
+/// One slot per kind the deployed table references, all serving the ring's
+/// own records.
+pub fn own_source_slots(
+) -> [custom_ring_interface::PolicySourceSlot; custom_ring_interface::N_POLICY_SOURCE_SLOTS] {
+    let own = Address::new_from_array(records_pda().0.to_bytes());
+    let mut sources = [custom_ring_interface::PolicySourceSlot {
+        kind: 0,
+        records: Address::new_from_array([0; 32]),
+    }; custom_ring_interface::N_POLICY_SOURCE_SLOTS];
+    for rule in custom_ring_interface::POLICY.rules() {
+        if let zolana_ring_policy::RuleSource::Records(kind) = rule.source {
+            sources[kind as usize - 1] = custom_ring_interface::PolicySourceSlot {
+                kind: kind as u8,
+                records: own,
+            };
+        }
+    }
+    sources
+}
+
+/// The hash the deployed table pins over `sources`.
+pub fn policy_hash_for(
+    sources: &[custom_ring_interface::PolicySourceSlot;
+         custom_ring_interface::N_POLICY_SOURCE_SLOTS],
+) -> [u8; 32] {
+    let mut slots =
+        [zolana_ring_policy::PolicySource::default(); zolana_ring_policy::MAX_POLICY_SOURCES];
+    for (slot, stored) in slots.iter_mut().zip(sources) {
+        if stored.kind == 0 {
+            continue;
+        }
+        *slot = zolana_ring_policy::PolicySource {
+            kind: stored.kind,
+            owner_hash: zolana_ring_policy::RecordsOwner::new(stored.records.as_array())
+                .expect("records owner")
+                .owner_hash,
+        };
+    }
+    custom_ring_interface::POLICY
+        .hash(&zolana_ring_policy::PolicySources::from_slots(slots).expect("positional map"))
+        .expect("policy hash")
+}
+
 /// Carries the deployed table's hash, so a fixture reaches the proof.
 pub fn initialized_policy_config_account() -> Account {
-    let owner =
-        zolana_ring_policy::RecordsOwner::new(&records_pda().0.to_bytes()).expect("records owner");
+    let sources = own_source_slots();
     let state = custom_ring_interface::PolicyConfig {
         discriminator: custom_ring_interface::POLICY_CONFIG,
-        policy_hash: custom_ring_interface::POLICY
-            .hash(&owner.owner_hash)
-            .expect("policy hash"),
+        policy_hash: policy_hash_for(&sources),
         records_tree: Address::new_from_array([41; 32]),
         records_bump: records_pda().1,
         bump: policy_config_pda().1,
+        sources,
     };
     Account {
         lamports: 1_000_000_000,

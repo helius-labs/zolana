@@ -74,9 +74,11 @@ func rulesFreeParams(t *testing.T) *CustomRingParameters {
 		NOut:             1,
 		AddressChain:     big.NewInt(0x77),
 		ExternalDataHash: big.NewInt(0x5eed),
-		RecordsOwnerHash: big.NewInt(0x0c),
 		StateRoot:        big.NewInt(0x0d),
 		NullifierRoot:    big.NewInt(0x0e),
+	}
+	for i := range p.Sources {
+		p.Sources[i] = PolicySource{Kind: 0, OwnerHash: big.NewInt(0)}
 	}
 	p.TxViewingSk = testScalar(0x11)
 	p.EphSk = testScalar(0x22)
@@ -130,12 +132,11 @@ func rulesFreeParams(t *testing.T) *CustomRingParameters {
 	})
 	// Mirrors ring_policy::packed_ascii of the policy table domain tag.
 	tableDomain := new(big.Int).SetBytes([]byte("zolana:ring-policy:policy:v1"))
-	policyHash := spptest.MustHashChain(t, []*big.Int{
-		tableDomain,
-		big.NewInt(transfer.PolicyVersion),
-		p.RecordsOwnerHash,
-		big.NewInt(0),
-	})
+	policyElements := []*big.Int{tableDomain, big.NewInt(transfer.PolicyVersion)}
+	for range p.Sources {
+		policyElements = append(policyElements, big.NewInt(0), big.NewInt(0))
+	}
+	policyHash := spptest.MustHashChain(t, append(policyElements, big.NewInt(0)))
 	elements := []*big.Int{p.PrivateTxHash}
 	for _, element := range auditChainElements {
 		value, ok := new(big.Int).SetString(element[2:], 16)
