@@ -28,10 +28,10 @@ func sampleParams() *CustomRingParameters {
 		NullifierRoot:    big.NewInt(0x35),
 	}
 	for i := range p.Sources {
-		p.Sources[i] = PolicySource{Kind: 0, OwnerHash: big.NewInt(0)}
+		p.Sources[i] = SourceOwner{ListId: 0, OwnerHash: big.NewInt(0)}
 	}
-	p.Sources[0] = PolicySource{Kind: 1, OwnerHash: big.NewInt(0x33)}
-	p.Sources[6] = PolicySource{Kind: 7, OwnerHash: big.NewInt(0x34)}
+	p.Sources[0] = SourceOwner{ListId: 1, OwnerHash: big.NewInt(0x33)}
+	p.Sources[6] = SourceOwner{ListId: 7, OwnerHash: big.NewInt(0x34)}
 	for i := range p.TxViewingSk {
 		p.TxViewingSk[i] = byte(i)
 		p.EphSk[i] = byte(0x20 + i)
@@ -51,14 +51,14 @@ func sampleParams() *CustomRingParameters {
 	for i := range p.InlineAssets {
 		p.InlineAssets[i] = big.NewInt(int64(0x60 + i))
 	}
-	for i := range p.Pool {
-		p.Pool[i] = zeroedPoolEntry()
+	for i := range p.Answers {
+		p.Answers[i] = zeroedPoolEntry()
 	}
-	p.Pool[0].Enabled = true
-	p.Pool[0].Mode = activeState
-	p.Pool[0].Kind = 1
-	p.Pool[0].Member = big.NewInt(0x70)
-	p.Pool[0].Version = 3
+	p.Answers[0].Enabled = true
+	p.Answers[0].Mode = activeState
+	p.Answers[0].ListId = 1
+	p.Answers[0].Member = big.NewInt(0x70)
+	p.Answers[0].Version = 3
 	return p
 }
 
@@ -76,10 +76,10 @@ func sampleOpening(seed int64) Opening {
 	}
 }
 
-func zeroedPoolEntry() PoolEntry {
-	entry := PoolEntry{
+func zeroedPoolEntry() Answer {
+	entry := Answer{
 		Member:      big.NewInt(0),
-		PayloadHash: big.NewInt(0),
+		ContentHash: big.NewInt(0),
 		Low:         big.NewInt(0),
 		Next:        big.NewInt(0),
 	}
@@ -122,13 +122,13 @@ func TestCustomRingParametersJSONRoundTrip(t *testing.T) {
 		t.Fatalf("rule table mismatch")
 	}
 	for i := range p.Sources {
-		if got.Sources[i].Kind != p.Sources[i].Kind ||
+		if got.Sources[i].ListId != p.Sources[i].ListId ||
 			got.Sources[i].OwnerHash.Cmp(p.Sources[i].OwnerHash) != 0 {
 			t.Fatalf("source slot %d mismatch", i)
 		}
 	}
-	if !got.Pool[0].Enabled || got.Pool[0].Member.Cmp(p.Pool[0].Member) != 0 {
-		t.Fatalf("pool entry mismatch")
+	if !got.Answers[0].Enabled || got.Answers[0].Member.Cmp(p.Answers[0].Member) != 0 {
+		t.Fatalf("answers entry mismatch")
 	}
 }
 
@@ -146,7 +146,7 @@ func TestCustomRingParametersWireFormat(t *testing.T) {
 		"txViewingSk", "ephSk", "auditorPk", "nIn", "nOut", "inputs",
 		"outputs", "addressChain", "externalDataHash", "sources",
 		"policyLen", "ruleEnc", "inlineAssets", "inlineCount", "stateRoot",
-		"nullifierRoot", "pool",
+		"nullifierRoot", "answers",
 	}
 	if len(raw) != len(keys) {
 		t.Fatalf("key set: got %d keys, want %d", len(raw), len(keys))
@@ -177,7 +177,7 @@ func TestCustomRingParametersWireFormat(t *testing.T) {
 		"sources":      transfer.NSources,
 		"ruleEnc":      transfer.NRules,
 		"inlineAssets": transfer.NInlineAssets,
-		"pool":         transfer.NPool,
+		"answers":         transfer.NAnswers,
 	} {
 		var entries []json.RawMessage
 		if err := json.Unmarshal(raw[key], &entries); err != nil {
@@ -194,8 +194,8 @@ func TestCustomRingParametersRejectBadInput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	pool := func(m map[string]interface{}) map[string]interface{} {
-		return m["pool"].([]interface{})[0].(map[string]interface{})
+	answers := func(m map[string]interface{}) map[string]interface{} {
+		return m["answers"].([]interface{})[0].(map[string]interface{})
 	}
 	source := func(m map[string]interface{}, i int) map[string]interface{} {
 		return m["sources"].([]interface{})[i].(map[string]interface{})
@@ -224,23 +224,23 @@ func TestCustomRingParametersRejectBadInput(t *testing.T) {
 		},
 		"missing input slot": func(m map[string]interface{}) { m["inputs"] = m["inputs"].([]interface{})[:1] },
 		"missing rule":       func(m map[string]interface{}) { m["ruleEnc"] = m["ruleEnc"].([]interface{})[:transfer.NRules-1] },
-		"missing pool entry": func(m map[string]interface{}) { m["pool"] = m["pool"].([]interface{})[:transfer.NPool-1] },
+		"missing answers entry": func(m map[string]interface{}) { m["answers"] = m["answers"].([]interface{})[:transfer.NAnswers-1] },
 		"short sources": func(m map[string]interface{}) {
 			m["sources"] = m["sources"].([]interface{})[:transfer.NSources-1]
 		},
-		"source kind at wrong position": func(m map[string]interface{}) {
-			source(m, 1)["kind"] = 1
+		"source listId at wrong position": func(m map[string]interface{}) {
+			source(m, 1)["listId"] = 1
 			source(m, 1)["ownerHash"] = source(m, 0)["ownerHash"]
 		},
 		"empty source slot with nonzero owner": func(m map[string]interface{}) {
 			source(m, 2)["ownerHash"] = source(m, 0)["ownerHash"]
 		},
-		"pool mode invalid": func(m map[string]interface{}) { pool(m)["mode"] = 9 },
-		"pool kind unset":   func(m map[string]interface{}) { pool(m)["kind"] = 0 },
-		"zero pool member":  func(m map[string]interface{}) { pool(m)["member"] = "0x" + strings.Repeat("00", 32) },
+		"answers mode invalid": func(m map[string]interface{}) { answers(m)["mode"] = 9 },
+		"answers listId unset":   func(m map[string]interface{}) { answers(m)["listId"] = 0 },
+		"zero answers member":  func(m map[string]interface{}) { answers(m)["member"] = "0x" + strings.Repeat("00", 32) },
 		"short nullifier path": func(m map[string]interface{}) {
-			paths := pool(m)["nfPathElements"].([]interface{})
-			pool(m)["nfPathElements"] = paths[:len(paths)-1]
+			paths := answers(m)["nfPathElements"].([]interface{})
+			answers(m)["nfPathElements"] = paths[:len(paths)-1]
 		},
 	}
 	for name, tamper := range tests {

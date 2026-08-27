@@ -301,12 +301,12 @@ fn read_access_record_pda_derives_from_the_hashed_tagged_key() {
     use sha2::Digest;
     for key in [reader(), p256_reader()] {
         let seed_hash: [u8; 32] = sha2::Sha256::digest(key.to_bytes()).into();
-        let (record, _bump) = Address::find_program_address(
+        let (entry, _bump) = Address::find_program_address(
             &[READ_ACCESS_RECORD_PDA_SEED, &seed_hash],
             &ring().program_id(),
         );
-        assert_eq!(ring().read_access_record_pda(&key), record);
-        assert_eq!(key.record_address(&ring().program_id()), record);
+        assert_eq!(ring().read_access_record_pda(&key), entry);
+        assert_eq!(key.entry_address(&ring().program_id()), entry);
     }
     assert_ne!(
         ring().read_access_record_pda(&reader()),
@@ -529,7 +529,7 @@ fn sample_proof() -> CustomRingProof {
     }
 }
 
-/// A representative confidential `RingEddsa` payload carrying the auditor message
+/// A representative confidential `RingEddsa` content carrying the auditor message
 /// the ring proof commits to.
 fn transact_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData {
     TransactIxData {
@@ -572,7 +572,7 @@ fn custom_ring_transact_prepends_payer_and_config_to_the_spp_list() {
         transact: transact.clone(),
     }
     .instruction()
-    .expect("serialize the custom-ring transact payload");
+    .expect("serialize the custom-ring transact content");
 
     assert_eq!(instruction.program_id, ring().program_id());
     assert_eq!(
@@ -625,7 +625,7 @@ fn custom_ring_transact_leaves_ring_config_unsigned() {
         transact: transact_data(Vec::new()),
     }
     .instruction()
-    .expect("serialize the custom-ring transact payload");
+    .expect("serialize the custom-ring transact content");
 
     // The policy config sits before the forwarded SPP list.
     let ring_config_index = 8;
@@ -658,7 +658,7 @@ fn custom_ring_transact_forwards_settlement_accounts() {
         transact: transact_data(vec![InterfaceTransfer::SolWithdrawal { amount: 5 }]),
     }
     .instruction()
-    .expect("serialize the custom-ring transact payload");
+    .expect("serialize the custom-ring transact content");
 
     assert_eq!(
         instruction

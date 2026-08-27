@@ -27,12 +27,12 @@ export {
   RING_POOL_SLOTS,
   RING_RULE_SLOTS,
   RING_STATE_PATH_LENGTH,
-  disabledPoolEntry,
+  disabledRuleAnswer,
 } from "./prover/types.js";
 export type {
   CompressedProof,
   CustomRingOpening,
-  CustomRingPoolEntry,
+  CustomRingRuleAnswer,
   CustomRingProofRequest,
   Proof,
   RingTransactRoots,

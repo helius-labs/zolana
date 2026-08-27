@@ -1,20 +1,20 @@
 //! Two rings share one policy source on localnet + photon + prover. The
-//! subscriber's Block kind reads the curator ring's records, so one curator
-//! write refuses the subscriber's transfer, clearing the record or re-pointing
+//! subscriber's Block list_id reads the curator ring's entries, so one curator
+//! write refuses the subscriber's transfer, clearing the entry or re-pointing
 //! the source re-admits it, and the subscriber cannot mutate the curator-served
-//! kind on its own ring.
+//! list_id on its own ring.
 
 #[allow(dead_code)]
 mod shared;
 
 use anyhow::{anyhow, bail, Result};
-use custom_ring_interface::POLICY;
+use custom_ring_interface::RULES;
 use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
-    read_record, CreateConfig, CreatePolicy, CreateRecord, CustomRing, CustomRingTransfer,
-    CustomRingTransferInput, InitSppRingConfig, PolicySource, ProvenTransfer,
-    RecordProofEnvironment, RingDeposit, RingDepositReceipt, SetPolicySource, TransferError,
-    TransferProofEnvironment, UpdateRecord, V0WithLookupTable,
+    read_entry, CreateConfig, CreateEntry, CreatePolicy, CustomRing, CustomRingTransfer,
+    CustomRingTransferInput, EntryProofEnvironment, InitSppRingConfig, ProvenTransfer, RingDeposit,
+    RingDepositReceipt, SetSourceOwner, SourceOwner, TransferError, TransferProofEnvironment,
+    UpdateEntry, V0WithLookupTable,
 };
 use shared::{
     custom_ring_program_id, send, send_v0_expecting_rejection, setup_with_extra_rings, TestEnv,
@@ -25,7 +25,7 @@ use solana_signer::Signer;
 use zolana_client::{ProverClient, SolanaRpc};
 use zolana_keypair::ViewingKey;
 use zolana_program_test::Rejection;
-use zolana_ring_policy::{Member, Record, RecordKind, RecordState, RuleSource};
+use zolana_ring_policy::{EntryState, ListEntry, ListId, Member, RuleSource};
 use zolana_test_utils::test_validator_asserts::{wait_for_indexed_utxo, wait_for_merkle_proof};
 use zolana_transaction::{
     instructions::{transact::ConfidentialTransfer, types::SppProofInputUtxo},
@@ -39,9 +39,9 @@ const TRANSFER_AMOUNT: u64 = 250_000_000;
 fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
     // The host table must be the one row the blocklist image compiles, a wider
     // or empty table cannot reproduce the on-chain policy hash.
-    let rules = POLICY.rules();
+    let rules = RULES.rules();
     assert!(
-        matches!(rules, [rule] if matches!(rule.source, RuleSource::Records(RecordKind::Block))),
+        matches!(rules, [rule] if matches!(rule.source, RuleSource::List(ListId::Block))),
         "the compiled table is the blocklist row alone"
     );
 
@@ -63,8 +63,8 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
         .send(rpc)?;
     }
 
-    // 2. The curator serves its own records and must exist first, the
-    //    subscriber's Block slot copies the curator's resolved records owner.
+    // 2. The curator serves its own entries and must exist first, the
+    //    subscriber's Block slot copies the curator's resolved namespace owner.
     send(
         rpc,
         &env.payer,
@@ -72,7 +72,7 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
             ring: curator,
             payer: authority,
             authority,
-            records_tree: env.tree,
+            entries_tree: env.tree,
             shared_sources: vec![],
         }
         .instruction()?],
@@ -84,8 +84,8 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
             ring: subscriber,
             payer: authority,
             authority,
-            records_tree: env.tree,
-            shared_sources: vec![(RecordKind::Block, curator)],
+            entries_tree: env.tree,
+            shared_sources: vec![(ListId::Block, curator)],
         }
         .instruction()?],
     )?;
@@ -93,9 +93,9 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
         .read_policy_config(rpc)?
         .ok_or_else(|| anyhow!("subscriber policy config"))?;
     assert_eq!(
-        stored.source_for(RecordKind::Block as u8),
-        Some(curator.records_pda()),
-        "the Block slot names the curator records"
+        stored.source_for(ListId::Block as u8),
+        Some(curator.namespace_pda()),
+        "the Block slot names the curator entries"
     );
 
     // 3. Three subscriber-ring notes, one transfer per policy phase.
@@ -114,8 +114,8 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
         notes.push(utxo);
     }
 
-    // 4. No Block record exists yet, the transfer passes on the absence proof
-    //    against the curator's empty records.
+    // 4. No Block entry exists yet, the transfer passes on the absence proof
+    //    against the curator's empty entries.
     SubscriberTransfer {
         ring: subscriber,
         note: notes[0].clone(),
@@ -133,7 +133,7 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
     let active = CuratorBlockWrite {
         curator,
         member,
-        state: RecordState::Active,
+        state: EntryState::Active,
         spent: None,
         env: &env,
     }
@@ -150,33 +150,33 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
         Ok(_) => bail!("expected PolicyRuleUnsatisfied, the transfer was proven"),
     }
 
-    // 6. The curator-served kind is immutable on the subscriber ring, the
-    //    program refuses the mutation after a valid record proof.
-    let foreign = CreateRecord {
+    // 6. The curator-served list is immutable on the subscriber ring, the
+    //    program refuses the mutation after a valid entry proof.
+    let foreign = CreateEntry {
         ring: subscriber,
         payer: authority,
-        records_tree: env.tree,
-        kind: RecordKind::Block,
+        entries_tree: env.tree,
+        list_id: ListId::Block,
         member,
-        state: RecordState::Active,
-        payload_hash: [0u8; 32],
+        state: EntryState::Active,
+        content_hash: [0u8; 32],
     }
-    .prove(RecordProofEnvironment {
+    .prove(EntryProofEnvironment {
         indexer,
         rpc,
         prover: &prover,
     })?;
     let rejection = send_v0_expecting_rejection(rpc, &env.payer, foreign.instruction()?)?;
-    Rejection::custom(CustomRingError::ForeignRecordSource as u32)
+    Rejection::custom(CustomRingError::ForeignSource as u32)
         .at(1)
         .assert_client(&rejection);
 
-    // 7. Clearing the record re-admits the transfer through the cleared-record
+    // 7. Clearing the entry re-admits the transfer through the cleared-entry
     //    absence branch, the refused note is still unspent.
     let cleared = CuratorBlockWrite {
         curator,
         member,
-        state: RecordState::Cleared,
+        state: EntryState::Cleared,
         spent: Some(active),
         env: &env,
     }
@@ -188,12 +188,12 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
     }
     .land(&prover)?;
 
-    // 8. With the record active again, re-pointing Block to the subscriber's
-    //    own records turns curator enforcement off.
+    // 8. With the entry active again, re-pointing Block to the subscriber's
+    //    own entries turns curator enforcement off.
     CuratorBlockWrite {
         curator,
         member,
-        state: RecordState::Active,
+        state: EntryState::Active,
         spent: Some(cleared),
         env: &env,
     }
@@ -201,11 +201,11 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
     send(
         rpc,
         &env.payer,
-        &[SetPolicySource {
+        &[SetSourceOwner {
             ring: subscriber,
             authority,
-            kind: RecordKind::Block,
-            source: PolicySource::Own,
+            list_id: ListId::Block,
+            source: SourceOwner::Own,
         }
         .instruction()?],
     )?;
@@ -213,9 +213,9 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
         .read_policy_config(rpc)?
         .ok_or_else(|| anyhow!("subscriber policy config"))?;
     assert_eq!(
-        repointed.source_for(RecordKind::Block as u8),
-        Some(subscriber.records_pda()),
-        "the Block slot is back on the subscriber records"
+        repointed.source_for(ListId::Block as u8),
+        Some(subscriber.namespace_pda()),
+        "the Block slot is back on the subscriber entries"
     );
     SubscriberTransfer {
         ring: subscriber,
@@ -325,54 +325,54 @@ impl SubscriberTransfer<'_> {
 struct CuratorBlockWrite<'a> {
     curator: CustomRing,
     member: Member,
-    state: RecordState,
-    spent: Option<Record>,
+    state: EntryState,
+    spent: Option<ListEntry>,
     env: &'a TestEnv,
 }
 
 impl CuratorBlockWrite<'_> {
-    fn send(self, prover: &ProverClient) -> Result<Record> {
+    fn send(self, prover: &ProverClient) -> Result<ListEntry> {
         let env = self.env;
         let rpc = env.client.rpc();
         let indexer = env.client.indexer();
-        let environment = RecordProofEnvironment {
+        let environment = EntryProofEnvironment {
             indexer,
             rpc,
             prover,
         };
         let proven = match self.spent {
-            None => CreateRecord {
+            None => CreateEntry {
                 ring: self.curator,
                 payer: env.payer.pubkey(),
-                records_tree: env.tree,
-                kind: RecordKind::Block,
+                entries_tree: env.tree,
+                list_id: ListId::Block,
                 member: self.member,
                 state: self.state,
-                payload_hash: [0u8; 32],
+                content_hash: [0u8; 32],
             }
             .prove(environment)?,
-            Some(spent) => UpdateRecord {
+            Some(spent) => UpdateEntry {
                 ring: self.curator,
                 payer: env.payer.pubkey(),
-                records_tree: env.tree,
+                entries_tree: env.tree,
                 spent,
                 state: self.state,
-                payload_hash: [0u8; 32],
+                content_hash: [0u8; 32],
             }
             .prove(environment)?,
         };
-        let record = proven.record();
+        let entry = proven.entry();
         let signature = send(rpc, &env.payer, &[proven.instruction()?])?;
-        wait_for_indexed_utxo(indexer, self.curator.records_pda().to_bytes(), signature);
-        let live = read_record(
+        wait_for_indexed_utxo(indexer, self.curator.namespace_pda().to_bytes(), signature);
+        let live = read_entry(
             indexer,
-            self.curator.records_pda(),
-            RecordKind::Block,
+            self.curator.namespace_pda(),
+            ListId::Block,
             &self.member,
         )?
-        .ok_or_else(|| anyhow!("curator Block record after the write"))?;
-        assert_eq!(live.record, record, "indexed record equals the mutation");
+        .ok_or_else(|| anyhow!("curator Block entry after the write"))?;
+        assert_eq!(live.entry, entry, "indexed entry equals the mutation");
         wait_for_merkle_proof(indexer, env.tree, live.utxo_hash);
-        Ok(record)
+        Ok(entry)
     }
 }

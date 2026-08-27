@@ -126,10 +126,10 @@ pub enum TransferError {
     PolicyShapeUnsupported,
     #[error("a policy rule refuses the transfer")]
     PolicyRuleUnsatisfied,
-    #[error("no policy source serves the record kind")]
-    MissingPolicySource,
+    #[error("no policy source serves the list")]
+    MissingSourceOwner,
     #[error(transparent)]
-    Record(Box<crate::RecordProofError>),
+    ListEntry(Box<crate::EntryProofError>),
     #[error("transfer was prepared with padded change slots, prepare it with ConfidentialTransfer::with_compact_change")]
     PaddedChange,
     #[error("asset registry is required")]
@@ -274,7 +274,7 @@ impl<'a> CustomRingTransfer<'a> {
 
         // Now the real `private_tx_hash` exists, so the pending encryption can be
         // finished into the proof request over the unchanged ciphertext. The program
-        // recomputes that same public-input chain from the payload and the config
+        // recomputes that same public-input chain from the content and the config
         // account.
         // One proof carries the audit and the policy statement.
         let private_tx_hash = ring_result.private_tx_hash.try_into()?;
@@ -283,7 +283,7 @@ impl<'a> CustomRingTransfer<'a> {
             .read_policy_config(environment.rpc)?
             .ok_or(TransferError::MissingPolicyConfig)?;
         let witness = crate::witness::CustomRingWitnessInput {
-            policy: &custom_ring_interface::POLICY,
+            policy: &custom_ring_interface::RULES,
             policy_config: &policy_config,
             inputs: &proof_inputs.input_utxos,
             outputs: &proof_inputs.output_utxos,

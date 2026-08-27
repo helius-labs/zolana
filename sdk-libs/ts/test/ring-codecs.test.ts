@@ -139,7 +139,7 @@ describe("ring deposit", () => {
     );
   });
 
-  it("decodes the output the shielded pool publishes", () => {
+  it("decodes the output the shielded answers publishes", () => {
     const frame = decodeOutputData(
       hex(
         "01c20000000820202020202020202020202020202020202020202020202020202020202020200000000000000000000000000000000000000000000000000000000000000000c0cf6a00000000000084b11dbd52858fa19dbddb423ed67907afb971aad086c9e365fcf9baa9bd066021212121212121212121212121212121212121212121212121212121212121210303030303030303030303030303030303030303030303030303030303030303032222222222222222222222222222222203000000232425",
@@ -246,7 +246,7 @@ describe("ring config", () => {
     expect(config.recordsBump).toBe(253);
     expect(config.bump).toBe(252);
     expect(config.sources).toHaveLength(8);
-    expect(config.sources.every((slot) => slot.kind === 0)).toBe(true);
+    expect(config.sources.every((slot) => slot.listId === 0)).toBe(true);
     expect(() => decodeRingPolicyConfig(data.subarray(1))).toThrow("RING_POLICY_CONFIG_INVALID");
     expect(() => decodeRingPolicyConfig(Uint8Array.from([1, ...data.subarray(1)]))).toThrow(
       "RING_POLICY_CONFIG_INVALID",
@@ -265,8 +265,8 @@ describe("ring config", () => {
       ...new Uint8Array(33 * 7),
     ]);
     const config = decodeRingPolicyConfig(data);
-    expect(config.sources[0]).toEqual({ kind: 1, records: addressOf(44) });
-    expect(config.sources[1]).toEqual({ kind: 0, records: addressOf(0) });
+    expect(config.sources[0]).toEqual({ listId: 1, namespace: addressOf(44) });
+    expect(config.sources[1]).toEqual({ listId: 0, namespace: addressOf(0) });
   });
 
   it("builds the authority handover like Rust `SetAuthority`", async () => {
@@ -441,12 +441,12 @@ describe("ring transact", () => {
       data: transactData(),
     });
 
-    // Without these the pool cannot settle and the ring cannot pay an address.
+    // Without these the answers cannot settle and the ring cannot pay an address.
     const tail = instruction.accounts?.slice(-2).map((meta) => meta.address);
     expect(tail).toEqual([SOL_INTERFACE, recipient]);
   });
 
-  it("wraps the pool's account list and data like Rust `CustomRingTransact`", async () => {
+  it("wraps the answers's account list and data like Rust `CustomRingTransact`", async () => {
     const [policyConfig] = await getProgramDerivedAddress({
       programAddress: RING,
       seeds: [new TextEncoder().encode("policy")],

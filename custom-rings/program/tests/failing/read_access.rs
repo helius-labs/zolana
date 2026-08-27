@@ -27,13 +27,13 @@ fn grant_read_access_writes_the_record() {
         let result = mollusk.process_instruction(grant.instruction(), grant.accounts());
         assert_eq!(result.program_result, ProgramResult::Success);
 
-        let (record, bump) = read_access_record_pda(&key);
+        let (entry, bump) = read_access_record_pda(&key);
         let written = result
             .resulting_accounts
             .iter()
-            .find(|(key, _)| key == &record)
+            .find(|(key, _)| key == &entry)
             .map(|(_, account)| account.clone())
-            .expect("read access record in result");
+            .expect("read access entry in result");
         assert_eq!(written.owner, program_id());
         assert_eq!(written.data.len(), core::mem::size_of::<ReadAccessRecord>());
         assert_eq!(
@@ -147,7 +147,7 @@ fn double_grant_is_rejected() {
     fixture.set_account("read_access_record", initialized_reader_account(&reader()));
     fixture.expect_err(
         &mollusk,
-        custom(CustomRingError::ReadAccessRecordAlreadyExists),
+        custom(CustomRingError::ReadAccessEntryAlreadyExists),
     );
 }
 
@@ -179,21 +179,21 @@ fn grant_with_a_wrong_system_program_is_rejected() {
 fn revoke_closes_the_record_to_the_rent_recipient() {
     let (mollusk, _) = setup_mollusk();
     let fixture = revoke_read_access_fixture(&reader());
-    let (record, _) = read_access_record_pda(&reader());
+    let (entry, _) = read_access_record_pda(&reader());
     let rent = fixture
         .accounts()
         .iter()
-        .find(|(key, _)| key == &record)
+        .find(|(key, _)| key == &entry)
         .map(|(_, account)| account.lamports)
-        .expect("record in fixture");
+        .expect("entry in fixture");
     let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
     assert_eq!(result.program_result, ProgramResult::Success);
     let closed = result
         .resulting_accounts
         .iter()
-        .find(|(key, _)| key == &record)
+        .find(|(key, _)| key == &entry)
         .map(|(_, account)| account.clone())
-        .expect("record in result");
+        .expect("entry in result");
     assert_eq!((closed.lamports, closed.data.len()), (0, 0));
     let recipient = result
         .resulting_accounts
@@ -232,9 +232,9 @@ fn revoke_of_a_non_canonical_record_is_rejected() {
 fn revoke_of_a_record_with_a_wrong_bump_is_rejected() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = revoke_read_access_fixture(&reader());
-    let mut record = initialized_reader_account(&reader());
-    bytemuck::from_bytes_mut::<ReadAccessRecord>(&mut record.data).bump ^= 1;
-    fixture.set_account("read_access_record", record);
+    let mut entry = initialized_reader_account(&reader());
+    bytemuck::from_bytes_mut::<ReadAccessRecord>(&mut entry.data).bump ^= 1;
+    fixture.set_account("read_access_record", entry);
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidReadAccessRecord));
 }
 
@@ -250,9 +250,9 @@ fn revoke_of_an_uninitialized_record_is_rejected() {
 fn revoke_of_a_foreign_owned_record_is_rejected() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = revoke_read_access_fixture(&reader());
-    let mut record = initialized_reader_account(&reader());
-    record.owner = Pubkey::new_from_array([69; 32]);
-    fixture.set_account("read_access_record", record);
+    let mut entry = initialized_reader_account(&reader());
+    entry.owner = Pubkey::new_from_array([69; 32]);
+    fixture.set_account("read_access_record", entry);
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidReadAccessRecord));
 }
 
@@ -271,13 +271,13 @@ fn regrant_after_revoke_succeeds() {
     let result = mollusk.process_instruction(revoke.instruction(), revoke.accounts());
     assert_eq!(result.program_result, ProgramResult::Success);
 
-    let (record, _) = read_access_record_pda(&reader());
+    let (entry, _) = read_access_record_pda(&reader());
     let closed = result
         .resulting_accounts
         .iter()
-        .find(|(key, _)| key == &record)
+        .find(|(key, _)| key == &entry)
         .map(|(_, account)| account.clone())
-        .expect("closed record");
+        .expect("closed entry");
     let mut grant = grant_read_access_fixture(&reader());
     grant.set_account("read_access_record", closed);
     let regrant = mollusk.process_instruction(grant.instruction(), grant.accounts());
@@ -342,7 +342,7 @@ fn grant_into_a_readonly_record_is_rejected() {
     );
 }
 
-/// Attacker-donated lamports at the record PDA take the cold creation path.
+/// Attacker-donated lamports at the entry PDA take the cold creation path.
 #[test]
 fn donated_lamports_at_the_record_pda_still_grant() {
     let (mollusk, _) = setup_mollusk();
@@ -355,7 +355,7 @@ fn donated_lamports_at_the_record_pda_still_grant() {
         .iter()
         .find(|(key, _)| key == &read_access_record_pda(&reader()).0)
         .map(|(_, account)| account.clone())
-        .expect("record in result");
+        .expect("entry in result");
     assert_eq!(
         bytemuck::from_bytes::<ReadAccessRecord>(&written.data).discriminator,
         READ_ACCESS_RECORD

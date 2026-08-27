@@ -8,12 +8,12 @@ pub mod file;
 pub mod fund;
 pub mod init;
 pub mod keys;
+pub mod list;
 pub mod localnet;
 pub mod new;
 pub mod pipeline;
 pub mod probe;
 pub mod reader;
-pub mod record;
 pub mod release;
 pub mod ring_rpc;
 pub mod status;
@@ -95,39 +95,39 @@ pub enum Command {
     /// Grant or revoke reads on the ring RPC.
     #[command(subcommand)]
     Reader(ReaderCommand),
-    /// Read and mutate the ring's policy records.
+    /// Read and mutate the ring's policy entries.
     #[command(subcommand)]
-    Record(RecordCommand),
+    List(ListCommand),
     /// Print the local auditor key's public key, or create the key file.
     AuditorKey(AuditorKeyArgs),
 }
 
 #[derive(Debug, Subcommand)]
-pub enum RecordCommand {
+pub enum ListCommand {
     /// Create the policy config, pinning the compiled table and the tree.
-    Init { records_tree: Address },
-    /// Claim or reactivate the member's record of the kind.
+    Init { entries_tree: Address },
+    /// Claim or reactivate the member's entry of the list.
     Add {
         #[arg(value_enum)]
-        kind: RecordKindArg,
+        list_id: ListIdArg,
         member: Address,
     },
-    /// Clear the member's record, leaving the address claimed.
+    /// Clear the member's entry, leaving the address claimed.
     Clear {
         #[arg(value_enum)]
-        kind: RecordKindArg,
+        list_id: ListIdArg,
         member: Address,
     },
-    /// Print the member's live record.
+    /// Print the member's live entry.
     Show {
         #[arg(value_enum)]
-        kind: RecordKindArg,
+        list_id: ListIdArg,
         member: Address,
     },
-    /// Point the kind at the ring's own records or a curator ring's.
+    /// Point the list at the ring's own namespace or a curator ring's.
     SetSource {
         #[arg(value_enum)]
-        kind: RecordKindArg,
+        list_id: ListIdArg,
         /// Curator ring program id.
         #[arg(long, conflicts_with = "own", required_unless_present = "own")]
         curator: Option<Address>,
@@ -137,18 +137,18 @@ pub enum RecordCommand {
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
-pub enum RecordKindArg {
+pub enum ListIdArg {
     Allow,
     Block,
     Frozen,
 }
 
-impl From<RecordKindArg> for zolana_ring_policy::RecordKind {
-    fn from(kind: RecordKindArg) -> Self {
-        match kind {
-            RecordKindArg::Allow => Self::Allow,
-            RecordKindArg::Block => Self::Block,
-            RecordKindArg::Frozen => Self::Frozen,
+impl From<ListIdArg> for zolana_ring_policy::ListId {
+    fn from(list_id: ListIdArg) -> Self {
+        match list_id {
+            ListIdArg::Allow => Self::Allow,
+            ListIdArg::Block => Self::Block,
+            ListIdArg::Frozen => Self::Frozen,
         }
     }
 }
@@ -157,7 +157,7 @@ impl From<RecordKindArg> for zolana_ring_policy::RecordKind {
 pub enum ReaderCommand {
     /// A base58 Solana key or the 66-hex P-256 key of a passkey.
     Grant { reader: ReaderKey },
-    /// Close the reader's record, the rent returns to the authority.
+    /// Close the reader's entry, the rent returns to the authority.
     Revoke { reader: ReaderKey },
 }
 
@@ -244,9 +244,9 @@ pub struct InitArgs {
     /// Only a ring RPC holding that key can ever open the ring.
     #[arg(long)]
     pub local_auditor: bool,
-    /// The tree the ring's policy records live in.
+    /// The tree the ring's policy entries live in.
     #[arg(long, default_value = zolana_interface::DEFAULT_TREE_ADDRESS)]
-    pub records_tree: Address,
+    pub entries_tree: Address,
 }
 
 #[derive(Debug, Args)]
@@ -282,7 +282,7 @@ impl Default for InitArgs {
             auditor_pubkey_file: PathBuf::from(AUDITOR_PUBKEY_FILE),
             trust_ring_rpc: false,
             local_auditor: false,
-            records_tree: Address::from_str(zolana_interface::DEFAULT_TREE_ADDRESS)
+            entries_tree: Address::from_str(zolana_interface::DEFAULT_TREE_ADDRESS)
                 .expect("default tree address is valid"),
         }
     }
@@ -488,7 +488,7 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
         Command::RpcCheck => ring_rpc::run_check(&ctx)?,
         Command::Authority(command) => authority::run(&ctx, command)?,
         Command::Reader(command) => reader::run(&mut ctx, command)?,
-        Command::Record(command) => record::run(&mut ctx, command)?,
+        Command::List(command) => list::run(&mut ctx, command)?,
         Command::AuditorKey(args) => keys::run(&ctx.project_root, args)?,
         // Handled before the context loads.
         Command::New(_)

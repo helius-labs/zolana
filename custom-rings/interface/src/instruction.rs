@@ -16,8 +16,8 @@ pub mod tag {
     pub const REVOKE_READ_ACCESS: u8 = 5;
     pub const SET_AUTHORITY: u8 = 6;
     pub const CREATE_POLICY: u8 = 7;
-    pub const CREATE_RECORD: u8 = 8;
-    pub const UPDATE_RECORD: u8 = 9;
+    pub const CREATE_ENTRY: u8 = 8;
+    pub const UPDATE_ENTRY: u8 = 9;
     pub const SET_POLICY_SOURCE: u8 = 10;
 }
 
@@ -49,7 +49,7 @@ pub struct CustomRingProof {
     pub commitment_pok: [u8; 32],
 }
 
-/// Wire format of tag 3, the ring's own proof followed by the SPP payload this
+/// Wire format of tag 3, the ring's own proof followed by the SPP content this
 /// ring forwards verbatim.
 ///
 /// The root indices name the tree history entries a policy statement binds. A
@@ -65,42 +65,42 @@ pub struct CustomRingTransactIxData {
 
 /// Covers one v2 hash pin plus up to eight curator config loads.
 pub const CREATE_POLICY_COMPUTE_UNIT_LIMIT: u32 = 150_000;
-/// Record mutations CPI a full SPP transact with its proof verification.
-pub const RECORD_MUTATION_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
+/// Entry mutations CPI a full SPP transact with its proof verification.
+pub const ENTRY_MUTATION_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 
-/// `source` 0 is the ring's own records, `1 + i` the `i`-th trailing curator
+/// `source` 0 is the ring's own entries, `1 + i` the `i`-th trailing curator
 /// policy config account.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct PolicySourceSpec {
-    pub kind: u8,
+pub struct SourceSpec {
+    pub list_id: u8,
     pub source: u8,
 }
 
-/// One entry per record kind the compiled table references.
+/// One entry per list the compiled table references.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CreatePolicyIxData {
-    #[wincode(with = "containers::Vec<PolicySourceSpec, FixIntLen<u8>>")]
-    pub sources: Vec<PolicySourceSpec>,
+    #[wincode(with = "containers::Vec<SourceSpec, FixIntLen<u8>>")]
+    pub sources: Vec<SourceSpec>,
 }
 
 /// Two full hash recomputations plus one curator verification.
 pub const SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT: u32 = 150_000;
 
-/// `source` 0 is the ring's own records, 1 the single trailing curator policy
+/// `source` 0 is the ring's own entries, 1 the single trailing curator policy
 /// config account.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct SetPolicySourceIxData {
-    pub kind: u8,
+    pub list_id: u8,
     pub source: u8,
 }
 
 /// `member` is pre-derived, member-held kinds require the signer to derive to it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct CreateRecordIxData {
-    pub kind: u8,
+pub struct CreateEntryIxData {
+    pub list_id: u8,
     pub member: [u8; 32],
     pub state: u8,
-    pub payload_hash: [u8; 32],
+    pub content_hash: [u8; 32],
     pub nullifier_tree_root_index: u16,
     pub utxo_tree_root_index: u16,
     pub proof: zolana_interface::instruction::instruction_data::transact::TransactProof,
@@ -109,14 +109,14 @@ pub struct CreateRecordIxData {
 /// The spent fields reconstruct the live version, a wrong reconstruction is a
 /// leaf the SPP proof cannot include.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct UpdateRecordIxData {
-    pub kind: u8,
+pub struct UpdateEntryIxData {
+    pub list_id: u8,
     pub member: [u8; 32],
     pub spent_state: u8,
-    pub spent_payload_hash: [u8; 32],
+    pub spent_content_hash: [u8; 32],
     pub spent_version: u64,
     pub state: u8,
-    pub payload_hash: [u8; 32],
+    pub content_hash: [u8; 32],
     pub nullifier_tree_root_index: u16,
     pub utxo_tree_root_index: u16,
     pub proof: zolana_interface::instruction::instruction_data::transact::TransactProof,

@@ -66,7 +66,7 @@ func TestCustomRingProofVerifies(t *testing.T) {
 }
 
 // rulesFreeParams opens a one input one output transfer against a length zero
-// rule table with every pool slot disabled.
+// rule table with every answers slot disabled.
 func rulesFreeParams(t *testing.T) *CustomRingParameters {
 	t.Helper()
 	p := &CustomRingParameters{
@@ -78,7 +78,7 @@ func rulesFreeParams(t *testing.T) *CustomRingParameters {
 		NullifierRoot:    big.NewInt(0x0e),
 	}
 	for i := range p.Sources {
-		p.Sources[i] = PolicySource{Kind: 0, OwnerHash: big.NewInt(0)}
+		p.Sources[i] = SourceOwner{ListId: 0, OwnerHash: big.NewInt(0)}
 	}
 	p.TxViewingSk = testScalar(0x11)
 	p.EphSk = testScalar(0x22)
@@ -120,8 +120,8 @@ func rulesFreeParams(t *testing.T) *CustomRingParameters {
 	for i := range p.InlineAssets {
 		p.InlineAssets[i] = big.NewInt(0)
 	}
-	for i := range p.Pool {
-		p.Pool[i] = zeroedPoolEntry()
+	for i := range p.Answers {
+		p.Answers[i] = zeroedPoolEntry()
 	}
 
 	p.PrivateTxHash = spptest.MustPoseidon(t, 5, []*big.Int{

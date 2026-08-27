@@ -23,12 +23,12 @@ pub fn ring_deposits_in(
 ) -> Vec<RingDeposit> {
     slots
         .into_iter()
-        .filter_map(|(view_tag, payload)| deposit_of(&view_tag, &payload, ring))
+        .filter_map(|(view_tag, content)| deposit_of(&view_tag, &content, ring))
         .collect()
 }
 
-fn deposit_of(view_tag: &[u8; 32], payload: &[u8], ring: Address) -> Option<RingDeposit> {
-    let OutputDataEncoding::Encrypted(blob) = OutputDataEncoding::try_from_slice(payload).ok()?
+fn deposit_of(view_tag: &[u8; 32], content: &[u8], ring: Address) -> Option<RingDeposit> {
+    let OutputDataEncoding::Encrypted(blob) = OutputDataEncoding::try_from_slice(content).ok()?
     else {
         return None;
     };

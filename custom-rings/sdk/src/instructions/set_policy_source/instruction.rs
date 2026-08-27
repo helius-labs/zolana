@@ -1,30 +1,30 @@
 use custom_ring_interface::{tag, SetPolicySourceIxData};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
-use zolana_ring_policy::RecordKind;
+use zolana_ring_policy::ListId;
 
-use crate::{instructions::record::RecordError, CustomRing};
+use crate::{instructions::entry::EntryError, CustomRing};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PolicySource {
+pub enum SourceOwner {
     Own,
     Shared(CustomRing),
 }
 
 #[must_use]
-pub struct SetPolicySource {
+pub struct SetSourceOwner {
     pub ring: CustomRing,
     pub authority: Address,
-    pub kind: RecordKind,
-    pub source: PolicySource,
+    pub list_id: ListId,
+    pub source: SourceOwner,
 }
 
-impl SetPolicySource {
-    pub fn instruction(self) -> Result<Instruction, RecordError> {
+impl SetSourceOwner {
+    pub fn instruction(self) -> Result<Instruction, EntryError> {
         let Self {
             ring,
             authority,
-            kind,
+            list_id,
             source,
         } = self;
         let mut accounts = vec![
@@ -33,8 +33,8 @@ impl SetPolicySource {
             AccountMeta::new(ring.policy_config_pda(), false),
         ];
         let source = match source {
-            PolicySource::Own => 0,
-            PolicySource::Shared(curator) => {
+            SourceOwner::Own => 0,
+            SourceOwner::Shared(curator) => {
                 accounts.push(AccountMeta::new_readonly(
                     curator.policy_config_pda(),
                     false,
@@ -44,7 +44,7 @@ impl SetPolicySource {
         };
         let mut instruction_data = vec![tag::SET_POLICY_SOURCE];
         instruction_data.extend_from_slice(&wincode::serialize(&SetPolicySourceIxData {
-            kind: kind as u8,
+            list_id: list_id as u8,
             source,
         })?);
         Ok(Instruction {

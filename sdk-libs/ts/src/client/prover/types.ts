@@ -97,7 +97,7 @@ export const RING_OUTPUT_SLOTS = 4;
 /** Rust `MAX_RULES` and `MAX_INLINE_ASSETS`, the fixed rule table width. */
 export const RING_RULE_SLOTS = 16;
 export const RING_INLINE_ASSET_SLOTS = 8;
-/** Rust `POLICY_POOL_SLOTS`, the server rejects any other pool length. */
+/** Rust `POLICY_POOL_SLOTS`, the server rejects any other answers length. */
 export const RING_POOL_SLOTS = 10;
 /** Rust `MAX_POLICY_SOURCES`, the positional source map width. */
 export const RING_SOURCE_SLOTS = 8;
@@ -117,15 +117,15 @@ export interface CustomRingOpening {
   readonly ringProgramId: Bytes32;
 }
 
-/** Mirrors Rust `CustomRingPoolEntry`, one record fact proven against the roots. */
-export interface CustomRingPoolEntry {
+/** Mirrors Rust `RuleAnswer`, one record fact proven against the roots. */
+export interface CustomRingRuleAnswer {
   readonly enabled: boolean;
   readonly mode: number;
-  readonly kind: number;
+  readonly listId: number;
   readonly state: number;
   readonly absentBranch: number;
   readonly member: Bytes32;
-  readonly payloadHash: Bytes32;
+  readonly contentHash: Bytes32;
   readonly version: bigint;
   readonly low: Bytes32;
   readonly next: Bytes32;
@@ -135,17 +135,17 @@ export interface CustomRingPoolEntry {
   readonly statePathIndex: bigint;
 }
 
-/** Mirrors Rust `CustomRingPoolEntry::default`. */
-export function disabledPoolEntry(): CustomRingPoolEntry {
+/** Mirrors Rust `RuleAnswer::default`. */
+export function disabledRuleAnswer(): CustomRingRuleAnswer {
   const zero = (): Bytes32 => new Uint8Array(32) as Bytes32;
   return Object.freeze({
     enabled: false,
     mode: 1,
-    kind: 1,
+    listId: 1,
     state: 1,
     absentBranch: 1,
     member: zero(),
-    payloadHash: zero(),
+    contentHash: zero(),
     version: 0n,
     low: zero(),
     next: zero(),
@@ -156,9 +156,9 @@ export function disabledPoolEntry(): CustomRingPoolEntry {
   });
 }
 
-/** Mirrors Rust `PolicySourceEntry`, slot `i` is empty or serves kind `i + 1`. */
-export interface CustomRingPolicySource {
-  readonly kind: number;
+/** Mirrors Rust `SourceOwner`, slot `i` is empty or serves list `i + 1`. */
+export interface CustomRingSourceOwner {
+  readonly listId: number;
   readonly ownerHash: Bytes32;
 }
 
@@ -175,14 +175,14 @@ export interface CustomRingProofRequest {
   readonly outputs: readonly CustomRingOpening[];
   readonly addressChain: Bytes32;
   readonly externalDataHash: Bytes32;
-  readonly sources: readonly CustomRingPolicySource[];
+  readonly sources: readonly CustomRingSourceOwner[];
   readonly policyLen: number;
   readonly rules: readonly Bytes32[];
   readonly inlineAssets: readonly Bytes32[];
   readonly inlineCount: number;
   readonly stateRoot: Bytes32;
   readonly nullifierRoot: Bytes32;
-  readonly pool: readonly CustomRingPoolEntry[];
+  readonly answers: readonly CustomRingRuleAnswer[];
 }
 
 export interface Proof {

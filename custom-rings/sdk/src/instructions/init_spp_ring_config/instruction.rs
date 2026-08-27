@@ -9,7 +9,7 @@ use crate::CustomRing;
 /// Registers the ring with SPP by creating its `RingConfig` account -- which is the
 /// ring's own `ring_auth` PDA -- through a CPI that PDA signs.
 ///
-/// Carries no instruction data: the CPI payload (ring program id, authority,
+/// Carries no instruction data: the CPI content (ring program id, authority,
 /// disabled authority-transact rail) is built on-chain from the config account, so
 /// a client cannot influence what gets registered.
 pub struct InitSppRingConfig {

@@ -38,8 +38,8 @@ pub struct RingConfig {
     pub devnet: Urls,
 }
 
-/// Curator sources by lowercase kind name, absent kinds use the ring's own
-/// records.
+/// Curator sources by lowercase list name, absent lists use the ring's own
+/// entries.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PolicyTable {

@@ -1,12 +1,10 @@
-//! Shared record source suites. The binary compiles only with the rule
-//! features, so the host `POLICY` table matches the featured image in
+//! Shared entry source suites. The binary compiles only with the rule
+//! features, so the host `RULES` table matches the featured image in
 //! `target/deploy-ring-rules`.
 
 mod common;
 
-use custom_ring_interface::{
-    PolicyConfig, PolicySourceSlot, PolicySourceSpec, N_POLICY_SOURCE_SLOTS, POLICY,
-};
+use custom_ring_interface::{PolicyConfig, SourceSlot, SourceSpec, N_SOURCE_SLOTS, RULES};
 use custom_ring_program::CustomRingError;
 use mollusk_svm::{result::ProgramResult, Mollusk};
 use pinocchio::Address;
@@ -14,15 +12,14 @@ use solana_account::Account;
 use solana_instruction::AccountMeta;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
-use zolana_ring_policy::{RecordKind, RuleSource};
+use zolana_ring_policy::{ListId, RuleSource};
 
 use crate::common::{
-    authority, create_policy_fixture_with, create_record_fixture,
-    curator_policy_config_account_with, curator_policy_config_pda, curator_records_pda,
-    curator_source_slots, initialized_curator_policy_config_account,
-    initialized_policy_config_account, own_source_slots, policy_config_account_with,
-    policy_config_pda, policy_hash_for, records_tree, set_policy_source_fixture,
-    setup_mollusk_rules, Fixture, Slot,
+    authority, create_entry_fixture, create_policy_fixture_with, curator_namespace_pda,
+    curator_policy_config_account_with, curator_policy_config_pda, curator_source_slots,
+    entries_tree, initialized_curator_policy_config_account, initialized_policy_config_account,
+    own_source_slots, policy_config_account_with, policy_config_pda, policy_hash_for,
+    set_policy_source_fixture, setup_mollusk_rules, Fixture, Slot,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -30,11 +27,11 @@ fn custom(error: CustomRingError) -> ProgramError {
 }
 
 fn referenced_kinds() -> Vec<u8> {
-    let mut kinds: Vec<u8> = POLICY
+    let mut kinds: Vec<u8> = RULES
         .rules()
         .iter()
         .filter_map(|rule| match rule.source {
-            RuleSource::Records(kind) => Some(kind as u8),
+            RuleSource::List(list_id) => Some(list_id as u8),
             RuleSource::InlineAssets(_) => None,
         })
         .collect();
@@ -43,27 +40,27 @@ fn referenced_kinds() -> Vec<u8> {
     kinds
 }
 
-fn own_specs() -> Vec<PolicySourceSpec> {
+fn own_specs() -> Vec<SourceSpec> {
     referenced_kinds()
         .into_iter()
-        .map(|kind| PolicySourceSpec { kind, source: 0 })
+        .map(|list_id| SourceSpec { list_id, source: 0 })
         .collect()
 }
 
-fn specs_with_block_source(source: u8) -> Vec<PolicySourceSpec> {
+fn specs_with_block_source(source: u8) -> Vec<SourceSpec> {
     let mut specs = own_specs();
     for spec in &mut specs {
-        if spec.kind == RecordKind::Block as u8 {
+        if spec.list_id == ListId::Block as u8 {
             spec.source = source;
         }
     }
     specs
 }
 
-fn mixed_sources() -> [PolicySourceSlot; N_POLICY_SOURCE_SLOTS] {
+fn mixed_sources() -> [SourceSlot; N_SOURCE_SLOTS] {
     let mut sources = own_source_slots();
-    sources[RecordKind::Block as usize - 1].records =
-        Address::new_from_array(curator_records_pda().0.to_bytes());
+    sources[ListId::Block as usize - 1].namespace =
+        Address::new_from_array(curator_namespace_pda().0.to_bytes());
     sources
 }
 
@@ -111,8 +108,8 @@ fn create_policy_copies_the_curators_resolved_owner() {
     fixture.push(curator_slot(initialized_curator_policy_config_account()));
     let config = stored_policy_config(&mollusk, &fixture);
     assert_eq!(
-        config.sources[RecordKind::Block as usize - 1].records,
-        Address::new_from_array(curator_records_pda().0.to_bytes())
+        config.sources[ListId::Block as usize - 1].namespace,
+        Address::new_from_array(curator_namespace_pda().0.to_bytes())
     );
     assert_eq!(config.sources, mixed_sources());
     assert_eq!(config.policy_hash, policy_hash_for(&mixed_sources()));
@@ -122,23 +119,23 @@ fn create_policy_copies_the_curators_resolved_owner() {
 fn a_duplicate_kind_spec_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk_rules();
     let mut specs = own_specs();
-    specs.push(PolicySourceSpec {
-        kind: RecordKind::Allow as u8,
+    specs.push(SourceSpec {
+        list_id: ListId::Allow as u8,
         source: 0,
     });
     let fixture = create_policy_fixture_with(&specs);
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidPolicySource));
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidSource));
 }
 
 #[test]
 fn a_missing_referenced_kind_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk_rules();
-    let specs: Vec<PolicySourceSpec> = own_specs()
+    let specs: Vec<SourceSpec> = own_specs()
         .into_iter()
-        .filter(|spec| spec.kind != RecordKind::Frozen as u8)
+        .filter(|spec| spec.list_id != ListId::Frozen as u8)
         .collect();
     let fixture = create_policy_fixture_with(&specs);
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidPolicySource));
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidSource));
 }
 
 #[test]
@@ -146,7 +143,7 @@ fn a_source_index_past_the_curator_list_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk_rules();
     let mut fixture = create_policy_fixture_with(&specs_with_block_source(2));
     fixture.push(curator_slot(initialized_curator_policy_config_account()));
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidPolicySource));
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidSource));
 }
 
 #[test]
@@ -205,7 +202,7 @@ fn a_legacy_curator_image_is_rejected_exactly() {
 }
 
 #[test]
-fn a_curator_in_a_different_records_tree_is_rejected_exactly() {
+fn a_curator_in_a_different_entries_tree_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk_rules();
     let curator = curator_policy_config_account_with(
         Pubkey::new_from_array([55; 32]),
@@ -223,9 +220,9 @@ fn a_curator_without_the_requested_kind_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk_rules();
     let mut curator = initialized_curator_policy_config_account();
     let mut state: PolicyConfig = *bytemuck::from_bytes(&curator.data);
-    state.sources[RecordKind::Block as usize - 1] = PolicySourceSlot {
-        kind: 0,
-        records: Address::new_from_array([0; 32]),
+    state.sources[ListId::Block as usize - 1] = SourceSlot {
+        list_id: 0,
+        namespace: Address::new_from_array([0; 32]),
     };
     curator.data = bytemuck::bytes_of(&state).to_vec();
     let mut fixture = create_policy_fixture_with(&specs_with_block_source(1));
@@ -238,7 +235,7 @@ fn set_policy_source_repoints_block_to_the_curator() {
     let (mollusk, _) = setup_mollusk_rules();
     let mut fixture = set_policy_source_fixture(
         policy_config_account_with(own_source_slots()),
-        RecordKind::Block as u8,
+        ListId::Block as u8,
         1,
     );
     fixture.push(curator_slot(initialized_curator_policy_config_account()));
@@ -252,7 +249,7 @@ fn set_policy_source_repoints_block_back_to_own() {
     let (mollusk, _) = setup_mollusk_rules();
     let fixture = set_policy_source_fixture(
         policy_config_account_with(mixed_sources()),
-        RecordKind::Block as u8,
+        ListId::Block as u8,
         0,
     );
     let config = stored_policy_config(&mollusk, &fixture);
@@ -265,7 +262,7 @@ fn set_policy_source_by_a_non_authority_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk_rules();
     let mut fixture = set_policy_source_fixture(
         policy_config_account_with(own_source_slots()),
-        RecordKind::Block as u8,
+        ListId::Block as u8,
         0,
     );
     fixture.substitute("authority", Pubkey::new_from_array([66; 32]));
@@ -278,7 +275,7 @@ fn a_drifted_stored_policy_hash_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk_rules();
     let mut policy_config = policy_config_account_with(own_source_slots());
     policy_config.data[1] ^= 0xFF;
-    let fixture = set_policy_source_fixture(policy_config, RecordKind::Block as u8, 0);
+    let fixture = set_policy_source_fixture(policy_config, ListId::Block as u8, 0);
     fixture.expect_err(&mollusk, custom(CustomRingError::PolicyHashMismatch));
 }
 
@@ -286,19 +283,19 @@ fn a_drifted_stored_policy_hash_is_rejected_exactly() {
 fn an_unknown_kind_byte_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk_rules();
     let fixture = set_policy_source_fixture(policy_config_account_with(own_source_slots()), 99, 0);
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidRecordKind));
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidListId));
 }
 
-/// Recovery is a valid kind the featured table does not reference.
+/// Recovery is a valid list_id the featured table does not reference.
 #[test]
 fn an_unreferenced_kind_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk_rules();
     let fixture = set_policy_source_fixture(
         policy_config_account_with(own_source_slots()),
-        RecordKind::Recovery as u8,
+        ListId::Recovery as u8,
         0,
     );
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidPolicySource));
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidSource));
 }
 
 #[test]
@@ -306,11 +303,11 @@ fn a_trailing_curator_with_an_own_source_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk_rules();
     let mut fixture = set_policy_source_fixture(
         policy_config_account_with(own_source_slots()),
-        RecordKind::Block as u8,
+        ListId::Block as u8,
         0,
     );
     fixture.push(curator_slot(initialized_curator_policy_config_account()));
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidPolicySource));
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidSource));
 }
 
 #[test]
@@ -318,46 +315,46 @@ fn a_shared_source_without_a_curator_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk_rules();
     let fixture = set_policy_source_fixture(
         policy_config_account_with(own_source_slots()),
-        RecordKind::Block as u8,
+        ListId::Block as u8,
         1,
     );
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidPolicySource));
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidSource));
 }
 
 #[test]
 fn a_curator_served_kind_refuses_local_mutation_exactly() {
     let (mollusk, _) = setup_mollusk_rules();
-    let fixture = create_record_fixture(
+    let fixture = create_entry_fixture(
         policy_config_account_with(mixed_sources()),
-        RecordKind::Block as u8,
+        ListId::Block as u8,
         authority(),
     );
-    fixture.expect_err(&mollusk, custom(CustomRingError::ForeignRecordSource));
+    fixture.expect_err(&mollusk, custom(CustomRingError::ForeignSource));
 }
 
 /// An own slot passes the source gate, the fixture then dies in the SPP CPI.
 #[test]
 fn an_own_served_kind_passes_the_source_gate() {
     let (mollusk, _) = setup_mollusk_rules();
-    let fixture = create_record_fixture(
+    let fixture = create_entry_fixture(
         policy_config_account_with(mixed_sources()),
-        RecordKind::Allow as u8,
+        ListId::Allow as u8,
         authority(),
     );
     let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
     assert_ne!(result.program_result, ProgramResult::Success);
     assert_ne!(
         result.program_result,
-        ProgramResult::Failure(custom(CustomRingError::ForeignRecordSource))
+        ProgramResult::Failure(custom(CustomRingError::ForeignSource))
     );
 }
 
 #[test]
-fn the_layout_keeps_records_tree_and_sources_fixed() {
+fn the_layout_keeps_entries_tree_and_sources_fixed() {
     let account = initialized_policy_config_account();
     assert_eq!(PolicyConfig::SIZE, 331);
     assert_eq!(account.data.len(), PolicyConfig::SIZE);
-    assert_eq!(account.data[33..65], records_tree().to_bytes());
+    assert_eq!(account.data[33..65], entries_tree().to_bytes());
     let sources = own_source_slots();
     assert_eq!(&account.data[67..], bytemuck::bytes_of(&sources));
 }

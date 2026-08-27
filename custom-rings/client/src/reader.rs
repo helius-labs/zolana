@@ -58,7 +58,7 @@ impl ReaderKey {
         }
     }
 
-    pub fn record_address(self, ring: &Address) -> Address {
+    pub fn entry_address(self, ring: &Address) -> Address {
         let seed_hash: [u8; 32] = Sha256::digest(self.to_bytes()).into();
         Address::find_program_address(&[READ_ACCESS_RECORD_PDA_SEED, &seed_hash], ring).0
     }

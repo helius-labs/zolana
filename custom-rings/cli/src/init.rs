@@ -66,8 +66,8 @@ pub struct Init<'a> {
     pub upgrade_authority: Option<&'a dyn Signer>,
     pub config_authority: &'a dyn Signer,
     pub auditor_pk: P256Pubkey,
-    pub records_tree: Address,
-    pub shared_sources: Vec<(zolana_ring_policy::RecordKind, CustomRing)>,
+    pub entries_tree: Address,
+    pub shared_sources: Vec<(zolana_ring_policy::ListId, CustomRing)>,
     pub existing: Option<CustomRingConfig>,
 }
 
@@ -113,9 +113,9 @@ pub enum InitError {
     #[error(transparent)]
     Build(#[from] CreateConfigError),
     #[error(transparent)]
-    Policy(#[from] custom_ring_sdk::RecordError),
+    RuleTable(#[from] custom_ring_sdk::EntryError),
     #[error(transparent)]
-    PolicySources(Box<crate::record::RecordError>),
+    SourceMap(Box<crate::list::ListError>),
     #[error(transparent)]
     Step(#[from] StepError),
     #[error("ring config exists under authority {authority} with auditor {auditor}, ring.toml names another operator")]
@@ -227,9 +227,9 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
             .map(|keypair| keypair as &dyn Signer),
         config_authority: &config_authority,
         auditor_pk,
-        records_tree: args.records_tree,
-        shared_sources: crate::record::shared_sources(ctx.config.policy.as_ref())
-            .map_err(|error| InitError::PolicySources(Box::new(error)))?,
+        entries_tree: args.entries_tree,
+        shared_sources: crate::list::shared_sources(ctx.config.policy.as_ref())
+            .map_err(|error| InitError::SourceMap(Box::new(error)))?,
         existing,
     }
     .run(&ctx.rpc)?;
@@ -416,7 +416,7 @@ impl Init<'_> {
                         ring: self.ring,
                         payer: config_authority,
                         authority: deployer.pubkey(),
-                        records_tree: self.records_tree,
+                        entries_tree: self.entries_tree,
                         shared_sources: self.shared_sources.clone(),
                     }
                     .instruction()?],
