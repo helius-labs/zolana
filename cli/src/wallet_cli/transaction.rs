@@ -92,8 +92,7 @@ pub(crate) fn run_utxos(opts: UtxosOptions) -> Result<()> {
         .filter(|entry| !entry.spent && entry.utxo.asset == asset)
     {
         count += 1;
-        // Classify with the exact predicates the spend paths enforce -- the
-        // default-ring one for `ring`, `is_plain_utxo` for the rest -- so a
+        // Classify with the exact predicates the spend paths enforce, so a
         // memo-only utxo (inline `utxo.data`, no data hash) reads as `data`
         // here rather than as `plain` that split and merge would then reject.
         let kind = if !is_default_ring_spendable(entry) {
