@@ -270,7 +270,7 @@ pub fn namespace_pda() -> (Pubkey, u8) {
     Pubkey::find_program_address(&[zolana_ring_policy::NAMESPACE_PDA_SEED], &program_id())
 }
 
-/// One slot per list_id the deployed table references, all serving the ring's
+/// One slot per list the deployed table references, all serving the ring's
 /// own entries.
 pub fn own_source_slots(
 ) -> [custom_ring_interface::SourceSlot; custom_ring_interface::N_SOURCE_SLOTS] {
@@ -336,7 +336,7 @@ pub fn policy_config_account_with(
     }
 }
 
-/// A foreign curator ring, its policy and entries PDAs derive from this id.
+/// A foreign curator ring, its policy and namespace PDAs derive from this id.
 pub fn curator_program_id() -> Pubkey {
     Pubkey::new_from_array([88u8; 32])
 }
@@ -355,7 +355,7 @@ pub fn curator_namespace_pda() -> (Pubkey, u8) {
     )
 }
 
-/// The curator's own-mode map, one slot per referenced list_id.
+/// The curator's own-mode map, one slot per referenced list.
 pub fn curator_source_slots(
 ) -> [custom_ring_interface::SourceSlot; custom_ring_interface::N_SOURCE_SLOTS] {
     let entries = Address::new_from_array(curator_namespace_pda().0.to_bytes());

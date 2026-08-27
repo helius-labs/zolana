@@ -12,7 +12,7 @@ export interface RingProgramConfig {
   readonly bump: number;
 }
 
-/** Mirrors Rust `SourceSlot`, slot `i` is empty (`kind === 0`) or serves kind `i + 1`. */
+/** Mirrors Rust `SourceSlot`, slot `i` is empty (`listId === 0`) or serves list `i + 1`. */
 export interface RingPolicySource {
   readonly listId: number;
   readonly namespace: Address;
@@ -21,8 +21,8 @@ export interface RingPolicySource {
 /** Mirrors Rust `PolicyConfig`. */
 export interface RingPolicyConfig {
   readonly policyHash: Bytes32;
-  readonly recordsTree: Address;
-  readonly recordsBump: number;
+  readonly entriesTree: Address;
+  readonly namespaceBump: number;
   readonly bump: number;
   readonly sources: readonly RingPolicySource[];
 }
@@ -58,8 +58,8 @@ export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
   const reader = new Reader(data);
   reader.u8("discriminator");
   const policyHash = reader.bytes(32, "policyHash") as Bytes32;
-  const recordsTree = encodeBase58(reader.bytes(32, "recordsTree"));
-  const recordsBump = reader.u8("recordsBump");
+  const entriesTree = encodeBase58(reader.bytes(32, "entriesTree"));
+  const namespaceBump = reader.u8("namespaceBump");
   const bump = reader.u8("bump");
   const sources = Object.freeze(
     Array.from({ length: RING_SOURCE_SLOTS }, () =>
@@ -70,7 +70,7 @@ export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
     ),
   );
   reader.done();
-  return Object.freeze({ policyHash, recordsTree, recordsBump, bump, sources });
+  return Object.freeze({ policyHash, entriesTree, namespaceBump, bump, sources });
 }
 
 export { CUSTOM_RING_PROOF_LENGTH };

@@ -13,7 +13,7 @@ import (
 type RuleAnswerWires struct {
 	Enabled      frontend.Variable
 	Mode         frontend.Variable
-	ListId         frontend.Variable
+	ListId       frontend.Variable
 	Member       frontend.Variable
 	ContentHash  frontend.Variable
 	Version      frontend.Variable
@@ -32,7 +32,7 @@ type RuleAnswerWires struct {
 type answerView struct {
 	enabled frontend.Variable
 	mode    frontend.Variable
-	listId    frontend.Variable
+	listId  frontend.Variable
 	member  frontend.Variable
 }
 
@@ -142,7 +142,7 @@ func (w RuleAnswerWires) define(api frontend.API, checker frontend.Rangechecker,
 	return answerView{
 		enabled: w.Enabled,
 		mode:    w.Mode,
-		listId:    w.ListId,
+		listId:  w.ListId,
 		member:  w.Member,
 	}
 }

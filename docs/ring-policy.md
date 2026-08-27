@@ -19,20 +19,20 @@ Seven terms carry the whole design.
   `MAX_RULES` rules built into the ring program.
 - A **member** (`Member`) is a field element naming who or what a rule checks.
   Zero is the circuit padding value, never a member.
-- A **list** (`ListId`) is a `u8` naming one list. Zero is reserved for
-  inline assets.
-- A **entry** (`ListEntry`) states one `(list, member)` fact. It lives as a
+- A **list** (`ListId`) is a `u8` naming one of the eight lists. Zero is
+  reserved for inline assets.
+- An **entry** (`ListEntry`) states one `(list, member)` fact. It lives as a
   zero-amount data UTXO in the SPP state tree.
 - The **writer** (`Writer`) of a list is the party that may mutate its list,
   the ring authority or the member.
-- The **answers** is the transfer proof's set of entry checks, one slot per
-  distinct `(list, member, mode)` triple the rules name.
-- The **source map** binds each referenced list to the entries owner serving
-  it, the ring's own entries or a curator ring's.
+- The **answers** array is the transfer proof's set of entry checks, one
+  slot per distinct `(list, member, mode)` triple the rules name.
+- The **source map** binds each referenced list to the namespace serving
+  it, the ring's own or a curator ring's.
 
 A blocklist ring runs through every section below. Its table holds one rule,
-`Rule::forbid(Subject::OutputOwner, ListId::Block)`. The authority entries
-Mallory under `Block`. A transfer to Mallory has no witness, its answers slot
+`Rule::forbid(Subject::OutputOwner, ListId::Block)`. The authority lists
+Mallory under `Block`. A transfer to Mallory has no witness, its answer slot
 cannot show the live entry absent. A transfer to Bob proves absence, no
 entry under his pair exists. After the authority clears Mallory, a transfer
 to her proves absence through the cleared entry.
@@ -40,7 +40,7 @@ to her proves absence through the cleared entry.
 ## The rule table
 
 `Rule { subject, mode, source, guard }` lives in
-`program-libs/ring-policy/src/policy.rs`. A rule checks `OutputOwner`,
+`program-libs/ring-policy/src/rule_table.rs`. A rule checks `OutputOwner`,
 `Sender`, or `Asset` for `Present` or `Absent` in one list. The source is a
 list or an inline asset set. An `AboveAmount` guard passes transfers
 below the threshold without a membership check.
@@ -55,7 +55,7 @@ count closes the variable-length preimage. The source map ties the table to
 the entries serving each list.
 
 The ring's table is the `RULES` const in
-`custom-rings/interface/src/policy.rs`. Cargo features add rows through
+`custom-rings/interface/src/rules.rs`. Cargo features add rows through
 `rule_if`, a build without features compiles an empty table.
 
 `create_policy` pins the table hash into the `PolicyConfig` account together
@@ -75,7 +75,7 @@ PDA with a zero nullifier secret. Anyone computes entry nullifiers, the
 entry set stays publicly auditable. Spending still requires the PDA's CPI
 signature.
 
-`record_seed(list, member)` gives every pair one deterministic address.
+`entry_seed(list_id, member)` gives every pair one deterministic address.
 Creating an entry claims the address, and the nullifier tree admits each
 address once. One lineage per pair, for the life of the tree.
 
@@ -97,14 +97,14 @@ the on-chain leaf before trusting them.
 
 `ListId::writer()` is the single authorization axis. The match is
 exhaustive, a new list does not compile until it declares its writer.
-`RingViewing`, `Recovery`, and `Escrow` are member-held, the member signs
-their own mutations. Every other list is authority-held. `check_mutator` in
+`RingViewing`, `Recovery`, and `Escrow` are member-written, the member signs
+their own mutations. Every other list is authority-written. `check_mutator` in
 the ring program enforces the matching signer on every mutation.
 
 ## Sources
 
 `create_policy` declares each referenced list's source and stores the map in
-`PolicyConfig.sources`. A curator entry copies the curator's resolved owner
+`PolicyConfig.sources`. A curator slot copies the curator's resolved owner
 for the list, a curator of a curator collapses at copy time. `RuleTable::hash`
 binds all eight slots and the circuit resolves every answer's owner from
 the committed map. One curated list serves every subscriber from one write.
@@ -115,8 +115,8 @@ stored map. A rebuilt table stays fail closed, only `create_policy` pins a
 table. All sources live in one entries tree, the transfer's input tree.
 
 Mutations of a curator sourced list fail on the subscriber with
-`ForeignRecordSource`, the list is mutated on its curator ring. Members enroll
-member held lists at the curator directly, every subscriber sees the entry.
+`ForeignSource`, the list is mutated on its curator ring. Members enroll
+member-written lists at the curator directly, every subscriber sees the entry.
 
 ## Proving compliance
 
@@ -133,14 +133,15 @@ program resolves both roots from the history indices in the instruction data
 and verifies one proof.
 
 One circuit serves every ring. A rules-free ring proves a zero-length table
-with every answers slot disabled. Proof size, account list, and verification cost
+with every answer slot disabled. Proof size, account list, and verification cost
 do not vary with the table, a transfer reveals none of the checks it passed.
 
 ## Adding a list
 
-A new list is one trait impl. The sealed `ListSchema` trait in `program-libs/ring-policy/src/schema.rs` fixes the list, its `EntryContent` type, and
-the writer. Its module doc walks the four steps. The keying, the entry shape,
-the membership proofs, and the circuit are reused unchanged.
+A new list is one trait impl. The sealed `ListSchema` trait in
+`program-libs/ring-policy/src/schema.rs` fixes the list, its `EntryContent`
+type, and the writer. Its module doc walks the four steps. The keying, the
+entry shape, the membership proofs, and the circuit are reused unchanged.
 
 ## Pitfalls
 

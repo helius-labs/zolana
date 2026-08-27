@@ -6,7 +6,7 @@ use zolana_ring_policy::{EntryState, ListEntry, ListId, Member};
 use crate::{
     error::CustomRingError,
     instructions::policy_shared::{
-        cpi_spp_namespace_signed, record_spend_input, EntryTransition, MutationAccounts,
+        cpi_spp_namespace_signed, entry_spend_input, EntryTransition, MutationAccounts,
     },
 };
 
@@ -36,7 +36,7 @@ pub fn process_update_entry_ix(
         version: ix.spent_version,
         content_hash: ix.spent_content_hash,
     };
-    let (spent_hash, nullifier) = record_spend_input(&parsed.owner, &spent)?;
+    let (spent_hash, nullifier) = entry_spend_input(&parsed.owner, &spent)?;
     let version = ix
         .spent_version
         .checked_add(1)

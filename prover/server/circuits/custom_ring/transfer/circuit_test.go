@@ -371,8 +371,8 @@ func defaultFixture() fixture {
 
 // source is one host-side slot of the positional policy source map.
 type source struct {
-	listId  int64
-	owner *big.Int
+	listId int64
+	owner  *big.Int
 }
 
 func emptySources() [NSources]source {
@@ -383,9 +383,9 @@ func emptySources() [NSources]source {
 	return out
 }
 
-// entry is one host-side policy entry, mirroring ring_policy::PolicyRecord.
+// entry is one host-side policy entry, mirroring ring_policy::ListEntry.
 type entry struct {
-	listId    int64
+	listId  int64
 	member  *big.Int
 	state   int64
 	version int64
@@ -404,7 +404,7 @@ type derived struct {
 type rule struct {
 	subject   int64
 	mode      int64
-	listId      int64
+	listId    int64
 	guardTag  int64
 	threshold uint64
 }
@@ -422,7 +422,7 @@ func (r rule) wires() RuleWires {
 		Packed:    r.packed(),
 		Subject:   big.NewInt(r.subject),
 		Mode:      big.NewInt(r.mode),
-		ListId:      big.NewInt(r.listId),
+		ListId:    big.NewInt(r.listId),
 		GuardTag:  big.NewInt(r.guardTag),
 		Threshold: new(big.Int).SetUint64(r.threshold),
 	}
@@ -460,8 +460,8 @@ type statement struct {
 // newStatement builds a ring whose entries allow the recipient, hold no Frozen
 // entry for the sender and carry a cleared Block entry, a policy demanding
 // all three plus a guarded Approval rule, and a two-in two-out transaction that
-// satisfies them. The Frozen listId is sourced from a curator's entries, every
-// other listId from the ring's own.
+// satisfies them. The Frozen list is sourced from a curator's entries, every
+// other list from the ring's own.
 func newStatement(t *testing.T, f fixture) *statement {
 	t.Helper()
 	s := &statement{}
@@ -677,7 +677,7 @@ func (s *statement) poolEntry(t *testing.T, index int, mode, branch int64, state
 	entry := RuleAnswerWires{
 		Enabled:        big.NewInt(1),
 		Mode:           big.NewInt(mode),
-		ListId:           big.NewInt(r.listId),
+		ListId:         big.NewInt(r.listId),
 		Member:         r.member,
 		ContentHash:    r.content,
 		Version:        big.NewInt(r.version),
@@ -811,7 +811,7 @@ func zeroPoolEntry() RuleAnswerWires {
 	entry := RuleAnswerWires{
 		Enabled:        big.NewInt(0),
 		Mode:           big.NewInt(0),
-		ListId:           big.NewInt(0),
+		ListId:         big.NewInt(0),
 		Member:         big.NewInt(0),
 		ContentHash:    big.NewInt(0),
 		Version:        big.NewInt(0),

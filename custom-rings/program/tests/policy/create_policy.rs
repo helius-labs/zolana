@@ -38,7 +38,7 @@ fn create_policy_pins_the_compiled_table() {
 }
 
 #[test]
-fn a_entries_tree_owned_by_another_program_is_rejected_exactly() {
+fn an_entries_tree_owned_by_another_program_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = create_policy_fixture();
     let mut foreign = entries_tree_account();
@@ -48,7 +48,7 @@ fn a_entries_tree_owned_by_another_program_is_rejected_exactly() {
 }
 
 #[test]
-fn a_entries_tree_without_the_tree_discriminator_is_rejected_exactly() {
+fn an_entries_tree_without_the_tree_discriminator_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = create_policy_fixture();
     let mut wrong = entries_tree_account();

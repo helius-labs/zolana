@@ -57,7 +57,7 @@ export const ORIGIN_TRANSACTION_CONFIG = Object.freeze({
 
 /**
  * Mirrors Rust `ring_instructions_in`. `ring_transact` needs the ring's
- * `ring_auth` PDA as signer, so only a answers instruction whose direct caller is
+ * `ring_auth` PDA as signer, so only a pool instruction whose direct caller is
  * `ring` belongs to the ring.
  */
 export function ringInstructionsIn(
@@ -241,7 +241,7 @@ function settlementWidth(transfer: InterfaceTransfer): number {
   return transfer.kind === "splDeposit" || transfer.kind === "splWithdrawal" ? 5 : 2;
 }
 
-/** A deposit settles value into the answers and names no recipient. */
+/** A deposit settles value into the pool and names no recipient. */
 function withdrawalLeg(
   transfer: InterfaceTransfer,
   group: readonly Address[],
@@ -263,7 +263,7 @@ function withdrawalLeg(
   return undefined;
 }
 
-/** Mirrors Rust `interface_transfers`, `undefined` for a answers instruction that is not a `ring_transact`. */
+/** Mirrors Rust `interface_transfers`, `undefined` for a pool instruction that is not a `ring_transact`. */
 function interfaceTransfersOf(
   instruction: OriginInstruction,
 ): readonly InterfaceTransfer[] | undefined {

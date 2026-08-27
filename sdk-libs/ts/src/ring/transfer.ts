@@ -13,7 +13,7 @@ import type { ZolanaClient } from "../client/client.js";
 import { ringOpenings } from "../client/prover/assembly.js";
 import {
   RING_INLINE_ASSET_SLOTS,
-  RING_POOL_SLOTS,
+  RING_ANSWER_SLOTS,
   RING_RULE_SLOTS,
   disabledRuleAnswer,
 } from "../client/prover/types.js";
@@ -294,10 +294,10 @@ export async function buildRingWithdrawalTransaction(
   }
 }
 
-/** Mirrors Rust `RecordsOwner::new`, the shielded owner hash of the ring's record notes. */
-export function ringNamespaceOwnerHash(recordsPda: Address): Bytes32 {
+/** Mirrors Rust `ListNamespace::new`, the shielded owner hash of the ring's entry notes. */
+export function ringNamespaceOwnerHash(namespacePda: Address): Bytes32 {
   return ownerHash(
-    hashBytes(addressBytes(recordsPda, "recordsPda")),
+    hashBytes(addressBytes(namespacePda, "namespacePda")),
     poseidon([new Uint8Array(32)]),
   ) as Bytes32;
 }
@@ -312,9 +312,9 @@ export async function proveCustomRingTransfer(
     fetchRingPolicyConfig(input.client, input.ringProgramId, context),
   ]);
   // The program enforces `records_tree == input tree`, a mismatch cannot verify.
-  if (policyConfig.recordsTree !== input.tree) {
+  if (policyConfig.entriesTree !== input.tree) {
     throw new RingError("RING_RECORDS_TREE_MISMATCH", {
-      details: { recordsTree: policyConfig.recordsTree, tree: input.tree },
+      details: { entriesTree: policyConfig.entriesTree, tree: input.tree },
     });
   }
   // A padded change slot pushes the custom-ring instruction past the packet limit
@@ -383,7 +383,7 @@ export async function proveCustomRingTransfer(
         inlineCount: 0,
         stateRoot: roots.stateRoot,
         nullifierRoot: roots.nullifierRoot,
-        answers: Array.from({ length: RING_POOL_SLOTS }, () => disabledRuleAnswer()),
+        answers: Array.from({ length: RING_ANSWER_SLOTS }, () => disabledRuleAnswer()),
       },
       context,
     );

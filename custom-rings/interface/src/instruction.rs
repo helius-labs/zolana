@@ -94,7 +94,7 @@ pub struct SetPolicySourceIxData {
     pub source: u8,
 }
 
-/// `member` is pre-derived, member-held kinds require the signer to derive to it.
+/// `member` is pre-derived, member-written lists require the signer to derive to it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CreateEntryIxData {
     pub list_id: u8,

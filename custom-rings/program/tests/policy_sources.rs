@@ -26,7 +26,7 @@ fn custom(error: CustomRingError) -> ProgramError {
     ProgramError::Custom(error as u32)
 }
 
-fn referenced_kinds() -> Vec<u8> {
+fn referenced_lists() -> Vec<u8> {
     let mut kinds: Vec<u8> = RULES
         .rules()
         .iter()
@@ -41,7 +41,7 @@ fn referenced_kinds() -> Vec<u8> {
 }
 
 fn own_specs() -> Vec<SourceSpec> {
-    referenced_kinds()
+    referenced_lists()
         .into_iter()
         .map(|list_id| SourceSpec { list_id, source: 0 })
         .collect()
@@ -88,7 +88,7 @@ fn stored_policy_config(mollusk: &Mollusk, fixture: &Fixture) -> PolicyConfig {
 /// The suite's premise, Recovery stays unreferenced.
 #[test]
 fn the_featured_table_references_allow_block_frozen() {
-    assert_eq!(referenced_kinds(), [1, 2, 3]);
+    assert_eq!(referenced_lists(), [1, 2, 3]);
 }
 
 #[test]
@@ -286,7 +286,7 @@ fn an_unknown_kind_byte_is_rejected_exactly() {
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidListId));
 }
 
-/// Recovery is a valid list_id the featured table does not reference.
+/// Recovery is a valid list the featured table does not reference.
 #[test]
 fn an_unreferenced_kind_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk_rules();

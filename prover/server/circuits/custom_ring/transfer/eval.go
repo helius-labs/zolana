@@ -5,7 +5,7 @@ import (
 )
 
 // evaluate closes every enabled rule against every live instance of its
-// subject, answered by an answer proving the same (list, mode) fact about
+// subject, covered by an answer proving the same (list, mode) fact about
 // the instance or by the amount guard.
 func (c *Circuit) evaluate(
 	api frontend.API,

@@ -1,5 +1,5 @@
 //! Assembles the policy half of the ring proof. The openings come from the
-//! transfer the SDK already prepared, the answers entries from the entries the
+//! transfer the SDK already prepared, the answers from the entries the
 //! rules name.
 
 use custom_ring_interface::PolicyConfig;
@@ -105,7 +105,7 @@ impl CustomRingWitnessInput<'_> {
         })
     }
 
-    /// One entry per distinct `(list_id, member, mode)` the table asks about.
+    /// One answer per distinct `(list_id, member, mode)` the table asks about.
     fn answer_rules<I: Rpc>(&self, indexer: &I) -> Result<Vec<RuleAnswer>, TransferError> {
         let mut answers: Vec<RuleAnswer> = Vec::new();
         for rule in self.policy.rules() {

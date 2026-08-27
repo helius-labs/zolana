@@ -72,7 +72,7 @@ fn curator() -> ListNamespace {
     ListNamespace::new(&CURATOR_PDA).expect("curator owner")
 }
 
-/// The fixture map, the frozen list_id reads the curator's entries.
+/// The fixture map, the frozen list reads the curator's entries.
 fn fixture_sources() -> SourceMap {
     SourceMap::new(&[
         (ListId::Allow, owner().owner_hash),

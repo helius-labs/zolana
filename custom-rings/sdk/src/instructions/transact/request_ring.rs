@@ -14,7 +14,7 @@ use zolana_ring_policy::{MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES};
 
 use crate::instructions::transact::request::{bytes_to_hex, field_hex, SecretHex};
 
-/// Slots the answers proves in one transaction, a transfer needing more must be
+/// Slots the answers array proves in one transaction, a transfer needing more must be
 /// split.
 pub const ANSWER_SLOTS: usize = 10;
 pub const POLICY_INPUT_SLOTS: usize = 5;
@@ -135,7 +135,7 @@ impl ProveRequest for CustomRingProofRequest {
             inline_count: self.inline_count,
             state_root: field_hex(&self.state_root),
             nullifier_root: field_hex(&self.nullifier_root),
-            answers: self.answers.iter().map(pool_json).collect(),
+            answers: self.answers.iter().map(answers_json).collect(),
         };
         serde_json::to_string(&json)
             .map(Zeroizing::new)
@@ -168,7 +168,7 @@ fn source_json(source: &SourceOwnerEntry) -> CustomRingSourceJson {
     }
 }
 
-fn pool_json(entry: &RuleAnswer) -> RuleAnswerJson {
+fn answers_json(entry: &RuleAnswer) -> RuleAnswerJson {
     RuleAnswerJson {
         enabled: entry.enabled,
         mode: entry.mode,

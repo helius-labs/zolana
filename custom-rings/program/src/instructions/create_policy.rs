@@ -66,8 +66,13 @@ pub fn process_create_policy_ix(
         return Err(CustomRingError::PolicyConfigAlreadyInitialized.into());
     }
 
-    let (own_records, namespace_bump) = namespace_pda(program_id)?;
-    let sources = resolve_sources(&ix.sources, curators, &own_records, entries_tree.address())?;
+    let (own_namespace, namespace_bump) = namespace_pda(program_id)?;
+    let sources = resolve_sources(
+        &ix.sources,
+        curators,
+        &own_namespace,
+        entries_tree.address(),
+    )?;
     let policy_hash = RULES
         .hash(&source_map(&sources)?)
         .map_err(|_| CustomRingError::HashingFailed)?;
@@ -96,11 +101,11 @@ pub fn process_create_policy_ix(
     .init(policy_config)
 }
 
-/// The stored map is a bijection with the kinds the compiled table references.
+/// The stored map is a bijection with the lists the compiled table references.
 pub(crate) fn resolve_sources(
     specs: &[SourceSpec],
     curators: &[AccountView],
-    own_records: &Address,
+    own_namespace: &Address,
     entries_tree: &Address,
 ) -> Result<[SourceSlot; N_SOURCE_SLOTS], ProgramError> {
     let mut referenced = [false; N_SOURCE_SLOTS];
@@ -119,7 +124,7 @@ pub(crate) fn resolve_sources(
         }
         seen[index] = true;
         let entries = match spec.source {
-            0 => *own_records,
+            0 => *own_namespace,
             n => {
                 let curator = curators
                     .get(usize::from(n) - 1)

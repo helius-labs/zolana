@@ -150,7 +150,7 @@ impl<'a> MutationAccounts<'a> {
         if namespace_bump != policy_config.namespace_bump {
             return Err(CustomRingError::InvalidNamespacePda.into());
         }
-        // A referenced list_id serves its mapped entries only, an unmapped list_id
+        // A referenced list serves its mapped entries only, an unmapped list
         // stays mutable against the ring's own.
         let slot = policy_config.sources[list_id as usize - 1];
         if slot.list_id != 0 && !address_eq(&slot.namespace, entries.address()) {
@@ -216,10 +216,10 @@ impl EntryTransition {
             .utxo_hash(owner, &address)
             .map_err(|_| CustomRingError::HashingFailed)?;
         let content = self.entry.to_output_data();
-        let records_bytes = namespace_address.to_bytes();
+        let entry_bytes = namespace_address.to_bytes();
         let resolved_output = [ResolvedOutput {
             utxo_hash: &output_hash,
-            owner_tag: records_bytes,
+            owner_tag: entry_bytes,
             data: Some(content.as_slice()),
         }];
         let messages: &[MessageData] = &[];
@@ -257,7 +257,7 @@ impl EntryTransition {
             ring_data_hash: None,
             outputs: vec![TransactOutput {
                 utxo_hash: output_hash,
-                owner_tag: OwnerTag::Inline(records_bytes),
+                owner_tag: OwnerTag::Inline(entry_bytes),
                 data: Some(content.to_vec()),
             }],
             messages: Vec::new(),
@@ -265,7 +265,7 @@ impl EntryTransition {
     }
 }
 
-pub(crate) fn record_spend_input(
+pub(crate) fn entry_spend_input(
     owner: &ListNamespace,
     entry: &ListEntry,
 ) -> Result<([u8; 32], [u8; 32]), ProgramError> {

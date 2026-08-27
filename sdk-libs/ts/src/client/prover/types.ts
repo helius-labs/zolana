@@ -97,9 +97,9 @@ export const RING_OUTPUT_SLOTS = 4;
 /** Rust `MAX_RULES` and `MAX_INLINE_ASSETS`, the fixed rule table width. */
 export const RING_RULE_SLOTS = 16;
 export const RING_INLINE_ASSET_SLOTS = 8;
-/** Rust `POLICY_POOL_SLOTS`, the server rejects any other answers length. */
-export const RING_POOL_SLOTS = 10;
-/** Rust `MAX_POLICY_SOURCES`, the positional source map width. */
+/** Rust `ANSWER_SLOTS`, the server rejects any other answers length. */
+export const RING_ANSWER_SLOTS = 10;
+/** Rust `MAX_SOURCES`, the positional source map width. */
 export const RING_SOURCE_SLOTS = 8;
 export const RING_STATE_PATH_LENGTH = 32;
 export const RING_NULLIFIER_PATH_LENGTH = 40;
@@ -117,7 +117,7 @@ export interface CustomRingOpening {
   readonly ringProgramId: Bytes32;
 }
 
-/** Mirrors Rust `RuleAnswer`, one record fact proven against the roots. */
+/** Mirrors Rust `RuleAnswer`, one entry fact proven against the roots. */
 export interface CustomRingRuleAnswer {
   readonly enabled: boolean;
   readonly mode: number;

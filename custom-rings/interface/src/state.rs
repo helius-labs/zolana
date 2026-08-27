@@ -79,7 +79,7 @@ pub struct PolicyConfig {
     pub entries_tree: Address,
     pub namespace_bump: u8,
     pub bump: u8,
-    /// Non-empty exactly for the kinds the compiled table references.
+    /// Non-empty exactly for the lists the compiled table references.
     pub sources: [SourceSlot; N_SOURCE_SLOTS],
 }
 
