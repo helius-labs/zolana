@@ -1125,7 +1125,8 @@ func (handler proveHandler) getEstimatedTime(circuitType common.CircuitType) str
 	case common.TransferP256RingCircuitType:
 		return "30-180 seconds"
 	case common.CustomRingCircuitType:
-		return "60-300 seconds"
+		// Sub second warm, the first request loads the proving key.
+		return "1-10 seconds"
 	default:
 		return "1-3 seconds"
 	}
@@ -1138,7 +1139,7 @@ func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitTy
 	case common.TransferP256RingCircuitType:
 		return 180
 	case common.CustomRingCircuitType:
-		return 300
+		return 10
 	case common.TransferConfidentialCircuitType, common.TransferRingCircuitType, common.TransferRingAuthorityCircuitType:
 		return 30
 	case common.MergeCircuitType, common.MergeRingCircuitType:
