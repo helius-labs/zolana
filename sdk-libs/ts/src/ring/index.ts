@@ -48,6 +48,8 @@ export {
   ringLookupTableAddresses,
   ringTransactInstruction,
 } from "./instructions.js";
+export { listRegisteredRings } from "./registry.js";
+export type { RegisteredRing } from "./registry.js";
 export { buildRingLookupTableTransaction, fetchRingLookupTable } from "./lookup-table.js";
 export type { RingLookupTable } from "./lookup-table.js";
 export { createPasskey, passkeyReader } from "./passkey.js";
