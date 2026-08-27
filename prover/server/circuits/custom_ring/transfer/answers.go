@@ -8,14 +8,14 @@ import (
 	"zolana/prover/circuits/spp_transaction/shared"
 )
 
-// PoolEntryWires is one policy record proof, placing the record or its absence
+// RuleAnswerWires is one policy entry proof, placing the entry or its absence
 // under both SPP roots.
-type PoolEntryWires struct {
+type RuleAnswerWires struct {
 	Enabled      frontend.Variable
 	Mode         frontend.Variable
-	Kind         frontend.Variable
+	ListId         frontend.Variable
 	Member       frontend.Variable
-	PayloadHash  frontend.Variable
+	ContentHash  frontend.Variable
 	Version      frontend.Variable
 	State        frontend.Variable
 	AbsentBranch frontend.Variable
@@ -29,23 +29,23 @@ type PoolEntryWires struct {
 	StatePathIndex    frontend.Variable
 }
 
-type poolView struct {
+type answerView struct {
 	enabled frontend.Variable
 	mode    frontend.Variable
-	kind    frontend.Variable
+	listId    frontend.Variable
 	member  frontend.Variable
 }
 
-type records struct {
+type entries struct {
 	ownerHash     frontend.Variable
 	stateRoot     frontend.Variable
 	nullifierRoot frontend.Variable
 }
 
-func (c *Circuit) definePool(api frontend.API, checker frontend.Rangechecker) [NPool]poolView {
-	var out [NPool]poolView
-	for i, entry := range c.Pool {
-		out[i] = entry.define(api, checker, records{
+func (c *Circuit) defineAnswers(api frontend.API, checker frontend.Rangechecker) [NAnswers]answerView {
+	var out [NAnswers]answerView
+	for i, entry := range c.Answers {
+		out[i] = entry.define(api, checker, entries{
 			ownerHash:     resolveOwner(api, c.Sources, entry),
 			stateRoot:     c.StateRoot,
 			nullifierRoot: c.NullifierRoot,
@@ -54,15 +54,15 @@ func (c *Circuit) definePool(api frontend.API, checker frontend.Rangechecker) [N
 	return out
 }
 
-// define mirrors the derivations in ring_policy::record.
-func (w PoolEntryWires) define(api frontend.API, checker frontend.Rangechecker, ring records) poolView {
+// define mirrors the derivations in ring_policy::entry.
+func (w RuleAnswerWires) define(api frontend.API, checker frontend.Rangechecker, ring entries) answerView {
 	api.AssertIsBoolean(w.Enabled)
-	checker.Check(w.Kind, 8)
+	checker.Check(w.ListId, 8)
 	checker.Check(w.Version, 64)
-	// Neither the zero padding member nor the inline kind 0 names a record,
-	// and kind 0 could only resolve against empty source slots.
+	// Neither the zero padding member nor the inline listId 0 names an entry,
+	// and listId 0 could only resolve against empty source slots.
 	shared.AssertWhen(api, w.Enabled, nonZero(api, w.Member))
-	shared.AssertWhen(api, w.Enabled, nonZero(api, w.Kind))
+	shared.AssertWhen(api, w.Enabled, nonZero(api, w.ListId))
 
 	isPresent := api.IsZero(api.Sub(w.Mode, ModePresent))
 	isAbsent := api.IsZero(api.Sub(w.Mode, ModeAbsent))
@@ -73,7 +73,7 @@ func (w PoolEntryWires) define(api frontend.API, checker frontend.Rangechecker, 
 	cleared := api.IsZero(api.Sub(w.AbsentBranch, AbsentBranchCleared))
 	shared.AssertWhen(api, absent, api.Add(noAddress, cleared))
 
-	seed := gadget.PoseidonHash(api, []frontend.Variable{policyAddressDomain, w.Kind, w.Member})
+	seed := gadget.PoseidonHash(api, []frontend.Variable{policyAddressDomain, w.ListId, w.Member})
 	address := gadget.PoseidonHash(api, []frontend.Variable{
 		addressUtxoHash(api, ring.ownerHash, seed),
 		seed,
@@ -82,11 +82,11 @@ func (w PoolEntryWires) define(api frontend.API, checker frontend.Rangechecker, 
 	dataHash := gadget.PoseidonHash(api, []frontend.Variable{
 		policyRecordDomain,
 		address,
-		w.Kind,
+		w.ListId,
 		w.Member,
 		w.State,
 		w.Version,
-		w.PayloadHash,
+		w.ContentHash,
 	})
 	// The version doubles as the blinding, keeping a re-added member off an old
 	// commitment.
@@ -116,11 +116,11 @@ func (w PoolEntryWires) define(api frontend.API, checker frontend.Rangechecker, 
 	abstractor.CallVoid(api, gadget.AssertEqualWhen{
 		Cond: needInclusion,
 		A:    w.State,
-		B:    api.Select(clearedBranch, RecordStateCleared, RecordStateActive),
+		B:    api.Select(clearedBranch, EntryStateCleared, EntryStateActive),
 	})
 
-	// Target the address to prove no record was ever created, the nullifier to
-	// prove the opened record is unspent.
+	// Target the address to prove no entry was ever created, the nullifier to
+	// prove the opened entry is unspent.
 	target := api.Select(api.Mul(absent, noAddress), address, nullifier)
 	nullifierRoot := abstractor.Call(api, gadget.MerkleRootGadget{
 		Hash:   gadget.IndexedLeafHash(api, w.Low, w.Next),
@@ -139,15 +139,15 @@ func (w PoolEntryWires) define(api frontend.API, checker frontend.Rangechecker, 
 	shared.AssertWhen(api, w.Enabled, gadget.IsLessLimbs(api, low, mid))
 	shared.AssertWhen(api, w.Enabled, gadget.IsLessLimbs(api, mid, high))
 
-	return poolView{
+	return answerView{
 		enabled: w.Enabled,
 		mode:    w.Mode,
-		kind:    w.Kind,
+		listId:    w.ListId,
 		member:  w.Member,
 	}
 }
 
-// addressUtxoHash is the record's address slot commitment, blinded by the seed.
+// addressUtxoHash is the entry's address slot commitment, blinded by the seed.
 func addressUtxoHash(api frontend.API, ownerHash, seed frontend.Variable) frontend.Variable {
 	return gadget.PoseidonHash(api, []frontend.Variable{
 		shared.AddressDomain,

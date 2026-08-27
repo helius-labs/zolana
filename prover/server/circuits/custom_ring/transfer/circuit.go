@@ -1,7 +1,7 @@
 // Package transfer holds the universal custom ring circuit: package audit's
 // verifiable-encryption statement, unchanged, folded with a policy block that
-// decides one SPP transaction against a compiled rule table and a pool of
-// policy record proofs.
+// decides one SPP transaction against a compiled rule table and an answers of
+// policy entry proofs.
 //
 // The circuit has exactly one public input, PublicInputHash, the Poseidon hash
 // chain over these eleven elements in this exact order:
@@ -14,12 +14,12 @@
 //  6. eph_pk_lo
 //  7. eph_pk_hi
 //  8. ct_hash
-//  9. policy_hash        -- recomputed, binds the per-kind records owner map
-//  10. state_root        -- the SPP roots the record proofs open against
+//  9. policy_hash        -- recomputed, binds the per-listId namespace owner map
+//  10. state_root        -- the SPP roots the entry proofs open against
 //  11. nullifier_root
 //
 // The Rust mirror of element 9 is program-libs/ring-policy, table hashing in
-// policy.rs over the record derivation in record.rs. Element 1 comes from the
+// policy.rs over the entry derivation in entry.rs. Element 1 comes from the
 // SPP transaction circuit, elements 10 and 11 from the tree account, and
 // elements 2 to 8 keep the mirror named in package audit.
 package transfer
@@ -35,7 +35,7 @@ import (
 // SourceWires is bound to the on-chain source map through the policy hash
 // alone.
 type SourceWires struct {
-	Kind      frontend.Variable
+	ListId      frontend.Variable
 	OwnerHash frontend.Variable
 }
 
@@ -64,7 +64,7 @@ type Circuit struct {
 	StateRoot     frontend.Variable
 	NullifierRoot frontend.Variable
 
-	Pool [NPool]PoolEntryWires
+	Answers [NAnswers]RuleAnswerWires
 }
 
 func (c *Circuit) Define(api frontend.API) error {
@@ -80,7 +80,7 @@ func (c *Circuit) Define(api frontend.API) error {
 
 	slots := c.defineOpenings(api, checker)
 	policyHash, enabled := c.definePolicy(api, checker)
-	c.evaluate(api, slots, c.definePool(api, checker), enabled)
+	c.evaluate(api, slots, c.defineAnswers(api, checker), enabled)
 
 	chain := append(elements[:], policyHash, c.StateRoot, c.NullifierRoot)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, chain))

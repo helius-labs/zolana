@@ -1,14 +1,14 @@
 use bytemuck::from_bytes_mut;
-use custom_ring_interface::{PolicyConfig, PolicySourceSlot, SetPolicySourceIxData, POLICY};
+use custom_ring_interface::{PolicyConfig, SetPolicySourceIxData, SourceSlot, RULES};
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
-use zolana_ring_policy::RecordKind;
+use zolana_ring_policy::ListId;
 
 use crate::{
     error::CustomRingError,
     instructions::{
         loader::{load_authorized_config, load_policy_config},
-        policy_shared::{kind_owners, load_curator_policy_config, records_pda},
+        policy_shared::{load_curator_policy_config, namespace_pda, source_map},
     },
 };
 
@@ -33,34 +33,34 @@ pub fn process_set_policy_source_ix(
     load_authorized_config(program_id, config, authority)?;
     let stored: PolicyConfig = *load_policy_config(program_id, policy_config)?;
 
-    if POLICY
-        .hash(&kind_owners(&stored.sources)?)
+    if RULES
+        .hash(&source_map(&stored.sources)?)
         .map_err(|_| CustomRingError::HashingFailed)?
         != stored.policy_hash
     {
         return Err(CustomRingError::PolicyHashMismatch.into());
     }
 
-    let kind = RecordKind::try_from(ix.kind).map_err(|_| CustomRingError::InvalidRecordKind)?;
-    let index = kind as usize - 1;
-    if stored.sources[index].kind == 0 {
-        return Err(CustomRingError::InvalidPolicySource.into());
+    let list_id = ListId::try_from(ix.list_id).map_err(|_| CustomRingError::InvalidListId)?;
+    let index = list_id as usize - 1;
+    if stored.sources[index].list_id == 0 {
+        return Err(CustomRingError::InvalidSource.into());
     }
-    let records = match (ix.source, curators) {
-        (0, []) => records_pda(program_id)?.0,
-        (1, [curator]) => load_curator_policy_config(curator, &stored.records_tree)?
-            .source_for(kind as u8)
+    let entries = match (ix.source, curators) {
+        (0, []) => namespace_pda(program_id)?.0,
+        (1, [curator]) => load_curator_policy_config(curator, &stored.entries_tree)?
+            .source_for(list_id as u8)
             .ok_or(CustomRingError::CuratorSourceMissing)?,
-        _ => return Err(CustomRingError::InvalidPolicySource.into()),
+        _ => return Err(CustomRingError::InvalidSource.into()),
     };
 
     let mut sources = stored.sources;
-    sources[index] = PolicySourceSlot {
-        kind: kind as u8,
-        records,
+    sources[index] = SourceSlot {
+        list_id: list_id as u8,
+        namespace: entries,
     };
-    let policy_hash = POLICY
-        .hash(&kind_owners(&sources)?)
+    let policy_hash = RULES
+        .hash(&source_map(&sources)?)
         .map_err(|_| CustomRingError::HashingFailed)?;
 
     let mut data = policy_config

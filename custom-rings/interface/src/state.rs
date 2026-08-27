@@ -56,16 +56,16 @@ const _: () = assert!(core::mem::align_of::<ReadAccessRecord>() == 1);
 
 pub const POLICY_CONFIG_PDA_SEED: &[u8] = b"policy";
 pub const POLICY_CONFIG: u8 = 3;
-pub const N_POLICY_SOURCE_SLOTS: usize = 8;
+pub const N_SOURCE_SLOTS: usize = 8;
 
-/// One record kind's source, slot `i` is empty (`kind == 0`) or serves kind
+/// One list's source, slot `i` is empty (`list_id == 0`) or serves list
 /// `i + 1`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
-pub struct PolicySourceSlot {
-    pub kind: u8,
-    /// The records PDA serving the kind, the ring's own or a curator's.
-    pub records: Address,
+pub struct SourceSlot {
+    pub list_id: u8,
+    /// The namespace PDA serving the list, the ring's own or a curator's.
+    pub namespace: Address,
 }
 
 /// Pinned at `create_policy`, a mutation that recomputes a different
@@ -75,26 +75,26 @@ pub struct PolicySourceSlot {
 pub struct PolicyConfig {
     pub discriminator: u8,
     pub policy_hash: [u8; 32],
-    /// All records live in one tree, presence and absence stay provable against its roots.
-    pub records_tree: Address,
-    pub records_bump: u8,
+    /// All entries live in one tree, presence and absence stay provable against its roots.
+    pub entries_tree: Address,
+    pub namespace_bump: u8,
     pub bump: u8,
     /// Non-empty exactly for the kinds the compiled table references.
-    pub sources: [PolicySourceSlot; N_POLICY_SOURCE_SLOTS],
+    pub sources: [SourceSlot; N_SOURCE_SLOTS],
 }
 
 impl PolicyConfig {
     pub const SEED: &'static [u8] = POLICY_CONFIG_PDA_SEED;
     pub const SIZE: usize = core::mem::size_of::<Self>();
 
-    /// The records owner serving `kind`, `None` when the table does not
+    /// The namespace owner serving `list_id`, `None` when the table does not
     /// reference it.
-    pub fn source_for(&self, kind: u8) -> Option<Address> {
-        let slot = self.sources[kind as usize - 1];
-        (slot.kind != 0).then_some(slot.records)
+    pub fn source_for(&self, list_id: u8) -> Option<Address> {
+        let slot = self.sources[list_id as usize - 1];
+        (slot.list_id != 0).then_some(slot.namespace)
     }
 }
 
-const _: () = assert!(core::mem::size_of::<PolicySourceSlot>() == 33);
+const _: () = assert!(core::mem::size_of::<SourceSlot>() == 33);
 const _: () = assert!(PolicyConfig::SIZE == 331);
 const _: () = assert!(core::mem::align_of::<PolicyConfig>() == 1);

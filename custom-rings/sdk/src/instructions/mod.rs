@@ -1,8 +1,8 @@
 pub mod create_config;
 pub mod deposit;
+pub mod entry;
 pub mod grant_read_access;
 pub mod init_spp_ring_config;
-pub mod record;
 pub mod revoke_read_access;
 pub mod set_authority;
 pub mod set_policy_source;

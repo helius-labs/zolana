@@ -1,6 +1,6 @@
 use custom_ring_interface::{
     AuditPublicInput, CustomRingPublicInput, CustomRingTransactIxData, AUDIT_CIPHERTEXT_LEN,
-    COMPRESSED_P256_KEY_LEN, POLICY,
+    COMPRESSED_P256_KEY_LEN, RULES,
 };
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
@@ -15,7 +15,7 @@ use crate::{
     error::CustomRingError,
     instructions::{
         loader::{load_config, load_policy_config, validate_spp_program},
-        policy_shared::kind_owners,
+        policy_shared::source_map,
         roots::load_roots,
         shared::cpi_spp_signed,
         verifier::{verify_groth16, CompressedGroth16Proof},
@@ -88,26 +88,26 @@ pub fn process_transact_ix(
         commitment_pok: &proof.commitment_pok,
     };
 
-    let (policy_hash, records_tree, sources) = {
+    let (policy_hash, entries_tree, sources) = {
         let policy = load_policy_config(program_id, policy_config_account)?;
-        (policy.policy_hash, policy.records_tree, policy.sources)
+        (policy.policy_hash, policy.entries_tree, policy.sources)
     };
     // A rebuilt table hashing differently must not spend under the rules the
     // deployed one pinned.
-    if POLICY
-        .hash(&kind_owners(&sources)?)
+    if RULES
+        .hash(&source_map(&sources)?)
         .map_err(|_| CustomRingError::HashingFailed)?
         != policy_hash
     {
         return Err(CustomRingError::PolicyHashMismatch.into());
     }
-    // SPP's own list puts the input tree at slot 1, and records share it.
+    // SPP's own list puts the input tree at slot 1, and entries share it.
     let tree_account = spp_accounts
         .get_mut(1)
         .ok_or(ProgramError::NotEnoughAccountKeys)?;
     let roots = load_roots(
         tree_account,
-        &records_tree,
+        &entries_tree,
         state_root_index,
         nullifier_root_index,
     )?;
@@ -125,7 +125,7 @@ pub fn process_transact_ix(
     )?;
 
     // Reserialized from the parsed struct rather than sliced out of `data`: the
-    // proof is verified against the parsed payload, so the bytes SPP sees must be
+    // proof is verified against the parsed content, so the bytes SPP sees must be
     // the ones that were parsed.
     let transact_bytes = transact
         .serialize()
@@ -148,7 +148,7 @@ struct AuditorMessageParts<'a> {
 /// The ring's convention is: exactly one message carries the auditor view tag,
 /// and it is the last one. Free-form messages before it stay allowed. Requiring
 /// uniqueness and a fixed position leaves no room for a second, differently
-/// tagged payload that an indexer or auditor might pick up instead of the proven
+/// tagged content that an indexer or auditor might pick up instead of the proven
 /// one -- the proof covers exactly one ciphertext, so exactly one message may
 /// claim the auditor's tag.
 fn select_auditor_message<'a>(

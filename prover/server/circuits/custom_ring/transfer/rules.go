@@ -13,7 +13,7 @@ type RuleWires struct {
 	Packed    frontend.Variable
 	Subject   frontend.Variable
 	Mode      frontend.Variable
-	Kind      frontend.Variable
+	ListId      frontend.Variable
 	GuardTag  frontend.Variable
 	Threshold frontend.Variable
 }
@@ -34,29 +34,29 @@ func (c *Circuit) definePolicy(
 	return c.policyHash(api), enabled
 }
 
-// define holds the inline invariants ring_policy::PolicyBuilder asserts at
+// define holds the inline invariants ring_policy::RuleTableBuilder asserts at
 // build time.
 func (w RuleWires) define(api frontend.API, checker frontend.Rangechecker, enabled frontend.Variable) {
 	checker.Check(w.Subject, 8)
 	checker.Check(w.Mode, 8)
-	checker.Check(w.Kind, 8)
+	checker.Check(w.ListId, 8)
 	checker.Check(w.GuardTag, 8)
 	checker.Check(w.Threshold, 64)
 	// Mirrors ring_policy::Rule::encoded, byte 31 down to byte 20.
 	api.AssertIsEqual(w.Packed, api.Add(
 		w.Subject,
 		api.Mul(w.Mode, ruleShift[0]),
-		api.Mul(w.Kind, ruleShift[1]),
+		api.Mul(w.ListId, ruleShift[1]),
 		api.Mul(w.GuardTag, ruleShift[2]),
 		api.Mul(w.Threshold, ruleShift[3]),
 	))
 
-	inline := api.Mul(enabled, api.IsZero(api.Sub(w.Kind, InlineKind)))
+	inline := api.Mul(enabled, api.IsZero(api.Sub(w.ListId, InlineKind)))
 	abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: inline, A: w.Subject, B: SubjectAsset})
 	abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: inline, A: w.Mode, B: ModePresent})
 }
 
-// policyHash mirrors ring_policy::Policy::hash, the head's length element
+// policyHash mirrors ring_policy::RuleTable::hash, the head's length element
 // closing the variable-length preimage.
 func (c *Circuit) policyHash(api frontend.API) frontend.Variable {
 	length := frontend.Variable(0)
@@ -66,7 +66,7 @@ func (c *Circuit) policyHash(api frontend.API) frontend.Variable {
 	preimage := make([]frontend.Variable, 0, 3+2*NSources)
 	preimage = append(preimage, policyTableDomain, PolicyVersion)
 	for _, src := range c.Sources {
-		preimage = append(preimage, src.Kind, src.OwnerHash)
+		preimage = append(preimage, src.ListId, src.OwnerHash)
 	}
 	head := gadget.HashChain(api, append(preimage, length))
 

@@ -12,10 +12,10 @@ export interface RingProgramConfig {
   readonly bump: number;
 }
 
-/** Mirrors Rust `PolicySourceSlot`, slot `i` is empty (`kind === 0`) or serves kind `i + 1`. */
+/** Mirrors Rust `SourceSlot`, slot `i` is empty (`kind === 0`) or serves kind `i + 1`. */
 export interface RingPolicySource {
-  readonly kind: number;
-  readonly records: Address;
+  readonly listId: number;
+  readonly namespace: Address;
 }
 
 /** Mirrors Rust `PolicyConfig`. */
@@ -64,8 +64,8 @@ export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
   const sources = Object.freeze(
     Array.from({ length: RING_SOURCE_SLOTS }, () =>
       Object.freeze({
-        kind: reader.u8("kind"),
-        records: encodeBase58(reader.bytes(32, "records")),
+        listId: reader.u8("listId"),
+        namespace: encodeBase58(reader.bytes(32, "namespace")),
       }),
     ),
   );

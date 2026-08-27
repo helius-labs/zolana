@@ -118,7 +118,7 @@ export async function ringTransactInstruction(
     ringAuthAddress(input.ringProgramId),
   ]);
   const payerAddress = typeof input.payer === "string" ? input.payer : input.payer.address;
-  const pool = ringTransactAccounts({
+  const answers = ringTransactAccounts({
     payer: input.payer,
     inputTree: input.inputTree,
     outputTree: input.outputTree,
@@ -147,7 +147,7 @@ export async function ringTransactInstruction(
       },
       { address: config, role: AccountRole.READONLY },
       { address: policyConfig, role: AccountRole.READONLY },
-      ...pool,
+      ...answers,
     ],
     data,
   };
@@ -162,7 +162,7 @@ export async function ringLookupTableAddresses(
     ringPolicyConfigAddress(input.ringProgramId),
     ringAuthAddress(input.ringProgramId),
   ]);
-  const pool = ringTransactAccounts({
+  const answers = ringTransactAccounts({
     payer: SHIELDED_POOL_PROGRAM_ID,
     inputTree: input.tree,
     outputTree: input.tree,
@@ -171,7 +171,7 @@ export async function ringLookupTableAddresses(
   const addresses = [
     config,
     policyConfig,
-    ...pool
+    ...answers
       .filter(
         (meta) =>
           meta.role !== AccountRole.WRITABLE_SIGNER && meta.role !== AccountRole.READONLY_SIGNER,

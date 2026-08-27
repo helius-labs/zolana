@@ -9,7 +9,7 @@ use crate::{AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN};
 /// (`prover/server/circuits/custom_ring/circuit.go`) and is
 /// numbered 1..8 there; [`CustomRingPublicInput::hash`] mirrors it element for
 /// element. Recomputing the hash on-chain from values the program itself trusts
-/// -- `private_tx_hash` and `tx_viewing_pk` from the forwarded SPP payload, the
+/// -- `private_tx_hash` and `tx_viewing_pk` from the forwarded SPP content, the
 /// auditor key from the ring config account, the ephemeral key and ciphertext
 /// from the published message -- is what binds the proof to this transaction: a
 /// proof for any other transaction, viewing key, auditor, or ciphertext hashes

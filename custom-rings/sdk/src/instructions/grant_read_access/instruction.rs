@@ -4,7 +4,7 @@ use solana_instruction::{AccountMeta, Instruction};
 
 use crate::{shared::ReaderKey, CustomRing};
 
-/// Creates the ring's read access record for `reader`, authorizing it to read
+/// Creates the ring's read access entry for `reader`, authorizing it to read
 /// the ring through the ring RPC.
 #[must_use]
 pub struct GrantReadAccess {

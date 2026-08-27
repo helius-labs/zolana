@@ -7,7 +7,7 @@ const (
 	NIn           = 5
 	NOut          = 4
 	NRules        = 16
-	NPool         = 10
+	NAnswers         = 10
 	NInlineAssets = 8
 	NSources      = 8
 )
@@ -30,12 +30,12 @@ const (
 )
 
 // InlineKind marks a rule whose members are inlined in the table, never a
-// record kind.
+// entry listId.
 const InlineKind = 0
 
 const (
-	RecordStateActive  = 1
-	RecordStateCleared = 2
+	EntryStateActive  = 1
+	EntryStateCleared = 2
 )
 
 // GuardAboveAmount exempts an instance at or below the rule's threshold.
@@ -60,7 +60,7 @@ var (
 	policyTableDomain   = packedASCII(tableDomainTag)
 )
 
-// solAssetField is Poseidon(0, 0), the native-SOL asset id of a record utxo,
+// solAssetField is Poseidon(0, 0), the native-SOL asset id of an entry utxo,
 // mirroring zolana_interface::SOL_ASSET_FIELD.
 var solAssetField, _ = new(big.Int).SetString(
 	"2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864", 16)

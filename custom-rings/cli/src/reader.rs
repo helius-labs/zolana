@@ -57,7 +57,7 @@ pub fn run(ctx: &mut Context, command: ReaderCommand) -> Result<(), ReaderError>
         "reader",
         format_args!("{reader} {}", outcome_label(outcome)),
     );
-    line("record", ctx.ring.read_access_record_pda(&reader));
+    line("entry", ctx.ring.read_access_record_pda(&reader));
     Ok(())
 }
 

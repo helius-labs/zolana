@@ -194,7 +194,7 @@ impl PendingCustomRingProof {
             inline_count: witness.inline_count,
             state_root: witness.roots.state,
             nullifier_root: witness.roots.nullifier,
-            pool: witness.pool,
+            answers: witness.answers,
         })
     }
 }

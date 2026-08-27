@@ -1,11 +1,11 @@
-//! Pins the record and policy hashing to the Go circuit. The values are the
+//! Pins the entry and policy hashing to the Go circuit. The values are the
 //! fixture `prover/server/circuits/custom_ring/transfer/circuit_test.go` prints
 //! under `PRINT_POLICY_VECTORS=1`, so a change on either side fails here.
 
 use custom_ring_interface::{AuditPublicInput, CustomRingPublicInput};
 use zolana_ring_policy::{
-    record_nullifier, record_seed, Guard, Member, Mode, Policy, PolicySources, Record, RecordKind,
-    RecordState, RecordsOwner, Rule, Subject,
+    entry_nullifier, entry_seed, EntryState, Guard, ListEntry, ListId, ListNamespace, Member, Mode,
+    Rule, RuleTable, SourceMap, Subject,
 };
 
 const RECORDS_PDA: [u8; 32] = [0x11; 32];
@@ -45,8 +45,8 @@ const ALLOW_PRESENT: Vector = Vector {
     nullifier: "23ea6084012812863119d78a52a0ecdaa1431254e08d0f0d2c95a8accb9f1e68",
 };
 
-/// The frozen record was never created and its kind reads a curator's
-/// records, so only its curator owned address is pinned.
+/// The frozen entry was never created and its list reads a curator's
+/// entries, so only its curator owned address is pinned.
 const FROZEN_SEED: &str = "08e7b574f94761ce516d508af775433829e11b046e54e02912756d8fc0926db4";
 const FROZEN_ADDRESS: &str = "061a65b955d92905ed3ac1ea36026f9171850fdcdb1ff5442fe90402da8b9f58";
 
@@ -64,52 +64,52 @@ fn hex32(value: &str) -> [u8; 32] {
     bytes
 }
 
-fn owner() -> RecordsOwner {
-    RecordsOwner::new(&RECORDS_PDA).expect("records owner")
+fn owner() -> ListNamespace {
+    ListNamespace::new(&RECORDS_PDA).expect("namespace owner")
 }
 
-fn curator() -> RecordsOwner {
-    RecordsOwner::new(&CURATOR_PDA).expect("curator owner")
+fn curator() -> ListNamespace {
+    ListNamespace::new(&CURATOR_PDA).expect("curator owner")
 }
 
-/// The fixture map, the frozen kind reads the curator's records.
-fn fixture_sources() -> PolicySources {
-    PolicySources::new(&[
-        (RecordKind::Allow, owner().owner_hash),
-        (RecordKind::Block, owner().owner_hash),
-        (RecordKind::Frozen, curator().owner_hash),
-        (RecordKind::Approval, owner().owner_hash),
+/// The fixture map, the frozen list_id reads the curator's entries.
+fn fixture_sources() -> SourceMap {
+    SourceMap::new(&[
+        (ListId::Allow, owner().owner_hash),
+        (ListId::Block, owner().owner_hash),
+        (ListId::Frozen, curator().owner_hash),
+        (ListId::Approval, owner().owner_hash),
     ])
     .expect("sources")
 }
 
-fn check(vector: &Vector, kind: RecordKind, tag: [u8; 32], state: RecordState, version: u64) {
+fn check(vector: &Vector, list_id: ListId, tag: [u8; 32], state: EntryState, version: u64) {
     let owner = owner();
     let member = Member::owner_tag(&tag).expect("member");
     assert_eq!(
-        record_seed(kind, &member).expect("seed"),
+        entry_seed(list_id, &member).expect("seed"),
         hex32(vector.seed),
         "seed"
     );
-    let address = owner.address(kind, &member).expect("address");
+    let address = owner.address(list_id, &member).expect("address");
     assert_eq!(address, hex32(vector.address), "address");
 
-    let record = Record {
-        kind,
+    let entry = ListEntry {
+        list_id,
         member,
         state,
         version,
-        payload_hash: [0u8; 32],
+        content_hash: [0u8; 32],
     };
     assert_eq!(
-        record.data_hash(&address).expect("data hash"),
+        entry.data_hash(&address).expect("data hash"),
         hex32(vector.data_hash),
         "data hash"
     );
-    let utxo_hash = record.utxo_hash(&owner, &address).expect("utxo hash");
+    let utxo_hash = entry.utxo_hash(&owner, &address).expect("utxo hash");
     assert_eq!(utxo_hash, hex32(vector.utxo_hash), "utxo hash");
     assert_eq!(
-        record_nullifier(&utxo_hash, &record.blinding()).expect("nullifier"),
+        entry_nullifier(&utxo_hash, &entry.blinding()).expect("nullifier"),
         hex32(vector.nullifier),
         "nullifier"
     );
@@ -121,38 +121,36 @@ fn record_hashing_matches_the_go_fixture() {
     assert_eq!(curator().owner_hash, hex32(CURATOR_OWNER_HASH));
     check(
         &ALLOW_PRESENT,
-        RecordKind::Allow,
+        ListId::Allow,
         RECIPIENT_TAG,
-        RecordState::Active,
+        EntryState::Active,
         0,
     );
     let sender = Member::owner_tag(&SENDER_TAG).expect("member");
     assert_eq!(
-        record_seed(RecordKind::Frozen, &sender).expect("seed"),
+        entry_seed(ListId::Frozen, &sender).expect("seed"),
         hex32(FROZEN_SEED)
     );
     assert_eq!(
-        curator()
-            .address(RecordKind::Frozen, &sender)
-            .expect("address"),
+        curator().address(ListId::Frozen, &sender).expect("address"),
         hex32(FROZEN_ADDRESS)
     );
     check(
         &BLOCK_CLEARED,
-        RecordKind::Block,
+        ListId::Block,
         BLOCKED_TAG,
-        RecordState::Cleared,
+        EntryState::Cleared,
         1,
     );
 }
 
 #[test]
 fn policy_hashing_matches_the_go_fixture() {
-    let table = Policy::builder()
-        .rule(Rule::require(Subject::OutputOwner, RecordKind::Allow))
-        .rule(Rule::forbid(Subject::Sender, RecordKind::Frozen))
+    let table = RuleTable::builder()
+        .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
+        .rule(Rule::forbid(Subject::Sender, ListId::Frozen))
         .rule(Rule::allow_only_assets(ASSET_MEMBERS))
-        .rule(Rule::require(Subject::OutputOwner, RecordKind::Approval).above(2000))
+        .rule(Rule::require(Subject::OutputOwner, ListId::Approval).above(2000))
         .build();
     assert_eq!(
         table.hash(&fixture_sources()).expect("policy hash"),
@@ -164,27 +162,26 @@ fn policy_hashing_matches_the_go_fixture() {
 
 #[test]
 fn source_map_hashing_matches_the_go_fixture() {
-    const EMPTY: Policy = Policy::builder().build();
+    const EMPTY: RuleTable = RuleTable::builder().build();
     assert_eq!(
-        EMPTY.hash(&PolicySources::empty()).expect("empty hash"),
+        EMPTY.hash(&SourceMap::empty()).expect("empty hash"),
         hex32(EMPTY_POLICY_HASH)
     );
-    const ONE_RULE: Policy = Policy::builder()
-        .rule(Rule::require(Subject::OutputOwner, RecordKind::Allow))
+    const ONE_RULE: RuleTable = RuleTable::builder()
+        .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
         .build();
-    let one_map =
-        PolicySources::new(&[(RecordKind::Allow, owner().owner_hash)]).expect("one source");
+    let one_map = SourceMap::new(&[(ListId::Allow, owner().owner_hash)]).expect("one source");
     assert_eq!(
         ONE_RULE.hash(&one_map).expect("one rule hash"),
         hex32(ONE_RULE_POLICY_HASH)
     );
-    const TWO_RULES: Policy = Policy::builder()
-        .rule(Rule::require(Subject::OutputOwner, RecordKind::Allow))
-        .rule(Rule::forbid(Subject::Sender, RecordKind::Frozen))
+    const TWO_RULES: RuleTable = RuleTable::builder()
+        .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
+        .rule(Rule::forbid(Subject::Sender, ListId::Frozen))
         .build();
-    let two_map = PolicySources::new(&[
-        (RecordKind::Allow, owner().owner_hash),
-        (RecordKind::Frozen, curator().owner_hash),
+    let two_map = SourceMap::new(&[
+        (ListId::Allow, owner().owner_hash),
+        (ListId::Frozen, curator().owner_hash),
     ])
     .expect("two sources");
     assert_eq!(

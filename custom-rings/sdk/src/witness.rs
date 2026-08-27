@@ -1,5 +1,5 @@
 //! Assembles the policy half of the ring proof. The openings come from the
-//! transfer the SDK already prepared, the pool entries from the records the
+//! transfer the SDK already prepared, the answers entries from the entries the
 //! rules name.
 
 use custom_ring_interface::PolicyConfig;
@@ -11,17 +11,17 @@ use zolana_interface::{
     UTXO_DOMAIN,
 };
 use zolana_ring_policy::{
-    record_nullifier, Member, Mode, Policy, RecordKind, RecordState, RecordsOwner, Rule,
-    RuleSource, Subject, MAX_INLINE_ASSETS, MAX_POLICY_SOURCES, MAX_RULES,
+    entry_nullifier, EntryState, ListId, ListNamespace, Member, Mode, Rule, RuleSource, RuleTable,
+    Subject, MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES,
 };
 use zolana_transaction::instructions::{transact::SppProofOutputUtxo, types::SppProofInputUtxo};
 use zolana_tree::TreeAccount;
 
 use crate::{
-    instructions::record::read_record,
+    instructions::entry::read_entry,
     instructions::transact::{
-        CustomRingOpening, CustomRingPoolEntry, PolicySourceEntry, NULLIFIER_PATH_LEN,
-        POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS, POLICY_POOL_SLOTS, STATE_PATH_LEN,
+        CustomRingOpening, RuleAnswer, SourceOwnerEntry, ANSWER_SLOTS, NULLIFIER_PATH_LEN,
+        POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS, STATE_PATH_LEN,
     },
     TransferError,
 };
@@ -37,7 +37,7 @@ pub struct TransactRoots {
 
 pub struct CustomRingWitness {
     pub roots: TransactRoots,
-    pub sources: [PolicySourceEntry; MAX_POLICY_SOURCES],
+    pub sources: [SourceOwnerEntry; MAX_SOURCES],
     pub inputs: [CustomRingOpening; POLICY_INPUT_SLOTS],
     pub outputs: [CustomRingOpening; POLICY_OUTPUT_SLOTS],
     pub n_in: u8,
@@ -46,11 +46,11 @@ pub struct CustomRingWitness {
     pub policy_len: u8,
     pub inline_assets: [[u8; 32]; MAX_INLINE_ASSETS],
     pub inline_count: u8,
-    pub pool: Vec<CustomRingPoolEntry>,
+    pub answers: Vec<RuleAnswer>,
 }
 
 pub struct CustomRingWitnessInput<'a> {
-    pub policy: &'a Policy,
+    pub policy: &'a RuleTable,
     pub policy_config: &'a PolicyConfig,
     pub inputs: &'a [SppProofInputUtxo],
     pub outputs: &'a [SppProofOutputUtxo],
@@ -65,16 +65,16 @@ impl CustomRingWitnessInput<'_> {
         if self.inputs.len() > POLICY_INPUT_SLOTS || self.outputs.len() > POLICY_OUTPUT_SLOTS {
             return Err(TransferError::PolicyShapeUnsupported);
         }
-        let roots = read_roots(rpc, self.policy_config.records_tree)?;
-        let mut sources = [PolicySourceEntry::default(); MAX_POLICY_SOURCES];
+        let roots = read_roots(rpc, self.policy_config.entries_tree)?;
+        let mut sources = [SourceOwnerEntry::default(); MAX_SOURCES];
         for (entry, slot) in sources.iter_mut().zip(self.policy_config.sources) {
-            if slot.kind == 0 {
+            if slot.list_id == 0 {
                 continue;
             }
-            let owner = RecordsOwner::new(slot.records.as_array())
+            let owner = ListNamespace::new(slot.namespace.as_array())
                 .map_err(|_| TransferError::PolicyHashing)?;
-            *entry = PolicySourceEntry {
-                kind: slot.kind,
+            *entry = SourceOwnerEntry {
+                list_id: slot.list_id,
                 owner_hash: owner.owner_hash,
             };
         }
@@ -89,7 +89,7 @@ impl CustomRingWitnessInput<'_> {
         }
 
         let (rules, inline_assets, inline_count) = encode_table(self.policy);
-        let pool = self.build_pool(indexer)?;
+        let answers = self.answer_rules(indexer)?;
         Ok(CustomRingWitness {
             roots,
             sources,
@@ -101,33 +101,33 @@ impl CustomRingWitnessInput<'_> {
             policy_len: self.policy.rules().len() as u8,
             inline_assets,
             inline_count,
-            pool,
+            answers,
         })
     }
 
-    /// One entry per distinct `(kind, member, mode)` the table asks about.
-    fn build_pool<I: Rpc>(&self, indexer: &I) -> Result<Vec<CustomRingPoolEntry>, TransferError> {
-        let mut pool: Vec<CustomRingPoolEntry> = Vec::new();
+    /// One entry per distinct `(list_id, member, mode)` the table asks about.
+    fn answer_rules<I: Rpc>(&self, indexer: &I) -> Result<Vec<RuleAnswer>, TransferError> {
+        let mut answers: Vec<RuleAnswer> = Vec::new();
         for rule in self.policy.rules() {
-            let RuleSource::Records(kind) = rule.source else {
+            let RuleSource::List(list_id) = rule.source else {
                 continue;
             };
             for member in self.subjects(rule)? {
-                if pool.iter().any(|entry| {
-                    entry.kind == kind as u8
+                if answers.iter().any(|entry| {
+                    entry.list_id == list_id as u8
                         && entry.member == *member.as_bytes()
                         && entry.mode == rule.mode as u8
                 }) {
                     continue;
                 }
-                pool.push(self.entry(indexer, kind, &member, rule.mode)?);
+                answers.push(self.entry(indexer, list_id, &member, rule.mode)?);
             }
         }
-        if pool.len() > POLICY_POOL_SLOTS {
+        if answers.len() > ANSWER_SLOTS {
             return Err(TransferError::PolicyShapeUnsupported);
         }
-        pool.resize_with(POLICY_POOL_SLOTS, CustomRingPoolEntry::default);
-        Ok(pool)
+        answers.resize_with(ANSWER_SLOTS, RuleAnswer::default);
+        Ok(answers)
     }
 
     fn subjects(&self, rule: &Rule) -> Result<Vec<Member>, TransferError> {
@@ -144,7 +144,7 @@ impl CustomRingWitnessInput<'_> {
                 .filter(|spend| !spend.is_dummy())
                 .map(|spend| spend.utxo.owner.confidential_view_tag())
                 .collect::<Result<Vec<_>, _>>(),
-            // Exit destinations and assets are checked without a record.
+            // Exit destinations and assets are checked without an entry.
             Subject::ExitDestination | Subject::Asset => Ok(Vec::new()),
         }
         .map_err(|_| TransferError::PolicyHashing)?;
@@ -156,27 +156,27 @@ impl CustomRingWitnessInput<'_> {
     fn entry<I: Rpc>(
         &self,
         indexer: &I,
-        kind: RecordKind,
+        list_id: ListId,
         member: &Member,
         mode: Mode,
-    ) -> Result<CustomRingPoolEntry, TransferError> {
-        let records = self
+    ) -> Result<RuleAnswer, TransferError> {
+        let entries = self
             .policy_config
-            .source_for(kind as u8)
-            .ok_or(TransferError::MissingPolicySource)?;
+            .source_for(list_id as u8)
+            .ok_or(TransferError::MissingSourceOwner)?;
         let owner =
-            RecordsOwner::new(records.as_array()).map_err(|_| TransferError::PolicyHashing)?;
+            ListNamespace::new(entries.as_array()).map_err(|_| TransferError::PolicyHashing)?;
         let address = owner
-            .address(kind, member)
+            .address(list_id, member)
             .map_err(|_| TransferError::PolicyHashing)?;
-        let live = read_record(indexer, records, kind, member)
-            .map_err(|error| TransferError::Record(Box::new(error)))?;
-        let mut entry = CustomRingPoolEntry {
+        let live = read_entry(indexer, entries, list_id, member)
+            .map_err(|error| TransferError::ListEntry(Box::new(error)))?;
+        let mut entry = RuleAnswer {
             enabled: true,
             mode: mode as u8,
-            kind: kind as u8,
+            list_id: list_id as u8,
             member: *member.as_bytes(),
-            ..CustomRingPoolEntry::default()
+            ..RuleAnswer::default()
         };
         match live {
             // A never claimed address proves absence by its own non-inclusion.
@@ -185,14 +185,14 @@ impl CustomRingWitnessInput<'_> {
                     return Err(TransferError::PolicyRuleUnsatisfied);
                 }
                 entry.absent_branch = 1;
-                let proof = non_inclusion(indexer, self.policy_config.records_tree, address)?;
+                let proof = non_inclusion(indexer, self.policy_config.entries_tree, address)?;
                 entry.low = proof.low_element;
                 entry.next = proof.high_element;
                 entry.nullifier_path = proof.path;
                 entry.nullifier_path_index = proof.low_element_index;
             }
             Some(live) => {
-                let cleared = live.record.state == RecordState::Cleared;
+                let cleared = live.entry.state == EntryState::Cleared;
                 if matches!(mode, Mode::Present) && cleared {
                     return Err(TransferError::PolicyRuleUnsatisfied);
                 }
@@ -200,15 +200,15 @@ impl CustomRingWitnessInput<'_> {
                     return Err(TransferError::PolicyRuleUnsatisfied);
                 }
                 entry.absent_branch = 2;
-                entry.state = live.record.state as u8;
-                entry.version = live.record.version;
-                entry.payload_hash = live.record.payload_hash;
-                let state = merkle(indexer, self.policy_config.records_tree, live.utxo_hash)?;
+                entry.state = live.entry.state as u8;
+                entry.version = live.entry.version;
+                entry.content_hash = live.entry.content_hash;
+                let state = merkle(indexer, self.policy_config.entries_tree, live.utxo_hash)?;
                 entry.state_path = state.path;
                 entry.state_path_index = state.leaf_index;
-                let nullifier = record_nullifier(&live.utxo_hash, &live.record.blinding())
+                let nullifier = entry_nullifier(&live.utxo_hash, &live.entry.blinding())
                     .map_err(|_| TransferError::PolicyHashing)?;
-                let proof = non_inclusion(indexer, self.policy_config.records_tree, nullifier)?;
+                let proof = non_inclusion(indexer, self.policy_config.entries_tree, nullifier)?;
                 entry.low = proof.low_element;
                 entry.next = proof.high_element;
                 entry.nullifier_path = proof.path;
@@ -282,7 +282,7 @@ fn ring_field(ring: Option<&Address>) -> Result<[u8; 32], TransferError> {
     }
 }
 
-fn encode_table(policy: &Policy) -> ([[u8; 32]; MAX_RULES], [[u8; 32]; MAX_INLINE_ASSETS], u8) {
+fn encode_table(policy: &RuleTable) -> ([[u8; 32]; MAX_RULES], [[u8; 32]; MAX_INLINE_ASSETS], u8) {
     let mut rules = [[0u8; 32]; MAX_RULES];
     let mut inline = [[0u8; 32]; MAX_INLINE_ASSETS];
     let mut inline_count = 0usize;

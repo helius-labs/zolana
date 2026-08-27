@@ -23,7 +23,7 @@ import (
 )
 
 // The host side of this test recomputes the whole statement outside the
-// circuit, the audit block with crypto/ecdh and crypto/aes, the record and
+// circuit, the audit block with crypto/ecdh and crypto/aes, the entry and
 // policy hashing with the same iden3 Poseidon the Rust twins use, and the two
 // SPP trees with the protocol helpers. Solving the compiled R1CS against that
 // witness is the cross-check that the circuit computes what
@@ -142,26 +142,26 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
-			name: "record mode swapped",
+			name: "entry mode swapped",
 			build: func(t *testing.T) *Circuit {
 				c := validAssignment(t)
-				c.Pool[0].Mode = big.NewInt(ModeAbsent)
+				c.Answers[0].Mode = big.NewInt(ModeAbsent)
 				return c
 			},
 		},
 		{
-			name: "record kind swapped",
+			name: "entry listId swapped",
 			build: func(t *testing.T) *Circuit {
 				c := validAssignment(t)
-				c.Pool[0].Kind = big.NewInt(kindBlock)
+				c.Answers[0].ListId = big.NewInt(kindBlock)
 				return c
 			},
 		},
 		{
-			name: "record proves a different member",
+			name: "entry proves a different member",
 			build: func(t *testing.T) *Circuit {
 				c := validAssignment(t)
-				c.Pool[0].Member = new(big.Int).Add(spptest.AsBigInt(c.Pool[0].Member), big.NewInt(1))
+				c.Answers[0].Member = new(big.Int).Add(spptest.AsBigInt(c.Answers[0].Member), big.NewInt(1))
 				return c
 			},
 		},
@@ -169,7 +169,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			name: "zero member",
 			build: func(t *testing.T) *Circuit {
 				c := validAssignment(t)
-				c.Pool[0].Member = big.NewInt(0)
+				c.Answers[0].Member = big.NewInt(0)
 				return c
 			},
 		},
@@ -177,16 +177,16 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			name: "present member claimed absent",
 			build: func(t *testing.T) *Circuit {
 				c := validAssignment(t)
-				c.Pool[0].Mode = big.NewInt(ModeAbsent)
-				c.Pool[0].AbsentBranch = big.NewInt(AbsentBranchNoAddress)
+				c.Answers[0].Mode = big.NewInt(ModeAbsent)
+				c.Answers[0].AbsentBranch = big.NewInt(AbsentBranchNoAddress)
 				return c
 			},
 		},
 		{
-			name: "cleared record claimed present",
+			name: "cleared entry claimed present",
 			build: func(t *testing.T) *Circuit {
 				c := validAssignment(t)
-				c.Pool[2].Mode = big.NewInt(ModePresent)
+				c.Answers[2].Mode = big.NewInt(ModePresent)
 				return c
 			},
 		},
@@ -199,18 +199,18 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
-			name: "record inclusion proof does not open the state root",
+			name: "entry inclusion proof does not open the state root",
 			build: func(t *testing.T) *Circuit {
 				c := validAssignment(t)
-				c.Pool[0].StatePathElements[0] = big.NewInt(1)
+				c.Answers[0].StatePathElements[0] = big.NewInt(1)
 				return c
 			},
 		},
 		{
-			name: "record absence proof does not open the nullifier root",
+			name: "entry absence proof does not open the nullifier root",
 			build: func(t *testing.T) *Circuit {
 				c := validAssignment(t)
-				c.Pool[1].NfPathElements[0] = big.NewInt(1)
+				c.Answers[1].NfPathElements[0] = big.NewInt(1)
 				return c
 			},
 		},
@@ -240,7 +240,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
-			name: "live kind duplicated into a second slot in the witness",
+			name: "live listId duplicated into a second slot in the witness",
 			build: func(t *testing.T) *Circuit {
 				c := validAssignment(t)
 				c.Sources[4] = c.Sources[kindFrozen-1]
@@ -329,12 +329,12 @@ func TestPrintPolicyVectors(t *testing.T) {
 
 	fmt.Printf("empty_policy_hash    %s\n", hex32(hostPolicyHash(t, nil, nil, emptySources())))
 	oneMap := emptySources()
-	oneMap[kindAllow-1] = source{kind: kindAllow, owner: s.ownOwnerHash}
-	oneRule := []rule{{subject: SubjectOutputOwner, mode: ModePresent, kind: kindAllow}}
+	oneMap[kindAllow-1] = source{listId: kindAllow, owner: s.ownOwnerHash}
+	oneRule := []rule{{subject: SubjectOutputOwner, mode: ModePresent, listId: kindAllow}}
 	fmt.Printf("one_rule_policy_hash %s\n", hex32(hostPolicyHash(t, oneRule, nil, oneMap)))
 	twoMap := oneMap
-	twoMap[kindFrozen-1] = source{kind: kindFrozen, owner: s.curatorOwnerHash}
-	twoRules := append(oneRule, rule{subject: SubjectSender, mode: ModeAbsent, kind: kindFrozen})
+	twoMap[kindFrozen-1] = source{listId: kindFrozen, owner: s.curatorOwnerHash}
+	twoRules := append(oneRule, rule{subject: SubjectSender, mode: ModeAbsent, listId: kindFrozen})
 	fmt.Printf("two_rule_policy_hash %s\n", hex32(hostPolicyHash(t, twoRules, nil, twoMap)))
 }
 
@@ -371,25 +371,25 @@ func defaultFixture() fixture {
 
 // source is one host-side slot of the positional policy source map.
 type source struct {
-	kind  int64
+	listId  int64
 	owner *big.Int
 }
 
 func emptySources() [NSources]source {
 	var out [NSources]source
 	for i := range out {
-		out[i] = source{kind: 0, owner: big.NewInt(0)}
+		out[i] = source{listId: 0, owner: big.NewInt(0)}
 	}
 	return out
 }
 
-// record is one host-side policy record, mirroring ring_policy::PolicyRecord.
-type record struct {
-	kind    int64
+// entry is one host-side policy entry, mirroring ring_policy::PolicyRecord.
+type entry struct {
+	listId    int64
 	member  *big.Int
 	state   int64
 	version int64
-	payload *big.Int
+	content *big.Int
 }
 
 type derived struct {
@@ -404,14 +404,14 @@ type derived struct {
 type rule struct {
 	subject   int64
 	mode      int64
-	kind      int64
+	listId      int64
 	guardTag  int64
 	threshold uint64
 }
 
 func (r rule) packed() *big.Int {
 	packed := new(big.Int).SetUint64(r.threshold)
-	for _, part := range []int64{r.guardTag, r.kind, r.mode, r.subject} {
+	for _, part := range []int64{r.guardTag, r.listId, r.mode, r.subject} {
 		packed.Or(packed.Lsh(packed, 8), big.NewInt(part))
 	}
 	return packed
@@ -422,7 +422,7 @@ func (r rule) wires() RuleWires {
 		Packed:    r.packed(),
 		Subject:   big.NewInt(r.subject),
 		Mode:      big.NewInt(r.mode),
-		Kind:      big.NewInt(r.kind),
+		ListId:      big.NewInt(r.listId),
 		GuardTag:  big.NewInt(r.guardTag),
 		Threshold: new(big.Int).SetUint64(r.threshold),
 	}
@@ -436,7 +436,7 @@ type statement struct {
 	inlineAssets     []*big.Int
 	policyHash       *big.Int
 
-	records []record
+	entries []entry
 	derived []derived
 
 	stateRoot     *big.Int
@@ -457,11 +457,11 @@ type statement struct {
 	auditorPk   [65]byte
 }
 
-// newStatement builds a ring whose records allow the recipient, hold no Frozen
-// record for the sender and carry a cleared Block record, a policy demanding
+// newStatement builds a ring whose entries allow the recipient, hold no Frozen
+// entry for the sender and carry a cleared Block entry, a policy demanding
 // all three plus a guarded Approval rule, and a two-in two-out transaction that
-// satisfies them. The Frozen kind is sourced from a curator's records, every
-// other kind from the ring's own.
+// satisfies them. The Frozen listId is sourced from a curator's entries, every
+// other listId from the ring's own.
 func newStatement(t *testing.T, f fixture) *statement {
 	t.Helper()
 	s := &statement{}
@@ -475,38 +475,38 @@ func newStatement(t *testing.T, f fixture) *statement {
 		spptest.MustNullifierPk(t, big.NewInt(0)),
 	)
 	s.sources = emptySources()
-	for _, kind := range []int64{kindAllow, kindBlock, kindApproval} {
-		s.sources[kind-1] = source{kind: kind, owner: s.ownOwnerHash}
+	for _, listId := range []int64{kindAllow, kindBlock, kindApproval} {
+		s.sources[listId-1] = source{listId: listId, owner: s.ownOwnerHash}
 	}
-	s.sources[kindFrozen-1] = source{kind: kindFrozen, owner: s.curatorOwnerHash}
+	s.sources[kindFrozen-1] = source{listId: kindFrozen, owner: s.curatorOwnerHash}
 
 	recipient := pkField(t, fill(0xa1))
 	sender := pkField(t, fill(0xb2))
 	blocked := pkField(t, fill(0xc3))
 	asset := pkField(t, f.transferred)
 
-	s.records = []record{
-		{kind: kindAllow, member: recipient, state: RecordStateActive, version: 0, payload: big.NewInt(0)},
-		{kind: kindFrozen, member: sender, state: 0, version: 0, payload: big.NewInt(0)},
-		{kind: kindBlock, member: blocked, state: RecordStateCleared, version: 1, payload: big.NewInt(0)},
+	s.entries = []entry{
+		{listId: kindAllow, member: recipient, state: EntryStateActive, version: 0, content: big.NewInt(0)},
+		{listId: kindFrozen, member: sender, state: 0, version: 0, content: big.NewInt(0)},
+		{listId: kindBlock, member: blocked, state: EntryStateCleared, version: 1, content: big.NewInt(0)},
 	}
-	for _, r := range s.records {
-		s.derived = append(s.derived, deriveRecord(t, s.sources[r.kind-1].owner, r))
+	for _, r := range s.entries {
+		s.derived = append(s.derived, deriveRecord(t, s.sources[r.listId-1].owner, r))
 	}
-	// The knobs repoint the map after derivation, leaving the record fixtures
+	// The knobs repoint the map after derivation, leaving the entry fixtures
 	// under the curator.
 	if f.dropCuratorSlot {
-		s.sources[kindFrozen-1] = source{kind: 0, owner: big.NewInt(0)}
+		s.sources[kindFrozen-1] = source{listId: 0, owner: big.NewInt(0)}
 	}
 	if f.curatorSlotOwn {
 		s.sources[kindFrozen-1].owner = s.ownOwnerHash
 	}
 
 	s.rules = []rule{
-		{subject: SubjectOutputOwner, mode: ModePresent, kind: kindAllow},
-		{subject: SubjectSender, mode: ModeAbsent, kind: kindFrozen},
-		{subject: SubjectAsset, mode: ModePresent, kind: InlineKind},
-		{subject: SubjectOutputOwner, mode: ModePresent, kind: kindApproval, guardTag: GuardAboveAmount, threshold: guardThreshold},
+		{subject: SubjectOutputOwner, mode: ModePresent, listId: kindAllow},
+		{subject: SubjectSender, mode: ModeAbsent, listId: kindFrozen},
+		{subject: SubjectAsset, mode: ModePresent, listId: InlineKind},
+		{subject: SubjectOutputOwner, mode: ModePresent, listId: kindApproval, guardTag: GuardAboveAmount, threshold: guardThreshold},
 	}
 	s.inlineAssets = []*big.Int{pkField(t, f.inlineAsset)}
 	if f.rulesFree {
@@ -521,8 +521,8 @@ func newStatement(t *testing.T, f fixture) *statement {
 	return s
 }
 
-// buildTrees seeds the SPP roots the record proofs open against, the live
-// records as state tree leaves and the addresses of the created records as
+// buildTrees seeds the SPP roots the entry proofs open against, the live
+// entries as state tree leaves and the addresses of the created entries as
 // spent nullifiers.
 func (s *statement) buildTrees(t *testing.T) {
 	t.Helper()
@@ -536,11 +536,11 @@ func (s *statement) buildTrees(t *testing.T) {
 	tree := spptest.MustNewNullifierTree(t)
 	for _, index := range []int{0, 2} {
 		if err := tree.Insert(s.derived[index].address); err != nil {
-			t.Fatalf("insert record address: %v", err)
+			t.Fatalf("insert entry address: %v", err)
 		}
 	}
 	s.nullifierRoot = tree.Root()
-	// The present and cleared records are unspent, the frozen record was never
+	// The present and cleared entries are unspent, the frozen entry was never
 	// created.
 	s.nonInclusion = []protocol.NonInclusionWitness{
 		spptest.MustNonInclusion(t, tree, s.derived[0].nullifier),
@@ -607,7 +607,7 @@ func buildAssignment(t *testing.T, f fixture) *Circuit {
 		NullifierRoot:    s.nullifierRoot,
 	}
 	for i, slot := range s.sources {
-		c.Sources[i] = SourceWires{Kind: big.NewInt(slot.kind), OwnerHash: slot.owner}
+		c.Sources[i] = SourceWires{ListId: big.NewInt(slot.listId), OwnerHash: slot.owner}
 	}
 	for i, b := range s.txViewingSk {
 		c.TxViewingSk[i] = int(b)
@@ -638,7 +638,7 @@ func buildAssignment(t *testing.T, f fixture) *Circuit {
 	c.NOutOneHot[len(s.outputs)-1] = big.NewInt(1)
 
 	// Padding rules repeat ring_policy::Rule::disabled.
-	disabled := rule{subject: SubjectOutputOwner, mode: ModePresent, kind: kindAllow}
+	disabled := rule{subject: SubjectOutputOwner, mode: ModePresent, listId: kindAllow}
 	for k := range c.Rules {
 		c.Rules[k] = disabled.wires()
 		c.LenOneHot[k] = big.NewInt(0)
@@ -659,27 +659,27 @@ func buildAssignment(t *testing.T, f fixture) *Circuit {
 	c.InlineCountOneHot[NInlineAssets] = big.NewInt(0)
 	c.InlineCountOneHot[len(s.inlineAssets)] = big.NewInt(1)
 
-	for e := range c.Pool {
-		c.Pool[e] = zeroPoolEntry()
+	for e := range c.Answers {
+		c.Answers[e] = zeroPoolEntry()
 	}
 	if f.rulesFree {
 		return c
 	}
-	c.Pool[0] = s.poolEntry(t, 0, ModePresent, 0, 0)
-	c.Pool[1] = s.poolEntry(t, 1, ModeAbsent, AbsentBranchNoAddress, 0)
-	c.Pool[2] = s.poolEntry(t, 2, ModeAbsent, AbsentBranchCleared, 1)
+	c.Answers[0] = s.poolEntry(t, 0, ModePresent, 0, 0)
+	c.Answers[1] = s.poolEntry(t, 1, ModeAbsent, AbsentBranchNoAddress, 0)
+	c.Answers[2] = s.poolEntry(t, 2, ModeAbsent, AbsentBranchCleared, 1)
 	return c
 }
 
-func (s *statement) poolEntry(t *testing.T, index int, mode, branch int64, stateLeaf uint64) PoolEntryWires {
+func (s *statement) poolEntry(t *testing.T, index int, mode, branch int64, stateLeaf uint64) RuleAnswerWires {
 	t.Helper()
-	r := s.records[index]
-	entry := PoolEntryWires{
+	r := s.entries[index]
+	entry := RuleAnswerWires{
 		Enabled:        big.NewInt(1),
 		Mode:           big.NewInt(mode),
-		Kind:           big.NewInt(r.kind),
+		ListId:           big.NewInt(r.listId),
 		Member:         r.member,
-		PayloadHash:    r.payload,
+		ContentHash:    r.content,
 		Version:        big.NewInt(r.version),
 		State:          big.NewInt(r.state),
 		AbsentBranch:   big.NewInt(branch),
@@ -715,11 +715,11 @@ func (s *statement) poolEntry(t *testing.T, index int, mode, branch int64, state
 	return entry
 }
 
-// deriveRecord mirrors ring_policy::record, the seed and address fixed by
-// (kind, member) while the commitment moves with the state and version.
-func deriveRecord(t *testing.T, ownerHash *big.Int, r record) derived {
+// deriveRecord mirrors ring_policy::entry, the seed and address fixed by
+// (listId, member) while the commitment moves with the state and version.
+func deriveRecord(t *testing.T, ownerHash *big.Int, r entry) derived {
 	t.Helper()
-	seed := spptest.MustPoseidon(t, 4, []*big.Int{policyAddressDomain, big.NewInt(r.kind), r.member})
+	seed := spptest.MustPoseidon(t, 4, []*big.Int{policyAddressDomain, big.NewInt(r.listId), r.member})
 	addressUtxoHash := spptest.MustPoseidon(t, 7, []*big.Int{
 		big.NewInt(protocol.AddressDomain),
 		big.NewInt(0),
@@ -732,11 +732,11 @@ func deriveRecord(t *testing.T, ownerHash *big.Int, r record) derived {
 	dataHash := spptest.MustPoseidon(t, 8, []*big.Int{
 		policyRecordDomain,
 		address,
-		big.NewInt(r.kind),
+		big.NewInt(r.listId),
 		r.member,
 		big.NewInt(r.state),
 		big.NewInt(r.version),
-		r.payload,
+		r.content,
 	})
 	utxoHash := spptest.MustPoseidon(t, 7, []*big.Int{
 		big.NewInt(protocol.UtxoDomain),
@@ -755,12 +755,12 @@ func deriveRecord(t *testing.T, ownerHash *big.Int, r record) derived {
 	}
 }
 
-// hostPolicyHash mirrors ring_policy::Policy::hash.
+// hostPolicyHash mirrors ring_policy::RuleTable::hash.
 func hostPolicyHash(t *testing.T, rules []rule, inlineAssets []*big.Int, sources [NSources]source) *big.Int {
 	t.Helper()
 	elements := []*big.Int{policyTableDomain, big.NewInt(PolicyVersion)}
 	for _, slot := range sources {
-		elements = append(elements, big.NewInt(slot.kind), slot.owner)
+		elements = append(elements, big.NewInt(slot.listId), slot.owner)
 	}
 	elements = append(elements, big.NewInt(int64(len(rules))))
 	for _, r := range rules {
@@ -807,13 +807,13 @@ func zeroOpening() OpeningWires {
 	}
 }
 
-func zeroPoolEntry() PoolEntryWires {
-	entry := PoolEntryWires{
+func zeroPoolEntry() RuleAnswerWires {
+	entry := RuleAnswerWires{
 		Enabled:        big.NewInt(0),
 		Mode:           big.NewInt(0),
-		Kind:           big.NewInt(0),
+		ListId:           big.NewInt(0),
 		Member:         big.NewInt(0),
-		PayloadHash:    big.NewInt(0),
+		ContentHash:    big.NewInt(0),
 		Version:        big.NewInt(0),
 		State:          big.NewInt(0),
 		AbsentBranch:   big.NewInt(0),

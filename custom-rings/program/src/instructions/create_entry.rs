@@ -1,40 +1,40 @@
-use custom_ring_interface::CreateRecordIxData;
+use custom_ring_interface::CreateEntryIxData;
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_interface::instruction::instruction_data::transact::InputUtxo;
-use zolana_ring_policy::{Member, Record, RecordKind, RecordState};
+use zolana_ring_policy::{EntryState, ListEntry, ListId, Member};
 
 use crate::{
     error::CustomRingError,
     instructions::policy_shared::{
-        cpi_spp_records_signed, record_address_input, MutationAccounts, RecordTransition,
+        cpi_spp_namespace_signed, entry_address_input, EntryTransition, MutationAccounts,
     },
 };
 
 /// The address slot inserts the derived address, a second create for the same
-/// `(kind, member)` fails in SPP.
+/// `(list_id, member)` fails in SPP.
 #[inline(never)]
-pub fn process_create_record_ix(
+pub fn process_create_entry_ix(
     program_id: &Address,
     accounts: &mut [AccountView],
     data: &[u8],
 ) -> ProgramResult {
-    let ix: CreateRecordIxData =
+    let ix: CreateEntryIxData =
         wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
-    let kind = RecordKind::try_from(ix.kind).map_err(|_| CustomRingError::InvalidRecordKind)?;
-    let state = RecordState::try_from(ix.state).map_err(|_| CustomRingError::InvalidRecordState)?;
+    let list_id = ListId::try_from(ix.list_id).map_err(|_| CustomRingError::InvalidListId)?;
+    let state = EntryState::try_from(ix.state).map_err(|_| CustomRingError::InvalidEntryState)?;
     let member = Member::from_bytes(ix.member).map_err(|_| CustomRingError::InvalidPolicyMember)?;
 
-    let parsed = MutationAccounts::validate_and_parse(program_id, accounts, kind)?;
-    parsed.check_mutator(kind, &member)?;
+    let parsed = MutationAccounts::validate_and_parse(program_id, accounts, list_id)?;
+    parsed.check_mutator(list_id, &member)?;
 
-    let (address_utxo_hash, address) = record_address_input(&parsed.owner, kind, &member)?;
-    let transact = RecordTransition {
-        record: Record {
-            kind,
+    let (address_utxo_hash, address) = entry_address_input(&parsed.owner, list_id, &member)?;
+    let transact = EntryTransition {
+        entry: ListEntry {
+            list_id,
             member,
             state,
             version: 0,
-            payload_hash: ix.payload_hash,
+            content_hash: ix.content_hash,
         },
         input: InputUtxo {
             nullifier_hash: address,
@@ -45,11 +45,11 @@ pub fn process_create_record_ix(
         address_utxo_hash,
         proof: ix.proof,
     }
-    .into_transact(&parsed.owner, &parsed.records_address)?;
+    .into_transact(&parsed.owner, &parsed.namespace_address)?;
 
-    cpi_spp_records_signed(
-        &parsed.records_address,
-        parsed.records_bump,
+    cpi_spp_namespace_signed(
+        &parsed.namespace_address,
+        parsed.namespace_bump,
         accounts,
         &transact,
     )

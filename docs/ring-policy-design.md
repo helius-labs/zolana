@@ -1,4 +1,4 @@
-# The Ring Policy Construction
+# The Ring RuleTable Construction
 
 A v3 custom ring guarantees its auditor can decrypt every transfer. It cannot
 refuse one. This document explains the plane that adds refusal. The rules ride
@@ -23,23 +23,23 @@ The running example is a blocklist ring. Its compiled table holds one rule,
 forbid `OutputOwner` in `Block`. A curator ring serves the `Block` list. The
 curator bans Mr. Evil. Mr. Crazy transfers.
 
-## The record, a keyed compressed account
+## The entry, a keyed compressed account
 
-A **record** is the list entry. It is an ordinary zero-amount SPP data UTXO in
+A **entry** is the list entry. It is an ordinary zero-amount SPP data UTXO in
 the shared state tree, owned by the ring's `b"policy_records"` PDA
-(`program-libs/ring-policy/src/record.rs`). A parity test pins its hash
+(`program-libs/ring-policy/src/entry.rs`). A parity test pins its hash
 byte-equal to `ProofInputUtxo`, and a vector test pins the same math against
-the Go circuit. SPP hosts records unchanged.
+the Go circuit. SPP hosts entries unchanged.
 
 Three ancestor mechanisms carry over exactly:
 
 - The owner is `Poseidon(hash_bytes(pda), Poseidon(0))`, the example's
-  `PdaOwner` with the zero nullifier secret. Every record nullifier is
+  `PdaOwner` with the zero nullifier secret. Every entry nullifier is
   publicly computable. Spending stays gated by the PDA signature alone.
 - The blinding is the version counter. Create starts at version zero. Update
   spends version `v` and emits `v + 1` in one SPP transact. A re-added member
   never repeats a utxo hash or a nullifier.
-- The record bytes publish as plaintext output data behind a five-byte
+- The entry bytes publish as plaintext output data behind a five-byte
   header. Discovery trusts them only after re-deriving `data_hash` and the
   utxo hash and matching the on-chain leaf.
 
@@ -47,17 +47,17 @@ The extension is the address seed. The example claims one address per PDA.
 Here the seed is keyed:
 
 ```
-seed    = Poseidon(POLICY_ADDRESS_DOMAIN, kind, member)
+seed    = Poseidon(POLICY_ADDRESS_DOMAIN, list_id, member)
 address = nullifier(address_utxo_hash(seed), seed)
 ```
 
 One PDA becomes a namespace with exactly one address lineage per
-`(kind, member)` pair. Creating a record inserts its address into the
+`(list, member)` pair. Creating an entry inserts its address into the
 nullifier tree. A second create for the same pair is a double spend the
 tree already rejects. There is no address registry and no new tree.
-`data_hash` binds the address, kind, member, state, version, and
-`payload_hash` together, so a record cannot be replayed under another pair or
-another records PDA.
+`data_hash` binds the address, list, member, state, version, and
+`content_hash` together, so an entry cannot be replayed under another pair or
+another namespace PDA.
 
 A **member** is one field element, `Member::owner_tag` over the confidential
 view tag (`member.rs`). An ed25519 tag is the raw pubkey. A P256 tag is the
@@ -69,9 +69,9 @@ openings. A party holding both an ed25519 and a P256 identity owns two
 distinct members. A curator that bans an address does not ban the party's
 P256 identity.
 
-Records have two states and no delete. `Active` and `Cleared` are both live
+Entries have two states and no delete. `Active` and `Cleared` are both live
 UTXOs. Removal spends the `Active` version into a `Cleared` successor at the
-same address. The naive alternative spends the record with no successor.
+same address. The naive alternative spends the entry with no successor.
 That leaves removal unprovable. The address stays claimed in the nullifier
 tree forever, the never-created branch can never hold again. A removed
 member without a live `Cleared` leaf would have no absence proof.
@@ -81,51 +81,51 @@ treats every removed member as still listed. The state byte inside
 
 ## Lists and holders
 
-`RecordKind` names the eight lists. They are `Allow`, `Block`, `Frozen`,
+`ListId` names the eight lists. They are `Allow`, `Block`, `Frozen`,
 `RingViewing`, `Recovery`, `Reader`, `Approval`, and `Escrow`. Three
-mechanisms reserve kind zero. The enum starts at one, every list carries a
-const assert, and the circuit rejects a zero kind on enabled entries. Zero
+mechanisms reserve list zero. The enum starts at one, every list carries a
+const assert, and the circuit rejects a zero list on enabled entries. Zero
 marks the inline-asset sentinel and the empty source slot.
 
-Who may mutate is one exhaustive const match, `RecordKind::holder()`.
-Authority-held kinds require the config authority as fee payer. Member-held
-kinds require the payer whose owner tag equals the member, self-service
+Who may mutate is one exhaustive const match, `ListId::writer()`.
+Authority-held lists require the config authority as fee payer. Member-held
+lists require the payer whose owner tag equals the member, self-service
 registration with the payer as the identity proof. The circuit proves
 membership, never who mutated. Authorization lives in one Rust function and
 never crosses the CPI or reaches Go or TypeScript.
 
-The sealed `List` trait packages the reuse. A new list-backed feature
-declares a kind with an unused nonzero discriminant, a holder arm, and a
-`Payload` type choice. It reuses the keying, the 74-byte record layout, the
-membership proofs, the mutation instructions, and the circuit unchanged.
+The sealed `ListSchema` trait packages the reuse. A new list-backed feature
+declares a list with an unused nonzero discriminant, a writer arm, and an
+`EntryContent` type choice. It reuses the keying, the 74-byte entry layout,
+the membership proofs, the mutation instructions, and the circuit unchanged.
 Only a rule that consults the list touches anything else.
 
 ## The table, the source map, and one hash
 
 The rule table is a `const` compiled into the ring program.
-`PolicyBuilder` is const-evaluable, an illegal table fails the build of the
+`RuleTableBuilder` is const-evaluable, an illegal table fails the build of the
 consuming program, not a transaction. The builder rejects duplicate rules by
-signature, subject plus mode plus source kind, guard excluded. The pair
+signature, subject plus mode plus source list, guard excluded. The pair
 `require(OutputOwner, Allow)` and the same rule guarded above a threshold
 reads as a working exemption. The unguarded rule subsumes it. The builder
 refuses the pair.
 
-A rule packs into one field element, subject, mode, kind, guard tag, and
+A rule packs into one field element, subject, mode, list, guard tag, and
 threshold at fixed byte positions. The hash covers only the packed element.
 The circuit witnesses the components, range-checks each, and re-derives the
 packed value by weighted sum. Without the range checks a prover could borrow
 across byte boundaries and reinterpret a pinned rule as a different one.
 
-A rule's source is `Records`, naming a kind, or `InlineAssets`, an asset
+A rule's source is `Entries`, naming a list, or `InlineAssets`, an asset
 allowlist carried by the table itself. `Rule::allow_only_assets` lists up to
 eight asset members, hashed after the rules. The circuit answers an inline
-rule by direct member comparison, no record, no pool entry, no source slot.
+rule by direct member comparison, no entry, no answer, no source slot.
 The builder restricts inline members to `Asset` subjects in `Present` mode.
 Kind zero in a rule encoding marks the inline source.
 
-The **source map** decides where each kind's records live. It is eight
-positional slots, slot `i` is empty or serves kind `i + 1`. An occupied slot
-stores a records PDA address. Positional layout makes duplicate kinds and
+The **source map** decides where each list's entries live. It is eight
+positional slots, slot `i` is empty or serves list `i + 1`. An occupied slot
+stores a namespace PDA address. Positional layout makes duplicate lists and
 ambiguous encodings unrepresentable, one logical map has exactly one
 encoding. A sorted variable-length map admits two encodings of one map and
 needs in-circuit sortedness checks the positional form never pays for.
@@ -134,19 +134,19 @@ One hash binds table and map together:
 
 ```
 policy_hash = chain(POLICY_TABLE_DOMAIN, POLICY_VERSION,
-                    (kind_1, owner_1) ... (kind_8, owner_8),
+                    (list_id_1, owner_1) ... (list_id_8, owner_8),
                     len, rule_1 ... rule_len, inline_members)
 ```
 
 `chain` is the left fold `acc = Poseidon(acc, next)`. All eight slots enter
 unconditionally, empty slots as zeros. Hashing only referenced slots would
-let a slot for an unused kind be retargeted without moving the hash. The
+let a slot for an unused list be retargeted without moving the hash. The
 pin would not cover the full delegation surface. The explicit length
 element closes the variable-length tail, a truncated table cannot alias a
-longer one. A referenced kind with no slot fails closed with
+longer one. A referenced list with no slot fails closed with
 `MissingSource` before the recompute emits any hash. The owner bound into the hash
-is not the PDA address but the records owner hash. That is the same field
-element under which the record UTXOs are stored. The circuit checks
+is not the PDA address but the entries owner hash. That is the same field
+element under which the entry UTXOs are stored. The circuit checks
 membership against exactly the value the hash pins.
 
 ## The on-chain binding
@@ -155,45 +155,45 @@ membership against exactly the value the hash pins.
 table is part of the deployed binary, so only its deployer may bind it. The
 policy PDA refuses re-initialization, the table is pinned for the life of
 the deployment. The instruction demands a bijection between declared sources
-and the kinds the compiled table references. A stale client fails at create
+and the lists the compiled table references. A stale client fails at create
 time, not at spend time.
 
 Curatorship is permissionless. SVM ownership plus shape identify a curator.
 The shape is the `b"policy"` PDA of the owning program, the config
-discriminator, and the same records tree. There is no curator registry. The
+discriminator, and the same entries tree. There is no curator registry. The
 trust decision is the operator's choice of account. Pin time flattens
-delegation. The instruction copies the curator's already resolved records
+delegation. The instruction copies the curator's already resolved entries
 owner, never the curator's identity. A curator re-pointing its own source
 moves nothing downstream, and a curator of a curator never chains. Live
 chaining would let one captured curator authority rotate every downstream
 ring at once, with no downstream signature.
 
-Flattening freezes the map, not the list. A curator mutation to its records
+Flattening freezes the map, not the list. A curator mutation to its entries
 lands on every subscriber's next transfer, with no downstream signature.
 Delegation bounds who writes, never what they write, a subscriber trusts
 its curator's writes wholly.
 
-`set_policy_source` re-points one kind and is gated on the ring config
+`set_policy_source` re-points one list and is gated on the ring config
 authority, an operational act, not a deployment. Before it writes, the
 instruction proves the stored hash reproduces from the stored slots under
 the currently deployed table. Without that gate, an upgrade that changes
 the table plus one routine source edit would re-pin the new table's hash.
 The table change would launder past the upgrade-authority ceremony. With
 it, a drifted build fails closed on every mutating path. The same recompute
-runs before every record mutation and every transfer.
+runs before every entry mutation and every transfer.
 
-A kind mapped to a curator is locally read-only, the mutation path refuses
+A list mapped to a curator is locally read-only, the mutation path refuses
 with `ForeignRecordSource`. The curator ring is the single writer, a ring
-cannot overwrite a curated fact with its own record. Kinds the table does
-not reference stay mutable against the ring's own records.
+cannot overwrite a curated fact with its own entry. Kinds the table does
+not reference stay mutable against the ring's own entries.
 
-Record mutations are ordinary SPP transacts built on-chain. The mutation
-loader derives the records owner from the verified PDA.
+ListEntry mutations are ordinary SPP transacts built on-chain. The mutation
+loader derives the entries owner from the verified PDA.
 `RecordTransition::into_transact` derives the address, utxo hash, and
-record bytes and computes `private_tx_hash` over them. The caller supplies
+entry bytes and computes `private_tx_hash` over them. The caller supplies
 only a one-in one-out proof and root indices. The proof can state nothing
 but the transition the instruction names. The CPI raises a second signer
-identity, `b"policy_records"` beside v3's `b"ring_auth"`, so record custody
+identity, `b"policy_records"` beside v3's `b"ring_auth"`, so entry custody
 and ring transaction authority cannot exercise each other.
 
 ## The circuit
@@ -212,7 +212,7 @@ policy_hash, state_root, nullifier_root
 ```
 
 The program recomputes this chain from accounts it trusts and runs one
-Groth16 verification. Policy enforcement costs no second proof, and a
+Groth16 verification. RuleTable enforcement costs no second proof, and a
 wallet cannot satisfy the audit statement while skipping the policy
 statement. The whole circuit keeps exactly one BSB22 commitment by reusing
 the range checker the audit block instantiates, a shape the on-chain
@@ -228,14 +228,14 @@ ride through. The policy would never see the real recipient. The recompute
 forces the screened owners, assets, and amounts to be the preimage of the
 same hash the SPP statement binds.
 
-The **pool** answers the record-sourced rules, ten entries, each one record
-fact proven under both roots (`pool.go`). One entry proves one of three
-facts:
+The **answers** array serves the entry-sourced rules, ten slots, each one
+entry fact proven under both roots (`answers.go`). One answer proves one of
+three facts:
 
-- Present and current. The record leaf is included under the state root,
+- Present and current. The entry leaf is included under the state root,
   its state is `Active`, and its nullifier is absent from the nullifier
   tree. The state tree is append-only, so inclusion alone proves nothing
-  current. An old `Active` leaf of a since-cleared record is still
+  current. An old `Active` leaf of a since-cleared entry is still
   included. Nullifier absence is what makes present mean now.
 - Cleared and current. The `Cleared` leaf is included and its nullifier is
   absent, the clearing is the latest version.
@@ -243,7 +243,7 @@ facts:
   tree. No state inclusion exists to show.
 
 A single absence check cannot replace the three. An unspent `Active`
-record also has an absent nullifier. Nullifier absence alone would prove a
+entry also has an absent nullifier. Nullifier absence alone would prove a
 blocked member clean. The three facts share one indexed-tree range gadget
 with a muxed target, address or nullifier. The range check is strict on
 both sides and uses the full-field canonical-limb comparison. The cheap
@@ -252,16 +252,16 @@ field. For a target near the modulus the offset sum wraps, and a false
 ordering decomposes cleanly. Amount guards keep the cheap comparison
 because the circuit independently range-checks amounts to 64 bits.
 
-Each enabled entry resolves its records owner through the source map the
+Each enabled entry resolves its entries owner through the source map the
 policy hash pins (`sources.go`). The mux asserts exactly one slot matches
-the entry's kind. The owner is an affine sum of selected slots. Two
+the entry's list. The owner is an affine sum of selected slots. Two
 matching slots would resolve to the sum of two owners, a fabricated owner
-whose records nobody created. Disabled entries resolve to garbage no
+whose entries nobody created. Disabled entries resolve to garbage no
 downstream assertion reads.
 
 Coverage closes the plane (`eval.go`). Every live slot instance of every
-enabled record-sourced rule demands an enabled pool entry with the same
-kind and mode carrying that member. Coverage answers an inline rule against
+enabled entry-sourced rule demands an enabled answer with the same list
+and mode carrying that member. Coverage answers an inline rule against
 the inline member table instead. A rule
 guarded above a threshold exempts instances at or below it. The quantifier
 direction carries the soundness. A wallet paying a blocked member cannot
@@ -281,7 +281,7 @@ shielded slot flows only.
 
 Both roots enter the statement by history index. The wallet sends two
 indices. The program resolves them against SPP's tree account, the
-transfer's own input tree. That tree must be the records tree. A
+transfer's own input tree. That tree must be the entries tree. A
 fabricated root cannot enter the statement, every admissible root is one
 the tree produced.
 
@@ -292,7 +292,7 @@ cursor. Absence is the one thing that rots. An old nullifier root still
 shows a freshly banned member as absent.
 
 Revocation has two latencies, and the window bounds only the second. A
-record mutation inserts its nullifiers into a queue. The indexed tree
+entry mutation inserts its nullifiers into a queue. The indexed tree
 learns them when the forester applies a batch and rotates the root. Until
 that rotation, a fresh ban is invisible under every admissible root, and
 the absence branches still verify. After it, proofs against roots up to
@@ -304,21 +304,21 @@ root would make every transfer race the forester's rotations instead.
 ## The wallet cycle
 
 1. The wallet proves the SPP ring transfer, yielding `private_tx_hash`.
-2. It reads `PolicyConfig` and resolves each kind through the stored
+2. It reads `PolicyConfig` and resolves each list through the stored
    source map.
 3. It reads both root indices from the tree account, not from the indexer.
    The statement binds what on-chain resolution reproduces.
-4. It discovers records for every screened subject. A published record
+4. It discovers entries for every screened subject. A published entry
    counts only after its recomputed hashes match the indexed leaf. Two
    live versions of one pair raise `AmbiguousRecord`. A lying indexer
    stalls proving but cannot steer the answer.
-5. It builds the pool. A `Present` rule with a missing or `Cleared`
-   record, or an `Absent` rule with an `Active` record, refuses
+5. It builds the answers array. A `Present` rule with a missing or `Cleared`
+   entry, or an `Absent` rule with an `Active` entry, refuses
    client-side with `PolicyRuleUnsatisfied`. The chain never learns of
    the refused transfer. The SPP proof from step 1 is wasted.
 6. It proves the ring statement, one request carrying audit and policy.
 7. It sends transact. The instruction carries the proof and two root
-   indices, no member, no kind, no pool.
+   indices, no member, no list, no answer.
 
 ## Rejected designs
 
@@ -341,14 +341,14 @@ define what the ring is, they ride program identity and upgrade-authority
 governance. Each ring is already its own deployment in the v3 model, the
 table costs no extra ceremony.
 
-**Secret nullifier keys for records.** It buys spent-ness privacy. Mr.
-Crazy must prove Mr. Evil's record state without Mr. Evil's cooperation.
-`update_record` computes the nullifier on-chain, a secret would have to
+**Secret nullifier keys for entries.** It buys spent-ness privacy. Mr.
+Crazy must prove Mr. Evil's entry state without Mr. Evil's cooperation.
+`update_entry` computes the nullifier on-chain, a secret would have to
 appear in instruction data. Public liveness is what discovery and
 third-party proving require.
 
-**Encrypted records.** It buys list privacy. Every prover must open
-foreign records to build pool witnesses, encryption would restrict proving
+**Encrypted entries.** It buys list privacy. Every prover must open
+foreign entries to build answer witnesses, encryption would restrict proving
 to key holders and force the operator to co-prove every transfer. The
 table names its lists and the tree is public, the secrecy would be hollow.
 
@@ -357,20 +357,20 @@ sees an owner only as the opening's owner field element. A raw address
 costs an extra in-circuit preimage per rule and slot pair. A P256 owner
 has no address.
 
-**Caller-supplied record versions.** It buys nothing but generality. A
+**Caller-supplied entry versions.** It buys nothing but generality. A
 repeated version reproduces an old utxo hash and nullifier and forks the
-lineage. The derived successor, `v + 1` from the proven spent record,
+lineage. The derived successor, `v + 1` from the proven spent entry,
 makes reuse inexpressible.
 
 ## Limits
 
 - Revocation waits on the forester. One batch rotation must land, and up
   to eight admissible rotations follow, unbounded in time on a quiet tree.
-- One ring, one tree. The circuit binds one root pair. Records, curator
-  records, and the ring's spendable UTXOs share one tree instance, pinned
+- One ring, one tree. The circuit binds one root pair. Entries, curator
+  entries, and the ring's spendable UTXOs share one tree instance, pinned
   at `create_policy` and unrecoverable without a fresh deployment.
-- The shape is fixed at five inputs, four outputs, ten pool entries,
-  sixteen rules, eight sources, eight inline assets. The pool is the
+- The shape is fixed at five inputs, four outputs, ten answers, sixteen
+  rules, eight sources, eight inline assets. The answers array is the
   per-transfer screening budget, larger transfers must split.
 - The builder rejects any table carrying `ExitDestination`.
 - A rule-less ring still resolves and windows roots. Its clients fetch

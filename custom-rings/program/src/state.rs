@@ -1,5 +1,5 @@
 use bytemuck::{from_bytes_mut, Pod};
-use custom_ring_interface::{PolicyConfig, PolicySourceSlot, N_POLICY_SOURCE_SLOTS, POLICY_CONFIG};
+use custom_ring_interface::{PolicyConfig, SourceSlot, N_SOURCE_SLOTS, POLICY_CONFIG};
 use custom_ring_interface::{
     ReadAccessRecord, ReaderKeyBytes, RingProgramConfig, READER_KEY_ED25519, READER_KEY_P256,
     READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
@@ -100,7 +100,7 @@ fn is_signing_ed25519_key(body: [u8; 32]) -> bool {
 impl Account for ReadAccessRecord {
     const DISCRIMINATOR: u8 = READ_ACCESS_RECORD;
     const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidReadAccessRecord;
-    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::ReadAccessRecordAlreadyExists;
+    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::ReadAccessEntryAlreadyExists;
     const WRONG_SIZE: CustomRingError = CustomRingError::InvalidReadAccessRecord;
 
     fn discriminator(&self) -> u8 {
@@ -108,12 +108,12 @@ impl Account for ReadAccessRecord {
     }
 }
 
-pub(crate) struct ReadAccessRecordInitParams {
+pub(crate) struct ReadAccessEntryInitParams {
     pub reader: ReaderKeyBytes,
     pub bump: u8,
 }
 
-impl ReadAccessRecordInitParams {
+impl ReadAccessEntryInitParams {
     #[inline(always)]
     pub fn init(self, account: &mut AccountView) -> ProgramResult {
         init_account(
@@ -140,10 +140,10 @@ impl Account for PolicyConfig {
 
 pub(crate) struct PolicyConfigInitParams {
     pub policy_hash: [u8; 32],
-    pub records_tree: Address,
-    pub records_bump: u8,
+    pub entries_tree: Address,
+    pub namespace_bump: u8,
     pub bump: u8,
-    pub sources: [PolicySourceSlot; N_POLICY_SOURCE_SLOTS],
+    pub sources: [SourceSlot; N_SOURCE_SLOTS],
 }
 
 impl PolicyConfigInitParams {
@@ -154,8 +154,8 @@ impl PolicyConfigInitParams {
             PolicyConfig {
                 discriminator: POLICY_CONFIG,
                 policy_hash: self.policy_hash,
-                records_tree: self.records_tree,
-                records_bump: self.records_bump,
+                entries_tree: self.entries_tree,
+                namespace_bump: self.namespace_bump,
                 bump: self.bump,
                 sources: self.sources,
             },

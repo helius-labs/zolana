@@ -27,7 +27,7 @@ import { hashBytes } from "../src/hasher/index.js";
 import {
   checkRingMembership,
   frameDummyOutputs,
-  ringRecordsOwnerHash,
+  ringNamespaceOwnerHash,
 } from "../src/ring/transfer.js";
 import {
   ConfidentialTransfer,
@@ -391,7 +391,7 @@ describe("ring openings", () => {
 
   it("derives the records owner hash the Go policy fixture pins", () => {
     const recordsPda = getAddressDecoder().decode(new Uint8Array(32).fill(0x11));
-    expect(ringRecordsOwnerHash(recordsPda)).toEqual(
+    expect(ringNamespaceOwnerHash(recordsPda)).toEqual(
       Uint8Array.from(
         Buffer.from("1e99b255125d8e5d1a8ee78945c3197b227182301b2c5d263dd5410b5ff476be", "hex"),
       ),

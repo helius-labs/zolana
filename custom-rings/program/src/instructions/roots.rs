@@ -8,7 +8,7 @@ use zolana_tree::TreeAccount;
 use crate::error::CustomRingError;
 
 /// Staleness bound on the nullifier root, an older root still proves a retired
-/// record current.
+/// entry current.
 pub const NULLIFIER_ROOT_WINDOW: u32 = 8;
 
 pub struct TransactRoots {
@@ -21,17 +21,17 @@ pub struct TransactRoots {
 /// proof must see.
 pub fn load_roots(
     tree_account: &mut AccountView,
-    records_tree: &Address,
+    entries_tree: &Address,
     state_root_index: u16,
     nullifier_root_index: u16,
 ) -> Result<TransactRoots, CustomRingError> {
-    if tree_account.address() != records_tree {
-        return Err(CustomRingError::InvalidRecordsTree);
+    if tree_account.address() != entries_tree {
+        return Err(CustomRingError::InvalidEntriesTree);
     }
     let spp = Address::from(SHIELDED_POOL_PROGRAM_ID);
     let mut tree =
         TreeAccount::from_account_view_mut(tree_account, &spp, TREE_ACCOUNT_DISCRIMINATOR)
-            .map_err(|_| CustomRingError::InvalidRecordsTree)?;
+            .map_err(|_| CustomRingError::InvalidEntriesTree)?;
     let state = tree
         .get_utxo_tree_root(state_root_index)
         .map_err(|_| CustomRingError::StalePolicyRoot)?;

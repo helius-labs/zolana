@@ -1,28 +1,28 @@
 use custom_ring_interface::{
-    tag, CreatePolicyIxData, CreateRecordIxData, PolicySourceSpec, UpdateRecordIxData,
+    tag, CreateEntryIxData, CreatePolicyIxData, SourceSpec, UpdateEntryIxData,
 };
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use thiserror::Error;
 use zolana_client::{ProverClient, Rpc};
 use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
-use zolana_ring_policy::{Member, Record, RecordKind, RecordState, RecordsOwner};
+use zolana_ring_policy::{EntryState, ListEntry, ListId, ListNamespace, Member};
 
 use crate::{
-    instructions::record::proof::{RecordProof, RecordProofError, RecordWitness},
+    instructions::entry::proof::{EntryProof, EntryProofError, EntryWitness},
     CustomRing,
 };
 
 #[derive(Debug, Error)]
-pub enum RecordError {
+pub enum EntryError {
     #[error(transparent)]
-    Proof(#[from] RecordProofError),
-    #[error("records owner hashing failed")]
+    Proof(#[from] EntryProofError),
+    #[error("namespace owner hashing failed")]
     Hashing,
-    #[error("record version overflows")]
+    #[error("entry version overflows")]
     VersionOverflow,
-    #[error("the compiled table does not reference the kind")]
-    UnreferencedKind(RecordKind),
+    #[error("the compiled table does not reference the list")]
+    UnreferencedList(ListId),
     #[error(transparent)]
     Encoding(#[from] wincode::WriteError),
 }
@@ -32,47 +32,44 @@ pub struct CreatePolicy {
     pub ring: CustomRing,
     pub payer: Address,
     pub authority: Address,
-    pub records_tree: Address,
-    /// Referenced kinds reading a curator ring's records, every other
-    /// referenced kind defaults to the ring's own records.
-    pub shared_sources: Vec<(RecordKind, CustomRing)>,
+    pub entries_tree: Address,
+    /// Referenced kinds reading a curator ring's entries, every other
+    /// referenced list_id defaults to the ring's own entries.
+    pub shared_sources: Vec<(ListId, CustomRing)>,
 }
 
 impl CreatePolicy {
-    pub fn instruction(self) -> Result<Instruction, RecordError> {
+    pub fn instruction(self) -> Result<Instruction, EntryError> {
         let Self {
             ring,
             payer,
             authority,
-            records_tree,
+            entries_tree,
             shared_sources,
         } = self;
-        let referenced: Vec<RecordKind> = custom_ring_interface::POLICY
+        let referenced: Vec<ListId> = custom_ring_interface::RULES
             .rules()
             .iter()
             .filter_map(|rule| match rule.source {
-                zolana_ring_policy::RuleSource::Records(kind) => Some(kind),
+                zolana_ring_policy::RuleSource::List(list_id) => Some(list_id),
                 zolana_ring_policy::RuleSource::InlineAssets(_) => None,
             })
             .collect();
-        for (kind, _) in &shared_sources {
-            if !referenced.contains(kind) {
-                return Err(RecordError::UnreferencedKind(*kind));
+        for (list_id, _) in &shared_sources {
+            if !referenced.contains(list_id) {
+                return Err(EntryError::UnreferencedList(*list_id));
             }
         }
         let mut curators: Vec<CustomRing> = Vec::new();
-        let mut specs: Vec<PolicySourceSpec> = Vec::new();
-        for kind in 1u8..=custom_ring_interface::N_POLICY_SOURCE_SLOTS as u8 {
-            let Ok(record_kind) = RecordKind::try_from(kind) else {
+        let mut specs: Vec<SourceSpec> = Vec::new();
+        for list_id in 1u8..=custom_ring_interface::N_SOURCE_SLOTS as u8 {
+            let Ok(list_id) = ListId::try_from(list_id) else {
                 continue;
             };
-            if !referenced.contains(&record_kind) {
+            if !referenced.contains(&list_id) {
                 continue;
             }
-            let source = match shared_sources
-                .iter()
-                .find(|(shared, _)| *shared == record_kind)
-            {
+            let source = match shared_sources.iter().find(|(shared, _)| *shared == list_id) {
                 None => 0,
                 Some((_, curator)) => {
                     let index = curators
@@ -85,7 +82,10 @@ impl CreatePolicy {
                     1 + index as u8
                 }
             };
-            specs.push(PolicySourceSpec { kind, source });
+            specs.push(SourceSpec {
+                list_id: list_id as u8,
+                source,
+            });
         }
         let mut instruction_data = vec![tag::CREATE_POLICY];
         instruction_data
@@ -94,7 +94,7 @@ impl CreatePolicy {
             AccountMeta::new(payer, true),
             AccountMeta::new_readonly(authority, true),
             AccountMeta::new(ring.policy_config_pda(), false),
-            AccountMeta::new_readonly(records_tree, false),
+            AccountMeta::new_readonly(entries_tree, false),
             AccountMeta::new_readonly(Address::default(), false),
             AccountMeta::new_readonly(ring.program_id(), false),
             AccountMeta::new_readonly(ring.program_data_pda(), false),
@@ -114,44 +114,44 @@ impl CreatePolicy {
 }
 
 #[must_use]
-pub struct CreateRecord {
+pub struct CreateEntry {
     pub ring: CustomRing,
     pub payer: Address,
-    pub records_tree: Address,
-    pub kind: RecordKind,
+    pub entries_tree: Address,
+    pub list_id: ListId,
     pub member: Member,
-    pub state: RecordState,
-    pub payload_hash: [u8; 32],
+    pub state: EntryState,
+    pub content_hash: [u8; 32],
 }
 
-impl CreateRecord {
+impl CreateEntry {
     pub fn prove<I: Rpc, R: Rpc>(
         self,
-        environment: RecordProofEnvironment<'_, I, R>,
-    ) -> Result<ProvenRecord, RecordError> {
-        let records = self.ring.records_pda();
-        let owner = RecordsOwner::new(records.as_array()).map_err(|_| RecordError::Hashing)?;
-        let record = Record {
-            kind: self.kind,
+        environment: EntryProofEnvironment<'_, I, R>,
+    ) -> Result<ProvenEntry, EntryError> {
+        let namespace = self.ring.namespace_pda();
+        let owner = ListNamespace::new(namespace.as_array()).map_err(|_| EntryError::Hashing)?;
+        let entry = ListEntry {
+            list_id: self.list_id,
             member: self.member,
             state: self.state,
             version: 0,
-            payload_hash: self.payload_hash,
+            content_hash: self.content_hash,
         };
-        let proof = RecordWitness {
+        let proof = EntryWitness {
             owner: &owner,
-            records,
-            records_tree: self.records_tree,
+            namespace,
+            entries_tree: self.entries_tree,
             payer: self.payer,
-            record,
+            entry,
             spent: None,
         }
         .prove(environment.indexer, environment.rpc, environment.prover)?;
-        Ok(ProvenRecord {
+        Ok(ProvenEntry {
             ring: self.ring,
             payer: self.payer,
-            records_tree: self.records_tree,
-            record,
+            entries_tree: self.entries_tree,
+            entry,
             spent: None,
             proof,
         })
@@ -159,91 +159,91 @@ impl CreateRecord {
 }
 
 #[must_use]
-pub struct UpdateRecord {
+pub struct UpdateEntry {
     pub ring: CustomRing,
     pub payer: Address,
-    pub records_tree: Address,
-    pub spent: Record,
-    pub state: RecordState,
-    pub payload_hash: [u8; 32],
+    pub entries_tree: Address,
+    pub spent: ListEntry,
+    pub state: EntryState,
+    pub content_hash: [u8; 32],
 }
 
-impl UpdateRecord {
+impl UpdateEntry {
     pub fn prove<I: Rpc, R: Rpc>(
         self,
-        environment: RecordProofEnvironment<'_, I, R>,
-    ) -> Result<ProvenRecord, RecordError> {
-        let records = self.ring.records_pda();
-        let owner = RecordsOwner::new(records.as_array()).map_err(|_| RecordError::Hashing)?;
-        let record = Record {
-            kind: self.spent.kind,
+        environment: EntryProofEnvironment<'_, I, R>,
+    ) -> Result<ProvenEntry, EntryError> {
+        let namespace = self.ring.namespace_pda();
+        let owner = ListNamespace::new(namespace.as_array()).map_err(|_| EntryError::Hashing)?;
+        let entry = ListEntry {
+            list_id: self.spent.list_id,
             member: self.spent.member,
             state: self.state,
             version: self
                 .spent
                 .version
                 .checked_add(1)
-                .ok_or(RecordError::VersionOverflow)?,
-            payload_hash: self.payload_hash,
+                .ok_or(EntryError::VersionOverflow)?,
+            content_hash: self.content_hash,
         };
-        let proof = RecordWitness {
+        let proof = EntryWitness {
             owner: &owner,
-            records,
-            records_tree: self.records_tree,
+            namespace,
+            entries_tree: self.entries_tree,
             payer: self.payer,
-            record,
+            entry,
             spent: Some(self.spent),
         }
         .prove(environment.indexer, environment.rpc, environment.prover)?;
-        Ok(ProvenRecord {
+        Ok(ProvenEntry {
             ring: self.ring,
             payer: self.payer,
-            records_tree: self.records_tree,
-            record,
+            entries_tree: self.entries_tree,
+            entry,
             spent: Some(self.spent),
             proof,
         })
     }
 }
 
-pub struct RecordProofEnvironment<'a, I: Rpc, R: Rpc> {
+pub struct EntryProofEnvironment<'a, I: Rpc, R: Rpc> {
     pub indexer: &'a I,
     pub rpc: &'a R,
     pub prover: &'a ProverClient,
 }
 
 #[must_use]
-pub struct ProvenRecord {
+pub struct ProvenEntry {
     ring: CustomRing,
     payer: Address,
-    records_tree: Address,
-    record: Record,
-    spent: Option<Record>,
-    proof: RecordProof,
+    entries_tree: Address,
+    entry: ListEntry,
+    spent: Option<ListEntry>,
+    proof: EntryProof,
 }
 
-impl ProvenRecord {
-    pub const fn record(&self) -> Record {
-        self.record
+impl ProvenEntry {
+    pub const fn entry(&self) -> ListEntry {
+        self.entry
     }
 
-    pub fn instruction(self) -> Result<Instruction, RecordError> {
+    pub fn instruction(self) -> Result<Instruction, EntryError> {
         let Self {
             ring,
             payer,
-            records_tree,
-            record,
+            entries_tree,
+            entry,
             spent,
             proof,
         } = self;
         let data = match spent {
             None => {
-                let mut data = vec![tag::CREATE_RECORD];
-                data.extend_from_slice(&wincode::serialize(&CreateRecordIxData {
-                    kind: record.kind as u8,
-                    member: *record.member.as_bytes(),
-                    state: record.state as u8,
-                    payload_hash: record.payload_hash,
+                let mut data = vec![tag::CREATE_ENTRY];
+                data.extend_from_slice(&wincode::serialize(&CreateEntryIxData {
+                    list_id: entry.list_id as u8,
+                    member: *entry.member.as_bytes(),
+                    state: entry.state as u8,
+                    content_hash: entry.content_hash,
                     nullifier_tree_root_index: proof.nullifier_tree_root_index,
                     utxo_tree_root_index: proof.utxo_tree_root_index,
                     proof: proof.proof,
@@ -251,15 +251,15 @@ impl ProvenRecord {
                 data
             }
             Some(spent) => {
-                let mut data = vec![tag::UPDATE_RECORD];
-                data.extend_from_slice(&wincode::serialize(&UpdateRecordIxData {
-                    kind: record.kind as u8,
-                    member: *record.member.as_bytes(),
+                let mut data = vec![tag::UPDATE_ENTRY];
+                data.extend_from_slice(&wincode::serialize(&UpdateEntryIxData {
+                    list_id: entry.list_id as u8,
+                    member: *entry.member.as_bytes(),
                     spent_state: spent.state as u8,
-                    spent_payload_hash: spent.payload_hash,
+                    spent_content_hash: spent.content_hash,
                     spent_version: spent.version,
-                    state: record.state as u8,
-                    payload_hash: record.payload_hash,
+                    state: entry.state as u8,
+                    content_hash: entry.content_hash,
                     nullifier_tree_root_index: proof.nullifier_tree_root_index,
                     utxo_tree_root_index: proof.utxo_tree_root_index,
                     proof: proof.proof,
@@ -275,11 +275,11 @@ impl ProvenRecord {
                 AccountMeta::new_readonly(ring.config_pda(), false),
                 AccountMeta::new_readonly(ring.policy_config_pda(), false),
                 AccountMeta::new(payer, true),
-                AccountMeta::new(records_tree, false),
-                AccountMeta::new(records_tree, false),
+                AccountMeta::new(entries_tree, false),
+                AccountMeta::new(entries_tree, false),
                 AccountMeta::new_readonly(Address::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
                 AccountMeta::new_readonly(Address::default(), false),
-                AccountMeta::new_readonly(ring.records_pda(), false),
+                AccountMeta::new_readonly(ring.namespace_pda(), false),
             ],
             data,
         })

@@ -19,7 +19,7 @@ fn error_codes_are_stable() {
         (UnsupportedCircuit as u32, 8113),
         (UnauthorizedInitializer as u32, 8114),
         (TooManyAccounts as u32, 8115),
-        (ReadAccessRecordAlreadyExists as u32, 8116),
+        (ReadAccessEntryAlreadyExists as u32, 8116),
         (InvalidReadAccessRecord as u32, 8117),
         (InvalidReaderKey as u32, 8118),
         (UnsupportedOutputScheme as u32, 8119),
@@ -28,19 +28,19 @@ fn error_codes_are_stable() {
         (InvalidPolicyConfigPda as u32, 8122),
         (PolicyHashMismatch as u32, 8123),
         (InvalidPolicyMember as u32, 8124),
-        (UnauthorizedRecordSigner as u32, 8125),
-        (InvalidRecordKind as u32, 8126),
-        (InvalidRecordState as u32, 8127),
+        (UnauthorizedNamespaceSigner as u32, 8125),
+        (InvalidListId as u32, 8126),
+        (InvalidEntryState as u32, 8127),
         (InvalidPolicyTree as u32, 8129),
-        (RecordVersionOverflow as u32, 8130),
-        (InvalidRecordsPda as u32, 8131),
-        (InvalidRecordsTree as u32, 8132),
+        (EntryVersionOverflow as u32, 8130),
+        (InvalidNamespacePda as u32, 8131),
+        (InvalidEntriesTree as u32, 8132),
         (StalePolicyRoot as u32, 8133),
-        (InvalidPolicySource as u32, 8134),
+        (InvalidSource as u32, 8134),
         (InvalidCuratorPolicyConfig as u32, 8135),
         (CuratorTreeMismatch as u32, 8136),
         (CuratorSourceMissing as u32, 8137),
-        (ForeignRecordSource as u32, 8138),
+        (ForeignSource as u32, 8138),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -67,7 +67,7 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | UnsupportedCircuit
         | UnauthorizedInitializer
         | TooManyAccounts
-        | ReadAccessRecordAlreadyExists
+        | ReadAccessEntryAlreadyExists
         | InvalidReadAccessRecord
         | InvalidReaderKey
         | UnsupportedOutputScheme
@@ -76,18 +76,18 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | InvalidPolicyConfigPda
         | PolicyHashMismatch
         | InvalidPolicyMember
-        | UnauthorizedRecordSigner
-        | InvalidRecordKind
-        | InvalidRecordState
+        | UnauthorizedNamespaceSigner
+        | InvalidListId
+        | InvalidEntryState
         | InvalidPolicyTree
-        | RecordVersionOverflow
-        | InvalidRecordsPda
-        | InvalidRecordsTree
+        | EntryVersionOverflow
+        | InvalidNamespacePda
+        | InvalidEntriesTree
         | StalePolicyRoot
-        | InvalidPolicySource
+        | InvalidSource
         | InvalidCuratorPolicyConfig
         | CuratorTreeMismatch
         | CuratorSourceMissing
-        | ForeignRecordSource => {}
+        | ForeignSource => {}
     }
 }

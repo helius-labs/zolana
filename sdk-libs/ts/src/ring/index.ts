@@ -129,7 +129,7 @@ export {
   buildRingWithdrawalTransaction,
   frameDummyOutputs,
   proveCustomRingTransfer,
-  ringRecordsOwnerHash,
+  ringNamespaceOwnerHash,
   RING_TRANSACT_COMPUTE_UNIT_LIMIT,
 } from "./transfer.js";
 export type {

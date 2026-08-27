@@ -39,7 +39,7 @@ fn encrypted_payload(scheme: u8, body: &[u8]) -> Vec<u8> {
 }
 
 /// Deposits keep the position they hold in the transaction, and the ring is
-/// read from the payload rather than assumed from the query.
+/// read from the content rather than assumed from the query.
 #[test]
 fn deposits_of_the_ring_are_returned_in_slot_order() {
     let slots = vec![
@@ -100,8 +100,8 @@ fn slots_that_are_not_ring_deposits_are_dropped() {
         vec![0xff; 32],
         Vec::new(),
     ];
-    for payload in payloads {
-        assert_eq!(ring_deposits_in(vec![([0x30; 32], payload)], RING), vec![]);
+    for content in payloads {
+        assert_eq!(ring_deposits_in(vec![([0x30; 32], content)], RING), vec![]);
     }
     assert_eq!(ring_deposits_in(Vec::new(), RING), vec![]);
 }
@@ -110,14 +110,14 @@ fn slots_that_are_not_ring_deposits_are_dropped() {
 /// smuggle anything past the decoder.
 #[test]
 fn a_deposit_body_with_trailing_bytes_is_dropped() {
-    let mut payload = deposit_payload(RING, SOL_MINT, 5);
+    let mut content = deposit_payload(RING, SOL_MINT, 5);
     let OutputDataEncoding::Encrypted(mut blob) =
-        borsh::from_slice(&payload).expect("encrypted output")
+        borsh::from_slice(&content).expect("encrypted output")
     else {
         panic!("encrypted output")
     };
     blob.push(0);
-    payload = borsh::to_vec(&OutputDataEncoding::Encrypted(blob)).expect("borsh output data");
+    content = borsh::to_vec(&OutputDataEncoding::Encrypted(blob)).expect("borsh output data");
 
-    assert_eq!(ring_deposits_in(vec![([0x40; 32], payload)], RING), vec![]);
+    assert_eq!(ring_deposits_in(vec![([0x40; 32], content)], RING), vec![]);
 }

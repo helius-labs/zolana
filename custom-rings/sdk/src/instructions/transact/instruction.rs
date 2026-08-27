@@ -9,7 +9,7 @@ use crate::CustomRing;
 
 #[must_use]
 /// Audited ring transact: the ring's auditor key-encryption proof followed by the
-/// SPP payload it forwards.
+/// SPP content it forwards.
 ///
 /// The account list is `[payer, config]` prepended to SPP's own `RING_TRANSACT`
 /// list. Those two extra accounts are all this program reads for itself: the payer
@@ -29,13 +29,13 @@ pub struct CustomRingTransact {
     pub output_tree: Address,
     /// The eddsa owners of the spent UTXOs; SPP requires each as a signer.
     pub owner_signers: Vec<Address>,
-    /// Settlement accounts for the payload's `interface_transfers`, in the same
+    /// Settlement accounts for the content's `interface_transfers`, in the same
     /// order.
     pub interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     /// Proof of the `audit` circuit, in the program's wire encoding. Convert a
     /// prover result with `CustomRingProof::from(..)`.
     pub proof: CustomRingProof,
-    /// The SPP payload. Its `messages` must already carry the auditor message that
+    /// The SPP content. Its `messages` must already carry the auditor message that
     /// the proof commits to, and its `private_tx_hash` must be the one the SPP
     /// proof was generated for.
     pub transact: TransactIxData,

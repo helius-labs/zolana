@@ -43,9 +43,9 @@ pub enum CustomRingError {
     UnauthorizedInitializer = 8114,
     #[error("forwarded account list exceeds the CPI account limit")]
     TooManyAccounts = 8115,
-    #[error("read access record already exists")]
-    ReadAccessRecordAlreadyExists = 8116,
-    #[error("read access record account is invalid")]
+    #[error("read access entry already exists")]
+    ReadAccessEntryAlreadyExists = 8116,
+    #[error("read access entry account is invalid")]
     InvalidReadAccessRecord = 8117,
     #[error("reader key cannot authorize reads")]
     InvalidReaderKey = 8118,
@@ -61,33 +61,33 @@ pub enum CustomRingError {
     PolicyHashMismatch = 8123,
     #[error("policy member is invalid")]
     InvalidPolicyMember = 8124,
-    #[error("signer may not mutate records of the kind")]
-    UnauthorizedRecordSigner = 8125,
-    #[error("record kind is unknown")]
-    InvalidRecordKind = 8126,
-    #[error("record state is unknown")]
-    InvalidRecordState = 8127,
+    #[error("signer may not mutate entries of the list_id")]
+    UnauthorizedNamespaceSigner = 8125,
+    #[error("list is unknown")]
+    InvalidListId = 8126,
+    #[error("entry state is unknown")]
+    InvalidEntryState = 8127,
     // 8128 retired, an empty policy table is valid.
-    #[error("record mutations must use the default tree")]
+    #[error("entry mutations must use the default tree")]
     InvalidPolicyTree = 8129,
-    #[error("record version overflows")]
-    RecordVersionOverflow = 8130,
-    #[error("records account is not the canonical records PDA")]
-    InvalidRecordsPda = 8131,
-    #[error("records tree account is not a shielded pool tree")]
-    InvalidRecordsTree = 8132,
+    #[error("entry version overflows")]
+    EntryVersionOverflow = 8130,
+    #[error("entries account is not the canonical entries PDA")]
+    InvalidNamespacePda = 8131,
+    #[error("entries tree account is not a shielded pool tree")]
+    InvalidEntriesTree = 8132,
     #[error("policy root index is outside the window the statement admits")]
     StalePolicyRoot = 8133,
     #[error("policy source list does not match the kinds the compiled table references")]
-    InvalidPolicySource = 8134,
+    InvalidSource = 8134,
     #[error("curator policy config account is not a canonical initialized policy config")]
     InvalidCuratorPolicyConfig = 8135,
-    #[error("curator records live in a different tree")]
+    #[error("curator entries live in a different tree")]
     CuratorTreeMismatch = 8136,
-    #[error("curator has no source for the record kind")]
+    #[error("curator has no source for the list")]
     CuratorSourceMissing = 8137,
-    #[error("the kind is served by a curator's records, mutate it on the curator ring")]
-    ForeignRecordSource = 8138,
+    #[error("the list_id is served by a curator's entries, mutate it on the curator ring")]
+    ForeignSource = 8138,
 }
 
 impl From<CustomRingError> for ProgramError {

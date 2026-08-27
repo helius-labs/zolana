@@ -1,5 +1,5 @@
-//! Both record transitions are a 1-in 1-out `ConfidentialEddsa` transfer signed by
-//! the records PDA. Create fills the address slot, update fills the input slot with
+//! Both entry transitions are a 1-in 1-out `ConfidentialEddsa` transfer signed by
+//! the namespace PDA. Create fills the address slot, update fills the input slot with
 //! the live version.
 
 use num_bigint::BigUint;
@@ -16,7 +16,7 @@ use zolana_interface::{
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     ADDRESS_DOMAIN, SHIELDED_POOL_PROGRAM_ID, SOL_ASSET_FIELD, UTXO_DOMAIN,
 };
-use zolana_ring_policy::{record_nullifier, record_seed, Member, Record, RecordKind, RecordsOwner};
+use zolana_ring_policy::{entry_nullifier, entry_seed, ListEntry, ListId, ListNamespace, Member};
 use zolana_transaction::{
     instructions::transact::{ExternalData, PrivateTxHash},
     ProofInputUtxo,
@@ -24,89 +24,88 @@ use zolana_transaction::{
 use zolana_tree::TreeAccount;
 
 #[derive(Debug, Error)]
-pub enum RecordProofError {
+pub enum EntryProofError {
     #[error(transparent)]
     Client(#[from] Box<ClientError>),
     #[error("hashing failed")]
     Hashing,
-    #[error("records tree account {address} is missing")]
+    #[error("entries tree account {address} is missing")]
     MissingTree { address: Address },
-    #[error("records tree account {address} is not a shielded pool tree")]
+    #[error("entries tree account {address} is not a shielded pool tree")]
     InvalidTree { address: Address },
-    #[error("indexer returned no proof for the record")]
+    #[error("indexer returned no proof for the entry")]
     MissingProof,
-    #[error("more than one live {kind:?} record for the member")]
-    AmbiguousRecord { kind: RecordKind, member: [u8; 32] },
+    #[error("more than one live {list_id:?} entry for the member")]
+    AmbiguousEntry { list_id: ListId, member: [u8; 32] },
     #[error("proof is not a transact proof")]
     InvalidProof,
 }
 
-impl From<ClientError> for RecordProofError {
+impl From<ClientError> for EntryProofError {
     fn from(error: ClientError) -> Self {
         Self::Client(Box::new(error))
     }
 }
 
-pub struct RecordProof {
+pub struct EntryProof {
     pub proof: TransactProof,
     pub nullifier_tree_root_index: u16,
     pub utxo_tree_root_index: u16,
 }
 
-pub(super) struct RecordWitness<'a> {
-    pub owner: &'a RecordsOwner,
-    pub records: Address,
-    pub records_tree: Address,
+pub(super) struct EntryWitness<'a> {
+    pub owner: &'a ListNamespace,
+    pub namespace: Address,
+    pub entries_tree: Address,
     pub payer: Address,
-    pub record: Record,
-    pub spent: Option<Record>,
+    pub entry: ListEntry,
+    pub spent: Option<ListEntry>,
 }
 
-impl RecordWitness<'_> {
+impl EntryWitness<'_> {
     pub(super) fn prove<I: Rpc, R: Rpc>(
         self,
         indexer: &I,
         rpc: &R,
         prover: &ProverClient,
-    ) -> Result<RecordProof, RecordProofError> {
+    ) -> Result<EntryProof, EntryProofError> {
         let address = self
             .owner
-            .address(self.record.kind, &self.record.member)
-            .map_err(|_| RecordProofError::Hashing)?;
+            .address(self.entry.list_id, &self.entry.member)
+            .map_err(|_| EntryProofError::Hashing)?;
         let slot = match self.spent {
-            None => InputSlot::claim(self.owner, self.record.kind, &self.record.member, address)?,
+            None => InputSlot::claim(self.owner, self.entry.list_id, &self.entry.member, address)?,
             Some(spent) => {
-                InputSlot::spend(indexer, self.records_tree, self.owner, &spent, address)?
+                InputSlot::spend(indexer, self.entries_tree, self.owner, &spent, address)?
             }
         };
 
-        let non_inclusion = non_inclusion_proof(indexer, self.records_tree, slot.nullifier)?;
+        let non_inclusion = non_inclusion_proof(indexer, self.entries_tree, slot.nullifier)?;
         let owner_pk_hash =
-            hash_bytes(self.records.as_array()).map_err(|_| RecordProofError::Hashing)?;
-        let payer_hash =
-            hash_bytes(self.payer.as_array()).map_err(|_| RecordProofError::Hashing)?;
+            hash_bytes(self.namespace.as_array()).map_err(|_| EntryProofError::Hashing)?;
+        let payer_hash = hash_bytes(self.payer.as_array()).map_err(|_| EntryProofError::Hashing)?;
 
         let output_hash = self
-            .record
+            .entry
             .utxo_hash(self.owner, &address)
-            .map_err(|_| RecordProofError::Hashing)?;
+            .map_err(|_| EntryProofError::Hashing)?;
         let output_data_hash = self
-            .record
+            .entry
             .data_hash(&address)
-            .map_err(|_| RecordProofError::Hashing)?;
-        let payload = self.record.to_output_data();
+            .map_err(|_| EntryProofError::Hashing)?;
+        let content = self.entry.to_output_data();
         let external = ExternalData::new(
             [0u8; 33],
             [0u8; 16],
             vec![TransactOutput {
                 utxo_hash: output_hash,
-                owner_tag: OwnerTag::Inline(self.records.to_bytes()),
-                data: Some(payload.to_vec()),
+                owner_tag: OwnerTag::Inline(self.namespace.to_bytes()),
+                data: Some(content.to_vec()),
             }],
-            vec![self.records.to_bytes()],
+            vec![self.namespace.to_bytes()],
             Vec::new(),
         );
-        let external_hash = external.hash().map_err(|_| RecordProofError::Hashing)?;
+        let external_hash = external.hash().map_err(|_| EntryProofError::Hashing)?;
         let private_tx = PrivateTxHash {
             input_hashes: &[slot.input_hash],
             output_hashes: &[output_hash],
@@ -114,7 +113,7 @@ impl RecordWitness<'_> {
             external_data_hash: &external_hash,
         }
         .hash()
-        .map_err(|_| RecordProofError::Hashing)?;
+        .map_err(|_| EntryProofError::Hashing)?;
 
         // An address slot proves no inclusion, its path is zero and any live root serves.
         let (utxo_root, utxo_root_index, state_path, state_index) = match &slot.state {
@@ -125,7 +124,7 @@ impl RecordWitness<'_> {
                 BigUint::from(state.leaf_index),
             ),
             None => {
-                let live = read_state_root(rpc, self.records_tree)?;
+                let live = read_state_root(rpc, self.entries_tree)?;
                 (
                     live.value,
                     live.index,
@@ -153,7 +152,7 @@ impl RecordWitness<'_> {
             output_owner_pk_hashes: Some(&output_owner_hashes),
         }
         .hash()
-        .map_err(|_| RecordProofError::Hashing)?;
+        .map_err(|_| EntryProofError::Hashing)?;
 
         let transfer_input = TransferInput {
             utxo: slot.utxo,
@@ -176,7 +175,7 @@ impl RecordWitness<'_> {
                 owner_hash: self.owner.owner_hash,
                 asset: SOL_ASSET_FIELD,
                 amount: [0u8; 32],
-                blinding: self.record.blinding(),
+                blinding: self.entry.blinding(),
                 data_hash: output_data_hash,
                 ..ProofInputUtxo::default()
             },
@@ -200,9 +199,9 @@ impl RecordWitness<'_> {
             public_input_hash: be(&public_hash),
         };
         let proof = prover.prove_transfer(&inputs)?;
-        Ok(RecordProof {
+        Ok(EntryProof {
             proof: ProofCompressed::try_from(proof)
-                .map_err(|_| RecordProofError::InvalidProof)?
+                .map_err(|_| EntryProofError::InvalidProof)?
                 .to_transact_proof(),
             nullifier_tree_root_index: non_inclusion.root_index,
             utxo_tree_root_index: utxo_root_index,
@@ -222,19 +221,19 @@ struct InputSlot {
 
 impl InputSlot {
     fn claim(
-        owner: &RecordsOwner,
-        kind: RecordKind,
+        owner: &ListNamespace,
+        list_id: ListId,
         member: &Member,
         address: [u8; 32],
-    ) -> Result<Self, RecordProofError> {
-        let seed = record_seed(kind, member).map_err(|_| RecordProofError::Hashing)?;
+    ) -> Result<Self, EntryProofError> {
+        let seed = entry_seed(list_id, member).map_err(|_| EntryProofError::Hashing)?;
         let utxo = ProofInputUtxo {
             domain: right_align(&ADDRESS_DOMAIN.to_be_bytes()),
             owner_hash: owner.owner_hash,
             blinding: seed,
             ..ProofInputUtxo::default()
         };
-        let address_hash = utxo.hash().map_err(|_| RecordProofError::Hashing)?;
+        let address_hash = utxo.hash().map_err(|_| EntryProofError::Hashing)?;
         Ok(Self {
             utxo,
             input_hash: [0u8; 32],
@@ -247,18 +246,18 @@ impl InputSlot {
     fn spend<I: Rpc>(
         indexer: &I,
         tree: Address,
-        owner: &RecordsOwner,
-        spent: &Record,
+        owner: &ListNamespace,
+        spent: &ListEntry,
         address: [u8; 32],
-    ) -> Result<Self, RecordProofError> {
+    ) -> Result<Self, EntryProofError> {
         let input_hash = spent
             .utxo_hash(owner, &address)
-            .map_err(|_| RecordProofError::Hashing)?;
-        let nullifier = record_nullifier(&input_hash, &spent.blinding())
-            .map_err(|_| RecordProofError::Hashing)?;
+            .map_err(|_| EntryProofError::Hashing)?;
+        let nullifier = entry_nullifier(&input_hash, &spent.blinding())
+            .map_err(|_| EntryProofError::Hashing)?;
         let data_hash = spent
             .data_hash(&address)
-            .map_err(|_| RecordProofError::Hashing)?;
+            .map_err(|_| EntryProofError::Hashing)?;
         let utxo = ProofInputUtxo {
             domain: right_align(&UTXO_DOMAIN.to_be_bytes()),
             owner_hash: owner.owner_hash,
@@ -284,52 +283,52 @@ struct StateRoot {
     index: u16,
 }
 
-fn zero_nullifier_pubkey() -> Result<[u8; 32], RecordProofError> {
+fn zero_nullifier_pubkey() -> Result<[u8; 32], EntryProofError> {
     zolana_keypair::NullifierKey::from_secret([0u8; 31])
         .pubkey()
-        .map_err(|_| RecordProofError::Hashing)
+        .map_err(|_| EntryProofError::Hashing)
 }
 
 fn merkle_proof<I: Rpc>(
     indexer: &I,
     tree: Address,
     leaf: [u8; 32],
-) -> Result<MerkleProof, RecordProofError> {
+) -> Result<MerkleProof, EntryProofError> {
     indexer
         .get_merkle_proofs(tree, vec![leaf], None)?
         .proofs
         .into_iter()
         .next()
-        .ok_or(RecordProofError::MissingProof)
+        .ok_or(EntryProofError::MissingProof)
 }
 
 fn non_inclusion_proof<I: Rpc>(
     indexer: &I,
     tree: Address,
     leaf: [u8; 32],
-) -> Result<NonInclusionProof, RecordProofError> {
+) -> Result<NonInclusionProof, EntryProofError> {
     indexer
         .get_non_inclusion_proofs(tree, vec![leaf], None)?
         .proofs
         .into_iter()
         .next()
-        .ok_or(RecordProofError::MissingProof)
+        .ok_or(EntryProofError::MissingProof)
 }
 
-fn read_state_root<R: Rpc>(rpc: &R, tree: Address) -> Result<StateRoot, RecordProofError> {
+fn read_state_root<R: Rpc>(rpc: &R, tree: Address) -> Result<StateRoot, EntryProofError> {
     let mut account = rpc
         .get_account(tree)?
-        .ok_or(RecordProofError::MissingTree { address: tree })?;
+        .ok_or(EntryProofError::MissingTree { address: tree })?;
     if account.owner.to_bytes() != SHIELDED_POOL_PROGRAM_ID
         || account.data.first() != Some(&TREE_ACCOUNT_DISCRIMINATOR)
     {
-        return Err(RecordProofError::InvalidTree { address: tree });
+        return Err(EntryProofError::InvalidTree { address: tree });
     }
     let mut tree_account = TreeAccount::from_bytes(&mut account.data, tree.to_bytes())
-        .map_err(|_| RecordProofError::InvalidTree { address: tree })?;
+        .map_err(|_| EntryProofError::InvalidTree { address: tree })?;
     let index = tree_account.utxo_tree().current_root_index();
     let value = tree_account
         .get_utxo_tree_root(index)
-        .map_err(|_| RecordProofError::InvalidTree { address: tree })?;
+        .map_err(|_| EntryProofError::InvalidTree { address: tree })?;
     Ok(StateRoot { value, index })
 }

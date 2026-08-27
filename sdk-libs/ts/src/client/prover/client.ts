@@ -25,8 +25,8 @@ import {
 } from "./types.js";
 import type {
   CustomRingOpening,
-  CustomRingPolicySource,
-  CustomRingPoolEntry,
+  CustomRingSourceOwner,
+  CustomRingRuleAnswer,
   CustomRingProofRequest,
   Field,
   MergeInputs,
@@ -400,7 +400,7 @@ export function customRingProofRequest(
     inlineCount: u8(inputs.inlineCount, "inlineCount"),
     stateRoot: hex32(inputs.stateRoot, "stateRoot"),
     nullifierRoot: hex32(inputs.nullifierRoot, "nullifierRoot"),
-    pool: sized(inputs.pool, RING_POOL_SLOTS, "pool").map(poolJson),
+    answers: sized(inputs.answers, RING_POOL_SLOTS, "answers").map(poolJson),
   });
 }
 
@@ -418,22 +418,22 @@ function openingJson(opening: CustomRingOpening): Readonly<Record<string, unknow
   });
 }
 
-function sourceJson(source: CustomRingPolicySource): Readonly<Record<string, unknown>> {
+function sourceJson(source: CustomRingSourceOwner): Readonly<Record<string, unknown>> {
   return Object.freeze({
-    kind: u8(source.kind, "kind"),
+    listId: u8(source.listId, "listId"),
     ownerHash: hex32(source.ownerHash, "ownerHash"),
   });
 }
 
-function poolJson(entry: CustomRingPoolEntry): Readonly<Record<string, unknown>> {
+function poolJson(entry: CustomRingRuleAnswer): Readonly<Record<string, unknown>> {
   return Object.freeze({
     enabled: entry.enabled,
     mode: u8(entry.mode, "mode"),
-    kind: u8(entry.kind, "kind"),
+    listId: u8(entry.listId, "listId"),
     state: u8(entry.state, "state"),
     absentBranch: u8(entry.absentBranch, "absentBranch"),
     member: hex32(entry.member, "member"),
-    payloadHash: hex32(entry.payloadHash, "payloadHash"),
+    contentHash: hex32(entry.contentHash, "contentHash"),
     version: u64Json(entry.version, "version"),
     low: hex32(entry.low, "low"),
     next: hex32(entry.next, "next"),

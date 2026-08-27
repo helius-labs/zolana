@@ -14,7 +14,7 @@ use zolana_interface::{
 };
 use zolana_keypair::P256Pubkey;
 pub use zolana_ring_client::{ReaderKey, ReaderKeyError};
-use zolana_ring_policy::POLICY_RECORDS_PDA_SEED;
+use zolana_ring_policy::NAMESPACE_PDA_SEED;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CustomRing {
@@ -53,13 +53,13 @@ impl CustomRing {
         Address::find_program_address(&[PolicyConfig::SEED], &self.program_id).0
     }
 
-    /// The shielded owner of every policy record.
-    pub fn records_pda(self) -> Address {
-        Address::find_program_address(&[POLICY_RECORDS_PDA_SEED], &self.program_id).0
+    /// The shielded owner of every policy entry.
+    pub fn namespace_pda(self) -> Address {
+        Address::find_program_address(&[NAMESPACE_PDA_SEED], &self.program_id).0
     }
 
     pub fn read_access_record_pda(self, reader: &ReaderKey) -> Address {
-        reader.record_address(&self.program_id)
+        reader.entry_address(&self.program_id)
     }
 
     /// The ring authority PDA. SPP stores the ring config under this address and
@@ -130,7 +130,7 @@ impl CustomRing {
         reader: &ReaderKey,
     ) -> Result<Option<ReadAccessRecord>, AccountReadError> {
         let address = self.read_access_record_pda(reader);
-        let Some(record) = (AccountRead {
+        let Some(entry) = (AccountRead {
             rpc,
             program_id: self.program_id,
             address,
@@ -145,10 +145,10 @@ impl CustomRing {
         let bump =
             Address::find_program_address(&[ReadAccessRecord::SEED, &seed_hash], &self.program_id)
                 .1;
-        if record.reader != reader_bytes || record.bump != bump {
+        if entry.reader != reader_bytes || entry.bump != bump {
             return Err(AccountReadError::InvalidAccount { address });
         }
-        Ok(Some(record))
+        Ok(Some(entry))
     }
 
     /// Owned by SPP, not by the ring program.
