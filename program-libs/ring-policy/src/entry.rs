@@ -57,13 +57,16 @@ impl TryFrom<u8> for ListId {
     }
 }
 
+/// Seed of the dataless PDA whose signature owns every entry of the ring.
 pub const NAMESPACE_PDA_SEED: &[u8] = b"policy_records";
 
+/// Published entry length, the complete preimage of its hashes.
 pub const LIST_ENTRY_LEN: usize = 74;
 /// The plaintext output-data envelope, tag byte and `u32` length before the
 /// content.
 pub const ENTRY_OUTPUT_DATA_LEN: usize = 5 + LIST_ENTRY_LEN;
 
+/// Active or Cleared, removal writes Cleared, no version is ever deleted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum EntryState {
@@ -121,6 +124,7 @@ impl ListNamespace {
     }
 }
 
+/// One address lineage per `(list_id, member)` pair under one namespace.
 pub fn entry_seed(list_id: ListId, member: &Member) -> Result<[u8; 32], HasherError> {
     Poseidon::hashv(&[
         &POLICY_ADDRESS_DOMAIN,
@@ -141,6 +145,7 @@ pub struct ListEntry {
 }
 
 impl ListEntry {
+    /// The leaf preimage, binds the entry to its derived address.
     pub fn data_hash(&self, address: &[u8; 32]) -> Result<[u8; 32], HasherError> {
         Poseidon::hashv(&[
             &POLICY_RECORD_DOMAIN,
@@ -153,6 +158,7 @@ impl ListEntry {
         ])
     }
 
+    /// The version, a re-added member never repeats a utxo hash or nullifier.
     pub fn blinding(&self) -> [u8; 32] {
         field_u64(self.version)
     }
@@ -182,6 +188,7 @@ impl ListEntry {
         content
     }
 
+    /// The canonical SPP UTXO hash, entries are indistinguishable from value UTXOs.
     pub fn utxo_hash(
         &self,
         owner: &ListNamespace,
@@ -201,6 +208,7 @@ impl ListEntry {
     }
 }
 
+/// Publicly computable, the nullifier secret is zero for every entry.
 pub fn entry_nullifier(utxo_hash: &[u8; 32], blinding: &[u8; 32]) -> Result<[u8; 32], HasherError> {
     Poseidon::hashv(&[utxo_hash, blinding, &[0u8; 32]])
 }

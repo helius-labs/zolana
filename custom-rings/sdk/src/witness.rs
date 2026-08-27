@@ -35,6 +35,7 @@ pub struct TransactRoots {
     pub nullifier_index: u16,
 }
 
+/// The policy witness of one transfer, serialized into the proof request.
 pub struct CustomRingWitness {
     pub roots: TransactRoots,
     pub sources: [SourceOwnerEntry; MAX_SOURCES],
@@ -49,6 +50,7 @@ pub struct CustomRingWitness {
     pub answers: Vec<RuleAnswer>,
 }
 
+/// Gathers the witness from the chain and the indexer at prove time.
 pub struct CustomRingWitnessInput<'a> {
     pub policy: &'a RuleTable,
     pub policy_config: &'a PolicyConfig,
@@ -57,6 +59,7 @@ pub struct CustomRingWitnessInput<'a> {
 }
 
 impl CustomRingWitnessInput<'_> {
+    /// Refuses client-side with a named rule before any prover round.
     pub fn build<I: Rpc, R: Rpc>(
         self,
         indexer: &I,

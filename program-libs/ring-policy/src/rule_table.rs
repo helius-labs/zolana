@@ -3,8 +3,11 @@ use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 
 use crate::{field_u8, ListId, POLICY_TABLE_DOMAIN};
 
+/// Rule slots compiled into the circuit, a new value rotates the proving key.
 pub const MAX_RULES: usize = 16;
+/// Inline asset slots per table, a circuit width.
 pub const MAX_INLINE_ASSETS: usize = 8;
+/// Source slots, one per list the enum can name.
 pub const MAX_SOURCES: usize = 8;
 /// Enters `policy_hash`, bump it with any change of the encoding below.
 pub const POLICY_VERSION: u8 = 2;
@@ -22,6 +25,7 @@ pub struct SourceMap {
     slots: [SourceOwner; MAX_SOURCES],
 }
 
+/// A slot violates the positional layout.
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 pub enum SourceMapError {
     #[error("slot breaks the positional layout")]
@@ -32,6 +36,7 @@ pub enum SourceMapError {
     ZeroOwner,
 }
 
+/// Hashing failed or a referenced list has no source.
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 pub enum PolicyHashError {
     #[error("hashing failed")]
@@ -80,6 +85,7 @@ impl SourceMap {
         Ok(Self { slots })
     }
 
+    /// The owner serving a list, `None` when unmapped.
     pub fn owner_hash(&self, list_id: ListId) -> Option<&[u8; 32]> {
         let slot = &self.slots[list_id as usize - 1];
         (slot.list_id != 0).then_some(&slot.owner_hash)
@@ -90,6 +96,7 @@ impl SourceMap {
     }
 }
 
+/// Whom a rule screens in the transfer openings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Subject {
@@ -99,6 +106,7 @@ pub enum Subject {
     Asset = 4,
 }
 
+/// Present demands a live Active entry, Absent forbids one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Mode {
@@ -106,12 +114,14 @@ pub enum Mode {
     Absent = 2,
 }
 
+/// AboveAmount exempts instances at or below the threshold.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Guard {
     Always,
     AboveAmount(u64),
 }
 
+/// A list of entries or assets carried inline by the table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RuleSource {
     List(ListId),
@@ -119,6 +129,7 @@ pub enum RuleSource {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// One compiled obligation, packed into a single field element for the hash.
 pub struct Rule {
     pub subject: Subject,
     pub mode: Mode,
@@ -127,6 +138,7 @@ pub struct Rule {
 }
 
 impl Rule {
+    /// Every live instance of the subject needs a live Active entry.
     pub const fn require(subject: Subject, list_id: ListId) -> Self {
         Self {
             subject,
@@ -136,6 +148,7 @@ impl Rule {
         }
     }
 
+    /// Every live instance of the subject needs a provable absence.
     pub const fn forbid(subject: Subject, list_id: ListId) -> Self {
         Self {
             subject,
@@ -145,6 +158,7 @@ impl Rule {
         }
     }
 
+    /// Restricts assets to members the table itself carries, no entries involved.
     pub const fn allow_only_assets(members: &'static [[u8; 32]]) -> Self {
         Self {
             subject: Subject::Asset,
@@ -248,6 +262,7 @@ impl RuleTable {
     }
 }
 
+/// Const-evaluable, an illegal table fails the consuming build, never a transaction.
 #[derive(Clone, Copy, Debug)]
 pub struct RuleTableBuilder {
     rules: [Rule; MAX_RULES],

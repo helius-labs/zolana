@@ -36,8 +36,11 @@ const fn packed_ascii<const N: usize>(bytes: &[u8; N]) -> [u8; 32] {
     field
 }
 
+/// Separates address seeds, frozen with every derived address.
 pub const POLICY_ADDRESS_DOMAIN: [u8; 32] = packed_ascii(b"zolana:ring-policy:address:v1");
+/// Separates entry leaves, frozen with every published entry.
 pub const POLICY_RECORD_DOMAIN: [u8; 32] = packed_ascii(b"zolana:ring-policy:record:v1");
+/// Separates policy hashes, frozen with every pinned config.
 pub const POLICY_TABLE_DOMAIN: [u8; 32] = packed_ascii(b"zolana:ring-policy:policy:v1");
 
 pub(crate) fn field_u8(value: u8) -> [u8; 32] {

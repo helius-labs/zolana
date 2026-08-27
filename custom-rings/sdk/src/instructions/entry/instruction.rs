@@ -13,6 +13,7 @@ use crate::{
     CustomRing,
 };
 
+/// A mutation build failed before any instruction was produced.
 #[derive(Debug, Error)]
 pub enum EntryError {
     #[error(transparent)]
@@ -27,6 +28,7 @@ pub enum EntryError {
     Encoding(#[from] wincode::WriteError),
 }
 
+/// Pins the compiled table and the source map, signed by the upgrade authority.
 #[must_use]
 pub struct CreatePolicy {
     pub ring: CustomRing,
@@ -113,6 +115,7 @@ impl CreatePolicy {
     }
 }
 
+/// Claims the pair's address at version zero.
 #[must_use]
 pub struct CreateEntry {
     pub ring: CustomRing,
@@ -158,6 +161,7 @@ impl CreateEntry {
     }
 }
 
+/// Spends the live version and writes its successor at the same address.
 #[must_use]
 pub struct UpdateEntry {
     pub ring: CustomRing,
@@ -206,12 +210,14 @@ impl UpdateEntry {
     }
 }
 
+/// The connections one mutation proof needs.
 pub struct EntryProofEnvironment<'a, I: Rpc, R: Rpc> {
     pub indexer: &'a I,
     pub rpc: &'a R,
     pub prover: &'a ProverClient,
 }
 
+/// A proven mutation, ready to become one instruction.
 #[must_use]
 pub struct ProvenEntry {
     ring: CustomRing,

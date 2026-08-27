@@ -7,6 +7,7 @@ use zolana_ring_policy::{entry_nullifier, ListEntry, ListId, ListNamespace, Memb
 
 use crate::instructions::entry::proof::EntryProofError;
 
+/// The current version of a lineage with its tree position.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LiveEntry {
     pub entry: ListEntry,
