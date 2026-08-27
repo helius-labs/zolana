@@ -4,6 +4,19 @@ version = "0.1.0"
 edition.workspace = true
 publish = false
 
+[features]
+# The on-chain lookup-table flow in `v0`. It drives a concrete Solana RPC client
+# and signs locally, so a host that owns its own transport -- or keeps the
+# signing key in an enclave and signs through a separate rail -- cannot use it.
+# Default-on keeps every existing caller unchanged; turning it off leaves the
+# instruction builders, proof inputs, and auditor codec, none of which need RPC.
+default = ["solana-rpc"]
+solana-rpc = [
+    "dep:solana-address-lookup-table-interface",
+    "dep:solana-rpc-client-api",
+    "zolana-client/solana-rpc",
+]
+
 [dependencies]
 borsh = { workspace = true }
 custom-ring-interface = { workspace = true }
@@ -13,11 +26,11 @@ rand = { workspace = true }
 # Only for the uncompressed SEC1 encoding of the auditor key that the circuit
 # witnesses; `zolana-keypair` hands out compressed keys.
 solana-address = { workspace = true, features = ["curve25519"] }
-solana-address-lookup-table-interface = { workspace = true }
+solana-address-lookup-table-interface = { workspace = true, optional = true }
 solana-compute-budget-interface = { workspace = true }
 solana-instruction = { workspace = true }
 solana-message = { workspace = true }
-solana-rpc-client-api = { workspace = true }
+solana-rpc-client-api = { workspace = true, optional = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -26,7 +39,7 @@ solana-transaction = { workspace = true, features = ["serde"] }
 thiserror = { workspace = true }
 wincode = { workspace = true }
 zeroize = { workspace = true }
-zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
+zolana-client = { workspace = true, features = ["indexer-api"] }
 # `solana` pulls in the instruction builders this crate wraps for ring deposits.
 zolana-interface = { workspace = true, features = ["solana"] }
 zolana-keypair = { workspace = true }
