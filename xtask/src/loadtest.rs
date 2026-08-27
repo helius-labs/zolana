@@ -36,7 +36,7 @@ use solana_signer::Signer;
 // an inherent one on SolanaRpc.
 use zolana_client::{Rpc, RpcSendTransactionConfig, SolanaRpc, ZolanaClient};
 use zolana_keypair::ShieldedKeypair;
-use zolana_transaction::{Address, AssetRegistry, LocalWalletAuthority, Wallet};
+use zolana_transaction::{Address, AssetRegistry, KeypairWalletAuthority, Wallet};
 use zolana_wallet::{
     create_transfer_sync, sign_private_transaction_sync, sync_wallet, TransferParams,
 };
@@ -462,10 +462,10 @@ fn worker(
         options.prover_url.clone(),
         tree,
     );
-    // LocalWalletAuthority is the canonical implementation of the signing and
+    // KeypairWalletAuthority is the canonical implementation of the signing and
     // viewing surface the sync and transfer paths need. The CLI wraps it in its
     // own type only to add file loading; there is nothing to add here.
-    let authority = LocalWalletAuthority::new(
+    let authority = KeypairWalletAuthority::new(
         Address::new_from_array(funding.pubkey().to_bytes()),
         &shielded,
     );

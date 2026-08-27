@@ -192,6 +192,9 @@ pub enum ClientError {
     #[error("proof parse error: {0}")]
     ProofParse(String),
 
+    #[error("proof verification failed: {0}")]
+    ProofVerification(String),
+
     #[error("prover process error: {0}")]
     Prover(String),
 

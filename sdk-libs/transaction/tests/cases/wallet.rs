@@ -6,7 +6,7 @@ use zolana_transaction::{
         OwnerCx, UtxoSerialization,
     },
     wallet::{AssetBalance, PrivateTransactionDirection, PrivateTransactionKind, Wallet},
-    Address, AssetRegistry, Data, LocalWalletAuthority, OutputContext, OutputSlot,
+    Address, AssetRegistry, Data, KeypairWalletAuthority, OutputContext, OutputSlot,
     ShieldedTransaction, Utxo, SOL_ASSET_ID, SOL_MINT,
 };
 
@@ -277,7 +277,7 @@ pub(crate) fn sync_fresh_wallet(world: &mut TransactionWorld, name: String) {
         AssetRegistry::default(),
     )
     .unwrap();
-    let authority = LocalWalletAuthority::new(Address::default(), &keypair);
+    let authority = KeypairWalletAuthority::new(Address::default(), &keypair);
     let report = wallet
         .sync(&authority, &world.sync_transactions, 1_700_000_000, 8)
         .unwrap();
@@ -286,6 +286,38 @@ pub(crate) fn sync_fresh_wallet(world: &mut TransactionWorld, name: String) {
     assert_eq!(wallet.last_synced, 1_700_000_000);
     world.wallet = Some(wallet);
     world.wallet_name = Some(name);
+}
+
+/// Syncs a second fresh wallet over the same transactions through the parallel
+/// scan and asserts it reaches the same history as [`sync_fresh_wallet`].
+///
+/// `parallel.rs` is a second implementation of the same scan, so every
+/// classification rule exists there in a second copy. Comparing the two is what
+/// keeps them from drifting apart -- a rule fixed in one and missed in the other
+/// shows up here rather than in a user's history.
+#[cfg(feature = "parallel")]
+pub(crate) fn parallel_scan_agrees(world: &mut TransactionWorld) {
+    let name = world
+        .wallet_name
+        .clone()
+        .expect("call after `sync_fresh_wallet`");
+    let serial = world.wallet.as_ref().expect("wallet not synced");
+    let keypair = world.kp(&name);
+    let mut parallel = Wallet::new(
+        keypair.shielded_address().unwrap(),
+        AssetRegistry::default(),
+    )
+    .unwrap();
+    let authority = KeypairWalletAuthority::new(Address::default(), keypair);
+    parallel
+        .sync_parallel(&authority, &world.sync_transactions, 1_700_000_000, 8)
+        .unwrap();
+
+    assert_eq!(
+        parallel.private_transactions(),
+        serial.private_transactions(),
+        "parallel scan disagreed with the serial scan"
+    );
 }
 
 pub(crate) fn wallet_holds(world: &mut TransactionWorld, total: usize, spent: usize) {
@@ -388,6 +420,39 @@ pub(crate) fn outbound_to(world: &mut TransactionWorld, amount: u64, recipient: 
     assert!(
         found,
         "missing outbound transfer of {amount} sol to {recipient:?}; history={:?}",
+        wallet.private_transactions()
+    );
+}
+
+/// The sender-side row of a transfer whose only recipient is the sender itself.
+///
+/// Recorded by the anonymous-sender bundle, whose recipient list the wallet
+/// reads out of its own change slot -- the rail that used to hardcode
+/// `Outbound` here while the matching receipt already said `SelfTransfer`.
+pub(crate) fn self_transfer_recorded(world: &mut TransactionWorld, amount: u64) {
+    let wallet = world.wallet.as_ref().expect("wallet not synced");
+    let self_pk = wallet.identity.viewing_pubkey;
+    let found = wallet.private_transactions().iter().any(|tx| {
+        tx.kind == PrivateTransactionKind::PrivateTransfer
+            && tx.direction == PrivateTransactionDirection::SelfTransfer
+            && tx.amount == amount
+            && tx.asset == SOL_MINT
+            && tx.counterparty_viewing_pubkey == Some(self_pk)
+    });
+    assert!(
+        found,
+        "missing self transfer of {amount} sol; history={:?}",
+        wallet.private_transactions()
+    );
+    // Scoped to this transfer: the helper must stay usable in a scenario that
+    // also has a genuine outbound row.
+    assert!(
+        !wallet.private_transactions().iter().any(|tx| {
+            tx.direction == PrivateTransactionDirection::Outbound
+                && tx.amount == amount
+                && tx.asset == SOL_MINT
+        }),
+        "a send to self must leave no outbound row for {amount} sol; history={:?}",
         wallet.private_transactions()
     );
 }
