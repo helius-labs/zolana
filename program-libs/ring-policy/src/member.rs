@@ -6,6 +6,7 @@ use zolana_hasher::primitives::hash_bytes;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Member([u8; 32]);
 
+/// Zero bytes, the padding value, can never be a member.
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 pub enum MemberError {
     #[error("hashing failed")]
@@ -26,10 +27,12 @@ impl Member {
         Self::from_hash_bytes(mint.as_array())
     }
 
+    /// A ring program id, hashed like every other 32-byte tag.
     pub fn ring(program_id: &Address) -> Result<Self, MemberError> {
         Self::from_hash_bytes(program_id.as_array())
     }
 
+    /// A destination address, hashed like every other 32-byte tag.
     pub fn destination(address: &Address) -> Result<Self, MemberError> {
         Self::from_hash_bytes(address.as_array())
     }
