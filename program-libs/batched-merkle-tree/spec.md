@@ -63,15 +63,13 @@ tree.next_index <= next_queued_leaf_index <= tree.capacity
 accepted_root(i) = i < RH and root_history[i] != 0
 ```
 
-Leaf zero is initialized, so initialization establishes `q = 0`,
-`tree.next_index = 1`, and
+Initialization fills leaf zero and sets `q = 0`, `tree.next_index = 1`, and
 `batches[i].start_index = 1 + i * B` for `i` in `{0, 1}`. Queue sequence `x`
 reserves leaf `x + 1`. Leaves in `[tree.next_index, q + 1)` are queued but not
 yet appended to the tree.
 
-`RH >= K` ensures all roots produced by a maximum `K`-update cascade occupy
-distinct history slots when the call returns. This is a root-availability
-constraint, not a marker-cleanup safety requirement.
+`RH >= K` keeps the roots of one `K`-update cascade in distinct history slots
+when the call returns.
 
 `Fill --B queue insertions--> Full --final ZKP append--> Inserted --retire--> reusable --reuse--> Fill`.
 A finalized ZKP batch may be appended while its queue batch is still `Fill`.
@@ -218,7 +216,7 @@ The Groth16 proof establishes the height-40 indexed append from `old_root` to
    its `sequence_number = tree.sequence_number + RH`, record the final root's
    history slot in `root_index`, and advance `p` modulo two.
 9. After each applied update, let `current_index` be the `p` used for that
-   update, before any advancement in step 8, and let:
+   update (before step 8 advances it) and let:
 
    ```text
    current  = batches[current_index]
@@ -240,8 +238,7 @@ The Groth16 proof establishes the height-40 indexed append from `old_root` to
    roots have already overwritten its final root and every older root, so zero
    nothing. Set
    `w = max(w, first_sequence(previous) + B)` and make `previous` reusable.
-   These changes are atomic. Half full measures queued values, not applied ZKP
-   batches.
+   These changes are atomic.
 
 **Property — queue draining.** One applied update reduces
 `unapplied_values` by exactly `Z`. After all `K` updates, the batch has
@@ -249,10 +246,10 @@ The Groth16 proof establishes the height-40 indexed append from `old_root` to
 hash-chain bytes remain until overwritten on reuse. Its markers remain until
 separate cleanup transactions close them.
 
-**Property — retirement liveness.** Crossing `B / 2` queued values does not
-itself retire the previous batch. The next successful append of that batch
-does. Without that append, the previous batch cannot be reused when queue
-insertion cycles back to it.
+**Property — retirement liveness.** The previous batch retires in the first
+applied update of the current batch after the current batch holds `B / 2`
+queued values. Until that update, the previous batch cannot be reused when
+queue insertion cycles back to it.
 
 **Property — ordered application.** Proofs may arrive in any order, but roots
 are applied only in increasing ZKP-batch order and only when each `old_root`
@@ -337,7 +334,7 @@ every accepted nullifier-tree root contains n
 
 Retirement establishes the right-hand condition before advancing `w`; cleanup
 may therefore remove the marker without enabling a stale non-inclusion proof.
-The transact verifier accepts only in-bounds, nonzero root-history entries.
+The transact verifier accepts only roots for which `accepted_root` holds.
 Delayed cleanup locks working capital.
 
 ## Cost
@@ -384,3 +381,18 @@ base fees.
 At the current default rent rate, one nine-byte marker requires 953,520
 lamports. One full batch locks 28.6056 SOL, all returned to the tree when its
 markers are closed.
+
+### Cost per nullifier
+
+At a 5,000-lamport transaction fee, `C ~= 115`, and `A` between 14 and 19:
+
+```text
+fee_per_nullifier = maintenance_transactions * 5_000 / B
+
+if B = 30_000:  44.67 to 45.00 lamports
+if B = 120_000: 44.58 to 44.96 lamports
+```
+
+Rounding up, successful maintenance costs **45 lamports per nullifier**. At
+100 USD/SOL, this is 0.0000045 USD per nullifier. This excludes priority fees,
+retries, failed transactions, and the opportunity cost of locked marker rent.
