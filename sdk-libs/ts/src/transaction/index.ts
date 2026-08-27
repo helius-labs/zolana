@@ -104,5 +104,28 @@ export {
   type OutputDataEncoding,
   type OwnerContext,
 } from "./serialization/index.js";
+// The plaintext decoders, for a client that decrypts somewhere other than in
+// this process. `syncWallet` decrypts and decodes together and needs the
+// viewing key locally; a client whose viewing key is held remotely gets
+// plaintext back and still has to read it. `decodeOutputData` names the scheme
+// of a slot payload and hands back the body to decrypt; the per-scheme decoders
+// turn the returned plaintext into fields.
+export {
+  decodeAnonymousRecipient,
+  decodeAnonymousSender,
+  decodeConfidential,
+  decodeData,
+  decodeOutputData,
+  decodePlaintextTransfer,
+  decodeProofless,
+  decodeSplitBundle,
+  decodeSplitEncrypted,
+  type AnonymousRecipientPlaintext,
+  type AnonymousSenderPlaintext,
+  type ConfidentialOutputPlaintext,
+  type ProoflessOutput,
+  type SplitEncryptedUtxos,
+  type TransferPlaintextUtxos,
+} from "./serialization/index.js";
 
 export const VIEW_TAG_LEN = 32;
