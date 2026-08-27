@@ -43,7 +43,7 @@ const NO_RING_DATA_HASH: [u8; 32] = [0u8; 32];
 #[must_use = "prove or discard the transfer explicitly"]
 pub struct CustomRingTransfer<'a> {
     ring: CustomRing,
-    sender: &'a dyn ViewingKeyTrait,
+    sender: &'a (dyn ViewingKeyTrait + Send + Sync),
     prepared: PreparedTransfer,
     interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     tree: Option<Address>,
@@ -59,7 +59,11 @@ pub struct CustomRingTransferInput<'a> {
     /// owner signs the assembled Solana transaction.
     ///
     /// `ShieldedKeypair` implements the trait, so passing one still works.
-    pub sender: &'a dyn ViewingKeyTrait,
+    ///
+    /// `Send + Sync` so that [`Self::prove_async`]'s future is `Send`. Without
+    /// it the async path cannot be awaited on a multi-threaded runtime, which
+    /// is exactly where a host that needs the async path runs.
+    pub sender: &'a (dyn ViewingKeyTrait + Send + Sync),
     pub prepared: PreparedTransfer,
 }
 
@@ -883,6 +887,35 @@ mod tests {
             )],
         )
         .expect("withdrawal accounts");
+    }
+
+    /// Every `AsyncRpc` method has a default, so an empty type is a valid one.
+    struct NoRpc;
+    impl AsyncRpc for NoRpc {}
+
+    #[test]
+    fn the_async_prove_future_is_send() {
+        // A host reaches for the async path because it runs on a multi-threaded
+        // runtime; a future that cannot cross threads is no use to it. The
+        // `Send + Sync` bound on `sender` is what makes this hold, and dropping
+        // it fails here rather than in whatever server tries to await it.
+        fn assert_send<F: Send>(_: F) {}
+
+        let (keypair, prepared) = prepared_transfer(4);
+        let prover = AsyncProverClient::new(String::new());
+        let rpc = NoRpc;
+        assert_send(
+            CustomRingTransfer::new(CustomRingTransferInput {
+                ring: ring(),
+                sender: &keypair,
+                prepared,
+            })
+            .prove_async(AsyncTransferProofEnvironment {
+                indexer: &rpc,
+                rpc: &rpc,
+                prover: &prover,
+            }),
+        );
     }
 
     #[test]
