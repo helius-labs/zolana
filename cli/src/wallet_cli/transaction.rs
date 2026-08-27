@@ -3,7 +3,10 @@ use solana_signer::Signer;
 use zolana_client::{Rpc, RpcSendTransactionConfig, SolanaRpc, ZolanaClient};
 use zolana_transaction::Address;
 use zolana_wallet::{
-    actions::{submit::MergeMaterial, transaction::is_plain_utxo},
+    actions::{
+        submit::MergeMaterial,
+        transaction::{is_default_ring_spendable, is_plain_utxo},
+    },
     create_merge, create_split, create_transfer_sync, sign_private_transaction_sync,
     submit_merge_transaction, MergeParams, SplitParams, SubmitMergeTransaction, TransferParams,
 };
@@ -89,10 +92,11 @@ pub(crate) fn run_utxos(opts: UtxosOptions) -> Result<()> {
         .filter(|entry| !entry.spent && entry.utxo.asset == asset)
     {
         count += 1;
-        // Classify with the exact predicate split/merge enforce (`is_plain_utxo`),
-        // so a memo-only utxo (inline `utxo.data`, no data hash) reads as `data`
-        // here rather than as `plain` that those actions would then reject.
-        let kind = if entry.utxo.ring_program_id.is_some() {
+        // Classify with the exact predicates the spend paths enforce -- the
+        // default-ring one for `ring`, `is_plain_utxo` for the rest -- so a
+        // memo-only utxo (inline `utxo.data`, no data hash) reads as `data`
+        // here rather than as `plain` that split and merge would then reject.
+        let kind = if !is_default_ring_spendable(entry) {
             "ring"
         } else if !is_plain_utxo(entry) {
             "data"
