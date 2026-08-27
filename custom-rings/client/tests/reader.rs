@@ -1,4 +1,4 @@
-//! The tagged reader key encoding, which the on-chain reader record stores
+//! The tagged reader key encoding, which the on-chain reader entry stores
 //! verbatim.
 
 use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
@@ -22,9 +22,9 @@ fn tagged_reader_keys_round_trip_through_their_bytes() {
     }
     assert_eq!(ed25519.to_bytes()[0], READER_KEY_ED25519);
     assert_eq!(p256.to_bytes()[0], READER_KEY_P256);
-    // The two schemes never collide on one record address.
+    // The two schemes never collide on one entry address.
     let ring = Address::new_from_array([9u8; 32]);
-    assert_ne!(ed25519.record_address(&ring), p256.record_address(&ring));
+    assert_ne!(ed25519.entry_address(&ring), p256.entry_address(&ring));
 }
 
 /// A PDA tag is a valid public key tag but names a scheme that cannot sign a

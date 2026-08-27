@@ -13,8 +13,8 @@ use zolana_interface::{
 };
 
 use crate::common::{
-    auditor_pubkey, authority, initialized_config_account, initialized_policy_config_account,
-    records_tree, records_tree_account, setup_mollusk, transact_fixture, Fixture,
+    auditor_pubkey, authority, entries_tree, entries_tree_account, initialized_config_account,
+    initialized_policy_config_account, setup_mollusk, transact_fixture, Fixture,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -82,7 +82,7 @@ fn policy_fixture(state_root_index: u16, nullifier_root_index: u16) -> Fixture {
         initialized_config_account(authority(), auditor_pubkey(2)),
         data,
     );
-    fixture.set_account("input_tree", records_tree_account());
+    fixture.set_account("input_tree", entries_tree_account());
     fixture
 }
 
@@ -99,16 +99,16 @@ fn a_drifted_policy_hash_is_rejected_exactly() {
 
 /// The roots come from a real tree account, a stub never yields one.
 #[test]
-fn a_records_tree_that_is_not_a_tree_is_rejected_exactly() {
+fn a_entries_tree_that_is_not_a_tree_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let fixture = policy_fixture(0, 0);
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidRecordsTree));
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidEntriesTree));
 }
 
 #[test]
-fn the_records_tree_address_is_the_configured_one() {
+fn the_entries_tree_address_is_the_configured_one() {
     assert_eq!(
         initialized_policy_config_account().data[33..65],
-        records_tree().to_bytes()
+        entries_tree().to_bytes()
     );
 }

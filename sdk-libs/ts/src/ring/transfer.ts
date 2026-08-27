@@ -15,7 +15,7 @@ import {
   RING_INLINE_ASSET_SLOTS,
   RING_POOL_SLOTS,
   RING_RULE_SLOTS,
-  disabledPoolEntry,
+  disabledRuleAnswer,
 } from "../client/prover/types.js";
 import { hashBytes } from "../hasher/index.js";
 import { addressBytes } from "../interface/internal.js";
@@ -295,7 +295,7 @@ export async function buildRingWithdrawalTransaction(
 }
 
 /** Mirrors Rust `RecordsOwner::new`, the shielded owner hash of the ring's record notes. */
-export function ringRecordsOwnerHash(recordsPda: Address): Bytes32 {
+export function ringNamespaceOwnerHash(recordsPda: Address): Bytes32 {
   return ownerHash(
     hashBytes(addressBytes(recordsPda, "recordsPda")),
     poseidon([new Uint8Array(32)]),
@@ -373,9 +373,9 @@ export async function proveCustomRingTransfer(
         addressChain: new Uint8Array(32) as Bytes32,
         externalDataHash: new Uint8Array(32) as Bytes32,
         sources: policyConfig.sources.map((slot) =>
-          slot.kind === 0
-            ? { kind: 0, ownerHash: new Uint8Array(32) as Bytes32 }
-            : { kind: slot.kind, ownerHash: ringRecordsOwnerHash(slot.records) },
+          slot.listId === 0
+            ? { listId: 0, ownerHash: new Uint8Array(32) as Bytes32 }
+            : { listId: slot.listId, ownerHash: ringNamespaceOwnerHash(slot.namespace) },
         ),
         policyLen: 0,
         rules: zeroFields(RING_RULE_SLOTS),
@@ -383,7 +383,7 @@ export async function proveCustomRingTransfer(
         inlineCount: 0,
         stateRoot: roots.stateRoot,
         nullifierRoot: roots.nullifierRoot,
-        pool: Array.from({ length: RING_POOL_SLOTS }, () => disabledPoolEntry()),
+        answers: Array.from({ length: RING_POOL_SLOTS }, () => disabledRuleAnswer()),
       },
       context,
     );

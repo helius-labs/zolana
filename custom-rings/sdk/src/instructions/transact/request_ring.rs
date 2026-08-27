@@ -1,5 +1,5 @@
 //! The prover wire of the ring circuit. The audit fields are the audit
-//! request's, the policy fields open the transaction's slots and the records
+//! request's, the policy fields open the transaction's slots and the entries
 //! the rules are checked against.
 
 use p256::elliptic_curve::sec1::ToEncodedPoint;
@@ -10,13 +10,13 @@ use zolana_client::{
     ClientError,
 };
 use zolana_keypair::{P256Pubkey, ViewingKey};
-use zolana_ring_policy::{MAX_INLINE_ASSETS, MAX_POLICY_SOURCES, MAX_RULES};
+use zolana_ring_policy::{MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES};
 
 use crate::instructions::transact::request::{bytes_to_hex, field_hex, SecretHex};
 
-/// Slots the pool proves in one transaction, a transfer needing more must be
+/// Slots the answers proves in one transaction, a transfer needing more must be
 /// split.
-pub const POLICY_POOL_SLOTS: usize = 10;
+pub const ANSWER_SLOTS: usize = 10;
 pub const POLICY_INPUT_SLOTS: usize = 5;
 pub const POLICY_OUTPUT_SLOTS: usize = 4;
 pub const STATE_PATH_LEN: usize = 32;
@@ -36,16 +36,16 @@ pub struct CustomRingOpening {
     pub ring_program_id: [u8; 32],
 }
 
-/// One record fact, proven against the two roots the program resolved.
+/// One entry fact, proven against the two roots the program resolved.
 #[derive(Clone, Debug)]
-pub struct CustomRingPoolEntry {
+pub struct RuleAnswer {
     pub enabled: bool,
     pub mode: u8,
-    pub kind: u8,
+    pub list_id: u8,
     pub state: u8,
     pub absent_branch: u8,
     pub member: [u8; 32],
-    pub payload_hash: [u8; 32],
+    pub content_hash: [u8; 32],
     pub version: u64,
     pub low: [u8; 32],
     pub next: [u8; 32],
@@ -55,16 +55,16 @@ pub struct CustomRingPoolEntry {
     pub state_path_index: u64,
 }
 
-impl Default for CustomRingPoolEntry {
+impl Default for RuleAnswer {
     fn default() -> Self {
         Self {
             enabled: false,
             mode: 1,
-            kind: 1,
+            list_id: 1,
             state: 1,
             absent_branch: 1,
             member: [0u8; 32],
-            payload_hash: [0u8; 32],
+            content_hash: [0u8; 32],
             version: 0,
             low: [0u8; 32],
             next: [0u8; 32],
@@ -76,10 +76,10 @@ impl Default for CustomRingPoolEntry {
     }
 }
 
-/// One positional source slot, slot `i` is empty or serves kind `i + 1`.
+/// One positional source slot, slot `i` is empty or serves list `i + 1`.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct PolicySourceEntry {
-    pub kind: u8,
+pub struct SourceOwnerEntry {
+    pub list_id: u8,
     pub owner_hash: [u8; 32],
 }
 
@@ -95,14 +95,14 @@ pub struct CustomRingProofRequest {
     pub outputs: [CustomRingOpening; POLICY_OUTPUT_SLOTS],
     pub address_chain: [u8; 32],
     pub external_data_hash: [u8; 32],
-    pub sources: [PolicySourceEntry; MAX_POLICY_SOURCES],
+    pub sources: [SourceOwnerEntry; MAX_SOURCES],
     pub policy_len: u8,
     pub rules: [[u8; 32]; MAX_RULES],
     pub inline_assets: [[u8; 32]; MAX_INLINE_ASSETS],
     pub inline_count: u8,
     pub state_root: [u8; 32],
     pub nullifier_root: [u8; 32],
-    pub pool: Vec<CustomRingPoolEntry>,
+    pub answers: Vec<RuleAnswer>,
 }
 
 impl ProveRequest for CustomRingProofRequest {
@@ -135,7 +135,7 @@ impl ProveRequest for CustomRingProofRequest {
             inline_count: self.inline_count,
             state_root: field_hex(&self.state_root),
             nullifier_root: field_hex(&self.nullifier_root),
-            pool: self.pool.iter().map(pool_json).collect(),
+            answers: self.answers.iter().map(pool_json).collect(),
         };
         serde_json::to_string(&json)
             .map(Zeroizing::new)
@@ -161,22 +161,22 @@ fn opening_json(opening: &CustomRingOpening) -> CustomRingOpeningJson {
     }
 }
 
-fn source_json(source: &PolicySourceEntry) -> CustomRingSourceJson {
+fn source_json(source: &SourceOwnerEntry) -> CustomRingSourceJson {
     CustomRingSourceJson {
-        kind: source.kind,
+        list_id: source.list_id,
         owner_hash: field_hex(&source.owner_hash),
     }
 }
 
-fn pool_json(entry: &CustomRingPoolEntry) -> CustomRingPoolEntryJson {
-    CustomRingPoolEntryJson {
+fn pool_json(entry: &RuleAnswer) -> RuleAnswerJson {
+    RuleAnswerJson {
         enabled: entry.enabled,
         mode: entry.mode,
-        kind: entry.kind,
+        list_id: entry.list_id,
         state: entry.state,
         absent_branch: entry.absent_branch,
         member: field_hex(&entry.member),
-        payload_hash: field_hex(&entry.payload_hash),
+        content_hash: field_hex(&entry.content_hash),
         version: entry.version,
         low: field_hex(&entry.low),
         next: field_hex(&entry.next),
@@ -207,22 +207,24 @@ struct CustomRingOpeningJson {
 
 #[derive(Serialize)]
 struct CustomRingSourceJson {
-    kind: u8,
+    #[serde(rename = "listId")]
+    list_id: u8,
     #[serde(rename = "ownerHash")]
     owner_hash: String,
 }
 
 #[derive(Serialize)]
-struct CustomRingPoolEntryJson {
+struct RuleAnswerJson {
     enabled: bool,
     mode: u8,
-    kind: u8,
+    #[serde(rename = "listId")]
+    list_id: u8,
     state: u8,
     #[serde(rename = "absentBranch")]
     absent_branch: u8,
     member: String,
-    #[serde(rename = "payloadHash")]
-    payload_hash: String,
+    #[serde(rename = "contentHash")]
+    content_hash: String,
     version: u64,
     low: String,
     next: String,
@@ -274,7 +276,7 @@ struct CustomRingProofRequestJson<'a> {
     state_root: String,
     #[serde(rename = "nullifierRoot")]
     nullifier_root: String,
-    pool: Vec<CustomRingPoolEntryJson>,
+    answers: Vec<RuleAnswerJson>,
 }
 
 #[cfg(test)]
@@ -296,14 +298,14 @@ mod tests {
             outputs: [CustomRingOpening::default(); POLICY_OUTPUT_SLOTS],
             address_chain: [0u8; 32],
             external_data_hash: [6u8; 32],
-            sources: [PolicySourceEntry::default(); MAX_POLICY_SOURCES],
+            sources: [SourceOwnerEntry::default(); MAX_SOURCES],
             policy_len: 1,
             rules: [[0u8; 32]; MAX_RULES],
             inline_assets: [[0u8; 32]; MAX_INLINE_ASSETS],
             inline_count: 0,
             state_root: [8u8; 32],
             nullifier_root: [9u8; 32],
-            pool: vec![CustomRingPoolEntry::default(); POLICY_POOL_SLOTS],
+            answers: vec![RuleAnswer::default(); ANSWER_SLOTS],
         }
     }
 
@@ -318,6 +320,7 @@ mod tests {
             keys,
             [
                 "addressChain",
+                "answers",
                 "auditorPk",
                 "circuitType",
                 "ephSk",
@@ -330,7 +333,6 @@ mod tests {
                 "nullifierRoot",
                 "outputs",
                 "policyLen",
-                "pool",
                 "privateTxHash",
                 "publicInputHash",
                 "ruleEnc",
@@ -346,12 +348,12 @@ mod tests {
             MAX_RULES
         );
         assert_eq!(
-            object["pool"].as_array().expect("pool").len(),
-            POLICY_POOL_SLOTS
+            object["answers"].as_array().expect("answers").len(),
+            ANSWER_SLOTS
         );
         assert_eq!(
             object["sources"].as_array().expect("sources").len(),
-            MAX_POLICY_SOURCES
+            MAX_SOURCES
         );
         let mut slot_keys: Vec<&str> = object["sources"][0]
             .as_object()
@@ -360,14 +362,14 @@ mod tests {
             .map(String::as_str)
             .collect();
         slot_keys.sort_unstable();
-        assert_eq!(slot_keys, ["kind", "ownerHash"]);
+        assert_eq!(slot_keys, ["listId", "ownerHash"]);
     }
 
     #[test]
     fn every_field_element_is_canonical_hex() {
         let body = request().body().expect("body");
         let value: serde_json::Value = serde_json::from_str(&body).expect("json");
-        let entry = &value["pool"][0];
+        let entry = &value["answers"][0];
         assert_eq!(
             entry["nfPathElements"].as_array().expect("path").len(),
             NULLIFIER_PATH_LEN

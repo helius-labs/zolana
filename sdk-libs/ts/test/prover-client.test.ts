@@ -11,7 +11,7 @@ import {
 import { ProverClient } from "../src/client/prover/client.js";
 import type { NonInclusionProof } from "../src/client/rpc.js";
 import type { Bytes32 } from "../src/interface/index.js";
-import { disabledPoolEntry } from "../src/client/prover/types.js";
+import { disabledRuleAnswer } from "../src/client/prover/types.js";
 import type {
   CustomRingOpening,
   CustomRingProofRequest,
@@ -84,14 +84,14 @@ function ringRequest(auditorPublicKey: Uint8Array): CustomRingProofRequest {
     outputs: Array.from({ length: 4 }, () => zeroOpening()),
     addressChain: bytes(0),
     externalDataHash: bytes(6),
-    sources: Array.from({ length: 8 }, () => ({ kind: 0, ownerHash: bytes(0) })),
+    sources: Array.from({ length: 8 }, () => ({ listId: 0, ownerHash: bytes(0) })),
     policyLen: 1,
     rules: Array.from({ length: 16 }, () => bytes(0)),
     inlineAssets: Array.from({ length: 8 }, () => bytes(0)),
     inlineCount: 0,
     stateRoot: bytes(8),
     nullifierRoot: bytes(9),
-    pool: Array.from({ length: 10 }, () => disabledPoolEntry()),
+    answers: Array.from({ length: 10 }, () => disabledRuleAnswer()),
   };
 }
 
@@ -107,14 +107,14 @@ const EXPECTED_OPENING = {
   ringProgramId: fieldHex(0),
 };
 
-const EXPECTED_POOL_ENTRY = {
+const EXPECTED_RULE_ANSWER = {
   enabled: false,
   mode: 1,
-  kind: 1,
+  listId: 1,
   state: 1,
   absentBranch: 1,
   member: fieldHex(0),
-  payloadHash: fieldHex(0),
+  contentHash: fieldHex(0),
   version: 0,
   low: fieldHex(0),
   next: fieldHex(0),
@@ -139,14 +139,14 @@ const EXPECTED_RING_BODY = {
   outputs: Array.from({ length: 4 }, () => EXPECTED_OPENING),
   addressChain: fieldHex(0),
   externalDataHash: fieldHex(6),
-  sources: Array.from({ length: 8 }, () => ({ kind: 0, ownerHash: fieldHex(0) })),
+  sources: Array.from({ length: 8 }, () => ({ listId: 0, ownerHash: fieldHex(0) })),
   policyLen: 1,
   ruleEnc: Array.from({ length: 16 }, () => fieldHex(0)),
   inlineAssets: Array.from({ length: 8 }, () => fieldHex(0)),
   inlineCount: 0,
   stateRoot: fieldHex(8),
   nullifierRoot: fieldHex(9),
-  pool: Array.from({ length: 10 }, () => EXPECTED_POOL_ENTRY),
+  answers: Array.from({ length: 10 }, () => EXPECTED_RULE_ANSWER),
 };
 
 function mergeInputs(): MergeInputs {
@@ -303,6 +303,7 @@ describe("prover request routing", () => {
     // The sorted key set of Rust `the_request_matches_the_server_wire_format`.
     expect(Object.keys(body).sort()).toEqual([
       "addressChain",
+      "answers",
       "auditorPk",
       "circuitType",
       "ephSk",
@@ -315,7 +316,6 @@ describe("prover request routing", () => {
       "nullifierRoot",
       "outputs",
       "policyLen",
-      "pool",
       "privateTxHash",
       "publicInputHash",
       "ruleEnc",
@@ -328,22 +328,22 @@ describe("prover request routing", () => {
     expect(body["variant"]).toBe("transfer");
     expect(body["auditorPk"]).toHaveLength(132);
     expect(body["publicInputHash"]).toHaveLength(66);
-    const pool = body["pool"] as Record<string, unknown>[];
-    expect(pool).toHaveLength(10);
-    expect(pool[0]?.["nfPathElements"]).toHaveLength(40);
-    expect(pool[0]?.["statePathElements"]).toHaveLength(32);
+    const answers = body["answers"] as Record<string, unknown>[];
+    expect(answers).toHaveLength(10);
+    expect(answers[0]?.["nfPathElements"]).toHaveLength(40);
+    expect(answers[0]?.["statePathElements"]).toHaveLength(32);
     const sources = body["sources"] as Record<string, unknown>[];
     expect(sources).toHaveLength(8);
-    expect(Object.keys(sources[0] ?? {}).sort()).toEqual(["kind", "ownerHash"]);
+    expect(Object.keys(sources[0] ?? {}).sort()).toEqual(["listId", "ownerHash"]);
 
     for (const auditorPublicKey of [new Uint8Array(33).fill(2), new Uint8Array(65).fill(2)]) {
       await expect(prover.proveCustomRing(ringRequest(auditorPublicKey))).rejects.toMatchObject({
         code: "CLIENT_INVALID_P256_KEY",
       });
     }
-    // The server rejects `pool.len() != 10`, an unpadded pool must not leave the client.
+    // The server rejects `answers.len() != 10`, an unpadded answers array must not leave the client.
     await expect(
-      prover.proveCustomRing({ ...ringRequest(auditorPublicKey), pool: [] }),
+      prover.proveCustomRing({ ...ringRequest(auditorPublicKey), answers: [] }),
     ).rejects.toMatchObject({ code: "CLIENT_INVALID_LENGTH" });
     expect(raw).toHaveLength(1);
   });

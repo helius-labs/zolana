@@ -1,42 +1,42 @@
 flowchart TB
     subgraph BUILD["Build time, the ring program binary"]
-        POL["POLICY table
+        POL["RULES table
         forbid OutputOwner Block
         forbid Sender Frozen"]
-        HOL["RecordKind::holder()
+        HOL["ListId::writer()
         Block, Frozen are authority held"]
     end
     subgraph CHAIN["On chain, accounts"]
         PC["PolicyConfig
-        policy_hash, records_tree,
-        sources kind to records PDA"]
-        PDA["own policy_records PDA
+        policy_hash, entries_tree,
+        sources list to namespace PDA"]
+        PDA["own policy_namespace PDA
         signer, holds no data"]
         RING["ring program
         map drift check, verify, CPI"]
     end
-    subgraph TREES["SPP trees, one shared record set"]
-        REC["Record UTXOs
-        one lineage per kind and member,
+    subgraph TREES["SPP trees, one shared entry set"]
+        REC["ListEntry UTXOs
+        one lineage per list and member,
         own or a curator ring's"]
         ADDR["claimed addresses
         indexed nullifier tree"]
         ROOTS["state root, nullifier root"]
     end
     subgraph WALLET["Per transfer, wallet and prover"]
-        SRC["per kind source resolution
+        SRC["per list source resolution
         from the stored map"]
-        POOLD["Pool, 10 slots
+        POOLD["Answers, 10 slots
         proven answers to the rules"]
         PRF["one Groth16 proof
         the circuit muxes each entry's
         owner from the committed map"]
     end
 
-    POL -- "create_policy binds Policy::hash over the map" --> PC
-    PC -. "set_policy_source re-points a kind, the table alone is pinned" .-> PC
+    POL -- "create_policy binds RuleTable::hash over the map" --> PC
+    PC -. "set_policy_source re-points a list, the table alone is pinned" .-> PC
     POL -. "recomputed each transact, mismatch fails closed" .-> RING
-    PDA -- "owns and signs mutations of own sourced kinds" --> REC
+    PDA -- "owns and signs mutations of own sourced lists" --> REC
     REC --- ADDR
     PC -- "names the tree, curator sources share it" --> TREES
     PC -- "source map" --> SRC

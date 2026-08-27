@@ -4,8 +4,8 @@ use mollusk_svm::result::ProgramResult;
 use solana_program_error::ProgramError;
 
 use crate::common::{
-    self, create_policy_fixture, policy_config_pda, program_id, records_pda, records_tree,
-    records_tree_account, setup_mollusk,
+    self, create_policy_fixture, entries_tree, entries_tree_account, namespace_pda,
+    policy_config_pda, program_id, setup_mollusk,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -33,28 +33,28 @@ fn create_policy_pins_the_compiled_table() {
     let sources = common::own_source_slots();
     assert_eq!(config.sources, sources);
     assert_eq!(config.policy_hash, common::policy_hash_for(&sources));
-    assert_eq!(config.records_tree.to_bytes(), records_tree().to_bytes());
-    assert_eq!(config.records_bump, records_pda().1);
+    assert_eq!(config.entries_tree.to_bytes(), entries_tree().to_bytes());
+    assert_eq!(config.namespace_bump, namespace_pda().1);
 }
 
 #[test]
-fn a_records_tree_owned_by_another_program_is_rejected_exactly() {
+fn a_entries_tree_owned_by_another_program_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = create_policy_fixture();
-    let mut foreign = records_tree_account();
+    let mut foreign = entries_tree_account();
     foreign.owner = program_id();
-    fixture.set_account("records_tree", foreign);
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidRecordsTree));
+    fixture.set_account("entries_tree", foreign);
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidEntriesTree));
 }
 
 #[test]
-fn a_records_tree_without_the_tree_discriminator_is_rejected_exactly() {
+fn a_entries_tree_without_the_tree_discriminator_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = create_policy_fixture();
-    let mut wrong = records_tree_account();
+    let mut wrong = entries_tree_account();
     wrong.data[0] = 0;
-    fixture.set_account("records_tree", wrong);
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidRecordsTree));
+    fixture.set_account("entries_tree", wrong);
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidEntriesTree));
 }
 
 #[test]

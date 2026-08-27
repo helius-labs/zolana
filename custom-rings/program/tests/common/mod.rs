@@ -266,27 +266,24 @@ pub fn policy_config_pda() -> (Pubkey, u8) {
     )
 }
 
-pub fn records_pda() -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[zolana_ring_policy::POLICY_RECORDS_PDA_SEED],
-        &program_id(),
-    )
+pub fn namespace_pda() -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[zolana_ring_policy::NAMESPACE_PDA_SEED], &program_id())
 }
 
-/// One slot per kind the deployed table references, all serving the ring's
-/// own records.
+/// One slot per list_id the deployed table references, all serving the ring's
+/// own entries.
 pub fn own_source_slots(
-) -> [custom_ring_interface::PolicySourceSlot; custom_ring_interface::N_POLICY_SOURCE_SLOTS] {
-    let own = Address::new_from_array(records_pda().0.to_bytes());
-    let mut sources = [custom_ring_interface::PolicySourceSlot {
-        kind: 0,
-        records: Address::new_from_array([0; 32]),
-    }; custom_ring_interface::N_POLICY_SOURCE_SLOTS];
-    for rule in custom_ring_interface::POLICY.rules() {
-        if let zolana_ring_policy::RuleSource::Records(kind) = rule.source {
-            sources[kind as usize - 1] = custom_ring_interface::PolicySourceSlot {
-                kind: kind as u8,
-                records: own,
+) -> [custom_ring_interface::SourceSlot; custom_ring_interface::N_SOURCE_SLOTS] {
+    let own = Address::new_from_array(namespace_pda().0.to_bytes());
+    let mut sources = [custom_ring_interface::SourceSlot {
+        list_id: 0,
+        namespace: Address::new_from_array([0; 32]),
+    }; custom_ring_interface::N_SOURCE_SLOTS];
+    for rule in custom_ring_interface::RULES.rules() {
+        if let zolana_ring_policy::RuleSource::List(list_id) = rule.source {
+            sources[list_id as usize - 1] = custom_ring_interface::SourceSlot {
+                list_id: list_id as u8,
+                namespace: own,
             };
         }
     }
@@ -295,24 +292,22 @@ pub fn own_source_slots(
 
 /// The hash the deployed table pins over `sources`.
 pub fn policy_hash_for(
-    sources: &[custom_ring_interface::PolicySourceSlot;
-         custom_ring_interface::N_POLICY_SOURCE_SLOTS],
+    sources: &[custom_ring_interface::SourceSlot; custom_ring_interface::N_SOURCE_SLOTS],
 ) -> [u8; 32] {
-    let mut slots =
-        [zolana_ring_policy::PolicySource::default(); zolana_ring_policy::MAX_POLICY_SOURCES];
+    let mut slots = [zolana_ring_policy::SourceOwner::default(); zolana_ring_policy::MAX_SOURCES];
     for (slot, stored) in slots.iter_mut().zip(sources) {
-        if stored.kind == 0 {
+        if stored.list_id == 0 {
             continue;
         }
-        *slot = zolana_ring_policy::PolicySource {
-            kind: stored.kind,
-            owner_hash: zolana_ring_policy::RecordsOwner::new(stored.records.as_array())
-                .expect("records owner")
+        *slot = zolana_ring_policy::SourceOwner {
+            list_id: stored.list_id,
+            owner_hash: zolana_ring_policy::ListNamespace::new(stored.namespace.as_array())
+                .expect("namespace owner")
                 .owner_hash,
         };
     }
-    custom_ring_interface::POLICY
-        .hash(&zolana_ring_policy::PolicySources::from_slots(slots).expect("positional map"))
+    custom_ring_interface::RULES
+        .hash(&zolana_ring_policy::SourceMap::from_slots(slots).expect("positional map"))
         .expect("policy hash")
 }
 
@@ -322,14 +317,13 @@ pub fn initialized_policy_config_account() -> Account {
 }
 
 pub fn policy_config_account_with(
-    sources: [custom_ring_interface::PolicySourceSlot;
-        custom_ring_interface::N_POLICY_SOURCE_SLOTS],
+    sources: [custom_ring_interface::SourceSlot; custom_ring_interface::N_SOURCE_SLOTS],
 ) -> Account {
     let state = custom_ring_interface::PolicyConfig {
         discriminator: custom_ring_interface::POLICY_CONFIG,
         policy_hash: policy_hash_for(&sources),
-        records_tree: Address::new_from_array([41; 32]),
-        records_bump: records_pda().1,
+        entries_tree: Address::new_from_array([41; 32]),
+        namespace_bump: namespace_pda().1,
         bump: policy_config_pda().1,
         sources,
     };
@@ -342,7 +336,7 @@ pub fn policy_config_account_with(
     }
 }
 
-/// A foreign curator ring, its policy and records PDAs derive from this id.
+/// A foreign curator ring, its policy and entries PDAs derive from this id.
 pub fn curator_program_id() -> Pubkey {
     Pubkey::new_from_array([88u8; 32])
 }
@@ -354,41 +348,40 @@ pub fn curator_policy_config_pda() -> (Pubkey, u8) {
     )
 }
 
-pub fn curator_records_pda() -> (Pubkey, u8) {
+pub fn curator_namespace_pda() -> (Pubkey, u8) {
     Pubkey::find_program_address(
-        &[zolana_ring_policy::POLICY_RECORDS_PDA_SEED],
+        &[zolana_ring_policy::NAMESPACE_PDA_SEED],
         &curator_program_id(),
     )
 }
 
-/// The curator's own-mode map, one slot per referenced kind.
+/// The curator's own-mode map, one slot per referenced list_id.
 pub fn curator_source_slots(
-) -> [custom_ring_interface::PolicySourceSlot; custom_ring_interface::N_POLICY_SOURCE_SLOTS] {
-    let records = Address::new_from_array(curator_records_pda().0.to_bytes());
+) -> [custom_ring_interface::SourceSlot; custom_ring_interface::N_SOURCE_SLOTS] {
+    let entries = Address::new_from_array(curator_namespace_pda().0.to_bytes());
     let mut sources = own_source_slots();
     for slot in &mut sources {
-        if slot.kind != 0 {
-            slot.records = records;
+        if slot.list_id != 0 {
+            slot.namespace = entries;
         }
     }
     sources
 }
 
 pub fn initialized_curator_policy_config_account() -> Account {
-    curator_policy_config_account_with(records_tree(), curator_source_slots())
+    curator_policy_config_account_with(entries_tree(), curator_source_slots())
 }
 
 /// The loader never rechecks the curator's stored hash.
 pub fn curator_policy_config_account_with(
-    records_tree: Pubkey,
-    sources: [custom_ring_interface::PolicySourceSlot;
-        custom_ring_interface::N_POLICY_SOURCE_SLOTS],
+    entries_tree: Pubkey,
+    sources: [custom_ring_interface::SourceSlot; custom_ring_interface::N_SOURCE_SLOTS],
 ) -> Account {
     let state = custom_ring_interface::PolicyConfig {
         discriminator: custom_ring_interface::POLICY_CONFIG,
         policy_hash: policy_hash_for(&sources),
-        records_tree: Address::new_from_array(records_tree.to_bytes()),
-        records_bump: curator_records_pda().1,
+        entries_tree: Address::new_from_array(entries_tree.to_bytes()),
+        namespace_bump: curator_namespace_pda().1,
         bump: curator_policy_config_pda().1,
         sources,
     };
@@ -401,13 +394,13 @@ pub fn curator_policy_config_account_with(
     }
 }
 
-/// The tree records live in. Its bytes need only satisfy the owner and
+/// The tree entries live in. Its bytes need only satisfy the owner and
 /// discriminator checks, no fixture here reads a root.
-pub fn records_tree() -> Pubkey {
+pub fn entries_tree() -> Pubkey {
     Pubkey::new_from_array([41; 32])
 }
 
-pub fn records_tree_account() -> Account {
+pub fn entries_tree_account() -> Account {
     Account {
         lamports: 1_000_000_000,
         data: vec![zolana_interface::state::discriminator::TREE_ACCOUNT_DISCRIMINATOR; 1],
@@ -417,18 +410,18 @@ pub fn records_tree_account() -> Account {
     }
 }
 
-/// A real SPP tree at the records address, so the transact path reaches proof
+/// A real SPP tree at the entries address, so the transact path reaches proof
 /// verification.
-pub fn initialized_records_tree_account() -> Account {
+pub fn initialized_entries_tree_account() -> Account {
     let mut data = vec![0u8; zolana_tree::TreeAccount::account_size()];
     zolana_tree::TreeAccount::init(
         &mut data,
         zolana_interface::state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
         zolana_tree::UTXO_TREE_HEIGHT as u8,
-        records_tree().to_bytes(),
+        entries_tree().to_bytes(),
         zolana_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccountsInstructionData::default(),
     )
-    .expect("initialize records tree");
+    .expect("initialize entries tree");
     Account {
         lamports: 1_000_000_000,
         data,
@@ -438,7 +431,7 @@ pub fn initialized_records_tree_account() -> Account {
     }
 }
 
-pub fn create_policy_data(specs: &[custom_ring_interface::PolicySourceSpec]) -> Vec<u8> {
+pub fn create_policy_data(specs: &[custom_ring_interface::SourceSpec]) -> Vec<u8> {
     let mut data = vec![custom_ring_interface::tag::CREATE_POLICY];
     data.extend_from_slice(
         &wincode::serialize(&custom_ring_interface::CreatePolicyIxData {
@@ -454,8 +447,8 @@ pub fn create_policy_fixture() -> Fixture {
 }
 
 /// Green `create_policy` fixture, `[payer(w,s), authority(s), policy_config(w),
-/// records_tree, system_program, program, program_data]`, curators trail.
-pub fn create_policy_fixture_with(specs: &[custom_ring_interface::PolicySourceSpec]) -> Fixture {
+/// entries_tree, system_program, program, program_data]`, curators trail.
+pub fn create_policy_fixture_with(specs: &[custom_ring_interface::SourceSpec]) -> Fixture {
     Fixture::new(
         create_policy_data(specs),
         vec![
@@ -475,9 +468,9 @@ pub fn create_policy_fixture_with(specs: &[custom_ring_interface::PolicySourceSp
                 account: account(0),
             },
             Slot {
-                label: "records_tree",
-                meta: AccountMeta::new_readonly(records_tree(), false),
-                account: records_tree_account(),
+                label: "entries_tree",
+                meta: AccountMeta::new_readonly(entries_tree(), false),
+                account: entries_tree_account(),
             },
             system_program_slot(),
             Slot {
@@ -494,10 +487,10 @@ pub fn create_policy_fixture_with(specs: &[custom_ring_interface::PolicySourceSp
     )
 }
 
-pub fn set_policy_source_data(kind: u8, source: u8) -> Vec<u8> {
+pub fn set_policy_source_data(list_id: u8, source: u8) -> Vec<u8> {
     let mut data = vec![tag::SET_POLICY_SOURCE];
     data.extend_from_slice(
-        &wincode::serialize(&custom_ring_interface::SetPolicySourceIxData { kind, source })
+        &wincode::serialize(&custom_ring_interface::SetPolicySourceIxData { list_id, source })
             .expect("set_policy_source data"),
     );
     data
@@ -505,9 +498,9 @@ pub fn set_policy_source_data(kind: u8, source: u8) -> Vec<u8> {
 
 /// Green `set_policy_source` fixture, `[authority(s), config, policy_config(w)]`,
 /// shared mode pushes one trailing curator.
-pub fn set_policy_source_fixture(policy_config: Account, kind: u8, source: u8) -> Fixture {
+pub fn set_policy_source_fixture(policy_config: Account, list_id: u8, source: u8) -> Fixture {
     Fixture::new(
-        set_policy_source_data(kind, source),
+        set_policy_source_data(list_id, source),
         vec![
             Slot {
                 label: "authority",
@@ -528,24 +521,24 @@ pub fn set_policy_source_fixture(policy_config: Account, kind: u8, source: u8) -
     )
 }
 
-/// `create_record` fixture, `[config, policy_config, payer(w,s), input_tree(w),
-/// output_tree(w), spp_program, system_program, records]`. SPP is not loaded,
+/// `create_entry` fixture, `[config, policy_config, payer(w,s), input_tree(w),
+/// output_tree(w), spp_program, system_program, entries]`. SPP is not loaded,
 /// only the ring's pre-CPI validation is assertable.
-pub fn create_record_fixture(policy_config: Account, kind: u8, payer: Pubkey) -> Fixture {
+pub fn create_entry_fixture(policy_config: Account, list_id: u8, payer: Pubkey) -> Fixture {
     let member = zolana_ring_policy::Member::owner_tag(&[61u8; 32]).expect("member");
-    let mut data = vec![tag::CREATE_RECORD];
+    let mut data = vec![tag::CREATE_ENTRY];
     data.extend_from_slice(
-        &wincode::serialize(&custom_ring_interface::CreateRecordIxData {
-            kind,
+        &wincode::serialize(&custom_ring_interface::CreateEntryIxData {
+            list_id,
             member: *member.as_bytes(),
             state: 1,
-            payload_hash: [7u8; 32],
+            content_hash: [7u8; 32],
             nullifier_tree_root_index: 0,
             utxo_tree_root_index: 0,
             proof: zolana_interface::instruction::instruction_data::transact::TransactProof::zeroed(
             ),
         })
-        .expect("create_record data"),
+        .expect("create_entry data"),
     );
     Fixture::new(
         data,
@@ -567,19 +560,19 @@ pub fn create_record_fixture(policy_config: Account, kind: u8, payer: Pubkey) ->
             },
             Slot {
                 label: "input_tree",
-                meta: AccountMeta::new(records_tree(), false),
-                account: records_tree_account(),
+                meta: AccountMeta::new(entries_tree(), false),
+                account: entries_tree_account(),
             },
             Slot {
                 label: "output_tree",
-                meta: AccountMeta::new(records_tree(), false),
-                account: records_tree_account(),
+                meta: AccountMeta::new(entries_tree(), false),
+                account: entries_tree_account(),
             },
             spp_program_slot(),
             system_program_slot(),
             Slot {
-                label: "records",
-                meta: AccountMeta::new_readonly(records_pda().0, false),
+                label: "entries",
+                meta: AccountMeta::new_readonly(namespace_pda().0, false),
                 account: account(1_000_000_000),
             },
         ],
@@ -754,8 +747,8 @@ pub fn transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
             },
             Slot {
                 label: "input_tree",
-                meta: AccountMeta::new(records_tree(), false),
-                account: initialized_records_tree_account(),
+                meta: AccountMeta::new(entries_tree(), false),
+                account: initialized_entries_tree_account(),
             },
             Slot {
                 label: "output_tree",

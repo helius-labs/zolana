@@ -5,19 +5,19 @@ import (
 )
 
 // evaluate closes every enabled rule against every live instance of its
-// subject, answered by a pool entry proving the same (kind, mode) fact about
+// subject, answered by an answer proving the same (list, mode) fact about
 // the instance or by the amount guard.
 func (c *Circuit) evaluate(
 	api frontend.API,
 	slots openings,
-	pool [NPool]poolView,
+	answers [NAnswers]answerView,
 	enabled [NRules]frontend.Variable,
 ) {
 	inline := c.inlineCoverage(api, slots.outputs)
 
-	var eqOutputOwner, eqOutputAsset [NPool][NOut]frontend.Variable
-	var eqSender [NPool][NIn]frontend.Variable
-	for e, entry := range pool {
+	var eqOutputOwner, eqOutputAsset [NAnswers][NOut]frontend.Variable
+	var eqSender [NAnswers][NIn]frontend.Variable
+	for e, entry := range answers {
 		for j, out := range slots.outputs {
 			eqOutputOwner[e][j] = api.IsZero(api.Sub(entry.member, out.owner))
 			eqOutputAsset[e][j] = api.IsZero(api.Sub(entry.member, out.asset))
@@ -39,26 +39,26 @@ func (c *Circuit) evaluate(
 	}
 
 	for k, rule := range c.Rules {
-		isInline := api.IsZero(api.Sub(rule.Kind, InlineKind))
+		isInline := api.IsZero(api.Sub(rule.ListId, InlineKind))
 		onOutputOwner := api.IsZero(api.Sub(rule.Subject, SubjectOutputOwner))
 		onAsset := api.IsZero(api.Sub(rule.Subject, SubjectAsset))
 		// SubjectExitDestination has no instance here, nothing constrains a rule
 		// carrying it.
 		onSender := api.IsZero(api.Sub(rule.Subject, SubjectSender))
 
-		var answers [NPool]frontend.Variable
-		for e, entry := range pool {
-			answers[e] = api.Mul(entry.enabled, api.Mul(
-				api.IsZero(api.Sub(entry.kind, rule.Kind)),
+		var matched [NAnswers]frontend.Variable
+		for e, entry := range answers {
+			matched[e] = api.Mul(entry.enabled, api.Mul(
+				api.IsZero(api.Sub(entry.listId, rule.ListId)),
 				api.IsZero(api.Sub(entry.mode, rule.Mode)),
 			))
 		}
 
 		onOutput := api.Mul(enabled[k], api.Add(onOutputOwner, onAsset))
 		for j, out := range slots.outputs {
-			terms := make([]frontend.Variable, NPool)
-			for e := range pool {
-				terms[e] = api.Mul(answers[e], api.Select(onAsset, eqOutputAsset[e][j], eqOutputOwner[e][j]))
+			terms := make([]frontend.Variable, NAnswers)
+			for e := range matched {
+				terms[e] = api.Mul(matched[e], api.Select(onAsset, eqOutputAsset[e][j], eqOutputOwner[e][j]))
 			}
 			rule.assertAnswered(
 				api,
@@ -70,9 +70,9 @@ func (c *Circuit) evaluate(
 
 		onInput := api.Mul(enabled[k], onSender)
 		for i, in := range slots.inputs {
-			terms := make([]frontend.Variable, NPool)
-			for e := range pool {
-				terms[e] = api.Mul(answers[e], eqSender[e][i])
+			terms := make([]frontend.Variable, NAnswers)
+			for e := range matched {
+				terms[e] = api.Mul(matched[e], eqSender[e][i])
 			}
 			rule.assertAnswered(api, api.Mul(onInput, liveSender[i]), anyOf(api, terms), in.amount)
 		}

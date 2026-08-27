@@ -20,53 +20,53 @@ sequenceDiagram
 
     rect rgba(100, 160, 100, 0.08)
     Note over SubRing, Crazy: baseline, a transfer to a clean recipient
-    Crazy->>SubRing: reads the source map, Block resolves to the curator's records PDA
-    Crazy->>Photon: reads the recipient member's record, none exists
+    Crazy->>SubRing: reads the source map, Block resolves to the curator's namespace PDA
+    Crazy->>Photon: reads the recipient member's entry, none exists
     Photon-->>Crazy: address non-inclusion proof and both roots
     Crazy->>Prover: one proof over the audit statement, policy_hash, both roots
     Note over Crazy: every live output owner is screened, the sender's change too
     Crazy->>+SubRing: transact(proof, root indices)
-    Note over SubRing: recomputes POLICY.hash over the stored map, resolves the roots by index, verifies one Groth16
+    Note over SubRing: recomputes RULES.hash over the stored map, resolves the roots by index, verifies one Groth16
     SubRing->>-SPP: CPI ring_transact
-    Note over SPP: the instruction carries no member, no kind, no pool, the chain cannot tell who was screened
+    Note over SPP: the instruction carries no member, no list, no answers, the chain cannot tell who was screened
     end
 
     rect rgba(180, 100, 100, 0.08)
     Note over OFAC, CurRing: the ban, one write
     Note over OFAC: the list names Mr. Evil's address, the curator ingests it off chain
-    Curator->>Prover: proves the record mutation
-    Curator->>+CurRing: create_record(Block, member)<br/>member = hash(confidential view tag)
+    Curator->>Prover: proves the entry mutation
+    Curator->>+CurRing: create_entry(Block, member)<br/>member = hash(confidential view tag)
     Note over CurRing: an ed25519 tag equals the pubkey, a P256 identity hashes its x coordinate, an address ban does not cover it
-    CurRing->>-SPP: CPI transact signed by the records PDA, carrying its own SPP proof
-    Photon->>SPP: polls the chain, indexes the record
+    CurRing->>-SPP: CPI transact signed by the namespace PDA, carrying its own SPP proof
+    Photon->>SPP: polls the chain, indexes the entry
     Note over Photon: a plaintext zero amount UTXO at the claimed address, v0 Active, publicly auditable
-    Note over Others: the same record now governs every subscriber, no further write exists
+    Note over Others: the same entry now governs every subscriber, no further write exists
     Note over SPP: not instant, the forester rolls roots forward and the eight root window still admits pre ban proofs
     end
 
     rect rgba(180, 100, 100, 0.08)
     Note over Crazy: the same transfer, the recipient is Mr. Evil
-    Crazy->>Photon: reads the member's record
-    Photon-->>Crazy: live Active Block record
+    Crazy->>Photon: reads the member's entry
+    Photon-->>Crazy: live Active Block entry
     alt honest wallet
-        Note over Crazy: the SPP proof is already made, build_pool refuses with PolicyRuleUnsatisfied, nothing reaches the chain, the input UTXO stays unspent
+        Note over Crazy: the SPP proof is already made, answer_rules refuses with PolicyRuleUnsatisfied, nothing reaches the chain, the input UTXO stays unspent
     else patched wallet
         Crazy->>Prover: forged witness
-        Note over Prover: unsatisfiable, coverage forces an answered pool entry and no absence branch exists against a live Active record
+        Note over Prover: unsatisfiable, coverage demands an answer for the instance and no absence branch exists against a live Active entry
     end
     end
 
     rect rgba(128, 128, 128, 0.07)
     Note over SubRing, SubOp: no local override
-    SubOp->>SubRing: create_record(Block, member) on the subscriber's own ring
-    SubRing-->>SubOp: ForeignRecordSource, the kind is served by the curator's records
+    SubOp->>SubRing: create_entry(Block, member) on the subscriber's own ring
+    SubRing-->>SubOp: ForeignRecordSource, the list is served by the curator's entries
     end
 
     rect rgba(100, 160, 100, 0.08)
     Note over Curator, CurRing: the clear
-    Curator->>CurRing: update_record, v1 Cleared at the same address, no delete exists
-    Crazy->>Photon: reads the member's record
-    Photon-->>Crazy: cleared record, inclusion plus nullifier non-inclusion
+    Curator->>CurRing: update_entry, v1 Cleared at the same address, no delete exists
+    Crazy->>Photon: reads the member's entry
+    Photon-->>Crazy: cleared entry, inclusion plus nullifier non-inclusion
     Crazy->>SubRing: the same input UTXO lands through the cleared branch
     end
 
@@ -74,5 +74,5 @@ sequenceDiagram
     Note over Curator, SubOp: the real escape is the subscriber's, not the sanctions list's
     Curator->>CurRing: re-bans the member, v2 Active
     SubOp->>SubRing: set_policy_source(Block, own) by the config authority
-    Note over SubRing: allowed only while the stored hash reproduces under the deployed table, the next transfer lands with the curator record Active
+    Note over SubRing: allowed only while the stored hash reproduces under the deployed table, the next transfer lands with the curator entry Active
     end

@@ -5,10 +5,10 @@ use zolana_interface::{ADDRESS_DOMAIN, SOL_ASSET_FIELD, UTXO_DOMAIN};
 
 use crate::{field_u16, field_u64, field_u8, Member, POLICY_ADDRESS_DOMAIN, POLICY_RECORD_DOMAIN};
 
-/// The on-chain discriminant of a record list, never `0` (the circuit reserves it as the inline-asset sentinel).
+/// The on-chain discriminant of a list, never `0` (the circuit reserves it as the inline-asset sentinel).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
-pub enum RecordKind {
+pub enum ListId {
     Allow = 1,
     Block = 2,
     Frozen = 3,
@@ -19,27 +19,27 @@ pub enum RecordKind {
     Escrow = 8,
 }
 
-/// Who may mutate a record list, the sole authorization axis the program gates on.
+/// Who may mutate a list, the sole authorization axis the program gates on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Holder {
+pub enum Writer {
     Authority,
     Member,
 }
 
-impl RecordKind {
+impl ListId {
     /// The single source of truth the program and every `List` impl read.
-    /// Exhaustive on purpose, a new kind must declare its holder to compile.
-    pub const fn holder(self) -> Holder {
+    /// Exhaustive on purpose, a new list must declare its writer to compile.
+    pub const fn writer(self) -> Writer {
         match self {
-            Self::RingViewing | Self::Recovery | Self::Escrow => Holder::Member,
+            Self::RingViewing | Self::Recovery | Self::Escrow => Writer::Member,
             Self::Allow | Self::Block | Self::Frozen | Self::Reader | Self::Approval => {
-                Holder::Authority
+                Writer::Authority
             }
         }
     }
 }
 
-impl TryFrom<u8> for RecordKind {
+impl TryFrom<u8> for ListId {
     type Error = ();
 
     fn try_from(value: u8) -> Result<Self, ()> {
@@ -57,21 +57,21 @@ impl TryFrom<u8> for RecordKind {
     }
 }
 
-pub const POLICY_RECORDS_PDA_SEED: &[u8] = b"policy_records";
+pub const NAMESPACE_PDA_SEED: &[u8] = b"policy_records";
 
-pub const RECORD_PAYLOAD_LEN: usize = 74;
+pub const LIST_ENTRY_LEN: usize = 74;
 /// The plaintext output-data envelope, tag byte and `u32` length before the
-/// payload.
-pub const RECORD_OUTPUT_DATA_LEN: usize = 5 + RECORD_PAYLOAD_LEN;
+/// content.
+pub const ENTRY_OUTPUT_DATA_LEN: usize = 5 + LIST_ENTRY_LEN;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
-pub enum RecordState {
+pub enum EntryState {
     Active = 1,
     Cleared = 2,
 }
 
-impl TryFrom<u8> for RecordState {
+impl TryFrom<u8> for EntryState {
     type Error = ();
 
     fn try_from(value: u8) -> Result<Self, ()> {
@@ -83,14 +83,14 @@ impl TryFrom<u8> for RecordState {
     }
 }
 
-/// The zero nullifier secret makes every record nullifier publicly computable,
+/// The zero nullifier secret makes every entry nullifier publicly computable,
 /// spending still needs the PDA signature.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct RecordsOwner {
+pub struct ListNamespace {
     pub owner_hash: [u8; 32],
 }
 
-impl RecordsOwner {
+impl ListNamespace {
     pub fn new(pda: &[u8; 32]) -> Result<Self, HasherError> {
         let owner_pk_field = hash_bytes(pda)?;
         let nullifier_pk = Poseidon::hashv(&[&[0u8; 32]])?;
@@ -98,7 +98,7 @@ impl RecordsOwner {
         Ok(Self { owner_hash })
     }
 
-    /// The address slot commitment, its blinding is the record seed.
+    /// The address slot commitment, its blinding is the entry seed.
     pub fn address_utxo_hash(&self, seed: &[u8; 32]) -> Result<[u8; 32], HasherError> {
         let zero = [0u8; 32];
         let ring_hash = Poseidon::hashv(&[&zero, &zero])?;
@@ -113,18 +113,18 @@ impl RecordsOwner {
         ])
     }
 
-    /// Deterministic, the nullifier tree admits one record lineage per
-    /// `(kind, member)`.
-    pub fn address(&self, kind: RecordKind, member: &Member) -> Result<[u8; 32], HasherError> {
-        let seed = record_seed(kind, member)?;
-        record_nullifier(&self.address_utxo_hash(&seed)?, &seed)
+    /// Deterministic, the nullifier tree admits one entry lineage per
+    /// `(list_id, member)`.
+    pub fn address(&self, list_id: ListId, member: &Member) -> Result<[u8; 32], HasherError> {
+        let seed = entry_seed(list_id, member)?;
+        entry_nullifier(&self.address_utxo_hash(&seed)?, &seed)
     }
 }
 
-pub fn record_seed(kind: RecordKind, member: &Member) -> Result<[u8; 32], HasherError> {
+pub fn entry_seed(list_id: ListId, member: &Member) -> Result<[u8; 32], HasherError> {
     Poseidon::hashv(&[
         &POLICY_ADDRESS_DOMAIN,
-        &field_u8(kind as u8),
+        &field_u8(list_id as u8),
         member.as_bytes(),
     ])
 }
@@ -132,24 +132,24 @@ pub fn record_seed(kind: RecordKind, member: &Member) -> Result<[u8; 32], Hasher
 /// The blinding is the version, a re-added member never repeats a commitment
 /// or a nullifier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Record {
-    pub kind: RecordKind,
+pub struct ListEntry {
+    pub list_id: ListId,
     pub member: Member,
-    pub state: RecordState,
+    pub state: EntryState,
     pub version: u64,
-    pub payload_hash: [u8; 32],
+    pub content_hash: [u8; 32],
 }
 
-impl Record {
+impl ListEntry {
     pub fn data_hash(&self, address: &[u8; 32]) -> Result<[u8; 32], HasherError> {
         Poseidon::hashv(&[
             &POLICY_RECORD_DOMAIN,
             address,
-            &field_u8(self.kind as u8),
+            &field_u8(self.list_id as u8),
             self.member.as_bytes(),
             &field_u8(self.state as u8),
             &field_u64(self.version),
-            &self.payload_hash,
+            &self.content_hash,
         ])
     }
 
@@ -157,34 +157,34 @@ impl Record {
         field_u64(self.version)
     }
 
-    /// Takes the payload of [`Record::to_output_data`], without its envelope.
-    pub fn from_payload(payload: &[u8]) -> Option<Self> {
-        let payload: &[u8; RECORD_PAYLOAD_LEN] = payload.try_into().ok()?;
+    /// Takes the content of [`ListEntry::to_output_data`], without its envelope.
+    pub fn from_payload(content: &[u8]) -> Option<Self> {
+        let content: &[u8; LIST_ENTRY_LEN] = content.try_into().ok()?;
         Some(Self {
-            kind: RecordKind::try_from(payload[0]).ok()?,
-            member: Member::from_bytes(payload[1..33].try_into().ok()?).ok()?,
-            state: RecordState::try_from(payload[33]).ok()?,
-            version: u64::from_le_bytes(payload[34..42].try_into().ok()?),
-            payload_hash: payload[42..74].try_into().ok()?,
+            list_id: ListId::try_from(content[0]).ok()?,
+            member: Member::from_bytes(content[1..33].try_into().ok()?).ok()?,
+            state: EntryState::try_from(content[33]).ok()?,
+            version: u64::from_le_bytes(content[34..42].try_into().ok()?),
+            content_hash: content[42..74].try_into().ok()?,
         })
     }
 
-    /// The published plaintext payload, discovery re-derives `data_hash` from
+    /// The published plaintext content, discovery re-derives `data_hash` from
     /// it and compares against the on-chain leaf before trusting it.
-    pub fn to_output_data(&self) -> [u8; RECORD_OUTPUT_DATA_LEN] {
-        let mut payload = [0u8; RECORD_OUTPUT_DATA_LEN];
-        payload[1..5].copy_from_slice(&(RECORD_PAYLOAD_LEN as u32).to_le_bytes());
-        payload[5] = self.kind as u8;
-        payload[6..38].copy_from_slice(self.member.as_bytes());
-        payload[38] = self.state as u8;
-        payload[39..47].copy_from_slice(&self.version.to_le_bytes());
-        payload[47..79].copy_from_slice(&self.payload_hash);
-        payload
+    pub fn to_output_data(&self) -> [u8; ENTRY_OUTPUT_DATA_LEN] {
+        let mut content = [0u8; ENTRY_OUTPUT_DATA_LEN];
+        content[1..5].copy_from_slice(&(LIST_ENTRY_LEN as u32).to_le_bytes());
+        content[5] = self.list_id as u8;
+        content[6..38].copy_from_slice(self.member.as_bytes());
+        content[38] = self.state as u8;
+        content[39..47].copy_from_slice(&self.version.to_le_bytes());
+        content[47..79].copy_from_slice(&self.content_hash);
+        content
     }
 
     pub fn utxo_hash(
         &self,
-        owner: &RecordsOwner,
+        owner: &ListNamespace,
         address: &[u8; 32],
     ) -> Result<[u8; 32], HasherError> {
         let zero = [0u8; 32];
@@ -201,14 +201,11 @@ impl Record {
     }
 }
 
-pub fn record_nullifier(
-    utxo_hash: &[u8; 32],
-    blinding: &[u8; 32],
-) -> Result<[u8; 32], HasherError> {
+pub fn entry_nullifier(utxo_hash: &[u8; 32], blinding: &[u8; 32]) -> Result<[u8; 32], HasherError> {
     Poseidon::hashv(&[utxo_hash, blinding, &[0u8; 32]])
 }
 
-/// `private_tx_hash` of a record mutation, one input slot and one output slot.
+/// `private_tx_hash` of an entry mutation, one input slot and one output slot.
 pub fn mutation_private_tx_hash(
     input_hash: [u8; 32],
     output_hash: [u8; 32],
@@ -230,8 +227,8 @@ pub fn mutation_private_tx_hash(
 mod tests {
     use super::*;
 
-    fn owner() -> RecordsOwner {
-        RecordsOwner::new(&[11u8; 32]).unwrap()
+    fn owner() -> ListNamespace {
+        ListNamespace::new(&[11u8; 32]).unwrap()
     }
 
     fn member(byte: u8) -> Member {
@@ -241,15 +238,15 @@ mod tests {
     #[test]
     fn the_address_is_deterministic_in_kind_and_member() {
         let owner = owner();
-        let a = owner.address(RecordKind::Block, &member(1)).unwrap();
-        assert_eq!(a, owner.address(RecordKind::Block, &member(1)).unwrap());
-        assert_ne!(a, owner.address(RecordKind::Frozen, &member(1)).unwrap());
-        assert_ne!(a, owner.address(RecordKind::Block, &member(2)).unwrap());
+        let a = owner.address(ListId::Block, &member(1)).unwrap();
+        assert_eq!(a, owner.address(ListId::Block, &member(1)).unwrap());
+        assert_ne!(a, owner.address(ListId::Frozen, &member(1)).unwrap());
+        assert_ne!(a, owner.address(ListId::Block, &member(2)).unwrap());
         assert_ne!(
             a,
-            RecordsOwner::new(&[12u8; 32])
+            ListNamespace::new(&[12u8; 32])
                 .unwrap()
-                .address(RecordKind::Block, &member(1))
+                .address(ListId::Block, &member(1))
                 .unwrap()
         );
     }
@@ -257,61 +254,61 @@ mod tests {
     #[test]
     fn state_and_version_move_the_commitment_but_not_the_address() {
         let owner = owner();
-        let record = Record {
-            kind: RecordKind::Block,
+        let entry = ListEntry {
+            list_id: ListId::Block,
             member: member(1),
-            state: RecordState::Active,
+            state: EntryState::Active,
             version: 0,
-            payload_hash: [0u8; 32],
+            content_hash: [0u8; 32],
         };
-        let address = owner.address(record.kind, &record.member).unwrap();
-        let active = record.utxo_hash(&owner, &address).unwrap();
-        let cleared = Record {
-            state: RecordState::Cleared,
+        let address = owner.address(entry.list_id, &entry.member).unwrap();
+        let active = entry.utxo_hash(&owner, &address).unwrap();
+        let cleared = ListEntry {
+            state: EntryState::Cleared,
             version: 1,
-            ..record
+            ..entry
         };
         assert_ne!(active, cleared.utxo_hash(&owner, &address).unwrap());
         assert_eq!(
             address,
-            owner.address(cleared.kind, &cleared.member).unwrap()
+            owner.address(cleared.list_id, &cleared.member).unwrap()
         );
     }
 
     #[test]
     fn the_payload_round_trips_through_the_published_envelope() {
-        let record = Record {
-            kind: RecordKind::Frozen,
+        let entry = ListEntry {
+            list_id: ListId::Frozen,
             member: member(5),
-            state: RecordState::Cleared,
+            state: EntryState::Cleared,
             version: 7,
-            payload_hash: [4u8; 32],
+            content_hash: [4u8; 32],
         };
-        let encoded = record.to_output_data();
-        assert_eq!(Record::from_payload(&encoded[5..]), Some(record));
-        assert_eq!(Record::from_payload(&encoded), None);
+        let encoded = entry.to_output_data();
+        assert_eq!(ListEntry::from_payload(&encoded[5..]), Some(entry));
+        assert_eq!(ListEntry::from_payload(&encoded), None);
     }
 
     #[test]
     fn version_uniqueness_separates_nullifiers_of_equal_states() {
         let owner = owner();
-        let record = Record {
-            kind: RecordKind::Allow,
+        let entry = ListEntry {
+            list_id: ListId::Allow,
             member: member(3),
-            state: RecordState::Active,
+            state: EntryState::Active,
             version: 0,
-            payload_hash: [0u8; 32],
+            content_hash: [0u8; 32],
         };
-        let address = owner.address(record.kind, &record.member).unwrap();
-        let re_added = Record {
+        let address = owner.address(entry.list_id, &entry.member).unwrap();
+        let re_added = ListEntry {
             version: 2,
-            ..record
+            ..entry
         };
-        let first = record.utxo_hash(&owner, &address).unwrap();
+        let first = entry.utxo_hash(&owner, &address).unwrap();
         let second = re_added.utxo_hash(&owner, &address).unwrap();
         assert_ne!(
-            record_nullifier(&first, &record.blinding()).unwrap(),
-            record_nullifier(&second, &re_added.blinding()).unwrap()
+            entry_nullifier(&first, &entry.blinding()).unwrap(),
+            entry_nullifier(&second, &re_added.blinding()).unwrap()
         );
     }
 }

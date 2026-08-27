@@ -409,7 +409,7 @@ fn cli_init_hands_the_config_over_and_reruns_from_the_chain() -> Result<()> {
                 "--config",
                 &ring_toml.to_string_lossy(),
                 "init",
-                "--records-tree",
+                "--entries-tree",
                 &env.tree.to_string(),
             ])
             .output()
@@ -471,7 +471,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         ring,
         payer: &env.payer,
         auditor_pubkey: auditor_pk,
-        records_tree: env.tree,
+        entries_tree: env.tree,
     }
     .send(rpc)?;
 
@@ -491,7 +491,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
     );
 
     // 3. Register the ring with SPP. The `RingConfig` SPP allocates IS the ring's
-    //    `ring_auth` PDA, and the payload is built on chain from the config
+    //    `ring_auth` PDA, and the content is built on chain from the config
     //    account, so the registered authority is the one asserted above and the
     //    authority-transact rail stays disabled.
     let (ring_auth, ring_auth_bump) = pda::ring_auth(&ring_program);
@@ -806,7 +806,7 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
         ring,
         payer: &env.payer,
         auditor_pubkey: auditor.pubkey(),
-        records_tree: env.tree,
+        entries_tree: env.tree,
     }
     .send(rpc)?;
     let prover = ProverClient::local();
@@ -989,7 +989,7 @@ struct RegisterRing<'a> {
     ring: CustomRing,
     payer: &'a Keypair,
     auditor_pubkey: P256Pubkey,
-    records_tree: Address,
+    entries_tree: Address,
 }
 
 impl RegisterRing<'_> {
@@ -1025,7 +1025,7 @@ impl RegisterRing<'_> {
                 ring: self.ring,
                 payer: authority,
                 authority,
-                records_tree: self.records_tree,
+                entries_tree: self.entries_tree,
                 shared_sources: vec![],
             }
             .instruction()?],

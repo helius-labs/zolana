@@ -40,15 +40,15 @@ type Opening struct {
 	RingProgramID *big.Int
 }
 
-// PoolEntry is one record fact the statement proves against the roots.
-type PoolEntry struct {
+// Answer is one entry fact the statement proves against the roots.
+type Answer struct {
 	Enabled      bool
 	Mode         uint8
-	Kind         uint8
+	ListId         uint8
 	State        uint8
 	AbsentBranch uint8
 	Member       *big.Int
-	PayloadHash  *big.Int
+	ContentHash  *big.Int
 	Version      uint64
 	Low          *big.Int
 	Next         *big.Int
@@ -60,10 +60,10 @@ type PoolEntry struct {
 	StatePathIndex    uint64
 }
 
-// PolicySource is one slot of the positional source map, slot i empty or
-// serving kind i+1.
-type PolicySource struct {
-	Kind      uint8
+// SourceOwner is one slot of the positional source map, slot i empty or
+// serving listId i+1.
+type SourceOwner struct {
+	ListId      uint8
 	OwnerHash *big.Int
 }
 
@@ -82,7 +82,7 @@ type CustomRingParameters struct {
 	AddressChain     *big.Int
 	ExternalDataHash *big.Int
 
-	Sources      [transfer.NSources]PolicySource
+	Sources      [transfer.NSources]SourceOwner
 	PolicyLen    uint8
 	RuleEnc      [transfer.NRules][ruleEncLen]byte
 	InlineAssets [transfer.NInlineAssets]*big.Int
@@ -91,7 +91,7 @@ type CustomRingParameters struct {
 	StateRoot     *big.Int
 	NullifierRoot *big.Int
 
-	Pool [transfer.NPool]PoolEntry
+	Answers [transfer.NAnswers]Answer
 }
 
 type openingJSON struct {
@@ -106,19 +106,19 @@ type openingJSON struct {
 	RingProgramID string `json:"ringProgramId"`
 }
 
-type policySourceJSON struct {
-	Kind      uint8  `json:"kind"`
+type sourceOwnerJSON struct {
+	ListId      uint8  `json:"listId"`
 	OwnerHash string `json:"ownerHash"`
 }
 
-type poolEntryJSON struct {
+type ruleAnswerJSON struct {
 	Enabled           bool     `json:"enabled"`
 	Mode              uint8    `json:"mode"`
-	Kind              uint8    `json:"kind"`
+	ListId              uint8    `json:"listId"`
 	State             uint8    `json:"state"`
 	AbsentBranch      uint8    `json:"absentBranch"`
 	Member            string   `json:"member"`
-	PayloadHash       string   `json:"payloadHash"`
+	ContentHash       string   `json:"contentHash"`
 	Version           uint64   `json:"version"`
 	Low               string   `json:"low"`
 	Next              string   `json:"next"`
@@ -142,14 +142,14 @@ type customRingParametersJSON struct {
 	Outputs          []openingJSON      `json:"outputs"`
 	AddressChain     string             `json:"addressChain"`
 	ExternalDataHash string             `json:"externalDataHash"`
-	Sources          []policySourceJSON `json:"sources"`
+	Sources          []sourceOwnerJSON `json:"sources"`
 	PolicyLen        uint8              `json:"policyLen"`
 	RuleEnc          []string           `json:"ruleEnc"`
 	InlineAssets     []string           `json:"inlineAssets"`
 	InlineCount      uint8              `json:"inlineCount"`
 	StateRoot        string             `json:"stateRoot"`
 	NullifierRoot    string             `json:"nullifierRoot"`
-	Pool             []poolEntryJSON    `json:"pool"`
+	Answers             []ruleAnswerJSON    `json:"answers"`
 }
 
 func (p *CustomRingParameters) MarshalJSON() ([]byte, error) {
@@ -167,18 +167,18 @@ func (p *CustomRingParameters) MarshalJSON() ([]byte, error) {
 		Outputs:          writeOpenings(p.Outputs[:]),
 		AddressChain:     common.ToHex(p.AddressChain),
 		ExternalDataHash: common.ToHex(p.ExternalDataHash),
-		Sources:          make([]policySourceJSON, 0, len(p.Sources)),
+		Sources:          make([]sourceOwnerJSON, 0, len(p.Sources)),
 		PolicyLen:        p.PolicyLen,
 		RuleEnc:          make([]string, 0, len(p.RuleEnc)),
 		InlineAssets:     make([]string, 0, len(p.InlineAssets)),
 		InlineCount:      p.InlineCount,
 		StateRoot:        common.ToHex(p.StateRoot),
 		NullifierRoot:    common.ToHex(p.NullifierRoot),
-		Pool:             make([]poolEntryJSON, 0, len(p.Pool)),
+		Answers:             make([]ruleAnswerJSON, 0, len(p.Answers)),
 	}
 	for _, src := range p.Sources {
-		raw.Sources = append(raw.Sources, policySourceJSON{
-			Kind:      src.Kind,
+		raw.Sources = append(raw.Sources, sourceOwnerJSON{
+			ListId:      src.ListId,
 			OwnerHash: common.ToHex(src.OwnerHash),
 		})
 	}
@@ -188,8 +188,8 @@ func (p *CustomRingParameters) MarshalJSON() ([]byte, error) {
 	for _, asset := range p.InlineAssets {
 		raw.InlineAssets = append(raw.InlineAssets, common.ToHex(asset))
 	}
-	for i := range p.Pool {
-		raw.Pool = append(raw.Pool, writePoolEntry(&p.Pool[i]))
+	for i := range p.Answers {
+		raw.Answers = append(raw.Answers, writeAnswer(&p.Answers[i]))
 	}
 	return json.Marshal(raw)
 }
@@ -257,13 +257,13 @@ func (p *CustomRingParameters) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return err
 		}
-		// Mirrors ring_policy::PolicySources::from_slots.
-		empty := src.Kind == 0 && owner.Sign() == 0
-		positional := int(src.Kind) == i+1 && owner.Sign() != 0
+		// Mirrors ring_policy::SourceMap::from_slots.
+		empty := src.ListId == 0 && owner.Sign() == 0
+		positional := int(src.ListId) == i+1 && owner.Sign() != 0
 		if !empty && !positional {
 			return fmt.Errorf("custom-ring: sources slot %d breaks the positional layout", i)
 		}
-		p.Sources[i] = PolicySource{Kind: src.Kind, OwnerHash: owner}
+		p.Sources[i] = SourceOwner{ListId: src.ListId, OwnerHash: owner}
 	}
 	if p.StateRoot, err = fieldFromHex(raw.StateRoot, "stateRoot"); err != nil {
 		return err
@@ -295,11 +295,11 @@ func (p *CustomRingParameters) UnmarshalJSON(data []byte) error {
 			return err
 		}
 	}
-	if len(raw.Pool) != transfer.NPool {
-		return fmt.Errorf("custom-ring: pool holds %d entries, expected %d", len(raw.Pool), transfer.NPool)
+	if len(raw.Answers) != transfer.NAnswers {
+		return fmt.Errorf("custom-ring: answers holds %d entries, expected %d", len(raw.Answers), transfer.NAnswers)
 	}
-	for i, entry := range raw.Pool {
-		if err = readPoolEntry(&p.Pool[i], entry); err != nil {
+	for i, entry := range raw.Answers {
+		if err = readPoolEntry(&p.Answers[i], entry); err != nil {
 			return err
 		}
 	}
@@ -324,15 +324,15 @@ func writeOpenings(src []Opening) []openingJSON {
 	return out
 }
 
-func writePoolEntry(src *PoolEntry) poolEntryJSON {
-	return poolEntryJSON{
+func writeAnswer(src *Answer) ruleAnswerJSON {
+	return ruleAnswerJSON{
 		Enabled:           src.Enabled,
 		Mode:              src.Mode,
-		Kind:              src.Kind,
+		ListId:              src.ListId,
 		State:             src.State,
 		AbsentBranch:      src.AbsentBranch,
 		Member:            common.ToHex(src.Member),
-		PayloadHash:       common.ToHex(src.PayloadHash),
+		ContentHash:       common.ToHex(src.ContentHash),
 		Version:           src.Version,
 		Low:               common.ToHex(src.Low),
 		Next:              common.ToHex(src.Next),
@@ -382,17 +382,17 @@ func readOpenings(dst []Opening, src []openingJSON, name string) error {
 	return nil
 }
 
-func readPoolEntry(dst *PoolEntry, src poolEntryJSON) error {
+func readPoolEntry(dst *Answer, src ruleAnswerJSON) error {
 	if src.Enabled {
 		if src.Mode != activeState && src.Mode != clearedState {
-			return fmt.Errorf("custom-ring: pool mode %d is not present or absent", src.Mode)
+			return fmt.Errorf("custom-ring: answers mode %d is not present or absent", src.Mode)
 		}
-		if src.Kind == 0 {
-			return fmt.Errorf("custom-ring: pool kind is unset")
+		if src.ListId == 0 {
+			return fmt.Errorf("custom-ring: answers listId is unset")
 		}
 	}
 	dst.Enabled = src.Enabled
-	dst.Mode, dst.Kind, dst.State, dst.AbsentBranch = src.Mode, src.Kind, src.State, src.AbsentBranch
+	dst.Mode, dst.ListId, dst.State, dst.AbsentBranch = src.Mode, src.ListId, src.State, src.AbsentBranch
 	dst.Version, dst.NfPathIndex, dst.StatePathIndex = src.Version, src.NfPathIndex, src.StatePathIndex
 
 	var err error
@@ -400,9 +400,9 @@ func readPoolEntry(dst *PoolEntry, src poolEntryJSON) error {
 		return err
 	}
 	if src.Enabled && dst.Member.Sign() == 0 {
-		return fmt.Errorf("custom-ring: pool member is zero")
+		return fmt.Errorf("custom-ring: answers member is zero")
 	}
-	if dst.PayloadHash, err = fieldFromHex(src.PayloadHash, "payloadHash"); err != nil {
+	if dst.ContentHash, err = fieldFromHex(src.ContentHash, "contentHash"); err != nil {
 		return err
 	}
 	if dst.Low, err = fieldFromHex(src.Low, "low"); err != nil {
@@ -445,7 +445,7 @@ func (p *CustomRingParameters) CreateWitness() (*transfer.Circuit, error) {
 	}
 	for i, src := range p.Sources {
 		circuit.Sources[i] = transfer.SourceWires{
-			Kind:      src.Kind,
+			ListId:      src.ListId,
 			OwnerHash: src.OwnerHash,
 		}
 	}
@@ -470,8 +470,8 @@ func (p *CustomRingParameters) CreateWitness() (*transfer.Circuit, error) {
 	for i := range circuit.InlineAssets {
 		circuit.InlineAssets[i] = p.InlineAssets[i]
 	}
-	for i := range circuit.Pool {
-		assignPoolEntry(&circuit.Pool[i], &p.Pool[i])
+	for i := range circuit.Answers {
+		assignPoolEntry(&circuit.Answers[i], &p.Answers[i])
 	}
 	return circuit, nil
 }
@@ -506,17 +506,17 @@ func assignRule(dst *transfer.RuleWires, encoded [ruleEncLen]byte) {
 	dst.Packed = new(big.Int).SetBytes(encoded[:])
 	dst.Subject = encoded[31]
 	dst.Mode = encoded[30]
-	dst.Kind = encoded[29]
+	dst.ListId = encoded[29]
 	dst.GuardTag = encoded[28]
 	dst.Threshold = new(big.Int).SetBytes(encoded[20:28])
 }
 
-func assignPoolEntry(dst *transfer.PoolEntryWires, src *PoolEntry) {
+func assignPoolEntry(dst *transfer.RuleAnswerWires, src *Answer) {
 	dst.Enabled = boolVar(src.Enabled)
 	dst.Mode = src.Mode
-	dst.Kind = src.Kind
+	dst.ListId = src.ListId
 	dst.Member = src.Member
-	dst.PayloadHash = src.PayloadHash
+	dst.ContentHash = src.ContentHash
 	dst.Version = src.Version
 	dst.State = src.State
 	dst.AbsentBranch = src.AbsentBranch

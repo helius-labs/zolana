@@ -41,7 +41,7 @@ pub enum AuditEncryptionError {
     Keypair(#[from] KeypairError),
 }
 
-/// The auditor payload published in `TransactIxData::messages`.
+/// The auditor content published in `TransactIxData::messages`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AuditorMessage {
     /// SEC1-compressed ephemeral public key.

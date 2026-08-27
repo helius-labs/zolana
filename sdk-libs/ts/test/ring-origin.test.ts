@@ -58,7 +58,7 @@ function origin(reason: "missing stack height" | "no parent", groups: OriginInst
 }
 
 describe("ringInvokedIn", () => {
-  it("attributes the pool directly under the ring", () => {
+  it("attributes the answers directly under the ring", () => {
     expect(
       ringInvokedIn(
         [
@@ -72,11 +72,11 @@ describe("ringInvokedIn", () => {
     ).toBe(true);
   });
 
-  it("does not attribute the pool at top level", () => {
+  it("does not attribute the answers at top level", () => {
     expect(ringInvokedIn([group(POOL, [[OTHER, 2]])], RING)).toBe(false);
   });
 
-  it("does not attribute the pool under an intermediary", () => {
+  it("does not attribute the answers under an intermediary", () => {
     expect(
       ringInvokedIn(
         [
@@ -320,7 +320,7 @@ describe("confirmedRingWithdrawals", () => {
     expect(confirmedRingWithdrawals(transaction, RING)).toEqual([]);
   });
 
-  it("ignores a pool instruction another program invoked", () => {
+  it("ignores a answers instruction another program invoked", () => {
     const transaction = settlementTransaction(
       [callerInstruction(OTHER)],
       [poolInstruction([{ kind: "solWithdrawal", amount: 7n }], [SOL_INTERFACE, RECIPIENT])],
