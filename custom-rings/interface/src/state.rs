@@ -54,8 +54,11 @@ const _: () = assert!(core::mem::align_of::<RingProgramConfig>() == 1);
 const _: () = assert!(ReadAccessRecord::SIZE == 36);
 const _: () = assert!(core::mem::align_of::<ReadAccessRecord>() == 1);
 
+/// Seed of the account pinning the policy hash and the source map.
 pub const POLICY_CONFIG_PDA_SEED: &[u8] = b"policy";
+/// First byte of an initialized policy config.
 pub const POLICY_CONFIG: u8 = 3;
+/// One slot per list the enum can name, all eight enter the hash.
 pub const N_SOURCE_SLOTS: usize = 8;
 
 /// One list's source, slot `i` is empty (`list_id == 0`) or serves list

@@ -23,6 +23,7 @@ use zolana_transaction::{
 };
 use zolana_tree::TreeAccount;
 
+/// The mutation witness failed to assemble or prove.
 #[derive(Debug, Error)]
 pub enum EntryProofError {
     #[error(transparent)]
@@ -47,6 +48,7 @@ impl From<ClientError> for EntryProofError {
     }
 }
 
+/// A one-in one-out SPP transfer proof carrying one entry transition.
 pub struct EntryProof {
     pub proof: TransactProof,
     pub nullifier_tree_root_index: u16,

@@ -2,7 +2,7 @@
 //!
 //! An entry list is a namespace of `(list_id, member)` entries, each a zero-amount
 //! data UTXO in the SPP state tree owned by the ring's namespace PDA, present or
-//! absent provably against SPP's own roots (see [`crate::entry`]). The
+//! absent provably against SPP's own roots (see [`ListEntry`]). The
 //! [`crate::RuleTable`] is one consumer, a list of auditors or co-signers is another.
 //!
 //! # Adding a list
