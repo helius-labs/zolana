@@ -8,6 +8,9 @@ import {
 } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
+import { EncryptedScheme, decodeOutputData } from "../src/transaction/index.js";
+// The encoder stays internal; only the decoders are needed by a relayed client.
+import { encodeOutputData } from "../src/transaction/serialization/index.js";
 import {
   DEFAULT_TREE_ADDRESS,
   SHIELDED_POOL_PROGRAM_ID,
@@ -389,5 +392,44 @@ describe("address and instruction builders", () => {
       address: OWNER,
       role: AccountRole.WRITABLE,
     });
+  });
+});
+
+describe("relayed decryption surface", () => {
+  it("exports the plaintext decoders through @heliuslabs/zolana/transaction", async () => {
+    // `syncWallet` decrypts and decodes in one step and needs the viewing key in
+    // this process. A client whose viewing key is held remotely -- an enclave,
+    // an HSM -- gets plaintext back and still has to read it, so the decoders
+    // have to be reachable on their own. They live in the serialization barrel;
+    // this asserts the outer entry point forwards them.
+    const transaction = await import("../src/transaction/index.js");
+
+    for (const name of [
+      "decodeOutputData",
+      "decodeConfidential",
+      "decodeAnonymousRecipient",
+      "decodeAnonymousSender",
+      "decodeSplitBundle",
+      "decodeSplitEncrypted",
+      "decodePlaintextTransfer",
+      "decodeProofless",
+      "decodeData",
+    ]) {
+      expect(transaction, name).toHaveProperty(name);
+      expect(typeof (transaction as Record<string, unknown>)[name]).toBe("function");
+    }
+  });
+
+  it("names the scheme of a slot payload and hands back the body to decrypt", () => {
+    // The header is not encrypted; decrypting the framed payload whole would
+    // feed the discriminator bytes to the cipher and return garbage. A relayed
+    // client has to split the frame before it sends anything to be decrypted.
+    const body = Uint8Array.from([1, 2, 3, 4]);
+    const framed = encodeOutputData(EncryptedScheme.ringConfidential, body);
+    const frame = decodeOutputData(framed);
+
+    expect(frame.scheme).toBe(EncryptedScheme.ringConfidential);
+    expect(frame.body).toEqual(body);
+    expect(frame.body.length).toBeLessThan(framed.length);
   });
 });
