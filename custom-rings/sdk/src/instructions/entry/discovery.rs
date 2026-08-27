@@ -1,4 +1,4 @@
-//! A published content is trusted only after it reproduces the on-chain commitment.
+//! Published content is trusted only after it reproduces the on-chain commitment.
 
 use solana_address::Address;
 use zolana_client::{ClientError, Rpc};
@@ -8,7 +8,7 @@ use zolana_ring_policy::{entry_nullifier, ListEntry, ListId, ListNamespace, Memb
 use crate::instructions::entry::proof::EntryProofError;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct LiveRecord {
+pub struct LiveEntry {
     pub entry: ListEntry,
     pub utxo_hash: [u8; 32],
     pub nullifier: [u8; 32],
@@ -20,7 +20,7 @@ pub fn read_entry<I: Rpc>(
     namespace: Address,
     list_id: ListId,
     member: &Member,
-) -> Result<Option<LiveRecord>, EntryProofError> {
+) -> Result<Option<LiveEntry>, EntryProofError> {
     let owner = ListNamespace::new(namespace.as_array()).map_err(|_| EntryProofError::Hashing)?;
     let address = owner
         .address(list_id, member)
@@ -65,11 +65,11 @@ fn decode(
     list_id: ListId,
     member: &Member,
     indexed: &zolana_client::EncryptedUtxoMatch,
-) -> Option<LiveRecord> {
+) -> Option<LiveEntry> {
     let OutputDataEncoding::Plaintext(content) = indexed.output_slot.output_data()? else {
         return None;
     };
-    let entry = ListEntry::from_payload(&content)?;
+    let entry = ListEntry::from_entry_bytes(&content)?;
     if entry.list_id != list_id || entry.member != *member {
         return None;
     }
@@ -78,7 +78,7 @@ fn decode(
         return None;
     }
     let nullifier = entry_nullifier(&utxo_hash, &entry.blinding()).ok()?;
-    Some(LiveRecord {
+    Some(LiveEntry {
         entry,
         utxo_hash,
         nullifier,

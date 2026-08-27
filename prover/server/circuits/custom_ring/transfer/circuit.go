@@ -1,7 +1,7 @@
 // Package transfer holds the universal custom ring circuit: package audit's
 // verifiable-encryption statement, unchanged, folded with a policy block that
-// decides one SPP transaction against a compiled rule table and an answers of
-// policy entry proofs.
+// decides one SPP transaction against a compiled rule table and an answers
+// array of policy entry proofs.
 //
 // The circuit has exactly one public input, PublicInputHash, the Poseidon hash
 // chain over these eleven elements in this exact order:
@@ -14,12 +14,12 @@
 //  6. eph_pk_lo
 //  7. eph_pk_hi
 //  8. ct_hash
-//  9. policy_hash        -- recomputed, binds the per-listId namespace owner map
+//  9. policy_hash        -- recomputed, binds the per-list namespace owner map
 //  10. state_root        -- the SPP roots the entry proofs open against
 //  11. nullifier_root
 //
 // The Rust mirror of element 9 is program-libs/ring-policy, table hashing in
-// policy.rs over the entry derivation in entry.rs. Element 1 comes from the
+// rule_table.rs over the entry derivation in entry.rs. Element 1 comes from the
 // SPP transaction circuit, elements 10 and 11 from the tree account, and
 // elements 2 to 8 keep the mirror named in package audit.
 package transfer
@@ -35,7 +35,7 @@ import (
 // SourceWires is bound to the on-chain source map through the policy hash
 // alone.
 type SourceWires struct {
-	ListId      frontend.Variable
+	ListId    frontend.Variable
 	OwnerHash frontend.Variable
 }
 

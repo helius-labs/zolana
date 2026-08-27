@@ -33,8 +33,8 @@ pub struct CreatePolicy {
     pub payer: Address,
     pub authority: Address,
     pub entries_tree: Address,
-    /// Referenced kinds reading a curator ring's entries, every other
-    /// referenced list_id defaults to the ring's own entries.
+    /// Referenced lists reading a curator ring's entries, every other
+    /// referenced list defaults to the ring's own entries.
     pub shared_sources: Vec<(ListId, CustomRing)>,
 }
 

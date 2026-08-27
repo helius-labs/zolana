@@ -7,7 +7,7 @@ const (
 	NIn           = 5
 	NOut          = 4
 	NRules        = 16
-	NAnswers         = 10
+	NAnswers      = 10
 	NInlineAssets = 8
 	NSources      = 8
 )
@@ -29,8 +29,8 @@ const (
 	ModeAbsent  = 2
 )
 
-// InlineKind marks a rule whose members are inlined in the table, never a
-// entry listId.
+// InlineKind marks a rule whose members are inlined in the table, never an
+// entry list id.
 const InlineKind = 0
 
 const (

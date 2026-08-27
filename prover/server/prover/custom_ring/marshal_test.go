@@ -128,7 +128,7 @@ func TestCustomRingParametersJSONRoundTrip(t *testing.T) {
 		}
 	}
 	if !got.Answers[0].Enabled || got.Answers[0].Member.Cmp(p.Answers[0].Member) != 0 {
-		t.Fatalf("answers entry mismatch")
+		t.Fatalf("answer mismatch")
 	}
 }
 
@@ -177,7 +177,7 @@ func TestCustomRingParametersWireFormat(t *testing.T) {
 		"sources":      transfer.NSources,
 		"ruleEnc":      transfer.NRules,
 		"inlineAssets": transfer.NInlineAssets,
-		"answers":         transfer.NAnswers,
+		"answers":      transfer.NAnswers,
 	} {
 		var entries []json.RawMessage
 		if err := json.Unmarshal(raw[key], &entries); err != nil {
@@ -224,7 +224,7 @@ func TestCustomRingParametersRejectBadInput(t *testing.T) {
 		},
 		"missing input slot": func(m map[string]interface{}) { m["inputs"] = m["inputs"].([]interface{})[:1] },
 		"missing rule":       func(m map[string]interface{}) { m["ruleEnc"] = m["ruleEnc"].([]interface{})[:transfer.NRules-1] },
-		"missing answers entry": func(m map[string]interface{}) { m["answers"] = m["answers"].([]interface{})[:transfer.NAnswers-1] },
+		"missing answer":     func(m map[string]interface{}) { m["answers"] = m["answers"].([]interface{})[:transfer.NAnswers-1] },
 		"short sources": func(m map[string]interface{}) {
 			m["sources"] = m["sources"].([]interface{})[:transfer.NSources-1]
 		},
@@ -236,7 +236,7 @@ func TestCustomRingParametersRejectBadInput(t *testing.T) {
 			source(m, 2)["ownerHash"] = source(m, 0)["ownerHash"]
 		},
 		"answers mode invalid": func(m map[string]interface{}) { answers(m)["mode"] = 9 },
-		"answers listId unset":   func(m map[string]interface{}) { answers(m)["listId"] = 0 },
+		"answers listId unset": func(m map[string]interface{}) { answers(m)["listId"] = 0 },
 		"zero answers member":  func(m map[string]interface{}) { answers(m)["member"] = "0x" + strings.Repeat("00", 32) },
 		"short nullifier path": func(m map[string]interface{}) {
 			paths := answers(m)["nfPathElements"].([]interface{})

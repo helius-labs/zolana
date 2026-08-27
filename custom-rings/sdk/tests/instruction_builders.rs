@@ -529,7 +529,7 @@ fn sample_proof() -> CustomRingProof {
     }
 }
 
-/// A representative confidential `RingEddsa` content carrying the auditor message
+/// Representative confidential `RingEddsa` content carrying the auditor message
 /// the ring proof commits to.
 fn transact_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData {
     TransactIxData {

@@ -1,4 +1,4 @@
-# The Ring RuleTable Construction
+# The Ring Policy Construction
 
 A v3 custom ring guarantees its auditor can decrypt every transfer. It cannot
 refuse one. This document explains the plane that adds refusal. The rules ride
@@ -25,8 +25,8 @@ curator bans Mr. Evil. Mr. Crazy transfers.
 
 ## The entry, a keyed compressed account
 
-A **entry** is the list entry. It is an ordinary zero-amount SPP data UTXO in
-the shared state tree, owned by the ring's `b"policy_records"` PDA
+An **entry** is one list membership fact, an ordinary zero-amount SPP data
+UTXO in the shared state tree, owned by the ring's `b"policy_records"` PDA
 (`program-libs/ring-policy/src/entry.rs`). A parity test pins its hash
 byte-equal to `ProofInputUtxo`, and a vector test pins the same math against
 the Go circuit. SPP hosts entries unchanged.
@@ -79,18 +79,18 @@ Cleared is not absence. A presence check that stops at "address claimed"
 treats every removed member as still listed. The state byte inside
 `data_hash` is the discriminator.
 
-## Lists and holders
+## Lists and writers
 
 `ListId` names the eight lists. They are `Allow`, `Block`, `Frozen`,
 `RingViewing`, `Recovery`, `Reader`, `Approval`, and `Escrow`. Three
-mechanisms reserve list zero. The enum starts at one, every list carries a
-const assert, and the circuit rejects a zero list on enabled entries. Zero
+mechanisms reserve list id zero. The enum starts at one, every list carries a
+const assert, and the circuit rejects a zero list id on enabled entries. Zero
 marks the inline-asset sentinel and the empty source slot.
 
 Who may mutate is one exhaustive const match, `ListId::writer()`.
-Authority-held lists require the config authority as fee payer. Member-held
-lists require the payer whose owner tag equals the member, self-service
-registration with the payer as the identity proof. The circuit proves
+Authority-written lists require the config authority as fee payer.
+Member-written lists require the payer whose owner tag equals the member,
+self-service registration with the payer as the identity proof. The circuit proves
 membership, never who mutated. Authorization lives in one Rust function and
 never crosses the CPI or reaches Go or TypeScript.
 
@@ -116,12 +116,12 @@ The circuit witnesses the components, range-checks each, and re-derives the
 packed value by weighted sum. Without the range checks a prover could borrow
 across byte boundaries and reinterpret a pinned rule as a different one.
 
-A rule's source is `Entries`, naming a list, or `InlineAssets`, an asset
+A rule's source is `List`, naming a list, or `InlineAssets`, an asset
 allowlist carried by the table itself. `Rule::allow_only_assets` lists up to
 eight asset members, hashed after the rules. The circuit answers an inline
 rule by direct member comparison, no entry, no answer, no source slot.
 The builder restricts inline members to `Asset` subjects in `Present` mode.
-Kind zero in a rule encoding marks the inline source.
+List id zero in a rule encoding marks the inline source.
 
 The **source map** decides where each list's entries live. It is eight
 positional slots, slot `i` is empty or serves list `i + 1`. An occupied slot
@@ -145,7 +145,7 @@ pin would not cover the full delegation surface. The explicit length
 element closes the variable-length tail, a truncated table cannot alias a
 longer one. A referenced list with no slot fails closed with
 `MissingSource` before the recompute emits any hash. The owner bound into the hash
-is not the PDA address but the entries owner hash. That is the same field
+is not the PDA address but the namespace owner hash. That is the same field
 element under which the entry UTXOs are stored. The circuit checks
 membership against exactly the value the hash pins.
 
@@ -162,7 +162,7 @@ Curatorship is permissionless. SVM ownership plus shape identify a curator.
 The shape is the `b"policy"` PDA of the owning program, the config
 discriminator, and the same entries tree. There is no curator registry. The
 trust decision is the operator's choice of account. Pin time flattens
-delegation. The instruction copies the curator's already resolved entries
+delegation. The instruction copies the curator's already resolved namespace
 owner, never the curator's identity. A curator re-pointing its own source
 moves nothing downstream, and a curator of a curator never chains. Live
 chaining would let one captured curator authority rotate every downstream
@@ -183,13 +183,13 @@ it, a drifted build fails closed on every mutating path. The same recompute
 runs before every entry mutation and every transfer.
 
 A list mapped to a curator is locally read-only, the mutation path refuses
-with `ForeignRecordSource`. The curator ring is the single writer, a ring
-cannot overwrite a curated fact with its own entry. Kinds the table does
+with `ForeignSource`. The curator ring is the single writer, a ring
+cannot overwrite a curated fact with its own entry. Lists the table does
 not reference stay mutable against the ring's own entries.
 
-ListEntry mutations are ordinary SPP transacts built on-chain. The mutation
-loader derives the entries owner from the verified PDA.
-`RecordTransition::into_transact` derives the address, utxo hash, and
+Entry mutations are ordinary SPP transacts built on-chain. The mutation
+loader derives the namespace owner from the verified PDA.
+`EntryTransition::into_transact` derives the address, utxo hash, and
 entry bytes and computes `private_tx_hash` over them. The caller supplies
 only a one-in one-out proof and root indices. The proof can state nothing
 but the transition the instruction names. The CPI raises a second signer
@@ -212,7 +212,7 @@ policy_hash, state_root, nullifier_root
 ```
 
 The program recomputes this chain from accounts it trusts and runs one
-Groth16 verification. RuleTable enforcement costs no second proof, and a
+Groth16 verification. Policy enforcement costs no second proof, and a
 wallet cannot satisfy the audit statement while skipping the policy
 statement. The whole circuit keeps exactly one BSB22 commitment by reusing
 the range checker the audit block instantiates, a shape the on-chain
@@ -252,11 +252,11 @@ field. For a target near the modulus the offset sum wraps, and a false
 ordering decomposes cleanly. Amount guards keep the cheap comparison
 because the circuit independently range-checks amounts to 64 bits.
 
-Each enabled entry resolves its entries owner through the source map the
+Each enabled answer resolves its namespace owner through the source map the
 policy hash pins (`sources.go`). The mux asserts exactly one slot matches
-the entry's list. The owner is an affine sum of selected slots. Two
+the answer's list. The owner is an affine sum of selected slots. Two
 matching slots would resolve to the sum of two owners, a fabricated owner
-whose entries nobody created. Disabled entries resolve to garbage no
+whose entries nobody created. Disabled answers resolve to garbage no
 downstream assertion reads.
 
 Coverage closes the plane (`eval.go`). Every live slot instance of every
@@ -310,7 +310,7 @@ root would make every transfer race the forester's rotations instead.
    The statement binds what on-chain resolution reproduces.
 4. It discovers entries for every screened subject. A published entry
    counts only after its recomputed hashes match the indexed leaf. Two
-   live versions of one pair raise `AmbiguousRecord`. A lying indexer
+   live versions of one pair raise `AmbiguousEntry`. A lying indexer
    stalls proving but cannot steer the answer.
 5. It builds the answers array. A `Present` rule with a missing or `Cleared`
    entry, or an `Absent` rule with an `Active` entry, refuses
@@ -391,8 +391,8 @@ classDiagram
             sources
         }
         class SourceSlot {
-            list
-            entries
+            list_id
+            namespace
         }
     }
     namespace Program {
@@ -408,7 +408,7 @@ classDiagram
         }
         class RuleSource {
             <<enumeration>>
-            Entries
+            List
             InlineAssets
         }
         class ListId {
@@ -428,12 +428,12 @@ classDiagram
             Member
         }
     }
-    namespace RecordSet {
+    namespace EntrySet {
         class ListNamespace {
             owner_hash
         }
         class ListEntry {
-            list
+            list_id
             member
             state
             version
@@ -456,11 +456,11 @@ classDiagram
             nullifier_root
         }
         class Answers {
-            entries
+            slots
         }
         class RuleAnswer {
             enabled
-            list
+            list_id
             member
             mode
             absent_branch
@@ -473,7 +473,7 @@ classDiagram
     RuleTable ..> ListNamespace : hash binds the source map
     RuleTable "1" *-- "0..16" Rule : live rules only hashed
     Rule --> RuleSource
-    RuleSource --> "0..1" ListId : Entries variant only
+    RuleSource --> "0..1" ListId : List variant only
     ListId --> Writer : writer() gates mutation
     ListEntry --> ListId
     ListEntry --> Member
@@ -481,11 +481,11 @@ classDiagram
     ListNamespace "1" --> "0..*" ListEntry : one lineage per list and member
     PublicInput ..> RuleTable : element 9 recomputed on chain
     Answers "1" *-- "10" RuleAnswer : all slots serialized
-    Rule ..> RuleAnswer : one entry per list, member, mode
+    Rule ..> RuleAnswer : one answer per list, member, mode
     RuleAnswer ..> ListEntry : present or absent under both roots
 
     note for ListEntry "address = f(list, member), version is the blinding"
     note for ListNamespace "zero nullifier secret, liveness is public"
-    note for RuleAnswer "padding entries carry in-range discriminants, circuit gates on enabled"
+    note for RuleAnswer "padding answers carry in-range discriminants, circuit gates on enabled"
     note for PolicyConfig "set_policy_source re-points a list, the table alone is pinned"
 ```

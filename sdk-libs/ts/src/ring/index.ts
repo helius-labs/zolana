@@ -35,7 +35,7 @@ export {
   fetchRingProgramConfig,
   ringConfigAddress,
   ringPolicyConfigAddress,
-  ringPolicyRecordsAddress,
+  ringPolicyNamespaceAddress,
   ringProgramDataAddress,
   setRingAuthorityInstruction,
 } from "./config.js";

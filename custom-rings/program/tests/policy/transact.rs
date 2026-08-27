@@ -99,7 +99,7 @@ fn a_drifted_policy_hash_is_rejected_exactly() {
 
 /// The roots come from a real tree account, a stub never yields one.
 #[test]
-fn a_entries_tree_that_is_not_a_tree_is_rejected_exactly() {
+fn an_entries_tree_that_is_not_a_tree_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let fixture = policy_fixture(0, 0);
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidEntriesTree));

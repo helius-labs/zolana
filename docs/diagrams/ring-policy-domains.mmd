@@ -4,13 +4,13 @@ flowchart TB
         forbid OutputOwner Block
         forbid Sender Frozen"]
         HOL["ListId::writer()
-        Block, Frozen are authority held"]
+        Block, Frozen are authority written"]
     end
     subgraph CHAIN["On chain, accounts"]
         PC["PolicyConfig
         policy_hash, entries_tree,
         sources list to namespace PDA"]
-        PDA["own policy_namespace PDA
+        PDA["own namespace PDA
         signer, holds no data"]
         RING["ring program
         map drift check, verify, CPI"]

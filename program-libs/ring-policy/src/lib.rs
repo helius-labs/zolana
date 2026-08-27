@@ -2,7 +2,7 @@
 //! is one consumer of it.
 //!
 //! One entry per `(list_id, member)` lives as a zero-amount data UTXO in the SPP
-//! state tree, owned by the ring's entries PDA, present or absent provably
+//! state tree, owned by the ring's namespace PDA, present or absent provably
 //! against SPP's own roots. [`ListId`] names each list, [`ListNamespace`]
 //! keys it, and [`ListEntry`] carries it on the wire. [`RuleTable`] compiles a rule
 //! table over these lists, and [`schema`] is the typed extension point where a new

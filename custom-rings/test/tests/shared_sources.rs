@@ -1,8 +1,8 @@
 //! Two rings share one policy source on localnet + photon + prover. The
-//! subscriber's Block list_id reads the curator ring's entries, so one curator
+//! subscriber's Block list reads the curator ring's entries, so one curator
 //! write refuses the subscriber's transfer, clearing the entry or re-pointing
 //! the source re-admits it, and the subscriber cannot mutate the curator-served
-//! list_id on its own ring.
+//! list on its own ring.
 
 #[allow(dead_code)]
 mod shared;

@@ -1,8 +1,8 @@
 use custom_ring_sdk::{
     read_entry, AccountReadError, CreateEntry, CreatePolicy, CustomRing,
-    EntryError as SdkEntryError, EntryProofEnvironment, EntryProofError, LiveRecord,
-    SetSourceOwner, SourceOwner, UpdateEntry, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
-    ENTRY_MUTATION_COMPUTE_UNIT_LIMIT, SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
+    EntryError as SdkEntryError, EntryProofEnvironment, EntryProofError, LiveEntry, SetSourceOwner,
+    SourceOwner, UpdateEntry, CREATE_POLICY_COMPUTE_UNIT_LIMIT, ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
+    SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
 use solana_signer::Signer;
@@ -37,7 +37,7 @@ pub enum ListError {
     #[error("{list_id:?} reads curator {curator} entries, mutate it on the curator ring")]
     SharedList { list_id: ListId, curator: Address },
     #[error("ring.toml names an unknown source list {name}")]
-    UnknownSourceKind { name: String },
+    UnknownSourceList { name: String },
 }
 
 /// The `[policy.sources]` block as builder input.
@@ -55,7 +55,7 @@ pub fn shared_sources(
                 "allow" => ListId::Allow,
                 "block" => ListId::Block,
                 "frozen" => ListId::Frozen,
-                _ => return Err(ListError::UnknownSourceKind { name: name.clone() }),
+                _ => return Err(ListError::UnknownSourceList { name: name.clone() }),
             };
             Ok((list_id, CustomRing::new(curator.0)))
         })
@@ -203,11 +203,11 @@ fn mutate(
             }
             .prove(environment)?
         }
-        Some(LiveRecord { entry, .. }) if entry.state == state => {
+        Some(LiveEntry { entry, .. }) if entry.state == state => {
             line("action", format_args!("already {state:?}"));
             return Ok(());
         }
-        Some(LiveRecord { entry, .. }) => {
+        Some(LiveEntry { entry, .. }) => {
             line("action", format_args!("moving to {state:?}"));
             UpdateEntry {
                 ring: ctx.ring,
@@ -225,7 +225,7 @@ fn mutate(
         rpc: &ctx.rpc,
         authority: &authority,
         co_signers: &[],
-        name: "record_mutation",
+        name: "entry_mutation",
         compute_unit_limit: ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
         hint: no_hint,
     }

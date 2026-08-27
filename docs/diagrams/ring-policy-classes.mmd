@@ -8,8 +8,8 @@ classDiagram
             sources
         }
         class SourceSlot {
-            list
-            entries
+            list_id
+            namespace
         }
     }
     namespace Program {
@@ -25,7 +25,7 @@ classDiagram
         }
         class RuleSource {
             <<enumeration>>
-            Entries
+            List
             InlineAssets
         }
         class ListId {
@@ -45,12 +45,12 @@ classDiagram
             Member
         }
     }
-    namespace RecordSet {
+    namespace EntrySet {
         class ListNamespace {
             owner_hash
         }
         class ListEntry {
-            list
+            list_id
             member
             state
             version
@@ -67,11 +67,11 @@ classDiagram
     }
     namespace Witness {
         class Answers {
-            entries
+            slots
         }
         class RuleAnswer {
             enabled
-            list
+            list_id
             member
             mode
             absent_branch
@@ -84,14 +84,14 @@ classDiagram
     RuleTable ..> ListNamespace : hash binds the source map
     RuleTable "1" *-- "0..MAX_RULES" Rule : live rules only hashed
     Rule --> RuleSource
-    RuleSource "1" --> "0..1" ListId : Entries variant only
+    RuleSource "1" --> "0..1" ListId : List variant only
     ListId --> Writer : writer() gates mutation
     ListEntry --> ListId
     ListEntry --> Member
     ListEntry --> EntryState
     ListNamespace "1" --> "0..*" ListEntry : one lineage per pair
     Answers "1" *-- "ANSWER_SLOTS" RuleAnswer : all slots serialized
-    Rule ..> RuleAnswer : one entry per list+member+mode
+    Rule ..> RuleAnswer : one answer per list+member+mode
     RuleAnswer ..> ListEntry : proves present or absent
 
     note for RuleTable "hash covers rules up to len and all eight source slots"
