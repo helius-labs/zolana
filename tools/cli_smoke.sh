@@ -76,7 +76,7 @@ LAST_OUT=""
 ts() { date +%H:%M:%S; }
 log()  { printf '%s  %s\n'      "$(ts)" "$*"; }
 info() { printf '%s  ..   %s\n' "$(ts)" "$*"; }
-xurl() { printf 'https://explorer.solana.com/tx/%s?cluster=%s' "$1" "$CLUSTER"; }
+xurl() { printf 'https://orbmarkets.io/tx/%s?cluster=%s' "$1" "$CLUSTER"; }
 
 # kv <key> — extract the value of key=<value> from LAST_OUT (first match).
 kv() { sed -n "s/.*[[:space:]]$1=\([^[:space:]]*\).*/\1/p" <<<"$LAST_OUT" | head -n1; }

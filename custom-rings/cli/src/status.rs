@@ -13,7 +13,7 @@ use crate::{
     Context,
 };
 
-const EXPLORER: &str = "https://explorer.solana.com/address";
+const EXPLORER: &str = "https://orbmarkets.io/address";
 
 #[derive(Debug, Error)]
 pub enum StatusError {
@@ -200,12 +200,12 @@ ring_rpc = "r"
         let mut config: RingConfig = toml::from_str(TOML).expect("parse");
         assert_eq!(
             explorer_link(&config),
-            "https://explorer.solana.com/address/11111111111111111111111111111111?cluster=devnet"
+            "https://orbmarkets.io/address/11111111111111111111111111111111?cluster=devnet"
         );
         config.target = Target::Localnet;
         assert_eq!(
             explorer_link(&config),
-            "https://explorer.solana.com/address/11111111111111111111111111111111?cluster=custom&customUrl=http%3A%2F%2F127.0.0.1%3A8899"
+            "https://orbmarkets.io/address/11111111111111111111111111111111?cluster=custom&customUrl=http%3A%2F%2F127.0.0.1%3A8899"
         );
     }
 }

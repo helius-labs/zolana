@@ -116,6 +116,6 @@ for target in $targets; do
     fi
 
     deploy_with_retry "$so_path" "$pid_arg"
-    echo "Deployed $target to https://explorer.solana.com/address/$pid?cluster=devnet"
+    echo "Deployed $target to https://orbmarkets.io/address/$pid?cluster=devnet"
     echo
 done
