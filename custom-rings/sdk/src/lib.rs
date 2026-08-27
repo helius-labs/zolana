@@ -36,8 +36,8 @@ pub use crate::{
     },
     shared::{AccountReadError, CustomRing, CustomRingConfig, ReaderKey, ReaderKeyError},
     transfer::{
-        CustomRingTransfer, CustomRingTransferInput, DepositError, ProvenTransfer, RingDeposit,
-        RingDepositReceipt, TransferError, TransferProofEnvironment,
+        AsyncTransferProofEnvironment, CustomRingTransfer, CustomRingTransferInput, DepositError,
+        ProvenTransfer, RingDeposit, RingDepositReceipt, TransferError, TransferProofEnvironment,
     },
 };
 

@@ -2091,6 +2091,7 @@ dependencies = [
  "bytemuck",
  "curve25519-dalek 4.1.3",
  "custom-ring-interface",
+ "futures",
  "groth16-solana",
  "hex",
  "p256",
