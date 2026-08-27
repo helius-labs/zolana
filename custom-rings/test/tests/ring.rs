@@ -10,7 +10,10 @@
 //! SPP, ring-deposit SOL, then a ring transact whose proof binds the verifiable
 //! encryption of the transaction viewing key to that auditor key) and asserts
 //! that the amounts, assets and blindings the AUDITOR CLIENT decrypts are the
-//! ones the sender actually sent -- not merely that decryption succeeded.
+//! ones the sender actually sent -- not merely that decryption succeeded. Its
+//! second hop is proven over BOTH transports and lands the async one, so
+//! `CustomRingTransfer::prove_async` is exercised end to end and held to parity
+//! with `prove` (see [`AsyncHopParity`]).
 //!
 //! [`ring_value_leaves_and_enters_through_audited_transfers`] crosses the ring
 //! boundary in both directions under the auditor and pins that a note of
@@ -27,9 +30,9 @@ use anyhow::{anyhow, Context, Result};
 use custom_ring_interface::{RingProgramConfig, CONFIG_PDA_SEED, RING_PROGRAM_CONFIG};
 use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
-    auditor_view_tag, CreateConfig, CustomRing, CustomRingTransact, CustomRingTransfer,
-    CustomRingTransferInput, InitSppRingConfig, ProvenTransfer, RingDeposit, RingDepositReceipt,
-    SetAuthority, TransferError, TransferProofEnvironment, V0WithLookupTable,
+    auditor_view_tag, AsyncTransferProofEnvironment, CreateConfig, CustomRing, CustomRingTransact,
+    CustomRingTransfer, CustomRingTransferInput, InitSppRingConfig, ProvenTransfer, RingDeposit,
+    RingDepositReceipt, SetAuthority, TransferError, TransferProofEnvironment, V0WithLookupTable,
 };
 use shared::{
     custom_ring_program_id, prover_url, send, send_v0_expecting_rejection, setup, TestEnv,
@@ -40,7 +43,10 @@ use solana_packet::PACKET_DATA_SIZE;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zeroize::Zeroizing;
-use zolana_client::{ProverClient, Rpc, ShieldedTransaction, SolanaRpc};
+use zolana_client::{
+    AsyncProverClient, AsyncSolanaRpc, AsyncZolanaIndexer, ProverClient, Rpc, ShieldedTransaction,
+    SolanaRpc,
+};
 use zolana_interface::{
     instruction::{AssetDeposit, Deposit as SppDeposit, DepositAsset},
     pda,
@@ -737,24 +743,37 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         .find(|held| !held.spent)
         .map(|held| held.utxo.clone())
         .ok_or_else(|| anyhow!("recipient note"))?;
-    let hop_inputs = vec![SppProofInputUtxo::new(received, &env.recipient.keypair)];
-    let mut hop_transfer = ConfidentialTransfer::new(
-        env.recipient.keypair.shielded_address()?,
-        hop_inputs,
-        env.recipient.keypair.pubkey(),
-    )
-    .with_compact_change()
-    .with_ring_program_id(ring_program);
-    hop_transfer.send(
-        &env.sender.keypair.shielded_address()?,
-        SOL_MINT,
-        SECOND_HOP_AMOUNT,
-    )?;
-    let hop_prepared = hop_transfer.prepare()?;
-    let hop = RingTransfer {
+    // 10. The second hop goes over the ASYNC transport, with a blocking proof of
+    //     the same note alongside it as the parity reference. `prove_async`
+    //     exists for a host that cannot link the blocking Solana client, and a
+    //     path only that host runs is a path nothing checks; proving the same
+    //     spend both ways and landing the async proof is what keeps the two
+    //     honest. `PreparedTransfer` is not `Clone` and preparing draws fresh
+    //     output blindings, so the two are prepared independently: equivalent,
+    //     not identical.
+    let prepare_hop = || -> Result<PreparedTransfer> {
+        let mut hop_transfer = ConfidentialTransfer::new(
+            env.recipient.keypair.shielded_address()?,
+            vec![SppProofInputUtxo::new(
+                received.clone(),
+                &env.recipient.keypair,
+            )],
+            env.recipient.keypair.pubkey(),
+        )
+        .with_compact_change()
+        .with_ring_program_id(ring_program);
+        hop_transfer.send(
+            &env.sender.keypair.shielded_address()?,
+            SOL_MINT,
+            SECOND_HOP_AMOUNT,
+        )?;
+        Ok(hop_transfer.prepare()?)
+    };
+    let hop = AsyncHopParity {
         ring,
         sender: &env.recipient.keypair,
-        prepared: hop_prepared,
+        blocking: prepare_hop()?,
+        asynchronous: prepare_hop()?,
         auditor_tag,
     }
     .send(&env, &prover)?;
@@ -1115,6 +1134,118 @@ impl RingTransfer<'_> {
         let indexed = wait_for_indexed_transaction(indexer, self.auditor_tag, signature);
         Ok(RingTransferReceipt { signature, indexed })
     }
+}
+
+/// One ring transfer proven over BOTH transports, of which the async proof is
+/// the one that lands.
+///
+/// The blocking proof is the parity reference. Everything the spent note fixes
+/// -- the circuit, the nullifiers, the transaction viewing key and the owner
+/// signers -- has to agree across the two paths; only what is freshly drawn per
+/// proof (output blindings, the salt, the auditor ciphertext, and with them
+/// `private_tx_hash`) may differ, which is why the two are compared field by
+/// field rather than whole.
+///
+/// The root indices in `data.inputs` are deliberately left out: they record the
+/// tree state each read saw, not anything about the transport.
+struct AsyncHopParity<'a> {
+    ring: CustomRing,
+    sender: &'a ShieldedKeypair,
+    blocking: PreparedTransfer,
+    asynchronous: PreparedTransfer,
+    auditor_tag: [u8; 32],
+}
+
+impl AsyncHopParity<'_> {
+    fn send(self, env: &TestEnv, prover: &ProverClient) -> Result<RingTransferReceipt> {
+        let rpc = env.client.rpc();
+        let indexer = env.client.indexer();
+        let blocking = CustomRingTransfer::new(CustomRingTransferInput {
+            ring: self.ring,
+            sender: self.sender,
+            prepared: self.blocking,
+        })
+        .with_tree(env.tree)
+        .with_assets(&env.assets)
+        .prove(TransferProofEnvironment {
+            indexer,
+            rpc,
+            prover,
+        })?;
+
+        // A separate async transport all the way down: a non-blocking Solana
+        // client for the config and tree reads, an async Photon client for the
+        // inclusion and non-inclusion proofs, and an async prover client.
+        let async_rpc = AsyncSolanaRpc::new(env.rpc_url.clone());
+        let async_indexer = AsyncZolanaIndexer::new(env.indexer_url.clone());
+        // `local()` on both clients, so the two paths resolve the prover the
+        // same way and a parity failure cannot be two different servers.
+        let async_prover = AsyncProverClient::local();
+        let runtime = tokio::runtime::Runtime::new()?;
+        let proven = runtime.block_on(
+            CustomRingTransfer::new(CustomRingTransferInput {
+                ring: self.ring,
+                sender: self.sender,
+                prepared: self.asynchronous,
+            })
+            .with_tree(env.tree)
+            .with_assets(&env.assets)
+            .prove_async(AsyncTransferProofEnvironment {
+                indexer: &async_indexer,
+                rpc: &async_rpc,
+                prover: &async_prover,
+            }),
+        )?;
+
+        assert_eq!(
+            proven.tx_viewing_key.pubkey(),
+            blocking.tx_viewing_key.pubkey(),
+            "async and blocking derive the same transaction viewing key"
+        );
+        assert_eq!(
+            proven.data.tx_viewing_pk, blocking.data.tx_viewing_pk,
+            "async and blocking publish the same tx_viewing_pk"
+        );
+        assert_eq!(
+            proven.data.circuit, blocking.data.circuit,
+            "async and blocking select the same circuit"
+        );
+        assert_eq!(
+            nullifier_hashes(&proven),
+            nullifier_hashes(&blocking),
+            "async and blocking nullify the same note"
+        );
+        assert_eq!(
+            proven.owner_signers, blocking.owner_signers,
+            "async and blocking require the same owner signatures"
+        );
+        assert_eq!(
+            proven.data.expiry_unix_ts, blocking.data.expiry_unix_ts,
+            "async and blocking carry the same expiry"
+        );
+        assert_ne!(
+            proven.data.private_tx_hash, blocking.data.private_tx_hash,
+            "each proof draws its own blindings, salt and auditor ciphertext"
+        );
+
+        let signature = V0WithLookupTable {
+            payer: self.sender,
+            signers: &[],
+            instruction: proven.instruction()?,
+        }
+        .send(rpc)?;
+        let indexed = wait_for_indexed_transaction(indexer, self.auditor_tag, signature);
+        Ok(RingTransferReceipt { signature, indexed })
+    }
+}
+
+fn nullifier_hashes(proven: &ProvenTransfer) -> Vec<[u8; 32]> {
+    proven
+        .data
+        .inputs
+        .iter()
+        .map(|input| input.nullifier_hash)
+        .collect()
 }
 
 struct AuditLookup<'a> {

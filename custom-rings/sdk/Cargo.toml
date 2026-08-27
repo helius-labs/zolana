@@ -21,6 +21,8 @@ solana-rpc = [
 borsh = { workspace = true }
 custom-ring-interface = { workspace = true }
 bytemuck = { workspace = true }
+# `try_join` for the two independent prover requests `prove_async` issues.
+futures = { workspace = true }
 p256 = { workspace = true }
 rand = { workspace = true }
 # Only for the uncompressed SEC1 encoding of the auditor key that the circuit

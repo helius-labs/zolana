@@ -1,3 +1,4 @@
+use futures::future::try_join;
 use rand::{rngs::OsRng, RngCore};
 use solana_account::Account;
 use solana_address::Address;
@@ -8,7 +9,7 @@ use thiserror::Error;
 use zolana_client::{
     AsyncProverClient, AsyncRpc, ClientError, MerkleProof, NonInclusionProof, ProofCompressed,
     ProverClient, RingTransferProofResult, RingTransferProver, Rpc, SettlementAccountValidation,
-    Shape, SpendProof, SppProofInputUtxo, SppProofInputs, TransferSpendInput,
+    Shape, SpendProof, SppProofInputUtxo, SppProofInputs, TransferInputs, TransferSpendInput,
 };
 use zolana_interface::event::OutputDataEncoding;
 use zolana_interface::{
@@ -207,24 +208,24 @@ impl<'a> CustomRingTransfer<'a> {
             .read_config(environment.rpc)?
             .ok_or(TransferError::MissingRingConfig)?
             .auditor_pubkey;
-        let mut staged = self.stage(auditor_pk)?;
+        let staged = self.stage(auditor_pk)?;
+        // The tree is read and validated first. A tree that is absent, owned by
+        // another program, or not a tree account at all fails here rather than
+        // after the indexer has served a full inclusion and non-inclusion proof
+        // set that nothing can use.
+        let allow_dummy_inputs = read_dummy_input_policy(environment.rpc, staged.tree)?;
         let spend_inputs = RingSpendInputs {
             indexer: environment.indexer,
             tree: staged.tree,
             spends: &staged.proof_inputs.input_utxos,
         }
         .load()?;
-        let allow_dummy_inputs = read_dummy_input_policy(environment.rpc, staged.tree)?;
-        let ring_result = staged.ring_proof(spend_inputs, allow_dummy_inputs)?;
-        let spp_proof = ProofCompressed::try_from(
-            environment
-                .prover
-                .prove_transfer_ring(&ring_result.inputs)?,
-        )?
-        .to_transact_proof();
-        let (request, ring_result) = staged.proof_request(ring_result)?;
+        let (request, witnessed) = staged.witness(spend_inputs, allow_dummy_inputs)?;
+        let spp_proof =
+            ProofCompressed::try_from(environment.prover.prove_transfer_ring(witnessed.spp())?)?
+                .to_transact_proof();
         let proof = to_instruction_proof(environment.prover.prove(&request)?)?;
-        staged.finish(ring_result, spp_proof, proof)
+        witnessed.finish(spp_proof, proof)
     }
 
     /// The async twin of [`Self::prove`], over [`AsyncRpc`] and
@@ -236,7 +237,8 @@ impl<'a> CustomRingTransfer<'a> {
     /// over its own transport, and the rest of this SDK is async-first, so the
     /// ring transfer being blocking-only was the outlier.
     ///
-    /// Both paths run the same proof assembly; only the five reads differ.
+    /// Both paths run the same proof assembly; only the five reads differ, and
+    /// this one asks for its two proofs together rather than one after the other.
     pub async fn prove_async<I: AsyncRpc, R: AsyncRpc>(
         self,
         environment: AsyncTransferProofEnvironment<'_, I, R>,
@@ -247,7 +249,11 @@ impl<'a> CustomRingTransfer<'a> {
             .await?
             .ok_or(TransferError::MissingRingConfig)?
             .auditor_pubkey;
-        let mut staged = self.stage(auditor_pk)?;
+        let staged = self.stage(auditor_pk)?;
+        // Same ordering reason as the blocking path: validate the tree before
+        // asking the indexer for proofs against it.
+        let allow_dummy_inputs =
+            read_dummy_input_policy_async(environment.rpc, staged.tree).await?;
         let spend_inputs = RingSpendInputs {
             indexer: environment.indexer,
             tree: staged.tree,
@@ -255,19 +261,25 @@ impl<'a> CustomRingTransfer<'a> {
         }
         .load_async()
         .await?;
-        let allow_dummy_inputs =
-            read_dummy_input_policy_async(environment.rpc, staged.tree).await?;
-        let ring_result = staged.ring_proof(spend_inputs, allow_dummy_inputs)?;
-        let spp_proof = ProofCompressed::try_from(
-            environment
-                .prover
-                .prove_transfer_ring(&ring_result.inputs)
-                .await?,
-        )?
-        .to_transact_proof();
-        let (request, ring_result) = staged.proof_request(ring_result)?;
-        let proof = to_instruction_proof(environment.prover.prove(&request).await?)?;
-        staged.finish(ring_result, spp_proof, proof)
+        let (request, witnessed) = staged.witness(spend_inputs, allow_dummy_inputs)?;
+        // Both witnesses are complete, and neither proof is an input to the
+        // other: SPP proves the transfer, the ring circuit proves the auditor
+        // encryption over the `private_tx_hash` the SPP witness already fixed.
+        // So both requests go out together instead of the second waiting on the
+        // first's proof, which it never needed. Whether they then prove at once
+        // is the prover's call -- its sync admission control bounds in-request
+        // proving, and one gnark proof already spreads across every free core --
+        // but that bound belongs there, not in a caller that cannot see the
+        // fleet. The blocking path has no way to express this.
+        let (spp, ring) = try_join(
+            environment.prover.prove_transfer_ring(witnessed.spp()),
+            environment.prover.prove(&request),
+        )
+        .await?;
+        witnessed.finish(
+            ProofCompressed::try_from(spp)?.to_transact_proof(),
+            to_instruction_proof(ring)?,
+        )
     }
 
     /// Everything before the first read: validation, the transaction viewing
@@ -324,7 +336,7 @@ impl<'a> CustomRingTransfer<'a> {
 
         Ok(StagedTransfer {
             tx_viewing_key,
-            pending_proof: Some(pending_proof),
+            pending_proof,
             proof_inputs,
             payer,
             tree,
@@ -336,10 +348,15 @@ impl<'a> CustomRingTransfer<'a> {
 }
 
 /// A transfer past validation and auditor encryption, waiting on the reads.
+///
+/// The stages are types, not flags: [`Self::witness`] consumes this one and is
+/// the only way to reach [`WitnessedTransfer`], which is the only type
+/// [`WitnessedTransfer::finish`] is defined on. Skipping a step, or repeating
+/// one, does not compile, so no state has to be checked at run time and no
+/// error variant has to stand in for "called out of order".
 struct StagedTransfer {
     tx_viewing_key: ViewingKey,
-    /// Taken by [`Self::proof_request`]; `finish` cannot run before it does.
-    pending_proof: Option<PendingCustomRingProof>,
+    pending_proof: PendingCustomRingProof,
     proof_inputs: SppProofInputs,
     payer: Address,
     tree: Address,
@@ -349,14 +366,22 @@ struct StagedTransfer {
 }
 
 impl StagedTransfer {
-    /// Proves the SPP ring transfer over the message-bearing external data.
-    fn ring_proof(
-        &self,
+    /// Builds the SPP ring witness over the message-bearing external data, then
+    /// finishes the pending auditor encryption over the `private_tx_hash` that
+    /// witness fixes, into the custom-ring proof request over the unchanged
+    /// ciphertext. The program recomputes that same public-input chain from the
+    /// payload and the config account.
+    ///
+    /// Both witnesses leave together because the second only ever needed the
+    /// first's `private_tx_hash`, not its proof: a caller can then ask for both
+    /// proofs at once.
+    fn witness(
+        self,
         inputs: Vec<TransferSpendInput>,
         allow_dummy_inputs: bool,
-    ) -> Result<RingTransferProofResult, TransferError> {
+    ) -> Result<(CustomRingProofRequest, WitnessedTransfer), TransferError> {
         let tx_shape = self.proof_inputs.check_shape()?;
-        Ok(RingTransferProver {
+        let ring_result = RingTransferProver {
             inputs,
             outputs: self.proof_inputs.output_utxos.clone(),
             external_data: self.proof_inputs.external_data.clone(),
@@ -368,28 +393,45 @@ impl StagedTransfer {
             ring_program_id: Some(self.program_id),
             shape: Some(Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs())),
         }
-        .build()?)
-    }
-
-    /// Now the real `private_tx_hash` exists, so the pending encryption can be
-    /// finished into the proof request over the unchanged ciphertext. The program
-    /// recomputes that same public-input chain from the payload and the config
-    /// account.
-    fn proof_request(
-        &mut self,
-        ring_result: RingTransferProofResult,
-    ) -> Result<(CustomRingProofRequest, RingTransferProofResult), TransferError> {
-        let pending = self
+        .build()?;
+        let request = self
             .pending_proof
-            .take()
-            .ok_or(TransferError::MissingRingConfig)?;
-        let request = pending.finish(ring_result.private_tx_hash.try_into()?)?;
-        Ok((request, ring_result))
+            .finish(ring_result.private_tx_hash.try_into()?)?;
+        Ok((
+            request,
+            WitnessedTransfer {
+                tx_viewing_key: self.tx_viewing_key,
+                proof_inputs: self.proof_inputs,
+                ring_result,
+                payer: self.payer,
+                tree: self.tree,
+                interface_transfer_accounts: self.interface_transfer_accounts,
+                ring: self.ring,
+            },
+        ))
+    }
+}
+
+/// Both witnesses built and the auditor encryption closed over the transfer's
+/// `private_tx_hash`. Only the two proofs are outstanding.
+struct WitnessedTransfer {
+    tx_viewing_key: ViewingKey,
+    proof_inputs: SppProofInputs,
+    ring_result: RingTransferProofResult,
+    payer: Address,
+    tree: Address,
+    interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
+    ring: CustomRing,
+}
+
+impl WitnessedTransfer {
+    /// The SPP transfer witness to prove.
+    fn spp(&self) -> &TransferInputs {
+        &self.ring_result.inputs
     }
 
     fn finish(
         self,
-        ring_result: RingTransferProofResult,
         spp_proof: TransactProof,
         proof: CustomRingProof,
     ) -> Result<ProvenTransfer, TransferError> {
@@ -397,7 +439,7 @@ impl StagedTransfer {
             tx_viewing_key: self.tx_viewing_key,
             data: RingEddsaInstructionData {
                 proof_inputs: &self.proof_inputs,
-                result: &ring_result,
+                result: &self.ring_result,
                 proof: spp_proof,
             }
             .assemble()?,
@@ -597,8 +639,17 @@ fn frame_dummy_outputs(proof_inputs: &mut SppProofInputs) -> Result<(), Transfer
     Ok(())
 }
 
-/// Inclusion hashes and nullifiers for one spend set.
-type SpendQueries = (Vec<[u8; 32]>, Vec<[u8; 32]>);
+/// The two indexer queries one spend set needs.
+///
+/// Named fields rather than a pair of `Vec<[u8; 32]>`: the two have the same
+/// type, so a tuple lets a caller hand the nullifiers to the inclusion query and
+/// the hashes to the non-inclusion one without the compiler noticing.
+struct SpendQueries {
+    /// Hashes of the real spends, whose inclusion in the tree is proved.
+    utxo_hashes: Vec<[u8; 32]>,
+    /// Nullifiers of every spend, real and dummy, whose absence is proved.
+    nullifiers: Vec<[u8; 32]>,
+}
 
 #[must_use = "use the updated transfer"]
 struct RingSpendInputs<'a, I> {
@@ -611,7 +662,7 @@ impl<'a, I> RingSpendInputs<'a, I> {
     /// The hashes to prove inclusion for, and the nullifiers to prove absence
     /// of. Independent of transport.
     fn queries(&self) -> Result<SpendQueries, TransferError> {
-        let real_hashes = self
+        let utxo_hashes = self
             .spends
             .iter()
             .filter(|spend| !spend.is_dummy())
@@ -622,16 +673,22 @@ impl<'a, I> RingSpendInputs<'a, I> {
             .iter()
             .map(SppProofInputUtxo::nullifier)
             .collect::<Result<Vec<_>, _>>()?;
-        Ok((real_hashes, nullifiers))
+        Ok(SpendQueries {
+            utxo_hashes,
+            nullifiers,
+        })
     }
 }
 
 impl<I: AsyncRpc> RingSpendInputs<'_, I> {
     async fn load_async(self) -> Result<Vec<TransferSpendInput>, TransferError> {
-        let (real_hashes, nullifiers) = self.queries()?;
+        let SpendQueries {
+            utxo_hashes,
+            nullifiers,
+        } = self.queries()?;
         let states = self
             .indexer
-            .get_merkle_proofs(self.tree, real_hashes, None)
+            .get_merkle_proofs(self.tree, utxo_hashes, None)
             .await?
             .proofs;
         let non_inclusions = self
@@ -645,10 +702,13 @@ impl<I: AsyncRpc> RingSpendInputs<'_, I> {
 
 impl<I: Rpc> RingSpendInputs<'_, I> {
     fn load(self) -> Result<Vec<TransferSpendInput>, TransferError> {
-        let (real_hashes, nullifiers) = self.queries()?;
+        let SpendQueries {
+            utxo_hashes,
+            nullifiers,
+        } = self.queries()?;
         let states = self
             .indexer
-            .get_merkle_proofs(self.tree, real_hashes, None)?
+            .get_merkle_proofs(self.tree, utxo_hashes, None)?
             .proofs;
         let non_inclusions = self
             .indexer
@@ -899,6 +959,11 @@ mod tests {
         // runtime; a future that cannot cross threads is no use to it. The
         // `Send + Sync` bound on `sender` is what makes this hold, and dropping
         // it fails here rather than in whatever server tries to await it.
+        //
+        // This only type-checks the future. Running one to completion against a
+        // live chain, prover and indexer -- and comparing it against a blocking
+        // proof of the same note -- is `auditor_sees_every_ring_transfer` in
+        // custom-rings/test/tests/ring.rs.
         fn assert_send<F: Send>(_: F) {}
 
         let (keypair, prepared) = prepared_transfer(4);
