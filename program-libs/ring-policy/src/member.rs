@@ -2,11 +2,11 @@ use solana_address::Address;
 use thiserror::Error;
 use zolana_hasher::primitives::hash_bytes;
 
-/// Zero is the circuit slot padding value, never a member.
+/// A list subject, the field element the transfer openings carry for it, never zero.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Member([u8; 32]);
 
-/// Zero bytes, the padding value, can never be a member.
+/// A tag fails to derive a usable member.
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 pub enum MemberError {
     #[error("hashing failed")]
