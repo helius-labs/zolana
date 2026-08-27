@@ -18,7 +18,9 @@ use zolana_interface::{
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{random_blinding, random_salt, KeypairError, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{
+    random_blinding, random_salt, KeypairError, ShieldedKeypair, ViewingKey, ViewingKeyTrait,
+};
 use zolana_transaction::{
     instructions::transact::{
         encode_confidential_slots, ChangeLayout, PreparedTransfer, SppProofOutputUtxo,
@@ -38,7 +40,7 @@ const NO_RING_DATA_HASH: [u8; 32] = [0u8; 32];
 #[must_use = "prove or discard the transfer explicitly"]
 pub struct CustomRingTransfer<'a> {
     ring: CustomRing,
-    sender: &'a ShieldedKeypair,
+    sender: &'a dyn ViewingKeyTrait,
     prepared: PreparedTransfer,
     interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     tree: Option<Address>,
@@ -47,7 +49,14 @@ pub struct CustomRingTransfer<'a> {
 
 pub struct CustomRingTransferInput<'a> {
     pub ring: CustomRing,
-    pub sender: &'a ShieldedKeypair,
+    /// The sender's viewing key. Only [`ViewingKeyTrait::get_transaction_viewing_key`]
+    /// is used, so a backend that keeps the owner's signing key elsewhere -- an
+    /// HSM, or a remote custodian -- can build a transfer. The owner's signature
+    /// is not taken here: [`ProvenTransfer`] reports `owner_signers`, and the
+    /// owner signs the assembled Solana transaction.
+    ///
+    /// `ShieldedKeypair` implements the trait, so passing one still works.
+    pub sender: &'a dyn ViewingKeyTrait,
     pub prepared: PreparedTransfer,
 }
 
@@ -598,7 +607,7 @@ mod tests {
         let mut transfer = ConfidentialTransfer::new(
             sender.shielded_address().expect("sender address"),
             vec![input],
-            sender.pubkey(),
+            solana_signer::Signer::pubkey(&sender),
         );
         transfer
             .send(
@@ -681,7 +690,7 @@ mod tests {
         let mut transfer = ConfidentialTransfer::new(
             sender.shielded_address().expect("sender address"),
             vec![input],
-            sender.pubkey(),
+            solana_signer::Signer::pubkey(&sender),
         );
         transfer
             .withdraw(
@@ -706,6 +715,40 @@ mod tests {
             )],
         )
         .expect("withdrawal accounts");
+    }
+
+    #[test]
+    fn a_viewing_key_alone_can_build_a_transfer() {
+        // The sender is used only to derive the transaction viewing key. The
+        // owner's signature is taken later, over the assembled Solana
+        // transaction, from the `owner_signers` a `ProvenTransfer` reports. So a
+        // backend that keeps the signing key elsewhere -- an HSM, or a remote
+        // custodian holding it in an enclave -- can still build the transfer.
+        // This test exists to keep that true: narrowing `sender` back to
+        // `&ShieldedKeypair` would stop it compiling.
+        let (keypair, prepared) = prepared_transfer(4);
+        let first_nullifier = prepared.first_nullifier;
+        let viewing_key: &ViewingKey = &keypair.viewing_key;
+
+        let transfer = CustomRingTransfer::new(CustomRingTransferInput {
+            ring: ring(),
+            sender: viewing_key,
+            prepared,
+        });
+
+        // The viewing key alone derives the same per-transaction key the full
+        // keypair would, so the built transfer is not merely well-typed.
+        assert_eq!(
+            transfer
+                .sender
+                .get_transaction_viewing_key(&first_nullifier)
+                .expect("transaction viewing key from the viewing key alone")
+                .pubkey(),
+            keypair
+                .get_transaction_viewing_key(&first_nullifier)
+                .expect("transaction viewing key from the keypair")
+                .pubkey(),
+        );
     }
 
     #[test]
