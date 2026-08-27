@@ -24,7 +24,11 @@ import { assemble, ringOpenings } from "../src/client/prover/assembly.js";
 import type { SpendProof } from "../src/client/rpc.js";
 import { hashBytesBigInt } from "../src/client/internal.js";
 import { hashBytes } from "../src/hasher/index.js";
-import { checkRingMembership, frameDummyOutputs, ringRecordsOwnerHash } from "../src/ring/transfer.js";
+import {
+  checkRingMembership,
+  frameDummyOutputs,
+  ringRecordsOwnerHash,
+} from "../src/ring/transfer.js";
 import {
   ConfidentialTransfer,
   SppProofInputs,

@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Result};
 use zolana_client::Rpc;
 use zolana_keypair::ShieldedKeypair;
-use zolana_transaction::{LocalWalletAuthority, ShieldedTransaction, Wallet};
+use zolana_transaction::{KeypairWalletAuthority, ShieldedTransaction, Wallet};
 use zolana_wallet::sync_wallet;
 
 use crate::err;
@@ -22,7 +22,7 @@ pub(crate) fn index_until<I: Rpc + Sync, T>(
         .shielded_address()
         .and_then(|address| address.solana_address())
         .map_err(err)?;
-    let authority = LocalWalletAuthority::new(solana_pubkey, keypair);
+    let authority = KeypairWalletAuthority::new(solana_pubkey, keypair);
     let deadline = Instant::now() + timeout;
     loop {
         sync_wallet(wallet, &authority, indexer).map_err(err)?;

@@ -2,7 +2,6 @@ import {
   decodeEncryptedUtxosResponse,
   decodeMerkleProofsResponse,
   decodeNonInclusionProofsResponse,
-  decodeShieldedTransactionsByNullifiersResponse,
   decodeShieldedTransactionsBySignatureResponse,
   decodeShieldedTransactionsResponse,
   encodeMerkleProofsRequest,
@@ -63,7 +62,7 @@ export const getShieldedTransactionsByNullifiersMethod: MethodDescriptor<
 > = {
   name: GET_SHIELDED_TRANSACTIONS_BY_NULLIFIERS,
   encodeRequest: encodeRingsByNullifiersRequest,
-  decodeResponse: decodeShieldedTransactionsByNullifiersResponse,
+  decodeResponse: decodeShieldedTransactionsResponse,
 };
 
 export const getShieldedTransactionsBySignatureMethod: MethodDescriptor<

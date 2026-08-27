@@ -339,6 +339,7 @@ impl TransactionSource for StaticSource {
             },
             transactions,
             next_cursor: self.next_cursor.clone(),
+            scanned_through: None,
         };
         async move { Ok(response) }
     }

@@ -351,24 +351,24 @@ async fn both_tag_endpoints_honour_the_ring_filter() {
             limit: None,
             ring_program_id,
         };
+        let shielded = get_shielded_transactions_by_tags(&db, request.clone())
+            .await
+            .expect("tags lookup");
+        let encrypted = get_encrypted_utxos_by_tags(&db, request)
+            .await
+            .expect("utxo lookup");
         assert_eq!(
-            get_shielded_transactions_by_tags(&db, request.clone())
-                .await
-                .expect("tags lookup")
-                .transactions
-                .len(),
+            shielded.transactions.len(),
             3,
             "ring_program_id={ring_program_id:?}"
         );
         assert_eq!(
-            get_encrypted_utxos_by_tags(&db, request)
-                .await
-                .expect("utxo lookup")
-                .matches
-                .len(),
+            encrypted.matches.len(),
             3,
             "ring_program_id={ring_program_id:?}"
         );
+        assert!(shielded.scanned_through.is_some());
+        assert!(encrypted.scanned_through.is_some());
     }
 
     let other_ring = GetRingsByTagsRequest {
@@ -377,16 +377,43 @@ async fn both_tag_endpoints_honour_the_ring_filter() {
         limit: None,
         ring_program_id: Some(theirs),
     };
-    assert!(get_shielded_transactions_by_tags(&db, other_ring.clone())
+    let shielded = get_shielded_transactions_by_tags(&db, other_ring.clone())
         .await
-        .expect("tags lookup")
-        .transactions
-        .is_empty());
-    assert!(get_encrypted_utxos_by_tags(&db, other_ring)
+        .expect("tags lookup");
+    let encrypted = get_encrypted_utxos_by_tags(&db, other_ring.clone())
         .await
-        .expect("utxo lookup")
-        .matches
-        .is_empty());
+        .expect("utxo lookup");
+    assert!(shielded.transactions.is_empty());
+    assert!(encrypted.matches.is_empty());
+
+    let shielded_frontier = shielded
+        .scanned_through
+        .expect("an exhausted transaction scan reports its frontier");
+    let encrypted_frontier = encrypted
+        .scanned_through
+        .expect("an exhausted UTXO scan reports its frontier");
+    let resumed_shielded = get_shielded_transactions_by_tags(
+        &db,
+        GetRingsByTagsRequest {
+            cursor: Some(shielded_frontier.clone()),
+            ..other_ring.clone()
+        },
+    )
+    .await
+    .expect("resume transaction scan");
+    let resumed_encrypted = get_encrypted_utxos_by_tags(
+        &db,
+        GetRingsByTagsRequest {
+            cursor: Some(encrypted_frontier.clone()),
+            ..other_ring
+        },
+    )
+    .await
+    .expect("resume UTXO scan");
+    assert!(resumed_shielded.transactions.is_empty());
+    assert!(resumed_encrypted.matches.is_empty());
+    assert_eq!(resumed_shielded.scanned_through, Some(shielded_frontier));
+    assert_eq!(resumed_encrypted.scanned_through, Some(encrypted_frontier));
 }
 
 #[test]

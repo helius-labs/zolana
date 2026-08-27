@@ -22,7 +22,7 @@ use zolana_transaction::{
 };
 use zolana_wallet::{
     AnonymousRecipientSlot, ApprovalRequest, EncryptedSplit, EncryptedTransfer,
-    LocalWalletAuthority, P256Signature, SyncWalletAuthority,
+    KeypairWalletAuthority, P256Signature, SyncWalletAuthority,
 };
 
 use super::{resolve::ResolvedSyncOptions, util::parse_hex_array};
@@ -101,7 +101,7 @@ impl SyncWalletAuthority for WalletMaterial {
         assets: &AssetRegistry,
     ) -> std::result::Result<EncryptedTransfer, TransactionError> {
         SyncWalletAuthority::encrypt_confidential_transfer(
-            &LocalWalletAuthority::new(self.solana_pubkey(), &self.keypair),
+            &KeypairWalletAuthority::new(self.solana_pubkey(), &self.keypair),
             first_nullifier,
             outputs,
             assets,
@@ -116,7 +116,7 @@ impl SyncWalletAuthority for WalletMaterial {
         recipients: &[AnonymousRecipientSlot],
     ) -> std::result::Result<EncryptedTransfer, TransactionError> {
         SyncWalletAuthority::encrypt_anonymous_transfer(
-            &LocalWalletAuthority::new(self.solana_pubkey(), &self.keypair),
+            &KeypairWalletAuthority::new(self.solana_pubkey(), &self.keypair),
             first_nullifier,
             sender_view_tag,
             sender,
@@ -131,7 +131,7 @@ impl SyncWalletAuthority for WalletMaterial {
         bundle: &SplitBundlePlaintext,
     ) -> std::result::Result<EncryptedSplit, TransactionError> {
         SyncWalletAuthority::encrypt_split(
-            &LocalWalletAuthority::new(self.solana_pubkey(), &self.keypair),
+            &KeypairWalletAuthority::new(self.solana_pubkey(), &self.keypair),
             first_nullifier,
             view_tag,
             bundle,
@@ -151,7 +151,7 @@ impl SyncWalletAuthority for WalletMaterial {
         message_hash: &[u8; 32],
     ) -> std::result::Result<P256Signature, TransactionError> {
         SyncWalletAuthority::sign_p256(
-            &LocalWalletAuthority::new(self.solana_pubkey(), &self.keypair),
+            &KeypairWalletAuthority::new(self.solana_pubkey(), &self.keypair),
             message_hash,
         )
     }
