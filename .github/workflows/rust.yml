@@ -191,12 +191,20 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Cache the photon binary
+        id: photon-bin-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: target/release/photon
+          key: photon-bin-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'services/photon/**', 'program-libs/account-checks/**', 'program-libs/batched-merkle-tree/**', 'program-libs/bloom-filter/**', 'program-libs/event/**', 'program-libs/hasher/**', 'program-libs/interface/**', 'program-libs/tree/**', 'sdk-libs/indexer-api/**') }}
       - uses: ./.github/actions/setup-rust
+        if: steps.photon-bin-cache.outputs.cache-hit != 'true'
         with:
           install-just: "false"
           shared-key: localnet-photon
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
-      - run: cargo build --locked --release -p photon-indexer --bin photon
+      - if: steps.photon-bin-cache.outputs.cache-hit != 'true'
+        run: cargo build --locked --release -p photon-indexer --bin photon
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: photon-linux-x86_64-${{ github.sha }}
