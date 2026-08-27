@@ -1,11 +1,8 @@
 # Batched Merkle Tree
 
 This crate maintains a height-40 indexed Merkle tree and a two-batch input
-queue. Address and nullifier trees use the same flows; they differ only in the
-sentinel root selected at initialization.
-
-This document specifies the two write flows: insert a value into the queue, and
-append queued values to the tree with a batch proof.
+queue. This document specifies nullifier queue insertion, batch append, and
+nullifier-marker cleanup. Initialization is out of scope.
 
 ## State
 
@@ -19,9 +16,14 @@ Let:
 | `c` | batch currently receiving values |
 | `p` | batch currently being appended to the tree |
 | `RH` | root-history capacity |
+| `q` | next queue index |
+| `w` | exclusive marker-close watermark (`close_before_index`) |
 
-The queue has exactly two batches. Each batch stores one bloom filter, `K`
-hash-chain commitments, `K` cached tree updates, and:
+The tree is a program-derived account. It holds the queue, root history, and
+lamports used as working capital for nullifier markers.
+
+The queue has exactly two batches. Each batch stores `K` hash-chain
+commitments, `K` cached tree updates, and:
 
 ```rust
 struct Batch {
@@ -43,52 +45,78 @@ unapplied_values =
 inserted_elements = num_full_zkp_batches * Z + num_inserted
 ```
 
-`Fill --B queue insertions--> Full --final ZKP append--> Inserted --reuse--> Fill`.
+`Fill --B queue insertions--> Full --final ZKP append--> Inserted --retire--> Fill`.
 A finalized ZKP batch may be appended while its queue batch is still `Fill`.
+Retirement does not wait for marker cleanup.
+
+Each queued nullifier has an exact marker account:
+
+```text
+marker = canonical_pda(
+    program_id,
+    ["nullifier", tree_pubkey, nullifier],
+)
+```
+
+```rust
+// Borsh-serialized length: 9 bytes.
+struct NullifierMarker {
+    queue_index: u64,
+    bump: u8,
+}
+```
+
+The queued nullifier and the PDA seed use the same canonical 32-byte field
+encoding. Values outside the field are rejected, not reduced modulo the field.
 
 ## Insert into queue
 
-**Description.** Adds one value to the current batch's bloom filter and open
-hash chain. The bloom filters prevent the same pending value from being queued
-twice; the hash chain commits the value order for the later batch proof.
+**Description.** Creates an exact nullifier marker and adds the nullifier to the
+current batch's open hash chain. The marker prevents the same pending nullifier
+from being queued twice; the hash chain commits queue order for the later batch
+proof.
 
 **Input**
 
 ```rust
-value: [u8; 32]
+nullifier: [u8; 32]
 ```
 
-The value is used unchanged as both the bloom-filter key and hash-chain value.
+The instruction also receives the writable marker PDA.
 
 **Checks and state changes**
 
-1. Require the indexed-tree type and a free leaf at
+1. Require the nullifier-tree type, canonical nullifier encoding, and a free
+   leaf at
    `batches[c].start_index + batches[c].inserted_elements`.
 2. Require `batches[c].state == Fill`. If it is `Inserted`, reuse it first;
-   reuse requires its bloom filter to have been zeroed (batch append, step 9),
-   resets its counters, and advances `start_index` by `2 * B`. `Full` is not
-   reusable.
-3. Require `value` to be absent from both bloom filters. A bloom-filter hit,
-   including a false positive, returns `NonInclusionCheckFailed`.
-4. Let `j = batches[c].num_full_zkp_batches`. Update the open commitment:
+   reuse requires the batch to have been retired (batch append, step 9), resets
+   its counters, and advances `start_index` by `2 * B`. `Full` is not reusable.
+3. Derive the canonical marker PDA and bump. Require the supplied address to
+   match. An initialized marker returns `NonInclusionCheckFailed`.
+4. Accept an unused marker that is System-owned, empty, and optionally
+   prefunded. Transfer only its missing rent-exempt balance from the tree, then
+   allocate nine bytes, assign it to the program, and store `{ q, bump }`.
+5. Let `j = batches[c].num_full_zkp_batches`. Update the open commitment:
 
    ```text
-   hash_chains[c][j] = value                              if num_inserted == 0
-   hash_chains[c][j] = Poseidon(hash_chains[c][j], value) otherwise
+   hash_chains[c][j] = nullifier                              if num_inserted == 0
+   hash_chains[c][j] = Poseidon(hash_chains[c][j], nullifier) otherwise
    ```
 
-5. Insert `value` into bloom filter `c` and increment `num_inserted`.
-6. When `num_inserted == Z`, finalize the commitment, increment
+6. Increment `num_inserted`. When `num_inserted == Z`, finalize the commitment,
+   increment
    `num_full_zkp_batches`, and reset `num_inserted` to zero. When
    `num_full_zkp_batches == K`, set the batch to `Full` and advance `c` modulo
    two.
-7. Increment `queue.next_index` once.
+7. Increment `q` once.
+
+Marker creation and queue mutation are atomic. Failure changes neither.
 
 **Property — pending non-inclusion.** A successful insertion makes every later
-queue insertion of the same value fail while either bloom filter retains it.
-Bloom filters admit false positives but not false negatives. Non-inclusion
-against values already in the Merkle tree is proved by the transaction/batch
-proofs, not by this queue check.
+queue insertion of the same nullifier fail while its marker exists. The check
+is exact: it has no false positives. Non-inclusion against nullifiers already
+in the Merkle tree is proved by the transaction proof, not by the marker.
 
 **Property — ordered commitment.** Every finalized hash chain commits exactly
 `Z` values in queue order.
@@ -158,16 +186,16 @@ The Groth16 proof establishes the height-40 indexed append from `old_root` to
    several previously cached proofs.
 8. When all `K` ZKP batches are applied, set the queue batch to `Inserted`,
    record its final root, and advance `p` modulo two.
-9. During an append, if the next pending batch is at least half full, zero the
-   previous inserted batch's bloom filter. Root-history entries older than that
-   batch's recorded final root are zeroed at the same time. The retired batch
-   may then be reused.
+9. During an append, if the next pending batch is at least half full, retire the
+   previous inserted batch: zero root-history entries older than its recorded
+   final root, advance `w` to at least `batch.start_index + B`, and make the
+   batch reusable. These changes are atomic.
 
 **Property — queue draining.** One applied update reduces
 `unapplied_values` by exactly `Z`. After all `K` updates, the batch has
 `unapplied_values == 0`, is `Inserted`, and is no longer pending. Its
-bloom-filter bytes remain until step 9 zeroes them, and its hash-chain bytes
-remain until overwritten on reuse.
+hash-chain bytes remain until overwritten on reuse. Its markers remain until
+separate cleanup transactions close them.
 
 **Property — ordered application.** Proofs may arrive in any order, but roots
 are applied only in increasing ZKP-batch order and only when each `old_root`
@@ -214,3 +242,87 @@ root_index(n)      = (first_root_index + n) mod RH
 
 Intermediate roots are stored in `root_history`; the event reports only the
 final `new_root`.
+
+## Close nullifier markers
+
+**Description.** Permissionlessly closes any number of retired nullifier
+markers. Cleanup is asynchronous and does not block batch reuse.
+
+**Input**
+
+```rust
+nullifiers: Vec<[u8; 32]>
+```
+
+The instruction also receives the writable tree and one writable marker per
+nullifier. The shielded-pool index supplies the nullifiers to the cleaner.
+
+**Checks and state changes**
+
+For every `(nullifier, marker)` pair:
+
+1. Require program ownership and an exact nine-byte Borsh payload.
+2. Recreate `PDA(["nullifier", tree_pubkey, nullifier, marker.bump])` and
+   require it to equal the marker address.
+3. Require `marker.queue_index < w`.
+4. Transfer every marker lamport to the tree and close the marker.
+
+The call is atomic. A cleanup call may contain markers from different retired
+batches of the same tree.
+
+**Property — safe marker lifetime.** For every queued nullifier `n`:
+
+```text
+marker(n) exists
+OR
+every accepted nullifier-tree root contains n
+```
+
+Retirement establishes the right-hand condition before advancing `w`; cleanup
+may therefore remove the marker without enabling a stale non-inclusion proof.
+Delayed cleanup locks working capital but does not block queue progress.
+
+## Cost
+
+Let `A` be the number of append proofs that fit in one transaction, `C` the
+number of marker accounts that fit in one cleanup transaction, and `L` the
+number of live markers.
+
+For one full queue batch:
+
+```text
+K = B / Z
+A = min(A_size, A_compute)
+append_transactions  = ceil(K / A)
+cleanup_transactions = ceil(B / C)
+maintenance_transactions = ceil(K / A) + ceil(B / C)
+
+compute_units = K * CU_append + ceil(B / C) * CU_cleanup(C)
+network_fee = maintenance_transactions * base_fee
+locked_marker_rent = L * Rent::minimum_balance(9)
+```
+
+With `B = 30_000` and `Z = 250`, a full batch contains 120 append proofs. A
+4,096-byte transaction fits approximately 19 append instructions by size;
+`A_compute` may be lower and must be benchmarked. Each cleanup entry carries a
+32-byte nullifier and one writable marker. For compressed account references
+and a 128-account limit:
+
+```text
+markers_per_cleanup_transaction ~= 115
+cleanup_transactions = ceil(30_000 / 115) = 261
+
+if A = 14: append_transactions = 9, maintenance_transactions = 270
+if A = 19: append_transactions = 7, maintenance_transactions = 268
+```
+
+`A`, `C`, `CU_append`, and `CU_cleanup(C)` must be measured from the final
+instruction and serialized transaction layouts. The counts are for the
+successful path: proof replacements, retries, and duplicate cleanup attempts
+are additional. At a 5,000-lamport signature fee and one signature per
+transaction, 268 to 270 maintenance transactions cost 0.00134 to 0.00135 SOL in
+base fees.
+
+At the current default rent rate, one nine-byte marker requires 953,520
+lamports. One full batch locks 28.6056 SOL, all returned to the tree when its
+markers are closed.
