@@ -389,9 +389,9 @@ describe("ring openings", () => {
     expect(() => ringOpenings(proofInputs)).toThrow("CLIENT_PROVER_INPUT");
   });
 
-  it("derives the records owner hash the Go policy fixture pins", () => {
-    const recordsPda = getAddressDecoder().decode(new Uint8Array(32).fill(0x11));
-    expect(ringNamespaceOwnerHash(recordsPda)).toEqual(
+  it("derives the namespace owner hash the Go policy fixture pins", () => {
+    const namespacePda = getAddressDecoder().decode(new Uint8Array(32).fill(0x11));
+    expect(ringNamespaceOwnerHash(namespacePda)).toEqual(
       Uint8Array.from(
         Buffer.from("1e99b255125d8e5d1a8ee78945c3197b227182301b2c5d263dd5410b5ff476be", "hex"),
       ),

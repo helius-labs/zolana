@@ -27,7 +27,7 @@ pub enum Writer {
 }
 
 impl ListId {
-    /// The single source of truth the program and every `List` impl read.
+    /// The single source of truth the program and every `ListSchema` impl read.
     /// Exhaustive on purpose, a new list must declare its writer to compile.
     pub const fn writer(self) -> Writer {
         match self {
@@ -158,7 +158,7 @@ impl ListEntry {
     }
 
     /// Takes the content of [`ListEntry::to_output_data`], without its envelope.
-    pub fn from_payload(content: &[u8]) -> Option<Self> {
+    pub fn from_entry_bytes(content: &[u8]) -> Option<Self> {
         let content: &[u8; LIST_ENTRY_LEN] = content.try_into().ok()?;
         Some(Self {
             list_id: ListId::try_from(content[0]).ok()?,
@@ -285,8 +285,8 @@ mod tests {
             content_hash: [4u8; 32],
         };
         let encoded = entry.to_output_data();
-        assert_eq!(ListEntry::from_payload(&encoded[5..]), Some(entry));
-        assert_eq!(ListEntry::from_payload(&encoded), None);
+        assert_eq!(ListEntry::from_entry_bytes(&encoded[5..]), Some(entry));
+        assert_eq!(ListEntry::from_entry_bytes(&encoded), None);
     }
 
     #[test]

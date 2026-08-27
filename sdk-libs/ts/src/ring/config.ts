@@ -46,8 +46,8 @@ function ringPolicyConfigPda(ringProgramId: Address): Promise<ProgramDerivedAddr
   });
 }
 
-/** Mirrors Rust `CustomRing::records_pda`, the shielded owner of every policy record. */
-export async function ringPolicyRecordsAddress(ringProgramId: Address): Promise<Address> {
+/** Mirrors Rust `CustomRing::namespace_pda`, the shielded owner of every policy entry. */
+export async function ringPolicyNamespaceAddress(ringProgramId: Address): Promise<Address> {
   const [address] = await getProgramDerivedAddress({
     programAddress: ringProgramId,
     seeds: [encoder.encode("policy_records")],

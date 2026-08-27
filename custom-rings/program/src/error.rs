@@ -61,7 +61,7 @@ pub enum CustomRingError {
     PolicyHashMismatch = 8123,
     #[error("policy member is invalid")]
     InvalidPolicyMember = 8124,
-    #[error("signer may not mutate entries of the list_id")]
+    #[error("signer may not mutate entries of the list")]
     UnauthorizedNamespaceSigner = 8125,
     #[error("list is unknown")]
     InvalidListId = 8126,
@@ -72,13 +72,13 @@ pub enum CustomRingError {
     InvalidPolicyTree = 8129,
     #[error("entry version overflows")]
     EntryVersionOverflow = 8130,
-    #[error("entries account is not the canonical entries PDA")]
+    #[error("entries account is not the canonical namespace PDA")]
     InvalidNamespacePda = 8131,
     #[error("entries tree account is not a shielded pool tree")]
     InvalidEntriesTree = 8132,
     #[error("policy root index is outside the window the statement admits")]
     StalePolicyRoot = 8133,
-    #[error("policy source list does not match the kinds the compiled table references")]
+    #[error("policy sources do not match the lists the compiled table references")]
     InvalidSource = 8134,
     #[error("curator policy config account is not a canonical initialized policy config")]
     InvalidCuratorPolicyConfig = 8135,
@@ -86,7 +86,7 @@ pub enum CustomRingError {
     CuratorTreeMismatch = 8136,
     #[error("curator has no source for the list")]
     CuratorSourceMissing = 8137,
-    #[error("the list_id is served by a curator's entries, mutate it on the curator ring")]
+    #[error("the list is served by a curator's entries, mutate it on the curator ring")]
     ForeignSource = 8138,
 }
 

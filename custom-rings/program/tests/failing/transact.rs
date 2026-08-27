@@ -378,7 +378,7 @@ fn long_auditor_message_is_rejected_exactly() {
 }
 
 /// Exactly one message may claim the auditor's view tag: the proof covers one
-/// ciphertext, so a second tagged content could be mistaken for the proven one.
+/// ciphertext, so a second tagged ciphertext could be mistaken for the proven one.
 #[test]
 fn two_auditor_messages_are_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();

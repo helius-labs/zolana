@@ -27,7 +27,7 @@ pub use crate::{
         deposit::Deposit,
         entry::{
             read_entry, CreateEntry, CreatePolicy, EntryError, EntryProof, EntryProofEnvironment,
-            EntryProofError, LiveRecord, ProvenEntry, UpdateEntry,
+            EntryProofError, LiveEntry, ProvenEntry, UpdateEntry,
         },
         grant_read_access::GrantReadAccess,
         init_spp_ring_config::InitSppRingConfig,

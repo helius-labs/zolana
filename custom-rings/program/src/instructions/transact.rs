@@ -148,7 +148,7 @@ struct AuditorMessageParts<'a> {
 /// The ring's convention is: exactly one message carries the auditor view tag,
 /// and it is the last one. Free-form messages before it stay allowed. Requiring
 /// uniqueness and a fixed position leaves no room for a second, differently
-/// tagged content that an indexer or auditor might pick up instead of the proven
+/// tagged ciphertext that an indexer or auditor might pick up instead of the proven
 /// one -- the proof covers exactly one ciphertext, so exactly one message may
 /// claim the auditor's tag.
 fn select_auditor_message<'a>(

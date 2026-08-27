@@ -18,7 +18,7 @@ import {
   RING_INPUT_SLOTS,
   RING_NULLIFIER_PATH_LENGTH,
   RING_OUTPUT_SLOTS,
-  RING_POOL_SLOTS,
+  RING_ANSWER_SLOTS,
   RING_RULE_SLOTS,
   RING_SOURCE_SLOTS,
   RING_STATE_PATH_LENGTH,
@@ -400,7 +400,7 @@ export function customRingProofRequest(
     inlineCount: u8(inputs.inlineCount, "inlineCount"),
     stateRoot: hex32(inputs.stateRoot, "stateRoot"),
     nullifierRoot: hex32(inputs.nullifierRoot, "nullifierRoot"),
-    answers: sized(inputs.answers, RING_POOL_SLOTS, "answers").map(poolJson),
+    answers: sized(inputs.answers, RING_ANSWER_SLOTS, "answers").map(answersJson),
   });
 }
 
@@ -425,7 +425,7 @@ function sourceJson(source: CustomRingSourceOwner): Readonly<Record<string, unkn
   });
 }
 
-function poolJson(entry: CustomRingRuleAnswer): Readonly<Record<string, unknown>> {
+function answersJson(entry: CustomRingRuleAnswer): Readonly<Record<string, unknown>> {
   return Object.freeze({
     enabled: entry.enabled,
     mode: u8(entry.mode, "mode"),

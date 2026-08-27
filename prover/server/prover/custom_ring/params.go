@@ -44,7 +44,7 @@ type Opening struct {
 type Answer struct {
 	Enabled      bool
 	Mode         uint8
-	ListId         uint8
+	ListId       uint8
 	State        uint8
 	AbsentBranch uint8
 	Member       *big.Int
@@ -61,9 +61,9 @@ type Answer struct {
 }
 
 // SourceOwner is one slot of the positional source map, slot i empty or
-// serving listId i+1.
+// serving list i+1.
 type SourceOwner struct {
-	ListId      uint8
+	ListId    uint8
 	OwnerHash *big.Int
 }
 
@@ -107,14 +107,14 @@ type openingJSON struct {
 }
 
 type sourceOwnerJSON struct {
-	ListId      uint8  `json:"listId"`
+	ListId    uint8  `json:"listId"`
 	OwnerHash string `json:"ownerHash"`
 }
 
 type ruleAnswerJSON struct {
 	Enabled           bool     `json:"enabled"`
 	Mode              uint8    `json:"mode"`
-	ListId              uint8    `json:"listId"`
+	ListId            uint8    `json:"listId"`
 	State             uint8    `json:"state"`
 	AbsentBranch      uint8    `json:"absentBranch"`
 	Member            string   `json:"member"`
@@ -129,27 +129,27 @@ type ruleAnswerJSON struct {
 }
 
 type customRingParametersJSON struct {
-	CircuitType      string             `json:"circuitType"`
-	Variant          string             `json:"variant"`
-	PublicInputHash  string             `json:"publicInputHash"`
-	PrivateTxHash    string             `json:"privateTxHash"`
-	TxViewingSk      string             `json:"txViewingSk"`
-	EphSk            string             `json:"ephSk"`
-	AuditorPk        string             `json:"auditorPk"`
-	NIn              uint8              `json:"nIn"`
-	NOut             uint8              `json:"nOut"`
-	Inputs           []openingJSON      `json:"inputs"`
-	Outputs          []openingJSON      `json:"outputs"`
-	AddressChain     string             `json:"addressChain"`
-	ExternalDataHash string             `json:"externalDataHash"`
+	CircuitType      string            `json:"circuitType"`
+	Variant          string            `json:"variant"`
+	PublicInputHash  string            `json:"publicInputHash"`
+	PrivateTxHash    string            `json:"privateTxHash"`
+	TxViewingSk      string            `json:"txViewingSk"`
+	EphSk            string            `json:"ephSk"`
+	AuditorPk        string            `json:"auditorPk"`
+	NIn              uint8             `json:"nIn"`
+	NOut             uint8             `json:"nOut"`
+	Inputs           []openingJSON     `json:"inputs"`
+	Outputs          []openingJSON     `json:"outputs"`
+	AddressChain     string            `json:"addressChain"`
+	ExternalDataHash string            `json:"externalDataHash"`
 	Sources          []sourceOwnerJSON `json:"sources"`
-	PolicyLen        uint8              `json:"policyLen"`
-	RuleEnc          []string           `json:"ruleEnc"`
-	InlineAssets     []string           `json:"inlineAssets"`
-	InlineCount      uint8              `json:"inlineCount"`
-	StateRoot        string             `json:"stateRoot"`
-	NullifierRoot    string             `json:"nullifierRoot"`
-	Answers             []ruleAnswerJSON    `json:"answers"`
+	PolicyLen        uint8             `json:"policyLen"`
+	RuleEnc          []string          `json:"ruleEnc"`
+	InlineAssets     []string          `json:"inlineAssets"`
+	InlineCount      uint8             `json:"inlineCount"`
+	StateRoot        string            `json:"stateRoot"`
+	NullifierRoot    string            `json:"nullifierRoot"`
+	Answers          []ruleAnswerJSON  `json:"answers"`
 }
 
 func (p *CustomRingParameters) MarshalJSON() ([]byte, error) {
@@ -174,11 +174,11 @@ func (p *CustomRingParameters) MarshalJSON() ([]byte, error) {
 		InlineCount:      p.InlineCount,
 		StateRoot:        common.ToHex(p.StateRoot),
 		NullifierRoot:    common.ToHex(p.NullifierRoot),
-		Answers:             make([]ruleAnswerJSON, 0, len(p.Answers)),
+		Answers:          make([]ruleAnswerJSON, 0, len(p.Answers)),
 	}
 	for _, src := range p.Sources {
 		raw.Sources = append(raw.Sources, sourceOwnerJSON{
-			ListId:      src.ListId,
+			ListId:    src.ListId,
 			OwnerHash: common.ToHex(src.OwnerHash),
 		})
 	}
@@ -328,7 +328,7 @@ func writeAnswer(src *Answer) ruleAnswerJSON {
 	return ruleAnswerJSON{
 		Enabled:           src.Enabled,
 		Mode:              src.Mode,
-		ListId:              src.ListId,
+		ListId:            src.ListId,
 		State:             src.State,
 		AbsentBranch:      src.AbsentBranch,
 		Member:            common.ToHex(src.Member),
@@ -445,7 +445,7 @@ func (p *CustomRingParameters) CreateWitness() (*transfer.Circuit, error) {
 	}
 	for i, src := range p.Sources {
 		circuit.Sources[i] = transfer.SourceWires{
-			ListId:      src.ListId,
+			ListId:    src.ListId,
 			OwnerHash: src.OwnerHash,
 		}
 	}

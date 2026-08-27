@@ -26,7 +26,7 @@ pub struct SourceMap {
 pub enum SourceMapError {
     #[error("slot breaks the positional layout")]
     NotPositional,
-    #[error("list_id is already mapped")]
+    #[error("list is already mapped")]
     Duplicate,
     #[error("owner hash is zero")]
     ZeroOwner,

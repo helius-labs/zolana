@@ -66,7 +66,7 @@ func TestCustomRingProofVerifies(t *testing.T) {
 }
 
 // rulesFreeParams opens a one input one output transfer against a length zero
-// rule table with every answers slot disabled.
+// rule table with every answer slot disabled.
 func rulesFreeParams(t *testing.T) *CustomRingParameters {
 	t.Helper()
 	p := &CustomRingParameters{

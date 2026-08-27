@@ -13,7 +13,7 @@ type RuleWires struct {
 	Packed    frontend.Variable
 	Subject   frontend.Variable
 	Mode      frontend.Variable
-	ListId      frontend.Variable
+	ListId    frontend.Variable
 	GuardTag  frontend.Variable
 	Threshold frontend.Variable
 }

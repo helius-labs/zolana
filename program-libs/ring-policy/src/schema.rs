@@ -1,9 +1,9 @@
 //! The typed extension point over the entry primitive.
 //!
 //! An entry list is a namespace of `(list_id, member)` entries, each a zero-amount
-//! data UTXO in the SPP state tree owned by the ring's entries PDA, present or
-//! absent provably against SPP's own roots (see [`crate::entry`]). The `RuleTable`
-//! rule table is one consumer, a list of auditors or co-signers is another.
+//! data UTXO in the SPP state tree owned by the ring's namespace PDA, present or
+//! absent provably against SPP's own roots (see [`crate::entry`]). The
+//! [`crate::RuleTable`] is one consumer, a list of auditors or co-signers is another.
 //!
 //! # Adding a list
 //!
@@ -11,14 +11,14 @@
 //!    reserves it as the inline-asset sentinel) and its `TryFrom<u8>` arm.
 //! 2. Place the variant in [`ListId::writer`]. The total match makes the
 //!    compiler demand it.
-//! 3. Pick a [`EntryContent`] (`()` when the member is the whole entry, [`CoSignerKey`]
+//! 3. Pick an [`EntryContent`] (`()` when the member is the whole entry, [`CoSignerKey`]
 //!    or a new type when a value is committed beside it, a value above 32 bytes
 //!    hashes in `commit` and implements only [`EntryContent`]).
 //! 4. Declare a zero-sized type and `impl ListSchema` for it. `WRITER` derives itself.
 //!
 //! The keying, the 74-byte envelope, the present-absent membership proofs, the
 //! `create_entry` and `update_entry` instructions, and the circuit are reused
-//! unchanged. Only a rule that consults the list touches the `RuleTable` table. The
+//! unchanged. Only a rule that consults the list touches the [`crate::RuleTable`]. The
 //! circuit proves membership, never who mutated. Authorization stays here in
 //! [`ListId::writer`], never crossing the CPI or reaching Go or TypeScript.
 
@@ -32,11 +32,11 @@ mod sealed {
 /// Sealed, the set of entry lists stays closed and auditable in the crate.
 pub trait ListSchema: sealed::Sealed {
     /// The on-chain discriminant written into every entry of the list.
-    const KIND: ListId;
+    const ID: ListId;
     /// The value committed into the entry's `content_hash`.
     type EntryContent: EntryContent;
     /// Derived from [`ListId::writer`], never set to diverge from it.
-    const WRITER: Writer = Self::KIND.writer();
+    const WRITER: Writer = Self::ID.writer();
 }
 
 /// Compresses into an entry's 32-byte `content_hash`.
@@ -44,7 +44,7 @@ pub trait EntryContent: Copy {
     fn commit(&self) -> [u8; 32];
 }
 
-/// A content the on-chain 32 bytes recover exactly, unlike a hashed one.
+/// Content the on-chain 32 bytes recover exactly, unlike a hashed one.
 pub trait InlineContent: EntryContent {
     fn from_commit(commit: [u8; 32]) -> Option<Self>
     where
@@ -79,13 +79,13 @@ impl InlineContent for CoSignerKey {
     }
 }
 
-macro_rules! list_kind {
+macro_rules! list_schema {
     ($name:ident, $list_id:expr, $content:ty) => {
         #[derive(Clone, Copy, Debug)]
         pub struct $name;
         impl sealed::Sealed for $name {}
         impl ListSchema for $name {
-            const KIND: ListId = $list_id;
+            const ID: ListId = $list_id;
             type EntryContent = $content;
         }
         // Zero is the circuit's inline-asset sentinel, never a list id.
@@ -93,14 +93,14 @@ macro_rules! list_kind {
     };
 }
 
-list_kind!(Allow, ListId::Allow, ());
-list_kind!(Block, ListId::Block, ());
-list_kind!(Frozen, ListId::Frozen, ());
-list_kind!(RingViewing, ListId::RingViewing, ());
-list_kind!(Recovery, ListId::Recovery, ());
-list_kind!(Reader, ListId::Reader, ());
-list_kind!(Approval, ListId::Approval, ());
-list_kind!(Escrow, ListId::Escrow, ());
+list_schema!(Allow, ListId::Allow, ());
+list_schema!(Block, ListId::Block, ());
+list_schema!(Frozen, ListId::Frozen, ());
+list_schema!(RingViewing, ListId::RingViewing, ());
+list_schema!(Recovery, ListId::Recovery, ());
+list_schema!(Reader, ListId::Reader, ());
+list_schema!(Approval, ListId::Approval, ());
+list_schema!(Escrow, ListId::Escrow, ());
 
 /// An entry built through its list type, the content type cannot mismatch the list.
 #[derive(Clone, Copy, Debug)]
@@ -114,7 +114,7 @@ pub struct Typed<L: ListSchema> {
 impl<L: ListSchema> Typed<L> {
     pub fn erase(&self) -> ListEntry {
         ListEntry {
-            list_id: L::KIND,
+            list_id: L::ID,
             member: self.member,
             state: self.state,
             version: self.version,
@@ -130,7 +130,7 @@ where
     /// The typed view of an entry, `None` for a different list or a commitment
     /// no content recovers.
     pub fn from_entry(entry: &ListEntry) -> Option<Self> {
-        if entry.list_id != L::KIND {
+        if entry.list_id != L::ID {
             return None;
         }
         Some(Self {
