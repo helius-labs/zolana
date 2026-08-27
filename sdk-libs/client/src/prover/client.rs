@@ -7,6 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use reqwest::redirect::Policy;
 use reqwest::StatusCode;
 use tokio::time::sleep as async_sleep;
 use zeroize::Zeroizing;
@@ -139,6 +140,7 @@ impl Default for AsyncPollConfig {
 fn build_http_client() -> reqwest::blocking::Client {
     reqwest::blocking::Client::builder()
         .no_proxy()
+        .redirect(Policy::none())
         .connect_timeout(Duration::from_secs(PROVE_CONNECT_TIMEOUT_SECS))
         .timeout(Duration::from_secs(PROVE_REQUEST_TIMEOUT_SECS))
         .build()
@@ -148,6 +150,7 @@ fn build_http_client() -> reqwest::blocking::Client {
 fn build_async_http_client() -> reqwest::Client {
     reqwest::Client::builder()
         .no_proxy()
+        .redirect(Policy::none())
         .connect_timeout(Duration::from_secs(PROVE_CONNECT_TIMEOUT_SECS))
         .timeout(Duration::from_secs(PROVE_REQUEST_TIMEOUT_SECS))
         .build()

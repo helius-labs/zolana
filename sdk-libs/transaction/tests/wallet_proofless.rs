@@ -1,7 +1,7 @@
 use zolana_event::{encode_output_data, ProoflessOutput};
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{
-    Address, AssetRegistry, LocalWalletAuthority, OutputContext, OutputSlot, ProofInputUtxo,
+    Address, AssetRegistry, KeypairWalletAuthority, OutputContext, OutputSlot, ProofInputUtxo,
     ShieldedTransaction, Wallet, DEFAULT_TAG_WINDOW, SOL_MINT,
 };
 
@@ -51,7 +51,7 @@ fn self_consistent_deposit(keypair: &ShieldedKeypair, amount: u64) -> ShieldedTr
 #[test]
 fn sync_discovers_and_spends_proofless_deposit() {
     let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
-    let authority = LocalWalletAuthority::new(Address::default(), &keypair);
+    let authority = KeypairWalletAuthority::new(Address::default(), &keypair);
     let mut wallet = Wallet::new(
         keypair.shielded_address().expect("shielded address"),
         AssetRegistry::default(),

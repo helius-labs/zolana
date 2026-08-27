@@ -6,6 +6,7 @@ import type { ShieldedKeypair, ViewingKeyLike } from "../../keypair/shielded.js"
 
 import { TransactionError } from "../error.js";
 import { copy, decodeAddress, equal } from "../internal.js";
+import { SENDER_SLOT_COUNT } from "../instructions/transact.js";
 import type { IndexedShieldedTransaction, OutputContext } from "../instructions/transact.js";
 import {
   EncryptedScheme,
@@ -184,8 +185,6 @@ function rowKey(row: PrivateTransaction): string {
     row.id.slot,
     row.id.index,
     row.kind,
-    row.direction,
-    row.status,
     row.asset,
     row.amount,
     row.counterpartyViewingPublicKey === undefined
@@ -205,12 +204,17 @@ class SyncPass {
   readonly #owner: ShieldedPublicKey;
   readonly #nullifierPublicKey: Bytes32;
   readonly #nullifierKey: NullifierKey;
-  readonly #selfViewingPublicKey: P256PublicKey;
+  /**
+   * Every viewing key this wallet has held, current and rotated-out, as hex
+   * ids. A transfer addressed to a retired key is still addressed to this
+   * wallet, so self-recognition must not narrow to the current key.
+   */
+  readonly #selfViewingPublicKeys: ReadonlySet<string>;
   readonly #assets: AssetRegistry;
   readonly #transactions: readonly IndexedShieldedTransaction[];
   readonly #utxos: WalletUtxo[];
   readonly #rows: PrivateTransaction[];
-  readonly #rowKeys: Set<string>;
+  readonly #rowIndexes: Map<string, number>;
   readonly #outputHashes: Set<string>;
   readonly #processedSlots = new Set<string>();
   readonly #processedOutbound = new Set<number>();
@@ -228,17 +232,21 @@ class SyncPass {
       transactions: readonly IndexedShieldedTransaction[];
       utxos: readonly WalletUtxo[];
       rows: readonly PrivateTransaction[];
+      selfViewingPublicKeys: readonly P256PublicKey[];
     }>,
   ) {
     this.#owner = input.material.identity.signingPublicKey;
     this.#nullifierPublicKey = input.material.identity.nullifierPublicKey;
     this.#nullifierKey = input.material.nullifierKey;
-    this.#selfViewingPublicKey = input.material.identity.viewingPublicKey;
+    this.#selfViewingPublicKeys = new Set(
+      input.selfViewingPublicKeys.map((key) => hex(key.toBytes())),
+    );
     this.#assets = input.assets;
     this.#transactions = input.transactions;
     this.#utxos = [...input.utxos];
-    this.#rows = [...input.rows];
-    this.#rowKeys = new Set(this.#rows.map(rowKey));
+    this.#rows = [];
+    this.#rowIndexes = new Map();
+    for (const row of input.rows) this.#record(row);
     this.#outputHashes = new Set(this.#utxos.map((entry) => hex(entry.outputContext.hash)));
   }
 
@@ -336,9 +344,14 @@ class SyncPass {
 
   #record(row: PrivateTransaction): void {
     const key = rowKey(row);
-    if (this.#rowKeys.has(key)) return;
-    this.#rowKeys.add(key);
-    this.#rows.push(Object.freeze({ ...row, id: Object.freeze({ ...row.id }) }));
+    const snapshot = Object.freeze({ ...row, id: Object.freeze({ ...row.id }) });
+    const existing = this.#rowIndexes.get(key);
+    if (existing === undefined) {
+      this.#rowIndexes.set(key, this.#rows.length);
+      this.#rows.push(snapshot);
+    } else {
+      this.#rows[existing] = snapshot;
+    }
   }
 
   /**
@@ -402,9 +415,7 @@ class SyncPass {
     utxo: Utxo,
   ): void {
     const direction: PrivateTransactionDirection =
-      sender !== undefined && equal(sender.toBytes(), this.#selfViewingPublicKey.toBytes())
-        ? "selfTransfer"
-        : "inbound";
+      sender !== undefined && this.#isSelf(sender) ? "selfTransfer" : "inbound";
     this.#record({
       id: historyId(tx, tx.outputSlots[slotIndex]?.outputContext.leafIndex ?? BigInt(slotIndex)),
       kind: "privateTransfer",
@@ -428,6 +439,21 @@ class SyncPass {
   }
 
   /**
+   * A transfer whose every real recipient is this wallet moved nothing out, so
+   * it is a self transfer on any rail. An empty recipient set stays outbound:
+   * that is a public withdrawal, and the value did leave.
+   */
+  #transferDirection(recipients: readonly P256PublicKey[]): PrivateTransactionDirection {
+    return recipients.length > 0 && recipients.every((recipient) => this.#isSelf(recipient))
+      ? "selfTransfer"
+      : "outbound";
+  }
+
+  #isSelf(viewingPublicKey: P256PublicKey): boolean {
+    return this.#selfViewingPublicKeys.has(hex(viewingPublicKey.toBytes()));
+  }
+
+  /**
    * One row per asset the transaction moved out, netted down by the change it
    * paid back to this wallet. A row whose net is zero is dropped but still
    * consumes its row index, so the surviving rows keep the indices they had.
@@ -438,6 +464,7 @@ class SyncPass {
     change: readonly Utxo[],
     kind: PrivateTransactionKind,
     counterparty: P256PublicKey | undefined,
+    direction: PrivateTransactionDirection,
   ): void {
     const byAsset = new Map(spent);
     for (const utxo of change) {
@@ -452,7 +479,7 @@ class SyncPass {
         this.#record({
           id: historyId(tx, SENDER_HISTORY_ROW_BASE + BigInt(row)),
           kind,
-          direction: "outbound",
+          direction,
           status: "confirmed",
           asset,
           amount,
@@ -529,13 +556,15 @@ class SyncPass {
         }
         const plaintext = decryptConfidentialAsSender(txKey, frame.body, salt, position);
         const recipientKey = P256PublicKey.fromBytes(frame.body.slice(0, 33) as Bytes33);
-        const candidate = confidentialUtxo(plaintext, this.#owner, this.#assets);
-        if (
-          equal(recipientKey.toBytes(), this.#selfViewingPublicKey.toBytes()) &&
-          equal(candidate.hash(this.#nullifierPublicKey), slot.outputContext.hash)
-        ) {
-          change.push(candidate);
-          return;
+        if (position < SENDER_SLOT_COUNT) {
+          const candidate = confidentialUtxo(plaintext, this.#owner, this.#assets);
+          if (
+            this.#isSelf(recipientKey) &&
+            equal(candidate.hash(this.#nullifierPublicKey), slot.outputContext.hash)
+          ) {
+            change.push(candidate);
+            return;
+          }
         }
         recipientKeys.push(recipientKey);
       } catch {
@@ -557,6 +586,7 @@ class SyncPass {
       change,
       kind,
       recipientKeys.length === 1 ? recipientKeys[0] : undefined,
+      this.#transferDirection(recipientKeys),
     );
   }
 
@@ -637,6 +667,10 @@ class SyncPass {
       this.#resolveAssetCandidate(siteKey);
       if (this.#storeRecipientUtxos([utxo], outputContext, undefined, undefined)) {
         this.#processedSlots.add(siteKey);
+        // Per-slot, unlike the confidential rail, which suppresses an authored
+        // slot's receipt: an anonymous recipient slot names its sender, so a
+        // self-send's receipt carries the sender the sender-bundle row cannot
+        // show per recipient.
         this.#recordReceived(tx, site.slot, sender, utxo);
       }
       return;
@@ -718,6 +752,7 @@ class SyncPass {
           change,
           kind,
           recipients.length === 1 ? recipients[0] : undefined,
+          this.#transferDirection(recipients),
         );
       }
       return;
@@ -874,19 +909,23 @@ export async function decryptTransactions(
   validateMaterial(input.wallet, material);
   const current = input.wallet._state();
   const index = buildTagIndex(input.transactions);
+  // Before the pass, which needs the full key set: seeded with the identity's
+  // key and extended with this material's, so it holds every key this wallet
+  // has ever been given -- including keys this scan's material omits.
+  const viewingKeyHistory = ensureViewingKeyEntries(
+    current.viewingKeyHistory,
+    material.viewingKeys,
+  );
   const pass = new SyncPass({
     material,
     assets: input.wallet.registry,
     transactions: input.transactions,
     utxos: current.utxos,
     rows: current.transactions,
+    selfViewingPublicKeys: viewingKeyHistory.map((entry) => entry.viewingPublicKey),
   });
   const identityTag = material.identity.signingPublicKey.confidentialViewTag();
 
-  const viewingKeyHistory = ensureViewingKeyEntries(
-    current.viewingKeyHistory,
-    material.viewingKeys,
-  );
   for (const entry of viewingKeyHistory) {
     const id = hex(entry.viewingPublicKey.toBytes());
     const key = material.viewingKeys.find(

@@ -4,7 +4,7 @@
   "files": [
     {
       "path": "transaction/authority-v1.json",
-      "sha256": "376a99ceba08b376b04a8519ea335fdfbfb57024e9a58ba65101ca97c009182b"
+      "sha256": "ac2d7c57e1cdc993dfb85817ef958bf15e490c13ecaf72aec59e853d63edcc5f"
     },
     {
       "path": "transaction/frozen-tests-v1.json",

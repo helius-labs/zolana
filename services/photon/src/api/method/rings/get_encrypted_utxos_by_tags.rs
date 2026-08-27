@@ -1,7 +1,7 @@
 use super::common::{
     bind_u64_as_i64, cursor_sort_key, decode_cursor, encode_cursor, next_cursor_from_rows,
-    rings_output_slot_from_parts, signature_from_bytes, tags_sql, tx_cursor_sql_condition,
-    u16_from_i16, u64_from_i64, validate_tags, CursorKind,
+    rings_output_slot_from_parts, signature_array, signature_from_bytes, tags_sql,
+    tx_cursor_sql_condition, u16_from_i16, u64_from_i64, validate_tags, CursorKind,
 };
 use crate::api::error::PhotonApiError;
 use crate::common::bind_sql_value;
@@ -31,6 +31,14 @@ struct EncryptedUtxoRow {
     tx_viewing_pk: Option<Vec<u8>>,
     salt: Option<Vec<u8>>,
     payload: Vec<u8>,
+}
+
+#[derive(FromQueryResult, Debug)]
+struct EncryptedUtxoScanPositionRow {
+    slot: i64,
+    signature: Vec<u8>,
+    event_index: i16,
+    output_index: i16,
 }
 
 #[derive(Clone, Debug, Decode, Encode, PartialEq, Eq)]
@@ -65,6 +73,11 @@ pub async fn get_encrypted_utxos_by_tags(
     let rows =
         fetch_encrypted_utxo_rows(&tx, &request.tags, cursor.as_ref(), limit, ring_config).await?;
     let next_cursor = next_cursor_from_rows(&rows, encrypted_utxo_cursor_from_row)?;
+    let scanned_through = if rows.len() as u64 >= limit {
+        None
+    } else {
+        encrypted_utxo_scan_position(&tx).await?
+    };
 
     let matches = rows
         .into_iter()
@@ -91,7 +104,42 @@ pub async fn get_encrypted_utxos_by_tags(
         context,
         matches,
         next_cursor,
+        scanned_through,
     })
+}
+
+async fn encrypted_utxo_scan_position(
+    tx: &DatabaseTransaction,
+) -> Result<Option<Base64String>, PhotonApiError> {
+    let backend = tx.get_database_backend();
+    let sql = "SELECT
+            po.slot AS slot,
+            po.signature AS signature,
+            po.event_index AS event_index,
+            po.output_index AS output_index
+         FROM rings_outputs po
+         WHERE po.slot = (SELECT MAX(slot) FROM rings_outputs)
+         ORDER BY po.signature DESC, po.event_index DESC, po.output_index DESC
+         LIMIT 1";
+    let Some(row) = tx
+        .query_all(Statement::from_string(backend, sql.to_owned()))
+        .await?
+        .into_iter()
+        .next()
+    else {
+        return Ok(None);
+    };
+    let row = EncryptedUtxoScanPositionRow::from_query_result(&row, "")?;
+    let cursor = EncryptedUtxoCursor {
+        slot: u64_from_i64(row.slot, "slot")?,
+        signature: signature_array(&row.signature)?,
+        event_index: u16_from_i16(row.event_index, "event index")?,
+        output_index: u16_from_i16(row.output_index, "output index")?,
+    };
+    Ok(Some(Base64String(encode_cursor(
+        CursorKind::EncryptedUtxos,
+        &cursor,
+    )?)))
 }
 
 async fn fetch_encrypted_utxo_rows(

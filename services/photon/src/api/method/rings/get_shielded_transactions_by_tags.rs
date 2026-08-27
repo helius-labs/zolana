@@ -101,8 +101,7 @@ pub async fn get_shielded_transactions_by_tags(
         context: page.context,
         transactions: page.transactions,
         next_cursor: page.next_cursor,
-        // Reported on the nullifier query only, and skipped when absent.
-        scanned_through: None,
+        scanned_through: page.scanned_through,
     })
 }
 
@@ -138,7 +137,7 @@ struct ShieldedTransactionPage {
     context: zolana_indexer_api::Context,
     transactions: Vec<ShieldedTransaction>,
     next_cursor: Option<Base64String>,
-    /// Set only for [`MatchBy::Nullifiers`]; no other response carries it.
+    /// Set on a terminal page so an empty match set can still advance its scan.
     scanned_through: Option<Base64String>,
 }
 
@@ -176,12 +175,13 @@ async fn get_shielded_transactions(
     })?;
 
     // A full page means the limit cut the scan short, so nothing can be claimed
-    // beyond it. Only the nullifier stream needs the position: a tag query's
-    // cursor advances on the rows it returns.
+    // beyond it. A terminal page needs the stream position even when no row
+    // matched; otherwise a wallet must rescan the same empty range forever.
     let truncated = matched_txs.len() as u64 >= limit;
-    let scanned_through = match match_by {
-        MatchBy::Nullifiers if !truncated => scan_position(&tx, cursor_kind).await?,
-        _ => None,
+    let scanned_through = if truncated {
+        None
+    } else {
+        scan_position(&tx, cursor_kind).await?
     };
 
     let transactions = hydrate_shielded_transactions(&tx, matched_txs)

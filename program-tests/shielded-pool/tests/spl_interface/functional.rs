@@ -8,7 +8,7 @@ use zolana_program_test::{test_blinding, ZolanaProgramTest};
 use zolana_test_utils::litesvm_asserts::{
     litesvm_assert_create_spl_interface, litesvm_assert_spl_deposit, SplDepositAssertArgs,
 };
-use zolana_transaction::{AssetRegistry, LocalWalletAuthority, Wallet};
+use zolana_transaction::{AssetRegistry, KeypairWalletAuthority, Wallet};
 
 use shielded_pool_tests::support::fixtures::{register_mint, spl_depositor, Pool};
 
@@ -182,7 +182,7 @@ fn spl_deposit_moves_tokens_emits_the_exact_output_and_updates_the_indexer() {
             vault_before,
             user_token_before: user_before,
             root_before,
-            authority: &LocalWalletAuthority::new(Address::default(), &recipient_key),
+            authority: &KeypairWalletAuthority::new(Address::default(), &recipient_key),
         },
     );
     assert_eq!(recipient.utxos.len(), 1);

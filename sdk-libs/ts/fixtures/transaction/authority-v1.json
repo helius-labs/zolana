@@ -39,7 +39,7 @@
   "owningPacket": "P00",
   "responsibility": "authority material, approval input, deterministic P256 signature, and envelope fields",
   "rustPath": "sdk-libs/transaction/src/wallet/authority.rs",
-  "rustSymbol": "WalletAuthority; SyncWalletAuthority; LocalWalletAuthority; envelopes",
+  "rustSymbol": "WalletAuthority; SyncWalletAuthority; KeypairWalletAuthority; envelopes",
   "schema": "zolana-ts-fixtures-v1",
   "version": "1"
 }

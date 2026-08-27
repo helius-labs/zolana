@@ -179,7 +179,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
     // decrypting it. `Wallet::store` keeps only recipient-owned UTXOs, so the
     // sender's change slot (encrypted to the sender) is not stored.
     let mut wallet = Wallet::new(recipient.shielded_address()?, AssetRegistry::default())?;
-    let authority = LocalWalletAuthority::new(Pubkey::default(), &recipient);
+    let authority = KeypairWalletAuthority::new(Pubkey::default(), &recipient);
     wallet.sync(
         &authority,
         std::slice::from_ref(&indexed),

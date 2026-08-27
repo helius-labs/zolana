@@ -40,7 +40,7 @@ import {
 } from "@solana/kit";
 
 import {
-  LocalWalletAuthority,
+  KeypairWalletAuthority,
   ShieldedKeypair,
   SigningKey,
   Wallet,
@@ -95,7 +95,7 @@ const timedFetch: typeof globalThis.fetch = async (input, init) => {
 interface Actor {
   readonly signer: KeyPairSigner;
   readonly wallet: Wallet;
-  readonly authority: LocalWalletAuthority;
+  readonly authority: KeypairWalletAuthority;
   readonly shieldedAddress: ReturnType<ShieldedKeypair["shieldedAddress"]>;
 }
 
@@ -158,7 +158,7 @@ async function loadActors(dir: string): Promise<Actor[]> {
     actors.push({
       signer,
       wallet: new Wallet({ identity: keypair.shieldedAddress() }),
-      authority: new LocalWalletAuthority({ solanaPublicKey: signer.address, keypair }),
+      authority: new KeypairWalletAuthority({ solanaPublicKey: signer.address, keypair }),
       shieldedAddress: keypair.shieldedAddress(),
     });
   }

@@ -2,7 +2,10 @@ use solana_signer::SignerError;
 use thiserror::Error;
 use zolana_hasher::HasherError;
 
+/// `non_exhaustive` because backends outside this crate match on these: a new
+/// failure mode should not be a breaking change for them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[non_exhaustive]
 pub enum KeypairError {
     #[error("invalid public key")]
     InvalidPublicKey,
@@ -33,6 +36,9 @@ pub enum KeypairError {
 
     #[error("a PDA holds no signing secret; the owning program signs via CPI")]
     PdaCannotSign,
+
+    #[error("derivation seed is {got} bytes, expected {expected} on this rail")]
+    InvalidDerivationSeed { got: usize, expected: usize },
 
     #[error("HKDF expansion failed")]
     Hkdf,

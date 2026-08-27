@@ -232,6 +232,47 @@ export function scalarFromOkm(okm: Uint8Array): Bytes32 {
 
 export type Rail = "ed25519" | "ecdh";
 
+/** An ed25519 `derivationSeed` is the RFC 8032 signature over the derivation message. */
+export const ED25519_SEED_LEN = 64;
+
+/** A P-256 `derivationSeed` is the x-coordinate of `ECDH(signingSk, pDerive)`. */
+export const P256_SEED_LEN = 32;
+
+function railSeedLength(rail: Rail): number {
+  return rail === "ed25519" ? ED25519_SEED_LEN : P256_SEED_LEN;
+}
+
+/**
+ * The seed width is fixed per rail, and every path into `roleExpansion` is
+ * checked against it. HKDF-Extract accepts any input length, so a backend that
+ * returned a truncated seed would otherwise expand cleanly into a well-formed
+ * but *different* identity: every signature still verifies and every address
+ * still looks correct, so nothing downstream catches it.
+ */
+function assertSeedWidth(seed: Uint8Array, rail: Rail): void {
+  const expected = railSeedLength(rail);
+  if (!(seed instanceof Uint8Array) || seed.length !== expected) {
+    throw new KeypairError("KEYPAIR_INVALID_DERIVATION_SEED", {
+      name: "derivation seed",
+      expected,
+      actual: seed instanceof Uint8Array ? seed.length : -1,
+    });
+  }
+}
+
+/**
+ * Checks a `derivationSeed` against its rail's width and returns a copy, so the
+ * caller can clear the returned buffer without touching its own.
+ *
+ * Use this at any boundary that accepts a seed produced elsewhere -- a hardware
+ * signer, a remote custodian -- rather than a bare length check, so the failure
+ * mirrors Rust's `InvalidDerivationSeed`.
+ */
+export function checkedDerivationSeed<T extends Uint8Array>(seed: Uint8Array | T, rail: Rail): T {
+  assertSeedWidth(seed, rail);
+  return new Uint8Array(seed) as T;
+}
+
 function railNullifierInfo(rail: Rail): Uint8Array {
   return encoder.encode(rail === "ed25519" ? INFO_NF_KEY_ED25519 : INFO_NF_KEY_ECDH);
 }
@@ -249,6 +290,7 @@ export function roleExpansion(
   seed: Uint8Array,
   rail: Rail,
 ): Readonly<{ nullifierSecret(): Bytes31; viewingSecret(): Bytes32 }> {
+  assertSeedWidth(seed, rail);
   const prk = hkdfExtract(seed);
   return Object.freeze({
     nullifierSecret(): Bytes31 {

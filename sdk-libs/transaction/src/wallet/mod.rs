@@ -6,8 +6,9 @@ mod state;
 mod sync;
 
 pub use authority::{
-    AnonymousRecipientSlot, ApprovalRequest, EncryptedEnvelope, EncryptedSplit, EncryptedTransfer,
-    LocalWalletAuthority, P256Signature, SyncWalletAuthority, WalletAuthority, WalletSyncMaterial,
+    AnonymousRecipientSlot, ApprovalRequest, ClientEd25519WalletAuthority, EncryptedEnvelope,
+    EncryptedSplit, EncryptedTransfer, KeypairWalletAuthority, P256Signature, SyncWalletAuthority,
+    WalletAuthority, WalletSyncMaterial,
 };
 pub use state::{
     AssetBalance, Balances, CursorStream, Filter, PrivateTransaction, PrivateTransactionDirection,

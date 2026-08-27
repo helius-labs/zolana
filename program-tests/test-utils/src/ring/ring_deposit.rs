@@ -19,8 +19,8 @@ use zolana_program_test::{
     ring_deposit_output_from_event, test_blinding, Rejection, RING_TEST_PROGRAM_ID,
 };
 use zolana_transaction::{
-    owner_utxo_hash, serialization::RingDepositPlaintext, Data, LocalWalletAuthority, Utxo, Wallet,
-    SOL_MINT,
+    owner_utxo_hash, serialization::RingDepositPlaintext, Data, KeypairWalletAuthority, Utxo,
+    Wallet, SOL_MINT,
 };
 
 use super::{RingDepositRecord, RingHarness, SplRingDepositAccounts};
@@ -237,7 +237,7 @@ impl RingHarness {
             .map_err(|e| anyhow!("encrypted ring deposit output decode failed: {e:?}"))?;
 
         let mut wallet = Wallet::new(keypair.shielded_address()?, self.assets.clone())?;
-        let authority = LocalWalletAuthority::new(Address::default(), &keypair);
+        let authority = KeypairWalletAuthority::new(Address::default(), &keypair);
         let expected_asset = match &record.spl {
             None => SOL_MINT,
             Some(spl) => Address::new_from_array(spl.mint.to_bytes()),

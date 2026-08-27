@@ -17,7 +17,7 @@ import {
 } from "@solana/kit";
 
 import {
-  LocalWalletAuthority,
+  KeypairWalletAuthority,
   ShieldedKeypair,
   SigningKey,
   Wallet,
@@ -33,7 +33,7 @@ export interface Actor {
   readonly signer: KeyPairSigner;
   readonly keypair: ShieldedKeypair;
   readonly wallet: Wallet;
-  readonly authority: LocalWalletAuthority;
+  readonly authority: KeypairWalletAuthority;
 }
 
 export interface LiveHarness {
@@ -70,7 +70,7 @@ export async function actor(
     signer,
     keypair,
     wallet: new Wallet({ identity: keypair.shieldedAddress() }),
-    authority: new LocalWalletAuthority({
+    authority: new KeypairWalletAuthority({
       solanaPublicKey: signer.address,
       keypair,
     }),

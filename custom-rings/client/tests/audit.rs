@@ -577,6 +577,7 @@ impl Rpc for PagedIndexer {
             },
             transactions,
             next_cursor,
+            scanned_through: None,
         })
     }
 }

@@ -204,6 +204,19 @@ impl Wallet {
         }
     }
 
+    /// Every viewing key this wallet has been given, current and rotated-out.
+    ///
+    /// Seeded from the identity and extended by [`Self::ensure_viewing_key_entries`]
+    /// on each sync, so it also holds keys a later scan's material omits. A scan
+    /// snapshots this before it borrows the wallet mutably; a transfer addressed
+    /// to any of these keys is addressed to this wallet.
+    pub(crate) fn self_viewing_pubkeys(&self) -> HashSet<P256Pubkey> {
+        self.viewing_key_history
+            .iter()
+            .map(|entry| entry.viewing_pubkey)
+            .collect()
+    }
+
     pub fn private_transactions(&self) -> &[PrivateTransaction] {
         &self.transactions
     }

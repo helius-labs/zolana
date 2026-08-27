@@ -292,7 +292,7 @@ interface CollectByTagsInput {
 /** One page of a cursor-ordered stream, reduced to what paging needs. */
 interface Page {
   readonly nextCursor?: Uint8Array | undefined;
-  /** Where the server says its scan reached; only the nullifier stream reports it. */
+  /** Where the server says its scan reached on a terminal page. */
   readonly scannedThrough?: Uint8Array | undefined;
 }
 
@@ -340,7 +340,10 @@ async function collectShieldedTransactions(
       const key = shieldedTransactionKey(transaction);
       if (!input.out.has(key)) input.out.set(key, transaction);
     }
-    return { nextCursor: response.nextCursor };
+    return {
+      nextCursor: response.nextCursor,
+      scannedThrough: response.scannedThrough,
+    };
   });
 }
 
@@ -376,7 +379,10 @@ async function collectProoflessDeposits(
         }),
       );
     }
-    return { nextCursor: response.nextCursor };
+    return {
+      nextCursor: response.nextCursor,
+      scannedThrough: response.scannedThrough,
+    };
   });
 }
 

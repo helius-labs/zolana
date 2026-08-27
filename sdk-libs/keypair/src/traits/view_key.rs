@@ -76,9 +76,98 @@ pub trait ViewingKeyTrait {
     ) -> Result<Vec<u8>, KeypairError>;
 }
 
-/// Forwards to the inherent `ViewingKey` methods. Inherent methods win method
-/// resolution over trait methods of the same name, so `self.foo()` calls the
-/// concrete impl, not the trait method being defined.
+#[macro_export]
+macro_rules! forward_viewing_key_trait {
+    ($backend:ty => $field:ident) => {
+        impl $crate::ViewingKeyTrait for $backend {
+            fn pubkey(&self) -> $crate::P256Pubkey {
+                self.$field.pubkey()
+            }
+
+            fn ecdh(
+                &self,
+                counterparty: &$crate::P256Pubkey,
+            ) -> ::core::result::Result<[u8; 32], $crate::KeypairError> {
+                self.$field.ecdh(counterparty)
+            }
+
+            fn get_sender_view_tag(
+                &self,
+                tx_count: u64,
+            ) -> ::core::result::Result<$crate::viewing_key::ViewTag, $crate::KeypairError> {
+                self.$field.get_sender_view_tag(tx_count)
+            }
+
+            fn get_recipient_request_view_tag(
+                &self,
+                request_count: u64,
+            ) -> ::core::result::Result<$crate::viewing_key::ViewTag, $crate::KeypairError> {
+                self.$field.get_recipient_request_view_tag(request_count)
+            }
+
+            fn get_send_shared_view_tag(
+                &self,
+                counterparty: &$crate::P256Pubkey,
+                i: u64,
+            ) -> ::core::result::Result<$crate::viewing_key::ViewTag, $crate::KeypairError> {
+                self.$field.get_send_shared_view_tag(counterparty, i)
+            }
+
+            fn get_recipient_shared_view_tag(
+                &self,
+                counterparty: &$crate::P256Pubkey,
+                i: u64,
+            ) -> ::core::result::Result<$crate::viewing_key::ViewTag, $crate::KeypairError> {
+                self.$field.get_recipient_shared_view_tag(counterparty, i)
+            }
+
+            fn recipient_bootstrap_view_tag(&self) -> $crate::viewing_key::ViewTag {
+                self.$field.recipient_bootstrap_view_tag()
+            }
+
+            fn get_transaction_viewing_key(
+                &self,
+                first_nullifier: &[u8; 32],
+            ) -> ::core::result::Result<$crate::ViewingKey, $crate::KeypairError> {
+                self.$field.get_transaction_viewing_key(first_nullifier)
+            }
+
+            fn encrypt_slot(
+                &self,
+                recipient_pubkey: &$crate::P256Pubkey,
+                plaintext: &[u8],
+                salt: $crate::viewing_key::Salt,
+                slot_index: u32,
+            ) -> ::core::result::Result<::std::vec::Vec<u8>, $crate::KeypairError> {
+                self.$field
+                    .encrypt_slot(recipient_pubkey, plaintext, salt, slot_index)
+            }
+
+            fn decrypt_utxo(
+                &self,
+                ciphertext: &[u8],
+                tx_viewing_pubkey: &$crate::P256Pubkey,
+                salt: $crate::viewing_key::Salt,
+                slot_index: u32,
+            ) -> ::core::result::Result<::std::vec::Vec<u8>, $crate::KeypairError> {
+                self.$field
+                    .decrypt_utxo(ciphertext, tx_viewing_pubkey, salt, slot_index)
+            }
+
+            fn decrypt_slot_ephemeral(
+                &self,
+                recipient_pubkey: &$crate::P256Pubkey,
+                ciphertext: &[u8],
+                salt: $crate::viewing_key::Salt,
+                slot_index: u32,
+            ) -> ::core::result::Result<::std::vec::Vec<u8>, $crate::KeypairError> {
+                self.$field
+                    .decrypt_slot_ephemeral(recipient_pubkey, ciphertext, salt, slot_index)
+            }
+        }
+    };
+}
+
 impl ViewingKeyTrait for ViewingKey {
     fn pubkey(&self) -> P256Pubkey {
         self.pubkey()
@@ -154,85 +243,6 @@ impl ViewingKeyTrait for ViewingKey {
     }
 }
 
-/// Forwards to the keypair's inner `viewing_key`, so a full [`ShieldedKeypair`]
-/// can stand in wherever a viewing-key backend is required.
-impl ViewingKeyTrait for ShieldedKeypair {
-    fn pubkey(&self) -> P256Pubkey {
-        self.viewing_key.pubkey()
-    }
-
-    fn ecdh(&self, counterparty: &P256Pubkey) -> Result<[u8; 32], KeypairError> {
-        self.viewing_key.ecdh(counterparty)
-    }
-
-    fn get_sender_view_tag(&self, tx_count: u64) -> Result<ViewTag, KeypairError> {
-        self.viewing_key.get_sender_view_tag(tx_count)
-    }
-
-    fn get_recipient_request_view_tag(&self, request_count: u64) -> Result<ViewTag, KeypairError> {
-        self.viewing_key
-            .get_recipient_request_view_tag(request_count)
-    }
-
-    fn get_send_shared_view_tag(
-        &self,
-        counterparty: &P256Pubkey,
-        i: u64,
-    ) -> Result<ViewTag, KeypairError> {
-        self.viewing_key.get_send_shared_view_tag(counterparty, i)
-    }
-
-    fn get_recipient_shared_view_tag(
-        &self,
-        counterparty: &P256Pubkey,
-        i: u64,
-    ) -> Result<ViewTag, KeypairError> {
-        self.viewing_key
-            .get_recipient_shared_view_tag(counterparty, i)
-    }
-
-    fn recipient_bootstrap_view_tag(&self) -> ViewTag {
-        self.viewing_key.recipient_bootstrap_view_tag()
-    }
-
-    fn get_transaction_viewing_key(
-        &self,
-        first_nullifier: &[u8; 32],
-    ) -> Result<ViewingKey, KeypairError> {
-        self.viewing_key
-            .get_transaction_viewing_key(first_nullifier)
-    }
-
-    fn encrypt_slot(
-        &self,
-        recipient_pubkey: &P256Pubkey,
-        plaintext: &[u8],
-        salt: Salt,
-        slot_index: u32,
-    ) -> Result<Vec<u8>, KeypairError> {
-        self.viewing_key
-            .encrypt_slot(recipient_pubkey, plaintext, salt, slot_index)
-    }
-
-    fn decrypt_utxo(
-        &self,
-        ciphertext: &[u8],
-        tx_viewing_pubkey: &P256Pubkey,
-        salt: Salt,
-        slot_index: u32,
-    ) -> Result<Vec<u8>, KeypairError> {
-        self.viewing_key
-            .decrypt_utxo(ciphertext, tx_viewing_pubkey, salt, slot_index)
-    }
-
-    fn decrypt_slot_ephemeral(
-        &self,
-        recipient_pubkey: &P256Pubkey,
-        ciphertext: &[u8],
-        salt: Salt,
-        slot_index: u32,
-    ) -> Result<Vec<u8>, KeypairError> {
-        self.viewing_key
-            .decrypt_slot_ephemeral(recipient_pubkey, ciphertext, salt, slot_index)
-    }
-}
+// Forwards to the keypair's inner `viewing_key`, so a full `ShieldedKeypair`
+// can stand in wherever a viewing-key backend is required.
+crate::forward_viewing_key_trait!(ShieldedKeypair => viewing_key);

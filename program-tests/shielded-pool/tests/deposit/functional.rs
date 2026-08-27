@@ -19,7 +19,7 @@ use zolana_test_utils::litesvm_asserts::{
 };
 use zolana_transaction::{
     derive_blinding, owner_utxo_hash, serialization::RingDepositPlaintext, AssetRegistry, Data,
-    LocalWalletAuthority, Utxo, Wallet, DEFAULT_TAG_WINDOW, SOL_MINT,
+    KeypairWalletAuthority, Utxo, Wallet, DEFAULT_TAG_WINDOW, SOL_MINT,
 };
 
 use shielded_pool_tests::support::{
@@ -67,7 +67,7 @@ fn sol_deposit_moves_lamports_emits_the_exact_output_and_updates_the_indexer() {
             expected_amount: 750_000_000,
             expected_asset: [0u8; 32],
             root_before,
-            authority: &LocalWalletAuthority::new(Pubkey::default(), &recipient_key),
+            authority: &KeypairWalletAuthority::new(Pubkey::default(), &recipient_key),
         },
     );
     assert_eq!(recipient.utxos.len(), 1);
@@ -241,7 +241,7 @@ fn bootstrap_deposits_keep_indexer_wallet_and_tree_in_sync() {
         AssetRegistry::default(),
     )
     .expect("wallet");
-    let authority = LocalWalletAuthority::new(Address::default(), &recipient_keypair);
+    let authority = KeypairWalletAuthority::new(Address::default(), &recipient_keypair);
 
     let mut owner_utxo_hashes = Vec::new();
     let mut view_tags = Vec::new();
@@ -374,7 +374,7 @@ fn ring_sol_deposit_settles_and_indexes_the_exact_output() {
             expected_asset: [0u8; 32],
             expected_ring_program_id: RING_TEST_PROGRAM_ID,
             root_before,
-            authority: &LocalWalletAuthority::new(Address::default(), &recipient_key),
+            authority: &KeypairWalletAuthority::new(Address::default(), &recipient_key),
         },
     );
     assert_eq!(recipient.utxos.len(), 1);
@@ -599,7 +599,7 @@ fn ring_spl_deposit_settles_and_indexes_the_exact_output() {
             expected_asset: mint.to_bytes(),
             expected_ring_program_id: RING_TEST_PROGRAM_ID,
             root_before,
-            authority: &LocalWalletAuthority::new(Address::default(), &recipient_key),
+            authority: &KeypairWalletAuthority::new(Address::default(), &recipient_key),
         },
     );
     assert_eq!(recipient.utxos.len(), 1);

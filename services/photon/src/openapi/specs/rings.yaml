@@ -109,6 +109,11 @@ paths:
                         oneOf:
                         - type: 'null'
                         - $ref: '#/components/schemas/Base64String'
+                      scannedThrough:
+                        oneOf:
+                        - type: 'null'
+                        - $ref: '#/components/schemas/Base64String'
+                          description: Where the scan reached on a terminal page, including an empty page.
                     additionalProperties: false
         '429':
           description: Exceeded rate limit.
@@ -868,9 +873,7 @@ paths:
                         oneOf:
                         - type: 'null'
                         - $ref: '#/components/schemas/Base64String'
-                          description: |-
-                            As on the nullifier query, and absent from an index that does not
-                            report it, this one included. No caller resumes a tag scan from it.
+                          description: Where the scan reached on a terminal page, including an empty page.
                       transactions:
                         type: array
                         items:

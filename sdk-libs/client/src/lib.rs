@@ -41,14 +41,14 @@ pub use prover::{
         assemble, assemble_with_dummy_policy, into_prover, into_prover_with_dummy_policy,
         AssembledTransfer, ProverInputs, ProverVariant, SpendProof,
     },
-    AsyncPollConfig, AsyncProverClient, BatchAddressAppendInputs, Commitments,
-    CompressedCommitments, Delivery, MergeProofResult, MergeProver, MergeRingProver,
-    MergeRingWitness, Proof, ProofCompressed, ProofInputUtxo, ProveRequest, ProverClient,
-    PublicInputs, PublicTransfers, RingAuthorityProofResult, RingAuthorityProver,
-    RingAuthorityWitness, RingTransferP256ProofResult, RingTransferP256Prover,
-    RingTransferProofResult, RingTransferProver, Shape, TransferInput, TransferInputs,
-    TransferOutput, TransferP256Inputs, TransferProofResult, TransferProver, TransferSpendInput,
-    SPP_SUPPORTED_SHAPES,
+    verify_confidential_transfer_inputs, verify_confidential_transfer_proof, AsyncPollConfig,
+    AsyncProverClient, BatchAddressAppendInputs, Commitments, CompressedCommitments, Delivery,
+    MergeProofResult, MergeProver, MergeRingProver, MergeRingWitness, Proof, ProofCompressed,
+    ProofInputUtxo, ProveRequest, ProverClient, PublicInputs, PublicTransfers,
+    RingAuthorityProofResult, RingAuthorityProver, RingAuthorityWitness,
+    RingTransferP256ProofResult, RingTransferP256Prover, RingTransferProofResult,
+    RingTransferProver, Shape, TransferInput, TransferInputs, TransferOutput, TransferP256Inputs,
+    TransferProofResult, TransferProver, TransferSpendInput, SPP_SUPPORTED_SHAPES,
 };
 pub use retry::{IndexerPollConfig, IndexerRpcConfig};
 pub use rpc::{

@@ -1467,7 +1467,7 @@ mod tests {
     fn create_withdrawal_supports_full_u64_amount() {
         let sender = ed25519_keypair(1);
         let authority =
-            crate::wallet_authority::LocalWalletAuthority::new(Pubkey::default(), &sender);
+            crate::wallet_authority::KeypairWalletAuthority::new(Pubkey::default(), &sender);
         let wallet = wallet_with_sol(sender.clone(), u64::MAX);
         let recipient = Pubkey::new_unique();
         let created = create_withdrawal(WithdrawalParams {
@@ -1498,7 +1498,7 @@ mod tests {
     fn create_withdrawal_preserves_two_sol_recipients() {
         let sender = ed25519_keypair(2);
         let authority =
-            crate::wallet_authority::LocalWalletAuthority::new(Pubkey::default(), &sender);
+            crate::wallet_authority::KeypairWalletAuthority::new(Pubkey::default(), &sender);
         let wallet = wallet_with_sol(sender.clone(), 10);
         let user = Pubkey::new_unique();
         let relayer = Pubkey::new_unique();
@@ -1713,7 +1713,7 @@ mod tests {
     fn signing_rejects_input_spent_after_creation() {
         let sender = ShieldedKeypair::new_p256().unwrap();
         let authority =
-            crate::wallet_authority::LocalWalletAuthority::new(Pubkey::default(), &sender);
+            crate::wallet_authority::KeypairWalletAuthority::new(Pubkey::default(), &sender);
         let mut wallet = wallet_with_sol(sender.clone(), 10);
         let unsigned = create_withdrawal(WithdrawalParams {
             wallet: &wallet,
@@ -1746,7 +1746,7 @@ mod tests {
     fn action_path_preserves_input_commitment_hashes() {
         let sender = ed25519_keypair(3);
         let authority =
-            crate::wallet_authority::LocalWalletAuthority::new(Pubkey::default(), &sender);
+            crate::wallet_authority::KeypairWalletAuthority::new(Pubkey::default(), &sender);
         let mut wallet = wallet_with_sol(sender.clone(), 10);
         let data_hash = [13u8; 32];
         let nullifier_pubkey = sender.nullifier_key.pubkey().unwrap();

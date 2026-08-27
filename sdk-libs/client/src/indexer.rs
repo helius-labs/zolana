@@ -243,6 +243,7 @@ impl Rpc for ZolanaIndexer {
                         .map(|(index, item)| convert_encrypted_utxo_match(index, item))
                         .collect::<Result<Vec<_>, _>>()?,
                     next_cursor: response.next_cursor.map(Into::into),
+                    scanned_through: response.scanned_through.map(Into::into),
                 })
             },
         )
@@ -454,6 +455,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
                         .map(|(index, item)| convert_encrypted_utxo_match(index, item))
                         .collect::<Result<Vec<_>, _>>()?,
                     next_cursor: response.next_cursor.map(Into::into),
+                    scanned_through: response.scanned_through.map(Into::into),
                 })
             },
         )
@@ -678,6 +680,7 @@ fn convert_shielded_transactions_response(
             })
             .collect::<Result<Vec<_>, _>>()?,
         next_cursor: response.next_cursor.map(Into::into),
+        scanned_through: response.scanned_through.map(Into::into),
     })
 }
 
@@ -926,6 +929,7 @@ mod tests {
                     salt: None,
                 }],
                 next_cursor: Some(vec![5, 6]),
+                scanned_through: None,
             }
         );
     }
@@ -1001,6 +1005,7 @@ mod tests {
                     messages: vec![],
                 }],
                 next_cursor: Some(vec![23]),
+                scanned_through: None,
             }
         );
     }

@@ -7,7 +7,7 @@ use solana_signer::Signer;
 use zolana_event::indexed_events_from_instruction_groups;
 use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
 use zolana_program_test::deposit_output_from_event;
-use zolana_transaction::{Address, LocalWalletAuthority, Wallet, SOL_MINT};
+use zolana_transaction::{Address, KeypairWalletAuthority, Wallet, SOL_MINT};
 
 use super::{Deposit, DepositRecord, LifecycleHarness, SplDepositAccounts};
 use crate::{
@@ -124,7 +124,7 @@ impl LifecycleHarness {
             .map_err(|e| anyhow!("proofless output decode failed: {e:?}"))?;
 
         let mut wallet = Wallet::new(keypair.shielded_address()?, self.assets.clone())?;
-        let authority = LocalWalletAuthority::new(Address::default(), &keypair);
+        let authority = KeypairWalletAuthority::new(Address::default(), &keypair);
         match &record.spl {
             None => assert_deposit(
                 &self.rpc,

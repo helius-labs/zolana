@@ -7,7 +7,6 @@ import type {
   GetNonInclusionProofsResponse,
   GetRingsByNullifiersRequest,
   GetRingsByTagsRequest,
-  GetShieldedTransactionsByNullifiersResponse,
   GetShieldedTransactionsBySignatureRequest,
   GetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse,
@@ -415,8 +414,6 @@ export function encodeShieldedTransactionsBySignatureRequest(
   };
 }
 
-// Newer indexers report `scannedThrough` on every tag query, so the decoders
-// accept it everywhere.
 export function decodeEncryptedUtxosResponse(value: unknown): GetEncryptedUtxosByTagsResponse {
   const record = object(value, "$", ["context", "matches", "nextCursor", "scannedThrough"]);
   const nextCursor = optional(record["nextCursor"], "$.nextCursor", checkedBase64);
@@ -432,12 +429,6 @@ export function decodeEncryptedUtxosResponse(value: unknown): GetEncryptedUtxosB
 export function decodeShieldedTransactionsResponse(
   value: unknown,
 ): GetShieldedTransactionsByTagsResponse {
-  return decodeShieldedTransactionsByNullifiersResponse(value);
-}
-
-export function decodeShieldedTransactionsByNullifiersResponse(
-  value: unknown,
-): GetShieldedTransactionsByNullifiersResponse {
   const record = object(value, "$", ["context", "transactions", "nextCursor", "scannedThrough"]);
   const nextCursor = optional(record["nextCursor"], "$.nextCursor", checkedBase64);
   const scannedThrough = optional(record["scannedThrough"], "$.scannedThrough", checkedBase64);

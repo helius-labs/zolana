@@ -89,6 +89,16 @@ fn merge_recovery_derivations_match_circuit_vectors() {
 }
 
 #[test]
+fn a_remote_keypair_backend_is_a_wallet_authority() {
+    cases::remote_authority::remote_backend_publishes_the_same_identity();
+    cases::remote_authority::remote_backend_signs_through_the_trait();
+    cases::remote_authority::remote_backend_encrypts_with_the_same_transaction_key();
+    cases::remote_authority::historical_viewing_keys_are_carried_through();
+    cases::remote_authority::viewing_keys_must_contain_the_keypairs_own();
+    cases::remote_authority::derivation_shaped_payloads_are_refused_before_signing();
+}
+
+#[test]
 fn plaintext_transfers_are_canonical_and_indexed_by_owner() {
     let mut world = TransactionWorld::default();
     add_keypairs(&mut world, &["alice", "bob", "carol"]);
@@ -201,6 +211,21 @@ fn wallet_sync_restores_contacts_counters_spends_and_history() {
     cases::wallet::inbound_from(&mut world, 40, "bob".into());
     cases::wallet::outbound_to(&mut world, 25, "carol".into());
     cases::wallet::inbound_from(&mut world, 10, "bob".into());
+}
+
+/// The anonymous rail classifies a send whose only recipient is the sender as a
+/// self transfer, matching the confidential rail. Both the sender-bundle row and
+/// the recipient receipt say `SelfTransfer`, so no row contradicts the other.
+#[test]
+fn wallet_sync_classifies_an_anonymous_send_to_self() {
+    let mut world = TransactionWorld::default();
+    add_keypairs(&mut world, &["alice", "bob"]);
+    cases::wallet::bootstrap_transfer(&mut world, 40, "bob".into(), "alice".into());
+    cases::wallet::spending_transfer(&mut world, 25, "alice".into(), "alice".into());
+    cases::wallet::sync_fresh_wallet(&mut world, "alice".into());
+    cases::wallet::self_transfer_recorded(&mut world, 25);
+    #[cfg(feature = "parallel")]
+    cases::wallet::parallel_scan_agrees(&mut world);
 }
 
 #[test]

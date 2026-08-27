@@ -40,7 +40,7 @@ use zolana_transaction::{
 };
 use zolana_wallet::{
     create_transfer, create_withdrawal, sign_shielded_transaction, AnonymousRecipientSlot,
-    ApprovalRequest, EncryptedTransfer, LocalWalletAuthority, P256Signature, SyncWalletAuthority,
+    ApprovalRequest, EncryptedTransfer, KeypairWalletAuthority, P256Signature, SyncWalletAuthority,
     TransferParams, WalletAuthority, WithdrawalLeg, WithdrawalParams,
 };
 
@@ -87,7 +87,7 @@ impl WalletAuthority for AsyncTestAuthority {
     async fn shielded_address(
         &self,
     ) -> Result<zolana_keypair::shielded::ShieldedAddress, TransactionError> {
-        SyncWalletAuthority::shielded_address(&LocalWalletAuthority::new(
+        SyncWalletAuthority::shielded_address(&KeypairWalletAuthority::new(
             self.solana_pubkey(),
             &self.keypair,
         ))
@@ -104,7 +104,7 @@ impl WalletAuthority for AsyncTestAuthority {
         assets: &AssetRegistry,
     ) -> Result<EncryptedTransfer, TransactionError> {
         SyncWalletAuthority::encrypt_confidential_transfer(
-            &LocalWalletAuthority::new(self.solana_pubkey(), &self.keypair),
+            &KeypairWalletAuthority::new(self.solana_pubkey(), &self.keypair),
             first_nullifier,
             outputs,
             assets,
@@ -119,7 +119,7 @@ impl WalletAuthority for AsyncTestAuthority {
         recipients: &[AnonymousRecipientSlot],
     ) -> Result<zolana_wallet::EncryptedTransfer, TransactionError> {
         SyncWalletAuthority::encrypt_anonymous_transfer(
-            &LocalWalletAuthority::new(self.solana_pubkey(), &self.keypair),
+            &KeypairWalletAuthority::new(self.solana_pubkey(), &self.keypair),
             first_nullifier,
             sender_view_tag,
             sender,
@@ -134,7 +134,7 @@ impl WalletAuthority for AsyncTestAuthority {
         bundle: &zolana_transaction::serialization::split::SplitBundlePlaintext,
     ) -> Result<zolana_wallet::EncryptedSplit, TransactionError> {
         SyncWalletAuthority::encrypt_split(
-            &LocalWalletAuthority::new(self.solana_pubkey(), &self.keypair),
+            &KeypairWalletAuthority::new(self.solana_pubkey(), &self.keypair),
             first_nullifier,
             view_tag,
             bundle,
@@ -154,13 +154,13 @@ impl WalletAuthority for AsyncTestAuthority {
     async fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError> {
         self.p256_sign_calls.fetch_add(1, Ordering::SeqCst);
         SyncWalletAuthority::sign_p256(
-            &LocalWalletAuthority::new(self.solana_pubkey(), &self.keypair),
+            &KeypairWalletAuthority::new(self.solana_pubkey(), &self.keypair),
             message_hash,
         )
     }
 
     async fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError> {
-        SyncWalletAuthority::spend_nullifier_key(&LocalWalletAuthority::new(
+        SyncWalletAuthority::spend_nullifier_key(&KeypairWalletAuthority::new(
             self.solana_pubkey(),
             &self.keypair,
         ))

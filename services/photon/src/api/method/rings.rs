@@ -230,6 +230,7 @@ mod tests {
             },
             matches: Vec::new(),
             next_cursor: Some(Base64String(vec![1, 2, 3])),
+            scanned_through: None,
         })
         .unwrap();
 

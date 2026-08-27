@@ -15,8 +15,8 @@ use crate::{
     nullifier_key::NullifierKey,
     pubkey::{Curve, P256Pubkey, PublicKey},
     shielded::{CompressedShieldedAddress, ShieldedAddress},
-    traits::{ShieldedKeypairTrait, ViewingKeyTrait},
-    viewing_key::{Salt, ViewTag, ViewingKey},
+    traits::ShieldedKeypairTrait,
+    viewing_key::ViewingKey,
 };
 
 /// Not a `ShieldedKeypair`: it holds no signing secret, so that state is
@@ -181,85 +181,6 @@ impl ShieldedKeypairTrait for ShieldedPda {
     }
 }
 
-/// Forwards to the identity's derived viewing key, so encryption and view-tag
-/// derivation need no special case.
-impl ViewingKeyTrait for ShieldedPda {
-    fn pubkey(&self) -> P256Pubkey {
-        self.viewing_key.pubkey()
-    }
-
-    fn ecdh(&self, counterparty: &P256Pubkey) -> Result<[u8; 32], KeypairError> {
-        self.viewing_key.ecdh(counterparty)
-    }
-
-    fn get_sender_view_tag(&self, tx_count: u64) -> Result<ViewTag, KeypairError> {
-        self.viewing_key.get_sender_view_tag(tx_count)
-    }
-
-    fn get_recipient_request_view_tag(&self, request_count: u64) -> Result<ViewTag, KeypairError> {
-        self.viewing_key
-            .get_recipient_request_view_tag(request_count)
-    }
-
-    fn get_send_shared_view_tag(
-        &self,
-        counterparty: &P256Pubkey,
-        i: u64,
-    ) -> Result<ViewTag, KeypairError> {
-        self.viewing_key.get_send_shared_view_tag(counterparty, i)
-    }
-
-    fn get_recipient_shared_view_tag(
-        &self,
-        counterparty: &P256Pubkey,
-        i: u64,
-    ) -> Result<ViewTag, KeypairError> {
-        self.viewing_key
-            .get_recipient_shared_view_tag(counterparty, i)
-    }
-
-    fn recipient_bootstrap_view_tag(&self) -> ViewTag {
-        self.viewing_key.recipient_bootstrap_view_tag()
-    }
-
-    fn get_transaction_viewing_key(
-        &self,
-        first_nullifier: &[u8; 32],
-    ) -> Result<ViewingKey, KeypairError> {
-        self.viewing_key
-            .get_transaction_viewing_key(first_nullifier)
-    }
-
-    fn encrypt_slot(
-        &self,
-        recipient_pubkey: &P256Pubkey,
-        plaintext: &[u8],
-        salt: Salt,
-        slot_index: u32,
-    ) -> Result<Vec<u8>, KeypairError> {
-        self.viewing_key
-            .encrypt_slot(recipient_pubkey, plaintext, salt, slot_index)
-    }
-
-    fn decrypt_utxo(
-        &self,
-        ciphertext: &[u8],
-        tx_viewing_pubkey: &P256Pubkey,
-        salt: Salt,
-        slot_index: u32,
-    ) -> Result<Vec<u8>, KeypairError> {
-        self.viewing_key
-            .decrypt_utxo(ciphertext, tx_viewing_pubkey, salt, slot_index)
-    }
-
-    fn decrypt_slot_ephemeral(
-        &self,
-        recipient_pubkey: &P256Pubkey,
-        ciphertext: &[u8],
-        salt: Salt,
-        slot_index: u32,
-    ) -> Result<Vec<u8>, KeypairError> {
-        self.viewing_key
-            .decrypt_slot_ephemeral(recipient_pubkey, ciphertext, salt, slot_index)
-    }
-}
+// Forwards to the identity's derived viewing key, so encryption and view-tag
+// derivation need no special case.
+crate::forward_viewing_key_trait!(ShieldedPda => viewing_key);

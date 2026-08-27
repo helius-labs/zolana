@@ -1,10 +1,18 @@
-import type { Address, Bytes16, Bytes32, MessageData } from "../../interface/types.js";
+import { ed25519 } from "@noble/curves/ed25519.js";
+import { getAddressEncoder } from "@solana/kit";
+
+import type { Address, Bytes16, Bytes32, Bytes64, MessageData } from "../../interface/types.js";
 import { auditorMessageData, encryptTransactionViewingSecret } from "../../keypair/audit.js";
-import { randomSalt } from "../../keypair/bytes.js";
-import { roleExpansion } from "../../keypair/derivation.js";
+import { checkedBytes, randomSalt } from "../../keypair/bytes.js";
+import {
+  checkedDerivationSeed,
+  ed25519DerivationMessage,
+  roleExpansion,
+} from "../../keypair/derivation.js";
 import { NullifierKey } from "../../keypair/nullifier-key.js";
-import { type P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
+import { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
 import { ShieldedAddress, type ShieldedKeypair } from "../../keypair/shielded.js";
+import { TransactionError } from "../error.js";
 import { ViewingKey } from "../../keypair/viewing-key.js";
 
 import {
@@ -122,12 +130,252 @@ export interface WalletAuthority {
   requestUserApproval(request: ApprovalRequest): Promise<void>;
 }
 
+const addressEncoder = getAddressEncoder();
+
 /**
- * Binds local shielded keys to the Solana address that publishes them. The
- * Solana signature of the transaction authorizes the spend, so the signing
- * secret is not held here.
+ * Client-owned privacy roles derived from a deterministic Ed25519 signature
+ * produced by a remote signer.
+ *
+ * This authority contains no Solana signing key. It verifies the derivation
+ * signature, expands the viewing/nullifier roles in this process, and supports
+ * local wallet sync and proof construction. The completed transaction must be
+ * authorized through a separate, typed remote operation.
  */
-export class LocalWalletAuthority implements WalletAuthority {
+export class ClientEd25519WalletAuthority implements WalletAuthority {
+  readonly #solanaPublicKey: Address;
+  readonly #signingPublicKey: ShieldedPublicKey;
+  readonly #nullifierKey: NullifierKey;
+  readonly #viewingKey: ViewingKey;
+
+  private constructor(
+    solanaPublicKey: Address,
+    signingPublicKey: ShieldedPublicKey,
+    nullifierKey: NullifierKey,
+    viewingKey: ViewingKey,
+  ) {
+    this.#solanaPublicKey = solanaPublicKey;
+    this.#signingPublicKey = signingPublicKey;
+    this.#nullifierKey = nullifierKey;
+    this.#viewingKey = viewingKey;
+  }
+
+  static fromDerivationSeed(
+    input: Readonly<{
+      solanaPublicKey: Address;
+      derivationSeed: Bytes64;
+    }>,
+  ): ClientEd25519WalletAuthority {
+    const publicKey = checkedBytes<Bytes32>(
+      new Uint8Array(addressEncoder.encode(input.solanaPublicKey)),
+      32,
+      "Ed25519 public key",
+    );
+    const seed = checkedDerivationSeed<Bytes64>(input.derivationSeed, "ed25519");
+    const message = ed25519DerivationMessage(publicKey);
+    if (!ed25519.verify(seed, message, publicKey, { zip215: false })) {
+      seed.fill(0);
+      // Mirrors Rust `TransactionError::InvalidDerivationSeed`. The seed is the
+      // right width but is not a signature over this key's derivation message,
+      // which is a different failure from a wrong-width seed.
+      throw new TransactionError("TRANSACTION_INVALID_DERIVATION_SEED");
+    }
+
+    try {
+      const expansion = roleExpansion(seed, "ed25519");
+      const nullifierSecret = expansion.nullifierSecret();
+      const viewingSecret = expansion.viewingSecret();
+      try {
+        return new ClientEd25519WalletAuthority(
+          input.solanaPublicKey,
+          ShieldedPublicKey.fromEd25519(publicKey),
+          NullifierKey.fromSecret(nullifierSecret),
+          ViewingKey.fromBytes(viewingSecret),
+        );
+      } finally {
+        nullifierSecret.fill(0);
+        viewingSecret.fill(0);
+      }
+    } finally {
+      seed.fill(0);
+    }
+  }
+
+  solanaPublicKey(): Address {
+    return this.#solanaPublicKey;
+  }
+
+  shieldedAddress(): Promise<ShieldedAddress> {
+    return Promise.resolve(
+      ShieldedAddress.fromPublicKeys(
+        this.#signingPublicKey,
+        this.#nullifierKey.publicKey(),
+        this.#viewingKey.publicKey(),
+      ),
+    );
+  }
+
+  viewingKeys(): Promise<readonly ViewingKey[]> {
+    return Promise.resolve([this.#copyViewingKey()]);
+  }
+
+  spendNullifierKey(): Promise<NullifierKey> {
+    return Promise.resolve(this.#copyNullifierKey());
+  }
+
+  async syncMaterial(): Promise<WalletSyncMaterial> {
+    return {
+      identity: await this.shieldedAddress(),
+      viewingKeys: [this.#copyViewingKey()],
+      nullifierKey: this.#copyNullifierKey(),
+    };
+  }
+
+  encryptConfidentialTransfer(
+    input: Readonly<{
+      firstNullifier: Bytes32;
+      outputs: readonly ProofOutputUtxo[];
+      assets: AssetRegistry;
+    }>,
+  ): Promise<EncryptedTransfer> {
+    const tx = this.#viewingKey.transactionViewingKey(input.firstNullifier);
+    const salt = randomSalt();
+    return Promise.resolve({
+      txViewingPublicKey: tx.publicKey(),
+      salt,
+      payload: encodeConfidentialSlots(input.outputs, input.assets, tx, salt),
+    });
+  }
+
+  encryptCustomRingTransfer(
+    input: Readonly<{
+      firstNullifier: Bytes32;
+      outputs: readonly ProofOutputUtxo[];
+      assets: AssetRegistry;
+      auditorPublicKey: P256PublicKey;
+    }>,
+  ): Promise<EncryptedCustomRingTransfer> {
+    const tx = this.#viewingKey.transactionViewingKey(input.firstNullifier);
+    const salt = randomSalt();
+    const txViewingSecret = tx.secretBytes();
+    const encryption = encryptTransactionViewingSecret(txViewingSecret, input.auditorPublicKey);
+    return Promise.resolve({
+      txViewingPublicKey: tx.publicKey(),
+      salt,
+      payload: encodeConfidentialSlots(input.outputs, input.assets, tx, salt),
+      auditorMessage: auditorMessageData(encryption.message, input.auditorPublicKey),
+      audit: Object.freeze({ txViewingSecret, ephemeralSecret: encryption.ephemeralSecret }),
+    });
+  }
+
+  encryptAnonymousTransfer(
+    input: Readonly<{
+      firstNullifier: Bytes32;
+      senderViewTag: Bytes32;
+      sender: AnonymousSenderPlaintext;
+      recipients: readonly AnonymousRecipientSlot[];
+    }>,
+  ): Promise<EncryptedTransfer> {
+    const tx = this.#viewingKey.transactionViewingKey(input.firstNullifier);
+    const salt = randomSalt();
+    const slot = (
+      scheme: EncryptedScheme,
+      recipient: P256PublicKey,
+      plaintext: Uint8Array,
+      slotIndex: number,
+      viewTag: Bytes32,
+    ): MessageData => ({
+      viewTag,
+      data: encodeOutputData(
+        scheme,
+        encryptAnonymous(tx, recipient, plaintext, salt, slotIndex),
+        "encrypted",
+      ),
+    });
+    return Promise.resolve({
+      txViewingPublicKey: tx.publicKey(),
+      salt,
+      payload: [
+        slot(
+          EncryptedScheme.anonymousSender,
+          this.#viewingKey.publicKey(),
+          encodeAnonymousSender(input.sender),
+          0,
+          input.senderViewTag,
+        ),
+        ...input.recipients.map((recipient, index) =>
+          slot(
+            EncryptedScheme.anonymousRecipient,
+            recipient.recipientPublicKey,
+            encodeAnonymousRecipient(recipient.plaintext),
+            index + 1,
+            recipient.viewTag,
+          ),
+        ),
+      ],
+    });
+  }
+
+  encryptSplit(
+    input: Readonly<{
+      firstNullifier: Bytes32;
+      viewTag: Bytes32;
+      bundle: SplitBundlePlaintext;
+    }>,
+  ): Promise<EncryptedSplit> {
+    const tx = this.#viewingKey.transactionViewingKey(input.firstNullifier);
+    const salt = randomSalt();
+    return Promise.resolve({
+      txViewingPublicKey: tx.publicKey(),
+      salt,
+      payload: {
+        viewTag: input.viewTag,
+        data: encodeOutputData(
+          EncryptedScheme.split,
+          encryptSplit(tx, this.#viewingKey.publicKey(), encodeSplitBundle(input.bundle), salt, 0),
+          "encrypted",
+        ),
+      },
+    });
+  }
+
+  /**
+   * Deliberately a no-op. This authority holds no signing key and cannot reach
+   * a user: the remote signer authorizes the finished Solana transaction in a
+   * separate step, and that step is the approval gate. Rejecting here instead
+   * would make the type unusable, since transaction construction — which this
+   * authority exists to serve — calls this before it has a transaction to
+   * approve.
+   */
+  requestUserApproval(request: ApprovalRequest): Promise<void> {
+    void request;
+    return Promise.resolve();
+  }
+
+  #copyViewingKey(): ViewingKey {
+    const secret = this.#viewingKey.secretBytes();
+    try {
+      return ViewingKey.fromBytes(secret);
+    } finally {
+      secret.fill(0);
+    }
+  }
+
+  #copyNullifierKey(): NullifierKey {
+    const secret = this.#nullifierKey.secretBytes();
+    try {
+      return NullifierKey.fromSecret(secret);
+    } finally {
+      secret.fill(0);
+    }
+  }
+}
+
+/**
+ * Binds a shielded keypair to the Solana address that publishes it. The Solana
+ * signature of the transaction authorizes the spend, so the signing secret is
+ * not held here.
+ */
+export class KeypairWalletAuthority implements WalletAuthority {
   readonly #solanaPublicKey: Address;
   readonly #address: ShieldedAddress;
   readonly #viewing: ViewingKey;
@@ -156,7 +404,7 @@ export class LocalWalletAuthority implements WalletAuthority {
   /** `derivationSeed` is the wallet's signature over `ed25519DerivationMessage(publicKey)`. */
   static fromDerivationSeed(
     input: Readonly<{ solanaPublicKey: Address; derivationSeed: Uint8Array }>,
-  ): LocalWalletAuthority {
+  ): KeypairWalletAuthority {
     const expansion = roleExpansion(input.derivationSeed, "ed25519");
     const viewing = ViewingKey.fromBytes(expansion.viewingSecret());
     const nullifier = NullifierKey.fromSecret(expansion.nullifierSecret());
@@ -166,7 +414,7 @@ export class LocalWalletAuthority implements WalletAuthority {
       nullifier.publicKey(),
       viewing.publicKey(),
     );
-    return new LocalWalletAuthority({
+    return new KeypairWalletAuthority({
       solanaPublicKey: input.solanaPublicKey,
       address,
       viewingKey: viewing,
@@ -336,3 +584,5 @@ export class LocalWalletAuthority implements WalletAuthority {
     return Promise.resolve();
   }
 }
+
+export { KeypairWalletAuthority as LocalWalletAuthority };

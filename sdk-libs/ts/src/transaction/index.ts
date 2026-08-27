@@ -52,7 +52,8 @@ export { ProofInputUtxo, Utxo, createProofOutput, deriveBlinding, ownerUtxoHash 
 export type { Blinding, ProofOutputInit, ProofOutputUtxo, UtxoInit } from "./utxo.js";
 export {
   AssetRegistry,
-  LocalWalletAuthority,
+  ClientEd25519WalletAuthority,
+  KeypairWalletAuthority,
   SOL_ASSET_ID,
   SOL_MINT,
   Wallet,

@@ -3,6 +3,7 @@ pub(crate) mod blinding;
 pub(crate) mod common;
 pub(crate) mod merge_derivation;
 pub(crate) mod plaintext_transfer;
+pub(crate) mod remote_authority;
 pub(crate) mod serialization;
 pub(crate) mod split;
 pub(crate) mod transfer;
