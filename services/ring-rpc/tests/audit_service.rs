@@ -22,14 +22,15 @@ use zolana_ring_client::{
     auditor_view_tag, AuditorEncryption, OriginError, ReaderKey, RingOrigin, RingWithdrawal,
 };
 use zolana_ring_rpc::{
-    auditor_key_attestation, rpc_module, unix_now, AuditRead, Claim, CreateAuditorKeyRequest,
-    CreateAuditorKeyResponse, DecryptedWithdrawal, DepositHistory, DepositPage, DepositRecord,
-    GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse, HealthResponse, Hub,
-    KeyMode, OriginPolicy, Origins, Page, PageOptions, ReadAttestation, ReadAuth, ReadBuildError,
-    ReadCheck, ReadSignature, ReadSigner, ReaderGrant, RingConfiguration, RingDepositsRequest,
-    RingDepositsResponse, RingRpcError, RingState, RingStatusRequest, RingStatusResponse,
-    RootSecret, SkippedReason, TransactionPage, TransactionSource, Unauthorized, WebAuthnAssertion,
-    AUTH_SKEW, CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS, HEALTH, RING_DEPOSITS, RING_STATUS,
+    auditor_key_attestation, rpc_module, unix_now, AuditRead, Claim, Clock,
+    CreateAuditorKeyRequest, CreateAuditorKeyResponse, DecryptedWithdrawal, DepositHistory,
+    DepositPage, DepositRecord, GetDecryptedTransactionsRequest, GetDecryptedTransactionsResponse,
+    HealthResponse, Hub, KeyMode, OriginPolicy, Origins, Page, PageOptions, ReadAttestation,
+    ReadAuth, ReadBuildError, ReadCheck, ReadSignature, ReadSigner, ReaderGrant, RingConfiguration,
+    RingDepositsRequest, RingDepositsResponse, RingRpcError, RingState, RingStatusRequest,
+    RingStatusResponse, RootSecret, SkippedReason, TransactionPage, TransactionSource,
+    Unauthorized, WebAuthnAssertion, AUTH_SKEW, CREATE_AUDITOR_KEY, GET_DECRYPTED_TRANSACTIONS,
+    HEALTH, RING_DEPOSITS, RING_STATUS,
 };
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
@@ -609,6 +610,14 @@ impl Fixture {
             .local(RING, self.auditor.clone())
             .expect("hub")
     }
+
+    fn hub_at(&self, source: StaticSource, now: u64) -> Hub<StaticSource> {
+        Hub::builder(source, GENESIS)
+            .with_origins(origins())
+            .with_clock(Clock::Fixed(now))
+            .local(RING, self.auditor.clone())
+            .expect("hub")
+    }
 }
 
 fn page() -> Page {
@@ -1116,7 +1125,6 @@ async fn an_unsigned_auditor_key_request_is_refused() {
 async fn auditor_key_requests_bind_cluster_ring_time_and_nonce() {
     let fixture = Fixture::new();
     let hub = fixture.hub(fixture.source());
-    let now = unix_now().expect("clock");
 
     let other_cluster = CreateAuditorKeyRequest::for_ring(RING, [10; 32])
         .sign(&authority())
@@ -1148,16 +1156,12 @@ async fn auditor_key_requests_bind_cluster_ring_time_and_nonce() {
         Unauthorized::BadSignature
     ));
 
-    for timestamp in [now - AUTH_SKEW.as_secs() - 1, now + AUTH_SKEW.as_secs() + 1] {
-        let stale = CreateAuditorKeyRequest::for_ring(RING, GENESIS)
-            .at(timestamp)
-            .sign(&authority())
-            .expect("signed request");
-        assert!(refused(
-            authorize(&hub, &stale).await,
-            Unauthorized::StaleTimestamp
-        ));
-    }
+    let mut shifted = signed_by(&authority());
+    shifted.auth.timestamp += 1;
+    assert!(refused(
+        authorize(&hub, &shifted).await,
+        Unauthorized::BadSignature
+    ));
 
     let request = signed_by(&authority());
     authorize(&hub, &request).await.expect("first use");
@@ -1165,6 +1169,32 @@ async fn auditor_key_requests_bind_cluster_ring_time_and_nonce() {
         authorize(&hub, &request).await,
         Unauthorized::Replay
     ));
+}
+
+#[tokio::test]
+async fn auditor_key_requests_are_accepted_exactly_within_the_skew_window() {
+    let fixture = Fixture::new();
+    let now = 1_000_000_000;
+    let hub = fixture.hub_at(fixture.source(), now);
+
+    for timestamp in [now - AUTH_SKEW.as_secs() - 1, now + AUTH_SKEW.as_secs() + 1] {
+        let outside = CreateAuditorKeyRequest::for_ring(RING, GENESIS)
+            .at(timestamp)
+            .sign(&authority())
+            .expect("signed request");
+        assert!(refused(
+            authorize(&hub, &outside).await,
+            Unauthorized::StaleTimestamp
+        ));
+    }
+
+    for timestamp in [now - AUTH_SKEW.as_secs(), now + AUTH_SKEW.as_secs()] {
+        let boundary = CreateAuditorKeyRequest::for_ring(RING, GENESIS)
+            .at(timestamp)
+            .sign(&authority())
+            .expect("signed request");
+        authorize(&hub, &boundary).await.expect("boundary request");
+    }
 }
 
 #[tokio::test]

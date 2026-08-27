@@ -52,6 +52,8 @@ jobs:
         with:
           path: prover/server/formal-verification/.lake
           key: lean-${{ hashFiles('prover/server/formal-verification/lean-toolchain') }}-${{ hashFiles('prover/server/formal-verification/lake-manifest.json') }}
+          restore-keys: |
+            lean-${{ hashFiles('prover/server/formal-verification/lean-toolchain') }}-
 
       - name: Build Lean project (checks all theorems)
         run: |
