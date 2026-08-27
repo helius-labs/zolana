@@ -1116,7 +1116,6 @@ async fn an_unsigned_auditor_key_request_is_refused() {
 async fn auditor_key_requests_bind_cluster_ring_time_and_nonce() {
     let fixture = Fixture::new();
     let hub = fixture.hub(fixture.source());
-    let now = unix_now().expect("clock");
 
     let other_cluster = CreateAuditorKeyRequest::for_ring(RING, [10; 32])
         .sign(&authority())
@@ -1148,7 +1147,18 @@ async fn auditor_key_requests_bind_cluster_ring_time_and_nonce() {
         Unauthorized::BadSignature
     ));
 
-    for timestamp in [now - AUTH_SKEW.as_secs() - 1, now + AUTH_SKEW.as_secs() + 1] {
+    // Read the clock per bound rather than once at the top of the test.
+    // `unix_now` truncates to whole seconds and the service compares against its
+    // own reading, so the future bound is refused only while no second boundary
+    // has been crossed since the timestamp was chosen. Capturing the clock
+    // before the six authorizations above left a window long enough to cross
+    // one, which coverage runs hit regularly.
+    for offset in [
+        -(AUTH_SKEW.as_secs() as i64) - 1,
+        AUTH_SKEW.as_secs() as i64 + 1,
+    ] {
+        let base = unix_now().expect("clock");
+        let timestamp = base.saturating_add_signed(offset);
         let stale = CreateAuditorKeyRequest::for_ring(RING, GENESIS)
             .at(timestamp)
             .sign(&authority())
