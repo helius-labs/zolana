@@ -1045,8 +1045,16 @@ fn select_inputs(
 ) -> Result<Vec<UnsignedSpendInput>, ClientError> {
     let mut selected = Vec::new();
     let mut available = 0u64;
+    // A ring-bound utxo commits to its ring, and this circuit does not cover
+    // that binding. Selecting one produces a witness the prover refuses, which
+    // reads as a prover failure rather than a wrong input; spend it through the
+    // ring's own path instead. Split and merge already refuse one by way of
+    // `is_plain_utxo`.
     for entry in wallet.utxos.iter().filter(|entry| {
-        !entry.spent && entry.utxo.asset == asset && entry.output_context.tree == tree
+        !entry.spent
+            && entry.utxo.asset == asset
+            && entry.output_context.tree == tree
+            && entry.utxo.ring_program_id.is_none()
     }) {
         selected.push(UnsignedSpendInput {
             utxo: entry.utxo.clone(),
@@ -2283,6 +2291,42 @@ mod tests {
                 amount: 1000,
                 parts: 3
             }
+        ));
+    }
+
+    /// A ring-bound utxo commits to its ring; the default-ring circuit does not
+    /// cover that binding. Selecting one builds a witness the prover refuses,
+    /// which surfaces as a prover failure rather than a wrong input, so the
+    /// balance has to look unavailable here instead.
+    #[test]
+    fn select_inputs_leaves_ring_bound_utxos_to_the_ring_path() {
+        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
+        let ring_bound = push_utxo(&mut wallet, &keypair, 100, [2u8; 31]);
+        let entry = wallet
+            .utxos
+            .iter_mut()
+            .find(|entry| entry.output_context.hash == ring_bound)
+            .expect("pushed utxo");
+        entry.utxo.ring_program_id = Some(Address::new_from_array([7u8; 32]));
+
+        // The plain utxo alone covers this.
+        let selected = select_inputs(&wallet, Address::default(), SOL_MINT, 10)
+            .expect("a plain utxo covers the amount");
+        assert_eq!(selected.len(), 1);
+        assert!(selected
+            .iter()
+            .all(|input| input.utxo.ring_program_id.is_none()));
+
+        // The ring-bound 100 must not be reachable, even though it would cover
+        // the amount on its own.
+        assert!(matches!(
+            select_inputs(&wallet, Address::default(), SOL_MINT, 50),
+            Err(ClientError::InsufficientBalance {
+                requested: 50,
+                available: 10
+            })
         ));
     }
 
