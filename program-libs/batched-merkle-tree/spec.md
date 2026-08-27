@@ -104,8 +104,8 @@ prefix. Each applied proof dequeues `Z` values: the tree root becomes
 
 ```rust
 struct BatchAppendInputs {
-    old_root: [u8; 32],
     new_root: [u8; 32],
+    old_root: [u8; 32],
     zkp_batch_index: u16,
     compressed_proof: CompressedProof, // a[32] || b[64] || c[32]
 }
@@ -137,11 +137,9 @@ The Groth16 proof establishes the height-40 indexed append from `old_root` to
 **Checks and state changes**
 
 1. Require `i` to fit the cache and `i < num_full_zkp_batches`.
-2. If `i < a`, the update is already applied and the call is a no-op. If cache
-   slot `[p][i]` is occupied, the update is already submitted and the call is a
-   no-op.
+2. If `i < a`, the update is already applied and the call is a no-op.
 3. Derive `start_index` and `public_input`, verify the proof, then cache
-   `{ old_root, new_root }` at `[p][i]`.
+   `{ old_root, new_root }` at `[p][i]`, replacing any occupied value.
 4. Repeatedly select the next required slot
    `i = batches[p].num_inserted_zkp_batches`. Stop when the slot is empty.
 5. Require the cached `old_root` to equal the current tree root. On mismatch,
@@ -179,8 +177,13 @@ equals the live root.
 `old_root`, `new_root`, `leaves_hash`, and `start_index`; changing any of them
 changes the public input.
 
-**Property — idempotence.** Replaying an already applied or already cached
-update changes neither the tree nor the queue.
+**Property — replay.** A proof for an already applied ZKP batch (`i < a`) is
+not verified and changes no state. A proof for an occupied slot is verified
+and, if valid, replaces the cached update. The apply pass runs after every
+cache, so slot `a` is empty between calls and an occupied slot is ahead of `a`;
+its replacement changes neither the tree nor the queue in that call. A later
+apply pass applies the replacement if its `old_root` matches and evicts it
+otherwise.
 
 **Event**
 
