@@ -89,9 +89,9 @@ apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicabl
   - spl.md: 22 (CreateAssetCounter 8, CreateSplInterface 14)
   - event.md: 4
   - cross-cutting.md: 33
-- Critical (funds/double-spend/authority takeover): 93
-- High: 83
-- Medium: 66
+- Critical (funds/double-spend/authority takeover): 98
+- High: 88
+- Medium: 69
 - Not applicable post-PR164: 5 (the both-amounts gate (INV-TRANSACT-12) and the merge ciphertext/`merge_view_tag` entries; the P256 entries returned with PR172 and are re-scoped, not N/A; IDs retained, never renumbered)
 - SPEC_DIVERGENCE items: all 8 originally flagged items were resolved by updating
   `docs/spec.md` to match the code (items 1 and 3 were re-corrected on 2026-07-28
@@ -129,7 +129,7 @@ Ticked invariants carry a `Covered by:` line; the remaining ones carry a
 
 Post-PR172 sync (2026-07-31):
 
-- Covered: 219 / 247
+- Covered: 232 / 260
 - Covered on companion security branches (#175, #176): 3 (the `- [~]` entries:
   INV-CREATE-PC-10, INV-CREATE-AC-07, INV-BATCH-NULL-07 — behavior and tests
   land with those branches)
@@ -137,11 +137,11 @@ Post-PR172 sync (2026-07-31):
 - Pointer: 1 (INV-XC-30, by design: it documents reachability and defers to INV-XC-31 / INV-TRANSACT-44 for coverage; it is counted in cross-cutting's 6 partial+untested below)
 - Not covered: 0
 
-(219 + 3 + 19 + 1 + 5 = 247. The per-file partial+untested column sums to 21
+(232 + 3 + 19 + 1 + 5 = 260. The per-file partial+untested column sums to 21
 because it includes the pointer.)
 
 Per file (covered / partial+untested / companion / not-applicable):
-transact 57/2/0/1, deposit 35/0/0/0, merge 23/6/0/4, tree 18/4/1/0,
+transact 57/2/0/1, deposit 35/0/0/0, merge 23/6/0/4, tree 31/4/1/0,
 protocol-config 16/0/1/0, ring-config 18/2/0/0, spl 21/0/1/0, event 4/0/0/0,
 cross-cutting 27/6/0/0.
 
