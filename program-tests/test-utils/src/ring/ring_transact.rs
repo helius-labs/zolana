@@ -30,7 +30,8 @@ use zolana_transaction::{
 use super::{decode_output_blinding, RingHarness};
 use crate::{
     localnet::{
-        send_transaction, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION, SPL_CHANGE_POSITION, ZERO,
+        send_transaction, send_transaction_fitting, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION,
+        SPL_CHANGE_POSITION, ZERO,
     },
     test_validator_asserts::{
         assert_account_unchanged, assert_ring_transact, fetch_account,
@@ -369,12 +370,8 @@ impl RingHarness {
         }
         .instruction();
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-        let signature = send_transaction(
-            &mut self.rpc,
-            &[compute_budget, transfer_ix.clone()],
-            &fee_payer.pubkey(),
-            &[&fee_payer],
-        )?;
+        let instructions = [compute_budget, transfer_ix.clone()];
+        let signature = send_transaction_fitting(&mut self.rpc, &instructions, &fee_payer, &[])?;
 
         // A change-only transfer/withdrawal has no recipient slot, so locate the
         // indexed transaction by the sender's view tag instead.

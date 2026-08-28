@@ -4,7 +4,7 @@ use solana_pubkey::Pubkey;
 use zolana_client::{ClientError, Rpc};
 use zolana_interface::{
     pda, state::forester_fee_per_queue_element, NullifierMarker, NULLIFIER_MARKER_SIZE,
-    SHIELDED_POOL_PROGRAM_ID,
+    PROGRAM_ID_PUBKEY,
 };
 use zolana_tree::TreeAccount;
 
@@ -23,33 +23,45 @@ pub fn marker_addresses(tree: &Pubkey, nullifiers: &[[u8; 32]]) -> Vec<Pubkey> {
 
 pub fn tree_close_before_index<R: Rpc>(rpc: &R, tree: &Pubkey) -> Result<u64, ClientError> {
     let mut account = fetch_account(rpc, tree)?;
-    let tree_account =
-        TreeAccount::from_bytes(&mut account.data, tree.to_bytes()).expect("load tree");
+    let tree_account = TreeAccount::from_bytes(&mut account.data, tree.to_bytes())
+        .map_err(|error| ClientError::Rpc(format!("load tree {tree}: {error:?}")))?;
     Ok(tree_account.close_before_index())
 }
 
 pub fn nullifier_queue_next_index<R: Rpc>(rpc: &R, tree: &Pubkey) -> Result<u64, ClientError> {
     let account = fetch_account(rpc, tree)?;
-    Ok(nullifier_queue_next_index_from(&account, tree))
+    nullifier_queue_next_index_from(&account, tree)
 }
 
-pub fn nullifier_queue_next_index_from(account: &Account, tree: &Pubkey) -> u64 {
+pub fn nullifier_queue_next_index_from(
+    account: &Account,
+    tree: &Pubkey,
+) -> Result<u64, ClientError> {
     let mut data = account.data.clone();
-    let mut tree_account = TreeAccount::from_bytes(&mut data, tree.to_bytes()).expect("load tree");
-    tree_account.nullifer_tree().queue_batches.next_index
+    let mut tree_account = TreeAccount::from_bytes(&mut data, tree.to_bytes())
+        .map_err(|error| ClientError::Rpc(format!("load tree {tree}: {error:?}")))?;
+    Ok(tree_account.nullifer_tree().queue_batches.next_index)
 }
 
-pub fn nullifier_zkp_batch_size_from(account: &Account, tree: &Pubkey) -> u64 {
+pub fn nullifier_zkp_batch_size_from(
+    account: &Account,
+    tree: &Pubkey,
+) -> Result<u64, ClientError> {
     let mut data = account.data.clone();
-    let mut tree_account = TreeAccount::from_bytes(&mut data, tree.to_bytes()).expect("load tree");
-    tree_account.nullifer_tree().queue_batches.zkp_batch_size
+    let mut tree_account = TreeAccount::from_bytes(&mut data, tree.to_bytes())
+        .map_err(|error| ClientError::Rpc(format!("load tree {tree}: {error:?}")))?;
+    Ok(tree_account.nullifer_tree().queue_batches.zkp_batch_size)
 }
 
-pub fn forester_fee_for_inputs(tree_before: &Account, tree: &Pubkey, num_inputs: u64) -> u64 {
-    let zkp_batch_size = nullifier_zkp_batch_size_from(tree_before, tree);
-    let fee_per_element =
-        forester_fee_per_queue_element(zkp_batch_size).expect("non-zero nullifier zkp batch size");
-    fee_per_element * num_inputs
+pub fn forester_fee_for_inputs(
+    tree_before: &Account,
+    tree: &Pubkey,
+    num_inputs: u64,
+) -> Result<u64, ClientError> {
+    let zkp_batch_size = nullifier_zkp_batch_size_from(tree_before, tree)?;
+    forester_fee_per_queue_element(zkp_batch_size)
+        .and_then(|fee| fee.checked_mul(num_inputs))
+        .ok_or_else(|| ClientError::Rpc("invalid nullifier forester fee".to_owned()))
 }
 
 pub fn expected_tree_lamports_after_spend(
@@ -69,23 +81,18 @@ pub fn assert_tree_lamports_after_spend<R: Rpc>(
     num_inputs: u64,
 ) -> Result<Account, ClientError> {
     let marker_rent = nullifier_marker_rent(rpc)?;
-    let forester_fee = forester_fee_for_inputs(tree_before, tree, num_inputs);
+    let forester_fee = forester_fee_for_inputs(tree_before, tree, num_inputs)?;
     let tree_after = fetch_account(rpc, tree)?;
-    assert_eq!(
-        tree_after.lamports,
-        expected_tree_lamports_after_spend(
-            tree_before.lamports,
-            forester_fee,
-            num_inputs,
-            marker_rent
-        ),
-        "tree collects the forester fee and funds one marker per input"
+    let mut expected_tree = tree_before.clone();
+    expected_tree.lamports = expected_tree_lamports_after_spend(
+        tree_before.lamports,
+        forester_fee,
+        num_inputs,
+        marker_rent,
     );
-    assert_eq!(tree_after.owner, tree_before.owner, "tree owner unchanged");
     assert_eq!(
-        tree_after.data.len(),
-        tree_before.data.len(),
-        "tree size unchanged"
+        tree_after, expected_tree,
+        "tree collects the forester fee, funds one marker per input, and changes no other account field"
     );
     Ok(tree_after)
 }
@@ -100,24 +107,23 @@ pub fn decode_nullifier_marker(
 ) -> NullifierMarker {
     let (expected_marker, bump) = pda::nullifier_marker(tree, nullifier);
     assert_eq!(*marker, expected_marker, "nullifier marker address");
-    assert_eq!(
-        account.owner,
-        Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
-        "nullifier marker {marker} owner"
-    );
-    assert_eq!(
-        account.data.len(),
-        NULLIFIER_MARKER_SIZE,
-        "nullifier marker {marker} size"
-    );
-    assert_eq!(
-        account.lamports, marker_rent,
-        "nullifier marker {marker} holds exactly its rent"
-    );
-    assert!(!account.executable, "nullifier marker {marker} executable");
     let decoded = NullifierMarker::try_from_slice(&account.data)
         .unwrap_or_else(|error| panic!("decode nullifier marker {marker}: {error}"));
-    assert_eq!(decoded.bump, bump, "nullifier marker {marker} bump");
+    let expected_marker = NullifierMarker {
+        queue_index: decoded.queue_index,
+        bump,
+    };
+    let expected_account = Account {
+        lamports: marker_rent,
+        data: borsh::to_vec(&expected_marker).expect("serialize expected marker"),
+        owner: PROGRAM_ID_PUBKEY,
+        executable: false,
+        rent_epoch: account.rent_epoch,
+    };
+    assert_eq!(
+        account, &expected_account,
+        "nullifier marker {marker} account"
+    );
     decoded
 }
 

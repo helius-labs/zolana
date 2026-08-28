@@ -20,6 +20,7 @@ num-bigint = { workspace = true }
 rand = { workspace = true }
 solana-account = { workspace = true }
 solana-address = { workspace = true }
+solana-address-lookup-table-interface = { workspace = true }
 solana-compute-budget-interface = { workspace = true }
 solana-instruction = { workspace = true }
 solana-instruction-error = { workspace = true }
