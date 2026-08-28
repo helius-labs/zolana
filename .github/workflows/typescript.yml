@@ -59,7 +59,7 @@ jobs:
           const sdk = await import("@heliuslabs/zolana");
           const instructions = await import("@heliuslabs/zolana/instructions");
           await Promise.all(
-            ["addresses", "client", "interface", "keypair", "transaction", "wallet"].map(
+            ["addresses", "client", "interface", "keypair", "ring", "transaction", "wallet"].map(
               (subpath) => import(`@heliuslabs/zolana/${subpath}`),
             ),
           );

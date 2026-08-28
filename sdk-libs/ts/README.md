@@ -8,14 +8,14 @@ Use it for:
 - deposit SOL, SPL Token, and Token-2022 into a private balance;
 - read private balances and transaction history;
 - send private transfers to a Solana address; and
-- private to public withdrawal to a Solana addresses.
+- private to public withdrawal to a Solana address.
 
 All private transactions are executed in a single Solana transaction.
 
 ## Install
 
 ```sh
-npm install @heliuslabs/zolana@alpha @solana/kit
+npm install @heliuslabs/zolana @solana/kit
 ```
 
 Requirements:
@@ -112,8 +112,8 @@ the same owner seed, as shown above.
 A client needs one URL and a
 [Helius API key](https://dashboard.helius.dev/).
 
-The RPC endpoint serves the Solana RPC, the Photon indexer to fetch encrypted
-state, and the prover that generates the zero-knowledge proofs.
+The RPC endpoint serves the Solana RPC. The Photon indexer to fetch encrypted
+state, and the prover that generates the zero-knowledge proofs currently use aws URLs.
 It's planned to make indexer and prover available through using the same Helius RPC URL.
 
 **Devnet:**
@@ -235,6 +235,27 @@ Persist wallet state with `serializeWallet` and restore it with
 `deserializeWallet`. Persist key material separately. Serialized wallet state
 contains UTXO data and must be encrypted at rest.
 
+## Custom Rings
+
+Besides the permissionless default Ring, regulated entities can create custom Rings.
+Custom Rings are simple Solana programs for compliance and policy control. Each Ring deploys its own program. It has a program
+upgrade authority, a protocol authority, and an auditor key. The default Ring does not have an auditor key.
+
+The auditor key lives in a Ring RPC. The Ring authority grants view access.
+Helius can host that RPC; the authority can host it itself. The forester is
+shared with the default Ring.
+
+This first iteration supports confidential transactions only. Anonymous
+transfers that would use a relayer are not supported. Later iterations add
+allowlists, blocklists, and rule-based config on the Ring config account.
+The deploy process is expected to stay the same.
+
+Build Ring deposits, transfers, and withdrawals with
+`buildRingDepositTransaction`, `buildRingTransferTransaction`, and
+`buildRingWithdrawalTransaction`. `RingRpc` reads decrypted Ring transactions
+for a granted reader. The same surface is available from
+`@heliuslabs/zolana/ring`.
+
 ## Public API
 
 Common exports from `@heliuslabs/zolana` include:
@@ -245,13 +266,16 @@ Common exports from `@heliuslabs/zolana` include:
   `buildWithdrawalTransaction`, `buildSplitTransaction`,
   `buildMergeTransaction`;
 - state: `syncWallet`, `getPrivateTokenBalances`, `getPrivateTransactions`,
-  `serializeWallet`, `deserializeWallet`; and
-- registration: `buildRegistrationTransaction`.
+  `serializeWallet`, `deserializeWallet`;
+- registration: `buildRegistrationTransaction`; and
+- Rings: `buildRingDepositTransaction`, `buildRingTransferTransaction`,
+  `buildRingWithdrawalTransaction`, `listRegisteredRings`, `RingRpc`.
 
 Advanced protocol users can import low-level instruction builders from
 `@heliuslabs/zolana/instructions`. PDA helpers are available from
 `@heliuslabs/zolana/addresses`; additional typed surfaces are exposed under
-`@heliuslabs/zolana/client`, `/interface`, `/keypair`, `/transaction`, and `/wallet`.
+`@heliuslabs/zolana/client`, `/interface`, `/keypair`, `/ring`, `/transaction`,
+and `/wallet`.
 
 ## API reference
 

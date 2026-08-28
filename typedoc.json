@@ -8,6 +8,7 @@
     "sdk-libs/ts/src/instructions.ts",
     "sdk-libs/ts/src/interface/index.ts",
     "sdk-libs/ts/src/keypair/index.ts",
+    "sdk-libs/ts/src/ring.ts",
     "sdk-libs/ts/src/transaction/index.ts",
     "sdk-libs/ts/src/wallet/index.ts"
   ],
@@ -35,8 +36,6 @@
   },
   "intentionallyNotExported": [
     "AccountReader",
-    "AnonymousRecipientPlaintext",
-    "AnonymousSenderPlaintext",
     "ClientErrorArguments",
     "CountDetails",
     "DecodeSource",
@@ -45,15 +44,19 @@
     "IndexDetails",
     "LatestBlockhash",
     "MethodDetails",
-    "ProoflessOutput",
+    "ProgramAccountReader",
+    "RingRegistryReader",
+    "RingWithdrawalTransactionParams",
     "SerializedPrivateTransaction",
     "SerializedViewingKeyEntry",
     "SerializedWalletUtxo",
     "SettlementTransfer",
+    "SignatureReader",
     "SolanaRpc",
     "SolanaRpcSubscriptions",
     "SyncClient",
-    "TransferPlaintextUtxos"
+    "TransferPlaintextRecipient",
+    "TransferPlaintextSender"
   ],
   "externalSymbolLinkMappings": {
     "@solana/addresses": {
