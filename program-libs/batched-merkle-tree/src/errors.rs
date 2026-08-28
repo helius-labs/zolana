@@ -53,8 +53,8 @@ pub enum BatchedMerkleTreeError {
     TreeIsFull,
     #[error("Nullifier is already queued.")]
     NonInclusionCheckFailed,
-    #[error("Batch must be retired prior to reusing it.")]
-    BatchNotRetired,
+    #[error("Batch must be reclaimable prior to reusing it.")]
+    BatchNotReclaimable,
     #[error("Account error {0}")]
     AccountError(#[from] AccountError),
     #[error("Cached tree update index is out of range.")]
@@ -85,7 +85,7 @@ impl From<BatchedMerkleTreeError> for u32 {
             BatchedMerkleTreeError::InvalidIndex => 14309,
             BatchedMerkleTreeError::TreeIsFull => 14310,
             BatchedMerkleTreeError::NonInclusionCheckFailed => 14311,
-            BatchedMerkleTreeError::BatchNotRetired => 14312,
+            BatchedMerkleTreeError::BatchNotReclaimable => 14312,
             BatchedMerkleTreeError::CachedTreeUpdateIndexOutOfRange => 14313,
             BatchedMerkleTreeError::HashChainNotReady => 14314,
             BatchedMerkleTreeError::ArithmeticOverflow => 14315,

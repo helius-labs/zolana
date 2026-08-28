@@ -15,8 +15,8 @@ pub(crate) fn insert_into_current_queue_batch(
     match current_batch.checked_state()? {
         BatchState::Fill => {}
         BatchState::Inserted => {
-            if !current_batch.is_retired(close_before_index) {
-                return Err(BatchedMerkleTreeError::BatchNotRetired);
+            if !current_batch.is_reclaimable(close_before_index) {
+                return Err(BatchedMerkleTreeError::BatchNotReclaimable);
             }
             let start_index = current_batch
                 .start_index
@@ -101,8 +101,8 @@ mod tests {
         let batch = batch_metadata.batches.get_mut(0).unwrap();
         batch.mark_as_inserted_in_merkle_tree(1, 1, 10).unwrap();
         assert_eq!(batch.get_state(), BatchState::Inserted);
-        let retirement_sequence = batch.retirement_sequence().unwrap();
-        assert_eq!(retirement_sequence, init_start_index - 1 + batch_size);
+        let reclaimable_sequence = batch.reclaimable_sequence().unwrap();
+        assert_eq!(reclaimable_sequence, init_start_index - 1 + batch_size);
 
         for i in 0..batch_size as u8 {
             insert(
@@ -123,10 +123,10 @@ mod tests {
                 &mut hash_chain_lengths,
                 &mut hash_chain_data,
                 &[21; 32],
-                retirement_sequence - 1,
+                reclaimable_sequence - 1,
             )
             .unwrap_err(),
-            BatchedMerkleTreeError::BatchNotRetired
+            BatchedMerkleTreeError::BatchNotReclaimable
         );
         assert_eq!(batch_metadata, before);
 
@@ -135,7 +135,7 @@ mod tests {
             &mut hash_chain_lengths,
             &mut hash_chain_data,
             &[21; 32],
-            retirement_sequence,
+            reclaimable_sequence,
         )
         .unwrap();
         let batch = batch_metadata.batches.first().unwrap();

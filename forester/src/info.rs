@@ -30,7 +30,7 @@ struct BatchInfo {
     inserted_zkps: u64,
     zkp_batch_index: u64,
     num_zkp_batches: u64,
-    retired: bool,
+    reclaimable: bool,
 }
 
 /// Print the current state of `tree`, its nullifier queue, and the forester
@@ -86,7 +86,7 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
                 inserted_zkps: batch.get_num_inserted_zkps(),
                 zkp_batch_index: batch.get_current_zkp_batch_index(),
                 num_zkp_batches: batch.get_num_zkp_batches(),
-                retired: batch.is_retired(close_before_index),
+                reclaimable: batch.is_reclaimable(close_before_index),
             });
         }
         (
@@ -130,7 +130,7 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
                         "inserted_zkps": batch.inserted_zkps,
                         "zkp_batch_index": batch.zkp_batch_index,
                         "num_zkp_batches": batch.num_zkp_batches,
-                        "retired": batch.retired,
+                        "reclaimable": batch.reclaimable,
                     }))
                     .collect::<Vec<_>>(),
                 "ready_to_forest_zkp_batches": ready_total,
@@ -158,7 +158,7 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
     for batch in &batch_infos {
         println!(
             "  batch {}: state={:<8} queued={}  ready_zkps={}  inserted_zkps={}  \
-             zkp_batch_index={}  num_zkp_batches={}  retired={}",
+             zkp_batch_index={}  num_zkp_batches={}  reclaimable={}",
             batch.index,
             batch.state,
             batch.queued,
@@ -166,7 +166,7 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
             batch.inserted_zkps,
             batch.zkp_batch_index,
             batch.num_zkp_batches,
-            batch.retired,
+            batch.reclaimable,
         );
     }
     println!("  => READY TO FOREST: {ready_total} zkp-batches (~{ready_nullifiers} nullifiers)");

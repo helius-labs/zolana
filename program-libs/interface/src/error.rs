@@ -130,7 +130,7 @@ pub enum ShieldedPoolError {
     NullifierAlreadyQueued = 7048,
     #[error("tree does not hold enough lamports to fund a nullifier marker")]
     InsufficientNullifierMarkerRent = 7049,
-    #[error("nullifier marker batch has not retired yet")]
+    #[error("nullifier marker batch is not reclaimable yet")]
     NullifierMarkerNotClosable = 7050,
     #[error("nullifier marker account is invalid")]
     InvalidNullifierMarker = 7051,

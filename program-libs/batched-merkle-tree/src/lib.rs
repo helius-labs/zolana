@@ -65,12 +65,12 @@
 //! (`batch_size / zkp_batch_size`); the tree is updated incrementally one ZKP
 //! batch at a time.
 //!
-//! **Retirement and `close_before_index`:** Once a batch is fully applied
+//! **Reclaimable batches and `close_before_index`:** Once a batch is fully applied
 //! (`Inserted`) and the other batch holds at least half of its values, the next
-//! applied update retires it: root-history slots that could still prove
+//! applied update marks it reclaimable: root-history slots that could still prove
 //! non-inclusion of its values are zeroed and the tree's `close_before_index`
 //! watermark `w` advances to `first_sequence(batch) + batch_size`. A batch is
-//! reusable only once retired (`BatchNotRetired` otherwise), and a nullifier
+//! reusable only once reclaimable (`BatchNotReclaimable` otherwise), and a nullifier
 //! marker may be closed only once `marker.queue_index < w`.
 //!
 //! **Hash chains:** Each ZKP batch keeps a hash chain storing the Poseidon hash
@@ -104,7 +104,7 @@
 //! - `BatchAlreadyInserted` (14302) - Batch is already inserted
 //! - `TreeIsFull` (14310) - Batched Merkle tree reached capacity
 //! - `NonInclusionCheckFailed` (14311) - Nullifier is already queued
-//! - `BatchNotRetired` (14312) - Batch must be retired before reuse
+//! - `BatchNotReclaimable` (14312) - Batch must be reclaimable before reuse
 //! - `NonCanonicalFieldElement` (14317) - Value is not below the BN254 scalar modulus
 //! - `QueueIndexMismatch` (14318) - Queue index and batch position disagree
 //! - `NullifierMarkerNotClosable` (14319) - Marker queue index is not below `close_before_index`

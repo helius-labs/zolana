@@ -50,7 +50,7 @@ inserted_elements = num_full_zkp_batches * Z + num_inserted
 
 first_sequence(batch) = batch.start_index - 1
 
-retired(batch) = w >= first_sequence(batch) + B
+reclaimable(batch) = w >= first_sequence(batch) + B
 
 batches[p].state != Inserted =>
     tree.next_index =
@@ -71,9 +71,9 @@ yet appended to the tree.
 `RH >= K` keeps the roots of one `K`-update cascade in distinct history slots
 when the call returns.
 
-`Fill --B queue insertions--> Full --final ZKP append--> Inserted --retire--> reusable --reuse--> Fill`.
+`Fill --B queue insertions--> Full --final ZKP append--> Inserted --mark reclaimable--> reusable --reuse--> Fill`.
 A finalized ZKP batch may be appended while its queue batch is still `Fill`.
-Retirement keeps the state `Inserted` and does not wait for marker cleanup.
+Marking a batch reclaimable keeps the state `Inserted` and does not wait for marker cleanup.
 
 Each queued nullifier has an exact marker account:
 
@@ -114,7 +114,7 @@ The instruction also receives the writable marker PDA.
 
 1. Require the nullifier-tree type and canonical nullifier encoding.
 2. Require `batches[c].state == Fill`. If it is `Inserted`, reuse it first;
-   reuse requires the batch to have been retired (batch append, step 9), resets
+   reuse requires the batch to be reclaimable (batch append, step 9), resets
    its counters, `sequence_number`, and `root_index`, and advances `start_index`
    by `2 * B`. `Full` is not reusable.
 3. Require
@@ -226,7 +226,7 @@ The Groth16 proof establishes the height-40 indexed append from `old_root` to
    ```
 
    If `current.inserted_elements >= B / 2`, `previous.state == Inserted`, and
-   `previous` is not retired, retire `previous`. If
+   `previous` is not reclaimable, mark `previous` reclaimable. If
    `previous.sequence_number > tree.sequence_number`, let:
 
    ```text
@@ -248,7 +248,7 @@ The Groth16 proof establishes the height-40 indexed append from `old_root` to
 hash-chain bytes remain until overwritten on reuse. Its markers remain until
 separate cleanup transactions close them.
 
-**Property — retirement liveness.** The previous batch retires in the first
+**Property — reclaim liveness.** The previous batch becomes reclaimable in the first
 applied update of the current batch after the current batch holds `B / 2`
 queued values. Until that update, the previous batch cannot be reused when
 queue insertion cycles back to it.
@@ -301,7 +301,7 @@ final `new_root`.
 
 ## Close nullifier markers
 
-**Description.** Permissionlessly closes any number of retired nullifier
+**Description.** Permissionlessly closes any number of closable nullifier
 markers.
 
 **Input**
@@ -323,7 +323,7 @@ For every `(nullifier, marker)` pair:
 3. Require `marker.queue_index < w`.
 4. Transfer every marker lamport to the tree and close the marker.
 
-The call is atomic. A cleanup call may contain markers from different retired
+The call is atomic. A cleanup call may contain markers from different reclaimable
 batches of the same tree.
 
 **Property — safe marker lifetime.** For every queued nullifier `n`:
@@ -334,7 +334,7 @@ OR
 every accepted nullifier-tree root contains n
 ```
 
-Retirement establishes the right-hand condition before advancing `w`; cleanup
+Marking a batch reclaimable establishes the right-hand condition before advancing `w`; cleanup
 may therefore remove the marker without enabling a stale non-inclusion proof.
 The transact verifier accepts only roots for which `accepted_root` holds.
 Delayed cleanup locks working capital.

@@ -13,9 +13,9 @@ queue insertion, batch append, and marker cleanup.
 
 | Module | Description |
 |--------|-------------|
-| `batch` | `Batch` state machine, retirement predicate, hash-chain insertion |
+| `batch` | `Batch` state machine, reclaimability predicate, hash-chain insertion |
 | `merkle_tree` | `BatchedMerkleTreeAccount` and queue/tree operations |
-| `queue` | Queue batch insertion helper (batch reuse gated on retirement) |
+| `queue` | Queue batch insertion helper (batch reuse gated on reclaimability) |
 | `queue_batch_metadata` | Metadata for queue batches |
 | `nullifier_marker` | Marker payload, PDA seeds, test-only host emulation of the marker set |
 | `initialize_address_tree` | Initialize a batched address or nullifier tree |
@@ -67,20 +67,20 @@ update, and applies every contiguous cached update whose `old_root` matches the
 live root. Each applied update advances `next_index` and `sequence_number`,
 appends the new root, and marks the ZKP batch inserted.
 
-### Retirement and `close_before_index`
+### Reclaimable batches and `close_before_index`
 
 After each applied update, with `current` the batch that was just updated and
 `previous` the other batch: if `current` holds at least `batch_size / 2`
-values, `previous` is `Inserted`, and `previous` is not yet retired, then the
+values, `previous` is `Inserted`, and `previous` is not yet reclaimable, then the
 root-history slots that could still prove non-inclusion of `previous`'s values
 are zeroed and the tree's watermark advances to
 `close_before_index = max(close_before_index, first_sequence(previous) +
 batch_size)` where `first_sequence(batch) = batch.start_index - 1`.
 
-- `Batch::is_retired(close_before_index)` is
+- `Batch::is_reclaimable(close_before_index)` is
   `close_before_index >= first_sequence + batch_size`.
-- Queue insertion reuses an `Inserted` batch only once it is retired; otherwise
-  it fails with `BatchNotRetired`.
+- Queue insertion reuses an `Inserted` batch only once it is reclaimable; otherwise
+  it fails with `BatchNotReclaimable`.
 - A nullifier marker may be closed only once `marker.queue_index <
   close_before_index` (`NullifierMarkerNotClosable` otherwise), which is when
   every accepted root already contains the nullifier.
@@ -93,7 +93,7 @@ All errors are defined in `src/errors.rs` and map to u32 error codes:
 - `BatchAlreadyInserted` (14302) - Batch is already inserted
 - `TreeIsFull` (14310) - Batched Merkle tree reached capacity
 - `NonInclusionCheckFailed` (14311) - Nullifier is already queued
-- `BatchNotRetired` (14312) - Batch must be retired before reuse
+- `BatchNotReclaimable` (14312) - Batch must be reclaimable before reuse
 - `NonCanonicalFieldElement` (14317) - Value is not below the BN254 scalar modulus
 - `QueueIndexMismatch` (14318) - Queue index and batch position disagree
 - `NullifierMarkerNotClosable` (14319) - Marker queue index is not below `close_before_index`
@@ -105,7 +105,7 @@ All errors are defined in `src/errors.rs` and map to u32 error codes:
 - `cargo test -p zolana-batched-merkle-tree` runs the marker, canonical-field,
   and layout tests.
 - `cargo test -p zolana-batched-merkle-tree --features test-only` adds the
-  retirement tests (they drive the cached-update apply pass without a proof)
+  reclaimable-batch tests (they drive the cached-update apply pass without a proof)
   and the prover-backed `tests/nullifier_tree.rs`, which needs a running
   prover (`ZOLANA_PROVER_URL`).
 - `tests/init_roots.rs` verifies the sentinel roots against

@@ -293,12 +293,12 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
         // When both batches filled while the forester was idle, the current
         // batch is the already-inserted batch about to be reused and the other
         // batch is Full. Its occupancy and the inserted batch's final root are
-        // sufficient to retire here; requiring a successor tree update would
+        // sufficient to mark it reclaimable here; requiring a successor tree update would
         // unnecessarily wedge all new spends at the rotation boundary.
         let current_batch_index = self.queue_batches.get_current_batch_index();
         if self.queue_batches.get_current_batch()?.checked_state()? == BatchState::Inserted {
             let successor_index = if current_batch_index == 0 { 1 } else { 0 };
-            self.retire_previous_batch(successor_index)?;
+            self.mark_previous_batch_reclaimable(successor_index)?;
         }
 
         let close_before_index = self.close_before_index;
@@ -356,7 +356,7 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
     ///
     /// Timeslot 1:
     /// - insert into B1 until full
-    /// - update tree with B0 in 4 partial updates, don't retire B0 yet
+    /// - update tree with B0 in 4 partial updates, don't mark B0 reclaimable yet
     ///   -> R0 -> B0.1
     ///   -> R1 -> B0.2
     ///   -> R2 -> B0.3
@@ -373,7 +373,7 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
     ///   current_sequence_number = 8
     ///
     /// Timeslot 2:
-    ///     - retire B0
+    ///     - mark B0 reclaimable
     ///     - current_sequence_number < 14 -> zero out all roots until root index is 3
     ///     - R8 -> 0
     ///     - R9 -> 0
@@ -381,7 +381,7 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
     ///     - R1 -> 0
     ///     - R2 -> 0
     ///     - now all roots containing values nullified in the final B0 root update are zeroed
-    ///     - B0 is safe to retire
+    ///     - B0 is safe to mark reclaimable
     ///
     fn zero_out_roots(&mut self, sequence_number: u64, first_safe_root_index: u32) {
         let TreeAccountLayout {
@@ -416,18 +416,18 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
         }
     }
 
-    pub(crate) fn retire_previous_batch(
+    pub(crate) fn mark_previous_batch_reclaimable(
         &mut self,
-        current_index: usize,
+        successor_index: usize,
     ) -> Result<(), BatchedMerkleTreeError> {
         let half_batch = self.queue_batches.batch_size / 2;
         let close_before_index = self.close_before_index;
-        let previous_index = if current_index == 0 { 1 } else { 0 };
+        let previous_index = if successor_index == 0 { 1 } else { 0 };
 
-        let current_is_half_full = self
+        let successor_is_half_full = self
             .queue_batches
             .batches
-            .get(current_index)
+            .get(successor_index)
             .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?
             .get_num_inserted_elements()
             >= half_batch;
@@ -437,16 +437,18 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
             .get(previous_index)
             .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?;
         let previous_is_inserted = previous.checked_state()? == BatchState::Inserted;
-        if !current_is_half_full || !previous_is_inserted || previous.is_retired(close_before_index)
+        if !successor_is_half_full
+            || !previous_is_inserted
+            || previous.is_reclaimable(close_before_index)
         {
             return Ok(());
         }
 
         let sequence_number = previous.sequence_number;
         let root_index = previous.root_index;
-        let retirement_sequence = previous.retirement_sequence()?;
+        let reclaimable_sequence = previous.reclaimable_sequence()?;
         self.zero_out_roots(sequence_number, root_index);
-        self.close_before_index = close_before_index.max(retirement_sequence);
+        self.close_before_index = close_before_index.max(reclaimable_sequence);
         Ok(())
     }
 
@@ -845,7 +847,8 @@ mod test {
         assert_eq!(cached_update, cached);
     }
 
-    /// Retirement trace with B = 4, Z = 1, RH = 10. `retire_previous_batch`
+    /// Reclaimability trace with B = 4, Z = 1, RH = 10.
+    /// `mark_previous_batch_reclaimable`
     /// is always called with the index of the batch whose update was applied
     /// (the pending index before the advance), never the post-advance index.
     /// 1. No batch is ready -> nothing should happen.
@@ -860,7 +863,7 @@ mod test {
     ///    -> nothing should happen.
     /// 7. Batch 1 is inserted and Batch 0 is half full and no overlapping roots exist
     ///    -> w = 8, roots are untouched.
-    /// 8. Batch 1 is already retired -> nothing should happen
+    /// 8. Batch 1 is already reclaimable -> nothing should happen
     /// 9. Batch 0 is inserted and Batch 1 is full and overlapping roots exist
     ///    -> roots zeroed, w = 12.
     #[test]
@@ -933,7 +936,7 @@ mod test {
             let mut account =
                 BatchedMerkleTreeAccount::<10, 4>::address_from_bytes(&mut account_data, &pubkey)
                     .unwrap();
-            account.retire_previous_batch(1).unwrap();
+            account.mark_previous_batch_reclaimable(1).unwrap();
             assert_eq!(account_data, account_data_ref);
         }
 
@@ -949,7 +952,7 @@ mod test {
             let mut account =
                 BatchedMerkleTreeAccount::<10, 4>::address_from_bytes(&mut account_data, &pubkey)
                     .unwrap();
-            account.retire_previous_batch(1).unwrap();
+            account.mark_previous_batch_reclaimable(1).unwrap();
             assert_eq!(account_data, account_data_ref);
         }
         // 4. Batch 0 is inserted and Batch 1 is half full
@@ -968,7 +971,7 @@ mod test {
                 account.queue_batches.batches[1].get_num_inserted_elements()
             );
             let previous_roots = account.layout.root_history.data.to_vec();
-            account.retire_previous_batch(1).unwrap();
+            account.mark_previous_batch_reclaimable(1).unwrap();
             let current_roots = account.layout.root_history.data.to_vec();
             println!("previous_roots: {:?}", previous_roots);
             assert_ne!(previous_roots, current_roots);
@@ -984,7 +987,7 @@ mod test {
             assert_eq!(account.queue_batches.batches[0].sequence_number, 14);
             assert_eq!(account.queue_batches.batches[0].root_index, 4);
             assert_eq!(account.close_before_index, 4);
-            assert!(account.queue_batches.batches[0].is_retired(account.close_before_index));
+            assert!(account.queue_batches.batches[0].is_reclaimable(account.close_before_index));
             assert_eq!(
                 account.queue_batches.batches[0].get_num_inserted_zkps(),
                 num_zkp_updates
@@ -1022,7 +1025,7 @@ mod test {
                 account
                     .queue_batches
                     .increment_pending_batch_index_if_inserted(state);
-                account.retire_previous_batch(1).unwrap();
+                account.mark_previous_batch_reclaimable(1).unwrap();
             }
             assert_eq!(
                 account.queue_batches.batches[1].get_state(),
@@ -1048,7 +1051,7 @@ mod test {
             for batch in account.queue_batches.batches.iter_mut() {
                 println!("batch state: {:?}", batch);
             }
-            account.retire_previous_batch(1).unwrap();
+            account.mark_previous_batch_reclaimable(1).unwrap();
             assert_eq!(account_data, account_data_ref);
         }
         println!("pre 5");
@@ -1070,12 +1073,12 @@ mod test {
             let mut account =
                 BatchedMerkleTreeAccount::<10, 4>::address_from_bytes(&mut account_data, &pubkey)
                     .unwrap();
-            account.retire_previous_batch(0).unwrap();
+            account.mark_previous_batch_reclaimable(0).unwrap();
             assert_eq!(account_data, account_data_ref);
         }
         println!("pre 6");
         // 7. Batch 1 is inserted and Batch 0 is half full but no overlapping roots exist
-        // -> batch 1 retired, roots untouched
+        // -> batch 1 reclaimable, roots untouched
         {
             // Make Batch 0 half full
             {
@@ -1098,7 +1101,7 @@ mod test {
             let mut account =
                 BatchedMerkleTreeAccount::<10, 4>::address_from_bytes(&mut account_data, &pubkey)
                     .unwrap();
-            account.retire_previous_batch(0).unwrap();
+            account.mark_previous_batch_reclaimable(0).unwrap();
             let mut account_ref = BatchedMerkleTreeAccount::<10, 4>::address_from_bytes(
                 &mut account_data_ref,
                 &pubkey,
@@ -1108,13 +1111,13 @@ mod test {
             assert_eq!(account.get_metadata(), account_ref.get_metadata());
             assert_eq!(account, account_ref);
         }
-        // 8. Batch 1 is already retired -> nothing should happen
+        // 8. Batch 1 is already reclaimable -> nothing should happen
         {
             let mut account_data_ref = account_data.clone();
             let mut account =
                 BatchedMerkleTreeAccount::<10, 4>::address_from_bytes(&mut account_data, &pubkey)
                     .unwrap();
-            account.retire_previous_batch(0).unwrap();
+            account.mark_previous_batch_reclaimable(0).unwrap();
             let account_ref = BatchedMerkleTreeAccount::<10, 4>::address_from_bytes(
                 &mut account_data_ref,
                 &pubkey,
@@ -1123,7 +1126,7 @@ mod test {
             assert_eq!(account, account_ref);
         }
         // 9. Batch 0 is inserted and Batch 1 is full
-        //    -> should retire Batch 0 and zero overlapping roots
+        //    -> should mark Batch 0 reclaimable and zero overlapping roots
         {
             // Make Batch 0 and 1 full
             {
@@ -1169,7 +1172,7 @@ mod test {
                 account.queue_batches.batches[1].get_state(),
                 BatchState::Full
             );
-            account.retire_previous_batch(1).unwrap();
+            account.mark_previous_batch_reclaimable(1).unwrap();
             let mut account_ref = BatchedMerkleTreeAccount::<10, 4>::address_from_bytes(
                 &mut account_data_ref,
                 &pubkey,
@@ -1216,8 +1219,8 @@ mod test {
                 BatchState::Inserted
             );
             assert_eq!(account.close_before_index, 12);
-            assert!(account.queue_batches.batches[0].is_retired(12));
-            assert!(!account.queue_batches.batches[1].is_retired(12));
+            assert!(account.queue_batches.batches[0].is_reclaimable(12));
+            assert!(!account.queue_batches.batches[1].is_reclaimable(12));
         }
         println!("pre 9.1");
 
@@ -1228,17 +1231,17 @@ mod test {
                 insert_rnd_addresses::<10, 4>(&mut account_data, batch_size, rng, &pubkey).unwrap();
             }
             println!("pre 9.2");
-            // Reusing batch 1 retires it from batch 0's full occupancy; no
+            // Reusing batch 1 marks it reclaimable from batch 0's full occupancy; no
             // additional batch-0 tree update is required.
             let mut account =
                 BatchedMerkleTreeAccount::<10, 4>::address_from_bytes(&mut account_data, &pubkey)
                     .unwrap();
-            let retirement_sequence = account.queue_batches.batches[1]
-                .retirement_sequence()
+            let reclaimable_sequence = account.queue_batches.batches[1]
+                .reclaimable_sequence()
                 .unwrap();
             let address = random_nullifier(rng);
             assert_eq!(account.insert_nullifier_into_queue(&address).unwrap(), 20);
-            assert_eq!(account.close_before_index, retirement_sequence);
+            assert_eq!(account.close_before_index, reclaimable_sequence);
             assert_eq!(
                 account.queue_batches.batches[1].get_state(),
                 BatchState::Fill

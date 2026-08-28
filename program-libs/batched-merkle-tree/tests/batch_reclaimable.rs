@@ -97,7 +97,7 @@ fn assert_roots(data: &mut [u8], pubkey: &Address, expected: [Option<[u8; 32]>; 
 }
 
 #[test]
-fn retirement_advances_watermark_and_zeroes_roots() {
+fn reclaimable_batch_advances_watermark_and_zeroes_roots() {
     let pubkey = Address::new_unique();
     let tree_key = pubkey.to_bytes();
     let mut data = account_data();
@@ -114,8 +114,8 @@ fn retirement_advances_watermark_and_zeroes_roots() {
         assert_eq!(batch.sequence_number, 4 + RH as u64);
         assert_eq!(batch.root_index, 4);
         assert_eq!(batch.first_sequence().unwrap(), 0);
-        assert_eq!(batch.retirement_sequence().unwrap(), BATCH_SIZE);
-        assert!(!batch.is_retired(tree.close_before_index));
+        assert_eq!(batch.reclaimable_sequence().unwrap(), BATCH_SIZE);
+        assert!(!batch.is_reclaimable(tree.close_before_index));
         assert_eq!(tree.close_before_index, 0);
     }
 
@@ -145,8 +145,14 @@ fn retirement_advances_watermark_and_zeroes_roots() {
         let tree = load_tree(&mut data, &pubkey);
         assert_eq!(tree.close_before_index, BATCH_SIZE);
         let batches = &tree.get_metadata().queue_batches.batches;
-        assert!(batches.first().unwrap().is_retired(tree.close_before_index));
-        assert!(!batches.get(1).unwrap().is_retired(tree.close_before_index));
+        assert!(batches
+            .first()
+            .unwrap()
+            .is_reclaimable(tree.close_before_index));
+        assert!(!batches
+            .get(1)
+            .unwrap()
+            .is_reclaimable(tree.close_before_index));
     }
     assert_roots(
         &mut data,
@@ -188,7 +194,7 @@ fn retirement_advances_watermark_and_zeroes_roots() {
 }
 
 #[test]
-fn full_successor_retires_inserted_batch_at_reuse_boundary() {
+fn full_successor_makes_inserted_batch_reclaimable_at_reuse_boundary() {
     let pubkey = Address::new_unique();
     let tree_key = pubkey.to_bytes();
     let mut data = account_data();

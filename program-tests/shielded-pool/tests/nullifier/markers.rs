@@ -162,7 +162,7 @@ fn set_close_before_index(env: &mut Pool, close_before_index: u64) {
     );
 }
 
-fn retire_root_fixture(env: &mut Pool, close_before_index: u64, root_index: usize) {
+fn set_reclaim_watermark_and_zero_root(env: &mut Pool, close_before_index: u64, root_index: usize) {
     const NULLIFIER_ZKP_BATCHES: usize =
         (ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE / ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE) as usize;
     type Layout = TreeAccountLayout<
@@ -174,7 +174,7 @@ fn retire_root_fixture(env: &mut Pool, close_before_index: u64, root_index: usiz
     let tree = env.tree.pubkey();
     let mut account = tree_account(env);
     let layout: &mut Layout = wincode::deserialize_mut(&mut account.data)
-        .expect("load tree layout for retirement fixture");
+        .expect("load tree layout for reclaimable fixture");
     layout.nullifier.metadata.close_before_index = close_before_index;
     *layout
         .nullifier
@@ -185,7 +185,7 @@ fn retire_root_fixture(env: &mut Pool, close_before_index: u64, root_index: usiz
     env.rpc
         .svm
         .set_account(tree, account)
-        .expect("write retired root fixture");
+        .expect("write reclaimable root fixture");
 }
 
 fn set_tree_lamports(env: &mut Pool, lamports: u64) {
@@ -421,14 +421,14 @@ fn transact_rejects_a_tree_short_of_marker_rent() {
 }
 
 #[test]
-fn close_rejects_an_unretired_marker() {
+fn close_rejects_marker_before_batch_is_reclaimable() {
     let mut env = Pool::initialized();
     let nullifier = fe(1);
     queue_marker(&mut env, &nullifier, 0);
     assert_eq!(
         tree_close_before_index(&env.rpc, &env.tree.pubkey()).expect("close_before_index"),
         0,
-        "fresh tree has retired nothing"
+        "fresh tree has no reclaimable batches"
     );
 
     let ix = close_instruction(&env, vec![nullifier]);
@@ -491,7 +491,7 @@ fn close_returns_marker_rent_to_the_tree() {
             &[close_instruction(&env, nullifiers.to_vec())],
             &[],
         )
-        .expect("close retired markers");
+        .expect("close markers below the reclaim watermark");
     let trace = env
         .rpc
         .last_transaction_trace()
@@ -501,21 +501,21 @@ fn close_returns_marker_rent_to_the_tree() {
 }
 
 #[test]
-fn closed_marker_does_not_make_a_retired_root_spendable_again() {
+fn closed_marker_does_not_make_an_obsolete_root_spendable_again() {
     let mut env = Pool::initialized();
     let data = transfer_ix_data(2, 3);
     let nullifiers = nullifiers_of(&data);
     queue_markers(&mut env, &nullifiers, 0);
-    retire_root_fixture(&mut env, nullifiers.len() as u64, 0);
+    set_reclaim_watermark_and_zero_root(&mut env, nullifiers.len() as u64, 0);
 
     env.rpc
         .create_and_send_default_payer_transaction(
             &[close_instruction(&env, nullifiers.clone())],
             &[],
         )
-        .expect("close markers below the retirement watermark");
+        .expect("close markers below the reclaim watermark");
     assert_nullifier_markers_absent(&env.rpc, &env.tree.pubkey(), &nullifiers)
-        .expect("retired markers closed");
+        .expect("closable markers closed");
 
     let replay = transact_instruction(&env, data);
     expect_transact_rejection(

@@ -312,7 +312,7 @@ the proof-backed binary `nullifier_markers_proof` covers the success path.
 
 ### Authorization
 
-- [x] **INV-CLOSE-MARKER-01: closing retired markers is permissionless**
+- [x] **INV-CLOSE-MARKER-01: closing markers below the reclaim watermark is permissionless**
   - Covered by: `program-tests/shielded-pool/tests/nullifier/markers.rs` `close_returns_marker_rent_to_the_tree`, `close_honours_the_watermark_boundary` (the transaction fee payer is the unrelated test payer; the instruction takes no signer)
   - Kind: reachability
   - Statement: `close_nullifier_markers` takes no signer and no fee-payer account; for every tree and every set of markers with `queue_index < close_before_index`, any transaction submitter can close them.
@@ -359,16 +359,16 @@ the proof-backed binary `nullifier_markers_proof` covers the success path.
   - Severity: Medium
   - Suggested test: negative; harness: program-tests integration
 
-### Retirement Gate
+### Reclaimable Batch Gate
 
 - [x] **INV-CLOSE-MARKER-06: a marker is closable iff `queue_index < close_before_index`**
-  - Covered by: `program-tests/shielded-pool/tests/nullifier/markers.rs` `close_rejects_an_unretired_marker` (fresh tree, `w = 0`), `close_honours_the_watermark_boundary` (`queue_index == w` rejected, `queue_index == w - 1` closed; `w` set by a LiteSVM fixture that writes `close_before_index` into the tree bytes because reaching retirement needs `B + B/2 = 1800` queued nullifiers with the smallest supported batch); localnet: `tests/localnet/photon/forester.rs` `phase_assert_marker_cleanup` (drained but unretired batch, `w == 0`, `close_markers` rejected with 7050 and no lamports move)
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/markers.rs` `close_rejects_marker_before_batch_is_reclaimable` (fresh tree, `w = 0`), `close_honours_the_watermark_boundary` (`queue_index == w` rejected, `queue_index == w - 1` closed; `w` set by a LiteSVM fixture that writes `close_before_index` into the tree bytes because making a batch reclaimable needs `B + B/2 = 1800` queued nullifiers with the smallest supported batch); localnet: `tests/localnet/photon/forester.rs` `phase_assert_marker_cleanup` (drained but not yet reclaimable batch, `w == 0`, `close_markers` rejected with 7050 and no lamports move)
   - Kind: precondition
-  - Statement: for every marker in the instruction, `marker.queue_index < tree.close_before_index` must hold; otherwise the instruction returns Err. `close_before_index` only advances in `batch_update_nullifier_tree` when a batch retires (`w = max(w, previous.start_index - 1 + batch_size)`), so a closable marker's nullifier is contained in every accepted nullifier-tree root (spec property "safe marker lifetime").
-  - Location: `programs/shielded-pool/src/instructions/nullifier_marker/close.rs:15-17`, `program-libs/batched-merkle-tree/src/nullifier_marker.rs:13-15` (`fn is_closable`), `program-libs/batched-merkle-tree/src/merkle_tree.rs` (`fn retire_previous_batch`)
+  - Statement: for every marker in the instruction, `marker.queue_index < tree.close_before_index` must hold; otherwise the instruction returns Err. `close_before_index` only advances in `batch_update_nullifier_tree` when a batch becomes reclaimable (`w = max(w, previous.start_index - 1 + batch_size)`), so a closable marker's nullifier is contained in every accepted nullifier-tree root (spec property "safe marker lifetime").
+  - Location: `programs/shielded-pool/src/instructions/nullifier_marker/close.rs:15-17`, `program-libs/batched-merkle-tree/src/nullifier_marker.rs:13-15` (`fn is_closable`), `program-libs/batched-merkle-tree/src/merkle_tree.rs` (`fn mark_previous_batch_reclaimable`)
   - Error: `ShieldedPoolError::NullifierMarkerNotClosable = 7050`
   - Severity: Critical (early close re-enables a stale non-inclusion proof)
-  - Suggested test: negative boundary + positive; harness: program-tests integration; end-to-end retirement remains uncovered on localnet (see the note in `phase_assert_marker_cleanup`)
+  - Suggested test: negative boundary + positive; harness: program-tests integration; end-to-end reclaimability remains uncovered on localnet (see the note in `phase_assert_marker_cleanup`)
 
 ### Rollback
 

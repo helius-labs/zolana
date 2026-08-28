@@ -224,7 +224,7 @@ fn close_once(
 ) -> Result<ClosePass> {
     let close_before_index = read_close_before_index(rpc, tree)?;
     if scan_from >= close_before_index {
-        tracing::info!(close_before_index, "no retired nullifier markers to close");
+        tracing::info!(close_before_index, "no closable nullifier markers to close");
         return Ok(ClosePass {
             submitted: 0,
             closed_before: scan_from,
@@ -239,7 +239,7 @@ fn close_once(
         tracing::warn!(
             indexed_before,
             close_before_index,
-            "photon has not indexed every retired nullifier yet"
+            "photon has not indexed every closable nullifier yet"
         );
     }
 

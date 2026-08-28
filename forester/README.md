@@ -35,7 +35,7 @@ cargo run -p forester -- close-markers [--tree <PUBKEY>] [--from-seq N] [--max-t
 ### `close-markers`
 
 Every queued nullifier owns a nine-byte marker PDA funded from the tree. Once a
-queue batch is appended and retires, the tree's `close_before_index` advances
+queue batch is appended and reclaimable, the tree's `close_before_index` advances
 past that batch and its markers become closable by anyone; closing returns the
 marker rent to the tree. `close-markers` performs that cleanup:
 
@@ -53,4 +53,4 @@ it has not already closed. On restart, pass the last completed watermark via
 `--from-seq` (and persist it in the process supervisor) to avoid rescanning from
 zero. Failed watch passes retain their scan watermark and retry instead of
 terminating the daemon. `info` prints `close_before_index` and a per-batch
-`retired` flag so the remaining cleanup work is visible without a payer key.
+`reclaimable` flag so the remaining cleanup work is visible without a payer key.

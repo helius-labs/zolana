@@ -643,10 +643,10 @@ fn fetch_tree_account(env: &ForesterEnv) -> TestResult<solana_account::Account> 
 /// Marker lifecycle after the drain. The localnet tree keeps the canonical
 /// 120 ZKP batches per queue batch, so with Z = 10 one queue batch holds
 /// B = 1200 nullifiers; this suite queues 200, batch 0 never fills, and no
-/// batch retires: `close_before_index` must stay at zero, every marker must
+/// batch becomes reclaimable: `close_before_index` must stay at zero, every marker must
 /// survive the drain, and the test forester's `close_markers` must be rejected
 /// with `NullifierMarkerNotClosable` without moving lamports. The positive
-/// close path (retired batch, rent returned) is covered hermetically in
+/// close path (reclaimable batch, rent returned) is covered hermetically in
 /// `tests/nullifier/markers.rs` with a watermark fixture.
 fn phase_assert_marker_cleanup(
     env: &mut ForesterEnv,
@@ -660,7 +660,7 @@ fn phase_assert_marker_cleanup(
     assert_eq!(
         tree_close_before_index(&env.rpc, &env.tree_pubkey)?,
         0,
-        "draining a partially filled batch retires nothing"
+        "draining a partially filled batch makes nothing reclaimable"
     );
     assert_nullifier_markers(&env.rpc, &env.tree_pubkey, queued_nullifiers)?;
 
@@ -676,7 +676,7 @@ fn phase_assert_marker_cleanup(
     let tree_before = fetch_tree_account(env)?;
     let error = NullifierTestForester::default()
         .close_markers(&mut env.rpc, &env.payer, env.tree_pubkey, sample)
-        .expect_err("closing markers of an unretired batch must be rejected");
+        .expect_err("closing markers before the batch is reclaimable must be rejected");
     let client_error = error
         .downcast_ref::<ClientError>()
         .ok_or_else(|| anyhow!("expected a client error, got {error:#}"))?;

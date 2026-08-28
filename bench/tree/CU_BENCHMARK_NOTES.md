@@ -38,7 +38,7 @@ The shape reports two functions:
 
 - `apply_cached_tree_updates` (~33,063 CU): the 120-entry cascade, ~275 CU
   per applied zkp batch. Each apply advances `next_index`, appends a root to the
-  root-history ring, marks the zkp batch inserted, and runs the retirement
+  root-history ring, marks the zkp batch inserted, and runs the reclaimability
   check for the previous batch (which zeroes stale root-history slots and
   advances `close_before_index` at most once per batch). The cascade
   re-verifies no proofs; the submit path already did.
@@ -52,4 +52,4 @@ The benchmarked tree uses `zkp_batch_size = 10` (`batch_size = 1200`,
 `ZKP = 120`) rather than the production address-tree `zkp_batch_size = 250`,
 because only the `batch_address-append_40_10` proving key is available locally.
 The root history is sized to production (`RH = 120`) so the per-apply
-`retire_previous_batch` root-zeroing cost is representative.
+`mark_previous_batch_reclaimable` root-zeroing cost is representative.

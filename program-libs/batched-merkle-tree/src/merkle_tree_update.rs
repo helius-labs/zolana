@@ -143,7 +143,7 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
     ///    proof was verified for the transition old_root -> new_root, so a match
     ///    means new_root is the correct next root for the current tree.
     /// 3. Apply: advance the tree next index and sequence number, append the new
-    ///    root, mark the zkp batch inserted, and retire the previous batch once
+    ///    root, mark the zkp batch inserted, and mark the previous batch reclaimable once
     ///    this batch holds half of its values (spec batch append step 9, using
     ///    the pending index captured before step 8 advanced it).
     /// 4. Clear the applied cache slot.
@@ -227,7 +227,7 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
                 .metadata
                 .queue_batches
                 .increment_pending_batch_index_if_inserted(pending_batch_state);
-            self.retire_previous_batch(pending_batch_index)?;
+            self.mark_previous_batch_reclaimable(pending_batch_index)?;
 
             // 4. Clear the applied cache slot.
             self.clear_cached_tree_update(pending_batch_index, zkp_batch_index)?;

@@ -126,14 +126,14 @@ impl Batch {
             .ok_or(BatchedMerkleTreeError::ArithmeticOverflow)
     }
 
-    pub fn retirement_sequence(&self) -> Result<u64, BatchedMerkleTreeError> {
+    pub fn reclaimable_sequence(&self) -> Result<u64, BatchedMerkleTreeError> {
         self.first_sequence()?
             .checked_add(self.batch_size)
             .ok_or(BatchedMerkleTreeError::ArithmeticOverflow)
     }
 
-    pub fn is_retired(&self, close_before_index: u64) -> bool {
-        self.retirement_sequence()
+    pub fn is_reclaimable(&self, close_before_index: u64) -> bool {
+        self.reclaimable_sequence()
             .is_ok_and(|sequence| close_before_index >= sequence)
     }
 
