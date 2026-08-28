@@ -3,8 +3,8 @@ set dotenv-load
 
 export RUST_BACKTRACE := env_var_or_default("RUST_BACKTRACE", "0")
 sbf-tools-version := env_var_or_default("SBF_TOOLS_VERSION", "v1.54")
-surfpool-release-tag := env_var_or_default("SURFPOOL_RELEASE_TAG", "v1.1.1-light")
-surfpool-version := env_var_or_default("SURFPOOL_VERSION", "1.1.1")
+surfpool-release-tag := env_var_or_default("SURFPOOL_RELEASE_TAG", "v1.5.0-light")
+surfpool-version := env_var_or_default("SURFPOOL_VERSION", "1.5.0")
 # Per-clone port isolation: set ZOLANA_PORT_OFFSET in a local (gitignored) .env
 # (auto-loaded above) to shift every service port by a fixed amount so concurrent
 # checkouts never contend. Each individual port/URL var can still be overridden
