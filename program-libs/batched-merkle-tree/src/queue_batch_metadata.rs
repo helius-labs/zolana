@@ -70,7 +70,7 @@ impl QueueBatches {
     /// Validates the queue, root-history, and cached-update capacities together.
     /// A root is appended for each ZKP batch, so one queue batch must contain
     /// exactly as many ZKP batches as both fixed-size account regions can hold.
-    pub fn validate_configuration<const RH: usize, const ZKP: usize>(
+    pub fn validate_configuration<const ZKP: usize>(
         batch_size: u64,
         zkp_batch_size: u64,
     ) -> Result<u32, BatchedMerkleTreeError> {
@@ -81,7 +81,7 @@ impl QueueBatches {
         let zkp_batches = batch_size / zkp_batch_size;
         let root_history_capacity = u32::try_from(zkp_batches)
             .map_err(|_| MerkleTreeMetadataError::InvalidRootHistoryCapacity)?;
-        if RH != ZKP || zkp_batches != RH as u64 {
+        if zkp_batches != ZKP as u64 {
             return Err(MerkleTreeMetadataError::InvalidRootHistoryCapacity.into());
         }
         Ok(root_history_capacity)
@@ -133,18 +133,18 @@ impl QueueBatches {
 }
 
 #[cfg(test)]
-fn new_queue<const RH: usize, const ZKP: usize>(
+fn new_queue<const ZKP: usize>(
     batch_size: u64,
     zkp_batch_size: u64,
     start_index: u64,
 ) -> Result<QueueBatches, BatchedMerkleTreeError> {
-    QueueBatches::validate_configuration::<RH, ZKP>(batch_size, zkp_batch_size)?;
+    QueueBatches::validate_configuration::<ZKP>(batch_size, zkp_batch_size)?;
     QueueBatches::new(batch_size, zkp_batch_size, start_index)
 }
 
 #[test]
 fn test_increment_next_pending_batch_index_if_inserted() {
-    let mut metadata = new_queue::<1, 1>(10, 10, 0).unwrap();
+    let mut metadata = new_queue::<1>(10, 10, 0).unwrap();
     assert_eq!(metadata.pending_batch_index, 0);
     // increment next full batch index
     metadata.increment_pending_batch_index_if_inserted(BatchState::Inserted);
@@ -161,7 +161,7 @@ fn test_increment_next_pending_batch_index_if_inserted() {
 
 #[test]
 fn test_increment_currently_processing_batch_index_if_full() {
-    let mut metadata = new_queue::<1, 1>(10, 10, 0).unwrap();
+    let mut metadata = new_queue::<1>(10, 10, 0).unwrap();
     assert_eq!(metadata.currently_processing_batch_index, 0);
     metadata
         .get_current_batch_mut()
@@ -208,23 +208,19 @@ fn test_increment_currently_processing_batch_index_if_full() {
 #[test]
 fn test_validate_batch_sizes() {
     assert_eq!(
-        QueueBatches::validate_configuration::<5, 5>(10, 3),
+        QueueBatches::validate_configuration::<5>(10, 3),
         Err(BatchedMerkleTreeError::BatchSizeNotDivisibleByZkpBatchSize)
     );
-    assert_eq!(QueueBatches::validate_configuration::<5, 5>(10, 2), Ok(5));
+    assert_eq!(QueueBatches::validate_configuration::<5>(10, 2), Ok(5));
     assert_eq!(
-        QueueBatches::validate_configuration::<4, 4>(10, 2),
-        Err(MerkleTreeMetadataError::InvalidRootHistoryCapacity.into())
-    );
-    assert_eq!(
-        QueueBatches::validate_configuration::<5, 4>(10, 2),
+        QueueBatches::validate_configuration::<4>(10, 2),
         Err(MerkleTreeMetadataError::InvalidRootHistoryCapacity.into())
     );
 }
 
 #[test]
 fn test_new_initializes_entire_queue() {
-    let metadata = new_queue::<5, 5>(10, 2, 7).unwrap();
+    let metadata = new_queue::<5>(10, 2, 7).unwrap();
     assert_eq!(
         metadata,
         QueueBatches {
@@ -245,13 +241,13 @@ fn test_new_initializes_entire_queue() {
 
 #[test]
 fn test_get_num_zkp_batches() {
-    let metadata = new_queue::<5, 5>(10, 2, 0).unwrap();
+    let metadata = new_queue::<5>(10, 2, 0).unwrap();
     assert_eq!(metadata.get_num_zkp_batches(), 5);
 }
 
 #[test]
 fn test_get_current_batch() {
-    let mut metadata = new_queue::<5, 5>(10, 2, 0).unwrap();
+    let mut metadata = new_queue::<5>(10, 2, 0).unwrap();
     assert_eq!(
         metadata.get_current_batch().unwrap().get_state(),
         BatchState::Fill

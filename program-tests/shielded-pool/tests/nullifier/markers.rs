@@ -15,7 +15,7 @@ use zolana_interface::{
     pda,
     state::{
         tree_account_size, ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE,
-        ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE, ADDRESS_TREE_ROOT_HISTORY_CAPACITY,
+        ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
     },
     NullifierMarker, NULLIFIER_MARKER_SIZE, N_PUBLIC_SLOTS,
 };
@@ -169,11 +169,7 @@ fn set_synthetic_watermark_and_zero_root(
 ) {
     const NULLIFIER_ZKP_BATCHES: usize =
         (ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE / ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE) as usize;
-    type Layout = TreeAccountLayout<
-        UTXO_TREE_HEIGHT,
-        { ADDRESS_TREE_ROOT_HISTORY_CAPACITY as usize },
-        NULLIFIER_ZKP_BATCHES,
-    >;
+    type Layout = TreeAccountLayout<UTXO_TREE_HEIGHT, NULLIFIER_ZKP_BATCHES>;
 
     let tree = env.tree.pubkey();
     let mut account = tree_account(env);

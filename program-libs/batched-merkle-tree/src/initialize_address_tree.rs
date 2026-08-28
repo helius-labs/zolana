@@ -3,9 +3,8 @@ use zolana_account_checks::AccountView;
 
 use crate::{
     constants::{
-        ADDRESS_TREE_DEFAULT_RH, ADDRESS_TREE_DEFAULT_ZKP, DEFAULT_ADDRESS_BATCH_SIZE,
-        DEFAULT_ADDRESS_ZKP_BATCH_SIZE, DEFAULT_BATCH_ADDRESS_TREE_HEIGHT,
-        NULLIFIER_TREE_INIT_ROOT_40,
+        ADDRESS_TREE_DEFAULT_ZKP, DEFAULT_ADDRESS_BATCH_SIZE, DEFAULT_ADDRESS_ZKP_BATCH_SIZE,
+        DEFAULT_BATCH_ADDRESS_TREE_HEIGHT, NULLIFIER_TREE_INIT_ROOT_40,
     },
     errors::BatchedMerkleTreeError,
     merkle_tree::{get_merkle_tree_account_size, BatchedMerkleTreeAccount},
@@ -71,13 +70,12 @@ fn init_batched_indexed_merkle_tree_from_account_info(
     address_init_root: Option<[u8; 32]>,
 ) -> Result<(), BatchedMerkleTreeError> {
     // 1. Check rent exemption and that accounts are initialized with the correct size.
-    let mt_account_size =
-        get_merkle_tree_account_size::<ADDRESS_TREE_DEFAULT_RH, ADDRESS_TREE_DEFAULT_ZKP>();
+    let mt_account_size = get_merkle_tree_account_size::<ADDRESS_TREE_DEFAULT_ZKP>();
     check_account_balance_is_rent_exempt(mt_account_info, mt_account_size)?;
     let mt_pubkey = *mt_account_info.address();
     // 2. Initialize the indexed Merkle tree account.
     let mt_data = &mut mt_account_info.try_borrow_mut()?;
-    init_batched_indexed_merkle_tree_account::<ADDRESS_TREE_DEFAULT_RH, ADDRESS_TREE_DEFAULT_ZKP>(
+    init_batched_indexed_merkle_tree_account::<ADDRESS_TREE_DEFAULT_ZKP>(
         params,
         mt_data,
         mt_pubkey,
@@ -86,21 +84,21 @@ fn init_batched_indexed_merkle_tree_from_account_info(
     Ok(())
 }
 
-pub fn init_batched_address_merkle_tree_account<const RH: usize, const ZKP: usize>(
+pub fn init_batched_address_merkle_tree_account<const ZKP: usize>(
     params: InitAddressTreeAccountsInstructionData,
     mt_account_data: &mut [u8],
     pubkey: Pubkey,
-) -> Result<BatchedMerkleTreeAccount<'_, RH, ZKP>, BatchedMerkleTreeError> {
+) -> Result<BatchedMerkleTreeAccount<'_, ZKP>, BatchedMerkleTreeError> {
     init_batched_indexed_merkle_tree_account(params, mt_account_data, pubkey, None)
 }
 
 /// Initializes a batched nullifier Merkle tree account into `mt_account_data`,
 /// seeding it with the BN254 `p-1` sentinel root ([`NULLIFIER_TREE_INIT_ROOT_40`]).
-pub fn init_batched_nullifier_merkle_tree_account<const RH: usize, const ZKP: usize>(
+pub fn init_batched_nullifier_merkle_tree_account<const ZKP: usize>(
     params: InitAddressTreeAccountsInstructionData,
     mt_account_data: &mut [u8],
     pubkey: Pubkey,
-) -> Result<BatchedMerkleTreeAccount<'_, RH, ZKP>, BatchedMerkleTreeError> {
+) -> Result<BatchedMerkleTreeAccount<'_, ZKP>, BatchedMerkleTreeError> {
     init_batched_indexed_merkle_tree_account(
         params,
         mt_account_data,
@@ -112,12 +110,12 @@ pub fn init_batched_nullifier_merkle_tree_account<const RH: usize, const ZKP: us
 /// Shared core that initializes an indexed (address/nullifier) Merkle tree
 /// account. `address_init_root` selects the sentinel root pushed into root
 /// history: `None` uses the default address sentinel, `Some` overrides it.
-fn init_batched_indexed_merkle_tree_account<const RH: usize, const ZKP: usize>(
+fn init_batched_indexed_merkle_tree_account<const ZKP: usize>(
     params: InitAddressTreeAccountsInstructionData,
     mt_account_data: &mut [u8],
     pubkey: Pubkey,
     address_init_root: Option<[u8; 32]>,
-) -> Result<BatchedMerkleTreeAccount<'_, RH, ZKP>, BatchedMerkleTreeError> {
+) -> Result<BatchedMerkleTreeAccount<'_, ZKP>, BatchedMerkleTreeError> {
     BatchedMerkleTreeAccount::init(
         mt_account_data,
         &pubkey,
@@ -133,11 +131,11 @@ fn init_batched_indexed_merkle_tree_account<const RH: usize, const ZKP: usize>(
 /// [`TreeAccountLayout`], seeding it with the BN254 `p-1` sentinel root
 /// ([`NULLIFIER_TREE_INIT_ROOT_40`]). Used by callers that hold a typed layout
 /// view (e.g. a combined account layout) instead of a raw byte slice.
-pub fn init_batched_nullifier_merkle_tree_into_layout<const RH: usize, const ZKP: usize>(
+pub fn init_batched_nullifier_merkle_tree_into_layout<const ZKP: usize>(
     params: InitAddressTreeAccountsInstructionData,
-    layout: &mut TreeAccountLayout<RH, ZKP>,
+    layout: &mut TreeAccountLayout<ZKP>,
     pubkey: Pubkey,
-) -> Result<BatchedMerkleTreeAccount<'_, RH, ZKP>, BatchedMerkleTreeError> {
+) -> Result<BatchedMerkleTreeAccount<'_, ZKP>, BatchedMerkleTreeError> {
     BatchedMerkleTreeAccount::init_from_layout(
         layout,
         &pubkey,
@@ -175,15 +173,15 @@ fn test_init_indexed_tree_init_roots() {
     use crate::constants::{ADDRESS_TREE_INIT_ROOT_40, NULLIFIER_TREE_INIT_ROOT_40};
 
     let params = InitAddressTreeAccountsInstructionData::default();
-    let account_size =
-        get_merkle_tree_account_size::<ADDRESS_TREE_DEFAULT_RH, ADDRESS_TREE_DEFAULT_ZKP>();
+    let account_size = get_merkle_tree_account_size::<ADDRESS_TREE_DEFAULT_ZKP>();
 
     // Nullifier tree is seeded with the BN254 p-1 sentinel root.
     let mut nullifier_data = vec![0u8; account_size];
-    let nullifier_account = init_batched_nullifier_merkle_tree_account::<
-        ADDRESS_TREE_DEFAULT_RH,
-        ADDRESS_TREE_DEFAULT_ZKP,
-    >(params, &mut nullifier_data, Pubkey::new_unique())
+    let nullifier_account = init_batched_nullifier_merkle_tree_account::<ADDRESS_TREE_DEFAULT_ZKP>(
+        params,
+        &mut nullifier_data,
+        Pubkey::new_unique(),
+    )
     .unwrap();
     assert_eq!(
         *nullifier_account.layout.root_history.data.first().unwrap(),
@@ -197,10 +195,11 @@ fn test_init_indexed_tree_init_roots() {
 
     // Address tree keeps the default address sentinel root.
     let mut address_data = vec![0u8; account_size];
-    let address_account = init_batched_address_merkle_tree_account::<
-        ADDRESS_TREE_DEFAULT_RH,
-        ADDRESS_TREE_DEFAULT_ZKP,
-    >(params, &mut address_data, Pubkey::new_unique())
+    let address_account = init_batched_address_merkle_tree_account::<ADDRESS_TREE_DEFAULT_ZKP>(
+        params,
+        &mut address_data,
+        Pubkey::new_unique(),
+    )
     .unwrap();
     assert_eq!(
         *address_account.layout.root_history.data.first().unwrap(),

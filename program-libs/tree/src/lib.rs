@@ -14,9 +14,7 @@ use wincode::{
 };
 pub use zolana_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccountsInstructionData;
 use zolana_batched_merkle_tree::{
-    constants::{
-        ADDRESS_TREE_DEFAULT_RH, ADDRESS_TREE_DEFAULT_ZKP, DEFAULT_BATCH_ADDRESS_TREE_HEIGHT,
-    },
+    constants::{ADDRESS_TREE_DEFAULT_ZKP, DEFAULT_BATCH_ADDRESS_TREE_HEIGHT},
     initialize_address_tree::{init_batched_nullifier_merkle_tree_into_layout, match_circuit_size},
     merkle_tree::BatchedMerkleTreeAccount,
     zero_copy::TreeAccountLayout as NullifierLayout,
@@ -27,7 +25,6 @@ use zolana_batched_merkle_tree::{
 /// value instead of pinning a literal by comment.
 pub const UTXO_TREE_HEIGHT: usize = 32;
 
-const NULLIFIER_RH: usize = ADDRESS_TREE_DEFAULT_RH;
 const NULLIFIER_ZKP: usize = ADDRESS_TREE_DEFAULT_ZKP;
 
 /// `state` byte values. Writes to the tree are only allowed in `INITIALIZED`.
@@ -40,22 +37,22 @@ pub const TREE_RESERVED_BYTES: usize = 64;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct TreeAccountLayout<const UTXO_HEIGHT: usize, const RH: usize, const ZKP: usize> {
+pub struct TreeAccountLayout<const UTXO_HEIGHT: usize, const ZKP: usize> {
     pub discriminator: u8,
     pub state: u8,
     pub _padding: [u8; 6],
     pub _reserved: [u8; TREE_RESERVED_BYTES],
     pub utxo: UtxoTreeLayout<UTXO_HEIGHT>,
-    pub nullifier: NullifierLayout<RH, ZKP>,
+    pub nullifier: NullifierLayout<ZKP>,
 }
 
-unsafe impl<C: ConfigCore, const UH: usize, const RH: usize, const ZKP: usize> ZeroCopy<C>
-    for TreeAccountLayout<UH, RH, ZKP>
+unsafe impl<C: ConfigCore, const UH: usize, const ZKP: usize> ZeroCopy<C>
+    for TreeAccountLayout<UH, ZKP>
 {
 }
 
-unsafe impl<'de, C: ConfigCore, const UH: usize, const RH: usize, const ZKP: usize>
-    SchemaRead<'de, C> for TreeAccountLayout<UH, RH, ZKP>
+unsafe impl<'de, C: ConfigCore, const UH: usize, const ZKP: usize> SchemaRead<'de, C>
+    for TreeAccountLayout<UH, ZKP>
 {
     type Dst = Self;
     const TYPE_META: TypeMeta = TypeMeta::Static {
@@ -68,7 +65,7 @@ unsafe impl<'de, C: ConfigCore, const UH: usize, const RH: usize, const ZKP: usi
     }
 }
 
-type SppTreeLayout = TreeAccountLayout<UTXO_TREE_HEIGHT, NULLIFIER_RH, NULLIFIER_ZKP>;
+type SppTreeLayout = TreeAccountLayout<UTXO_TREE_HEIGHT, NULLIFIER_ZKP>;
 
 /// The layout reference either borrows caller-provided bytes (`init`,
 /// `from_bytes`) or owns the account-data borrow guard, so the account's
@@ -131,7 +128,7 @@ impl<'a> TreeAccount<'a> {
 
         layout.utxo.init(utxo_tree_height as usize)?;
 
-        init_batched_nullifier_merkle_tree_into_layout::<NULLIFIER_RH, NULLIFIER_ZKP>(
+        init_batched_nullifier_merkle_tree_into_layout::<NULLIFIER_ZKP>(
             nullifier_params,
             &mut layout.nullifier,
             pubkey.into(),
@@ -225,7 +222,7 @@ impl<'a> TreeAccount<'a> {
         &mut self.layout_mut().utxo
     }
 
-    pub fn nullifer_tree(&mut self) -> BatchedMerkleTreeAccount<'_, NULLIFIER_RH, NULLIFIER_ZKP> {
+    pub fn nullifer_tree(&mut self) -> BatchedMerkleTreeAccount<'_, NULLIFIER_ZKP> {
         let pubkey = self.pubkey;
         BatchedMerkleTreeAccount::from_layout(&pubkey.into(), &mut self.layout_mut().nullifier)
     }
@@ -299,7 +296,7 @@ fn check_layout(layout: &SppTreeLayout) -> Result<(), TreeError> {
     {
         return Err(TreeError::Deserialize);
     }
-    BatchedMerkleTreeAccount::<NULLIFIER_RH, NULLIFIER_ZKP>::validate_layout(&layout.nullifier)
+    BatchedMerkleTreeAccount::<NULLIFIER_ZKP>::validate_layout(&layout.nullifier)
         .map_err(|_| TreeError::Deserialize)?;
     Ok(())
 }
@@ -322,7 +319,7 @@ mod layout_equivalence {
     fn size_and_offsets_include_reserved_header() {
         let account_size_without_reserved = STATIC_METADATA_LEN
             + aligned_utxo_size(UTXO_TREE_HEIGHT)
-            + size_of::<NullifierLayout<NULLIFIER_RH, NULLIFIER_ZKP>>();
+            + size_of::<NullifierLayout<NULLIFIER_ZKP>>();
         assert_eq!(size_of::<SppTreeLayout>(), EXPECTED_ACCOUNT_SIZE);
         assert_eq!(
             size_of::<SppTreeLayout>(),

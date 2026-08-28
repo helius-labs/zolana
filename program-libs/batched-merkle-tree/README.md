@@ -27,13 +27,13 @@ queue insertion, batch append, and marker cleanup.
 ## Account
 
 There is a single account type, `BatchedMerkleTreeAccount`, a zero-copy view
-of `TreeAccountLayout<RH, ZKP>`:
+of `TreeAccountLayout<ZKP>`, where `ZKP = batch_size / zkp_batch_size`:
 
 - 8-byte discriminator (`BatchMta`)
 - `BatchedMerkleTreeMetadata` (240 bytes): tree type, sequence number, next
   index, height, root-history capacity, capacity, the two queue batches, and
   `close_before_index`
-- cyclic root history of `RH` roots
+- cyclic root history of `ZKP` roots
 - two bounded hash-chain regions of `ZKP` commitments each
 - two cached-tree-update regions of `ZKP` slots each
 

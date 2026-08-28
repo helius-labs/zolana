@@ -108,22 +108,17 @@ pub(crate) struct BoundedVecView<'a> {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct TreeAccountLayout<const ROOT_HISTORY: usize, const ZKP_BATCHES: usize> {
+pub struct TreeAccountLayout<const ZKP_BATCHES: usize> {
     pub discriminator: [u8; 8],
     pub metadata: BatchedMerkleTreeMetadata,
-    pub root_history: CyclicVec<ROOT_HISTORY>,
+    pub root_history: CyclicVec<ZKP_BATCHES>,
     pub hash_chains: [BoundedVec<ZKP_BATCHES>; 2],
     pub cached_tree_updates: [[CachedTreeUpdate; ZKP_BATCHES]; 2],
 }
 
-unsafe impl<C: ConfigCore, const RH: usize, const ZKP: usize> ZeroCopy<C>
-    for TreeAccountLayout<RH, ZKP>
-{
-}
+unsafe impl<C: ConfigCore, const ZKP: usize> ZeroCopy<C> for TreeAccountLayout<ZKP> {}
 
-unsafe impl<'de, C: ConfigCore, const RH: usize, const ZKP: usize> SchemaRead<'de, C>
-    for TreeAccountLayout<RH, ZKP>
-{
+unsafe impl<'de, C: ConfigCore, const ZKP: usize> SchemaRead<'de, C> for TreeAccountLayout<ZKP> {
     type Dst = Self;
     const TYPE_META: TypeMeta = TypeMeta::Static {
         size: size_of::<Self>(),
@@ -141,8 +136,8 @@ mod layout_smoke {
 
     #[test]
     fn tree_layout_round_trips() {
-        let mut bytes = vec![0u8; size_of::<TreeAccountLayout<4, 2>>()];
-        let layout: &mut TreeAccountLayout<4, 2> = wincode::deserialize_mut(&mut bytes).unwrap();
+        let mut bytes = vec![0u8; size_of::<TreeAccountLayout<2>>()];
+        let layout: &mut TreeAccountLayout<2> = wincode::deserialize_mut(&mut bytes).unwrap();
         layout.root_history.data[1] = [7u8; 32];
         layout.hash_chains[0].data[1] = [9u8; 32];
         layout.cached_tree_updates[1][1] = CachedTreeUpdate {
@@ -150,7 +145,7 @@ mod layout_smoke {
             new_root: [4u8; 32],
             occupied: 1,
         };
-        let reloaded: &mut TreeAccountLayout<4, 2> = wincode::deserialize_mut(&mut bytes).unwrap();
+        let reloaded: &mut TreeAccountLayout<2> = wincode::deserialize_mut(&mut bytes).unwrap();
         assert_eq!(reloaded.root_history.data[1], [7u8; 32]);
         assert_eq!(reloaded.hash_chains[0].data[1], [9u8; 32]);
         assert_eq!(reloaded.cached_tree_updates[1][1].old_root, [3u8; 32]);

@@ -22,10 +22,9 @@ use zolana_merkle_tree::indexed::IndexedMerkleTree;
 const HEIGHT: u32 = 40;
 const ZKP: usize = 5;
 const ZKP_BATCH_SIZE: u64 = 10;
-const ROOT_HISTORY: usize = ZKP;
 const NUM_TXNS: usize = 300;
 
-type NullifierTree<'a> = BatchedMerkleTreeAccount<'a, ROOT_HISTORY, ZKP>;
+type NullifierTree<'a> = BatchedMerkleTreeAccount<'a, ZKP>;
 
 fn reference_nullifier_tree() -> IndexedMerkleTree<Poseidon, usize> {
     let modulus: BigUint = Fr::MODULUS.into();
@@ -266,7 +265,7 @@ impl NullifierForester {
 #[test]
 fn nullifier_tree_initial_root_matches_reference() {
     let pubkey = Address::new_unique();
-    let mut account_data = vec![0u8; get_merkle_tree_account_size::<ROOT_HISTORY, ZKP>()];
+    let mut account_data = vec![0u8; get_merkle_tree_account_size::<ZKP>()];
     let account = init_nullifier_tree(&mut account_data, &pubkey);
 
     assert_eq!(account.get_root().unwrap(), NULLIFIER_TREE_INIT_ROOT_40);
@@ -281,7 +280,7 @@ fn nullifier_tree_single_update() {
     spawn_prover().unwrap();
     let mut rng = StdRng::seed_from_u64(0);
     let pubkey = Address::new_unique();
-    let mut account_data = vec![0u8; get_merkle_tree_account_size::<ROOT_HISTORY, ZKP>()];
+    let mut account_data = vec![0u8; get_merkle_tree_account_size::<ZKP>()];
     let mut account = init_nullifier_tree(&mut account_data, &pubkey);
 
     let mut queued = Vec::new();
@@ -320,7 +319,7 @@ fn nullifier_tree_fills_root_history_with_random_submit_order() {
     spawn_prover().unwrap();
     let mut rng = StdRng::seed_from_u64(0);
     let pubkey = Address::new_unique();
-    let mut account_data = vec![0u8; get_merkle_tree_account_size::<ROOT_HISTORY, ZKP>()];
+    let mut account_data = vec![0u8; get_merkle_tree_account_size::<ZKP>()];
     init_nullifier_tree(&mut account_data, &pubkey);
 
     let batch_size = test_config().input_queue_batch_size as usize;
@@ -379,9 +378,9 @@ fn nullifier_tree_fills_root_history_with_random_submit_order() {
     }
 
     assert_eq!(updates, num_batches * zkp_batches_per_batch);
-    assert!(updates >= ROOT_HISTORY);
+    assert!(updates >= ZKP);
     let account = load_nullifier_tree(&mut account_data, &pubkey);
-    assert_eq!(account.root_history().len(), ROOT_HISTORY);
+    assert_eq!(account.root_history().len(), ZKP);
     assert_eq!(account.get_root().unwrap(), forester.reference.root());
 }
 
@@ -390,7 +389,7 @@ fn nullifier_tree_reverse_order_submission_cascades() {
     spawn_prover().unwrap();
     let mut rng = StdRng::seed_from_u64(1);
     let pubkey = Address::new_unique();
-    let mut account_data = vec![0u8; get_merkle_tree_account_size::<ROOT_HISTORY, ZKP>()];
+    let mut account_data = vec![0u8; get_merkle_tree_account_size::<ZKP>()];
     let genesis_root = init_nullifier_tree(&mut account_data, &pubkey)
         .get_root()
         .unwrap();
@@ -430,7 +429,7 @@ fn nullifier_tree_partial_prefix_waits_then_cascades() {
     spawn_prover().unwrap();
     let mut rng = StdRng::seed_from_u64(2);
     let pubkey = Address::new_unique();
-    let mut account_data = vec![0u8; get_merkle_tree_account_size::<ROOT_HISTORY, ZKP>()];
+    let mut account_data = vec![0u8; get_merkle_tree_account_size::<ZKP>()];
     let genesis_root = init_nullifier_tree(&mut account_data, &pubkey)
         .get_root()
         .unwrap();
@@ -469,7 +468,7 @@ fn nullifier_tree_duplicate_index_applies_once() {
     spawn_prover().unwrap();
     let mut rng = StdRng::seed_from_u64(3);
     let pubkey = Address::new_unique();
-    let mut account_data = vec![0u8; get_merkle_tree_account_size::<ROOT_HISTORY, ZKP>()];
+    let mut account_data = vec![0u8; get_merkle_tree_account_size::<ZKP>()];
     init_nullifier_tree(&mut account_data, &pubkey);
 
     let batch_size = test_config().input_queue_batch_size as usize;
@@ -512,7 +511,7 @@ fn nullifier_tree_resend_applied_proof_is_noop() {
     spawn_prover().unwrap();
     let mut rng = StdRng::seed_from_u64(4);
     let pubkey = Address::new_unique();
-    let mut account_data = vec![0u8; get_merkle_tree_account_size::<ROOT_HISTORY, ZKP>()];
+    let mut account_data = vec![0u8; get_merkle_tree_account_size::<ZKP>()];
     init_nullifier_tree(&mut account_data, &pubkey);
 
     let batch_size = test_config().input_queue_batch_size as usize;
@@ -563,7 +562,7 @@ fn nullifier_tree_resend_applied_proof_is_noop() {
 #[test]
 fn nullifier_tree_submit_index_errors() {
     let pubkey = Address::new_unique();
-    let mut account_data = vec![0u8; get_merkle_tree_account_size::<ROOT_HISTORY, ZKP>()];
+    let mut account_data = vec![0u8; get_merkle_tree_account_size::<ZKP>()];
     init_nullifier_tree(&mut account_data, &pubkey);
 
     let mut rng = StdRng::seed_from_u64(5);

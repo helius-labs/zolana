@@ -10,7 +10,7 @@ use crate::{
 };
 use zolana_event::BatchAddressAppendEvent;
 
-impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP> {
+impl<'a, const ZKP: usize> BatchedMerkleTreeAccount<'a, ZKP> {
     /// Verify one address-append proof and apply every now-applicable cached
     /// update.
     ///

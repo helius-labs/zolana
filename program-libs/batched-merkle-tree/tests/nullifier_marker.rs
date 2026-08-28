@@ -10,15 +10,14 @@ use zolana_batched_merkle_tree::{
 };
 use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 
-const RH: usize = 4;
 const ZKP: usize = 4;
 const BATCH_SIZE: u64 = 4;
 const ZKP_BATCH_SIZE: u64 = 1;
 
-type Tree<'a> = BatchedMerkleTreeAccount<'a, RH, ZKP>;
+type Tree<'a> = BatchedMerkleTreeAccount<'a, ZKP>;
 
 fn account_data() -> Vec<u8> {
-    vec![0u8; get_merkle_tree_account_size::<RH, ZKP>()]
+    vec![0u8; get_merkle_tree_account_size::<ZKP>()]
 }
 
 fn init_tree<'a>(data: &'a mut [u8], pubkey: &Address) -> Tree<'a> {
@@ -70,9 +69,9 @@ fn derived_root_history_must_match_one_batch_of_zkp_updates() {
         MerkleTreeMetadataError::InvalidRootHistoryCapacity.into()
     );
 
-    let mut wrong_cache_count = vec![0u8; get_merkle_tree_account_size::<RH, 5>()];
+    let mut wrong_cache_count = vec![0u8; get_merkle_tree_account_size::<5>()];
     assert_eq!(
-        BatchedMerkleTreeAccount::<RH, 5>::init(
+        BatchedMerkleTreeAccount::<5>::init(
             &mut wrong_cache_count,
             &pubkey,
             BATCH_SIZE,
@@ -92,9 +91,9 @@ fn malformed_root_history_and_batch_metadata_are_rejected_on_load() {
 
     let mut bad_root_cursor = account_data();
     init_tree(&mut bad_root_cursor, &pubkey);
-    let layout: &mut TreeAccountLayout<RH, ZKP> =
+    let layout: &mut TreeAccountLayout<ZKP> =
         wincode::deserialize_mut(&mut bad_root_cursor).unwrap();
-    layout.root_history.header[0] = RH as u64;
+    layout.root_history.header[0] = ZKP as u64;
     assert_eq!(
         Tree::address_from_bytes(&mut bad_root_cursor, &pubkey).unwrap_err(),
         MerkleTreeMetadataError::InvalidRootHistoryCapacity.into()
@@ -102,7 +101,7 @@ fn malformed_root_history_and_batch_metadata_are_rejected_on_load() {
 
     let mut invalid_reserved = account_data();
     init_tree(&mut invalid_reserved, &pubkey);
-    let layout: &mut TreeAccountLayout<RH, ZKP> =
+    let layout: &mut TreeAccountLayout<ZKP> =
         wincode::deserialize_mut(&mut invalid_reserved).unwrap();
     layout.metadata.queue_batches.reserved = 0;
     assert_eq!(
@@ -112,7 +111,7 @@ fn malformed_root_history_and_batch_metadata_are_rejected_on_load() {
 
     let mut inconsistent_batch = account_data();
     init_tree(&mut inconsistent_batch, &pubkey);
-    let layout: &mut TreeAccountLayout<RH, ZKP> =
+    let layout: &mut TreeAccountLayout<ZKP> =
         wincode::deserialize_mut(&mut inconsistent_batch).unwrap();
     layout.metadata.queue_batches.batches[0].batch_size += 1;
     assert_eq!(

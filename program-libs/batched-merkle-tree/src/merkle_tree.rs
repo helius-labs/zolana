@@ -43,17 +43,17 @@ pub type InstructionDataAddressAppendInputs = InstructionDataBatchNullifyInputs;
 ///
 /// To access a tree root by index use:
 /// - get_root_by_index
-pub struct BatchedMerkleTreeAccount<'a, const RH: usize, const ZKP: usize> {
+pub struct BatchedMerkleTreeAccount<'a, const ZKP: usize> {
     pubkey: Pubkey,
-    pub(crate) layout: &'a mut TreeAccountLayout<RH, ZKP>,
+    pub(crate) layout: &'a mut TreeAccountLayout<ZKP>,
 }
 
-impl<const RH: usize, const ZKP: usize> Discriminator for BatchedMerkleTreeAccount<'_, RH, ZKP> {
+impl<const ZKP: usize> Discriminator for BatchedMerkleTreeAccount<'_, ZKP> {
     const LIGHT_DISCRIMINATOR: [u8; 8] = *b"BatchMta";
     const LIGHT_DISCRIMINATOR_SLICE: &'static [u8] = b"BatchMta";
 }
 
-impl<const RH: usize, const ZKP: usize> std::fmt::Debug for BatchedMerkleTreeAccount<'_, RH, ZKP> {
+impl<const ZKP: usize> std::fmt::Debug for BatchedMerkleTreeAccount<'_, ZKP> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BatchedMerkleTreeAccount")
             .field("pubkey", &self.pubkey)
@@ -62,7 +62,7 @@ impl<const RH: usize, const ZKP: usize> std::fmt::Debug for BatchedMerkleTreeAcc
     }
 }
 
-impl<const RH: usize, const ZKP: usize> PartialEq for BatchedMerkleTreeAccount<'_, RH, ZKP> {
+impl<const ZKP: usize> PartialEq for BatchedMerkleTreeAccount<'_, ZKP> {
     fn eq(&self, other: &Self) -> bool {
         self.pubkey == other.pubkey
             && self.layout.discriminator == other.layout.discriminator
@@ -78,7 +78,7 @@ impl<const RH: usize, const ZKP: usize> PartialEq for BatchedMerkleTreeAccount<'
     }
 }
 
-impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP> {
+impl<'a, const ZKP: usize> BatchedMerkleTreeAccount<'a, ZKP> {
     /// Deserialize a batched address Merkle tree from account info.
     /// Should be used in solana programs.
     /// Checks that:
@@ -88,14 +88,14 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
     pub fn address_from_account_info(
         program_id: &[u8; 32],
         account_info: &mut AccountView,
-    ) -> Result<BatchedMerkleTreeAccount<'a, RH, ZKP>, BatchedMerkleTreeError> {
+    ) -> Result<BatchedMerkleTreeAccount<'a, ZKP>, BatchedMerkleTreeError> {
         Self::from_account_info::<ADDRESS_MERKLE_TREE_TYPE_V2>(program_id, account_info)
     }
 
     fn from_account_info<const TREE_TYPE: u64>(
         program_id: &[u8; 32],
         account_info: &mut AccountView,
-    ) -> Result<BatchedMerkleTreeAccount<'a, RH, ZKP>, BatchedMerkleTreeError> {
+    ) -> Result<BatchedMerkleTreeAccount<'a, ZKP>, BatchedMerkleTreeError> {
         check_account_info::<Self>(program_id, account_info)?;
         let pubkey = *account_info.address();
         let mut data = account_info.try_borrow_mut()?;
@@ -113,15 +113,15 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
     pub fn address_from_bytes(
         account_data: &'a mut [u8],
         pubkey: &Pubkey,
-    ) -> Result<BatchedMerkleTreeAccount<'a, RH, ZKP>, BatchedMerkleTreeError> {
+    ) -> Result<BatchedMerkleTreeAccount<'a, ZKP>, BatchedMerkleTreeError> {
         Self::from_bytes::<ADDRESS_MERKLE_TREE_TYPE_V2>(account_data, pubkey)
     }
 
     fn from_bytes<const TREE_TYPE: u64>(
         account_data: &'a mut [u8],
         pubkey: &Pubkey,
-    ) -> Result<BatchedMerkleTreeAccount<'a, RH, ZKP>, BatchedMerkleTreeError> {
-        let layout: &'a mut TreeAccountLayout<RH, ZKP> =
+    ) -> Result<BatchedMerkleTreeAccount<'a, ZKP>, BatchedMerkleTreeError> {
+        let layout: &'a mut TreeAccountLayout<ZKP> =
             wincode::deserialize_mut(account_data).map_err(|_| ZeroCopyError::Size)?;
         if layout.metadata.tree_type != TREE_TYPE {
             return Err(MerkleTreeMetadataError::InvalidTreeType.into());
@@ -145,12 +145,12 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
         // seed an indexed tree with a different sentinel, e.g. the BN254 `p-1`
         // nullifier-tree root (`NULLIFIER_TREE_INIT_ROOT_40`).
         address_init_root: Option<[u8; 32]>,
-    ) -> Result<BatchedMerkleTreeAccount<'a, RH, ZKP>, BatchedMerkleTreeError> {
-        if account_data.len() != size_of::<TreeAccountLayout<RH, ZKP>>() {
+    ) -> Result<BatchedMerkleTreeAccount<'a, ZKP>, BatchedMerkleTreeError> {
+        if account_data.len() != size_of::<TreeAccountLayout<ZKP>>() {
             return Err(ZeroCopyError::Size.into());
         }
 
-        let layout: &'a mut TreeAccountLayout<RH, ZKP> =
+        let layout: &'a mut TreeAccountLayout<ZKP> =
             wincode::deserialize_mut(account_data).map_err(|_| ZeroCopyError::Size)?;
         Self::init_from_layout(
             layout,
@@ -167,8 +167,8 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
     /// account loader.
     pub fn from_layout(
         pubkey: &Pubkey,
-        layout: &'a mut TreeAccountLayout<RH, ZKP>,
-    ) -> BatchedMerkleTreeAccount<'a, RH, ZKP> {
+        layout: &'a mut TreeAccountLayout<ZKP>,
+    ) -> BatchedMerkleTreeAccount<'a, ZKP> {
         BatchedMerkleTreeAccount {
             pubkey: *pubkey,
             layout,
@@ -176,15 +176,15 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
     }
 
     pub fn init_from_layout(
-        layout: &'a mut TreeAccountLayout<RH, ZKP>,
+        layout: &'a mut TreeAccountLayout<ZKP>,
         pubkey: &Pubkey,
         input_queue_batch_size: u64,
         input_queue_zkp_batch_size: u64,
         height: u32,
         tree_type: TreeType,
         address_init_root: Option<[u8; 32]>,
-    ) -> Result<BatchedMerkleTreeAccount<'a, RH, ZKP>, BatchedMerkleTreeError> {
-        let root_history_capacity = QueueBatches::validate_configuration::<RH, ZKP>(
+    ) -> Result<BatchedMerkleTreeAccount<'a, ZKP>, BatchedMerkleTreeError> {
+        let root_history_capacity = QueueBatches::validate_configuration::<ZKP>(
             input_queue_batch_size,
             input_queue_zkp_batch_size,
         )?;
@@ -261,14 +261,10 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
 
     /// Validates the invariants required for safe queue rotation and natural
     /// root-history overwrite.
-    pub fn validate_layout(
-        layout: &TreeAccountLayout<RH, ZKP>,
-    ) -> Result<(), BatchedMerkleTreeError> {
+    pub fn validate_layout(layout: &TreeAccountLayout<ZKP>) -> Result<(), BatchedMerkleTreeError> {
         let queue = &layout.metadata.queue_batches;
-        let root_history_capacity = QueueBatches::validate_configuration::<RH, ZKP>(
-            queue.batch_size,
-            queue.zkp_batch_size,
-        )?;
+        let root_history_capacity =
+            QueueBatches::validate_configuration::<ZKP>(queue.batch_size, queue.zkp_batch_size)?;
 
         let root_header = &layout.root_history.header;
         if layout.metadata.root_history_capacity != root_history_capacity
@@ -424,14 +420,15 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
     /// Leaf index reserved by the next queue insertion. This includes values
     /// already queued but not yet applied to the Merkle tree. An `Inserted`
     /// current batch is about to be reused one rotation ahead, so its next
-    /// leaf is `start_index + NUM_BATCHES * batch_size`.
+    /// leaf is `start_index + NUM_BATCHES * batch_size`. A `Full` current
+    /// batch means both batches are full: the next value can only go into this
+    /// batch once it is inserted and reused, so it reserves the same leaf.
     pub fn next_queued_leaf_index(&self) -> Result<u64, BatchedMerkleTreeError> {
         let queue = &self.queue_batches;
         let current_batch = queue.get_current_batch()?;
-        let offset = if current_batch.checked_state()? == BatchState::Inserted {
-            queue.rotation()?
-        } else {
-            current_batch.get_num_inserted_elements()
+        let offset = match current_batch.checked_state()? {
+            BatchState::Fill => current_batch.get_num_inserted_elements(),
+            BatchState::Full | BatchState::Inserted => queue.rotation()?,
         };
         current_batch
             .start_index
@@ -472,14 +469,11 @@ pub mod test_utils {
     use super::*;
 
     pub fn get_merkle_tree_account_size_default() -> usize {
-        get_merkle_tree_account_size::<
-            { crate::constants::ADDRESS_TREE_DEFAULT_RH },
-            { crate::constants::ADDRESS_TREE_DEFAULT_ZKP },
-        >()
+        get_merkle_tree_account_size::<{ crate::constants::ADDRESS_TREE_DEFAULT_ZKP }>()
     }
 }
 
-impl<const RH: usize, const ZKP: usize> Deref for BatchedMerkleTreeAccount<'_, RH, ZKP> {
+impl<const ZKP: usize> Deref for BatchedMerkleTreeAccount<'_, ZKP> {
     type Target = BatchedMerkleTreeMetadata;
 
     fn deref(&self) -> &Self::Target {
@@ -487,7 +481,7 @@ impl<const RH: usize, const ZKP: usize> Deref for BatchedMerkleTreeAccount<'_, R
     }
 }
 
-impl<const RH: usize, const ZKP: usize> DerefMut for BatchedMerkleTreeAccount<'_, RH, ZKP> {
+impl<const ZKP: usize> DerefMut for BatchedMerkleTreeAccount<'_, ZKP> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.layout.metadata
     }
@@ -495,8 +489,8 @@ impl<const RH: usize, const ZKP: usize> DerefMut for BatchedMerkleTreeAccount<'_
 
 /// The Merkle tree account is a single zero-copy cast, so its size is fully
 /// determined by the layout const generics.
-pub fn get_merkle_tree_account_size<const RH: usize, const ZKP: usize>() -> usize {
-    size_of::<TreeAccountLayout<RH, ZKP>>()
+pub fn get_merkle_tree_account_size<const ZKP: usize>() -> usize {
+    size_of::<TreeAccountLayout<ZKP>>()
 }
 
 #[cfg(feature = "test-only")]
@@ -518,10 +512,8 @@ mod test {
     #[test]
     fn test_from_bytes_invalid_tree_type() {
         let mut account_data = vec![0u8; get_merkle_tree_account_size_default()];
-        let account = BatchedMerkleTreeAccount::<200, 5>::from_bytes::<6>(
-            &mut account_data,
-            &Pubkey::default(),
-        );
+        let account =
+            BatchedMerkleTreeAccount::<5>::from_bytes::<6>(&mut account_data, &Pubkey::default());
         assert_eq!(
             account.unwrap_err(),
             MerkleTreeMetadataError::InvalidTreeType.into()
@@ -531,7 +523,7 @@ mod test {
     #[test]
     fn test_from_bytes_invalid_account_size() {
         let mut account_data = vec![0u8; 200];
-        let account = BatchedMerkleTreeAccount::<200, 5>::from_bytes::<ADDRESS_MERKLE_TREE_TYPE_V2>(
+        let account = BatchedMerkleTreeAccount::<5>::from_bytes::<ADDRESS_MERKLE_TREE_TYPE_V2>(
             &mut account_data,
             &Pubkey::default(),
         );
@@ -544,7 +536,7 @@ mod test {
     #[test]
     fn test_init_invalid_account_size() {
         let mut account_data = vec![0u8; 200];
-        let account = BatchedMerkleTreeAccount::<200, 5>::from_bytes::<ADDRESS_MERKLE_TREE_TYPE_V2>(
+        let account = BatchedMerkleTreeAccount::<5>::from_bytes::<ADDRESS_MERKLE_TREE_TYPE_V2>(
             &mut account_data,
             &Pubkey::default(),
         );
@@ -559,14 +551,13 @@ mod test {
         let update_size = core::mem::size_of::<crate::zero_copy::CachedTreeUpdate>();
         assert_eq!(update_size, 65);
 
-        const RH: usize = 10;
         const ZKP: usize = 4;
-        let full = get_merkle_tree_account_size::<RH, ZKP>();
+        let full = get_merkle_tree_account_size::<ZKP>();
         let cached_tree_update_bytes = core::mem::size_of::<[[CachedTreeUpdate; ZKP]; 2]>();
         assert_eq!(cached_tree_update_bytes, 2 * ZKP * update_size);
 
         let mut old_sized = vec![0u8; full - cached_tree_update_bytes];
-        let account = BatchedMerkleTreeAccount::<RH, ZKP>::from_bytes::<ADDRESS_MERKLE_TREE_TYPE_V2>(
+        let account = BatchedMerkleTreeAccount::<ZKP>::from_bytes::<ADDRESS_MERKLE_TREE_TYPE_V2>(
             &mut old_sized,
             &Pubkey::default(),
         );
@@ -592,9 +583,9 @@ mod test {
     /// update is written.
     #[test]
     fn test_replay_after_apply_is_noop() {
-        let mut account_data = vec![0u8; get_merkle_tree_account_size::<4, 4>()];
+        let mut account_data = vec![0u8; get_merkle_tree_account_size::<4>()];
         let pubkey = Pubkey::new_unique();
-        let mut account = BatchedMerkleTreeAccount::<4, 4>::init(
+        let mut account = BatchedMerkleTreeAccount::<4>::init(
             &mut account_data,
             &pubkey,
             4,
@@ -648,9 +639,9 @@ mod test {
     /// invalid proof is rejected and the existing cached update is preserved.
     #[test]
     fn test_replay_while_cached_verifies_and_keeps_update_on_failure() {
-        let mut account_data = vec![0u8; get_merkle_tree_account_size::<4, 4>()];
+        let mut account_data = vec![0u8; get_merkle_tree_account_size::<4>()];
         let pubkey = Pubkey::new_unique();
-        let mut account = BatchedMerkleTreeAccount::<4, 4>::init(
+        let mut account = BatchedMerkleTreeAccount::<4>::init(
             &mut account_data,
             &pubkey,
             4,
@@ -706,14 +697,14 @@ mod test {
         assert_eq!(cached_update, cached);
     }
 
-    fn insert_rnd_addresses<'a, const RH: usize, const ZKP: usize>(
+    fn insert_rnd_addresses<'a, const ZKP: usize>(
         account_data: &'a mut [u8],
         batch_size: u64,
         rng: &mut rand::prelude::StdRng,
         pubkey: &Pubkey,
-    ) -> Result<BatchedMerkleTreeAccount<'a, RH, ZKP>, BatchedMerkleTreeError> {
+    ) -> Result<BatchedMerkleTreeAccount<'a, ZKP>, BatchedMerkleTreeError> {
         let mut account =
-            BatchedMerkleTreeAccount::<RH, ZKP>::address_from_bytes(account_data, pubkey).unwrap();
+            BatchedMerkleTreeAccount::<ZKP>::address_from_bytes(account_data, pubkey).unwrap();
         for i in 0..batch_size {
             println!("inserting address: {}", i);
             let address = random_nullifier(rng);
@@ -724,13 +715,13 @@ mod test {
 
     #[test]
     fn test_check_queue_next_index_reached_tree_capacity() {
-        let mut account_data = vec![0u8; get_merkle_tree_account_size::<200, 200>()];
+        let mut account_data = vec![0u8; get_merkle_tree_account_size::<200>()];
         let batch_size = 200;
         let zkp_batch_size = 1;
         let height = 4;
         let tree_capacity = 2u64.pow(height);
         let pubkey = Pubkey::new_unique();
-        let account = BatchedMerkleTreeAccount::<200, 200>::init(
+        let account = BatchedMerkleTreeAccount::<200>::init(
             &mut account_data,
             &pubkey,
             batch_size,
@@ -748,15 +739,14 @@ mod test {
         let rng = &mut rand::rngs::StdRng::from_seed([0u8; 32]);
         // The init element occupies leaf 0, so only capacity - 1 values fit.
         let account =
-            insert_rnd_addresses::<200, 200>(&mut account_data, tree_capacity - 2, rng, &pubkey)
+            insert_rnd_addresses::<200>(&mut account_data, tree_capacity - 2, rng, &pubkey)
                 .unwrap();
         // 2. one free leaf left: not full
         assert!(account
             .check_queue_next_index_reached_tree_capacity()
             .is_ok());
         // 3. the last value fills the last leaf: full
-        let mut account =
-            insert_rnd_addresses::<200, 200>(&mut account_data, 1, rng, &pubkey).unwrap();
+        let mut account = insert_rnd_addresses::<200>(&mut account_data, 1, rng, &pubkey).unwrap();
         assert_eq!(
             account
                 .check_queue_next_index_reached_tree_capacity()
@@ -774,11 +764,11 @@ mod test {
 
     #[test]
     fn test_tree_is_full() {
-        let mut account_data = vec![0u8; get_merkle_tree_account_size::<5, 5>()];
+        let mut account_data = vec![0u8; get_merkle_tree_account_size::<5>()];
         let batch_size = 5;
         let zkp_batch_size = 1;
         let height = 4;
-        let mut account = BatchedMerkleTreeAccount::<5, 5>::init(
+        let mut account = BatchedMerkleTreeAccount::<5>::init(
             &mut account_data,
             &Pubkey::new_unique(),
             batch_size,
@@ -818,12 +808,12 @@ mod test {
     }
     #[test]
     fn test_increment_next_index() {
-        let mut account_data = vec![0u8; get_merkle_tree_account_size::<5, 5>()];
+        let mut account_data = vec![0u8; get_merkle_tree_account_size::<5>()];
         let batch_size = 5;
         let zkp_batch_size = 1;
         let height = 40;
         let pubkey = Pubkey::new_unique();
-        let mut account = BatchedMerkleTreeAccount::<5, 5>::init(
+        let mut account = BatchedMerkleTreeAccount::<5>::init(
             &mut account_data,
             &pubkey,
             batch_size,
@@ -850,12 +840,12 @@ mod test {
 
     #[test]
     fn test_get_pubkey() {
-        let mut account_data = vec![0u8; get_merkle_tree_account_size::<5, 5>()];
+        let mut account_data = vec![0u8; get_merkle_tree_account_size::<5>()];
         let batch_size = 5;
         let zkp_batch_size = 1;
         let height = 40;
         let pubkey = Pubkey::new_unique();
-        let account = BatchedMerkleTreeAccount::<5, 5>::init(
+        let account = BatchedMerkleTreeAccount::<5>::init(
             &mut account_data,
             &pubkey,
             batch_size,

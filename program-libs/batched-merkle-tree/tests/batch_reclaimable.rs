@@ -2,20 +2,20 @@ use solana_address::Address;
 use zolana_batched_merkle_tree::{
     batch::BatchState,
     constants::NULLIFIER_TREE_INIT_ROOT_40,
+    errors::BatchedMerkleTreeError,
     merkle_tree::{get_merkle_tree_account_size, BatchedMerkleTreeAccount},
     merkle_tree_metadata::TreeType,
     zero_copy::{CachedTreeUpdate, TreeAccountLayout},
 };
 
-const RH: usize = 4;
 const ZKP: usize = 4;
 const BATCH_SIZE: u64 = 4;
 const ZKP_BATCH_SIZE: u64 = 1;
 
-type Tree<'a> = BatchedMerkleTreeAccount<'a, RH, ZKP>;
+type Tree<'a> = BatchedMerkleTreeAccount<'a, ZKP>;
 
 fn account_data() -> Vec<u8> {
-    vec![0u8; get_merkle_tree_account_size::<RH, ZKP>()]
+    vec![0u8; get_merkle_tree_account_size::<ZKP>()]
 }
 
 fn init_tree<'a>(data: &'a mut [u8], pubkey: &Address) -> Tree<'a> {
@@ -63,7 +63,7 @@ fn apply_update(data: &mut [u8], pubkey: &Address, batch_index: usize, new_root:
         .unwrap()
         .get_num_inserted_zkps() as usize;
     {
-        let layout: &mut TreeAccountLayout<RH, ZKP> = wincode::deserialize_mut(data).unwrap();
+        let layout: &mut TreeAccountLayout<ZKP> = wincode::deserialize_mut(data).unwrap();
         *layout
             .cached_tree_updates
             .get_mut(batch_index)
@@ -81,7 +81,7 @@ fn apply_update(data: &mut [u8], pubkey: &Address, batch_index: usize, new_root:
     assert_eq!(event.new_root, new_root);
 }
 
-fn assert_roots(data: &mut [u8], pubkey: &Address, expected: [Option<[u8; 32]>; RH]) {
+fn assert_roots(data: &mut [u8], pubkey: &Address, expected: [Option<[u8; 32]>; ZKP]) {
     let tree = load_tree(data, pubkey);
     for (slot, expected) in tree.root_history().iter().zip(expected.iter()) {
         assert_eq!(*slot, expected.unwrap_or([0u8; 32]));
@@ -222,4 +222,48 @@ fn inserted_batch_reuse_does_not_wait_for_successor_to_be_fully_applied() {
     assert_eq!(reused.get_state(), BatchState::Fill);
     assert_eq!(reused.start_index, 1 + 2 * BATCH_SIZE);
     assert_eq!(reused.get_num_inserted_elements(), 1);
+}
+
+#[test]
+fn full_queue_rejects_inserts_until_the_pending_batch_is_applied() {
+    let pubkey = Address::new_unique();
+    let mut data = account_data();
+    init_tree(&mut data, &pubkey);
+
+    assert_eq!(
+        insert(&mut data, &pubkey, 1..=8),
+        (0..8).collect::<Vec<_>>()
+    );
+    {
+        let tree = load_tree(&mut data, &pubkey);
+        let queue = &tree.get_metadata().queue_batches;
+        assert_eq!(queue.batches.first().unwrap().get_state(), BatchState::Full);
+        assert_eq!(queue.batches.get(1).unwrap().get_state(), BatchState::Full);
+        assert_eq!(queue.currently_processing_batch_index, 0);
+        assert_eq!(tree.next_queued_leaf_index().unwrap(), 1 + 2 * BATCH_SIZE);
+        assert_eq!(
+            tree.remaining_queue_capacity().unwrap(),
+            tree.capacity - (1 + 2 * BATCH_SIZE)
+        );
+    }
+
+    let before = data.clone();
+    assert_eq!(
+        load_tree(&mut data, &pubkey)
+            .insert_nullifier_into_queue(&nullifier(9))
+            .unwrap_err(),
+        BatchedMerkleTreeError::BatchNotReady
+    );
+    assert_eq!(data, before);
+
+    for i in 1..=4u8 {
+        apply_update(&mut data, &pubkey, 0, root(i));
+    }
+    assert_eq!(insert(&mut data, &pubkey, [9]), vec![8]);
+    let tree = load_tree(&mut data, &pubkey);
+    let reused = tree.get_metadata().queue_batches.batches.first().unwrap();
+    assert_eq!(reused.get_state(), BatchState::Fill);
+    assert_eq!(reused.start_index, 1 + 2 * BATCH_SIZE);
+    assert_eq!(reused.get_num_inserted_elements(), 1);
+    assert_eq!(tree.next_queued_leaf_index().unwrap(), 2 + 2 * BATCH_SIZE);
 }

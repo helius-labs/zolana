@@ -31,13 +31,12 @@ const DISCRIMINATOR: u8 = 7;
 
 const OP_BATCH_ADDRESS_UPDATE: u8 = 5;
 
-const ADDRESS_RH: usize = 120;
 const ADDRESS_ZKP: usize = 120;
 const ADDRESS_HEIGHT: u32 = 40;
 const ADDRESS_ZKP_BATCH_SIZE: u64 = 10;
 const ADDRESS_BATCH_SIZE: u64 = 1200;
 
-type AddressTree<'a> = BatchedMerkleTreeAccount<'a, ADDRESS_RH, ADDRESS_ZKP>;
+type AddressTree<'a> = BatchedMerkleTreeAccount<'a, ADDRESS_ZKP>;
 
 struct AddressUpdateFixture {
     account_data: Vec<u8>,
@@ -139,7 +138,7 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
     let zkp = ADDRESS_ZKP_BATCH_SIZE as usize;
     let total = num_batches * zkp;
 
-    let mut account_data = vec![0u8; get_merkle_tree_account_size::<ADDRESS_RH, ADDRESS_ZKP>()];
+    let mut account_data = vec![0u8; get_merkle_tree_account_size::<ADDRESS_ZKP>()];
     AddressTree::init(
         &mut account_data,
         &pubkey,
@@ -222,7 +221,7 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
     }
 
     {
-        let layout: &mut TreeAccountLayout<ADDRESS_RH, ADDRESS_ZKP> =
+        let layout: &mut TreeAccountLayout<ADDRESS_ZKP> =
             wincode::deserialize_mut(&mut account_data).unwrap();
         let updates = layout.cached_tree_updates.get_mut(0).unwrap();
         for i in 1..num_batches {

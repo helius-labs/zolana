@@ -73,7 +73,7 @@ mod tests {
         let batch_size = 2;
         let zkp_batch_size = 2;
         let init_start_index = 1;
-        QueueBatches::validate_configuration::<1, 1>(batch_size, zkp_batch_size).unwrap();
+        QueueBatches::validate_configuration::<1>(batch_size, zkp_batch_size).unwrap();
         let mut batch_metadata =
             QueueBatches::new(batch_size, zkp_batch_size, init_start_index).unwrap();
         let mut hash_chain_lengths = [0u64; 2];
