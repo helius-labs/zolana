@@ -1,6 +1,6 @@
 use zolana_keypair::{
     hash::owner_hash, random_salt, CompressedShieldedAddress, Curve, KeypairError, ShieldedAddress,
-    ShieldedKeypair, SigningKey, ViewingKey,
+    ShieldedKeypair, SigningKey, ViewingKey, SHIELDED_ADDRESS_LEN,
 };
 
 use crate::{
@@ -186,4 +186,41 @@ pub(crate) fn facade_transfer(world: &mut KeypairWorld, sender: String, recipien
         .decrypt_utxo(&ct, &tx.pubkey(), salt, 1)
         .unwrap();
     assert_eq!(decrypted, payload);
+}
+
+pub(crate) fn text_address_round_trips(world: &mut KeypairWorld, name: String) {
+    let address = world.keypair(&name).shielded_address().unwrap();
+    let text = address.to_string();
+    assert_eq!(
+        bs58::decode(&text).into_vec().unwrap().len(),
+        SHIELDED_ADDRESS_LEN
+    );
+    assert_eq!(text.parse::<ShieldedAddress>().unwrap(), address);
+}
+
+pub(crate) fn text_address_rejects_malformed() {
+    let short = bs58::encode([1u8; SHIELDED_ADDRESS_LEN - 1]).into_string();
+    assert_eq!(
+        short.parse::<ShieldedAddress>().unwrap_err(),
+        KeypairError::InvalidShieldedAddress
+    );
+    let long = bs58::encode([1u8; SHIELDED_ADDRESS_LEN + 1]).into_string();
+    assert_eq!(
+        long.parse::<ShieldedAddress>().unwrap_err(),
+        KeypairError::InvalidShieldedAddress
+    );
+    assert_eq!(
+        "not base58 0OIl".parse::<ShieldedAddress>().unwrap_err(),
+        KeypairError::InvalidShieldedAddress
+    );
+    // A well-formed length with a signature-type byte no curve claims.
+    let mut bytes = [0u8; SHIELDED_ADDRESS_LEN];
+    bytes[0] = 9;
+    assert_eq!(
+        bs58::encode(bytes)
+            .into_string()
+            .parse::<ShieldedAddress>()
+            .unwrap_err(),
+        KeypairError::InvalidSignatureType(9)
+    );
 }

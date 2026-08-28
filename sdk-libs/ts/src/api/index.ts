@@ -242,7 +242,9 @@ function parseConfig(config: unknown): {
   if (queryKeys.length === 1) url.searchParams.delete("api-key");
   validateApiKey(apiKey);
 
-  const fetchImplementation = config["fetch"] ?? globalThis.fetch;
+  // Browsers refuse `fetch` called with another receiver, so the global stays bound.
+  const boundFetch: typeof globalThis.fetch = (input, init) => globalThis.fetch(input, init);
+  const fetchImplementation: unknown = config["fetch"] ?? boundFetch;
   if (!isFetch(fetchImplementation)) {
     throw new ApiError("API_INVALID_CONFIG", "A fetch implementation is required", {
       details: { field: "fetch" },
@@ -605,7 +607,7 @@ function hasControlCharacter(value: string): boolean {
 
 function safeSchemaPath(path: string): string | undefined {
   const knownField =
-    "(?:blockTime|context|hash|highElement|highElementIndex|leaf|leafIndex|leaves|limit|lowElement|lowElementIndex|matches|merkleContext|nextCursor|nullifiers|outputContext|outputSlot|outputSlots|path|payload|proofless|proofs|root|rootIndex|rootSeq|salt|slot|tags|transactions|tree|treeAccount|treeType|txSignature|txViewingPk|viewTag)";
+    "(?:blockTime|context|hash|highElement|highElementIndex|leaf|leafIndex|leaves|limit|lowElement|lowElementIndex|matches|merkleContext|nextCursor|nullifiers|outputContext|outputSlot|outputSlots|path|payload|proofless|proofs|root|rootIndex|rootSeq|salt|scannedThrough|slot|tags|transactions|tree|treeAccount|treeType|txSignature|txViewingPk|viewTag)";
   const pattern = new RegExp(`^\\$(?:(?:\\.${knownField})|(?:\\[\\d+\\]))*$`, "u");
   return path.length <= 256 && pattern.test(path) ? path : undefined;
 }

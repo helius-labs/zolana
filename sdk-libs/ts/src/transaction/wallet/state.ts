@@ -48,6 +48,16 @@ export type PrivateTransactionKind =
 export type PrivateTransactionDirection = "inbound" | "outbound" | "selfTransfer";
 
 /**
+ * Streams the wallet keeps read positions in.
+ *
+ * They are separate because reaching the tip of one says nothing about the
+ * others, and sharing a cursor would skip rows in whichever stream is behind.
+ * `transactions` and `proofless` are keyed by view tag; `nullifiers` by
+ * nullifier.
+ */
+export type CursorStream = "transactions" | "proofless" | "nullifiers";
+
+/**
  * A history row is reconstructed from an indexed transaction, so it exists only
  * once that transaction has landed. Nothing stages a locally submitted transfer
  * into the history ahead of a sync, in either language, so `confirmed` is the
@@ -119,7 +129,7 @@ export interface WalletUtxo {
   }>;
   readonly nullifier: Bytes32;
   readonly dataHash?: Bytes32;
-  readonly zoneDataHash?: Bytes32;
+  readonly ringDataHash?: Bytes32;
   readonly spent: boolean;
 }
 
@@ -130,7 +140,7 @@ function copyUtxo(value: Utxo): Utxo {
     amount: value.amount,
     blinding: value.blinding,
     data: value.data,
-    ...(value.zoneProgramId === undefined ? {} : { zoneProgramId: value.zoneProgramId }),
+    ...(value.ringProgramId === undefined ? {} : { ringProgramId: value.ringProgramId }),
   });
 }
 
@@ -144,7 +154,7 @@ function snapshotUtxo(value: WalletUtxo): WalletUtxo {
     }),
     nullifier: copy(value.nullifier),
     ...(value.dataHash === undefined ? {} : { dataHash: copy(value.dataHash) }),
-    ...(value.zoneDataHash === undefined ? {} : { zoneDataHash: copy(value.zoneDataHash) }),
+    ...(value.ringDataHash === undefined ? {} : { ringDataHash: copy(value.ringDataHash) }),
   });
 }
 
@@ -183,6 +193,11 @@ export class Wallet {
    * would skip rows in whichever stream is behind.
    */
   #prooflessCursors = new Map<string, Uint8Array>();
+  /**
+   * The same for the nullifier stream, keyed by nullifier rather than tag.
+   * Entries are dropped once the nullifier is spent.
+   */
+  #nullifierCursors = new Map<string, Uint8Array>();
 
   constructor(input: Readonly<{ identity: ShieldedAddress; registry?: AssetRegistry }>) {
     this.identity = input.identity;
@@ -210,17 +225,30 @@ export class Wallet {
    *
    * @internal
    */
-  _syncCursor(stream: "transactions" | "proofless", tag: string): Uint8Array | undefined {
+  _syncCursor(stream: CursorStream, tag: string): Uint8Array | undefined {
     return this.#cursorsFor(stream).get(tag);
   }
 
   /** @internal */
-  _setSyncCursor(stream: "transactions" | "proofless", tag: string, cursor: Uint8Array): void {
+  _setSyncCursor(stream: CursorStream, tag: string, cursor: Uint8Array): void {
     this.#cursorsFor(stream).set(tag, Uint8Array.from(cursor));
   }
 
-  #cursorsFor(stream: "transactions" | "proofless"): Map<string, Uint8Array> {
-    return stream === "transactions" ? this.#syncCursors : this.#prooflessCursors;
+  /**
+   * Forget the watermarks for nullifiers now known spent.
+   *
+   * A spent nullifier is never queried again, so its watermark is dead weight.
+   * Without this the map grows with history even though the query set shrinks.
+   *
+   * @internal
+   */
+  _forgetNullifierCursors(spent: ReadonlySet<string>): void {
+    for (const nullifier of spent) this.#nullifierCursors.delete(nullifier);
+  }
+
+  #cursorsFor(stream: CursorStream): Map<string, Uint8Array> {
+    if (stream === "transactions") return this.#syncCursors;
+    return stream === "proofless" ? this.#prooflessCursors : this.#nullifierCursors;
   }
 
   registerAsset(assetId: bigint, mint: Address): void {
@@ -313,6 +341,9 @@ export class Wallet {
       Object.freeze({ ...transaction, id: Object.freeze({ ...transaction.id }) }),
     );
     this.#nullifiers = new Set(input.nullifiers);
+    // A spent nullifier is never queried again, so its watermark is dead weight.
+    // Both key spaces are lowercase hex of the same bytes, so the sets line up.
+    this._forgetNullifierCursors(this.#nullifiers);
     if (input.viewingKeyHistory !== undefined) {
       this.#viewingKeyHistory = input.viewingKeyHistory.map(snapshotViewingKeyEntry);
     }

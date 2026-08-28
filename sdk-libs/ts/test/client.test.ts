@@ -377,6 +377,72 @@ describe("ZolanaClient", () => {
     });
   });
 
+  it("accepts a nullifier response that reports how far the scan reached", async () => {
+    // Strict decoding must still accept the indexer's explicit scan frontier.
+    const fetch = vi.fn<typeof globalThis.fetch>(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: "test-account",
+            jsonrpc: "2.0",
+            result: {
+              context: { blockTime: 1, slot: 1 },
+              transactions: [],
+              nextCursor: null,
+              scannedThrough: "Aw==",
+            },
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      ),
+    );
+
+    const response = await client(fetch).getShieldedTransactionsByNullifiers({
+      nullifiers: [bytes(7)],
+    });
+
+    expect(response.nextCursor).toBeUndefined();
+    expect(response.scannedThrough).toEqual(Uint8Array.of(3));
+  });
+
+  it("accepts tag responses that report how far the scan reached", async () => {
+    const responseBody = (rows: "transactions" | "matches") =>
+      JSON.stringify({
+        id: "test-account",
+        jsonrpc: "2.0",
+        result: {
+          context: { blockTime: 1, slot: 1 },
+          [rows]: [],
+          nextCursor: null,
+          scannedThrough: "BA==",
+        },
+      });
+    const transactionFetch = vi.fn<typeof globalThis.fetch>(() =>
+      Promise.resolve(
+        new Response(responseBody("transactions"), {
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+    const encryptedUtxoFetch = vi.fn<typeof globalThis.fetch>(() =>
+      Promise.resolve(
+        new Response(responseBody("matches"), {
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+
+    const transactions = await client(transactionFetch).getShieldedTransactionsByTags({
+      tags: [bytes(7)],
+    });
+    const encryptedUtxos = await client(encryptedUtxoFetch).getEncryptedUtxosByTags({
+      tags: [bytes(7)],
+    });
+
+    expect(transactions.scannedThrough).toEqual(Uint8Array.of(4));
+    expect(encryptedUtxos.scannedThrough).toEqual(Uint8Array.of(4));
+  });
+
   it("forwards paginated nullifier lookups through the client facade", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(() =>
       Promise.resolve(

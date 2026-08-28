@@ -62,6 +62,16 @@ pub struct ConfirmedInstructionGroups {
 
 const DEFAULT_CONFIRMATION_TIMEOUT: Duration = Duration::from_secs(30);
 
+impl TryFrom<EncodedConfirmedTransactionWithStatusMeta> for ConfirmedInstructionGroups {
+    type Error = ClientError;
+
+    fn try_from(
+        transaction: EncodedConfirmedTransactionWithStatusMeta,
+    ) -> Result<Self, Self::Error> {
+        instruction_groups_from_confirmed_transaction(transaction)
+    }
+}
+
 /// Unique `view_tag`s from a confirmed shielded-pool `TRANSACT` instruction,
 /// found either as the transaction's outer instruction (a direct `Transact`
 /// call) or as an inner instruction (a program CPIing into `transact`, e.g.
@@ -136,6 +146,13 @@ impl SolanaRpc {
         &self.client
     }
 
+    pub fn genesis_hash(&self) -> Result<[u8; 32], ClientError> {
+        self.client
+            .get_genesis_hash()
+            .map(|hash| hash.to_bytes())
+            .map_err(|_| ClientError::Rpc("genesis hash request failed".to_owned()))
+    }
+
     pub fn assert_executable(&self, program_id: &Pubkey) -> Result<(), ClientError> {
         let account = self
             .client
@@ -179,7 +196,8 @@ impl SolanaRpc {
         signature: &Signature,
     ) -> Result<ConfirmedInstructionGroups, ClientError> {
         let transaction = self.fetch_confirmed_transaction(signature)?;
-        instruction_groups_from_confirmed_transaction(signature, transaction)
+        instruction_groups_from_confirmed_transaction(transaction)
+            .map_err(|err| err.for_signature(signature))
     }
 
     pub fn transact_output_view_tags_from_signature(
@@ -232,6 +250,14 @@ impl AsyncSolanaRpc {
         &self.client
     }
 
+    pub async fn genesis_hash(&self) -> Result<[u8; 32], ClientError> {
+        self.client
+            .get_genesis_hash()
+            .await
+            .map(|hash| hash.to_bytes())
+            .map_err(|_| ClientError::Rpc("genesis hash request failed".to_owned()))
+    }
+
     pub async fn fetch_confirmed_transaction(
         &self,
         signature: &Signature,
@@ -266,7 +292,8 @@ impl AsyncSolanaRpc {
         signature: &Signature,
     ) -> Result<ConfirmedInstructionGroups, ClientError> {
         let transaction = self.fetch_confirmed_transaction(signature).await?;
-        instruction_groups_from_confirmed_transaction(signature, transaction)
+        instruction_groups_from_confirmed_transaction(transaction)
+            .map_err(|err| err.for_signature(signature))
     }
 
     pub async fn transact_output_view_tags_from_signature(
@@ -279,7 +306,6 @@ impl AsyncSolanaRpc {
 }
 
 fn instruction_groups_from_confirmed_transaction(
-    signature: &Signature,
     transaction: EncodedConfirmedTransactionWithStatusMeta,
 ) -> Result<ConfirmedInstructionGroups, ClientError> {
     let encoded = transaction.transaction;
@@ -291,9 +317,9 @@ fn instruction_groups_from_confirmed_transaction(
     let inner = match meta.inner_instructions {
         OptionSerializer::Some(inner) => inner,
         OptionSerializer::None | OptionSerializer::Skip => {
-            return Err(ClientError::Rpc(format!(
-                "transaction missing inner instructions: {signature}"
-            )));
+            return Err(ClientError::Rpc(
+                "transaction missing inner instructions".to_string(),
+            ));
         }
     };
 
@@ -526,12 +552,11 @@ impl Rpc for SolanaRpc {
         transaction: &Transaction,
         config: solana_rpc_client_api::config::RpcSendTransactionConfig,
     ) -> Result<Signature, ClientError> {
+        // Sends and returns; it does not confirm. `send_transaction` is the
+        // send-and-confirm one. The two were the same call, so a caller asking
+        // for a config also bought a confirmation wait it never requested.
         self.client
-            .send_and_confirm_transaction_with_spinner_and_config(
-                transaction,
-                CommitmentConfig::confirmed(),
-                config,
-            )
+            .send_transaction_with_config(transaction, config)
             .map_err(|source| ClientError::SolanaRpcTransaction {
                 operation: "send_transaction_with_config",
                 source,
@@ -670,12 +695,10 @@ impl AsyncRpc for AsyncSolanaRpc {
         transaction: &Transaction,
         config: solana_rpc_client_api::config::RpcSendTransactionConfig,
     ) -> Result<Signature, ClientError> {
+        // Sends and returns, matching the blocking path: `send_transaction` is
+        // the send-and-confirm one.
         self.client
-            .send_and_confirm_transaction_with_config(
-                transaction,
-                CommitmentConfig::confirmed(),
-                config,
-            )
+            .send_transaction_with_config(transaction, config)
             .await
             .map_err(|source| ClientError::SolanaRpcTransaction {
                 operation: "send_transaction_with_config",

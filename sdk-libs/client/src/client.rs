@@ -57,9 +57,7 @@ use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::{versioned::VersionedTransaction, Transaction as SolanaTransaction};
 use solana_transaction_status_client_types::TransactionStatus;
-use zolana_interface::instruction::{
-    InterfaceTransfer, Transact, TransactInterfaceTransferAccounts, TransactIxData,
-};
+use zolana_interface::instruction::{Transact, TransactInterfaceTransferAccounts, TransactIxData};
 use zolana_transaction::instructions::{transact::SppProofInputs, types::InputUtxoContext};
 
 use crate::{
@@ -67,7 +65,8 @@ use crate::{
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
     prover::{
         transact::witness::{assemble, ProverInputs, SpendProof},
-        AsyncProverClient, ProofCompressed, ProverClient,
+        verify_confidential_transfer_inputs, verify_confidential_transfer_proof, AsyncProverClient,
+        ProofCompressed, ProverClient, TransferProofResult,
     },
     retry::{IndexerPollConfig, IndexerRpcConfig},
     rpc::{
@@ -76,6 +75,7 @@ use crate::{
         GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
         ProveResult, Rpc, ShieldedTransactionStream,
     },
+    settlement::SettlementAccountValidation,
 };
 
 /// A signed shielded transaction ready for proof assembly and submission.
@@ -111,7 +111,6 @@ pub struct ZolanaClient<R> {
     cu_limit: u32,
     cu_price_micro_lamports: Option<u64>,
     indexer_config: IndexerRpcConfig,
-    send_config: Option<RpcSendTransactionConfig>,
 }
 
 impl<R> ZolanaClient<R> {
@@ -135,7 +134,6 @@ impl<R> ZolanaClient<R> {
             cu_limit: DEFAULT_TRANSACT_CU_LIMIT,
             cu_price_micro_lamports: None,
             indexer_config: IndexerRpcConfig::default(),
-            send_config: None,
         }
     }
 
@@ -160,8 +158,10 @@ impl<R> ZolanaClient<R> {
 
     /// [`Self::from_urls`] without the transport check.
     ///
-    /// Only for a network that is already private. On a public endpoint this
-    /// publishes the wallet's UTXO set and every proof witness in the clear.
+    /// Only for a network that is already private or an explicitly disposable
+    /// development profile that accepts zero transport-privacy. On a public
+    /// endpoint this publishes the wallet's UTXO set and every proof input in
+    /// the clear. Never use this constructor for production funds.
     pub fn from_urls_allowing_insecure_http(
         rpc: R,
         indexer_url: impl AsRef<str>,
@@ -182,8 +182,18 @@ impl<R> ZolanaClient<R> {
             cu_limit: DEFAULT_TRANSACT_CU_LIMIT,
             cu_price_micro_lamports: None,
             indexer_config: IndexerRpcConfig::default(),
-            send_config: None,
         }
+    }
+
+    /// Ask the configured prover for a default-ring Ed25519 transfer proof and
+    /// verify it locally before returning its transaction wire encoding.
+    pub async fn prove_confidential_transfer_result(
+        &self,
+        result: &TransferProofResult,
+    ) -> Result<ProofCompressed, ClientError> {
+        let proof = self.async_prover.prove_transfer(&result.inputs).await?;
+        verify_confidential_transfer_proof(result, &proof)?;
+        ProofCompressed::try_from(proof)
     }
 
     pub fn with_compute_unit_limit(mut self, cu_limit: u32) -> Self {
@@ -203,11 +213,6 @@ impl<R> ZolanaClient<R> {
 
     pub fn with_indexer_config(mut self, config: IndexerRpcConfig) -> Self {
         self.indexer_config = config;
-        self
-    }
-
-    pub fn with_send_transaction_config(mut self, config: RpcSendTransactionConfig) -> Self {
-        self.send_config = Some(config);
         self
     }
 
@@ -321,7 +326,9 @@ impl<R: Rpc> ZolanaClient<R> {
         let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
         let proof = {
             let _t = crate::timing::Phase::start("prove_transfer", 0);
-            self.blocking_prover().prove_transfer(inputs)?
+            let proof = self.blocking_prover().prove_transfer(inputs)?;
+            verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
+            proof
         };
         let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
         // Last thing before building, so the blockhash is as young as it can be
@@ -423,6 +430,7 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         let assembled = assemble(signed.transaction.clone(), &spend_proofs, &dummy_proofs)?;
         let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
         let proof = self.async_prover.prove_transfer(inputs).await?;
+        verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
         let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
         build_unsigned_solana_transaction(
             ComputeBudgetConfig {
@@ -726,6 +734,7 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         let assembled = assemble(transaction, &input_merkle_proofs, &dummy_proofs)?;
         let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
         let proof = self.async_prover.prove_transfer(inputs).await?;
+        verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
         let circuit_id = 0;
         Ok(ProveResult {
             proof: ProofCompressed::try_from(proof)?,
@@ -977,6 +986,7 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         let assembled = assemble(transaction, &input_merkle_proofs, &dummy_proofs)?;
         let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
         let proof = self.blocking_prover().prove_transfer(inputs)?;
+        verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
         let circuit_id = 0;
         Ok(ProveResult {
             proof: ProofCompressed::try_from(proof)?,
@@ -1005,7 +1015,11 @@ fn build_unsigned_solana_transaction(
     transact_data: zolana_interface::instruction::instruction_data::transact::TransactIxData,
     recent_blockhash: Hash,
 ) -> Result<SolanaTransaction, ClientError> {
-    validate_settlement_transfers(&transact_data.interface_transfers, &settlement_transfers)?;
+    SettlementAccountValidation {
+        transfers: &transact_data.interface_transfers,
+        accounts: &settlement_transfers,
+    }
+    .validate()?;
     let transact_ix = Transact {
         payer: fee_payer,
         input_tree: trees.input_tree,
@@ -1023,40 +1037,6 @@ fn build_unsigned_solana_transaction(
     let mut message = Message::new(&instructions, Some(&fee_payer));
     message.recent_blockhash = recent_blockhash;
     Ok(SolanaTransaction::new_unsigned(message))
-}
-
-fn validate_settlement_transfers(
-    interface_transfers: &[InterfaceTransfer],
-    settlement_transfers: &[TransactInterfaceTransferAccounts],
-) -> Result<(), ClientError> {
-    if interface_transfers.len() != settlement_transfers.len() {
-        return Err(ClientError::SettlementTransferCountMismatch {
-            interface_transfers: interface_transfers.len(),
-            account_groups: settlement_transfers.len(),
-        });
-    }
-    for (index, (transfer, accounts)) in interface_transfers
-        .iter()
-        .zip(settlement_transfers)
-        .enumerate()
-    {
-        if !matches!(
-            (transfer, accounts),
-            (
-                InterfaceTransfer::SolDeposit { .. } | InterfaceTransfer::SolWithdrawal { .. },
-                TransactInterfaceTransferAccounts::Sol(_)
-            ) | (
-                InterfaceTransfer::SplDeposit { .. },
-                TransactInterfaceTransferAccounts::SplDeposit(_)
-            ) | (
-                InterfaceTransfer::SplWithdrawal { .. },
-                TransactInterfaceTransferAccounts::SplWithdrawal(_)
-            )
-        ) {
-            return Err(ClientError::SettlementTransferTypeMismatch { index });
-        }
-    }
-    Ok(())
 }
 
 fn validate_fee_payer_pubkey(
@@ -1100,8 +1080,25 @@ fn fetch_spend_proofs(
         .iter()
         .map(|commitment| commitment.nullifier)
         .collect::<Vec<_>>();
-    let state_response = indexer.get_merkle_proofs(tree, leaves, config)?;
-    let nullifier_response = indexer.get_non_inclusion_proofs(tree, nullifiers, config)?;
+    // Independent round trips, run together for the same reason the async path
+    // does with `try_join!`: different methods, neither consuming the other's
+    // output. Serially this cost the sum on every transfer.
+    let (state_response, nullifier_response) = std::thread::scope(|scope| {
+        let state = scope.spawn(|| {
+            let _t = crate::timing::Phase::start("get_merkle_proofs", 0);
+            indexer.get_merkle_proofs(tree, leaves, config)
+        });
+        let nullifier = scope.spawn(|| {
+            let _t = crate::timing::Phase::start("get_non_inclusion_proofs", 0);
+            indexer.get_non_inclusion_proofs(tree, nullifiers, config)
+        });
+        (state.join(), nullifier.join())
+    });
+    // A panic here is a bug in the indexer client, not an unreachable indexer.
+    let state_response =
+        state_response.unwrap_or_else(|payload| std::panic::resume_unwind(payload))?;
+    let nullifier_response =
+        nullifier_response.unwrap_or_else(|payload| std::panic::resume_unwind(payload))?;
     validate_spend_proofs(
         tree,
         commitments,
@@ -1451,8 +1448,12 @@ mod tests {
             }),
         ];
 
-        validate_settlement_transfers(&interface_transfers, &settlement_transfers)
-            .expect("ordered duplicate-asset account groups are valid");
+        SettlementAccountValidation {
+            transfers: &interface_transfers,
+            accounts: &settlement_transfers,
+        }
+        .validate()
+        .expect("ordered duplicate-asset account groups are valid");
     }
 
     #[test]
@@ -1461,20 +1462,25 @@ mod tests {
             recipient: Pubkey::new_unique(),
         });
         assert!(matches!(
-            validate_settlement_transfers(&[InterfaceTransfer::SolWithdrawal { amount: 1 }], &[],),
+            SettlementAccountValidation {
+                transfers: &[InterfaceTransfer::SolWithdrawal { amount: 1 }],
+                accounts: &[],
+            }
+            .validate(),
             Err(ClientError::SettlementTransferCountMismatch {
                 interface_transfers: 1,
                 account_groups: 0,
             })
         ));
         assert!(matches!(
-            validate_settlement_transfers(
-                &[InterfaceTransfer::SplWithdrawal {
+            SettlementAccountValidation {
+                transfers: &[InterfaceTransfer::SplWithdrawal {
                     amount: 1,
                     spl_interface_bump: 42,
                 }],
-                &[sol_accounts],
-            ),
+                accounts: &[sol_accounts],
+            }
+            .validate(),
             Err(ClientError::SettlementTransferTypeMismatch { index: 0 })
         ));
     }
@@ -1516,10 +1522,19 @@ mod tests {
         };
         let commitment = shielded.transaction.input_utxo_hashes().unwrap().remove(0);
         let signature = Signature::from([5u8; 64]);
-        let server = MockIndexerServer::respond_with(vec![
-            merkle_response(tree, commitment.utxo_hash),
-            nullifier_response(tree, commitment.nullifier),
-            indexed_transaction_by_signature_response(signature),
+        let server = MockIndexerServer::respond_by_path(vec![
+            (
+                "/getMerkleProofs",
+                merkle_response(tree, commitment.utxo_hash),
+            ),
+            (
+                "/getNonInclusionProofs",
+                nullifier_response(tree, commitment.nullifier),
+            ),
+            (
+                "/getShieldedTransactionsBySignature",
+                indexed_transaction_by_signature_response(signature),
+            ),
         ]);
         let rpc = MockSubmitRpc::new(signature);
         let sent = rpc.sent.clone();
@@ -1557,14 +1572,13 @@ mod tests {
         assert_eq!(sent.len(), 1);
         assert_eq!(sent[0].message.instructions.len(), 3);
         let requests = server.requests();
-        assert_eq!(
-            requests,
-            [
-                "/getMerkleProofs",
-                "/getNonInclusionProofs",
-                "/getShieldedTransactionsBySignature",
-            ]
-        );
+        // The two proof fetches race, so only their membership is defined; the
+        // indexed-transaction lookup still happens after them.
+        let (proofs, rest) = requests.split_at(2);
+        let mut proofs = proofs.to_vec();
+        proofs.sort();
+        assert_eq!(proofs, ["/getMerkleProofs", "/getNonInclusionProofs"]);
+        assert_eq!(rest, ["/getShieldedTransactionsBySignature"]);
     }
 
     #[test]
@@ -1944,6 +1958,15 @@ mod tests {
             Ok(self.signature)
         }
 
+        fn send_transaction_with_config(
+            &self,
+            transaction: &SolanaTransaction,
+            _config: RpcSendTransactionConfig,
+        ) -> Result<Signature, ClientError> {
+            self.sent.lock().unwrap().push(transaction.clone());
+            Ok(self.signature)
+        }
+
         fn confirm_transaction(&self, _signature: Signature) -> Result<bool, ClientError> {
             Ok(true)
         }
@@ -2077,6 +2100,38 @@ mod tests {
     }
 
     impl MockIndexerServer {
+        /// Serve each response to the request whose path asks for it.
+        ///
+        /// `respond_with` hands responses out in order, which stops being a
+        /// description of the server once the client fetches concurrently: the
+        /// proof fetches race, and whichever connects first would take the
+        /// other's body.
+        fn respond_by_path(responses: Vec<(&'static str, Value)>) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock indexer");
+            let url = format!("http://{}", listener.local_addr().unwrap());
+            let (request_tx, requests) = mpsc::channel();
+            let count = responses.len();
+            let handle = thread::spawn(move || {
+                let mut remaining: Vec<(&'static str, Value)> = responses;
+                for _ in 0..count {
+                    let (mut stream, _) = listener.accept().expect("accept request");
+                    let request = read_request(&mut stream);
+                    let index = remaining
+                        .iter()
+                        .position(|(path, _)| *path == request.path)
+                        .unwrap_or_else(|| panic!("no mock response for {}", request.path));
+                    let (_, response) = remaining.remove(index);
+                    request_tx.send(request).expect("record request");
+                    write_json_response(&mut stream, &response);
+                }
+            });
+            Self {
+                url,
+                requests,
+                handle,
+            }
+        }
+
         fn respond_with(responses: Vec<Value>) -> Self {
             let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock indexer");
             let url = format!("http://{}", listener.local_addr().unwrap());

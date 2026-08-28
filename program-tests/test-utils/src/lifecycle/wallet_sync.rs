@@ -1,7 +1,7 @@
 //! Wallet synchronization and explicit UTXO assertions.
 
 use anyhow::Result;
-use zolana_transaction::{Address, LocalWalletAuthority, Utxo, DEFAULT_TAG_WINDOW};
+use zolana_transaction::{Address, KeypairWalletAuthority, Utxo, DEFAULT_TAG_WINDOW};
 
 use super::LifecycleHarness;
 use crate::localnet::ZERO;
@@ -17,7 +17,7 @@ impl LifecycleHarness {
         let assets = self.assets.clone();
         let actor = self.actor_mut(name);
         actor.wallet.registry = assets;
-        let authority = LocalWalletAuthority::new(Address::default(), &actor.keypair);
+        let authority = KeypairWalletAuthority::new(Address::default(), &actor.keypair);
         actor
             .wallet
             .sync(&authority, &indexed, 0, DEFAULT_TAG_WINDOW)?;
@@ -60,7 +60,7 @@ impl LifecycleHarness {
         let assets = self.assets.clone();
         let actor = self.actor_mut(name);
         actor.wallet.registry = assets;
-        let authority = LocalWalletAuthority::new(Address::default(), &actor.keypair);
+        let authority = KeypairWalletAuthority::new(Address::default(), &actor.keypair);
         actor
             .wallet
             .sync(&authority, &indexed, 0, DEFAULT_TAG_WINDOW)?;

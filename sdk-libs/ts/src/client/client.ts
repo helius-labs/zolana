@@ -45,9 +45,10 @@ import {
   type SolanaRpcSubscriptions,
 } from "./kit.js";
 import { assemble } from "./prover/assembly.js";
-import { ProverClient, type AsyncPollConfig } from "./prover/client.js";
+import { ProverClient, type AsyncPollConfig, type ProverHealth } from "./prover/client.js";
 import { assembleMerge } from "./prover/merge.js";
 import { compressProof } from "./prover/proof.js";
+import type { CustomRingProofRequest } from "./prover/types.js";
 import {
   DEFAULT_INDEXER_RPC_CONFIG,
   indexerPollTimeout,
@@ -64,6 +65,7 @@ import {
   type GetShieldedTransactionsBySignatureResponse,
   type GetShieldedTransactionsByTagsResponse,
   type IndexerRpcConfig,
+  type ProgramAccount,
   type RpcAccount,
   type SpendProof,
 } from "./rpc.js";
@@ -229,6 +231,25 @@ export class ZolanaClient {
         .send({ abortSignal }),
     );
     return value === null ? undefined : decodeRpcAccount(value, "getAccountInfo");
+  }
+
+  /** Every account of one program, as Rust's `Rpc::get_program_accounts`. */
+  async getProgramAccounts(
+    programId: Address,
+    context?: RequestContext,
+  ): Promise<readonly ProgramAccount[]> {
+    checkedAddress(programId, "programId");
+    const accounts = await runKitRpc("getProgramAccounts", context, (abortSignal) =>
+      this.solanaRpc
+        .getProgramAccounts(programId, { commitment: this.commitment, encoding: "base64" })
+        .send({ abortSignal }),
+    );
+    return accounts.map((entry) =>
+      Object.freeze({
+        address: entry.pubkey,
+        account: decodeRpcAccount(entry.account, "getProgramAccounts"),
+      }),
+    );
   }
 
   async getMultipleAccounts(
@@ -540,6 +561,45 @@ export class ZolanaClient {
     config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<TransactInstructionData> {
+    return this.#proveTransfer(proofInputs, undefined, config, context);
+  }
+
+  async proveRingTransact(
+    proofInputs: SppProofInputs,
+    ringProgramId: Address,
+    config?: IndexerRpcConfig,
+    context?: RequestContext,
+  ): Promise<TransactInstructionData> {
+    checkedAddress(ringProgramId, "ringProgramId");
+    return this.#proveTransfer(proofInputs, ringProgramId, config, context);
+  }
+
+  async proverHealth(context?: RequestContext): Promise<ProverHealth> {
+    try {
+      return await this.#prover.health(context);
+    } catch (cause) {
+      throw fromClientCause(cause);
+    }
+  }
+
+  async proveCustomRing(
+    inputs: CustomRingProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array> {
+    try {
+      const proof = await this.#prover.proveCustomRing(inputs, context);
+      return compressProof(proof).toCustomRingProof();
+    } catch (cause) {
+      throw fromClientCause(cause);
+    }
+  }
+
+  async #proveTransfer(
+    proofInputs: SppProofInputs,
+    ring: Address | undefined,
+    config: IndexerRpcConfig | undefined,
+    context: RequestContext | undefined,
+  ): Promise<TransactInstructionData> {
     if (!(proofInputs instanceof SppProofInputs)) {
       throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
     }
@@ -568,7 +628,7 @@ export class ZolanaClient {
           });
         }
       });
-      const assembled = assemble(proofInputs, proofs, dummyProofs);
+      const assembled = assemble(proofInputs, proofs, dummyProofs, ring);
       const proof = await this.#prover.prove(assembled.proverInputs, context);
       return assembled.withProof(compressProof(proof).toTransactProof());
     } catch (cause) {

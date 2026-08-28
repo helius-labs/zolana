@@ -40,7 +40,7 @@ import {
   type Transaction,
 } from "@solana/kit";
 import {
-  LocalWalletAuthority,
+  KeypairWalletAuthority,
   ShieldedKeypair,
   SigningKey,
   SOL_MINT,
@@ -63,7 +63,7 @@ const keypair = ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(ownerSee
 ownerSeed.fill(0);
 
 const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-const authority = new LocalWalletAuthority({
+const authority = new KeypairWalletAuthority({
   solanaPublicKey: feePayer.address,
   keypair,
 });
@@ -240,7 +240,7 @@ contains UTXO data and must be encrypted at rest.
 Common exports from `@heliuslabs/zolana` include:
 
 - setup: `createZolanaClient`, `ShieldedKeypair`, `Wallet`,
-  `LocalWalletAuthority`;
+  `KeypairWalletAuthority`;
 - transactions: `buildDepositTransaction`, `buildTransferTransaction`,
   `buildWithdrawalTransaction`, `buildSplitTransaction`,
   `buildMergeTransaction`;

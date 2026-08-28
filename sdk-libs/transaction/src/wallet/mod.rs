@@ -6,11 +6,12 @@ mod state;
 mod sync;
 
 pub use authority::{
-    AnonymousRecipientSlot, ApprovalRequest, EncryptedEnvelope, EncryptedSplit, EncryptedTransfer,
-    LocalWalletAuthority, P256Signature, SyncWalletAuthority, WalletAuthority, WalletSyncMaterial,
+    AnonymousRecipientSlot, ApprovalRequest, ClientEd25519WalletAuthority, EncryptedEnvelope,
+    EncryptedSplit, EncryptedTransfer, KeypairWalletAuthority, P256Signature, SyncWalletAuthority,
+    WalletAuthority, WalletSyncMaterial,
 };
 pub use state::{
-    AssetBalance, Balances, Filter, PrivateTransaction, PrivateTransactionDirection,
+    AssetBalance, Balances, CursorStream, Filter, PrivateTransaction, PrivateTransactionDirection,
     PrivateTransactionId, PrivateTransactionKind, PrivateTransactionStatus, SyncReport,
     ViewingKeyEntry, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW,
 };

@@ -1,9 +1,12 @@
 export {
-  LocalWalletAuthority,
+  ClientEd25519WalletAuthority,
+  KeypairWalletAuthority,
   type AnonymousRecipientSlot,
   type ApprovalRequest,
   type EncryptedEnvelope,
   type EncryptedSplit,
+  type AuditWitness,
+  type EncryptedCustomRingTransfer,
   type EncryptedTransfer,
   type SplitBundlePlaintext,
   type SyncWalletAuthority,

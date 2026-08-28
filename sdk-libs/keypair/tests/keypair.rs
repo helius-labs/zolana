@@ -144,6 +144,9 @@ fn shielded_keypair_facade_round_trips_full_transfers() {
     cases::common::random_shielded_keypair(&mut world, "recipient".into());
     cases::shielded::facade_shared_tags(&mut world, "sender".into(), "recipient".into());
     cases::shielded::facade_transfer(&mut world, "sender".into(), "recipient".into());
+
+    cases::shielded::text_address_round_trips(&mut world, "sender".into());
+    cases::shielded::text_address_rejects_malformed();
 }
 
 #[test]
@@ -219,6 +222,13 @@ fn pda_identities_derive_from_the_viewing_key_exchange() {
 fn domain_separation_tags_are_pairwise_distinct() {
     cases::derivation::hkdf_tags_pairwise_distinct();
     cases::derivation::poseidon_tags_pairwise_distinct();
+}
+
+#[test]
+fn role_expansion_from_a_device_seed_matches_the_software_path() {
+    cases::derivation::expand_roles_matches_the_software_constructor();
+    cases::derivation::expand_roles_rejects_a_seed_of_the_wrong_width();
+    cases::derivation::expand_roles_rejects_the_pda_curve();
 }
 
 #[test]

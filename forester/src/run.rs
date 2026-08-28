@@ -11,11 +11,25 @@
 //! ordered queued nullifier values (served by photon) into an in-memory
 //! reference `IndexedMerkleTree`, verify the reconstructed root matches the
 //! on-chain root, then build each ready zkp-batch's witness, prove it on the
-//! forester prover, and submit the updates in root order. Each on-chain update
-//! checks `old_root == current root`, so submission is strictly sequential;
-//! proving could be parallelised (see PR #89) as a follow-up.
+//! forester prover, and submit the updates in root order.
+//!
+//! Only one of the three stages is ordered. Witness construction is sequential,
+//! because a batch's `old_root` is the previous batch's `new_root`. Proving
+//! depends on nothing but its own witness. Submission is unordered: the program
+//! caches a verified update at its `zkp_batch_index` and applies whatever has
+//! become contiguous, so a later batch may land first and wait, and a gap left
+//! by a failed proof heals on the next pass.
+//!
+//! So `drain_once` serialises witness construction alone and runs
+//! `proof_concurrency` prove-and-submit workers alongside it.
 
-use std::{fmt, thread, time::Duration};
+use std::{
+    collections::VecDeque,
+    fmt,
+    sync::atomic::{AtomicU64, Ordering},
+    thread::{self, ScopedJoinHandle},
+    time::Duration,
+};
 
 use anyhow::{anyhow, bail, Result};
 use num_bigint::BigUint;
@@ -67,7 +81,27 @@ pub struct RunOptions {
     /// reconstruct the reference tree, verify the reconstructed root matches
     /// on-chain, and report — without proving or submitting.
     pub dry_run: bool,
+    /// Zkp-batch proofs to run at once.
+    ///
+    /// This is the protocol's throughput knob. One proof clears
+    /// `zkp_batch_size` nullifiers and takes about a minute, so proving them
+    /// one at a time caps the whole pool at `zkp_batch_size / 60` spends per
+    /// second — 4.2/s on devnet, against a client comfortably sustaining 24.
+    /// Above that the queue only fills, and once full the program rejects
+    /// spends outright with `NullifierTreeUpdateFailed`.
+    ///
+    /// The ceiling on this is the prover fleet's memory, not the forester: a
+    /// batch address-append proof needs on the order of 15GB, so raising it
+    /// past what the fleet can hold just moves the queueing into the prover.
+    pub proof_concurrency: usize,
 }
+
+/// Zkp-batch proofs in flight at once when unset.
+///
+/// Deliberately above 1 and well below the prover fleet's limit. One is the
+/// behaviour this replaced; a large default would silently depend on a fleet
+/// size that varies per environment.
+pub const DEFAULT_PROOF_CONCURRENCY: usize = 4;
 
 /// Read-once view of the nullifier tree's batch state.
 struct TreeSnapshot {
@@ -150,6 +184,8 @@ pub fn run(config: &ForesterConfig, opts: RunOptions) -> Result<()> {
     tracing::info!(tree = %opts.tree, "forester run: draining nullifier queue");
 
     let mut submitted_total: u64 = 0;
+    // Carried across passes: see ReferenceCache.
+    let mut cache = ReferenceCache::default();
     loop {
         // Liveness. Without this, "is the forester running?" is only answerable
         // by reading logs.
@@ -173,6 +209,8 @@ pub fn run(config: &ForesterConfig, opts: RunOptions) -> Result<()> {
             opts.account_index,
             opts.tree,
             remaining,
+            opts.proof_concurrency,
+            &mut cache,
         )?;
         let submitted = match outcome {
             DrainOutcome::Drained(submitted) => submitted,
@@ -372,12 +410,94 @@ fn collect_nullifier_pages(
 /// Fetch queued values from photon, replay the already-appended prefix into a
 /// fresh reference tree, and verify the reconstructed root matches on-chain.
 /// Returns the reference tree (at the on-chain state) and the fetched values.
+/// The replayed nullifier tree, kept between drain passes.
+///
+/// Rebuilding it means appending every already-applied nullifier again --
+/// sequential, Poseidon-heavy, and single-threaded. At ~30k applied values it
+/// pegged the forester's core for over ten minutes per pass while the prover
+/// sat at 0.002%, and the cost grows with every batch ever forested. Carrying
+/// the tree forward makes the usual pass append nothing.
+#[derive(Default)]
+struct ReferenceCache {
+    /// `None` until the first successful reconstruction.
+    tree: Option<ReferenceNullifierTree>,
+    /// How many queued values `tree` holds. Not the applied count: a drain pass
+    /// advances the tree through every witness it builds, including batches
+    /// whose submission then failed.
+    appended: u64,
+}
+
+impl ReferenceCache {
+    /// Extend the tree to hold exactly `applied` values, rebuilding it only
+    /// when it cannot be extended.
+    ///
+    /// An `IndexedMerkleTree` only appends, so a tree that has run ahead of the
+    /// chain -- a witness was built for a batch that never landed -- cannot be
+    /// rewound and is rebuilt. That is the self-healing path, not the common
+    /// one: when every batch lands, `appended` and `applied` meet exactly.
+    fn advance_to(&mut self, applied: u64, values: &[[u8; 32]], height: u32) -> Result<()> {
+        if self.appended > applied {
+            tracing::info!(
+                appended = self.appended,
+                applied,
+                "reference tree is ahead of chain; rebuilding"
+            );
+            self.invalidate();
+        }
+
+        let mut tree = match self.tree.take() {
+            Some(tree) => tree,
+            None => reference_nullifier_tree(height)?,
+        };
+        let from = usize::try_from(self.appended)
+            .map_err(|_| anyhow!("appended nullifier count {} exceeds usize", self.appended))?;
+        let pending = values
+            .get(from..)
+            .ok_or_else(|| anyhow!("queued nullifier prefix is shorter than {from}"))?;
+        for value in pending {
+            tree.append(&BigUint::from_bytes_be(value))
+                .map_err(|err| anyhow!("replay appended nullifier: {err:?}"))?;
+        }
+
+        self.appended = applied;
+        self.tree = Some(tree);
+        Ok(())
+    }
+
+    fn tree_mut(&mut self) -> Result<&mut ReferenceNullifierTree> {
+        self.tree
+            .as_mut()
+            .ok_or_else(|| anyhow!("reference tree is not reconstructed"))
+    }
+
+    fn root(&self) -> Result<[u8; 32]> {
+        self.tree
+            .as_ref()
+            .map(|tree| tree.root())
+            .ok_or_else(|| anyhow!("reference tree is not reconstructed"))
+    }
+
+    /// Record how far a drain pass advanced the tree past the applied count.
+    fn advanced_by(&mut self, values: u64) {
+        self.appended = self.appended.saturating_add(values);
+    }
+
+    /// Drop the tree so the next pass rebuilds it.
+    fn invalidate(&mut self) {
+        self.tree = None;
+        self.appended = 0;
+    }
+}
+
+/// Fetch the queued nullifiers and bring `cache` up to the chain's applied
+/// count, verifying that the replay reproduces the on-chain root.
 fn reconstruct_and_verify(
     photon: &BlockingZolanaApi,
     tree: Pubkey,
     snapshot: &TreeSnapshot,
     fetch_total: u64,
-) -> Result<(ReferenceNullifierTree, Vec<[u8; 32]>)> {
+    cache: &mut ReferenceCache,
+) -> Result<Vec<[u8; 32]>> {
     let applied = applied_count(snapshot)?;
     let values = fetch_nullifier_values(photon, tree, fetch_total)?;
     if let Some(not_ready) = indexed_value_shortage(
@@ -394,20 +514,25 @@ fn reconstruct_and_verify(
         .get(..applied_len)
         .ok_or_else(|| anyhow!("queued nullifier prefix length {applied_len} out of range"))?;
 
-    let mut reference = reference_nullifier_tree(snapshot.height)?;
-    for value in applied_values {
-        reference
-            .append(&BigUint::from_bytes_be(value))
-            .map_err(|err| anyhow!("replay appended nullifier: {err:?}"))?;
-    }
-    if reference.root() != snapshot.on_chain_root {
+    cache.advance_to(applied, applied_values, snapshot.height)?;
+    let reconstructed = cache.root()?;
+    if reconstructed != snapshot.on_chain_root {
+        // A carried-forward tree that disagrees must not poison the next pass.
+        cache.invalidate();
         bail!(
             "reconstructed nullifier root {} does not match on-chain root {}; refusing to proceed",
-            hex::encode(reference.root()),
+            hex::encode(reconstructed),
             hex::encode(snapshot.on_chain_root)
         );
     }
-    Ok((reference, values))
+    Ok(values)
+}
+
+/// Wait for one in-flight proof, turning a panicked worker into an error.
+fn join_proof(handle: ScopedJoinHandle<'_, Result<()>>) -> Result<()> {
+    handle
+        .join()
+        .unwrap_or_else(|_| bail!("proving thread panicked"))
 }
 
 /// One drain pass: prove+submit the pending batch's ready zkp-batches (capped by
@@ -422,6 +547,8 @@ fn drain_once(
     account_index: u8,
     tree: Pubkey,
     limit: Option<u64>,
+    proof_concurrency: usize,
+    cache: &mut ReferenceCache,
 ) -> Result<DrainOutcome> {
     let snapshot = read_snapshot(rpc_url, tree)?;
     if snapshot.ready == 0 {
@@ -436,8 +563,8 @@ fn drain_once(
 
     let applied = applied_count(&snapshot)?;
     let needed = applied + snapshot.ready * snapshot.zkp_batch_size;
-    let (mut reference, values) = match reconstruct_and_verify(photon, tree, &snapshot, needed) {
-        Ok(reconstructed) => reconstructed,
+    let values = match reconstruct_and_verify(photon, tree, &snapshot, needed, cache) {
+        Ok(values) => values,
         Err(err) => {
             let not_ready = err.downcast::<PhotonIndexNotReady>()?;
             return Ok(DrainOutcome::NotReady(not_ready));
@@ -454,73 +581,123 @@ fn drain_once(
     let cap = limit
         .map(|limit| limit.min(snapshot.ready))
         .unwrap_or(snapshot.ready);
-    let mut submitted = 0u64;
-    for i in 0..cap {
-        let zkp_index = snapshot.already_applied + i;
-        let batch_next_index = snapshot.next_index + i * snapshot.zkp_batch_size;
-        let start = usize::try_from(applied + i * snapshot.zkp_batch_size)
-            .map_err(|_| anyhow!("zkp-batch {zkp_index} start exceeds usize"))?;
-        let end =
-            start
+    let concurrency = proof_concurrency.max(1);
+
+    // Build the next witness while the previous proofs are still running.
+    //
+    // Each stage has a different constraint, and only one of them is ordering:
+    //
+    //   witness  sequential -- a batch's `old_root` is the previous batch's
+    //            `new_root`, so the reference tree must be walked in order.
+    //   prove    independent -- a proof reads only its own witness.
+    //   submit   unordered -- the program caches a verified update at its
+    //            `zkp_batch_index` and applies whatever has become contiguous,
+    //            so a later batch may land first and simply wait. A mismatched
+    //            `old_root` is evicted rather than rejected, so a gap left by a
+    //            failed proof heals on the next pass.
+    //
+    // So proving and submitting both belong to the worker, and the only thing
+    // this loop serialises is witness construction. An earlier version proved in
+    // fixed groups and submitted in order, which measured no faster than proving
+    // one at a time: building a group's witnesses pegged the forester's single
+    // core while the prover idled, then the prover ran while the forester idled.
+    // Overlapping them is the entire point.
+    let reference = cache.tree_mut()?;
+    let submitted = AtomicU64::new(0);
+    thread::scope(|scope| -> Result<()> {
+        let mut in_flight = VecDeque::with_capacity(concurrency);
+        for i in 0..cap {
+            // Bound the window by retiring the oldest proof before starting
+            // another. Proof durations are near-identical, so taking them in
+            // order costs nothing a completion queue would save.
+            if in_flight.len() == concurrency {
+                if let Some(oldest) = in_flight.pop_front() {
+                    join_proof(oldest)?;
+                }
+            }
+
+            let zkp_index = snapshot.already_applied + i;
+            let batch_next_index = snapshot.next_index + i * snapshot.zkp_batch_size;
+            let start = usize::try_from(applied + i * snapshot.zkp_batch_size)
+                .map_err(|_| anyhow!("zkp-batch {zkp_index} start exceeds usize"))?;
+            let end = start
                 .checked_add(usize::try_from(snapshot.zkp_batch_size).map_err(|_| {
                     anyhow!("zkp_batch_size {} exceeds usize", snapshot.zkp_batch_size)
                 })?)
                 .ok_or_else(|| anyhow!("zkp-batch {zkp_index} end overflows usize"))?;
-        let batch_values = values
-            .get(start..end)
-            .ok_or_else(|| anyhow!("queued nullifier slice {start}..{end} out of range"))?;
-        let hash_chain = snapshot
-            .hash_chains
-            .get(
-                usize::try_from(i)
-                    .map_err(|_| anyhow!("ready zkp-batch index {i} exceeds usize"))?,
-            )
-            .copied()
-            .ok_or_else(|| anyhow!("missing hash chain for ready zkp-batch {i}"))?;
-        let old_root = reference.root();
+            let batch_values = values
+                .get(start..end)
+                .ok_or_else(|| anyhow!("queued nullifier slice {start}..{end} out of range"))?;
+            let hash_chain = snapshot
+                .hash_chains
+                .get(
+                    usize::try_from(i)
+                        .map_err(|_| anyhow!("ready zkp-batch index {i} exceeds usize"))?,
+                )
+                .copied()
+                .ok_or_else(|| anyhow!("missing hash chain for ready zkp-batch {i}"))?;
+            let old_root = reference.root();
 
-        let (inputs, new_root) = build_inputs(
-            &mut reference,
-            batch_next_index,
-            snapshot.height,
-            hash_chain,
-            old_root,
-            batch_values,
-        )?;
-
-        let proof = prover
-            .prove_batch_address_append(&inputs)
-            .map_err(|err| anyhow!("prove zkp-batch {zkp_index}: {err}"))?;
-        let compressed = ProofCompressed::try_from(proof)
-            .map_err(|err| anyhow!("compress proof for zkp-batch {zkp_index}: {err:?}"))?;
-
-        let signature = batch_update_nullifier_tree_once(ForestParams {
-            rpc_url,
-            member,
-            settings,
-            account_index,
-            pool_tree: tree,
-            batch_update: BatchUpdateNullifierTreeData {
-                new_root,
+            let (inputs, new_root) = build_inputs(
+                reference,
+                batch_next_index,
+                snapshot.height,
+                hash_chain,
                 old_root,
-                // `zkp_index` is bounded by the batch's `num_zkp_batches`
-                // (= batch_size / zkp_batch_size), well within `u16`, so the
-                // cast cannot truncate.
-                zkp_batch_index: zkp_index as u16,
-                compressed_proof: CompressedProof {
-                    a: compressed.a,
-                    b: compressed.b,
-                    c: compressed.c,
-                },
-            },
-        })
-        .map_err(|err| anyhow!("submit zkp-batch {zkp_index}: {err}"))?;
+                batch_values,
+            )?;
 
-        tracing::info!(%signature, zkp_index, new_root = %hex::encode(new_root), "submitted nullifier batch update");
-        submitted += 1;
-    }
+            // Scoped threads rather than an async runtime: the prover client is
+            // blocking, and `run` is documented to hold no Tokio runtime.
+            let submitted = &submitted;
+            in_flight.push_back(scope.spawn(move || {
+                let proof = prover
+                    .prove_batch_address_append(&inputs)
+                    .map_err(|err| anyhow!("prove zkp-batch {zkp_index}: {err}"))?;
+                let proof = ProofCompressed::try_from(proof)
+                    .map_err(|err| anyhow!("compress proof for zkp-batch {zkp_index}: {err:?}"))?;
 
-    Ok(DrainOutcome::Drained(submitted))
+                let signature = batch_update_nullifier_tree_once(ForestParams {
+                    rpc_url,
+                    member,
+                    settings,
+                    account_index,
+                    pool_tree: tree,
+                    batch_update: BatchUpdateNullifierTreeData {
+                        new_root,
+                        old_root,
+                        // `zkp_index` is bounded by the batch's `num_zkp_batches`
+                        // (= batch_size / zkp_batch_size), well within `u16`, so
+                        // the cast cannot truncate.
+                        zkp_batch_index: zkp_index as u16,
+                        compressed_proof: CompressedProof {
+                            a: proof.a,
+                            b: proof.b,
+                            c: proof.c,
+                        },
+                    },
+                })
+                .map_err(|err| anyhow!("submit zkp-batch {zkp_index}: {err}"))?;
+
+                submitted.fetch_add(1, Ordering::Relaxed);
+                tracing::info!(
+                    %signature,
+                    zkp_index,
+                    new_root = %hex::encode(new_root),
+                    "submitted nullifier batch update"
+                );
+                Ok(())
+            }));
+        }
+
+        in_flight.into_iter().try_for_each(join_proof)
+    })?;
+
+    // Every witness built advanced the tree, whether or not its batch landed.
+    // Recording that is what lets the next pass tell "extend" from "rebuild".
+    cache.advanced_by(cap * snapshot.zkp_batch_size);
+
+    Ok(DrainOutcome::Drained(submitted.into_inner()))
 }
 
 /// Preflight: validate the tree-read / photon / reconstruct / root-match path
@@ -532,7 +709,9 @@ fn check_once(rpc_url: &str, photon: &BlockingZolanaApi, tree: Pubkey) -> Result
     // Fetch the applied prefix plus the pending batch's queued values so the
     // report reflects the full known queue depth.
     let fetch_total = applied + snapshot.pending_queued;
-    let (reference, values) = reconstruct_and_verify(photon, tree, &snapshot, fetch_total)?;
+    let mut cache = ReferenceCache::default();
+    let values = reconstruct_and_verify(photon, tree, &snapshot, fetch_total, &mut cache)?;
+    let reference = cache.tree_mut()?;
 
     println!("forester dry-run for tree {tree}");
     println!(
@@ -715,6 +894,46 @@ mod tests {
         assert!(values.is_empty());
     }
 
+    fn appended(values: &[[u8; 32]]) -> [u8; 32] {
+        let mut tree = reference_nullifier_tree(40).unwrap();
+        for value in values {
+            tree.append(&BigUint::from_bytes_be(value)).unwrap();
+        }
+        tree.root()
+    }
+
+    /// The point of the cache: a later pass appends only what is new.
+    ///
+    /// Replaying from zero costs one Poseidon-heavy append per already-applied
+    /// nullifier, single-threaded. At ~30k applied it held the forester's core
+    /// for over ten minutes per pass while the prover sat idle.
+    #[test]
+    fn a_later_pass_extends_the_tree_rather_than_replaying_it() {
+        let values: Vec<[u8; 32]> = (1..=4u8).map(nullifier).collect();
+        let mut cache = ReferenceCache::default();
+
+        cache.advance_to(2, values.get(..2).unwrap(), 40).unwrap();
+        assert_eq!(cache.root().unwrap(), appended(values.get(..2).unwrap()));
+
+        cache.advance_to(4, &values, 40).unwrap();
+        assert_eq!(cache.root().unwrap(), appended(&values));
+    }
+
+    /// A tree left ahead of the chain -- a witness was built for a batch whose
+    /// submission then failed -- cannot be rewound, so the next pass starts over
+    /// rather than carrying a state the chain never reached.
+    #[test]
+    fn a_tree_ahead_of_the_chain_is_rebuilt() {
+        let values: Vec<[u8; 32]> = (1..=4u8).map(nullifier).collect();
+        let mut cache = ReferenceCache::default();
+
+        cache.advance_to(4, &values, 40).unwrap();
+        cache.advanced_by(500);
+
+        cache.advance_to(2, values.get(..2).unwrap(), 40).unwrap();
+        assert_eq!(cache.root().unwrap(), appended(values.get(..2).unwrap()));
+    }
+
     #[test]
     fn build_inputs_chains_roots_across_zkp_batches() {
         let mut reference = reference_nullifier_tree(40).unwrap();
@@ -742,5 +961,48 @@ mod tests {
             full.append(&BigUint::from_bytes_be(value)).unwrap();
         }
         assert_eq!(new1, full.root());
+    }
+
+    /// Witnesses must be built in order even though their proofs are not.
+    ///
+    /// This is the invariant `drain_once` relies on to fan proving out: it
+    /// builds a group of witnesses sequentially, then proves them together.
+    /// Building them out of order would produce roots that chain to a state the
+    /// chain never reaches, and every proof in the group would be rejected -- so
+    /// the property is worth holding directly rather than inferring it from the
+    /// happy path.
+    #[test]
+    fn a_group_of_witnesses_chains_head_to_tail() {
+        let mut reference = reference_nullifier_tree(40).unwrap();
+        let values: Vec<[u8; 32]> = (1..=6u8).map(nullifier).collect();
+
+        // Three zkp-batches of two, the shape one concurrent group takes.
+        let mut built = Vec::new();
+        for (batch, chunk) in values.chunks(2).enumerate() {
+            let next_index = 1 + (batch as u64) * 2;
+            let old_root = reference.root();
+            let (_, new_root) =
+                build_inputs(&mut reference, next_index, 40, [0u8; 32], old_root, chunk).unwrap();
+            built.push((old_root, new_root));
+        }
+
+        // Each batch continues from the one before, in order.
+        for pair in built.windows(2) {
+            let [(_, earlier_new), (later_old, _)] = pair else {
+                unreachable!("windows(2) yields pairs")
+            };
+            assert_eq!(
+                earlier_new, later_old,
+                "a batch's old_root must be its predecessor's new_root"
+            );
+        }
+
+        // And the group as a whole lands where appending every value does.
+        let mut full = reference_nullifier_tree(40).unwrap();
+        for value in &values {
+            full.append(&BigUint::from_bytes_be(value)).unwrap();
+        }
+        let (_, last_new) = built.last().unwrap();
+        assert_eq!(*last_new, full.root());
     }
 }

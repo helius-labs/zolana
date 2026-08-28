@@ -20,6 +20,12 @@ members = [
     "bench/bloom-filter",
     "bench/tree",
     "cli",
+    "custom-rings/cli",
+    "custom-rings/client",
+    "custom-rings/interface",
+    "custom-rings/program",
+    "custom-rings/sdk",
+    "custom-rings/test",
     "sdk-libs/client",
     "sdk-libs/indexer-api",
     "sdk-libs/keypair",
@@ -30,7 +36,11 @@ members = [
     "sdk-libs/transaction",
     "sdk-libs/wallet",
     "services/photon",
+    "services/ring-rpc",
     "sdk-tests/client/rust",
+    "sdk-tests/compression/program",
+    "sdk-tests/compression/sdk",
+    "sdk-tests/compression/test",
     "sdk-tests/dynamic-swap/program",
     "sdk-tests/dynamic-swap/prover",
     "sdk-tests/dynamic-swap/sdk",
@@ -74,6 +84,8 @@ zolana-program-test = { path = "sdk-libs/program-test", version = "0.23.0" }
 zolana-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }
 zolana-wallet = { path = "sdk-libs/wallet", version = "0.1.0" }
 zolana-client = { path = "sdk-libs/client", version = "0.1.0" }
+custom-ring-interface = { path = "custom-rings/interface", version = "0.1.0" }
+zolana-ring-client = { path = "custom-rings/client", version = "0.1.0" }
 zolana-indexer-api = { path = "sdk-libs/indexer-api", version = "0.1.0" }
 zolana-merkle-tree = { path = "sdk-libs/merkle-tree", version = "4.0.0" }
 zolana-smart-account-client = { path = "sdk-libs/smart-account-client", version = "0.1.0" }
@@ -91,13 +103,13 @@ zolana-bloom-filter = { path = "program-libs/bloom-filter", version = "0.6.0" }
 zolana-hasher = { path = "program-libs/hasher", version = "5.0.0", default-features = false }
 zolana-indexed-array = { path = "program-libs/indexed-array", version = "0.3.0" }
 light-poseidon = "0.4.0"
-# Pinned to the head of the mollusk-0.14 PR (Lightprotocol/light-program-profiler#1).
+# Pinned to the head of the mollusk-0.15 branch (Lightprotocol/light-program-profiler).
 # Switch back to a released version once that lands upstream.
-light-program-profiler = { git = "https://github.com/Lightprotocol/light-program-profiler", rev = "8afb60d66842e5428e562d468a5e4a891c031cbf" }
+light-program-profiler = { git = "https://github.com/Lightprotocol/light-program-profiler", rev = "db49f3c801996a80e1cb7e4e92b13a694e962b65" }
 light-sparse-merkle-tree = "0.3.0"
 
-# Mollusk test harness. Tracks the workspace's agave 4.1 wire crates.
-mollusk-svm = "0.14.0"
+# Mollusk test harness. Tracks the workspace's agave 4.2 wire crates.
+mollusk-svm = "0.15.0"
 
 # Solana and SPL.
 anchor-lang = "1.1"
@@ -117,9 +129,10 @@ solana-commitment-config = "3.1"
 solana-compute-budget = "3.1"
 solana-compute-budget-interface = "3.0"
 solana-cpi = "3.1"
+solana-curve25519 = "4.0"
 solana-derivation-path = "3.0.0"
 solana-epoch-info = "3.1"
-# Pin solana-hash to 4.5.0: the agave 4.1 graph (agave-feature-set,
+# Pin solana-hash to 4.5.0: the agave 4.2 graph (agave-feature-set,
 # solana-message, solana-transaction) is built against 4.5.x; letting it float
 # duplicates the crate with types the rest of the graph does not share.
 solana-hash = "=4.5.0"
@@ -135,7 +148,7 @@ solana-program-pack = "3.1"
 solana-pubkey = { version = "4.2", features = ["curve25519"] }
 solana-rent = "4.2"
 # Pin solana-reward-info to 6.2.0: 6.3.0 pulls in wincode 0.6.0, which conflicts
-# with the wincode 0.5.x used by the rest of the agave 4.1 graph.
+# with the wincode 0.5.x used by the rest of the agave 4.2 graph.
 solana-reward-info = "=6.2.0"
 solana-rpc-client = "4.1"
 solana-rpc-client-api = "4.1"
@@ -185,6 +198,7 @@ futures = "0.3.31"
 governor = "0.8.0"
 heck = "0.5"
 hex = "0.4"
+libc = "0.2"
 http-body-util = "0.1.3"
 hyper = "1.10.1"
 hyper-util = { version = "0.1.20", features = ["server-auto", "tokio"] }
@@ -193,7 +207,7 @@ jsonwebtoken = "10.4.0"
 jsonrpsee = { version = "0.26.0", features = ["server", "macros"] }
 lazy_static = "1.5.0"
 log = "0.4"
-litesvm = "0.15"
+litesvm = "0.16"
 num-bigint = "0.4.6"
 num-traits = "0.2.19"
 once_cell = "1.21.4"
@@ -215,6 +229,7 @@ sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio
 syn = { version = "2.0", features = ["visit-mut", "full"] }
 tabled = "0.20"
 thiserror = "2.0"
+toml = "0.8"
 tinyvec = "1.10.0"
 tokio = { version = "1.48.0", features = ["rt", "macros", "rt-multi-thread"] }
 tower = { version = "0.5.3", features = ["util"] }
@@ -236,6 +251,7 @@ ark-std = "0.5"
 
 # Client keypair crypto.
 p256 = { version = "0.13", default-features = false, features = ["ecdh", "arithmetic", "ecdsa", "hash2curve", "std"] }
+psl = "2"
 ed25519-dalek = "2.2.0"
 ed25519-dalek-bip32 = "0.3.0"
 aes = { version = "0.8", default-features = false }

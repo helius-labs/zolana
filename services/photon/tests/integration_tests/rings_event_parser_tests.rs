@@ -4,8 +4,8 @@ use std::collections::HashMap;
 mod rings_fixtures;
 
 use rings_fixtures::{
-    fresh_rings_database, resolve_by_signature, resolve_by_tags, seed_tagged_transaction_history,
-    signature_at, tag_page, LookupCost, PAGE_LIMIT, VIEW_TAG,
+    fixture_ring_program, fresh_rings_database, resolve_by_signature, resolve_by_tags,
+    seed_tagged_transaction_history, signature_at, tag_page, LookupCost, PAGE_LIMIT, VIEW_TAG,
 };
 
 use photon_indexer::{
@@ -23,6 +23,7 @@ use photon_indexer::{
     },
     ingester::{
         parser::{
+            ring_config_parser::parse_ring_configs,
             rings_event_parser::parse_rings_events,
             state_update::{
                 IndexedTreeLeafUpdate, RawIndexedElement, RingsNullifierUpdate, RingsOutputUpdate,
@@ -39,6 +40,7 @@ use photon_indexer::{
             persist_state_update,
             persisted_indexed_merkle_tree::persist_indexed_tree_updates,
         },
+        typedefs::block_info::parse_transaction_info,
         typedefs::block_info::{Instruction, InstructionGroup, TransactionInfo},
     },
     migration::RingsMigrator,
@@ -53,6 +55,7 @@ use sea_orm_migration::MigratorTrait;
 use solana_account::Account;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
+use solana_transaction_status_client_types::EncodedConfirmedTransactionWithStatusMeta;
 use zolana_event::{
     encode_event_instruction, encode_output_data, encode_verifiably_encrypted, EventKind,
     GeneralEvent, Input, OutputUtxo, ProoflessOutput, SplTransfer,
@@ -214,6 +217,205 @@ fn rings_snapshot_filter_keeps_rings_transactions() {
     ));
 }
 
+/// Replays a real ring CPI captured from localnet by `just dump-ring-fixture`.
+///
+/// The ring's identity is only in the signed `ring_config` account, at a fixed
+/// position in the pool instruction's account list -- the event payload does
+/// not carry it and the event's parent is the pool either way. Reordering that
+/// list would silently reattribute every ring transaction, which this catches
+/// by deriving the expected PDA from the ring program the fixture actually
+/// invoked.
+#[test]
+fn ring_fixture_records_the_signing_ring_config() {
+    let confirmed: EncodedConfirmedTransactionWithStatusMeta =
+        serde_json::from_str(include_str!("../fixtures/ring_transact.json"))
+            .expect("ring_transact fixture");
+    let slot = confirmed.slot;
+    let tx = parse_transaction_info(confirmed.transaction).expect("fixture transaction");
+
+    // The transaction also carries a ComputeBudget instruction, so take the
+    // group that actually reached the pool.
+    let ring_program = tx
+        .instruction_groups
+        .iter()
+        .find(|group| {
+            group
+                .inner_instructions
+                .iter()
+                .any(|inner| inner.program_id == pda::shielded_pool_program_id())
+        })
+        .expect("group that invoked the pool")
+        .outer_instruction
+        .program_id;
+    assert_ne!(
+        ring_program,
+        pda::shielded_pool_program_id(),
+        "fixture must be a ring CPI, not a direct pool call"
+    );
+
+    let state_update = parse_rings_events(&tx, slot)
+        .expect("parse fixture")
+        .expect("fixture carries rings events");
+    let [update] = state_update.rings_transactions.as_slice() else {
+        panic!(
+            "expected one rings transaction, got {}",
+            state_update.rings_transactions.len()
+        );
+    };
+
+    let (ring_auth, _) = pda::ring_auth(&ring_program);
+    assert_eq!(update.ring_config, Some(ring_auth.to_bytes()));
+}
+
+/// Replays a real registration captured by `just dump-ring-fixture`. The
+/// harness registers through the ring program's CPI, so the pool's instruction
+/// is an inner one -- a scan that only looked at outer instructions would index
+/// no rings at all.
+///
+/// The assertion is self-validating: the recorded config account must be the
+/// `ring_auth` PDA of the recorded program id, which is exactly the identity the
+/// pool checks at creation. Reading the wrong account breaks it.
+#[test]
+fn ring_config_fixture_records_the_registered_ring() {
+    let confirmed: EncodedConfirmedTransactionWithStatusMeta =
+        serde_json::from_str(include_str!("../fixtures/create_ring_config.json"))
+            .expect("create_ring_config fixture");
+    let slot = confirmed.slot;
+    let tx = parse_transaction_info(confirmed.transaction).expect("fixture transaction");
+
+    let state_update = parse_ring_configs(&tx, slot)
+        .expect("parse fixture")
+        .expect("fixture carries a registration");
+    let [config] = state_update.ring_configs.as_slice() else {
+        panic!(
+            "expected one registration, got {}",
+            state_update.ring_configs.len()
+        );
+    };
+
+    let (expected, _) = pda::ring_auth(&Pubkey::from(config.program_id));
+    assert_eq!(config.ring_config, expected.to_bytes());
+    assert_ne!(
+        config.program_id,
+        pda::shielded_pool_program_id().to_bytes()
+    );
+    assert_eq!(config.slot, slot);
+}
+
+/// The registration and the ring it registers must agree: the transact
+/// fixture's `ring_config` is the row the registry maps to a program id.
+#[test]
+fn the_two_fixtures_describe_the_same_ring() {
+    let registration: EncodedConfirmedTransactionWithStatusMeta =
+        serde_json::from_str(include_str!("../fixtures/create_ring_config.json")).expect("fixture");
+    let transact: EncodedConfirmedTransactionWithStatusMeta =
+        serde_json::from_str(include_str!("../fixtures/ring_transact.json")).expect("fixture");
+
+    let registration_slot = registration.slot;
+    let registered = parse_ring_configs(
+        &parse_transaction_info(registration.transaction).expect("transaction"),
+        registration_slot,
+    )
+    .expect("parse")
+    .expect("registration");
+
+    let transact_slot = transact.slot;
+    let spent = parse_rings_events(
+        &parse_transaction_info(transact.transaction).expect("transaction"),
+        transact_slot,
+    )
+    .expect("parse")
+    .expect("rings events");
+
+    let registered_config = registered.ring_configs.first().expect("registration");
+    let spending = spent.rings_transactions.first().expect("rings transaction");
+    assert_eq!(spending.ring_config, Some(registered_config.ring_config));
+}
+
+/// Both tag endpoints share `GetRingsByTagsRequest`, so both must honour its
+/// ring filter. Accepting the field and ignoring it would silently return
+/// another ring's transactions to a caller who asked for one ring.
+#[tokio::test]
+async fn both_tag_endpoints_honour_the_ring_filter() {
+    let db = fresh_rings_database().await;
+    let view_tag = [7u8; 32];
+    seed_tagged_transaction_history(&db, view_tag, 0..3).await;
+
+    let ours = SerializablePubkey::from(fixture_ring_program());
+    let theirs = SerializablePubkey::from(Pubkey::new_unique());
+
+    for ring_program_id in [None, Some(ours)] {
+        let request = GetRingsByTagsRequest {
+            tags: vec![Hash::from(view_tag)],
+            cursor: None,
+            limit: None,
+            ring_program_id,
+        };
+        let shielded = get_shielded_transactions_by_tags(&db, request.clone())
+            .await
+            .expect("tags lookup");
+        let encrypted = get_encrypted_utxos_by_tags(&db, request)
+            .await
+            .expect("utxo lookup");
+        assert_eq!(
+            shielded.transactions.len(),
+            3,
+            "ring_program_id={ring_program_id:?}"
+        );
+        assert_eq!(
+            encrypted.matches.len(),
+            3,
+            "ring_program_id={ring_program_id:?}"
+        );
+        assert!(shielded.scanned_through.is_some());
+        assert!(encrypted.scanned_through.is_some());
+    }
+
+    let other_ring = GetRingsByTagsRequest {
+        tags: vec![Hash::from(view_tag)],
+        cursor: None,
+        limit: None,
+        ring_program_id: Some(theirs),
+    };
+    let shielded = get_shielded_transactions_by_tags(&db, other_ring.clone())
+        .await
+        .expect("tags lookup");
+    let encrypted = get_encrypted_utxos_by_tags(&db, other_ring.clone())
+        .await
+        .expect("utxo lookup");
+    assert!(shielded.transactions.is_empty());
+    assert!(encrypted.matches.is_empty());
+
+    let shielded_frontier = shielded
+        .scanned_through
+        .expect("an exhausted transaction scan reports its frontier");
+    let encrypted_frontier = encrypted
+        .scanned_through
+        .expect("an exhausted UTXO scan reports its frontier");
+    let resumed_shielded = get_shielded_transactions_by_tags(
+        &db,
+        GetRingsByTagsRequest {
+            cursor: Some(shielded_frontier.clone()),
+            ..other_ring.clone()
+        },
+    )
+    .await
+    .expect("resume transaction scan");
+    let resumed_encrypted = get_encrypted_utxos_by_tags(
+        &db,
+        GetRingsByTagsRequest {
+            cursor: Some(encrypted_frontier.clone()),
+            ..other_ring
+        },
+    )
+    .await
+    .expect("resume UTXO scan");
+    assert!(resumed_shielded.transactions.is_empty());
+    assert!(resumed_encrypted.matches.is_empty());
+    assert_eq!(resumed_shielded.scanned_through, Some(shielded_frontier));
+    assert_eq!(resumed_encrypted.scanned_through, Some(encrypted_frontier));
+}
+
 #[test]
 fn rings_snapshot_filter_keeps_nullifier_tree_batch_updates() {
     let tx = batch_update_transaction_info(Pubkey::new_unique());
@@ -276,10 +478,8 @@ async fn persists_rings_events() {
         .all(&db)
         .await
         .unwrap();
-    let rings_program_id = pda::shielded_pool_program_id().to_bytes().to_vec();
-    assert!(rows
-        .iter()
-        .all(|row| row.rings_program_id == rings_program_id));
+    // Plain DEPOSIT/TRANSACT: no ring signed, so no ring_config was passed.
+    assert!(rows.iter().all(|row| row.ring_config.is_none()));
     assert_eq!(
         rows.iter()
             .map(|row| row.source_instruction_tag)
@@ -705,6 +905,10 @@ async fn rings_merkle_proofs_reject_duplicate_output_hashes() {
         leaf_index: Set(i64::try_from(output.leaf_index + 1).unwrap()),
         view_tag: Set(output.view_tag.to_vec()),
         utxo_hash: Set(output.utxo_hash.to_vec()),
+        // Copied from the transaction this output belongs to, as the ingester
+        // does.
+        signature: Set(Some(rings_tx.signature.clone())),
+        event_index: Set(Some(rings_tx.event_index)),
     })
     .exec(&db)
     .await
@@ -1314,6 +1518,7 @@ async fn assert_rings_api_exposes_output_hashes(
         tags: vec![Hash::try_from(output.view_tag.clone()).unwrap()],
         cursor: None,
         limit: None,
+        ring_program_id: None,
     };
 
     let shielded = get_shielded_transactions_by_tags(db, request.clone())
@@ -1347,6 +1552,21 @@ async fn assert_rings_api_exposes_output_hashes(
         .await
         .unwrap()
         .expect("rings transaction should exist");
+
+    // The tag queries ORDER BY these copies. The columns are nullable, so an
+    // ingester that stopped writing them would leave rows sorting last and
+    // paging in an order the cursor cannot follow, with nothing else failing.
+    assert_eq!(
+        output.signature.as_deref(),
+        Some(rings_tx.signature.as_slice()),
+        "the output must carry its transaction's signature"
+    );
+    assert_eq!(
+        output.event_index,
+        Some(rings_tx.event_index),
+        "the output must carry its transaction's event index"
+    );
+
     let signature = Signature::from(
         <[u8; 64]>::try_from(rings_tx.signature.as_slice()).expect("stored signature length"),
     );

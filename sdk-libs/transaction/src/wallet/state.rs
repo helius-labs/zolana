@@ -128,6 +128,27 @@ pub struct SyncReport {
     pub unknown_asset_ids: BTreeSet<u64>,
 }
 
+/// One key on one indexer stream. `ViewTag` is `[u8; 32]`, so the variant is
+/// what stops a tag being read as a nullifier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CursorStream {
+    /// Shielded transactions matched by output view tag.
+    Tags(ViewTag),
+    /// Shielded transactions matched by spent nullifier.
+    Nullifiers([u8; 32]),
+    /// Encrypted UTXOs, which proofless deposits are read from.
+    Proofless(ViewTag),
+}
+
+impl CursorStream {
+    /// The tag or nullifier, for building the query.
+    pub fn value(self) -> [u8; 32] {
+        match self {
+            Self::Tags(value) | Self::Nullifiers(value) | Self::Proofless(value) => value,
+        }
+    }
+}
+
 pub struct Wallet {
     /// Public wallet identity. All secret key material is supplied by a
     /// `WalletAuthority` when cryptographic work is required.
@@ -144,9 +165,9 @@ pub struct Wallet {
     /// spent.
     pub nullifiers: HashSet<[u8; 32]>,
     pub last_synced: i64,
-    /// Per-view-tag sync watermarks: for each tag, the indexer cursor up to which
-    /// every matching transaction has already been seen.    
-    pub sync_cursors: HashMap<ViewTag, Vec<u8>>,
+    /// Per key, the position everything matching it has been seen through.
+    /// Streams advance independently. Nullifier entries die with their spend.
+    pub cursors: HashMap<CursorStream, Vec<u8>>,
 }
 
 impl Wallet {
@@ -163,7 +184,7 @@ impl Wallet {
             transactions: Vec::new(),
             nullifiers: HashSet::new(),
             last_synced: 0,
-            sync_cursors: HashMap::new(),
+            cursors: HashMap::new(),
         })
     }
 
@@ -181,6 +202,19 @@ impl Wallet {
                     .push(ViewingKeyEntry::new(viewing_pubkey, 0));
             }
         }
+    }
+
+    /// Every viewing key this wallet has been given, current and rotated-out.
+    ///
+    /// Seeded from the identity and extended by [`Self::ensure_viewing_key_entries`]
+    /// on each sync, so it also holds keys a later scan's material omits. A scan
+    /// snapshots this before it borrows the wallet mutably; a transfer addressed
+    /// to any of these keys is addressed to this wallet.
+    pub(crate) fn self_viewing_pubkeys(&self) -> HashSet<P256Pubkey> {
+        self.viewing_key_history
+            .iter()
+            .map(|entry| entry.viewing_pubkey)
+            .collect()
     }
 
     pub fn private_transactions(&self) -> &[PrivateTransaction] {

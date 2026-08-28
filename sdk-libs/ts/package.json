@@ -33,6 +33,10 @@
       "types": "./dist/keypair/index.d.ts",
       "import": "./dist/keypair/index.js"
     },
+    "./ring": {
+      "types": "./dist/ring.d.ts",
+      "import": "./dist/ring.js"
+    },
     "./transaction": {
       "types": "./dist/transaction/index.d.ts",
       "import": "./dist/transaction/index.js"
@@ -63,6 +67,7 @@
     "@noble/ciphers": "^2.2.0",
     "@noble/curves": "^2.2.0",
     "@noble/hashes": "^2.2.0",
+    "@solana-program/address-lookup-table": "^0.13.0",
     "@solana-program/compute-budget": "^0.17.0",
     "@solana-program/token": "^0.15.0",
     "bn.js": "^5.2.5"

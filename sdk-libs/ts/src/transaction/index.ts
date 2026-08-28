@@ -34,6 +34,7 @@ export {
   slotOrdinal,
 } from "./instructions/index.js";
 export type {
+  ChangeLayout,
   EncryptedTransaction,
   ExternalData,
   ExternalDataInit,
@@ -51,7 +52,8 @@ export { ProofInputUtxo, Utxo, createProofOutput, deriveBlinding, ownerUtxoHash 
 export type { Blinding, ProofOutputInit, ProofOutputUtxo, UtxoInit } from "./utxo.js";
 export {
   AssetRegistry,
-  LocalWalletAuthority,
+  ClientEd25519WalletAuthority,
+  KeypairWalletAuthority,
   SOL_ASSET_ID,
   SOL_MINT,
   Wallet,
@@ -64,7 +66,9 @@ export type {
   AnonymousRecipientSlot,
   ApprovalRequest,
   AssetBalance,
+  AuditWitness,
   PrivateBalances,
+  EncryptedCustomRingTransfer,
   EncryptedEnvelope,
   EncryptedSplit,
   EncryptedTransfer,
@@ -99,6 +103,29 @@ export {
   type DecodeContext,
   type OutputDataEncoding,
   type OwnerContext,
+} from "./serialization/index.js";
+// The plaintext decoders, for a client that decrypts somewhere other than in
+// this process. `syncWallet` decrypts and decodes together and needs the
+// viewing key locally; a client whose viewing key is held remotely gets
+// plaintext back and still has to read it. `decodeOutputData` names the scheme
+// of a slot payload and hands back the body to decrypt; the per-scheme decoders
+// turn the returned plaintext into fields.
+export {
+  decodeAnonymousRecipient,
+  decodeAnonymousSender,
+  decodeConfidential,
+  decodeData,
+  decodeOutputData,
+  decodePlaintextTransfer,
+  decodeProofless,
+  decodeSplitBundle,
+  decodeSplitEncrypted,
+  type AnonymousRecipientPlaintext,
+  type AnonymousSenderPlaintext,
+  type ConfidentialOutputPlaintext,
+  type ProoflessOutput,
+  type SplitEncryptedUtxos,
+  type TransferPlaintextUtxos,
 } from "./serialization/index.js";
 
 export const VIEW_TAG_LEN = 32;

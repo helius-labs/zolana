@@ -16,7 +16,7 @@ pub use get_shielded_transactions_by_tags::get_shielded_transactions_by_tags;
 
 #[cfg(test)]
 mod tests {
-    use super::common::{decode_cursor, encode_cursor, validate_proof_leaves};
+    use super::common::{decode_cursor, encode_cursor, validate_proof_leaves, CursorKind};
     use super::get_encrypted_utxos_by_tags::EncryptedUtxoCursor;
     use super::get_shielded_transactions_by_tags::ShieldedTxCursor;
     use crate::api::error::PhotonApiError;
@@ -48,9 +48,11 @@ mod tests {
             event_index: 3,
             output_index: 5,
         };
-        let encrypted_cursor = Base64String(encode_cursor(&encrypted).unwrap());
+        let encrypted_cursor =
+            Base64String(encode_cursor(CursorKind::EncryptedUtxos, &encrypted).unwrap());
         assert_eq!(
-            decode_cursor::<EncryptedUtxoCursor>(&encrypted_cursor).unwrap(),
+            decode_cursor::<EncryptedUtxoCursor>(CursorKind::EncryptedUtxos, &encrypted_cursor)
+                .unwrap(),
             encrypted
         );
 
@@ -59,15 +61,29 @@ mod tests {
             signature,
             event_index: 8,
         };
-        let shielded_cursor = Base64String(encode_cursor(&shielded).unwrap());
+        let shielded_cursor =
+            Base64String(encode_cursor(CursorKind::ShieldedTxByTags, &shielded).unwrap());
         assert_eq!(
-            decode_cursor::<ShieldedTxCursor>(&shielded_cursor).unwrap(),
+            decode_cursor::<ShieldedTxCursor>(CursorKind::ShieldedTxByTags, &shielded_cursor)
+                .unwrap(),
             shielded
         );
 
-        let mut malformed_cursor = shielded_cursor.0;
+        let mut malformed_cursor = shielded_cursor.0.clone();
         malformed_cursor.push(1);
-        assert!(decode_cursor::<ShieldedTxCursor>(&Base64String(malformed_cursor)).is_err());
+        assert!(decode_cursor::<ShieldedTxCursor>(
+            CursorKind::ShieldedTxByTags,
+            &Base64String(malformed_cursor)
+        )
+        .is_err());
+
+        // Tags and nullifiers share this cursor byte for byte, so without the
+        // kind one resumes mid-scan in the other and skips silently.
+        assert!(decode_cursor::<ShieldedTxCursor>(
+            CursorKind::ShieldedTxByNullifiers,
+            &shielded_cursor
+        )
+        .is_err());
     }
 
     #[test]
@@ -142,6 +158,8 @@ mod tests {
             }],
             nullifiers: vec![hash(7)],
             proofless: true,
+            ring_config: Some(pubkey(11)),
+            ring_program_id: Some(pubkey(12)),
         })
         .unwrap();
 
@@ -149,8 +167,12 @@ mod tests {
         assert!(value.get("txViewingPk").is_some());
         assert!(value.get("outputSlots").is_some());
         assert!(value.get("messages").is_some());
+        assert!(value.get("ringConfig").is_some());
+        assert!(value.get("ringProgramId").is_some());
         assert!(value.get("tx_signature").is_none());
         assert!(value.get("output_slots").is_none());
+        assert!(value.get("ring_config").is_none());
+        assert!(value.get("ring_program_id").is_none());
 
         let message = &value["messages"][0];
         assert!(message.get("viewTag").is_some());
@@ -208,6 +230,7 @@ mod tests {
             },
             matches: Vec::new(),
             next_cursor: Some(Base64String(vec![1, 2, 3])),
+            scanned_through: None,
         })
         .unwrap();
 

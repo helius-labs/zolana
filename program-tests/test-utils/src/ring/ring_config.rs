@@ -5,6 +5,7 @@ use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
+use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::Rpc;
 use zolana_interface::{
@@ -38,14 +39,14 @@ struct RingConfigState {
 impl RingHarness {
     /// Create an enabled ring config under a fresh authority keypair, tracking that
     /// keypair as `self.ring_authority` for the later update/rotate operations.
-    pub fn create_enabled_ring_config(&mut self) -> Result<()> {
+    pub fn create_enabled_ring_config(&mut self) -> Result<Signature> {
         let authority = Keypair::new();
-        self.create_ring_config(
+        let signature = self.create_ring_config(
             &Address::new_from_array(authority.pubkey().to_bytes()),
             true,
         )?;
         self.ring_authority = Some(authority);
-        Ok(())
+        Ok(signature)
     }
 
     /// Read the ring config account and decode it into a full `RingConfigState`.

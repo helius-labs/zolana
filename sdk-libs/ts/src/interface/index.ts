@@ -4,7 +4,7 @@ export {
   decodeProtocolConfig,
   decodeSplAssetCounter,
   decodeSplAssetRegistry,
-  decodeZoneConfig,
+  decodeRingConfig,
 } from "./accounts.js";
 export { MERGE_INPUT_COUNT } from "./constants.js";
 export { InterfaceError, ShieldedPoolError, decodeShieldedPoolError } from "./errors.js";
@@ -16,7 +16,12 @@ export type {
 } from "./errors.js";
 export { externalDataHash } from "./external-data-hash.js";
 export type { ExternalDataHashInput } from "./external-data-hash.js";
-export { depositInstruction, transactInstruction } from "./instructions/index.js";
+export {
+  depositInstruction,
+  ringDepositInstruction,
+  ringTransactAccounts,
+  transactInstruction,
+} from "./instructions/index.js";
 export { DepositAsset, TransactWithdrawal } from "./types.js";
 export {
   ciphertextHash,

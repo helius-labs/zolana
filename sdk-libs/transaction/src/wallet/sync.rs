@@ -9,7 +9,7 @@ use zolana_keypair::{
 };
 
 use super::state::{
-    Balances, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,
+    Balances, CursorStream, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,
     PrivateTransactionKind, PrivateTransactionStatus, SyncReport, ViewingKeyEntry, Wallet,
     WalletUtxo, DEFAULT_TAG_WINDOW, SENDER_HISTORY_ROW_BASE,
 };
@@ -40,6 +40,14 @@ pub(super) struct TxIndex {
     pub(super) merge_sites: Vec<(usize, usize)>,
 }
 
+/// A merge publishes no per-transaction encryption material: no
+/// `tx_viewing_pk`, no `salt`, and it is not a proofless deposit. The index and
+/// the decoder must agree on this test, or a site routed to the merge path
+/// would be decoded with a viewing key it has no ciphertext for.
+fn is_merge_site(tx: &ShieldedTransaction) -> bool {
+    !tx.proofless && tx.tx_viewing_pk.is_none() && tx.salt.is_none()
+}
+
 impl TxIndex {
     pub(super) fn build(transactions: &[ShieldedTransaction], report: &mut SyncReport) -> Self {
         let mut sender_sites: HashMap<ViewTag, Vec<usize>> = HashMap::new();
@@ -47,7 +55,7 @@ impl TxIndex {
         let mut merge_sites = Vec::new();
         for (t, tx) in transactions.iter().enumerate() {
             let mut classified = false;
-            if !tx.proofless && tx.tx_viewing_pk.is_none() && tx.salt.is_none() {
+            if is_merge_site(tx) {
                 // Merge outputs carry no ciphertext payload and are discovered
                 // by spent nullifier, independently of their output view tag.
                 for (slot_index, slot) in tx.output_slots.iter().enumerate() {
@@ -78,6 +86,7 @@ impl TxIndex {
                 match scheme {
                     EncryptedScheme::AnonymousRecipient
                     | EncryptedScheme::Confidential
+                    | EncryptedScheme::RingConfidential
                     | EncryptedScheme::Proofless
                     | EncryptedScheme::PlaintextTransfer
                     | EncryptedScheme::Merge
@@ -114,7 +123,10 @@ pub(super) struct SlotOutcome {
 
 pub(super) struct SyncCtx<'a> {
     pub(super) nullifier_key: &'a NullifierKey,
-    pub(super) self_viewing_pubkey: P256Pubkey,
+    /// Every viewing key this wallet has held, current and rotated-out. A
+    /// transfer addressed to a retired key is still addressed to this wallet,
+    /// so `self`-recognition must not narrow to the current key.
+    pub(super) self_viewing_pubkeys: HashSet<P256Pubkey>,
     pub(super) owner: PublicKey,
     pub(super) nullifier_pk: [u8; 32],
     pub(super) utxos: &'a mut Vec<WalletUtxo>,
@@ -184,9 +196,36 @@ impl SyncCtx<'_> {
         self.store(utxo, output_context, None, None)
     }
 
+    /// Keyed on identity and amounts, not on `direction` or `status`: a rescan
+    /// must overwrite a row whose classification has since been refined (an
+    /// outbound row later recognized as a self transfer) rather than add a
+    /// second row for the same event.
     fn record(&mut self, tx: PrivateTransaction) {
-        if !self.transactions.contains(&tx) {
-            self.transactions.push(tx);
+        let stored = self.transactions.iter_mut().find(|stored| {
+            stored.id == tx.id
+                && stored.kind == tx.kind
+                && stored.asset == tx.asset
+                && stored.amount == tx.amount
+                && stored.counterparty_viewing_pubkey == tx.counterparty_viewing_pubkey
+        });
+        match stored {
+            Some(stored) => *stored = tx,
+            None => self.transactions.push(tx),
+        }
+    }
+
+    fn is_self(&self, viewing_pubkey: &P256Pubkey) -> bool {
+        self.self_viewing_pubkeys.contains(viewing_pubkey)
+    }
+
+    /// A transfer whose every real recipient is this wallet moved nothing out,
+    /// so it is a self transfer on any rail. An empty recipient set stays
+    /// outbound: that is a public withdrawal, and the value did leave.
+    fn transfer_direction(&self, recipients: &[P256Pubkey]) -> PrivateTransactionDirection {
+        if !recipients.is_empty() && recipients.iter().all(|recipient| self.is_self(recipient)) {
+            PrivateTransactionDirection::SelfTransfer
+        } else {
+            PrivateTransactionDirection::Outbound
         }
     }
 
@@ -212,9 +251,7 @@ impl SyncCtx<'_> {
         utxo: &Utxo,
     ) {
         let direction = match sender {
-            Some(sender) if sender == self.self_viewing_pubkey => {
-                PrivateTransactionDirection::SelfTransfer
-            }
+            Some(sender) if self.is_self(&sender) => PrivateTransactionDirection::SelfTransfer,
             _ => PrivateTransactionDirection::Inbound,
         };
         let index = tx
@@ -265,6 +302,7 @@ impl SyncCtx<'_> {
         change: &[Utxo],
         kind: PrivateTransactionKind,
         counterparty: Option<P256Pubkey>,
+        direction: PrivateTransactionDirection,
     ) {
         let mut by_asset = spent;
         for utxo in change {
@@ -285,7 +323,7 @@ impl SyncCtx<'_> {
                     index: SENDER_HISTORY_ROW_BASE + row as u64,
                 },
                 kind,
-                direction: PrivateTransactionDirection::Outbound,
+                direction,
                 status: PrivateTransactionStatus::Confirmed,
                 asset,
                 amount,
@@ -387,12 +425,6 @@ impl SyncCtx<'_> {
         }
     }
 
-    /// Reconstruct the outbound history of a confidential transfer the wallet
-    /// authored. The unified scheme carries no sender-side recipient list, so the
-    /// author re-derives the transaction viewing key and decrypts every output
-    /// slot with it: change slots (positions below `SENDER_SLOT_COUNT`) net the
-    /// spent inputs down; recipient slots reveal the counterparties. Dummy slots
-    /// fail the tx-key decrypt and are skipped.
     fn record_confidential_send(
         &mut self,
         tx: &ShieldedTransaction,
@@ -423,7 +455,10 @@ impl SyncCtx<'_> {
             let Some((&scheme_byte, body)) = blob.split_first() else {
                 continue;
             };
-            if EncryptedScheme::from_byte(scheme_byte) != Ok(EncryptedScheme::Confidential) {
+            if !matches!(
+                EncryptedScheme::from_byte(scheme_byte),
+                Ok(EncryptedScheme::Confidential | EncryptedScheme::RingConfidential)
+            ) {
                 continue;
             }
             let encrypted_slot_index = position as u32;
@@ -432,13 +467,22 @@ impl SyncCtx<'_> {
             else {
                 continue;
             };
-            if position < SENDER_SLOT_COUNT {
-                if let Ok(utxo) = plaintext.into_utxo(self.owner, assets) {
-                    change.push(utxo);
+            let Ok(recipient_pk) = Confidential::embedded_viewing_pk(body) else {
+                continue;
+            };
+            // Change sits in sender slots only, a send to self keeps its recipient rows.
+            if position < SENDER_SLOT_COUNT && recipient_pk == key.pubkey() {
+                if let Ok(candidate) = plaintext.into_utxo(self.owner, assets) {
+                    let matches_commitment = candidate
+                        .hash(&self.nullifier_pk, &[0; 32], &[0; 32])
+                        .is_ok_and(|hash| hash == slot.output_context.hash);
+                    if matches_commitment {
+                        change.push(candidate);
+                        continue;
+                    }
                 }
-            } else if let Ok(pubkey) = Confidential::embedded_viewing_pk(body) {
-                recipient_pks.push(pubkey);
             }
+            recipient_pks.push(recipient_pk);
         }
 
         let spent = self.spent_amounts(&tx.nullifiers);
@@ -450,10 +494,40 @@ impl SyncCtx<'_> {
         let counterparty = (recipient_pks.len() == 1)
             .then(|| recipient_pks.first().copied())
             .flatten();
-        self.record_outbound_transfer(tx, spent, &change, kind, counterparty);
+        let direction = self.transfer_direction(&recipient_pks);
+        self.record_outbound_transfer(tx, spent, &change, kind, counterparty, direction);
         for pubkey in recipient_pks {
             known_recipients.entry(pubkey).or_insert(0);
         }
+        Ok(())
+    }
+
+    /// A merge output carries no ciphertext, so it is reconstructed from the
+    /// spent inputs and the published first nullifier — both keyed off the
+    /// nullifier secret. No viewing key takes part, which is why merge sites
+    /// have their own entry point rather than passing an unused key through
+    /// [`Self::decode_slot`].
+    ///
+    /// Returns nothing: a reconstructed merge names no counterparty, so there is
+    /// no [`SlotOutcome`] for a caller to fold into `known_senders` /
+    /// `known_recipients`.
+    pub(super) fn decode_merge_site(
+        &mut self,
+        transactions: &[ShieldedTransaction],
+        site: (usize, usize),
+    ) -> Result<(), TransactionError> {
+        if self.processed_slots.contains(&site) {
+            return Ok(());
+        }
+        let Some(tx) = transactions.get(site.0) else {
+            self.report.undecryptable_candidates += 1;
+            return Ok(());
+        };
+        if tx.output_slots.get(site.1).is_none() || !is_merge_site(tx) {
+            self.report.undecryptable_candidates += 1;
+            return Ok(());
+        }
+        self.reconstruct_merge(tx, site)?;
         Ok(())
     }
 
@@ -481,7 +555,7 @@ impl SyncCtx<'_> {
             self.report.undecryptable_candidates += 1;
             return Ok(outcome);
         };
-        if !tx.proofless && tx.tx_viewing_pk.is_none() && tx.salt.is_none() {
+        if is_merge_site(tx) {
             return self.reconstruct_merge(tx, site);
         }
         let Some(output_data) = slot.output_data() else {
@@ -612,11 +686,16 @@ impl SyncCtx<'_> {
                             self.processed_slots.insert(site);
                             outcome.sender = Some(sender);
                             if let Some(utxo) = utxos.first() {
+                                // Per-slot, unlike the confidential rail, which
+                                // suppresses an authored slot's receipt: an
+                                // anonymous recipient slot names its sender, so
+                                // a self-send's receipt carries the sender the
+                                // sender-bundle row cannot show per recipient.
                                 self.record_received(tx, site.1, Some(sender), utxo);
                             }
                         }
                     }
-                    EncryptedScheme::Confidential => {
+                    EncryptedScheme::Confidential | EncryptedScheme::RingConfidential => {
                         let Ok(plaintext) = Confidential::decode(body, &cx) else {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
@@ -670,7 +749,15 @@ impl SyncCtx<'_> {
                             let counterparty = (real_recipient_count == 1)
                                 .then(|| pks.first().copied())
                                 .flatten();
-                            self.record_outbound_transfer(tx, spent, &change, kind, counterparty);
+                            let direction = self.transfer_direction(&pks);
+                            self.record_outbound_transfer(
+                                tx,
+                                spent,
+                                &change,
+                                kind,
+                                counterparty,
+                                direction,
+                            );
                         }
                     }
                     EncryptedScheme::Split => {
@@ -798,10 +885,47 @@ impl SyncCtx<'_> {
     }
 }
 
-fn scan_stream(
+/// Every hit in one tag stream: the counter that produced the tag, and the
+/// sites filed under it.
+pub(super) type StreamHits<S> = Vec<(u64, Vec<S>)>;
+
+/// Walks a tag stream in `window`-sized batches, collecting hits, and stops
+/// after the first batch that hits nothing.
+///
+/// Probing is separated from decoding on purpose. Probing is pure -- it derives
+/// tags and reads `TxIndex` -- so it can be fanned out across counterparties
+/// (see [`ProbeFanout`]); decoding mutates [`SyncCtx`] and stays serial. The
+/// two phases are equivalent to interleaving them: hits come back in ascending
+/// counter order, and a batch's presence decision does not depend on decoding.
+fn probe_stream<'i, S: Clone + 'i>(
     window: u64,
     mut derive: impl FnMut(u64) -> Result<ViewTag, KeypairError>,
-    mut visit: impl FnMut(&ViewTag) -> Result<bool, TransactionError>,
+    lookup: impl Fn(&ViewTag) -> Option<&'i Vec<S>>,
+) -> Result<StreamHits<S>, TransactionError> {
+    let mut hits = Vec::new();
+    let mut start = 0u64;
+    loop {
+        let mut window_hit = false;
+        for n in start..start.saturating_add(window) {
+            let tag = derive(n)?;
+            if let Some(sites) = lookup(&tag) {
+                window_hit = true;
+                hits.push((n, sites.clone()));
+            }
+        }
+        if !window_hit || start.checked_add(window).is_none() {
+            return Ok(hits);
+        }
+        start += window;
+    }
+}
+
+/// The highest counter whose tag is present, without collecting sites. Used by
+/// the send-shared stream, which only advances a watermark.
+fn probe_presence(
+    window: u64,
+    mut derive: impl FnMut(u64) -> Result<ViewTag, KeypairError>,
+    present: impl Fn(&ViewTag) -> bool,
 ) -> Result<Option<u64>, TransactionError> {
     let mut max_present = None;
     let mut start = 0u64;
@@ -809,7 +933,7 @@ fn scan_stream(
         let mut window_hit = false;
         for n in start..start.saturating_add(window) {
             let tag = derive(n)?;
-            if visit(&tag)? {
+            if present(&tag) {
                 window_hit = true;
                 max_present = Some(n);
             }
@@ -818,6 +942,39 @@ fn scan_stream(
             return Ok(max_present);
         }
         start += window;
+    }
+}
+
+/// How the per-counterparty stream probes fan out.
+///
+/// This is the *only* difference between [`Wallet::sync`] and
+/// [`Wallet::sync_parallel`]: one scan body, parameterized here. Probing is
+/// pure, so both strategies return identical hits and the two entry points
+/// agree by construction rather than by two implementations being kept in step.
+pub(super) trait ProbeFanout {
+    fn probe_each<T, R>(
+        items: &[T],
+        probe: impl Fn(&T) -> Result<R, TransactionError> + Send + Sync,
+    ) -> Result<Vec<R>, TransactionError>
+    where
+        T: Send + Sync,
+        R: Send;
+}
+
+/// One counterparty at a time. The default, and the only strategy without the
+/// `parallel` feature.
+pub(super) struct SerialProbe;
+
+impl ProbeFanout for SerialProbe {
+    fn probe_each<T, R>(
+        items: &[T],
+        probe: impl Fn(&T) -> Result<R, TransactionError> + Send + Sync,
+    ) -> Result<Vec<R>, TransactionError>
+    where
+        T: Send + Sync,
+        R: Send,
+    {
+        items.iter().map(probe).collect()
     }
 }
 
@@ -834,6 +991,18 @@ impl Wallet {
     }
 
     pub fn sync_with_material(
+        &mut self,
+        material: &WalletSyncMaterial,
+        transactions: &[ShieldedTransaction],
+        synced_at: i64,
+        window: u64,
+    ) -> Result<SyncReport, TransactionError> {
+        self.scan::<SerialProbe>(material, transactions, synced_at, window)
+    }
+
+    /// The one scan. `F` decides only how the per-counterparty tag probes fan
+    /// out; every classification, history, and bookkeeping rule lives here once.
+    pub(super) fn scan<F: ProbeFanout>(
         &mut self,
         material: &WalletSyncMaterial,
         transactions: &[ShieldedTransaction],
@@ -863,12 +1032,14 @@ impl Wallet {
         // disjoint-field borrows let this immutable borrow of `self.registry`
         // coexist with the mutable UTXO/transaction borrows below.
         let assets = &self.registry;
+        // Snapshot before `ctx` borrows the wallet mutably.
+        let self_viewing_pubkeys = self.self_viewing_pubkeys();
         let owner_tag = identity.signing_pubkey.confidential_view_tag()?;
         let mut ctx = SyncCtx {
             owner: identity.signing_pubkey,
             nullifier_pk: identity.nullifier_pubkey,
             nullifier_key: &material.nullifier_key,
-            self_viewing_pubkey: identity.viewing_pubkey,
+            self_viewing_pubkeys,
             utxos: &mut self.utxos,
             transactions: &mut self.transactions,
             processed_slots: HashSet::new(),
@@ -876,11 +1047,8 @@ impl Wallet {
             report,
         };
 
-        let merge_key = viewing_keys
-            .first()
-            .ok_or(TransactionError::MissingCurrentViewingKey)?;
         for site in &index.merge_sites {
-            ctx.decode_slot(transactions, merge_key, assets, *site)?;
+            ctx.decode_merge_site(transactions, *site)?;
         }
 
         for entry in self.viewing_key_history.iter_mut() {
@@ -926,64 +1094,57 @@ impl Wallet {
                 }
             }
 
-            let tx_max = scan_stream(
+            let sender_hits = probe_stream(
                 window,
                 |n| key.get_sender_view_tag(n),
-                |tag| {
-                    let Some(sites) = index.sender_sites.get(tag) else {
-                        return Ok(false);
-                    };
-                    for &t in sites {
-                        let outcome = ctx.decode_slot(transactions, key, assets, (t, 0))?;
-                        for pk in outcome.recipients {
-                            known_recipients.entry(pk).or_insert(0);
-                        }
-                    }
-                    Ok(true)
-                },
+                |tag| index.sender_sites.get(tag),
             )?;
-            if let Some(m) = tx_max {
-                *tx_count = m + 1;
+            if let Some((m, _)) = sender_hits.last() {
+                *tx_count = *m + 1;
+            }
+            for (_, sites) in &sender_hits {
+                for &t in sites {
+                    let outcome = ctx.decode_slot(transactions, key, assets, (t, 0))?;
+                    for pk in outcome.recipients {
+                        known_recipients.entry(pk).or_insert(0);
+                    }
+                }
             }
 
-            let request_max = scan_stream(
+            let request_hits = probe_stream(
                 window,
                 |n| key.get_recipient_request_view_tag(n),
-                |tag| {
-                    let Some(sites) = index.recipient_sites.get(tag) else {
-                        return Ok(false);
-                    };
-                    for site in sites {
-                        if let Some(sender) =
-                            ctx.decode_slot(transactions, key, assets, *site)?.sender
-                        {
-                            known_senders.entry(sender).or_insert(0);
-                        }
-                    }
-                    Ok(true)
-                },
+                |tag| index.recipient_sites.get(tag),
             )?;
-            if let Some(m) = request_max {
-                *request_count = m + 1;
+            if let Some((m, _)) = request_hits.last() {
+                *request_count = *m + 1;
+            }
+            for (_, sites) in &request_hits {
+                for site in sites {
+                    if let Some(sender) = ctx.decode_slot(transactions, key, assets, *site)?.sender
+                    {
+                        known_senders.entry(sender).or_insert(0);
+                    }
+                }
             }
 
             let senders: Vec<P256Pubkey> = known_senders.keys().copied().collect();
-            for s in senders {
-                let max = scan_stream(
+            let shared_in = F::probe_each(&senders, |sender| {
+                probe_stream(
                     window,
-                    |n| key.get_recipient_shared_view_tag(&s, n),
-                    |tag| {
-                        let Some(sites) = index.recipient_sites.get(tag) else {
-                            return Ok(false);
-                        };
-                        for site in sites {
-                            ctx.decode_slot(transactions, key, assets, *site)?;
-                        }
-                        Ok(true)
-                    },
-                )?;
-                if let Some(m) = max {
-                    known_senders.insert(s, m + 1);
+                    |n| key.get_recipient_shared_view_tag(sender, n),
+                    |tag| index.recipient_sites.get(tag),
+                )
+                .map(|hits| (*sender, hits))
+            })?;
+            for (sender, hits) in &shared_in {
+                if let Some((m, _)) = hits.last() {
+                    known_senders.insert(*sender, *m + 1);
+                }
+                for (_, sites) in hits {
+                    for site in sites {
+                        ctx.decode_slot(transactions, key, assets, *site)?;
+                    }
                 }
             }
 
@@ -992,14 +1153,17 @@ impl Wallet {
             }
 
             let recipients: Vec<P256Pubkey> = known_recipients.keys().copied().collect();
-            for r in recipients {
-                let max = scan_stream(
+            let shared_out = F::probe_each(&recipients, |recipient| {
+                probe_presence(
                     window,
-                    |n| key.get_send_shared_view_tag(&r, n),
-                    |tag| Ok(index.recipient_sites.contains_key(tag)),
-                )?;
+                    |n| key.get_send_shared_view_tag(recipient, n),
+                    |tag| index.recipient_sites.contains_key(tag),
+                )
+                .map(|max| (*recipient, max))
+            })?;
+            for (recipient, max) in shared_out {
                 if let Some(m) = max {
-                    known_recipients.insert(r, m + 1);
+                    known_recipients.insert(recipient, m + 1);
                 }
             }
         }
@@ -1016,6 +1180,12 @@ impl Wallet {
                 utxo.spent = true;
             }
         }
+        // A spent nullifier is never queried again, so its watermark is dead
+        // weight.
+        self.cursors.retain(|stream, _| match stream {
+            CursorStream::Nullifiers(nullifier) => !self.nullifiers.contains(nullifier),
+            _ => true,
+        });
         self.transactions.sort_by(|a, b| {
             (a.id.slot, &a.id.signature, a.id.index).cmp(&(b.id.slot, &b.id.signature, b.id.index))
         });

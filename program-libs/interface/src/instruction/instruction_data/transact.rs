@@ -1,5 +1,8 @@
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
-pub use zolana_event::{is_confidential_encrypted_output, MessageData, OutputUtxo};
+pub use zolana_event::{
+    confidential_encrypted_output_body, is_confidential_encrypted_output,
+    ring_confidential_encrypted_output_body, MessageData, OutputUtxo,
+};
 use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
 pub use crate::verifying_keys::{Bsb22Commitment, CircuitId, RingP256ProofData};

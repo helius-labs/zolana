@@ -339,3 +339,51 @@ fn check_path_length(got: usize, expected: usize) -> Result<(), ClientError> {
         Err(ClientError::ProofPathLength { got, expected })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use borsh::to_vec;
+    use zolana_event::{
+        OutputDataEncoding, CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+        RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+    };
+    use zolana_interface::instruction::{OwnerTag, TransactOutput};
+
+    use super::*;
+
+    #[test]
+    fn ring_output_marker_masks_the_published_owner() {
+        let default_tag = [1u8; 32];
+        let ring_tag = [2u8; 32];
+        let output = |scheme, tag| TransactOutput {
+            utxo_hash: [0u8; 32],
+            owner_tag: OwnerTag::Inline(tag),
+            data: Some(
+                to_vec(&OutputDataEncoding::Encrypted(vec![scheme, 9])).expect("output encoding"),
+            ),
+        };
+        let external_data = ExternalData {
+            instruction_discriminator: 0,
+            expiry_unix_ts: 0,
+            interface_transfers: Vec::new(),
+            data_hash: None,
+            ring_data_hash: None,
+            tx_viewing_pk: [0u8; 33],
+            salt: [0u8; 16],
+            outputs: vec![
+                output(CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, default_tag),
+                output(RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, ring_tag),
+            ],
+            resolved_owner_tags: vec![default_tag, ring_tag],
+            messages: Vec::new(),
+        };
+
+        assert_eq!(
+            confidential_marked_output_owner_pk_hashes(&external_data).expect("published owners"),
+            vec![
+                zolana_hasher::primitives::hash_bytes(&default_tag).expect("owner hash"),
+                [0u8; 32],
+            ]
+        );
+    }
+}

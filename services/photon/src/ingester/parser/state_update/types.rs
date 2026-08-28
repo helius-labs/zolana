@@ -91,7 +91,8 @@ pub struct RingsTransactionUpdate {
     pub signature: Signature,
     pub event_index: i16,
     pub slot: u64,
-    pub rings_program_id: [u8; 32],
+    /// The ring's `ring_auth` PDA; `None` when no ring authorized this.
+    pub ring_config: Option<[u8; 32]>,
     pub source_instruction_tag: i16,
     pub output_tree: [u8; 32],
     pub first_output_leaf_index: u64,
@@ -106,10 +107,23 @@ pub struct RingsTransactionUpdate {
     pub nullifiers: Vec<RingsNullifierUpdate>,
 }
 
+/// A ring registering itself with the pool. `program_id` is written once at
+/// creation and never updated, so these rows are append-only and the
+/// `ring_config` -> `program_id` mapping is stable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RingConfigUpdate {
+    /// The ring's `ring_auth` PDA, which is also the config account.
+    pub ring_config: [u8; 32],
+    pub program_id: [u8; 32],
+    pub authority: [u8; 32],
+    pub slot: u64,
+}
+
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct StateUpdate {
     pub transactions: HashSet<Transaction>,
     pub rings_transactions: Vec<RingsTransactionUpdate>,
+    pub ring_configs: Vec<RingConfigUpdate>,
     pub nullifier_tree_batch_updates: Vec<NullifierTreeBatchUpdate>,
 }
 
@@ -129,6 +143,7 @@ impl StateUpdate {
         for update in updates {
             merged.transactions.extend(update.transactions);
             merged.rings_transactions.extend(update.rings_transactions);
+            merged.ring_configs.extend(update.ring_configs);
             merged
                 .nullifier_tree_batch_updates
                 .extend(update.nullifier_tree_batch_updates);

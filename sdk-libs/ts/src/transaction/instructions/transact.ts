@@ -201,7 +201,7 @@ export interface ExternalData {
   readonly expiryUnixTs: bigint;
   readonly interfaceTransfers: readonly SettlementTransfer[];
   readonly dataHash?: Bytes32;
-  readonly zoneDataHash?: Bytes32;
+  readonly ringDataHash?: Bytes32;
   readonly txViewingPublicKey: P256PublicKey;
   readonly salt: Bytes16;
   readonly outputs: readonly TransactOutput[];
@@ -222,7 +222,7 @@ export interface ExternalDataInit {
   readonly expiryUnixTs?: bigint;
   readonly interfaceTransfers?: readonly SettlementTransfer[];
   readonly dataHash?: Bytes32;
-  readonly zoneDataHash?: Bytes32;
+  readonly ringDataHash?: Bytes32;
   readonly txViewingPublicKey: P256PublicKey;
   readonly salt: Bytes16;
   readonly outputs: readonly TransactOutput[];
@@ -302,7 +302,7 @@ function externalDataHash(data: ExternalDataFields): Bytes32 {
           },
     ),
     ...(data.dataHash === undefined ? {} : { dataHash: data.dataHash }),
-    ...(data.zoneDataHash === undefined ? {} : { zoneDataHash: data.zoneDataHash }),
+    ...(data.ringDataHash === undefined ? {} : { ringDataHash: data.ringDataHash }),
     txViewingPk: data.txViewingPublicKey.toBytes(),
     salt: data.salt,
     outputs: data.outputs.map((output, index) => ({
@@ -384,7 +384,7 @@ function sealExternalData(fields: ExternalDataFields): ExternalData {
 export interface InputUtxo {
   readonly utxo: Utxo;
   readonly nullifierPublicKey: Bytes32;
-  readonly zoneDataHash?: Bytes32;
+  readonly ringDataHash?: Bytes32;
   readonly dataHash?: Bytes32;
   hash(): Bytes32;
   isDummy(): boolean;
@@ -394,7 +394,7 @@ export function createInputUtxo(
   input: Readonly<{
     utxo: Utxo;
     nullifierPublicKey: Bytes32;
-    zoneDataHash?: Bytes32;
+    ringDataHash?: Bytes32;
     dataHash?: Bytes32;
   }>,
 ): InputUtxo {
@@ -405,7 +405,7 @@ export function createInputUtxo(
     utxo,
     nullifierPublicKey,
     hash(): Bytes32 {
-      return utxo.hash(nullifierPublicKey, input.dataHash, input.zoneDataHash);
+      return utxo.hash(nullifierPublicKey, input.dataHash, input.ringDataHash);
     },
     isDummy(): boolean {
       return utxo.owner.isZero();
@@ -570,6 +570,9 @@ export const WithdrawalTarget = Object.freeze({
   },
 });
 
+/** Whether `prepare` keeps a change slot holding no value. */
+export type ChangeLayout = "padded" | "compact";
+
 export interface PreparedTransfer {
   readonly owner: ShieldedAddress;
   readonly inputs: readonly ProofInputUtxo[];
@@ -578,11 +581,18 @@ export interface PreparedTransfer {
   readonly shape: Shape;
   readonly payer: Address;
   readonly interfaceTransfers: readonly SettlementTransfer[];
+  /** Leading outputs the sender owns, Rust `PreparedOutputLayout::sender_output_count`. */
+  readonly senderOutputCount: number;
+  /** Mirrors Rust `ChangeLayout`. */
+  readonly changeLayout: ChangeLayout;
+  /** Ring transacts bind the auditor message and the `RING_TRANSACT` tag into the external data hash. */
   finalize(
     input: Readonly<{
       txViewingPublicKey: P256PublicKey;
       salt: Bytes16;
       payload: readonly (Readonly<{ viewTag: Bytes32; data: Uint8Array }> | undefined)[];
+      messages?: readonly Readonly<{ viewTag: Bytes32; data: Uint8Array }>[];
+      instructionDiscriminator?: number;
     }>,
   ): SppProofInputs;
 }
@@ -591,6 +601,8 @@ interface Recipient {
   readonly address: ShieldedAddress;
   readonly asset: Address;
   readonly amount: bigint;
+  /** Resolved at `prepare`, mirrors Rust `RecipientRing`, `default` is an exit when the transfer runs in a ring. */
+  readonly ring: "transfer" | "default";
 }
 
 const ZERO_ADDRESS = address("11111111111111111111111111111111");
@@ -603,6 +615,8 @@ export class ConfidentialTransfer {
   readonly #blindingSeed = randomBlinding();
   #withdrawal?: Readonly<{ asset: Address; amount: bigint; target: WithdrawalTarget }>;
   #shape?: Shape;
+  #changeLayout: ChangeLayout = "padded";
+  #ringProgramId?: Address;
 
   constructor(owner: ShieldedAddress, inputs: readonly ProofInputUtxo[], feePayer: Address) {
     if (inputs.length === 0) throw new TransactionError("TRANSACTION_NO_INPUTS");
@@ -633,12 +647,14 @@ export class ConfidentialTransfer {
     this.#payer = feePayer;
   }
 
+  /** Mirrors Rust `ConfidentialTransfer::with_compact_change`. */
+  withCompactChange(): this {
+    this.#changeLayout = "compact";
+    return this;
+  }
+
   withShape(shape: Shape): this {
-    this.#shape = resolveShape(
-      this.#inputs.length,
-      SENDER_SLOT_COUNT + this.#recipients.length,
-      shape,
-    );
+    this.#shape = shape;
     return this;
   }
 
@@ -646,11 +662,27 @@ export class ConfidentialTransfer {
     return false;
   }
 
+  /** Binds the change and every `send` to one ring, mirrors Rust `with_ring_program_id`. */
+  withRingProgramId(ringProgramId: Address): this {
+    this.#ringProgramId = ringProgramId;
+    return this;
+  }
+
+  /** The note joins the ring of the transfer, the default ring without one. */
+  send(recipient: ShieldedAddress, asset: Address, amount: bigint): void {
+    this.#push({ address: recipient, asset, amount, ring: "transfer" });
+  }
+
+  /** The note leaves the ring of the transfer for the default ring, mirrors Rust `send_default_ring`. */
+  sendDefaultRing(recipient: ShieldedAddress, asset: Address, amount: bigint): void {
+    this.#push({ address: recipient, asset, amount, ring: "default" });
+  }
+
   // Rust `send` performs no amount check; `checkU64` stands in for its `u64`
   // parameter and nothing more. A zero-amount recipient is a slot Rust builds.
-  send(recipient: ShieldedAddress, asset: Address, amount: bigint): void {
-    checkU64(amount, "recipient amount");
-    this.#recipients.push({ address: recipient, asset, amount });
+  #push(recipient: Recipient): void {
+    checkU64(recipient.amount, "recipient amount");
+    this.#recipients.push(recipient);
   }
 
   withdraw(asset: Address, amount: bigint, target: WithdrawalTarget): void {
@@ -701,42 +733,63 @@ export class ConfidentialTransfer {
       }
       return result;
     };
-    const outputs: ProofOutputUtxo[] = [
-      splAsset && change(splAsset, publicSpl) > 0n
-        ? createProofOutput({
-            ownerAddress: this.#owner,
-            asset: splAsset,
-            amount: change(splAsset, publicSpl),
-            blinding: deriveBlinding(this.#blindingSeed, 0),
-          })
-        : createProofOutput({
-            asset: ZERO_ADDRESS,
-            amount: 0n,
-            blinding: deriveBlinding(this.#blindingSeed, 0),
-            ownerTag: this.#owner.confidentialViewTag(),
-          }),
-      change(ZERO_ADDRESS, publicSol) > 0n
-        ? createProofOutput({
-            ownerAddress: this.#owner,
-            asset: ZERO_ADDRESS,
-            amount: change(ZERO_ADDRESS, publicSol),
-            blinding: deriveBlinding(this.#blindingSeed, 1),
-          })
-        : createProofOutput({
-            asset: ZERO_ADDRESS,
-            amount: 0n,
-            blinding: deriveBlinding(this.#blindingSeed, 1),
-            ownerTag: this.#owner.confidentialViewTag(),
-          }),
+    const splChange = splAsset ? change(splAsset, publicSpl) : 0n;
+    const solChange = change(ZERO_ADDRESS, publicSol);
+    // Change blindings stay bound to their fixed positions, matching Rust.
+    const ring = this.#ringProgramId === undefined ? {} : { ringProgramId: this.#ringProgramId };
+    const outputs: ProofOutputUtxo[] = [];
+    if (splAsset && splChange > 0n) {
+      outputs.push(
+        createProofOutput({
+          ownerAddress: this.#owner,
+          asset: splAsset,
+          amount: splChange,
+          blinding: deriveBlinding(this.#blindingSeed, 0),
+          ...ring,
+        }),
+      );
+    } else if (this.#changeLayout === "padded") {
+      outputs.push(
+        createProofOutput({
+          asset: ZERO_ADDRESS,
+          amount: 0n,
+          blinding: deriveBlinding(this.#blindingSeed, 0),
+          ownerTag: this.#owner.confidentialViewTag(),
+        }),
+      );
+    }
+    if (solChange > 0n) {
+      outputs.push(
+        createProofOutput({
+          ownerAddress: this.#owner,
+          asset: ZERO_ADDRESS,
+          amount: solChange,
+          blinding: deriveBlinding(this.#blindingSeed, 1),
+          ...ring,
+        }),
+      );
+    } else if (this.#changeLayout === "padded") {
+      outputs.push(
+        createProofOutput({
+          asset: ZERO_ADDRESS,
+          amount: 0n,
+          blinding: deriveBlinding(this.#blindingSeed, 1),
+          ownerTag: this.#owner.confidentialViewTag(),
+        }),
+      );
+    }
+    const senderOutputCount = outputs.length;
+    outputs.push(
       ...this.#recipients.map((recipient, index) =>
         createProofOutput({
           ownerAddress: recipient.address,
           asset: recipient.asset,
           amount: recipient.amount,
           blinding: deriveBlinding(this.#blindingSeed, index + SENDER_SLOT_COUNT),
+          ...(recipient.ring === "transfer" ? ring : {}),
         }),
       ),
-    ];
+    );
     const shape = resolveShape(this.#inputs.length, outputs.length, this.#shape);
     // Padding belongs to `finalize`, where Rust does it: the slots handed to an
     // authority for encryption are the real outputs only.
@@ -767,7 +820,7 @@ export class ConfidentialTransfer {
             ];
     const firstInput = this.#inputs[0];
     if (!firstInput) throw new TransactionError("TRANSACTION_NO_INPUTS");
-    const preparedBase = {
+    return preparedTransfer({
       owner: this.#owner,
       inputs: Object.freeze(inputs),
       outputs: Object.freeze(outputs),
@@ -775,11 +828,8 @@ export class ConfidentialTransfer {
       shape,
       payer: this.#payer,
       interfaceTransfers: Object.freeze(interfaceTransfers),
-    };
-    return Object.freeze({
-      ...preparedBase,
-      finalize: (encrypted: Parameters<PreparedTransfer["finalize"]>[0]): SppProofInputs =>
-        finalizeTransfer(preparedBase, encrypted),
+      senderOutputCount,
+      changeLayout: this.#changeLayout,
     });
   }
 
@@ -801,13 +851,19 @@ export class ConfidentialTransfer {
   }
 }
 
+type PreparedTransferFields = Omit<PreparedTransfer, "finalize">;
+
+function preparedTransfer(fields: PreparedTransferFields): PreparedTransfer {
+  return Object.freeze({
+    ...fields,
+    finalize: (encrypted: Parameters<PreparedTransfer["finalize"]>[0]): SppProofInputs =>
+      finalizeTransfer(fields, encrypted),
+  });
+}
+
 function finalizeTransfer(
-  prepared: Omit<PreparedTransfer, "finalize">,
-  encrypted: Readonly<{
-    txViewingPublicKey: P256PublicKey;
-    salt: Bytes16;
-    payload: readonly (Readonly<{ viewTag: Bytes32; data: Uint8Array }> | undefined)[];
-  }>,
+  prepared: PreparedTransferFields,
+  encrypted: Parameters<PreparedTransfer["finalize"]>[0],
 ): SppProofInputs {
   // Slots are read by output position, so a longer list would be dropped
   // without a trace rather than encrypted into the transaction.
@@ -852,7 +908,7 @@ function finalizeTransfer(
     const output = outputUtxos[index];
     if (!output) throw new TransactionError("TRANSACTION_MISSING_OUTPUT", { index });
     const slot = encrypted.payload[index];
-    if (index < SENDER_SLOT_COUNT) {
+    if (index < prepared.senderOutputCount) {
       outputs.push({
         utxoHash: output.hash(),
         ownerTag: senderTag,
@@ -871,14 +927,14 @@ function finalizeTransfer(
     }
   }
   const externalData = createExternalData({
-    instructionDiscriminator: TRANSACT_DISCRIMINATOR,
+    instructionDiscriminator: encrypted.instructionDiscriminator ?? TRANSACT_DISCRIMINATOR,
     expiryUnixTs: 0xffff_ffff_ffff_ffffn,
     interfaceTransfers: prepared.interfaceTransfers,
     txViewingPublicKey: encrypted.txViewingPublicKey,
     salt: encrypted.salt,
     outputs,
     resolvedOwnerTags: resolved,
-    messages: [],
+    messages: encrypted.messages ?? [],
   });
   return new SppProofInputs({
     payer: prepared.payer,
@@ -912,7 +968,9 @@ export function encodeConfidentialSlots(
     return {
       viewTag: address.signingPublicKey.confidentialViewTag(),
       data: encodeOutputData(
-        EncryptedScheme.confidential,
+        output.ringProgramId === undefined
+          ? EncryptedScheme.confidential
+          : EncryptedScheme.ringConfidential,
         encryptConfidential(
           tx,
           address.viewingPublicKey,
@@ -920,7 +978,7 @@ export function encodeConfidentialSlots(
             assetId: assets.assetId(output.asset),
             amount: output.amount,
             blinding: output.blinding,
-            ...(output.zoneProgramId === undefined ? {} : { zoneProgramId: output.zoneProgramId }),
+            ...(output.ringProgramId === undefined ? {} : { ringProgramId: output.ringProgramId }),
             data: output.data,
           },
           salt,

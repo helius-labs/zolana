@@ -5,6 +5,10 @@
 //! Wallet state, syncing, transaction-building actions, and the user registry
 //! live in the `zolana-wallet` crate, which builds on this one.
 //!
+//! `ZOLANA_TIMING=1` prints per-phase timings to stderr; see [`timing`]. The
+//! `let _t = Phase::start(..)` guards through this crate are that, timing until
+//! they drop, and inert otherwise.
+//!
 //! Feature flags:
 //! - `(none)`: prover client + RPC traits
 //! - `indexer-api`: Photon indexer adapter and [`ZolanaClient`]
@@ -19,6 +23,7 @@ pub mod indexer;
 pub mod prover;
 pub mod retry;
 pub mod rpc;
+mod settlement;
 #[cfg(feature = "solana-rpc")]
 pub mod solana_rpc;
 pub mod timing;
@@ -36,9 +41,10 @@ pub use prover::{
         assemble, assemble_with_dummy_policy, into_prover, into_prover_with_dummy_policy,
         AssembledTransfer, ProverInputs, ProverVariant, SpendProof,
     },
-    AsyncPollConfig, AsyncProverClient, BatchAddressAppendInputs, Commitments,
-    CompressedCommitments, MergeProofResult, MergeProver, MergeRingProver, MergeRingWitness, Proof,
-    ProofCompressed, ProofInputUtxo, ProverClient, PublicInputs, PublicTransfers,
+    verify_confidential_transfer_inputs, verify_confidential_transfer_proof, AsyncPollConfig,
+    AsyncProverClient, BatchAddressAppendInputs, Commitments, CompressedCommitments, Delivery,
+    MergeProofResult, MergeProver, MergeRingProver, MergeRingWitness, Proof, ProofCompressed,
+    ProofInputUtxo, ProveRequest, ProverClient, PublicInputs, PublicTransfers,
     RingAuthorityProofResult, RingAuthorityProver, RingAuthorityWitness,
     RingTransferP256ProofResult, RingTransferP256Prover, RingTransferProofResult,
     RingTransferProver, Shape, TransferInput, TransferInputs, TransferOutput, TransferP256Inputs,
@@ -53,8 +59,12 @@ pub use rpc::{
     OutputSlot, ProveResult, Rpc, ShieldedTransaction, ShieldedTransactionStream,
     NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
+pub use settlement::SettlementAccountValidation;
 #[cfg(feature = "solana-rpc")]
 pub use solana_rpc::{AsyncSolanaRpc, ConfirmedInstructionGroups, SolanaRpc};
+// `SolanaRpc::send_transaction_with_config` is public but names this type,
+// so callers outside the crate need it to call the method at all.
+pub use solana_rpc_client_api::config::RpcSendTransactionConfig;
 pub use zolana_transaction::{
     instructions::{
         merge::{Merge, PreparedMerge, MERGE_INPUTS},

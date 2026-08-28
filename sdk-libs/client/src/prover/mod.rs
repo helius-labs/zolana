@@ -7,10 +7,11 @@ pub mod merge_ring;
 mod proof;
 pub mod ring_authority;
 pub mod transact;
+mod verify;
 
 pub use client::{
-    spawn_prover, spawn_prover_with_artifacts, AsyncPollConfig, AsyncProverClient, ProverClient,
-    PROVE_PATH, SERVER_ADDRESS,
+    spawn_prover, spawn_prover_with_artifacts, AsyncPollConfig, AsyncProverClient, Delivery,
+    ProveRequest, ProverClient, PROVE_PATH, SERVER_ADDRESS,
 };
 pub use inputs::{
     BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
@@ -25,6 +26,7 @@ pub use transact::{
     RingTransferProofResult, RingTransferProver, TransferProofResult, TransferProver,
     TransferSpendInput,
 };
+pub use verify::{verify_confidential_transfer_inputs, verify_confidential_transfer_proof};
 pub use zolana_transaction::instructions::transact::{
     canonical_shape, resolve_shape, Shape, SPP_SUPPORTED_SHAPES,
 };

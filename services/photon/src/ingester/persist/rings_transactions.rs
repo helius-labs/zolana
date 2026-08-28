@@ -31,7 +31,7 @@ pub(super) async fn persist_rings_transactions(
                     update.slot,
                     "rings transaction slot",
                 )?),
-                rings_program_id: Set(update.rings_program_id.to_vec()),
+                ring_config: Set(update.ring_config.map(|key| key.to_vec())),
                 source_instruction_tag: Set(update.source_instruction_tag),
                 output_tree: Set(update.output_tree.to_vec()),
                 first_output_leaf_index: Set(leaf_node::i64_from_u64(
@@ -84,7 +84,7 @@ pub(super) async fn persist_rings_transactions(
     for update in rings_updates {
         let signature = Into::<[u8; 64]>::into(update.signature).to_vec();
         let rings_tx_id = *rings_tx_ids
-            .get(&(signature, update.event_index))
+            .get(&(signature.clone(), update.event_index))
             .ok_or_else(|| {
                 IngesterError::DatabaseError(format!(
                     "Missing persisted rings transaction {}:{}",
@@ -112,6 +112,10 @@ pub(super) async fn persist_rings_transactions(
                 )?),
                 view_tag: Set(output.view_tag.to_vec()),
                 utxo_hash: Set(output.utxo_hash.to_vec()),
+                // Copied so the tag queries sort without joining. See
+                // m20260809_000001_denormalize_rings_output_ordering.
+                signature: Set(Some(signature.clone())),
+                event_index: Set(Some(update.event_index)),
             });
         }
 

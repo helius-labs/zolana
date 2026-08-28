@@ -67,6 +67,32 @@ export interface AssetDeposit extends Omit<DepositEntry, "assetIndex"> {
   readonly asset: DepositAsset;
 }
 
+export interface EncryptedRingDepositData {
+  readonly txViewingPublicKey: Bytes33;
+  readonly salt: Bytes16;
+  readonly ciphertext: Uint8Array;
+}
+
+/** The ring is not in the data. The shielded pool reads it from the signing `ring_auth` account. */
+export interface RingDepositEntry {
+  readonly assetIndex: number;
+  readonly viewTag: Bytes32;
+  readonly ownerUtxoHash: Bytes32;
+  readonly amount: bigint;
+  readonly dataHash?: Bytes32;
+  readonly ringDataHash: Bytes32;
+  readonly encrypted: EncryptedRingDepositData;
+}
+
+export interface RingDepositInstructionData {
+  readonly assets: readonly DepositAssetKind[];
+  readonly deposits: readonly RingDepositEntry[];
+}
+
+export interface RingAssetDeposit extends Omit<RingDepositEntry, "assetIndex"> {
+  readonly asset: DepositAsset;
+}
+
 export interface InputUtxo {
   readonly nullifierHash: Bytes32;
   readonly nullifierTreeRootIndex: number;
@@ -114,13 +140,13 @@ export type CircuitId =
       publicAssetSlots: number;
     }>
   | Readonly<{
-      kind: "zoneEddsa";
+      kind: "ringEddsa";
       inputs: number;
       outputs: number;
       publicAssetSlots: number;
     }>
   | Readonly<{
-      kind: "zoneAuthority";
+      kind: "ringAuthority";
       inputs: number;
       outputs: number;
       publicAssetSlots: number;
@@ -158,7 +184,7 @@ export interface TransactInstructionData {
   readonly inputs: readonly InputUtxo[];
   readonly interfaceTransfers: readonly InterfaceTransfer[];
   readonly dataHash?: Bytes32;
-  readonly zoneDataHash?: Bytes32;
+  readonly ringDataHash?: Bytes32;
   readonly outputs: readonly TransactOutput[];
   readonly messages: readonly MessageData[];
 }
@@ -194,8 +220,8 @@ export interface ProtocolConfigAccount {
   readonly treeCreationAuthority: Address;
   readonly treeCreationIsPermissionless: boolean;
   readonly foresterAuthority: Address;
-  readonly zoneCreationAuthority: Address;
-  readonly zoneCreationIsPermissionless: boolean;
+  readonly ringCreationAuthority: Address;
+  readonly ringCreationIsPermissionless: boolean;
   readonly splInterfaceCreationIsPermissionless: boolean;
 }
 
@@ -208,10 +234,12 @@ export interface SplAssetRegistryAccount {
   readonly assetId: bigint;
 }
 
-export interface ZoneConfigAccount {
+export interface RingConfigAccount {
   readonly authority: Address;
   readonly programId: Address;
-  readonly zoneAuthorityTransactIsEnabled: boolean;
+  readonly ringAuthorityTransactIsEnabled: boolean;
+  /** Every operational ring instruction is refused while this is set. */
+  readonly paused: boolean;
   readonly bump: number;
 }
 

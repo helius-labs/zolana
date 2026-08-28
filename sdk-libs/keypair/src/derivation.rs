@@ -26,27 +26,15 @@ use crate::{
 
 pub const DST_VIEW_ROOT_P_CONST: &[u8] = b"TSPP/view_root/P_const/v1";
 
-pub const P_CONST_SEC1: [u8; P256_PUBKEY_LEN] = [
-    0x03, 0x0e, 0x4d, 0xf9, 0x46, 0xbc, 0xe1, 0x4b, 0x95, 0x29, 0x2f, 0x13, 0xe1, 0x33, 0xd2, 0xb0,
-    0xc6, 0x4e, 0x89, 0x8b, 0x56, 0x44, 0xf6, 0x20, 0xa5, 0xbe, 0xd2, 0x5a, 0x06, 0x1a, 0x42, 0xfc,
-    0xdb,
-];
+pub const P_CONST_SEC1: [u8; P256_PUBKEY_LEN] = zolana_hasher::p256::P_CONST_SEC1;
 
 pub const DST_DERIVE_P_DERIVE: &[u8] = b"TSPP/nullifier/P_nullifier/v1";
 
-pub const P_DERIVE_SEC1: [u8; P256_PUBKEY_LEN] = [
-    0x03, 0x9e, 0xf1, 0x65, 0x92, 0x42, 0x9d, 0xa1, 0x40, 0x3e, 0xaa, 0x29, 0x05, 0x8e, 0xb7, 0xd9,
-    0xd5, 0xad, 0x15, 0xa2, 0xea, 0x55, 0x71, 0x74, 0xf7, 0xb0, 0x1f, 0xf7, 0xfe, 0x48, 0x4e, 0xee,
-    0xaf,
-];
+pub const P_DERIVE_SEC1: [u8; P256_PUBKEY_LEN] = zolana_hasher::p256::P_DERIVE_SEC1;
 
 pub const DST_PDA_ROOT_P_PDA: &[u8] = b"TSPP/pda_root/P_pda/v1";
 
-pub const P_PDA_SEC1: [u8; P256_PUBKEY_LEN] = [
-    0x03, 0x8a, 0x31, 0xd5, 0x3c, 0x5a, 0xd2, 0x0d, 0x1c, 0xd7, 0xee, 0x1f, 0xbb, 0x99, 0x27, 0xbd,
-    0x0c, 0xdf, 0xb6, 0x1b, 0x1b, 0x89, 0xf6, 0xb2, 0xc5, 0xa9, 0x4a, 0x5f, 0x08, 0x1f, 0xe1, 0x6b,
-    0x5b,
-];
+pub const P_PDA_SEC1: [u8; P256_PUBKEY_LEN] = zolana_hasher::p256::P_PDA_SEC1;
 
 pub const INFO_NF_KEY_ED25519: &[u8] = b"TSPP/nf_key/ed25519/v1";
 
@@ -65,6 +53,13 @@ pub const INFO_PDA_VIEW_KEY: &[u8] = b"TSPP/pda_view/v1";
 /// rail's nullifier and viewing secrets. The signed bytes are
 /// [`ed25519_derivation_message`], never this bare payload.
 pub const ED25519_DERIVATION_MSG: &[u8] = b"TSPP/derive/v1";
+
+/// An ed25519 `derivation_seed` is the RFC 8032 signature over
+/// [`ed25519_derivation_message`].
+pub const ED25519_SEED_LEN: usize = 64;
+
+/// A P-256 `derivation_seed` is the x-coordinate of `ECDH(signing_sk, P_derive)`.
+pub const P256_SEED_LEN: usize = 32;
 
 /// Every payload under this prefix is a derivation-seed payload (the PDA
 /// payload family carries an address, so the guard matches the prefix).
@@ -247,8 +242,7 @@ pub(crate) fn p_pda() -> P256Pubkey {
 /// through [`view_root`] and the `ecdh_raw` entry points, which bypass this
 /// check.
 pub(crate) fn is_derivation_point(pubkey: &P256Pubkey) -> bool {
-    let bytes = pubkey.as_bytes();
-    bytes == &P_DERIVE_SEC1 || bytes == &P_PDA_SEC1 || bytes == &P_CONST_SEC1
+    zolana_hasher::p256::is_reserved_derivation_point(pubkey.as_bytes())
 }
 
 /// `view_root = HKDF-Extract(salt=∅, IKM=ECDH(viewing_sk, P_const))` — the PRK
@@ -263,6 +257,22 @@ pub(crate) fn view_root(secret: &SecretKey) -> Zeroizing<[u8; 32]> {
     out
 }
 
+/// Expands both role secrets from a `derivation_seed` produced by a
+/// hardware-resident signing key: an ed25519 signature over
+/// [`ed25519_derivation_message`], or `ECDH(signing_sk, P_derive)`.
+pub fn expand_roles(seed: &[u8], curve: Curve) -> Result<(NullifierKey, ViewingKey), KeypairError> {
+    let rail = Rail::from_curve(curve)?;
+    let expected = rail.seed_len();
+    if seed.len() != expected {
+        return Err(KeypairError::InvalidDerivationSeed {
+            got: seed.len(),
+            expected,
+        });
+    }
+    let expansion = RoleExpansion::new(seed, rail);
+    Ok((expansion.nullifier_key()?, expansion.viewing_key()?))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Rail {
     Ed25519,
@@ -275,6 +285,13 @@ impl Rail {
             Curve::Ed25519 => Ok(Self::Ed25519),
             Curve::P256 => Ok(Self::Ecdh),
             Curve::Pda => Err(KeypairError::PdaCannotSign),
+        }
+    }
+
+    fn seed_len(self) -> usize {
+        match self {
+            Self::Ed25519 => ED25519_SEED_LEN,
+            Self::Ecdh => P256_SEED_LEN,
         }
     }
 

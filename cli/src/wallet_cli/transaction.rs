@@ -1,9 +1,12 @@
 use anyhow::Result;
 use solana_signer::Signer;
-use zolana_client::{Rpc, SolanaRpc, ZolanaClient};
+use zolana_client::{Rpc, RpcSendTransactionConfig, SolanaRpc, ZolanaClient};
 use zolana_transaction::Address;
 use zolana_wallet::{
-    actions::{submit::MergeMaterial, transaction::is_plain_utxo},
+    actions::{
+        submit::MergeMaterial,
+        transaction::{is_default_ring_spendable, is_plain_utxo},
+    },
     create_merge, create_split, create_transfer_sync, sign_private_transaction_sync,
     submit_merge_transaction, MergeParams, SplitParams, SubmitMergeTransaction, TransferParams,
 };
@@ -15,6 +18,15 @@ use super::{
     util::{ensure_positive, format_address, parse_address, parse_hex_array, parse_pubkey},
 };
 use crate::args::{MergeOptions, SplitOptions, TransferOptions, UtxosOptions};
+
+/// The CLI confirms separately, so preflight would only buy a simulation
+/// round trip before a send that is about to be confirmed anyway.
+fn send_config() -> RpcSendTransactionConfig {
+    RpcSendTransactionConfig {
+        skip_preflight: true,
+        ..RpcSendTransactionConfig::default()
+    }
+}
 
 pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
     ensure_positive(opts.amount)?;
@@ -46,7 +58,9 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
         &client,
         &ctx.material.funding,
     )?;
-    let signature = client.rpc().send_transaction(&transaction)?;
+    let signature = client
+        .rpc()
+        .send_transaction_with_config(&transaction, send_config())?;
     client.confirm_private_transaction_sync(signature)?;
     let mode = if transfer.recipient.is_public_withdrawal() {
         "withdraw"
@@ -78,10 +92,10 @@ pub(crate) fn run_utxos(opts: UtxosOptions) -> Result<()> {
         .filter(|entry| !entry.spent && entry.utxo.asset == asset)
     {
         count += 1;
-        // Classify with the exact predicate split/merge enforce (`is_plain_utxo`),
-        // so a memo-only utxo (inline `utxo.data`, no data hash) reads as `data`
-        // here rather than as `plain` that those actions would then reject.
-        let kind = if entry.utxo.ring_program_id.is_some() {
+        // Classify with the exact predicates the spend paths enforce, so a
+        // memo-only utxo (inline `utxo.data`, no data hash) reads as `data`
+        // here rather than as `plain` that split and merge would then reject.
+        let kind = if !is_default_ring_spendable(entry) {
             "ring"
         } else if !is_plain_utxo(entry) {
             "data"
@@ -134,7 +148,9 @@ pub(crate) fn run_split(opts: SplitOptions) -> Result<()> {
         &client,
         &ctx.material.funding,
     )?;
-    let signature = client.rpc().send_transaction(&transaction)?;
+    let signature = client
+        .rpc()
+        .send_transaction_with_config(&transaction, send_config())?;
     client.confirm_private_transaction_sync(signature)?;
     println!(
         "ok split parts={} amount={} mint={} signature={}",

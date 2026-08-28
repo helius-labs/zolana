@@ -91,6 +91,11 @@
         "roundTripByte": "3"
       },
       {
+        "byte": "4",
+        "name": "RingConfidential",
+        "roundTripByte": "4"
+      },
+      {
         "byte": "5",
         "name": "Split",
         "roundTripByte": "5"
@@ -104,6 +109,11 @@
         "byte": "7",
         "name": "PlaintextTransfer",
         "roundTripByte": "7"
+      },
+      {
+        "byte": "8",
+        "name": "RingDeposit",
+        "roundTripByte": "8"
       }
     ]
   },

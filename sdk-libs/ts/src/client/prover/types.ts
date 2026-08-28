@@ -43,7 +43,7 @@ export interface TransferInputs {
   readonly privateTxHash: Field;
   readonly publicAssets: readonly Field[];
   readonly publicAmounts: readonly Field[];
-  readonly zoneProgramId: Field;
+  readonly ringProgramId: Field;
   readonly signerPublicKeyHashes: readonly Field[];
   readonly allowDummyInputs: Field;
   readonly publishedOutputOwnerPublicKeyHashes: readonly Field[];
@@ -60,11 +60,14 @@ export interface MergeInputs {
   readonly privateTxHash: Field;
   readonly allowDummyInputs: Field;
   readonly publicInputHash: Field;
-  readonly outputZoneDataHash: Field;
-  readonly zoneProgramId: Field;
+  readonly outputRingDataHash: Field;
+  readonly ringProgramId: Field;
 }
 
-export type ProverInputs = Readonly<{ circuit: "transfer"; payload: TransferInputs }>;
+export type ProverInputs = Readonly<{
+  circuit: "transfer" | "transferRing";
+  payload: TransferInputs;
+}>;
 
 export interface AssembledTransfer {
   readonly instructionData: TransactInstructionData;
@@ -78,17 +81,32 @@ export interface AssembledTransfer {
   withProof(proof: TransactProof): TransactInstructionData;
 }
 
+/** Mirrors Rust `CustomRingProofRequest`, `auditorPublicKey` is the uncompressed SEC1 point. */
+export interface CustomRingProofRequest {
+  readonly publicInputHash: Bytes32;
+  readonly privateTxHash: Bytes32;
+  readonly txViewingSecret: Bytes32;
+  readonly ephemeralSecret: Bytes32;
+  readonly auditorPublicKey: Uint8Array;
+}
+
 export interface Proof {
   readonly a: Bytes64;
   readonly b: Bytes128;
   readonly c: Bytes64;
+  readonly commitment?: Bytes64;
+  readonly commitmentPok?: Bytes64;
 }
 
 export interface CompressedProof {
   readonly a: Bytes32;
   readonly b: Bytes64;
   readonly c: Bytes32;
+  readonly commitment?: Bytes32;
+  readonly commitmentPok?: Bytes32;
   toTransactProof(): TransactProof;
+  /** `a(32) || b(64) || c(32) || commitment(32) || commitmentPok(32)`, Rust `CustomRingProof`. */
+  toCustomRingProof(): Uint8Array;
 }
 
 export type { SpendProof };

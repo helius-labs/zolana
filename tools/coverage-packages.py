@@ -25,6 +25,8 @@ import sys
 #                  in fact well covered, just not by this tool.
 #   program-tests/ the harness and the SBF fixture programs it drives.
 #   sdk-tests/     example programs and their SDK/prover scaffolding.
+#   custom-rings/  the custom-ring example: same category as sdk-tests/,
+#                  and its program tests need an SBF build this job never runs.
 #   bench/         CU benchmarks, which run under `--ignored` and need SBF builds.
 #   xtask/         `publish = false` build and release automation (the
 #                  cargo-xtask pattern), not a shipped artifact. Same blind spot
@@ -36,12 +38,14 @@ import sys
 #                  update_protocol_config.rs sat permanently at 0% and occupied
 #                  the top of the least-covered list ahead of files that should
 #                  actually move.
-EXCLUDED_DIRS = ("programs", "program-tests", "sdk-tests", "bench", "xtask")
-
-# Collected by a separate `--lib` pass: this crate's integration targets declare
-# no required-features, so selecting the whole package would build and run the
-# proving suites, which need a live prover server.
-SEPARATE_PASS = ("zolana-client",)
+EXCLUDED_DIRS = (
+    "programs",
+    "program-tests",
+    "sdk-tests",
+    "custom-rings",
+    "bench",
+    "xtask",
+)
 
 
 def main():
@@ -59,8 +63,6 @@ def main():
     for package in meta["packages"]:
         rel = os.path.relpath(package["manifest_path"], root)
         if rel.split(os.sep)[0] in EXCLUDED_DIRS:
-            continue
-        if package["name"] in SEPARATE_PASS:
             continue
         selected.append(package["name"])
 

@@ -108,6 +108,8 @@ impl StateUpdate {
             state_update: StateUpdate {
                 transactions,
                 rings_transactions,
+                // Registrations reference no tree, so tree filtering cannot drop them.
+                ring_configs: self.ring_configs,
                 nullifier_tree_batch_updates,
             },
             tree_info_cache,
@@ -276,7 +278,7 @@ mod tests {
             signature,
             event_index,
             slot: 1,
-            rings_program_id: [9; 32],
+            ring_config: Some([9; 32]),
             source_instruction_tag: 1,
             output_tree: output_tree.to_bytes(),
             first_output_leaf_index: 0,

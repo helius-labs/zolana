@@ -67,7 +67,10 @@ fn direct_emit_event_leaves_attached_writable_accounts_untouched() {
     );
     assert_eq!(
         rpc.svm.get_account(&program_owned),
-        Some(program_owned_before),
+        Some(Account {
+            rent_epoch: u64::MAX,
+            ..program_owned_before
+        }),
         "program-owned account must be untouched"
     );
 }

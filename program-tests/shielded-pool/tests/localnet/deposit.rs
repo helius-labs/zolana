@@ -16,7 +16,7 @@ use zolana_program_test::{
     RING_TEST_PROGRAM_ID,
 };
 use zolana_transaction::{
-    AssetRegistry, LocalWalletAuthority, SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW,
+    AssetRegistry, KeypairWalletAuthority, SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW,
 };
 
 use shielded_pool_tests::support::localnet::{
@@ -83,7 +83,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     assert_eq!(direct_root_after, indexer.root());
     assert_wallet_discovers(
         &mut direct_recipient,
-        &LocalWalletAuthority::new(Pubkey::default(), &direct_keypair),
+        &KeypairWalletAuthority::new(Pubkey::default(), &direct_keypair),
         &direct_view,
     )?;
 
@@ -160,7 +160,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     assert_eq!(ring_root_after, indexer.root());
     assert_wallet_discovers(
         &mut ring_recipient,
-        &LocalWalletAuthority::new(Pubkey::default(), &ring_keypair),
+        &KeypairWalletAuthority::new(Pubkey::default(), &ring_keypair),
         &ring_view,
     )?;
 

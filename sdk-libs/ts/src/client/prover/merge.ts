@@ -239,8 +239,8 @@ function assembleMergeUnchecked(
     privateTxHash: asField(bytesToBigInt(privateTxHash)),
     allowDummyInputs: asField(1n),
     publicInputHash: asField(bytesToBigInt(publicInputHash)),
-    outputZoneDataHash: asField(0n),
-    zoneProgramId: asField(0n),
+    outputRingDataHash: asField(0n),
+    ringProgramId: asField(0n),
   });
   const utxoTreeRootIndexes = Object.freeze(rootIndexes.map(([state]) => state));
   const nullifierTreeRootIndexes = Object.freeze(rootIndexes.map(([, nullifier]) => nullifier));

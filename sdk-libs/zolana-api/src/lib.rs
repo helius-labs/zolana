@@ -177,6 +177,7 @@ impl ZolanaApi {
             tags,
             cursor,
             limit: optional_limit(limit)?,
+            ring_program_id: None,
         })
         .await
     }
@@ -191,6 +192,7 @@ impl ZolanaApi {
             tags,
             cursor,
             limit: optional_limit(limit)?,
+            ring_program_id: None,
         })
         .await
     }
@@ -339,6 +341,7 @@ impl BlockingZolanaApi {
             tags,
             cursor,
             limit: optional_limit(limit)?,
+            ring_program_id: None,
         })
     }
 
@@ -352,6 +355,7 @@ impl BlockingZolanaApi {
             tags,
             cursor,
             limit: optional_limit(limit)?,
+            ring_program_id: None,
         })
     }
 

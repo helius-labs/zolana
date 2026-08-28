@@ -20,6 +20,7 @@ use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
+use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_interface::{
     instruction::{encode_instruction, tag, CreateRingConfigData, RingAssetDeposit},
@@ -27,7 +28,7 @@ use zolana_interface::{
 };
 use zolana_program_test::RING_TEST_PROGRAM_ID;
 use zolana_transaction::{
-    serialization::confidential::Confidential, LocalWalletAuthority, ShieldedTransaction, Utxo,
+    serialization::confidential::Confidential, KeypairWalletAuthority, ShieldedTransaction, Utxo,
     WalletUtxo, DEFAULT_TAG_WINDOW,
 };
 
@@ -122,10 +123,11 @@ impl RingHarness {
     /// into SPP. Stores the resulting `ring_auth` PDA in `self.ring_config`. The
     /// caller owns the authority keypair and is responsible for setting
     /// `self.ring_authority` if it wants to track it.
-    pub fn create_ring_config(&mut self, authority: &Address, enabled: bool) -> Result<()> {
-        let ring_auth = self.create_ring_config_for(self.ring_program_id, authority, enabled)?;
+    pub fn create_ring_config(&mut self, authority: &Address, enabled: bool) -> Result<Signature> {
+        let (ring_auth, signature) =
+            self.create_ring_config_for(self.ring_program_id, authority, enabled)?;
         self.ring_config = Some(ring_auth);
-        Ok(())
+        Ok(signature)
     }
 
     pub fn create_ring_config_for(
@@ -133,7 +135,7 @@ impl RingHarness {
         program_id: Pubkey,
         authority: &Address,
         enabled: bool,
-    ) -> Result<Pubkey> {
+    ) -> Result<(Pubkey, Signature)> {
         let payer = self.payer.insecure_clone();
         let (ring_auth, _) = pda::ring_auth(&program_id);
         let data = CreateRingConfigData {
@@ -152,8 +154,8 @@ impl RingHarness {
             ],
             data: encode_instruction(tag::CREATE_RING_CONFIG, &data),
         };
-        send_transaction(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer])?;
-        Ok(ring_auth)
+        let signature = send_transaction(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer])?;
+        Ok((ring_auth, signature))
     }
 
     /// Sync an actor's wallet from every indexed transaction (decryption), and make
@@ -162,7 +164,7 @@ impl RingHarness {
         self.ensure_fresh_actor(name)?;
         let indexed = self.indexed.clone();
         let actor = self.actor_mut(name);
-        let authority = LocalWalletAuthority::new(Address::default(), &actor.keypair);
+        let authority = KeypairWalletAuthority::new(Address::default(), &actor.keypair);
         actor
             .wallet
             .sync(&authority, &indexed, 0, DEFAULT_TAG_WINDOW)?;

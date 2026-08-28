@@ -1,8 +1,10 @@
 package main_test
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
+	"zolana/prover/server"
 
 	"github.com/google/uuid"
 )
@@ -181,5 +183,50 @@ func TestMarkJobFailedRecreatesExpiredMetadata(t *testing.T) {
 	// Recreated records must still expire, or a reaped job leaks a key forever.
 	if ttl := queue.Client.TTL(queue.Ctx, "zk_job_meta_"+jobID).Val(); ttl <= 0 {
 		t.Fatalf("TTL = %v, want a bounded lifetime", ttl)
+	}
+}
+
+// The reaper builds its details inline, so only this test keeps them in step with
+// failureDetails. Drift is quiet: status stays "failed", but loses failedAt and
+// circuitType.
+func TestStuckJobReaperUsesTheKeysTheStatusEndpointReads(t *testing.T) {
+	queue := setupRedisQueue(t)
+	defer teardownRedisQueue(t, queue)
+	jobID := uuid.NewString()
+
+	stuck := &server.ProofJob{
+		ID:        jobID + "_processing",
+		Type:      "zk_proof",
+		Payload:   json.RawMessage(`{"circuitType":"transfer"}`),
+		CreatedAt: time.Now().Add(-30 * time.Minute),
+	}
+	if err := queue.EnqueueProof("zk_transfer_processing_queue", stuck); err != nil {
+		t.Fatalf("enqueue stuck job: %v", err)
+	}
+
+	if err := queue.CleanupStuckProcessingJobs(); err != nil {
+		t.Fatalf("cleanup stuck jobs: %v", err)
+	}
+
+	meta, err := queue.GetJobMeta(jobID)
+	if err != nil {
+		t.Fatalf("get job meta: %v", err)
+	}
+	if meta == nil {
+		t.Fatal("a reaped job left no record; the client cannot learn it failed")
+	}
+	failure, ok := meta["failure"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("failure = %v, want the details map", meta["failure"])
+	}
+	if _, ok := failure["failedAt"]; !ok {
+		t.Errorf("failure carries no failedAt, so the status response drops it")
+	}
+	originalJob, ok := failure["originalJob"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("originalJob = %v, want the nested map", failure["originalJob"])
+	}
+	if got := originalJob["circuitType"]; got != "transfer" {
+		t.Errorf("circuitType = %v, want transfer", got)
 	}
 }

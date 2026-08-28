@@ -21,6 +21,8 @@ var embeddedLockfile []byte
 type Entry struct {
 	Sha256 string `json:"sha256"`
 	Size   int64  `json:"size"`
+	// Names where a key comes from when the object store does not carry it.
+	Source string `json:"source,omitempty"`
 }
 
 // Manifest is the parsed proving-keys.lock: the object-store prefix under the

@@ -38,6 +38,9 @@ bash scripts/generate_keys_transfer.sh "$keys_dir"
 echo "==> generating merge proving keys"
 bash scripts/generate_keys_merge.sh "$keys_dir"
 
+echo "==> generating custom ring proving key"
+bash scripts/generate_keys_custom_ring.sh "$keys_dir"
+
 # The batched nullifier-tree (address-append) circuits build on circuits/gadget
 # just like transfer/merge, so a gadget change rotates them too. Their vkeys are
 # committed in the batched-merkle-tree crate.
@@ -51,7 +54,7 @@ for spec in "10" "250"; do
         --output-vkey "$keys_dir/batch_address-append_40_${spec}.vkey"
 done
 
-echo "==> regenerating interface verifying keys (transfer + merge)"
+echo "==> regenerating interface and custom ring verifying keys"
 bash scripts/regenerate_all_vkeys.sh "$keys_dir"
 
 echo "==> regenerating batched-merkle-tree verifying keys (address-append)"
@@ -75,14 +78,14 @@ echo "==> refreshing circuit fingerprints"
 echo "    paste the printed values into prover/server/prover/fingerprint/fingerprint_test.go"
 
 echo "==> regenerating proving-keys.lock"
-python3 scripts/generate_lockfile.py "$keys_dir"
+python3 scripts/generate_lockfile.py "$keys_dir" --release custom_ring.key
 
 # The lock's prefix carries the new version hash; upload the full key set into that
 # immutable version folder. Old version folders are left untouched, so previously
 # published CLIs keep working -- no overwrite and no CloudFront invalidation.
 lock_prefix="$(python3 -c "import json; print(json.load(open('prover/provingkeys/proving-keys.lock'))['prefix'])")"
 echo "==> uploading proving keys to s3://$bucket/$lock_prefix/ (immutable version folder)"
-aws s3 sync "$keys_dir/" "s3://$bucket/$lock_prefix/" --exclude '*' --include '*.key'
+aws s3 sync "$keys_dir/" "s3://$bucket/$lock_prefix/" --exclude '*' --include '*.key' --exclude 'custom_ring.key'
 
 cat <<EOF
 

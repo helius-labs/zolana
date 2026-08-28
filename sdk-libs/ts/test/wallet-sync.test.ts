@@ -2,22 +2,34 @@ import { address, getAddressEncoder, getBase64Decoder, type Signature } from "@s
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ZolanaClient } from "../src/client/index.js";
-import { ShieldedKeypair } from "../src/keypair/index.js";
+import { ShieldedKeypair, SigningKey, ViewingKey } from "../src/keypair/index.js";
 import { mergeDummyNullifier, mergeOutputBlinding } from "../src/keypair/merge/index.js";
 import { SHIELDED_POOL_PROGRAM_ID, type Bytes16, type Bytes32 } from "../src/interface/index.js";
 import { StateDiscriminator } from "../src/interface/state.js";
 import {
+  ConfidentialTransfer,
   Data,
-  LocalWalletAuthority,
+  KeypairWalletAuthority,
+  ProofInputUtxo,
   SOL_MINT,
   Utxo,
   Wallet,
+  createProofOutput,
   decryptTransactions,
+  encodeConfidentialSlots,
 } from "../src/transaction/index.js";
 import {
   EncryptedScheme,
   encodeOutputData,
   encodeProofless,
+  encryptConfidential,
+  readOutputData,
+} from "../src/transaction/serialization/codecs.js";
+import { SOL_ASSET_ID } from "../src/transaction/wallet/asset.js";
+import {
+  anonymousRecipientUtxo,
+  anonymousSenderFromUtxos,
+  anonymousSenderUtxos,
 } from "../src/transaction/serialization/codecs.js";
 import { backfillAssetRegistry, syncWallet } from "../src/wallet/sync.js";
 
@@ -53,7 +65,7 @@ describe("wallet sync", () => {
 
     const report = await syncWallet({
       wallet,
-      authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
       client,
     });
 
@@ -86,7 +98,7 @@ describe("wallet sync", () => {
       })),
       getShieldedTransactionsByNullifiers: vi.fn(),
     } as unknown as ZolanaClient;
-    const authority = new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair });
+    const authority = new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair });
 
     await syncWallet({ wallet, authority, client });
     const calls = () =>
@@ -123,7 +135,7 @@ describe("wallet sync", () => {
 
     await syncWallet({
       wallet,
-      authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
       client,
     });
 
@@ -221,7 +233,7 @@ describe("wallet sync", () => {
 
     const report = await syncWallet({
       wallet,
-      authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
       client,
     });
 
@@ -267,7 +279,7 @@ describe("wallet sync", () => {
 
     const report = await decryptTransactions({
       wallet,
-      authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
       transactions: [
         {
           slot: 1n,
@@ -292,6 +304,506 @@ describe("wallet sync", () => {
 
     expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
     expect(wallet.balance(SOL_MINT).amount).toBe(42n);
+  });
+
+  it("classifies a confidential send to the same wallet as a self transfer", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const identity = keypair.shieldedAddress();
+    const wallet = new Wallet({ identity });
+    const blinding = bytes(14);
+    const utxo = new Utxo({
+      owner: keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 100n,
+      blinding,
+    });
+    const hash = utxo.hash(keypair.nullifierPublicKey());
+    wallet._replace({
+      ...wallet._state(),
+      utxos: [
+        {
+          utxo,
+          outputContext: { hash, tree: TREE, leafIndex: 0n },
+          nullifier: keypair.nullifier(hash, blinding),
+          spent: false,
+        },
+      ],
+    });
+    const transfer = new ConfidentialTransfer(
+      identity,
+      [new ProofInputUtxo({ utxo, nullifierKey: keypair.nullifierKey() })],
+      identity.solanaAddress(),
+    );
+    transfer.send(identity, SOL_MINT, 40n);
+    const signed = transfer.sign(keypair, wallet.registry);
+    const external = signed.externalData;
+    const authority = new KeypairWalletAuthority({
+      solanaPublicKey: identity.solanaAddress(),
+      keypair,
+    });
+    const indexedTransactions = [
+      {
+        slot: 1n,
+        txSignature: SIGNATURE,
+        txViewingPublicKey: external.txViewingPublicKey,
+        salt: external.salt,
+        outputSlots: external.outputs.map((output, index) => ({
+          viewTag: external.resolvedOwnerTags[index]!,
+          outputContext: {
+            hash: output.utxoHash,
+            tree: TREE,
+            leafIndex: BigInt(index + 1),
+          },
+          payload: output.data ?? new Uint8Array(),
+        })),
+        messages: [],
+        nullifiers: signed.inputContexts().map((input) => input.nullifier),
+        proofless: false,
+      },
+    ];
+
+    await decryptTransactions({
+      wallet,
+      authority,
+      transactions: indexedTransactions,
+    });
+
+    let transactions = wallet.privateTransactions();
+    expect(transactions).toHaveLength(1);
+    expect(transactions[0]).toMatchObject({
+      kind: "privateTransfer",
+      direction: "selfTransfer",
+      asset: SOL_MINT,
+      amount: 40n,
+    });
+    expect(transactions[0]?.counterpartyViewingPublicKey?.toBytes()).toEqual(
+      keypair.viewingPublicKey().toBytes(),
+    );
+
+    wallet._replace({
+      ...wallet._state(),
+      transactions: transactions.map((transaction) => ({
+        ...transaction,
+        direction: "outbound",
+      })),
+    });
+    await decryptTransactions({ wallet, authority, transactions: indexedTransactions });
+    transactions = wallet.privateTransactions();
+    expect(transactions).toHaveLength(1);
+    expect(transactions[0]?.direction).toBe("selfTransfer");
+  });
+
+  it("classifies a send to a rotated-out viewing key as a self transfer", async () => {
+    // Same signing and nullifier roles, two viewing keys: the wallet before and
+    // after a rotation. The UTXO owner and nullifiers are unchanged, so the
+    // pre-rotation transaction is still this wallet's to decode.
+    const signing = SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(11) as Bytes32);
+    const retired = ShieldedKeypair.withViewingKey(
+      signing,
+      ViewingKey.fromBytes(new Uint8Array(32).fill(21) as Bytes32),
+    );
+    const current = ShieldedKeypair.withViewingKey(
+      signing,
+      ViewingKey.fromBytes(new Uint8Array(32).fill(22) as Bytes32),
+    );
+    const identity = current.shieldedAddress();
+    const wallet = new Wallet({ identity });
+    const blinding = bytes(15);
+    const utxo = new Utxo({
+      owner: current.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 100n,
+      blinding,
+    });
+    const hash = utxo.hash(current.nullifierPublicKey());
+    wallet._replace({
+      ...wallet._state(),
+      utxos: [
+        {
+          utxo,
+          outputContext: { hash, tree: TREE, leafIndex: 0n },
+          nullifier: current.nullifier(hash, blinding),
+          spent: false,
+        },
+      ],
+    });
+
+    const retiredIdentity = retired.shieldedAddress();
+    const transfer = new ConfidentialTransfer(
+      retiredIdentity,
+      [new ProofInputUtxo({ utxo, nullifierKey: retired.nullifierKey() })],
+      retiredIdentity.solanaAddress(),
+    );
+    transfer.send(retiredIdentity, SOL_MINT, 40n);
+    const signed = transfer.sign(retired, wallet.registry);
+    const external = signed.externalData;
+
+    // Both keys, current first, the way an authority reports a rotation.
+    const authority = {
+      syncMaterial: () =>
+        Promise.resolve({
+          identity,
+          viewingKeys: [current.viewingKey(), retired.viewingKey()],
+          nullifierKey: current.nullifierKey(),
+        }),
+    };
+
+    await decryptTransactions({
+      wallet,
+      authority,
+      transactions: [
+        {
+          slot: 1n,
+          txSignature: SIGNATURE,
+          txViewingPublicKey: external.txViewingPublicKey,
+          salt: external.salt,
+          outputSlots: external.outputs.map((output, index) => ({
+            viewTag: external.resolvedOwnerTags[index]!,
+            outputContext: {
+              hash: output.utxoHash,
+              tree: TREE,
+              leafIndex: BigInt(index + 1),
+            },
+            payload: output.data ?? new Uint8Array(),
+          })),
+          messages: [],
+          nullifiers: signed.inputContexts().map((input) => input.nullifier),
+          proofless: false,
+        },
+      ],
+    });
+
+    const transactions = wallet.privateTransactions();
+    expect(
+      transactions.map((row) => ({
+        direction: row.direction,
+        amount: row.amount,
+        counterparty: row.counterpartyViewingPublicKey?.toBytes(),
+      })),
+    ).toEqual([
+      {
+        direction: "selfTransfer",
+        amount: 40n,
+        counterparty: retired.viewingPublicKey().toBytes(),
+      },
+    ]);
+  });
+
+  it("classifies an anonymous send whose only recipient is this wallet as a self transfer", async () => {
+    // The anonymous rail carries its recipient list in the sender's own change
+    // slot, so the sender-side row is classified from that list. It used to be
+    // hardcoded outbound while the matching receipt already said selfTransfer.
+    const keypair = ShieldedKeypair.generate();
+    const identity = keypair.shieldedAddress();
+    const wallet = new Wallet({ identity });
+    const spentBlinding = bytes(31);
+    const spent = new Utxo({
+      owner: keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 100n,
+      blinding: spentBlinding,
+    });
+    const spentHash = spent.hash(keypair.nullifierPublicKey());
+    const nullifier = keypair.nullifier(spentHash, spentBlinding);
+    wallet._replace({
+      ...wallet._state(),
+      utxos: [
+        {
+          utxo: spent,
+          outputContext: { hash: spentHash, tree: TREE, leafIndex: 0n },
+          nullifier,
+          spent: false,
+        },
+      ],
+    });
+
+    // 100 in, 60 back as change: the row's amount is the 40 that moved.
+    const blindingSeed = bytes(32);
+    const change = anonymousSenderUtxos(
+      {
+        ownerPublicKey: keypair.signingPublicKey(),
+        splAssetId: 0n,
+        splAmount: 0n,
+        solAmount: 60n,
+        blindingSeed,
+        recipientViewingPublicKeys: [keypair.viewingPublicKey()],
+        splData: new Data(),
+        solData: new Data(),
+      },
+      wallet.registry,
+      SOL_MINT,
+    );
+    const sender = anonymousSenderFromUtxos(
+      change,
+      { owner: keypair.signingPublicKey(), assets: wallet.registry },
+      { blindingSeed, recipientViewingPublicKeys: [keypair.viewingPublicKey()] },
+    );
+    const recipientPlaintext = {
+      ownerPublicKey: keypair.signingPublicKey(),
+      senderPublicKey: keypair.viewingPublicKey(),
+      assetId: SOL_ASSET_ID,
+      amount: 40n,
+      blinding: bytes(33),
+      data: new Data(),
+    };
+    const recipientUtxo = anonymousRecipientUtxo(recipientPlaintext, wallet.registry);
+
+    const authority = new KeypairWalletAuthority({
+      solanaPublicKey: identity.solanaAddress(),
+      keypair,
+    });
+    // The sender bundle is tagged with the identity's signing tag, which is one
+    // of the two stable families `decryptTransactions` opens.
+    const identityTag = keypair.signingPublicKey().confidentialViewTag();
+    const envelope = await authority.encryptAnonymousTransfer({
+      firstNullifier: nullifier,
+      senderViewTag: identityTag,
+      sender,
+      recipients: [
+        {
+          viewTag: keypair.viewingKey().recipientBootstrapViewTag(),
+          recipientPublicKey: keypair.viewingPublicKey(),
+          plaintext: recipientPlaintext,
+        },
+      ],
+    });
+    const slotUtxos = [...change, recipientUtxo];
+
+    await decryptTransactions({
+      wallet,
+      authority,
+      transactions: [
+        {
+          slot: 1n,
+          txSignature: SIGNATURE,
+          txViewingPublicKey: envelope.txViewingPublicKey,
+          salt: envelope.salt,
+          outputSlots: envelope.payload.map((slot, index) => ({
+            viewTag: slot?.viewTag ?? bytes(0),
+            outputContext: {
+              hash: slotUtxos[index]!.hash(keypair.nullifierPublicKey()),
+              tree: TREE,
+              leafIndex: BigInt(index + 1),
+            },
+            payload: slot?.data ?? new Uint8Array(),
+          })),
+          messages: [],
+          nullifiers: [nullifier],
+          proofless: false,
+        },
+      ],
+    });
+
+    // Two rows, unlike the confidential rail, which suppresses an authored
+    // slot's receipt: the sender-bundle row and the recipient receipt. The point
+    // is that neither contradicts the other -- before, the bundle row said
+    // outbound while the receipt beside it already said selfTransfer.
+    const moved = wallet
+      .privateTransactions()
+      .filter((row) => row.kind === "privateTransfer" && row.amount === 40n);
+    expect(moved.map((row) => row.direction)).toEqual(["selfTransfer", "selfTransfer"]);
+    expect(wallet.privateTransactions().filter((row) => row.direction === "outbound")).toEqual([]);
+  });
+
+  it("stores an inbound ring confidential output with its ring", async () => {
+    const recipient = ShieldedKeypair.generate();
+    const sender = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: recipient.shieldedAddress() });
+    const salt = new Uint8Array(16).fill(3) as Bytes16;
+    const output = new Utxo({
+      owner: recipient.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 42n,
+      blinding: bytes(31),
+      ringProgramId: OWNER,
+    });
+    const payload = encodeOutputData(
+      EncryptedScheme.ringConfidential,
+      encryptConfidential(
+        sender,
+        recipient.viewingPublicKey(),
+        {
+          assetId: 1n,
+          amount: output.amount,
+          blinding: output.blinding,
+          ringProgramId: OWNER,
+          data: output.data,
+        },
+        salt,
+        0,
+      ),
+      "encrypted",
+    );
+
+    const report = await decryptTransactions({
+      wallet,
+      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair: recipient }),
+      transactions: [
+        {
+          slot: 2n,
+          txSignature: SIGNATURE,
+          txViewingPublicKey: sender.viewingPublicKey(),
+          salt,
+          outputSlots: [
+            {
+              viewTag: recipient.signingPublicKey().confidentialViewTag(),
+              outputContext: {
+                hash: output.hash(recipient.nullifierPublicKey()),
+                tree: TREE,
+                leafIndex: 4n,
+              },
+              payload,
+            },
+          ],
+          messages: [],
+          nullifiers: [bytes(32)],
+          proofless: false,
+        },
+      ],
+    });
+
+    expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
+    expect(wallet.utxos()[0]?.utxo.ringProgramId).toBe(OWNER);
+  });
+
+  it("selects the ring confidential marker for a ring output", () => {
+    const recipient = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: recipient.shieldedAddress() });
+    const slots = encodeConfidentialSlots(
+      [
+        createProofOutput({
+          ownerAddress: recipient.shieldedAddress(),
+          asset: SOL_MINT,
+          amount: 1n,
+          ringProgramId: OWNER,
+        }),
+      ],
+      wallet.registry,
+      recipient.viewingKey(),
+      new Uint8Array(16) as Bytes16,
+    );
+
+    expect(readOutputData(slots[0]?.data ?? new Uint8Array()).scheme).toBe(
+      EncryptedScheme.ringConfidential,
+    );
+  });
+
+  it("records an outbound ring confidential transfer and keeps ring change", async () => {
+    const sender = ShieldedKeypair.generate();
+    const recipient = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: sender.shieldedAddress() });
+    const inputBlinding = bytes(33);
+    const input = new Utxo({
+      owner: sender.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 10n,
+      blinding: inputBlinding,
+      ringProgramId: OWNER,
+    });
+    const inputHash = input.hash(sender.nullifierPublicKey());
+    const nullifier = sender.nullifier(inputHash, inputBlinding);
+    wallet._replace({
+      ...wallet._state(),
+      utxos: [
+        {
+          utxo: input,
+          outputContext: { hash: inputHash, tree: TREE, leafIndex: 0n },
+          nullifier,
+          spent: false,
+        },
+      ],
+    });
+    const txKey = sender.transactionViewingKey(nullifier);
+    const salt = new Uint8Array(16).fill(4) as Bytes16;
+    const change = new Utxo({
+      owner: sender.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 3n,
+      blinding: bytes(34),
+      ringProgramId: OWNER,
+    });
+    const payment = new Utxo({
+      owner: recipient.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 7n,
+      blinding: bytes(35),
+      ringProgramId: OWNER,
+    });
+    const changePayload = encodeOutputData(
+      EncryptedScheme.ringConfidential,
+      encryptConfidential(
+        txKey,
+        sender.viewingPublicKey(),
+        {
+          assetId: 1n,
+          amount: change.amount,
+          blinding: change.blinding,
+          ringProgramId: OWNER,
+          data: change.data,
+        },
+        salt,
+        0,
+      ),
+      "encrypted",
+    );
+    const paymentPayload = encodeOutputData(
+      EncryptedScheme.ringConfidential,
+      encryptConfidential(
+        txKey,
+        recipient.viewingPublicKey(),
+        {
+          assetId: 1n,
+          amount: payment.amount,
+          blinding: payment.blinding,
+          ringProgramId: OWNER,
+          data: payment.data,
+        },
+        salt,
+        1,
+      ),
+      "encrypted",
+    );
+
+    await decryptTransactions({
+      wallet,
+      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair: sender }),
+      transactions: [
+        {
+          slot: 3n,
+          txSignature: SIGNATURE,
+          txViewingPublicKey: txKey.publicKey(),
+          salt,
+          outputSlots: [
+            {
+              viewTag: sender.signingPublicKey().confidentialViewTag(),
+              outputContext: {
+                hash: change.hash(sender.nullifierPublicKey()),
+                tree: TREE,
+                leafIndex: 1n,
+              },
+              payload: changePayload,
+            },
+            {
+              viewTag: recipient.signingPublicKey().confidentialViewTag(),
+              outputContext: {
+                hash: payment.hash(recipient.nullifierPublicKey()),
+                tree: TREE,
+                leafIndex: 2n,
+              },
+              payload: paymentPayload,
+            },
+          ],
+          messages: [],
+          nullifiers: [nullifier],
+          proofless: false,
+        },
+      ],
+    });
+
+    expect(wallet.utxos().find((entry) => !entry.spent)?.utxo.ringProgramId).toBe(OWNER);
+    expect(wallet.privateTransactions()).toContainEqual(
+      expect.objectContaining({ kind: "privateTransfer", direction: "outbound", amount: 7n }),
+    );
   });
 
   it("ignores a merge whose first nullifier is not owned", async () => {
@@ -426,7 +938,7 @@ describe("wallet sync", () => {
 
     await syncWallet({
       wallet,
-      authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
       client,
     });
 
@@ -434,15 +946,126 @@ describe("wallet sync", () => {
     expect(getShieldedTransactionsByTags).toHaveBeenCalledOnce();
     expect(getEncryptedUtxosByTags).toHaveBeenCalledOnce();
     expect(getShieldedTransactionsByNullifiers).toHaveBeenCalledTimes(2);
+    // entries[1] was already known spent, so it is not asked about again: a
+    // nullifier appears at most once on chain, and that answer is already in
+    // hand. Only the unspent entries[0] is still an open question.
+    const unspent = [entries[0]!.nullifier];
     expect(getShieldedTransactionsByNullifiers.mock.calls[0]?.[0]).toMatchObject({
-      nullifiers: entries.map((entry) => entry.nullifier),
+      nullifiers: unspent,
       limit: 1000,
     });
     expect(getShieldedTransactionsByNullifiers.mock.calls[1]?.[0]).toMatchObject({
-      nullifiers: entries.map((entry) => entry.nullifier),
+      nullifiers: unspent,
       cursor,
       limit: 1000,
     });
+  });
+
+  it("does not ask about notes already known spent", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const entries = [31n, 11n, 17n].map((amount, index) => {
+      const blinding = bytes(index + 40);
+      const utxo = new Utxo({
+        owner: keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount,
+        blinding,
+      });
+      const hash = utxo.hash(keypair.nullifierPublicKey());
+      return {
+        utxo,
+        outputContext: { hash, tree: TREE, leafIndex: BigInt(index) },
+        nullifier: keypair.nullifier(hash, blinding),
+        // Only the last note is still unspent.
+        spent: index < 2,
+      };
+    });
+    wallet._replace({ ...wallet._state(), utxos: entries });
+
+    const getShieldedTransactionsByNullifiers = vi.fn(
+      async (_request: Readonly<{ nullifiers: readonly Bytes32[] }>) => ({
+        context: { blockTime: 1n },
+        transactions: [],
+      }),
+    );
+    const client = {
+      getShieldedTransactionsByTags: vi.fn(async () => ({
+        context: { blockTime: 1n },
+        transactions: [],
+      })),
+      getEncryptedUtxosByTags: vi.fn(async () => ({
+        context: { blockTime: 1n },
+        matches: [],
+      })),
+      getShieldedTransactionsByNullifiers,
+    } as unknown as ZolanaClient;
+
+    await syncWallet({
+      wallet,
+      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      client,
+    });
+
+    // One request carrying one nullifier -- not three, and not one request per
+    // note the wallet has ever held.
+    expect(getShieldedTransactionsByNullifiers).toHaveBeenCalledOnce();
+    expect(getShieldedTransactionsByNullifiers.mock.calls[0]?.[0]).toMatchObject({
+      nullifiers: [entries[2]!.nullifier],
+    });
+  });
+
+  it("resumes the nullifier stream from where the indexer said it scanned to", async () => {
+    // The rows cannot supply this: an unspent note matches nothing, so there is
+    // no last row whose position could be remembered, and every sync would walk
+    // the whole stream again.
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    // Blinding is a field element, so the leading byte has to stay below the
+    // BN254 modulus -- 51 (0x33) does not.
+    const blinding = bytes(23);
+    const utxo = new Utxo({
+      owner: keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 5n,
+      blinding,
+    });
+    const hash = utxo.hash(keypair.nullifierPublicKey());
+    const nullifier = keypair.nullifier(hash, blinding);
+    wallet._replace({
+      ...wallet._state(),
+      utxos: [
+        { utxo, outputContext: { hash, tree: TREE, leafIndex: 0n }, nullifier, spent: false },
+      ],
+    });
+
+    const scannedThrough = Uint8Array.of(4, 2);
+    const getShieldedTransactionsByNullifiers = vi.fn(
+      async (_request: Readonly<{ nullifiers: readonly Bytes32[]; cursor?: Uint8Array }>) => ({
+        context: { blockTime: 1n },
+        transactions: [],
+        scannedThrough,
+      }),
+    );
+    const client = {
+      getShieldedTransactionsByTags: vi.fn(async () => ({
+        context: { blockTime: 1n },
+        transactions: [],
+      })),
+      getEncryptedUtxosByTags: vi.fn(async () => ({
+        context: { blockTime: 1n },
+        matches: [],
+      })),
+      getShieldedTransactionsByNullifiers,
+    } as unknown as ZolanaClient;
+    const authority = new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair });
+
+    await syncWallet({ wallet, authority, client });
+    expect(getShieldedTransactionsByNullifiers.mock.calls[0]?.[0]?.cursor).toBeUndefined();
+
+    getShieldedTransactionsByNullifiers.mockClear();
+    await syncWallet({ wallet, authority, client });
+    expect(getShieldedTransactionsByNullifiers.mock.calls[0]?.[0]?.cursor).toEqual(scannedThrough);
   });
 
   it("rejects a non-advancing nullifier cursor", async () => {
@@ -477,7 +1100,7 @@ describe("wallet sync", () => {
     await expect(
       syncWallet({
         wallet,
-        authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+        authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
         client: {
           getShieldedTransactionsByTags: vi.fn(async () => ({
             context: { blockTime: 1n },
@@ -551,7 +1174,7 @@ describe("wallet sync", () => {
 
     await syncWallet({
       wallet,
-      authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
       client,
     });
 
@@ -580,7 +1203,7 @@ describe("wallet sync", () => {
     await expect(
       syncWallet({
         wallet: new Wallet({ identity: keypair.shieldedAddress() }),
-        authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+        authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
         client,
       }),
     ).rejects.toMatchObject({
@@ -625,7 +1248,7 @@ describe("wallet sync", () => {
 
     const report = await syncWallet({
       wallet: new Wallet({ identity: keypair.shieldedAddress() }),
-      authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
       client,
     });
 

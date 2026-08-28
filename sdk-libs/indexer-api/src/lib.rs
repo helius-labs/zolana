@@ -505,6 +505,10 @@ pub struct GetRingsByTagsRequest {
     pub cursor: Option<Base64String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<Limit>,
+    /// Restrict the match to one ring. Its config account is derived from this
+    /// program id, so the filter needs no indexed registration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ring_program_id: Option<SerializablePubkey>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -538,6 +542,9 @@ pub struct GetEncryptedUtxosByTagsResponse {
     /// Output-level matches; every returned output slot has a view tag from the request.
     pub matches: Vec<EncryptedUtxoMatch>,
     pub next_cursor: Option<Base64String>,
+    /// Where the scan reached on a terminal page, including an empty page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scanned_through: Option<Base64String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -581,6 +588,17 @@ pub struct ShieldedTransaction {
     pub nullifiers: Vec<Hash>,
     /// True when at least one output in this transaction is proofless.
     pub proofless: bool,
+    /// The ring's config account (its `ring_auth` PDA), or `None` when no ring
+    /// authorized this transaction. Observed directly on the transaction, so it
+    /// is always present for a ring.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ring_config: Option<SerializablePubkey>,
+    /// The ring's program, resolved through the indexed registrations. `None`
+    /// when `ringConfig` is `None`, and also when the registration itself was
+    /// never indexed -- so `ringConfig` is what distinguishes "no ring" from
+    /// "ring whose program is unknown here".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ring_program_id: Option<SerializablePubkey>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -592,6 +610,9 @@ pub struct GetShieldedTransactionsByTagsResponse {
     /// output view tag and includes all of its output slots.
     pub transactions: Vec<ShieldedTransaction>,
     pub next_cursor: Option<Base64String>,
+    /// Where the scan reached on a terminal page, including an empty page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scanned_through: Option<Base64String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -626,6 +647,15 @@ pub struct GetShieldedTransactionsByNullifiersResponse {
     /// requested nullifier and includes all of its output and input slots.
     pub transactions: Vec<ShieldedTransaction>,
     pub next_cursor: Option<Base64String>,
+    /// Where the scan reached, when it ran out of rows rather than filling a
+    /// page.
+    ///
+    /// `next_cursor` is the last returned row's position, and a query for
+    /// unspent nullifiers returns none. Present only on a page the limit did not
+    /// truncate, which is when "no match exists at or before this position"
+    /// holds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scanned_through: Option<Base64String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -776,12 +806,39 @@ mod tests {
             },
             matches: Vec::new(),
             next_cursor: Some(Base64String(vec![1])),
+            scanned_through: None,
         })
         .unwrap();
         assert!(value.get("nextCursor").is_some());
         assert!(value.get("next_cursor").is_none());
         assert!(value["context"].get("blockTime").is_some());
         assert!(value["context"].get("block_time").is_none());
+    }
+
+    #[test]
+    fn a_tag_page_reads_an_index_that_reports_its_resume_point() {
+        // A reader that refuses the field cannot open the ring.
+        let page = serde_json::json!({
+            "context": { "blockTime": 3, "slot": 1 },
+            "transactions": [],
+            "nextCursor": null,
+            "scannedThrough": "AQID",
+        });
+        let response: GetShieldedTransactionsByTagsResponse =
+            serde_json::from_value(page).expect("a reported resume point is readable");
+        assert_eq!(response.scanned_through, Some(Base64String(vec![1, 2, 3])));
+
+        // An index that reports none sends no such key.
+        let quiet = serde_json::json!({
+            "context": { "blockTime": 3, "slot": 1 },
+            "transactions": [],
+            "nextCursor": null,
+        });
+        let response: GetShieldedTransactionsByTagsResponse =
+            serde_json::from_value(quiet).expect("an absent resume point is readable");
+        assert_eq!(response.scanned_through, None);
+        let value = serde_json::to_value(&response).expect("serialize");
+        assert!(value.get("scannedThrough").is_none());
     }
 
     #[test]

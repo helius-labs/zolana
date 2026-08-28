@@ -24,8 +24,8 @@ pub use spp_proof_inputs::{
     signed_to_field, PublicTransfers, SppProofInputs,
 };
 pub use transfer::{
-    ConfidentialTransfer, PreparedTransfer, PublicTransferRequest, Recipient, SettlementTarget,
-    SENDER_SLOT_COUNT,
+    ChangeLayout, ConfidentialTransfer, PreparedTransfer, PublicTransferRequest, Recipient,
+    SettlementTarget, SENDER_SLOT_COUNT,
 };
 pub use types::{
     EncryptedTransaction, InputUtxo, OutputContext, OutputSlot, PrivateTxHash, ShieldedTransaction,

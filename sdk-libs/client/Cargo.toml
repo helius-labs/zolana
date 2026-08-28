@@ -12,6 +12,9 @@ default = []
 indexer-api = ["dep:zolana-api"]
 solana-rpc = ["dep:bs58", "dep:solana-rpc-client", "dep:solana-commitment-config"]
 client = ["indexer-api", "solana-rpc"]
+# Gates the test binaries that spawn the local prover, so a plain
+# `cargo test -p zolana-client` stays hermetic by construction.
+proofs = []
 
 [dependencies]
 zolana-interface = { workspace = true, features = ["solana"] }
@@ -19,6 +22,7 @@ zolana-event = { workspace = true, features = ["program-test"] }
 zolana-hasher = { workspace = true, features = ["poseidon", "std"] }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
+zeroize = { workspace = true }
 zolana-api = { workspace = true, optional = true }
 num-bigint = { workspace = true }
 num-traits = { workspace = true }
@@ -61,25 +65,31 @@ serial_test = { workspace = true }
 
 [[test]]
 name = "transaction_proving"
+required-features = ["proofs"]
 
 [[test]]
 name = "merge_proving"
 path = "tests/merge/main.rs"
+required-features = ["proofs"]
 
 [[test]]
 name = "ring_authority_proving"
 path = "tests/ring_authority/main.rs"
+required-features = ["proofs"]
 
 [[test]]
 name = "merge_ring_proving"
 path = "tests/merge_ring/main.rs"
+required-features = ["proofs"]
 
 [[test]]
 name = "ring_transfer_proving"
 path = "tests/ring_transfer/main.rs"
+required-features = ["proofs"]
 
 [[test]]
 name = "transfer_dummy"
+required-features = ["proofs"]
 
 [[test]]
 name = "solana_rpc"

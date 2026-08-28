@@ -16,12 +16,15 @@ use crate::ingester::{
 };
 use solana_pubkey::Pubkey;
 use zolana_event::{
-    tag, InstructionGroup as RingsInstructionGroup, ParsedInstruction as RingsInstruction,
+    tag, tag::InstructionTag, InstructionGroup as RingsInstructionGroup,
+    ParsedInstruction as RingsInstruction,
 };
 
 pub struct EventSite {
     /// Tag of the instruction that emitted this event.
     pub source_instruction_tag: u8,
+    /// The ring's `ring_auth` PDA, for ring instructions only.
+    pub ring_config: Option<Pubkey>,
     /// Event bytes: `[kind, borsh(body)]`, i.e. the `EMIT_EVENT` instruction
     /// data with the tag byte removed.
     pub payload: Vec<u8>,
@@ -88,6 +91,8 @@ pub fn find_event_sites(
 
             sites.push(EventSite {
                 source_instruction_tag,
+                ring_config: ring_config_index(source_instruction_tag)
+                    .and_then(|index| parent.accounts.get(index).copied()),
                 payload: instruction.data.get(1..).unwrap_or_default().to_vec(),
             });
         }
@@ -128,6 +133,26 @@ fn event_parent(
         .or_else(|| (group.outer.stack_height == Some(parent_height)).then_some(&group.outer)))
 }
 
+/// Position of the signed `ring_config` account in each ring instruction, or
+/// `None` when the instruction has no ring.
+///
+/// The pool reads the ring's identity from this account, never from the caller:
+/// the ring signs with its `ring_auth` PDA, but a router between the ring and
+/// the pool would leave the outer program something else entirely. Positions
+/// come from the account iterators in `transact/account.rs`,
+/// `deposit/account.rs`, and `merge_ring/account.rs`.
+fn ring_config_index(source_instruction_tag: u8) -> Option<usize> {
+    match InstructionTag::try_from(source_instruction_tag).ok()? {
+        // payer, input_tree, output_tree, pool, system_program, ring_config
+        InstructionTag::RingTransact | InstructionTag::RingAuthorityTransact => Some(5),
+        // tree, depositor, ring_config
+        InstructionTag::RingDeposit => Some(2),
+        // input_tree, output_tree, ring_config
+        InstructionTag::RingMergeTransact => Some(2),
+        _ => None,
+    }
+}
+
 fn is_emit_event(rings_program_id: Pubkey, instruction: &RingsInstruction) -> bool {
     instruction.program_id == rings_program_id && instruction.data.first() == Some(&tag::EMIT_EVENT)
 }
@@ -158,6 +183,62 @@ mod tests {
 
     fn event_sites(groups: &[InstructionGroup]) -> Vec<EventSite> {
         find_event_sites(groups, spp(), |source| source == tag::TRANSACT).unwrap()
+    }
+
+    fn ring_sites(source_tag: u8, accounts: Vec<Pubkey>) -> Vec<EventSite> {
+        let mut source = ix(spp(), source_tag, 2);
+        source.accounts = accounts;
+        let groups = [InstructionGroup {
+            outer: ix(foreign(), 0, 1),
+            inner: vec![source, ix(spp(), tag::EMIT_EVENT, 3)],
+        }];
+        find_event_sites(&groups, spp(), |tag| tag == source_tag).unwrap()
+    }
+
+    fn numbered_accounts(count: u8) -> Vec<Pubkey> {
+        (0..count)
+            .map(|i| Pubkey::new_from_array([i; 32]))
+            .collect()
+    }
+
+    /// Each ring instruction puts `ring_config` at its own position; a shared
+    /// index would quietly attribute transactions to whatever account sits there.
+    #[test]
+    fn ring_config_comes_from_each_instruction_own_position() {
+        for (source_tag, index) in [
+            (tag::RING_TRANSACT, 5u8),
+            (tag::RING_AUTHORITY_TRANSACT, 5),
+            (tag::RING_DEPOSIT, 2),
+            (tag::RING_MERGE_TRANSACT, 2),
+        ] {
+            let sites = ring_sites(source_tag, numbered_accounts(8));
+            assert_eq!(sites.len(), 1, "tag {source_tag}");
+            assert_eq!(
+                sites[0].ring_config,
+                Some(Pubkey::new_from_array([index; 32])),
+                "tag {source_tag}"
+            );
+        }
+    }
+
+    /// The non-ring instructions pass no `ring_config`, so the slot at a ring
+    /// index holds an unrelated account and must not be read as one.
+    #[test]
+    fn instructions_without_a_ring_report_none() {
+        for source_tag in [tag::TRANSACT, tag::DEPOSIT, tag::MERGE_TRANSACT] {
+            let sites = ring_sites(source_tag, numbered_accounts(8));
+            assert_eq!(sites.len(), 1, "tag {source_tag}");
+            assert_eq!(sites[0].ring_config, None, "tag {source_tag}");
+        }
+    }
+
+    /// A truncated account list must not panic or report a wrong account.
+    #[test]
+    fn a_ring_instruction_missing_its_config_account_reports_none() {
+        let sites = ring_sites(tag::RING_TRANSACT, numbered_accounts(4));
+
+        assert_eq!(sites.len(), 1);
+        assert_eq!(sites[0].ring_config, None);
     }
 
     #[test]

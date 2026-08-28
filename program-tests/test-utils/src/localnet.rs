@@ -16,6 +16,9 @@ use zolana_interface::instruction::instruction_data::merge_transact::MergeProof;
 use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
 use zolana_user_registry_interface::user_registry_program_id;
 
+/// Arbitrary, the shared binary serves any genesis address.
+pub const CUSTOM_RING_PROGRAM_ADDRESS: &str = "9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh";
+
 pub const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 pub const DEFAULT_INDEXER_URL: &str = "http://127.0.0.1:8784";
 pub const ZERO: [u8; 32] = [0u8; 32];
@@ -120,27 +123,53 @@ pub struct LocalnetValidator {
     pub programs: Vec<(String, String)>,
 }
 
+pub struct UpgradeableProgram<'a> {
+    pub address: &'a str,
+    pub path: &'a str,
+    pub authority: &'a str,
+}
+
 impl LocalnetValidator {
     #[track_caller]
     pub fn start(&self) {
+        self.start_with_upgradeable_programs(&[]);
+    }
+
+    #[track_caller]
+    pub fn start_with_upgradeable_programs(&self, upgradeable: &[UpgradeableProgram<'_>]) {
         assert_required_file("zolana CLI", &self.cli_bin);
         assert!(
             Path::new(&self.working_dir).is_dir(),
             "localnet working directory is missing at {}",
             self.working_dir
         );
-        assert!(!self.programs.is_empty(), "localnet has no SBF programs");
-        let mut program_ids = BTreeSet::new();
+        assert!(
+            !self.programs.is_empty() || !upgradeable.is_empty(),
+            "localnet has no SBF programs"
+        );
+        let mut program_ids = BTreeSet::<String>::new();
         for (program_id, program_so) in &self.programs {
             assert!(
                 !program_id.trim().is_empty(),
                 "localnet program id is empty"
             );
             assert!(
-                program_ids.insert(program_id),
+                program_ids.insert(program_id.clone()),
                 "localnet program id {program_id} is duplicated"
             );
             assert_required_file(&format!("SBF program {program_id}"), program_so);
+        }
+        for program in upgradeable {
+            assert!(
+                !program.address.trim().is_empty(),
+                "localnet program id is empty"
+            );
+            assert!(
+                program_ids.insert(program.address.into()),
+                "localnet program id {} is duplicated",
+                program.address
+            );
+            assert_required_file(&format!("SBF program {}", program.address), program.path);
         }
 
         crate::smart_account::write_program_config_fixture(&self.account_dir);
@@ -161,6 +190,12 @@ impl LocalnetValidator {
             args.push("--sbf-program".into());
             args.push(program_id.clone());
             args.push(program_so.clone());
+        }
+        for program in upgradeable {
+            args.push("--upgradeable-program".into());
+            args.push(program.address.into());
+            args.push(program.path.into());
+            args.push(program.authority.into());
         }
         args.push("--account-dir".into());
         args.push(self.account_dir.clone());

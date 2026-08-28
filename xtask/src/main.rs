@@ -156,6 +156,10 @@ fn print_program_ids() {
         "SWAP_PROGRAM_ID={}",
         bs58::encode(swap_program::ID).into_string()
     );
+    println!(
+        "CUSTOM_RING_PROGRAM_ID={}",
+        zolana_test_utils::localnet::CUSTOM_RING_PROGRAM_ADDRESS
+    );
     // The canonical account snapshots pre-allocate the state Merkle tree that
     // stores private token accounts (UTXOs) at this address, so localnet
     // callers never create one.

@@ -18,14 +18,17 @@ import type { AddressTreeParams } from "../program.js";
 import {
   type Address,
   type AssetDeposit,
+  type DepositAsset,
   type MergeTransactInstructionData,
   type DepositSplAccounts,
+  type RingAssetDeposit,
   type TransactInstructionData,
   type TransactWithdrawal,
 } from "../types.js";
 import { Writer, addressBytes, checkedAddress, fail } from "../internal.js";
 import {
   protocolConfigAddress,
+  ringAuthAddress,
   solInterfaceAddress,
   splAssetCounterAddress,
   splAssetRegistryAddress,
@@ -35,11 +38,12 @@ import {
 import {
   encodeAddressTreeParams,
   encodeDepositInstructionData,
+  encodeRingDepositInstructionData,
   encodeMergeTransactInstructionData,
   encodeTransactInstructionData,
 } from "../codecs/index.js";
 
-const SYSTEM_PROGRAM = address("11111111111111111111111111111111");
+export const SYSTEM_PROGRAM = address("11111111111111111111111111111111");
 export type { MergeTransactInstructionData } from "../types.js";
 
 type Meta = NonNullable<Instruction["accounts"]>[number];
@@ -50,7 +54,7 @@ function accountAddress(account: SignerAccount): Address {
   return checkedAddress(typeof account === "string" ? account : account.address);
 }
 
-function meta(account: SignerAccount, isSigner: boolean, isWritable: boolean): Meta {
+export function meta(account: SignerAccount, isSigner: boolean, isWritable: boolean): Meta {
   const address = accountAddress(account);
   return {
     address,
@@ -167,7 +171,7 @@ interface DepositLayout {
   readonly splGroups: readonly DepositSplAccounts[];
 }
 
-function depositLayout(deposits: readonly AssetDeposit[]): DepositLayout {
+function depositLayout(deposits: readonly Readonly<{ asset: DepositAsset }>[]): DepositLayout {
   if (deposits.length === 0 || deposits.length > 0xff) {
     fail("INTERFACE_CODEC", { reason: "invalid deposit count", count: deposits.length });
   }
@@ -195,7 +199,10 @@ function depositLayout(deposits: readonly AssetDeposit[]): DepositLayout {
   return Object.freeze({ hasSol, splGroups: Object.freeze(splGroups) });
 }
 
-function depositAssetIndex(layout: DepositLayout, deposit: AssetDeposit): number {
+function depositAssetIndex(
+  layout: DepositLayout,
+  deposit: Readonly<{ asset: DepositAsset }>,
+): number {
   if (deposit.asset.kind === "sol") return 0;
   const mint = deposit.asset.accounts.mint;
   const index = layout.splGroups.findIndex((candidate) => candidate.mint === mint);
@@ -207,10 +214,13 @@ async function depositAccounts(
   tree: Address,
   depositor: SignerAccount,
   layout: DepositLayout,
+  ringAuth?: Address,
 ): Promise<Readonly<{ accounts: Meta[]; splInterfaceBumps: number[] }>> {
   const accounts = [
     meta(tree, false, true),
     meta(depositor, true, true),
+    // The ring program signs this account inside its CPI.
+    ...(ringAuth === undefined ? [] : [meta(ringAuth, false, false)]),
     meta(SHIELDED_POOL_PROGRAM_ID, false, false),
   ];
   if (layout.hasSol) {
@@ -269,6 +279,49 @@ export async function depositInstruction(
   );
 }
 
+/** Mirrors Rust `RingDeposit::instruction`. The ring program forwards it to the shielded pool unchanged. */
+export async function ringDepositInstruction(
+  input: Readonly<{
+    ringProgramId: Address;
+    tree: Address;
+    depositor: SignerAccount;
+    deposits: readonly RingAssetDeposit[];
+  }>,
+): Promise<Instruction> {
+  const layout = depositLayout(input.deposits);
+  const { accounts, splInterfaceBumps } = await depositAccounts(
+    input.tree,
+    input.depositor,
+    layout,
+    await ringAuthAddress(input.ringProgramId),
+  );
+  return instruction(
+    tagged(
+      InstructionTag.ringDeposit,
+      encodeRingDepositInstructionData({
+        assets: [
+          ...(layout.hasSol ? ([{ kind: "sol" }] as const) : []),
+          ...splInterfaceBumps.map((splInterfaceBump) => ({
+            kind: "spl" as const,
+            splInterfaceBump,
+          })),
+        ],
+        deposits: input.deposits.map((deposit) => ({
+          assetIndex: depositAssetIndex(layout, deposit),
+          viewTag: deposit.viewTag,
+          ownerUtxoHash: deposit.ownerUtxoHash,
+          amount: deposit.amount,
+          ...(deposit.dataHash === undefined ? {} : { dataHash: deposit.dataHash }),
+          ringDataHash: deposit.ringDataHash,
+          encrypted: deposit.encrypted,
+        })),
+      }),
+    ),
+    accounts,
+    input.ringProgramId,
+  );
+}
+
 function settlementAccounts(withdrawal?: TransactWithdrawal): Meta[] {
   if (withdrawal === undefined) return [];
   if (withdrawal.kind === "sol") {
@@ -315,6 +368,29 @@ export function transactInstruction(
   );
 }
 
+/** Mirrors Rust `RingTransact::instruction`. `ringAuth` is unsigned here, the ring program signs it inside its CPI. */
+export function ringTransactAccounts(
+  input: Readonly<{
+    payer: SignerAccount;
+    inputTree: Address;
+    outputTree: Address;
+    ringAuth: Address;
+    ownerSigners?: readonly SignerAccount[];
+    withdrawal?: TransactWithdrawal;
+  }>,
+): readonly Meta[] {
+  return [
+    meta(input.payer, true, true),
+    meta(input.inputTree, false, true),
+    meta(input.outputTree, false, true),
+    meta(SHIELDED_POOL_PROGRAM_ID, false, false),
+    meta(SYSTEM_PROGRAM, false, false),
+    meta(input.ringAuth, false, false),
+    ...(input.ownerSigners ?? []).map((signer) => meta(signer, true, false)),
+    ...settlementAccounts(input.withdrawal),
+  ];
+}
+
 export async function createProtocolConfigInstruction(
   input: Readonly<{
     authority: SignerAccount;
@@ -322,8 +398,8 @@ export async function createProtocolConfigInstruction(
     treeCreationAuthority: Address;
     treeCreationIsPermissionless: boolean;
     foresterAuthority: Address;
-    zoneCreationAuthority: Address;
-    zoneCreationIsPermissionless: boolean;
+    ringCreationAuthority: Address;
+    ringCreationIsPermissionless: boolean;
     splInterfaceCreationIsPermissionless: boolean;
   }>,
 ): Promise<Instruction> {
@@ -332,8 +408,8 @@ export async function createProtocolConfigInstruction(
     .bytes(addressBytes(input.treeCreationAuthority, "treeCreationAuthority"))
     .bool(input.treeCreationIsPermissionless, "treeCreationIsPermissionless")
     .bytes(addressBytes(input.foresterAuthority, "foresterAuthority"))
-    .bytes(addressBytes(input.zoneCreationAuthority, "zoneCreationAuthority"))
-    .bool(input.zoneCreationIsPermissionless, "zoneCreationIsPermissionless")
+    .bytes(addressBytes(input.ringCreationAuthority, "ringCreationAuthority"))
+    .bool(input.ringCreationIsPermissionless, "ringCreationIsPermissionless")
     .bool(input.splInterfaceCreationIsPermissionless, "splInterfaceCreationIsPermissionless")
     .finish();
   return instruction(tagged(InstructionTag.createProtocolConfig, payload), [
@@ -347,9 +423,9 @@ export type ProtocolConfigUpdate =
   | Readonly<{ field: "protocolAuthority"; value: SignerAccount }>
   | Readonly<{ field: "treeCreationAuthority"; value: Address }>
   | Readonly<{ field: "foresterAuthority"; value: Address }>
-  | Readonly<{ field: "zoneCreationAuthority"; value: Address }>
+  | Readonly<{ field: "ringCreationAuthority"; value: Address }>
   | Readonly<{ field: "treeCreationPermissionless"; value: boolean }>
-  | Readonly<{ field: "zoneCreationPermissionless"; value: boolean }>
+  | Readonly<{ field: "ringCreationPermissionless"; value: boolean }>
   | Readonly<{ field: "splInterfaceCreationPermissionless"; value: boolean }>;
 
 export async function updateProtocolConfigInstruction(
@@ -368,13 +444,13 @@ export async function updateProtocolConfigInstruction(
     case "foresterAuthority":
       writer.u8(2, "update.field").bytes(addressBytes(input.update.value));
       break;
-    case "zoneCreationAuthority":
+    case "ringCreationAuthority":
       writer.u8(3, "update.field").bytes(addressBytes(input.update.value));
       break;
     case "treeCreationPermissionless":
       writer.u8(4, "update.field").bool(input.update.value, "update.value");
       break;
-    case "zoneCreationPermissionless":
+    case "ringCreationPermissionless":
       writer.u8(5, "update.field").bool(input.update.value, "update.value");
       break;
     case "splInterfaceCreationPermissionless":

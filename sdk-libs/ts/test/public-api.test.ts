@@ -8,6 +8,9 @@ import {
 } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
+import { EncryptedScheme, decodeOutputData } from "../src/transaction/index.js";
+// The encoder stays internal; only the decoders are needed by a relayed client.
+import { encodeOutputData } from "../src/transaction/serialization/index.js";
 import {
   DEFAULT_TREE_ADDRESS,
   SHIELDED_POOL_PROGRAM_ID,
@@ -57,8 +60,8 @@ describe("public package surface", () => {
     expect(client.solanaRpc).toBeDefined();
     expect(client.proveTransact).toBeTypeOf("function");
     expect("rpc" in client).toBe(false);
-    expect("proveMergeZone" in client).toBe(false);
-    expect("finishMergeZoneSubmissionUnsigned" in client).toBe(false);
+    expect(client.proveRingTransact).toBeTypeOf("function");
+    expect(client.proveCustomRing).toBeTypeOf("function");
   });
 
   it("exposes only the objects needed for the common wallet flow", () => {
@@ -180,24 +183,26 @@ describe("public package surface", () => {
     expect(getLatestBlockhash).toHaveBeenCalledOnce();
   });
 
-  it("does not expose partial zone builders", async () => {
-    const [addresses, instructions, protocol, transaction] = await Promise.all([
+  it("keeps the ring instruction surface in the ring entry point only", async () => {
+    const [ring, ...others] = await Promise.all([
+      import("../src/ring.js"),
+      import("../src/index.js"),
+      import("../src/client/index.js"),
       import("../src/addresses.js"),
       import("../src/instructions.js"),
       import("../src/interface/index.js"),
       import("../src/transaction/index.js"),
     ]);
-    expect(addresses).not.toHaveProperty("getZoneConfigAddress");
-    expect(instructions).not.toHaveProperty("getCreateZoneConfigInstructionAsync");
-    expect(instructions).not.toHaveProperty("getUpdateZoneConfigInstruction");
-    expect(instructions).not.toHaveProperty("getUpdateZoneConfigOwnerInstruction");
-    expect(instructions).not.toHaveProperty("getZoneDepositInstructionAsync");
-    expect(instructions).not.toHaveProperty("getZoneTransactInstructionAsync");
-    expect(instructions).not.toHaveProperty("getZoneAuthorityTransactInstructionAsync");
-    expect(instructions).not.toHaveProperty("getMergeZoneInstructionAsync");
-    expect(transaction).not.toHaveProperty("MergeZone");
-    expect(transaction).not.toHaveProperty("PreparedMergeZone");
-    expect(protocol.decodeZoneConfig).toBeTypeOf("function");
+    for (const name of [
+      "ringConfigAddress",
+      "createRingConfigInstruction",
+      "initSppRingConfigInstruction",
+      "ringTransactInstruction",
+      "proveCustomRingTransfer",
+    ] as const) {
+      expect(ring[name]).toBeTypeOf("function");
+      for (const other of others) expect(other).not.toHaveProperty(name);
+    }
   });
 
   it("builds the merging opt-in as an unsigned transaction", async () => {
@@ -387,5 +392,44 @@ describe("address and instruction builders", () => {
       address: OWNER,
       role: AccountRole.WRITABLE,
     });
+  });
+});
+
+describe("relayed decryption surface", () => {
+  it("exports the plaintext decoders through @heliuslabs/zolana/transaction", async () => {
+    // `syncWallet` decrypts and decodes in one step and needs the viewing key in
+    // this process. A client whose viewing key is held remotely -- an enclave,
+    // an HSM -- gets plaintext back and still has to read it, so the decoders
+    // have to be reachable on their own. They live in the serialization barrel;
+    // this asserts the outer entry point forwards them.
+    const transaction = await import("../src/transaction/index.js");
+
+    for (const name of [
+      "decodeOutputData",
+      "decodeConfidential",
+      "decodeAnonymousRecipient",
+      "decodeAnonymousSender",
+      "decodeSplitBundle",
+      "decodeSplitEncrypted",
+      "decodePlaintextTransfer",
+      "decodeProofless",
+      "decodeData",
+    ]) {
+      expect(transaction, name).toHaveProperty(name);
+      expect(typeof (transaction as Record<string, unknown>)[name]).toBe("function");
+    }
+  });
+
+  it("names the scheme of a slot payload and hands back the body to decrypt", () => {
+    // The header is not encrypted; decrypting the framed payload whole would
+    // feed the discriminator bytes to the cipher and return garbage. A relayed
+    // client has to split the frame before it sends anything to be decrypted.
+    const body = Uint8Array.from([1, 2, 3, 4]);
+    const framed = encodeOutputData(EncryptedScheme.ringConfidential, body);
+    const frame = decodeOutputData(framed);
+
+    expect(frame.scheme).toBe(EncryptedScheme.ringConfidential);
+    expect(frame.body).toEqual(body);
+    expect(frame.body.length).toBeLessThan(framed.length);
   });
 });

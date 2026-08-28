@@ -12,6 +12,7 @@ use error::IngesterError;
 use light_poseidon::{Poseidon, PoseidonBytesHasher};
 use log::debug;
 use nullifier_tree_batch_update::persist_nullifier_tree_batch_updates;
+use ring_configs::persist_ring_configs;
 use rings_transactions::persist_rings_transactions;
 use sea_orm::{
     sea_query::OnConflict, ColumnTrait, ConnectionTrait, DatabaseTransaction, EntityTrait,
@@ -34,6 +35,7 @@ pub use merkle_proof_with_context::MerkleProofWithContext;
 mod leaf_node;
 mod leaf_node_proof;
 mod merkle_proof_with_context;
+mod ring_configs;
 mod rings_transactions;
 
 pub use self::leaf_node::{persist_leaf_nodes, LeafNode};
@@ -63,6 +65,7 @@ pub async fn persist_state_update(
     let StateUpdate {
         transactions,
         rings_transactions,
+        ring_configs,
         nullifier_tree_batch_updates,
     } = state_update;
 
@@ -76,6 +79,9 @@ pub async fn persist_state_update(
     debug!("Persisting Rings transactions...");
     persist_rings_output_leaf_nodes(txn, &rings_transactions, &tree_info_cache).await?;
     persist_rings_transactions(txn, &rings_transactions).await?;
+
+    debug!("Persisting ring registrations...");
+    persist_ring_configs(txn, &ring_configs).await?;
 
     debug!("Persisting reconstructed nullifier tree batch updates...");
     persist_nullifier_tree_batch_updates(txn, &nullifier_tree_batch_updates, &tree_info_cache)

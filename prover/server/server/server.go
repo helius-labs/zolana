@@ -10,6 +10,7 @@ import (
 	"time"
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
+	customring "zolana/prover/prover/custom_ring"
 	mergeprover "zolana/prover/prover/merge"
 	nullifiertree "zolana/prover/prover/nullifier_tree"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
@@ -272,6 +273,9 @@ type proveHandler struct {
 	keyManager  *common.LazyKeyManager
 	redisQueue  *RedisQueue
 	enableQueue bool
+	// Bounds proving done inside a request. Shared across requests, so it must
+	// be the same instance for every one of them.
+	admission *syncAdmission
 }
 
 func isValidJobID(jobID string) bool {
@@ -384,14 +388,20 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	forceAsync := r.Header.Get("X-Async") == "true" || r.URL.Query().Get("async") == "true"
 	forceSync := r.Header.Get("X-Sync") == "true" || r.URL.Query().Get("sync") == "true"
 
-	shouldUseQueue := handler.shouldUseQueueForCircuit(proofRequestMeta.CircuitType)
+	queueAvailable := handler.enableQueue && handler.redisQueue != nil
+	circuitQueued := handler.shouldUseQueueForCircuit(proofRequestMeta.CircuitType)
+	// `use_queue` is the decision, not the circuit's queueability: logging the
+	// latter under that name said use_queue=true on requests that were proved in
+	// the response, which is exactly the question the line exists to answer.
+	queued := useQueue(forceSync, forceAsync, circuitQueued, queueAvailable)
 
 	logging.Logger().Info().
 		Str("circuit_type", string(proofRequestMeta.CircuitType)).
 		Bool("force_async", forceAsync).
 		Bool("force_sync", forceSync).
-		Bool("use_queue", shouldUseQueue).
-		Bool("queue_available", handler.enableQueue && handler.redisQueue != nil).
+		Bool("circuit_queued", circuitQueued).
+		Bool("use_queue", queued).
+		Bool("queue_available", queueAvailable).
 		Msg("Processing prove request")
 
 	// Counted here, once, because this is the only point every request passes
@@ -403,11 +413,34 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ProofRequestsTotal.WithLabelValues(string(proofRequestMeta.CircuitType)).Inc()
 	RecordCircuitInputSize(string(proofRequestMeta.CircuitType), len(buf))
 
-	if shouldUseQueue && handler.enableQueue && handler.redisQueue != nil {
+	if queued {
 		handler.handleAsyncProof(w, r, buf, proofRequestMeta)
 	} else {
 		handler.handleSyncProof(w, r, buf, proofRequestMeta)
 	}
+}
+
+// useQueue decides which rail proves a request.
+//
+// X-Sync and X-Async were computed and logged here but never consulted, so a
+// caller asking for its proof in the response still got a job handle to poll --
+// the header looked supported and did nothing.
+//
+// A contradiction resolves to the queue: queueing cannot exceed a connection or
+// load balancer idle timeout, and answering inside the request can. X-Async can
+// only be honoured for a circuit that has a queue to go on; for anything else the
+// sync path takes it, with the heavy-operation warning it already emits.
+func useQueue(forceSync, forceAsync, circuitQueued, queueAvailable bool) bool {
+	if !queueAvailable {
+		return false
+	}
+	if forceAsync {
+		return circuitQueued
+	}
+	if forceSync {
+		return false
+	}
+	return circuitQueued
 }
 
 func (handler proveHandler) shouldUseQueueForCircuit(circuitType common.CircuitType) bool {
@@ -439,8 +472,8 @@ func (handler queueStatsHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 
 	response := map[string]interface{}{
 		"queues":       stats,
-		"totalPending": stats["zk_address_append_queue"] + stats["zk_transfer_queue"],
-		"totalActive":  stats["zk_address_append_processing_queue"] + stats["zk_transfer_processing_queue"],
+		"totalPending": stats["zk_address_append_queue"] + stats["zk_transfer_queue"] + stats["zk_custom_ring_queue"],
+		"totalActive":  stats["zk_address_append_processing_queue"] + stats["zk_transfer_processing_queue"] + stats["zk_custom_ring_processing_queue"],
 		"totalFailed":  stats["zk_failed_queue"],
 		"timestamp":    time.Now().Unix(),
 	}
@@ -569,9 +602,12 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 		keyManager:  keyManager,
 		redisQueue:  redisQueue,
 		enableQueue: config.Queue != nil && config.Queue.Enabled,
+		admission:   newSyncAdmission(syncPermits()),
 	})
 
-	proverMux.Handle("/health", healthHandler{})
+	proverMux.Handle("/health", healthHandler{
+		circuits: servedCircuits(),
+	})
 
 	if redisQueue != nil {
 		proverMux.Handle("/prove/status", proofStatusHandler{redisQueue: redisQueue})
@@ -800,6 +836,20 @@ func spawnServerJob(server *http.Server, label string) RunningJob {
 }
 
 type healthHandler struct {
+	circuits []common.CircuitType
+}
+
+func servedCircuits() []common.CircuitType {
+	return []common.CircuitType{
+		common.BatchAddressAppendCircuitType,
+		common.TransferConfidentialCircuitType,
+		common.TransferRingCircuitType,
+		common.TransferP256RingCircuitType,
+		common.TransferRingAuthorityCircuitType,
+		common.MergeCircuitType,
+		common.MergeRingCircuitType,
+		common.CustomRingCircuitType,
+	}
 }
 
 func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Request, buf []byte, meta common.ProofRequestMeta) {
@@ -947,6 +997,18 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 	ctx, cancel := context.WithTimeout(r.Context(), timeoutDuration)
 	defer cancel()
 
+	// Wait for a permit before starting work. Doing this here rather than around
+	// the whole handler keeps parsing and validation off the bound: a malformed
+	// request should be rejected while the prover is busy, not queued behind it.
+	release, admitErr := handler.admission.admit(ctx)
+	if admitErr != nil {
+		logging.Logger().Warn().
+			Str("circuit_type", string(meta.CircuitType)).
+			Msg("Shedding synchronous proof at the concurrency limit")
+		sendOverloaded(w, admitErr)
+		return
+	}
+
 	type proofResult struct {
 		proof *common.Proof
 		err   *Error
@@ -955,6 +1017,7 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 	resultChan := make(chan proofResult, 1)
 
 	go func() {
+		defer release()
 		// Recover from panics to prevent server crash from malformed input
 		defer func() {
 			if r := recover(); r != nil {
@@ -1048,6 +1111,8 @@ func GetQueueNameForCircuit(circuitType common.CircuitType) string {
 		common.MergeCircuitType,
 		common.MergeRingCircuitType:
 		return "zk_transfer_queue"
+	case common.CustomRingCircuitType:
+		return "zk_custom_ring_queue"
 	default:
 		return ""
 	}
@@ -1057,7 +1122,7 @@ func (handler proveHandler) getEstimatedTime(circuitType common.CircuitType) str
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
 		return "10-30 seconds"
-	case common.TransferP256RingCircuitType:
+	case common.TransferP256RingCircuitType, common.CustomRingCircuitType:
 		return "30-180 seconds"
 	default:
 		return "1-3 seconds"
@@ -1068,7 +1133,7 @@ func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitTy
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
 		return 30
-	case common.TransferP256RingCircuitType:
+	case common.TransferP256RingCircuitType, common.CustomRingCircuitType:
 		return 180
 	case common.TransferConfidentialCircuitType, common.TransferRingCircuitType, common.TransferRingAuthorityCircuitType:
 		return 30
@@ -1099,6 +1164,8 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 		return handler.mergeProof(buf)
 	case common.MergeRingCircuitType:
 		return handler.mergeRingProof(buf)
+	case common.CustomRingCircuitType:
+		return handler.customRingProof(buf)
 	default:
 		return nil, malformedBodyError(fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType))
 	}
@@ -1142,6 +1209,24 @@ func (handler proveHandler) mergeRingProof(buf []byte) (*common.Proof, *Error) {
 	if err != nil {
 		logging.Logger().Err(err)
 		return nil, provingError(err)
+	}
+	return proof, nil
+}
+
+func (handler proveHandler) customRingProof(buf []byte) (*common.Proof, *Error) {
+	var params customring.CustomRingParameters
+	if err := json.Unmarshal(buf, &params); err != nil {
+		return nil, malformedBodyError(err)
+	}
+
+	ps, err := handler.keyManager.GetRingSystem(common.CustomRingCircuitType, customring.TransferVariant)
+	if err != nil {
+		return nil, provingError(fmt.Errorf("custom-ring: %w", err))
+	}
+
+	proof, err := customring.ProveCustomRing(ps, &params)
+	if err != nil {
+		return nil, provingError(errors.New("custom ring proof failed"))
 	}
 	return proof, nil
 }
@@ -1220,7 +1305,7 @@ func (handler healthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	logging.Logger().Info().Msg("received health check request")
-	responseBytes, err := json.Marshal(map[string]string{"status": "ok"})
+	responseBytes, err := json.Marshal(map[string]interface{}{"status": "ok", "circuits": handler.circuits})
 	if err != nil {
 		logging.Logger().Error().Err(err).Msg("error marshaling response")
 		w.WriteHeader(http.StatusInternalServerError)

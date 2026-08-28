@@ -1,0 +1,47 @@
+[package]
+name = "custom-ring-cli"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[lib]
+name = "custom_ring_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "zolana-ring"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+bincode = { workspace = true }
+clap = { workspace = true }
+custom-ring-program = { path = "../program", features = ["no-entrypoint"] }
+custom-ring-sdk = { path = "../sdk" }
+hex = { workspace = true }
+reqwest = { workspace = true, features = ["blocking", "json"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+solana-address = { workspace = true }
+solana-compute-budget-interface = { workspace = true }
+solana-instruction = { workspace = true }
+solana-keypair = { workspace = true }
+solana-loader-v3-interface = { workspace = true, features = ["serde"] }
+solana-signature = { workspace = true, features = ["verify"] }
+solana-signer = { workspace = true }
+solana-system-interface = { workspace = true }
+solana-transaction-error = { workspace = true }
+thiserror = { workspace = true }
+toml = { workspace = true }
+wincode = { workspace = true }
+zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
+zolana-indexer-api = { workspace = true }
+zolana-interface = { workspace = true, features = ["solana"] }
+zolana-keypair = { workspace = true }
+zolana-ring-client = { workspace = true, features = ["solana-rpc"] }
+zolana-ring-rpc = { path = "../../services/ring-rpc" }
+zolana-transaction = { workspace = true }
+
+[dev-dependencies]
+solana-rpc-client-api = { workspace = true }

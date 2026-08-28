@@ -1,7 +1,9 @@
+use std::{fmt, str::FromStr};
+
 use solana_signer::{Signer, SignerError};
 
 use crate::{
-    constants::SALT_LEN,
+    constants::{P256_PUBKEY_LEN, PUBLIC_KEY_LEN, SALT_LEN},
     derivation::{Rail, RoleExpansion},
     error::KeypairError,
     hash::{owner_hash, poseidon},
@@ -10,6 +12,12 @@ use crate::{
     signing_key::SigningKey,
     viewing_key::ViewingKey,
 };
+
+/// `signing_pk || nullifier_pk || viewing_pk`, the byte form the base58 text
+/// address carries.
+pub const SHIELDED_ADDRESS_LEN: usize = PUBLIC_KEY_LEN + NULLIFIER_PUBKEY_LEN + P256_PUBKEY_LEN;
+
+const NULLIFIER_PUBKEY_LEN: usize = 32;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ShieldedAddress {
@@ -46,6 +54,53 @@ impl ShieldedAddress {
 
     pub fn confidential_view_tag(&self) -> Result<[u8; 32], KeypairError> {
         self.signing_pubkey.confidential_view_tag()
+    }
+
+    pub fn to_bytes(&self) -> [u8; SHIELDED_ADDRESS_LEN] {
+        let mut bytes = [0u8; SHIELDED_ADDRESS_LEN];
+        let (signing, rest) = bytes.split_at_mut(PUBLIC_KEY_LEN);
+        let (nullifier, viewing) = rest.split_at_mut(NULLIFIER_PUBKEY_LEN);
+        signing.copy_from_slice(self.signing_pubkey.as_bytes());
+        nullifier.copy_from_slice(&self.nullifier_pubkey);
+        viewing.copy_from_slice(self.viewing_pubkey.as_bytes());
+        bytes
+    }
+
+    pub fn from_bytes(bytes: &[u8; SHIELDED_ADDRESS_LEN]) -> Result<Self, KeypairError> {
+        let (signing, rest) = bytes.split_at(PUBLIC_KEY_LEN);
+        let (nullifier, viewing) = rest.split_at(NULLIFIER_PUBKEY_LEN);
+        let mut signing_bytes = [0u8; PUBLIC_KEY_LEN];
+        signing_bytes.copy_from_slice(signing);
+        let mut nullifier_pubkey = [0u8; NULLIFIER_PUBKEY_LEN];
+        nullifier_pubkey.copy_from_slice(nullifier);
+        let mut viewing_bytes = [0u8; P256_PUBKEY_LEN];
+        viewing_bytes.copy_from_slice(viewing);
+        Ok(Self {
+            signing_pubkey: PublicKey::from_bytes(signing_bytes)?,
+            nullifier_pubkey,
+            viewing_pubkey: P256Pubkey::from_bytes(viewing_bytes)?,
+        })
+    }
+}
+
+impl fmt::Display for ShieldedAddress {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&bs58::encode(self.to_bytes()).into_string())
+    }
+}
+
+impl FromStr for ShieldedAddress {
+    type Err = KeypairError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let mut bytes = [0u8; SHIELDED_ADDRESS_LEN];
+        let len = bs58::decode(text.trim())
+            .onto(&mut bytes)
+            .map_err(|_| KeypairError::InvalidShieldedAddress)?;
+        if len != SHIELDED_ADDRESS_LEN {
+            return Err(KeypairError::InvalidShieldedAddress);
+        }
+        Self::from_bytes(&bytes)
     }
 }
 

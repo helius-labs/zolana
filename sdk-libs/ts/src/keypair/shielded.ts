@@ -9,6 +9,8 @@ import { hashBytes } from "../hasher/index.js";
 import {
   type Bytes31,
   type Bytes32,
+  type Bytes33,
+  type Bytes34,
   type Bytes64,
   checkedBytes,
   concatBytes,
@@ -29,6 +31,12 @@ import { SigningKey } from "./signing-key.js";
 import { type Salt, ViewingKey } from "./viewing-key.js";
 
 const addressDecoder = getAddressDecoder();
+
+const SIGNING_LENGTH = 34;
+const NULLIFIER_LENGTH = 32;
+const VIEWING_LENGTH = 33;
+/** Mirrors Rust `SHIELDED_ADDRESS_LEN`. */
+export const SHIELDED_ADDRESS_LENGTH = SIGNING_LENGTH + NULLIFIER_LENGTH + VIEWING_LENGTH;
 
 export class ShieldedAddress {
   readonly signingPublicKey: ShieldedPublicKey;
@@ -76,6 +84,24 @@ export class ShieldedAddress {
 
   confidentialViewTag(): ViewTag {
     return this.signingPublicKey.confidentialViewTag();
+  }
+
+  /** Mirrors Rust `to_bytes`, `signing || nullifier || viewing`. */
+  toBytes(): Uint8Array {
+    const bytes = new Uint8Array(SHIELDED_ADDRESS_LENGTH);
+    bytes.set(this.signingPublicKey.toBytes(), 0);
+    bytes.set(this.#nullifierPublicKey, SIGNING_LENGTH);
+    bytes.set(this.viewingPublicKey.toBytes(), SIGNING_LENGTH + NULLIFIER_LENGTH);
+    return bytes;
+  }
+
+  static fromBytes(bytes: Uint8Array): ShieldedAddress {
+    const checked = checkedBytes<Uint8Array>(bytes, SHIELDED_ADDRESS_LENGTH, "shielded address");
+    return ShieldedAddress.fromPublicKeys(
+      ShieldedPublicKey.fromBytes(checked.slice(0, SIGNING_LENGTH) as Bytes34),
+      checked.slice(SIGNING_LENGTH, SIGNING_LENGTH + NULLIFIER_LENGTH) as Bytes32,
+      P256PublicKey.fromBytes(checked.slice(SIGNING_LENGTH + NULLIFIER_LENGTH) as Bytes33),
+    );
   }
 }
 
@@ -173,6 +199,11 @@ export interface ViewingKeyLike {
     ciphertext: Uint8Array,
     salt: Salt,
     slotIndex: number,
+  ): Uint8Array;
+  decryptRingDeposit(
+    ciphertext: Uint8Array,
+    txViewingPublicKey: P256PublicKey,
+    salt: Salt,
   ): Uint8Array;
 }
 
@@ -367,6 +398,14 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
     slotIndex: number,
   ): Uint8Array {
     return this.#viewing.decryptSlotEphemeral(recipientPublicKey, ciphertext, salt, slotIndex);
+  }
+
+  decryptRingDeposit(
+    ciphertext: Uint8Array,
+    txViewingPublicKey: P256PublicKey,
+    salt: Salt,
+  ): Uint8Array {
+    return this.#viewing.decryptRingDeposit(ciphertext, txViewingPublicKey, salt);
   }
 
   sign(message: Uint8Array): Bytes64 {

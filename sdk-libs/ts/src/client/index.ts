@@ -10,7 +10,9 @@ export type {
   HasherErrorCode,
   RetryErrorCause,
 } from "./error.js";
-export type { AsyncPollConfig } from "./prover/client.js";
+export type { AsyncPollConfig, ProverHealth } from "./prover/client.js";
+export { CUSTOM_RING_PROOF_LENGTH, compressProof, parseProof } from "./prover/proof.js";
+export type { CustomRingProofRequest, CompressedProof, Proof } from "./prover/types.js";
 export {
   DEFAULT_INDEXER_POLL_CONFIG,
   DEFAULT_INDEXER_RPC_CONFIG,
@@ -33,6 +35,7 @@ export type {
   MerkleContext,
   MerkleProof,
   NonInclusionProof,
+  ProgramAccount,
   RpcAccount,
   RpcContext,
   SpendProof,
