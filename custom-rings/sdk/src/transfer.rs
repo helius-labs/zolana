@@ -8,28 +8,31 @@ use solana_signer::Signer;
 use thiserror::Error;
 use zolana_client::{
     AsyncProverClient, AsyncRpc, ClientError, MerkleProof, NonInclusionProof, ProofCompressed,
-    ProverClient, RingTransferProofResult, RingTransferProver, Rpc, SettlementAccountValidation,
-    Shape, SpendProof, SppProofInputUtxo, SppProofInputs, TransferInputs, TransferSpendInput,
+    ProverClient, RingTransferP256ProofResult, RingTransferP256Prover, RingTransferProofResult,
+    RingTransferProver, Rpc, SettlementAccountValidation, Shape, SpendProof, SppProofInputUtxo,
+    SppProofInputs, TransferSpendInput,
 };
 use zolana_interface::event::OutputDataEncoding;
 use zolana_interface::{
     instruction::{
-        tag::RING_TRANSACT, CircuitId, DepositAsset, DepositBuildError, InputUtxo,
-        RingAssetDeposit, TransactInterfaceTransferAccounts, TransactIxData, TransactProof,
+        instruction_data::transact::{Bsb22Commitment, RingP256ProofData},
+        tag::RING_TRANSACT,
+        CircuitId, DepositAsset, DepositBuildError, InputUtxo, RingAssetDeposit,
+        TransactInterfaceTransferAccounts, TransactIxData, TransactProof,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{
-    random_blinding, random_salt, KeypairError, P256Pubkey, ShieldedKeypair, ViewingKey,
-    ViewingKeyTrait,
+    random_blinding, random_salt, Curve, KeypairError, P256Pubkey, ShieldedKeypair,
+    ShieldedKeypairTrait, ViewingKey, ViewingKeyTrait,
 };
 use zolana_transaction::{
     instructions::transact::{
         encode_confidential_slots, ChangeLayout, PreparedTransfer, SppProofOutputUtxo,
     },
-    owner_utxo_hash, AssetRegistry, Data, EncryptedScheme, RingDepositPlaintext, TransactionError,
-    Utxo, SOL_MINT,
+    owner_utxo_hash, AssetRegistry, Data, EncryptedScheme, P256Signature, RingDepositPlaintext,
+    TransactionError, Utxo, SOL_MINT,
 };
 use zolana_tree::{TreeAccount, TreeError};
 
@@ -45,6 +48,7 @@ const NO_RING_DATA_HASH: [u8; 32] = [0u8; 32];
 pub struct CustomRingTransfer<'a> {
     ring: CustomRing,
     sender: &'a (dyn ViewingKeyTrait + Send + Sync),
+    p256_signer: Option<&'a (dyn ShieldedKeypairTrait + Send + Sync)>,
     prepared: PreparedTransfer,
     interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     tree: Option<Address>,
@@ -151,6 +155,8 @@ pub enum TransferError {
     ForeignRing(Address),
     #[error("a default-ring note carries ring data")]
     RingDataOutsideRing,
+    #[error("a P256 custom-ring spend requires a P256 proof signer")]
+    MissingP256Signer,
 }
 
 #[derive(Debug, Error)]
@@ -170,11 +176,24 @@ impl<'a> CustomRingTransfer<'a> {
         Self {
             ring: input.ring,
             sender: input.sender,
+            p256_signer: None,
             prepared: input.prepared,
             interface_transfer_accounts: Vec::new(),
             tree: None,
             assets: None,
         }
+    }
+
+    /// Supplies the proof authorization required when a custom-ring input is
+    /// P-256-owned. Ed25519 ring spends remain buildable from a viewing key
+    /// alone because their owner authorization is the Solana signer run.
+    #[must_use = "use the updated transfer"]
+    pub fn with_p256_signer(
+        mut self,
+        signer: &'a (dyn ShieldedKeypairTrait + Send + Sync),
+    ) -> Self {
+        self.p256_signer = Some(signer);
+        self
     }
 
     #[must_use = "use the updated transfer"]
@@ -221,11 +240,16 @@ impl<'a> CustomRingTransfer<'a> {
         }
         .load()?;
         let (request, witnessed) = staged.witness(spend_inputs, allow_dummy_inputs)?;
-        let spp_proof =
-            ProofCompressed::try_from(environment.prover.prove_transfer_ring(witnessed.spp())?)?
-                .to_transact_proof();
+        let spp_proof = match &witnessed.ring_result {
+            RingProofResult::Eddsa(result) => {
+                environment.prover.prove_transfer_ring(&result.inputs)?
+            }
+            RingProofResult::P256(result) => environment
+                .prover
+                .prove_transfer_p256_ring(&result.inputs)?,
+        };
         let proof = to_instruction_proof(environment.prover.prove(&request)?)?;
-        witnessed.finish(spp_proof, proof)
+        witnessed.finish(ProofCompressed::try_from(spp_proof)?, proof)
     }
 
     /// The async twin of [`Self::prove`], over [`AsyncRpc`] and
@@ -271,21 +295,29 @@ impl<'a> CustomRingTransfer<'a> {
         // proving, and one gnark proof already spreads across every free core --
         // but that bound belongs there, not in a caller that cannot see the
         // fleet. The blocking path has no way to express this.
-        let (spp, ring) = try_join(
-            environment.prover.prove_transfer_ring(witnessed.spp()),
-            environment.prover.prove(&request),
-        )
-        .await?;
-        witnessed.finish(
-            ProofCompressed::try_from(spp)?.to_transact_proof(),
-            to_instruction_proof(ring)?,
-        )
+        let (spp, ring) = match &witnessed.ring_result {
+            RingProofResult::Eddsa(result) => {
+                try_join(
+                    environment.prover.prove_transfer_ring(&result.inputs),
+                    environment.prover.prove(&request),
+                )
+                .await?
+            }
+            RingProofResult::P256(result) => {
+                try_join(
+                    environment.prover.prove_transfer_p256_ring(&result.inputs),
+                    environment.prover.prove(&request),
+                )
+                .await?
+            }
+        };
+        witnessed.finish(ProofCompressed::try_from(spp)?, to_instruction_proof(ring)?)
     }
 
     /// Everything before the first read: validation, the transaction viewing
     /// key, and the auditor encryption that has to be inside `external_data`
     /// before anything hashes it.
-    fn stage(self, auditor_pk: P256Pubkey) -> Result<StagedTransfer, TransferError> {
+    fn stage(self, auditor_pk: P256Pubkey) -> Result<StagedTransfer<'a>, TransferError> {
         let tree = self.tree.ok_or(TransferError::TreeRequired)?;
         let assets = self.assets.ok_or(TransferError::MissingAssetRegistry)?;
         // A padded change slot pushes the custom-ring instruction past the packet
@@ -338,6 +370,7 @@ impl<'a> CustomRingTransfer<'a> {
             tx_viewing_key,
             pending_proof,
             proof_inputs,
+            p256_signer: self.p256_signer,
             payer,
             tree,
             program_id,
@@ -354,10 +387,11 @@ impl<'a> CustomRingTransfer<'a> {
 /// [`WitnessedTransfer::finish`] is defined on. Skipping a step, or repeating
 /// one, does not compile, so no state has to be checked at run time and no
 /// error variant has to stand in for "called out of order".
-struct StagedTransfer {
+struct StagedTransfer<'a> {
     tx_viewing_key: ViewingKey,
     pending_proof: PendingCustomRingProof,
     proof_inputs: SppProofInputs,
+    p256_signer: Option<&'a (dyn ShieldedKeypairTrait + Send + Sync)>,
     payer: Address,
     tree: Address,
     program_id: Address,
@@ -365,7 +399,7 @@ struct StagedTransfer {
     ring: CustomRing,
 }
 
-impl StagedTransfer {
+impl StagedTransfer<'_> {
     /// Builds the SPP ring witness over the message-bearing external data, then
     /// finishes the pending auditor encryption over the `private_tx_hash` that
     /// witness fixes, into the custom-ring proof request over the unchanged
@@ -381,22 +415,60 @@ impl StagedTransfer {
         allow_dummy_inputs: bool,
     ) -> Result<(CustomRingProofRequest, WitnessedTransfer), TransferError> {
         let tx_shape = self.proof_inputs.check_shape()?;
-        let ring_result = RingTransferProver {
-            inputs,
-            outputs: self.proof_inputs.output_utxos.clone(),
-            external_data: self.proof_inputs.external_data.clone(),
-            public_transfers: self.proof_inputs.public_transfers()?,
-            signer_pk_hashes: self
-                .proof_inputs
-                .signer_pk_hashes(tx_shape.n_inputs() + 1)?,
-            allow_dummy_inputs,
-            ring_program_id: Some(self.program_id),
-            shape: Some(Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs())),
-        }
-        .build()?;
+        let signer_pk_hashes = self
+            .proof_inputs
+            .signer_pk_hashes(tx_shape.n_inputs() + 1)?;
+        let shape = Some(Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs()));
+        let uses_p256 = inputs
+            .iter()
+            .filter(|input| input.proof.is_some())
+            .try_fold(false, |uses_p256, input| {
+                Ok::<_, KeypairError>(uses_p256 || input.utxo.owner.curve()? == Curve::P256)
+            })?;
+        let ring_result = if uses_p256 {
+            let signer = self.p256_signer.ok_or(TransferError::MissingP256Signer)?;
+            let message_hash = self.proof_inputs.message_hash()?;
+            let signature = signer.sign_hash(&message_hash)?;
+            let mut sig_r = [0u8; 32];
+            let mut sig_s = [0u8; 32];
+            sig_r.copy_from_slice(&signature[..32]);
+            sig_s.copy_from_slice(&signature[32..]);
+            RingProofResult::P256(
+                RingTransferP256Prover {
+                    inputs,
+                    outputs: self.proof_inputs.output_utxos.clone(),
+                    external_data: self.proof_inputs.external_data.clone(),
+                    public_transfers: self.proof_inputs.public_transfers()?,
+                    signer_pk_hashes,
+                    allow_dummy_inputs,
+                    authorization: P256Signature {
+                        pubkey: signer.signing_pubkey().as_p256()?,
+                        sig_r,
+                        sig_s,
+                    },
+                    ring_program_id: Some(self.program_id),
+                    shape,
+                }
+                .build()?,
+            )
+        } else {
+            RingProofResult::Eddsa(
+                RingTransferProver {
+                    inputs,
+                    outputs: self.proof_inputs.output_utxos.clone(),
+                    external_data: self.proof_inputs.external_data.clone(),
+                    public_transfers: self.proof_inputs.public_transfers()?,
+                    signer_pk_hashes,
+                    allow_dummy_inputs,
+                    ring_program_id: Some(self.program_id),
+                    shape,
+                }
+                .build()?,
+            )
+        };
         let request = self
             .pending_proof
-            .finish(ring_result.private_tx_hash.try_into()?)?;
+            .finish(ring_result.private_tx_hash().try_into()?)?;
         Ok((
             request,
             WitnessedTransfer {
@@ -417,32 +489,55 @@ impl StagedTransfer {
 struct WitnessedTransfer {
     tx_viewing_key: ViewingKey,
     proof_inputs: SppProofInputs,
-    ring_result: RingTransferProofResult,
+    ring_result: RingProofResult,
     payer: Address,
     tree: Address,
     interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     ring: CustomRing,
 }
 
-impl WitnessedTransfer {
-    /// The SPP transfer witness to prove.
-    fn spp(&self) -> &TransferInputs {
-        &self.ring_result.inputs
-    }
+enum RingProofResult {
+    Eddsa(RingTransferProofResult),
+    P256(RingTransferP256ProofResult),
+}
 
+impl RingProofResult {
+    fn private_tx_hash(&self) -> [u8; 32] {
+        match self {
+            Self::Eddsa(result) => result.private_tx_hash,
+            Self::P256(result) => result.private_tx_hash,
+        }
+    }
+}
+
+impl WitnessedTransfer {
     fn finish(
         self,
-        spp_proof: TransactProof,
+        spp_proof: ProofCompressed,
         proof: CustomRingProof,
     ) -> Result<ProvenTransfer, TransferError> {
-        Ok(ProvenTransfer {
-            tx_viewing_key: self.tx_viewing_key,
-            data: RingEddsaInstructionData {
+        let data = match &self.ring_result {
+            RingProofResult::Eddsa(result) => RingInstructionData {
                 proof_inputs: &self.proof_inputs,
-                result: &self.ring_result,
-                proof: spp_proof,
+                result: RingInstructionResult::Eddsa(result),
+                proof: spp_proof.to_transact_proof(),
+                commitment: None,
             }
             .assemble()?,
+            RingProofResult::P256(result) => {
+                let (proof, commitment) = spp_proof.into_ring_p256_transact_parts()?;
+                RingInstructionData {
+                    proof_inputs: &self.proof_inputs,
+                    result: RingInstructionResult::P256(result),
+                    proof,
+                    commitment: Some(commitment),
+                }
+                .assemble()?
+            }
+        };
+        Ok(ProvenTransfer {
+            tx_viewing_key: self.tx_viewing_key,
+            data,
             proof,
             owner_signers: self.proof_inputs.owner_signer_pubkeys()?,
             interface_transfer_accounts: self.interface_transfer_accounts,
@@ -754,20 +849,39 @@ impl<I> RingSpendInputs<'_, I> {
 }
 
 #[must_use]
-struct RingEddsaInstructionData<'a> {
+struct RingInstructionData<'a> {
     proof_inputs: &'a SppProofInputs,
-    result: &'a RingTransferProofResult,
+    result: RingInstructionResult<'a>,
     proof: TransactProof,
+    commitment: Option<Bsb22Commitment>,
 }
 
-impl RingEddsaInstructionData<'_> {
+enum RingInstructionResult<'a> {
+    Eddsa(&'a RingTransferProofResult),
+    P256(&'a RingTransferP256ProofResult),
+}
+
+impl RingInstructionData<'_> {
     fn assemble(self) -> Result<TransactIxData, TransferError> {
         let n_inputs = self.proof_inputs.check_shape()?.n_inputs();
-        let inputs: Vec<InputUtxo> = self
-            .result
-            .nullifiers
+        let (nullifiers, input_root_indices, private_tx_hash, default_owner_tag) = match self.result
+        {
+            RingInstructionResult::Eddsa(result) => (
+                &result.nullifiers,
+                &result.input_root_indices,
+                result.private_tx_hash,
+                None,
+            ),
+            RingInstructionResult::P256(result) => (
+                &result.nullifiers,
+                &result.input_root_indices,
+                result.private_tx_hash,
+                result.default_owner_tag,
+            ),
+        };
+        let inputs: Vec<InputUtxo> = nullifiers
             .iter()
-            .zip(self.result.input_root_indices.iter())
+            .zip(input_root_indices.iter())
             .map(
                 |(nullifier_hash, &(utxo_tree_root_index, nullifier_tree_root_index))| InputUtxo {
                     nullifier_hash: *nullifier_hash,
@@ -781,15 +895,27 @@ impl RingEddsaInstructionData<'_> {
         }
 
         let external = &self.proof_inputs.external_data;
-        Ok(TransactIxData {
-            proof: self.proof,
-            expiry_unix_ts: external.expiry_unix_ts,
-            private_tx_hash: self.result.private_tx_hash,
-            circuit: CircuitId::RingEddsa(
+        let circuit = match self.commitment {
+            None => CircuitId::RingEddsa(
                 n_inputs as u8,
                 external.outputs.len() as u8,
                 N_PUBLIC_SLOTS as u8,
             ),
+            Some(bsb22_commitment) => CircuitId::RingP256(
+                n_inputs as u8,
+                external.outputs.len() as u8,
+                N_PUBLIC_SLOTS as u8,
+                RingP256ProofData {
+                    bsb22_commitment,
+                    default_owner_tag,
+                },
+            ),
+        };
+        Ok(TransactIxData {
+            proof: self.proof,
+            expiry_unix_ts: external.expiry_unix_ts,
+            private_tx_hash,
+            circuit,
             inputs,
             interface_transfers: external
                 .interface_transfers
@@ -943,6 +1069,103 @@ mod tests {
         .with_assets(&AssetRegistry::default())
         .stage(ViewingKey::new().pubkey())
         .expect("P-256 custom-ring stage");
+    }
+
+    #[test]
+    fn witness_selects_the_p256_ring_circuit_for_a_p256_owner() {
+        let sender = ShieldedKeypair::new_p256().expect("P-256 sender");
+        let recipient = ShieldedKeypair::new_ed25519().expect("recipient");
+        let input = SppProofInputUtxo::new(
+            Utxo {
+                owner: sender.signing_pubkey(),
+                asset: SOL_MINT,
+                amount: 10,
+                blinding: random_blinding(),
+                ring_program_id: Some(ring().program_id()),
+                data: Data::default(),
+            },
+            &sender,
+        );
+        let mut transfer = ConfidentialTransfer::new(
+            sender.shielded_address().expect("sender address"),
+            vec![input],
+            Address::default(),
+        )
+        .with_compact_change()
+        .with_ring_program_id(ring().program_id());
+        transfer
+            .send_default_ring(
+                &recipient.shielded_address().expect("recipient address"),
+                SOL_MINT,
+                4,
+            )
+            .expect("recipient");
+        let assets = AssetRegistry::default();
+        let staged = CustomRingTransfer::new(CustomRingTransferInput {
+            ring: ring(),
+            sender: &sender,
+            prepared: transfer.prepare().expect("prepared transfer"),
+        })
+        .with_p256_signer(&sender)
+        .with_tree(Address::new_from_array([3u8; 32]))
+        .with_assets(&assets)
+        .stage(ViewingKey::new().pubkey())
+        .expect("P-256 custom-ring stage");
+
+        let context = zolana_client::MerkleContext {
+            tree_type: 0,
+            tree: Address::new_from_array([3u8; 32]),
+        };
+        let inputs = staged
+            .proof_inputs
+            .input_utxos
+            .iter()
+            .map(|spend| {
+                let nullifier = spend.nullifier().expect("nullifier");
+                let nullifier_proof = NonInclusionProof {
+                    leaf: nullifier,
+                    merkle_context: context.clone(),
+                    path: vec![[0u8; 32]; zolana_client::NULLIFIER_TREE_HEIGHT],
+                    low_element: [0u8; 32],
+                    low_element_index: 0,
+                    high_element: [u8::MAX; 32],
+                    high_element_index: 1,
+                    root: [5u8; 32],
+                    root_seq: 0,
+                    root_index: 0,
+                };
+                let (proof, nullifier_proof) = if spend.is_dummy() {
+                    (None, Some(nullifier_proof))
+                } else {
+                    (
+                        Some(SpendProof {
+                            state: MerkleProof {
+                                leaf: spend.hash().expect("UTXO hash"),
+                                merkle_context: context.clone(),
+                                path: vec![[0u8; 32]; zolana_client::STATE_TREE_HEIGHT],
+                                leaf_index: 0,
+                                root: [4u8; 32],
+                                root_seq: 0,
+                                root_index: 0,
+                            },
+                            nullifier: nullifier_proof,
+                        }),
+                        None,
+                    )
+                };
+                TransferSpendInput {
+                    utxo: spend.utxo.clone(),
+                    nullifier_key: spend.nullifier_key.clone(),
+                    data_hash: spend.data_hash,
+                    ring_data_hash: spend.ring_data_hash,
+                    proof,
+                    nullifier_proof,
+                }
+            })
+            .collect();
+
+        let (_, witnessed) = staged.witness(inputs, true).expect("P-256 witness");
+        assert!(matches!(witnessed.ring_result, RingProofResult::P256(_)));
     }
 
     #[test]
