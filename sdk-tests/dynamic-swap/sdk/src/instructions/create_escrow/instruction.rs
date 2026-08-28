@@ -2,12 +2,11 @@ use anyhow::Result;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    instruction::instruction_data::transact::TransactIxData, SHIELDED_POOL_PROGRAM_ID,
+    instruction::{instruction_data::transact::TransactIxData, nullifier_marker_accounts},
+    SHIELDED_POOL_PROGRAM_ID,
 };
 
-use crate::{
-    err, escrow_authority_pda, nullifier_marker_accounts, tag, CreateEscrowIxData, EscrowOpenProof,
-};
+use crate::{err, escrow_authority_pda, tag, CreateEscrowIxData, EscrowOpenProof};
 
 /// Both `authority` (the pair's maker, funding the reservation and paying for
 /// the escrow account) and `owner` (authorizing the source UTXO spend) must
@@ -39,7 +38,10 @@ impl CreateEscrow {
             transact,
         } = self;
 
-        let nullifier_markers = nullifier_marker_accounts(&tree, &transact);
+        let nullifier_markers = nullifier_marker_accounts(
+            &tree,
+            transact.inputs.iter().map(|input| &input.nullifier_hash),
+        );
         let ix_data = CreateEscrowIxData {
             proof,
             created_at,

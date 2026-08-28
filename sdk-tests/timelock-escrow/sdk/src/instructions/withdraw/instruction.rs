@@ -2,12 +2,11 @@ use anyhow::Result;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    instruction::instruction_data::transact::TransactIxData, SHIELDED_POOL_PROGRAM_ID,
+    instruction::{instruction_data::transact::TransactIxData, nullifier_marker_accounts},
+    SHIELDED_POOL_PROGRAM_ID,
 };
 
-use crate::{
-    err, escrow_authority_pda, nullifier_marker_accounts, tag, WithdrawIxData, WithdrawProof,
-};
+use crate::{err, escrow_authority_pda, tag, WithdrawIxData, WithdrawProof};
 
 pub struct Withdraw {
     /// The creator's ed25519 pubkey, a dedicated readonly signer the timelock
@@ -31,7 +30,10 @@ impl Withdraw {
             spp_proof,
         } = self;
 
-        let nullifier_markers = nullifier_marker_accounts(&tree, &spp_proof);
+        let nullifier_markers = nullifier_marker_accounts(
+            &tree,
+            spp_proof.inputs.iter().map(|input| &input.nullifier_hash),
+        );
         let serialized_ix = wincode::serialize(&WithdrawIxData {
             proof: withdraw_proof,
             unlock_timestamp,

@@ -1,3 +1,5 @@
+#![cfg(feature = "test-only")]
+
 use solana_address::Address;
 use zolana_batched_merkle_tree::{
     batch::Batch,

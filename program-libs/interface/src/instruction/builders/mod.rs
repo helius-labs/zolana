@@ -29,6 +29,6 @@ pub use ring_config::{CreateRingConfig, UpdateRingConfig, UpdateRingConfigOwner}
 pub use ring_deposit::{RingAssetDeposit, RingDeposit};
 pub use ring_transact::RingTransact;
 pub use transact::{
-    Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
-    TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
+    nullifier_marker_accounts, Transact, TransactInterfaceTransferAccounts,
+    TransactSolTransferAccounts, TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
 };

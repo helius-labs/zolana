@@ -17,7 +17,7 @@
 //! | [`merkle_tree`] | `BatchedMerkleTreeAccount` and queue/tree operations |
 //! | [`queue`] | Queue batch insertion helper |
 //! | [`queue_batch_metadata`] | Metadata for queue batches |
-//! | [`nullifier_marker`] | Marker account payload, PDA seeds, host emulation |
+//! | [`nullifier_marker`] | Marker account payload, PDA seeds, test-only host emulation |
 //! | [`initialize_address_tree`] | Initialize a batched address or nullifier tree |
 //! | [`merkle_tree_metadata`] | Tree and queue metadata structs |
 //! | [`merkle_tree_update`] | Apply queued batches to the tree |
@@ -49,9 +49,8 @@
 //!   the queue index `q` the value reserved. The program stores `{ q, bump }` in
 //!   the nullifier marker PDA derived from
 //!   [`nullifier_marker::nullifier_marker_seeds`]; the marker is what rejects a
-//!   second insertion of a pending nullifier. Off Solana the
-//!   [`nullifier_marker::host`] set emulates marker existence so host callers
-//!   get the same `NonInclusionCheckFailed` behavior.
+//!   second insertion of a pending nullifier. With the `test-only` feature,
+//!   [`nullifier_marker::host`] emulates marker existence for lifecycle tests.
 //!
 //! ### Tree update
 //! - The queued batch is applied to the tree with a ZKP that proves

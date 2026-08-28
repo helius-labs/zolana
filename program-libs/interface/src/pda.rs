@@ -139,6 +139,13 @@ mod tests {
     }
 
     #[test]
+    fn nullifier_marker_matches_typescript_vector() {
+        let tree = Pubkey::from_str_const("2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr");
+        let expected = Pubkey::from_str_const("FketprhoGrMJG7tu9XaXEXhm4vCqzEubwMPFm874xtMm");
+        assert_eq!(super::nullifier_marker(&tree, &[7u8; 32]), (expected, 252));
+    }
+
+    #[test]
     fn cpi_authority_const_matches_derivation() {
         let (address, bump) = Pubkey::find_program_address(
             &[crate::SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED],

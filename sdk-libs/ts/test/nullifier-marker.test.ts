@@ -3,10 +3,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   mergeTransactInstruction,
+  nullifierMarkerAccounts,
   ringTransactAccounts,
   transactInstruction,
 } from "../src/interface/instructions/index.js";
-import { SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE } from "../src/interface/index.js";
+import { InstructionTag, SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE } from "../src/interface/index.js";
 import { nullifierMarkerAddress, nullifierMarkerPda } from "../src/interface/pda/index.js";
 import type {
   Bytes16,
@@ -57,7 +58,11 @@ function transactData(inputs: readonly InputUtxo[]): TransactInstructionData {
 }
 
 async function markers(inputs: readonly InputUtxo[]) {
-  return Promise.all(inputs.map((utxo) => nullifierMarkerAddress(TREE, utxo.nullifierHash)));
+  const accounts = await nullifierMarkerAccounts(
+    TREE,
+    inputs.map((utxo) => utxo.nullifierHash),
+  );
+  return accounts.map((account) => account.address);
 }
 
 describe("nullifier marker accounts", () => {
@@ -66,6 +71,17 @@ describe("nullifier marker accounts", () => {
     expect(await nullifierMarkerAddress(TREE, filled(7, 32))).toBe(marker);
     expect(await nullifierMarkerAddress(OUTPUT_TREE, filled(7, 32))).not.toBe(marker);
     expect(await nullifierMarkerAddress(TREE, filled(8, 32))).not.toBe(marker);
+  });
+
+  it("matches the fixed Rust PDA vector", async () => {
+    expect(await nullifierMarkerPda(TREE, filled(7, 32))).toEqual([
+      address("FketprhoGrMJG7tu9XaXEXhm4vCqzEubwMPFm874xtMm"),
+      252,
+    ]);
+  });
+
+  it("exposes the close-markers instruction tag", () => {
+    expect(InstructionTag.closeNullifierMarkers).toBe(18);
   });
 
   it("rejects a nullifier that is not 32 bytes", async () => {

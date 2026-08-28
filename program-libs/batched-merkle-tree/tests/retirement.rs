@@ -188,7 +188,7 @@ fn retirement_advances_watermark_and_zeroes_roots() {
 }
 
 #[test]
-fn reuse_before_retirement_is_rejected() {
+fn full_successor_retires_inserted_batch_at_reuse_boundary() {
     let pubkey = Address::new_unique();
     let tree_key = pubkey.to_bytes();
     let mut data = account_data();
@@ -215,18 +215,13 @@ fn reuse_before_retirement_is_rejected() {
         assert_eq!(tree.close_before_index, 0);
     }
 
-    let before = data.clone();
     let value = nullifier(9);
     assert_eq!(
         load_tree(&mut data, &pubkey)
             .insert_nullifier_into_queue(&value)
-            .unwrap_err(),
-        BatchedMerkleTreeError::BatchNotRetired
+            .unwrap(),
+        8
     );
-    assert_eq!(data, before);
-    assert!(!host::contains(&tree_key, &value));
-
-    apply_update(&mut data, &pubkey, 1, root(5));
     assert_eq!(load_tree(&mut data, &pubkey).close_before_index, BATCH_SIZE);
     assert_roots(
         &mut data,
@@ -237,19 +232,17 @@ fn reuse_before_retirement_is_rejected() {
             None,
             None,
             Some(root(4)),
-            Some(root(5)),
+            None,
             None,
             None,
             None,
             None,
         ],
     );
-
-    assert_eq!(
-        load_tree(&mut data, &pubkey)
-            .insert_nullifier_into_queue(&value)
-            .unwrap(),
-        8
-    );
+    let tree = load_tree(&mut data, &pubkey);
+    let reused = tree.get_metadata().queue_batches.batches.first().unwrap();
+    assert_eq!(reused.get_state(), BatchState::Fill);
+    assert_eq!(reused.start_index, 1 + 2 * BATCH_SIZE);
+    assert_eq!(reused.get_num_inserted_elements(), 1);
     assert_eq!(host::queue_index(&tree_key, &value), Some(8));
 }

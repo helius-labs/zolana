@@ -1,13 +1,11 @@
 use anyhow::anyhow;
 use forester::close_markers::{
-    closable_nullifiers, collect_queued_pages, plan_batches, retain_existing, CloseMarkersBatch,
+    collect_queued_pages, plan_batches, retain_existing, CloseMarkersBatch,
     LEGACY_TRANSACTION_SIZE_LIMIT,
 };
 use solana_pubkey::Pubkey;
 use zolana_api::{Hash, NullifierQueueElement, PAGE_LIMIT};
 use zolana_interface::instruction::CloseNullifierMarkers;
-
-const MARKERS_PER_TRANSACTION: usize = 15;
 
 fn nullifier(seq: u64) -> [u8; 32] {
     let mut value = [0u8; 32];
@@ -29,6 +27,7 @@ fn plan_fills_each_transaction_up_to_the_legacy_size_limit() {
     let nullifiers: Vec<[u8; 32]> = (0..100).map(nullifier).collect();
 
     let batches = plan_batches(tree, payer, &nullifiers).unwrap();
+    let markers_per_transaction = batches.first().unwrap().nullifiers.len();
 
     for batch in &batches {
         assert!(!batch.nullifiers.is_empty());
@@ -46,7 +45,7 @@ fn plan_fills_each_transaction_up_to_the_legacy_size_limit() {
             nullifiers: overfilled,
         };
         assert!(overfilled.serialized_size().unwrap() > LEGACY_TRANSACTION_SIZE_LIMIT);
-        assert_eq!(full.nullifiers.len(), MARKERS_PER_TRANSACTION);
+        assert_eq!(full.nullifiers.len(), markers_per_transaction);
     }
 
     let replanned: Vec<[u8; 32]> = batches
@@ -54,7 +53,7 @@ fn plan_fills_each_transaction_up_to_the_legacy_size_limit() {
         .flat_map(|batch| batch.nullifiers.iter().copied())
         .collect();
     assert_eq!(replanned, nullifiers);
-    assert_eq!(batches.len(), 100_usize.div_ceil(MARKERS_PER_TRANSACTION));
+    assert_eq!(batches.len(), 100_usize.div_ceil(markers_per_transaction));
 }
 
 #[test]
@@ -85,18 +84,6 @@ fn batch_instruction_matches_the_interface_builder() {
         assert_eq!(message.header.num_required_signatures, 1);
         assert_eq!(message.instructions.len(), 1);
     }
-}
-
-#[test]
-fn closable_keeps_only_sequences_below_the_watermark() {
-    let elements: Vec<NullifierQueueElement> = (0..10).map(element).collect();
-
-    let closable = closable_nullifiers(elements.clone(), 4);
-    let expected: Vec<[u8; 32]> = (0..4).map(nullifier).collect();
-    assert_eq!(closable, expected);
-
-    assert!(closable_nullifiers(elements.clone(), 0).is_empty());
-    assert_eq!(closable_nullifiers(elements, 100).len(), 10);
 }
 
 #[test]

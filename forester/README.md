@@ -29,7 +29,7 @@ balance when it is set.
 ```bash
 cargo run -p forester -- info [--tree <PUBKEY>] [--json]
 cargo run -p forester -- run --settings <PUBKEY> [--tree <PUBKEY>] [--watch] [--dry-run] ...
-cargo run -p forester -- close-markers [--tree <PUBKEY>] [--max-transactions N] [--watch] [--poll-secs S]
+cargo run -p forester -- close-markers [--tree <PUBKEY>] [--from-seq N] [--max-transactions N] [--watch] [--poll-secs S]
 ```
 
 ### `close-markers`
@@ -43,12 +43,14 @@ marker rent to the tree. `close-markers` performs that cleanup:
 2. fetches the queued nullifiers with sequence `< w` from Photon
    (`getNullifierQueueElements`, paged);
 3. drops markers that no longer exist (`getMultipleAccounts`, 100 per call);
-4. packs the rest into `close_nullifier_markers` instructions, sized by
-   serializing each legacy transaction against the 1232-byte limit (15 markers
-   per transaction);
-5. submits them with `PAYER` as fee payer and exits non-zero on the first
-   failure.
+4. packs the rest into `close_nullifier_markers` instructions, deriving the
+   capacity from the 1232-byte legacy transaction limit;
+5. submits them with `PAYER` as fee payer, replanning if another permissionless
+   closer wins a marker race.
 
 `--watch` repeats with `--poll-secs` between passes and only rescans sequences
-it has not already closed. `info` prints `close_before_index` and a per-batch
+it has not already closed. On restart, pass the last completed watermark via
+`--from-seq` (and persist it in the process supervisor) to avoid rescanning from
+zero. Failed watch passes retain their scan watermark and retry instead of
+terminating the daemon. `info` prints `close_before_index` and a per-batch
 `retired` flag so the remaining cleanup work is visible without a payer key.

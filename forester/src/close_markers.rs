@@ -21,6 +21,7 @@ pub const MULTIPLE_ACCOUNTS_CHUNK: usize = 100;
 
 pub struct CloseMarkersOptions {
     pub tree: Pubkey,
+    pub from_seq: u64,
     pub max_transactions: Option<u64>,
     pub watch: bool,
     pub poll_secs: u64,
@@ -66,54 +67,51 @@ impl CloseMarkersBatch {
     }
 }
 
-pub fn closable_nullifiers(
-    elements: impl IntoIterator<Item = NullifierQueueElement>,
-    close_before_index: u64,
-) -> Vec<[u8; 32]> {
-    elements
-        .into_iter()
-        .filter(|element| element.seq < close_before_index)
-        .map(|element| element.value.0)
-        .collect()
-}
-
 pub fn plan_batches(
     tree: Pubkey,
     payer: Pubkey,
     nullifiers: &[[u8; 32]],
 ) -> Result<Vec<CloseMarkersBatch>> {
-    let mut batches = Vec::new();
-    let mut current = CloseMarkersBatch {
-        tree,
-        payer,
-        nullifiers: Vec::new(),
-    };
-    for nullifier in nullifiers.iter().copied() {
-        current.nullifiers.push(nullifier);
-        if current.fits()? {
+    if nullifiers.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let capacity = marker_capacity(tree, payer)?;
+    Ok(nullifiers
+        .chunks(capacity)
+        .map(|chunk| CloseMarkersBatch {
+            tree,
+            payer,
+            nullifiers: chunk.to_vec(),
+        })
+        .collect())
+}
+
+/// Compute the worst-case marker capacity once per plan. Message size depends
+/// on the number of unique accounts, not their key bytes, so deterministic
+/// unique marker PDAs avoid re-deriving and re-serializing the growing batch
+/// for every queued nullifier.
+fn marker_capacity(tree: Pubkey, payer: Pubkey) -> Result<usize> {
+    let mut nullifiers = Vec::new();
+    for sequence in 0..=u8::MAX as u64 {
+        let mut nullifier = [0u8; 32];
+        nullifier[24..].copy_from_slice(&sequence.to_be_bytes());
+        nullifiers.push(nullifier);
+        let candidate = CloseMarkersBatch {
+            tree,
+            payer,
+            nullifiers: nullifiers.clone(),
+        };
+        if candidate.fits()? {
             continue;
         }
-        current.nullifiers.pop();
-        if current.nullifiers.is_empty() {
+        let capacity = nullifiers.len().saturating_sub(1);
+        if capacity == 0 {
             bail!("a single nullifier marker does not fit in one transaction");
         }
-        let full = std::mem::replace(
-            &mut current,
-            CloseMarkersBatch {
-                tree,
-                payer,
-                nullifiers: vec![nullifier],
-            },
-        );
-        batches.push(full);
-        if !current.fits()? {
-            bail!("a single nullifier marker does not fit in one transaction");
-        }
+        return Ok(capacity);
     }
-    if !current.nullifiers.is_empty() {
-        batches.push(current);
-    }
-    Ok(batches)
+    bail!("legacy transaction size limit did not bound marker account count")
 }
 
 pub fn retain_existing<T>(
@@ -182,7 +180,7 @@ pub fn run(config: &ForesterConfig, opts: CloseMarkersOptions) -> Result<()> {
     tracing::info!(tree = %opts.tree, payer = %payer.pubkey(), "forester close-markers");
 
     let mut submitted_total = 0u64;
-    let mut scan_from = 0u64;
+    let mut scan_from = opts.from_seq;
     loop {
         let remaining = opts
             .max_transactions
@@ -192,7 +190,15 @@ pub fn run(config: &ForesterConfig, opts: CloseMarkersOptions) -> Result<()> {
             break;
         }
 
-        let pass = close_once(&rpc, &photon, &payer, opts.tree, scan_from, remaining)?;
+        let pass = match close_once(&rpc, &photon, &payer, opts.tree, scan_from, remaining) {
+            Ok(pass) => pass,
+            Err(error) if opts.watch => {
+                tracing::warn!(%error, scan_from, "close-markers pass failed; retrying");
+                thread::sleep(Duration::from_secs(opts.poll_secs));
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
         submitted_total += pass.submitted;
         scan_from = pass.closed_before;
 
@@ -237,7 +243,10 @@ fn close_once(
         );
     }
 
-    let candidates = closable_nullifiers(elements, close_before_index);
+    let candidates: Vec<[u8; 32]> = elements
+        .into_iter()
+        .map(|element| element.value.0)
+        .collect();
     let open = retain_open_markers(rpc, tree, &candidates)?;
     let batches = plan_batches(tree, payer.pubkey(), &open)?;
     tracing::info!(
@@ -255,13 +264,10 @@ fn close_once(
             capped = true;
             break;
         }
-        let signature = batch.submit(rpc, payer)?;
-        submitted += 1;
-        tracing::info!(
-            %signature,
-            markers = batch.nullifiers.len(),
-            "closed nullifier markers"
-        );
+        if let Some((signature, markers)) = submit_race_tolerant(rpc, payer, batch)? {
+            submitted += 1;
+            tracing::info!(%signature, markers, "closed nullifier markers");
+        }
     }
 
     let closed_before = if capped { scan_from } else { indexed_before };
@@ -269,6 +275,42 @@ fn close_once(
         submitted,
         closed_before,
     })
+}
+
+/// Submit a planned batch and recover from another permissionless closer
+/// winning the race. A failed transaction is retried only when a fresh account
+/// read proves that at least one planned marker disappeared; unrelated RPC or
+/// program failures are returned unchanged.
+fn submit_race_tolerant(
+    rpc: &RpcClient,
+    payer: &Keypair,
+    planned: &CloseMarkersBatch,
+) -> Result<Option<(Signature, usize)>> {
+    let mut batch = CloseMarkersBatch {
+        tree: planned.tree,
+        payer: planned.payer,
+        nullifiers: planned.nullifiers.clone(),
+    };
+    loop {
+        match batch.submit(rpc, payer) {
+            Ok(signature) => return Ok(Some((signature, batch.nullifiers.len()))),
+            Err(submit_error) => {
+                let open = retain_open_markers(rpc, batch.tree, &batch.nullifiers)?;
+                if open.len() == batch.nullifiers.len() {
+                    return Err(submit_error);
+                }
+                tracing::info!(
+                    raced = batch.nullifiers.len() - open.len(),
+                    remaining = open.len(),
+                    "another closer removed nullifier markers; replanning batch"
+                );
+                if open.is_empty() {
+                    return Ok(None);
+                }
+                batch.nullifiers = open;
+            }
+        }
+    }
 }
 
 fn read_close_before_index(rpc: &RpcClient, tree: Pubkey) -> Result<u64> {

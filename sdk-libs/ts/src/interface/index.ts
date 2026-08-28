@@ -18,6 +18,7 @@ export { externalDataHash } from "./external-data-hash.js";
 export type { ExternalDataHashInput } from "./external-data-hash.js";
 export {
   depositInstruction,
+  nullifierMarkerAccounts,
   ringDepositInstruction,
   ringTransactAccounts,
   transactInstruction,

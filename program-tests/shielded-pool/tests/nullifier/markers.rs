@@ -13,7 +13,10 @@ use zolana_interface::{
         CloseNullifierMarkers, Transact,
     },
     pda,
-    state::tree_account_size,
+    state::{
+        tree_account_size, ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE,
+        ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE, ADDRESS_TREE_ROOT_HISTORY_CAPACITY,
+    },
     NullifierMarker, NULLIFIER_MARKER_SIZE, N_PUBLIC_SLOTS,
 };
 use zolana_program_test::{Rejection, Rpc, TransactionTrace};
@@ -24,7 +27,7 @@ use zolana_test_utils::{
     },
     transact::{eddsa_input_utxo, fe, inline_output},
 };
-use zolana_tree::TreeAccount;
+use zolana_tree::{TreeAccount, TreeAccountLayout, UTXO_TREE_HEIGHT};
 
 const LAMPORTS_PER_SIGNATURE: u64 = 5_000;
 const TRANSACT_MARKER_OFFSET: usize = 5;
@@ -159,6 +162,32 @@ fn set_close_before_index(env: &mut Pool, close_before_index: u64) {
     );
 }
 
+fn retire_root_fixture(env: &mut Pool, close_before_index: u64, root_index: usize) {
+    const NULLIFIER_ZKP_BATCHES: usize =
+        (ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE / ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE) as usize;
+    type Layout = TreeAccountLayout<
+        UTXO_TREE_HEIGHT,
+        { ADDRESS_TREE_ROOT_HISTORY_CAPACITY as usize },
+        NULLIFIER_ZKP_BATCHES,
+    >;
+
+    let tree = env.tree.pubkey();
+    let mut account = tree_account(env);
+    let layout: &mut Layout = wincode::deserialize_mut(&mut account.data)
+        .expect("load tree layout for retirement fixture");
+    layout.nullifier.metadata.close_before_index = close_before_index;
+    *layout
+        .nullifier
+        .root_history
+        .data
+        .get_mut(root_index)
+        .expect("fixture root index") = [0u8; 32];
+    env.rpc
+        .svm
+        .set_account(tree, account)
+        .expect("write retired root fixture");
+}
+
 fn set_tree_lamports(env: &mut Pool, lamports: u64) {
     let tree = env.tree.pubkey();
     let mut account = tree_account(env);
@@ -243,14 +272,15 @@ fn assert_close_markers(
     for transition in &trace.accounts {
         if markers.contains(&transition.address) {
             let before = transition.before.as_ref().expect("marker before close");
-            assert_eq!(before.lamports, rent, "marker held exactly its rent");
-            assert_eq!(before.data_len, NULLIFIER_MARKER_SIZE, "marker size");
-            assert!(
-                transition
-                    .after
-                    .as_ref()
-                    .is_none_or(|after| after.lamports == 0 && after.data_len == 0),
-                "marker {} must be closed",
+            let after_balance_and_size = transition
+                .after
+                .as_ref()
+                .map(|after| (after.lamports, after.data_len))
+                .unwrap_or((0, 0));
+            assert_eq!(
+                ((before.lamports, before.data_len), after_balance_and_size),
+                ((rent, NULLIFIER_MARKER_SIZE), (0, 0)),
+                "marker {} holds exactly its rent before close and is empty after",
                 transition.address
             );
         } else if transition.address == payer {
@@ -468,6 +498,33 @@ fn close_returns_marker_rent_to_the_tree() {
         .expect("close trace")
         .clone();
     assert_close_markers(&env, &trace, &tree_before, &nullifiers);
+}
+
+#[test]
+fn closed_marker_does_not_make_a_retired_root_spendable_again() {
+    let mut env = Pool::initialized();
+    let data = transfer_ix_data(2, 3);
+    let nullifiers = nullifiers_of(&data);
+    queue_markers(&mut env, &nullifiers, 0);
+    retire_root_fixture(&mut env, nullifiers.len() as u64, 0);
+
+    env.rpc
+        .create_and_send_default_payer_transaction(
+            &[close_instruction(&env, nullifiers.clone())],
+            &[],
+        )
+        .expect("close markers below the retirement watermark");
+    assert_nullifier_markers_absent(&env.rpc, &env.tree.pubkey(), &nullifiers)
+        .expect("retired markers closed");
+
+    let replay = transact_instruction(&env, data);
+    expect_transact_rejection(
+        &mut env,
+        replay,
+        Rejection::pool(ShieldedPoolError::StaleNullifierRoot),
+    );
+    assert_nullifier_markers_absent(&env.rpc, &env.tree.pubkey(), &nullifiers)
+        .expect("failed replay rolls marker creation back");
 }
 
 #[test]

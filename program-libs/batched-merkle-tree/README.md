@@ -17,7 +17,7 @@ queue insertion, batch append, and marker cleanup.
 | `merkle_tree` | `BatchedMerkleTreeAccount` and queue/tree operations |
 | `queue` | Queue batch insertion helper (batch reuse gated on retirement) |
 | `queue_batch_metadata` | Metadata for queue batches |
-| `nullifier_marker` | Marker payload, PDA seeds, host emulation of the marker set |
+| `nullifier_marker` | Marker payload, PDA seeds, test-only host emulation of the marker set |
 | `initialize_address_tree` | Initialize a batched address or nullifier tree |
 | `merkle_tree_metadata` | Tree and queue metadata structs |
 | `merkle_tree_update` | Apply queued batches to the tree |
@@ -55,11 +55,10 @@ nullifier)` = `["nullifier", tree_pubkey, nullifier]`; an existing marker is
 what rejects a second insertion of a pending nullifier
 (`NonInclusionCheckFailed`).
 
-Off Solana there are no PDAs, so `nullifier_marker::host` keeps a global set of
-`(tree, nullifier) -> queue_index` reservations: `insert_nullifier_into_queue`
-consults it before mutating and reserves after, `init_from_layout` clears the
-tree's reservations, and `close_nullifier_marker_host` mirrors the on-chain
-close rule.
+With the `test-only` feature, `nullifier_marker::host` keeps a global set of
+`(tree, nullifier) -> queue_index` reservations so lifecycle tests can mirror
+the on-chain close rule. Normal host builds do not carry process-global marker
+state.
 
 ### Tree update
 

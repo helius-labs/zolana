@@ -77,6 +77,11 @@ pub enum Commands {
         /// Pool tree whose retired markers to close.
         #[arg(long, default_value_t = DEFAULT_TREE)]
         tree: Pubkey,
+        /// First Photon queue sequence to scan. Persist the last completed
+        /// watermark externally and pass it here to avoid rescanning from zero
+        /// after a restart.
+        #[arg(long, default_value_t = 0)]
+        from_seq: u64,
         /// Stop after submitting at most N transactions (default: all).
         #[arg(long)]
         max_transactions: Option<u64>,

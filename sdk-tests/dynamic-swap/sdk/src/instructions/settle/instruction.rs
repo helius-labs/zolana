@@ -2,10 +2,11 @@ use anyhow::Result;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    instruction::instruction_data::transact::TransactIxData, SHIELDED_POOL_PROGRAM_ID,
+    instruction::{instruction_data::transact::TransactIxData, nullifier_marker_accounts},
+    SHIELDED_POOL_PROGRAM_ID,
 };
 
-use crate::{err, escrow_authority_pda, nullifier_marker_accounts, tag, SettleIxData, SettleProof};
+use crate::{err, escrow_authority_pda, tag, SettleIxData, SettleProof};
 
 /// Settles one escrow -- settle or price-refund -- and closes it. Permissionless:
 /// `caller` only signs and pays fees. The instruction's shape, account list, and
@@ -33,7 +34,10 @@ impl Settle {
             transact,
         } = self;
 
-        let nullifier_markers = nullifier_marker_accounts(&tree, &transact);
+        let nullifier_markers = nullifier_marker_accounts(
+            &tree,
+            transact.inputs.iter().map(|input| &input.nullifier_hash),
+        );
         let ix_data = SettleIxData { proof, transact };
         let serialized = wincode::serialize(&ix_data).map_err(err)?;
 

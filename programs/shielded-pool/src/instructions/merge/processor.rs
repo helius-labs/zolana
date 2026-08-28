@@ -25,9 +25,7 @@ use super::{
 use crate::instructions::{
     event::emit_general_event,
     nullifier_marker::{create_nullifier_markers, fund_nullifier_markers},
-    shared::{
-        bool_field, check_not_expired, collect_forester_fee, nullifier_queue_error, tree_error,
-    },
+    shared::{bool_field, check_not_expired, collect_forester_fee, tree_error},
 };
 
 pub(crate) struct MergeCoreAccounts<'a> {
@@ -175,7 +173,7 @@ fn apply_input_tree(
         let queue_index = tree
             .nullifer_tree()
             .insert_nullifier_into_queue(nullifier)
-            .map_err(nullifier_queue_error)?;
+            .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
         inputs.push(Input {
             tree: input_tree,
             input_queue_seq: queue_index,

@@ -75,6 +75,7 @@ fn dispatch(cli: Cli) -> Result<()> {
         }
         Commands::CloseMarkers {
             tree,
+            from_seq,
             max_transactions,
             watch,
             poll_secs,
@@ -82,6 +83,7 @@ fn dispatch(cli: Cli) -> Result<()> {
             &ForesterConfig::from_env()?,
             CloseMarkersOptions {
                 tree,
+                from_seq,
                 max_transactions,
                 watch,
                 poll_secs,

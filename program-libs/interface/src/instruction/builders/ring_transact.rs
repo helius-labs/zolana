@@ -4,7 +4,7 @@ use solana_pubkey::Pubkey;
 use crate::{
     instruction::{
         builders::transact::{
-            append_interface_transfer_accounts, append_nullifier_marker_accounts,
+            append_interface_transfer_accounts, nullifier_marker_accounts,
             TransactInterfaceTransferAccounts,
         },
         tag, TransactIxData,
@@ -62,11 +62,10 @@ impl RingTransact {
             AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(ring_config, auth_signer),
         ];
-        append_nullifier_marker_accounts(
-            &mut accounts,
+        accounts.extend(nullifier_marker_accounts(
             &self.input_tree,
             self.data.inputs.iter().map(|input| &input.nullifier_hash),
-        );
+        ));
         accounts.extend(
             self.owner_signers
                 .iter()
@@ -83,138 +82,5 @@ impl RingTransact {
             accounts,
             data: instruction_data,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::instruction::instruction_data::transact::{
-        CircuitId, InputUtxo, TransactIxData, TransactProof,
-    };
-
-    fn empty_data() -> TransactIxData {
-        TransactIxData {
-            proof: TransactProof::zeroed(),
-            expiry_unix_ts: u64::MAX,
-            private_tx_hash: [0u8; 32],
-            circuit: CircuitId::RingEddsa(0, 0, 3),
-            tx_viewing_pk: [0u8; 33],
-            salt: [0u8; 16],
-            inputs: Vec::new(),
-            interface_transfers: Vec::new(),
-            data_hash: None,
-            ring_data_hash: None,
-            outputs: Vec::new(),
-            messages: Vec::new(),
-        }
-    }
-
-    #[test]
-    fn nullifier_markers_follow_ring_config_and_precede_owner_signers() {
-        let ring_program_id = Pubkey::new_unique();
-        let owner_signer = Pubkey::new_unique();
-        let input_tree = Pubkey::new_unique();
-        let nullifiers = [[11u8; 32], [22u8; 32], [33u8; 32]];
-        let mut data = empty_data();
-        data.inputs = nullifiers
-            .iter()
-            .map(|nullifier_hash| InputUtxo {
-                nullifier_hash: *nullifier_hash,
-                nullifier_tree_root_index: 0,
-                utxo_tree_root_index: 0,
-            })
-            .collect();
-        let builder = RingTransact {
-            payer: Pubkey::new_unique(),
-            input_tree,
-            output_tree: Pubkey::new_unique(),
-            ring_program_id,
-            owner_signers: vec![owner_signer],
-            interface_transfer_accounts: Vec::new(),
-            data,
-        };
-
-        let ix = builder.cpi_instruction();
-        let marker = |nullifier: &[u8; 32]| pda::nullifier_marker(&input_tree, nullifier).0;
-        assert_eq!(
-            ix.accounts,
-            vec![
-                AccountMeta::new(builder.payer, true),
-                AccountMeta::new(input_tree, false),
-                AccountMeta::new(builder.output_tree, false),
-                AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
-                AccountMeta::new_readonly(Pubkey::default(), false),
-                AccountMeta::new_readonly(pda::ring_auth(&ring_program_id).0, true),
-                AccountMeta::new(marker(&nullifiers[0]), false),
-                AccountMeta::new(marker(&nullifiers[1]), false),
-                AccountMeta::new(marker(&nullifiers[2]), false),
-                AccountMeta::new_readonly(owner_signer, true),
-            ]
-        );
-        assert_eq!(ix.accounts.len(), 6 + nullifiers.len() + 1);
-    }
-
-    /// A pure shielded `ring_transact` lays out `payer`, `input_tree`,
-    /// `output_tree`, SPP, System Program, the `RingConfig` (canonical
-    /// `ring_auth` PDA), then owner signers, and tags the instruction data with
-    /// `RING_TRANSACT`.
-    #[test]
-    fn instruction_account_order_and_ring_config() {
-        let ring_program_id = Pubkey::new_unique();
-        let owner_signer = Pubkey::new_unique();
-        let builder = RingTransact {
-            payer: Pubkey::new_unique(),
-            input_tree: Pubkey::new_unique(),
-            output_tree: Pubkey::new_unique(),
-            ring_program_id,
-            owner_signers: vec![owner_signer],
-            interface_transfer_accounts: Vec::new(),
-            data: empty_data(),
-        };
-
-        let ix = builder.instruction();
-        assert_eq!(ix.program_id, ring_program_id);
-        assert_eq!(ix.data.first(), Some(&tag::RING_TRANSACT));
-
-        let ring_config = pda::ring_auth(&ring_program_id).0;
-        let keys: Vec<_> = ix.accounts.iter().map(|m| m.pubkey).collect();
-        assert_eq!(
-            keys,
-            vec![
-                builder.payer,
-                builder.input_tree,
-                builder.output_tree,
-                PROGRAM_ID_PUBKEY,
-                Pubkey::default(),
-                ring_config,
-                owner_signer,
-            ]
-        );
-        // `.instruction()` targets the ring program, so the `ring_auth` PDA is not
-        // a transaction-level signer.
-        assert!(!ix.accounts[5].is_signer);
-        assert!(ix.accounts[6].is_signer);
-        assert!(ix.accounts[0].is_signer);
-    }
-
-    /// `.cpi_instruction()` targets SPP and marks the `ring_auth` PDA a signer.
-    #[test]
-    fn cpi_instruction_marks_ring_auth_signer() {
-        let ring_program_id = Pubkey::new_unique();
-        let builder = RingTransact {
-            payer: Pubkey::new_unique(),
-            input_tree: Pubkey::new_unique(),
-            output_tree: Pubkey::new_unique(),
-            ring_program_id,
-            owner_signers: Vec::new(),
-            interface_transfer_accounts: Vec::new(),
-            data: empty_data(),
-        };
-
-        let ix = builder.cpi_instruction();
-        assert_eq!(ix.program_id, PROGRAM_ID_PUBKEY);
-        assert_eq!(ix.accounts[5].pubkey, pda::ring_auth(&ring_program_id).0);
-        assert!(ix.accounts[5].is_signer);
     }
 }

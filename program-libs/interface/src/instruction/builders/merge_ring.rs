@@ -3,8 +3,7 @@ use solana_pubkey::Pubkey;
 
 use crate::{
     instruction::{
-        builders::transact::append_nullifier_marker_accounts, tag, MergeRingIxData,
-        MergeTransactIxData,
+        builders::transact::nullifier_marker_accounts, tag, MergeRingIxData, MergeTransactIxData,
     },
     pda, PROGRAM_ID_PUBKEY,
 };
@@ -63,11 +62,10 @@ impl MergeRing {
             AccountMeta::new(self.payer, true),
             AccountMeta::new_readonly(Pubkey::default(), false),
         ];
-        append_nullifier_marker_accounts(
-            &mut accounts,
+        accounts.extend(nullifier_marker_accounts(
             &self.input_tree,
             self.data.nullifiers.iter(),
-        );
+        ));
         accounts.push(AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false));
 
         Instruction {

@@ -16,6 +16,7 @@ proofs = []
 
 [dependencies]
 anyhow = { workspace = true }
+forester = { path = "../../forester" }
 solana-instruction = { workspace = true }
 solana-compute-budget-interface = { workspace = true }
 solana-clock = { workspace = true }

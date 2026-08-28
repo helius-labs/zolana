@@ -1,6 +1,6 @@
 use super::*;
 
-use shielded_pool_tests::support::forester::CLOSE_MARKERS_PER_TRANSACTION;
+use forester::close_markers::plan_batches;
 use zolana_client::ClientError;
 use zolana_interface::error::ShieldedPoolError;
 use zolana_program_test::Rejection;
@@ -664,8 +664,14 @@ fn phase_assert_marker_cleanup(
     );
     assert_nullifier_markers(&env.rpc, &env.tree_pubkey, queued_nullifiers)?;
 
+    let close_plan = plan_batches(env.tree_pubkey, env.payer.pubkey(), queued_nullifiers)?;
+    let sample_len = close_plan
+        .first()
+        .ok_or_else(|| anyhow!("no close-marker batch planned"))?
+        .nullifiers
+        .len();
     let sample = queued_nullifiers
-        .get(..CLOSE_MARKERS_PER_TRANSACTION)
+        .get(..sample_len)
         .ok_or_else(|| anyhow!("fewer queued nullifiers than one close chunk"))?;
     let tree_before = fetch_tree_account(env)?;
     let error = NullifierTestForester::default()

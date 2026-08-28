@@ -3,12 +3,11 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use swap_program::instructions::take_verifiable_encryption::TakeVerifiableEncryptionIxData;
 use zolana_interface::{
-    instruction::instruction_data::transact::TransactIxData, SHIELDED_POOL_PROGRAM_ID,
+    instruction::{instruction_data::transact::TransactIxData, nullifier_marker_accounts},
+    SHIELDED_POOL_PROGRAM_ID,
 };
 
-use crate::{
-    err, nullifier_marker_accounts, order_authority_pda, tag, TakeVerifiableEncryptionProof,
-};
+use crate::{err, order_authority_pda, tag, TakeVerifiableEncryptionProof};
 
 pub struct TakeVerifiableEncryption {
     pub payer: Pubkey,
@@ -26,7 +25,10 @@ impl TakeVerifiableEncryption {
             spp_proof,
         } = self;
 
-        let nullifier_markers = nullifier_marker_accounts(&tree, &spp_proof);
+        let nullifier_markers = nullifier_marker_accounts(
+            &tree,
+            spp_proof.inputs.iter().map(|input| &input.nullifier_hash),
+        );
         let serialized_ix = wincode::serialize(&TakeVerifiableEncryptionIxData {
             proof: take_proof,
             transact: spp_proof,

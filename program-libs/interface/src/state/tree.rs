@@ -1,3 +1,5 @@
+use solana_rent::{ACCOUNT_STORAGE_OVERHEAD, DEFAULT_LAMPORTS_PER_BYTE};
+use zolana_batched_merkle_tree::nullifier_marker::NULLIFIER_MARKER_SIZE;
 use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount};
 
 pub const STATE_HEIGHT: usize = 32;
@@ -9,7 +11,16 @@ pub const ADDRESS_TREE_HEIGHT: u32 = 40;
 pub const ADDRESS_TREE_ROOT_HISTORY_CAPACITY: u32 = 120;
 /// Lamports reimbursed for each applied nullifier-tree ZKP batch.
 pub const FORESTER_REIMBURSEMENT_LAMPORTS: u64 = 5_000;
-pub const TREE_WORKING_CAPITAL_LAMPORTS: u64 = 10_000_000_000;
+/// Default rent-exempt balance of one nullifier marker.
+const NULLIFIER_MARKER_RENT_LAMPORTS: u64 =
+    (ACCOUNT_STORAGE_OVERHEAD + NULLIFIER_MARKER_SIZE as u64) * DEFAULT_LAMPORTS_PER_BYTE;
+/// Two full queue batches of recoverable nullifier-marker rent.
+///
+/// A batch cannot retire until its successor is at least half full. Funding a
+/// full two-batch rotation keeps insertion live through that overlap and gives
+/// the permissionless closer the remainder of the rotation to return rent.
+pub const TREE_WORKING_CAPITAL_LAMPORTS: u64 =
+    2 * ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE * NULLIFIER_MARKER_RENT_LAMPORTS;
 
 /// Derive the fee charged for each element inserted into a tree's nullifier
 /// queue. The standard tree configuration is pinned by the test below so the
@@ -41,6 +52,8 @@ pub fn state_root_offset() -> usize {
 
 #[cfg(test)]
 mod tests {
+    use solana_rent::Rent;
+
     use super::*;
 
     #[test]
@@ -54,6 +67,16 @@ mod tests {
         assert_eq!(
             fee_per_element * zkp_batch_size,
             FORESTER_REIMBURSEMENT_LAMPORTS
+        );
+    }
+
+    #[test]
+    fn working_capital_funds_two_full_marker_batches() {
+        let marker_rent = Rent::default().minimum_balance(NULLIFIER_MARKER_SIZE);
+        assert_eq!(marker_rent, NULLIFIER_MARKER_RENT_LAMPORTS);
+        assert_eq!(
+            TREE_WORKING_CAPITAL_LAMPORTS,
+            2 * ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE * marker_rent
         );
     }
 }

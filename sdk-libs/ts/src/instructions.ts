@@ -6,6 +6,7 @@ export {
   createTreeInstruction as getCreateTreeInstructionAsync,
   depositInstruction as getDepositInstructionAsync,
   mergeTransactInstruction as getMergeTransactInstructionAsync,
+  nullifierMarkerAccounts as getNullifierMarkerAccountsAsync,
   pauseTreeInstruction as getPauseTreeInstructionAsync,
   transactInstruction as getTransactInstructionAsync,
   updateProtocolConfigInstruction as getUpdateProtocolConfigInstructionAsync,

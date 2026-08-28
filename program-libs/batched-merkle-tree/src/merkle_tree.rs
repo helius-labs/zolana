@@ -4,7 +4,7 @@ use std::{
 };
 
 use super::batch::Batch;
-#[cfg(not(target_os = "solana"))]
+#[cfg(all(not(target_os = "solana"), feature = "test-only"))]
 use crate::nullifier_marker::host;
 use crate::{
     batch::BatchState,
@@ -257,7 +257,7 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
             );
         }
 
-        #[cfg(not(target_os = "solana"))]
+        #[cfg(all(not(target_os = "solana"), feature = "test-only"))]
         host::clear_tree(&pubkey.to_bytes());
 
         Ok(BatchedMerkleTreeAccount {
@@ -276,7 +276,7 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
         if !is_canonical_bn254_scalar_be(nullifier) {
             return Err(BatchedMerkleTreeError::NonCanonicalFieldElement);
         }
-        #[cfg(not(target_os = "solana"))]
+        #[cfg(all(not(target_os = "solana"), feature = "test-only"))]
         if host::contains(&self.pubkey.to_bytes(), nullifier) {
             return Err(BatchedMerkleTreeError::NonInclusionCheckFailed);
         }
@@ -289,6 +289,17 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
             return Err(BatchedMerkleTreeError::QueueIndexMismatch);
         }
         self.check_queue_next_index_reached_tree_capacity()?;
+
+        // When both batches filled while the forester was idle, the current
+        // batch is the already-inserted batch about to be reused and the other
+        // batch is Full. Its occupancy and the inserted batch's final root are
+        // sufficient to retire here; requiring a successor tree update would
+        // unnecessarily wedge all new spends at the rotation boundary.
+        let current_batch_index = self.queue_batches.get_current_batch_index();
+        if self.queue_batches.get_current_batch()?.checked_state()? == BatchState::Inserted {
+            let successor_index = if current_batch_index == 0 { 1 } else { 0 };
+            self.retire_previous_batch(successor_index)?;
+        }
 
         let close_before_index = self.close_before_index;
         {
@@ -308,13 +319,13 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
         }
         self.increment_queue_next_index();
 
-        #[cfg(not(target_os = "solana"))]
+        #[cfg(all(not(target_os = "solana"), feature = "test-only"))]
         host::reserve(&self.pubkey.to_bytes(), nullifier, queue_index);
 
         Ok(queue_index)
     }
 
-    #[cfg(not(target_os = "solana"))]
+    #[cfg(all(not(target_os = "solana"), feature = "test-only"))]
     pub fn close_nullifier_marker_host(
         &self,
         nullifier: &[u8; 32],
@@ -1217,13 +1228,21 @@ mod test {
                 insert_rnd_addresses::<10, 4>(&mut account_data, batch_size, rng, &pubkey).unwrap();
             }
             println!("pre 9.2");
-            // the insertion into batch 1 fails since batch 1 is not retired.
+            // Reusing batch 1 retires it from batch 0's full occupancy; no
+            // additional batch-0 tree update is required.
             let mut account =
                 BatchedMerkleTreeAccount::<10, 4>::address_from_bytes(&mut account_data, &pubkey)
                     .unwrap();
+            let retirement_sequence = account.queue_batches.batches[1]
+                .retirement_sequence()
+                .unwrap();
             let address = random_nullifier(rng);
-            let result = account.insert_nullifier_into_queue(&address);
-            assert_eq!(result.unwrap_err(), BatchedMerkleTreeError::BatchNotRetired);
+            assert_eq!(account.insert_nullifier_into_queue(&address).unwrap(), 20);
+            assert_eq!(account.close_before_index, retirement_sequence);
+            assert_eq!(
+                account.queue_batches.batches[1].get_state(),
+                BatchState::Fill
+            );
         }
     }
 

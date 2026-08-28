@@ -5,8 +5,6 @@ pub mod state;
 
 use anyhow::Result;
 use solana_address::Address;
-use solana_instruction::AccountMeta;
-use zolana_interface::pda;
 
 pub use compression_example_program::{
     instructions::{create::CreateIxData, update::UpdateIxData},
@@ -27,10 +25,6 @@ pub fn account_address(pda: &Address) -> Result<[u8; 32]> {
         .map_err(err)?
         .address()
         .map_err(err)
-}
-
-pub fn nullifier_marker_account(tree: &Address, nullifier: &[u8; 32]) -> AccountMeta {
-    AccountMeta::new(pda::nullifier_marker(tree, nullifier).0, false)
 }
 
 pub(crate) fn err(e: impl core::fmt::Debug) -> anyhow::Error {

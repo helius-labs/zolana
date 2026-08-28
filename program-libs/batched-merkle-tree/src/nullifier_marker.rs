@@ -19,7 +19,7 @@ pub fn nullifier_marker_seeds<'a>(tree: &'a [u8; 32], nullifier: &'a [u8; 32]) -
     [NULLIFIER_MARKER_SEED, tree, nullifier]
 }
 
-#[cfg(not(target_os = "solana"))]
+#[cfg(all(not(target_os = "solana"), feature = "test-only"))]
 pub mod host {
     use std::{
         collections::HashMap,

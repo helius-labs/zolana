@@ -108,16 +108,15 @@ pub(super) fn append_interface_transfer_accounts(
     }
 }
 
-pub(super) fn append_nullifier_marker_accounts<'a>(
-    accounts: &mut Vec<AccountMeta>,
+/// One writable nullifier-marker account per nullifier, preserving input order.
+pub fn nullifier_marker_accounts<'a>(
     input_tree: &Pubkey,
-    nullifiers: impl Iterator<Item = &'a [u8; 32]>,
-) {
-    accounts.extend(
-        nullifiers.map(|nullifier| {
-            AccountMeta::new(pda::nullifier_marker(input_tree, nullifier).0, false)
-        }),
-    );
+    nullifiers: impl IntoIterator<Item = &'a [u8; 32]>,
+) -> Vec<AccountMeta> {
+    nullifiers
+        .into_iter()
+        .map(|nullifier| AccountMeta::new(pda::nullifier_marker(input_tree, nullifier).0, false))
+        .collect()
 }
 
 impl Transact {
@@ -137,11 +136,10 @@ impl Transact {
             AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
             AccountMeta::new_readonly(Pubkey::default(), false),
         ];
-        append_nullifier_marker_accounts(
-            &mut accounts,
+        accounts.extend(nullifier_marker_accounts(
             &self.input_tree,
             self.data.inputs.iter().map(|input| &input.nullifier_hash),
-        );
+        ));
         accounts.extend(
             self.owner_signers
                 .iter()

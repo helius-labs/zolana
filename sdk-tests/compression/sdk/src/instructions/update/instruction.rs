@@ -2,10 +2,11 @@ use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use zolana_interface::{
-    instruction::instruction_data::transact::TransactIxData, SHIELDED_POOL_PROGRAM_ID,
+    instruction::{instruction_data::transact::TransactIxData, nullifier_marker_accounts},
+    SHIELDED_POOL_PROGRAM_ID,
 };
 
-use crate::{account_pda, err, nullifier_marker_account, tag, UpdateIxData};
+use crate::{account_pda, err, tag, UpdateIxData};
 
 pub struct Update {
     pub payer: Address,
@@ -42,16 +43,19 @@ impl Update {
         })
         .map_err(err)?;
 
-        let accounts = vec![
+        let mut accounts = vec![
             AccountMeta::new(payer, true),
             AccountMeta::new(payer, true),
             AccountMeta::new(input_tree, false),
             AccountMeta::new(output_tree, false),
             AccountMeta::new_readonly(Address::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
             AccountMeta::new_readonly(Address::default(), false),
-            nullifier_marker_account(&input_tree, &input.nullifier_hash),
-            AccountMeta::new_readonly(account_pda(&payer), false),
         ];
+        accounts.extend(nullifier_marker_accounts(
+            &input_tree,
+            [&input.nullifier_hash],
+        ));
+        accounts.push(AccountMeta::new_readonly(account_pda(&payer), false));
         let mut instruction_data = vec![tag::UPDATE];
         instruction_data.extend_from_slice(&serialized_ix);
         Ok(Instruction {

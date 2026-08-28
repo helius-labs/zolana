@@ -1,11 +1,10 @@
+use ark_bn254::Fr;
+use ark_ff::{BigInteger, PrimeField};
 use num_bigint::BigUint;
 use zolana_hasher::primitives::{is_canonical_bn254_scalar_be, BN254_SCALAR_MODULUS_BE};
 
-const BN254_MODULUS_DEC: &str =
-    "21888242871839275222246405745257275088548364400416034343698204186575808495617";
-
 fn modulus() -> BigUint {
-    BigUint::parse_bytes(BN254_MODULUS_DEC.as_bytes(), 10).unwrap()
+    BigUint::from_bytes_be(&Fr::MODULUS.to_bytes_be())
 }
 
 fn to_be_bytes(value: &BigUint) -> [u8; 32] {
@@ -16,7 +15,7 @@ fn to_be_bytes(value: &BigUint) -> [u8; 32] {
 }
 
 #[test]
-fn modulus_constant_matches_decimal_literal() {
+fn modulus_constant_matches_arkworks() {
     assert_eq!(BN254_SCALAR_MODULUS_BE, to_be_bytes(&modulus()));
 }
 

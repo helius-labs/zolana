@@ -2,15 +2,16 @@ use anyhow::Result;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    instruction::instruction_data::transact::{MessageData, TransactIxData},
+    instruction::{
+        instruction_data::transact::{MessageData, TransactIxData},
+        nullifier_marker_accounts,
+    },
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::TransactionError;
 
-use crate::{
-    err, nullifier_marker_accounts, order_authority_pda, tag, MakeIxData, MakeProof, MarkerData,
-};
+use crate::{err, order_authority_pda, tag, MakeIxData, MakeProof, MarkerData};
 
 pub struct OrderMarker {
     pub order_utxo_hash: [u8; 32],
@@ -50,7 +51,10 @@ impl Make {
         if let Some(marker) = spp_proof.messages.first_mut() {
             marker.data = Vec::new();
         }
-        let nullifier_markers = nullifier_marker_accounts(&tree, &spp_proof);
+        let nullifier_markers = nullifier_marker_accounts(
+            &tree,
+            spp_proof.inputs.iter().map(|input| &input.nullifier_hash),
+        );
         let serialized_ix = wincode::serialize(&MakeIxData {
             proof: make_proof,
             transact: spp_proof,

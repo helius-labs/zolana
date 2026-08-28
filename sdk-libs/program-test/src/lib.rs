@@ -138,7 +138,7 @@ impl ZolanaProgramTest {
             .map_err(|e| ProgramTestError::Litesvm(format!("add_program: {e:?}")))?;
 
         let payer = Keypair::new();
-        // Enough for the ~1.16 MB tree account rent.
+        // Working capital for recoverable nullifier-marker rent.
         svm.airdrop(&payer.pubkey(), 100_000_000_000)
             .map_err(|e| ProgramTestError::Litesvm(format!("airdrop: {e:?}")))?;
 

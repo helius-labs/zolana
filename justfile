@@ -75,7 +75,12 @@ test: test-shielded-pool test-sdk-libs test-photon
 
 # Everything that needs nothing running. No prover, no validator, no network,
 # and no proving keys. CI runs these same suites on every push, one job each.
-test-hermetic: test-cli test-program-fast test-user-registry-litesvm test-sdk-libs test-photon
+test-hermetic: test-cli test-batched-merkle-tree test-program-fast test-user-registry-litesvm test-sdk-libs test-photon
+
+# Marker retirement tests use the host emulator and must opt into it. Keep the
+# prover-backed nullifier_tree binary out of this hermetic lane.
+test-batched-merkle-tree:
+    cargo nextest run -p zolana-batched-merkle-tree --features test-only --lib --test retirement --test nullifier_marker
 
 # Program/interface tests for the shielded-pool implementation.
 # Depends on build-programs so the litesvm tests load a fresh .so and actually

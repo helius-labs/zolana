@@ -7,7 +7,6 @@ use pinocchio::{
     AccountView, Address, ProgramResult,
 };
 use pinocchio_system::instructions::Transfer;
-use zolana_batched_merkle_tree::errors::BatchedMerkleTreeError;
 use zolana_interface::{
     error::ShieldedPoolError,
     state::{forester_fee_per_queue_element, FORESTER_REIMBURSEMENT_LAMPORTS},
@@ -26,15 +25,6 @@ pub fn tree_error(error: TreeError) -> ProgramError {
         TreeError::InvalidRootIndex => ShieldedPoolError::StaleNullifierRoot.into(),
         TreeError::TreeIsFull => ShieldedPoolError::StateAppendFailed.into(),
         _ => ShieldedPoolError::InvalidTreeAccounts.into(),
-    }
-}
-
-pub(crate) fn nullifier_queue_error(error: BatchedMerkleTreeError) -> ProgramError {
-    match error {
-        BatchedMerkleTreeError::NonInclusionCheckFailed => {
-            ShieldedPoolError::NullifierAlreadyQueued.into()
-        }
-        _ => ShieldedPoolError::NullifierTreeUpdateFailed.into(),
     }
 }
 

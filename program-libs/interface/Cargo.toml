@@ -24,6 +24,7 @@ groth16-solana = { workspace = true, optional = true }
 zolana-batched-merkle-tree = { workspace = true }
 zolana-hasher = { workspace = true, features = ["sha256"] }
 solana-program-error = { workspace = true }
+solana-rent = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }
 zolana-event = { workspace = true }

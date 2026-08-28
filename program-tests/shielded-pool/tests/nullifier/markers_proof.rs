@@ -1,6 +1,5 @@
 use shielded_pool_tests::support::transact::{proof_env, tree_roots, Pool};
 
-use borsh::BorshDeserialize;
 use num_bigint::BigUint;
 use solana_account::Account;
 use solana_pubkey::Pubkey;
@@ -10,7 +9,7 @@ use zolana_hasher::{primitives::hash_bytes, Poseidon};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{instruction_data::transact::TransactIxData, Transact},
-    pda, NullifierMarker, NULLIFIER_MARKER_SIZE,
+    pda, NullifierMarker,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
@@ -224,7 +223,8 @@ fn transact_creates_one_marker_per_input() {
     }
     assert_tree_lamports_after_spend(&env.rpc, &tree, &tree_before, nullifiers.len() as u64)
         .expect("tree lamports");
-    let forester_fee = forester_fee_for_inputs(&tree_before, &tree, nullifiers.len() as u64);
+    let forester_fee = forester_fee_for_inputs(&tree_before, &tree, nullifiers.len() as u64)
+        .expect("forester fee");
     assert_eq!(
         payer_before,
         payer_lamports(&env) + LAMPORTS_PER_SIGNATURE + forester_fee,
@@ -320,36 +320,29 @@ fn transact_tops_up_prefunded_markers() {
         .svm
         .get_account(&overfunded_marker)
         .expect("overfunded marker account");
+    let expected_overfunded = Account {
+        lamports: overfunded,
+        data: borsh::to_vec(&NullifierMarker {
+            queue_index: queue_next_before + 1,
+            bump: overfunded_bump,
+        })
+        .expect("serialize expected marker"),
+        owner: pda::shielded_pool_program_id(),
+        executable: false,
+        rent_epoch: overfunded_account.rent_epoch,
+    };
     assert_eq!(
-        (
-            overfunded_account.lamports,
-            overfunded_account.owner,
-            overfunded_account.data.len(),
-            NullifierMarker::try_from_slice(&overfunded_account.data).expect("decode marker"),
-        ),
-        (
-            overfunded,
-            pda::shielded_pool_program_id(),
-            NULLIFIER_MARKER_SIZE,
-            NullifierMarker {
-                queue_index: queue_next_before + 1,
-                bump: overfunded_bump,
-            },
-        ),
+        overfunded_account, expected_overfunded,
         "overfunded marker keeps its surplus and is initialized in place"
     );
 
-    let forester_fee = forester_fee_for_inputs(&tree_before, &tree, nullifiers.len() as u64);
+    let forester_fee = forester_fee_for_inputs(&tree_before, &tree, nullifiers.len() as u64)
+        .expect("forester fee");
     let mut expected_tree = tree_before.clone();
     expected_tree.lamports = tree_before.lamports + forester_fee - (rent - underfunded);
-    let tree_after = tree_account(&env);
     assert_eq!(
-        (tree_after.lamports, tree_after.owner, tree_after.data.len()),
-        (
-            expected_tree.lamports,
-            expected_tree.owner,
-            expected_tree.data.len()
-        ),
+        tree_account(&env),
+        expected_tree,
         "tree funds only the missing rent of the underfunded marker"
     );
     assert_eq!(
