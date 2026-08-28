@@ -599,13 +599,6 @@ test-cli:
 # hang-timeout/retry value does not apply, and `--run-ignored` + streamed
 # --nocapture output is simplest via plain `cargo test`.
 
-# Regenerate bench/bloom-filter/CU_BENCHMARK.md. Builds the bench program with
-# the profiling syscalls enabled, then runs the mollusk harness that profiles
-# light-bloom-filter insert/contains.
-bench-bloom-filter:
-    cargo build-sbf --manifest-path bench/bloom-filter/Cargo.toml --features bench
-    cargo test -p bloom-filter-bench --test bench_cu -- --ignored --nocapture
-
 # Build the tree bench program with profiling enabled, then run the mollusk
 # harness that profiles zolana-tree init/deserialize/append/nullifier-insert.
 bench-tree:

@@ -3,7 +3,6 @@ members = [
     "forester",
     "program-libs/account-checks",
     "program-libs/batched-merkle-tree",
-    "program-libs/bloom-filter",
     "program-libs/event",
     "program-libs/hasher",
     "program-libs/indexed-array",
@@ -17,7 +16,6 @@ members = [
     "programs/shielded-pool",
     "programs/user-registry",
     "program-tests/ring-test-program",
-    "bench/bloom-filter",
     "bench/tree",
     "cli",
     "custom-rings/cli",
@@ -99,7 +97,6 @@ aligned-sized = "1.1.0"
 light-array-map = "0.2.0"
 zolana-account-checks = { path = "program-libs/account-checks", version = "0.8.0", default-features = false }
 zolana-batched-merkle-tree = { path = "program-libs/batched-merkle-tree", version = "0.11.0" }
-zolana-bloom-filter = { path = "program-libs/bloom-filter", version = "0.6.0" }
 zolana-hasher = { path = "program-libs/hasher", version = "5.0.0", default-features = false }
 zolana-indexed-array = { path = "program-libs/indexed-array", version = "0.3.0" }
 light-poseidon = "0.4.0"

@@ -196,7 +196,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: target/release/photon
-          key: photon-bin-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'services/photon/**', 'program-libs/account-checks/**', 'program-libs/batched-merkle-tree/**', 'program-libs/bloom-filter/**', 'program-libs/event/**', 'program-libs/hasher/**', 'program-libs/interface/**', 'program-libs/tree/**', 'sdk-libs/indexer-api/**') }}
+          key: photon-bin-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'services/photon/**', 'program-libs/account-checks/**', 'program-libs/batched-merkle-tree/**', 'program-libs/event/**', 'program-libs/hasher/**', 'program-libs/interface/**', 'program-libs/tree/**', 'sdk-libs/indexer-api/**') }}
       - uses: ./.github/actions/setup-rust
         if: steps.photon-bin-cache.outputs.cache-hit != 'true'
         with:

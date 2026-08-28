@@ -1178,19 +1178,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bloom-filter-bench"
-version = "0.1.0"
-dependencies = [
- "light-program-profiler",
- "mollusk-svm",
- "pinocchio 0.11.2",
- "solana-account 4.3.1",
- "solana-instruction",
- "solana-pubkey 4.2.0",
- "zolana-bloom-filter",
-]
-
-[[package]]
 name = "blst"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7612,15 +7599,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "solana-nostd-keccak"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8ced70920435b1baa58f76e6f84bbc1110ddd1d6161ec76b6d731ae8431e9c4"
-dependencies = [
- "sha3",
-]
-
-[[package]]
 name = "solana-nullable"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10969,19 +10947,6 @@ dependencies = [
  "zolana-hasher",
  "zolana-indexed-array",
  "zolana-merkle-tree",
-]
-
-[[package]]
-name = "zolana-bloom-filter"
-version = "0.6.0"
-dependencies = [
- "bytemuck",
- "num-bigint 0.4.8",
- "rand 0.8.7",
- "solana-nostd-keccak",
- "solana-program-error",
- "thiserror 2.0.18",
- "zolana-hasher",
 ]
 
 [[package]]
