@@ -123,6 +123,7 @@ export type {
   TransactionOrigin,
 } from "./origin.js";
 export {
+  buildRingExitTransaction,
   buildRingTransferTransaction,
   buildRingWithdrawalTransaction,
   frameDummyOutputs,
@@ -133,4 +134,5 @@ export type {
   CustomRingTransferParams,
   ProvenRingTransfer,
   RingTransferTransactionParams,
+  RingWithdrawalTransactionParams,
 } from "./transfer.js";

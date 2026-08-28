@@ -20,7 +20,7 @@ import {
   auditorMessage,
   recoverTransactionViewingKey,
 } from "../src/ring/audit.js";
-import { assemble } from "../src/client/prover/assembly.js";
+import { assemble, circuitUtxo } from "../src/client/prover/assembly.js";
 import type { SpendProof } from "../src/client/rpc.js";
 import { hashBytesBigInt } from "../src/client/internal.js";
 import { frameDummyOutputs, checkRingMembership } from "../src/ring/transfer.js";
@@ -60,6 +60,7 @@ function preparedTransfer(
   amount: bigint,
   others: readonly bigint[] = [],
   exits: readonly bigint[] = [],
+  inputRing: typeof RING | null = RING,
 ): Readonly<{
   prepared: PreparedTransfer;
   sender: ReturnType<typeof actor>;
@@ -73,7 +74,7 @@ function preparedTransfer(
       asset: SOL_MINT,
       amount: 10n,
       blinding: scalar(6),
-      ringProgramId: RING,
+      ...(inputRing === null ? {} : { ringProgramId: inputRing }),
     }),
     nullifierKey: sender.keypair.nullifierKey(),
   });
@@ -93,8 +94,9 @@ async function auditedProofInputs(
   auditor: ViewingKey,
   others: readonly bigint[] = [],
   exits: readonly bigint[] = [],
+  inputRing: typeof RING | null = RING,
 ): Promise<Readonly<{ proofInputs: SppProofInputs; recipient: ReturnType<typeof actor> }>> {
-  const { prepared: ring, sender, recipient } = preparedTransfer(amount, others, exits);
+  const { prepared: ring, sender, recipient } = preparedTransfer(amount, others, exits, inputRing);
   const encrypted = await sender.authority.encryptCustomRingTransfer({
     firstNullifier: ring.firstNullifier,
     outputs: ring.outputs,
@@ -259,34 +261,38 @@ describe("frameDummyOutputs with an exit", () => {
   });
 });
 
+function spendProofFor(input: ProofInputUtxo): SpendProof {
+  return {
+    state: {
+      leaf: input.hash(),
+      merkleContext: { treeType: 0, tree: RING },
+      path: Array.from({ length: 32 }, () => scalar(0)),
+      leafIndex: 0n,
+      root: scalar(3),
+      rootSeq: 1n,
+      rootIndex: 4,
+    },
+    nullifier: {
+      leaf: input.nullifier(),
+      merkleContext: { treeType: 1, tree: RING },
+      path: Array.from({ length: 40 }, () => scalar(0)),
+      lowElement: scalar(4),
+      lowElementIndex: 0n,
+      highElement: scalar(5),
+      highElementIndex: 1n,
+      root: scalar(6),
+      rootSeq: 1n,
+      rootIndex: 7,
+    },
+  };
+}
+
 describe("ring witness", () => {
   it("publishes owner hashes only for `Confidential` slots like Rust `confidential_marked_output_owner_pk_hashes`", async () => {
     const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate(), [1n, 1n, 1n]);
     const input = proofInputs.inputUtxos[0];
     if (!input) throw new Error("input");
-    const spendProof: SpendProof = {
-      state: {
-        leaf: input.hash(),
-        merkleContext: { treeType: 0, tree: RING },
-        path: Array.from({ length: 32 }, () => scalar(0)),
-        leafIndex: 0n,
-        root: scalar(3),
-        rootSeq: 1n,
-        rootIndex: 4,
-      },
-      nullifier: {
-        leaf: input.nullifier(),
-        merkleContext: { treeType: 1, tree: RING },
-        path: Array.from({ length: 40 }, () => scalar(0)),
-        lowElement: scalar(4),
-        lowElementIndex: 0n,
-        highElement: scalar(5),
-        highElementIndex: 1n,
-        root: scalar(6),
-        rootSeq: 1n,
-        rootIndex: 7,
-      },
-    };
+    const spendProof = spendProofFor(input);
     const assembled = assemble(proofInputs, [spendProof], [], RING);
     const published = assembled.proverInputs.payload.publishedOutputOwnerPublicKeyHashes;
     const tags = proofInputs.externalData.resolvedOwnerTags;
@@ -301,6 +307,23 @@ describe("ring witness", () => {
       hashBytesBigInt(new Uint8Array(getAddressEncoder().encode(RING))),
     );
     expect(assembled.instructionData.circuit.kind).toBe("ringEddsa");
+  });
+
+  it("keeps a default note's own zero ring fields under the signing ring's public input", async () => {
+    const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate(), [], [], null);
+    const input = proofInputs.inputUtxos[0];
+    if (!input) throw new Error("input");
+    const assembled = assemble(proofInputs, [spendProofFor(input)], [], RING);
+    const slot = assembled.proverInputs.payload.inputs[0];
+    if (!slot) throw new Error("input slot");
+    expect(circuitUtxo(slot).ringProgramId).toBe(0n);
+    expect(circuitUtxo(slot).ringDataHash).toBe(0n);
+    expect(assembled.proverInputs.payload.ringProgramId).toBe(
+      hashBytesBigInt(new Uint8Array(getAddressEncoder().encode(RING))),
+    );
+    proofInputs.outputs
+      .filter((output) => !output.isDummy())
+      .forEach((output) => expect(output.ringProgramId).toBe(RING));
   });
 });
 

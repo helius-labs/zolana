@@ -8,7 +8,12 @@ import {
   type SignerAccount,
 } from "../interface/instructions/index.js";
 import { encodeTransactInstructionData } from "../interface/codecs/index.js";
-import { SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
+import {
+  SHIELDED_POOL_CPI_AUTHORITY,
+  SHIELDED_POOL_PROGRAM_ID,
+  SPL_TOKEN_2022_PROGRAM_ID,
+  SPL_TOKEN_PROGRAM_ID,
+} from "../interface/program.js";
 import { protocolConfigAddress, ringAuthAddress } from "../interface/pda/index.js";
 import type { TransactInstructionData, TransactWithdrawal } from "../interface/types.js";
 import { isDerivationPoint } from "../keypair/derivation.js";
@@ -164,4 +169,13 @@ export async function ringLookupTableAddresses(
     COMPUTE_BUDGET_PROGRAM_ADDRESS,
   ];
   return Object.freeze([...new Set(addresses)]);
+}
+
+/** In every new table, never required at fetch, an old table stays valid. */
+export function ringSettlementStatics(): readonly Address[] {
+  return Object.freeze([
+    SHIELDED_POOL_CPI_AUTHORITY,
+    SPL_TOKEN_PROGRAM_ID,
+    SPL_TOKEN_2022_PROGRAM_ID,
+  ]);
 }

@@ -24,7 +24,6 @@ import { ShieldedAddress } from "../keypair/shielded.js";
 import { ViewingKey } from "../keypair/viewing-key.js";
 import {
   ConfidentialTransfer,
-  WithdrawalTarget,
   SppProofInputs,
   createExternalData,
   type PreparedTransfer,
@@ -34,6 +33,7 @@ import { ProofInputUtxo } from "../transaction/utxo.js";
 import type { WalletAuthority } from "../transaction/wallet/authority.js";
 import { SOL_MINT, type AssetRegistry } from "../transaction/wallet/asset.js";
 import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
+import { resolveWithdrawal } from "../wallet/actions.js";
 import { resolveRegisteredAddress } from "../wallet/registry.js";
 
 import { fetchRingProgramConfig } from "./config.js";
@@ -56,6 +56,8 @@ export interface RingTransferTransactionParams {
   readonly recipient: Address | ShieldedAddress;
   readonly asset?: Address;
   readonly amount: bigint;
+  /** `"ring-or-default"` lets default notes fund the transfer and enter the ring. */
+  readonly inputs?: "ring" | "ring-or-default";
   /** Must be at least one slot old. */
   readonly lookupTable: Address;
   readonly computeUnitLimit?: number;
@@ -71,6 +73,8 @@ export interface RingWithdrawalTransactionParams {
   readonly recipient: Address;
   readonly asset?: Address;
   readonly amount: bigint;
+  /** SPL Token or Token-2022 for non-SOL assets, the settlement lands in the recipient's ATA. */
+  readonly splTokenProgram?: Address;
   /** Must be at least one slot old. */
   readonly lookupTable: Address;
   readonly computeUnitLimit?: number;
@@ -100,6 +104,25 @@ export async function buildRingTransferTransaction(
   input: RingTransferTransactionParams,
   context?: RequestContext,
 ): Promise<Transaction> {
+  return buildRingSendTransaction(input, "ring", context);
+}
+
+/**
+ * Value leaves the ring to a default-ring note of the recipient, and the
+ * custom-ring proof still covers the exit.
+ */
+export async function buildRingExitTransaction(
+  input: RingTransferTransactionParams,
+  context?: RequestContext,
+): Promise<Transaction> {
+  return buildRingSendTransaction(input, "default", context);
+}
+
+async function buildRingSendTransaction(
+  input: RingTransferTransactionParams,
+  destination: "ring" | "default",
+  context?: RequestContext,
+): Promise<Transaction> {
   try {
     const asset = input.asset ?? SOL_MINT;
     const [recipient, address, nullifierKey] = await Promise.all([
@@ -107,7 +130,13 @@ export async function buildRingTransferTransaction(
       input.authority.shieldedAddress(),
       input.authority.spendNullifierKey(),
     ]);
-    const selected = selectRingInputs(input.wallet, input.ringProgramId, asset, input.amount);
+    const selected = selectRingInputs(
+      input.wallet,
+      input.ringProgramId,
+      asset,
+      input.amount,
+      input.inputs ?? "ring",
+    );
     const inputs = selected.map(
       ({ entry }) =>
         new ProofInputUtxo({
@@ -120,11 +149,17 @@ export async function buildRingTransferTransaction(
     const transfer = new ConfidentialTransfer(address, inputs, input.feePayer)
       .withCompactChange()
       .withRingProgramId(input.ringProgramId);
-    transfer.send(recipient, asset, input.amount);
+    if (destination === "ring") {
+      transfer.send(recipient, asset, input.amount);
+    } else {
+      transfer.sendDefaultRing(recipient, asset, input.amount);
+    }
     const tree = selected[0]?.tree ?? input.client.tree;
+    const entering = selected.some(({ entry }) => entry.utxo.ringProgramId === undefined);
+    const action = destination === "default" ? "exit" : entering ? "entry" : "transfer";
     await input.authority.requestUserApproval({
       solanaPublicKey: input.authority.solanaPublicKey(),
-      summary: `ring transfer of ${String(input.amount)} to a shielded address`,
+      summary: `ring ${action} of ${String(input.amount)} to a shielded address`,
     });
     const proven = await proveCustomRingTransfer(
       {
@@ -192,14 +227,18 @@ export async function buildRingWithdrawalTransaction(
 ): Promise<Transaction> {
   try {
     const asset = input.asset ?? SOL_MINT;
-    if (asset !== SOL_MINT) {
-      throw new RingError("RING_BUILD_WITHDRAWAL", { details: { reason: "SOL only" } });
-    }
-    const [address, nullifierKey] = await Promise.all([
+    const [address, nullifierKey, resolved] = await Promise.all([
       input.authority.shieldedAddress(),
       input.authority.spendNullifierKey(),
+      resolveWithdrawal(input.recipient, asset, input.splTokenProgram),
     ]);
-    const selected = selectRingInputs(input.wallet, input.ringProgramId, asset, input.amount);
+    const selected = selectRingInputs(
+      input.wallet,
+      input.ringProgramId,
+      asset,
+      input.amount,
+      "ring",
+    );
     const inputs = selected.map(
       ({ entry }) =>
         new ProofInputUtxo({
@@ -212,7 +251,7 @@ export async function buildRingWithdrawalTransaction(
     const transfer = new ConfidentialTransfer(address, inputs, input.feePayer)
       .withCompactChange()
       .withRingProgramId(input.ringProgramId);
-    transfer.withdraw(asset, input.amount, WithdrawalTarget.sol({ recipient: input.recipient }));
+    transfer.withdraw(asset, input.amount, resolved.target);
     const tree = selected[0]?.tree ?? input.client.tree;
     await input.authority.requestUserApproval({
       solanaPublicKey: input.authority.solanaPublicKey(),
@@ -237,7 +276,7 @@ export async function buildRingWithdrawalTransaction(
         outputTree: proven.tree,
         proof: proven.proof,
         data: proven.data,
-        withdrawal: { kind: "sol", recipient: input.recipient },
+        withdrawal: resolved.accounts,
       }),
       fetchRingLookupTable({
         client: input.client,
@@ -420,19 +459,25 @@ interface SelectedInput {
   readonly tree: Address;
 }
 
-/** The ring circuit binds every real input to the ring, so notes of other rings are not candidates. */
+/** Notes of the signing ring, plus plain default notes when `inputs` allows the entry. */
 function selectRingInputs(
   wallet: Wallet,
   ringProgramId: Address,
   asset: Address,
   amount: bigint,
+  inputs: "ring" | "ring-or-default",
 ): readonly SelectedInput[] {
+  const eligible = (entry: WalletUtxo): boolean => {
+    if (entry.utxo.ringProgramId === ringProgramId) return true;
+    return (
+      inputs === "ring-or-default" &&
+      entry.utxo.ringProgramId === undefined &&
+      entry.ringDataHash === undefined
+    );
+  };
   const candidates = wallet
     .utxos()
-    .filter(
-      (entry) =>
-        !entry.spent && entry.utxo.asset === asset && entry.utxo.ringProgramId === ringProgramId,
-    );
+    .filter((entry) => !entry.spent && entry.utxo.asset === asset && eligible(entry));
   const trees = new Set(candidates.map((entry) => entry.outputContext.tree));
   if (trees.size > 1) {
     throw new RingError("RING_MULTIPLE_INPUT_TREES", { details: { asset, treeCount: trees.size } });

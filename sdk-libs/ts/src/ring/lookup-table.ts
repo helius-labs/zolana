@@ -12,7 +12,7 @@ import { checkedTransactionSize } from "../interface/transaction-size.js";
 import type { RequestContext } from "../interface/types.js";
 
 import { RingError, wrapRingError } from "./error.js";
-import { ringLookupTableAddresses } from "./instructions.js";
+import { ringLookupTableAddresses, ringSettlementStatics } from "./instructions.js";
 
 export interface RingLookupTable {
   readonly transaction: Transaction;
@@ -52,7 +52,7 @@ export async function buildRingLookupTableTransaction(
       address: address[0],
       authority,
       payer: authority,
-      addresses: [...addresses],
+      addresses: [...new Set([...addresses, ...ringSettlementStatics()])],
     });
     return Object.freeze({
       transaction: checkedTransactionSize(

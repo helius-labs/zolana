@@ -97,6 +97,7 @@ export {
 export {
   buildRingDepositTransaction,
   buildRingLookupTableTransaction,
+  buildRingExitTransaction,
   buildRingTransferTransaction,
   buildRingWithdrawalTransaction,
   createPasskey,
@@ -124,4 +125,5 @@ export {
   type RingProgramConfig,
   type RingReadSigner,
   type RingTransferTransactionParams,
+  type RingWithdrawalTransactionParams,
 } from "./ring/index.js";

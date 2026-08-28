@@ -233,7 +233,8 @@ function selectInputs(
   });
 }
 
-async function withdrawal(
+/** The proof-side target and the settlement accounts of one public withdrawal. */
+export async function resolveWithdrawal(
   recipient: Address,
   asset: Address,
   splTokenProgram?: Address | null,
@@ -272,7 +273,7 @@ export async function createWithdrawal(params: WithdrawalParams): Promise<Create
   }
   const tree = spendTree(params.wallet, params.asset, plain);
   const inputs = selectInputs(params.wallet, tree, params.asset, params.amount, plain);
-  const resolved = await withdrawal(params.recipient, params.asset, params.splTokenProgram);
+  const resolved = await resolveWithdrawal(params.recipient, params.asset, params.splTokenProgram);
   return Object.freeze({
     transaction: new UnsignedPrivateTransaction({
       payer: params.payer,

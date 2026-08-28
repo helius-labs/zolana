@@ -11,13 +11,27 @@ import {
 } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
-import { ringDepositInstruction } from "../src/interface/instructions/index.js";
-import { DepositAsset, InstructionTag } from "../src/interface/index.js";
-import type { Bytes16, Bytes32, Bytes33 } from "../src/interface/types.js";
+import {
+  ringDepositInstruction,
+  ringTransactAccounts,
+} from "../src/interface/instructions/index.js";
+import {
+  DepositAsset,
+  InstructionTag,
+  SHIELDED_POOL_CPI_AUTHORITY,
+} from "../src/interface/index.js";
+import {
+  TransactWithdrawal,
+  type Bytes16,
+  type Bytes32,
+  type Bytes33,
+} from "../src/interface/types.js";
 import {
   RING_CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
   createRingConfigInstruction,
   initSppRingConfigInstruction,
+  ringLookupTableAddresses,
+  ringSettlementStatics,
   ringTransactInstruction,
 } from "../src/ring/instructions.js";
 import { decodeRingProgramConfig } from "../src/ring/codecs.js";
@@ -157,6 +171,42 @@ describe("ring deposit", () => {
     expect(output.encrypted.txViewingPublicKey).toEqual(filled(3, 33));
     expect(output.encrypted.salt).toEqual(filled(34, 16));
     expect(output.encrypted.ciphertext).toEqual(Uint8Array.of(35, 36, 37));
+  });
+});
+
+describe("ring transact settlement", () => {
+  it("appends the SPL withdrawal group Rust `append_interface_transfer_accounts` appends", () => {
+    const mint = addressOf(41);
+    const splTokenInterface = addressOf(42);
+    const recipientTokenAccount = addressOf(43);
+    const tokenProgram = addressOf(44);
+    const pool = ringTransactAccounts({
+      payer: PAYER,
+      inputTree: TREE,
+      outputTree: OUTPUT_TREE,
+      ringAuth: RING_AUTH,
+      withdrawal: TransactWithdrawal.spl({
+        mint,
+        splTokenInterface,
+        recipientTokenAccount,
+        tokenProgram,
+      }),
+    });
+    expect(pool.slice(-5).map((meta) => [meta.address, meta.role])).toEqual([
+      [SHIELDED_POOL_CPI_AUTHORITY, AccountRole.READONLY],
+      [mint, AccountRole.READONLY],
+      [splTokenInterface, AccountRole.WRITABLE],
+      [recipientTokenAccount, AccountRole.WRITABLE],
+      [tokenProgram, AccountRole.READONLY],
+    ]);
+  });
+
+  it("adds the settlement statics to a new table without requiring them at fetch", async () => {
+    const required = await ringLookupTableAddresses({ ringProgramId: RING, tree: TREE });
+    for (const address of ringSettlementStatics()) {
+      expect(required).not.toContain(address);
+    }
+    expect(ringSettlementStatics()).toContain(SHIELDED_POOL_CPI_AUTHORITY);
   });
 });
 

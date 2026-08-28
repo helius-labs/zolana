@@ -60,7 +60,7 @@ export function circuitUtxo(value: object): CircuitUtxo {
   return result;
 }
 
-/** With `ring` set, the circuit binds every real input's ring field to `ringProgramId`. */
+/** With `ring` set, every real note is in that ring or in the default ring, per its own fields. */
 export function assemble(
   proofInputs: SppProofInputs,
   spendProofs: readonly SpendProof[],
