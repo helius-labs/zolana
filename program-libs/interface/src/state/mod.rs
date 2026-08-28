@@ -1,4 +1,5 @@
 pub mod discriminator;
+pub mod nullifier_marker;
 pub mod protocol_config;
 pub mod ring_config;
 pub mod spl_asset_counter;
@@ -6,6 +7,7 @@ pub mod spl_asset_registry;
 #[cfg(feature = "tree")]
 pub mod tree;
 
+pub use nullifier_marker::{NullifierMarker, NULLIFIER_MARKER_SEED, NULLIFIER_MARKER_SIZE};
 pub use protocol_config::ProtocolConfig;
 pub use ring_config::RingConfig;
 pub use spl_asset_counter::SplAssetCounter;

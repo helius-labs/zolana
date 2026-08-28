@@ -120,15 +120,10 @@ impl Batch {
             .ok_or(BatchedMerkleTreeError::InvalidBatchState)
     }
 
-    pub fn first_sequence(&self) -> Result<u64, BatchedMerkleTreeError> {
-        self.start_index
-            .checked_sub(1)
-            .ok_or(BatchedMerkleTreeError::ArithmeticOverflow)
-    }
-
     pub fn reclaimable_sequence(&self) -> Result<u64, BatchedMerkleTreeError> {
-        self.first_sequence()?
+        self.start_index
             .checked_add(self.batch_size)
+            .and_then(|end| end.checked_sub(1))
             .ok_or(BatchedMerkleTreeError::ArithmeticOverflow)
     }
 

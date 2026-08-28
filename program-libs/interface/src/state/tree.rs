@@ -51,9 +51,9 @@ pub fn state_root_offset() -> usize {
 #[cfg(test)]
 mod tests {
     use solana_rent::Rent;
-    use zolana_batched_merkle_tree::nullifier_marker::NULLIFIER_MARKER_SIZE;
 
     use super::*;
+    use crate::NULLIFIER_MARKER_SIZE;
 
     #[test]
     fn standard_tree_forester_fee_exactly_funds_reimbursement() {

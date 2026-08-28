@@ -7,9 +7,8 @@
 //! queue. Instead of updating the tree one leaf at a time, insertions are
 //! batched into the queue and applied to the tree with a zero-knowledge proof
 //! (ZKP), enabling efficient on-chain verification. Trees keep a cyclic root
-//! history for validity proofs. Pending non-inclusion of a queued nullifier is
-//! guaranteed by an exact per-nullifier marker account, not by a probabilistic
-//! filter. See `spec.md` for the normative description.
+//! history for validity proofs; pending non-inclusion of a queued nullifier is
+//! guaranteed by a per-nullifier marker account. See `spec.md`.
 //!
 //! | Module | Description |
 //! |--------|-------------|
@@ -17,7 +16,6 @@
 //! | [`merkle_tree`] | `BatchedMerkleTreeAccount` and queue/tree operations |
 //! | [`queue`] | Queue batch insertion helper |
 //! | [`queue_batch_metadata`] | Metadata for queue batches |
-//! | [`nullifier_marker`] | Marker account payload, PDA seeds, test-only host emulation |
 //! | [`initialize_address_tree`] | Initialize a batched address or nullifier tree |
 //! | [`merkle_tree_metadata`] | Tree and queue metadata structs |
 //! | [`merkle_tree_update`] | Apply queued batches to the tree |
@@ -28,9 +26,8 @@
 //!
 //! There is a single account type, [`merkle_tree::BatchedMerkleTreeAccount`]: it
 //! stores the tree roots, the cyclic root history, and an integrated input queue
-//! (hash chains plus cached tree updates). Address and nullifier trees use the
-//! same `AddressV2` layout and differ only in the sentinel root they are seeded
-//! with.
+//! (hash chains + cached tree updates). Address and nullifier trees use the same
+//! `AddressV2` layout and differ only in the sentinel root they are seeded with.
 //!
 //! ## Operations
 //!
@@ -47,10 +44,8 @@
 //!   rejects non-canonical field elements, adds the value to the current
 //!   input-queue batch's open hash chain via the [`queue`] module, and returns
 //!   the queue index `q` the value reserved. The program stores `{ q, bump }` in
-//!   the nullifier marker PDA derived from
-//!   [`nullifier_marker::nullifier_marker_seeds`]; the marker is what rejects a
-//!   second insertion of a pending nullifier. With the `test-only` feature,
-//!   [`nullifier_marker::host`] emulates marker existence for lifecycle tests.
+//!   the nullifier marker PDA (`zolana_interface::state::NullifierMarker`); the
+//!   marker is what rejects a second insertion of a pending nullifier.
 //!
 //! ### Tree update
 //! - The queued batch is applied to the tree with a ZKP that proves
@@ -69,7 +64,7 @@
 //! (`Inserted`) and the other batch holds at least half of its values, the next
 //! applied update marks it reclaimable: root-history slots that could still prove
 //! non-inclusion of its values are zeroed and the tree's `close_before_index`
-//! watermark `w` advances to `first_sequence(batch) + batch_size`. A batch is
+//! watermark `w` advances to `start_index + batch_size - 1`. A batch is
 //! reusable only once reclaimable (`BatchNotReclaimable` otherwise), and a nullifier
 //! marker may be closed only once `marker.queue_index < w`.
 //!
@@ -84,7 +79,7 @@
 //!
 //! ## Dependencies
 //!
-//! - **`zolana-hasher`** - Poseidon hash for hash chains, canonical field check
+//! - **`zolana-hasher`** - Poseidon hash for hash chains and tree operations
 //! - **`groth16-solana`** - Groth16 proof verification for batch updates (see [`verify`])
 //! - **`zolana-account-checks`** - Account validation and discriminator checks
 //!
@@ -103,12 +98,9 @@
 //! - `BatchNotReady` (14301) - Batch is not ready to be inserted
 //! - `BatchAlreadyInserted` (14302) - Batch is already inserted
 //! - `TreeIsFull` (14310) - Batched Merkle tree reached capacity
-//! - `NonInclusionCheckFailed` (14311) - Nullifier is already queued
 //! - `BatchNotReclaimable` (14312) - Batch must be reclaimable before reuse
 //! - `NonCanonicalFieldElement` (14317) - Value is not below the BN254 scalar modulus
 //! - `QueueIndexMismatch` (14318) - Queue index and batch position disagree
-//! - `NullifierMarkerNotClosable` (14319) - Marker queue index is not below `close_before_index`
-//! - `NullifierMarkerMissing` (14320) - No marker exists for the nullifier
 //! - Additional errors from underlying libraries (hasher, zero-copy, verifier, etc.)
 
 #![allow(unexpected_cfgs)]
@@ -119,7 +111,6 @@ pub mod initialize_address_tree;
 pub mod merkle_tree;
 pub mod merkle_tree_metadata;
 pub mod merkle_tree_update;
-pub mod nullifier_marker;
 pub mod queue;
 pub mod queue_batch_metadata;
 pub(crate) mod rent;

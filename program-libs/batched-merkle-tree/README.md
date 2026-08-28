@@ -50,15 +50,10 @@ are not canonical BN254 scalar field elements, requires the queue sequence and
 the current batch position to agree (`QueueIndexMismatch`), adds the value to
 the current batch's open Poseidon hash chain, and returns the queue index `q`
 the value reserved. The program stores `NullifierMarker { queue_index: q, bump }`
-(9 Borsh bytes) in the PDA derived from `nullifier_marker_seeds(tree,
-nullifier)` = `["nullifier", tree_pubkey, nullifier]`; an existing marker is
+(9 Borsh bytes, defined in `zolana_interface::state`) in the PDA derived from
+`["nullifier", tree_pubkey, nullifier]`; an existing marker is
 what rejects a second insertion of a pending nullifier
-(`NonInclusionCheckFailed`).
-
-With the `test-only` feature, `nullifier_marker::host` keeps a global set of
-`(tree, nullifier) -> queue_index` reservations so lifecycle tests can mirror
-the on-chain close rule. Normal host builds do not carry process-global marker
-state.
+(`ShieldedPoolError::NullifierAlreadyQueued`).
 
 ### Tree update
 
@@ -74,16 +69,17 @@ After each applied update, with `current` the batch that was just updated and
 values, `previous` is `Inserted`, and `previous` is not yet reclaimable, then the
 root-history slots that could still prove non-inclusion of `previous`'s values
 are zeroed and the tree's watermark advances to
-`close_before_index = max(close_before_index, first_sequence(previous) +
-batch_size)` where `first_sequence(batch) = batch.start_index - 1`.
+`close_before_index = max(close_before_index, reclaimable_sequence(previous))`
+where `Batch::reclaimable_sequence() = start_index + batch_size - 1` (the
+spec writes this as `first_sequence(batch) + B`).
 
 - `Batch::is_reclaimable(close_before_index)` is
-  `close_before_index >= first_sequence + batch_size`.
+  `close_before_index >= reclaimable_sequence()`.
 - Queue insertion reuses an `Inserted` batch only once it is reclaimable; otherwise
   it fails with `BatchNotReclaimable`.
 - A nullifier marker may be closed only once `marker.queue_index <
-  close_before_index` (`NullifierMarkerNotClosable` otherwise), which is when
-  every accepted root already contains the nullifier.
+  close_before_index` (`ShieldedPoolError::NullifierMarkerNotClosable`
+  otherwise), which is when every accepted root already contains the nullifier.
 
 ## Error codes
 
@@ -92,21 +88,18 @@ All errors are defined in `src/errors.rs` and map to u32 error codes:
 - `BatchNotReady` (14301) - Batch is not ready to be inserted
 - `BatchAlreadyInserted` (14302) - Batch is already inserted
 - `TreeIsFull` (14310) - Batched Merkle tree reached capacity
-- `NonInclusionCheckFailed` (14311) - Nullifier is already queued
 - `BatchNotReclaimable` (14312) - Batch must be reclaimable before reuse
 - `NonCanonicalFieldElement` (14317) - Value is not below the BN254 scalar modulus
 - `QueueIndexMismatch` (14318) - Queue index and batch position disagree
-- `NullifierMarkerNotClosable` (14319) - Marker queue index is not below `close_before_index`
-- `NullifierMarkerMissing` (14320) - No marker exists for the nullifier
 - Additional errors from underlying libraries (hasher, zero-copy, verifier, etc.)
 
 ## Testing
 
-- `cargo test -p zolana-batched-merkle-tree` runs the marker, canonical-field,
-  and layout tests.
+- `cargo test -p zolana-batched-merkle-tree` runs the queue-insertion, layout,
+  and reclaimable-batch tests (the latter drive the cached-update apply pass
+  without a proof).
 - `cargo test -p zolana-batched-merkle-tree --features test-only` adds the
-  reclaimable-batch tests (they drive the cached-update apply pass without a proof)
-  and the prover-backed `tests/nullifier_tree.rs`, which needs a running
-  prover (`ZOLANA_PROVER_URL`).
+  in-crate unit tests and the prover-backed `tests/nullifier_tree.rs`, which
+  needs a running prover (`ZOLANA_PROVER_URL`).
 - `tests/init_roots.rs` verifies the sentinel roots against
   `zolana-merkle-tree`.

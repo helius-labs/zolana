@@ -121,9 +121,8 @@ The instruction also receives the writable marker PDA.
    `q + 1 = batches[c].start_index + batches[c].inserted_elements` and
    `q + 1 < tree.capacity`.
 4. Derive the canonical marker PDA and bump. Require the supplied address to
-   match. An initialized marker returns `NonInclusionCheckFailed`; the
-   shielded-pool program surfaces it as `ShieldedPoolError::NullifierAlreadyQueued`
-   (7048).
+   match. An initialized marker fails with
+   `ShieldedPoolError::NullifierAlreadyQueued` (7048).
 5. Accept an unused marker that is System-owned, empty, and optionally
    prefunded. Transfer only its missing rent-exempt balance from the tree, then
    allocate nine bytes, assign it to the program, and store `{ q, bump }`.

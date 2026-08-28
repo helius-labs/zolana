@@ -1,5 +1,3 @@
-#![cfg(feature = "test-only")]
-
 use solana_address::Address;
 use zolana_batched_merkle_tree::{
     batch::BatchState,
@@ -7,7 +5,6 @@ use zolana_batched_merkle_tree::{
     errors::BatchedMerkleTreeError,
     merkle_tree::{get_merkle_tree_account_size, BatchedMerkleTreeAccount},
     merkle_tree_metadata::TreeType,
-    nullifier_marker::host,
     zero_copy::{CachedTreeUpdate, TreeAccountLayout},
 };
 
@@ -81,10 +78,7 @@ fn apply_update(data: &mut [u8], pubkey: &Address, batch_index: usize, new_root:
         };
     }
     let mut tree = load_tree(data, pubkey);
-    let event = tree
-        .apply_cached_tree_updates_unverified()
-        .unwrap()
-        .unwrap();
+    let event = tree.apply_cached_tree_updates().unwrap().unwrap();
     assert_eq!(event.num_update, 1);
     assert_eq!(event.new_root, new_root);
 }
@@ -99,7 +93,6 @@ fn assert_roots(data: &mut [u8], pubkey: &Address, expected: [Option<[u8; 32]>; 
 #[test]
 fn reclaimable_batch_advances_watermark_and_zeroes_roots() {
     let pubkey = Address::new_unique();
-    let tree_key = pubkey.to_bytes();
     let mut data = account_data();
     let init_root = init_tree(&mut data, &pubkey).get_root().unwrap();
 
@@ -113,7 +106,6 @@ fn reclaimable_batch_advances_watermark_and_zeroes_roots() {
         assert_eq!(batch.get_state(), BatchState::Inserted);
         assert_eq!(batch.sequence_number, 4 + RH as u64);
         assert_eq!(batch.root_index, 4);
-        assert_eq!(batch.first_sequence().unwrap(), 0);
         assert_eq!(batch.reclaimable_sequence().unwrap(), BATCH_SIZE);
         assert!(!batch.is_reclaimable(tree.close_before_index));
         assert_eq!(tree.close_before_index, 0);
@@ -171,19 +163,6 @@ fn reclaimable_batch_advances_watermark_and_zeroes_roots() {
         ],
     );
 
-    for i in 1..=4u8 {
-        load_tree(&mut data, &pubkey)
-            .close_nullifier_marker_host(&nullifier(i))
-            .unwrap();
-        assert!(!host::contains(&tree_key, &nullifier(i)));
-    }
-    assert_eq!(
-        load_tree(&mut data, &pubkey)
-            .close_nullifier_marker_host(&nullifier(5))
-            .unwrap_err(),
-        BatchedMerkleTreeError::NullifierMarkerNotClosable
-    );
-
     assert_eq!(insert(&mut data, &pubkey, [7, 8]), vec![6, 7]);
     assert_eq!(insert(&mut data, &pubkey, [9]), vec![8]);
     let tree = load_tree(&mut data, &pubkey);
@@ -194,11 +173,10 @@ fn reclaimable_batch_advances_watermark_and_zeroes_roots() {
 }
 
 #[test]
-fn full_successor_makes_inserted_batch_reclaimable_at_reuse_boundary() {
+fn inserted_batch_reuse_waits_for_successor_append() {
     let pubkey = Address::new_unique();
-    let tree_key = pubkey.to_bytes();
     let mut data = account_data();
-    init_tree(&mut data, &pubkey);
+    let init_root = init_tree(&mut data, &pubkey).get_root().unwrap();
 
     assert_eq!(
         insert(&mut data, &pubkey, 1..=8),
@@ -220,14 +198,31 @@ fn full_successor_makes_inserted_batch_reclaimable_at_reuse_boundary() {
         );
         assert_eq!(tree.close_before_index, 0);
     }
+    let full_roots = [
+        Some(init_root),
+        Some(root(1)),
+        Some(root(2)),
+        Some(root(3)),
+        Some(root(4)),
+        None,
+        None,
+        None,
+        None,
+        None,
+    ];
 
-    let value = nullifier(9);
+    let before = data.clone();
     assert_eq!(
         load_tree(&mut data, &pubkey)
-            .insert_nullifier_into_queue(&value)
-            .unwrap(),
-        8
+            .insert_nullifier_into_queue(&nullifier(9))
+            .unwrap_err(),
+        BatchedMerkleTreeError::BatchNotReclaimable
     );
+    assert_eq!(data, before);
+    assert_eq!(load_tree(&mut data, &pubkey).close_before_index, 0);
+    assert_roots(&mut data, &pubkey, full_roots);
+
+    apply_update(&mut data, &pubkey, 1, root(5));
     assert_eq!(load_tree(&mut data, &pubkey).close_before_index, BATCH_SIZE);
     assert_roots(
         &mut data,
@@ -238,17 +233,18 @@ fn full_successor_makes_inserted_batch_reclaimable_at_reuse_boundary() {
             None,
             None,
             Some(root(4)),
-            None,
+            Some(root(5)),
             None,
             None,
             None,
             None,
         ],
     );
+
+    assert_eq!(insert(&mut data, &pubkey, [9]), vec![8]);
     let tree = load_tree(&mut data, &pubkey);
     let reused = tree.get_metadata().queue_batches.batches.first().unwrap();
     assert_eq!(reused.get_state(), BatchState::Fill);
     assert_eq!(reused.start_index, 1 + 2 * BATCH_SIZE);
     assert_eq!(reused.get_num_inserted_elements(), 1);
-    assert_eq!(host::queue_index(&tree_key, &value), Some(8));
 }

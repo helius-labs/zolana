@@ -144,12 +144,12 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
     ///    means new_root is the correct next root for the current tree.
     /// 3. Apply: advance the tree next index and sequence number, append the new
     ///    root, mark the zkp batch inserted, and mark the previous batch reclaimable once
-    ///    this batch holds half of its values (spec batch append step 9, using
-    ///    the pending index captured before step 8 advanced it).
+    ///    this batch holds half of its values (spec batch append step 9, before
+    ///    step 8 advances the pending index).
     /// 4. Clear the applied cache slot.
     /// 5. Record the new root in the cascade event.
     #[cfg_attr(feature = "profile-program", light_program_profiler::profile)]
-    pub(crate) fn apply_cached_tree_updates(
+    pub fn apply_cached_tree_updates(
         &mut self,
     ) -> Result<Option<BatchAddressAppendEvent>, BatchedMerkleTreeError> {
         let zkp_batch_size = self.queue_batches.zkp_batch_size;
@@ -175,7 +175,7 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
                 .and_then(|updates| updates.get(zkp_batch_index))
             {
                 Some(cached_update) if cached_update.is_occupied() => *cached_update,
-                _ => break,
+                _ => return Ok(event),
             };
 
             // 2. Stop unless the update's old root matches the account tree root.
@@ -199,7 +199,7 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
                     pending_batch_index,
                     zkp_batch_index
                 );
-                break;
+                return Ok(event);
             }
 
             // 3. Apply: advance the tree and mark the zkp batch inserted.
@@ -223,11 +223,11 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
                     root_index,
                     root_history_capacity,
                 )?;
+            self.mark_previous_batch_reclaimable()?;
             self.layout
                 .metadata
                 .queue_batches
                 .increment_pending_batch_index_if_inserted(pending_batch_state);
-            self.mark_previous_batch_reclaimable(pending_batch_index)?;
 
             // 4. Clear the applied cache slot.
             self.clear_cached_tree_update(pending_batch_index, zkp_batch_index)?;
@@ -249,7 +249,6 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
             event.num_update += 1;
             event.new_root = cached_update.new_root;
         }
-        Ok(event)
     }
 
     /// Reset the cached update at `[pending_batch_index][zkp_batch_index]` to empty (`occupied = 0`),

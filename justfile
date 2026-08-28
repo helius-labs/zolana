@@ -77,8 +77,8 @@ test: test-shielded-pool test-sdk-libs test-photon
 # and no proving keys. CI runs these same suites on every push, one job each.
 test-hermetic: test-cli test-batched-merkle-tree test-program-fast test-user-registry-litesvm test-sdk-libs test-photon
 
-# Reclaimable-batch tests use the host marker emulator and must opt into it. Keep the
-# prover-backed nullifier_tree binary out of this hermetic lane.
+# The in-crate tests need the test-only feature. Keep the prover-backed
+# nullifier_tree binary out of this hermetic lane.
 test-batched-merkle-tree:
     cargo nextest run -p zolana-batched-merkle-tree --features test-only --lib --test batch_reclaimable --test nullifier_marker
 

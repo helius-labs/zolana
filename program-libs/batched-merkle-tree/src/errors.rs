@@ -51,8 +51,6 @@ pub enum BatchedMerkleTreeError {
     InvalidIndex,
     #[error("Batched Merkle tree is full.")]
     TreeIsFull,
-    #[error("Nullifier is already queued.")]
-    NonInclusionCheckFailed,
     #[error("Batch must be reclaimable prior to reusing it.")]
     BatchNotReclaimable,
     #[error("Account error {0}")]
@@ -69,10 +67,6 @@ pub enum BatchedMerkleTreeError {
     NonCanonicalFieldElement,
     #[error("Queue index does not match the current batch position.")]
     QueueIndexMismatch,
-    #[error("Nullifier marker is not closable yet.")]
-    NullifierMarkerNotClosable,
-    #[error("Nullifier marker does not exist.")]
-    NullifierMarkerMissing,
 }
 
 impl From<BatchedMerkleTreeError> for u32 {
@@ -84,7 +78,6 @@ impl From<BatchedMerkleTreeError> for u32 {
             BatchedMerkleTreeError::InvalidBatchIndex => 14308,
             BatchedMerkleTreeError::InvalidIndex => 14309,
             BatchedMerkleTreeError::TreeIsFull => 14310,
-            BatchedMerkleTreeError::NonInclusionCheckFailed => 14311,
             BatchedMerkleTreeError::BatchNotReclaimable => 14312,
             BatchedMerkleTreeError::CachedTreeUpdateIndexOutOfRange => 14313,
             BatchedMerkleTreeError::HashChainNotReady => 14314,
@@ -92,8 +85,6 @@ impl From<BatchedMerkleTreeError> for u32 {
             BatchedMerkleTreeError::InvalidBatchState => 14316,
             BatchedMerkleTreeError::NonCanonicalFieldElement => 14317,
             BatchedMerkleTreeError::QueueIndexMismatch => 14318,
-            BatchedMerkleTreeError::NullifierMarkerNotClosable => 14319,
-            BatchedMerkleTreeError::NullifierMarkerMissing => 14320,
             BatchedMerkleTreeError::Hasher(e) => e.into(),
             BatchedMerkleTreeError::ZeroCopy(e) => e.into(),
             BatchedMerkleTreeError::MerkleTreeMetadata(e) => e.into(),
