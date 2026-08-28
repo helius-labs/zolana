@@ -24,7 +24,7 @@ use super::{
 };
 use crate::instructions::{
     event::emit_general_event,
-    nullifier_marker::create_nullifier_markers,
+    nullifier_marker::{create_nullifier_markers, fund_nullifier_markers},
     shared::{
         bool_field, check_not_expired, collect_forester_fee, nullifier_queue_error, tree_error,
     },
@@ -120,7 +120,7 @@ pub(crate) fn process_merge_core(
         let zkp_batch_size = tree.nullifer_tree().queue_batches.zkp_batch_size;
         (inputs, derived, zkp_batch_size)
     };
-    create_nullifier_markers(
+    let marker_rent = create_nullifier_markers(
         accounts.input_tree,
         &mut accounts.nullifier_markers,
         &inputs,
@@ -143,6 +143,11 @@ pub(crate) fn process_merge_core(
         accounts.input_tree,
         MERGE_INPUT_COUNT as u64,
         zkp_batch_size,
+    )?;
+    fund_nullifier_markers(
+        accounts.input_tree,
+        &mut accounts.nullifier_markers,
+        &marker_rent,
     )?;
     emit_general_event(EventKind::Merge, event)
 }

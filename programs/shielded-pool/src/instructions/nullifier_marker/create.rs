@@ -14,40 +14,56 @@ use zolana_interface::{
 
 use super::loader::load_unused_nullifier_marker;
 
-struct MarkerRent {
+pub(crate) struct NullifierMarkerRent {
     marker_minimum: u64,
     tree_minimum: u64,
+}
+
+impl NullifierMarkerRent {
+    fn missing(&self, marker: &AccountView) -> u64 {
+        self.marker_minimum.saturating_sub(marker.lamports())
+    }
+
+    fn tree_remaining(&self, tree: &AccountView, amount: u64) -> Result<u64, ProgramError> {
+        tree.lamports()
+            .checked_sub(amount)
+            .filter(|remaining| *remaining >= self.tree_minimum)
+            .ok_or_else(|| ShieldedPoolError::InsufficientNullifierMarkerRent.into())
+    }
 }
 
 #[inline(never)]
 #[profile]
 pub(crate) fn create_nullifier_markers(
-    tree: &mut AccountView,
+    tree: &AccountView,
     markers: &mut [&mut AccountView],
     inputs: &[Input],
-) -> ProgramResult {
+) -> Result<NullifierMarkerRent, ProgramError> {
     if markers.len() != inputs.len() {
         return Err(ShieldedPoolError::InvalidNullifierMarker.into());
     }
-    let rent = Rent::get()?;
-    let marker_rent = MarkerRent {
-        marker_minimum: rent.try_minimum_balance(NULLIFIER_MARKER_SIZE)?,
-        tree_minimum: rent.try_minimum_balance(tree.data_len())?,
+    let rent_sysvar = Rent::get()?;
+    let rent = NullifierMarkerRent {
+        marker_minimum: rent_sysvar.try_minimum_balance(NULLIFIER_MARKER_SIZE)?,
+        tree_minimum: rent_sysvar.try_minimum_balance(tree.data_len())?,
     };
     let tree_address = *tree.address().as_array();
+    let mut total_missing: u64 = 0;
     for (marker, input) in markers.iter_mut().zip(inputs) {
-        create_nullifier_marker(tree, marker, &tree_address, input, &marker_rent)?;
+        create_nullifier_marker(marker, &tree_address, input)?;
+        total_missing = total_missing
+            .checked_add(rent.missing(marker))
+            .ok_or(ProgramError::ArithmeticOverflow)?;
     }
-    Ok(())
+    rent.tree_remaining(tree, total_missing)?;
+    Ok(rent)
 }
 
 #[inline(never)]
 fn create_nullifier_marker(
-    tree: &mut AccountView,
     marker: &mut AccountView,
     tree_address: &[u8; 32],
     input: &Input,
-    rent: &MarkerRent,
 ) -> ProgramResult {
     let bump = load_unused_nullifier_marker(marker, tree_address, &input.nullifier)?;
     let bump_seed = [bump];
@@ -68,33 +84,37 @@ fn create_nullifier_marker(
     }
     .invoke_signed(&[Signer::from(&seeds)])?;
 
-    {
-        let mut data = marker
-            .try_borrow_mut()
-            .map_err(|_| ShieldedPoolError::InvalidNullifierMarker)?;
-        let mut writer: &mut [u8] = &mut data;
-        NullifierMarker {
-            queue_index: input.input_queue_seq,
-            bump,
-        }
-        .serialize(&mut writer)
+    let mut data = marker
+        .try_borrow_mut()
         .map_err(|_| ShieldedPoolError::InvalidNullifierMarker)?;
+    let mut writer: &mut [u8] = &mut data;
+    NullifierMarker {
+        queue_index: input.input_queue_seq,
+        bump,
     }
+    .serialize(&mut writer)
+    .map_err(|_| ShieldedPoolError::InvalidNullifierMarker.into())
+}
 
-    let missing = rent.marker_minimum.saturating_sub(marker.lamports());
-    if missing == 0 {
-        return Ok(());
+#[inline(never)]
+#[profile]
+pub(crate) fn fund_nullifier_markers(
+    tree: &mut AccountView,
+    markers: &mut [&mut AccountView],
+    rent: &NullifierMarkerRent,
+) -> ProgramResult {
+    for marker in markers.iter_mut() {
+        let missing = rent.missing(marker);
+        if missing == 0 {
+            continue;
+        }
+        let tree_remaining = rent.tree_remaining(tree, missing)?;
+        let marker_balance = marker
+            .lamports()
+            .checked_add(missing)
+            .ok_or(ProgramError::ArithmeticOverflow)?;
+        tree.set_lamports(tree_remaining);
+        marker.set_lamports(marker_balance);
     }
-    let tree_remaining = tree
-        .lamports()
-        .checked_sub(missing)
-        .filter(|remaining| *remaining >= rent.tree_minimum)
-        .ok_or(ShieldedPoolError::InsufficientNullifierMarkerRent)?;
-    let marker_balance = marker
-        .lamports()
-        .checked_add(missing)
-        .ok_or(ProgramError::ArithmeticOverflow)?;
-    tree.set_lamports(tree_remaining);
-    marker.set_lamports(marker_balance);
     Ok(())
 }

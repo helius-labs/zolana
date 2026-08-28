@@ -23,7 +23,7 @@ use super::{
 };
 use crate::instructions::{
     event::emit_general_event,
-    nullifier_marker::create_nullifier_markers,
+    nullifier_marker::{create_nullifier_markers, fund_nullifier_markers},
     shared::{check_not_expired, collect_forester_fee},
     transact::verify::{OwnerHashCache, TransactProof, TransactProofInputs},
 };
@@ -84,7 +84,7 @@ pub fn process_transact_ix(
     )?;
     // 8. Insert nullifiers into queue.
     let input_tree_result = apply_input_tree(transact_accounts.input_tree, &ix, &mut proof_inputs)?;
-    create_nullifier_markers(
+    let marker_rent = create_nullifier_markers(
         transact_accounts.input_tree,
         &mut transact_accounts.nullifier_markers,
         &input_tree_result.inputs,
@@ -121,6 +121,11 @@ pub fn process_transact_ix(
         transact_accounts.input_tree,
         ix.inputs.len() as u64,
         input_tree_result.zkp_batch_size,
+    )?;
+    fund_nullifier_markers(
+        transact_accounts.input_tree,
+        &mut transact_accounts.nullifier_markers,
+        &marker_rent,
     )?;
 
     let event = build_transact_event(
