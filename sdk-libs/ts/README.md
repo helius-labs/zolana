@@ -15,7 +15,7 @@ All private transactions are executed in a single Solana transaction.
 ## Install
 
 ```sh
-npm install @heliuslabs/zolana @solana/kit
+npm install @heliuslabs/zolana@alpha @solana/kit
 ```
 
 Requirements:
@@ -109,7 +109,7 @@ the same owner seed, as shown above.
 
 ### Endpoints
 
-A client needs one URL and a
+A client needs a
 [Helius API key](https://dashboard.helius.dev/).
 
 The RPC endpoint serves the Solana RPC. The Photon indexer to fetch encrypted
@@ -133,9 +133,13 @@ const client = await createZolanaClient({
 });
 ```
 
-On localnet the SDK starts the local test validator (`:8899`), Photon indexer
-(`:8784`), and prover (`:3001`), and the client connects to them automatically
-without needing endpoint configuration.
+`allowInsecureHttp: true` is required for these plaintext `http://` indexer and
+prover hosts. Use it only on this devnet path with test funds.
+
+On localnet, start the stack first with `zolana dev start`. The local test
+validator (`:8899`), Photon indexer (`:8784`), and prover (`:3001`) then
+listen, and the client connects to them automatically without needing
+endpoint configuration.
 
 ```ts
 const client = await createZolanaClient({});
@@ -165,10 +169,29 @@ await submit(deposit, feePayer);
 The standard SPL Token program is used by default. For Token-2022, also pass
 `splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID`.
 
-Creating a private wallet registers the Solana address in the onchain registry
-and maps it to a shielded address. On every transfer, the SDK looks up the
-wallet address in the onchain registry to resolve the shielded address.
 Passing a `ShieldedAddress` skips the lookup.
+
+### Registration
+
+`new Wallet()` builds local state only. The onchain mapping from a Solana
+address to a shielded address is a separate signed transaction.
+
+```ts
+import { buildRegistrationTransaction } from "@heliuslabs/zolana";
+
+const registration = await buildRegistrationTransaction({
+  client,
+  owner: feePayer.address,
+  address: keypair.shieldedAddress(),
+});
+if (registration !== undefined) {
+  await submit(registration, feePayer);
+}
+```
+
+`buildRegistrationTransaction` returns `undefined` when that owner is already
+registered with the same keys. A recipient that never submitted this
+transaction fails a transfer with `WALLET_RECIPIENT_NOT_REGISTERED`.
 
 ### Private transfer
 
@@ -285,7 +308,7 @@ versions are immutable:
 
 - latest: <https://helius-labs.github.io/zolana/ts-sdk/>;
 - explicit version:
-  <https://helius-labs.github.io/zolana/ts-sdk/v0.1.0-alpha/>; and
+  <https://helius-labs.github.io/zolana/ts-sdk/v0.1.3-alpha/>; and
 - version index:
   <https://helius-labs.github.io/zolana/ts-sdk/versions.json>.
 
@@ -294,7 +317,7 @@ workflow runs.
 
 The intended long-term canonical location is
 `https://www.helius.dev/privacy/api/`, with immutable versions such as
-`https://www.helius.dev/privacy/api/v0.1.0-alpha/`. Migrate only after the Helius
+`https://www.helius.dev/privacy/api/v0.1.3-alpha/`. Migrate only after the Helius
 website proxies `/privacy/api/*` to the GitHub Pages `/zolana/ts-sdk/*` origin.
 At that point, update the release workflow's `PUBLIC_BASE_URL`; existing GitHub
 Pages URLs remain available as the backing origin.
