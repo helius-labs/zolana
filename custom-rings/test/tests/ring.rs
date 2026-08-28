@@ -48,7 +48,10 @@ use zolana_client::{
     SolanaRpc,
 };
 use zolana_interface::{
-    instruction::{AssetDeposit, Deposit as SppDeposit, DepositAsset},
+    instruction::{
+        AssetDeposit, Deposit as SppDeposit, DepositAsset, DepositSplAccounts,
+        TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts,
+    },
     pda,
     state::{
         discriminator::{PROTOCOL_CONFIG, RING_CONFIG, TREE_ACCOUNT_DISCRIMINATOR},
@@ -65,14 +68,15 @@ use zolana_ring_rpc::{
 };
 use zolana_test_utils::{
     smart_account,
+    spl::{create_token_account, mint_to},
     test_validator_asserts::{
         assert_account_unchanged, assert_transaction_compute_units, fetch_account, fetch_state,
-        wait_for_indexed_transaction, wait_for_merkle_proof,
+        token_amount, wait_for_indexed_transaction, wait_for_merkle_proof,
     },
 };
 use zolana_transaction::{
     instructions::{
-        transact::{ConfidentialTransfer, PreparedTransfer},
+        transact::{ConfidentialTransfer, PreparedTransfer, SettlementTarget},
         types::SppProofInputUtxo,
     },
     Data, KeypairWalletAuthority, Utxo, Wallet, DEFAULT_TAG_WINDOW, SOL_ASSET_ID, SOL_MINT,
@@ -124,6 +128,19 @@ const EXIT_CHANGE: u64 = ENTRY_CHANGE - EXIT_AMOUNT;
 const REFUSED_AMOUNT: u64 = 100_000_000;
 const FOREIGN_RING: Address = Address::new_from_array([9; 32]);
 
+const USDC_FUNDING: u64 = 50_000_000;
+const USDC_DEFAULT_DEPOSIT: u64 = 40_000_000;
+const USDC_ENTRY_AMOUNT: u64 = 25_000_000;
+const USDC_ENTRY_CHANGE: u64 = USDC_DEFAULT_DEPOSIT - USDC_ENTRY_AMOUNT;
+const USDC_HOP_AMOUNT: u64 = 10_000_000;
+const USDC_HOP_CHANGE: u64 = USDC_ENTRY_CHANGE - USDC_HOP_AMOUNT;
+const USDC_RING_DEPOSIT: u64 = 5_000_000;
+const USDC_EXIT_AMOUNT: u64 = 6_000_000;
+const USDC_EXIT_CHANGE: u64 = USDC_HOP_CHANGE + USDC_RING_DEPOSIT - USDC_EXIT_AMOUNT;
+const USDC_WITHDRAW_AMOUNT: u64 = 2_500_000;
+const USDC_FINAL_SEND: u64 = 1_000_000;
+const USDC_FINAL_CHANGE: u64 = USDC_EXIT_CHANGE - USDC_WITHDRAW_AMOUNT - USDC_FINAL_SEND;
+
 #[test]
 fn localnet_bring_up_is_live() -> Result<()> {
     let env = setup()?;
@@ -167,15 +184,27 @@ fn localnet_bring_up_is_live() -> Result<()> {
         "protocol config"
     );
 
-    // 3. SOL-only bootstrap: the registry the wallets share resolves asset id 1
-    //    to SOL with no `CreateAssetCounter`/`CreateSplInterface` step, and SOL
-    //    settles through a system-owned interface PDA nothing has to create.
+    // 3. The registry the wallets share resolves SOL and the bring-up's USDC
+    //    mint, and the USDC interface vault exists empty beside the counter.
     assert_eq!(
         env.assets
             .resolve(SOL_ASSET_ID)
             .map_err(|e| anyhow!("SOL asset resolution failed {e:?}"))?,
         SOL_MINT,
         "asset id 1 is SOL"
+    );
+    assert_eq!(
+        env.assets
+            .resolve(2)
+            .map_err(|e| anyhow!("USDC asset resolution failed {e:?}"))?,
+        env.usdc_mint,
+        "asset id 2 is the bring-up USDC mint"
+    );
+    fetch_account(rpc, &pda::spl_asset_counter())?;
+    assert_eq!(
+        token_amount(&fetch_account(rpc, &pda::spl_interface(&env.usdc_mint))?),
+        0,
+        "USDC interface vault starts empty"
     );
 
     // 4. The default tree is owned by SPP, exactly account-sized, and parses
@@ -828,6 +857,7 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
     let deposited = DefaultRingDeposit {
         depositor: sender,
         tree: env.tree,
+        asset: DepositAsset::Sol,
         amount: DEFAULT_DEPOSIT,
     }
     .send(rpc)?;
@@ -839,14 +869,16 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
             .with_ring_program_id(ring_program);
     entry_transfer.send(&recipient_address, SOL_MINT, ENTRY_AMOUNT)?;
     let prepared = entry_transfer.prepare()?;
-    let sender_change = SolNote {
+    let sender_change = Note {
         owner: sender,
+        asset: SOL_MINT,
         amount: ENTRY_CHANGE,
         blinding: output_blinding(&prepared, CHANGE_SLOT)?,
         ring_program_id: Some(ring_program),
     };
-    let recipient_ring_note = SolNote {
+    let recipient_ring_note = Note {
         owner: recipient,
+        asset: SOL_MINT,
         amount: ENTRY_AMOUNT,
         blinding: output_blinding(&prepared, RECIPIENT_SLOT)?,
         ring_program_id: Some(ring_program),
@@ -855,6 +887,7 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
         ring,
         sender,
         prepared,
+        interface_transfer_accounts: Vec::new(),
         auditor_tag,
     }
     .send(&env, &prover)?;
@@ -892,14 +925,16 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
             .with_ring_program_id(ring_program);
     exit_transfer.send_default_ring(&recipient_address, SOL_MINT, EXIT_AMOUNT)?;
     let prepared = exit_transfer.prepare()?;
-    let exit_change = SolNote {
+    let exit_change = Note {
         owner: sender,
+        asset: SOL_MINT,
         amount: EXIT_CHANGE,
         blinding: output_blinding(&prepared, CHANGE_SLOT)?,
         ring_program_id: Some(ring_program),
     };
-    let recipient_default_note = SolNote {
+    let recipient_default_note = Note {
         owner: recipient,
+        asset: SOL_MINT,
         amount: EXIT_AMOUNT,
         blinding: output_blinding(&prepared, RECIPIENT_SLOT)?,
         ring_program_id: None,
@@ -908,6 +943,7 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
         ring,
         sender,
         prepared,
+        interface_transfer_accounts: Vec::new(),
         auditor_tag,
     }
     .send(&env, &prover)?;
@@ -970,8 +1006,9 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
         .ring_program_id = Some(FOREIGN_RING);
     expect_foreign_ring(prove(prepared), FOREIGN_RING)?;
 
-    let foreign_note = SolNote {
+    let foreign_note = Note {
         owner: sender,
+        asset: SOL_MINT,
         amount: EXIT_CHANGE,
         blinding: random_blinding(),
         ring_program_id: Some(FOREIGN_RING),
@@ -982,6 +1019,335 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
             .with_ring_program_id(ring_program);
     foreign_input.send(&recipient_address, SOL_MINT, REFUSED_AMOUNT)?;
     expect_foreign_ring(prove(foreign_input.prepare()?), FOREIGN_RING)?;
+
+    Ok(())
+}
+
+/// The same crossing carries an SPL mint, and a ring transact settles a public
+/// USDC withdrawal.
+#[test]
+fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Result<()> {
+    let mut env = setup()?;
+    let rpc = env.client.rpc();
+    let indexer = env.client.indexer();
+    let ring_program = custom_ring_program_id()?;
+    let ring = CustomRing::new(ring_program);
+    let auditor = ViewingKey::new();
+    let auditor_tag = auditor_view_tag(&auditor.pubkey());
+    RegisterRing {
+        ring,
+        payer: &env.payer,
+        auditor_pubkey: auditor.pubkey(),
+    }
+    .send(rpc)?;
+    let prover = ProverClient::local();
+    let usdc = env.usdc_mint;
+    let usdc_deposit = |user_token| {
+        DepositAsset::Spl(DepositSplAccounts {
+            mint: usdc,
+            user_token,
+            token_program: pda::spl_token_program_id(),
+        })
+    };
+    let sender = &env.sender.keypair;
+    let recipient = &env.recipient.keypair;
+    let sender_address = sender.shielded_address()?;
+    let recipient_address = recipient.shielded_address()?;
+    let recipient_authority = KeypairWalletAuthority::new(Address::default(), recipient);
+
+    let sender_usdc = create_token_account(rpc, &env.payer, &usdc, &sender.pubkey())?;
+    mint_to(rpc, &env.payer, &usdc, &sender_usdc, USDC_FUNDING)?;
+
+    // 1. Public -> default ring, the sender signs as the token authority.
+    let deposited = DefaultRingDeposit {
+        depositor: sender,
+        tree: env.tree,
+        asset: usdc_deposit(sender_usdc),
+        amount: USDC_DEFAULT_DEPOSIT,
+    }
+    .send(rpc)?;
+    assert_eq!(
+        token_amount(&fetch_account(rpc, &sender_usdc)?),
+        USDC_FUNDING - USDC_DEFAULT_DEPOSIT,
+        "funding account after the default deposit"
+    );
+    let entry_input = deposited.spend();
+    wait_for_merkle_proof(indexer, env.tree, entry_input.hash()?);
+
+    // 2. Entry, the default USDC note is spent into ring-bound notes.
+    let mut entry_transfer =
+        ConfidentialTransfer::new(sender_address, vec![entry_input], sender.pubkey())
+            .with_compact_change()
+            .with_ring_program_id(ring_program);
+    entry_transfer.send(&recipient_address, usdc, USDC_ENTRY_AMOUNT)?;
+    let prepared = entry_transfer.prepare()?;
+    let entry_change = Note {
+        owner: sender,
+        asset: usdc,
+        amount: USDC_ENTRY_CHANGE,
+        blinding: output_blinding(&prepared, CHANGE_SLOT)?,
+        ring_program_id: Some(ring_program),
+    };
+    let recipient_ring_note = Note {
+        owner: recipient,
+        asset: usdc,
+        amount: USDC_ENTRY_AMOUNT,
+        blinding: output_blinding(&prepared, RECIPIENT_SLOT)?,
+        ring_program_id: Some(ring_program),
+    };
+    let entry = RingTransfer {
+        ring,
+        sender,
+        prepared,
+        interface_transfer_accounts: Vec::new(),
+        auditor_tag,
+    }
+    .send(&env, &prover)?;
+    assert_eq!(
+        AuditLookup {
+            ring_program,
+            auditor: &auditor,
+            signature: entry.signature,
+        }
+        .run(&env)?
+        .outputs,
+        vec![
+            entry_change.audited(CHANGE_SLOT)?,
+            recipient_ring_note.audited(RECIPIENT_SLOT)?,
+        ],
+        "entry outputs"
+    );
+    env.recipient.wallet.sync(
+        &recipient_authority,
+        std::slice::from_ref(&entry.indexed),
+        0,
+        DEFAULT_TAG_WINDOW,
+    )?;
+    assert_eq!(
+        sorted_unspent_notes(&env.recipient.wallet),
+        vec![(usdc, USDC_ENTRY_AMOUNT, Some(ring_program))],
+        "recipient wallet after the entry"
+    );
+
+    // 3. In-ring hop.
+    let mut hop_transfer =
+        ConfidentialTransfer::new(sender_address, vec![entry_change.spend()], sender.pubkey())
+            .with_compact_change()
+            .with_ring_program_id(ring_program);
+    hop_transfer.send(&recipient_address, usdc, USDC_HOP_AMOUNT)?;
+    let prepared = hop_transfer.prepare()?;
+    let hop_change = Note {
+        owner: sender,
+        asset: usdc,
+        amount: USDC_HOP_CHANGE,
+        blinding: output_blinding(&prepared, CHANGE_SLOT)?,
+        ring_program_id: Some(ring_program),
+    };
+    let recipient_hop_note = Note {
+        owner: recipient,
+        asset: usdc,
+        amount: USDC_HOP_AMOUNT,
+        blinding: output_blinding(&prepared, RECIPIENT_SLOT)?,
+        ring_program_id: Some(ring_program),
+    };
+    let hop = RingTransfer {
+        ring,
+        sender,
+        prepared,
+        interface_transfer_accounts: Vec::new(),
+        auditor_tag,
+    }
+    .send(&env, &prover)?;
+    assert_eq!(
+        AuditLookup {
+            ring_program,
+            auditor: &auditor,
+            signature: hop.signature,
+        }
+        .run(&env)?
+        .outputs,
+        vec![
+            hop_change.audited(CHANGE_SLOT)?,
+            recipient_hop_note.audited(RECIPIENT_SLOT)?,
+        ],
+        "hop outputs"
+    );
+    env.recipient.wallet.sync(
+        &recipient_authority,
+        std::slice::from_ref(&hop.indexed),
+        0,
+        DEFAULT_TAG_WINDOW,
+    )?;
+    assert_eq!(
+        sorted_unspent_notes(&env.recipient.wallet),
+        vec![
+            (usdc, USDC_HOP_AMOUNT, Some(ring_program)),
+            (usdc, USDC_ENTRY_AMOUNT, Some(ring_program)),
+        ],
+        "recipient wallet after the hop"
+    );
+
+    // 4. Direct USDC ring deposit.
+    let RingDepositReceipt { utxo: receipt, .. } = RingDeposit {
+        ring,
+        payer: sender,
+        recipient: sender,
+        tree: env.tree,
+        asset: usdc_deposit(sender_usdc),
+        amount: USDC_RING_DEPOSIT,
+    }
+    .send(rpc)?;
+    assert_eq!(
+        token_amount(&fetch_account(rpc, &sender_usdc)?),
+        USDC_FUNDING - USDC_DEFAULT_DEPOSIT - USDC_RING_DEPOSIT,
+        "funding account after the ring deposit"
+    );
+    let receipt_input = SppProofInputUtxo::new(receipt, sender);
+    wait_for_merkle_proof(indexer, env.tree, receipt_input.hash()?);
+
+    // 5. Exit, the hop change and the ring-deposit receipt are spent together,
+    //    the receipt spend proves the sdk receipt utxo matches the leaf.
+    let mut exit_transfer = ConfidentialTransfer::new(
+        sender_address,
+        vec![hop_change.spend(), receipt_input],
+        sender.pubkey(),
+    )
+    .with_compact_change()
+    .with_ring_program_id(ring_program);
+    exit_transfer.send_default_ring(&recipient_address, usdc, USDC_EXIT_AMOUNT)?;
+    let prepared = exit_transfer.prepare()?;
+    let exit_change = Note {
+        owner: sender,
+        asset: usdc,
+        amount: USDC_EXIT_CHANGE,
+        blinding: output_blinding(&prepared, CHANGE_SLOT)?,
+        ring_program_id: Some(ring_program),
+    };
+    let recipient_default_note = Note {
+        owner: recipient,
+        asset: usdc,
+        amount: USDC_EXIT_AMOUNT,
+        blinding: output_blinding(&prepared, RECIPIENT_SLOT)?,
+        ring_program_id: None,
+    };
+    let exit = RingTransfer {
+        ring,
+        sender,
+        prepared,
+        interface_transfer_accounts: Vec::new(),
+        auditor_tag,
+    }
+    .send(&env, &prover)?;
+    assert_eq!(
+        AuditLookup {
+            ring_program,
+            auditor: &auditor,
+            signature: exit.signature,
+        }
+        .run(&env)?
+        .outputs,
+        vec![
+            exit_change.audited(CHANGE_SLOT)?,
+            recipient_default_note.audited(RECIPIENT_SLOT)?,
+        ],
+        "exit outputs"
+    );
+    env.recipient.wallet.sync(
+        &recipient_authority,
+        std::slice::from_ref(&exit.indexed),
+        0,
+        DEFAULT_TAG_WINDOW,
+    )?;
+    assert_eq!(
+        sorted_unspent_notes(&env.recipient.wallet),
+        vec![
+            (usdc, USDC_EXIT_AMOUNT, None),
+            (usdc, USDC_HOP_AMOUNT, Some(ring_program)),
+            (usdc, USDC_ENTRY_AMOUNT, Some(ring_program)),
+        ],
+        "recipient wallet after the exit"
+    );
+
+    // 6. A ring transact settles a public USDC withdrawal beside a ring send.
+    let recipient_usdc = create_token_account(rpc, &env.payer, &usdc, &recipient.pubkey())?;
+    let mut withdraw_transfer =
+        ConfidentialTransfer::new(sender_address, vec![exit_change.spend()], sender.pubkey())
+            .with_compact_change()
+            .with_ring_program_id(ring_program);
+    withdraw_transfer.withdraw(
+        usdc,
+        USDC_WITHDRAW_AMOUNT,
+        SettlementTarget::Spl {
+            user_spl_token: recipient_usdc,
+            spl_token_interface: pda::spl_interface(&usdc),
+        },
+    )?;
+    withdraw_transfer.send(&recipient_address, usdc, USDC_FINAL_SEND)?;
+    let prepared = withdraw_transfer.prepare()?;
+    let final_change = Note {
+        owner: sender,
+        asset: usdc,
+        amount: USDC_FINAL_CHANGE,
+        blinding: output_blinding(&prepared, CHANGE_SLOT)?,
+        ring_program_id: Some(ring_program),
+    };
+    let recipient_final_note = Note {
+        owner: recipient,
+        asset: usdc,
+        amount: USDC_FINAL_SEND,
+        blinding: output_blinding(&prepared, RECIPIENT_SLOT)?,
+        ring_program_id: Some(ring_program),
+    };
+    let withdrawal = RingTransfer {
+        ring,
+        sender,
+        prepared,
+        interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
+            TransactSplWithdrawalAccounts {
+                mint: usdc,
+                spl_interface: pda::spl_interface(&usdc),
+                user_token_account: recipient_usdc,
+                token_program: pda::spl_token_program_id(),
+            },
+        )],
+        auditor_tag,
+    }
+    .send(&env, &prover)?;
+    assert_eq!(
+        token_amount(&fetch_account(rpc, &recipient_usdc)?),
+        USDC_WITHDRAW_AMOUNT,
+        "public recipient after the ring withdrawal"
+    );
+    assert_eq!(
+        AuditLookup {
+            ring_program,
+            auditor: &auditor,
+            signature: withdrawal.signature,
+        }
+        .run(&env)?
+        .outputs,
+        vec![
+            final_change.audited(CHANGE_SLOT)?,
+            recipient_final_note.audited(RECIPIENT_SLOT)?,
+        ],
+        "withdrawal outputs"
+    );
+    env.recipient.wallet.sync(
+        &recipient_authority,
+        std::slice::from_ref(&withdrawal.indexed),
+        0,
+        DEFAULT_TAG_WINDOW,
+    )?;
+    assert_eq!(
+        sorted_unspent_notes(&env.recipient.wallet),
+        vec![
+            (usdc, USDC_FINAL_SEND, Some(ring_program)),
+            (usdc, USDC_EXIT_AMOUNT, None),
+            (usdc, USDC_HOP_AMOUNT, Some(ring_program)),
+            (usdc, USDC_ENTRY_AMOUNT, Some(ring_program)),
+        ],
+        "recipient wallet after the withdrawal"
+    );
 
     Ok(())
 }
@@ -1027,21 +1393,22 @@ impl RegisterRing<'_> {
     }
 }
 
-/// The test's own view of a SOL note, spent and audited from the same values.
+/// The test's own view of a note, spent and audited from the same values.
 #[derive(Clone, Copy)]
-struct SolNote<'a> {
+struct Note<'a> {
     owner: &'a ShieldedKeypair,
+    asset: Address,
     amount: u64,
     blinding: [u8; 32],
     ring_program_id: Option<Address>,
 }
 
-impl SolNote<'_> {
+impl Note<'_> {
     fn spend(self) -> SppProofInputUtxo {
         SppProofInputUtxo::new(
             Utxo {
                 owner: self.owner.signing_pubkey(),
-                asset: SOL_MINT,
+                asset: self.asset,
                 amount: self.amount,
                 blinding: self.blinding,
                 ring_program_id: self.ring_program_id,
@@ -1056,7 +1423,7 @@ impl SolNote<'_> {
             slot_index,
             recipient_viewing_pk: self.owner.viewing_pubkey(),
             owner_tag: self.owner.signing_pubkey().confidential_view_tag()?,
-            asset: SOL_MINT,
+            asset: self.asset,
             amount: self.amount,
             blinding: Zeroizing::new(self.blinding),
             ring_program_id: self.ring_program_id,
@@ -1067,18 +1434,19 @@ impl SolNote<'_> {
 struct DefaultRingDeposit<'a> {
     depositor: &'a ShieldedKeypair,
     tree: Address,
+    asset: DepositAsset,
     amount: u64,
 }
 
 impl<'a> DefaultRingDeposit<'a> {
-    fn send(self, rpc: &SolanaRpc) -> Result<SolNote<'a>> {
+    fn send(self, rpc: &SolanaRpc) -> Result<Note<'a>> {
         let blinding = random_blinding();
         let address = self.depositor.shielded_address()?;
         let deposit = SppDeposit {
             tree: self.tree,
             depositor: self.depositor.pubkey(),
             deposits: vec![AssetDeposit {
-                asset: DepositAsset::Sol,
+                asset: self.asset,
                 view_tag: address.viewing_pubkey.x(),
                 owner: address.owner_hash()?,
                 blinding,
@@ -1089,8 +1457,12 @@ impl<'a> DefaultRingDeposit<'a> {
         }
         .instruction()?;
         send(rpc, self.depositor, &[deposit])?;
-        Ok(SolNote {
+        Ok(Note {
             owner: self.depositor,
+            asset: match self.asset {
+                DepositAsset::Sol => SOL_MINT,
+                DepositAsset::Spl(spl) => spl.mint,
+            },
             amount: self.amount,
             blinding,
             ring_program_id: None,
@@ -1102,6 +1474,7 @@ struct RingTransfer<'a> {
     ring: CustomRing,
     sender: &'a ShieldedKeypair,
     prepared: PreparedTransfer,
+    interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     auditor_tag: [u8; 32],
 }
 
@@ -1121,6 +1494,7 @@ impl RingTransfer<'_> {
         })
         .with_tree(env.tree)
         .with_assets(&env.assets)
+        .with_interface_transfer_accounts(self.interface_transfer_accounts)
         .prove(TransferProofEnvironment {
             indexer,
             rpc,

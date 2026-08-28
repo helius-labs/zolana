@@ -1,11 +1,11 @@
 //! Localnet bring-up shared by the custom-ring test binaries.
 //!
-//! Mirrors `sdk-tests/zk-program-swap/test/tests/shared.rs`, reduced to what a
-//! SOL-only ring example needs: no SPL mint, no token accounts, and neither
-//! `CreateAssetCounter` nor `CreateSplInterface`. SOL settles through
-//! `zolana_interface::SOL_INTERFACE`, a system-owned PDA with a hardcoded
-//! address that no instruction has to create, and `AssetRegistry::default()`
-//! already carries SOL as asset id 1.
+//! Mirrors `sdk-tests/zk-program-swap/test/tests/shared.rs`. SOL settles
+//! through `zolana_interface::SOL_INTERFACE`, a system-owned PDA with a
+//! hardcoded address that no instruction has to create, and
+//! `AssetRegistry::default()` already carries SOL as asset id 1. The bring-up
+//! also registers one SPL mint, named USDC in the tests, under asset id 2,
+//! with the mint authority parked on the payer.
 
 use anyhow::{anyhow, Result};
 use custom_ring_sdk::{V0WithLookupTable, TRANSACT_COMPUTE_UNIT_LIMIT};
@@ -20,7 +20,7 @@ use zolana_client::{
     SolanaRpc, ZolanaClient, ZolanaIndexer,
 };
 use zolana_interface::{
-    instruction::{CreateProtocolConfig, CreateTree},
+    instruction::{CreateAssetCounter, CreateProtocolConfig, CreateSplInterface, CreateTree},
     pda,
     state::tree_account_size,
     SHIELDED_POOL_PROGRAM_ID,
@@ -31,6 +31,7 @@ use zolana_test_utils::{
     localnet::{isolated_temp_path, LocalnetValidator, UpgradeableProgram, WorkspaceArtifacts},
     prover::spawn_workspace_prover,
     smart_account::{self, StandardSigners},
+    spl::create_mint,
 };
 use zolana_transaction::{AssetRegistry, Wallet};
 use zolana_user_registry_interface::user_registry_program_id;
@@ -53,9 +54,11 @@ pub struct TestEnv {
     pub client: ZolanaClient<SolanaRpc>,
     pub rpc_url: String,
     pub indexer_url: String,
-    /// Fee payer for bootstrap and for instructions no actor must sign.
+    /// Fee payer for bootstrap and for instructions no actor must sign, also
+    /// the USDC mint authority.
     pub payer: Keypair,
     pub tree: Address,
+    pub usdc_mint: Address,
     pub assets: AssetRegistry,
     pub sender: TestWallet,
     pub recipient: TestWallet,
@@ -228,7 +231,36 @@ pub fn setup() -> Result<TestEnv> {
 
     let tree = tree.pubkey();
 
-    let assets = AssetRegistry::default();
+    let usdc_mint = create_mint(&rpc, &payer)?;
+    if rpc.get_account(pda::spl_asset_counter())?.is_none() {
+        let counter_ix = CreateAssetCounter {
+            authority: accounts.protocol_vault,
+        }
+        .instruction();
+        let counter_sync = smart_account::execute_sync_ix(
+            &accounts.protocol_settings,
+            0,
+            &[authority.pubkey()],
+            &[counter_ix],
+        );
+        rpc.create_and_send_transaction(&[counter_sync], payer_address, &[&payer, &authority])?;
+    }
+    let interface_ix = CreateSplInterface {
+        authority: accounts.protocol_vault,
+        mint: usdc_mint,
+        token_program: pda::spl_token_program_id(),
+    }
+    .instruction();
+    let interface_sync = smart_account::execute_sync_ix(
+        &accounts.protocol_settings,
+        0,
+        &[authority.pubkey()],
+        &[interface_ix],
+    );
+    rpc.create_and_send_transaction(&[interface_sync], payer_address, &[&payer, &authority])?;
+
+    let mut assets = AssetRegistry::default();
+    assets.insert(2, usdc_mint)?;
 
     let sender = new_actor(&mut rpc, &assets)?;
     let recipient = new_actor(&mut rpc, &assets)?;
@@ -248,6 +280,7 @@ pub fn setup() -> Result<TestEnv> {
         indexer_url,
         payer,
         tree,
+        usdc_mint,
         assets,
         sender,
         recipient,
