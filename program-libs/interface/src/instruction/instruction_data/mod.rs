@@ -1,4 +1,5 @@
 pub mod batch_update_nullifier_tree;
+pub mod close_nullifier_markers;
 pub mod deposit;
 pub mod merge_ring;
 pub mod merge_transact;
@@ -7,6 +8,7 @@ pub mod ring_config;
 pub mod transact;
 
 pub use batch_update_nullifier_tree::{BatchUpdateNullifierTreeData, CompressedProof};
+pub use close_nullifier_markers::CloseNullifierMarkersData;
 pub use deposit::{
     DepositAssetKind, DepositEntry, DepositEntryRef, DepositIxData, DepositIxDataRef,
     EncryptedRingDepositData, EncryptedRingDepositDataRef, RingDepositEntry, RingDepositEntryRef,

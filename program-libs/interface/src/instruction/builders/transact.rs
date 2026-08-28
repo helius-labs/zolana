@@ -3,7 +3,7 @@ use solana_pubkey::Pubkey;
 
 use crate::{
     instruction::{tag, InterfaceTransfer, TransactIxData},
-    MAX_INTERFACE_TRANSFERS, PROGRAM_ID_PUBKEY, SHIELDED_POOL_CPI_AUTHORITY_PUBKEY,
+    pda, MAX_INTERFACE_TRANSFERS, PROGRAM_ID_PUBKEY, SHIELDED_POOL_CPI_AUTHORITY_PUBKEY,
     SOL_INTERFACE_PUBKEY,
 };
 
@@ -38,8 +38,9 @@ pub enum TransactInterfaceTransferAccounts {
 
 /// Builder for the `transact` instruction. The account layout mirrors the
 /// program loader (`TransactAccounts::validate_and_parse`): `payer`,
-/// `input_tree`, `output_tree`, the SPP and System Program accounts, owner
-/// signers, then the ordered interface-transfer account groups.
+/// `input_tree`, `output_tree`, the SPP and System Program accounts, one
+/// writable nullifier marker per input (in `inputs` order), owner signers, then
+/// the ordered interface-transfer account groups.
 pub struct Transact {
     pub payer: Pubkey,
     pub input_tree: Pubkey,
@@ -107,6 +108,18 @@ pub(super) fn append_interface_transfer_accounts(
     }
 }
 
+pub(super) fn append_nullifier_marker_accounts<'a>(
+    accounts: &mut Vec<AccountMeta>,
+    input_tree: &Pubkey,
+    nullifiers: impl Iterator<Item = &'a [u8; 32]>,
+) {
+    accounts.extend(
+        nullifiers.map(|nullifier| {
+            AccountMeta::new(pda::nullifier_marker(input_tree, nullifier).0, false)
+        }),
+    );
+}
+
 impl Transact {
     pub fn instruction(&self) -> Instruction {
         let mut instruction_data = vec![tag::TRANSACT];
@@ -124,6 +137,11 @@ impl Transact {
             AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
             AccountMeta::new_readonly(Pubkey::default(), false),
         ];
+        append_nullifier_marker_accounts(
+            &mut accounts,
+            &self.input_tree,
+            self.data.inputs.iter().map(|input| &input.nullifier_hash),
+        );
         accounts.extend(
             self.owner_signers
                 .iter()
@@ -146,7 +164,7 @@ impl Transact {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::instruction::instruction_data::transact::{CircuitId, TransactProof};
+    use crate::instruction::instruction_data::transact::{CircuitId, InputUtxo, TransactProof};
 
     fn empty_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData {
         TransactIxData {
@@ -326,6 +344,52 @@ mod tests {
         assert_eq!(ix.accounts[6].pubkey, spl.spl_interface);
         assert_eq!(ix.accounts[7].pubkey, spl.token_authority);
         assert!(ix.accounts[7].is_signer);
+    }
+
+    #[test]
+    fn nullifier_markers_follow_system_program_and_precede_owner_signers() {
+        let recipient = Pubkey::new_unique();
+        let owner_signer = Pubkey::new_unique();
+        let input_tree = Pubkey::new_unique();
+        let nullifiers = [[11u8; 32], [22u8; 32]];
+        let mut data = empty_data(vec![InterfaceTransfer::SolWithdrawal { amount: 7 }]);
+        data.inputs = nullifiers
+            .iter()
+            .map(|nullifier_hash| InputUtxo {
+                nullifier_hash: *nullifier_hash,
+                nullifier_tree_root_index: 0,
+                utxo_tree_root_index: 0,
+            })
+            .collect();
+        let builder = Transact {
+            payer: Pubkey::new_unique(),
+            input_tree,
+            output_tree: Pubkey::new_unique(),
+            owner_signers: vec![owner_signer],
+            interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
+                TransactSolTransferAccounts { recipient },
+            )],
+            data,
+        };
+
+        let ix = builder.instruction();
+        let marker = |nullifier: &[u8; 32]| pda::nullifier_marker(&input_tree, nullifier).0;
+        assert_eq!(
+            ix.accounts,
+            vec![
+                AccountMeta::new(builder.payer, true),
+                AccountMeta::new(input_tree, false),
+                AccountMeta::new(builder.output_tree, false),
+                AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
+                AccountMeta::new_readonly(Pubkey::default(), false),
+                AccountMeta::new(marker(&nullifiers[0]), false),
+                AccountMeta::new(marker(&nullifiers[1]), false),
+                AccountMeta::new_readonly(owner_signer, true),
+                AccountMeta::new(SOL_INTERFACE_PUBKEY, false),
+                AccountMeta::new(recipient, false),
+            ]
+        );
+        assert_eq!(ix.accounts.len(), 5 + nullifiers.len() + 1 + 2);
     }
 
     #[test]

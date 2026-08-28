@@ -126,6 +126,14 @@ pub enum ShieldedPoolError {
     SplAssetCounterAlreadyInitialized = 7046,
     #[error("ring is paused")]
     RingPaused = 7047,
+    #[error("nullifier is already queued in the nullifier tree")]
+    NullifierAlreadyQueued = 7048,
+    #[error("tree does not hold enough lamports to fund a nullifier marker")]
+    InsufficientNullifierMarkerRent = 7049,
+    #[error("nullifier marker batch has not retired yet")]
+    NullifierMarkerNotClosable = 7050,
+    #[error("nullifier marker account is invalid")]
+    InvalidNullifierMarker = 7051,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -215,6 +223,10 @@ mod tests {
                 ZeroNetInterfaceTransferAmount => 7045,
                 SplAssetCounterAlreadyInitialized => 7046,
                 RingPaused => 7047,
+                NullifierAlreadyQueued => 7048,
+                InsufficientNullifierMarkerRent => 7049,
+                NullifierMarkerNotClosable => 7050,
+                InvalidNullifierMarker => 7051,
             }
         }
 
@@ -265,6 +277,10 @@ mod tests {
             ZeroNetInterfaceTransferAmount,
             SplAssetCounterAlreadyInitialized,
             RingPaused,
+            NullifierAlreadyQueued,
+            InsufficientNullifierMarkerRent,
+            NullifierMarkerNotClosable,
+            InvalidNullifierMarker,
         ];
         for variant in variants {
             assert_eq!(
@@ -273,7 +289,7 @@ mod tests {
                 "error code drifted: {variant:?}"
             );
         }
-        // The live wire surface is exactly 44 variants on this branch.
-        assert_eq!(variants.len(), 44, "variant count drifted");
+        // The live wire surface is exactly 48 variants on this branch.
+        assert_eq!(variants.len(), 48, "variant count drifted");
     }
 }

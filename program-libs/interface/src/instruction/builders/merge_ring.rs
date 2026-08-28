@@ -2,7 +2,10 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
 use crate::{
-    instruction::{tag, MergeRingIxData, MergeTransactIxData},
+    instruction::{
+        builders::transact::append_nullifier_marker_accounts, tag, MergeRingIxData,
+        MergeTransactIxData,
+    },
     pda, PROGRAM_ID_PUBKEY,
 };
 
@@ -10,7 +13,8 @@ use crate::{
 /// [`super::merge_transact::MergeTransact`]. The account layout mirrors the
 /// program loader (`MergeRingAccounts::validate_and_parse`): `input_tree` and
 /// `output_tree` (writable), `ring_config` (the ring's `ring_auth` PDA), `payer`
-/// (signer), and the program account last for the `emit_event` self-CPI.
+/// (signer), the System Program, one writable nullifier marker per `nullifiers`
+/// entry, and the program account last for the `emit_event` self-CPI.
 /// Instruction data is the output `ring_data_hash` followed by the
 /// `MergeTransactIxData` body.
 pub struct MergeRing {
@@ -52,14 +56,19 @@ impl MergeRing {
                 .expect("shielded-pool instruction serialization is infallible"),
         );
 
-        let accounts = vec![
+        let mut accounts = vec![
             AccountMeta::new(self.input_tree, false),
             AccountMeta::new(self.output_tree, false),
             AccountMeta::new_readonly(ring_config, auth_signer),
             AccountMeta::new(self.payer, true),
             AccountMeta::new_readonly(Pubkey::default(), false),
-            AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
         ];
+        append_nullifier_marker_accounts(
+            &mut accounts,
+            &self.input_tree,
+            self.data.nullifiers.iter(),
+        );
+        accounts.push(AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false));
 
         Instruction {
             program_id,
@@ -74,12 +83,16 @@ mod tests {
     use super::*;
     use crate::instruction::instruction_data::merge_transact::MergeProof;
 
+    fn nullifiers() -> Vec<[u8; 32]> {
+        (1u8..=8).map(|i| [i; 32]).collect()
+    }
+
     fn data() -> MergeTransactIxData {
         MergeTransactIxData {
             expiry_unix_ts: u64::MAX,
             proof: MergeProof::zeroed(),
             output_utxo_hash: [0u8; 32],
-            nullifiers: vec![[0u8; 32]; 8],
+            nullifiers: nullifiers(),
             utxo_tree_root_index: vec![0; 8],
             nullifier_tree_root_index: vec![0; 8],
             private_tx_hash: [0u8; 32],
@@ -87,10 +100,28 @@ mod tests {
         }
     }
 
+    fn expected_accounts(builder: &MergeRing, auth_signer: bool) -> Vec<AccountMeta> {
+        let mut expected = vec![
+            AccountMeta::new(builder.input_tree, false),
+            AccountMeta::new(builder.output_tree, false),
+            AccountMeta::new_readonly(pda::ring_auth(&builder.ring_program_id).0, auth_signer),
+            AccountMeta::new(builder.payer, true),
+            AccountMeta::new_readonly(Pubkey::default(), false),
+        ];
+        expected.extend(builder.data.nullifiers.iter().map(|nullifier| {
+            AccountMeta::new(
+                pda::nullifier_marker(&builder.input_tree, nullifier).0,
+                false,
+            )
+        }));
+        expected.push(AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false));
+        expected
+    }
+
     /// The instruction targets the ring program, lays out `input_tree`,
-    /// `output_tree`, `ring_config`, `payer`, program account, and tags the data
-    /// with `RING_MERGE_TRANSACT` followed by the 32-byte output
-    /// `ring_data_hash`.
+    /// `output_tree`, `ring_config`, `payer`, System Program, eight nullifier
+    /// markers, program account, and tags the data with `RING_MERGE_TRANSACT`
+    /// followed by the 32-byte output `ring_data_hash`.
     #[test]
     fn instruction_account_order_and_ring_config() {
         let ring_program_id = Pubkey::new_unique();
@@ -108,23 +139,10 @@ mod tests {
         assert_eq!(ix.data.first(), Some(&tag::RING_MERGE_TRANSACT));
         assert_eq!(ix.data.get(1..33), Some(&[7u8; 32][..]));
 
-        let ring_config = pda::ring_auth(&ring_program_id).0;
-        let keys: Vec<_> = ix.accounts.iter().map(|m| m.pubkey).collect();
-        assert_eq!(
-            keys,
-            vec![
-                builder.input_tree,
-                builder.output_tree,
-                ring_config,
-                builder.payer,
-                Pubkey::default(),
-                PROGRAM_ID_PUBKEY
-            ]
-        );
         // `.instruction()` targets the ring program, so the `ring_auth` PDA is not
         // a transaction-level signer.
-        assert!(!ix.accounts[2].is_signer);
-        assert!(ix.accounts[3].is_signer);
+        assert_eq!(ix.accounts, expected_accounts(&builder, false));
+        assert_eq!(ix.accounts.len(), 5 + 8 + 1);
     }
 
     #[test]
@@ -141,7 +159,7 @@ mod tests {
 
         let ix = builder.cpi_instruction();
         assert_eq!(ix.program_id, PROGRAM_ID_PUBKEY);
-        assert_eq!(ix.accounts[2].pubkey, pda::ring_auth(&ring_program_id).0);
+        assert_eq!(ix.accounts, expected_accounts(&builder, true));
         assert!(ix.accounts[2].is_signer);
     }
 }

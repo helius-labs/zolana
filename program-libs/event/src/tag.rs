@@ -32,6 +32,9 @@ pub const RING_TRANSACT: u8 = 15;
 pub const RING_MERGE_TRANSACT: u8 = 16;
 pub const RING_AUTHORITY_TRANSACT: u8 = 17;
 
+// Permissionless maintenance.
+pub const CLOSE_NULLIFIER_MARKERS: u8 = 18;
+
 /// Implemented instruction tags.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -54,6 +57,7 @@ pub enum InstructionTag {
     RingTransact = RING_TRANSACT,
     RingMergeTransact = RING_MERGE_TRANSACT,
     RingAuthorityTransact = RING_AUTHORITY_TRANSACT,
+    CloseNullifierMarkers = CLOSE_NULLIFIER_MARKERS,
 }
 
 impl TryFrom<u8> for InstructionTag {
@@ -79,6 +83,7 @@ impl TryFrom<u8> for InstructionTag {
             RING_TRANSACT => Ok(Self::RingTransact),
             RING_MERGE_TRANSACT => Ok(Self::RingMergeTransact),
             RING_AUTHORITY_TRANSACT => Ok(Self::RingAuthorityTransact),
+            CLOSE_NULLIFIER_MARKERS => Ok(Self::CloseNullifierMarkers),
             _ => Err(()),
         }
     }

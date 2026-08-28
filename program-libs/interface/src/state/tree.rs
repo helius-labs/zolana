@@ -2,14 +2,14 @@ use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount};
 
 pub const STATE_HEIGHT: usize = 32;
 
-// Production batched-address-tree parameters. The bloom filter size and hash
-// count are now compile-time const generics of the tree layout.
+// Production batched-address-tree parameters.
 pub const ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE: u64 = 30_000;
 pub const ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE: u64 = 250;
 pub const ADDRESS_TREE_HEIGHT: u32 = 40;
 pub const ADDRESS_TREE_ROOT_HISTORY_CAPACITY: u32 = 120;
 /// Lamports reimbursed for each applied nullifier-tree ZKP batch.
 pub const FORESTER_REIMBURSEMENT_LAMPORTS: u64 = 5_000;
+pub const TREE_WORKING_CAPITAL_LAMPORTS: u64 = 10_000_000_000;
 
 /// Derive the fee charged for each element inserted into a tree's nullifier
 /// queue. The standard tree configuration is pinned by the test below so the
