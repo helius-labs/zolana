@@ -8,7 +8,9 @@ use zolana_interface::{
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::TransactionError;
 
-use crate::{err, order_authority_pda, tag, MakeIxData, MakeProof, MarkerData};
+use crate::{
+    err, nullifier_marker_accounts, order_authority_pda, tag, MakeIxData, MakeProof, MarkerData,
+};
 
 pub struct OrderMarker {
     pub order_utxo_hash: [u8; 32],
@@ -48,21 +50,23 @@ impl Make {
         if let Some(marker) = spp_proof.messages.first_mut() {
             marker.data = Vec::new();
         }
+        let nullifier_markers = nullifier_marker_accounts(&tree, &spp_proof);
         let serialized_ix = wincode::serialize(&MakeIxData {
             proof: make_proof,
             transact: spp_proof,
         })
         .map_err(err)?;
 
-        let accounts = vec![
+        let mut accounts = vec![
             AccountMeta::new(payer, true),
             AccountMeta::new(payer, true),
             AccountMeta::new(tree, false),
             AccountMeta::new(tree, false),
             AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
             AccountMeta::new_readonly(Pubkey::default(), false),
-            AccountMeta::new_readonly(order_authority_pda(), false),
         ];
+        accounts.extend(nullifier_markers);
+        accounts.push(AccountMeta::new_readonly(order_authority_pda(), false));
         let mut instruction_data = vec![tag::MAKE];
         instruction_data.extend_from_slice(&serialized_ix);
         Ok(Instruction {

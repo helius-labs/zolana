@@ -5,7 +5,7 @@ use zolana_interface::{
     instruction::instruction_data::transact::TransactProof, SHIELDED_POOL_PROGRAM_ID,
 };
 
-use crate::{account_pda, err, tag, CreateIxData};
+use crate::{account_address, account_pda, err, nullifier_marker_account, tag, CreateIxData};
 
 pub struct Create {
     pub payer: Address,
@@ -35,6 +35,7 @@ impl Create {
         })
         .map_err(err)?;
 
+        let pda = account_pda(&payer);
         let accounts = vec![
             AccountMeta::new(payer, true),
             AccountMeta::new(payer, true),
@@ -42,7 +43,8 @@ impl Create {
             AccountMeta::new(tree, false),
             AccountMeta::new_readonly(Address::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
             AccountMeta::new_readonly(Address::default(), false),
-            AccountMeta::new_readonly(account_pda(&payer), false),
+            nullifier_marker_account(&tree, &account_address(&pda)?),
+            AccountMeta::new_readonly(pda, false),
         ];
         let mut instruction_data = vec![tag::CREATE];
         instruction_data.extend_from_slice(&serialized_ix);

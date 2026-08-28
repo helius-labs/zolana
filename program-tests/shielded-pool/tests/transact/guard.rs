@@ -478,12 +478,13 @@ fn transact_rejects_more_inputs_than_any_circuit_supports() {
 #[test]
 fn transact_rejects_a_duplicate_nullifier_within_one_instruction() {
     let mut env = Pool::initialized();
-    // INV-XC-10: the queue's non-inclusion check must fail the second insert
-    // of the same nullifier inside one instruction, before proof verification.
+    // INV-XC-10: the second input reuses the first input's nullifier marker,
+    // which the first input already created, so marker creation rejects the
+    // duplicate before proof verification.
     let mut data = transfer_ix_data(2, 3);
     let first = data.inputs.first().expect("first input").nullifier_hash;
     data.inputs.get_mut(1).expect("second input").nullifier_hash = first;
-    expect_rejection(&mut env, data, ShieldedPoolError::NullifierTreeUpdateFailed);
+    expect_rejection(&mut env, data, ShieldedPoolError::NullifierAlreadyQueued);
 }
 
 #[test]
@@ -674,9 +675,13 @@ fn ring_authority_transact_rejects_an_owner_signer() {
         .airdrop(&owner_signer.pubkey(), 1_000_000)
         .expect("fund unexpected owner signer");
 
-    let mut ix = ring_instruction(&env, true, &ring_config, transfer_ix_data(2, 2));
-    ix.accounts
-        .insert(6, AccountMeta::new_readonly(owner_signer.pubkey(), true));
+    let data = transfer_ix_data(2, 2);
+    let owner_signer_index = 6 + data.inputs.len();
+    let mut ix = ring_instruction(&env, true, &ring_config, data);
+    ix.accounts.insert(
+        owner_signer_index,
+        AccountMeta::new_readonly(owner_signer.pubkey(), true),
+    );
     expect_ix_rejection(
         &mut env,
         ix,

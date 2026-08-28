@@ -109,11 +109,12 @@ export async function ringTransactInstruction(
     ringAuthAddress(input.ringProgramId),
   ]);
   const payerAddress = typeof input.payer === "string" ? input.payer : input.payer.address;
-  const pool = ringTransactAccounts({
+  const pool = await ringTransactAccounts({
     payer: input.payer,
     inputTree: input.inputTree,
     outputTree: input.outputTree,
     ringAuth,
+    inputs: input.data.inputs,
     ...(input.ownerSigners === undefined ? {} : { ownerSigners: input.ownerSigners }),
     ...(input.withdrawal === undefined ? {} : { withdrawal: input.withdrawal }),
   });
@@ -146,11 +147,13 @@ export async function ringLookupTableAddresses(
     ringConfigAddress(input.ringProgramId),
     ringAuthAddress(input.ringProgramId),
   ]);
-  const pool = ringTransactAccounts({
+  // Nullifier markers are fresh per transaction, so none belongs in the table.
+  const pool = await ringTransactAccounts({
     payer: SHIELDED_POOL_PROGRAM_ID,
     inputTree: input.tree,
     outputTree: input.tree,
     ringAuth,
+    inputs: [],
   });
   const addresses = [
     config,

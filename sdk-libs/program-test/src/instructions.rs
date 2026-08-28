@@ -2,7 +2,11 @@ use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use zolana_client::Rpc;
-use zolana_interface::{instruction::CreateTree, pda, state::state_root_offset};
+use zolana_interface::{
+    instruction::CreateTree,
+    pda,
+    state::{state_root_offset, TREE_WORKING_CAPITAL_LAMPORTS},
+};
 
 use crate::ProgramTestError;
 
@@ -43,7 +47,7 @@ pub fn create_tree_instructions<R: Rpc>(
         system_create_account_ix(
             payer,
             tree,
-            rent,
+            rent + TREE_WORKING_CAPITAL_LAMPORTS,
             account_size,
             &pda::shielded_pool_program_id(),
         ),

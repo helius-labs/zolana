@@ -34,6 +34,7 @@ pub struct TransitionAccounts<'a> {
     pub output_tree: &'a AccountView,
     pub spp_program: &'a AccountView,
     pub system_program: &'a AccountView,
+    pub nullifier_marker: &'a AccountView,
     pub owner_pda: &'a AccountView,
     pub pda: Address,
     pub bump: u8,
@@ -58,6 +59,7 @@ impl<'a> TransitionAccounts<'a> {
         if system_program.address() != &Address::default() {
             return Err(CompressionError::InvalidAccounts.into());
         }
+        let nullifier_marker = iter.next_mut("nullifier_marker")?;
         let owner_pda = iter.next_account("owner_pda")?;
         if !address_eq(owner_pda.address(), &pda) {
             return Err(CompressionError::InvalidPda.into());
@@ -72,6 +74,7 @@ impl<'a> TransitionAccounts<'a> {
             output_tree,
             spp_program,
             system_program,
+            nullifier_marker,
             owner_pda,
             pda,
             bump,

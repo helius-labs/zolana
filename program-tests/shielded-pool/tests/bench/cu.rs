@@ -19,8 +19,10 @@ use zolana_hasher::Poseidon;
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},
-        Deposit, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+        Deposit, Transact, TransactInterfaceTransferAccounts, TransactIxData,
+        TransactSolTransferAccounts,
     },
+    state::{tree_account_size, TREE_WORKING_CAPITAL_LAMPORTS},
     PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair};
@@ -30,6 +32,7 @@ use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_
 
 use shielded_pool_tests::support::{fixtures::Pool, mollusk, transact::tree_roots};
 use zolana_test_utils::{
+    nullifier_marker::marker_addresses,
     prover::spawn_workspace_prover,
     transact::{
         build_spl_withdrawal, build_transfer_prover_inputs, dummy_input, dummy_transfer_output,
@@ -260,7 +263,10 @@ fn bench_fixture(
 // Snapshot every account a `transact` instruction references, mapping the
 // program account (self-CPI `emit_event`), the system program, and the SPL Token
 // program to their mollusk fixtures while snapshotting all PDAs/data accounts
-// from the litesvm pre-instruction state the proof is bound to.
+// from the litesvm pre-instruction state the proof is bound to. Nullifier
+// markers do not exist before the spend: they are materialized as empty,
+// System-owned, zero-lamport accounts the program creates and funds from the
+// input tree's working capital.
 fn transact_accounts(
     pt: &ZolanaProgramTest,
     ix: &Instruction,
@@ -268,12 +274,42 @@ fn transact_accounts(
     token_program_account: Option<&(Pubkey, Account)>,
 ) -> Vec<(Pubkey, Account)> {
     let token_program = Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID);
+    let data = TransactIxData::deserialize(ix.data.get(1..).expect("tagged transact data"))
+        .expect("transact instruction data");
+    let input_tree = ix.accounts.get(1).expect("input tree meta").pubkey;
+    let nullifiers: Vec<[u8; 32]> = data
+        .inputs
+        .iter()
+        .map(|input| input.nullifier_hash)
+        .collect();
+    let markers = marker_addresses(&input_tree, &nullifiers);
+    let tree_rent = pt
+        .svm
+        .minimum_balance_for_rent_exemption(tree_account_size());
     let mut accounts = Vec::with_capacity(ix.accounts.len());
     for meta in &ix.accounts {
         if meta.pubkey == PROGRAM_ID_PUBKEY {
             accounts.push(mollusk_program_account(program_id));
         } else if meta.pubkey == Pubkey::default() {
             accounts.push(mollusk_svm::program::keyed_account_for_system_program());
+        } else if markers.contains(&meta.pubkey) {
+            accounts.push((
+                to_mollusk_pubkey(&meta.pubkey),
+                Account {
+                    lamports: 0,
+                    data: Vec::new(),
+                    owner: Pubkey::new_from_array([0u8; 32]),
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            ));
+        } else if meta.pubkey == input_tree {
+            let tree = snapshot_account(pt, &meta.pubkey);
+            assert!(
+                tree.1.lamports >= tree_rent + TREE_WORKING_CAPITAL_LAMPORTS,
+                "input tree fixture must hold marker working capital"
+            );
+            accounts.push(tree);
         } else if meta.pubkey == token_program {
             accounts.push(
                 token_program_account

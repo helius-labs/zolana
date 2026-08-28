@@ -21,7 +21,7 @@ use zolana_client::{Rpc, SolanaRpc, ZolanaIndexer};
 use zolana_interface::{
     instruction::{CreateAssetCounter, CreateProtocolConfig, CreateSplInterface, CreateTree},
     pda,
-    state::tree_account_size,
+    state::{tree_account_size, TREE_WORKING_CAPITAL_LAMPORTS},
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{ShieldedKeypair, SigningKey};
@@ -330,7 +330,7 @@ impl<D> LocalnetHarness<D> {
         let alloc_ix = zolana_program_test::system_create_account_ix(
             &setup.payer.pubkey(),
             &tree.pubkey(),
-            rent,
+            rent + TREE_WORKING_CAPITAL_LAMPORTS,
             tree_account_size() as u64,
             &pda::shielded_pool_program_id(),
         );

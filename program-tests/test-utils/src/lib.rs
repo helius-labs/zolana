@@ -15,6 +15,7 @@ pub mod litesvm_asserts;
 pub mod localnet;
 #[cfg(feature = "mollusk")]
 pub mod mollusk;
+pub mod nullifier_marker;
 pub mod prover;
 pub mod ring;
 pub mod smart_account;

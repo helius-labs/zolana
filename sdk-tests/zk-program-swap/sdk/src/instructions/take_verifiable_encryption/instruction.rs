@@ -6,7 +6,9 @@ use zolana_interface::{
     instruction::instruction_data::transact::TransactIxData, SHIELDED_POOL_PROGRAM_ID,
 };
 
-use crate::{err, order_authority_pda, tag, TakeVerifiableEncryptionProof};
+use crate::{
+    err, nullifier_marker_accounts, order_authority_pda, tag, TakeVerifiableEncryptionProof,
+};
 
 pub struct TakeVerifiableEncryption {
     pub payer: Pubkey,
@@ -24,21 +26,23 @@ impl TakeVerifiableEncryption {
             spp_proof,
         } = self;
 
+        let nullifier_markers = nullifier_marker_accounts(&tree, &spp_proof);
         let serialized_ix = wincode::serialize(&TakeVerifiableEncryptionIxData {
             proof: take_proof,
             transact: spp_proof,
         })
         .map_err(err)?;
 
-        let accounts = vec![
+        let mut accounts = vec![
             AccountMeta::new(payer, true),
             AccountMeta::new(payer, true),
             AccountMeta::new(tree, false),
             AccountMeta::new(tree, false),
             AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
             AccountMeta::new_readonly(Pubkey::default(), false),
-            AccountMeta::new_readonly(order_authority_pda(), false),
         ];
+        accounts.extend(nullifier_markers);
+        accounts.push(AccountMeta::new_readonly(order_authority_pda(), false));
         let mut instruction_data = vec![tag::TAKE_VERIFIABLE_ENCRYPTION];
         instruction_data.extend_from_slice(&serialized_ix);
         Ok(Instruction {

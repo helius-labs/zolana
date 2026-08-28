@@ -342,6 +342,9 @@ fn merge_rejects_dummy_inputs_after_capacity_threshold() {
                 .get_current_batch_mut()
                 .expect("current nullifier batch")
                 .start_index = next_leaf;
+            // The queue's insert asserts `q + 1 == start_index + inserted`, so
+            // the cursor must move with the batch start.
+            nullifier.queue_batches.next_index = next_leaf - 1;
         }
         assert!(
             !on_chain.allow_dummy_inputs().expect("dummy-input policy"),
@@ -353,13 +356,18 @@ fn merge_rejects_dummy_inputs_after_capacity_threshold() {
         .expect("write threshold tree account");
 
     let ix = merge_instruction(&rpc, &tree, record, merge_ix_data(true));
+    // The eight marker creations precede proof verification, so the default
+    // 200k budget no longer reaches it.
+    let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
     let error = rpc
-        .create_and_send_default_payer_transaction(&[ix], &[])
+        .create_and_send_default_payer_transaction(&[budget, ix], &[])
         .expect_err("a merge past the capacity threshold must be rejected");
     // PR172 removed the explicit 7044 gate: the on-chain `allow_dummy_inputs`
     // flag is false while the merge proof assumes true, so the capacity
     // overflow now fails at proof verification.
-    Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
+    Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
+        .at(1)
+        .assert_litesvm(error);
     rpc.last_transaction_trace()
         .expect("capacity-gate transaction trace")
         .assert_rolled_back_except(&[payer]);

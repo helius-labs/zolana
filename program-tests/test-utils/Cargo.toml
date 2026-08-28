@@ -12,6 +12,7 @@ mollusk = ["dep:mollusk-svm", "dep:solana-program-error"]
 [dependencies]
 anyhow = { workspace = true }
 base64 = { workspace = true }
+borsh = { workspace = true }
 bytemuck = { workspace = true }
 groth16-solana = { workspace = true }
 mollusk-svm = { workspace = true, optional = true }

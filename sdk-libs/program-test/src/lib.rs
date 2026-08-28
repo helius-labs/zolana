@@ -139,7 +139,7 @@ impl ZolanaProgramTest {
 
         let payer = Keypair::new();
         // Enough for the ~1.16 MB tree account rent.
-        svm.airdrop(&payer.pubkey(), 20_000_000_000)
+        svm.airdrop(&payer.pubkey(), 100_000_000_000)
             .map_err(|e| ProgramTestError::Litesvm(format!("airdrop: {e:?}")))?;
 
         Ok(Self {

@@ -4,7 +4,9 @@ pub mod prover;
 pub mod shared;
 pub mod state;
 
+use solana_instruction::AccountMeta;
 use solana_pubkey::Pubkey;
+use zolana_interface::{instruction::TransactIxData, pda};
 
 pub use dynamic_swap_program::{
     instructions::{
@@ -19,6 +21,17 @@ pub use dynamic_swap_program::{
 
 pub(crate) fn err(e: impl core::fmt::Debug) -> anyhow::Error {
     anyhow::anyhow!("{e:?}")
+}
+
+pub(crate) fn nullifier_marker_accounts(
+    tree: &Pubkey,
+    transact: &TransactIxData,
+) -> Vec<AccountMeta> {
+    transact
+        .inputs
+        .iter()
+        .map(|input| AccountMeta::new(pda::nullifier_marker(tree, &input.nullifier_hash).0, false))
+        .collect()
 }
 
 pub fn pair_pda(authority: &Pubkey, source_asset_id: u64, destination_asset_id: u64) -> Pubkey {

@@ -405,6 +405,7 @@ fn tx_size(args: Vec<String>) {
     use solana_pubkey::Pubkey;
     use solana_signer::Signer;
     use solana_transaction::{versioned::VersionedTransaction, Transaction};
+    use zolana_interface::instruction::instruction_data::MERGE_INPUT_COUNT;
     use zolana_interface::{
         instruction::{
             tag, CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactOutput,
@@ -853,6 +854,99 @@ fn tx_size(args: Vec<String>) {
             leg_count,
             eddsa_ix.data.len(),
             legacy_tx_len(eddsa_ix),
+        );
+    }
+
+    println!();
+    println!("Builder layouts with nullifier markers (one writable PDA per input):");
+    println!(
+        "| {:<34} | {:>8} | {:>11} | {:>12} |",
+        "transaction", "accounts", "ix data (B)", "legacy tx (B)",
+    );
+    println!("|{:-<36}|{:-<10}|{:-<13}|{:-<14}|", "", "", "", "");
+    let tree = Pubkey::new_unique();
+    for n in [2usize, 3, 5] {
+        let spec = transfer_layout(
+            3,
+            OwnerTag::Account(0),
+            OPT_SENDER_DATA_LEN,
+            OPT_RECIPIENT_DATA_LEN,
+        );
+        let mut data = build_ix_data(Vec::new(), n, TransactProof::zeroed(), &spec);
+        for (index, input) in data.inputs.iter_mut().enumerate() {
+            input.nullifier_hash = [index as u8 + 1; 32];
+        }
+        let ix = zolana_interface::instruction::Transact {
+            payer: payer_pk,
+            input_tree: tree,
+            output_tree: tree,
+            owner_signers: Vec::new(),
+            interface_transfer_accounts: Vec::new(),
+            data,
+        }
+        .instruction();
+        println!(
+            "| {:<34} | {:>8} | {:>11} | {:>12} |",
+            format!("transact {n} in 3 out, transfer"),
+            ix.accounts.len(),
+            ix.data.len(),
+            legacy_tx_len(ix),
+        );
+    }
+    {
+        use zolana_interface::instruction::{
+            instruction_data::MergeProof, MergeTransact, MergeTransactIxData,
+        };
+        let nullifiers = (0..MERGE_INPUT_COUNT)
+            .map(|index| [index as u8 + 1; 32])
+            .collect::<Vec<_>>();
+        let data = MergeTransactIxData {
+            expiry_unix_ts: 0,
+            proof: MergeProof::zeroed(),
+            output_utxo_hash: [0u8; 32],
+            eddsa_owner: true,
+            private_tx_hash: [0u8; 32],
+            nullifiers,
+            utxo_tree_root_index: vec![0; MERGE_INPUT_COUNT],
+            nullifier_tree_root_index: vec![0; MERGE_INPUT_COUNT],
+        };
+        let settings = Pubkey::new_unique();
+        let vault = zolana_smart_account_client::smart_account_pda(&settings, 0).0;
+        let merge_ix = MergeTransact {
+            input_tree: tree,
+            output_tree: tree,
+            payer: vault,
+            user_record: Pubkey::new_unique(),
+            data,
+        }
+        .instruction();
+        let merge_ix_accounts = merge_ix.accounts.len();
+        let merge_ix_data_len = merge_ix.data.len();
+        let direct_len = bincode::serialize(&Transaction::new_unsigned(Message::new(
+            std::slice::from_ref(&merge_ix),
+            Some(&payer_pk),
+        )))
+        .unwrap()
+        .len();
+        let sync_ix =
+            zolana_smart_account_client::execute_sync_ix(&settings, 0, &[payer_pk], &[merge_ix]);
+        let compute_budget = Instruction {
+            program_id: Pubkey::from_str_const("ComputeBudget111111111111111111111111111111"),
+            accounts: Vec::new(),
+            data: [vec![2u8], 1_400_000u32.to_le_bytes().to_vec()].concat(),
+        };
+        let msg = Message::new(&[compute_budget, sync_ix.clone()], Some(&payer_pk));
+        let tx = Transaction::new_unsigned(msg);
+        println!(
+            "| {:<34} | {:>8} | {:>11} | {:>12} |",
+            "merge 8 in 1 out, direct", merge_ix_accounts, merge_ix_data_len, direct_len,
+        );
+        println!(
+            "| {:<34} | {:>8} | {:>11} | {:>12} |",
+            "merge 8 in 1 out, execute_sync + cb",
+            sync_ix.accounts.len(),
+            sync_ix.data.len(),
+            bincode::serialize(&tx).unwrap().len(),
         );
     }
 }

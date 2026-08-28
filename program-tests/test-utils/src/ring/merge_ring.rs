@@ -24,6 +24,7 @@ use zolana_transaction::{
 use super::{MergeRingRecord, RingHarness, SECOND_RING_TEST_PROGRAM_ID};
 use crate::{
     localnet::{pack_merge_proof, send_transaction, ZERO},
+    nullifier_marker::assert_nullifier_markers,
     test_validator_asserts::{
         assert_account_unchanged, assert_merge_ring, fetch_account, wait_for_indexed_transaction,
         wait_for_merkle_proof, wait_for_non_inclusion_proof, MergeRingAssertArgs,
@@ -354,9 +355,10 @@ impl RingHarness {
         });
 
         if assert_replay {
-            // The only writable instruction accounts are the fee payer and the
-            // tree. Capturing the post-success tree therefore covers every
-            // non-fee-payer account that a rejected replay could mutate.
+            // The writable instruction accounts are the fee payer, the tree and
+            // the nullifier markers. A rejected replay rolls the markers back to
+            // their post-success state, so capturing the post-success tree covers
+            // every other non-fee-payer account a replay could mutate.
             let tree_after_success = fetch_account(&self.rpc, &self.tree)?;
             let replay_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_399_999);
             match send_transaction(
@@ -368,11 +370,13 @@ impl RingHarness {
                 Ok(_) => return Err(anyhow!("replayed ring merge unexpectedly succeeded")),
                 Err(error) => {
                     // The replay must fail in the SPP instruction (index 1,
-                    // after the compute-budget instruction).
-                    Rejection::pool(ShieldedPoolError::NullifierTreeUpdateFailed)
+                    // after the compute-budget instruction): every nullifier
+                    // already has an initialized marker.
+                    Rejection::pool(ShieldedPoolError::NullifierAlreadyQueued)
                         .at(1)
                         .assert_client(&error);
                     assert_account_unchanged(&self.rpc, &self.tree, &tree_after_success)?;
+                    assert_nullifier_markers(&self.rpc, &self.tree, &input_nullifiers)?;
                 }
             }
         }

@@ -19,6 +19,7 @@ import {
   type Address,
   type AssetDeposit,
   type DepositAsset,
+  type InputUtxo,
   type MergeTransactInstructionData,
   type DepositSplAccounts,
   type RingAssetDeposit,
@@ -27,6 +28,7 @@ import {
 } from "../types.js";
 import { Writer, addressBytes, checkedAddress, fail } from "../internal.js";
 import {
+  nullifierMarkerAddress,
   protocolConfigAddress,
   ringAuthAddress,
   solInterfaceAddress,
@@ -336,24 +338,41 @@ function settlementAccounts(withdrawal?: TransactWithdrawal): Meta[] {
   ];
 }
 
-function transactAccounts(
+/**
+ * Mirrors Rust `append_nullifier_marker_accounts`: one writable marker PDA per
+ * spent input, in input order, derived from the input tree and the nullifier the
+ * instruction data already carries.
+ */
+async function nullifierMarkerAccounts(
+  inputTree: Address,
+  inputs: readonly InputUtxo[],
+): Promise<Meta[]> {
+  const markers = await Promise.all(
+    inputs.map((input) => nullifierMarkerAddress(inputTree, input.nullifierHash)),
+  );
+  return markers.map((marker) => meta(marker, false, true));
+}
+
+async function transactAccounts(
   payer: SignerAccount,
   inputTree: Address,
   outputTree: Address,
+  inputs: readonly InputUtxo[],
   withdrawal?: TransactWithdrawal,
-): Meta[] {
+): Promise<Meta[]> {
   const accounts = [
     meta(payer, true, true),
     meta(inputTree, false, true),
     meta(outputTree, false, true),
     meta(SHIELDED_POOL_PROGRAM_ID, false, false),
     meta(SYSTEM_PROGRAM, false, false),
+    ...(await nullifierMarkerAccounts(inputTree, inputs)),
   ];
   accounts.push(...settlementAccounts(withdrawal));
   return accounts;
 }
 
-export function transactInstruction(
+export async function transactInstruction(
   input: Readonly<{
     payer: SignerAccount;
     inputTree: Address;
@@ -361,24 +380,35 @@ export function transactInstruction(
     withdrawal?: TransactWithdrawal;
     data: TransactInstructionData;
   }>,
-): Instruction {
+): Promise<Instruction> {
   return instruction(
     tagged(InstructionTag.transact, encodeTransactInstructionData(input.data)),
-    transactAccounts(input.payer, input.inputTree, input.outputTree, input.withdrawal),
+    await transactAccounts(
+      input.payer,
+      input.inputTree,
+      input.outputTree,
+      input.data.inputs,
+      input.withdrawal,
+    ),
   );
 }
 
-/** Mirrors Rust `RingTransact::instruction`. `ringAuth` is unsigned here, the ring program signs it inside its CPI. */
-export function ringTransactAccounts(
+/**
+ * Mirrors Rust `RingTransact::instruction`. `ringAuth` is unsigned here, the ring
+ * program signs it inside its CPI. `inputs` are the payload's spent inputs; their
+ * nullifier markers follow `ringAuth`.
+ */
+export async function ringTransactAccounts(
   input: Readonly<{
     payer: SignerAccount;
     inputTree: Address;
     outputTree: Address;
     ringAuth: Address;
+    inputs: readonly InputUtxo[];
     ownerSigners?: readonly SignerAccount[];
     withdrawal?: TransactWithdrawal;
   }>,
-): readonly Meta[] {
+): Promise<readonly Meta[]> {
   return [
     meta(input.payer, true, true),
     meta(input.inputTree, false, true),
@@ -386,6 +416,7 @@ export function ringTransactAccounts(
     meta(SHIELDED_POOL_PROGRAM_ID, false, false),
     meta(SYSTEM_PROGRAM, false, false),
     meta(input.ringAuth, false, false),
+    ...(await nullifierMarkerAccounts(input.inputTree, input.inputs)),
     ...(input.ownerSigners ?? []).map((signer) => meta(signer, true, false)),
     ...settlementAccounts(input.withdrawal),
   ];
@@ -480,7 +511,8 @@ export async function pauseTreeInstruction(
   );
 }
 
-export function mergeTransactInstruction(
+/** Mirrors Rust `MergeTransact::instruction`: the eight nullifier markers precede the pool program. */
+export async function mergeTransactInstruction(
   input: Readonly<{
     inputTree: Address;
     outputTree: Address;
@@ -488,7 +520,10 @@ export function mergeTransactInstruction(
     userRecord: Address;
     data: MergeTransactInstructionData;
   }>,
-): Instruction {
+): Promise<Instruction> {
+  const markers = await Promise.all(
+    input.data.nullifiers.map((nullifier) => nullifierMarkerAddress(input.inputTree, nullifier)),
+  );
   return instruction(
     tagged(InstructionTag.mergeTransact, encodeMergeTransactInstructionData(input.data)),
     [
@@ -497,6 +532,7 @@ export function mergeTransactInstruction(
       meta(input.payer, true, true),
       meta(input.userRecord, false, false),
       meta(SYSTEM_PROGRAM, false, false),
+      ...markers.map((marker) => meta(marker, false, true)),
       meta(SHIELDED_POOL_PROGRAM_ID, false, false),
     ],
   );

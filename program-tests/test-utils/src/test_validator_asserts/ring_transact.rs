@@ -8,6 +8,7 @@ use super::{
     state_root_from, to_address, wait_for_indexed_transaction, wait_for_merkle_proof,
     wait_for_nullifier_present,
 };
+use crate::nullifier_marker::{assert_nullifier_markers, assert_tree_lamports_after_spend};
 
 /// Inputs for [`assert_ring_transact`]. The view tags identify which indexed
 /// transaction photon must serve: a `ring_transact` output is indexed by the
@@ -32,6 +33,8 @@ pub struct RingTransactAssertArgs<'a> {
 ///
 /// - the indexed transaction is served by photon under `fetch_view_tag`,
 /// - the tree root advanced (the outputs were appended),
+/// - the tree collected the forester fee and funded exactly one nullifier
+///   marker per input; every marker exists with its rent, owner, size and bump,
 /// - the indexed transaction's `nullifiers` equal the instruction's
 ///   `inputs[].nullifier_hash`, and its output-slot hashes equal the
 ///   instruction's `outputs[].utxo_hash` (so the emitted event matched the data),
@@ -57,7 +60,9 @@ pub fn assert_ring_transact<R: Rpc, I: Rpc>(
     } = args;
 
     let root_before = state_root_from(tree_before);
-    let root_after = state_root_from(&super::fetch_account(rpc, tree)?);
+    let tree_after =
+        assert_tree_lamports_after_spend(rpc, tree, tree_before, data.inputs.len() as u64)?;
+    let root_after = state_root_from(&tree_after);
     assert_ne!(root_after, root_before, "outputs must be appended");
 
     let indexed = wait_for_indexed_transaction(indexer, fetch_view_tag, signature);
@@ -68,6 +73,7 @@ pub fn assert_ring_transact<R: Rpc, I: Rpc>(
         .iter()
         .map(|input| input.nullifier_hash)
         .collect();
+    assert_nullifier_markers(rpc, tree, &expected_nullifiers)?;
     assert_eq!(
         indexed.nullifiers, expected_nullifiers,
         "indexed nullifiers must match the instruction inputs"

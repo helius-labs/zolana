@@ -354,14 +354,14 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
     );
     assert_eq!(vault_after, vault_before - AMOUNT, "vault debited");
 
-    // The successful spend inserted both input nullifiers. Replaying the exact
-    // instruction must fail at the nullifier queue before any tree, vault, or
-    // recipient mutation is committed.
+    // The successful spend queued both input nullifiers and created their
+    // markers. Replaying the exact instruction must fail on the existing
+    // markers before any tree, vault, or recipient mutation is committed.
     let replay = env
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("reusing a spent nullifier must fail");
-    Rejection::pool(ShieldedPoolError::NullifierTreeUpdateFailed).assert_litesvm(replay);
+    Rejection::pool(ShieldedPoolError::NullifierAlreadyQueued).assert_litesvm(replay);
     env.rpc
         .last_transaction_trace()
         .expect("replayed transaction trace")

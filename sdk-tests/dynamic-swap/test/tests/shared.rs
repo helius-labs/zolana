@@ -26,7 +26,7 @@ use zolana_client::{spawn_prover, ProverClient, Rpc, SolanaRpc, ZolanaClient, Zo
 use zolana_interface::{
     instruction::{CreateAssetCounter, CreateProtocolConfig, CreateSplInterface, CreateTree},
     pda,
-    state::tree_account_size,
+    state::{tree_account_size, TREE_WORKING_CAPITAL_LAMPORTS},
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{ShieldedKeypair, ShieldedPda, SigningKey};
@@ -209,7 +209,7 @@ pub fn setup() -> Result<TestEnv> {
     let alloc_ix = system_create_account_ix(
         &payer.pubkey(),
         &tree.pubkey(),
-        rent,
+        rent + TREE_WORKING_CAPITAL_LAMPORTS,
         tree_account_size() as u64,
         &pda::shielded_pool_program_id(),
     );

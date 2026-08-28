@@ -13,8 +13,10 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
-    instruction::CreateTree, pda, state::tree_account_size, DEFAULT_TREE_ADDRESS,
-    SHIELDED_POOL_PROGRAM_ID,
+    instruction::CreateTree,
+    pda,
+    state::{tree_account_size, TREE_WORKING_CAPITAL_LAMPORTS},
+    DEFAULT_TREE_ADDRESS, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_program_test::ZolanaProgramTest;
 
@@ -538,7 +540,7 @@ pub(crate) fn generate_account_snapshots(deploy_dir: &Path, accounts_dir: &Path)
         .set_account(
             tree,
             Account {
-                lamports: rent,
+                lamports: rent + TREE_WORKING_CAPITAL_LAMPORTS,
                 data: vec![0u8; size],
                 owner: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
                 executable: false,

@@ -6,7 +6,7 @@ use zolana_client::{Rpc, SolanaRpc};
 use zolana_interface::{
     instruction::{CreateProtocolConfig, CreateTree},
     pda,
-    state::tree_account_size,
+    state::{tree_account_size, TREE_WORKING_CAPITAL_LAMPORTS},
     PROGRAM_ID_PUBKEY,
 };
 use zolana_transaction::Address;
@@ -61,7 +61,7 @@ pub(crate) fn run_create_tree(opts: CreateTreeOptions) -> Result<()> {
             system_create_account_ix(
                 &authority,
                 &tree_pubkey,
-                rent,
+                rent + TREE_WORKING_CAPITAL_LAMPORTS,
                 tree_account_size() as u64,
                 &PROGRAM_ID_PUBKEY,
             ),

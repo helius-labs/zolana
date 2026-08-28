@@ -691,7 +691,7 @@ export class ZolanaClient {
     checkedAddress(input.feePayer, "feePayer");
     checkedAddress(input.userRecord, "userRecord");
     const lifetime = await this.getLatestBlockhash(context);
-    return buildUnsignedMergeTransaction({
+    return await buildUnsignedMergeTransaction({
       tree: this.tree,
       feePayer: input.feePayer,
       userRecord: input.userRecord,
@@ -711,7 +711,7 @@ export class ZolanaClient {
   ): Promise<Transaction> {
     const data = await this.#proveAuthorizedPrivateTransaction(input, context);
     const lifetime = await this.getLatestBlockhash(context);
-    return buildUnsignedTransaction({
+    return await buildUnsignedTransaction({
       computeUnitLimit: this.#computeUnitLimit,
       ...(this.#computeUnitPrice === undefined
         ? {}
@@ -757,7 +757,7 @@ export class ZolanaClient {
   }
 }
 
-export function buildUnsignedTransaction(
+export async function buildUnsignedTransaction(
   input: Readonly<{
     computeUnitLimit: number;
     computeUnitPriceMicroLamports?: bigint;
@@ -769,11 +769,11 @@ export function buildUnsignedTransaction(
     data: TransactInstructionData;
     lifetime: LatestBlockhash;
   }>,
-): Transaction {
+): Promise<Transaction> {
   checkedAddress(input.feePayer, "feePayer");
   checkedAddress(input.inputTree, "inputTree");
   checkedAddress(input.outputTree, "outputTree");
-  const instructions = privateTransactionInstructions({ ...input, payer: input.feePayer });
+  const instructions = await privateTransactionInstructions({ ...input, payer: input.feePayer });
   return checkedTransactionSize(
     compileKitTransaction(input.feePayer, input.lifetime, instructions),
     {
@@ -783,7 +783,7 @@ export function buildUnsignedTransaction(
   );
 }
 
-function privateTransactionInstructions(
+async function privateTransactionInstructions(
   input: Readonly<{
     computeUnitLimit: number;
     computeUnitPriceMicroLamports?: bigint;
@@ -794,7 +794,7 @@ function privateTransactionInstructions(
     withdrawal?: TransactWithdrawal;
     data: TransactInstructionData;
   }>,
-): readonly Instruction[] {
+): Promise<readonly Instruction[]> {
   checkedAddress(input.inputTree, "inputTree");
   checkedAddress(input.outputTree, "outputTree");
   checkedU32(input.computeUnitLimit, "computeUnitLimit");
@@ -809,7 +809,7 @@ function privateTransactionInstructions(
           }),
         ]),
     ...(input.setupInstructions ?? []),
-    transactInstruction({
+    await transactInstruction({
       payer: input.payer,
       inputTree: input.inputTree,
       outputTree: input.outputTree,
@@ -819,7 +819,7 @@ function privateTransactionInstructions(
   ];
 }
 
-export function buildUnsignedMergeTransaction(
+export async function buildUnsignedMergeTransaction(
   input: Readonly<{
     tree: Address;
     feePayer: Address;
@@ -827,14 +827,14 @@ export function buildUnsignedMergeTransaction(
     lifetime: LatestBlockhash;
     data: MergeTransactInstructionData;
   }>,
-): Transaction {
+): Promise<Transaction> {
   checkedAddress(input.tree, "tree");
   checkedAddress(input.feePayer, "feePayer");
   checkedAddress(input.userRecord, "userRecord");
   return checkedTransactionSize(
     compileKitTransaction(input.feePayer, input.lifetime, [
       getSetComputeUnitLimitInstruction({ units: 1_400_000 }),
-      mergeTransactInstruction({
+      await mergeTransactInstruction({
         inputTree: input.tree,
         outputTree: input.tree,
         payer: input.feePayer,

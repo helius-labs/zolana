@@ -37,7 +37,7 @@ import {
   getCreateSplInterfaceInstructionAsync,
   getCreateTreeInstructionAsync,
   getDepositInstructionAsync,
-  getTransactInstruction,
+  getTransactInstructionAsync,
   DepositAsset,
 } from "../src/instructions.js";
 import {
@@ -355,9 +355,9 @@ describe("address and instruction builders", () => {
     ).toBe(SPL_TOKEN_PROGRAM_ID);
   });
 
-  it("keeps input and output trees explicit in the transact builder", () => {
+  it("keeps input and output trees explicit in the transact builder", async () => {
     const payer = { address: OWNER } as TransactionSigner;
-    const instruction = getTransactInstruction({
+    const instruction = await getTransactInstructionAsync({
       payer,
       inputTree: DEFAULT_TREE_ADDRESS,
       outputTree: OWNER,

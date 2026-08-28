@@ -123,6 +123,8 @@ fn sol_withdrawal_rejects_a_non_canonical_sol_interface() {
     let recipient = Pubkey::new_unique();
     let sol_vault_before = rpc.svm.get_balance(&pda::sol_interface()).unwrap_or(0);
 
+    let data = sol_withdrawal_ix_data();
+    let sol_interface_index = 5 + data.inputs.len();
     let mut ix = Transact {
         payer,
         input_tree: tree.pubkey(),
@@ -131,12 +133,15 @@ fn sol_withdrawal_rejects_a_non_canonical_sol_interface() {
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts { recipient },
         )],
-        data: sol_withdrawal_ix_data(),
+        data,
     }
     .instruction();
-    // Swap the canonical SOL-custody PDA (first group account, index 5) for an
-    // attacker account.
-    ix.accounts.get_mut(5).expect("sol_interface meta").pubkey = Pubkey::new_unique();
+    // Swap the canonical SOL-custody PDA (first group account, right after the
+    // nullifier markers) for an attacker account.
+    ix.accounts
+        .get_mut(sol_interface_index)
+        .expect("sol_interface meta")
+        .pubkey = Pubkey::new_unique();
 
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
@@ -288,6 +293,7 @@ fn spl_withdrawal_rejects_a_wrong_cpi_authority_account() {
     // builder); the slot is validated against `SHIELDED_POOL_CPI_AUTHORITY`
     // before any vault check runs.
     let ix_data = spl_withdrawal_leg(sol_withdrawal_ix_data(), 1_000, &env.mint);
+    let cpi_authority_index = 5 + ix_data.inputs.len();
     let mut ix = Transact {
         payer: env.attacker.pubkey(),
         input_tree: env.tree.pubkey(),
@@ -299,8 +305,12 @@ fn spl_withdrawal_rejects_a_wrong_cpi_authority_account() {
         data: ix_data,
     }
     .instruction();
-    // The withdrawal group's cpi_authority is the first group account (index 5).
-    ix.accounts.get_mut(5).expect("cpi_authority meta").pubkey = Pubkey::new_unique();
+    // The withdrawal group's cpi_authority is the first group account, right
+    // after the nullifier markers.
+    ix.accounts
+        .get_mut(cpi_authority_index)
+        .expect("cpi_authority meta")
+        .pubkey = Pubkey::new_unique();
 
     let error = env
         .rpc

@@ -6,7 +6,7 @@ use zolana_interface::{
     instruction::instruction_data::transact::TransactIxData, SHIELDED_POOL_PROGRAM_ID,
 };
 
-use crate::{err, order_authority_pda, tag, CancelProof};
+use crate::{err, nullifier_marker_accounts, order_authority_pda, tag, CancelProof};
 
 pub struct Cancel {
     /// The maker's ed25519 pubkey, a dedicated readonly signer the swap program
@@ -30,6 +30,7 @@ impl Cancel {
             spp_proof,
         } = self;
 
+        let nullifier_markers = nullifier_marker_accounts(&tree, &spp_proof);
         let serialized_ix = wincode::serialize(&CancelIxData {
             proof: cancel_proof,
             order_expiry,
@@ -39,7 +40,7 @@ impl Cancel {
 
         // The maker is a dedicated readonly signer after the fee payer; the swap
         // program checks its pubkey against the cancel proof's committed maker.
-        let accounts = vec![
+        let mut accounts = vec![
             AccountMeta::new(payer, true),
             AccountMeta::new_readonly(maker, true),
             AccountMeta::new(payer, true),
@@ -47,8 +48,9 @@ impl Cancel {
             AccountMeta::new(tree, false),
             AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
             AccountMeta::new_readonly(Pubkey::default(), false),
-            AccountMeta::new_readonly(order_authority_pda(), false),
         ];
+        accounts.extend(nullifier_markers);
+        accounts.push(AccountMeta::new_readonly(order_authority_pda(), false));
         let mut instruction_data = vec![tag::CANCEL];
         instruction_data.extend_from_slice(&serialized_ix);
         Ok(Instruction {

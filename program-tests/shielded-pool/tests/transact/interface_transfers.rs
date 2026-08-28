@@ -88,6 +88,12 @@ fn assert_rejected_without_sol_movement(
         AccountMeta::new_readonly(zolana_interface::PROGRAM_ID_PUBKEY, false),
         AccountMeta::new_readonly(Pubkey::default(), false),
     ];
+    accounts.extend(data.inputs.iter().map(|input| {
+        AccountMeta::new(
+            pda::nullifier_marker(&pool.tree.pubkey(), &input.nullifier_hash).0,
+            false,
+        )
+    }));
     for _ in &interface_transfer_accounts {
         accounts.push(AccountMeta::new(pda::sol_interface(), false));
         accounts.push(AccountMeta::new(payer, true));
@@ -333,6 +339,11 @@ fn spl_deposit_requires_depositor_signature() {
         .mint_to(&mint, &user_token_account, 1)
         .expect("mint deposit token");
 
+    let data = ix_data(vec![InterfaceTransfer::SplDeposit {
+        amount: 1,
+        spl_interface_bump: pda::spl_interface_with_bump(&mint).1,
+    }]);
+    let token_authority_index = 7 + data.inputs.len();
     let mut ix = Transact {
         payer,
         input_tree: pool.tree.pubkey(),
@@ -347,15 +358,15 @@ fn spl_deposit_requires_depositor_signature() {
                 token_program: ZolanaProgramTest::token_program_id(),
             },
         )],
-        data: ix_data(vec![InterfaceTransfer::SplDeposit {
-            amount: 1,
-            spl_interface_bump: pda::spl_interface_with_bump(&mint).1,
-        }]),
+        data,
     }
     .instruction();
-    // Accounts: [payer, trees, program, system, mint, spl_interface,
-    // token_authority(7), user_token, token_program].
-    ix.accounts[7].is_signer = false;
+    // Accounts: [payer, trees, program, system, one marker per input, mint,
+    // spl_interface, token_authority, user_token, token_program].
+    ix.accounts
+        .get_mut(token_authority_index)
+        .expect("token_authority meta")
+        .is_signer = false;
 
     expect_rejection(
         &mut pool.rpc,

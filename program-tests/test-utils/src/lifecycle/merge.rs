@@ -25,6 +25,7 @@ use zolana_user_registry_interface::{
 use super::LifecycleHarness;
 use crate::{
     localnet::{pack_merge_proof, send_transaction, ZERO},
+    nullifier_marker::{assert_nullifier_markers, nullifier_marker_rent},
     test_validator_asserts::{
         assert_account_unchanged, fetch_account, wait_for_indexed_transaction,
         wait_for_merkle_proof, wait_for_non_inclusion_proof,
@@ -224,7 +225,8 @@ impl LifecycleHarness {
             &[&merge_key],
         )?;
         // A successful merge collects the forester fee from the inner payer: one
-        // 20-lamport share per inserted nullifier, transferred into the tree.
+        // 20-lamport share per inserted nullifier, transferred into the tree. The
+        // tree then funds one nullifier marker per inserted nullifier.
         let forester_fee = MERGE_INPUT_COUNT as u64 * 20;
         let payer_after = fetch_account(&self.rpc, &self.merge_vault)?;
         assert_eq!(
@@ -232,12 +234,19 @@ impl LifecycleHarness {
             forester_fee,
             "merge must charge the payer one forester share per nullifier"
         );
+        let marker_rent = nullifier_marker_rent(&self.rpc)?;
         let tree_after = fetch_account(&self.rpc, &self.tree)?;
         assert_eq!(
-            tree_after.lamports - tree_before.lamports,
-            forester_fee,
-            "merge forester fee must accrue to the tree"
+            tree_before.lamports - tree_after.lamports,
+            MERGE_INPUT_COUNT as u64 * marker_rent - forester_fee,
+            "merge forester fee must accrue to the tree net of the marker rent it funds"
         );
+        assert_eq!(
+            result.nullifiers.len(),
+            MERGE_INPUT_COUNT,
+            "merge queues one nullifier per input slot"
+        );
+        assert_nullifier_markers(&self.rpc, &self.tree, &result.nullifiers)?;
         assert_account_unchanged(&self.rpc, &user_record, &user_record_before)?;
 
         // Only commit the fixture's spendable set after the validator accepted the

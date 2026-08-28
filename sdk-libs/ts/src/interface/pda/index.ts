@@ -6,6 +6,7 @@ import {
   type ProgramDerivedAddress,
 } from "@solana/kit";
 
+import { copyBytes } from "../internal.js";
 import {
   SHIELDED_POOL_CPI_AUTHORITY,
   SHIELDED_POOL_PROGRAM_ID,
@@ -24,6 +25,31 @@ function derive(seed: string, address?: Address): Promise<ProgramDerivedAddress>
       ...(address === undefined ? [] : [addressEncoder.encode(address)]),
     ],
   });
+}
+
+/**
+ * Named for Rust's `pda::nullifier_marker`: the account the pool creates for a
+ * spent nullifier, seeded by the input tree and the nullifier itself.
+ */
+export async function nullifierMarkerPda(
+  tree: Address,
+  nullifier: Uint8Array,
+): Promise<ProgramDerivedAddress> {
+  return getProgramDerivedAddress({
+    programAddress: SHIELDED_POOL_PROGRAM_ID,
+    seeds: [
+      encoder.encode("nullifier"),
+      addressEncoder.encode(tree),
+      copyBytes(nullifier, 32, "nullifier"),
+    ],
+  });
+}
+
+export async function nullifierMarkerAddress(
+  tree: Address,
+  nullifier: Uint8Array,
+): Promise<Address> {
+  return (await nullifierMarkerPda(tree, nullifier))[0];
 }
 
 export async function ringAuthAddress(ringProgramId: Address): Promise<Address> {
