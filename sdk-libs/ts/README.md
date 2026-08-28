@@ -1,12 +1,16 @@
 # @heliuslabs/zolana
 
-`@heliuslabs/zolana` is the TypeScript SDK for Solana Rings by Helius. Use it
-to:
+`@heliuslabs/zolana` is the TypeScript SDK for Solana Privacy Rings.
+Solana Privacy Rings are a programmable shielded pool with encrypted onchain balances and execution directly on Solana.
+
+Use it for:
 
 - deposit SOL, SPL Token, and Token-2022 into a private balance;
 - read private balances and transaction history;
-- send private transfers; and
-- withdraw to public Solana addresses.
+- send private transfers to a Solana address; and
+- private to public withdrawal to a Solana addresses.
+
+All private transactions are executed in a single Solana transaction.
 
 ## Install
 
@@ -105,6 +109,13 @@ the same owner seed, as shown above.
 
 ### Endpoints
 
+A client needs one URL and a
+[Helius API key](https://dashboard.helius.dev/).
+
+The RPC endpoint serves the Solana RPC, the Photon indexer to fetch encrypted
+state, and the prover that generates the zero-knowledge proofs.
+It's planned to make indexer and prover available through using the same Helius RPC URL.
+
 **Devnet:**
 
 | Service    | Host the SDK uses                                                   | Notes                                                                                     |
@@ -122,34 +133,13 @@ const client = await createZolanaClient({
 });
 ```
 
-**Localnet:**
-
-`zolana dev start`. RPC port `:8899`, indexer port `:8784`, prover port `:3001`.
+On localnet the SDK starts the local test validator (`:8899`), Photon indexer
+(`:8784`), and prover (`:3001`), and the client connects to them automatically
+without needing endpoint configuration.
 
 ```ts
 const client = await createZolanaClient({});
 ```
-
-A client needs one URL and a
-[Helius API key](https://dashboard.helius.dev/).
-
-| Network | Endpoint                                            |
-| ------- | --------------------------------------------------- |
-| Mainnet | `https://mainnet.helius-rpc.com/?api-key=<API_KEY>` |
-| Devnet  | `https://devnet.helius-rpc.com/?api-key=<API_KEY>`  |
-
-The RPC endpoint serves the Solana RPC, the Photon indexer to fetch encrypted
-state, and the prover that generates the zero-knowledge proofs.
-
-```ts
-const client = await createZolanaClient({
-  solanaRpcUrl: `https://devnet.helius-rpc.com/?api-key=${process.env.API_KEY!}`,
-});
-```
-
-On localnet the SDK starts the local test validator, Photon indexer, and
-prover, and the client connects to them automatically without needing endpoint
-configuration.
 
 ## Common transactions
 
@@ -175,13 +165,15 @@ await submit(deposit, feePayer);
 The standard SPL Token program is used by default. For Token-2022, also pass
 `splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID`.
 
-The SDK resolves a registered Solana public key to a shielded address.
+Creating a private wallet registers the Solana address in the onchain registry
+and maps it to a shielded address. On every transfer, the SDK looks up the
+wallet address in the onchain registry to resolve the shielded address.
 Passing a `ShieldedAddress` skips the lookup.
 
 ### Private transfer
 
-A private transfer targets the recipient's registered Solana public key.
-If that pubkey is not registered, the call fails with
+A private transfer is sent to a Solana wallet address. The SDK looks up that
+address in the onchain registry. If it is not registered, the call fails with
 `WALLET_RECIPIENT_NOT_REGISTERED`. It does not withdraw. Use
 `buildWithdrawalTransaction` for a public recipient.
 
