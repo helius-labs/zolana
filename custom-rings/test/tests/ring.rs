@@ -517,6 +517,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
             payer: &env.sender.keypair,
             recipient: &env.sender.keypair,
             tree: env.tree,
+            asset: DepositAsset::Sol,
             amount,
         }
         .send(rpc)?;

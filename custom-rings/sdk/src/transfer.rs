@@ -96,9 +96,11 @@ pub struct ProvenTransfer {
 #[must_use]
 pub struct RingDeposit<'a> {
     pub ring: CustomRing,
+    /// Lamport source for Sol, the user token's authority for Spl.
     pub payer: &'a dyn Signer,
     pub recipient: &'a ShieldedKeypair,
     pub tree: Address,
+    pub asset: DepositAsset,
     pub amount: u64,
 }
 
@@ -474,7 +476,7 @@ impl RingDeposit<'_> {
     pub fn send<R: Rpc>(self, rpc: &R) -> Result<RingDepositReceipt, DepositError> {
         let blinding = random_blinding();
         let deposit = RingAssetDeposit {
-            asset: DepositAsset::Sol,
+            asset: self.asset,
             view_tag: self.recipient.recipient_bootstrap_view_tag(),
             owner_utxo_hash: owner_utxo_hash(&self.recipient.owner_hash()?, &blinding)?,
             amount: self.amount,
@@ -497,11 +499,15 @@ impl RingDeposit<'_> {
         .instruction()?;
         let signature =
             rpc.create_and_send_transaction(&[ix], self.payer.pubkey(), &[self.payer])?;
+        let mint = match self.asset {
+            DepositAsset::Sol => SOL_MINT,
+            DepositAsset::Spl(spl) => spl.mint,
+        };
         Ok(RingDepositReceipt {
             signature,
             utxo: Utxo {
                 owner: self.recipient.signing_pubkey(),
-                asset: SOL_MINT,
+                asset: mint,
                 amount: self.amount,
                 blinding,
                 ring_program_id: Some(self.ring.program_id()),
