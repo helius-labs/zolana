@@ -112,7 +112,7 @@ Source: [`diagrams/architecture.dot`](diagrams/architecture.dot). Regenerate wit
 3. Ring RPC (with auditor) — RPC with auditor keys; decrypts and serves UTXOs to policy-ring users.
 4. Prover — generates Groth16 proofs. Users can generate client side proofs as well.
 5. Relayer (optional) — fee-payer that submits a transaction on a user's behalf; by default users invoke the programs directly. Targets SPP (default ring), the ZK Swap program, or a Ring program (policy ring).
-6. Forester — processes the nullifier queue into the nullifier tree.
+6. Forester — processes the nullifier queue into the nullifier tree and closes retired nullifier markers.
 7. SPP (Solana Privacy Program) — verifies proofs, updates trees, moves SPL to and from the vaults.
 8. ZK Swap Program — enforces swap logic in a zk proof and settles the swap with a shielded transfer by CPI into a Ring program or directly into SPP.
 9. Ring Programs (1..N) — config programs; verify policy proofs and CPI into SPP.
@@ -1196,7 +1196,8 @@ The single public signal is `public_input_hash`, a Poseidon hash chain over a sh
 
 | Account | Description |
 | --- | --- |
-| Tree account | Contains the nullifier tree (`light-batched-merkle-tree`, H=40), nullifier queue, and UTXO tree (sparse Merkle tree, H=32). |
+| Tree account | Contains the nullifier tree (`zolana-batched-merkle-tree`, H=40), nullifier queue, and UTXO tree (sparse Merkle tree, H=32). Holds the lamports that fund nullifier markers (working capital above its own rent exemption) and records `close_before_index`, the queue-sequence watermark below which markers may be closed. |
+| Nullifier marker | One 9-byte program-owned PDA per queued nullifier: `[b"nullifier", tree, nullifier]` storing `{ queue_index: u64, bump: u8 }` (Borsh, no discriminator). Created by the inserting instruction and funded from the tree; it makes a second queue insertion of the same pending nullifier fail. Closed permissionlessly by `close_nullifier_markers` once `queue_index < tree.close_before_index`, returning its lamports to the tree. See `program-libs/batched-merkle-tree/spec.md`. |
 | SPL interface vault | Per-mint SPL / Token-22 vault holding all shielded SPL tokens. |
 | Asset registry | PDA derived from the mint, set at `create_spl_interface` time. Stores the `asset_id: u64` assigned to that mint (used as the compact asset identifier inside UTXOs and ciphertexts). `asset_id = 1` is reserved for native SOL and has no `Asset registry` entry; SPL mints get `asset_id ≥ 2`. |
 | Asset counter | One global account per program, holding the monotonic `next_asset_id: u64`. Initialized to `2` (since `1` is reserved for SOL) and incremented on each `create_spl_interface`. |
@@ -1284,8 +1285,8 @@ Usage by instruction:
 ## Instructions
 
 Tags 0–9 cover administration and maintenance, tag 10 is the internal event
-hook, tags 11–13 are default-ring operations, and tags 14–17 are policy-ring
-operations.
+hook, tags 11–13 are default-ring operations, tags 14–17 are policy-ring
+operations, and tag 18 is permissionless nullifier-marker cleanup.
 
 | Instruction | Description |
 | --- | --- |
@@ -1293,7 +1294,7 @@ operations.
 | update_protocol_config | Tag 1; gated by `protocol_config.protocol_authority`; updates exactly one authority or flag per call; rotating `protocol_authority` requires the incoming authority to co-sign |
 | create_tree | Tag 2; gated by `protocol_config.tree_creation_authority` unless `tree_creation_is_permissionless`; initializes the shared Tree account (nullifier tree + queue, UTXO tree) |
 | pause_tree | Tag 3; gated by `protocol_config.protocol_authority`; can pause and unpause trees |
-| batch_update_nullifier_tree | Tag 4; gated by `protocol_config.forester_authority`; inserts queued nullifiers into the nullifier tree via a batch ZKP and emits the batch address-append event. |
+| batch_update_nullifier_tree | Tag 4; gated by `protocol_config.forester_authority`; inserts queued nullifiers into the nullifier tree via a batch ZKP and emits the batch address-append event. When an applied update retires the previously inserted queue batch it zeroes the root-history slots that predate that batch's final root and advances `close_before_index`, releasing that batch's nullifier markers for `close_nullifier_markers`. |
 | create_asset_counter | Tag 5; gated by `protocol_config.protocol_authority`; creates the singleton `Asset counter` PDA with `next_asset_id = 2`. |
 | create_spl_interface | Tag 6; gated by `protocol_config.protocol_authority` unless `spl_interface_creation_is_permissionless`; reads + bumps the `Asset counter`, creates the per-mint SPL interface vault and writes the assigned `asset_id` into the per-mint `Asset registry` PDA. |
 | create_ring_config | Tag 7; creates the ring's `ring_config` (the `ring_auth` PDA), which must sign its own creation; the payer must equal `protocol_config.ring_creation_authority` unless `ring_creation_is_permissionless`. See [Ring Accounts](#ring-accounts). |
@@ -1307,6 +1308,7 @@ operations.
 | ring_transact | Tag 15; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees; checks that the encrypted UTXOs decrypt under the ring auditor key and the recipient keys named in the policy proof |
 | merge_ring | Tag 16; CPI from an active ring program; consolidates the 8 input slots of the fixed merge shape (same owner, same asset, same `ring_program_id`) into one output UTXO that preserves `ring_program_id`. Mirrors `merge_transact` for policy-ring UTXOs. The ring program runs its own authorization before CPI; the merge proof enforces `data_hash = 0` on inputs and output. |
 | ring_authority_transact | Tag 17; checks the ring config is active and signed, then checks the state transition only includes ring-program-owned UTXOs. UTXO owners do not sign; the ring has full control subject to its policy. |
+| close_nullifier_markers | Tag 18; permissionless, no signer; rejected while the tree is paused. Accounts: the writable tree, then one writable marker per `nullifiers[i]`. For every pair: the marker is program-owned with an exact 9-byte payload, recreates `[b"nullifier", tree, nullifier, bump]`, and has `queue_index < tree.close_before_index`; its lamports move to the tree and the account is closed. The call is atomic. |
 
 ### `transact`
 
@@ -1317,8 +1319,10 @@ operations.
 **Accounts**
 
 The fixed prefix is `payer`, `input_tree`, `output_tree`, the SPP program
-account (for the event self-CPI), and the canonical system program. The
-**owner-signer run** follows: the ed25519 owners of the spent inputs in
+account (for the event self-CPI), and the canonical system program, followed by
+one writable nullifier-marker PDA per input in `inputs` order (for
+`ring_transact` and `ring_authority_transact` the markers follow `ring_config`,
+which stays at slot 6). The **owner-signer run** follows: the ed25519 owners of the spent inputs in
 first-occurrence order, each read-only and signing (the payer already occupies
 signer slot 0, so an owner equal to the payer does not repeat). Public
 settlement groups come last, in `interface_transfers` order. A SOL group is
@@ -1344,6 +1348,7 @@ aggregate into one proof slot.
 | 3 | output_tree | x |   | receives output UTXO commitments; may equal `input_tree` |
 | 4 | program |   |   | SPP, for the [`emit_event`](#instructions) self-CPI |
 | 5 | system_program |   |   | canonical System Program |
+| .. | nullifier_markers | x |   | one per `inputs[i]`, in order: the canonical PDA `[b"nullifier", input_tree, nullifier_hash]`; must be System-owned and empty (a prefunded balance is accepted and only the missing rent is debited from `input_tree`). An initialized marker means the nullifier is already pending (`NullifierAlreadyQueued`) |
 | .. | owner_signers |   | x | first-occurrence ed25519 input owners (read-only), at most `MAX_SIGNERS - 1` |
 | .. | public-leg groups |   |   | one group per `u8`-counted entry in `interface_transfers`, in order, using the layouts above |
 
@@ -1498,7 +1503,7 @@ one proof slot does not remove their individual account metas.
 6. Both tree accounts permit their respective writes: nullifier insertion in `input_tree` and UTXO append in `output_tree`.
 7. Proof verifies against the three aggregated public slots.
 8. Append each `outputs[i].utxo_hash` (in order) to `output_tree`'s UTXO sparse Merkle tree.
-9. Insert each input's `nullifier_hash` into `input_tree`'s nullifier queue.
+9. Insert each input's `nullifier_hash` into `input_tree`'s nullifier queue and create its nullifier marker: allocate 9 bytes at the canonical PDA, assign it to SPP, store `{ queue_index, bump }`, and move the missing rent-exempt balance from `input_tree` (`InsufficientNullifierMarkerRent` if the tree would fall below its own rent minimum). An already initialized marker rejects the transaction with `NullifierAlreadyQueued`.
 10. The sender bundle needs no nullifier-tree insertion: input nullifiers already prevent replay. SPP does not check the `data` of any `OutputCiphertext`; a wallet that writes an inconsistent blob only harms itself (sync will fail to decrypt). SPP does not constrain `output_ciphertexts.len()`.
 11. Settle every original leg independently using its full `u64` amount: `is_deposit = true` moves SOL/SPL from the public account into custody, while `false` moves value from custody to the named public account. Aggregation affects proof inputs only; account resolution, settlement, the external-data hash, and event movements retain leg order.
 12. Emit a [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI.
@@ -1863,6 +1868,9 @@ Every entry's `blinding` is a fresh CSPRNG value sent in the clear, as in
 | 2 | output_tree | x |   | receives the merged output commitment; may equal `input_tree` |
 | 3 | payer |   | x | fee payer; any account may run the merge |
 | 4 | user_record |   |   | read-only; the owner's [registry](#registry) record. SPP checks `merging_enabled == true` and binds the proof's owner `pk_field(user_signing_pk)` to it (rail-selected by `eddsa_owner`) |
+| 5 | system_program |   |   | canonical System Program |
+| .. | nullifier_markers | x |   | eight, one per `nullifiers[i]` in order: the canonical PDA `[b"nullifier", input_tree, nullifier]`, System-owned and empty (prefunding accepted); created and funded from `input_tree` as in [`transact`](#transact) |
+| n | program |   |   | SPP, for the [`emit_event`](#instructions) self-CPI |
 
 **Instruction data**
 
@@ -1904,7 +1912,7 @@ struct MergeTransactIxData {
 5. SPP loads `user_record` (registry-owned, valid `UserRecord`) and derives the owner identity `pk_field(user_signing_pk)` by the `eddsa_owner` rail — from `owner_p256` (P256) or from the registry account `owner` (ed25519) — and folds it into the proof's public-input hash as the owner binding, so the proof verifies only for the registered owner. No viewing key is involved: the merge checks no encryption. The emitted [`GeneralEvent`](#general-event) tags the output with the owner signing pubkey — the confidential [default-ring](#default-ring) owner-pubkey tag, the P256 x-coordinate or the full ed25519 key, rail-selected like the `pk_field` — and the wallet reconstructs the output deterministically on sync (see [Merge output indexing](#merge-output-indexing-removed-merge-view-tag)).
 6. Proof verifies against public inputs: a 128-byte vanilla Groth16 proof over the public-input hash (nullifiers, `output_utxo_hash`, tree roots, `private_tx_hash`, `external_data_hash`, `allow_dummy_inputs`, owner `pk_field`). There is no `ciphertext_hash`.
 7. Append `output_utxo_hash` to `output_tree`'s UTXO sparse Merkle tree.
-8. Insert each input nullifier into `input_tree`'s nullifier queue — exactly the proof-bound nullifiers, including the deterministic dummy-slot nullifiers (`merge_dummy_nullifier`). Duplicates are rejected, so an input cannot be merged twice; this is the replay protection, in place of the removed single-use `merge_view_tag`. The output carries no ciphertext: its blinding is `merge_output_blinding(nullifiers[0])` under the owner's nullifier secret, so the owner reconstructs it on sync without decryption.
+8. Insert each input nullifier into `input_tree`'s nullifier queue and create its nullifier marker (as in [`transact`](#transact) step 9) — exactly the proof-bound nullifiers, including the deterministic dummy-slot nullifiers (`merge_dummy_nullifier`). Duplicates are rejected by the marker (`NullifierAlreadyQueued`), so an input cannot be merged twice; this is the replay protection, in place of the removed single-use `merge_view_tag`. The output carries no ciphertext: its blinding is `merge_output_blinding(nullifiers[0])` under the owner's nullifier secret, so the owner reconstructs it on sync without decryption.
 
 Serialized body: `204 + 36·N` bytes (`128`-byte proof, no ciphertext).
 With discriminator, `N = 8`: `493 B`; with `~206 B` transaction overhead: `~699 B`.
@@ -1925,6 +1933,9 @@ There is no ciphertext; the ring program selects the output `ring_data_hash`, th
 | 2 | output_tree | x |   | receives the merged output commitment; may equal `input_tree` |
 | 3 | ring_config |   | x | the ring's `ring_auth` PDA; signs. SPP reads its `program_id` and checks inputs/output `ring_program_id` against it. See [Ring Accounts](#ring-accounts) |
 | 4 | payer |   | x | fee payer |
+| 5 | system_program |   |   | canonical System Program |
+| .. | nullifier_markers | x |   | eight, one per `nullifiers[i]` in order, as in [`merge_transact`](#merge_transact) |
+| n | program |   |   | SPP, for the [`emit_event`](#instructions) self-CPI |
 
 **Instruction data**
 
@@ -1945,7 +1956,7 @@ cleanliness and output-well-formed rules.
 2. `current_unix_ts <= expiry_unix_ts`; each root index is non-stale in `input_tree`; both tree accounts permit their respective writes (`merge_transact` checks 1–3). Authorization is the ring program's responsibility; SPP does not check the registry `merging_enabled` flag here.
 3. Proof verifies against public inputs (the policy-ring variant: inputs share `ring_program_id` = `ring_config.program_id`; output preserves it; `data_hash = 0` on every non-dummy input and on the output).
 4. Append `output_utxo_hash` to `output_tree`'s UTXO sparse Merkle tree.
-5. Insert each input nullifier into `input_tree`'s nullifier queue — exactly the proof-bound nullifiers, including the deterministic dummy-slot nullifiers (`merge_dummy_nullifier`). Duplicates are rejected, so an input cannot be merged twice; this is the replay protection, in place of the removed single-use `merge_view_tag`.
+5. Insert each input nullifier into `input_tree`'s nullifier queue and create its nullifier marker (as in [`transact`](#transact) step 9) — exactly the proof-bound nullifiers, including the deterministic dummy-slot nullifiers (`merge_dummy_nullifier`). Duplicates are rejected by the marker (`NullifierAlreadyQueued`), so an input cannot be merged twice; this is the replay protection, in place of the removed single-use `merge_view_tag`.
 
 # Ring Program Interface
 
