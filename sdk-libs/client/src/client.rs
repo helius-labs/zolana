@@ -412,7 +412,6 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         &self,
         signed: &SignedPrivateTransaction,
         fee_payer: Pubkey,
-        recent_blockhash: Hash,
     ) -> Result<SolanaTransaction, ClientError> {
         validate_fee_payer_pubkey(&signed.transaction.payer, fee_payer)?;
         let owner_signers = signed.transaction.owner_signer_pubkeys()?;
@@ -432,6 +431,9 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         let proof = self.async_prover.prove_transfer(inputs).await?;
         verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
         let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
+        // Fetch this only after the expensive proof. Otherwise a slow prover
+        // can consume the blockhash lifetime before the transaction exists.
+        let (recent_blockhash, _) = self.rpc().get_latest_blockhash().await?;
         build_unsigned_solana_transaction(
             ComputeBudgetConfig {
                 cu_limit: self.cu_limit,

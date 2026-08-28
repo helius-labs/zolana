@@ -659,9 +659,8 @@ pub async fn build_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc>
     fee_payer: Pubkey,
 ) -> Result<SolanaTransaction, ClientError> {
     let shielded = sign_shielded_transaction(transaction, wallet, authority).await?;
-    let (blockhash, _) = client.rpc().get_latest_blockhash().await?;
     client
-        .finish_submission_unsigned(&shielded, fee_payer, blockhash)
+        .finish_submission_unsigned(&shielded, fee_payer)
         .await
 }
 
@@ -686,11 +685,11 @@ pub async fn sign_private_transaction_with_signers<A: WalletAuthority + ?Sized, 
     fee_payer: &dyn Signer,
     additional_native_signers: &[&dyn Signer],
 ) -> Result<SolanaTransaction, ClientError> {
-    let blockhash = client.rpc().get_latest_blockhash().await?.0;
     let shielded = sign_shielded_transaction(transaction, wallet, authority).await?;
     let mut native = client
-        .finish_submission_unsigned(&shielded, fee_payer.pubkey(), blockhash)
+        .finish_submission_unsigned(&shielded, fee_payer.pubkey())
         .await?;
+    let blockhash = native.message.recent_blockhash;
     let mut signers = Vec::with_capacity(1 + additional_native_signers.len());
     signers.push(fee_payer);
     signers.extend_from_slice(additional_native_signers);
