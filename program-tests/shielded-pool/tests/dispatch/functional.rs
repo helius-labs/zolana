@@ -4,6 +4,7 @@ use solana_pubkey::Pubkey;
 use zolana_interface::instruction::tag;
 
 use shielded_pool_tests::support::runtime::program_test;
+use zolana_program_test::ZolanaProgramTest;
 
 #[test]
 fn direct_emit_event_is_a_noop_and_is_not_indexed() {
@@ -43,8 +44,8 @@ fn direct_emit_event_leaves_attached_writable_accounts_untouched() {
             },
         )
         .expect("write program-owned account");
-    let system_owned_before = rpc.svm.get_account(&system_owned).expect("account");
-    let program_owned_before = rpc.svm.get_account(&program_owned).expect("account");
+    let system_owned_before = observable_state(&mut rpc, &system_owned);
+    let program_owned_before = observable_state(&mut rpc, &program_owned);
 
     let outcome = rpc
         .create_and_send_default_payer_transaction(
@@ -61,15 +62,25 @@ fn direct_emit_event_leaves_attached_writable_accounts_untouched() {
         .expect("emit-event with writable accounts");
     assert!(outcome.events.is_empty());
     assert_eq!(
-        rpc.svm.get_account(&system_owned),
-        Some(system_owned_before),
+        observable_state(&mut rpc, &system_owned),
+        system_owned_before,
         "system-owned account must be untouched"
     );
     assert_eq!(
-        rpc.svm.get_account(&program_owned),
-        Some(program_owned_before),
+        observable_state(&mut rpc, &program_owned),
+        program_owned_before,
         "program-owned account must be untouched"
     );
+}
+
+fn observable_state(rpc: &mut ZolanaProgramTest, address: &Pubkey) -> (u64, Vec<u8>, Pubkey, bool) {
+    let account = rpc.svm.get_account(address).expect("account");
+    (
+        account.lamports,
+        account.data,
+        account.owner,
+        account.executable,
+    )
 }
 
 /// INV-EMIT-EVENT-02: every payload byte string after the tag is accepted --
