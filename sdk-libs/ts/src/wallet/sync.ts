@@ -56,11 +56,16 @@ export interface SyncWalletConfig {
   readonly retry?: IndexerPollConfig;
 }
 
-export async function backfillAssetRegistry(
-  wallet: Wallet,
+export interface SplAssetRegistration {
+  readonly assetId: bigint;
+  readonly mint: Address;
+}
+
+/** Every on-chain SPL asset registration, empty when the RPC cannot scan program accounts. */
+export async function fetchSplAssetRegistrations(
   registryRpc: Pick<ZolanaClient, "solanaRpc" | "commitment">,
   context?: RequestContext,
-): Promise<number> {
+): Promise<readonly SplAssetRegistration[]> {
   let accounts;
   try {
     accounts = await runKitRpc("getProgramAccounts", context, (abortSignal) =>
@@ -84,18 +89,34 @@ export async function backfillAssetRegistry(
         .send({ abortSignal }),
     );
   } catch (error) {
-    if (error instanceof ClientError && error.code === "CLIENT_UNSUPPORTED_RPC_METHOD") return 0;
+    if (error instanceof ClientError && error.code === "CLIENT_UNSUPPORTED_RPC_METHOD") return [];
     throw error;
   }
 
-  let inserted = 0;
+  const registrations: SplAssetRegistration[] = [];
   for (const { account } of accounts) {
     if (account.owner !== SHIELDED_POOL_PROGRAM_ID) continue;
     try {
       const registry = decodeSplAssetRegistry(
         new Uint8Array(base64Encoder.encode(account.data[0])),
       );
-      wallet.registerAsset(registry.assetId, registry.mint);
+      registrations.push({ assetId: registry.assetId, mint: registry.mint });
+    } catch {
+      continue;
+    }
+  }
+  return Object.freeze(registrations);
+}
+
+export async function backfillAssetRegistry(
+  wallet: Wallet,
+  registryRpc: Pick<ZolanaClient, "solanaRpc" | "commitment">,
+  context?: RequestContext,
+): Promise<number> {
+  let inserted = 0;
+  for (const { assetId, mint } of await fetchSplAssetRegistrations(registryRpc, context)) {
+    try {
+      wallet.registerAsset(assetId, mint);
       inserted++;
     } catch {
       continue;
