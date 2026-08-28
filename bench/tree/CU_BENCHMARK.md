@@ -1,6 +1,6 @@
 # Tree -- CU Benchmark
 
-Compute unit profiling for zolana-tree: account init, zero-copy deserialization, UTXO sparse-merkle-tree append, end-to-end nullifier insert (bloom + hash chain + non-inclusion), and the worst-case address-tree batch update that finalizes 120 cached tree updates in one transaction.
+Compute unit profiling for zolana-tree: account init, zero-copy deserialization, UTXO sparse-merkle-tree append, nullifier queue insert (canonical field check + queue position check + hash chain; marker PDA creation is measured by the shielded-pool program benches), and the worst-case address-tree batch update that finalizes 120 cached tree updates in one transaction.
 
 See `CU_BENCHMARK_NOTES.md` for analysis notes (e.g. why nullifier insert x10 is not 10x x1, and the proof-verify vs cascade-apply split of the batch update).
 
@@ -26,8 +26,8 @@ Regenerate with `just bench-tree`.
 
 | Function                     |   Total CU |     Net CU |
 | ---------------------------- | ---------- | ---------- |
-| `apply_cached_tree_updates`  |     33,063 |     33,063 |
-| `bench_batch_address_update` |    129,097 |     96,034 |
+| `apply_cached_tree_updates`  |     30,415 |     30,415 |
+| `bench_batch_address_update` |    126,439 |     96,024 |
 
 ## 2. Deserialize
 
@@ -39,19 +39,19 @@ Regenerate with `just bench-tree`.
 
 | Function                     |   Total CU |     Net CU |
 | ---------------------------- | ---------- | ---------- |
-| `bench_nullifier_insert`     |        877 |        877 |
+| `bench_nullifier_insert`     |        445 |        445 |
 
 ## 4. Nullifier insert x10
 
 | Function                     |   Total CU |     Net CU |
 | ---------------------------- | ---------- | ---------- |
-| `bench_nullifier_insert`     |     16,240 |     16,240 |
+| `bench_nullifier_insert`     |     11,956 |     11,956 |
 
 ## 5. Tree init
 
 | Function                     |   Total CU |     Net CU |
 | ---------------------------- | ---------- | ---------- |
-| `bench_init`                 |        244 |        244 |
+| `bench_init`                 |        245 |        245 |
 
 ## 6. Utxo append x1
 
