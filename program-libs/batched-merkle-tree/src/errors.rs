@@ -10,6 +10,8 @@ pub enum MerkleTreeMetadataError {
     InvalidTreeType,
     #[error("Invalid Height.")]
     InvalidHeight,
+    #[error("Root history must contain exactly one queue batch of ZKP update roots.")]
+    InvalidRootHistoryCapacity,
 }
 
 impl From<MerkleTreeMetadataError> for u32 {
@@ -17,6 +19,7 @@ impl From<MerkleTreeMetadataError> for u32 {
         match e {
             MerkleTreeMetadataError::InvalidTreeType => 14007,
             MerkleTreeMetadataError::InvalidHeight => 14009,
+            MerkleTreeMetadataError::InvalidRootHistoryCapacity => 14010,
         }
     }
 }
@@ -67,6 +70,8 @@ pub enum BatchedMerkleTreeError {
     NonCanonicalFieldElement,
     #[error("Queue index does not match the current batch position.")]
     QueueIndexMismatch,
+    #[error("Queue batch metadata is inconsistent.")]
+    InvalidBatchConfiguration,
 }
 
 impl From<BatchedMerkleTreeError> for u32 {
@@ -85,6 +90,7 @@ impl From<BatchedMerkleTreeError> for u32 {
             BatchedMerkleTreeError::InvalidBatchState => 14316,
             BatchedMerkleTreeError::NonCanonicalFieldElement => 14317,
             BatchedMerkleTreeError::QueueIndexMismatch => 14318,
+            BatchedMerkleTreeError::InvalidBatchConfiguration => 14319,
             BatchedMerkleTreeError::Hasher(e) => e.into(),
             BatchedMerkleTreeError::ZeroCopy(e) => e.into(),
             BatchedMerkleTreeError::MerkleTreeMetadata(e) => e.into(),

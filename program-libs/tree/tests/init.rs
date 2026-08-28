@@ -61,6 +61,28 @@ fn init_then_reload() {
 }
 
 #[test]
+fn reload_rejects_inconsistent_nullifier_batch_metadata() {
+    let params = InitAddressTreeAccountsInstructionData::default();
+    let mut bytes = vec![0u8; TreeAccount::account_size()];
+    let pubkey = [2u8; 32];
+
+    {
+        let mut tree =
+            TreeAccount::init(&mut bytes, DISCRIMINATOR, HEIGHT, pubkey, params).unwrap();
+        tree.nullifer_tree()
+            .get_metadata_mut()
+            .queue_batches
+            .batches[0]
+            .batch_size += 1;
+    }
+
+    assert_eq!(
+        TreeAccount::from_bytes(&mut bytes, pubkey).err().unwrap(),
+        TreeError::Deserialize
+    );
+}
+
+#[test]
 fn append_batch_matches_sequential() {
     let params = InitAddressTreeAccountsInstructionData::default();
     let pubkey = [2u8; 32];
@@ -127,10 +149,6 @@ fn init_rejects_invalid_nullifier_params() {
         },
         InitAddressTreeAccountsInstructionData {
             height: 30,
-            ..valid
-        },
-        InitAddressTreeAccountsInstructionData {
-            root_history_capacity: 1,
             ..valid
         },
     ];

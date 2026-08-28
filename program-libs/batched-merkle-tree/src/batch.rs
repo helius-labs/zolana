@@ -70,11 +70,11 @@ pub struct Batch {
     /// Number of elements in a zkp batch.
     /// A batch consists out of one or more zkp batches.
     pub zkp_batch_size: u64,
-    /// Sequence number when it is save to clear the batch without advancing to
-    /// the saved root index.
+    /// Reserved for account-layout compatibility.
     pub sequence_number: u64,
     /// Start leaf index of the first
     pub start_index: u64,
+    /// Reserved for account-layout compatibility.
     pub root_index: u32,
     _padding: [u8; 4],
 }
@@ -134,22 +134,19 @@ impl Batch {
 
     /// fill -> full -> inserted -> fill
     /// (from tree insertion perspective is pending if fill or full)
+    /// `start_index` is the first queue index covered by the reused batch.
     pub fn advance_state_to_fill(
         &mut self,
-        start_index: Option<u64>,
+        start_index: u64,
     ) -> Result<(), BatchedMerkleTreeError> {
         if self.checked_state()? == BatchState::Inserted {
             self.state = BatchState::Fill.into();
-            self.sequence_number = 0;
-            self.root_index = 0;
             self.num_inserted_zkp_batches = 0;
             // Defensive: already 0 because Full is only reachable via
             // add_to_hash_chain, which zeroes num_inserted when the final zkp
             // batch completes; reset here so the invariant is local.
             self.num_inserted = 0;
-            if let Some(start_index) = start_index {
-                self.start_index = start_index;
-            }
+            self.start_index = start_index;
             self.num_full_zkp_batches = 0;
         } else {
             #[cfg(feature = "log")]
@@ -215,12 +212,6 @@ impl Batch {
             .saturating_sub(self.num_inserted_zkp_batches)
     }
 
-    /// Returns the number of inserted elements
-    /// in the current zkp batch.
-    pub fn get_num_inserted_zkp_batch(&self) -> u64 {
-        self.num_inserted
-    }
-
     /// Returns the current zkp batch index.
     /// New values are inserted into the current zkp batch.
     pub fn get_current_zkp_batch_index(&self) -> u64 {
@@ -244,11 +235,6 @@ impl Batch {
     /// Returns the number of zkp batches in the batch.
     pub fn get_num_zkp_batches(&self) -> u64 {
         self.batch_size / self.zkp_batch_size
-    }
-
-    /// Returns the number of the hash_chain stores.
-    pub fn get_num_hash_chain_store(&self) -> usize {
-        self.get_num_zkp_batches() as usize
     }
 
     /// Add a value to the current hash chain, and advance batch state.
@@ -314,9 +300,6 @@ impl Batch {
     /// 4. Returns the updated state of the batch.
     pub fn mark_as_inserted_in_merkle_tree(
         &mut self,
-        sequence_number: u64,
-        root_index: u32,
-        root_history_length: u32,
     ) -> Result<BatchState, BatchedMerkleTreeError> {
         // 1. Check that batch is ready.
         self.get_first_ready_zkp_batch()?;
@@ -329,11 +312,6 @@ impl Batch {
         let batch_is_completely_inserted = self.num_inserted_zkp_batches == num_zkp_batches;
         if batch_is_completely_inserted {
             self.advance_state_to_inserted()?;
-            // Saving sequence number and root index for the batch.
-            // When the batch is cleared check that sequence number is greater or equal than self.sequence_number
-            // if not advance current root index to root index
-            self.sequence_number = sequence_number + root_history_length as u64;
-            self.root_index = root_index;
         }
 
         self.checked_state()
@@ -351,37 +329,28 @@ mod tests {
 
     /// simulate zkp batch insertion
     fn test_mark_as_inserted(mut batch: Batch) {
-        let mut sequence_number = 10;
-        let mut root_index = 20;
-        let root_history_length = 23;
         for i in 0..batch.get_num_zkp_batches() {
-            sequence_number += i;
-            root_index += i as u32;
-            batch
-                .mark_as_inserted_in_merkle_tree(sequence_number, root_index, root_history_length)
-                .unwrap();
+            batch.mark_as_inserted_in_merkle_tree().unwrap();
             if i != batch.get_num_zkp_batches() - 1 {
                 assert_eq!(batch.get_state(), BatchState::Full);
-                assert_eq!(batch.get_num_inserted_zkp_batch(), 0);
+                assert_eq!(batch.num_inserted, 0);
                 assert_eq!(batch.get_current_zkp_batch_index(), 5);
                 assert_eq!(batch.get_num_inserted_zkps(), i + 1);
             } else {
                 assert_eq!(batch.get_state(), BatchState::Inserted);
-                assert_eq!(batch.get_num_inserted_zkp_batch(), 0);
+                assert_eq!(batch.num_inserted, 0);
                 assert_eq!(batch.get_current_zkp_batch_index(), 5);
                 assert_eq!(batch.get_num_inserted_zkps(), i + 1);
             }
         }
         assert_eq!(batch.get_state(), BatchState::Inserted);
-        assert_eq!(batch.get_num_inserted_zkp_batch(), 0);
+        assert_eq!(batch.num_inserted, 0);
         let mut ref_batch = get_test_batch();
         ref_batch.state = BatchState::Inserted.into();
-        ref_batch.root_index = root_index;
-        ref_batch.sequence_number = sequence_number + root_history_length as u64;
         ref_batch.num_inserted_zkp_batches = 5;
         ref_batch.num_full_zkp_batches = 5;
         assert_eq!(batch, ref_batch);
-        batch.advance_state_to_fill(Some(1)).unwrap();
+        batch.advance_state_to_fill(1).unwrap();
         let mut ref_batch = get_test_batch();
         ref_batch.start_index = 1;
         assert_eq!(batch, ref_batch);
@@ -390,7 +359,7 @@ mod tests {
     #[test]
     fn test_insert() {
         let mut batch = get_test_batch();
-        let mut hash_chain_store = vec![[0u8; 32]; batch.get_num_hash_chain_store()];
+        let mut hash_chain_store = vec![[0u8; 32]; batch.get_num_zkp_batches() as usize];
 
         let mut ref_batch = get_test_batch();
         for i in 0..batch.batch_size {
@@ -426,7 +395,7 @@ mod tests {
     #[test]
     fn test_add_to_hash_chain() {
         let mut batch = get_test_batch();
-        let mut hash_chain_store = vec![[0u8; 32]; batch.get_num_hash_chain_store()];
+        let mut hash_chain_store = vec![[0u8; 32]; batch.get_num_zkp_batches() as usize];
         let value = [1u8; 32];
 
         assert!(batch
@@ -454,7 +423,7 @@ mod tests {
     fn test_add_to_hash_chain_is_error_atomic() {
         let mut batch = Batch::new(500, 100, 0);
         batch.advance_state_to_full().unwrap();
-        let mut hash_chain_store = vec![[0u8; 32]; batch.get_num_hash_chain_store()];
+        let mut hash_chain_store = vec![[0u8; 32]; batch.get_num_zkp_batches() as usize];
         let batch_before = batch;
         let chain_before = hash_chain_store.clone();
         assert_eq!(
@@ -471,9 +440,8 @@ mod tests {
     fn test_getters() {
         let mut batch = get_test_batch();
         assert_eq!(batch.get_num_zkp_batches(), 5);
-        assert_eq!(batch.get_num_hash_chain_store(), 5);
         assert_eq!(batch.get_state(), BatchState::Fill);
-        assert_eq!(batch.get_num_inserted_zkp_batch(), 0);
+        assert_eq!(batch.num_inserted, 0);
         assert_eq!(batch.get_current_zkp_batch_index(), 0);
         assert_eq!(batch.get_num_inserted_zkps(), 0);
         batch.advance_state_to_full().unwrap();
@@ -492,7 +460,7 @@ mod tests {
             batch.get_first_ready_zkp_batch(),
             Err(BatchedMerkleTreeError::BatchNotReady)
         );
-        let mut hash_chain_store = vec![[0u8; 32]; batch.get_num_hash_chain_store()];
+        let mut hash_chain_store = vec![[0u8; 32]; batch.get_num_zkp_batches() as usize];
 
         for i in 0..batch.batch_size + 10 {
             let mut value = [0u8; 32];
@@ -508,7 +476,7 @@ mod tests {
                     batch.get_first_ready_zkp_batch().unwrap(),
                     i / batch.zkp_batch_size
                 );
-                batch.mark_as_inserted_in_merkle_tree(0, 0, 0).unwrap();
+                batch.mark_as_inserted_in_merkle_tree().unwrap();
             } else if i >= batch.batch_size {
                 assert_eq!(
                     batch.get_first_ready_zkp_batch(),
@@ -530,7 +498,7 @@ mod tests {
         {
             let result = batch.advance_state_to_inserted();
             assert_eq!(result, Err(BatchedMerkleTreeError::BatchNotReady));
-            let result = batch.advance_state_to_fill(None);
+            let result = batch.advance_state_to_fill(0);
             assert_eq!(result, Err(BatchedMerkleTreeError::BatchNotReady));
         }
         batch.advance_state_to_full().unwrap();
@@ -538,7 +506,7 @@ mod tests {
         {
             let result = batch.advance_state_to_full();
             assert_eq!(result, Err(BatchedMerkleTreeError::BatchNotReady));
-            let result = batch.advance_state_to_fill(None);
+            let result = batch.advance_state_to_fill(0);
             assert_eq!(result, Err(BatchedMerkleTreeError::BatchNotReady));
         }
         batch.advance_state_to_inserted().unwrap();
@@ -550,7 +518,8 @@ mod tests {
         let mut batch = get_test_batch();
         batch.num_inserted = 42;
         batch.state = BatchState::Inserted.into();
-        batch.advance_state_to_fill(None).unwrap();
+        batch.advance_state_to_fill(123).unwrap();
+        assert_eq!(batch.start_index, 123);
         assert_eq!(batch.num_inserted, 0);
         assert_eq!(batch.get_num_inserted_elements(), 0);
         assert_eq!(batch.get_hash_chain_store_len(), 0);
@@ -571,7 +540,7 @@ mod tests {
             BatchedMerkleTreeError::InvalidBatchState
         );
         assert_eq!(
-            batch.advance_state_to_fill(None).unwrap_err(),
+            batch.advance_state_to_fill(0).unwrap_err(),
             BatchedMerkleTreeError::InvalidBatchState
         );
         assert_eq!(
@@ -585,7 +554,7 @@ mod tests {
             BatchedMerkleTreeError::InvalidBatchState
         );
         assert_eq!(
-            batch.mark_as_inserted_in_merkle_tree(0, 0, 0).unwrap_err(),
+            batch.mark_as_inserted_in_merkle_tree().unwrap_err(),
             BatchedMerkleTreeError::InvalidBatchState
         );
     }

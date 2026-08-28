@@ -8,7 +8,7 @@ use zolana_batched_merkle_tree::{
     zero_copy::{CachedTreeUpdate, TreeAccountLayout},
 };
 
-const RH: usize = 10;
+const RH: usize = 4;
 const ZKP: usize = 4;
 const BATCH_SIZE: u64 = 4;
 const ZKP_BATCH_SIZE: u64 = 1;
@@ -23,7 +23,6 @@ fn init_tree<'a>(data: &'a mut [u8], pubkey: &Address) -> Tree<'a> {
     Tree::init(
         data,
         pubkey,
-        RH as u32,
         BATCH_SIZE,
         ZKP_BATCH_SIZE,
         40,
@@ -91,10 +90,10 @@ fn assert_roots(data: &mut [u8], pubkey: &Address, expected: [Option<[u8; 32]>; 
 }
 
 #[test]
-fn reclaimable_batch_advances_watermark_and_zeroes_roots() {
+fn fully_applied_successor_advances_watermark_after_natural_root_overwrite() {
     let pubkey = Address::new_unique();
     let mut data = account_data();
-    let init_root = init_tree(&mut data, &pubkey).get_root().unwrap();
+    init_tree(&mut data, &pubkey);
 
     assert_eq!(insert(&mut data, &pubkey, 1..=4), vec![0, 1, 2, 3]);
     for i in 1..=4u8 {
@@ -104,8 +103,8 @@ fn reclaimable_batch_advances_watermark_and_zeroes_roots() {
         let tree = load_tree(&mut data, &pubkey);
         let batch = tree.get_metadata().queue_batches.batches.first().unwrap();
         assert_eq!(batch.get_state(), BatchState::Inserted);
-        assert_eq!(batch.sequence_number, 4 + RH as u64);
-        assert_eq!(batch.root_index, 4);
+        assert_eq!(batch.sequence_number, 0);
+        assert_eq!(batch.root_index, 0);
         assert_eq!(batch.reclaimable_sequence().unwrap(), BATCH_SIZE);
         assert!(!batch.is_reclaimable(tree.close_before_index));
         assert_eq!(tree.close_before_index, 0);
@@ -117,22 +116,19 @@ fn reclaimable_batch_advances_watermark_and_zeroes_roots() {
     assert_roots(
         &mut data,
         &pubkey,
-        [
-            Some(init_root),
-            Some(root(1)),
-            Some(root(2)),
-            Some(root(3)),
-            Some(root(4)),
-            Some(root(5)),
-            None,
-            None,
-            None,
-            None,
-        ],
+        [Some(root(4)), Some(root(5)), Some(root(2)), Some(root(3))],
     );
 
     assert_eq!(insert(&mut data, &pubkey, [6]), vec![5]);
     apply_update(&mut data, &pubkey, 1, root(6));
+    assert_eq!(load_tree(&mut data, &pubkey).close_before_index, 0);
+
+    assert_eq!(insert(&mut data, &pubkey, [7]), vec![6]);
+    apply_update(&mut data, &pubkey, 1, root(7));
+    assert_eq!(load_tree(&mut data, &pubkey).close_before_index, 0);
+
+    assert_eq!(insert(&mut data, &pubkey, [8]), vec![7]);
+    apply_update(&mut data, &pubkey, 1, root(8));
     {
         let tree = load_tree(&mut data, &pubkey);
         assert_eq!(tree.close_before_index, BATCH_SIZE);
@@ -149,21 +145,9 @@ fn reclaimable_batch_advances_watermark_and_zeroes_roots() {
     assert_roots(
         &mut data,
         &pubkey,
-        [
-            None,
-            None,
-            None,
-            None,
-            Some(root(4)),
-            Some(root(5)),
-            Some(root(6)),
-            None,
-            None,
-            None,
-        ],
+        [Some(root(8)), Some(root(5)), Some(root(6)), Some(root(7))],
     );
 
-    assert_eq!(insert(&mut data, &pubkey, [7, 8]), vec![6, 7]);
     assert_eq!(insert(&mut data, &pubkey, [9]), vec![8]);
     let tree = load_tree(&mut data, &pubkey);
     let reused = tree.get_metadata().queue_batches.batches.first().unwrap();
@@ -173,10 +157,10 @@ fn reclaimable_batch_advances_watermark_and_zeroes_roots() {
 }
 
 #[test]
-fn inserted_batch_reuse_waits_for_successor_append() {
+fn inserted_batch_reuse_waits_for_successor_to_be_fully_applied() {
     let pubkey = Address::new_unique();
     let mut data = account_data();
-    let init_root = init_tree(&mut data, &pubkey).get_root().unwrap();
+    init_tree(&mut data, &pubkey);
 
     assert_eq!(
         insert(&mut data, &pubkey, 1..=8),
@@ -198,18 +182,7 @@ fn inserted_batch_reuse_waits_for_successor_append() {
         );
         assert_eq!(tree.close_before_index, 0);
     }
-    let full_roots = [
-        Some(init_root),
-        Some(root(1)),
-        Some(root(2)),
-        Some(root(3)),
-        Some(root(4)),
-        None,
-        None,
-        None,
-        None,
-        None,
-    ];
+    let full_roots = [Some(root(4)), Some(root(1)), Some(root(2)), Some(root(3))];
 
     let before = data.clone();
     assert_eq!(
@@ -223,22 +196,25 @@ fn inserted_batch_reuse_waits_for_successor_append() {
     assert_roots(&mut data, &pubkey, full_roots);
 
     apply_update(&mut data, &pubkey, 1, root(5));
-    assert_eq!(load_tree(&mut data, &pubkey).close_before_index, BATCH_SIZE);
+    assert_eq!(load_tree(&mut data, &pubkey).close_before_index, 0);
     assert_roots(
         &mut data,
         &pubkey,
-        [
-            None,
-            None,
-            None,
-            None,
-            Some(root(4)),
-            Some(root(5)),
-            None,
-            None,
-            None,
-            None,
-        ],
+        [Some(root(4)), Some(root(5)), Some(root(2)), Some(root(3))],
+    );
+
+    for i in 6..=8u8 {
+        apply_update(&mut data, &pubkey, 1, root(i));
+        let expected_watermark = if i == 8 { BATCH_SIZE } else { 0 };
+        assert_eq!(
+            load_tree(&mut data, &pubkey).close_before_index,
+            expected_watermark
+        );
+    }
+    assert_roots(
+        &mut data,
+        &pubkey,
+        [Some(root(8)), Some(root(5)), Some(root(6)), Some(root(7))],
     );
 
     assert_eq!(insert(&mut data, &pubkey, [9]), vec![8]);

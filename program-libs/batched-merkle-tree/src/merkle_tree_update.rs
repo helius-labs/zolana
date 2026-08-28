@@ -1,6 +1,7 @@
 use zolana_hasher::hash_chain::create_hash_chain_from_array;
 
 use crate::{
+    batch::BatchState,
     errors::{BatchedMerkleTreeError, MerkleTreeMetadataError},
     merkle_tree::{BatchedMerkleTreeAccount, InstructionDataAddressAppendInputs},
     merkle_tree_metadata::TreeType,
@@ -143,15 +144,16 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
     ///    proof was verified for the transition old_root -> new_root, so a match
     ///    means new_root is the correct next root for the current tree.
     /// 3. Apply: advance the tree next index and sequence number, append the new
-    ///    root, mark the zkp batch inserted, and mark the previous batch reclaimable once
-    ///    this batch holds half of its values (spec batch append step 9, before
-    ///    step 8 advances the pending index).
+    ///    root, and mark the ZKP batch inserted. When that fully inserts the
+    ///    pending batch, mark the previous batch reclaimable before advancing
+    ///    the pending index (spec batch append steps 8-9).
     /// 4. Clear the applied cache slot.
     /// 5. Record the new root in the cascade event.
     #[cfg_attr(feature = "profile-program", light_program_profiler::profile)]
     pub fn apply_cached_tree_updates(
         &mut self,
     ) -> Result<Option<BatchAddressAppendEvent>, BatchedMerkleTreeError> {
+        Self::validate_layout(self.layout)?;
         let zkp_batch_size = self.queue_batches.zkp_batch_size;
         // One event covers the whole cascade: shared fields once, one root per
         // applied zkp batch. See `BatchAddressAppendEvent` for how the per-batch
@@ -203,27 +205,22 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
             }
 
             // 3. Apply: advance the tree and mark the zkp batch inserted.
-            self.check_tree_is_full(Some(zkp_batch_size))?;
+            self.check_tree_is_full(zkp_batch_size)?;
 
             let old_next_index = self.next_index;
             self.increment_merkle_tree_next_index(zkp_batch_size);
             self.sequence_number += 1;
-            self.append_root(cached_update.new_root);
+            self.append_root(cached_update.new_root)?;
             let root_index = self.get_root_index();
 
-            let root_history_capacity = self.root_history_capacity;
             let sequence_number = self.sequence_number;
             let pending_batch_state = self
                 .queue_batches
                 .batches
                 .get_mut(pending_batch_index)
                 .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?
-                .mark_as_inserted_in_merkle_tree(
-                    sequence_number,
-                    root_index,
-                    root_history_capacity,
-                )?;
-            self.mark_previous_batch_reclaimable()?;
+                .mark_as_inserted_in_merkle_tree()?;
+            self.mark_previous_batch_reclaimable(pending_batch_state)?;
             self.layout
                 .metadata
                 .queue_batches
@@ -249,6 +246,37 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
             event.num_update += 1;
             event.new_root = cached_update.new_root;
         }
+    }
+
+    /// Marks the batch preceding `pending_batch_index` reclaimable when both it
+    /// and the batch just updated are fully inserted. This must run before
+    /// `pending_batch_index` advances so it still identifies the updated batch.
+    ///
+    /// A fully inserted successor has written exactly one root-history window,
+    /// so every accepted root now contains the preceding batch's values.
+    fn mark_previous_batch_reclaimable(
+        &mut self,
+        pending_batch_state: BatchState,
+    ) -> Result<(), BatchedMerkleTreeError> {
+        if pending_batch_state != BatchState::Inserted {
+            return Ok(());
+        }
+
+        let current_index = self.queue_batches.pending_batch_index as usize;
+        let previous_index = if current_index == 0 { 1 } else { 0 };
+        let previous = self
+            .queue_batches
+            .batches
+            .get(previous_index)
+            .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?;
+        if previous.checked_state()? != BatchState::Inserted {
+            return Ok(());
+        }
+
+        self.close_before_index = self
+            .close_before_index
+            .max(previous.reclaimable_sequence()?);
+        Ok(())
     }
 
     /// Reset the cached update at `[pending_batch_index][zkp_batch_index]` to empty (`occupied = 0`),

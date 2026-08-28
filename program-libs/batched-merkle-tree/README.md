@@ -64,11 +64,11 @@ appends the new root, and marks the ZKP batch inserted.
 
 ### Reclaimable batches and `close_before_index`
 
-After each applied update, with `current` the batch that was just updated and
-`previous` the other batch: if `current` holds at least `batch_size / 2`
-values, `previous` is `Inserted`, and `previous` is not yet reclaimable, then the
-root-history slots that could still prove non-inclusion of `previous`'s values
-are zeroed and the tree's watermark advances to
+Root history contains exactly one queue batch's worth of ZKP update roots:
+its capacity is derived as `batch_size / zkp_batch_size`. When `current`, the
+batch just updated, becomes fully applied (`Inserted`), it has naturally
+overwritten every root that predates it. If `previous`, the other batch, is
+also `Inserted` and is not yet reclaimable, the tree's watermark advances to
 `close_before_index = max(close_before_index, reclaimable_sequence(previous))`
 where `Batch::reclaimable_sequence() = start_index + batch_size - 1` (the
 spec writes this as `first_sequence(batch) + B`).
@@ -91,6 +91,9 @@ All errors are defined in `src/errors.rs` and map to u32 error codes:
 - `BatchNotReclaimable` (14312) - Batch must be reclaimable before reuse
 - `NonCanonicalFieldElement` (14317) - Value is not below the BN254 scalar modulus
 - `QueueIndexMismatch` (14318) - Queue index and batch position disagree
+- `InvalidBatchConfiguration` (14319) - Queue-level and per-batch metadata disagree
+- `InvalidRootHistoryCapacity` (14010) - Root history must contain exactly one
+  queue batch of ZKP update roots
 - Additional errors from underlying libraries (hasher, zero-copy, verifier, etc.)
 
 ## Testing

@@ -113,10 +113,9 @@ export function encodeAddressTreeParams(value: AddressTreeParams): Uint8Array {
       writer
         .u64(input.inputQueueBatchSize, "inputQueueBatchSize")
         .u64(input.inputQueueZkpBatchSize, "inputQueueZkpBatchSize")
-        .u32(input.rootHistoryCapacity, "rootHistoryCapacity")
         .u32(input.height, "height");
     },
-    24,
+    20,
   );
 }
 

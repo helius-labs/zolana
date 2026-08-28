@@ -72,7 +72,7 @@ now states H=32 and lists tag 4.
 - [x] **INV-CREATE-TREE-06: non-canonical nullifier parameters are rejected**
   - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `tree_creation_rejects_non_canonical_nullifier_params`
   - Kind: precondition
-  - Statement: `create_tree` returns Err whenever the supplied nullifier parameters have `root_history_capacity` different from the canonical capacity or a `input_queue_batch_size / input_queue_zkp_batch_size` ratio different from the canonical ZKP batch count.
+  - Statement: `create_tree` derives root-history capacity from `input_queue_batch_size / input_queue_zkp_batch_size` and returns Err when that ratio differs from the canonical ZKP batch count.
   - Location: `program-libs/tree/src/lib.rs:138-150` (`fn TreeAccount::init` parameter checks), `programs/shielded-pool/src/instructions/create_tree.rs:39-46`
   - Error: `ShieldedPoolError::InvalidTreeAccounts = 7001`
   - Severity: High
@@ -362,10 +362,10 @@ the proof-backed binary `nullifier_markers_proof` covers the success path.
 ### Reclaimable Batch Gate
 
 - [x] **INV-CLOSE-MARKER-06: a marker is closable iff `queue_index < close_before_index`**
-  - Covered by: `program-tests/shielded-pool/tests/nullifier/markers.rs` `close_rejects_marker_before_batch_is_reclaimable` (fresh tree, `w = 0`), `close_honours_the_watermark_boundary` (`queue_index == w` rejected, `queue_index == w - 1` closed; `w` set by a LiteSVM fixture that writes `close_before_index` into the tree bytes because making a batch reclaimable needs `B + B/2 = 1800` queued nullifiers with the smallest supported batch); localnet: `tests/localnet/photon/forester.rs` `phase_assert_marker_cleanup` (drained but not yet reclaimable batch, `w == 0`, `close_markers` rejected with 7050 and no lamports move)
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/markers.rs` `close_rejects_marker_before_batch_is_reclaimable` (fresh tree, `w = 0`), `close_honours_the_watermark_boundary` (`queue_index == w` rejected, `queue_index == w - 1` closed; `w` set by a LiteSVM fixture that writes `close_before_index` into the tree bytes because making a batch reclaimable requires two full batches to be queued and applied); localnet: `tests/localnet/photon/forester.rs` `phase_assert_marker_cleanup` (drained but not yet reclaimable batch, `w == 0`, `close_markers` rejected with 7050 and no lamports move)
   - Kind: precondition
   - Statement: for every marker in the instruction, `marker.queue_index < tree.close_before_index` must hold; otherwise the instruction returns Err. `close_before_index` only advances in `batch_update_nullifier_tree` when a batch becomes reclaimable (`w = max(w, previous.start_index - 1 + batch_size)`), so a closable marker's nullifier is contained in every accepted nullifier-tree root (spec property "safe marker lifetime").
-  - Location: `programs/shielded-pool/src/instructions/nullifier_marker/close.rs:15-17`, `program-libs/interface/src/state/nullifier_marker.rs:15-17` (`fn is_closable`), `program-libs/batched-merkle-tree/src/merkle_tree.rs` (`fn mark_previous_batch_reclaimable`)
+  - Location: `programs/shielded-pool/src/instructions/nullifier_marker/close.rs:15-17`, `program-libs/interface/src/state/nullifier_marker.rs:15-17` (`fn is_closable`), `program-libs/batched-merkle-tree/src/merkle_tree_update.rs` (`fn mark_previous_batch_reclaimable`)
   - Error: `ShieldedPoolError::NullifierMarkerNotClosable = 7050`
   - Severity: Critical (early close re-enables a stale non-inclusion proof)
   - Suggested test: negative boundary + positive; harness: program-tests integration; end-to-end reclaimability remains uncovered on localnet (see the note in `phase_assert_marker_cleanup`)

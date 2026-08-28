@@ -60,13 +60,13 @@
 //! (`batch_size / zkp_batch_size`); the tree is updated incrementally one ZKP
 //! batch at a time.
 //!
-//! **Reclaimable batches and `close_before_index`:** Once a batch is fully applied
-//! (`Inserted`) and the other batch holds at least half of its values, the next
-//! applied update marks it reclaimable: root-history slots that could still prove
-//! non-inclusion of its values are zeroed and the tree's `close_before_index`
-//! watermark `w` advances to `start_index + batch_size - 1`. A batch is
-//! reusable only once reclaimable (`BatchNotReclaimable` otherwise), and a nullifier
-//! marker may be closed only once `marker.queue_index < w`.
+//! **Reclaimable batches and `close_before_index`:** Root history contains exactly
+//! one queue batch's worth of ZKP update roots. Once the successor batch is fully
+//! applied (`Inserted`), those updates have naturally overwritten every older
+//! root and the tree's `close_before_index` watermark `w` advances to
+//! `start_index + batch_size - 1` for the previous batch. A batch is reusable only
+//! once reclaimable (`BatchNotReclaimable` otherwise), and a nullifier marker may
+//! be closed only once `marker.queue_index < w`.
 //!
 //! **Hash chains:** Each ZKP batch keeps a hash chain storing the Poseidon hash
 //! of all values in that ZKP batch, used as a public input to the ZKP.
@@ -74,8 +74,9 @@
 //! **ZKP verification:** Public inputs are the old root, new root, the hash
 //! chain committing to the queue elements, and `next_index` for the append.
 //!
-//! **Root history:** A cyclic buffer of recent roots (default: 200) keeps
-//! validity proofs valid as the tree continues to update.
+//! **Root history:** A cyclic buffer with
+//! `batch_size / zkp_batch_size` entries keeps exactly one queue batch's worth
+//! of update roots.
 //!
 //! ## Dependencies
 //!
@@ -101,6 +102,9 @@
 //! - `BatchNotReclaimable` (14312) - Batch must be reclaimable before reuse
 //! - `NonCanonicalFieldElement` (14317) - Value is not below the BN254 scalar modulus
 //! - `QueueIndexMismatch` (14318) - Queue index and batch position disagree
+//! - `InvalidBatchConfiguration` (14319) - Queue-level and per-batch metadata disagree
+//! - `InvalidRootHistoryCapacity` (14010) - Root history must contain exactly one
+//!   queue batch of ZKP update roots
 //! - Additional errors from underlying libraries (hasher, zero-copy, verifier, etc.)
 
 #![allow(unexpected_cfgs)]

@@ -95,7 +95,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_a_stale_nullifier_root_index`
   - Kind: precondition
   - Affects: Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact
-  - Statement: each of these instructions returns Err whenever any input's `utxo_tree_root_index` or `nullifier_tree_root_index` is out of range of the root history, or the referenced nullifier-root slot holds the zeroed (stale) root.
+  - Statement: each of these instructions returns Err whenever any input's `utxo_tree_root_index` or `nullifier_tree_root_index` is out of range of the root history, or the referenced nullifier-root slot is zero (uninitialized or a synthetic stale-root fixture). Production reclaim naturally overwrites old roots instead of zeroing them.
   - Location: `programs/shielded-pool/src/instructions/transact/tree.rs:25-30` and `merge/processor.rs:155-160` (root reads), `program-libs/tree/src/lib.rs:296-308` (`fn get_nullifier_tree_root`), error mapping `programs/shielded-pool/src/instructions/shared.rs:25` (`tree_error`, `TreeError::InvalidRootIndex`)
   - Error: `ShieldedPoolError::StaleNullifierRoot = 7015`
   - Severity: Critical (spending against a pre-nullification root)

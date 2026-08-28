@@ -7,7 +7,8 @@ pub const STATE_HEIGHT: usize = 32;
 pub const ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE: u64 = 30_000;
 pub const ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE: u64 = 250;
 pub const ADDRESS_TREE_HEIGHT: u32 = 40;
-pub const ADDRESS_TREE_ROOT_HISTORY_CAPACITY: u32 = 120;
+pub const ADDRESS_TREE_ROOT_HISTORY_CAPACITY: u32 =
+    (ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE / ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE) as u32;
 /// Lamports reimbursed for each applied nullifier-tree ZKP batch.
 pub const FORESTER_REIMBURSEMENT_LAMPORTS: u64 = 5_000;
 
@@ -33,7 +34,6 @@ pub fn address_tree_params() -> InitAddressTreeAccountsInstructionData {
         input_queue_batch_size: ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE,
         input_queue_zkp_batch_size: ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
         height: ADDRESS_TREE_HEIGHT,
-        root_history_capacity: ADDRESS_TREE_ROOT_HISTORY_CAPACITY,
     }
 }
 

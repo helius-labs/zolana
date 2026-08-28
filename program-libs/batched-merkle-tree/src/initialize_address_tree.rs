@@ -3,9 +3,9 @@ use zolana_account_checks::AccountView;
 
 use crate::{
     constants::{
-        ADDRESS_TREE_DEFAULT_RH, ADDRESS_TREE_DEFAULT_ZKP, DEFAULT_ADDRESS_BATCH_ROOT_HISTORY_LEN,
-        DEFAULT_ADDRESS_BATCH_SIZE, DEFAULT_ADDRESS_ZKP_BATCH_SIZE,
-        DEFAULT_BATCH_ADDRESS_TREE_HEIGHT, NULLIFIER_TREE_INIT_ROOT_40,
+        ADDRESS_TREE_DEFAULT_RH, ADDRESS_TREE_DEFAULT_ZKP, DEFAULT_ADDRESS_BATCH_SIZE,
+        DEFAULT_ADDRESS_ZKP_BATCH_SIZE, DEFAULT_BATCH_ADDRESS_TREE_HEIGHT,
+        NULLIFIER_TREE_INIT_ROOT_40,
     },
     errors::BatchedMerkleTreeError,
     merkle_tree::{get_merkle_tree_account_size, BatchedMerkleTreeAccount},
@@ -20,7 +20,6 @@ use crate::{
 pub struct InitAddressTreeAccountsInstructionData {
     pub input_queue_batch_size: u64,
     pub input_queue_zkp_batch_size: u64,
-    pub root_history_capacity: u32,
     pub height: u32,
 }
 
@@ -30,7 +29,6 @@ impl Default for InitAddressTreeAccountsInstructionData {
             input_queue_batch_size: DEFAULT_ADDRESS_BATCH_SIZE,
             input_queue_zkp_batch_size: DEFAULT_ADDRESS_ZKP_BATCH_SIZE,
             height: DEFAULT_BATCH_ADDRESS_TREE_HEIGHT,
-            root_history_capacity: DEFAULT_ADDRESS_BATCH_ROOT_HISTORY_LEN,
         }
     }
 }
@@ -123,7 +121,6 @@ fn init_batched_indexed_merkle_tree_account<const RH: usize, const ZKP: usize>(
     BatchedMerkleTreeAccount::init(
         mt_account_data,
         &pubkey,
-        params.root_history_capacity,
         params.input_queue_batch_size,
         params.input_queue_zkp_batch_size,
         params.height,
@@ -144,7 +141,6 @@ pub fn init_batched_nullifier_merkle_tree_into_layout<const RH: usize, const ZKP
     BatchedMerkleTreeAccount::init_from_layout(
         layout,
         &pubkey,
-        params.root_history_capacity,
         params.input_queue_batch_size,
         params.input_queue_zkp_batch_size,
         params.height,
@@ -153,49 +149,15 @@ pub fn init_batched_nullifier_merkle_tree_into_layout<const RH: usize, const ZKP
     )
 }
 
-/// Only used for testing. For production use the default config.
-pub fn validate_batched_address_tree_params(params: InitAddressTreeAccountsInstructionData) {
-    assert!(params.input_queue_batch_size > 0);
-    assert_eq!(
-        params.input_queue_batch_size % params.input_queue_zkp_batch_size,
-        0,
-        "Input queue batch size must divisible by input_queue_zkp_batch_size."
-    );
-    assert!(
-        match_circuit_size(params.input_queue_zkp_batch_size),
-        "Zkp batch size not supported. Supported: 10, 250"
-    );
-
-    assert!(params.root_history_capacity > 0);
-    assert!(params.input_queue_batch_size > 0);
-
-    // Validate root_history_capacity is sufficient for input operations
-    // (address trees only have input queues, no output queues)
-    let required_capacity = params.input_queue_batch_size / params.input_queue_zkp_batch_size;
-    assert!(
-        params.root_history_capacity >= required_capacity as u32,
-        "root_history_capacity ({}) must be >= {} (input_queue_batch_size / input_queue_zkp_batch_size)",
-        params.root_history_capacity,
-        required_capacity
-    );
-
-    assert_eq!(params.height, DEFAULT_BATCH_ADDRESS_TREE_HEIGHT);
-}
 /// Only 10 and 250 are supported.
 pub fn match_circuit_size(size: u64) -> bool {
     matches!(size, 10 | 250)
-}
-pub fn get_address_merkle_tree_account_size() -> usize {
-    get_merkle_tree_account_size::<ADDRESS_TREE_DEFAULT_RH, ADDRESS_TREE_DEFAULT_ZKP>()
 }
 
 #[cfg(feature = "test-only")]
 pub mod test_utils {
     pub use super::InitAddressTreeAccountsInstructionData;
-    use crate::constants::{
-        DEFAULT_ADDRESS_ZKP_BATCH_SIZE, DEFAULT_BATCH_ROOT_HISTORY_LEN, TEST_DEFAULT_BATCH_SIZE,
-        TEST_DEFAULT_ZKP_BATCH_SIZE,
-    };
+    use crate::constants::{TEST_DEFAULT_BATCH_SIZE, TEST_DEFAULT_ZKP_BATCH_SIZE};
 
     impl InitAddressTreeAccountsInstructionData {
         pub fn test_default() -> Self {
@@ -203,94 +165,22 @@ pub mod test_utils {
                 input_queue_batch_size: TEST_DEFAULT_BATCH_SIZE,
                 input_queue_zkp_batch_size: TEST_DEFAULT_ZKP_BATCH_SIZE,
                 height: 40,
-                root_history_capacity: DEFAULT_BATCH_ROOT_HISTORY_LEN,
-            }
-        }
-
-        pub fn e2e_test_default() -> Self {
-            Self {
-                input_queue_batch_size: 500,
-                input_queue_zkp_batch_size: TEST_DEFAULT_ZKP_BATCH_SIZE,
-                height: 40,
-                root_history_capacity: DEFAULT_BATCH_ROOT_HISTORY_LEN,
-            }
-        }
-        pub fn testnet_default() -> Self {
-            Self {
-                input_queue_batch_size: 15000,
-                input_queue_zkp_batch_size: DEFAULT_ADDRESS_ZKP_BATCH_SIZE,
-                height: 40,
-                root_history_capacity: DEFAULT_BATCH_ROOT_HISTORY_LEN,
             }
         }
     }
 }
 
 #[test]
-fn test_validate_batched_address_tree_params() {
+fn test_instruction_data_omits_root_history_capacity() {
     let params = InitAddressTreeAccountsInstructionData::default();
-    validate_batched_address_tree_params(params);
-}
+    let mut encoded = Vec::new();
+    params.serialize(&mut encoded).unwrap();
 
-#[test]
-#[should_panic = "Input queue batch size must divisible by input_queue_zkp_batch_size."]
-fn test_input_queue_batch_size_not_divisible_by_zkp_batch_size() {
-    let params = InitAddressTreeAccountsInstructionData {
-        input_queue_batch_size: 11,
-        input_queue_zkp_batch_size: 10, // Not divisible
-        ..InitAddressTreeAccountsInstructionData::default()
-    };
-    validate_batched_address_tree_params(params);
-}
-
-#[test]
-#[should_panic = "Input queue batch size must divisible by input_queue_zkp_batch_size."]
-fn test_invalid_zkp_batch_size() {
-    let params = InitAddressTreeAccountsInstructionData {
-        input_queue_zkp_batch_size: 7, // Unsupported size
-        ..InitAddressTreeAccountsInstructionData::default()
-    };
-    validate_batched_address_tree_params(params);
-}
-
-#[test]
-#[should_panic]
-fn test_root_history_capacity_zero() {
-    let params = InitAddressTreeAccountsInstructionData {
-        root_history_capacity: 0,
-        ..InitAddressTreeAccountsInstructionData::default()
-    };
-    validate_batched_address_tree_params(params);
-}
-
-#[test]
-#[should_panic]
-fn test_height_not_40() {
-    let params = InitAddressTreeAccountsInstructionData {
-        height: 30,
-        ..InitAddressTreeAccountsInstructionData::default()
-    };
-    validate_batched_address_tree_params(params);
-}
-
-#[test]
-fn test_validate_root_history_capacity_address_tree() {
-    // Test with valid params (default should pass)
-    let params = InitAddressTreeAccountsInstructionData::default();
-    validate_batched_address_tree_params(params); // Should not panic
-}
-
-#[test]
-#[should_panic(expected = "root_history_capacity")]
-fn test_validate_root_history_capacity_insufficient_address_tree() {
-    let params = InitAddressTreeAccountsInstructionData {
-        root_history_capacity: 1, // Much too small
-        input_queue_batch_size: 1000,
-        input_queue_zkp_batch_size: 10,
-        // Required: 1000/10 = 100, but we set only 1
-        ..Default::default()
-    };
-    validate_batched_address_tree_params(params); // Should panic
+    let mut expected = Vec::new();
+    expected.extend_from_slice(&params.input_queue_batch_size.to_le_bytes());
+    expected.extend_from_slice(&params.input_queue_zkp_batch_size.to_le_bytes());
+    expected.extend_from_slice(&params.height.to_le_bytes());
+    assert_eq!(encoded, expected);
 }
 
 #[test]
@@ -298,9 +188,11 @@ fn test_init_indexed_tree_init_roots() {
     use crate::constants::{ADDRESS_TREE_INIT_ROOT_40, NULLIFIER_TREE_INIT_ROOT_40};
 
     let params = InitAddressTreeAccountsInstructionData::default();
+    let account_size =
+        get_merkle_tree_account_size::<ADDRESS_TREE_DEFAULT_RH, ADDRESS_TREE_DEFAULT_ZKP>();
 
     // Nullifier tree is seeded with the BN254 p-1 sentinel root.
-    let mut nullifier_data = vec![0u8; get_address_merkle_tree_account_size()];
+    let mut nullifier_data = vec![0u8; account_size];
     let nullifier_account = init_batched_nullifier_merkle_tree_account::<
         ADDRESS_TREE_DEFAULT_RH,
         ADDRESS_TREE_DEFAULT_ZKP,
@@ -310,10 +202,14 @@ fn test_init_indexed_tree_init_roots() {
         *nullifier_account.layout.root_history.data.first().unwrap(),
         NULLIFIER_TREE_INIT_ROOT_40
     );
+    assert_eq!(
+        nullifier_account.root_history_capacity,
+        (params.input_queue_batch_size / params.input_queue_zkp_batch_size) as u32
+    );
     assert_eq!(nullifier_account.next_index, 1);
 
     // Address tree keeps the default address sentinel root.
-    let mut address_data = vec![0u8; get_address_merkle_tree_account_size()];
+    let mut address_data = vec![0u8; account_size];
     let address_account = init_batched_address_merkle_tree_account::<
         ADDRESS_TREE_DEFAULT_RH,
         ADDRESS_TREE_DEFAULT_ZKP,

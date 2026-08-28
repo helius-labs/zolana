@@ -2,14 +2,15 @@ use solana_address::Address;
 use zolana_batched_merkle_tree::{
     batch::Batch,
     constants::NULLIFIER_TREE_INIT_ROOT_40,
-    errors::BatchedMerkleTreeError,
+    errors::{BatchedMerkleTreeError, MerkleTreeMetadataError},
     merkle_tree::{get_merkle_tree_account_size, BatchedMerkleTreeAccount},
     merkle_tree_metadata::{BatchedMerkleTreeMetadata, TreeType},
     queue_batch_metadata::QueueBatches,
+    zero_copy::TreeAccountLayout,
 };
 use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 
-const RH: usize = 10;
+const RH: usize = 4;
 const ZKP: usize = 4;
 const BATCH_SIZE: u64 = 4;
 const ZKP_BATCH_SIZE: u64 = 1;
@@ -24,7 +25,6 @@ fn init_tree<'a>(data: &'a mut [u8], pubkey: &Address) -> Tree<'a> {
     Tree::init(
         data,
         pubkey,
-        RH as u32,
         BATCH_SIZE,
         ZKP_BATCH_SIZE,
         40,
@@ -49,6 +49,76 @@ fn state_struct_sizes() {
     assert_eq!(core::mem::size_of::<Batch>(), 72);
     assert_eq!(core::mem::size_of::<QueueBatches>(), 192);
     assert_eq!(core::mem::size_of::<BatchedMerkleTreeMetadata>(), 240);
+}
+
+#[test]
+fn derived_root_history_must_match_one_batch_of_zkp_updates() {
+    let pubkey = Address::new_unique();
+
+    let mut wrong_derived_capacity = account_data();
+    assert_eq!(
+        Tree::init(
+            &mut wrong_derived_capacity,
+            &pubkey,
+            BATCH_SIZE + ZKP_BATCH_SIZE,
+            ZKP_BATCH_SIZE,
+            40,
+            TreeType::AddressV2,
+            Some(NULLIFIER_TREE_INIT_ROOT_40),
+        )
+        .unwrap_err(),
+        MerkleTreeMetadataError::InvalidRootHistoryCapacity.into()
+    );
+
+    let mut wrong_cache_count = vec![0u8; get_merkle_tree_account_size::<RH, 5>()];
+    assert_eq!(
+        BatchedMerkleTreeAccount::<RH, 5>::init(
+            &mut wrong_cache_count,
+            &pubkey,
+            BATCH_SIZE,
+            ZKP_BATCH_SIZE,
+            40,
+            TreeType::AddressV2,
+            Some(NULLIFIER_TREE_INIT_ROOT_40),
+        )
+        .unwrap_err(),
+        MerkleTreeMetadataError::InvalidRootHistoryCapacity.into()
+    );
+}
+
+#[test]
+fn malformed_root_history_and_batch_metadata_are_rejected_on_load() {
+    let pubkey = Address::new_unique();
+
+    let mut bad_root_cursor = account_data();
+    init_tree(&mut bad_root_cursor, &pubkey);
+    let layout: &mut TreeAccountLayout<RH, ZKP> =
+        wincode::deserialize_mut(&mut bad_root_cursor).unwrap();
+    layout.root_history.header[0] = RH as u64;
+    assert_eq!(
+        Tree::address_from_bytes(&mut bad_root_cursor, &pubkey).unwrap_err(),
+        MerkleTreeMetadataError::InvalidRootHistoryCapacity.into()
+    );
+
+    let mut invalid_reserved = account_data();
+    init_tree(&mut invalid_reserved, &pubkey);
+    let layout: &mut TreeAccountLayout<RH, ZKP> =
+        wincode::deserialize_mut(&mut invalid_reserved).unwrap();
+    layout.metadata.queue_batches.reserved = 0;
+    assert_eq!(
+        Tree::address_from_bytes(&mut invalid_reserved, &pubkey).unwrap_err(),
+        BatchedMerkleTreeError::InvalidBatchIndex
+    );
+
+    let mut inconsistent_batch = account_data();
+    init_tree(&mut inconsistent_batch, &pubkey);
+    let layout: &mut TreeAccountLayout<RH, ZKP> =
+        wincode::deserialize_mut(&mut inconsistent_batch).unwrap();
+    layout.metadata.queue_batches.batches[0].batch_size += 1;
+    assert_eq!(
+        Tree::address_from_bytes(&mut inconsistent_batch, &pubkey).unwrap_err(),
+        BatchedMerkleTreeError::InvalidBatchConfiguration
+    );
 }
 
 #[test]

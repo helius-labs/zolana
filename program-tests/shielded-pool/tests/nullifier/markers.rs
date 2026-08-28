@@ -162,7 +162,11 @@ fn set_close_before_index(env: &mut Pool, close_before_index: u64) {
     );
 }
 
-fn set_reclaim_watermark_and_zero_root(env: &mut Pool, close_before_index: u64, root_index: usize) {
+fn set_synthetic_watermark_and_zero_root(
+    env: &mut Pool,
+    close_before_index: u64,
+    root_index: usize,
+) {
     const NULLIFIER_ZKP_BATCHES: usize =
         (ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE / ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE) as usize;
     type Layout = TreeAccountLayout<
@@ -506,7 +510,7 @@ fn closed_marker_does_not_make_an_obsolete_root_spendable_again() {
     let data = transfer_ix_data(2, 3);
     let nullifiers = nullifiers_of(&data);
     queue_markers(&mut env, &nullifiers, 0);
-    set_reclaim_watermark_and_zero_root(&mut env, nullifiers.len() as u64, 0);
+    set_synthetic_watermark_and_zero_root(&mut env, nullifiers.len() as u64, 0);
 
     env.rpc
         .create_and_send_default_payer_transaction(

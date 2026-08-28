@@ -15,11 +15,11 @@ use wincode::{
 pub use zolana_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccountsInstructionData;
 use zolana_batched_merkle_tree::{
     constants::{
-        DEFAULT_ADDRESS_BATCH_ROOT_HISTORY_LEN, DEFAULT_ADDRESS_BATCH_SIZE,
-        DEFAULT_ADDRESS_ZKP_BATCH_SIZE, DEFAULT_BATCH_ADDRESS_TREE_HEIGHT,
+        ADDRESS_TREE_DEFAULT_RH, ADDRESS_TREE_DEFAULT_ZKP, DEFAULT_BATCH_ADDRESS_TREE_HEIGHT,
     },
     initialize_address_tree::{init_batched_nullifier_merkle_tree_into_layout, match_circuit_size},
     merkle_tree::BatchedMerkleTreeAccount,
+    queue_batch_metadata::QueueBatches,
     zero_copy::TreeAccountLayout as NullifierLayout,
 };
 
@@ -28,8 +28,8 @@ use zolana_batched_merkle_tree::{
 /// value instead of pinning a literal by comment.
 pub const UTXO_TREE_HEIGHT: usize = 32;
 
-const NULLIFIER_RH: usize = DEFAULT_ADDRESS_BATCH_ROOT_HISTORY_LEN as usize;
-const NULLIFIER_ZKP: usize = (DEFAULT_ADDRESS_BATCH_SIZE / DEFAULT_ADDRESS_ZKP_BATCH_SIZE) as usize;
+const NULLIFIER_RH: usize = ADDRESS_TREE_DEFAULT_RH;
+const NULLIFIER_ZKP: usize = ADDRESS_TREE_DEFAULT_ZKP;
 
 /// `state` byte values. Writes to the tree are only allowed in `INITIALIZED`.
 pub const UNINITIALIZED: u8 = 0;
@@ -108,22 +108,16 @@ impl<'a> TreeAccount<'a> {
         if utxo_tree_height as usize != UTXO_TREE_HEIGHT {
             return Err(TreeError::HeightTooLarge);
         }
-        // Validate before dividing: the params are untrusted instruction data,
-        // so a zero zkp batch size must not reach the quotient below (or the
-        // `%` in `QueueBatches::init`), and an arbitrary height must not reach
-        // `2u64.pow(height)` in the nullifier init. The zkp batch size must
-        // have a verifying key, otherwise no batch update can ever be proven
-        // and the queue wedges once both batches fill.
+        // Validate untrusted instruction data before mutating the layout. The
+        // zkp batch size must also have a verifying key, otherwise no batch
+        // update can ever be proven and the queue wedges once both batches fill.
         if nullifier_params.height != DEFAULT_BATCH_ADDRESS_TREE_HEIGHT
-            || nullifier_params.input_queue_batch_size == 0
             || !match_circuit_size(nullifier_params.input_queue_zkp_batch_size)
-            || !nullifier_params
-                .input_queue_batch_size
-                .is_multiple_of(nullifier_params.input_queue_zkp_batch_size)
-            || nullifier_params.root_history_capacity as usize != NULLIFIER_RH
-            || (nullifier_params.input_queue_batch_size
-                / nullifier_params.input_queue_zkp_batch_size) as usize
-                != NULLIFIER_ZKP
+            || QueueBatches::validate_configuration::<NULLIFIER_RH, NULLIFIER_ZKP>(
+                nullifier_params.input_queue_batch_size,
+                nullifier_params.input_queue_zkp_batch_size,
+            )
+            .is_err()
         {
             return Err(TreeError::AddressInit);
         }
@@ -310,6 +304,8 @@ fn check_layout(layout: &SppTreeLayout) -> Result<(), TreeError> {
     {
         return Err(TreeError::Deserialize);
     }
+    BatchedMerkleTreeAccount::<NULLIFIER_RH, NULLIFIER_ZKP>::validate_layout(&layout.nullifier)
+        .map_err(|_| TreeError::Deserialize)?;
     Ok(())
 }
 

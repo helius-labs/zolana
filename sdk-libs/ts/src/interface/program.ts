@@ -5,13 +5,11 @@ import {
   ADDRESS_TREE_HEIGHT,
   ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE,
   ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
-  ADDRESS_TREE_ROOT_HISTORY_CAPACITY,
 } from "./state.js";
 
 export interface AddressTreeParams {
   readonly inputQueueBatchSize: bigint;
   readonly inputQueueZkpBatchSize: bigint;
-  readonly rootHistoryCapacity: number;
   readonly height: number;
 }
 
@@ -63,7 +61,6 @@ export function addressTreeParams(): AddressTreeParams {
   return Object.freeze({
     inputQueueBatchSize: ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE,
     inputQueueZkpBatchSize: ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
-    rootHistoryCapacity: ADDRESS_TREE_ROOT_HISTORY_CAPACITY,
     height: ADDRESS_TREE_HEIGHT,
   });
 }

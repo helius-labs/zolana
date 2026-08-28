@@ -22,7 +22,7 @@ use zolana_merkle_tree::indexed::IndexedMerkleTree;
 const HEIGHT: u32 = 40;
 const ZKP: usize = 5;
 const ZKP_BATCH_SIZE: u64 = 10;
-const ROOT_HISTORY: usize = 20;
+const ROOT_HISTORY: usize = ZKP;
 const NUM_TXNS: usize = 300;
 
 type NullifierTree<'a> = BatchedMerkleTreeAccount<'a, ROOT_HISTORY, ZKP>;
@@ -34,9 +34,7 @@ fn reference_nullifier_tree() -> IndexedMerkleTree<Poseidon, usize> {
 }
 
 fn test_config() -> InitAddressTreeAccountsInstructionData {
-    let mut params = InitAddressTreeAccountsInstructionData::test_default();
-    params.root_history_capacity = ROOT_HISTORY as u32;
-    params
+    InitAddressTreeAccountsInstructionData::test_default()
 }
 
 fn init_nullifier_tree<'a>(account_data: &'a mut [u8], pubkey: &Address) -> NullifierTree<'a> {
@@ -44,7 +42,6 @@ fn init_nullifier_tree<'a>(account_data: &'a mut [u8], pubkey: &Address) -> Null
     BatchedMerkleTreeAccount::init(
         account_data,
         pubkey,
-        params.root_history_capacity,
         params.input_queue_batch_size,
         params.input_queue_zkp_batch_size,
         params.height,

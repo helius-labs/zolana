@@ -149,44 +149,39 @@ fn tree_creation_rejects_an_unsigned_authority() {
 fn tree_creation_rejects_non_canonical_nullifier_params() {
     let mut pool = Pool::initialized();
     let canonical = address_tree_params();
-    let wrong_root_history = InitAddressTreeAccountsInstructionData {
-        root_history_capacity: canonical.root_history_capacity + 1,
-        ..canonical
-    };
-    // batch/zkp ratio of 1 instead of the canonical zkp batch count.
+    // Derives 121 roots instead of the account layout's canonical 120.
     let wrong_zkp_ratio = InitAddressTreeAccountsInstructionData {
-        input_queue_zkp_batch_size: canonical.input_queue_batch_size,
+        input_queue_batch_size: canonical.input_queue_batch_size
+            + canonical.input_queue_zkp_batch_size,
         ..canonical
     };
 
-    for params in [wrong_root_history, wrong_zkp_ratio] {
-        let payer = pool.rpc.payer.pubkey();
-        let tree = Keypair::new();
-        let rent = pool
-            .rpc
-            .get_minimum_balance_for_rent_exemption(tree_account_size() as usize)
-            .expect("rent");
-        let alloc = system_create_account_ix(
-            &payer,
-            &tree.pubkey(),
-            rent,
-            tree_account_size(),
-            &pda::shielded_pool_program_id(),
-        );
-        let create = CreateTree {
-            authority: pool.authority.pubkey(),
-            tree: tree.pubkey(),
-        }
-        .instruction_with_nullifier_params(params);
-
-        let err = pool
-            .rpc
-            .create_and_send_default_payer_transaction(&[alloc, create], &[&tree, &pool.authority])
-            .expect_err("non-canonical nullifier params must fail");
-        Rejection::pool(ShieldedPoolError::InvalidTreeAccounts)
-            .at(1)
-            .assert_litesvm(err);
+    let payer = pool.rpc.payer.pubkey();
+    let tree = Keypair::new();
+    let rent = pool
+        .rpc
+        .get_minimum_balance_for_rent_exemption(tree_account_size() as usize)
+        .expect("rent");
+    let alloc = system_create_account_ix(
+        &payer,
+        &tree.pubkey(),
+        rent,
+        tree_account_size(),
+        &pda::shielded_pool_program_id(),
+    );
+    let create = CreateTree {
+        authority: pool.authority.pubkey(),
+        tree: tree.pubkey(),
     }
+    .instruction_with_nullifier_params(wrong_zkp_ratio);
+
+    let err = pool
+        .rpc
+        .create_and_send_default_payer_transaction(&[alloc, create], &[&tree, &pool.authority])
+        .expect_err("non-canonical nullifier params must fail");
+    Rejection::pool(ShieldedPoolError::InvalidTreeAccounts)
+        .at(1)
+        .assert_litesvm(err);
 }
 
 #[test]

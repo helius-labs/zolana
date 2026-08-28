@@ -22,7 +22,7 @@ pub(crate) fn insert_into_current_queue_batch(
                 .start_index
                 .checked_add(rotation)
                 .ok_or(BatchedMerkleTreeError::ArithmeticOverflow)?;
-            current_batch.advance_state_to_fill(Some(start_index))?;
+            current_batch.advance_state_to_fill(start_index)?;
         }
         BatchState::Full => {
             #[cfg(feature = "log")]
@@ -45,7 +45,7 @@ pub(crate) fn insert_into_current_queue_batch(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::batch::BatchState;
+    use crate::{batch::BatchState, constants::NUM_BATCHES};
 
     fn insert(
         batch_metadata: &mut QueueBatches,
@@ -75,7 +75,7 @@ mod tests {
     }
 
     /// A reused batch must cover the queue index range one full rotation
-    /// (num_batches * batch_size) after its previous start, keeping the
+    /// (`NUM_BATCHES * batch_size`) after its previous start, keeping the
     /// indexer-visible start_index consistent with the init-time invariant
     /// `start_index = batch_size * i + next_index`.
     #[test]
@@ -83,8 +83,9 @@ mod tests {
         let batch_size = 2;
         let zkp_batch_size = 2;
         let init_start_index = 1;
+        QueueBatches::validate_configuration::<1, 1>(batch_size, zkp_batch_size).unwrap();
         let mut batch_metadata =
-            QueueBatches::new_input_queue(batch_size, zkp_batch_size, init_start_index).unwrap();
+            QueueBatches::new(batch_size, zkp_batch_size, init_start_index).unwrap();
         let mut hash_chain_lengths = [0u64; 2];
         let mut hash_chain_data = [[[0u8; 32]; 1]; 2];
 
@@ -99,7 +100,7 @@ mod tests {
             .unwrap();
         }
         let batch = batch_metadata.batches.get_mut(0).unwrap();
-        batch.mark_as_inserted_in_merkle_tree(1, 1, 10).unwrap();
+        batch.mark_as_inserted_in_merkle_tree().unwrap();
         assert_eq!(batch.get_state(), BatchState::Inserted);
         let reclaimable_sequence = batch.reclaimable_sequence().unwrap();
         assert_eq!(reclaimable_sequence, init_start_index - 1 + batch_size);
@@ -142,7 +143,7 @@ mod tests {
         assert_eq!(batch.get_state(), BatchState::Fill);
         assert_eq!(
             batch.start_index,
-            init_start_index + batch_metadata.num_batches * batch_size
+            init_start_index + NUM_BATCHES as u64 * batch_size
         );
     }
 }

@@ -15,7 +15,7 @@ Let:
 | `K` | ZKP batches per queue batch: `B / Z` |
 | `c` | batch currently receiving values |
 | `p` | batch currently being appended to the tree |
-| `RH` | root-history capacity |
+| `RH` | root-history capacity, derived as `B / Z` |
 | `q` | next zero-based input-queue sequence number |
 | `w` | exclusive queue-sequence marker-close watermark (`close_before_index`) |
 
@@ -32,15 +32,15 @@ struct Batch {
     num_inserted: u64,              // queued values in the open ZKP batch
     num_full_zkp_batches: u64,      // finalized hash chains
     num_inserted_zkp_batches: u64,  // finalized ZKP batches applied to the tree
-    sequence_number: u64,           // final append sequence + RH
-    root_index: u32,                // final root's history slot
+    sequence_number: u64,           // reserved for account-layout compatibility
+    root_index: u32,                // reserved for account-layout compatibility
 }
 ```
 
 ```text
 0 <= num_inserted_zkp_batches <= num_full_zkp_batches <= K
 
-RH >= K
+RH = K
 
 unapplied_values =
     (num_full_zkp_batches - num_inserted_zkp_batches) * Z
@@ -68,8 +68,8 @@ Initialization fills leaf zero and sets `q = 0`, `tree.next_index = 1`, and
 reserves leaf `x + 1`. Leaves in `[tree.next_index, q + 1)` are queued but not
 yet appended to the tree.
 
-`RH >= K` keeps the roots of one `K`-update cascade in distinct history slots
-when the call returns.
+`RH = K` keeps exactly one queue batch's worth of update roots. Fully applying
+the successor batch therefore overwrites every root that predates it.
 
 `Fill --B queue insertions--> Full --final ZKP append--> Inserted --mark reclaimable--> reusable --reuse--> Fill`.
 A finalized ZKP batch may be appended while its queue batch is still `Fill`.
@@ -115,8 +115,7 @@ The instruction also receives the writable marker PDA.
 1. Require the nullifier-tree type and canonical nullifier encoding.
 2. Require `batches[c].state == Fill`. If it is `Inserted`, reuse it first;
    reuse requires the batch to be reclaimable (batch append, step 9), resets
-   its counters, `sequence_number`, and `root_index`, and advances `start_index`
-   by `2 * B`. `Full` is not reusable.
+   its counters, and advances `start_index` by `2 * B`. `Full` is not reusable.
 3. Require
    `q + 1 = batches[c].start_index + batches[c].inserted_elements` and
    `q + 1 < tree.capacity`.
@@ -213,10 +212,9 @@ The Groth16 proof establishes the height-40 indexed append from `old_root` to
 
 7. Clear the applied cache slot. Continue from step 4 so one call may apply
    several previously cached proofs.
-8. When all `K` ZKP batches are applied, set the queue batch to `Inserted`, set
-   its `sequence_number = tree.sequence_number + RH`, record the final root's
-   history slot in `root_index`, and advance `p` modulo two.
-9. After each applied update, let `current_index` be the `p` used for that
+8. When all `K` ZKP batches are applied, set the queue batch to `Inserted` and
+   advance `p` modulo two.
+9. On that final applied update, let `current_index` be the `p` used for the
    update (before step 8 advances it) and let:
 
    ```text
@@ -224,22 +222,11 @@ The Groth16 proof establishes the height-40 indexed append from `old_root` to
    previous = batches[(current_index + 1) mod 2]
    ```
 
-   If `current.inserted_elements >= B / 2`, `previous.state == Inserted`, and
-   `previous` is not reclaimable, mark `previous` reclaimable. If
-   `previous.sequence_number > tree.sequence_number`, let:
-
-   ```text
-   final_sequence = previous.sequence_number - RH
-   keep = tree.sequence_number - final_sequence + 1
-   ```
-
-   Preserve `keep` cyclic slots starting at `previous.root_index` and zero the
-   other `RH - keep` slots. If
-   `previous.sequence_number <= tree.sequence_number`, at least `RH` newer
-   roots have already overwritten its final root and every older root, so zero
-   nothing. Set
+   At this point `current.state == Inserted` and its `K = RH` applied updates
+   have naturally overwritten every root that predates `current`. If
+   `previous.state == Inserted` and `previous` is not reclaimable, set
    `w = max(w, first_sequence(previous) + B)` and make `previous` reusable.
-   These changes are atomic.
+   No root-history slots are explicitly zeroed. These changes are atomic.
 
 **Property — queue draining.** One applied update reduces
 `unapplied_values` by exactly `Z`. After all `K` updates, the batch has
@@ -247,10 +234,10 @@ The Groth16 proof establishes the height-40 indexed append from `old_root` to
 hash-chain bytes remain until overwritten on reuse. Its markers remain until
 separate cleanup transactions close them.
 
-**Property — reclaim liveness.** The previous batch becomes reclaimable in the first
-applied update of the current batch after the current batch holds `B / 2`
-queued values. Until that update, the previous batch cannot be reused when
-queue insertion cycles back to it.
+**Property — reclaim liveness.** The previous batch becomes reclaimable when
+the current batch's final ZKP update is applied. Until the current batch is
+fully applied, the previous batch cannot be reused when queue insertion cycles
+back to it.
 
 **Property — ordered application.** Proofs may arrive in any order, but roots
 are applied only in increasing ZKP-batch order and only when each `old_root`
@@ -333,10 +320,11 @@ OR
 every accepted nullifier-tree root contains n
 ```
 
-Marking a batch reclaimable establishes the right-hand condition before advancing `w`; cleanup
-may therefore remove the marker without enabling a stale non-inclusion proof.
-The transact verifier accepts only roots for which `accepted_root` holds.
-Delayed cleanup locks working capital.
+Fully applying the successor batch writes `RH` newer roots, which establishes
+the right-hand condition before advancing `w`; cleanup may therefore remove
+the marker without enabling a stale non-inclusion proof. The transact verifier
+accepts only roots for which `accepted_root` holds. Delayed cleanup locks
+working capital.
 
 ## Cost
 

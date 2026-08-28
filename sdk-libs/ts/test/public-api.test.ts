@@ -300,6 +300,44 @@ describe("address and instruction builders", () => {
     expect(instruction.accounts?.[0]).toMatchObject({ signer: authority });
   });
 
+  it("encodes custom tree parameters without a root-history capacity input", async () => {
+    const authority = { address: OWNER } as TransactionSigner;
+    const instruction = await getCreateTreeInstructionAsync({
+      authority,
+      tree: DEFAULT_TREE_ADDRESS,
+      nullifierTreeParams: {
+        inputQueueBatchSize: 30_000n,
+        inputQueueZkpBatchSize: 250n,
+        height: 40,
+      },
+    });
+    expect(instruction.data).toEqual(
+      Uint8Array.of(
+        InstructionTag.createTree,
+        48,
+        117,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        250,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        40,
+        0,
+        0,
+        0,
+      ),
+    );
+  });
+
   it("builds a deposit instruction", async () => {
     expect(DepositAsset.sol).toBeTypeOf("function");
     const depositor = { address: OWNER } as TransactionSigner;

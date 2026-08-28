@@ -92,7 +92,7 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
         (
             batches.zkp_batch_size,
             batches.batch_size,
-            batches.num_batches,
+            batches.batches.len() as u64,
             infos,
             ready_total,
             batches.pending_batch_index,

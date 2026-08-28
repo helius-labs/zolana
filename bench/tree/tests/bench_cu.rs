@@ -36,7 +36,6 @@ const ADDRESS_ZKP: usize = 120;
 const ADDRESS_HEIGHT: u32 = 40;
 const ADDRESS_ZKP_BATCH_SIZE: u64 = 10;
 const ADDRESS_BATCH_SIZE: u64 = 1200;
-const ADDRESS_ROOT_HISTORY_CAPACITY: u32 = 120;
 
 type AddressTree<'a> = BatchedMerkleTreeAccount<'a, ADDRESS_RH, ADDRESS_ZKP>;
 
@@ -144,7 +143,6 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
     AddressTree::init(
         &mut account_data,
         &pubkey,
-        ADDRESS_ROOT_HISTORY_CAPACITY,
         ADDRESS_BATCH_SIZE,
         ADDRESS_ZKP_BATCH_SIZE,
         ADDRESS_HEIGHT,
