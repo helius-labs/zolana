@@ -519,6 +519,18 @@ impl PreparedTransfer {
         self.finalize_inner(tx_viewing_pk, salt, slots, false)
     }
 
+    /// Finalizes a custom-ring transfer whose sender may use the P-256 owner
+    /// rail. Default transact callers must use [`Self::finalize`], which keeps
+    /// rejecting P-256 owners because no Solana account can authorize them.
+    pub fn finalize_ring_p256(
+        self,
+        tx_viewing_pk: P256Pubkey,
+        salt: [u8; SALT_LEN],
+        slots: Vec<Option<MessageData>>,
+    ) -> Result<SppProofInputs, TransactionError> {
+        self.finalize_inner(tx_viewing_pk, salt, slots, true)
+    }
+
     fn finalize_inner(
         self,
         tx_viewing_pk: P256Pubkey,

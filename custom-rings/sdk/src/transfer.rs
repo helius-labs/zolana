@@ -327,7 +327,7 @@ impl<'a> CustomRingTransfer<'a> {
         .encrypt()?;
         let salt = random_salt();
         let slots = encode_confidential_slots(&prepared.outputs, assets, &tx_viewing_key, salt)?;
-        let mut proof_inputs = prepared.finalize(tx_viewing_key.pubkey(), salt, slots)?;
+        let mut proof_inputs = prepared.finalize_ring_p256(tx_viewing_key.pubkey(), salt, slots)?;
         frame_dummy_outputs(&mut proof_inputs)?;
         proof_inputs.external_data.messages = vec![auditor_message.to_message_data(&auditor_pk)];
         // RING_TRANSACT is folded into external_data_hash and from there into
@@ -902,6 +902,47 @@ mod tests {
         }
         .validate()
         .expect("ring data inside the ring");
+    }
+
+    #[test]
+    fn stage_accepts_a_p256_ring_owner_exiting_to_the_default_ring() {
+        let sender = ShieldedKeypair::new_p256().expect("P-256 sender");
+        let recipient = ShieldedKeypair::new_ed25519().expect("recipient");
+        let input = SppProofInputUtxo::new(
+            Utxo {
+                owner: sender.signing_pubkey(),
+                asset: SOL_MINT,
+                amount: 10,
+                blinding: random_blinding(),
+                ring_program_id: Some(ring().program_id()),
+                data: Data::default(),
+            },
+            &sender,
+        );
+        let mut transfer = ConfidentialTransfer::new(
+            sender.shielded_address().expect("sender address"),
+            vec![input],
+            Address::default(),
+        )
+        .with_compact_change()
+        .with_ring_program_id(ring().program_id());
+        transfer
+            .send_default_ring(
+                &recipient.shielded_address().expect("recipient address"),
+                SOL_MINT,
+                4,
+            )
+            .expect("recipient");
+
+        CustomRingTransfer::new(CustomRingTransferInput {
+            ring: ring(),
+            sender: &sender,
+            prepared: transfer.prepare().expect("prepared transfer"),
+        })
+        .with_tree(Address::new_from_array([3u8; 32]))
+        .with_assets(&AssetRegistry::default())
+        .stage(ViewingKey::new().pubkey())
+        .expect("P-256 custom-ring stage");
     }
 
     #[test]
