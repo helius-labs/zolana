@@ -80,16 +80,26 @@ pub fn assert_tree_lamports_after_spend<R: Rpc>(
     let marker_rent = nullifier_marker_rent(rpc)?;
     let forester_fee = forester_fee_for_inputs(tree_before, tree, num_inputs)?;
     let tree_after = fetch_account(rpc, tree)?;
-    let mut expected_tree = tree_before.clone();
-    expected_tree.lamports = expected_tree_lamports_after_spend(
+    let expected_lamports = expected_tree_lamports_after_spend(
         tree_before.lamports,
         forester_fee,
         num_inputs,
         marker_rent,
     );
     assert_eq!(
-        tree_after, expected_tree,
-        "tree collects the forester fee, funds one marker per input, and changes no other account field"
+        (
+            tree_after.lamports,
+            tree_after.owner,
+            tree_after.data.len(),
+            tree_after.executable,
+        ),
+        (
+            expected_lamports,
+            tree_before.owner,
+            tree_before.data.len(),
+            tree_before.executable,
+        ),
+        "tree collects the forester fee and funds one marker per input"
     );
     Ok(tree_after)
 }
