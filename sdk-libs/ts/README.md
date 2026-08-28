@@ -1,29 +1,31 @@
 # @heliuslabs/zolana
 
-`@heliuslabs/zolana` is the TypeScript SDK for Zolana shielded assets on Solana. Use it
-to:
+`@heliuslabs/zolana` is the TypeScript SDK for Solana Privacy Rings.
+Solana Privacy Rings are a programmable shielded pool with encrypted onchain balances and execution directly on Solana.
 
-- shield SOL, SPL Token, and Token-2022 assets;
+Use it for:
+
+- deposit SOL, SPL Token, and Token-2022 into a private balance;
 - read private balances and transaction history;
-- send confidential transfers;
-- withdraw to public Solana addresses; and
-- split or merge private notes when needed.
+- send private transfers to a Solana address; and
+- private to public withdrawal to a Solana address.
+
+All private transactions are executed in a single Solana transaction.
 
 ## Install
 
 ```sh
-npm install @heliuslabs/zolana @solana/kit
+npm install @heliuslabs/zolana@alpha @solana/kit
 ```
 
 Requirements:
 
 - Node.js 24 or newer;
-- a unified Zolana endpoint, or separate Solana RPC, indexer, and prover
-  endpoints.
+- Solana RPC, indexer, and prover endpoints.
 
 ## Quick start
 
-This example creates a wallet, syncs it, shields SOL, and reads the resulting
+This example creates a wallet, syncs it, deposits SOL, and reads the resulting
 balance and history. For the purpose of this demo the application supplies the Solana signer and stores its
 seed.
 
@@ -50,11 +52,7 @@ import {
   type Bytes32,
 } from "@heliuslabs/zolana";
 
-// One url serves the RPC, the indexer, and the prover.
-// localnet: const client = await createZolanaClient({});
-const client = await createZolanaClient({
-  solanaRpcUrl: `https://devnet.helius-rpc.com?api-key=${process.env.API_KEY!}`,
-});
+const client = await createZolanaClient({});
 
 // Load this from the app wallet or key store.
 declare function loadOwnerSeed(): Promise<Bytes32>;
@@ -106,43 +104,46 @@ console.log(wallet.balance(SOL_MINT).amount);
 console.log(getPrivateTransactions(wallet));
 ```
 
-By default, the indexer and prover use `solanaRpcUrl`. Override either one
-independently for separate services or local development:
-
-```ts
-const client = await createZolanaClient({
-  solanaRpcUrl: "http://127.0.0.1:8899",
-  indexerUrl: "http://127.0.0.1:8784",
-  proverUrl: "http://127.0.0.1:3001",
-});
-```
-
-For an Ed25519 spending wallet, the shielded identity and Solana signer must use
+For an Ed25519 spending wallet, the shielded keypair and the Solana signer must use
 the same owner seed, as shown above.
 
 ### Endpoints
 
-`solanaRpcUrl` serves the Solana RPC, the indexer, and the prover, which is the
-shape a Helius URL takes. A config that names no url reaches the local stack,
-where the validator, photon, and the prover listen on 8899, 8784, and 3001:
+A client needs a
+[Helius API key](https://dashboard.helius.dev/).
+
+The RPC endpoint serves the Solana RPC. The Photon indexer to fetch encrypted
+state, and the prover that generates the zero-knowledge proofs currently use aws URLs.
+It's planned to make indexer and prover available through using the same Helius RPC URL.
+
+**Devnet:**
+
+| Service    | Host the SDK uses                                                   | Notes                                                                                     |
+| ---------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Solana RPC | `https://devnet.helius-rpc.com/?api-key=<API_KEY>`                  | Helius key. Fund the payer with [devnet SOL](https://www.helius.dev/docs/rpc/devnet-sol). |
+| Indexer    | `http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com`      | Fetches encrypted state.                                                                  |
+| Prover     | `http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com:3001` | Generates ZK proofs                                                                       |
+
+```ts
+const client = await createZolanaClient({
+  solanaRpcUrl: `https://devnet.helius-rpc.com/?api-key=${process.env.API_KEY!}`,
+  indexerUrl: "http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com",
+  proverUrl: "http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com:3001",
+  allowInsecureHttp: true,
+});
+```
+
+`allowInsecureHttp: true` is required for these plaintext `http://` indexer and
+prover hosts. Use it only on this devnet path with test funds.
+
+On localnet, start the stack first with `zolana dev start`. The local test
+validator (`:8899`), Photon indexer (`:8784`), and prover (`:3001`) then
+listen, and the client connects to them automatically without needing
+endpoint configuration.
 
 ```ts
 const client = await createZolanaClient({});
 ```
-
-Name a service on its own when it does not sit behind the same host:
-
-```ts
-const client = await createZolanaClient({
-  solanaRpcUrl: process.env.SOLANA_RPC_URL!,
-  indexerUrl: "https://photon.example",
-  proverUrl: "https://prover.example",
-});
-```
-
-A named URL wins over `solanaRpcUrl` and over a local default port, so
-`ZOLANA_PORT_OFFSET` shifts the local ports by naming them. Pass `apiKey` when
-the URL does not already carry one.
 
 ## Common transactions
 
@@ -168,12 +169,36 @@ await submit(deposit, feePayer);
 The standard SPL Token program is used by default. For Token-2022, also pass
 `splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID`.
 
-The SDK automatically resolves a registered Solana public key to its shielded
-address. Passing a `ShieldedAddress` directly bypasses the lookup.
+Passing a `ShieldedAddress` skips the lookup.
 
-### Confidential transfer
+### Registration
 
-A transfer normally targets the recipient's registered Solana public key.
+`new Wallet()` builds local state only. The onchain mapping from a Solana
+address to a shielded address is a separate signed transaction.
+
+```ts
+import { buildRegistrationTransaction } from "@heliuslabs/zolana";
+
+const registration = await buildRegistrationTransaction({
+  client,
+  owner: feePayer.address,
+  address: keypair.shieldedAddress(),
+});
+if (registration !== undefined) {
+  await submit(registration, feePayer);
+}
+```
+
+`buildRegistrationTransaction` returns `undefined` when that owner is already
+registered with the same keys. A recipient that never submitted this
+transaction fails a transfer with `WALLET_RECIPIENT_NOT_REGISTERED`.
+
+### Private transfer
+
+A private transfer is sent to a Solana wallet address. The SDK looks up that
+address in the onchain registry. If it is not registered, the call fails with
+`WALLET_RECIPIENT_NOT_REGISTERED`. It does not withdraw. Use
+`buildWithdrawalTransaction` for a public recipient.
 
 ```ts
 import { buildTransferTransaction } from "@heliuslabs/zolana";
@@ -231,7 +256,28 @@ previous confirmed transaction.
 
 Persist wallet state with `serializeWallet` and restore it with
 `deserializeWallet`. Persist key material separately. Serialized wallet state
-contains private note data and must be encrypted at rest.
+contains UTXO data and must be encrypted at rest.
+
+## Custom Rings
+
+Besides the permissionless default Ring, regulated entities can create custom Rings.
+Custom Rings are simple Solana programs for compliance and policy control. Each Ring deploys its own program. It has a program
+upgrade authority, a protocol authority, and an auditor key. The default Ring does not have an auditor key.
+
+The auditor key lives in a Ring RPC. The Ring authority grants view access.
+Helius can host that RPC; the authority can host it itself. The forester is
+shared with the default Ring.
+
+This first iteration supports confidential transactions only. Anonymous
+transfers that would use a relayer are not supported. Later iterations add
+allowlists, blocklists, and rule-based config on the Ring config account.
+The deploy process is expected to stay the same.
+
+Build Ring deposits, transfers, and withdrawals with
+`buildRingDepositTransaction`, `buildRingTransferTransaction`, and
+`buildRingWithdrawalTransaction`. `RingRpc` reads decrypted Ring transactions
+for a granted reader. The same surface is available from
+`@heliuslabs/zolana/ring`.
 
 ## Public API
 
@@ -243,20 +289,45 @@ Common exports from `@heliuslabs/zolana` include:
   `buildWithdrawalTransaction`, `buildSplitTransaction`,
   `buildMergeTransaction`;
 - state: `syncWallet`, `getPrivateTokenBalances`, `getPrivateTransactions`,
-  `serializeWallet`, `deserializeWallet`; and
-- registration: `buildRegistrationTransaction`.
+  `serializeWallet`, `deserializeWallet`;
+- registration: `buildRegistrationTransaction`; and
+- Rings: `buildRingDepositTransaction`, `buildRingTransferTransaction`,
+  `buildRingWithdrawalTransaction`, `listRegisteredRings`, `RingRpc`.
 
 Advanced protocol users can import low-level instruction builders from
 `@heliuslabs/zolana/instructions`. PDA helpers are available from
 `@heliuslabs/zolana/addresses`; additional typed surfaces are exposed under
-`@heliuslabs/zolana/client`, `/interface`, `/keypair`, `/transaction`, and `/wallet`.
+`@heliuslabs/zolana/client`, `/interface`, `/keypair`, `/ring`, `/transaction`,
+and `/wallet`.
+
+## API reference
+
+The release workflow publishes the generated TypeDoc reference from
+`ts-sdk-v*` tags. The tag version must match this package's version. Published
+versions are immutable:
+
+- latest: <https://helius-labs.github.io/zolana/ts-sdk/>;
+- explicit version:
+  <https://helius-labs.github.io/zolana/ts-sdk/v0.1.3-alpha/>; and
+- version index:
+  <https://helius-labs.github.io/zolana/ts-sdk/versions.json>.
+
+GitHub Pages must use GitHub Actions as its source before the first release
+workflow runs.
+
+The intended long-term canonical location is
+`https://www.helius.dev/privacy/api/`, with immutable versions such as
+`https://www.helius.dev/privacy/api/v0.1.3-alpha/`. Migrate only after the Helius
+website proxies `/privacy/api/*` to the GitHub Pages `/zolana/ts-sdk/*` origin.
+At that point, update the release workflow's `PUBLIC_BASE_URL`; existing GitHub
+Pages URLs remain available as the backing origin.
 
 ## Important notes
 
-- Ed25519 is the supported owner rail for registration and private
+- Ed25519 is the supported owner scheme for registration and private
   transactions. `ShieldedKeypair.generate()` defaults to Ed25519.
-- Viewing keys are P256 on every wallet; this is expected and is separate from
-  unsupported P256 owner registration or spending.
+- Viewing keys use P256; this is separate from unsupported P256 owner
+  registration or spending.
 - Non-loopback indexer and prover URLs must use HTTPS.
 - Protect signer seeds and shielded key material. Encrypt serialized wallet
-  state and avoid logging private balances, notes, or keys.
+  state and avoid logging private balances, UTXOs, or keys.
