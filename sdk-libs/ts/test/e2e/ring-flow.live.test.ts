@@ -21,6 +21,7 @@ import {
   ShieldedKeypair,
   SigningKey,
   Wallet,
+  buildDepositTransaction,
   createZolanaClient,
   syncWallet,
   type Bytes32,
@@ -32,8 +33,10 @@ import {
   RingError,
   RingRpc,
   buildRingDepositTransaction,
+  buildRingExitTransaction,
   buildRingLookupTableTransaction,
   buildRingTransferTransaction,
+  buildRingWithdrawalTransaction,
   fetchReaderGrant,
   fetchRingProgramConfig,
   grantReadAccessInstruction,
@@ -44,7 +47,12 @@ import {
 } from "../../src/ring/index.js";
 import type { ZolanaClient } from "../../src/client/client.js";
 import { buildUnsignedTransaction } from "../../src/client/kit.js";
-import { currentSlot, signSendAndConfirm, waitForSignature } from "./live-helpers.js";
+import {
+  currentSlot,
+  signSendAndConfirm,
+  signerFromWalletFile,
+  waitForSignature,
+} from "./live-helpers.js";
 
 function requiredEnv(name: string): string {
   const value = process.env[name];
@@ -152,6 +160,30 @@ async function sync(client: ZolanaClient, actor: Actor): Promise<void> {
     authority: actor.authority,
     config: { requireSlot: await currentSlot(client) },
   });
+}
+
+/** The indexer and the ring RPC lag behind confirmation, so the view is polled. */
+async function waitForAudited(
+  ringRpc: RingRpc,
+  ringProgramId: Address,
+  signer: KeyPairSigner,
+  signature: string,
+) {
+  for (let attempt = 0; attempt < 120; attempt++) {
+    const view = await ringRpc.getDecryptedTransactions({
+      ringProgramId,
+      signer: messageSignerReader(signer),
+    });
+    const item = view.items.find((entry) => entry.signature === signature);
+    if (item !== undefined) return item;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`transaction ${signature} did not reach the ring view`);
+}
+
+async function tokenBalance(client: ZolanaClient, account: Address): Promise<bigint> {
+  const response = await client.solanaRpc.getTokenAccountBalance(account).send();
+  return BigInt(response.value.amount);
 }
 
 describe("ring flow", () => {
@@ -344,5 +376,149 @@ describe("ring flow", () => {
       authoritySigner,
     );
     expect(await ringReadError(ringRpc, ringProgramId, passkey)).toContain("no active grant");
+  }, 600_000);
+
+  it("carries usdc in from the default ring, back out, and into a public withdrawal", async () => {
+    const ringProgramId = address(requiredEnv("RING_PROGRAM_ID"));
+    const usdc = address(requiredEnv("ZOLANA_TEST_MINT"));
+    const fundingTokenAccount = address(requiredEnv("ZOLANA_TEST_TOKEN_ACCOUNT"));
+    const client = await createZolanaClient({
+      solanaRpcUrl: requiredEnv("ZOLANA_LOCALNET_URL"),
+      indexerUrl: requiredEnv("ZOLANA_INDEXER_URL"),
+      proverUrl: requiredEnv("ZOLANA_PROVER_URL"),
+      tree: address(requiredEnv("ZOLANA_TREE")),
+    });
+    const ringRpc = new RingRpc(requiredEnv("RING_RPC_URL"));
+    const authoritySigner = await keypairSignerFromFile(requiredEnv("RING_AUTHORITY_KEYPAIR"));
+    const mintAuthority = await signerFromWalletFile(requiredEnv("ZOLANA_TEST_AUTHORITY_WALLET"));
+
+    const sender = await freshActor();
+    const recipient = await freshActor();
+    await airdrop(client, sender.signer.address);
+    await airdrop(client, recipient.signer.address);
+
+    // The bring-up mints 1_000_000 raw units and later suites share the supply.
+    const deposited = 40_000n;
+    const entry = 25_000n;
+    const exit = 10_000n;
+    const withdrawn = 5_000n;
+
+    // The authority wallet funds the default deposit from its own token account.
+    const deposit = await buildDepositTransaction({
+      client,
+      feePayer: mintAuthority.address,
+      recipient: sender.keypair.shieldedAddress(),
+      asset: usdc,
+      amount: deposited,
+      splTokenAccount: fundingTokenAccount,
+    });
+    await signSendAndConfirm(client, deposit, [mintAuthority]);
+    await sync(client, sender);
+    const defaultNotes = sender.wallet
+      .utxos()
+      .filter((note) => !note.spent && note.utxo.asset === usdc);
+    expect(defaultNotes.map((note) => [note.utxo.amount, note.utxo.ringProgramId])).toEqual([
+      [deposited, undefined],
+    ]);
+
+    const table = await buildRingLookupTableTransaction({
+      client,
+      ringProgramId,
+      feePayer: sender.signer.address,
+    });
+    await signSendAndConfirm(client, table.transaction, [sender.signer]);
+    const writtenAt = await currentSlot(client);
+    while ((await currentSlot(client)) <= writtenAt) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+
+    // Entry, the default note funds a ring transfer.
+    const entryTransaction = await buildRingTransferTransaction({
+      client,
+      ringProgramId,
+      wallet: sender.wallet,
+      authority: sender.authority,
+      feePayer: sender.signer.address,
+      recipient: recipient.keypair.shieldedAddress(),
+      asset: usdc,
+      amount: entry,
+      inputs: "ring-or-default",
+      lookupTable: table.address,
+    });
+    const entrySignature = await signSendAndConfirm(client, entryTransaction, [sender.signer]);
+    const entryAudited = await waitForAudited(
+      ringRpc,
+      ringProgramId,
+      authoritySigner,
+      entrySignature,
+    );
+    expect(entryAudited.outputs.map((output) => output.asset)).toEqual([usdc, usdc]);
+    expect(entryAudited.outputs.map((output) => output.ringProgramId)).toEqual([
+      ringProgramId,
+      ringProgramId,
+    ]);
+    await sync(client, recipient);
+    const ringNotes = recipient.wallet
+      .utxos()
+      .filter((note) => !note.spent && note.utxo.asset === usdc);
+    expect(ringNotes.map((note) => [note.utxo.amount, note.utxo.ringProgramId])).toEqual([
+      [entry, ringProgramId],
+    ]);
+
+    // Exit, part of the ring note returns to the sender's default ring.
+    const exitTransaction = await buildRingExitTransaction({
+      client,
+      ringProgramId,
+      wallet: recipient.wallet,
+      authority: recipient.authority,
+      feePayer: recipient.signer.address,
+      recipient: sender.keypair.shieldedAddress(),
+      asset: usdc,
+      amount: exit,
+      lookupTable: table.address,
+    });
+    const exitSignature = await signSendAndConfirm(client, exitTransaction, [recipient.signer]);
+    const exitAudited = await waitForAudited(
+      ringRpc,
+      ringProgramId,
+      authoritySigner,
+      exitSignature,
+    );
+    const exitRings = new Map(
+      exitAudited.outputs.map((output) => [output.amount, output.ringProgramId]),
+    );
+    expect(exitRings.has(exit)).toBe(true);
+    expect(exitRings.get(exit)).toBeUndefined();
+    expect(exitRings.get(entry - exit)).toBe(ringProgramId);
+    await sync(client, sender);
+    const senderNotes = sender.wallet
+      .utxos()
+      .filter((note) => !note.spent && note.utxo.asset === usdc)
+      .map((note) => [note.utxo.amount, note.utxo.ringProgramId] as const)
+      .sort((a, b) => (a[0] < b[0] ? -1 : 1));
+    expect(senderNotes).toEqual([
+      [exit, undefined],
+      [deposited - entry, ringProgramId],
+    ]);
+
+    // The remaining ring note settles a public withdrawal into the funding account.
+    await sync(client, recipient);
+    const before = await tokenBalance(client, fundingTokenAccount);
+    const withdrawalTransaction = await buildRingWithdrawalTransaction({
+      client,
+      ringProgramId,
+      wallet: recipient.wallet,
+      authority: recipient.authority,
+      feePayer: recipient.signer.address,
+      recipient: mintAuthority.address,
+      asset: usdc,
+      amount: withdrawn,
+      lookupTable: table.address,
+    });
+    const withdrawalSignature = await signSendAndConfirm(client, withdrawalTransaction, [
+      recipient.signer,
+    ]);
+    await waitForAudited(ringRpc, ringProgramId, authoritySigner, withdrawalSignature);
+    expect((await tokenBalance(client, fundingTokenAccount)) - before).toBe(withdrawn);
   }, 600_000);
 });
