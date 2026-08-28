@@ -10,6 +10,7 @@ use zolana_interface::{
     MAX_INTERFACE_TRANSFERS,
 };
 
+use super::verify::MAX_INPUTS;
 use crate::instructions::ring_config::loader::load_active_ring_config;
 use crate::instructions::settlement::{
     validate_sol_settlement, validate_spl_deposit_settlement, validate_spl_withdrawal_settlement,
@@ -20,6 +21,7 @@ pub struct TransactAccounts<'a> {
     pub payer: &'a AccountView,
     pub input_tree: &'a mut AccountView,
     pub output_tree: &'a mut AccountView,
+    pub nullifier_markers: ArrayVec<&'a mut AccountView, MAX_INPUTS>,
     pub owner_signers: &'a [AccountView],
     pub settlements: ArrayVec<Settlement<'a>, MAX_INTERFACE_TRANSFERS>,
 }
@@ -48,7 +50,7 @@ impl<'a> TransactAccounts<'a> {
 
     /// 1. Validate spl interface transfers.
     pub(crate) fn from_iter(
-        iter: AccountIterator<'a>,
+        mut iter: AccountIterator<'a>,
         ix: &TransactIxDataRef<'_>,
         payer: &'a AccountView,
         input_tree: &'a mut AccountView,
@@ -57,6 +59,13 @@ impl<'a> TransactAccounts<'a> {
     ) -> Result<Box<Self>, ProgramError> {
         // Check non-zero amounts and the protocol transfer bound.
         validate_interface_transfers(&ix.interface_transfers)?;
+
+        let mut nullifier_markers = ArrayVec::new();
+        for _ in 0..ix.inputs.len() {
+            nullifier_markers
+                .try_push(iter.next_mut("nullifier_marker")?)
+                .map_err(|_| ShieldedPoolError::InvalidTransactShape)?;
+        }
 
         let remaining = iter.remaining_unchecked_mut()?;
         // 2. Search first account that is not signer.
@@ -158,6 +167,7 @@ impl<'a> TransactAccounts<'a> {
             payer,
             input_tree,
             output_tree,
+            nullifier_markers,
             owner_signers,
             settlements,
         }))

@@ -23,6 +23,7 @@ use super::{
 };
 use crate::instructions::{
     event::emit_general_event,
+    nullifier_marker::create_nullifier_markers,
     shared::{check_not_expired, collect_forester_fee},
     transact::verify::{OwnerHashCache, TransactProof, TransactProofInputs},
 };
@@ -59,7 +60,7 @@ pub fn process_transact_ix(
         &mut owner_hashes,
     )?;
     // 6. Check accounts.
-    let transact_accounts = match ix.circuit {
+    let mut transact_accounts = match ix.circuit {
         CircuitId::ConfidentialEddsa(..) => TransactAccounts::validate_and_parse(accounts, &ix)?,
         CircuitId::RingEddsa(..) | CircuitId::RingAuthority(..) | CircuitId::RingP256(..) => {
             let (transact_accounts, ring_program_id) =
@@ -83,6 +84,11 @@ pub fn process_transact_ix(
     )?;
     // 8. Insert nullifiers into queue.
     let input_tree_result = apply_input_tree(transact_accounts.input_tree, &ix, &mut proof_inputs)?;
+    create_nullifier_markers(
+        transact_accounts.input_tree,
+        &mut transact_accounts.nullifier_markers,
+        &input_tree_result.inputs,
+    )?;
     // 9. Append new utxo hashes.
     let tree_write =
         apply_output_tree(transact_accounts.output_tree, &ix, input_tree_result.inputs)?;

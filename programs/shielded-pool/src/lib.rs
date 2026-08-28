@@ -26,6 +26,7 @@ use zolana_interface::instruction::tag::InstructionTag;
 
 use crate::instructions::{
     batch_update_nullifier_tree::process_batch_update_nullifier_tree,
+    close_nullifier_markers::process_close_nullifier_markers,
     create_asset_counter::process_create_asset_counter,
     create_spl_interface::processor::process_create_spl_interface,
     create_tree::process_create_tree,
@@ -92,5 +93,6 @@ pub fn process_instruction(
         InstructionTag::UpdateRingConfig => process_update_ring_config(accounts, payload),
         InstructionTag::MergeTransact => process_merge_transact_ix(accounts, payload),
         InstructionTag::RingMergeTransact => process_merge_ring_ix(accounts, payload),
+        InstructionTag::CloseNullifierMarkers => process_close_nullifier_markers(accounts, payload),
     }
 }
