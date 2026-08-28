@@ -1,5 +1,14 @@
 use super::*;
 
+use shielded_pool_tests::support::forester::CLOSE_MARKERS_PER_TRANSACTION;
+use zolana_client::ClientError;
+use zolana_interface::error::ShieldedPoolError;
+use zolana_program_test::Rejection;
+use zolana_test_utils::nullifier_marker::{
+    assert_nullifier_marker, assert_nullifier_markers, assert_tree_lamports_after_spend,
+    nullifier_queue_next_index, tree_close_before_index,
+};
+
 /// Plumbing smoke for `forester run --dry-run`: stand up the validator + Photon,
 /// create a fresh pool tree, and confirm the forester binary reconstructs the
 /// reference nullifier tree from Photon and matches the on-chain root — no
@@ -102,6 +111,7 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
     let queued_nullifiers = phase_queue_nullifiers(&mut env)?;
     phase_run_forester_batches(&mut env, &queued_nullifiers)?;
     phase_assert_forested_nullifiers(&env, &queued_nullifiers)?;
+    phase_assert_marker_cleanup(&mut env, &queued_nullifiers)?;
 
     println!(
         "localnet Photon nullifier forester test passed via rpc={} indexer={}",
@@ -356,8 +366,29 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
         data: ix_data,
     }
     .instruction();
+    let queue_next_before = nullifier_queue_next_index(&env.rpc, &env.tree_pubkey)?;
+    let tree_before = fetch_tree_account(env)?;
     let sig = send_transaction(&mut env.rpc, &[tx_ix], &env.payer.pubkey(), &[&env.payer])?;
     print_signature(&format!("queue_nullifiers_{i}"), &sig);
+
+    assert_nullifier_marker(
+        &env.rpc,
+        &env.tree_pubkey,
+        &first_utxo.nullifier,
+        queue_next_before,
+    )?;
+    assert_nullifier_marker(
+        &env.rpc,
+        &env.tree_pubkey,
+        &second_utxo.nullifier,
+        queue_next_before + 1,
+    )?;
+    assert_tree_lamports_after_spend(
+        &env.rpc,
+        &env.tree_pubkey,
+        &tree_before,
+        LOCALNET_NULLIFIERS_PER_QUEUE_TX,
+    )?;
 
     let indexed = wait_for_indexed_transaction(&env.indexer, wait_tag, sig);
     assert_eq!(
@@ -600,6 +631,56 @@ fn phase_run_forester_batches(env: &mut ForesterEnv, queued_nullifiers: &[[u8; 3
             "all forester batches should advance the nullifier root"
         );
     }
+    Ok(())
+}
+
+fn fetch_tree_account(env: &ForesterEnv) -> TestResult<solana_account::Account> {
+    env.rpc
+        .get_account(env.tree_address)?
+        .ok_or_else(|| anyhow!("tree account not found: {}", env.tree_pubkey))
+}
+
+/// Marker lifecycle after the drain. The localnet tree keeps the canonical
+/// 120 ZKP batches per queue batch, so with Z = 10 one queue batch holds
+/// B = 1200 nullifiers; this suite queues 200, batch 0 never fills, and no
+/// batch retires: `close_before_index` must stay at zero, every marker must
+/// survive the drain, and the test forester's `close_markers` must be rejected
+/// with `NullifierMarkerNotClosable` without moving lamports. The positive
+/// close path (retired batch, rent returned) is covered hermetically in
+/// `tests/nullifier/markers.rs` with a watermark fixture.
+fn phase_assert_marker_cleanup(
+    env: &mut ForesterEnv,
+    queued_nullifiers: &[[u8; 32]],
+) -> TestResult {
+    let batch_size = localnet_nullifier_params().input_queue_batch_size;
+    assert!(
+        (queued_nullifiers.len() as u64) < batch_size,
+        "queue batch 0 (B = {batch_size}) must stay in Fill for this phase's expectations"
+    );
+    assert_eq!(
+        tree_close_before_index(&env.rpc, &env.tree_pubkey)?,
+        0,
+        "draining a partially filled batch retires nothing"
+    );
+    assert_nullifier_markers(&env.rpc, &env.tree_pubkey, queued_nullifiers)?;
+
+    let sample = queued_nullifiers
+        .get(..CLOSE_MARKERS_PER_TRANSACTION)
+        .ok_or_else(|| anyhow!("fewer queued nullifiers than one close chunk"))?;
+    let tree_before = fetch_tree_account(env)?;
+    let error = NullifierTestForester::default()
+        .close_markers(&mut env.rpc, &env.payer, env.tree_pubkey, sample)
+        .expect_err("closing markers of an unretired batch must be rejected");
+    let client_error = error
+        .downcast_ref::<ClientError>()
+        .ok_or_else(|| anyhow!("expected a client error, got {error:#}"))?;
+    Rejection::pool(ShieldedPoolError::NullifierMarkerNotClosable).assert_client(client_error);
+    assert_nullifier_markers(&env.rpc, &env.tree_pubkey, sample)?;
+    assert_eq!(
+        fetch_tree_account(env)?.lamports,
+        tree_before.lamports,
+        "rejected close moves no lamports"
+    );
     Ok(())
 }
 

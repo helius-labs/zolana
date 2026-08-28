@@ -164,6 +164,16 @@ name = "nullifier_batch"
 path = "tests/nullifier/batch.rs"
 
 [[test]]
+name = "nullifier_markers"
+path = "tests/nullifier/markers.rs"
+
+# Proof-backed marker creation (real 2x3 transact), so it sits in the proofs tier.
+[[test]]
+name = "nullifier_markers_proof"
+path = "tests/nullifier/markers_proof.rs"
+required-features = ["proofs"]
+
+[[test]]
 name = "merge_contract"
 path = "tests/merge/contract.rs"
 

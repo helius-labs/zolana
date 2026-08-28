@@ -342,8 +342,6 @@ fn merge_rejects_dummy_inputs_after_capacity_threshold() {
                 .get_current_batch_mut()
                 .expect("current nullifier batch")
                 .start_index = next_leaf;
-            // The queue's insert asserts `q + 1 == start_index + inserted`, so
-            // the cursor must move with the batch start.
             nullifier.queue_batches.next_index = next_leaf - 1;
         }
         assert!(

@@ -11,13 +11,17 @@ use zolana_client::{
     BatchAddressAppendInputs, ProofCompressed, ProverClient, Rpc, SolanaRpc, NULLIFIER_TREE_HEIGHT,
 };
 use zolana_hasher::hash_chain::create_hash_chain_from_array;
-use zolana_interface::instruction::{BatchUpdateNullifierTree, BatchUpdateNullifierTreeData};
+use zolana_interface::instruction::{
+    BatchUpdateNullifierTree, BatchUpdateNullifierTreeData, CloseNullifierMarkers,
+};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_smart_account_client::execute_sync_ix;
 use zolana_transaction::instructions::transact::spp_proof_inputs::BN254_MODULUS_DEC;
 use zolana_tree::TreeAccount;
 
 type NullifierTree = IndexedMerkleTree<zolana_hasher::Poseidon, usize>;
+
+pub const CLOSE_MARKERS_PER_TRANSACTION: usize = 15;
 
 #[derive(Default)]
 pub struct NullifierTestForester {
@@ -67,6 +71,29 @@ impl NullifierTestForester {
         let signature = rpc.send_transaction(&tx)?;
         self.mark_batch_inserted(queued_nullifiers, batch_len)?;
         Ok(signature)
+    }
+
+    pub fn close_markers(
+        &self,
+        rpc: &mut SolanaRpc,
+        payer: &Keypair,
+        tree: Pubkey,
+        nullifiers: &[[u8; 32]],
+    ) -> Result<Vec<Signature>> {
+        nullifiers
+            .chunks(CLOSE_MARKERS_PER_TRANSACTION)
+            .map(|chunk| {
+                let close = CloseNullifierMarkers {
+                    tree,
+                    nullifiers: chunk.to_vec(),
+                }
+                .instruction();
+                let (blockhash, _) = rpc.get_latest_blockhash()?;
+                let message = Message::new(&[close], Some(&payer.pubkey()));
+                let tx = Transaction::new(&[payer], message, blockhash);
+                Ok(rpc.send_transaction(&tx)?)
+            })
+            .collect()
     }
 
     fn build_instruction(
