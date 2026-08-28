@@ -384,6 +384,23 @@ At the current default rent rate, one nine-byte marker requires 953,520
 lamports. One full batch locks 28.6056 SOL, all returned to the tree when its
 markers are closed.
 
+### Working capital
+
+The tree funds every marker, so at creation it must hold, above its own rent
+exemption:
+
+```text
+working_capital = 2 * B * Rent::minimum_balance(9)
+```
+
+A marker cannot be closed before its batch is reclaimable, and reclaimability
+requires an applied append. With no forester activity every one of the `2 * B`
+queue slots holds a queued nullifier with a live marker, so this is the exact
+amount insertion needs to stay live until the queue itself is full without
+depending on the closer. Closed markers return their rent to the tree; markers
+left open after the batch becomes reclaimable lock capital beyond this amount until they are
+closed. With `B = 30_000` this is 57.2112 SOL.
+
 ### Cost per nullifier
 
 At a 5,000-lamport transaction fee, `C ~= 115`, and `A` between 14 and 19:

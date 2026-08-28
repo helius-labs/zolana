@@ -15,8 +15,8 @@ use solana_signer::Signer;
 use zolana_interface::{
     instruction::CreateTree,
     pda,
-    state::{tree_account_size, TREE_WORKING_CAPITAL_LAMPORTS},
-    DEFAULT_TREE_ADDRESS, SHIELDED_POOL_PROGRAM_ID,
+    state::{address_tree_params, tree_account_size, tree_working_capital_lamports},
+    DEFAULT_TREE_ADDRESS, NULLIFIER_MARKER_SIZE, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_program_test::ZolanaProgramTest;
 
@@ -536,11 +536,16 @@ pub(crate) fn generate_account_snapshots(deploy_dir: &Path, accounts_dir: &Path)
         .context("parsing DEFAULT_TREE_ADDRESS")?;
     let size = tree_account_size();
     let rent = test.svm.minimum_balance_for_rent_exemption(size);
+    let marker_rent = test
+        .svm
+        .minimum_balance_for_rent_exemption(NULLIFIER_MARKER_SIZE);
+    let working_capital = tree_working_capital_lamports(&address_tree_params(), marker_rent)
+        .context("tree working capital overflows u64")?;
     test.svm
         .set_account(
             tree,
             Account {
-                lamports: rent + TREE_WORKING_CAPITAL_LAMPORTS,
+                lamports: rent + working_capital,
                 data: vec![0u8; size],
                 owner: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
                 executable: false,

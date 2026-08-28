@@ -28,7 +28,6 @@ groth16-solana = { workspace = true }
 light-array-map = { workspace = true }
 solana-loader-v3-interface = { workspace = true, features = ["serde"] }
 zolana-account-checks = { workspace = true }
-zolana-batched-merkle-tree = { workspace = true }
 zolana-hasher = { workspace = true }
 light-program-profiler = { workspace = true }
 pinocchio-system = { workspace = true }

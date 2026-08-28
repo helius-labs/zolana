@@ -15,7 +15,7 @@ use zolana_interface::{
         UpdateProtocolConfigData,
     },
     pda,
-    state::{tree_account_size, ProtocolConfig, SplAssetCounter, TREE_WORKING_CAPITAL_LAMPORTS},
+    state::{address_tree_params, tree_account_size, ProtocolConfig, SplAssetCounter},
     BPF_LOADER_UPGRADEABLE_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_smart_account_client::{
@@ -858,15 +858,13 @@ fn create_tree(
     tree_settings: &Pubkey,
     tree_vault: Pubkey,
 ) -> Result<()> {
-    let size = tree_account_size();
-    let rent = rpc
-        .get_minimum_balance_for_rent_exemption(size)
-        .context("rent for tree account")?;
+    let lamports = zolana_program_test::tree_creation_lamports(rpc, &address_tree_params())
+        .context("rent and working capital for tree account")?;
     let alloc_ix = zolana_program_test::system_create_account_ix(
         &payer.pubkey(),
         &tree_keypair.pubkey(),
-        rent + TREE_WORKING_CAPITAL_LAMPORTS,
-        size as u64,
+        lamports,
+        tree_account_size() as u64,
         &pda::shielded_pool_program_id(),
     );
     let create_tree_ix = CreateTree {

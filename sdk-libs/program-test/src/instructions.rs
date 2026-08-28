@@ -5,8 +5,12 @@ use zolana_client::Rpc;
 use zolana_interface::{
     instruction::CreateTree,
     pda,
-    state::{state_root_offset, TREE_WORKING_CAPITAL_LAMPORTS},
+    state::{
+        address_tree_params, state_root_offset, tree_account_size, tree_working_capital_lamports,
+    },
+    NULLIFIER_MARKER_SIZE,
 };
+use zolana_tree::InitAddressTreeAccountsInstructionData;
 
 use crate::ProgramTestError;
 
@@ -33,6 +37,25 @@ pub fn system_create_account_ix(
     }
 }
 
+pub fn tree_working_capital<R: Rpc>(
+    rpc: &R,
+    nullifier_params: &InitAddressTreeAccountsInstructionData,
+) -> Result<u64, ProgramTestError> {
+    let marker_rent = rpc.get_minimum_balance_for_rent_exemption(NULLIFIER_MARKER_SIZE)?;
+    tree_working_capital_lamports(nullifier_params, marker_rent)
+        .ok_or(ProgramTestError::TreeFundingOverflow)
+}
+
+pub fn tree_creation_lamports<R: Rpc>(
+    rpc: &R,
+    nullifier_params: &InitAddressTreeAccountsInstructionData,
+) -> Result<u64, ProgramTestError> {
+    let tree_rent = rpc.get_minimum_balance_for_rent_exemption(tree_account_size())?;
+    tree_rent
+        .checked_add(tree_working_capital(rpc, nullifier_params)?)
+        .ok_or(ProgramTestError::TreeFundingOverflow)
+}
+
 pub fn create_tree_instructions<R: Rpc>(
     rpc: &R,
     payer: &Pubkey,
@@ -40,14 +63,15 @@ pub fn create_tree_instructions<R: Rpc>(
     tree: &Pubkey,
     account_size: u64,
 ) -> Result<Vec<Instruction>, ProgramTestError> {
-    let rent = rpc
-        .get_minimum_balance_for_rent_exemption(account_size as usize)
-        .map_err(ProgramTestError::from)?;
+    let rent = rpc.get_minimum_balance_for_rent_exemption(account_size as usize)?;
+    let lamports = rent
+        .checked_add(tree_working_capital(rpc, &address_tree_params())?)
+        .ok_or(ProgramTestError::TreeFundingOverflow)?;
     Ok(vec![
         system_create_account_ix(
             payer,
             tree,
-            rent + TREE_WORKING_CAPITAL_LAMPORTS,
+            lamports,
             account_size,
             &pda::shielded_pool_program_id(),
         ),

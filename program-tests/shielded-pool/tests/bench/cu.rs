@@ -22,8 +22,8 @@ use zolana_interface::{
         Deposit, Transact, TransactInterfaceTransferAccounts, TransactIxData,
         TransactSolTransferAccounts,
     },
-    state::{tree_account_size, TREE_WORKING_CAPITAL_LAMPORTS},
-    PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
+    state::{address_tree_params, tree_account_size, tree_working_capital_lamports},
+    NULLIFIER_MARKER_SIZE, PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair};
 use zolana_merkle_tree::MerkleTree;
@@ -286,6 +286,11 @@ fn transact_accounts(
     let tree_rent = pt
         .svm
         .minimum_balance_for_rent_exemption(tree_account_size());
+    let marker_rent = pt
+        .svm
+        .minimum_balance_for_rent_exemption(NULLIFIER_MARKER_SIZE);
+    let working_capital = tree_working_capital_lamports(&address_tree_params(), marker_rent)
+        .expect("tree working capital fits in u64");
     let mut accounts = Vec::with_capacity(ix.accounts.len());
     for meta in &ix.accounts {
         if meta.pubkey == PROGRAM_ID_PUBKEY {
@@ -306,7 +311,7 @@ fn transact_accounts(
         } else if meta.pubkey == input_tree {
             let tree = snapshot_account(pt, &meta.pubkey);
             assert!(
-                tree.1.lamports >= tree_rent + TREE_WORKING_CAPITAL_LAMPORTS,
+                tree.1.lamports >= tree_rent + working_capital,
                 "input tree fixture must hold marker working capital"
             );
             accounts.push(tree);

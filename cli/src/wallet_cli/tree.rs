@@ -6,8 +6,8 @@ use zolana_client::{Rpc, SolanaRpc};
 use zolana_interface::{
     instruction::{CreateProtocolConfig, CreateTree},
     pda,
-    state::{tree_account_size, TREE_WORKING_CAPITAL_LAMPORTS},
-    PROGRAM_ID_PUBKEY,
+    state::{address_tree_params, tree_account_size, tree_working_capital_lamports},
+    NULLIFIER_MARKER_SIZE, PROGRAM_ID_PUBKEY,
 };
 use zolana_transaction::Address;
 
@@ -57,11 +57,14 @@ pub(crate) fn run_create_tree(opts: CreateTreeOptions) -> Result<()> {
         .is_none()
     {
         let rent = rpc.get_minimum_balance_for_rent_exemption(tree_account_size())?;
+        let marker_rent = rpc.get_minimum_balance_for_rent_exemption(NULLIFIER_MARKER_SIZE)?;
+        let working_capital = tree_working_capital_lamports(&address_tree_params(), marker_rent)
+            .ok_or_else(|| anyhow::anyhow!("tree working capital overflows u64"))?;
         let ixs = vec![
             system_create_account_ix(
                 &authority,
                 &tree_pubkey,
-                rent + TREE_WORKING_CAPITAL_LAMPORTS,
+                rent + working_capital,
                 tree_account_size() as u64,
                 &PROGRAM_ID_PUBKEY,
             ),

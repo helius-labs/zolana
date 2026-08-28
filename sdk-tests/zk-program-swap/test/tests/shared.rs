@@ -20,13 +20,13 @@ use zolana_client::{
 use zolana_interface::{
     instruction::{CreateAssetCounter, CreateProtocolConfig, CreateSplInterface, CreateTree},
     pda,
-    state::{tree_account_size, TREE_WORKING_CAPITAL_LAMPORTS},
+    state::{address_tree_params, tree_account_size},
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{
     constants::BLINDING_LEN, NullifierKey, PublicKey, ShieldedAddress, ShieldedKeypair, SigningKey,
 };
-use zolana_program_test::system_create_account_ix;
+use zolana_program_test::{system_create_account_ix, tree_creation_lamports};
 use zolana_test_utils::{
     localnet::{isolated_temp_path, LocalnetValidator, WorkspaceArtifacts},
     prover::spawn_workspace_prover,
@@ -173,13 +173,11 @@ pub fn setup() -> Result<TestEnv> {
     rpc.create_and_send_transaction(&[create_config_sync], payer_address, &[&payer, &authority])?;
 
     let tree = Keypair::new();
-    let rent = rpc
-        .get_minimum_balance_for_rent_exemption(tree_account_size())
-        .map_err(|e| anyhow!("{e}"))?;
+    let lamports = tree_creation_lamports(&rpc, &address_tree_params())?;
     let alloc_ix = system_create_account_ix(
         &payer.pubkey(),
         &tree.pubkey(),
-        rent + TREE_WORKING_CAPITAL_LAMPORTS,
+        lamports,
         tree_account_size() as u64,
         &pda::shielded_pool_program_id(),
     );

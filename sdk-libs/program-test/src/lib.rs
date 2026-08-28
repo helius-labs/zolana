@@ -42,7 +42,8 @@ pub use indexer::{
 };
 pub mod instructions;
 pub use instructions::{
-    create_tree_instructions, rpc_state_root, system_create_account_ix, RING_TEST_PROGRAM_ID,
+    create_tree_instructions, rpc_state_root, system_create_account_ix, tree_creation_lamports,
+    tree_working_capital, RING_TEST_PROGRAM_ID,
 };
 mod paths;
 mod rejection;
@@ -92,6 +93,8 @@ pub enum ProgramTestError {
     Rpc(String),
     #[error("pubkey: {0}")]
     Pubkey(#[from] solana_pubkey::PubkeyError),
+    #[error("tree funding lamports overflow")]
+    TreeFundingOverflow,
 }
 
 impl From<ClientError> for ProgramTestError {
@@ -139,7 +142,7 @@ impl ZolanaProgramTest {
 
         let payer = Keypair::new();
         // Working capital for recoverable nullifier-marker rent.
-        svm.airdrop(&payer.pubkey(), 100_000_000_000)
+        svm.airdrop(&payer.pubkey(), 1_000_000_000_000)
             .map_err(|e| ProgramTestError::Litesvm(format!("airdrop: {e:?}")))?;
 
         Ok(Self {

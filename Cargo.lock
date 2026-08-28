@@ -6533,7 +6533,6 @@ dependencies = [
  "spl-token-2022-interface",
  "tinyvec",
  "zolana-account-checks",
- "zolana-batched-merkle-tree",
  "zolana-hasher",
  "zolana-interface",
  "zolana-tree",
@@ -11161,6 +11160,7 @@ dependencies = [
  "zolana-keypair",
  "zolana-merkle-tree",
  "zolana-transaction",
+ "zolana-tree",
 ]
 
 [[package]]
