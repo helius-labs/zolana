@@ -1,173 +1,113 @@
-<!-- cargo-rdme start -->
+# zolana-batched-merkle-tree
 
-# light-batched-merkle-tree
-
-The crate provides batched Merkle tree
-implementations for programs that need batched state or address trees.
-Instead of updating trees one leaf at a time, this library batches
-multiple insertions and updates them with zero-knowledge proofs (ZKPs),
-enabling efficient on-chain verification. Trees maintain a cyclic root
-history for validity proofs, and use bloom filters for non-inclusion
-proofs while batches are being filled.
-
-There are two tree types: **state trees** (two accounts tree account
-(input queue, tree metadata, roots), output queue account) for compressed
-accounts, and **address trees** (one account that contains the address queue,
-tree metadata, roots) for address registration.
+Batched indexed Merkle tree implementation for the trees that the shielded pool
+maintains off the hot path: **address trees** (address registration) and
+**nullifier trees** (spent-note non-membership). Both are indexed Merkle trees
+of height 40 living in a single Solana account with an integrated input queue.
+Instead of updating the tree one leaf at a time, insertions are batched into
+the queue and applied to the tree with a zero-knowledge proof (ZKP). Trees keep
+a cyclic root history for validity proofs. Pending non-inclusion of a queued
+nullifier is guaranteed by an exact per-nullifier marker account, not by a
+probabilistic filter. [`spec.md`](spec.md) is the normative description of
+queue insertion, batch append, and marker cleanup.
 
 | Module | Description |
 |--------|-------------|
-| [`batch`] | Batch append and update operations |
-| [`merkle_tree`] | Batched Merkle tree account struct |
-| [`queue`] | Queue account for batched leaves |
-| [`queue_batch_metadata`] | Metadata for queue batches |
-| [`initialize_state_tree`] | Initialize a batched state tree |
-| [`initialize_address_tree`] | Initialize a batched address tree |
-| [`rollover_state_tree`] | Roll over a full state tree |
-| [`rollover_address_tree`] | Roll over a full address tree |
-| [`merkle_tree_metadata`] | Tree and queue metadata structs |
-| [`errors`] | Error types for batch operations |
+| `batch` | `Batch` state machine, retirement predicate, hash-chain insertion |
+| `merkle_tree` | `BatchedMerkleTreeAccount` and queue/tree operations |
+| `queue` | Queue batch insertion helper (batch reuse gated on retirement) |
+| `queue_batch_metadata` | Metadata for queue batches |
+| `nullifier_marker` | Marker payload, PDA seeds, host emulation of the marker set |
+| `initialize_address_tree` | Initialize a batched address or nullifier tree |
+| `merkle_tree_metadata` | Tree and queue metadata structs |
+| `merkle_tree_update` | Apply queued batches to the tree |
+| `verify` | Groth16 verification and verifying keys |
+| `errors` | Error types for batch operations |
 
-## Accounts
+## Account
 
-### Account Types
+There is a single account type, `BatchedMerkleTreeAccount`, a zero-copy view
+of `TreeAccountLayout<RH, ZKP>`:
 
-- **[TREE_ACCOUNT.md](TREE_ACCOUNT.md)** - BatchedMerkleTreeAccount (state and address trees)
-- **[QUEUE_ACCOUNT.md](QUEUE_ACCOUNT.md)** - BatchedQueueAccount (output queue for state trees)
+- 8-byte discriminator (`BatchMta`)
+- `BatchedMerkleTreeMetadata` (240 bytes): tree type, sequence number, next
+  index, height, root-history capacity, capacity, the two queue batches, and
+  `close_before_index`
+- cyclic root history of `RH` roots
+- two bounded hash-chain regions of `ZKP` commitments each
+- two cached-tree-update regions of `ZKP` slots each
 
-### Overview
-
-The batched merkle tree library uses two main Solana account types:
-
-**BatchedMerkleTreeAccount:**
-The main tree account storing tree roots, root history, and integrated input queue (bloom filters + hash chains for nullifiers or addresses). Used for both state trees and address trees.
-
-**Details:** [TREE_ACCOUNT.md](TREE_ACCOUNT.md)
-
-**BatchedQueueAccount:**
-Output queue account for state trees that temporarily stores compressed account hashes before tree insertion. Enables immediate spending via proof-by-index.
-
-**Details:** [QUEUE_ACCOUNT.md](QUEUE_ACCOUNT.md)
-
-### State Trees vs Address Trees
-
-**State Trees (2 accounts):**
-- `BatchedMerkleTreeAccount` with integrated input queue (for nullifiers)
-- Separate `BatchedQueueAccount` for output operations (appending new compressed accounts)
-
-**Address Trees (1 account):**
-- `BatchedMerkleTreeAccount` with integrated input queue (for addresses)
-- No separate output queue
+Address and nullifier trees use the same `AddressV2` layout and differ only in
+the sentinel root they are seeded with (`ADDRESS_TREE_INIT_ROOT_40` vs.
+`NULLIFIER_TREE_INIT_ROOT_40`).
 
 ## Operations
 
-### Initialization
-- **[INITIALIZE_STATE_TREE.md](INITIALIZE_STATE_TREE.md)** - Create state tree + output queue pair (2 solana accounts)
-  - Source: [`src/initialize_state_tree.rs`](../src/initialize_state_tree.rs)
+### Queue insertion
 
-- **[INITIALIZE_ADDRESS_TREE.md](INITIALIZE_ADDRESS_TREE.md)** - Create address tree with integrated queue (1 solana account)
-  - Source: [`src/initialize_address_tree.rs`](../src/initialize_address_tree.rs)
+`BatchedMerkleTreeAccount::insert_nullifier_into_queue` rejects values that
+are not canonical BN254 scalar field elements, requires the queue sequence and
+the current batch position to agree (`QueueIndexMismatch`), adds the value to
+the current batch's open Poseidon hash chain, and returns the queue index `q`
+the value reserved. The program stores `NullifierMarker { queue_index: q, bump }`
+(9 Borsh bytes) in the PDA derived from `nullifier_marker_seeds(tree,
+nullifier)` = `["nullifier", tree_pubkey, nullifier]`; an existing marker is
+what rejects a second insertion of a pending nullifier
+(`NonInclusionCheckFailed`).
 
-### Queue Insertion Operations
-- **[INSERT_OUTPUT_QUEUE.md](INSERT_OUTPUT_QUEUE.md)** - Insert compressed account hash into output queue (state tree)
-  - Source: [`src/queue.rs`](../src/queue.rs) - `BatchedQueueAccount::insert_into_current_batch`
+Off Solana there are no PDAs, so `nullifier_marker::host` keeps a global set of
+`(tree, nullifier) -> queue_index` reservations: `insert_nullifier_into_queue`
+consults it before mutating and reserves after, `init_from_layout` clears the
+tree's reservations, and `close_nullifier_marker_host` mirrors the on-chain
+close rule.
 
-- **[INSERT_INPUT_QUEUE.md](INSERT_INPUT_QUEUE.md)** - Insert nullifiers into input queue (state tree)
-  - Source: [`src/merkle_tree.rs`](../src/merkle_tree.rs) - `BatchedMerkleTreeAccount::insert_nullifier_into_queue`
+### Tree update
 
-- **[INSERT_ADDRESS_QUEUE.md](INSERT_ADDRESS_QUEUE.md)** - Insert addresses into address queue
-  - Source: [`src/merkle_tree.rs`](../src/merkle_tree.rs) - `BatchedMerkleTreeAccount::insert_nullifier_into_queue`
+`update_tree_from_address_queue` verifies one address-append proof, caches the
+update, and applies every contiguous cached update whose `old_root` matches the
+live root. Each applied update advances `next_index` and `sequence_number`,
+appends the new root, and marks the ZKP batch inserted.
 
-### Tree Update Operations
-- **[UPDATE_FROM_OUTPUT_QUEUE.md](UPDATE_FROM_OUTPUT_QUEUE.md)** - Batch append with ZKP verification
-  - Source: [`src/merkle_tree.rs`](../src/merkle_tree.rs) - `BatchedMerkleTreeAccount::update_tree_from_output_queue_account`
+### Retirement and `close_before_index`
 
-- **[UPDATE_FROM_INPUT_QUEUE.md](UPDATE_FROM_INPUT_QUEUE.md)** - Batch nullify/address updates with ZKP
-  - Source: [`src/merkle_tree.rs`](../src/merkle_tree.rs) - `update_tree_from_input_queue`, `update_tree_from_address_queue`
+After each applied update, with `current` the batch that was just updated and
+`previous` the other batch: if `current` holds at least `batch_size / 2`
+values, `previous` is `Inserted`, and `previous` is not yet retired, then the
+root-history slots that could still prove non-inclusion of `previous`'s values
+are zeroed and the tree's watermark advances to
+`close_before_index = max(close_before_index, first_sequence(previous) +
+batch_size)` where `first_sequence(batch) = batch.start_index - 1`.
 
-## Key Concepts
+- `Batch::is_retired(close_before_index)` is
+  `close_before_index >= first_sequence + batch_size`.
+- Queue insertion reuses an `Inserted` batch only once it is retired; otherwise
+  it fails with `BatchNotRetired`.
+- A nullifier marker may be closed only once `marker.queue_index <
+  close_before_index` (`NullifierMarkerNotClosable` otherwise), which is when
+  every accepted root already contains the nullifier.
 
-**Batching System:** Trees use 2 alternating batches. While one batch is being filled, the previous batch can be updated into the tree with a ZKP.
+## Error codes
 
-**ZKP Batches:** Each batch is divided into smaller ZKP batches (`batch_size / zkp_batch_size`). Trees are updated incrementally by ZKP batch.
+All errors are defined in `src/errors.rs` and map to u32 error codes:
 
-**Bloom Filters:** Input queues (nullifier queue for state trees, address queue for address trees) use bloom filters for non-inclusion proofs. While a batch is filling, values are inserted into the bloom filter. After the batch is fully inserted into the tree and the next batch is 50% full, the bloom filter is zeroed to prevent false positives. Output queues do not use bloom filters.
-
-**Value Vecs:** Output queues store the actual compressed account hashes in value vectors (one per batch). Values can be accessed by leaf index even before they're inserted into the tree, enabling immediate spending of newly created compressed accounts.
-
-**Hash Chains:** Each ZKP batch has a hash chain storing the Poseidon hash of all values in that ZKP batch. These hash chains are used as public inputs for ZKP verification.
-
-**ZKP Verification:** Tree updates require zero-knowledge proofs proving the correctness of batch operations (old root + queue values → new root). Public inputs: old root, new root, hash chain (commitment to queue elements), and for appends: start_index (output queue) or next_index (address queue).
-
-**Root History:** Trees maintain a cyclic buffer of recent roots (default: 200). This enables validity proofs for recently spent compressed accounts even as the tree continues to update.
-
-**Rollover:** When a tree reaches capacity (2^height leaves), it must be replaced with a new tree. The rollover process creates a new tree and marks the old tree as rolled over, preserving the old tree's roots for ongoing validity proofs. A rollover can be performed once the rollover threshold  is met (default: 95% full).
-
-**State vs Address Trees:**
-- **State trees** have a separate `BatchedQueueAccount` for output operations (appending new leaves). Input operations (nullifying) use the integrated input queue on the tree account.
-- **Address trees** have only an integrated input queue on the tree account - no separate output queue.
-
-## ZKP Verification
-
-Batch update operations require zero-knowledge proofs generated by the Light Protocol prover:
-
-- **Prover Server:** `prover/server/` - Generates ZK proofs for batch operations
-- **Prover Client:** `prover/client/` - Client libraries for requesting proofs
-- **Batch Update Circuits:** `prover/server/prover/v2/` - Circuit definitions for batch append, batch update (nullify), and batch address append operations
-
-## Dependencies
-
-This crate relies on several Light Protocol libraries:
-
-- **`light-bloom-filter`** - Bloom filter implementation for non-inclusion proofs
-- **`light-hasher`** - Poseidon hash implementation for hash chains and tree operations
-- **`light-verifier`** - ZKP verification for batch updates
-- **`light-zero-copy`** - Zero-copy serialization for efficient account data access
-- **`light-merkle-tree-metadata`** - Shared metadata structures for merkle trees
-- **`light-account-checks`** - Account validation and discriminator checks
-
-## Testing and Reference Implementations
-
-**IndexedMerkleTree Reference Implementation:**
-- **`light-merkle-tree-reference`** - Reference implementation of indexed Merkle trees (dev dependency)
-- Source: `program-tests/merkle-tree/src/indexed.rs` - Canonical IndexedMerkleTree implementation used for generating constants and testing
-- Used to generate constants like `ADDRESS_TREE_INIT_ROOT_40` in [`src/constants.rs`](../src/constants.rs)
-- Initializes address trees with a single leaf: `H(0, HIGHEST_ADDRESS_PLUS_ONE)`
-
-## Source Code Structure
-
-**Core Account Types:**
-- [`src/merkle_tree.rs`](../src/merkle_tree.rs) - `BatchedMerkleTreeAccount` (prove inclusion, nullify existing state, create new addresses)
-- [`src/queue.rs`](../src/queue.rs) - `BatchedQueueAccount` (add new state (transaction outputs))
-- [`src/batch.rs`](../src/batch.rs) - `Batch` state machine (Fill → Full → Inserted)
-- [`src/queue_batch_metadata.rs`](../src/queue_batch_metadata.rs) - `QueueBatches` metadata
-
-**Metadata and Configuration:**
-- [`src/merkle_tree_metadata.rs`](../src/merkle_tree_metadata.rs) - `BatchedMerkleTreeMetadata` and account size calculations
-- [`src/constants.rs`](../src/constants.rs) - Default configuration values
-
-**ZKP Infrastructure:**
-- `prover/server/` - Prover server that generates ZK proofs for batch operations
-- `prover/client/` - Client libraries for requesting proofs
-- `prover/server/prover/v2/` - Batch update circuit definitions (append, nullify, address append)
-
-**Initialization:**
-- [`src/initialize_state_tree.rs`](../src/initialize_state_tree.rs) - State tree initialization
-- [`src/initialize_address_tree.rs`](../src/initialize_address_tree.rs) - Address tree initialization
-- [`src/rollover_state_tree.rs`](../src/rollover_state_tree.rs) - State tree rollover
-- [`src/rollover_address_tree.rs`](../src/rollover_address_tree.rs) - Address tree rollover
-
-**Errors:**
-- [`src/errors.rs`](../src/errors.rs) - `BatchedMerkleTreeError` enum with all error types
-
-## Error Codes
-
-All errors are defined in [`src/errors.rs`](../src/errors.rs) and map to u32 error codes (14301-14312 range):
 - `BatchNotReady` (14301) - Batch is not ready to be inserted
 - `BatchAlreadyInserted` (14302) - Batch is already inserted
 - `TreeIsFull` (14310) - Batched Merkle tree reached capacity
-- `NonInclusionCheckFailed` (14311) - Value exists in bloom filter
-- `BloomFilterNotZeroed` (14312) - Bloom filter must be zeroed before reuse
+- `NonInclusionCheckFailed` (14311) - Nullifier is already queued
+- `BatchNotRetired` (14312) - Batch must be retired before reuse
+- `NonCanonicalFieldElement` (14317) - Value is not below the BN254 scalar modulus
+- `QueueIndexMismatch` (14318) - Queue index and batch position disagree
+- `NullifierMarkerNotClosable` (14319) - Marker queue index is not below `close_before_index`
+- `NullifierMarkerMissing` (14320) - No marker exists for the nullifier
 - Additional errors from underlying libraries (hasher, zero-copy, verifier, etc.)
 
-<!-- cargo-rdme end -->
+## Testing
+
+- `cargo test -p zolana-batched-merkle-tree` runs the marker, canonical-field,
+  and layout tests.
+- `cargo test -p zolana-batched-merkle-tree --features test-only` adds the
+  retirement tests (they drive the cached-update apply pass without a proof)
+  and the prover-backed `tests/nullifier_tree.rs`, which needs a running
+  prover (`ZOLANA_PROVER_URL`).
+- `tests/init_roots.rs` verifies the sentinel roots against
+  `zolana-merkle-tree`.

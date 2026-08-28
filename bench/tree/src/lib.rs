@@ -15,12 +15,9 @@ const HEIGHT: u8 = UTXO_TREE_HEIGHT as u8;
 const DISCRIMINATOR: u8 = 7;
 
 const ADDRESS_RH: usize = 120;
-const ADDRESS_NUM_ITERS: usize = 10;
-const ADDRESS_BLOOM: usize = 575384;
 const ADDRESS_ZKP: usize = 120;
 
-type AddressTree<'a> =
-    BatchedMerkleTreeAccount<'a, ADDRESS_RH, ADDRESS_NUM_ITERS, ADDRESS_BLOOM, ADDRESS_ZKP>;
+type AddressTree<'a> = BatchedMerkleTreeAccount<'a, ADDRESS_RH, ADDRESS_ZKP>;
 
 const OP_INIT: u8 = 0;
 const OP_DESERIALIZE: u8 = 1;

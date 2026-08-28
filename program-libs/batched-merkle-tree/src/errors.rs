@@ -1,6 +1,5 @@
 use thiserror::Error;
 use zolana_account_checks::error::AccountError;
-use zolana_bloom_filter::BloomFilterError;
 use zolana_hasher::HasherError;
 
 use crate::{verify::VerifierError, zero_copy::ZeroCopyError};
@@ -42,8 +41,6 @@ pub enum BatchedMerkleTreeError {
     ZeroCopy(#[from] ZeroCopyError),
     #[error("Merkle tree metadata error {0}")]
     MerkleTreeMetadata(#[from] MerkleTreeMetadataError),
-    #[error("Bloom filter error {0}")]
-    BloomFilter(#[from] BloomFilterError),
     #[error("Program error {0}")]
     ProgramError(#[from] solana_program_error::ProgramError),
     #[error("Verifier error {0}")]
@@ -54,10 +51,10 @@ pub enum BatchedMerkleTreeError {
     InvalidIndex,
     #[error("Batched Merkle tree is full.")]
     TreeIsFull,
-    #[error("Value already exists in bloom filter.")]
+    #[error("Nullifier is already queued.")]
     NonInclusionCheckFailed,
-    #[error("Bloom filter must be zeroed prior to reusing a batch.")]
-    BloomFilterNotZeroed,
+    #[error("Batch must be retired prior to reusing it.")]
+    BatchNotRetired,
     #[error("Account error {0}")]
     AccountError(#[from] AccountError),
     #[error("Cached tree update index is out of range.")]
@@ -68,6 +65,14 @@ pub enum BatchedMerkleTreeError {
     ArithmeticOverflow,
     #[error("Batch state word holds an invalid value.")]
     InvalidBatchState,
+    #[error("Value is not a canonical BN254 scalar field element.")]
+    NonCanonicalFieldElement,
+    #[error("Queue index does not match the current batch position.")]
+    QueueIndexMismatch,
+    #[error("Nullifier marker is not closable yet.")]
+    NullifierMarkerNotClosable,
+    #[error("Nullifier marker does not exist.")]
+    NullifierMarkerMissing,
 }
 
 impl From<BatchedMerkleTreeError> for u32 {
@@ -80,15 +85,18 @@ impl From<BatchedMerkleTreeError> for u32 {
             BatchedMerkleTreeError::InvalidIndex => 14309,
             BatchedMerkleTreeError::TreeIsFull => 14310,
             BatchedMerkleTreeError::NonInclusionCheckFailed => 14311,
-            BatchedMerkleTreeError::BloomFilterNotZeroed => 14312,
+            BatchedMerkleTreeError::BatchNotRetired => 14312,
             BatchedMerkleTreeError::CachedTreeUpdateIndexOutOfRange => 14313,
             BatchedMerkleTreeError::HashChainNotReady => 14314,
             BatchedMerkleTreeError::ArithmeticOverflow => 14315,
             BatchedMerkleTreeError::InvalidBatchState => 14316,
+            BatchedMerkleTreeError::NonCanonicalFieldElement => 14317,
+            BatchedMerkleTreeError::QueueIndexMismatch => 14318,
+            BatchedMerkleTreeError::NullifierMarkerNotClosable => 14319,
+            BatchedMerkleTreeError::NullifierMarkerMissing => 14320,
             BatchedMerkleTreeError::Hasher(e) => e.into(),
             BatchedMerkleTreeError::ZeroCopy(e) => e.into(),
             BatchedMerkleTreeError::MerkleTreeMetadata(e) => e.into(),
-            BatchedMerkleTreeError::BloomFilter(e) => e.into(),
             BatchedMerkleTreeError::VerifierErrorError(e) => e.into(),
             #[allow(clippy::useless_conversion)]
             BatchedMerkleTreeError::ProgramError(e) => u32::try_from(u64::from(e)).unwrap(),

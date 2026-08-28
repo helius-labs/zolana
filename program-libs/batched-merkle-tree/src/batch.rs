@@ -1,5 +1,4 @@
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
-use zolana_bloom_filter::BloomFilter;
 use zolana_hasher::{Hasher, Poseidon};
 
 use crate::{errors::BatchedMerkleTreeError, BorshDeserialize, BorshSerialize};
@@ -77,8 +76,7 @@ pub struct Batch {
     /// Start leaf index of the first
     pub start_index: u64,
     pub root_index: u32,
-    bloom_filter_is_zeroed: u8,
-    _padding: [u8; 3],
+    _padding: [u8; 4],
 }
 
 impl Batch {
@@ -93,8 +91,7 @@ impl Batch {
             sequence_number: 0,
             root_index: 0,
             start_index,
-            bloom_filter_is_zeroed: 0,
-            _padding: [0u8; 3],
+            _padding: [0u8; 4],
         }
     }
 
@@ -123,20 +120,21 @@ impl Batch {
             .ok_or(BatchedMerkleTreeError::InvalidBatchState)
     }
 
-    pub fn bloom_filter_is_zeroed(&self) -> bool {
-        self.bloom_filter_is_zeroed == 1
+    pub fn first_sequence(&self) -> Result<u64, BatchedMerkleTreeError> {
+        self.start_index
+            .checked_sub(1)
+            .ok_or(BatchedMerkleTreeError::ArithmeticOverflow)
     }
 
-    pub fn set_bloom_filter_to_zeroed(&mut self) {
-        // 1 if bloom filter is zeroed
-        // 0 if bloom filter is not zeroed
-        self.bloom_filter_is_zeroed = 1;
+    pub fn retirement_sequence(&self) -> Result<u64, BatchedMerkleTreeError> {
+        self.first_sequence()?
+            .checked_add(self.batch_size)
+            .ok_or(BatchedMerkleTreeError::ArithmeticOverflow)
     }
 
-    pub fn set_bloom_filter_to_not_zeroed(&mut self) {
-        // 1 if bloom filter is zeroed
-        // 0 if bloom filter is not zeroed
-        self.bloom_filter_is_zeroed = 0;
+    pub fn is_retired(&self, close_before_index: u64) -> bool {
+        self.retirement_sequence()
+            .is_ok_and(|sequence| close_before_index >= sequence)
     }
 
     /// fill -> full -> inserted -> fill
@@ -147,7 +145,6 @@ impl Batch {
     ) -> Result<(), BatchedMerkleTreeError> {
         if self.checked_state()? == BatchState::Inserted {
             self.state = BatchState::Fill.into();
-            self.set_bloom_filter_to_not_zeroed();
             self.sequence_number = 0;
             self.root_index = 0;
             self.num_inserted_zkp_batches = 0;
@@ -259,58 +256,9 @@ impl Batch {
         self.get_num_zkp_batches() as usize
     }
 
-    /// Insert into the bloom filter and
-    /// add value to current hash chain.
-    /// (used by nullifier & address queues)
-    ///
-    /// Error-atomic: every fallible check runs before any mutation, so a
-    /// failed insert leaves the batch, both bloom filters, and the hash chain
-    /// untouched. (On-chain a failed instruction rolls back anyway; this
-    /// matters for host callers that keep the account after an error.)
-    /// 1. Check that value is not in any bloom filter (also covers same-batch
-    ///    duplicates, which therefore error as `NonInclusionCheckFailed`).
-    /// 2. Add value to hash chain (never mutates on error).
-    /// 3. Insert value into the bloom filter at bloom_filter_index.
-    pub fn insert<const NUM_ITERS: usize, const BYTES: usize>(
-        &mut self,
-        bloom_filter_value: &[u8; 32],
-        hash_chain_value: &[u8; 32],
-        bloom_filters: &mut [BloomFilter<NUM_ITERS, BYTES>; 2],
-        hash_chain_store: &mut [[u8; 32]],
-        bloom_filter_index: usize,
-    ) -> Result<(), BatchedMerkleTreeError> {
-        let other_bloom_filter_index = if bloom_filter_index == 0 { 1 } else { 0 };
-
-        // 1. Pure checks first: the value must be in neither bloom filter.
-        Self::check_non_inclusion(
-            bloom_filter_value,
-            bloom_filters
-                .get(other_bloom_filter_index)
-                .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?,
-        )?;
-        Self::check_non_inclusion(
-            bloom_filter_value,
-            bloom_filters
-                .get(bloom_filter_index)
-                .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?,
-        )?;
-
-        // 2. Add value to the current hash chain. Never mutates on error: all
-        //    of its failure points (batch state, store capacity, hashing)
-        //    precede the write.
-        self.add_to_hash_chain(hash_chain_value, hash_chain_store)?;
-
-        // 3. Insert into the current bloom filter. Cannot fail here: `Full`
-        //    is only returned when every probe bit was already set, which
-        //    step 1's `contains` ruled out.
-        bloom_filters
-            .get_mut(bloom_filter_index)
-            .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?
-            .insert(bloom_filter_value)?;
-        Ok(())
-    }
-
     /// Add a value to the current hash chain, and advance batch state.
+    /// Never mutates on error: all of its failure points (batch state, store
+    /// capacity, hashing) precede the write.
     /// 1. Check that the batch is ready.
     /// 2. If the zkp batch is empty, start a new hash chain.
     /// 3. If the zkp batch is not empty, add value to last hash chain.
@@ -361,17 +309,6 @@ impl Batch {
             }
         }
 
-        Ok(())
-    }
-
-    /// Checks that value is not in the bloom filter.
-    pub fn check_non_inclusion<const NUM_ITERS: usize, const BYTES: usize>(
-        value: &[u8; 32],
-        bloom_filter: &BloomFilter<NUM_ITERS, BYTES>,
-    ) -> Result<(), BatchedMerkleTreeError> {
-        if bloom_filter.contains(value) {
-            return Err(BatchedMerkleTreeError::NonInclusionCheckFailed);
-        }
         Ok(())
     }
 
@@ -457,72 +394,36 @@ mod tests {
 
     #[test]
     fn test_insert() {
-        // Behavior Input queue
         let mut batch = get_test_batch();
-        let mut blooms = [
-            BloomFilter::<3, 20_000>::new(),
-            BloomFilter::<3, 20_000>::new(),
-        ];
         let mut hash_chain_store = vec![[0u8; 32]; batch.get_num_hash_chain_store()];
 
         let mut ref_batch = get_test_batch();
-        for processing_index in 0..=1 {
-            for i in 0..(batch.batch_size / 2) {
-                let i = i + (batch.batch_size / 2) * (processing_index as u64);
-                ref_batch.num_inserted %= ref_batch.zkp_batch_size;
+        for i in 0..batch.batch_size {
+            ref_batch.num_inserted %= ref_batch.zkp_batch_size;
 
-                let chain_index = batch.num_full_zkp_batches as usize;
-                let mut value = [0u8; 32];
-                value[24..].copy_from_slice(&i.to_be_bytes());
-                #[allow(clippy::manual_is_multiple_of)]
-                let ref_hash_chain = if i % batch.zkp_batch_size == 0 {
-                    value
-                } else {
-                    Poseidon::hashv(&[&hash_chain_store[chain_index], &value]).unwrap()
-                };
-                let result = batch.insert(
-                    &value,
-                    &value,
-                    &mut blooms,
-                    &mut hash_chain_store,
-                    processing_index,
-                );
-                // First insert should succeed
-                assert!(result.is_ok(), "Failed result: {:?}", result);
-                assert_eq!(hash_chain_store[chain_index], ref_hash_chain);
+            let chain_index = batch.num_full_zkp_batches as usize;
+            let mut value = [0u8; 32];
+            value[24..].copy_from_slice(&i.to_be_bytes());
+            #[allow(clippy::manual_is_multiple_of)]
+            let ref_hash_chain = if i % batch.zkp_batch_size == 0 {
+                value
+            } else {
+                Poseidon::hashv(&[&hash_chain_store[chain_index], &value]).unwrap()
+            };
+            let result = batch.add_to_hash_chain(&value, &mut hash_chain_store);
+            assert!(result.is_ok(), "Failed result: {:?}", result);
+            assert_eq!(hash_chain_store[chain_index], ref_hash_chain);
 
-                {
-                    let mut cloned_hash_chain_store = hash_chain_store.clone();
-                    let mut batch = batch;
-                    let mut cloned_blooms = blooms;
-                    // Reinsert should fail
-                    assert!(batch
-                        .insert(
-                            &value,
-                            &value,
-                            &mut cloned_blooms,
-                            &mut cloned_hash_chain_store,
-                            processing_index,
-                        )
-                        .is_err());
-                }
-                assert!(blooms.get(processing_index).unwrap().contains(&value));
-                let other_index = if processing_index == 0 { 1 } else { 0 };
-                Batch::check_non_inclusion(&value, blooms.get(other_index).unwrap()).unwrap();
-                Batch::check_non_inclusion(&value, blooms.get(processing_index).unwrap())
-                    .unwrap_err();
-
-                ref_batch.num_inserted += 1;
-                if ref_batch.num_inserted == ref_batch.zkp_batch_size {
-                    ref_batch.num_full_zkp_batches += 1;
-                    ref_batch.num_inserted = 0;
-                }
-                if i == batch.batch_size - 1 {
-                    ref_batch.state = BatchState::Full.into();
-                    ref_batch.num_inserted = 0;
-                }
-                assert_eq!(batch, ref_batch);
+            ref_batch.num_inserted += 1;
+            if ref_batch.num_inserted == ref_batch.zkp_batch_size {
+                ref_batch.num_full_zkp_batches += 1;
+                ref_batch.num_inserted = 0;
             }
+            if i == batch.batch_size - 1 {
+                ref_batch.state = BatchState::Full.into();
+                ref_batch.num_inserted = 0;
+            }
+            assert_eq!(batch, ref_batch);
         }
         test_mark_as_inserted(batch);
     }
@@ -552,112 +453,23 @@ mod tests {
         assert_eq!(hash_chain_store[0], ref_hash_chain);
     }
 
-    /// A failed insert must not mutate the batch, the bloom filters, or the
-    /// hash chain store: host callers keep the state after an error.
+    /// A failed insert must not mutate the batch or the hash chain store: host
+    /// callers keep the state after an error.
     #[test]
-    fn test_insert_is_error_atomic() {
-        const NUM_ITERS: usize = 3;
-        const BYTES: usize = 20_000;
-
-        for duplicate_batch in [0usize, 1] {
-            let mut batch = Batch::new(500, 100, 0);
-            let mut blooms = [
-                BloomFilter::<NUM_ITERS, BYTES>::new(),
-                BloomFilter::<NUM_ITERS, BYTES>::new(),
-            ];
-            let mut hash_chain_store = vec![[0u8; 32]; batch.get_num_hash_chain_store()];
-
-            // Existing value in one filter.
-            let value = [7u8; 32];
-            blooms
-                .get_mut(duplicate_batch)
-                .unwrap()
-                .insert(&value)
-                .unwrap();
-            let batch_before = batch;
-            let blooms_before = blooms;
-            let chain_before = hash_chain_store.clone();
-
-            // Inserting the same value into either batch must fail with
-            // NonInclusionCheckFailed and leave all state untouched.
-            let other_batch = 1 - duplicate_batch;
-            assert_eq!(
-                batch
-                    .insert(
-                        &value,
-                        &value,
-                        &mut blooms,
-                        &mut hash_chain_store,
-                        other_batch,
-                    )
-                    .unwrap_err(),
-                BatchedMerkleTreeError::NonInclusionCheckFailed
-            );
-            assert_eq!(batch, batch_before);
-            assert_eq!(blooms, blooms_before);
-            assert_eq!(hash_chain_store, chain_before);
-        }
-
-        // A failed insert due to batch state must also leave state untouched.
+    fn test_add_to_hash_chain_is_error_atomic() {
         let mut batch = Batch::new(500, 100, 0);
         batch.advance_state_to_full().unwrap();
-        let mut blooms = [
-            BloomFilter::<NUM_ITERS, BYTES>::new(),
-            BloomFilter::<NUM_ITERS, BYTES>::new(),
-        ];
         let mut hash_chain_store = vec![[0u8; 32]; batch.get_num_hash_chain_store()];
-        let blooms_before = blooms;
+        let batch_before = batch;
         let chain_before = hash_chain_store.clone();
         assert_eq!(
             batch
-                .insert(
-                    &[9u8; 32],
-                    &[9u8; 32],
-                    &mut blooms,
-                    &mut hash_chain_store,
-                    0
-                )
+                .add_to_hash_chain(&[9u8; 32], &mut hash_chain_store)
                 .unwrap_err(),
             BatchedMerkleTreeError::BatchNotReady
         );
-        assert_eq!(blooms, blooms_before);
+        assert_eq!(batch, batch_before);
         assert_eq!(hash_chain_store, chain_before);
-    }
-
-    #[test]
-    fn test_check_non_inclusion() {
-        for processing_index in 0..=1 {
-            let mut batch = get_test_batch();
-
-            let value = [1u8; 32];
-            let mut blooms = [
-                BloomFilter::<3, 20_000>::new(),
-                BloomFilter::<3, 20_000>::new(),
-            ];
-            let mut hash_chain_store = vec![[0u8; 32]; batch.get_num_hash_chain_store()];
-
-            assert_eq!(
-                Batch::check_non_inclusion(&value, blooms.get(processing_index).unwrap()),
-                Ok(())
-            );
-            let ref_batch = get_test_batch();
-            assert_eq!(batch, ref_batch);
-            batch
-                .insert(
-                    &value,
-                    &value,
-                    &mut blooms,
-                    &mut hash_chain_store,
-                    processing_index,
-                )
-                .unwrap();
-            assert!(
-                Batch::check_non_inclusion(&value, blooms.get(processing_index).unwrap()).is_err()
-            );
-
-            let other_index = if processing_index == 0 { 1 } else { 0 };
-            assert!(Batch::check_non_inclusion(&value, blooms.get(other_index).unwrap()).is_ok());
-        }
     }
 
     #[test]
@@ -685,10 +497,6 @@ mod tests {
             batch.get_first_ready_zkp_batch(),
             Err(BatchedMerkleTreeError::BatchNotReady)
         );
-        let mut blooms = [
-            BloomFilter::<3, 20_000>::new(),
-            BloomFilter::<3, 20_000>::new(),
-        ];
         let mut hash_chain_store = vec![[0u8; 32]; batch.get_num_hash_chain_store()];
 
         for i in 0..batch.batch_size + 10 {
@@ -696,7 +504,7 @@ mod tests {
             value[24..].copy_from_slice(&i.to_be_bytes());
             if i < batch.batch_size {
                 batch
-                    .insert(&value, &value, &mut blooms, &mut hash_chain_store, 0)
+                    .add_to_hash_chain(&value, &mut hash_chain_store)
                     .unwrap();
             }
             #[allow(clippy::manual_is_multiple_of)]
@@ -801,16 +609,6 @@ mod tests {
 
         batch.state = 3;
         assert_eq!(batch.try_get_state(), None);
-    }
-
-    #[test]
-    fn test_bloom_filter_is_zeroed() {
-        let mut batch = get_test_batch();
-        assert!(!batch.bloom_filter_is_zeroed());
-        batch.set_bloom_filter_to_zeroed();
-        assert!(batch.bloom_filter_is_zeroed());
-        batch.set_bloom_filter_to_not_zeroed();
-        assert!(!batch.bloom_filter_is_zeroed());
     }
 
     #[test]

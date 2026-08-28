@@ -15,7 +15,6 @@ use wincode::{
 pub use zolana_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccountsInstructionData;
 use zolana_batched_merkle_tree::{
     constants::{
-        ADDRESS_BLOOM_FILTER_CAPACITY, ADDRESS_BLOOM_FILTER_NUM_HASHES,
         DEFAULT_ADDRESS_BATCH_ROOT_HISTORY_LEN, DEFAULT_ADDRESS_BATCH_SIZE,
         DEFAULT_ADDRESS_ZKP_BATCH_SIZE, DEFAULT_BATCH_ADDRESS_TREE_HEIGHT,
     },
@@ -30,8 +29,6 @@ use zolana_batched_merkle_tree::{
 pub const UTXO_TREE_HEIGHT: usize = 32;
 
 const NULLIFIER_RH: usize = DEFAULT_ADDRESS_BATCH_ROOT_HISTORY_LEN as usize;
-const NULLIFIER_NUM_ITERS: usize = ADDRESS_BLOOM_FILTER_NUM_HASHES as usize;
-const NULLIFIER_BLOOM: usize = (ADDRESS_BLOOM_FILTER_CAPACITY / 8) as usize;
 const NULLIFIER_ZKP: usize = (DEFAULT_ADDRESS_BATCH_SIZE / DEFAULT_ADDRESS_ZKP_BATCH_SIZE) as usize;
 
 /// `state` byte values. Writes to the tree are only allowed in `INITIALIZED`.
@@ -44,41 +41,22 @@ pub const TREE_RESERVED_BYTES: usize = 64;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct TreeAccountLayout<
-    const UTXO_HEIGHT: usize,
-    const RH: usize,
-    const NUM_ITERS: usize,
-    const BLOOM: usize,
-    const ZKP: usize,
-> {
+pub struct TreeAccountLayout<const UTXO_HEIGHT: usize, const RH: usize, const ZKP: usize> {
     pub discriminator: u8,
     pub state: u8,
     pub _padding: [u8; 6],
     pub _reserved: [u8; TREE_RESERVED_BYTES],
     pub utxo: UtxoTreeLayout<UTXO_HEIGHT>,
-    pub nullifier: NullifierLayout<RH, NUM_ITERS, BLOOM, ZKP>,
+    pub nullifier: NullifierLayout<RH, ZKP>,
 }
 
-unsafe impl<
-        C: ConfigCore,
-        const UH: usize,
-        const RH: usize,
-        const NUM_ITERS: usize,
-        const BLOOM: usize,
-        const ZKP: usize,
-    > ZeroCopy<C> for TreeAccountLayout<UH, RH, NUM_ITERS, BLOOM, ZKP>
+unsafe impl<C: ConfigCore, const UH: usize, const RH: usize, const ZKP: usize> ZeroCopy<C>
+    for TreeAccountLayout<UH, RH, ZKP>
 {
 }
 
-unsafe impl<
-        'de,
-        C: ConfigCore,
-        const UH: usize,
-        const RH: usize,
-        const NUM_ITERS: usize,
-        const BLOOM: usize,
-        const ZKP: usize,
-    > SchemaRead<'de, C> for TreeAccountLayout<UH, RH, NUM_ITERS, BLOOM, ZKP>
+unsafe impl<'de, C: ConfigCore, const UH: usize, const RH: usize, const ZKP: usize>
+    SchemaRead<'de, C> for TreeAccountLayout<UH, RH, ZKP>
 {
     type Dst = Self;
     const TYPE_META: TypeMeta = TypeMeta::Static {
@@ -91,13 +69,7 @@ unsafe impl<
     }
 }
 
-type SppTreeLayout = TreeAccountLayout<
-    UTXO_TREE_HEIGHT,
-    NULLIFIER_RH,
-    NULLIFIER_NUM_ITERS,
-    NULLIFIER_BLOOM,
-    NULLIFIER_ZKP,
->;
+type SppTreeLayout = TreeAccountLayout<UTXO_TREE_HEIGHT, NULLIFIER_RH, NULLIFIER_ZKP>;
 
 /// The layout reference either borrows caller-provided bytes (`init`,
 /// `from_bytes`) or owns the account-data borrow guard, so the account's
@@ -170,12 +142,11 @@ impl<'a> TreeAccount<'a> {
 
         layout.utxo.init(utxo_tree_height as usize)?;
 
-        init_batched_nullifier_merkle_tree_into_layout::<
-            NULLIFIER_RH,
-            NULLIFIER_NUM_ITERS,
-            NULLIFIER_BLOOM,
-            NULLIFIER_ZKP,
-        >(nullifier_params, &mut layout.nullifier, pubkey.into())
+        init_batched_nullifier_merkle_tree_into_layout::<NULLIFIER_RH, NULLIFIER_ZKP>(
+            nullifier_params,
+            &mut layout.nullifier,
+            pubkey.into(),
+        )
         .map_err(|_| TreeError::AddressInit)?;
 
         Ok(Self {
@@ -265,17 +236,13 @@ impl<'a> TreeAccount<'a> {
         &mut self.layout_mut().utxo
     }
 
-    pub fn nullifer_tree(
-        &mut self,
-    ) -> BatchedMerkleTreeAccount<
-        '_,
-        NULLIFIER_RH,
-        NULLIFIER_NUM_ITERS,
-        NULLIFIER_BLOOM,
-        NULLIFIER_ZKP,
-    > {
+    pub fn nullifer_tree(&mut self) -> BatchedMerkleTreeAccount<'_, NULLIFIER_RH, NULLIFIER_ZKP> {
         let pubkey = self.pubkey;
         BatchedMerkleTreeAccount::from_layout(&pubkey.into(), &mut self.layout_mut().nullifier)
+    }
+
+    pub fn close_before_index(&self) -> u64 {
+        self.layout().nullifier.metadata.close_before_index
     }
 
     /// Whether a proof may contain dummy input slots at the current tree state.
@@ -352,7 +319,7 @@ mod layout_equivalence {
 
     const STATIC_METADATA_LEN: usize = 8;
     const HEADER_LEN: usize = STATIC_METADATA_LEN + TREE_RESERVED_BYTES;
-    const EXPECTED_ACCOUNT_SIZE: usize = 1_185_728;
+    const EXPECTED_ACCOUNT_SIZE: usize = 34_968;
     const EXPECTED_NULLIFIER_OFFSET: usize = 7_544;
     const EXPECTED_STATE_ROOT_OFFSET: usize = 80;
 
@@ -364,9 +331,7 @@ mod layout_equivalence {
     fn size_and_offsets_include_reserved_header() {
         let account_size_without_reserved = STATIC_METADATA_LEN
             + aligned_utxo_size(UTXO_TREE_HEIGHT)
-            + size_of::<
-                NullifierLayout<NULLIFIER_RH, NULLIFIER_NUM_ITERS, NULLIFIER_BLOOM, NULLIFIER_ZKP>,
-            >();
+            + size_of::<NullifierLayout<NULLIFIER_RH, NULLIFIER_ZKP>>();
         assert_eq!(size_of::<SppTreeLayout>(), EXPECTED_ACCOUNT_SIZE);
         assert_eq!(
             size_of::<SppTreeLayout>(),

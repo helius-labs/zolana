@@ -30,4 +30,5 @@ pub struct BatchedMerkleTreeMetadata {
     pub root_history_capacity: u32,
     pub capacity: u64,
     pub queue_batches: QueueBatches,
+    pub close_before_index: u64,
 }

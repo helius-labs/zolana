@@ -7,8 +7,9 @@
 //! queue. Instead of updating the tree one leaf at a time, insertions are
 //! batched into the queue and applied to the tree with a zero-knowledge proof
 //! (ZKP), enabling efficient on-chain verification. Trees keep a cyclic root
-//! history for validity proofs and use bloom filters for non-inclusion proofs
-//! while a batch is being filled.
+//! history for validity proofs. Pending non-inclusion of a queued nullifier is
+//! guaranteed by an exact per-nullifier marker account, not by a probabilistic
+//! filter. See `spec.md` for the normative description.
 //!
 //! | Module | Description |
 //! |--------|-------------|
@@ -16,10 +17,10 @@
 //! | [`merkle_tree`] | `BatchedMerkleTreeAccount` and queue/tree operations |
 //! | [`queue`] | Queue batch insertion helper |
 //! | [`queue_batch_metadata`] | Metadata for queue batches |
+//! | [`nullifier_marker`] | Marker account payload, PDA seeds, host emulation |
 //! | [`initialize_address_tree`] | Initialize a batched address or nullifier tree |
 //! | [`merkle_tree_metadata`] | Tree and queue metadata structs |
 //! | [`merkle_tree_update`] | Apply queued batches to the tree |
-//! | [`events`] | Batch update events |
 //! | [`verify`] | Groth16 verification and verifying keys |
 //! | [`errors`] | Error types for batch operations |
 //!
@@ -27,8 +28,9 @@
 //!
 //! There is a single account type, [`merkle_tree::BatchedMerkleTreeAccount`]: it
 //! stores the tree roots, the cyclic root history, and an integrated input queue
-//! (bloom filters + hash chains). Address and nullifier trees use the same
-//! `AddressV2` layout and differ only in the sentinel root they are seeded with.
+//! (hash chains plus cached tree updates). Address and nullifier trees use the
+//! same `AddressV2` layout and differ only in the sentinel root they are seeded
+//! with.
 //!
 //! ## Operations
 //!
@@ -41,9 +43,15 @@
 //!   `p-1` sentinel root ([`constants::NULLIFIER_TREE_INIT_ROOT_40`]).
 //!
 //! ### Queue insertion
-//! - [`merkle_tree::BatchedMerkleTreeAccount::insert_nullifier_into_queue`] inserts
-//!   a value into the current input-queue batch (bloom filter + hash chain) via
-//!   the [`queue`] module's insertion helper.
+//! - [`merkle_tree::BatchedMerkleTreeAccount::insert_nullifier_into_queue`]
+//!   rejects non-canonical field elements, adds the value to the current
+//!   input-queue batch's open hash chain via the [`queue`] module, and returns
+//!   the queue index `q` the value reserved. The program stores `{ q, bump }` in
+//!   the nullifier marker PDA derived from
+//!   [`nullifier_marker::nullifier_marker_seeds`]; the marker is what rejects a
+//!   second insertion of a pending nullifier. Off Solana the
+//!   [`nullifier_marker::host`] set emulates marker existence so host callers
+//!   get the same `NonInclusionCheckFailed` behavior.
 //!
 //! ### Tree update
 //! - The queued batch is applied to the tree with a ZKP that proves
@@ -58,11 +66,13 @@
 //! (`batch_size / zkp_batch_size`); the tree is updated incrementally one ZKP
 //! batch at a time.
 //!
-//! **Bloom filters:** The input queue uses a bloom filter for non-inclusion
-//! proofs. While a batch is filling, values are inserted into the bloom filter.
-//! After the batch is fully inserted into the tree and the next batch is 50%
-//! full, the bloom filter is zeroed by a forester to prevent false positives; a
-//! batch whose bloom filter is not yet zeroed cannot be reused.
+//! **Retirement and `close_before_index`:** Once a batch is fully applied
+//! (`Inserted`) and the other batch holds at least half of its values, the next
+//! applied update retires it: root-history slots that could still prove
+//! non-inclusion of its values are zeroed and the tree's `close_before_index`
+//! watermark `w` advances to `first_sequence(batch) + batch_size`. A batch is
+//! reusable only once retired (`BatchNotRetired` otherwise), and a nullifier
+//! marker may be closed only once `marker.queue_index < w`.
 //!
 //! **Hash chains:** Each ZKP batch keeps a hash chain storing the Poseidon hash
 //! of all values in that ZKP batch, used as a public input to the ZKP.
@@ -75,8 +85,7 @@
 //!
 //! ## Dependencies
 //!
-//! - **`zolana-bloom-filter`** - Bloom filter for non-inclusion proofs
-//! - **`zolana-hasher`** - Poseidon hash for hash chains and tree operations
+//! - **`zolana-hasher`** - Poseidon hash for hash chains, canonical field check
 //! - **`groth16-solana`** - Groth16 proof verification for batch updates (see [`verify`])
 //! - **`zolana-account-checks`** - Account validation and discriminator checks
 //!
@@ -95,8 +104,12 @@
 //! - `BatchNotReady` (14301) - Batch is not ready to be inserted
 //! - `BatchAlreadyInserted` (14302) - Batch is already inserted
 //! - `TreeIsFull` (14310) - Batched Merkle tree reached capacity
-//! - `NonInclusionCheckFailed` (14311) - Value exists in bloom filter
-//! - `BloomFilterNotZeroed` (14312) - Bloom filter must be zeroed before reuse
+//! - `NonInclusionCheckFailed` (14311) - Nullifier is already queued
+//! - `BatchNotRetired` (14312) - Batch must be retired before reuse
+//! - `NonCanonicalFieldElement` (14317) - Value is not below the BN254 scalar modulus
+//! - `QueueIndexMismatch` (14318) - Queue index and batch position disagree
+//! - `NullifierMarkerNotClosable` (14319) - Marker queue index is not below `close_before_index`
+//! - `NullifierMarkerMissing` (14320) - No marker exists for the nullifier
 //! - Additional errors from underlying libraries (hasher, zero-copy, verifier, etc.)
 
 #![allow(unexpected_cfgs)]
@@ -107,11 +120,11 @@ pub mod initialize_address_tree;
 pub mod merkle_tree;
 pub mod merkle_tree_metadata;
 pub mod merkle_tree_update;
+pub mod nullifier_marker;
 pub mod queue;
 pub mod queue_batch_metadata;
 pub(crate) mod rent;
 pub mod verify;
 pub mod zero_copy;
 
-// Use the appropriate BorshDeserialize and BorshSerialize based on feature
 use borsh::{BorshDeserialize, BorshSerialize};

@@ -32,16 +32,13 @@ const DISCRIMINATOR: u8 = 7;
 const OP_BATCH_ADDRESS_UPDATE: u8 = 5;
 
 const ADDRESS_RH: usize = 120;
-const ADDRESS_NUM_ITERS: usize = 10;
-const ADDRESS_BLOOM: usize = 575384;
 const ADDRESS_ZKP: usize = 120;
 const ADDRESS_HEIGHT: u32 = 40;
 const ADDRESS_ZKP_BATCH_SIZE: u64 = 10;
 const ADDRESS_BATCH_SIZE: u64 = 1200;
 const ADDRESS_ROOT_HISTORY_CAPACITY: u32 = 120;
 
-type AddressTree<'a> =
-    BatchedMerkleTreeAccount<'a, ADDRESS_RH, ADDRESS_NUM_ITERS, ADDRESS_BLOOM, ADDRESS_ZKP>;
+type AddressTree<'a> = BatchedMerkleTreeAccount<'a, ADDRESS_RH, ADDRESS_ZKP>;
 
 struct AddressUpdateFixture {
     account_data: Vec<u8>,
@@ -143,15 +140,7 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
     let zkp = ADDRESS_ZKP_BATCH_SIZE as usize;
     let total = num_batches * zkp;
 
-    let mut account_data = vec![
-        0u8;
-        get_merkle_tree_account_size::<
-            ADDRESS_RH,
-            ADDRESS_NUM_ITERS,
-            ADDRESS_BLOOM,
-            ADDRESS_ZKP,
-        >()
-    ];
+    let mut account_data = vec![0u8; get_merkle_tree_account_size::<ADDRESS_RH, ADDRESS_ZKP>()];
     AddressTree::init(
         &mut account_data,
         &pubkey,
@@ -235,12 +224,8 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
     }
 
     {
-        let layout: &mut TreeAccountLayout<
-            ADDRESS_RH,
-            ADDRESS_NUM_ITERS,
-            ADDRESS_BLOOM,
-            ADDRESS_ZKP,
-        > = wincode::deserialize_mut(&mut account_data).unwrap();
+        let layout: &mut TreeAccountLayout<ADDRESS_RH, ADDRESS_ZKP> =
+            wincode::deserialize_mut(&mut account_data).unwrap();
         let updates = layout.cached_tree_updates.get_mut(0).unwrap();
         for i in 1..num_batches {
             let cached_update = *cached_updates.get(i).unwrap();
@@ -354,7 +339,7 @@ fn bench_cu_tree() {
     let mut bench = CuBenchmark::new(ReadmeConfig {
         title: "Tree -- CU Benchmark".into(),
         description:
-            "Compute unit profiling for zolana-tree: account init, zero-copy deserialization, UTXO sparse-merkle-tree append, end-to-end nullifier insert (bloom + hash chain + non-inclusion), and the worst-case address-tree batch update that finalizes 120 cached tree updates in one transaction.\n\nSee `CU_BENCHMARK_NOTES.md` for analysis notes (e.g. why nullifier insert x10 is not 10x x1, and the proof-verify vs cascade-apply split of the batch update)."
+            "Compute unit profiling for zolana-tree: account init, zero-copy deserialization, UTXO sparse-merkle-tree append, nullifier queue insert (canonical field check + queue position check + hash chain; marker PDA creation is measured by the shielded-pool program benches), and the worst-case address-tree batch update that finalizes 120 cached tree updates in one transaction.\n\nSee `CU_BENCHMARK_NOTES.md` for analysis notes (e.g. why nullifier insert x10 is not 10x x1, and the proof-verify vs cascade-apply split of the batch update)."
                 .into(),
         output_path: concat!(env!("CARGO_MANIFEST_DIR"), "/CU_BENCHMARK.md").into(),
         regenerate_command: Some("just bench-tree".into()),

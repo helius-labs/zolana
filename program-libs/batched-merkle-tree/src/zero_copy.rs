@@ -39,7 +39,6 @@ use wincode::{
     config::{ConfigCore, ZeroCopy},
     ReadResult, SchemaRead, TypeMeta,
 };
-use zolana_bloom_filter::BloomFilter;
 
 use crate::merkle_tree_metadata::BatchedMerkleTreeMetadata;
 
@@ -109,33 +108,21 @@ pub(crate) struct BoundedVecView<'a> {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct TreeAccountLayout<
-    const ROOT_HISTORY: usize,
-    const NUM_ITERS: usize,
-    const BLOOM_BYTES: usize,
-    const ZKP_BATCHES: usize,
-> {
+pub struct TreeAccountLayout<const ROOT_HISTORY: usize, const ZKP_BATCHES: usize> {
     pub discriminator: [u8; 8],
     pub metadata: BatchedMerkleTreeMetadata,
     pub root_history: CyclicVec<ROOT_HISTORY>,
-    pub bloom_filters: [BloomFilter<NUM_ITERS, BLOOM_BYTES>; 2],
     pub hash_chains: [BoundedVec<ZKP_BATCHES>; 2],
     pub cached_tree_updates: [[CachedTreeUpdate; ZKP_BATCHES]; 2],
 }
 
-unsafe impl<C: ConfigCore, const RH: usize, const NI: usize, const BLOOM: usize, const ZKP: usize>
-    ZeroCopy<C> for TreeAccountLayout<RH, NI, BLOOM, ZKP>
+unsafe impl<C: ConfigCore, const RH: usize, const ZKP: usize> ZeroCopy<C>
+    for TreeAccountLayout<RH, ZKP>
 {
 }
 
-unsafe impl<
-        'de,
-        C: ConfigCore,
-        const RH: usize,
-        const NI: usize,
-        const BLOOM: usize,
-        const ZKP: usize,
-    > SchemaRead<'de, C> for TreeAccountLayout<RH, NI, BLOOM, ZKP>
+unsafe impl<'de, C: ConfigCore, const RH: usize, const ZKP: usize> SchemaRead<'de, C>
+    for TreeAccountLayout<RH, ZKP>
 {
     type Dst = Self;
     const TYPE_META: TypeMeta = TypeMeta::Static {
@@ -154,22 +141,18 @@ mod layout_smoke {
 
     #[test]
     fn tree_layout_round_trips() {
-        let mut bytes = vec![0u8; size_of::<TreeAccountLayout<4, 3, 8, 2>>()];
-        let layout: &mut TreeAccountLayout<4, 3, 8, 2> =
-            wincode::deserialize_mut(&mut bytes).unwrap();
+        let mut bytes = vec![0u8; size_of::<TreeAccountLayout<4, 2>>()];
+        let layout: &mut TreeAccountLayout<4, 2> = wincode::deserialize_mut(&mut bytes).unwrap();
         layout.root_history.data[1] = [7u8; 32];
         layout.hash_chains[0].data[1] = [9u8; 32];
-        layout.bloom_filters[0].insert(&[1u8; 32]).unwrap();
         layout.cached_tree_updates[1][1] = CachedTreeUpdate {
             old_root: [3u8; 32],
             new_root: [4u8; 32],
             occupied: 1,
         };
-        let reloaded: &mut TreeAccountLayout<4, 3, 8, 2> =
-            wincode::deserialize_mut(&mut bytes).unwrap();
+        let reloaded: &mut TreeAccountLayout<4, 2> = wincode::deserialize_mut(&mut bytes).unwrap();
         assert_eq!(reloaded.root_history.data[1], [7u8; 32]);
         assert_eq!(reloaded.hash_chains[0].data[1], [9u8; 32]);
-        assert!(reloaded.bloom_filters[0].contains(&[1u8; 32]));
         assert_eq!(reloaded.cached_tree_updates[1][1].old_root, [3u8; 32]);
         assert_eq!(reloaded.cached_tree_updates[1][1].new_root, [4u8; 32]);
         assert_eq!(reloaded.cached_tree_updates[1][1].occupied, 1);

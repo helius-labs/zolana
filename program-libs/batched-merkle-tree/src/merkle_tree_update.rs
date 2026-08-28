@@ -9,9 +9,7 @@ use crate::{
 };
 use zolana_event::BatchAddressAppendEvent;
 
-impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP: usize>
-    BatchedMerkleTreeAccount<'a, RH, NUM_ITERS, BLOOM, ZKP>
-{
+impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP> {
     /// Verify one address-append proof and apply every now-applicable cached
     /// update.
     ///
@@ -145,11 +143,13 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
     ///    proof was verified for the transition old_root -> new_root, so a match
     ///    means new_root is the correct next root for the current tree.
     /// 3. Apply: advance the tree next index and sequence number, append the new
-    ///    root, and mark the zkp batch inserted.
+    ///    root, mark the zkp batch inserted, and retire the previous batch once
+    ///    this batch holds half of its values (spec batch append step 9, using
+    ///    the pending index captured before step 8 advanced it).
     /// 4. Clear the applied cache slot.
     /// 5. Record the new root in the cascade event.
     #[cfg_attr(feature = "profile-program", light_program_profiler::profile)]
-    fn apply_cached_tree_updates(
+    pub(crate) fn apply_cached_tree_updates(
         &mut self,
     ) -> Result<Option<BatchAddressAppendEvent>, BatchedMerkleTreeError> {
         let zkp_batch_size = self.queue_batches.zkp_batch_size;
@@ -227,7 +227,7 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
                 .metadata
                 .queue_batches
                 .increment_pending_batch_index_if_inserted(pending_batch_state);
-            self.zero_out_previous_batch_bloom_filter()?;
+            self.retire_previous_batch(pending_batch_index)?;
 
             // 4. Clear the applied cache slot.
             self.clear_cached_tree_update(pending_batch_index, zkp_batch_index)?;

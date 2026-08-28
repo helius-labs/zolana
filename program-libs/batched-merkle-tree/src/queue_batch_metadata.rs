@@ -49,6 +49,12 @@ impl QueueBatches {
         self.batch_size / self.zkp_batch_size
     }
 
+    pub fn rotation(&self) -> Result<u64, BatchedMerkleTreeError> {
+        self.num_batches
+            .checked_mul(self.batch_size)
+            .ok_or(BatchedMerkleTreeError::ArithmeticOverflow)
+    }
+
     pub fn get_current_batch(&self) -> Result<&Batch, BatchedMerkleTreeError> {
         self.batches
             .get(self.currently_processing_batch_index as usize)

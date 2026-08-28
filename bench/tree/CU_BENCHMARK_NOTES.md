@@ -10,8 +10,12 @@ case. In `Batch::add_to_hash_chain`
 (`program-libs/batched-merkle-tree/src/batch.rs`), the first insert
 (`num_inserted == 0`) stores the value directly into the hash-chain slot, while
 every later insert combines it with `Poseidon::hashv([existing, value])`
-(~830 CU). Each insert also pays ~595 CU of base work (bloom filter bit-sets,
-non-inclusion check, hash chain insert).
+(~830 CU). Each insert also pays a fixed amount of base work (canonical field
+check, queue position check, hash chain insert). The 595 CU figure below was
+measured with the former bloom-filter insert; regenerate with `just bench-tree`
+for the queue-only cost. Nullifier marker PDA creation happens in the
+shielded-pool program, not in this crate, and is measured by
+`program-tests/spp-test-validator/tests/proof_cu.rs`.
 
 ```
 total(N) = 595 + (N - 1) * (595 + ~830)
@@ -34,9 +38,10 @@ The shape reports two functions:
 
 - `apply_cached_tree_updates` (~33,063 CU): the 120-entry cascade, ~275 CU
   per applied zkp batch. Each apply advances `next_index`, appends a root to the
-  root-history ring, marks the zkp batch inserted, and zeroes a slice of the
-  previous batch's bloom filter. The cascade re-verifies no proofs; the submit
-  path already did.
+  root-history ring, marks the zkp batch inserted, and runs the retirement
+  check for the previous batch (which zeroes stale root-history slots and
+  advances `close_before_index` at most once per batch). The cascade
+  re-verifies no proofs; the submit path already did.
 - `bench_batch_address_update` net (~96,034 CU): the index-0 submit path,
   dominated by the single Groth16 proof verification (alt_bn128 pairing).
 
@@ -46,5 +51,5 @@ Total is ~132,722 CU, well under the 1.4M per-transaction limit, so a backlog of
 The benchmarked tree uses `zkp_batch_size = 10` (`batch_size = 1200`,
 `ZKP = 120`) rather than the production address-tree `zkp_batch_size = 250`,
 because only the `batch_address-append_40_10` proving key is available locally.
-The bloom filter is sized to production (`NUM_ITERS = 10`, `BLOOM = 575384`) so
-the per-apply `zero_out_previous_batch_bloom_filter` cost is representative.
+The root history is sized to production (`RH = 120`) so the per-apply
+`retire_previous_batch` root-zeroing cost is representative.
