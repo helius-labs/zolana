@@ -4,6 +4,7 @@ use anyhow::Result;
 use clap::Parser;
 use forester::{
     cli::{Cli, Commands},
+    close_markers::CloseMarkersOptions,
     config::ForesterConfig,
     run::RunOptions,
 };
@@ -72,5 +73,19 @@ fn dispatch(cli: Cli) -> Result<()> {
                 },
             )
         }
+        Commands::CloseMarkers {
+            tree,
+            max_transactions,
+            watch,
+            poll_secs,
+        } => forester::close_markers::run(
+            &ForesterConfig::from_env()?,
+            CloseMarkersOptions {
+                tree,
+                max_transactions,
+                watch,
+                poll_secs,
+            },
+        ),
     }
 }

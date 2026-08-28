@@ -70,4 +70,22 @@ pub enum Commands {
         #[arg(long, default_value_t = DEFAULT_PROOF_CONCURRENCY)]
         proof_concurrency: usize,
     },
+    /// Close retired nullifier markers (queue_index < close_before_index) and
+    /// return their rent to the tree. Reads RPC_URL, PHOTON_URL, and PAYER
+    /// (fee payer) from the environment.
+    CloseMarkers {
+        /// Pool tree whose retired markers to close.
+        #[arg(long, default_value_t = DEFAULT_TREE)]
+        tree: Pubkey,
+        /// Stop after submitting at most N transactions (default: all).
+        #[arg(long)]
+        max_transactions: Option<u64>,
+        /// After closing, keep polling for newly retired markers instead of
+        /// exiting.
+        #[arg(long)]
+        watch: bool,
+        /// Seconds between polls in `--watch` mode.
+        #[arg(long, default_value_t = 10)]
+        poll_secs: u64,
+    },
 }

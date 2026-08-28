@@ -1,0 +1,151 @@
+use anyhow::anyhow;
+use forester::close_markers::{
+    closable_nullifiers, collect_queued_pages, plan_batches, retain_existing, CloseMarkersBatch,
+    LEGACY_TRANSACTION_SIZE_LIMIT,
+};
+use solana_pubkey::Pubkey;
+use zolana_api::{Hash, NullifierQueueElement, PAGE_LIMIT};
+use zolana_interface::instruction::CloseNullifierMarkers;
+
+const MARKERS_PER_TRANSACTION: usize = 15;
+
+fn nullifier(seq: u64) -> [u8; 32] {
+    let mut value = [0u8; 32];
+    value[24..].copy_from_slice(&seq.to_be_bytes());
+    value
+}
+
+fn element(seq: u64) -> NullifierQueueElement {
+    NullifierQueueElement {
+        seq,
+        value: Hash(nullifier(seq)),
+    }
+}
+
+#[test]
+fn plan_fills_each_transaction_up_to_the_legacy_size_limit() {
+    let tree = Pubkey::new_unique();
+    let payer = Pubkey::new_unique();
+    let nullifiers: Vec<[u8; 32]> = (0..100).map(nullifier).collect();
+
+    let batches = plan_batches(tree, payer, &nullifiers).unwrap();
+
+    for batch in &batches {
+        assert!(!batch.nullifiers.is_empty());
+        assert!(batch.serialized_size().unwrap() <= LEGACY_TRANSACTION_SIZE_LIMIT);
+    }
+    for pair in batches.windows(2) {
+        let [full, next] = pair else {
+            unreachable!("windows(2) yields pairs")
+        };
+        let mut overfilled = full.nullifiers.clone();
+        overfilled.extend(next.nullifiers.first().copied());
+        let overfilled = CloseMarkersBatch {
+            tree,
+            payer,
+            nullifiers: overfilled,
+        };
+        assert!(overfilled.serialized_size().unwrap() > LEGACY_TRANSACTION_SIZE_LIMIT);
+        assert_eq!(full.nullifiers.len(), MARKERS_PER_TRANSACTION);
+    }
+
+    let replanned: Vec<[u8; 32]> = batches
+        .iter()
+        .flat_map(|batch| batch.nullifiers.iter().copied())
+        .collect();
+    assert_eq!(replanned, nullifiers);
+    assert_eq!(batches.len(), 100_usize.div_ceil(MARKERS_PER_TRANSACTION));
+}
+
+#[test]
+fn plan_of_nothing_is_empty() {
+    let batches = plan_batches(Pubkey::new_unique(), Pubkey::new_unique(), &[]).unwrap();
+    assert!(batches.is_empty());
+}
+
+#[test]
+fn batch_instruction_matches_the_interface_builder() {
+    let tree = Pubkey::new_unique();
+    let payer = Pubkey::new_unique();
+    let nullifiers: Vec<[u8; 32]> = (0..40).map(nullifier).collect();
+
+    let batches = plan_batches(tree, payer, &nullifiers).unwrap();
+
+    assert!(batches.len() > 1);
+    for batch in &batches {
+        let expected = CloseNullifierMarkers {
+            tree,
+            nullifiers: batch.nullifiers.clone(),
+        }
+        .instruction();
+        assert_eq!(batch.instruction(), expected);
+
+        let message = batch.message();
+        assert_eq!(message.account_keys.first(), Some(&payer));
+        assert_eq!(message.header.num_required_signatures, 1);
+        assert_eq!(message.instructions.len(), 1);
+    }
+}
+
+#[test]
+fn closable_keeps_only_sequences_below_the_watermark() {
+    let elements: Vec<NullifierQueueElement> = (0..10).map(element).collect();
+
+    let closable = closable_nullifiers(elements.clone(), 4);
+    let expected: Vec<[u8; 32]> = (0..4).map(nullifier).collect();
+    assert_eq!(closable, expected);
+
+    assert!(closable_nullifiers(elements.clone(), 0).is_empty());
+    assert_eq!(closable_nullifiers(elements, 100).len(), 10);
+}
+
+#[test]
+fn retain_existing_drops_already_closed_markers() {
+    let nullifiers: Vec<[u8; 32]> = (0..4).map(nullifier).collect();
+    let accounts = vec![Some(()), None, Some(()), None];
+
+    let open = retain_existing(&nullifiers, &accounts).unwrap();
+    assert_eq!(open, vec![nullifier(0), nullifier(2)]);
+
+    let short: Vec<Option<()>> = vec![Some(())];
+    assert!(retain_existing(&nullifiers, &short).is_err());
+}
+
+#[test]
+fn queued_pages_stop_at_the_watermark() {
+    let start = 3u64;
+    let end = PAGE_LIMIT + 10;
+    let mut requests = Vec::new();
+
+    let elements = collect_queued_pages(start, end, |start_seq, limit| {
+        requests.push((start_seq, limit));
+        Ok((start_seq..start_seq + limit).map(element).collect())
+    })
+    .unwrap();
+
+    assert_eq!(requests, vec![(3, PAGE_LIMIT), (PAGE_LIMIT + 3, 7)]);
+    assert_eq!(elements.first().map(|element| element.seq), Some(3));
+    assert_eq!(elements.last().map(|element| element.seq), Some(end - 1));
+    assert_eq!(elements.len(), usize::try_from(end - start).unwrap());
+}
+
+#[test]
+fn queued_pages_return_the_indexed_prefix_when_photon_lags() {
+    let elements = collect_queued_pages(0, 50, |start_seq, _| {
+        Ok((start_seq..start_seq + 20).map(element).collect())
+    })
+    .unwrap();
+    assert_eq!(elements.len(), 20);
+
+    assert!(
+        collect_queued_pages(0, 0, |_, _| Err(anyhow!("must not be called")))
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn queued_pages_reject_a_sequence_gap() {
+    let err = collect_queued_pages(0, 10, |_, _| Ok(vec![element(0), element(2)])).unwrap_err();
+    assert!(err.to_string().contains("sequence gap"));
+}

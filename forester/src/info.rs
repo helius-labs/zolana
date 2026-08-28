@@ -30,6 +30,7 @@ struct BatchInfo {
     inserted_zkps: u64,
     zkp_batch_index: u64,
     num_zkp_batches: u64,
+    retired: bool,
 }
 
 /// Print the current state of `tree`, its nullifier queue, and the forester
@@ -65,10 +66,12 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
         ready_total,
         pending_batch_index,
         currently_processing_batch_index,
+        close_before_index,
         nullifier_root,
     ) = {
         let nullifier_tree = account.nullifer_tree();
         let metadata = *nullifier_tree.get_metadata();
+        let close_before_index = metadata.close_before_index;
         let batches = &metadata.queue_batches;
         let mut infos = Vec::with_capacity(batches.batches.len());
         let mut ready_total = 0u64;
@@ -83,6 +86,7 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
                 inserted_zkps: batch.get_num_inserted_zkps(),
                 zkp_batch_index: batch.get_current_zkp_batch_index(),
                 num_zkp_batches: batch.get_num_zkp_batches(),
+                retired: batch.is_retired(close_before_index),
             });
         }
         (
@@ -93,6 +97,7 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
             ready_total,
             batches.pending_batch_index,
             batches.currently_processing_batch_index,
+            close_before_index,
             nullifier_tree.get_root(),
         )
     };
@@ -125,12 +130,14 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
                         "inserted_zkps": batch.inserted_zkps,
                         "zkp_batch_index": batch.zkp_batch_index,
                         "num_zkp_batches": batch.num_zkp_batches,
+                        "retired": batch.retired,
                     }))
                     .collect::<Vec<_>>(),
                 "ready_to_forest_zkp_batches": ready_total,
                 "ready_to_forest_nullifiers_approx": ready_nullifiers,
                 "pending_batch_index": pending_batch_index,
                 "currently_processing_batch_index": currently_processing_batch_index,
+                "close_before_index": close_before_index,
                 "root": nullifier_root.map(hex::encode),
             },
             "forester": forester.as_ref().map(|(pubkey, lamports)| json!({
@@ -151,7 +158,7 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
     for batch in &batch_infos {
         println!(
             "  batch {}: state={:<8} queued={}  ready_zkps={}  inserted_zkps={}  \
-             zkp_batch_index={}  num_zkp_batches={}",
+             zkp_batch_index={}  num_zkp_batches={}  retired={}",
             batch.index,
             batch.state,
             batch.queued,
@@ -159,6 +166,7 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
             batch.inserted_zkps,
             batch.zkp_batch_index,
             batch.num_zkp_batches,
+            batch.retired,
         );
     }
     println!("  => READY TO FOREST: {ready_total} zkp-batches (~{ready_nullifiers} nullifiers)");
@@ -166,6 +174,7 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
         "  pending_batch_index={pending_batch_index}  \
          currently_processing_batch_index={currently_processing_batch_index}"
     );
+    println!("  close_before_index={close_before_index}");
     match nullifier_root {
         Some(root) => println!("  nullifier root: {}", hex::encode(root)),
         None => println!("  nullifier root: <none>"),
