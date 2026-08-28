@@ -15,7 +15,7 @@ queue insertion, batch append, and marker cleanup.
 |--------|-------------|
 | `batch` | `Batch` state machine, reclaimability predicate, hash-chain insertion |
 | `merkle_tree` | `BatchedMerkleTreeAccount` and queue/tree operations |
-| `queue` | Queue batch insertion helper (batch reuse gated on reclaimability) |
+| `queue` | Queue batch insertion helper |
 | `queue_batch_metadata` | Metadata for queue batches |
 | `nullifier_marker` | Marker payload, PDA seeds, test-only host emulation of the marker set |
 | `initialize_address_tree` | Initialize a batched address or nullifier tree |
@@ -67,16 +67,16 @@ appends the new root, and marks the ZKP batch inserted.
 Root history contains exactly one queue batch's worth of ZKP update roots:
 its capacity is derived as `batch_size / zkp_batch_size`. When `current`, the
 batch just updated, becomes fully applied (`Inserted`), it has naturally
-overwritten every root that predates it. If `previous`, the other batch, is
-also `Inserted` and is not yet reclaimable, the tree's watermark advances to
-`close_before_index = max(close_before_index, reclaimable_sequence(previous))`
-where `Batch::reclaimable_sequence() = start_index + batch_size - 1` (the
-spec writes this as `first_sequence(batch) + B`).
+overwritten every root that predates it. The tree's watermark therefore
+advances to
+`close_before_index = max(close_before_index, current.start_index - 1)`.
+This makes the preceding batch reclaimable even if its storage has already
+been reused and returned to `Fill`.
 
 - `Batch::is_reclaimable(close_before_index)` is
   `close_before_index >= reclaimable_sequence()`.
-- Queue insertion reuses an `Inserted` batch only once it is reclaimable; otherwise
-  it fails with `BatchNotReclaimable`.
+- Queue insertion reuses an `Inserted` batch immediately; reclaimability gates
+  marker cleanup, not storage reuse.
 - A nullifier marker may be closed only once `marker.queue_index <
   close_before_index` (`ShieldedPoolError::NullifierMarkerNotClosable`
   otherwise), which is when every accepted root already contains the nullifier.
@@ -88,7 +88,6 @@ All errors are defined in `src/errors.rs` and map to u32 error codes:
 - `BatchNotReady` (14301) - Batch is not ready to be inserted
 - `BatchAlreadyInserted` (14302) - Batch is already inserted
 - `TreeIsFull` (14310) - Batched Merkle tree reached capacity
-- `BatchNotReclaimable` (14312) - Batch must be reclaimable before reuse
 - `NonCanonicalFieldElement` (14317) - Value is not below the BN254 scalar modulus
 - `QueueIndexMismatch` (14318) - Queue index and batch position disagree
 - `InvalidBatchConfiguration` (14319) - Queue-level and per-batch metadata disagree

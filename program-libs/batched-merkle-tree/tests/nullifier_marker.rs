@@ -107,7 +107,7 @@ fn malformed_root_history_and_batch_metadata_are_rejected_on_load() {
     layout.metadata.queue_batches.reserved = 0;
     assert_eq!(
         Tree::address_from_bytes(&mut invalid_reserved, &pubkey).unwrap_err(),
-        BatchedMerkleTreeError::InvalidBatchIndex
+        BatchedMerkleTreeError::InvalidBatchConfiguration
     );
 
     let mut inconsistent_batch = account_data();

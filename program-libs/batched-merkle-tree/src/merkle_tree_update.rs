@@ -145,7 +145,7 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
     ///    means new_root is the correct next root for the current tree.
     /// 3. Apply: advance the tree next index and sequence number, append the new
     ///    root, and mark the ZKP batch inserted. When that fully inserts the
-    ///    pending batch, mark the previous batch reclaimable before advancing
+    ///    pending batch, advance the marker-close watermark before advancing
     ///    the pending index (spec batch append steps 8-9).
     /// 4. Clear the applied cache slot.
     /// 5. Record the new root in the cascade event.
@@ -153,7 +153,6 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
     pub fn apply_cached_tree_updates(
         &mut self,
     ) -> Result<Option<BatchAddressAppendEvent>, BatchedMerkleTreeError> {
-        Self::validate_layout(self.layout)?;
         let zkp_batch_size = self.queue_batches.zkp_batch_size;
         // One event covers the whole cascade: shared fields once, one root per
         // applied zkp batch. See `BatchAddressAppendEvent` for how the per-batch
@@ -177,7 +176,7 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
                 .and_then(|updates| updates.get(zkp_batch_index))
             {
                 Some(cached_update) if cached_update.is_occupied() => *cached_update,
-                _ => return Ok(event),
+                _ => break Ok(event),
             };
 
             // 2. Stop unless the update's old root matches the account tree root.
@@ -201,7 +200,7 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
                     pending_batch_index,
                     zkp_batch_index
                 );
-                return Ok(event);
+                break Ok(event);
             }
 
             // 3. Apply: advance the tree and mark the zkp batch inserted.
@@ -220,7 +219,7 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
                 .get_mut(pending_batch_index)
                 .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?
                 .mark_as_inserted_in_merkle_tree()?;
-            self.mark_previous_batch_reclaimable(pending_batch_state)?;
+            self.advance_marker_close_watermark(pending_batch_state)?;
             self.layout
                 .metadata
                 .queue_batches
@@ -248,13 +247,15 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
         }
     }
 
-    /// Marks the batch preceding `pending_batch_index` reclaimable when both it
-    /// and the batch just updated are fully inserted. This must run before
-    /// `pending_batch_index` advances so it still identifies the updated batch.
+    /// Advances the marker-close watermark when the pending batch becomes fully
+    /// inserted. This must run before `pending_batch_index` advances so it still
+    /// identifies the updated batch.
     ///
-    /// A fully inserted successor has written exactly one root-history window,
-    /// so every accepted root now contains the preceding batch's values.
-    fn mark_previous_batch_reclaimable(
+    /// A fully inserted batch has written exactly one root-history window, so
+    /// every accepted root now contains every value queued before that batch.
+    /// This depends only on the inserted batch's start index: the preceding
+    /// batch may already have been reused and returned to `Fill`.
+    fn advance_marker_close_watermark(
         &mut self,
         pending_batch_state: BatchState,
     ) -> Result<(), BatchedMerkleTreeError> {
@@ -262,20 +263,17 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
             return Ok(());
         }
 
-        let current_index = self.queue_batches.pending_batch_index as usize;
-        let previous_index = if current_index == 0 { 1 } else { 0 };
-        let previous = self
+        let pending_batch = self
             .queue_batches
             .batches
-            .get(previous_index)
+            .get(self.queue_batches.pending_batch_index as usize)
             .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?;
-        if previous.checked_state()? != BatchState::Inserted {
-            return Ok(());
-        }
-
-        self.close_before_index = self
-            .close_before_index
-            .max(previous.reclaimable_sequence()?);
+        self.close_before_index = self.close_before_index.max(
+            pending_batch
+                .start_index
+                .checked_sub(1)
+                .ok_or(BatchedMerkleTreeError::ArithmeticOverflow)?,
+        );
         Ok(())
     }
 

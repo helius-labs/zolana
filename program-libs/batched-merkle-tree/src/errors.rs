@@ -54,8 +54,6 @@ pub enum BatchedMerkleTreeError {
     InvalidIndex,
     #[error("Batched Merkle tree is full.")]
     TreeIsFull,
-    #[error("Batch must be reclaimable prior to reusing it.")]
-    BatchNotReclaimable,
     #[error("Account error {0}")]
     AccountError(#[from] AccountError),
     #[error("Cached tree update index is out of range.")]
@@ -83,7 +81,6 @@ impl From<BatchedMerkleTreeError> for u32 {
             BatchedMerkleTreeError::InvalidBatchIndex => 14308,
             BatchedMerkleTreeError::InvalidIndex => 14309,
             BatchedMerkleTreeError::TreeIsFull => 14310,
-            BatchedMerkleTreeError::BatchNotReclaimable => 14312,
             BatchedMerkleTreeError::CachedTreeUpdateIndexOutOfRange => 14313,
             BatchedMerkleTreeError::HashChainNotReady => 14314,
             BatchedMerkleTreeError::ArithmeticOverflow => 14315,

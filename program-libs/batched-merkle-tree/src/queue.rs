@@ -7,7 +7,6 @@ pub(crate) fn insert_into_current_queue_batch(
     batch_metadata: &mut QueueBatches,
     hash_chain_stores: &mut [BoundedVecView<'_>],
     value: &[u8; 32],
-    close_before_index: u64,
 ) -> Result<(), BatchedMerkleTreeError> {
     let batch_index = batch_metadata.currently_processing_batch_index as usize;
     let rotation = batch_metadata.rotation()?;
@@ -15,9 +14,6 @@ pub(crate) fn insert_into_current_queue_batch(
     match current_batch.checked_state()? {
         BatchState::Fill => {}
         BatchState::Inserted => {
-            if !current_batch.is_reclaimable(close_before_index) {
-                return Err(BatchedMerkleTreeError::BatchNotReclaimable);
-            }
             let start_index = current_batch
                 .start_index
                 .checked_add(rotation)
@@ -52,7 +48,6 @@ mod tests {
         hash_chain_lengths: &mut [u64; 2],
         hash_chain_data: &mut [[[u8; 32]; 1]; 2],
         value: &[u8; 32],
-        close_before_index: u64,
     ) -> Result<(), BatchedMerkleTreeError> {
         let [len0, len1] = hash_chain_lengths;
         let [data0, data1] = hash_chain_data;
@@ -66,12 +61,7 @@ mod tests {
                 data: data1,
             },
         ];
-        insert_into_current_queue_batch(
-            batch_metadata,
-            &mut hash_chain_stores,
-            value,
-            close_before_index,
-        )
+        insert_into_current_queue_batch(batch_metadata, &mut hash_chain_stores, value)
     }
 
     /// A reused batch must cover the queue index range one full rotation
@@ -95,7 +85,6 @@ mod tests {
                 &mut hash_chain_lengths,
                 &mut hash_chain_data,
                 &[i + 1; 32],
-                0,
             )
             .unwrap();
         }
@@ -111,32 +100,16 @@ mod tests {
                 &mut hash_chain_lengths,
                 &mut hash_chain_data,
                 &[i + 11; 32],
-                0,
             )
             .unwrap();
         }
         assert_eq!(batch_metadata.currently_processing_batch_index, 0);
-
-        let before = batch_metadata;
-        assert_eq!(
-            insert(
-                &mut batch_metadata,
-                &mut hash_chain_lengths,
-                &mut hash_chain_data,
-                &[21; 32],
-                reclaimable_sequence - 1,
-            )
-            .unwrap_err(),
-            BatchedMerkleTreeError::BatchNotReclaimable
-        );
-        assert_eq!(batch_metadata, before);
 
         insert(
             &mut batch_metadata,
             &mut hash_chain_lengths,
             &mut hash_chain_data,
             &[21; 32],
-            reclaimable_sequence,
         )
         .unwrap();
         let batch = batch_metadata.batches.first().unwrap();

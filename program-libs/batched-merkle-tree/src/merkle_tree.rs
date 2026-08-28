@@ -279,15 +279,16 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
             return Err(MerkleTreeMetadataError::InvalidRootHistoryCapacity.into());
         }
 
-        if queue.reserved != NUM_BATCHES as u64
-            || queue.currently_processing_batch_index >= NUM_BATCHES as u64
+        if queue.currently_processing_batch_index >= NUM_BATCHES as u64
             || queue.pending_batch_index >= NUM_BATCHES as u64
         {
             return Err(BatchedMerkleTreeError::InvalidBatchIndex);
         }
-        if queue.batches.iter().any(|batch| {
-            batch.batch_size != queue.batch_size || batch.zkp_batch_size != queue.zkp_batch_size
-        }) {
+        if queue.reserved != NUM_BATCHES as u64
+            || queue.batches.iter().any(|batch| {
+                batch.batch_size != queue.batch_size || batch.zkp_batch_size != queue.zkp_batch_size
+            })
+        {
             return Err(BatchedMerkleTreeError::InvalidBatchConfiguration);
         }
         Ok(())
@@ -313,7 +314,6 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
         }
         self.check_queue_next_index_reached_tree_capacity()?;
 
-        let close_before_index = self.close_before_index;
         {
             let TreeAccountLayout {
                 metadata,
@@ -326,7 +326,6 @@ impl<'a, const RH: usize, const ZKP: usize> BatchedMerkleTreeAccount<'a, RH, ZKP
                 &mut metadata.queue_batches,
                 &mut hash_chain_stores,
                 nullifier,
-                close_before_index,
             )?;
         }
         self.increment_queue_next_index();

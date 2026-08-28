@@ -71,9 +71,10 @@ yet appended to the tree.
 `RH = K` keeps exactly one queue batch's worth of update roots. Fully applying
 the successor batch therefore overwrites every root that predates it.
 
-`Fill --B queue insertions--> Full --final ZKP append--> Inserted --mark reclaimable--> reusable --reuse--> Fill`.
+`Fill --B queue insertions--> Full --final ZKP append--> Inserted --reuse--> Fill`.
 A finalized ZKP batch may be appended while its queue batch is still `Fill`.
-Marking a batch reclaimable keeps the state `Inserted` and does not wait for marker cleanup.
+Reclaimability governs marker cleanup independently of this storage-reuse state
+machine.
 
 Each queued nullifier has an exact marker account:
 
@@ -114,8 +115,9 @@ The instruction also receives the writable marker PDA.
 
 1. Require the nullifier-tree type and canonical nullifier encoding.
 2. Require `batches[c].state == Fill`. If it is `Inserted`, reuse it first;
-   reuse requires the batch to be reclaimable (batch append, step 9), resets
-   its counters, and advances `start_index` by `2 * B`. `Full` is not reusable.
+   reuse resets its counters and advances `start_index` by `2 * B` without
+   waiting for the batch's markers to become reclaimable. `Full` is not
+   reusable.
 3. Require
    `q + 1 = batches[c].start_index + batches[c].inserted_elements` and
    `q + 1 < tree.capacity`.
@@ -218,15 +220,15 @@ The Groth16 proof establishes the height-40 indexed append from `old_root` to
    update (before step 8 advances it) and let:
 
    ```text
-   current  = batches[current_index]
-   previous = batches[(current_index + 1) mod 2]
+   current = batches[current_index]
    ```
 
    At this point `current.state == Inserted` and its `K = RH` applied updates
-   have naturally overwritten every root that predates `current`. If
-   `previous.state == Inserted` and `previous` is not reclaimable, set
-   `w = max(w, first_sequence(previous) + B)` and make `previous` reusable.
-   No root-history slots are explicitly zeroed. These changes are atomic.
+   have naturally overwritten every root that predates `current`. Set
+   `w = max(w, first_sequence(current))`. This makes markers from every earlier
+   batch reclaimable regardless of whether that batch has already been reused
+   and returned to `Fill`. No root-history slots are explicitly zeroed. These
+   changes are atomic.
 
 **Property — queue draining.** One applied update reduces
 `unapplied_values` by exactly `Z`. After all `K` updates, the batch has
@@ -234,10 +236,10 @@ The Groth16 proof establishes the height-40 indexed append from `old_root` to
 hash-chain bytes remain until overwritten on reuse. Its markers remain until
 separate cleanup transactions close them.
 
-**Property — reclaim liveness.** The previous batch becomes reclaimable when
-the current batch's final ZKP update is applied. Until the current batch is
-fully applied, the previous batch cannot be reused when queue insertion cycles
-back to it.
+**Property — reclaim liveness.** When the current batch's final ZKP update is
+applied, `w` reaches `first_sequence(current)`, so every marker from the
+previous batch is reclaimable even if that batch has already been reused.
+Reclaimability never gates batch storage reuse.
 
 **Property — ordered application.** Proofs may arrive in any order, but roots
 are applied only in increasing ZKP-batch order and only when each `old_root`
@@ -377,16 +379,17 @@ The tree funds every marker, so at creation it must hold, above its own rent
 exemption:
 
 ```text
-working_capital = 2 * B * Rent::minimum_balance(9)
+working_capital = 3 * B * Rent::minimum_balance(9)
 ```
 
 A marker cannot be closed before its batch is reclaimable, and reclaimability
-requires an applied append. With no forester activity every one of the `2 * B`
-queue slots holds a queued nullifier with a live marker, so this is the exact
-amount insertion needs to stay live until the queue itself is full without
-depending on the closer. Closed markers return their rent to the tree; markers
-left open after the batch becomes reclaimable lock capital beyond this amount until they are
-closed. With `B = 30_000` this is 57.2112 SOL.
+requires the successor batch's final applied update. Immediate reuse therefore
+allows up to three batches of live markers at once: the old batch's markers,
+the successor batch's markers, and the markers being created in the reused
+batch. With prompt cleanup, this is the working capital required for continuous
+insertion. Closed markers return their rent to the tree; delayed cleanup can
+lock capital beyond this amount and eventually stop insertion. With
+`B = 30_000` this is 85.8168 SOL; with `B = 630_000` it is 1,802.1528 SOL.
 
 ### Cost per nullifier
 

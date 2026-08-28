@@ -12,11 +12,14 @@ pub const ADDRESS_TREE_ROOT_HISTORY_CAPACITY: u32 =
 /// Lamports reimbursed for each applied nullifier-tree ZKP batch.
 pub const FORESTER_REIMBURSEMENT_LAMPORTS: u64 = 5_000;
 
+/// Marker rent needed while one reused batch overlaps the two preceding marker
+/// generations. Prompt cleanup keeps the maximum at `NUM_BATCHES + 1` batches.
 pub fn tree_working_capital_lamports(
     nullifier_params: &InitAddressTreeAccountsInstructionData,
     marker_rent: u64,
 ) -> Option<u64> {
     (NUM_BATCHES as u64)
+        .checked_add(1)?
         .checked_mul(nullifier_params.input_queue_batch_size)?
         .checked_mul(marker_rent)
 }
@@ -70,14 +73,14 @@ mod tests {
     }
 
     #[test]
-    fn working_capital_funds_a_marker_for_every_queue_slot() {
+    fn working_capital_funds_three_batches_of_live_markers() {
         let marker_rent = Rent::default().minimum_balance(NULLIFIER_MARKER_SIZE);
         assert_eq!(marker_rent, 953_520);
 
         let canonical = address_tree_params();
         assert_eq!(
             tree_working_capital_lamports(&canonical, marker_rent),
-            Some(2 * 30_000 * 953_520)
+            Some(3 * 30_000 * 953_520)
         );
 
         let half = InitAddressTreeAccountsInstructionData {
@@ -86,7 +89,7 @@ mod tests {
         };
         assert_eq!(
             tree_working_capital_lamports(&half, marker_rent),
-            Some(30_000 * 953_520)
+            Some(45_000 * 953_520)
         );
 
         assert_eq!(tree_working_capital_lamports(&canonical, u64::MAX), None);

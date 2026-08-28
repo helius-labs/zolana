@@ -19,7 +19,6 @@ use zolana_batched_merkle_tree::{
     },
     initialize_address_tree::{init_batched_nullifier_merkle_tree_into_layout, match_circuit_size},
     merkle_tree::BatchedMerkleTreeAccount,
-    queue_batch_metadata::QueueBatches,
     zero_copy::TreeAccountLayout as NullifierLayout,
 };
 
@@ -108,16 +107,12 @@ impl<'a> TreeAccount<'a> {
         if utxo_tree_height as usize != UTXO_TREE_HEIGHT {
             return Err(TreeError::HeightTooLarge);
         }
-        // Validate untrusted instruction data before mutating the layout. The
-        // zkp batch size must also have a verifying key, otherwise no batch
-        // update can ever be proven and the queue wedges once both batches fill.
+        // The zkp batch size must have a verifying key, otherwise no batch
+        // update can ever be proven and the queue wedges once both batches
+        // fill. Batch and root-history configuration is validated by the
+        // nullifier tree init below.
         if nullifier_params.height != DEFAULT_BATCH_ADDRESS_TREE_HEIGHT
             || !match_circuit_size(nullifier_params.input_queue_zkp_batch_size)
-            || QueueBatches::validate_configuration::<NULLIFIER_RH, NULLIFIER_ZKP>(
-                nullifier_params.input_queue_batch_size,
-                nullifier_params.input_queue_zkp_batch_size,
-            )
-            .is_err()
         {
             return Err(TreeError::AddressInit);
         }

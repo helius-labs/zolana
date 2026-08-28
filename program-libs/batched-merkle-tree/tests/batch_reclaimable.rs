@@ -2,7 +2,6 @@ use solana_address::Address;
 use zolana_batched_merkle_tree::{
     batch::BatchState,
     constants::NULLIFIER_TREE_INIT_ROOT_40,
-    errors::BatchedMerkleTreeError,
     merkle_tree::{get_merkle_tree_account_size, BatchedMerkleTreeAccount},
     merkle_tree_metadata::TreeType,
     zero_copy::{CachedTreeUpdate, TreeAccountLayout},
@@ -157,7 +156,7 @@ fn fully_applied_successor_advances_watermark_after_natural_root_overwrite() {
 }
 
 #[test]
-fn inserted_batch_reuse_waits_for_successor_to_be_fully_applied() {
+fn inserted_batch_reuse_does_not_wait_for_successor_to_be_fully_applied() {
     let pubkey = Address::new_unique();
     let mut data = account_data();
     init_tree(&mut data, &pubkey);
@@ -182,18 +181,20 @@ fn inserted_batch_reuse_waits_for_successor_to_be_fully_applied() {
         );
         assert_eq!(tree.close_before_index, 0);
     }
-    let full_roots = [Some(root(4)), Some(root(1)), Some(root(2)), Some(root(3))];
-
-    let before = data.clone();
-    assert_eq!(
-        load_tree(&mut data, &pubkey)
-            .insert_nullifier_into_queue(&nullifier(9))
-            .unwrap_err(),
-        BatchedMerkleTreeError::BatchNotReclaimable
-    );
-    assert_eq!(data, before);
+    assert_eq!(insert(&mut data, &pubkey, [9]), vec![8]);
+    {
+        let tree = load_tree(&mut data, &pubkey);
+        let reused = tree.get_metadata().queue_batches.batches.first().unwrap();
+        assert_eq!(reused.get_state(), BatchState::Fill);
+        assert_eq!(reused.start_index, 1 + 2 * BATCH_SIZE);
+        assert_eq!(reused.get_num_inserted_elements(), 1);
+    }
     assert_eq!(load_tree(&mut data, &pubkey).close_before_index, 0);
-    assert_roots(&mut data, &pubkey, full_roots);
+    assert_roots(
+        &mut data,
+        &pubkey,
+        [Some(root(4)), Some(root(1)), Some(root(2)), Some(root(3))],
+    );
 
     apply_update(&mut data, &pubkey, 1, root(5));
     assert_eq!(load_tree(&mut data, &pubkey).close_before_index, 0);
@@ -216,8 +217,6 @@ fn inserted_batch_reuse_waits_for_successor_to_be_fully_applied() {
         &pubkey,
         [Some(root(8)), Some(root(5)), Some(root(6)), Some(root(7))],
     );
-
-    assert_eq!(insert(&mut data, &pubkey, [9]), vec![8]);
     let tree = load_tree(&mut data, &pubkey);
     let reused = tree.get_metadata().queue_batches.batches.first().unwrap();
     assert_eq!(reused.get_state(), BatchState::Fill);

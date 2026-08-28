@@ -171,19 +171,6 @@ pub mod test_utils {
 }
 
 #[test]
-fn test_instruction_data_omits_root_history_capacity() {
-    let params = InitAddressTreeAccountsInstructionData::default();
-    let mut encoded = Vec::new();
-    params.serialize(&mut encoded).unwrap();
-
-    let mut expected = Vec::new();
-    expected.extend_from_slice(&params.input_queue_batch_size.to_le_bytes());
-    expected.extend_from_slice(&params.input_queue_zkp_batch_size.to_le_bytes());
-    expected.extend_from_slice(&params.height.to_le_bytes());
-    assert_eq!(encoded, expected);
-}
-
-#[test]
 fn test_init_indexed_tree_init_roots() {
     use crate::constants::{ADDRESS_TREE_INIT_ROOT_40, NULLIFIER_TREE_INIT_ROOT_40};
 

@@ -35,9 +35,10 @@ cargo run -p forester -- close-markers [--tree <PUBKEY>] [--from-seq N] [--max-t
 ### `close-markers`
 
 Every queued nullifier owns a nine-byte marker PDA funded from the tree. Once a
-queue batch is appended and reclaimable, the tree's `close_before_index` advances
-past that batch and its markers become closable by anyone; closing returns the
-marker rent to the tree. `close-markers` performs that cleanup:
+successor queue batch is fully appended, the tree's `close_before_index`
+advances past the preceding batch and its markers become closable by anyone;
+closing returns the marker rent to the tree. Batch storage may be reused before
+that point. `close-markers` performs the cleanup:
 
 1. reads `close_before_index` (`w`) from the tree account;
 2. fetches the queued nullifiers with sequence `< w` from Photon

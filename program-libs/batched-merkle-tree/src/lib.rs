@@ -64,9 +64,9 @@
 //! one queue batch's worth of ZKP update roots. Once the successor batch is fully
 //! applied (`Inserted`), those updates have naturally overwritten every older
 //! root and the tree's `close_before_index` watermark `w` advances to
-//! `start_index + batch_size - 1` for the previous batch. A batch is reusable only
-//! once reclaimable (`BatchNotReclaimable` otherwise), and a nullifier marker may
-//! be closed only once `marker.queue_index < w`.
+//! `current.start_index - 1`. An `Inserted` batch can be reused immediately;
+//! reclaimability gates marker cleanup rather than batch storage reuse. A
+//! nullifier marker may be closed only once `marker.queue_index < w`.
 //!
 //! **Hash chains:** Each ZKP batch keeps a hash chain storing the Poseidon hash
 //! of all values in that ZKP batch, used as a public input to the ZKP.
@@ -99,7 +99,6 @@
 //! - `BatchNotReady` (14301) - Batch is not ready to be inserted
 //! - `BatchAlreadyInserted` (14302) - Batch is already inserted
 //! - `TreeIsFull` (14310) - Batched Merkle tree reached capacity
-//! - `BatchNotReclaimable` (14312) - Batch must be reclaimable before reuse
 //! - `NonCanonicalFieldElement` (14317) - Value is not below the BN254 scalar modulus
 //! - `QueueIndexMismatch` (14318) - Queue index and batch position disagree
 //! - `InvalidBatchConfiguration` (14319) - Queue-level and per-batch metadata disagree

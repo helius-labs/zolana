@@ -26,32 +26,32 @@ Regenerate with `just bench-tree`.
 
 | Function                     |   Total CU |     Net CU |
 | ---------------------------- | ---------- | ---------- |
-| `apply_cached_tree_updates`  |     30,415 |     30,415 |
-| `bench_batch_address_update` |    126,439 |     96,024 |
+| `apply_cached_tree_updates`  |     19,978 |     19,978 |
+| `bench_batch_address_update` |    116,025 |     96,047 |
 
 ## 2. Deserialize
 
 | Function                     |   Total CU |     Net CU |
 | ---------------------------- | ---------- | ---------- |
-| `bench_deserialize`          |         66 |         66 |
+| `bench_deserialize`          |        100 |        100 |
 
 ## 3. Nullifier insert x1
 
 | Function                     |   Total CU |     Net CU |
 | ---------------------------- | ---------- | ---------- |
-| `bench_nullifier_insert`     |        445 |        445 |
+| `bench_nullifier_insert`     |        391 |        391 |
 
 ## 4. Nullifier insert x10
 
 | Function                     |   Total CU |     Net CU |
 | ---------------------------- | ---------- | ---------- |
-| `bench_nullifier_insert`     |     11,956 |     11,956 |
+| `bench_nullifier_insert`     |     11,398 |     11,398 |
 
 ## 5. Tree init
 
 | Function                     |   Total CU |     Net CU |
 | ---------------------------- | ---------- | ---------- |
-| `bench_init`                 |        245 |        245 |
+| `bench_init`                 |        304 |        304 |
 
 ## 6. Utxo append x1
 
