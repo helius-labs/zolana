@@ -699,6 +699,15 @@ fn frame_dummy_outputs(proof_inputs: &mut SppProofInputs) -> Result<(), Transfer
                 .ok_or(TransferError::InvalidDummyOutput)
         })
         .collect::<Result<_, _>>()?;
+    // A full public withdrawal has no real private output. `finalize_inner`
+    // still gives every padded slot a length-matched random payload, so its
+    // length is the canonical fallback template; only its framing needs to be
+    // replaced below.
+    let fallback_len = proof_inputs
+        .external_data
+        .outputs
+        .iter()
+        .find_map(|encoded| encoded.data.as_ref().map(Vec::len));
     for (output, encoded) in proof_inputs
         .output_utxos
         .iter()
@@ -708,11 +717,13 @@ fn frame_dummy_outputs(proof_inputs: &mut SppProofInputs) -> Result<(), Transfer
             continue;
         }
         let in_ring = output.ring_program_id.is_some();
-        let (_, encoded_len) = templates
+        let encoded_len = templates
             .iter()
             .find(|(ring, _)| *ring == in_ring)
             .or_else(|| templates.first())
             .copied()
+            .map(|(_, len)| len)
+            .or(fallback_len)
             .ok_or(TransferError::InvalidDummyOutput)?;
         let key = ViewingKey::new().pubkey();
         let ciphertext_len = encoded_len
@@ -1211,6 +1222,53 @@ mod tests {
             )],
         )
         .expect("withdrawal accounts");
+    }
+
+    #[test]
+    fn full_withdrawal_frames_outputless_dummy_slots() {
+        let sender = ShieldedKeypair::new_ed25519().expect("sender");
+        let input = SppProofInputUtxo::new(
+            Utxo {
+                owner: sender.signing_pubkey(),
+                asset: SOL_MINT,
+                amount: 10,
+                blinding: random_blinding(),
+                ring_program_id: Some(ring().program_id()),
+                data: Data::default(),
+            },
+            &sender,
+        );
+        let recipient = Address::new_from_array([7u8; 32]);
+        let mut transfer = ConfidentialTransfer::new(
+            sender.shielded_address().expect("sender address"),
+            vec![input],
+            solana_signer::Signer::pubkey(&sender),
+        )
+        .with_compact_change()
+        .with_ring_program_id(ring().program_id());
+        transfer
+            .withdraw(
+                SOL_MINT,
+                10,
+                SettlementTarget::Sol {
+                    user_sol_account: recipient,
+                },
+            )
+            .expect("full withdrawal");
+        let assets = AssetRegistry::default();
+
+        CustomRingTransfer::new(CustomRingTransferInput {
+            ring: ring(),
+            sender: &sender,
+            prepared: transfer.prepare().expect("prepared withdrawal"),
+        })
+        .with_tree(Address::new_from_array([3u8; 32]))
+        .with_assets(&assets)
+        .with_interface_transfer_accounts(vec![TransactInterfaceTransferAccounts::Sol(
+            TransactSolTransferAccounts { recipient },
+        )])
+        .stage(ViewingKey::new().pubkey())
+        .expect("outputless custom-ring stage");
     }
 
     /// Every `AsyncRpc` method has a default, so an empty type is a valid one.
