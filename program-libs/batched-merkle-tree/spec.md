@@ -1,7 +1,7 @@
 # Batched Merkle Tree
 
-This crate maintains a height-40 indexed Merkle tree and a two-batch input
-queue. This document specifies nullifier queue insertion, batch append, and
+This crate maintains a height-40 indexed Merkle tree parametrized by its
+input queue of `N` batches (`N` = 2 in the current layout). This document specifies nullifier queue insertion, batch append, and
 nullifier-PDA cleanup. Initialization is out of scope.
 
 ## State
@@ -15,6 +15,7 @@ Let:
 | `K` | ZKP batches per queue batch: `B / Z` |
 | `c` | batch currently receiving values |
 | `p` | batch currently being appended to the tree |
+| `N` | queue batch count (`2` in the current layout) |
 | `RH` | root-history capacity, derived as `B / Z` |
 | `q` | next zero-based input-queue sequence number |
 | `w` | exclusive queue-sequence PDA-close watermark (`close_before_index`) |
@@ -22,7 +23,7 @@ Let:
 The tree is a program-derived account. It holds the queue, root history, and
 lamports used as working capital for nullifier PDAs.
 
-The queue has exactly two batches. Each batch stores `K` hash-chain
+The queue holds `N` batches. Each batch stores `K` hash-chain
 commitments, `K` cached tree updates, and:
 
 ```rust
@@ -64,7 +65,7 @@ accepted_root(i) = i < RH and root_history[i] != 0
 ```
 
 Initialization fills leaf zero and sets `q = 0`, `tree.next_index = 1`, and
-`batches[i].start_index = 1 + i * B` for `i` in `{0, 1}`. Queue sequence `x`
+`batches[i].start_index = 1 + i * B` for `0 <= i < N`. Queue sequence `x`
 reserves leaf `x + 1`. Leaves in `[tree.next_index, q + 1)` are queued but not
 yet appended to the tree.
 
@@ -115,7 +116,7 @@ The instruction also receives the writable PDA.
 
 1. Require the nullifier-tree type and canonical nullifier encoding.
 2. Require `batches[c].state == Fill`. If it is `Inserted`, reuse it first;
-   reuse resets its counters and advances `start_index` by `2 * B` without
+   reuse resets its counters and advances `start_index` by `N * B` without
    waiting for the batch's PDAs to become reclaimable. `Full` is not
    reusable.
 3. Require
@@ -138,7 +139,7 @@ The instruction also receives the writable PDA.
    increment
    `num_full_zkp_batches`, and reset `num_inserted` to zero. When
    `num_full_zkp_batches == K`, set the batch to `Full` and advance `c` modulo
-   two.
+   `N`.
 8. Increment `q` once.
 
 PDA creation and queue mutation are atomic. Failure changes neither.
@@ -215,7 +216,7 @@ The Groth16 proof establishes the height-40 indexed append from `old_root` to
 7. Clear the applied cache slot. Continue from step 4 so one call may apply
    several previously cached proofs.
 8. When all `K` ZKP batches are applied, set the queue batch to `Inserted` and
-   advance `p` modulo two.
+   advance `p` modulo `N`.
 9. On that final applied update, let `current_index` be the `p` used for the
    update (before step 8 advances it) and let:
 
