@@ -41,6 +41,7 @@ export {
   getPrivateTokenBalances,
   getPrivateTransactions,
   syncWallet,
+  type SyncClient,
   type SyncWalletConfig,
 } from "./sync.js";
 export {

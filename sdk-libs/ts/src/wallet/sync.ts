@@ -6,7 +6,7 @@ import {
 } from "@solana/kit";
 
 import { runKitRpc } from "../client/kit.js";
-import type { ZolanaClient } from "../client/client.js";
+import type { IndexerReader, KitRpcAccess } from "../client/ports.js";
 import { ClientError } from "../client/error.js";
 import {
   DEFAULT_INDEXER_POLL_CONFIG,
@@ -48,14 +48,16 @@ const addressEncoder = getAddressEncoder();
 const base64Decoder = getBase64Decoder();
 const base64Encoder = getBase64Encoder();
 
-type SyncClient = Pick<
-  ZolanaClient,
-  | "solanaRpc"
-  | "commitment"
+/** Kit access is required only when the wallet holds a mint the registry cannot resolve. */
+export interface SyncClient extends Pick<
+  IndexerReader,
   | "getEncryptedUtxosByTags"
   | "getShieldedTransactionsByNullifiers"
   | "getShieldedTransactionsByTags"
->;
+> {
+  readonly solanaRpc?: KitRpcAccess["solanaRpc"];
+  readonly commitment?: KitRpcAccess["commitment"];
+}
 
 export interface SyncWalletConfig {
   /** Stable tags and nullifiers per indexer request. Defaults to 64. */
@@ -74,7 +76,7 @@ export interface SplAssetRegistration {
 
 /** Every on-chain SPL asset registration, empty when the RPC cannot scan program accounts. */
 export async function fetchSplAssetRegistrations(
-  registryRpc: Pick<ZolanaClient, "solanaRpc" | "commitment">,
+  registryRpc: KitRpcAccess,
   context?: RequestContext,
 ): Promise<readonly SplAssetRegistration[]> {
   let accounts;
@@ -121,7 +123,7 @@ export async function fetchSplAssetRegistrations(
 
 export async function backfillAssetRegistry(
   wallet: Wallet,
-  registryRpc: Pick<ZolanaClient, "solanaRpc" | "commitment">,
+  registryRpc: KitRpcAccess,
   context?: RequestContext,
 ): Promise<number> {
   let inserted = 0;
@@ -307,7 +309,10 @@ function compareDeposits(
 }
 
 interface CollectByTagsInput {
-  readonly indexer: Pick<ZolanaClient, "getEncryptedUtxosByTags" | "getShieldedTransactionsByTags">;
+  readonly indexer: Pick<
+    IndexerReader,
+    "getEncryptedUtxosByTags" | "getShieldedTransactionsByTags"
+  >;
   readonly chunk: readonly Bytes32[];
   readonly pageLimit: number;
   readonly nextRpcConfig: () => IndexerRpcConfig;
@@ -435,7 +440,7 @@ function groupByResumePoint(
 }
 
 interface CollectByNullifiersInput {
-  readonly indexer: Pick<ZolanaClient, "getShieldedTransactionsByNullifiers">;
+  readonly indexer: Pick<IndexerReader, "getShieldedTransactionsByNullifiers">;
   readonly chunk: readonly Bytes32[];
   readonly pageLimit: number;
   readonly nextRpcConfig: () => IndexerRpcConfig;
@@ -660,9 +665,15 @@ async function runWalletSync(
 
 async function backfillSessionRegistry(
   session: WalletSyncSession,
-  registryRpc: Pick<ZolanaClient, "solanaRpc" | "commitment">,
+  client: SyncClient,
   context?: RequestContext,
 ): Promise<number> {
+  if (client.solanaRpc === undefined || client.commitment === undefined) {
+    throw new WalletError("WALLET_INVALID_SYNC_CONFIG", {
+      details: { field: client.solanaRpc === undefined ? "solanaRpc" : "commitment" },
+    });
+  }
+  const registryRpc: KitRpcAccess = { solanaRpc: client.solanaRpc, commitment: client.commitment };
   let inserted = 0;
   for (const { assetId, mint } of await fetchSplAssetRegistrations(registryRpc, context)) {
     if (ensureSessionAsset(session, assetId, mint)) inserted++;

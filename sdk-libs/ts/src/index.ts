@@ -91,6 +91,7 @@ export {
   type MergeTransactionParams,
   type PrivateTransactionParams,
   type SplitTransactionParams,
+  type SyncClient,
   type SyncWalletConfig,
   type TransactionSlots,
   type TransferDestination,
