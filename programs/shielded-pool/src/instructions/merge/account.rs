@@ -12,13 +12,13 @@ use zolana_user_registry_interface::{
 
 /// Validated accounts for `merge_transact`, in loader order: `input_tree` and
 /// `output_tree` (writable), `payer` (signer, pays fees), `user_record`
-/// (read-only), System Program, then one writable nullifier marker per input.
+/// (read-only), System Program, then one writable nullifier PDA per input.
 pub struct MergeTransactAccounts<'a> {
     pub input_tree: &'a mut AccountView,
     pub output_tree: &'a mut AccountView,
     pub payer: &'a AccountView,
     pub user_record: &'a AccountView,
-    pub nullifier_markers: ArrayVec<&'a mut AccountView, MERGE_INPUT_COUNT>,
+    pub nullifier_pdas: ArrayVec<&'a mut AccountView, MERGE_INPUT_COUNT>,
 }
 
 impl<'a> MergeTransactAccounts<'a> {
@@ -32,10 +32,10 @@ impl<'a> MergeTransactAccounts<'a> {
         if !pinocchio_system::check_id(system_program.address()) {
             return Err(ShieldedPoolError::InvalidSystemProgram.into());
         }
-        let mut nullifier_markers = ArrayVec::new();
+        let mut nullifier_pdas = ArrayVec::new();
         for _ in 0..MERGE_INPUT_COUNT {
-            nullifier_markers
-                .try_push(iter.next_mut("nullifier_marker")?)
+            nullifier_pdas
+                .try_push(iter.next_mut("nullifier_pda")?)
                 .map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
         }
         Ok(Self {
@@ -43,7 +43,7 @@ impl<'a> MergeTransactAccounts<'a> {
             output_tree,
             payer,
             user_record,
-            nullifier_markers,
+            nullifier_pdas,
         })
     }
 }

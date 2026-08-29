@@ -23,7 +23,7 @@ use super::{
 };
 use crate::instructions::{
     event::emit_general_event,
-    nullifier_marker::{create_nullifier_markers, fund_nullifier_markers},
+    nullifier_pda::{create_nullifier_pdas, fund_nullifier_pdas},
     shared::{check_not_expired, collect_forester_fee},
     transact::verify::{OwnerHashCache, TransactProof, TransactProofInputs},
 };
@@ -84,9 +84,9 @@ pub fn process_transact_ix(
     )?;
     // 8. Insert nullifiers into queue.
     let input_tree_result = apply_input_tree(transact_accounts.input_tree, &ix, &mut proof_inputs)?;
-    let marker_rent = create_nullifier_markers(
+    let nullifier_pda_rent = create_nullifier_pdas(
         transact_accounts.input_tree,
-        &mut transact_accounts.nullifier_markers,
+        &mut transact_accounts.nullifier_pdas,
         &input_tree_result.inputs,
     )?;
     // 9. Append new utxo hashes.
@@ -122,10 +122,10 @@ pub fn process_transact_ix(
         ix.inputs.len() as u64,
         input_tree_result.zkp_batch_size,
     )?;
-    fund_nullifier_markers(
+    fund_nullifier_pdas(
         transact_accounts.input_tree,
-        &mut transact_accounts.nullifier_markers,
-        &marker_rent,
+        &mut transact_accounts.nullifier_pdas,
+        &nullifier_pda_rent,
     )?;
 
     let event = build_transact_event(

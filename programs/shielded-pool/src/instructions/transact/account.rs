@@ -21,7 +21,7 @@ pub struct TransactAccounts<'a> {
     pub payer: &'a AccountView,
     pub input_tree: &'a mut AccountView,
     pub output_tree: &'a mut AccountView,
-    pub nullifier_markers: ArrayVec<&'a mut AccountView, MAX_INPUTS>,
+    pub nullifier_pdas: ArrayVec<&'a mut AccountView, MAX_INPUTS>,
     pub owner_signers: &'a [AccountView],
     pub settlements: ArrayVec<Settlement<'a>, MAX_INTERFACE_TRANSFERS>,
 }
@@ -60,10 +60,10 @@ impl<'a> TransactAccounts<'a> {
         // Check non-zero amounts and the protocol transfer bound.
         validate_interface_transfers(&ix.interface_transfers)?;
 
-        let mut nullifier_markers = ArrayVec::new();
+        let mut nullifier_pdas = ArrayVec::new();
         for _ in 0..ix.inputs.len() {
-            nullifier_markers
-                .try_push(iter.next_mut("nullifier_marker")?)
+            nullifier_pdas
+                .try_push(iter.next_mut("nullifier_pda")?)
                 .map_err(|_| ShieldedPoolError::InvalidTransactShape)?;
         }
 
@@ -167,7 +167,7 @@ impl<'a> TransactAccounts<'a> {
             payer,
             input_tree,
             output_tree,
-            nullifier_markers,
+            nullifier_pdas,
             owner_signers,
             settlements,
         }))

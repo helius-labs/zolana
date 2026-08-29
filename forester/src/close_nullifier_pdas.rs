@@ -11,7 +11,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
 use zolana_api::{BlockingZolanaApi, NullifierQueueElement, SerializablePubkey, PAGE_LIMIT};
-use zolana_interface::{instruction::CloseNullifierMarkers, pda};
+use zolana_interface::{instruction::CloseNullifierPdas, pda};
 use zolana_tree::TreeAccount;
 
 use crate::config::ForesterConfig;
@@ -19,7 +19,7 @@ use crate::config::ForesterConfig;
 pub const LEGACY_TRANSACTION_SIZE_LIMIT: usize = 1232;
 pub const MULTIPLE_ACCOUNTS_CHUNK: usize = 100;
 
-pub struct CloseMarkersOptions {
+pub struct CloseNullifierPdasOptions {
     pub tree: Pubkey,
     pub from_seq: u64,
     pub max_transactions: Option<u64>,
@@ -27,15 +27,15 @@ pub struct CloseMarkersOptions {
     pub poll_secs: u64,
 }
 
-pub struct CloseMarkersBatch {
+pub struct CloseNullifierPdasBatch {
     pub tree: Pubkey,
     pub payer: Pubkey,
     pub nullifiers: Vec<[u8; 32]>,
 }
 
-impl CloseMarkersBatch {
+impl CloseNullifierPdasBatch {
     pub fn instruction(&self) -> Instruction {
-        CloseNullifierMarkers {
+        CloseNullifierPdas {
             tree: self.tree,
             nullifiers: self.nullifiers.clone(),
         }
@@ -49,7 +49,7 @@ impl CloseMarkersBatch {
     pub fn serialized_size(&self) -> Result<usize> {
         let transaction = Transaction::new_unsigned(self.message());
         let bytes = wincode::serialize(&transaction)
-            .map_err(|err| anyhow!("serialize close-markers transaction: {err}"))?;
+            .map_err(|err| anyhow!("serialize close-nullifier-pdas transaction: {err}"))?;
         Ok(bytes.len())
     }
 
@@ -63,7 +63,7 @@ impl CloseMarkersBatch {
             .map_err(|err| anyhow!("fetch latest blockhash: {err}"))?;
         let transaction = Transaction::new(&[payer], self.message(), blockhash);
         rpc.send_and_confirm_transaction(&transaction)
-            .map_err(|err| anyhow!("close {} nullifier markers: {err}", self.nullifiers.len()))
+            .map_err(|err| anyhow!("close {} nullifier PDAs: {err}", self.nullifiers.len()))
     }
 }
 
@@ -71,15 +71,15 @@ pub fn plan_batches(
     tree: Pubkey,
     payer: Pubkey,
     nullifiers: &[[u8; 32]],
-) -> Result<Vec<CloseMarkersBatch>> {
+) -> Result<Vec<CloseNullifierPdasBatch>> {
     if nullifiers.is_empty() {
         return Ok(Vec::new());
     }
 
-    let capacity = marker_capacity(tree, payer)?;
+    let capacity = nullifier_pda_capacity(tree, payer)?;
     Ok(nullifiers
         .chunks(capacity)
-        .map(|chunk| CloseMarkersBatch {
+        .map(|chunk| CloseNullifierPdasBatch {
             tree,
             payer,
             nullifiers: chunk.to_vec(),
@@ -87,17 +87,17 @@ pub fn plan_batches(
         .collect())
 }
 
-/// Compute the worst-case marker capacity once per plan. Message size depends
+/// Compute the worst-case nullifier PDA capacity once per plan. Message size depends
 /// on the number of unique accounts, not their key bytes, so deterministic
-/// unique marker PDAs avoid re-deriving and re-serializing the growing batch
+/// unique nullifier PDA PDAs avoid re-deriving and re-serializing the growing batch
 /// for every queued nullifier.
-fn marker_capacity(tree: Pubkey, payer: Pubkey) -> Result<usize> {
+fn nullifier_pda_capacity(tree: Pubkey, payer: Pubkey) -> Result<usize> {
     let mut nullifiers = Vec::new();
     for sequence in 0..=u8::MAX as u64 {
         let mut nullifier = [0u8; 32];
         nullifier[24..].copy_from_slice(&sequence.to_be_bytes());
         nullifiers.push(nullifier);
-        let candidate = CloseMarkersBatch {
+        let candidate = CloseNullifierPdasBatch {
             tree,
             payer,
             nullifiers: nullifiers.clone(),
@@ -107,11 +107,11 @@ fn marker_capacity(tree: Pubkey, payer: Pubkey) -> Result<usize> {
         }
         let capacity = nullifiers.len().saturating_sub(1);
         if capacity == 0 {
-            bail!("a single nullifier marker does not fit in one transaction");
+            bail!("a single nullifier PDA does not fit in one transaction");
         }
         return Ok(capacity);
     }
-    bail!("legacy transaction size limit did not bound marker account count")
+    bail!("legacy transaction size limit did not bound nullifier PDA account count")
 }
 
 pub fn retain_existing<T>(
@@ -120,7 +120,7 @@ pub fn retain_existing<T>(
 ) -> Result<Vec<[u8; 32]>> {
     if nullifiers.len() != accounts.len() {
         bail!(
-            "rpc returned {} accounts for {} nullifier markers",
+            "rpc returned {} accounts for {} nullifier PDAs",
             accounts.len(),
             nullifiers.len()
         );
@@ -172,12 +172,12 @@ struct ClosePass {
     closed_before: u64,
 }
 
-pub fn run(config: &ForesterConfig, opts: CloseMarkersOptions) -> Result<()> {
+pub fn run(config: &ForesterConfig, opts: CloseNullifierPdasOptions) -> Result<()> {
     let rpc = RpcClient::new_with_commitment(config.rpc_url.clone(), CommitmentConfig::confirmed());
     let photon = BlockingZolanaApi::new(config.photon_url.clone());
     let payer = config.signer()?;
 
-    tracing::info!(tree = %opts.tree, payer = %payer.pubkey(), "forester close-markers");
+    tracing::info!(tree = %opts.tree, payer = %payer.pubkey(), "forester close-nullifier-pdas");
 
     let mut submitted_total = 0u64;
     let mut scan_from = opts.from_seq;
@@ -193,7 +193,7 @@ pub fn run(config: &ForesterConfig, opts: CloseMarkersOptions) -> Result<()> {
         let pass = match close_once(&rpc, &photon, &payer, opts.tree, scan_from, remaining) {
             Ok(pass) => pass,
             Err(error) if opts.watch => {
-                tracing::warn!(%error, scan_from, "close-markers pass failed; retrying");
+                tracing::warn!(%error, scan_from, "close-nullifier-pdas pass failed; retrying");
                 thread::sleep(Duration::from_secs(opts.poll_secs));
                 continue;
             }
@@ -210,7 +210,7 @@ pub fn run(config: &ForesterConfig, opts: CloseMarkersOptions) -> Result<()> {
         }
     }
 
-    tracing::info!(submitted_total, "forester close-markers complete");
+    tracing::info!(submitted_total, "forester close-nullifier-pdas complete");
     Ok(())
 }
 
@@ -224,7 +224,7 @@ fn close_once(
 ) -> Result<ClosePass> {
     let close_before_index = read_close_before_index(rpc, tree)?;
     if scan_from >= close_before_index {
-        tracing::info!(close_before_index, "no closable nullifier markers to close");
+        tracing::info!(close_before_index, "no closable nullifier PDAs to close");
         return Ok(ClosePass {
             submitted: 0,
             closed_before: scan_from,
@@ -247,14 +247,14 @@ fn close_once(
         .into_iter()
         .map(|element| element.value.0)
         .collect();
-    let open = retain_open_markers(rpc, tree, &candidates)?;
+    let open = retain_open_nullifier_pdas(rpc, tree, &candidates)?;
     let batches = plan_batches(tree, payer.pubkey(), &open)?;
     tracing::info!(
         close_before_index,
         candidates = candidates.len(),
         open = open.len(),
         transactions = batches.len(),
-        "planned nullifier marker cleanup"
+        "planned nullifier PDA cleanup"
     );
 
     let mut submitted = 0u64;
@@ -264,9 +264,9 @@ fn close_once(
             capped = true;
             break;
         }
-        if let Some((signature, markers)) = submit_race_tolerant(rpc, payer, batch)? {
+        if let Some((signature, nullifier_pdas)) = submit_race_tolerant(rpc, payer, batch)? {
             submitted += 1;
-            tracing::info!(%signature, markers, "closed nullifier markers");
+            tracing::info!(%signature, nullifier_pdas, "closed nullifier PDAs");
         }
     }
 
@@ -279,14 +279,14 @@ fn close_once(
 
 /// Submit a planned batch and recover from another permissionless closer
 /// winning the race. A failed transaction is retried only when a fresh account
-/// read proves that at least one planned marker disappeared; unrelated RPC or
+/// read proves that at least one planned nullifier PDA disappeared; unrelated RPC or
 /// program failures are returned unchanged.
 fn submit_race_tolerant(
     rpc: &RpcClient,
     payer: &Keypair,
-    planned: &CloseMarkersBatch,
+    planned: &CloseNullifierPdasBatch,
 ) -> Result<Option<(Signature, usize)>> {
-    let mut batch = CloseMarkersBatch {
+    let mut batch = CloseNullifierPdasBatch {
         tree: planned.tree,
         payer: planned.payer,
         nullifiers: planned.nullifiers.clone(),
@@ -295,14 +295,14 @@ fn submit_race_tolerant(
         match batch.submit(rpc, payer) {
             Ok(signature) => return Ok(Some((signature, batch.nullifiers.len()))),
             Err(submit_error) => {
-                let open = retain_open_markers(rpc, batch.tree, &batch.nullifiers)?;
+                let open = retain_open_nullifier_pdas(rpc, batch.tree, &batch.nullifiers)?;
                 if open.len() == batch.nullifiers.len() {
                     return Err(submit_error);
                 }
                 tracing::info!(
                     raced = batch.nullifiers.len() - open.len(),
                     remaining = open.len(),
-                    "another closer removed nullifier markers; replanning batch"
+                    "another closer removed nullifier PDAs; replanning batch"
                 );
                 if open.is_empty() {
                     return Ok(None);
@@ -342,7 +342,7 @@ fn fetch_queued_before(
     })
 }
 
-fn retain_open_markers(
+fn retain_open_nullifier_pdas(
     rpc: &RpcClient,
     tree: Pubkey,
     nullifiers: &[[u8; 32]],
@@ -351,11 +351,11 @@ fn retain_open_markers(
     for chunk in nullifiers.chunks(MULTIPLE_ACCOUNTS_CHUNK) {
         let addresses: Vec<Pubkey> = chunk
             .iter()
-            .map(|nullifier| pda::nullifier_marker(&tree, nullifier).0)
+            .map(|nullifier| pda::nullifier_pda(&tree, nullifier).0)
             .collect();
         let accounts = rpc
             .get_multiple_accounts(&addresses)
-            .map_err(|err| anyhow!("fetch nullifier marker accounts: {err}"))?;
+            .map_err(|err| anyhow!("fetch nullifier PDA accounts: {err}"))?;
         open.extend(retain_existing(chunk, &accounts)?);
     }
     Ok(open)

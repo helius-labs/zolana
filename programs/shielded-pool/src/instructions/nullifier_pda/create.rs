@@ -8,51 +8,51 @@ use pinocchio::{
 };
 use pinocchio_system::instructions::{Allocate, Assign};
 use zolana_interface::{
-    error::ShieldedPoolError, event::Input, NullifierMarker, NULLIFIER_MARKER_SEED,
-    NULLIFIER_MARKER_SIZE,
+    error::ShieldedPoolError, event::Input, NullifierPda, NULLIFIER_PDA_SEED, NULLIFIER_PDA_SIZE,
 };
 
-use super::loader::load_unused_nullifier_marker;
+use super::loader::load_unused_nullifier_pda;
 
-pub(crate) struct NullifierMarkerRent {
-    marker_minimum: u64,
+pub(crate) struct NullifierPdaRent {
+    nullifier_pda_minimum: u64,
     tree_minimum: u64,
 }
 
-impl NullifierMarkerRent {
-    fn missing(&self, marker: &AccountView) -> u64 {
-        self.marker_minimum.saturating_sub(marker.lamports())
+impl NullifierPdaRent {
+    fn missing(&self, nullifier_pda: &AccountView) -> u64 {
+        self.nullifier_pda_minimum
+            .saturating_sub(nullifier_pda.lamports())
     }
 
     fn tree_remaining(&self, tree: &AccountView, amount: u64) -> Result<u64, ProgramError> {
         tree.lamports()
             .checked_sub(amount)
             .filter(|remaining| *remaining >= self.tree_minimum)
-            .ok_or_else(|| ShieldedPoolError::InsufficientNullifierMarkerRent.into())
+            .ok_or_else(|| ShieldedPoolError::InsufficientNullifierPdaRent.into())
     }
 }
 
 #[inline(never)]
 #[profile]
-pub(crate) fn create_nullifier_markers(
+pub(crate) fn create_nullifier_pdas(
     tree: &AccountView,
-    markers: &mut [&mut AccountView],
+    nullifier_pdas: &mut [&mut AccountView],
     inputs: &[Input],
-) -> Result<NullifierMarkerRent, ProgramError> {
-    if markers.len() != inputs.len() {
-        return Err(ShieldedPoolError::InvalidNullifierMarker.into());
+) -> Result<NullifierPdaRent, ProgramError> {
+    if nullifier_pdas.len() != inputs.len() {
+        return Err(ShieldedPoolError::InvalidNullifierPda.into());
     }
     let rent_sysvar = Rent::get()?;
-    let rent = NullifierMarkerRent {
-        marker_minimum: rent_sysvar.try_minimum_balance(NULLIFIER_MARKER_SIZE)?,
+    let rent = NullifierPdaRent {
+        nullifier_pda_minimum: rent_sysvar.try_minimum_balance(NULLIFIER_PDA_SIZE)?,
         tree_minimum: rent_sysvar.try_minimum_balance(tree.data_len())?,
     };
     let tree_address = *tree.address().as_array();
     let mut total_missing: u64 = 0;
-    for (marker, input) in markers.iter_mut().zip(inputs) {
-        create_nullifier_marker(marker, &tree_address, input)?;
+    for (nullifier_pda, input) in nullifier_pdas.iter_mut().zip(inputs) {
+        create_nullifier_pda(nullifier_pda, &tree_address, input)?;
         total_missing = total_missing
-            .checked_add(rent.missing(marker))
+            .checked_add(rent.missing(nullifier_pda))
             .ok_or(ProgramError::ArithmeticOverflow)?;
     }
     rent.tree_remaining(tree, total_missing)?;
@@ -60,61 +60,61 @@ pub(crate) fn create_nullifier_markers(
 }
 
 #[inline(never)]
-fn create_nullifier_marker(
-    marker: &mut AccountView,
+fn create_nullifier_pda(
+    nullifier_pda: &mut AccountView,
     tree_address: &[u8; 32],
     input: &Input,
 ) -> ProgramResult {
-    let bump = load_unused_nullifier_marker(marker, tree_address, &input.nullifier)?;
+    let bump = load_unused_nullifier_pda(nullifier_pda, tree_address, &input.nullifier)?;
     let bump_seed = [bump];
     let seeds = [
-        Seed::from(NULLIFIER_MARKER_SEED),
+        Seed::from(NULLIFIER_PDA_SEED),
         Seed::from(tree_address.as_ref()),
         Seed::from(input.nullifier.as_ref()),
         Seed::from(bump_seed.as_ref()),
     ];
     Allocate {
-        account: marker,
-        space: NULLIFIER_MARKER_SIZE as u64,
+        account: nullifier_pda,
+        space: NULLIFIER_PDA_SIZE as u64,
     }
     .invoke_signed(&[Signer::from(&seeds)])?;
     Assign {
-        account: marker,
+        account: nullifier_pda,
         owner: &crate::ID,
     }
     .invoke_signed(&[Signer::from(&seeds)])?;
 
-    let mut data = marker
+    let mut data = nullifier_pda
         .try_borrow_mut()
-        .map_err(|_| ShieldedPoolError::InvalidNullifierMarker)?;
+        .map_err(|_| ShieldedPoolError::InvalidNullifierPda)?;
     let mut writer: &mut [u8] = &mut data;
-    NullifierMarker {
+    NullifierPda {
         queue_index: input.input_queue_seq,
         bump,
     }
     .serialize(&mut writer)
-    .map_err(|_| ShieldedPoolError::InvalidNullifierMarker.into())
+    .map_err(|_| ShieldedPoolError::InvalidNullifierPda.into())
 }
 
 #[inline(never)]
 #[profile]
-pub(crate) fn fund_nullifier_markers(
+pub(crate) fn fund_nullifier_pdas(
     tree: &mut AccountView,
-    markers: &mut [&mut AccountView],
-    rent: &NullifierMarkerRent,
+    nullifier_pdas: &mut [&mut AccountView],
+    rent: &NullifierPdaRent,
 ) -> ProgramResult {
-    for marker in markers.iter_mut() {
-        let missing = rent.missing(marker);
+    for nullifier_pda in nullifier_pdas.iter_mut() {
+        let missing = rent.missing(nullifier_pda);
         if missing == 0 {
             continue;
         }
         let tree_remaining = rent.tree_remaining(tree, missing)?;
-        let marker_balance = marker
+        let nullifier_pda_balance = nullifier_pda
             .lamports()
             .checked_add(missing)
             .ok_or(ProgramError::ArithmeticOverflow)?;
         tree.set_lamports(tree_remaining);
-        marker.set_lamports(marker_balance);
+        nullifier_pda.set_lamports(nullifier_pda_balance);
     }
     Ok(())
 }

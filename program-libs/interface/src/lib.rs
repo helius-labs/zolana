@@ -7,7 +7,7 @@ pub mod shape;
 pub mod state;
 pub mod verifying_keys;
 
-pub use state::{NullifierMarker, NULLIFIER_MARKER_SEED, NULLIFIER_MARKER_SIZE};
+pub use state::{NullifierPda, NULLIFIER_PDA_SEED, NULLIFIER_PDA_SIZE};
 pub use zolana_hasher::p256::{P_CONST_SEC1, P_DERIVE_SEC1, P_PDA_SEC1};
 
 /// Decode a base58 program id into a `[u8; 32]` const at compile time.

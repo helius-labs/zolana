@@ -1,7 +1,7 @@
 use solana_pubkey::{Pubkey, PubkeyError};
 
 use crate::{
-    ASSOCIATED_TOKEN_PROGRAM_ID, DEFAULT_SOL_INTERFACE_INDEX_SEED, NULLIFIER_MARKER_SEED,
+    ASSOCIATED_TOKEN_PROGRAM_ID, DEFAULT_SOL_INTERFACE_INDEX_SEED, NULLIFIER_PDA_SEED,
     RING_AUTH_PDA_SEED, SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID,
     SOL_INTERFACE_PDA_SEED, SPL_ASSET_COUNTER_PDA_SEED, SPL_ASSET_REGISTRY_PDA_SEED,
     SPL_INTERFACE_PDA_SEED, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
@@ -107,9 +107,9 @@ pub fn ring_auth_with_bump(ring_program: &Pubkey, bump: u8) -> Result<Pubkey, Pu
     Pubkey::create_program_address(&[RING_AUTH_PDA_SEED, bump.as_slice()], ring_program)
 }
 
-pub fn nullifier_marker(tree: &Pubkey, nullifier: &[u8; 32]) -> (Pubkey, u8) {
+pub fn nullifier_pda(tree: &Pubkey, nullifier: &[u8; 32]) -> (Pubkey, u8) {
     Pubkey::find_program_address(
-        &[NULLIFIER_MARKER_SEED, tree.as_ref(), nullifier],
+        &[NULLIFIER_PDA_SEED, tree.as_ref(), nullifier],
         &shielded_pool_program_id(),
     )
 }
@@ -118,31 +118,31 @@ pub fn nullifier_marker(tree: &Pubkey, nullifier: &[u8; 32]) -> (Pubkey, u8) {
 mod tests {
     use solana_pubkey::Pubkey;
 
-    use crate::{NULLIFIER_MARKER_SEED, SOL_INTERFACE};
+    use crate::{NULLIFIER_PDA_SEED, SOL_INTERFACE};
 
     #[test]
-    fn nullifier_marker_bump_recreates_address() {
+    fn nullifier_pda_bump_recreates_address() {
         let tree = Pubkey::new_unique();
         let nullifier = [7u8; 32];
-        let (address, bump) = super::nullifier_marker(&tree, &nullifier);
+        let (address, bump) = super::nullifier_pda(&tree, &nullifier);
         let recreated = Pubkey::create_program_address(
-            &[NULLIFIER_MARKER_SEED, tree.as_ref(), &nullifier, &[bump]],
+            &[NULLIFIER_PDA_SEED, tree.as_ref(), &nullifier, &[bump]],
             &super::shielded_pool_program_id(),
         )
         .expect("canonical bump is on the curve complement");
         assert_eq!(recreated, address);
         assert_ne!(
-            super::nullifier_marker(&Pubkey::new_unique(), &nullifier).0,
+            super::nullifier_pda(&Pubkey::new_unique(), &nullifier).0,
             address
         );
-        assert_ne!(super::nullifier_marker(&tree, &[8u8; 32]).0, address);
+        assert_ne!(super::nullifier_pda(&tree, &[8u8; 32]).0, address);
     }
 
     #[test]
-    fn nullifier_marker_matches_typescript_vector() {
+    fn nullifier_pda_matches_typescript_vector() {
         let tree = Pubkey::from_str_const("2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr");
         let expected = Pubkey::from_str_const("FketprhoGrMJG7tu9XaXEXhm4vCqzEubwMPFm874xtMm");
-        assert_eq!(super::nullifier_marker(&tree, &[7u8; 32]), (expected, 252));
+        assert_eq!(super::nullifier_pda(&tree, &[7u8; 32]), (expected, 252));
     }
 
     #[test]

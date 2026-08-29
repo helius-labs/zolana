@@ -3,21 +3,20 @@ use solana_account::Account;
 use solana_pubkey::Pubkey;
 use zolana_client::{ClientError, Rpc};
 use zolana_interface::{
-    pda, state::forester_fee_per_queue_element, NullifierMarker, NULLIFIER_MARKER_SIZE,
-    PROGRAM_ID_PUBKEY,
+    pda, state::forester_fee_per_queue_element, NullifierPda, NULLIFIER_PDA_SIZE, PROGRAM_ID_PUBKEY,
 };
 use zolana_tree::TreeAccount;
 
 use crate::test_validator_asserts::{fetch_account, fetch_optional_account};
 
-pub fn nullifier_marker_rent<R: Rpc>(rpc: &R) -> Result<u64, ClientError> {
-    rpc.get_minimum_balance_for_rent_exemption(NULLIFIER_MARKER_SIZE)
+pub fn nullifier_pda_rent<R: Rpc>(rpc: &R) -> Result<u64, ClientError> {
+    rpc.get_minimum_balance_for_rent_exemption(NULLIFIER_PDA_SIZE)
 }
 
-pub fn marker_addresses(tree: &Pubkey, nullifiers: &[[u8; 32]]) -> Vec<Pubkey> {
+pub fn nullifier_pda_addresses(tree: &Pubkey, nullifiers: &[[u8; 32]]) -> Vec<Pubkey> {
     nullifiers
         .iter()
-        .map(|nullifier| pda::nullifier_marker(tree, nullifier).0)
+        .map(|nullifier| pda::nullifier_pda(tree, nullifier).0)
         .collect()
 }
 
@@ -65,9 +64,9 @@ pub fn expected_tree_lamports_after_spend(
     tree_lamports_before: u64,
     forester_fee: u64,
     num_inputs: u64,
-    marker_rent: u64,
+    nullifier_pda_rent: u64,
 ) -> u64 {
-    tree_lamports_before + forester_fee - num_inputs * marker_rent
+    tree_lamports_before + forester_fee - num_inputs * nullifier_pda_rent
 }
 
 #[track_caller]
@@ -77,14 +76,14 @@ pub fn assert_tree_lamports_after_spend<R: Rpc>(
     tree_before: &Account,
     num_inputs: u64,
 ) -> Result<Account, ClientError> {
-    let marker_rent = nullifier_marker_rent(rpc)?;
+    let nullifier_pda_rent = nullifier_pda_rent(rpc)?;
     let forester_fee = forester_fee_for_inputs(tree_before, tree, num_inputs)?;
     let tree_after = fetch_account(rpc, tree)?;
     let expected_lamports = expected_tree_lamports_after_spend(
         tree_before.lamports,
         forester_fee,
         num_inputs,
-        marker_rent,
+        nullifier_pda_rent,
     );
     assert_eq!(
         (
@@ -99,93 +98,102 @@ pub fn assert_tree_lamports_after_spend<R: Rpc>(
             tree_before.data.len(),
             tree_before.executable,
         ),
-        "tree collects the forester fee and funds one marker per input"
+        "tree collects the forester fee and funds one nullifier PDA per input"
     );
     Ok(tree_after)
 }
 
 #[track_caller]
-pub fn decode_nullifier_marker(
+pub fn decode_nullifier_pda(
     tree: &Pubkey,
     nullifier: &[u8; 32],
-    marker: &Pubkey,
+    nullifier_pda: &Pubkey,
     account: &Account,
-    marker_rent: u64,
-) -> NullifierMarker {
-    let (expected_marker, bump) = pda::nullifier_marker(tree, nullifier);
-    assert_eq!(*marker, expected_marker, "nullifier marker address");
-    let decoded = NullifierMarker::try_from_slice(&account.data)
-        .unwrap_or_else(|error| panic!("decode nullifier marker {marker}: {error}"));
-    let expected_marker = NullifierMarker {
+    nullifier_pda_rent: u64,
+) -> NullifierPda {
+    let (expected_nullifier_pda, bump) = pda::nullifier_pda(tree, nullifier);
+    assert_eq!(
+        *nullifier_pda, expected_nullifier_pda,
+        "nullifier PDA address"
+    );
+    let decoded = NullifierPda::try_from_slice(&account.data)
+        .unwrap_or_else(|error| panic!("decode nullifier PDA {nullifier_pda}: {error}"));
+    let expected_nullifier_pda = NullifierPda {
         queue_index: decoded.queue_index,
         bump,
     };
     let expected_account = Account {
-        lamports: marker_rent,
-        data: borsh::to_vec(&expected_marker).expect("serialize expected marker"),
+        lamports: nullifier_pda_rent,
+        data: borsh::to_vec(&expected_nullifier_pda).expect("serialize expected nullifier PDA"),
         owner: PROGRAM_ID_PUBKEY,
         executable: false,
         rent_epoch: account.rent_epoch,
     };
     assert_eq!(
         account, &expected_account,
-        "nullifier marker {marker} account"
+        "nullifier PDA {nullifier_pda} account"
     );
     decoded
 }
 
 #[track_caller]
-pub fn assert_nullifier_marker<R: Rpc>(
+pub fn assert_nullifier_pda<R: Rpc>(
     rpc: &R,
     tree: &Pubkey,
     nullifier: &[u8; 32],
     expected_queue_index: u64,
 ) -> Result<Pubkey, ClientError> {
-    let marker_rent = nullifier_marker_rent(rpc)?;
-    let (marker, _) = pda::nullifier_marker(tree, nullifier);
-    let account = fetch_account(rpc, &marker)?;
-    let decoded = decode_nullifier_marker(tree, nullifier, &marker, &account, marker_rent);
+    let nullifier_pda_rent = nullifier_pda_rent(rpc)?;
+    let (nullifier_pda, _) = pda::nullifier_pda(tree, nullifier);
+    let account = fetch_account(rpc, &nullifier_pda)?;
+    let decoded = decode_nullifier_pda(
+        tree,
+        nullifier,
+        &nullifier_pda,
+        &account,
+        nullifier_pda_rent,
+    );
     assert_eq!(
         decoded.queue_index, expected_queue_index,
-        "nullifier marker {marker} queue index"
+        "nullifier PDA {nullifier_pda} queue index"
     );
-    Ok(marker)
+    Ok(nullifier_pda)
 }
 
 #[track_caller]
-pub fn assert_nullifier_markers<R: Rpc>(
+pub fn assert_nullifier_pdas<R: Rpc>(
     rpc: &R,
     tree: &Pubkey,
     nullifiers: &[[u8; 32]],
-) -> Result<Vec<NullifierMarker>, ClientError> {
-    let marker_rent = nullifier_marker_rent(rpc)?;
+) -> Result<Vec<NullifierPda>, ClientError> {
+    let nullifier_pda_rent = nullifier_pda_rent(rpc)?;
     nullifiers
         .iter()
-        .zip(marker_addresses(tree, nullifiers))
-        .map(|(nullifier, marker)| {
-            let account = fetch_account(rpc, &marker)?;
-            Ok(decode_nullifier_marker(
+        .zip(nullifier_pda_addresses(tree, nullifiers))
+        .map(|(nullifier, nullifier_pda)| {
+            let account = fetch_account(rpc, &nullifier_pda)?;
+            Ok(decode_nullifier_pda(
                 tree,
                 nullifier,
-                &marker,
+                &nullifier_pda,
                 &account,
-                marker_rent,
+                nullifier_pda_rent,
             ))
         })
         .collect()
 }
 
 #[track_caller]
-pub fn assert_nullifier_markers_absent<R: Rpc>(
+pub fn assert_nullifier_pdas_absent<R: Rpc>(
     rpc: &R,
     tree: &Pubkey,
     nullifiers: &[[u8; 32]],
 ) -> Result<(), ClientError> {
-    for marker in marker_addresses(tree, nullifiers) {
-        let account = fetch_optional_account(rpc, &marker)?;
+    for nullifier_pda in nullifier_pda_addresses(tree, nullifiers) {
+        let account = fetch_optional_account(rpc, &nullifier_pda)?;
         assert!(
             account.is_none_or(|account| account.lamports == 0),
-            "nullifier marker {marker} must not exist"
+            "nullifier PDA {nullifier_pda} must not exist"
         );
     }
     Ok(())

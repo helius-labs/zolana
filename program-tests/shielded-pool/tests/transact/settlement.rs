@@ -137,7 +137,7 @@ fn sol_withdrawal_rejects_a_non_canonical_sol_interface() {
     }
     .instruction();
     // Swap the canonical SOL-custody PDA (first group account, right after the
-    // nullifier markers) for an attacker account.
+    // nullifier PDAs) for an attacker account.
     ix.accounts
         .get_mut(sol_interface_index)
         .expect("sol_interface meta")
@@ -306,7 +306,7 @@ fn spl_withdrawal_rejects_a_wrong_cpi_authority_account() {
     }
     .instruction();
     // The withdrawal group's cpi_authority is the first group account, right
-    // after the nullifier markers.
+    // after the nullifier PDAs.
     ix.accounts
         .get_mut(cpi_authority_index)
         .expect("cpi_authority meta")

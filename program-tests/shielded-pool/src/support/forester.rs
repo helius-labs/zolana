@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context, Result};
-use forester::close_markers::plan_batches;
+use forester::close_nullifier_pdas::plan_batches;
 use num_bigint::BigUint;
 use solana_address::Address;
 use solana_keypair::Keypair;
@@ -70,7 +70,7 @@ impl NullifierTestForester {
         Ok(signature)
     }
 
-    pub fn close_markers(
+    pub fn close_nullifier_pdas(
         &self,
         rpc: &mut SolanaRpc,
         payer: &Keypair,

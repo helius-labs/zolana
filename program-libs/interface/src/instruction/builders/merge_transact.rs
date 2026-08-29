@@ -2,14 +2,14 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
 use crate::{
-    instruction::{builders::transact::nullifier_marker_accounts, tag, MergeTransactIxData},
+    instruction::{builders::transact::nullifier_pda_accounts, tag, MergeTransactIxData},
     PROGRAM_ID_PUBKEY,
 };
 
 /// Builder for the `merge_transact` instruction. The account layout mirrors the
 /// program loader (`MergeTransactAccounts::validate_and_parse`):
 /// `input_tree` and `output_tree` (writable), `payer` (signer, writable),
-/// `user_record` (read-only), the System Program, one writable nullifier marker
+/// `user_record` (read-only), the System Program, one writable nullifier PDA
 /// per `nullifiers` entry, and the program account last for the `emit_event`
 /// self-CPI.
 pub struct MergeTransact {
@@ -37,7 +37,7 @@ impl MergeTransact {
             AccountMeta::new_readonly(self.user_record, false),
             AccountMeta::new_readonly(Pubkey::default(), false),
         ];
-        accounts.extend(nullifier_marker_accounts(
+        accounts.extend(nullifier_pda_accounts(
             &self.input_tree,
             self.data.nullifiers.iter(),
         ));

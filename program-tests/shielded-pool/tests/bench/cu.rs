@@ -23,7 +23,7 @@ use zolana_interface::{
         TransactSolTransferAccounts,
     },
     state::{address_tree_params, tree_account_size, tree_working_capital_lamports},
-    NULLIFIER_MARKER_SIZE, PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
+    NULLIFIER_PDA_SIZE, PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair};
 use zolana_merkle_tree::MerkleTree;
@@ -32,7 +32,7 @@ use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_
 
 use shielded_pool_tests::support::{fixtures::Pool, mollusk, transact::tree_roots};
 use zolana_test_utils::{
-    nullifier_marker::marker_addresses,
+    nullifier_pda::nullifier_pda_addresses,
     prover::spawn_workspace_prover,
     transact::{
         build_spl_withdrawal, build_transfer_prover_inputs, dummy_input, dummy_transfer_output,
@@ -264,7 +264,7 @@ fn bench_fixture(
 // program account (self-CPI `emit_event`), the system program, and the SPL Token
 // program to their mollusk fixtures while snapshotting all PDAs/data accounts
 // from the litesvm pre-instruction state the proof is bound to. Nullifier
-// markers do not exist before the spend: they are materialized as empty,
+// nullifier PDAs do not exist before the spend: they are materialized as empty,
 // System-owned, zero-lamport accounts the program creates and funds from the
 // input tree's working capital.
 fn transact_accounts(
@@ -282,14 +282,14 @@ fn transact_accounts(
         .iter()
         .map(|input| input.nullifier_hash)
         .collect();
-    let markers = marker_addresses(&input_tree, &nullifiers);
+    let nullifier_pdas = nullifier_pda_addresses(&input_tree, &nullifiers);
     let tree_rent = pt
         .svm
         .minimum_balance_for_rent_exemption(tree_account_size());
-    let marker_rent = pt
+    let nullifier_pda_rent = pt
         .svm
-        .minimum_balance_for_rent_exemption(NULLIFIER_MARKER_SIZE);
-    let working_capital = tree_working_capital_lamports(&address_tree_params(), marker_rent)
+        .minimum_balance_for_rent_exemption(NULLIFIER_PDA_SIZE);
+    let working_capital = tree_working_capital_lamports(&address_tree_params(), nullifier_pda_rent)
         .expect("tree working capital fits in u64");
     let mut accounts = Vec::with_capacity(ix.accounts.len());
     for meta in &ix.accounts {
@@ -297,7 +297,7 @@ fn transact_accounts(
             accounts.push(mollusk_program_account(program_id));
         } else if meta.pubkey == Pubkey::default() {
             accounts.push(mollusk_svm::program::keyed_account_for_system_program());
-        } else if markers.contains(&meta.pubkey) {
+        } else if nullifier_pdas.contains(&meta.pubkey) {
             accounts.push((
                 to_mollusk_pubkey(&meta.pubkey),
                 Account {
@@ -312,7 +312,7 @@ fn transact_accounts(
             let tree = snapshot_account(pt, &meta.pubkey);
             assert!(
                 tree.1.lamports >= tree_rent + working_capital,
-                "input tree fixture must hold marker working capital"
+                "input tree fixture must hold nullifier PDA working capital"
             );
             accounts.push(tree);
         } else if meta.pubkey == token_program {

@@ -1,15 +1,15 @@
 # Tree Invariants
 
 Covers `CreateTree` (tag 2), `BatchUpdateNullifierTree` (tag 4), `PauseTree` (tag 3),
-`CloseNullifierMarkers` (tag 18), and the nullifier-marker accounts the transact
+`CloseNullifierPdas` (tag 18), and the nullifier-PDA accounts the transact
 family creates while queueing nullifiers. Shared invariants (pause semantics across
 write paths, rollback) live in `cross-cutting.md`.
 
-Convention deviations confirmed for the marker design (`program-libs/batched-merkle-tree/spec.md`):
-`close_nullifier_markers` is permissionless, takes no fee payer, and returns marker rent
-to the tree (a caller-chosen `rent_recipient` would drain the tree's marker working
-capital); the marker payload is a discriminator-less 9-byte Borsh
-`NullifierMarker { queue_index, bump }`; a duplicate pending nullifier surfaces as
+Convention deviations confirmed for the PDA design (`program-libs/batched-merkle-tree/spec.md`):
+`close_nullifier_pdas` is permissionless, takes no fee payer, and returns PDA rent
+to the tree (a caller-chosen `rent_recipient` would drain the tree's PDA working
+capital); the PDA payload is a discriminator-less 9-byte Borsh
+`NullifierPda { queue_index, bump }`; a duplicate pending nullifier surfaces as
 `ShieldedPoolError::NullifierAlreadyQueued = 7048`.
 
 SPEC_DIVERGENCE (resolved 2026-07-23): the spec previously stated UTXO tree height 26
@@ -250,142 +250,142 @@ now states H=32 and lists tag 4.
   - Severity: High
   - Suggested test: positive; harness: mollusk unit (full data compare)
 
-## Nullifier Markers (Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact)
+## Nullifier PDAs (Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact)
 
-Every transact-family instruction takes one writable marker PDA
+Every transact-family instruction takes one writable PDA
 (`["nullifier", tree, nullifier]`) per input right after its fixed account prefix
-and creates it while queueing the nullifier. The marker replaces the bloom filter as
-the pending non-inclusion check. Hermetic tests reach marker creation without a
-prover because nullifiers are queued and markers created before proof verification;
-the proof-backed binary `nullifier_markers_proof` covers the success path.
+and creates it while queueing the nullifier. The PDA replaces the bloom filter as
+the pending non-inclusion check. Hermetic tests reach PDA creation without a
+prover because nullifiers are queued and PDAs created before proof verification;
+the proof-backed binary `nullifier_pdas_proof` covers the success path.
 
 ### Success Postconditions
 
-- [x] **INV-TRANSACT-46: one marker per input, stamped with its queue index and canonical bump**
-  - Covered by: `program-tests/shielded-pool/tests/nullifier/markers_proof.rs` `transact_creates_one_marker_per_input` (exact `queue_index = q_before + i`, bump, owner, 9 bytes, rent), `program-tests/shielded-pool/tests/transact/functional.rs` `transact_sends_valid_proof`; localnet: `tests/localnet/photon/forester.rs` `nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer` (`queue_nullifiers_once` asserts both markers after every queue transaction)
+- [x] **INV-TRANSACT-46: one PDA per input, stamped with its queue index and canonical bump**
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas_proof.rs` `transact_creates_one_nullifier_pda_per_input` (exact `queue_index = q_before + i`, bump, owner, 9 bytes, rent), `program-tests/shielded-pool/tests/transact/functional.rs` `transact_sends_valid_proof`; localnet: `tests/localnet/photon/forester.rs` `nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer` (`queue_nullifiers_once` asserts both PDAs after every queue transaction)
   - Kind: postcondition
-  - Statement: after a successful transact-family instruction with `n` inputs, for every input `i` the account at `PDA(["nullifier", input_tree, nullifier_i])` is owned by the program, is exactly `NULLIFIER_MARKER_SIZE` (9) bytes, decodes to `NullifierMarker { queue_index, bump }` with `queue_index` equal to the queue sequence the insert reserved (`input.input_queue_seq`, the pre-transaction `queue_batches.next_index + i`) and `bump` the canonical bump, and holds at least `Rent::minimum_balance(9)` lamports (exactly that amount unless it was prefunded above it).
-  - Location: `programs/shielded-pool/src/instructions/nullifier_marker/create.rs:24-99` (`fn create_nullifier_markers`, `fn create_nullifier_marker`), `transact/processor.rs:87-91`, `merge/processor.rs:123-127`
-  - Severity: Critical (marker is the only pending double-spend guard)
+  - Statement: after a successful transact-family instruction with `n` inputs, for every input `i` the account at `PDA(["nullifier", input_tree, nullifier_i])` is owned by the program, is exactly `NULLIFIER_PDA_SIZE` (9) bytes, decodes to `NullifierPda { queue_index, bump }` with `queue_index` equal to the queue sequence the insert reserved (`input.input_queue_seq`, the pre-transaction `queue_batches.next_index + i`) and `bump` the canonical bump, and holds at least `Rent::minimum_balance(9)` lamports (exactly that amount unless it was prefunded above it).
+  - Location: `programs/shielded-pool/src/instructions/nullifier_pda/create.rs:24-99` (`fn create_nullifier_pdas`, `fn create_nullifier_pda`), `transact/processor.rs:87-91`, `merge/processor.rs:123-127`
+  - Severity: Critical (PDA is the only pending double-spend guard)
   - Suggested test: positive; harness: program-tests integration (proofs tier)
 
-- [x] **INV-TRANSACT-49: the tree funds only the missing marker rent and never drops below its own rent floor**
-  - Covered by: `program-tests/shielded-pool/tests/nullifier/markers.rs` `transact_rejects_a_tree_short_of_marker_rent` (bare rent and `rent + 2 * marker_rent - 1` both rejected, no marker survives), `program-tests/shielded-pool/tests/nullifier/markers_proof.rs` `transact_tops_up_prefunded_markers` (underfunded marker topped up to exactly its rent, overfunded marker keeps its surplus, tree debited only the missing rent), `transact_creates_one_marker_per_input` (`assert_tree_lamports_after_spend`: tree delta is exactly `forester_fee - n * marker_rent`)
+- [x] **INV-TRANSACT-49: the tree funds only the missing PDA rent and never drops below its own rent floor**
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `transact_rejects_a_tree_short_of_nullifier_pda_rent` (bare rent and `rent + 2 * nullifier_pda_rent - 1` both rejected, no PDA survives), `program-tests/shielded-pool/tests/nullifier/nullifier_pdas_proof.rs` `transact_tops_up_prefunded_nullifier_pdas` (underfunded PDA topped up to exactly its rent, overfunded PDA keeps its surplus, tree debited only the missing rent), `transact_creates_one_nullifier_pda_per_input` (`assert_tree_lamports_after_spend`: tree delta is exactly `forester_fee - n * nullifier_pda_rent`)
   - Kind: postcondition + precondition
-  - Statement: for every created marker the tree's lamports decrease by exactly `max(0, Rent::minimum_balance(9) - marker_lamports_before)`; if that debit would leave the tree below `Rent::minimum_balance(tree.data_len())` the instruction returns Err and no marker is created. A marker prefunded above its rent keeps the surplus and costs the tree nothing.
-  - Location: `programs/shielded-pool/src/instructions/nullifier_marker/create.rs:84-99`
-  - Error: `ShieldedPoolError::InsufficientNullifierMarkerRent = 7049`
+  - Statement: for every created PDA the tree's lamports decrease by exactly `max(0, Rent::minimum_balance(9) - nullifier_pda_lamports_before)`; if that debit would leave the tree below `Rent::minimum_balance(tree.data_len())` the instruction returns Err and no PDA is created. A PDA prefunded above its rent keeps the surplus and costs the tree nothing.
+  - Location: `programs/shielded-pool/src/instructions/nullifier_pda/create.rs:84-99`
+  - Error: `ShieldedPoolError::InsufficientNullifierPdaRent = 7049`
   - Severity: High (tree-fund drainage, liveness once working capital is exhausted)
   - Suggested test: positive + negative boundary; harness: program-tests integration
 
 ### Preconditions
 
-- [x] **INV-TRANSACT-47: a nullifier with a live marker cannot be queued again**
-  - Covered by: `program-tests/shielded-pool/tests/nullifier/markers.rs` `transact_rejects_a_pending_nullifier` (marker from an earlier queueing, fixture-written), `transact_rejects_the_same_nullifier_twice_in_one_instruction`; `program-tests/shielded-pool/tests/nullifier/markers_proof.rs` `transact_rejects_a_nullifier_queued_by_an_earlier_transaction` (real first spend, replay rejected, first marker unchanged); `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_a_duplicate_nullifier_within_one_instruction`
+- [x] **INV-TRANSACT-47: a nullifier with a live PDA cannot be queued again**
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `transact_rejects_a_pending_nullifier` (PDA from an earlier queueing, fixture-written), `transact_rejects_the_same_nullifier_twice_in_one_instruction`; `program-tests/shielded-pool/tests/nullifier/nullifier_pdas_proof.rs` `transact_rejects_a_nullifier_queued_by_an_earlier_transaction` (real first spend, replay rejected, first PDA unchanged); `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_a_duplicate_nullifier_within_one_instruction`
   - Kind: precondition (state: pending non-inclusion)
-  - Statement: marker creation requires the marker account to be System-owned with zero data; an account at the canonical marker address that is program-owned or non-empty (a marker created by an earlier transaction, or by an earlier input of the same instruction) makes the instruction return Err. Together with the Merkle non-inclusion proof this gives INV-XC-10 (at most one successful queue insertion per nullifier); the pending half now surfaces as 7048 instead of 7002.
-  - Location: `programs/shielded-pool/src/instructions/nullifier_marker/loader.rs:10-28` (`fn load_unused_nullifier_marker`)
+  - Statement: PDA creation requires the PDA account to be System-owned with zero data; an account at the canonical PDA address that is program-owned or non-empty (a PDA created by an earlier transaction, or by an earlier input of the same instruction) makes the instruction return Err. Together with the Merkle non-inclusion proof this gives INV-XC-10 (at most one successful queue insertion per nullifier); the pending half now surfaces as 7048 instead of 7002.
+  - Location: `programs/shielded-pool/src/instructions/nullifier_pda/loader.rs:10-28` (`fn load_unused_nullifier_pda`)
   - Error: `ShieldedPoolError::NullifierAlreadyQueued = 7048`
   - Severity: Critical (double-spend)
   - Suggested test: negative (across transactions and within one instruction); harness: program-tests integration
 
-- [x] **INV-TRANSACT-48: every marker slot must hold the canonical, writable marker PDA**
-  - Covered by: `program-tests/shielded-pool/tests/nullifier/markers.rs` `transact_rejects_swapped_nullifier_markers` (7051), `transact_rejects_a_foreign_account_in_a_marker_slot` (7051), `transact_rejects_a_read_only_nullifier_marker` (account-checks `AccountNotMutable` = 20002), `transact_rejects_missing_nullifier_marker_accounts` (account-checks `NotEnoughAccountKeys` = 20014)
+- [x] **INV-TRANSACT-48: every PDA slot must hold the canonical, writable PDA**
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `transact_rejects_swapped_nullifier_pdas` (7051), `transact_rejects_a_foreign_account_in_a_nullifier_pda_slot` (7051), `transact_rejects_a_read_only_nullifier_pda` (account-checks `AccountNotMutable` = 20002), `transact_rejects_missing_nullifier_pda_accounts` (account-checks `NotEnoughAccountKeys` = 20014)
   - Kind: precondition
-  - Statement: the `n` accounts following the fixed prefix (after `system_program`, or after `ring_config` on the ring rails) are consumed as writable markers in input order; a missing account, a read-only meta, or an address that is not `find_program_address(["nullifier", input_tree, nullifier_i])` makes the instruction return Err. Marker accounts are trusted only through this derivation, never through their position.
-  - Location: `programs/shielded-pool/src/instructions/transact/account.rs` (`nullifier_markers` via `next_mut("nullifier_marker")`), `nullifier_marker/loader.rs:15-23` (`verify_pda`)
-  - Error: `ShieldedPoolError::InvalidNullifierMarker = 7051` / account-checks 20002 / 20014
+  - Statement: the `n` accounts following the fixed prefix (after `system_program`, or after `ring_config` on the ring rails) are consumed as writable PDAs in input order; a missing account, a read-only meta, or an address that is not `find_program_address(["nullifier", input_tree, nullifier_i])` makes the instruction return Err. PDA accounts are trusted only through this derivation, never through their position.
+  - Location: `programs/shielded-pool/src/instructions/transact/account.rs` (`nullifier_pdas` via `next_mut("nullifier_pda")`), `nullifier_pda/loader.rs:15-23` (`verify_pda`)
+  - Error: `ShieldedPoolError::InvalidNullifierPda = 7051` / account-checks 20002 / 20014
   - Severity: High
   - Suggested test: negative; harness: program-tests integration
 
 ### Rollback
 
-- [x] **INV-TRANSACT-50: a rejected instruction leaves no marker behind**
-  - Covered by: every rejection test in `program-tests/shielded-pool/tests/nullifier/markers.rs` (`expect_transact_rejection`: `assert_rolled_back_except(payer)` plus a full tree-account compare, and `assert_nullifier_markers_absent` where markers would have been created), `markers_proof.rs` `transact_rejects_a_nullifier_queued_by_an_earlier_transaction`
+- [x] **INV-TRANSACT-50: a rejected instruction leaves no PDA behind**
+  - Covered by: every rejection test in `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` (`expect_transact_rejection`: `assert_rolled_back_except(payer)` plus a full tree-account compare, and `assert_nullifier_pdas_absent` where PDAs would have been created), `nullifier_pdas_proof.rs` `transact_rejects_a_nullifier_queued_by_an_earlier_transaction`
   - Kind: rollback
-  - Statement: when a transact-family instruction returns Err for any reason (marker gate, rent, or a later proof failure), no marker account exists afterwards that did not exist before, existing markers are unchanged, and the tree's lamports and data are unchanged; only the fee payer's balance moves.
-  - Location: runtime rollback; marker creation order in `transact/processor.rs:83-91`, `merge/processor.rs:105-127`
+  - Statement: when a transact-family instruction returns Err for any reason (PDA gate, rent, or a later proof failure), no PDA account exists afterwards that did not exist before, existing PDAs are unchanged, and the tree's lamports and data are unchanged; only the fee payer's balance moves.
+  - Location: runtime rollback; PDA creation order in `transact/processor.rs:83-91`, `merge/processor.rs:105-127`
   - Severity: Critical
   - Suggested test: negative; harness: program-tests integration
 
-## CloseNullifierMarkers
+## CloseNullifierPdas
 
 ### Authorization
 
-- [x] **INV-CLOSE-MARKER-01: closing markers below the reclaim watermark is permissionless**
-  - Covered by: `program-tests/shielded-pool/tests/nullifier/markers.rs` `close_returns_marker_rent_to_the_tree`, `close_honours_the_watermark_boundary` (the transaction fee payer is the unrelated test payer; the instruction takes no signer)
+- [x] **INV-CLOSE-PDA-01: closing PDAs below the reclaim watermark is permissionless**
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `close_returns_nullifier_pda_rent_to_the_tree`, `close_honours_the_watermark_boundary` (the transaction fee payer is the unrelated test payer; the instruction takes no signer)
   - Kind: reachability
-  - Statement: `close_nullifier_markers` takes no signer and no fee-payer account; for every tree and every set of markers with `queue_index < close_before_index`, any transaction submitter can close them.
-  - Location: `programs/shielded-pool/src/instructions/close_nullifier_markers.rs:13-33` (`fn process_close_nullifier_markers`)
+  - Statement: `close_nullifier_pdas` takes no signer and no fee-payer account; for every tree and every set of PDAs with `queue_index < close_before_index`, any transaction submitter can close them.
+  - Location: `programs/shielded-pool/src/instructions/close_nullifier_pdas.rs:13-33` (`fn process_close_nullifier_pdas`)
   - Severity: Medium (liveness of working-capital recovery)
   - Suggested test: positive; harness: program-tests integration
 
 ### Account Constraints
 
-- [x] **INV-CLOSE-MARKER-02: the tree is the fixed rent recipient**
-  - Covered by: `program-tests/shielded-pool/tests/nullifier/markers.rs` `close_returns_marker_rent_to_the_tree` (tree gains exactly `n * Rent::minimum_balance(9)`), `close_honours_the_watermark_boundary`
+- [x] **INV-CLOSE-PDA-02: the tree is the fixed rent recipient**
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `close_returns_nullifier_pda_rent_to_the_tree` (tree gains exactly `n * Rent::minimum_balance(9)`), `close_honours_the_watermark_boundary`
   - Kind: postcondition
-  - Statement: after a successful close of `n` markers the tree account's lamports increase by exactly the sum of the closed markers' lamports and no other account gains lamports; there is no caller-chosen recipient (deviation from the dedicated `rent_recipient` convention, accepted because the instruction is permissionless).
-  - Location: `programs/shielded-pool/src/instructions/nullifier_marker/close.rs:18-24` (`fn close_nullifier_marker`)
+  - Statement: after a successful close of `n` PDAs the tree account's lamports increase by exactly the sum of the closed PDAs' lamports and no other account gains lamports; there is no caller-chosen recipient (deviation from the dedicated `rent_recipient` convention, accepted because the instruction is permissionless).
+  - Location: `programs/shielded-pool/src/instructions/nullifier_pda/close.rs:18-24` (`fn close_nullifier_pda`)
   - Severity: High (tree working-capital drainage otherwise)
   - Suggested test: positive; harness: program-tests integration
 
-- [x] **INV-CLOSE-MARKER-03: the first account must be the writable, unpaused pool tree**
-  - Covered by: `program-tests/shielded-pool/tests/nullifier/markers.rs` `close_rejects_a_paused_tree` (7013), `close_rejects_a_non_tree_account` (7001), `close_rejects_a_read_only_tree_meta` (account-checks `AccountNotMutable` = 20002)
+- [x] **INV-CLOSE-PDA-03: the first account must be the writable, unpaused pool tree**
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `close_rejects_a_paused_tree` (7013), `close_rejects_a_non_tree_account` (7001), `close_rejects_a_read_only_tree_meta` (account-checks `AccountNotMutable` = 20002)
   - Kind: precondition
-  - Statement: the tree loads through `TreeAccount::from_account_view_mut` (owner, discriminator, and state checks); a paused tree, a non-tree account, or a read-only tree meta makes the instruction return Err. Marker cleanup is frozen together with every other tree write.
-  - Location: `programs/shielded-pool/src/instructions/close_nullifier_markers.rs:20-25`
+  - Statement: the tree loads through `TreeAccount::from_account_view_mut` (owner, discriminator, and state checks); a paused tree, a non-tree account, or a read-only tree meta makes the instruction return Err. PDA cleanup is frozen together with every other tree write.
+  - Location: `programs/shielded-pool/src/instructions/close_nullifier_pdas.rs:20-25`
   - Error: `ShieldedPoolError::TreePaused = 7013` / `InvalidTreeAccounts = 7001` / account-checks 20002
   - Severity: High
   - Suggested test: negative; harness: program-tests integration
 
-- [x] **INV-CLOSE-MARKER-04: each marker must be the program-owned 9-byte record whose stored bump recreates its address**
-  - Covered by: `program-tests/shielded-pool/tests/nullifier/markers.rs` `close_rejects_a_mismatched_nullifier_marker_pair`, `close_rejects_a_marker_with_a_wrong_bump`, `close_rejects_a_non_marker_account` (System-owned account; program-owned account of another size), `close_rejects_the_same_marker_twice_in_one_instruction` (already closed within the instruction: System-owned, empty), `close_rejects_a_read_only_marker_meta` (account-checks `AccountNotMutable` = 20002)
+- [x] **INV-CLOSE-PDA-04: each PDA must be the program-owned 9-byte record whose stored bump recreates its address**
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `close_rejects_a_mismatched_nullifier_pda_pair`, `close_rejects_a_nullifier_pda_with_a_wrong_bump`, `close_rejects_a_non_nullifier_pda_account` (System-owned account; program-owned account of another size), `close_rejects_the_same_nullifier_pda_twice_in_one_instruction` (already closed within the instruction: System-owned, empty), `close_rejects_a_read_only_nullifier_pda_meta` (account-checks `AccountNotMutable` = 20002)
   - Kind: precondition
-  - Statement: for every `(nullifier_i, marker_i)` pair the account must be writable, owned by the program, exactly `NULLIFIER_MARKER_SIZE` bytes, decode as `NullifierMarker`, and satisfy `create_program_address(["nullifier", tree, nullifier_i, bump], program) == marker_i.address`; any violation makes the instruction return Err.
-  - Location: `programs/shielded-pool/src/instructions/nullifier_marker/loader.rs:31-58` (`fn load_nullifier_marker`)
-  - Error: `ShieldedPoolError::InvalidNullifierMarker = 7051` / account-checks 20002
-  - Severity: Critical (closing a foreign marker would re-enable a pending double spend)
+  - Statement: for every `(nullifier_i, PDA_i)` pair the account must be writable, owned by the program, exactly `NULLIFIER_PDA_SIZE` bytes, decode as `NullifierPda`, and satisfy `create_program_address(["nullifier", tree, nullifier_i, bump], program) == PDA_i.address`; any violation makes the instruction return Err.
+  - Location: `programs/shielded-pool/src/instructions/nullifier_pda/loader.rs:31-58` (`fn load_nullifier_pda`)
+  - Error: `ShieldedPoolError::InvalidNullifierPda = 7051` / account-checks 20002
+  - Severity: Critical (closing a foreign PDA would re-enable a pending double spend)
   - Suggested test: negative; harness: program-tests integration
 
 ### Instruction Data Validation
 
-- [x] **INV-CLOSE-MARKER-05: the nullifier list is non-empty and matches the marker accounts one to one**
-  - Covered by: `program-tests/shielded-pool/tests/nullifier/markers.rs` `close_rejects_an_empty_nullifier_list`, `close_rejects_a_trailing_account`
+- [x] **INV-CLOSE-PDA-05: the nullifier list is non-empty and matches the PDA accounts one to one**
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `close_rejects_an_empty_nullifier_list`, `close_rejects_a_trailing_account`
   - Kind: precondition
-  - Statement: the borsh `CloseNullifierMarkersData` must decode, `nullifiers` must be non-empty, and after consuming one marker per nullifier no account may remain; otherwise the instruction returns Err.
-  - Location: `programs/shielded-pool/src/instructions/close_nullifier_markers.rs:14-18, 29-31`
+  - Statement: the borsh `CloseNullifierPdasData` must decode, `nullifiers` must be non-empty, and after consuming one PDA per nullifier no account may remain; otherwise the instruction returns Err.
+  - Location: `programs/shielded-pool/src/instructions/close_nullifier_pdas.rs:14-18, 29-31`
   - Error: `ShieldedPoolError::InvalidInstructionData = 7000`
   - Severity: Medium
   - Suggested test: negative; harness: program-tests integration
 
-### Marker Reclaimability Gate
+### PDA Reclaimability Gate
 
-- [x] **INV-CLOSE-MARKER-06: a marker is closable iff `queue_index < close_before_index`**
-  - Covered by: `program-tests/shielded-pool/tests/nullifier/markers.rs` `close_rejects_marker_before_batch_is_reclaimable` (fresh tree, `w = 0`), `close_honours_the_watermark_boundary` (`queue_index == w` rejected, `queue_index == w - 1` closed; `w` set by a LiteSVM fixture that writes `close_before_index` into the tree bytes because making a batch reclaimable requires two full batches to be queued and applied); localnet: `tests/localnet/photon/forester.rs` `phase_assert_marker_cleanup` (drained but not yet reclaimable batch, `w == 0`, `close_markers` rejected with 7050 and no lamports move)
+- [x] **INV-CLOSE-PDA-06: a PDA is closable iff `queue_index < close_before_index`**
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `close_rejects_nullifier_pda_before_batch_is_reclaimable` (fresh tree, `w = 0`), `close_honours_the_watermark_boundary` (`queue_index == w` rejected, `queue_index == w - 1` closed; `w` set by a LiteSVM fixture that writes `close_before_index` into the tree bytes because making a batch reclaimable requires two full batches to be queued and applied); localnet: `tests/localnet/photon/forester.rs` `phase_assert_nullifier_pda_cleanup` (drained but not yet reclaimable batch, `w == 0`, `close_nullifier_pdas` rejected with 7050 and no lamports move)
   - Kind: precondition
-  - Statement: for every marker in the instruction, `marker.queue_index < tree.close_before_index` must hold; otherwise the instruction returns Err. `close_before_index` advances when a batch's final ZKP update lands (`w = max(w, current.start_index - 1)`), after its full root-history window has overwritten every older accepted root, so a closable marker's nullifier is contained in every accepted nullifier-tree root (spec property "safe marker lifetime"). Batch storage may already have been reused; reuse does not affect the watermark or marker lifetime.
-  - Location: `programs/shielded-pool/src/instructions/nullifier_marker/close.rs:15-17`, `program-libs/interface/src/state/nullifier_marker.rs:15-17` (`fn is_closable`), `program-libs/batched-merkle-tree/src/merkle_tree_update.rs` (`fn advance_marker_close_watermark`)
-  - Error: `ShieldedPoolError::NullifierMarkerNotClosable = 7050`
+  - Statement: for every PDA in the instruction, `PDA.queue_index < tree.close_before_index` must hold; otherwise the instruction returns Err. `close_before_index` advances when a batch's final ZKP update lands (`w = max(w, current.start_index - 1)`), after its full root-history window has overwritten every older accepted root, so a closable PDA's nullifier is contained in every accepted nullifier-tree root (spec property "safe PDA lifetime"). Batch storage may already have been reused; reuse does not affect the watermark or PDA lifetime.
+  - Location: `programs/shielded-pool/src/instructions/nullifier_pda/close.rs:15-17`, `program-libs/interface/src/state/nullifier_pda.rs:15-17` (`fn is_closable`), `program-libs/batched-merkle-tree/src/merkle_tree_update.rs` (`fn advance_nullifier_pda_close_watermark`)
+  - Error: `ShieldedPoolError::NullifierPdaNotClosable = 7050`
   - Severity: Critical (early close re-enables a stale non-inclusion proof)
-  - Suggested test: negative boundary + positive; harness: program-tests integration; end-to-end reclaimability remains uncovered on localnet (see the note in `phase_assert_marker_cleanup`)
+  - Suggested test: negative boundary + positive; harness: program-tests integration; end-to-end reclaimability remains uncovered on localnet (see the note in `phase_assert_nullifier_pda_cleanup`)
 
 ### Rollback
 
-- [x] **INV-CLOSE-MARKER-07: the close is atomic across all markers**
-  - Covered by: `program-tests/shielded-pool/tests/nullifier/markers.rs` `close_is_atomic_across_markers` (two closable markers plus one at the watermark: all three survive, tree unchanged), every `expect_close_rejection` site (`assert_rolled_back_except(payer)` plus a full tree-account compare)
+- [x] **INV-CLOSE-PDA-07: the close is atomic across all PDAs**
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `close_is_atomic_across_nullifier_pdas` (two closable PDAs plus one at the watermark: all three survive, tree unchanged), every `expect_close_rejection` site (`assert_rolled_back_except(payer)` plus a full tree-account compare)
   - Kind: rollback
-  - Statement: when any pair fails a check, the instruction returns Err, no marker is closed, and the tree's lamports and data are unchanged.
-  - Location: `programs/shielded-pool/src/instructions/close_nullifier_markers.rs:26-29`
+  - Statement: when any pair fails a check, the instruction returns Err, no PDA is closed, and the tree's lamports and data are unchanged.
+  - Location: `programs/shielded-pool/src/instructions/close_nullifier_pdas.rs:26-29`
   - Severity: High
   - Suggested test: negative; harness: program-tests integration
 
 ### Frame Conditions
 
-- [x] **INV-CLOSE-MARKER-08: only the tree's lamports and the closed markers change**
-  - Covered by: `program-tests/shielded-pool/tests/nullifier/markers.rs` `close_returns_marker_rent_to_the_tree`, `close_honours_the_watermark_boundary` (`assert_close_markers`: changed set is exactly the markers, the tree and the fee payer; the tree's data is byte-identical, so `close_before_index` and the queue are untouched; each marker ends with zero lamports and zero data)
+- [x] **INV-CLOSE-PDA-08: only the tree's lamports and the closed PDAs change**
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `close_returns_nullifier_pda_rent_to_the_tree`, `close_honours_the_watermark_boundary` (`assert_close_nullifier_pdas`: changed set is exactly the PDAs, the tree and the fee payer; the tree's data is byte-identical, so `close_before_index` and the queue are untouched; each PDA ends with zero lamports and zero data)
   - Kind: frame
-  - Statement: after a successful close, the tree's data is unchanged, its lamports increase by exactly the closed markers' lamports, every closed marker has zero lamports and zero data (the account disappears and can later be recreated by a fresh queue insertion of the same nullifier), and no other account changes except the transaction fee payer.
-  - Location: `programs/shielded-pool/src/instructions/nullifier_marker/close.rs:18-24`
+  - Statement: after a successful close, the tree's data is unchanged, its lamports increase by exactly the closed PDAs' lamports, every closed PDA has zero lamports and zero data (the account disappears and can later be recreated by a fresh queue insertion of the same nullifier), and no other account changes except the transaction fee payer.
+  - Location: `programs/shielded-pool/src/instructions/nullifier_pda/close.rs:18-24`
   - Severity: Medium
   - Suggested test: positive; harness: program-tests integration

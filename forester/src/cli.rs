@@ -70,11 +70,11 @@ pub enum Commands {
         #[arg(long, default_value_t = DEFAULT_PROOF_CONCURRENCY)]
         proof_concurrency: usize,
     },
-    /// Close nullifier markers below the reclaim watermark and
+    /// Close nullifier PDAs below the reclaim watermark and
     /// return their rent to the tree. Reads RPC_URL, PHOTON_URL, and PAYER
     /// (fee payer) from the environment.
-    CloseMarkers {
-        /// Pool tree whose closable markers to close.
+    CloseNullifierPdas {
+        /// Pool tree whose closable nullifier PDAs to close.
         #[arg(long, default_value_t = DEFAULT_TREE)]
         tree: Pubkey,
         /// First Photon queue sequence to scan. Persist the last completed
@@ -85,7 +85,7 @@ pub enum Commands {
         /// Stop after submitting at most N transactions (default: all).
         #[arg(long)]
         max_transactions: Option<u64>,
-        /// After closing, keep polling for newly closable markers instead of
+        /// After closing, keep polling for newly closable nullifier PDAs instead of
         /// exiting.
         #[arg(long)]
         watch: bool,

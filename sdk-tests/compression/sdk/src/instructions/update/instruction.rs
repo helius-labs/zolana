@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use zolana_interface::{
-    instruction::{instruction_data::transact::TransactIxData, nullifier_marker_accounts},
+    instruction::{instruction_data::transact::TransactIxData, nullifier_pda_accounts},
     SHIELDED_POOL_PROGRAM_ID,
 };
 
@@ -51,10 +51,7 @@ impl Update {
             AccountMeta::new_readonly(Address::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
             AccountMeta::new_readonly(Address::default(), false),
         ];
-        accounts.extend(nullifier_marker_accounts(
-            &input_tree,
-            [&input.nullifier_hash],
-        ));
+        accounts.extend(nullifier_pda_accounts(&input_tree, [&input.nullifier_hash]));
         accounts.push(AccountMeta::new_readonly(account_pda(&payer), false));
         let mut instruction_data = vec![tag::UPDATE];
         instruction_data.extend_from_slice(&serialized_ix);

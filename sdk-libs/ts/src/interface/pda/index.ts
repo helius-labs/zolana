@@ -28,10 +28,10 @@ function derive(seed: string, address?: Address): Promise<ProgramDerivedAddress>
 }
 
 /**
- * Named for Rust's `pda::nullifier_marker`: the account the pool creates for a
+ * Named for Rust's `pda::nullifier_pda`: the account the pool creates for a
  * spent nullifier, seeded by the input tree and the nullifier itself.
  */
-export async function nullifierMarkerPda(
+export async function nullifierPda(
   tree: Address,
   nullifier: Uint8Array,
 ): Promise<ProgramDerivedAddress> {
@@ -45,11 +45,8 @@ export async function nullifierMarkerPda(
   });
 }
 
-export async function nullifierMarkerAddress(
-  tree: Address,
-  nullifier: Uint8Array,
-): Promise<Address> {
-  return (await nullifierMarkerPda(tree, nullifier))[0];
+export async function nullifierPdaAddress(tree: Address, nullifier: Uint8Array): Promise<Address> {
+  return (await nullifierPda(tree, nullifier))[0];
 }
 
 export async function ringAuthAddress(ringProgramId: Address): Promise<Address> {

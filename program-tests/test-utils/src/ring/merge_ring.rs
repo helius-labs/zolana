@@ -24,7 +24,7 @@ use zolana_transaction::{
 use super::{MergeRingRecord, RingHarness, SECOND_RING_TEST_PROGRAM_ID};
 use crate::{
     localnet::{pack_merge_proof, send_transaction, ZERO},
-    nullifier_marker::assert_nullifier_markers,
+    nullifier_pda::assert_nullifier_pdas,
     test_validator_asserts::{
         assert_account_unchanged, assert_merge_ring, fetch_account, wait_for_indexed_transaction,
         wait_for_merkle_proof, wait_for_non_inclusion_proof, MergeRingAssertArgs,
@@ -356,7 +356,7 @@ impl RingHarness {
 
         if assert_replay {
             // The writable instruction accounts are the fee payer, the tree and
-            // the nullifier markers. A rejected replay rolls the markers back to
+            // the nullifier PDAs. A rejected replay rolls the nullifier PDAs back to
             // their post-success state, so capturing the post-success tree covers
             // every other non-fee-payer account a replay could mutate.
             let tree_after_success = fetch_account(&self.rpc, &self.tree)?;
@@ -371,12 +371,12 @@ impl RingHarness {
                 Err(error) => {
                     // The replay must fail in the SPP instruction (index 1,
                     // after the compute-budget instruction): every nullifier
-                    // already has an initialized marker.
+                    // already has an initialized nullifier PDA.
                     Rejection::pool(ShieldedPoolError::NullifierAlreadyQueued)
                         .at(1)
                         .assert_client(&error);
                     assert_account_unchanged(&self.rpc, &self.tree, &tree_after_success)?;
-                    assert_nullifier_markers(&self.rpc, &self.tree, &input_nullifiers)?;
+                    assert_nullifier_pdas(&self.rpc, &self.tree, &input_nullifiers)?;
                 }
             }
         }

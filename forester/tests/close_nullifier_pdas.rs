@@ -1,11 +1,11 @@
 use anyhow::anyhow;
-use forester::close_markers::{
-    collect_queued_pages, plan_batches, retain_existing, CloseMarkersBatch,
+use forester::close_nullifier_pdas::{
+    collect_queued_pages, plan_batches, retain_existing, CloseNullifierPdasBatch,
     LEGACY_TRANSACTION_SIZE_LIMIT,
 };
 use solana_pubkey::Pubkey;
 use zolana_api::{Hash, NullifierQueueElement, PAGE_LIMIT};
-use zolana_interface::instruction::CloseNullifierMarkers;
+use zolana_interface::instruction::CloseNullifierPdas;
 
 fn nullifier(seq: u64) -> [u8; 32] {
     let mut value = [0u8; 32];
@@ -27,7 +27,7 @@ fn plan_fills_each_transaction_up_to_the_legacy_size_limit() {
     let nullifiers: Vec<[u8; 32]> = (0..100).map(nullifier).collect();
 
     let batches = plan_batches(tree, payer, &nullifiers).unwrap();
-    let markers_per_transaction = batches.first().unwrap().nullifiers.len();
+    let nullifier_pdas_per_transaction = batches.first().unwrap().nullifiers.len();
 
     for batch in &batches {
         assert!(!batch.nullifiers.is_empty());
@@ -39,13 +39,13 @@ fn plan_fills_each_transaction_up_to_the_legacy_size_limit() {
         };
         let mut overfilled = full.nullifiers.clone();
         overfilled.extend(next.nullifiers.first().copied());
-        let overfilled = CloseMarkersBatch {
+        let overfilled = CloseNullifierPdasBatch {
             tree,
             payer,
             nullifiers: overfilled,
         };
         assert!(overfilled.serialized_size().unwrap() > LEGACY_TRANSACTION_SIZE_LIMIT);
-        assert_eq!(full.nullifiers.len(), markers_per_transaction);
+        assert_eq!(full.nullifiers.len(), nullifier_pdas_per_transaction);
     }
 
     let replanned: Vec<[u8; 32]> = batches
@@ -53,7 +53,10 @@ fn plan_fills_each_transaction_up_to_the_legacy_size_limit() {
         .flat_map(|batch| batch.nullifiers.iter().copied())
         .collect();
     assert_eq!(replanned, nullifiers);
-    assert_eq!(batches.len(), 100_usize.div_ceil(markers_per_transaction));
+    assert_eq!(
+        batches.len(),
+        100_usize.div_ceil(nullifier_pdas_per_transaction)
+    );
 }
 
 #[test]
@@ -72,7 +75,7 @@ fn batch_instruction_matches_the_interface_builder() {
 
     assert!(batches.len() > 1);
     for batch in &batches {
-        let expected = CloseNullifierMarkers {
+        let expected = CloseNullifierPdas {
             tree,
             nullifiers: batch.nullifiers.clone(),
         }
@@ -87,7 +90,7 @@ fn batch_instruction_matches_the_interface_builder() {
 }
 
 #[test]
-fn retain_existing_drops_already_closed_markers() {
+fn retain_existing_drops_already_closed_nullifier_pdas() {
     let nullifiers: Vec<[u8; 32]> = (0..4).map(nullifier).collect();
     let accounts = vec![Some(()), None, Some(()), None];
 

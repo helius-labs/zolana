@@ -1,11 +1,11 @@
 use super::*;
 
-use forester::close_markers::plan_batches;
+use forester::close_nullifier_pdas::plan_batches;
 use zolana_client::ClientError;
 use zolana_interface::error::ShieldedPoolError;
 use zolana_program_test::Rejection;
-use zolana_test_utils::nullifier_marker::{
-    assert_nullifier_marker, assert_nullifier_markers, assert_tree_lamports_after_spend,
+use zolana_test_utils::nullifier_pda::{
+    assert_nullifier_pda, assert_nullifier_pdas, assert_tree_lamports_after_spend,
     nullifier_queue_next_index, tree_close_before_index,
 };
 
@@ -111,7 +111,7 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
     let queued_nullifiers = phase_queue_nullifiers(&mut env)?;
     phase_run_forester_batches(&mut env, &queued_nullifiers)?;
     phase_assert_forested_nullifiers(&env, &queued_nullifiers)?;
-    phase_assert_marker_cleanup(&mut env, &queued_nullifiers)?;
+    phase_assert_nullifier_pda_cleanup(&mut env, &queued_nullifiers)?;
 
     println!(
         "localnet Photon nullifier forester test passed via rpc={} indexer={}",
@@ -371,13 +371,13 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
     let sig = send_transaction(&mut env.rpc, &[tx_ix], &env.payer.pubkey(), &[&env.payer])?;
     print_signature(&format!("queue_nullifiers_{i}"), &sig);
 
-    assert_nullifier_marker(
+    assert_nullifier_pda(
         &env.rpc,
         &env.tree_pubkey,
         &first_utxo.nullifier,
         queue_next_before,
     )?;
-    assert_nullifier_marker(
+    assert_nullifier_pda(
         &env.rpc,
         &env.tree_pubkey,
         &second_utxo.nullifier,
@@ -640,15 +640,15 @@ fn fetch_tree_account(env: &ForesterEnv) -> TestResult<solana_account::Account> 
         .ok_or_else(|| anyhow!("tree account not found: {}", env.tree_pubkey))
 }
 
-/// Marker lifecycle after the drain. The localnet tree keeps the canonical
+/// Nullifier-PDA lifecycle after the drain. The localnet tree keeps the canonical
 /// 120 ZKP batches per queue batch, so with Z = 10 one queue batch holds
 /// B = 1200 nullifiers; this suite queues 200, batch 0 never fills, and no
-/// batch becomes reclaimable: `close_before_index` must stay at zero, every marker must
-/// survive the drain, and the test forester's `close_markers` must be rejected
-/// with `NullifierMarkerNotClosable` without moving lamports. The positive
+/// batch becomes reclaimable: `close_before_index` must stay at zero, every nullifier PDA must
+/// survive the drain, and the test forester's `close_nullifier_pdas` must be rejected
+/// with `NullifierPdaNotClosable` without moving lamports. The positive
 /// close path (reclaimable batch, rent returned) is covered hermetically in
-/// `tests/nullifier/markers.rs` with a watermark fixture.
-fn phase_assert_marker_cleanup(
+/// `tests/nullifier/nullifier PDAs.rs` with a watermark fixture.
+fn phase_assert_nullifier_pda_cleanup(
     env: &mut ForesterEnv,
     queued_nullifiers: &[[u8; 32]],
 ) -> TestResult {
@@ -662,12 +662,12 @@ fn phase_assert_marker_cleanup(
         0,
         "draining a partially filled batch makes nothing reclaimable"
     );
-    assert_nullifier_markers(&env.rpc, &env.tree_pubkey, queued_nullifiers)?;
+    assert_nullifier_pdas(&env.rpc, &env.tree_pubkey, queued_nullifiers)?;
 
     let close_plan = plan_batches(env.tree_pubkey, env.payer.pubkey(), queued_nullifiers)?;
     let sample_len = close_plan
         .first()
-        .ok_or_else(|| anyhow!("no close-marker batch planned"))?
+        .ok_or_else(|| anyhow!("no close-nullifier PDA batch planned"))?
         .nullifiers
         .len();
     let sample = queued_nullifiers
@@ -675,13 +675,13 @@ fn phase_assert_marker_cleanup(
         .ok_or_else(|| anyhow!("fewer queued nullifiers than one close chunk"))?;
     let tree_before = fetch_tree_account(env)?;
     let error = NullifierTestForester::default()
-        .close_markers(&mut env.rpc, &env.payer, env.tree_pubkey, sample)
-        .expect_err("closing markers before the batch is reclaimable must be rejected");
+        .close_nullifier_pdas(&mut env.rpc, &env.payer, env.tree_pubkey, sample)
+        .expect_err("closing nullifier PDAs before the batch is reclaimable must be rejected");
     let client_error = error
         .downcast_ref::<ClientError>()
         .ok_or_else(|| anyhow!("expected a client error, got {error:#}"))?;
-    Rejection::pool(ShieldedPoolError::NullifierMarkerNotClosable).assert_client(client_error);
-    assert_nullifier_markers(&env.rpc, &env.tree_pubkey, sample)?;
+    Rejection::pool(ShieldedPoolError::NullifierPdaNotClosable).assert_client(client_error);
+    assert_nullifier_pdas(&env.rpc, &env.tree_pubkey, sample)?;
     assert_eq!(
         fetch_tree_account(env)?.lamports,
         tree_before.lamports,

@@ -13,7 +13,7 @@ every later insert combines it with `Poseidon::hashv([existing, value])`.
 Each insert also pays a fixed amount of base work (canonical field check, queue
 position check, hash chain insert). The current queue-only measurements are 391
 CU for the first insert and 11,398 CU for ten inserts, or about 1,223 CU for
-each subsequent Poseidon-backed insert. Nullifier marker PDA creation happens
+each subsequent Poseidon-backed insert. Nullifier PDA creation happens
 in the shielded-pool program, not in this crate, and is measured by the
 shielded-pool program benches.
 

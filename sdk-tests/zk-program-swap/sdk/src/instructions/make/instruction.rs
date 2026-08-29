@@ -4,7 +4,7 @@ use solana_pubkey::Pubkey;
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{MessageData, TransactIxData},
-        nullifier_marker_accounts,
+        nullifier_pda_accounts,
     },
     SHIELDED_POOL_PROGRAM_ID,
 };
@@ -51,7 +51,7 @@ impl Make {
         if let Some(marker) = spp_proof.messages.first_mut() {
             marker.data = Vec::new();
         }
-        let nullifier_markers = nullifier_marker_accounts(
+        let nullifier_pdas = nullifier_pda_accounts(
             &tree,
             spp_proof.inputs.iter().map(|input| &input.nullifier_hash),
         );
@@ -69,7 +69,7 @@ impl Make {
             AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
             AccountMeta::new_readonly(Pubkey::default(), false),
         ];
-        accounts.extend(nullifier_markers);
+        accounts.extend(nullifier_pdas);
         accounts.push(AccountMeta::new_readonly(order_authority_pda(), false));
         let mut instruction_data = vec![tag::MAKE];
         instruction_data.extend_from_slice(&serialized_ix);

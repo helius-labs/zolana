@@ -5,12 +5,11 @@ use solana_signer::Signer;
 use zolana_client::{spawn_prover, Rpc, SolanaRpc};
 use zolana_interface::{
     instruction::{CreateProtocolConfig, CreateTree},
-    pda,
-    state::{address_tree_params, tree_account_size},
+    state::address_tree_params,
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
-use zolana_program_test::{system_create_account_ix, tree_creation_lamports};
+use zolana_program_test::create_tree_account_ix;
 use zolana_test_utils::{
     localnet::LocalnetValidator,
     smart_account::{self, StandardSigners},
@@ -128,14 +127,12 @@ pub fn setup() -> Result<SetupContext> {
     rpc.create_and_send_transaction(&[create_config_sync], payer_address, &[&payer, &authority])?;
 
     let tree = Keypair::new();
-    let lamports = tree_creation_lamports(&rpc, &address_tree_params())?;
-    let alloc_ix = system_create_account_ix(
+    let alloc_ix = create_tree_account_ix(
+        &rpc,
         &payer.pubkey(),
         &tree.pubkey(),
-        lamports,
-        tree_account_size() as u64,
-        &pda::shielded_pool_program_id(),
-    );
+        &address_tree_params(),
+    )?;
     let create_tree_ix = CreateTree {
         authority: accounts.tree_vault,
         tree: tree.pubkey(),

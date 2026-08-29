@@ -2,7 +2,7 @@ use anyhow::Result;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    instruction::{instruction_data::transact::TransactIxData, nullifier_marker_accounts},
+    instruction::{instruction_data::transact::TransactIxData, nullifier_pda_accounts},
     SHIELDED_POOL_PROGRAM_ID,
 };
 
@@ -38,7 +38,7 @@ impl CreateEscrow {
             transact,
         } = self;
 
-        let nullifier_markers = nullifier_marker_accounts(
+        let nullifier_pdas = nullifier_pda_accounts(
             &tree,
             transact.inputs.iter().map(|input| &input.nullifier_hash),
         );
@@ -59,7 +59,7 @@ impl CreateEscrow {
             AccountMeta::new(escrow, false),
             AccountMeta::new_readonly(solana_system_interface::program::ID, false),
             // Forwarded SPP `transact` CPI tail: payer, input tree, output tree,
-            // SPP, System Program, one nullifier marker per input, the source
+            // SPP, System Program, one nullifier PDA per input, the source
             // owner, then escrow authority.
             AccountMeta::new(authority, true),
             AccountMeta::new(tree, false),
@@ -67,7 +67,7 @@ impl CreateEscrow {
             AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
             AccountMeta::new_readonly(Pubkey::default(), false),
         ];
-        accounts.extend(nullifier_markers);
+        accounts.extend(nullifier_pdas);
         accounts.push(AccountMeta::new_readonly(owner, true));
         accounts.push(AccountMeta::new_readonly(
             escrow_authority_pda(&pair),

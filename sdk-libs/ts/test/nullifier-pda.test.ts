@@ -3,12 +3,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   mergeTransactInstruction,
-  nullifierMarkerAccounts,
+  nullifierPdaAccounts,
   ringTransactAccounts,
   transactInstruction,
 } from "../src/interface/instructions/index.js";
 import { InstructionTag, SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE } from "../src/interface/index.js";
-import { nullifierMarkerAddress, nullifierMarkerPda } from "../src/interface/pda/index.js";
+import { nullifierPdaAddress, nullifierPda } from "../src/interface/pda/index.js";
 import type {
   Bytes16,
   Bytes32,
@@ -57,40 +57,40 @@ function transactData(inputs: readonly InputUtxo[]): TransactInstructionData {
   };
 }
 
-async function markers(inputs: readonly InputUtxo[]) {
-  const accounts = await nullifierMarkerAccounts(
+async function nullifierPdas(inputs: readonly InputUtxo[]) {
+  const accounts = await nullifierPdaAccounts(
     TREE,
     inputs.map((utxo) => utxo.nullifierHash),
   );
   return accounts.map((account) => account.address);
 }
 
-describe("nullifier marker accounts", () => {
-  it("derives the marker from the input tree and the nullifier", async () => {
-    const [marker] = await nullifierMarkerPda(TREE, filled(7, 32));
-    expect(await nullifierMarkerAddress(TREE, filled(7, 32))).toBe(marker);
-    expect(await nullifierMarkerAddress(OUTPUT_TREE, filled(7, 32))).not.toBe(marker);
-    expect(await nullifierMarkerAddress(TREE, filled(8, 32))).not.toBe(marker);
+describe("nullifier PDA accounts", () => {
+  it("derives the PDA from the input tree and the nullifier", async () => {
+    const [expected] = await nullifierPda(TREE, filled(7, 32));
+    expect(await nullifierPdaAddress(TREE, filled(7, 32))).toBe(expected);
+    expect(await nullifierPdaAddress(OUTPUT_TREE, filled(7, 32))).not.toBe(expected);
+    expect(await nullifierPdaAddress(TREE, filled(8, 32))).not.toBe(expected);
   });
 
   it("matches the fixed Rust PDA vector", async () => {
-    expect(await nullifierMarkerPda(TREE, filled(7, 32))).toEqual([
+    expect(await nullifierPda(TREE, filled(7, 32))).toEqual([
       address("FketprhoGrMJG7tu9XaXEXhm4vCqzEubwMPFm874xtMm"),
       252,
     ]);
   });
 
-  it("exposes the close-markers instruction tag", () => {
-    expect(InstructionTag.closeNullifierMarkers).toBe(18);
+  it("exposes the close-nullifier-pdas instruction tag", () => {
+    expect(InstructionTag.closeNullifierPdas).toBe(18);
   });
 
   it("rejects a nullifier that is not 32 bytes", async () => {
-    await expect(nullifierMarkerPda(TREE, filled(7, 31))).rejects.toMatchObject({
+    await expect(nullifierPda(TREE, filled(7, 31))).rejects.toMatchObject({
       code: "INTERFACE_INVALID_LENGTH",
     });
   });
 
-  it("places one writable marker per input after the system program in transact", async () => {
+  it("places one writable PDA per input after the system program in transact", async () => {
     const inputs = [input(71), input(72)];
     const instruction = await transactInstruction({
       payer: PAYER,
@@ -100,7 +100,7 @@ describe("nullifier marker accounts", () => {
       data: transactData(inputs),
     });
 
-    const [first, second] = await markers(inputs);
+    const [first, second] = await nullifierPdas(inputs);
     expect(instruction.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
       [PAYER, AccountRole.WRITABLE_SIGNER],
       [TREE, AccountRole.WRITABLE],
@@ -114,7 +114,7 @@ describe("nullifier marker accounts", () => {
     ]);
   });
 
-  it("keeps ring_config at index 5 and puts the markers before the owner signers", async () => {
+  it("keeps ring_config at index 5 and puts the PDAs before the owner signers", async () => {
     const inputs = [input(71), input(72)];
     const accounts = await ringTransactAccounts({
       payer: PAYER,
@@ -125,7 +125,7 @@ describe("nullifier marker accounts", () => {
       ownerSigners: [OWNER],
     });
 
-    const [first, second] = await markers(inputs);
+    const [first, second] = await nullifierPdas(inputs);
     expect(accounts.map((meta) => [meta.address, meta.role])).toEqual([
       [PAYER, AccountRole.WRITABLE_SIGNER],
       [TREE, AccountRole.WRITABLE],
@@ -139,7 +139,7 @@ describe("nullifier marker accounts", () => {
     ]);
   });
 
-  it("places the eight merge markers between the system program and the pool", async () => {
+  it("places the eight merge PDAs between the system program and the pool", async () => {
     const nullifiers = Array.from({ length: 8 }, (_, index) => filled(80 + index, 32) as Bytes32);
     const data: MergeTransactInstructionData = {
       expiryUnixTs: 0xffff_ffff_ffff_ffffn,
@@ -163,8 +163,8 @@ describe("nullifier marker accounts", () => {
       data,
     });
 
-    const expectedMarkers = await Promise.all(
-      nullifiers.map((nullifier) => nullifierMarkerAddress(TREE, nullifier)),
+    const expectedNullifierPdas = await Promise.all(
+      nullifiers.map((nullifier) => nullifierPdaAddress(TREE, nullifier)),
     );
     expect(instruction.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
       [TREE, AccountRole.WRITABLE],
@@ -172,7 +172,7 @@ describe("nullifier marker accounts", () => {
       [PAYER, AccountRole.WRITABLE_SIGNER],
       [OWNER, AccountRole.READONLY],
       [SYSTEM, AccountRole.READONLY],
-      ...expectedMarkers.map((marker) => [marker, AccountRole.WRITABLE]),
+      ...expectedNullifierPdas.map((pda) => [pda, AccountRole.WRITABLE]),
       [SHIELDED_POOL_PROGRAM_ID, AccountRole.READONLY],
     ]);
   });

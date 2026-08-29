@@ -7,9 +7,9 @@ of height 40 living in a single Solana account with an integrated input queue.
 Instead of updating the tree one leaf at a time, insertions are batched into
 the queue and applied to the tree with a zero-knowledge proof (ZKP). Trees keep
 a cyclic root history for validity proofs. Pending non-inclusion of a queued
-nullifier is guaranteed by an exact per-nullifier marker account, not by a
+nullifier is guaranteed by an exact per-nullifier PDA account, not by a
 probabilistic filter. [`spec.md`](spec.md) is the normative description of
-queue insertion, batch append, and marker cleanup.
+queue insertion, batch append, and PDA cleanup.
 
 | Module | Description |
 |--------|-------------|
@@ -17,7 +17,7 @@ queue insertion, batch append, and marker cleanup.
 | `merkle_tree` | `BatchedMerkleTreeAccount` and queue/tree operations |
 | `queue` | Queue batch insertion helper |
 | `queue_batch_metadata` | Metadata for queue batches |
-| `nullifier_marker` | Marker payload, PDA seeds, test-only host emulation of the marker set |
+| `nullifier_pda` | PDA payload, PDA seeds, test-only host emulation of the PDA set |
 | `initialize_address_tree` | Initialize a batched address or nullifier tree |
 | `merkle_tree_metadata` | Tree and queue metadata structs |
 | `merkle_tree_update` | Apply queued batches to the tree |
@@ -49,9 +49,9 @@ the sentinel root they are seeded with (`ADDRESS_TREE_INIT_ROOT_40` vs.
 are not canonical BN254 scalar field elements, requires the queue sequence and
 the current batch position to agree (`QueueIndexMismatch`), adds the value to
 the current batch's open Poseidon hash chain, and returns the queue index `q`
-the value reserved. The program stores `NullifierMarker { queue_index: q, bump }`
+the value reserved. The program stores `NullifierPda { queue_index: q, bump }`
 (9 Borsh bytes, defined in `zolana_interface::state`) in the PDA derived from
-`["nullifier", tree_pubkey, nullifier]`; an existing marker is
+`["nullifier", tree_pubkey, nullifier]`; an existing PDA is
 what rejects a second insertion of a pending nullifier
 (`ShieldedPoolError::NullifierAlreadyQueued`).
 
@@ -76,9 +76,9 @@ been reused and returned to `Fill`.
 - `Batch::is_reclaimable(close_before_index)` is
   `close_before_index >= reclaimable_sequence()`.
 - Queue insertion reuses an `Inserted` batch immediately; reclaimability gates
-  marker cleanup, not storage reuse.
-- A nullifier marker may be closed only once `marker.queue_index <
-  close_before_index` (`ShieldedPoolError::NullifierMarkerNotClosable`
+  PDA cleanup, not storage reuse.
+- A nullifier PDA may be closed only once `PDA.queue_index <
+  close_before_index` (`ShieldedPoolError::NullifierPdaNotClosable`
   otherwise), which is when every accepted root already contains the nullifier.
 
 ## Error codes

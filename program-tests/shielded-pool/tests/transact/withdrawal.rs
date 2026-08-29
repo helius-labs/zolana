@@ -355,8 +355,8 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
     assert_eq!(vault_after, vault_before - AMOUNT, "vault debited");
 
     // The successful spend queued both input nullifiers and created their
-    // markers. Replaying the exact instruction must fail on the existing
-    // markers before any tree, vault, or recipient mutation is committed.
+    // nullifier PDAs. Replaying the exact instruction must fail on the existing
+    // nullifier PDAs before any tree, vault, or recipient mutation is committed.
     let replay = env
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[])

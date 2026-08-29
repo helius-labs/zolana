@@ -4,7 +4,7 @@
 //! submission path only.
 
 pub mod cli;
-pub mod close_markers;
+pub mod close_nullifier_pdas;
 pub mod config;
 pub mod forest;
 pub mod info;

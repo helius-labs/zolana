@@ -336,7 +336,7 @@ fn bench_cu_tree() {
     let mut bench = CuBenchmark::new(ReadmeConfig {
         title: "Tree -- CU Benchmark".into(),
         description:
-            "Compute unit profiling for zolana-tree: account init, zero-copy deserialization, UTXO sparse-merkle-tree append, nullifier queue insert (canonical field check + queue position check + hash chain; marker PDA creation is measured by the shielded-pool program benches), and the worst-case address-tree batch update that finalizes 120 cached tree updates in one transaction.\n\nSee `CU_BENCHMARK_NOTES.md` for analysis notes (e.g. why nullifier insert x10 is not 10x x1, and the proof-verify vs cascade-apply split of the batch update)."
+            "Compute unit profiling for zolana-tree: account init, zero-copy deserialization, UTXO sparse-merkle-tree append, nullifier queue insert (canonical field check + queue position check + hash chain; nullifier-PDA creation is measured by the shielded-pool program benches), and the worst-case address-tree batch update that finalizes 120 cached tree updates in one transaction.\n\nSee `CU_BENCHMARK_NOTES.md` for analysis notes (e.g. why nullifier insert x10 is not 10x x1, and the proof-verify vs cascade-apply split of the batch update)."
                 .into(),
         output_path: concat!(env!("CARGO_MANIFEST_DIR"), "/CU_BENCHMARK.md").into(),
         regenerate_command: Some("just bench-tree".into()),

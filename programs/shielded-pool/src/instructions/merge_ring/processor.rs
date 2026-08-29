@@ -62,7 +62,7 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
             input_tree: merge_accounts.input_tree,
             output_tree: merge_accounts.output_tree,
             payer: merge_accounts.payer,
-            nullifier_markers: merge_accounts.nullifier_markers,
+            nullifier_pdas: merge_accounts.nullifier_pdas,
         },
         merge,
         external_data_hash,

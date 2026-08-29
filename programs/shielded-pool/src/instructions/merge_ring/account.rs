@@ -9,7 +9,7 @@ use crate::instructions::ring_config::loader::load_active_ring_config;
 
 /// Validated accounts for `merge_ring`, in loader order: `input_tree` and
 /// `output_tree` (writable), `ring_config` (the ring's `ring_auth` PDA, signer),
-/// `payer` (signer), System Program, then one writable nullifier marker per
+/// `payer` (signer), System Program, then one writable nullifier PDA per
 /// input. The `ring_config` must sign, be unpaused, and be a valid
 /// SPP-owned config: only the ring program can sign for its `ring_auth` PDA, so
 /// the signature plus the owner + discriminator + active-state check is the
@@ -18,7 +18,7 @@ pub struct MergeRingAccounts<'a> {
     pub input_tree: &'a mut AccountView,
     pub output_tree: &'a mut AccountView,
     pub payer: &'a AccountView,
-    pub nullifier_markers: ArrayVec<&'a mut AccountView, MERGE_INPUT_COUNT>,
+    pub nullifier_pdas: ArrayVec<&'a mut AccountView, MERGE_INPUT_COUNT>,
     /// The calling ring's `program_id`, read from the signed `ring_config`. Bound
     /// into the proof as the UTXO `ring_program_id`.
     pub ring_program_id: Address,
@@ -36,17 +36,17 @@ impl<'a> MergeRingAccounts<'a> {
         if !pinocchio_system::check_id(system_program.address()) {
             return Err(ShieldedPoolError::InvalidSystemProgram.into());
         }
-        let mut nullifier_markers = ArrayVec::new();
+        let mut nullifier_pdas = ArrayVec::new();
         for _ in 0..MERGE_INPUT_COUNT {
-            nullifier_markers
-                .try_push(iter.next_mut("nullifier_marker")?)
+            nullifier_pdas
+                .try_push(iter.next_mut("nullifier_pda")?)
                 .map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
         }
         Ok(Self {
             input_tree,
             output_tree,
             payer,
-            nullifier_markers,
+            nullifier_pdas,
             ring_program_id,
         })
     }

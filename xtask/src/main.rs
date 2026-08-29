@@ -858,7 +858,7 @@ fn tx_size(args: Vec<String>) {
     }
 
     println!();
-    println!("Builder layouts with nullifier markers (one writable PDA per input):");
+    println!("Builder layouts with nullifier PDAs (one writable PDA per input):");
     println!(
         "| {:<34} | {:>8} | {:>11} | {:>12} |",
         "transaction", "accounts", "ix data (B)", "legacy tx (B)",

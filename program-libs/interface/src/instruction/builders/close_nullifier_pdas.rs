@@ -3,33 +3,29 @@ use solana_pubkey::Pubkey;
 
 use crate::{
     instruction::{
-        builders::transact::nullifier_marker_accounts, encode_instruction, tag,
-        CloseNullifierMarkersData,
+        builders::transact::nullifier_pda_accounts, encode_instruction, tag, CloseNullifierPdasData,
     },
     PROGRAM_ID_PUBKEY,
 };
 
-pub struct CloseNullifierMarkers {
+pub struct CloseNullifierPdas {
     pub tree: Pubkey,
     pub nullifiers: Vec<[u8; 32]>,
 }
 
-impl CloseNullifierMarkers {
+impl CloseNullifierPdas {
     pub fn instruction(&self) -> Instruction {
-        let data = CloseNullifierMarkersData {
+        let data = CloseNullifierPdasData {
             nullifiers: self.nullifiers.clone(),
         };
 
         let mut accounts = vec![AccountMeta::new(self.tree, false)];
-        accounts.extend(nullifier_marker_accounts(
-            &self.tree,
-            self.nullifiers.iter(),
-        ));
+        accounts.extend(nullifier_pda_accounts(&self.tree, self.nullifiers.iter()));
 
         Instruction {
             program_id: PROGRAM_ID_PUBKEY,
             accounts,
-            data: encode_instruction(tag::CLOSE_NULLIFIER_MARKERS, &data),
+            data: encode_instruction(tag::CLOSE_NULLIFIER_PDAS, &data),
         }
     }
 }

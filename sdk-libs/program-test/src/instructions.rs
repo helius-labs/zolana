@@ -5,10 +5,8 @@ use zolana_client::Rpc;
 use zolana_interface::{
     instruction::CreateTree,
     pda,
-    state::{
-        address_tree_params, state_root_offset, tree_account_size, tree_working_capital_lamports,
-    },
-    NULLIFIER_MARKER_SIZE,
+    state::{address_tree_params, state_root_offset, tree_account_size, tree_creation_lamports},
+    NULLIFIER_PDA_SIZE,
 };
 use zolana_tree::InitAddressTreeAccountsInstructionData;
 
@@ -37,23 +35,41 @@ pub fn system_create_account_ix(
     }
 }
 
-pub fn tree_working_capital<R: Rpc>(
+/// Allocate a tree account with its own rent exemption plus the working capital
+/// it needs to fund nullifier PDAs.
+pub fn create_tree_account_ix<R: Rpc>(
     rpc: &R,
+    payer: &Pubkey,
+    tree: &Pubkey,
     nullifier_params: &InitAddressTreeAccountsInstructionData,
-) -> Result<u64, ProgramTestError> {
-    let marker_rent = rpc.get_minimum_balance_for_rent_exemption(NULLIFIER_MARKER_SIZE)?;
-    tree_working_capital_lamports(nullifier_params, marker_rent)
-        .ok_or(ProgramTestError::TreeFundingOverflow)
+) -> Result<Instruction, ProgramTestError> {
+    sized_tree_account_ix(
+        rpc,
+        payer,
+        tree,
+        tree_account_size() as u64,
+        nullifier_params,
+    )
 }
 
-pub fn tree_creation_lamports<R: Rpc>(
+fn sized_tree_account_ix<R: Rpc>(
     rpc: &R,
+    payer: &Pubkey,
+    tree: &Pubkey,
+    account_size: u64,
     nullifier_params: &InitAddressTreeAccountsInstructionData,
-) -> Result<u64, ProgramTestError> {
-    let tree_rent = rpc.get_minimum_balance_for_rent_exemption(tree_account_size())?;
-    tree_rent
-        .checked_add(tree_working_capital(rpc, nullifier_params)?)
-        .ok_or(ProgramTestError::TreeFundingOverflow)
+) -> Result<Instruction, ProgramTestError> {
+    let tree_rent = rpc.get_minimum_balance_for_rent_exemption(account_size as usize)?;
+    let nullifier_pda_rent = rpc.get_minimum_balance_for_rent_exemption(NULLIFIER_PDA_SIZE)?;
+    let lamports = tree_creation_lamports(nullifier_params, tree_rent, nullifier_pda_rent)
+        .ok_or(ProgramTestError::TreeFundingOverflow)?;
+    Ok(system_create_account_ix(
+        payer,
+        tree,
+        lamports,
+        account_size,
+        &pda::shielded_pool_program_id(),
+    ))
 }
 
 pub fn create_tree_instructions<R: Rpc>(
@@ -63,18 +79,8 @@ pub fn create_tree_instructions<R: Rpc>(
     tree: &Pubkey,
     account_size: u64,
 ) -> Result<Vec<Instruction>, ProgramTestError> {
-    let rent = rpc.get_minimum_balance_for_rent_exemption(account_size as usize)?;
-    let lamports = rent
-        .checked_add(tree_working_capital(rpc, &address_tree_params())?)
-        .ok_or(ProgramTestError::TreeFundingOverflow)?;
     Ok(vec![
-        system_create_account_ix(
-            payer,
-            tree,
-            lamports,
-            account_size,
-            &pda::shielded_pool_program_id(),
-        ),
+        sized_tree_account_ix(rpc, payer, tree, account_size, &address_tree_params())?,
         CreateTree {
             authority: *authority,
             tree: *tree,

@@ -2,7 +2,7 @@ use anyhow::Result;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    instruction::{instruction_data::transact::TransactIxData, nullifier_marker_accounts},
+    instruction::{instruction_data::transact::TransactIxData, nullifier_pda_accounts},
     SHIELDED_POOL_PROGRAM_ID,
 };
 
@@ -24,7 +24,7 @@ impl Escrow {
             spp_proof,
         } = self;
 
-        let nullifier_markers = nullifier_marker_accounts(
+        let nullifier_pdas = nullifier_pda_accounts(
             &tree,
             spp_proof.inputs.iter().map(|input| &input.nullifier_hash),
         );
@@ -42,7 +42,7 @@ impl Escrow {
             AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
             AccountMeta::new_readonly(Pubkey::default(), false),
         ];
-        accounts.extend(nullifier_markers);
+        accounts.extend(nullifier_pdas);
         accounts.push(AccountMeta::new_readonly(escrow_authority_pda(), false));
         let mut instruction_data = vec![tag::ESCROW];
         instruction_data.extend_from_slice(&serialized_ix);

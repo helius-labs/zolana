@@ -2,7 +2,7 @@
 
 This crate maintains a height-40 indexed Merkle tree and a two-batch input
 queue. This document specifies nullifier queue insertion, batch append, and
-nullifier-marker cleanup. Initialization is out of scope.
+nullifier-PDA cleanup. Initialization is out of scope.
 
 ## State
 
@@ -17,10 +17,10 @@ Let:
 | `p` | batch currently being appended to the tree |
 | `RH` | root-history capacity, derived as `B / Z` |
 | `q` | next zero-based input-queue sequence number |
-| `w` | exclusive queue-sequence marker-close watermark (`close_before_index`) |
+| `w` | exclusive queue-sequence PDA-close watermark (`close_before_index`) |
 
 The tree is a program-derived account. It holds the queue, root history, and
-lamports used as working capital for nullifier markers.
+lamports used as working capital for nullifier PDAs.
 
 The queue has exactly two batches. Each batch stores `K` hash-chain
 commitments, `K` cached tree updates, and:
@@ -73,13 +73,13 @@ the successor batch therefore overwrites every root that predates it.
 
 `Fill --B queue insertions--> Full --final ZKP append--> Inserted --reuse--> Fill`.
 A finalized ZKP batch may be appended while its queue batch is still `Fill`.
-Reclaimability governs marker cleanup independently of this storage-reuse state
+Reclaimability governs PDA cleanup independently of this storage-reuse state
 machine.
 
-Each queued nullifier has an exact marker account:
+Each queued nullifier has an exact PDA account:
 
 ```text
-marker = canonical_pda(
+PDA = canonical_pda(
     program_id,
     ["nullifier", tree_pubkey, nullifier],
 )
@@ -87,7 +87,7 @@ marker = canonical_pda(
 
 ```rust
 // Borsh-serialized length: 9 bytes.
-struct NullifierMarker {
+struct NullifierPda {
     queue_index: u64,
     bump: u8,
 }
@@ -98,8 +98,8 @@ encoding. Values outside the field are rejected, not reduced modulo the field.
 
 ## Insert into queue
 
-**Description.** Creates an exact nullifier marker and adds the nullifier to the
-current batch's open hash chain. The marker prevents the same pending nullifier
+**Description.** Creates an exact nullifier PDA and adds the nullifier to the
+current batch's open hash chain. The PDA prevents the same pending nullifier
 from being queued twice; the hash chain commits queue order for the later batch
 proof.
 
@@ -109,22 +109,22 @@ proof.
 nullifier: [u8; 32]
 ```
 
-The instruction also receives the writable marker PDA.
+The instruction also receives the writable PDA.
 
 **Checks and state changes**
 
 1. Require the nullifier-tree type and canonical nullifier encoding.
 2. Require `batches[c].state == Fill`. If it is `Inserted`, reuse it first;
    reuse resets its counters and advances `start_index` by `2 * B` without
-   waiting for the batch's markers to become reclaimable. `Full` is not
+   waiting for the batch's PDAs to become reclaimable. `Full` is not
    reusable.
 3. Require
    `q + 1 = batches[c].start_index + batches[c].inserted_elements` and
    `q + 1 < tree.capacity`.
-4. Derive the canonical marker PDA and bump. Require the supplied address to
-   match. An initialized marker fails with
+4. Derive the canonical PDA and bump. Require the supplied address to
+   match. An initialized PDA fails with
    `ShieldedPoolError::NullifierAlreadyQueued` (7048).
-5. Accept an unused marker that is System-owned, empty, and optionally
+5. Accept an unused PDA that is System-owned, empty, and optionally
    prefunded. Transfer only its missing rent-exempt balance from the tree, then
    allocate nine bytes, assign it to the program, and store `{ q, bump }`.
 6. Let `j = batches[c].num_full_zkp_batches`. Update the open commitment:
@@ -141,10 +141,10 @@ The instruction also receives the writable marker PDA.
    two.
 8. Increment `q` once.
 
-Marker creation and queue mutation are atomic. Failure changes neither.
+PDA creation and queue mutation are atomic. Failure changes neither.
 
 **Property — pending non-inclusion.** A successful insertion makes every later
-queue insertion of the same nullifier fail while its marker exists. The check
+queue insertion of the same nullifier fail while its PDA exists. The check
 has no false positives. Non-inclusion against nullifiers already in the Merkle
 tree is proved by the transaction proof.
 
@@ -225,7 +225,7 @@ The Groth16 proof establishes the height-40 indexed append from `old_root` to
 
    At this point `current.state == Inserted` and its `K = RH` applied updates
    have naturally overwritten every root that predates `current`. Set
-   `w = max(w, first_sequence(current))`. This makes markers from every earlier
+   `w = max(w, first_sequence(current))`. This makes PDAs from every earlier
    batch reclaimable regardless of whether that batch has already been reused
    and returned to `Fill`. No root-history slots are explicitly zeroed. These
    changes are atomic.
@@ -233,11 +233,11 @@ The Groth16 proof establishes the height-40 indexed append from `old_root` to
 **Property — queue draining.** One applied update reduces
 `unapplied_values` by exactly `Z`. After all `K` updates, the batch has
 `unapplied_values == 0`, is `Inserted`, and is no longer pending. Its
-hash-chain bytes remain until overwritten on reuse. Its markers remain until
+hash-chain bytes remain until overwritten on reuse. Its PDAs remain until
 separate cleanup transactions close them.
 
 **Property — reclaim liveness.** When the current batch's final ZKP update is
-applied, `w` reaches `first_sequence(current)`, so every marker from the
+applied, `w` reaches `first_sequence(current)`, so every PDA from the
 previous batch is reclaimable even if that batch has already been reused.
 Reclaimability never gates batch storage reuse.
 
@@ -287,10 +287,10 @@ root_index(n)      = (first_root_index + n) mod RH
 Intermediate roots are stored in `root_history`; the event reports only the
 final `new_root`.
 
-## Close nullifier markers
+## Close nullifier PDAs
 
 **Description.** Permissionlessly closes any number of closable nullifier
-markers.
+PDAs.
 
 **Input**
 
@@ -298,41 +298,41 @@ markers.
 nullifiers: Vec<[u8; 32]>
 ```
 
-The instruction also receives the writable tree and one writable marker per
+The instruction also receives the writable tree and one writable PDA per
 nullifier. The shielded-pool index supplies the nullifiers to the cleaner.
 
 **Checks and state changes**
 
-For every `(nullifier, marker)` pair:
+For every `(nullifier, PDA)` pair:
 
 1. Require program ownership and an exact nine-byte Borsh payload.
-2. Recreate `PDA(["nullifier", tree_pubkey, nullifier, marker.bump])` and
-   require it to equal the marker address.
-3. Require `marker.queue_index < w`.
-4. Transfer every marker lamport to the tree and close the marker.
+2. Recreate `PDA(["nullifier", tree_pubkey, nullifier, PDA.bump])` and
+   require it to equal the PDA address.
+3. Require `PDA.queue_index < w`.
+4. Transfer every PDA lamport to the tree and close the PDA.
 
-The call is atomic. A cleanup call may contain markers from different reclaimable
+The call is atomic. A cleanup call may contain PDAs from different reclaimable
 batches of the same tree.
 
-**Property — safe marker lifetime.** For every queued nullifier `n`:
+**Property — safe PDA lifetime.** For every queued nullifier `n`:
 
 ```text
-marker(n) exists
+PDA(n) exists
 OR
 every accepted nullifier-tree root contains n
 ```
 
 Fully applying the successor batch writes `RH` newer roots, which establishes
 the right-hand condition before advancing `w`; cleanup may therefore remove
-the marker without enabling a stale non-inclusion proof. The transact verifier
+the PDA without enabling a stale non-inclusion proof. The transact verifier
 accepts only roots for which `accepted_root` holds. Delayed cleanup locks
 working capital.
 
 ## Cost
 
 Let `A` be the number of append proofs that fit in one transaction, `C` the
-number of marker accounts that fit in one cleanup transaction, and `L` the
-number of live markers.
+number of PDA accounts that fit in one cleanup transaction, and `L` the
+number of live PDAs.
 
 For one full queue batch:
 
@@ -345,17 +345,17 @@ maintenance_transactions = ceil(K / A) + ceil(B / C)
 
 compute_units = K * CU_append + ceil(B / C) * CU_cleanup(C)
 network_fee = maintenance_transactions * base_fee
-locked_marker_rent = L * Rent::minimum_balance(9)
+locked_nullifier_pda_rent = L * Rent::minimum_balance(9)
 ```
 
 With `B = 30_000` and `Z = 250`, a full batch contains 120 append proofs. A
 4,096-byte transaction fits approximately 19 append instructions by size;
 `A_compute` may be lower and must be benchmarked. Each cleanup entry adds a
-32-byte nullifier and one writable marker. For compressed account references
+32-byte nullifier and one writable PDA. For compressed account references
 and a 128-account limit:
 
 ```text
-markers_per_cleanup_transaction ~= 115
+PDAs_per_cleanup_transaction ~= 115
 cleanup_transactions = ceil(30_000 / 115) = 261
 
 if A = 14: append_transactions = 9, maintenance_transactions = 270
@@ -369,25 +369,25 @@ are additional. At a 5,000-lamport signature fee and one signature per
 transaction, 268 to 270 maintenance transactions cost 0.00134 to 0.00135 SOL in
 base fees.
 
-At the current default rent rate, one nine-byte marker requires 953,520
+At the current default rent rate, one nine-byte PDA requires 953,520
 lamports. One full batch locks 28.6056 SOL, all returned to the tree when its
-markers are closed.
+PDAs are closed.
 
 ### Working capital
 
-The tree funds every marker, so at creation it must hold, above its own rent
+The tree funds every PDA, so at creation it must hold, above its own rent
 exemption:
 
 ```text
 working_capital = 3 * B * Rent::minimum_balance(9)
 ```
 
-A marker cannot be closed before its batch is reclaimable, and reclaimability
+A PDA cannot be closed before its batch is reclaimable, and reclaimability
 requires the successor batch's final applied update. Immediate reuse therefore
-allows up to three batches of live markers at once: the old batch's markers,
-the successor batch's markers, and the markers being created in the reused
+allows up to three batches of live PDAs at once: the old batch's PDAs,
+the successor batch's PDAs, and the PDAs being created in the reused
 batch. With prompt cleanup, this is the working capital required for continuous
-insertion. Closed markers return their rent to the tree; delayed cleanup can
+insertion. Closed PDAs return their rent to the tree; delayed cleanup can
 lock capital beyond this amount and eventually stop insertion. With
 `B = 30_000` this is 85.8168 SOL; with `B = 630_000` it is 1,802.1528 SOL.
 
@@ -404,4 +404,4 @@ if B = 120_000: 44.58 to 44.96 lamports
 
 Rounding up, successful maintenance costs **45 lamports per nullifier**. At
 100 USD/SOL, this is 0.0000045 USD per nullifier. This excludes priority fees,
-retries, failed transactions, and the opportunity cost of locked marker rent.
+retries, failed transactions, and the opportunity cost of locked PDA rent.

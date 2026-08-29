@@ -7,7 +7,7 @@ use borsh::BorshSerialize;
 pub use builders::*;
 pub use instruction_data::{
     fetch_tag, validate_interface_transfers, BatchUpdateNullifierTreeData, CircuitId,
-    CloseNullifierMarkersData, CompressedProof, CreateProtocolConfigData, CreateRingConfigData,
+    CloseNullifierPdasData, CompressedProof, CreateProtocolConfigData, CreateRingConfigData,
     DepositAssetKind, DepositEntry, DepositEntryRef, DepositIxData, DepositIxDataRef,
     EncryptedRingDepositData, EncryptedRingDepositDataRef, InputUtxo, InterfaceTransfer,
     MergeExternalDataHash, MergeRingIxData, MergeRingIxDataRef, MergeTransactIxData,

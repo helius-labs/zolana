@@ -102,11 +102,11 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Suggested test: negative; harness: program-tests integration (`cargo test-sbf`)
 
 - [x] **INV-XC-10: every nullifier is inserted at most once**
-  - Covered by: `program-tests/shielded-pool/tests/transact/withdrawal.rs` `shield_before_authority_rotation_then_withdraw_sol` (cross-transaction replay -> 7048 with rollback); `transact/guard.rs` `transact_rejects_a_duplicate_nullifier_within_one_instruction` (two equal nullifiers in one instruction -> 7048); `nullifier/markers.rs` `transact_rejects_a_pending_nullifier`, `transact_rejects_the_same_nullifier_twice_in_one_instruction` (see INV-TRANSACT-47 in `tree.md`)
+  - Covered by: `program-tests/shielded-pool/tests/transact/withdrawal.rs` `shield_before_authority_rotation_then_withdraw_sol` (cross-transaction replay -> 7048 with rollback); `transact/guard.rs` `transact_rejects_a_duplicate_nullifier_within_one_instruction` (two equal nullifiers in one instruction -> 7048); `nullifier/nullifier_pdas.rs` `transact_rejects_a_pending_nullifier`, `transact_rejects_the_same_nullifier_twice_in_one_instruction` (see INV-TRANSACT-47 in `tree.md`)
   - Kind: state
   - Affects: Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact
   - Statement: for every 32-byte nullifier value, at most one queue insertion ever succeeds across all instructions and all transactions (including two inputs with the same nullifier inside one instruction); every later insertion attempt makes its instruction return Err.
-  - Location: `programs/shielded-pool/src/instructions/nullifier_marker/loader.rs` (`load_unused_nullifier_marker`: an initialized marker PDA rejects the insertion), `transact/tree.rs` and `merge/processor.rs` (`insert_nullifier_into_queue`), `program-libs/batched-merkle-tree/src/merkle_tree.rs`
+  - Location: `programs/shielded-pool/src/instructions/nullifier_pda/loader.rs` (`load_unused_nullifier_pda`: an initialized PDA rejects the insertion), `transact/tree.rs` and `merge/processor.rs` (`insert_nullifier_into_queue`), `program-libs/batched-merkle-tree/src/merkle_tree.rs`
   - Error: `ShieldedPoolError::NullifierAlreadyQueued = 7048`
   - Severity: Critical (double-spend)
   - Suggested test: negative (same nullifier twice across transactions, and twice within one instruction); harness: program-tests integration (`cargo test-sbf`)

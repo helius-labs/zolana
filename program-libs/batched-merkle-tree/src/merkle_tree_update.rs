@@ -145,7 +145,7 @@ impl<'a, const ZKP: usize> BatchedMerkleTreeAccount<'a, ZKP> {
     ///    means new_root is the correct next root for the current tree.
     /// 3. Apply: advance the tree next index and sequence number, append the new
     ///    root, and mark the ZKP batch inserted. When that fully inserts the
-    ///    pending batch, advance the marker-close watermark before advancing
+    ///    pending batch, advance the nullifier PDA-close watermark before advancing
     ///    the pending index (spec batch append steps 8-9).
     /// 4. Clear the applied cache slot.
     /// 5. Record the new root in the cascade event.
@@ -219,7 +219,7 @@ impl<'a, const ZKP: usize> BatchedMerkleTreeAccount<'a, ZKP> {
                 .get_mut(pending_batch_index)
                 .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?
                 .mark_as_inserted_in_merkle_tree()?;
-            self.advance_marker_close_watermark(pending_batch_state)?;
+            self.advance_nullifier_pda_close_watermark(pending_batch_state)?;
             self.layout
                 .metadata
                 .queue_batches
@@ -247,7 +247,7 @@ impl<'a, const ZKP: usize> BatchedMerkleTreeAccount<'a, ZKP> {
         }
     }
 
-    /// Advances the marker-close watermark when the pending batch becomes fully
+    /// Advances the nullifier PDA-close watermark when the pending batch becomes fully
     /// inserted. This must run before `pending_batch_index` advances so it still
     /// identifies the updated batch.
     ///
@@ -255,7 +255,7 @@ impl<'a, const ZKP: usize> BatchedMerkleTreeAccount<'a, ZKP> {
     /// every accepted root now contains every value queued before that batch.
     /// This depends only on the inserted batch's start index: the preceding
     /// batch may already have been reused and returned to `Fill`.
-    fn advance_marker_close_watermark(
+    fn advance_nullifier_pda_close_watermark(
         &mut self,
         pending_batch_state: BatchState,
     ) -> Result<(), BatchedMerkleTreeError> {

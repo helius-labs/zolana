@@ -2,7 +2,7 @@ use anyhow::Result;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use zolana_interface::{
-    instruction::{instruction_data::transact::TransactProof, nullifier_marker_accounts},
+    instruction::{instruction_data::transact::TransactProof, nullifier_pda_accounts},
     SHIELDED_POOL_PROGRAM_ID,
 };
 
@@ -46,7 +46,7 @@ impl Create {
             AccountMeta::new_readonly(Address::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
             AccountMeta::new_readonly(Address::default(), false),
         ];
-        accounts.extend(nullifier_marker_accounts(&tree, [&nullifier]));
+        accounts.extend(nullifier_pda_accounts(&tree, [&nullifier]));
         accounts.push(AccountMeta::new_readonly(pda, false));
         let mut instruction_data = vec![tag::CREATE];
         instruction_data.extend_from_slice(&serialized_ix);

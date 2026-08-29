@@ -90,7 +90,7 @@ fn assert_rejected_without_sol_movement(
     ];
     accounts.extend(data.inputs.iter().map(|input| {
         AccountMeta::new(
-            pda::nullifier_marker(&pool.tree.pubkey(), &input.nullifier_hash).0,
+            pda::nullifier_pda(&pool.tree.pubkey(), &input.nullifier_hash).0,
             false,
         )
     }));
@@ -361,7 +361,7 @@ fn spl_deposit_requires_depositor_signature() {
         data,
     }
     .instruction();
-    // Accounts: [payer, trees, program, system, one marker per input, mint,
+    // Accounts: [payer, trees, program, system, one nullifier PDA per input, mint,
     // spl_interface, token_authority, user_token, token_program].
     ix.accounts
         .get_mut(token_authority_index)

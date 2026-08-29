@@ -80,7 +80,7 @@ test-hermetic: test-cli test-batched-merkle-tree test-program-fast test-user-reg
 # The in-crate tests need the test-only feature. Keep the prover-backed
 # nullifier_tree binary out of this hermetic lane.
 test-batched-merkle-tree:
-    cargo nextest run -p zolana-batched-merkle-tree --features test-only --lib --test batch_reclaimable --test nullifier_marker
+    cargo nextest run -p zolana-batched-merkle-tree --features test-only --lib --test batch_reclaimable --test nullifier_pda
 
 # Program/interface tests for the shielded-pool implementation.
 # Depends on build-programs so the litesvm tests load a fresh .so and actually

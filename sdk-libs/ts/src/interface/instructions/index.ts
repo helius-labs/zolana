@@ -28,7 +28,7 @@ import {
 } from "../types.js";
 import { Writer, addressBytes, checkedAddress, fail } from "../internal.js";
 import {
-  nullifierMarkerAddress,
+  nullifierPdaAddress,
   protocolConfigAddress,
   ringAuthAddress,
   solInterfaceAddress,
@@ -339,16 +339,16 @@ function settlementAccounts(withdrawal?: TransactWithdrawal): Meta[] {
 }
 
 /**
- * One writable marker PDA per nullifier, preserving input order.
+ * One writable nullifier PDA per nullifier, preserving input order.
  */
-export async function nullifierMarkerAccounts(
+export async function nullifierPdaAccounts(
   inputTree: Address,
   nullifiers: readonly Uint8Array[],
 ): Promise<Meta[]> {
-  const markers = await Promise.all(
-    nullifiers.map((nullifier) => nullifierMarkerAddress(inputTree, nullifier)),
+  const nullifierPdas = await Promise.all(
+    nullifiers.map((nullifier) => nullifierPdaAddress(inputTree, nullifier)),
   );
-  return markers.map((marker) => meta(marker, false, true));
+  return nullifierPdas.map((pda) => meta(pda, false, true));
 }
 
 async function transactAccounts(
@@ -364,7 +364,7 @@ async function transactAccounts(
     meta(outputTree, false, true),
     meta(SHIELDED_POOL_PROGRAM_ID, false, false),
     meta(SYSTEM_PROGRAM, false, false),
-    ...(await nullifierMarkerAccounts(
+    ...(await nullifierPdaAccounts(
       inputTree,
       inputs.map((input) => input.nullifierHash),
     )),
@@ -397,7 +397,7 @@ export async function transactInstruction(
 /**
  * Mirrors Rust `RingTransact::instruction`. `ringAuth` is unsigned here, the ring
  * program signs it inside its CPI. `inputs` are the payload's spent inputs; their
- * nullifier markers follow `ringAuth`.
+ * nullifier PDAs follow `ringAuth`.
  */
 export async function ringTransactAccounts(
   input: Readonly<{
@@ -417,7 +417,7 @@ export async function ringTransactAccounts(
     meta(SHIELDED_POOL_PROGRAM_ID, false, false),
     meta(SYSTEM_PROGRAM, false, false),
     meta(input.ringAuth, false, false),
-    ...(await nullifierMarkerAccounts(
+    ...(await nullifierPdaAccounts(
       input.inputTree,
       input.inputs.map((spentInput) => spentInput.nullifierHash),
     )),
@@ -515,7 +515,7 @@ export async function pauseTreeInstruction(
   );
 }
 
-/** Mirrors Rust `MergeTransact::instruction`: the eight nullifier markers precede the pool program. */
+/** Mirrors Rust `MergeTransact::instruction`: the eight nullifier PDAs precede the pool program. */
 export async function mergeTransactInstruction(
   input: Readonly<{
     inputTree: Address;
@@ -533,7 +533,7 @@ export async function mergeTransactInstruction(
       meta(input.payer, true, true),
       meta(input.userRecord, false, false),
       meta(SYSTEM_PROGRAM, false, false),
-      ...(await nullifierMarkerAccounts(input.inputTree, input.data.nullifiers)),
+      ...(await nullifierPdaAccounts(input.inputTree, input.data.nullifiers)),
       meta(SHIELDED_POOL_PROGRAM_ID, false, false),
     ],
   );

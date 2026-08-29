@@ -128,12 +128,12 @@ pub enum ShieldedPoolError {
     RingPaused = 7047,
     #[error("nullifier is already queued in the nullifier tree")]
     NullifierAlreadyQueued = 7048,
-    #[error("tree does not hold enough lamports to fund a nullifier marker")]
-    InsufficientNullifierMarkerRent = 7049,
-    #[error("nullifier marker batch is not reclaimable yet")]
-    NullifierMarkerNotClosable = 7050,
-    #[error("nullifier marker account is invalid")]
-    InvalidNullifierMarker = 7051,
+    #[error("tree does not hold enough lamports to fund a nullifier PDA")]
+    InsufficientNullifierPdaRent = 7049,
+    #[error("nullifier PDA batch is not reclaimable yet")]
+    NullifierPdaNotClosable = 7050,
+    #[error("nullifier PDA account is invalid")]
+    InvalidNullifierPda = 7051,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -224,9 +224,9 @@ mod tests {
                 SplAssetCounterAlreadyInitialized => 7046,
                 RingPaused => 7047,
                 NullifierAlreadyQueued => 7048,
-                InsufficientNullifierMarkerRent => 7049,
-                NullifierMarkerNotClosable => 7050,
-                InvalidNullifierMarker => 7051,
+                InsufficientNullifierPdaRent => 7049,
+                NullifierPdaNotClosable => 7050,
+                InvalidNullifierPda => 7051,
             }
         }
 
@@ -278,9 +278,9 @@ mod tests {
             SplAssetCounterAlreadyInitialized,
             RingPaused,
             NullifierAlreadyQueued,
-            InsufficientNullifierMarkerRent,
-            NullifierMarkerNotClosable,
-            InvalidNullifierMarker,
+            InsufficientNullifierPdaRent,
+            NullifierPdaNotClosable,
+            InvalidNullifierPda,
         ];
         for variant in variants {
             assert_eq!(

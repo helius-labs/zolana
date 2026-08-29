@@ -42,8 +42,8 @@ pub use indexer::{
 };
 pub mod instructions;
 pub use instructions::{
-    create_tree_instructions, rpc_state_root, system_create_account_ix, tree_creation_lamports,
-    tree_working_capital, RING_TEST_PROGRAM_ID,
+    create_tree_account_ix, create_tree_instructions, rpc_state_root, system_create_account_ix,
+    RING_TEST_PROGRAM_ID,
 };
 mod paths;
 mod rejection;
@@ -141,7 +141,7 @@ impl ZolanaProgramTest {
             .map_err(|e| ProgramTestError::Litesvm(format!("add_program: {e:?}")))?;
 
         let payer = Keypair::new();
-        // Working capital for recoverable nullifier-marker rent.
+        // Working capital for recoverable nullifier-PDA rent.
         svm.airdrop(&payer.pubkey(), 1_000_000_000_000)
             .map_err(|e| ProgramTestError::Litesvm(format!("airdrop: {e:?}")))?;
 

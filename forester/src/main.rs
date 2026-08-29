@@ -4,7 +4,7 @@ use anyhow::Result;
 use clap::Parser;
 use forester::{
     cli::{Cli, Commands},
-    close_markers::CloseMarkersOptions,
+    close_nullifier_pdas::CloseNullifierPdasOptions,
     config::ForesterConfig,
     run::RunOptions,
 };
@@ -73,15 +73,15 @@ fn dispatch(cli: Cli) -> Result<()> {
                 },
             )
         }
-        Commands::CloseMarkers {
+        Commands::CloseNullifierPdas {
             tree,
             from_seq,
             max_transactions,
             watch,
             poll_secs,
-        } => forester::close_markers::run(
+        } => forester::close_nullifier_pdas::run(
             &ForesterConfig::from_env()?,
-            CloseMarkersOptions {
+            CloseNullifierPdasOptions {
                 tree,
                 from_seq,
                 max_transactions,

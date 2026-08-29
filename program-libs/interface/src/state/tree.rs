@@ -12,16 +12,30 @@ pub const ADDRESS_TREE_ROOT_HISTORY_CAPACITY: u32 =
 /// Lamports reimbursed for each applied nullifier-tree ZKP batch.
 pub const FORESTER_REIMBURSEMENT_LAMPORTS: u64 = 5_000;
 
-/// Marker rent needed while one reused batch overlaps the two preceding marker
-/// generations. Prompt cleanup keeps the maximum at `NUM_BATCHES + 1` batches.
+/// Nullifier-PDA rent needed while one reused batch overlaps the two preceding
+/// PDA generations. Prompt cleanup keeps the maximum at `NUM_BATCHES + 1`
+/// batches.
 pub fn tree_working_capital_lamports(
     nullifier_params: &InitAddressTreeAccountsInstructionData,
-    marker_rent: u64,
+    nullifier_pda_rent: u64,
 ) -> Option<u64> {
     (NUM_BATCHES as u64)
         .checked_add(1)?
         .checked_mul(nullifier_params.input_queue_batch_size)?
-        .checked_mul(marker_rent)
+        .checked_mul(nullifier_pda_rent)
+}
+
+/// Lamports a tree account must be created with: its own rent exemption plus
+/// the working capital it needs to fund nullifier PDAs.
+pub fn tree_creation_lamports(
+    nullifier_params: &InitAddressTreeAccountsInstructionData,
+    tree_rent: u64,
+    nullifier_pda_rent: u64,
+) -> Option<u64> {
+    tree_rent.checked_add(tree_working_capital_lamports(
+        nullifier_params,
+        nullifier_pda_rent,
+    )?)
 }
 
 /// Derive the fee charged for each element inserted into a tree's nullifier
@@ -56,7 +70,7 @@ mod tests {
     use solana_rent::Rent;
 
     use super::*;
-    use crate::NULLIFIER_MARKER_SIZE;
+    use crate::NULLIFIER_PDA_SIZE;
 
     #[test]
     fn standard_tree_forester_fee_exactly_funds_reimbursement() {
@@ -73,13 +87,13 @@ mod tests {
     }
 
     #[test]
-    fn working_capital_funds_three_batches_of_live_markers() {
-        let marker_rent = Rent::default().minimum_balance(NULLIFIER_MARKER_SIZE);
-        assert_eq!(marker_rent, 953_520);
+    fn working_capital_funds_three_batches_of_live_nullifier_pdas() {
+        let nullifier_pda_rent = Rent::default().minimum_balance(NULLIFIER_PDA_SIZE);
+        assert_eq!(nullifier_pda_rent, 953_520);
 
         let canonical = address_tree_params();
         assert_eq!(
-            tree_working_capital_lamports(&canonical, marker_rent),
+            tree_working_capital_lamports(&canonical, nullifier_pda_rent),
             Some(3 * 30_000 * 953_520)
         );
 
@@ -88,7 +102,7 @@ mod tests {
             ..canonical
         };
         assert_eq!(
-            tree_working_capital_lamports(&half, marker_rent),
+            tree_working_capital_lamports(&half, nullifier_pda_rent),
             Some(45_000 * 953_520)
         );
 

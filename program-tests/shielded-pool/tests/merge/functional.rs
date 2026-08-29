@@ -28,13 +28,13 @@ use zolana_interface::{
     instruction::{instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeTransact},
     state::{forester_fee_per_queue_element, ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE},
     verifying_keys::merge_8_1,
-    NULLIFIER_MARKER_SIZE, SHIELDED_POOL_PROGRAM_ID,
+    NULLIFIER_PDA_SIZE, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{hash::owner_hash, PublicKey, ShieldedKeypair, ShieldedKeypairTrait};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::{test_blinding, ZolanaProgramTest};
-use zolana_test_utils::nullifier_marker::{
-    assert_nullifier_markers, marker_addresses, nullifier_marker_rent,
+use zolana_test_utils::nullifier_pda::{
+    assert_nullifier_pdas, nullifier_pda_addresses, nullifier_pda_rent,
 };
 use zolana_test_utils::transact::nullifier_tree;
 use zolana_transaction::{
@@ -282,7 +282,7 @@ fn merge_collects_the_exact_forester_fee_from_the_payer() {
     // Exact forester fee: MERGE_INPUT_COUNT (8) queue insertions at
     // forester_fee_per_queue_element(zkp_batch_size) = 20 lamports each,
     // collected from the payer into the input tree after proof verification.
-    // The tree in turn funds one nullifier marker per queued nullifier.
+    // The tree in turn funds one nullifier PDA per queued nullifier.
     const LAMPORTS_PER_SIGNATURE: u64 = 5_000;
     let fee_per_element = forester_fee_per_queue_element(ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE)
         .expect("non-zero ZKP batch size");
@@ -293,9 +293,9 @@ fn merge_collects_the_exact_forester_fee_from_the_payer() {
         MERGE_INPUT_COUNT,
         "merge queues one nullifier per input slot"
     );
-    let marker_rent = nullifier_marker_rent(&env.rpc).expect("nullifier marker rent");
-    let markers = marker_addresses(&tree, &result.nullifiers);
-    let marker_rent_total = marker_rent * MERGE_INPUT_COUNT as u64;
+    let nullifier_pda_rent = nullifier_pda_rent(&env.rpc).expect("nullifier PDA rent");
+    let nullifier_pdas = nullifier_pda_addresses(&tree, &result.nullifiers);
+    let nullifier_pda_rent_total = nullifier_pda_rent * MERGE_INPUT_COUNT as u64;
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     let trace = env
         .rpc
@@ -309,29 +309,28 @@ fn merge_collects_the_exact_forester_fee_from_the_payer() {
     assert!(
         traced.contains(&payer_pk)
             && traced.contains(&tree)
-            && markers.iter().all(|marker| traced.contains(marker)),
-        "trace must journal the payer, the tree and the nullifier markers, got {traced:?}"
+            && nullifier_pdas
+                .iter()
+                .all(|nullifier_pda| traced.contains(nullifier_pda)),
+        "trace must journal the payer, the tree and the nullifier PDAs, got {traced:?}"
     );
     for transition in &trace.accounts {
-        if markers.contains(&transition.address) {
+        if nullifier_pdas.contains(&transition.address) {
             assert_eq!(
                 transition.before, None,
-                "nullifier marker {} must not exist before the merge",
+                "nullifier PDA {} must not exist before the merge",
                 transition.address
             );
             let after = transition
                 .after
                 .as_ref()
-                .expect("nullifier marker after merge");
+                .expect("nullifier PDA after merge");
             assert_eq!(
-                after.lamports, marker_rent,
-                "nullifier marker holds exactly its rent"
+                after.lamports, nullifier_pda_rent,
+                "nullifier PDA holds exactly its rent"
             );
-            assert_eq!(after.owner, program_id, "nullifier marker is program-owned");
-            assert_eq!(
-                after.data_len, NULLIFIER_MARKER_SIZE,
-                "nullifier marker size"
-            );
+            assert_eq!(after.owner, program_id, "nullifier PDA is program-owned");
+            assert_eq!(after.data_len, NULLIFIER_PDA_SIZE, "nullifier PDA size");
             continue;
         }
         let before = transition.before.as_ref().expect("account before merge");
@@ -339,8 +338,8 @@ fn merge_collects_the_exact_forester_fee_from_the_payer() {
         if transition.address == tree {
             assert_eq!(
                 before.lamports + forester_fee,
-                after.lamports + marker_rent_total,
-                "tree collects exactly the merge forester fee and funds eight markers"
+                after.lamports + nullifier_pda_rent_total,
+                "tree collects exactly the merge forester fee and funds eight nullifier PDAs"
             );
             assert_eq!(before.owner, after.owner, "tree owner unchanged");
             assert_eq!(before.data_len, after.data_len, "tree size unchanged");
@@ -364,5 +363,5 @@ fn merge_collects_the_exact_forester_fee_from_the_payer() {
             );
         }
     }
-    assert_nullifier_markers(&env.rpc, &tree, &result.nullifiers).expect("nullifier markers");
+    assert_nullifier_pdas(&env.rpc, &tree, &result.nullifiers).expect("nullifier PDAs");
 }

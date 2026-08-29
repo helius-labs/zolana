@@ -9,15 +9,15 @@ use zolana_hasher::{primitives::hash_bytes, Poseidon};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{instruction_data::transact::TransactIxData, Transact},
-    pda, NullifierMarker,
+    pda, NullifierPda,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::{test_blinding, Rejection, Rpc, TransactionTrace};
 use zolana_test_utils::{
-    nullifier_marker::{
-        assert_nullifier_marker, assert_tree_lamports_after_spend, forester_fee_for_inputs,
-        marker_addresses, nullifier_marker_rent, nullifier_queue_next_index,
+    nullifier_pda::{
+        assert_nullifier_pda, assert_tree_lamports_after_spend, forester_fee_for_inputs,
+        nullifier_pda_addresses, nullifier_pda_rent, nullifier_queue_next_index,
     },
     transact::{
         build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
@@ -192,19 +192,19 @@ fn assert_transact_frame(env: &Pool, trace: &TransactionTrace, nullifiers: &[[u8
         .map(|transition| transition.address)
         .collect();
     changed.sort();
-    let mut expected: Vec<Pubkey> = marker_addresses(&tree, nullifiers)
+    let mut expected: Vec<Pubkey> = nullifier_pda_addresses(&tree, nullifiers)
         .into_iter()
         .chain([tree, payer])
         .collect();
     expected.sort();
     assert_eq!(
         changed, expected,
-        "transact changes only the payer, the tree and the new nullifier markers"
+        "transact changes only the payer, the tree and the new nullifier PDAs"
     );
 }
 
 #[test]
-fn transact_creates_one_marker_per_input() {
+fn transact_creates_one_nullifier_pda_per_input() {
     let mut env = proof_env();
     let tree = env.tree.pubkey();
     let data = build_valid_transact_ix(&mut env);
@@ -218,8 +218,8 @@ fn transact_creates_one_marker_per_input() {
         .expect("transact with a valid proof");
 
     for (nullifier, offset) in nullifiers.iter().zip(0..) {
-        assert_nullifier_marker(&env.rpc, &tree, nullifier, queue_next_before + offset)
-            .expect("marker stores its queue index and canonical bump");
+        assert_nullifier_pda(&env.rpc, &tree, nullifier, queue_next_before + offset)
+            .expect("nullifier PDA stores its queue index and canonical bump");
     }
     assert_tree_lamports_after_spend(&env.rpc, &tree, &tree_before, nullifiers.len() as u64)
         .expect("tree lamports");
@@ -228,7 +228,7 @@ fn transact_creates_one_marker_per_input() {
     assert_eq!(
         payer_before,
         payer_lamports(&env) + LAMPORTS_PER_SIGNATURE + forester_fee,
-        "payer pays the transaction fee and the forester fee; marker rent comes from the tree"
+        "payer pays the transaction fee and the forester fee; nullifier PDA rent comes from the tree"
     );
     let trace = env
         .rpc
@@ -266,39 +266,41 @@ fn transact_rejects_a_nullifier_queued_by_an_earlier_transaction() {
         "rejected replay leaves the tree untouched"
     );
     for (nullifier, offset) in nullifiers.iter().zip(0..) {
-        assert_nullifier_marker(&env.rpc, &tree, nullifier, queue_next_before + offset)
-            .expect("first spend's marker unchanged");
+        assert_nullifier_pda(&env.rpc, &tree, nullifier, queue_next_before + offset)
+            .expect("first spend's nullifier PDA unchanged");
     }
 }
 
 #[test]
-fn transact_tops_up_prefunded_markers() {
+fn transact_tops_up_prefunded_nullifier_pdas() {
     let mut env = proof_env();
     let tree = env.tree.pubkey();
     let payer = env.rpc.payer.pubkey();
     let data = build_valid_transact_ix(&mut env);
     let nullifiers = nullifiers_of(&data);
-    let markers = marker_addresses(&tree, &nullifiers);
-    let rent = nullifier_marker_rent(&env.rpc).expect("marker rent");
+    let nullifier_pdas = nullifier_pda_addresses(&tree, &nullifiers);
+    let rent = nullifier_pda_rent(&env.rpc).expect("nullifier PDA rent");
     let underfunded = env
         .rpc
         .get_minimum_balance_for_rent_exemption(0)
         .expect("empty account rent");
     assert!(
         underfunded < rent,
-        "the smallest rent-exempt donation must stay below the marker rent"
+        "the smallest rent-exempt donation must stay below the nullifier PDA rent"
     );
     let overfunded = rent + 1_000;
     let prefunds = [underfunded, overfunded];
-    for (marker, prefund) in markers.iter().zip(prefunds) {
+    for (nullifier_pda, prefund) in nullifier_pdas.iter().zip(prefunds) {
         env.rpc
             .create_and_send_default_payer_transaction(
                 &[solana_system_interface::instruction::transfer(
-                    &payer, marker, prefund,
+                    &payer,
+                    nullifier_pda,
+                    prefund,
                 )],
                 &[],
             )
-            .expect("prefund marker");
+            .expect("prefund nullifier PDA");
     }
     let queue_next_before = nullifier_queue_next_index(&env.rpc, &tree).expect("queue index");
     let tree_before = tree_account(&env);
@@ -306,44 +308,53 @@ fn transact_tops_up_prefunded_markers() {
 
     env.rpc
         .create_and_send_default_payer_transaction(&[transact_instruction(&env, data)], &[])
-        .expect("transact with prefunded markers");
+        .expect("transact with prefunded nullifier PDAs");
 
     let (first_nullifier, second_nullifier) = match nullifiers.as_slice() {
         [first, second] => (first, second),
         other => panic!("expected two nullifiers, got {other:?}"),
     };
-    assert_nullifier_marker(&env.rpc, &tree, first_nullifier, queue_next_before)
-        .expect("underfunded marker topped up to exactly its rent");
-    let (overfunded_marker, overfunded_bump) = pda::nullifier_marker(&tree, second_nullifier);
+    assert_nullifier_pda(&env.rpc, &tree, first_nullifier, queue_next_before)
+        .expect("underfunded nullifier PDA topped up to exactly its rent");
+    let (overfunded_nullifier_pda, overfunded_bump) = pda::nullifier_pda(&tree, second_nullifier);
     let overfunded_account = env
         .rpc
         .svm
-        .get_account(&overfunded_marker)
-        .expect("overfunded marker account");
+        .get_account(&overfunded_nullifier_pda)
+        .expect("overfunded nullifier PDA account");
     let expected_overfunded = Account {
         lamports: overfunded,
-        data: borsh::to_vec(&NullifierMarker {
+        data: borsh::to_vec(&NullifierPda {
             queue_index: queue_next_before + 1,
             bump: overfunded_bump,
         })
-        .expect("serialize expected marker"),
+        .expect("serialize expected nullifier PDA"),
         owner: pda::shielded_pool_program_id(),
         executable: false,
         rent_epoch: overfunded_account.rent_epoch,
     };
     assert_eq!(
         overfunded_account, expected_overfunded,
-        "overfunded marker keeps its surplus and is initialized in place"
+        "overfunded nullifier PDA keeps its surplus and is initialized in place"
     );
 
     let forester_fee = forester_fee_for_inputs(&tree_before, &tree, nullifiers.len() as u64)
         .expect("forester fee");
-    let mut expected_tree = tree_before.clone();
-    expected_tree.lamports = tree_before.lamports + forester_fee - (rent - underfunded);
+    let tree_after = tree_account(&env);
     assert_eq!(
-        tree_account(&env),
-        expected_tree,
-        "tree funds only the missing rent of the underfunded marker"
+        (
+            tree_after.lamports,
+            tree_after.owner,
+            tree_after.data.len(),
+            tree_after.executable,
+        ),
+        (
+            tree_before.lamports + forester_fee - (rent - underfunded),
+            tree_before.owner,
+            tree_before.data.len(),
+            tree_before.executable,
+        ),
+        "tree funds only the missing rent of the underfunded nullifier PDA"
     );
     assert_eq!(
         payer_before,

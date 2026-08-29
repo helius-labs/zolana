@@ -113,7 +113,7 @@ fn every_first_byte_dispatches_or_is_rejected_exactly() {
         tag::RING_TRANSACT,
         tag::RING_MERGE_TRANSACT,
         tag::RING_AUTHORITY_TRANSACT,
-        tag::CLOSE_NULLIFIER_MARKERS,
+        tag::CLOSE_NULLIFIER_PDAS,
     ];
     assert_eq!(KNOWN_TAGS, core::array::from_fn(|tag| tag as u8));
     let transact_payload =

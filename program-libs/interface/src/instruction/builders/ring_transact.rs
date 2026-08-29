@@ -4,7 +4,7 @@ use solana_pubkey::Pubkey;
 use crate::{
     instruction::{
         builders::transact::{
-            append_interface_transfer_accounts, nullifier_marker_accounts,
+            append_interface_transfer_accounts, nullifier_pda_accounts,
             TransactInterfaceTransferAccounts,
         },
         tag, TransactIxData,
@@ -16,7 +16,7 @@ use crate::{
 /// of [`super::transact::Transact`]. The account layout mirrors the program
 /// loader (`RingTransactAccounts::validate_and_parse`): `payer`, `input_tree`,
 /// `output_tree`, the SPP and System Program accounts, the `RingConfig` account
-/// (the ring's `ring_auth` PDA), one writable nullifier marker per input (in
+/// (the ring's `ring_auth` PDA), one writable nullifier PDA per input (in
 /// `inputs` order), owner signers, then optional settlement accounts.
 pub struct RingTransact {
     pub payer: Pubkey,
@@ -62,7 +62,7 @@ impl RingTransact {
             AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(ring_config, auth_signer),
         ];
-        accounts.extend(nullifier_marker_accounts(
+        accounts.extend(nullifier_pda_accounts(
             &self.input_tree,
             self.data.inputs.iter().map(|input| &input.nullifier_hash),
         ));

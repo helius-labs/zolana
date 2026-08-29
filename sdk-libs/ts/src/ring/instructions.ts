@@ -147,7 +147,7 @@ export async function ringLookupTableAddresses(
     ringConfigAddress(input.ringProgramId),
     ringAuthAddress(input.ringProgramId),
   ]);
-  // Nullifier markers are fresh per transaction, so none belongs in the table.
+  // Nullifier PDAs are fresh per transaction, so none belongs in the table.
   const pool = await ringTransactAccounts({
     payer: SHIELDED_POOL_PROGRAM_ID,
     inputTree: input.tree,

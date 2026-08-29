@@ -8,7 +8,7 @@
 //! batched into the queue and applied to the tree with a zero-knowledge proof
 //! (ZKP), enabling efficient on-chain verification. Trees keep a cyclic root
 //! history for validity proofs; pending non-inclusion of a queued nullifier is
-//! guaranteed by a per-nullifier marker account. See `spec.md`.
+//! guaranteed by a per-nullifier PDA account. See `spec.md`.
 //!
 //! | Module | Description |
 //! |--------|-------------|
@@ -44,8 +44,8 @@
 //!   rejects non-canonical field elements, adds the value to the current
 //!   input-queue batch's open hash chain via the [`queue`] module, and returns
 //!   the queue index `q` the value reserved. The program stores `{ q, bump }` in
-//!   the nullifier marker PDA (`zolana_interface::state::NullifierMarker`); the
-//!   marker is what rejects a second insertion of a pending nullifier.
+//!   the nullifier PDA (`zolana_interface::state::NullifierPda`); the
+//!   nullifier PDA is what rejects a second insertion of a pending nullifier.
 //!
 //! ### Tree update
 //! - The queued batch is applied to the tree with a ZKP that proves
@@ -65,8 +65,8 @@
 //! applied (`Inserted`), those updates have naturally overwritten every older
 //! root and the tree's `close_before_index` watermark `w` advances to
 //! `current.start_index - 1`. An `Inserted` batch can be reused immediately;
-//! reclaimability gates marker cleanup rather than batch storage reuse. A
-//! nullifier marker may be closed only once `marker.queue_index < w`.
+//! reclaimability gates nullifier PDA cleanup rather than batch storage reuse. A
+//! nullifier PDA may be closed only once `nullifier PDA.queue_index < w`.
 //!
 //! **Hash chains:** Each ZKP batch keeps a hash chain storing the Poseidon hash
 //! of all values in that ZKP batch, used as a public input to the ZKP.

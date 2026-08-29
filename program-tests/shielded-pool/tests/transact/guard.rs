@@ -478,8 +478,8 @@ fn transact_rejects_more_inputs_than_any_circuit_supports() {
 #[test]
 fn transact_rejects_a_duplicate_nullifier_within_one_instruction() {
     let mut env = Pool::initialized();
-    // INV-XC-10: the second input reuses the first input's nullifier marker,
-    // which the first input already created, so marker creation rejects the
+    // INV-XC-10: the second input reuses the first input's nullifier PDA,
+    // which the first input already created, so nullifier PDA creation rejects the
     // duplicate before proof verification.
     let mut data = transfer_ix_data(2, 3);
     let first = data.inputs.first().expect("first input").nullifier_hash;

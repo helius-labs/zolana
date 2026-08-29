@@ -21,7 +21,7 @@ use zolana_client::{Rpc, SolanaRpc, ZolanaIndexer};
 use zolana_interface::{
     instruction::{CreateAssetCounter, CreateProtocolConfig, CreateSplInterface, CreateTree},
     pda,
-    state::{address_tree_params, tree_account_size},
+    state::address_tree_params,
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{ShieldedKeypair, SigningKey};
@@ -324,17 +324,12 @@ impl<D> LocalnetHarness<D> {
         nullifier_params: Option<InitAddressTreeAccountsInstructionData>,
     ) -> Result<(Pubkey, Address)> {
         let tree = Keypair::new();
-        let lamports = zolana_program_test::tree_creation_lamports(
+        let alloc_ix = zolana_program_test::create_tree_account_ix(
             rpc,
-            &nullifier_params.unwrap_or_else(address_tree_params),
-        )?;
-        let alloc_ix = zolana_program_test::system_create_account_ix(
             &setup.payer.pubkey(),
             &tree.pubkey(),
-            lamports,
-            tree_account_size() as u64,
-            &pda::shielded_pool_program_id(),
-        );
+            &nullifier_params.unwrap_or_else(address_tree_params),
+        )?;
         let create = CreateTree {
             authority: setup.accounts.tree_vault,
             tree: tree.pubkey(),

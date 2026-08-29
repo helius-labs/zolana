@@ -39,7 +39,7 @@ pub enum TransactInterfaceTransferAccounts {
 /// Builder for the `transact` instruction. The account layout mirrors the
 /// program loader (`TransactAccounts::validate_and_parse`): `payer`,
 /// `input_tree`, `output_tree`, the SPP and System Program accounts, one
-/// writable nullifier marker per input (in `inputs` order), owner signers, then
+/// writable nullifier PDA per input (in `inputs` order), owner signers, then
 /// the ordered interface-transfer account groups.
 pub struct Transact {
     pub payer: Pubkey,
@@ -108,14 +108,14 @@ pub(super) fn append_interface_transfer_accounts(
     }
 }
 
-/// One writable nullifier-marker account per nullifier, preserving input order.
-pub fn nullifier_marker_accounts<'a>(
+/// One writable nullifier-PDA account per nullifier, preserving input order.
+pub fn nullifier_pda_accounts<'a>(
     input_tree: &Pubkey,
     nullifiers: impl IntoIterator<Item = &'a [u8; 32]>,
 ) -> Vec<AccountMeta> {
     nullifiers
         .into_iter()
-        .map(|nullifier| AccountMeta::new(pda::nullifier_marker(input_tree, nullifier).0, false))
+        .map(|nullifier| AccountMeta::new(pda::nullifier_pda(input_tree, nullifier).0, false))
         .collect()
 }
 
@@ -136,7 +136,7 @@ impl Transact {
             AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
             AccountMeta::new_readonly(Pubkey::default(), false),
         ];
-        accounts.extend(nullifier_marker_accounts(
+        accounts.extend(nullifier_pda_accounts(
             &self.input_tree,
             self.data.inputs.iter().map(|input| &input.nullifier_hash),
         ));
@@ -345,7 +345,7 @@ mod tests {
     }
 
     #[test]
-    fn nullifier_markers_follow_system_program_and_precede_owner_signers() {
+    fn nullifier_pdas_follow_system_program_and_precede_owner_signers() {
         let recipient = Pubkey::new_unique();
         let owner_signer = Pubkey::new_unique();
         let input_tree = Pubkey::new_unique();
@@ -371,7 +371,7 @@ mod tests {
         };
 
         let ix = builder.instruction();
-        let marker = |nullifier: &[u8; 32]| pda::nullifier_marker(&input_tree, nullifier).0;
+        let nullifier_pda = |nullifier: &[u8; 32]| pda::nullifier_pda(&input_tree, nullifier).0;
         assert_eq!(
             ix.accounts,
             vec![
@@ -380,8 +380,8 @@ mod tests {
                 AccountMeta::new(builder.output_tree, false),
                 AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
                 AccountMeta::new_readonly(Pubkey::default(), false),
-                AccountMeta::new(marker(&nullifiers[0]), false),
-                AccountMeta::new(marker(&nullifiers[1]), false),
+                AccountMeta::new(nullifier_pda(&nullifiers[0]), false),
+                AccountMeta::new(nullifier_pda(&nullifiers[1]), false),
                 AccountMeta::new_readonly(owner_signer, true),
                 AccountMeta::new(SOL_INTERFACE_PUBKEY, false),
                 AccountMeta::new(recipient, false),

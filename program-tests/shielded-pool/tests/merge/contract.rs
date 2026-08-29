@@ -354,7 +354,7 @@ fn merge_rejects_dummy_inputs_after_capacity_threshold() {
         .expect("write threshold tree account");
 
     let ix = merge_instruction(&rpc, &tree, record, merge_ix_data(true));
-    // The eight marker creations precede proof verification, so the default
+    // The eight nullifier PDA creations precede proof verification, so the default
     // 200k budget no longer reaches it.
     let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
     let error = rpc

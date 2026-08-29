@@ -619,11 +619,11 @@ fn custom_ring_transact_leaves_ring_config_unsigned() {
     assert!(!ring_config.is_signer);
 }
 
-/// SPP creates one nullifier marker PDA per spent input, derived from the input
+/// SPP creates one nullifier PDA per spent input, derived from the input
 /// tree and the input's nullifier. The interface builder places them right after
 /// `ring_config` and before the owner signers; the wrapper must forward them.
 #[test]
-fn custom_ring_transact_forwards_nullifier_markers_after_ring_config() {
+fn custom_ring_transact_forwards_nullifier_pdas_after_ring_config() {
     let mut transact = transact_data(Vec::new());
     transact.inputs = vec![
         InputUtxo {
@@ -655,12 +655,12 @@ fn custom_ring_transact_forwards_nullifier_markers_after_ring_config() {
         instruction
             .accounts
             .get(7..)
-            .expect("ring_config, marker and owner signer metas")
+            .expect("ring_config, nullifier PDA and owner signer metas")
             .to_vec(),
         vec![
             AccountMeta::new_readonly(ring().ring_auth_pda(), false),
-            AccountMeta::new(pda::nullifier_marker(&input_tree(), &[71; 32]).0, false),
-            AccountMeta::new(pda::nullifier_marker(&input_tree(), &[72; 32]).0, false),
+            AccountMeta::new(pda::nullifier_pda(&input_tree(), &[71; 32]).0, false),
+            AccountMeta::new(pda::nullifier_pda(&input_tree(), &[72; 32]).0, false),
             AccountMeta::new_readonly(owner_signer(), true),
         ]
     );

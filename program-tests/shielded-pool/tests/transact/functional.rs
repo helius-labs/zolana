@@ -44,13 +44,13 @@ use zolana_interface::{
         tag, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     },
     state::{discriminator::RING_CONFIG, RingConfig},
-    NULLIFIER_MARKER_SIZE, N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
+    NULLIFIER_PDA_SIZE, N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::{test_blinding, Rejection};
-use zolana_test_utils::nullifier_marker::{
-    assert_nullifier_markers, marker_addresses, nullifier_marker_rent,
+use zolana_test_utils::nullifier_pda::{
+    assert_nullifier_pdas, nullifier_pda_addresses, nullifier_pda_rent,
 };
 use zolana_test_utils::transact::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo, fe,
@@ -583,16 +583,16 @@ fn transact_sends_valid_proof() {
 
     // Frame conditions (INV-TRANSACT-29/30): a pure shielded transfer settles
     // nothing. The journaled snapshots must show the tree and the two new
-    // nullifier markers as the only accounts whose data changed, the payer
+    // nullifier PDAs as the only accounts whose data changed, the payer
     // debited exactly the transaction fee (one signature at LiteSVM's default
     // rate) plus the forester fee (2 nullifier insertions at 20 lamports each),
     // which the program collects into the input tree via one System-Program CPI
-    // (INV-TRANSACT-42), and the tree funding one marker's rent per input.
+    // (INV-TRANSACT-42), and the tree funding one nullifier PDA's rent per input.
     const LAMPORTS_PER_SIGNATURE: u64 = 5_000;
     const FORESTER_FEE_LAMPORTS: u64 = 40;
-    let marker_rent = nullifier_marker_rent(&env.rpc).expect("nullifier marker rent");
-    let markers = marker_addresses(&tree, &expected_nullifiers);
-    let marker_rent_total = marker_rent * expected_nullifiers.len() as u64;
+    let nullifier_pda_rent = nullifier_pda_rent(&env.rpc).expect("nullifier PDA rent");
+    let nullifier_pdas = nullifier_pda_addresses(&tree, &expected_nullifiers);
+    let nullifier_pda_rent_total = nullifier_pda_rent * expected_nullifiers.len() as u64;
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     let trace = env
         .rpc
@@ -606,29 +606,28 @@ fn transact_sends_valid_proof() {
     assert!(
         traced.contains(&payer)
             && traced.contains(&tree)
-            && markers.iter().all(|marker| traced.contains(marker)),
-        "trace must journal the payer, the tree and the nullifier markers, got {traced:?}"
+            && nullifier_pdas
+                .iter()
+                .all(|nullifier_pda| traced.contains(nullifier_pda)),
+        "trace must journal the payer, the tree and the nullifier PDAs, got {traced:?}"
     );
     for transition in &trace.accounts {
-        if markers.contains(&transition.address) {
+        if nullifier_pdas.contains(&transition.address) {
             assert_eq!(
                 transition.before, None,
-                "nullifier marker {} must not exist before the transact",
+                "nullifier PDA {} must not exist before the transact",
                 transition.address
             );
             let after = transition
                 .after
                 .as_ref()
-                .expect("nullifier marker after transact");
+                .expect("nullifier PDA after transact");
             assert_eq!(
-                after.lamports, marker_rent,
-                "nullifier marker holds exactly its rent"
+                after.lamports, nullifier_pda_rent,
+                "nullifier PDA holds exactly its rent"
             );
-            assert_eq!(after.owner, program_id, "nullifier marker is program-owned");
-            assert_eq!(
-                after.data_len, NULLIFIER_MARKER_SIZE,
-                "nullifier marker size"
-            );
+            assert_eq!(after.owner, program_id, "nullifier PDA is program-owned");
+            assert_eq!(after.data_len, NULLIFIER_PDA_SIZE, "nullifier PDA size");
             continue;
         }
         let before = transition.before.as_ref().expect("account before transact");
@@ -636,8 +635,8 @@ fn transact_sends_valid_proof() {
         if transition.address == tree {
             assert_eq!(
                 before.lamports + FORESTER_FEE_LAMPORTS,
-                after.lamports + marker_rent_total,
-                "tree collects the forester reimbursement fee and funds one marker per input"
+                after.lamports + nullifier_pda_rent_total,
+                "tree collects the forester reimbursement fee and funds one nullifier PDA per input"
             );
             assert_eq!(before.owner, after.owner, "tree owner unchanged");
             assert_eq!(before.data_len, after.data_len, "tree size unchanged");
@@ -661,7 +660,7 @@ fn transact_sends_valid_proof() {
             );
         }
     }
-    assert_nullifier_markers(&env.rpc, &tree, &expected_nullifiers).expect("nullifier markers");
+    assert_nullifier_pdas(&env.rpc, &tree, &expected_nullifiers).expect("nullifier PDAs");
 }
 
 /// A tampered output owner tag (changed after proving, so

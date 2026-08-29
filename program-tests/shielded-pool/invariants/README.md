@@ -23,7 +23,7 @@ and return with that merge).
 | `transact.md` | Transact, RingTransact, RingAuthorityTransact |
 | `deposit.md` | Deposit, RingDeposit |
 | `merge.md` | MergeTransact, RingMergeTransact |
-| `tree.md` | CreateTree, BatchUpdateNullifierTree, PauseTree, CloseNullifierMarkers, nullifier markers created by the spend instructions |
+| `tree.md` | CreateTree, BatchUpdateNullifierTree, PauseTree, CloseNullifierPdas, nullifier PDAs created by the spend instructions |
 | `protocol-config.md` | CreateProtocolConfig, UpdateProtocolConfig |
 | `ring-config.md` | CreateRingConfig, UpdateRingConfig, UpdateRingConfigOwner |
 | `spl.md` | CreateAssetCounter, CreateSplInterface |
@@ -66,7 +66,7 @@ from all three rows. The same holds for `Deposit`/`RingDeposit`
 | RingTransact (15) | `transact.md` | INV-RING-TRANSACT-01, INV-RING-TRANSACT-02, INV-TRANSACT-48 | INV-TRANSACT-07..12, INV-TRANSACT-31..38 | INV-RING-TRANSACT-01, INV-RING-TRANSACT-03, INV-RING-TRANSACT-07, INV-RING-TRANSACT-08, INV-XC-26 | INV-RING-TRANSACT-03..06, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
 | RingMergeTransact (16) | `merge.md` | INV-RING-MERGE-01..03, INV-MERGE-18, INV-TRANSACT-48 | INV-RING-MERGE-05 | INV-RING-MERGE-01, INV-RING-MERGE-04, INV-RING-MERGE-14, INV-XC-26 | INV-RING-MERGE-09..13 | INV-XC-04, INV-XC-05 | INV-MERGE-15 |
 | RingAuthorityTransact (17) | `transact.md` | INV-RING-AUTH-01, INV-RING-TRANSACT-02, INV-TRANSACT-48 | INV-TRANSACT-07..12, INV-TRANSACT-31..38 | INV-RING-AUTH-01..03, INV-XC-26 | INV-RING-AUTH-04..07, INV-TRANSACT-23..28, INV-TRANSACT-46, INV-TRANSACT-47, INV-TRANSACT-49 | INV-XC-04, INV-XC-05, INV-TRANSACT-50 | INV-TRANSACT-30 |
-| CloseNullifierMarkers (18) | `tree.md` | INV-CLOSE-MARKER-03, INV-CLOSE-MARKER-04, INV-CLOSE-MARKER-05 | INV-CLOSE-MARKER-05 | INV-CLOSE-MARKER-01 (permissionless by design) | INV-CLOSE-MARKER-02, INV-CLOSE-MARKER-06 | INV-CLOSE-MARKER-07, INV-XC-04 | INV-CLOSE-MARKER-08 |
+| CloseNullifierPdas (18) | `tree.md` | INV-CLOSE-PDA-03, INV-CLOSE-PDA-04, INV-CLOSE-PDA-05 | INV-CLOSE-PDA-05 | INV-CLOSE-PDA-01 (permissionless by design) | INV-CLOSE-PDA-02, INV-CLOSE-PDA-06 | INV-CLOSE-PDA-07, INV-XC-04 | INV-CLOSE-PDA-08 |
 
 Cross-cutting rows that apply to every proof-bearing instruction (Transact,
 RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact) and are not
@@ -83,7 +83,7 @@ apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicabl
   - transact.md: 60 (Transact 45, RingTransact 8, RingAuthorityTransact 7)
   - deposit.md: 35 (Deposit 25, RingDeposit 10)
   - merge.md: 33 (MergeTransact 19, RingMergeTransact 14)
-  - tree.md: 36 (CreateTree 9, BatchUpdateNullifierTree 9, PauseTree 5, nullifier markers INV-TRANSACT-46..50, CloseNullifierMarkers 8)
+  - tree.md: 36 (CreateTree 9, BatchUpdateNullifierTree 9, PauseTree 5, nullifier PDAs INV-TRANSACT-46..50, CloseNullifierPdas 8)
   - protocol-config.md: 17 (Create 10, Update 7)
   - ring-config.md: 20 (Create 9, UpdateOwner 5, Update 6)
   - spl.md: 22 (CreateAssetCounter 8, CreateSplInterface 14)

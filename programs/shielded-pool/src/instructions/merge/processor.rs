@@ -24,7 +24,7 @@ use super::{
 };
 use crate::instructions::{
     event::emit_general_event,
-    nullifier_marker::{create_nullifier_markers, fund_nullifier_markers},
+    nullifier_pda::{create_nullifier_pdas, fund_nullifier_pdas},
     shared::{bool_field, check_not_expired, collect_forester_fee, tree_error},
 };
 
@@ -32,7 +32,7 @@ pub(crate) struct MergeCoreAccounts<'a> {
     pub input_tree: &'a mut AccountView,
     pub output_tree: &'a mut AccountView,
     pub payer: &'a AccountView,
-    pub nullifier_markers: ArrayVec<&'a mut AccountView, MERGE_INPUT_COUNT>,
+    pub nullifier_pdas: ArrayVec<&'a mut AccountView, MERGE_INPUT_COUNT>,
 }
 
 #[inline(never)]
@@ -73,7 +73,7 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
             input_tree: merge_accounts.input_tree,
             output_tree: merge_accounts.output_tree,
             payer: merge_accounts.payer,
-            nullifier_markers: merge_accounts.nullifier_markers,
+            nullifier_pdas: merge_accounts.nullifier_pdas,
         },
         &ix,
         external_data_hash,
@@ -118,11 +118,8 @@ pub(crate) fn process_merge_core(
         let zkp_batch_size = tree.nullifer_tree().queue_batches.zkp_batch_size;
         (inputs, derived, zkp_batch_size)
     };
-    let marker_rent = create_nullifier_markers(
-        accounts.input_tree,
-        &mut accounts.nullifier_markers,
-        &inputs,
-    )?;
+    let nullifier_pda_rent =
+        create_nullifier_pdas(accounts.input_tree, &mut accounts.nullifier_pdas, &inputs)?;
     let tree_write = {
         let output_tree = accounts.output_tree.address().to_bytes();
         let mut tree = TreeAccount::from_account_view_mut(
@@ -142,10 +139,10 @@ pub(crate) fn process_merge_core(
         MERGE_INPUT_COUNT as u64,
         zkp_batch_size,
     )?;
-    fund_nullifier_markers(
+    fund_nullifier_pdas(
         accounts.input_tree,
-        &mut accounts.nullifier_markers,
-        &marker_rent,
+        &mut accounts.nullifier_pdas,
+        &nullifier_pda_rent,
     )?;
     emit_general_event(EventKind::Merge, event)
 }
