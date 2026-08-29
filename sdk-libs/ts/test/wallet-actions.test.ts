@@ -141,7 +141,7 @@ describe("private transaction construction", () => {
     ).rejects.toMatchObject({ code: "WALLET_INVALID_AMOUNT" });
   });
 
-  it("selects the minimum prefix of notes needed for withdrawal", async () => {
+  it("covers a withdrawal with the largest notes first", async () => {
     const keypair = ShieldedKeypair.generate();
     const created = await createWithdrawal({
       wallet: fundedWallet(keypair, [20n, 40n, 80n]),
@@ -150,8 +150,40 @@ describe("private transaction construction", () => {
       asset: SOL_MINT,
       amount: 50n,
     });
-    expect(created.transaction.inputCount()).toBe(2);
+    expect(created.transaction.inputCount()).toBe(1);
     expect(created.transaction.tree()).toBe(TREE);
+  });
+
+  it("refuses a default-rail cover wider than the shape cap", async () => {
+    const keypair = ShieldedKeypair.generate();
+    await expect(
+      createWithdrawal({
+        wallet: fundedWallet(keypair, [10n, 10n, 10n, 10n, 10n, 10n]),
+        payer: PAYER,
+        recipient: RECIPIENT,
+        asset: SOL_MINT,
+        amount: 60n,
+      }),
+    ).rejects.toMatchObject({
+      code: "WALLET_TOO_MANY_INPUTS",
+      details: { got: 6, max: 5 },
+    });
+  });
+
+  it("reports the full spendable balance when a cover falls short", async () => {
+    const keypair = ShieldedKeypair.generate();
+    await expect(
+      createWithdrawal({
+        wallet: fundedWallet(keypair, [10n, 15n]),
+        payer: PAYER,
+        recipient: RECIPIENT,
+        asset: SOL_MINT,
+        amount: 60n,
+      }),
+    ).rejects.toMatchObject({
+      code: "WALLET_INSUFFICIENT_BALANCE",
+      details: { requested: "60", available: "25" },
+    });
   });
 
   it("rejects an Ed25519 spend whose fee payer is not its owner", async () => {

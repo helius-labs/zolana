@@ -11,6 +11,13 @@ import type { WalletAuthority, WalletSyncMaterial } from "../transaction/wallet/
 import { SOL_MINT } from "../transaction/wallet/asset.js";
 import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 
+import { MERGE_INPUT_COUNT } from "../interface/constants.js";
+import {
+  isPlainUtxo,
+  selectNotes,
+  type SpendPolicy,
+  type SpendSelectionErrors,
+} from "../flows/select.js";
 import { WalletError, wrapWalletError } from "./error.js";
 import { bytesKey, equalBytes } from "./internal.js";
 import { internalMergeRecord, type MergeRecord } from "./registry.js";
@@ -33,12 +40,31 @@ export interface CreatedMerge {
   readonly tree: Address;
 }
 
+const mergeSelectionErrors: SpendSelectionErrors = {
+  insufficient: () => new WalletError("WALLET_NOTHING_TO_MERGE"),
+  tooManyInputs: ({ eligible, max }) =>
+    new WalletError("WALLET_TOO_MANY_INPUTS", { details: { got: eligible, max } }),
+  overflow: ({ available }) =>
+    new WalletError("WALLET_SELECTED_BALANCE_OVERFLOW", {
+      details: { available: available.toString() },
+    }),
+  multipleTrees: () => new WalletError("WALLET_MULTIPLE_INPUT_TREES"),
+  tooFewNotes: () => new WalletError("WALLET_NOTHING_TO_MERGE"),
+};
+
+function mergePolicy(): SpendPolicy {
+  return {
+    eligible: isPlainUtxo,
+    ordering: "smallestFirst",
+    maxInputs: MERGE_INPUT_COUNT,
+    tree: { kind: "inferSingle" },
+    errors: mergeSelectionErrors,
+  };
+}
+
 /** @internal */
 export function createMerge(params: MergeParams): CreatedMerge {
-  const eligible = params.wallet
-    .utxos()
-    .filter((entry) => !entry.spent && entry.utxo.asset === params.asset);
-  const selected = selectMergeEntries(eligible, params.inputs);
+  const selected = selectMergeEntries(params);
   const tree = selected[0]?.outputContext.tree;
   if (tree === undefined) throw new WalletError("WALLET_NOTHING_TO_MERGE");
   if (selected.some((entry) => entry.outputContext.tree !== tree)) {
@@ -73,24 +99,16 @@ export function createMerge(params: MergeParams): CreatedMerge {
   });
 }
 
-function isPlain(entry: WalletUtxo): boolean {
-  return (
-    entry.utxo.ringProgramId === undefined &&
-    entry.dataHash === undefined &&
-    entry.ringDataHash === undefined &&
-    entry.utxo.data.isEmpty()
-  );
-}
-
-function selectMergeEntries(
-  entries: readonly WalletUtxo[],
-  hashes: readonly Bytes32[] | undefined,
-): readonly WalletUtxo[] {
+function selectMergeEntries(params: MergeParams): readonly WalletUtxo[] {
+  const hashes = params.inputs;
   if (hashes !== undefined) {
+    const entries = params.wallet
+      .utxos()
+      .filter((entry) => !entry.spent && entry.utxo.asset === params.asset);
     if (hashes.length < 2) throw new WalletError("WALLET_NOTHING_TO_MERGE");
-    if (hashes.length > 8) {
+    if (hashes.length > MERGE_INPUT_COUNT) {
       throw new WalletError("WALLET_TOO_MANY_INPUTS", {
-        details: { got: hashes.length, max: 8 },
+        details: { got: hashes.length, max: MERGE_INPUT_COUNT },
       });
     }
     const seen = new Set<string>();
@@ -103,16 +121,12 @@ function selectMergeEntries(
       return entry;
     });
   }
-  const plain = entries.filter(isPlain);
-  const trees = new Set(plain.map((entry) => entry.outputContext.tree));
-  if (trees.size > 1) throw new WalletError("WALLET_MULTIPLE_INPUT_TREES");
-  const selected = [...plain]
-    .sort((left, right) =>
-      left.utxo.amount < right.utxo.amount ? -1 : left.utxo.amount > right.utxo.amount ? 1 : 0,
-    )
-    .slice(0, 8);
-  if (selected.length < 2) throw new WalletError("WALLET_NOTHING_TO_MERGE");
-  return selected;
+  return selectNotes({
+    wallet: params.wallet,
+    asset: params.asset,
+    target: { kind: "consolidate", minInputs: 2 },
+    policy: mergePolicy(),
+  }).entries;
 }
 
 /** @internal */

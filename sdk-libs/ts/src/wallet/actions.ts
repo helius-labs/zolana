@@ -12,6 +12,13 @@ import { WithdrawalTarget } from "../transaction/instructions/transact.js";
 import { SOL_MINT } from "../transaction/wallet/asset.js";
 import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 
+import {
+  MAX_SPEND_INPUTS,
+  isPlainUtxo,
+  selectNotes,
+  type SpendPolicy,
+  type SpendSelectionErrors,
+} from "../flows/select.js";
 import { WalletError, wrapWalletError } from "./error.js";
 import { equalBytes } from "./internal.js";
 import { resolveRegisteredAddress } from "./registry.js";
@@ -165,24 +172,36 @@ function u64Amount(amount: bigint): void {
   }
 }
 
-function plain(entry: WalletUtxo): boolean {
-  return (
-    entry.utxo.ringProgramId === undefined &&
-    entry.ringDataHash === undefined &&
-    entry.dataHash === undefined &&
-    entry.utxo.data.isEmpty()
-  );
+const walletSelectionErrors: SpendSelectionErrors = {
+  insufficient: ({ requested, available }) =>
+    new WalletError("WALLET_INSUFFICIENT_BALANCE", {
+      details: { requested: requested.toString(), available: available.toString() },
+    }),
+  tooManyInputs: ({ eligible, max }) =>
+    new WalletError("WALLET_TOO_MANY_INPUTS", { details: { got: eligible, max } }),
+  overflow: ({ available }) =>
+    new WalletError("WALLET_SELECTED_BALANCE_OVERFLOW", {
+      details: { available: available.toString() },
+    }),
+  multipleTrees: ({ asset, treeCount }) =>
+    new WalletError("WALLET_MULTIPLE_INPUT_TREES", { details: { asset, treeCount } }),
+};
+
+function defaultSpendPolicy(): SpendPolicy {
+  return {
+    eligible: isPlainUtxo,
+    ordering: "largestFirst",
+    maxInputs: MAX_SPEND_INPUTS,
+    tree: { kind: "inferSingle" },
+    errors: walletSelectionErrors,
+  };
 }
 
-function spendTree(
-  wallet: Wallet,
-  asset: Address,
-  eligible: (entry: WalletUtxo) => boolean,
-): Address {
+function spendTree(wallet: Wallet, asset: Address): Address {
   const trees = new Set(
     wallet
       .utxos()
-      .filter((entry) => !entry.spent && entry.utxo.asset === asset && eligible(entry))
+      .filter((entry) => !entry.spent && entry.utxo.asset === asset && isPlainUtxo(entry))
       .map((entry) => entry.outputContext.tree),
   );
   const first = trees.values().next();
@@ -199,38 +218,21 @@ function spendTree(
   return first.value;
 }
 
-function selectInputs(
+function selectSpendInputs(
   wallet: Wallet,
-  tree: Address,
   asset: Address,
   amount: bigint,
-  eligible: (entry: WalletUtxo) => boolean,
-): readonly UnsignedSpendInput[] {
-  const selected: UnsignedSpendInput[] = [];
-  let available = 0n;
-  for (const entry of wallet.utxos()) {
-    if (
-      entry.spent ||
-      entry.utxo.asset !== asset ||
-      entry.outputContext.tree !== tree ||
-      !eligible(entry)
-    ) {
-      continue;
-    }
-    selected.push({ entry });
-    available += entry.utxo.amount;
-    // Rust sums into a `u64`, so a running total past that ceiling is a
-    // rejection there rather than a wider number.
-    if (available > 0xffff_ffff_ffff_ffffn) {
-      throw new WalletError("WALLET_SELECTED_BALANCE_OVERFLOW", {
-        details: { available: available.toString() },
-      });
-    }
-    if (available >= amount) return Object.freeze(selected);
-  }
-  throw new WalletError("WALLET_INSUFFICIENT_BALANCE", {
-    details: { requested: amount.toString(), available: available.toString() },
+): Readonly<{ tree: Address; inputs: readonly UnsignedSpendInput[] }> {
+  const selection = selectNotes({
+    wallet,
+    asset,
+    target: { kind: "cover", amount },
+    policy: defaultSpendPolicy(),
   });
+  return {
+    tree: selection.tree,
+    inputs: Object.freeze(selection.entries.map((entry) => ({ entry }))),
+  };
 }
 
 /** The proof-side target and the settlement accounts of one public withdrawal. */
@@ -271,8 +273,7 @@ export async function createWithdrawal(params: WithdrawalParams): Promise<Create
   if (params.amount === 0n) {
     throw new WalletError("WALLET_INVALID_AMOUNT", { details: { amount: "0" } });
   }
-  const tree = spendTree(params.wallet, params.asset, plain);
-  const inputs = selectInputs(params.wallet, tree, params.asset, params.amount, plain);
+  const { tree, inputs } = selectSpendInputs(params.wallet, params.asset, params.amount);
   const resolved = await resolveWithdrawal(params.recipient, params.asset, params.splTokenProgram);
   return Object.freeze({
     transaction: new UnsignedPrivateTransaction({
@@ -300,8 +301,7 @@ export async function createTransfer(
   try {
     const recipient = params.recipient;
     if (recipient instanceof ShieldedAddress) {
-      const tree = spendTree(params.wallet, params.asset, plain);
-      const inputs = selectInputs(params.wallet, tree, params.asset, params.amount, plain);
+      const { tree, inputs } = selectSpendInputs(params.wallet, params.asset, params.amount);
       return Object.freeze({
         transaction: new UnsignedPrivateTransaction({
           payer: params.payer,
@@ -334,8 +334,7 @@ export async function createTransfer(
         details: { recipient },
       });
     }
-    const tree = spendTree(params.wallet, params.asset, plain);
-    const inputs = selectInputs(params.wallet, tree, params.asset, params.amount, plain);
+    const { tree, inputs } = selectSpendInputs(params.wallet, params.asset, params.amount);
     return Object.freeze({
       transaction: new UnsignedPrivateTransaction({
         payer: params.payer,
@@ -371,8 +370,10 @@ export function createSplit(params: SplitParams): CreatedSplit {
   if (params.input !== undefined && named === undefined) {
     throw new WalletError("WALLET_INPUT_UTXO_UNAVAILABLE");
   }
-  const tree = named ? named.outputContext.tree : spendTree(params.wallet, params.asset, plain);
-  const candidates = entries.filter((entry) => entry.outputContext.tree === tree && plain(entry));
+  const tree = named ? named.outputContext.tree : spendTree(params.wallet, params.asset);
+  const candidates = entries.filter(
+    (entry) => entry.outputContext.tree === tree && isPlainUtxo(entry),
+  );
   const selected =
     named ??
     [...candidates]
@@ -395,7 +396,9 @@ export function createSplit(params: SplitParams): CreatedSplit {
   if (selected.utxo.ringProgramId !== undefined) {
     throw new WalletError("WALLET_SPLIT_INPUT_RING_MISMATCH", { details: { hash } });
   }
-  if (!plain(selected)) throw new WalletError("WALLET_SPLIT_INPUT_HAS_DATA", { details: { hash } });
+  if (!isPlainUtxo(selected)) {
+    throw new WalletError("WALLET_SPLIT_INPUT_HAS_DATA", { details: { hash } });
+  }
   if (selected.utxo.amount % BigInt(params.parts) !== 0n) {
     throw new WalletError("WALLET_SPLIT_NOT_DIVISIBLE", {
       details: { amount: selected.utxo.amount.toString(), parts: params.parts },

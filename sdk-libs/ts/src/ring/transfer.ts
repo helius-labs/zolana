@@ -27,13 +27,13 @@ import { resolveWithdrawal } from "../wallet/actions.js";
 import { resolveRegisteredAddress } from "../wallet/registry.js";
 
 import { fetchRingProgramConfig } from "./config.js";
+import { MAX_SPEND_INPUTS, selectNotes, type SpendSelectionErrors } from "../flows/select.js";
 import { RingError, wrapRingError } from "./error.js";
 import { ringTransactInstruction } from "./instructions.js";
 import { fetchRingLookupTable } from "./lookup-table.js";
 
 /** Rust `TRANSACT_COMPUTE_UNIT_LIMIT`. The custom-ring transact verifies two proofs. */
 export const RING_TRANSACT_COMPUTE_UNIT_LIMIT = 1_400_000;
-const MAX_INPUTS = 5;
 /** Borsh `Encrypted` tag, its length, the scheme byte and the embedded P-256 key. */
 const CONFIDENTIAL_BODY_OVERHEAD = 1 + 4 + 1 + 33;
 
@@ -480,44 +480,36 @@ export function selectRingInputs(
   if (amount <= 0n) {
     throw new RingError("RING_ZERO_AMOUNT", { details: { asset } });
   }
-  const eligible = (entry: WalletUtxo): boolean => {
-    if (entry.utxo.ringProgramId === ringProgramId) return inputs !== "default";
-    return (
-      inputs !== "ring" &&
-      entry.utxo.ringProgramId === undefined &&
-      entry.ringDataHash === undefined
-    );
-  };
-  // Largest first, a fragmented balance covers with the fewest notes.
-  const candidates = wallet
-    .utxos()
-    .filter(
-      (entry) =>
-        !entry.spent &&
-        entry.utxo.asset === asset &&
-        entry.outputContext.tree === tree &&
-        eligible(entry),
-    )
-    .sort((left, right) =>
-      left.utxo.amount < right.utxo.amount ? 1 : left.utxo.amount > right.utxo.amount ? -1 : 0,
-    );
-  const total = candidates.reduce((sum, entry) => sum + entry.utxo.amount, 0n);
-  const selected: WalletUtxo[] = [];
-  let available = 0n;
-  for (const entry of candidates.slice(0, MAX_INPUTS)) {
-    selected.push(entry);
-    available += entry.utxo.amount;
-    if (available >= amount) break;
-  }
-  if (available < amount) {
-    if (total >= amount) {
-      throw new RingError("RING_TOO_MANY_INPUTS", {
-        details: { selected: candidates.length, maximum: MAX_INPUTS },
-      });
-    }
-    throw new RingError("RING_INSUFFICIENT_BALANCE", {
-      details: { asset, requested: amount.toString(), available: total.toString() },
-    });
-  }
-  return Object.freeze(selected);
+  return selectNotes({
+    wallet,
+    asset,
+    target: { kind: "cover", amount },
+    policy: {
+      eligible: (entry) => {
+        if (entry.utxo.ringProgramId === ringProgramId) return inputs !== "default";
+        return (
+          inputs !== "ring" &&
+          entry.utxo.ringProgramId === undefined &&
+          entry.ringDataHash === undefined
+        );
+      },
+      ordering: "largestFirst",
+      maxInputs: MAX_SPEND_INPUTS,
+      tree: { kind: "fixed", tree },
+      errors: ringSelectionErrors,
+    },
+  }).entries;
 }
+
+const ringSelectionErrors: SpendSelectionErrors = {
+  insufficient: ({ asset, requested, available }) =>
+    new RingError("RING_INSUFFICIENT_BALANCE", {
+      details: { asset, requested: requested.toString(), available: available.toString() },
+    }),
+  tooManyInputs: ({ eligible, max }) =>
+    new RingError("RING_TOO_MANY_INPUTS", { details: { selected: eligible, maximum: max } }),
+  overflow: ({ available }) =>
+    new RingError("RING_SELECTED_BALANCE_OVERFLOW", {
+      details: { available: available.toString() },
+    }),
+};

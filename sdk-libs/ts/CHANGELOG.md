@@ -22,6 +22,9 @@ Breaking
 - `serializeWallet` writes `SerializedWalletState` version 3 with sync
   cursors → state saved by version 2 still loads, and its first sync
   rescans history once.
+- Private transfers and withdrawals spend the largest notes first and at
+  most five notes → a balance that covers only with more notes is
+  refused with `WALLET_TOO_MANY_INPUTS`, merge first.
 
 Added
 
@@ -35,6 +38,8 @@ Added
   priority fee on ring transactions.
 - `MERGE_TRANSACT_COMPUTE_UNIT_LIMIT` is exported, and merge transactions
   honor the client's `computeUnitPriceMicroLamports`.
+- `RING_SELECTED_BALANCE_OVERFLOW` refuses a ring selection whose eligible
+  balance passes the u64 ceiling.
 
 Changed
 
@@ -46,6 +51,9 @@ Changed
 - Every builder compiles through one shared path with the packet-size
   check built in, a compile failure in any build surfaces
   `CLIENT_TRANSACTION_ASSEMBLY`.
+- Every rail selects notes through one selector with the rail's own
+  ordering and caps, and `WALLET_INSUFFICIENT_BALANCE` reports the full
+  spendable balance instead of a partial running sum.
 
 Fixed
 
