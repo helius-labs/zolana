@@ -17,6 +17,12 @@ export {
   type WalletAuthority,
   type WalletSyncMaterial,
 } from "../transaction/wallet/authority.js";
+export {
+  approveIntent,
+  intentHash,
+  type IntentApproval,
+  type TransactionIntent,
+} from "../transaction/wallet/intent.js";
 export { buildDepositTransaction, type DepositTransactionParams } from "./deposit.js";
 export { fetchTransactionSlots, type TransactionSlots } from "./transaction-slots.js";
 export {

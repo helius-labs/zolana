@@ -118,6 +118,7 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_MERGE_OUTPUT_MISMATCH: NoDetails;
   readonly CLIENT_INVALID_TRANSACTION: NoDetails;
   readonly CLIENT_TRANSACTION_ASSEMBLY: NoDetails;
+  readonly CLIENT_INTENT_MISMATCH: Readonly<{ field: string }>;
   readonly CLIENT_INVALID_LENGTH: Readonly<{
     field: string;
     expected: number;
@@ -182,6 +183,7 @@ export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_MERGE_OUTPUT_MISMATCH",
   "CLIENT_INVALID_TRANSACTION",
   "CLIENT_TRANSACTION_ASSEMBLY",
+  "CLIENT_INTENT_MISMATCH",
   "CLIENT_INVALID_LENGTH",
   "CLIENT_INVALID_FIELD",
   "CLIENT_INVALID_BASE58",
@@ -262,6 +264,7 @@ const NO_DETAIL_CODES: ReadonlySet<ClientErrorCode> = new Set([
   "CLIENT_MERGE_OUTPUT_MISMATCH",
   "CLIENT_INVALID_TRANSACTION",
   "CLIENT_TRANSACTION_ASSEMBLY",
+  "CLIENT_INTENT_MISMATCH",
   "CLIENT_INVALID_P256_KEY",
   "CLIENT_INVALID_MERGE_OUTPUT",
   "CLIENT_INVALID_MERGE_MATERIAL",
@@ -287,6 +290,7 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_TRANSACTION: { code: "string" },
   CLIENT_HASHER: { code: "string" },
   CLIENT_TREE_MISMATCH: { transactionTree: "string", clientTree: "string" },
+  CLIENT_INTENT_MISMATCH: { field: "string" },
   CLIENT_MERGE_TREE_MISMATCH: { proofTree: "string", submitTree: "string" },
   CLIENT_FIELD_TOO_LONG: { field: "string", actual: "number", maximum: "number" },
   CLIENT_PROVER_SERVER: { method: "string", status: "number", reason: "string" },

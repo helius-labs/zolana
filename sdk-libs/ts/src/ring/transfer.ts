@@ -20,6 +20,13 @@ import {
 import { EncryptedScheme, encodeOutputData } from "../transaction/serialization/codecs.js";
 import { ProofInputUtxo } from "../transaction/utxo.js";
 import type { SpendSession, WalletAuthority } from "../transaction/wallet/authority.js";
+import {
+  checkIntentApproval,
+  checkPreparedTransfer,
+  checkTransactData,
+  withdrawalIntentRecipient,
+  type TransactionIntent,
+} from "../transaction/wallet/intent.js";
 import { SOL_MINT, type AssetRegistry } from "../transaction/wallet/asset.js";
 import type { NoteReservation, Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 import { ownerSignerAddresses } from "../client/prover/assembly.js";
@@ -166,21 +173,35 @@ async function buildRingSendTransaction(
         defaultFunding === 0n
           ? ""
           : `, moves ${String(defaultFunding)} ${assetLabel(asset)} of default notes into the ring`;
-      await input.authority.requestUserApproval({
+      const intent: TransactionIntent = {
+        kind: "ringTransfer",
+        ringProgramId: input.ringProgramId,
+        asset,
+        amount: input.amount,
+        recipient,
+        boundary: action,
+        defaultFunding,
+      };
+      const approval = await input.authority.requestUserApproval({
         solanaPublicKey: input.authority.solanaPublicKey(),
+        intent,
         summary: `ring ${action} of ${String(input.amount)} ${assetLabel(asset)} in ring ${input.ringProgramId} to a shielded address${crossing}`,
       });
+      checkIntentApproval(approval, intent, ringIntentMismatch);
+      const prepared = transfer.prepare();
+      checkPreparedTransfer(prepared, intent, ringIntentMismatch);
       const proven = await proveCustomRingTransfer(
         {
           client: input.client,
           ringProgramId: input.ringProgramId,
-          prepared: transfer.prepare(),
+          prepared,
           session,
           assets: input.wallet.registry,
           tree: input.client.tree,
         },
         context,
       );
+      checkTransactData(proven.data, intent, ringIntentMismatch);
       const [instruction, tableAddresses, lifetime] = await Promise.all([
         ringTransactInstruction({
           ringProgramId: input.ringProgramId,
@@ -262,21 +283,33 @@ export async function buildRingWithdrawalTransaction(
         .withCompactChange()
         .withRingProgramId(input.ringProgramId);
       transfer.withdraw(asset, input.amount, resolved.target);
-      await input.authority.requestUserApproval({
+      const intent: TransactionIntent = {
+        kind: "ringWithdrawal",
+        ringProgramId: input.ringProgramId,
+        asset,
+        amount: input.amount,
+        recipient: withdrawalIntentRecipient(resolved.target),
+      };
+      const approval = await input.authority.requestUserApproval({
         solanaPublicKey: input.authority.solanaPublicKey(),
+        intent,
         summary: `public withdrawal of ${String(input.amount)} ${assetLabel(asset)} from ring ${input.ringProgramId} to ${input.recipient}`,
       });
+      checkIntentApproval(approval, intent, ringIntentMismatch);
+      const prepared = transfer.prepare();
+      checkPreparedTransfer(prepared, intent, ringIntentMismatch);
       const proven = await proveCustomRingTransfer(
         {
           client: input.client,
           ringProgramId: input.ringProgramId,
-          prepared: transfer.prepare(),
+          prepared,
           session,
           assets: input.wallet.registry,
           tree: input.client.tree,
         },
         context,
       );
+      checkTransactData(proven.data, intent, ringIntentMismatch);
       const [instruction, tableAddresses, lifetime] = await Promise.all([
         ringTransactInstruction({
           ringProgramId: input.ringProgramId,
@@ -508,6 +541,10 @@ export function selectRingInputs(
       errors: ringSelectionErrors,
     },
   }).entries;
+}
+
+function ringIntentMismatch(field: string): RingError {
+  return new RingError("RING_INTENT_MISMATCH", { details: { field } });
 }
 
 const ringSelectionErrors: SpendSelectionErrors = {

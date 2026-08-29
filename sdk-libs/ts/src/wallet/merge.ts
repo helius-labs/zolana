@@ -19,6 +19,7 @@ import {
   type SpendSelectionErrors,
 } from "../flows/select.js";
 import { reservedNoteKeys, unreserved } from "../flows/reserve.js";
+import { checkIntentApproval, type TransactionIntent } from "../transaction/wallet/intent.js";
 import { WalletError, wrapWalletError } from "./error.js";
 import { bytesKey, equalBytes, reserveWalletEntries } from "./internal.js";
 import { internalMergeRecord, type MergeRecord } from "./registry.js";
@@ -217,9 +218,19 @@ async function proveAndAssembleMerge(
   created: ReturnType<typeof createMerge>,
   context: RequestContext | undefined,
 ): Promise<Transaction> {
-  await input.authority.requestUserApproval({
+  const intent: TransactionIntent = {
+    kind: "merge",
+    asset: input.asset ?? SOL_MINT,
+    numInputs: created.numInputs,
+    mergedAmount: created.mergedAmount,
+  };
+  const approval = await input.authority.requestUserApproval({
     solanaPublicKey: owner,
+    intent,
     summary: `merge ${String(created.numInputs)} private inputs`,
+  });
+  checkIntentApproval(approval, intent, (field) => {
+    return new WalletError("WALLET_INTENT_MISMATCH", { details: { field } });
   });
   const record = await internalMergeRecord({ rpc: input.client, owner }, context);
   validateMergeBuild(record, owner, material);

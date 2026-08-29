@@ -6,12 +6,22 @@ import { ConfidentialSplit } from "../transaction/instructions/builders.js";
 import { ConfidentialTransfer, type SppProofInputs } from "../transaction/instructions/transact.js";
 import { TransactionError } from "../transaction/error.js";
 import { ProofInputUtxo, type Utxo } from "../transaction/utxo.js";
+import {
+  checkIntentApproval,
+  checkPreparedTransfer,
+  withdrawalIntentRecipient,
+  type TransactionIntent,
+} from "../transaction/wallet/intent.js";
 import type { Wallet } from "../transaction/wallet/state.js";
 
 import { UnsignedPrivateTransaction } from "./actions.js";
 import { WalletError } from "./error.js";
 import { equalBytes } from "./internal.js";
 import type { SpendSession, WalletAuthority } from "../transaction/wallet/authority.js";
+
+function intentMismatch(field: string): WalletError {
+  return new WalletError("WALLET_INTENT_MISMATCH", { details: { field } });
+}
 
 function sameOptionalHash(left: Bytes32 | undefined, right: Bytes32 | undefined): boolean {
   if (left === undefined || right === undefined) return left === right;
@@ -123,6 +133,7 @@ async function authorizeWithInputs(
 ): Promise<AuthorizedPrivateTransaction> {
   const action = transaction._action();
   let proofInputs: SppProofInputs;
+  let intent: TransactionIntent;
   if (action.kind === "split") {
     const input = inputs[0];
     if (input === undefined) throw new WalletError("WALLET_NO_INPUTS");
@@ -139,10 +150,18 @@ async function authorizeWithInputs(
       viewTag: prepared.owner.confidentialViewTag(),
       bundle: prepared.bundlePlaintext(wallet.registry),
     });
-    await authority.requestUserApproval({
+    intent = {
+      kind: "split",
+      asset: action.asset,
+      numOutputs: action.numOutputs,
+      perOutputAmount: action.perOutputAmount,
+    };
+    const approval = await authority.requestUserApproval({
       solanaPublicKey: authority.solanaPublicKey(),
+      intent,
       summary: transaction._summary(),
     });
+    checkIntentApproval(approval, intent, intentMismatch);
     proofInputs = prepared.finalize({
       txViewingPublicKey: encrypted.txViewingPublicKey,
       salt: encrypted.salt,
@@ -161,10 +180,27 @@ async function authorizeWithInputs(
       outputs: prepared.outputs,
       assets: wallet.registry,
     });
-    await authority.requestUserApproval({
+    intent =
+      action.kind === "transfer"
+        ? {
+            kind: "transfer",
+            asset: action.asset,
+            amount: action.amount,
+            recipient: action.recipient,
+          }
+        : {
+            kind: "withdrawal",
+            asset: action.asset,
+            amount: action.amount,
+            recipient: withdrawalIntentRecipient(action.target),
+          };
+    const approval = await authority.requestUserApproval({
       solanaPublicKey: authority.solanaPublicKey(),
+      intent,
       summary: transaction._summary(),
     });
+    checkIntentApproval(approval, intent, intentMismatch);
+    checkPreparedTransfer(prepared, intent, intentMismatch);
     proofInputs = prepared.finalize({
       txViewingPublicKey: encrypted.txViewingPublicKey,
       salt: encrypted.salt,
@@ -177,6 +213,7 @@ async function authorizeWithInputs(
   return Object.freeze({
     proofInputs,
     tree: transaction.tree(),
+    intent,
     ...(withdrawal === undefined ? {} : { withdrawal }),
   });
 }

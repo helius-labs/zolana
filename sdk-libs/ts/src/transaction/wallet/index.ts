@@ -16,6 +16,12 @@ export {
   type WalletAuthority,
   type WalletSyncMaterial,
 } from "./authority.js";
+export {
+  approveIntent,
+  intentHash,
+  type IntentApproval,
+  type TransactionIntent,
+} from "./intent.js";
 export { AssetRegistry, SOL_ASSET_ID, SOL_MINT } from "./asset.js";
 export { deserializeWallet, serializeWallet, type SerializedWalletState } from "./persistence.js";
 export {

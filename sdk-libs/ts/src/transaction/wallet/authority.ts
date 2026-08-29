@@ -21,6 +21,7 @@ import type {
 } from "../serialization/codecs.js";
 import { decodeAddress } from "../internal.js";
 import { runSpendSession, runSyncSession } from "./encrypt-rails.js";
+import { approveIntent, type IntentApproval, type TransactionIntent } from "./intent.js";
 import type { ProofOutputUtxo } from "../utxo.js";
 import type { AssetRegistry } from "./asset.js";
 
@@ -28,6 +29,7 @@ export type { SplitBundlePlaintext };
 
 export interface ApprovalRequest {
   readonly solanaPublicKey: Address;
+  readonly intent: TransactionIntent;
   readonly summary: string;
 }
 
@@ -132,7 +134,7 @@ export interface SyncAuthority {
 export interface WalletAuthority extends SpendAuthority, SyncAuthority {
   solanaPublicKey(): Address;
   shieldedAddress(): Promise<ShieldedAddress>;
-  requestUserApproval(request: ApprovalRequest): Promise<void>;
+  requestUserApproval(request: ApprovalRequest): Promise<IntentApproval>;
 }
 
 const addressEncoder = getAddressEncoder();
@@ -234,17 +236,9 @@ export class ClientEd25519WalletAuthority implements WalletAuthority {
     );
   }
 
-  /**
-   * Deliberately a no-op. This authority holds no signing key and cannot reach
-   * a user: the remote signer authorizes the finished Solana transaction in a
-   * separate step, and that step is the approval gate. Rejecting here instead
-   * would make the type unusable, since transaction construction — which this
-   * authority exists to serve — calls this before it has a transaction to
-   * approve.
-   */
-  requestUserApproval(request: ApprovalRequest): Promise<void> {
-    void request;
-    return Promise.resolve();
+  /** Approves unattended, the remote signer of the finished transaction is the approval gate. */
+  requestUserApproval(request: ApprovalRequest): Promise<IntentApproval> {
+    return Promise.resolve(approveIntent(request.intent));
   }
 
   #copyViewingKey(): ViewingKey {
@@ -368,9 +362,8 @@ export class KeypairWalletAuthority implements WalletAuthority {
   }
 
   /** Local keys approve unattended; Rust takes the trait default here. */
-  requestUserApproval(request: ApprovalRequest): Promise<void> {
-    void request;
-    return Promise.resolve();
+  requestUserApproval(request: ApprovalRequest): Promise<IntentApproval> {
+    return Promise.resolve(approveIntent(request.intent));
   }
 }
 

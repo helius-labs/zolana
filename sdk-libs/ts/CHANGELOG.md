@@ -33,6 +33,11 @@ Breaking
   after the reservation expires, a failed build releases its notes at
   once, and `WALLET_NOTE_RESERVED` refuses a named input another build
   holds.
+- `requestUserApproval` receives a `TransactionIntent` beside the summary
+  and returns an `IntentApproval` bound to its hash → a custom authority
+  returns `approveIntent(request.intent)` after showing the intent, and
+  an approval for a different intent fails the build with
+  `WALLET_INTENT_MISMATCH` or `RING_INTENT_MISMATCH`.
 
 Added
 
@@ -53,6 +58,10 @@ Added
   operation chain outermost first.
 - Serialized wallets carry their reservations, a restored wallet still
   holds notes an in-flight transaction spends.
+- `TransactionIntent` binds recipient, amount, asset, and the ring
+  boundary crossing, the SDK revalidates outputs and settlements against
+  the approved intent before a transaction compiles, and the client
+  refuses proven data that drifts from it with `CLIENT_INTENT_MISMATCH`.
 
 Changed
 

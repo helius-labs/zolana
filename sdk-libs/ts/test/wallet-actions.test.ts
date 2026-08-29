@@ -31,6 +31,7 @@ import {
 import { associatedTokenAddress, splInterfaceWithBump } from "../src/interface/pda/index.js";
 import { buildRingTransferTransaction, selectRingInputs } from "../src/ring/transfer.js";
 import { buildDepositTransaction, createDeposit } from "../src/wallet/deposit.js";
+import { approveIntent } from "../src/transaction/wallet/intent.js";
 import { createMerge, MergeMaterial } from "../src/wallet/merge.js";
 import { authorizePrivateTransaction } from "../src/wallet/private-transaction.js";
 import {
@@ -622,6 +623,7 @@ describe("ring approval summary", () => {
     const approvals: string[] = [];
     vi.spyOn(authority, "requestUserApproval").mockImplementation(async (request) => {
       approvals.push(request.summary);
+      return approveIntent(request.intent);
     });
     await expect(
       buildRingTransferTransaction({

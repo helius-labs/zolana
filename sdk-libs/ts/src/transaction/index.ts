@@ -62,6 +62,12 @@ export {
   deserializeWallet,
   serializeWallet,
 } from "./wallet/index.js";
+export {
+  approveIntent,
+  intentHash,
+  type IntentApproval,
+  type TransactionIntent,
+} from "./wallet/index.js";
 export type {
   AnonymousRecipientSlot,
   ApprovalRequest,
