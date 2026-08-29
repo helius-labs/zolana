@@ -31,7 +31,7 @@ fn init_then_reload() {
         assert_eq!(tree.state(), INITIALIZED);
         assert_eq!(tree.utxo_tree().height(), HEIGHT as usize);
         assert_eq!(tree.utxo_tree().next_index(), 0);
-        assert_eq!(tree.nullifer_tree().pubkey().to_bytes(), pubkey);
+        assert_eq!(tree.pubkey(), pubkey);
 
         let empty_root = tree.utxo_tree().root();
         assert_ne!(empty_root, [0u8; 32]);
@@ -69,11 +69,7 @@ fn reload_rejects_inconsistent_nullifier_batch_metadata() {
     {
         let mut tree =
             TreeAccount::init(&mut bytes, DISCRIMINATOR, HEIGHT, pubkey, params).unwrap();
-        tree.nullifer_tree()
-            .get_metadata_mut()
-            .queue_batches
-            .batches[0]
-            .batch_size += 1;
+        tree.nullifier_tree().metadata.queue_batches.batches[0].batch_size += 1;
     }
 
     assert_eq!(

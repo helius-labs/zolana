@@ -744,10 +744,10 @@ async fn discovers_rings_tree_account_metadata() {
             address_tree_params(),
         )
         .unwrap();
-        let nullifier = tree.nullifer_tree();
-        let metadata = *nullifier.get_metadata();
-        let root_history_capacity =
-            u64::try_from(nullifier.root_history().len()).expect("root history length fits in u64");
+        let nullifier = tree.nullifier_tree();
+        let metadata = nullifier.metadata;
+        let root_history_capacity = u64::try_from(nullifier.root_history.roots.len())
+            .expect("root history length fits in u64");
         (
             metadata.height,
             root_history_capacity,

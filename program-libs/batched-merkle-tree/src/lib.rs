@@ -13,7 +13,7 @@
 //! | Module | Description |
 //! |--------|-------------|
 //! | [`batch`] | `Batch` state machine and per-batch insertion |
-//! | [`merkle_tree`] | `BatchedMerkleTreeAccount` and queue/tree operations |
+//! | [`merkle_tree`] | Queue and tree operations on `NullifierTreeLayout` |
 //! | [`queue`] | Queue batch insertion helper |
 //! | [`queue_batch_metadata`] | Metadata for queue batches |
 //! | [`initialize_address_tree`] | Configure and initialize a batched nullifier tree |
@@ -24,20 +24,22 @@
 //!
 //! ## Account
 //!
-//! There is a single account type, [`merkle_tree::BatchedMerkleTreeAccount`]: it
-//! stores the tree roots, the cyclic root history, and an integrated input queue
-//! (hash chains + cached tree updates). Address and nullifier trees use the same
-//! `AddressV2` layout and differ only in the sentinel root they are seeded with.
+//! There is a single state type, [`zero_copy::NullifierTreeLayout`], cast in
+//! place from the account bytes: it stores the tree roots, the cyclic root
+//! history, and an integrated input queue (hash chains + cached tree updates).
+//! Address and nullifier trees use the same `AddressV2` layout and differ only
+//! in the sentinel root they are seeded with.
 //!
 //! ## Operations
 //!
 //! ### Initialization
-//! The shielded pool initializes its nullifier tree through
-//! [`initialize_address_tree`], seeding it with the BN254 `p-1` sentinel root
-//! ([`constants::NULLIFIER_TREE_INIT_ROOT_40`]).
+//! The shielded pool initializes its nullifier tree with
+//! [`zero_copy::NullifierTreeLayout::init`], seeding it with the BN254 `p-1`
+//! sentinel root ([`constants::NULLIFIER_TREE_INIT_ROOT_40`]) and the
+//! configuration in [`initialize_address_tree`].
 //!
 //! ### Queue insertion
-//! - [`merkle_tree::BatchedMerkleTreeAccount::insert_nullifier_into_queue`]
+//! - [`zero_copy::NullifierTreeLayout::insert_nullifier_into_queue`]
 //!   rejects non-canonical field elements, adds the value to the current
 //!   input-queue batch's open hash chain via the [`queue`] module, and returns
 //!   the queue index `q` the value reserved. The program stores `{ q, bump }` in
@@ -80,7 +82,7 @@
 //!
 //! - **`zolana-hasher`** - Poseidon hash for hash chains and tree operations
 //! - **`groth16-solana`** - Groth16 proof verification for batch updates (see [`verify`])
-//! - **`zolana-account-checks`** - Account validation and discriminator checks
+//! - **`zolana-account-checks`** - `AccountError` variants reused by [`errors`]
 //!
 //! ## Testing and reference implementations
 //!

@@ -28,6 +28,7 @@ solana-address = { workspace = true }
 wincode = { workspace = true }
 
 [dev-dependencies]
+zolana-batched-merkle-tree = { workspace = true, features = ["test-only"] }
 light-program-profiler = { workspace = true, features = ["mollusk"] }
 mollusk-svm = { workspace = true }
 solana-account = { workspace = true }

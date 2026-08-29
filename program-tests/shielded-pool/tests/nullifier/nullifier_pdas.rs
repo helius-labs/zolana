@@ -150,10 +150,7 @@ fn set_close_before_index(env: &mut Pool, close_before_index: u64) {
     {
         let mut on_chain =
             TreeAccount::from_bytes(&mut account.data, tree.to_bytes()).expect("load tree");
-        on_chain
-            .nullifer_tree()
-            .get_metadata_mut()
-            .close_before_index = close_before_index;
+        on_chain.nullifier_tree().metadata.close_before_index = close_before_index;
     }
     env.rpc
         .svm

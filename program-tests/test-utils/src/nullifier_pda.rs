@@ -39,14 +39,22 @@ pub fn nullifier_queue_next_index_from(
     let mut data = account.data.clone();
     let mut tree_account = TreeAccount::from_bytes(&mut data, tree.to_bytes())
         .map_err(|error| ClientError::Rpc(format!("load tree {tree}: {error:?}")))?;
-    Ok(tree_account.nullifer_tree().queue_batches.next_index)
+    Ok(tree_account
+        .nullifier_tree()
+        .metadata
+        .queue_batches
+        .next_index)
 }
 
 pub fn nullifier_zkp_batch_size_from(account: &Account, tree: &Pubkey) -> Result<u64, ClientError> {
     let mut data = account.data.clone();
     let mut tree_account = TreeAccount::from_bytes(&mut data, tree.to_bytes())
         .map_err(|error| ClientError::Rpc(format!("load tree {tree}: {error:?}")))?;
-    Ok(tree_account.nullifer_tree().queue_batches.zkp_batch_size)
+    Ok(tree_account
+        .nullifier_tree()
+        .metadata
+        .queue_batches
+        .zkp_batch_size)
 }
 
 pub fn forester_fee_for_inputs(

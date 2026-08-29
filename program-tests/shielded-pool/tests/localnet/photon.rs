@@ -173,7 +173,7 @@ fn latest_tree_roots(rpc: &SolanaRpc, tree: &Pubkey) -> TestResult<LatestTreeRoo
         .get_utxo_tree_root(utxo_root_index)
         .map_err(|err| anyhow!("get utxo root {utxo_root_index}: {err:?}"))?;
     let (nullifier_root_index, nullifier_root) = {
-        let nullifier_tree = account.nullifer_tree();
+        let nullifier_tree = account.nullifier_tree();
         let root_index = u16::try_from(nullifier_tree.get_root_index())
             .map_err(|_| anyhow!("nullifier root index does not fit in u16"))?;
         let root = nullifier_tree

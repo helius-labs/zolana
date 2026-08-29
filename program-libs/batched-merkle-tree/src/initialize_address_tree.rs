@@ -1,14 +1,8 @@
-use solana_address::Address as Pubkey;
-
 use crate::{
     constants::{
         DEFAULT_ADDRESS_BATCH_SIZE, DEFAULT_ADDRESS_ZKP_BATCH_SIZE,
-        DEFAULT_BATCH_ADDRESS_TREE_HEIGHT, NULLIFIER_TREE_INIT_ROOT_40,
+        DEFAULT_BATCH_ADDRESS_TREE_HEIGHT,
     },
-    errors::BatchedMerkleTreeError,
-    merkle_tree::BatchedMerkleTreeAccount,
-    merkle_tree_metadata::TreeType,
-    zero_copy::TreeAccountLayout,
     BorshDeserialize, BorshSerialize,
 };
 
@@ -28,26 +22,6 @@ impl Default for InitAddressTreeAccountsInstructionData {
             height: DEFAULT_BATCH_ADDRESS_TREE_HEIGHT,
         }
     }
-}
-
-/// Initializes a batched nullifier Merkle tree directly into a typed
-/// [`TreeAccountLayout`], seeding it with the BN254 `p-1` sentinel root
-/// ([`NULLIFIER_TREE_INIT_ROOT_40`]). Used by callers that hold a typed layout
-/// view (e.g. a combined account layout) instead of a raw byte slice.
-pub fn init_batched_nullifier_merkle_tree_into_layout<const ZKP: usize>(
-    params: InitAddressTreeAccountsInstructionData,
-    layout: &mut TreeAccountLayout<ZKP>,
-    pubkey: Pubkey,
-) -> Result<BatchedMerkleTreeAccount<'_, ZKP>, BatchedMerkleTreeError> {
-    BatchedMerkleTreeAccount::init_from_layout(
-        layout,
-        &pubkey,
-        params.input_queue_batch_size,
-        params.input_queue_zkp_batch_size,
-        params.height,
-        TreeType::AddressV2,
-        Some(NULLIFIER_TREE_INIT_ROOT_40),
-    )
 }
 
 /// Only 10 and 250 are supported.

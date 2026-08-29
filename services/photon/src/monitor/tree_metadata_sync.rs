@@ -93,9 +93,9 @@ where
 fn process_rings_tree_account(pubkey: Pubkey, account: &Account) -> Option<TreeAccountData> {
     let mut data = account.data.clone();
     let mut tree = parse_rings_tree_account(pubkey, account, &mut data)?;
-    let nullifier = tree.nullifer_tree();
-    let nullifier_metadata = *nullifier.get_metadata();
-    let root_history_capacity = u64::try_from(nullifier.root_history().len()).ok()?;
+    let nullifier = tree.nullifier_tree();
+    let nullifier_metadata = nullifier.metadata;
+    let root_history_capacity = u64::try_from(nullifier.root_history.roots.len()).ok()?;
 
     Some(TreeAccountData {
         // Rings UTXO and nullifier trees live in the same account; there is

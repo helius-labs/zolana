@@ -14,7 +14,7 @@ queue insertion, batch append, and PDA cleanup.
 | Module | Description |
 |--------|-------------|
 | `batch` | `Batch` state machine, reclaimability predicate, hash-chain insertion |
-| `merkle_tree` | `BatchedMerkleTreeAccount` and queue/tree operations |
+| `merkle_tree` | Queue and tree operations on `NullifierTreeLayout` |
 | `queue` | Queue batch insertion helper |
 | `queue_batch_metadata` | Metadata for queue batches |
 | `nullifier_pda` | PDA payload, PDA seeds, test-only host emulation of the PDA set |
@@ -26,10 +26,9 @@ queue insertion, batch append, and PDA cleanup.
 
 ## Account
 
-There is a single account type, `BatchedMerkleTreeAccount`, a zero-copy view
-of `TreeAccountLayout<ZKP>`, where `ZKP = batch_size / zkp_batch_size`:
+There is a single state type, `NullifierTreeLayout<ZKP>`, cast in place from
+the account bytes, where `ZKP = batch_size / zkp_batch_size`:
 
-- 8-byte discriminator (`BatchMta`)
 - `BatchedMerkleTreeMetadata` (240 bytes): tree type, sequence number, next
   index, height, root-history capacity, capacity, the two queue batches, and
   `close_before_index`
@@ -45,7 +44,7 @@ the sentinel root they are seeded with (`ADDRESS_TREE_INIT_ROOT_40` vs.
 
 ### Queue insertion
 
-`BatchedMerkleTreeAccount::insert_nullifier_into_queue` rejects values that
+`NullifierTreeLayout::insert_nullifier_into_queue` rejects values that
 are not canonical BN254 scalar field elements, requires the queue sequence and
 the current batch position to agree (`QueueIndexMismatch`), adds the value to
 the current batch's open Poseidon hash chain, and returns the queue index `q`

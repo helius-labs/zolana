@@ -248,7 +248,7 @@ impl ForesterPlan {
             .data;
         let mut tree = TreeAccount::from_bytes(&mut data, pool_tree.to_bytes())
             .map_err(|err| anyhow!("load tree account: {err:?}"))?;
-        let nullifier_tree = tree.nullifer_tree();
+        let nullifier_tree = tree.nullifier_tree();
         let metadata = *nullifier_tree.get_metadata();
         let pending_batch_index = metadata.queue_batches.pending_batch_index as usize;
         let batch = metadata

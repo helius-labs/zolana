@@ -14,10 +14,12 @@ use wincode::{
 };
 pub use zolana_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccountsInstructionData;
 use zolana_batched_merkle_tree::{
-    constants::{ADDRESS_TREE_DEFAULT_ZKP, DEFAULT_BATCH_ADDRESS_TREE_HEIGHT},
-    initialize_address_tree::{init_batched_nullifier_merkle_tree_into_layout, match_circuit_size},
-    merkle_tree::BatchedMerkleTreeAccount,
-    zero_copy::TreeAccountLayout as NullifierLayout,
+    constants::{
+        ADDRESS_TREE_DEFAULT_ZKP, DEFAULT_BATCH_ADDRESS_TREE_HEIGHT, NULLIFIER_TREE_INIT_ROOT_40,
+    },
+    initialize_address_tree::match_circuit_size,
+    merkle_tree_metadata::TreeType,
+    zero_copy::NullifierTreeLayout,
 };
 
 /// Height of the pool's UTXO state tree. `TreeAccount::init` rejects any
@@ -43,7 +45,7 @@ pub struct TreeAccountLayout<const UTXO_HEIGHT: usize, const ZKP: usize> {
     pub _padding: [u8; 6],
     pub _reserved: [u8; TREE_RESERVED_BYTES],
     pub utxo: UtxoTreeLayout<UTXO_HEIGHT>,
-    pub nullifier: NullifierLayout<ZKP>,
+    pub nullifier: NullifierTreeLayout<ZKP>,
 }
 
 unsafe impl<C: ConfigCore, const UH: usize, const ZKP: usize> ZeroCopy<C>
@@ -128,12 +130,16 @@ impl<'a> TreeAccount<'a> {
 
         layout.utxo.init(utxo_tree_height as usize)?;
 
-        init_batched_nullifier_merkle_tree_into_layout::<NULLIFIER_ZKP>(
-            nullifier_params,
-            &mut layout.nullifier,
-            pubkey.into(),
-        )
-        .map_err(|_| TreeError::AddressInit)?;
+        layout
+            .nullifier
+            .init(
+                nullifier_params.input_queue_batch_size,
+                nullifier_params.input_queue_zkp_batch_size,
+                nullifier_params.height,
+                TreeType::AddressV2,
+                Some(NULLIFIER_TREE_INIT_ROOT_40),
+            )
+            .map_err(|_| TreeError::AddressInit)?;
 
         Ok(Self {
             pubkey,
@@ -222,9 +228,12 @@ impl<'a> TreeAccount<'a> {
         &mut self.layout_mut().utxo
     }
 
-    pub fn nullifer_tree(&mut self) -> BatchedMerkleTreeAccount<'_, NULLIFIER_ZKP> {
-        let pubkey = self.pubkey;
-        BatchedMerkleTreeAccount::from_layout(&pubkey.into(), &mut self.layout_mut().nullifier)
+    pub fn pubkey(&self) -> [u8; 32] {
+        self.pubkey
+    }
+
+    pub fn nullifier_tree(&mut self) -> &mut NullifierTreeLayout<NULLIFIER_ZKP> {
+        &mut self.layout_mut().nullifier
     }
 
     pub fn close_before_index(&self) -> u64 {
@@ -244,7 +253,7 @@ impl<'a> TreeAccount<'a> {
             .checked_sub(utxo_tree.next_index())
             .ok_or(TreeError::InvalidCapacity)?;
         let nullifier_remaining = self
-            .nullifer_tree()
+            .nullifier_tree()
             .remaining_queue_capacity()
             .map_err(|_| TreeError::InvalidCapacity)?;
         Ok(dummy_inputs_allowed(nullifier_remaining, state_remaining))
@@ -296,7 +305,9 @@ fn check_layout(layout: &SppTreeLayout) -> Result<(), TreeError> {
     {
         return Err(TreeError::Deserialize);
     }
-    BatchedMerkleTreeAccount::<NULLIFIER_ZKP>::validate_layout(&layout.nullifier)
+    layout
+        .nullifier
+        .validate()
         .map_err(|_| TreeError::Deserialize)?;
     Ok(())
 }
@@ -307,7 +318,7 @@ mod layout_equivalence {
 
     const STATIC_METADATA_LEN: usize = 8;
     const HEADER_LEN: usize = STATIC_METADATA_LEN + TREE_RESERVED_BYTES;
-    const EXPECTED_ACCOUNT_SIZE: usize = 34_920;
+    const EXPECTED_ACCOUNT_SIZE: usize = 34_912;
     const EXPECTED_NULLIFIER_OFFSET: usize = 7_544;
     const EXPECTED_STATE_ROOT_OFFSET: usize = 80;
 
@@ -319,7 +330,7 @@ mod layout_equivalence {
     fn size_and_offsets_include_reserved_header() {
         let account_size_without_reserved = STATIC_METADATA_LEN
             + aligned_utxo_size(UTXO_TREE_HEIGHT)
-            + size_of::<NullifierLayout<NULLIFIER_ZKP>>();
+            + size_of::<NullifierTreeLayout<NULLIFIER_ZKP>>();
         assert_eq!(size_of::<SppTreeLayout>(), EXPECTED_ACCOUNT_SIZE);
         assert_eq!(
             size_of::<SppTreeLayout>(),

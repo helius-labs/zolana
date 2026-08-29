@@ -34,9 +34,10 @@ pub fn process_batch_update_nullifier_tree(
         let mut tree_account =
             TreeAccount::from_account_view_mut(&mut *tree, &crate::ID, TREE_ACCOUNT_DISCRIMINATOR)
                 .map_err(ShieldedPoolError::from)?;
+        let tree_pubkey = tree_account.pubkey();
         tree_account
-            .nullifer_tree()
-            .update_tree_from_address_queue(instruction)
+            .nullifier_tree()
+            .update_tree_from_address_queue(tree_pubkey, instruction)
             .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?
     };
 

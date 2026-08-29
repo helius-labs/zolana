@@ -69,8 +69,8 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
         close_before_index,
         nullifier_root,
     ) = {
-        let nullifier_tree = account.nullifer_tree();
-        let metadata = *nullifier_tree.get_metadata();
+        let nullifier_tree = account.nullifier_tree();
+        let metadata = nullifier_tree.metadata;
         let close_before_index = metadata.close_before_index;
         let batches = &metadata.queue_batches;
         let mut infos = Vec::with_capacity(batches.batches.len());

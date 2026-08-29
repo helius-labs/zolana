@@ -47,7 +47,7 @@ use crate::{constants::NUM_BATCHES, merkle_tree_metadata::BatchedMerkleTreeMetad
 /// `[u8; 32]` is align-1, so there is no padding between the cursor and the
 /// roots; the region is 8-byte aligned because the cursor is a `u64`.
 #[repr(C)]
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RootHistory<const N: usize> {
     pub current_index: u64,
     pub roots: [[u8; 32]; N],
@@ -68,18 +68,17 @@ impl CachedTreeUpdate {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, PartialEq)]
-pub struct TreeAccountLayout<const ZKP_BATCHES: usize> {
-    pub discriminator: [u8; 8],
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NullifierTreeLayout<const ZKP_BATCHES: usize> {
     pub metadata: BatchedMerkleTreeMetadata,
     pub root_history: RootHistory<ZKP_BATCHES>,
     pub hash_chains: [[[u8; 32]; ZKP_BATCHES]; NUM_BATCHES],
     pub cached_tree_updates: [[CachedTreeUpdate; ZKP_BATCHES]; NUM_BATCHES],
 }
 
-unsafe impl<C: ConfigCore, const ZKP: usize> ZeroCopy<C> for TreeAccountLayout<ZKP> {}
+unsafe impl<C: ConfigCore, const ZKP: usize> ZeroCopy<C> for NullifierTreeLayout<ZKP> {}
 
-unsafe impl<'de, C: ConfigCore, const ZKP: usize> SchemaRead<'de, C> for TreeAccountLayout<ZKP> {
+unsafe impl<'de, C: ConfigCore, const ZKP: usize> SchemaRead<'de, C> for NullifierTreeLayout<ZKP> {
     type Dst = Self;
     const TYPE_META: TypeMeta = TypeMeta::Static {
         size: size_of::<Self>(),
@@ -97,8 +96,8 @@ mod layout_smoke {
 
     #[test]
     fn tree_layout_round_trips() {
-        let mut bytes = vec![0u8; size_of::<TreeAccountLayout<2>>()];
-        let layout: &mut TreeAccountLayout<2> = wincode::deserialize_mut(&mut bytes).unwrap();
+        let mut bytes = vec![0u8; size_of::<NullifierTreeLayout<2>>()];
+        let layout: &mut NullifierTreeLayout<2> = wincode::deserialize_mut(&mut bytes).unwrap();
         layout.root_history.roots[1] = [7u8; 32];
         layout.hash_chains[0][1] = [9u8; 32];
         layout.cached_tree_updates[1][1] = CachedTreeUpdate {
@@ -106,7 +105,7 @@ mod layout_smoke {
             new_root: [4u8; 32],
             occupied: 1,
         };
-        let reloaded: &mut TreeAccountLayout<2> = wincode::deserialize_mut(&mut bytes).unwrap();
+        let reloaded: &mut NullifierTreeLayout<2> = wincode::deserialize_mut(&mut bytes).unwrap();
         assert_eq!(reloaded.root_history.roots[1], [7u8; 32]);
         assert_eq!(reloaded.hash_chains[0][1], [9u8; 32]);
         assert_eq!(reloaded.cached_tree_updates[1][1].old_root, [3u8; 32]);

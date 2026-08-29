@@ -2,9 +2,8 @@ use borsh::BorshDeserialize;
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_batched_merkle_tree::{
-    merkle_tree::{BatchedMerkleTreeAccount, InstructionDataAddressAppendInputs},
-    merkle_tree_metadata::TreeType,
-    zero_copy::TreeAccountLayout,
+    merkle_tree::InstructionDataAddressAppendInputs, merkle_tree_metadata::TreeType,
+    zero_copy::NullifierTreeLayout,
 };
 use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount, UTXO_TREE_HEIGHT};
 
@@ -18,19 +17,18 @@ const DISCRIMINATOR: u8 = 7;
 
 const ADDRESS_ZKP: usize = 120;
 
-type AddressTree<'a> = BatchedMerkleTreeAccount<'a, ADDRESS_ZKP>;
+type AddressTree = NullifierTreeLayout<ADDRESS_ZKP>;
 
-fn load_address_tree<'a>(
-    account_data: &'a mut [u8],
-    pubkey: &solana_address::Address,
-) -> Result<AddressTree<'a>, ProgramError> {
-    let layout: &'a mut TreeAccountLayout<ADDRESS_ZKP> =
+fn load_address_tree(account_data: &mut [u8]) -> Result<&mut AddressTree, ProgramError> {
+    let layout: &mut AddressTree =
         wincode::deserialize_mut(account_data).map_err(|_| ProgramError::InvalidAccountData)?;
     if layout.metadata.tree_type != TreeType::AddressV2 as u64 {
         return Err(ProgramError::InvalidAccountData);
     }
-    AddressTree::validate_layout(layout).map_err(|_| ProgramError::InvalidAccountData)?;
-    Ok(AddressTree::from_layout(pubkey, layout))
+    layout
+        .validate()
+        .map_err(|_| ProgramError::InvalidAccountData)?;
+    Ok(layout)
 }
 
 const OP_INIT: u8 = 0;
@@ -88,9 +86,8 @@ pub fn process_instruction(
                 data.get(1..).ok_or(ProgramError::InvalidInstructionData)?,
             )
             .map_err(|_| ProgramError::InvalidInstructionData)?;
-            let address = solana_address::Address::from(pubkey);
-            let mut tree = load_address_tree(&mut store, &address)?;
-            bench_batch_address_update(&mut tree, ix)
+            let tree = load_address_tree(&mut store)?;
+            bench_batch_address_update(tree, pubkey, ix)
         }
         _ => Err(ProgramError::InvalidInstructionData),
     }
@@ -132,17 +129,18 @@ fn bench_append_batch(tree: &mut TreeAccount<'_>, values: &[[u8; 32]]) -> Progra
 
 #[profile]
 fn bench_batch_address_update(
-    tree: &mut AddressTree<'_>,
+    tree: &mut AddressTree,
+    pubkey: [u8; 32],
     ix: InstructionDataAddressAppendInputs,
 ) -> ProgramResult {
-    tree.update_tree_from_address_queue(ix)
+    tree.update_tree_from_address_queue(pubkey, ix)
         .map_err(|_| ProgramError::InvalidAccountData)?;
     Ok(())
 }
 
 #[profile]
 fn bench_nullifier_insert(tree: &mut TreeAccount<'_>, values: &[[u8; 32]]) -> ProgramResult {
-    let mut nullifier = tree.nullifer_tree();
+    let nullifier = tree.nullifier_tree();
     for value in values.iter() {
         nullifier
             .insert_nullifier_into_queue(value)

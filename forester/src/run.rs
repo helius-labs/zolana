@@ -301,8 +301,8 @@ fn read_snapshot(rpc_url: &str, tree: Pubkey) -> Result<TreeSnapshot> {
 
     let mut account = TreeAccount::from_bytes(&mut data, tree.to_bytes())
         .map_err(|err| anyhow!("parse tree account {tree}: {err:?}"))?;
-    let nullifier = account.nullifer_tree();
-    let metadata = *nullifier.get_metadata();
+    let nullifier = account.nullifier_tree();
+    let metadata = nullifier.metadata;
     let on_chain_root = nullifier
         .get_root()
         .ok_or_else(|| anyhow!("nullifier tree has no root"))?;

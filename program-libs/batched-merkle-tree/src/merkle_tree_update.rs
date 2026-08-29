@@ -3,14 +3,14 @@ use zolana_hasher::hash_chain::create_hash_chain_from_array;
 use crate::{
     batch::BatchState,
     errors::{BatchedMerkleTreeError, MerkleTreeMetadataError},
-    merkle_tree::{BatchedMerkleTreeAccount, InstructionDataAddressAppendInputs},
+    merkle_tree::InstructionDataAddressAppendInputs,
     merkle_tree_metadata::TreeType,
     verify::verify_batch_address_update,
-    zero_copy::CachedTreeUpdate,
+    zero_copy::{CachedTreeUpdate, NullifierTreeLayout},
 };
 use zolana_event::BatchAddressAppendEvent;
 
-impl<'a, const ZKP: usize> BatchedMerkleTreeAccount<'a, ZKP> {
+impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     /// Verify one address-append proof and apply every now-applicable cached
     /// update.
     ///
@@ -23,10 +23,11 @@ impl<'a, const ZKP: usize> BatchedMerkleTreeAccount<'a, ZKP> {
     ///    errors.
     pub fn update_tree_from_address_queue(
         &mut self,
+        merkle_tree_pubkey: [u8; 32],
         instruction_data: InstructionDataAddressAppendInputs,
     ) -> Result<Option<BatchAddressAppendEvent>, BatchedMerkleTreeError> {
         // 1. Reject non-address trees.
-        if self.tree_type != TreeType::AddressV2 as u64 {
+        if self.metadata.tree_type != TreeType::AddressV2 as u64 {
             return Err(MerkleTreeMetadataError::InvalidTreeType.into());
         }
         // 2. Verify the proof and cache the update.
@@ -34,7 +35,7 @@ impl<'a, const ZKP: usize> BatchedMerkleTreeAccount<'a, ZKP> {
             return Ok(None);
         }
         // 3. Apply cached updates in order.
-        self.apply_cached_tree_updates()
+        self.apply_cached_tree_updates(merkle_tree_pubkey)
     }
 
     /// Verify one address-append proof and cache the update at its zkp batch
@@ -53,11 +54,12 @@ impl<'a, const ZKP: usize> BatchedMerkleTreeAccount<'a, ZKP> {
         &mut self,
         instruction_data: &InstructionDataAddressAppendInputs,
     ) -> Result<bool, BatchedMerkleTreeError> {
-        let zkp_batch_size = self.queue_batches.zkp_batch_size;
-        let pending_batch_index = self.queue_batches.pending_batch_index as usize;
+        let zkp_batch_size = self.metadata.queue_batches.zkp_batch_size;
+        let pending_batch_index = self.metadata.queue_batches.pending_batch_index as usize;
 
         let (num_full_zkp_batches, num_inserted_zkp_batches) = {
             let batch = self
+                .metadata
                 .queue_batches
                 .batches
                 .get(pending_batch_index)
@@ -67,7 +69,6 @@ impl<'a, const ZKP: usize> BatchedMerkleTreeAccount<'a, ZKP> {
 
         // 1. Validate the zkp batch index and that its hash chain is finalized.
         let cached_tree_update_capacity = self
-            .layout
             .cached_tree_updates
             .get(pending_batch_index)
             .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?
@@ -92,12 +93,11 @@ impl<'a, const ZKP: usize> BatchedMerkleTreeAccount<'a, ZKP> {
         // batch writes at.
         let next_index_for_proof = zkp_batches_ahead
             .checked_mul(zkp_batch_size)
-            .and_then(|offset| self.next_index.checked_add(offset))
+            .and_then(|offset| self.metadata.next_index.checked_add(offset))
             .ok_or(BatchedMerkleTreeError::ArithmeticOverflow)?;
 
         // 3. Rebuild the public input hash and verify the proof.
         let leaves_hash_chain = *self
-            .layout
             .hash_chains
             .get(pending_batch_index)
             .and_then(|chain| chain.get(zkp_batch_index))
@@ -120,7 +120,6 @@ impl<'a, const ZKP: usize> BatchedMerkleTreeAccount<'a, ZKP> {
         //    prover's public input; apply checks it against the account tree
         //    root before applying.
         let cached_update = self
-            .layout
             .cached_tree_updates
             .get_mut(pending_batch_index)
             .and_then(|updates| updates.get_mut(zkp_batch_index))
@@ -152,8 +151,9 @@ impl<'a, const ZKP: usize> BatchedMerkleTreeAccount<'a, ZKP> {
     #[cfg_attr(feature = "profile-program", light_program_profiler::profile)]
     pub fn apply_cached_tree_updates(
         &mut self,
+        merkle_tree_pubkey: [u8; 32],
     ) -> Result<Option<BatchAddressAppendEvent>, BatchedMerkleTreeError> {
-        let zkp_batch_size = self.queue_batches.zkp_batch_size;
+        let zkp_batch_size = self.metadata.queue_batches.zkp_batch_size;
         // One event covers the whole cascade: shared fields once, one root per
         // applied zkp batch. See `BatchAddressAppendEvent` for how the per-batch
         // values are derived from each root's position.
@@ -161,8 +161,9 @@ impl<'a, const ZKP: usize> BatchedMerkleTreeAccount<'a, ZKP> {
         loop {
             // 1. Read the pending zkp batch's cached update; stop if missing or
             //    empty.
-            let pending_batch_index = self.queue_batches.pending_batch_index as usize;
+            let pending_batch_index = self.metadata.queue_batches.pending_batch_index as usize;
             let zkp_batch_index = self
+                .metadata
                 .queue_batches
                 .batches
                 .get(pending_batch_index)
@@ -170,7 +171,6 @@ impl<'a, const ZKP: usize> BatchedMerkleTreeAccount<'a, ZKP> {
                 .get_num_inserted_zkps() as usize;
 
             let cached_update = match self
-                .layout
                 .cached_tree_updates
                 .get(pending_batch_index)
                 .and_then(|updates| updates.get(zkp_batch_index))
@@ -206,22 +206,22 @@ impl<'a, const ZKP: usize> BatchedMerkleTreeAccount<'a, ZKP> {
             // 3. Apply: advance the tree and mark the zkp batch inserted.
             self.check_tree_is_full(zkp_batch_size)?;
 
-            let old_next_index = self.next_index;
+            let old_next_index = self.metadata.next_index;
             self.increment_merkle_tree_next_index(zkp_batch_size);
-            self.sequence_number += 1;
+            self.metadata.sequence_number += 1;
             self.append_root(cached_update.new_root)?;
             let root_index = self.get_root_index();
 
-            let sequence_number = self.sequence_number;
+            let sequence_number = self.metadata.sequence_number;
             let pending_batch_state = self
+                .metadata
                 .queue_batches
                 .batches
                 .get_mut(pending_batch_index)
                 .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?
                 .mark_as_inserted_in_merkle_tree()?;
             self.advance_nullifier_pda_close_watermark(pending_batch_state)?;
-            self.layout
-                .metadata
+            self.metadata
                 .queue_batches
                 .increment_pending_batch_index_if_inserted(pending_batch_state);
 
@@ -232,8 +232,8 @@ impl<'a, const ZKP: usize> BatchedMerkleTreeAccount<'a, ZKP> {
             //    batch fixes the shared fields; later batches only advance the
             //    count and the final root (intermediate roots live in
             //    root_history).
-            let event = event.get_or_insert_with(|| BatchAddressAppendEvent {
-                merkle_tree_pubkey: self.pubkey().to_bytes(),
+            let event = event.get_or_insert(BatchAddressAppendEvent {
+                merkle_tree_pubkey,
                 zkp_batch_size: zkp_batch_size as u16,
                 old_next_index,
                 start_sequence_number: sequence_number,
@@ -264,11 +264,12 @@ impl<'a, const ZKP: usize> BatchedMerkleTreeAccount<'a, ZKP> {
         }
 
         let pending_batch = self
+            .metadata
             .queue_batches
             .batches
-            .get(self.queue_batches.pending_batch_index as usize)
+            .get(self.metadata.queue_batches.pending_batch_index as usize)
             .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?;
-        self.close_before_index = self.close_before_index.max(
+        self.metadata.close_before_index = self.metadata.close_before_index.max(
             pending_batch
                 .start_index
                 .checked_sub(1)
@@ -285,7 +286,6 @@ impl<'a, const ZKP: usize> BatchedMerkleTreeAccount<'a, ZKP> {
         zkp_batch_index: usize,
     ) -> Result<(), BatchedMerkleTreeError> {
         let cached_update = self
-            .layout
             .cached_tree_updates
             .get_mut(pending_batch_index)
             .and_then(|updates| updates.get_mut(zkp_batch_index))

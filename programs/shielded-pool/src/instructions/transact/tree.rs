@@ -47,7 +47,7 @@ pub(crate) fn apply_input_tree(
             .map_err(tree_error)?;
         // 3. insert_nullifier_into_queue
         let queue_index = input_tree
-            .nullifer_tree()
+            .nullifier_tree()
             .insert_nullifier_into_queue(&input.nullifier_hash)
             .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
         // 4. Build indexer nullifier queue data.
@@ -62,7 +62,11 @@ pub(crate) fn apply_input_tree(
         &nullifier_tree_roots[..ix.inputs.len()],
         allow_dummy_inputs,
     )?;
-    let zkp_batch_size = input_tree.nullifer_tree().queue_batches.zkp_batch_size;
+    let zkp_batch_size = input_tree
+        .nullifier_tree()
+        .metadata
+        .queue_batches
+        .zkp_batch_size;
 
     Ok(InputTreeResult {
         inputs,

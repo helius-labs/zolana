@@ -115,7 +115,7 @@ pub(crate) fn process_merge_core(
             owner_binding,
         };
         let inputs = apply_input_tree(&mut tree, ix, input_tree, &mut derived)?;
-        let zkp_batch_size = tree.nullifer_tree().queue_batches.zkp_batch_size;
+        let zkp_batch_size = tree.nullifier_tree().metadata.queue_batches.zkp_batch_size;
         (inputs, derived, zkp_batch_size)
     };
     let nullifier_pda_rent =
@@ -168,7 +168,7 @@ fn apply_input_tree(
             .get_nullifier_tree_root(nullifier_root_index)
             .map_err(tree_error)?;
         let queue_index = tree
-            .nullifer_tree()
+            .nullifier_tree()
             .insert_nullifier_into_queue(nullifier)
             .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
         inputs.push(Input {
