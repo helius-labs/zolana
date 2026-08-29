@@ -30,7 +30,7 @@ import {
   decryptConfidentialAsSender,
   readOutputData,
 } from "../transaction/serialization/codecs.js";
-import type { AssetRegistry } from "../transaction/wallet/asset.js";
+import type { AssetRegistry } from "../transaction/asset.js";
 
 import { fetchSplAssetRegistrations } from "../wallet/sync.js";
 

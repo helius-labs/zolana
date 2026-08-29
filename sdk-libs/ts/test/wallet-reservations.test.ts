@@ -13,7 +13,7 @@ import {
   deserializeWallet,
   serializeWallet,
 } from "../src/transaction/index.js";
-import { AssetRegistry } from "../src/transaction/wallet/asset.js";
+import { AssetRegistry } from "../src/transaction/asset.js";
 import { createSplit, createTransfer } from "../src/wallet/actions.js";
 import { createMerge, MergeMaterial } from "../src/wallet/merge.js";
 import { buildTransferTransaction } from "../src/wallet/transactions.js";

@@ -8,7 +8,7 @@ import { ShieldedAddress } from "../keypair/shielded.js";
 import { ViewingKey } from "../keypair/viewing-key.js";
 import { encodeRingDepositPlaintext } from "../transaction/serialization/ring-deposit.js";
 import { ownerUtxoHash } from "../transaction/utxo.js";
-import { SOL_MINT } from "../transaction/wallet/asset.js";
+import { SOL_MINT } from "../transaction/asset.js";
 import { resolveDepositSettlement } from "../flows/settlement.js";
 import { resolveShieldedRecipient } from "../wallet/registry.js";
 

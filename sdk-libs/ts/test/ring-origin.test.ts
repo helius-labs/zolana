@@ -15,7 +15,7 @@ import type {
   Bytes64,
   InterfaceTransfer,
 } from "../src/interface/types.js";
-import { SOL_MINT } from "../src/transaction/wallet/asset.js";
+import { SOL_MINT } from "../src/transaction/asset.js";
 import { RingError } from "../src/ring/error.js";
 import {
   CachedTransactionOrigin,

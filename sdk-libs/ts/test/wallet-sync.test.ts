@@ -29,7 +29,7 @@ import {
   encryptConfidential,
   readOutputData,
 } from "../src/transaction/serialization/codecs.js";
-import { SOL_ASSET_ID } from "../src/transaction/wallet/asset.js";
+import { SOL_ASSET_ID } from "../src/transaction/asset.js";
 import {
   anonymousRecipientUtxo,
   anonymousSenderFromUtxos,

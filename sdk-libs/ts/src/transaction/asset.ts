@@ -1,9 +1,9 @@
 import { address } from "@solana/kit";
 
-import type { Address, Bytes32 } from "../../interface/types.js";
+import type { Address, Bytes32 } from "../interface/types.js";
 
-import { TransactionError } from "../error.js";
-import { checked, decodeAddress, equal, hashBytes } from "../internal.js";
+import { TransactionError } from "./error.js";
+import { checked, decodeAddress, equal, hashBytes } from "./internal.js";
 
 export const SOL_ASSET_ID = 1n;
 export const SOL_MINT = address("11111111111111111111111111111111");

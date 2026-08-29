@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { Bytes32 } from "../src/interface/index.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
 import { Data, Utxo, Wallet } from "../src/transaction/index.js";
-import { AssetRegistry } from "../src/transaction/wallet/asset.js";
+import { AssetRegistry } from "../src/transaction/asset.js";
 import {
   MAX_SPEND_INPUTS,
   isPlainUtxo,

@@ -43,7 +43,7 @@ import {
   deriveBlinding,
   type ProofOutputUtxo,
 } from "../utxo.js";
-import { SOL_ASSET_ID, type AssetRegistry } from "../wallet/asset.js";
+import { SOL_ASSET_ID, type AssetRegistry } from "../asset.js";
 
 export type { Shape };
 export const SPP_SUPPORTED_SHAPES = INTERFACE_SUPPORTED_SHAPES;

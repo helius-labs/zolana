@@ -10,7 +10,7 @@ import {
   createProofOutput,
   type WalletAuthority,
 } from "../src/transaction/index.js";
-import { AssetRegistry, SOL_MINT } from "../src/transaction/wallet/asset.js";
+import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
 
 function filled(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;

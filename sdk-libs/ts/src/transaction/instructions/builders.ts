@@ -15,7 +15,7 @@ import {
   deriveBlinding,
   type ProofOutputUtxo,
 } from "../utxo.js";
-import { type AssetRegistry } from "../wallet/asset.js";
+import { type AssetRegistry } from "../asset.js";
 import { SppProofInputs, createExternalData, type InputUtxoContext } from "./transact.js";
 
 /** Padded input count of the merge circuit, the counterpart of Rust `MERGE_INPUTS`. */

@@ -2,7 +2,7 @@ import { SPL_TOKEN_PROGRAM_ID } from "../interface/program.js";
 import { associatedTokenAddress, splInterfaceWithBump } from "../interface/pda/index.js";
 import { DepositAsset, TransactWithdrawal, type Address } from "../interface/types.js";
 import { WithdrawalTarget } from "../transaction/instructions/transact.js";
-import { SOL_MINT } from "../transaction/wallet/asset.js";
+import { SOL_MINT } from "../transaction/asset.js";
 
 /** @internal Derives the depositor's associated token account when none is named. */
 export async function resolveDepositSettlement(

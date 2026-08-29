@@ -8,7 +8,7 @@ import { ShieldedAddress, type ShieldedKeypair } from "../keypair/shielded.js";
 import { Merge, type PreparedMerge } from "../transaction/instructions/builders.js";
 import { ProofInputUtxo } from "../transaction/utxo.js";
 import type { WalletAuthority, WalletSyncMaterial } from "../transaction/wallet/authority.js";
-import { SOL_MINT } from "../transaction/wallet/asset.js";
+import { SOL_MINT } from "../transaction/asset.js";
 import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 
 import { initializePoseidon } from "../hasher/index.js";

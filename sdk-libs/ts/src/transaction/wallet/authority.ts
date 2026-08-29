@@ -23,7 +23,7 @@ import { decodeAddress } from "../internal.js";
 import { runSpendSession, runSyncSession } from "./encrypt-rails.js";
 import { approveIntent, type IntentApproval, type TransactionIntent } from "./intent.js";
 import type { ProofOutputUtxo } from "../utxo.js";
-import type { AssetRegistry } from "./asset.js";
+import type { AssetRegistry } from "../asset.js";
 
 export type { SplitBundlePlaintext };
 

@@ -14,7 +14,7 @@ import { initializePoseidon } from "../hasher/index.js";
 import { randomBlinding } from "../keypair/bytes.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
 import { ownerUtxoHash } from "../transaction/utxo.js";
-import { SOL_MINT } from "../transaction/wallet/asset.js";
+import { SOL_MINT } from "../transaction/asset.js";
 
 import { resolveDepositSettlement } from "../flows/settlement.js";
 

@@ -18,7 +18,7 @@ import {
 } from "../serialization/codecs.js";
 import type { NullifierKey } from "../../keypair/nullifier-key.js";
 import type { ProofOutputUtxo } from "../utxo.js";
-import type { AssetRegistry } from "./asset.js";
+import type { AssetRegistry } from "../asset.js";
 import type {
   AnonymousRecipientSlot,
   EncryptedCustomRingTransfer,

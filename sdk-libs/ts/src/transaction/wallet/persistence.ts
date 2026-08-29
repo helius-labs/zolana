@@ -13,7 +13,7 @@ import { ShieldedAddress } from "../../keypair/shielded.js";
 import { Data, type DataRecord } from "../data.js";
 import { TransactionError } from "../error.js";
 import { Utxo } from "../utxo.js";
-import { AssetRegistry, SOL_ASSET_ID } from "./asset.js";
+import { AssetRegistry, SOL_ASSET_ID } from "../asset.js";
 import {
   Wallet,
   hex,

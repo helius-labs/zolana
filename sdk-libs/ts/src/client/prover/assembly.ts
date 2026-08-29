@@ -10,7 +10,7 @@ import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
 import { SppProofInputs, type ExternalData } from "../../transaction/instructions/transact.js";
 import { EncryptedScheme } from "../../transaction/serialization/codecs.js";
 import { ProofInputUtxo, type ProofOutputUtxo } from "../../transaction/utxo.js";
-import { SOL_MINT } from "../../transaction/wallet/asset.js";
+import { SOL_MINT } from "../../transaction/asset.js";
 
 import { ClientError, fromClientCause } from "../error.js";
 import {

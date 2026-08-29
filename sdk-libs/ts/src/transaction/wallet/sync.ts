@@ -31,7 +31,7 @@ import {
 import { decodeRingDepositOutput, decryptRingDepositUtxo } from "../serialization/ring-deposit.js";
 import { Utxo } from "../utxo.js";
 import type { SyncWalletAuthority, WalletSyncMaterial } from "./authority.js";
-import { SOL_MINT, type AssetRegistry } from "./asset.js";
+import { SOL_MINT, type AssetRegistry } from "../asset.js";
 import {
   SENDER_HISTORY_ROW_BASE,
   newViewingKeyEntry,

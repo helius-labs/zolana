@@ -21,7 +21,7 @@ import {
   Wallet,
   decryptToBalances,
 } from "../src/transaction/index.js";
-import { AssetRegistry } from "../src/transaction/wallet/asset.js";
+import { AssetRegistry } from "../src/transaction/asset.js";
 import {
   createSplit,
   createTransfer,

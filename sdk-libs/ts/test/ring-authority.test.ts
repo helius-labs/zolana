@@ -8,7 +8,7 @@ import { ViewingKey } from "../src/keypair/viewing-key.js";
 import { ed25519DerivationPayload, isDerivationInput } from "../src/keypair/derivation.js";
 import { LocalWalletAuthority } from "../src/transaction/wallet/authority.js";
 import { createProofOutput } from "../src/transaction/utxo.js";
-import { AssetRegistry, SOL_MINT } from "../src/transaction/wallet/asset.js";
+import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
 import { decryptTransactionViewingSecret, parseAuditorMessage } from "../src/keypair/audit.js";
 
 function seed(byte: number): Bytes32 {

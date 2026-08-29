@@ -9,7 +9,7 @@ import {
   SOL_INTERFACE,
 } from "../interface/program.js";
 import type { Address, InterfaceTransfer, RequestContext, Signature } from "../interface/types.js";
-import { SOL_MINT } from "../transaction/wallet/asset.js";
+import { SOL_MINT } from "../transaction/asset.js";
 
 import { RingError } from "./error.js";
 

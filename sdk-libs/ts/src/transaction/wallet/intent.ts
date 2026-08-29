@@ -5,7 +5,7 @@ import type { Address, Bytes32, TransactInstructionData } from "../../interface/
 import type { ShieldedAddress } from "../../keypair/shielded.js";
 
 import type { PreparedTransfer, WithdrawalTarget } from "../instructions/transact.js";
-import { SOL_MINT } from "./asset.js";
+import { SOL_MINT } from "../asset.js";
 
 /** What the user approves, every field is bound into `intentHash`. */
 export type TransactionIntent =

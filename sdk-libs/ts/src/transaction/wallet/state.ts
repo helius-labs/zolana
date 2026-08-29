@@ -5,7 +5,7 @@ import type { ShieldedAddress } from "../../keypair/shielded.js";
 import { TransactionError } from "../error.js";
 import { copy } from "../internal.js";
 import { Utxo } from "../utxo.js";
-import { AssetRegistry } from "./asset.js";
+import { AssetRegistry } from "../asset.js";
 
 export interface AssetBalance {
   readonly assetId: bigint;

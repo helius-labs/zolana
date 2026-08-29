@@ -29,7 +29,7 @@ import {
   withdrawalIntentRecipient,
   type TransactionIntent,
 } from "../transaction/wallet/intent.js";
-import { SOL_MINT, type AssetRegistry } from "../transaction/wallet/asset.js";
+import { SOL_MINT, type AssetRegistry } from "../transaction/asset.js";
 import type { NoteReservation, Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 import { ownerSignerAddresses } from "../client/prover/assembly.js";
 import { resolveWithdrawalSettlement } from "../flows/settlement.js";

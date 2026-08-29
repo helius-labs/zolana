@@ -22,7 +22,7 @@ import {
   type TransactionIntent,
 } from "../src/transaction/wallet/intent.js";
 import type { PreparedTransfer } from "../src/transaction/instructions/transact.js";
-import { AssetRegistry } from "../src/transaction/wallet/asset.js";
+import { AssetRegistry } from "../src/transaction/asset.js";
 import { buildTransferTransaction } from "../src/wallet/transactions.js";
 
 const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");

@@ -2,7 +2,7 @@ import type { ZolanaClient } from "../client/client.js";
 import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
 import { createAssociatedTokenAccountInstruction } from "../interface/instructions/index.js";
 import type { WalletAuthority } from "../transaction/wallet/authority.js";
-import { SOL_MINT } from "../transaction/wallet/asset.js";
+import { SOL_MINT } from "../transaction/asset.js";
 import type { Wallet } from "../transaction/wallet/state.js";
 
 import {
