@@ -466,6 +466,48 @@ describe("ring transact", () => {
     expect(tail).toEqual([SOL_INTERFACE, recipient]);
   });
 
+  it("appends the owner signers as readonly signers after the payer", async () => {
+    const owner = addressOf(33);
+    const instruction = await ringTransactInstruction({
+      ringProgramId: RING,
+      payer: PAYER,
+      inputTree: TREE,
+      outputTree: OUTPUT_TREE,
+      proof: Uint8Array.from([
+        ...filled(51, 32),
+        ...filled(52, 64),
+        ...filled(53, 32),
+        ...filled(54, 32),
+        ...filled(55, 32),
+      ]),
+      ownerSigners: [owner],
+      data: {
+        expiryUnixTs: 0xffff_ffff_ffff_ffffn,
+        privateTxHash: filled(41, 32) as Bytes32,
+        circuit: { kind: "ringEddsa", inputs: 2, outputs: 3, publicAssetSlots: 3 },
+        txViewingPk: filled(3, 33) as Bytes33,
+        salt: filled(42, 16) as Bytes16,
+        proof: {
+          a: filled(43, 32) as Bytes32,
+          b: filled(44, 64) as never,
+          c: filled(45, 32) as Bytes32,
+        },
+        inputs: [],
+        interfaceTransfers: [],
+        outputs: [],
+        messages: [],
+      },
+    });
+
+    const signers = (instruction.accounts ?? []).filter(
+      (meta) =>
+        meta.role === AccountRole.WRITABLE_SIGNER || meta.role === AccountRole.READONLY_SIGNER,
+    );
+    // The payer signs twice, the ring's own account list and the wrapped pool list.
+    expect(signers.map((meta) => meta.address)).toEqual([PAYER, PAYER, owner]);
+    expect(signers[2]?.role).toBe(AccountRole.READONLY_SIGNER);
+  });
+
   it("wraps the pool's account list and data like Rust `CustomRingTransact`", async () => {
     const instruction = await ringTransactInstruction({
       ringProgramId: RING,

@@ -10,6 +10,7 @@ import { p256 } from "@noble/curves/nist.js";
 import {
   address,
   createKeyPairSignerFromBytes,
+  generateKeyPairSigner,
   lamports,
   type Address,
   type Instruction,
@@ -464,6 +465,27 @@ describe("ring flow", () => {
     expect(ringNotes.map((note) => [note.utxo.amount, note.utxo.ringProgramId])).toEqual([
       [entry, ringProgramId],
     ]);
+
+    // A relayed transact proves, carries the owner as an extra signer, and
+    // dies at the packet limit, the extra signature and static owner key
+    // exceed the room the two proofs and framed outputs leave.
+    const relayer = await generateKeyPairSigner();
+    await expect(
+      buildRingExitTransaction({
+        client,
+        ringProgramId,
+        wallet: recipient.wallet,
+        authority: recipient.authority,
+        feePayer: relayer.address,
+        recipient: sender.keypair.shieldedAddress(),
+        asset: mint,
+        amount: exit,
+        lookupTable: table.address,
+      }),
+    ).rejects.toMatchObject({
+      code: "RING_BUILD_TRANSFER",
+      causeCode: "INTERFACE_TRANSACTION_TOO_LARGE",
+    });
 
     // Exit, part of the ring note returns to the sender's default ring.
     const exitTransaction = await buildRingExitTransaction({

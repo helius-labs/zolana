@@ -164,11 +164,18 @@ async function buildRingSendTransaction(
     } else {
       transfer.sendDefaultRing(recipient, asset, input.amount);
     }
-    const entering = selected.some((entry) => entry.utxo.ringProgramId === undefined);
-    const action = destination === "default" ? "exit" : entering ? "entry" : "transfer";
+    // Change of a default note becomes ring bound.
+    const defaultFunding = selected
+      .filter((entry) => entry.utxo.ringProgramId === undefined)
+      .reduce((sum, entry) => sum + entry.utxo.amount, 0n);
+    const action = destination === "default" ? "exit" : defaultFunding > 0n ? "entry" : "transfer";
+    const crossing =
+      defaultFunding === 0n
+        ? ""
+        : `, moves ${String(defaultFunding)} ${assetLabel(asset)} of default notes into the ring`;
     await input.authority.requestUserApproval({
       solanaPublicKey: input.authority.solanaPublicKey(),
-      summary: `ring ${action} of ${String(input.amount)} ${assetLabel(asset)} in ring ${input.ringProgramId} to a shielded address`,
+      summary: `ring ${action} of ${String(input.amount)} ${assetLabel(asset)} in ring ${input.ringProgramId} to a shielded address${crossing}`,
     });
     const proven = await proveCustomRingTransfer(
       {
@@ -499,6 +506,10 @@ export function selectRingInputs(
   inputs: "ring" | "ring-or-default" | "default",
   tree: Address,
 ): readonly WalletUtxo[] {
+  // Zero selects a note whose whole change would cross the ring boundary.
+  if (amount <= 0n) {
+    throw new RingError("RING_ZERO_AMOUNT", { details: { asset } });
+  }
   const eligible = (entry: WalletUtxo): boolean => {
     if (entry.utxo.ringProgramId === ringProgramId) return inputs !== "default";
     return (

@@ -3,6 +3,7 @@ import type { Address, Bytes32 } from "../interface/types.js";
 import type { Data } from "../transaction/data.js";
 import { ConfidentialSplit } from "../transaction/instructions/builders.js";
 import { ConfidentialTransfer, type SppProofInputs } from "../transaction/instructions/transact.js";
+import { TransactionError } from "../transaction/error.js";
 import { ProofInputUtxo, type Utxo } from "../transaction/utxo.js";
 import type { Wallet } from "../transaction/wallet/state.js";
 
@@ -82,10 +83,15 @@ export async function authorizePrivateTransaction(
       });
     }
   });
-  const [address, nullifierKey] = await Promise.all([
-    authority.shieldedAddress(),
-    authority.spendNullifierKey(),
-  ]);
+  const address = await authority.shieldedAddress();
+  // The default transact appends no owner signer accounts, the owner must pay.
+  if (address.solanaAddress() !== transaction.payer()) {
+    throw new TransactionError("TRANSACTION_ED25519_PAYER_MISMATCH", {
+      owner: address.solanaAddress(),
+      payer: transaction.payer(),
+    });
+  }
+  const nullifierKey = await authority.spendNullifierKey();
   const inputs = unsignedInputs.map(
     ({ entry }) =>
       new ProofInputUtxo({

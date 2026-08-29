@@ -623,14 +623,6 @@ export class ConfidentialTransfer {
     if (owner.signingPublicKey.signatureType() === "p256") {
       throw new TransactionError("TRANSACTION_P256_TRANSACT_UNSUPPORTED");
     }
-    // The builders collect no signature but the payer's, a note owned by
-    // anyone else cannot be authorized here.
-    if (owner.solanaAddress() !== feePayer) {
-      throw new TransactionError("TRANSACTION_ED25519_PAYER_MISMATCH", {
-        owner: owner.solanaAddress(),
-        payer: feePayer,
-      });
-    }
     inputs.forEach((input, index) => {
       if (input.isDummy()) {
         throw new TransactionError("TRANSACTION_DUMMY_INPUT_NOT_ALLOWED", { index });

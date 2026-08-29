@@ -357,10 +357,31 @@ describe("ring witness", () => {
     expect(assembled.instructionData.circuit.kind).toBe("ringEddsa");
   });
 
-  it("refuses a foreign fee payer for an ed25519 sender before proving", () => {
-    expect(() =>
-      preparedTransfer(4n, [], [], RING, SOL_MINT, actor(8).address.solanaAddress()),
-    ).toThrow("TRANSACTION_ED25519_PAYER_MISMATCH");
+  it("assembles a foreign fee payer with the owner as an appended signer", async () => {
+    const payer = actor(8).address.solanaAddress();
+    const owner = actor(3);
+    const { proofInputs } = await auditedProofInputs(
+      4n,
+      ViewingKey.generate(),
+      [],
+      [],
+      RING,
+      SOL_MINT,
+      new AssetRegistry(),
+      payer,
+    );
+    const input = proofInputs.inputUtxos[0];
+    if (!input) throw new Error("input");
+    const assembled = assemble(proofInputs, [spendProofFor(input)], [], RING);
+    const vector = assembled.proverInputs.payload.signerPublicKeyHashes;
+    const hashOf = (target: Address) =>
+      hashBytesBigInt(new Uint8Array(getAddressEncoder().encode(target)));
+    expect(vector[0]).toBe(hashOf(payer));
+    expect(vector[1]).toBe(hashOf(owner.address.solanaAddress()));
+    expect(vector.slice(2).every((entry) => entry === 0n)).toBe(true);
+    expect(ownerSignerAddresses(proofInputs.inputUtxos, payer)).toEqual([
+      owner.address.solanaAddress(),
+    ]);
   });
 
   it("refuses a tree the client does not prove from, before any fetch", async () => {

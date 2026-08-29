@@ -21,7 +21,7 @@ import {
   resolveWithdrawal,
 } from "../src/wallet/actions.js";
 import { associatedTokenAddress, splInterfaceWithBump } from "../src/interface/pda/index.js";
-import { selectRingInputs } from "../src/ring/transfer.js";
+import { buildRingTransferTransaction, selectRingInputs } from "../src/ring/transfer.js";
 import { buildDepositTransaction, createDeposit } from "../src/wallet/deposit.js";
 import { createMerge, MergeMaterial } from "../src/wallet/merge.js";
 import { authorizePrivateTransaction } from "../src/wallet/private-transaction.js";
@@ -308,6 +308,29 @@ describe("unsigned public transaction builders", () => {
     });
   });
 
+  it("refuses a fee payer other than the note owner", async () => {
+    const keypair = spendingKeypair();
+    const wallet = fundedWallet(keypair, [100n]);
+    const { client } = capturePrivateBuild();
+
+    await expect(
+      buildTransferTransaction({
+        client,
+        wallet,
+        authority: new KeypairWalletAuthority({
+          solanaPublicKey: keypair.shieldedAddress().solanaAddress(),
+          keypair,
+        }),
+        feePayer: RECIPIENT,
+        recipient: ShieldedKeypair.generate().shieldedAddress(),
+        amount: 25n,
+      }),
+    ).rejects.toMatchObject({
+      code: "WALLET_BUILD_TRANSFER",
+      causeCode: "TRANSACTION_ED25519_PAYER_MISMATCH",
+    });
+  });
+
   it("does not mutate spend state and permits rebuilding before sync", async () => {
     const keypair = spendingKeypair();
     const payer = keypair.shieldedAddress().solanaAddress();
@@ -429,31 +452,38 @@ describe("AssetRegistry register", () => {
   });
 });
 
+function ringNoteWallet(
+  keypair: ShieldedKeypair,
+  notes: readonly (readonly [bigint, Address | undefined, Address?])[],
+): Wallet {
+  const wallet = fundedWallet(keypair, []);
+  wallet._replace({
+    utxos: notes.map(([amount, ringProgramId, tree], index) => ({
+      utxo: new Utxo({
+        owner: keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount,
+        blinding: filled(index + 1),
+        data: new Data(),
+        ...(ringProgramId === undefined ? {} : { ringProgramId }),
+      }),
+      outputContext: { hash: filled(index + 1), tree: tree ?? TREE, leafIndex: BigInt(index) },
+      nullifier: filled(index + 20),
+      spent: false,
+    })),
+    transactions: [],
+    nullifiers: new Set(),
+  });
+  return wallet;
+}
+
 describe("selectRingInputs", () => {
-  function ringNoteWallet(
-    keypair: ShieldedKeypair,
-    notes: readonly (readonly [bigint, Address | undefined, Address?])[],
-  ): Wallet {
-    const wallet = fundedWallet(keypair, []);
-    wallet._replace({
-      utxos: notes.map(([amount, ringProgramId, tree], index) => ({
-        utxo: new Utxo({
-          owner: keypair.signingPublicKey(),
-          asset: SOL_MINT,
-          amount,
-          blinding: filled(index + 1),
-          data: new Data(),
-          ...(ringProgramId === undefined ? {} : { ringProgramId }),
-        }),
-        outputContext: { hash: filled(index + 1), tree: tree ?? TREE, leafIndex: BigInt(index) },
-        nullifier: filled(index + 20),
-        spent: false,
-      })),
-      transactions: [],
-      nullifiers: new Set(),
-    });
-    return wallet;
-  }
+  it("refuses a zero amount", () => {
+    const wallet = ringNoteWallet(spendingKeypair(), [[10n, RING]]);
+    expect(() => selectRingInputs(wallet, RING, SOL_MINT, 0n, "ring", TREE)).toThrow(
+      "RING_ZERO_AMOUNT",
+    );
+  });
 
   it("keeps default notes out of ring funding unless the entry opts in", () => {
     const wallet = ringNoteWallet(spendingKeypair(), [
@@ -524,5 +554,65 @@ describe("selectRingInputs", () => {
     expect(() => selectRingInputs(wallet, RING, SOL_MINT, 30n, "ring-or-default", TREE)).toThrow(
       "RING_INSUFFICIENT_BALANCE",
     );
+  });
+});
+
+describe("ring approval summary", () => {
+  async function capturedSummary(
+    notes: readonly (readonly [bigint, Address | undefined])[],
+    amount: bigint,
+    inputs: "ring" | "ring-or-default" | "default",
+  ): Promise<string> {
+    const keypair = spendingKeypair();
+    const wallet = ringNoteWallet(keypair, notes);
+    const authority = new KeypairWalletAuthority({
+      solanaPublicKey: keypair.shieldedAddress().solanaAddress(),
+      keypair,
+    });
+    const approvals: string[] = [];
+    vi.spyOn(authority, "requestUserApproval").mockImplementation(async (request) => {
+      approvals.push(request.summary);
+    });
+    await expect(
+      buildRingTransferTransaction({
+        client: { tree: TREE } as unknown as ZolanaClient,
+        ringProgramId: RING,
+        wallet,
+        authority,
+        feePayer: keypair.shieldedAddress().solanaAddress(),
+        recipient: ShieldedKeypair.generate().shieldedAddress(),
+        amount,
+        inputs,
+        lookupTable: RECIPIENT,
+      }),
+    ).rejects.toMatchObject({ code: "RING_BUILD_TRANSFER" });
+    const summary = approvals[0];
+    if (summary === undefined) throw new Error("approval not requested");
+    return summary;
+  }
+
+  it("names the whole default note crossing into the ring, change included", async () => {
+    const summary = await capturedSummary([[40n, undefined]], 25n, "default");
+    expect(summary).toContain("ring entry of 25 SOL");
+    expect(summary).toContain("moves 40 SOL of default notes into the ring");
+  });
+
+  it("counts only the default share of mixed funding", async () => {
+    const summary = await capturedSummary(
+      [
+        [30n, undefined],
+        [10n, RING],
+      ],
+      35n,
+      "ring-or-default",
+    );
+    expect(summary).toContain("ring entry of 35 SOL");
+    expect(summary).toContain("moves 30 SOL of default notes into the ring");
+  });
+
+  it("stays a transfer with no crossing clause on ring-only funding", async () => {
+    const summary = await capturedSummary([[40n, RING]], 25n, "ring");
+    expect(summary).toContain("ring transfer of 25 SOL");
+    expect(summary).not.toContain("default notes");
   });
 });

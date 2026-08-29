@@ -103,7 +103,7 @@ export async function ringTransactInstruction(
     outputTree: Address;
     proof: Uint8Array;
     data: TransactInstructionData;
-    /** Non-payer input owners, which the ed25519 rail makes sign. */
+    /** Non-payer input owners, the ed25519 rail adds them as signers. */
     ownerSigners?: readonly SignerAccount[];
     /** Settlement accounts for a public withdrawal in `data.interfaceTransfers`. */
     withdrawal?: TransactWithdrawal;
