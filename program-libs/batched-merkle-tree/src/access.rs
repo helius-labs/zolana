@@ -12,7 +12,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     /// used; the tree operations assume it held.
     pub fn validate(&self) -> Result<(), NullifierTreeError> {
         let queue = &self.metadata.queue_batches;
-        QueueBatches::validate_configuration::<ZKP>(queue.batch_size, queue.zkp_batch_size)?;
+        QueueBatches::<ZKP>::validate_configuration(queue.batch_size, queue.zkp_batch_size)?;
 
         if self.root_history.current_index >= ZKP as u64 {
             return Err(NullifierTreeError::InvalidRootHistoryCapacity);
@@ -56,10 +56,11 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
 
     /// Return a stored queue hash-chain for a pending ZKP batch.
     pub fn get_hash_chain(&self, batch_index: usize, zkp_batch_index: usize) -> Option<[u8; 32]> {
-        self.hash_chains
-            .get(batch_index)
-            .and_then(|chain| chain.get(zkp_batch_index))
-            .copied()
+        self.metadata
+            .queue_batches
+            .batches
+            .get(batch_index)?
+            .hash_chain(zkp_batch_index)
     }
 
     /// Checks whether `num_leaves` values fit in the remaining tree capacity.

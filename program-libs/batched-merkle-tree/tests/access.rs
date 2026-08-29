@@ -1,5 +1,6 @@
 use zolana_batched_merkle_tree::{
     access::{get_merkle_tree_account_size, test_utils::init_tree_account_data},
+    constants::NUM_BATCHES,
     errors::NullifierTreeError,
     layout::{BatchedMerkleTreeMetadata, CachedTreeUpdate, TreeType},
 };
@@ -35,15 +36,20 @@ fn test_cached_tree_update_region_layout_and_size() {
 
 #[test]
 fn test_state_struct_sizes() {
+    const ZKP: usize = 4;
+    const HASH_CHAINS: usize = ZKP * 32;
     assert_eq!(
-        core::mem::size_of::<zolana_batched_merkle_tree::batch::Batch>(),
-        72
+        core::mem::size_of::<zolana_batched_merkle_tree::batch::Batch<ZKP>>(),
+        72 + HASH_CHAINS
     );
     assert_eq!(
-        core::mem::size_of::<zolana_batched_merkle_tree::layout::QueueBatches>(),
-        192
+        core::mem::size_of::<zolana_batched_merkle_tree::layout::QueueBatches<ZKP>>(),
+        192 + NUM_BATCHES * HASH_CHAINS
     );
-    assert_eq!(core::mem::size_of::<BatchedMerkleTreeMetadata>(), 240);
+    assert_eq!(
+        core::mem::size_of::<BatchedMerkleTreeMetadata<ZKP>>(),
+        240 + NUM_BATCHES * HASH_CHAINS
+    );
 }
 
 #[test]

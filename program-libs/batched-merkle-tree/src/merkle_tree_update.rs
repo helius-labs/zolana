@@ -113,10 +113,8 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
             .ok_or(NullifierTreeError::ArithmeticOverflow)?;
 
         // 3. Rebuild the public input hash and verify the proof.
-        let leaves_hash_chain = *self
-            .hash_chains
-            .get(pending_batch_index)
-            .and_then(|chain| chain.get(zkp_batch_index))
+        let leaves_hash_chain = self
+            .get_hash_chain(pending_batch_index, zkp_batch_index)
             .ok_or(NullifierTreeError::InvalidIndex)?;
         let mut next_index_bytes = [0u8; 32];
         next_index_bytes[24..].copy_from_slice(next_index_for_proof.to_be_bytes().as_slice());

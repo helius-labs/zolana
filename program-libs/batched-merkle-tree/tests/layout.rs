@@ -9,8 +9,8 @@ fn new_queue<const ZKP: usize>(
     batch_size: u64,
     zkp_batch_size: u64,
     start_index: u64,
-) -> Result<QueueBatches, NullifierTreeError> {
-    QueueBatches::new_validated::<ZKP>(batch_size, zkp_batch_size, start_index)
+) -> Result<QueueBatches<ZKP>, NullifierTreeError> {
+    QueueBatches::<ZKP>::new_validated(batch_size, zkp_batch_size, start_index)
 }
 
 #[test]
@@ -18,7 +18,7 @@ fn tree_layout_round_trips() {
     let mut bytes = vec![0u8; core::mem::size_of::<NullifierTreeLayout<2>>()];
     let layout: &mut NullifierTreeLayout<2> = wincode::deserialize_mut(&mut bytes).unwrap();
     layout.root_history.roots[1] = [7u8; 32];
-    layout.hash_chains[0][1] = [9u8; 32];
+    layout.metadata.queue_batches.batches[0].set_hash_chain(1, [9u8; 32]);
     layout.cached_tree_updates[1][1] = CachedTreeUpdate {
         old_root: [3u8; 32],
         new_root: [4u8; 32],
@@ -26,7 +26,10 @@ fn tree_layout_round_trips() {
     };
     let reloaded: &mut NullifierTreeLayout<2> = wincode::deserialize_mut(&mut bytes).unwrap();
     assert_eq!(reloaded.root_history.roots[1], [7u8; 32]);
-    assert_eq!(reloaded.hash_chains[0][1], [9u8; 32]);
+    assert_eq!(
+        reloaded.metadata.queue_batches.batches[0].hash_chain(1),
+        Some([9u8; 32])
+    );
     assert_eq!(reloaded.cached_tree_updates[1][1].old_root, [3u8; 32]);
     assert_eq!(reloaded.cached_tree_updates[1][1].new_root, [4u8; 32]);
     assert_eq!(reloaded.cached_tree_updates[1][1].occupied, 1);
@@ -98,12 +101,12 @@ fn test_increment_currently_processing_batch_index_if_full() {
 #[test]
 fn test_validate_batch_sizes() {
     assert_eq!(
-        QueueBatches::validate_configuration::<5>(10, 3),
+        QueueBatches::<5>::validate_configuration(10, 3),
         Err(NullifierTreeError::BatchSizeNotDivisibleByZkpBatchSize)
     );
-    assert_eq!(QueueBatches::validate_configuration::<5>(10, 2), Ok(()));
+    assert_eq!(QueueBatches::<5>::validate_configuration(10, 2), Ok(()));
     assert_eq!(
-        QueueBatches::validate_configuration::<4>(10, 2),
+        QueueBatches::<4>::validate_configuration(10, 2),
         Err(NullifierTreeError::InvalidRootHistoryCapacity)
     );
 }

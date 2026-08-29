@@ -6,7 +6,9 @@ use wincode::{
     io::Reader,
     ReadResult, SchemaRead, TypeMeta,
 };
-use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+#[cfg(feature = "test-only")]
+use zerocopy::FromZeros;
+use zerocopy::{FromBytes, Immutable, KnownLayout};
 
 use crate::{
     batch::{Batch, BatchState},
@@ -29,17 +31,13 @@ pub enum TreeType {
     BorshSerialize,
     Debug,
     PartialEq,
-    Default,
     Clone,
     Copy,
     FromBytes,
-    IntoBytes,
     KnownLayout,
     Immutable,
-    bytemuck::Pod,
-    bytemuck::Zeroable,
 )]
-pub struct QueueBatches {
+pub struct QueueBatches<const ZKP: usize> {
     /// Reserved account-layout field. Must contain [`NUM_BATCHES`] on load.
     pub reserved: u64,
     /// Number of elements in a batch.
@@ -56,10 +54,10 @@ pub struct QueueBatches {
     /// next_index in queue is ahead or equal to next index in the associated
     /// batched Merkle tree account.
     pub next_index: u64,
-    pub batches: [Batch; 2],
+    pub batches: [Batch<ZKP>; NUM_BATCHES],
 }
 
-impl QueueBatches {
+impl<const ZKP: usize> QueueBatches<ZKP> {
     /// Returns the number of ZKP batches contained within a single regular batch.
     pub fn get_num_zkp_batches(&self) -> u64 {
         self.batch_size / self.zkp_batch_size
@@ -76,13 +74,13 @@ impl QueueBatches {
             .ok_or(NullifierTreeError::ArithmeticOverflow)
     }
 
-    pub fn get_current_batch(&self) -> Result<&Batch, NullifierTreeError> {
+    pub fn get_current_batch(&self) -> Result<&Batch<ZKP>, NullifierTreeError> {
         self.batches
             .get(self.currently_processing_batch_index as usize)
             .ok_or(NullifierTreeError::InvalidBatchIndex)
     }
 
-    pub fn get_current_batch_mut(&mut self) -> Result<&mut Batch, NullifierTreeError> {
+    pub fn get_current_batch_mut(&mut self) -> Result<&mut Batch<ZKP>, NullifierTreeError> {
         self.batches
             .get_mut(self.currently_processing_batch_index as usize)
             .ok_or(NullifierTreeError::InvalidBatchIndex)
@@ -91,7 +89,7 @@ impl QueueBatches {
     /// Validates the queue, root-history, and cached-update capacities together.
     /// A root is appended for each ZKP batch, so one queue batch must contain
     /// exactly as many ZKP batches as both fixed-size account regions can hold.
-    pub fn validate_configuration<const ZKP: usize>(
+    pub fn validate_configuration(
         batch_size: u64,
         zkp_batch_size: u64,
     ) -> Result<(), NullifierTreeError> {
@@ -106,41 +104,47 @@ impl QueueBatches {
     }
 
     /// Initializes all queue metadata and both batches from an already
-    /// validated configuration.
-    pub(crate) fn new(
+    /// validated configuration. Writes in place: a queue carries both batches'
+    /// hash chains, which are too large to move through a Solana stack frame.
+    pub(crate) fn init(
+        &mut self,
         batch_size: u64,
         zkp_batch_size: u64,
         start_index: u64,
-    ) -> Result<Self, NullifierTreeError> {
+    ) -> Result<(), NullifierTreeError> {
         let second_batch_start_index = start_index
             .checked_add(batch_size)
             .ok_or(NullifierTreeError::ArithmeticOverflow)?;
 
-        Ok(QueueBatches {
-            reserved: NUM_BATCHES as u64,
-            zkp_batch_size,
-            batch_size,
-            currently_processing_batch_index: 0,
-            pending_batch_index: 0,
-            next_index: 0,
-            batches: [
-                Batch::new(batch_size, zkp_batch_size, start_index),
-                Batch::new(batch_size, zkp_batch_size, second_batch_start_index),
-            ],
-        })
+        self.reserved = NUM_BATCHES as u64;
+        self.batch_size = batch_size;
+        self.zkp_batch_size = zkp_batch_size;
+        self.currently_processing_batch_index = 0;
+        self.pending_batch_index = 0;
+        self.next_index = 0;
+        for (batch, batch_start_index) in self
+            .batches
+            .iter_mut()
+            .zip([start_index, second_batch_start_index])
+        {
+            batch.init(batch_size, zkp_batch_size, batch_start_index);
+        }
+        Ok(())
     }
 
-    /// Validated counterpart to [`new`](Self::new) for integration tests, which
-    /// cannot reach the crate-private constructor. Gated on `test-only`, which
-    /// the on-chain build never enables.
+    /// Validated counterpart to [`init`](Self::init) that returns a queue by
+    /// value, which integration tests need. Gated on `test-only`, which the
+    /// on-chain build never enables.
     #[cfg(feature = "test-only")]
-    pub fn new_validated<const ZKP: usize>(
+    pub fn new_validated(
         batch_size: u64,
         zkp_batch_size: u64,
         start_index: u64,
     ) -> Result<Self, NullifierTreeError> {
-        Self::validate_configuration::<ZKP>(batch_size, zkp_batch_size)?;
-        Self::new(batch_size, zkp_batch_size, start_index)
+        Self::validate_configuration(batch_size, zkp_batch_size)?;
+        let mut queue = Self::new_zeroed();
+        queue.init(batch_size, zkp_batch_size, start_index)?;
+        Ok(queue)
     }
 
     /// Increment the next full batch index if current state is BatchState::Inserted.
@@ -171,23 +175,34 @@ impl QueueBatches {
     PartialEq,
     Clone,
     Copy,
-    bytemuck::Pod,
-    bytemuck::Zeroable,
+    FromBytes,
+    KnownLayout,
+    Immutable,
 )]
 #[aligned_sized(anchor)]
-pub struct BatchedMerkleTreeMetadata {
+pub struct BatchedMerkleTreeMetadata<const ZKP: usize> {
     pub tree_type: u64,
     pub sequence_number: u64,
     pub next_index: u64,
     pub height: u32,
     /// Root-history capacity is the `ZKP` const generic (`batch_size /
-    /// zkp_batch_size`), so it is not stored. `bytemuck::Pod` forbids implicit
-    /// padding, so the four bytes it used to occupy are declared explicitly.
+    /// zkp_batch_size`), so it is not stored. The account layout admits no
+    /// implicit padding, so the four bytes it used to occupy are declared
+    /// explicitly.
     pub _padding: [u8; 4],
     pub capacity: u64,
-    pub queue_batches: QueueBatches,
+    pub queue_batches: QueueBatches<ZKP>,
     pub close_before_index: u64,
 }
+
+/// Both structs are `repr(C)` without implicit padding, for every `ZKP`; two
+/// instantiations pin the size formulas.
+const _: () = {
+    assert!(size_of::<QueueBatches<1>>() == 48 + NUM_BATCHES * size_of::<Batch<1>>());
+    assert!(size_of::<QueueBatches<9>>() == 48 + NUM_BATCHES * size_of::<Batch<9>>());
+    assert!(size_of::<BatchedMerkleTreeMetadata<1>>() == 48 + size_of::<QueueBatches<1>>());
+    assert!(size_of::<BatchedMerkleTreeMetadata<9>>() == 48 + size_of::<QueueBatches<9>>());
+};
 
 /// Cyclic root-history region: a write cursor followed by `N` root slots.
 /// Capacity is the const generic `N`, so the only stored word is the cursor.
@@ -211,9 +226,8 @@ pub struct CachedTreeUpdate {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct NullifierTreeLayout<const ZKP_BATCHES: usize> {
-    pub metadata: BatchedMerkleTreeMetadata,
+    pub metadata: BatchedMerkleTreeMetadata<ZKP_BATCHES>,
     pub root_history: RootHistory<ZKP_BATCHES>,
-    pub hash_chains: [[[u8; 32]; ZKP_BATCHES]; NUM_BATCHES],
     pub cached_tree_updates: [[CachedTreeUpdate; ZKP_BATCHES]; NUM_BATCHES],
 }
 

@@ -1,4 +1,8 @@
-use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+use core::mem::size_of;
+
+#[cfg(feature = "test-only")]
+use zerocopy::FromZeros;
+use zerocopy::{FromBytes, Immutable, KnownLayout};
 use zolana_hasher::{Hasher, Poseidon};
 
 use crate::{errors::NullifierTreeError, BorshDeserialize, BorshSerialize};
@@ -48,15 +52,11 @@ impl From<BatchState> for u64 {
     Eq,
     KnownLayout,
     Immutable,
-    IntoBytes,
     FromBytes,
-    Default,
     BorshSerialize,
     BorshDeserialize,
-    bytemuck::Pod,
-    bytemuck::Zeroable,
 )]
-pub struct Batch {
+pub struct Batch<const ZKP: usize> {
     /// Number of inserted elements in the zkp batch.
     num_inserted: u64,
     state: u64,
@@ -77,22 +77,48 @@ pub struct Batch {
     /// Reserved for account-layout compatibility.
     pub root_index: u32,
     _padding: [u8; 4],
+    /// One Poseidon hash chain per ZKP batch. The chain at
+    /// `num_full_zkp_batches` is the one insertions currently extend; the
+    /// chains below it are complete and are the prover inputs of the pending
+    /// tree updates.
+    hash_chains: [[u8; 32]; ZKP],
 }
 
-impl Batch {
-    pub fn new(batch_size: u64, zkp_batch_size: u64, start_index: u64) -> Self {
-        Batch {
-            batch_size,
-            num_inserted: 0,
-            state: BatchState::Fill.into(),
-            zkp_batch_size,
-            num_full_zkp_batches: 0,
-            num_inserted_zkp_batches: 0,
-            sequence_number: 0,
-            root_index: 0,
-            start_index,
-            _padding: [0u8; 4],
-        }
+/// The account layout requires `repr(C)` without implicit padding. The hash
+/// chain array is align-1 and so cannot introduce any; two instantiations pin
+/// the size formula for every `ZKP`.
+const _: () = {
+    assert!(size_of::<Batch<1>>() == 72 + 32);
+    assert!(size_of::<Batch<9>>() == 72 + 32 * 9);
+};
+
+impl<const ZKP: usize> Batch<ZKP> {
+    /// Writes every word of a zeroed batch. The hash chains are zeroed here and
+    /// never again: [`reset`](Self::reset) leaves them alone because a batch
+    /// that starts filling always writes chain slot 0 before anything reads it.
+    pub(crate) fn init(&mut self, batch_size: u64, zkp_batch_size: u64, start_index: u64) {
+        self.reset(batch_size, zkp_batch_size, start_index);
+        self.hash_chains.fill([0u8; 32]);
+    }
+
+    /// Resets every metadata word, so a reused batch cannot inherit a counter
+    /// or a reserved value from its previous queue range.
+    fn reset(&mut self, batch_size: u64, zkp_batch_size: u64, start_index: u64) {
+        self.num_inserted = 0;
+        self.state = BatchState::Fill.into();
+        self.num_full_zkp_batches = 0;
+        self.num_inserted_zkp_batches = 0;
+        self.batch_size = batch_size;
+        self.zkp_batch_size = zkp_batch_size;
+        self.sequence_number = 0;
+        self.start_index = start_index;
+        self.root_index = 0;
+        self._padding = [0u8; 4];
+    }
+
+    /// Returns the complete or in-progress hash chain of a ZKP batch.
+    pub fn hash_chain(&self, zkp_batch_index: usize) -> Option<[u8; 32]> {
+        self.hash_chains.get(zkp_batch_index).copied()
     }
 
     /// Returns the state of the batch.
@@ -144,11 +170,29 @@ impl Batch {
             );
             return Err(NullifierTreeError::BatchNotReady);
         }
-        // A reused batch is a fresh batch over a later queue range, so rebuild it
-        // instead of resetting counters one by one: every field is then reset by
-        // construction, including the reserved words.
-        *self = Batch::new(self.batch_size, self.zkp_batch_size, start_index);
+        self.reset(self.batch_size, self.zkp_batch_size, start_index);
         Ok(())
+    }
+
+    /// Prepares the batch to take another value. An inserted batch is reused for
+    /// the next queue range, which starts `rotation` indices after its previous
+    /// start. A full batch cannot take values until it is inserted into the tree.
+    pub(crate) fn ensure_ready_to_fill(&mut self, rotation: u64) -> Result<(), NullifierTreeError> {
+        match self.checked_state()? {
+            BatchState::Fill => Ok(()),
+            BatchState::Inserted => {
+                let start_index = self
+                    .start_index
+                    .checked_add(rotation)
+                    .ok_or(NullifierTreeError::ArithmeticOverflow)?;
+                self.advance_state_to_fill(start_index)
+            }
+            BatchState::Full => {
+                #[cfg(feature = "log")]
+                solana_msg::msg!("current batch {:?} is full", self);
+                Err(NullifierTreeError::BatchNotReady)
+            }
+        }
     }
 
     /// fill -> full -> inserted -> fill
@@ -233,34 +277,29 @@ impl Batch {
     /// 3. If the zkp batch is not empty, add value to last hash chain.
     /// 4. If the zkp batch is full, increment the zkp batch index.
     /// 5. If all zkp batches are full, set batch state to full.
-    pub fn add_to_hash_chain(
-        &mut self,
-        value: &[u8; 32],
-        hash_chain_store: &mut [[u8; 32]],
-    ) -> Result<(), NullifierTreeError> {
+    pub fn add_to_hash_chain(&mut self, value: &[u8; 32]) -> Result<(), NullifierTreeError> {
         // 1. Check that the batch is ready.
         if self.checked_state()? != BatchState::Fill {
             return Err(NullifierTreeError::BatchNotReady);
         }
         let hash_chain_index = self.num_full_zkp_batches as usize;
         let start_new_hash_chain = self.num_inserted == 0;
-        if start_new_hash_chain {
+        let hash_chain = if start_new_hash_chain {
             // 2. Start a new hash chain.
-            let slot = hash_chain_store
-                .get_mut(hash_chain_index)
-                .ok_or(crate::errors::NullifierTreeError::HashChainFull)?;
-            *slot = *value;
+            *value
         } else {
             // 3. Add value to last hash chain.
-            let existing = *hash_chain_store
+            let existing = self
+                .hash_chains
                 .get(hash_chain_index)
-                .ok_or(crate::errors::NullifierTreeError::HashChainFull)?;
-            let hash_chain = Poseidon::hashv(&[existing.as_slice(), value.as_slice()])?;
-            let slot = hash_chain_store
-                .get_mut(hash_chain_index)
-                .ok_or(crate::errors::NullifierTreeError::HashChainFull)?;
-            *slot = hash_chain;
-        }
+                .ok_or(NullifierTreeError::HashChainFull)?;
+            Poseidon::hashv(&[existing.as_slice(), value.as_slice()])?
+        };
+        let slot = self
+            .hash_chains
+            .get_mut(hash_chain_index)
+            .ok_or(NullifierTreeError::HashChainFull)?;
+        *slot = hash_chain;
         self.num_inserted += 1;
 
         // 4. If the zkp batch is full, increment the zkp batch index.
@@ -308,7 +347,22 @@ impl Batch {
 /// into states the public transitions reach only after many insertions. Gated on
 /// `test-only`, which the on-chain build never enables.
 #[cfg(feature = "test-only")]
-impl Batch {
+impl<const ZKP: usize> Batch<ZKP> {
+    /// Builds a batch by value, which integration tests need to compare against
+    /// an in-place initialized one.
+    pub fn new(batch_size: u64, zkp_batch_size: u64, start_index: u64) -> Self {
+        let mut batch = Self::new_zeroed();
+        batch.init(batch_size, zkp_batch_size, start_index);
+        batch
+    }
+
+    pub fn set_hash_chain(&mut self, zkp_batch_index: usize, value: [u8; 32]) {
+        *self
+            .hash_chains
+            .get_mut(zkp_batch_index)
+            .expect("zkp batch index out of range") = value;
+    }
+
     pub fn num_inserted(&self) -> u64 {
         self.num_inserted
     }

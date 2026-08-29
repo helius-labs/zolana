@@ -4,12 +4,26 @@ use zolana_batched_merkle_tree::{
 };
 use zolana_hasher::{Hasher, Poseidon};
 
-fn get_test_batch() -> Batch {
+/// 500 / 100 = 5 ZKP batches, so the batch carries five hash chains.
+fn get_test_batch() -> Batch<5> {
     Batch::new(500, 100, 0)
 }
 
 /// simulate zkp batch insertion
-fn test_mark_as_inserted(mut batch: Batch) {
+fn test_mark_as_inserted(mut batch: Batch<5>) {
+    // Neither insertion nor reuse touches the hash chains, so every reference
+    // batch below carries the ones the batch came in with.
+    let hash_chains: Vec<[u8; 32]> = (0..batch.get_num_zkp_batches() as usize)
+        .map(|index| batch.hash_chain(index).unwrap())
+        .collect();
+    let reference_batch = || {
+        let mut reference = get_test_batch();
+        for (index, hash_chain) in hash_chains.iter().enumerate() {
+            reference.set_hash_chain(index, *hash_chain);
+        }
+        reference
+    };
+
     for i in 0..batch.get_num_zkp_batches() {
         batch.mark_as_inserted_in_merkle_tree().unwrap();
         if i != batch.get_num_zkp_batches() - 1 {
@@ -26,13 +40,13 @@ fn test_mark_as_inserted(mut batch: Batch) {
     }
     assert_eq!(batch.get_state(), BatchState::Inserted);
     assert_eq!(batch.num_inserted(), 0);
-    let mut ref_batch = get_test_batch();
+    let mut ref_batch = reference_batch();
     ref_batch.set_state(BatchState::Inserted);
     ref_batch.set_num_inserted_zkp_batches(5);
     ref_batch.set_num_full_zkp_batches(5);
     assert_eq!(batch, ref_batch);
     batch.advance_state_to_fill(1).unwrap();
-    let mut ref_batch = get_test_batch();
+    let mut ref_batch = reference_batch();
     ref_batch.start_index = 1;
     assert_eq!(batch, ref_batch);
 }
@@ -40,8 +54,6 @@ fn test_mark_as_inserted(mut batch: Batch) {
 #[test]
 fn test_insert() {
     let mut batch = get_test_batch();
-    let mut hash_chain_store = vec![[0u8; 32]; batch.get_num_zkp_batches() as usize];
-
     let mut ref_batch = get_test_batch();
     for i in 0..batch.batch_size {
         ref_batch.set_num_inserted(ref_batch.num_inserted() % ref_batch.zkp_batch_size);
@@ -53,11 +65,11 @@ fn test_insert() {
         let ref_hash_chain = if i % batch.zkp_batch_size == 0 {
             value
         } else {
-            Poseidon::hashv(&[hash_chain_store.get(chain_index).unwrap(), &value]).unwrap()
+            Poseidon::hashv(&[&batch.hash_chain(chain_index).unwrap(), &value]).unwrap()
         };
-        let result = batch.add_to_hash_chain(&value, &mut hash_chain_store);
+        let result = batch.add_to_hash_chain(&value);
         assert!(result.is_ok(), "Failed result: {:?}", result);
-        assert_eq!(*hash_chain_store.get(chain_index).unwrap(), ref_hash_chain);
+        ref_batch.set_hash_chain(chain_index, ref_hash_chain);
 
         ref_batch.set_num_inserted(ref_batch.num_inserted() + 1);
         if ref_batch.num_inserted() == ref_batch.zkp_batch_size {
@@ -76,45 +88,35 @@ fn test_insert() {
 #[test]
 fn test_add_to_hash_chain() {
     let mut batch = get_test_batch();
-    let mut hash_chain_store = vec![[0u8; 32]; batch.get_num_zkp_batches() as usize];
     let value = [1u8; 32];
 
-    assert!(batch
-        .add_to_hash_chain(&value, &mut hash_chain_store)
-        .is_ok());
+    assert!(batch.add_to_hash_chain(&value).is_ok());
     let mut ref_batch = get_test_batch();
     let user_hash_chain = value;
     ref_batch.set_num_inserted(1);
+    ref_batch.set_hash_chain(0, user_hash_chain);
     assert_eq!(batch, ref_batch);
-    assert_eq!(*hash_chain_store.first().unwrap(), user_hash_chain);
     let value = [2u8; 32];
     let ref_hash_chain = Poseidon::hashv(&[&user_hash_chain, &value]).unwrap();
-    assert!(batch
-        .add_to_hash_chain(&value, &mut hash_chain_store)
-        .is_ok());
+    assert!(batch.add_to_hash_chain(&value).is_ok());
 
     ref_batch.set_num_inserted(2);
+    ref_batch.set_hash_chain(0, ref_hash_chain);
     assert_eq!(batch, ref_batch);
-    assert_eq!(*hash_chain_store.first().unwrap(), ref_hash_chain);
 }
 
-/// A failed insert must not mutate the batch or the hash chain store: host
+/// A failed insert must not mutate the batch, hash chains included: host
 /// callers keep the state after an error.
 #[test]
 fn test_add_to_hash_chain_is_error_atomic() {
-    let mut batch = Batch::new(500, 100, 0);
+    let mut batch = get_test_batch();
     batch.advance_state_to_full().unwrap();
-    let mut hash_chain_store = vec![[0u8; 32]; batch.get_num_zkp_batches() as usize];
     let batch_before = batch;
-    let chain_before = hash_chain_store.clone();
     assert_eq!(
-        batch
-            .add_to_hash_chain(&[9u8; 32], &mut hash_chain_store)
-            .unwrap_err(),
+        batch.add_to_hash_chain(&[9u8; 32]).unwrap_err(),
         NullifierTreeError::BatchNotReady
     );
     assert_eq!(batch, batch_before);
-    assert_eq!(hash_chain_store, chain_before);
 }
 
 #[test]
@@ -141,15 +143,11 @@ fn test_can_insert_batch() {
         batch.get_first_ready_zkp_batch(),
         Err(NullifierTreeError::BatchNotReady)
     );
-    let mut hash_chain_store = vec![[0u8; 32]; batch.get_num_zkp_batches() as usize];
-
     for i in 0..batch.batch_size + 10 {
         let mut value = [0u8; 32];
         value[24..].copy_from_slice(&i.to_be_bytes());
         if i < batch.batch_size {
-            batch
-                .add_to_hash_chain(&value, &mut hash_chain_store)
-                .unwrap();
+            batch.add_to_hash_chain(&value).unwrap();
         }
         #[allow(clippy::manual_is_multiple_of)]
         if (i + 1) % batch.zkp_batch_size == 0 && i != 0 {
@@ -228,9 +226,7 @@ fn corrupt_state_errors_instead_of_panicking() {
         NullifierTreeError::InvalidBatchState
     );
     assert_eq!(
-        batch
-            .add_to_hash_chain(&[1u8; 32], &mut [[0u8; 32]; 5])
-            .unwrap_err(),
+        batch.add_to_hash_chain(&[1u8; 32]).unwrap_err(),
         NullifierTreeError::InvalidBatchState
     );
     assert_eq!(
@@ -271,14 +267,11 @@ fn test_num_ready_zkp_updates() {
 fn test_get_num_inserted_elements() {
     let mut batch = get_test_batch();
     assert_eq!(batch.get_num_inserted_elements(), 0);
-    let mut hash_chain_store = vec![[0u8; 32]; batch.get_num_zkp_batches() as usize];
 
     for i in 0..batch.batch_size {
         let mut value = [0u8; 32];
         value[24..].copy_from_slice(&i.to_be_bytes());
-        batch
-            .add_to_hash_chain(&value, &mut hash_chain_store)
-            .unwrap();
+        batch.add_to_hash_chain(&value).unwrap();
         assert_eq!(batch.get_num_inserted_elements(), i + 1);
     }
 }

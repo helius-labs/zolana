@@ -6,7 +6,7 @@ use zolana_batched_merkle_tree::{
         test_utils::{init_tree_account_data, load_tree_account_data},
     },
     batch::Batch,
-    constants::NULLIFIER_TREE_INIT_ROOT_40,
+    constants::{NULLIFIER_TREE_INIT_ROOT_40, NUM_BATCHES},
     errors::NullifierTreeError,
     layout::NullifierTreeLayout,
     layout::QueueBatches,
@@ -46,9 +46,16 @@ fn nullifier(i: u8) -> [u8; 32] {
 
 #[test]
 fn state_struct_sizes() {
-    assert_eq!(core::mem::size_of::<Batch>(), 72);
-    assert_eq!(core::mem::size_of::<QueueBatches>(), 192);
-    assert_eq!(core::mem::size_of::<BatchedMerkleTreeMetadata>(), 240);
+    const HASH_CHAINS: usize = ZKP * 32;
+    assert_eq!(core::mem::size_of::<Batch<ZKP>>(), 72 + HASH_CHAINS);
+    assert_eq!(
+        core::mem::size_of::<QueueBatches<ZKP>>(),
+        192 + NUM_BATCHES * HASH_CHAINS
+    );
+    assert_eq!(
+        core::mem::size_of::<BatchedMerkleTreeMetadata<ZKP>>(),
+        240 + NUM_BATCHES * HASH_CHAINS
+    );
 }
 
 /// A single-slot root history seeds its only slot and wraps the cursor back to

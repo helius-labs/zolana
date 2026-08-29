@@ -4,7 +4,7 @@ use crate::{
         DEFAULT_BATCH_ADDRESS_TREE_HEIGHT,
     },
     errors::NullifierTreeError,
-    layout::{BatchedMerkleTreeMetadata, NullifierTreeLayout, QueueBatches, TreeType},
+    layout::{NullifierTreeLayout, QueueBatches, TreeType},
     BorshDeserialize, BorshSerialize,
 };
 
@@ -47,7 +47,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         tree_type: TreeType,
         address_init_root: Option<[u8; 32]>,
     ) -> Result<(), NullifierTreeError> {
-        QueueBatches::validate_configuration::<ZKP>(
+        QueueBatches::<ZKP>::validate_configuration(
             input_queue_batch_size,
             input_queue_zkp_batch_size,
         )?;
@@ -76,22 +76,21 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         } else {
             (0, None)
         };
-        let queue_batches = QueueBatches::new(
+        // Written field by field: the metadata carries both queue batches with
+        // their hash chains, which are too large to move through a Solana stack
+        // frame as a struct literal.
+        self.metadata.tree_type = tree_type as u64;
+        self.metadata.sequence_number = 0;
+        self.metadata.next_index = next_index;
+        self.metadata.height = height;
+        self.metadata._padding = [0u8; 4];
+        self.metadata.capacity = capacity;
+        self.metadata.close_before_index = 0;
+        self.metadata.queue_batches.init(
             input_queue_batch_size,
             input_queue_zkp_batch_size,
             next_index,
         )?;
-
-        self.metadata = BatchedMerkleTreeMetadata {
-            tree_type: tree_type as u64,
-            sequence_number: 0,
-            next_index,
-            height,
-            _padding: [0u8; 4],
-            capacity,
-            queue_batches,
-            close_before_index: 0,
-        };
 
         // Initialize root history array with initial root.
         // Batch zkp updates require an input Merkle root.
