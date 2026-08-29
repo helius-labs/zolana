@@ -11,7 +11,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         &mut self,
         nullifier: &[u8; 32],
     ) -> Result<u64, NullifierTreeError> {
-        if self.metadata.tree_type != TreeType::AddressV2 as u64 {
+        if self.tree_type != TreeType::AddressV2 as u64 {
             return Err(NullifierTreeError::InvalidTreeType);
         }
         if !is_canonical_bn254_scalar_be(nullifier) {
@@ -19,13 +19,12 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         }
         let queue_index = self.checked_next_queue_index()?;
 
-        let rotation = self.metadata.queue_batches.rotation()?;
-        let current_batch = self.metadata.queue_batches.get_current_batch_mut()?;
+        let rotation = self.queue_batches.rotation()?;
+        let current_batch = self.queue_batches.get_current_batch_mut()?;
         current_batch.ensure_ready_to_fill(rotation)?;
         current_batch.add_to_hash_chain(nullifier)?;
 
-        self.metadata
-            .queue_batches
+        self.queue_batches
             .increment_currently_processing_batch_index_if_full()?;
 
         self.increment_queue_next_index();
@@ -37,14 +36,14 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     /// next (the init element occupies leaf 0, so queue indices are one behind
     /// tree leaf indices), and that leaf must still be inside the tree.
     fn checked_next_queue_index(&self) -> Result<u64, NullifierTreeError> {
-        let queue_index = self.metadata.queue_batches.next_index;
+        let queue_index = self.queue_batches.next_index;
         let leaf_index = queue_index
             .checked_add(1)
             .ok_or(NullifierTreeError::ArithmeticOverflow)?;
         if leaf_index != self.next_queued_leaf_index()? {
             return Err(NullifierTreeError::QueueIndexMismatch);
         }
-        if leaf_index >= self.metadata.capacity {
+        if leaf_index >= self.capacity {
             return Err(NullifierTreeError::TreeIsFull);
         }
         Ok(queue_index)
@@ -57,7 +56,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     /// batch means both batches are full: the next value can only go into this
     /// batch once it is inserted and reused, so it reserves the same leaf.
     pub fn next_queued_leaf_index(&self) -> Result<u64, NullifierTreeError> {
-        let queue = &self.metadata.queue_batches;
+        let queue = &self.queue_batches;
         let current_batch = queue.get_current_batch()?;
         let offset = match current_batch.checked_state()? {
             BatchState::Fill => current_batch.get_num_inserted_elements(),
@@ -71,13 +70,12 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
 
     /// Number of leaves not yet reserved by the queue.
     pub fn remaining_queue_capacity(&self) -> Result<u64, NullifierTreeError> {
-        self.metadata
-            .capacity
+        self.capacity
             .checked_sub(self.next_queued_leaf_index()?)
             .ok_or(NullifierTreeError::ArithmeticOverflow)
     }
 
     fn increment_queue_next_index(&mut self) {
-        self.metadata.queue_batches.next_index += 1;
+        self.queue_batches.next_index += 1;
     }
 }

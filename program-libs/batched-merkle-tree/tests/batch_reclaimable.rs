@@ -58,7 +58,6 @@ fn insert(data: &mut [u8], values: impl IntoIterator<Item = u8>) -> Vec<u64> {
 fn apply_update(data: &mut [u8], batch_index: usize, new_root: [u8; 32]) {
     let old_root = load_tree(data).get_root().unwrap();
     let zkp_index = load_tree(data)
-        .metadata
         .queue_batches
         .batches
         .get(batch_index)
@@ -104,18 +103,18 @@ fn fully_applied_successor_advances_watermark_after_natural_root_overwrite() {
     }
     {
         let tree = load_tree(&mut data);
-        let batch = tree.metadata.queue_batches.batches.first().unwrap();
+        let batch = tree.queue_batches.batches.first().unwrap();
         assert_eq!(batch.get_state(), BatchState::Inserted);
         assert_eq!(batch.sequence_number, 0);
         assert_eq!(batch.root_index, 0);
         assert_eq!(batch.reclaimable_sequence().unwrap(), BATCH_SIZE);
-        assert!(!batch.is_reclaimable(tree.metadata.close_before_index));
-        assert_eq!(tree.metadata.close_before_index, 0);
+        assert!(!batch.is_reclaimable(tree.close_before_index));
+        assert_eq!(tree.close_before_index, 0);
     }
 
     assert_eq!(insert(&mut data, [5]), vec![4]);
     apply_update(&mut data, 1, root(5));
-    assert_eq!(load_tree(&mut data).metadata.close_before_index, 0);
+    assert_eq!(load_tree(&mut data).close_before_index, 0);
     assert_roots(
         &mut data,
         [Some(root(4)), Some(root(5)), Some(root(2)), Some(root(3))],
@@ -123,26 +122,26 @@ fn fully_applied_successor_advances_watermark_after_natural_root_overwrite() {
 
     assert_eq!(insert(&mut data, [6]), vec![5]);
     apply_update(&mut data, 1, root(6));
-    assert_eq!(load_tree(&mut data).metadata.close_before_index, 0);
+    assert_eq!(load_tree(&mut data).close_before_index, 0);
 
     assert_eq!(insert(&mut data, [7]), vec![6]);
     apply_update(&mut data, 1, root(7));
-    assert_eq!(load_tree(&mut data).metadata.close_before_index, 0);
+    assert_eq!(load_tree(&mut data).close_before_index, 0);
 
     assert_eq!(insert(&mut data, [8]), vec![7]);
     apply_update(&mut data, 1, root(8));
     {
         let tree = load_tree(&mut data);
-        assert_eq!(tree.metadata.close_before_index, BATCH_SIZE);
-        let batches = &tree.metadata.queue_batches.batches;
+        assert_eq!(tree.close_before_index, BATCH_SIZE);
+        let batches = &tree.queue_batches.batches;
         assert!(batches
             .first()
             .unwrap()
-            .is_reclaimable(tree.metadata.close_before_index));
+            .is_reclaimable(tree.close_before_index));
         assert!(!batches
             .get(1)
             .unwrap()
-            .is_reclaimable(tree.metadata.close_before_index));
+            .is_reclaimable(tree.close_before_index));
     }
     assert_roots(
         &mut data,
@@ -151,7 +150,7 @@ fn fully_applied_successor_advances_watermark_after_natural_root_overwrite() {
 
     assert_eq!(insert(&mut data, [9]), vec![8]);
     let tree = load_tree(&mut data);
-    let reused = tree.metadata.queue_batches.batches.first().unwrap();
+    let reused = tree.queue_batches.batches.first().unwrap();
     assert_eq!(reused.get_state(), BatchState::Fill);
     assert_eq!(reused.start_index, 1 + 2 * BATCH_SIZE);
     assert_eq!(reused.get_num_inserted_elements(), 1);
@@ -168,31 +167,28 @@ fn inserted_batch_reuse_does_not_wait_for_successor_to_be_fully_applied() {
     }
     {
         let tree = load_tree(&mut data);
-        let batches = &tree.metadata.queue_batches.batches;
+        let batches = &tree.queue_batches.batches;
         assert_eq!(batches.first().unwrap().get_state(), BatchState::Inserted);
         assert_eq!(batches.get(1).unwrap().get_state(), BatchState::Full);
-        assert_eq!(
-            tree.metadata.queue_batches.currently_processing_batch_index,
-            0
-        );
-        assert_eq!(tree.metadata.close_before_index, 0);
+        assert_eq!(tree.queue_batches.currently_processing_batch_index, 0);
+        assert_eq!(tree.close_before_index, 0);
     }
     assert_eq!(insert(&mut data, [9]), vec![8]);
     {
         let tree = load_tree(&mut data);
-        let reused = tree.metadata.queue_batches.batches.first().unwrap();
+        let reused = tree.queue_batches.batches.first().unwrap();
         assert_eq!(reused.get_state(), BatchState::Fill);
         assert_eq!(reused.start_index, 1 + 2 * BATCH_SIZE);
         assert_eq!(reused.get_num_inserted_elements(), 1);
     }
-    assert_eq!(load_tree(&mut data).metadata.close_before_index, 0);
+    assert_eq!(load_tree(&mut data).close_before_index, 0);
     assert_roots(
         &mut data,
         [Some(root(4)), Some(root(1)), Some(root(2)), Some(root(3))],
     );
 
     apply_update(&mut data, 1, root(5));
-    assert_eq!(load_tree(&mut data).metadata.close_before_index, 0);
+    assert_eq!(load_tree(&mut data).close_before_index, 0);
     assert_roots(
         &mut data,
         [Some(root(4)), Some(root(5)), Some(root(2)), Some(root(3))],
@@ -201,17 +197,14 @@ fn inserted_batch_reuse_does_not_wait_for_successor_to_be_fully_applied() {
     for i in 6..=8u8 {
         apply_update(&mut data, 1, root(i));
         let expected_watermark = if i == 8 { BATCH_SIZE } else { 0 };
-        assert_eq!(
-            load_tree(&mut data).metadata.close_before_index,
-            expected_watermark
-        );
+        assert_eq!(load_tree(&mut data).close_before_index, expected_watermark);
     }
     assert_roots(
         &mut data,
         [Some(root(8)), Some(root(5)), Some(root(6)), Some(root(7))],
     );
     let tree = load_tree(&mut data);
-    let reused = tree.metadata.queue_batches.batches.first().unwrap();
+    let reused = tree.queue_batches.batches.first().unwrap();
     assert_eq!(reused.get_state(), BatchState::Fill);
     assert_eq!(reused.start_index, 1 + 2 * BATCH_SIZE);
     assert_eq!(reused.get_num_inserted_elements(), 1);
@@ -225,14 +218,14 @@ fn full_queue_rejects_inserts_until_the_pending_batch_is_applied() {
     assert_eq!(insert(&mut data, 1..=8), (0..8).collect::<Vec<_>>());
     {
         let tree = load_tree(&mut data);
-        let queue = &tree.metadata.queue_batches;
+        let queue = &tree.queue_batches;
         assert_eq!(queue.batches.first().unwrap().get_state(), BatchState::Full);
         assert_eq!(queue.batches.get(1).unwrap().get_state(), BatchState::Full);
         assert_eq!(queue.currently_processing_batch_index, 0);
         assert_eq!(tree.next_queued_leaf_index().unwrap(), 1 + 2 * BATCH_SIZE);
         assert_eq!(
             tree.remaining_queue_capacity().unwrap(),
-            tree.metadata.capacity - (1 + 2 * BATCH_SIZE)
+            tree.capacity - (1 + 2 * BATCH_SIZE)
         );
     }
 
@@ -250,7 +243,7 @@ fn full_queue_rejects_inserts_until_the_pending_batch_is_applied() {
     }
     assert_eq!(insert(&mut data, [9]), vec![8]);
     let tree = load_tree(&mut data);
-    let reused = tree.metadata.queue_batches.batches.first().unwrap();
+    let reused = tree.queue_batches.batches.first().unwrap();
     assert_eq!(reused.get_state(), BatchState::Fill);
     assert_eq!(reused.start_index, 1 + 2 * BATCH_SIZE);
     assert_eq!(reused.get_num_inserted_elements(), 1);

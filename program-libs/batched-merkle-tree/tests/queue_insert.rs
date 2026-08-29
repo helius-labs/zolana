@@ -50,12 +50,7 @@ fn test_reused_batch_start_index_advances_by_one_rotation() {
     )
     .unwrap();
     assert_eq!(
-        tree.metadata
-            .queue_batches
-            .batches
-            .first()
-            .unwrap()
-            .start_index,
+        tree.queue_batches.batches.first().unwrap().start_index,
         init_start_index
     );
 
@@ -64,7 +59,7 @@ fn test_reused_batch_start_index_advances_by_one_rotation() {
         tree.insert_nullifier_into_queue(&random_nullifier(rng))
             .unwrap();
     }
-    let batch = tree.metadata.queue_batches.batches.get_mut(0).unwrap();
+    let batch = tree.queue_batches.batches.get_mut(0).unwrap();
     batch.mark_as_inserted_in_merkle_tree().unwrap();
     assert_eq!(batch.get_state(), BatchState::Inserted);
     assert_eq!(
@@ -77,15 +72,12 @@ fn test_reused_batch_start_index_advances_by_one_rotation() {
         tree.insert_nullifier_into_queue(&random_nullifier(rng))
             .unwrap();
     }
-    assert_eq!(
-        tree.metadata.queue_batches.currently_processing_batch_index,
-        0
-    );
+    assert_eq!(tree.queue_batches.currently_processing_batch_index, 0);
 
     // The next insert reuses batch 0 one full rotation ahead.
     tree.insert_nullifier_into_queue(&random_nullifier(rng))
         .unwrap();
-    let batch = tree.metadata.queue_batches.batches.first().unwrap();
+    let batch = tree.queue_batches.batches.first().unwrap();
     assert_eq!(batch.get_state(), BatchState::Fill);
     assert_eq!(
         batch.start_index,
@@ -134,13 +126,10 @@ fn test_queue_insert_advances_queue_index_only() {
     let tree = init_tree_account_data::<5>(&mut account_data, 5, 1, 40, TreeType::AddressV2, None)
         .unwrap();
 
-    let previous_next_index = tree.metadata.next_index;
-    let previous_queue_next_index = tree.metadata.queue_batches.next_index;
+    let previous_next_index = tree.next_index;
+    let previous_queue_next_index = tree.queue_batches.next_index;
     tree.insert_nullifier_into_queue(&random_nullifier(rng))
         .unwrap();
-    assert_eq!(tree.metadata.next_index, previous_next_index);
-    assert_eq!(
-        tree.metadata.queue_batches.next_index,
-        previous_queue_next_index + 1
-    );
+    assert_eq!(tree.next_index, previous_next_index);
+    assert_eq!(tree.queue_batches.next_index, previous_queue_next_index + 1);
 }

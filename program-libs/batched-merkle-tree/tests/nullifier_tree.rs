@@ -88,12 +88,11 @@ impl NullifierForester {
     }
 
     fn perform_update(&mut self, account: &mut NullifierTree, queued: &[[u8; 32]]) -> [u8; 32] {
-        let metadata = account.metadata;
-        let pending = metadata.queue_batches.pending_batch_index as usize;
-        let zkp_batch_size = metadata.queue_batches.zkp_batch_size as usize;
-        let next_index = metadata.next_index;
-        let height = metadata.height;
-        let zkp_index = metadata.queue_batches.batches[pending]
+        let pending = account.queue_batches.pending_batch_index as usize;
+        let zkp_batch_size = account.queue_batches.zkp_batch_size as usize;
+        let next_index = account.next_index;
+        let height = account.height;
+        let zkp_index = account.queue_batches.batches[pending]
             .get_first_ready_zkp_batch()
             .unwrap() as usize;
         let leaves_hash_chain = account.get_hash_chain(pending, zkp_index).unwrap();
@@ -144,13 +143,12 @@ impl NullifierForester {
         account: &NullifierTree,
         queued: &[[u8; 32]],
     ) -> Vec<PreparedUpdate> {
-        let metadata = account.metadata;
-        let pending = metadata.queue_batches.pending_batch_index as usize;
-        let zkp_batch_size = metadata.queue_batches.zkp_batch_size as usize;
-        let height = metadata.height;
-        let base_next_index = metadata.next_index;
+        let pending = account.queue_batches.pending_batch_index as usize;
+        let zkp_batch_size = account.queue_batches.zkp_batch_size as usize;
+        let height = account.height;
+        let base_next_index = account.next_index;
 
-        let batch = metadata.queue_batches.batches.get(pending).unwrap();
+        let batch = account.queue_batches.batches.get(pending).unwrap();
         let num_full = batch.get_current_zkp_batch_index() as usize;
         let already_applied = batch.get_num_inserted_zkps() as usize;
 
@@ -342,12 +340,7 @@ fn nullifier_tree_fills_root_history_with_random_submit_order() {
         // The batch filled this cycle covers the queue range one rotation past
         // its previous coverage: start_index = init next_index + cycle * batch_size.
         let account = load_nullifier_tree(&mut account_data);
-        let filled_batch = account
-            .metadata
-            .queue_batches
-            .batches
-            .get(cycle % 2)
-            .unwrap();
+        let filled_batch = account.queue_batches.batches.get(cycle % 2).unwrap();
         assert_eq!(filled_batch.start_index, 1 + (cycle * batch_size) as u64);
 
         let expected_new_roots: Vec<[u8; 32]> = prepared.iter().map(|prep| prep.new_root).collect();
@@ -376,10 +369,7 @@ fn nullifier_tree_fills_root_history_with_random_submit_order() {
             forester.reference.root(),
             "on-chain root diverged from the reference tree"
         );
-        assert_eq!(
-            account.metadata.close_before_index,
-            (cycle * batch_size) as u64
-        );
+        assert_eq!(account.close_before_index, (cycle * batch_size) as u64);
         updates += prepared.len();
     }
 

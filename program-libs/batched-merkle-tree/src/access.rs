@@ -11,7 +11,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     /// root-history overwrite. Every loader must run this before the layout is
     /// used; the tree operations assume it held.
     pub fn validate(&self) -> Result<(), NullifierTreeError> {
-        let queue = &self.metadata.queue_batches;
+        let queue = &self.queue_batches;
         QueueBatches::<ZKP>::validate_configuration(queue.batch_size, queue.zkp_batch_size)?;
 
         if self.root_history.current_index >= ZKP as u64 {
@@ -56,8 +56,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
 
     /// Return a stored queue hash-chain for a pending ZKP batch.
     pub fn get_hash_chain(&self, batch_index: usize, zkp_batch_index: usize) -> Option<[u8; 32]> {
-        self.metadata
-            .queue_batches
+        self.queue_batches
             .batches
             .get(batch_index)?
             .hash_chain(zkp_batch_index)
@@ -65,8 +64,8 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
 
     /// Checks whether `num_leaves` values fit in the remaining tree capacity.
     pub fn tree_is_full(&self, num_leaves: u64) -> bool {
-        match self.metadata.next_index.checked_add(num_leaves) {
-            Some(end_index) => end_index > self.metadata.capacity,
+        match self.next_index.checked_add(num_leaves) {
+            Some(end_index) => end_index > self.capacity,
             None => true,
         }
     }
@@ -108,7 +107,7 @@ pub mod test_utils {
         account_data: &mut [u8],
     ) -> Result<&mut NullifierTreeLayout<ZKP>, NullifierTreeError> {
         let layout = cast_tree_account_data::<ZKP>(account_data)?;
-        if layout.metadata.tree_type != TreeType::AddressV2 as u64 {
+        if layout.tree_type != TreeType::AddressV2 as u64 {
             return Err(NullifierTreeError::InvalidTreeType);
         }
         layout.validate()?;

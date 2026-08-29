@@ -15,7 +15,6 @@ profile-program = ["dep:light-program-profiler", "light-program-profiler/profile
 
 [dependencies]
 zolana-account-checks = { workspace = true }
-aligned-sized = { workspace = true }
 solana-program-error = { workspace = true }
 solana-msg = { workspace = true, features = ["alloc"], optional = true }
 solana-address = { workspace = true }

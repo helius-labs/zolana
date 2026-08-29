@@ -76,17 +76,17 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         } else {
             (0, None)
         };
-        // Written field by field: the metadata carries both queue batches with
+        // Written field by field: the layout carries both queue batches with
         // their hash chains, which are too large to move through a Solana stack
         // frame as a struct literal.
-        self.metadata.tree_type = tree_type as u64;
-        self.metadata.sequence_number = 0;
-        self.metadata.next_index = next_index;
-        self.metadata.height = height;
-        self.metadata._padding = [0u8; 4];
-        self.metadata.capacity = capacity;
-        self.metadata.close_before_index = 0;
-        self.metadata.queue_batches.init(
+        self.tree_type = tree_type as u64;
+        self.sequence_number = 0;
+        self.next_index = next_index;
+        self.height = height;
+        self._padding = [0u8; 4];
+        self.capacity = capacity;
+        self.close_before_index = 0;
+        self.queue_batches.init(
             input_queue_batch_size,
             input_queue_zkp_batch_size,
             next_index,

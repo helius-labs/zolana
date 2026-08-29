@@ -18,7 +18,7 @@ fn tree_layout_round_trips() {
     let mut bytes = vec![0u8; core::mem::size_of::<NullifierTreeLayout<2>>()];
     let layout: &mut NullifierTreeLayout<2> = wincode::deserialize_mut(&mut bytes).unwrap();
     layout.root_history.roots[1] = [7u8; 32];
-    layout.metadata.queue_batches.batches[0].set_hash_chain(1, [9u8; 32]);
+    layout.queue_batches.batches[0].set_hash_chain(1, [9u8; 32]);
     layout.cached_tree_updates[1][1] = CachedTreeUpdate {
         old_root: [3u8; 32],
         new_root: [4u8; 32],
@@ -27,7 +27,7 @@ fn tree_layout_round_trips() {
     let reloaded: &mut NullifierTreeLayout<2> = wincode::deserialize_mut(&mut bytes).unwrap();
     assert_eq!(reloaded.root_history.roots[1], [7u8; 32]);
     assert_eq!(
-        reloaded.metadata.queue_batches.batches[0].hash_chain(1),
+        reloaded.queue_batches.batches[0].hash_chain(1),
         Some([9u8; 32])
     );
     assert_eq!(reloaded.cached_tree_updates[1][1].old_root, [3u8; 32]);

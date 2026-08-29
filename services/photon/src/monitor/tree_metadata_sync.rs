@@ -94,7 +94,6 @@ fn process_rings_tree_account(pubkey: Pubkey, account: &Account) -> Option<TreeA
     let mut data = account.data.clone();
     let mut tree = parse_rings_tree_account(pubkey, account, &mut data)?;
     let nullifier = tree.nullifier_tree();
-    let nullifier_metadata = nullifier.metadata;
     let root_history_capacity = u64::try_from(nullifier.root_history.roots.len()).ok()?;
 
     Some(TreeAccountData {
@@ -102,10 +101,10 @@ fn process_rings_tree_account(pubkey: Pubkey, account: &Account) -> Option<TreeA
         // no separate queue account for Photon to reference.
         queue_pubkey: pubkey,
         root_history_capacity,
-        input_queue_zkp_batch_size: nullifier_metadata.queue_batches.zkp_batch_size,
-        height: nullifier_metadata.height,
-        sequence_number: nullifier_metadata.sequence_number,
-        next_index: nullifier_metadata.next_index,
+        input_queue_zkp_batch_size: nullifier.queue_batches.zkp_batch_size,
+        height: nullifier.height,
+        sequence_number: nullifier.sequence_number,
+        next_index: nullifier.next_index,
     })
 }
 

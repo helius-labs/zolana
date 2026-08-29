@@ -22,7 +22,7 @@ type AddressTree = NullifierTreeLayout<ADDRESS_ZKP>;
 fn load_address_tree(account_data: &mut [u8]) -> Result<&mut AddressTree, ProgramError> {
     let layout: &mut AddressTree =
         wincode::deserialize_mut(account_data).map_err(|_| ProgramError::InvalidAccountData)?;
-    if layout.metadata.tree_type != TreeType::AddressV2 as u64 {
+    if layout.tree_type != TreeType::AddressV2 as u64 {
         return Err(ProgramError::InvalidAccountData);
     }
     layout

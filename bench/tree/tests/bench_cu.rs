@@ -163,7 +163,7 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
         }
     }
 
-    let base_next_index = load_address_tree(&mut account_data).metadata.next_index;
+    let base_next_index = load_address_tree(&mut account_data).next_index;
 
     let mut reference = reference_address_tree();
     assert_eq!(
@@ -238,7 +238,7 @@ fn assert_cascade_applied(account_data: &[u8], expected_next_index: u64) {
     let mut data = account_data.to_vec();
     let account = load_address_tree(&mut data);
     assert_eq!(
-        account.metadata.next_index, expected_next_index,
+        account.next_index, expected_next_index,
         "cascade did not advance next_index as expected"
     );
 }

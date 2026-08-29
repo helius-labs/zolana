@@ -2,7 +2,7 @@ use zolana_batched_merkle_tree::{
     access::{get_merkle_tree_account_size, test_utils::init_tree_account_data},
     constants::NUM_BATCHES,
     errors::NullifierTreeError,
-    layout::{BatchedMerkleTreeMetadata, CachedTreeUpdate, TreeType},
+    layout::{CachedTreeUpdate, TreeType},
 };
 
 #[test]
@@ -38,6 +38,8 @@ fn test_cached_tree_update_region_layout_and_size() {
 fn test_state_struct_sizes() {
     const ZKP: usize = 4;
     const HASH_CHAINS: usize = ZKP * 32;
+    const ROOT_HISTORY: usize = 8 + ZKP * 32;
+    const CACHED_TREE_UPDATES: usize = NUM_BATCHES * ZKP * 65;
     assert_eq!(
         core::mem::size_of::<zolana_batched_merkle_tree::batch::Batch<ZKP>>(),
         72 + HASH_CHAINS
@@ -47,8 +49,8 @@ fn test_state_struct_sizes() {
         192 + NUM_BATCHES * HASH_CHAINS
     );
     assert_eq!(
-        core::mem::size_of::<BatchedMerkleTreeMetadata<ZKP>>(),
-        240 + NUM_BATCHES * HASH_CHAINS
+        get_merkle_tree_account_size::<ZKP>(),
+        240 + NUM_BATCHES * HASH_CHAINS + ROOT_HISTORY + CACHED_TREE_UPDATES
     );
 }
 
@@ -59,20 +61,20 @@ fn test_tree_is_full() {
         init_tree_account_data::<5>(&mut account_data, 5, 1, 4, TreeType::AddressV2, None).unwrap();
     // 1. empty tree is not full
     assert!(!tree.tree_is_full(1));
-    tree.metadata.next_index = tree.metadata.capacity - 2;
+    tree.next_index = tree.capacity - 2;
     assert!(!tree.tree_is_full(1));
     // A batch of 2 fills the last two leaves exactly: not full.
     assert!(!tree.tree_is_full(2));
     // A batch of 3 would write past the last leaf: full.
     assert!(tree.tree_is_full(3));
-    tree.metadata.next_index = tree.metadata.capacity - 1;
+    tree.next_index = tree.capacity - 1;
     // The final leaf still fits a single value (or a batch of 1).
     assert!(!tree.tree_is_full(1));
     assert!(tree.tree_is_full(2));
-    tree.metadata.next_index = tree.metadata.capacity;
+    tree.next_index = tree.capacity;
     assert!(tree.tree_is_full(1));
-    tree.metadata.next_index = tree.metadata.capacity + 1;
+    tree.next_index = tree.capacity + 1;
     assert!(tree.tree_is_full(1));
-    tree.metadata.next_index = u64::MAX;
+    tree.next_index = u64::MAX;
     assert!(tree.tree_is_full(1));
 }

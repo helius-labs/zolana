@@ -150,7 +150,7 @@ fn set_close_before_index(env: &mut Pool, close_before_index: u64) {
     {
         let mut on_chain =
             TreeAccount::from_bytes(&mut account.data, tree.to_bytes()).expect("load tree");
-        on_chain.nullifier_tree().metadata.close_before_index = close_before_index;
+        on_chain.nullifier_tree().close_before_index = close_before_index;
     }
     env.rpc
         .svm
@@ -176,7 +176,7 @@ fn set_synthetic_watermark_and_zero_root(
     let mut account = tree_account(env);
     let layout: &mut Layout = wincode::deserialize_mut(&mut account.data)
         .expect("load tree layout for reclaimable fixture");
-    layout.nullifier.metadata.close_before_index = close_before_index;
+    layout.nullifier.close_before_index = close_before_index;
     *layout
         .nullifier
         .root_history

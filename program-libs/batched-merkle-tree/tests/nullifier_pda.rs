@@ -10,7 +10,7 @@ use zolana_batched_merkle_tree::{
     errors::NullifierTreeError,
     layout::NullifierTreeLayout,
     layout::QueueBatches,
-    layout::{BatchedMerkleTreeMetadata, TreeType},
+    layout::TreeType,
 };
 use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 
@@ -47,14 +47,16 @@ fn nullifier(i: u8) -> [u8; 32] {
 #[test]
 fn state_struct_sizes() {
     const HASH_CHAINS: usize = ZKP * 32;
+    const ROOT_HISTORY: usize = 8 + ZKP * 32;
+    const CACHED_TREE_UPDATES: usize = NUM_BATCHES * ZKP * 65;
     assert_eq!(core::mem::size_of::<Batch<ZKP>>(), 72 + HASH_CHAINS);
     assert_eq!(
         core::mem::size_of::<QueueBatches<ZKP>>(),
         192 + NUM_BATCHES * HASH_CHAINS
     );
     assert_eq!(
-        core::mem::size_of::<BatchedMerkleTreeMetadata<ZKP>>(),
-        240 + NUM_BATCHES * HASH_CHAINS
+        get_merkle_tree_account_size::<ZKP>(),
+        240 + NUM_BATCHES * HASH_CHAINS + ROOT_HISTORY + CACHED_TREE_UPDATES
     );
 }
 
@@ -127,7 +129,7 @@ fn malformed_root_history_and_batch_metadata_are_rejected_on_load() {
     init_tree(&mut invalid_reserved);
     let layout: &mut NullifierTreeLayout<ZKP> =
         wincode::deserialize_mut(&mut invalid_reserved).unwrap();
-    layout.metadata.queue_batches.reserved = 0;
+    layout.queue_batches.reserved = 0;
     assert_eq!(
         load_tree_account_data::<ZKP>(&mut invalid_reserved).unwrap_err(),
         NullifierTreeError::InvalidBatchConfiguration
@@ -137,7 +139,7 @@ fn malformed_root_history_and_batch_metadata_are_rejected_on_load() {
     init_tree(&mut inconsistent_batch);
     let layout: &mut NullifierTreeLayout<ZKP> =
         wincode::deserialize_mut(&mut inconsistent_batch).unwrap();
-    layout.metadata.queue_batches.batches[0].batch_size += 1;
+    layout.queue_batches.batches[0].batch_size += 1;
     assert_eq!(
         load_tree_account_data::<ZKP>(&mut inconsistent_batch).unwrap_err(),
         NullifierTreeError::InvalidBatchConfiguration
@@ -154,7 +156,7 @@ fn insert_returns_sequential_queue_indices() {
             i as u64
         );
     }
-    assert_eq!(tree.metadata.queue_batches.next_index, 3);
+    assert_eq!(tree.queue_batches.next_index, 3);
 }
 
 #[test]
@@ -188,7 +190,7 @@ fn queue_index_mismatch_is_rejected() {
     init_tree(&mut data);
 
     let tree = load_tree(&mut data);
-    tree.metadata.queue_batches.next_index += 1;
+    tree.queue_batches.next_index += 1;
     assert_eq!(
         tree.insert_nullifier_into_queue(&nullifier(1)).unwrap_err(),
         NullifierTreeError::QueueIndexMismatch

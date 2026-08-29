@@ -302,16 +302,15 @@ fn read_snapshot(rpc_url: &str, tree: Pubkey) -> Result<TreeSnapshot> {
     let mut account = TreeAccount::from_bytes(&mut data, tree.to_bytes())
         .map_err(|err| anyhow!("parse tree account {tree}: {err:?}"))?;
     let nullifier = account.nullifier_tree();
-    let metadata = nullifier.metadata;
+    let queue_batches = nullifier.queue_batches;
     let on_chain_root = nullifier
         .get_root()
         .ok_or_else(|| anyhow!("nullifier tree has no root"))?;
 
-    let pending = metadata.queue_batches.pending_batch_index as usize;
-    let zkp_batch_size = metadata.queue_batches.zkp_batch_size;
-    let batch_capacity = metadata.queue_batches.batch_size;
-    let batch = *metadata
-        .queue_batches
+    let pending = queue_batches.pending_batch_index as usize;
+    let zkp_batch_size = queue_batches.zkp_batch_size;
+    let batch_capacity = queue_batches.batch_size;
+    let batch = *queue_batches
         .batches
         .get(pending)
         .ok_or_else(|| anyhow!("pending_batch_index {pending} out of range"))?;
@@ -331,8 +330,8 @@ fn read_snapshot(rpc_url: &str, tree: Pubkey) -> Result<TreeSnapshot> {
     }
 
     Ok(TreeSnapshot {
-        next_index: metadata.next_index,
-        height: metadata.height,
+        next_index: nullifier.next_index,
+        height: nullifier.height,
         zkp_batch_size,
         batch_capacity,
         already_applied,

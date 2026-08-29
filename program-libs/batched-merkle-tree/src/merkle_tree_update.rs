@@ -43,7 +43,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         instruction_data: InstructionDataAddressAppendInputs,
     ) -> Result<Option<BatchAddressAppendEvent>, NullifierTreeError> {
         // 1. Reject non-address trees.
-        if self.metadata.tree_type != TreeType::AddressV2 as u64 {
+        if self.tree_type != TreeType::AddressV2 as u64 {
             return Err(NullifierTreeError::InvalidTreeType);
         }
         // 2. Verify the proof and cache the update.
@@ -70,12 +70,11 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         &mut self,
         instruction_data: &InstructionDataAddressAppendInputs,
     ) -> Result<bool, NullifierTreeError> {
-        let zkp_batch_size = self.metadata.queue_batches.zkp_batch_size;
-        let pending_batch_index = self.metadata.queue_batches.pending_batch_index as usize;
+        let zkp_batch_size = self.queue_batches.zkp_batch_size;
+        let pending_batch_index = self.queue_batches.pending_batch_index as usize;
 
         let (num_full_zkp_batches, num_inserted_zkp_batches) = {
             let batch = self
-                .metadata
                 .queue_batches
                 .batches
                 .get(pending_batch_index)
@@ -109,7 +108,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         // batch writes at.
         let next_index_for_proof = zkp_batches_ahead
             .checked_mul(zkp_batch_size)
-            .and_then(|offset| self.metadata.next_index.checked_add(offset))
+            .and_then(|offset| self.next_index.checked_add(offset))
             .ok_or(NullifierTreeError::ArithmeticOverflow)?;
 
         // 3. Rebuild the public input hash and verify the proof.
@@ -167,7 +166,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         &mut self,
         merkle_tree_pubkey: [u8; 32],
     ) -> Result<Option<BatchAddressAppendEvent>, NullifierTreeError> {
-        let zkp_batch_size = self.metadata.queue_batches.zkp_batch_size;
+        let zkp_batch_size = self.queue_batches.zkp_batch_size;
         // One event covers the whole cascade: shared fields once, one root per
         // applied zkp batch. See `BatchAddressAppendEvent` for how the per-batch
         // values are derived from each root's position.
@@ -175,9 +174,8 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         loop {
             // 1. Read the pending zkp batch's cached update; stop if missing or
             //    empty.
-            let pending_batch_index = self.metadata.queue_batches.pending_batch_index as usize;
+            let pending_batch_index = self.queue_batches.pending_batch_index as usize;
             let zkp_batch_index = self
-                .metadata
                 .queue_batches
                 .batches
                 .get(pending_batch_index)
@@ -218,23 +216,21 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
             // 3. Apply: advance the tree and mark the zkp batch inserted.
             self.check_tree_is_full(zkp_batch_size)?;
 
-            let old_next_index = self.metadata.next_index;
+            let old_next_index = self.next_index;
             self.increment_merkle_tree_next_index(zkp_batch_size);
-            self.metadata.sequence_number += 1;
+            self.sequence_number += 1;
             self.append_root(cached_update.new_root)?;
             let root_index = self.get_root_index();
 
-            let sequence_number = self.metadata.sequence_number;
+            let sequence_number = self.sequence_number;
             let pending_batch_state = self
-                .metadata
                 .queue_batches
                 .batches
                 .get_mut(pending_batch_index)
                 .ok_or(NullifierTreeError::InvalidBatchIndex)?
                 .mark_as_inserted_in_merkle_tree()?;
             self.advance_nullifier_pda_close_watermark(pending_batch_state)?;
-            self.metadata
-                .queue_batches
+            self.queue_batches
                 .increment_pending_batch_index_if_inserted(pending_batch_state);
 
             // 4. Clear the applied cache slot.
@@ -276,12 +272,11 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         }
 
         let pending_batch = self
-            .metadata
             .queue_batches
             .batches
-            .get(self.metadata.queue_batches.pending_batch_index as usize)
+            .get(self.queue_batches.pending_batch_index as usize)
             .ok_or(NullifierTreeError::InvalidBatchIndex)?;
-        self.metadata.close_before_index = self.metadata.close_before_index.max(
+        self.close_before_index = self.close_before_index.max(
             pending_batch
                 .start_index
                 .checked_sub(1)
@@ -328,6 +323,6 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     }
 
     fn increment_merkle_tree_next_index(&mut self, count: u64) {
-        self.metadata.next_index += count;
+        self.next_index += count;
     }
 }

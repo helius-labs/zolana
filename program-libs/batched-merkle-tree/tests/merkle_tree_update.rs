@@ -19,14 +19,13 @@ fn test_replay_after_apply_is_noop() {
 
     // Two zkp batches finalized, one already inserted -> num_inserted = 1.
     {
-        let batch = tree.metadata.queue_batches.batches.get_mut(0).unwrap();
+        let batch = tree.queue_batches.batches.get_mut(0).unwrap();
         batch.set_num_full_zkp_batches(2);
         batch.advance_state_to_full().unwrap();
         batch.mark_as_inserted_in_merkle_tree().unwrap();
     }
     assert_eq!(
-        tree.metadata
-            .queue_batches
+        tree.queue_batches
             .batches
             .first()
             .unwrap()
@@ -68,8 +67,7 @@ fn test_replay_while_cached_verifies_and_keeps_update_on_failure() {
         .unwrap();
 
     // Finalize a zkp batch so zkp_batch_index 0 passes the readiness guard.
-    tree.metadata
-        .queue_batches
+    tree.queue_batches
         .batches
         .get_mut(0)
         .unwrap()

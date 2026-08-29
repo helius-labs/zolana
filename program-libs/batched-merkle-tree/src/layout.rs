@@ -1,6 +1,5 @@
-use core::mem::{size_of, MaybeUninit};
+use core::mem::{offset_of, size_of, MaybeUninit};
 
-use aligned_sized::aligned_sized;
 use wincode::{
     config::{ConfigCore, ZeroCopy},
     io::Reader,
@@ -167,41 +166,11 @@ impl<const ZKP: usize> QueueBatches<ZKP> {
     }
 }
 
-#[repr(C)]
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    Debug,
-    PartialEq,
-    Clone,
-    Copy,
-    FromBytes,
-    KnownLayout,
-    Immutable,
-)]
-#[aligned_sized(anchor)]
-pub struct BatchedMerkleTreeMetadata<const ZKP: usize> {
-    pub tree_type: u64,
-    pub sequence_number: u64,
-    pub next_index: u64,
-    pub height: u32,
-    /// Root-history capacity is the `ZKP` const generic (`batch_size /
-    /// zkp_batch_size`), so it is not stored. The account layout admits no
-    /// implicit padding, so the four bytes it used to occupy are declared
-    /// explicitly.
-    pub _padding: [u8; 4],
-    pub capacity: u64,
-    pub queue_batches: QueueBatches<ZKP>,
-    pub close_before_index: u64,
-}
-
-/// Both structs are `repr(C)` without implicit padding, for every `ZKP`; two
-/// instantiations pin the size formulas.
+/// `QueueBatches` is `repr(C)` without implicit padding, for every `ZKP`; two
+/// instantiations pin the size formula.
 const _: () = {
     assert!(size_of::<QueueBatches<1>>() == 48 + NUM_BATCHES * size_of::<Batch<1>>());
     assert!(size_of::<QueueBatches<9>>() == 48 + NUM_BATCHES * size_of::<Batch<9>>());
-    assert!(size_of::<BatchedMerkleTreeMetadata<1>>() == 48 + size_of::<QueueBatches<1>>());
-    assert!(size_of::<BatchedMerkleTreeMetadata<9>>() == 48 + size_of::<QueueBatches<9>>());
 };
 
 /// Cyclic root-history region: a write cursor followed by `N` root slots.
@@ -226,10 +195,39 @@ pub struct CachedTreeUpdate {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct NullifierTreeLayout<const ZKP_BATCHES: usize> {
-    pub metadata: BatchedMerkleTreeMetadata<ZKP_BATCHES>,
+    pub tree_type: u64,
+    pub sequence_number: u64,
+    pub next_index: u64,
+    pub height: u32,
+    /// Root-history capacity is the `ZKP_BATCHES` const generic (`batch_size /
+    /// zkp_batch_size`), so it is not stored. The account layout admits no
+    /// implicit padding, so the four bytes it used to occupy are declared
+    /// explicitly.
+    pub _padding: [u8; 4],
+    pub capacity: u64,
+    pub queue_batches: QueueBatches<ZKP_BATCHES>,
+    pub close_before_index: u64,
     pub root_history: RootHistory<ZKP_BATCHES>,
     pub cached_tree_updates: [[CachedTreeUpdate; ZKP_BATCHES]; NUM_BATCHES],
 }
+
+/// The account layout admits no implicit padding between regions: the header
+/// words are 8-aligned, `QueueBatches` is a multiple of 8, and the root history
+/// opens with an 8-aligned cursor. Two instantiations pin the region offsets.
+const _: () = {
+    assert!(offset_of!(NullifierTreeLayout<1>, queue_batches) == 40);
+    assert!(offset_of!(NullifierTreeLayout<9>, queue_batches) == 40);
+    assert!(offset_of!(NullifierTreeLayout<1>, root_history) == 48 + size_of::<QueueBatches<1>>());
+    assert!(offset_of!(NullifierTreeLayout<9>, root_history) == 48 + size_of::<QueueBatches<9>>());
+    assert!(
+        offset_of!(NullifierTreeLayout<1>, cached_tree_updates)
+            == 48 + size_of::<QueueBatches<1>>() + size_of::<RootHistory<1>>()
+    );
+    assert!(
+        offset_of!(NullifierTreeLayout<9>, cached_tree_updates)
+            == 48 + size_of::<QueueBatches<9>>() + size_of::<RootHistory<9>>()
+    );
+};
 
 unsafe impl<C: ConfigCore, const ZKP: usize> ZeroCopy<C> for NullifierTreeLayout<ZKP> {}
 

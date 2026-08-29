@@ -745,15 +745,14 @@ async fn discovers_rings_tree_account_metadata() {
         )
         .unwrap();
         let nullifier = tree.nullifier_tree();
-        let metadata = nullifier.metadata;
         let root_history_capacity = u64::try_from(nullifier.root_history.roots.len())
             .expect("root history length fits in u64");
         (
-            metadata.height,
+            nullifier.height,
             root_history_capacity,
-            metadata.queue_batches.zkp_batch_size,
-            metadata.sequence_number,
-            metadata.next_index,
+            nullifier.queue_batches.zkp_batch_size,
+            nullifier.sequence_number,
+            nullifier.next_index,
         )
     };
     let mut account = Account {

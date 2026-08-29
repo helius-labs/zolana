@@ -69,7 +69,7 @@ fn reload_rejects_inconsistent_nullifier_batch_metadata() {
     {
         let mut tree =
             TreeAccount::init(&mut bytes, DISCRIMINATOR, HEIGHT, pubkey, params).unwrap();
-        tree.nullifier_tree().metadata.queue_batches.batches[0].batch_size += 1;
+        tree.nullifier_tree().queue_batches.batches[0].batch_size += 1;
     }
 
     assert_eq!(

@@ -237,7 +237,7 @@ impl<'a> TreeAccount<'a> {
     }
 
     pub fn close_before_index(&self) -> u64 {
-        self.layout().nullifier.metadata.close_before_index
+        self.layout().nullifier.close_before_index
     }
 
     /// Whether a proof may contain dummy input slots at the current tree state.
