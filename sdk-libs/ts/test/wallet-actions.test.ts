@@ -11,8 +11,16 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AuthorizedPrivateTransaction, ZolanaClient } from "../src/client/client.js";
 import { SPL_TOKEN_2022_PROGRAM_ID, type Bytes32 } from "../src/interface/index.js";
-import { ShieldedKeypair, SigningKey } from "../src/keypair/index.js";
-import { Data, KeypairWalletAuthority, SOL_MINT, Utxo, Wallet } from "../src/transaction/index.js";
+import { NullifierKey, ShieldedKeypair, SigningKey } from "../src/keypair/index.js";
+import {
+  Data,
+  KeypairWalletAuthority,
+  ProofInputUtxo,
+  SOL_MINT,
+  Utxo,
+  Wallet,
+  decryptToBalances,
+} from "../src/transaction/index.js";
 import { AssetRegistry } from "../src/transaction/wallet/asset.js";
 import {
   createSplit,
@@ -614,5 +622,110 @@ describe("ring approval summary", () => {
     const summary = await capturedSummary([[40n, RING]], 25n, "ring");
     expect(summary).toContain("ring transfer of 25 SOL");
     expect(summary).not.toContain("default notes");
+  });
+});
+
+function captureSpendKeys(authority: KeypairWalletAuthority): NullifierKey[] {
+  const spendKeys: NullifierKey[] = [];
+  const mint = authority.spendNullifierKey.bind(authority);
+  vi.spyOn(authority, "spendNullifierKey").mockImplementation(async () => {
+    const key = await mint();
+    spendKeys.push(key);
+    return key;
+  });
+  return spendKeys;
+}
+
+describe("spend key lifecycle", () => {
+  it("wipes the spend key and every input clone once the build succeeds", async () => {
+    const keypair = spendingKeypair();
+    const payer = keypair.shieldedAddress().solanaAddress();
+    const wallet = fundedWallet(keypair, [100n]);
+    const { client, assemble } = capturePrivateBuild();
+    const authority = new KeypairWalletAuthority({ solanaPublicKey: payer, keypair });
+    const spendKeys = captureSpendKeys(authority);
+
+    await buildTransferTransaction({
+      client,
+      wallet,
+      authority,
+      feePayer: payer,
+      recipient: ShieldedKeypair.generate().shieldedAddress(),
+      amount: 25n,
+    });
+
+    const authorized = (assemble.mock.calls[0]![0] as { authorized: AuthorizedPrivateTransaction })
+      .authorized;
+    for (const proofInput of authorized.proofInputs.inputUtxos) {
+      expect(() => proofInput.nullifierKey.publicKey()).toThrow("KEYPAIR_INVALID_SECRET_KEY");
+    }
+    expect(spendKeys).toHaveLength(1);
+    expect(() => spendKeys[0]?.publicKey()).toThrow("KEYPAIR_INVALID_SECRET_KEY");
+  });
+
+  it("wipes the spend key and constructed clones when authorization fails", async () => {
+    const keypair = spendingKeypair();
+    const payer = keypair.shieldedAddress().solanaAddress();
+    const wallet = fundedWallet(keypair, [100n]);
+    const { client } = capturePrivateBuild();
+    const authority = new KeypairWalletAuthority({ solanaPublicKey: payer, keypair });
+    vi.spyOn(authority, "encryptConfidentialTransfer").mockRejectedValue(new Error("refused"));
+    const spendKeys = captureSpendKeys(authority);
+    const destroyed = vi.spyOn(ProofInputUtxo.prototype, "destroy");
+
+    try {
+      await expect(
+        buildTransferTransaction({
+          client,
+          wallet,
+          authority,
+          feePayer: payer,
+          recipient: ShieldedKeypair.generate().shieldedAddress(),
+          amount: 25n,
+        }),
+      ).rejects.toMatchObject({ code: "WALLET_BUILD_TRANSFER" });
+      expect(destroyed).toHaveBeenCalledTimes(1);
+      expect(spendKeys).toHaveLength(1);
+      expect(() => spendKeys[0]?.publicKey()).toThrow("KEYPAIR_INVALID_SECRET_KEY");
+    } finally {
+      destroyed.mockRestore();
+    }
+  });
+
+  it("decryptToBalances wipes its minted keys", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const mintedViewing: ReturnType<ShieldedKeypair["viewingKey"]>[] = [];
+    const mintedNullifier: NullifierKey[] = [];
+    const viewing = keypair.viewingKey.bind(keypair);
+    const nullifier = keypair.nullifierKey.bind(keypair);
+    vi.spyOn(keypair, "viewingKey").mockImplementation(() => {
+      const key = viewing();
+      mintedViewing.push(key);
+      return key;
+    });
+    vi.spyOn(keypair, "nullifierKey").mockImplementation(() => {
+      const key = nullifier();
+      mintedNullifier.push(key);
+      return key;
+    });
+
+    await decryptToBalances({ keypair, registry: new AssetRegistry(), transactions: [] });
+
+    expect(mintedViewing).toHaveLength(1);
+    expect(mintedNullifier).toHaveLength(1);
+    expect(() => mintedViewing[0]?.publicKey()).toThrow("KEYPAIR_INVALID_SECRET_KEY");
+    expect(() => mintedNullifier[0]?.publicKey()).toThrow("KEYPAIR_INVALID_SECRET_KEY");
+  });
+
+  it("fromDerivationSeed builds working keys after wiping the derived secrets", async () => {
+    const seed = new Uint8Array(64).fill(7);
+    const authority = KeypairWalletAuthority.fromDerivationSeed({
+      solanaPublicKey: PAYER,
+      derivationSeed: seed,
+    });
+    const address = await authority.shieldedAddress();
+    const key = await authority.spendNullifierKey();
+    expect(key.publicKey()).toEqual(address.nullifierPublicKey);
+    key.destroy();
   });
 });

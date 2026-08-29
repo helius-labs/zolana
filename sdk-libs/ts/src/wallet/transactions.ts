@@ -122,16 +122,20 @@ async function buildAuthorizedTransaction(
   context: RequestContext | undefined,
 ): Promise<Transaction> {
   const authorized = await authorizePrivateTransaction(transaction, input.wallet, input.authority);
-  return input.client.assembleAuthorizedPrivateTransaction(
-    {
-      authorized,
-      feePayer: input.feePayer,
-      ...(setupInstructions === undefined || setupInstructions.length === 0
-        ? {}
-        : { setupInstructions }),
-    },
-    context,
-  );
+  try {
+    return await input.client.assembleAuthorizedPrivateTransaction(
+      {
+        authorized,
+        feePayer: input.feePayer,
+        ...(setupInstructions === undefined || setupInstructions.length === 0
+          ? {}
+          : { setupInstructions }),
+      },
+      context,
+    );
+  } finally {
+    for (const proofInput of authorized.proofInputs.inputUtxos) proofInput.destroy();
+  }
 }
 
 export type { TransferDestination } from "./actions.js";

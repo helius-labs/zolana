@@ -1,6 +1,6 @@
 {
   "name": "@heliuslabs/zolana",
-  "version": "0.1.4-alpha",
+  "version": "0.1.5-alpha",
   "description": "TypeScript SDK for the Zolana shielded protocol.",
   "license": "Apache-2.0",
   "files": [

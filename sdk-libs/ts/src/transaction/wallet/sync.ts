@@ -984,18 +984,20 @@ export async function decryptToBalances(
 ): Promise<PrivateBalances> {
   const identity = input.keypair.shieldedAddress();
   const wallet = new Wallet({ identity, registry: input.registry });
-  await decryptTransactions({
-    wallet,
-    authority: {
-      syncMaterial: () =>
-        Promise.resolve({
-          identity,
-          viewingKeys: [input.keypair.viewingKey()],
-          nullifierKey: input.keypair.nullifierKey(),
-        }),
-    },
-    transactions: input.transactions,
-  });
+  const viewingKey = input.keypair.viewingKey();
+  const nullifierKey = input.keypair.nullifierKey();
+  try {
+    await decryptTransactions({
+      wallet,
+      authority: {
+        syncMaterial: () => Promise.resolve({ identity, viewingKeys: [viewingKey], nullifierKey }),
+      },
+      transactions: input.transactions,
+    });
+  } finally {
+    viewingKey.destroy();
+    nullifierKey.destroy();
+  }
   return Object.freeze({
     balance: (mint: Address, filter?: Filter) => wallet.balance(mint, filter),
     balances: (skipUtxos = false) => wallet.balances(skipUtxos),

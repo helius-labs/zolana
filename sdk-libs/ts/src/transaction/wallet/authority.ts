@@ -406,20 +406,27 @@ export class KeypairWalletAuthority implements WalletAuthority {
     input: Readonly<{ solanaPublicKey: Address; derivationSeed: Uint8Array }>,
   ): KeypairWalletAuthority {
     const expansion = roleExpansion(input.derivationSeed, "ed25519");
-    const viewing = ViewingKey.fromBytes(expansion.viewingSecret());
-    const nullifier = NullifierKey.fromSecret(expansion.nullifierSecret());
-    const signing = ShieldedPublicKey.fromEd25519(decodeAddress(input.solanaPublicKey));
-    const address = ShieldedAddress.fromPublicKeys(
-      signing,
-      nullifier.publicKey(),
-      viewing.publicKey(),
-    );
-    return new KeypairWalletAuthority({
-      solanaPublicKey: input.solanaPublicKey,
-      address,
-      viewingKey: viewing,
-      nullifierKey: nullifier,
-    });
+    const viewingSecret = expansion.viewingSecret();
+    const nullifierSecret = expansion.nullifierSecret();
+    try {
+      const viewing = ViewingKey.fromBytes(viewingSecret);
+      const nullifier = NullifierKey.fromSecret(nullifierSecret);
+      const signing = ShieldedPublicKey.fromEd25519(decodeAddress(input.solanaPublicKey));
+      const address = ShieldedAddress.fromPublicKeys(
+        signing,
+        nullifier.publicKey(),
+        viewing.publicKey(),
+      );
+      return new KeypairWalletAuthority({
+        solanaPublicKey: input.solanaPublicKey,
+        address,
+        viewingKey: viewing,
+        nullifierKey: nullifier,
+      });
+    } finally {
+      viewingSecret.fill(0);
+      nullifierSecret.fill(0);
+    }
   }
 
   solanaPublicKey(): Address {

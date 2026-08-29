@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.5-alpha — unreleased
+
+Secret key material no longer outlives its use. Transfer, withdrawal, and
+split builds wipe the spend key and every per-input key copy once the
+transaction is assembled or the build fails. Balance decryption and key
+derivation wipe the secrets they mint before they return.
+
+Fixed
+
+- A private transfer, withdrawal, or split kept its spend key and every
+  per-input key copy in memory after building, all of them are wiped once
+  the transaction is assembled or the build fails.
+- `decryptToBalances` minted a viewing and a nullifier key and kept both in
+  memory, they are wiped before it returns.
+- `KeypairWalletAuthority.fromDerivationSeed` left the secrets derived
+  from the seed unwiped after building its keys, they are wiped before it
+  returns.
+
 ## 0.1.4-alpha — unreleased
 
 Value moves both ways between the default pool and a custom ring, pool

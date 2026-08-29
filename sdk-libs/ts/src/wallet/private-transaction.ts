@@ -1,5 +1,6 @@
 import type { AuthorizedPrivateTransaction } from "../client/client.js";
 import type { Address, Bytes32 } from "../interface/types.js";
+import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { Data } from "../transaction/data.js";
 import { ConfidentialSplit } from "../transaction/instructions/builders.js";
 import { ConfidentialTransfer, type SppProofInputs } from "../transaction/instructions/transact.js";
@@ -92,15 +93,33 @@ export async function authorizePrivateTransaction(
     });
   }
   const nullifierKey = await authority.spendNullifierKey();
-  const inputs = unsignedInputs.map(
-    ({ entry }) =>
-      new ProofInputUtxo({
-        utxo: entry.utxo,
-        nullifierKey,
-        ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),
-        ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
-      }),
-  );
+  let inputs: readonly ProofInputUtxo[] = [];
+  try {
+    inputs = unsignedInputs.map(
+      ({ entry }) =>
+        new ProofInputUtxo({
+          utxo: entry.utxo,
+          nullifierKey,
+          ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),
+          ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
+        }),
+    );
+    return await authorizeWithInputs(transaction, wallet, authority, address, inputs);
+  } catch (cause) {
+    for (const proofInput of inputs) proofInput.destroy();
+    throw cause;
+  } finally {
+    nullifierKey.destroy();
+  }
+}
+
+async function authorizeWithInputs(
+  transaction: UnsignedPrivateTransaction,
+  wallet: Wallet,
+  authority: WalletAuthority,
+  address: ShieldedAddress,
+  inputs: readonly ProofInputUtxo[],
+): Promise<AuthorizedPrivateTransaction> {
   const action = transaction._action();
   let proofInputs: SppProofInputs;
   if (action.kind === "split") {
@@ -152,6 +171,8 @@ export async function authorizePrivateTransaction(
     });
   }
   const withdrawal = transaction._withdrawal();
+  // The key clones in the returned proof inputs stay armed for proving, the
+  // builder destroys them after assembly.
   return Object.freeze({
     proofInputs,
     tree: transaction.tree(),
