@@ -6,9 +6,42 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[features]
+default = []
+# Relaxes the height == 40 check in `nullifier_tree::init` so tests can build
+# small trees. Never enable it for a build that produces the on-chain program.
+test-only = []
+log = ["dep:solana-msg"]
+profile-program = ["dep:light-program-profiler", "light-program-profiler/profile-program"]
+
 [dependencies]
-zolana-batched-merkle-tree = { workspace = true }
-zolana-hasher = { workspace = true }
+zolana-account-checks = { workspace = true }
+zolana-event = { workspace = true }
+zolana-hasher = { workspace = true, features = ["poseidon", "keccak"] }
+groth16-solana = { workspace = true }
 pinocchio = { workspace = true }
+solana-address = { workspace = true }
+solana-program-error = { workspace = true }
+solana-msg = { workspace = true, features = ["alloc"], optional = true }
+borsh = { workspace = true }
+bytemuck = { workspace = true, features = ["derive"] }
+zerocopy = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
 wincode = { workspace = true }
+light-program-profiler = { workspace = true, optional = true }
+
+[dev-dependencies]
+rand = { workspace = true }
+zolana-merkle-tree = { workspace = true }
+zolana-account-checks = { workspace = true, features = ["test-only"] }
+zolana-hasher = { workspace = true, features = ["keccak"] }
+zolana-client = { workspace = true }
+zolana-indexed-array = { workspace = true }
+num-bigint = { workspace = true }
+num-traits = { workspace = true }
+ark-bn254 = { workspace = true }
+ark-ff = { workspace = true }
+
+[lints.rust.unexpected_cfgs]
+level = "allow"
+check-cfg = ['cfg(target_os, values("solana"))']

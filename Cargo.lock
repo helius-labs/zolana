@@ -2818,7 +2818,6 @@ dependencies = [
  "tracing-subscriber",
  "wincode 0.5.5",
  "zolana-api",
- "zolana-batched-merkle-tree",
  "zolana-client",
  "zolana-hasher",
  "zolana-interface",
@@ -9876,7 +9875,6 @@ dependencies = [
  "solana-instruction",
  "solana-pubkey 4.2.0",
  "wincode 0.5.5",
- "zolana-batched-merkle-tree",
  "zolana-client",
  "zolana-hasher",
  "zolana-merkle-tree",
@@ -10910,33 +10908,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "zolana-batched-merkle-tree"
-version = "0.11.0"
-dependencies = [
- "ark-bn254 0.5.0",
- "ark-ff 0.5.0",
- "borsh",
- "bytemuck",
- "groth16-solana",
- "light-program-profiler",
- "num-bigint 0.4.8",
- "num-traits",
- "rand 0.8.7",
- "solana-address 2.6.1",
- "solana-msg",
- "solana-program-error",
- "thiserror 2.0.18",
- "wincode 0.5.5",
- "zerocopy",
- "zolana-account-checks",
- "zolana-client",
- "zolana-event",
- "zolana-hasher",
- "zolana-indexed-array",
- "zolana-merkle-tree",
-]
-
-[[package]]
 name = "zolana-cli"
 version = "0.1.0"
 dependencies = [
@@ -11075,7 +11046,6 @@ dependencies = [
  "solana-rent 4.3.0",
  "thiserror 2.0.18",
  "wincode 0.5.5",
- "zolana-batched-merkle-tree",
  "zolana-event",
  "zolana-hasher",
  "zolana-tree",
@@ -11304,11 +11274,28 @@ dependencies = [
 name = "zolana-tree"
 version = "0.1.0"
 dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ff 0.5.0",
+ "borsh",
+ "bytemuck",
+ "groth16-solana",
+ "light-program-profiler",
+ "num-bigint 0.4.8",
+ "num-traits",
  "pinocchio 0.11.2",
+ "rand 0.8.7",
+ "solana-address 2.6.1",
+ "solana-msg",
+ "solana-program-error",
  "thiserror 2.0.18",
  "wincode 0.5.5",
- "zolana-batched-merkle-tree",
+ "zerocopy",
+ "zolana-account-checks",
+ "zolana-client",
+ "zolana-event",
  "zolana-hasher",
+ "zolana-indexed-array",
+ "zolana-merkle-tree",
 ]
 
 [[package]]

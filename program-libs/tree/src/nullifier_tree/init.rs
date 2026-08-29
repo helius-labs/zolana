@@ -1,11 +1,12 @@
-use crate::{
+use borsh::{BorshDeserialize, BorshSerialize};
+
+use crate::nullifier_tree::{
     constants::{
         ADDRESS_TREE_INIT_ROOT_40, DEFAULT_ADDRESS_BATCH_SIZE, DEFAULT_ADDRESS_ZKP_BATCH_SIZE,
         DEFAULT_BATCH_ADDRESS_TREE_HEIGHT,
     },
-    errors::NullifierTreeError,
+    error::NullifierTreeError,
     layout::{NullifierTreeLayout, TreeType},
-    BorshDeserialize, BorshSerialize,
 };
 
 #[repr(C)]
@@ -109,7 +110,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
 #[cfg(feature = "test-only")]
 pub mod test_utils {
     pub use super::InitAddressTreeAccountsInstructionData;
-    use crate::constants::{TEST_DEFAULT_BATCH_SIZE, TEST_DEFAULT_ZKP_BATCH_SIZE};
+    use crate::nullifier_tree::constants::{TEST_DEFAULT_BATCH_SIZE, TEST_DEFAULT_ZKP_BATCH_SIZE};
 
     impl InitAddressTreeAccountsInstructionData {
         pub fn test_default() -> Self {

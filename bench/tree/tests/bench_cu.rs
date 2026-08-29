@@ -11,8 +11,11 @@ use rand::{rngs::StdRng, Rng, SeedableRng};
 use solana_account::Account;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use zolana_batched_merkle_tree::layout::TreeType;
-use zolana_batched_merkle_tree::{
+use zolana_client::{spawn_prover, BatchAddressAppendInputs, ProofCompressed, ProverClient};
+use zolana_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};
+use zolana_merkle_tree::indexed::IndexedMerkleTree;
+use zolana_tree::nullifier_tree::layout::TreeType;
+use zolana_tree::nullifier_tree::{
     access::{
         get_merkle_tree_account_size,
         test_utils::{init_tree_account_data, load_tree_account_data},
@@ -23,9 +26,6 @@ use zolana_batched_merkle_tree::{
     merkle_tree_update::InstructionDataAddressAppendInputs,
     verify::CompressedProof,
 };
-use zolana_client::{spawn_prover, BatchAddressAppendInputs, ProofCompressed, ProverClient};
-use zolana_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};
-use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount, UTXO_TREE_HEIGHT};
 
 const HEIGHT: u8 = UTXO_TREE_HEIGHT as u8;

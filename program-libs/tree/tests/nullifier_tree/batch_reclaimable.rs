@@ -1,6 +1,4 @@
-#![cfg(feature = "test-only")]
-
-use zolana_batched_merkle_tree::{
+use zolana_tree::nullifier_tree::{
     access::{
         get_merkle_tree_account_size,
         test_utils::{init_tree_account_data, load_tree_account_data},
@@ -8,7 +6,7 @@ use zolana_batched_merkle_tree::{
     batch::BatchState,
     batch::CachedTreeUpdate,
     constants::NULLIFIER_TREE_INIT_ROOT_40,
-    errors::NullifierTreeError,
+    error::NullifierTreeError,
     layout::{NullifierTreeLayout, TreeType},
 };
 

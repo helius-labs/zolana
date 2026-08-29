@@ -1,25 +1,23 @@
-#![cfg(feature = "test-only")]
-
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use num_bigint::BigUint;
 use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
-use zolana_batched_merkle_tree::layout::TreeType;
-use zolana_batched_merkle_tree::{
+use zolana_client::{spawn_prover, BatchAddressAppendInputs, ProofCompressed, ProverClient};
+use zolana_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};
+use zolana_merkle_tree::indexed::IndexedMerkleTree;
+use zolana_tree::nullifier_tree::layout::TreeType;
+use zolana_tree::nullifier_tree::{
     access::{
         get_merkle_tree_account_size,
         test_utils::{init_tree_account_data, load_tree_account_data},
     },
     constants::NULLIFIER_TREE_INIT_ROOT_40,
-    errors::NullifierTreeError,
+    error::NullifierTreeError,
     init::InitAddressTreeAccountsInstructionData,
     layout::NullifierTreeLayout,
     merkle_tree_update::InstructionDataAddressAppendInputs,
     verify::CompressedProof,
 };
-use zolana_client::{spawn_prover, BatchAddressAppendInputs, ProofCompressed, ProverClient};
-use zolana_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};
-use zolana_merkle_tree::indexed::IndexedMerkleTree;
 
 const HEIGHT: u32 = 40;
 const ZKP: usize = 5;

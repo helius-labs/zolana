@@ -1,4 +1,4 @@
-//! # zolana-batched-merkle-tree
+//! # Nullifier tree
 //!
 //! Batched indexed Merkle tree implementation for the trees that the shielded
 //! pool maintains off the hot path: **address trees** (address registration)
@@ -8,7 +8,7 @@
 //! batched into the queue and applied to the tree with a zero-knowledge proof
 //! (ZKP), enabling efficient on-chain verification. Trees keep a cyclic root
 //! history for validity proofs; pending non-inclusion of a queued nullifier is
-//! guaranteed by a per-nullifier PDA account. See `spec.md`.
+//! guaranteed by a per-nullifier PDA account. See `nullifier_tree_spec.md`.
 //!
 //! | Module | Description |
 //! |--------|-------------|
@@ -19,7 +19,7 @@
 //! | [`access`] | Read accessors, layout validation, and account size |
 //! | [`batch`] | `Batch` state machine, hash chains, and cached tree updates |
 //! | [`verify`] | Groth16 verification and verifying keys |
-//! | [`errors`] | `NullifierTreeError`, the crate's single error type |
+//! | [`error`] | `NullifierTreeError`, the module's single error type |
 //!
 //! ## Account
 //!
@@ -82,7 +82,7 @@
 //!
 //! - **`zolana-hasher`** - Poseidon hash for hash chains and tree operations
 //! - **`groth16-solana`** - Groth16 proof verification for batch updates (see [`verify`])
-//! - **`zolana-account-checks`** - `AccountError` variants reused by [`errors`]
+//! - **`zolana-account-checks`** - `AccountError` variants reused by [`error`]
 //!
 //! ## Testing and reference implementations
 //!
@@ -95,7 +95,7 @@
 //!
 //! ## Error codes
 //!
-//! Every failure is a variant of the single [`errors::NullifierTreeError`],
+//! Every failure is a variant of the single [`error::NullifierTreeError`],
 //! which maps to a u32 error code in the 14000 space:
 //! - `BatchNotReady` (14001) - Batch is not ready to be inserted
 //! - `BatchAlreadyInserted` (14002) - Batch is already inserted
@@ -107,15 +107,12 @@
 //! - `ProofVerificationFailed` (14024) - Groth16 verification rejected the proof
 //! - Errors from underlying libraries (hasher, account checks) keep their own codes
 
-#![allow(unexpected_cfgs)]
 pub mod access;
 pub mod batch;
 pub mod constants;
-pub mod errors;
+pub mod error;
 pub mod init;
 pub mod layout;
 pub mod merkle_tree_update;
 pub mod queue_insert;
 pub mod verify;
-
-use borsh::{BorshDeserialize, BorshSerialize};

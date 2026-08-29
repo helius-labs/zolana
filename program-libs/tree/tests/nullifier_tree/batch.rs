@@ -1,8 +1,8 @@
-use zolana_batched_merkle_tree::{
-    batch::{Batch, BatchState},
-    errors::NullifierTreeError,
-};
 use zolana_hasher::{Hasher, Poseidon};
+use zolana_tree::nullifier_tree::{
+    batch::{Batch, BatchState},
+    error::NullifierTreeError,
+};
 
 /// 500 / 100 = 5 ZKP batches, so the batch carries five hash chains.
 fn get_test_batch() -> Batch<5> {

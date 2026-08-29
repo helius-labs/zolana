@@ -1,8 +1,8 @@
 use zolana_hasher::primitives::is_canonical_bn254_scalar_be;
 
-use crate::{
+use crate::nullifier_tree::{
     batch::BatchState,
-    errors::NullifierTreeError,
+    error::NullifierTreeError,
     layout::{NullifierTreeLayout, TreeType},
 };
 

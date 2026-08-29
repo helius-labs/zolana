@@ -1,6 +1,8 @@
 use std::mem::size_of;
 
-use crate::{constants::NUM_BATCHES, errors::NullifierTreeError, layout::NullifierTreeLayout};
+use crate::nullifier_tree::{
+    constants::NUM_BATCHES, error::NullifierTreeError, layout::NullifierTreeLayout,
+};
 
 impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     /// Validates the invariants required for safe queue rotation and natural
@@ -47,6 +49,16 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
             .copied()
     }
 
+    /// Historical root at `index`. Empty slots read as absent, so a caller
+    /// cannot pass off a never-written root-history entry as a valid root.
+    pub fn root_by_index(&self, index: u16) -> Option<[u8; 32]> {
+        let root = *self.root_history.roots.get(usize::from(index))?;
+        if root == [0u8; 32] {
+            return None;
+        }
+        Some(root)
+    }
+
     /// Return a stored queue hash-chain for a pending ZKP batch.
     pub fn get_hash_chain(&self, batch_index: usize, zkp_batch_index: usize) -> Option<[u8; 32]> {
         self.batches.get(batch_index)?.hash_chain(zkp_batch_index)
@@ -72,7 +84,7 @@ pub fn get_merkle_tree_account_size<const ZKP: usize>() -> usize {
 #[cfg(feature = "test-only")]
 pub mod test_utils {
     use super::*;
-    use crate::{errors::NullifierTreeError, layout::TreeType};
+    use crate::nullifier_tree::{error::NullifierTreeError, layout::TreeType};
 
     pub fn init_tree_account_data<const ZKP: usize>(
         account_data: &mut [u8],

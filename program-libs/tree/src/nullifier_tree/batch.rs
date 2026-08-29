@@ -1,11 +1,12 @@
 use core::mem::{align_of, size_of};
 
+use borsh::{BorshDeserialize, BorshSerialize};
 #[cfg(feature = "test-only")]
 use zerocopy::FromZeros;
 use zerocopy::{FromBytes, Immutable, KnownLayout};
 use zolana_hasher::{Hasher, Poseidon};
 
-use crate::{errors::NullifierTreeError, BorshDeserialize, BorshSerialize};
+use crate::nullifier_tree::error::NullifierTreeError;
 
 #[derive(Clone, Debug, PartialEq, Eq, Copy)]
 #[repr(u64)]

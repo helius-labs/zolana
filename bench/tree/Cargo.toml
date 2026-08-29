@@ -14,13 +14,12 @@ default = []
 no-entrypoint = []
 profile-program = [
     "light-program-profiler/profile-program",
-    "zolana-batched-merkle-tree/profile-program",
+    "zolana-tree/profile-program",
 ]
 bench = ["profile-program"]
 
 [dependencies]
 zolana-tree = { workspace = true }
-zolana-batched-merkle-tree = { workspace = true }
 light-program-profiler = { workspace = true, features = ["profile-program"] }
 pinocchio = { workspace = true }
 borsh = { workspace = true }
@@ -28,7 +27,7 @@ solana-address = { workspace = true }
 wincode = { workspace = true }
 
 [dev-dependencies]
-zolana-batched-merkle-tree = { workspace = true, features = ["test-only"] }
+zolana-tree = { workspace = true, features = ["test-only"] }
 light-program-profiler = { workspace = true, features = ["mollusk"] }
 mollusk-svm = { workspace = true }
 solana-account = { workspace = true }

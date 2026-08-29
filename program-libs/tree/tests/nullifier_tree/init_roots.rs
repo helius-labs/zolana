@@ -6,11 +6,11 @@ use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use num_bigint::BigUint;
 use num_traits::Num;
-use zolana_batched_merkle_tree::constants::{
-    ADDRESS_TREE_INIT_ROOT_40, NULLIFIER_TREE_INIT_ROOT_40,
-};
 use zolana_hasher::Poseidon;
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
+use zolana_tree::nullifier_tree::constants::{
+    ADDRESS_TREE_INIT_ROOT_40, NULLIFIER_TREE_INIT_ROOT_40,
+};
 
 const HEIGHT: usize = 40;
 

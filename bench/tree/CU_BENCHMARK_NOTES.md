@@ -7,7 +7,7 @@ rewritten) by `just bench-tree`, so notes live here instead.
 
 The cost is not linear because the first insert into a hash chain is a special
 case. In `Batch::add_to_hash_chain`
-(`program-libs/batched-merkle-tree/src/batch.rs`), the first insert
+(`program-libs/tree/src/nullifier_tree/batch.rs`), the first insert
 (`num_inserted == 0`) stores the value directly into the hash-chain slot, while
 every later insert combines it with `Poseidon::hashv([existing, value])`.
 Each insert also pays a fixed amount of base work (canonical field check, queue

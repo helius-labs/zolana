@@ -1,8 +1,8 @@
-use zolana_batched_merkle_tree::{
+use zolana_tree::nullifier_tree::{
     access::{get_merkle_tree_account_size, test_utils::init_tree_account_data},
     batch::{Batch, CachedTreeUpdate},
     constants::NUM_BATCHES,
-    errors::NullifierTreeError,
+    error::NullifierTreeError,
     layout::TreeType,
 };
 

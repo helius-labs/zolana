@@ -1,15 +1,13 @@
-#![cfg(feature = "test-only")]
-
-use zolana_batched_merkle_tree::{
+use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
+use zolana_tree::nullifier_tree::{
     access::{
         get_merkle_tree_account_size,
         test_utils::{init_tree_account_data, load_tree_account_data},
     },
     constants::NULLIFIER_TREE_INIT_ROOT_40,
-    errors::NullifierTreeError,
+    error::NullifierTreeError,
     layout::{NullifierTreeLayout, TreeType},
 };
-use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 
 const ZKP: usize = 4;
 const BATCH_SIZE: u64 = 4;

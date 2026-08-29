@@ -1,13 +1,13 @@
+use borsh::{BorshDeserialize, BorshSerialize};
+use zolana_event::BatchAddressAppendEvent;
 use zolana_hasher::hash_chain::create_hash_chain_from_array;
 
-use crate::{
+use crate::nullifier_tree::{
     batch::{BatchState, CachedTreeUpdate},
-    errors::NullifierTreeError,
+    error::NullifierTreeError,
     layout::{NullifierTreeLayout, TreeType},
     verify::{verify_batch_address_update, CompressedProof},
-    BorshDeserialize, BorshSerialize,
 };
-use zolana_event::BatchAddressAppendEvent;
 
 #[repr(C)]
 #[derive(Debug, PartialEq, Clone, Copy, BorshDeserialize, BorshSerialize)]

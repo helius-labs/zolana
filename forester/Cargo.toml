@@ -36,7 +36,6 @@ zolana-interface = { workspace = true, features = ["solana"] }
 
 # Tree + nullifier-queue state for the read-only `info` report.
 zolana-tree = { workspace = true }
-zolana-batched-merkle-tree = { workspace = true }
 
 # `run`: reconstruct the reference nullifier tree, build address-append
 # witnesses, and prove them on the forester prover.

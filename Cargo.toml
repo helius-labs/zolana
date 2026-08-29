@@ -2,7 +2,6 @@
 members = [
     "forester",
     "program-libs/account-checks",
-    "program-libs/batched-merkle-tree",
     "program-libs/event",
     "program-libs/hasher",
     "program-libs/indexed-array",
@@ -95,7 +94,6 @@ groth16-solana = { git = "https://github.com/Lightprotocol/groth16-solana", rev 
 # Published Light Protocol crates.
 light-array-map = "0.2.0"
 zolana-account-checks = { path = "program-libs/account-checks", version = "0.8.0", default-features = false }
-zolana-batched-merkle-tree = { path = "program-libs/batched-merkle-tree", version = "0.11.0" }
 zolana-hasher = { path = "program-libs/hasher", version = "5.0.0", default-features = false }
 zolana-indexed-array = { path = "program-libs/indexed-array", version = "0.3.0" }
 light-poseidon = "0.4.0"

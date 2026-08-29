@@ -1,12 +1,12 @@
 use rand::{Rng, SeedableRng};
-use zolana_batched_merkle_tree::{
+use zolana_tree::nullifier_tree::{
     access::{
         get_merkle_tree_account_size,
         test_utils::{init_tree_account_data, load_tree_account_data},
     },
     batch::BatchState,
     constants::NUM_BATCHES,
-    errors::NullifierTreeError,
+    error::NullifierTreeError,
     layout::TreeType,
 };
 

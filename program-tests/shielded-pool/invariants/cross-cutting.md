@@ -106,7 +106,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Kind: state
   - Affects: Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact
   - Statement: for every 32-byte nullifier value, at most one queue insertion ever succeeds across all instructions and all transactions (including two inputs with the same nullifier inside one instruction); every later insertion attempt makes its instruction return Err.
-  - Location: `programs/shielded-pool/src/instructions/nullifier_pda/loader.rs` (`load_unused_nullifier_pda`: an initialized PDA rejects the insertion), `transact/tree.rs` and `merge/processor.rs` (`insert_nullifier_into_queue`), `program-libs/batched-merkle-tree/src/merkle_tree.rs`
+  - Location: `programs/shielded-pool/src/instructions/nullifier_pda/loader.rs` (`load_unused_nullifier_pda`: an initialized PDA rejects the insertion), `transact/tree.rs` and `merge/processor.rs` (`insert_nullifier_into_queue`), `program-libs/tree/src/nullifier_tree/merkle_tree_update.rs`
   - Error: `ShieldedPoolError::NullifierAlreadyQueued = 7048`
   - Severity: Critical (double-spend)
   - Suggested test: negative (same nullifier twice across transactions, and twice within one instruction); harness: program-tests integration (`cargo test-sbf`)

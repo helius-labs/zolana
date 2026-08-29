@@ -5,7 +5,7 @@ Covers `CreateTree` (tag 2), `BatchUpdateNullifierTree` (tag 4), `PauseTree` (ta
 family creates while queueing nullifiers. Shared invariants (pause semantics across
 write paths, rollback) live in `cross-cutting.md`.
 
-Convention deviations confirmed for the PDA design (`program-libs/batched-merkle-tree/spec.md`):
+Convention deviations confirmed for the PDA design (`program-libs/tree/nullifier_tree_spec.md`):
 `close_nullifier_pdas` is permissionless, takes no fee payer, and returns PDA rent
 to the tree (a caller-chosen `rent_recipient` would drain the tree's PDA working
 capital); the PDA payload is a discriminator-less 9-byte Borsh
@@ -365,7 +365,7 @@ the proof-backed binary `nullifier_pdas_proof` covers the success path.
   - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `close_rejects_nullifier_pda_before_batch_is_reclaimable` (fresh tree, `w = 0`), `close_honours_the_watermark_boundary` (`queue_index == w` rejected, `queue_index == w - 1` closed; `w` set by a LiteSVM fixture that writes `close_before_index` into the tree bytes because making a batch reclaimable requires two full batches to be queued and applied); localnet: `tests/localnet/photon/forester.rs` `phase_assert_nullifier_pda_cleanup` (drained but not yet reclaimable batch, `w == 0`, `close_nullifier_pdas` rejected with 7050 and no lamports move)
   - Kind: precondition
   - Statement: for every PDA in the instruction, `PDA.queue_index < tree.close_before_index` must hold; otherwise the instruction returns Err. `close_before_index` advances when a batch's final ZKP update lands (`w = max(w, current.start_index - 1)`), after its full root-history window has overwritten every older accepted root, so a closable PDA's nullifier is contained in every accepted nullifier-tree root (spec property "safe PDA lifetime"). Batch storage may already have been reused; reuse does not affect the watermark or PDA lifetime.
-  - Location: `programs/shielded-pool/src/instructions/nullifier_pda/close.rs:15-17`, `program-libs/interface/src/state/nullifier_pda.rs:15-17` (`fn is_closable`), `program-libs/batched-merkle-tree/src/merkle_tree_update.rs` (`fn advance_nullifier_pda_close_watermark`)
+  - Location: `programs/shielded-pool/src/instructions/nullifier_pda/close.rs:15-17`, `program-libs/interface/src/state/nullifier_pda.rs:15-17` (`fn is_closable`), `program-libs/tree/src/nullifier_tree/merkle_tree_update.rs` (`fn advance_nullifier_pda_close_watermark`)
   - Error: `ShieldedPoolError::NullifierPdaNotClosable = 7050`
   - Severity: Critical (early close re-enables a stale non-inclusion proof)
   - Suggested test: negative boundary + positive; harness: program-tests integration; end-to-end reclaimability remains uncovered on localnet (see the note in `phase_assert_nullifier_pda_cleanup`)

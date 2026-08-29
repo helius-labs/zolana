@@ -7,7 +7,7 @@
 //! state *before* that batch, which the on-chain account does not retain.
 //!
 //! We rebuild that state the same way
-//! `program-libs/batched-merkle-tree/tests/nullifier_tree.rs` does: replay the
+//! `program-libs/tree/tests/nullifier_tree/prover_e2e.rs` does: replay the
 //! ordered queued nullifier values (served by photon) into an in-memory
 //! reference `IndexedMerkleTree`, verify the reconstructed root matches the
 //! on-chain root, then build each ready zkp-batch's witness, prove it on the
@@ -829,7 +829,7 @@ fn path_to_biguint(path: Vec<[u8; 32]>) -> Vec<BigUint> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zolana_batched_merkle_tree::constants::NULLIFIER_TREE_INIT_ROOT_40;
+    use zolana_tree::nullifier_tree::constants::NULLIFIER_TREE_INIT_ROOT_40;
 
     fn nullifier(byte: u8) -> [u8; 32] {
         let mut value = [0u8; 32];

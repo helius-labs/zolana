@@ -1,6 +1,5 @@
 use solana_program_error::ProgramError;
 use thiserror::Error;
-#[cfg(feature = "tree")]
 use zolana_tree::TreeError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,7 +155,6 @@ impl From<InterfaceError> for ShieldedPoolError {
     }
 }
 
-#[cfg(feature = "tree")]
 impl From<TreeError> for ShieldedPoolError {
     fn from(error: TreeError) -> Self {
         match error {

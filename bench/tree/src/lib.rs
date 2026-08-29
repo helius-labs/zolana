@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use zolana_batched_merkle_tree::{
+use zolana_tree::nullifier_tree::{
     layout::NullifierTreeLayout, layout::TreeType,
     merkle_tree_update::InstructionDataAddressAppendInputs,
 };

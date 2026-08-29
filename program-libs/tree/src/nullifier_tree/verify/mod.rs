@@ -10,7 +10,7 @@ use groth16_solana::{
     groth16::{Groth16Verifier, Groth16Verifyingkey},
 };
 
-use crate::{errors::NullifierTreeError, verify::verifying_keys::*};
+use crate::nullifier_tree::{error::NullifierTreeError, verify::verifying_keys::*};
 
 pub mod verifying_keys;
 

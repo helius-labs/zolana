@@ -1,6 +1,6 @@
-use zolana_batched_merkle_tree::{
+use zolana_tree::nullifier_tree::{
     batch::{Batch, BatchState, CachedTreeUpdate},
-    errors::NullifierTreeError,
+    error::NullifierTreeError,
     layout::{NullifierTreeLayout, RootHistory},
 };
 

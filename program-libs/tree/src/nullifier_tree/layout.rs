@@ -9,10 +9,10 @@ use wincode::{
 use zerocopy::FromZeros;
 use zerocopy::{FromBytes, Immutable, KnownLayout};
 
-use crate::{
+use crate::nullifier_tree::{
     batch::{Batch, BatchState},
     constants::NUM_BATCHES,
-    errors::NullifierTreeError,
+    error::NullifierTreeError,
 };
 
 pub const ADDRESS_MERKLE_TREE_TYPE_V2: u64 = 4;

@@ -1,4 +1,4 @@
-use zolana_batched_merkle_tree::constants::NUM_BATCHES;
+use zolana_tree::nullifier_tree::constants::NUM_BATCHES;
 use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount};
 
 pub const STATE_HEIGHT: usize = 32;

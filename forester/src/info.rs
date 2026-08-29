@@ -15,7 +15,7 @@ use solana_rpc_client::rpc_client::RpcClient;
 use solana_signer::Signer;
 
 use crate::config::ForesterConfig;
-use zolana_batched_merkle_tree::batch::BatchState;
+use zolana_tree::nullifier_tree::batch::BatchState;
 use zolana_tree::TreeAccount;
 
 const LAMPORTS_PER_SOL: u64 = 1_000_000_000;

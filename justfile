@@ -75,14 +75,13 @@ test: test-shielded-pool test-sdk-libs test-photon
 
 # Everything that needs nothing running. No prover, no validator, no network,
 # and no proving keys. CI runs these same suites on every push, one job each.
-test-hermetic: test-cli test-batched-merkle-tree test-program-fast test-user-registry-litesvm test-sdk-libs test-photon
+test-hermetic: test-cli test-tree test-program-fast test-user-registry-litesvm test-sdk-libs test-photon
 
-# The tests need the test-only feature. Keep the prover-backed nullifier_tree
-# binary out of this hermetic lane.
-test-batched-merkle-tree:
-    cargo nextest run -p zolana-batched-merkle-tree --features test-only \
-        --test access --test batch --test layout --test merkle_tree_update \
-        --test queue_insert --test batch_reclaimable --test nullifier_pda
+# The tests need the test-only feature. Keep the prover-backed
+# nullifier_tree::prover_e2e module out of this hermetic lane.
+test-tree:
+    cargo nextest run -p zolana-tree --features test-only \
+        -E 'not test(/^prover_e2e::/)'
 
 # Program/interface tests for the shielded-pool implementation.
 # Depends on build-programs so the litesvm tests load a fresh .so and actually
@@ -1454,7 +1453,7 @@ build-localnet-archives dir="target/nextest-archives": build-programs build-cli 
 # Regenerate all proving keys (transfer, merge, custom ring, and batch
 # address-append), the committed verifying keys in both crates, and
 # proving-keys.lock. groth16 setup is non-deterministic, so the
-# batched-merkle-tree vkeys are regenerated with the keys -- commit both
+# nullifier-tree vkeys are regenerated with the keys -- commit both
 # together. Mirrors scripts/rotate_proving_keys.sh minus the fingerprint refresh
 # and the S3 upload (publish-spp-keys).
 build-spp-keys:
@@ -1482,7 +1481,7 @@ build-spp-keys:
         prover/server/light-prover export-vk --keys-file "$keys_dir/${stem}.key" --output "$tmp_dir/${stem}.vkbin" >/dev/null
         cargo run -q -p xtask -- bsb22-vk \
             "$tmp_dir/${stem}.vkbin" \
-            "program-libs/batched-merkle-tree/src/verify/verifying_keys" \
+            "program-libs/tree/src/nullifier_tree/verify/verifying_keys" \
             "${module}.rs"
     done
     python3 prover/server/scripts/generate_lockfile.py "$keys_dir"

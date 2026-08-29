@@ -1,25 +1,79 @@
-//! Clean tree types for the shielded pool.
+//! # zolana-tree
+//!
+//! The shielded pool's tree account. A single Solana account holds both trees
+//! the pool maintains, cast in place as one [`TreeAccountLayout`]: an
+//! append-only UTXO state tree of height 32, and a batched indexed nullifier
+//! tree of height 40 with its input queue.
+//!
+//! | Module | Description |
+//! |--------|-------------|
+//! | [`smt`] | [`UtxoTreeLayout`], the append-only state tree |
+//! | [`nullifier_tree`] | The batched indexed nullifier tree and its input queue |
+//! | [`error`] | [`TreeError`], the account-level error type |
+//!
+//! ## Loading
+//!
+//! [`TreeAccount`] is the loader for both subtrees. It checks program
+//! ownership, the discriminator, and the pause flag, then returns `&mut`
+//! access to [`TreeAccount::utxo_tree`] or [`TreeAccount::nullifier_tree`].
+//! [`TreeAccount::from_account_view_mut`] rejects a paused tree, which freezes
+//! the write paths; `pause_tree` loads through
+//! [`TreeAccount::from_account_view_mut_allow_paused`] so it can unpause.
+//!
+//! ## State tree
+//!
+//! [`smt::UtxoTreeLayout`] appends output commitments one leaf at a time and
+//! keeps a cyclic root history of [`smt::ROOT_HISTORY_CAPACITY`] roots for
+//! validity proofs. Its height is pinned to [`UTXO_TREE_HEIGHT`], and
+//! [`TreeAccount::init`] rejects any other value.
+//!
+//! ## Nullifier tree
+//!
+//! [`nullifier_tree`] is an indexed Merkle tree with an integrated input
+//! queue. Spent-note nullifiers are queued instead of being applied a leaf at
+//! a time, and a queued batch is applied to the tree with a Groth16 proof that
+//! the values append correctly. A per-nullifier PDA
+//! (`zolana_interface::state::NullifierPda`) records the queue index a value
+//! reserved, and rejects a second insertion of the same nullifier while it is
+//! pending. `nullifier_tree_spec.md` is the normative description of queue
+//! insertion, batch append, and PDA cleanup.
+//!
+//! Both trees are sized by const generics, so the account is one zero-copy
+//! cast and [`TreeAccount::account_size`] is the length the allocator must
+//! use.
+//!
+//! ## Testing
+//!
+//! `just test-tree` runs every test that needs no prover.
+//!
+//! The nullifier-tree suite drives the layout through byte slices, so all of
+//! it except `tests/nullifier_tree/init_roots.rs` is gated on the `test-only`
+//! feature. That feature also relaxes the height-40 check in
+//! [`nullifier_tree::init`], letting tests build small trees;
+//! [`TreeAccount::init`] still rejects any height but 40, and the
+//! shielded-pool build leaves `test-only` off. The `prover_e2e` module
+//! additionally needs a prover at `ZOLANA_PROVER_URL`.
 pub mod error;
+pub mod nullifier_tree;
 pub mod smt;
 
 use core::mem::{size_of, MaybeUninit};
 
 pub use error::TreeError;
+pub use nullifier_tree::init::InitAddressTreeAccountsInstructionData;
+use nullifier_tree::{
+    constants::{
+        ADDRESS_TREE_DEFAULT_ZKP, DEFAULT_BATCH_ADDRESS_TREE_HEIGHT, NULLIFIER_TREE_INIT_ROOT_40,
+    },
+    init::match_circuit_size,
+    layout::{NullifierTreeLayout, TreeType},
+};
 use pinocchio::{account::RefMut, AccountView, Address};
 pub use smt::UtxoTreeLayout;
 use wincode::{
     config::{ConfigCore, ZeroCopy},
     io::Reader,
     ReadResult, SchemaRead, TypeMeta,
-};
-pub use zolana_batched_merkle_tree::init::InitAddressTreeAccountsInstructionData;
-use zolana_batched_merkle_tree::{
-    constants::{
-        ADDRESS_TREE_DEFAULT_ZKP, DEFAULT_BATCH_ADDRESS_TREE_HEIGHT, NULLIFIER_TREE_INIT_ROOT_40,
-    },
-    init::match_circuit_size,
-    layout::NullifierTreeLayout,
-    layout::TreeType,
 };
 
 /// Height of the pool's UTXO state tree. `TreeAccount::init` rejects any
@@ -264,17 +318,10 @@ impl<'a> TreeAccount<'a> {
     }
 
     pub fn get_nullifier_tree_root(&self, index: u16) -> Result<[u8; 32], TreeError> {
-        let root = *self
-            .layout()
+        self.layout()
             .nullifier
-            .root_history
-            .roots
-            .get(usize::from(index))
-            .ok_or(TreeError::InvalidRootIndex)?;
-        if root == [0u8; 32] {
-            return Err(TreeError::InvalidRootIndex);
-        }
-        Ok(root)
+            .root_by_index(index)
+            .ok_or(TreeError::InvalidRootIndex)
     }
 
     pub fn discriminator(&self) -> u8 {
