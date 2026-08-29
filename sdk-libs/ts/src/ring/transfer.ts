@@ -19,6 +19,7 @@ import type {
   TransactInstructionData,
 } from "../interface/types.js";
 import { customRingPublicInputHash, parseAuditorMessage } from "../keypair/audit.js";
+import type { NullifierKey } from "../keypair/nullifier-key.js";
 import type { P256PublicKey } from "../keypair/public-key.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
 import { ViewingKey } from "../keypair/viewing-key.js";
@@ -57,8 +58,8 @@ export interface RingTransferTransactionParams {
   readonly recipient: Address | ShieldedAddress;
   readonly asset?: Address;
   readonly amount: bigint;
-  /** `"ring-or-default"` lets default notes fund the transfer and enter the ring. */
-  readonly inputs?: "ring" | "ring-or-default";
+  /** `"default"` funds only from default notes, a pure ring entry, `"ring-or-default"` mixes. */
+  readonly inputs?: "ring" | "ring-or-default" | "default";
   /** Must be at least one slot old. */
   readonly lookupTable: Address;
   readonly computeUnitLimit?: number;
@@ -127,12 +128,16 @@ async function buildRingSendTransaction(
   destination: "ring" | "default",
   context?: RequestContext,
 ): Promise<Transaction> {
+  let spendKey: NullifierKey | undefined;
+  let inputs: readonly ProofInputUtxo[] = [];
   try {
     const asset = input.asset ?? SOL_MINT;
-    const [recipient, address, nullifierKey] = await Promise.all([
+    // The key lands in `spendKey` before any await can reject and leak it.
+    const nullifierKey = await input.authority.spendNullifierKey();
+    spendKey = nullifierKey;
+    const [recipient, address] = await Promise.all([
       resolveRecipient(input, context),
       input.authority.shieldedAddress(),
-      input.authority.spendNullifierKey(),
     ]);
     const selected = selectRingInputs(
       input.wallet,
@@ -140,9 +145,10 @@ async function buildRingSendTransaction(
       asset,
       input.amount,
       input.inputs ?? "ring",
+      input.client.tree,
     );
-    const inputs = selected.map(
-      ({ entry }) =>
+    inputs = selected.map(
+      (entry) =>
         new ProofInputUtxo({
           utxo: entry.utxo,
           nullifierKey,
@@ -158,8 +164,7 @@ async function buildRingSendTransaction(
     } else {
       transfer.sendDefaultRing(recipient, asset, input.amount);
     }
-    const tree = selected[0]?.tree ?? input.client.tree;
-    const entering = selected.some(({ entry }) => entry.utxo.ringProgramId === undefined);
+    const entering = selected.some((entry) => entry.utxo.ringProgramId === undefined);
     const action = destination === "default" ? "exit" : entering ? "entry" : "transfer";
     await input.authority.requestUserApproval({
       solanaPublicKey: input.authority.solanaPublicKey(),
@@ -172,7 +177,7 @@ async function buildRingSendTransaction(
         prepared: transfer.prepare(),
         authority: input.authority,
         assets: input.wallet.registry,
-        tree,
+        tree: input.client.tree,
       },
       context,
     );
@@ -219,6 +224,9 @@ async function buildRingSendTransaction(
     });
   } catch (cause) {
     throw wrapRingError("RING_BUILD_TRANSFER", cause);
+  } finally {
+    spendKey?.destroy();
+    for (const proofInput of inputs) proofInput.destroy();
   }
 }
 
@@ -230,11 +238,15 @@ export async function buildRingWithdrawalTransaction(
   input: RingWithdrawalTransactionParams,
   context?: RequestContext,
 ): Promise<Transaction> {
+  let spendKey: NullifierKey | undefined;
+  let inputs: readonly ProofInputUtxo[] = [];
   try {
     const asset = input.asset ?? SOL_MINT;
-    const [address, nullifierKey, resolved] = await Promise.all([
+    // The key lands in `spendKey` before any await can reject and leak it.
+    const nullifierKey = await input.authority.spendNullifierKey();
+    spendKey = nullifierKey;
+    const [address, resolved] = await Promise.all([
       input.authority.shieldedAddress(),
-      input.authority.spendNullifierKey(),
       resolveWithdrawal(input.recipient, asset, input.splTokenProgram),
     ]);
     const selected = selectRingInputs(
@@ -243,9 +255,10 @@ export async function buildRingWithdrawalTransaction(
       asset,
       input.amount,
       "ring",
+      input.client.tree,
     );
-    const inputs = selected.map(
-      ({ entry }) =>
+    inputs = selected.map(
+      (entry) =>
         new ProofInputUtxo({
           utxo: entry.utxo,
           nullifierKey,
@@ -257,7 +270,6 @@ export async function buildRingWithdrawalTransaction(
       .withCompactChange()
       .withRingProgramId(input.ringProgramId);
     transfer.withdraw(asset, input.amount, resolved.target);
-    const tree = selected[0]?.tree ?? input.client.tree;
     await input.authority.requestUserApproval({
       solanaPublicKey: input.authority.solanaPublicKey(),
       summary: `public withdrawal of ${String(input.amount)} ${assetLabel(asset)} from ring ${input.ringProgramId} to ${input.recipient}`,
@@ -269,7 +281,7 @@ export async function buildRingWithdrawalTransaction(
         prepared: transfer.prepare(),
         authority: input.authority,
         assets: input.wallet.registry,
-        tree,
+        tree: input.client.tree,
       },
       context,
     );
@@ -317,6 +329,9 @@ export async function buildRingWithdrawalTransaction(
     });
   } catch (cause) {
     throw wrapRingError("RING_BUILD_WITHDRAWAL", cause);
+  } finally {
+    spendKey?.destroy();
+    for (const proofInput of inputs) proofInput.destroy();
   }
 }
 
@@ -325,6 +340,12 @@ export async function proveCustomRingTransfer(
   input: CustomRingTransferParams,
   context?: RequestContext,
 ): Promise<ProvenRingTransfer> {
+  // The prover fetches merkle proofs from the client tree only.
+  if (input.tree !== input.client.tree) {
+    throw new RingError("RING_TREE_MISMATCH", {
+      details: { tree: input.tree, clientTree: input.client.tree },
+    });
+  }
   const config = await fetchRingProgramConfig(input.client, input.ringProgramId, context);
   // A padded change slot pushes the custom-ring instruction past the packet limit
   // even behind an address lookup table.
@@ -465,14 +486,8 @@ function assetLabel(asset: Address): string {
   return asset === SOL_MINT ? "SOL" : asset;
 }
 
-interface SelectedInput {
-  readonly entry: WalletUtxo;
-  readonly tree: Address;
-}
-
 /**
- * Notes of the signing ring, plus plain default notes when `inputs` allows the
- * entry.
+ * Notes on `tree` the mode admits.
  *
  * @internal Exported for tests only.
  */
@@ -481,12 +496,13 @@ export function selectRingInputs(
   ringProgramId: Address,
   asset: Address,
   amount: bigint,
-  inputs: "ring" | "ring-or-default",
-): readonly SelectedInput[] {
+  inputs: "ring" | "ring-or-default" | "default",
+  tree: Address,
+): readonly WalletUtxo[] {
   const eligible = (entry: WalletUtxo): boolean => {
-    if (entry.utxo.ringProgramId === ringProgramId) return true;
+    if (entry.utxo.ringProgramId === ringProgramId) return inputs !== "default";
     return (
-      inputs === "ring-or-default" &&
+      inputs !== "ring" &&
       entry.utxo.ringProgramId === undefined &&
       entry.ringDataHash === undefined
     );
@@ -494,19 +510,21 @@ export function selectRingInputs(
   // Largest first, a fragmented balance covers with the fewest notes.
   const candidates = wallet
     .utxos()
-    .filter((entry) => !entry.spent && entry.utxo.asset === asset && eligible(entry))
+    .filter(
+      (entry) =>
+        !entry.spent &&
+        entry.utxo.asset === asset &&
+        entry.outputContext.tree === tree &&
+        eligible(entry),
+    )
     .sort((left, right) =>
       left.utxo.amount < right.utxo.amount ? 1 : left.utxo.amount > right.utxo.amount ? -1 : 0,
     );
-  const trees = new Set(candidates.map((entry) => entry.outputContext.tree));
-  if (trees.size > 1) {
-    throw new RingError("RING_MULTIPLE_INPUT_TREES", { details: { asset, treeCount: trees.size } });
-  }
   const total = candidates.reduce((sum, entry) => sum + entry.utxo.amount, 0n);
-  const selected: SelectedInput[] = [];
+  const selected: WalletUtxo[] = [];
   let available = 0n;
   for (const entry of candidates.slice(0, MAX_INPUTS)) {
-    selected.push({ entry, tree: entry.outputContext.tree });
+    selected.push(entry);
     available += entry.utxo.amount;
     if (available >= amount) break;
   }

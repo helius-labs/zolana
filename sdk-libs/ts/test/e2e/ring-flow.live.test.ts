@@ -375,11 +375,11 @@ describe("ring flow", () => {
     expect(await ringReadError(ringRpc, ringProgramId, passkey)).toContain("no active grant");
   }, 600_000);
 
-  it("carries usdc in from the default ring, back out, and into a public withdrawal", async () => {
+  it("carries a token-2022 mint in from the default ring, back out, and into a public withdrawal", async () => {
     const ringProgramId = address(requiredEnv("RING_PROGRAM_ID"));
     // The Token-2022 test mint, the legacy mint's vault is asserted absolutely
     // by the private-flow suite.
-    const usdc = address(requiredEnv("ZOLANA_TEST_TOKEN_2022_MINT"));
+    const mint = address(requiredEnv("ZOLANA_TEST_TOKEN_2022_MINT"));
     const fundingTokenAccount = address(requiredEnv("ZOLANA_TEST_TOKEN_2022_ACCOUNT"));
     const client = await createZolanaClient({
       solanaRpcUrl: requiredEnv("ZOLANA_LOCALNET_URL"),
@@ -407,7 +407,7 @@ describe("ring flow", () => {
       client,
       feePayer: mintAuthority.address,
       recipient: sender.keypair.shieldedAddress(),
-      asset: usdc,
+      asset: mint,
       amount: deposited,
       splTokenAccount: fundingTokenAccount,
       splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID,
@@ -416,7 +416,7 @@ describe("ring flow", () => {
     await sync(client, sender);
     const defaultNotes = sender.wallet
       .utxos()
-      .filter((note) => !note.spent && note.utxo.asset === usdc);
+      .filter((note) => !note.spent && note.utxo.asset === mint);
     expect(defaultNotes.map((note) => [note.utxo.amount, note.utxo.ringProgramId])).toEqual([
       [deposited, undefined],
     ]);
@@ -440,9 +440,9 @@ describe("ring flow", () => {
       authority: sender.authority,
       feePayer: sender.signer.address,
       recipient: recipient.keypair.shieldedAddress(),
-      asset: usdc,
+      asset: mint,
       amount: entry,
-      inputs: "ring-or-default",
+      inputs: "default",
       lookupTable: table.address,
     });
     const entrySignature = await signSendAndConfirm(client, entryTransaction, [sender.signer]);
@@ -452,7 +452,7 @@ describe("ring flow", () => {
       authoritySigner,
       entrySignature,
     );
-    expect(entryAudited.outputs.map((output) => output.asset)).toEqual([usdc, usdc]);
+    expect(entryAudited.outputs.map((output) => output.asset)).toEqual([mint, mint]);
     expect(entryAudited.outputs.map((output) => output.ringProgramId)).toEqual([
       ringProgramId,
       ringProgramId,
@@ -460,7 +460,7 @@ describe("ring flow", () => {
     await sync(client, recipient);
     const ringNotes = recipient.wallet
       .utxos()
-      .filter((note) => !note.spent && note.utxo.asset === usdc);
+      .filter((note) => !note.spent && note.utxo.asset === mint);
     expect(ringNotes.map((note) => [note.utxo.amount, note.utxo.ringProgramId])).toEqual([
       [entry, ringProgramId],
     ]);
@@ -473,7 +473,7 @@ describe("ring flow", () => {
       authority: recipient.authority,
       feePayer: recipient.signer.address,
       recipient: sender.keypair.shieldedAddress(),
-      asset: usdc,
+      asset: mint,
       amount: exit,
       lookupTable: table.address,
     });
@@ -493,7 +493,7 @@ describe("ring flow", () => {
     await sync(client, sender);
     const senderNotes = sender.wallet
       .utxos()
-      .filter((note) => !note.spent && note.utxo.asset === usdc)
+      .filter((note) => !note.spent && note.utxo.asset === mint)
       .map((note) => [note.utxo.amount, note.utxo.ringProgramId] as const)
       .sort((a, b) => (a[0] < b[0] ? -1 : 1));
     expect(senderNotes).toEqual([
@@ -511,7 +511,7 @@ describe("ring flow", () => {
       authority: recipient.authority,
       feePayer: recipient.signer.address,
       recipient: mintAuthority.address,
-      asset: usdc,
+      asset: mint,
       amount: withdrawn,
       splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID,
       lookupTable: table.address,

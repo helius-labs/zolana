@@ -432,11 +432,11 @@ describe("AssetRegistry register", () => {
 describe("selectRingInputs", () => {
   function ringNoteWallet(
     keypair: ShieldedKeypair,
-    notes: readonly (readonly [bigint, Address | undefined])[],
+    notes: readonly (readonly [bigint, Address | undefined, Address?])[],
   ): Wallet {
     const wallet = fundedWallet(keypair, []);
     wallet._replace({
-      utxos: notes.map(([amount, ringProgramId], index) => ({
+      utxos: notes.map(([amount, ringProgramId, tree], index) => ({
         utxo: new Utxo({
           owner: keypair.signingPublicKey(),
           asset: SOL_MINT,
@@ -445,7 +445,7 @@ describe("selectRingInputs", () => {
           data: new Data(),
           ...(ringProgramId === undefined ? {} : { ringProgramId }),
         }),
-        outputContext: { hash: filled(index + 1), tree: TREE, leafIndex: BigInt(index) },
+        outputContext: { hash: filled(index + 1), tree: tree ?? TREE, leafIndex: BigInt(index) },
         nullifier: filled(index + 20),
         spent: false,
       })),
@@ -460,11 +460,37 @@ describe("selectRingInputs", () => {
       [10n, undefined],
       [10n, RING],
     ]);
-    expect(() => selectRingInputs(wallet, RING, SOL_MINT, 15n, "ring")).toThrow(
+    expect(() => selectRingInputs(wallet, RING, SOL_MINT, 15n, "ring", TREE)).toThrow(
       "RING_INSUFFICIENT_BALANCE",
     );
-    const selected = selectRingInputs(wallet, RING, SOL_MINT, 15n, "ring-or-default");
+    const selected = selectRingInputs(wallet, RING, SOL_MINT, 15n, "ring-or-default", TREE);
     expect(selected).toHaveLength(2);
+  });
+
+  it("funds a default-only entry even when a ring note covers", () => {
+    const wallet = ringNoteWallet(spendingKeypair(), [
+      [100n, RING],
+      [25n, undefined],
+    ]);
+    const selected = selectRingInputs(wallet, RING, SOL_MINT, 25n, "default", TREE);
+    expect(selected).toHaveLength(1);
+    expect(selected[0]?.utxo.ringProgramId).toBeUndefined();
+    expect(() => selectRingInputs(wallet, RING, SOL_MINT, 30n, "default", TREE)).toThrow(
+      "RING_INSUFFICIENT_BALANCE",
+    );
+  });
+
+  it("never offers a note outside the requested tree", () => {
+    const wallet = ringNoteWallet(spendingKeypair(), [
+      [50n, RING, RECIPIENT],
+      [20n, RING],
+    ]);
+    const selected = selectRingInputs(wallet, RING, SOL_MINT, 20n, "ring", TREE);
+    expect(selected).toHaveLength(1);
+    expect(selected[0]?.utxo.amount).toBe(20n);
+    expect(() => selectRingInputs(wallet, RING, SOL_MINT, 30n, "ring", TREE)).toThrow(
+      "RING_INSUFFICIENT_BALANCE",
+    );
   });
 
   it("covers a fragmented balance with the largest note", () => {
@@ -472,9 +498,9 @@ describe("selectRingInputs", () => {
       ...Array.from({ length: 6 }, () => [5n, RING] as const),
       [100n, RING],
     ]);
-    const selected = selectRingInputs(wallet, RING, SOL_MINT, 100n, "ring");
+    const selected = selectRingInputs(wallet, RING, SOL_MINT, 100n, "ring", TREE);
     expect(selected).toHaveLength(1);
-    expect(selected[0]?.entry.utxo.amount).toBe(100n);
+    expect(selected[0]?.utxo.amount).toBe(100n);
   });
 
   it("refuses a cover wider than the input cap", () => {
@@ -482,7 +508,7 @@ describe("selectRingInputs", () => {
       spendingKeypair(),
       Array.from({ length: 6 }, () => [5n, RING] as const),
     );
-    expect(() => selectRingInputs(wallet, RING, SOL_MINT, 30n, "ring")).toThrow(
+    expect(() => selectRingInputs(wallet, RING, SOL_MINT, 30n, "ring", TREE)).toThrow(
       "RING_TOO_MANY_INPUTS",
     );
   });
@@ -492,10 +518,10 @@ describe("selectRingInputs", () => {
       [50n, RECIPIENT],
       [20n, undefined],
     ]);
-    const selected = selectRingInputs(wallet, RING, SOL_MINT, 20n, "ring-or-default");
+    const selected = selectRingInputs(wallet, RING, SOL_MINT, 20n, "ring-or-default", TREE);
     expect(selected).toHaveLength(1);
-    expect(selected[0]?.entry.utxo.ringProgramId).toBeUndefined();
-    expect(() => selectRingInputs(wallet, RING, SOL_MINT, 30n, "ring-or-default")).toThrow(
+    expect(selected[0]?.utxo.ringProgramId).toBeUndefined();
+    expect(() => selectRingInputs(wallet, RING, SOL_MINT, 30n, "ring-or-default", TREE)).toThrow(
       "RING_INSUFFICIENT_BALANCE",
     );
   });

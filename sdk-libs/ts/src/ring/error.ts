@@ -29,6 +29,7 @@ export const RING_ERROR_CODES = [
   "RING_RPC",
   "RING_RPC_TRANSPORT",
   "RING_TOO_MANY_INPUTS",
+  "RING_TREE_MISMATCH",
 ] as const;
 
 export type RingErrorCode = (typeof RING_ERROR_CODES)[number];

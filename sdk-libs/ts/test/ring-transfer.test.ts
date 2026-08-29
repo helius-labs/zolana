@@ -24,9 +24,14 @@ import {
 import { SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
 import { StateDiscriminator } from "../src/interface/state.js";
 import { assemble, circuitUtxo, ownerSignerAddresses } from "../src/client/prover/assembly.js";
+import type { ZolanaClient } from "../src/client/client.js";
 import type { SpendProof } from "../src/client/rpc.js";
 import { hashBytesBigInt } from "../src/client/internal.js";
-import { frameDummyOutputs, checkRingMembership } from "../src/ring/transfer.js";
+import {
+  frameDummyOutputs,
+  checkRingMembership,
+  proveCustomRingTransfer,
+} from "../src/ring/transfer.js";
 import {
   ConfidentialTransfer,
   type IndexedShieldedTransaction,
@@ -356,6 +361,37 @@ describe("ring witness", () => {
     expect(() =>
       preparedTransfer(4n, [], [], RING, SOL_MINT, actor(8).address.solanaAddress()),
     ).toThrow("TRANSACTION_ED25519_PAYER_MISMATCH");
+  });
+
+  it("refuses a tree the client does not prove from, before any fetch", async () => {
+    const client = { tree: RING } as unknown as ZolanaClient;
+    await expect(
+      proveCustomRingTransfer({
+        client,
+        ringProgramId: RING,
+        prepared: {} as PreparedTransfer,
+        authority: actor(3).authority,
+        assets: new AssetRegistry(),
+        tree: actor(8).address.solanaAddress(),
+      }),
+    ).rejects.toThrow("RING_TREE_MISMATCH");
+  });
+
+  it("destroys only its own clone of the nullifier key", () => {
+    const owner = actor(3);
+    const nullifierKey = owner.keypair.nullifierKey();
+    const note = new ProofInputUtxo({
+      utxo: new Utxo({
+        owner: owner.keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 5n,
+        blinding: scalar(1),
+      }),
+      nullifierKey,
+    });
+    note.destroy();
+    expect(() => note.nullifierKey.publicKey()).toThrow("KEYPAIR_INVALID_SECRET_KEY");
+    expect(nullifierKey.publicKey()).toEqual(owner.keypair.nullifierKey().publicKey());
   });
 
   it("derives non-payer owner signers like Rust `owner_signer_pubkeys`", () => {
