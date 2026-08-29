@@ -35,6 +35,9 @@ Fixed
 - A private transfer, withdrawal, or split kept its spend key and every
   per-input key copy in memory after building, all of them are wiped once
   the transaction is assembled or the build fails.
+- Every encryption minted a per-transaction viewing key and kept it in
+  memory, each rail wipes it once the envelope is built, in both shipped
+  authorities.
 - `decryptToBalances` minted a viewing and a nullifier key and kept both in
   memory, they are wiped before it returns.
 - `KeypairWalletAuthority.fromDerivationSeed` left the secrets derived
