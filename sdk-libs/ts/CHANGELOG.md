@@ -3,10 +3,21 @@
 ## 0.1.5-alpha — unreleased
 
 Wallet sync is atomic, a sync that fails partway changes nothing and the
-next sync re-reads what the failed one fetched. Secret key material no
-longer outlives its use, builds wipe their spend key and per-input copies
-once the transaction is assembled, and balance decryption and key
-derivation wipe the secrets they mint.
+next sync re-reads what the failed one fetched. Serialized wallets carry
+their resume cursors, a restarted wallet continues where it stopped
+instead of rescanning history. Secret key material no longer outlives its
+use, builds and decryption wipe the keys they mint.
+
+Breaking
+
+- `serializeWallet` writes `SerializedWalletState` version 3 with sync
+  cursors → state saved by version 2 still loads, and its first sync
+  rescans history once.
+
+Added
+
+- `deserializeWallet` restores sync cursors, a restarted wallet resumes
+  `syncWallet` where it stopped instead of replaying the full history.
 
 Changed
 

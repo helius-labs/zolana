@@ -16,7 +16,9 @@ import {
   Wallet,
   createProofOutput,
   decryptTransactions,
+  deserializeWallet,
   encodeConfidentialSlots,
+  serializeWallet,
 } from "../src/transaction/index.js";
 import {
   EncryptedScheme,
@@ -167,6 +169,36 @@ describe("wallet sync atomicity", () => {
       causeCode: "TRANSACTION_WALLET_STATE_STALE",
     });
     expect(wallet.lastSynced).toBe(42n);
+  });
+
+  it("resumes from persisted cursors after a restart", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const authority = new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair });
+    const cursor = Uint8Array.of(5, 5, 5);
+    let served = 0;
+    const getShieldedTransactionsByTags = vi.fn(async () => {
+      served += 1;
+      return {
+        context: { blockTime: 1_700_000_000n },
+        transactions: [],
+        ...(served === 1 ? { scannedThrough: cursor } : {}),
+      };
+    });
+    const client = {
+      getShieldedTransactionsByTags,
+      ...emptyTagPages(),
+    } as unknown as ZolanaClient;
+
+    await syncWallet({ wallet, authority, client });
+    const restored = deserializeWallet(serializeWallet(wallet));
+    getShieldedTransactionsByTags.mockClear();
+    await syncWallet({ wallet: restored, authority, client });
+
+    const call = (
+      getShieldedTransactionsByTags.mock.calls as unknown as [{ cursor?: Uint8Array }][]
+    )[0]?.[0];
+    expect(call?.cursor).toEqual(cursor);
   });
 
   it("derives the sync material once per sync", async () => {

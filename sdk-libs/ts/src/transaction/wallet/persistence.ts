@@ -17,6 +17,7 @@ import { AssetRegistry, SOL_ASSET_ID } from "./asset.js";
 import {
   Wallet,
   hex,
+  type CursorStream,
   type PrivateTransaction,
   type PrivateTransactionDirection,
   type PrivateTransactionKind,
@@ -72,13 +73,25 @@ interface SerializedPrivateTransaction {
   readonly counterpartyViewingPublicKey?: string;
 }
 
+interface SerializedCursor {
+  /** Lowercase hex of the tag or nullifier the stream position belongs to. */
+  readonly key: string;
+  readonly cursor: string;
+}
+
+interface SerializedSyncCursors {
+  readonly transactions: readonly SerializedCursor[];
+  readonly proofless: readonly SerializedCursor[];
+  readonly nullifiers: readonly SerializedCursor[];
+}
+
 /**
  * Versioned, JSON-safe wallet state. It contains private note plaintext and
  * blindings, but never signing, nullifier, or viewing secrets. Applications
  * must still encrypt it at rest.
  */
 export interface SerializedWalletState {
-  readonly version: 2;
+  readonly version: 3;
   readonly identity: Readonly<{
     signingPublicKey: string;
     nullifierPublicKey: string;
@@ -90,13 +103,14 @@ export interface SerializedWalletState {
   readonly transactions: readonly SerializedPrivateTransaction[];
   readonly nullifiers: readonly string[];
   readonly lastSynced: string;
+  readonly syncCursors: SerializedSyncCursors;
 }
 
 export function serializeWallet(wallet: Wallet): string {
   if (!(wallet instanceof Wallet)) fail("wallet");
   const state = wallet._state();
   const snapshot: SerializedWalletState = {
-    version: 2,
+    version: 3,
     identity: {
       signingPublicKey: encode(wallet.identity.signingPublicKey.toBytes()),
       nullifierPublicKey: encode(wallet.identity.nullifierPublicKey),
@@ -111,8 +125,20 @@ export function serializeWallet(wallet: Wallet): string {
     transactions: state.transactions.map(serializeTransaction),
     nullifiers: [...state.nullifiers].sort().map((value) => encode(unhex(value))),
     lastSynced: wallet.lastSynced.toString(),
+    syncCursors: {
+      transactions: serializeCursors(wallet, "transactions"),
+      proofless: serializeCursors(wallet, "proofless"),
+      nullifiers: serializeCursors(wallet, "nullifiers"),
+    },
   };
   return JSON.stringify(snapshot);
+}
+
+function serializeCursors(wallet: Wallet, stream: CursorStream): readonly SerializedCursor[] {
+  return wallet
+    ._cursorEntries(stream)
+    .map(([key, cursor]) => Object.freeze({ key, cursor: encode(cursor) }))
+    .sort((left, right) => (left.key < right.key ? -1 : left.key > right.key ? 1 : 0));
 }
 
 export function deserializeWallet(serialized: string): Wallet {
@@ -127,7 +153,8 @@ export function deserializeWallet(serialized: string): Wallet {
 
 function hydrate(value: unknown): Wallet {
   const snapshot = record(value, "wallet");
-  if (snapshot["version"] !== 2) fail("version");
+  const version = snapshot["version"];
+  if (version !== 2 && version !== 3) fail("version");
   const identityValue = record(snapshot["identity"], "identity");
   const identity = ShieldedAddress.fromPublicKeys(
     ShieldedPublicKey.fromBytes(
@@ -182,7 +209,25 @@ function hydrate(value: unknown): Wallet {
     viewingKeyHistory,
     lastSynced: signed(snapshot["lastSynced"], "lastSynced"),
   });
+  // Version 2 predates persisted cursors, its first sync rescans history once.
+  if (version === 3) {
+    hydrateCursors(wallet, snapshot["syncCursors"]);
+    wallet._forgetNullifierCursors(nullifiers);
+  }
   return wallet;
+}
+
+function hydrateCursors(wallet: Wallet, value: unknown): void {
+  const streams = record(value, "syncCursors");
+  for (const stream of ["transactions", "proofless", "nullifiers"] as const) {
+    array(streams[stream], `syncCursors.${stream}`).forEach((entry, index) => {
+      const field = `syncCursors.${stream}[${String(index)}]`;
+      const item = record(entry, field);
+      const key = item["key"];
+      if (typeof key !== "string" || !/^[0-9a-f]{64}$/u.test(key)) fail(`${field}.key`);
+      wallet._setSyncCursor(stream, key, bytes(item["cursor"], undefined, `${field}.cursor`));
+    });
+  }
 }
 
 function serializeViewingKeyEntry(value: ViewingKeyEntry): SerializedViewingKeyEntry {
