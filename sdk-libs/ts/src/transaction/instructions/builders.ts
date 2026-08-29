@@ -6,6 +6,7 @@ import type { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.
 import { ShieldedKeypair, type ShieldedAddress } from "../../keypair/shielded.js";
 
 import { Data } from "../data.js";
+import { MERGE_INPUT_COUNT } from "../../interface/constants.js";
 import { TransactionError } from "../error.js";
 import { checked, equal } from "../internal.js";
 import { encodeSplitBundle, encryptSplit } from "../serialization/codecs.js";
@@ -19,7 +20,7 @@ import { type AssetRegistry } from "../asset.js";
 import { SppProofInputs, createExternalData, type InputUtxoContext } from "./transact.js";
 
 /** Padded input count of the merge circuit, the counterpart of Rust `MERGE_INPUTS`. */
-export const MERGE_INPUTS = 8;
+export const MERGE_INPUTS = MERGE_INPUT_COUNT;
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
 
 function checkedU64(value: bigint, field: string): bigint {

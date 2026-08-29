@@ -36,8 +36,8 @@ import type {
   TransferOutput,
 } from "./types.js";
 
-const STATE_TREE_HEIGHT = 32;
-const NULLIFIER_TREE_HEIGHT = 40;
+export const STATE_TREE_HEIGHT = 32;
+export const NULLIFIER_TREE_HEIGHT = 40;
 const ZERO_PROOF = Object.freeze({
   a: new Uint8Array(32),
   b: new Uint8Array(64),

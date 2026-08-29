@@ -24,9 +24,11 @@ import { ringConfigAddress, ringProgramDataAddress } from "./config.js";
 import { RingError } from "./error.js";
 
 /** Rust `tag::CREATE_CONFIG`, `tag::INIT_SPP_RING_CONFIG` and `tag::TRANSACT`. */
-const RING_PROGRAM_CREATE_CONFIG_TAG = 1;
-const RING_PROGRAM_INIT_SPP_RING_CONFIG_TAG = 2;
-const RING_PROGRAM_TRANSACT_TAG = 3;
+const RingProgramTag = Object.freeze({
+  createConfig: 1,
+  initSppRingConfig: 2,
+  transact: 3,
+} as const);
 
 /** Rust `CREATE_CONFIG_COMPUTE_UNIT_LIMIT`, `INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT` and `READ_ACCESS_COMPUTE_UNIT_LIMIT`. */
 export const RING_CREATE_CONFIG_COMPUTE_UNIT_LIMIT = 50_000;
@@ -50,7 +52,7 @@ export async function createRingConfigInstruction(
     ringProgramDataAddress(input.ringProgramId),
   ]);
   const data = new Uint8Array(1 + 33);
-  data[0] = RING_PROGRAM_CREATE_CONFIG_TAG;
+  data[0] = RingProgramTag.createConfig;
   data.set(input.auditorPublicKey.toBytes(), 1);
   return {
     programAddress: input.ringProgramId,
@@ -90,7 +92,7 @@ export async function initSppRingConfigInstruction(
       meta(SYSTEM_PROGRAM, false, false),
       meta(SHIELDED_POOL_PROGRAM_ID, false, false),
     ],
-    data: Uint8Array.of(RING_PROGRAM_INIT_SPP_RING_CONFIG_TAG),
+    data: Uint8Array.of(RingProgramTag.initSppRingConfig),
   };
 }
 
@@ -125,7 +127,7 @@ export async function ringTransactInstruction(
   const proof = checkedCustomRingProof(input.proof);
   const transact = encodeTransactInstructionData(input.data);
   const data = new Uint8Array(1 + proof.length + transact.length);
-  data[0] = RING_PROGRAM_TRANSACT_TAG;
+  data[0] = RingProgramTag.transact;
   data.set(proof, 1);
   data.set(transact, 1 + proof.length);
   return {

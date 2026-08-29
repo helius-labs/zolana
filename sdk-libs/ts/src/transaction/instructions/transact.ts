@@ -1,6 +1,7 @@
 import { address } from "@solana/kit";
 
 import { externalDataHash as interfaceExternalDataHash } from "../../interface/external-data-hash.js";
+import { InstructionTag } from "../../interface/program.js";
 import {
   SPP_SUPPORTED_SHAPES as INTERFACE_SUPPORTED_SHAPES,
   selectSppShape,
@@ -230,8 +231,6 @@ export interface ExternalDataInit {
   readonly messages: readonly Readonly<{ viewTag: Bytes32; data: Uint8Array }>[];
 }
 
-/** The `transact` tag, which Rust `ExternalData::new` takes from `tag::TRANSACT`. */
-const TRANSACT_DISCRIMINATOR = 12;
 /** Rust's default expiry: `u64::MAX`, meaning no expiry. */
 const NO_EXPIRY = 0xffff_ffff_ffff_ffffn;
 function externalDataHash(data: ExternalDataFields): Bytes32 {
@@ -322,7 +321,7 @@ type ExternalDataFields = Omit<
 export function createExternalData(input: ExternalDataInit): ExternalData {
   const snapshot: ExternalDataFields = {
     ...input,
-    instructionDiscriminator: input.instructionDiscriminator ?? TRANSACT_DISCRIMINATOR,
+    instructionDiscriminator: input.instructionDiscriminator ?? InstructionTag.transact,
     expiryUnixTs: input.expiryUnixTs ?? NO_EXPIRY,
     interfaceTransfers: Object.freeze(
       (input.interfaceTransfers ?? []).map((transfer) => Object.freeze({ ...transfer })),
@@ -924,7 +923,7 @@ function finalizeTransfer(
     }
   }
   const externalData = createExternalData({
-    instructionDiscriminator: encrypted.instructionDiscriminator ?? TRANSACT_DISCRIMINATOR,
+    instructionDiscriminator: encrypted.instructionDiscriminator ?? InstructionTag.transact,
     expiryUnixTs: 0xffff_ffff_ffff_ffffn,
     interfaceTransfers: prepared.interfaceTransfers,
     txViewingPublicKey: encrypted.txViewingPublicKey,

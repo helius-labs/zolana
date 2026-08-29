@@ -138,5 +138,5 @@ export {
   type TransferPlaintextUtxos,
 } from "./serialization/index.js";
 
-export const VIEW_TAG_LEN = 32;
+export { VIEW_TAG_LENGTH as VIEW_TAG_LEN } from "../keypair/constants.js";
 export type { ErrorEnvelope } from "../errors/internal.js";
