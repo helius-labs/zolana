@@ -129,7 +129,11 @@ describe("private transaction construction", () => {
         recipient: keypair.shieldedAddress(),
         amount: 0n,
       }),
-    ).rejects.toMatchObject({ code: "WALLET_INVALID_AMOUNT" });
+    ).rejects.toMatchObject({
+      code: "WALLET_BUILD_DEPOSIT",
+      causeCode: "WALLET_CREATE_DEPOSIT",
+      causeCodes: ["WALLET_CREATE_DEPOSIT", "WALLET_INVALID_AMOUNT"],
+    });
     await expect(
       createWithdrawal({
         wallet: fundedWallet(keypair, [100n]),
@@ -234,7 +238,10 @@ describe("private transaction construction", () => {
         asset: SOL_MINT,
         amount: 10n,
       }),
-    ).rejects.toMatchObject({ code: "WALLET_RECIPIENT_NOT_REGISTERED" });
+    ).rejects.toMatchObject({
+      code: "WALLET_CREATE_TRANSFER",
+      causeCode: "WALLET_RECIPIENT_NOT_REGISTERED",
+    });
     expect(getAccount).toHaveBeenCalledOnce();
   });
 

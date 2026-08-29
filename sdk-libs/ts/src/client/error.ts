@@ -1,3 +1,4 @@
+import { SECRET_KEY_PATTERN } from "../errors/internal.js";
 import { KeypairError, type KeypairErrorCode } from "../keypair/error.js";
 import { TransactionError, type TransactionErrorCode } from "../transaction/error.js";
 
@@ -531,7 +532,7 @@ function sanitizeDetails(
     const safe: Record<string, unknown> = {};
     for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
       if (!descriptor.enumerable || !("value" in descriptor)) continue;
-      if (/(secret|private|seed|blinding|nonce|scalar)/iu.test(key)) continue;
+      if (SECRET_KEY_PATTERN.test(key)) continue;
       const sanitized = sanitize(descriptor.value);
       if (sanitized !== undefined) safe[key] = sanitized;
     }

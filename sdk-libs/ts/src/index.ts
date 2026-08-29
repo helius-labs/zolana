@@ -1,6 +1,7 @@
 import { ZolanaClient, type ZolanaClientConfig } from "./client/index.js";
 import { initializePoseidon } from "./hasher/index.js";
 
+export type { ErrorEnvelope } from "./errors/internal.js";
 export type { TransactionSigner } from "@solana/kit";
 export { initializePoseidon };
 export { HasherWasmError } from "./hasher/index.js";

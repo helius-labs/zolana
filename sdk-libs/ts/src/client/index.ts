@@ -40,3 +40,4 @@ export type {
   RpcContext,
   SpendProof,
 } from "./rpc.js";
+export type { ErrorEnvelope } from "../errors/internal.js";

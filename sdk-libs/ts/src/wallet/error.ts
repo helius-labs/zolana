@@ -53,11 +53,20 @@ export const WALLET_ERROR_CODES = [
   "WALLET_USER_REGISTRY_RECORD_NOT_FOUND",
 ] as const;
 
+import {
+  extractCauseCodes,
+  hideCause,
+  sanitizeDetails,
+  type ErrorEnvelope,
+} from "../errors/internal.js";
+
 export type WalletErrorCode = (typeof WALLET_ERROR_CODES)[number];
 
 export class WalletError extends Error {
   readonly code: WalletErrorCode;
   readonly causeCode?: string;
+  /** The wrapped operation chain, innermost codes last. */
+  readonly causeCodes?: readonly string[];
   readonly details?: Readonly<Record<string, unknown>>;
   override readonly cause?: unknown;
 
@@ -65,6 +74,7 @@ export class WalletError extends Error {
     code: WalletErrorCode,
     options?: Readonly<{
       causeCode?: string;
+      causeCodes?: readonly string[];
       details?: Readonly<Record<string, unknown>>;
       cause?: unknown;
     }>,
@@ -73,26 +83,33 @@ export class WalletError extends Error {
     this.name = "WalletError";
     this.code = code;
     if (options?.causeCode !== undefined) this.causeCode = options.causeCode;
-    if (options?.details !== undefined) this.details = Object.freeze({ ...options.details });
-    if (options?.cause !== undefined) this.cause = options.cause;
+    if (options?.causeCodes !== undefined) this.causeCodes = Object.freeze([...options.causeCodes]);
+    const details = sanitizeDetails(options?.details);
+    if (details !== undefined) this.details = details;
+    hideCause(this, options?.cause);
+  }
+
+  toJSON(): ErrorEnvelope {
+    return {
+      name: this.name,
+      code: this.code,
+      ...(this.details === undefined ? {} : { details: this.details }),
+      ...(this.causeCode === undefined ? {} : { causeCode: this.causeCode }),
+      ...(this.causeCodes === undefined ? {} : { causeCodes: this.causeCodes }),
+    };
   }
 }
 
-function causeCode(cause: unknown): string | undefined {
-  if (typeof cause !== "object" || cause === null) return undefined;
-  const code = (cause as Readonly<{ code?: unknown }>).code;
-  return typeof code === "string" ? code : undefined;
-}
-
+/** Keeps the outer operation code, the wrapped code lands in `causeCode`. */
 export function wrapWalletError(
   code: WalletErrorCode,
   cause: unknown,
   details?: Readonly<Record<string, unknown>>,
 ): WalletError {
-  if (cause instanceof WalletError) return cause;
-  const inner = causeCode(cause);
+  if (cause instanceof WalletError && cause.code === code) return cause;
+  const chain = extractCauseCodes(cause);
   return new WalletError(code, {
-    ...(inner === undefined ? {} : { causeCode: inner }),
+    ...(chain.length === 0 ? {} : { causeCode: chain[0], causeCodes: chain }),
     ...(details === undefined ? {} : { details }),
     cause,
   });

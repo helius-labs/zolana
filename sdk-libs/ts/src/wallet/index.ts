@@ -53,3 +53,4 @@ export {
   type ResolvedAddress,
   type UserRecord,
 } from "./registry.js";
+export type { ErrorEnvelope } from "../errors/internal.js";

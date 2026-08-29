@@ -10,7 +10,7 @@ import { associatedTokenAddress, splInterfaceWithBump } from "../interface/pda/i
 import { ShieldedAddress } from "../keypair/shielded.js";
 import { WithdrawalTarget } from "../transaction/instructions/transact.js";
 import { SOL_MINT } from "../transaction/wallet/asset.js";
-import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
+import { hex, type Wallet, type WalletUtxo } from "../transaction/wallet/state.js";
 
 import {
   MAX_SPEND_INPUTS,
@@ -392,7 +392,7 @@ export function createSplit(params: SplitParams): CreatedSplit {
     }
     throw new WalletError("WALLET_INSUFFICIENT_BALANCE");
   }
-  const hash = selected.outputContext.hash;
+  const hash = hex(selected.outputContext.hash);
   if (selected.utxo.ringProgramId !== undefined) {
     throw new WalletError("WALLET_SPLIT_INPUT_RING_MISMATCH", { details: { hash } });
   }

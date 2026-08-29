@@ -133,3 +133,4 @@ export {
 } from "./serialization/index.js";
 
 export const VIEW_TAG_LEN = 32;
+export type { ErrorEnvelope } from "../errors/internal.js";

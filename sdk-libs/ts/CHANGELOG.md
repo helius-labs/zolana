@@ -25,6 +25,9 @@ Breaking
 - Private transfers and withdrawals spend the largest notes first and at
   most five notes → a balance that covers only with more notes is
   refused with `WALLET_TOO_MANY_INPUTS`, merge first.
+- A wrapped wallet or ring error surfaces the outer operation code instead
+  of the inner code → match on `causeCode` for the inner reason, selection
+  and balance codes included.
 
 Added
 
@@ -40,6 +43,9 @@ Added
   honor the client's `computeUnitPriceMicroLamports`.
 - `RING_SELECTED_BALANCE_OVERFLOW` refuses a ring selection whose eligible
   balance passes the u64 ceiling.
+- `ErrorEnvelope` names the `toJSON` shape of `WalletError`, `RingError`,
+  `InterfaceError`, and `KeypairError`, and `causeCodes` lists the wrapped
+  operation chain outermost first.
 
 Changed
 
@@ -54,6 +60,9 @@ Changed
 - Every rail selects notes through one selector with the rail's own
   ordering and caps, and `WALLET_INSUFFICIENT_BALANCE` reports the full
   spendable balance instead of a partial running sum.
+- `WalletError`, `RingError`, and `InterfaceError` strip secret-named keys
+  and non-primitive values from details and keep their cause out of
+  serialization.
 
 Fixed
 

@@ -153,8 +153,8 @@ describe("public package surface", () => {
         amount: 42n,
       }),
     ).rejects.toMatchObject({
-      code: "WALLET_RECIPIENT_NOT_REGISTERED",
-      details: { recipient: OWNER },
+      code: "WALLET_BUILD_DEPOSIT",
+      causeCode: "WALLET_RECIPIENT_NOT_REGISTERED",
     });
     expect(getAccount).toHaveBeenCalledOnce();
     expect(getLatestBlockhash).not.toHaveBeenCalled();
@@ -269,7 +269,10 @@ describe("public package surface", () => {
         owner: OWNER,
         address: ShieldedKeypair.generate("p256").shieldedAddress(),
       }),
-    ).rejects.toMatchObject({ code: "WALLET_P256_REGISTRATION_UNSUPPORTED" });
+    ).rejects.toMatchObject({
+      code: "WALLET_BUILD_REGISTRATION",
+      causeCode: "WALLET_P256_REGISTRATION_UNSUPPORTED",
+    });
     expect(getAccount).not.toHaveBeenCalled();
     expect(getLatestBlockhash).not.toHaveBeenCalled();
   });

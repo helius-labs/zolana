@@ -1,3 +1,4 @@
+import { SECRET_KEY_PATTERN } from "../errors/internal.js";
 import { KeypairError } from "../keypair/error.js";
 
 export const TRANSACTION_ERROR_CODES = Object.freeze([
@@ -160,7 +161,7 @@ function safeDetails(
   if (details === undefined) return undefined;
   const safe = Object.fromEntries(
     Object.entries(details).flatMap(([key, value]) => {
-      if (/(secret|private|seed|blinding|nonce|scalar|signature)/iu.test(key)) return [];
+      if (SECRET_KEY_PATTERN.test(key)) return [];
       const sanitized = safeValue(value);
       return sanitized === undefined ? [] : [[key, sanitized]];
     }),

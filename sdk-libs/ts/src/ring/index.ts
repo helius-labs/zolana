@@ -136,3 +136,4 @@ export type {
   RingTransferTransactionParams,
   RingWithdrawalTransactionParams,
 } from "./transfer.js";
+export type { ErrorEnvelope } from "../errors/internal.js";

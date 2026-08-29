@@ -205,10 +205,13 @@ export class RpcTransactionOrigin implements TransactionOrigin {
         this.#rpc.getTransaction(signature, ORIGIN_TRANSACTION_CONFIG).send({ abortSignal }),
       );
     } catch (cause) {
-      throw new RingError("RING_ORIGIN_UNAVAILABLE", { details: { signature }, cause });
+      throw new RingError("RING_ORIGIN_UNAVAILABLE", {
+        details: { transactionId: signature },
+        cause,
+      });
     }
     if (transaction === null || transaction === undefined) {
-      throw new RingError("RING_ORIGIN_UNAVAILABLE", { details: { signature } });
+      throw new RingError("RING_ORIGIN_UNAVAILABLE", { details: { transactionId: signature } });
     }
     return ringInvokedIn(confirmedInstructionGroups(transaction), ring);
   }
