@@ -92,6 +92,7 @@ pub struct AssetBalance {
     pub utxos: Vec<Utxo>,
 }
 
+/// Spendable default-ring balances.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Balances {
     pub assets: Vec<AssetBalance>,
@@ -236,6 +237,7 @@ impl Wallet {
         self.utxos.iter().filter(|u| !u.spent)
     }
 
+    /// The spendable default-ring balance of one mint.
     pub fn balance(
         &self,
         mint: Address,
@@ -248,7 +250,7 @@ impl Wallet {
             utxos: Vec::new(),
         };
         for wallet_utxo in self.unspent() {
-            if wallet_utxo.utxo.asset != mint {
+            if wallet_utxo.utxo.asset != mint || wallet_utxo.utxo.ring_program_id.is_some() {
                 continue;
             }
             if let Some(filter) = &filter {
