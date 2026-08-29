@@ -14,6 +14,12 @@ export interface AssetBalance {
   readonly utxos: readonly Utxo[];
 }
 
+/** Holdings bound to one ring, never selectable by the default spend path. */
+export interface RingBalance {
+  readonly ringProgramId: Address;
+  readonly assets: readonly AssetBalance[];
+}
+
 /** Narrows which unspent notes a balance counts. */
 export type Filter = Readonly<{ kind: "minAmount"; minAmount: bigint }>;
 
@@ -255,6 +261,11 @@ export class Wallet {
     this.#registry.insert(assetId, mint);
   }
 
+  /** Inserts when absent, `false` when the exact pair is present, a conflicting binding raises. */
+  ensureAsset(assetId: bigint, mint: Address): boolean {
+    return this.#registry.register(assetId, mint);
+  }
+
   utxos(): readonly WalletUtxo[] {
     return this.#utxos.map(snapshotUtxo);
   }
@@ -266,9 +277,9 @@ export class Wallet {
   }
 
   /**
-   * The balance of one registered mint. A mint the wallet holds no note for
-   * still has a balance of zero; only a mint the registry does not know is a
-   * rejection.
+   * The spendable default-ring balance of one registered mint. A mint the
+   * wallet holds no note for still has a balance of zero; only a mint the
+   * registry does not know is a rejection.
    */
   balance(mint: Address, filter?: Filter): AssetBalance {
     const assetId = this.#registry.assetId(mint);
@@ -277,6 +288,7 @@ export class Wallet {
         (entry) =>
           !entry.spent &&
           entry.utxo.asset === mint &&
+          entry.utxo.ringProgramId === undefined &&
           (filter === undefined || matches(filter, entry.utxo)),
       )
       .map((entry) => copyUtxo(entry.utxo));
@@ -284,15 +296,51 @@ export class Wallet {
     return Object.freeze({ assetId, mint, amount, utxos: Object.freeze(utxos) });
   }
 
-  /** One balance per mint the wallet holds an unspent note of, by asset id. */
+  /**
+   * One spendable default-ring balance per mint the wallet holds an unspent
+   * note of, by asset id. Ring-bound notes appear in `ringBalances`.
+   */
   balances(skipUtxos = false): readonly AssetBalance[] {
-    const mints = new Set(
-      this.#utxos.filter((entry) => !entry.spent).map((entry) => entry.utxo.asset),
+    return this.#assetBalances((entry) => entry.utxo.ringProgramId === undefined, skipUtxos);
+  }
+
+  ringBalances(skipUtxos = false): readonly RingBalance[] {
+    const rings = [
+      ...new Set(
+        this.#utxos.flatMap((entry) =>
+          !entry.spent && entry.utxo.ringProgramId !== undefined ? [entry.utxo.ringProgramId] : [],
+        ),
+      ),
+    ].sort();
+    return rings.map((ringProgramId) =>
+      Object.freeze({
+        ringProgramId,
+        assets: this.#assetBalances(
+          (entry) => entry.utxo.ringProgramId === ringProgramId,
+          skipUtxos,
+        ),
+      }),
     );
+  }
+
+  #assetBalances(
+    eligible: (entry: WalletUtxo) => boolean,
+    skipUtxos: boolean,
+  ): readonly AssetBalance[] {
+    const notes = this.#utxos.filter((entry) => !entry.spent && eligible(entry));
+    const mints = new Set(notes.map((entry) => entry.utxo.asset));
     return [...mints]
       .map((mint) => {
-        const balance = this.balance(mint);
-        return skipUtxos ? Object.freeze({ ...balance, utxos: Object.freeze([]) }) : balance;
+        const utxos = notes
+          .filter((entry) => entry.utxo.asset === mint)
+          .map((entry) => copyUtxo(entry.utxo));
+        const amount = checkedBalance(utxos.reduce((sum, utxo) => sum + utxo.amount, 0n));
+        return Object.freeze({
+          assetId: this.#registry.assetId(mint),
+          mint,
+          amount,
+          utxos: Object.freeze(skipUtxos ? [] : utxos),
+        });
       })
       .sort((left, right) =>
         left.assetId < right.assetId ? -1 : left.assetId > right.assetId ? 1 : 0,

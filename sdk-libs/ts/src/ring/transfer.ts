@@ -459,8 +459,13 @@ interface SelectedInput {
   readonly tree: Address;
 }
 
-/** Notes of the signing ring, plus plain default notes when `inputs` allows the entry. */
-function selectRingInputs(
+/**
+ * Notes of the signing ring, plus plain default notes when `inputs` allows the
+ * entry.
+ *
+ * @internal Exported for tests only.
+ */
+export function selectRingInputs(
   wallet: Wallet,
   ringProgramId: Address,
   asset: Address,

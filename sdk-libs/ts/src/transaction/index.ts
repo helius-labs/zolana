@@ -78,6 +78,7 @@ export type {
   PrivateTransactionId,
   PrivateTransactionKind,
   PrivateTransactionStatus,
+  RingBalance,
   SplitBundlePlaintext,
   SyncWalletAuthority,
   SyncReport,

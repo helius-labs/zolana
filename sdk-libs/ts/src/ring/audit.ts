@@ -202,11 +202,7 @@ export async function auditRing(
         if (assetsRefreshed || !isUnknownAsset(error)) throw error;
         assetsRefreshed = true;
         for (const { assetId, mint } of await fetchSplAssetRegistrations(input.client, context)) {
-          try {
-            input.assets.insert(assetId, mint);
-          } catch {
-            continue;
-          }
+          input.assets.register(assetId, mint);
         }
         transactions.push(
           auditRingTransaction({ auditor: input.auditor, transaction, assets: input.assets }),

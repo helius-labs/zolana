@@ -30,6 +30,7 @@ export type {
   PrivateTransactionId,
   PrivateTransactionKind,
   PrivateTransactionStatus,
+  RingBalance,
   SyncReport,
   ViewingKeyEntry,
   WalletUtxo,

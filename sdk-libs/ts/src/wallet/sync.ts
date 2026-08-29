@@ -115,12 +115,7 @@ export async function backfillAssetRegistry(
 ): Promise<number> {
   let inserted = 0;
   for (const { assetId, mint } of await fetchSplAssetRegistrations(registryRpc, context)) {
-    try {
-      wallet.registerAsset(assetId, mint);
-      inserted++;
-    } catch {
-      continue;
-    }
+    if (wallet.ensureAsset(assetId, mint)) inserted++;
   }
   return inserted;
 }

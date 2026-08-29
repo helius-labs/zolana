@@ -51,6 +51,7 @@ import {
   currentSlot,
   signSendAndConfirm,
   signerFromWalletFile,
+  tokenBalance,
   waitForSignature,
 } from "./live-helpers.js";
 
@@ -179,11 +180,6 @@ async function waitForAudited(
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   throw new Error(`transaction ${signature} did not reach the ring view`);
-}
-
-async function tokenBalance(client: ZolanaClient, account: Address): Promise<bigint> {
-  const response = await client.solanaRpc.getTokenAccountBalance(account).send();
-  return BigInt(response.value.amount);
 }
 
 describe("ring flow", () => {

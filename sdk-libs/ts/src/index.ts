@@ -96,8 +96,8 @@ export {
 } from "./wallet/index.js";
 export {
   buildRingDepositTransaction,
-  buildRingLookupTableTransaction,
   buildRingExitTransaction,
+  buildRingLookupTableTransaction,
   buildRingTransferTransaction,
   buildRingWithdrawalTransaction,
   createPasskey,

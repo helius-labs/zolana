@@ -58,7 +58,7 @@
     "format:check": "oxfmt --check .",
     "lint": "oxlint --deny-warnings src test api/test transaction/test wallet/test scripts",
     "test": "vitest run --exclude \"test/e2e/**\"",
-    "test:e2e": "vitest run test/e2e",
+    "test:e2e": "vitest run --no-file-parallelism test/e2e",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build",
     "loadtest": "npm run build && node bench/loadtest.ts"
   },

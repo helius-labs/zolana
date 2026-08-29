@@ -40,6 +40,23 @@ export class AssetRegistry {
     this.#byMint.set(mint, assetId);
   }
 
+  /** Inserts when absent, `false` when the exact pair is present, a conflicting binding raises. */
+  register(assetId: bigint, mint: Address): boolean {
+    const knownMint = this.#byId.get(assetId);
+    const knownId = this.#byMint.get(mint);
+    if (knownMint === mint && knownId === assetId) return false;
+    if (knownMint !== undefined) {
+      throw new TransactionError("TRANSACTION_DUPLICATE_ASSET_ID", {
+        assetId: assetId.toString(),
+      });
+    }
+    if (knownId !== undefined) {
+      throw new TransactionError("TRANSACTION_DUPLICATE_MINT", { mint });
+    }
+    this.insert(assetId, mint);
+    return true;
+  }
+
   resolve(assetId: bigint): Address {
     if (typeof assetId !== "bigint") {
       throw new TransactionError("TRANSACTION_INVALID_ASSET_ID", { assetId: String(assetId) });
