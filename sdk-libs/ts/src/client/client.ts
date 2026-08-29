@@ -1,8 +1,4 @@
 import {
-  getSetComputeUnitLimitInstruction,
-  getSetComputeUnitPriceInstruction,
-} from "@solana-program/compute-budget";
-import {
   assertIsAddress,
   assertIsSignature,
   getBase64Encoder,
@@ -21,7 +17,6 @@ import {
   type MergeTransactInstructionData,
 } from "../interface/instructions/index.js";
 import { DEFAULT_TREE_ADDRESS } from "../interface/program.js";
-import { checkedTransactionSize } from "../interface/transaction-size.js";
 import type {
   Bytes32,
   RequestContext,
@@ -33,11 +28,12 @@ import type { ShieldedPublicKey } from "../keypair/public-key.js";
 import { PreparedMerge } from "../transaction/instructions/builders.js";
 import { SppProofInputs, type InputUtxoContext } from "../transaction/instructions/transact.js";
 
+import { compileUnsignedTransaction } from "../flows/compile.js";
+import { checkedU32 } from "../flows/internal.js";
 import { ClientError, fromClientCause } from "./error.js";
 import { checkedServiceUrl } from "./internal.js";
 import { ZolanaIndexer } from "./indexer.js";
 import {
-  buildUnsignedTransaction as buildKitUnsignedTransaction,
   createKitClients,
   runKitRpc,
   type LatestBlockhash,
@@ -696,6 +692,9 @@ export class ZolanaClient {
       feePayer: input.feePayer,
       userRecord: input.userRecord,
       lifetime,
+      ...(this.#computeUnitPrice === undefined
+        ? {}
+        : { computeUnitPriceMicroLamports: this.#computeUnitPrice }),
       data: proved.data,
     });
   }
@@ -757,6 +756,9 @@ export class ZolanaClient {
   }
 }
 
+/** Mirrors Rust `MERGE_CU_LIMIT`, the merge verifies one proof over eight inputs. */
+export const MERGE_TRANSACT_COMPUTE_UNIT_LIMIT = 1_400_000;
+
 export function buildUnsignedTransaction(
   input: Readonly<{
     computeUnitLimit: number;
@@ -770,53 +772,32 @@ export function buildUnsignedTransaction(
     lifetime: LatestBlockhash;
   }>,
 ): Transaction {
-  checkedAddress(input.feePayer, "feePayer");
   checkedAddress(input.inputTree, "inputTree");
   checkedAddress(input.outputTree, "outputTree");
-  const instructions = privateTransactionInstructions({ ...input, payer: input.feePayer });
-  return checkedTransactionSize(
-    compileKitTransaction(input.feePayer, input.lifetime, instructions),
-    {
+  return compileUnsignedTransaction({
+    feePayer: input.feePayer,
+    lifetime: input.lifetime,
+    computeUnitLimit: input.computeUnitLimit,
+    ...(input.computeUnitPriceMicroLamports === undefined
+      ? {}
+      : { computeUnitPriceMicroLamports: input.computeUnitPriceMicroLamports }),
+    ...(input.setupInstructions === undefined
+      ? {}
+      : { setupInstructions: input.setupInstructions }),
+    instructions: [
+      transactInstruction({
+        payer: input.feePayer,
+        inputTree: input.inputTree,
+        outputTree: input.outputTree,
+        data: input.data,
+        ...(input.withdrawal === undefined ? {} : { withdrawal: input.withdrawal }),
+      }),
+    ],
+    sizeShape: {
       inputs: input.data.inputs.length,
       outputs: input.data.outputs.length,
     },
-  );
-}
-
-function privateTransactionInstructions(
-  input: Readonly<{
-    computeUnitLimit: number;
-    computeUnitPriceMicroLamports?: bigint;
-    payer: Address;
-    inputTree: Address;
-    outputTree: Address;
-    setupInstructions?: readonly Instruction[];
-    withdrawal?: TransactWithdrawal;
-    data: TransactInstructionData;
-  }>,
-): readonly Instruction[] {
-  checkedAddress(input.inputTree, "inputTree");
-  checkedAddress(input.outputTree, "outputTree");
-  checkedU32(input.computeUnitLimit, "computeUnitLimit");
-  checkedComputeUnitPrice(input.computeUnitPriceMicroLamports);
-  return [
-    getSetComputeUnitLimitInstruction({ units: input.computeUnitLimit }),
-    ...(input.computeUnitPriceMicroLamports === undefined
-      ? []
-      : [
-          getSetComputeUnitPriceInstruction({
-            microLamports: input.computeUnitPriceMicroLamports,
-          }),
-        ]),
-    ...(input.setupInstructions ?? []),
-    transactInstruction({
-      payer: input.payer,
-      inputTree: input.inputTree,
-      outputTree: input.outputTree,
-      data: input.data,
-      ...(input.withdrawal === undefined ? {} : { withdrawal: input.withdrawal }),
-    }),
-  ];
+  });
 }
 
 export function buildUnsignedMergeTransaction(
@@ -825,15 +806,20 @@ export function buildUnsignedMergeTransaction(
     feePayer: Address;
     userRecord: Address;
     lifetime: LatestBlockhash;
+    computeUnitPriceMicroLamports?: bigint;
     data: MergeTransactInstructionData;
   }>,
 ): Transaction {
   checkedAddress(input.tree, "tree");
-  checkedAddress(input.feePayer, "feePayer");
   checkedAddress(input.userRecord, "userRecord");
-  return checkedTransactionSize(
-    compileKitTransaction(input.feePayer, input.lifetime, [
-      getSetComputeUnitLimitInstruction({ units: 1_400_000 }),
+  return compileUnsignedTransaction({
+    feePayer: input.feePayer,
+    lifetime: input.lifetime,
+    computeUnitLimit: MERGE_TRANSACT_COMPUTE_UNIT_LIMIT,
+    ...(input.computeUnitPriceMicroLamports === undefined
+      ? {}
+      : { computeUnitPriceMicroLamports: input.computeUnitPriceMicroLamports }),
+    instructions: [
       mergeTransactInstruction({
         inputTree: input.tree,
         outputTree: input.tree,
@@ -841,35 +827,8 @@ export function buildUnsignedMergeTransaction(
         userRecord: input.userRecord,
         data: input.data,
       }),
-    ]),
-  );
-}
-
-function compileKitTransaction(
-  feePayer: Address,
-  lifetime: LatestBlockhash,
-  instructions: readonly Instruction[],
-): Transaction {
-  try {
-    return buildKitUnsignedTransaction({ feePayer, instructions, lifetime });
-  } catch (cause) {
-    throw new ClientError("CLIENT_TRANSACTION_ASSEMBLY", { cause });
-  }
-}
-
-function checkedU32(value: number, fieldName: string): number {
-  if (!Number.isSafeInteger(value) || value < 0 || value > 0xffff_ffff) {
-    throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field: fieldName } });
-  }
-  return value;
-}
-
-function checkedComputeUnitPrice(value: bigint | undefined): void {
-  if (value !== undefined && (value < 0n || value > 0xffff_ffff_ffff_ffffn)) {
-    throw new ClientError("CLIENT_INVALID_INTEGER", {
-      details: { field: "computeUnitPriceMicroLamports" },
-    });
-  }
+    ],
+  });
 }
 
 function checkedAddress(value: Address, field: string): void {

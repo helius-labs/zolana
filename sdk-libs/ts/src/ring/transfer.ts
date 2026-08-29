@@ -1,17 +1,6 @@
-import { getSetComputeUnitLimitInstruction } from "@solana-program/compute-budget";
-import {
-  appendTransactionMessageInstructions,
-  compileTransaction,
-  compressTransactionMessageUsingAddressLookupTables,
-  createTransactionMessage,
-  pipe,
-  setTransactionMessageFeePayer,
-  setTransactionMessageLifetimeUsingBlockhash,
-} from "@solana/kit";
-
 import type { ZolanaClient } from "../client/client.js";
 import { InstructionTag } from "../interface/program.js";
-import { checkedTransactionSize } from "../interface/transaction-size.js";
+import { compileUnsignedTransaction } from "../flows/compile.js";
 import type {
   Address,
   RequestContext,
@@ -62,6 +51,7 @@ export interface RingTransferTransactionParams {
   /** Must be at least one slot old. */
   readonly lookupTable: Address;
   readonly computeUnitLimit?: number;
+  readonly computeUnitPriceMicroLamports?: bigint;
 }
 
 export interface RingWithdrawalTransactionParams {
@@ -79,6 +69,7 @@ export interface RingWithdrawalTransactionParams {
   /** Must be at least one slot old. */
   readonly lookupTable: Address;
   readonly computeUnitLimit?: number;
+  readonly computeUnitPriceMicroLamports?: bigint;
 }
 
 /** Mirrors Rust `CustomRingTransferInput`. `prepared` is what `ConfidentialTransfer.prepare` returned. */
@@ -205,28 +196,19 @@ async function buildRingSendTransaction(
         }),
         input.client.getLatestBlockhash(context),
       ]);
-      const message = pipe(
-        createTransactionMessage({ version: 0 }),
-        (tx) => setTransactionMessageFeePayer(input.feePayer, tx),
-        (tx) => setTransactionMessageLifetimeUsingBlockhash(lifetime, tx),
-        (tx) =>
-          appendTransactionMessageInstructions(
-            [
-              getSetComputeUnitLimitInstruction({
-                units: input.computeUnitLimit ?? RING_TRANSACT_COMPUTE_UNIT_LIMIT,
-              }),
-              instruction,
-            ],
-            tx,
-          ),
-        (tx) =>
-          compressTransactionMessageUsingAddressLookupTables(tx, {
-            [input.lookupTable]: [...tableAddresses],
-          }),
-      );
-      return checkedTransactionSize(compileTransaction(message), {
-        inputs: proven.data.inputs.length,
-        outputs: proven.data.outputs.length,
+      return compileUnsignedTransaction({
+        feePayer: input.feePayer,
+        lifetime,
+        computeUnitLimit: input.computeUnitLimit ?? RING_TRANSACT_COMPUTE_UNIT_LIMIT,
+        ...(input.computeUnitPriceMicroLamports === undefined
+          ? {}
+          : { computeUnitPriceMicroLamports: input.computeUnitPriceMicroLamports }),
+        instructions: [instruction],
+        lookupTables: { [input.lookupTable]: [...tableAddresses] },
+        sizeShape: {
+          inputs: proven.data.inputs.length,
+          outputs: proven.data.outputs.length,
+        },
       });
     } catch (cause) {
       throw wrapRingError("RING_BUILD_TRANSFER", cause);
@@ -308,28 +290,19 @@ export async function buildRingWithdrawalTransaction(
         }),
         input.client.getLatestBlockhash(context),
       ]);
-      const message = pipe(
-        createTransactionMessage({ version: 0 }),
-        (tx) => setTransactionMessageFeePayer(input.feePayer, tx),
-        (tx) => setTransactionMessageLifetimeUsingBlockhash(lifetime, tx),
-        (tx) =>
-          appendTransactionMessageInstructions(
-            [
-              getSetComputeUnitLimitInstruction({
-                units: input.computeUnitLimit ?? RING_TRANSACT_COMPUTE_UNIT_LIMIT,
-              }),
-              instruction,
-            ],
-            tx,
-          ),
-        (tx) =>
-          compressTransactionMessageUsingAddressLookupTables(tx, {
-            [input.lookupTable]: [...tableAddresses],
-          }),
-      );
-      return checkedTransactionSize(compileTransaction(message), {
-        inputs: proven.data.inputs.length,
-        outputs: proven.data.outputs.length,
+      return compileUnsignedTransaction({
+        feePayer: input.feePayer,
+        lifetime,
+        computeUnitLimit: input.computeUnitLimit ?? RING_TRANSACT_COMPUTE_UNIT_LIMIT,
+        ...(input.computeUnitPriceMicroLamports === undefined
+          ? {}
+          : { computeUnitPriceMicroLamports: input.computeUnitPriceMicroLamports }),
+        instructions: [instruction],
+        lookupTables: { [input.lookupTable]: [...tableAddresses] },
+        sizeShape: {
+          inputs: proven.data.inputs.length,
+          outputs: proven.data.outputs.length,
+        },
       });
     } catch (cause) {
       throw wrapRingError("RING_BUILD_WITHDRAWAL", cause);

@@ -1,7 +1,6 @@
-import { buildUnsignedTransaction } from "../client/kit.js";
+import { compileUnsignedTransaction } from "../flows/compile.js";
 import type { ZolanaClient } from "../client/client.js";
 import { SPL_TOKEN_PROGRAM_ID } from "../interface/program.js";
-import { checkedTransactionSize } from "../interface/transaction-size.js";
 import {
   type Address,
   type Bytes32,
@@ -104,9 +103,11 @@ export async function buildRingDepositTransaction(
     });
     envelope.destroy();
     const lifetime = await input.client.getLatestBlockhash(context);
-    return checkedTransactionSize(
-      buildUnsignedTransaction({ feePayer: input.feePayer, lifetime, instructions: [instruction] }),
-    );
+    return compileUnsignedTransaction({
+      feePayer: input.feePayer,
+      lifetime,
+      instructions: [instruction],
+    });
   } catch (cause) {
     throw wrapRingError("RING_BUILD_DEPOSIT", cause);
   }

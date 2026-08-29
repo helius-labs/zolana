@@ -1,7 +1,6 @@
-import { buildUnsignedTransaction } from "../client/kit.js";
+import { compileUnsignedTransaction } from "../flows/compile.js";
 import type { ZolanaClient } from "../client/client.js";
 import { SPL_TOKEN_PROGRAM_ID } from "../interface/program.js";
-import { checkedTransactionSize } from "../interface/transaction-size.js";
 import {
   type Address,
   type AssetDeposit,
@@ -171,13 +170,11 @@ export async function buildDepositTransaction(
       ...(input.memo === undefined ? {} : { memo: input.memo }),
     });
     const lifetime = await input.client.getLatestBlockhash(context);
-    return checkedTransactionSize(
-      buildUnsignedTransaction({
-        feePayer: input.feePayer,
-        lifetime,
-        instructions: [await deposit.instruction(tree, depositor)],
-      }),
-    );
+    return compileUnsignedTransaction({
+      feePayer: input.feePayer,
+      lifetime,
+      instructions: [await deposit.instruction(tree, depositor)],
+    });
   } catch (cause) {
     throw wrapWalletError("WALLET_BUILD_DEPOSIT", cause);
   }

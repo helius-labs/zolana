@@ -7,8 +7,7 @@ import {
 import { createNoopSigner, type Address, type Transaction } from "@solana/kit";
 
 import type { ZolanaClient } from "../client/client.js";
-import { buildUnsignedTransaction } from "../client/kit.js";
-import { checkedTransactionSize } from "../interface/transaction-size.js";
+import { compileUnsignedTransaction } from "../flows/compile.js";
 import type { RequestContext } from "../interface/types.js";
 
 import { RingError, wrapRingError } from "./error.js";
@@ -55,13 +54,11 @@ export async function buildRingLookupTableTransaction(
       addresses: [...new Set([...addresses, ...ringSettlementStatics()])],
     });
     return Object.freeze({
-      transaction: checkedTransactionSize(
-        buildUnsignedTransaction({
-          feePayer: input.feePayer,
-          lifetime,
-          instructions: [create, extend],
-        }),
-      ),
+      transaction: compileUnsignedTransaction({
+        feePayer: input.feePayer,
+        lifetime,
+        instructions: [create, extend],
+      }),
       address: address[0],
       slot: recentSlot,
     });

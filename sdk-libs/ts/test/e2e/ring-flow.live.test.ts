@@ -48,7 +48,7 @@ import {
   type RingReadSigner,
 } from "../../src/ring/index.js";
 import type { ZolanaClient } from "../../src/client/client.js";
-import { buildUnsignedTransaction } from "../../src/client/kit.js";
+import { compileUnsignedTransaction } from "../../src/flows/compile.js";
 import {
   currentSlot,
   signSendAndConfirm,
@@ -103,7 +103,7 @@ async function sendInstruction(
   signer: KeyPairSigner,
 ): Promise<void> {
   const lifetime = await client.getLatestBlockhash();
-  const transaction = buildUnsignedTransaction({
+  const transaction = compileUnsignedTransaction({
     feePayer: signer.address,
     lifetime,
     instructions: [instruction],

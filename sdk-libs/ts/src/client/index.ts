@@ -1,4 +1,4 @@
-export { ZolanaClient } from "./client.js";
+export { MERGE_TRANSACT_COMPUTE_UNIT_LIMIT, ZolanaClient } from "./client.js";
 export type { MergeMaterialInput, ProvedMerge, ZolanaClientConfig } from "./client.js";
 export { CANONICAL_CLIENT_ERROR_CODES, ClientError } from "./error.js";
 export type {

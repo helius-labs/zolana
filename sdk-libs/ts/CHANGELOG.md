@@ -30,6 +30,11 @@ Added
   a custom scan-only authority.
 - `deserializeWallet` restores sync cursors, a restarted wallet resumes
   `syncWallet` where it stopped instead of replaying the full history.
+- `RingTransferTransactionParams.computeUnitPriceMicroLamports` and
+  `RingWithdrawalTransactionParams.computeUnitPriceMicroLamports` set a
+  priority fee on ring transactions.
+- `MERGE_TRANSACT_COMPUTE_UNIT_LIMIT` is exported, and merge transactions
+  honor the client's `computeUnitPriceMicroLamports`.
 
 Changed
 
@@ -38,6 +43,9 @@ Changed
   `TRANSACTION_WALLET_STATE_STALE` instead of overwriting the newer state.
 - `syncWallet` derives its key material once per run instead of up to five
   times.
+- Every builder compiles through one shared path with the packet-size
+  check built in, a compile failure in any build surfaces
+  `CLIENT_TRANSACTION_ASSEMBLY`.
 
 Fixed
 

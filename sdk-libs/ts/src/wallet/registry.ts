@@ -6,11 +6,10 @@ import {
   getProgramDerivedAddress,
 } from "@solana/kit";
 
-import { buildUnsignedTransaction } from "../client/kit.js";
+import { compileUnsignedTransaction } from "../flows/compile.js";
 import type { ZolanaClient } from "../client/client.js";
 import type { RpcAccount } from "../client/rpc.js";
 import { USER_REGISTRY_PROGRAM_ID } from "../interface/program.js";
-import { checkedTransactionSize } from "../interface/transaction-size.js";
 import {
   type Address,
   type Bytes32,
@@ -391,13 +390,11 @@ export async function buildRegistrationTransaction(
     const instruction = registrationInstruction(input.owner, input.address, pda, existing);
     if (instruction === undefined) return undefined;
     const lifetime = await input.client.getLatestBlockhash(context);
-    return checkedTransactionSize(
-      buildUnsignedTransaction({
-        feePayer: input.owner,
-        lifetime,
-        instructions: [instruction],
-      }),
-    );
+    return compileUnsignedTransaction({
+      feePayer: input.owner,
+      lifetime,
+      instructions: [instruction],
+    });
   } catch (cause) {
     throw wrapWalletError("WALLET_BUILD_REGISTRATION", cause);
   }
@@ -416,22 +413,20 @@ export async function buildSetMergingEnabledTransaction(
       internalUserRecordAddress(input.owner),
       input.client.getLatestBlockhash(context),
     ]);
-    return checkedTransactionSize(
-      buildUnsignedTransaction({
-        feePayer: input.owner,
-        lifetime,
-        instructions: [
-          {
-            programAddress: USER_REGISTRY_PROGRAM_ID,
-            accounts: [
-              { address: recordAddress, role: AccountRole.WRITABLE },
-              { address: input.owner, role: AccountRole.READONLY_SIGNER },
-            ],
-            data: Uint8Array.of(SET_MERGING_ENABLED, input.enabled ? 1 : 0),
-          },
-        ],
-      }),
-    );
+    return compileUnsignedTransaction({
+      feePayer: input.owner,
+      lifetime,
+      instructions: [
+        {
+          programAddress: USER_REGISTRY_PROGRAM_ID,
+          accounts: [
+            { address: recordAddress, role: AccountRole.WRITABLE },
+            { address: input.owner, role: AccountRole.READONLY_SIGNER },
+          ],
+          data: Uint8Array.of(SET_MERGING_ENABLED, input.enabled ? 1 : 0),
+        },
+      ],
+    });
   } catch (cause) {
     throw wrapWalletError("WALLET_BUILD_SET_MERGING_ENABLED", cause);
   }
