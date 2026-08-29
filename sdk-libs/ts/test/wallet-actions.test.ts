@@ -21,6 +21,7 @@ import {
   resolveWithdrawal,
 } from "../src/wallet/actions.js";
 import { associatedTokenAddress, splInterfaceWithBump } from "../src/interface/pda/index.js";
+import { selectRingInputs } from "../src/ring/transfer.js";
 import { buildDepositTransaction, createDeposit } from "../src/wallet/deposit.js";
 import { createMerge, MergeMaterial } from "../src/wallet/merge.js";
 import { authorizePrivateTransaction } from "../src/wallet/private-transaction.js";
@@ -374,5 +375,108 @@ describe("resolveWithdrawal", () => {
     }
     expect(resolved.target.recipient).toBe(RECIPIENT);
     expect(resolved.accounts.recipient).toBe(RECIPIENT);
+  });
+});
+
+describe("wallet balances split", () => {
+  function mixedWallet(keypair: ShieldedKeypair): Wallet {
+    const wallet = fundedWallet(keypair, [10n]);
+    const entry = (index: number, amount: bigint, ringProgramId?: Address) => ({
+      utxo: new Utxo({
+        owner: keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount,
+        blinding: filled(index + 1),
+        data: new Data(),
+        ...(ringProgramId === undefined ? {} : { ringProgramId }),
+      }),
+      outputContext: { hash: filled(index + 1), tree: TREE, leafIndex: BigInt(index) },
+      nullifier: filled(index + 20),
+      spent: false,
+    });
+    wallet._replace({
+      utxos: [entry(0, 10n), entry(1, 40n, RING), entry(2, 60n, RECIPIENT)],
+      transactions: [],
+      nullifiers: new Set(),
+    });
+    return wallet;
+  }
+
+  it("keeps ring-bound notes out of the spendable view like Rust `balances`", () => {
+    const wallet = mixedWallet(spendingKeypair());
+    const spendable = wallet.balances(true);
+    expect(spendable.map((balance) => balance.amount)).toEqual([10n]);
+    expect(wallet.balance(SOL_MINT).amount).toBe(10n);
+  });
+
+  it("groups ring-bound notes by ring in address order", () => {
+    const wallet = mixedWallet(spendingKeypair());
+    const rings = wallet.ringBalances(true);
+    const expected = [[RING, 40n] as const, [RECIPIENT, 60n] as const].sort(([left], [right]) =>
+      left < right ? -1 : 1,
+    );
+    expect(rings.map((ring) => [ring.ringProgramId, ring.assets[0]?.amount])).toEqual(expected);
+  });
+});
+
+describe("AssetRegistry register", () => {
+  it("inserts once, skips the exact pair, and raises on a conflicting binding", () => {
+    const registry = new AssetRegistry();
+    expect(registry.register(2n, SPL_MINT)).toBe(true);
+    expect(registry.register(2n, SPL_MINT)).toBe(false);
+    expect(() => registry.register(2n, RECIPIENT)).toThrow("TRANSACTION_DUPLICATE_ASSET_ID");
+    expect(() => registry.register(3n, SPL_MINT)).toThrow("TRANSACTION_DUPLICATE_MINT");
+  });
+});
+
+describe("selectRingInputs", () => {
+  function ringNoteWallet(
+    keypair: ShieldedKeypair,
+    notes: readonly (readonly [bigint, Address | undefined])[],
+  ): Wallet {
+    const wallet = fundedWallet(keypair, []);
+    wallet._replace({
+      utxos: notes.map(([amount, ringProgramId], index) => ({
+        utxo: new Utxo({
+          owner: keypair.signingPublicKey(),
+          asset: SOL_MINT,
+          amount,
+          blinding: filled(index + 1),
+          data: new Data(),
+          ...(ringProgramId === undefined ? {} : { ringProgramId }),
+        }),
+        outputContext: { hash: filled(index + 1), tree: TREE, leafIndex: BigInt(index) },
+        nullifier: filled(index + 20),
+        spent: false,
+      })),
+      transactions: [],
+      nullifiers: new Set(),
+    });
+    return wallet;
+  }
+
+  it("keeps default notes out of ring funding unless the entry opts in", () => {
+    const wallet = ringNoteWallet(spendingKeypair(), [
+      [10n, undefined],
+      [10n, RING],
+    ]);
+    expect(() => selectRingInputs(wallet, RING, SOL_MINT, 15n, "ring")).toThrow(
+      "RING_INSUFFICIENT_BALANCE",
+    );
+    const selected = selectRingInputs(wallet, RING, SOL_MINT, 15n, "ring-or-default");
+    expect(selected).toHaveLength(2);
+  });
+
+  it("never offers another ring's notes under either mode", () => {
+    const wallet = ringNoteWallet(spendingKeypair(), [
+      [50n, RECIPIENT],
+      [20n, undefined],
+    ]);
+    const selected = selectRingInputs(wallet, RING, SOL_MINT, 20n, "ring-or-default");
+    expect(selected).toHaveLength(1);
+    expect(selected[0]?.entry.utxo.ringProgramId).toBeUndefined();
+    expect(() => selectRingInputs(wallet, RING, SOL_MINT, 30n, "ring-or-default")).toThrow(
+      "RING_INSUFFICIENT_BALANCE",
+    );
   });
 });

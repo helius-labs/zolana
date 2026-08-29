@@ -485,6 +485,38 @@ describe("ring audit", () => {
     expect(assets.resolve(2n)).toBe(mint);
   });
 
+  it("throws after one refresh when the chain does not know the id either", async () => {
+    const auditor = ViewingKey.generate();
+    const mint = getAddressDecoder().decode(scalar(41));
+    const { proofInputs } = await auditedProofInputs(
+      4n,
+      auditor,
+      [],
+      [],
+      RING,
+      mint,
+      new AssetRegistry([[2n, mint]]),
+    );
+    const transaction = indexed(proofInputs);
+    const getProgramAccounts = vi.fn(() => ({ send: async () => [] }));
+    const client = {
+      getShieldedTransactionsByTags: async () => ({ transactions: [transaction] }),
+      solanaRpc: { getProgramAccounts },
+      commitment: "confirmed",
+    } as unknown as Parameters<typeof auditRing>[0]["client"];
+
+    await expect(
+      auditRing({
+        client,
+        auditor,
+        ringProgramId: RING,
+        assets: new AssetRegistry(),
+        origin: { ringInvoked: async () => true },
+      }),
+    ).rejects.toThrow("TRANSACTION_UNKNOWN_ASSET");
+    expect(getProgramAccounts).toHaveBeenCalledTimes(1);
+  });
+
   it("reduces a noncanonical scalar like Rust `recovery_reduces_a_noncanonical_scalar`", () => {
     const auditor = ViewingKey.generate();
     const secret = bigIntToBytes(0x0123_4567_89ab_cdefn) as Bytes32;
