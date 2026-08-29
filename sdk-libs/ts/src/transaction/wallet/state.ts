@@ -63,6 +63,20 @@ export type PrivateTransactionDirection = "inbound" | "outbound" | "selfTransfer
  */
 export type CursorStream = "transactions" | "proofless" | "nullifiers";
 
+/** @internal */
+export type SyncCursorAdvances = Readonly<Record<CursorStream, ReadonlyMap<string, Uint8Array>>>;
+
+/** @internal */
+export interface SyncDelta {
+  readonly utxos: readonly WalletUtxo[];
+  readonly transactions: readonly PrivateTransaction[];
+  readonly nullifiers: ReadonlySet<string>;
+  readonly viewingKeyHistory: readonly ViewingKeyEntry[];
+  readonly lastSynced: bigint;
+  readonly cursors: SyncCursorAdvances;
+  readonly registryAdditions: readonly Readonly<{ assetId: bigint; mint: Address }>[];
+}
+
 /**
  * A history row is reconstructed from an indexed transaction, so it exists only
  * once that transaction has landed. Nothing stages a locally submitted transfer
@@ -204,6 +218,8 @@ export class Wallet {
    * Entries are dropped once the nullifier is spent.
    */
   #nullifierCursors = new Map<string, Uint8Array>();
+  #revision = 0;
+  #syncQueue: Promise<unknown> = Promise.resolve();
 
   constructor(input: Readonly<{ identity: ShieldedAddress; registry?: AssetRegistry }>) {
     this.identity = input.identity;
@@ -257,13 +273,23 @@ export class Wallet {
     return stream === "proofless" ? this.#prooflessCursors : this.#nullifierCursors;
   }
 
+  /** @internal */
+  _cursorEntries(stream: CursorStream): readonly (readonly [string, Uint8Array])[] {
+    return [...this.#cursorsFor(stream)].map(
+      ([key, cursor]) => [key, Uint8Array.from(cursor)] as const,
+    );
+  }
+
   registerAsset(assetId: bigint, mint: Address): void {
     this.#registry.insert(assetId, mint);
+    this.#revision += 1;
   }
 
   /** Inserts when absent, `false` when the exact pair is present, a conflicting binding raises. */
   ensureAsset(assetId: bigint, mint: Address): boolean {
-    return this.#registry.register(assetId, mint);
+    const inserted = this.#registry.register(assetId, mint);
+    if (inserted) this.#revision += 1;
+    return inserted;
   }
 
   utxos(): readonly WalletUtxo[] {
@@ -398,6 +424,76 @@ export class Wallet {
     if (input.lastSynced !== undefined) {
       this.#lastSynced = input.lastSynced;
     }
+    this.#revision += 1;
+  }
+
+  /** @internal */
+  get _revision(): number {
+    return this.#revision;
+  }
+
+  /** @internal Serializes read-modify-write spans. */
+  _withSyncLock<T>(run: () => Promise<T>): Promise<T> {
+    const next = this.#syncQueue.then(
+      () => run(),
+      () => run(),
+    );
+    this.#syncQueue = next.catch(() => undefined);
+    return next;
+  }
+
+  /** @internal Mutating the copy leaves the origin untouched. */
+  _clone(): Wallet {
+    const clone = new Wallet({ identity: this.identity, registry: this.#registry });
+    clone._replace({ ...this._state(), lastSynced: this.#lastSynced });
+    for (const stream of ["transactions", "proofless", "nullifiers"] as const) {
+      for (const [key, cursor] of this.#cursorsFor(stream)) {
+        clone._setSyncCursor(stream, key, cursor);
+      }
+    }
+    return clone;
+  }
+
+  /**
+   * Rows, cursors, and registry additions land in one synchronous step, a
+   * revision moved by another writer since the snapshot refuses the commit.
+   * @internal
+   */
+  _commitSync(delta: SyncDelta, expectedRevision: number): void {
+    if (this.#revision !== expectedRevision) {
+      throw new TransactionError("TRANSACTION_WALLET_STATE_STALE");
+    }
+    const hashes = new Set<string>();
+    for (const entry of delta.utxos) {
+      const hash = hex(entry.outputContext.hash);
+      if (hashes.has(hash)) {
+        throw new TransactionError("TRANSACTION_DUPLICATE_OUTPUT", { hash });
+      }
+      hashes.add(hash);
+    }
+    // A conflicting addition must not leave earlier ones applied, the clone
+    // absorbs the throw before the real registry changes.
+    const staged = this.#registry.clone();
+    for (const addition of delta.registryAdditions) {
+      staged.register(addition.assetId, addition.mint);
+    }
+    for (const addition of delta.registryAdditions) {
+      this.#registry.register(addition.assetId, addition.mint);
+    }
+    // Cursors land before `_replace`, a cursor for a nullifier spent in the
+    // same delta is pruned within the same commit.
+    for (const stream of ["transactions", "proofless", "nullifiers"] as const) {
+      for (const [key, cursor] of delta.cursors[stream]) {
+        this._setSyncCursor(stream, key, cursor);
+      }
+    }
+    this._replace({
+      utxos: delta.utxos,
+      transactions: delta.transactions,
+      nullifiers: delta.nullifiers,
+      viewingKeyHistory: delta.viewingKeyHistory,
+      lastSynced: delta.lastSynced,
+    });
   }
 }
 
