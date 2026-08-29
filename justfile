@@ -80,7 +80,7 @@ test-hermetic: test-cli test-tree test-program-fast test-user-registry-litesvm t
 # The tests need the test-only feature. Keep the prover-backed
 # nullifier_tree::prover_e2e module out of this hermetic lane.
 test-tree:
-    cargo nextest run -p zolana-tree --features test-only \
+    cargo nextest run -p zolana-tree --features test-only,verify \
         -E 'not test(/^prover_e2e::/)'
 
 # Program/interface tests for the shielded-pool implementation.

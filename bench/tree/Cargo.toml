@@ -19,7 +19,7 @@ profile-program = [
 bench = ["profile-program"]
 
 [dependencies]
-zolana-tree = { workspace = true }
+zolana-tree = { workspace = true, features = ["verify"] }
 light-program-profiler = { workspace = true, features = ["profile-program"] }
 pinocchio = { workspace = true }
 borsh = { workspace = true }
@@ -27,7 +27,7 @@ solana-address = { workspace = true }
 wincode = { workspace = true }
 
 [dev-dependencies]
-zolana-tree = { workspace = true, features = ["test-only"] }
+zolana-tree = { workspace = true, features = ["test-only", "verify"] }
 light-program-profiler = { workspace = true, features = ["mollusk"] }
 mollusk-svm = { workspace = true }
 solana-account = { workspace = true }

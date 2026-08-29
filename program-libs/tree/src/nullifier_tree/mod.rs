@@ -18,7 +18,8 @@
 //! | [`merkle_tree_update`] | Apply queued batches to the tree |
 //! | [`access`] | Read accessors, layout validation, and account size |
 //! | [`batch`] | `Batch` state machine, hash chains, and cached tree updates |
-//! | [`verify`] | Groth16 verification and verifying keys |
+//! | [`proof`] | `CompressedProof`, the batch-update proof encoding |
+//! | `verify` | Groth16 verification and verifying keys (feature `verify`) |
 //! | [`error`] | `NullifierTreeError`, the module's single error type |
 //!
 //! ## Account
@@ -81,7 +82,7 @@
 //! ## Dependencies
 //!
 //! - **`zolana-hasher`** - Poseidon hash for hash chains and tree operations
-//! - **`groth16-solana`** - Groth16 proof verification for batch updates (see [`verify`])
+//! - **`groth16-solana`** - Groth16 proof verification for batch updates (see the `verify` module)
 //! - **`zolana-account-checks`** - `AccountError` variants reused by [`error`]
 //!
 //! ## Testing and reference implementations
@@ -114,5 +115,7 @@ pub mod error;
 pub mod init;
 pub mod layout;
 pub mod merkle_tree_update;
+pub mod proof;
 pub mod queue_insert;
+#[cfg(feature = "verify")]
 pub mod verify;

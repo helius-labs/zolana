@@ -8,6 +8,12 @@ publish = false
 
 [features]
 default = []
+# Loading a tree from a pinocchio `AccountView`. Off for clients that only
+# deserialize the account out of bytes; that path needs no Solana runtime.
+account-view = ["dep:pinocchio"]
+# Groth16 verification of batch nullifier-tree updates, and the verifying keys.
+# Off for clients that build or relay a batch update without checking it.
+verify = ["dep:groth16-solana"]
 # Relaxes the height == 40 check in `nullifier_tree::init` so tests can build
 # small trees. Never enable it for a build that produces the on-chain program.
 test-only = []
@@ -18,9 +24,8 @@ profile-program = ["dep:light-program-profiler", "light-program-profiler/profile
 zolana-account-checks = { workspace = true }
 zolana-event = { workspace = true }
 zolana-hasher = { workspace = true, features = ["poseidon", "keccak"] }
-groth16-solana = { workspace = true }
-pinocchio = { workspace = true }
-solana-address = { workspace = true }
+groth16-solana = { workspace = true, optional = true }
+pinocchio = { workspace = true, optional = true }
 solana-program-error = { workspace = true }
 solana-msg = { workspace = true, features = ["alloc"], optional = true }
 borsh = { workspace = true }

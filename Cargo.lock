@@ -11284,7 +11284,6 @@ dependencies = [
  "num-traits",
  "pinocchio 0.11.2",
  "rand 0.8.7",
- "solana-address 2.6.1",
  "solana-msg",
  "solana-program-error",
  "thiserror 2.0.18",

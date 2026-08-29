@@ -16,9 +16,10 @@
 //! [`TreeAccount`] is the loader for both subtrees. It checks program
 //! ownership, the discriminator, and the pause flag, then returns `&mut`
 //! access to [`TreeAccount::utxo_tree`] or [`TreeAccount::nullifier_tree`].
-//! [`TreeAccount::from_account_view_mut`] rejects a paused tree, which freezes
-//! the write paths; `pause_tree` loads through
-//! [`TreeAccount::from_account_view_mut_allow_paused`] so it can unpause.
+//! Under the `account-view` feature it also loads straight from a pinocchio
+//! `AccountView`: `from_account_view_mut` rejects a paused tree, which freezes
+//! the write paths, and `pause_tree` loads through
+//! `from_account_view_mut_allow_paused` so it can unpause.
 //!
 //! ## State tree
 //!
@@ -41,6 +42,21 @@
 //! Both trees are sized by const generics, so the account is one zero-copy
 //! cast and [`TreeAccount::account_size`] is the length the allocator must
 //! use.
+//!
+//! ## Features
+//!
+//! Nothing is on by default: deserializing a tree account out of bytes needs
+//! neither a Solana runtime nor a proof verifier, and a client that only reads
+//! the account should not link one.
+//!
+//! | Feature | Adds | Pulls in |
+//! |---------|------|----------|
+//! | `account-view` | `TreeAccount::from_account_view_mut` and its allow-paused twin | `pinocchio` |
+//! | `verify` | `nullifier_tree::verify` and `NullifierTreeLayout::update_tree_from_address_queue` | `groth16-solana` |
+//!
+//! [`TreeAccount::from_bytes`], [`TreeAccount::init`], both subtree layouts
+//! and [`nullifier_tree::proof::CompressedProof`] are always available, so
+//! indexers and foresters build a batch update without a verifier.
 //!
 //! ## Testing
 //!
@@ -68,6 +84,7 @@ use nullifier_tree::{
     init::match_circuit_size,
     layout::{NullifierTreeLayout, TreeType},
 };
+#[cfg(feature = "account-view")]
 use pinocchio::{account::RefMut, AccountView, Address};
 pub use smt::UtxoTreeLayout;
 use wincode::{
@@ -128,6 +145,7 @@ type SppTreeLayout = TreeAccountLayout<UTXO_TREE_HEIGHT, NULLIFIER_ZKP>;
 /// borrow flag stays set for as long as the `TreeAccount` is alive.
 enum LayoutRef<'a> {
     Raw(&'a mut SppTreeLayout),
+    #[cfg(feature = "account-view")]
     Account(RefMut<'a, SppTreeLayout>),
 }
 
@@ -214,6 +232,7 @@ impl<'a> TreeAccount<'a> {
     /// Load a writable tree from its account, checking program ownership, the
     /// discriminator, and that the tree is not paused. Use this on every write
     /// path that must be frozen while paused.
+    #[cfg(feature = "account-view")]
     pub fn from_account_view_mut(
         account: &'a mut AccountView,
         program_id: &Address,
@@ -228,6 +247,7 @@ impl<'a> TreeAccount<'a> {
 
     /// Like [`Self::from_account_view_mut`] but does not reject a paused tree.
     /// `pause_tree` needs this to load a paused tree in order to unpause it.
+    #[cfg(feature = "account-view")]
     pub fn from_account_view_mut_allow_paused(
         account: &'a mut AccountView,
         program_id: &Address,
@@ -236,6 +256,7 @@ impl<'a> TreeAccount<'a> {
         Self::load_checked(account, program_id, discriminator)
     }
 
+    #[cfg(feature = "account-view")]
     fn load_checked(
         account: &'a mut AccountView,
         program_id: &Address,
@@ -266,6 +287,7 @@ impl<'a> TreeAccount<'a> {
     fn layout(&self) -> &SppTreeLayout {
         match &self.layout {
             LayoutRef::Raw(layout) => layout,
+            #[cfg(feature = "account-view")]
             LayoutRef::Account(layout) => layout,
         }
     }
@@ -274,6 +296,7 @@ impl<'a> TreeAccount<'a> {
     fn layout_mut(&mut self) -> &mut SppTreeLayout {
         match &mut self.layout {
             LayoutRef::Raw(layout) => layout,
+            #[cfg(feature = "account-view")]
             LayoutRef::Account(layout) => layout,
         }
     }

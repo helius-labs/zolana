@@ -4,7 +4,7 @@ use zolana_tree::nullifier_tree::{
     error::NullifierTreeError,
     layout::TreeType,
     merkle_tree_update::InstructionDataAddressAppendInputs,
-    verify::CompressedProof,
+    proof::CompressedProof,
 };
 
 /// Re-submitting a proof for a zkp batch that has already been applied

@@ -1,12 +1,15 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zolana_event::BatchAddressAppendEvent;
+#[cfg(feature = "verify")]
 use zolana_hasher::hash_chain::create_hash_chain_from_array;
 
 use crate::nullifier_tree::{
-    batch::{BatchState, CachedTreeUpdate},
-    error::NullifierTreeError,
-    layout::{NullifierTreeLayout, TreeType},
-    verify::{verify_batch_address_update, CompressedProof},
+    batch::BatchState, error::NullifierTreeError, layout::NullifierTreeLayout,
+    proof::CompressedProof,
+};
+#[cfg(feature = "verify")]
+use crate::nullifier_tree::{
+    batch::CachedTreeUpdate, layout::TreeType, verify::verify_batch_address_update,
 };
 
 #[repr(C)]
@@ -31,6 +34,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     /// 3. Apply cached updates in order: the just-verified one and any it
     ///    unblocks. Updates that do not match the account tree are skipped, not
     ///    errors.
+    #[cfg(feature = "verify")]
     pub fn update_tree_from_address_queue(
         &mut self,
         merkle_tree_pubkey: [u8; 32],
@@ -60,6 +64,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     ///    proof's StartIndex, the tree next index this zkp batch writes at.
     /// 3. Rebuild the public input hash and verify the proof.
     /// 4. Store the cached update, keyed by StartIndex, at its zkp batch index.
+    #[cfg(feature = "verify")]
     fn verify_proof_cache_update(
         &mut self,
         instruction_data: &InstructionDataAddressAppendInputs,

@@ -24,7 +24,7 @@ use zolana_tree::nullifier_tree::{
     constants::NULLIFIER_TREE_INIT_ROOT_40,
     layout::NullifierTreeLayout,
     merkle_tree_update::InstructionDataAddressAppendInputs,
-    verify::CompressedProof,
+    proof::CompressedProof,
 };
 use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount, UTXO_TREE_HEIGHT};
 

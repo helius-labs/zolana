@@ -18,9 +18,10 @@ tree of height 40 with its input queue.
 `TreeAccount` is the loader for both subtrees. It checks program
 ownership, the discriminator, and the pause flag, then returns `&mut`
 access to `TreeAccount::utxo_tree` or `TreeAccount::nullifier_tree`.
-`TreeAccount::from_account_view_mut` rejects a paused tree, which freezes
-the write paths; `pause_tree` loads through
-`TreeAccount::from_account_view_mut_allow_paused` so it can unpause.
+Under the `account-view` feature it also loads straight from a pinocchio
+`AccountView`: `from_account_view_mut` rejects a paused tree, which freezes
+the write paths, and `pause_tree` loads through
+`from_account_view_mut_allow_paused` so it can unpause.
 
 ## State tree
 
@@ -43,6 +44,21 @@ insertion, batch append, and PDA cleanup.
 Both trees are sized by const generics, so the account is one zero-copy
 cast and `TreeAccount::account_size` is the length the allocator must
 use.
+
+## Features
+
+Nothing is on by default: deserializing a tree account out of bytes needs
+neither a Solana runtime nor a proof verifier, and a client that only reads
+the account should not link one.
+
+| Feature | Adds | Pulls in |
+|---------|------|----------|
+| `account-view` | `TreeAccount::from_account_view_mut` and its allow-paused twin | `pinocchio` |
+| `verify` | `nullifier_tree::verify` and `NullifierTreeLayout::update_tree_from_address_queue` | `groth16-solana` |
+
+`TreeAccount::from_bytes`, `TreeAccount::init`, both subtree layouts
+and `nullifier_tree::proof::CompressedProof` are always available, so
+indexers and foresters build a batch update without a verifier.
 
 ## Testing
 

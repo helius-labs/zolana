@@ -16,7 +16,7 @@ use zolana_tree::nullifier_tree::{
     init::InitAddressTreeAccountsInstructionData,
     layout::NullifierTreeLayout,
     merkle_tree_update::InstructionDataAddressAppendInputs,
-    verify::CompressedProof,
+    proof::CompressedProof,
 };
 
 const HEIGHT: u32 = 40;

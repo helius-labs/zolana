@@ -10,54 +10,11 @@ use groth16_solana::{
     groth16::{Groth16Verifier, Groth16Verifyingkey},
 };
 
-use crate::nullifier_tree::{error::NullifierTreeError, verify::verifying_keys::*};
+use crate::nullifier_tree::{
+    error::NullifierTreeError, proof::CompressedProof, verify::verifying_keys::*,
+};
 
 pub mod verifying_keys;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, borsh::BorshDeserialize, borsh::BorshSerialize)]
-pub struct CompressedProof {
-    pub a: [u8; 32],
-    pub b: [u8; 64],
-    pub c: [u8; 32],
-}
-
-impl Default for CompressedProof {
-    fn default() -> Self {
-        Self {
-            a: [0; 32],
-            b: [0; 64],
-            c: [0; 32],
-        }
-    }
-}
-
-impl CompressedProof {
-    pub fn to_array(&self) -> [u8; 128] {
-        let mut result = [0u8; 128];
-        result[0..32].copy_from_slice(&self.a);
-        result[32..96].copy_from_slice(&self.b);
-        result[96..128].copy_from_slice(&self.c);
-        result
-    }
-}
-use NullifierTreeError::*;
-
-impl TryFrom<&[u8]> for CompressedProof {
-    type Error = NullifierTreeError;
-
-    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        if bytes.len() < 128 {
-            return Err(InvalidProofSize(bytes.len()));
-        }
-        let mut a = [0u8; 32];
-        let mut b = [0u8; 64];
-        let mut c = [0u8; 32];
-        a.copy_from_slice(&bytes[0..32]);
-        b.copy_from_slice(&bytes[32..96]);
-        c.copy_from_slice(&bytes[96..128]);
-        Ok(Self { a, b, c })
-    }
-}
 
 #[inline(never)]
 pub fn verify<const N: usize>(
@@ -65,9 +22,9 @@ pub fn verify<const N: usize>(
     proof: &CompressedProof,
     vk: &Groth16Verifyingkey,
 ) -> Result<(), NullifierTreeError> {
-    let proof_a = decompress_g1(&proof.a).map_err(|_| DecompressG1Failed)?;
-    let proof_b = decompress_g2(&proof.b).map_err(|_| DecompressG2Failed)?;
-    let proof_c = decompress_g1(&proof.c).map_err(|_| DecompressG1Failed)?;
+    let proof_a = decompress_g1(&proof.a).map_err(|_| NullifierTreeError::DecompressG1Failed)?;
+    let proof_b = decompress_g2(&proof.b).map_err(|_| NullifierTreeError::DecompressG2Failed)?;
+    let proof_c = decompress_g1(&proof.c).map_err(|_| NullifierTreeError::DecompressG1Failed)?;
     let mut verifier = Groth16Verifier::new(&proof_a, &proof_b, &proof_c, public_inputs, vk)
         .map_err(|_| {
             #[cfg(feature = "log")]
@@ -79,7 +36,7 @@ pub fn verify<const N: usize>(
                 msg!("Proof B: {:?}", proof_b);
                 msg!("Proof C: {:?}", proof_c);
             }
-            CreateGroth16VerifierFailed
+            NullifierTreeError::CreateGroth16VerifierFailed
         })?;
     verifier.verify().map_err(|_| {
         #[cfg(feature = "log")]
@@ -91,7 +48,7 @@ pub fn verify<const N: usize>(
             msg!("Proof B: {:?}", proof_b);
             msg!("Proof C: {:?}", proof_c);
         }
-        ProofVerificationFailed
+        NullifierTreeError::ProofVerificationFailed
     })?;
     Ok(())
 }
@@ -113,6 +70,6 @@ pub fn verify_batch_address_update(
             compressed_proof,
             &batch_address_append_40_250::VERIFYINGKEY,
         ),
-        _ => Err(InvalidBatchSize),
+        _ => Err(NullifierTreeError::InvalidBatchSize),
     }
 }
