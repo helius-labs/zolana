@@ -614,6 +614,10 @@ fn select_bounded_inputs(
     amount: u64,
     eligible: impl Fn(&WalletUtxo) -> bool,
 ) -> Result<Vec<UnsignedSpendInput>, ClientError> {
+    // Zero selects a note whose whole change would cross the ring boundary.
+    if amount == 0 {
+        return Err(ClientError::ZeroSpendAmount);
+    }
     let max_inputs = SPP_SUPPORTED_SHAPES
         .iter()
         .map(|shape| shape.n_inputs())
@@ -2735,6 +2739,25 @@ mod tests {
         )
         .expect("the covering note spends alone");
         assert_eq!(amounts(&selected.inputs), vec![100]);
+    }
+
+    #[test]
+    fn select_spend_inputs_refuse_a_zero_amount() {
+        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
+
+        assert!(matches!(
+            select_spend_inputs_sync(
+                SpendInputParams {
+                    wallet: &wallet,
+                    asset: SOL_MINT,
+                    amount: 0,
+                },
+                &keypair,
+            ),
+            Err(ClientError::ZeroSpendAmount)
+        ));
     }
 
     #[test]
