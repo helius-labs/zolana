@@ -52,7 +52,8 @@
   "scripts": {
     "clean": "node -e \"import('node:fs/promises').then(({ rm }) => rm('dist', { recursive: true, force: true }))\"",
     "build": "npm run clean && tsc -p tsconfig.build.json && node scripts/copy-assets.mjs",
-    "prepack": "npm run changelog:check -- --release && npm run build",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run changelog:check -- --release",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "changelog:check": "node scripts/check-changelog.mjs",
     "format": "oxfmt --write .",

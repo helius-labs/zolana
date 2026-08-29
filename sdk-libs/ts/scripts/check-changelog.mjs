@@ -1,5 +1,5 @@
 // Refuses a release whose version has no changelog entry. `--release` also
-// demands the publish date, so `prepack` blocks an undated publish.
+// demands the publish date, so `prepublishOnly` blocks an undated publish.
 import { readFileSync } from "node:fs";
 
 const release = process.argv.includes("--release");

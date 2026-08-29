@@ -29,8 +29,8 @@ time`) when the version is published, else with the bump commit date.
 - One entry per version, newest first, heading `## <version> — <YYYY-MM-DD>`.
 - The entry for the next release is written in the same branch as the
   change, headed `## <version> — unreleased`. The publisher replaces
-  `unreleased` with the date when cutting the release. `prepack` refuses to
-  pack without a dated first entry matching `package.json`.
+  `unreleased` with the date when cutting the release. `prepublishOnly`
+  refuses to publish without a dated first entry matching `package.json`.
 - A behavioral change with no surface change is listed only when a test
   pins it.
 

@@ -5,8 +5,9 @@
 Value moves both ways between the default pool and a custom ring, pool
 notes fund the way in and an exit builder brings holdings back out.
 Balances split between pool and ring holdings, rings pay out SPL tokens,
-and a transfer spending another owner's notes carries every signer the
-chain requires.
+and the proof carries a signer slot for every note owner. The builders
+refuse what cannot land, zero amounts and relayed transactions over the
+packet size.
 
 Breaking
 
@@ -33,8 +34,8 @@ Added
   fee payer.
 - `ringSettlementStatics()` returns the settlement accounts a new ring
   lookup table carries, tables made before this keep working.
-- `AssetRegistry.register(assetId, mint)` and `Wallet.ensureAsset(assetId,
-mint)` bind a token id to its mint once and refuse a conflicting binding.
+- `AssetRegistry.register(assetId, mint)` and `Wallet.ensureAsset` bind a
+  token id to its mint once and refuse a conflicting binding.
 - `fetchSplAssetRegistrations(rpc)` reads every SPL token registered with
   the pool.
 
@@ -43,14 +44,19 @@ Changed
 - Ring transfers and withdrawals pick the largest notes first and only
   notes on the client's tree, a fragmented balance covers with the fewest
   inputs and selection never throws `RING_MULTIPLE_INPUT_TREES`.
-- The approval prompt shown before signing names the token and the ring,
-  not only the raw amount.
+- The approval prompt names the token, the ring, and on an entry the full
+  default-note value that becomes ring bound, change included.
+- A ring transfer whose fee payer is not the note owner is no longer
+  refused upfront with `TRANSACTION_ED25519_PAYER_MISMATCH`, the owner
+  co-signs the built transaction, and a relayed transaction, today larger
+  than a Solana packet, is refused at build with
+  `INTERFACE_TRANSACTION_TOO_LARGE`.
 
 Fixed
 
-- A ring transfer spending a note whose owner is not the fee payer built a
-  proof the chain rejects, the proof carries a signer slot for every owner,
-  pinned by unit tests.
+- A zero-amount ring transfer selected a note and moved its whole value
+  into the ring as change, the ring builders refuse zero with
+  `RING_ZERO_AMOUNT`.
 - `auditRing` stopped on a token registered after the auditor's wallet was
   made, it reloads the registry from the chain once and continues.
 
@@ -158,8 +164,8 @@ Breaking
   by the removed constructors differ (#231).
 - `SigningKey.fromBytes` is renamed `SigningKey.fromP256Bytes` → rename.
 - The merge-encryption helpers `mergeViewTag`, `encryptVerifiable`, and
-  `decryptVerifiable` are removed → `symmetricApply(sharedSecret, info,
-data)` is the cipher behind them.
+  `decryptVerifiable` are removed → `symmetricApply` is the cipher behind
+  them.
 - `hashField` and `ShieldedPublicKey.hash()`/`.ownerPublicKeyField()` are
   removed → `ShieldedPublicKey.ownerProofInputHash()`.
 - `KeypairErrorCode` drops `KEYPAIR_FIELD_ELEMENT_TOO_LONG` and
