@@ -28,6 +28,7 @@ import {
 import type { NonInclusionProof, SpendProof } from "../rpc.js";
 import type {
   AssembledTransfer,
+  CircuitUtxo,
   Field,
   ProverInputs,
   TransferInput,
@@ -42,25 +43,6 @@ const ZERO_PROOF = Object.freeze({
   b: new Uint8Array(64),
   c: new Uint8Array(32),
 }) as TransactProof;
-
-interface CircuitUtxo {
-  readonly domain: Field;
-  readonly owner: Field;
-  readonly asset: Field;
-  readonly amount: Field;
-  readonly blinding: Field;
-  readonly dataHash: Field;
-  readonly ringDataHash: Field;
-  readonly ringProgramId: Field;
-}
-
-const CIRCUIT_UTXOS = new WeakMap<object, CircuitUtxo>();
-
-export function circuitUtxo(value: object): CircuitUtxo {
-  const result = CIRCUIT_UTXOS.get(value);
-  if (!result) throw new ClientError("CLIENT_PROVER_INPUT");
-  return result;
-}
 
 /** Unique non-payer Ed25519 input owners in first-input order, mirrors Rust `owner_signer_pubkeys`. */
 export function ownerSignerAddresses(
@@ -376,8 +358,9 @@ export function createRealInput(
   proof: SpendProof,
   ownerPublicKeyHash: bigint,
 ): TransferInput {
-  const value = Object.freeze({
+  return Object.freeze({
     utxo: input,
+    circuit: inputCircuitUtxo(input),
     isDummy: asField(0n),
     statePathElements: Object.freeze(
       proof.state.path.map((item) => asField(bytesField(item, "state path element"))),
@@ -395,8 +378,6 @@ export function createRealInput(
     ownerPublicKeyHash: asField(ownerPublicKeyHash),
     nullifierSecret: asField(bytesField(input.nullifierKey.secretBytes(), "nullifier secret")),
   });
-  CIRCUIT_UTXOS.set(value, inputCircuitUtxo(input));
-  return value;
 }
 
 export function createDummyTransferInput(
@@ -405,8 +386,9 @@ export function createDummyTransferInput(
   proof: NonInclusionProof,
   nullifier = input.nullifier(),
 ): TransferInput {
-  const value = Object.freeze({
+  return Object.freeze({
     utxo: input,
+    circuit: inputCircuitUtxo(input, true),
     isDummy: asField(1n),
     statePathElements: Object.freeze(Array.from({ length: STATE_TREE_HEIGHT }, () => asField(0n))),
     statePathIndex: asField(0n),
@@ -422,8 +404,6 @@ export function createDummyTransferInput(
     ownerPublicKeyHash: asField(0n),
     nullifierSecret: asField(0n),
   });
-  CIRCUIT_UTXOS.set(value, inputCircuitUtxo(input, true));
-  return value;
 }
 
 export function createOutput(output: ProofOutputUtxo): TransferOutput {
@@ -433,8 +413,9 @@ export function createOutput(output: ProofOutputUtxo): TransferOutput {
         "output owner public key",
       )
     : hashBytesBigInt(output.ownerTag ?? new Uint8Array(32));
-  const value = Object.freeze({
-    utxo: output as unknown as ProofInputUtxo,
+  return Object.freeze({
+    utxo: output,
+    circuit: outputCircuitUtxo(output),
     isDummy: asField(output.isDummy() ? 1n : 0n),
     hash: asField(bytesField(output.hash(), "output hash")),
     ownerPublicKeyHash: asField(ownerPublicKeyHash),
@@ -444,8 +425,6 @@ export function createOutput(output: ProofOutputUtxo): TransferOutput {
         : 0n,
     ),
   });
-  CIRCUIT_UTXOS.set(value, outputCircuitUtxo(output));
-  return value;
 }
 
 function inputCircuitUtxo(input: ProofInputUtxo, dummy = false): CircuitUtxo {

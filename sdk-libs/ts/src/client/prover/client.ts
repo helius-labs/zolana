@@ -11,7 +11,6 @@ import {
   sleep,
   type ComposedSignal,
 } from "../internal.js";
-import { circuitUtxo } from "./assembly.js";
 import { parseProof } from "./proof.js";
 import type {
   CustomRingProofRequest,
@@ -313,7 +312,7 @@ function mergeProverRequest(inputs: MergeInputs): Readonly<Record<string, unknow
     circuitType: "merge",
     inputs: inputs.inputs.map(mergeInputJson),
     output: mergeOutputJson(inputs.output),
-    asset: hex(circuitUtxo(inputs.output).asset),
+    asset: hex(inputs.output.circuit.asset),
     ownerPkHash: hex(inputs.ownerPublicKeyHash),
     userNullifierPk: hex(inputs.userNullifierPublicKey),
     userNullifierSecret: hex(inputs.userNullifierSecret),
@@ -327,7 +326,7 @@ function mergeProverRequest(inputs: MergeInputs): Readonly<Record<string, unknow
 }
 
 function mergeInputJson(input: TransferInput): Readonly<Record<string, unknown>> {
-  const utxo = circuitUtxo(input);
+  const utxo = input.circuit;
   return Object.freeze({
     domain: hex(utxo.domain),
     amount: hex(utxo.amount),
@@ -347,7 +346,7 @@ function mergeInputJson(input: TransferInput): Readonly<Record<string, unknown>>
 
 function mergeOutputJson(output: TransferOutput): Readonly<Record<string, unknown>> {
   return Object.freeze({
-    ringDataHash: hex(circuitUtxo(output).ringDataHash),
+    ringDataHash: hex(output.circuit.ringDataHash),
     hash: hex(output.hash),
   });
 }
@@ -423,8 +422,8 @@ function outputJson(output: TransferOutput): Readonly<Record<string, unknown>> {
   });
 }
 
-function utxoJson(value: object): Readonly<Record<string, unknown>> {
-  const utxo = circuitUtxo(value);
+function utxoJson(value: TransferInput | TransferOutput): Readonly<Record<string, unknown>> {
+  const utxo = value.circuit;
   return Object.freeze({
     domain: hex(utxo.domain),
     owner: hex(utxo.owner),

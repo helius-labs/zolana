@@ -3,11 +3,7 @@ import { address } from "@solana/kit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ClientError } from "../src/client/error.js";
-import {
-  circuitUtxo,
-  createDummyTransferInput,
-  createOutput,
-} from "../src/client/prover/assembly.js";
+import { createDummyTransferInput, createOutput } from "../src/client/prover/assembly.js";
 import { ProverClient } from "../src/client/prover/client.js";
 import type { NonInclusionProof } from "../src/client/rpc.js";
 import type { Bytes32 } from "../src/interface/index.js";
@@ -426,8 +422,9 @@ describe("dummy prover inputs", () => {
     } as NonInclusionProof;
 
     const converted = createDummyTransferInput(input, 4n, proof);
-    const utxo = circuitUtxo(converted);
+    const utxo = converted.circuit;
 
+    expect({ ...converted }.circuit).toBe(converted.circuit);
     expect(converted.ownerPublicKeyHash).toBe(0n);
     expect(utxo).toEqual({
       domain: 1n,

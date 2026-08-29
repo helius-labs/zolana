@@ -23,7 +23,7 @@ import {
 } from "../src/ring/audit.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
 import { StateDiscriminator } from "../src/interface/state.js";
-import { assemble, circuitUtxo, ownerSignerAddresses } from "../src/client/prover/assembly.js";
+import { assemble, ownerSignerAddresses } from "../src/client/prover/assembly.js";
 import type { ZolanaClient } from "../src/client/client.js";
 import type { SpendProof } from "../src/client/rpc.js";
 import { hashBytesBigInt } from "../src/client/internal.js";
@@ -447,8 +447,8 @@ describe("ring witness", () => {
     const assembled = assemble(proofInputs, [spendProofFor(input)], [], RING);
     const slot = assembled.proverInputs.payload.inputs[0];
     if (!slot) throw new Error("input slot");
-    expect(circuitUtxo(slot).ringProgramId).toBe(0n);
-    expect(circuitUtxo(slot).ringDataHash).toBe(0n);
+    expect(slot.circuit.ringProgramId).toBe(0n);
+    expect(slot.circuit.ringDataHash).toBe(0n);
     const vector = assembled.proverInputs.payload.signerPublicKeyHashes;
     expect(vector.slice(1).every((entry) => entry === 0n)).toBe(true);
     expect(assembled.proverInputs.payload.ringProgramId).toBe(
