@@ -20,12 +20,7 @@ import type {
   SplitBundlePlaintext,
 } from "../serialization/codecs.js";
 import { decodeAddress } from "../internal.js";
-import {
-  encryptAnonymousTransferWith,
-  encryptConfidentialTransferWith,
-  encryptCustomRingTransferWith,
-  encryptSplitWith,
-} from "./encrypt-rails.js";
+import { runSpendSession, runSyncSession } from "./encrypt-rails.js";
 import type { ProofOutputUtxo } from "../utxo.js";
 import type { AssetRegistry } from "./asset.js";
 
@@ -88,12 +83,10 @@ export interface SyncWalletAuthority {
   syncMaterial(): Promise<WalletSyncMaterial>;
 }
 
-export interface WalletAuthority {
-  solanaPublicKey(): Address;
-  shieldedAddress(): Promise<ShieldedAddress>;
-  viewingKeys(): Promise<readonly ViewingKey[]>;
-  spendNullifierKey(): Promise<NullifierKey>;
-  syncMaterial(): Promise<WalletSyncMaterial>;
+/** Spend-scoped capabilities over one borrowed key set. */
+export interface SpendSession {
+  /** The same borrowed key on every call, wiped when the session ends. */
+  nullifierKey(): NullifierKey;
   encryptConfidentialTransfer(
     input: Readonly<{
       firstNullifier: Bytes32;
@@ -124,6 +117,21 @@ export interface WalletAuthority {
       bundle: SplitBundlePlaintext;
     }>,
   ): Promise<EncryptedSplit>;
+}
+
+export interface SpendAuthority {
+  /** Keys lent to `run` are wiped when the callback settles, do not retain them. */
+  withSpendSession<T>(run: (session: SpendSession) => Promise<T>): Promise<T>;
+}
+
+export interface SyncAuthority {
+  /** The lent material's keys are wiped when the callback settles, do not retain them. */
+  withSyncSession<T>(run: (session: SyncWalletAuthority) => Promise<T>): Promise<T>;
+}
+
+export interface WalletAuthority extends SpendAuthority, SyncAuthority {
+  solanaPublicKey(): Address;
+  shieldedAddress(): Promise<ShieldedAddress>;
   requestUserApproval(request: ApprovalRequest): Promise<void>;
 }
 
@@ -211,62 +219,19 @@ export class ClientEd25519WalletAuthority implements WalletAuthority {
     );
   }
 
-  viewingKeys(): Promise<readonly ViewingKey[]> {
-    return Promise.resolve([this.#copyViewingKey()]);
+  withSpendSession<T>(run: (session: SpendSession) => Promise<T>): Promise<T> {
+    return runSpendSession(this.#copyViewingKey(), this.#copyNullifierKey(), run);
   }
 
-  spendNullifierKey(): Promise<NullifierKey> {
-    return Promise.resolve(this.#copyNullifierKey());
-  }
-
-  async syncMaterial(): Promise<WalletSyncMaterial> {
-    return {
-      identity: await this.shieldedAddress(),
-      viewingKeys: [this.#copyViewingKey()],
-      nullifierKey: this.#copyNullifierKey(),
-    };
-  }
-
-  encryptConfidentialTransfer(
-    input: Readonly<{
-      firstNullifier: Bytes32;
-      outputs: readonly ProofOutputUtxo[];
-      assets: AssetRegistry;
-    }>,
-  ): Promise<EncryptedTransfer> {
-    return Promise.resolve(encryptConfidentialTransferWith(this.#viewingKey, input));
-  }
-
-  encryptCustomRingTransfer(
-    input: Readonly<{
-      firstNullifier: Bytes32;
-      outputs: readonly ProofOutputUtxo[];
-      assets: AssetRegistry;
-      auditorPublicKey: P256PublicKey;
-    }>,
-  ): Promise<EncryptedCustomRingTransfer> {
-    return Promise.resolve(encryptCustomRingTransferWith(this.#viewingKey, input));
-  }
-
-  encryptAnonymousTransfer(
-    input: Readonly<{
-      firstNullifier: Bytes32;
-      senderViewTag: Bytes32;
-      sender: AnonymousSenderPlaintext;
-      recipients: readonly AnonymousRecipientSlot[];
-    }>,
-  ): Promise<EncryptedTransfer> {
-    return Promise.resolve(encryptAnonymousTransferWith(this.#viewingKey, input));
-  }
-
-  encryptSplit(
-    input: Readonly<{
-      firstNullifier: Bytes32;
-      viewTag: Bytes32;
-      bundle: SplitBundlePlaintext;
-    }>,
-  ): Promise<EncryptedSplit> {
-    return Promise.resolve(encryptSplitWith(this.#viewingKey, input));
+  async withSyncSession<T>(run: (session: SyncWalletAuthority) => Promise<T>): Promise<T> {
+    return runSyncSession(
+      {
+        identity: await this.shieldedAddress(),
+        viewingKeys: [this.#copyViewingKey()],
+        nullifierKey: this.#copyNullifierKey(),
+      },
+      run,
+    );
   }
 
   /**
@@ -387,62 +352,19 @@ export class KeypairWalletAuthority implements WalletAuthority {
     return Promise.resolve(this.#address);
   }
 
-  viewingKeys(): Promise<readonly ViewingKey[]> {
-    return Promise.resolve([this.#viewingKey()]);
+  withSpendSession<T>(run: (session: SpendSession) => Promise<T>): Promise<T> {
+    return runSpendSession(this.#viewingKey(), this.#nullifierKey(), run);
   }
 
-  spendNullifierKey(): Promise<NullifierKey> {
-    return Promise.resolve(this.#nullifierKey());
-  }
-
-  syncMaterial(): Promise<WalletSyncMaterial> {
-    return Promise.resolve({
-      identity: this.#address,
-      viewingKeys: [this.#viewingKey()],
-      nullifierKey: this.#nullifierKey(),
-    });
-  }
-
-  encryptConfidentialTransfer(
-    input: Readonly<{
-      firstNullifier: Bytes32;
-      outputs: readonly ProofOutputUtxo[];
-      assets: AssetRegistry;
-    }>,
-  ): Promise<EncryptedTransfer> {
-    return Promise.resolve(encryptConfidentialTransferWith(this.#viewing, input));
-  }
-
-  encryptCustomRingTransfer(
-    input: Readonly<{
-      firstNullifier: Bytes32;
-      outputs: readonly ProofOutputUtxo[];
-      assets: AssetRegistry;
-      auditorPublicKey: P256PublicKey;
-    }>,
-  ): Promise<EncryptedCustomRingTransfer> {
-    return Promise.resolve(encryptCustomRingTransferWith(this.#viewing, input));
-  }
-
-  encryptAnonymousTransfer(
-    input: Readonly<{
-      firstNullifier: Bytes32;
-      senderViewTag: Bytes32;
-      sender: AnonymousSenderPlaintext;
-      recipients: readonly AnonymousRecipientSlot[];
-    }>,
-  ): Promise<EncryptedTransfer> {
-    return Promise.resolve(encryptAnonymousTransferWith(this.#viewing, input));
-  }
-
-  encryptSplit(
-    input: Readonly<{
-      firstNullifier: Bytes32;
-      viewTag: Bytes32;
-      bundle: SplitBundlePlaintext;
-    }>,
-  ): Promise<EncryptedSplit> {
-    return Promise.resolve(encryptSplitWith(this.#viewing, input));
+  withSyncSession<T>(run: (session: SyncWalletAuthority) => Promise<T>): Promise<T> {
+    return runSyncSession(
+      {
+        identity: this.#address,
+        viewingKeys: [this.#viewingKey()],
+        nullifierKey: this.#nullifierKey(),
+      },
+      run,
+    );
   }
 
   /** Local keys approve unattended; Rust takes the trait default here. */

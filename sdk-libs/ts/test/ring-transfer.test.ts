@@ -116,12 +116,14 @@ async function auditedProofInputs(
     sender,
     recipient,
   } = preparedTransfer(amount, others, exits, inputRing, asset, payer);
-  const encrypted = await sender.authority.encryptCustomRingTransfer({
-    firstNullifier: ring.firstNullifier,
-    outputs: ring.outputs,
-    assets,
-    auditorPublicKey: auditor.publicKey(),
-  });
+  const encrypted = await sender.authority.withSpendSession((session) =>
+    session.encryptCustomRingTransfer({
+      firstNullifier: ring.firstNullifier,
+      outputs: ring.outputs,
+      assets,
+      auditorPublicKey: auditor.publicKey(),
+    }),
+  );
   const proofInputs = frameDummyOutputs(
     ring.finalize({
       txViewingPublicKey: encrypted.txViewingPublicKey,
@@ -391,7 +393,12 @@ describe("ring witness", () => {
         client,
         ringProgramId: RING,
         prepared: {} as PreparedTransfer,
-        authority: actor(3).authority,
+        session: {
+          encryptCustomRingTransfer: (request) =>
+            actor(3).authority.withSpendSession((session) =>
+              session.encryptCustomRingTransfer(request),
+            ),
+        },
         assets: new AssetRegistry(),
         tree: actor(8).address.solanaAddress(),
       }),

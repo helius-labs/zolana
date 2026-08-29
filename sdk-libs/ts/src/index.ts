@@ -65,6 +65,9 @@ export {
   type SerializedWalletState,
   type SyncReport,
   type TransactionErrorCode,
+  type SpendAuthority,
+  type SpendSession,
+  type SyncAuthority,
   type WalletAuthority,
   type WalletUtxo,
 } from "./transaction/index.js";

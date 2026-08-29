@@ -524,10 +524,12 @@ class SyncPass {
   #authored(tx: IndexedShieldedTransaction, key: ViewingKeyLike): boolean {
     const firstNullifier = tx.nullifiers[0];
     if (tx.txViewingPublicKey === undefined || firstNullifier === undefined) return false;
-    return equal(
-      key.transactionViewingKey(firstNullifier).publicKey().toBytes(),
-      tx.txViewingPublicKey.toBytes(),
-    );
+    const txKey = key.transactionViewingKey(firstNullifier);
+    try {
+      return equal(txKey.publicKey().toBytes(), tx.txViewingPublicKey.toBytes());
+    } finally {
+      txKey.destroy();
+    }
   }
 
   /** The embedded viewing key and committed UTXO identify change. */
@@ -538,10 +540,27 @@ class SyncPass {
       return;
     }
     const txKey = key.transactionViewingKey(firstNullifier);
-    if (!equal(txKey.publicKey().toBytes(), tx.txViewingPublicKey.toBytes())) return;
-    if (this.#processedOutbound.has(index)) return;
+    if (!equal(txKey.publicKey().toBytes(), tx.txViewingPublicKey.toBytes())) {
+      txKey.destroy();
+      return;
+    }
+    if (this.#processedOutbound.has(index)) {
+      txKey.destroy();
+      return;
+    }
     this.#processedOutbound.add(index);
+    try {
+      this.#decodeOutboundSlots(tx, txKey, salt);
+    } finally {
+      txKey.destroy();
+    }
+  }
 
+  #decodeOutboundSlots(
+    tx: IndexedShieldedTransaction,
+    txKey: ReturnType<ViewingKeyLike["transactionViewingKey"]>,
+    salt: Bytes16,
+  ): void {
     const change: Utxo[] = [];
     const recipientKeys: P256PublicKey[] = [];
     tx.outputSlots.forEach((slot, position) => {

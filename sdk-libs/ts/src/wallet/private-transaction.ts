@@ -11,7 +11,7 @@ import type { Wallet } from "../transaction/wallet/state.js";
 import { UnsignedPrivateTransaction } from "./actions.js";
 import { WalletError } from "./error.js";
 import { equalBytes } from "./internal.js";
-import type { WalletAuthority } from "../transaction/wallet/authority.js";
+import type { SpendSession, WalletAuthority } from "../transaction/wallet/authority.js";
 
 function sameOptionalHash(left: Bytes32 | undefined, right: Bytes32 | undefined): boolean {
   if (left === undefined || right === undefined) return left === right;
@@ -92,31 +92,32 @@ export async function authorizePrivateTransaction(
       payer: transaction.payer(),
     });
   }
-  const nullifierKey = await authority.spendNullifierKey();
-  let inputs: readonly ProofInputUtxo[] = [];
-  try {
-    inputs = unsignedInputs.map(
-      ({ entry }) =>
-        new ProofInputUtxo({
-          utxo: entry.utxo,
-          nullifierKey,
-          ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),
-          ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
-        }),
-    );
-    return await authorizeWithInputs(transaction, wallet, authority, address, inputs);
-  } catch (cause) {
-    for (const proofInput of inputs) proofInput.destroy();
-    throw cause;
-  } finally {
-    nullifierKey.destroy();
-  }
+  return authority.withSpendSession(async (session) => {
+    const nullifierKey = session.nullifierKey();
+    let inputs: readonly ProofInputUtxo[] = [];
+    try {
+      inputs = unsignedInputs.map(
+        ({ entry }) =>
+          new ProofInputUtxo({
+            utxo: entry.utxo,
+            nullifierKey,
+            ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),
+            ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
+          }),
+      );
+      return await authorizeWithInputs(transaction, wallet, authority, session, address, inputs);
+    } catch (cause) {
+      for (const proofInput of inputs) proofInput.destroy();
+      throw cause;
+    }
+  });
 }
 
 async function authorizeWithInputs(
   transaction: UnsignedPrivateTransaction,
   wallet: Wallet,
   authority: WalletAuthority,
+  session: SpendSession,
   address: ShieldedAddress,
   inputs: readonly ProofInputUtxo[],
 ): Promise<AuthorizedPrivateTransaction> {
@@ -133,7 +134,7 @@ async function authorizeWithInputs(
       perOutputAmount: action.perOutputAmount,
       payer: transaction.payer(),
     }).prepare();
-    const encrypted = await authority.encryptSplit({
+    const encrypted = await session.encryptSplit({
       firstNullifier: prepared.firstNullifier,
       viewTag: prepared.owner.confidentialViewTag(),
       bundle: prepared.bundlePlaintext(wallet.registry),
@@ -155,7 +156,7 @@ async function authorizeWithInputs(
       transfer.withdraw(action.asset, action.amount, action.target);
     }
     const prepared = transfer.prepare();
-    const encrypted = await authority.encryptConfidentialTransfer({
+    const encrypted = await session.encryptConfidentialTransfer({
       firstNullifier: prepared.firstNullifier,
       outputs: prepared.outputs,
       assets: wallet.registry,

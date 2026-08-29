@@ -832,14 +832,19 @@ export class ConfidentialTransfer {
    */
   sign(keypair: ShieldedKeypair, assets: AssetRegistry): SppProofInputs {
     const prepared = this.prepare();
-    const tx = keypair.viewingKey().transactionViewingKey(prepared.firstNullifier);
-    const salt = randomSalt();
-    const signed = prepared.finalize({
-      txViewingPublicKey: tx.publicKey(),
-      salt,
-      payload: encodeConfidentialSlots(prepared.outputs, assets, tx, salt),
-    });
-    return signed;
+    const viewingKey = keypair.viewingKey();
+    const tx = viewingKey.transactionViewingKey(prepared.firstNullifier);
+    try {
+      const salt = randomSalt();
+      return prepared.finalize({
+        txViewingPublicKey: tx.publicKey(),
+        salt,
+        payload: encodeConfidentialSlots(prepared.outputs, assets, tx, salt),
+      });
+    } finally {
+      tx.destroy();
+      viewingKey.destroy();
+    }
   }
 }
 

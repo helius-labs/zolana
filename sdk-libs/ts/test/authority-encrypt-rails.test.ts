@@ -80,11 +80,13 @@ describe("authority encrypt rails wipe the per-transaction viewing key", () => {
     it(`${name} confidential transfer`, async () => {
       const authority = make();
       const minted = trackMintedTxViewingKeys();
-      await authority.encryptConfidentialTransfer({
-        firstNullifier: filled(1),
-        outputs: [recipientOutput()],
-        assets: new AssetRegistry(),
-      });
+      await authority.withSpendSession((session) =>
+        session.encryptConfidentialTransfer({
+          firstNullifier: filled(1),
+          outputs: [recipientOutput()],
+          assets: new AssetRegistry(),
+        }),
+      );
       expectWiped(minted);
     });
 
@@ -92,36 +94,40 @@ describe("authority encrypt rails wipe the per-transaction viewing key", () => {
       const authority = make();
       const auditor = ViewingKey.generate();
       const minted = trackMintedTxViewingKeys();
-      const encrypted = await authority.encryptCustomRingTransfer({
-        firstNullifier: filled(1),
-        outputs: [recipientOutput()],
-        assets: new AssetRegistry(),
-        auditorPublicKey: auditor.publicKey(),
-      });
+      const encrypted = await authority.withSpendSession((session) =>
+        session.encryptCustomRingTransfer({
+          firstNullifier: filled(1),
+          outputs: [recipientOutput()],
+          assets: new AssetRegistry(),
+          auditorPublicKey: auditor.publicKey(),
+        }),
+      );
       expectWiped(minted);
-      expect(encrypted.audit.txViewingSecret.some((byte) => byte !== 0)).toBe(true);
-      expect(encrypted.audit.ephemeralSecret.some((byte) => byte !== 0)).toBe(true);
+      expect(encrypted.audit.txViewingSecret.some((byte: number) => byte !== 0)).toBe(true);
+      expect(encrypted.audit.ephemeralSecret.some((byte: number) => byte !== 0)).toBe(true);
     });
 
     it(`${name} anonymous transfer`, async () => {
       const authority = make();
       const recipient = ShieldedKeypair.generate();
       const minted = trackMintedTxViewingKeys();
-      await authority.encryptAnonymousTransfer({
-        firstNullifier: filled(1),
-        senderViewTag: filled(2),
-        sender: {
-          ownerPublicKey: recipient.signingPublicKey(),
-          splAssetId: 0n,
-          splAmount: 0n,
-          solAmount: 5n,
-          blindingSeed: filled(4),
-          recipientViewingPublicKeys: [recipient.viewingPublicKey()],
-          splData: new Data(),
-          solData: new Data(),
-        },
-        recipients: [],
-      });
+      await authority.withSpendSession((session) =>
+        session.encryptAnonymousTransfer({
+          firstNullifier: filled(1),
+          senderViewTag: filled(2),
+          sender: {
+            ownerPublicKey: recipient.signingPublicKey(),
+            splAssetId: 0n,
+            splAmount: 0n,
+            solAmount: 5n,
+            blindingSeed: filled(4),
+            recipientViewingPublicKeys: [recipient.viewingPublicKey()],
+            splData: new Data(),
+            solData: new Data(),
+          },
+          recipients: [],
+        }),
+      );
       expectWiped(minted);
     });
 
@@ -129,18 +135,20 @@ describe("authority encrypt rails wipe the per-transaction viewing key", () => {
       const authority = make();
       const owner = ShieldedKeypair.generate();
       const minted = trackMintedTxViewingKeys();
-      await authority.encryptSplit({
-        firstNullifier: filled(1),
-        viewTag: filled(2),
-        bundle: {
-          ownerPublicKey: owner.signingPublicKey(),
-          numOutputs: 2,
-          assetId: 0n,
-          assetAmount: 5n,
-          blindingSeed: filled(4),
-          data: new Data(),
-        },
-      });
+      await authority.withSpendSession((session) =>
+        session.encryptSplit({
+          firstNullifier: filled(1),
+          viewTag: filled(2),
+          bundle: {
+            ownerPublicKey: owner.signingPublicKey(),
+            numOutputs: 2,
+            assetId: 0n,
+            assetAmount: 5n,
+            blindingSeed: filled(4),
+            data: new Data(),
+          },
+        }),
+      );
       expectWiped(minted);
     });
   }

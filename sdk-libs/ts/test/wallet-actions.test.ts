@@ -627,12 +627,13 @@ describe("ring approval summary", () => {
 
 function captureSpendKeys(authority: KeypairWalletAuthority): NullifierKey[] {
   const spendKeys: NullifierKey[] = [];
-  const mint = authority.spendNullifierKey.bind(authority);
-  vi.spyOn(authority, "spendNullifierKey").mockImplementation(async () => {
-    const key = await mint();
-    spendKeys.push(key);
-    return key;
-  });
+  const open = authority.withSpendSession.bind(authority);
+  vi.spyOn(authority, "withSpendSession").mockImplementation((run) =>
+    open((session) => {
+      spendKeys.push(session.nullifierKey());
+      return run(session);
+    }),
+  );
   return spendKeys;
 }
 
@@ -669,8 +670,17 @@ describe("spend key lifecycle", () => {
     const wallet = fundedWallet(keypair, [100n]);
     const { client } = capturePrivateBuild();
     const authority = new KeypairWalletAuthority({ solanaPublicKey: payer, keypair });
-    vi.spyOn(authority, "encryptConfidentialTransfer").mockRejectedValue(new Error("refused"));
-    const spendKeys = captureSpendKeys(authority);
+    const spendKeys: NullifierKey[] = [];
+    const open = authority.withSpendSession.bind(authority);
+    vi.spyOn(authority, "withSpendSession").mockImplementation((run) =>
+      open((session) => {
+        spendKeys.push(session.nullifierKey());
+        return run({
+          ...session,
+          encryptConfidentialTransfer: () => Promise.reject(new Error("refused")),
+        });
+      }),
+    );
     const destroyed = vi.spyOn(ProofInputUtxo.prototype, "destroy");
 
     try {
@@ -724,8 +734,9 @@ describe("spend key lifecycle", () => {
       derivationSeed: seed,
     });
     const address = await authority.shieldedAddress();
-    const key = await authority.spendNullifierKey();
-    expect(key.publicKey()).toEqual(address.nullifierPublicKey);
-    key.destroy();
+    const publicKey = await authority.withSpendSession((session) =>
+      Promise.resolve(session.nullifierKey().publicKey()),
+    );
+    expect(publicKey).toEqual(address.nullifierPublicKey);
   });
 });

@@ -293,22 +293,28 @@ export class ConfidentialSplit {
    */
   sign(keypair: ShieldedKeypair, assets: AssetRegistry): SppProofInputs {
     const prepared = this.prepare();
-    const tx = keypair.viewingKey().transactionViewingKey(prepared.firstNullifier);
-    const salt = randomSalt();
-    return prepared.finalize({
-      txViewingPublicKey: tx.publicKey(),
-      salt,
-      payload: {
-        viewTag: prepared.ownerViewTag(),
-        data: encryptSplit(
-          tx,
-          prepared.owner.viewingPublicKey,
-          encodeSplitBundle(prepared.bundlePlaintext(assets)),
-          salt,
-          0,
-        ),
-      },
-    });
+    const viewingKey = keypair.viewingKey();
+    const tx = viewingKey.transactionViewingKey(prepared.firstNullifier);
+    try {
+      const salt = randomSalt();
+      return prepared.finalize({
+        txViewingPublicKey: tx.publicKey(),
+        salt,
+        payload: {
+          viewTag: prepared.ownerViewTag(),
+          data: encryptSplit(
+            tx,
+            prepared.owner.viewingPublicKey,
+            encodeSplitBundle(prepared.bundlePlaintext(assets)),
+            salt,
+            0,
+          ),
+        },
+      });
+    } finally {
+      tx.destroy();
+      viewingKey.destroy();
+    }
   }
 }
 

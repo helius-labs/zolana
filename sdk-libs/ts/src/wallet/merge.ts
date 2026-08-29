@@ -165,43 +165,59 @@ export async function buildMergeTransaction(
 ): Promise<Transaction> {
   try {
     const owner = input.authority.solanaPublicKey();
-    const material = MergeMaterial.fromSyncMaterial(await input.authority.syncMaterial());
-    const created = createMerge({
-      wallet: input.wallet,
-      material,
-      asset: input.asset ?? SOL_MINT,
-      ...(input.inputs === undefined ? {} : { inputs: input.inputs }),
-    });
-    await input.authority.requestUserApproval({
-      solanaPublicKey: owner,
-      summary: `merge ${String(created.numInputs)} private inputs`,
-    });
-    const record = await internalMergeRecord({ rpc: input.client, owner }, context);
-    validateMergeBuild(record, owner, material);
-    if (input.client.tree !== created.tree) {
-      throw new WalletError("WALLET_MERGE_TREE_MISMATCH", {
-        details: { proofTree: input.client.tree, submitTree: created.tree },
-      });
-    }
-    const proved = await input.client.proveMerge(
-      {
-        prepared: created.prepared,
+    return await input.authority.withSyncSession(async (keys) => {
+      const material = MergeMaterial.fromSyncMaterial(await keys.syncMaterial());
+      const created = createMerge({
+        wallet: input.wallet,
         material,
-        indexer: treeCheckedIndexer(input.client, created.tree),
-      },
-      context,
-    );
-    return await input.client.assembleAuthorizedMergeTransaction(
-      {
-        proved,
-        feePayer: input.feePayer,
-        userRecord: record.recordAddress,
-      },
-      context,
-    );
+        asset: input.asset ?? SOL_MINT,
+        ...(input.inputs === undefined ? {} : { inputs: input.inputs }),
+      });
+      try {
+        return await proveAndAssembleMerge(input, owner, material, created, context);
+      } finally {
+        for (const proofInput of created.prepared.inputs) proofInput.destroy();
+      }
+    });
   } catch (cause) {
     throw wrapWalletError("WALLET_BUILD_MERGE", cause);
   }
+}
+
+async function proveAndAssembleMerge(
+  input: MergeTransactionParams,
+  owner: Address,
+  material: MergeMaterial,
+  created: ReturnType<typeof createMerge>,
+  context: RequestContext | undefined,
+): Promise<Transaction> {
+  await input.authority.requestUserApproval({
+    solanaPublicKey: owner,
+    summary: `merge ${String(created.numInputs)} private inputs`,
+  });
+  const record = await internalMergeRecord({ rpc: input.client, owner }, context);
+  validateMergeBuild(record, owner, material);
+  if (input.client.tree !== created.tree) {
+    throw new WalletError("WALLET_MERGE_TREE_MISMATCH", {
+      details: { proofTree: input.client.tree, submitTree: created.tree },
+    });
+  }
+  const proved = await input.client.proveMerge(
+    {
+      prepared: created.prepared,
+      material,
+      indexer: treeCheckedIndexer(input.client, created.tree),
+    },
+    context,
+  );
+  return input.client.assembleAuthorizedMergeTransaction(
+    {
+      proved,
+      feePayer: input.feePayer,
+      userRecord: record.recordAddress,
+    },
+    context,
+  );
 }
 
 function validateMergeBuild(record: MergeRecord, owner: Address, material: MergeMaterial): void {

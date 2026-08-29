@@ -5,17 +5,29 @@
 Wallet sync is atomic, a sync that fails partway changes nothing and the
 next sync re-reads what the failed one fetched. Serialized wallets carry
 their resume cursors, a restarted wallet continues where it stopped
-instead of rescanning history. Secret key material no longer outlives its
-use, builds and decryption wipe the keys they mint.
+instead of rescanning history. Keys granted by a wallet authority live
+only inside scoped sessions that wipe them when the callback settles.
 
 Breaking
 
+- `WalletAuthority` grants keys only inside scoped sessions,
+  `withSpendSession` replaces `spendNullifierKey()` and the four
+  `encrypt*` methods, `withSyncSession` replaces `syncMaterial()` and
+  `viewingKeys()`, and the lent keys are wiped when the callback settles →
+  wrap existing key use in the matching session callback, the session
+  object passes to `decryptTransactions` unchanged.
+- `proveCustomRingTransfer` takes the encryption capability of an open
+  spend session instead of a whole authority → call it inside
+  `withSpendSession` and pass the session.
 - `serializeWallet` writes `SerializedWalletState` version 3 with sync
   cursors → state saved by version 2 still loads, and its first sync
   rescans history once.
 
 Added
 
+- `SpendAuthority`, `SyncAuthority`, and `SpendSession` are exported,
+  `syncWallet` accepts any `SyncAuthority`, one method instead of ten for
+  a custom scan-only authority.
 - `deserializeWallet` restores sync cursors, a restarted wallet resumes
   `syncWallet` where it stopped instead of replaying the full history.
 
@@ -37,7 +49,12 @@ Fixed
   the transaction is assembled or the build fails.
 - Every encryption minted a per-transaction viewing key and kept it in
   memory, each rail wipes it once the envelope is built, in both shipped
-  authorities.
+  authorities and in the keypair `sign()` paths.
+- Outbound history decryption minted per-transaction viewing keys and
+  kept them, each is wiped before the next transaction is read.
+- `buildMergeTransaction` kept the sync material it minted and every
+  per-input key copy in memory after building, all of them are wiped once
+  the transaction is assembled or the build fails.
 - `decryptToBalances` minted a viewing and a nullifier key and kept both in
   memory, they are wiped before it returns.
 - `KeypairWalletAuthority.fromDerivationSeed` left the secrets derived

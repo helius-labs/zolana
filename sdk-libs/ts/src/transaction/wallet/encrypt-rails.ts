@@ -16,6 +16,7 @@ import {
   type AnonymousSenderPlaintext,
   type SplitBundlePlaintext,
 } from "../serialization/codecs.js";
+import type { NullifierKey } from "../../keypair/nullifier-key.js";
 import type { ProofOutputUtxo } from "../utxo.js";
 import type { AssetRegistry } from "./asset.js";
 import type {
@@ -23,7 +24,46 @@ import type {
   EncryptedCustomRingTransfer,
   EncryptedSplit,
   EncryptedTransfer,
+  SpendSession,
+  SyncWalletAuthority,
+  WalletSyncMaterial,
 } from "./authority.js";
+
+/** @internal Owns both keys, wipes them when `run` settles. */
+export async function runSpendSession<T>(
+  viewingKey: ViewingKey,
+  nullifierKey: NullifierKey,
+  run: (session: SpendSession) => Promise<T>,
+): Promise<T> {
+  try {
+    return await run({
+      nullifierKey: () => nullifierKey,
+      encryptConfidentialTransfer: (input) =>
+        Promise.resolve(encryptConfidentialTransferWith(viewingKey, input)),
+      encryptCustomRingTransfer: (input) =>
+        Promise.resolve(encryptCustomRingTransferWith(viewingKey, input)),
+      encryptAnonymousTransfer: (input) =>
+        Promise.resolve(encryptAnonymousTransferWith(viewingKey, input)),
+      encryptSplit: (input) => Promise.resolve(encryptSplitWith(viewingKey, input)),
+    });
+  } finally {
+    viewingKey.destroy();
+    nullifierKey.destroy();
+  }
+}
+
+/** @internal Owns the material, wipes its keys when `run` settles. */
+export async function runSyncSession<T>(
+  material: WalletSyncMaterial,
+  run: (session: SyncWalletAuthority) => Promise<T>,
+): Promise<T> {
+  try {
+    return await run({ syncMaterial: () => Promise.resolve(material) });
+  } finally {
+    for (const key of material.viewingKeys) key.destroy();
+    material.nullifierKey.destroy();
+  }
+}
 
 /** @internal */
 export function encryptConfidentialTransferWith(

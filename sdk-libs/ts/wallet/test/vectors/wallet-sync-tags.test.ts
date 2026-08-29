@@ -4,7 +4,7 @@ import type { ZolanaClient } from "../../../src/client/index.js";
 import type { Bytes32 } from "../../../src/interface/index.js";
 import { ShieldedKeypair, SigningKey, ViewingKey } from "../../../src/keypair/index.js";
 import { AssetRegistry, Wallet, type WalletSyncMaterial } from "../../../src/transaction/index.js";
-import { syncWallet, type WalletAuthority } from "../../../src/wallet/index.js";
+import { syncWallet, type SyncAuthority } from "../../../src/wallet/index.js";
 import fixture from "../../../vectors/wallet-sync-tags-v1.json" with { type: "json" };
 
 interface Case {
@@ -77,10 +77,10 @@ function recorder(): Readonly<{
   return { client, shielded, deposits, nullifiers };
 }
 
-function authority(material: WalletSyncMaterial): WalletAuthority {
+function authority(material: WalletSyncMaterial): SyncAuthority {
   return {
-    syncMaterial: () => Promise.resolve(material),
-  } as unknown as WalletAuthority;
+    withSyncSession: (run) => run({ syncMaterial: () => Promise.resolve(material) }),
+  };
 }
 
 describe("wallet sync stable-tag vectors", () => {

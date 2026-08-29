@@ -19,6 +19,7 @@ import {
   deserializeWallet,
   encodeConfidentialSlots,
   serializeWallet,
+  type SyncWalletAuthority,
 } from "../src/transaction/index.js";
 import {
   EncryptedScheme,
@@ -47,6 +48,13 @@ function bytes(value: number): Bytes32 {
 afterEach(() => {
   vi.restoreAllMocks();
 });
+
+function decryptWithAuthority(
+  authority: KeypairWalletAuthority,
+  input: Omit<Parameters<typeof decryptTransactions>[0], "authority">,
+): Promise<ReturnType<typeof decryptTransactions> extends Promise<infer R> ? R : never> {
+  return authority.withSyncSession((keys) => decryptTransactions({ ...input, authority: keys }));
+}
 
 describe("wallet sync atomicity", () => {
   function emptyTagPages() {
@@ -205,7 +213,7 @@ describe("wallet sync atomicity", () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     const authority = new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair });
-    const material = vi.spyOn(authority, "syncMaterial");
+    const session = vi.spyOn(authority, "withSyncSession");
     const client = {
       getShieldedTransactionsByTags: vi.fn(async () => ({
         context: { blockTime: 1_700_000_000n },
@@ -215,7 +223,7 @@ describe("wallet sync atomicity", () => {
     } as unknown as ZolanaClient;
 
     await syncWallet({ wallet, authority, client });
-    expect(material).toHaveBeenCalledTimes(1);
+    expect(session).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -450,30 +458,32 @@ describe("wallet sync", () => {
       blinding: mergeOutputBlinding(keypair.nullifierKey(), firstNullifier),
     });
 
-    const report = await decryptTransactions({
-      wallet,
-      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
-      transactions: [
-        {
-          slot: 1n,
-          txSignature: SIGNATURE,
-          outputSlots: [
-            {
-              viewTag: keypair.signingPublicKey().confidentialViewTag(),
-              outputContext: {
-                hash: merged.hash(keypair.nullifierPublicKey()),
-                tree: TREE,
-                leafIndex: 2n,
+    const report = await decryptWithAuthority(
+      new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      {
+        wallet,
+        transactions: [
+          {
+            slot: 1n,
+            txSignature: SIGNATURE,
+            outputSlots: [
+              {
+                viewTag: keypair.signingPublicKey().confidentialViewTag(),
+                outputContext: {
+                  hash: merged.hash(keypair.nullifierPublicKey()),
+                  tree: TREE,
+                  leafIndex: 2n,
+                },
+                payload: new Uint8Array(),
               },
-              payload: new Uint8Array(),
-            },
-          ],
-          messages: [],
-          nullifiers,
-          proofless: false,
-        },
-      ],
-    });
+            ],
+            messages: [],
+            nullifiers,
+            proofless: false,
+          },
+        ],
+      },
+    );
 
     expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
     expect(wallet.balance(SOL_MINT).amount).toBe(42n);
@@ -535,9 +545,8 @@ describe("wallet sync", () => {
       },
     ];
 
-    await decryptTransactions({
+    await decryptWithAuthority(authority, {
       wallet,
-      authority,
       transactions: indexedTransactions,
     });
 
@@ -560,7 +569,7 @@ describe("wallet sync", () => {
         direction: "outbound",
       })),
     });
-    await decryptTransactions({ wallet, authority, transactions: indexedTransactions });
+    await decryptWithAuthority(authority, { wallet, transactions: indexedTransactions });
     transactions = wallet.privateTransactions();
     expect(transactions).toHaveLength(1);
     expect(transactions[0]?.direction).toBe("selfTransfer");
@@ -728,23 +737,24 @@ describe("wallet sync", () => {
     // The sender bundle is tagged with the identity's signing tag, which is one
     // of the two stable families `decryptTransactions` opens.
     const identityTag = keypair.signingPublicKey().confidentialViewTag();
-    const envelope = await authority.encryptAnonymousTransfer({
-      firstNullifier: nullifier,
-      senderViewTag: identityTag,
-      sender,
-      recipients: [
-        {
-          viewTag: keypair.viewingKey().recipientBootstrapViewTag(),
-          recipientPublicKey: keypair.viewingPublicKey(),
-          plaintext: recipientPlaintext,
-        },
-      ],
-    });
+    const envelope = await authority.withSpendSession((session) =>
+      session.encryptAnonymousTransfer({
+        firstNullifier: nullifier,
+        senderViewTag: identityTag,
+        sender,
+        recipients: [
+          {
+            viewTag: keypair.viewingKey().recipientBootstrapViewTag(),
+            recipientPublicKey: keypair.viewingPublicKey(),
+            plaintext: recipientPlaintext,
+          },
+        ],
+      }),
+    );
     const slotUtxos = [...change, recipientUtxo];
 
-    await decryptTransactions({
+    await decryptWithAuthority(authority, {
       wallet,
-      authority,
       transactions: [
         {
           slot: 1n,
@@ -808,32 +818,34 @@ describe("wallet sync", () => {
       "encrypted",
     );
 
-    const report = await decryptTransactions({
-      wallet,
-      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair: recipient }),
-      transactions: [
-        {
-          slot: 2n,
-          txSignature: SIGNATURE,
-          txViewingPublicKey: sender.viewingPublicKey(),
-          salt,
-          outputSlots: [
-            {
-              viewTag: recipient.signingPublicKey().confidentialViewTag(),
-              outputContext: {
-                hash: output.hash(recipient.nullifierPublicKey()),
-                tree: TREE,
-                leafIndex: 4n,
+    const report = await decryptWithAuthority(
+      new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair: recipient }),
+      {
+        wallet,
+        transactions: [
+          {
+            slot: 2n,
+            txSignature: SIGNATURE,
+            txViewingPublicKey: sender.viewingPublicKey(),
+            salt,
+            outputSlots: [
+              {
+                viewTag: recipient.signingPublicKey().confidentialViewTag(),
+                outputContext: {
+                  hash: output.hash(recipient.nullifierPublicKey()),
+                  tree: TREE,
+                  leafIndex: 4n,
+                },
+                payload,
               },
-              payload,
-            },
-          ],
-          messages: [],
-          nullifiers: [bytes(32)],
-          proofless: false,
-        },
-      ],
-    });
+            ],
+            messages: [],
+            nullifiers: [bytes(32)],
+            proofless: false,
+          },
+        ],
+      },
+    );
 
     expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
     expect(wallet.utxos()[0]?.utxo.ringProgramId).toBe(OWNER);
@@ -937,41 +949,43 @@ describe("wallet sync", () => {
       "encrypted",
     );
 
-    await decryptTransactions({
-      wallet,
-      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair: sender }),
-      transactions: [
-        {
-          slot: 3n,
-          txSignature: SIGNATURE,
-          txViewingPublicKey: txKey.publicKey(),
-          salt,
-          outputSlots: [
-            {
-              viewTag: sender.signingPublicKey().confidentialViewTag(),
-              outputContext: {
-                hash: change.hash(sender.nullifierPublicKey()),
-                tree: TREE,
-                leafIndex: 1n,
+    await decryptWithAuthority(
+      new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair: sender }),
+      {
+        wallet,
+        transactions: [
+          {
+            slot: 3n,
+            txSignature: SIGNATURE,
+            txViewingPublicKey: txKey.publicKey(),
+            salt,
+            outputSlots: [
+              {
+                viewTag: sender.signingPublicKey().confidentialViewTag(),
+                outputContext: {
+                  hash: change.hash(sender.nullifierPublicKey()),
+                  tree: TREE,
+                  leafIndex: 1n,
+                },
+                payload: changePayload,
               },
-              payload: changePayload,
-            },
-            {
-              viewTag: recipient.signingPublicKey().confidentialViewTag(),
-              outputContext: {
-                hash: payment.hash(recipient.nullifierPublicKey()),
-                tree: TREE,
-                leafIndex: 2n,
+              {
+                viewTag: recipient.signingPublicKey().confidentialViewTag(),
+                outputContext: {
+                  hash: payment.hash(recipient.nullifierPublicKey()),
+                  tree: TREE,
+                  leafIndex: 2n,
+                },
+                payload: paymentPayload,
               },
-              payload: paymentPayload,
-            },
-          ],
-          messages: [],
-          nullifiers: [nullifier],
-          proofless: false,
-        },
-      ],
-    });
+            ],
+            messages: [],
+            nullifiers: [nullifier],
+            proofless: false,
+          },
+        ],
+      },
+    );
 
     expect(wallet.utxos().find((entry) => !entry.spent)?.utxo.ringProgramId).toBe(OWNER);
     expect(wallet.privateTransactions()).toContainEqual(
@@ -1034,11 +1048,14 @@ describe("wallet sync", () => {
       })),
     } as unknown as ZolanaClient;
     const authority = {
-      syncMaterial: async () => ({
-        identity: keypair.shieldedAddress(),
-        viewingKeys: [keypair.viewingKey()],
-        nullifierKey: keypair.nullifierKey(),
-      }),
+      withSyncSession: (run: (keys: SyncWalletAuthority) => Promise<never>) =>
+        run({
+          syncMaterial: async () => ({
+            identity: keypair.shieldedAddress(),
+            viewingKeys: [keypair.viewingKey()],
+            nullifierKey: keypair.nullifierKey(),
+          }),
+        }),
     } as never;
 
     const report = await syncWallet({

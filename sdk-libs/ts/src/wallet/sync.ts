@@ -21,8 +21,8 @@ import { TransactionError } from "../transaction/error.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
 import { decodeOutputData } from "../transaction/serialization/codecs.js";
 import type {
+  SyncAuthority,
   SyncWalletAuthority,
-  WalletAuthority,
   WalletSyncMaterial,
 } from "../transaction/wallet/authority.js";
 import {
@@ -481,23 +481,25 @@ async function collectShieldedTransactionsByNullifiers(
 export async function syncWallet(
   input: Readonly<{
     wallet: Wallet;
-    authority: WalletAuthority;
+    authority: SyncAuthority;
     client: SyncClient;
     config?: SyncWalletConfig;
   }>,
   context?: RequestContext,
 ): Promise<SyncReport> {
   // Writes stage in a session and commit once, a failed sync changes nothing.
-  return input.wallet._withSyncLock(() => runSyncSession(input, context));
+  return input.wallet._withSyncLock(() =>
+    input.authority.withSyncSession((keys) => runWalletSync(input, keys, context)),
+  );
 }
 
-async function runSyncSession(
+async function runWalletSync(
   input: Readonly<{
     wallet: Wallet;
-    authority: WalletAuthority;
     client: SyncClient;
     config?: SyncWalletConfig;
   }>,
+  keys: SyncWalletAuthority,
   context?: RequestContext,
 ): Promise<SyncReport> {
   try {
@@ -519,8 +521,7 @@ async function runSyncSession(
       pendingGate = undefined;
       return gate;
     };
-    const material = await input.authority.syncMaterial();
-    const held: SyncWalletAuthority = { syncMaterial: () => Promise.resolve(material) };
+    const material = await keys.syncMaterial();
     const session = beginSyncSession(input.wallet);
     const transactions = new Map<string, IndexedShieldedTransaction>();
     const deposits = new Map<string, IndexedShieldedTransaction>();
@@ -596,7 +597,7 @@ async function runSyncSession(
     let ordered = orderedTransactions();
     let report = await decryptTransactions({
       wallet: session.staging,
-      authority: held,
+      authority: keys,
       transactions: ordered,
       config: { syncedAt },
     });
@@ -610,7 +611,7 @@ async function runSyncSession(
       if ((await backfillSessionRegistry(session, input.client, context)) > 0) {
         report = await decryptTransactions({
           wallet: session.staging,
-          authority: held,
+          authority: keys,
           transactions: ordered,
           config: { syncedAt },
         });
@@ -630,7 +631,7 @@ async function runSyncSession(
       ordered = orderedTransactions();
       report = await decryptTransactions({
         wallet: session.staging,
-        authority: held,
+        authority: keys,
         transactions: ordered,
         config: { syncedAt },
       });
@@ -643,7 +644,7 @@ async function runSyncSession(
         if ((await backfillSessionRegistry(session, input.client, context)) > 0) {
           report = await decryptTransactions({
             wallet: session.staging,
-            authority: held,
+            authority: keys,
             transactions: ordered,
             config: { syncedAt },
           });
