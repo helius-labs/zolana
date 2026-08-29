@@ -21,6 +21,11 @@ import type {
 } from "../interface/types.js";
 import { hashBytes } from "../hasher/index.js";
 
+import {
+  composeSignal as composeTransportSignal,
+  type ComposedSignal,
+} from "../services/signal.js";
+import { TransportFailure, checkedEndpoint } from "../services/transport.js";
 import { ClientError, hasherError } from "./error.js";
 
 export const BN254_MODULUS =
@@ -53,28 +58,12 @@ export function checkedServiceUrl(
   field: string,
   allowInsecureHttp = false,
 ): URL {
-  let url: URL;
   try {
-    url = new URL(value instanceof URL ? value.href : value);
-  } catch {
+    return checkedEndpoint(value, { field, allowInsecureHttp, allowLoopbackHttp: true });
+  } catch (error) {
+    if (!(error instanceof TransportFailure)) throw error;
     throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field } });
   }
-  const hostname = url.hostname.endsWith(".") ? url.hostname.slice(0, -1) : url.hostname;
-  const isLoopback =
-    hostname === "localhost" ||
-    hostname.endsWith(".localhost") ||
-    hostname === "[::1]" ||
-    /^127(?:\.\d{1,3}){3}$/u.test(hostname);
-  const httpAllowed = isLoopback || allowInsecureHttp;
-  if (
-    (url.protocol !== "https:" && (url.protocol !== "http:" || !httpAllowed)) ||
-    url.username !== "" ||
-    url.password !== "" ||
-    url.hash !== ""
-  ) {
-    throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field } });
-  }
-  return url;
 }
 
 export function checkedBytes<Length extends 16 | 31 | 32 | 33 | 64 | 128>(
@@ -244,43 +233,18 @@ export function modPow(base: bigint, exponent: bigint, modulus: bigint): bigint 
   return result;
 }
 
-export interface ComposedSignal {
-  readonly signal: AbortSignal;
-  timedOut(): boolean;
-  cleanup(): void;
-}
+export type { ComposedSignal };
 
 export function composeSignal(context: RequestContext | undefined, method: string): ComposedSignal {
-  const timeoutMs = context?.timeoutMs;
-  if (timeoutMs !== undefined && (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)) {
-    throw new ClientError("CLIENT_INVALID_CONTEXT", {
-      details: { field: "timeoutMs", method },
-    });
-  }
-  if (context?.signal?.aborted === true) {
+  try {
+    return composeTransportSignal(context);
+  } catch (error) {
+    if (!(error instanceof TransportFailure)) throw error;
+    if (error.kind === "context") {
+      throw new ClientError("CLIENT_INVALID_CONTEXT", { details: { field: "timeoutMs", method } });
+    }
     throw new ClientError("CLIENT_ABORTED", { details: { method } });
   }
-  const controller = new AbortController();
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  let didTimeOut = false;
-  const abort = (): void => {
-    controller.abort();
-  };
-  context?.signal?.addEventListener("abort", abort, { once: true });
-  if (timeoutMs !== undefined) {
-    timeout = setTimeout(() => {
-      didTimeOut = true;
-      controller.abort();
-    }, timeoutMs);
-  }
-  return {
-    signal: controller.signal,
-    timedOut: () => didTimeOut,
-    cleanup(): void {
-      if (timeout !== undefined) clearTimeout(timeout);
-      context?.signal?.removeEventListener("abort", abort);
-    },
-  };
 }
 
 export function requestError(method: string, signal: ComposedSignal): ClientError {

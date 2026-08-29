@@ -31,8 +31,9 @@ export class TransportFailure extends Error {
 
 export interface EndpointPolicy {
   readonly field: string;
-  /** Even loopback hosts need it for plain HTTP. */
+  /** Even loopback hosts need it for plain HTTP unless `allowLoopbackHttp` is set. */
   readonly allowInsecureHttp?: boolean;
+  readonly allowLoopbackHttp?: boolean;
 }
 
 export function checkedEndpoint(value: unknown, policy: EndpointPolicy): URL {
@@ -45,14 +46,28 @@ export function checkedEndpoint(value: unknown, policy: EndpointPolicy): URL {
   } catch {
     throw invalid();
   }
-  const allowed = policy.allowInsecureHttp === true ? ["http:", "https:"] : ["https:"];
-  if (!allowed.includes(url.protocol)) throw invalid({ protocol: url.protocol });
+  const httpAllowed =
+    policy.allowInsecureHttp === true ||
+    (policy.allowLoopbackHttp === true && isLoopbackHost(url.hostname));
+  if (url.protocol !== "https:" && (url.protocol !== "http:" || !httpAllowed)) {
+    throw invalid({ protocol: url.protocol });
+  }
   if (url.username !== "" || url.password !== "" || url.hash !== "") throw invalid();
   return url;
 }
 
 // Browsers refuse `fetch` called with another receiver, so the global stays bound.
 const boundFetch: typeof globalThis.fetch = (input, init) => globalThis.fetch(input, init);
+
+function isLoopbackHost(hostname: string): boolean {
+  const host = hostname.endsWith(".") ? hostname.slice(0, -1) : hostname;
+  return (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host === "[::1]" ||
+    /^127(?:\.\d{1,3}){3}$/u.test(host)
+  );
+}
 
 export function checkedFetch(value: unknown): typeof globalThis.fetch {
   if (value === undefined) return boundFetch;
@@ -112,6 +127,15 @@ export async function httpJson(request: HttpJsonRequest): Promise<unknown> {
     });
   }
 
+  return decodeJson(bytes, quoteUnsafeIntegers);
+}
+
+/** No content-type check, no integer quoting. */
+export async function readBoundedJson(response: Response, maxBodyBytes: number): Promise<unknown> {
+  return decodeJson(await readBoundedBody(response, maxBodyBytes));
+}
+
+function decodeJson(bytes: Uint8Array, transform?: (text: string) => string): unknown {
   let text: string;
   try {
     text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -123,7 +147,7 @@ export async function httpJson(request: HttpJsonRequest): Promise<unknown> {
   }
 
   try {
-    return JSON.parse(quoteUnsafeIntegers(text)) as unknown;
+    return JSON.parse(transform === undefined ? text : transform(text)) as unknown;
   } catch {
     throw new TransportFailure("json", "response is not valid JSON", {
       bodyBytes: bytes.length,
