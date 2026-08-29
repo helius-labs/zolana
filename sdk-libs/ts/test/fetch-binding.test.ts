@@ -32,7 +32,7 @@ describe("fetch binding", () => {
     const { fetch, calls } = strictFetch();
     vi.stubGlobal("fetch", fetch);
     try {
-      await new RingRpc("http://ring.example").health();
+      await new RingRpc("http://ring.example", { allowInsecureHttp: true }).health();
       await new ZolanaApi({ url: "https://indexer.example" })
         .getEncryptedUtxosByTags({ tags: [] } as never)
         .catch(() => undefined);

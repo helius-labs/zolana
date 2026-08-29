@@ -193,7 +193,7 @@ describe("ring flow", () => {
       proverUrl: requiredEnv("ZOLANA_PROVER_URL"),
       tree: address(requiredEnv("ZOLANA_TREE")),
     });
-    const ringRpc = new RingRpc(requiredEnv("RING_RPC_URL"));
+    const ringRpc = new RingRpc(requiredEnv("RING_RPC_URL"), { allowInsecureHttp: true });
     const health = await ringRpc.health();
     expect(health.mode).toBe("local");
 
@@ -388,7 +388,7 @@ describe("ring flow", () => {
       proverUrl: requiredEnv("ZOLANA_PROVER_URL"),
       tree: address(requiredEnv("ZOLANA_TREE")),
     });
-    const ringRpc = new RingRpc(requiredEnv("RING_RPC_URL"));
+    const ringRpc = new RingRpc(requiredEnv("RING_RPC_URL"), { allowInsecureHttp: true });
     const authoritySigner = await keypairSignerFromFile(requiredEnv("RING_AUTHORITY_KEYPAIR"));
     const mintAuthority = await signerFromWalletFile(requiredEnv("ZOLANA_TEST_AUTHORITY_WALLET"));
 

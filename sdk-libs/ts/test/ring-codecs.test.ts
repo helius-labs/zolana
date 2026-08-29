@@ -88,7 +88,9 @@ function capturingFetch(result: unknown): {
   const bodies: Record<string, unknown>[] = [];
   const fetch = (async (_input: URL | string, init?: RequestInit) => {
     bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
-    return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }));
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), {
+      headers: { "content-type": "application/json" },
+    });
   }) as typeof globalThis.fetch;
   return { fetch, bodies };
 }
@@ -102,6 +104,7 @@ const RING_AUTH = address("AtyqWdns8uYfWdpLhWJRN9DxRdpwB6Zaa33k66TAkwFx");
 const RING_CONFIG = address("CXJhGzAcN4NYaapjRqiTzmnRBTmtUL52Zg4ooG2PtMfP");
 const SPP = address("sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG");
 const SYSTEM = address("11111111111111111111111111111111");
+const JSON_HEADERS = { headers: { "content-type": "application/json" } };
 const SOL_INTERFACE = address("GGk4JbLExpASWVCAtAVdxZ65BCQsj8WN5TsL6v8Dd1c8");
 
 describe("ring deposit", () => {
@@ -324,9 +327,13 @@ describe("ring status", () => {
         servicePubkey: addressOf(22),
       },
     };
-    const fetch = (async () => new Response(JSON.stringify(wire))) as typeof globalThis.fetch;
+    const fetch = (async () =>
+      new Response(JSON.stringify(wire), JSON_HEADERS)) as typeof globalThis.fetch;
 
-    const status = await new RingRpc("http://ring.example", { fetch }).ringStatus(addressOf(7));
+    const status = await new RingRpc("http://ring.example", {
+      fetch,
+      allowInsecureHttp: true,
+    }).ringStatus(addressOf(7));
 
     expect(status.state).toBe("foreignAuditor");
     expect(status.configAuditorPublicKey?.toBytes()).toEqual(hex(P256_HEX));
@@ -345,9 +352,13 @@ describe("ring status", () => {
             servicePubkey: addressOf(22),
           },
         }),
+        JSON_HEADERS,
       )) as typeof globalThis.fetch;
 
-    const status = await new RingRpc("http://ring.example", { fetch }).ringStatus(addressOf(7));
+    const status = await new RingRpc("http://ring.example", {
+      fetch,
+      allowInsecureHttp: true,
+    }).ringStatus(addressOf(7));
 
     expect(status.state).toBe("uninitialized");
     expect(status.configAuditorPublicKey).toBeUndefined();
@@ -360,7 +371,10 @@ describe("ring deposits", () => {
     let call = 0;
     const fetch = (async (_input: URL | string, init?: RequestInit) => {
       bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
-      return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: results[call++] }));
+      return new Response(
+        JSON.stringify({ jsonrpc: "2.0", id: 1, result: results[call++] }),
+        JSON_HEADERS,
+      );
     }) as typeof globalThis.fetch;
     return { bodies, fetch };
   };
@@ -377,7 +391,7 @@ describe("ring deposits", () => {
       { deposits: [deposit(1, 9)], cursor: "AQID", oldestSlot: 9 },
       { deposits: [deposit(2, 4)], oldestSlot: 4 },
     ]);
-    const rpc = new RingRpc("http://ring.example", { fetch });
+    const rpc = new RingRpc("http://ring.example", { fetch, allowInsecureHttp: true });
 
     const first = await rpc.ringDeposits({ ringProgramId: addressOf(7), limit: 20 });
     expect(first.deposits).toHaveLength(1);
@@ -406,7 +420,10 @@ describe("ring deposits", () => {
   it("keeps a cursor over a page whose signatures held no deposit", async () => {
     const { fetch } = queue([{ deposits: [], cursor: "BAUG", oldestSlot: 12 }]);
 
-    const page = await new RingRpc("http://ring.example", { fetch }).ringDeposits({
+    const page = await new RingRpc("http://ring.example", {
+      fetch,
+      allowInsecureHttp: true,
+    }).ringDeposits({
       ringProgramId: addressOf(7),
     });
 
@@ -418,7 +435,10 @@ describe("ring deposits", () => {
   it("leaves the oldest slot absent when the page examined nothing", async () => {
     const { fetch } = queue([{ deposits: [] }]);
 
-    const page = await new RingRpc("http://ring.example", { fetch }).ringDeposits({
+    const page = await new RingRpc("http://ring.example", {
+      fetch,
+      allowInsecureHttp: true,
+    }).ringDeposits({
       ringProgramId: addressOf(7),
     });
 
@@ -809,9 +829,13 @@ describe("ring read request", () => {
             },
           },
         }),
+        JSON_HEADERS,
       );
     }) as typeof globalThis.fetch;
-    const page = await new RingRpc("http://ring.example", { fetch }).getDecryptedTransactions({
+    const page = await new RingRpc("http://ring.example", {
+      fetch,
+      allowInsecureHttp: true,
+    }).getDecryptedTransactions({
       ringProgramId: addressOf(7),
       signer: reader,
       cursor: Uint8Array.of(1, 2, 3),
@@ -902,9 +926,13 @@ describe("ring read request", () => {
             },
           },
         }),
+        JSON_HEADERS,
       )) as typeof globalThis.fetch;
 
-    const page = await new RingRpc("http://ring.example", { fetch }).getDecryptedTransactions({
+    const page = await new RingRpc("http://ring.example", {
+      fetch,
+      allowInsecureHttp: true,
+    }).getDecryptedTransactions({
       ringProgramId: addressOf(7),
       signer: reader,
     });
@@ -938,6 +966,7 @@ describe("ring read request", () => {
             },
           },
         }),
+        JSON_HEADERS,
       )) as typeof globalThis.fetch;
 
   const anyReader = () => {
@@ -956,7 +985,10 @@ describe("ring read request", () => {
       { recipient: addressOf(32), asset: solMint, amount: 6 },
     ]);
 
-    const page = await new RingRpc("http://ring.example", { fetch }).getDecryptedTransactions({
+    const page = await new RingRpc("http://ring.example", {
+      fetch,
+      allowInsecureHttp: true,
+    }).getDecryptedTransactions({
       ringProgramId: addressOf(7),
       signer: anyReader(),
     });
@@ -977,6 +1009,7 @@ describe("ring read request", () => {
           id: 1,
           result: { context: { blockTime: 0, slot: 1 }, value: { items: [], skipped: [] } },
         }),
+        JSON_HEADERS,
       );
     }) as typeof globalThis.fetch;
     const signer = {
@@ -988,7 +1021,10 @@ describe("ring read request", () => {
           clientDataJSON: filled(3, 80),
         }),
     };
-    const page = await new RingRpc("http://ring.example", { fetch }).getDecryptedTransactions({
+    const page = await new RingRpc("http://ring.example", {
+      fetch,
+      allowInsecureHttp: true,
+    }).getDecryptedTransactions({
       ringProgramId: addressOf(7),
       signer,
     });
@@ -1021,6 +1057,46 @@ describe("ring read request", () => {
     signature: getBase58Decoder().decode(signature),
   });
 
+  it("refuses a plain HTTP endpoint unless the caller opts in", () => {
+    expect(() => new RingRpc("http://ring.example")).toThrowError(
+      expect.objectContaining({ code: "RING_RPC_CONFIG" }),
+    );
+    expect(() => new RingRpc("https://user:pw@ring.example")).toThrowError(
+      expect.objectContaining({ code: "RING_RPC_CONFIG" }),
+    );
+  });
+
+  it("keeps server error text out of the thrown details", async () => {
+    const fetch = (async () =>
+      new Response(
+        JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: -32000, message: "secret text" } }),
+        JSON_HEADERS,
+      )) as typeof globalThis.fetch;
+    const error = await new RingRpc("http://ring.example", { fetch, allowInsecureHttp: true })
+      .ringStatus(addressOf(7))
+      .then(
+        () => undefined,
+        (cause: unknown) => cause,
+      );
+    expect(error).toMatchObject({ code: "RING_RPC" });
+    expect(JSON.stringify(error)).not.toContain("secret");
+  });
+
+  it("threads the request context timeout into the transport", async () => {
+    const fetch = ((_input: unknown, init?: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(new Error("aborted"));
+        });
+      })) as typeof globalThis.fetch;
+    await expect(
+      new RingRpc("http://ring.example", { fetch, allowInsecureHttp: true }).ringStatus(
+        addressOf(7),
+        { timeoutMs: 5 },
+      ),
+    ).rejects.toMatchObject({ code: "RING_RPC_TRANSPORT" });
+  });
+
   it("verifies the auditor key attestation before trusting the key", async () => {
     const attestation = auditorKeyAttestation(RING, auditor);
     expect(attestation.subarray(0, 26)).toEqual(
@@ -1030,6 +1106,7 @@ describe("ring read request", () => {
     const authority = await generateKeyPairSigner();
     const key = await new RingRpc("http://ring.example", {
       fetch: capturingFetch(auditorKeyResult(ed25519.sign(attestation, serviceSecret))).fetch,
+      allowInsecureHttp: true,
     }).createAuditorKey({ ringProgramId: RING, genesisHash, authority });
     expect(key.auditorPublicKey.equals(auditor)).toBe(true);
     expect(key.auditorViewTag).toEqual(auditor.x());
@@ -1038,6 +1115,7 @@ describe("ring read request", () => {
     await expect(
       new RingRpc("http://ring.example", {
         fetch: capturingFetch(auditorKeyResult(filled(1, 64))).fetch,
+        allowInsecureHttp: true,
       }).createAuditorKey({ ringProgramId: RING, genesisHash, authority }),
     ).rejects.toMatchObject({ code: "RING_RPC" });
   });
@@ -1047,7 +1125,7 @@ describe("ring read request", () => {
     const { fetch, bodies } = capturingFetch(
       auditorKeyResult(ed25519.sign(auditorKeyAttestation(RING, auditor), serviceSecret)),
     );
-    await new RingRpc("http://ring.example", { fetch }).createAuditorKey({
+    await new RingRpc("http://ring.example", { fetch, allowInsecureHttp: true }).createAuditorKey({
       ringProgramId: RING,
       genesisHash,
       authority,

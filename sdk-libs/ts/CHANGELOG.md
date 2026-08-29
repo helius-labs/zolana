@@ -33,6 +33,14 @@ Breaking
   after the reservation expires, a failed build releases its notes at
   once, and `WALLET_NOTE_RESERVED` refuses a named input another build
   holds.
+- `RingRpc` throws `RING_RPC_CONFIG` for an endpoint with plain HTTP,
+  credentials, or a fragment unless `allowInsecureHttp` admits HTTP,
+  accepts only responses declaring a JSON content type, caps them at 4
+  MiB, times out after 30 seconds, does not follow redirects, and
+  reports a server error without its
+  text → pass `allowInsecureHttp: true` for localnet URLs, set
+  `content-type: application/json` on mocked responses, and match on
+  `rpcCode` in the details.
 - `requestUserApproval` receives a `TransactionIntent` beside the summary
   and returns an `IntentApproval` bound to its hash → a custom authority
   returns `approveIntent(request.intent)` after showing the intent, and
@@ -58,6 +66,9 @@ Added
   operation chain outermost first.
 - Serialized wallets carry their reservations, a restored wallet still
   holds notes an in-flight transaction spends.
+- Every `RingRpc` method accepts a `RequestContext`, its signal and
+  timeout reach the transport, and integers above the safe range decode
+  exactly.
 - `TransactionIntent` binds recipient, amount, asset, and the ring
   boundary crossing, the SDK revalidates outputs and settlements against
   the approved intent before a transaction compiles, and the client

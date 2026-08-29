@@ -8,7 +8,16 @@ import {
   type MessagePartialSigner,
 } from "@solana/kit";
 
-import type { Address, Bytes32, Bytes33, Bytes64, Signature } from "../interface/types.js";
+import type {
+  Address,
+  Bytes32,
+  Bytes33,
+  Bytes64,
+  RequestContext,
+  Signature,
+} from "../interface/types.js";
+import { postJsonRpc } from "../services/jsonrpc.js";
+import { TransportFailure, checkedEndpoint, checkedFetch } from "../services/transport.js";
 import { addressBytes, copyBytes, unsignedBigint } from "../interface/internal.js";
 import { P256PublicKey } from "../keypair/public-key.js";
 
@@ -20,6 +29,10 @@ const base58Encoder = getBase58Encoder();
 const base64Decoder = getBase64Decoder();
 const base64Encoder = getBase64Encoder();
 const encoder = new TextEncoder();
+
+const RING_RPC_TIMEOUT_MS = 30_000;
+const RING_RPC_MAX_REQUEST_BYTES = 1024 * 1024;
+const RING_RPC_MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 
 /** `reader` is the 34-byte scheme-tagged key of `readerKeyBytes`, a P-256 reader signs through WebAuthn only. */
 export interface RingReadSigner {
@@ -333,22 +346,37 @@ export interface DecryptedRingTransactionsPage {
   readonly cursor?: Uint8Array;
 }
 
+export interface RingRpcOptions {
+  readonly fetch?: typeof globalThis.fetch;
+  /** Even loopback needs it for plain HTTP. */
+  readonly allowInsecureHttp?: boolean;
+}
+
 export class RingRpc {
-  readonly #url: string;
+  readonly #url: URL;
   readonly #fetch: typeof globalThis.fetch;
 
-  constructor(url: string | URL, options?: Readonly<{ fetch?: typeof globalThis.fetch }>) {
-    this.#url = url instanceof URL ? url.href : url;
-    // Browsers refuse `fetch` called with another receiver, so it stays bound.
-    this.#fetch = options?.fetch ?? ((input, init) => globalThis.fetch(input, init));
+  constructor(url: string | URL, options?: RingRpcOptions) {
+    try {
+      this.#url = checkedEndpoint(url, {
+        field: "url",
+        ...(options?.allowInsecureHttp === undefined
+          ? {}
+          : { allowInsecureHttp: options.allowInsecureHttp }),
+      });
+      this.#fetch = checkedFetch(options?.fetch);
+    } catch (error) {
+      if (!(error instanceof TransportFailure)) throw error;
+      throw new RingError("RING_RPC_CONFIG", { details: { ...error.facts } });
+    }
   }
 
   get url(): string {
-    return this.#url;
+    return this.#url.href;
   }
 
-  async health(): Promise<RingRpcHealth> {
-    const wire = record(await this.#call("health"), "result");
+  async health(context?: RequestContext): Promise<RingRpcHealth> {
+    const wire = record(await this.#call("health", undefined, context), "result");
     const mode = wire["mode"];
     if (mode !== "local" && mode !== "derived") throw invalid("result.mode");
     return Object.freeze({
@@ -366,22 +394,30 @@ export class RingRpc {
       authority: MessagePartialSigner;
       timestamp?: bigint;
     }>,
+    context?: RequestContext,
   ): Promise<RingAuditorKey> {
     let request = RingAuditorKeyRequest.forRing(input.ringProgramId, input.genesisHash);
     if (input.timestamp !== undefined) request = request.at(input.timestamp);
-    return this.createAuditorKeySigned(await request.sign(input.authority));
+    return this.createAuditorKeySigned(await request.sign(input.authority), context);
   }
 
-  async createAuditorKeySigned(request: SignedAuditorKeyRequest): Promise<RingAuditorKey> {
+  async createAuditorKeySigned(
+    request: SignedAuditorKeyRequest,
+    context?: RequestContext,
+  ): Promise<RingAuditorKey> {
     const wire = record(
-      await this.#call("createAuditorKey", {
-        ringProgramId: request.ringProgramId,
-        auth: {
-          authority: request.authority,
-          genesisHash: base58Decoder.decode(request.genesisHash),
-          ...authWire(request),
+      await this.#call(
+        "createAuditorKey",
+        {
+          ringProgramId: request.ringProgramId,
+          auth: {
+            authority: request.authority,
+            genesisHash: base58Decoder.decode(request.genesisHash),
+            ...authWire(request),
+          },
         },
-      }),
+        context,
+      ),
       "result",
     );
     const key = base64(wire["auditorPubkey"], "result.auditorPubkey");
@@ -416,13 +452,18 @@ export class RingRpc {
    */
   async ringDeposits(
     input: Readonly<{ ringProgramId: Address; limit?: number; cursor?: Uint8Array }>,
+    context?: RequestContext,
   ): Promise<RingDepositsPage> {
     const wire = record(
-      await this.#call("ringDeposits", {
-        ringProgramId: input.ringProgramId,
-        ...(input.limit === undefined ? {} : { limit: input.limit }),
-        ...(input.cursor === undefined ? {} : { cursor: base64Decoder.decode(input.cursor) }),
-      }),
+      await this.#call(
+        "ringDeposits",
+        {
+          ringProgramId: input.ringProgramId,
+          ...(input.limit === undefined ? {} : { limit: input.limit }),
+          ...(input.cursor === undefined ? {} : { cursor: base64Decoder.decode(input.cursor) }),
+        },
+        context,
+      ),
       "result",
     );
     const cursor = wire["cursor"];
@@ -450,8 +491,8 @@ export class RingRpc {
   }
 
   /** Whether this service can open the ring, before a read is attempted. */
-  async ringStatus(ringProgramId: Address): Promise<RingStatus> {
-    const wire = record(await this.#call("ringStatus", { ringProgramId }), "result");
+  async ringStatus(ringProgramId: Address, context?: RequestContext): Promise<RingStatus> {
+    const wire = record(await this.#call("ringStatus", { ringProgramId }, context), "result");
     const state = string(wire["state"], "result.state");
     if (state !== "served" && state !== "foreignAuditor" && state !== "uninitialized") {
       throw invalid("result.state");
@@ -476,46 +517,54 @@ export class RingRpc {
       limit?: bigint;
       timestamp?: bigint;
     }>,
+    context?: RequestContext,
   ): Promise<DecryptedRingTransactionsPage> {
     let request = RingReadRequest.read(input.ringProgramId);
     if (input.cursor !== undefined) request = request.withCursor(input.cursor);
     if (input.limit !== undefined) request = request.withLimit(input.limit);
     if (input.timestamp !== undefined) request = request.at(input.timestamp);
-    return this.readSigned(await request.sign(input.signer));
+    return this.readSigned(await request.sign(input.signer), context);
   }
 
-  async readSigned(read: SignedRingRead): Promise<DecryptedRingTransactionsPage> {
+  async readSigned(
+    read: SignedRingRead,
+    context?: RequestContext,
+  ): Promise<DecryptedRingTransactionsPage> {
     const { signature } = read;
     const wire = record(
-      await this.#call("getDecryptedTransactions", {
-        ringProgramId: read.ringProgramId,
-        ...(read.cursor === undefined ? {} : { cursor: base64Decoder.decode(read.cursor) }),
-        ...(read.limit === undefined ? {} : { limit: Number(read.limit) }),
-        auth: {
-          reader: base64Decoder.decode(read.reader),
-          ...authWire({
-            timestamp: read.timestamp,
-            nonce: read.nonce,
-            signature: signature instanceof Uint8Array ? signature : signature.signature,
-          }),
-          ...(signature instanceof Uint8Array
-            ? {}
-            : {
-                webauthn: {
-                  authenticatorData: base64Decoder.decode(signature.authenticatorData),
-                  clientDataJson: base64Decoder.decode(signature.clientDataJSON),
-                },
-              }),
+      await this.#call(
+        "getDecryptedTransactions",
+        {
+          ringProgramId: read.ringProgramId,
+          ...(read.cursor === undefined ? {} : { cursor: base64Decoder.decode(read.cursor) }),
+          ...(read.limit === undefined ? {} : { limit: Number(read.limit) }),
+          auth: {
+            reader: base64Decoder.decode(read.reader),
+            ...authWire({
+              timestamp: read.timestamp,
+              nonce: read.nonce,
+              signature: signature instanceof Uint8Array ? signature : signature.signature,
+            }),
+            ...(signature instanceof Uint8Array
+              ? {}
+              : {
+                  webauthn: {
+                    authenticatorData: base64Decoder.decode(signature.authenticatorData),
+                    clientDataJson: base64Decoder.decode(signature.clientDataJSON),
+                  },
+                }),
+          },
         },
-      }),
+        context,
+      ),
       "result",
     );
-    const context = record(wire["context"], "result.context");
+    const wireContext = record(wire["context"], "result.context");
     const value = record(wire["value"], "result.value");
     const cursor = value["cursor"];
     return Object.freeze({
-      slot: integer(context["slot"], "result.context.slot"),
-      blockTime: signedInteger(context["blockTime"], "result.context.blockTime"),
+      slot: integer(wireContext["slot"], "result.context.slot"),
+      blockTime: signedInteger(wireContext["blockTime"], "result.context.blockTime"),
       items: Object.freeze(
         list(value["items"], "result.value.items").map((item, index) =>
           decodeTransaction(record(item, `result.value.items[${index}]`)),
@@ -533,35 +582,34 @@ export class RingRpc {
   }
 
   // `params` is the request object, not a positional list.
-  async #call(method: string, params?: Readonly<Record<string, unknown>>): Promise<unknown> {
-    let response: Response;
+  async #call(
+    method: string,
+    params: Readonly<Record<string, unknown>> | undefined,
+    context: RequestContext | undefined,
+  ): Promise<unknown> {
     try {
-      response = await this.#fetch(this.#url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-      });
-    } catch (cause) {
-      throw new RingError("RING_RPC_TRANSPORT", { details: { method }, cause });
+      return await postJsonRpc(
+        {
+          fetch: this.#fetch,
+          url: new URL(this.#url.href),
+          rpcMethod: method,
+          params,
+          id: 1,
+          maxRequestBytes: RING_RPC_MAX_REQUEST_BYTES,
+          maxResponseBytes: RING_RPC_MAX_RESPONSE_BYTES,
+        },
+        { timeoutMs: RING_RPC_TIMEOUT_MS, ...context },
+      );
+    } catch (error) {
+      if (!(error instanceof TransportFailure)) throw error;
+      const code =
+        error.kind === "envelope" || error.kind === "missingResult" || error.kind === "rpc"
+          ? "RING_RPC"
+          : error.kind === "context" || error.kind === "config"
+            ? "RING_RPC_CONFIG"
+            : "RING_RPC_TRANSPORT";
+      throw new RingError(code, { details: { method, ...error.facts } });
     }
-    if (!response.ok) {
-      throw new RingError("RING_RPC_TRANSPORT", {
-        details: { method, status: response.status },
-      });
-    }
-    const body = (await response.json()) as {
-      result?: unknown;
-      error?: { code: number; message: string };
-    };
-    if (body.error !== undefined) {
-      throw new RingError("RING_RPC", {
-        details: { method, code: body.error.code, message: body.error.message },
-      });
-    }
-    if (body.result === undefined) {
-      throw new RingError("RING_RPC", { details: { method, reason: "empty result" } });
-    }
-    return body.result;
   }
 }
 
