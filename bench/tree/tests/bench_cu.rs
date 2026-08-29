@@ -17,8 +17,9 @@ use zolana_batched_merkle_tree::{
         get_merkle_tree_account_size,
         test_utils::{init_tree_account_data, load_tree_account_data},
     },
+    batch::CachedTreeUpdate,
     constants::NULLIFIER_TREE_INIT_ROOT_40,
-    layout::{CachedTreeUpdate, NullifierTreeLayout},
+    layout::NullifierTreeLayout,
     merkle_tree_update::InstructionDataAddressAppendInputs,
     verify::CompressedProof,
 };
@@ -217,10 +218,9 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
     {
         let layout: &mut NullifierTreeLayout<ADDRESS_ZKP> =
             wincode::deserialize_mut(&mut account_data).unwrap();
-        let updates = layout.cached_tree_updates.get_mut(0).unwrap();
+        let batch = layout.batches.get_mut(0).unwrap();
         for i in 1..num_batches {
-            let cached_update = *cached_updates.get(i).unwrap();
-            *updates.get_mut(i).unwrap() = cached_update;
+            batch.set_cached_tree_update(i, *cached_updates.get(i).unwrap());
         }
     }
 

@@ -5,12 +5,9 @@ use zolana_batched_merkle_tree::{
         get_merkle_tree_account_size,
         test_utils::{init_tree_account_data, load_tree_account_data},
     },
-    batch::Batch,
-    constants::{NULLIFIER_TREE_INIT_ROOT_40, NUM_BATCHES},
+    constants::NULLIFIER_TREE_INIT_ROOT_40,
     errors::NullifierTreeError,
-    layout::NullifierTreeLayout,
-    layout::QueueBatches,
-    layout::TreeType,
+    layout::{NullifierTreeLayout, TreeType},
 };
 use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 
@@ -42,22 +39,6 @@ fn nullifier(i: u8) -> [u8; 32] {
     let mut value = [0u8; 32];
     value[31] = i;
     value
-}
-
-#[test]
-fn state_struct_sizes() {
-    const HASH_CHAINS: usize = ZKP * 32;
-    const ROOT_HISTORY: usize = 8 + ZKP * 32;
-    const CACHED_TREE_UPDATES: usize = NUM_BATCHES * ZKP * 65;
-    assert_eq!(core::mem::size_of::<Batch<ZKP>>(), 72 + HASH_CHAINS);
-    assert_eq!(
-        core::mem::size_of::<QueueBatches<ZKP>>(),
-        192 + NUM_BATCHES * HASH_CHAINS
-    );
-    assert_eq!(
-        get_merkle_tree_account_size::<ZKP>(),
-        240 + NUM_BATCHES * HASH_CHAINS + ROOT_HISTORY + CACHED_TREE_UPDATES
-    );
 }
 
 /// A single-slot root history seeds its only slot and wraps the cursor back to
@@ -125,21 +106,11 @@ fn malformed_root_history_and_batch_metadata_are_rejected_on_load() {
         NullifierTreeError::InvalidRootHistoryCapacity
     );
 
-    let mut invalid_reserved = account_data();
-    init_tree(&mut invalid_reserved);
-    let layout: &mut NullifierTreeLayout<ZKP> =
-        wincode::deserialize_mut(&mut invalid_reserved).unwrap();
-    layout.queue_batches.reserved = 0;
-    assert_eq!(
-        load_tree_account_data::<ZKP>(&mut invalid_reserved).unwrap_err(),
-        NullifierTreeError::InvalidBatchConfiguration
-    );
-
     let mut inconsistent_batch = account_data();
     init_tree(&mut inconsistent_batch);
     let layout: &mut NullifierTreeLayout<ZKP> =
         wincode::deserialize_mut(&mut inconsistent_batch).unwrap();
-    layout.queue_batches.batches[0].batch_size += 1;
+    layout.batches[0].batch_size += 1;
     assert_eq!(
         load_tree_account_data::<ZKP>(&mut inconsistent_batch).unwrap_err(),
         NullifierTreeError::InvalidBatchConfiguration
@@ -156,7 +127,7 @@ fn insert_returns_sequential_queue_indices() {
             i as u64
         );
     }
-    assert_eq!(tree.queue_batches.next_index, 3);
+    assert_eq!(tree.queue_next_index, 3);
 }
 
 #[test]
@@ -190,7 +161,7 @@ fn queue_index_mismatch_is_rejected() {
     init_tree(&mut data);
 
     let tree = load_tree(&mut data);
-    tree.queue_batches.next_index += 1;
+    tree.queue_next_index += 1;
     assert_eq!(
         tree.insert_nullifier_into_queue(&nullifier(1)).unwrap_err(),
         NullifierTreeError::QueueIndexMismatch

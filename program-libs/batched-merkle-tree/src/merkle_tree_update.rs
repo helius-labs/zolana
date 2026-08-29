@@ -1,9 +1,9 @@
 use zolana_hasher::hash_chain::create_hash_chain_from_array;
 
 use crate::{
-    batch::BatchState,
+    batch::{BatchState, CachedTreeUpdate},
     errors::NullifierTreeError,
-    layout::{CachedTreeUpdate, NullifierTreeLayout, TreeType},
+    layout::{NullifierTreeLayout, TreeType},
     verify::{verify_batch_address_update, CompressedProof},
     BorshDeserialize, BorshSerialize,
 };
@@ -19,12 +19,6 @@ pub struct InstructionDataBatchNullifyInputs {
 }
 
 pub type InstructionDataAddressAppendInputs = InstructionDataBatchNullifyInputs;
-
-impl CachedTreeUpdate {
-    fn is_occupied(&self) -> bool {
-        self.occupied != 0
-    }
-}
 
 impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     /// Verify one address-append proof and apply every now-applicable cached
@@ -70,24 +64,19 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         &mut self,
         instruction_data: &InstructionDataAddressAppendInputs,
     ) -> Result<bool, NullifierTreeError> {
-        let zkp_batch_size = self.queue_batches.zkp_batch_size;
-        let pending_batch_index = self.queue_batches.pending_batch_index as usize;
+        let zkp_batch_size = self.zkp_batch_size;
+        let pending_batch_index = self.pending_batch_index as usize;
 
-        let (num_full_zkp_batches, num_inserted_zkp_batches) = {
-            let batch = self
-                .queue_batches
-                .batches
-                .get(pending_batch_index)
-                .ok_or(NullifierTreeError::InvalidBatchIndex)?;
-            (batch.num_full_zkp_batches, batch.get_num_inserted_zkps())
+        let (num_full_zkp_batches, num_inserted_zkp_batches, cached_tree_update_capacity) = {
+            let batch = self.get_pending_batch()?;
+            (
+                batch.num_full_zkp_batches,
+                batch.get_num_inserted_zkps(),
+                batch.cached_tree_update_capacity(),
+            )
         };
 
         // 1. Validate the zkp batch index and that its hash chain is finalized.
-        let cached_tree_update_capacity = self
-            .cached_tree_updates
-            .get(pending_batch_index)
-            .ok_or(NullifierTreeError::InvalidBatchIndex)?
-            .len();
         let zkp_batch_index = usize::from(instruction_data.zkp_batch_index);
         if zkp_batch_index >= cached_tree_update_capacity {
             return Err(NullifierTreeError::CachedTreeUpdateIndexOutOfRange);
@@ -132,16 +121,14 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         // 4. Store the cached update at its zkp batch index. old_root is the
         //    prover's public input; apply checks it against the account tree
         //    root before applying.
-        let cached_update = self
-            .cached_tree_updates
-            .get_mut(pending_batch_index)
-            .and_then(|updates| updates.get_mut(zkp_batch_index))
-            .ok_or(NullifierTreeError::InvalidIndex)?;
-        *cached_update = CachedTreeUpdate {
-            old_root: instruction_data.old_root,
-            new_root: instruction_data.new_root,
-            occupied: 1,
-        };
+        self.get_pending_batch_mut()?.cache_tree_update(
+            zkp_batch_index,
+            CachedTreeUpdate {
+                old_root: instruction_data.old_root,
+                new_root: instruction_data.new_root,
+                occupied: 1,
+            },
+        )?;
         Ok(true)
     }
 
@@ -166,7 +153,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         &mut self,
         merkle_tree_pubkey: [u8; 32],
     ) -> Result<Option<BatchAddressAppendEvent>, NullifierTreeError> {
-        let zkp_batch_size = self.queue_batches.zkp_batch_size;
+        let zkp_batch_size = self.zkp_batch_size;
         // One event covers the whole cascade: shared fields once, one root per
         // applied zkp batch. See `BatchAddressAppendEvent` for how the per-batch
         // values are derived from each root's position.
@@ -174,21 +161,11 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         loop {
             // 1. Read the pending zkp batch's cached update; stop if missing or
             //    empty.
-            let pending_batch_index = self.queue_batches.pending_batch_index as usize;
-            let zkp_batch_index = self
-                .queue_batches
-                .batches
-                .get(pending_batch_index)
-                .ok_or(NullifierTreeError::InvalidBatchIndex)?
-                .get_num_inserted_zkps() as usize;
+            let pending_batch = self.get_pending_batch()?;
+            let zkp_batch_index = pending_batch.get_num_inserted_zkps() as usize;
 
-            let cached_update = match self
-                .cached_tree_updates
-                .get(pending_batch_index)
-                .and_then(|updates| updates.get(zkp_batch_index))
-            {
-                Some(cached_update) if cached_update.is_occupied() => *cached_update,
-                _ => break Ok(event),
+            let Some(cached_update) = pending_batch.cached_tree_update(zkp_batch_index) else {
+                break Ok(event);
             };
 
             // 2. Stop unless the update's old root matches the account tree root.
@@ -203,11 +180,12 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
             //    zeroed and the accumulated event returned.
             let current_root = self.get_root().ok_or(NullifierTreeError::InvalidIndex)?;
             if cached_update.old_root != current_root {
-                self.clear_cached_tree_update(pending_batch_index, zkp_batch_index)?;
+                self.get_pending_batch_mut()?
+                    .clear_cached_tree_update(zkp_batch_index)?;
                 #[cfg(feature = "log")]
                 solana_msg::msg!(
                     "Evicted cached update [{}][{}]: old_root does not match account tree root",
-                    pending_batch_index,
+                    self.pending_batch_index,
                     zkp_batch_index
                 );
                 break Ok(event);
@@ -223,18 +201,12 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
             let root_index = self.get_root_index();
 
             let sequence_number = self.sequence_number;
-            let pending_batch_state = self
-                .queue_batches
-                .batches
-                .get_mut(pending_batch_index)
-                .ok_or(NullifierTreeError::InvalidBatchIndex)?
-                .mark_as_inserted_in_merkle_tree()?;
-            self.advance_nullifier_pda_close_watermark(pending_batch_state)?;
-            self.queue_batches
-                .increment_pending_batch_index_if_inserted(pending_batch_state);
-
+            let pending_batch = self.get_pending_batch_mut()?;
+            let pending_batch_state = pending_batch.mark_as_inserted_in_merkle_tree()?;
             // 4. Clear the applied cache slot.
-            self.clear_cached_tree_update(pending_batch_index, zkp_batch_index)?;
+            pending_batch.clear_cached_tree_update(zkp_batch_index)?;
+            self.advance_nullifier_pda_close_watermark(pending_batch_state)?;
+            self.increment_pending_batch_index_if_inserted(pending_batch_state);
 
             // 5. Record this root in the cascade event. The first applied zkp
             //    batch fixes the shared fields; later batches only advance the
@@ -271,33 +243,13 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
             return Ok(());
         }
 
-        let pending_batch = self
-            .queue_batches
-            .batches
-            .get(self.queue_batches.pending_batch_index as usize)
-            .ok_or(NullifierTreeError::InvalidBatchIndex)?;
+        let pending_batch = self.get_pending_batch()?;
         self.close_before_index = self.close_before_index.max(
             pending_batch
                 .start_index
                 .checked_sub(1)
                 .ok_or(NullifierTreeError::ArithmeticOverflow)?,
         );
-        Ok(())
-    }
-
-    /// Reset the cached update at `[pending_batch_index][zkp_batch_index]` to empty (`occupied = 0`),
-    /// freeing the slot for a fresh proof.
-    fn clear_cached_tree_update(
-        &mut self,
-        pending_batch_index: usize,
-        zkp_batch_index: usize,
-    ) -> Result<(), NullifierTreeError> {
-        let cached_update = self
-            .cached_tree_updates
-            .get_mut(pending_batch_index)
-            .and_then(|updates| updates.get_mut(zkp_batch_index))
-            .ok_or(NullifierTreeError::InvalidIndex)?;
-        *cached_update = CachedTreeUpdate::default();
         Ok(())
     }
 

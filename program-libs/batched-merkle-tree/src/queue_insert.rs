@@ -19,13 +19,12 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         }
         let queue_index = self.checked_next_queue_index()?;
 
-        let rotation = self.queue_batches.rotation()?;
-        let current_batch = self.queue_batches.get_current_batch_mut()?;
+        let rotation = self.rotation()?;
+        let current_batch = self.get_current_batch_mut()?;
         current_batch.ensure_ready_to_fill(rotation)?;
         current_batch.add_to_hash_chain(nullifier)?;
 
-        self.queue_batches
-            .increment_currently_processing_batch_index_if_full()?;
+        self.increment_currently_processing_batch_index_if_full()?;
 
         self.increment_queue_next_index();
         Ok(queue_index)
@@ -36,7 +35,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     /// next (the init element occupies leaf 0, so queue indices are one behind
     /// tree leaf indices), and that leaf must still be inside the tree.
     fn checked_next_queue_index(&self) -> Result<u64, NullifierTreeError> {
-        let queue_index = self.queue_batches.next_index;
+        let queue_index = self.queue_next_index;
         let leaf_index = queue_index
             .checked_add(1)
             .ok_or(NullifierTreeError::ArithmeticOverflow)?;
@@ -56,11 +55,10 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     /// batch means both batches are full: the next value can only go into this
     /// batch once it is inserted and reused, so it reserves the same leaf.
     pub fn next_queued_leaf_index(&self) -> Result<u64, NullifierTreeError> {
-        let queue = &self.queue_batches;
-        let current_batch = queue.get_current_batch()?;
+        let current_batch = self.get_current_batch()?;
         let offset = match current_batch.checked_state()? {
             BatchState::Fill => current_batch.get_num_inserted_elements(),
-            BatchState::Full | BatchState::Inserted => queue.rotation()?,
+            BatchState::Full | BatchState::Inserted => self.rotation()?,
         };
         current_batch
             .start_index
@@ -76,6 +74,6 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     }
 
     fn increment_queue_next_index(&mut self) {
-        self.queue_batches.next_index += 1;
+        self.queue_next_index += 1;
     }
 }

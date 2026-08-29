@@ -750,7 +750,7 @@ async fn discovers_rings_tree_account_metadata() {
         (
             nullifier.height,
             root_history_capacity,
-            nullifier.queue_batches.zkp_batch_size,
+            nullifier.zkp_batch_size,
             nullifier.sequence_number,
             nullifier.next_index,
         )

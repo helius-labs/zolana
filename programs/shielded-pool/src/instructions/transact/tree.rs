@@ -62,7 +62,7 @@ pub(crate) fn apply_input_tree(
         &nullifier_tree_roots[..ix.inputs.len()],
         allow_dummy_inputs,
     )?;
-    let zkp_batch_size = input_tree.nullifier_tree().queue_batches.zkp_batch_size;
+    let zkp_batch_size = input_tree.nullifier_tree().zkp_batch_size;
 
     Ok(InputTreeResult {
         inputs,

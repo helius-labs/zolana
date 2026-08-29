@@ -71,10 +71,9 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
     ) = {
         let nullifier_tree = account.nullifier_tree();
         let close_before_index = nullifier_tree.close_before_index;
-        let batches = &nullifier_tree.queue_batches;
-        let mut infos = Vec::with_capacity(batches.batches.len());
+        let mut infos = Vec::with_capacity(nullifier_tree.batches.len());
         let mut ready_total = 0u64;
-        for (index, batch) in batches.batches.iter().enumerate() {
+        for (index, batch) in nullifier_tree.batches.iter().enumerate() {
             let ready = batch.get_num_ready_zkp_updates();
             ready_total += ready;
             infos.push(BatchInfo {
@@ -89,13 +88,13 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
             });
         }
         (
-            batches.zkp_batch_size,
-            batches.batch_size,
-            batches.batches.len() as u64,
+            nullifier_tree.zkp_batch_size,
+            nullifier_tree.batch_size,
+            nullifier_tree.batches.len() as u64,
             infos,
             ready_total,
-            batches.pending_batch_index,
-            batches.currently_processing_batch_index,
+            nullifier_tree.pending_batch_index,
+            nullifier_tree.currently_processing_batch_index,
             close_before_index,
             nullifier_tree.get_root(),
         )

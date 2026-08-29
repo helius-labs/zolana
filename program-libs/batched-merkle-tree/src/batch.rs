@@ -1,4 +1,4 @@
-use core::mem::size_of;
+use core::mem::{align_of, size_of};
 
 #[cfg(feature = "test-only")]
 use zerocopy::FromZeros;
@@ -32,6 +32,36 @@ impl From<u64> for BatchState {
 impl From<BatchState> for u64 {
     fn from(val: BatchState) -> Self {
         val as u64
+    }
+}
+
+/// A verified but not yet applied ZKP batch update, stored in the ZKP batch it
+/// belongs to. `occupied` marks a filled slot: a zeroed slot is empty.
+#[repr(C)]
+#[derive(
+    Debug,
+    Default,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    KnownLayout,
+    Immutable,
+    FromBytes,
+    BorshSerialize,
+    BorshDeserialize,
+    bytemuck::Pod,
+    bytemuck::Zeroable,
+)]
+pub struct CachedTreeUpdate {
+    pub old_root: [u8; 32],
+    pub new_root: [u8; 32],
+    pub occupied: u8,
+}
+
+impl CachedTreeUpdate {
+    fn is_occupied(&self) -> bool {
+        self.occupied != 0
     }
 }
 
@@ -82,23 +112,38 @@ pub struct Batch<const ZKP: usize> {
     /// chains below it are complete and are the prover inputs of the pending
     /// tree updates.
     hash_chains: [[u8; 32]; ZKP],
+    /// One cached tree update per ZKP batch, verified and waiting to be applied
+    /// to the tree. The slot at `num_inserted_zkp_batches` is the next update
+    /// that can be applied; a slot is cleared once its update is in the tree.
+    cached_tree_updates: [CachedTreeUpdate; ZKP],
 }
 
-/// The account layout requires `repr(C)` without implicit padding. The hash
-/// chain array is align-1 and so cannot introduce any; two instantiations pin
-/// the size formula for every `ZKP`.
+/// `repr(C)`: 72 metadata bytes, then one hash chain and one cached update per
+/// ZKP batch. Both arrays are align-1, so the only implicit padding is the tail
+/// that rounds the batch up to the alignment of its metadata words; the
+/// production configuration (`ZKP = 120`) has none.
+const fn batch_size_bytes(zkp: usize) -> usize {
+    let unpadded = 72 + (32 + size_of::<CachedTreeUpdate>()) * zkp;
+    unpadded.next_multiple_of(align_of::<Batch<1>>())
+}
+
+/// Two instantiations pin the size formula for every `ZKP`.
 const _: () = {
-    assert!(size_of::<Batch<1>>() == 72 + 32);
-    assert!(size_of::<Batch<9>>() == 72 + 32 * 9);
+    assert!(size_of::<CachedTreeUpdate>() == 65);
+    assert!(size_of::<Batch<1>>() == batch_size_bytes(1));
+    assert!(size_of::<Batch<9>>() == batch_size_bytes(9));
 };
 
 impl<const ZKP: usize> Batch<ZKP> {
-    /// Writes every word of a zeroed batch. The hash chains are zeroed here and
-    /// never again: [`reset`](Self::reset) leaves them alone because a batch
-    /// that starts filling always writes chain slot 0 before anything reads it.
+    /// Writes every word of a zeroed batch. The hash chains and cached updates
+    /// are zeroed here and never again: [`reset`](Self::reset) leaves them
+    /// alone because a batch that starts filling always writes chain slot 0
+    /// before anything reads it, and a batch reaches `Inserted` only once every
+    /// cached update has been applied and its slot cleared.
     pub(crate) fn init(&mut self, batch_size: u64, zkp_batch_size: u64, start_index: u64) {
         self.reset(batch_size, zkp_batch_size, start_index);
         self.hash_chains.fill([0u8; 32]);
+        self.cached_tree_updates.fill(CachedTreeUpdate::default());
     }
 
     /// Resets every metadata word, so a reused batch cannot inherit a counter
@@ -119,6 +164,42 @@ impl<const ZKP: usize> Batch<ZKP> {
     /// Returns the complete or in-progress hash chain of a ZKP batch.
     pub fn hash_chain(&self, zkp_batch_index: usize) -> Option<[u8; 32]> {
         self.hash_chains.get(zkp_batch_index).copied()
+    }
+
+    /// Number of cached update slots, one per ZKP batch.
+    pub fn cached_tree_update_capacity(&self) -> usize {
+        self.cached_tree_updates.len()
+    }
+
+    /// Returns the cached update of a ZKP batch, or `None` for an
+    /// out-of-range index or an empty slot.
+    pub fn cached_tree_update(&self, zkp_batch_index: usize) -> Option<CachedTreeUpdate> {
+        self.cached_tree_updates
+            .get(zkp_batch_index)
+            .copied()
+            .filter(CachedTreeUpdate::is_occupied)
+    }
+
+    /// Stores a verified update in the slot of its ZKP batch.
+    pub(crate) fn cache_tree_update(
+        &mut self,
+        zkp_batch_index: usize,
+        update: CachedTreeUpdate,
+    ) -> Result<(), NullifierTreeError> {
+        *self
+            .cached_tree_updates
+            .get_mut(zkp_batch_index)
+            .ok_or(NullifierTreeError::CachedTreeUpdateIndexOutOfRange)? = update;
+        Ok(())
+    }
+
+    /// Resets a ZKP batch's cached update to empty (`occupied = 0`), freeing
+    /// the slot for a fresh proof.
+    pub(crate) fn clear_cached_tree_update(
+        &mut self,
+        zkp_batch_index: usize,
+    ) -> Result<(), NullifierTreeError> {
+        self.cache_tree_update(zkp_batch_index, CachedTreeUpdate::default())
     }
 
     /// Returns the state of the batch.
@@ -361,6 +442,13 @@ impl<const ZKP: usize> Batch<ZKP> {
             .hash_chains
             .get_mut(zkp_batch_index)
             .expect("zkp batch index out of range") = value;
+    }
+
+    pub fn set_cached_tree_update(&mut self, zkp_batch_index: usize, update: CachedTreeUpdate) {
+        *self
+            .cached_tree_updates
+            .get_mut(zkp_batch_index)
+            .expect("zkp batch index out of range") = update;
     }
 
     pub fn num_inserted(&self) -> u64 {

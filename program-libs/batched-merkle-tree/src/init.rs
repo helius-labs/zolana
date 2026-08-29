@@ -4,7 +4,7 @@ use crate::{
         DEFAULT_BATCH_ADDRESS_TREE_HEIGHT,
     },
     errors::NullifierTreeError,
-    layout::{NullifierTreeLayout, QueueBatches, TreeType},
+    layout::{NullifierTreeLayout, TreeType},
     BorshDeserialize, BorshSerialize,
 };
 
@@ -47,10 +47,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         tree_type: TreeType,
         address_init_root: Option<[u8; 32]>,
     ) -> Result<(), NullifierTreeError> {
-        QueueBatches::<ZKP>::validate_configuration(
-            input_queue_batch_size,
-            input_queue_zkp_batch_size,
-        )?;
+        Self::validate_configuration(input_queue_batch_size, input_queue_zkp_batch_size)?;
         let capacity = 1u64
             .checked_shl(height)
             .ok_or(NullifierTreeError::InvalidHeight)?;
@@ -76,17 +73,16 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         } else {
             (0, None)
         };
-        // Written field by field: the layout carries both queue batches with
-        // their hash chains, which are too large to move through a Solana stack
-        // frame as a struct literal.
+        // Written field by field: the layout carries both batches with their
+        // hash chains and cached updates, which are too large to move through a
+        // Solana stack frame as a struct literal.
         self.tree_type = tree_type as u64;
         self.sequence_number = 0;
         self.next_index = next_index;
         self.height = height;
-        self._padding = [0u8; 4];
         self.capacity = capacity;
         self.close_before_index = 0;
-        self.queue_batches.init(
+        self.init_queue(
             input_queue_batch_size,
             input_queue_zkp_batch_size,
             next_index,

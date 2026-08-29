@@ -88,11 +88,11 @@ impl NullifierForester {
     }
 
     fn perform_update(&mut self, account: &mut NullifierTree, queued: &[[u8; 32]]) -> [u8; 32] {
-        let pending = account.queue_batches.pending_batch_index as usize;
-        let zkp_batch_size = account.queue_batches.zkp_batch_size as usize;
+        let pending = account.pending_batch_index as usize;
+        let zkp_batch_size = account.zkp_batch_size as usize;
         let next_index = account.next_index;
         let height = account.height;
-        let zkp_index = account.queue_batches.batches[pending]
+        let zkp_index = account.batches[pending]
             .get_first_ready_zkp_batch()
             .unwrap() as usize;
         let leaves_hash_chain = account.get_hash_chain(pending, zkp_index).unwrap();
@@ -143,12 +143,12 @@ impl NullifierForester {
         account: &NullifierTree,
         queued: &[[u8; 32]],
     ) -> Vec<PreparedUpdate> {
-        let pending = account.queue_batches.pending_batch_index as usize;
-        let zkp_batch_size = account.queue_batches.zkp_batch_size as usize;
+        let pending = account.pending_batch_index as usize;
+        let zkp_batch_size = account.zkp_batch_size as usize;
         let height = account.height;
         let base_next_index = account.next_index;
 
-        let batch = account.queue_batches.batches.get(pending).unwrap();
+        let batch = account.batches.get(pending).unwrap();
         let num_full = batch.get_current_zkp_batch_index() as usize;
         let already_applied = batch.get_num_inserted_zkps() as usize;
 
@@ -340,7 +340,7 @@ fn nullifier_tree_fills_root_history_with_random_submit_order() {
         // The batch filled this cycle covers the queue range one rotation past
         // its previous coverage: start_index = init next_index + cycle * batch_size.
         let account = load_nullifier_tree(&mut account_data);
-        let filled_batch = account.queue_batches.batches.get(cycle % 2).unwrap();
+        let filled_batch = account.batches.get(cycle % 2).unwrap();
         assert_eq!(filled_batch.start_index, 1 + (cycle * batch_size) as u64);
 
         let expected_new_roots: Vec<[u8; 32]> = prepared.iter().map(|prep| prep.new_root).collect();

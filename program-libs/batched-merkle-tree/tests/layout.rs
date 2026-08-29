@@ -1,16 +1,15 @@
 use zolana_batched_merkle_tree::{
-    batch::{Batch, BatchState},
-    constants::NUM_BATCHES,
+    batch::{Batch, BatchState, CachedTreeUpdate},
     errors::NullifierTreeError,
-    layout::{CachedTreeUpdate, NullifierTreeLayout, QueueBatches},
+    layout::{NullifierTreeLayout, RootHistory},
 };
 
 fn new_queue<const ZKP: usize>(
     batch_size: u64,
     zkp_batch_size: u64,
     start_index: u64,
-) -> Result<QueueBatches<ZKP>, NullifierTreeError> {
-    QueueBatches::<ZKP>::new_validated(batch_size, zkp_batch_size, start_index)
+) -> Result<NullifierTreeLayout<ZKP>, NullifierTreeError> {
+    NullifierTreeLayout::<ZKP>::new_queue_validated(batch_size, zkp_batch_size, start_index)
 }
 
 #[test]
@@ -18,21 +17,17 @@ fn tree_layout_round_trips() {
     let mut bytes = vec![0u8; core::mem::size_of::<NullifierTreeLayout<2>>()];
     let layout: &mut NullifierTreeLayout<2> = wincode::deserialize_mut(&mut bytes).unwrap();
     layout.root_history.roots[1] = [7u8; 32];
-    layout.queue_batches.batches[0].set_hash_chain(1, [9u8; 32]);
-    layout.cached_tree_updates[1][1] = CachedTreeUpdate {
+    layout.batches[0].set_hash_chain(1, [9u8; 32]);
+    let cached = CachedTreeUpdate {
         old_root: [3u8; 32],
         new_root: [4u8; 32],
         occupied: 1,
     };
+    layout.batches[1].set_cached_tree_update(1, cached);
     let reloaded: &mut NullifierTreeLayout<2> = wincode::deserialize_mut(&mut bytes).unwrap();
     assert_eq!(reloaded.root_history.roots[1], [7u8; 32]);
-    assert_eq!(
-        reloaded.queue_batches.batches[0].hash_chain(1),
-        Some([9u8; 32])
-    );
-    assert_eq!(reloaded.cached_tree_updates[1][1].old_root, [3u8; 32]);
-    assert_eq!(reloaded.cached_tree_updates[1][1].new_root, [4u8; 32]);
-    assert_eq!(reloaded.cached_tree_updates[1][1].occupied, 1);
+    assert_eq!(reloaded.batches[0].hash_chain(1), Some([9u8; 32]));
+    assert_eq!(reloaded.batches[1].cached_tree_update(1), Some(cached));
 }
 
 #[test]
@@ -101,12 +96,15 @@ fn test_increment_currently_processing_batch_index_if_full() {
 #[test]
 fn test_validate_batch_sizes() {
     assert_eq!(
-        QueueBatches::<5>::validate_configuration(10, 3),
+        NullifierTreeLayout::<5>::validate_configuration(10, 3),
         Err(NullifierTreeError::BatchSizeNotDivisibleByZkpBatchSize)
     );
-    assert_eq!(QueueBatches::<5>::validate_configuration(10, 2), Ok(()));
     assert_eq!(
-        QueueBatches::<4>::validate_configuration(10, 2),
+        NullifierTreeLayout::<5>::validate_configuration(10, 2),
+        Ok(())
+    );
+    assert_eq!(
+        NullifierTreeLayout::<4>::validate_configuration(10, 2),
         Err(NullifierTreeError::InvalidRootHistoryCapacity)
     );
 }
@@ -116,13 +114,22 @@ fn test_new_initializes_entire_queue() {
     let metadata = new_queue::<5>(10, 2, 7).unwrap();
     assert_eq!(
         metadata,
-        QueueBatches {
-            reserved: NUM_BATCHES as u64,
+        NullifierTreeLayout {
+            tree_type: 0,
+            sequence_number: 0,
+            next_index: 0,
+            height: 0,
+            currently_processing_batch_index: 0,
+            capacity: 0,
             batch_size: 10,
             zkp_batch_size: 2,
-            currently_processing_batch_index: 0,
             pending_batch_index: 0,
-            next_index: 0,
+            queue_next_index: 0,
+            close_before_index: 0,
+            root_history: RootHistory {
+                current_index: 0,
+                roots: [[0u8; 32]; 5],
+            },
             batches: [Batch::new(10, 2, 7), Batch::new(10, 2, 17)],
         }
     );

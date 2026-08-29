@@ -12,20 +12,21 @@
 //!
 //! | Module | Description |
 //! |--------|-------------|
-//! | [`layout`] | Account layout: tree, root history, queue batches, metadata |
+//! | [`layout`] | Account layout: tree metadata, queue metadata, root history, batches |
 //! | [`init`] | Configure and initialize a batched nullifier tree |
 //! | [`queue_insert`] | Insert a nullifier into the input queue |
 //! | [`merkle_tree_update`] | Apply queued batches to the tree |
 //! | [`access`] | Read accessors, layout validation, and account size |
-//! | [`batch`] | `Batch` state machine and per-batch insertion |
+//! | [`batch`] | `Batch` state machine, hash chains, and cached tree updates |
 //! | [`verify`] | Groth16 verification and verifying keys |
 //! | [`errors`] | `NullifierTreeError`, the crate's single error type |
 //!
 //! ## Account
 //!
 //! There is a single state type, [`layout::NullifierTreeLayout`], cast in
-//! place from the account bytes: it stores the tree roots, the cyclic root
-//! history, and an integrated input queue (hash chains + cached tree updates).
+//! place from the account bytes: it stores the tree metadata, the cyclic root
+//! history, and the input queue's two batches, each carrying its own hash
+//! chains and cached tree updates.
 //! Address and nullifier trees use the same `AddressV2` layout and differ only
 //! in the sentinel root they are seeded with.
 //!

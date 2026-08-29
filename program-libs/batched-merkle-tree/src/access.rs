@@ -1,33 +1,26 @@
 use std::mem::size_of;
 
-use crate::{
-    constants::NUM_BATCHES,
-    errors::NullifierTreeError,
-    layout::{NullifierTreeLayout, QueueBatches},
-};
+use crate::{constants::NUM_BATCHES, errors::NullifierTreeError, layout::NullifierTreeLayout};
 
 impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     /// Validates the invariants required for safe queue rotation and natural
     /// root-history overwrite. Every loader must run this before the layout is
     /// used; the tree operations assume it held.
     pub fn validate(&self) -> Result<(), NullifierTreeError> {
-        let queue = &self.queue_batches;
-        QueueBatches::<ZKP>::validate_configuration(queue.batch_size, queue.zkp_batch_size)?;
+        Self::validate_configuration(self.batch_size, self.zkp_batch_size)?;
 
         if self.root_history.current_index >= ZKP as u64 {
             return Err(NullifierTreeError::InvalidRootHistoryCapacity);
         }
 
-        if queue.currently_processing_batch_index >= NUM_BATCHES as u64
-            || queue.pending_batch_index >= NUM_BATCHES as u64
+        if self.currently_processing_batch_index >= NUM_BATCHES as u32
+            || self.pending_batch_index >= NUM_BATCHES as u64
         {
             return Err(NullifierTreeError::InvalidBatchIndex);
         }
-        if queue.reserved != NUM_BATCHES as u64
-            || queue.batches.iter().any(|batch| {
-                batch.batch_size != queue.batch_size || batch.zkp_batch_size != queue.zkp_batch_size
-            })
-        {
+        if self.batches.iter().any(|batch| {
+            batch.batch_size != self.batch_size || batch.zkp_batch_size != self.zkp_batch_size
+        }) {
             return Err(NullifierTreeError::InvalidBatchConfiguration);
         }
         Ok(())
@@ -56,10 +49,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
 
     /// Return a stored queue hash-chain for a pending ZKP batch.
     pub fn get_hash_chain(&self, batch_index: usize, zkp_batch_index: usize) -> Option<[u8; 32]> {
-        self.queue_batches
-            .batches
-            .get(batch_index)?
-            .hash_chain(zkp_batch_index)
+        self.batches.get(batch_index)?.hash_chain(zkp_batch_index)
     }
 
     /// Checks whether `num_leaves` values fit in the remaining tree capacity.

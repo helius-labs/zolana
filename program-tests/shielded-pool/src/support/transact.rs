@@ -31,7 +31,7 @@ pub fn tree_progress(rpc: &ZolanaProgramTest, tree: &Pubkey) -> (u64, u64) {
     let mut account = TreeAccount::from_bytes(&mut data, tree.to_bytes()).expect("load tree");
     (
         account.utxo_tree().next_index(),
-        account.nullifier_tree().queue_batches.next_index,
+        account.nullifier_tree().queue_next_index,
     )
 }
 

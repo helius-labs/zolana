@@ -249,14 +249,11 @@ impl ForesterPlan {
         let mut tree = TreeAccount::from_bytes(&mut data, pool_tree.to_bytes())
             .map_err(|err| anyhow!("load tree account: {err:?}"))?;
         let nullifier_tree = tree.nullifier_tree();
-        let metadata = *nullifier_tree.get_metadata();
-        let pending_batch_index = metadata.queue_batches.pending_batch_index as usize;
-        let batch = metadata
-            .queue_batches
+        let pending_batch_index = nullifier_tree.pending_batch_index as usize;
+        let zkp_batch_index = nullifier_tree
             .batches
             .get(pending_batch_index)
-            .ok_or_else(|| anyhow!("pending batch index out of range: {pending_batch_index}"))?;
-        let zkp_batch_index = batch
+            .ok_or_else(|| anyhow!("pending batch index out of range: {pending_batch_index}"))?
             .get_first_ready_zkp_batch()
             .map_err(|err| anyhow!("no ready nullifier zkp batch: {err:?}"))?
             as usize;
@@ -272,9 +269,9 @@ impl ForesterPlan {
         Ok(Self {
             current_root,
             leaves_hash_chain,
-            start_index: metadata.next_index,
-            tree_height: metadata.height,
-            zkp_batch_size: metadata.queue_batches.zkp_batch_size as usize,
+            start_index: nullifier_tree.next_index,
+            tree_height: nullifier_tree.height,
+            zkp_batch_size: nullifier_tree.zkp_batch_size as usize,
             zkp_batch_index: u16::try_from(zkp_batch_index)
                 .map_err(|_| anyhow!("zkp batch index {zkp_batch_index} exceeds u16"))?,
         })
