@@ -228,7 +228,13 @@ fn create_transfer_with_recipient<R>(
             },
         });
     };
-    let inputs = select_inputs(request.wallet, tree, request.asset, request.amount)?;
+    let inputs = select_inputs(
+        request.wallet,
+        tree,
+        request.asset,
+        request.amount,
+        is_default_ring_spendable,
+    )?;
     Ok(CreatedTransfer {
         transaction: UnsignedPrivateTransaction {
             payer: request.payer,
@@ -585,8 +591,18 @@ pub fn select_spend_inputs_sync<A: SyncWalletAuthority + ?Sized>(
 fn unsigned_spend_inputs(
     request: SpendInputParams<'_>,
 ) -> Result<(Address, Vec<UnsignedSpendInput>), ClientError> {
-    let tree = resolve_spend_tree(request.wallet, request.asset, is_default_ring_spendable)?;
-    let inputs = select_inputs(request.wallet, tree, request.asset, request.amount)?;
+    // Mirrors the TS eligibility, a default note carrying ring data proves on
+    // no rail.
+    let eligible =
+        |entry: &WalletUtxo| is_default_ring_spendable(entry) && entry.ring_data_hash.is_none();
+    let tree = resolve_spend_tree(request.wallet, request.asset, eligible)?;
+    let inputs = select_inputs(
+        request.wallet,
+        tree,
+        request.asset,
+        request.amount,
+        eligible,
+    )?;
     Ok((tree, inputs))
 }
 
@@ -832,16 +848,7 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
     validate_unsigned_inputs(wallet, transaction.tree, &transaction.inputs)?;
     let address = authority.shielded_address().await?;
     let nullifier_key = authority.spend_nullifier_key().await?;
-    let inputs = transaction
-        .inputs
-        .into_iter()
-        .map(|input| SppProofInputUtxo {
-            utxo: input.utxo,
-            nullifier_key: nullifier_key.clone(),
-            data_hash: input.data_hash,
-            ring_data_hash: input.ring_data_hash,
-        })
-        .collect();
+    let inputs = spend_proof_inputs(transaction.inputs, nullifier_key);
     let signed = match transaction.action {
         PrivateTransactionAction::Transfer {
             recipient,
@@ -1057,7 +1064,13 @@ fn select_withdrawal_inputs(
                 spend_tree: tree,
             });
         }
-        inputs.extend(select_inputs(wallet, tree, *asset, *amount)?);
+        inputs.extend(select_inputs(
+            wallet,
+            tree,
+            *asset,
+            *amount,
+            is_default_ring_spendable,
+        )?);
     }
 
     Ok((tree, inputs))
@@ -1109,6 +1122,7 @@ fn select_inputs(
     tree: Address,
     asset: Address,
     amount: u64,
+    eligible: impl Fn(&WalletUtxo) -> bool,
 ) -> Result<Vec<UnsignedSpendInput>, ClientError> {
     let mut selected = Vec::new();
     let mut available = 0u64;
@@ -1116,7 +1130,7 @@ fn select_inputs(
         !entry.spent
             && entry.utxo.asset == asset
             && entry.output_context.tree == tree
-            && is_default_ring_spendable(entry)
+            && eligible(entry)
     }) {
         selected.push(UnsignedSpendInput {
             utxo: entry.utxo.clone(),
@@ -2358,6 +2372,7 @@ mod tests {
     }
 
     const RING_TREE: Address = Address::new_from_array([9u8; 32]);
+    const TEST_RING: Address = Address::new_from_array([7u8; 32]);
 
     fn bind_to_ring(wallet: &mut Wallet, hash: [u8; 32], tree: Address) {
         let entry = wallet
@@ -2366,7 +2381,7 @@ mod tests {
             .find(|entry| entry.output_context.hash == hash)
             .expect("pushed utxo");
         entry.output_context.tree = tree;
-        entry.utxo.ring_program_id = Some(Address::new_from_array([7u8; 32]));
+        entry.utxo.ring_program_id = Some(TEST_RING);
     }
 
     fn wallet_with_ring_balance_on_another_tree(keypair: &ShieldedKeypair) -> Wallet {
@@ -2410,15 +2425,27 @@ mod tests {
         let ring_bound = push_utxo(&mut wallet, &keypair, 100, [2u8; 31]);
         bind_to_ring(&mut wallet, ring_bound, Address::default());
 
-        let selected = select_inputs(&wallet, Address::default(), SOL_MINT, 10)
-            .expect("a plain utxo covers the amount");
+        let selected = select_inputs(
+            &wallet,
+            Address::default(),
+            SOL_MINT,
+            10,
+            is_default_ring_spendable,
+        )
+        .expect("a plain utxo covers the amount");
         assert_eq!(selected.len(), 1);
         assert!(selected
             .iter()
             .all(|input| input.utxo.ring_program_id.is_none()));
 
         assert!(matches!(
-            select_inputs(&wallet, Address::default(), SOL_MINT, 50),
+            select_inputs(
+                &wallet,
+                Address::default(),
+                SOL_MINT,
+                50,
+                is_default_ring_spendable
+            ),
             Err(ClientError::InsufficientBalance {
                 requested: 50,
                 available: 10
@@ -2482,7 +2509,7 @@ mod tests {
 
         let rings = wallet.ring_balances(true).expect("ring balances");
         assert_eq!(rings.len(), 1);
-        assert_eq!(rings[0].ring_program_id, Address::new_from_array([7u8; 32]));
+        assert_eq!(rings[0].ring_program_id, TEST_RING);
         assert_eq!(rings[0].assets.len(), 1);
         assert_eq!(rings[0].assets[0].amount, 100);
     }
@@ -2562,6 +2589,46 @@ mod tests {
                 &keypair,
             ),
             Err(ClientError::AmbiguousTree { tree_count: 2, .. })
+        ));
+    }
+
+    #[test]
+    fn select_spend_inputs_skip_default_notes_carrying_ring_data() {
+        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        let tainted = push_utxo(&mut wallet, &keypair, 50, [1u8; 31]);
+        wallet
+            .utxos
+            .iter_mut()
+            .find(|entry| entry.output_context.hash == tainted)
+            .expect("pushed utxo")
+            .ring_data_hash = Some([5u8; 32]);
+        push_utxo(&mut wallet, &keypair, 20, [2u8; 31]);
+
+        let selected = select_spend_inputs_sync(
+            SpendInputParams {
+                wallet: &wallet,
+                asset: SOL_MINT,
+                amount: 20,
+            },
+            &keypair,
+        )
+        .expect("the clean note covers the amount");
+        assert_eq!(amounts(&selected.inputs), vec![20]);
+
+        assert!(matches!(
+            select_spend_inputs_sync(
+                SpendInputParams {
+                    wallet: &wallet,
+                    asset: SOL_MINT,
+                    amount: 60,
+                },
+                &keypair,
+            ),
+            Err(ClientError::InsufficientBalance {
+                requested: 60,
+                available: 20
+            })
         ));
     }
 
