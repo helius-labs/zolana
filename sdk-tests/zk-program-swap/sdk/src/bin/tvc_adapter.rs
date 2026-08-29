@@ -10,6 +10,7 @@ use swap_sdk::{
     instructions::make::{Make, MakeProofInputParams, OrderMarker, SppTxHashes},
     prover::SwapProverClient,
     state::{OrderTerms, OrderUtxo},
+    ORDER_AUTHORITY_PDA_SEED,
 };
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use zolana_keypair::ShieldedAddress;
@@ -162,6 +163,8 @@ fn make_plan(request: MakePlanRequest) -> Result<Value> {
         taker_address: taker,
     }
     .message()?;
+    let (_, order_authority_bump) =
+        Pubkey::find_program_address(&[ORDER_AUTHORITY_PDA_SEED], &swap_program::ID);
 
     let output_json = |output: &SppProofOutputUtxo, asset: &AssetJson| -> Result<Value> {
         let recipient = output.owner_address.context("missing output owner")?;
@@ -180,6 +183,12 @@ fn make_plan(request: MakePlanRequest) -> Result<Value> {
         "input_tree": request.input_tree,
         "shape": { "inputs": SHAPE_INPUTS, "outputs": SHAPE_OUTPUTS },
         "inputs": [{ "type": "Wallet", "commitment": request.input_commitment }],
+        "program_authorities": [{
+            "seeds": [
+                encode_hex(ORDER_AUTHORITY_PDA_SEED),
+                encode_hex(&[order_authority_bump]),
+            ],
+        }],
         "outputs": [
             output_json(&change, &request.source_asset)?,
             output_json(&order_output, &request.source_asset)?,
@@ -352,6 +361,10 @@ mod tests {
         assert_eq!(plan["program_id"], swap_program::ID.to_string());
         assert_eq!(plan["shape"], json!({ "inputs": 2, "outputs": 2 }));
         assert_eq!(plan["inputs"][0]["commitment"], "11".repeat(32));
+        assert_eq!(
+            plan["program_authorities"][0]["seeds"][0],
+            "6f726465725f617574686f72697479"
+        );
         assert_eq!(plan["outputs"][0]["amount"], "1000000");
         assert_eq!(plan["outputs"][1]["amount"], "2000000");
         assert_eq!(plan["messages"][0]["data"].as_str().unwrap().len(), 128);
