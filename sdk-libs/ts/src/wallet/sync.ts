@@ -6,6 +6,7 @@ import {
 } from "@solana/kit";
 
 import { runKitRpc } from "../client/kit.js";
+import { initializePoseidon } from "../hasher/index.js";
 import type { IndexerReader, KitRpcAccess } from "../client/ports.js";
 import { ClientError } from "../client/error.js";
 import {
@@ -492,6 +493,7 @@ export async function syncWallet(
   }>,
   context?: RequestContext,
 ): Promise<SyncReport> {
+  await initializePoseidon();
   // Writes stage in a session and commit once, a failed sync changes nothing.
   return input.wallet._withSyncLock(() =>
     input.authority.withSyncSession((keys) => runWalletSync(input, keys, context)),

@@ -4,6 +4,7 @@ import { mergeDummyNullifier, mergeOutputBlinding } from "../../keypair/merge/in
 import { P256PublicKey, type ShieldedPublicKey } from "../../keypair/public-key.js";
 import type { ShieldedKeypair, ViewingKeyLike } from "../../keypair/shielded.js";
 
+import { initializePoseidon } from "../../hasher/index.js";
 import { TransactionError } from "../error.js";
 import { copy, decodeAddress, equal } from "../internal.js";
 import { SENDER_SLOT_COUNT } from "../instructions/transact.js";
@@ -924,6 +925,7 @@ export async function decryptTransactions(
     config?: DecryptTransactionsConfig;
   }>,
 ): Promise<SyncReport> {
+  await initializePoseidon();
   const material = await input.authority.syncMaterial();
   validateMaterial(input.wallet, material);
   const current = input.wallet._state();
@@ -1001,6 +1003,7 @@ export async function decryptToBalances(
     transactions: readonly IndexedShieldedTransaction[];
   }>,
 ): Promise<PrivateBalances> {
+  await initializePoseidon();
   const identity = input.keypair.shieldedAddress();
   const wallet = new Wallet({ identity, registry: input.registry });
   const viewingKey = input.keypair.viewingKey();

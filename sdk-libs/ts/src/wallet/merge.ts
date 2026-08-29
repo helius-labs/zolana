@@ -11,6 +11,7 @@ import type { WalletAuthority, WalletSyncMaterial } from "../transaction/wallet/
 import { SOL_MINT } from "../transaction/wallet/asset.js";
 import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 
+import { initializePoseidon } from "../hasher/index.js";
 import { MERGE_INPUT_COUNT } from "../interface/constants.js";
 import {
   isPlainUtxo,
@@ -188,6 +189,7 @@ export async function buildMergeTransaction(
   context?: RequestContext,
 ): Promise<Transaction> {
   try {
+    await initializePoseidon();
     const owner = input.authority.solanaPublicKey();
     return await input.authority.withSyncSession(async (keys) => {
       const material = MergeMaterial.fromSyncMaterial(await keys.syncMaterial());

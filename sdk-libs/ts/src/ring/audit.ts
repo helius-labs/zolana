@@ -1,4 +1,5 @@
 import { p256 } from "@noble/curves/nist.js";
+import { initializePoseidon } from "../hasher/index.js";
 
 import type { ZolanaClient } from "../client/client.js";
 import type {
@@ -170,6 +171,7 @@ export async function auditRing(
   }>,
   context?: RequestContext,
 ): Promise<RingAuditPage> {
+  await initializePoseidon();
   const viewTag = auditorViewTag(input.auditor.publicKey());
   const pageSize = input.pageSize ?? DEFAULT_PAGE_SIZE;
   const maxPages = input.maxPages ?? DEFAULT_MAX_PAGES;

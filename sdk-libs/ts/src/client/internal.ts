@@ -6,7 +6,7 @@ import {
   getBase64Decoder,
   getBase64Encoder,
 } from "@solana/kit";
-import { MAX_POSEIDON_INPUTS, poseidon as hash } from "../hasher/index.js";
+import { HasherFailure, MAX_POSEIDON_INPUTS, poseidon as hash } from "../hasher/index.js";
 
 import type {
   Address,
@@ -137,7 +137,12 @@ export function poseidon(inputs: readonly bigint[]): bigint {
     throw hasherError("InvalidNumFields");
   }
   inputs.forEach((value, index) => field(value, `poseidon[${String(index)}]`));
-  return bytesToBigInt(hash(inputs.map((value) => bigintToBytes(value))));
+  try {
+    return bytesToBigInt(hash(inputs.map((value) => bigintToBytes(value))));
+  } catch (cause) {
+    if (!(cause instanceof HasherFailure)) throw cause;
+    throw hasherError(cause.code, cause);
+  }
 }
 
 export function hashChain(values: readonly bigint[]): bigint {

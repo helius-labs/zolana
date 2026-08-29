@@ -10,6 +10,7 @@ import type {
   Transaction,
 } from "../interface/types.js";
 import { depositInstruction } from "../interface/instructions/index.js";
+import { initializePoseidon } from "../hasher/index.js";
 import { randomBlinding } from "../keypair/bytes.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
 import { ownerUtxoHash } from "../transaction/utxo.js";
@@ -74,6 +75,7 @@ export class Deposit {
 /** @internal */
 export async function createDeposit(params: DepositParams): Promise<Deposit> {
   try {
+    await initializePoseidon();
     if (params.amount <= 0n || params.amount > 0xffff_ffff_ffff_ffffn) {
       throw new WalletError("WALLET_INVALID_AMOUNT", {
         details: { amount: params.amount.toString() },

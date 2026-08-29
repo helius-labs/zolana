@@ -1,4 +1,5 @@
 import type { AuthorizedPrivateTransaction } from "../client/client.js";
+import { initializePoseidon } from "../hasher/index.js";
 import type { Address, Bytes32 } from "../interface/types.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { Data } from "../transaction/data.js";
@@ -86,6 +87,7 @@ export async function authorizePrivateTransaction(
   wallet: Wallet,
   authority: WalletAuthority,
 ): Promise<AuthorizedPrivateTransaction> {
+  await initializePoseidon();
   const unsignedInputs = transaction._inputs();
   unsignedInputs.forEach((input, index) => {
     if (!matchingInput(wallet, transaction.tree(), input.entry)) {

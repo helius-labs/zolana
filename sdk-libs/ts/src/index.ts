@@ -4,7 +4,6 @@ import { initializePoseidon } from "./hasher/index.js";
 export type { ErrorEnvelope } from "./errors/internal.js";
 export type { TransactionSigner } from "@solana/kit";
 export { initializePoseidon };
-export { HasherWasmError } from "./hasher/index.js";
 
 /**
  * Connects a client and loads the hasher it needs.
@@ -13,9 +12,8 @@ export { HasherWasmError } from "./hasher/index.js";
  * provided. Omitting all URLs uses the local stack ports.
  */
 export async function createZolanaClient(config: ZolanaClientConfig = {}): Promise<ZolanaClient> {
-  const client = new ZolanaClient(config);
   await initializePoseidon();
-  return client;
+  return new ZolanaClient(config);
 }
 
 export {

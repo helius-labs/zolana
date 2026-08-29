@@ -33,6 +33,12 @@ Breaking
   after the reservation expires, a failed build releases its notes at
   once, and `WALLET_NOTE_RESERVED` refuses a named input another build
   holds.
+- `HasherWasmError` is removed, hashing failures surface through
+  `KeypairError`, `ClientError`, and the transaction codes → stop matching
+  on the class, `createZolanaClient` and every async build, sync, and
+  decrypt entry load the hasher themselves, an explicit
+  `initializePoseidon()` stays necessary only before synchronous hashing
+  such as key derivation.
 - `RingRpc` throws `RING_RPC_CONFIG` for an endpoint with plain HTTP,
   credentials, or a fragment unless `allowInsecureHttp` admits HTTP,
   accepts only responses declaring a JSON content type, caps them at 4
@@ -66,6 +72,13 @@ Added
   operation chain outermost first.
 - Serialized wallets carry their reservations, a restored wallet still
   holds notes an in-flight transaction spends.
+- `ChainReader`, `BlockhashProvider`, `IndexerReader`, `ProofReader`,
+  `Prover`, `TransactionConfirmer`, and `KitRpcAccess` name the client's
+  capabilities, `ZolanaClient` implements them all, and a consumer can
+  depend on only the one it uses.
+- `SyncClient` is exported, `syncWallet` needs only the three indexer
+  reads and kit access only for a wallet holding a mint the registry
+  cannot resolve.
 - Every `RingRpc` method accepts a `RequestContext`, its signal and
   timeout reach the transport, and integers above the safe range decode
   exactly.

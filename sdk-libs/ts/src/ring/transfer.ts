@@ -8,6 +8,7 @@ import type {
   TransactInstructionData,
   TransactWithdrawal,
 } from "../interface/types.js";
+import { initializePoseidon } from "../hasher/index.js";
 import { customRingPublicInputHash, parseAuditorMessage } from "../keypair/audit.js";
 import type { P256PublicKey } from "../keypair/public-key.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
@@ -211,6 +212,7 @@ async function buildRingSpend<R>(
     let inputs: readonly ProofInputUtxo[] = [];
     let reservation: NoteReservation | undefined;
     try {
+      await initializePoseidon();
       const asset = input.asset ?? SOL_MINT;
       const nullifierKey = session.nullifierKey();
       const [resolved, address] = await Promise.all([
@@ -344,6 +346,7 @@ export async function proveCustomRingTransfer(
   input: CustomRingTransferParams,
   context?: RequestContext,
 ): Promise<ProvenRingTransfer> {
+  await initializePoseidon();
   // The prover fetches merkle proofs from the client tree only.
   if (input.tree !== input.client.tree) {
     throw new RingError("RING_TREE_MISMATCH", {

@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import fixture from "../vectors/poseidon-parity-v1.json" with { type: "json" };
-import { HasherWasmError, MAX_POSEIDON_INPUTS, poseidon } from "../src/hasher/index.js";
+import {
+  HasherFailure,
+  MAX_POSEIDON_INPUTS,
+  initializePoseidon,
+  poseidon,
+  resetPoseidonForTests,
+} from "../src/hasher/index.js";
+import { SOL_MINT } from "../src/transaction/index.js";
+import { createDeposit } from "../src/wallet/deposit.js";
 import {
   KeypairError,
   P256PublicKey,
@@ -42,12 +50,23 @@ describe("Poseidon parity with Rust", () => {
     }
   });
 
+  it("loads the hasher itself at an async build entry", async () => {
+    const recipient = ShieldedKeypair.generate().shieldedAddress();
+    resetPoseidonForTests();
+    try {
+      const deposit = await createDeposit({ recipient, asset: SOL_MINT, amount: 1n });
+      expect(deposit.utxoHash).toHaveLength(32);
+    } finally {
+      await initializePoseidon();
+    }
+  });
+
   it("rejects empty, over-wide, and over-arity inputs", () => {
-    expect(() => poseidon([])).toThrow(HasherWasmError);
-    expect(() => poseidon([new Uint8Array(33)])).toThrow(HasherWasmError);
+    expect(() => poseidon([])).toThrow(HasherFailure);
+    expect(() => poseidon([new Uint8Array(33)])).toThrow(HasherFailure);
     expect(() =>
       poseidon(Array.from({ length: MAX_POSEIDON_INPUTS + 1 }, () => new Uint8Array(32))),
-    ).toThrow(HasherWasmError);
+    ).toThrow(HasherFailure);
   });
 });
 

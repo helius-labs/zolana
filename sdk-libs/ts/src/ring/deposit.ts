@@ -2,6 +2,7 @@ import { compileUnsignedTransaction } from "../flows/compile.js";
 import type { ZolanaClient } from "../client/client.js";
 import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
 import { ringDepositInstruction } from "../interface/instructions/index.js";
+import { initializePoseidon } from "../hasher/index.js";
 import { randomBlinding, randomSalt } from "../keypair/bytes.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
 import { ViewingKey } from "../keypair/viewing-key.js";
@@ -35,6 +36,7 @@ export async function buildRingDepositTransaction(
   context?: RequestContext,
 ): Promise<Transaction> {
   try {
+    await initializePoseidon();
     const recipient = await resolveShieldedRecipient(
       { rpc: input.client, recipient: input.recipient },
       (unregistered) =>

@@ -7,7 +7,12 @@ type IndexDetails = Readonly<{ index: number }>;
 type CountDetails = Readonly<{ got: number; expected: number }>;
 type MethodDetails = Readonly<{ method: string }>;
 
-export type HasherErrorCode = "InvalidNumFields" | "EmptyInput";
+export type HasherErrorCode =
+  | "InvalidNumFields"
+  | "EmptyInput"
+  | "NotInitialized"
+  | "InvalidInputLength"
+  | "Poseidon";
 
 export const CANONICAL_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_KEYPAIR",
@@ -561,5 +566,11 @@ function ownDataEntries(value: Record<string, unknown>): readonly (readonly [str
 }
 
 function isHasherErrorCode(value: unknown): value is HasherErrorCode {
-  return value === "InvalidNumFields" || value === "EmptyInput";
+  return (
+    value === "InvalidNumFields" ||
+    value === "EmptyInput" ||
+    value === "NotInitialized" ||
+    value === "InvalidInputLength" ||
+    value === "Poseidon"
+  );
 }
