@@ -112,6 +112,42 @@ impl RingHarness {
         Ok(())
     }
 
+    /// Default-shield the first registered SPL asset to `name`, the payer signs
+    /// as the token authority of the shared funding account.
+    pub fn shield_default_spl(&mut self, name: &str, amount: u64) -> Result<()> {
+        self.ensure_spl_asset()?;
+        self.ensure_fresh_actor(name)?;
+        let payer = self.payer.insecure_clone();
+        let spl = *self.spl_asset()?;
+        mint_to(&self.rpc, &payer, &spl.mint, &spl.user_token, amount)?;
+        let data = self.asset_deposit_data(
+            name,
+            amount,
+            DepositAsset::Spl(DepositSplAccounts {
+                mint: spl.mint,
+                user_token: spl.user_token,
+                token_program: zolana_interface::pda::spl_token_program_id(),
+            }),
+        )?;
+        let ix = Deposit {
+            tree: self.tree,
+            depositor: payer.pubkey(),
+            deposits: vec![data.clone()],
+        }
+        .instruction()?;
+        send_transaction(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer])?;
+        let owner = self.actor(name).keypair.signing_pubkey();
+        self.actor_mut(name).spendable.push(Utxo {
+            owner,
+            asset: Address::new_from_array(spl.mint.to_bytes()),
+            amount,
+            blinding: data.blinding,
+            ring_program_id: None,
+            data: Data::default(),
+        });
+        Ok(())
+    }
+
     /// Ring-shield SOL to a fresh recipient `name` through the fixture program.
     /// Requires a ring config to exist (creates an enabled one if absent).
     pub fn ring_shield_sol(&mut self, name: &str, amount: u64) -> Result<()> {
@@ -181,7 +217,7 @@ impl RingHarness {
         let vault_before = fetch_account(&self.rpc, &vault)?;
         let user_token_before = fetch_account(&self.rpc, &user_token)?;
 
-        let (data, _blinding) = self.ring_deposit_data(
+        let (data, blinding) = self.ring_deposit_data(
             name,
             amount,
             DepositAsset::Spl(DepositSplAccounts {
@@ -199,6 +235,16 @@ impl RingHarness {
         .instruction()?;
         let signature = send_transaction(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer])?;
 
+        let owner = self.actor(name).keypair.signing_pubkey();
+        let ring = Address::new_from_array(self.ring_program_id.to_bytes());
+        self.actor_mut(name).spendable.push(Utxo {
+            owner,
+            asset: Address::new_from_array(mint.to_bytes()),
+            amount,
+            blinding,
+            ring_program_id: Some(ring),
+            data: Data::default(),
+        });
         self.actor_mut(name).last_deposit = Some(RingDepositRecord {
             signature,
             data,

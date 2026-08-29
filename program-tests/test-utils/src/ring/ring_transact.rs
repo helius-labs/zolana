@@ -18,6 +18,7 @@ use zolana_interface::{
         instruction_data::transact::{CircuitId, InputUtxo, TransactIxData, TransactProof},
         tag::RING_TRANSACT,
         RingTransact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+        TransactSplWithdrawalAccounts,
     },
     verifying_keys::{Bsb22Commitment, RingP256ProofData},
 };
@@ -32,6 +33,7 @@ use crate::{
     localnet::{
         send_transaction, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION, SPL_CHANGE_POSITION, ZERO,
     },
+    spl::create_token_account,
     test_validator_asserts::{
         assert_account_unchanged, assert_ring_transact, fetch_account,
         wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
@@ -86,13 +88,25 @@ struct SentRingTransfer {
     tree_before: Account,
 }
 
+/// The public settlement leg of a ring withdrawal.
+#[derive(Clone, Copy)]
+enum RingWithdrawal {
+    Sol {
+        recipient: Pubkey,
+    },
+    Spl {
+        mint: Pubkey,
+        recipient_token: Pubkey,
+    },
+}
+
 struct RingTransferOperation<'a> {
     from: &'a str,
     to: Option<&'a str>,
     inputs: &'a [Utxo],
     send_asset: Address,
     amount: u64,
-    withdrawal: Option<Pubkey>,
+    withdrawal: Option<RingWithdrawal>,
     rail: RingRail,
     tamper: ProofTamper,
 }
@@ -100,7 +114,7 @@ struct RingTransferOperation<'a> {
 impl RingHarness {
     /// Ring-transfer `amount` of `asset` from `from` to `to` over the eddsa rail
     /// (the owner authorizes the spend with its ed25519 transaction signature),
-    /// consolidating two of `from`'s spendable ring UTXOs of `asset` into the
+    /// consolidating two of `from`'s spendable UTXOs of `asset` into the
     /// (2, 3) shape.
     pub fn ring_transfer(
         &mut self,
@@ -114,7 +128,7 @@ impl RingHarness {
 
     /// Ring-transfer `amount` of `asset` from `from` to `to` over the P256 rail
     /// (ownership proved inside the RingP256 proof; the harness payer funds the
-    /// transaction), consolidating two of `from`'s spendable ring UTXOs into the
+    /// transaction), consolidating two of `from`'s spendable UTXOs into the
     /// (2, 3) shape.
     pub fn ring_transfer_p256(
         &mut self,
@@ -126,34 +140,75 @@ impl RingHarness {
         self.execute_ring_transfer(from, Some(to), asset, amount, None, RingRail::P256)
     }
 
-    /// Ring-withdraw `amount` of SOL from `from`'s ring UTXOs to a fresh external
-    /// Solana account: the public SOL amount leaves the pool while `from` keeps the
-    /// change as a ring UTXO. Eddsa rail. Returns the withdrawal recipient so the
-    /// caller can assert the lamports landed.
+    /// Ring-withdraw `amount` of `asset` from `from`'s ring UTXOs. The public
+    /// amount leaves the pool while `from` keeps the change as a ring UTXO. Eddsa
+    /// rail. Returns the settlement account the caller asserts against, a fresh
+    /// system account for SOL and a fresh token account for an SPL mint.
     pub fn ring_withdraw(
         &mut self,
         from: &str,
         asset: Address,
         amount: u64,
     ) -> Result<(Signature, Pubkey)> {
-        if asset != SOL_MINT {
-            return Err(anyhow!("only SOL ring withdrawals are supported"));
-        }
-        let recipient = Keypair::new().pubkey();
+        let withdrawal = if asset == SOL_MINT {
+            RingWithdrawal::Sol {
+                recipient: Keypair::new().pubkey(),
+            }
+        } else {
+            let mint = Pubkey::new_from_array(asset.to_bytes());
+            let owner = Keypair::new().pubkey();
+            RingWithdrawal::Spl {
+                mint,
+                recipient_token: create_token_account(&self.rpc, &self.payer, &mint, &owner)?,
+            }
+        };
+        let settlement_account = match withdrawal {
+            RingWithdrawal::Sol { recipient } => recipient,
+            RingWithdrawal::Spl {
+                recipient_token, ..
+            } => recipient_token,
+        };
         let sig = self.execute_ring_transfer(
             from,
             None,
             asset,
             amount,
-            Some(recipient),
+            Some(withdrawal),
             RingRail::Eddsa,
         )?;
-        Ok((sig, recipient))
+        Ok((sig, settlement_account))
+    }
+
+    /// Ring-transfer `amount` of `spl_mint` funded by one SPL and one SOL ring
+    /// UTXO, the SOL input returns whole as change beside the SPL change.
+    pub fn ring_transfer_mixed(
+        &mut self,
+        from: &str,
+        to: &str,
+        spl_mint: Address,
+        amount: u64,
+    ) -> Result<Signature> {
+        if self.ring_config.is_none() {
+            self.create_enabled_ring_config()?;
+        }
+        self.ensure_fresh_actor(from)?;
+        self.ensure_fresh_actor(to)?;
+        let inputs = self.take_ring_inputs(from, [spl_mint, SOL_MINT])?;
+        self.execute_ring_operation(RingTransferOperation {
+            from,
+            to: Some(to),
+            inputs: &inputs,
+            send_asset: spl_mint,
+            amount,
+            withdrawal: None,
+            rail: RingRail::Eddsa,
+            tamper: ProofTamper::None,
+        })
     }
 
     /// Build, prove (`ring_transact` rail), send, and verify a ring transfer or
-    /// withdrawal. `withdrawal` is `Some(recipient)` for a public-amount SOL
-    /// withdrawal; `None` for a pure shielded transfer. Pushes the indexed
+    /// withdrawal. `withdrawal` is `Some` for a public-amount withdrawal,
+    /// `None` for a pure shielded transfer. Pushes the indexed
     /// transaction, tracks the recipient / change UTXOs, and marks consumed
     /// inputs spent — mirroring the default-ring `transact` flow.
     fn execute_ring_transfer(
@@ -162,7 +217,7 @@ impl RingHarness {
         to: Option<&str>,
         send_asset: Address,
         amount: u64,
-        withdrawal: Option<Pubkey>,
+        withdrawal: Option<RingWithdrawal>,
         rail: RingRail,
     ) -> Result<Signature> {
         if self.ring_config.is_none() {
@@ -173,8 +228,8 @@ impl RingHarness {
             self.ensure_fresh_actor(to)?;
         }
 
-        let inputs = self.take_ring_inputs(from, send_asset)?;
-        let sent = self.send_ring_transfer(RingTransferOperation {
+        let inputs = self.take_ring_inputs(from, [send_asset, send_asset])?;
+        self.execute_ring_operation(RingTransferOperation {
             from,
             to,
             inputs: &inputs,
@@ -183,7 +238,18 @@ impl RingHarness {
             withdrawal,
             rail,
             tamper: ProofTamper::None,
-        })?;
+        })
+    }
+
+    /// Send, assert, and track one prepared ring operation.
+    fn execute_ring_operation(
+        &mut self,
+        operation: RingTransferOperation<'_>,
+    ) -> Result<Signature> {
+        let (from, to) = (operation.from, operation.to);
+        let (inputs, send_asset, amount) =
+            (operation.inputs, operation.send_asset, operation.amount);
+        let sent = self.send_ring_transfer(operation)?;
 
         let SentRingTransfer {
             data,
@@ -208,7 +274,7 @@ impl RingHarness {
         // Rebuild the expected recipient / change UTXOs from the committed output
         // blindings (decoded independently of `Wallet::sync`), then mark consumed
         // inputs spent, so `assert_utxos` is a real cross-check of the synced wallet.
-        let discovered = self.track_outputs(from, to, &inputs, send_asset, amount, &indexed)?;
+        let discovered = self.track_outputs(from, to, inputs, send_asset, amount, &indexed)?;
         self.indexed.push(indexed);
 
         // Discovery via `Wallet::sync`: the confidential builder tagged the recipient
@@ -247,18 +313,17 @@ impl RingHarness {
         Ok(())
     }
 
-    /// Take two of `from`'s spendable ring UTXOs of `asset` (the (2, 3) shape). A
-    /// ring UTXO carries `ring_program_id`, so its hash binds the ring the prover
-    /// stamps on the proof.
-    fn take_ring_inputs(&mut self, from: &str, asset: Address) -> Result<Vec<Utxo>> {
+    /// Take one spendable UTXO of `from` per listed asset (the (2, 3) shape),
+    /// ring-bound or default, both legal ring transact inputs.
+    fn take_ring_inputs(&mut self, from: &str, assets: [Address; 2]) -> Result<Vec<Utxo>> {
         let actor = self.actor_mut(from);
-        let mut taken = Vec::with_capacity(2);
-        for _ in 0..2 {
+        let mut taken = Vec::with_capacity(assets.len());
+        for asset in assets {
             let pos = actor
                 .spendable
                 .iter()
                 .position(|u| u.asset == asset)
-                .ok_or_else(|| anyhow!("{from} needs two spendable ring UTXOs of {asset}"))?;
+                .ok_or_else(|| anyhow!("{from} needs a spendable ring UTXO of {asset}"))?;
             taken.push(actor.spendable.remove(pos));
         }
         Ok(taken)
@@ -316,12 +381,30 @@ impl RingHarness {
             (Some(addr), None) => {
                 transfer.send(addr, send_asset, amount)?;
             }
-            (None, Some(recipient)) => {
+            (None, Some(RingWithdrawal::Sol { recipient })) => {
                 transfer.withdraw(
                     send_asset,
                     amount,
                     SettlementTarget::Sol {
                         user_sol_account: Address::new_from_array(recipient.to_bytes()),
+                    },
+                )?;
+            }
+            (
+                None,
+                Some(RingWithdrawal::Spl {
+                    mint,
+                    recipient_token,
+                }),
+            ) => {
+                transfer.withdraw(
+                    send_asset,
+                    amount,
+                    SettlementTarget::Spl {
+                        user_spl_token: Address::new_from_array(recipient_token.to_bytes()),
+                        spl_token_interface: Address::new_from_array(
+                            zolana_interface::pda::spl_interface(&mint).to_bytes(),
+                        ),
                     },
                 )?;
             }
@@ -345,10 +428,21 @@ impl RingHarness {
         let data = self.prove_and_assemble(&proof_inputs, &from_keypair, ring, rail, tamper)?;
 
         let interface_transfer_accounts = withdrawal
-            .map(|recipient| {
-                vec![TransactInterfaceTransferAccounts::Sol(
+            .map(|withdrawal| match withdrawal {
+                RingWithdrawal::Sol { recipient } => vec![TransactInterfaceTransferAccounts::Sol(
                     TransactSolTransferAccounts { recipient },
-                )]
+                )],
+                RingWithdrawal::Spl {
+                    mint,
+                    recipient_token,
+                } => vec![TransactInterfaceTransferAccounts::SplWithdrawal(
+                    TransactSplWithdrawalAccounts {
+                        mint,
+                        spl_interface: zolana_interface::pda::spl_interface(&mint),
+                        user_token_account: recipient_token,
+                        token_program: zolana_interface::pda::spl_token_program_id(),
+                    },
+                )],
             })
             .unwrap_or_default();
         let owner_signers = proof_inputs
