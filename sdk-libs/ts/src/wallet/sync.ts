@@ -20,7 +20,11 @@ import type { Address, Bytes32, RequestContext } from "../interface/types.js";
 import { TransactionError } from "../transaction/error.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
 import { decodeOutputData } from "../transaction/serialization/codecs.js";
-import type { WalletSyncMaterial } from "../transaction/wallet/authority.js";
+import type {
+  SyncWalletAuthority,
+  WalletAuthority,
+  WalletSyncMaterial,
+} from "../transaction/wallet/authority.js";
 import {
   type AssetBalance,
   type PrivateTransaction,
@@ -31,7 +35,14 @@ import { decryptTransactions } from "../transaction/wallet/sync.js";
 
 import { WalletError, wrapWalletError } from "./error.js";
 import { bytesKey } from "./internal.js";
-import type { WalletAuthority } from "../transaction/wallet/authority.js";
+import {
+  advanceSessionCursors,
+  beginSyncSession,
+  ensureSessionAsset,
+  sealSyncDelta,
+  sessionCursor,
+  type WalletSyncSession,
+} from "./sync-session.js";
 
 const addressEncoder = getAddressEncoder();
 const base64Decoder = getBase64Decoder();
@@ -476,6 +487,19 @@ export async function syncWallet(
   }>,
   context?: RequestContext,
 ): Promise<SyncReport> {
+  // Writes stage in a session and commit once, a failed sync changes nothing.
+  return input.wallet._withSyncLock(() => runSyncSession(input, context));
+}
+
+async function runSyncSession(
+  input: Readonly<{
+    wallet: Wallet;
+    authority: WalletAuthority;
+    client: SyncClient;
+    config?: SyncWalletConfig;
+  }>,
+  context?: RequestContext,
+): Promise<SyncReport> {
   try {
     const chunkSize = positiveInteger(input.config?.queryChunk ?? 64, "queryChunk");
     const pageLimit = positiveInteger(input.config?.pageLimit ?? 1_000, "pageLimit", 1_000);
@@ -496,9 +520,11 @@ export async function syncWallet(
       return gate;
     };
     const material = await input.authority.syncMaterial();
+    const held: SyncWalletAuthority = { syncMaterial: () => Promise.resolve(material) };
+    const session = beginSyncSession(input.wallet);
     const transactions = new Map<string, IndexedShieldedTransaction>();
     const deposits = new Map<string, IndexedShieldedTransaction>();
-    const tags = walletQueryTags(input.wallet, material);
+    const tags = walletQueryTags(session.staging, material);
     // Tags are grouped by where each was last read to, because a chunk can only
     // carry one cursor. Mixing a tag at the tip with one learned this sync would
     // resume the new tag from the old one's position and skip its history
@@ -506,7 +532,7 @@ export async function syncWallet(
     // `undefined` (never queried) is its own group.
     for (const stream of ["transactions", "proofless"] as const) {
       const groups = groupByResumePoint(tags, (tag) =>
-        input.wallet._syncCursor(stream, bytesKey(tag)),
+        sessionCursor(session, stream, bytesKey(tag)),
       );
 
       for (const group of groups) {
@@ -526,7 +552,7 @@ export async function syncWallet(
             context,
           );
           if (furthest !== undefined) {
-            for (const tag of chunk) input.wallet._setSyncCursor(stream, bytesKey(tag), furthest);
+            advanceSessionCursors(session, stream, chunk, furthest);
           }
         }
       }
@@ -534,7 +560,7 @@ export async function syncWallet(
 
     const scanNullifiers = async (nullifiers: readonly Bytes32[]): Promise<void> => {
       const groups = groupByResumePoint(nullifiers, (nullifier) =>
-        input.wallet._syncCursor("nullifiers", bytesKey(nullifier)),
+        sessionCursor(session, "nullifiers", bytesKey(nullifier)),
       );
 
       for (const group of groups) {
@@ -552,16 +578,14 @@ export async function syncWallet(
             context,
           );
           if (furthest !== undefined) {
-            for (const nullifier of chunk) {
-              input.wallet._setSyncCursor("nullifiers", bytesKey(nullifier), furthest);
-            }
+            advanceSessionCursors(session, "nullifiers", chunk, furthest);
           }
         }
       }
     };
 
     const queriedNullifiers = new Set<string>();
-    const initialNullifiers = walletQueryNullifiers(input.wallet);
+    const initialNullifiers = walletQueryNullifiers(session.staging);
     for (const nullifier of initialNullifiers) queriedNullifiers.add(bytesKey(nullifier));
     await scanNullifiers(initialNullifiers);
 
@@ -571,8 +595,8 @@ export async function syncWallet(
     ];
     let ordered = orderedTransactions();
     let report = await decryptTransactions({
-      wallet: input.wallet,
-      authority: input.authority,
+      wallet: session.staging,
+      authority: held,
       transactions: ordered,
       config: { syncedAt },
     });
@@ -580,13 +604,13 @@ export async function syncWallet(
     if (
       report.unknownAssetIds.length > 0 ||
       report.unknownAssetFields.length > 0 ||
-      walletHasUnknownMint(input.wallet)
+      walletHasUnknownMint(session.staging)
     ) {
       registryRefreshed = true;
-      if ((await backfillAssetRegistry(input.wallet, input.client, context)) > 0) {
+      if ((await backfillSessionRegistry(session, input.client, context)) > 0) {
         report = await decryptTransactions({
-          wallet: input.wallet,
-          authority: input.authority,
+          wallet: session.staging,
+          authority: held,
           transactions: ordered,
           config: { syncedAt },
         });
@@ -597,7 +621,7 @@ export async function syncWallet(
     // device already spent. Query each newly discovered nullifier once, then
     // stop: this is an explicit bounded backstop rather than a generic round
     // loop that re-queries the same stable tags.
-    const followUpNullifiers = walletQueryNullifiers(input.wallet).filter(
+    const followUpNullifiers = walletQueryNullifiers(session.staging).filter(
       (nullifier) => !queriedNullifiers.has(bytesKey(nullifier)),
     );
     const beforeFollowUp = transactions.size;
@@ -605,8 +629,8 @@ export async function syncWallet(
     if (transactions.size !== beforeFollowUp) {
       ordered = orderedTransactions();
       report = await decryptTransactions({
-        wallet: input.wallet,
-        authority: input.authority,
+        wallet: session.staging,
+        authority: held,
         transactions: ordered,
         config: { syncedAt },
       });
@@ -614,22 +638,35 @@ export async function syncWallet(
         !registryRefreshed &&
         (report.unknownAssetIds.length > 0 ||
           report.unknownAssetFields.length > 0 ||
-          walletHasUnknownMint(input.wallet))
+          walletHasUnknownMint(session.staging))
       ) {
-        if ((await backfillAssetRegistry(input.wallet, input.client, context)) > 0) {
+        if ((await backfillSessionRegistry(session, input.client, context)) > 0) {
           report = await decryptTransactions({
-            wallet: input.wallet,
-            authority: input.authority,
+            wallet: session.staging,
+            authority: held,
             transactions: ordered,
             config: { syncedAt },
           });
         }
       }
     }
+    input.wallet._commitSync(sealSyncDelta(session), session.baseRevision);
     return report;
   } catch (cause) {
     throw wrapWalletError("WALLET_SYNC", cause);
   }
+}
+
+async function backfillSessionRegistry(
+  session: WalletSyncSession,
+  registryRpc: Pick<ZolanaClient, "solanaRpc" | "commitment">,
+  context?: RequestContext,
+): Promise<number> {
+  let inserted = 0;
+  for (const { assetId, mint } of await fetchSplAssetRegistrations(registryRpc, context)) {
+    if (ensureSessionAsset(session, assetId, mint)) inserted++;
+  }
+  return inserted;
 }
 
 export function getPrivateTokenBalances(wallet: Wallet): readonly AssetBalance[] {

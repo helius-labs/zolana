@@ -2,13 +2,25 @@
 
 ## 0.1.5-alpha — unreleased
 
-Secret key material no longer outlives its use. Transfer, withdrawal, and
-split builds wipe the spend key and every per-input key copy once the
-transaction is assembled or the build fails. Balance decryption and key
-derivation wipe the secrets they mint before they return.
+Wallet sync is atomic, a sync that fails partway changes nothing and the
+next sync re-reads what the failed one fetched. Secret key material no
+longer outlives its use, builds wipe their spend key and per-input copies
+once the transaction is assembled, and balance decryption and key
+derivation wipe the secrets they mint.
+
+Changed
+
+- Two `syncWallet` calls on one `Wallet` run one after the other, and a
+  sync overtaken by another writer fails with
+  `TRANSACTION_WALLET_STATE_STALE` instead of overwriting the newer state.
+- `syncWallet` derives its key material once per run instead of up to five
+  times.
 
 Fixed
 
+- A sync that failed partway had advanced its resume cursors past rows it
+  never stored, losing those notes for good, rows and cursors now commit
+  together and a failed sync leaves the wallet untouched.
 - A private transfer, withdrawal, or split kept its spend key and every
   per-input key copy in memory after building, all of them are wiped once
   the transaction is assembled or the build fails.
