@@ -3,6 +3,13 @@ use crate::{
     errors::BatchedMerkleTreeError, queue_batch_metadata::QueueBatches, zero_copy::BoundedVecView,
 };
 
+/// Insert a value into the current input/address queue batch's hash chain.
+///
+/// Steps:
+/// 1. Check that the current batch is ready. If it is inserted, reuse it: its
+///    coverage starts one rotation after its previous start.
+/// 2. Insert value into the current batch.
+/// 3. If batch is full, increment currently_processing_batch_index.
 pub(crate) fn insert_into_current_queue_batch(
     batch_metadata: &mut QueueBatches,
     hash_chain_stores: &mut [BoundedVecView<'_>],
@@ -11,6 +18,8 @@ pub(crate) fn insert_into_current_queue_batch(
     let batch_index = batch_metadata.currently_processing_batch_index as usize;
     let rotation = batch_metadata.rotation()?;
     let current_batch = batch_metadata.get_current_batch_mut()?;
+    // 1. Check that the current batch is ready (BatchState::Fill).
+    //      1.1. If the current batch is inserted, advance it to fill.
     match current_batch.checked_state()? {
         BatchState::Fill => {}
         BatchState::Inserted => {
@@ -27,12 +36,16 @@ pub(crate) fn insert_into_current_queue_batch(
         }
     }
 
+    // 2. Insert value into the current batch.
     let hash_chain_store = hash_chain_stores
         .get_mut(batch_index)
         .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?;
     current_batch.add_to_hash_chain(value, hash_chain_store.data)?;
+    // Keep the bounded hash-chain length header consistent with upstream:
+    // length == number of hash-chain slots written so far.
     *hash_chain_store.length = current_batch.get_hash_chain_store_len();
 
+    // 3. If batch is full, increment currently_processing_batch_index.
     batch_metadata.increment_currently_processing_batch_index_if_full()?;
 
     Ok(())
