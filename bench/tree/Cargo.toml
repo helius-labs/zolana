@@ -25,6 +25,7 @@ light-program-profiler = { workspace = true, features = ["profile-program"] }
 pinocchio = { workspace = true }
 borsh = { workspace = true }
 solana-address = { workspace = true }
+wincode = { workspace = true }
 
 [dev-dependencies]
 light-program-profiler = { workspace = true, features = ["mollusk"] }
@@ -36,7 +37,6 @@ zolana-client = { workspace = true }
 zolana-merkle-tree = { workspace = true }
 zolana-hasher = { workspace = true, features = ["poseidon", "keccak"] }
 solana-address = { workspace = true }
-wincode = { workspace = true }
 bytemuck = { workspace = true, features = ["derive"] }
 num-bigint = { workspace = true }
 ark-bn254 = { workspace = true }

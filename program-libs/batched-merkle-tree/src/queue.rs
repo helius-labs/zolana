@@ -1,6 +1,6 @@
 use super::batch::BatchState;
 use crate::{
-    errors::BatchedMerkleTreeError, queue_batch_metadata::QueueBatches, zero_copy::BoundedVecView,
+    constants::NUM_BATCHES, errors::BatchedMerkleTreeError, queue_batch_metadata::QueueBatches,
 };
 
 /// Insert a value into the current input/address queue batch's hash chain.
@@ -10,9 +10,9 @@ use crate::{
 ///    coverage starts one rotation after its previous start.
 /// 2. Insert value into the current batch.
 /// 3. If batch is full, increment currently_processing_batch_index.
-pub(crate) fn insert_into_current_queue_batch(
+pub(crate) fn insert_into_current_queue_batch<const ZKP: usize>(
     batch_metadata: &mut QueueBatches,
-    hash_chain_stores: &mut [BoundedVecView<'_>],
+    hash_chains: &mut [[[u8; 32]; ZKP]; NUM_BATCHES],
     value: &[u8; 32],
 ) -> Result<(), BatchedMerkleTreeError> {
     let batch_index = batch_metadata.currently_processing_batch_index as usize;
@@ -37,13 +37,10 @@ pub(crate) fn insert_into_current_queue_batch(
     }
 
     // 2. Insert value into the current batch.
-    let hash_chain_store = hash_chain_stores
+    let hash_chain = hash_chains
         .get_mut(batch_index)
         .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?;
-    current_batch.add_to_hash_chain(value, hash_chain_store.data)?;
-    // Keep the bounded hash-chain length header consistent with upstream:
-    // length == number of hash-chain slots written so far.
-    *hash_chain_store.length = current_batch.get_hash_chain_store_len();
+    current_batch.add_to_hash_chain(value, hash_chain)?;
 
     // 3. If batch is full, increment currently_processing_batch_index.
     batch_metadata.increment_currently_processing_batch_index_if_full()?;
@@ -55,27 +52,6 @@ pub(crate) fn insert_into_current_queue_batch(
 mod tests {
     use super::*;
     use crate::{batch::BatchState, constants::NUM_BATCHES};
-
-    fn insert(
-        batch_metadata: &mut QueueBatches,
-        hash_chain_lengths: &mut [u64; 2],
-        hash_chain_data: &mut [[[u8; 32]; 1]; 2],
-        value: &[u8; 32],
-    ) -> Result<(), BatchedMerkleTreeError> {
-        let [len0, len1] = hash_chain_lengths;
-        let [data0, data1] = hash_chain_data;
-        let mut hash_chain_stores = [
-            BoundedVecView {
-                length: len0,
-                data: data0,
-            },
-            BoundedVecView {
-                length: len1,
-                data: data1,
-            },
-        ];
-        insert_into_current_queue_batch(batch_metadata, &mut hash_chain_stores, value)
-    }
 
     /// A reused batch must cover the queue index range one full rotation
     /// (`NUM_BATCHES * batch_size`) after its previous start, keeping the
@@ -89,17 +65,11 @@ mod tests {
         QueueBatches::validate_configuration::<1>(batch_size, zkp_batch_size).unwrap();
         let mut batch_metadata =
             QueueBatches::new(batch_size, zkp_batch_size, init_start_index).unwrap();
-        let mut hash_chain_lengths = [0u64; 2];
-        let mut hash_chain_data = [[[0u8; 32]; 1]; 2];
+        let mut hash_chains = [[[0u8; 32]; 1]; NUM_BATCHES];
 
         for i in 0..batch_size as u8 {
-            insert(
-                &mut batch_metadata,
-                &mut hash_chain_lengths,
-                &mut hash_chain_data,
-                &[i + 1; 32],
-            )
-            .unwrap();
+            insert_into_current_queue_batch(&mut batch_metadata, &mut hash_chains, &[i + 1; 32])
+                .unwrap();
         }
         let batch = batch_metadata.batches.get_mut(0).unwrap();
         batch.mark_as_inserted_in_merkle_tree().unwrap();
@@ -108,23 +78,12 @@ mod tests {
         assert_eq!(reclaimable_sequence, init_start_index - 1 + batch_size);
 
         for i in 0..batch_size as u8 {
-            insert(
-                &mut batch_metadata,
-                &mut hash_chain_lengths,
-                &mut hash_chain_data,
-                &[i + 11; 32],
-            )
-            .unwrap();
+            insert_into_current_queue_batch(&mut batch_metadata, &mut hash_chains, &[i + 11; 32])
+                .unwrap();
         }
         assert_eq!(batch_metadata.currently_processing_batch_index, 0);
 
-        insert(
-            &mut batch_metadata,
-            &mut hash_chain_lengths,
-            &mut hash_chain_data,
-            &[21; 32],
-        )
-        .unwrap();
+        insert_into_current_queue_batch(&mut batch_metadata, &mut hash_chains, &[21; 32]).unwrap();
         let batch = batch_metadata.batches.first().unwrap();
         assert_eq!(batch.get_state(), BatchState::Fill);
         assert_eq!(

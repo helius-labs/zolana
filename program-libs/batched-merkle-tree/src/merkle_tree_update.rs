@@ -100,7 +100,7 @@ impl<'a, const ZKP: usize> BatchedMerkleTreeAccount<'a, ZKP> {
             .layout
             .hash_chains
             .get(pending_batch_index)
-            .and_then(|chain| chain.data.get(zkp_batch_index))
+            .and_then(|chain| chain.get(zkp_batch_index))
             .ok_or(BatchedMerkleTreeError::InvalidIndex)?;
         let mut next_index_bytes = [0u8; 32];
         next_index_bytes[24..].copy_from_slice(next_index_for_proof.to_be_bytes().as_slice());

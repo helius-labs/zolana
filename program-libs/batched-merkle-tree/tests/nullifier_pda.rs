@@ -4,9 +4,9 @@ use zolana_batched_merkle_tree::{
     constants::NULLIFIER_TREE_INIT_ROOT_40,
     errors::{BatchedMerkleTreeError, MerkleTreeMetadataError},
     merkle_tree::{get_merkle_tree_account_size, BatchedMerkleTreeAccount},
-    merkle_tree_metadata::{BatchedMerkleTreeMetadata, TreeType},
+    merkle_tree_metadata::{BatchedMerkleTreeMetadata, TreeType, ADDRESS_MERKLE_TREE_TYPE_V2},
     queue_batch_metadata::QueueBatches,
-    zero_copy::TreeAccountLayout,
+    zero_copy::{TreeAccountLayout, ZeroCopyError},
 };
 use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 
@@ -34,7 +34,20 @@ fn init_tree<'a>(data: &'a mut [u8], pubkey: &Address) -> Tree<'a> {
 }
 
 fn load_tree<'a>(data: &'a mut [u8], pubkey: &Address) -> Tree<'a> {
-    Tree::address_from_bytes(data, pubkey).unwrap()
+    tree_from_bytes(data, pubkey).unwrap()
+}
+
+fn tree_from_bytes<'a, const ZKP: usize>(
+    data: &'a mut [u8],
+    pubkey: &Address,
+) -> Result<BatchedMerkleTreeAccount<'a, ZKP>, BatchedMerkleTreeError> {
+    let layout: &'a mut TreeAccountLayout<ZKP> =
+        wincode::deserialize_mut(data).map_err(|_| ZeroCopyError::Size)?;
+    if layout.metadata.tree_type != ADDRESS_MERKLE_TREE_TYPE_V2 {
+        return Err(MerkleTreeMetadataError::InvalidTreeType.into());
+    }
+    BatchedMerkleTreeAccount::validate_layout(layout)?;
+    Ok(BatchedMerkleTreeAccount::from_layout(pubkey, layout))
 }
 
 fn nullifier(i: u8) -> [u8; 32] {
@@ -48,6 +61,30 @@ fn state_struct_sizes() {
     assert_eq!(core::mem::size_of::<Batch>(), 72);
     assert_eq!(core::mem::size_of::<QueueBatches>(), 192);
     assert_eq!(core::mem::size_of::<BatchedMerkleTreeMetadata>(), 240);
+}
+
+/// A single-slot root history seeds its only slot and wraps the cursor back to
+/// zero. Writing an unwrapped `1` would leave the cursor out of range, so the
+/// tree would initialize but never load again.
+#[test]
+fn single_slot_root_history_initializes_and_reloads() {
+    let pubkey = Address::new_unique();
+    let mut data = vec![0u8; get_merkle_tree_account_size::<1>()];
+
+    let tree = BatchedMerkleTreeAccount::<1>::init(
+        &mut data,
+        &pubkey,
+        ZKP_BATCH_SIZE,
+        ZKP_BATCH_SIZE,
+        40,
+        TreeType::AddressV2,
+        Some(NULLIFIER_TREE_INIT_ROOT_40),
+    )
+    .unwrap();
+    assert_eq!(tree.get_root(), Some(NULLIFIER_TREE_INIT_ROOT_40));
+
+    let reloaded = tree_from_bytes::<1>(&mut data, &pubkey).unwrap();
+    assert_eq!(reloaded.get_root(), Some(NULLIFIER_TREE_INIT_ROOT_40));
 }
 
 #[test]
@@ -93,9 +130,9 @@ fn malformed_root_history_and_batch_metadata_are_rejected_on_load() {
     init_tree(&mut bad_root_cursor, &pubkey);
     let layout: &mut TreeAccountLayout<ZKP> =
         wincode::deserialize_mut(&mut bad_root_cursor).unwrap();
-    layout.root_history.header[0] = ZKP as u64;
+    layout.root_history.current_index = ZKP as u64;
     assert_eq!(
-        Tree::address_from_bytes(&mut bad_root_cursor, &pubkey).unwrap_err(),
+        tree_from_bytes::<ZKP>(&mut bad_root_cursor, &pubkey).unwrap_err(),
         MerkleTreeMetadataError::InvalidRootHistoryCapacity.into()
     );
 
@@ -105,7 +142,7 @@ fn malformed_root_history_and_batch_metadata_are_rejected_on_load() {
         wincode::deserialize_mut(&mut invalid_reserved).unwrap();
     layout.metadata.queue_batches.reserved = 0;
     assert_eq!(
-        Tree::address_from_bytes(&mut invalid_reserved, &pubkey).unwrap_err(),
+        tree_from_bytes::<ZKP>(&mut invalid_reserved, &pubkey).unwrap_err(),
         BatchedMerkleTreeError::InvalidBatchConfiguration
     );
 
@@ -115,7 +152,7 @@ fn malformed_root_history_and_batch_metadata_are_rejected_on_load() {
         wincode::deserialize_mut(&mut inconsistent_batch).unwrap();
     layout.metadata.queue_batches.batches[0].batch_size += 1;
     assert_eq!(
-        Tree::address_from_bytes(&mut inconsistent_batch, &pubkey).unwrap_err(),
+        tree_from_bytes::<ZKP>(&mut inconsistent_batch, &pubkey).unwrap_err(),
         BatchedMerkleTreeError::InvalidBatchConfiguration
     );
 }

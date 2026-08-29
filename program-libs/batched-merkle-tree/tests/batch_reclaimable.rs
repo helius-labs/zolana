@@ -32,7 +32,10 @@ fn init_tree<'a>(data: &'a mut [u8], pubkey: &Address) -> Tree<'a> {
 }
 
 fn load_tree<'a>(data: &'a mut [u8], pubkey: &Address) -> Tree<'a> {
-    Tree::address_from_bytes(data, pubkey).unwrap()
+    let layout: &'a mut TreeAccountLayout<ZKP> = wincode::deserialize_mut(data).unwrap();
+    assert_eq!(layout.metadata.tree_type, TreeType::AddressV2 as u64);
+    Tree::validate_layout(layout).unwrap();
+    Tree::from_layout(pubkey, layout)
 }
 
 fn nullifier(i: u8) -> [u8; 32] {

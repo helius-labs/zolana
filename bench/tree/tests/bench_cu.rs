@@ -38,6 +38,14 @@ const ADDRESS_BATCH_SIZE: u64 = 1200;
 
 type AddressTree<'a> = BatchedMerkleTreeAccount<'a, ADDRESS_ZKP>;
 
+fn load_address_tree<'a>(account_data: &'a mut [u8], pubkey: &Address) -> AddressTree<'a> {
+    let layout: &'a mut TreeAccountLayout<ADDRESS_ZKP> =
+        wincode::deserialize_mut(account_data).unwrap();
+    assert_eq!(layout.metadata.tree_type, TreeType::AddressV2 as u64);
+    AddressTree::validate_layout(layout).unwrap();
+    AddressTree::from_layout(pubkey, layout)
+}
+
 struct AddressUpdateFixture {
     account_data: Vec<u8>,
     instruction_data: Vec<u8>,
@@ -153,7 +161,7 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
     let mut rng = StdRng::seed_from_u64(seed);
     let mut queued: Vec<[u8; 32]> = Vec::with_capacity(total);
     {
-        let mut account = AddressTree::address_from_bytes(&mut account_data, &pubkey).unwrap();
+        let mut account = load_address_tree(&mut account_data, &pubkey);
         for _ in 0..total {
             let mut value: [u8; 32] = rng.gen();
             value[0] = 0;
@@ -162,16 +170,14 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
         }
     }
 
-    let base_next_index = AddressTree::address_from_bytes(&mut account_data, &pubkey)
-        .unwrap()
+    let base_next_index = load_address_tree(&mut account_data, &pubkey)
         .get_metadata()
         .next_index;
 
     let mut reference = reference_address_tree();
     assert_eq!(
         reference.root(),
-        AddressTree::address_from_bytes(&mut account_data, &pubkey)
-            .unwrap()
+        load_address_tree(&mut account_data, &pubkey)
             .get_root()
             .unwrap(),
         "reference root must match the live tree before building updates"
@@ -181,8 +187,7 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
     let mut index0_ix: Option<InstructionDataAddressAppendInputs> = None;
     for i in 0..num_batches {
         let next_index = base_next_index + (i * zkp) as u64;
-        let leaves_hash_chain = AddressTree::address_from_bytes(&mut account_data, &pubkey)
-            .unwrap()
+        let leaves_hash_chain = load_address_tree(&mut account_data, &pubkey)
             .get_hash_chain(0, i)
             .unwrap();
         let old_root = reference.root();
@@ -242,7 +247,7 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
 
 fn assert_cascade_applied(account_data: &[u8], expected_next_index: u64) {
     let mut data = account_data.to_vec();
-    let account = AddressTree::address_from_bytes(&mut data, &Address::new_unique()).unwrap();
+    let account = load_address_tree(&mut data, &Address::new_unique());
     assert_eq!(
         account.get_metadata().next_index,
         expected_next_index,

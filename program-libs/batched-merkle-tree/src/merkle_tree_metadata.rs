@@ -27,7 +27,10 @@ pub struct BatchedMerkleTreeMetadata {
     pub sequence_number: u64,
     pub next_index: u64,
     pub height: u32,
-    pub root_history_capacity: u32,
+    /// Root-history capacity is the `ZKP` const generic (`batch_size /
+    /// zkp_batch_size`), so it is not stored. `bytemuck::Pod` forbids implicit
+    /// padding, so the four bytes it used to occupy are declared explicitly.
+    pub _padding: [u8; 4],
     pub capacity: u64,
     pub queue_batches: QueueBatches,
     pub close_before_index: u64,

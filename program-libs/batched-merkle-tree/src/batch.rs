@@ -139,16 +139,7 @@ impl Batch {
         &mut self,
         start_index: u64,
     ) -> Result<(), BatchedMerkleTreeError> {
-        if self.checked_state()? == BatchState::Inserted {
-            self.state = BatchState::Fill.into();
-            self.num_inserted_zkp_batches = 0;
-            // Defensive: already 0 because Full is only reachable via
-            // add_to_hash_chain, which zeroes num_inserted when the final zkp
-            // batch completes; reset here so the invariant is local.
-            self.num_inserted = 0;
-            self.start_index = start_index;
-            self.num_full_zkp_batches = 0;
-        } else {
+        if self.checked_state()? != BatchState::Inserted {
             #[cfg(feature = "log")]
             solana_msg::msg!(
                 "Batch is in incorrect state {} expected BatchState::Inserted 1",
@@ -156,6 +147,10 @@ impl Batch {
             );
             return Err(BatchedMerkleTreeError::BatchNotReady);
         }
+        // A reused batch is a fresh batch over a later queue range, so rebuild it
+        // instead of resetting counters one by one: every field is then reset by
+        // construction, including the reserved words.
+        *self = Batch::new(self.batch_size, self.zkp_batch_size, start_index);
         Ok(())
     }
 
@@ -226,10 +221,6 @@ impl Batch {
     /// Returns the number of inserted elements in the batch.
     pub fn get_num_inserted_elements(&self) -> u64 {
         self.num_full_zkp_batches * self.zkp_batch_size + self.num_inserted
-    }
-
-    pub fn get_hash_chain_store_len(&self) -> u64 {
-        self.num_full_zkp_batches + u64::from(self.num_inserted > 0)
     }
 
     /// Returns the number of zkp batches in the batch.
@@ -522,7 +513,6 @@ mod tests {
         assert_eq!(batch.start_index, 123);
         assert_eq!(batch.num_inserted, 0);
         assert_eq!(batch.get_num_inserted_elements(), 0);
-        assert_eq!(batch.get_hash_chain_store_len(), 0);
     }
 
     /// Account-data paths must return `InvalidBatchState` for a corrupt state

@@ -259,7 +259,7 @@ impl<'a> TreeAccount<'a> {
             .layout()
             .nullifier
             .root_history
-            .data
+            .roots
             .get(usize::from(index))
             .ok_or(TreeError::InvalidRootIndex)?;
         if root == [0u8; 32] {
@@ -307,7 +307,7 @@ mod layout_equivalence {
 
     const STATIC_METADATA_LEN: usize = 8;
     const HEADER_LEN: usize = STATIC_METADATA_LEN + TREE_RESERVED_BYTES;
-    const EXPECTED_ACCOUNT_SIZE: usize = 34_968;
+    const EXPECTED_ACCOUNT_SIZE: usize = 34_920;
     const EXPECTED_NULLIFIER_OFFSET: usize = 7_544;
     const EXPECTED_STATE_ROOT_OFFSET: usize = 80;
 
@@ -378,11 +378,14 @@ mod layout_equivalence {
             let mut leaf = [0u8; 32];
             leaf[31] = 9;
             layout.utxo.append(leaf).unwrap();
-            layout.nullifier.root_history.data[3] = [7u8; 32];
+            *layout.nullifier.root_history.roots.get_mut(3).unwrap() = [7u8; 32];
         }
         let reloaded: &mut SppTreeLayout = wincode::deserialize_mut(&mut bytes).expect("reload");
         assert_eq!(reloaded.utxo.next_index(), 1);
-        assert_eq!(reloaded.nullifier.root_history.data[3], [7u8; 32]);
+        assert_eq!(
+            reloaded.nullifier.root_history.roots.get(3),
+            Some(&[7u8; 32])
+        );
     }
 
     #[test]

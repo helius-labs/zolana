@@ -183,7 +183,7 @@ fn set_synthetic_watermark_and_zero_root(
     *layout
         .nullifier
         .root_history
-        .data
+        .roots
         .get_mut(root_index)
         .expect("fixture root index") = [0u8; 32];
     env.rpc

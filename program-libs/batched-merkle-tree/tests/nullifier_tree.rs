@@ -14,6 +14,7 @@ use zolana_batched_merkle_tree::{
         get_merkle_tree_account_size, BatchedMerkleTreeAccount, InstructionDataAddressAppendInputs,
     },
     verify::CompressedProof,
+    zero_copy::TreeAccountLayout,
 };
 use zolana_client::{spawn_prover, BatchAddressAppendInputs, ProofCompressed, ProverClient};
 use zolana_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};
@@ -51,7 +52,10 @@ fn init_nullifier_tree<'a>(account_data: &'a mut [u8], pubkey: &Address) -> Null
 }
 
 fn load_nullifier_tree<'a>(account_data: &'a mut [u8], pubkey: &Address) -> NullifierTree<'a> {
-    BatchedMerkleTreeAccount::address_from_bytes(account_data, pubkey).unwrap()
+    let layout: &'a mut TreeAccountLayout<ZKP> = wincode::deserialize_mut(account_data).unwrap();
+    assert_eq!(layout.metadata.tree_type, TreeType::AddressV2 as u64);
+    NullifierTree::validate_layout(layout).unwrap();
+    NullifierTree::from_layout(pubkey, layout)
 }
 
 fn random_nullifier(rng: &mut StdRng) -> [u8; 32] {

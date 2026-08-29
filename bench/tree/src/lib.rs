@@ -1,8 +1,10 @@
 use borsh::BorshDeserialize;
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use zolana_batched_merkle_tree::merkle_tree::{
-    BatchedMerkleTreeAccount, InstructionDataAddressAppendInputs,
+use zolana_batched_merkle_tree::{
+    merkle_tree::{BatchedMerkleTreeAccount, InstructionDataAddressAppendInputs},
+    merkle_tree_metadata::TreeType,
+    zero_copy::TreeAccountLayout,
 };
 use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount, UTXO_TREE_HEIGHT};
 
@@ -17,6 +19,19 @@ const DISCRIMINATOR: u8 = 7;
 const ADDRESS_ZKP: usize = 120;
 
 type AddressTree<'a> = BatchedMerkleTreeAccount<'a, ADDRESS_ZKP>;
+
+fn load_address_tree<'a>(
+    account_data: &'a mut [u8],
+    pubkey: &solana_address::Address,
+) -> Result<AddressTree<'a>, ProgramError> {
+    let layout: &'a mut TreeAccountLayout<ADDRESS_ZKP> =
+        wincode::deserialize_mut(account_data).map_err(|_| ProgramError::InvalidAccountData)?;
+    if layout.metadata.tree_type != TreeType::AddressV2 as u64 {
+        return Err(ProgramError::InvalidAccountData);
+    }
+    AddressTree::validate_layout(layout).map_err(|_| ProgramError::InvalidAccountData)?;
+    Ok(AddressTree::from_layout(pubkey, layout))
+}
 
 const OP_INIT: u8 = 0;
 const OP_DESERIALIZE: u8 = 1;
@@ -74,8 +89,7 @@ pub fn process_instruction(
             )
             .map_err(|_| ProgramError::InvalidInstructionData)?;
             let address = solana_address::Address::from(pubkey);
-            let mut tree = AddressTree::address_from_bytes(&mut store, &address)
-                .map_err(|_| ProgramError::InvalidAccountData)?;
+            let mut tree = load_address_tree(&mut store, &address)?;
             bench_batch_address_update(&mut tree, ix)
         }
         _ => Err(ProgramError::InvalidInstructionData),

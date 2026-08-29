@@ -40,28 +40,17 @@ use wincode::{
     ReadResult, SchemaRead, TypeMeta,
 };
 
-use crate::merkle_tree_metadata::BatchedMerkleTreeMetadata;
+use crate::{constants::NUM_BATCHES, merkle_tree_metadata::BatchedMerkleTreeMetadata};
 
-/// Cyclic ring buffer region with an upstream light-zero-copy `ZeroCopyCyclicVecU64`
-/// header. `header = [current_index, length, capacity]` (24 bytes), followed by
-/// `[[u8; 32]; N]` data. `T = [u8; 32]` is align-1 so there is no padding between
-/// the header and the data; the whole region is 8-byte aligned because the header
-/// is `[u64; 3]`.
+/// Cyclic root-history region: a write cursor followed by `N` root slots.
+/// Capacity is the const generic `N`, so the only stored word is the cursor.
+/// `[u8; 32]` is align-1, so there is no padding between the cursor and the
+/// roots; the region is 8-byte aligned because the cursor is a `u64`.
 #[repr(C)]
-#[derive(Clone, Copy)]
-pub struct CyclicVec<const N: usize> {
-    pub header: [u64; 3],
-    pub data: [[u8; 32]; N],
-}
-
-/// Bounded vector region with an upstream light-zero-copy `ZeroCopyVecU64`
-/// header. `header = [length, capacity]` (16 bytes), followed by
-/// `[[u8; 32]; N]` data.
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct BoundedVec<const N: usize> {
-    pub header: [u64; 2],
-    pub data: [[u8; 32]; N],
+#[derive(Clone, Copy, PartialEq)]
+pub struct RootHistory<const N: usize> {
+    pub current_index: u64,
+    pub roots: [[u8; 32]; N],
 }
 
 #[repr(C)]
@@ -78,42 +67,14 @@ impl CachedTreeUpdate {
     }
 }
 
-/// Upstream `ZeroCopyCyclicVecU64` header word indices.
-pub(crate) const CYCLIC_CURRENT_INDEX: usize = 0;
-pub(crate) const CYCLIC_LENGTH: usize = 1;
-pub(crate) const CYCLIC_CAPACITY: usize = 2;
-
-/// Upstream `ZeroCopyVecU64` header word indices.
-pub(crate) const BOUNDED_LENGTH: usize = 0;
-pub(crate) const BOUNDED_CAPACITY: usize = 1;
-
-impl<const N: usize> BoundedVec<N> {
-    /// Split a bounded region into a length-header reference and its data slice.
-    /// The capacity word is fixed at init and is not exposed here.
-    pub(crate) fn view(&mut self) -> BoundedVecView<'_> {
-        BoundedVecView {
-            length: &mut self.header[BOUNDED_LENGTH],
-            data: &mut self.data,
-        }
-    }
-}
-
-/// A size-erased mutable view of a `BoundedVec`: the length header word plus
-/// the data slice. Lets insertion helpers operate on regions of different
-/// const capacities through one type while keeping the length header consistent.
-pub(crate) struct BoundedVecView<'a> {
-    pub(crate) length: &'a mut u64,
-    pub(crate) data: &'a mut [[u8; 32]],
-}
-
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct TreeAccountLayout<const ZKP_BATCHES: usize> {
     pub discriminator: [u8; 8],
     pub metadata: BatchedMerkleTreeMetadata,
-    pub root_history: CyclicVec<ZKP_BATCHES>,
-    pub hash_chains: [BoundedVec<ZKP_BATCHES>; 2],
-    pub cached_tree_updates: [[CachedTreeUpdate; ZKP_BATCHES]; 2],
+    pub root_history: RootHistory<ZKP_BATCHES>,
+    pub hash_chains: [[[u8; 32]; ZKP_BATCHES]; NUM_BATCHES],
+    pub cached_tree_updates: [[CachedTreeUpdate; ZKP_BATCHES]; NUM_BATCHES],
 }
 
 unsafe impl<C: ConfigCore, const ZKP: usize> ZeroCopy<C> for TreeAccountLayout<ZKP> {}
@@ -138,16 +99,16 @@ mod layout_smoke {
     fn tree_layout_round_trips() {
         let mut bytes = vec![0u8; size_of::<TreeAccountLayout<2>>()];
         let layout: &mut TreeAccountLayout<2> = wincode::deserialize_mut(&mut bytes).unwrap();
-        layout.root_history.data[1] = [7u8; 32];
-        layout.hash_chains[0].data[1] = [9u8; 32];
+        layout.root_history.roots[1] = [7u8; 32];
+        layout.hash_chains[0][1] = [9u8; 32];
         layout.cached_tree_updates[1][1] = CachedTreeUpdate {
             old_root: [3u8; 32],
             new_root: [4u8; 32],
             occupied: 1,
         };
         let reloaded: &mut TreeAccountLayout<2> = wincode::deserialize_mut(&mut bytes).unwrap();
-        assert_eq!(reloaded.root_history.data[1], [7u8; 32]);
-        assert_eq!(reloaded.hash_chains[0].data[1], [9u8; 32]);
+        assert_eq!(reloaded.root_history.roots[1], [7u8; 32]);
+        assert_eq!(reloaded.hash_chains[0][1], [9u8; 32]);
         assert_eq!(reloaded.cached_tree_updates[1][1].old_root, [3u8; 32]);
         assert_eq!(reloaded.cached_tree_updates[1][1].new_root, [4u8; 32]);
         assert_eq!(reloaded.cached_tree_updates[1][1].occupied, 1);

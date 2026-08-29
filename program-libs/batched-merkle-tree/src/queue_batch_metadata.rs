@@ -78,18 +78,15 @@ impl QueueBatches {
     pub fn validate_configuration<const ZKP: usize>(
         batch_size: u64,
         zkp_batch_size: u64,
-    ) -> Result<u32, BatchedMerkleTreeError> {
+    ) -> Result<(), BatchedMerkleTreeError> {
         if batch_size == 0 || zkp_batch_size == 0 || !batch_size.is_multiple_of(zkp_batch_size) {
             return Err(BatchedMerkleTreeError::BatchSizeNotDivisibleByZkpBatchSize);
         }
 
-        let zkp_batches = batch_size / zkp_batch_size;
-        let root_history_capacity = u32::try_from(zkp_batches)
-            .map_err(|_| MerkleTreeMetadataError::InvalidRootHistoryCapacity)?;
-        if zkp_batches != ZKP as u64 {
+        if batch_size / zkp_batch_size != ZKP as u64 {
             return Err(MerkleTreeMetadataError::InvalidRootHistoryCapacity.into());
         }
-        Ok(root_history_capacity)
+        Ok(())
     }
 
     /// Initializes all queue metadata and both batches from an already
@@ -216,7 +213,7 @@ fn test_validate_batch_sizes() {
         QueueBatches::validate_configuration::<5>(10, 3),
         Err(BatchedMerkleTreeError::BatchSizeNotDivisibleByZkpBatchSize)
     );
-    assert_eq!(QueueBatches::validate_configuration::<5>(10, 2), Ok(5));
+    assert_eq!(QueueBatches::validate_configuration::<5>(10, 2), Ok(()));
     assert_eq!(
         QueueBatches::validate_configuration::<4>(10, 2),
         Err(MerkleTreeMetadataError::InvalidRootHistoryCapacity.into())

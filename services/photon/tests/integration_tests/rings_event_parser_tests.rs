@@ -744,10 +744,13 @@ async fn discovers_rings_tree_account_metadata() {
             address_tree_params(),
         )
         .unwrap();
-        let metadata = *tree.nullifer_tree().get_metadata();
+        let nullifier = tree.nullifer_tree();
+        let metadata = *nullifier.get_metadata();
+        let root_history_capacity =
+            u64::try_from(nullifier.root_history().len()).expect("root history length fits in u64");
         (
             metadata.height,
-            u64::from(metadata.root_history_capacity),
+            root_history_capacity,
             metadata.queue_batches.zkp_batch_size,
             metadata.sequence_number,
             metadata.next_index,

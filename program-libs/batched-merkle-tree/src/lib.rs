@@ -73,7 +73,8 @@
 //!
 //! **Root history:** A cyclic buffer with
 //! `batch_size / zkp_batch_size` entries keeps exactly one queue batch's worth
-//! of update roots.
+//! of update roots. Its capacity is the region length, so the only word the
+//! account stores for it is the write cursor.
 //!
 //! ## Dependencies
 //!
