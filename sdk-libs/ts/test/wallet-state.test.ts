@@ -86,6 +86,19 @@ describe("wallet commit machinery", () => {
     expect(wallet._revision).toBe(revision + 1);
   });
 
+  it("commits a sync that raced a reservation", () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = walletWith(keypair, [10n]);
+    const revision = wallet._revision;
+    const staged = walletWith(keypair, [10n]);
+    wallet._reserveNotes({
+      noteHashes: [wallet.utxos()[0]!.outputContext.hash],
+      nowMs: 0n,
+      ttlMs: 1n,
+    });
+    expect(() => wallet._commitSync(deltaFrom(staged), revision)).not.toThrow();
+  });
+
   it("refuses a stale revision and leaves state and cursors untouched", () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = walletWith(keypair, [10n]);

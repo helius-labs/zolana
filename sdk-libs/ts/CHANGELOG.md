@@ -28,6 +28,11 @@ Breaking
 - A wrapped wallet or ring error surfaces the outer operation code instead
   of the inner code → match on `causeCode` for the inner reason, selection
   and balance codes included.
+- A build reserves its selected notes for two minutes, concurrent builds
+  on one wallet cannot spend the same note → rebuild an unsent transaction
+  after the reservation expires, a failed build releases its notes at
+  once, and `WALLET_NOTE_RESERVED` refuses a named input another build
+  holds.
 
 Added
 
@@ -46,6 +51,8 @@ Added
 - `ErrorEnvelope` names the `toJSON` shape of `WalletError`, `RingError`,
   `InterfaceError`, and `KeypairError`, and `causeCodes` lists the wrapped
   operation chain outermost first.
+- Serialized wallets carry their reservations, a restored wallet still
+  holds notes an in-flight transaction spends.
 
 Changed
 

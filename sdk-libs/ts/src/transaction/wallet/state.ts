@@ -66,6 +66,13 @@ export type CursorStream = "transactions" | "proofless" | "nullifiers";
 /** @internal */
 export type SyncCursorAdvances = Readonly<Record<CursorStream, ReadonlyMap<string, Uint8Array>>>;
 
+/** @internal Selection skips its notes until expiry. */
+export interface NoteReservation {
+  readonly id: string;
+  readonly noteHashes: readonly Bytes32[];
+  readonly expiresAtMs: bigint;
+}
+
 /** @internal */
 export interface SyncDelta {
   readonly utxos: readonly WalletUtxo[];
@@ -220,6 +227,7 @@ export class Wallet {
   #nullifierCursors = new Map<string, Uint8Array>();
   #revision = 0;
   #syncQueue: Promise<unknown> = Promise.resolve();
+  #reservations: NoteReservation[] = [];
 
   constructor(input: Readonly<{ identity: ShieldedAddress; registry?: AssetRegistry }>) {
     this.identity = input.identity;
@@ -418,6 +426,12 @@ export class Wallet {
     // A spent nullifier is never queried again, so its watermark is dead weight.
     // Both key spaces are lowercase hex of the same bytes, so the sets line up.
     this._forgetNullifierCursors(this.#nullifiers);
+    const unspent = new Set(
+      this.#utxos.filter((entry) => !entry.spent).map((entry) => hex(entry.outputContext.hash)),
+    );
+    this.#reservations = this.#reservations.filter((reservation) =>
+      reservation.noteHashes.every((noteHash) => unspent.has(hex(noteHash))),
+    );
     if (input.viewingKeyHistory !== undefined) {
       this.#viewingKeyHistory = input.viewingKeyHistory.map(snapshotViewingKeyEntry);
     }
@@ -425,6 +439,77 @@ export class Wallet {
       this.#lastSynced = input.lastSynced;
     }
     this.#revision += 1;
+  }
+
+  /** @internal Validates and commits in one synchronous step, never bumps the revision. */
+  _reserveNotes(
+    input: Readonly<{ noteHashes: readonly Bytes32[]; nowMs: bigint; ttlMs: bigint }>,
+  ): NoteReservation {
+    this.#sweepReservations(input.nowMs);
+    const reserved = this._reservedNoteKeys(input.nowMs);
+    const known = new Map(this.#utxos.map((entry) => [hex(entry.outputContext.hash), entry]));
+    for (const noteHash of input.noteHashes) {
+      const key = hex(noteHash);
+      const entry = known.get(key);
+      if (entry === undefined || entry.spent) {
+        throw new TransactionError("TRANSACTION_RESERVED_NOTE_UNAVAILABLE", { hash: key });
+      }
+      if (reserved.has(key)) {
+        throw new TransactionError("TRANSACTION_NOTE_RESERVED", { hash: key });
+      }
+    }
+    const reservation: NoteReservation = Object.freeze({
+      id: randomReservationId(),
+      noteHashes: Object.freeze(input.noteHashes.map((noteHash) => copy(noteHash) as Bytes32)),
+      expiresAtMs: input.nowMs + input.ttlMs,
+    });
+    this.#reservations.push(reservation);
+    return reservation;
+  }
+
+  /** @internal Idempotent. */
+  _releaseReservation(id: string): void {
+    this.#reservations = this.#reservations.filter((reservation) => reservation.id !== id);
+  }
+
+  /** @internal */
+  _activeReservations(nowMs: bigint): readonly NoteReservation[] {
+    return this.#reservations.filter((reservation) => reservation.expiresAtMs > nowMs);
+  }
+
+  /** @internal Hex hashes of every note an unexpired reservation holds. */
+  _reservedNoteKeys(nowMs: bigint): ReadonlySet<string> {
+    const keys = new Set<string>();
+    for (const reservation of this._activeReservations(nowMs)) {
+      for (const noteHash of reservation.noteHashes) keys.add(hex(noteHash));
+    }
+    return keys;
+  }
+
+  #sweepReservations(nowMs: bigint): void {
+    const unspent = new Set(
+      this.#utxos.filter((entry) => !entry.spent).map((entry) => hex(entry.outputContext.hash)),
+    );
+    this.#reservations = this.#reservations.filter(
+      (reservation) =>
+        reservation.expiresAtMs > nowMs &&
+        reservation.noteHashes.every((noteHash) => unspent.has(hex(noteHash))),
+    );
+  }
+
+  /** @internal Serialization only, includes expired entries. */
+  _reservationEntries(): readonly NoteReservation[] {
+    return this.#reservations;
+  }
+
+  /** @internal Drops entries that name a spent or unknown note. */
+  _restoreReservations(reservations: readonly NoteReservation[]): void {
+    const unspent = new Set(
+      this.#utxos.filter((entry) => !entry.spent).map((entry) => hex(entry.outputContext.hash)),
+    );
+    this.#reservations = reservations.filter((reservation) =>
+      reservation.noteHashes.every((noteHash) => unspent.has(hex(noteHash))),
+    );
   }
 
   /** @internal */
@@ -451,6 +536,7 @@ export class Wallet {
         clone._setSyncCursor(stream, key, cursor);
       }
     }
+    clone.#reservations = [...this.#reservations];
     return clone;
   }
 
@@ -495,6 +581,12 @@ export class Wallet {
       lastSynced: delta.lastSynced,
     });
   }
+}
+
+function randomReservationId(): string {
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  return hex(bytes);
 }
 
 export function hex(bytes: Uint8Array): string {

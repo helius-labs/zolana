@@ -12,6 +12,7 @@ import { WithdrawalTarget } from "../transaction/instructions/transact.js";
 import { SOL_MINT } from "../transaction/wallet/asset.js";
 import { hex, type Wallet, type WalletUtxo } from "../transaction/wallet/state.js";
 
+import { reservedNoteKeys, unreserved } from "../flows/reserve.js";
 import {
   MAX_SPEND_INPUTS,
   isPlainUtxo,
@@ -20,7 +21,7 @@ import {
   type SpendSelectionErrors,
 } from "../flows/select.js";
 import { WalletError, wrapWalletError } from "./error.js";
-import { equalBytes } from "./internal.js";
+import { equalBytes, reserveWalletEntries } from "./internal.js";
 import { resolveRegisteredAddress } from "./registry.js";
 
 interface UnsignedSpendInput {
@@ -54,6 +55,7 @@ export class UnsignedPrivateTransaction {
   readonly #action: PrivateAction;
   readonly #withdrawal?: TransactWithdrawal;
   readonly #summary: string;
+  readonly #reservationId?: string;
 
   constructor(
     input: Readonly<{
@@ -63,6 +65,7 @@ export class UnsignedPrivateTransaction {
       action: PrivateAction;
       withdrawal?: TransactWithdrawal;
       summary: string;
+      reservationId?: string;
     }>,
   ) {
     this.#payer = input.payer;
@@ -71,6 +74,7 @@ export class UnsignedPrivateTransaction {
     this.#action = input.action;
     if (input.withdrawal !== undefined) this.#withdrawal = input.withdrawal;
     this.#summary = input.summary;
+    if (input.reservationId !== undefined) this.#reservationId = input.reservationId;
   }
 
   payer(): Address {
@@ -103,6 +107,11 @@ export class UnsignedPrivateTransaction {
   /** @internal */
   _summary(): string {
     return this.#summary;
+  }
+
+  /** @internal */
+  _reservationId(): string | undefined {
+    return this.#reservationId;
   }
 }
 
@@ -222,16 +231,20 @@ function selectSpendInputs(
   wallet: Wallet,
   asset: Address,
   amount: bigint,
-): Readonly<{ tree: Address; inputs: readonly UnsignedSpendInput[] }> {
+): Readonly<{ tree: Address; inputs: readonly UnsignedSpendInput[]; reservationId: string }> {
+  const reserved = reservedNoteKeys(wallet);
+  const base = defaultSpendPolicy();
   const selection = selectNotes({
     wallet,
     asset,
     target: { kind: "cover", amount },
-    policy: defaultSpendPolicy(),
+    policy: { ...base, eligible: (entry) => base.eligible(entry) && unreserved(reserved)(entry) },
   });
+  const reservation = reserveWalletEntries(wallet, selection.entries);
   return {
     tree: selection.tree,
     inputs: Object.freeze(selection.entries.map((entry) => ({ entry }))),
+    reservationId: reservation.id,
   };
 }
 
@@ -273,13 +286,18 @@ export async function createWithdrawal(params: WithdrawalParams): Promise<Create
   if (params.amount === 0n) {
     throw new WalletError("WALLET_INVALID_AMOUNT", { details: { amount: "0" } });
   }
-  const { tree, inputs } = selectSpendInputs(params.wallet, params.asset, params.amount);
   const resolved = await resolveWithdrawal(params.recipient, params.asset, params.splTokenProgram);
+  const { tree, inputs, reservationId } = selectSpendInputs(
+    params.wallet,
+    params.asset,
+    params.amount,
+  );
   return Object.freeze({
     transaction: new UnsignedPrivateTransaction({
       payer: params.payer,
       tree,
       inputs,
+      reservationId,
       action: {
         kind: "withdrawal",
         asset: params.asset,
@@ -301,12 +319,17 @@ export async function createTransfer(
   try {
     const recipient = params.recipient;
     if (recipient instanceof ShieldedAddress) {
-      const { tree, inputs } = selectSpendInputs(params.wallet, params.asset, params.amount);
+      const { tree, inputs, reservationId } = selectSpendInputs(
+        params.wallet,
+        params.asset,
+        params.amount,
+      );
       return Object.freeze({
         transaction: new UnsignedPrivateTransaction({
           payer: params.payer,
           tree,
           inputs,
+          reservationId,
           action: {
             kind: "transfer",
             recipient,
@@ -334,12 +357,17 @@ export async function createTransfer(
         details: { recipient },
       });
     }
-    const { tree, inputs } = selectSpendInputs(params.wallet, params.asset, params.amount);
+    const { tree, inputs, reservationId } = selectSpendInputs(
+      params.wallet,
+      params.asset,
+      params.amount,
+    );
     return Object.freeze({
       transaction: new UnsignedPrivateTransaction({
         payer: params.payer,
         tree,
         inputs,
+        reservationId,
         action: {
           kind: "transfer",
           recipient: registered.address,
@@ -371,8 +399,10 @@ export function createSplit(params: SplitParams): CreatedSplit {
     throw new WalletError("WALLET_INPUT_UTXO_UNAVAILABLE");
   }
   const tree = named ? named.outputContext.tree : spendTree(params.wallet, params.asset);
+  const reserved = reservedNoteKeys(params.wallet);
   const candidates = entries.filter(
-    (entry) => entry.outputContext.tree === tree && isPlainUtxo(entry),
+    (entry) =>
+      entry.outputContext.tree === tree && isPlainUtxo(entry) && unreserved(reserved)(entry),
   );
   const selected =
     named ??
@@ -405,11 +435,13 @@ export function createSplit(params: SplitParams): CreatedSplit {
     });
   }
   const perOutputAmount = selected.utxo.amount / BigInt(params.parts);
+  const reservation = reserveWalletEntries(params.wallet, [selected]);
   return Object.freeze({
     transaction: new UnsignedPrivateTransaction({
       payer: params.payer,
       tree,
       inputs: [{ entry: selected }],
+      reservationId: reservation.id,
       action: {
         kind: "split",
         asset: params.asset,

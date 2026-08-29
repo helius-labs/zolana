@@ -18,8 +18,9 @@ import {
   type SpendPolicy,
   type SpendSelectionErrors,
 } from "../flows/select.js";
+import { reservedNoteKeys, unreserved } from "../flows/reserve.js";
 import { WalletError, wrapWalletError } from "./error.js";
-import { bytesKey, equalBytes } from "./internal.js";
+import { bytesKey, equalBytes, reserveWalletEntries } from "./internal.js";
 import { internalMergeRecord, type MergeRecord } from "./registry.js";
 
 const addressEncoder = getAddressEncoder();
@@ -38,6 +39,7 @@ export interface CreatedMerge {
   readonly numInputs: number;
   readonly mergedAmount: bigint;
   readonly tree: Address;
+  readonly reservationId: string;
 }
 
 const mergeSelectionErrors: SpendSelectionErrors = {
@@ -52,9 +54,9 @@ const mergeSelectionErrors: SpendSelectionErrors = {
   tooFewNotes: () => new WalletError("WALLET_NOTHING_TO_MERGE"),
 };
 
-function mergePolicy(): SpendPolicy {
+function mergePolicy(reserved: ReadonlySet<string>): SpendPolicy {
   return {
-    eligible: isPlainUtxo,
+    eligible: (entry) => isPlainUtxo(entry) && unreserved(reserved)(entry),
     ordering: "smallestFirst",
     maxInputs: MERGE_INPUT_COUNT,
     tree: { kind: "inferSingle" },
@@ -70,33 +72,40 @@ export function createMerge(params: MergeParams): CreatedMerge {
   if (selected.some((entry) => entry.outputContext.tree !== tree)) {
     throw new WalletError("WALLET_INPUT_UTXO_TREE_MISMATCH");
   }
-  const nullifierKey = params.material.nullifierKey;
-  const inputs = selected.map(
-    (entry) =>
-      new ProofInputUtxo({
-        utxo: entry.utxo,
+  const reservation = reserveWalletEntries(params.wallet, selected);
+  try {
+    const nullifierKey = params.material.nullifierKey;
+    const inputs = selected.map(
+      (entry) =>
+        new ProofInputUtxo({
+          utxo: entry.utxo,
+          nullifierKey,
+          ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),
+          ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
+        }),
+    );
+    const prepared = new Merge(
+      {
+        address: ShieldedAddress.fromPublicKeys(
+          params.material.signingPublicKey,
+          params.material.nullifierKey.publicKey(),
+          params.material.viewingPublicKey,
+        ),
         nullifierKey,
-        ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),
-        ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
-      }),
-  );
-  const prepared = new Merge(
-    {
-      address: ShieldedAddress.fromPublicKeys(
-        params.material.signingPublicKey,
-        params.material.nullifierKey.publicKey(),
-        params.material.viewingPublicKey,
-      ),
-      nullifierKey,
-    },
-    inputs,
-  ).prepare();
-  return Object.freeze({
-    prepared,
-    numInputs: selected.length,
-    mergedAmount: prepared.output.amount,
-    tree,
-  });
+      },
+      inputs,
+    ).prepare();
+    return Object.freeze({
+      prepared,
+      numInputs: selected.length,
+      mergedAmount: prepared.output.amount,
+      tree,
+      reservationId: reservation.id,
+    });
+  } catch (cause) {
+    params.wallet._releaseReservation(reservation.id);
+    throw cause;
+  }
 }
 
 function selectMergeEntries(params: MergeParams): readonly WalletUtxo[] {
@@ -125,7 +134,7 @@ function selectMergeEntries(params: MergeParams): readonly WalletUtxo[] {
     wallet: params.wallet,
     asset: params.asset,
     target: { kind: "consolidate", minInputs: 2 },
-    policy: mergePolicy(),
+    policy: mergePolicy(reservedNoteKeys(params.wallet)),
   }).entries;
 }
 
@@ -189,6 +198,9 @@ export async function buildMergeTransaction(
       });
       try {
         return await proveAndAssembleMerge(input, owner, material, created, context);
+      } catch (cause) {
+        input.wallet._releaseReservation(created.reservationId);
+        throw cause;
       } finally {
         for (const proofInput of created.prepared.inputs) proofInput.destroy();
       }

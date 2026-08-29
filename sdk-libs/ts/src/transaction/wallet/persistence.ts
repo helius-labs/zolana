@@ -85,6 +85,12 @@ interface SerializedSyncCursors {
   readonly nullifiers: readonly SerializedCursor[];
 }
 
+interface SerializedNoteReservation {
+  readonly id: string;
+  readonly noteHashes: readonly string[];
+  readonly expiresAtMs: string;
+}
+
 /**
  * Versioned, JSON-safe wallet state. It contains private note plaintext and
  * blindings, but never signing, nullifier, or viewing secrets. Applications
@@ -104,6 +110,7 @@ export interface SerializedWalletState {
   readonly nullifiers: readonly string[];
   readonly lastSynced: string;
   readonly syncCursors: SerializedSyncCursors;
+  readonly reservations: readonly SerializedNoteReservation[];
 }
 
 export function serializeWallet(wallet: Wallet): string {
@@ -130,6 +137,14 @@ export function serializeWallet(wallet: Wallet): string {
       proofless: serializeCursors(wallet, "proofless"),
       nullifiers: serializeCursors(wallet, "nullifiers"),
     },
+    reservations: wallet
+      ._reservationEntries()
+      .map((reservation) => ({
+        id: reservation.id,
+        noteHashes: reservation.noteHashes.map(encode),
+        expiresAtMs: reservation.expiresAtMs.toString(),
+      }))
+      .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)),
   };
   return JSON.stringify(snapshot);
 }
@@ -213,8 +228,32 @@ function hydrate(value: unknown): Wallet {
   if (version === 3) {
     hydrateCursors(wallet, snapshot["syncCursors"]);
     wallet._forgetNullifierCursors(nullifiers);
+    if (snapshot["reservations"] !== undefined) {
+      hydrateReservations(wallet, snapshot["reservations"]);
+    }
   }
   return wallet;
+}
+
+function hydrateReservations(wallet: Wallet, value: unknown): void {
+  const seen = new Set<string>();
+  wallet._restoreReservations(
+    array(value, "reservations").map((entry, index) => {
+      const path = `reservations[${String(index)}]`;
+      const item = record(entry, path);
+      const id = item["id"];
+      if (typeof id !== "string" || !/^[0-9a-f]{32}$/u.test(id) || seen.has(id)) fail(`${path}.id`);
+      seen.add(id);
+      return Object.freeze({
+        id,
+        noteHashes: array(item["noteHashes"], `${path}.noteHashes`).map(
+          (hash, hashIndex) =>
+            bytes(hash, 32, `${path}.noteHashes[${String(hashIndex)}]`) as Bytes32,
+        ),
+        expiresAtMs: signed(item["expiresAtMs"], `${path}.expiresAtMs`),
+      });
+    }),
+  );
 }
 
 function hydrateCursors(wallet: Wallet, value: unknown): void {

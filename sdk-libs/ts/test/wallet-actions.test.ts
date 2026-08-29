@@ -277,7 +277,7 @@ describe("private transaction construction", () => {
       asset: SOL_MINT,
     });
     expect(split).toMatchObject({ numOutputs: 2, perOutputAmount: 50n });
-    expect(merge).toMatchObject({ numInputs: 3, mergedAmount: 150n });
+    expect(merge).toMatchObject({ numInputs: 2, mergedAmount: 50n });
   });
 });
 
@@ -378,7 +378,7 @@ describe("unsigned public transaction builders", () => {
     });
   });
 
-  it("does not mutate spend state and permits rebuilding before sync", async () => {
+  it("does not mutate spend state and holds the notes after a build", async () => {
     const keypair = spendingKeypair();
     const payer = keypair.shieldedAddress().solanaAddress();
     const wallet = fundedWallet(keypair, [100n]);
@@ -393,9 +393,12 @@ describe("unsigned public transaction builders", () => {
     } as const;
 
     await buildTransferTransaction(input);
-    await buildTransferTransaction(input);
+    await expect(buildTransferTransaction(input)).rejects.toMatchObject({
+      code: "WALLET_BUILD_TRANSFER",
+      causeCodes: ["WALLET_CREATE_TRANSFER", "WALLET_INSUFFICIENT_BALANCE"],
+    });
 
-    expect(assemble).toHaveBeenCalledTimes(2);
+    expect(assemble).toHaveBeenCalledTimes(1);
     expect(wallet.balance(SOL_MINT).amount).toBe(100n);
     expect(wallet.utxos()[0]?.spent).toBe(false);
   });

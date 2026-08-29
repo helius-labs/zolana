@@ -21,13 +21,14 @@ import { EncryptedScheme, encodeOutputData } from "../transaction/serialization/
 import { ProofInputUtxo } from "../transaction/utxo.js";
 import type { SpendSession, WalletAuthority } from "../transaction/wallet/authority.js";
 import { SOL_MINT, type AssetRegistry } from "../transaction/wallet/asset.js";
-import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
+import type { NoteReservation, Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 import { ownerSignerAddresses } from "../client/prover/assembly.js";
 import { resolveWithdrawal } from "../wallet/actions.js";
 import { resolveRegisteredAddress } from "../wallet/registry.js";
 
 import { fetchRingProgramConfig } from "./config.js";
 import { MAX_SPEND_INPUTS, selectNotes, type SpendSelectionErrors } from "../flows/select.js";
+import { reserveEntries, reservedNoteKeys, unreserved } from "../flows/reserve.js";
 import { RingError, wrapRingError } from "./error.js";
 import { ringTransactInstruction } from "./instructions.js";
 import { fetchRingLookupTable } from "./lookup-table.js";
@@ -121,6 +122,7 @@ async function buildRingSendTransaction(
 ): Promise<Transaction> {
   return input.authority.withSpendSession(async (session) => {
     let inputs: readonly ProofInputUtxo[] = [];
+    let reservation: NoteReservation | undefined;
     try {
       const asset = input.asset ?? SOL_MINT;
       const nullifierKey = session.nullifierKey();
@@ -136,6 +138,7 @@ async function buildRingSendTransaction(
         input.inputs ?? "ring",
         input.client.tree,
       );
+      reservation = reserveEntries(input.wallet, selected);
       inputs = selected.map(
         (entry) =>
           new ProofInputUtxo({
@@ -211,6 +214,7 @@ async function buildRingSendTransaction(
         },
       });
     } catch (cause) {
+      if (reservation !== undefined) input.wallet._releaseReservation(reservation.id);
       throw wrapRingError("RING_BUILD_TRANSFER", cause);
     } finally {
       for (const proofInput of inputs) proofInput.destroy();
@@ -228,6 +232,7 @@ export async function buildRingWithdrawalTransaction(
 ): Promise<Transaction> {
   return input.authority.withSpendSession(async (session) => {
     let inputs: readonly ProofInputUtxo[] = [];
+    let reservation: NoteReservation | undefined;
     try {
       const asset = input.asset ?? SOL_MINT;
       const nullifierKey = session.nullifierKey();
@@ -243,6 +248,7 @@ export async function buildRingWithdrawalTransaction(
         "ring",
         input.client.tree,
       );
+      reservation = reserveEntries(input.wallet, selected);
       inputs = selected.map(
         (entry) =>
           new ProofInputUtxo({
@@ -305,6 +311,7 @@ export async function buildRingWithdrawalTransaction(
         },
       });
     } catch (cause) {
+      if (reservation !== undefined) input.wallet._releaseReservation(reservation.id);
       throw wrapRingError("RING_BUILD_WITHDRAWAL", cause);
     } finally {
       for (const proofInput of inputs) proofInput.destroy();
@@ -480,12 +487,14 @@ export function selectRingInputs(
   if (amount <= 0n) {
     throw new RingError("RING_ZERO_AMOUNT", { details: { asset } });
   }
+  const reserved = reservedNoteKeys(wallet);
   return selectNotes({
     wallet,
     asset,
     target: { kind: "cover", amount },
     policy: {
       eligible: (entry) => {
+        if (!unreserved(reserved)(entry)) return false;
         if (entry.utxo.ringProgramId === ringProgramId) return inputs !== "default";
         return (
           inputs !== "ring" &&

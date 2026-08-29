@@ -68,14 +68,6 @@ export async function buildWithdrawalTransaction(
 ): Promise<Transaction> {
   try {
     const asset = input.asset ?? SOL_MINT;
-    const created = await createWithdrawal({
-      wallet: input.wallet,
-      payer: input.feePayer,
-      recipient: input.recipient,
-      asset,
-      amount: input.amount,
-      ...(input.splTokenProgram === undefined ? {} : { splTokenProgram: input.splTokenProgram }),
-    });
     const setupInstructions =
       asset === SOL_MINT
         ? []
@@ -89,6 +81,14 @@ export async function buildWithdrawalTransaction(
                 : { tokenProgram: input.splTokenProgram }),
             }),
           ];
+    const created = await createWithdrawal({
+      wallet: input.wallet,
+      payer: input.feePayer,
+      recipient: input.recipient,
+      asset,
+      amount: input.amount,
+      ...(input.splTokenProgram === undefined ? {} : { splTokenProgram: input.splTokenProgram }),
+    });
     return await buildAuthorizedTransaction(input, created.transaction, setupInstructions, context);
   } catch (cause) {
     throw wrapWalletError("WALLET_BUILD_WITHDRAWAL", cause);
@@ -121,20 +121,30 @@ async function buildAuthorizedTransaction(
   >[0]["setupInstructions"],
   context: RequestContext | undefined,
 ): Promise<Transaction> {
-  const authorized = await authorizePrivateTransaction(transaction, input.wallet, input.authority);
   try {
-    return await input.client.assembleAuthorizedPrivateTransaction(
-      {
-        authorized,
-        feePayer: input.feePayer,
-        ...(setupInstructions === undefined || setupInstructions.length === 0
-          ? {}
-          : { setupInstructions }),
-      },
-      context,
+    const authorized = await authorizePrivateTransaction(
+      transaction,
+      input.wallet,
+      input.authority,
     );
-  } finally {
-    for (const proofInput of authorized.proofInputs.inputUtxos) proofInput.destroy();
+    try {
+      return await input.client.assembleAuthorizedPrivateTransaction(
+        {
+          authorized,
+          feePayer: input.feePayer,
+          ...(setupInstructions === undefined || setupInstructions.length === 0
+            ? {}
+            : { setupInstructions }),
+        },
+        context,
+      );
+    } finally {
+      for (const proofInput of authorized.proofInputs.inputUtxos) proofInput.destroy();
+    }
+  } catch (cause) {
+    const reservationId = transaction._reservationId();
+    if (reservationId !== undefined) input.wallet._releaseReservation(reservationId);
+    throw cause;
   }
 }
 
