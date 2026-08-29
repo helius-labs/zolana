@@ -2487,6 +2487,111 @@ mod tests {
         assert_eq!(rings[0].assets[0].amount, 100);
     }
 
+    #[test]
+    fn ring_balances_group_by_ring_in_address_order() {
+        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        let first = push_utxo(&mut wallet, &keypair, 40, [1u8; 31]);
+        bind_to_ring(&mut wallet, first, RING_TREE);
+        let second = push_utxo(&mut wallet, &keypair, 60, [2u8; 31]);
+        bind_to_ring(&mut wallet, second, RING_TREE);
+        let other_ring = Address::new_from_array([3u8; 32]);
+        wallet
+            .utxos
+            .iter_mut()
+            .find(|entry| entry.output_context.hash == second)
+            .expect("pushed utxo")
+            .utxo
+            .ring_program_id = Some(other_ring);
+
+        let rings = wallet.ring_balances(true).expect("ring balances");
+        assert_eq!(
+            rings
+                .iter()
+                .map(|ring| (ring.ring_program_id, ring.assets[0].amount))
+                .collect::<Vec<_>>(),
+            vec![(other_ring, 60), (Address::new_from_array([7u8; 32]), 40),]
+        );
+    }
+
+    #[test]
+    fn ring_notes_of_an_unregistered_mint_leave_the_spendable_view_intact() {
+        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
+        let ring_bound = push_utxo(&mut wallet, &keypair, 100, [2u8; 31]);
+        bind_to_ring(&mut wallet, ring_bound, RING_TREE);
+        wallet
+            .utxos
+            .iter_mut()
+            .find(|entry| entry.output_context.hash == ring_bound)
+            .expect("pushed utxo")
+            .utxo
+            .asset = Address::new_from_array([8u8; 32]);
+
+        let spendable = wallet.balances(true).expect("balances");
+        assert_eq!(spendable.len(), 1);
+        assert_eq!(spendable[0].amount, 10);
+        assert!(matches!(
+            wallet.ring_balances(true),
+            Err(TransactionError::UnknownMint(mint)) if mint == Address::new_from_array([8u8; 32])
+        ));
+    }
+
+    #[test]
+    fn select_spend_inputs_requires_one_default_tree() {
+        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
+        let elsewhere = push_utxo(&mut wallet, &keypair, 10, [2u8; 31]);
+        wallet
+            .utxos
+            .iter_mut()
+            .find(|entry| entry.output_context.hash == elsewhere)
+            .expect("pushed utxo")
+            .output_context
+            .tree = RING_TREE;
+
+        assert!(matches!(
+            select_spend_inputs_sync(
+                SpendInputParams {
+                    wallet: &wallet,
+                    asset: SOL_MINT,
+                    amount: 15,
+                },
+                &keypair,
+            ),
+            Err(ClientError::AmbiguousTree { tree_count: 2, .. })
+        ));
+    }
+
+    #[test]
+    fn select_spend_inputs_skips_spent_notes_and_stops_at_cover() {
+        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        let spent = push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
+        wallet
+            .utxos
+            .iter_mut()
+            .find(|entry| entry.output_context.hash == spent)
+            .expect("pushed utxo")
+            .spent = true;
+        push_utxo(&mut wallet, &keypair, 15, [2u8; 31]);
+        push_utxo(&mut wallet, &keypair, 20, [3u8; 31]);
+
+        let selected = select_spend_inputs_sync(
+            SpendInputParams {
+                wallet: &wallet,
+                asset: SOL_MINT,
+                amount: 15,
+            },
+            &keypair,
+        )
+        .expect("the unspent 15 covers the amount");
+
+        assert_eq!(amounts(&selected.inputs), vec![15]);
+    }
+
     /// An ineligible (ring-bound or data-carrying) utxo on a second tree must not
     /// make the split/merge spend tree ambiguous: eligibility filters tree
     /// resolution.
