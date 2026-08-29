@@ -298,6 +298,21 @@ export function resolvedAddressFromRecord(owner: Address, record: UserRecord): R
   });
 }
 
+/** @internal A `ShieldedAddress` passes through, an owner address resolves or throws. */
+export async function resolveShieldedRecipient(
+  input: Readonly<{ rpc: AccountReader; recipient: Address | ShieldedAddress }>,
+  notRegistered: (recipient: Address) => Error,
+  context?: RequestContext,
+): Promise<ShieldedAddress> {
+  if (input.recipient instanceof ShieldedAddress) return input.recipient;
+  const registered = await resolveRegisteredAddress(
+    { rpc: input.rpc, owner: input.recipient },
+    context,
+  );
+  if (registered === undefined) throw notRegistered(input.recipient);
+  return registered.address;
+}
+
 export async function resolveRegisteredAddress(
   input: Readonly<{ rpc: AccountReader; owner: Address }>,
   context?: RequestContext,

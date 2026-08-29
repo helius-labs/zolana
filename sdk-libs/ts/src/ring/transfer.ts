@@ -31,8 +31,8 @@ import {
 import { SOL_MINT, type AssetRegistry } from "../transaction/wallet/asset.js";
 import type { NoteReservation, Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 import { ownerSignerAddresses } from "../client/prover/assembly.js";
-import { resolveWithdrawal } from "../wallet/actions.js";
-import { resolveRegisteredAddress } from "../wallet/registry.js";
+import { resolveWithdrawalSettlement } from "../flows/settlement.js";
+import { resolveShieldedRecipient } from "../wallet/registry.js";
 
 import { fetchRingProgramConfig } from "./config.js";
 import { MAX_SPEND_INPUTS, selectNotes, type SpendSelectionErrors } from "../flows/select.js";
@@ -315,7 +315,11 @@ export async function buildRingWithdrawalTransaction(
       errorCode: "RING_BUILD_WITHDRAWAL",
       selection: "ring",
       resolve: () =>
-        resolveWithdrawal(input.recipient, input.asset ?? SOL_MINT, input.splTokenProgram),
+        resolveWithdrawalSettlement(
+          input.recipient,
+          input.asset ?? SOL_MINT,
+          input.splTokenProgram,
+        ),
       configure: ({ transfer, resolved, asset }) => {
         transfer.withdraw(asset, input.amount, resolved.target);
         return {
@@ -465,21 +469,18 @@ export function frameDummyOutputs(proofInputs: SppProofInputs): SppProofInputs {
   });
 }
 
-async function resolveRecipient(
+function resolveRecipient(
   input: RingTransferTransactionParams,
   context: RequestContext | undefined,
 ): Promise<ShieldedAddress> {
-  if (input.recipient instanceof ShieldedAddress) return input.recipient;
-  const registered = await resolveRegisteredAddress(
-    { rpc: input.client, owner: input.recipient },
+  return resolveShieldedRecipient(
+    { rpc: input.client, recipient: input.recipient },
+    (recipient) =>
+      new RingError("RING_BUILD_TRANSFER", {
+        details: { reason: "recipient not registered", recipient },
+      }),
     context,
   );
-  if (registered === undefined) {
-    throw new RingError("RING_BUILD_TRANSFER", {
-      details: { reason: "recipient not registered", recipient: input.recipient },
-    });
-  }
-  return registered.address;
 }
 
 function assetLabel(asset: Address): string {

@@ -1,18 +1,16 @@
 import type { ZolanaClient } from "../client/client.js";
-import { SPL_TOKEN_PROGRAM_ID } from "../interface/program.js";
 import {
   type Address,
   type Bytes32,
   type RequestContext,
   TransactWithdrawal,
 } from "../interface/types.js";
-import { associatedTokenAddress, splInterfaceWithBump } from "../interface/pda/index.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
 import { WithdrawalTarget } from "../transaction/instructions/transact.js";
-import { SOL_MINT } from "../transaction/wallet/asset.js";
 import { hex, type Wallet, type WalletUtxo } from "../transaction/wallet/state.js";
 
 import { reservedNoteKeys, unreserved } from "../flows/reserve.js";
+import { resolveWithdrawalSettlement } from "../flows/settlement.js";
 import {
   MAX_SPEND_INPUTS,
   isPlainUtxo,
@@ -23,6 +21,8 @@ import {
 import { WalletError, wrapWalletError } from "./error.js";
 import { equalBytes, reserveWalletEntries } from "./internal.js";
 import { resolveRegisteredAddress } from "./registry.js";
+
+export { resolveWithdrawalSettlement as resolveWithdrawal };
 
 interface UnsignedSpendInput {
   readonly entry: WalletUtxo;
@@ -248,45 +248,16 @@ function selectSpendInputs(
   };
 }
 
-/** The proof-side target and the settlement accounts of one public withdrawal. */
-export async function resolveWithdrawal(
-  recipient: Address,
-  asset: Address,
-  splTokenProgram?: Address | null,
-): Promise<
-  Readonly<{
-    target: Extract<PrivateAction, { kind: "withdrawal" }>["target"];
-    accounts: TransactWithdrawal;
-  }>
-> {
-  if (asset === SOL_MINT) {
-    return {
-      target: WithdrawalTarget.sol({ recipient }),
-      accounts: TransactWithdrawal.sol({ recipient }),
-    };
-  }
-  const tokenProgram = splTokenProgram ?? SPL_TOKEN_PROGRAM_ID;
-  const [recipientTokenAccount, [splTokenInterface, splInterfaceBump]] = await Promise.all([
-    associatedTokenAddress(recipient, asset, tokenProgram),
-    splInterfaceWithBump(asset),
-  ]);
-  return {
-    target: WithdrawalTarget.spl({ recipientTokenAccount, splTokenInterface, splInterfaceBump }),
-    accounts: TransactWithdrawal.spl({
-      mint: asset,
-      splTokenInterface,
-      recipientTokenAccount,
-      tokenProgram,
-    }),
-  };
-}
-
 export async function createWithdrawal(params: WithdrawalParams): Promise<CreatedWithdrawal> {
   u64Amount(params.amount);
   if (params.amount === 0n) {
     throw new WalletError("WALLET_INVALID_AMOUNT", { details: { amount: "0" } });
   }
-  const resolved = await resolveWithdrawal(params.recipient, params.asset, params.splTokenProgram);
+  const resolved = await resolveWithdrawalSettlement(
+    params.recipient,
+    params.asset,
+    params.splTokenProgram,
+  );
   const { tree, inputs, reservationId } = selectSpendInputs(
     params.wallet,
     params.asset,
