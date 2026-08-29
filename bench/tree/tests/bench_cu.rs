@@ -11,16 +11,16 @@ use rand::{rngs::StdRng, Rng, SeedableRng};
 use solana_account::Account;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use zolana_batched_merkle_tree::merkle_tree_metadata::TreeType;
+use zolana_batched_merkle_tree::layout::TreeType;
 use zolana_batched_merkle_tree::{
-    constants::NULLIFIER_TREE_INIT_ROOT_40,
-    merkle_tree::{
+    access::{
         get_merkle_tree_account_size,
         test_utils::{init_tree_account_data, load_tree_account_data},
-        InstructionDataAddressAppendInputs,
     },
+    constants::NULLIFIER_TREE_INIT_ROOT_40,
+    layout::{CachedTreeUpdate, NullifierTreeLayout},
+    merkle_tree_update::InstructionDataAddressAppendInputs,
     verify::CompressedProof,
-    zero_copy::{CachedTreeUpdate, NullifierTreeLayout},
 };
 use zolana_client::{spawn_prover, BatchAddressAppendInputs, ProofCompressed, ProverClient};
 use zolana_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};

@@ -4,18 +4,18 @@ use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use num_bigint::BigUint;
 use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
-use zolana_batched_merkle_tree::merkle_tree_metadata::TreeType;
+use zolana_batched_merkle_tree::layout::TreeType;
 use zolana_batched_merkle_tree::{
-    constants::NULLIFIER_TREE_INIT_ROOT_40,
-    errors::BatchedMerkleTreeError,
-    initialize_address_tree::InitAddressTreeAccountsInstructionData,
-    merkle_tree::{
+    access::{
         get_merkle_tree_account_size,
         test_utils::{init_tree_account_data, load_tree_account_data},
-        InstructionDataAddressAppendInputs,
     },
+    constants::NULLIFIER_TREE_INIT_ROOT_40,
+    errors::NullifierTreeError,
+    init::InitAddressTreeAccountsInstructionData,
+    layout::NullifierTreeLayout,
+    merkle_tree_update::InstructionDataAddressAppendInputs,
     verify::CompressedProof,
-    zero_copy::NullifierTreeLayout,
 };
 use zolana_client::{spawn_prover, BatchAddressAppendInputs, ProofCompressed, ProverClient};
 use zolana_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};
@@ -584,7 +584,7 @@ fn nullifier_tree_submit_index_errors() {
         account
             .update_tree_from_address_queue(TREE_PUBKEY, out_of_range)
             .unwrap_err(),
-        BatchedMerkleTreeError::CachedTreeUpdateIndexOutOfRange
+        NullifierTreeError::CachedTreeUpdateIndexOutOfRange
     );
 
     let mut not_ready = dummy;
@@ -594,6 +594,6 @@ fn nullifier_tree_submit_index_errors() {
         account
             .update_tree_from_address_queue(TREE_PUBKEY, not_ready)
             .unwrap_err(),
-        BatchedMerkleTreeError::HashChainNotReady
+        NullifierTreeError::HashChainNotReady
     );
 }

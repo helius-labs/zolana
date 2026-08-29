@@ -9,9 +9,8 @@ use groth16_solana::{
     decompression::{decompress_g1, decompress_g2},
     groth16::{Groth16Verifier, Groth16Verifyingkey},
 };
-use thiserror::Error;
 
-use crate::verify::verifying_keys::*;
+use crate::{errors::NullifierTreeError, verify::verifying_keys::*};
 
 pub mod verifying_keys;
 
@@ -41,52 +40,10 @@ impl CompressedProof {
         result
     }
 }
-
-#[derive(Debug, Error, PartialEq)]
-pub enum VerifierError {
-    #[error("PublicInputsTryIntoFailed")]
-    PublicInputsTryIntoFailed,
-    #[error("DecompressG1Failed")]
-    DecompressG1Failed,
-    #[error("DecompressG2Failed")]
-    DecompressG2Failed,
-    #[error("InvalidPublicInputsLength")]
-    InvalidPublicInputsLength,
-    #[error("CreateGroth16VerifierFailed")]
-    CreateGroth16VerifierFailed,
-    #[error("ProofVerificationFailed")]
-    ProofVerificationFailed,
-    #[error("InvalidBatchSize supported batch sizes are 1, 10, 100, 500, 1000")]
-    InvalidBatchSize,
-    #[error("Invalid proof size: expected 128 bytes, got {0}")]
-    InvalidProofSize(usize),
-}
-
-impl From<VerifierError> for u32 {
-    fn from(e: VerifierError) -> u32 {
-        match e {
-            PublicInputsTryIntoFailed => 13001,
-            DecompressG1Failed => 13002,
-            DecompressG2Failed => 13003,
-            InvalidPublicInputsLength => 13004,
-            CreateGroth16VerifierFailed => 13005,
-            ProofVerificationFailed => 13006,
-            InvalidBatchSize => 13007,
-            InvalidProofSize(_) => 13008,
-        }
-    }
-}
-
-impl From<VerifierError> for solana_program_error::ProgramError {
-    fn from(e: VerifierError) -> Self {
-        solana_program_error::ProgramError::Custom(e.into())
-    }
-}
-
-use VerifierError::*;
+use NullifierTreeError::*;
 
 impl TryFrom<&[u8]> for CompressedProof {
-    type Error = VerifierError;
+    type Error = NullifierTreeError;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.len() < 128 {
@@ -107,7 +64,7 @@ pub fn verify<const N: usize>(
     public_inputs: &[[u8; 32]; N],
     proof: &CompressedProof,
     vk: &Groth16Verifyingkey,
-) -> Result<(), VerifierError> {
+) -> Result<(), NullifierTreeError> {
     let proof_a = decompress_g1(&proof.a).map_err(|_| DecompressG1Failed)?;
     let proof_b = decompress_g2(&proof.b).map_err(|_| DecompressG2Failed)?;
     let proof_c = decompress_g1(&proof.c).map_err(|_| DecompressG1Failed)?;
@@ -144,7 +101,7 @@ pub fn verify_batch_address_update(
     batch_size: u64,
     public_input_hash: [u8; 32],
     compressed_proof: &CompressedProof,
-) -> Result<(), VerifierError> {
+) -> Result<(), NullifierTreeError> {
     match batch_size {
         10 => verify::<1>(
             &[public_input_hash],
@@ -156,6 +113,6 @@ pub fn verify_batch_address_update(
             compressed_proof,
             &batch_address_append_40_250::VERIFYINGKEY,
         ),
-        _ => Err(InvalidPublicInputsLength),
+        _ => Err(InvalidBatchSize),
     }
 }

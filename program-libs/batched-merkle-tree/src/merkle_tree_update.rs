@@ -2,13 +2,29 @@ use zolana_hasher::hash_chain::create_hash_chain_from_array;
 
 use crate::{
     batch::BatchState,
-    errors::{BatchedMerkleTreeError, MerkleTreeMetadataError},
-    merkle_tree::InstructionDataAddressAppendInputs,
-    merkle_tree_metadata::TreeType,
-    verify::verify_batch_address_update,
-    zero_copy::{CachedTreeUpdate, NullifierTreeLayout},
+    errors::NullifierTreeError,
+    layout::{CachedTreeUpdate, NullifierTreeLayout, TreeType},
+    verify::{verify_batch_address_update, CompressedProof},
+    BorshDeserialize, BorshSerialize,
 };
 use zolana_event::BatchAddressAppendEvent;
+
+#[repr(C)]
+#[derive(Debug, PartialEq, Clone, Copy, BorshDeserialize, BorshSerialize)]
+pub struct InstructionDataBatchNullifyInputs {
+    pub new_root: [u8; 32],
+    pub old_root: [u8; 32],
+    pub zkp_batch_index: u16,
+    pub compressed_proof: CompressedProof,
+}
+
+pub type InstructionDataAddressAppendInputs = InstructionDataBatchNullifyInputs;
+
+impl CachedTreeUpdate {
+    fn is_occupied(&self) -> bool {
+        self.occupied != 0
+    }
+}
 
 impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     /// Verify one address-append proof and apply every now-applicable cached
@@ -25,10 +41,10 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         &mut self,
         merkle_tree_pubkey: [u8; 32],
         instruction_data: InstructionDataAddressAppendInputs,
-    ) -> Result<Option<BatchAddressAppendEvent>, BatchedMerkleTreeError> {
+    ) -> Result<Option<BatchAddressAppendEvent>, NullifierTreeError> {
         // 1. Reject non-address trees.
         if self.metadata.tree_type != TreeType::AddressV2 as u64 {
-            return Err(MerkleTreeMetadataError::InvalidTreeType.into());
+            return Err(NullifierTreeError::InvalidTreeType);
         }
         // 2. Verify the proof and cache the update.
         if !self.verify_proof_cache_update(&instruction_data)? {
@@ -53,7 +69,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     fn verify_proof_cache_update(
         &mut self,
         instruction_data: &InstructionDataAddressAppendInputs,
-    ) -> Result<bool, BatchedMerkleTreeError> {
+    ) -> Result<bool, NullifierTreeError> {
         let zkp_batch_size = self.metadata.queue_batches.zkp_batch_size;
         let pending_batch_index = self.metadata.queue_batches.pending_batch_index as usize;
 
@@ -63,7 +79,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
                 .queue_batches
                 .batches
                 .get(pending_batch_index)
-                .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?;
+                .ok_or(NullifierTreeError::InvalidBatchIndex)?;
             (batch.num_full_zkp_batches, batch.get_num_inserted_zkps())
         };
 
@@ -71,14 +87,14 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         let cached_tree_update_capacity = self
             .cached_tree_updates
             .get(pending_batch_index)
-            .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?
+            .ok_or(NullifierTreeError::InvalidBatchIndex)?
             .len();
         let zkp_batch_index = usize::from(instruction_data.zkp_batch_index);
         if zkp_batch_index >= cached_tree_update_capacity {
-            return Err(BatchedMerkleTreeError::CachedTreeUpdateIndexOutOfRange);
+            return Err(NullifierTreeError::CachedTreeUpdateIndexOutOfRange);
         }
         if u64::from(instruction_data.zkp_batch_index) >= num_full_zkp_batches {
-            return Err(BatchedMerkleTreeError::HashChainNotReady);
+            return Err(NullifierTreeError::HashChainNotReady);
         }
 
         // 2. Skip when already applied: a zkp batch index behind the number of
@@ -94,14 +110,14 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         let next_index_for_proof = zkp_batches_ahead
             .checked_mul(zkp_batch_size)
             .and_then(|offset| self.metadata.next_index.checked_add(offset))
-            .ok_or(BatchedMerkleTreeError::ArithmeticOverflow)?;
+            .ok_or(NullifierTreeError::ArithmeticOverflow)?;
 
         // 3. Rebuild the public input hash and verify the proof.
         let leaves_hash_chain = *self
             .hash_chains
             .get(pending_batch_index)
             .and_then(|chain| chain.get(zkp_batch_index))
-            .ok_or(BatchedMerkleTreeError::InvalidIndex)?;
+            .ok_or(NullifierTreeError::InvalidIndex)?;
         let mut next_index_bytes = [0u8; 32];
         next_index_bytes[24..].copy_from_slice(next_index_for_proof.to_be_bytes().as_slice());
         let public_input_hash = create_hash_chain_from_array([
@@ -123,7 +139,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
             .cached_tree_updates
             .get_mut(pending_batch_index)
             .and_then(|updates| updates.get_mut(zkp_batch_index))
-            .ok_or(BatchedMerkleTreeError::InvalidIndex)?;
+            .ok_or(NullifierTreeError::InvalidIndex)?;
         *cached_update = CachedTreeUpdate {
             old_root: instruction_data.old_root,
             new_root: instruction_data.new_root,
@@ -152,7 +168,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     pub fn apply_cached_tree_updates(
         &mut self,
         merkle_tree_pubkey: [u8; 32],
-    ) -> Result<Option<BatchAddressAppendEvent>, BatchedMerkleTreeError> {
+    ) -> Result<Option<BatchAddressAppendEvent>, NullifierTreeError> {
         let zkp_batch_size = self.metadata.queue_batches.zkp_batch_size;
         // One event covers the whole cascade: shared fields once, one root per
         // applied zkp batch. See `BatchAddressAppendEvent` for how the per-batch
@@ -167,7 +183,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
                 .queue_batches
                 .batches
                 .get(pending_batch_index)
-                .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?
+                .ok_or(NullifierTreeError::InvalidBatchIndex)?
                 .get_num_inserted_zkps() as usize;
 
             let cached_update = match self
@@ -189,9 +205,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
             //    (submit skips an occupied slot). The eviction must commit:
             //    returning an error would roll back the clear, so the slot is
             //    zeroed and the accumulated event returned.
-            let current_root = self
-                .get_root()
-                .ok_or(BatchedMerkleTreeError::InvalidIndex)?;
+            let current_root = self.get_root().ok_or(NullifierTreeError::InvalidIndex)?;
             if cached_update.old_root != current_root {
                 self.clear_cached_tree_update(pending_batch_index, zkp_batch_index)?;
                 #[cfg(feature = "log")]
@@ -218,7 +232,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
                 .queue_batches
                 .batches
                 .get_mut(pending_batch_index)
-                .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?
+                .ok_or(NullifierTreeError::InvalidBatchIndex)?
                 .mark_as_inserted_in_merkle_tree()?;
             self.advance_nullifier_pda_close_watermark(pending_batch_state)?;
             self.metadata
@@ -258,7 +272,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     fn advance_nullifier_pda_close_watermark(
         &mut self,
         pending_batch_state: BatchState,
-    ) -> Result<(), BatchedMerkleTreeError> {
+    ) -> Result<(), NullifierTreeError> {
         if pending_batch_state != BatchState::Inserted {
             return Ok(());
         }
@@ -268,12 +282,12 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
             .queue_batches
             .batches
             .get(self.metadata.queue_batches.pending_batch_index as usize)
-            .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?;
+            .ok_or(NullifierTreeError::InvalidBatchIndex)?;
         self.metadata.close_before_index = self.metadata.close_before_index.max(
             pending_batch
                 .start_index
                 .checked_sub(1)
-                .ok_or(BatchedMerkleTreeError::ArithmeticOverflow)?,
+                .ok_or(NullifierTreeError::ArithmeticOverflow)?,
         );
         Ok(())
     }
@@ -284,13 +298,38 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         &mut self,
         pending_batch_index: usize,
         zkp_batch_index: usize,
-    ) -> Result<(), BatchedMerkleTreeError> {
+    ) -> Result<(), NullifierTreeError> {
         let cached_update = self
             .cached_tree_updates
             .get_mut(pending_batch_index)
             .and_then(|updates| updates.get_mut(zkp_batch_index))
-            .ok_or(BatchedMerkleTreeError::InvalidIndex)?;
+            .ok_or(NullifierTreeError::InvalidIndex)?;
         *cached_update = CachedTreeUpdate::default();
         Ok(())
+    }
+
+    fn append_root(&mut self, root: [u8; 32]) -> Result<(), NullifierTreeError> {
+        let current_index = self.root_history.current_index as usize;
+        let capacity = self.root_history.roots.len();
+        let slot = self
+            .root_history
+            .roots
+            .get_mut(current_index)
+            .ok_or(NullifierTreeError::InvalidRootHistoryCapacity)?;
+        *slot = root;
+        self.root_history.current_index = ((current_index + 1) % capacity) as u64;
+        Ok(())
+    }
+
+    /// Checks whether `num_leaves` values fit in the remaining tree capacity.
+    fn check_tree_is_full(&self, num_leaves: u64) -> Result<(), NullifierTreeError> {
+        if self.tree_is_full(num_leaves) {
+            return Err(NullifierTreeError::TreeIsFull);
+        }
+        Ok(())
+    }
+
+    fn increment_merkle_tree_next_index(&mut self, count: u64) {
+        self.metadata.next_index += count;
     }
 }

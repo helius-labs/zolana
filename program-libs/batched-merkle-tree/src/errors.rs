@@ -1,106 +1,109 @@
+use solana_program_error::ProgramError;
 use thiserror::Error;
 use zolana_account_checks::error::AccountError;
 use zolana_hasher::HasherError;
 
-use crate::{verify::VerifierError, zero_copy::ZeroCopyError};
-
 #[derive(Debug, Error, PartialEq)]
-pub enum MerkleTreeMetadataError {
-    #[error("Invalid tree type.")]
-    InvalidTreeType,
-    #[error("Invalid Height.")]
-    InvalidHeight,
-    #[error("Root history must contain exactly one queue batch of ZKP update roots.")]
-    InvalidRootHistoryCapacity,
-}
-
-impl From<MerkleTreeMetadataError> for u32 {
-    fn from(e: MerkleTreeMetadataError) -> u32 {
-        match e {
-            MerkleTreeMetadataError::InvalidTreeType => 14007,
-            MerkleTreeMetadataError::InvalidHeight => 14009,
-            MerkleTreeMetadataError::InvalidRootHistoryCapacity => 14010,
-        }
-    }
-}
-
-impl From<MerkleTreeMetadataError> for solana_program_error::ProgramError {
-    fn from(e: MerkleTreeMetadataError) -> Self {
-        solana_program_error::ProgramError::Custom(e.into())
-    }
-}
-
-#[derive(Debug, Error, PartialEq)]
-pub enum BatchedMerkleTreeError {
+pub enum NullifierTreeError {
     #[error("Batch is not ready to be inserted")]
     BatchNotReady,
     #[error("Batch is already inserted")]
     BatchAlreadyInserted,
     #[error("Batch size not divisible by ZKP batch size.")]
     BatchSizeNotDivisibleByZkpBatchSize,
-    #[error("Hasher error: {0}")]
-    Hasher(#[from] HasherError),
-    #[error("Zero copy error {0}")]
-    ZeroCopy(#[from] ZeroCopyError),
-    #[error("Merkle tree metadata error {0}")]
-    MerkleTreeMetadata(#[from] MerkleTreeMetadataError),
-    #[error("Program error {0}")]
-    ProgramError(#[from] solana_program_error::ProgramError),
-    #[error("Verifier error {0}")]
-    VerifierErrorError(#[from] VerifierError),
     #[error("Invalid batch index")]
     InvalidBatchIndex,
     #[error("Invalid index")]
     InvalidIndex,
+    #[error("Batch state word holds an invalid value.")]
+    InvalidBatchState,
+    #[error("Queue batch metadata is inconsistent.")]
+    InvalidBatchConfiguration,
     #[error("Batched Merkle tree is full.")]
     TreeIsFull,
-    #[error("Account error {0}")]
-    AccountError(#[from] AccountError),
+    #[error("Queue index does not match the current batch position.")]
+    QueueIndexMismatch,
+    #[error("Value is not a canonical BN254 scalar field element.")]
+    NonCanonicalFieldElement,
+    #[error("Arithmetic overflow.")]
+    ArithmeticOverflow,
     #[error("Cached tree update index is out of range.")]
     CachedTreeUpdateIndexOutOfRange,
     #[error("Hash chain for the requested zkp batch is not finalized.")]
     HashChainNotReady,
-    #[error("Arithmetic overflow.")]
-    ArithmeticOverflow,
-    #[error("Batch state word holds an invalid value.")]
-    InvalidBatchState,
-    #[error("Value is not a canonical BN254 scalar field element.")]
-    NonCanonicalFieldElement,
-    #[error("Queue index does not match the current batch position.")]
-    QueueIndexMismatch,
-    #[error("Queue batch metadata is inconsistent.")]
-    InvalidBatchConfiguration,
+    #[error("Hash chain region is full, cannot push any new elements.")]
+    HashChainFull,
+    #[error("Invalid tree type.")]
+    InvalidTreeType,
+    #[error("Invalid height.")]
+    InvalidHeight,
+    #[error("Root history must contain exactly one queue batch of ZKP update roots.")]
+    InvalidRootHistoryCapacity,
+    #[error("Account data length does not match the tree layout size.")]
+    InvalidAccountSize,
+    #[error("PublicInputsTryIntoFailed")]
+    PublicInputsTryIntoFailed,
+    #[error("DecompressG1Failed")]
+    DecompressG1Failed,
+    #[error("DecompressG2Failed")]
+    DecompressG2Failed,
+    #[error("InvalidPublicInputsLength")]
+    InvalidPublicInputsLength,
+    #[error("CreateGroth16VerifierFailed")]
+    CreateGroth16VerifierFailed,
+    #[error("ProofVerificationFailed")]
+    ProofVerificationFailed,
+    #[error("InvalidBatchSize supported batch sizes are 10 and 250")]
+    InvalidBatchSize,
+    #[error("Invalid proof size: expected 128 bytes, got {0}")]
+    InvalidProofSize(usize),
+    #[error("Hasher error: {0}")]
+    Hasher(#[from] HasherError),
+    #[error("Program error {0}")]
+    ProgramError(#[from] ProgramError),
+    #[error("Account error {0}")]
+    AccountError(#[from] AccountError),
 }
 
-impl From<BatchedMerkleTreeError> for u32 {
-    fn from(e: BatchedMerkleTreeError) -> u32 {
+impl From<NullifierTreeError> for u32 {
+    fn from(e: NullifierTreeError) -> u32 {
         match e {
-            BatchedMerkleTreeError::BatchNotReady => 14301,
-            BatchedMerkleTreeError::BatchAlreadyInserted => 14302,
-            BatchedMerkleTreeError::BatchSizeNotDivisibleByZkpBatchSize => 14306,
-            BatchedMerkleTreeError::InvalidBatchIndex => 14308,
-            BatchedMerkleTreeError::InvalidIndex => 14309,
-            BatchedMerkleTreeError::TreeIsFull => 14310,
-            BatchedMerkleTreeError::CachedTreeUpdateIndexOutOfRange => 14313,
-            BatchedMerkleTreeError::HashChainNotReady => 14314,
-            BatchedMerkleTreeError::ArithmeticOverflow => 14315,
-            BatchedMerkleTreeError::InvalidBatchState => 14316,
-            BatchedMerkleTreeError::NonCanonicalFieldElement => 14317,
-            BatchedMerkleTreeError::QueueIndexMismatch => 14318,
-            BatchedMerkleTreeError::InvalidBatchConfiguration => 14319,
-            BatchedMerkleTreeError::Hasher(e) => e.into(),
-            BatchedMerkleTreeError::ZeroCopy(e) => e.into(),
-            BatchedMerkleTreeError::MerkleTreeMetadata(e) => e.into(),
-            BatchedMerkleTreeError::VerifierErrorError(e) => e.into(),
+            NullifierTreeError::BatchNotReady => 14001,
+            NullifierTreeError::BatchAlreadyInserted => 14002,
+            NullifierTreeError::BatchSizeNotDivisibleByZkpBatchSize => 14003,
+            NullifierTreeError::InvalidBatchIndex => 14004,
+            NullifierTreeError::InvalidIndex => 14005,
+            NullifierTreeError::InvalidBatchState => 14006,
+            NullifierTreeError::InvalidBatchConfiguration => 14007,
+            NullifierTreeError::TreeIsFull => 14008,
+            NullifierTreeError::QueueIndexMismatch => 14009,
+            NullifierTreeError::NonCanonicalFieldElement => 14010,
+            NullifierTreeError::ArithmeticOverflow => 14011,
+            NullifierTreeError::CachedTreeUpdateIndexOutOfRange => 14012,
+            NullifierTreeError::HashChainNotReady => 14013,
+            NullifierTreeError::HashChainFull => 14014,
+            NullifierTreeError::InvalidTreeType => 14015,
+            NullifierTreeError::InvalidHeight => 14016,
+            NullifierTreeError::InvalidRootHistoryCapacity => 14017,
+            NullifierTreeError::InvalidAccountSize => 14018,
+            NullifierTreeError::PublicInputsTryIntoFailed => 14019,
+            NullifierTreeError::DecompressG1Failed => 14020,
+            NullifierTreeError::DecompressG2Failed => 14021,
+            NullifierTreeError::InvalidPublicInputsLength => 14022,
+            NullifierTreeError::CreateGroth16VerifierFailed => 14023,
+            NullifierTreeError::ProofVerificationFailed => 14024,
+            NullifierTreeError::InvalidBatchSize => 14025,
+            NullifierTreeError::InvalidProofSize(_) => 14026,
+            NullifierTreeError::Hasher(e) => e.into(),
+            NullifierTreeError::AccountError(e) => e.into(),
             #[allow(clippy::useless_conversion)]
-            BatchedMerkleTreeError::ProgramError(e) => u32::try_from(u64::from(e)).unwrap(),
-            BatchedMerkleTreeError::AccountError(e) => e.into(),
+            NullifierTreeError::ProgramError(e) => u32::try_from(u64::from(e)).unwrap(),
         }
     }
 }
 
-impl From<BatchedMerkleTreeError> for solana_program_error::ProgramError {
-    fn from(e: BatchedMerkleTreeError) -> Self {
-        solana_program_error::ProgramError::Custom(e.into())
+impl From<NullifierTreeError> for ProgramError {
+    fn from(e: NullifierTreeError) -> Self {
+        ProgramError::Custom(e.into())
     }
 }

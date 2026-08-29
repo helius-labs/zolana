@@ -1,15 +1,15 @@
 #![cfg(feature = "test-only")]
 
 use zolana_batched_merkle_tree::{
-    batch::BatchState,
-    constants::NULLIFIER_TREE_INIT_ROOT_40,
-    errors::BatchedMerkleTreeError,
-    merkle_tree::{
+    access::{
         get_merkle_tree_account_size,
         test_utils::{init_tree_account_data, load_tree_account_data},
     },
-    merkle_tree_metadata::TreeType,
-    zero_copy::{CachedTreeUpdate, NullifierTreeLayout},
+    batch::BatchState,
+    constants::NULLIFIER_TREE_INIT_ROOT_40,
+    errors::NullifierTreeError,
+    layout::TreeType,
+    layout::{CachedTreeUpdate, NullifierTreeLayout},
 };
 
 const ZKP: usize = 4;
@@ -241,7 +241,7 @@ fn full_queue_rejects_inserts_until_the_pending_batch_is_applied() {
         load_tree(&mut data)
             .insert_nullifier_into_queue(&nullifier(9))
             .unwrap_err(),
-        BatchedMerkleTreeError::BatchNotReady
+        NullifierTreeError::BatchNotReady
     );
     assert_eq!(data, before);
 

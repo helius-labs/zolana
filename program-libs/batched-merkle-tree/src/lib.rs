@@ -12,19 +12,18 @@
 //!
 //! | Module | Description |
 //! |--------|-------------|
-//! | [`batch`] | `Batch` state machine and per-batch insertion |
-//! | [`merkle_tree`] | Queue and tree operations on `NullifierTreeLayout` |
-//! | [`queue`] | Queue batch insertion helper |
-//! | [`queue_batch_metadata`] | Metadata for queue batches |
-//! | [`initialize_address_tree`] | Configure and initialize a batched nullifier tree |
-//! | [`merkle_tree_metadata`] | Tree and queue metadata structs |
+//! | [`layout`] | Account layout: tree, root history, queue batches, metadata |
+//! | [`init`] | Configure and initialize a batched nullifier tree |
+//! | [`queue_insert`] | Insert a nullifier into the input queue |
 //! | [`merkle_tree_update`] | Apply queued batches to the tree |
+//! | [`access`] | Read accessors, layout validation, and account size |
+//! | [`batch`] | `Batch` state machine and per-batch insertion |
 //! | [`verify`] | Groth16 verification and verifying keys |
-//! | [`errors`] | Error types for batch operations |
+//! | [`errors`] | `NullifierTreeError`, the crate's single error type |
 //!
 //! ## Account
 //!
-//! There is a single state type, [`zero_copy::NullifierTreeLayout`], cast in
+//! There is a single state type, [`layout::NullifierTreeLayout`], cast in
 //! place from the account bytes: it stores the tree roots, the cyclic root
 //! history, and an integrated input queue (hash chains + cached tree updates).
 //! Address and nullifier trees use the same `AddressV2` layout and differ only
@@ -34,14 +33,14 @@
 //!
 //! ### Initialization
 //! The shielded pool initializes its nullifier tree with
-//! [`zero_copy::NullifierTreeLayout::init`], seeding it with the BN254 `p-1`
+//! [`layout::NullifierTreeLayout::init`], seeding it with the BN254 `p-1`
 //! sentinel root ([`constants::NULLIFIER_TREE_INIT_ROOT_40`]) and the
-//! configuration in [`initialize_address_tree`].
+//! configuration in [`init`].
 //!
 //! ### Queue insertion
-//! - [`zero_copy::NullifierTreeLayout::insert_nullifier_into_queue`]
+//! - [`layout::NullifierTreeLayout::insert_nullifier_into_queue`]
 //!   rejects non-canonical field elements, adds the value to the current
-//!   input-queue batch's open hash chain via the [`queue`] module, and returns
+//!   input-queue batch's open hash chain via the [`queue_insert`] module, and returns
 //!   the queue index `q` the value reserved. The program stores `{ q, bump }` in
 //!   the nullifier PDA (`zolana_interface::state::NullifierPda`); the
 //!   nullifier PDA is what rejects a second insertion of a pending nullifier.
@@ -95,28 +94,27 @@
 //!
 //! ## Error codes
 //!
-//! All errors are defined in [`errors`] and map to u32 error codes:
-//! - `BatchNotReady` (14301) - Batch is not ready to be inserted
-//! - `BatchAlreadyInserted` (14302) - Batch is already inserted
-//! - `TreeIsFull` (14310) - Batched Merkle tree reached capacity
-//! - `NonCanonicalFieldElement` (14317) - Value is not below the BN254 scalar modulus
-//! - `QueueIndexMismatch` (14318) - Queue index and batch position disagree
-//! - `InvalidBatchConfiguration` (14319) - Queue-level and per-batch metadata disagree
-//! - `InvalidRootHistoryCapacity` (14010) - Root history must contain exactly one
+//! Every failure is a variant of the single [`errors::NullifierTreeError`],
+//! which maps to a u32 error code in the 14000 space:
+//! - `BatchNotReady` (14001) - Batch is not ready to be inserted
+//! - `BatchAlreadyInserted` (14002) - Batch is already inserted
+//! - `TreeIsFull` (14008) - Batched Merkle tree reached capacity
+//! - `QueueIndexMismatch` (14009) - Queue index and batch position disagree
+//! - `NonCanonicalFieldElement` (14010) - Value is not below the BN254 scalar modulus
+//! - `InvalidRootHistoryCapacity` (14017) - Root history must contain exactly one
 //!   queue batch of ZKP update roots
-//! - Additional errors from underlying libraries (hasher, zero-copy, verifier, etc.)
+//! - `ProofVerificationFailed` (14024) - Groth16 verification rejected the proof
+//! - Errors from underlying libraries (hasher, account checks) keep their own codes
 
 #![allow(unexpected_cfgs)]
+pub mod access;
 pub mod batch;
 pub mod constants;
 pub mod errors;
-pub mod initialize_address_tree;
-pub mod merkle_tree;
-pub mod merkle_tree_metadata;
+pub mod init;
+pub mod layout;
 pub mod merkle_tree_update;
-pub mod queue;
-pub mod queue_batch_metadata;
+pub mod queue_insert;
 pub mod verify;
-pub mod zero_copy;
 
 use borsh::{BorshDeserialize, BorshSerialize};

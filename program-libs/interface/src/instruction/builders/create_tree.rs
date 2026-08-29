@@ -1,7 +1,7 @@
 use borsh::BorshSerialize;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use zolana_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccountsInstructionData;
+use zolana_batched_merkle_tree::init::InitAddressTreeAccountsInstructionData;
 
 use crate::{instruction::tag, pda, PROGRAM_ID_PUBKEY};
 

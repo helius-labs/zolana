@@ -12,14 +12,14 @@ use wincode::{
     io::Reader,
     ReadResult, SchemaRead, TypeMeta,
 };
-pub use zolana_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccountsInstructionData;
+pub use zolana_batched_merkle_tree::init::InitAddressTreeAccountsInstructionData;
 use zolana_batched_merkle_tree::{
     constants::{
         ADDRESS_TREE_DEFAULT_ZKP, DEFAULT_BATCH_ADDRESS_TREE_HEIGHT, NULLIFIER_TREE_INIT_ROOT_40,
     },
-    initialize_address_tree::match_circuit_size,
-    merkle_tree_metadata::TreeType,
-    zero_copy::NullifierTreeLayout,
+    init::match_circuit_size,
+    layout::NullifierTreeLayout,
+    layout::TreeType,
 };
 
 /// Height of the pool's UTXO state tree. `TreeAccount::init` rejects any

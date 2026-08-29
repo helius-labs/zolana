@@ -1,16 +1,16 @@
 #![cfg(feature = "test-only")]
 
 use zolana_batched_merkle_tree::{
-    batch::Batch,
-    constants::NULLIFIER_TREE_INIT_ROOT_40,
-    errors::{BatchedMerkleTreeError, MerkleTreeMetadataError},
-    merkle_tree::{
+    access::{
         get_merkle_tree_account_size,
         test_utils::{init_tree_account_data, load_tree_account_data},
     },
-    merkle_tree_metadata::{BatchedMerkleTreeMetadata, TreeType},
-    queue_batch_metadata::QueueBatches,
-    zero_copy::NullifierTreeLayout,
+    batch::Batch,
+    constants::NULLIFIER_TREE_INIT_ROOT_40,
+    errors::NullifierTreeError,
+    layout::NullifierTreeLayout,
+    layout::QueueBatches,
+    layout::{BatchedMerkleTreeMetadata, TreeType},
 };
 use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 
@@ -86,7 +86,7 @@ fn derived_root_history_must_match_one_batch_of_zkp_updates() {
             Some(NULLIFIER_TREE_INIT_ROOT_40),
         )
         .unwrap_err(),
-        MerkleTreeMetadataError::InvalidRootHistoryCapacity.into()
+        NullifierTreeError::InvalidRootHistoryCapacity
     );
 
     let mut wrong_cache_count = vec![0u8; get_merkle_tree_account_size::<5>()];
@@ -100,7 +100,7 @@ fn derived_root_history_must_match_one_batch_of_zkp_updates() {
             Some(NULLIFIER_TREE_INIT_ROOT_40),
         )
         .unwrap_err(),
-        MerkleTreeMetadataError::InvalidRootHistoryCapacity.into()
+        NullifierTreeError::InvalidRootHistoryCapacity
     );
 }
 
@@ -113,7 +113,7 @@ fn malformed_root_history_and_batch_metadata_are_rejected_on_load() {
     layout.root_history.current_index = ZKP as u64;
     assert_eq!(
         load_tree_account_data::<ZKP>(&mut bad_root_cursor).unwrap_err(),
-        MerkleTreeMetadataError::InvalidRootHistoryCapacity.into()
+        NullifierTreeError::InvalidRootHistoryCapacity
     );
 
     let mut invalid_reserved = account_data();
@@ -123,7 +123,7 @@ fn malformed_root_history_and_batch_metadata_are_rejected_on_load() {
     layout.metadata.queue_batches.reserved = 0;
     assert_eq!(
         load_tree_account_data::<ZKP>(&mut invalid_reserved).unwrap_err(),
-        BatchedMerkleTreeError::InvalidBatchConfiguration
+        NullifierTreeError::InvalidBatchConfiguration
     );
 
     let mut inconsistent_batch = account_data();
@@ -133,7 +133,7 @@ fn malformed_root_history_and_batch_metadata_are_rejected_on_load() {
     layout.metadata.queue_batches.batches[0].batch_size += 1;
     assert_eq!(
         load_tree_account_data::<ZKP>(&mut inconsistent_batch).unwrap_err(),
-        BatchedMerkleTreeError::InvalidBatchConfiguration
+        NullifierTreeError::InvalidBatchConfiguration
     );
 }
 
@@ -160,7 +160,7 @@ fn non_canonical_values_are_rejected() {
     for value in [BN254_SCALAR_MODULUS_BE, [0xff; 32]] {
         assert_eq!(
             tree.insert_nullifier_into_queue(&value).unwrap_err(),
-            BatchedMerkleTreeError::NonCanonicalFieldElement
+            NullifierTreeError::NonCanonicalFieldElement
         );
     }
     assert_eq!(data, before);
@@ -184,6 +184,6 @@ fn queue_index_mismatch_is_rejected() {
     tree.metadata.queue_batches.next_index += 1;
     assert_eq!(
         tree.insert_nullifier_into_queue(&nullifier(1)).unwrap_err(),
-        BatchedMerkleTreeError::QueueIndexMismatch
+        NullifierTreeError::QueueIndexMismatch
     );
 }

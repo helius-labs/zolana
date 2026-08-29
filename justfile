@@ -77,10 +77,12 @@ test: test-shielded-pool test-sdk-libs test-photon
 # and no proving keys. CI runs these same suites on every push, one job each.
 test-hermetic: test-cli test-batched-merkle-tree test-program-fast test-user-registry-litesvm test-sdk-libs test-photon
 
-# The in-crate tests need the test-only feature. Keep the prover-backed
-# nullifier_tree binary out of this hermetic lane.
+# The tests need the test-only feature. Keep the prover-backed nullifier_tree
+# binary out of this hermetic lane.
 test-batched-merkle-tree:
-    cargo nextest run -p zolana-batched-merkle-tree --features test-only --lib --test batch_reclaimable --test nullifier_pda
+    cargo nextest run -p zolana-batched-merkle-tree --features test-only \
+        --test access --test batch --test layout --test merkle_tree_update \
+        --test queue_insert --test batch_reclaimable --test nullifier_pda
 
 # Program/interface tests for the shielded-pool implementation.
 # Depends on build-programs so the litesvm tests load a fresh .so and actually

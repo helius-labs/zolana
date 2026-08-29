@@ -1,7 +1,7 @@
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 use zolana_hasher::{Hasher, Poseidon};
 
-use crate::{errors::BatchedMerkleTreeError, BorshDeserialize, BorshSerialize};
+use crate::{errors::NullifierTreeError, BorshDeserialize, BorshSerialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Copy)]
 #[repr(u64)]
@@ -115,16 +115,16 @@ impl Batch {
     /// State read for account-data paths: an out-of-range raw state is an
     /// error, never a panic. `get_state` (which panics on corrupt data) is
     /// for tests that construct the batch in memory.
-    pub(crate) fn checked_state(&self) -> Result<BatchState, BatchedMerkleTreeError> {
+    pub(crate) fn checked_state(&self) -> Result<BatchState, NullifierTreeError> {
         self.try_get_state()
-            .ok_or(BatchedMerkleTreeError::InvalidBatchState)
+            .ok_or(NullifierTreeError::InvalidBatchState)
     }
 
-    pub fn reclaimable_sequence(&self) -> Result<u64, BatchedMerkleTreeError> {
+    pub fn reclaimable_sequence(&self) -> Result<u64, NullifierTreeError> {
         self.start_index
             .checked_add(self.batch_size)
             .and_then(|end| end.checked_sub(1))
-            .ok_or(BatchedMerkleTreeError::ArithmeticOverflow)
+            .ok_or(NullifierTreeError::ArithmeticOverflow)
     }
 
     pub fn is_reclaimable(&self, close_before_index: u64) -> bool {
@@ -135,17 +135,14 @@ impl Batch {
     /// fill -> full -> inserted -> fill
     /// (from tree insertion perspective is pending if fill or full)
     /// `start_index` is the first queue index covered by the reused batch.
-    pub fn advance_state_to_fill(
-        &mut self,
-        start_index: u64,
-    ) -> Result<(), BatchedMerkleTreeError> {
+    pub fn advance_state_to_fill(&mut self, start_index: u64) -> Result<(), NullifierTreeError> {
         if self.checked_state()? != BatchState::Inserted {
             #[cfg(feature = "log")]
             solana_msg::msg!(
                 "Batch is in incorrect state {} expected BatchState::Inserted 1",
                 self.state
             );
-            return Err(BatchedMerkleTreeError::BatchNotReady);
+            return Err(NullifierTreeError::BatchNotReady);
         }
         // A reused batch is a fresh batch over a later queue range, so rebuild it
         // instead of resetting counters one by one: every field is then reset by
@@ -156,7 +153,7 @@ impl Batch {
 
     /// fill -> full -> inserted -> fill
     /// (from tree insertion perspective is pending if fill or full)
-    pub fn advance_state_to_inserted(&mut self) -> Result<(), BatchedMerkleTreeError> {
+    pub fn advance_state_to_inserted(&mut self) -> Result<(), NullifierTreeError> {
         if self.checked_state()? == BatchState::Full {
             self.state = BatchState::Inserted.into();
         } else {
@@ -165,14 +162,14 @@ impl Batch {
                 "Batch is in incorrect state {} expected BatchState::Full 2",
                 self.state
             );
-            return Err(BatchedMerkleTreeError::BatchNotReady);
+            return Err(NullifierTreeError::BatchNotReady);
         }
         Ok(())
     }
 
     /// fill -> full -> inserted -> fill
     /// (from tree insertion perspective is pending if fill or full)
-    pub fn advance_state_to_full(&mut self) -> Result<(), BatchedMerkleTreeError> {
+    pub fn advance_state_to_full(&mut self) -> Result<(), NullifierTreeError> {
         if self.checked_state()? == BatchState::Fill {
             self.state = BatchState::Full.into();
         } else {
@@ -181,18 +178,18 @@ impl Batch {
                 "Batch is in incorrect state {} expected BatchState::Fill 0",
                 self.state
             );
-            return Err(BatchedMerkleTreeError::BatchNotReady);
+            return Err(NullifierTreeError::BatchNotReady);
         }
         Ok(())
     }
 
-    pub fn get_first_ready_zkp_batch(&self) -> Result<u64, BatchedMerkleTreeError> {
+    pub fn get_first_ready_zkp_batch(&self) -> Result<u64, NullifierTreeError> {
         if self.checked_state()? == BatchState::Inserted {
-            Err(BatchedMerkleTreeError::BatchAlreadyInserted)
+            Err(NullifierTreeError::BatchAlreadyInserted)
         } else if self.batch_is_ready_to_insert() {
             Ok(self.num_inserted_zkp_batches)
         } else {
-            Err(BatchedMerkleTreeError::BatchNotReady)
+            Err(NullifierTreeError::BatchNotReady)
         }
     }
 
@@ -240,10 +237,10 @@ impl Batch {
         &mut self,
         value: &[u8; 32],
         hash_chain_store: &mut [[u8; 32]],
-    ) -> Result<(), BatchedMerkleTreeError> {
+    ) -> Result<(), NullifierTreeError> {
         // 1. Check that the batch is ready.
         if self.checked_state()? != BatchState::Fill {
-            return Err(BatchedMerkleTreeError::BatchNotReady);
+            return Err(NullifierTreeError::BatchNotReady);
         }
         let hash_chain_index = self.num_full_zkp_batches as usize;
         let start_new_hash_chain = self.num_inserted == 0;
@@ -251,17 +248,17 @@ impl Batch {
             // 2. Start a new hash chain.
             let slot = hash_chain_store
                 .get_mut(hash_chain_index)
-                .ok_or(crate::zero_copy::ZeroCopyError::Full)?;
+                .ok_or(crate::errors::NullifierTreeError::HashChainFull)?;
             *slot = *value;
         } else {
             // 3. Add value to last hash chain.
             let existing = *hash_chain_store
                 .get(hash_chain_index)
-                .ok_or(crate::zero_copy::ZeroCopyError::Full)?;
+                .ok_or(crate::errors::NullifierTreeError::HashChainFull)?;
             let hash_chain = Poseidon::hashv(&[existing.as_slice(), value.as_slice()])?;
             let slot = hash_chain_store
                 .get_mut(hash_chain_index)
-                .ok_or(crate::zero_copy::ZeroCopyError::Full)?;
+                .ok_or(crate::errors::NullifierTreeError::HashChainFull)?;
             *slot = hash_chain;
         }
         self.num_inserted += 1;
@@ -289,9 +286,7 @@ impl Batch {
     /// 2. increments the number of inserted zkps.
     /// 3. If all zkps are inserted, sets the state to inserted.
     /// 4. Returns the updated state of the batch.
-    pub fn mark_as_inserted_in_merkle_tree(
-        &mut self,
-    ) -> Result<BatchState, BatchedMerkleTreeError> {
+    pub fn mark_as_inserted_in_merkle_tree(&mut self) -> Result<BatchState, NullifierTreeError> {
         // 1. Check that batch is ready.
         self.get_first_ready_zkp_batch()?;
 
@@ -309,287 +304,38 @@ impl Batch {
     }
 }
 
-#[cfg(test)]
-mod tests {
-
-    use super::*;
-
-    fn get_test_batch() -> Batch {
-        Batch::new(500, 100, 0)
+/// Direct access to the private counters so integration tests can drive a batch
+/// into states the public transitions reach only after many insertions. Gated on
+/// `test-only`, which the on-chain build never enables.
+#[cfg(feature = "test-only")]
+impl Batch {
+    pub fn num_inserted(&self) -> u64 {
+        self.num_inserted
     }
 
-    /// simulate zkp batch insertion
-    fn test_mark_as_inserted(mut batch: Batch) {
-        for i in 0..batch.get_num_zkp_batches() {
-            batch.mark_as_inserted_in_merkle_tree().unwrap();
-            if i != batch.get_num_zkp_batches() - 1 {
-                assert_eq!(batch.get_state(), BatchState::Full);
-                assert_eq!(batch.num_inserted, 0);
-                assert_eq!(batch.get_current_zkp_batch_index(), 5);
-                assert_eq!(batch.get_num_inserted_zkps(), i + 1);
-            } else {
-                assert_eq!(batch.get_state(), BatchState::Inserted);
-                assert_eq!(batch.num_inserted, 0);
-                assert_eq!(batch.get_current_zkp_batch_index(), 5);
-                assert_eq!(batch.get_num_inserted_zkps(), i + 1);
-            }
-        }
-        assert_eq!(batch.get_state(), BatchState::Inserted);
-        assert_eq!(batch.num_inserted, 0);
-        let mut ref_batch = get_test_batch();
-        ref_batch.state = BatchState::Inserted.into();
-        ref_batch.num_inserted_zkp_batches = 5;
-        ref_batch.num_full_zkp_batches = 5;
-        assert_eq!(batch, ref_batch);
-        batch.advance_state_to_fill(1).unwrap();
-        let mut ref_batch = get_test_batch();
-        ref_batch.start_index = 1;
-        assert_eq!(batch, ref_batch);
+    pub fn set_num_inserted(&mut self, value: u64) {
+        self.num_inserted = value;
     }
 
-    #[test]
-    fn test_insert() {
-        let mut batch = get_test_batch();
-        let mut hash_chain_store = vec![[0u8; 32]; batch.get_num_zkp_batches() as usize];
-
-        let mut ref_batch = get_test_batch();
-        for i in 0..batch.batch_size {
-            ref_batch.num_inserted %= ref_batch.zkp_batch_size;
-
-            let chain_index = batch.num_full_zkp_batches as usize;
-            let mut value = [0u8; 32];
-            value[24..].copy_from_slice(&i.to_be_bytes());
-            #[allow(clippy::manual_is_multiple_of)]
-            let ref_hash_chain = if i % batch.zkp_batch_size == 0 {
-                value
-            } else {
-                Poseidon::hashv(&[&hash_chain_store[chain_index], &value]).unwrap()
-            };
-            let result = batch.add_to_hash_chain(&value, &mut hash_chain_store);
-            assert!(result.is_ok(), "Failed result: {:?}", result);
-            assert_eq!(hash_chain_store[chain_index], ref_hash_chain);
-
-            ref_batch.num_inserted += 1;
-            if ref_batch.num_inserted == ref_batch.zkp_batch_size {
-                ref_batch.num_full_zkp_batches += 1;
-                ref_batch.num_inserted = 0;
-            }
-            if i == batch.batch_size - 1 {
-                ref_batch.state = BatchState::Full.into();
-                ref_batch.num_inserted = 0;
-            }
-            assert_eq!(batch, ref_batch);
-        }
-        test_mark_as_inserted(batch);
+    pub fn set_state(&mut self, state: BatchState) {
+        self.state = state.into();
     }
 
-    #[test]
-    fn test_add_to_hash_chain() {
-        let mut batch = get_test_batch();
-        let mut hash_chain_store = vec![[0u8; 32]; batch.get_num_zkp_batches() as usize];
-        let value = [1u8; 32];
-
-        assert!(batch
-            .add_to_hash_chain(&value, &mut hash_chain_store)
-            .is_ok());
-        let mut ref_batch = get_test_batch();
-        let user_hash_chain = value;
-        ref_batch.num_inserted = 1;
-        assert_eq!(batch, ref_batch);
-        assert_eq!(hash_chain_store[0], user_hash_chain);
-        let value = [2u8; 32];
-        let ref_hash_chain = Poseidon::hashv(&[&user_hash_chain, &value]).unwrap();
-        assert!(batch
-            .add_to_hash_chain(&value, &mut hash_chain_store)
-            .is_ok());
-
-        ref_batch.num_inserted = 2;
-        assert_eq!(batch, ref_batch);
-        assert_eq!(hash_chain_store[0], ref_hash_chain);
+    /// Writes the raw state word, including values no `BatchState` maps to, so
+    /// tests can assert that corrupt account data errors instead of panicking.
+    pub fn set_raw_state(&mut self, state: u64) {
+        self.state = state;
     }
 
-    /// A failed insert must not mutate the batch or the hash chain store: host
-    /// callers keep the state after an error.
-    #[test]
-    fn test_add_to_hash_chain_is_error_atomic() {
-        let mut batch = Batch::new(500, 100, 0);
-        batch.advance_state_to_full().unwrap();
-        let mut hash_chain_store = vec![[0u8; 32]; batch.get_num_zkp_batches() as usize];
-        let batch_before = batch;
-        let chain_before = hash_chain_store.clone();
-        assert_eq!(
-            batch
-                .add_to_hash_chain(&[9u8; 32], &mut hash_chain_store)
-                .unwrap_err(),
-            BatchedMerkleTreeError::BatchNotReady
-        );
-        assert_eq!(batch, batch_before);
-        assert_eq!(hash_chain_store, chain_before);
+    pub fn num_full_zkp_batches(&self) -> u64 {
+        self.num_full_zkp_batches
     }
 
-    #[test]
-    fn test_getters() {
-        let mut batch = get_test_batch();
-        assert_eq!(batch.get_num_zkp_batches(), 5);
-        assert_eq!(batch.get_state(), BatchState::Fill);
-        assert_eq!(batch.num_inserted, 0);
-        assert_eq!(batch.get_current_zkp_batch_index(), 0);
-        assert_eq!(batch.get_num_inserted_zkps(), 0);
-        batch.advance_state_to_full().unwrap();
-        assert_eq!(batch.get_state(), BatchState::Full);
-        batch.advance_state_to_inserted().unwrap();
-        assert_eq!(batch.get_state(), BatchState::Inserted);
+    pub fn set_num_full_zkp_batches(&mut self, value: u64) {
+        self.num_full_zkp_batches = value;
     }
 
-    /// 1. Failing: empty batch
-    /// 2. Functional: if zkp batch size is full else failing
-    /// 3. Failing: batch is completely inserted
-    #[test]
-    fn test_can_insert_batch() {
-        let mut batch = get_test_batch();
-        assert_eq!(
-            batch.get_first_ready_zkp_batch(),
-            Err(BatchedMerkleTreeError::BatchNotReady)
-        );
-        let mut hash_chain_store = vec![[0u8; 32]; batch.get_num_zkp_batches() as usize];
-
-        for i in 0..batch.batch_size + 10 {
-            let mut value = [0u8; 32];
-            value[24..].copy_from_slice(&i.to_be_bytes());
-            if i < batch.batch_size {
-                batch
-                    .add_to_hash_chain(&value, &mut hash_chain_store)
-                    .unwrap();
-            }
-            #[allow(clippy::manual_is_multiple_of)]
-            if (i + 1) % batch.zkp_batch_size == 0 && i != 0 {
-                assert_eq!(
-                    batch.get_first_ready_zkp_batch().unwrap(),
-                    i / batch.zkp_batch_size
-                );
-                batch.mark_as_inserted_in_merkle_tree().unwrap();
-            } else if i >= batch.batch_size {
-                assert_eq!(
-                    batch.get_first_ready_zkp_batch(),
-                    Err(BatchedMerkleTreeError::BatchAlreadyInserted)
-                );
-            } else {
-                assert_eq!(
-                    batch.get_first_ready_zkp_batch(),
-                    Err(BatchedMerkleTreeError::BatchNotReady)
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn test_get_state() {
-        let mut batch = get_test_batch();
-        assert_eq!(batch.get_state(), BatchState::Fill);
-        {
-            let result = batch.advance_state_to_inserted();
-            assert_eq!(result, Err(BatchedMerkleTreeError::BatchNotReady));
-            let result = batch.advance_state_to_fill(0);
-            assert_eq!(result, Err(BatchedMerkleTreeError::BatchNotReady));
-        }
-        batch.advance_state_to_full().unwrap();
-        assert_eq!(batch.get_state(), BatchState::Full);
-        {
-            let result = batch.advance_state_to_full();
-            assert_eq!(result, Err(BatchedMerkleTreeError::BatchNotReady));
-            let result = batch.advance_state_to_fill(0);
-            assert_eq!(result, Err(BatchedMerkleTreeError::BatchNotReady));
-        }
-        batch.advance_state_to_inserted().unwrap();
-        assert_eq!(batch.get_state(), BatchState::Inserted);
-    }
-
-    #[test]
-    fn advance_state_to_fill_resets_num_inserted() {
-        let mut batch = get_test_batch();
-        batch.num_inserted = 42;
-        batch.state = BatchState::Inserted.into();
-        batch.advance_state_to_fill(123).unwrap();
-        assert_eq!(batch.start_index, 123);
-        assert_eq!(batch.num_inserted, 0);
-        assert_eq!(batch.get_num_inserted_elements(), 0);
-    }
-
-    /// Account-data paths must return `InvalidBatchState` for a corrupt state
-    /// word instead of panicking in `From<u64>`.
-    #[test]
-    fn corrupt_state_errors_instead_of_panicking() {
-        let mut batch = get_test_batch();
-        batch.state = 3;
-        assert_eq!(
-            batch.advance_state_to_full().unwrap_err(),
-            BatchedMerkleTreeError::InvalidBatchState
-        );
-        assert_eq!(
-            batch.advance_state_to_inserted().unwrap_err(),
-            BatchedMerkleTreeError::InvalidBatchState
-        );
-        assert_eq!(
-            batch.advance_state_to_fill(0).unwrap_err(),
-            BatchedMerkleTreeError::InvalidBatchState
-        );
-        assert_eq!(
-            batch.get_first_ready_zkp_batch().unwrap_err(),
-            BatchedMerkleTreeError::InvalidBatchState
-        );
-        assert_eq!(
-            batch
-                .add_to_hash_chain(&[1u8; 32], &mut [[0u8; 32]; 5])
-                .unwrap_err(),
-            BatchedMerkleTreeError::InvalidBatchState
-        );
-        assert_eq!(
-            batch.mark_as_inserted_in_merkle_tree().unwrap_err(),
-            BatchedMerkleTreeError::InvalidBatchState
-        );
-    }
-
-    #[test]
-    fn try_get_state_maps_known_states_and_returns_none_for_invalid() {
-        let mut batch = get_test_batch();
-        for (raw, state) in [
-            (0, BatchState::Fill),
-            (1, BatchState::Inserted),
-            (2, BatchState::Full),
-        ] {
-            batch.state = raw;
-            assert_eq!(batch.try_get_state(), Some(state));
-        }
-
-        batch.state = 3;
-        assert_eq!(batch.try_get_state(), None);
-    }
-
-    #[test]
-    fn test_num_ready_zkp_updates() {
-        let mut batch = get_test_batch();
-        assert_eq!(batch.get_num_ready_zkp_updates(), 0);
-        batch.num_full_zkp_batches = 1;
-        assert_eq!(batch.get_num_ready_zkp_updates(), 1);
-        batch.num_inserted_zkp_batches = 1;
-        assert_eq!(batch.get_num_ready_zkp_updates(), 0);
-        batch.num_full_zkp_batches = 2;
-        assert_eq!(batch.get_num_ready_zkp_updates(), 1);
-    }
-
-    #[test]
-    fn test_get_num_inserted_elements() {
-        let mut batch = get_test_batch();
-        assert_eq!(batch.get_num_inserted_elements(), 0);
-        let mut hash_chain_store = vec![[0u8; 32]; batch.get_num_zkp_batches() as usize];
-
-        for i in 0..batch.batch_size {
-            let mut value = [0u8; 32];
-            value[24..].copy_from_slice(&i.to_be_bytes());
-            batch
-                .add_to_hash_chain(&value, &mut hash_chain_store)
-                .unwrap();
-            assert_eq!(batch.get_num_inserted_elements(), i + 1);
-        }
+    pub fn set_num_inserted_zkp_batches(&mut self, value: u64) {
+        self.num_inserted_zkp_batches = value;
     }
 }

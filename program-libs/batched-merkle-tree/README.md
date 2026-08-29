@@ -13,16 +13,14 @@ queue insertion, batch append, and PDA cleanup.
 
 | Module | Description |
 |--------|-------------|
-| `batch` | `Batch` state machine, reclaimability predicate, hash-chain insertion |
-| `merkle_tree` | Queue and tree operations on `NullifierTreeLayout` |
-| `queue` | Queue batch insertion helper |
-| `queue_batch_metadata` | Metadata for queue batches |
-| `nullifier_pda` | PDA payload, PDA seeds, test-only host emulation of the PDA set |
-| `initialize_address_tree` | Configure and initialize a batched nullifier tree |
-| `merkle_tree_metadata` | Tree and queue metadata structs |
+| `layout` | Account layout: tree, root history, queue batches, metadata |
+| `init` | Configure and initialize a batched nullifier tree |
+| `queue_insert` | Insert a nullifier into the input queue |
 | `merkle_tree_update` | Apply queued batches to the tree |
+| `access` | Read accessors, layout validation, and account size |
+| `batch` | `Batch` state machine, reclaimability predicate, hash-chain insertion |
 | `verify` | Groth16 verification and verifying keys |
-| `errors` | Error types for batch operations |
+| `errors` | `NullifierTreeError`, the crate's single error type |
 
 ## Account
 
@@ -82,17 +80,20 @@ been reused and returned to `Fill`.
 
 ## Error codes
 
-All errors are defined in `src/errors.rs` and map to u32 error codes:
+Every failure is a variant of the single `NullifierTreeError` in
+`src/errors.rs`, which maps to a u32 error code in the 14000 space:
 
-- `BatchNotReady` (14301) - Batch is not ready to be inserted
-- `BatchAlreadyInserted` (14302) - Batch is already inserted
-- `TreeIsFull` (14310) - Batched Merkle tree reached capacity
-- `NonCanonicalFieldElement` (14317) - Value is not below the BN254 scalar modulus
-- `QueueIndexMismatch` (14318) - Queue index and batch position disagree
-- `InvalidBatchConfiguration` (14319) - Queue-level and per-batch metadata disagree
-- `InvalidRootHistoryCapacity` (14010) - Root history must contain exactly one
+- `BatchNotReady` (14001) - Batch is not ready to be inserted
+- `BatchAlreadyInserted` (14002) - Batch is already inserted
+- `InvalidBatchConfiguration` (14007) - Queue-level and per-batch metadata disagree
+- `TreeIsFull` (14008) - Batched Merkle tree reached capacity
+- `QueueIndexMismatch` (14009) - Queue index and batch position disagree
+- `NonCanonicalFieldElement` (14010) - Value is not below the BN254 scalar modulus
+- `InvalidRootHistoryCapacity` (14017) - Root history must contain exactly one
   queue batch of ZKP update roots
-- Additional errors from underlying libraries (hasher, zero-copy, verifier, etc.)
+- `ProofVerificationFailed` (14024) - Groth16 verification rejected the proof
+- Errors from underlying libraries (hasher, account checks) are wrapped and keep
+  their own codes
 
 ## Testing
 

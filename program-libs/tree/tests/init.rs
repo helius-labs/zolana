@@ -1,4 +1,4 @@
-use zolana_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccountsInstructionData;
+use zolana_batched_merkle_tree::init::InitAddressTreeAccountsInstructionData;
 use zolana_tree::{
     error::TreeError,
     smt::{UtxoTreeLayout, ROOT_HISTORY_CAPACITY},

@@ -2,8 +2,8 @@ use borsh::BorshDeserialize;
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_batched_merkle_tree::{
-    merkle_tree::InstructionDataAddressAppendInputs, merkle_tree_metadata::TreeType,
-    zero_copy::NullifierTreeLayout,
+    layout::NullifierTreeLayout, layout::TreeType,
+    merkle_tree_update::InstructionDataAddressAppendInputs,
 };
 use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount, UTXO_TREE_HEIGHT};
 
