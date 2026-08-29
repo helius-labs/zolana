@@ -34,6 +34,15 @@ import { checkedU32 } from "../flows/internal.js";
 import { ClientError, fromClientCause } from "./error.js";
 import { checkedServiceUrl } from "./internal.js";
 import { ZolanaIndexer } from "./indexer.js";
+import type {
+  BlockhashProvider,
+  ChainReader,
+  IndexerReader,
+  KitRpcAccess,
+  ProofReader,
+  Prover,
+  TransactionConfirmer,
+} from "./ports.js";
 import {
   createKitClients,
   runKitRpc,
@@ -118,7 +127,16 @@ export interface ProvedMerge {
   readonly outputHash: Bytes32;
 }
 
-export class ZolanaClient {
+export class ZolanaClient
+  implements
+    ChainReader,
+    BlockhashProvider,
+    IndexerReader,
+    ProofReader,
+    Prover,
+    TransactionConfirmer,
+    KitRpcAccess
+{
   readonly tree: Address;
   readonly solanaRpc: SolanaRpc;
   readonly solanaRpcSubscriptions: SolanaRpcSubscriptions;
@@ -639,7 +657,7 @@ export class ZolanaClient {
     input: Readonly<{
       prepared: PreparedMerge;
       material: MergeMaterialInput;
-      indexer?: Pick<ZolanaClient, "getInputMerkleProofs" | "getNonInclusionProofs">;
+      indexer?: Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs">;
     }>,
     context?: RequestContext,
   ): Promise<ProvedMerge> {
