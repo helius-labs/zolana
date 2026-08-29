@@ -130,7 +130,9 @@ pub fn prove(circuit: CircuitId, witness: &WitnessMap) -> Result<ProveOutput> {
 }
 
 fn build_dir(circuit: CircuitId) -> PathBuf {
-    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../build/gnark");
+    let base = std::env::var_os("SWAP_PROVER_KEYS_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../build/gnark"));
     let sub = match circuit {
         CircuitId::Make => "make",
         CircuitId::Cancel => "cancel",

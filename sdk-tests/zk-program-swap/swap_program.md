@@ -16,6 +16,14 @@ cancelled is public; taking reveals the taker and cancelling reveals the maker, 
 The swap program is an SPP ZK program: it verifies a small proof of its own swap rules and delegates
 the confidential transfer to SPP. It stores no state and owns no accounts.
 
+The devnet deployment used by the TVC wallet demo is
+`3f2cb1KfEpT4YuJkvc5EtfWfr5w5KeffD8Zyvrwhtnpa`. The program-neutral TVC bridge lives in
+`sdk/src/bin/tvc_adapter.rs`: `make-plan` emits an `SppPlanV1`, and `prove-make` consumes the exact
+prepared transact and returns the swap program instruction. The outer instruction carries the
+prepared `private_tx_hash` exactly once, while the program reconstructs the marker message before
+its SPP CPI. Proving keys are pinned by `swap-keys.CHECKSUM` and the `swap-keys-v6` release; run
+`just ensure-swap-keys` before building or testing the adapter from a fresh checkout.
+
 This document specifies the swap's privacy model, the order terms, the program's instructions, and
 its circuits.
 

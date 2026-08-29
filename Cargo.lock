@@ -9183,6 +9183,8 @@ dependencies = [
  "anyhow",
  "borsh",
  "groth16-solana",
+ "serde",
+ "serde_json",
  "solana-address 2.6.1",
  "solana-instruction",
  "solana-keypair",

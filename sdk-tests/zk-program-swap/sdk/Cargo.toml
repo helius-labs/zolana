@@ -12,6 +12,8 @@ swap-prover = { path = "../prover" }
 solana-address = { workspace = true }
 solana-instruction = { workspace = true }
 solana-pubkey = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 wincode = { workspace = true }
 zolana-client = { workspace = true }
 zolana-interface = { workspace = true }
@@ -24,3 +26,7 @@ zolana-wallet = { workspace = true }
 groth16-solana = { workspace = true, features = ["bsb22"] }
 solana-keypair = { workspace = true }
 solana-signature = { workspace = true }
+
+[[bin]]
+name = "swap-tvc-adapter"
+path = "src/bin/tvc_adapter.rs"

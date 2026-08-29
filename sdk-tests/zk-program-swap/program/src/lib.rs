@@ -22,7 +22,7 @@ mod entrypoint {
     pinocchio::entrypoint!(crate::process_instruction);
 }
 
-pinocchio::address::declare_id!("US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx");
+pinocchio::address::declare_id!("3f2cb1KfEpT4YuJkvc5EtfWfr5w5KeffD8Zyvrwhtnpa");
 
 pub fn process_instruction(
     program_id: &Address,
