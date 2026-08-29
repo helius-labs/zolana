@@ -150,7 +150,7 @@ async function ringReadError(
       signer: "reader" in signer ? signer : messageSignerReader(signer),
     });
   } catch (error) {
-    if (error instanceof RingError) return error.details?.message;
+    if (error instanceof RingError) return error.details?.["rpcCode"];
     throw error;
   }
   return undefined;
@@ -311,7 +311,7 @@ describe("ring flow", () => {
 
     // A delegated reader reads after the grant and not after the revoke.
     const delegate = (await freshActor()).signer;
-    expect(await ringReadError(ringRpc, ringProgramId, delegate)).toContain("no active grant");
+    expect(await ringReadError(ringRpc, ringProgramId, delegate)).toBe(-32600);
     await sendInstruction(
       client,
       await grantReadAccessInstruction({
@@ -328,7 +328,7 @@ describe("ring flow", () => {
       signer: messageSignerReader(delegate),
     });
     expect(delegatedView.items.map((item) => item.signature)).toContain(signature);
-    expect(await ringReadError(ringRpc, ringProgramId, sender.signer)).toContain("no active grant");
+    expect(await ringReadError(ringRpc, ringProgramId, sender.signer)).toBe(-32600);
     await sendInstruction(
       client,
       await revokeReadAccessInstruction({
@@ -340,11 +340,11 @@ describe("ring flow", () => {
       authoritySigner,
     );
     expect(await fetchReaderGrant(client, ringProgramId, delegate.address)).toBe(false);
-    expect(await ringReadError(ringRpc, ringProgramId, delegate)).toContain("no active grant");
+    expect(await ringReadError(ringRpc, ringProgramId, delegate)).toBe(-32600);
 
     // The same through a passkey.
     const passkey = syntheticPasskey(process.env.RING_ORIGIN ?? "http://localhost:3000");
-    expect(await ringReadError(ringRpc, ringProgramId, passkey)).toContain("no active grant");
+    expect(await ringReadError(ringRpc, ringProgramId, passkey)).toBe(-32600);
     await sendInstruction(
       client,
       await grantReadAccessInstruction({
@@ -362,7 +362,7 @@ describe("ring flow", () => {
     });
     expect(passkeyView.items.map((item) => item.signature)).toContain(signature);
     const elsewhere = syntheticPasskey("http://evil.example");
-    expect(await ringReadError(ringRpc, ringProgramId, elsewhere)).toContain("origin");
+    expect(await ringReadError(ringRpc, ringProgramId, elsewhere)).toBe(-32600);
     await sendInstruction(
       client,
       await revokeReadAccessInstruction({
@@ -373,7 +373,7 @@ describe("ring flow", () => {
       }),
       authoritySigner,
     );
-    expect(await ringReadError(ringRpc, ringProgramId, passkey)).toContain("no active grant");
+    expect(await ringReadError(ringRpc, ringProgramId, passkey)).toBe(-32600);
   }, 600_000);
 
   it("carries a token-2022 mint in from the default ring, back out, and into a public withdrawal", async () => {
