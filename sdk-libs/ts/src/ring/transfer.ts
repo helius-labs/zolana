@@ -33,6 +33,7 @@ import { ProofInputUtxo } from "../transaction/utxo.js";
 import type { WalletAuthority } from "../transaction/wallet/authority.js";
 import { SOL_MINT, type AssetRegistry } from "../transaction/wallet/asset.js";
 import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
+import { ownerSignerAddresses } from "../client/prover/assembly.js";
 import { resolveWithdrawal } from "../wallet/actions.js";
 import { resolveRegisteredAddress } from "../wallet/registry.js";
 
@@ -97,6 +98,8 @@ export interface ProvenRingTransfer {
   readonly txViewingPublicKey: P256PublicKey;
   readonly payer: Address;
   readonly tree: Address;
+  /** Non-payer ed25519 input owners, they sign the transaction beside the fee payer. */
+  readonly ownerSigners: readonly Address[];
 }
 
 /** Returns a v0 transaction over `lookupTable`, signed by the fee payer only. */
@@ -109,13 +112,14 @@ export async function buildRingTransferTransaction(
 
 /**
  * Value leaves the ring to a default-ring note of the recipient, and the
- * custom-ring proof still covers the exit.
+ * custom-ring proof still covers the exit. Only ring-bound notes fund it, an
+ * all-default transact must not reach the audit as an exit.
  */
 export async function buildRingExitTransaction(
-  input: RingTransferTransactionParams,
+  input: Omit<RingTransferTransactionParams, "inputs">,
   context?: RequestContext,
 ): Promise<Transaction> {
-  return buildRingSendTransaction(input, "default", context);
+  return buildRingSendTransaction({ ...input, inputs: "ring" }, "default", context);
 }
 
 async function buildRingSendTransaction(
@@ -159,7 +163,7 @@ async function buildRingSendTransaction(
     const action = destination === "default" ? "exit" : entering ? "entry" : "transfer";
     await input.authority.requestUserApproval({
       solanaPublicKey: input.authority.solanaPublicKey(),
-      summary: `ring ${action} of ${String(input.amount)} to a shielded address`,
+      summary: `ring ${action} of ${String(input.amount)} ${assetLabel(asset)} in ring ${input.ringProgramId} to a shielded address`,
     });
     const proven = await proveCustomRingTransfer(
       {
@@ -180,6 +184,7 @@ async function buildRingSendTransaction(
         outputTree: proven.tree,
         proof: proven.proof,
         data: proven.data,
+        ...(proven.ownerSigners.length === 0 ? {} : { ownerSigners: proven.ownerSigners }),
       }),
       fetchRingLookupTable({
         client: input.client,
@@ -255,7 +260,7 @@ export async function buildRingWithdrawalTransaction(
     const tree = selected[0]?.tree ?? input.client.tree;
     await input.authority.requestUserApproval({
       solanaPublicKey: input.authority.solanaPublicKey(),
-      summary: `public withdrawal of ${String(input.amount)} from the ring to ${input.recipient}`,
+      summary: `public withdrawal of ${String(input.amount)} ${assetLabel(asset)} from ring ${input.ringProgramId} to ${input.recipient}`,
     });
     const proven = await proveCustomRingTransfer(
       {
@@ -276,6 +281,7 @@ export async function buildRingWithdrawalTransaction(
         outputTree: proven.tree,
         proof: proven.proof,
         data: proven.data,
+        ...(proven.ownerSigners.length === 0 ? {} : { ownerSigners: proven.ownerSigners }),
         withdrawal: resolved.accounts,
       }),
       fetchRingLookupTable({
@@ -372,6 +378,7 @@ export async function proveCustomRingTransfer(
       txViewingPublicKey: encrypted.txViewingPublicKey,
       payer: prepared.payer,
       tree: input.tree,
+      ownerSigners: ownerSignerAddresses(prepared.inputs, prepared.payer),
     });
   } finally {
     encrypted.audit.txViewingSecret.fill(0);
@@ -454,6 +461,10 @@ async function resolveRecipient(
   return registered.address;
 }
 
+function assetLabel(asset: Address): string {
+  return asset === SOL_MINT ? "SOL" : asset;
+}
+
 interface SelectedInput {
   readonly entry: WalletUtxo;
   readonly tree: Address;
@@ -480,28 +491,33 @@ export function selectRingInputs(
       entry.ringDataHash === undefined
     );
   };
+  // Largest first, a fragmented balance covers with the fewest notes.
   const candidates = wallet
     .utxos()
-    .filter((entry) => !entry.spent && entry.utxo.asset === asset && eligible(entry));
+    .filter((entry) => !entry.spent && entry.utxo.asset === asset && eligible(entry))
+    .sort((left, right) =>
+      left.utxo.amount < right.utxo.amount ? 1 : left.utxo.amount > right.utxo.amount ? -1 : 0,
+    );
   const trees = new Set(candidates.map((entry) => entry.outputContext.tree));
   if (trees.size > 1) {
     throw new RingError("RING_MULTIPLE_INPUT_TREES", { details: { asset, treeCount: trees.size } });
   }
+  const total = candidates.reduce((sum, entry) => sum + entry.utxo.amount, 0n);
   const selected: SelectedInput[] = [];
   let available = 0n;
-  for (const entry of candidates) {
+  for (const entry of candidates.slice(0, MAX_INPUTS)) {
     selected.push({ entry, tree: entry.outputContext.tree });
     available += entry.utxo.amount;
     if (available >= amount) break;
   }
   if (available < amount) {
+    if (total >= amount) {
+      throw new RingError("RING_TOO_MANY_INPUTS", {
+        details: { selected: candidates.length, maximum: MAX_INPUTS },
+      });
+    }
     throw new RingError("RING_INSUFFICIENT_BALANCE", {
-      details: { asset, requested: amount.toString(), available: available.toString() },
-    });
-  }
-  if (selected.length > MAX_INPUTS) {
-    throw new RingError("RING_TOO_MANY_INPUTS", {
-      details: { selected: selected.length, maximum: MAX_INPUTS },
+      details: { asset, requested: amount.toString(), available: total.toString() },
     });
   }
   return Object.freeze(selected);

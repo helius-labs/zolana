@@ -1,3 +1,5 @@
+import { getAddressDecoder } from "@solana/kit";
+
 import type {
   Address,
   Bytes32,
@@ -60,6 +62,23 @@ export function circuitUtxo(value: object): CircuitUtxo {
   return result;
 }
 
+/** Unique non-payer Ed25519 input owners in first-input order, mirrors Rust `owner_signer_pubkeys`. */
+export function ownerSignerAddresses(
+  inputs: readonly ProofInputUtxo[],
+  payer: Address,
+): readonly Address[] {
+  const seen = new Set<string>();
+  const signers: Address[] = [];
+  for (const input of inputs) {
+    if (input.isDummy() || input.utxo.owner.signatureType() === "p256") continue;
+    const address = getAddressDecoder().decode(input.utxo.owner.confidentialViewTag());
+    if (address === payer || seen.has(address)) continue;
+    seen.add(address);
+    signers.push(address);
+  }
+  return Object.freeze(signers);
+}
+
 /** With `ring` set, every real note is in that ring or in the default ring, per its own fields. */
 export function assemble(
   proofInputs: SppProofInputs,
@@ -114,12 +133,15 @@ function assembleUnchecked(
     movements.amounts[index] ?? 0n,
   ]);
   // The circuit authorizes an input owner by finding its Poseidon owner hash in
-  // this vector, so the payer enters as `hashBytesBigInt`, matching Rust's
-  // `signer_pk_hashes`.
-  const payerSignerHash = hashBytesBigInt(addressBytes(proofInputs.payer));
+  // the vector, the payer in slot zero and unique non-payer owners after it,
+  // matching Rust's `signer_pk_hashes`.
+  const ownerSignerHashes = ownerSignerAddresses(proofInputs.inputUtxos, proofInputs.payer).map(
+    (address) => hashBytesBigInt(addressBytes(address)),
+  );
   const signerPublicKeyHashes = [
-    payerSignerHash,
-    ...Array.from({ length: inputHashes.length }, () => 0n),
+    hashBytesBigInt(addressBytes(proofInputs.payer)),
+    ...ownerSignerHashes,
+    ...Array.from({ length: inputHashes.length - ownerSignerHashes.length }, () => 0n),
   ];
   const allowDummyInputs = 1n;
   const ringProgramId = ring === undefined ? 0n : hashBytesBigInt(addressBytes(ring));

@@ -20,6 +20,7 @@ import { describe, expect, it } from "vitest";
 import {
   ShieldedKeypair,
   SigningKey,
+  SPL_TOKEN_2022_PROGRAM_ID,
   Wallet,
   buildDepositTransaction,
   createZolanaClient,
@@ -376,8 +377,10 @@ describe("ring flow", () => {
 
   it("carries usdc in from the default ring, back out, and into a public withdrawal", async () => {
     const ringProgramId = address(requiredEnv("RING_PROGRAM_ID"));
-    const usdc = address(requiredEnv("ZOLANA_TEST_MINT"));
-    const fundingTokenAccount = address(requiredEnv("ZOLANA_TEST_TOKEN_ACCOUNT"));
+    // The Token-2022 test mint, the legacy mint's vault is asserted absolutely
+    // by the private-flow suite.
+    const usdc = address(requiredEnv("ZOLANA_TEST_TOKEN_2022_MINT"));
+    const fundingTokenAccount = address(requiredEnv("ZOLANA_TEST_TOKEN_2022_ACCOUNT"));
     const client = await createZolanaClient({
       solanaRpcUrl: requiredEnv("ZOLANA_LOCALNET_URL"),
       indexerUrl: requiredEnv("ZOLANA_INDEXER_URL"),
@@ -407,6 +410,7 @@ describe("ring flow", () => {
       asset: usdc,
       amount: deposited,
       splTokenAccount: fundingTokenAccount,
+      splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID,
     });
     await signSendAndConfirm(client, deposit, [mintAuthority]);
     await sync(client, sender);
@@ -509,6 +513,7 @@ describe("ring flow", () => {
       recipient: mintAuthority.address,
       asset: usdc,
       amount: withdrawn,
+      splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID,
       lookupTable: table.address,
     });
     const withdrawalSignature = await signSendAndConfirm(client, withdrawalTransaction, [

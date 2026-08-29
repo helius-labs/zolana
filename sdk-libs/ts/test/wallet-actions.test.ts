@@ -467,6 +467,26 @@ describe("selectRingInputs", () => {
     expect(selected).toHaveLength(2);
   });
 
+  it("covers a fragmented balance with the largest note", () => {
+    const wallet = ringNoteWallet(spendingKeypair(), [
+      ...Array.from({ length: 6 }, () => [5n, RING] as const),
+      [100n, RING],
+    ]);
+    const selected = selectRingInputs(wallet, RING, SOL_MINT, 100n, "ring");
+    expect(selected).toHaveLength(1);
+    expect(selected[0]?.entry.utxo.amount).toBe(100n);
+  });
+
+  it("refuses a cover wider than the input cap", () => {
+    const wallet = ringNoteWallet(
+      spendingKeypair(),
+      Array.from({ length: 6 }, () => [5n, RING] as const),
+    );
+    expect(() => selectRingInputs(wallet, RING, SOL_MINT, 30n, "ring")).toThrow(
+      "RING_TOO_MANY_INPUTS",
+    );
+  });
+
   it("never offers another ring's notes under either mode", () => {
     const wallet = ringNoteWallet(spendingKeypair(), [
       [50n, RECIPIENT],

@@ -201,6 +201,21 @@ describe("ring transact settlement", () => {
     ]);
   });
 
+  it("appends non-payer owner signers as readonly signers", () => {
+    const owner = addressOf(45);
+    const pool = ringTransactAccounts({
+      payer: PAYER,
+      inputTree: TREE,
+      outputTree: OUTPUT_TREE,
+      ringAuth: RING_AUTH,
+      ownerSigners: [owner],
+    });
+    expect(pool.map((meta) => [meta.address, meta.role])).toContainEqual([
+      owner,
+      AccountRole.READONLY_SIGNER,
+    ]);
+  });
+
   it("adds the settlement statics to a new table without requiring them at fetch", async () => {
     const required = await ringLookupTableAddresses({ ringProgramId: RING, tree: TREE });
     for (const address of ringSettlementStatics()) {
