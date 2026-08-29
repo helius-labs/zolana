@@ -1459,10 +1459,7 @@ impl<'a> DefaultRingDeposit<'a> {
         send(rpc, self.depositor, &[deposit])?;
         Ok(Note {
             owner: self.depositor,
-            asset: match self.asset {
-                DepositAsset::Sol => SOL_MINT,
-                DepositAsset::Spl(spl) => spl.mint,
-            },
+            asset: self.asset.mint(),
             amount: self.amount,
             blinding,
             ring_program_id: None,

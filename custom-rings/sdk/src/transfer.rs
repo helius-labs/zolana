@@ -29,7 +29,7 @@ use zolana_transaction::{
         encode_confidential_slots, ChangeLayout, PreparedTransfer, SppProofOutputUtxo,
     },
     owner_utxo_hash, AssetRegistry, Data, EncryptedScheme, RingDepositPlaintext, TransactionError,
-    Utxo, SOL_MINT,
+    Utxo,
 };
 use zolana_tree::{TreeAccount, TreeError};
 
@@ -499,15 +499,11 @@ impl RingDeposit<'_> {
         .instruction()?;
         let signature =
             rpc.create_and_send_transaction(&[ix], self.payer.pubkey(), &[self.payer])?;
-        let mint = match self.asset {
-            DepositAsset::Sol => SOL_MINT,
-            DepositAsset::Spl(spl) => spl.mint,
-        };
         Ok(RingDepositReceipt {
             signature,
             utxo: Utxo {
                 owner: self.recipient.signing_pubkey(),
-                asset: mint,
+                asset: self.asset.mint(),
                 amount: self.amount,
                 blinding,
                 ring_program_id: Some(self.ring.program_id()),
@@ -821,6 +817,7 @@ mod tests {
         TransactSolTransferAccounts,
     };
     use zolana_transaction::instructions::transact::{ConfidentialTransfer, SettlementTarget};
+    use zolana_transaction::SOL_MINT;
 
     use super::*;
 
