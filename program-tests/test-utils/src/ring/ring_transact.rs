@@ -100,6 +100,44 @@ enum RingWithdrawal {
     },
 }
 
+impl RingWithdrawal {
+    fn settlement_target(&self) -> SettlementTarget {
+        match self {
+            Self::Sol { recipient } => SettlementTarget::Sol {
+                user_sol_account: Address::new_from_array(recipient.to_bytes()),
+            },
+            Self::Spl {
+                mint,
+                recipient_token,
+            } => SettlementTarget::Spl {
+                user_spl_token: Address::new_from_array(recipient_token.to_bytes()),
+                spl_token_interface: Address::new_from_array(
+                    zolana_interface::pda::spl_interface(mint).to_bytes(),
+                ),
+            },
+        }
+    }
+
+    fn interface_accounts(&self) -> TransactInterfaceTransferAccounts {
+        match self {
+            Self::Sol { recipient } => {
+                TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
+                    recipient: *recipient,
+                })
+            }
+            Self::Spl {
+                mint,
+                recipient_token,
+            } => TransactInterfaceTransferAccounts::SplWithdrawal(TransactSplWithdrawalAccounts {
+                mint: *mint,
+                spl_interface: zolana_interface::pda::spl_interface(mint),
+                user_token_account: *recipient_token,
+                token_program: zolana_interface::pda::spl_token_program_id(),
+            }),
+        }
+    }
+}
+
 struct RingTransferOperation<'a> {
     from: &'a str,
     to: Option<&'a str>,
@@ -123,7 +161,7 @@ impl RingHarness {
         asset: Address,
         amount: u64,
     ) -> Result<Signature> {
-        self.execute_ring_transfer(from, Some(to), asset, amount, None, RingRail::Eddsa)
+        self.execute_ring_transfer(from, Some(to), [asset; 2], amount, None, RingRail::Eddsa)
     }
 
     /// Ring-transfer `amount` of `asset` from `from` to `to` over the P256 rail
@@ -137,7 +175,7 @@ impl RingHarness {
         asset: Address,
         amount: u64,
     ) -> Result<Signature> {
-        self.execute_ring_transfer(from, Some(to), asset, amount, None, RingRail::P256)
+        self.execute_ring_transfer(from, Some(to), [asset; 2], amount, None, RingRail::P256)
     }
 
     /// Ring-withdraw `amount` of `asset` from `from`'s ring UTXOs. The public
@@ -171,7 +209,7 @@ impl RingHarness {
         let sig = self.execute_ring_transfer(
             from,
             None,
-            asset,
+            [asset; 2],
             amount,
             Some(withdrawal),
             RingRail::Eddsa,
@@ -188,22 +226,14 @@ impl RingHarness {
         spl_mint: Address,
         amount: u64,
     ) -> Result<Signature> {
-        if self.ring_config.is_none() {
-            self.create_enabled_ring_config()?;
-        }
-        self.ensure_fresh_actor(from)?;
-        self.ensure_fresh_actor(to)?;
-        let inputs = self.take_ring_inputs(from, [spl_mint, SOL_MINT])?;
-        self.execute_ring_operation(RingTransferOperation {
+        self.execute_ring_transfer(
             from,
-            to: Some(to),
-            inputs: &inputs,
-            send_asset: spl_mint,
+            Some(to),
+            [spl_mint, SOL_MINT],
             amount,
-            withdrawal: None,
-            rail: RingRail::Eddsa,
-            tamper: ProofTamper::None,
-        })
+            None,
+            RingRail::Eddsa,
+        )
     }
 
     /// Build, prove (`ring_transact` rail), send, and verify a ring transfer or
@@ -211,11 +241,12 @@ impl RingHarness {
     /// `None` for a pure shielded transfer. Pushes the indexed
     /// transaction, tracks the recipient / change UTXOs, and marks consumed
     /// inputs spent — mirroring the default-ring `transact` flow.
+    /// `input_assets[0]` is the sent asset.
     fn execute_ring_transfer(
         &mut self,
         from: &str,
         to: Option<&str>,
-        send_asset: Address,
+        input_assets: [Address; 2],
         amount: u64,
         withdrawal: Option<RingWithdrawal>,
         rail: RingRail,
@@ -228,7 +259,8 @@ impl RingHarness {
             self.ensure_fresh_actor(to)?;
         }
 
-        let inputs = self.take_ring_inputs(from, [send_asset, send_asset])?;
+        let send_asset = input_assets[0];
+        let inputs = self.take_ring_inputs(from, input_assets)?;
         self.execute_ring_operation(RingTransferOperation {
             from,
             to,
@@ -381,32 +413,8 @@ impl RingHarness {
             (Some(addr), None) => {
                 transfer.send(addr, send_asset, amount)?;
             }
-            (None, Some(RingWithdrawal::Sol { recipient })) => {
-                transfer.withdraw(
-                    send_asset,
-                    amount,
-                    SettlementTarget::Sol {
-                        user_sol_account: Address::new_from_array(recipient.to_bytes()),
-                    },
-                )?;
-            }
-            (
-                None,
-                Some(RingWithdrawal::Spl {
-                    mint,
-                    recipient_token,
-                }),
-            ) => {
-                transfer.withdraw(
-                    send_asset,
-                    amount,
-                    SettlementTarget::Spl {
-                        user_spl_token: Address::new_from_array(recipient_token.to_bytes()),
-                        spl_token_interface: Address::new_from_array(
-                            zolana_interface::pda::spl_interface(&mint).to_bytes(),
-                        ),
-                    },
-                )?;
+            (None, Some(withdrawal)) => {
+                transfer.withdraw(send_asset, amount, withdrawal.settlement_target())?;
             }
             (Some(_), Some(_)) => {
                 return Err(anyhow!("a ring transfer cannot both send and withdraw"));
@@ -428,22 +436,7 @@ impl RingHarness {
         let data = self.prove_and_assemble(&proof_inputs, &from_keypair, ring, rail, tamper)?;
 
         let interface_transfer_accounts = withdrawal
-            .map(|withdrawal| match withdrawal {
-                RingWithdrawal::Sol { recipient } => vec![TransactInterfaceTransferAccounts::Sol(
-                    TransactSolTransferAccounts { recipient },
-                )],
-                RingWithdrawal::Spl {
-                    mint,
-                    recipient_token,
-                } => vec![TransactInterfaceTransferAccounts::SplWithdrawal(
-                    TransactSplWithdrawalAccounts {
-                        mint,
-                        spl_interface: zolana_interface::pda::spl_interface(&mint),
-                        user_token_account: recipient_token,
-                        token_program: zolana_interface::pda::spl_token_program_id(),
-                    },
-                )],
-            })
+            .map(|withdrawal| vec![withdrawal.interface_accounts()])
             .unwrap_or_default();
         let owner_signers = proof_inputs
             .owner_signer_pubkeys()?

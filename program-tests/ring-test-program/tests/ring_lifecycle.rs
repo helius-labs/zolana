@@ -136,6 +136,8 @@ fn spl_default_note_funds_an_eddsa_ring_transfer() -> Result<()> {
     harness.ring_transfer("alice", "bob", mint, 900)?;
     harness.sync("bob")?;
     harness.assert_utxos("bob");
+    harness.sync("alice")?;
+    harness.assert_utxos("alice");
     Ok(())
 }
 

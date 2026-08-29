@@ -36,6 +36,7 @@ use custom_ring_sdk::{
 };
 use shared::{
     custom_ring_program_id, prover_url, send, send_v0_expecting_rejection, setup, TestEnv,
+    USDC_ASSET_ID,
 };
 use solana_address::Address;
 use solana_keypair::Keypair;
@@ -195,10 +196,10 @@ fn localnet_bring_up_is_live() -> Result<()> {
     );
     assert_eq!(
         env.assets
-            .resolve(2)
+            .resolve(USDC_ASSET_ID)
             .map_err(|e| anyhow!("USDC asset resolution failed {e:?}"))?,
         env.usdc_mint,
-        "asset id 2 is the bring-up USDC mint"
+        "the bring-up USDC mint sits at the first allocated id"
     );
     fetch_account(rpc, &pda::spl_asset_counter())?;
     assert_eq!(
@@ -1317,6 +1318,11 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
         token_amount(&fetch_account(rpc, &recipient_usdc)?),
         USDC_WITHDRAW_AMOUNT,
         "public recipient after the ring withdrawal"
+    );
+    assert_eq!(
+        token_amount(&fetch_account(rpc, &pda::spl_interface(&usdc))?),
+        USDC_DEFAULT_DEPOSIT + USDC_RING_DEPOSIT - USDC_WITHDRAW_AMOUNT,
+        "vault keeps the shielded remainder"
     );
     assert_eq!(
         AuditLookup {

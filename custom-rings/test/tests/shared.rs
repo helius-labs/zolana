@@ -20,9 +20,9 @@ use zolana_client::{
     SolanaRpc, ZolanaClient, ZolanaIndexer,
 };
 use zolana_interface::{
-    instruction::{CreateAssetCounter, CreateProtocolConfig, CreateSplInterface, CreateTree},
+    instruction::{CreateProtocolConfig, CreateTree},
     pda,
-    state::tree_account_size,
+    state::{tree_account_size, SplAssetCounter},
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::ShieldedKeypair;
@@ -31,7 +31,7 @@ use zolana_test_utils::{
     localnet::{isolated_temp_path, LocalnetValidator, UpgradeableProgram, WorkspaceArtifacts},
     prover::spawn_workspace_prover,
     smart_account::{self, StandardSigners},
-    spl::create_mint,
+    spl::{create_mint, RegisterSplAsset},
 };
 use zolana_transaction::{AssetRegistry, Wallet};
 use zolana_user_registry_interface::user_registry_program_id;
@@ -47,6 +47,8 @@ pub const PROTOCOL_VAULT_AIRDROP: u64 = 5_000_000_000;
 /// Each actor signs its own ring deposits and transacts, and the deposits move
 /// real lamports out of this balance.
 pub const ACTOR_AIRDROP: u64 = 10_000_000_000;
+/// The bring-up registers USDC first.
+pub const USDC_ASSET_ID: u64 = SplAssetCounter::FIRST_ASSET_ID;
 /// A live localnet with the protocol bootstrapped and two funded actors. The
 /// custom-ring program's own config account is NOT created here: that is the
 /// first step of the lifecycle under test.
@@ -232,35 +234,18 @@ pub fn setup() -> Result<TestEnv> {
     let tree = tree.pubkey();
 
     let usdc_mint = create_mint(&rpc, &payer)?;
-    if rpc.get_account(pda::spl_asset_counter())?.is_none() {
-        let counter_ix = CreateAssetCounter {
-            authority: accounts.protocol_vault,
-        }
-        .instruction();
-        let counter_sync = smart_account::execute_sync_ix(
-            &accounts.protocol_settings,
-            0,
-            &[authority.pubkey()],
-            &[counter_ix],
-        );
-        rpc.create_and_send_transaction(&[counter_sync], payer_address, &[&payer, &authority])?;
-    }
-    let interface_ix = CreateSplInterface {
-        authority: accounts.protocol_vault,
+    RegisterSplAsset {
+        payer: &payer,
+        authority: &authority,
+        protocol_settings: accounts.protocol_settings,
+        protocol_vault: accounts.protocol_vault,
         mint: usdc_mint,
         token_program: pda::spl_token_program_id(),
     }
-    .instruction();
-    let interface_sync = smart_account::execute_sync_ix(
-        &accounts.protocol_settings,
-        0,
-        &[authority.pubkey()],
-        &[interface_ix],
-    );
-    rpc.create_and_send_transaction(&[interface_sync], payer_address, &[&payer, &authority])?;
+    .send(&rpc)?;
 
     let mut assets = AssetRegistry::default();
-    assets.insert(2, usdc_mint)?;
+    assets.insert(USDC_ASSET_ID, usdc_mint)?;
 
     let sender = new_actor(&mut rpc, &assets)?;
     let recipient = new_actor(&mut rpc, &assets)?;
