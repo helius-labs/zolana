@@ -8,7 +8,7 @@ use zolana_interface::{
         TransactSplWithdrawalAccounts,
     },
     pda,
-    shape::Shape,
+    shape::{Shape, SPP_SUPPORTED_SHAPES},
     MAX_INTERFACE_TRANSFERS, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{
@@ -596,7 +596,7 @@ fn unsigned_spend_inputs(
     let eligible =
         |entry: &WalletUtxo| is_default_ring_spendable(entry) && entry.ring_data_hash.is_none();
     let tree = resolve_spend_tree(request.wallet, request.asset, eligible)?;
-    let inputs = select_inputs(
+    let inputs = select_bounded_inputs(
         request.wallet,
         tree,
         request.asset,
@@ -604,6 +604,63 @@ fn unsigned_spend_inputs(
         eligible,
     )?;
     Ok((tree, inputs))
+}
+
+/// Largest first, a fragmented balance covers with the fewest notes.
+fn select_bounded_inputs(
+    wallet: &Wallet,
+    tree: Address,
+    asset: Address,
+    amount: u64,
+    eligible: impl Fn(&WalletUtxo) -> bool,
+) -> Result<Vec<UnsignedSpendInput>, ClientError> {
+    let max_inputs = SPP_SUPPORTED_SHAPES
+        .iter()
+        .map(|shape| shape.n_inputs())
+        .max()
+        .unwrap_or(0);
+    let mut candidates: Vec<&WalletUtxo> = wallet
+        .utxos
+        .iter()
+        .filter(|entry| {
+            !entry.spent
+                && entry.utxo.asset == asset
+                && entry.output_context.tree == tree
+                && eligible(entry)
+        })
+        .collect();
+    candidates.sort_by_key(|entry| std::cmp::Reverse(entry.utxo.amount));
+    let mut total = 0u64;
+    for entry in &candidates {
+        total = total
+            .checked_add(entry.utxo.amount)
+            .ok_or(ClientError::SelectedBalanceOverflow)?;
+    }
+    let mut selected = Vec::new();
+    let mut available = 0u64;
+    for entry in candidates.iter().take(max_inputs) {
+        selected.push(UnsignedSpendInput {
+            utxo: entry.utxo.clone(),
+            utxo_hash: entry.output_context.hash,
+            nullifier: entry.nullifier,
+            data_hash: entry.data_hash,
+            ring_data_hash: entry.ring_data_hash,
+        });
+        available += entry.utxo.amount;
+        if available >= amount {
+            return Ok(selected);
+        }
+    }
+    if total >= amount {
+        return Err(ClientError::TooManyInputs {
+            got: candidates.len(),
+            max: max_inputs,
+        });
+    }
+    Err(ClientError::InsufficientBalance {
+        requested: amount,
+        available: total,
+    })
 }
 
 fn spend_proof_inputs(
@@ -2473,7 +2530,7 @@ mod tests {
         .expect("two plain utxos cover the amount");
 
         assert_eq!(selected.tree, Address::default());
-        assert_eq!(amounts(&selected.inputs), vec![10, 15]);
+        assert_eq!(amounts(&selected.inputs), vec![15, 10]);
         assert!(selected
             .inputs
             .iter()
@@ -2654,9 +2711,51 @@ mod tests {
             },
             &keypair,
         )
-        .expect("the unspent 15 covers the amount");
+        .expect("the unspent 20 covers the amount");
 
-        assert_eq!(amounts(&selected.inputs), vec![15]);
+        assert_eq!(amounts(&selected.inputs), vec![20]);
+    }
+
+    #[test]
+    fn select_spend_inputs_prefer_one_covering_note_over_fragments() {
+        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        for index in 0..6u8 {
+            push_utxo(&mut wallet, &keypair, 5, [index + 1; 31]);
+        }
+        push_utxo(&mut wallet, &keypair, 100, [10u8; 31]);
+
+        let selected = select_spend_inputs_sync(
+            SpendInputParams {
+                wallet: &wallet,
+                asset: SOL_MINT,
+                amount: 100,
+            },
+            &keypair,
+        )
+        .expect("the covering note spends alone");
+        assert_eq!(amounts(&selected.inputs), vec![100]);
+    }
+
+    #[test]
+    fn select_spend_inputs_refuse_a_cover_wider_than_the_shape() {
+        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        for index in 0..6u8 {
+            push_utxo(&mut wallet, &keypair, 5, [index + 1; 31]);
+        }
+
+        assert!(matches!(
+            select_spend_inputs_sync(
+                SpendInputParams {
+                    wallet: &wallet,
+                    asset: SOL_MINT,
+                    amount: 30,
+                },
+                &keypair,
+            ),
+            Err(ClientError::TooManyInputs { got: 6, max: 5 })
+        ));
     }
 
     /// An ineligible (ring-bound or data-carrying) utxo on a second tree must not
