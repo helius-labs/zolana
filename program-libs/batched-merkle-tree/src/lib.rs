@@ -16,7 +16,7 @@
 //! | [`merkle_tree`] | `BatchedMerkleTreeAccount` and queue/tree operations |
 //! | [`queue`] | Queue batch insertion helper |
 //! | [`queue_batch_metadata`] | Metadata for queue batches |
-//! | [`initialize_address_tree`] | Initialize a batched address or nullifier tree |
+//! | [`initialize_address_tree`] | Configure and initialize a batched nullifier tree |
 //! | [`merkle_tree_metadata`] | Tree and queue metadata structs |
 //! | [`merkle_tree_update`] | Apply queued batches to the tree |
 //! | [`verify`] | Groth16 verification and verifying keys |
@@ -32,12 +32,9 @@
 //! ## Operations
 //!
 //! ### Initialization
-//! Address and nullifier trees are created with a single Solana account. See
-//! [`initialize_address_tree`]:
-//! - `init_batched_address_merkle_tree_account` seeds the address sentinel root
-//!   ([`constants::ADDRESS_TREE_INIT_ROOT_40`]).
-//! - `init_batched_nullifier_merkle_tree_from_account_info` seeds the BN254
-//!   `p-1` sentinel root ([`constants::NULLIFIER_TREE_INIT_ROOT_40`]).
+//! The shielded pool initializes its nullifier tree through
+//! [`initialize_address_tree`], seeding it with the BN254 `p-1` sentinel root
+//! ([`constants::NULLIFIER_TREE_INIT_ROOT_40`]).
 //!
 //! ### Queue insertion
 //! - [`merkle_tree::BatchedMerkleTreeAccount::insert_nullifier_into_queue`]
@@ -116,7 +113,6 @@ pub mod merkle_tree_metadata;
 pub mod merkle_tree_update;
 pub mod queue;
 pub mod queue_batch_metadata;
-pub(crate) mod rent;
 pub mod verify;
 pub mod zero_copy;
 

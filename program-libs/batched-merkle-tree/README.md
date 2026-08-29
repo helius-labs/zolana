@@ -18,7 +18,7 @@ queue insertion, batch append, and PDA cleanup.
 | `queue` | Queue batch insertion helper |
 | `queue_batch_metadata` | Metadata for queue batches |
 | `nullifier_pda` | PDA payload, PDA seeds, test-only host emulation of the PDA set |
-| `initialize_address_tree` | Initialize a batched address or nullifier tree |
+| `initialize_address_tree` | Configure and initialize a batched nullifier tree |
 | `merkle_tree_metadata` | Tree and queue metadata structs |
 | `merkle_tree_update` | Apply queued batches to the tree |
 | `verify` | Groth16 verification and verifying keys |
