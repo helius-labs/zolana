@@ -14,7 +14,13 @@ import { SPL_TOKEN_2022_PROGRAM_ID, type Bytes32 } from "../src/interface/index.
 import { ShieldedKeypair, SigningKey } from "../src/keypair/index.js";
 import { Data, KeypairWalletAuthority, SOL_MINT, Utxo, Wallet } from "../src/transaction/index.js";
 import { AssetRegistry } from "../src/transaction/wallet/asset.js";
-import { createSplit, createTransfer, createWithdrawal } from "../src/wallet/actions.js";
+import {
+  createSplit,
+  createTransfer,
+  createWithdrawal,
+  resolveWithdrawal,
+} from "../src/wallet/actions.js";
+import { associatedTokenAddress, splInterfaceWithBump } from "../src/interface/pda/index.js";
 import { buildDepositTransaction, createDeposit } from "../src/wallet/deposit.js";
 import { createMerge, MergeMaterial } from "../src/wallet/merge.js";
 import { authorizePrivateTransaction } from "../src/wallet/private-transaction.js";
@@ -340,5 +346,33 @@ describe("unsigned public transaction builders", () => {
       .authorized;
     expect(authorized.proofInputs.outputs.filter((output) => output.amount > 0n)).toHaveLength(2);
     expect(wallet.balance(SOL_MINT).amount).toBe(100n);
+  });
+});
+
+describe("resolveWithdrawal", () => {
+  it("derives one SPL settlement, shared by the proof side and the accounts side", async () => {
+    const resolved = await resolveWithdrawal(RECIPIENT, SPL_MINT, SPL_TOKEN_2022_PROGRAM_ID);
+    if (resolved.target.kind !== "spl" || resolved.accounts.kind !== "spl") {
+      throw new Error("an SPL mint resolves to SPL settlement");
+    }
+    expect(resolved.accounts.recipientTokenAccount).toBe(resolved.target.recipientTokenAccount);
+    expect(resolved.accounts.splTokenInterface).toBe(resolved.target.splTokenInterface);
+    expect(resolved.accounts.mint).toBe(SPL_MINT);
+    expect(resolved.accounts.tokenProgram).toBe(SPL_TOKEN_2022_PROGRAM_ID);
+    expect(resolved.target.recipientTokenAccount).toBe(
+      await associatedTokenAddress(RECIPIENT, SPL_MINT, SPL_TOKEN_2022_PROGRAM_ID),
+    );
+    const [splTokenInterface, splInterfaceBump] = await splInterfaceWithBump(SPL_MINT);
+    expect(resolved.target.splTokenInterface).toBe(splTokenInterface);
+    expect(resolved.target.splInterfaceBump).toBe(splInterfaceBump);
+  });
+
+  it("settles SOL through the recipient account itself", async () => {
+    const resolved = await resolveWithdrawal(RECIPIENT, SOL_MINT);
+    if (resolved.target.kind !== "sol" || resolved.accounts.kind !== "sol") {
+      throw new Error("SOL resolves to SOL settlement");
+    }
+    expect(resolved.target.recipient).toBe(RECIPIENT);
+    expect(resolved.accounts.recipient).toBe(RECIPIENT);
   });
 });
