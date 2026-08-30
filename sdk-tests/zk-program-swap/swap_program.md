@@ -16,23 +16,9 @@ cancelled is public; taking reveals the taker and cancelling reveals the maker, 
 The swap program is an SPP ZK program: it verifies a small proof of its own swap rules and delegates
 the confidential transfer to SPP. It stores no state and owns no accounts.
 
-The devnet deployment used by the TVC wallet demo is
-`3f2cb1KfEpT4YuJkvc5EtfWfr5w5KeffD8Zyvrwhtnpa`. The program-neutral TVC adapter lives in
-`sdk/src/bin/tvc_adapter.rs`: `make-plan` emits a TVC `Program` transition, and `prove-make`
-consumes the exact prepared transact and returns the swap-program instruction. The wallet combines
-that instruction with any other user-approved instructions into a complete unsigned Solana
-transaction, which TVC validates and signs. The swap instruction carries the prepared
-`private_tx_hash` exactly once, while the program reconstructs the marker message before its SPP
-CPI. Proving keys are pinned by `swap-keys.CHECKSUM` and the `swap-keys-v6` release; run `just
-ensure-swap-keys` before building or testing the adapter from a fresh checkout.
-
-The TVC adapter exposes paired plan/prove commands for `make`, `take`, and
-`cancel`, plus `decode-order` for client-relayed discovery. Discovery accepts a
-decrypted confidential output, its public marker, the resolved maker address,
-and the designated taker address; it reconstructs the full order and rejects it
-unless both its output and program-input representations match the indexed
-commitment. The derived `take` circuit has no change slot, so its wallet input
-must be one exact `destination_amount` UTXO.
+The current devnet deployment is
+`3f2cb1KfEpT4YuJkvc5EtfWfr5w5KeffD8Zyvrwhtnpa`. Proving keys are pinned by
+`swap-keys.CHECKSUM` and the immutable `swap-keys-v6` release.
 
 This document specifies the swap's privacy model, the order terms, the program's instructions, and
 its circuits.
