@@ -68,7 +68,6 @@ struct MakePlanRequest {
     destination_asset: AssetJson,
     destination_amount: String,
     expires_at_ms: String,
-    prover_profile_id: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -125,7 +124,6 @@ struct TakePlanRequest {
     wallet_input_commitment: String,
     wallet_input_blinding: String,
     expires_at_ms: String,
-    prover_profile_id: String,
     order: OrderContext,
 }
 
@@ -153,7 +151,6 @@ struct ProveTakeRequest {
 struct CancelPlanRequest {
     payer: String,
     expires_at_ms: String,
-    prover_profile_id: String,
     order: OrderContext,
 }
 
@@ -290,8 +287,6 @@ fn make_plan(request: MakePlanRequest) -> Result<Value> {
             "view_tag": encode_hex(&marker.view_tag),
             "data": encode_hex(&marker.data),
         }],
-        "public_effects": { "type": "PrivateOnly" },
-        "prover_profile_id": request.prover_profile_id,
         "expires_at_ms": request.expires_at_ms,
     });
     let context = MakeContext {
@@ -481,8 +476,6 @@ fn take_plan(request: TakePlanRequest) -> Result<Value> {
             output_json(&destination_output, &request.order.destination_asset)?,
         ],
         "messages": [],
-        "public_effects": { "type": "PrivateOnly" },
-        "prover_profile_id": request.prover_profile_id,
         "expires_at_ms": request.expires_at_ms,
     });
     let context = TakeContext {
@@ -564,8 +557,6 @@ fn cancel_plan(request: CancelPlanRequest) -> Result<Value> {
         "program_authorities": [{ "seeds": authority }],
         "outputs": [output_json(&source_output, &request.order.source_asset)?],
         "messages": [],
-        "public_effects": { "type": "PrivateOnly" },
-        "prover_profile_id": request.prover_profile_id,
         "expires_at_ms": request.expires_at_ms,
     });
     let context = CancelContext {
@@ -790,7 +781,6 @@ mod tests {
             destination_asset: AssetJson::Sol,
             destination_amount: "1000000".to_owned(),
             expires_at_ms: "2000000000000".to_owned(),
-            prover_profile_id: "zolnet-devnet-external-http-v1".to_owned(),
         }
     }
 
@@ -875,7 +865,6 @@ mod tests {
             wallet_input_commitment: encode_hex(&wallet_input.hash().expect("hash")),
             wallet_input_blinding: encode_hex(&wallet_input.blinding),
             expires_at_ms: "2000000000000".to_owned(),
-            prover_profile_id: "zolnet-devnet-external-http-v1".to_owned(),
             order: context.order,
         })
         .expect("take plan");
@@ -892,7 +881,6 @@ mod tests {
         let plan = cancel_plan(CancelPlanRequest {
             payer: PAYER.to_owned(),
             expires_at_ms: "2000000000000".to_owned(),
-            prover_profile_id: "zolnet-devnet-external-http-v1".to_owned(),
             order: context.order,
         })
         .expect("cancel plan");
