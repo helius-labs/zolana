@@ -24,6 +24,14 @@ prepared `private_tx_hash` exactly once, while the program reconstructs the mark
 its SPP CPI. Proving keys are pinned by `swap-keys.CHECKSUM` and the `swap-keys-v6` release; run
 `just ensure-swap-keys` before building or testing the adapter from a fresh checkout.
 
+The TVC adapter exposes paired plan/prove commands for `make`, `take`, and
+`cancel`, plus `decode-order` for client-relayed discovery. Discovery accepts a
+decrypted confidential output, its public marker, the resolved maker address,
+and the designated taker address; it reconstructs the full order and rejects it
+unless both its output and program-input representations match the indexed
+commitment. The derived `take` circuit has no change slot, so its wallet input
+must be one exact `destination_amount` UTXO.
+
 This document specifies the swap's privacy model, the order terms, the program's instructions, and
 its circuits.
 
