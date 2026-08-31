@@ -148,7 +148,7 @@ Fixed
   from the seed unwiped after building its keys, they are wiped before it
   returns.
 
-## 0.1.4-alpha — unreleased
+## 0.1.4-alpha — 2026-08-29
 
 Value moves both ways between the default pool and a custom ring, pool
 notes fund the way in and an exit builder brings holdings back out.

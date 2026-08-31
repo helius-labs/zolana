@@ -17,3 +17,14 @@ if (heading === undefined || !expected.test(heading)) {
   );
   process.exit(1);
 }
+const stale = changelog
+  .split("\n")
+  .filter((line) => line.startsWith("## "))
+  .slice(1)
+  .filter((line) => line.endsWith("— unreleased"));
+if (stale.length > 0) {
+  console.error(
+    `CHANGELOG.md keeps "unreleased" only on the first entry, found "${stale[0]}". See CHANGELOG-RULES.md.`,
+  );
+  process.exit(1);
+}
