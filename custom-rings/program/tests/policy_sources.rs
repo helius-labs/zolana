@@ -358,3 +358,19 @@ fn the_layout_keeps_entries_tree_and_sources_fixed() {
     let sources = own_source_slots();
     assert_eq!(&account.data[67..], bytemuck::bytes_of(&sources));
 }
+
+/// Both SPP trees must equal the entries tree, an entry written through another
+/// tree escapes the absence proof the ring relies on.
+#[test]
+fn a_mutation_tree_apart_from_the_entries_tree_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk_rules();
+    for tree in ["input_tree", "output_tree"] {
+        let mut fixture = create_entry_fixture(
+            initialized_policy_config_account(),
+            ListId::Allow as u8,
+            authority(),
+        );
+        fixture.substitute(tree, Pubkey::new_from_array([80; 32]));
+        fixture.expect_err(&mollusk, custom(CustomRingError::InvalidPolicyTree));
+    }
+}

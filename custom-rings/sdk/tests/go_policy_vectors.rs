@@ -241,6 +241,7 @@ fn the_policy_transact_carries_the_policy_config() {
         payer: solana_address::Address::new_from_array([1u8; 32]),
         input_tree: solana_address::Address::new_from_array([2u8; 32]),
         output_tree: solana_address::Address::new_from_array([2u8; 32]),
+        entries_tree: solana_address::Address::new_from_array([4u8; 32]),
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         proof: custom_ring_sdk::CustomRingProof {

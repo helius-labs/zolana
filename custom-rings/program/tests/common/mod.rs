@@ -741,14 +741,21 @@ pub fn transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
                 account: initialized_policy_config_account(),
             },
             Slot {
+                label: "entries_tree",
+                meta: AccountMeta::new_readonly(entries_tree(), false),
+                account: initialized_entries_tree_account(),
+            },
+            Slot {
                 label: "spp_payer",
                 meta: AccountMeta::new(payer(), true),
                 account: account(1_000_000_000),
             },
+            // A stub distinct from entries_tree, unread because the CPI is
+            // unreached.
             Slot {
                 label: "input_tree",
-                meta: AccountMeta::new(entries_tree(), false),
-                account: initialized_entries_tree_account(),
+                meta: AccountMeta::new(Pubkey::new_from_array([40; 32]), false),
+                account: account(1_000_000_000),
             },
             Slot {
                 label: "output_tree",
