@@ -673,6 +673,17 @@ async function runWalletSync(
         }
       }
     }
+    // An unresolved asset means a fetched note was not stored. A commit would
+    // advance the cursors past it and lose the note until a full rescan.
+    if (
+      report.unknownAssetIds.length > 0 ||
+      report.unknownAssetFields.length > 0 ||
+      walletHasUnknownMint(session.staging)
+    ) {
+      throw new WalletError("WALLET_UNRESOLVED_ASSET", {
+        details: { unknownAssetIds: report.unknownAssetIds.map(String) },
+      });
+    }
     input.wallet._commitSync(sealSyncDelta(session), session.baseRevision);
     return report;
   } catch (cause) {

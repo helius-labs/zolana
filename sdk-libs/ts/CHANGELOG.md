@@ -125,6 +125,9 @@ Changed
 
 Fixed
 
+- A sync holding an asset the registry could not resolve still committed
+  its cursors and skipped the unstored note for good, it now fails with
+  `WALLET_UNRESOLVED_ASSET` and the next sync re-reads the same pages.
 - `RingRpc` returned unchecked response strings as typed addresses and
   signatures, every such field is now validated and a malformed one is
   refused with `RING_RPC`.
