@@ -265,15 +265,18 @@ Persist wallet state with `serializeWallet` and restore it with
 contains UTXO data and must be encrypted at rest.
 
 `syncPersistedWallet` runs `syncWallet` and, only after the sync commits,
-saves the serialized wallet through a `WalletStateStore` you provide. Restore
-from the store on startup so the wallet resumes from its saved cursors instead
-of rescanning history:
+seals the serialized wallet through a `WalletStateCipher` and saves it through
+a `WalletStateStore` you provide. `walletSnapshotCipher` is the shipped
+cipher, AES-256-GCM keyed from the keypair and bound to the wallet identity
+and the snapshot version. Restore from the store on startup so the wallet
+resumes from its saved cursors instead of rescanning history:
 
 ```ts
 import {
   Wallet,
-  deserializeWallet,
+  loadPersistedWallet,
   syncPersistedWallet,
+  walletSnapshotCipher,
   type WalletStateStore,
 } from "@heliuslabs/zolana";
 
@@ -283,17 +286,18 @@ const store: WalletStateStore = {
   load: () => storage.get(),
   save: (snapshot) => storage.set(snapshot),
 };
+const cipher = walletSnapshotCipher(keypair);
 
-const saved = await store.load();
 const wallet =
-  saved === undefined
-    ? new Wallet({ identity: keypair.shieldedAddress() })
-    : deserializeWallet(saved);
+  (await loadPersistedWallet({ store, cipher })) ??
+  new Wallet({ identity: keypair.shieldedAddress() });
 
-const { report } = await syncPersistedWallet({ client, wallet, authority, store });
+const { report } = await syncPersistedWallet({ client, wallet, authority, store, cipher });
 ```
 
-A failed sync saves nothing. A failed save rejects with `WALLET_PERSIST`
+A tampered stored snapshot, or one sealed for another wallet, is refused
+with `WALLET_SNAPSHOT` instead of restoring drifted cursors. A failed sync
+saves nothing. A failed save rejects with `WALLET_PERSIST`
 while the in-memory wallet is already synced and the previously saved
 snapshot stays valid, call `syncPersistedWallet` again to retry. That retry
 contract requires `save` to replace the stored snapshot atomically or leave

@@ -65,6 +65,20 @@ Added
   inside the wallet's sync queue so overlapping calls cannot store a stale
   snapshot, and reports a failed save as `WALLET_PERSIST` while the previous
   stored snapshot stays valid.
+- `syncPersistedWallet` requires a `WalletStateCipher` and stores only sealed
+  snapshots → seal with the shipped `walletSnapshotCipher(keypair)` and
+  restore through `loadPersistedWallet`, a tampered snapshot or one sealed
+  for another wallet is refused with `WALLET_SNAPSHOT`.
+- `AuthorizedPrivateTransaction` carries `owner` and `senderOutputCount`, the
+  client rebinds every output, settlement, and withdrawal account to the
+  approved intent before proving, and a forged or drifted authorization fails
+  with `CLIENT_INTENT_MISMATCH` before anything reaches the prover.
+- `fetchSplAssetRegistrations` and `backfillAssetRegistry` fail on an
+  unsupported or partial program scan instead of returning an empty registry,
+  an empty result now means the pool has no SPL registrations.
+- `RingRpc.readSigned` and `RingRpc.createAuditorKeySigned` validate every
+  field of a signed request before any network access, and a timestamp past
+  the safe integer range is refused instead of losing precision.
 - `WalletStateStore.save` must replace the stored snapshot atomically or
   leave it unchanged, the retry after a failed save depends on it.
 - `SyncWalletInput` names the `syncWallet` argument shape, and
