@@ -25,6 +25,7 @@ import {
   type Bytes32,
   type Bytes33,
 } from "../src/keypair/index.js";
+import { roleExpansion, type RoleSecrets } from "../src/keypair/derivation.js";
 import { MERGE_INFO } from "../src/keypair/merge/index.js";
 
 function bytes(hex: string): Uint8Array {
@@ -87,6 +88,29 @@ describe("shielded key material", () => {
     expect(keypair.signingPublicKey().signatureType()).toBe("ed25519");
     expect(keypair.viewingPublicKey()).toBeInstanceOf(P256PublicKey);
     expect(ShieldedKeypair.generate("p256").curve()).toBe("p256");
+  });
+
+  it("wipes role secrets when the expansion callback settles or throws", () => {
+    const seed = new Uint8Array(64).fill(7);
+    const zero31 = new Uint8Array(31);
+    const zero32 = new Uint8Array(32);
+    const kept: RoleSecrets[] = [];
+    roleExpansion(seed, "ed25519", (roles) => {
+      kept.push(roles);
+      expect(roles.nullifierSecret).not.toEqual(zero31);
+      expect(roles.viewingSecret).not.toEqual(zero32);
+    });
+    expect(() =>
+      roleExpansion(seed, "ed25519", (roles) => {
+        kept.push(roles);
+        throw new Error("interrupted");
+      }),
+    ).toThrow("interrupted");
+    for (const roles of kept) {
+      expect(roles.nullifierSecret).toEqual(zero31);
+      expect(roles.viewingSecret).toEqual(zero32);
+    }
+    expect(kept).toHaveLength(2);
   });
 
   it("derives symmetric ECDH secrets", () => {
