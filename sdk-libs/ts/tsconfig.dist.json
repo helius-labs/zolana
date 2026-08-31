@@ -9,5 +9,5 @@
     "exactOptionalPropertyTypes": true,
     "types": []
   },
-  "include": ["dist/**/*.d.ts"]
+  "include": ["dist/**/*.d.ts", "scripts/dist-consumer.ts"]
 }

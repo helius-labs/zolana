@@ -1,5 +1,10 @@
 export { MERGE_TRANSACT_COMPUTE_UNIT_LIMIT, ZolanaClient } from "./client.js";
-export type { MergeMaterialInput, ProvedMerge, ZolanaClientConfig } from "./client.js";
+export type {
+  AuthorizedPrivateTransaction,
+  MergeMaterialInput,
+  ProvedMerge,
+  ZolanaClientConfig,
+} from "./client.js";
 export type {
   BlockhashProvider,
   ChainReader,
