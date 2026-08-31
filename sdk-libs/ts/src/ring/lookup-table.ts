@@ -20,12 +20,13 @@ export interface RingLookupTable {
   readonly slot: bigint;
 }
 
-type LookupTableClient = TreeContext & KitRpcAccess;
+export type RingLookupTableReader = TreeContext & KitRpcAccess;
+export type RingLookupTableClient = RingLookupTableReader & BlockhashProvider;
 
 /** One table serves every transact of the ring and tree pair. */
 export async function buildRingLookupTableTransaction(
   input: Readonly<{
-    client: LookupTableClient & BlockhashProvider;
+    client: RingLookupTableClient;
     ringProgramId: Address;
     feePayer: Address;
     tree?: Address;
@@ -71,7 +72,7 @@ export async function buildRingLookupTableTransaction(
 
 export async function fetchRingLookupTable(
   input: Readonly<{
-    client: LookupTableClient;
+    client: RingLookupTableReader;
     ringProgramId: Address;
     address: Address;
     tree?: Address;

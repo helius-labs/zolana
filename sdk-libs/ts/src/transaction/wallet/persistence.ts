@@ -68,19 +68,19 @@ interface SerializedPrivateTransaction {
   readonly counterpartyViewingPublicKey?: string;
 }
 
-interface SerializedCursor {
+export interface SerializedCursor {
   /** Lowercase hex of the tag or nullifier the stream position belongs to. */
   readonly key: string;
   readonly cursor: string;
 }
 
-interface SerializedSyncCursors {
+export interface SerializedSyncCursors {
   readonly transactions: readonly SerializedCursor[];
   readonly proofless: readonly SerializedCursor[];
   readonly nullifiers: readonly SerializedCursor[];
 }
 
-interface SerializedNoteReservation {
+export interface SerializedNoteReservation {
   readonly id: string;
   readonly noteHashes: readonly string[];
   readonly expiresAtMs: string;

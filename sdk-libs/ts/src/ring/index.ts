@@ -51,7 +51,11 @@ export {
 export { listRegisteredRings } from "./registry.js";
 export type { RegisteredRing } from "./registry.js";
 export { buildRingLookupTableTransaction, fetchRingLookupTable } from "./lookup-table.js";
-export type { RingLookupTable } from "./lookup-table.js";
+export type {
+  RingLookupTable,
+  RingLookupTableClient,
+  RingLookupTableReader,
+} from "./lookup-table.js";
 export { createPasskey, passkeyReader } from "./passkey.js";
 export type { Passkey } from "./passkey.js";
 export {
@@ -89,6 +93,7 @@ export type {
   RingDepositsPage,
   RingKeyMode,
   RingReadSigner,
+  RingRpcOptions,
   RingRpcHealth,
   RingState,
   RingStatus,

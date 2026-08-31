@@ -38,7 +38,8 @@ Breaking
   decrypt entry load the hasher themselves, an explicit
   `initializePoseidon()` stays necessary only before synchronous hashing
   such as key derivation.
-- `RingRpc` throws `RING_RPC_CONFIG` for an endpoint with plain HTTP,
+- `RingRpc` exposes its transport configuration through `RingRpcOptions` and
+  throws `RING_RPC_CONFIG` for an endpoint with plain HTTP,
   credentials, or a fragment unless `allowInsecureHttp` admits HTTP,
   accepts only responses declaring a JSON content type, caps them at 4
   MiB, times out after 30 seconds, does not follow redirects, and
@@ -102,8 +103,9 @@ Added
 - `ErrorEnvelope` names the `toJSON` shape of `WalletError`, `RingError`,
   `InterfaceError`, and `KeypairError`, and `causeCodes` lists the wrapped
   operation chain outermost first.
-- Serialized wallets carry their reservations, a restored wallet still
-  holds notes an in-flight transaction spends.
+- `SerializedCursor`, `SerializedSyncCursors`, and `SerializedNoteReservation`
+  expose resume points and active note holds in `SerializedWalletState`, a
+  restored wallet resumes scans and blocks spending reserved notes.
 - `ChainReader`, `BlockhashProvider`, `IndexerReader`, `ProofReader`,
   `Prover`, `TransactionConfirmer`, and `KitRpcAccess` name the client's
   capabilities, `ZolanaClient` implements them all, and a consumer can
@@ -113,9 +115,9 @@ Added
   cannot resolve.
 - `TransactionAssembler`, `MergeAssembler`, and `TreeContext` name the
   client's assembly capabilities, `DepositClient`, `MergeClient`,
-  `PrivateTransactionClient`, `RingTransferClient`, and `RingAuditReader`
-  name what each build accepts, and any object with those members serves
-  in place of `ZolanaClient`.
+  `PrivateTransactionClient`, `RingTransferClient`, `RingLookupTableClient`,
+  `RingLookupTableReader`, and `RingAuditReader` name the accepted capability
+  sets, and any object with those members serves in place of `ZolanaClient`.
 - `AuthorizedPrivateTransaction`, `assembleAuthorizedPrivateTransaction`,
   and `assembleAuthorizedMergeTransaction` are part of the published
   types, and the emitted declarations compile under
