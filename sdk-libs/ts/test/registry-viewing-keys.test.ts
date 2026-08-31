@@ -7,6 +7,7 @@ import type { ProgramAccount } from "../src/client/rpc.js";
 import { USER_REGISTRY_PROGRAM_ID } from "../src/interface/program.js";
 import type { Address } from "../src/interface/types.js";
 import { fetchViewingKeyOwners, viewingKeyIndex } from "../src/wallet/registry.js";
+import { accountReads } from "./helpers/clients.js";
 
 const FIRST = address("7xKqmYUZ7pQHXcQnaZaZzR1oPjQb8kk8gA7XN3XxKzKq");
 const SECOND = address("3DzKPyV33som4oRrXKA46xe47cQryGN7AdkYXA3wg2WP");
@@ -37,12 +38,12 @@ function record(owner: Address, viewingPublicKey: Uint8Array): ProgramAccount {
 }
 
 function listing(accounts: readonly ProgramAccount[]): Pick<ChainReader, "getProgramAccounts"> {
-  return {
+  return accountReads({
     getProgramAccounts: async (programId: Address) => {
       expect(programId).toBe(USER_REGISTRY_PROGRAM_ID);
       return accounts;
     },
-  } as Pick<ChainReader, "getProgramAccounts">;
+  });
 }
 
 describe("registry viewing key index", () => {

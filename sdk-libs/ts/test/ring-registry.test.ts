@@ -10,8 +10,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { decodeRingConfig } from "../src/interface/accounts.js";
 import { StateDiscriminator } from "../src/interface/state.js";
-import type { KitRpcAccess } from "../src/client/index.js";
 import { listRegisteredRings } from "../src/ring/registry.js";
+import { kitReads } from "./helpers/clients.js";
 
 const base64Decoder = getBase64Decoder();
 const addressEncoder = getAddressEncoder();
@@ -78,7 +78,7 @@ describe("listRegisteredRings", () => {
     );
     const getProgramAccounts = vi.fn(() => ({ send }));
     return {
-      rpc: { solanaRpc: { getProgramAccounts }, commitment: "confirmed" } as object as KitRpcAccess,
+      rpc: kitReads({ solanaRpc: { getProgramAccounts }, commitment: "confirmed" }),
       getProgramAccounts,
     };
   }
@@ -149,10 +149,10 @@ describe("listRegisteredRings", () => {
         __serverMessage: "method not found",
       });
     });
-    const rpc = {
+    const rpc = kitReads({
       solanaRpc: { getProgramAccounts: vi.fn(() => ({ send })) },
       commitment: "confirmed",
-    } as object as KitRpcAccess;
+    });
 
     await expect(listRegisteredRings(rpc)).rejects.toMatchObject({
       code: "CLIENT_UNSUPPORTED_RPC_METHOD",

@@ -2,7 +2,7 @@ import { address, type Address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
 import type { AuthorizedPrivateTransaction } from "../src/client/client.js";
-import type { PrivateTransactionClient } from "../src/wallet/index.js";
+import { privateTransactionClient } from "./helpers/clients.js";
 import type { Bytes32, TransactInstructionData } from "../src/interface/index.js";
 import { ShieldedKeypair, SigningKey } from "../src/keypair/index.js";
 import {
@@ -252,14 +252,14 @@ describe("approval binding", () => {
         return typeof value === "function" ? value.bind(target) : value;
       },
     });
-    const client = {
+    const client = privateTransactionClient({
       getAccount: async () => undefined,
       assembleAuthorizedPrivateTransaction: async (_input: {
         authorized: AuthorizedPrivateTransaction;
       }) => {
         throw new Error("must not assemble");
       },
-    } as PrivateTransactionClient;
+    });
     await expect(
       buildTransferTransaction({
         client,

@@ -24,8 +24,7 @@ import {
 import { SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
 import { StateDiscriminator } from "../src/interface/state.js";
 import { assemble, ownerSignerAddresses } from "../src/client/prover/assembly.js";
-import type { RingAuditReader } from "../src/ring/audit.js";
-import type { RingTransferClient } from "../src/ring/transfer.js";
+import { ringAuditReader, ringTransferClient } from "./helpers/clients.js";
 import type { SpendProof } from "../src/client/rpc.js";
 import { hashBytesBigInt } from "../src/client/internal.js";
 import {
@@ -388,7 +387,7 @@ describe("ring witness", () => {
   });
 
   it("refuses a tree the client does not prove from, before any fetch", async () => {
-    const client = { tree: RING } as object as RingTransferClient;
+    const client = ringTransferClient({ tree: RING });
     await expect(
       proveCustomRingTransfer({
         client,
@@ -558,11 +557,11 @@ describe("ring audit", () => {
         },
       ],
     }));
-    const client = {
+    const client = ringAuditReader({
       getShieldedTransactionsByTags: async () => ({ transactions: [transaction, transaction] }),
       solanaRpc: { getProgramAccounts },
       commitment: "confirmed",
-    } as object as RingAuditReader;
+    });
 
     const assets = new AssetRegistry();
     const page = await auditRing({
@@ -596,11 +595,11 @@ describe("ring audit", () => {
     );
     const transaction = indexed(proofInputs);
     const getProgramAccounts = vi.fn(() => ({ send: async () => [] }));
-    const client = {
+    const client = ringAuditReader({
       getShieldedTransactionsByTags: async () => ({ transactions: [transaction] }),
       solanaRpc: { getProgramAccounts },
       commitment: "confirmed",
-    } as object as RingAuditReader;
+    });
 
     await expect(
       auditRing({

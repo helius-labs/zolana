@@ -12,12 +12,9 @@ import {
   deserializeWallet,
   serializeWallet,
 } from "../src/transaction/index.js";
-import {
-  syncPersistedWallet,
-  type SyncClient,
-  type WalletStateStore,
-} from "../src/wallet/index.js";
+import { syncPersistedWallet, type WalletStateStore } from "../src/wallet/index.js";
 import { syncWallet } from "../src/wallet/sync.js";
+import { syncReads } from "./helpers/clients.js";
 
 const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
@@ -29,10 +26,6 @@ const NULLIFIER_CURSOR = Uint8Array.of(3, 3);
 
 function bytes(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
-}
-
-function syncReads(reads: object): SyncClient {
-  return reads as SyncClient;
 }
 
 interface RequestWithCursor {

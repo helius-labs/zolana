@@ -11,7 +11,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AuthorizedPrivateTransaction } from "../src/client/client.js";
 import type { DepositClient, PrivateTransactionClient } from "../src/wallet/index.js";
-import type { RingTransferClient } from "../src/ring/transfer.js";
 import { SPL_TOKEN_2022_PROGRAM_ID, type Bytes32 } from "../src/interface/index.js";
 import { NullifierKey, ShieldedKeypair, SigningKey } from "../src/keypair/index.js";
 import {
@@ -33,6 +32,7 @@ import {
 import { associatedTokenAddress, splInterfaceWithBump } from "../src/interface/pda/index.js";
 import { buildRingTransferTransaction, selectRingInputs } from "../src/ring/transfer.js";
 import { buildDepositTransaction, createDeposit } from "../src/wallet/deposit.js";
+import { depositClient, privateTransactionClient, ringTransferClient } from "./helpers/clients.js";
 import { approveIntent } from "../src/transaction/wallet/intent.js";
 import { createMerge, MergeMaterial } from "../src/wallet/merge.js";
 import { authorizePrivateTransaction } from "../src/wallet/private-transaction.js";
@@ -104,14 +104,13 @@ function fundedWallet(
 }
 
 function latestBlockhashClient(feeTree = TREE): DepositClient {
-  const reads: object = {
+  return depositClient({
     tree: feeTree,
     getLatestBlockhash: vi.fn(async () => ({
       blockhash: BLOCKHASH,
       lastValidBlockHeight: 1n,
     })),
-  };
-  return reads as DepositClient;
+  });
 }
 
 function capturePrivateBuild(): Readonly<{
@@ -122,10 +121,10 @@ function capturePrivateBuild(): Readonly<{
     async (_input: Readonly<{ authorized: AuthorizedPrivateTransaction }>) => TRANSACTION,
   );
   return {
-    client: {
+    client: privateTransactionClient({
       getAccount: vi.fn(async () => undefined),
       assembleAuthorizedPrivateTransaction: assemble,
-    } as PrivateTransactionClient,
+    }),
     assemble,
   };
 }
@@ -637,7 +636,7 @@ describe("ring approval summary", () => {
     });
     await expect(
       buildRingTransferTransaction({
-        client: { tree: TREE } as RingTransferClient,
+        client: ringTransferClient({ tree: TREE }),
         ringProgramId: RING,
         wallet,
         authority,

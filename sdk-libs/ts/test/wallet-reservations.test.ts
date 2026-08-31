@@ -18,6 +18,7 @@ import { AssetRegistry } from "../src/transaction/asset.js";
 import { createSplit, createTransfer } from "../src/wallet/actions.js";
 import { createMerge, MergeMaterial } from "../src/wallet/merge.js";
 import { buildTransferTransaction } from "../src/wallet/transactions.js";
+import { privateTransactionClient } from "./helpers/clients.js";
 
 const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
 const PAYER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
@@ -113,10 +114,10 @@ function assemblingClient(): Readonly<{
     async (_input: Readonly<{ authorized: AuthorizedPrivateTransaction }>) => TRANSACTION,
   );
   return {
-    client: {
+    client: privateTransactionClient({
       getAccount: vi.fn(async () => undefined),
       assembleAuthorizedPrivateTransaction: assemble,
-    } as PrivateTransactionClient,
+    }),
     assemble,
   };
 }

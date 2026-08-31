@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import type { IndexerReader } from "../src/client/index.js";
 import { getAddressDecoder } from "@solana/kit";
 
 import type { Bytes32, Signature } from "../src/interface/types.js";
 import { fetchTransactionSlots } from "../src/wallet/transaction-slots.js";
+import { signatureReads } from "./helpers/clients.js";
 
 const SIGNATURE = "1".repeat(87) as Signature;
 const filled = (byte: number) => new Uint8Array(32).fill(byte) as Bytes32;
 
 function reader(events: readonly { leaf: bigint; tags: readonly Bytes32[] }[]) {
-  return {
+  return signatureReads({
     getShieldedTransactionsBySignature: async (signature: Signature) => {
       expect(signature).toBe(SIGNATURE);
       return {
@@ -26,7 +26,7 @@ function reader(events: readonly { leaf: bigint; tags: readonly Bytes32[] }[]) {
         })),
       };
     },
-  } as object as Pick<IndexerReader, "getShieldedTransactionsBySignature">;
+  });
 }
 
 describe("owner tags", () => {

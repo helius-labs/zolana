@@ -1,8 +1,6 @@
 import { address, getAddressEncoder, getBase64Decoder, type Signature } from "@solana/kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { KitRpcAccess } from "../src/client/index.js";
-import type { SyncClient } from "../src/wallet/index.js";
 import { ShieldedKeypair, SigningKey, ViewingKey } from "../src/keypair/index.js";
 import { mergeDummyNullifier, mergeOutputBlinding } from "../src/keypair/merge/index.js";
 import { SHIELDED_POOL_PROGRAM_ID, type Bytes16, type Bytes32 } from "../src/interface/index.js";
@@ -36,6 +34,7 @@ import {
   anonymousSenderUtxos,
 } from "../src/transaction/serialization/codecs.js";
 import { backfillAssetRegistry, syncWallet } from "../src/wallet/sync.js";
+import { kitReads, syncReads } from "./helpers/clients.js";
 
 const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
@@ -55,14 +54,6 @@ function decryptWithAuthority(
   input: Omit<Parameters<typeof decryptTransactions>[0], "authority">,
 ): Promise<ReturnType<typeof decryptTransactions> extends Promise<infer R> ? R : never> {
   return authority.withSyncSession((keys) => decryptTransactions({ ...input, authority: keys }));
-}
-
-function syncReads(reads: object): SyncClient {
-  return reads as SyncClient;
-}
-
-function kitReads(reads: object): KitRpcAccess {
-  return reads as KitRpcAccess;
 }
 
 describe("wallet sync atomicity", () => {
