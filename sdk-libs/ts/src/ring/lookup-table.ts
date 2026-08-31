@@ -76,6 +76,7 @@ export async function fetchRingLookupTable(
     ringProgramId: Address;
     address: Address;
     tree?: Address;
+    outputTree?: Address;
     entriesTree?: Address;
   }>,
 ): Promise<readonly Address[]> {
@@ -87,6 +88,7 @@ export async function fetchRingLookupTable(
     ringLookupTableAddresses({
       ringProgramId: input.ringProgramId,
       tree,
+      ...(input.outputTree === undefined ? {} : { outputTree: input.outputTree }),
       ...(input.entriesTree === undefined ? {} : { entriesTree: input.entriesTree }),
     }),
   ]);

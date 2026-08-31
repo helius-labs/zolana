@@ -49,8 +49,9 @@ func sampleParams() *CustomRingParameters {
 		}
 	}
 	for i := range p.InlineAssets {
-		p.InlineAssets[i] = big.NewInt(int64(0x60 + i))
+		p.InlineAssets[i] = big.NewInt(0)
 	}
+	p.InlineAssets[0] = big.NewInt(0x60)
 	for i := range p.Answers {
 		p.Answers[i] = zeroedPoolEntry()
 	}
@@ -221,6 +222,9 @@ func TestCustomRingParametersRejectBadInput(t *testing.T) {
 		"policy len too high":  func(m map[string]interface{}) { m["policyLen"] = transfer.NRules + 1 },
 		"inline count too high": func(m map[string]interface{}) {
 			m["inlineCount"] = transfer.NInlineAssets + 1
+		},
+		"nonzero inline padding": func(m map[string]interface{}) {
+			m["inlineAssets"].([]interface{})[1] = "0x01" + strings.Repeat("00", 31)
 		},
 		"missing input slot": func(m map[string]interface{}) { m["inputs"] = m["inputs"].([]interface{})[:1] },
 		"missing rule":       func(m map[string]interface{}) { m["ruleEnc"] = m["ruleEnc"].([]interface{})[:transfer.NRules-1] },
