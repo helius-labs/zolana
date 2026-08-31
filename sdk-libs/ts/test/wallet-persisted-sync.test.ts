@@ -12,9 +12,15 @@ import {
   deserializeWallet,
   serializeWallet,
 } from "../src/transaction/index.js";
-import { syncPersistedWallet, type WalletStateStore } from "../src/wallet/index.js";
+import {
+  loadPersistedWallet,
+  syncPersistedWallet,
+  walletSnapshotCipher,
+  type WalletStateStore,
+} from "../src/wallet/index.js";
 import { syncWallet } from "../src/wallet/sync.js";
-import { syncReads } from "./helpers/clients.js";
+import { syncReads, plainCipher } from "./helpers/clients.js";
+import { forged } from "./helpers/forged.js";
 
 const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
@@ -33,7 +39,7 @@ interface RequestWithCursor {
 }
 
 function firstCursor(fake: ReturnType<typeof vi.fn>): Uint8Array | undefined {
-  return (fake.mock.calls as unknown as [RequestWithCursor][])[0]?.[0]?.cursor;
+  return forged<[RequestWithCursor][]>(fake.mock.calls)[0]?.[0]?.cursor;
 }
 
 /** Terminal pages carrying one distinct resume position per stream. */
@@ -57,7 +63,7 @@ function cursorPages() {
   };
 }
 
-function memoryStore(initial?: string): Pick<WalletStateStore, "save"> & {
+function memoryStore(initial?: string): WalletStateStore & {
   saved: string | undefined;
   save: ReturnType<typeof vi.fn>;
 } {
@@ -66,6 +72,7 @@ function memoryStore(initial?: string): Pick<WalletStateStore, "save"> & {
     save: vi.fn(async (snapshot: string) => {
       store.saved = snapshot;
     }),
+    load: async () => store.saved,
   };
   return store;
 }
@@ -115,7 +122,13 @@ describe("persisted wallet sync", () => {
     const client = syncReads(cursorPages());
     const store = memoryStore();
 
-    const { report, snapshot } = await syncPersistedWallet({ wallet, authority, client, store });
+    const { report, snapshot } = await syncPersistedWallet({
+      wallet,
+      authority,
+      client,
+      store,
+      cipher: plainCipher,
+    });
 
     expect(store.save).toHaveBeenCalledTimes(1);
     expect(store.saved).toBe(snapshot);
@@ -129,7 +142,13 @@ describe("persisted wallet sync", () => {
     const { keypair, wallet, authority } = newWallet();
     seedNote(wallet, keypair);
     const store = memoryStore();
-    await syncPersistedWallet({ wallet, authority, client: syncReads(cursorPages()), store });
+    await syncPersistedWallet({
+      wallet,
+      authority,
+      client: syncReads(cursorPages()),
+      store,
+      cipher: plainCipher,
+    });
 
     const restored = deserializeWallet(store.saved ?? "");
     const reads = cursorPages();
@@ -147,7 +166,13 @@ describe("persisted wallet sync", () => {
     const store = memoryStore();
 
     await expect(
-      syncPersistedWallet({ wallet, authority, client: syncReads(reads), store }),
+      syncPersistedWallet({
+        wallet,
+        authority,
+        client: syncReads(reads),
+        store,
+        cipher: plainCipher,
+      }),
     ).rejects.toMatchObject({ code: "WALLET_SYNC" });
     expect(store.save).not.toHaveBeenCalled();
     expect(store.saved).toBeUndefined();
@@ -162,12 +187,24 @@ describe("persisted wallet sync", () => {
     const store = memoryStore();
 
     await expect(
-      syncPersistedWallet({ wallet, authority, client: syncReads(reads), store }),
+      syncPersistedWallet({
+        wallet,
+        authority,
+        client: syncReads(reads),
+        store,
+        cipher: plainCipher,
+      }),
     ).rejects.toMatchObject({ code: "WALLET_SYNC" });
     expect(store.save).not.toHaveBeenCalled();
 
     reads.getShieldedTransactionsByTags.mockClear();
-    await syncPersistedWallet({ wallet, authority, client: syncReads(reads), store });
+    await syncPersistedWallet({
+      wallet,
+      authority,
+      client: syncReads(reads),
+      store,
+      cipher: plainCipher,
+    });
     expect(firstCursor(reads.getShieldedTransactionsByTags)).toBeUndefined();
     const saved = JSON.parse(store.saved ?? "") as {
       syncCursors: Record<string, readonly unknown[]>;
@@ -199,8 +236,20 @@ describe("persisted wallet sync", () => {
       scannedThrough: Uint8Array.of(9, 9),
     });
 
-    const first = syncPersistedWallet({ wallet, authority, client: syncReads(readsA), store });
-    const second = syncPersistedWallet({ wallet, authority, client: syncReads(readsB), store });
+    const first = syncPersistedWallet({
+      wallet,
+      authority,
+      client: syncReads(readsA),
+      store,
+      cipher: plainCipher,
+    });
+    const second = syncPersistedWallet({
+      wallet,
+      authority,
+      client: syncReads(readsB),
+      store,
+      cipher: plainCipher,
+    });
 
     await vi.waitFor(() => expect(store.save).toHaveBeenCalledTimes(1));
     // The second sync waits behind the first sync's pending save.
@@ -224,7 +273,13 @@ describe("persisted wallet sync", () => {
     store.save.mockRejectedValueOnce(new Error("disk full"));
 
     await expect(
-      syncPersistedWallet({ wallet, authority, client: syncReads(cursorPages()), store }),
+      syncPersistedWallet({
+        wallet,
+        authority,
+        client: syncReads(cursorPages()),
+        store,
+        cipher: plainCipher,
+      }),
     ).rejects.toMatchObject({ code: "WALLET_PERSIST" });
     expect(store.saved).toBe(previous);
     expect(wallet.lastSynced).toBeGreaterThan(0n);
@@ -237,7 +292,13 @@ describe("persisted wallet sync", () => {
     store.save.mockRejectedValueOnce(new Error("disk full"));
     const firstReads = cursorPages();
     await expect(
-      syncPersistedWallet({ wallet, authority, client: syncReads(firstReads), store }),
+      syncPersistedWallet({
+        wallet,
+        authority,
+        client: syncReads(firstReads),
+        store,
+        cipher: plainCipher,
+      }),
     ).rejects.toMatchObject({ code: "WALLET_PERSIST" });
 
     const retryReads = cursorPages();
@@ -246,6 +307,7 @@ describe("persisted wallet sync", () => {
       authority,
       client: syncReads(retryReads),
       store,
+      cipher: plainCipher,
     });
 
     expect(firstCursor(retryReads.getShieldedTransactionsByTags)).toEqual(TAG_CURSOR);
@@ -267,6 +329,7 @@ describe("persisted wallet sync", () => {
       authority,
       client: syncReads(cursorPages()),
       store,
+      cipher: plainCipher,
     });
 
     const saved = JSON.parse(store.saved ?? "") as {
@@ -275,5 +338,57 @@ describe("persisted wallet sync", () => {
     };
     expect(saved.version).toBe(3);
     expect(saved.syncCursors.transactions).not.toHaveLength(0);
+  });
+});
+
+describe("sealed wallet snapshots", () => {
+  async function sealedStore(): Promise<
+    Readonly<{
+      keypair: ShieldedKeypair;
+      cipher: ReturnType<typeof walletSnapshotCipher>;
+      store: ReturnType<typeof memoryStore>;
+      snapshot: string;
+    }>
+  > {
+    const { keypair, wallet, authority } = newWallet();
+    const cipher = walletSnapshotCipher(keypair);
+    const store = memoryStore();
+    const { snapshot } = await syncPersistedWallet({
+      wallet,
+      authority,
+      client: syncReads(cursorPages()),
+      store,
+      cipher,
+    });
+    return { keypair, cipher, store, snapshot };
+  }
+
+  it("stores ciphertext and restores through the cipher", async () => {
+    const { cipher, store, snapshot } = await sealedStore();
+    expect(store.saved).not.toContain("syncCursors");
+    expect((JSON.parse(store.saved ?? "") as { v: number }).v).toBe(1);
+    const restored = await loadPersistedWallet({ store, cipher });
+    expect(restored).toBeDefined();
+    expect(serializeWallet(restored!)).toBe(snapshot);
+  });
+
+  it("refuses a tampered snapshot", async () => {
+    const { cipher, store } = await sealedStore();
+    const envelope = JSON.parse(store.saved ?? "") as { data: string };
+    const bytes = Buffer.from(envelope.data, "base64");
+    const index = bytes.length - 20;
+    bytes[index] = (bytes[index] ?? 0) ^ 1;
+    store.saved = JSON.stringify({ ...envelope, data: bytes.toString("base64") });
+    await expect(loadPersistedWallet({ store, cipher })).rejects.toMatchObject({
+      code: "WALLET_SNAPSHOT",
+    });
+  });
+
+  it("refuses a snapshot sealed for another wallet", async () => {
+    const { store } = await sealedStore();
+    const other = walletSnapshotCipher(ShieldedKeypair.generate());
+    await expect(loadPersistedWallet({ store, cipher: other })).rejects.toMatchObject({
+      code: "WALLET_SNAPSHOT",
+    });
   });
 });

@@ -14,6 +14,7 @@ import type {
   DepositClient,
   PrivateTransactionClient,
   SyncClient,
+  WalletStateCipher,
 } from "../../src/wallet/index.js";
 
 const CONTEXT: RpcContext = Object.freeze({ blockTime: 1_700_000_000n, slot: 0n });
@@ -129,3 +130,9 @@ export function ringAuditReader(
     commitment: input.commitment ?? "confirmed",
   };
 }
+
+/** Identity hooks for tests that exercise persistence semantics, not sealing. */
+export const plainCipher: WalletStateCipher = {
+  seal: async (snapshot: string) => snapshot,
+  open: async (sealed: string) => sealed,
+};

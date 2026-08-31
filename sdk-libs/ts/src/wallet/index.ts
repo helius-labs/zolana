@@ -51,10 +51,13 @@ export {
   type SyncWalletInput,
 } from "./sync.js";
 export {
+  loadPersistedWallet,
   syncPersistedWallet,
   type SyncPersistedWalletResult,
+  type WalletStateCipher,
   type WalletStateStore,
 } from "./persisted.js";
+export { walletSnapshotCipher } from "./snapshot-cipher.js";
 export {
   buildRegistrationTransaction,
   buildSetMergingEnabledTransaction,
