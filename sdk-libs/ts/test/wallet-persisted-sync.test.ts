@@ -183,6 +183,47 @@ describe("persisted wallet sync", () => {
     expect(saved.syncCursors["nullifiers"]).not.toHaveLength(0);
   });
 
+  it("orders overlapping persisted syncs, an older save cannot land last", async () => {
+    const { wallet, authority } = newWallet();
+    const pending: Array<() => void> = [];
+    const store = {
+      saved: undefined as string | undefined,
+      save: vi.fn(
+        (snapshot: string) =>
+          new Promise<void>((resolve) => {
+            pending.push(() => {
+              store.saved = snapshot;
+              resolve();
+            });
+          }),
+      ),
+    };
+    const readsA = cursorPages();
+    const readsB = cursorPages();
+    readsB.getShieldedTransactionsByTags.mockResolvedValue({
+      context: { blockTime: 1_700_000_000n },
+      transactions: [],
+      scannedThrough: Uint8Array.of(9, 9),
+    });
+
+    const first = syncPersistedWallet({ wallet, authority, client: syncReads(readsA), store });
+    const second = syncPersistedWallet({ wallet, authority, client: syncReads(readsB), store });
+
+    await vi.waitFor(() => expect(store.save).toHaveBeenCalledTimes(1));
+    // The second sync waits behind the first sync's pending save.
+    expect(readsB.getShieldedTransactionsByTags).not.toHaveBeenCalled();
+
+    pending.shift()?.();
+    const a = await first;
+    await vi.waitFor(() => expect(store.save).toHaveBeenCalledTimes(2));
+    pending.shift()?.();
+    const b = await second;
+
+    expect(a.snapshot).not.toBe(b.snapshot);
+    expect(store.saved).toBe(b.snapshot);
+    expect(b.snapshot).toBe(serializeWallet(wallet));
+  });
+
   it("reports a failed save and keeps the previous snapshot", async () => {
     const { wallet, authority } = newWallet();
     const previous = serializeWallet(wallet);

@@ -295,10 +295,14 @@ const { report } = await syncPersistedWallet({ client, wallet, authority, store 
 
 A failed sync saves nothing. A failed save rejects with `WALLET_PERSIST`
 while the in-memory wallet is already synced and the previously saved
-snapshot stays valid, call `syncPersistedWallet` again to retry. The store is
-single-writer, give each live wallet its own stored snapshot. Snapshots saved
-before cursors were serialized still load, the first sync rescans history
-once and then saves the current format.
+snapshot stays valid, call `syncPersistedWallet` again to retry. That retry
+contract requires `save` to replace the stored snapshot atomically or leave
+it unchanged, never write it partially. Overlapping calls on one live wallet
+run one after the other on the wallet's sync queue, so a slow save cannot
+store a stale snapshot. The store is still single-writer across processes,
+give each live wallet its own stored snapshot. Snapshots saved before cursors
+were serialized still load, the first sync rescans history once and then
+saves the current format.
 
 ## Custom Rings
 

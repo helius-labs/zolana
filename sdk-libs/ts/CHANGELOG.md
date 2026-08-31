@@ -61,9 +61,12 @@ Added
 - `deserializeWallet` restores sync cursors, a restarted wallet resumes
   `syncWallet` where it stopped instead of replaying the full history.
 - `syncPersistedWallet` syncs and saves the wallet snapshot to a
-  `WalletStateStore` in one call, saves only after a successful sync, and
-  reports a failed save as `WALLET_PERSIST` while the previous stored
-  snapshot stays valid.
+  `WalletStateStore` in one call, saves only after a successful sync and
+  inside the wallet's sync queue so overlapping calls cannot store a stale
+  snapshot, and reports a failed save as `WALLET_PERSIST` while the previous
+  stored snapshot stays valid.
+- `WalletStateStore.save` must replace the stored snapshot atomically or
+  leave it unchanged, the retry after a failed save depends on it.
 - `SyncWalletInput` names the `syncWallet` argument shape, and
   `SyncPersistedWalletResult` carries the sync report beside the saved
   snapshot.

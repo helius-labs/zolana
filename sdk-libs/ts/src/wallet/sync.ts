@@ -495,10 +495,23 @@ export async function syncWallet(
   input: SyncWalletInput,
   context?: RequestContext,
 ): Promise<SyncReport> {
+  return runLockedWalletSync(input, context, (report) => report);
+}
+
+/**
+ * `after` runs inside the wallet's sync queue, once the commit landed and the
+ * key session closed, no later sync starts before it settles.
+ * @internal
+ */
+export async function runLockedWalletSync<T>(
+  input: SyncWalletInput,
+  context: RequestContext | undefined,
+  after: (report: SyncReport) => T | Promise<T>,
+): Promise<T> {
   await initializePoseidon();
   // Writes stage in a session and commit once, a failed sync changes nothing.
-  return input.wallet._withSyncLock(() =>
-    input.authority.withSyncSession((keys) => runWalletSync(input, keys, context)),
+  return input.wallet._withSyncLock(async () =>
+    after(await input.authority.withSyncSession((keys) => runWalletSync(input, keys, context))),
   );
 }
 
