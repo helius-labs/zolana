@@ -3,15 +3,17 @@ import { describe, expect, it, vi } from "vitest";
 import { ZolanaApi } from "../src/api/index.js";
 import { ProverClient } from "../src/client/prover/client.js";
 import { RingRpc } from "../src/ring/rpc.js";
-import { forged } from "./helpers/forged.js";
 
 // A browser's `fetch` throws "Illegal invocation" unless called on the global,
 // which a stored method reference is not. The stub enforces the same rule.
 function strictFetch() {
   const calls: unknown[] = [];
-  const fetch = function (this: unknown, input: unknown) {
+  const fetch: typeof globalThis.fetch = function (
+    this: unknown,
+    ...args: Parameters<typeof globalThis.fetch>
+  ) {
     if (this !== globalThis && this !== undefined) throw new TypeError("Illegal invocation");
-    calls.push(input);
+    calls.push(args[0]);
     return Promise.resolve(
       new Response(
         JSON.stringify({
@@ -25,7 +27,7 @@ function strictFetch() {
       ),
     );
   };
-  return { fetch: forged<typeof globalThis.fetch>(fetch), calls };
+  return { fetch, calls };
 }
 
 describe("fetch binding", () => {

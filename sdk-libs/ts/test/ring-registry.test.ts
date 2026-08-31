@@ -12,7 +12,6 @@ import { decodeRingConfig } from "../src/interface/accounts.js";
 import { StateDiscriminator } from "../src/interface/state.js";
 import { listRegisteredRings } from "../src/ring/registry.js";
 import { kitReads } from "./helpers/clients.js";
-import { forged } from "./helpers/forged.js";
 
 const base64Decoder = getBase64Decoder();
 const addressEncoder = getAddressEncoder();
@@ -77,7 +76,7 @@ describe("listRegisteredRings", () => {
         },
       })),
     );
-    const getProgramAccounts = vi.fn(() => ({ send }));
+    const getProgramAccounts = vi.fn((_programId: unknown, _config: unknown) => ({ send }));
     return {
       rpc: kitReads({ solanaRpc: { getProgramAccounts }, commitment: "confirmed" }),
       getProgramAccounts,
@@ -91,8 +90,7 @@ describe("listRegisteredRings", () => {
     // failing to read the registry throws instead.
     expect(await listRegisteredRings(rpc)).toEqual([]);
 
-    const call = getProgramAccounts.mock.calls[0];
-    const [programId, config] = forged<[string, unknown]>(call);
+    const [programId, config] = getProgramAccounts.mock.calls[0] ?? [];
     expect(programId).toBe("sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG");
     // Filtered at the RPC: the pool also holds trees and asset registries, and
     // an unfiltered scan would download all of them to find a handful of rings.

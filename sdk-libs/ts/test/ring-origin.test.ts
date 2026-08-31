@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { forged } from "./helpers/forged.js";
 import { address, getBase58Decoder, type Address, type Signature } from "@solana/kit";
 
 import { encodeTransactInstructionData } from "../src/interface/codecs/index.js";
@@ -27,6 +26,7 @@ import {
   type OriginInstructionGroup,
   type TransactionOrigin,
 } from "../src/ring/origin.js";
+import { solanaRpcReads } from "./helpers/clients.js";
 
 // Mirrors custom-rings/client/tests/origin.rs.
 const RING = address("zYYvj4LTBF4Lz2FBhDaAbJ7CsVWvHjyanxQJPmN2dSU");
@@ -357,7 +357,7 @@ function rpcWith(result: unknown | Error): ConstructorParameters<typeof RpcTrans
   const getTransaction = () => ({
     send: () => (result instanceof Error ? Promise.reject(result) : Promise.resolve(result)),
   });
-  return forged<ConstructorParameters<typeof RpcTransactionOrigin>[0]>({ getTransaction });
+  return solanaRpcReads({ getTransaction });
 }
 
 describe("RpcTransactionOrigin", () => {

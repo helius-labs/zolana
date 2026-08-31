@@ -1,6 +1,5 @@
 import { address, getCompiledTransactionMessageDecoder, type Blockhash } from "@solana/kit";
 import { describe, expect, it } from "vitest";
-import { forged } from "./helpers/forged.js";
 
 import { compileUnsignedTransaction } from "../src/flows/compile.js";
 
@@ -13,15 +12,12 @@ const LIFETIME = {
   lastValidBlockHeight: 1n,
 };
 
-type DecodedMessage = Readonly<{
-  instructions: readonly Readonly<{ programAddressIndex: number }>[];
-  staticAccounts: readonly string[];
-}>;
-
-function decoded(transaction: ReturnType<typeof compileUnsignedTransaction>): DecodedMessage {
-  return forged<DecodedMessage>(
-    getCompiledTransactionMessageDecoder().decode(transaction.messageBytes),
-  );
+function decoded(transaction: ReturnType<typeof compileUnsignedTransaction>) {
+  const message = getCompiledTransactionMessageDecoder().decode(transaction.messageBytes);
+  if (!("instructions" in message) || !("staticAccounts" in message)) {
+    throw new Error("expected a versioned transaction message");
+  }
+  return message;
 }
 
 function programsOf(transaction: ReturnType<typeof compileUnsignedTransaction>) {

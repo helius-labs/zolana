@@ -10,7 +10,7 @@ const TESTS = ["test", "api/test", "transaction/test", "wallet/test"].map((dir) 
 
 /** Compile-time program id constants, the one place a bare brand cast is trusted. */
 const ALLOWED_AS_ADDRESS = new Set(["src/ring/config.ts"]);
-/** The checked Kit signature bridge, plus the file holding the banned pattern itself. */
+/** The checked Kit signature bridge, plus the gate's own pattern. */
 const ALLOWED_DOUBLE_CAST = new Set(["src/keypair/shielded.ts", "test/casts.test.ts"]);
 /** The one audited launder for partial client fakes. */
 const ALLOWED_FAKE_LAUNDER = new Set(["test/helpers/clients.ts"]);
@@ -46,5 +46,10 @@ describe("cast restrictions", () => {
   it("builds client fakes through the shared helpers, not casts", () => {
     const launder = /as (?:object|never|unknown) as \w*(?:Client|Reader|Assembler|RpcAccess)/u;
     expect(offenders(TESTS, launder, ALLOWED_FAKE_LAUNDER)).toEqual([]);
+  });
+
+  it("keeps generic assertion helpers out of tests", () => {
+    const assertionHelper = /function \w+<T>\([^)]*unknown[^)]*\): T/u;
+    expect(offenders(TESTS, assertionHelper, new Set())).toEqual([]);
   });
 });
