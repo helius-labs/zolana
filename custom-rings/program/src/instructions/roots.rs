@@ -19,6 +19,9 @@ pub struct TransactRoots {
 /// Any live state root is admissible, inclusion is monotone, while a nullifier
 /// root older than [`NULLIFIER_ROOT_WINDOW`] misses a retirement the absence
 /// proof must see.
+///
+/// The borrow drops before the caller's SPP CPI, else SPP faults borrowing the
+/// aliased money tree.
 pub fn load_roots(
     tree_account: &mut AccountView,
     entries_tree: &Address,
@@ -29,9 +32,21 @@ pub fn load_roots(
         return Err(CustomRingError::InvalidEntriesTree);
     }
     let spp = Address::from(SHIELDED_POOL_PROGRAM_ID);
-    let mut tree =
-        TreeAccount::from_account_view_mut(tree_account, &spp, TREE_ACCOUNT_DISCRIMINATOR)
-            .map_err(|_| CustomRingError::InvalidEntriesTree)?;
+    if !tree_account.owned_by(&spp) {
+        return Err(CustomRingError::InvalidEntriesTree);
+    }
+    let pubkey = tree_account.address().to_bytes();
+    let mut data = tree_account
+        .try_borrow_mut()
+        .map_err(|_| CustomRingError::InvalidEntriesTree)?;
+    if data.first() != Some(&TREE_ACCOUNT_DISCRIMINATOR) {
+        return Err(CustomRingError::InvalidEntriesTree);
+    }
+    let mut tree = TreeAccount::from_bytes(&mut data, pubkey)
+        .map_err(|_| CustomRingError::InvalidEntriesTree)?;
+    if tree.is_paused() {
+        return Err(CustomRingError::InvalidEntriesTree);
+    }
     let state = tree
         .get_utxo_tree_root(state_root_index)
         .map_err(|_| CustomRingError::StalePolicyRoot)?;

@@ -41,7 +41,8 @@ pub struct CustomRingTransfer<'a> {
     sender: &'a ShieldedKeypair,
     prepared: PreparedTransfer,
     interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
-    tree: Option<Address>,
+    input_tree: Option<Address>,
+    output_tree: Option<Address>,
     assets: Option<&'a AssetRegistry>,
 }
 
@@ -68,7 +69,9 @@ pub struct ProvenTransfer {
     pub state_root_index: u16,
     pub nullifier_root_index: u16,
     payer: Address,
-    tree: Address,
+    input_tree: Address,
+    output_tree: Address,
+    entries_tree: Address,
     ring: CustomRing,
 }
 
@@ -163,14 +166,24 @@ impl<'a> CustomRingTransfer<'a> {
             sender: input.sender,
             prepared: input.prepared,
             interface_transfer_accounts: Vec::new(),
-            tree: None,
+            input_tree: None,
+            output_tree: None,
             assets: None,
         }
     }
 
+    /// The tree the spent notes live in, and where outputs land unless
+    /// [`Self::with_output_tree`] moves them.
     #[must_use = "use the updated transfer"]
     pub fn with_tree(mut self, tree: Address) -> Self {
-        self.tree = Some(tree);
+        self.input_tree = Some(tree);
+        self
+    }
+
+    /// Land the outputs in a tree other than the input tree.
+    #[must_use = "use the updated transfer"]
+    pub fn with_output_tree(mut self, tree: Address) -> Self {
+        self.output_tree = Some(tree);
         self
     }
 
@@ -193,7 +206,8 @@ impl<'a> CustomRingTransfer<'a> {
         self,
         environment: TransferProofEnvironment<'_, I, R>,
     ) -> Result<ProvenTransfer, TransferError> {
-        let tree = self.tree.ok_or(TransferError::TreeRequired)?;
+        let input_tree = self.input_tree.ok_or(TransferError::TreeRequired)?;
+        let output_tree = self.output_tree.unwrap_or(input_tree);
         let assets = self.assets.ok_or(TransferError::MissingAssetRegistry)?;
         let auditor_pk = self
             .ring
@@ -208,7 +222,7 @@ impl<'a> CustomRingTransfer<'a> {
         }
         let prepared = self.prepared;
         let program_id = self.ring.program_id();
-        let allow_dummy_inputs = read_dummy_input_policy(environment.rpc, tree)?;
+        let allow_dummy_inputs = read_dummy_input_policy(environment.rpc, input_tree)?;
         RingMembership {
             program_id,
             inputs: &prepared.inputs,
@@ -252,7 +266,7 @@ impl<'a> CustomRingTransfer<'a> {
         let ring_result = RingTransferProver {
             inputs: RingSpendInputs {
                 indexer: environment.indexer,
-                tree,
+                tree: input_tree,
                 spends: &proof_inputs.input_utxos,
             }
             .load()?,
@@ -282,6 +296,9 @@ impl<'a> CustomRingTransfer<'a> {
             .ring
             .read_policy_config(environment.rpc)?
             .ok_or(TransferError::MissingPolicyConfig)?;
+        // The policy roots and entry proofs bind the entries tree, not the SPP
+        // money trees.
+        let entries_tree = policy_config.entries_tree;
         let witness = crate::witness::CustomRingWitnessInput {
             policy: &custom_ring_interface::RULES,
             policy_config: &policy_config,
@@ -316,7 +333,9 @@ impl<'a> CustomRingTransfer<'a> {
             state_root_index: policy_roots.state_index,
             nullifier_root_index: policy_roots.nullifier_index,
             payer,
-            tree,
+            input_tree,
+            output_tree,
+            entries_tree,
             ring: self.ring,
         })
     }
@@ -327,8 +346,9 @@ impl ProvenTransfer {
         CustomRingTransact {
             ring: self.ring,
             payer: self.payer,
-            input_tree: self.tree,
-            output_tree: self.tree,
+            input_tree: self.input_tree,
+            output_tree: self.output_tree,
+            entries_tree: self.entries_tree,
             owner_signers: self.owner_signers.clone(),
             interface_transfer_accounts: self.interface_transfer_accounts.clone(),
             proof: self.proof,

@@ -59,6 +59,43 @@ pub struct TestEnv {
     pub assets: AssetRegistry,
     pub sender: TestWallet,
     pub recipient: TestWallet,
+    tree_creation_authority: Keypair,
+    standard_accounts: smart_account::StandardAccounts,
+}
+
+impl TestEnv {
+    /// Allocate and register a second SPP tree owned by the shielded pool.
+    pub fn create_registered_tree(&self) -> Result<Address> {
+        let rpc = self.client.rpc();
+        let tree = Keypair::new();
+        let rent = rpc
+            .get_minimum_balance_for_rent_exemption(tree_account_size())
+            .map_err(|e| anyhow!("{e}"))?;
+        let alloc_ix = system_create_account_ix(
+            &self.payer.pubkey(),
+            &tree.pubkey(),
+            rent,
+            tree_account_size() as u64,
+            &pda::shielded_pool_program_id(),
+        );
+        let create_tree_ix = CreateTree {
+            authority: self.standard_accounts.tree_vault,
+            tree: tree.pubkey(),
+        }
+        .instruction();
+        let create_tree_sync = smart_account::execute_sync_ix(
+            &self.standard_accounts.tree_settings,
+            0,
+            &[self.tree_creation_authority.pubkey()],
+            &[create_tree_ix],
+        );
+        rpc.create_and_send_transaction(
+            &[alloc_ix, create_tree_sync],
+            self.payer.pubkey(),
+            &[&self.payer, &tree, &self.tree_creation_authority],
+        )?;
+        Ok(tree.pubkey())
+    }
 }
 
 /// Each actor is one ed25519 identity: `ShieldedKeypair` implements
@@ -266,6 +303,8 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
         assets,
         sender,
         recipient,
+        tree_creation_authority,
+        standard_accounts: accounts,
     })
 }
 

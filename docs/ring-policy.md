@@ -112,7 +112,7 @@ the committed map. One curated list serves every subscriber from one write.
 `set_policy_source` lets the ring authority re-point one list. The instruction
 first checks the deployed table still reproduces the stored hash from the
 stored map. A rebuilt table stays fail closed, only `create_policy` pins a
-table. All sources live in one entries tree, the transfer's input tree.
+table. All sources live in one entries tree.
 
 Mutations of a curator sourced list fail on the subscriber with
 `ForeignSource`, the list is mutated on its curator ring. Members enroll
@@ -145,8 +145,10 @@ entry shape, the membership proofs, and the circuit are reused unchanged.
 
 ## Pitfalls
 
-- `PolicyConfig.entries_tree` must equal the transfer's input tree. The
-  transact refuses roots from any other tree.
+- The transact reads its roots from a dedicated entries-tree account, its
+  address checked equal to `PolicyConfig.entries_tree`, and refuses roots from
+  any other tree. The SPP money input and output trees are independent and may
+  be any registered tree.
 - A rules-free ring still needs `create_policy`. The transact path loads the
   policy config unconditionally.
 - A ring-owned entry tree looks equivalent to reusing SPP's trees. It fails

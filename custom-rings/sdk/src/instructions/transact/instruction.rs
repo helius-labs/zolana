@@ -11,13 +11,15 @@ use crate::CustomRing;
 /// Audited ring transact: the ring's auditor key-encryption proof followed by the
 /// SPP content it forwards.
 ///
-/// The account list is `[payer, config]` prepended to SPP's own `RING_TRANSACT`
-/// list. Those two extra accounts are all this program reads for itself: the payer
-/// it requires as a signer, and the config account holding the auditor key the
-/// public-input hash is recomputed against. Everything after them is forwarded to
-/// SPP position for position, so it is taken straight from
-/// [`RingTransact::instruction`] rather than re-listed here -- a hand-written copy
-/// would be a second definition of SPP's loader order, free to drift from it.
+/// The account list is `[payer, config, policy_config, entries_tree]` prepended
+/// to SPP's own `RING_TRANSACT` list. Those four prefix accounts are all this
+/// program reads for itself: the payer it requires as a signer, the config
+/// account holding the auditor key the public-input hash is recomputed against,
+/// the policy config, and the ring's `entries_tree`, the only tree the policy
+/// roots are read from. Everything after them is forwarded to SPP position for
+/// position, so it is taken straight from [`RingTransact::instruction`] rather
+/// than re-listed here -- a hand-written copy would be a second definition of
+/// SPP's loader order, free to drift from it.
 ///
 /// `ring_config` (this program's `ring_auth` PDA) stays unsigned: no keypair
 /// exists for it, and the program is what flips the meta to a signer inside its
@@ -27,6 +29,9 @@ pub struct CustomRingTransact {
     pub payer: Address,
     pub input_tree: Address,
     pub output_tree: Address,
+    /// The ring's policy-entry tree, read for the state and nullifier roots the
+    /// proof binds.
+    pub entries_tree: Address,
     /// The eddsa owners of the spent UTXOs; SPP requires each as a signer.
     pub owner_signers: Vec<Address>,
     /// Settlement accounts for the content's `interface_transfers`, in the same
@@ -51,6 +56,7 @@ impl CustomRingTransact {
             payer,
             input_tree,
             output_tree,
+            entries_tree,
             owner_signers,
             interface_transfer_accounts,
             proof,
@@ -73,13 +79,16 @@ impl CustomRingTransact {
         let spp_accounts = ring.instruction().accounts;
         let transact = ring.data;
 
-        let mut accounts = Vec::with_capacity(3 + spp_accounts.len());
+        let mut accounts = Vec::with_capacity(4 + spp_accounts.len());
         accounts.push(AccountMeta::new(payer, true));
         accounts.push(AccountMeta::new_readonly(deployment.config_pda(), false));
         accounts.push(AccountMeta::new_readonly(
             deployment.policy_config_pda(),
             false,
         ));
+        // An existing ring may alias entries_tree with the writable SPP input
+        // tree.
+        accounts.push(AccountMeta::new_readonly(entries_tree, false));
         accounts.extend(spp_accounts);
 
         let body = wincode::serialize(&CustomRingTransactIxData {

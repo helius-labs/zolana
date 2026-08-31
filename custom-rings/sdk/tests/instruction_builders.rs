@@ -515,6 +515,10 @@ fn output_tree() -> Address {
     Address::new_from_array([42; 32])
 }
 
+fn entries_tree() -> Address {
+    Address::new_from_array([45; 32])
+}
+
 fn owner_signer() -> Address {
     Address::new_from_array([43; 32])
 }
@@ -552,8 +556,9 @@ fn transact_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData 
 }
 
 /// The account list the program's `process_transact_ix` reads: its own
-/// `[payer, config]` prefix followed by SPP's `RING_TRANSACT` list, which the
-/// builder takes from the interface builder instead of re-listing.
+/// `[payer, config, policy_config, entries_tree]` prefix followed by SPP's
+/// `RING_TRANSACT` list, which the builder takes from the interface builder
+/// instead of re-listing.
 #[test]
 fn custom_ring_transact_prepends_payer_and_config_to_the_spp_list() {
     let proof = sample_proof();
@@ -564,6 +569,7 @@ fn custom_ring_transact_prepends_payer_and_config_to_the_spp_list() {
         payer: payer(),
         input_tree: input_tree(),
         output_tree: output_tree(),
+        entries_tree: entries_tree(),
         owner_signers: vec![owner_signer()],
         interface_transfer_accounts: Vec::new(),
         proof,
@@ -581,6 +587,7 @@ fn custom_ring_transact_prepends_payer_and_config_to_the_spp_list() {
             AccountMeta::new(payer(), true),
             AccountMeta::new_readonly(ring().config_pda(), false),
             AccountMeta::new_readonly(ring().policy_config_pda(), false),
+            AccountMeta::new_readonly(entries_tree(), false),
             AccountMeta::new(payer(), true),
             AccountMeta::new(input_tree(), false),
             AccountMeta::new(output_tree(), false),
@@ -617,6 +624,7 @@ fn custom_ring_transact_leaves_ring_config_unsigned() {
         payer: payer(),
         input_tree: input_tree(),
         output_tree: output_tree(),
+        entries_tree: entries_tree(),
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         proof: sample_proof(),
@@ -627,8 +635,8 @@ fn custom_ring_transact_leaves_ring_config_unsigned() {
     .instruction()
     .expect("serialize the custom-ring transact content");
 
-    // The policy config sits before the forwarded SPP list.
-    let ring_config_index = 8;
+    // The policy config and entries tree sit before the forwarded SPP list.
+    let ring_config_index = 9;
     let ring_config = instruction
         .accounts
         .get(ring_config_index)
@@ -648,6 +656,7 @@ fn custom_ring_transact_forwards_settlement_accounts() {
         payer: payer(),
         input_tree: input_tree(),
         output_tree: output_tree(),
+        entries_tree: entries_tree(),
         owner_signers: vec![owner_signer()],
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts { recipient },
@@ -663,7 +672,7 @@ fn custom_ring_transact_forwards_settlement_accounts() {
     assert_eq!(
         instruction
             .accounts
-            .get(9..)
+            .get(10..)
             .expect("owner signer and settlement metas")
             .to_vec(),
         vec![
