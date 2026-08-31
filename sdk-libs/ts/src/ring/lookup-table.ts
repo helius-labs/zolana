@@ -76,6 +76,7 @@ export async function fetchRingLookupTable(
     ringProgramId: Address;
     address: Address;
     tree?: Address;
+    entriesTree?: Address;
   }>,
 ): Promise<readonly Address[]> {
   const tree = input.tree ?? input.client.tree;
@@ -83,7 +84,11 @@ export async function fetchRingLookupTable(
     fetchMaybeAddressLookupTable(input.client.solanaRpc, input.address, {
       commitment: input.client.commitment,
     }),
-    ringLookupTableAddresses({ ringProgramId: input.ringProgramId, tree }),
+    ringLookupTableAddresses({
+      ringProgramId: input.ringProgramId,
+      tree,
+      ...(input.entriesTree === undefined ? {} : { entriesTree: input.entriesTree }),
+    }),
   ]);
   if (!table.exists) {
     throw new RingError("RING_LOOKUP_TABLE_NOT_FOUND", { details: { address: input.address } });

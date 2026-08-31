@@ -22,16 +22,19 @@ import {
 } from "../src/ring/audit.js";
 import { assemble, ringOpenings } from "../src/client/prover/assembly.js";
 import type { SpendProof } from "../src/client/rpc.js";
-import { hashBytesBigInt } from "../src/client/internal.js";
+import { bigintToBytes, hashBytesBigInt, hashChain, poseidon } from "../src/client/internal.js";
 import { hashBytes } from "../src/hasher/index.js";
 import {
   checkRingMembership,
   frameDummyOutputs,
+  ringAddressChain,
   ringNamespaceOwnerHash,
+  RING_EMPTY_RULES_POLICY_HASH,
 } from "../src/ring/transfer.js";
 import {
   ConfidentialTransfer,
   SppProofInputs,
+  privateTxHash,
   type IndexedShieldedTransaction,
   type PreparedTransfer,
 } from "../src/transaction/instructions/transact.js";
@@ -472,5 +475,53 @@ describe("ring audit", () => {
       ciphertext,
     });
     expect(recovered.publicKey().toBytes()).toEqual(viewingKey.publicKey().toBytes());
+  });
+});
+
+describe("ring proof folded fields", () => {
+  function assertFoldedFields(proofInputs: SppProofInputs, nIn: number): void {
+    const externalDataHash = proofInputs.externalData.hash();
+    const addressChain = ringAddressChain(nIn);
+    expect(addressChain).toEqual(bigintToBytes(hashChain(Array.from({ length: nIn }, () => 0n))));
+
+    const inputHashes = proofInputs.inputUtxos.map((input) =>
+      input.isDummy() ? (new Uint8Array(32) as Bytes32) : input.hash(),
+    );
+    const outputHashes = proofInputs.outputs.map((output) =>
+      output.isDummy() ? (new Uint8Array(32) as Bytes32) : output.hash(),
+    );
+    const canonical = privateTxHash({ inputHashes, outputHashes, externalDataHash });
+    const reconstructed = bigintToBytes(
+      poseidon([
+        hashChain(inputHashes.map(bytesToBigInt)),
+        hashChain(outputHashes.map(bytesToBigInt)),
+        bytesToBigInt(addressChain),
+        bytesToBigInt(externalDataHash),
+      ]),
+    );
+    expect(reconstructed).toEqual(canonical);
+  }
+
+  it("folds the real external-data hash and the zero address chain for one input", async () => {
+    const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate());
+    expect(proofInputs.inputUtxos).toHaveLength(1);
+    assertFoldedFields(proofInputs, 1);
+    // hashChain([0]) == 0.
+    expect(ringAddressChain(1)).toEqual(new Uint8Array(32));
+  });
+
+  it("folds a nonzero address chain for a multi-input transfer", async () => {
+    const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate(), [1n]);
+    expect(proofInputs.inputUtxos).toHaveLength(2);
+    assertFoldedFields(proofInputs, 2);
+    // hashChain([0, 0]) == Poseidon(0, 0) != 0.
+    expect(ringAddressChain(2)).not.toEqual(new Uint8Array(32));
+    expect(ringAddressChain(2)).toEqual(bigintToBytes(hashChain([0n, 0n])));
+  });
+
+  it("pins the empty-rule policy hash to Rust `EMPTY_POLICY_HASH`", () => {
+    expect(Buffer.from(RING_EMPTY_RULES_POLICY_HASH).toString("hex")).toBe(
+      "25cc39e678cf0a5b3e48b56b6447c6676667e8775d2615daf11358d3d55d3f4b",
+    );
   });
 });
