@@ -1,6 +1,6 @@
 import { getAddressEncoder } from "@solana/kit";
 
-import type { ZolanaClient } from "../client/client.js";
+import type { ChainReader, MergeAssembler, ProofReader, TreeContext } from "../client/ports.js";
 import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
 import type { NullifierKey } from "../keypair/nullifier-key.js";
 import type { P256PublicKey, ShieldedPublicKey } from "../keypair/public-key.js";
@@ -167,8 +167,13 @@ export class MergeMaterial {
   }
 }
 
+export type MergeClient = MergeAssembler &
+  TreeContext &
+  Pick<ChainReader, "getAccount"> &
+  Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs">;
+
 export interface MergeTransactionParams {
-  readonly client: ZolanaClient;
+  readonly client: MergeClient;
   readonly wallet: Wallet;
   readonly authority: WalletAuthority;
   readonly feePayer: Address;
@@ -278,9 +283,9 @@ function validateMergeBuild(record: MergeRecord, owner: Address, material: Merge
 }
 
 function treeCheckedIndexer(
-  indexer: Pick<ZolanaClient, "getInputMerkleProofs" | "getNonInclusionProofs">,
+  indexer: Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs">,
   submitTree: Address,
-): Pick<ZolanaClient, "getInputMerkleProofs" | "getNonInclusionProofs"> {
+): Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs"> {
   return {
     getInputMerkleProofs: async (commitments, config, context) => {
       const proofs = await indexer.getInputMerkleProofs(commitments, config, context);

@@ -112,6 +112,7 @@ function uniqueSigners(signers: readonly SolanaSigner[]): readonly SolanaSigner[
 
 async function deposit(
   input: Omit<DepositTransactionParams, "feePayer" | "depositor"> & {
+    readonly client: ZolanaClient;
     readonly feePayer: SolanaSigner;
     readonly depositor?: SolanaSigner;
     readonly waitForIndexer?: boolean;
@@ -143,6 +144,7 @@ async function deposit(
 
 async function transfer(
   input: Omit<TransferTransactionParams, "feePayer"> & {
+    readonly client: ZolanaClient;
     readonly feePayer: SolanaSigner;
     readonly skipPreflight?: boolean;
     readonly waitForIndexer?: boolean;
@@ -168,6 +170,7 @@ async function transfer(
 
 async function withdraw(
   input: Omit<WithdrawalTransactionParams, "feePayer"> & {
+    readonly client: ZolanaClient;
     readonly feePayer: SolanaSigner;
     readonly skipPreflight?: boolean;
     readonly waitForIndexer?: boolean;
@@ -194,6 +197,7 @@ async function withdraw(
 
 async function split(
   input: Omit<SplitTransactionParams, "feePayer"> & {
+    readonly client: ZolanaClient;
     readonly feePayer: SolanaSigner;
     readonly skipPreflight?: boolean;
     readonly waitForIndexer?: boolean;

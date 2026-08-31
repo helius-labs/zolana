@@ -1,4 +1,4 @@
-import type { ZolanaClient } from "../client/client.js";
+import type { ChainReader, TransactionAssembler } from "../client/ports.js";
 import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
 import { createAssociatedTokenAccountInstruction } from "../interface/instructions/index.js";
 import type { WalletAuthority } from "../transaction/wallet/authority.js";
@@ -14,8 +14,10 @@ import {
 import { wrapWalletError } from "./error.js";
 import { authorizePrivateTransaction } from "./private-transaction.js";
 
+export type PrivateTransactionClient = TransactionAssembler & Pick<ChainReader, "getAccount">;
+
 export interface PrivateTransactionParams {
-  readonly client: ZolanaClient;
+  readonly client: PrivateTransactionClient;
   readonly wallet: Wallet;
   readonly authority: WalletAuthority;
   readonly feePayer: Address;
@@ -117,7 +119,7 @@ async function buildAuthorizedTransaction(
   input: PrivateTransactionParams,
   transaction: Parameters<typeof authorizePrivateTransaction>[0],
   setupInstructions: Parameters<
-    ZolanaClient["assembleAuthorizedPrivateTransaction"]
+    TransactionAssembler["assembleAuthorizedPrivateTransaction"]
   >[0]["setupInstructions"],
   context: RequestContext | undefined,
 ): Promise<Transaction> {

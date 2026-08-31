@@ -1,4 +1,4 @@
-import type { ZolanaClient } from "../client/client.js";
+import type { ChainReader } from "../client/ports.js";
 import {
   type Address,
   type Bytes32,
@@ -116,7 +116,7 @@ export class UnsignedPrivateTransaction {
 }
 
 export interface TransferParams {
-  readonly client?: Pick<ZolanaClient, "getAccount">;
+  readonly client?: Pick<ChainReader, "getAccount">;
   readonly wallet: Wallet;
   readonly payer: Address;
   readonly recipient: TransferDestination;

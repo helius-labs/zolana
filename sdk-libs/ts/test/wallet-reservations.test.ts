@@ -1,7 +1,8 @@
 import { address, type Address, type Transaction } from "@solana/kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { AuthorizedPrivateTransaction, ZolanaClient } from "../src/client/client.js";
+import type { AuthorizedPrivateTransaction } from "../src/client/client.js";
+import type { PrivateTransactionClient } from "../src/wallet/index.js";
 import type { Bytes32 } from "../src/interface/index.js";
 import { ShieldedKeypair, SigningKey } from "../src/keypair/index.js";
 import {
@@ -90,7 +91,7 @@ function transferParams(wallet: Wallet, amount: bigint) {
   };
 }
 
-function buildParams(client: ZolanaClient, wallet: Wallet, keypair: ShieldedKeypair) {
+function buildParams(client: PrivateTransactionClient, wallet: Wallet, keypair: ShieldedKeypair) {
   return {
     client,
     wallet,
@@ -105,7 +106,7 @@ function buildParams(client: ZolanaClient, wallet: Wallet, keypair: ShieldedKeyp
 }
 
 function assemblingClient(): Readonly<{
-  client: ZolanaClient;
+  client: PrivateTransactionClient;
   assemble: ReturnType<typeof vi.fn>;
 }> {
   const assemble = vi.fn(
@@ -113,10 +114,9 @@ function assemblingClient(): Readonly<{
   );
   return {
     client: {
-      tree: TREE,
       getAccount: vi.fn(async () => undefined),
       assembleAuthorizedPrivateTransaction: assemble,
-    } as unknown as ZolanaClient,
+    } as PrivateTransactionClient,
     assemble,
   };
 }

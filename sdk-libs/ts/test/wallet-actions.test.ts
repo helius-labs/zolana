@@ -9,7 +9,9 @@ import {
 } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
-import type { AuthorizedPrivateTransaction, ZolanaClient } from "../src/client/client.js";
+import type { AuthorizedPrivateTransaction } from "../src/client/client.js";
+import type { DepositClient, PrivateTransactionClient } from "../src/wallet/index.js";
+import type { RingTransferClient } from "../src/ring/transfer.js";
 import { SPL_TOKEN_2022_PROGRAM_ID, type Bytes32 } from "../src/interface/index.js";
 import { NullifierKey, ShieldedKeypair, SigningKey } from "../src/keypair/index.js";
 import {
@@ -101,18 +103,19 @@ function fundedWallet(
   return wallet;
 }
 
-function latestBlockhashClient(feeTree = TREE): ZolanaClient {
-  return {
+function latestBlockhashClient(feeTree = TREE): DepositClient {
+  const reads: object = {
     tree: feeTree,
     getLatestBlockhash: vi.fn(async () => ({
       blockhash: BLOCKHASH,
       lastValidBlockHeight: 1n,
     })),
-  } as unknown as ZolanaClient;
+  };
+  return reads as DepositClient;
 }
 
 function capturePrivateBuild(): Readonly<{
-  client: ZolanaClient;
+  client: PrivateTransactionClient;
   assemble: ReturnType<typeof vi.fn>;
 }> {
   const assemble = vi.fn(
@@ -120,10 +123,9 @@ function capturePrivateBuild(): Readonly<{
   );
   return {
     client: {
-      tree: TREE,
       getAccount: vi.fn(async () => undefined),
       assembleAuthorizedPrivateTransaction: assemble,
-    } as unknown as ZolanaClient,
+    } as PrivateTransactionClient,
     assemble,
   };
 }
@@ -635,7 +637,7 @@ describe("ring approval summary", () => {
     });
     await expect(
       buildRingTransferTransaction({
-        client: { tree: TREE } as unknown as ZolanaClient,
+        client: { tree: TREE } as RingTransferClient,
         ringProgramId: RING,
         wallet,
         authority,

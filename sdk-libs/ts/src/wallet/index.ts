@@ -23,7 +23,11 @@ export {
   type IntentApproval,
   type TransactionIntent,
 } from "../transaction/wallet/intent.js";
-export { buildDepositTransaction, type DepositTransactionParams } from "./deposit.js";
+export {
+  buildDepositTransaction,
+  type DepositClient,
+  type DepositTransactionParams,
+} from "./deposit.js";
 export { fetchTransactionSlots, type TransactionSlots } from "./transaction-slots.js";
 export {
   buildSplitTransaction,
@@ -32,10 +36,11 @@ export {
   type PrivateTransactionParams,
   type SplitTransactionParams,
   type TransferDestination,
+  type PrivateTransactionClient,
   type TransferTransactionParams,
   type WithdrawalTransactionParams,
 } from "./transactions.js";
-export { buildMergeTransaction, type MergeTransactionParams } from "./merge.js";
+export { buildMergeTransaction, type MergeClient, type MergeTransactionParams } from "./merge.js";
 export {
   backfillAssetRegistry,
   getPrivateTokenBalances,

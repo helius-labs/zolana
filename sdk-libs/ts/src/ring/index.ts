@@ -104,7 +104,12 @@ export {
   auditRingTransaction,
   recoverTransactionViewingKey,
 } from "./audit.js";
-export type { AuditedRingOutput, AuditedRingTransaction, RingAuditPage } from "./audit.js";
+export type {
+  AuditedRingOutput,
+  AuditedRingTransaction,
+  RingAuditPage,
+  RingAuditReader,
+} from "./audit.js";
 export {
   CachedTransactionOrigin,
   confirmedInstructionGroups,
@@ -133,6 +138,7 @@ export {
 export type {
   CustomRingTransferParams,
   ProvenRingTransfer,
+  RingTransferClient,
   RingTransferTransactionParams,
   RingWithdrawalTransactionParams,
 } from "./transfer.js";

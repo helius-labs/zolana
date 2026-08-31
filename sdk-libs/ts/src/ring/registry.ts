@@ -1,6 +1,6 @@
 import { getBase64Decoder, getBase64Encoder, type Base64EncodedBytes } from "@solana/kit";
 
-import type { ZolanaClient } from "../client/client.js";
+import type { KitRpcAccess } from "../client/ports.js";
 import { ClientError } from "../client/error.js";
 import { runKitRpc } from "../client/kit.js";
 import { decodeRingConfig } from "../interface/accounts.js";
@@ -26,7 +26,7 @@ export interface RegisteredRing {
   readonly paused: boolean;
 }
 
-type RingRegistryReader = Pick<ZolanaClient, "solanaRpc" | "commitment">;
+type RingRegistryReader = KitRpcAccess;
 
 /**
  * Every ring registered with the shielded pool.

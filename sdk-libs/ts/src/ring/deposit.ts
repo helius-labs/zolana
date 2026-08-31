@@ -1,5 +1,5 @@
 import { compileUnsignedTransaction } from "../flows/compile.js";
-import type { ZolanaClient } from "../client/client.js";
+import type { DepositClient } from "../wallet/deposit.js";
 import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
 import { ringDepositInstruction } from "../interface/instructions/index.js";
 import { initializePoseidon } from "../hasher/index.js";
@@ -17,7 +17,7 @@ import { RingError, wrapRingError } from "./error.js";
 const ZERO_32 = new Uint8Array(32) as Bytes32;
 
 export interface RingDepositTransactionParams {
-  readonly client: ZolanaClient;
+  readonly client: DepositClient;
   readonly ringProgramId: Address;
   readonly feePayer: Address;
   readonly depositor?: Address;

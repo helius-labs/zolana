@@ -89,6 +89,11 @@ Added
 - `SyncClient` is exported, `syncWallet` needs only the three indexer
   reads and kit access only for a wallet holding a mint the registry
   cannot resolve.
+- `TransactionAssembler`, `MergeAssembler`, and `TreeContext` name the
+  client's assembly capabilities, `DepositClient`, `MergeClient`,
+  `PrivateTransactionClient`, `RingTransferClient`, and `RingAuditReader`
+  name what each build accepts, and any object with those members serves
+  in place of `ZolanaClient`.
 - Every `RingRpc` method accepts a `RequestContext`, its signal and
   timeout reach the transport, and integers above the safe range decode
   exactly.
@@ -116,6 +121,9 @@ Changed
 
 Fixed
 
+- `RingRpc` returned unchecked response strings as typed addresses and
+  signatures, every such field is now validated and a malformed one is
+  refused with `RING_RPC`.
 - A sync that failed partway had advanced its resume cursors past rows it
   never stored, losing those notes for good, rows and cursors now commit
   together and a failed sync leaves the wallet untouched.

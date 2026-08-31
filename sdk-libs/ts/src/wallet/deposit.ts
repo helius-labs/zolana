@@ -1,5 +1,5 @@
 import { compileUnsignedTransaction } from "../flows/compile.js";
-import type { ZolanaClient } from "../client/client.js";
+import type { BlockhashProvider, ChainReader, TreeContext } from "../client/ports.js";
 import type {
   Address,
   AssetDeposit,
@@ -126,8 +126,10 @@ export async function createDeposit(params: DepositParams): Promise<Deposit> {
   }
 }
 
+export type DepositClient = TreeContext & BlockhashProvider & Pick<ChainReader, "getAccount">;
+
 export interface DepositTransactionParams {
-  readonly client: ZolanaClient;
+  readonly client: DepositClient;
   readonly feePayer: Address;
   readonly depositor?: Address;
   readonly tree?: Address;

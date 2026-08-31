@@ -5,9 +5,12 @@ export type {
   ChainReader,
   IndexerReader,
   KitRpcAccess,
+  MergeAssembler,
   ProofReader,
   Prover,
+  TransactionAssembler,
   TransactionConfirmer,
+  TreeContext,
 } from "./ports.js";
 export { CANONICAL_CLIENT_ERROR_CODES, ClientError } from "./error.js";
 export type {

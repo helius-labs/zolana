@@ -1,10 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { ZolanaClient } from "../../../src/client/index.js";
 import type { Bytes32 } from "../../../src/interface/index.js";
 import { ShieldedKeypair, SigningKey, ViewingKey } from "../../../src/keypair/index.js";
 import { AssetRegistry, Wallet, type WalletSyncMaterial } from "../../../src/transaction/index.js";
-import { syncWallet, type SyncAuthority } from "../../../src/wallet/index.js";
+import { syncWallet, type SyncAuthority, type SyncClient } from "../../../src/wallet/index.js";
 import fixture from "../../../vectors/wallet-sync-tags-v1.json" with { type: "json" };
 
 interface Case {
@@ -45,12 +44,7 @@ function keypair(identity: "self" | "other" = "self"): ShieldedKeypair {
 }
 
 function recorder(): Readonly<{
-  client: Pick<
-    ZolanaClient,
-    | "getEncryptedUtxosByTags"
-    | "getShieldedTransactionsByNullifiers"
-    | "getShieldedTransactionsByTags"
-  >;
+  client: SyncClient;
   shielded: { tags: string[]; limit: number | undefined }[];
   deposits: { tags: string[]; limit: number | undefined }[];
   nullifiers: ReturnType<typeof vi.fn>;
@@ -98,7 +92,7 @@ describe("wallet sync stable-tag vectors", () => {
         viewingKeys: [owner.viewingKey()],
         nullifierKey: owner.nullifierKey(),
       }),
-      client: recorded.client as ZolanaClient,
+      client: recorded.client,
     });
 
     expect(fixture.defaults).toEqual({
@@ -130,7 +124,7 @@ describe("wallet sync stable-tag vectors", () => {
           viewingKeys: retained,
           nullifierKey: owner.nullifierKey(),
         }),
-        client: recorded.client as ZolanaClient,
+        client: recorded.client,
         config: { queryChunk: item.queryChunk },
       });
 
@@ -160,7 +154,7 @@ describe("wallet sync stable-tag vectors", () => {
         viewingKeys: [key],
         nullifierKey: owner.nullifierKey(),
       }),
-      client: recorder().client as ZolanaClient,
+      client: recorder().client,
     });
 
     expect(key).not.toHaveProperty("senderViewTag");
@@ -189,7 +183,7 @@ describe("wallet sync stable-tag vectors", () => {
         syncWallet({
           wallet: new Wallet({ identity: owner.shieldedAddress() }),
           authority: authority(material),
-          client: recorded.client as ZolanaClient,
+          client: recorded.client,
         }),
       ).rejects.toMatchObject({ code: "WALLET_SYNC" });
       expect(recorded.shielded).toHaveLength(0);

@@ -1,4 +1,10 @@
-import type { ZolanaClient } from "../client/client.js";
+import type {
+  BlockhashProvider,
+  ChainReader,
+  KitRpcAccess,
+  Prover,
+  TreeContext,
+} from "../client/ports.js";
 import { InstructionTag } from "../interface/program.js";
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import type {
@@ -47,8 +53,14 @@ export const RING_TRANSACT_COMPUTE_UNIT_LIMIT = 1_400_000;
 /** Borsh `Encrypted` tag, its length, the scheme byte and the embedded P-256 key. */
 const CONFIDENTIAL_BODY_OVERHEAD = 1 + 4 + 1 + 33;
 
+export type RingTransferClient = TreeContext &
+  BlockhashProvider &
+  KitRpcAccess &
+  Pick<ChainReader, "getAccount"> &
+  Pick<Prover, "proveRingTransact" | "proveCustomRing">;
+
 export interface RingTransferTransactionParams {
-  readonly client: ZolanaClient;
+  readonly client: RingTransferClient;
   readonly ringProgramId: Address;
   readonly wallet: Wallet;
   readonly authority: WalletAuthority;
@@ -65,7 +77,7 @@ export interface RingTransferTransactionParams {
 }
 
 export interface RingWithdrawalTransactionParams {
-  readonly client: ZolanaClient;
+  readonly client: RingTransferClient;
   readonly ringProgramId: Address;
   readonly wallet: Wallet;
   readonly authority: WalletAuthority;
@@ -84,7 +96,7 @@ export interface RingWithdrawalTransactionParams {
 
 /** Mirrors Rust `CustomRingTransferInput`. `prepared` is what `ConfidentialTransfer.prepare` returned. */
 export interface CustomRingTransferParams {
-  readonly client: ZolanaClient;
+  readonly client: RingTransferClient;
   readonly ringProgramId: Address;
   readonly prepared: PreparedTransfer;
   /** The encryption capability of an open spend session. */

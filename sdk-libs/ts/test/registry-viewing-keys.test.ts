@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { address, getAddressEncoder } from "@solana/kit";
 
-import type { ZolanaClient } from "../src/client/client.js";
+import type { ChainReader } from "../src/client/index.js";
 import type { ProgramAccount } from "../src/client/rpc.js";
 import { USER_REGISTRY_PROGRAM_ID } from "../src/interface/program.js";
 import type { Address } from "../src/interface/types.js";
@@ -36,13 +36,13 @@ function record(owner: Address, viewingPublicKey: Uint8Array): ProgramAccount {
   };
 }
 
-function listing(accounts: readonly ProgramAccount[]): Pick<ZolanaClient, "getProgramAccounts"> {
+function listing(accounts: readonly ProgramAccount[]): Pick<ChainReader, "getProgramAccounts"> {
   return {
     getProgramAccounts: async (programId: Address) => {
       expect(programId).toBe(USER_REGISTRY_PROGRAM_ID);
       return accounts;
     },
-  } as Pick<ZolanaClient, "getProgramAccounts">;
+  } as Pick<ChainReader, "getProgramAccounts">;
 }
 
 describe("registry viewing key index", () => {

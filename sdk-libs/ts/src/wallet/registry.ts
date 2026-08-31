@@ -7,7 +7,7 @@ import {
 } from "@solana/kit";
 
 import { compileUnsignedTransaction } from "../flows/compile.js";
-import type { ZolanaClient } from "../client/client.js";
+import type { BlockhashProvider, ChainReader } from "../client/ports.js";
 import type { RpcAccount } from "../client/rpc.js";
 import { USER_REGISTRY_PROGRAM_ID } from "../interface/program.js";
 import {
@@ -25,8 +25,8 @@ import { hex } from "../transaction/wallet/state.js";
 import { WalletError, wrapWalletError } from "./error.js";
 import { concat, equalBytes } from "./internal.js";
 
-type AccountReader = Pick<ZolanaClient, "getAccount">;
-type ProgramAccountReader = Pick<ZolanaClient, "getProgramAccounts">;
+type AccountReader = Pick<ChainReader, "getAccount">;
+type ProgramAccountReader = Pick<ChainReader, "getProgramAccounts">;
 
 const SYSTEM_PROGRAM = address("11111111111111111111111111111111");
 const RECORD_SEED = new TextEncoder().encode("zolana/registry/v0");
@@ -387,7 +387,7 @@ function publishedKeysMatch(record: UserRecord, address: ShieldedAddress): boole
 
 export async function buildRegistrationTransaction(
   input: Readonly<{
-    client: Pick<ZolanaClient, "getAccount" | "getLatestBlockhash">;
+    client: AccountReader & BlockhashProvider;
     owner: Address;
     address: ShieldedAddress;
   }>,
@@ -417,7 +417,7 @@ export async function buildRegistrationTransaction(
 
 export async function buildSetMergingEnabledTransaction(
   input: Readonly<{
-    client: Pick<ZolanaClient, "getLatestBlockhash">;
+    client: BlockhashProvider;
     owner: Address;
     enabled: boolean;
   }>,

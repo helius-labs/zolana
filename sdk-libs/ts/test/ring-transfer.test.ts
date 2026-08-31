@@ -24,7 +24,8 @@ import {
 import { SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
 import { StateDiscriminator } from "../src/interface/state.js";
 import { assemble, ownerSignerAddresses } from "../src/client/prover/assembly.js";
-import type { ZolanaClient } from "../src/client/client.js";
+import type { RingAuditReader } from "../src/ring/audit.js";
+import type { RingTransferClient } from "../src/ring/transfer.js";
 import type { SpendProof } from "../src/client/rpc.js";
 import { hashBytesBigInt } from "../src/client/internal.js";
 import {
@@ -387,7 +388,7 @@ describe("ring witness", () => {
   });
 
   it("refuses a tree the client does not prove from, before any fetch", async () => {
-    const client = { tree: RING } as unknown as ZolanaClient;
+    const client = { tree: RING } as object as RingTransferClient;
     await expect(
       proveCustomRingTransfer({
         client,
@@ -561,7 +562,7 @@ describe("ring audit", () => {
       getShieldedTransactionsByTags: async () => ({ transactions: [transaction, transaction] }),
       solanaRpc: { getProgramAccounts },
       commitment: "confirmed",
-    } as unknown as Parameters<typeof auditRing>[0]["client"];
+    } as object as RingAuditReader;
 
     const assets = new AssetRegistry();
     const page = await auditRing({
@@ -599,7 +600,7 @@ describe("ring audit", () => {
       getShieldedTransactionsByTags: async () => ({ transactions: [transaction] }),
       solanaRpc: { getProgramAccounts },
       commitment: "confirmed",
-    } as unknown as Parameters<typeof auditRing>[0]["client"];
+    } as object as RingAuditReader;
 
     await expect(
       auditRing({

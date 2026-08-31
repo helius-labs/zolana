@@ -1,7 +1,16 @@
 import type { Address, Commitment, Signature } from "@solana/kit";
 
-import type { RequestContext, TransactInstructionData, Bytes32 } from "../interface/types.js";
+import type {
+  Instruction,
+  RequestContext,
+  Transaction,
+  TransactInstructionData,
+  Bytes32,
+} from "../interface/types.js";
+import type { PreparedMerge } from "../transaction/instructions/builders.js";
 import type { InputUtxoContext, SppProofInputs } from "../transaction/instructions/transact.js";
+
+import type { AuthorizedPrivateTransaction, MergeMaterialInput, ProvedMerge } from "./client.js";
 
 import type { LatestBlockhash, SolanaRpc } from "./kit.js";
 import type { ProverHealth } from "./prover/client.js";
@@ -113,4 +122,39 @@ export interface TransactionConfirmer {
 export interface KitRpcAccess {
   readonly solanaRpc: SolanaRpc;
   readonly commitment: Commitment;
+}
+
+/** The pool tree the client builds against. */
+export interface TreeContext {
+  readonly tree: Address;
+}
+
+export interface TransactionAssembler {
+  assembleAuthorizedPrivateTransaction(
+    input: Readonly<{
+      authorized: AuthorizedPrivateTransaction;
+      feePayer: Address;
+      setupInstructions?: readonly Instruction[];
+    }>,
+    context?: RequestContext,
+  ): Promise<Transaction>;
+}
+
+export interface MergeAssembler {
+  proveMerge(
+    input: Readonly<{
+      prepared: PreparedMerge;
+      material: MergeMaterialInput;
+      indexer?: Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs">;
+    }>,
+    context?: RequestContext,
+  ): Promise<ProvedMerge>;
+  assembleAuthorizedMergeTransaction(
+    input: Readonly<{
+      proved: ProvedMerge;
+      feePayer: Address;
+      userRecord: Address;
+    }>,
+    context?: RequestContext,
+  ): Promise<Transaction>;
 }

@@ -6,7 +6,7 @@ import {
 } from "@solana-program/address-lookup-table";
 import { createNoopSigner, type Address, type Transaction } from "@solana/kit";
 
-import type { ZolanaClient } from "../client/client.js";
+import type { BlockhashProvider, KitRpcAccess, TreeContext } from "../client/ports.js";
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import type { RequestContext } from "../interface/types.js";
 
@@ -20,10 +20,12 @@ export interface RingLookupTable {
   readonly slot: bigint;
 }
 
+type LookupTableClient = TreeContext & KitRpcAccess;
+
 /** One table serves every transact of the ring and tree pair. */
 export async function buildRingLookupTableTransaction(
   input: Readonly<{
-    client: ZolanaClient;
+    client: LookupTableClient & BlockhashProvider;
     ringProgramId: Address;
     feePayer: Address;
     tree?: Address;
@@ -69,7 +71,7 @@ export async function buildRingLookupTableTransaction(
 
 export async function fetchRingLookupTable(
   input: Readonly<{
-    client: ZolanaClient;
+    client: LookupTableClient;
     ringProgramId: Address;
     address: Address;
     tree?: Address;

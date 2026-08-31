@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { decodeRingConfig } from "../src/interface/accounts.js";
 import { StateDiscriminator } from "../src/interface/state.js";
+import type { KitRpcAccess } from "../src/client/index.js";
 import { listRegisteredRings } from "../src/ring/registry.js";
 
 const base64Decoder = getBase64Decoder();
@@ -77,7 +78,7 @@ describe("listRegisteredRings", () => {
     );
     const getProgramAccounts = vi.fn(() => ({ send }));
     return {
-      rpc: { solanaRpc: { getProgramAccounts }, commitment: "confirmed" },
+      rpc: { solanaRpc: { getProgramAccounts }, commitment: "confirmed" } as object as KitRpcAccess,
       getProgramAccounts,
     };
   }
@@ -87,7 +88,7 @@ describe("listRegisteredRings", () => {
 
     // An empty list means the pool has no rings, and only that: every way of
     // failing to read the registry throws instead.
-    expect(await listRegisteredRings(rpc as never)).toEqual([]);
+    expect(await listRegisteredRings(rpc)).toEqual([]);
 
     const call = getProgramAccounts.mock.calls[0];
     const [programId, config] = call as unknown as [string, unknown];
@@ -104,7 +105,7 @@ describe("listRegisteredRings", () => {
       { pubkey: CONFIG_PDA, data: ringConfigAccount({ enabled: true, paused: true }) },
     ]);
 
-    const rings = await listRegisteredRings(rpc as never);
+    const rings = await listRegisteredRings(rpc);
 
     expect(rings).toEqual([
       {
@@ -129,7 +130,7 @@ describe("listRegisteredRings", () => {
       { pubkey: CONFIG_PDA, data: ringConfigAccount() },
     ]);
 
-    await expect(listRegisteredRings(rpc as never)).rejects.toMatchObject({
+    await expect(listRegisteredRings(rpc)).rejects.toMatchObject({
       code: "CLIENT_INVALID_RPC_RESPONSE",
       details: {
         method: "getProgramAccounts",
@@ -151,9 +152,9 @@ describe("listRegisteredRings", () => {
     const rpc = {
       solanaRpc: { getProgramAccounts: vi.fn(() => ({ send })) },
       commitment: "confirmed",
-    };
+    } as object as KitRpcAccess;
 
-    await expect(listRegisteredRings(rpc as never)).rejects.toMatchObject({
+    await expect(listRegisteredRings(rpc)).rejects.toMatchObject({
       code: "CLIENT_UNSUPPORTED_RPC_METHOD",
       details: { method: "getProgramAccounts" },
     });

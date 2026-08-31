@@ -1,7 +1,7 @@
 import { p256 } from "@noble/curves/nist.js";
 import { initializePoseidon } from "../hasher/index.js";
 
-import type { ZolanaClient } from "../client/client.js";
+import type { IndexerReader, KitRpcAccess } from "../client/ports.js";
 import type {
   Address,
   Bytes16,
@@ -152,6 +152,8 @@ export function auditRingTransaction(
   }
 }
 
+export type RingAuditReader = KitRpcAccess & Pick<IndexerReader, "getShieldedTransactionsByTags">;
+
 /**
  * Mirrors Rust `RingAudit`. The indexer knows no rings, each tagged transaction
  * is attributed through its confirmed call stack, and the tag match is
@@ -160,7 +162,7 @@ export function auditRingTransaction(
  */
 export async function auditRing(
   input: Readonly<{
-    client: ZolanaClient;
+    client: RingAuditReader;
     auditor: ViewingKey;
     ringProgramId: Address;
     assets: AssetRegistry;

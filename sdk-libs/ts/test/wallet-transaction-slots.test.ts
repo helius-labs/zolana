@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ZolanaClient } from "../src/client/client.js";
+import type { IndexerReader } from "../src/client/index.js";
 import { getAddressDecoder } from "@solana/kit";
 
 import type { Bytes32, Signature } from "../src/interface/types.js";
@@ -26,7 +26,7 @@ function reader(events: readonly { leaf: bigint; tags: readonly Bytes32[] }[]) {
         })),
       };
     },
-  } as unknown as Pick<ZolanaClient, "getShieldedTransactionsBySignature">;
+  } as object as Pick<IndexerReader, "getShieldedTransactionsBySignature">;
 }
 
 describe("owner tags", () => {
