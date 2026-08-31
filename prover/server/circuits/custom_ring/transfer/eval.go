@@ -90,9 +90,10 @@ func (w RuleWires) assertAnswered(api frontend.API, instance, covered, amount fr
 // inlineCoverage matches output assets against the policy's inline members, the
 // zero padding member never matching.
 func (c *Circuit) inlineCoverage(api frontend.API, outputs [NOut]slotView) [NOut]frontend.Variable {
+	inInline := suffixSums(api, c.InlineCountOneHot[:])
 	var listed [NInlineAssets]frontend.Variable
 	for m, member := range c.InlineAssets {
-		listed[m] = nonZero(api, member)
+		listed[m] = api.Mul(inInline[m+1], nonZero(api, member))
 	}
 	var covered [NOut]frontend.Variable
 	for j, out := range outputs {

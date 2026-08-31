@@ -294,6 +294,9 @@ func (p *CustomRingParameters) UnmarshalJSON(data []byte) error {
 		if p.InlineAssets[i], err = fieldFromHex(asset, "inlineAssets"); err != nil {
 			return err
 		}
+		if i >= int(raw.InlineCount) && p.InlineAssets[i].Sign() != 0 {
+			return fmt.Errorf("custom-ring: inlineAssets[%d] is non-zero padding after inlineCount %d", i, raw.InlineCount)
+		}
 	}
 	if len(raw.Answers) != transfer.NAnswers {
 		return fmt.Errorf("custom-ring: answers holds %d entries, expected %d", len(raw.Answers), transfer.NAnswers)

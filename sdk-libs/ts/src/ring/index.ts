@@ -135,5 +135,6 @@ export {
 export type {
   CustomRingTransferParams,
   ProvenRingTransfer,
+  RingEntriesRoots,
   RingTransferTransactionParams,
 } from "./transfer.js";

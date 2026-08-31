@@ -25,11 +25,18 @@ func (c *Circuit) definePolicy(
 	assertOneHot(api, c.LenOneHot[:])
 	assertOneHot(api, c.InlineCountOneHot[:])
 	inTable := suffixSums(api, c.LenOneHot[:])
+	inInline := suffixSums(api, c.InlineCountOneHot[:])
 
 	var enabled [NRules]frontend.Variable
 	for k, rule := range c.Rules {
 		enabled[k] = inTable[k+1]
 		rule.define(api, checker, enabled[k])
+	}
+	// InlineCount closes both the policy-hash preimage and the membership set.
+	// A non-zero value after that prefix would otherwise be uncommitted padding
+	// that inlineCoverage could still use to satisfy an asset rule.
+	for m, member := range c.InlineAssets {
+		api.AssertIsEqual(api.Mul(api.Sub(1, inInline[m+1]), member), 0)
 	}
 	return c.policyHash(api), enabled
 }

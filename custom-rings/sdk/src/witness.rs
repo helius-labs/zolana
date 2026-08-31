@@ -134,26 +134,45 @@ impl CustomRingWitnessInput<'_> {
     }
 
     fn subjects(&self, rule: &Rule) -> Result<Vec<Member>, TransferError> {
-        let tags = match rule.subject {
-            Subject::OutputOwner => self
+        match rule.subject {
+            Subject::OutputOwner => {
+                let tags = self
+                    .outputs
+                    .iter()
+                    .filter_map(|output| output.owner_address.as_ref())
+                    .map(|address| address.confidential_view_tag())
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|_| TransferError::PolicyHashing)?;
+                tags.iter()
+                    .map(|tag| Member::owner_tag(tag).map_err(|_| TransferError::PolicyHashing))
+                    .collect()
+            }
+            Subject::Sender => {
+                let tags = self
+                    .inputs
+                    .iter()
+                    .filter(|spend| !spend.is_dummy())
+                    .map(|spend| spend.utxo.owner.confidential_view_tag())
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|_| TransferError::PolicyHashing)?;
+                tags.iter()
+                    .map(|tag| Member::owner_tag(tag).map_err(|_| TransferError::PolicyHashing))
+                    .collect()
+            }
+            // The circuit ranges asset rules over live outputs, using the same
+            // hashed mint field as output_opening.
+            Subject::Asset => self
                 .outputs
                 .iter()
-                .filter_map(|output| output.owner_address.as_ref())
-                .map(|address| address.confidential_view_tag())
-                .collect::<Result<Vec<_>, _>>(),
-            Subject::Sender => self
-                .inputs
-                .iter()
-                .filter(|spend| !spend.is_dummy())
-                .map(|spend| spend.utxo.owner.confidential_view_tag())
-                .collect::<Result<Vec<_>, _>>(),
-            // Exit destinations and assets are checked without an entry.
-            Subject::ExitDestination | Subject::Asset => Ok(Vec::new()),
+                .filter(|output| output.owner_address.is_some())
+                .map(|output| {
+                    Member::asset(&output.asset).map_err(|_| TransferError::PolicyHashing)
+                })
+                .collect(),
+            // RuleTableBuilder rejects this subject until a settlement-aware
+            // circuit plane exists.
+            Subject::ExitDestination => Ok(Vec::new()),
         }
-        .map_err(|_| TransferError::PolicyHashing)?;
-        tags.iter()
-            .map(|tag| Member::owner_tag(tag).map_err(|_| TransferError::PolicyHashing))
-            .collect()
     }
 
     fn entry<I: Rpc>(
@@ -299,6 +318,53 @@ fn encode_table(policy: &RuleTable) -> ([[u8; 32]; MAX_RULES], [[u8; 32]; MAX_IN
         }
     }
     (rules, inline, inline_count as u8)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use custom_ring_interface::{PolicyConfig, SourceSlot, N_SOURCE_SLOTS, POLICY_CONFIG};
+    use zolana_keypair::ShieldedKeypair;
+
+    #[test]
+    fn list_backed_asset_rules_name_each_live_output_asset() {
+        let recipient = ShieldedKeypair::new_ed25519().expect("recipient");
+        let asset = Address::new_from_array([9; 32]);
+        let outputs = [
+            SppProofOutputUtxo::new(
+                asset,
+                1,
+                recipient.shielded_address().expect("shielded address"),
+            )
+            .expect("output"),
+            SppProofOutputUtxo::default(),
+        ];
+        let config = PolicyConfig {
+            discriminator: POLICY_CONFIG,
+            policy_hash: [0; 32],
+            entries_tree: Address::default(),
+            namespace_bump: 0,
+            bump: 0,
+            sources: [SourceSlot {
+                list_id: 0,
+                namespace: Address::default(),
+            }; N_SOURCE_SLOTS],
+        };
+        let policy = RuleTable::builder().build();
+        let input = CustomRingWitnessInput {
+            policy: &policy,
+            policy_config: &config,
+            inputs: &[],
+            outputs: &outputs,
+        };
+
+        assert_eq!(
+            input
+                .subjects(&Rule::require(Subject::Asset, ListId::Allow))
+                .expect("asset subjects"),
+            vec![Member::asset(&asset).expect("asset member")]
+        );
+    }
 }
 
 struct MerklePath {

@@ -157,9 +157,14 @@ export async function ringTransactInstruction(
   };
 }
 
-/** Mirrors Rust `lookup_table_addresses`. `entriesTree` defaults to `tree`. */
+/** Mirrors Rust `lookup_table_addresses`; optional trees default to `tree`. */
 export async function ringLookupTableAddresses(
-  input: Readonly<{ ringProgramId: Address; tree: Address; entriesTree?: Address }>,
+  input: Readonly<{
+    ringProgramId: Address;
+    tree: Address;
+    outputTree?: Address;
+    entriesTree?: Address;
+  }>,
 ): Promise<readonly Address[]> {
   const [config, policyConfig, ringAuth] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
@@ -169,7 +174,7 @@ export async function ringLookupTableAddresses(
   const answers = ringTransactAccounts({
     payer: SHIELDED_POOL_PROGRAM_ID,
     inputTree: input.tree,
-    outputTree: input.tree,
+    outputTree: input.outputTree ?? input.tree,
     ringAuth,
   });
   const addresses = [

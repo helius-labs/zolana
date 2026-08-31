@@ -1,9 +1,21 @@
 import { p256 } from "@noble/curves/nist.js";
-import { address, getAddressDecoder, getAddressEncoder } from "@solana/kit";
-import { describe, expect, it } from "vitest";
+import {
+  address,
+  getAddressDecoder,
+  getAddressEncoder,
+  getProgramDerivedAddress,
+} from "@solana/kit";
+import { describe, expect, it, vi } from "vitest";
 
 import { InstructionTag } from "../src/interface/program.js";
-import type { Bytes32, Signature } from "../src/interface/types.js";
+import type {
+  Bytes16,
+  Bytes32,
+  Bytes33,
+  Bytes64,
+  Signature,
+  TransactInstructionData,
+} from "../src/interface/types.js";
 import {
   AUDIT_ENC_INFO,
   auditSharedSecret,
@@ -21,12 +33,15 @@ import {
   recoverTransactionViewingKey,
 } from "../src/ring/audit.js";
 import { assemble, ringOpenings } from "../src/client/prover/assembly.js";
+import { ZolanaClient } from "../src/client/client.js";
+import type { CustomRingProofRequest } from "../src/client/prover/types.js";
 import type { SpendProof } from "../src/client/rpc.js";
 import { bigintToBytes, hashBytesBigInt, hashChain, poseidon } from "../src/client/internal.js";
 import { hashBytes } from "../src/hasher/index.js";
 import {
   checkRingMembership,
   frameDummyOutputs,
+  proveCustomRingTransfer,
   ringAddressChain,
   ringNamespaceOwnerHash,
   RING_EMPTY_RULES_POLICY_HASH,
@@ -44,6 +59,7 @@ import { AssetRegistry, SOL_MINT } from "../src/transaction/wallet/asset.js";
 import { LocalWalletAuthority } from "../src/transaction/wallet/authority.js";
 
 const RING = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
+const ACTIVE_TREE = getAddressDecoder().decode(new Uint8Array(32).fill(44));
 
 function scalar(value: number): Bytes32 {
   const bytes = new Uint8Array(32);
@@ -523,5 +539,133 @@ describe("ring proof folded fields", () => {
     expect(Buffer.from(RING_EMPTY_RULES_POLICY_HASH).toString("hex")).toBe(
       "25cc39e678cf0a5b3e48b56b6447c6676667e8775d2615daf11358d3d55d3f4b",
     );
+  });
+
+  it("sends the finalized SPP external hash and address chain to the custom prover", async () => {
+    const { prepared, sender } = preparedTransfer(4n, [1n]);
+    const auditor = ViewingKey.generate();
+    const encoder = new TextEncoder();
+    const [configAddress, configBump] = await getProgramDerivedAddress({
+      programAddress: RING,
+      seeds: [encoder.encode("config")],
+    });
+    const [policyAddress, policyBump] = await getProgramDerivedAddress({
+      programAddress: RING,
+      seeds: [encoder.encode("policy")],
+    });
+    const client = new ZolanaClient({
+      solanaRpcUrl: "http://127.0.0.1:8899",
+      indexerUrl: "http://127.0.0.1:8784",
+      proverUrl: "http://127.0.0.1:3001",
+      tree: RING,
+    });
+    vi.spyOn(client, "getAccount").mockImplementation(async (account) => {
+      if (account === configAddress) {
+        return {
+          owner: RING,
+          lamports: 1n,
+          data: Uint8Array.from([
+            1,
+            ...new Uint8Array(32),
+            ...auditor.publicKey().toBytes(),
+            configBump,
+          ]),
+        };
+      }
+      if (account === policyAddress) {
+        return {
+          owner: RING,
+          lamports: 1n,
+          data: Uint8Array.from([
+            3,
+            ...RING_EMPTY_RULES_POLICY_HASH,
+            ...getAddressEncoder().encode(ACTIVE_TREE),
+            0,
+            policyBump,
+            ...new Uint8Array(33 * 8),
+          ]),
+        };
+      }
+      return undefined;
+    });
+
+    const privateTxHash = scalar(91);
+    const data: TransactInstructionData = {
+      expiryUnixTs: 0n,
+      privateTxHash,
+      circuit: { kind: "ringEddsa", inputs: 2, outputs: 3, publicAssetSlots: 3 },
+      txViewingPk: new Uint8Array(33) as Bytes33,
+      salt: new Uint8Array(16) as Bytes16,
+      proof: {
+        a: new Uint8Array(32) as Bytes32,
+        b: new Uint8Array(64) as Bytes64,
+        c: new Uint8Array(32) as Bytes32,
+      },
+      inputs: [],
+      interfaceTransfers: [],
+      outputs: [],
+      messages: [],
+    };
+    const stateRoot = scalar(92);
+    const nullifierRoot = scalar(93);
+    const entriesStateRoot = scalar(94);
+    const entriesNullifierRoot = scalar(95);
+    let finalized: SppProofInputs | undefined;
+    const ringProver = vi
+      .spyOn(client, "proveRingTransact")
+      .mockImplementation(async (proofInputs) => {
+        finalized = proofInputs;
+        return {
+          data,
+          roots: {
+            stateRoot,
+            stateRootIndex: 4,
+            nullifierRoot,
+            nullifierRootIndex: 5,
+          },
+        };
+      });
+    let request: CustomRingProofRequest | undefined;
+    vi.spyOn(client, "proveCustomRing").mockImplementation(async (input) => {
+      request = input;
+      return new Uint8Array(192);
+    });
+
+    const base = {
+      client,
+      ringProgramId: RING,
+      prepared,
+      authority: sender.authority,
+      assets: new AssetRegistry(),
+      tree: RING,
+      outputTree: ACTIVE_TREE,
+    } as const;
+    await expect(proveCustomRingTransfer(base)).rejects.toMatchObject({
+      code: "RING_ENTRIES_ROOTS_REQUIRED",
+    });
+    expect(ringProver).not.toHaveBeenCalled();
+
+    const proven = await proveCustomRingTransfer({
+      ...base,
+      entriesRoots: {
+        stateRoot: entriesStateRoot,
+        stateRootIndex: 7,
+        nullifierRoot: entriesNullifierRoot,
+        nullifierRootIndex: 8,
+      },
+    });
+
+    expect(finalized).toBeDefined();
+    expect(request).toBeDefined();
+    expect(request?.externalDataHash).toEqual(finalized?.externalData.hash());
+    expect(request?.addressChain).toEqual(ringAddressChain(finalized?.inputUtxos.length ?? 0));
+    expect(request?.privateTxHash).toEqual(privateTxHash);
+    expect(request?.stateRoot).toEqual(entriesStateRoot);
+    expect(request?.nullifierRoot).toEqual(entriesNullifierRoot);
+    expect(proven.tree).toBe(RING);
+    expect(proven.outputTree).toBe(ACTIVE_TREE);
+    expect(proven.entriesTree).toBe(ACTIVE_TREE);
+    expect(proven.stateRootIndex).toBe(7);
+    expect(proven.nullifierRootIndex).toBe(8);
   });
 });

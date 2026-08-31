@@ -78,6 +78,10 @@ export interface RingTransferTransactionParams {
   readonly recipient: Address | ShieldedAddress;
   readonly asset?: Address;
   readonly amount: bigint;
+  /** Destination money tree; defaults to the input note tree. */
+  readonly outputTree?: Address;
+  /** Required when the policy entries tree differs from the input note tree. */
+  readonly entriesRoots?: RingEntriesRoots;
   /** Must be at least one slot old. */
   readonly lookupTable: Address;
   readonly computeUnitLimit?: number;
@@ -93,6 +97,10 @@ export interface RingWithdrawalTransactionParams {
   readonly recipient: Address;
   readonly asset?: Address;
   readonly amount: bigint;
+  /** Destination money tree for private change; defaults to the input note tree. */
+  readonly outputTree?: Address;
+  /** Required when the policy entries tree differs from the input note tree. */
+  readonly entriesRoots?: RingEntriesRoots;
   /** Must be at least one slot old. */
   readonly lookupTable: Address;
   readonly computeUnitLimit?: number;
@@ -105,7 +113,20 @@ export interface CustomRingTransferParams {
   readonly prepared: PreparedTransfer;
   readonly authority: WalletAuthority;
   readonly assets: AssetRegistry;
+  /** Tree containing the spent notes. */
   readonly tree: Address;
+  /** Tree receiving every private output; defaults to `tree`. */
+  readonly outputTree?: Address;
+  /** A root pair read from `PolicyConfig.entriesTree`, required for migration. */
+  readonly entriesRoots?: RingEntriesRoots;
+}
+
+/** History entries read from the ring's dedicated policy entries tree. */
+export interface RingEntriesRoots {
+  readonly stateRoot: Bytes32;
+  readonly stateRootIndex: number;
+  readonly nullifierRoot: Bytes32;
+  readonly nullifierRootIndex: number;
 }
 
 /** Mirrors Rust `ProvenTransfer`. */
@@ -114,7 +135,9 @@ export interface ProvenRingTransfer {
   readonly proof: Uint8Array;
   readonly txViewingPublicKey: P256PublicKey;
   readonly payer: Address;
+  /** Input money tree, retained as `tree` for compatibility. */
   readonly tree: Address;
+  readonly outputTree: Address;
   readonly entriesTree: Address;
   /** History entries the ring proof binds, sent on the tag-3 wire. */
   readonly stateRootIndex: number;
@@ -160,6 +183,8 @@ export async function buildRingTransferTransaction(
         authority: input.authority,
         assets: input.wallet.registry,
         tree,
+        ...(input.outputTree === undefined ? {} : { outputTree: input.outputTree }),
+        ...(input.entriesRoots === undefined ? {} : { entriesRoots: input.entriesRoots }),
       },
       context,
     );
@@ -168,7 +193,7 @@ export async function buildRingTransferTransaction(
         ringProgramId: input.ringProgramId,
         payer: proven.payer,
         inputTree: proven.tree,
-        outputTree: proven.tree,
+        outputTree: proven.outputTree,
         entriesTree: proven.entriesTree,
         proof: proven.proof,
         stateRootIndex: proven.stateRootIndex,
@@ -180,6 +205,7 @@ export async function buildRingTransferTransaction(
         ringProgramId: input.ringProgramId,
         address: input.lookupTable,
         tree: proven.tree,
+        outputTree: proven.outputTree,
         entriesTree: proven.entriesTree,
       }),
       input.client.getLatestBlockhash(context),
@@ -256,6 +282,8 @@ export async function buildRingWithdrawalTransaction(
         authority: input.authority,
         assets: input.wallet.registry,
         tree,
+        ...(input.outputTree === undefined ? {} : { outputTree: input.outputTree }),
+        ...(input.entriesRoots === undefined ? {} : { entriesRoots: input.entriesRoots }),
       },
       context,
     );
@@ -264,7 +292,7 @@ export async function buildRingWithdrawalTransaction(
         ringProgramId: input.ringProgramId,
         payer: proven.payer,
         inputTree: proven.tree,
-        outputTree: proven.tree,
+        outputTree: proven.outputTree,
         entriesTree: proven.entriesTree,
         proof: proven.proof,
         stateRootIndex: proven.stateRootIndex,
@@ -277,6 +305,7 @@ export async function buildRingWithdrawalTransaction(
         ringProgramId: input.ringProgramId,
         address: input.lookupTable,
         tree: proven.tree,
+        outputTree: proven.outputTree,
         entriesTree: proven.entriesTree,
       }),
       input.client.getLatestBlockhash(context),
@@ -326,12 +355,6 @@ export async function proveCustomRingTransfer(
     fetchRingProgramConfig(input.client, input.ringProgramId, context),
     fetchRingPolicyConfig(input.client, input.ringProgramId, context),
   ]);
-  // The program enforces `records_tree == input tree`, a mismatch cannot verify.
-  if (policyConfig.entriesTree !== input.tree) {
-    throw new RingError("RING_RECORDS_TREE_MISMATCH", {
-      details: { entriesTree: policyConfig.entriesTree, tree: input.tree },
-    });
-  }
   // The empty-table proof satisfies only an empty rule table, a rules-bearing
   // ring pins a different `policy_hash` and fails in proving.
   if (!equalBytes(policyConfig.policyHash, RING_EMPTY_RULES_POLICY_HASH)) {
@@ -339,6 +362,11 @@ export async function proveCustomRingTransfer(
       details: { ringProgramId: input.ringProgramId, policyHash: policyConfig.policyHash },
     });
   }
+  const suppliedEntriesRoots = checkEntriesRoots(
+    input.entriesRoots,
+    policyConfig.entriesTree,
+    input.tree,
+  );
   // A padded change slot pushes the custom-ring instruction past the packet limit
   // even behind an address lookup table.
   if (input.prepared.changeLayout !== "compact") {
@@ -371,6 +399,7 @@ export async function proveCustomRingTransfer(
       undefined,
       context,
     );
+    const entriesRoots = suppliedEntriesRoots ?? roots;
     // A ring without rules proves the empty table over its own openings, every
     // further policy field is zero or disabled.
     const proof = await input.client.proveCustomRing(
@@ -381,8 +410,8 @@ export async function proveCustomRingTransfer(
           auditorPublicKey: config.auditorPublicKey,
           message: parseAuditorMessage(encrypted.auditorMessage.data),
           policyHash: policyConfig.policyHash,
-          stateRoot: roots.stateRoot,
-          nullifierRoot: roots.nullifierRoot,
+          stateRoot: entriesRoots.stateRoot,
+          nullifierRoot: entriesRoots.nullifierRoot,
         }),
         privateTxHash: data.privateTxHash,
         txViewingSecret: encrypted.audit.txViewingSecret,
@@ -405,8 +434,8 @@ export async function proveCustomRingTransfer(
         rules: zeroFields(RING_RULE_SLOTS),
         inlineAssets: zeroFields(RING_INLINE_ASSET_SLOTS),
         inlineCount: 0,
-        stateRoot: roots.stateRoot,
-        nullifierRoot: roots.nullifierRoot,
+        stateRoot: entriesRoots.stateRoot,
+        nullifierRoot: entriesRoots.nullifierRoot,
         answers: Array.from({ length: RING_ANSWER_SLOTS }, () => disabledRuleAnswer()),
       },
       context,
@@ -417,14 +446,46 @@ export async function proveCustomRingTransfer(
       txViewingPublicKey: encrypted.txViewingPublicKey,
       payer: prepared.payer,
       tree: input.tree,
+      outputTree: input.outputTree ?? input.tree,
       entriesTree: policyConfig.entriesTree,
-      stateRootIndex: roots.stateRootIndex,
-      nullifierRootIndex: roots.nullifierRootIndex,
+      stateRootIndex: entriesRoots.stateRootIndex,
+      nullifierRootIndex: entriesRoots.nullifierRootIndex,
     });
   } finally {
     encrypted.audit.txViewingSecret.fill(0);
     encrypted.audit.ephemeralSecret.fill(0);
   }
+}
+
+function checkEntriesRoots(
+  supplied: RingEntriesRoots | undefined,
+  entriesTree: Address,
+  inputTree: Address,
+): RingEntriesRoots | undefined {
+  if (supplied === undefined) {
+    if (entriesTree === inputTree) return undefined;
+    throw new RingError("RING_ENTRIES_ROOTS_REQUIRED", {
+      details: { entriesTree, inputTree },
+    });
+  }
+  if (
+    supplied.stateRoot.length !== 32 ||
+    supplied.nullifierRoot.length !== 32 ||
+    !Number.isInteger(supplied.stateRootIndex) ||
+    supplied.stateRootIndex < 0 ||
+    supplied.stateRootIndex > 0xffff ||
+    !Number.isInteger(supplied.nullifierRootIndex) ||
+    supplied.nullifierRootIndex < 0 ||
+    supplied.nullifierRootIndex > 0xffff
+  ) {
+    throw new RingError("RING_ENTRIES_ROOTS_INVALID", { details: { entriesTree } });
+  }
+  return Object.freeze({
+    stateRoot: new Uint8Array(supplied.stateRoot) as Bytes32,
+    stateRootIndex: supplied.stateRootIndex,
+    nullifierRoot: new Uint8Array(supplied.nullifierRoot) as Bytes32,
+    nullifierRootIndex: supplied.nullifierRootIndex,
+  });
 }
 
 function zeroFields(count: number): readonly Bytes32[] {

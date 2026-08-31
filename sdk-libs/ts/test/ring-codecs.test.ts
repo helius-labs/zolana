@@ -18,6 +18,7 @@ import {
   RING_CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
   createRingConfigInstruction,
   initSppRingConfigInstruction,
+  ringLookupTableAddresses,
   ringTransactInstruction,
 } from "../src/ring/instructions.js";
 import { decodeRingPolicyConfig, decodeRingProgramConfig } from "../src/ring/codecs.js";
@@ -402,6 +403,18 @@ describe("ring deposits", () => {
 });
 
 describe("ring transact", () => {
+  it("includes distinct input, output and entries trees in the lookup-table contract", async () => {
+    const addresses = await ringLookupTableAddresses({
+      ringProgramId: RING,
+      tree: TREE,
+      outputTree: OUTPUT_TREE,
+      entriesTree: ENTRIES_TREE,
+    });
+    expect(addresses).toContain(TREE);
+    expect(addresses).toContain(OUTPUT_TREE);
+    expect(addresses).toContain(ENTRIES_TREE);
+  });
+
   const customRingProof = () =>
     Uint8Array.from([
       ...filled(51, 32),
