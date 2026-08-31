@@ -280,10 +280,11 @@ shielded slot flows only.
 ## Roots and revocation
 
 Both roots enter the statement by history index. The wallet sends two
-indices. The program resolves them against SPP's tree account, the
-transfer's own input tree. That tree must be the entries tree. A
-fabricated root cannot enter the statement, every admissible root is one
-the tree produced.
+indices. The program resolves them against a dedicated entries-tree
+account, its address checked equal to the ring's entries tree. The SPP
+money input and output trees are independent and may be any registered
+tree, so an old-tree note spends into the active tree. A fabricated root
+cannot enter the statement, every admissible root is one the tree produced.
 
 Freshness is asymmetric on purpose. Any live state root is admissible.
 Inclusion is monotone, an old root can only miss new leaves. The nullifier
@@ -366,9 +367,11 @@ makes reuse inexpressible.
 
 - Revocation waits on the forester. One batch rotation must land, and up
   to eight admissible rotations follow, unbounded in time on a quiet tree.
-- One ring, one tree. The circuit binds one root pair. Entries, curator
-  entries, and the ring's spendable UTXOs share one tree instance, pinned
-  at `create_policy` and unrecoverable without a fresh deployment.
+- One entries tree per ring. The circuit binds one root pair, the entries
+  tree's. Entries and curator entries share that one tree instance, pinned
+  at `create_policy` and unrecoverable without a fresh deployment. The
+  ring's spendable UTXOs are not confined to it and may live in any
+  registered tree.
 - The shape is fixed at five inputs, four outputs, ten answers, sixteen
   rules, eight sources, eight inline assets. The answers array is the
   per-transfer screening budget, larger transfers must split.

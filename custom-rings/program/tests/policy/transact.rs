@@ -12,6 +12,8 @@ use zolana_interface::{
     },
 };
 
+use solana_pubkey::Pubkey;
+
 use crate::common::{
     auditor_pubkey, authority, entries_tree, entries_tree_account, initialized_config_account,
     initialized_policy_config_account, setup_mollusk, transact_fixture, Fixture,
@@ -78,12 +80,10 @@ fn policy_fixture(state_root_index: u16, nullifier_root_index: u16) -> Fixture {
         })
         .expect("serialize policy transact body"),
     );
-    let mut fixture = transact_fixture(
+    transact_fixture(
         initialized_config_account(authority(), auditor_pubkey(2)),
         data,
-    );
-    fixture.set_account("input_tree", entries_tree_account());
-    fixture
+    )
 }
 
 /// The stored hash is what a rebuilt table must reproduce.
@@ -97,12 +97,41 @@ fn a_drifted_policy_hash_is_rejected_exactly() {
     fixture.expect_err(&mollusk, custom(CustomRingError::PolicyHashMismatch));
 }
 
-/// The roots come from a real tree account, a stub never yields one.
+/// The roots come from a real tree account at the configured address, a stub
+/// there never yields one.
 #[test]
 fn an_entries_tree_that_is_not_a_tree_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    let fixture = policy_fixture(0, 0);
+    let mut fixture = policy_fixture(0, 0);
+    fixture.set_account("entries_tree", entries_tree_account());
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidEntriesTree));
+}
+
+/// The roots load from the dedicated entries account, not the SPP money tree.
+#[test]
+fn a_mismatched_entries_tree_address_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = policy_fixture(0, 0);
+    fixture.substitute("entries_tree", Pubkey::new_from_array([78; 32]));
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidEntriesTree));
+}
+
+/// The default fixture's money tree already differs from the entries tree.
+#[test]
+fn a_money_tree_apart_from_the_entries_tree_reaches_the_proof() {
+    let (mollusk, _) = setup_mollusk();
+    let fixture = policy_fixture(0, 0);
+    fixture.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+}
+
+/// An existing ring passes one account as both the entries tree and the SPP
+/// input tree.
+#[test]
+fn an_entries_tree_aliasing_the_input_tree_reaches_the_proof() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = policy_fixture(0, 0);
+    fixture.substitute("input_tree", entries_tree());
+    fixture.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }
 
 #[test]

@@ -24,7 +24,7 @@ sequenceDiagram
     rect rgba(128, 128, 128, 0.07)
     SubOp->>+SubRing: create_policy, sources = [(Block, curator policy config)]
     SubRing->>CurPC: reads the curator's resolved namespace owner
-    Note right of SubRing: copies the RESOLVED address, delegation does not chain, the entries tree must equal the curator's and the transfer's input tree
+    Note right of SubRing: copies the RESOLVED address, delegation does not chain, the entries tree must equal the curator's
     SubRing->>-SubPC: writes the map, policy_hash binds it under the compiled table
     end
 

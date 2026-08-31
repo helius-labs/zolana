@@ -25,11 +25,12 @@ use crate::{
 /// Verifies the folded ring proof against the recomputed public input, then
 /// CPIs SPP `RING_TRANSACT` with the `ring_auth` PDA as signer.
 ///
-/// Accounts: `[payer(w,s), config, policy_config]` followed by SPP's own
-/// `RING_TRANSACT` list (`payer, input_tree, output_tree, spp_program,
-/// system_program, ring_config, owner signers, settlement accounts`),
-/// forwarded position for position with only `ring_config` (the ring's
-/// `ring_auth` PDA) gaining a signature.
+/// Accounts: `[payer(w,s), config, policy_config, entries_tree(r)]` followed by
+/// SPP's own `RING_TRANSACT` list (`payer, input_tree, output_tree, spp_program,
+/// system_program, ring_config, owner signers, settlement accounts`). Only the
+/// SPP list is forwarded, position for position, with `ring_config` (the ring's
+/// `ring_auth` PDA) gaining a signature. `entries_tree` is the ring's own root
+/// source and is read but not forwarded.
 #[inline(never)]
 pub fn process_transact_ix(
     program_id: &Address,
@@ -40,6 +41,7 @@ pub fn process_transact_ix(
     iter.next_signer_mut("payer")?;
     let config_account = iter.next_account("config")?;
     let policy_config_account = iter.next_account("policy_config")?;
+    let entries_tree_account = iter.next_account("entries_tree")?;
 
     let CustomRingTransactIxData {
         proof,
@@ -101,12 +103,10 @@ pub fn process_transact_ix(
     {
         return Err(CustomRingError::PolicyHashMismatch.into());
     }
-    // SPP's own list puts the input tree at slot 1, and entries share it.
-    let tree_account = spp_accounts
-        .get_mut(1)
-        .ok_or(ProgramError::NotEnoughAccountKeys)?;
+    // The borrow drops before the CPI below, else SPP faults borrowing the
+    // aliased money tree.
     let roots = load_roots(
-        tree_account,
+        entries_tree_account,
         &entries_tree,
         state_root_index,
         nullifier_root_index,

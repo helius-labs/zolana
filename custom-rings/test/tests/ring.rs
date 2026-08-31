@@ -600,6 +600,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
             payer: sender_address,
             input_tree: env.tree,
             output_tree: env.tree,
+            entries_tree: env.tree,
             owner_signers: proven.owner_signers.clone(),
             interface_transfer_accounts: Vec::new(),
             proof: proven.proof,
@@ -975,6 +976,131 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
     foreign_input.send(&recipient_address, SOL_MINT, REFUSED_AMOUNT)?;
     expect_foreign_ring(prove(foreign_input.prepare()?), FOREIGN_RING)?;
 
+    Ok(())
+}
+
+/// A note stranded in an old tree spends into the active tree while the ring's
+/// entries tree stays fixed.
+#[test]
+fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
+    let mut env = setup()?;
+    let rpc = env.client.rpc();
+    let indexer = env.client.indexer();
+    let ring_program = custom_ring_program_id()?;
+    let ring = CustomRing::new(ring_program);
+    let auditor = ViewingKey::new();
+    let auditor_tag = auditor_view_tag(&auditor.pubkey());
+    let prover = ProverClient::local();
+
+    // env.tree is the active tree and the ring's entries tree, old_tree holds
+    // the stranded note.
+    let old_tree = env.create_registered_tree()?;
+    RegisterRing {
+        ring,
+        payer: &env.payer,
+        auditor_pubkey: auditor.pubkey(),
+        entries_tree: env.tree,
+    }
+    .send(rpc)?;
+
+    let sender = &env.sender.keypair;
+    let recipient = &env.recipient.keypair;
+    let RingDepositReceipt { utxo, .. } = RingDeposit {
+        ring,
+        payer: sender,
+        recipient: sender,
+        tree: old_tree,
+        amount: DEFAULT_DEPOSIT,
+    }
+    .send(rpc)?;
+    wait_for_merkle_proof(
+        indexer,
+        old_tree,
+        SppProofInputUtxo::new(utxo.clone(), sender).hash()?,
+    );
+
+    let mut transfer = ConfidentialTransfer::new(
+        sender.shielded_address()?,
+        vec![SppProofInputUtxo::new(utxo, sender)],
+        sender.pubkey(),
+    )
+    .with_compact_change()
+    .with_ring_program_id(ring_program);
+    transfer.send(&recipient.shielded_address()?, SOL_MINT, ENTRY_AMOUNT)?;
+    let prepared = transfer.prepare()?;
+    let proven = CustomRingTransfer::new(CustomRingTransferInput {
+        ring,
+        sender,
+        prepared,
+    })
+    .with_tree(old_tree)
+    .with_output_tree(env.tree)
+    .with_assets(&env.assets)
+    .prove(TransferProofEnvironment {
+        indexer,
+        rpc,
+        prover: &prover,
+    })?;
+    let signature = V0WithLookupTable {
+        payer: sender,
+        signers: &[],
+        instruction: proven.instruction()?,
+    }
+    .send(rpc)?;
+    let migrated = wait_for_indexed_transaction(indexer, auditor_tag, signature);
+    assert_eq!(migrated.nullifiers.len(), 1, "the old-tree note is spent");
+
+    let recipient_authority = KeypairWalletAuthority::new(Address::default(), recipient);
+    env.recipient.wallet.sync(
+        &recipient_authority,
+        std::slice::from_ref(&migrated),
+        0,
+        DEFAULT_TAG_WINDOW,
+    )?;
+    let received = env
+        .recipient
+        .wallet
+        .utxos
+        .iter()
+        .find(|held| !held.spent)
+        .map(|held| held.utxo.clone())
+        .ok_or_else(|| anyhow!("migrated recipient note"))?;
+    assert_eq!(
+        received.amount, ENTRY_AMOUNT,
+        "recipient holds the migrated amount in the active tree"
+    );
+
+    let mut hop = ConfidentialTransfer::new(
+        recipient.shielded_address()?,
+        vec![SppProofInputUtxo::new(received, recipient)],
+        recipient.pubkey(),
+    )
+    .with_compact_change()
+    .with_ring_program_id(ring_program);
+    hop.send(&sender.shielded_address()?, SOL_MINT, SECOND_HOP_AMOUNT)?;
+    let hop_prepared = hop.prepare()?;
+    let hop = RingTransfer {
+        ring,
+        sender: recipient,
+        prepared: hop_prepared,
+        auditor_tag,
+    }
+    .send(&env, &prover)?;
+    let hop_outputs: Vec<u64> = AuditLookup {
+        ring_program,
+        auditor: &auditor,
+        signature: hop.signature,
+    }
+    .run(&env)?
+    .outputs
+    .iter()
+    .map(|output| output.amount)
+    .collect();
+    assert_eq!(
+        hop_outputs,
+        vec![ENTRY_AMOUNT - SECOND_HOP_AMOUNT, SECOND_HOP_AMOUNT],
+        "the active-tree note spends in turn"
+    );
     Ok(())
 }
 
