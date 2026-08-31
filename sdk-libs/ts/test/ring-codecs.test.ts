@@ -23,6 +23,7 @@ import {
 import {
   TransactWithdrawal,
   type Bytes16,
+  type Bytes64,
   type Bytes32,
   type Bytes33,
 } from "../src/interface/types.js";
@@ -57,12 +58,15 @@ import { P256PublicKey } from "../src/keypair/public-key.js";
 import {
   RingReadRequest,
   RingRpc,
+  type SignedAuditorKeyRequest,
+  type SignedRingRead,
   auditorKeyAttestation,
   auditorKeyRequestAttestation,
   messageSignerReader,
   ringReadAttestation,
 } from "../src/ring/rpc.js";
 import { decodeOutputData } from "../src/transaction/serialization/codecs.js";
+import { forged } from "./helpers/forged.js";
 import {
   decodeRingDepositOutput,
   decodeRingDepositPlaintext,
@@ -451,6 +455,120 @@ describe("ring deposits", () => {
   });
 });
 
+describe("signed ring request validation", () => {
+  const READER = readerKeyBytes(
+    checkedReaderKey(getAddressDecoder().decode(ed25519.getPublicKey(filled(5, 32)))),
+  );
+  const WEBAUTHN = {
+    signature: filled(1, 70),
+    authenticatorData: filled(2, 37),
+    clientDataJSON: filled(3, 12),
+  };
+
+  function signedRead(overrides: Partial<SignedRingRead> = {}): SignedRingRead {
+    return {
+      ringProgramId: RING,
+      reader: READER,
+      timestamp: 1n,
+      nonce: filled(7, 32) as Bytes32,
+      signature: filled(1, 64),
+      ...overrides,
+    };
+  }
+
+  function signedAuditorKey(
+    overrides: Partial<SignedAuditorKeyRequest> = {},
+  ): SignedAuditorKeyRequest {
+    return {
+      ringProgramId: RING,
+      authority: PAYER,
+      genesisHash: filled(2, 32) as Bytes32,
+      timestamp: 1n,
+      nonce: filled(3, 32) as Bytes32,
+      signature: filled(4, 64) as Bytes64,
+      ...overrides,
+    };
+  }
+
+  function offlineRpc(): Readonly<{ rpc: RingRpc; fetch: ReturnType<typeof vi.fn> }> {
+    const fetch = vi.fn();
+    return {
+      rpc: new RingRpc("http://ring.example", {
+        fetch: forged<typeof globalThis.fetch>(fetch),
+        allowInsecureHttp: true,
+      }),
+      fetch,
+    };
+  }
+
+  const readCases: readonly [string, Partial<SignedRingRead>, string][] = [
+    ["a malformed ring program id", { ringProgramId: forged("not-base58!") }, "RING_RPC"],
+    ["a short reader key", { reader: filled(1, 33) }, "RING_READER_KEY"],
+    ["a short nonce", { nonce: forged(filled(7, 31)) }, "RING_RPC"],
+    ["an empty cursor", { cursor: new Uint8Array(0) }, "RING_READ_CURSOR"],
+    ["an oversized cursor", { cursor: new Uint8Array(257) }, "RING_READ_CURSOR"],
+    ["a zero limit", { limit: 0n }, "RING_READ_LIMIT"],
+    ["a limit over the page cap", { limit: 101n }, "RING_READ_LIMIT"],
+    ["a negative timestamp", { timestamp: -1n }, "RING_RPC"],
+    ["a timestamp past the safe range", { timestamp: 1n << 53n }, "RING_RPC"],
+    ["a short ed25519 signature", { signature: filled(1, 63) }, "RING_RPC"],
+    [
+      "an empty webauthn signature",
+      { signature: { ...WEBAUTHN, signature: new Uint8Array(0) } },
+      "RING_RPC",
+    ],
+    [
+      "short webauthn authenticator data",
+      { signature: { ...WEBAUTHN, authenticatorData: filled(2, 36) } },
+      "RING_RPC",
+    ],
+    [
+      "empty webauthn client data",
+      { signature: { ...WEBAUTHN, clientDataJSON: new Uint8Array(0) } },
+      "RING_RPC",
+    ],
+  ];
+
+  it.each(readCases)(
+    "rejects a read with %s before any network call",
+    async (_name, overrides, code) => {
+      const { rpc, fetch } = offlineRpc();
+      await expect(rpc.readSigned(signedRead(overrides))).rejects.toMatchObject({ code });
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  const auditorCases: readonly [string, Partial<SignedAuditorKeyRequest>, string][] = [
+    ["a malformed ring program id", { ringProgramId: forged("nope") }, "RING_RPC"],
+    ["a malformed authority", { authority: forged("nope") }, "RING_RPC"],
+    ["a short genesis hash", { genesisHash: forged(filled(2, 31)) }, "RING_RPC"],
+    ["a short nonce", { nonce: forged(filled(3, 31)) }, "RING_RPC"],
+    ["a short signature", { signature: forged(filled(4, 63)) }, "RING_RPC"],
+    ["a timestamp past the safe range", { timestamp: 1n << 53n }, "RING_RPC"],
+  ];
+
+  it.each(auditorCases)(
+    "rejects an auditor key request with %s before any network call",
+    async (_name, overrides, code) => {
+      const { rpc, fetch } = offlineRpc();
+      await expect(rpc.createAuditorKeySigned(signedAuditorKey(overrides))).rejects.toMatchObject({
+        code,
+      });
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it("accepts a well-formed signed read and a webauthn signature", async () => {
+    const { fetch } = capturingFetch({
+      context: { slot: 1, blockTime: 1 },
+      value: { items: [], skipped: [] },
+    });
+    const rpc = new RingRpc("http://ring.example", { fetch, allowInsecureHttp: true });
+    await rpc.readSigned(signedRead());
+    await rpc.readSigned(signedRead({ signature: WEBAUTHN }));
+  });
+});
+
 describe("ring rpc response validation", () => {
   const rpcWith = (result: unknown) => {
     const fetch = (async () =>
@@ -820,13 +938,13 @@ describe("ring read request", () => {
   it("sends the tagged reader key and the signature over the attestation", async () => {
     const signerAddress = getAddressDecoder().decode(ed25519.getPublicKey(filled(7, 32)));
     const seen: Uint8Array[] = [];
-    const signer = {
+    const signer = forged<MessagePartialSigner>({
       address: signerAddress,
       signMessages: (messages: readonly { content: Uint8Array }[]) => {
         seen.push(...messages.map((message) => message.content));
         return Promise.resolve(messages.map(() => ({ [signerAddress]: filled(5, 64) })));
       },
-    } as unknown as MessagePartialSigner;
+    });
     const reader = messageSignerReader(signer);
     expect(reader.reader).toEqual(readerKeyBytes(signerAddress));
     expect(reader.reader[0]).toBe(1);
@@ -928,11 +1046,13 @@ describe("ring read request", () => {
 
   it("reads the owner tag and the signers of every output", async () => {
     const signerAddress = getAddressDecoder().decode(ed25519.getPublicKey(filled(9, 32)));
-    const reader = messageSignerReader({
-      address: signerAddress,
-      signMessages: (messages: readonly { content: Uint8Array }[]) =>
-        Promise.resolve(messages.map(() => ({ [signerAddress]: filled(5, 64) }))),
-    } as unknown as MessagePartialSigner);
+    const reader = messageSignerReader(
+      forged<MessagePartialSigner>({
+        address: signerAddress,
+        signMessages: (messages: readonly { content: Uint8Array }[]) =>
+          Promise.resolve(messages.map(() => ({ [signerAddress]: filled(5, 64) }))),
+      }),
+    );
     const fetch = (async () =>
       new Response(
         JSON.stringify({
@@ -1010,11 +1130,13 @@ describe("ring read request", () => {
 
   const anyReader = () => {
     const signerAddress = getAddressDecoder().decode(ed25519.getPublicKey(filled(9, 32)));
-    return messageSignerReader({
-      address: signerAddress,
-      signMessages: (messages: readonly { content: Uint8Array }[]) =>
-        Promise.resolve(messages.map(() => ({ [signerAddress]: filled(5, 64) }))),
-    } as unknown as MessagePartialSigner);
+    return messageSignerReader(
+      forged<MessagePartialSigner>({
+        address: signerAddress,
+        signMessages: (messages: readonly { content: Uint8Array }[]) =>
+          Promise.resolve(messages.map(() => ({ [signerAddress]: filled(5, 64) }))),
+      }),
+    );
   };
 
   it("reads the withdrawal asset of an SPL leg and a SOL leg", async () => {

@@ -17,11 +17,11 @@ import type {
 import { postJsonRpc } from "../services/jsonrpc.js";
 import { TransportFailure, checkedEndpoint, checkedFetch } from "../services/transport.js";
 import { wireDecoder } from "../interface/decode.js";
-import { addressBytes, copyBytes, unsignedBigint } from "../interface/internal.js";
+import { addressBytes, copyBytes } from "../interface/internal.js";
 import { P256PublicKey } from "../keypair/public-key.js";
 
 import { RingError } from "./error.js";
-import { checkedReaderKey, readerKeyBytes } from "./reader.js";
+import { checkedReaderKey, readerKeyBytes, readerKeyFromBytes } from "./reader.js";
 
 const base58Decoder = getBase58Decoder();
 const base64Decoder = getBase64Decoder();
@@ -146,24 +146,18 @@ export class RingReadRequest {
   }
 
   withCursor(cursor: Uint8Array): this {
-    if (cursor.length === 0 || cursor.length > RING_READ_CURSOR_LIMIT) {
-      throw new RingError("RING_READ_CURSOR", { details: { length: cursor.length } });
-    }
-    this.#cursor = new Uint8Array(cursor);
+    this.#cursor = new Uint8Array(checkedReadCursor(cursor));
     return this;
   }
 
   withLimit(limit: bigint): this {
-    if (limit < 1n || limit > RING_READ_PAGE_LIMIT) {
-      throw new RingError("RING_READ_LIMIT", { details: { limit: limit.toString() } });
-    }
-    this.#limit = limit;
+    this.#limit = checkedReadLimit(limit);
     return this;
   }
 
   /** Unix seconds, the RPC rejects a clock more than its skew away. */
   at(timestamp: bigint): this {
-    this.#timestamp = unsignedBigint(timestamp, BigInt(Number.MAX_SAFE_INTEGER), "timestamp");
+    this.#timestamp = checkedUnixTimestamp(timestamp, "timestamp");
     return this;
   }
 
@@ -222,7 +216,7 @@ export class RingAuditorKeyRequest {
 
   /** Unix seconds, the RPC rejects a clock more than its skew away. */
   at(timestamp: bigint): this {
-    this.#timestamp = unsignedBigint(timestamp, BigInt(Number.MAX_SAFE_INTEGER), "timestamp");
+    this.#timestamp = checkedUnixTimestamp(timestamp, "timestamp");
     return this;
   }
 
@@ -402,6 +396,7 @@ export class RingRpc {
     request: SignedAuditorKeyRequest,
     context?: RequestContext,
   ): Promise<RingAuditorKey> {
+    checkedSignedAuditorKeyRequest(request);
     const wire = record(
       await this.#call(
         "createAuditorKey",
@@ -527,6 +522,7 @@ export class RingRpc {
     read: SignedRingRead,
     context?: RequestContext,
   ): Promise<DecryptedRingTransactionsPage> {
+    checkedSignedRead(read);
     const { signature } = read;
     const wire = record(
       await this.#call(
@@ -704,6 +700,81 @@ function invalid(path: string): RingError {
 
 const { record, list, string, address, signature, signedInteger, integer, base64, base58 } =
   wireDecoder(invalid);
+
+function invalidRequest(field: string): RingError {
+  return new RingError("RING_RPC", { details: { reason: "invalid request", field } });
+}
+
+const { address: requestAddress } = wireDecoder(invalidRequest);
+
+function requestBytes(value: unknown, length: number, field: string): Uint8Array {
+  if (!(value instanceof Uint8Array) || value.length !== length) throw invalidRequest(field);
+  return value;
+}
+
+function checkedReadCursor(cursor: Uint8Array): Uint8Array {
+  if (
+    !(cursor instanceof Uint8Array) ||
+    cursor.length === 0 ||
+    cursor.length > RING_READ_CURSOR_LIMIT
+  ) {
+    throw new RingError("RING_READ_CURSOR", {
+      details: { length: cursor instanceof Uint8Array ? cursor.length : -1 },
+    });
+  }
+  return cursor;
+}
+
+function checkedReadLimit(limit: bigint): bigint {
+  if (typeof limit !== "bigint" || limit < 1n || limit > RING_READ_PAGE_LIMIT) {
+    throw new RingError("RING_READ_LIMIT", { details: { limit: String(limit) } });
+  }
+  return limit;
+}
+
+/** Bounded to the safe integer range, `Number` in the wire encoding stays exact. */
+function checkedUnixTimestamp(value: bigint, field: string): bigint {
+  if (typeof value !== "bigint" || value < 0n || value > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw invalidRequest(field);
+  }
+  return value;
+}
+
+function checkedSignedRead(read: SignedRingRead): void {
+  requestAddress(read.ringProgramId, "ringProgramId");
+  readerKeyFromBytes(read.reader);
+  requestBytes(read.nonce, 32, "nonce");
+  if (read.cursor !== undefined) checkedReadCursor(read.cursor);
+  if (read.limit !== undefined) checkedReadLimit(read.limit);
+  checkedUnixTimestamp(read.timestamp, "timestamp");
+  const signature = read.signature;
+  if (signature instanceof Uint8Array) {
+    requestBytes(signature, 64, "signature");
+    return;
+  }
+  if (!(signature.signature instanceof Uint8Array) || signature.signature.length === 0) {
+    throw invalidRequest("signature");
+  }
+  // rpIdHash(32) + flags(1) + counter(4), the shortest authenticator data WebAuthn emits.
+  if (
+    !(signature.authenticatorData instanceof Uint8Array) ||
+    signature.authenticatorData.length < 37
+  ) {
+    throw invalidRequest("authenticatorData");
+  }
+  if (!(signature.clientDataJSON instanceof Uint8Array) || signature.clientDataJSON.length === 0) {
+    throw invalidRequest("clientDataJSON");
+  }
+}
+
+function checkedSignedAuditorKeyRequest(request: SignedAuditorKeyRequest): void {
+  requestAddress(request.ringProgramId, "ringProgramId");
+  requestAddress(request.authority, "authority");
+  requestBytes(request.genesisHash, 32, "genesisHash");
+  requestBytes(request.nonce, 32, "nonce");
+  requestBytes(request.signature, 64, "signature");
+  checkedUnixTimestamp(request.timestamp, "timestamp");
+}
 
 function hash(value: unknown, path: string): Bytes32 {
   const bytes = base58(value, path);
