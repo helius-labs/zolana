@@ -484,13 +484,15 @@ async function collectShieldedTransactionsByNullifiers(
   });
 }
 
+export interface SyncWalletInput {
+  readonly wallet: Wallet;
+  readonly authority: SyncAuthority;
+  readonly client: SyncClient;
+  readonly config?: SyncWalletConfig;
+}
+
 export async function syncWallet(
-  input: Readonly<{
-    wallet: Wallet;
-    authority: SyncAuthority;
-    client: SyncClient;
-    config?: SyncWalletConfig;
-  }>,
+  input: SyncWalletInput,
   context?: RequestContext,
 ): Promise<SyncReport> {
   await initializePoseidon();

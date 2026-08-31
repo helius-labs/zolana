@@ -82,6 +82,7 @@ export {
   fetchViewingKeyOwners,
   getPrivateTokenBalances,
   getPrivateTransactions,
+  syncPersistedWallet,
   syncWallet,
   viewingKeyIndex,
   WalletError,
@@ -90,11 +91,14 @@ export {
   type PrivateTransactionParams,
   type SplitTransactionParams,
   type SyncClient,
+  type SyncPersistedWalletResult,
   type SyncWalletConfig,
+  type SyncWalletInput,
   type TransactionSlots,
   type TransferDestination,
   type TransferTransactionParams,
   type WalletErrorCode,
+  type WalletStateStore,
   type WithdrawalTransactionParams,
 } from "./wallet/index.js";
 export {

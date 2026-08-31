@@ -43,7 +43,13 @@ export {
   syncWallet,
   type SyncClient,
   type SyncWalletConfig,
+  type SyncWalletInput,
 } from "./sync.js";
+export {
+  syncPersistedWallet,
+  type SyncPersistedWalletResult,
+  type WalletStateStore,
+} from "./persisted.js";
 export {
   buildRegistrationTransaction,
   buildSetMergingEnabledTransaction,
