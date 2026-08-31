@@ -39,9 +39,12 @@ import type {
   ChainReader,
   IndexerReader,
   KitRpcAccess,
+  MergeAssembler,
   ProofReader,
   Prover,
+  TransactionAssembler,
   TransactionConfirmer,
+  TreeContext,
 } from "./ports.js";
 import {
   createKitClients,
@@ -135,7 +138,10 @@ export class ZolanaClient
     ProofReader,
     Prover,
     TransactionConfirmer,
-    KitRpcAccess
+    KitRpcAccess,
+    TreeContext,
+    TransactionAssembler,
+    MergeAssembler
 {
   readonly tree: Address;
   readonly solanaRpc: SolanaRpc;
@@ -699,7 +705,7 @@ export class ZolanaClient
       typeof candidate === "object" && candidate !== null
         ? (candidate as Record<string, unknown>)["proved"]
         : undefined;
-    if (!isProvedMerge(proved)) {
+    if (!hasMergeOutputBinding(proved)) {
       throw new ClientError("CLIENT_INVALID_MERGE");
     }
     if (!equal(proved.outputHash, proved.data.outputUtxoHash)) {
@@ -716,7 +722,7 @@ export class ZolanaClient
       ...(this.#computeUnitPrice === undefined
         ? {}
         : { computeUnitPriceMicroLamports: this.#computeUnitPrice }),
-      data: proved.data,
+      data: input.proved.data,
     });
   }
 
@@ -762,7 +768,7 @@ export class ZolanaClient
       throw new ClientError("CLIENT_INVALID_TRANSACTION");
     }
     checkedAddress(input.feePayer, "feePayer");
-    if (!isAuthorizedPrivateTransaction(input.authorized)) {
+    if (!hasAuthorizedShape(input.authorized)) {
       throw new ClientError("CLIENT_INVALID_TRANSACTION");
     }
     // Compare the address itself, like Rust's `validate_fee_payer_pubkey`. The
@@ -920,7 +926,13 @@ function equal(left: Uint8Array, right: Uint8Array): boolean {
   return difference === 0;
 }
 
-function isProvedMerge(value: unknown): value is ProvedMerge {
+/** The one field pair the assembler binds, the rest of `ProvedMerge` stays unclaimed. */
+interface MergeOutputBinding {
+  readonly outputHash: Uint8Array;
+  readonly data: Readonly<{ outputUtxoHash: Uint8Array }>;
+}
+
+function hasMergeOutputBinding(value: unknown): value is MergeOutputBinding {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
   const data = candidate["data"];
@@ -953,7 +965,10 @@ function checkWithdrawalBinding(authorized: AuthorizedPrivateTransaction): void 
   if (recipient !== authorized.intent.recipient) throw mismatch("recipient");
 }
 
-function isAuthorizedPrivateTransaction(value: unknown): value is AuthorizedPrivateTransaction {
+/** Rides on the `SppProofInputs` class token, only the proving pipeline mints one. */
+function hasAuthorizedShape(
+  value: unknown,
+): value is Readonly<{ proofInputs: SppProofInputs; tree: string; intent: object }> {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
   return (
