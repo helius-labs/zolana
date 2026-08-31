@@ -1,10 +1,6 @@
-import {
-  address as kitAddress,
-  assertIsSignature,
-  getBase64Decoder,
-  getBase64Encoder,
-} from "@solana/kit";
+import { getBase64Decoder } from "@solana/kit";
 
+import { wireDecoder } from "../../interface/decode.js";
 import type { Address, Bytes32, Bytes33, Signature } from "../../interface/types.js";
 import type { Bytes34 } from "../../keypair/bytes.js";
 import { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
@@ -25,7 +21,6 @@ import {
   type WalletUtxo,
 } from "./state.js";
 
-const decodeBase64 = getBase64Encoder();
 const encodeBase64 = getBase64Decoder();
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
 const I64_MIN = -(1n << 63n);
@@ -430,17 +425,9 @@ function unhex(value: string): Uint8Array {
 }
 
 function bytes(value: unknown, length: number | undefined, field: string): Uint8Array {
-  if (typeof value !== "string") fail(field);
-  try {
-    const decoded = new Uint8Array(decodeBase64.encode(value));
-    if (encode(decoded) !== value || (length !== undefined && decoded.length !== length)) {
-      fail(field);
-    }
-    return decoded;
-  } catch (cause) {
-    if (cause instanceof TransactionError) throw cause;
-    fail(field);
-  }
+  return length === undefined
+    ? decode.base64(value, field)
+    : decode.fixedBytes(value, length, field);
 }
 
 function unsigned(value: unknown, field: string): bigint {
@@ -464,39 +451,8 @@ function decimal(value: unknown, field: string): bigint {
   }
 }
 
-function address(value: unknown, field: string): Address {
-  if (typeof value !== "string") fail(field);
-  try {
-    return kitAddress(value);
-  } catch {
-    fail(field);
-  }
-}
-
-function signature(value: unknown, field: string): Signature {
-  if (typeof value !== "string") fail(field);
-  try {
-    assertIsSignature(value);
-    return value;
-  } catch {
-    fail(field);
-  }
-}
-
-function boolean(value: unknown, field: string): boolean {
-  if (typeof value !== "boolean") fail(field);
-  return value;
-}
-
-function array(value: unknown, field: string): readonly unknown[] {
-  if (!Array.isArray(value)) fail(field);
-  return value;
-}
-
-function record(value: unknown, field: string): Readonly<Record<string, unknown>> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) fail(field);
-  return value as Readonly<Record<string, unknown>>;
-}
+const decode = wireDecoder((field) => new TransactionError("TRANSACTION_DESERIALIZE", { field }));
+const { address, signature, boolean, list: array, record } = decode;
 
 function fail(field: string): never {
   throw new TransactionError("TRANSACTION_DESERIALIZE", { field });

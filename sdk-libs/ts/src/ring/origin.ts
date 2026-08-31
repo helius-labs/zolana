@@ -1,6 +1,7 @@
-import { getBase58Encoder, isAddress } from "@solana/kit";
+import { getBase58Encoder } from "@solana/kit";
 
 import { runKitRpc, type SolanaRpc } from "../client/kit.js";
+import { wireDecoder } from "../interface/decode.js";
 import { Reader } from "../interface/internal.js";
 import {
   InstructionTag,
@@ -356,22 +357,11 @@ function stackHeight(value: unknown): number {
 }
 
 function addresses(value: unknown, path: string): Address[] {
-  return list(value, path).map((entry, index) => {
-    if (typeof entry !== "string" || !isAddress(entry)) throw invalid(`${path}[${index}]`);
-    return entry;
-  });
+  return list(value, path).map((entry, index) => decodeAddress(entry, `${path}[${index}]`));
 }
 
 function invalid(path: string): RingError {
   return new RingError("RING_ORIGIN_DECODE", { details: { path } });
 }
 
-function record(value: unknown, path: string): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) throw invalid(path);
-  return value as Record<string, unknown>;
-}
-
-function list(value: unknown, path: string): readonly unknown[] {
-  if (!Array.isArray(value)) throw invalid(path);
-  return value;
-}
+const { record, list, address: decodeAddress } = wireDecoder(invalid);

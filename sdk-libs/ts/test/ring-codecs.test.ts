@@ -81,6 +81,10 @@ function addressOf(byte: number) {
   return getAddressDecoder().decode(filled(byte, 32));
 }
 
+function signatureOf(byte: number) {
+  return getBase58Decoder().decode(filled(byte, 64));
+}
+
 function capturingFetch(result: unknown): {
   fetch: typeof globalThis.fetch;
   bodies: Record<string, unknown>[];
@@ -379,7 +383,7 @@ describe("ring deposits", () => {
     return { bodies, fetch };
   };
   const deposit = (byte: number, slot: number) => ({
-    signature: String(byte).repeat(87),
+    signature: signatureOf(byte),
     slot,
     depositor: addressOf(byte),
     asset: "11111111111111111111111111111111",
@@ -396,7 +400,7 @@ describe("ring deposits", () => {
     const first = await rpc.ringDeposits({ ringProgramId: addressOf(7), limit: 20 });
     expect(first.deposits).toHaveLength(1);
     expect(first.deposits[0]).toEqual({
-      signature: "1".repeat(87),
+      signature: signatureOf(1),
       slot: 9n,
       depositor: addressOf(1),
       asset: "11111111111111111111111111111111",
@@ -444,6 +448,41 @@ describe("ring deposits", () => {
 
     expect(page.cursor).toBeUndefined();
     expect(page.oldestSlot).toBeUndefined();
+  });
+});
+
+describe("ring rpc response validation", () => {
+  const rpcWith = (result: unknown) => {
+    const fetch = (async () =>
+      new Response(
+        JSON.stringify({ jsonrpc: "2.0", id: 1, result }),
+        JSON_HEADERS,
+      )) as typeof globalThis.fetch;
+    return new RingRpc("http://ring.example", { fetch, allowInsecureHttp: true });
+  };
+
+  it("rejects a malformed service address", async () => {
+    await expect(
+      rpcWith({
+        ringProgramId: addressOf(7),
+        state: "uninitialized",
+        servicePubkey: "not-base58!",
+      }).ringStatus(addressOf(7)),
+    ).rejects.toMatchObject({ code: "RING_RPC", details: { path: "result.servicePubkey" } });
+  });
+
+  it("rejects a malformed deposit signature and depositor", async () => {
+    const base = { slot: 1, asset: SYSTEM, amount: 1 };
+    await expect(
+      rpcWith({
+        deposits: [{ ...base, depositor: addressOf(1), signature: "1".repeat(87) }],
+      }).ringDeposits({ ringProgramId: addressOf(7) }),
+    ).rejects.toMatchObject({ code: "RING_RPC", details: { path: "deposits.signature" } });
+    await expect(
+      rpcWith({
+        deposits: [{ ...base, depositor: "tooShort", signature: signatureOf(1) }],
+      }).ringDeposits({ ringProgramId: addressOf(7) }),
+    ).rejects.toMatchObject({ code: "RING_RPC", details: { path: "deposits.depositor" } });
   });
 });
 
@@ -806,7 +845,7 @@ describe("ring read request", () => {
               items: [
                 {
                   slot: 8,
-                  txSignature: "1".repeat(87),
+                  txSignature: signatureOf(1),
                   txViewingPk: Buffer.from(hex(P256_HEX)).toString("base64"),
                   outputs: [
                     {
@@ -824,7 +863,7 @@ describe("ring read request", () => {
                   withdrawals: [],
                 },
               ],
-              skipped: [{ slot: 7, txSignature: "2".repeat(87), reason: "invalidAuditData" }],
+              skipped: [{ slot: 7, txSignature: signatureOf(2), reason: "invalidAuditData" }],
               cursor: "AQID",
             },
           },
@@ -846,7 +885,7 @@ describe("ring read request", () => {
     expect(page.blockTime).toBe(1_700_000_000n);
     expect(page.cursor).toEqual(Uint8Array.of(1, 2, 3));
     expect(page.skipped).toEqual([
-      { slot: 7n, signature: "2".repeat(87), reason: "invalidAuditData" },
+      { slot: 7n, signature: signatureOf(2), reason: "invalidAuditData" },
     ]);
     const item = page.items[0];
     expect(item?.slot).toBe(8n);
@@ -905,7 +944,7 @@ describe("ring read request", () => {
               items: [
                 {
                   slot: 8,
-                  txSignature: "1".repeat(87),
+                  txSignature: signatureOf(1),
                   txViewingPk: Buffer.from(hex(P256_HEX)).toString("base64"),
                   outputs: [
                     {
@@ -953,7 +992,7 @@ describe("ring read request", () => {
               items: [
                 {
                   slot: 8,
-                  txSignature: "1".repeat(87),
+                  txSignature: signatureOf(1),
                   txViewingPk: Buffer.from(hex(P256_HEX)).toString("base64"),
                   outputs: [],
                   undecryptableSlots: [],

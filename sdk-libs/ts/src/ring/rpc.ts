@@ -2,9 +2,7 @@ import { ed25519 } from "@noble/curves/ed25519.js";
 import {
   createSignableMessage,
   getBase58Decoder,
-  getBase58Encoder,
   getBase64Decoder,
-  getBase64Encoder,
   type MessagePartialSigner,
 } from "@solana/kit";
 
@@ -18,6 +16,7 @@ import type {
 } from "../interface/types.js";
 import { postJsonRpc } from "../services/jsonrpc.js";
 import { TransportFailure, checkedEndpoint, checkedFetch } from "../services/transport.js";
+import { wireDecoder } from "../interface/decode.js";
 import { addressBytes, copyBytes, unsignedBigint } from "../interface/internal.js";
 import { P256PublicKey } from "../keypair/public-key.js";
 
@@ -25,9 +24,7 @@ import { RingError } from "./error.js";
 import { checkedReaderKey, readerKeyBytes } from "./reader.js";
 
 const base58Decoder = getBase58Decoder();
-const base58Encoder = getBase58Encoder();
 const base64Decoder = getBase64Decoder();
-const base64Encoder = getBase64Encoder();
 const encoder = new TextEncoder();
 
 const RING_RPC_TIMEOUT_MS = 30_000;
@@ -381,7 +378,7 @@ export class RingRpc {
     if (mode !== "local" && mode !== "derived") throw invalid("result.mode");
     return Object.freeze({
       mode,
-      servicePublicKey: string(wire["servicePubkey"], "result.servicePubkey") as Address,
+      servicePublicKey: address(wire["servicePubkey"], "result.servicePubkey"),
     });
   }
 
@@ -423,9 +420,9 @@ export class RingRpc {
     const key = base64(wire["auditorPubkey"], "result.auditorPubkey");
     if (key.length !== 33) throw invalid("result.auditorPubkey");
     const auditorPublicKey = P256PublicKey.fromBytes(key as Bytes33);
-    const servicePublicKey = string(wire["servicePubkey"], "result.servicePubkey") as Address;
+    const servicePublicKey = address(wire["servicePubkey"], "result.servicePubkey");
     const signature = base58(wire["signature"], "result.signature");
-    const ring = string(wire["ringProgramId"], "result.ringProgramId") as Address;
+    const ring = address(wire["ringProgramId"], "result.ringProgramId");
     if (ring !== request.ringProgramId) throw invalid("result.ringProgramId");
     const attested = ed25519.verify(
       signature,
@@ -473,10 +470,10 @@ export class RingRpc {
         list(wire["deposits"], "result.deposits").map((entry) => {
           const deposit = record(entry, "result.deposits");
           return Object.freeze({
-            signature: string(deposit["signature"], "deposits.signature") as Signature,
+            signature: signature(deposit["signature"], "deposits.signature"),
             slot: integer(deposit["slot"], "deposits.slot"),
-            depositor: string(deposit["depositor"], "deposits.depositor") as Address,
-            asset: string(deposit["asset"], "deposits.asset") as Address,
+            depositor: address(deposit["depositor"], "deposits.depositor"),
+            asset: address(deposit["asset"], "deposits.asset"),
             amount: integer(deposit["amount"], "deposits.amount"),
           });
         }),
@@ -499,12 +496,12 @@ export class RingRpc {
     }
     const config = wire["configAuditorPubkey"];
     return Object.freeze({
-      ringProgramId: string(wire["ringProgramId"], "result.ringProgramId") as Address,
+      ringProgramId: address(wire["ringProgramId"], "result.ringProgramId"),
       state,
       ...(config === undefined || config === null
         ? {}
         : { configAuditorPublicKey: p256Key(config, "result.configAuditorPubkey") }),
-      servicePublicKey: string(wire["servicePubkey"], "result.servicePubkey") as Address,
+      servicePublicKey: address(wire["servicePubkey"], "result.servicePubkey"),
     });
   }
 
@@ -646,7 +643,7 @@ async function signMessage(signer: MessagePartialSigner, message: Uint8Array): P
 function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransaction {
   return Object.freeze({
     slot: integer(wire["slot"], "slot"),
-    signature: string(wire["txSignature"], "txSignature") as Signature,
+    signature: signature(wire["txSignature"], "txSignature"),
     txViewingPublicKey: p256Key(wire["txViewingPk"], "txViewingPk"),
     outputs: Object.freeze(
       list(wire["outputs"], "outputs").map((entry, index) =>
@@ -661,15 +658,13 @@ function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransact
     nullifiers: Object.freeze(
       list(wire["nullifiers"], "nullifiers").map((nullifier) => hash(nullifier, "nullifiers")),
     ),
-    signers: Object.freeze(
-      list(wire["signers"], "signers").map((key) => string(key, "signers") as Address),
-    ),
+    signers: Object.freeze(list(wire["signers"], "signers").map((key) => address(key, "signers"))),
     withdrawals: Object.freeze(
       list(wire["withdrawals"], "withdrawals").map((entry) => {
         const leg = record(entry, "withdrawals");
         return Object.freeze({
-          recipient: string(leg["recipient"], "withdrawals.recipient") as Address,
-          asset: string(leg["asset"], "withdrawals.asset") as Address,
+          recipient: address(leg["recipient"], "withdrawals.recipient"),
+          asset: address(leg["asset"], "withdrawals.asset"),
           amount: integer(leg["amount"], "withdrawals.amount"),
         });
       }),
@@ -683,11 +678,11 @@ function decodeOutput(output: Record<string, unknown>): DecryptedRingOutput {
     slotIndex: Number(integer(output["slotIndex"], "slotIndex")),
     recipientViewingPublicKey: p256Key(output["recipientViewingPk"], "recipientViewingPk"),
     ownerTag: hash(output["ownerTag"], "ownerTag"),
-    asset: string(output["asset"], "asset") as Address,
+    asset: address(output["asset"], "asset"),
     amount: integer(output["amount"], "amount"),
     ...(ring === undefined || ring === null
       ? {}
-      : { ringProgramId: string(ring, "ringProgramId") as Address }),
+      : { ringProgramId: address(ring, "ringProgramId") }),
   });
 }
 
@@ -698,7 +693,7 @@ function decodeSkipped(wire: Record<string, unknown>): SkippedRingTransaction {
   }
   return Object.freeze({
     slot: integer(wire["slot"], "slot"),
-    signature: string(wire["txSignature"], "txSignature") as Signature,
+    signature: signature(wire["txSignature"], "txSignature"),
     reason,
   });
 }
@@ -707,48 +702,8 @@ function invalid(path: string): RingError {
   return new RingError("RING_RPC", { details: { reason: "invalid response", path } });
 }
 
-function record(value: unknown, path: string): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) throw invalid(path);
-  return value as Record<string, unknown>;
-}
-
-function list(value: unknown, path: string): readonly unknown[] {
-  if (!Array.isArray(value)) throw invalid(path);
-  return value;
-}
-
-function string(value: unknown, path: string): string {
-  if (typeof value !== "string") throw invalid(path);
-  return value;
-}
-
-function signedInteger(value: unknown, path: string): bigint {
-  if (typeof value === "number" && Number.isSafeInteger(value)) return BigInt(value);
-  if (typeof value === "string" && /^-?\d+$/u.test(value)) return BigInt(value);
-  throw invalid(path);
-}
-
-function integer(value: unknown, path: string): bigint {
-  const result = signedInteger(value, path);
-  if (result < 0n) throw invalid(path);
-  return result;
-}
-
-function base64(value: unknown, path: string): Uint8Array {
-  try {
-    return new Uint8Array(base64Encoder.encode(string(value, path)));
-  } catch {
-    throw invalid(path);
-  }
-}
-
-function base58(value: unknown, path: string): Uint8Array {
-  try {
-    return new Uint8Array(base58Encoder.encode(string(value, path)));
-  } catch {
-    throw invalid(path);
-  }
-}
+const { record, list, string, address, signature, signedInteger, integer, base64, base58 } =
+  wireDecoder(invalid);
 
 function hash(value: unknown, path: string): Bytes32 {
   const bytes = base58(value, path);
