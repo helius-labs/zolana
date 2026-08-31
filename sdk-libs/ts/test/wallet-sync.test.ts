@@ -42,7 +42,8 @@ import {
 } from "../src/transaction/serialization/codecs.js";
 import { backfillAssetRegistry, syncWallet } from "../src/wallet/sync.js";
 import { syncPersistedWallet } from "../src/wallet/persisted.js";
-import { kitReads, solanaRpcReads, syncReads } from "./helpers/clients.js";
+import { kitReads, solanaRpcReads, syncReads, plainCipher } from "./helpers/clients.js";
+import { forged } from "./helpers/forged.js";
 
 const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
@@ -105,9 +106,9 @@ describe("wallet sync atomicity", () => {
     served = 10;
     getShieldedTransactionsByTags.mockClear();
     await syncWallet({ wallet, authority, client, config: { queryChunk: 1 } });
-    for (const call of getShieldedTransactionsByTags.mock.calls as unknown as [
-      { cursor?: Uint8Array },
-    ][]) {
+    for (const call of forged<[{ cursor?: Uint8Array }][]>(
+      getShieldedTransactionsByTags.mock.calls,
+    )) {
       expect(call[0]?.cursor).toBeUndefined();
     }
   });
@@ -144,9 +145,7 @@ describe("wallet sync atomicity", () => {
     await first;
     await second;
 
-    const calls = getShieldedTransactionsByTags.mock.calls as unknown as [
-      { cursor?: Uint8Array },
-    ][];
+    const calls = forged<[{ cursor?: Uint8Array }][]>(getShieldedTransactionsByTags.mock.calls);
     expect(calls[0]?.[0]?.cursor).toBeUndefined();
     expect(calls.at(-1)?.[0]?.cursor).toEqual(cursor);
   });
@@ -209,8 +208,8 @@ describe("wallet sync atomicity", () => {
     getShieldedTransactionsByTags.mockClear();
     await syncWallet({ wallet: restored, authority, client });
 
-    const call = (
-      getShieldedTransactionsByTags.mock.calls as unknown as [{ cursor?: Uint8Array }][]
+    const call = forged<[{ cursor?: Uint8Array }][]>(
+      getShieldedTransactionsByTags.mock.calls,
     )[0]?.[0];
     expect(call?.cursor).toEqual(cursor);
   });
@@ -289,7 +288,7 @@ describe("wallet sync", () => {
 
     await syncWallet({ wallet, authority, client });
     const calls = () =>
-      getShieldedTransactionsByTags.mock.calls as unknown as [{ cursor?: Uint8Array }][];
+      forged<[{ cursor?: Uint8Array }][]>(getShieldedTransactionsByTags.mock.calls);
     const firstCall = calls()[0]?.[0];
     expect(firstCall?.cursor).toBeUndefined();
 
@@ -328,9 +327,9 @@ describe("wallet sync", () => {
 
     // The wallet's real tags have no watermark, so every query starts at the
     // beginning -- the unrelated tag's cursor must not leak into them.
-    for (const call of getShieldedTransactionsByTags.mock.calls as unknown as [
-      { cursor?: Uint8Array },
-    ][]) {
+    for (const call of forged<[{ cursor?: Uint8Array }][]>(
+      getShieldedTransactionsByTags.mock.calls,
+    )) {
       expect(call[0]?.cursor).toBeUndefined();
     }
   });
@@ -511,20 +510,24 @@ describe("wallet sync", () => {
         store.saved = snapshot;
       }),
     };
-    const refused = { code: "WALLET_SYNC", causeCode: "WALLET_UNRESOLVED_ASSET" };
-
-    await expect(syncPersistedWallet({ wallet, authority, client, store })).rejects.toMatchObject(
-      refused,
-    );
+    await expect(
+      syncPersistedWallet({ wallet, authority, client, store, cipher: plainCipher }),
+    ).rejects.toMatchObject({
+      code: "WALLET_SYNC",
+      causeCode: "CLIENT_UNSUPPORTED_RPC_METHOD",
+    });
     scan = () => [];
-    await expect(syncPersistedWallet({ wallet, authority, client, store })).rejects.toMatchObject(
-      refused,
-    );
+    await expect(
+      syncPersistedWallet({ wallet, authority, client, store, cipher: plainCipher }),
+    ).rejects.toMatchObject({
+      code: "WALLET_SYNC",
+      causeCode: "WALLET_UNRESOLVED_ASSET",
+    });
     expect(store.save).not.toHaveBeenCalled();
     expect(wallet.lastSynced).toBe(0n);
 
     scan = () => [registration];
-    await syncPersistedWallet({ wallet, authority, client, store });
+    await syncPersistedWallet({ wallet, authority, client, store, cipher: plainCipher });
     expect(requestCursors.every((cursor) => cursor === undefined)).toBe(true);
     expect(wallet.balance(SPL_MINT).amount).toBe(42n);
     expect(store.save).toHaveBeenCalledTimes(1);

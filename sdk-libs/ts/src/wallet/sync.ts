@@ -75,48 +75,50 @@ export interface SplAssetRegistration {
   readonly mint: Address;
 }
 
-/** Every on-chain SPL asset registration, empty when the RPC cannot scan program accounts. */
+/** Every on-chain SPL asset registration, an unsupported or partial scan fails, never reads as empty. */
 export async function fetchSplAssetRegistrations(
   registryRpc: KitRpcAccess,
   context?: RequestContext,
 ): Promise<readonly SplAssetRegistration[]> {
-  let accounts;
-  try {
-    accounts = await runKitRpc("getProgramAccounts", context, (abortSignal) =>
-      registryRpc.solanaRpc
-        .getProgramAccounts(SHIELDED_POOL_PROGRAM_ID, {
-          commitment: registryRpc.commitment,
-          encoding: "base64",
-          filters: [
-            { dataSize: 48n },
-            {
-              memcmp: {
-                offset: 0n,
-                encoding: "base64",
-                bytes: base64Decoder.decode(
-                  Uint8Array.of(StateDiscriminator.splAssetRegistry),
-                ) as Base64EncodedBytes,
-              },
+  const accounts = await runKitRpc("getProgramAccounts", context, (abortSignal) =>
+    registryRpc.solanaRpc
+      .getProgramAccounts(SHIELDED_POOL_PROGRAM_ID, {
+        commitment: registryRpc.commitment,
+        encoding: "base64",
+        filters: [
+          { dataSize: 48n },
+          {
+            memcmp: {
+              offset: 0n,
+              encoding: "base64",
+              bytes: base64Decoder.decode(
+                Uint8Array.of(StateDiscriminator.splAssetRegistry),
+              ) as Base64EncodedBytes,
             },
-          ],
-        })
-        .send({ abortSignal }),
-    );
-  } catch (error) {
-    if (error instanceof ClientError && error.code === "CLIENT_UNSUPPORTED_RPC_METHOD") return [];
-    throw error;
-  }
+          },
+        ],
+      })
+      .send({ abortSignal }),
+  );
 
+  // The filters matched only asset registries, an account that fails to
+  // decode means the RPC did not honour the query and the whole listing is
+  // suspect.
   const registrations: SplAssetRegistration[] = [];
-  for (const { account } of accounts) {
-    if (account.owner !== SHIELDED_POOL_PROGRAM_ID) continue;
+  for (const [index, { account }] of accounts.entries()) {
+    const invalid = (cause?: unknown) =>
+      new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
+        details: { method: "getProgramAccounts", path: `$.result[${String(index)}]` },
+        ...(cause === undefined ? {} : { cause }),
+      });
+    if (account.owner !== SHIELDED_POOL_PROGRAM_ID) throw invalid();
     try {
       const registry = decodeSplAssetRegistry(
         new Uint8Array(base64Encoder.encode(account.data[0])),
       );
       registrations.push({ assetId: registry.assetId, mint: registry.mint });
-    } catch {
-      continue;
+    } catch (cause) {
+      throw invalid(cause);
     }
   }
   return Object.freeze(registrations);
