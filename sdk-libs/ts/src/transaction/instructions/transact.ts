@@ -596,12 +596,14 @@ export interface PreparedTransfer {
   ): SppProofInputs;
 }
 
+type RecipientRing = "transfer" | "default" | Readonly<{ programId: Address }>;
+
 interface Recipient {
   readonly address: ShieldedAddress;
   readonly asset: Address;
   readonly amount: bigint;
   /** Resolved at `prepare`, mirrors Rust `RecipientRing`, `default` is an exit when the transfer runs in a ring. */
-  readonly ring: "transfer" | "default";
+  readonly ring: RecipientRing;
 }
 
 const ZERO_ADDRESS = address("11111111111111111111111111111111");
@@ -667,6 +669,15 @@ export class ConfidentialTransfer {
   /** The note leaves the ring of the transfer for the default ring, mirrors Rust `send_default_ring`. */
   sendDefaultRing(recipient: ShieldedAddress, asset: Address, amount: bigint): void {
     this.#push({ address: recipient, asset, amount, ring: "default" });
+  }
+
+  sendToRing(
+    recipient: ShieldedAddress,
+    asset: Address,
+    amount: bigint,
+    ringProgramId: Address,
+  ): void {
+    this.#push({ address: recipient, asset, amount, ring: { programId: ringProgramId } });
   }
 
   // Rust `send` performs no amount check; `checkU64` stands in for its `u64`
@@ -777,7 +788,11 @@ export class ConfidentialTransfer {
           asset: recipient.asset,
           amount: recipient.amount,
           blinding: deriveBlinding(this.#blindingSeed, index + SENDER_SLOT_COUNT),
-          ...(recipient.ring === "transfer" ? ring : {}),
+          ...(recipient.ring === "transfer"
+            ? ring
+            : recipient.ring === "default"
+              ? {}
+              : { ringProgramId: recipient.ring.programId }),
         }),
       ),
     );

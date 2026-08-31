@@ -111,6 +111,7 @@ export {
 } from "./wallet/index.js";
 export {
   buildRingDepositTransaction,
+  buildRingEntryTransaction,
   buildRingExitTransaction,
   buildRingLookupTableTransaction,
   buildRingTransferTransaction,
@@ -131,6 +132,7 @@ export {
   type DecryptedRingTransaction,
   type DecryptedRingTransactionsPage,
   type RingDepositTransactionParams,
+  type RingEntryTransactionParams,
   type RingErrorCode,
   type Passkey,
   type ReaderKey,

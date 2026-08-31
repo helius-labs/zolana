@@ -377,6 +377,7 @@ function deserializeTransaction(value: unknown, index: number): PrivateTransacti
   if (
     kind !== "deposit" &&
     kind !== "privateTransfer" &&
+    kind !== "ringEntry" &&
     kind !== "publicWithdrawal" &&
     kind !== "split" &&
     kind !== "merge"

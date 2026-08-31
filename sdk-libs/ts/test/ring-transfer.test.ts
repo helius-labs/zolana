@@ -41,7 +41,7 @@ import {
 import { EncryptedScheme, readOutputData } from "../src/transaction/serialization/codecs.js";
 import { ProofInputUtxo, Utxo } from "../src/transaction/utxo.js";
 import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
-import { LocalWalletAuthority } from "../src/transaction/wallet/authority.js";
+import { KeypairWalletAuthority } from "../src/transaction/wallet/authority.js";
 
 const RING = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
 
@@ -58,7 +58,7 @@ function actor(seed: number) {
   );
   return {
     keypair,
-    authority: new LocalWalletAuthority({ solanaPublicKey, keypair }),
+    authority: new KeypairWalletAuthority({ solanaPublicKey, keypair }),
     address: keypair.shieldedAddress(),
   };
 }
@@ -198,6 +198,33 @@ describe("withCompactChange", () => {
   it("binds the change and the recipients to the ring the transfer runs in", () => {
     const ring = preparedTransfer(4n).prepared;
     expect(ring.outputs.every((output) => output.ringProgramId === RING)).toBe(true);
+  });
+
+  it("moves an exact amount into a ring and keeps default change", () => {
+    const sender = actor(3);
+    const input = new ProofInputUtxo({
+      utxo: new Utxo({
+        owner: sender.keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 10n,
+        blinding: scalar(6),
+      }),
+      nullifierKey: sender.keypair.nullifierKey(),
+    });
+    const transfer = new ConfidentialTransfer(
+      sender.address,
+      [input],
+      sender.address.solanaAddress(),
+    ).withCompactChange();
+    transfer.sendToRing(sender.address, SOL_MINT, 4n, RING);
+
+    const prepared = transfer.prepare();
+
+    expect(prepared.senderOutputCount).toBe(1);
+    expect(prepared.outputs.map((output) => [output.amount, output.ringProgramId])).toEqual([
+      [6n, undefined],
+      [4n, RING],
+    ]);
   });
 
   it("keeps a default-ring recipient out of the ring and refuses a foreign one", () => {

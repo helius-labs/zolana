@@ -171,9 +171,23 @@ function ensureViewingKeyEntries(
 /** Whether the kept outputs account for every asset the transaction spent. */
 function covered(spent: ReadonlyMap<Address, bigint>, kept: readonly Utxo[]): boolean {
   if (spent.size === 0) return false;
-  const byAsset = new Map<Address, bigint>();
-  for (const utxo of kept) byAsset.set(utxo.asset, (byAsset.get(utxo.asset) ?? 0n) + utxo.amount);
+  const byAsset = amountsByAsset(kept);
   return [...spent].every(([asset, amount]) => (byAsset.get(asset) ?? 0n) >= amount);
+}
+
+function sameAmounts(spent: ReadonlyMap<Address, bigint>, kept: readonly Utxo[]): boolean {
+  if (spent.size === 0) return false;
+  const byAsset = amountsByAsset(kept);
+  return (
+    byAsset.size === spent.size &&
+    [...spent].every(([asset, amount]) => byAsset.get(asset) === amount)
+  );
+}
+
+function amountsByAsset(utxos: readonly Utxo[]): ReadonlyMap<Address, bigint> {
+  const byAsset = new Map<Address, bigint>();
+  for (const utxo of utxos) byAsset.set(utxo.asset, (byAsset.get(utxo.asset) ?? 0n) + utxo.amount);
+  return byAsset;
 }
 
 function historyId(tx: IndexedShieldedTransaction, index: bigint): PrivateTransactionId {
@@ -409,6 +423,11 @@ class SyncPass {
     return byAsset;
   }
 
+  #spentEntries(nullifiers: readonly Bytes32[]): readonly WalletUtxo[] {
+    const spent = new Set(nullifiers.map(hex));
+    return this.#utxos.filter((entry) => spent.has(hex(entry.nullifier)));
+  }
+
   #recordReceived(
     tx: IndexedShieldedTransaction,
     slotIndex: number,
@@ -557,7 +576,7 @@ class SyncPass {
     salt: Bytes16,
   ): void {
     const change: Utxo[] = [];
-    const recipientKeys: P256PublicKey[] = [];
+    const recipients: Array<Readonly<{ key: P256PublicKey; utxo: Utxo }>> = [];
     tx.outputSlots.forEach((slot, position) => {
       try {
         const frame = readOutputData(slot.payload);
@@ -580,7 +599,10 @@ class SyncPass {
             return;
           }
         }
-        recipientKeys.push(recipientKey);
+        recipients.push({
+          key: recipientKey,
+          utxo: confidentialUtxo(plaintext, this.#owner, this.#assets),
+        });
       } catch {
         // A dummy slot fails the transaction-key decrypt; skip it.
       }
@@ -589,18 +611,47 @@ class SyncPass {
     const spent = this.#spentAmounts(tx.nullifiers);
     // Paying yourself keeps every output, so nothing distinguishes it from
     // change except that the change covers the whole spend.
-    if (recipientKeys.length === 0 && covered(spent, change)) {
+    if (recipients.length === 0 && covered(spent, change)) {
       this.#recordSplit(tx, spent);
       return;
     }
-    const kind = recipientKeys.length === 0 ? "publicWithdrawal" : "privateTransfer";
+    const entry = this.#isRingEntry(tx.nullifiers, change, recipients);
+    const kind = entry
+      ? "ringEntry"
+      : recipients.length === 0
+        ? "publicWithdrawal"
+        : "privateTransfer";
+    const recipientKeys = recipients.map((recipient) => recipient.key);
     this.#recordOutboundTransfer(
       tx,
       spent,
       change,
       kind,
-      recipientKeys.length === 1 ? recipientKeys[0] : undefined,
-      this.#transferDirection(recipientKeys),
+      !entry && recipientKeys.length === 1 ? recipientKeys[0] : undefined,
+      entry ? "selfTransfer" : this.#transferDirection(recipientKeys),
+    );
+  }
+
+  #isRingEntry(
+    nullifiers: readonly Bytes32[],
+    change: readonly Utxo[],
+    recipients: readonly Readonly<{ key: P256PublicKey; utxo: Utxo }>[],
+  ): boolean {
+    const inputs = this.#spentEntries(nullifiers);
+    const rings = new Set(recipients.map(({ utxo }) => utxo.ringProgramId));
+    const assets = new Set(recipients.map(({ utxo }) => utxo.asset));
+    return (
+      inputs.length > 0 &&
+      inputs.every((entry) => entry.utxo.ringProgramId === undefined) &&
+      change.every((utxo) => utxo.ringProgramId === undefined) &&
+      recipients.length > 0 &&
+      rings.size === 1 &&
+      assets.size === 1 &&
+      recipients.every(({ key, utxo }) => this.#isSelf(key) && utxo.ringProgramId !== undefined) &&
+      sameAmounts(this.#spentAmounts(nullifiers), [
+        ...change,
+        ...recipients.map(({ utxo }) => utxo),
+      ])
     );
   }
 

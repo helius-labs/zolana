@@ -32,7 +32,11 @@ import {
   resolveWithdrawal,
 } from "../src/wallet/actions.js";
 import { associatedTokenAddress, splInterfaceWithBump } from "../src/interface/pda/index.js";
-import { buildRingTransferTransaction, selectRingInputs } from "../src/ring/transfer.js";
+import {
+  buildRingEntryTransaction,
+  buildRingTransferTransaction,
+  selectRingInputs,
+} from "../src/ring/transfer.js";
 import { buildDepositTransaction, createDeposit } from "../src/wallet/deposit.js";
 import { depositClient, privateTransactionClient, ringTransferClient } from "./helpers/clients.js";
 import { emptyTransaction } from "./helpers/transactions.js";
@@ -635,6 +639,34 @@ describe("selectRingInputs", () => {
 });
 
 describe("ring approval summary", () => {
+  it("approves the exact amount moved into the ring", async () => {
+    const keypair = spendingKeypair();
+    const wallet = ringNoteWallet(keypair, [[40n, undefined]]);
+    const authority = new KeypairWalletAuthority({
+      solanaPublicKey: keypair.shieldedAddress().solanaAddress(),
+      keypair,
+    });
+    const approvals: string[] = [];
+    vi.spyOn(authority, "requestUserApproval").mockImplementation(async (request) => {
+      approvals.push(request.summary);
+      expect(request.intent).toMatchObject({ kind: "ringEntry", amount: 25n });
+      return approveIntent(request.intent);
+    });
+
+    await expect(
+      buildRingEntryTransaction({
+        client: ringTransferClient({ tree: TREE }),
+        ringProgramId: RING,
+        wallet,
+        authority,
+        feePayer: keypair.shieldedAddress().solanaAddress(),
+        amount: 25n,
+        lookupTable: RECIPIENT,
+      }),
+    ).rejects.toMatchObject({ code: "RING_BUILD_ENTRY" });
+    expect(approvals).toEqual([`ring entry of 25 SOL into ring ${RING}`]);
+  });
+
   async function capturedSummary(
     notes: readonly (readonly [bigint, Address | undefined])[],
     amount: bigint,

@@ -6,7 +6,7 @@ import { ShieldedKeypair } from "../src/keypair/shielded.js";
 import { SigningKey } from "../src/keypair/signing-key.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
 import { ed25519DerivationPayload, isDerivationInput } from "../src/keypair/derivation.js";
-import { LocalWalletAuthority } from "../src/transaction/wallet/authority.js";
+import { KeypairWalletAuthority } from "../src/transaction/wallet/authority.js";
 import { createProofOutput } from "../src/transaction/utxo.js";
 import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
 import { decryptTransactionViewingSecret, parseAuditorMessage } from "../src/keypair/audit.js";
@@ -15,14 +15,14 @@ function seed(byte: number): Bytes32 {
   return new Uint8Array(32).fill(byte) as Bytes32;
 }
 
-describe("LocalWalletAuthority", () => {
+describe("KeypairWalletAuthority", () => {
   it("derives the same keys from a wallet's derivation signature as from the secret", async () => {
     const signing = SigningKey.fromEd25519Bytes(seed(7));
     const keypair = ShieldedKeypair.fromKeypair(signing);
     const solanaPublicKey = getAddressDecoder().decode(signing.publicKey().toBytes().subarray(1));
-    const local = new LocalWalletAuthority({ solanaPublicKey, keypair });
+    const local = new KeypairWalletAuthority({ solanaPublicKey, keypair });
     // The browser wallet output of signMessage(ed25519DerivationMessage(pk)).
-    const derived = LocalWalletAuthority.fromDerivationSeed({
+    const derived = KeypairWalletAuthority.fromDerivationSeed({
       solanaPublicKey,
       derivationSeed: signing.derivationSeed(),
     });
@@ -61,7 +61,7 @@ describe("LocalWalletAuthority", () => {
     const solanaPublicKey = getAddressDecoder().decode(
       keypair.signingPublicKey().toBytes().subarray(1),
     );
-    const authority = new LocalWalletAuthority({ solanaPublicKey, keypair });
+    const authority = new KeypairWalletAuthority({ solanaPublicKey, keypair });
     const auditor = ViewingKey.generate();
     const firstNullifier = seed(9);
     const encrypted = await authority.withSpendSession((session) =>

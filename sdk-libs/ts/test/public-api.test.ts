@@ -85,6 +85,11 @@ describe("public package surface", () => {
     expect(sdk.buildWithdrawalTransaction).toBeTypeOf("function");
     expect(sdk.buildSplitTransaction).toBeTypeOf("function");
     expect(sdk.buildMergeTransaction).toBeTypeOf("function");
+    expect(sdk.buildRingEntryTransaction).toBeTypeOf("function");
+    expect(sdk.fetchAssetMetadata).toBeTypeOf("function");
+    expect(sdk.AssetMetadataCache).toBeTypeOf("function");
+    expect(sdk.formatAmount).toBeTypeOf("function");
+    expect(sdk.parseAmount).toBeTypeOf("function");
     expect(sdk).not.toHaveProperty("deposit");
     expect(sdk).not.toHaveProperty("transfer");
     expect(sdk).not.toHaveProperty("withdraw");

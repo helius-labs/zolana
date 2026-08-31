@@ -47,6 +47,7 @@ export const SENDER_HISTORY_ROW_BASE = 1n << 63n;
 export type PrivateTransactionKind =
   | "deposit"
   | "privateTransfer"
+  | "ringEntry"
   | "publicWithdrawal"
   | "split"
   | "merge";

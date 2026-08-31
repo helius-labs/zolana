@@ -367,5 +367,3 @@ export class KeypairWalletAuthority implements WalletAuthority {
     return Promise.resolve(approveIntent(request.intent));
   }
 }
-
-export { KeypairWalletAuthority as LocalWalletAuthority };

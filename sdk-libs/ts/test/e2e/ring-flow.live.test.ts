@@ -28,7 +28,7 @@ import {
   syncWallet,
   type Bytes32,
 } from "../../src/index.js";
-import { LocalWalletAuthority } from "../../src/transaction/wallet/authority.js";
+import { KeypairWalletAuthority } from "../../src/transaction/wallet/authority.js";
 import { sha256 } from "../../src/interface/internal.js";
 import { P256PublicKey } from "../../src/keypair/public-key.js";
 import {
@@ -67,7 +67,7 @@ interface Actor {
   readonly signer: KeyPairSigner;
   readonly keypair: ShieldedKeypair;
   readonly wallet: Wallet;
-  readonly authority: LocalWalletAuthority;
+  readonly authority: KeypairWalletAuthority;
 }
 
 async function freshActor(): Promise<Actor> {
@@ -81,7 +81,7 @@ async function freshActor(): Promise<Actor> {
     signer,
     keypair,
     wallet: new Wallet({ identity: keypair.shieldedAddress() }),
-    authority: new LocalWalletAuthority({ solanaPublicKey: signer.address, keypair }),
+    authority: new KeypairWalletAuthority({ solanaPublicKey: signer.address, keypair }),
   };
 }
 

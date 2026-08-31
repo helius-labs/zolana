@@ -61,7 +61,7 @@ export class ViewingKey implements ViewingKeyLike {
   /**
    * The viewing key of the wallet whose ed25519 `derivationSeed` is the
    * signature over `ed25519DerivationMessage(publicKey)`. Same key as
-   * `LocalWalletAuthority.fromDerivationSeed` holds, without the nullifier
+   * `KeypairWalletAuthority.fromDerivationSeed` holds, without the nullifier
    * key, so nothing here hashes.
    */
   static fromDerivationSeed(derivationSeed: Uint8Array): ViewingKey {

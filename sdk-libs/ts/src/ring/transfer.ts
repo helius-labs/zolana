@@ -9,6 +9,7 @@ import { InstructionTag } from "../interface/program.js";
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import type {
   Address,
+  Instruction,
   RequestContext,
   Transaction,
   TransactInstructionData,
@@ -38,7 +39,7 @@ import {
 import { SOL_MINT, type AssetRegistry } from "../transaction/asset.js";
 import type { NoteReservation, Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 import { ownerSignerAddresses } from "../client/prover/assembly.js";
-import { resolveWithdrawalSettlement } from "../flows/settlement.js";
+import { resolveWithdrawalSettlement, withdrawalSetupInstructions } from "../flows/settlement.js";
 import { resolveShieldedRecipient } from "../wallet/registry.js";
 
 import { fetchRingProgramConfig } from "./config.js";
@@ -68,13 +69,18 @@ export interface RingTransferTransactionParams {
   readonly recipient: Address | ShieldedAddress;
   readonly asset?: Address;
   readonly amount: bigint;
-  /** `"default"` funds only from default notes, a pure ring entry, `"ring-or-default"` mixes. */
+  /** `"default"` funds only from default notes, `"ring-or-default"` mixes both pools. */
   readonly inputs?: "ring" | "ring-or-default" | "default";
   /** Must be at least one slot old. */
   readonly lookupTable: Address;
   readonly computeUnitLimit?: number;
   readonly computeUnitPriceMicroLamports?: bigint;
 }
+
+export type RingEntryTransactionParams = Omit<
+  RingTransferTransactionParams,
+  "recipient" | "inputs"
+>;
 
 export interface RingWithdrawalTransactionParams {
   readonly client: RingTransferClient;
@@ -121,7 +127,36 @@ export async function buildRingTransferTransaction(
   input: RingTransferTransactionParams,
   context?: RequestContext,
 ): Promise<Transaction> {
-  return buildRingSendTransaction(input, "ring", context);
+  return buildRingSendTransaction(normalizeRingTransferParams(input), "ring", context);
+}
+
+export async function buildRingEntryTransaction(
+  input: RingEntryTransactionParams,
+  context?: RequestContext,
+): Promise<Transaction> {
+  const normalized = normalizeRingEntryParams(input);
+  return buildRingSpend(
+    normalized,
+    {
+      errorCode: "RING_BUILD_ENTRY",
+      selection: "default",
+      changeRing: "default",
+      resolve: () => Promise.resolve(undefined),
+      configure: ({ transfer, owner, asset }) => {
+        transfer.sendToRing(owner, asset, normalized.amount, normalized.ringProgramId);
+        return {
+          intent: {
+            kind: "ringEntry",
+            ringProgramId: normalized.ringProgramId,
+            asset,
+            amount: normalized.amount,
+          },
+          summary: `ring entry of ${String(normalized.amount)} ${assetLabel(asset)} into ring ${normalized.ringProgramId}`,
+        };
+      },
+    },
+    context,
+  );
 }
 
 /**
@@ -133,7 +168,11 @@ export async function buildRingExitTransaction(
   input: Omit<RingTransferTransactionParams, "inputs">,
   context?: RequestContext,
 ): Promise<Transaction> {
-  return buildRingSendTransaction({ ...input, inputs: "ring" }, "default", context);
+  return buildRingSendTransaction(
+    { ...normalizeRingTransferBase(input), recipient: input.recipient, inputs: "ring" },
+    "default",
+    context,
+  );
 }
 
 async function buildRingSendTransaction(
@@ -146,6 +185,7 @@ async function buildRingSendTransaction(
     {
       errorCode: "RING_BUILD_TRANSFER",
       selection: input.inputs ?? "ring",
+      changeRing: "ring",
       resolve: () => resolveRecipient(input, context),
       configure: ({ transfer, resolved: recipient, selected, asset }) => {
         if (destination === "ring") {
@@ -199,11 +239,13 @@ interface RingSpendPlan {
   readonly intent: TransactionIntent;
   readonly summary: string;
   readonly withdrawal?: TransactWithdrawal;
+  readonly setupInstructions?: readonly Instruction[];
 }
 
 interface RingSpendStrategy<R> {
-  readonly errorCode: "RING_BUILD_TRANSFER" | "RING_BUILD_WITHDRAWAL";
+  readonly errorCode: "RING_BUILD_ENTRY" | "RING_BUILD_TRANSFER" | "RING_BUILD_WITHDRAWAL";
   readonly selection: "ring" | "ring-or-default" | "default";
+  readonly changeRing: "ring" | "default";
   resolve(): Promise<R>;
   configure(
     input: Readonly<{
@@ -211,6 +253,7 @@ interface RingSpendStrategy<R> {
       resolved: R;
       selected: readonly WalletUtxo[];
       asset: Address;
+      owner: ShieldedAddress;
     }>,
   ): RingSpendPlan;
 }
@@ -249,10 +292,15 @@ async function buildRingSpend<R>(
             ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
           }),
       );
-      const transfer = new ConfidentialTransfer(address, inputs, input.feePayer)
-        .withCompactChange()
-        .withRingProgramId(input.ringProgramId);
-      const plan = strategy.configure({ transfer, resolved, selected, asset });
+      const transfer = new ConfidentialTransfer(
+        address,
+        inputs,
+        input.feePayer,
+      ).withCompactChange();
+      if (strategy.changeRing === "ring") {
+        transfer.withRingProgramId(input.ringProgramId);
+      }
+      const plan = strategy.configure({ transfer, resolved, selected, asset, owner: address });
       const approval = await input.authority.requestUserApproval({
         solanaPublicKey: input.authority.solanaPublicKey(),
         intent: plan.intent,
@@ -299,7 +347,7 @@ async function buildRingSpend<R>(
         ...(input.computeUnitPriceMicroLamports === undefined
           ? {}
           : { computeUnitPriceMicroLamports: input.computeUnitPriceMicroLamports }),
-        instructions: [instruction],
+        instructions: [...(plan.setupInstructions ?? []), instruction],
         lookupTables: { [input.lookupTable]: [...tableAddresses] },
         sizeShape: {
           inputs: proven.data.inputs.length,
@@ -323,29 +371,43 @@ export async function buildRingWithdrawalTransaction(
   input: RingWithdrawalTransactionParams,
   context?: RequestContext,
 ): Promise<Transaction> {
+  const normalized = normalizeRingWithdrawalParams(input);
   return buildRingSpend(
-    input,
+    normalized,
     {
       errorCode: "RING_BUILD_WITHDRAWAL",
       selection: "ring",
-      resolve: () =>
-        resolveWithdrawalSettlement(
-          input.recipient,
-          input.asset ?? SOL_MINT,
-          input.splTokenProgram,
-        ),
+      changeRing: "ring",
+      resolve: async () => {
+        const asset = normalized.asset ?? SOL_MINT;
+        const settlement = await resolveWithdrawalSettlement(
+          normalized.recipient,
+          asset,
+          normalized.splTokenProgram,
+        );
+        const setupInstructions = await withdrawalSetupInstructions({
+          payer: normalized.feePayer,
+          recipient: normalized.recipient,
+          asset,
+          ...(normalized.splTokenProgram === undefined
+            ? {}
+            : { splTokenProgram: normalized.splTokenProgram }),
+        });
+        return { settlement, setupInstructions };
+      },
       configure: ({ transfer, resolved, asset }) => {
-        transfer.withdraw(asset, input.amount, resolved.target);
+        transfer.withdraw(asset, normalized.amount, resolved.settlement.target);
         return {
           intent: {
             kind: "ringWithdrawal",
-            ringProgramId: input.ringProgramId,
+            ringProgramId: normalized.ringProgramId,
             asset,
-            amount: input.amount,
-            recipient: withdrawalIntentRecipient(resolved.target),
+            amount: normalized.amount,
+            recipient: withdrawalIntentRecipient(resolved.settlement.target),
           },
-          summary: `public withdrawal of ${String(input.amount)} ${assetLabel(asset)} from ring ${input.ringProgramId} to ${input.recipient}`,
-          withdrawal: resolved.accounts,
+          summary: `public withdrawal of ${String(normalized.amount)} ${assetLabel(asset)} from ring ${normalized.ringProgramId} to ${normalized.recipient}`,
+          withdrawal: resolved.settlement.accounts,
+          setupInstructions: resolved.setupInstructions,
         };
       },
     },
@@ -484,6 +546,52 @@ export function frameDummyOutputs(proofInputs: SppProofInputs): SppProofInputs {
     inputUtxos: proofInputs.inputUtxos,
     outputs: proofInputs.outputs,
     externalData: createExternalData({ ...external, outputs }),
+  });
+}
+
+function normalizeRingTransferBase(input: RingSpendParams): RingSpendParams {
+  const asset = input.asset;
+  const computeUnitLimit = input.computeUnitLimit;
+  const computeUnitPriceMicroLamports = input.computeUnitPriceMicroLamports;
+  return Object.freeze({
+    client: input.client,
+    ringProgramId: input.ringProgramId,
+    wallet: input.wallet,
+    authority: input.authority,
+    feePayer: input.feePayer,
+    amount: input.amount,
+    lookupTable: input.lookupTable,
+    ...(asset === undefined ? {} : { asset }),
+    ...(computeUnitLimit === undefined ? {} : { computeUnitLimit }),
+    ...(computeUnitPriceMicroLamports === undefined ? {} : { computeUnitPriceMicroLamports }),
+  });
+}
+
+function normalizeRingTransferParams(
+  input: RingTransferTransactionParams,
+): RingTransferTransactionParams {
+  const base = normalizeRingTransferBase(input);
+  const inputs = input.inputs;
+  return Object.freeze({
+    ...base,
+    recipient: input.recipient,
+    ...(inputs === undefined ? {} : { inputs }),
+  });
+}
+
+function normalizeRingEntryParams(input: RingEntryTransactionParams): RingEntryTransactionParams {
+  return normalizeRingTransferBase(input);
+}
+
+function normalizeRingWithdrawalParams(
+  input: RingWithdrawalTransactionParams,
+): RingWithdrawalTransactionParams {
+  const base = normalizeRingTransferBase(input);
+  const splTokenProgram = input.splTokenProgram;
+  return Object.freeze({
+    ...base,
+    recipient: input.recipient,
+    ...(splTokenProgram === undefined ? {} : { splTokenProgram }),
   });
 }
 
