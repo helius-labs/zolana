@@ -396,16 +396,16 @@ export class RingRpc {
     request: SignedAuditorKeyRequest,
     context?: RequestContext,
   ): Promise<RingAuditorKey> {
-    checkedSignedAuditorKeyRequest(request);
+    const checked = checkedSignedAuditorKeyRequest(request);
     const wire = record(
       await this.#call(
         "createAuditorKey",
         {
-          ringProgramId: request.ringProgramId,
+          ringProgramId: checked.ringProgramId,
           auth: {
-            authority: request.authority,
-            genesisHash: base58Decoder.decode(request.genesisHash),
-            ...authWire(request),
+            authority: checked.authority,
+            genesisHash: base58Decoder.decode(checked.genesisHash),
+            ...authWire(checked),
           },
         },
         context,
@@ -418,7 +418,7 @@ export class RingRpc {
     const servicePublicKey = address(wire["servicePubkey"], "result.servicePubkey");
     const signature = base58(wire["signature"], "result.signature");
     const ring = address(wire["ringProgramId"], "result.ringProgramId");
-    if (ring !== request.ringProgramId) throw invalid("result.ringProgramId");
+    if (ring !== checked.ringProgramId) throw invalid("result.ringProgramId");
     const attested = ed25519.verify(
       signature,
       auditorKeyAttestation(ring, auditorPublicKey),
@@ -522,20 +522,20 @@ export class RingRpc {
     read: SignedRingRead,
     context?: RequestContext,
   ): Promise<DecryptedRingTransactionsPage> {
-    checkedSignedRead(read);
-    const { signature } = read;
+    const checked = checkedSignedRead(read);
+    const { signature } = checked;
     const wire = record(
       await this.#call(
         "getDecryptedTransactions",
         {
-          ringProgramId: read.ringProgramId,
-          ...(read.cursor === undefined ? {} : { cursor: base64Decoder.decode(read.cursor) }),
-          ...(read.limit === undefined ? {} : { limit: Number(read.limit) }),
+          ringProgramId: checked.ringProgramId,
+          ...(checked.cursor === undefined ? {} : { cursor: base64Decoder.decode(checked.cursor) }),
+          ...(checked.limit === undefined ? {} : { limit: Number(checked.limit) }),
           auth: {
-            reader: base64Decoder.decode(read.reader),
+            reader: base64Decoder.decode(checked.reader),
             ...authWire({
-              timestamp: read.timestamp,
-              nonce: read.nonce,
+              timestamp: checked.timestamp,
+              nonce: checked.nonce,
               signature: signature instanceof Uint8Array ? signature : signature.signature,
             }),
             ...(signature instanceof Uint8Array
@@ -705,14 +705,30 @@ function invalidRequest(field: string): RingError {
   return new RingError("RING_RPC", { details: { reason: "invalid request", field } });
 }
 
-const { address: requestAddress } = wireDecoder(invalidRequest);
+const { address: requestAddress, record: requestRecord } = wireDecoder(invalidRequest);
+
+function exactRequestRecord(
+  value: unknown,
+  allowed: ReadonlySet<string>,
+  required: ReadonlySet<string>,
+  field: string,
+): Record<string, unknown> {
+  const candidate = requestRecord(value, field);
+  const invalidField = Reflect.ownKeys(candidate).find(
+    (key) => typeof key !== "string" || !allowed.has(key),
+  );
+  if (invalidField !== undefined) throw invalidRequest(`${field}.shape`);
+  const missing = [...required].find((key) => !Object.hasOwn(candidate, key));
+  if (missing !== undefined) throw invalidRequest(`${field}.${missing}`);
+  return candidate;
+}
 
 function requestBytes(value: unknown, length: number, field: string): Uint8Array {
   if (!(value instanceof Uint8Array) || value.length !== length) throw invalidRequest(field);
-  return value;
+  return new Uint8Array(value);
 }
 
-function checkedReadCursor(cursor: Uint8Array): Uint8Array {
+function checkedReadCursor(cursor: unknown): Uint8Array {
   if (
     !(cursor instanceof Uint8Array) ||
     cursor.length === 0 ||
@@ -722,10 +738,10 @@ function checkedReadCursor(cursor: Uint8Array): Uint8Array {
       details: { length: cursor instanceof Uint8Array ? cursor.length : -1 },
     });
   }
-  return cursor;
+  return new Uint8Array(cursor);
 }
 
-function checkedReadLimit(limit: bigint): bigint {
+function checkedReadLimit(limit: unknown): bigint {
   if (typeof limit !== "bigint" || limit < 1n || limit > RING_READ_PAGE_LIMIT) {
     throw new RingError("RING_READ_LIMIT", { details: { limit: String(limit) } });
   }
@@ -733,47 +749,122 @@ function checkedReadLimit(limit: bigint): bigint {
 }
 
 /** Bounded to the safe integer range, `Number` in the wire encoding stays exact. */
-function checkedUnixTimestamp(value: bigint, field: string): bigint {
+function checkedUnixTimestamp(value: unknown, field: string): bigint {
   if (typeof value !== "bigint" || value < 0n || value > BigInt(Number.MAX_SAFE_INTEGER)) {
     throw invalidRequest(field);
   }
   return value;
 }
 
-function checkedSignedRead(read: SignedRingRead): void {
-  requestAddress(read.ringProgramId, "ringProgramId");
-  readerKeyFromBytes(read.reader);
-  requestBytes(read.nonce, 32, "nonce");
-  if (read.cursor !== undefined) checkedReadCursor(read.cursor);
-  if (read.limit !== undefined) checkedReadLimit(read.limit);
-  checkedUnixTimestamp(read.timestamp, "timestamp");
-  const signature = read.signature;
-  if (signature instanceof Uint8Array) {
-    requestBytes(signature, 64, "signature");
-    return;
+const SIGNED_READ_FIELDS = new Set([
+  "ringProgramId",
+  "cursor",
+  "limit",
+  "reader",
+  "timestamp",
+  "nonce",
+  "signature",
+]);
+const SIGNED_READ_REQUIRED_FIELDS = new Set([
+  "ringProgramId",
+  "reader",
+  "timestamp",
+  "nonce",
+  "signature",
+]);
+const WEBAUTHN_FIELDS = new Set(["signature", "authenticatorData", "clientDataJSON"]);
+const SIGNED_AUDITOR_FIELDS = new Set([
+  "ringProgramId",
+  "authority",
+  "genesisHash",
+  "timestamp",
+  "nonce",
+  "signature",
+]);
+
+function checkedReaderBytes(value: unknown): Uint8Array {
+  if (!(value instanceof Uint8Array) || value.length !== 34) {
+    throw new RingError("RING_READER_KEY", {
+      details: { length: value instanceof Uint8Array ? value.length : -1 },
+    });
   }
-  if (!(signature.signature instanceof Uint8Array) || signature.signature.length === 0) {
-    throw invalidRequest("signature");
+  const reader = new Uint8Array(value);
+  try {
+    readerKeyFromBytes(reader);
+  } catch (cause) {
+    if (cause instanceof RingError) throw cause;
+    throw new RingError("RING_READER_KEY", { cause });
   }
-  // rpIdHash(32) + flags(1) + counter(4), the shortest authenticator data WebAuthn emits.
-  if (
-    !(signature.authenticatorData instanceof Uint8Array) ||
-    signature.authenticatorData.length < 37
-  ) {
-    throw invalidRequest("authenticatorData");
-  }
-  if (!(signature.clientDataJSON instanceof Uint8Array) || signature.clientDataJSON.length === 0) {
-    throw invalidRequest("clientDataJSON");
-  }
+  return reader;
 }
 
-function checkedSignedAuditorKeyRequest(request: SignedAuditorKeyRequest): void {
-  requestAddress(request.ringProgramId, "ringProgramId");
-  requestAddress(request.authority, "authority");
-  requestBytes(request.genesisHash, 32, "genesisHash");
-  requestBytes(request.nonce, 32, "nonce");
-  requestBytes(request.signature, 64, "signature");
-  checkedUnixTimestamp(request.timestamp, "timestamp");
+function checkedSignedRead(value: unknown): SignedRingRead {
+  const read = exactRequestRecord(
+    value,
+    SIGNED_READ_FIELDS,
+    SIGNED_READ_REQUIRED_FIELDS,
+    "request",
+  );
+  const ringProgramId = requestAddress(read["ringProgramId"], "ringProgramId");
+  const reader = checkedReaderBytes(read["reader"]);
+  const nonce = requestBytes(read["nonce"], 32, "nonce") as Bytes32;
+  const cursor = read["cursor"] === undefined ? undefined : checkedReadCursor(read["cursor"]);
+  const limit = read["limit"] === undefined ? undefined : checkedReadLimit(read["limit"]);
+  const timestamp = checkedUnixTimestamp(read["timestamp"], "timestamp");
+  const signature = read["signature"];
+  if (signature instanceof Uint8Array) {
+    return Object.freeze({
+      ringProgramId,
+      reader,
+      nonce,
+      timestamp,
+      signature: requestBytes(signature, 64, "signature"),
+      ...(cursor === undefined ? {} : { cursor }),
+      ...(limit === undefined ? {} : { limit }),
+    });
+  }
+  const webauthn = exactRequestRecord(signature, WEBAUTHN_FIELDS, WEBAUTHN_FIELDS, "signature");
+  if (!(webauthn["signature"] instanceof Uint8Array) || webauthn["signature"].length === 0) {
+    throw invalidRequest("signature");
+  }
+  const authenticatorData = webauthn["authenticatorData"];
+  if (!(authenticatorData instanceof Uint8Array) || authenticatorData.length < 37) {
+    throw invalidRequest("authenticatorData");
+  }
+  const clientDataJSON = webauthn["clientDataJSON"];
+  if (!(clientDataJSON instanceof Uint8Array) || clientDataJSON.length === 0) {
+    throw invalidRequest("clientDataJSON");
+  }
+  return Object.freeze({
+    ringProgramId,
+    reader,
+    nonce,
+    timestamp,
+    signature: Object.freeze({
+      signature: new Uint8Array(webauthn["signature"]),
+      authenticatorData: new Uint8Array(authenticatorData),
+      clientDataJSON: new Uint8Array(clientDataJSON),
+    }),
+    ...(cursor === undefined ? {} : { cursor }),
+    ...(limit === undefined ? {} : { limit }),
+  });
+}
+
+function checkedSignedAuditorKeyRequest(value: unknown): SignedAuditorKeyRequest {
+  const request = exactRequestRecord(
+    value,
+    SIGNED_AUDITOR_FIELDS,
+    SIGNED_AUDITOR_FIELDS,
+    "request",
+  );
+  return Object.freeze({
+    ringProgramId: requestAddress(request["ringProgramId"], "ringProgramId"),
+    authority: requestAddress(request["authority"], "authority"),
+    genesisHash: requestBytes(request["genesisHash"], 32, "genesisHash") as Bytes32,
+    nonce: requestBytes(request["nonce"], 32, "nonce") as Bytes32,
+    signature: requestBytes(request["signature"], 64, "signature") as Bytes64,
+    timestamp: checkedUnixTimestamp(request["timestamp"], "timestamp"),
+  });
 }
 
 function hash(value: unknown, path: string): Bytes32 {

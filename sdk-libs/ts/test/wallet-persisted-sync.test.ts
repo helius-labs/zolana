@@ -20,7 +20,6 @@ import {
 } from "../src/wallet/index.js";
 import { syncWallet } from "../src/wallet/sync.js";
 import { syncReads, plainCipher } from "./helpers/clients.js";
-import { forged } from "./helpers/forged.js";
 
 const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
@@ -38,24 +37,26 @@ interface RequestWithCursor {
   readonly cursor?: Uint8Array;
 }
 
-function firstCursor(fake: ReturnType<typeof vi.fn>): Uint8Array | undefined {
-  return forged<[RequestWithCursor][]>(fake.mock.calls)[0]?.[0]?.cursor;
+function firstCursor(
+  fake: ReturnType<typeof vi.fn<(request: RequestWithCursor) => Promise<unknown>>>,
+): Uint8Array | undefined {
+  return fake.mock.calls[0]?.[0]?.cursor;
 }
 
 /** Terminal pages carrying one distinct resume position per stream. */
 function cursorPages() {
   return {
-    getShieldedTransactionsByTags: vi.fn(async () => ({
+    getShieldedTransactionsByTags: vi.fn(async (_request: RequestWithCursor) => ({
       context: { blockTime: 1_700_000_000n, slot: 0n },
       transactions: [],
       scannedThrough: TAG_CURSOR,
     })),
-    getEncryptedUtxosByTags: vi.fn(async () => ({
+    getEncryptedUtxosByTags: vi.fn(async (_request: RequestWithCursor) => ({
       context: { blockTime: 1_700_000_000n, slot: 0n },
       matches: [],
       scannedThrough: PROOFLESS_CURSOR,
     })),
-    getShieldedTransactionsByNullifiers: vi.fn(async () => ({
+    getShieldedTransactionsByNullifiers: vi.fn(async (_request: RequestWithCursor) => ({
       context: { blockTime: 1_700_000_000n, slot: 0n },
       transactions: [],
       scannedThrough: NULLIFIER_CURSOR,
@@ -390,5 +391,39 @@ describe("sealed wallet snapshots", () => {
     await expect(loadPersistedWallet({ store, cipher: other })).rejects.toMatchObject({
       code: "WALLET_SNAPSHOT",
     });
+  });
+
+  it("refuses to seal another wallet under the cipher identity", async () => {
+    const { cipher } = await sealedStore();
+    const other = new Wallet({ identity: ShieldedKeypair.generate().shieldedAddress() });
+    await expect(cipher.seal(serializeWallet(other))).rejects.toMatchObject({
+      code: "WALLET_SNAPSHOT",
+    });
+  });
+
+  it("maps store load failures into the wallet taxonomy", async () => {
+    const cipher = walletSnapshotCipher(ShieldedKeypair.generate());
+    await expect(
+      loadPersistedWallet({
+        store: {
+          load: async () => {
+            throw new Error("disk unavailable");
+          },
+        },
+        cipher,
+      }),
+    ).rejects.toMatchObject({ code: "WALLET_PERSIST" });
+  });
+
+  it("maps invalid opened plaintext into the snapshot taxonomy", async () => {
+    await expect(
+      loadPersistedWallet({
+        store: { load: async () => "sealed" },
+        cipher: {
+          seal: async (snapshot) => snapshot,
+          open: async () => "not a wallet snapshot",
+        },
+      }),
+    ).rejects.toMatchObject({ code: "WALLET_SNAPSHOT", causeCode: "TRANSACTION_DESERIALIZE" });
   });
 });

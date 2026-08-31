@@ -67,7 +67,12 @@ export async function syncPersistedWallet(
 export async function loadPersistedWallet(
   input: Readonly<{ store: Pick<WalletStateStore, "load">; cipher: WalletStateCipher }>,
 ): Promise<Wallet | undefined> {
-  const sealed = await input.store.load();
+  let sealed: string | undefined;
+  try {
+    sealed = await input.store.load();
+  } catch (cause) {
+    throw wrapWalletError("WALLET_PERSIST", cause);
+  }
   if (sealed === undefined) return undefined;
   let snapshot: string;
   try {
@@ -76,5 +81,9 @@ export async function loadPersistedWallet(
     if (cause instanceof WalletError) throw cause;
     throw wrapWalletError("WALLET_SNAPSHOT", cause);
   }
-  return deserializeWallet(snapshot);
+  try {
+    return deserializeWallet(snapshot);
+  } catch (cause) {
+    throw wrapWalletError("WALLET_SNAPSHOT", cause);
+  }
 }

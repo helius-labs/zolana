@@ -1,8 +1,10 @@
 import { getBase64Decoder, getBase64Encoder } from "@solana/kit";
 
 import type { ShieldedKeypair } from "../keypair/shielded.js";
+import { deserializeWallet } from "../transaction/wallet/persistence.js";
 
 import { WalletError } from "./error.js";
+import { equalBytes } from "./internal.js";
 import type { WalletStateCipher } from "./persisted.js";
 
 const SNAPSHOT_DOMAIN = "zolana/wallet-snapshot/v1";
@@ -29,7 +31,7 @@ export function walletSnapshotCipher(keypair: ShieldedKeypair): WalletStateCiphe
   const identity = keypair.shieldedAddress().toBytes();
   return Object.freeze({
     async seal(snapshot: string): Promise<string> {
-      const snapshotVersion = snapshotVersionOf(snapshot);
+      const snapshotVersion = checkedSnapshot(snapshot, identity);
       const key = await snapshotKey(keypair);
       const nonce = new Uint8Array(12);
       globalThis.crypto.getRandomValues(nonce);
@@ -65,12 +67,16 @@ export function walletSnapshotCipher(keypair: ShieldedKeypair): WalletStateCiphe
       } catch (cause) {
         throw new WalletError("WALLET_SNAPSHOT", { cause });
       }
-      return decoder.decode(plaintext);
+      const snapshot = decoder.decode(plaintext);
+      if (checkedSnapshot(snapshot, identity) !== envelope.snapshotVersion) {
+        throw new WalletError("WALLET_SNAPSHOT");
+      }
+      return snapshot;
     },
   });
 }
 
-function snapshotVersionOf(snapshot: string): number {
+function checkedSnapshot(snapshot: string, identity: Uint8Array): number {
   let version: unknown;
   try {
     version = (JSON.parse(snapshot) as Readonly<{ version?: unknown }>).version;
@@ -80,6 +86,13 @@ function snapshotVersionOf(snapshot: string): number {
   if (typeof version !== "number" || !Number.isInteger(version) || version < 0 || version > 255) {
     throw new WalletError("WALLET_SNAPSHOT");
   }
+  let snapshotIdentity: Uint8Array;
+  try {
+    snapshotIdentity = deserializeWallet(snapshot).identity.toBytes();
+  } catch (cause) {
+    throw new WalletError("WALLET_SNAPSHOT", { cause });
+  }
+  if (!equalBytes(snapshotIdentity, identity)) throw new WalletError("WALLET_SNAPSHOT");
   return version;
 }
 
