@@ -8,6 +8,7 @@ import { ConfidentialTransfer, type SppProofInputs } from "../transaction/instru
 import { TransactionError } from "../transaction/error.js";
 import { ProofInputUtxo, type Utxo } from "../transaction/utxo.js";
 import {
+  checkAuthorizedBinding,
   checkIntentApproval,
   checkPreparedTransfer,
   withdrawalIntentRecipient,
@@ -136,6 +137,7 @@ async function authorizeWithInputs(
   const action = transaction._action();
   let proofInputs: SppProofInputs;
   let intent: TransactionIntent;
+  let senderOutputCount: number;
   if (action.kind === "split") {
     const input = inputs[0];
     if (input === undefined) throw new WalletError("WALLET_NO_INPUTS");
@@ -164,6 +166,7 @@ async function authorizeWithInputs(
       summary: transaction._summary(),
     });
     checkIntentApproval(approval, intent, intentMismatch);
+    senderOutputCount = 0;
     proofInputs = prepared.finalize({
       txViewingPublicKey: encrypted.txViewingPublicKey,
       salt: encrypted.salt,
@@ -203,6 +206,7 @@ async function authorizeWithInputs(
     });
     checkIntentApproval(approval, intent, intentMismatch);
     checkPreparedTransfer(prepared, intent, intentMismatch);
+    senderOutputCount = prepared.senderOutputCount;
     proofInputs = prepared.finalize({
       txViewingPublicKey: encrypted.txViewingPublicKey,
       salt: encrypted.salt,
@@ -212,10 +216,14 @@ async function authorizeWithInputs(
   const withdrawal = transaction._withdrawal();
   // The key clones in the returned proof inputs stay armed for proving, the
   // builder destroys them after assembly.
-  return Object.freeze({
+  const authorized: AuthorizedPrivateTransaction = Object.freeze({
     proofInputs,
     tree: transaction.tree(),
     intent,
+    senderOutputCount,
+    owner: address,
     ...(withdrawal === undefined ? {} : { withdrawal }),
   });
+  checkAuthorizedBinding(authorized, intentMismatch);
+  return authorized;
 }

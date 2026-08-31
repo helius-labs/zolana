@@ -25,7 +25,8 @@ import type {
 } from "../interface/types.js";
 import { PreparedMerge } from "../transaction/instructions/builders.js";
 import { SppProofInputs, type InputUtxoContext } from "../transaction/instructions/transact.js";
-import { checkTransactData } from "../transaction/wallet/intent.js";
+import { ShieldedAddress } from "../keypair/shielded.js";
+import { checkAuthorizedBinding, checkTransactData } from "../transaction/wallet/intent.js";
 
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import { checkedU32 } from "../flows/internal.js";
@@ -718,9 +719,7 @@ export class ZolanaClient
     context?: RequestContext,
   ): Promise<Transaction> {
     const data = await this.#proveAuthorizedPrivateTransaction(input, context);
-    checkTransactData(data, input.authorized.intent, (field) => {
-      return new ClientError("CLIENT_INTENT_MISMATCH", { details: { field } });
-    });
+    checkTransactData(data, input.authorized.intent, intentMismatch);
     const lifetime = await this.getLatestBlockhash(context);
     return buildUnsignedTransaction({
       computeUnitLimit: this.#computeUnitLimit,
@@ -764,7 +763,7 @@ export class ZolanaClient
         details: { transactionTree: input.authorized.tree, clientTree: this.tree },
       });
     }
-    checkWithdrawalBinding(input.authorized);
+    checkAuthorizedBinding(input.authorized, intentMismatch);
     return this.proveTransact(input.authorized.proofInputs, undefined, context);
   }
 }
@@ -931,32 +930,26 @@ function hasMergeOutputBinding(value: unknown): value is MergeOutputBinding {
   );
 }
 
-// The proven data carries no recipient accounts, only the withdrawal does.
-function checkWithdrawalBinding(authorized: AuthorizedPrivateTransaction): void {
-  const mismatch = (field: string) => {
-    return new ClientError("CLIENT_INTENT_MISMATCH", { details: { field } });
-  };
-  const withdrawal = authorized.withdrawal;
-  if (authorized.intent.kind !== "withdrawal") {
-    if (withdrawal !== undefined) throw mismatch("withdrawal");
-    return;
-  }
-  if (withdrawal === undefined) throw mismatch("withdrawal");
-  const recipient =
-    withdrawal.kind === "sol" ? withdrawal.recipient : withdrawal.recipientTokenAccount;
-  if (recipient !== authorized.intent.recipient) throw mismatch("recipient");
+function intentMismatch(field: string): ClientError {
+  return new ClientError("CLIENT_INTENT_MISMATCH", { details: { field } });
 }
 
-/** Rides on the `SppProofInputs` class token, only the proving pipeline mints one. */
-function hasAuthorizedShape(
-  value: unknown,
-): value is Readonly<{ proofInputs: SppProofInputs; tree: string; intent: object }> {
+/** Shape only, `checkAuthorizedBinding` rebinds every field to the intent before proving. */
+function hasAuthorizedShape(value: unknown): value is Readonly<{
+  proofInputs: SppProofInputs;
+  tree: string;
+  intent: object;
+  senderOutputCount: number;
+  owner: ShieldedAddress;
+}> {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
   return (
     candidate["proofInputs"] instanceof SppProofInputs &&
     typeof candidate["tree"] === "string" &&
     typeof candidate["intent"] === "object" &&
-    candidate["intent"] !== null
+    candidate["intent"] !== null &&
+    typeof candidate["senderOutputCount"] === "number" &&
+    candidate["owner"] instanceof ShieldedAddress
   );
 }

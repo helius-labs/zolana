@@ -1,8 +1,13 @@
-import { getAddressEncoder } from "@solana/kit";
+import { getAddressEncoder, isAddress } from "@solana/kit";
 import { sha256 } from "@noble/hashes/sha2.js";
 
-import type { Address, Bytes32, TransactInstructionData } from "../../interface/types.js";
-import type { ShieldedAddress } from "../../keypair/shielded.js";
+import type {
+  Address,
+  Bytes32,
+  TransactInstructionData,
+  TransactWithdrawal,
+} from "../../interface/types.js";
+import { ShieldedAddress } from "../../keypair/shielded.js";
 
 import type { PreparedTransfer, WithdrawalTarget } from "../instructions/transact.js";
 import { SOL_MINT } from "../asset.js";
@@ -173,8 +178,16 @@ export function checkTransactData(
   if (data.interfaceTransfers.length > 0) throw mismatch("settlements");
 }
 
+type OutputsView = Readonly<{
+  outputs: PreparedTransfer["outputs"];
+  senderOutputCount: number;
+}>;
+
+type SettlementView = OutputsView &
+  Readonly<{ interfaceTransfers: PreparedTransfer["interfaceTransfers"] }>;
+
 function checkRecipientOutputs(
-  prepared: PreparedTransfer,
+  prepared: OutputsView,
   intent: Readonly<{ recipient: ShieldedAddress; asset: Address; amount: bigint }>,
   outputRing: Address | undefined,
   mismatch: (field: string) => Error,
@@ -197,7 +210,7 @@ function checkRecipientOutputs(
 }
 
 function checkSettlement(
-  prepared: PreparedTransfer,
+  prepared: SettlementView,
   intent: Readonly<{ asset: Address; amount: bigint; recipient: Address }>,
   mismatch: (field: string) => Error,
 ): void {
@@ -216,6 +229,190 @@ function checkSettlement(
     if (transfer.mint !== intent.asset) throw mismatch("asset");
     if (transfer.tokenAccount !== intent.recipient) throw mismatch("recipient");
   }
+}
+
+const U64_MAX = 0xffff_ffff_ffff_ffffn;
+
+/** @internal Structural intents arrive from callers, no field is trusted before it is checked. */
+export function checkTransactionIntent(
+  intent: TransactionIntent,
+  mismatch: (field: string) => Error,
+): void {
+  if (typeof intent !== "object" || intent === null) throw mismatch("kind");
+  checkMint(intent.asset, mismatch);
+  switch (intent.kind) {
+    case "transfer":
+      checkAmount(intent.amount, mismatch);
+      checkShieldedRecipient(intent.recipient, mismatch);
+      return;
+    case "withdrawal":
+      checkAmount(intent.amount, mismatch);
+      checkAccount(intent.recipient, "recipient", mismatch);
+      return;
+    case "split":
+      checkCount(intent.numOutputs, "numOutputs", mismatch);
+      checkAmount(intent.perOutputAmount, mismatch);
+      return;
+    case "merge":
+      checkCount(intent.numInputs, "numInputs", mismatch);
+      checkAmount(intent.mergedAmount, mismatch);
+      return;
+    case "ringTransfer":
+      checkAccount(intent.ringProgramId, "ringProgramId", mismatch);
+      checkAmount(intent.amount, mismatch);
+      checkShieldedRecipient(intent.recipient, mismatch);
+      if (!(intent.boundary in BOUNDARY_TAGS)) throw mismatch("boundary");
+      if (
+        typeof intent.defaultFunding !== "bigint" ||
+        intent.defaultFunding < 0n ||
+        intent.defaultFunding > U64_MAX
+      ) {
+        throw mismatch("defaultFunding");
+      }
+      return;
+    case "ringWithdrawal":
+      checkAccount(intent.ringProgramId, "ringProgramId", mismatch);
+      checkAmount(intent.amount, mismatch);
+      checkAccount(intent.recipient, "recipient", mismatch);
+      return;
+    default:
+      throw mismatch("kind");
+  }
+}
+
+/** @internal The fields the client rebinds to the approved intent before anything is proved. */
+export interface AuthorizedIntentView {
+  readonly proofInputs: Readonly<{
+    inputUtxos: PreparedTransfer["inputs"];
+    outputs: PreparedTransfer["outputs"];
+    externalData: Readonly<{ interfaceTransfers: PreparedTransfer["interfaceTransfers"] }>;
+  }>;
+  readonly intent: TransactionIntent;
+  readonly withdrawal?: TransactWithdrawal | undefined;
+  readonly senderOutputCount: number;
+  readonly owner: ShieldedAddress;
+}
+
+/** @internal A forged or drifted authorization must fail here, never reach the prover. */
+export function checkAuthorizedBinding(
+  authorized: AuthorizedIntentView,
+  mismatch: (field: string) => Error,
+): void {
+  const intent = authorized.intent;
+  checkTransactionIntent(intent, mismatch);
+  if (!(authorized.owner instanceof ShieldedAddress)) throw mismatch("owner");
+  if (
+    !Number.isInteger(authorized.senderOutputCount) ||
+    authorized.senderOutputCount < 0 ||
+    authorized.senderOutputCount > authorized.proofInputs.outputs.length
+  ) {
+    throw mismatch("senderOutputCount");
+  }
+  for (const input of authorized.proofInputs.inputUtxos) {
+    if (!input.isDummy() && input.utxo.ringProgramId !== undefined) throw mismatch("inputs");
+  }
+  const view: SettlementView = {
+    outputs: authorized.proofInputs.outputs,
+    senderOutputCount: authorized.senderOutputCount,
+    interfaceTransfers: authorized.proofInputs.externalData.interfaceTransfers,
+  };
+  switch (intent.kind) {
+    case "transfer":
+      if (authorized.withdrawal !== undefined) throw mismatch("withdrawal");
+      if (view.interfaceTransfers.length > 0) throw mismatch("settlements");
+      checkRecipientOutputs(view, intent, undefined, mismatch);
+      checkChangeOutputs(view, authorized.owner, intent.asset, mismatch);
+      return;
+    case "withdrawal":
+      checkSettlement(view, intent, mismatch);
+      checkChangeOutputs(view, authorized.owner, intent.asset, mismatch);
+      checkWithdrawalAccounts(authorized.withdrawal, intent, mismatch);
+      return;
+    case "split": {
+      if (authorized.withdrawal !== undefined) throw mismatch("withdrawal");
+      if (view.interfaceTransfers.length > 0) throw mismatch("settlements");
+      const ownerBytes = authorized.owner.toBytes();
+      let funded = 0;
+      for (const output of view.outputs) {
+        if (output.isDummy()) continue;
+        if (
+          output.ownerAddress === undefined ||
+          !equalBytes(output.ownerAddress.toBytes(), ownerBytes)
+        ) {
+          throw mismatch("recipient");
+        }
+        if (output.asset !== intent.asset) throw mismatch("asset");
+        if (output.ringProgramId !== undefined) throw mismatch("ringProgramId");
+        // Zero-amount slots are the split's padding, only funded parts count.
+        if (output.amount === 0n) continue;
+        funded++;
+        if (output.amount !== intent.perOutputAmount) throw mismatch("amount");
+      }
+      if (funded !== intent.numOutputs) throw mismatch("numOutputs");
+      return;
+    }
+    default:
+      throw mismatch("kind");
+  }
+}
+
+function checkChangeOutputs(
+  view: OutputsView,
+  owner: ShieldedAddress,
+  asset: Address,
+  mismatch: (field: string) => Error,
+): void {
+  const ownerBytes = owner.toBytes();
+  for (const output of view.outputs.slice(0, view.senderOutputCount)) {
+    if (output.isDummy()) continue;
+    if (
+      output.ownerAddress === undefined ||
+      !equalBytes(output.ownerAddress.toBytes(), ownerBytes) ||
+      output.asset !== asset ||
+      output.ringProgramId !== undefined
+    ) {
+      throw mismatch("change");
+    }
+  }
+}
+
+function checkWithdrawalAccounts(
+  withdrawal: TransactWithdrawal | undefined,
+  intent: Readonly<{ asset: Address; recipient: Address }>,
+  mismatch: (field: string) => Error,
+): void {
+  if (withdrawal === undefined) throw mismatch("withdrawal");
+  if (withdrawal.kind === "sol") {
+    if (intent.asset !== SOL_MINT) throw mismatch("asset");
+    if (withdrawal.recipient !== intent.recipient) throw mismatch("recipient");
+    return;
+  }
+  if (intent.asset === SOL_MINT || withdrawal.mint !== intent.asset) throw mismatch("asset");
+  if (withdrawal.recipientTokenAccount !== intent.recipient) throw mismatch("recipient");
+}
+
+function checkMint(value: Address, mismatch: (field: string) => Error): void {
+  checkAccount(value, "asset", mismatch);
+}
+
+function checkAccount(value: Address, field: string, mismatch: (field: string) => Error): void {
+  if (typeof value !== "string" || !isAddress(value)) throw mismatch(field);
+}
+
+function checkShieldedRecipient(
+  recipient: ShieldedAddress,
+  mismatch: (field: string) => Error,
+): void {
+  if (!(recipient instanceof ShieldedAddress)) throw mismatch("recipient");
+}
+
+function checkAmount(value: bigint, mismatch: (field: string) => Error): void {
+  if (typeof value !== "bigint" || value < 1n || value > U64_MAX) throw mismatch("amount");
+}
+
+/** One byte in `intentHash`, a wider count would alias another approval. */
+function checkCount(value: number, field: string, mismatch: (field: string) => Error): void {
+  if (!Number.isInteger(value) || value < 1 || value > 255) throw mismatch(field);
 }
 
 function preparedDefaultFunding(prepared: PreparedTransfer): bigint {

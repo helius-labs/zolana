@@ -11,6 +11,7 @@ import type {
 } from "../interface/types.js";
 import type { NullifierKey } from "../keypair/nullifier-key.js";
 import type { ShieldedPublicKey } from "../keypair/public-key.js";
+import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { PreparedMerge } from "../transaction/instructions/builders.js";
 import type { InputUtxoContext, SppProofInputs } from "../transaction/instructions/transact.js";
 import type { TransactionIntent } from "../transaction/wallet/intent.js";
@@ -136,8 +137,11 @@ export interface AuthorizedPrivateTransaction {
   readonly proofInputs: SppProofInputs;
   readonly withdrawal?: TransactWithdrawal;
   readonly tree: Address;
-  /** Revalidated against the proven data before the transaction compiles. */
+  /** Rebound to the proof inputs before proving and to the proven data before compiling. */
   readonly intent: TransactionIntent;
+  /** Outputs `[0, senderOutputCount)` are the sender's change, the rest belong to the recipient. */
+  readonly senderOutputCount: number;
+  readonly owner: ShieldedAddress;
 }
 
 export interface MergeMaterialInput {
