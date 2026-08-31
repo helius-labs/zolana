@@ -25,7 +25,6 @@ import type {
 } from "../interface/types.js";
 import { PreparedMerge } from "../transaction/instructions/builders.js";
 import { SppProofInputs, type InputUtxoContext } from "../transaction/instructions/transact.js";
-import { ShieldedAddress } from "../keypair/shielded.js";
 import { checkAuthorizedBinding, checkTransactData } from "../transaction/wallet/intent.js";
 
 import { compileUnsignedTransaction } from "../flows/compile.js";
@@ -33,20 +32,22 @@ import { checkedU32 } from "../flows/internal.js";
 import { ClientError, fromClientCause } from "./error.js";
 import { checkedServiceUrl } from "./internal.js";
 import { ZolanaIndexer } from "./indexer.js";
-import type {
-  AuthorizedPrivateTransaction,
-  BlockhashProvider,
-  ChainReader,
-  IndexerReader,
-  KitRpcAccess,
-  MergeAssembler,
-  MergeMaterialInput,
-  ProofReader,
-  ProvedMerge,
-  Prover,
-  TransactionAssembler,
-  TransactionConfirmer,
-  TreeContext,
+import {
+  authorizedPrivateTransactionMaterial,
+  type AuthorizedPrivateTransaction,
+  type AuthorizedPrivateTransactionMaterial,
+  type BlockhashProvider,
+  type ChainReader,
+  type IndexerReader,
+  type KitRpcAccess,
+  type MergeAssembler,
+  type MergeMaterialInput,
+  type ProofReader,
+  type ProvedMerge,
+  type Prover,
+  type TransactionAssembler,
+  type TransactionConfirmer,
+  type TreeContext,
 } from "./ports.js";
 import {
   createKitClients,
@@ -714,57 +715,61 @@ export class ZolanaClient
     input: Readonly<{
       authorized: AuthorizedPrivateTransaction;
       feePayer: Address;
-      setupInstructions?: readonly Instruction[];
     }>,
     context?: RequestContext,
   ): Promise<Transaction> {
-    const data = await this.#proveAuthorizedPrivateTransaction(input, context);
-    checkTransactData(data, input.authorized.intent, intentMismatch);
+    const candidate: unknown = input;
+    if (typeof candidate !== "object" || candidate === null) {
+      throw new ClientError("CLIENT_INVALID_TRANSACTION");
+    }
+    const fields = Reflect.ownKeys(candidate);
+    if (
+      fields.length !== 2 ||
+      !Object.hasOwn(candidate, "authorized") ||
+      !Object.hasOwn(candidate, "feePayer") ||
+      fields.some((key) => key !== "authorized" && key !== "feePayer")
+    ) {
+      throw new ClientError("CLIENT_INVALID_TRANSACTION");
+    }
+    const feePayer: unknown = Reflect.get(candidate, "feePayer");
+    checkedAddress(feePayer, "feePayer");
+    const authorized = authorizedPrivateTransactionMaterial(Reflect.get(candidate, "authorized"));
+    if (authorized === undefined) {
+      throw new ClientError("CLIENT_INVALID_TRANSACTION");
+    }
+    const data = await this.#proveAuthorizedPrivateTransaction(authorized, feePayer, context);
+    checkTransactData(data, authorized.intent, intentMismatch);
     const lifetime = await this.getLatestBlockhash(context);
     return buildUnsignedTransaction({
       computeUnitLimit: this.#computeUnitLimit,
       ...(this.#computeUnitPrice === undefined
         ? {}
         : { computeUnitPriceMicroLamports: this.#computeUnitPrice }),
-      feePayer: input.feePayer,
-      inputTree: input.authorized.tree,
+      feePayer,
+      inputTree: authorized.tree,
       outputTree: this.tree,
-      ...(input.setupInstructions === undefined
-        ? {}
-        : { setupInstructions: input.setupInstructions }),
-      ...(input.authorized.withdrawal === undefined
-        ? {}
-        : { withdrawal: input.authorized.withdrawal }),
+      setupInstructions: authorized.setupInstructions,
+      ...(authorized.withdrawal === undefined ? {} : { withdrawal: authorized.withdrawal }),
       data,
       lifetime,
     });
   }
 
   async #proveAuthorizedPrivateTransaction(
-    input: Readonly<{ authorized: AuthorizedPrivateTransaction; feePayer: Address }>,
+    authorized: AuthorizedPrivateTransactionMaterial,
+    feePayer: Address,
     context?: RequestContext,
   ): Promise<TransactInstructionData> {
-    const candidate: unknown = input;
-    if (typeof candidate !== "object" || candidate === null) {
-      throw new ClientError("CLIENT_INVALID_TRANSACTION");
-    }
-    checkedAddress(input.feePayer, "feePayer");
-    if (!hasAuthorizedShape(input.authorized)) {
-      throw new ClientError("CLIENT_INVALID_TRANSACTION");
-    }
-    // Compare the address itself, like Rust's `validate_fee_payer_pubkey`. The
-    // proof inputs cache a hash of it, but under a different function than any
-    // hash derived here would use.
-    if (input.feePayer !== input.authorized.proofInputs.payer) {
+    if (feePayer !== authorized.proofInputs.payer) {
       throw new ClientError("CLIENT_FEE_PAYER_MISMATCH");
     }
-    if (input.authorized.tree !== this.tree) {
+    if (authorized.tree !== this.tree) {
       throw new ClientError("CLIENT_TREE_MISMATCH", {
-        details: { transactionTree: input.authorized.tree, clientTree: this.tree },
+        details: { transactionTree: authorized.tree, clientTree: this.tree },
       });
     }
-    checkAuthorizedBinding(input.authorized, intentMismatch);
-    return this.proveTransact(input.authorized.proofInputs, undefined, context);
+    checkAuthorizedBinding(authorized, intentMismatch);
+    return this.proveTransact(authorized.proofInputs, undefined, context);
   }
 }
 
@@ -843,7 +848,10 @@ export function buildUnsignedMergeTransaction(
   });
 }
 
-function checkedAddress(value: Address, field: string): void {
+function checkedAddress(value: unknown, field: string): asserts value is Address {
+  if (typeof value !== "string") {
+    throw new ClientError("CLIENT_INVALID_BASE58", { details: { field } });
+  }
   try {
     assertIsAddress(value);
   } catch {
@@ -932,24 +940,4 @@ function hasMergeOutputBinding(value: unknown): value is MergeOutputBinding {
 
 function intentMismatch(field: string): ClientError {
   return new ClientError("CLIENT_INTENT_MISMATCH", { details: { field } });
-}
-
-/** Shape only, `checkAuthorizedBinding` rebinds every field to the intent before proving. */
-function hasAuthorizedShape(value: unknown): value is Readonly<{
-  proofInputs: SppProofInputs;
-  tree: string;
-  intent: object;
-  senderOutputCount: number;
-  owner: ShieldedAddress;
-}> {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as Record<string, unknown>;
-  return (
-    candidate["proofInputs"] instanceof SppProofInputs &&
-    typeof candidate["tree"] === "string" &&
-    typeof candidate["intent"] === "object" &&
-    candidate["intent"] !== null &&
-    typeof candidate["senderOutputCount"] === "number" &&
-    candidate["owner"] instanceof ShieldedAddress
-  );
 }

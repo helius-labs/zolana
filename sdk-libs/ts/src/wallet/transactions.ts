@@ -1,6 +1,15 @@
-import type { ChainReader, TransactionAssembler } from "../client/ports.js";
-import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
-import { createAssociatedTokenAccountInstruction } from "../interface/instructions/index.js";
+import {
+  authorizedPrivateTransactionMaterial,
+  type ChainReader,
+  type TransactionAssembler,
+} from "../client/ports.js";
+import type {
+  Address,
+  Bytes32,
+  Instruction,
+  RequestContext,
+  Transaction,
+} from "../interface/types.js";
 import type { WalletAuthority } from "../transaction/wallet/authority.js";
 import { SOL_MINT } from "../transaction/asset.js";
 import type { Wallet } from "../transaction/wallet/state.js";
@@ -13,6 +22,7 @@ import {
 } from "./actions.js";
 import { wrapWalletError } from "./error.js";
 import { authorizePrivateTransaction } from "./private-transaction.js";
+import { withdrawalSetupInstructions } from "../flows/settlement.js";
 
 export type PrivateTransactionClient = TransactionAssembler & Pick<ChainReader, "getAccount">;
 
@@ -70,19 +80,12 @@ export async function buildWithdrawalTransaction(
 ): Promise<Transaction> {
   try {
     const asset = input.asset ?? SOL_MINT;
-    const setupInstructions =
-      asset === SOL_MINT
-        ? []
-        : [
-            await createAssociatedTokenAccountInstruction({
-              payer: input.feePayer,
-              owner: input.recipient,
-              mint: asset,
-              ...(input.splTokenProgram === undefined
-                ? {}
-                : { tokenProgram: input.splTokenProgram }),
-            }),
-          ];
+    const setupInstructions = await withdrawalSetupInstructions({
+      payer: input.feePayer,
+      recipient: input.recipient,
+      asset,
+      ...(input.splTokenProgram === undefined ? {} : { splTokenProgram: input.splTokenProgram }),
+    });
     const created = await createWithdrawal({
       wallet: input.wallet,
       payer: input.feePayer,
@@ -118,9 +121,7 @@ export async function buildSplitTransaction(
 async function buildAuthorizedTransaction(
   input: PrivateTransactionParams,
   transaction: Parameters<typeof authorizePrivateTransaction>[0],
-  setupInstructions: Parameters<
-    TransactionAssembler["assembleAuthorizedPrivateTransaction"]
-  >[0]["setupInstructions"],
+  setupInstructions: readonly Instruction[],
   context: RequestContext | undefined,
 ): Promise<Transaction> {
   try {
@@ -128,20 +129,21 @@ async function buildAuthorizedTransaction(
       transaction,
       input.wallet,
       input.authority,
+      setupInstructions,
     );
     try {
       return await input.client.assembleAuthorizedPrivateTransaction(
         {
           authorized,
           feePayer: input.feePayer,
-          ...(setupInstructions === undefined || setupInstructions.length === 0
-            ? {}
-            : { setupInstructions }),
         },
         context,
       );
     } finally {
-      for (const proofInput of authorized.proofInputs.inputUtxos) proofInput.destroy();
+      const material = authorizedPrivateTransactionMaterial(authorized);
+      if (material !== undefined) {
+        for (const proofInput of material.proofInputs.inputUtxos) proofInput.destroy();
+      }
     }
   } catch (cause) {
     const reservationId = transaction._reservationId();

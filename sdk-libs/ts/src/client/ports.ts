@@ -15,6 +15,8 @@ import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { PreparedMerge } from "../transaction/instructions/builders.js";
 import type { InputUtxoContext, SppProofInputs } from "../transaction/instructions/transact.js";
 import type { TransactionIntent } from "../transaction/wallet/intent.js";
+import { intentHash } from "../transaction/wallet/intent.js";
+import { equal } from "../transaction/internal.js";
 
 import type { LatestBlockhash, SolanaRpc } from "./kit.js";
 import type { ProverHealth } from "./prover/client.js";
@@ -133,15 +135,70 @@ export interface TreeContext {
   readonly tree: Address;
 }
 
-export interface AuthorizedPrivateTransaction {
+/** @internal */
+export interface AuthorizedPrivateTransactionMaterial {
   readonly proofInputs: SppProofInputs;
   readonly withdrawal?: TransactWithdrawal;
   readonly tree: Address;
-  /** Rebound to the proof inputs before proving and to the proven data before compiling. */
   readonly intent: TransactionIntent;
-  /** Outputs `[0, senderOutputCount)` are the sender's change, the rest belong to the recipient. */
   readonly senderOutputCount: number;
   readonly owner: ShieldedAddress;
+  readonly setupInstructions: readonly Instruction[];
+}
+
+export abstract class AuthorizedPrivateTransaction {
+  readonly #authorization = true;
+
+  protected constructor() {
+    void this.#authorization;
+  }
+}
+
+class AuthorizedPrivateTransactionToken extends AuthorizedPrivateTransaction {
+  constructor() {
+    super();
+  }
+}
+
+interface AuthorizedPrivateTransactionState {
+  readonly material: AuthorizedPrivateTransactionMaterial;
+  readonly approvedIntentHash: Uint8Array;
+}
+
+const authorizedPrivateTransactions = new WeakMap<
+  AuthorizedPrivateTransaction,
+  AuthorizedPrivateTransactionState
+>();
+
+/** @internal */
+export function mintAuthorizedPrivateTransaction(
+  material: Omit<AuthorizedPrivateTransactionMaterial, "setupInstructions"> &
+    Readonly<{ setupInstructions?: readonly Instruction[] }>,
+  approvedIntentHash: Bytes32,
+): AuthorizedPrivateTransaction {
+  const token = new AuthorizedPrivateTransactionToken();
+  Object.freeze(token);
+  authorizedPrivateTransactions.set(token, {
+    material: Object.freeze({
+      ...material,
+      intent: Object.freeze({ ...material.intent }),
+      setupInstructions: Object.freeze([...(material.setupInstructions ?? [])]),
+    }),
+    approvedIntentHash: new Uint8Array(approvedIntentHash),
+  });
+  return token;
+}
+
+/** @internal */
+export function authorizedPrivateTransactionMaterial(
+  value: unknown,
+): AuthorizedPrivateTransactionMaterial | undefined {
+  if (!(value instanceof AuthorizedPrivateTransaction)) return undefined;
+  const state = authorizedPrivateTransactions.get(value);
+  if (state === undefined || !equal(intentHash(state.material.intent), state.approvedIntentHash)) {
+    return undefined;
+  }
+  return state.material;
 }
 
 export interface MergeMaterialInput {
@@ -159,7 +216,6 @@ export interface TransactionAssembler {
     input: Readonly<{
       authorized: AuthorizedPrivateTransaction;
       feePayer: Address;
-      setupInstructions?: readonly Instruction[];
     }>,
     context?: RequestContext,
   ): Promise<Transaction>;

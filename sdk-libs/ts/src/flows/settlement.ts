@@ -1,6 +1,12 @@
+import { createAssociatedTokenAccountInstruction } from "../interface/instructions/index.js";
 import { SPL_TOKEN_PROGRAM_ID } from "../interface/program.js";
 import { associatedTokenAddress, splInterfaceWithBump } from "../interface/pda/index.js";
-import { DepositAsset, TransactWithdrawal, type Address } from "../interface/types.js";
+import {
+  DepositAsset,
+  TransactWithdrawal,
+  type Address,
+  type Instruction,
+} from "../interface/types.js";
 import { WithdrawalTarget } from "../transaction/instructions/transact.js";
 import { SOL_MINT } from "../transaction/asset.js";
 
@@ -51,4 +57,23 @@ export async function resolveWithdrawalSettlement(
       tokenProgram,
     }),
   };
+}
+
+export async function withdrawalSetupInstructions(
+  input: Readonly<{
+    payer: Address;
+    recipient: Address;
+    asset: Address;
+    splTokenProgram?: Address | null;
+  }>,
+): Promise<readonly Instruction[]> {
+  if (input.asset === SOL_MINT) return [];
+  return [
+    await createAssociatedTokenAccountInstruction({
+      payer: input.payer,
+      owner: input.recipient,
+      mint: input.asset,
+      ...(input.splTokenProgram === undefined ? {} : { tokenProgram: input.splTokenProgram }),
+    }),
+  ];
 }

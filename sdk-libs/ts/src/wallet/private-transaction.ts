@@ -1,6 +1,9 @@
-import type { AuthorizedPrivateTransaction } from "../client/client.js";
+import {
+  mintAuthorizedPrivateTransaction,
+  type AuthorizedPrivateTransaction,
+} from "../client/ports.js";
 import { initializePoseidon } from "../hasher/index.js";
-import type { Address, Bytes32 } from "../interface/types.js";
+import type { Address, Bytes32, Instruction } from "../interface/types.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { Data } from "../transaction/data.js";
 import { ConfidentialSplit } from "../transaction/instructions/builders.js";
@@ -87,6 +90,7 @@ export async function authorizePrivateTransaction(
   transaction: UnsignedPrivateTransaction,
   wallet: Wallet,
   authority: WalletAuthority,
+  setupInstructions: readonly Instruction[] = [],
 ): Promise<AuthorizedPrivateTransaction> {
   await initializePoseidon();
   const unsignedInputs = transaction._inputs();
@@ -118,7 +122,15 @@ export async function authorizePrivateTransaction(
             ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
           }),
       );
-      return await authorizeWithInputs(transaction, wallet, authority, session, address, inputs);
+      return await authorizeWithInputs(
+        transaction,
+        wallet,
+        authority,
+        session,
+        address,
+        inputs,
+        setupInstructions,
+      );
     } catch (cause) {
       for (const proofInput of inputs) proofInput.destroy();
       throw cause;
@@ -133,11 +145,13 @@ async function authorizeWithInputs(
   session: SpendSession,
   address: ShieldedAddress,
   inputs: readonly ProofInputUtxo[],
+  setupInstructions: readonly Instruction[],
 ): Promise<AuthorizedPrivateTransaction> {
   const action = transaction._action();
   let proofInputs: SppProofInputs;
   let intent: TransactionIntent;
   let senderOutputCount: number;
+  let approvedIntentHash: Bytes32;
   if (action.kind === "split") {
     const input = inputs[0];
     if (input === undefined) throw new WalletError("WALLET_NO_INPUTS");
@@ -166,6 +180,7 @@ async function authorizeWithInputs(
       summary: transaction._summary(),
     });
     checkIntentApproval(approval, intent, intentMismatch);
+    approvedIntentHash = approval.intentHash;
     senderOutputCount = 0;
     proofInputs = prepared.finalize({
       txViewingPublicKey: encrypted.txViewingPublicKey,
@@ -205,6 +220,7 @@ async function authorizeWithInputs(
       summary: transaction._summary(),
     });
     checkIntentApproval(approval, intent, intentMismatch);
+    approvedIntentHash = approval.intentHash;
     checkPreparedTransfer(prepared, intent, intentMismatch);
     senderOutputCount = prepared.senderOutputCount;
     proofInputs = prepared.finalize({
@@ -214,16 +230,15 @@ async function authorizeWithInputs(
     });
   }
   const withdrawal = transaction._withdrawal();
-  // The key clones in the returned proof inputs stay armed for proving, the
-  // builder destroys them after assembly.
-  const authorized: AuthorizedPrivateTransaction = Object.freeze({
+  const material = Object.freeze({
     proofInputs,
     tree: transaction.tree(),
     intent,
     senderOutputCount,
     owner: address,
+    setupInstructions,
     ...(withdrawal === undefined ? {} : { withdrawal }),
   });
-  checkAuthorizedBinding(authorized, intentMismatch);
-  return authorized;
+  checkAuthorizedBinding(material, intentMismatch);
+  return mintAuthorizedPrivateTransaction(material, approvedIntentHash);
 }

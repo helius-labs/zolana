@@ -11,6 +11,7 @@ import { ShieldedAddress } from "../../keypair/shielded.js";
 
 import type { PreparedTransfer, WithdrawalTarget } from "../instructions/transact.js";
 import { SOL_MINT } from "../asset.js";
+import { TransactionError } from "../error.js";
 
 /** What the user approves, every field is bound into `intentHash`. */
 export type TransactionIntent =
@@ -34,6 +35,12 @@ export type TransactionIntent =
       asset: Address;
       amount: bigint;
       recipient: Address;
+    }>
+  | Readonly<{
+      kind: "ringEntry";
+      ringProgramId: Address;
+      asset: Address;
+      amount: bigint;
     }>;
 
 /**
@@ -53,6 +60,7 @@ const KIND_TAGS = {
   merge: 4,
   ringTransfer: 5,
   ringWithdrawal: 6,
+  ringEntry: 7,
 } as const;
 const BOUNDARY_TAGS = { entry: 0, transfer: 1, exit: 2 } as const;
 
@@ -60,6 +68,10 @@ const addressEncoder = getAddressEncoder();
 
 /** Domain-separated sha256 over the fields in declaration order, each at a fixed width. */
 export function intentHash(intent: TransactionIntent): Bytes32 {
+  checkTransactionIntent(
+    intent,
+    (field) => new TransactionError("TRANSACTION_DESERIALIZE", { field: `intent.${field}` }),
+  );
   const hash = sha256.create();
   hash.update(new TextEncoder().encode(INTENT_DOMAIN));
   hash.update(Uint8Array.of(KIND_TAGS[intent.kind]));
@@ -97,6 +109,11 @@ export function intentHash(intent: TransactionIntent): Bytes32 {
       hash.update(addressBytes(intent.asset));
       hash.update(u64(intent.amount));
       hash.update(addressBytes(intent.recipient));
+      break;
+    case "ringEntry":
+      hash.update(addressBytes(intent.ringProgramId));
+      hash.update(addressBytes(intent.asset));
+      hash.update(u64(intent.amount));
       break;
   }
   return hash.digest() as Bytes32;
@@ -149,6 +166,9 @@ export function checkPreparedTransfer(
       }
       return;
     }
+    case "ringEntry":
+      checkRingEntry(prepared, intent, mismatch);
+      return;
     case "ringWithdrawal":
       checkSettlement(prepared, intent, mismatch);
       if (preparedDefaultFunding(prepared) !== 0n) throw mismatch("inputs");
@@ -231,6 +251,43 @@ function checkSettlement(
   }
 }
 
+function checkRingEntry(
+  prepared: PreparedTransfer,
+  intent: Extract<TransactionIntent, { kind: "ringEntry" }>,
+  mismatch: (field: string) => Error,
+): void {
+  if (prepared.interfaceTransfers.length > 0) throw mismatch("settlements");
+  if (prepared.inputs.some((input) => input.utxo.ringProgramId !== undefined)) {
+    throw mismatch("inputs");
+  }
+  const owner = prepared.owner.toBytes();
+  for (const output of prepared.outputs.slice(0, prepared.senderOutputCount)) {
+    if (output.isDummy()) continue;
+    if (
+      output.ownerAddress === undefined ||
+      !equalBytes(output.ownerAddress.toBytes(), owner) ||
+      output.asset !== intent.asset ||
+      output.ringProgramId !== undefined
+    ) {
+      throw mismatch("change");
+    }
+  }
+  let entered = 0n;
+  for (const output of prepared.outputs.slice(prepared.senderOutputCount)) {
+    if (output.isDummy()) continue;
+    if (
+      output.ownerAddress === undefined ||
+      !equalBytes(output.ownerAddress.toBytes(), owner) ||
+      output.asset !== intent.asset ||
+      output.ringProgramId !== intent.ringProgramId
+    ) {
+      throw mismatch("outputs");
+    }
+    entered += output.amount;
+  }
+  if (entered !== intent.amount) throw mismatch("amount");
+}
+
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
 
 /** @internal Structural intents arrive from callers, no field is trusted before it is checked. */
@@ -242,22 +299,31 @@ export function checkTransactionIntent(
   checkMint(intent.asset, mismatch);
   switch (intent.kind) {
     case "transfer":
+      checkIntentFields(intent, ["kind", "asset", "amount", "recipient"], mismatch);
       checkAmount(intent.amount, mismatch);
       checkShieldedRecipient(intent.recipient, mismatch);
       return;
     case "withdrawal":
+      checkIntentFields(intent, ["kind", "asset", "amount", "recipient"], mismatch);
       checkAmount(intent.amount, mismatch);
       checkAccount(intent.recipient, "recipient", mismatch);
       return;
     case "split":
+      checkIntentFields(intent, ["kind", "asset", "numOutputs", "perOutputAmount"], mismatch);
       checkCount(intent.numOutputs, "numOutputs", mismatch);
       checkAmount(intent.perOutputAmount, mismatch);
       return;
     case "merge":
+      checkIntentFields(intent, ["kind", "asset", "numInputs", "mergedAmount"], mismatch);
       checkCount(intent.numInputs, "numInputs", mismatch);
       checkAmount(intent.mergedAmount, mismatch);
       return;
     case "ringTransfer":
+      checkIntentFields(
+        intent,
+        ["kind", "ringProgramId", "asset", "amount", "recipient", "boundary", "defaultFunding"],
+        mismatch,
+      );
       checkAccount(intent.ringProgramId, "ringProgramId", mismatch);
       checkAmount(intent.amount, mismatch);
       checkShieldedRecipient(intent.recipient, mismatch);
@@ -271,13 +337,33 @@ export function checkTransactionIntent(
       }
       return;
     case "ringWithdrawal":
+      checkIntentFields(
+        intent,
+        ["kind", "ringProgramId", "asset", "amount", "recipient"],
+        mismatch,
+      );
       checkAccount(intent.ringProgramId, "ringProgramId", mismatch);
       checkAmount(intent.amount, mismatch);
       checkAccount(intent.recipient, "recipient", mismatch);
       return;
+    case "ringEntry":
+      checkIntentFields(intent, ["kind", "ringProgramId", "asset", "amount"], mismatch);
+      checkAccount(intent.ringProgramId, "ringProgramId", mismatch);
+      checkAmount(intent.amount, mismatch);
+      return;
     default:
       throw mismatch("kind");
   }
+}
+
+function checkIntentFields(
+  intent: object,
+  fields: readonly string[],
+  mismatch: (field: string) => Error,
+): void {
+  const allowed = new Set(fields);
+  const extra = Reflect.ownKeys(intent).find((key) => typeof key !== "string" || !allowed.has(key));
+  if (extra !== undefined) throw mismatch("shape");
 }
 
 /** @internal The fields the client rebinds to the approved intent before anything is proved. */

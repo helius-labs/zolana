@@ -5,11 +5,13 @@ import {
   signTransactionWithSigners,
   type Address,
   type Blockhash,
-  type Transaction,
 } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
-import type { AuthorizedPrivateTransaction } from "../src/client/client.js";
+import {
+  authorizedPrivateTransactionMaterial,
+  type AuthorizedPrivateTransaction,
+} from "../src/client/ports.js";
 import type { DepositClient, PrivateTransactionClient } from "../src/wallet/index.js";
 import { SPL_TOKEN_2022_PROGRAM_ID, type Bytes32 } from "../src/interface/index.js";
 import { NullifierKey, ShieldedKeypair, SigningKey } from "../src/keypair/index.js";
@@ -33,8 +35,9 @@ import { associatedTokenAddress, splInterfaceWithBump } from "../src/interface/p
 import { buildRingTransferTransaction, selectRingInputs } from "../src/ring/transfer.js";
 import { buildDepositTransaction, createDeposit } from "../src/wallet/deposit.js";
 import { depositClient, privateTransactionClient, ringTransferClient } from "./helpers/clients.js";
-import { forged } from "./helpers/forged.js";
+import { emptyTransaction } from "./helpers/transactions.js";
 import { approveIntent } from "../src/transaction/wallet/intent.js";
+import { withdrawalSetupInstructions } from "../src/flows/settlement.js";
 import { createMerge, MergeMaterial } from "../src/wallet/merge.js";
 import { authorizePrivateTransaction } from "../src/wallet/private-transaction.js";
 import {
@@ -49,9 +52,7 @@ const RECIPIENT = address("8qbHbw2BbbTHBW1sbeqakYXV9q2RZ1R6MUi6nEZa6wJk");
 const SPL_MINT = address("So11111111111111111111111111111111111111112");
 const RING = address("9EwHno8C1T1vVGjasGnDH1GubiEu8qbgLX9qDjBshFhz");
 const BLOCKHASH = "11111111111111111111111111111111" as Blockhash;
-const TRANSACTION = forged<Transaction>(
-  Object.freeze({ messageBytes: new Uint8Array(), signatures: Object.freeze({}) }),
-);
+const TRANSACTION = emptyTransaction(PAYER);
 
 function filled(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
@@ -347,19 +348,17 @@ describe("unsigned public transaction builders", () => {
       splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID,
     });
 
-    const request = assemble.mock.calls[0]?.[0] as Readonly<{
-      authorized: AuthorizedPrivateTransaction;
-      setupInstructions?: readonly Readonly<{
-        accounts?: readonly Readonly<{ address: Address }>[];
-      }>[];
-    }>;
-    expect(request.setupInstructions).toHaveLength(1);
+    const request = assemble.mock.calls[0]?.[0];
+    if (request === undefined) throw new Error("assembly request was not captured");
+    const material = authorizedPrivateTransactionMaterial(request.authorized);
+    if (material === undefined) throw new Error("authorization was not minted");
+    expect(material.setupInstructions).toHaveLength(1);
     expect(
-      request.setupInstructions?.[0]?.accounts?.some(
+      material.setupInstructions[0]?.accounts?.some(
         (account) => account.address === SPL_TOKEN_2022_PROGRAM_ID,
       ),
     ).toBe(true);
-    expect(request.authorized.withdrawal).toMatchObject({
+    expect(material.withdrawal).toMatchObject({
       kind: "spl",
       tokenProgram: SPL_TOKEN_2022_PROGRAM_ID,
     });
@@ -428,12 +427,30 @@ describe("unsigned public transaction builders", () => {
 
     const authorized = (assemble.mock.calls[0]![0] as { authorized: AuthorizedPrivateTransaction })
       .authorized;
-    expect(authorized.proofInputs.outputs.filter((output) => output.amount > 0n)).toHaveLength(2);
+    const material = authorizedPrivateTransactionMaterial(authorized);
+    if (material === undefined) throw new Error("authorization was not minted");
+    expect(material.proofInputs.outputs.filter((output) => output.amount > 0n)).toHaveLength(2);
     expect(wallet.balance(SOL_MINT).amount).toBe(100n);
   });
 });
 
 describe("resolveWithdrawal", () => {
+  it("uses one idempotent ATA setup policy for every withdrawal rail", async () => {
+    await expect(
+      withdrawalSetupInstructions({ payer: PAYER, recipient: RECIPIENT, asset: SOL_MINT }),
+    ).resolves.toEqual([]);
+    const setup = await withdrawalSetupInstructions({
+      payer: PAYER,
+      recipient: RECIPIENT,
+      asset: SPL_MINT,
+      splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID,
+    });
+    expect(setup).toHaveLength(1);
+    expect(
+      setup[0]?.accounts?.some((account) => account.address === SPL_TOKEN_2022_PROGRAM_ID),
+    ).toBe(true);
+  });
+
   it("derives one SPL settlement, shared by the proof side and the accounts side", async () => {
     const resolved = await resolveWithdrawal(RECIPIENT, SPL_MINT, SPL_TOKEN_2022_PROGRAM_ID);
     if (resolved.target.kind !== "spl" || resolved.accounts.kind !== "spl") {
@@ -710,7 +727,9 @@ describe("spend key lifecycle", () => {
 
     const authorized = (assemble.mock.calls[0]![0] as { authorized: AuthorizedPrivateTransaction })
       .authorized;
-    for (const proofInput of authorized.proofInputs.inputUtxos) {
+    const material = authorizedPrivateTransactionMaterial(authorized);
+    if (material === undefined) throw new Error("authorization was not minted");
+    for (const proofInput of material.proofInputs.inputUtxos) {
       expect(() => proofInput.nullifierKey.publicKey()).toThrow("KEYPAIR_INVALID_SECRET_KEY");
     }
     expect(spendKeys).toHaveLength(1);

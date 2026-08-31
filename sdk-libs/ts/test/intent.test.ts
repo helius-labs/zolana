@@ -3,8 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AuthorizedPrivateTransaction } from "../src/client/client.js";
 import { privateTransactionClient } from "./helpers/clients.js";
-import { forged } from "./helpers/forged.js";
-import type { Bytes32, TransactInstructionData } from "../src/interface/index.js";
+import type { Bytes32 } from "../src/interface/index.js";
 import { ShieldedKeypair, SigningKey } from "../src/keypair/index.js";
 import {
   Data,
@@ -23,7 +22,6 @@ import {
   checkTransactData,
   type TransactionIntent,
 } from "../src/transaction/wallet/intent.js";
-import type { PreparedTransfer } from "../src/transaction/instructions/transact.js";
 import { AssetRegistry } from "../src/transaction/asset.js";
 import { buildTransferTransaction } from "../src/wallet/transactions.js";
 
@@ -96,7 +94,7 @@ describe("intent hash", () => {
       "mismatch intentHash",
     );
     expect(() =>
-      checkIntentApproval(forged<IntentApproval>(undefined), intent, mismatch),
+      Reflect.apply(checkIntentApproval, undefined, [undefined, intent, mismatch]),
     ).toThrowError("mismatch intentHash");
   });
 });
@@ -109,14 +107,14 @@ describe("prepared and data checks", () => {
       interfaceTransfers: readonly unknown[];
       inputs: readonly unknown[];
     }>,
-  ): PreparedTransfer {
-    return forged<PreparedTransfer>({
+  ) {
+    return {
       outputs: [],
       senderOutputCount: 0,
       interfaceTransfers: [],
       inputs: [],
       ...overrides,
-    });
+    };
   }
 
   function recipientOutput(
@@ -142,13 +140,17 @@ describe("prepared and data checks", () => {
       recipient: recipient.shieldedAddress(),
     };
     const good = preparedWith({ outputs: [recipientOutput(recipient, 25n)] });
-    expect(() => checkPreparedTransfer(good, intent, mismatch)).not.toThrow();
+    expect(() =>
+      Reflect.apply(checkPreparedTransfer, undefined, [good, intent, mismatch]),
+    ).not.toThrow();
     const inflated = preparedWith({ outputs: [recipientOutput(recipient, 26n)] });
-    expect(() => checkPreparedTransfer(inflated, intent, mismatch)).toThrowError("mismatch amount");
+    expect(() =>
+      Reflect.apply(checkPreparedTransfer, undefined, [inflated, intent, mismatch]),
+    ).toThrowError("mismatch amount");
     const stranger = preparedWith({ outputs: [recipientOutput(fixedKeypair(7), 25n)] });
-    expect(() => checkPreparedTransfer(stranger, intent, mismatch)).toThrowError(
-      "mismatch recipient",
-    );
+    expect(() =>
+      Reflect.apply(checkPreparedTransfer, undefined, [stranger, intent, mismatch]),
+    ).toThrowError("mismatch recipient");
   });
 
   it("refuses ring outputs that cross the approved boundary", () => {
@@ -163,11 +165,13 @@ describe("prepared and data checks", () => {
       defaultFunding: 0n,
     };
     const ringBound = preparedWith({ outputs: [recipientOutput(recipient, 25n, RING)] });
-    expect(() => checkPreparedTransfer(ringBound, intent, mismatch)).toThrowError(
-      "mismatch ringProgramId",
-    );
+    expect(() =>
+      Reflect.apply(checkPreparedTransfer, undefined, [ringBound, intent, mismatch]),
+    ).toThrowError("mismatch ringProgramId");
     const exit = preparedWith({ outputs: [recipientOutput(recipient, 25n)] });
-    expect(() => checkPreparedTransfer(exit, intent, mismatch)).not.toThrow();
+    expect(() =>
+      Reflect.apply(checkPreparedTransfer, undefined, [exit, intent, mismatch]),
+    ).not.toThrow();
   });
 
   it("binds an spl settlement to the approved token account", () => {
@@ -183,34 +187,42 @@ describe("prepared and data checks", () => {
           { kind: "spl", mint: USDC, isDeposit: false, amount: 25n, tokenAccount },
         ],
       });
-    expect(() => checkPreparedTransfer(settlement(TREE), intent, mismatch)).not.toThrow();
-    expect(() => checkPreparedTransfer(settlement(RING), intent, mismatch)).toThrowError(
-      "mismatch recipient",
-    );
+    expect(() =>
+      Reflect.apply(checkPreparedTransfer, undefined, [settlement(TREE), intent, mismatch]),
+    ).not.toThrow();
+    expect(() =>
+      Reflect.apply(checkPreparedTransfer, undefined, [settlement(RING), intent, mismatch]),
+    ).toThrowError("mismatch recipient");
   });
 
   it("refuses settlements a transfer intent never approved", () => {
-    const data = forged<TransactInstructionData>({
+    const data = {
       interfaceTransfers: [{ kind: "solWithdrawal", amount: 25n }],
-    });
+    };
     const intent: TransactionIntent = {
       kind: "transfer",
       asset: SOL_MINT,
       amount: 25n,
       recipient: fixedKeypair(42).shieldedAddress(),
     };
-    expect(() => checkTransactData(data, intent, mismatch)).toThrowError("mismatch settlements");
+    expect(() =>
+      Reflect.apply(checkTransactData, undefined, [data, intent, mismatch]),
+    ).toThrowError("mismatch settlements");
     const withdrawal: TransactionIntent = {
       kind: "withdrawal",
       asset: SOL_MINT,
       amount: 25n,
       recipient: TREE,
     };
-    expect(() => checkTransactData(data, withdrawal, mismatch)).not.toThrow();
-    const drifted = forged<TransactInstructionData>({
+    expect(() =>
+      Reflect.apply(checkTransactData, undefined, [data, withdrawal, mismatch]),
+    ).not.toThrow();
+    const drifted = {
       interfaceTransfers: [{ kind: "solWithdrawal", amount: 26n }],
-    });
-    expect(() => checkTransactData(drifted, withdrawal, mismatch)).toThrowError("mismatch amount");
+    };
+    expect(() =>
+      Reflect.apply(checkTransactData, undefined, [drifted, withdrawal, mismatch]),
+    ).toThrowError("mismatch amount");
   });
 });
 
@@ -246,8 +258,10 @@ describe("approval binding", () => {
     const stale = new Proxy(authority, {
       get(target, property) {
         if (property === "requestUserApproval") {
-          return async (request: ApprovalRequest): Promise<IntentApproval> =>
-            approveIntent({ ...request.intent, amount: 1n } as TransactionIntent);
+          return async (request: ApprovalRequest): Promise<IntentApproval> => {
+            if (request.intent.kind !== "transfer") throw new Error("expected transfer");
+            return approveIntent({ ...request.intent, amount: 1n });
+          };
         }
         const value = Reflect.get(target, property);
         return typeof value === "function" ? value.bind(target) : value;

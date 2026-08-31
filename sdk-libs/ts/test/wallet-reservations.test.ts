@@ -1,4 +1,4 @@
-import { address, type Address, type Transaction } from "@solana/kit";
+import { address, type Address } from "@solana/kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AuthorizedPrivateTransaction } from "../src/client/client.js";
@@ -19,13 +19,11 @@ import { createSplit, createTransfer } from "../src/wallet/actions.js";
 import { createMerge, MergeMaterial } from "../src/wallet/merge.js";
 import { buildTransferTransaction } from "../src/wallet/transactions.js";
 import { privateTransactionClient } from "./helpers/clients.js";
-import { forged } from "./helpers/forged.js";
+import { emptyTransaction } from "./helpers/transactions.js";
 
 const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
 const PAYER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
-const TRANSACTION = forged<Transaction>(
-  Object.freeze({ messageBytes: new Uint8Array(), signatures: Object.freeze({}) }),
-);
+const TRANSACTION = emptyTransaction(PAYER);
 
 function filled(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
