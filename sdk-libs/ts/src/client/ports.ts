@@ -2,15 +2,18 @@ import type { Address, Commitment, Signature } from "@solana/kit";
 
 import type {
   Instruction,
+  MergeTransactInstructionData,
   RequestContext,
   Transaction,
   TransactInstructionData,
+  TransactWithdrawal,
   Bytes32,
 } from "../interface/types.js";
+import type { NullifierKey } from "../keypair/nullifier-key.js";
+import type { ShieldedPublicKey } from "../keypair/public-key.js";
 import type { PreparedMerge } from "../transaction/instructions/builders.js";
 import type { InputUtxoContext, SppProofInputs } from "../transaction/instructions/transact.js";
-
-import type { AuthorizedPrivateTransaction, MergeMaterialInput, ProvedMerge } from "./client.js";
+import type { TransactionIntent } from "../transaction/wallet/intent.js";
 
 import type { LatestBlockhash, SolanaRpc } from "./kit.js";
 import type { ProverHealth } from "./prover/client.js";
@@ -127,6 +130,24 @@ export interface KitRpcAccess {
 /** The pool tree the client builds against. */
 export interface TreeContext {
   readonly tree: Address;
+}
+
+export interface AuthorizedPrivateTransaction {
+  readonly proofInputs: SppProofInputs;
+  readonly withdrawal?: TransactWithdrawal;
+  readonly tree: Address;
+  /** Revalidated against the proven data before the transaction compiles. */
+  readonly intent: TransactionIntent;
+}
+
+export interface MergeMaterialInput {
+  readonly signingPublicKey: ShieldedPublicKey;
+  readonly nullifierKey: NullifierKey;
+}
+
+export interface ProvedMerge {
+  readonly data: MergeTransactInstructionData;
+  readonly outputHash: Bytes32;
 }
 
 export interface TransactionAssembler {

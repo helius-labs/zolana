@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": false,
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "es2023",
+    "exactOptionalPropertyTypes": true,
+    "types": []
+  },
+  "include": ["dist/**/*.d.ts"]
+}

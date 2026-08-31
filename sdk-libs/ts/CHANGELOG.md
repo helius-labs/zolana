@@ -94,6 +94,10 @@ Added
   `PrivateTransactionClient`, `RingTransferClient`, and `RingAuditReader`
   name what each build accepts, and any object with those members serves
   in place of `ZolanaClient`.
+- `AuthorizedPrivateTransaction`, `assembleAuthorizedPrivateTransaction`,
+  and `assembleAuthorizedMergeTransaction` are part of the published
+  types, and the emitted declarations compile under
+  `skipLibCheck: false`.
 - Every `RingRpc` method accepts a `RequestContext`, its signal and
   timeout reach the transport, and integers above the safe range decode
   exactly.

@@ -23,11 +23,9 @@ import type {
   TransactInstructionData,
   TransactWithdrawal,
 } from "../interface/types.js";
-import type { NullifierKey } from "../keypair/nullifier-key.js";
-import type { ShieldedPublicKey } from "../keypair/public-key.js";
 import { PreparedMerge } from "../transaction/instructions/builders.js";
 import { SppProofInputs, type InputUtxoContext } from "../transaction/instructions/transact.js";
-import { checkTransactData, type TransactionIntent } from "../transaction/wallet/intent.js";
+import { checkTransactData } from "../transaction/wallet/intent.js";
 
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import { checkedU32 } from "../flows/internal.js";
@@ -35,12 +33,15 @@ import { ClientError, fromClientCause } from "./error.js";
 import { checkedServiceUrl } from "./internal.js";
 import { ZolanaIndexer } from "./indexer.js";
 import type {
+  AuthorizedPrivateTransaction,
   BlockhashProvider,
   ChainReader,
   IndexerReader,
   KitRpcAccess,
   MergeAssembler,
+  MergeMaterialInput,
   ProofReader,
+  ProvedMerge,
   Prover,
   TransactionAssembler,
   TransactionConfirmer,
@@ -111,24 +112,7 @@ export interface ZolanaClientConfig {
   readonly allowInsecureHttp?: boolean;
 }
 
-/** @internal */
-export interface AuthorizedPrivateTransaction {
-  readonly proofInputs: SppProofInputs;
-  readonly withdrawal?: TransactWithdrawal;
-  readonly tree: Address;
-  /** Revalidated against the proven data before the transaction compiles. */
-  readonly intent: TransactionIntent;
-}
-
-export interface MergeMaterialInput {
-  readonly signingPublicKey: ShieldedPublicKey;
-  readonly nullifierKey: NullifierKey;
-}
-
-export interface ProvedMerge {
-  readonly data: MergeTransactInstructionData;
-  readonly outputHash: Bytes32;
-}
+export type { AuthorizedPrivateTransaction, MergeMaterialInput, ProvedMerge } from "./ports.js";
 
 export class ZolanaClient
   implements
@@ -691,7 +675,6 @@ export class ZolanaClient
     });
   }
 
-  /** @internal */
   async assembleAuthorizedMergeTransaction(
     input: Readonly<{
       proved: ProvedMerge;
@@ -726,7 +709,6 @@ export class ZolanaClient
     });
   }
 
-  /** @internal */
   async assembleAuthorizedPrivateTransaction(
     input: Readonly<{
       authorized: AuthorizedPrivateTransaction;
