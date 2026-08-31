@@ -1,6 +1,6 @@
-# Architecture and Security Contract — `@heliuslabs/zolana` for TS SDK
+# Architecture and Security Contract for the `@heliuslabs/zolana` TS SDK
 
-This contract is binding for every change under `sdk-libs/ts`; its normative
+This contract is binding for every change under `sdk-libs/ts`. Its normative
 terms are literal requirements. Preserve system invariants, not merely passing
 tests. Weakening a gate, decoder, type, error, or allowlist to admit a change is
 a defect.
@@ -17,21 +17,21 @@ a defect.
 - Every invariant MUST have one implementation owner and adversarial tests at
   the boundary where it can fail. Copying policy is forbidden.
 - Probabilistic filters, caches, and heuristics may optimize the average path
-  only. They MUST NOT decide correctness or authorization; every adversarial
+  only. They MUST NOT decide correctness or authorization. Every adversarial
   hit/miss has a deterministic, bounded escape hatch, even if it costs more.
 
 ## Architecture and dependency direction
 
-- Dependency direction is protocol primitives -> transaction/domain logic ->
-  shared flows -> wallet/ring orchestration -> client adapters -> public
+- Dependencies flow from protocol primitives to transaction and domain logic,
+  then shared flows, wallet and ring orchestration, client adapters, and public
   barrels. Lower layers MUST NOT import concrete clients or orchestration.
 - `test/boundaries.test.ts` is the executable layer map. Change it only with a
-  documented architectural reason; never add an exception for convenience.
+  documented architectural reason. Never add an exception for convenience.
 - Capability contracts and their DTOs live in `src/client/ports.ts`. A port
   MUST NOT import `client.ts`. Public builders accept the smallest named port
   composition they use, never `ZolanaClient`, broad facades, or structural
   bags with unrelated capabilities.
-- Concrete clients implement ports; domain code depends on ports. Transport,
+- Concrete clients implement ports. Domain code depends on ports. Transport,
   selection, settlement, compilation, retry, persistence, and error policy
   each have one shared implementation. No rail-specific fork may duplicate
   them.
@@ -53,7 +53,7 @@ a defect.
   a partial type. Prefer discriminated unions, exhaustive switches,
   `satisfies`, and typed fixture builders with explicit defaults.
 - Public structural signed/request objects MUST be revalidated at the method
-  boundary; callers can construct interfaces without using SDK builders.
+  boundary. Callers can construct interfaces without using SDK builders.
 
 ## Public and release surface
 
@@ -63,13 +63,13 @@ a defect.
 - Public DTOs belong beside their public port. No public declaration may
   reference an unexported, concrete, or `@internal` type.
 - Every public change updates `CHANGELOG.md` under `CHANGELOG-RULES.md` in the
-  same branch. The packed artifact is truth; prose, source barrels, and commit
+  same branch. The packed artifact is truth. Prose, source barrels, and commit
   titles are not.
 - REQUIRED gates for public changes: `npm run check`, `npm pack --dry-run`, and
   a consumer fixture importing the packed subpath with `skipLibCheck: false`.
   `check:dist` alone does not prove named exports exist.
 - Only the current package version may be `unreleased`. Historical unpublished
-  versions use their bump date; published versions use the registry date.
+  versions use their bump date. Published versions use the registry date.
 - Release order is fixed: set `package.json` version, date the matching
   changelog entry, run `npm run check`, publish, then push
   `ts-sdk-v<version>`. Never tag or document an artifact not verified above.
@@ -81,7 +81,7 @@ a defect.
   `src/interface/decode.ts` with the owning layer's error factory.
 - Addresses, signatures, hashes, cursors, keys, base58/base64, integers, and
   enums MUST be validated canonically. Numeric conversion MUST prove safe
-  range before `Number(...)`; responses MUST be correlated with the request.
+  range before `Number(...)`. Responses MUST be correlated with the request.
 - Do not catch decode failures and continue unless the protocol explicitly
   defines that item as ignorable and progress remains replayable. Filtered RPC
   scans MUST distinguish “unsupported/failed” from “successfully empty”.
@@ -105,14 +105,14 @@ a defect.
   incomplete follow-up reads, or unresolved dependencies MUST prevent cursor
   commit. Returning diagnostics while committing past the data is forbidden.
 - Cursors remain separate per stream and per stable tag/nullifier. A newly
-  learned key starts at its own beginning; another key's watermark MUST NOT be
+  learned key starts at its own beginning. Another key's watermark MUST NOT be
   reused. Terminal empty pages advance only from an authoritative
   `scannedThrough` value.
 - Snapshot encoding has one owner:
   `src/transaction/wallet/persistence.ts`. Deserialization validates everything
-  and supports every shipped version; migrations are explicit and tested.
+  and supports every shipped version. Migrations are explicit and tested.
 - `syncPersistedWallet` is the only sync+save composition. Sync, serialization,
-  and save run in the same wallet queue; save occurs only after commit. Store
+  and save run in the same wallet queue. Save occurs only after commit. Store
   replacement MUST be atomic. Cross-process safety is not implied: one stored
   snapshot has one writer unless an explicit CAS/lease protocol is added.
 
@@ -134,7 +134,7 @@ a defect.
   objects destroyed in `finally` on success, rejection, and thrown callbacks.
 - Ownership transfer of a secret MUST be explicit: clear the local owner before
   cleanup so failure paths wipe exactly once. Avoid immutable secret
-  projections; `bigint` cannot be wiped. A required prover scalar is the narrow
+  projections. `bigint` cannot be wiped. A required prover scalar is the narrow
   exception and MUST NOT escape its proof lifetime.
 - Never log, stringify, serialize, clone unnecessarily, place in error details,
   or branch with ordinary equality on secrets. Use constant-time comparison
@@ -161,7 +161,7 @@ a defect.
 
 - A bug fix MUST include a regression that fails before the fix and asserts
   both the result and forbidden side effects. Atomicity tests inspect all state
-  that must remain unchanged; security tests exercise every throw path.
+  that must remain unchanged. Security tests exercise every throw path.
 - Wire/protocol behavior shared with Rust MUST use common constants or pinned
   cross-language vectors. A TS convenience MUST NOT redefine protocol truth.
 - Run `npm run check` before handoff. Run relevant live E2E for changed network
