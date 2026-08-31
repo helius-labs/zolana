@@ -1,6 +1,7 @@
 export { initializePoseidon, isPoseidonInitialized } from "../hasher/index.js";
 export { Data } from "./data.js";
 export type { DataRecord } from "./data.js";
+export { formatAmount, parseAmount } from "./amount.js";
 export {
   TRANSACTION_ERROR_CODES,
   TransactionError,

@@ -54,7 +54,9 @@ export {
 export {
   Data,
   ClientEd25519WalletAuthority,
+  formatAmount,
   KeypairWalletAuthority,
+  parseAmount,
   SOL_MINT,
   TransactionError,
   Utxo,
@@ -71,6 +73,7 @@ export {
   type WalletUtxo,
 } from "./transaction/index.js";
 export {
+  AssetMetadataCache,
   buildDepositTransaction,
   buildMergeTransaction,
   buildRegistrationTransaction,
@@ -79,6 +82,7 @@ export {
   buildTransferTransaction,
   buildWithdrawalTransaction,
   fetchTransactionSlots,
+  fetchAssetMetadata,
   fetchViewingKeyOwners,
   getPrivateTokenBalances,
   getPrivateTransactions,
@@ -89,6 +93,7 @@ export {
   walletSnapshotCipher,
   WalletError,
   type DepositTransactionParams,
+  type AssetMetadata,
   type MergeTransactionParams,
   type PrivateTransactionParams,
   type SplitTransactionParams,

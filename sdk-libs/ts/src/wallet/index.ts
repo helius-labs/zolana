@@ -1,4 +1,5 @@
 export { initializePoseidon, isPoseidonInitialized } from "../hasher/index.js";
+export { AssetMetadataCache, fetchAssetMetadata, type AssetMetadata } from "./asset-metadata.js";
 export { WALLET_ERROR_CODES, WalletError, type WalletErrorCode } from "./error.js";
 export {
   ClientEd25519WalletAuthority,
