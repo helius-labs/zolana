@@ -84,6 +84,7 @@ const RING = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
 const PAYER = address("k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn");
 const TREE = address("2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr");
 const OUTPUT_TREE = address("2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z");
+const ENTRIES_TREE = addressOf(60);
 const RING_AUTH = address("AtyqWdns8uYfWdpLhWJRN9DxRdpwB6Zaa33k66TAkwFx");
 const RING_CONFIG = address("CXJhGzAcN4NYaapjRqiTzmnRBTmtUL52Zg4ooG2PtMfP");
 const SPP = address("sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG");
@@ -434,6 +435,7 @@ describe("ring transact", () => {
       payer: PAYER,
       inputTree: TREE,
       outputTree: OUTPUT_TREE,
+      entriesTree: ENTRIES_TREE,
       proof: customRingProof(),
       stateRootIndex: 0,
       nullifierRootIndex: 0,
@@ -456,6 +458,7 @@ describe("ring transact", () => {
       payer: PAYER,
       inputTree: TREE,
       outputTree: OUTPUT_TREE,
+      entriesTree: ENTRIES_TREE,
       proof: customRingProof(),
       stateRootIndex: 0,
       nullifierRootIndex: 0,
@@ -466,6 +469,7 @@ describe("ring transact", () => {
       [PAYER, AccountRole.WRITABLE_SIGNER],
       [RING_CONFIG, AccountRole.READONLY],
       [policyConfig, AccountRole.READONLY],
+      [ENTRIES_TREE, AccountRole.READONLY],
       [PAYER, AccountRole.WRITABLE_SIGNER],
       [TREE, AccountRole.WRITABLE],
       [OUTPUT_TREE, AccountRole.WRITABLE],
@@ -478,12 +482,30 @@ describe("ring transact", () => {
     );
   });
 
+  it("places the entries tree read-only at index 3 before the spp payer", async () => {
+    const instruction = await ringTransactInstruction({
+      ringProgramId: RING,
+      payer: PAYER,
+      inputTree: TREE,
+      outputTree: OUTPUT_TREE,
+      entriesTree: ENTRIES_TREE,
+      proof: customRingProof(),
+      stateRootIndex: 0,
+      nullifierRootIndex: 0,
+      data: transactData(),
+    });
+    const accounts = instruction.accounts ?? [];
+    expect(accounts[3]).toMatchObject({ address: ENTRIES_TREE, role: AccountRole.READONLY });
+    expect(accounts[4]).toMatchObject({ address: PAYER, role: AccountRole.WRITABLE_SIGNER });
+  });
+
   it("encodes the root indices little endian between proof and payload", async () => {
     const instruction = await ringTransactInstruction({
       ringProgramId: RING,
       payer: PAYER,
       inputTree: TREE,
       outputTree: OUTPUT_TREE,
+      entriesTree: ENTRIES_TREE,
       proof: customRingProof(),
       stateRootIndex: 0x0102,
       nullifierRootIndex: 0x0304,
