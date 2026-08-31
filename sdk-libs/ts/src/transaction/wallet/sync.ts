@@ -541,16 +541,10 @@ class SyncPass {
       return;
     }
     const txKey = key.transactionViewingKey(firstNullifier);
-    if (!equal(txKey.publicKey().toBytes(), tx.txViewingPublicKey.toBytes())) {
-      txKey.destroy();
-      return;
-    }
-    if (this.#processedOutbound.has(index)) {
-      txKey.destroy();
-      return;
-    }
-    this.#processedOutbound.add(index);
     try {
+      if (!equal(txKey.publicKey().toBytes(), tx.txViewingPublicKey.toBytes())) return;
+      if (this.#processedOutbound.has(index)) return;
+      this.#processedOutbound.add(index);
       this.#decodeOutboundSlots(tx, txKey, salt);
     } finally {
       txKey.destroy();
@@ -1007,18 +1001,18 @@ export async function decryptToBalances(
   const identity = input.keypair.shieldedAddress();
   const wallet = new Wallet({ identity, registry: input.registry });
   const viewingKey = input.keypair.viewingKey();
-  const nullifierKey = input.keypair.nullifierKey();
+  let nullifierKey: NullifierKey | undefined;
   try {
+    nullifierKey = input.keypair.nullifierKey();
+    const material = { identity, viewingKeys: [viewingKey], nullifierKey };
     await decryptTransactions({
       wallet,
-      authority: {
-        syncMaterial: () => Promise.resolve({ identity, viewingKeys: [viewingKey], nullifierKey }),
-      },
+      authority: { syncMaterial: () => Promise.resolve(material) },
       transactions: input.transactions,
     });
   } finally {
     viewingKey.destroy();
-    nullifierKey.destroy();
+    nullifierKey?.destroy();
   }
   return Object.freeze({
     balance: (mint: Address, filter?: Filter) => wallet.balance(mint, filter),

@@ -993,17 +993,21 @@ export function encodeConfidentialSlots(
  */
 function dummyCiphertextLength(salt: Bytes16): number {
   const throwaway = ViewingKey.generate();
-  return encodeOutputData(
-    EncryptedScheme.confidential,
-    encryptConfidential(
-      throwaway,
-      throwaway.publicKey(),
-      { assetId: SOL_ASSET_ID, amount: 0n, blinding: randomBlinding(), data: new Data() },
-      salt,
-      0,
-    ),
-    "encrypted",
-  ).length;
+  try {
+    return encodeOutputData(
+      EncryptedScheme.confidential,
+      encryptConfidential(
+        throwaway,
+        throwaway.publicKey(),
+        { assetId: SOL_ASSET_ID, amount: 0n, blinding: randomBlinding(), data: new Data() },
+        salt,
+        0,
+      ),
+      "encrypted",
+    ).length;
+  } finally {
+    throwaway.destroy();
+  }
 }
 
 export interface OutputContext {

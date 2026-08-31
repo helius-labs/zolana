@@ -59,36 +59,41 @@ export async function buildRingDepositTransaction(
     );
     const blinding = randomBlinding();
     const envelope = ViewingKey.generate();
-    const salt = randomSalt();
-    const ciphertext = envelope.encryptRingDeposit(
-      recipient.viewingPublicKey,
-      encodeRingDepositPlaintext({
-        blinding,
-        ...(input.memo === undefined ? {} : { memo: input.memo }),
-        ringData: new Uint8Array(),
-      }),
-      salt,
-    );
-    const instruction = await ringDepositInstruction({
-      ringProgramId: input.ringProgramId,
-      tree,
-      depositor,
-      deposits: [
-        {
-          asset: settlement,
-          viewTag: recipient.viewingPublicKey.x(),
-          ownerUtxoHash: ownerUtxoHash(recipient.ownerHash(), blinding),
-          amount: input.amount,
-          ringDataHash: ZERO_32,
-          encrypted: {
-            txViewingPublicKey: envelope.publicKey().toBytes(),
-            salt,
-            ciphertext,
+    let instruction;
+    try {
+      const salt = randomSalt();
+      const ciphertext = envelope.encryptRingDeposit(
+        recipient.viewingPublicKey,
+        encodeRingDepositPlaintext({
+          blinding,
+          ...(input.memo === undefined ? {} : { memo: input.memo }),
+          ringData: new Uint8Array(),
+        }),
+        salt,
+      );
+      instruction = await ringDepositInstruction({
+        ringProgramId: input.ringProgramId,
+        tree,
+        depositor,
+        deposits: [
+          {
+            asset: settlement,
+            viewTag: recipient.viewingPublicKey.x(),
+            ownerUtxoHash: ownerUtxoHash(recipient.ownerHash(), blinding),
+            amount: input.amount,
+            ringDataHash: ZERO_32,
+            encrypted: {
+              txViewingPublicKey: envelope.publicKey().toBytes(),
+              salt,
+              ciphertext,
+            },
           },
-        },
-      ],
-    });
-    envelope.destroy();
+        ],
+      });
+    } finally {
+      envelope.destroy();
+      blinding.fill(0);
+    }
     const lifetime = await input.client.getLatestBlockhash(context);
     return compileUnsignedTransaction({
       feePayer: input.feePayer,

@@ -33,6 +33,14 @@ function spendingKeypair(): ShieldedKeypair {
   return ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(filled(42)));
 }
 
+function mergeMaterial(keypair: ShieldedKeypair): MergeMaterial {
+  return new MergeMaterial({
+    signingPublicKey: keypair.signingPublicKey(),
+    viewingPublicKey: keypair.viewingPublicKey(),
+    nullifierKey: keypair.nullifierKey(),
+  });
+}
+
 function fundedWallet(
   keypair: ShieldedKeypair,
   amounts: readonly bigint[],
@@ -207,7 +215,7 @@ describe("note reservations", () => {
     expect(() =>
       createMerge({
         wallet,
-        material: MergeMaterial.fromKeypair(keypair),
+        material: mergeMaterial(keypair),
         asset: SOL_MINT,
         inputs: [filled(1), filled(2)],
       }),
@@ -225,13 +233,13 @@ describe("note reservations", () => {
     expect(() =>
       createMerge({
         wallet,
-        material: MergeMaterial.fromKeypair(keypair),
+        material: mergeMaterial(keypair),
         asset: SOL_MINT,
         inputs: [filled(1), filled(2)],
       }),
     ).toThrowError(expect.objectContaining({ code: "WALLET_NOTE_RESERVED" }));
     expect(() =>
-      createMerge({ wallet, material: MergeMaterial.fromKeypair(keypair), asset: SOL_MINT }),
+      createMerge({ wallet, material: mergeMaterial(keypair), asset: SOL_MINT }),
     ).toThrowError(expect.objectContaining({ code: "WALLET_NOTHING_TO_MERGE" }));
   });
 });

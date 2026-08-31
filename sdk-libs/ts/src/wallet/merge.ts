@@ -4,7 +4,7 @@ import type { ZolanaClient } from "../client/client.js";
 import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
 import type { NullifierKey } from "../keypair/nullifier-key.js";
 import type { P256PublicKey, ShieldedPublicKey } from "../keypair/public-key.js";
-import { ShieldedAddress, type ShieldedKeypair } from "../keypair/shielded.js";
+import { ShieldedAddress } from "../keypair/shielded.js";
 import { Merge, type PreparedMerge } from "../transaction/instructions/builders.js";
 import { ProofInputUtxo } from "../transaction/utxo.js";
 import type { WalletAuthority, WalletSyncMaterial } from "../transaction/wallet/authority.js";
@@ -156,14 +156,6 @@ export class MergeMaterial {
     this.signingPublicKey = input.signingPublicKey;
     this.viewingPublicKey = input.viewingPublicKey;
     this.nullifierKey = input.nullifierKey;
-  }
-
-  static fromKeypair(keypair: ShieldedKeypair): MergeMaterial {
-    return new MergeMaterial({
-      signingPublicKey: keypair.signingPublicKey(),
-      viewingPublicKey: keypair.viewingPublicKey(),
-      nullifierKey: keypair.nullifierKey(),
-    });
   }
 
   static fromSyncMaterial(material: WalletSyncMaterial): MergeMaterial {

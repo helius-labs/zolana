@@ -59,6 +59,14 @@ function spendingKeypair(): ShieldedKeypair {
   return ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(filled(42)));
 }
 
+function mergeMaterial(keypair: ShieldedKeypair): MergeMaterial {
+  return new MergeMaterial({
+    signingPublicKey: keypair.signingPublicKey(),
+    viewingPublicKey: keypair.viewingPublicKey(),
+    nullifierKey: keypair.nullifierKey(),
+  });
+}
+
 function fundedWallet(
   keypair: ShieldedKeypair,
   amounts: readonly bigint[],
@@ -274,7 +282,7 @@ describe("private transaction construction", () => {
     });
     const merge = createMerge({
       wallet,
-      material: MergeMaterial.fromKeypair(keypair),
+      material: mergeMaterial(keypair),
       asset: SOL_MINT,
     });
     expect(split).toMatchObject({ numOutputs: 2, perOutputAmount: 50n });

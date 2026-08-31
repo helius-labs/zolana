@@ -341,8 +341,8 @@ export async function validateRegisteredKeypair(
       : record.ownerP256 !== undefined && equalBytes(record.ownerP256, expectedOwnerP256);
   if (
     !ownerP256Matches ||
-    !equalBytes(record.nullifierPublicKey, input.keypair.nullifierKey().publicKey()) ||
-    !equalBytes(record.viewingPublicKey, input.keypair.viewingKey().publicKey().toBytes())
+    !equalBytes(record.nullifierPublicKey, input.keypair.nullifierPublicKey()) ||
+    !equalBytes(record.viewingPublicKey, input.keypair.viewingPublicKey().toBytes())
   ) {
     throw new WalletError("WALLET_REGISTERED_KEYPAIR_MISMATCH", {
       details: { owner: input.owner },

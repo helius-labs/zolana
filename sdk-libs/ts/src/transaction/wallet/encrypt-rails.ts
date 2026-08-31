@@ -98,19 +98,28 @@ export function encryptCustomRingTransferWith(
   }>,
 ): EncryptedCustomRingTransfer {
   const tx = viewingKey.transactionViewingKey(input.firstNullifier);
+  let txViewingSecret: Bytes32 | undefined;
+  let ephemeralSecret: Bytes32 | undefined;
   try {
     const salt = randomSalt();
-    const txViewingSecret = tx.secretBytes();
+    txViewingSecret = tx.secretBytes();
     const encryption = encryptTransactionViewingSecret(txViewingSecret, input.auditorPublicKey);
-    return {
+    ephemeralSecret = encryption.ephemeralSecret;
+    const encrypted = {
       txViewingPublicKey: tx.publicKey(),
       salt,
       payload: encodeConfidentialSlots(input.outputs, input.assets, tx, salt),
       auditorMessage: auditorMessageData(encryption.message, input.auditorPublicKey),
-      audit: Object.freeze({ txViewingSecret, ephemeralSecret: encryption.ephemeralSecret }),
+      audit: Object.freeze({ txViewingSecret, ephemeralSecret }),
     };
+    // The finally must not wipe the secrets the returned object owns.
+    txViewingSecret = undefined;
+    ephemeralSecret = undefined;
+    return encrypted;
   } finally {
     tx.destroy();
+    txViewingSecret?.fill(0);
+    ephemeralSecret?.fill(0);
   }
 }
 

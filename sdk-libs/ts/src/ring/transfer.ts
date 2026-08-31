@@ -458,8 +458,11 @@ export function frameDummyOutputs(proofInputs: SppProofInputs): SppProofInputs {
     }
     const key = ViewingKey.generate();
     const body = new Uint8Array(33 + ciphertextLength);
-    body.set(key.publicKey().toBytes(), 0);
-    key.destroy();
+    try {
+      body.set(key.publicKey().toBytes(), 0);
+    } finally {
+      key.destroy();
+    }
     globalThis.crypto.getRandomValues(body.subarray(33));
     const scheme = inRing ? EncryptedScheme.ringConfidential : EncryptedScheme.confidential;
     return { ...encoded, data: encodeOutputData(scheme, body, "encrypted") };

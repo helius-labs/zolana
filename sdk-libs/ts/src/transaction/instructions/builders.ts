@@ -129,50 +129,55 @@ export class Merge {
       identity instanceof ShieldedKeypair ? identity.shieldedAddress() : identity.address;
     const nullifierKey =
       identity instanceof ShieldedKeypair ? identity.nullifierKey() : identity.nullifierKey;
-    const owner = address.signingPublicKey;
-    const firstInput = inputs[0];
-    if (!firstInput) throw new TransactionError("TRANSACTION_NO_INPUTS");
-    const asset = firstInput.utxo.asset;
-    const nullifierPublicKey = nullifierKey.publicKey();
-    const firstNullifier = firstInput.nullifier();
-    let amount = 0n;
-    inputs.forEach((input, index) => {
-      if (input.utxo.owner.signatureType() !== owner.signatureType()) {
-        throw new TransactionError("TRANSACTION_MERGE_INPUT_RAIL_MISMATCH", { index });
-      }
-      if (!equal(input.utxo.owner.toBytes(), owner.toBytes())) {
-        throw new TransactionError("TRANSACTION_MERGE_INPUT_OWNER_MISMATCH", { index });
-      }
-      if (!equal(input.nullifierKey.publicKey(), nullifierPublicKey)) {
-        throw new TransactionError("TRANSACTION_MERGE_INPUT_NULLIFIER_KEY_MISMATCH", { index });
-      }
-      if (input.utxo.asset !== asset) {
-        throw new TransactionError("TRANSACTION_MERGE_INPUT_ASSET_MISMATCH", { index });
-      }
-      if (input.utxo.ringProgramId !== undefined) {
-        throw new TransactionError("TRANSACTION_MERGE_INPUT_RING_MISMATCH", { index });
-      }
-      if (!input.utxo.data.isEmpty() || input.dataHash || input.ringDataHash) {
-        throw new TransactionError("TRANSACTION_MERGE_INPUT_HAS_DATA", { index });
-      }
-      amount += input.utxo.amount;
-      if (amount > 0xffff_ffff_ffff_ffffn) {
-        throw new TransactionError("TRANSACTION_SELECTED_BALANCE_OVERFLOW");
-      }
-    });
-    const padded = [...inputs];
-    while (padded.length < MERGE_INPUTS) padded.push(ProofInputUtxo.dummy());
-    this.#prepared = new PreparedMerge({
-      inputs: padded,
-      output: createProofOutput({
-        ownerAddress: address,
-        asset,
-        amount,
-        blinding: mergeOutputBlinding(nullifierKey, firstNullifier),
-      }),
-      expiryUnixTs: 0xffff_ffff_ffff_ffffn,
-      signingPublicKey: owner,
-    });
+    try {
+      const owner = address.signingPublicKey;
+      const firstInput = inputs[0];
+      if (!firstInput) throw new TransactionError("TRANSACTION_NO_INPUTS");
+      const asset = firstInput.utxo.asset;
+      const nullifierPublicKey = nullifierKey.publicKey();
+      const firstNullifier = firstInput.nullifier();
+      let amount = 0n;
+      inputs.forEach((input, index) => {
+        if (input.utxo.owner.signatureType() !== owner.signatureType()) {
+          throw new TransactionError("TRANSACTION_MERGE_INPUT_RAIL_MISMATCH", { index });
+        }
+        if (!equal(input.utxo.owner.toBytes(), owner.toBytes())) {
+          throw new TransactionError("TRANSACTION_MERGE_INPUT_OWNER_MISMATCH", { index });
+        }
+        if (!equal(input.nullifierKey.publicKey(), nullifierPublicKey)) {
+          throw new TransactionError("TRANSACTION_MERGE_INPUT_NULLIFIER_KEY_MISMATCH", { index });
+        }
+        if (input.utxo.asset !== asset) {
+          throw new TransactionError("TRANSACTION_MERGE_INPUT_ASSET_MISMATCH", { index });
+        }
+        if (input.utxo.ringProgramId !== undefined) {
+          throw new TransactionError("TRANSACTION_MERGE_INPUT_RING_MISMATCH", { index });
+        }
+        if (!input.utxo.data.isEmpty() || input.dataHash || input.ringDataHash) {
+          throw new TransactionError("TRANSACTION_MERGE_INPUT_HAS_DATA", { index });
+        }
+        amount += input.utxo.amount;
+        if (amount > 0xffff_ffff_ffff_ffffn) {
+          throw new TransactionError("TRANSACTION_SELECTED_BALANCE_OVERFLOW");
+        }
+      });
+      const padded = [...inputs];
+      while (padded.length < MERGE_INPUTS) padded.push(ProofInputUtxo.dummy());
+      this.#prepared = new PreparedMerge({
+        inputs: padded,
+        output: createProofOutput({
+          ownerAddress: address,
+          asset,
+          amount,
+          blinding: mergeOutputBlinding(nullifierKey, firstNullifier),
+        }),
+        expiryUnixTs: 0xffff_ffff_ffff_ffffn,
+        signingPublicKey: owner,
+      });
+    } finally {
+      // Destroy only the fresh copy, a caller-held key stays the caller's.
+      if (identity instanceof ShieldedKeypair) nullifierKey.destroy();
+    }
   }
 
   prepare(): PreparedMerge {

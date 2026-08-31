@@ -188,20 +188,16 @@ export class ClientEd25519WalletAuthority implements WalletAuthority {
     }
 
     try {
-      const expansion = roleExpansion(seed, "ed25519");
-      const nullifierSecret = expansion.nullifierSecret();
-      const viewingSecret = expansion.viewingSecret();
-      try {
+      return roleExpansion(seed, "ed25519", (roles) => {
+        const signingPublicKey = ShieldedPublicKey.fromEd25519(publicKey);
+        const viewingKey = ViewingKey.fromBytes(roles.viewingSecret);
         return new ClientEd25519WalletAuthority(
           input.solanaPublicKey,
-          ShieldedPublicKey.fromEd25519(publicKey),
-          NullifierKey.fromSecret(nullifierSecret),
-          ViewingKey.fromBytes(viewingSecret),
+          signingPublicKey,
+          NullifierKey.fromSecret(roles.nullifierSecret),
+          viewingKey,
         );
-      } finally {
-        nullifierSecret.fill(0);
-        viewingSecret.fill(0);
-      }
+      });
     } finally {
       seed.fill(0);
     }
@@ -295,27 +291,32 @@ export class KeypairWalletAuthority implements WalletAuthority {
   static fromDerivationSeed(
     input: Readonly<{ solanaPublicKey: Address; derivationSeed: Uint8Array }>,
   ): KeypairWalletAuthority {
-    const expansion = roleExpansion(input.derivationSeed, "ed25519");
-    const viewingSecret = expansion.viewingSecret();
-    const nullifierSecret = expansion.nullifierSecret();
+    const seed = checkedDerivationSeed(input.derivationSeed, "ed25519");
     try {
-      const viewing = ViewingKey.fromBytes(viewingSecret);
-      const nullifier = NullifierKey.fromSecret(nullifierSecret);
-      const signing = ShieldedPublicKey.fromEd25519(decodeAddress(input.solanaPublicKey));
-      const address = ShieldedAddress.fromPublicKeys(
-        signing,
-        nullifier.publicKey(),
-        viewing.publicKey(),
-      );
-      return new KeypairWalletAuthority({
-        solanaPublicKey: input.solanaPublicKey,
-        address,
-        viewingKey: viewing,
-        nullifierKey: nullifier,
+      return roleExpansion(seed, "ed25519", (roles) => {
+        const signing = ShieldedPublicKey.fromEd25519(decodeAddress(input.solanaPublicKey));
+        const viewing = ViewingKey.fromBytes(roles.viewingSecret);
+        const nullifier = NullifierKey.fromSecret(roles.nullifierSecret);
+        try {
+          const address = ShieldedAddress.fromPublicKeys(
+            signing,
+            nullifier.publicKey(),
+            viewing.publicKey(),
+          );
+          return new KeypairWalletAuthority({
+            solanaPublicKey: input.solanaPublicKey,
+            address,
+            viewingKey: viewing,
+            nullifierKey: nullifier,
+          });
+        } catch (cause) {
+          viewing.destroy();
+          nullifier.destroy();
+          throw cause;
+        }
       });
     } finally {
-      viewingSecret.fill(0);
-      nullifierSecret.fill(0);
+      seed.fill(0);
     }
   }
 
