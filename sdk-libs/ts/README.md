@@ -91,18 +91,24 @@ const deposit = await buildDepositTransaction({
   recipient: keypair.shieldedAddress(),
   amount: 100_000_000n,
 });
-await submit(deposit, feePayer);
+const signature = await submit(deposit, feePayer);
+const slot = await client.confirmTransaction(signature);
 
 await syncWallet({
   client,
   wallet,
   authority,
-  config: { waitForIndexer: true },
+  config: { requireSlot: slot },
 });
 
 console.log(wallet.balance(SOL_MINT).amount);
 console.log(getPrivateTransactions(wallet));
 ```
+
+`confirmTransaction` returns the slot the transaction landed in, and
+`requireSlot` holds the first indexer read until Photon has that slot. For
+direct client calls, `atSlot(slot)` builds the same gate as a per-request
+config.
 
 For an Ed25519 spending wallet, the shielded keypair and the Solana signer must use
 the same owner seed, as shown above.
@@ -213,8 +219,8 @@ const transfer = await buildTransferTransaction({
   recipient: recipientSolanaAddress,
   amount: 25_000_000n,
 });
-await submit(transfer, feePayer);
-await syncWallet({ client, wallet, authority, config: { waitForIndexer: true } });
+const slot = await client.confirmTransaction(await submit(transfer, feePayer));
+await syncWallet({ client, wallet, authority, config: { requireSlot: slot } });
 ```
 
 Pass `asset: mint` for an SPL or Token-2022 balance.
@@ -234,8 +240,8 @@ const withdrawal = await buildWithdrawalTransaction({
   recipient: publicRecipient,
   amount: 10_000_000n,
 });
-await submit(withdrawal, feePayer);
-await syncWallet({ client, wallet, authority, config: { waitForIndexer: true } });
+const slot = await client.confirmTransaction(await submit(withdrawal, feePayer));
+await syncWallet({ client, wallet, authority, config: { requireSlot: slot } });
 ```
 
 For an SPL withdrawal, pass `asset: mint`. Token-2022 withdrawals also take
@@ -257,6 +263,42 @@ previous confirmed transaction.
 Persist wallet state with `serializeWallet` and restore it with
 `deserializeWallet`. Persist key material separately. Serialized wallet state
 contains UTXO data and must be encrypted at rest.
+
+`syncPersistedWallet` runs `syncWallet` and, only after the sync commits,
+saves the serialized wallet through a `WalletStateStore` you provide. Restore
+from the store on startup so the wallet resumes from its saved cursors instead
+of rescanning history:
+
+```ts
+import {
+  Wallet,
+  deserializeWallet,
+  syncPersistedWallet,
+  type WalletStateStore,
+} from "@heliuslabs/zolana";
+
+declare const storage: { get(): Promise<string | undefined>; set(v: string): Promise<void> };
+
+const store: WalletStateStore = {
+  load: () => storage.get(),
+  save: (snapshot) => storage.set(snapshot),
+};
+
+const saved = await store.load();
+const wallet =
+  saved === undefined
+    ? new Wallet({ identity: keypair.shieldedAddress() })
+    : deserializeWallet(saved);
+
+const { report } = await syncPersistedWallet({ client, wallet, authority, store });
+```
+
+A failed sync saves nothing. A failed save rejects with `WALLET_PERSIST`
+while the in-memory wallet is already synced and the previously saved
+snapshot stays valid, call `syncPersistedWallet` again to retry. The store is
+single-writer, give each live wallet its own stored snapshot. Snapshots saved
+before cursors were serialized still load, the first sync rescans history
+once and then saves the current format.
 
 ## Custom Rings
 
@@ -288,8 +330,8 @@ Common exports from `@heliuslabs/zolana` include:
 - transactions: `buildDepositTransaction`, `buildTransferTransaction`,
   `buildWithdrawalTransaction`, `buildSplitTransaction`,
   `buildMergeTransaction`;
-- state: `syncWallet`, `getPrivateTokenBalances`, `getPrivateTransactions`,
-  `serializeWallet`, `deserializeWallet`;
+- state: `syncWallet`, `syncPersistedWallet`, `getPrivateTokenBalances`,
+  `getPrivateTransactions`, `serializeWallet`, `deserializeWallet`;
 - registration: `buildRegistrationTransaction`; and
 - Rings: `buildRingDepositTransaction`, `buildRingTransferTransaction`,
   `buildRingWithdrawalTransaction`, `listRegisteredRings`, `RingRpc`.

@@ -31,7 +31,11 @@ export type TransactionIntent =
       recipient: Address;
     }>;
 
-/** An authority's receipt, valid only for the intent whose hash it carries. */
+/**
+ * An authority's receipt, valid only for the intent whose hash it carries.
+ * It binds the economic operation, not the compiled message, final signing
+ * trusts the assembling client.
+ */
 export interface IntentApproval {
   readonly intentHash: Bytes32;
 }

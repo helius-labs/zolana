@@ -66,7 +66,7 @@ export type CursorStream = "transactions" | "proofless" | "nullifiers";
 /** @internal */
 export type SyncCursorAdvances = Readonly<Record<CursorStream, ReadonlyMap<string, Uint8Array>>>;
 
-/** @internal Selection skips its notes until expiry. */
+/** @internal Selection skips its notes until expiry, per wallet instance, not a cross-process lock. */
 export interface NoteReservation {
   readonly id: string;
   readonly noteHashes: readonly Bytes32[];
@@ -205,9 +205,8 @@ export class Wallet {
    * tags have advanced far past those slots, so a single cursor would skip
    * those transactions permanently.
    *
-   * In memory only. A client persisting wallet state across restarts should
-   * persist these too -- without them sync stays correct but pays for the full
-   * history every time.
+   * Serialized with the wallet since snapshot version 3, an older snapshot
+   * restores with empty cursors and rescans history once.
    */
   #syncCursors = new Map<string, Uint8Array>();
   /**
