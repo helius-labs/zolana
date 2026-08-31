@@ -515,6 +515,120 @@ paths:
                     type: string
                   jsonrpc:
                     type: string
+  /getRegisteredAssets:
+    summary: getRegisteredAssets
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - jsonrpc
+              - id
+              - method
+              - params
+              properties:
+                id:
+                  type: string
+                  description: An ID to identify the request.
+                  enum:
+                  - test-account
+                jsonrpc:
+                  type: string
+                  description: The version of the JSON-RPC protocol.
+                  enum:
+                  - '2.0'
+                method:
+                  type: string
+                  description: The name of the method to invoke.
+                  enum:
+                  - getRegisteredAssets
+                params:
+                  type: object
+                  additionalProperties: false
+        required: true
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - jsonrpc
+                - id
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                    description: An ID to identify the response.
+                    enum:
+                    - test-account
+                  jsonrpc:
+                    type: string
+                    description: The version of the JSON-RPC protocol.
+                    enum:
+                    - '2.0'
+                  result:
+                    type: object
+                    description: |-
+                      SPL asset registry for the shielded pool, plus SOL (assetId 1). Same list for
+                      Default Ring and Custom Rings. context.slot is the indexer-persisted slot,
+                      not the getProgramAccounts tip.
+                    required:
+                    - context
+                    - assets
+                    properties:
+                      assets:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/RegisteredAsset'
+                      context:
+                        $ref: '#/components/schemas/Context'
+                    additionalProperties: false
+        '429':
+          description: Exceeded rate limit.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                  jsonrpc:
+                    type: string
+        '500':
+          description: The server encountered an unexpected condition that prevented it from fulfilling the request.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                  jsonrpc:
+                    type: string
   /getShieldedTransactionsByNullifiers:
     summary: getShieldedTransactionsByNullifiers
     post:
@@ -1089,6 +1203,19 @@ components:
           minimum: 0
         value:
           $ref: '#/components/schemas/Hash'
+      additionalProperties: false
+    RegisteredAsset:
+      type: object
+      required:
+      - mint
+      - assetId
+      properties:
+        assetId:
+          type: integer
+          format: u-int64
+          minimum: 0
+        mint:
+          $ref: '#/components/schemas/SerializablePubkey'
       additionalProperties: false
     RingsMessage:
       type: object

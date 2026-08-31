@@ -20,6 +20,7 @@ pub const GET_SHIELDED_TRANSACTIONS_BY_NULLIFIERS: &str = "getShieldedTransactio
 pub const GET_MERKLE_PROOFS: &str = "getMerkleProofs";
 pub const GET_NON_INCLUSION_PROOFS: &str = "getNonInclusionProofs";
 pub const GET_NULLIFIER_QUEUE_ELEMENTS: &str = "getNullifierQueueElements";
+pub const GET_REGISTERED_ASSETS: &str = "getRegisteredAssets";
 
 const MAX_BASE58_32_LEN: usize = 44;
 const LIMIT_EXPECTATION: &str = "a value between 1 and 1000";
@@ -42,6 +43,7 @@ pub mod method {
     pub struct GetMerkleProofs;
     pub struct GetNonInclusionProofs;
     pub struct GetNullifierQueueElements;
+    pub struct GetRegisteredAssets;
 
     impl RpcMethod for GetEncryptedUtxosByTags {
         const NAME: &'static str = GET_ENCRYPTED_UTXOS_BY_TAGS;
@@ -83,6 +85,12 @@ pub mod method {
         const NAME: &'static str = GET_NULLIFIER_QUEUE_ELEMENTS;
         type Request = GetNullifierQueueElementsRequest;
         type Response = GetNullifierQueueElementsResponse;
+    }
+
+    impl RpcMethod for GetRegisteredAssets {
+        const NAME: &'static str = GET_REGISTERED_ASSETS;
+        type Request = GetRegisteredAssetsRequest;
+        type Response = GetRegisteredAssetsResponse;
     }
 }
 
@@ -756,6 +764,30 @@ pub struct NonInclusionProof {
     pub root_index: u16,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetRegisteredAssetsRequest {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct RegisteredAsset {
+    pub mint: SerializablePubkey,
+    pub asset_id: u64,
+}
+
+/// SPL asset registry for the shielded pool, plus SOL (assetId 1). Same list for
+/// Default Ring and Custom Rings. context.slot is the indexer-persisted slot,
+/// not the getProgramAccounts tip.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetRegisteredAssetsResponse {
+    pub context: Context,
+    pub assets: Vec<RegisteredAsset>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -779,6 +811,22 @@ mod tests {
             method::GetShieldedTransactionsBySignature::NAME,
             "getShieldedTransactionsBySignature"
         );
+        assert_eq!(method::GetRegisteredAssets::NAME, "getRegisteredAssets");
+    }
+
+    #[test]
+    fn get_registered_assets_request_accepts_empty_object() {
+        let request = serde_json::from_str::<GetRegisteredAssetsRequest>("{}").unwrap();
+        assert_eq!(request, GetRegisteredAssetsRequest {});
+    }
+
+    #[test]
+    fn get_registered_assets_request_rejects_ring_program_id() {
+        let err = serde_json::from_str::<GetRegisteredAssetsRequest>(
+            r#"{"ringProgramId":"11111111111111111111111111111111"}"#,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("ringProgramId"));
     }
 
     #[test]
