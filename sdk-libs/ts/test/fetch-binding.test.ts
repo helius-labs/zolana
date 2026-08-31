@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ZolanaApi } from "../src/api/index.js";
 import { ProverClient } from "../src/client/prover/client.js";
 import { RingRpc } from "../src/ring/rpc.js";
+import { forged } from "./helpers/forged.js";
 
 // A browser's `fetch` throws "Illegal invocation" unless called on the global,
 // which a stored method reference is not. The stub enforces the same rule.
@@ -24,7 +25,7 @@ function strictFetch() {
       ),
     );
   };
-  return { fetch: fetch as unknown as typeof globalThis.fetch, calls };
+  return { fetch: forged<typeof globalThis.fetch>(fetch), calls };
 }
 
 describe("fetch binding", () => {

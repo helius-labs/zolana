@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { forged } from "./helpers/forged.js";
 import { address, getBase58Decoder, type Address, type Signature } from "@solana/kit";
 
 import { encodeTransactInstructionData } from "../src/interface/codecs/index.js";
@@ -356,7 +357,7 @@ function rpcWith(result: unknown | Error): ConstructorParameters<typeof RpcTrans
   const getTransaction = () => ({
     send: () => (result instanceof Error ? Promise.reject(result) : Promise.resolve(result)),
   });
-  return { getTransaction } as unknown as ConstructorParameters<typeof RpcTransactionOrigin>[0];
+  return forged<ConstructorParameters<typeof RpcTransactionOrigin>[0]>({ getTransaction });
 }
 
 describe("RpcTransactionOrigin", () => {

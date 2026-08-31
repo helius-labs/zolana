@@ -2,6 +2,8 @@ import { p256 } from "@noble/curves/nist.js";
 import { address } from "@solana/kit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { forged } from "./helpers/forged.js";
+
 import { ClientError } from "../src/client/error.js";
 import { createDummyTransferInput, createOutput } from "../src/client/prover/assembly.js";
 import { ProverClient } from "../src/client/prover/client.js";
@@ -10,7 +12,7 @@ import type { Bytes32 } from "../src/interface/index.js";
 import type { MergeInputs, ProverInputs, TransferInput } from "../src/client/prover/types.js";
 import { ProofInputUtxo, createProofOutput } from "../src/transaction/index.js";
 
-const INPUTS = {
+const INPUTS = forged<ProverInputs>({
   circuit: "transfer",
   payload: {
     inputs: [],
@@ -25,7 +27,7 @@ const INPUTS = {
     publishedOutputOwnerPublicKeyHashes: [],
     publicInputHash: 0n,
   },
-} as unknown as ProverInputs;
+});
 const ZERO_POINT = ["0x0", "0x0"];
 const STANDARD_PROOF = {
   ar: ZERO_POINT,
@@ -42,7 +44,7 @@ function bytes(value: number): Bytes32 {
 }
 
 function mergeInputs(): MergeInputs {
-  return {
+  return forged<MergeInputs>({
     inputs: [],
     output: createOutput(
       createProofOutput({
@@ -60,7 +62,7 @@ function mergeInputs(): MergeInputs {
     publicInputHash: 0n,
     outputRingDataHash: 0n,
     ringProgramId: 0n,
-  } as unknown as MergeInputs;
+  });
 }
 
 function dummyTransferInput(): TransferInput {

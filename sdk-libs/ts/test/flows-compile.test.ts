@@ -1,5 +1,6 @@
 import { address, getCompiledTransactionMessageDecoder, type Blockhash } from "@solana/kit";
 import { describe, expect, it } from "vitest";
+import { forged } from "./helpers/forged.js";
 
 import { compileUnsignedTransaction } from "../src/flows/compile.js";
 
@@ -18,9 +19,9 @@ type DecodedMessage = Readonly<{
 }>;
 
 function decoded(transaction: ReturnType<typeof compileUnsignedTransaction>): DecodedMessage {
-  return getCompiledTransactionMessageDecoder().decode(
-    transaction.messageBytes,
-  ) as unknown as DecodedMessage;
+  return forged<DecodedMessage>(
+    getCompiledTransactionMessageDecoder().decode(transaction.messageBytes),
+  );
 }
 
 function programsOf(transaction: ReturnType<typeof compileUnsignedTransaction>) {

@@ -12,6 +12,7 @@ import { decodeRingConfig } from "../src/interface/accounts.js";
 import { StateDiscriminator } from "../src/interface/state.js";
 import { listRegisteredRings } from "../src/ring/registry.js";
 import { kitReads } from "./helpers/clients.js";
+import { forged } from "./helpers/forged.js";
 
 const base64Decoder = getBase64Decoder();
 const addressEncoder = getAddressEncoder();
@@ -91,7 +92,7 @@ describe("listRegisteredRings", () => {
     expect(await listRegisteredRings(rpc)).toEqual([]);
 
     const call = getProgramAccounts.mock.calls[0];
-    const [programId, config] = call as unknown as [string, unknown];
+    const [programId, config] = forged<[string, unknown]>(call);
     expect(programId).toBe("sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG");
     // Filtered at the RPC: the pool also holds trees and asset registries, and
     // an unfiltered scan would download all of them to find a handful of rings.

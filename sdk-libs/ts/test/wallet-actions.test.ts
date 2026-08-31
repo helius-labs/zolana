@@ -33,6 +33,7 @@ import { associatedTokenAddress, splInterfaceWithBump } from "../src/interface/p
 import { buildRingTransferTransaction, selectRingInputs } from "../src/ring/transfer.js";
 import { buildDepositTransaction, createDeposit } from "../src/wallet/deposit.js";
 import { depositClient, privateTransactionClient, ringTransferClient } from "./helpers/clients.js";
+import { forged } from "./helpers/forged.js";
 import { approveIntent } from "../src/transaction/wallet/intent.js";
 import { createMerge, MergeMaterial } from "../src/wallet/merge.js";
 import { authorizePrivateTransaction } from "../src/wallet/private-transaction.js";
@@ -48,10 +49,9 @@ const RECIPIENT = address("8qbHbw2BbbTHBW1sbeqakYXV9q2RZ1R6MUi6nEZa6wJk");
 const SPL_MINT = address("So11111111111111111111111111111111111111112");
 const RING = address("9EwHno8C1T1vVGjasGnDH1GubiEu8qbgLX9qDjBshFhz");
 const BLOCKHASH = "11111111111111111111111111111111" as Blockhash;
-const TRANSACTION = Object.freeze({
-  messageBytes: new Uint8Array(),
-  signatures: Object.freeze({}),
-}) as unknown as Transaction;
+const TRANSACTION = forged<Transaction>(
+  Object.freeze({ messageBytes: new Uint8Array(), signatures: Object.freeze({}) }),
+);
 
 function filled(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AuthorizedPrivateTransaction } from "../src/client/client.js";
 import { privateTransactionClient } from "./helpers/clients.js";
+import { forged } from "./helpers/forged.js";
 import type { Bytes32, TransactInstructionData } from "../src/interface/index.js";
 import { ShieldedKeypair, SigningKey } from "../src/keypair/index.js";
 import {
@@ -95,7 +96,7 @@ describe("intent hash", () => {
       "mismatch intentHash",
     );
     expect(() =>
-      checkIntentApproval(undefined as unknown as IntentApproval, intent, mismatch),
+      checkIntentApproval(forged<IntentApproval>(undefined), intent, mismatch),
     ).toThrowError("mismatch intentHash");
   });
 });
@@ -109,13 +110,13 @@ describe("prepared and data checks", () => {
       inputs: readonly unknown[];
     }>,
   ): PreparedTransfer {
-    return {
+    return forged<PreparedTransfer>({
       outputs: [],
       senderOutputCount: 0,
       interfaceTransfers: [],
       inputs: [],
       ...overrides,
-    } as unknown as PreparedTransfer;
+    });
   }
 
   function recipientOutput(
@@ -189,9 +190,9 @@ describe("prepared and data checks", () => {
   });
 
   it("refuses settlements a transfer intent never approved", () => {
-    const data = {
+    const data = forged<TransactInstructionData>({
       interfaceTransfers: [{ kind: "solWithdrawal", amount: 25n }],
-    } as unknown as TransactInstructionData;
+    });
     const intent: TransactionIntent = {
       kind: "transfer",
       asset: SOL_MINT,
@@ -206,9 +207,9 @@ describe("prepared and data checks", () => {
       recipient: TREE,
     };
     expect(() => checkTransactData(data, withdrawal, mismatch)).not.toThrow();
-    const drifted = {
+    const drifted = forged<TransactInstructionData>({
       interfaceTransfers: [{ kind: "solWithdrawal", amount: 26n }],
-    } as unknown as TransactInstructionData;
+    });
     expect(() => checkTransactData(drifted, withdrawal, mismatch)).toThrowError("mismatch amount");
   });
 });

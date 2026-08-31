@@ -19,13 +19,13 @@ import { createSplit, createTransfer } from "../src/wallet/actions.js";
 import { createMerge, MergeMaterial } from "../src/wallet/merge.js";
 import { buildTransferTransaction } from "../src/wallet/transactions.js";
 import { privateTransactionClient } from "./helpers/clients.js";
+import { forged } from "./helpers/forged.js";
 
 const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
 const PAYER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
-const TRANSACTION = Object.freeze({
-  messageBytes: new Uint8Array(),
-  signatures: Object.freeze({}),
-}) as unknown as Transaction;
+const TRANSACTION = forged<Transaction>(
+  Object.freeze({ messageBytes: new Uint8Array(), signatures: Object.freeze({}) }),
+);
 
 function filled(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;

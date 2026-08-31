@@ -11,6 +11,7 @@ import {
   type Blockhash,
 } from "@solana/kit";
 import { describe, expect, it } from "vitest";
+import { forged } from "./helpers/forged.js";
 
 import { KeypairError } from "../src/keypair/error.js";
 import { ShieldedKeypair } from "../src/keypair/shielded.js";
@@ -27,22 +28,24 @@ type SignableTransaction = Parameters<
 
 /** A real compiled transaction: Kit's signer refuses anything it is not a signer for. */
 function compileTransferTransaction(feePayer: Address): SignableTransaction {
-  return compileTransaction(
-    pipe(
-      createTransactionMessage({ version: 0 }),
-      (message) => setTransactionMessageFeePayer(feePayer, message),
-      (message) =>
-        setTransactionMessageLifetimeUsingBlockhash(
-          { blockhash: BLOCKHASH, lastValidBlockHeight: 1n },
-          message,
-        ),
-      (message) =>
-        appendTransactionMessageInstruction(
-          { programAddress: MEMO, data: new Uint8Array([1]) },
-          message,
-        ),
+  return forged<SignableTransaction>(
+    compileTransaction(
+      pipe(
+        createTransactionMessage({ version: 0 }),
+        (message) => setTransactionMessageFeePayer(feePayer, message),
+        (message) =>
+          setTransactionMessageLifetimeUsingBlockhash(
+            { blockhash: BLOCKHASH, lastValidBlockHeight: 1n },
+            message,
+          ),
+        (message) =>
+          appendTransactionMessageInstruction(
+            { programAddress: MEMO, data: new Uint8Array([1]) },
+            message,
+          ),
+      ),
     ),
-  ) as unknown as SignableTransaction;
+  );
 }
 
 describe("ShieldedKeypair.toSolanaSigner", () => {
