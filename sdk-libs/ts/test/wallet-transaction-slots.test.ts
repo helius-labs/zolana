@@ -4,27 +4,37 @@ import { getAddressDecoder } from "@solana/kit";
 
 import type { Bytes32, Signature } from "../src/interface/types.js";
 import { fetchTransactionSlots } from "../src/wallet/transaction-slots.js";
-import { signatureReads } from "./helpers/clients.js";
+import { signatureReads, signaturesPage } from "./helpers/clients.js";
 
 const SIGNATURE = "1".repeat(87) as Signature;
 const filled = (byte: number) => new Uint8Array(32).fill(byte) as Bytes32;
+const TREE = getAddressDecoder().decode(new Uint8Array(32).fill(9));
 
 function reader(events: readonly { leaf: bigint; tags: readonly Bytes32[] }[]) {
   return signatureReads({
     getShieldedTransactionsBySignature: async (signature: Signature) => {
       expect(signature).toBe(SIGNATURE);
-      return {
-        context: { slot: 1n },
+      return signaturesPage({
         transactions: events.map((event, eventIndex) => ({
           eventIndex,
           transaction: {
+            slot: 1n,
+            txSignature: SIGNATURE,
             outputSlots: event.tags.map((viewTag, slotIndex) => ({
               viewTag,
-              outputContext: { leafIndex: event.leaf + BigInt(slotIndex) },
+              outputContext: {
+                hash: filled(slotIndex + 1),
+                tree: TREE,
+                leafIndex: event.leaf + BigInt(slotIndex),
+              },
+              payload: new Uint8Array(),
             })),
+            messages: [],
+            nullifiers: [],
+            proofless: false,
           },
         })),
-      };
+      });
     },
   });
 }

@@ -24,7 +24,7 @@ import {
 import { SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
 import { StateDiscriminator } from "../src/interface/state.js";
 import { assemble, ownerSignerAddresses } from "../src/client/prover/assembly.js";
-import { ringAuditReader, ringTransferClient } from "./helpers/clients.js";
+import { ringAuditReader, ringTransferClient, transactionsPage } from "./helpers/clients.js";
 import type { SpendProof } from "../src/client/rpc.js";
 import { hashBytesBigInt } from "../src/client/internal.js";
 import {
@@ -558,7 +558,8 @@ describe("ring audit", () => {
       ],
     }));
     const client = ringAuditReader({
-      getShieldedTransactionsByTags: async () => ({ transactions: [transaction, transaction] }),
+      getShieldedTransactionsByTags: async () =>
+        transactionsPage({ transactions: [transaction, transaction] }),
       solanaRpc: { getProgramAccounts },
       commitment: "confirmed",
     });
@@ -596,7 +597,7 @@ describe("ring audit", () => {
     const transaction = indexed(proofInputs);
     const getProgramAccounts = vi.fn(() => ({ send: async () => [] }));
     const client = ringAuditReader({
-      getShieldedTransactionsByTags: async () => ({ transactions: [transaction] }),
+      getShieldedTransactionsByTags: async () => transactionsPage({ transactions: [transaction] }),
       solanaRpc: { getProgramAccounts },
       commitment: "confirmed",
     });

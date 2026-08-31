@@ -40,17 +40,17 @@ function firstCursor(fake: ReturnType<typeof vi.fn>): Uint8Array | undefined {
 function cursorPages() {
   return {
     getShieldedTransactionsByTags: vi.fn(async () => ({
-      context: { blockTime: 1_700_000_000n },
+      context: { blockTime: 1_700_000_000n, slot: 0n },
       transactions: [],
       scannedThrough: TAG_CURSOR,
     })),
     getEncryptedUtxosByTags: vi.fn(async () => ({
-      context: { blockTime: 1_700_000_000n },
+      context: { blockTime: 1_700_000_000n, slot: 0n },
       matches: [],
       scannedThrough: PROOFLESS_CURSOR,
     })),
     getShieldedTransactionsByNullifiers: vi.fn(async () => ({
-      context: { blockTime: 1_700_000_000n },
+      context: { blockTime: 1_700_000_000n, slot: 0n },
       transactions: [],
       scannedThrough: NULLIFIER_CURSOR,
     })),
@@ -194,7 +194,7 @@ describe("persisted wallet sync", () => {
     const readsA = cursorPages();
     const readsB = cursorPages();
     readsB.getShieldedTransactionsByTags.mockResolvedValue({
-      context: { blockTime: 1_700_000_000n },
+      context: { blockTime: 1_700_000_000n, slot: 0n },
       transactions: [],
       scannedThrough: Uint8Array.of(9, 9),
     });
