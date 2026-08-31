@@ -2,11 +2,10 @@
 
 ## 0.1.5-alpha — unreleased
 
-Wallet sync is atomic, a sync that fails partway changes nothing and the
-next sync re-reads what the failed one fetched. Serialized wallets carry
-their resume cursors, a restarted wallet continues where it stopped
-instead of rescanning history. Keys granted by a wallet authority live
-only inside scoped sessions that wipe them when the callback settles.
+Wallet sync is atomic, and serialized wallets carry the cursors needed to
+resume after a restart. Keys granted by a wallet authority live only
+inside scoped sessions that wipe them when the callback settles. Ring
+entry is explicit, and asset amounts have one metadata and conversion API.
 
 Breaking
 
@@ -55,6 +54,12 @@ Breaking
 
 Added
 
+- `buildRingEntryTransaction(params)` moves an exact amount from default
+  notes into the caller's custom ring, leaves excess input value in the
+  default pool, and records the boundary move as a `ringEntry` self transfer.
+- `fetchAssetMetadata`, `AssetMetadataCache`, `formatAmount`, and
+  `parseAmount` provide mint decimals and exact raw unit conversion for SOL,
+  SPL Token, and Token-2022 assets.
 - `SpendAuthority`, `SyncAuthority`, and `SpendSession` are exported,
   `syncWallet` accepts any `SyncAuthority`, one method instead of ten for
   a custom scan-only authority.
@@ -69,16 +74,19 @@ Added
   snapshots → seal with the shipped `walletSnapshotCipher(keypair)` and
   restore through `loadPersistedWallet`, a tampered snapshot or one sealed
   for another wallet is refused with `WALLET_SNAPSHOT`.
-- `AuthorizedPrivateTransaction` carries `owner` and `senderOutputCount`, the
-  client rebinds every output, settlement, and withdrawal account to the
-  approved intent before proving, and a forged or drifted authorization fails
-  with `CLIENT_INTENT_MISMATCH` before anything reaches the prover.
+- `AuthorizedPrivateTransaction` is an opaque capability minted only after
+  approval. It carries the proof material and SDK-generated setup instructions
+  outside the public object shape. The client rebinds every output, settlement,
+  and withdrawal account to the approved intent before proving. A counterfeit,
+  drifted authorization, extra intent field, or caller-supplied setup
+  instruction fails before compilation.
 - `fetchSplAssetRegistrations` and `backfillAssetRegistry` fail on an
   unsupported or partial program scan instead of returning an empty registry,
   an empty result now means the pool has no SPL registrations.
-- `RingRpc.readSigned` and `RingRpc.createAuditorKeySigned` validate every
-  field of a signed request before any network access, and a timestamp past
-  the safe integer range is refused instead of losing precision.
+- `RingRpc.readSigned` and `RingRpc.createAuditorKeySigned` normalize an exact
+  copy of every signed request before network access. Malformed reader keys
+  stay in the ring error taxonomy, and a timestamp past the safe integer range
+  is refused instead of losing precision.
 - `WalletStateStore.save` must replace the stored snapshot atomically or
   leave it unchanged, the retry after a failed save depends on it.
 - `SyncWalletInput` names the `syncWallet` argument shape, and
@@ -164,6 +172,9 @@ Fixed
 - `KeypairWalletAuthority.fromDerivationSeed` left the secrets derived
   from the seed unwiped after building its keys, they are wiped before it
   returns.
+- `buildRingWithdrawalTransaction` omitted the recipient ATA creation that
+  plain withdrawals include, SPL withdrawals now create a missing ATA in
+  the same transaction.
 
 ## 0.1.4-alpha — 2026-08-29
 

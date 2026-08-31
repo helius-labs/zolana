@@ -323,26 +323,29 @@ transfers that would use a relayer are not supported. Later iterations add
 allowlists, blocklists, and rule-based config on the Ring config account.
 The deploy process is expected to stay the same.
 
-Build Ring deposits, transfers, and withdrawals with
-`buildRingDepositTransaction`, `buildRingTransferTransaction`, and
-`buildRingWithdrawalTransaction`. `RingRpc` reads decrypted Ring transactions
-for a granted reader. The same surface is available from
-`@heliuslabs/zolana/ring`.
+Build exact Ring entries, in-ring transfers, shielded exits, and public
+withdrawals with `buildRingEntryTransaction`, `buildRingTransferTransaction`,
+`buildRingExitTransaction`, and `buildRingWithdrawalTransaction`. `RingRpc`
+reads decrypted Ring transactions for a granted reader. The same surface is
+available from `@heliuslabs/zolana/ring`.
 
 ## Public API
 
 Common exports from `@heliuslabs/zolana` include:
 
 - setup: `createZolanaClient`, `ShieldedKeypair`, `Wallet`,
-  `KeypairWalletAuthority`;
+  `KeypairWalletAuthority`.
 - transactions: `buildDepositTransaction`, `buildTransferTransaction`,
   `buildWithdrawalTransaction`, `buildSplitTransaction`,
-  `buildMergeTransaction`;
+  `buildMergeTransaction`.
 - state: `syncWallet`, `syncPersistedWallet`, `getPrivateTokenBalances`,
-  `getPrivateTransactions`, `serializeWallet`, `deserializeWallet`;
-- registration: `buildRegistrationTransaction`; and
-- Rings: `buildRingDepositTransaction`, `buildRingTransferTransaction`,
-  `buildRingWithdrawalTransaction`, `listRegisteredRings`, `RingRpc`.
+  `getPrivateTransactions`, `serializeWallet`, `deserializeWallet`.
+- amounts: `fetchAssetMetadata`, `AssetMetadataCache`, `formatAmount`,
+  `parseAmount`.
+- registration: `buildRegistrationTransaction`.
+- Rings: `buildRingEntryTransaction`, `buildRingTransferTransaction`,
+  `buildRingExitTransaction`, `buildRingWithdrawalTransaction`,
+  `listRegisteredRings`, `RingRpc`.
 
 Advanced protocol users can import low-level instruction builders from
 `@heliuslabs/zolana/instructions`. PDA helpers are available from
@@ -356,9 +359,9 @@ The release workflow publishes the generated TypeDoc reference from
 `ts-sdk-v*` tags. The tag version must match this package's version. Published
 versions are immutable:
 
-- latest: <https://helius-labs.github.io/zolana/ts-sdk/>;
+- latest: <https://helius-labs.github.io/zolana/ts-sdk/>.
 - explicit version:
-  <https://helius-labs.github.io/zolana/ts-sdk/v0.1.3-alpha/>; and
+  <https://helius-labs.github.io/zolana/ts-sdk/v0.1.3-alpha/>.
 - version index:
   <https://helius-labs.github.io/zolana/ts-sdk/versions.json>.
 
