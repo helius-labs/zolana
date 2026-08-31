@@ -101,6 +101,8 @@ export async function ringTransactInstruction(
     payer: SignerAccount;
     inputTree: Address;
     outputTree: Address;
+    /** Read for the policy roots, never forwarded to SPP. */
+    entriesTree: Address;
     proof: Uint8Array;
     /** History entries the ring statement binds, unread by a ring without rules. */
     stateRootIndex: number;
@@ -147,15 +149,17 @@ export async function ringTransactInstruction(
       },
       { address: config, role: AccountRole.READONLY },
       { address: policyConfig, role: AccountRole.READONLY },
+      // Read for the policy roots only, so read-only and before the forwarded SPP list.
+      { address: input.entriesTree, role: AccountRole.READONLY },
       ...answers,
     ],
     data,
   };
 }
 
-/** Mirrors Rust `lookup_table_addresses`. */
+/** Mirrors Rust `lookup_table_addresses`. `entriesTree` defaults to `tree`. */
 export async function ringLookupTableAddresses(
-  input: Readonly<{ ringProgramId: Address; tree: Address }>,
+  input: Readonly<{ ringProgramId: Address; tree: Address; entriesTree?: Address }>,
 ): Promise<readonly Address[]> {
   const [config, policyConfig, ringAuth] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
@@ -171,6 +175,7 @@ export async function ringLookupTableAddresses(
   const addresses = [
     config,
     policyConfig,
+    input.entriesTree ?? input.tree,
     ...answers
       .filter(
         (meta) =>
