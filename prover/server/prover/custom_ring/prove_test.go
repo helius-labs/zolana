@@ -65,6 +65,59 @@ func TestCustomRingProofVerifies(t *testing.T) {
 	}
 }
 
+func TestAuditProofVerifies(t *testing.T) {
+	if testing.Short() {
+		t.Skip("audit setup is slow")
+	}
+	ps, err := SetupAudit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	params := auditParams(t)
+	proof, err := ProveAudit(ps, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignment, err := params.CreateWitness()
+	if err != nil {
+		t.Fatal(err)
+	}
+	witness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField(), frontend.PublicOnly())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := groth16.Verify(proof.Proof, ps.VerifyingKey, witness); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// auditParams builds the audit statement over the same fixture scalars as
+// auditChainElements, the private_tx_hash a pass-through.
+func auditParams(t *testing.T) *AuditParameters {
+	t.Helper()
+	p := &AuditParameters{
+		PrivateTxHash: big.NewInt(0xabcdef),
+		TxViewingSk:   testScalar(0x11),
+		EphSk:         testScalar(0x22),
+	}
+	auditorSk := testScalar(0x33)
+	auditorKey, err := ecdh.P256().NewPrivateKey(auditorSk[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	copy(p.AuditorPk[:], auditorKey.PublicKey().Bytes())
+	elements := []*big.Int{p.PrivateTxHash}
+	for _, element := range auditChainElements {
+		value, ok := new(big.Int).SetString(element[2:], 16)
+		if !ok {
+			t.Fatalf("bad element %s", element)
+		}
+		elements = append(elements, value)
+	}
+	p.PublicInputHash = spptest.MustHashChain(t, elements)
+	return p
+}
+
 // rulesFreeParams opens a one input one output transfer against a length zero
 // rule table with every answer slot disabled.
 func rulesFreeParams(t *testing.T) *CustomRingParameters {
