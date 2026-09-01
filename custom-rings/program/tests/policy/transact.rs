@@ -15,9 +15,9 @@ use zolana_interface::{
 use solana_pubkey::Pubkey;
 
 use crate::common::{
-    account, auditor_pubkey, authority, entries_tree, entries_tree_account,
-    initialized_config_account, initialized_policy_config_account, setup_mollusk, transact_fixture,
-    Fixture,
+    account, audit_only_config_account, audit_transact_fixture, auditor_pubkey, authority,
+    entries_tree, entries_tree_account, initialized_config_account,
+    initialized_policy_config_account, setup_mollusk, transact_fixture, Fixture,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -64,7 +64,7 @@ fn transact_data() -> TransactIxData {
     }
 }
 
-fn policy_fixture(state_root_index: u16, nullifier_root_index: u16) -> Fixture {
+fn transact_body(state_root_index: u16, nullifier_root_index: u16) -> Vec<u8> {
     let mut data = vec![tag::TRANSACT];
     data.extend_from_slice(
         &wincode::serialize(&CustomRingTransactIxData {
@@ -81,10 +81,38 @@ fn policy_fixture(state_root_index: u16, nullifier_root_index: u16) -> Fixture {
         })
         .expect("serialize policy transact body"),
     );
+    data
+}
+
+fn policy_fixture(state_root_index: u16, nullifier_root_index: u16) -> Fixture {
     transact_fixture(
         initialized_config_account(authority(), auditor_pubkey(2)),
-        data,
+        transact_body(state_root_index, nullifier_root_index),
     )
+}
+
+/// An audit-only ring dispatches to the audit verifying key with no policy
+/// accounts present.
+#[test]
+fn an_audit_only_ring_reaches_the_audit_proof() {
+    let (mollusk, _) = setup_mollusk();
+    let fixture = audit_transact_fixture(
+        audit_only_config_account(authority(), auditor_pubkey(2)),
+        transact_body(0, 0),
+    );
+    fixture.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+}
+
+/// A policy ring cannot spend through the audit layout, the tier is read from
+/// the config and the absent policy config is refused.
+#[test]
+fn a_policy_ring_cannot_spend_through_the_audit_layout() {
+    let (mollusk, _) = setup_mollusk();
+    let fixture = audit_transact_fixture(
+        initialized_config_account(authority(), auditor_pubkey(2)),
+        transact_body(0, 0),
+    );
+    fixture.expect_err(&mollusk, custom(CustomRingError::PolicyConfigNotInitialized));
 }
 
 /// The stored hash is what a rebuilt table must reproduce.
