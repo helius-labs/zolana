@@ -521,17 +521,71 @@ pub fn set_policy_source_fixture(policy_config: Account, list_id: u8, source: u8
     )
 }
 
-/// `create_entry` fixture, `[config, policy_config, payer(w,s), input_tree(w),
-/// output_tree(w), spp_program, system_program, entries]`. SPP is not loaded,
-/// only the ring's pre-CPI validation is assertable.
+/// The account layout `MutationAccounts` expects, `[config, policy_config,
+/// payer(w,s), input_tree(w), output_tree(w), spp_program, system_program,
+/// entries]`. SPP is not loaded, only the ring's pre-CPI validation is assertable.
+fn entry_mutation_slots(policy_config: Account, payer: Pubkey) -> Vec<Slot> {
+    vec![
+        Slot {
+            label: "config",
+            meta: AccountMeta::new_readonly(config_pda().0, false),
+            account: initialized_config_account(authority(), auditor_pubkey(2)),
+        },
+        Slot {
+            label: "policy_config",
+            meta: AccountMeta::new_readonly(policy_config_pda().0, false),
+            account: policy_config,
+        },
+        Slot {
+            label: "payer",
+            meta: AccountMeta::new(payer, true),
+            account: account(1_000_000_000),
+        },
+        Slot {
+            label: "input_tree",
+            meta: AccountMeta::new(entries_tree(), false),
+            account: entries_tree_account(),
+        },
+        Slot {
+            label: "output_tree",
+            meta: AccountMeta::new(entries_tree(), false),
+            account: entries_tree_account(),
+        },
+        spp_program_slot(),
+        system_program_slot(),
+        Slot {
+            label: "entries",
+            meta: AccountMeta::new_readonly(namespace_pda().0, false),
+            account: account(1_000_000_000),
+        },
+    ]
+}
+
+/// The member the entry fixtures derive, `owner_tag([61; 32])`.
+pub fn default_entry_member() -> [u8; 32] {
+    *zolana_ring_policy::Member::owner_tag(&[61u8; 32])
+        .expect("member")
+        .as_bytes()
+}
+
 pub fn create_entry_fixture(policy_config: Account, list_id: u8, payer: Pubkey) -> Fixture {
-    let member = zolana_ring_policy::Member::owner_tag(&[61u8; 32]).expect("member");
+    create_entry_fixture_with(policy_config, list_id, payer, default_entry_member(), 1)
+}
+
+/// A `create_entry` fixture with an explicit member and state discriminant.
+pub fn create_entry_fixture_with(
+    policy_config: Account,
+    list_id: u8,
+    payer: Pubkey,
+    member: [u8; 32],
+    state: u8,
+) -> Fixture {
     let mut data = vec![tag::CREATE_ENTRY];
     data.extend_from_slice(
         &wincode::serialize(&custom_ring_interface::CreateEntryIxData {
             list_id,
-            member: *member.as_bytes(),
-            state: 1,
+            member,
+            state,
             content_hash: [7u8; 32],
             nullifier_tree_root_index: 0,
             utxo_tree_root_index: 0,
@@ -540,43 +594,35 @@ pub fn create_entry_fixture(policy_config: Account, list_id: u8, payer: Pubkey) 
         })
         .expect("create_entry data"),
     );
-    Fixture::new(
-        data,
-        vec![
-            Slot {
-                label: "config",
-                meta: AccountMeta::new_readonly(config_pda().0, false),
-                account: initialized_config_account(authority(), auditor_pubkey(2)),
-            },
-            Slot {
-                label: "policy_config",
-                meta: AccountMeta::new_readonly(policy_config_pda().0, false),
-                account: policy_config,
-            },
-            Slot {
-                label: "payer",
-                meta: AccountMeta::new(payer, true),
-                account: account(1_000_000_000),
-            },
-            Slot {
-                label: "input_tree",
-                meta: AccountMeta::new(entries_tree(), false),
-                account: entries_tree_account(),
-            },
-            Slot {
-                label: "output_tree",
-                meta: AccountMeta::new(entries_tree(), false),
-                account: entries_tree_account(),
-            },
-            spp_program_slot(),
-            system_program_slot(),
-            Slot {
-                label: "entries",
-                meta: AccountMeta::new_readonly(namespace_pda().0, false),
-                account: account(1_000_000_000),
-            },
-        ],
-    )
+    Fixture::new(data, entry_mutation_slots(policy_config, payer))
+}
+
+/// An `update_entry` fixture spending `spent_version` into its successor.
+pub fn update_entry_fixture(
+    policy_config: Account,
+    list_id: u8,
+    payer: Pubkey,
+    member: [u8; 32],
+    spent_version: u64,
+) -> Fixture {
+    let mut data = vec![tag::UPDATE_ENTRY];
+    data.extend_from_slice(
+        &wincode::serialize(&custom_ring_interface::UpdateEntryIxData {
+            list_id,
+            member,
+            spent_state: 1,
+            spent_content_hash: [0u8; 32],
+            spent_version,
+            state: 2,
+            content_hash: [0u8; 32],
+            nullifier_tree_root_index: 0,
+            utxo_tree_root_index: 0,
+            proof: zolana_interface::instruction::instruction_data::transact::TransactProof::zeroed(
+            ),
+        })
+        .expect("update_entry data"),
+    );
+    Fixture::new(data, entry_mutation_slots(policy_config, payer))
 }
 
 /// An initialized config account as this program would have written it.
