@@ -15,8 +15,8 @@ pub use traits::{AsyncRpc, Rpc};
 pub use transaction::{compile_message, sign_transaction, SettlementAccountValidation};
 pub use transaction_size::{transaction_size, TransactionSize};
 pub use types::{
-    Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
-    GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
+    ChainPosition, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
+    GetMerkleProofsResponse, GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
     GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
     GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
     GetShieldedTransactionsByTagsResponse, IndexedShieldedTransaction, MerkleContext, MerkleProof,
