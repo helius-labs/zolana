@@ -487,7 +487,6 @@ describe("list writes", () => {
             request.nullifiers.some((asked) => Buffer.from(asked).equals(spent)),
           ),
         ),
-        scannedThrough: new Uint8Array([1]),
       }),
     );
     return {

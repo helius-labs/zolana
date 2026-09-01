@@ -335,7 +335,6 @@ export {
   ringReadAttestation,
   RingReadRequest,
   RingRpc,
-  RING_READ_CURSOR_LIMIT,
   RING_READ_PAGE_LIMIT,
 } from "./rpc.js";
 export type {

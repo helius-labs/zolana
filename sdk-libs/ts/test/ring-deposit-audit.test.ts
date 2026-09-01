@@ -42,7 +42,12 @@ import {
   ringDepositPublicInputHash,
   sealRingDepositOpenings,
 } from "../src/ring/deposit-audit.js";
-import { depositClient, ringAuditReader, transactionsPage } from "./helpers/clients.js";
+import {
+  chainPosition,
+  depositClient,
+  ringAuditReader,
+  transactionsPage,
+} from "./helpers/clients.js";
 import { ownedAccount, ringProgramConfigData } from "./helpers/ring-accounts.js";
 import { proofFor } from "./helpers/proofs.js";
 import { ConfirmedDeposit } from "../src/ring/origin.js";
@@ -622,9 +627,7 @@ describe("deposit recovery", () => {
     const client = {
       ...ringAuditReader({
         getShieldedTransactionsByTags: async (input) =>
-          transactionsPage(
-            input.ringProgramId === undefined ? {} : { nextCursor: Uint8Array.of(1) },
-          ),
+          transactionsPage(input.ringProgramId === undefined ? {} : { next: chainPosition(1n) }),
       }),
       getShieldedTransactionsByNullifiers: async () => transactionsPage(),
     };
