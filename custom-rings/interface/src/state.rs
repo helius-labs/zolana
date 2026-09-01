@@ -22,6 +22,8 @@ pub struct RingProgramConfig {
     /// Auditor P256 public key in SEC1 compressed form (`0x02`/`0x03 || x`).
     pub auditor_pubkey: [u8; COMPRESSED_P256_KEY_LEN],
     pub bump: u8,
+    /// Nonzero selects the folded policy proof, zero the audit-only proof.
+    pub has_policy: u8,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
@@ -49,7 +51,7 @@ impl ReadAccessRecord {
 // Every field is byte-typed (`Address` is a 32-byte, align-1 newtype), so the
 // struct carries no padding: its `Pod` image is exactly its field bytes and
 // `SIZE` is the on-chain account length.
-const _: () = assert!(RingProgramConfig::SIZE == 67);
+const _: () = assert!(RingProgramConfig::SIZE == 68);
 const _: () = assert!(core::mem::align_of::<RingProgramConfig>() == 1);
 const _: () = assert!(ReadAccessRecord::SIZE == 36);
 const _: () = assert!(core::mem::align_of::<ReadAccessRecord>() == 1);

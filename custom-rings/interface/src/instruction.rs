@@ -30,6 +30,8 @@ pub const SET_AUTHORITY_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub struct CreateConfigIxData {
     /// Auditor P256 public key in SEC1 compressed form.
     pub auditor_pubkey: [u8; COMPRESSED_P256_KEY_LEN],
+    /// Nonzero deploys a policy ring, zero an audit-only ring.
+    pub has_policy: u8,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]

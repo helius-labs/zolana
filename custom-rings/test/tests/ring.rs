@@ -333,6 +333,7 @@ fn auditor_key_is_released_only_to_the_ring_authority() -> Result<()> {
                 payer: env.payer.pubkey(),
                 authority: env.payer.pubkey(),
                 auditor_pubkey: service.auditor_pubkey(),
+                has_policy: true,
             }
             .instruction()?,
             SetAuthority {
@@ -486,6 +487,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
             authority,
             auditor_pubkey,
             bump: config_bump,
+            has_policy: 1,
         },
         "custom-ring config account"
     );
@@ -1129,6 +1131,7 @@ impl RegisterRing<'_> {
                 payer: authority,
                 authority,
                 auditor_pubkey: self.auditor_pubkey,
+                has_policy: true,
             }
             .instruction()?],
         )?;

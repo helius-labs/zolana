@@ -10,6 +10,7 @@ export interface RingProgramConfig {
   readonly authority: Address;
   readonly auditorPublicKey: P256PublicKey;
   readonly bump: number;
+  readonly hasPolicy: boolean;
 }
 
 /** Mirrors Rust `SourceSlot`, slot `i` is empty (`listId === 0`) or serves list `i + 1`. */
@@ -28,7 +29,7 @@ export interface RingPolicyConfig {
 }
 
 const RING_PROGRAM_CONFIG_DISCRIMINATOR = 1;
-const RING_PROGRAM_CONFIG_SIZE = 67;
+const RING_PROGRAM_CONFIG_SIZE = 68;
 
 export function decodeRingProgramConfig(data: Uint8Array): RingProgramConfig {
   if (data.length !== RING_PROGRAM_CONFIG_SIZE || data[0] !== RING_PROGRAM_CONFIG_DISCRIMINATOR) {
@@ -41,8 +42,9 @@ export function decodeRingProgramConfig(data: Uint8Array): RingProgramConfig {
   const authority = encodeBase58(reader.bytes(32, "authority"));
   const auditorPublicKey = P256PublicKey.fromBytes(reader.bytes(33, "auditorPublicKey") as Bytes33);
   const bump = reader.u8("bump");
+  const hasPolicy = reader.u8("hasPolicy") !== 0;
   reader.done();
-  return Object.freeze({ authority, auditorPublicKey, bump });
+  return Object.freeze({ authority, auditorPublicKey, bump, hasPolicy });
 }
 
 /** Rust `POLICY_CONFIG` and `PolicyConfig::SIZE`. */

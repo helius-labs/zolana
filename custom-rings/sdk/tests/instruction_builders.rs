@@ -74,6 +74,7 @@ fn create_config_emits_the_program_account_order_and_auditor_key() {
         payer: payer(),
         authority: authority(),
         auditor_pubkey,
+        has_policy: true,
     }
     .instruction()
     .expect("instruction");
@@ -111,6 +112,7 @@ fn create_config_rejects_reserved_auditor_keys() {
             payer: payer(),
             authority: authority(),
             auditor_pubkey,
+            has_policy: true,
         }
         .instruction();
         assert!(matches!(
@@ -332,6 +334,7 @@ fn builders_place_the_canonical_config_and_ring_auth_pdas() {
         payer: payer(),
         authority: authority(),
         auditor_pubkey: auditor_pubkey(),
+        has_policy: true,
     }
     .instruction()
     .expect("instruction");

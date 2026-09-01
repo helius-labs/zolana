@@ -20,8 +20,10 @@ pub fn process_create_config_ix(
     accounts: &mut [AccountView],
     data: &[u8],
 ) -> ProgramResult {
-    let CreateConfigIxData { auditor_pubkey } =
-        wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
+    let CreateConfigIxData {
+        auditor_pubkey,
+        has_policy,
+    } = wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
 
     let mut iter = AccountIterator::new(accounts);
     let payer = iter.next_signer_mut("payer")?;
@@ -85,6 +87,7 @@ pub fn process_create_config_ix(
         authority,
         auditor_pubkey,
         bump,
+        has_policy,
     }
     .init(config_account)
 }
