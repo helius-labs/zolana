@@ -6,7 +6,7 @@ use crate::nullifier_tree::{
         DEFAULT_BATCH_ADDRESS_TREE_HEIGHT,
     },
     error::NullifierTreeError,
-    layout::{NullifierTreeLayout, TreeType},
+    layout::NullifierTreeLayout,
 };
 
 #[repr(C)]
@@ -47,7 +47,6 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         input_queue_batch_size: u64,
         input_queue_zkp_batch_size: u64,
         height: u32,
-        tree_type: TreeType, // TODO: remove TreeType
         address_init_root: Option<[u8; 32]>,
     ) -> Result<(), NullifierTreeError> {
         Self::validate_configuration(input_queue_batch_size, input_queue_zkp_batch_size)?;
@@ -65,7 +64,6 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         // Written field by field: the layout carries both batches with their
         // hash chains and cached updates, which are too large to move through a
         // Solana stack frame as a struct literal.
-        self.tree_type = tree_type as u64;
         self.sequence_number = 0;
         self.next_index = 1;
         self.height = height;

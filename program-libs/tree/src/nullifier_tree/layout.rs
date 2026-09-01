@@ -14,15 +14,6 @@ use crate::nullifier_tree::{
     error::NullifierTreeError,
 };
 
-// TODO: remove
-pub const ADDRESS_MERKLE_TREE_TYPE_V2: u64 = 4;
-// TODO: remove
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[repr(u64)]
-pub enum TreeType {
-    AddressV2 = ADDRESS_MERKLE_TREE_TYPE_V2,
-}
-
 /// Cyclic root-history region: a write cursor followed by `N` root slots.
 /// Capacity is the const generic `N`, so the only stored word is the cursor.
 /// `[u8; 32]` is align-1, so there is no padding between the cursor and the
@@ -37,7 +28,6 @@ pub struct RootHistory<const N: usize> {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, FromBytes, KnownLayout, Immutable)]
 pub struct NullifierTreeLayout<const ZKP_BATCHES: usize> {
-    pub tree_type: u64, // TODO: remove TreeType
     pub sequence_number: u64,
     pub next_index: u64,
     pub height: u32,
@@ -133,17 +123,17 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
 /// 8-aligned cursor and holds align-1 roots, and `Batch` is a multiple of 8. Two
 /// instantiations pin the region offsets.
 const _: () = {
-    assert!(offset_of!(NullifierTreeLayout<1>, root_history) == 80);
-    assert!(offset_of!(NullifierTreeLayout<9>, root_history) == 80);
-    assert!(offset_of!(NullifierTreeLayout<1>, batches) == 80 + size_of::<RootHistory<1>>());
-    assert!(offset_of!(NullifierTreeLayout<9>, batches) == 80 + size_of::<RootHistory<9>>());
+    assert!(offset_of!(NullifierTreeLayout<1>, root_history) == 72);
+    assert!(offset_of!(NullifierTreeLayout<9>, root_history) == 72);
+    assert!(offset_of!(NullifierTreeLayout<1>, batches) == 72 + size_of::<RootHistory<1>>());
+    assert!(offset_of!(NullifierTreeLayout<9>, batches) == 72 + size_of::<RootHistory<9>>());
     assert!(
         size_of::<NullifierTreeLayout<1>>()
-            == 80 + size_of::<RootHistory<1>>() + NUM_BATCHES * size_of::<Batch<1>>()
+            == 72 + size_of::<RootHistory<1>>() + NUM_BATCHES * size_of::<Batch<1>>()
     );
     assert!(
         size_of::<NullifierTreeLayout<9>>()
-            == 80 + size_of::<RootHistory<9>>() + NUM_BATCHES * size_of::<Batch<9>>()
+            == 72 + size_of::<RootHistory<9>>() + NUM_BATCHES * size_of::<Batch<9>>()
     );
 };
 

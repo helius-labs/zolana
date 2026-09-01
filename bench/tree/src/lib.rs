@@ -2,8 +2,7 @@ use borsh::BorshDeserialize;
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_tree::nullifier_tree::{
-    layout::NullifierTreeLayout, layout::TreeType,
-    merkle_tree_update::InstructionDataAddressAppendInputs,
+    layout::NullifierTreeLayout, merkle_tree_update::InstructionDataAddressAppendInputs,
 };
 use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount, UTXO_TREE_HEIGHT};
 
@@ -22,9 +21,6 @@ type AddressTree = NullifierTreeLayout<ADDRESS_ZKP>;
 fn load_address_tree(account_data: &mut [u8]) -> Result<&mut AddressTree, ProgramError> {
     let layout: &mut AddressTree =
         wincode::deserialize_mut(account_data).map_err(|_| ProgramError::InvalidAccountData)?;
-    if layout.tree_type != TreeType::AddressV2 as u64 {
-        return Err(ProgramError::InvalidAccountData);
-    }
     layout
         .validate()
         .map_err(|_| ProgramError::InvalidAccountData)?;

@@ -84,14 +84,13 @@ pub fn get_merkle_tree_account_size<const ZKP: usize>() -> usize {
 #[cfg(feature = "test-only")]
 pub mod test_utils {
     use super::*;
-    use crate::nullifier_tree::{error::NullifierTreeError, layout::TreeType};
+    use crate::nullifier_tree::error::NullifierTreeError;
 
     pub fn init_tree_account_data<const ZKP: usize>(
         account_data: &mut [u8],
         input_queue_batch_size: u64,
         input_queue_zkp_batch_size: u64,
         height: u32,
-        tree_type: TreeType,
         address_init_root: Option<[u8; 32]>,
     ) -> Result<&mut NullifierTreeLayout<ZKP>, NullifierTreeError> {
         let layout = cast_tree_account_data(account_data)?;
@@ -99,7 +98,6 @@ pub mod test_utils {
             input_queue_batch_size,
             input_queue_zkp_batch_size,
             height,
-            tree_type,
             address_init_root,
         )?;
         Ok(layout)
@@ -109,9 +107,6 @@ pub mod test_utils {
         account_data: &mut [u8],
     ) -> Result<&mut NullifierTreeLayout<ZKP>, NullifierTreeError> {
         let layout = cast_tree_account_data::<ZKP>(account_data)?;
-        if layout.tree_type != TreeType::AddressV2 as u64 {
-            return Err(NullifierTreeError::InvalidTreeType);
-        }
         layout.validate()?;
         Ok(layout)
     }

@@ -2,7 +2,6 @@ use zolana_tree::nullifier_tree::{
     access::{get_merkle_tree_account_size, test_utils::init_tree_account_data},
     batch::CachedTreeUpdate,
     error::NullifierTreeError,
-    layout::TreeType,
     merkle_tree_update::InstructionDataAddressAppendInputs,
     proof::CompressedProof,
 };
@@ -15,7 +14,7 @@ use zolana_tree::nullifier_tree::{
 fn test_replay_after_apply_is_noop() {
     let mut account_data = vec![0u8; get_merkle_tree_account_size::<4>()];
     let pubkey = [1u8; 32];
-    let tree = init_tree_account_data::<4>(&mut account_data, 4, 1, 40, TreeType::AddressV2, None)
+    let tree = init_tree_account_data::<4>(&mut account_data, 4, 1, 40, None)
         .unwrap();
 
     // Two zkp batches finalized, one already inserted -> num_inserted = 1.
@@ -52,7 +51,7 @@ fn test_replay_after_apply_is_noop() {
 fn test_replay_while_cached_verifies_and_keeps_update_on_failure() {
     let mut account_data = vec![0u8; get_merkle_tree_account_size::<4>()];
     let pubkey = [1u8; 32];
-    let tree = init_tree_account_data::<4>(&mut account_data, 4, 1, 40, TreeType::AddressV2, None)
+    let tree = init_tree_account_data::<4>(&mut account_data, 4, 1, 40, None)
         .unwrap();
 
     // Finalize a zkp batch so zkp_batch_index 0 passes the readiness guard.

@@ -82,7 +82,7 @@ use nullifier_tree::{
         ADDRESS_TREE_DEFAULT_ZKP, DEFAULT_BATCH_ADDRESS_TREE_HEIGHT, NULLIFIER_TREE_INIT_ROOT_40,
     },
     init::match_circuit_size,
-    layout::{NullifierTreeLayout, TreeType},
+    layout::NullifierTreeLayout,
 };
 #[cfg(feature = "account-view")]
 use pinocchio::{account::RefMut, AccountView, Address};
@@ -208,7 +208,6 @@ impl<'a> TreeAccount<'a> {
                 nullifier_params.input_queue_batch_size,
                 nullifier_params.input_queue_zkp_batch_size,
                 nullifier_params.height,
-                TreeType::AddressV2,
                 Some(NULLIFIER_TREE_INIT_ROOT_40),
             )
             .map_err(|_| TreeError::AddressInit)?;
@@ -388,7 +387,7 @@ mod layout_equivalence {
 
     const STATIC_METADATA_LEN: usize = 8;
     const HEADER_LEN: usize = STATIC_METADATA_LEN + TREE_RESERVED_BYTES;
-    const EXPECTED_ACCOUNT_SIZE: usize = 34_864;
+    const EXPECTED_ACCOUNT_SIZE: usize = 34_856;
     const EXPECTED_NULLIFIER_OFFSET: usize = 7_544;
     const EXPECTED_STATE_ROOT_OFFSET: usize = 80;
 

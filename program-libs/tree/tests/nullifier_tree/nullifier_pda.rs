@@ -6,7 +6,7 @@ use zolana_tree::nullifier_tree::{
     },
     constants::NULLIFIER_TREE_INIT_ROOT_40,
     error::NullifierTreeError,
-    layout::{NullifierTreeLayout, TreeType},
+    layout::NullifierTreeLayout,
 };
 
 const ZKP: usize = 4;
@@ -23,7 +23,6 @@ fn init_tree(data: &mut [u8]) -> &mut NullifierTreeLayout<ZKP> {
         BATCH_SIZE,
         ZKP_BATCH_SIZE,
         40,
-        TreeType::AddressV2,
         Some(NULLIFIER_TREE_INIT_ROOT_40),
     )
     .unwrap()
@@ -51,7 +50,6 @@ fn single_slot_root_history_initializes_and_reloads() {
         ZKP_BATCH_SIZE,
         ZKP_BATCH_SIZE,
         40,
-        TreeType::AddressV2,
         Some(NULLIFIER_TREE_INIT_ROOT_40),
     )
     .unwrap();
@@ -70,7 +68,6 @@ fn derived_root_history_must_match_one_batch_of_zkp_updates() {
             BATCH_SIZE + ZKP_BATCH_SIZE,
             ZKP_BATCH_SIZE,
             40,
-            TreeType::AddressV2,
             Some(NULLIFIER_TREE_INIT_ROOT_40),
         )
         .unwrap_err(),
@@ -84,7 +81,6 @@ fn derived_root_history_must_match_one_batch_of_zkp_updates() {
             BATCH_SIZE,
             ZKP_BATCH_SIZE,
             40,
-            TreeType::AddressV2,
             Some(NULLIFIER_TREE_INIT_ROOT_40),
         )
         .unwrap_err(),

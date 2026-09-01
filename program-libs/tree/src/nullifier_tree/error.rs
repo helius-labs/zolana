@@ -25,14 +25,12 @@ pub enum NullifierTreeError {
     NonCanonicalFieldElement,
     #[error("Arithmetic overflow.")]
     ArithmeticOverflow,
-    #[error("Cached tree update index is out of range.")]
-    CachedTreeUpdateIndexOutOfRange,
+    #[error("ZKP batch index is out of range.")]
+    ZkpBatchIndexOutOfRange,
     #[error("Hash chain for the requested zkp batch is not finalized.")]
     HashChainNotReady,
     #[error("Hash chain region is full, cannot push any new elements.")]
     HashChainFull,
-    #[error("Invalid tree type.")]
-    InvalidTreeType,
     #[error("Invalid height.")]
     InvalidHeight,
     #[error("Root history must contain exactly one queue batch of ZKP update roots.")]
@@ -78,10 +76,11 @@ impl From<NullifierTreeError> for u32 {
             // counter cross-check; do not reuse the code.
             NullifierTreeError::NonCanonicalFieldElement => 14010,
             NullifierTreeError::ArithmeticOverflow => 14011,
-            NullifierTreeError::CachedTreeUpdateIndexOutOfRange => 14012,
+            NullifierTreeError::ZkpBatchIndexOutOfRange => 14012,
             NullifierTreeError::HashChainNotReady => 14013,
             NullifierTreeError::HashChainFull => 14014,
-            NullifierTreeError::InvalidTreeType => 14015,
+            // 14015 was InvalidTreeType, removed with the tree_type layout
+            // word; do not reuse the code.
             NullifierTreeError::InvalidHeight => 14016,
             NullifierTreeError::InvalidRootHistoryCapacity => 14017,
             NullifierTreeError::InvalidAccountSize => 14018,

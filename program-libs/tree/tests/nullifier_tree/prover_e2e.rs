@@ -5,7 +5,6 @@ use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use zolana_client::{spawn_prover, BatchAddressAppendInputs, ProofCompressed, ProverClient};
 use zolana_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
-use zolana_tree::nullifier_tree::layout::TreeType;
 use zolana_tree::nullifier_tree::{
     access::{
         get_merkle_tree_account_size,
@@ -45,7 +44,6 @@ fn init_nullifier_tree(account_data: &mut [u8]) -> &mut NullifierTree {
         params.input_queue_batch_size,
         params.input_queue_zkp_batch_size,
         params.height,
-        TreeType::AddressV2,
         Some(NULLIFIER_TREE_INIT_ROOT_40),
     )
     .unwrap()
@@ -572,7 +570,7 @@ fn nullifier_tree_submit_index_errors() {
         account
             .update_tree_from_address_queue(TREE_PUBKEY, out_of_range)
             .unwrap_err(),
-        NullifierTreeError::CachedTreeUpdateIndexOutOfRange
+        NullifierTreeError::ZkpBatchIndexOutOfRange
     );
 
     let mut not_ready = dummy;

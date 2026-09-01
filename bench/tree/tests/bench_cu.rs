@@ -14,7 +14,6 @@ use solana_pubkey::Pubkey;
 use zolana_client::{spawn_prover, BatchAddressAppendInputs, ProofCompressed, ProverClient};
 use zolana_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
-use zolana_tree::nullifier_tree::layout::TreeType;
 use zolana_tree::nullifier_tree::{
     access::{
         get_merkle_tree_account_size,
@@ -147,7 +146,6 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
         ADDRESS_BATCH_SIZE,
         ADDRESS_ZKP_BATCH_SIZE,
         ADDRESS_HEIGHT,
-        TreeType::AddressV2,
         Some(NULLIFIER_TREE_INIT_ROOT_40),
     )
     .unwrap();

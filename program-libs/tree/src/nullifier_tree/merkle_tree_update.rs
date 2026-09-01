@@ -26,8 +26,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     /// update.
     ///
     /// Steps:
-    /// 1. Verify the proof and cache the update. A replayed proof overwrites the
-    ///    cache.
+    /// 1. Verify the proof and cache the update. A replayed proof is noop.
     /// 2. Apply cached updates in order: the just-verified one and any it
     ///    unblocks. Updates that do not match the account tree are skipped, not
     ///    errors.
@@ -37,11 +36,11 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         merkle_tree_pubkey: [u8; 32],
         instruction_data: InstructionDataAddressAppendInputs,
     ) -> Result<Option<BatchAddressAppendEvent>, NullifierTreeError> {
-        // 2. Verify the proof and cache the update.
+        // 1. Verify the proof and cache the update.
         if !self.verify_proof_cache_update(&instruction_data)? {
             return Ok(None);
         }
-        // 3. Apply cached updates in order.
+        // 2. Apply cached updates in order.
         self.apply_cached_tree_updates(merkle_tree_pubkey)
     }
 
@@ -63,22 +62,23 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         instruction_data: &InstructionDataAddressAppendInputs,
     ) -> Result<bool, NullifierTreeError> {
         let zkp_batch_size = self.zkp_batch_size;
-        let pending_batch_index = self.pending_batch_index as usize;
+        let zkp_batch_index = usize::from(instruction_data.zkp_batch_index);
 
-        let (num_full_zkp_batches, num_inserted_zkp_batches, cached_tree_update_capacity) = {
+        let (num_full_zkp_batches, num_inserted_zkp_batches, batch_start_index, leaves_hash_chain) = {
             let batch = self.get_pending_batch()?;
             (
                 batch.num_full_zkp_batches,
                 batch.get_num_inserted_zkps(),
-                batch.cached_tree_update_capacity(),
+                batch.start_index,
+                batch.hash_chain(zkp_batch_index),
             )
         };
 
         // 1. Validate the zkp batch index and that its hash chain is finalized.
-        let zkp_batch_index = usize::from(instruction_data.zkp_batch_index);
-        if zkp_batch_index >= cached_tree_update_capacity {
-            return Err(NullifierTreeError::CachedTreeUpdateIndexOutOfRange);
-        }
+        //    The hash chain array holds one slot per zkp batch, so a missing
+        //    slot is an out-of-range index.
+        let leaves_hash_chain =
+            leaves_hash_chain.ok_or(NullifierTreeError::ZkpBatchIndexOutOfRange)?;
         if u64::from(instruction_data.zkp_batch_index) >= num_full_zkp_batches {
             return Err(NullifierTreeError::HashChainNotReady);
         }
@@ -86,24 +86,21 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         // 2. Skip when already applied: a zkp batch index behind the number of
         //    inserted zkp batches belongs to an update that is already in the
         //    tree, so a replayed proof is a no-op.
-        let Some(zkp_batches_ahead) =
-            u64::from(instruction_data.zkp_batch_index).checked_sub(num_inserted_zkp_batches)
-        else {
+        if u64::from(instruction_data.zkp_batch_index) < num_inserted_zkp_batches {
             return Ok(false);
-        };
-        // Reconstruct the proof's StartIndex: the tree next index this zkp
-        // batch writes at.
-        let next_index_for_proof = zkp_batches_ahead
+        }
+        // Reconstruct the proof's StartIndex: the leaf this zkp batch starts
+        // at.
+        let zkp_batch_start_index = u64::from(instruction_data.zkp_batch_index)
             .checked_mul(zkp_batch_size)
-            .and_then(|offset| self.next_index.checked_add(offset))
+            .and_then(|num_inserted_queue_elements| {
+                batch_start_index.checked_add(num_inserted_queue_elements)
+            })
             .ok_or(NullifierTreeError::ArithmeticOverflow)?;
 
         // 3. Rebuild the public input hash and verify the proof.
-        let leaves_hash_chain = self
-            .get_hash_chain(pending_batch_index, zkp_batch_index)
-            .ok_or(NullifierTreeError::InvalidIndex)?;
         let mut next_index_bytes = [0u8; 32];
-        next_index_bytes[24..].copy_from_slice(next_index_for_proof.to_be_bytes().as_slice());
+        next_index_bytes[24..].copy_from_slice(zkp_batch_start_index.to_be_bytes().as_slice());
         let public_input_hash = create_hash_chain_from_array([
             instruction_data.old_root,
             instruction_data.new_root,

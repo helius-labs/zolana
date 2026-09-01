@@ -160,8 +160,8 @@ impl<const ZKP: usize> Batch<ZKP> {
     }
 
     /// Number of cached update slots, one per ZKP batch.
-    pub fn cached_tree_update_capacity(&self) -> usize {
-        self.cached_tree_updates.len()
+    pub fn num_zkp_batches(&self) -> usize {
+        self.hash_chains.len()
     }
 
     /// Returns the cached update of a ZKP batch, or `None` for an
@@ -182,7 +182,7 @@ impl<const ZKP: usize> Batch<ZKP> {
         *self
             .cached_tree_updates
             .get_mut(zkp_batch_index)
-            .ok_or(NullifierTreeError::CachedTreeUpdateIndexOutOfRange)? = update;
+            .ok_or(NullifierTreeError::ZkpBatchIndexOutOfRange)? = update;
         Ok(())
     }
 
@@ -198,7 +198,7 @@ impl<const ZKP: usize> Batch<ZKP> {
         *self
             .hash_chains
             .get_mut(zkp_batch_index)
-            .ok_or(NullifierTreeError::CachedTreeUpdateIndexOutOfRange)? = [0u8; 32];
+            .ok_or(NullifierTreeError::ZkpBatchIndexOutOfRange)? = [0u8; 32];
         Ok(())
     }
 

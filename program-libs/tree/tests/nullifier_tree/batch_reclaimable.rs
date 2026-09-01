@@ -7,7 +7,7 @@ use zolana_tree::nullifier_tree::{
     batch::CachedTreeUpdate,
     constants::NULLIFIER_TREE_INIT_ROOT_40,
     error::NullifierTreeError,
-    layout::{NullifierTreeLayout, TreeType},
+    layout::NullifierTreeLayout,
 };
 
 const ZKP: usize = 4;
@@ -25,7 +25,6 @@ fn init_tree(data: &mut [u8]) {
         BATCH_SIZE,
         ZKP_BATCH_SIZE,
         40,
-        TreeType::AddressV2,
         Some(NULLIFIER_TREE_INIT_ROOT_40),
     )
     .unwrap();
