@@ -37,14 +37,14 @@ import {
   type TransactionIntent,
 } from "../transaction/wallet/intent.js";
 import { SOL_MINT, type AssetRegistry } from "../transaction/asset.js";
-import type { NoteReservation, Wallet, WalletUtxo } from "../transaction/wallet/state.js";
+import type { UtxoReservation, Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 import { ownerSignerAddresses } from "../client/prover/assembly.js";
 import { resolveWithdrawalSettlement, withdrawalSetupInstructions } from "../flows/settlement.js";
 import { resolveShieldedRecipient } from "../wallet/registry.js";
 
 import { fetchRingProgramConfig } from "./config.js";
-import { MAX_SPEND_INPUTS, selectNotes, type SpendSelectionErrors } from "../flows/select.js";
-import { reserveEntries, reservedNoteKeys, unreserved } from "../flows/reserve.js";
+import { MAX_SPEND_INPUTS, selectUtxos, type SpendSelectionErrors } from "../flows/select.js";
+import { reserveEntries, reservedUtxoKeys, unreserved } from "../flows/reserve.js";
 import { RingError, wrapRingError } from "./error.js";
 import { ringTransactInstruction } from "./instructions.js";
 import { fetchRingLookupTable } from "./lookup-table.js";
@@ -69,7 +69,7 @@ export interface RingTransferTransactionParams {
   readonly recipient: Address | ShieldedAddress;
   readonly asset?: Address;
   readonly amount: bigint;
-  /** `"default"` funds only from default notes, `"ring-or-default"` mixes both pools. */
+  /** `"default"` funds only from default UTXOs. `"ring-or-default"` mixes both pools. */
   readonly inputs?: "ring" | "ring-or-default" | "default";
   /** Must be at least one slot old. */
   readonly lookupTable: Address;
@@ -160,8 +160,8 @@ export async function buildRingEntryTransaction(
 }
 
 /**
- * Value leaves the ring to a default-ring note of the recipient, and the
- * custom-ring proof still covers the exit. Only ring-bound notes fund it, an
+ * Value leaves the ring to a default-ring UTXO of the recipient, and the
+ * custom-ring proof still covers the exit. Only ring-bound UTXOs fund it. An
  * all-default transact must not reach the audit as an exit.
  */
 export async function buildRingExitTransaction(
@@ -193,7 +193,7 @@ async function buildRingSendTransaction(
         } else {
           transfer.sendDefaultRing(recipient, asset, input.amount);
         }
-        // Change of a default note becomes ring bound.
+        // Change of a default UTXO becomes ring bound.
         const defaultFunding = selected
           .filter((entry) => entry.utxo.ringProgramId === undefined)
           .reduce((sum, entry) => sum + entry.utxo.amount, 0n);
@@ -202,7 +202,7 @@ async function buildRingSendTransaction(
         const crossing =
           defaultFunding === 0n
             ? ""
-            : `, moves ${String(defaultFunding)} ${assetLabel(asset)} of default notes into the ring`;
+            : `, moves ${String(defaultFunding)} ${assetLabel(asset)} of default UTXOs into the ring`;
         return {
           intent: {
             kind: "ringTransfer",
@@ -265,7 +265,7 @@ async function buildRingSpend<R>(
 ): Promise<Transaction> {
   return input.authority.withSpendSession(async (session) => {
     let inputs: readonly ProofInputUtxo[] = [];
-    let reservation: NoteReservation | undefined;
+    let reservation: UtxoReservation | undefined;
     try {
       await initializePoseidon();
       const asset = input.asset ?? SOL_MINT;
@@ -490,7 +490,7 @@ export async function proveCustomRingTransfer(
 
 /** Mirrors Rust `RingMembership::validate`. @internal */
 export function checkRingMembership(prepared: PreparedTransfer, ringProgramId: Address): void {
-  const notes = [
+  const utxos = [
     ...prepared.inputs.map((input) => ({
       ring: input.utxo.ringProgramId,
       data: input.ringDataHash,
@@ -500,11 +500,11 @@ export function checkRingMembership(prepared: PreparedTransfer, ringProgramId: A
       data: output.ringDataHash,
     })),
   ];
-  const foreign = notes.find((note) => note.ring !== undefined && note.ring !== ringProgramId);
+  const foreign = utxos.find((utxo) => utxo.ring !== undefined && utxo.ring !== ringProgramId);
   if (foreign?.ring !== undefined) {
     throw new RingError("RING_FOREIGN_RING", { details: { ringProgramId: foreign.ring } });
   }
-  if (notes.some((note) => note.ring === undefined && note.data !== undefined)) {
+  if (utxos.some((utxo) => utxo.ring === undefined && utxo.data !== undefined)) {
     throw new RingError("RING_DATA_OUTSIDE_RING");
   }
 }
@@ -614,7 +614,7 @@ function assetLabel(asset: Address): string {
 }
 
 /**
- * Notes on `tree` the mode admits.
+ * UTXOs on `tree` that the mode admits.
  *
  * @internal Exported for tests only.
  */
@@ -626,12 +626,12 @@ export function selectRingInputs(
   inputs: "ring" | "ring-or-default" | "default",
   tree: Address,
 ): readonly WalletUtxo[] {
-  // Zero selects a note whose whole change would cross the ring boundary.
+  // Zero selects a UTXO whose whole change would cross the ring boundary.
   if (amount <= 0n) {
     throw new RingError("RING_ZERO_AMOUNT", { details: { asset } });
   }
-  const reserved = reservedNoteKeys(wallet);
-  return selectNotes({
+  const reserved = reservedUtxoKeys(wallet);
+  return selectUtxos({
     wallet,
     asset,
     target: { kind: "cover", amount },

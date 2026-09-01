@@ -122,7 +122,7 @@ describe("shielded key material", () => {
   it("applies the symmetric key schedule as an involution", () => {
     const sharedSecret = new Uint8Array(32);
     sharedSecret.set(new Uint8Array(31).fill(0x11), 1);
-    const plaintext = new TextEncoder().encode("private note");
+    const plaintext = new TextEncoder().encode("private UTXO");
     const ciphertext = symmetricApply(sharedSecret, MERGE_INFO, plaintext);
     expect(ciphertext).not.toEqual(plaintext);
     expect(symmetricApply(sharedSecret, MERGE_INFO, ciphertext)).toEqual(plaintext);

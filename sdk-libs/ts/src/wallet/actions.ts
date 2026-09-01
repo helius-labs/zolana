@@ -9,12 +9,12 @@ import { ShieldedAddress } from "../keypair/shielded.js";
 import { WithdrawalTarget } from "../transaction/instructions/transact.js";
 import { hex, type Wallet, type WalletUtxo } from "../transaction/wallet/state.js";
 
-import { reservedNoteKeys, unreserved } from "../flows/reserve.js";
+import { reservedUtxoKeys, unreserved } from "../flows/reserve.js";
 import { resolveWithdrawalSettlement } from "../flows/settlement.js";
 import {
   MAX_SPEND_INPUTS,
   isPlainUtxo,
-  selectNotes,
+  selectUtxos,
   type SpendPolicy,
   type SpendSelectionErrors,
 } from "../flows/select.js";
@@ -232,9 +232,9 @@ function selectSpendInputs(
   asset: Address,
   amount: bigint,
 ): Readonly<{ tree: Address; inputs: readonly UnsignedSpendInput[]; reservationId: string }> {
-  const reserved = reservedNoteKeys(wallet);
+  const reserved = reservedUtxoKeys(wallet);
   const base = defaultSpendPolicy();
-  const selection = selectNotes({
+  const selection = selectUtxos({
     wallet,
     asset,
     target: { kind: "cover", amount },
@@ -370,7 +370,7 @@ export function createSplit(params: SplitParams): CreatedSplit {
     throw new WalletError("WALLET_INPUT_UTXO_UNAVAILABLE");
   }
   const tree = named ? named.outputContext.tree : spendTree(params.wallet, params.asset);
-  const reserved = reservedNoteKeys(params.wallet);
+  const reserved = reservedUtxoKeys(params.wallet);
   const candidates = entries.filter(
     (entry) =>
       entry.outputContext.tree === tree && isPlainUtxo(entry) && unreserved(reserved)(entry),

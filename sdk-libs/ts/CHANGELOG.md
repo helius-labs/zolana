@@ -1,6 +1,22 @@
 # Changelog
 
-## 0.1.5-alpha — unreleased
+## 0.1.6-alpha — unreleased
+
+Wallet replay keeps merge outputs when their inputs arrive in the same sync.
+Selection and approval text use UTXO terminology without changing version 3 snapshot keys.
+
+Changed
+
+- `buildRingEntryTransaction`, `buildRingTransferTransaction`, and
+  `buildRingExitTransaction` use UTXO terminology in approval summaries, while
+  version 3 `SerializedWalletState` reservation field names remain unchanged.
+
+Fixed
+
+- `decryptTransactions` no longer omits a merge when its inputs arrive in the
+  same sync because merge dependencies resolve before wallet commit.
+
+## 0.1.5-alpha — 2026-09-01
 
 Wallet sync is atomic, and serialized wallets carry the cursors needed to
 resume after a restart. Keys granted by a wallet authority live only

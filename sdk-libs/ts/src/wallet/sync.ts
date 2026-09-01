@@ -183,7 +183,7 @@ function walletQueryTags(wallet: Wallet, material: WalletSyncMaterial): readonly
 }
 
 /**
- * Nullifiers of unspent notes.
+ * Nullifiers of unspent UTXOs.
  *
  * A nullifier appears at most once on chain, so once its spend is known the
  * answer is final. Cost tracks the unspent count, not history.
@@ -370,7 +370,7 @@ async function collectShieldedTransactions(
     for (const transaction of response.transactions) {
       // Photon can surface a proofless deposit here before flagging it. Those
       // are collected from the encrypted-utxo endpoint instead, so taking them
-      // twice would store the same note under two keys.
+      // twice would store the same UTXO under two keys.
       if (transaction.proofless) continue;
       const key = shieldedTransactionKey(transaction);
       if (!input.out.has(key)) input.out.set(key, transaction);
@@ -642,7 +642,7 @@ async function runWalletSync(
       }
     }
 
-    // A transaction found by a stable tag can create a note that another
+    // A transaction found by a stable tag can create a UTXO that another
     // device already spent. Query each newly discovered nullifier once, then
     // stop: this is an explicit bounded backstop rather than a generic round
     // loop that re-queries the same stable tags.
@@ -675,8 +675,8 @@ async function runWalletSync(
         }
       }
     }
-    // An unresolved asset means a fetched note was not stored. A commit would
-    // advance the cursors past it and lose the note until a full rescan.
+    // An unresolved asset means a fetched UTXO was not stored. A commit would
+    // advance the cursors past it and lose the UTXO until a full rescan.
     if (
       report.unknownAssetIds.length > 0 ||
       report.unknownAssetFields.length > 0 ||

@@ -20,7 +20,7 @@ export interface RingBalance {
   readonly assets: readonly AssetBalance[];
 }
 
-/** Narrows which unspent notes a balance counts. */
+/** Narrows which unspent UTXOs a balance counts. */
 export type Filter = Readonly<{ kind: "minAmount"; minAmount: bigint }>;
 
 function matches(filter: Filter, utxo: Utxo): boolean {
@@ -67,10 +67,10 @@ export type CursorStream = "transactions" | "proofless" | "nullifiers";
 /** @internal */
 export type SyncCursorAdvances = Readonly<Record<CursorStream, ReadonlyMap<string, Uint8Array>>>;
 
-/** @internal Selection skips its notes until expiry, per wallet instance, not a cross-process lock. */
-export interface NoteReservation {
+/** @internal Selection skips its UTXOs until expiry, per wallet instance, not a cross-process lock. */
+export interface UtxoReservation {
   readonly id: string;
-  readonly noteHashes: readonly Bytes32[];
+  readonly utxoHashes: readonly Bytes32[];
   readonly expiresAtMs: bigint;
 }
 
@@ -227,7 +227,7 @@ export class Wallet {
   #nullifierCursors = new Map<string, Uint8Array>();
   #revision = 0;
   #syncQueue: Promise<unknown> = Promise.resolve();
-  #reservations: NoteReservation[] = [];
+  #reservations: UtxoReservation[] = [];
 
   constructor(input: Readonly<{ identity: ShieldedAddress; registry?: AssetRegistry }>) {
     this.identity = input.identity;
@@ -312,8 +312,8 @@ export class Wallet {
 
   /**
    * The spendable default-ring balance of one registered mint. A mint the
-   * wallet holds no note for still has a balance of zero; only a mint the
-   * registry does not know is a rejection.
+   * wallet holds no UTXO for still has a balance of zero. Only an unknown mint
+   * is a rejection.
    */
   balance(mint: Address, filter?: Filter): AssetBalance {
     const assetId = this.#registry.assetId(mint);
@@ -332,7 +332,7 @@ export class Wallet {
 
   /**
    * One spendable default-ring balance per mint the wallet holds an unspent
-   * note of, by asset id. Ring-bound notes appear in `ringBalances`.
+   * UTXO for, by asset id. Ring-bound UTXOs appear in `ringBalances`.
    */
   balances(skipUtxos = false): readonly AssetBalance[] {
     return this.#assetBalances((entry) => entry.utxo.ringProgramId === undefined, skipUtxos);
@@ -361,11 +361,11 @@ export class Wallet {
     eligible: (entry: WalletUtxo) => boolean,
     skipUtxos: boolean,
   ): readonly AssetBalance[] {
-    const notes = this.#utxos.filter((entry) => !entry.spent && eligible(entry));
-    const mints = new Set(notes.map((entry) => entry.utxo.asset));
+    const eligibleUtxos = this.#utxos.filter((entry) => !entry.spent && eligible(entry));
+    const mints = new Set(eligibleUtxos.map((entry) => entry.utxo.asset));
     return [...mints]
       .map((mint) => {
-        const utxos = notes
+        const utxos = eligibleUtxos
           .filter((entry) => entry.utxo.asset === mint)
           .map((entry) => copyUtxo(entry.utxo));
         const amount = checkedBalance(utxos.reduce((sum, utxo) => sum + utxo.amount, 0n));
@@ -430,7 +430,7 @@ export class Wallet {
       this.#utxos.filter((entry) => !entry.spent).map((entry) => hex(entry.outputContext.hash)),
     );
     this.#reservations = this.#reservations.filter((reservation) =>
-      reservation.noteHashes.every((noteHash) => unspent.has(hex(noteHash))),
+      reservation.utxoHashes.every((utxoHash) => unspent.has(hex(utxoHash))),
     );
     if (input.viewingKeyHistory !== undefined) {
       this.#viewingKeyHistory = input.viewingKeyHistory.map(snapshotViewingKeyEntry);
@@ -442,14 +442,14 @@ export class Wallet {
   }
 
   /** @internal Validates and commits in one synchronous step, never bumps the revision. */
-  _reserveNotes(
-    input: Readonly<{ noteHashes: readonly Bytes32[]; nowMs: bigint; ttlMs: bigint }>,
-  ): NoteReservation {
+  _reserveUtxos(
+    input: Readonly<{ utxoHashes: readonly Bytes32[]; nowMs: bigint; ttlMs: bigint }>,
+  ): UtxoReservation {
     this.#sweepReservations(input.nowMs);
-    const reserved = this._reservedNoteKeys(input.nowMs);
+    const reserved = this._reservedUtxoKeys(input.nowMs);
     const known = new Map(this.#utxos.map((entry) => [hex(entry.outputContext.hash), entry]));
-    for (const noteHash of input.noteHashes) {
-      const key = hex(noteHash);
+    for (const utxoHash of input.utxoHashes) {
+      const key = hex(utxoHash);
       const entry = known.get(key);
       if (entry === undefined || entry.spent) {
         throw new TransactionError("TRANSACTION_RESERVED_NOTE_UNAVAILABLE", { hash: key });
@@ -458,9 +458,9 @@ export class Wallet {
         throw new TransactionError("TRANSACTION_NOTE_RESERVED", { hash: key });
       }
     }
-    const reservation: NoteReservation = Object.freeze({
+    const reservation: UtxoReservation = Object.freeze({
       id: randomReservationId(),
-      noteHashes: Object.freeze(input.noteHashes.map((noteHash) => copy(noteHash) as Bytes32)),
+      utxoHashes: Object.freeze(input.utxoHashes.map((utxoHash) => copy(utxoHash) as Bytes32)),
       expiresAtMs: input.nowMs + input.ttlMs,
     });
     this.#reservations.push(reservation);
@@ -473,15 +473,15 @@ export class Wallet {
   }
 
   /** @internal */
-  _activeReservations(nowMs: bigint): readonly NoteReservation[] {
+  _activeReservations(nowMs: bigint): readonly UtxoReservation[] {
     return this.#reservations.filter((reservation) => reservation.expiresAtMs > nowMs);
   }
 
-  /** @internal Hex hashes of every note an unexpired reservation holds. */
-  _reservedNoteKeys(nowMs: bigint): ReadonlySet<string> {
+  /** @internal Hex hashes of every UTXO an unexpired reservation holds. */
+  _reservedUtxoKeys(nowMs: bigint): ReadonlySet<string> {
     const keys = new Set<string>();
     for (const reservation of this._activeReservations(nowMs)) {
-      for (const noteHash of reservation.noteHashes) keys.add(hex(noteHash));
+      for (const utxoHash of reservation.utxoHashes) keys.add(hex(utxoHash));
     }
     return keys;
   }
@@ -493,22 +493,22 @@ export class Wallet {
     this.#reservations = this.#reservations.filter(
       (reservation) =>
         reservation.expiresAtMs > nowMs &&
-        reservation.noteHashes.every((noteHash) => unspent.has(hex(noteHash))),
+        reservation.utxoHashes.every((utxoHash) => unspent.has(hex(utxoHash))),
     );
   }
 
   /** @internal Serialization only, includes expired entries. */
-  _reservationEntries(): readonly NoteReservation[] {
+  _reservationEntries(): readonly UtxoReservation[] {
     return this.#reservations;
   }
 
-  /** @internal Drops entries that name a spent or unknown note. */
-  _restoreReservations(reservations: readonly NoteReservation[]): void {
+  /** @internal Drops entries that name a spent or unknown UTXO. */
+  _restoreReservations(reservations: readonly UtxoReservation[]): void {
     const unspent = new Set(
       this.#utxos.filter((entry) => !entry.spent).map((entry) => hex(entry.outputContext.hash)),
     );
     this.#reservations = reservations.filter((reservation) =>
-      reservation.noteHashes.every((noteHash) => unspent.has(hex(noteHash))),
+      reservation.utxoHashes.every((utxoHash) => unspent.has(hex(utxoHash))),
     );
   }
 

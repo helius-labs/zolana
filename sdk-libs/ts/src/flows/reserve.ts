@@ -1,7 +1,7 @@
 import type { Bytes32 } from "../interface/types.js";
 import {
   hex,
-  type NoteReservation,
+  type UtxoReservation,
   type Wallet,
   type WalletUtxo,
 } from "../transaction/wallet/state.js";
@@ -10,14 +10,14 @@ import {
 export const DEFAULT_RESERVATION_TTL_MS = 120_000n;
 
 /** @internal */
-export function reservedNoteKeys(wallet: Wallet): ReadonlySet<string> {
-  return wallet._reservedNoteKeys(BigInt(Date.now()));
+export function reservedUtxoKeys(wallet: Wallet): ReadonlySet<string> {
+  return wallet._reservedUtxoKeys(BigInt(Date.now()));
 }
 
 /** @internal */
-export function reserveEntries(wallet: Wallet, entries: readonly WalletUtxo[]): NoteReservation {
-  return wallet._reserveNotes({
-    noteHashes: entries.map((entry) => entry.outputContext.hash),
+export function reserveEntries(wallet: Wallet, entries: readonly WalletUtxo[]): UtxoReservation {
+  return wallet._reserveUtxos({
+    utxoHashes: entries.map((entry) => entry.outputContext.hash),
     nowMs: BigInt(Date.now()),
     ttlMs: DEFAULT_RESERVATION_TTL_MS,
   });

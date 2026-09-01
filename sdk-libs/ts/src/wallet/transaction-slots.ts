@@ -10,7 +10,7 @@ const addressDecoder = getAddressDecoder();
 export interface TransactionSlots {
   /** Owner tag by output slot index. */
   readonly ownerTags: ReadonlyMap<number, Address>;
-  /** Tree leaf by output slot index, which ties a slot to a wallet's note. */
+  /** Tree leaf by output slot index, which ties a slot to a wallet's UTXO. */
   readonly leaves: ReadonlyMap<number, bigint>;
 }
 

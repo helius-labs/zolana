@@ -6,7 +6,7 @@ import { WalletError, wrapWalletError } from "./error.js";
 import { runLockedWalletSync, type SyncWalletInput } from "./sync.js";
 
 /**
- * Snapshots contain private note data, encrypt them at rest. `save` must
+ * Snapshots contain private UTXO data, encrypt them at rest. `save` must
  * replace the stored snapshot atomically or leave it unchanged, a partial
  * write breaks the retry contract of `syncPersistedWallet`. Single writer
  * per stored snapshot, a stale overwrite loses only sync progress the next

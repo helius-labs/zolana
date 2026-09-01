@@ -118,8 +118,8 @@ a defect.
 
 ## Concurrency and reservations
 
-- Note selection and reservation form one synchronous state transition.
-  Concurrent builds on one wallet MUST NOT select the same note.
+- UTXO selection and reservation form one synchronous state transition.
+  Concurrent builds on one wallet MUST NOT select the same UTXO.
 - Every failure after reservation MUST release it in `finally` or the owning
   error boundary. Success retains it until confirmation, sync-observed spend,
   explicit cancellation, or documented expiry.

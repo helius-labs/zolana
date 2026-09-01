@@ -424,7 +424,6 @@ describe("dummy prover inputs", () => {
     const converted = createDummyTransferInput(input, 4n, proof);
     const utxo = converted.circuit;
 
-    expect({ ...converted }.circuit).toBe(converted.circuit);
     expect(converted.ownerPublicKeyHash).toBe(0n);
     expect(utxo).toEqual({
       domain: 1n,

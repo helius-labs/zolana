@@ -80,6 +80,7 @@ export interface SerializedSyncCursors {
   readonly nullifiers: readonly SerializedCursor[];
 }
 
+/** Version 3 wire names remain frozen for persisted snapshot compatibility. */
 export interface SerializedNoteReservation {
   readonly id: string;
   readonly noteHashes: readonly string[];
@@ -87,7 +88,7 @@ export interface SerializedNoteReservation {
 }
 
 /**
- * Versioned, JSON-safe wallet state. It contains private note plaintext and
+ * Versioned, JSON-safe wallet state. It contains private UTXO plaintext and
  * blindings, but never signing, nullifier, or viewing secrets. Applications
  * must still encrypt it at rest.
  */
@@ -136,7 +137,7 @@ export function serializeWallet(wallet: Wallet): string {
       ._reservationEntries()
       .map((reservation) => ({
         id: reservation.id,
-        noteHashes: reservation.noteHashes.map(encode),
+        noteHashes: reservation.utxoHashes.map(encode),
         expiresAtMs: reservation.expiresAtMs.toString(),
       }))
       .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)),
@@ -241,7 +242,7 @@ function hydrateReservations(wallet: Wallet, value: unknown): void {
       seen.add(id);
       return Object.freeze({
         id,
-        noteHashes: array(item["noteHashes"], `${path}.noteHashes`).map(
+        utxoHashes: array(item["noteHashes"], `${path}.noteHashes`).map(
           (hash, hashIndex) =>
             bytes(hash, 32, `${path}.noteHashes[${String(hashIndex)}]`) as Bytes32,
         ),

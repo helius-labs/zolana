@@ -61,9 +61,9 @@ function sameUtxo(left: Utxo, right: Utxo): boolean {
 }
 
 /**
- * The note the private authority is about to authorize must still be the exact
- * note selected for this intent. Matching on the commitment alone would let a
- * note swapped before authorization pass, so every field that feeds the
+ * The UTXO the private authority is about to authorize must still be the exact
+ * UTXO selected for this intent. Matching on the commitment alone would allow
+ * a UTXO swap before authorization, so every field that feeds the
  * commitment is compared.
  */
 function matchingInput(

@@ -3,7 +3,7 @@ import { getBase64Encoder } from "@solana/kit";
 import { reserveEntries } from "../flows/reserve.js";
 import type { Bytes32 } from "../interface/types.js";
 import { TransactionError } from "../transaction/error.js";
-import type { NoteReservation, Wallet, WalletUtxo } from "../transaction/wallet/state.js";
+import type { UtxoReservation, Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 
 import { WalletError } from "./error.js";
 
@@ -11,7 +11,7 @@ import { WalletError } from "./error.js";
 export function reserveWalletEntries(
   wallet: Wallet,
   entries: readonly WalletUtxo[],
-): NoteReservation {
+): UtxoReservation {
   try {
     return reserveEntries(wallet, entries);
   } catch (cause) {

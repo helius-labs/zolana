@@ -61,7 +61,7 @@ export function ownerSignerAddresses(
   return Object.freeze(signers);
 }
 
-/** With `ring` set, every real note is in that ring or in the default ring, per its own fields. */
+/** With `ring` set, every real UTXO is in that ring or in the default ring, per its own fields. */
 export function assemble(
   proofInputs: SppProofInputs,
   spendProofs: readonly SpendProof[],

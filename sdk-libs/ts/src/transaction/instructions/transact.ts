@@ -661,12 +661,12 @@ export class ConfidentialTransfer {
     return this;
   }
 
-  /** The note joins the ring of the transfer, the default ring without one. */
+  /** The UTXO joins the ring of the transfer, the default ring without one. */
   send(recipient: ShieldedAddress, asset: Address, amount: bigint): void {
     this.#push({ address: recipient, asset, amount, ring: "transfer" });
   }
 
-  /** The note leaves the ring of the transfer for the default ring, mirrors Rust `send_default_ring`. */
+  /** The UTXO leaves the transfer ring for the default ring. Mirrors Rust `send_default_ring`. */
   sendDefaultRing(recipient: ShieldedAddress, asset: Address, amount: bigint): void {
     this.#push({ address: recipient, asset, amount, ring: "default" });
   }
