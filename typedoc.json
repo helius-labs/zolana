@@ -45,8 +45,6 @@
     "LatestBlockhash",
     "MethodDetails",
     "ProgramAccountReader",
-    "RingRegistryReader",
-    "RingWithdrawalTransactionParams",
     "SerializedPrivateTransaction",
     "SerializedViewingKeyEntry",
     "SerializedWalletUtxo",
@@ -54,7 +52,6 @@
     "SignatureReader",
     "SolanaRpc",
     "SolanaRpcSubscriptions",
-    "SyncClient",
     "TransferPlaintextRecipient",
     "TransferPlaintextSender"
   ],

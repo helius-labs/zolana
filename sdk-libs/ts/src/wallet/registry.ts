@@ -6,11 +6,10 @@ import {
   getProgramDerivedAddress,
 } from "@solana/kit";
 
-import { buildUnsignedTransaction } from "../client/kit.js";
-import type { ZolanaClient } from "../client/client.js";
+import { compileUnsignedTransaction } from "../flows/compile.js";
+import type { BlockhashProvider, ChainReader } from "../client/ports.js";
 import type { RpcAccount } from "../client/rpc.js";
 import { USER_REGISTRY_PROGRAM_ID } from "../interface/program.js";
-import { checkedTransactionSize } from "../interface/transaction-size.js";
 import {
   type Address,
   type Bytes32,
@@ -26,8 +25,8 @@ import { hex } from "../transaction/wallet/state.js";
 import { WalletError, wrapWalletError } from "./error.js";
 import { concat, equalBytes } from "./internal.js";
 
-type AccountReader = Pick<ZolanaClient, "getAccount">;
-type ProgramAccountReader = Pick<ZolanaClient, "getProgramAccounts">;
+type AccountReader = Pick<ChainReader, "getAccount">;
+type ProgramAccountReader = Pick<ChainReader, "getProgramAccounts">;
 
 const SYSTEM_PROGRAM = address("11111111111111111111111111111111");
 const RECORD_SEED = new TextEncoder().encode("zolana/registry/v0");
@@ -299,6 +298,21 @@ export function resolvedAddressFromRecord(owner: Address, record: UserRecord): R
   });
 }
 
+/** @internal A `ShieldedAddress` passes through, an owner address resolves or throws. */
+export async function resolveShieldedRecipient(
+  input: Readonly<{ rpc: AccountReader; recipient: Address | ShieldedAddress }>,
+  notRegistered: (recipient: Address) => Error,
+  context?: RequestContext,
+): Promise<ShieldedAddress> {
+  if (input.recipient instanceof ShieldedAddress) return input.recipient;
+  const registered = await resolveRegisteredAddress(
+    { rpc: input.rpc, owner: input.recipient },
+    context,
+  );
+  if (registered === undefined) throw notRegistered(input.recipient);
+  return registered.address;
+}
+
 export async function resolveRegisteredAddress(
   input: Readonly<{ rpc: AccountReader; owner: Address }>,
   context?: RequestContext,
@@ -327,8 +341,8 @@ export async function validateRegisteredKeypair(
       : record.ownerP256 !== undefined && equalBytes(record.ownerP256, expectedOwnerP256);
   if (
     !ownerP256Matches ||
-    !equalBytes(record.nullifierPublicKey, input.keypair.nullifierKey().publicKey()) ||
-    !equalBytes(record.viewingPublicKey, input.keypair.viewingKey().publicKey().toBytes())
+    !equalBytes(record.nullifierPublicKey, input.keypair.nullifierPublicKey()) ||
+    !equalBytes(record.viewingPublicKey, input.keypair.viewingPublicKey().toBytes())
   ) {
     throw new WalletError("WALLET_REGISTERED_KEYPAIR_MISMATCH", {
       details: { owner: input.owner },
@@ -373,7 +387,7 @@ function publishedKeysMatch(record: UserRecord, address: ShieldedAddress): boole
 
 export async function buildRegistrationTransaction(
   input: Readonly<{
-    client: Pick<ZolanaClient, "getAccount" | "getLatestBlockhash">;
+    client: AccountReader & BlockhashProvider;
     owner: Address;
     address: ShieldedAddress;
   }>,
@@ -391,13 +405,11 @@ export async function buildRegistrationTransaction(
     const instruction = registrationInstruction(input.owner, input.address, pda, existing);
     if (instruction === undefined) return undefined;
     const lifetime = await input.client.getLatestBlockhash(context);
-    return checkedTransactionSize(
-      buildUnsignedTransaction({
-        feePayer: input.owner,
-        lifetime,
-        instructions: [instruction],
-      }),
-    );
+    return compileUnsignedTransaction({
+      feePayer: input.owner,
+      lifetime,
+      instructions: [instruction],
+    });
   } catch (cause) {
     throw wrapWalletError("WALLET_BUILD_REGISTRATION", cause);
   }
@@ -405,7 +417,7 @@ export async function buildRegistrationTransaction(
 
 export async function buildSetMergingEnabledTransaction(
   input: Readonly<{
-    client: Pick<ZolanaClient, "getLatestBlockhash">;
+    client: BlockhashProvider;
     owner: Address;
     enabled: boolean;
   }>,
@@ -416,22 +428,20 @@ export async function buildSetMergingEnabledTransaction(
       internalUserRecordAddress(input.owner),
       input.client.getLatestBlockhash(context),
     ]);
-    return checkedTransactionSize(
-      buildUnsignedTransaction({
-        feePayer: input.owner,
-        lifetime,
-        instructions: [
-          {
-            programAddress: USER_REGISTRY_PROGRAM_ID,
-            accounts: [
-              { address: recordAddress, role: AccountRole.WRITABLE },
-              { address: input.owner, role: AccountRole.READONLY_SIGNER },
-            ],
-            data: Uint8Array.of(SET_MERGING_ENABLED, input.enabled ? 1 : 0),
-          },
-        ],
-      }),
-    );
+    return compileUnsignedTransaction({
+      feePayer: input.owner,
+      lifetime,
+      instructions: [
+        {
+          programAddress: USER_REGISTRY_PROGRAM_ID,
+          accounts: [
+            { address: recordAddress, role: AccountRole.WRITABLE },
+            { address: input.owner, role: AccountRole.READONLY_SIGNER },
+          ],
+          data: Uint8Array.of(SET_MERGING_ENABLED, input.enabled ? 1 : 0),
+        },
+      ],
+    });
   } catch (cause) {
     throw wrapWalletError("WALLET_BUILD_SET_MERGING_ENABLED", cause);
   }

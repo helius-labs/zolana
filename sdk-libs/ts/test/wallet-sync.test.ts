@@ -1,7 +1,13 @@
-import { address, getAddressEncoder, getBase64Decoder, type Signature } from "@solana/kit";
+import {
+  address,
+  getAddressEncoder,
+  getBase64Decoder,
+  SolanaError,
+  SOLANA_ERROR__JSON_RPC__METHOD_NOT_FOUND,
+  type Signature,
+} from "@solana/kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ZolanaClient } from "../src/client/index.js";
 import { ShieldedKeypair, SigningKey, ViewingKey } from "../src/keypair/index.js";
 import { mergeDummyNullifier, mergeOutputBlinding } from "../src/keypair/merge/index.js";
 import { SHIELDED_POOL_PROGRAM_ID, type Bytes16, type Bytes32 } from "../src/interface/index.js";
@@ -16,7 +22,10 @@ import {
   Wallet,
   createProofOutput,
   decryptTransactions,
+  deserializeWallet,
   encodeConfidentialSlots,
+  serializeWallet,
+  type SyncWalletAuthority,
 } from "../src/transaction/index.js";
 import {
   EncryptedScheme,
@@ -25,13 +34,15 @@ import {
   encryptConfidential,
   readOutputData,
 } from "../src/transaction/serialization/codecs.js";
-import { SOL_ASSET_ID } from "../src/transaction/wallet/asset.js";
+import { SOL_ASSET_ID } from "../src/transaction/asset.js";
 import {
   anonymousRecipientUtxo,
   anonymousSenderFromUtxos,
   anonymousSenderUtxos,
 } from "../src/transaction/serialization/codecs.js";
 import { backfillAssetRegistry, syncWallet } from "../src/wallet/sync.js";
+import { syncPersistedWallet } from "../src/wallet/persisted.js";
+import { kitReads, solanaRpcReads, syncReads, plainCipher } from "./helpers/clients.js";
 
 const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
@@ -42,8 +53,182 @@ function bytes(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
 }
 
+interface RequestWithCursor {
+  readonly cursor?: Uint8Array;
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+function decryptWithAuthority(
+  authority: KeypairWalletAuthority,
+  input: Omit<Parameters<typeof decryptTransactions>[0], "authority">,
+): Promise<ReturnType<typeof decryptTransactions> extends Promise<infer R> ? R : never> {
+  return authority.withSyncSession((keys) => decryptTransactions({ ...input, authority: keys }));
+}
+
+describe("wallet sync atomicity", () => {
+  function emptyTagPages() {
+    return {
+      getEncryptedUtxosByTags: vi.fn(async () => ({
+        context: { blockTime: 1_700_000_000n, slot: 0n },
+        matches: [],
+      })),
+      getShieldedTransactionsByNullifiers: vi.fn(),
+    };
+  }
+
+  it("commits no cursor from a sync that failed partway", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const authority = new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair });
+    const cursor = Uint8Array.of(1, 2, 3);
+    // Chunk size 1 splits the wallet's two tags into two calls, the first
+    // returns a cursor, the second dies.
+    let served = 0;
+    const getShieldedTransactionsByTags = vi.fn(async (_request: RequestWithCursor) => {
+      served += 1;
+      if (served === 2) throw new Error("indexer down");
+      return {
+        context: { blockTime: 1_700_000_000n, slot: 0n },
+        transactions: [],
+        scannedThrough: cursor,
+      };
+    });
+    const client = syncReads({
+      getShieldedTransactionsByTags,
+      ...emptyTagPages(),
+    });
+
+    await expect(
+      syncWallet({ wallet, authority, client, config: { queryChunk: 1 } }),
+    ).rejects.toMatchObject({ code: "WALLET_SYNC" });
+    expect(wallet.lastSynced).toBe(0n);
+
+    served = 10;
+    getShieldedTransactionsByTags.mockClear();
+    await syncWallet({ wallet, authority, client, config: { queryChunk: 1 } });
+    for (const call of getShieldedTransactionsByTags.mock.calls) {
+      expect(call[0]?.cursor).toBeUndefined();
+    }
+  });
+
+  it("runs concurrent syncs one after the other over the committed cursor", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const authority = new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair });
+    const cursor = Uint8Array.of(7, 7);
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let firstCall = true;
+    const getShieldedTransactionsByTags = vi.fn(async (request: { cursor?: Uint8Array }) => {
+      if (firstCall) {
+        firstCall = false;
+        await gate;
+      }
+      return {
+        context: { blockTime: 1_700_000_000n, slot: 0n },
+        transactions: [],
+        ...(request.cursor === undefined ? { scannedThrough: cursor } : {}),
+      };
+    });
+    const client = syncReads({
+      getShieldedTransactionsByTags,
+      ...emptyTagPages(),
+    });
+
+    const first = syncWallet({ wallet, authority, client });
+    const second = syncWallet({ wallet, authority, client });
+    release?.();
+    await first;
+    await second;
+
+    const calls = getShieldedTransactionsByTags.mock.calls;
+    expect(calls[0]?.[0]?.cursor).toBeUndefined();
+    expect(calls.at(-1)?.[0]?.cursor).toEqual(cursor);
+  });
+
+  it("fails a sync overtaken by another writer and keeps the newer state", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const authority = new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair });
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let firstCall = true;
+    const getShieldedTransactionsByTags = vi.fn(async (_request: RequestWithCursor) => {
+      if (firstCall) {
+        firstCall = false;
+        await gate;
+      }
+      return { context: { blockTime: 1_700_000_000n, slot: 0n }, transactions: [] };
+    });
+    const client = syncReads({
+      getShieldedTransactionsByTags,
+      ...emptyTagPages(),
+    });
+
+    const sync = syncWallet({ wallet, authority, client });
+    await vi.waitFor(() => expect(getShieldedTransactionsByTags).toHaveBeenCalled());
+    // An out-of-band writer lands between the sync's snapshot and its commit.
+    wallet._replace({ utxos: [], transactions: [], nullifiers: new Set(), lastSynced: 42n });
+    release?.();
+
+    await expect(sync).rejects.toMatchObject({
+      code: "WALLET_SYNC",
+      causeCode: "TRANSACTION_WALLET_STATE_STALE",
+    });
+    expect(wallet.lastSynced).toBe(42n);
+  });
+
+  it("resumes from persisted cursors after a restart", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const authority = new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair });
+    const cursor = Uint8Array.of(5, 5, 5);
+    let served = 0;
+    const getShieldedTransactionsByTags = vi.fn(async (_request: RequestWithCursor) => {
+      served += 1;
+      return {
+        context: { blockTime: 1_700_000_000n, slot: 0n },
+        transactions: [],
+        ...(served === 1 ? { scannedThrough: cursor } : {}),
+      };
+    });
+    const client = syncReads({
+      getShieldedTransactionsByTags,
+      ...emptyTagPages(),
+    });
+
+    await syncWallet({ wallet, authority, client });
+    const restored = deserializeWallet(serializeWallet(wallet));
+    getShieldedTransactionsByTags.mockClear();
+    await syncWallet({ wallet: restored, authority, client });
+
+    const call = getShieldedTransactionsByTags.mock.calls[0]?.[0];
+    expect(call?.cursor).toEqual(cursor);
+  });
+
+  it("derives the sync material once per sync", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const authority = new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair });
+    const session = vi.spyOn(authority, "withSyncSession");
+    const client = syncReads({
+      getShieldedTransactionsByTags: vi.fn(async () => ({
+        context: { blockTime: 1_700_000_000n, slot: 0n },
+        transactions: [],
+      })),
+      ...emptyTagPages(),
+    });
+
+    await syncWallet({ wallet, authority, client });
+    expect(session).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("wallet sync", () => {
@@ -51,17 +236,17 @@ describe("wallet sync", () => {
     vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-    const client = {
+    const client = syncReads({
       getShieldedTransactionsByTags: vi.fn(async () => ({
-        context: { blockTime: 1_700_000_000n },
+        context: { blockTime: 1_700_000_000n, slot: 0n },
         transactions: [],
       })),
       getEncryptedUtxosByTags: vi.fn(async () => ({
-        context: { blockTime: 1_700_000_000n },
+        context: { blockTime: 1_700_000_000n, slot: 0n },
         matches: [],
       })),
       getShieldedTransactionsByNullifiers: vi.fn(),
-    } as unknown as ZolanaClient;
+    });
 
     const report = await syncWallet({
       wallet,
@@ -82,27 +267,26 @@ describe("wallet sync", () => {
     // One page carrying a cursor, then the end. Repeating a cursor would trip
     // the SDK's loop guard, which is a different behaviour under test.
     let served = 0;
-    const getShieldedTransactionsByTags = vi.fn(async () => {
+    const getShieldedTransactionsByTags = vi.fn(async (_request: RequestWithCursor) => {
       served += 1;
       return {
-        context: { blockTime: 1_700_000_000n },
+        context: { blockTime: 1_700_000_000n, slot: 0n },
         transactions: [],
         ...(served === 1 ? { nextCursor: cursor } : {}),
       };
     });
-    const client = {
+    const client = syncReads({
       getShieldedTransactionsByTags,
       getEncryptedUtxosByTags: vi.fn(async () => ({
-        context: { blockTime: 1_700_000_000n },
+        context: { blockTime: 1_700_000_000n, slot: 0n },
         matches: [],
       })),
       getShieldedTransactionsByNullifiers: vi.fn(),
-    } as unknown as ZolanaClient;
+    });
     const authority = new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair });
 
     await syncWallet({ wallet, authority, client });
-    const calls = () =>
-      getShieldedTransactionsByTags.mock.calls as unknown as [{ cursor?: Uint8Array }][];
+    const calls = () => getShieldedTransactionsByTags.mock.calls;
     const firstCall = calls()[0]?.[0];
     expect(firstCall?.cursor).toBeUndefined();
 
@@ -120,18 +304,18 @@ describe("wallet sync", () => {
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     wallet._setSyncCursor("transactions", "deadbeef", Uint8Array.of(9, 9, 9));
 
-    const getShieldedTransactionsByTags = vi.fn(async () => ({
-      context: { blockTime: 1_700_000_000n },
+    const getShieldedTransactionsByTags = vi.fn(async (_request: RequestWithCursor) => ({
+      context: { blockTime: 1_700_000_000n, slot: 0n },
       transactions: [],
     }));
-    const client = {
+    const client = syncReads({
       getShieldedTransactionsByTags,
       getEncryptedUtxosByTags: vi.fn(async () => ({
-        context: { blockTime: 1_700_000_000n },
+        context: { blockTime: 1_700_000_000n, slot: 0n },
         matches: [],
       })),
       getShieldedTransactionsByNullifiers: vi.fn(),
-    } as unknown as ZolanaClient;
+    });
 
     await syncWallet({
       wallet,
@@ -141,9 +325,7 @@ describe("wallet sync", () => {
 
     // The wallet's real tags have no watermark, so every query starts at the
     // beginning -- the unrelated tag's cursor must not leak into them.
-    for (const call of getShieldedTransactionsByTags.mock.calls as unknown as [
-      { cursor?: Uint8Array },
-    ][]) {
+    for (const call of getShieldedTransactionsByTags.mock.calls) {
       expect(call[0]?.cursor).toBeUndefined();
     }
   });
@@ -152,10 +334,10 @@ describe("wallet sync", () => {
     const keypair = ShieldedKeypair.generate();
     const send = vi.fn(async () => []);
     const getProgramAccounts = vi.fn(() => ({ send }));
-    const client = {
+    const client = kitReads({
       commitment: "confirmed",
       solanaRpc: { getProgramAccounts },
-    } as unknown as ZolanaClient;
+    });
 
     await expect(
       backfillAssetRegistry(new Wallet({ identity: keypair.shieldedAddress() }), client),
@@ -177,8 +359,7 @@ describe("wallet sync", () => {
     );
   });
 
-  it("backfills an SPL mint already present in the wallet", async () => {
-    const keypair = ShieldedKeypair.generate();
+  function unknownMintWallet(keypair: ShieldedKeypair): Wallet {
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     const blinding = new Uint8Array(32).fill(3) as Bytes32;
     const utxo = new Utxo({
@@ -200,6 +381,39 @@ describe("wallet sync", () => {
         },
       ],
     });
+    return wallet;
+  }
+
+  it("refuses an unknown-mint sync on a client without kit access", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = unknownMintWallet(keypair);
+    const emptyPage = vi.fn(async () => ({
+      context: { blockTime: 1n, slot: 0n },
+      transactions: [],
+    }));
+    const client = syncReads({
+      getShieldedTransactionsByTags: emptyPage,
+      getEncryptedUtxosByTags: vi.fn(async () => ({
+        context: { blockTime: 1n, slot: 0n },
+        matches: [],
+      })),
+      getShieldedTransactionsByNullifiers: emptyPage,
+    });
+    await expect(
+      syncWallet({
+        wallet,
+        authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+        client,
+      }),
+    ).rejects.toMatchObject({
+      code: "WALLET_SYNC",
+      causeCode: "WALLET_INVALID_SYNC_CONFIG",
+    });
+  });
+
+  it("backfills an SPL mint already present in the wallet", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = unknownMintWallet(keypair);
     expect(() => wallet.balance(SPL_MINT)).toThrowError("TRANSACTION_UNKNOWN_MINT");
 
     const accountData = new Uint8Array(48);
@@ -214,22 +428,22 @@ describe("wallet sync", () => {
         },
       },
     ]);
-    const client = {
+    const client = syncReads({
       commitment: "confirmed",
-      solanaRpc: { getProgramAccounts: () => ({ send }) },
+      solanaRpc: solanaRpcReads({ getProgramAccounts: () => ({ send }) }),
       getShieldedTransactionsByTags: vi.fn(async () => ({
-        context: { blockTime: 1n },
+        context: { blockTime: 1n, slot: 0n },
         transactions: [],
       })),
       getEncryptedUtxosByTags: vi.fn(async () => ({
-        context: { blockTime: 1n },
+        context: { blockTime: 1n, slot: 0n },
         matches: [],
       })),
       getShieldedTransactionsByNullifiers: vi.fn(async () => ({
-        context: { blockTime: 1n },
+        context: { blockTime: 1n, slot: 0n },
         transactions: [],
       })),
-    } as unknown as ZolanaClient;
+    });
 
     const report = await syncWallet({
       wallet,
@@ -241,6 +455,78 @@ describe("wallet sync", () => {
     expect(send).toHaveBeenCalledOnce();
     expect(wallet.registry.entries()).toContainEqual([2n, SPL_MINT]);
     expect(wallet.balance(SPL_MINT)).toMatchObject({ assetId: 2n, amount: 42n });
+  });
+
+  it("holds the cursors until the registry resolves every held mint", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = unknownMintWallet(keypair);
+    const authority = new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair });
+    const requestCursors: (Uint8Array | undefined)[] = [];
+    const tagPage = vi.fn(async (request: { cursor?: Uint8Array }) => {
+      requestCursors.push(request.cursor);
+      return {
+        context: { blockTime: 1n, slot: 0n },
+        transactions: [],
+        scannedThrough: Uint8Array.of(6, 6),
+      };
+    });
+    const accountData = new Uint8Array(48);
+    accountData[0] = StateDiscriminator.splAssetRegistry;
+    accountData.set(getAddressEncoder().encode(SPL_MINT), 8);
+    new DataView(accountData.buffer).setBigUint64(40, 2n, true);
+    const registration = {
+      account: {
+        owner: SHIELDED_POOL_PROGRAM_ID,
+        data: [getBase64Decoder().decode(accountData), "base64"],
+      },
+    };
+    let scan: () => unknown = () => {
+      throw new SolanaError(SOLANA_ERROR__JSON_RPC__METHOD_NOT_FOUND, {
+        __serverMessage: "method not found",
+      });
+    };
+    const client = syncReads({
+      commitment: "confirmed",
+      solanaRpc: solanaRpcReads({
+        getProgramAccounts: () => ({ send: vi.fn(async () => scan()) }),
+      }),
+      getShieldedTransactionsByTags: tagPage,
+      getEncryptedUtxosByTags: vi.fn(async () => ({
+        context: { blockTime: 1n, slot: 0n },
+        matches: [],
+      })),
+      getShieldedTransactionsByNullifiers: vi.fn(async () => ({
+        context: { blockTime: 1n, slot: 0n },
+        transactions: [],
+      })),
+    });
+    const store = {
+      saved: undefined as string | undefined,
+      save: vi.fn(async (snapshot: string) => {
+        store.saved = snapshot;
+      }),
+    };
+    await expect(
+      syncPersistedWallet({ wallet, authority, client, store, cipher: plainCipher }),
+    ).rejects.toMatchObject({
+      code: "WALLET_SYNC",
+      causeCode: "CLIENT_UNSUPPORTED_RPC_METHOD",
+    });
+    scan = () => [];
+    await expect(
+      syncPersistedWallet({ wallet, authority, client, store, cipher: plainCipher }),
+    ).rejects.toMatchObject({
+      code: "WALLET_SYNC",
+      causeCode: "WALLET_UNRESOLVED_ASSET",
+    });
+    expect(store.save).not.toHaveBeenCalled();
+    expect(wallet.lastSynced).toBe(0n);
+
+    scan = () => [registration];
+    await syncPersistedWallet({ wallet, authority, client, store, cipher: plainCipher });
+    expect(requestCursors.every((cursor) => cursor === undefined)).toBe(true);
+    expect(wallet.balance(SPL_MINT).amount).toBe(42n);
+    expect(store.save).toHaveBeenCalledTimes(1);
   });
 
   it("reconstructs a ciphertext-free merge from owned spent inputs", async () => {
@@ -277,36 +563,43 @@ describe("wallet sync", () => {
       blinding: mergeOutputBlinding(keypair.nullifierKey(), firstNullifier),
     });
 
-    const report = await decryptTransactions({
-      wallet,
-      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
-      transactions: [
-        {
-          slot: 1n,
-          txSignature: SIGNATURE,
-          outputSlots: [
-            {
-              viewTag: keypair.signingPublicKey().confidentialViewTag(),
-              outputContext: {
-                hash: merged.hash(keypair.nullifierPublicKey()),
-                tree: TREE,
-                leafIndex: 2n,
+    const report = await decryptWithAuthority(
+      new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      {
+        wallet,
+        transactions: [
+          {
+            slot: 1n,
+            txSignature: SIGNATURE,
+            outputSlots: [
+              {
+                viewTag: keypair.signingPublicKey().confidentialViewTag(),
+                outputContext: {
+                  hash: merged.hash(keypair.nullifierPublicKey()),
+                  tree: TREE,
+                  leafIndex: 2n,
+                },
+                payload: new Uint8Array(),
               },
-              payload: new Uint8Array(),
-            },
-          ],
-          messages: [],
-          nullifiers,
-          proofless: false,
-        },
-      ],
-    });
+            ],
+            messages: [],
+            nullifiers,
+            proofless: false,
+          },
+        ],
+      },
+    );
 
     expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
     expect(wallet.balance(SOL_MINT).amount).toBe(42n);
   });
 
-  it("classifies a confidential send to the same wallet as a self transfer", async () => {
+  async function syncConfidentialSelfSend(
+    configure: (
+      transfer: ConfidentialTransfer,
+      identity: ReturnType<ShieldedKeypair["shieldedAddress"]>,
+    ) => void,
+  ) {
     const keypair = ShieldedKeypair.generate();
     const identity = keypair.shieldedAddress();
     const wallet = new Wallet({ identity });
@@ -334,7 +627,7 @@ describe("wallet sync", () => {
       [new ProofInputUtxo({ utxo, nullifierKey: keypair.nullifierKey() })],
       identity.solanaAddress(),
     );
-    transfer.send(identity, SOL_MINT, 40n);
+    configure(transfer, identity);
     const signed = transfer.sign(keypair, wallet.registry);
     const external = signed.externalData;
     const authority = new KeypairWalletAuthority({
@@ -362,12 +655,18 @@ describe("wallet sync", () => {
       },
     ];
 
-    await decryptTransactions({
+    await decryptWithAuthority(authority, {
       wallet,
-      authority,
       transactions: indexedTransactions,
     });
 
+    return { wallet, authority, indexedTransactions, keypair };
+  }
+
+  it("classifies a confidential send to the same wallet as a self transfer", async () => {
+    const { wallet, authority, indexedTransactions, keypair } = await syncConfidentialSelfSend(
+      (transfer, identity) => transfer.send(identity, SOL_MINT, 40n),
+    );
     let transactions = wallet.privateTransactions();
     expect(transactions).toHaveLength(1);
     expect(transactions[0]).toMatchObject({
@@ -387,10 +686,27 @@ describe("wallet sync", () => {
         direction: "outbound",
       })),
     });
-    await decryptTransactions({ wallet, authority, transactions: indexedTransactions });
+    await decryptWithAuthority(authority, { wallet, transactions: indexedTransactions });
     transactions = wallet.privateTransactions();
     expect(transactions).toHaveLength(1);
     expect(transactions[0]?.direction).toBe("selfTransfer");
+  });
+
+  it("classifies an exact default to custom move as a ring entry", async () => {
+    const { wallet } = await syncConfidentialSelfSend((transfer, identity) =>
+      transfer.sendToRing(identity, SOL_MINT, 40n, TREE),
+    );
+    const restored = deserializeWallet(serializeWallet(wallet));
+
+    expect(restored.privateTransactions()).toMatchObject([
+      {
+        kind: "ringEntry",
+        direction: "selfTransfer",
+        asset: SOL_MINT,
+        amount: 40n,
+      },
+    ]);
+    expect(restored.privateTransactions()[0]?.counterpartyViewingPublicKey).toBeUndefined();
   });
 
   it("classifies a send to a rotated-out viewing key as a self transfer", async () => {
@@ -555,23 +871,24 @@ describe("wallet sync", () => {
     // The sender bundle is tagged with the identity's signing tag, which is one
     // of the two stable families `decryptTransactions` opens.
     const identityTag = keypair.signingPublicKey().confidentialViewTag();
-    const envelope = await authority.encryptAnonymousTransfer({
-      firstNullifier: nullifier,
-      senderViewTag: identityTag,
-      sender,
-      recipients: [
-        {
-          viewTag: keypair.viewingKey().recipientBootstrapViewTag(),
-          recipientPublicKey: keypair.viewingPublicKey(),
-          plaintext: recipientPlaintext,
-        },
-      ],
-    });
+    const envelope = await authority.withSpendSession((session) =>
+      session.encryptAnonymousTransfer({
+        firstNullifier: nullifier,
+        senderViewTag: identityTag,
+        sender,
+        recipients: [
+          {
+            viewTag: keypair.viewingKey().recipientBootstrapViewTag(),
+            recipientPublicKey: keypair.viewingPublicKey(),
+            plaintext: recipientPlaintext,
+          },
+        ],
+      }),
+    );
     const slotUtxos = [...change, recipientUtxo];
 
-    await decryptTransactions({
+    await decryptWithAuthority(authority, {
       wallet,
-      authority,
       transactions: [
         {
           slot: 1n,
@@ -635,32 +952,34 @@ describe("wallet sync", () => {
       "encrypted",
     );
 
-    const report = await decryptTransactions({
-      wallet,
-      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair: recipient }),
-      transactions: [
-        {
-          slot: 2n,
-          txSignature: SIGNATURE,
-          txViewingPublicKey: sender.viewingPublicKey(),
-          salt,
-          outputSlots: [
-            {
-              viewTag: recipient.signingPublicKey().confidentialViewTag(),
-              outputContext: {
-                hash: output.hash(recipient.nullifierPublicKey()),
-                tree: TREE,
-                leafIndex: 4n,
+    const report = await decryptWithAuthority(
+      new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair: recipient }),
+      {
+        wallet,
+        transactions: [
+          {
+            slot: 2n,
+            txSignature: SIGNATURE,
+            txViewingPublicKey: sender.viewingPublicKey(),
+            salt,
+            outputSlots: [
+              {
+                viewTag: recipient.signingPublicKey().confidentialViewTag(),
+                outputContext: {
+                  hash: output.hash(recipient.nullifierPublicKey()),
+                  tree: TREE,
+                  leafIndex: 4n,
+                },
+                payload,
               },
-              payload,
-            },
-          ],
-          messages: [],
-          nullifiers: [bytes(32)],
-          proofless: false,
-        },
-      ],
-    });
+            ],
+            messages: [],
+            nullifiers: [bytes(32)],
+            proofless: false,
+          },
+        ],
+      },
+    );
 
     expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
     expect(wallet.utxos()[0]?.utxo.ringProgramId).toBe(OWNER);
@@ -764,41 +1083,43 @@ describe("wallet sync", () => {
       "encrypted",
     );
 
-    await decryptTransactions({
-      wallet,
-      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair: sender }),
-      transactions: [
-        {
-          slot: 3n,
-          txSignature: SIGNATURE,
-          txViewingPublicKey: txKey.publicKey(),
-          salt,
-          outputSlots: [
-            {
-              viewTag: sender.signingPublicKey().confidentialViewTag(),
-              outputContext: {
-                hash: change.hash(sender.nullifierPublicKey()),
-                tree: TREE,
-                leafIndex: 1n,
+    await decryptWithAuthority(
+      new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair: sender }),
+      {
+        wallet,
+        transactions: [
+          {
+            slot: 3n,
+            txSignature: SIGNATURE,
+            txViewingPublicKey: txKey.publicKey(),
+            salt,
+            outputSlots: [
+              {
+                viewTag: sender.signingPublicKey().confidentialViewTag(),
+                outputContext: {
+                  hash: change.hash(sender.nullifierPublicKey()),
+                  tree: TREE,
+                  leafIndex: 1n,
+                },
+                payload: changePayload,
               },
-              payload: changePayload,
-            },
-            {
-              viewTag: recipient.signingPublicKey().confidentialViewTag(),
-              outputContext: {
-                hash: payment.hash(recipient.nullifierPublicKey()),
-                tree: TREE,
-                leafIndex: 2n,
+              {
+                viewTag: recipient.signingPublicKey().confidentialViewTag(),
+                outputContext: {
+                  hash: payment.hash(recipient.nullifierPublicKey()),
+                  tree: TREE,
+                  leafIndex: 2n,
+                },
+                payload: paymentPayload,
               },
-              payload: paymentPayload,
-            },
-          ],
-          messages: [],
-          nullifiers: [nullifier],
-          proofless: false,
-        },
-      ],
-    });
+            ],
+            messages: [],
+            nullifiers: [nullifier],
+            proofless: false,
+          },
+        ],
+      },
+    );
 
     expect(wallet.utxos().find((entry) => !entry.spent)?.utxo.ringProgramId).toBe(OWNER);
     expect(wallet.privateTransactions()).toContainEqual(
@@ -846,26 +1167,29 @@ describe("wallet sync", () => {
       nullifiers: Array.from({ length: 8 }, (_, index) => bytes(index + 80)),
       proofless: false,
     } as const;
-    const client = {
+    const client = syncReads({
       getShieldedTransactionsByTags: vi.fn(async () => ({
-        context: { blockTime: 1n },
+        context: { blockTime: 1n, slot: 0n },
         transactions: [transaction],
       })),
       getEncryptedUtxosByTags: vi.fn(async () => ({
-        context: { blockTime: 1n },
+        context: { blockTime: 1n, slot: 0n },
         matches: [],
       })),
       getShieldedTransactionsByNullifiers: vi.fn(async () => ({
-        context: { blockTime: 1n },
+        context: { blockTime: 1n, slot: 0n },
         transactions: [],
       })),
-    } as unknown as ZolanaClient;
+    });
     const authority = {
-      syncMaterial: async () => ({
-        identity: keypair.shieldedAddress(),
-        viewingKeys: [keypair.viewingKey()],
-        nullifierKey: keypair.nullifierKey(),
-      }),
+      withSyncSession: (run: (keys: SyncWalletAuthority) => Promise<never>) =>
+        run({
+          syncMaterial: async () => ({
+            identity: keypair.shieldedAddress(),
+            viewingKeys: [keypair.viewingKey()],
+            nullifierKey: keypair.nullifierKey(),
+          }),
+        }),
     } as never;
 
     const report = await syncWallet({
@@ -912,29 +1236,29 @@ describe("wallet sync", () => {
       proofless: false,
     } as const;
     const getShieldedTransactionsByTags = vi.fn(async () => ({
-      context: { blockTime: 1n },
+      context: { blockTime: 1n, slot: 0n },
       transactions: [],
     }));
     const getEncryptedUtxosByTags = vi.fn(async () => ({
-      context: { blockTime: 1n },
+      context: { blockTime: 1n, slot: 0n },
       matches: [],
     }));
     const getShieldedTransactionsByNullifiers = vi
       .fn()
       .mockResolvedValueOnce({
-        context: { blockTime: 1n },
+        context: { blockTime: 1n, slot: 0n },
         transactions: [],
         nextCursor: cursor,
       })
       .mockResolvedValueOnce({
-        context: { blockTime: 1n },
+        context: { blockTime: 1n, slot: 0n },
         transactions: [spendingTransaction],
       });
-    const client = {
+    const client = syncReads({
       getShieldedTransactionsByTags,
       getEncryptedUtxosByTags,
       getShieldedTransactionsByNullifiers,
-    } as unknown as ZolanaClient;
+    });
 
     await syncWallet({
       wallet,
@@ -985,21 +1309,21 @@ describe("wallet sync", () => {
 
     const getShieldedTransactionsByNullifiers = vi.fn(
       async (_request: Readonly<{ nullifiers: readonly Bytes32[] }>) => ({
-        context: { blockTime: 1n },
+        context: { blockTime: 1n, slot: 0n },
         transactions: [],
       }),
     );
-    const client = {
+    const client = syncReads({
       getShieldedTransactionsByTags: vi.fn(async () => ({
-        context: { blockTime: 1n },
+        context: { blockTime: 1n, slot: 0n },
         transactions: [],
       })),
       getEncryptedUtxosByTags: vi.fn(async () => ({
-        context: { blockTime: 1n },
+        context: { blockTime: 1n, slot: 0n },
         matches: [],
       })),
       getShieldedTransactionsByNullifiers,
-    } as unknown as ZolanaClient;
+    });
 
     await syncWallet({
       wallet,
@@ -1042,22 +1366,22 @@ describe("wallet sync", () => {
     const scannedThrough = Uint8Array.of(4, 2);
     const getShieldedTransactionsByNullifiers = vi.fn(
       async (_request: Readonly<{ nullifiers: readonly Bytes32[]; cursor?: Uint8Array }>) => ({
-        context: { blockTime: 1n },
+        context: { blockTime: 1n, slot: 0n },
         transactions: [],
         scannedThrough,
       }),
     );
-    const client = {
+    const client = syncReads({
       getShieldedTransactionsByTags: vi.fn(async () => ({
-        context: { blockTime: 1n },
+        context: { blockTime: 1n, slot: 0n },
         transactions: [],
       })),
       getEncryptedUtxosByTags: vi.fn(async () => ({
-        context: { blockTime: 1n },
+        context: { blockTime: 1n, slot: 0n },
         matches: [],
       })),
       getShieldedTransactionsByNullifiers,
-    } as unknown as ZolanaClient;
+    });
     const authority = new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair });
 
     await syncWallet({ wallet, authority, client });
@@ -1092,7 +1416,7 @@ describe("wallet sync", () => {
     });
     const cursor = Uint8Array.of(8);
     const getShieldedTransactionsByNullifiers = vi.fn(async () => ({
-      context: { blockTime: 1n },
+      context: { blockTime: 1n, slot: 0n },
       transactions: [],
       nextCursor: cursor,
     }));
@@ -1101,17 +1425,17 @@ describe("wallet sync", () => {
       syncWallet({
         wallet,
         authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
-        client: {
+        client: syncReads({
           getShieldedTransactionsByTags: vi.fn(async () => ({
-            context: { blockTime: 1n },
+            context: { blockTime: 1n, slot: 0n },
             transactions: [],
           })),
           getEncryptedUtxosByTags: vi.fn(async () => ({
-            context: { blockTime: 1n },
+            context: { blockTime: 1n, slot: 0n },
             matches: [],
           })),
           getShieldedTransactionsByNullifiers,
-        } as unknown as ZolanaClient,
+        }),
       }),
     ).rejects.toMatchObject({
       code: "WALLET_SYNC",
@@ -1156,21 +1480,21 @@ describe("wallet sync", () => {
     } as const;
     const getShieldedTransactionsByNullifiers = vi.fn(
       async (_request: Readonly<{ nullifiers: readonly Bytes32[] }>) => ({
-        context: { blockTime: 1n },
+        context: { blockTime: 1n, slot: 0n },
         transactions: [spendingTransaction],
       }),
     );
-    const client = {
+    const client = syncReads({
       getShieldedTransactionsByTags: vi.fn(async () => ({
-        context: { blockTime: 1n },
+        context: { blockTime: 1n, slot: 0n },
         transactions: [],
       })),
       getEncryptedUtxosByTags: vi.fn(async () => ({
-        context: { blockTime: 1n },
+        context: { blockTime: 1n, slot: 0n },
         matches: [{ slot: 9n, txSignature: SIGNATURE, outputSlot }],
       })),
       getShieldedTransactionsByNullifiers,
-    } as unknown as ZolanaClient;
+    });
 
     await syncWallet({
       wallet,
@@ -1191,14 +1515,14 @@ describe("wallet sync", () => {
     const keypair = ShieldedKeypair.generate();
     const cursor = Uint8Array.of(9);
     const getShieldedTransactionsByTags = vi.fn(async () => ({
-      context: { blockTime: 1n },
+      context: { blockTime: 1n, slot: 0n },
       transactions: [],
       nextCursor: cursor,
     }));
-    const client = {
+    const client = syncReads({
       getShieldedTransactionsByTags,
       getEncryptedUtxosByTags: vi.fn(),
-    } as unknown as ZolanaClient;
+    });
 
     await expect(
       syncWallet({
@@ -1235,16 +1559,16 @@ describe("wallet sync", () => {
       nullifiers: [],
       proofless: false,
     });
-    const client = {
+    const client = syncReads({
       getShieldedTransactionsByTags: vi.fn(async () => ({
-        context: { blockTime: 1n },
+        context: { blockTime: 1n, slot: 0n },
         transactions: [transaction(1), transaction(2)],
       })),
       getEncryptedUtxosByTags: vi.fn(async () => ({
-        context: { blockTime: 1n },
+        context: { blockTime: 1n, slot: 0n },
         matches: [],
       })),
-    } as unknown as ZolanaClient;
+    });
 
     const report = await syncWallet({
       wallet: new Wallet({ identity: keypair.shieldedAddress() }),

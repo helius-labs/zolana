@@ -1,9 +1,9 @@
 import { getAddressDecoder } from "@solana/kit";
 
-import type { ZolanaClient } from "../client/client.js";
+import type { IndexerReader } from "../client/ports.js";
 import type { Address, RequestContext, Signature } from "../interface/types.js";
 
-type SignatureReader = Pick<ZolanaClient, "getShieldedTransactionsBySignature">;
+type SignatureReader = Pick<IndexerReader, "getShieldedTransactionsBySignature">;
 
 const addressDecoder = getAddressDecoder();
 

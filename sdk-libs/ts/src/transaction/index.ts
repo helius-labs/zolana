@@ -1,6 +1,7 @@
 export { initializePoseidon, isPoseidonInitialized } from "../hasher/index.js";
 export { Data } from "./data.js";
 export type { DataRecord } from "./data.js";
+export { formatAmount, parseAmount } from "./amount.js";
 export {
   TRANSACTION_ERROR_CODES,
   TransactionError,
@@ -62,6 +63,12 @@ export {
   deserializeWallet,
   serializeWallet,
 } from "./wallet/index.js";
+export {
+  approveIntent,
+  intentHash,
+  type IntentApproval,
+  type TransactionIntent,
+} from "./wallet/index.js";
 export type {
   AnonymousRecipientSlot,
   ApprovalRequest,
@@ -78,9 +85,16 @@ export type {
   PrivateTransactionId,
   PrivateTransactionKind,
   PrivateTransactionStatus,
+  RingBalance,
   SplitBundlePlaintext,
+  SpendAuthority,
+  SpendSession,
+  SyncAuthority,
   SyncWalletAuthority,
   SyncReport,
+  SerializedCursor,
+  SerializedNoteReservation,
+  SerializedSyncCursors,
   SerializedWalletState,
   ViewingKeyEntry,
   WalletAuthority,
@@ -128,4 +142,5 @@ export {
   type TransferPlaintextUtxos,
 } from "./serialization/index.js";
 
-export const VIEW_TAG_LEN = 32;
+export { VIEW_TAG_LENGTH as VIEW_TAG_LEN } from "../keypair/constants.js";
+export type { ErrorEnvelope } from "../errors/internal.js";

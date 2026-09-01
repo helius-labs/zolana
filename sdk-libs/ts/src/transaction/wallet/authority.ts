@@ -2,8 +2,7 @@ import { ed25519 } from "@noble/curves/ed25519.js";
 import { getAddressEncoder } from "@solana/kit";
 
 import type { Address, Bytes16, Bytes32, Bytes64, MessageData } from "../../interface/types.js";
-import { auditorMessageData, encryptTransactionViewingSecret } from "../../keypair/audit.js";
-import { checkedBytes, randomSalt } from "../../keypair/bytes.js";
+import { checkedBytes } from "../../keypair/bytes.js";
 import {
   checkedDerivationSeed,
   ed25519DerivationMessage,
@@ -15,27 +14,22 @@ import { ShieldedAddress, type ShieldedKeypair } from "../../keypair/shielded.js
 import { TransactionError } from "../error.js";
 import { ViewingKey } from "../../keypair/viewing-key.js";
 
-import {
-  EncryptedScheme,
-  encodeAnonymousRecipient,
-  encodeAnonymousSender,
-  encodeOutputData,
-  encodeSplitBundle,
-  encryptAnonymous,
-  encryptSplit,
-  type AnonymousRecipientPlaintext,
-  type AnonymousSenderPlaintext,
-  type SplitBundlePlaintext,
+import type {
+  AnonymousRecipientPlaintext,
+  AnonymousSenderPlaintext,
+  SplitBundlePlaintext,
 } from "../serialization/codecs.js";
-import { encodeConfidentialSlots } from "../instructions/transact.js";
 import { decodeAddress } from "../internal.js";
+import { runSpendSession, runSyncSession } from "./encrypt-rails.js";
+import { approveIntent, type IntentApproval, type TransactionIntent } from "./intent.js";
 import type { ProofOutputUtxo } from "../utxo.js";
-import type { AssetRegistry } from "./asset.js";
+import type { AssetRegistry } from "../asset.js";
 
 export type { SplitBundlePlaintext };
 
 export interface ApprovalRequest {
   readonly solanaPublicKey: Address;
+  readonly intent: TransactionIntent;
   readonly summary: string;
 }
 
@@ -91,12 +85,10 @@ export interface SyncWalletAuthority {
   syncMaterial(): Promise<WalletSyncMaterial>;
 }
 
-export interface WalletAuthority {
-  solanaPublicKey(): Address;
-  shieldedAddress(): Promise<ShieldedAddress>;
-  viewingKeys(): Promise<readonly ViewingKey[]>;
-  spendNullifierKey(): Promise<NullifierKey>;
-  syncMaterial(): Promise<WalletSyncMaterial>;
+/** Spend-scoped capabilities over one borrowed key set. */
+export interface SpendSession {
+  /** The same borrowed key on every call, wiped when the session ends. */
+  nullifierKey(): NullifierKey;
   encryptConfidentialTransfer(
     input: Readonly<{
       firstNullifier: Bytes32;
@@ -127,7 +119,22 @@ export interface WalletAuthority {
       bundle: SplitBundlePlaintext;
     }>,
   ): Promise<EncryptedSplit>;
-  requestUserApproval(request: ApprovalRequest): Promise<void>;
+}
+
+export interface SpendAuthority {
+  /** Keys lent to `run` are wiped when the callback settles, do not retain them. */
+  withSpendSession<T>(run: (session: SpendSession) => Promise<T>): Promise<T>;
+}
+
+export interface SyncAuthority {
+  /** The lent material's keys are wiped when the callback settles, do not retain them. */
+  withSyncSession<T>(run: (session: SyncWalletAuthority) => Promise<T>): Promise<T>;
+}
+
+export interface WalletAuthority extends SpendAuthority, SyncAuthority {
+  solanaPublicKey(): Address;
+  shieldedAddress(): Promise<ShieldedAddress>;
+  requestUserApproval(request: ApprovalRequest): Promise<IntentApproval>;
 }
 
 const addressEncoder = getAddressEncoder();
@@ -181,20 +188,16 @@ export class ClientEd25519WalletAuthority implements WalletAuthority {
     }
 
     try {
-      const expansion = roleExpansion(seed, "ed25519");
-      const nullifierSecret = expansion.nullifierSecret();
-      const viewingSecret = expansion.viewingSecret();
-      try {
+      return roleExpansion(seed, "ed25519", (roles) => {
+        const signingPublicKey = ShieldedPublicKey.fromEd25519(publicKey);
+        const viewingKey = ViewingKey.fromBytes(roles.viewingSecret);
         return new ClientEd25519WalletAuthority(
           input.solanaPublicKey,
-          ShieldedPublicKey.fromEd25519(publicKey),
-          NullifierKey.fromSecret(nullifierSecret),
-          ViewingKey.fromBytes(viewingSecret),
+          signingPublicKey,
+          NullifierKey.fromSecret(roles.nullifierSecret),
+          viewingKey,
         );
-      } finally {
-        nullifierSecret.fill(0);
-        viewingSecret.fill(0);
-      }
+      });
     } finally {
       seed.fill(0);
     }
@@ -214,141 +217,24 @@ export class ClientEd25519WalletAuthority implements WalletAuthority {
     );
   }
 
-  viewingKeys(): Promise<readonly ViewingKey[]> {
-    return Promise.resolve([this.#copyViewingKey()]);
+  withSpendSession<T>(run: (session: SpendSession) => Promise<T>): Promise<T> {
+    return runSpendSession(this.#copyViewingKey(), this.#copyNullifierKey(), run);
   }
 
-  spendNullifierKey(): Promise<NullifierKey> {
-    return Promise.resolve(this.#copyNullifierKey());
-  }
-
-  async syncMaterial(): Promise<WalletSyncMaterial> {
-    return {
-      identity: await this.shieldedAddress(),
-      viewingKeys: [this.#copyViewingKey()],
-      nullifierKey: this.#copyNullifierKey(),
-    };
-  }
-
-  encryptConfidentialTransfer(
-    input: Readonly<{
-      firstNullifier: Bytes32;
-      outputs: readonly ProofOutputUtxo[];
-      assets: AssetRegistry;
-    }>,
-  ): Promise<EncryptedTransfer> {
-    const tx = this.#viewingKey.transactionViewingKey(input.firstNullifier);
-    const salt = randomSalt();
-    return Promise.resolve({
-      txViewingPublicKey: tx.publicKey(),
-      salt,
-      payload: encodeConfidentialSlots(input.outputs, input.assets, tx, salt),
-    });
-  }
-
-  encryptCustomRingTransfer(
-    input: Readonly<{
-      firstNullifier: Bytes32;
-      outputs: readonly ProofOutputUtxo[];
-      assets: AssetRegistry;
-      auditorPublicKey: P256PublicKey;
-    }>,
-  ): Promise<EncryptedCustomRingTransfer> {
-    const tx = this.#viewingKey.transactionViewingKey(input.firstNullifier);
-    const salt = randomSalt();
-    const txViewingSecret = tx.secretBytes();
-    const encryption = encryptTransactionViewingSecret(txViewingSecret, input.auditorPublicKey);
-    return Promise.resolve({
-      txViewingPublicKey: tx.publicKey(),
-      salt,
-      payload: encodeConfidentialSlots(input.outputs, input.assets, tx, salt),
-      auditorMessage: auditorMessageData(encryption.message, input.auditorPublicKey),
-      audit: Object.freeze({ txViewingSecret, ephemeralSecret: encryption.ephemeralSecret }),
-    });
-  }
-
-  encryptAnonymousTransfer(
-    input: Readonly<{
-      firstNullifier: Bytes32;
-      senderViewTag: Bytes32;
-      sender: AnonymousSenderPlaintext;
-      recipients: readonly AnonymousRecipientSlot[];
-    }>,
-  ): Promise<EncryptedTransfer> {
-    const tx = this.#viewingKey.transactionViewingKey(input.firstNullifier);
-    const salt = randomSalt();
-    const slot = (
-      scheme: EncryptedScheme,
-      recipient: P256PublicKey,
-      plaintext: Uint8Array,
-      slotIndex: number,
-      viewTag: Bytes32,
-    ): MessageData => ({
-      viewTag,
-      data: encodeOutputData(
-        scheme,
-        encryptAnonymous(tx, recipient, plaintext, salt, slotIndex),
-        "encrypted",
-      ),
-    });
-    return Promise.resolve({
-      txViewingPublicKey: tx.publicKey(),
-      salt,
-      payload: [
-        slot(
-          EncryptedScheme.anonymousSender,
-          this.#viewingKey.publicKey(),
-          encodeAnonymousSender(input.sender),
-          0,
-          input.senderViewTag,
-        ),
-        ...input.recipients.map((recipient, index) =>
-          slot(
-            EncryptedScheme.anonymousRecipient,
-            recipient.recipientPublicKey,
-            encodeAnonymousRecipient(recipient.plaintext),
-            index + 1,
-            recipient.viewTag,
-          ),
-        ),
-      ],
-    });
-  }
-
-  encryptSplit(
-    input: Readonly<{
-      firstNullifier: Bytes32;
-      viewTag: Bytes32;
-      bundle: SplitBundlePlaintext;
-    }>,
-  ): Promise<EncryptedSplit> {
-    const tx = this.#viewingKey.transactionViewingKey(input.firstNullifier);
-    const salt = randomSalt();
-    return Promise.resolve({
-      txViewingPublicKey: tx.publicKey(),
-      salt,
-      payload: {
-        viewTag: input.viewTag,
-        data: encodeOutputData(
-          EncryptedScheme.split,
-          encryptSplit(tx, this.#viewingKey.publicKey(), encodeSplitBundle(input.bundle), salt, 0),
-          "encrypted",
-        ),
+  async withSyncSession<T>(run: (session: SyncWalletAuthority) => Promise<T>): Promise<T> {
+    return runSyncSession(
+      {
+        identity: await this.shieldedAddress(),
+        viewingKeys: [this.#copyViewingKey()],
+        nullifierKey: this.#copyNullifierKey(),
       },
-    });
+      run,
+    );
   }
 
-  /**
-   * Deliberately a no-op. This authority holds no signing key and cannot reach
-   * a user: the remote signer authorizes the finished Solana transaction in a
-   * separate step, and that step is the approval gate. Rejecting here instead
-   * would make the type unusable, since transaction construction — which this
-   * authority exists to serve — calls this before it has a transaction to
-   * approve.
-   */
-  requestUserApproval(request: ApprovalRequest): Promise<void> {
-    void request;
-    return Promise.resolve();
+  /** Approves unattended, the remote signer of the finished transaction is the approval gate. */
+  requestUserApproval(request: ApprovalRequest): Promise<IntentApproval> {
+    return Promise.resolve(approveIntent(request.intent));
   }
 
   #copyViewingKey(): ViewingKey {
@@ -405,21 +291,33 @@ export class KeypairWalletAuthority implements WalletAuthority {
   static fromDerivationSeed(
     input: Readonly<{ solanaPublicKey: Address; derivationSeed: Uint8Array }>,
   ): KeypairWalletAuthority {
-    const expansion = roleExpansion(input.derivationSeed, "ed25519");
-    const viewing = ViewingKey.fromBytes(expansion.viewingSecret());
-    const nullifier = NullifierKey.fromSecret(expansion.nullifierSecret());
-    const signing = ShieldedPublicKey.fromEd25519(decodeAddress(input.solanaPublicKey));
-    const address = ShieldedAddress.fromPublicKeys(
-      signing,
-      nullifier.publicKey(),
-      viewing.publicKey(),
-    );
-    return new KeypairWalletAuthority({
-      solanaPublicKey: input.solanaPublicKey,
-      address,
-      viewingKey: viewing,
-      nullifierKey: nullifier,
-    });
+    const seed = checkedDerivationSeed(input.derivationSeed, "ed25519");
+    try {
+      return roleExpansion(seed, "ed25519", (roles) => {
+        const signing = ShieldedPublicKey.fromEd25519(decodeAddress(input.solanaPublicKey));
+        const viewing = ViewingKey.fromBytes(roles.viewingSecret);
+        const nullifier = NullifierKey.fromSecret(roles.nullifierSecret);
+        try {
+          const address = ShieldedAddress.fromPublicKeys(
+            signing,
+            nullifier.publicKey(),
+            viewing.publicKey(),
+          );
+          return new KeypairWalletAuthority({
+            solanaPublicKey: input.solanaPublicKey,
+            address,
+            viewingKey: viewing,
+            nullifierKey: nullifier,
+          });
+        } catch (cause) {
+          viewing.destroy();
+          nullifier.destroy();
+          throw cause;
+        }
+      });
+    } finally {
+      seed.fill(0);
+    }
   }
 
   solanaPublicKey(): Address {
@@ -449,140 +347,23 @@ export class KeypairWalletAuthority implements WalletAuthority {
     return Promise.resolve(this.#address);
   }
 
-  viewingKeys(): Promise<readonly ViewingKey[]> {
-    return Promise.resolve([this.#viewingKey()]);
+  withSpendSession<T>(run: (session: SpendSession) => Promise<T>): Promise<T> {
+    return runSpendSession(this.#viewingKey(), this.#nullifierKey(), run);
   }
 
-  spendNullifierKey(): Promise<NullifierKey> {
-    return Promise.resolve(this.#nullifierKey());
-  }
-
-  syncMaterial(): Promise<WalletSyncMaterial> {
-    return Promise.resolve({
-      identity: this.#address,
-      viewingKeys: [this.#viewingKey()],
-      nullifierKey: this.#nullifierKey(),
-    });
-  }
-
-  encryptConfidentialTransfer(
-    input: Readonly<{
-      firstNullifier: Bytes32;
-      outputs: readonly ProofOutputUtxo[];
-      assets: AssetRegistry;
-    }>,
-  ): Promise<EncryptedTransfer> {
-    const tx = this.#viewing.transactionViewingKey(input.firstNullifier);
-    const salt = randomSalt();
-    return Promise.resolve({
-      txViewingPublicKey: tx.publicKey(),
-      salt,
-      payload: encodeConfidentialSlots(input.outputs, input.assets, tx, salt),
-    });
-  }
-
-  encryptCustomRingTransfer(
-    input: Readonly<{
-      firstNullifier: Bytes32;
-      outputs: readonly ProofOutputUtxo[];
-      assets: AssetRegistry;
-      auditorPublicKey: P256PublicKey;
-    }>,
-  ): Promise<EncryptedCustomRingTransfer> {
-    const tx = this.#viewing.transactionViewingKey(input.firstNullifier);
-    const salt = randomSalt();
-    const txViewingSecret = tx.secretBytes();
-    const encryption = encryptTransactionViewingSecret(txViewingSecret, input.auditorPublicKey);
-    return Promise.resolve({
-      txViewingPublicKey: tx.publicKey(),
-      salt,
-      payload: encodeConfidentialSlots(input.outputs, input.assets, tx, salt),
-      auditorMessage: auditorMessageData(encryption.message, input.auditorPublicKey),
-      audit: Object.freeze({ txViewingSecret, ephemeralSecret: encryption.ephemeralSecret }),
-    });
-  }
-
-  /**
-   * Slot 0 carries the sender bundle encrypted to this wallet's own viewing
-   * key; recipient `i` occupies slot `i + 1`. Both the order and the slot
-   * indices are bound into each ciphertext, so they must match the layout the
-   * transfer instruction publishes.
-   */
-  encryptAnonymousTransfer(
-    input: Readonly<{
-      firstNullifier: Bytes32;
-      senderViewTag: Bytes32;
-      sender: AnonymousSenderPlaintext;
-      recipients: readonly AnonymousRecipientSlot[];
-    }>,
-  ): Promise<EncryptedTransfer> {
-    const viewingKey = this.#viewing;
-    const tx = viewingKey.transactionViewingKey(input.firstNullifier);
-    const salt = randomSalt();
-    const slot = (
-      scheme: EncryptedScheme,
-      recipient: P256PublicKey,
-      plaintext: Uint8Array,
-      slotIndex: number,
-      viewTag: Bytes32,
-    ): MessageData => ({
-      viewTag,
-      data: encodeOutputData(
-        scheme,
-        encryptAnonymous(tx, recipient, plaintext, salt, slotIndex),
-        "encrypted",
-      ),
-    });
-    return Promise.resolve({
-      txViewingPublicKey: tx.publicKey(),
-      salt,
-      payload: [
-        slot(
-          EncryptedScheme.anonymousSender,
-          viewingKey.publicKey(),
-          encodeAnonymousSender(input.sender),
-          0,
-          input.senderViewTag,
-        ),
-        ...input.recipients.map((recipient, index) =>
-          slot(
-            EncryptedScheme.anonymousRecipient,
-            recipient.recipientPublicKey,
-            encodeAnonymousRecipient(recipient.plaintext),
-            index + 1,
-            recipient.viewTag,
-          ),
-        ),
-      ],
-    });
-  }
-
-  encryptSplit(
-    input: Readonly<{
-      firstNullifier: Bytes32;
-      viewTag: Bytes32;
-      bundle: SplitBundlePlaintext;
-    }>,
-  ): Promise<EncryptedSplit> {
-    const viewingKey = this.#viewing;
-    const tx = viewingKey.transactionViewingKey(input.firstNullifier);
-    const salt = randomSalt();
-    const body = encryptSplit(tx, viewingKey.publicKey(), encodeSplitBundle(input.bundle), salt, 0);
-    return Promise.resolve({
-      txViewingPublicKey: tx.publicKey(),
-      salt,
-      payload: {
-        viewTag: input.viewTag,
-        data: encodeOutputData(EncryptedScheme.split, body, "encrypted"),
+  withSyncSession<T>(run: (session: SyncWalletAuthority) => Promise<T>): Promise<T> {
+    return runSyncSession(
+      {
+        identity: this.#address,
+        viewingKeys: [this.#viewingKey()],
+        nullifierKey: this.#nullifierKey(),
       },
-    });
+      run,
+    );
   }
 
   /** Local keys approve unattended; Rust takes the trait default here. */
-  requestUserApproval(request: ApprovalRequest): Promise<void> {
-    void request;
-    return Promise.resolve();
+  requestUserApproval(request: ApprovalRequest): Promise<IntentApproval> {
+    return Promise.resolve(approveIntent(request.intent));
   }
 }
-
-export { KeypairWalletAuthority as LocalWalletAuthority };

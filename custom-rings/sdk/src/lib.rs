@@ -16,6 +16,7 @@ pub use custom_ring_interface::{
     READ_ACCESS_COMPUTE_UNIT_LIMIT, READ_ACCESS_RECORD_PDA_SEED, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
 };
 
+pub use zolana_interface::instruction::{DepositAsset, DepositSplAccounts};
 pub use zolana_ring_client::{
     auditor_view_tag, AuditEncryptionError, AuditorEncryption, AuditorMessage, AUDITOR_MESSAGE_LEN,
 };

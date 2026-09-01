@@ -11,6 +11,7 @@ import { describe, expect, it, vi } from "vitest";
 import { decodeRingConfig } from "../src/interface/accounts.js";
 import { StateDiscriminator } from "../src/interface/state.js";
 import { listRegisteredRings } from "../src/ring/registry.js";
+import { kitReads } from "./helpers/clients.js";
 
 const base64Decoder = getBase64Decoder();
 const addressEncoder = getAddressEncoder();
@@ -75,9 +76,9 @@ describe("listRegisteredRings", () => {
         },
       })),
     );
-    const getProgramAccounts = vi.fn(() => ({ send }));
+    const getProgramAccounts = vi.fn((_programId: unknown, _config: unknown) => ({ send }));
     return {
-      rpc: { solanaRpc: { getProgramAccounts }, commitment: "confirmed" },
+      rpc: kitReads({ solanaRpc: { getProgramAccounts }, commitment: "confirmed" }),
       getProgramAccounts,
     };
   }
@@ -87,10 +88,9 @@ describe("listRegisteredRings", () => {
 
     // An empty list means the pool has no rings, and only that: every way of
     // failing to read the registry throws instead.
-    expect(await listRegisteredRings(rpc as never)).toEqual([]);
+    expect(await listRegisteredRings(rpc)).toEqual([]);
 
-    const call = getProgramAccounts.mock.calls[0];
-    const [programId, config] = call as unknown as [string, unknown];
+    const [programId, config] = getProgramAccounts.mock.calls[0] ?? [];
     expect(programId).toBe("sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG");
     // Filtered at the RPC: the pool also holds trees and asset registries, and
     // an unfiltered scan would download all of them to find a handful of rings.
@@ -104,7 +104,7 @@ describe("listRegisteredRings", () => {
       { pubkey: CONFIG_PDA, data: ringConfigAccount({ enabled: true, paused: true }) },
     ]);
 
-    const rings = await listRegisteredRings(rpc as never);
+    const rings = await listRegisteredRings(rpc);
 
     expect(rings).toEqual([
       {
@@ -129,7 +129,7 @@ describe("listRegisteredRings", () => {
       { pubkey: CONFIG_PDA, data: ringConfigAccount() },
     ]);
 
-    await expect(listRegisteredRings(rpc as never)).rejects.toMatchObject({
+    await expect(listRegisteredRings(rpc)).rejects.toMatchObject({
       code: "CLIENT_INVALID_RPC_RESPONSE",
       details: {
         method: "getProgramAccounts",
@@ -148,12 +148,12 @@ describe("listRegisteredRings", () => {
         __serverMessage: "method not found",
       });
     });
-    const rpc = {
+    const rpc = kitReads({
       solanaRpc: { getProgramAccounts: vi.fn(() => ({ send })) },
       commitment: "confirmed",
-    };
+    });
 
-    await expect(listRegisteredRings(rpc as never)).rejects.toMatchObject({
+    await expect(listRegisteredRings(rpc)).rejects.toMatchObject({
       code: "CLIENT_UNSUPPORTED_RPC_METHOD",
       details: { method: "getProgramAccounts" },
     });

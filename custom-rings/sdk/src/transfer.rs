@@ -29,7 +29,7 @@ use zolana_transaction::{
         encode_confidential_slots, ChangeLayout, PreparedTransfer, SppProofOutputUtxo,
     },
     owner_utxo_hash, AssetRegistry, Data, EncryptedScheme, RingDepositPlaintext, TransactionError,
-    Utxo, SOL_MINT,
+    Utxo,
 };
 use zolana_tree::{TreeAccount, TreeError};
 
@@ -96,9 +96,11 @@ pub struct ProvenTransfer {
 #[must_use]
 pub struct RingDeposit<'a> {
     pub ring: CustomRing,
+    /// Lamport source for Sol, the user token's authority for Spl.
     pub payer: &'a dyn Signer,
     pub recipient: &'a ShieldedKeypair,
     pub tree: Address,
+    pub asset: DepositAsset,
     pub amount: u64,
 }
 
@@ -474,7 +476,7 @@ impl RingDeposit<'_> {
     pub fn send<R: Rpc>(self, rpc: &R) -> Result<RingDepositReceipt, DepositError> {
         let blinding = random_blinding();
         let deposit = RingAssetDeposit {
-            asset: DepositAsset::Sol,
+            asset: self.asset,
             view_tag: self.recipient.recipient_bootstrap_view_tag(),
             owner_utxo_hash: owner_utxo_hash(&self.recipient.owner_hash()?, &blinding)?,
             amount: self.amount,
@@ -501,7 +503,7 @@ impl RingDeposit<'_> {
             signature,
             utxo: Utxo {
                 owner: self.recipient.signing_pubkey(),
-                asset: SOL_MINT,
+                asset: self.asset.mint(),
                 amount: self.amount,
                 blinding,
                 ring_program_id: Some(self.ring.program_id()),
@@ -743,8 +745,8 @@ impl<I> RingSpendInputs<'_, I> {
                 Ok(TransferSpendInput {
                     utxo: spend.utxo.clone(),
                     nullifier_key: spend.nullifier_key.clone(),
-                    data_hash: None,
-                    ring_data_hash: None,
+                    data_hash: spend.data_hash,
+                    ring_data_hash: spend.ring_data_hash,
                     proof,
                     nullifier_proof,
                 })
@@ -808,6 +810,7 @@ impl RingEddsaInstructionData<'_> {
 
 #[cfg(test)]
 mod tests {
+    use zolana_client::MerkleContext;
     use zolana_interface::instruction::{
         instruction_data::transact::{
             confidential_encrypted_output_body, ring_confidential_encrypted_output_body,
@@ -815,11 +818,66 @@ mod tests {
         TransactSolTransferAccounts,
     };
     use zolana_transaction::instructions::transact::{ConfidentialTransfer, SettlementTarget};
+    use zolana_transaction::SOL_MINT;
 
     use super::*;
 
     fn ring() -> CustomRing {
         CustomRing::new(Address::new_from_array([42u8; 32]))
+    }
+
+    #[test]
+    fn spend_proofs_carry_the_note_data_hashes() {
+        let owner = ShieldedKeypair::new_ed25519().expect("owner");
+        let spends = [SppProofInputUtxo {
+            utxo: Utxo {
+                owner: owner.signing_pubkey(),
+                asset: SOL_MINT,
+                amount: 5,
+                blinding: [1u8; 32],
+                ring_program_id: None,
+                data: Data::default(),
+            },
+            nullifier_key: owner.nullifier_key.clone(),
+            data_hash: Some([7u8; 32]),
+            ring_data_hash: Some([8u8; 32]),
+        }];
+        let merkle = MerkleProof {
+            leaf: [2u8; 32],
+            merkle_context: MerkleContext {
+                tree_type: 0,
+                tree: Address::default(),
+            },
+            path: vec![[0u8; 32]; 32],
+            leaf_index: 0,
+            root: [3u8; 32],
+            root_seq: 1,
+            root_index: 0,
+        };
+        let non_inclusion = NonInclusionProof {
+            leaf: [4u8; 32],
+            merkle_context: MerkleContext {
+                tree_type: 1,
+                tree: Address::default(),
+            },
+            path: vec![[0u8; 32]; 40],
+            low_element: [5u8; 32],
+            low_element_index: 0,
+            high_element: [6u8; 32],
+            high_element_index: 1,
+            root: [9u8; 32],
+            root_seq: 1,
+            root_index: 0,
+        };
+        let inputs = RingSpendInputs {
+            indexer: &(),
+            tree: Address::default(),
+            spends: &spends,
+        }
+        .assemble(vec![merkle], vec![non_inclusion])
+        .expect("one real spend pairs with its proofs");
+        assert_eq!(inputs[0].data_hash, Some([7u8; 32]));
+        assert_eq!(inputs[0].ring_data_hash, Some([8u8; 32]));
     }
 
     fn prepared_transfer(amount: u64) -> (ShieldedKeypair, PreparedTransfer) {

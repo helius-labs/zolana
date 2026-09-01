@@ -91,18 +91,24 @@ const deposit = await buildDepositTransaction({
   recipient: keypair.shieldedAddress(),
   amount: 100_000_000n,
 });
-await submit(deposit, feePayer);
+const signature = await submit(deposit, feePayer);
+const slot = await client.confirmTransaction(signature);
 
 await syncWallet({
   client,
   wallet,
   authority,
-  config: { waitForIndexer: true },
+  config: { requireSlot: slot },
 });
 
 console.log(wallet.balance(SOL_MINT).amount);
 console.log(getPrivateTransactions(wallet));
 ```
+
+`confirmTransaction` returns the slot the transaction landed in, and
+`requireSlot` holds the first indexer read until Photon has that slot. For
+direct client calls, `atSlot(slot)` builds the same gate as a per-request
+config.
 
 For an Ed25519 spending wallet, the shielded keypair and the Solana signer must use
 the same owner seed, as shown above.
@@ -213,8 +219,8 @@ const transfer = await buildTransferTransaction({
   recipient: recipientSolanaAddress,
   amount: 25_000_000n,
 });
-await submit(transfer, feePayer);
-await syncWallet({ client, wallet, authority, config: { waitForIndexer: true } });
+const slot = await client.confirmTransaction(await submit(transfer, feePayer));
+await syncWallet({ client, wallet, authority, config: { requireSlot: slot } });
 ```
 
 Pass `asset: mint` for an SPL or Token-2022 balance.
@@ -234,8 +240,8 @@ const withdrawal = await buildWithdrawalTransaction({
   recipient: publicRecipient,
   amount: 10_000_000n,
 });
-await submit(withdrawal, feePayer);
-await syncWallet({ client, wallet, authority, config: { waitForIndexer: true } });
+const slot = await client.confirmTransaction(await submit(withdrawal, feePayer));
+await syncWallet({ client, wallet, authority, config: { requireSlot: slot } });
 ```
 
 For an SPL withdrawal, pass `asset: mint`. Token-2022 withdrawals also take
@@ -258,6 +264,50 @@ Persist wallet state with `serializeWallet` and restore it with
 `deserializeWallet`. Persist key material separately. Serialized wallet state
 contains UTXO data and must be encrypted at rest.
 
+`syncPersistedWallet` runs `syncWallet` and, only after the sync commits,
+seals the serialized wallet through a `WalletStateCipher` and saves it through
+a `WalletStateStore` you provide. `walletSnapshotCipher` is the shipped
+cipher, AES-256-GCM keyed from the keypair and bound to the wallet identity
+and the snapshot version. Restore from the store on startup so the wallet
+resumes from its saved cursors instead of rescanning history:
+
+```ts
+import {
+  Wallet,
+  loadPersistedWallet,
+  syncPersistedWallet,
+  walletSnapshotCipher,
+  type WalletStateStore,
+} from "@heliuslabs/zolana";
+
+declare const storage: { get(): Promise<string | undefined>; set(v: string): Promise<void> };
+
+const store: WalletStateStore = {
+  load: () => storage.get(),
+  save: (snapshot) => storage.set(snapshot),
+};
+const cipher = walletSnapshotCipher(keypair);
+
+const wallet =
+  (await loadPersistedWallet({ store, cipher })) ??
+  new Wallet({ identity: keypair.shieldedAddress() });
+
+const { report } = await syncPersistedWallet({ client, wallet, authority, store, cipher });
+```
+
+A tampered stored snapshot, or one sealed for another wallet, is refused
+with `WALLET_SNAPSHOT` instead of restoring drifted cursors. A failed sync
+saves nothing. A failed save rejects with `WALLET_PERSIST`
+while the in-memory wallet is already synced and the previously saved
+snapshot stays valid, call `syncPersistedWallet` again to retry. That retry
+contract requires `save` to replace the stored snapshot atomically or leave
+it unchanged, never write it partially. Overlapping calls on one live wallet
+run one after the other on the wallet's sync queue, so a slow save cannot
+store a stale snapshot. The store is still single-writer across processes,
+give each live wallet its own stored snapshot. Snapshots saved before cursors
+were serialized still load, the first sync rescans history once and then
+saves the current format.
+
 ## Custom Rings
 
 Besides the permissionless default Ring, regulated entities can create custom Rings.
@@ -273,26 +323,29 @@ transfers that would use a relayer are not supported. Later iterations add
 allowlists, blocklists, and rule-based config on the Ring config account.
 The deploy process is expected to stay the same.
 
-Build Ring deposits, transfers, and withdrawals with
-`buildRingDepositTransaction`, `buildRingTransferTransaction`, and
-`buildRingWithdrawalTransaction`. `RingRpc` reads decrypted Ring transactions
-for a granted reader. The same surface is available from
-`@heliuslabs/zolana/ring`.
+Build exact Ring entries, in-ring transfers, shielded exits, and public
+withdrawals with `buildRingEntryTransaction`, `buildRingTransferTransaction`,
+`buildRingExitTransaction`, and `buildRingWithdrawalTransaction`. `RingRpc`
+reads decrypted Ring transactions for a granted reader. The same surface is
+available from `@heliuslabs/zolana/ring`.
 
 ## Public API
 
 Common exports from `@heliuslabs/zolana` include:
 
 - setup: `createZolanaClient`, `ShieldedKeypair`, `Wallet`,
-  `KeypairWalletAuthority`;
+  `KeypairWalletAuthority`.
 - transactions: `buildDepositTransaction`, `buildTransferTransaction`,
   `buildWithdrawalTransaction`, `buildSplitTransaction`,
-  `buildMergeTransaction`;
-- state: `syncWallet`, `getPrivateTokenBalances`, `getPrivateTransactions`,
-  `serializeWallet`, `deserializeWallet`;
-- registration: `buildRegistrationTransaction`; and
-- Rings: `buildRingDepositTransaction`, `buildRingTransferTransaction`,
-  `buildRingWithdrawalTransaction`, `listRegisteredRings`, `RingRpc`.
+  `buildMergeTransaction`.
+- state: `syncWallet`, `syncPersistedWallet`, `getPrivateTokenBalances`,
+  `getPrivateTransactions`, `serializeWallet`, `deserializeWallet`.
+- amounts: `fetchAssetMetadata`, `AssetMetadataCache`, `formatAmount`,
+  `parseAmount`.
+- registration: `buildRegistrationTransaction`.
+- Rings: `buildRingEntryTransaction`, `buildRingTransferTransaction`,
+  `buildRingExitTransaction`, `buildRingWithdrawalTransaction`,
+  `listRegisteredRings`, `RingRpc`.
 
 Advanced protocol users can import low-level instruction builders from
 `@heliuslabs/zolana/instructions`. PDA helpers are available from
@@ -306,9 +359,9 @@ The release workflow publishes the generated TypeDoc reference from
 `ts-sdk-v*` tags. The tag version must match this package's version. Published
 versions are immutable:
 
-- latest: <https://helius-labs.github.io/zolana/ts-sdk/>;
+- latest: <https://helius-labs.github.io/zolana/ts-sdk/>.
 - explicit version:
-  <https://helius-labs.github.io/zolana/ts-sdk/v0.1.3-alpha/>; and
+  <https://helius-labs.github.io/zolana/ts-sdk/v0.1.3-alpha/>.
 - version index:
   <https://helius-labs.github.io/zolana/ts-sdk/versions.json>.
 

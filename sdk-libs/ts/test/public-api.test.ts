@@ -85,6 +85,11 @@ describe("public package surface", () => {
     expect(sdk.buildWithdrawalTransaction).toBeTypeOf("function");
     expect(sdk.buildSplitTransaction).toBeTypeOf("function");
     expect(sdk.buildMergeTransaction).toBeTypeOf("function");
+    expect(sdk.buildRingEntryTransaction).toBeTypeOf("function");
+    expect(sdk.fetchAssetMetadata).toBeTypeOf("function");
+    expect(sdk.AssetMetadataCache).toBeTypeOf("function");
+    expect(sdk.formatAmount).toBeTypeOf("function");
+    expect(sdk.parseAmount).toBeTypeOf("function");
     expect(sdk).not.toHaveProperty("deposit");
     expect(sdk).not.toHaveProperty("transfer");
     expect(sdk).not.toHaveProperty("withdraw");
@@ -153,8 +158,8 @@ describe("public package surface", () => {
         amount: 42n,
       }),
     ).rejects.toMatchObject({
-      code: "WALLET_RECIPIENT_NOT_REGISTERED",
-      details: { recipient: OWNER },
+      code: "WALLET_BUILD_DEPOSIT",
+      causeCode: "WALLET_RECIPIENT_NOT_REGISTERED",
     });
     expect(getAccount).toHaveBeenCalledOnce();
     expect(getLatestBlockhash).not.toHaveBeenCalled();
@@ -269,7 +274,10 @@ describe("public package surface", () => {
         owner: OWNER,
         address: ShieldedKeypair.generate("p256").shieldedAddress(),
       }),
-    ).rejects.toMatchObject({ code: "WALLET_P256_REGISTRATION_UNSUPPORTED" });
+    ).rejects.toMatchObject({
+      code: "WALLET_BUILD_REGISTRATION",
+      causeCode: "WALLET_P256_REGISTRATION_UNSUPPORTED",
+    });
     expect(getAccount).not.toHaveBeenCalled();
     expect(getLatestBlockhash).not.toHaveBeenCalled();
   });

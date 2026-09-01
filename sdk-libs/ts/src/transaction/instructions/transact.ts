@@ -1,6 +1,7 @@
 import { address } from "@solana/kit";
 
 import { externalDataHash as interfaceExternalDataHash } from "../../interface/external-data-hash.js";
+import { InstructionTag } from "../../interface/program.js";
 import {
   SPP_SUPPORTED_SHAPES as INTERFACE_SUPPORTED_SHAPES,
   selectSppShape,
@@ -43,7 +44,7 @@ import {
   deriveBlinding,
   type ProofOutputUtxo,
 } from "../utxo.js";
-import { SOL_ASSET_ID, type AssetRegistry } from "../wallet/asset.js";
+import { SOL_ASSET_ID, type AssetRegistry } from "../asset.js";
 
 export type { Shape };
 export const SPP_SUPPORTED_SHAPES = INTERFACE_SUPPORTED_SHAPES;
@@ -230,8 +231,6 @@ export interface ExternalDataInit {
   readonly messages: readonly Readonly<{ viewTag: Bytes32; data: Uint8Array }>[];
 }
 
-/** The `transact` tag, which Rust `ExternalData::new` takes from `tag::TRANSACT`. */
-const TRANSACT_DISCRIMINATOR = 12;
 /** Rust's default expiry: `u64::MAX`, meaning no expiry. */
 const NO_EXPIRY = 0xffff_ffff_ffff_ffffn;
 function externalDataHash(data: ExternalDataFields): Bytes32 {
@@ -322,7 +321,7 @@ type ExternalDataFields = Omit<
 export function createExternalData(input: ExternalDataInit): ExternalData {
   const snapshot: ExternalDataFields = {
     ...input,
-    instructionDiscriminator: input.instructionDiscriminator ?? TRANSACT_DISCRIMINATOR,
+    instructionDiscriminator: input.instructionDiscriminator ?? InstructionTag.transact,
     expiryUnixTs: input.expiryUnixTs ?? NO_EXPIRY,
     interfaceTransfers: Object.freeze(
       (input.interfaceTransfers ?? []).map((transfer) => Object.freeze({ ...transfer })),
@@ -597,12 +596,14 @@ export interface PreparedTransfer {
   ): SppProofInputs;
 }
 
+type RecipientRing = "transfer" | "default" | Readonly<{ programId: Address }>;
+
 interface Recipient {
   readonly address: ShieldedAddress;
   readonly asset: Address;
   readonly amount: bigint;
   /** Resolved at `prepare`, mirrors Rust `RecipientRing`, `default` is an exit when the transfer runs in a ring. */
-  readonly ring: "transfer" | "default";
+  readonly ring: RecipientRing;
 }
 
 const ZERO_ADDRESS = address("11111111111111111111111111111111");
@@ -622,14 +623,6 @@ export class ConfidentialTransfer {
     if (inputs.length === 0) throw new TransactionError("TRANSACTION_NO_INPUTS");
     if (owner.signingPublicKey.signatureType() === "p256") {
       throw new TransactionError("TRANSACTION_P256_TRANSACT_UNSUPPORTED");
-    }
-    // Only the payer occupies a non-zero slot in the circuit's signer vector, so
-    // a note owned by anyone else cannot be authorized.
-    if (owner.solanaAddress() !== feePayer) {
-      throw new TransactionError("TRANSACTION_ED25519_PAYER_MISMATCH", {
-        owner: owner.solanaAddress(),
-        payer: feePayer,
-      });
     }
     inputs.forEach((input, index) => {
       if (input.isDummy()) {
@@ -676,6 +669,15 @@ export class ConfidentialTransfer {
   /** The note leaves the ring of the transfer for the default ring, mirrors Rust `send_default_ring`. */
   sendDefaultRing(recipient: ShieldedAddress, asset: Address, amount: bigint): void {
     this.#push({ address: recipient, asset, amount, ring: "default" });
+  }
+
+  sendToRing(
+    recipient: ShieldedAddress,
+    asset: Address,
+    amount: bigint,
+    ringProgramId: Address,
+  ): void {
+    this.#push({ address: recipient, asset, amount, ring: { programId: ringProgramId } });
   }
 
   // Rust `send` performs no amount check; `checkU64` stands in for its `u64`
@@ -786,7 +788,11 @@ export class ConfidentialTransfer {
           asset: recipient.asset,
           amount: recipient.amount,
           blinding: deriveBlinding(this.#blindingSeed, index + SENDER_SLOT_COUNT),
-          ...(recipient.ring === "transfer" ? ring : {}),
+          ...(recipient.ring === "transfer"
+            ? ring
+            : recipient.ring === "default"
+              ? {}
+              : { ringProgramId: recipient.ring.programId }),
         }),
       ),
     );
@@ -840,14 +846,19 @@ export class ConfidentialTransfer {
    */
   sign(keypair: ShieldedKeypair, assets: AssetRegistry): SppProofInputs {
     const prepared = this.prepare();
-    const tx = keypair.viewingKey().transactionViewingKey(prepared.firstNullifier);
-    const salt = randomSalt();
-    const signed = prepared.finalize({
-      txViewingPublicKey: tx.publicKey(),
-      salt,
-      payload: encodeConfidentialSlots(prepared.outputs, assets, tx, salt),
-    });
-    return signed;
+    const viewingKey = keypair.viewingKey();
+    const tx = viewingKey.transactionViewingKey(prepared.firstNullifier);
+    try {
+      const salt = randomSalt();
+      return prepared.finalize({
+        txViewingPublicKey: tx.publicKey(),
+        salt,
+        payload: encodeConfidentialSlots(prepared.outputs, assets, tx, salt),
+      });
+    } finally {
+      tx.destroy();
+      viewingKey.destroy();
+    }
   }
 }
 
@@ -927,7 +938,7 @@ function finalizeTransfer(
     }
   }
   const externalData = createExternalData({
-    instructionDiscriminator: encrypted.instructionDiscriminator ?? TRANSACT_DISCRIMINATOR,
+    instructionDiscriminator: encrypted.instructionDiscriminator ?? InstructionTag.transact,
     expiryUnixTs: 0xffff_ffff_ffff_ffffn,
     interfaceTransfers: prepared.interfaceTransfers,
     txViewingPublicKey: encrypted.txViewingPublicKey,
@@ -997,17 +1008,21 @@ export function encodeConfidentialSlots(
  */
 function dummyCiphertextLength(salt: Bytes16): number {
   const throwaway = ViewingKey.generate();
-  return encodeOutputData(
-    EncryptedScheme.confidential,
-    encryptConfidential(
-      throwaway,
-      throwaway.publicKey(),
-      { assetId: SOL_ASSET_ID, amount: 0n, blinding: randomBlinding(), data: new Data() },
-      salt,
-      0,
-    ),
-    "encrypted",
-  ).length;
+  try {
+    return encodeOutputData(
+      EncryptedScheme.confidential,
+      encryptConfidential(
+        throwaway,
+        throwaway.publicKey(),
+        { assetId: SOL_ASSET_ID, amount: 0n, blinding: randomBlinding(), data: new Data() },
+        salt,
+        0,
+      ),
+      "encrypted",
+    ).length;
+  } finally {
+    throwaway.destroy();
+  }
 }
 
 export interface OutputContext {

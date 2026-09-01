@@ -3,33 +3,29 @@ import { address } from "@solana/kit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ClientError } from "../src/client/error.js";
-import {
-  circuitUtxo,
-  createDummyTransferInput,
-  createOutput,
-} from "../src/client/prover/assembly.js";
+import { asField, createDummyTransferInput, createOutput } from "../src/client/prover/assembly.js";
 import { ProverClient } from "../src/client/prover/client.js";
 import type { NonInclusionProof } from "../src/client/rpc.js";
 import type { Bytes32 } from "../src/interface/index.js";
 import type { MergeInputs, ProverInputs, TransferInput } from "../src/client/prover/types.js";
 import { ProofInputUtxo, createProofOutput } from "../src/transaction/index.js";
 
-const INPUTS = {
+const INPUTS: ProverInputs = {
   circuit: "transfer",
   payload: {
     inputs: [],
     outputs: [],
-    externalDataHash: 0n,
-    privateTxHash: 0n,
-    publicAssets: [0n, 0n, 0n],
-    publicAmounts: [0n, 0n, 0n],
-    ringProgramId: 0n,
-    signerPublicKeyHashes: [0n],
-    allowDummyInputs: 1n,
+    externalDataHash: asField(0n),
+    privateTxHash: asField(0n),
+    publicAssets: [asField(0n), asField(0n), asField(0n)],
+    publicAmounts: [asField(0n), asField(0n), asField(0n)],
+    ringProgramId: asField(0n),
+    signerPublicKeyHashes: [asField(0n)],
+    allowDummyInputs: asField(1n),
     publishedOutputOwnerPublicKeyHashes: [],
-    publicInputHash: 0n,
+    publicInputHash: asField(0n),
   },
-} as unknown as ProverInputs;
+};
 const ZERO_POINT = ["0x0", "0x0"];
 const STANDARD_PROOF = {
   ar: ZERO_POINT,
@@ -52,19 +48,19 @@ function mergeInputs(): MergeInputs {
       createProofOutput({
         asset: address("11111111111111111111111111111111"),
         amount: 0n,
-        blinding: new Uint8Array(32) as never,
+        blinding: bytes(0),
       }),
     ),
-    ownerPublicKeyHash: 0n,
-    userNullifierPublicKey: 0n,
-    userNullifierSecret: 0n,
-    externalDataHash: 0n,
-    privateTxHash: 0n,
-    allowDummyInputs: 1n,
-    publicInputHash: 0n,
-    outputRingDataHash: 0n,
-    ringProgramId: 0n,
-  } as unknown as MergeInputs;
+    ownerPublicKeyHash: asField(0n),
+    userNullifierPublicKey: asField(0n),
+    userNullifierSecret: asField(0n),
+    externalDataHash: asField(0n),
+    privateTxHash: asField(0n),
+    allowDummyInputs: asField(1n),
+    publicInputHash: asField(0n),
+    outputRingDataHash: asField(0n),
+    ringProgramId: asField(0n),
+  };
 }
 
 function dummyTransferInput(): TransferInput {
@@ -80,7 +76,7 @@ function dummyTransferInput(): TransferInput {
     root: bytes(3),
     rootSeq: 0n,
     rootIndex: 0,
-  } as NonInclusionProof);
+  } satisfies NonInclusionProof);
 }
 
 async function sentBody(
@@ -426,8 +422,9 @@ describe("dummy prover inputs", () => {
     } as NonInclusionProof;
 
     const converted = createDummyTransferInput(input, 4n, proof);
-    const utxo = circuitUtxo(converted);
+    const utxo = converted.circuit;
 
+    expect({ ...converted }.circuit).toBe(converted.circuit);
     expect(converted.ownerPublicKeyHash).toBe(0n);
     expect(utxo).toEqual({
       domain: 1n,

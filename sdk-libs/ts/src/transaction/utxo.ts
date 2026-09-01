@@ -296,6 +296,11 @@ export class ProofInputUtxo {
     return this.utxo.owner.isZero();
   }
 
+  /** Destroys the cloned nullifier key, later proving throws. */
+  destroy(): void {
+    this.nullifierKey.destroy();
+  }
+
   /**
    * A zero owner is not a parseable key, so a zero-owner input can only stand
    * for an unused slot. Every other field must be zero as well: the circuit
