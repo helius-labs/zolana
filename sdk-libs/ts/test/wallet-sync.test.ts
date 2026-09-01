@@ -7,6 +7,7 @@ import { mergeDummyNullifier, mergeOutputBlinding } from "../src/keypair/merge/i
 import { SHIELDED_POOL_PROGRAM_ID, type Bytes16, type Bytes32 } from "../src/interface/index.js";
 import { StateDiscriminator } from "../src/interface/state.js";
 import {
+  AssetRegistry,
   ConfidentialTransfer,
   Data,
   KeypairWalletAuthority,
@@ -16,13 +17,17 @@ import {
   Wallet,
   createProofOutput,
   decryptTransactions,
+  deriveBlinding,
   encodeConfidentialSlots,
+  splitBundleFromUtxos,
 } from "../src/transaction/index.js";
 import {
   EncryptedScheme,
   encodeOutputData,
   encodeProofless,
+  encodeSplitBundle,
   encryptConfidential,
+  encryptSplit,
   readOutputData,
 } from "../src/transaction/serialization/codecs.js";
 import { SOL_ASSET_ID } from "../src/transaction/wallet/asset.js";
@@ -40,6 +45,107 @@ const SPL_MINT = address("So11111111111111111111111111111111111111112");
 
 function bytes(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
+}
+
+/**
+ * A split whose outputs a later merge consumes, as an indexer would return the
+ * pair: the split's bundle is tagged like the wallet's own sends, so sync
+ * discovers it as a sender site, while the ciphertext-free merge output is
+ * tagged as a recipient site. Both belong to one wallet and one asset, so
+ * either transaction alone is decodable and the merge depends only on the
+ * split having been decoded first.
+ */
+function mergeAfterSplit() {
+  const keypair = ShieldedKeypair.generate();
+  const identityTag = keypair.signingPublicKey().confidentialViewTag();
+  const blindingSeed = bytes(7);
+  const outputs = [0, 1].map(
+    (index) =>
+      new Utxo({
+        owner: keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 21n,
+        blinding: deriveBlinding(blindingSeed, index),
+      }),
+  );
+  const contexts = outputs.map((utxo, index) => ({
+    hash: utxo.hash(keypair.nullifierPublicKey()),
+    tree: TREE,
+    leafIndex: BigInt(index),
+  }));
+  const salt = new Uint8Array(16).fill(5) as Bytes16;
+  const txKey = keypair.viewingKey().transactionViewingKey(bytes(9));
+  const bundle = encodeSplitBundle(
+    splitBundleFromUtxos(
+      outputs,
+      { owner: keypair.signingPublicKey(), assets: new AssetRegistry() },
+      { blindingSeed },
+    ),
+  );
+  const split = {
+    slot: 1n,
+    txSignature: SIGNATURE,
+    txViewingPublicKey: txKey.publicKey(),
+    salt,
+    outputSlots: contexts.map((outputContext, index) => ({
+      viewTag: identityTag,
+      outputContext,
+      // One bundle at slot 0 covers every output; the remaining slots carry no
+      // ciphertext, which is what the split builder publishes.
+      payload:
+        index === 0
+          ? encodeOutputData(
+              EncryptedScheme.split,
+              encryptSplit(txKey, keypair.viewingPublicKey(), bundle, salt, 0),
+              "encrypted",
+            )
+          : new Uint8Array(),
+    })),
+    messages: [],
+    nullifiers: [bytes(90)],
+    proofless: false,
+  };
+
+  const spent = outputs.map((utxo, index) =>
+    utxo.nullifier(contexts[index]!.hash, keypair.nullifierKey()),
+  );
+  const firstNullifier = spent[0]!;
+  const merged = new Utxo({
+    owner: keypair.signingPublicKey(),
+    asset: SOL_MINT,
+    amount: 42n,
+    blinding: mergeOutputBlinding(keypair.nullifierKey(), firstNullifier),
+  });
+  const merge = {
+    slot: 2n,
+    txSignature: "2".repeat(64) as Signature,
+    outputSlots: [
+      {
+        viewTag: identityTag,
+        outputContext: {
+          hash: merged.hash(keypair.nullifierPublicKey()),
+          tree: TREE,
+          leafIndex: 2n,
+        },
+        payload: new Uint8Array(),
+      },
+    ],
+    messages: [],
+    nullifiers: [
+      ...spent,
+      ...Array.from({ length: 6 }, (_, offset) =>
+        mergeDummyNullifier(keypair.nullifierKey(), firstNullifier, offset + 2),
+      ),
+    ],
+    proofless: false,
+  };
+
+  return {
+    keypair,
+    authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+    split,
+    merge,
+  };
 }
 
 afterEach(() => {
@@ -304,6 +410,49 @@ describe("wallet sync", () => {
 
     expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
     expect(wallet.balance(SOL_MINT).amount).toBe(42n);
+  });
+
+  /**
+   * Key-only recovery: complete history, no persisted wallet. A merge output
+   * carries no ciphertext, so it is reconstructed from the notes it spends
+   * rather than decrypted, and that reconstruction has to happen after those
+   * notes have been stored. Sync walks recipient sites before sender sites, so
+   * a merge filed as a recipient site runs before a split filed as a sender
+   * site, and nothing revisits it once the split has been decoded.
+   */
+  it("reconstructs a merge whose inputs arrive in the same batch", async () => {
+    const { keypair, authority, split, merge } = mergeAfterSplit();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+
+    const report = await decryptTransactions({
+      wallet,
+      authority,
+      transactions: [split, merge],
+    });
+
+    expect(report).toMatchObject({ storedUtxos: 3, undecryptableCandidates: 0 });
+    expect(wallet.balance(SOL_MINT).amount).toBe(42n);
+  });
+
+  /**
+   * The same history, decoded in two calls so the split is stored before the
+   * merge is seen. This is the path an incrementally synced wallet takes, and
+   * it must reach the same state as the single-batch replay above.
+   */
+  it("reaches the same state whether the merge replays fresh or incrementally", async () => {
+    const { keypair, authority, split, merge } = mergeAfterSplit();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+
+    await decryptTransactions({ wallet, authority, transactions: [split] });
+    const report = await decryptTransactions({ wallet, authority, transactions: [merge] });
+
+    expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
+    expect(wallet.balance(SOL_MINT).amount).toBe(42n);
+
+    const fresh = new Wallet({ identity: keypair.shieldedAddress() });
+    await decryptTransactions({ wallet: fresh, authority, transactions: [split, merge] });
+    expect(fresh.balance(SOL_MINT).amount).toBe(wallet.balance(SOL_MINT).amount);
+    expect(fresh.utxos()).toEqual(wallet.utxos());
   });
 
   it("classifies a confidential send to the same wallet as a self transfer", async () => {
