@@ -24,7 +24,7 @@ use sea_orm_migration::MigratorTrait;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_indexer_api::{
-    Base64String, GetRingsByTagsRequest, GetShieldedTransactionsBySignatureRequest,
+    ChainPosition, GetRingsByTagsRequest, GetShieldedTransactionsBySignatureRequest,
     GetShieldedTransactionsByTagsResponse, Hash, Limit, SerializableSignature,
 };
 use zolana_interface::pda;
@@ -51,7 +51,7 @@ pub struct LookupCost {
 pub struct Page {
     pub signatures: Vec<Signature>,
     pub hydrated: usize,
-    pub next_cursor: Option<Base64String>,
+    pub next: Option<ChainPosition>,
 }
 
 pub fn signature_at(index: u64) -> Signature {
@@ -75,26 +75,26 @@ pub async fn fresh_rings_database() -> DatabaseConnection {
 
 /// Drive `fetch` until `target` shows up, counting what it took to get there.
 /// Both lookups run through this, so the signature lookup's request count is
-/// derived from that endpoint reporting no next cursor rather than assumed.
+/// derived from that endpoint reporting no next position rather than assumed.
 pub async fn resolve<F, Fut>(target: Signature, mut fetch: F) -> LookupCost
 where
-    F: FnMut(Option<Base64String>) -> Fut,
+    F: FnMut(Option<ChainPosition>) -> Fut,
     Fut: Future<Output = Page>,
 {
     let mut cost = LookupCost {
         requests: 0,
         hydrated_transactions: 0,
     };
-    let mut cursor = None;
+    let mut since = None;
     loop {
-        let page = fetch(cursor).await;
+        let page = fetch(since).await;
         cost.requests += 1;
         cost.hydrated_transactions += page.hydrated;
         if page.signatures.contains(&target) {
             return cost;
         }
-        cursor = page.next_cursor;
-        assert!(cursor.is_some(), "lookup ran out of pages before {target}");
+        since = page.next;
+        assert!(since.is_some(), "lookup ran out of pages before {target}");
     }
 }
 
@@ -116,7 +116,7 @@ pub async fn resolve_by_signature(db: &DatabaseConnection, target: Signature) ->
                 .map(|item| item.transaction.tx_signature.0)
                 .collect(),
             hydrated: response.transactions.len(),
-            next_cursor: None,
+            next: None,
         }
     })
     .await
@@ -128,8 +128,8 @@ pub async fn resolve_by_tags(
     target: Signature,
     page_limit: u64,
 ) -> LookupCost {
-    resolve(target, move |cursor| async move {
-        let page = tag_page(db, view_tag, cursor, page_limit).await;
+    resolve(target, move |since| async move {
+        let page = tag_page(db, view_tag, since, page_limit).await;
         Page {
             signatures: page
                 .transactions
@@ -137,7 +137,7 @@ pub async fn resolve_by_tags(
                 .map(|item| item.tx_signature.0)
                 .collect(),
             hydrated: page.transactions.len(),
-            next_cursor: page.next_cursor,
+            next: page.next,
         }
     })
     .await
@@ -146,14 +146,14 @@ pub async fn resolve_by_tags(
 pub async fn tag_page(
     db: &DatabaseConnection,
     view_tag: [u8; 32],
-    cursor: Option<Base64String>,
+    since: Option<ChainPosition>,
     page_limit: u64,
 ) -> GetShieldedTransactionsByTagsResponse {
     get_shielded_transactions_by_tags(
         db,
         GetRingsByTagsRequest {
             tags: vec![Hash::from(view_tag)],
-            cursor,
+            since,
             limit: Some(Limit::new(page_limit).expect("page limit is within the shared bounds")),
             ring_program_id: None,
         },
