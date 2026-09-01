@@ -4,5 +4,7 @@ mod common;
 
 #[path = "policy/create_policy.rs"]
 mod create_policy;
+#[path = "policy/mutator.rs"]
+mod mutator;
 #[path = "policy/transact.rs"]
 mod transact;

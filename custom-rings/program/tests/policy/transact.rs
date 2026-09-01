@@ -15,8 +15,9 @@ use zolana_interface::{
 use solana_pubkey::Pubkey;
 
 use crate::common::{
-    auditor_pubkey, authority, entries_tree, entries_tree_account, initialized_config_account,
-    initialized_policy_config_account, setup_mollusk, transact_fixture, Fixture,
+    account, auditor_pubkey, authority, entries_tree, entries_tree_account,
+    initialized_config_account, initialized_policy_config_account, setup_mollusk, transact_fixture,
+    Fixture,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -114,6 +115,25 @@ fn a_mismatched_entries_tree_address_is_rejected_exactly() {
     let mut fixture = policy_fixture(0, 0);
     fixture.substitute("entries_tree", Pubkey::new_from_array([78; 32]));
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidEntriesTree));
+}
+
+/// The transact path loads the policy config unconditionally, an uninitialized
+/// one at the canonical address is refused before any proof work.
+#[test]
+fn an_uninitialized_policy_config_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = policy_fixture(0, 0);
+    fixture.set_account("policy_config", account(0));
+    fixture.expect_err(&mollusk, custom(CustomRingError::PolicyConfigNotInitialized));
+}
+
+/// A nullifier root the entries tree has not written is stale and the transact
+/// path refuses it.
+#[test]
+fn a_stale_nullifier_root_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let fixture = policy_fixture(0, 5);
+    fixture.expect_err(&mollusk, custom(CustomRingError::StalePolicyRoot));
 }
 
 /// The default fixture's money tree already differs from the entries tree.
