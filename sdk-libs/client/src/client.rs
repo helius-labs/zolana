@@ -70,7 +70,7 @@ use crate::{
     },
     retry::{IndexerPollConfig, IndexerRpcConfig},
     rpc::{
-        AsyncRpc, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
+        AsyncRpc, ChainPosition, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
         GetNonInclusionProofsResponse, GetShieldedTransactionsByNullifiersResponse,
         GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
         ProveResult, Rpc, ShieldedTransactionStream,
@@ -592,14 +592,14 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
     async fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        since: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
         self.async_indexer
             .get_encrypted_utxos_by_tags(
                 tags,
-                cursor,
+                since,
                 limit,
                 Some(config.unwrap_or(self.indexer_config)),
             )
@@ -609,14 +609,14 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
     async fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        since: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         self.async_indexer
             .get_shielded_transactions_by_tags(
                 tags,
-                cursor,
+                since,
                 limit,
                 Some(config.unwrap_or(self.indexer_config)),
             )
@@ -639,14 +639,14 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
     async fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        since: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
         self.async_indexer
             .get_shielded_transactions_by_nullifiers(
                 nullifiers,
-                cursor,
+                since,
                 limit,
                 Some(config.unwrap_or(self.indexer_config)),
             )
@@ -858,13 +858,13 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
     fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        since: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
         self.blocking_indexer().get_encrypted_utxos_by_tags(
             tags,
-            cursor,
+            since,
             limit,
             Some(config.unwrap_or(self.indexer_config)),
         )
@@ -873,13 +873,13 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
     fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        since: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         self.blocking_indexer().get_shielded_transactions_by_tags(
             tags,
-            cursor,
+            since,
             limit,
             Some(config.unwrap_or(self.indexer_config)),
         )
@@ -900,14 +900,14 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
     fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        since: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
         self.blocking_indexer()
             .get_shielded_transactions_by_nullifiers(
                 nullifiers,
-                cursor,
+                since,
                 limit,
                 Some(config.unwrap_or(self.indexer_config)),
             )
