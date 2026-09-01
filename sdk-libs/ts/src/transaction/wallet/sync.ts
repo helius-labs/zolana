@@ -98,6 +98,7 @@ interface Site {
 interface TagIndex {
   readonly senderSites: ReadonlyMap<string, readonly number[]>;
   readonly recipientSites: ReadonlyMap<string, readonly Site[]>;
+  readonly mergeSites: ReadonlyMap<string, readonly Site[]>;
   readonly unparsedTransactions: number;
 }
 
@@ -110,12 +111,13 @@ function pushInto<T>(into: Map<string, T[]>, tag: string, value: T): void {
 function buildTagIndex(transactions: readonly IndexedShieldedTransaction[]): TagIndex {
   const senderSites = new Map<string, number[]>();
   const recipientSites = new Map<string, Site[]>();
+  const mergeSites = new Map<string, Site[]>();
   let unparsedTransactions = 0;
   for (const [transaction, tx] of transactions.entries()) {
     let classified = false;
     if (!tx.proofless && tx.txViewingPublicKey === undefined && tx.salt === undefined) {
-      for (const [index, slot] of tx.outputSlots.entries()) {
-        pushInto(recipientSites, hex(slot.viewTag), { transaction, slot: index });
+      for (const [slotIndex, slot] of tx.outputSlots.entries()) {
+        pushInto(mergeSites, hex(slot.viewTag), { transaction, slot: slotIndex });
         classified = true;
       }
       if (!classified) unparsedTransactions++;
@@ -138,7 +140,7 @@ function buildTagIndex(transactions: readonly IndexedShieldedTransaction[]): Tag
     }
     if (!classified) unparsedTransactions++;
   }
-  return { senderSites, recipientSites, unparsedTransactions };
+  return { senderSites, recipientSites, mergeSites, unparsedTransactions };
 }
 
 function compareBigints(left: bigint, right: bigint): number {
@@ -670,10 +672,6 @@ class SyncPass {
       this.undecryptableCandidates++;
       return;
     }
-    if (!tx.proofless && tx.txViewingPublicKey === undefined && tx.salt === undefined) {
-      this.#reconstructMerge(tx, site, siteKey);
-      return;
-    }
     let frame: ReturnType<typeof readOutputData>;
     try {
       frame = readOutputData(slot.payload);
@@ -848,8 +846,30 @@ class SyncPass {
     this.undecryptableCandidates++;
   }
 
-  /** Reconstruct the ciphertext-free merge output from this wallet's spent inputs. */
-  #reconstructMerge(tx: IndexedShieldedTransaction, site: Site, siteKey: string): void {
+  resolveMergeSites(sites: readonly Site[]): void {
+    let pending = [...sites];
+    while (pending.length > 0) {
+      const unresolved: Site[] = [];
+      for (const site of pending) {
+        const siteKey = `${String(site.transaction)}:${String(site.slot)}`;
+        if (this.#processedSlots.has(siteKey)) continue;
+        const tx = this.#transactions[site.transaction];
+        if (tx === undefined || tx.outputSlots[site.slot] === undefined) {
+          this.undecryptableCandidates++;
+          continue;
+        }
+        if (!this.#reconstructMerge(tx, site, siteKey)) unresolved.push(site);
+      }
+      if (unresolved.length === pending.length) {
+        this.undecryptableCandidates += unresolved.length;
+        return;
+      }
+      pending = unresolved;
+    }
+  }
+
+  /** Missing inputs may be outputs of another merge in the same batch. */
+  #reconstructMerge(tx: IndexedShieldedTransaction, site: Site, siteKey: string): boolean {
     const slot = tx.outputSlots[site.slot];
     const firstNullifier = tx.nullifiers[0];
     if (
@@ -857,8 +877,7 @@ class SyncPass {
       firstNullifier === undefined ||
       !this.#utxos.some((entry) => equal(entry.nullifier, firstNullifier))
     ) {
-      this.undecryptableCandidates++;
-      return;
+      return false;
     }
 
     try {
@@ -869,15 +888,14 @@ class SyncPass {
         }
         const entry = this.#utxos.find((candidate) => equal(candidate.nullifier, nullifier));
         if (entry === undefined) {
-          this.undecryptableCandidates++;
-          return;
+          return false;
         }
         matched.push(entry);
       }
       const first = matched[0];
       if (first === undefined || matched.some((entry) => entry.utxo.asset !== first.utxo.asset)) {
         this.undecryptableCandidates++;
-        return;
+        return true;
       }
       let amount = 0n;
       for (const entry of matched) {
@@ -887,7 +905,7 @@ class SyncPass {
       const ringProgramId = first.utxo.ringProgramId;
       if (matched.some((entry) => entry.utxo.ringProgramId !== ringProgramId)) {
         this.undecryptableCandidates++;
-        return;
+        return true;
       }
       const ringDataHash =
         ringProgramId === undefined
@@ -897,7 +915,7 @@ class SyncPass {
             : null;
       if (ringDataHash === null) {
         this.undecryptableCandidates++;
-        return;
+        return true;
       }
       const utxo = new Utxo({
         owner: this.#owner,
@@ -910,9 +928,10 @@ class SyncPass {
         this.#processedSlots.add(siteKey);
         this.#recordMerge(tx, slot.outputContext, utxo);
       }
-      return;
+      return true;
     } catch (error) {
       this.#noteUndecryptable(error, siteKey);
+      return true;
     }
   }
 
@@ -999,6 +1018,7 @@ export async function decryptTransactions(
     );
     if (key !== undefined) pass.processStableTags(key, { identityTag, index });
   }
+  pass.resolveMergeSites(index.mergeSites.get(hex(identityTag)) ?? []);
 
   const nullifiers = new Set(current.nullifiers);
   for (const tx of input.transactions) {

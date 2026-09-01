@@ -149,6 +149,9 @@ Changed
 
 Fixed
 
+- A fresh wallet replay could inspect a merge before its same-batch inputs
+  and permanently omit the merged note. Sync now resolves merge dependencies
+  after ordinary outputs and reaches the same state as incremental sync.
 - A sync holding an asset the registry could not resolve still committed
   its cursors and skipped the unstored note for good, it now fails with
   `WALLET_UNRESOLVED_ASSET` and the next sync re-reads the same pages.
