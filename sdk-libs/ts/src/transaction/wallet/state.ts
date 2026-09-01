@@ -1,4 +1,4 @@
-import type { Address, Bytes32, Signature } from "../../interface/types.js";
+import type { Address, Bytes32, ChainPosition, Signature } from "../../interface/types.js";
 import type { P256PublicKey } from "../../keypair/public-key.js";
 import type { ShieldedAddress } from "../../keypair/shielded.js";
 
@@ -65,7 +65,7 @@ export type PrivateTransactionDirection = "inbound" | "outbound" | "selfTransfer
 export type CursorStream = "transactions" | "proofless" | "nullifiers";
 
 /** @internal */
-export type SyncCursorAdvances = Readonly<Record<CursorStream, ReadonlyMap<string, Uint8Array>>>;
+export type SyncCursorAdvances = Readonly<Record<CursorStream, ReadonlyMap<string, ChainPosition>>>;
 
 /** @internal Selection skips its notes until expiry, per wallet instance, not a cross-process lock. */
 export interface NoteReservation {
@@ -195,36 +195,21 @@ export class Wallet {
   #nullifiers = new Set<string>();
   #lastSynced = 0n;
   /**
-   * Per-view-tag sync watermarks: for each tag, the indexer cursor up to which
-   * every matching transaction has already been seen. Mirrors Rust's
-   * `Wallet::sync_cursors`.
+   * Read position per stream and key, the chain position everything matching
+   * that key has been seen through on that stream. Mirrors Rust's
+   * `Wallet::cursors`.
    *
-   * Per tag rather than one shared position, because the tag set GROWS. Tags
+   * Per key rather than one shared position, because the key set GROWS. Tags
    * come from a local counter plus a window, and a second device spending
    * beyond that window makes the counter lag by more than the window absorbs.
    * A tag learned late must be scanned from the beginning even though other
-   * tags have advanced far past those slots, so a single cursor would skip
+   * tags have advanced far past those slots, so a single position would skip
    * those transactions permanently.
    *
-   * Serialized with the wallet since snapshot version 3, an older snapshot
+   * Serialized with the wallet since snapshot version 4, an older snapshot
    * restores with empty cursors and rescans history once.
    */
-  #syncCursors = new Map<string, Uint8Array>();
-  /**
-   * The same watermarks for the encrypted-utxo stream that proofless deposits
-   * are read from. Mirrors Rust's `Wallet::proofless_cursors`.
-   *
-   * Separate from `#syncCursors` because they are positions in different
-   * streams: reaching the tip of the transaction stream says nothing about
-   * where the encrypted-utxo stream has been read to, and sharing one cursor
-   * would skip rows in whichever stream is behind.
-   */
-  #prooflessCursors = new Map<string, Uint8Array>();
-  /**
-   * The same for the nullifier stream, keyed by nullifier rather than tag.
-   * Entries are dropped once the nullifier is spent.
-   */
-  #nullifierCursors = new Map<string, Uint8Array>();
+  #syncCursors = new Map<string, ChainPosition>();
   #revision = 0;
   #syncQueue: Promise<unknown> = Promise.resolve();
   #reservations: NoteReservation[] = [];
@@ -249,19 +234,19 @@ export class Wallet {
   }
 
   /**
-   * Cursor this tag's stream has been read to, or `undefined` for a tag never
-   * scanned -- which must start from the beginning, not from another tag's
+   * Position this key's stream has been read to, or `undefined` for a key never
+   * scanned -- which must start from the beginning, not from another key's
    * position.
    *
    * @internal
    */
-  _syncCursor(stream: CursorStream, tag: string): Uint8Array | undefined {
-    return this.#cursorsFor(stream).get(tag);
+  _syncCursor(stream: CursorStream, key: string): ChainPosition | undefined {
+    return this.#syncCursors.get(`${stream}|${key}`);
   }
 
   /** @internal */
-  _setSyncCursor(stream: CursorStream, tag: string, cursor: Uint8Array): void {
-    this.#cursorsFor(stream).set(tag, Uint8Array.from(cursor));
+  _setSyncCursor(stream: CursorStream, key: string, position: ChainPosition): void {
+    this.#syncCursors.set(`${stream}|${key}`, Object.freeze({ ...position }));
   }
 
   /**
@@ -273,19 +258,15 @@ export class Wallet {
    * @internal
    */
   _forgetNullifierCursors(spent: ReadonlySet<string>): void {
-    for (const nullifier of spent) this.#nullifierCursors.delete(nullifier);
-  }
-
-  #cursorsFor(stream: CursorStream): Map<string, Uint8Array> {
-    if (stream === "transactions") return this.#syncCursors;
-    return stream === "proofless" ? this.#prooflessCursors : this.#nullifierCursors;
+    for (const nullifier of spent) this.#syncCursors.delete(`nullifiers|${nullifier}`);
   }
 
   /** @internal */
-  _cursorEntries(stream: CursorStream): readonly (readonly [string, Uint8Array])[] {
-    return [...this.#cursorsFor(stream)].map(
-      ([key, cursor]) => [key, Uint8Array.from(cursor)] as const,
-    );
+  _cursorEntries(stream: CursorStream): readonly (readonly [string, ChainPosition])[] {
+    const prefix = `${stream}|`;
+    return [...this.#syncCursors]
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([key, position]) => [key.slice(prefix.length), position] as const);
   }
 
   registerAsset(assetId: bigint, mint: Address): void {
@@ -531,10 +512,8 @@ export class Wallet {
   _clone(): Wallet {
     const clone = new Wallet({ identity: this.identity, registry: this.#registry });
     clone._replace({ ...this._state(), lastSynced: this.#lastSynced });
-    for (const stream of ["transactions", "proofless", "nullifiers"] as const) {
-      for (const [key, cursor] of this.#cursorsFor(stream)) {
-        clone._setSyncCursor(stream, key, cursor);
-      }
+    for (const [key, position] of this.#syncCursors) {
+      clone.#syncCursors.set(key, position);
     }
     clone.#reservations = [...this.#reservations];
     return clone;

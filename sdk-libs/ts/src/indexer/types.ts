@@ -1,4 +1,6 @@
-import type { Address, Signature } from "../interface/types.js";
+import type { Address, ChainPosition, Signature } from "../interface/types.js";
+
+export type { ChainPosition } from "../interface/types.js";
 
 export type Base64String = string & { readonly __base64: unique symbol };
 export type Hash = string & { readonly __hash32Base58: unique symbol };
@@ -12,7 +14,7 @@ export interface IndexerContext {
 
 export interface GetRingsByTagsRequest {
   readonly tags: readonly Hash[];
-  readonly cursor?: Base64String;
+  readonly since?: ChainPosition;
   readonly limit?: Limit;
   /**
    * Restrict the match to one ring. Its config account is derived from this
@@ -23,7 +25,7 @@ export interface GetRingsByTagsRequest {
 
 export interface GetRingsByNullifiersRequest {
   readonly nullifiers: readonly Hash[];
-  readonly cursor?: Base64String;
+  readonly since?: ChainPosition;
   readonly limit?: Limit;
 }
 
@@ -55,9 +57,10 @@ export interface EncryptedUtxoMatch {
 export interface GetEncryptedUtxosByTagsResponse {
   readonly context: IndexerContext;
   readonly matches: readonly EncryptedUtxoMatch[];
-  readonly nextCursor?: Base64String;
-  /** Where the scan reached on a terminal page, including an empty page. */
-  readonly scannedThrough?: Base64String;
+  /** Present only when the limit truncated the page. */
+  readonly next?: ChainPosition;
+  /** The stream tip, present on a terminal page. */
+  readonly latest?: ChainPosition;
 }
 
 export interface IndexedShieldedTransaction {
@@ -86,21 +89,22 @@ export interface IndexedShieldedTransaction {
 export interface GetShieldedTransactionsByTagsResponse {
   readonly context: IndexerContext;
   readonly transactions: readonly IndexedShieldedTransaction[];
-  readonly nextCursor?: Base64String;
-  /** Where the scan reached on a terminal page, including an empty page. */
-  readonly scannedThrough?: Base64String;
+  /** Present only when the limit truncated the page. */
+  readonly next?: ChainPosition;
+  /** The stream tip, present on a terminal page. */
+  readonly latest?: ChainPosition;
 }
 
 export interface GetShieldedTransactionsByNullifiersResponse {
   readonly context: IndexerContext;
   readonly transactions: readonly IndexedShieldedTransaction[];
-  readonly nextCursor?: Base64String;
+  /** Present only when the limit truncated the page. */
+  readonly next?: ChainPosition;
   /**
-   * Where the indexer's scan reached. Present only on a page the limit did not
-   * truncate. Unspent nullifiers match nothing, so `nextCursor` is absent for
-   * them and this is the only resume point.
+   * The stream tip, present on a terminal page. Unspent nullifiers match
+   * nothing, so for them it is the only resume point.
    */
-  readonly scannedThrough?: Base64String;
+  readonly latest?: ChainPosition;
 }
 
 export interface GetShieldedTransactionsBySignatureRequest {

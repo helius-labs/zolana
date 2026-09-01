@@ -1,6 +1,8 @@
-import type { Address, Signature } from "@solana/kit";
+import { getBase58Encoder, type Address, type Signature } from "@solana/kit";
 
-import type { Bytes16, Bytes32 } from "../interface/types.js";
+import type { Bytes16, Bytes32, ChainPosition } from "../interface/types.js";
+
+export type { ChainPosition } from "../interface/types.js";
 import type { P256PublicKey } from "../keypair/public-key.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
 
@@ -10,6 +12,21 @@ export {
 } from "./retry.js";
 export type { IndexerPollConfig, IndexerRpcConfig } from "./retry.js";
 
+const signatureEncoder = getBase58Encoder();
+
+/** Orders by slot, then signature bytes, matching the indexer's pagination. */
+export function compareChainPositions(left: ChainPosition, right: ChainPosition): number {
+  if (left.slot !== right.slot) return left.slot < right.slot ? -1 : 1;
+  const leftBytes = signatureEncoder.encode(left.signature);
+  const rightBytes = signatureEncoder.encode(right.signature);
+  const length = Math.max(leftBytes.length, rightBytes.length);
+  for (let index = 0; index < length; index++) {
+    const difference = (leftBytes[index] ?? -1) - (rightBytes[index] ?? -1);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
 export interface RpcContext {
   readonly blockTime: bigint;
   /** Highest slot the indexer has persisted. */
@@ -18,13 +35,13 @@ export interface RpcContext {
 
 export interface GetByTagsRequest {
   readonly tags: readonly Bytes32[];
-  readonly cursor?: Uint8Array;
+  readonly since?: ChainPosition;
   readonly limit?: number;
 }
 
 export interface GetByNullifiersRequest {
   readonly nullifiers: readonly Bytes32[];
-  readonly cursor?: Uint8Array;
+  readonly since?: ChainPosition;
   readonly limit?: number;
 }
 
@@ -39,27 +56,31 @@ export interface EncryptedUtxoMatch {
 export interface GetEncryptedUtxosByTagsResponse {
   readonly context: RpcContext;
   readonly matches: readonly EncryptedUtxoMatch[];
-  readonly nextCursor?: Uint8Array;
-  readonly scannedThrough?: Uint8Array;
+  /** Present only when the limit truncated the page. */
+  readonly next?: ChainPosition;
+  /** The stream tip, present on a terminal page. */
+  readonly latest?: ChainPosition;
 }
 
 export interface GetShieldedTransactionsByTagsResponse {
   readonly context: RpcContext;
   readonly transactions: readonly IndexedShieldedTransaction[];
-  readonly nextCursor?: Uint8Array;
-  readonly scannedThrough?: Uint8Array;
+  /** Present only when the limit truncated the page. */
+  readonly next?: ChainPosition;
+  /** The stream tip, present on a terminal page. */
+  readonly latest?: ChainPosition;
 }
 
 export interface GetShieldedTransactionsByNullifiersResponse {
   readonly context: RpcContext;
   readonly transactions: readonly IndexedShieldedTransaction[];
-  readonly nextCursor?: Uint8Array;
+  /** Present only when the limit truncated the page. */
+  readonly next?: ChainPosition;
   /**
-   * Where the indexer's scan reached. Present only on a page the limit did not
-   * truncate. Unspent nullifiers match nothing, so `nextCursor` is absent for
-   * them and this is the only resume point.
+   * The stream tip, present on a terminal page. Unspent nullifiers match
+   * nothing, so for them it is the only resume point.
    */
-  readonly scannedThrough?: Uint8Array;
+  readonly latest?: ChainPosition;
 }
 
 export interface GetShieldedTransactionsBySignatureResponse {

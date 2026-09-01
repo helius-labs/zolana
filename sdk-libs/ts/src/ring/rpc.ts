@@ -11,6 +11,7 @@ import type {
   Bytes32,
   Bytes33,
   Bytes64,
+  ChainPosition,
   RequestContext,
   Signature,
 } from "../interface/types.js";
@@ -49,8 +50,6 @@ const AUDITOR_KEY_DOMAIN = "zolana/ring-auditor-key/v1";
 const AUDITOR_KEY_REQUEST_DOMAIN = "zolana/ring-rpc-auditor-key-request/v1";
 /** Rust `AUDIT_PAGE_LIMIT`. */
 export const RING_READ_PAGE_LIMIT = 100n;
-/** Rust `AUDIT_CURSOR_LIMIT`. */
-export const RING_READ_CURSOR_LIMIT = 256;
 
 /** Mirrors Rust `ReadAttestation::bytes`. */
 export function ringReadAttestation(
@@ -58,11 +57,11 @@ export function ringReadAttestation(
     ringProgramId: Address;
     timestamp: bigint;
     nonce: Bytes32;
-    cursor?: Uint8Array;
+    since?: ChainPosition;
     limit?: bigint;
   }>,
 ): Uint8Array {
-  const cursor = input.cursor === undefined ? "" : base64Decoder.decode(input.cursor);
+  const since = input.since === undefined ? "" : `${input.since.slot}:${input.since.signature}`;
   return encoder.encode(
     [
       READ_DOMAIN,
@@ -70,7 +69,7 @@ export function ringReadAttestation(
       `timestamp: ${input.timestamp}`,
       `nonce: ${base64Decoder.decode(input.nonce)}`,
       `limit: ${input.limit ?? 0n}`,
-      `cursor: ${cursor}`,
+      `since: ${since}`,
     ].join("\n"),
   );
 }
@@ -120,7 +119,7 @@ export function messageSignerReader(signer: MessagePartialSigner): RingReadSigne
 /** Mirrors Rust `GetDecryptedTransactionsRequest` after `ReadRequest::sign`. */
 export interface SignedRingRead {
   readonly ringProgramId: Address;
-  readonly cursor?: Uint8Array;
+  readonly since?: ChainPosition;
   readonly limit?: bigint;
   readonly reader: Uint8Array;
   readonly timestamp: bigint;
@@ -132,7 +131,7 @@ export interface SignedRingRead {
 export class RingReadRequest {
   readonly #ringProgramId: Address;
   readonly #nonce: Bytes32;
-  #cursor?: Uint8Array;
+  #since?: ChainPosition;
   #limit?: bigint;
   #timestamp?: bigint;
 
@@ -145,8 +144,8 @@ export class RingReadRequest {
     return new RingReadRequest(ringProgramId);
   }
 
-  withCursor(cursor: Uint8Array): this {
-    this.#cursor = new Uint8Array(checkedReadCursor(cursor));
+  withSince(since: ChainPosition): this {
+    this.#since = checkedReadSince(since);
     return this;
   }
 
@@ -168,13 +167,13 @@ export class RingReadRequest {
         ringProgramId: this.#ringProgramId,
         timestamp,
         nonce: this.#nonce,
-        ...(this.#cursor === undefined ? {} : { cursor: this.#cursor }),
+        ...(this.#since === undefined ? {} : { since: this.#since }),
         ...(this.#limit === undefined ? {} : { limit: this.#limit }),
       }),
     );
     return Object.freeze({
       ringProgramId: this.#ringProgramId,
-      ...(this.#cursor === undefined ? {} : { cursor: this.#cursor }),
+      ...(this.#since === undefined ? {} : { since: this.#since }),
       ...(this.#limit === undefined ? {} : { limit: this.#limit }),
       reader: signer.reader,
       timestamp,
@@ -334,7 +333,8 @@ export interface DecryptedRingTransactionsPage {
   readonly blockTime: bigint;
   readonly items: readonly DecryptedRingTransaction[];
   readonly skipped: readonly SkippedRingTransaction[];
-  readonly cursor?: Uint8Array;
+  /** Present only when the limit truncated the page. */
+  readonly next?: ChainPosition;
 }
 
 export interface RingRpcOptions {
@@ -500,19 +500,19 @@ export class RingRpc {
     });
   }
 
-  /** Each page is signed again, the attestation binds the nonce, the cursor and the time. */
+  /** Each page is signed again, the attestation binds the nonce, the position and the time. */
   async getDecryptedTransactions(
     input: Readonly<{
       ringProgramId: Address;
       signer: RingReadSigner;
-      cursor?: Uint8Array;
+      since?: ChainPosition;
       limit?: bigint;
       timestamp?: bigint;
     }>,
     context?: RequestContext,
   ): Promise<DecryptedRingTransactionsPage> {
     let request = RingReadRequest.read(input.ringProgramId);
-    if (input.cursor !== undefined) request = request.withCursor(input.cursor);
+    if (input.since !== undefined) request = request.withSince(input.since);
     if (input.limit !== undefined) request = request.withLimit(input.limit);
     if (input.timestamp !== undefined) request = request.at(input.timestamp);
     return this.readSigned(await request.sign(input.signer), context);
@@ -529,7 +529,9 @@ export class RingRpc {
         "getDecryptedTransactions",
         {
           ringProgramId: checked.ringProgramId,
-          ...(checked.cursor === undefined ? {} : { cursor: base64Decoder.decode(checked.cursor) }),
+          ...(checked.since === undefined
+            ? {}
+            : { since: { slot: Number(checked.since.slot), signature: checked.since.signature } }),
           ...(checked.limit === undefined ? {} : { limit: Number(checked.limit) }),
           auth: {
             reader: base64Decoder.decode(checked.reader),
@@ -554,7 +556,7 @@ export class RingRpc {
     );
     const wireContext = record(wire["context"], "result.context");
     const value = record(wire["value"], "result.value");
-    const cursor = value["cursor"];
+    const next = value["next"];
     return Object.freeze({
       slot: integer(wireContext["slot"], "result.context.slot"),
       blockTime: signedInteger(wireContext["blockTime"], "result.context.blockTime"),
@@ -568,9 +570,9 @@ export class RingRpc {
           decodeSkipped(record(entry, `result.value.skipped[${index}]`)),
         ),
       ),
-      ...(cursor === undefined || cursor === null
+      ...(next === undefined || next === null
         ? {}
-        : { cursor: base64(cursor, "result.value.cursor") }),
+        : { next: decodePosition(next, "result.value.next") }),
     });
   }
 
@@ -701,6 +703,14 @@ function invalid(path: string): RingError {
 const { record, list, string, address, signature, signedInteger, integer, base64, base58 } =
   wireDecoder(invalid);
 
+function decodePosition(value: unknown, path: string): ChainPosition {
+  const position = record(value, path);
+  return Object.freeze({
+    slot: integer(position["slot"], `${path}.slot`),
+    signature: signature(position["signature"], `${path}.signature`),
+  });
+}
+
 function invalidRequest(field: string): RingError {
   return new RingError("RING_RPC", { details: { reason: "invalid request", field } });
 }
@@ -728,17 +738,17 @@ function requestBytes(value: unknown, length: number, field: string): Uint8Array
   return new Uint8Array(value);
 }
 
-function checkedReadCursor(cursor: unknown): Uint8Array {
+function checkedReadSince(since: unknown): ChainPosition {
   if (
-    !(cursor instanceof Uint8Array) ||
-    cursor.length === 0 ||
-    cursor.length > RING_READ_CURSOR_LIMIT
+    typeof since !== "object" ||
+    since === null ||
+    typeof (since as ChainPosition).slot !== "bigint" ||
+    typeof (since as ChainPosition).signature !== "string"
   ) {
-    throw new RingError("RING_READ_CURSOR", {
-      details: { length: cursor instanceof Uint8Array ? cursor.length : -1 },
-    });
+    throw new RingError("RING_READ_SINCE", { details: {} });
   }
-  return new Uint8Array(cursor);
+  const position = since as ChainPosition;
+  return Object.freeze({ slot: position.slot, signature: position.signature });
 }
 
 function checkedReadLimit(limit: unknown): bigint {
@@ -758,7 +768,7 @@ function checkedUnixTimestamp(value: unknown, field: string): bigint {
 
 const SIGNED_READ_FIELDS = new Set([
   "ringProgramId",
-  "cursor",
+  "since",
   "limit",
   "reader",
   "timestamp",
@@ -808,7 +818,7 @@ function checkedSignedRead(value: unknown): SignedRingRead {
   const ringProgramId = requestAddress(read["ringProgramId"], "ringProgramId");
   const reader = checkedReaderBytes(read["reader"]);
   const nonce = requestBytes(read["nonce"], 32, "nonce") as Bytes32;
-  const cursor = read["cursor"] === undefined ? undefined : checkedReadCursor(read["cursor"]);
+  const since = read["since"] === undefined ? undefined : checkedReadSince(read["since"]);
   const limit = read["limit"] === undefined ? undefined : checkedReadLimit(read["limit"]);
   const timestamp = checkedUnixTimestamp(read["timestamp"], "timestamp");
   const signature = read["signature"];
@@ -819,7 +829,7 @@ function checkedSignedRead(value: unknown): SignedRingRead {
       nonce,
       timestamp,
       signature: requestBytes(signature, 64, "signature"),
-      ...(cursor === undefined ? {} : { cursor }),
+      ...(since === undefined ? {} : { since }),
       ...(limit === undefined ? {} : { limit }),
     });
   }
@@ -845,7 +855,7 @@ function checkedSignedRead(value: unknown): SignedRingRead {
       authenticatorData: new Uint8Array(authenticatorData),
       clientDataJSON: new Uint8Array(clientDataJSON),
     }),
-    ...(cursor === undefined ? {} : { cursor }),
+    ...(since === undefined ? {} : { since }),
     ...(limit === undefined ? {} : { limit }),
   });
 }

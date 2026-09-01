@@ -71,7 +71,8 @@ interface SerializedPrivateTransaction {
 export interface SerializedCursor {
   /** Lowercase hex of the tag or nullifier the stream position belongs to. */
   readonly key: string;
-  readonly cursor: string;
+  readonly slot: string;
+  readonly signature: string;
 }
 
 export interface SerializedSyncCursors {
@@ -92,7 +93,7 @@ export interface SerializedNoteReservation {
  * must still encrypt it at rest.
  */
 export interface SerializedWalletState {
-  readonly version: 3;
+  readonly version: 4;
   readonly identity: Readonly<{
     signingPublicKey: string;
     nullifierPublicKey: string;
@@ -112,7 +113,7 @@ export function serializeWallet(wallet: Wallet): string {
   if (!(wallet instanceof Wallet)) fail("wallet");
   const state = wallet._state();
   const snapshot: SerializedWalletState = {
-    version: 3,
+    version: 4,
     identity: {
       signingPublicKey: encode(wallet.identity.signingPublicKey.toBytes()),
       nullifierPublicKey: encode(wallet.identity.nullifierPublicKey),
@@ -147,7 +148,9 @@ export function serializeWallet(wallet: Wallet): string {
 function serializeCursors(wallet: Wallet, stream: CursorStream): readonly SerializedCursor[] {
   return wallet
     ._cursorEntries(stream)
-    .map(([key, cursor]) => Object.freeze({ key, cursor: encode(cursor) }))
+    .map(([key, position]) =>
+      Object.freeze({ key, slot: position.slot.toString(), signature: position.signature }),
+    )
     .sort((left, right) => (left.key < right.key ? -1 : left.key > right.key ? 1 : 0));
 }
 
@@ -164,7 +167,7 @@ export function deserializeWallet(serialized: string): Wallet {
 function hydrate(value: unknown): Wallet {
   const snapshot = record(value, "wallet");
   const version = snapshot["version"];
-  if (version !== 2 && version !== 3) fail("version");
+  if (version !== 2 && version !== 3 && version !== 4) fail("version");
   const identityValue = record(snapshot["identity"], "identity");
   const identity = ShieldedAddress.fromPublicKeys(
     ShieldedPublicKey.fromBytes(
@@ -219,13 +222,14 @@ function hydrate(value: unknown): Wallet {
     viewingKeyHistory,
     lastSynced: signed(snapshot["lastSynced"], "lastSynced"),
   });
-  // Version 2 predates persisted cursors, its first sync rescans history once.
-  if (version === 3) {
+  // Versions before 4 predate chain-position cursors, their first sync
+  // rescans history once.
+  if (version === 4) {
     hydrateCursors(wallet, snapshot["syncCursors"]);
     wallet._forgetNullifierCursors(nullifiers);
-    if (snapshot["reservations"] !== undefined) {
-      hydrateReservations(wallet, snapshot["reservations"]);
-    }
+  }
+  if (version >= 3 && snapshot["reservations"] !== undefined) {
+    hydrateReservations(wallet, snapshot["reservations"]);
   }
   return wallet;
 }
@@ -259,7 +263,10 @@ function hydrateCursors(wallet: Wallet, value: unknown): void {
       const item = record(entry, field);
       const key = item["key"];
       if (typeof key !== "string" || !/^[0-9a-f]{64}$/u.test(key)) fail(`${field}.key`);
-      wallet._setSyncCursor(stream, key, bytes(item["cursor"], undefined, `${field}.cursor`));
+      wallet._setSyncCursor(stream, key, {
+        slot: unsigned(item["slot"], `${field}.slot`),
+        signature: signature(item["signature"], `${field}.signature`),
+      });
     });
   }
 }

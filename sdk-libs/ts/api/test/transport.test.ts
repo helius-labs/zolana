@@ -118,7 +118,7 @@ describe("transport configuration", () => {
         success({
           context: { blockTime: 0, slot: 1 },
           transactions: [],
-          nextCursor: "Ag==",
+          next: { slot: 9, signature: SIGNATURE },
         }),
       ),
     );
@@ -126,17 +126,17 @@ describe("transport configuration", () => {
 
     const response = await api.getShieldedTransactionsByNullifiers({
       nullifiers: [HASH],
-      cursor: "AQ==",
+      since: { slot: 7n, signature: SIGNATURE },
       limit: 1000n,
     } as never);
 
-    expect(response.nextCursor).toBe("Ag==");
+    expect(response.next).toEqual({ slot: 9n, signature: SIGNATURE });
     expect(String(injected.mock.calls[0]?.[0])).toBe(
       "https://rpc.example.test/getShieldedTransactionsByNullifiers",
     );
     expect(JSON.parse(String(injected.mock.calls[0]?.[1]?.body))).toMatchObject({
       method: "getShieldedTransactionsByNullifiers",
-      params: { nullifiers: [HASH], cursor: "AQ==", limit: 1000 },
+      params: { nullifiers: [HASH], since: { slot: 7, signature: SIGNATURE }, limit: 1000 },
     });
   });
 

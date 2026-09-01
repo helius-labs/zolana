@@ -1,4 +1,5 @@
 import { p256 } from "@noble/curves/nist.js";
+import { compareChainPositions, type ChainPosition } from "../client/rpc.js";
 import { initializePoseidon } from "../hasher/index.js";
 
 import type { IndexerReader, KitRpcAccess } from "../client/ports.js";
@@ -60,7 +61,8 @@ export interface AuditedRingTransaction {
 
 export interface RingAuditPage {
   readonly transactions: readonly AuditedRingTransaction[];
-  readonly nextCursor?: Uint8Array;
+  /** Present only when `maxPages` stopped the scan short of the stream end. */
+  readonly next?: ChainPosition;
 }
 
 const DEFAULT_PAGE_SIZE = 100;
@@ -167,7 +169,7 @@ export async function auditRing(
     ringProgramId: Address;
     assets: AssetRegistry;
     origin?: TransactionOrigin;
-    cursor?: Uint8Array;
+    since?: ChainPosition;
     pageSize?: number;
     maxPages?: number;
   }>,
@@ -182,13 +184,13 @@ export async function auditRing(
   );
   const transactions: AuditedRingTransaction[] = [];
   let assetsRefreshed = false;
-  let cursor = input.cursor;
+  let since = input.since;
   for (let page = 0; page < maxPages; page++) {
     const response = await input.client.getShieldedTransactionsByTags(
       {
         tags: [viewTag],
         limit: pageSize,
-        ...(cursor === undefined ? {} : { cursor }),
+        ...(since === undefined ? {} : { since }),
       },
       undefined,
       context,
@@ -213,16 +215,16 @@ export async function auditRing(
         );
       }
     }
-    const next = response.nextCursor;
+    const next = response.next;
     if (next === undefined) return Object.freeze({ transactions: Object.freeze(transactions) });
-    if (cursor !== undefined && equal(cursor, next)) {
-      throw new RingError("RING_RPC", { details: { reason: "ring scan cursor did not advance" } });
+    if (since !== undefined && compareChainPositions(next, since) <= 0) {
+      throw new RingError("RING_RPC", { details: { reason: "ring scan page did not advance" } });
     }
-    cursor = next;
+    since = next;
   }
   return Object.freeze({
     transactions: Object.freeze(transactions),
-    ...(cursor === undefined ? {} : { nextCursor: cursor }),
+    ...(since === undefined ? {} : { next: since }),
   });
 }
 

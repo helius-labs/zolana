@@ -1,4 +1,5 @@
 import type {
+  ChainPosition,
   EncryptedUtxoMatch,
   GetEncryptedUtxosByTagsResponse,
   GetMerkleProofsRequest,
@@ -201,6 +202,21 @@ function optional<T>(
   return value === undefined || value === null ? undefined : decode(value, path);
 }
 
+function chainPosition(value: unknown, path: string): ChainPosition {
+  const record = object(value, path, ["slot", "signature"]);
+  return {
+    slot: u64(record["slot"], `${path}.slot`),
+    signature: checkedSignature(record["signature"], `${path}.signature`),
+  };
+}
+
+function encodeChainPosition(value: ChainPosition, path: string): WireObject {
+  return {
+    slot: toU64(value.slot, `${path}.slot`),
+    signature: checkedSignature(value.signature, `${path}.signature`),
+  };
+}
+
 function context(value: unknown, path: string): IndexerContext {
   // `object` rejects any key not listed here, so a new wire field must be added
   // in the same release that starts sending it.
@@ -349,8 +365,8 @@ function nonInclusionProof(value: unknown, path: string): NonInclusionProof {
 }
 
 function decodeRingsByTagsRequest(value: unknown): GetRingsByTagsRequest {
-  const record = object(value, "$", ["tags", "cursor", "limit", "ringProgramId"]);
-  const cursor = optional(record["cursor"], "$.cursor", checkedBase64);
+  const record = object(value, "$", ["tags", "since", "limit", "ringProgramId"]);
+  const since = optional(record["since"], "$.since", chainPosition);
   const pageLimit =
     record["limit"] === undefined || record["limit"] === null
       ? undefined
@@ -358,7 +374,7 @@ function decodeRingsByTagsRequest(value: unknown): GetRingsByTagsRequest {
   const ringProgramId = optional(record["ringProgramId"], "$.ringProgramId", checkedAddress);
   return {
     tags: array(record["tags"], "$.tags", checkedHash),
-    ...(cursor === undefined ? {} : { cursor }),
+    ...(since === undefined ? {} : { since }),
     ...(pageLimit === undefined ? {} : { limit: pageLimit }),
     ...(ringProgramId === undefined ? {} : { ringProgramId }),
   };
@@ -367,28 +383,30 @@ function decodeRingsByTagsRequest(value: unknown): GetRingsByTagsRequest {
 export function encodeRingsByTagsRequest(value: GetRingsByTagsRequest): WireObject {
   const decoded = decodeRingsByTagsRequest({
     tags: value.tags,
-    ...(value.cursor === undefined ? {} : { cursor: value.cursor }),
+    ...(value.since === undefined ? {} : { since: encodeChainPosition(value.since, "$.since") }),
     ...(value.limit === undefined ? {} : { limit: toU64(value.limit, "$.limit") }),
     ...(value.ringProgramId === undefined ? {} : { ringProgramId: value.ringProgramId }),
   });
   return {
     tags: [...decoded.tags],
-    ...(decoded.cursor === undefined ? {} : { cursor: decoded.cursor }),
+    ...(decoded.since === undefined
+      ? {}
+      : { since: encodeChainPosition(decoded.since, "$.since") }),
     ...(decoded.limit === undefined ? {} : { limit: Number(decoded.limit) }),
     ...(decoded.ringProgramId === undefined ? {} : { ringProgramId: decoded.ringProgramId }),
   };
 }
 
 function decodeRingsByNullifiersRequest(value: unknown): GetRingsByNullifiersRequest {
-  const record = object(value, "$", ["nullifiers", "cursor", "limit"]);
-  const cursor = optional(record["cursor"], "$.cursor", checkedBase64);
+  const record = object(value, "$", ["nullifiers", "since", "limit"]);
+  const since = optional(record["since"], "$.since", chainPosition);
   const pageLimit =
     record["limit"] === undefined || record["limit"] === null
       ? undefined
       : checkedPageLimit(record["limit"], "$.limit");
   return {
     nullifiers: array(record["nullifiers"], "$.nullifiers", checkedHash),
-    ...(cursor === undefined ? {} : { cursor }),
+    ...(since === undefined ? {} : { since }),
     ...(pageLimit === undefined ? {} : { limit: pageLimit }),
   };
 }
@@ -396,12 +414,14 @@ function decodeRingsByNullifiersRequest(value: unknown): GetRingsByNullifiersReq
 export function encodeRingsByNullifiersRequest(value: GetRingsByNullifiersRequest): WireObject {
   const decoded = decodeRingsByNullifiersRequest({
     nullifiers: value.nullifiers,
-    ...(value.cursor === undefined ? {} : { cursor: value.cursor }),
+    ...(value.since === undefined ? {} : { since: encodeChainPosition(value.since, "$.since") }),
     ...(value.limit === undefined ? {} : { limit: toU64(value.limit, "$.limit") }),
   });
   return {
     nullifiers: [...decoded.nullifiers],
-    ...(decoded.cursor === undefined ? {} : { cursor: decoded.cursor }),
+    ...(decoded.since === undefined
+      ? {}
+      : { since: encodeChainPosition(decoded.since, "$.since") }),
     ...(decoded.limit === undefined ? {} : { limit: Number(decoded.limit) }),
   };
 }
@@ -415,28 +435,28 @@ export function encodeShieldedTransactionsBySignatureRequest(
 }
 
 export function decodeEncryptedUtxosResponse(value: unknown): GetEncryptedUtxosByTagsResponse {
-  const record = object(value, "$", ["context", "matches", "nextCursor", "scannedThrough"]);
-  const nextCursor = optional(record["nextCursor"], "$.nextCursor", checkedBase64);
-  const scannedThrough = optional(record["scannedThrough"], "$.scannedThrough", checkedBase64);
+  const record = object(value, "$", ["context", "matches", "next", "latest"]);
+  const next = optional(record["next"], "$.next", chainPosition);
+  const latest = optional(record["latest"], "$.latest", chainPosition);
   return {
     context: context(record["context"], "$.context"),
     matches: array(record["matches"], "$.matches", encryptedUtxoMatch),
-    ...(nextCursor === undefined ? {} : { nextCursor }),
-    ...(scannedThrough === undefined ? {} : { scannedThrough }),
+    ...(next === undefined ? {} : { next }),
+    ...(latest === undefined ? {} : { latest }),
   };
 }
 
 export function decodeShieldedTransactionsResponse(
   value: unknown,
 ): GetShieldedTransactionsByTagsResponse {
-  const record = object(value, "$", ["context", "transactions", "nextCursor", "scannedThrough"]);
-  const nextCursor = optional(record["nextCursor"], "$.nextCursor", checkedBase64);
-  const scannedThrough = optional(record["scannedThrough"], "$.scannedThrough", checkedBase64);
+  const record = object(value, "$", ["context", "transactions", "next", "latest"]);
+  const next = optional(record["next"], "$.next", chainPosition);
+  const latest = optional(record["latest"], "$.latest", chainPosition);
   return {
     context: context(record["context"], "$.context"),
     transactions: array(record["transactions"], "$.transactions", indexedTransaction),
-    ...(nextCursor === undefined ? {} : { nextCursor }),
-    ...(scannedThrough === undefined ? {} : { scannedThrough }),
+    ...(next === undefined ? {} : { next }),
+    ...(latest === undefined ? {} : { latest }),
   };
 }
 

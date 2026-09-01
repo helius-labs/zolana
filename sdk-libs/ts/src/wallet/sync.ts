@@ -6,6 +6,7 @@ import {
 } from "@solana/kit";
 
 import { runKitRpc } from "../client/kit.js";
+import { compareChainPositions, type ChainPosition } from "../client/rpc.js";
 import { initializePoseidon } from "../hasher/index.js";
 import type { IndexerReader, KitRpcAccess } from "../client/ports.js";
 import { ClientError } from "../client/error.js";
@@ -269,20 +270,8 @@ function shieldedTransactionKey(transaction: IndexedShieldedTransaction): string
   ].join("|");
 }
 
-function checkedNextCursor(
-  method: string,
-  cursor: Uint8Array | undefined,
-  seen: Set<string>,
-): Uint8Array | undefined {
-  if (cursor === undefined) return undefined;
-  const key = bytesKey(cursor);
-  if (seen.has(key)) {
-    throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
-      details: { method, path: "$.nextCursor" },
-    });
-  }
-  seen.add(key);
-  return cursor;
+function positionKey(position: ChainPosition): string {
+  return `${String(position.slot)}:${position.signature}`;
 }
 
 /**
@@ -321,49 +310,56 @@ interface CollectByTagsInput {
   readonly nextRpcConfig: () => IndexerRpcConfig;
   readonly out: Map<string, IndexedShieldedTransaction>;
   /** Where this group of tags was read to last sync, or undefined for never. */
-  readonly from: Uint8Array | undefined;
+  readonly from: ChainPosition | undefined;
 }
 
-/** One page of a cursor-ordered stream, reduced to what paging needs. */
+/** One page of a position-ordered stream, reduced to what paging needs. */
 interface Page {
-  readonly nextCursor?: Uint8Array | undefined;
-  /** Where the server says its scan reached on a terminal page. */
-  readonly scannedThrough?: Uint8Array | undefined;
+  /** Present only when the limit truncated the page. */
+  readonly next?: ChainPosition | undefined;
+  /** The stream tip, present on a terminal page. */
+  readonly latest?: ChainPosition | undefined;
 }
 
 /**
- * Reads one chunk until the stream offers no further cursor.
+ * Reads one chunk until a page arrives without `next`.
  *
- * A cursor means there may be more, whatever the page size. Stopping on a short
- * page would make the non-advancing-cursor guard unreachable. Mirrors the Rust
- * SDK, which must agree or the two clients read different amounts.
+ * `next` means there may be more, whatever the page size. A `next` that does
+ * not move past the position already read would loop forever, so it is
+ * refused. Mirrors the Rust SDK, which must agree or the two clients read
+ * different amounts.
  */
 async function readChunk(
   method: string,
-  start: Uint8Array | undefined,
-  request: (cursor: Uint8Array | undefined) => Promise<Page>,
-): Promise<Uint8Array | undefined> {
-  let cursor = start;
+  start: ChainPosition | undefined,
+  request: (since: ChainPosition | undefined) => Promise<Page>,
+): Promise<ChainPosition | undefined> {
+  let since = start;
   let furthest = start;
-  // Seeded with the resume point, so an indexer handing back the cursor it was
-  // given trips the guard immediately rather than after a wasted round trip.
-  const seenCursors = new Set<string>(start === undefined ? [] : [bytesKey(start)]);
   for (;;) {
-    const page = await request(cursor);
-    furthest = page.scannedThrough ?? page.nextCursor ?? furthest;
-    const next = checkedNextCursor(method, page.nextCursor, seenCursors);
-    if (next === undefined) return furthest;
-    cursor = next;
+    const page = await request(since);
+    if (
+      page.next !== undefined &&
+      furthest !== undefined &&
+      compareChainPositions(page.next, furthest) <= 0
+    ) {
+      throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
+        details: { method, path: "$.next" },
+      });
+    }
+    furthest = page.latest ?? page.next ?? furthest;
+    if (page.next === undefined) return furthest;
+    since = page.next;
   }
 }
 
 async function collectShieldedTransactions(
   input: CollectByTagsInput,
   context?: RequestContext,
-): Promise<Uint8Array | undefined> {
-  return readChunk("getShieldedTransactionsByTags", input.from, async (cursor) => {
+): Promise<ChainPosition | undefined> {
+  return readChunk("getShieldedTransactionsByTags", input.from, async (since) => {
     const response = await input.indexer.getShieldedTransactionsByTags(
-      { tags: input.chunk, limit: input.pageLimit, ...(cursor === undefined ? {} : { cursor }) },
+      { tags: input.chunk, limit: input.pageLimit, ...(since === undefined ? {} : { since }) },
       input.nextRpcConfig(),
       context,
     );
@@ -376,8 +372,8 @@ async function collectShieldedTransactions(
       if (!input.out.has(key)) input.out.set(key, transaction);
     }
     return {
-      nextCursor: response.nextCursor,
-      scannedThrough: response.scannedThrough,
+      next: response.next,
+      latest: response.latest,
     };
   });
 }
@@ -385,10 +381,10 @@ async function collectShieldedTransactions(
 async function collectProoflessDeposits(
   input: CollectByTagsInput,
   context?: RequestContext,
-): Promise<Uint8Array | undefined> {
-  return readChunk("getEncryptedUtxosByTags", input.from, async (cursor) => {
+): Promise<ChainPosition | undefined> {
+  return readChunk("getEncryptedUtxosByTags", input.from, async (since) => {
     const response = await input.indexer.getEncryptedUtxosByTags(
-      { tags: input.chunk, limit: input.pageLimit, ...(cursor === undefined ? {} : { cursor }) },
+      { tags: input.chunk, limit: input.pageLimit, ...(since === undefined ? {} : { since }) },
       input.nextRpcConfig(),
       context,
     );
@@ -415,8 +411,8 @@ async function collectProoflessDeposits(
       );
     }
     return {
-      nextCursor: response.nextCursor,
-      scannedThrough: response.scannedThrough,
+      next: response.next,
+      latest: response.latest,
     };
   });
 }
@@ -424,17 +420,17 @@ async function collectProoflessDeposits(
 /**
  * Buckets keys by the position their stream was last read to.
  *
- * A chunk carries one cursor, so keys at different positions cannot share a
- * request. `undefined` (never queried) is its own group.
+ * A chunk carries one resume position, so keys at different positions cannot
+ * share a request. `undefined` (never queried) is its own group.
  */
 function groupByResumePoint(
   keys: readonly Bytes32[],
-  cursorFor: (key: Bytes32) => Uint8Array | undefined,
-): readonly { readonly from: Uint8Array | undefined; readonly keys: Bytes32[] }[] {
-  const groups = new Map<string, { from: Uint8Array | undefined; keys: Bytes32[] }>();
+  positionFor: (key: Bytes32) => ChainPosition | undefined,
+): readonly { readonly from: ChainPosition | undefined; readonly keys: Bytes32[] }[] {
+  const groups = new Map<string, { from: ChainPosition | undefined; keys: Bytes32[] }>();
   for (const key of keys) {
-    const from = cursorFor(key);
-    const groupKey = from === undefined ? "" : bytesKey(from);
+    const from = positionFor(key);
+    const groupKey = from === undefined ? "" : positionKey(from);
     const group = groups.get(groupKey);
     if (group === undefined) groups.set(groupKey, { from, keys: [key] });
     else group.keys.push(key);
@@ -449,27 +445,25 @@ interface CollectByNullifiersInput {
   readonly nextRpcConfig: () => IndexerRpcConfig;
   readonly out: Map<string, IndexedShieldedTransaction>;
   /** Where this chunk was read to last time, if it has been read before. */
-  readonly start?: Uint8Array;
+  readonly start?: ChainPosition;
 }
 
 /**
  * Returns how far the scan reached, or `undefined` if the indexer did not say.
  *
- * The position comes from `scannedThrough`, not from the rows: an unspent
- * nullifier matches nothing, so there is no last row to take a position from.
- * An indexer that does not report it leaves the caller starting from zero next
- * time, which is exactly the old behaviour.
+ * The position comes from `latest`, not from the rows: an unspent nullifier
+ * matches nothing, so there is no last row to take a position from.
  */
 async function collectShieldedTransactionsByNullifiers(
   input: CollectByNullifiersInput,
   context?: RequestContext,
-): Promise<Uint8Array | undefined> {
-  return readChunk("getShieldedTransactionsByNullifiers", input.start, async (cursor) => {
+): Promise<ChainPosition | undefined> {
+  return readChunk("getShieldedTransactionsByNullifiers", input.start, async (since) => {
     const response = await input.indexer.getShieldedTransactionsByNullifiers(
       {
         nullifiers: input.chunk,
         limit: input.pageLimit,
-        ...(cursor === undefined ? {} : { cursor }),
+        ...(since === undefined ? {} : { since }),
       },
       input.nextRpcConfig(),
       context,
@@ -480,8 +474,8 @@ async function collectShieldedTransactionsByNullifiers(
       if (!input.out.has(key)) input.out.set(key, transaction);
     }
     return {
-      nextCursor: response.nextCursor,
-      scannedThrough: response.scannedThrough,
+      next: response.next,
+      latest: response.latest,
     };
   });
 }

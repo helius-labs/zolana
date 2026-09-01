@@ -1,4 +1,4 @@
-import type { Address, Bytes32 } from "../interface/types.js";
+import type { Address, Bytes32, ChainPosition } from "../interface/types.js";
 import type { CursorStream, SyncDelta } from "../transaction/wallet/state.js";
 import { Wallet } from "../transaction/wallet/state.js";
 
@@ -7,7 +7,7 @@ import { bytesKey } from "./internal.js";
 /** @internal */
 export interface WalletSyncSession {
   readonly staging: Wallet;
-  readonly cursors: Readonly<Record<CursorStream, Map<string, Uint8Array>>>;
+  readonly cursors: Readonly<Record<CursorStream, Map<string, ChainPosition>>>;
   readonly registryAdditions: { assetId: bigint; mint: Address }[];
   readonly baseRevision: number;
 }
@@ -27,7 +27,7 @@ export function sessionCursor(
   session: WalletSyncSession,
   stream: CursorStream,
   key: string,
-): Uint8Array | undefined {
+): ChainPosition | undefined {
   return session.cursors[stream].get(key) ?? session.staging._syncCursor(stream, key);
 }
 
@@ -36,10 +36,10 @@ export function advanceSessionCursors(
   session: WalletSyncSession,
   stream: CursorStream,
   keys: readonly Bytes32[],
-  furthest: Uint8Array,
+  furthest: ChainPosition,
 ): void {
   for (const key of keys) {
-    session.cursors[stream].set(bytesKey(key), Uint8Array.from(furthest));
+    session.cursors[stream].set(bytesKey(key), Object.freeze({ ...furthest }));
   }
 }
 

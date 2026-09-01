@@ -1,4 +1,4 @@
-import type { Address } from "@solana/kit";
+import type { Address, Signature } from "@solana/kit";
 
 type FixedBytes<Length extends number> = Uint8Array & {
   readonly __fixedBytesLength: Length;
@@ -11,6 +11,15 @@ export type Bytes32 = FixedBytes<32>;
 export type Bytes33 = FixedBytes<33>;
 export type Bytes64 = FixedBytes<64>;
 export type Bytes128 = FixedBytes<128>;
+
+/**
+ * One transaction's place in the total order every rings stream shares.
+ * A resume returns rows strictly after it.
+ */
+export interface ChainPosition {
+  readonly slot: bigint;
+  readonly signature: Signature;
+}
 
 export interface RequestContext {
   readonly signal?: AbortSignal;
