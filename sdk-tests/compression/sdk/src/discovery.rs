@@ -60,14 +60,14 @@ pub fn decode_wallet_utxo(indexed: EncryptedUtxoMatch, pda: &Address) -> Result<
 }
 
 pub fn discover_account(indexer: &impl Rpc, pda: Address) -> Result<DiscoveredAccount> {
-    let mut cursor = None;
+    let mut since = None;
     let mut matches = Vec::new();
     loop {
         let response =
-            indexer.get_encrypted_utxos_by_tags(vec![pda.to_bytes()], cursor, Some(100), None)?;
+            indexer.get_encrypted_utxos_by_tags(vec![pda.to_bytes()], since, Some(100), None)?;
         matches.extend(response.matches);
-        cursor = response.next_cursor;
-        if cursor.is_none() {
+        since = response.next;
+        if since.is_none() {
             break;
         }
     }
