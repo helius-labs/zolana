@@ -33,13 +33,15 @@ All wire fields use camel case.
 | `createAuditorKey` | Ring program ID and authority authorization | Auditor key and service attestation |
 | `ringStatus` | Ring program ID | Whether the ring's config names the key held here (`served`), another one (`foreignAuditor`), or does not exist yet (`uninitialized`), with the config's key when it exists |
 | `ringDeposits` | Ring program ID, examined signature limit, and page cursor | The deposits found, the next cursor, and the oldest slot examined |
-| `getDecryptedTransactions` | Ring, page, and read authorization | Decrypted transaction page |
+| `getDecryptedTransactions` | Ring, resume position, limit, and read authorization | Decrypted transaction page |
 
 `ringDeposits` walks ring history backwards from the newest signature. A deposit publishes its asset and amount, so the method needs no auditor key and no read authorization. Its `limit` counts signatures examined rather than deposits found, so a page can hold no deposits and still have history behind it. The default limit is 50 and the service clamps it to 200.
 
 The response `cursor` is opaque and goes back in the next request. It is present while older ring history remains and absent at the end, so a client pages until it is absent. `oldestSlot` reports the slot of the oldest signature the page examined, absent when the page examined nothing. A client that merges deposits with another paginated stream needs `oldestSlot` to know how far back an empty page reached.
 
-The read authorization contains a canonical reader key, Unix timestamp, random nonce, and signature. The signature binds the ring, timestamp, nonce, cursor, and limit. Ed25519 readers sign the attestation bytes. P256 readers use WebAuthn with user verification.
+`getDecryptedTransactions` pages by an explicit chain position. `since` is the `{slot, signature}` of a transaction and the page resumes strictly after it. The response `next` names the last transaction of a page the limit truncated and is absent on the final page, so a client passes `next` back as `since` until it is absent.
+
+The read authorization contains a canonical reader key, Unix timestamp, random nonce, and signature. The signature binds the ring, timestamp, nonce, resume position, and limit. Ed25519 readers sign the attestation bytes. P256 readers use WebAuthn with user verification.
 
 The authority authorization contains the authority address, the cluster genesis hash, Unix timestamp, random nonce, and a raw Ed25519 signature over the attestation bytes. Both authorizations share the timestamp skew and the per-ring nonce set.
 
@@ -55,7 +57,7 @@ Each opened output includes the asset mint, amount, recipient viewing key, and r
 
 The released transfer proof does not prove that output ciphertext matches the committed UTXO. The ring program checks Confidential framing. Ring RPC reports output slots that it cannot decrypt. A decrypted value is not proof of the committed plaintext.
 
-A transaction that carries the auditor view tag but did not run under this ring is not reported. It reaches neither the audited items nor the skipped rows, and the page cursor still advances past it, so an empty page is not the end of the history.
+A transaction that carries the auditor view tag but did not run under this ring is not reported. It reaches neither the audited items nor the skipped rows, and the page position still advances past it, so an empty page is not the end of the history.
 
 Photon is an integrity boundary for transaction rows, slots, signatures, ciphertext, and nullifiers. It needs no ring support. Ring RPC reads the matched transactions by the auditor view tag, then fetches each one from Solana RPC and keeps it only when the shielded pool instruction has the ring program as its direct caller, the position that holds the `ring_auth` signer. It also checks the supported transaction shape. It does not verify the default transfer proof.
 

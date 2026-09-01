@@ -329,7 +329,7 @@ mod tests {
                 ring: RING,
                 timestamp: auth.timestamp,
                 nonce: &nonce,
-                cursor: None,
+                since: None,
                 limit: None,
             },
         )
