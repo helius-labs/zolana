@@ -12,14 +12,14 @@ use zolana_interface::{
         CreateTree, UpdateProtocolConfigData,
     },
     pda,
-    state::{address_tree_params, RingConfig},
+    state::{nullifier_tree_params, RingConfig},
 };
 use zolana_program_test::{system_create_account_ix, Rejection, Rpc, RING_TEST_PROGRAM_ID};
 use zolana_test_utils::mollusk::{
     empty_placeholder_account, expect_err_exact, mollusk_pubkey, sweep_account_matrix,
     AccountMutation, Expected,
 };
-use zolana_tree::InitAddressTreeAccountsInstructionData;
+use zolana_tree::NullifierTreeInitParams;
 
 use shielded_pool_tests::support::{
     fixtures::Pool,
@@ -148,9 +148,9 @@ fn tree_creation_rejects_an_unsigned_authority() {
 #[test]
 fn tree_creation_rejects_non_canonical_nullifier_params() {
     let mut pool = Pool::initialized();
-    let canonical = address_tree_params();
+    let canonical = nullifier_tree_params();
     // Derives 121 roots instead of the account layout's canonical 120.
-    let wrong_zkp_ratio = InitAddressTreeAccountsInstructionData {
+    let wrong_zkp_ratio = NullifierTreeInitParams {
         input_queue_batch_size: canonical.input_queue_batch_size
             + canonical.input_queue_zkp_batch_size,
         ..canonical

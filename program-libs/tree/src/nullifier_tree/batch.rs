@@ -87,7 +87,7 @@ impl CachedTreeUpdate {
     BorshSerialize,
     BorshDeserialize,
 )]
-pub struct Batch<const ZKP: usize> {
+pub struct Batch<const ZKP_BATCHES: usize> {
     /// Number of inserted elements in the zkp batch.
     num_inserted: u64,
     state: u64,
@@ -107,30 +107,30 @@ pub struct Batch<const ZKP: usize> {
     /// `num_full_zkp_batches` is the one insertions currently extend; the
     /// chains below it are complete and are the prover inputs of the pending
     /// tree updates.
-    hash_chains: [[u8; 32]; ZKP],
+    hash_chains: [[u8; 32]; ZKP_BATCHES],
     /// One cached tree update per ZKP batch, verified and waiting to be applied
     /// to the tree. The slot at `num_inserted_zkp_batches` is the next update
     /// that can be applied; a slot is cleared once its update is in the tree.
-    cached_tree_updates: [CachedTreeUpdate; ZKP],
+    cached_tree_updates: [CachedTreeUpdate; ZKP_BATCHES],
 }
 
 /// `repr(C)`: 56 metadata bytes, then one hash chain and one cached update per
 /// ZKP batch. Both arrays are align-1, so the only implicit padding is the tail
 /// that rounds the batch up to the alignment of its metadata words; the
-/// production configuration (`ZKP = 120`) has none.
+/// production configuration (`ZKP_BATCHES = 120`) has none.
 const fn batch_size_bytes(zkp: usize) -> usize {
     let unpadded = 56 + (32 + size_of::<CachedTreeUpdate>()) * zkp;
     unpadded.next_multiple_of(align_of::<Batch<1>>())
 }
 
-/// Two instantiations pin the size formula for every `ZKP`.
+/// Two instantiations pin the size formula for every `ZKP_BATCHES`.
 const _: () = {
     assert!(size_of::<CachedTreeUpdate>() == 65);
     assert!(size_of::<Batch<1>>() == batch_size_bytes(1));
     assert!(size_of::<Batch<9>>() == batch_size_bytes(9));
 };
 
-impl<const ZKP: usize> Batch<ZKP> {
+impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
     /// Initializes a batch in place on zeroed account data, a precondition the
     /// layout init relies on throughout (it never writes root-history slots
     /// past index 0 either).
@@ -439,7 +439,7 @@ impl<const ZKP: usize> Batch<ZKP> {
 /// into states the public transitions reach only after many insertions. Gated on
 /// `test-only`, which the on-chain build never enables.
 #[cfg(feature = "test-only")]
-impl<const ZKP: usize> Batch<ZKP> {
+impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
     /// Builds a batch by value, which integration tests need to compare against
     /// an in-place initialized one.
     pub fn new(batch_size: u64, zkp_batch_size: u64, start_index: u64) -> Self {

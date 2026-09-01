@@ -5,10 +5,10 @@ use zolana_client::Rpc;
 use zolana_interface::{
     instruction::CreateTree,
     pda,
-    state::{address_tree_params, state_root_offset, tree_account_size, tree_creation_lamports},
+    state::{nullifier_tree_params, state_root_offset, tree_account_size, tree_creation_lamports},
     NULLIFIER_PDA_SIZE,
 };
-use zolana_tree::InitAddressTreeAccountsInstructionData;
+use zolana_tree::NullifierTreeInitParams;
 
 use crate::ProgramTestError;
 
@@ -41,7 +41,7 @@ pub fn create_tree_account_ix<R: Rpc>(
     rpc: &R,
     payer: &Pubkey,
     tree: &Pubkey,
-    nullifier_params: &InitAddressTreeAccountsInstructionData,
+    nullifier_params: &NullifierTreeInitParams,
 ) -> Result<Instruction, ProgramTestError> {
     sized_tree_account_ix(
         rpc,
@@ -57,7 +57,7 @@ fn sized_tree_account_ix<R: Rpc>(
     payer: &Pubkey,
     tree: &Pubkey,
     account_size: u64,
-    nullifier_params: &InitAddressTreeAccountsInstructionData,
+    nullifier_params: &NullifierTreeInitParams,
 ) -> Result<Instruction, ProgramTestError> {
     let tree_rent = rpc.get_minimum_balance_for_rent_exemption(account_size as usize)?;
     let nullifier_pda_rent = rpc.get_minimum_balance_for_rent_exemption(NULLIFIER_PDA_SIZE)?;
@@ -80,7 +80,7 @@ pub fn create_tree_instructions<R: Rpc>(
     account_size: u64,
 ) -> Result<Vec<Instruction>, ProgramTestError> {
     Ok(vec![
-        sized_tree_account_ix(rpc, payer, tree, account_size, &address_tree_params())?,
+        sized_tree_account_ix(rpc, payer, tree, account_size, &nullifier_tree_params())?,
         CreateTree {
             authority: *authority,
             tree: *tree,

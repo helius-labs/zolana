@@ -203,7 +203,7 @@ pub(super) fn non_inclusion_proof_from_context(
 /// Position of a root within its own tree's history ring.
 ///
 /// Only the nullifier tree reaches here, and its sequence number *is* the
-/// chain's: it comes from `BatchAddressAppendEvent`, not from a local counter.
+/// chain's: it comes from `NullifierTreeUpdateEvent`, not from a local counter.
 /// The state tree has no such field in its event, so it reads its index from
 /// the tree account instead -- see `RootIndexCache`.
 ///

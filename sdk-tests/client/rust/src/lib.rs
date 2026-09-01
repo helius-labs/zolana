@@ -5,7 +5,7 @@ use solana_signer::Signer;
 use zolana_client::{spawn_prover, Rpc, SolanaRpc};
 use zolana_interface::{
     instruction::{CreateProtocolConfig, CreateTree},
-    state::address_tree_params,
+    state::nullifier_tree_params,
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
@@ -131,7 +131,7 @@ pub fn setup() -> Result<SetupContext> {
         &rpc,
         &payer.pubkey(),
         &tree.pubkey(),
-        &address_tree_params(),
+        &nullifier_tree_params(),
     )?;
     let create_tree_ix = CreateTree {
         authority: accounts.tree_vault,

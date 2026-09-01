@@ -316,7 +316,7 @@ pub fn index_events(
                 indexer.record_state_change(general_event)?;
                 indexer.record_transaction(signature, general_event, false);
             }
-            Some(EventKind::BatchAddressAppend) | None => {}
+            Some(EventKind::NullifierTreeUpdate) | None => {}
         }
     }
     Ok(())

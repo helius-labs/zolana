@@ -1,9 +1,8 @@
 //! # Nullifier tree
 //!
-//! Batched indexed Merkle tree implementation for the trees that the shielded
-//! pool maintains off the hot path: **address trees** (address registration)
-//! and **nullifier trees** (spent-note non-membership). Both are indexed Merkle
-//! trees of height 40 living in a single Solana account with an integrated input
+//! Batched indexed Merkle tree for spent-note non-membership, maintained off
+//! the hot path: an indexed Merkle tree of height 40 living in a single Solana
+//! account with an integrated input
 //! queue. Instead of updating the tree one leaf at a time, insertions are
 //! batched into the queue and applied to the tree with a zero-knowledge proof
 //! (ZKP), enabling efficient on-chain verification. Trees keep a cyclic root
@@ -28,8 +27,6 @@
 //! place from the account bytes: it stores the tree metadata, the cyclic root
 //! history, and the input queue's two batches, each carrying its own hash
 //! chains and cached tree updates.
-//! Address and nullifier trees use the same `AddressV2` layout and differ only
-//! in the sentinel root they are seeded with.
 //!
 //! ## Operations
 //!
@@ -88,11 +85,9 @@
 //! ## Testing and reference implementations
 //!
 //! - **`zolana-merkle-tree`** - Reference indexed Merkle tree implementation
-//!   (dev dependency), used to generate the constants
-//!   [`constants::ADDRESS_TREE_INIT_ROOT_40`] and
+//!   (dev dependency), used to generate the constant
 //!   [`constants::NULLIFIER_TREE_INIT_ROOT_40`] (see `tests/init_roots.rs`).
-//!   Address trees are seeded as `H(0, HIGHEST_ADDRESS_PLUS_ONE)` and nullifier
-//!   trees as `H(0, BN254 p-1)`.
+//!   Nullifier trees are seeded as `H(0, BN254 p-1)`.
 //!
 //! ## Error codes
 //!

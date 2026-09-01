@@ -1,17 +1,12 @@
-pub const DEFAULT_BATCH_ADDRESS_TREE_HEIGHT: u32 = 40;
+pub const DEFAULT_NULLIFIER_TREE_HEIGHT: u32 = 40;
 
 pub const TEST_DEFAULT_BATCH_SIZE: u64 = 50;
 
 pub const TEST_DEFAULT_ZKP_BATCH_SIZE: u64 = 10;
 
-pub const DEFAULT_ADDRESS_BATCH_SIZE: u64 = 30000;
+pub const DEFAULT_NULLIFIER_BATCH_SIZE: u64 = 30000;
 
-pub const DEFAULT_ADDRESS_ZKP_BATCH_SIZE: u64 = 250;
-
-pub const ADDRESS_TREE_INIT_ROOT_40: [u8; 32] = [
-    28, 65, 107, 255, 208, 234, 51, 3, 131, 95, 62, 130, 202, 177, 176, 26, 216, 81, 64, 184, 200,
-    25, 95, 124, 248, 129, 44, 109, 229, 146, 106, 76,
-];
+pub const DEFAULT_NULLIFIER_ZKP_BATCH_SIZE: u64 = 250;
 
 /// Init root of a height-40 indexed Merkle tree seeded with the BN254 `p-1`
 /// sentinel (the highest valid field element). Used to initialize nullifier
@@ -25,5 +20,5 @@ pub const NULLIFIER_TREE_INIT_ROOT_40: [u8; 32] = [
 
 pub const NUM_BATCHES: usize = 2;
 
-pub const ADDRESS_TREE_DEFAULT_ZKP: usize =
-    (DEFAULT_ADDRESS_BATCH_SIZE / DEFAULT_ADDRESS_ZKP_BATCH_SIZE) as usize;
+pub const NULLIFIER_TREE_ZKP_BATCHES: usize =
+    (DEFAULT_NULLIFIER_BATCH_SIZE / DEFAULT_NULLIFIER_ZKP_BATCH_SIZE) as usize;

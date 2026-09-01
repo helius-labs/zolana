@@ -1,7 +1,7 @@
 use zolana_tree::{
     error::TreeError,
     smt::{UtxoTreeLayout, ROOT_HISTORY_CAPACITY},
-    InitAddressTreeAccountsInstructionData, TreeAccount, INITIALIZED,
+    NullifierTreeInitParams, TreeAccount, INITIALIZED,
 };
 
 // Must equal the pool's `UTXO_TREE_HEIGHT` (lib.rs) — `TreeAccount::init`
@@ -17,7 +17,7 @@ fn leaf(i: u8) -> [u8; 32] {
 
 #[test]
 fn init_then_reload() {
-    let params = InitAddressTreeAccountsInstructionData::default();
+    let params = NullifierTreeInitParams::default();
     let mut bytes = vec![0u8; TreeAccount::account_size()];
 
     let pubkey = [2u8; 32];
@@ -61,7 +61,7 @@ fn init_then_reload() {
 
 #[test]
 fn reload_rejects_inconsistent_nullifier_batch_metadata() {
-    let params = InitAddressTreeAccountsInstructionData::default();
+    let params = NullifierTreeInitParams::default();
     let mut bytes = vec![0u8; TreeAccount::account_size()];
     let pubkey = [2u8; 32];
 
@@ -79,7 +79,7 @@ fn reload_rejects_inconsistent_nullifier_batch_metadata() {
 
 #[test]
 fn append_batch_matches_sequential() {
-    let params = InitAddressTreeAccountsInstructionData::default();
+    let params = NullifierTreeInitParams::default();
     let pubkey = [2u8; 32];
     let count = 10u8;
 
@@ -121,28 +121,28 @@ fn append_batch_matches_sequential() {
 #[test]
 fn init_rejects_invalid_nullifier_params() {
     let pubkey = [2u8; 32];
-    let valid = InitAddressTreeAccountsInstructionData::default();
+    let valid = NullifierTreeInitParams::default();
     let invalid = [
-        InitAddressTreeAccountsInstructionData {
+        NullifierTreeInitParams {
             input_queue_zkp_batch_size: 0,
             ..valid
         },
-        InitAddressTreeAccountsInstructionData {
+        NullifierTreeInitParams {
             input_queue_batch_size: 0,
             ..valid
         },
-        InitAddressTreeAccountsInstructionData {
+        NullifierTreeInitParams {
             input_queue_batch_size: valid.input_queue_zkp_batch_size + 1,
             ..valid
         },
         // Divisible and correct quotient, but no verifying key exists for
         // zkp batch size 100: the tree could never be forested.
-        InitAddressTreeAccountsInstructionData {
+        NullifierTreeInitParams {
             input_queue_batch_size: 12_000,
             input_queue_zkp_batch_size: 100,
             ..valid
         },
-        InitAddressTreeAccountsInstructionData {
+        NullifierTreeInitParams {
             height: 30,
             ..valid
         },
@@ -153,8 +153,8 @@ fn init_rejects_invalid_nullifier_params() {
             .err()
             .expect("invalid params must be rejected");
         assert!(
-            matches!(err, TreeError::AddressInit),
-            "params {params:?} failed with {err:?}, expected AddressInit"
+            matches!(err, TreeError::NullifierInit),
+            "params {params:?} failed with {err:?}, expected NullifierInit"
         );
     }
 }
@@ -186,7 +186,7 @@ fn append_fails_when_tree_is_full() {
 
 #[test]
 fn root_history_wraps_around() {
-    let params = InitAddressTreeAccountsInstructionData::default();
+    let params = NullifierTreeInitParams::default();
     let mut bytes = vec![0u8; TreeAccount::account_size()];
     let mut tree = TreeAccount::init(&mut bytes, DISCRIMINATOR, HEIGHT, [2u8; 32], params).unwrap();
 

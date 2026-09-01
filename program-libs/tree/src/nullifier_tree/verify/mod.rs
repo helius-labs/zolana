@@ -2,7 +2,7 @@
 //!
 //! | Function | Description |
 //! |----------|-------------|
-//! | [`verify_batch_address_update`] | Verify batch address update (10 or 250) |
+//! | [`verify_batch_update`] | Verify batch address update (10 or 250) |
 //! | [`verify`] | Generic Groth16 proof verification |
 
 use groth16_solana::{
@@ -54,7 +54,7 @@ pub fn verify<const N: usize>(
 }
 
 #[inline(never)]
-pub fn verify_batch_address_update(
+pub fn verify_batch_update(
     batch_size: u64,
     public_input_hash: [u8; 32],
     compressed_proof: &CompressedProof,

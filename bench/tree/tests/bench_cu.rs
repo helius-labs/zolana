@@ -20,17 +20,16 @@ use zolana_tree::nullifier_tree::{
         test_utils::{init_tree_account_data, load_tree_account_data},
     },
     batch::CachedTreeUpdate,
-    constants::NULLIFIER_TREE_INIT_ROOT_40,
     layout::NullifierTreeLayout,
-    merkle_tree_update::InstructionDataAddressAppendInputs,
+    merkle_tree_update::InstructionDataBatchNullifyInputs,
     proof::CompressedProof,
 };
-use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount, UTXO_TREE_HEIGHT};
+use zolana_tree::{NullifierTreeInitParams, TreeAccount, UTXO_TREE_HEIGHT};
 
 const HEIGHT: u8 = UTXO_TREE_HEIGHT as u8;
 const DISCRIMINATOR: u8 = 7;
 
-const OP_BATCH_ADDRESS_UPDATE: u8 = 5;
+const OP_BATCH_UPDATE_NULLIFIER_TREE: u8 = 5;
 
 const ADDRESS_ZKP: usize = 120;
 const ADDRESS_HEIGHT: u32 = 40;
@@ -146,7 +145,6 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
         ADDRESS_BATCH_SIZE,
         ADDRESS_ZKP_BATCH_SIZE,
         ADDRESS_HEIGHT,
-        Some(NULLIFIER_TREE_INIT_ROOT_40),
     )
     .unwrap();
 
@@ -172,7 +170,7 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
     );
 
     let mut cached_updates: Vec<CachedTreeUpdate> = Vec::with_capacity(num_batches);
-    let mut index0_ix: Option<InstructionDataAddressAppendInputs> = None;
+    let mut index0_ix: Option<InstructionDataBatchNullifyInputs> = None;
     for i in 0..num_batches {
         let next_index = base_next_index + (i * zkp) as u64;
         let leaves_hash_chain = load_address_tree(&mut account_data)
@@ -192,7 +190,7 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
                 .prove_batch_address_append(&inputs)
                 .unwrap();
             let compressed = ProofCompressed::try_from(proof).unwrap();
-            index0_ix = Some(InstructionDataAddressAppendInputs {
+            index0_ix = Some(InstructionDataBatchNullifyInputs {
                 new_root,
                 old_root,
                 zkp_batch_index: 0,
@@ -222,7 +220,7 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
         }
     }
 
-    let mut instruction_data = vec![OP_BATCH_ADDRESS_UPDATE];
+    let mut instruction_data = vec![OP_BATCH_UPDATE_NULLIFIER_TREE];
     index0_ix.unwrap().serialize(&mut instruction_data).unwrap();
 
     AddressUpdateFixture {
@@ -296,7 +294,7 @@ fn shapes() -> Vec<Shape> {
 }
 
 fn inited_tree_bytes(tree_pubkey: Pubkey) -> Vec<u8> {
-    let params = InitAddressTreeAccountsInstructionData::default();
+    let params = NullifierTreeInitParams::default();
     let mut data = vec![0u8; TreeAccount::account_size()];
     {
         let _ = TreeAccount::init(

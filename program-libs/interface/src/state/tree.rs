@@ -1,5 +1,5 @@
 use zolana_tree::nullifier_tree::constants::NUM_BATCHES;
-use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount};
+use zolana_tree::{NullifierTreeInitParams, TreeAccount};
 
 pub const STATE_HEIGHT: usize = 32;
 
@@ -16,7 +16,7 @@ pub const FORESTER_REIMBURSEMENT_LAMPORTS: u64 = 5_000;
 /// PDA generations. Prompt cleanup keeps the maximum at `NUM_BATCHES + 1`
 /// batches.
 pub fn tree_working_capital_lamports(
-    nullifier_params: &InitAddressTreeAccountsInstructionData,
+    nullifier_params: &NullifierTreeInitParams,
     nullifier_pda_rent: u64,
 ) -> Option<u64> {
     (NUM_BATCHES as u64)
@@ -28,7 +28,7 @@ pub fn tree_working_capital_lamports(
 /// Lamports a tree account must be created with: its own rent exemption plus
 /// the working capital it needs to fund nullifier PDAs.
 pub fn tree_creation_lamports(
-    nullifier_params: &InitAddressTreeAccountsInstructionData,
+    nullifier_params: &NullifierTreeInitParams,
     tree_rent: u64,
     nullifier_pda_rent: u64,
 ) -> Option<u64> {
@@ -46,8 +46,8 @@ pub fn forester_fee_per_queue_element(zkp_batch_size: u64) -> Option<u64> {
 }
 
 /// Canonical nullifier (batched address) tree parameters for the shielded pool.
-pub fn address_tree_params() -> InitAddressTreeAccountsInstructionData {
-    InitAddressTreeAccountsInstructionData {
+pub fn nullifier_tree_params() -> NullifierTreeInitParams {
+    NullifierTreeInitParams {
         input_queue_batch_size: ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE,
         input_queue_zkp_batch_size: ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
         height: ADDRESS_TREE_HEIGHT,
@@ -74,7 +74,7 @@ mod tests {
 
     #[test]
     fn standard_tree_forester_fee_exactly_funds_reimbursement() {
-        let zkp_batch_size = address_tree_params().input_queue_zkp_batch_size;
+        let zkp_batch_size = nullifier_tree_params().input_queue_zkp_batch_size;
 
         assert_eq!(FORESTER_REIMBURSEMENT_LAMPORTS % zkp_batch_size, 0);
         let fee_per_element =
@@ -91,13 +91,13 @@ mod tests {
         let nullifier_pda_rent = Rent::default().minimum_balance(NULLIFIER_PDA_SIZE);
         assert_eq!(nullifier_pda_rent, 953_520);
 
-        let canonical = address_tree_params();
+        let canonical = nullifier_tree_params();
         assert_eq!(
             tree_working_capital_lamports(&canonical, nullifier_pda_rent),
             Some(3 * 30_000 * 953_520)
         );
 
-        let half = InitAddressTreeAccountsInstructionData {
+        let half = NullifierTreeInitParams {
             input_queue_batch_size: canonical.input_queue_batch_size / 2,
             ..canonical
         };

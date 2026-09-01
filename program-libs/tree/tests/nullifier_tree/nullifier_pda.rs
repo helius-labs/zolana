@@ -23,7 +23,6 @@ fn init_tree(data: &mut [u8]) -> &mut NullifierTreeLayout<ZKP> {
         BATCH_SIZE,
         ZKP_BATCH_SIZE,
         40,
-        Some(NULLIFIER_TREE_INIT_ROOT_40),
     )
     .unwrap()
 }
@@ -50,7 +49,6 @@ fn single_slot_root_history_initializes_and_reloads() {
         ZKP_BATCH_SIZE,
         ZKP_BATCH_SIZE,
         40,
-        Some(NULLIFIER_TREE_INIT_ROOT_40),
     )
     .unwrap();
     assert_eq!(tree.get_root(), Some(NULLIFIER_TREE_INIT_ROOT_40));
@@ -68,7 +66,6 @@ fn derived_root_history_must_match_one_batch_of_zkp_updates() {
             BATCH_SIZE + ZKP_BATCH_SIZE,
             ZKP_BATCH_SIZE,
             40,
-            Some(NULLIFIER_TREE_INIT_ROOT_40),
         )
         .unwrap_err(),
         NullifierTreeError::InvalidRootHistoryCapacity
@@ -81,7 +78,6 @@ fn derived_root_history_must_match_one_batch_of_zkp_updates() {
             BATCH_SIZE,
             ZKP_BATCH_SIZE,
             40,
-            Some(NULLIFIER_TREE_INIT_ROOT_40),
         )
         .unwrap_err(),
         NullifierTreeError::InvalidRootHistoryCapacity

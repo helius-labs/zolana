@@ -1,7 +1,7 @@
 use borsh::BorshSerialize;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use zolana_tree::InitAddressTreeAccountsInstructionData;
+use zolana_tree::NullifierTreeInitParams;
 
 use crate::{instruction::tag, pda, PROGRAM_ID_PUBKEY};
 
@@ -24,14 +24,14 @@ impl CreateTree {
     /// account layout during initialization.
     pub fn instruction_with_nullifier_params(
         &self,
-        params: InitAddressTreeAccountsInstructionData,
+        params: NullifierTreeInitParams,
     ) -> Instruction {
         self.build_instruction(Some(params))
     }
 
     fn build_instruction(
         &self,
-        params: Option<InitAddressTreeAccountsInstructionData>,
+        params: Option<NullifierTreeInitParams>,
     ) -> Instruction {
         let mut data = vec![tag::CREATE_TREE];
         if let Some(params) = params {

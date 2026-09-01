@@ -21,13 +21,13 @@ use zolana_client::{Rpc, SolanaRpc, ZolanaIndexer};
 use zolana_interface::{
     instruction::{CreateAssetCounter, CreateProtocolConfig, CreateSplInterface, CreateTree},
     pda,
-    state::address_tree_params,
+    state::nullifier_tree_params,
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{ShieldedKeypair, SigningKey};
 use zolana_smart_account_client::execute_sync_ix;
 use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo, Wallet, WalletUtxo};
-use zolana_tree::InitAddressTreeAccountsInstructionData;
+use zolana_tree::NullifierTreeInitParams;
 
 use crate::{
     localnet::{
@@ -321,14 +321,14 @@ impl<D> LocalnetHarness<D> {
     pub fn create_tree(
         rpc: &mut SolanaRpc,
         setup: &ProtocolSetup,
-        nullifier_params: Option<InitAddressTreeAccountsInstructionData>,
+        nullifier_params: Option<NullifierTreeInitParams>,
     ) -> Result<(Pubkey, Address)> {
         let tree = Keypair::new();
         let alloc_ix = zolana_program_test::create_tree_account_ix(
             rpc,
             &setup.payer.pubkey(),
             &tree.pubkey(),
-            &nullifier_params.unwrap_or_else(address_tree_params),
+            &nullifier_params.unwrap_or_else(nullifier_tree_params),
         )?;
         let create = CreateTree {
             authority: setup.accounts.tree_vault,

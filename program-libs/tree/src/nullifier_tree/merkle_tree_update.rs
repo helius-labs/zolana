@@ -1,5 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use zolana_event::BatchAddressAppendEvent;
+use zolana_event::NullifierTreeUpdateEvent;
 #[cfg(feature = "verify")]
 use zolana_hasher::hash_chain::create_hash_chain_from_array;
 
@@ -8,7 +8,7 @@ use crate::nullifier_tree::{
     proof::CompressedProof,
 };
 #[cfg(feature = "verify")]
-use crate::nullifier_tree::{batch::CachedTreeUpdate, verify::verify_batch_address_update};
+use crate::nullifier_tree::{batch::CachedTreeUpdate, verify::verify_batch_update};
 
 #[repr(C)]
 #[derive(Debug, PartialEq, Clone, Copy, BorshDeserialize, BorshSerialize)]
@@ -19,10 +19,8 @@ pub struct InstructionDataBatchNullifyInputs {
     pub compressed_proof: CompressedProof,
 }
 
-pub type InstructionDataAddressAppendInputs = InstructionDataBatchNullifyInputs;
-
-impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
-    /// Verify one address-append proof and apply every now-applicable cached
+impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
+    /// Verify one batch-update proof and apply every now-applicable cached
     /// update.
     ///
     /// Steps:
@@ -31,11 +29,11 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     ///    unblocks. Updates that do not match the account tree are skipped, not
     ///    errors.
     #[cfg(feature = "verify")]
-    pub fn update_tree_from_address_queue(
+    pub fn update_tree_from_queue(
         &mut self,
         merkle_tree_pubkey: [u8; 32],
-        instruction_data: InstructionDataAddressAppendInputs,
-    ) -> Result<Option<BatchAddressAppendEvent>, NullifierTreeError> {
+        instruction_data: InstructionDataBatchNullifyInputs,
+    ) -> Result<Option<NullifierTreeUpdateEvent>, NullifierTreeError> {
         // 1. Verify the proof and cache the update.
         if !self.verify_proof_cache_update(&instruction_data)? {
             return Ok(None);
@@ -44,11 +42,12 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         self.apply_cached_tree_updates(merkle_tree_pubkey)
     }
 
-    /// Verify one address-append proof and cache the update at its zkp batch
+    /// Verify one batch-update proof and cache the update at its zkp batch
     /// index. Returns `true` when a new update was cached, or `false` when the
     /// update is already applied (its zkp batch index is behind the number of
-    /// inserted zkp batches) or already cached (an occupied slot at this
-    /// StartIndex exists); a replayed proof is then a no-op.
+    /// inserted zkp batches); a replayed proof is then a no-op. A verified
+    /// proof for a still-pending zkp batch overwrites the slot, so an evicted
+    /// update can be replaced.
     ///
     /// Steps:
     /// 1. Validate the zkp batch index and that its hash chain is finalized.
@@ -59,7 +58,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     #[cfg(feature = "verify")]
     fn verify_proof_cache_update(
         &mut self,
-        instruction_data: &InstructionDataAddressAppendInputs,
+        instruction_data: &InstructionDataBatchNullifyInputs,
     ) -> Result<bool, NullifierTreeError> {
         let zkp_batch_size = self.zkp_batch_size;
         let zkp_batch_index = usize::from(instruction_data.zkp_batch_index);
@@ -107,7 +106,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
             leaves_hash_chain,
             next_index_bytes,
         ])?;
-        verify_batch_address_update(
+        verify_batch_update(
             zkp_batch_size,
             public_input_hash,
             &instruction_data.compressed_proof,
@@ -128,7 +127,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     }
 
     /// Apply cached updates in order while each update's old root matches the
-    /// account tree root, accumulating one cascade `BatchAddressAppendEvent`.
+    /// account tree root, accumulating one cascade `NullifierTreeUpdateEvent`.
     /// Stops without error at the first update that is missing, unoccupied, or
     /// whose old root does not match.
     ///
@@ -147,12 +146,12 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     pub fn apply_cached_tree_updates(
         &mut self,
         merkle_tree_pubkey: [u8; 32],
-    ) -> Result<Option<BatchAddressAppendEvent>, NullifierTreeError> {
+    ) -> Result<Option<NullifierTreeUpdateEvent>, NullifierTreeError> {
         let zkp_batch_size = self.zkp_batch_size;
         // One event covers the whole cascade: shared fields once, one root per
-        // applied zkp batch. See `BatchAddressAppendEvent` for how the per-batch
+        // applied zkp batch. See `NullifierTreeUpdateEvent` for how the per-batch
         // values are derived from each root's position.
-        let mut event: Option<BatchAddressAppendEvent> = None;
+        let mut event: Option<NullifierTreeUpdateEvent> = None;
         loop {
             // 1. Read the pending zkp batch's cached update; stop if missing or
             //    empty.
@@ -207,7 +206,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
             //    batch fixes the shared fields; later batches only advance the
             //    count and the final root (intermediate roots live in
             //    root_history).
-            let event = event.get_or_insert(BatchAddressAppendEvent {
+            let event = event.get_or_insert(NullifierTreeUpdateEvent {
                 merkle_tree_pubkey,
                 zkp_batch_size: zkp_batch_size as u16,
                 old_next_index,

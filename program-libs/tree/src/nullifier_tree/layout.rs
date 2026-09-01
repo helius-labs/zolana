@@ -50,31 +50,31 @@ pub struct NullifierTreeLayout<const ZKP_BATCHES: usize> {
     pub batches: [Batch<ZKP_BATCHES>; NUM_BATCHES],
 }
 
-impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
+impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
     /// Returns the number of ZKP batches contained within a single regular batch.
     pub fn get_num_zkp_batches(&self) -> u64 {
         self.batch_size / self.zkp_batch_size
     }
 
-    pub fn get_current_batch(&self) -> Result<&Batch<ZKP>, NullifierTreeError> {
+    pub fn get_current_batch(&self) -> Result<&Batch<ZKP_BATCHES>, NullifierTreeError> {
         self.batches
             .get(self.currently_processing_batch_index as usize)
             .ok_or(NullifierTreeError::InvalidBatchIndex)
     }
 
-    pub fn get_current_batch_mut(&mut self) -> Result<&mut Batch<ZKP>, NullifierTreeError> {
+    pub fn get_current_batch_mut(&mut self) -> Result<&mut Batch<ZKP_BATCHES>, NullifierTreeError> {
         self.batches
             .get_mut(self.currently_processing_batch_index as usize)
             .ok_or(NullifierTreeError::InvalidBatchIndex)
     }
 
-    pub fn get_pending_batch(&self) -> Result<&Batch<ZKP>, NullifierTreeError> {
+    pub fn get_pending_batch(&self) -> Result<&Batch<ZKP_BATCHES>, NullifierTreeError> {
         self.batches
             .get(self.pending_batch_index as usize)
             .ok_or(NullifierTreeError::InvalidBatchIndex)
     }
 
-    pub fn get_pending_batch_mut(&mut self) -> Result<&mut Batch<ZKP>, NullifierTreeError> {
+    pub fn get_pending_batch_mut(&mut self) -> Result<&mut Batch<ZKP_BATCHES>, NullifierTreeError> {
         self.batches
             .get_mut(self.pending_batch_index as usize)
             .ok_or(NullifierTreeError::InvalidBatchIndex)
@@ -91,7 +91,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
             return Err(NullifierTreeError::BatchSizeNotDivisibleByZkpBatchSize);
         }
 
-        if batch_size / zkp_batch_size != ZKP as u64 {
+        if batch_size / zkp_batch_size != ZKP_BATCHES as u64 {
             return Err(NullifierTreeError::InvalidRootHistoryCapacity);
         }
         Ok(())
@@ -137,9 +137,9 @@ const _: () = {
     );
 };
 
-unsafe impl<C: ConfigCore, const ZKP: usize> ZeroCopy<C> for NullifierTreeLayout<ZKP> {}
+unsafe impl<C: ConfigCore, const ZKP_BATCHES: usize> ZeroCopy<C> for NullifierTreeLayout<ZKP_BATCHES> {}
 
-unsafe impl<'de, C: ConfigCore, const ZKP: usize> SchemaRead<'de, C> for NullifierTreeLayout<ZKP> {
+unsafe impl<'de, C: ConfigCore, const ZKP_BATCHES: usize> SchemaRead<'de, C> for NullifierTreeLayout<ZKP_BATCHES> {
     type Dst = Self;
     const TYPE_META: TypeMeta = TypeMeta::Static {
         size: size_of::<Self>(),

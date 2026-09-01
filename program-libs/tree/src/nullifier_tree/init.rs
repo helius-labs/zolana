@@ -2,8 +2,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::nullifier_tree::{
     constants::{
-        ADDRESS_TREE_INIT_ROOT_40, DEFAULT_ADDRESS_BATCH_SIZE, DEFAULT_ADDRESS_ZKP_BATCH_SIZE,
-        DEFAULT_BATCH_ADDRESS_TREE_HEIGHT,
+        DEFAULT_NULLIFIER_BATCH_SIZE, DEFAULT_NULLIFIER_TREE_HEIGHT,
+        DEFAULT_NULLIFIER_ZKP_BATCH_SIZE, NULLIFIER_TREE_INIT_ROOT_40,
     },
     error::NullifierTreeError,
     layout::NullifierTreeLayout,
@@ -11,18 +11,18 @@ use crate::nullifier_tree::{
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, BorshSerialize, BorshDeserialize)]
-pub struct InitAddressTreeAccountsInstructionData {
+pub struct NullifierTreeInitParams {
     pub input_queue_batch_size: u64,
     pub input_queue_zkp_batch_size: u64,
     pub height: u32,
 }
 
-impl Default for InitAddressTreeAccountsInstructionData {
+impl Default for NullifierTreeInitParams {
     fn default() -> Self {
         Self {
-            input_queue_batch_size: DEFAULT_ADDRESS_BATCH_SIZE,
-            input_queue_zkp_batch_size: DEFAULT_ADDRESS_ZKP_BATCH_SIZE,
-            height: DEFAULT_BATCH_ADDRESS_TREE_HEIGHT,
+            input_queue_batch_size: DEFAULT_NULLIFIER_BATCH_SIZE,
+            input_queue_zkp_batch_size: DEFAULT_NULLIFIER_ZKP_BATCH_SIZE,
+            height: DEFAULT_NULLIFIER_TREE_HEIGHT,
         }
     }
 }
@@ -32,22 +32,14 @@ pub fn match_circuit_size(size: u64) -> bool {
     matches!(size, 10 | 250) // TODO: make these constants (10, 5000), 3 configs (local test (current local), devnet (5k proofs, 30k queue len), mainnet(5k proofs, 1.2mm queue len))
 }
 
-// TODO: rename ZKP -> ZKP_BATCH_SIZE
-// TODO: rename AddressV2 -> NullifierTreeV1
-impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
-    /// Initializes a zeroed layout in place.
-    ///
-    /// `address_init_root` is the init root for indexed (`AddressV2`) trees.
-    /// `None` uses the default address sentinel root
-    /// (`ADDRESS_TREE_INIT_ROOT_40`). Pass `Some` to seed an indexed tree with a
-    /// different sentinel, e.g. the BN254 `p-1` nullifier-tree root
-    /// (`NULLIFIER_TREE_INIT_ROOT_40`).
+impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
+    /// Initializes a zeroed layout in place, seeded with the BN254 `p-1`
+    /// sentinel root (`NULLIFIER_TREE_INIT_ROOT_40`).
     pub fn init(
         &mut self,
         input_queue_batch_size: u64,
         input_queue_zkp_batch_size: u64,
         height: u32,
-        address_init_root: Option<[u8; 32]>,
     ) -> Result<(), NullifierTreeError> {
         Self::validate_configuration(input_queue_batch_size, input_queue_zkp_batch_size)?;
         let capacity = 1u64
@@ -92,31 +84,28 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
             );
         }
 
-        // The initialized indexed Merkle tree contains two elements.
-        // 1. element:
-        // H(0, 1, 452312848583266388373324160190187140051835877600158453279131187530910662655)
-        // 2. element:
-        // H(452312848583266388373324160190187140051835877600158453279131187530910662655, 0, 0)
-        // ... other elements: 0
+        // The initialized indexed Merkle tree contains two elements: element 0
+        // linking to the BN254 `p-1` sentinel (the highest valid nullifier),
+        // and the sentinel itself. `init_roots.rs` derives the constant from
+        // the reference implementation.
         *self
             .root_history
             .roots
             .get_mut(0)
-            .ok_or(NullifierTreeError::InvalidRootHistoryCapacity)? =
-            address_init_root.unwrap_or(ADDRESS_TREE_INIT_ROOT_40);
-        // The cursor wraps modulo ZKP so a single-slot root history seeds back
+            .ok_or(NullifierTreeError::InvalidRootHistoryCapacity)? = NULLIFIER_TREE_INIT_ROOT_40;
+        // The cursor wraps modulo ZKP_BATCHES so a single-slot root history seeds back
         // to index 0 instead of an out-of-range 1 that no load would accept.
-        self.root_history.current_index = 1 % ZKP as u64;
+        self.root_history.current_index = 1 % ZKP_BATCHES as u64;
         Ok(())
     }
 }
 
 #[cfg(feature = "test-only")]
 pub mod test_utils {
-    pub use super::InitAddressTreeAccountsInstructionData;
+    pub use super::NullifierTreeInitParams;
     use crate::nullifier_tree::constants::{TEST_DEFAULT_BATCH_SIZE, TEST_DEFAULT_ZKP_BATCH_SIZE};
 
-    impl InitAddressTreeAccountsInstructionData {
+    impl NullifierTreeInitParams {
         pub fn test_default() -> Self {
             Self {
                 input_queue_batch_size: TEST_DEFAULT_BATCH_SIZE,

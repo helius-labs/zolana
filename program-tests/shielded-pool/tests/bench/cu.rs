@@ -22,7 +22,7 @@ use zolana_interface::{
         Deposit, Transact, TransactInterfaceTransferAccounts, TransactIxData,
         TransactSolTransferAccounts,
     },
-    state::{address_tree_params, tree_account_size, tree_working_capital_lamports},
+    state::{nullifier_tree_params, tree_account_size, tree_working_capital_lamports},
     NULLIFIER_PDA_SIZE, PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair};
@@ -289,7 +289,7 @@ fn transact_accounts(
     let nullifier_pda_rent = pt
         .svm
         .minimum_balance_for_rent_exemption(NULLIFIER_PDA_SIZE);
-    let working_capital = tree_working_capital_lamports(&address_tree_params(), nullifier_pda_rent)
+    let working_capital = tree_working_capital_lamports(&nullifier_tree_params(), nullifier_pda_rent)
         .expect("tree working capital fits in u64");
     let mut accounts = Vec::with_capacity(ix.accounts.len());
     for meta in &ix.accounts {

@@ -2,7 +2,7 @@ use zolana_hasher::primitives::is_canonical_bn254_scalar_be;
 
 use crate::nullifier_tree::{error::NullifierTreeError, layout::NullifierTreeLayout};
 
-impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
+impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
     pub fn insert_nullifier_into_queue(
         &mut self,
         nullifier: &[u8; 32],

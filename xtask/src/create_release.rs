@@ -15,7 +15,7 @@ use solana_signer::Signer;
 use zolana_interface::{
     instruction::CreateTree,
     pda,
-    state::{address_tree_params, tree_account_size, tree_creation_lamports},
+    state::{nullifier_tree_params, tree_account_size, tree_creation_lamports},
     DEFAULT_TREE_ADDRESS, NULLIFIER_PDA_SIZE, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_program_test::ZolanaProgramTest;
@@ -539,7 +539,7 @@ pub(crate) fn generate_account_snapshots(deploy_dir: &Path, accounts_dir: &Path)
     let nullifier_pda_rent = test
         .svm
         .minimum_balance_for_rent_exemption(NULLIFIER_PDA_SIZE);
-    let lamports = tree_creation_lamports(&address_tree_params(), tree_rent, nullifier_pda_rent)
+    let lamports = tree_creation_lamports(&nullifier_tree_params(), tree_rent, nullifier_pda_rent)
         .context("tree creation lamports overflow u64")?;
     test.svm
         .set_account(

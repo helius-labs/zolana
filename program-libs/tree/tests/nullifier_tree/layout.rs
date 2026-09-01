@@ -1,6 +1,6 @@
 use zolana_tree::nullifier_tree::{
     batch::{Batch, BatchState, CachedTreeUpdate},
-    constants::ADDRESS_TREE_INIT_ROOT_40,
+    constants::NULLIFIER_TREE_INIT_ROOT_40,
     error::NullifierTreeError,
     layout::{NullifierTreeLayout, RootHistory},
 };
@@ -11,7 +11,7 @@ fn new_queue<const ZKP: usize>(
 ) -> Result<NullifierTreeLayout<ZKP>, NullifierTreeError> {
     let mut bytes = vec![0u8; core::mem::size_of::<NullifierTreeLayout<ZKP>>()];
     let layout: &mut NullifierTreeLayout<ZKP> = wincode::deserialize_mut(&mut bytes).unwrap();
-    layout.init(batch_size, zkp_batch_size, 40, None)?;
+    layout.init(batch_size, zkp_batch_size, 40)?;
     Ok(*layout)
 }
 
@@ -116,7 +116,7 @@ fn test_validate_batch_sizes() {
 fn test_new_initializes_entire_queue() {
     let metadata = new_queue::<5>(10, 2).unwrap();
     let mut roots = [[0u8; 32]; 5];
-    roots[0] = ADDRESS_TREE_INIT_ROOT_40;
+    roots[0] = NULLIFIER_TREE_INIT_ROOT_40;
     assert_eq!(
         metadata,
         NullifierTreeLayout {

@@ -198,7 +198,7 @@ mod program_unit {
             TreeError::InvalidBufferSize,
             TreeError::HeightTooLarge,
             TreeError::Deserialize,
-            TreeError::AddressInit,
+            TreeError::NullifierInit,
             TreeError::AlreadyInitialized,
             TreeError::InvalidOwner,
             TreeError::NotWritable,

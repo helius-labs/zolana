@@ -4,12 +4,12 @@ use crate::ingester::parser::state_update::{NullifierTreeBatchUpdate, StateUpdat
 use crate::ingester::typedefs::block_info::TransactionInfo;
 use borsh::BorshDeserialize;
 use solana_pubkey::Pubkey;
-use zolana_event::{BatchAddressAppendEvent, EventKind};
+use zolana_event::{NullifierTreeUpdateEvent, EventKind};
 use zolana_interface::{instruction::tag, pda};
 
 /// Read the nullifier-tree batch updates a transaction actually performed.
 ///
-/// This must come from the emitted `BatchAddressAppendEvent` rather than from
+/// This must come from the emitted `NullifierTreeUpdateEvent` rather than from
 /// the `BatchUpdateNullifierTree` instruction that carries it. The instruction
 /// is a request: when its proof arrives out of order the program caches it and
 /// applies nothing, and when it unblocks earlier cached proofs the program
@@ -72,19 +72,19 @@ pub fn parse_nullifier_tree_batch_updates(
 fn decode_batch_address_append(
     payload: &[u8],
     tx: &TransactionInfo,
-) -> Result<Option<BatchAddressAppendEvent>, IngesterError> {
+) -> Result<Option<NullifierTreeUpdateEvent>, IngesterError> {
     let Some((kind, body)) = payload.split_first() else {
         return Ok(None);
     };
-    if EventKind::from_byte(*kind) != Some(EventKind::BatchAddressAppend) {
+    if EventKind::from_byte(*kind) != Some(EventKind::NullifierTreeUpdate) {
         return Ok(None);
     }
 
-    BatchAddressAppendEvent::try_from_slice(body)
+    NullifierTreeUpdateEvent::try_from_slice(body)
         .map(Some)
         .map_err(|err| {
             IngesterError::ParserError(format!(
-                "Failed to decode BatchAddressAppendEvent in {}: {}",
+                "Failed to decode NullifierTreeUpdateEvent in {}: {}",
                 tx.signature, err
             ))
         })
@@ -117,8 +117,8 @@ mod tests {
         Pubkey::new_from_array([7; 32])
     }
 
-    fn event(num_update: u32) -> BatchAddressAppendEvent {
-        BatchAddressAppendEvent {
+    fn event(num_update: u32) -> NullifierTreeUpdateEvent {
+        NullifierTreeUpdateEvent {
             merkle_tree_pubkey: tree().to_bytes(),
             zkp_batch_size: 250,
             old_next_index: 500,
@@ -147,7 +147,7 @@ mod tests {
         );
         let emit = instruction(
             pda::shielded_pool_program_id(),
-            encode_event_instruction_with(EventKind::BatchAddressAppend, event),
+            encode_event_instruction_with(EventKind::NullifierTreeUpdate, event),
             2,
         );
         TransactionInfo {

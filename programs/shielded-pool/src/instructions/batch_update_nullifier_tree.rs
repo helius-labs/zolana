@@ -37,7 +37,7 @@ pub fn process_batch_update_nullifier_tree(
         let tree_pubkey = tree_account.pubkey();
         tree_account
             .nullifier_tree()
-            .update_tree_from_address_queue(tree_pubkey, instruction)
+            .update_tree_from_queue(tree_pubkey, instruction)
             .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?
     };
 

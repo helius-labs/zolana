@@ -39,14 +39,7 @@ fn test_reused_batch_start_index_advances_by_one_rotation() {
     let rng = &mut rand::rngs::StdRng::from_seed([0u8; 32]);
     // An AddressV2 tree seeds next_index = 1, so batch 0 starts at queue index 1.
     let init_start_index = 1;
-    let tree = init_tree_account_data::<1>(
-        &mut account_data,
-        batch_size,
-        batch_size,
-        40,
-        None,
-    )
-    .unwrap();
+    let tree = init_tree_account_data::<1>(&mut account_data, batch_size, batch_size, 40).unwrap();
     assert_eq!(tree.batches.first().unwrap().start_index, init_start_index);
 
     // Fill batch 0, then mark it inserted so it becomes reusable.
@@ -88,7 +81,7 @@ fn test_queue_rejects_insert_at_tree_capacity() {
     let height = 4;
     let tree_capacity = 2u64.pow(height);
     let tree =
-        init_tree_account_data::<200>(&mut account_data, 200, 1, height, None)
+        init_tree_account_data::<200>(&mut account_data, 200, 1, height)
             .unwrap();
     // 1. The init element occupies leaf 0, so capacity - 1 leaves remain.
     assert_eq!(tree.remaining_queue_capacity().unwrap(), tree_capacity - 1);
@@ -118,7 +111,7 @@ fn test_queue_rejects_insert_at_tree_capacity() {
 fn test_queue_insert_advances_queue_index_only() {
     let mut account_data = vec![0u8; get_merkle_tree_account_size::<5>()];
     let rng = &mut rand::rngs::StdRng::from_seed([0u8; 32]);
-    let tree = init_tree_account_data::<5>(&mut account_data, 5, 1, 40, None)
+    let tree = init_tree_account_data::<5>(&mut account_data, 5, 1, 40)
         .unwrap();
 
     let previous_next_index = tree.next_index;

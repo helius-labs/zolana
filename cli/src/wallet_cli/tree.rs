@@ -6,7 +6,7 @@ use zolana_client::{Rpc, SolanaRpc};
 use zolana_interface::{
     instruction::{CreateProtocolConfig, CreateTree},
     pda,
-    state::{address_tree_params, tree_account_size, tree_creation_lamports},
+    state::{nullifier_tree_params, tree_account_size, tree_creation_lamports},
     NULLIFIER_PDA_SIZE, PROGRAM_ID_PUBKEY,
 };
 use zolana_transaction::Address;
@@ -59,7 +59,7 @@ pub(crate) fn run_create_tree(opts: CreateTreeOptions) -> Result<()> {
         let tree_rent = rpc.get_minimum_balance_for_rent_exemption(tree_account_size())?;
         let nullifier_pda_rent = rpc.get_minimum_balance_for_rent_exemption(NULLIFIER_PDA_SIZE)?;
         let lamports =
-            tree_creation_lamports(&address_tree_params(), tree_rent, nullifier_pda_rent)
+            tree_creation_lamports(&nullifier_tree_params(), tree_rent, nullifier_pda_rent)
                 .ok_or_else(|| anyhow::anyhow!("tree creation lamports overflow u64"))?;
         let ixs = vec![
             system_create_account_ix(

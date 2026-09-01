@@ -19,7 +19,7 @@ use zolana_client::{
 };
 use zolana_interface::{
     instruction::{CreateProtocolConfig, CreateTree},
-    state::address_tree_params,
+    state::nullifier_tree_params,
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{
@@ -184,7 +184,7 @@ pub fn setup() -> Result<TestEnv> {
         &rpc,
         &payer.pubkey(),
         &tree.pubkey(),
-        &address_tree_params(),
+        &nullifier_tree_params(),
     )?;
     let create_tree_ix = CreateTree {
         authority: accounts.tree_vault,

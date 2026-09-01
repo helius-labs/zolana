@@ -67,7 +67,7 @@ use zolana_indexer_api::{
 use zolana_interface::{
     instruction::{encode_instruction, tag, BatchUpdateNullifierTreeData, CompressedProof},
     pda,
-    state::{address_tree_params, discriminator::TREE_ACCOUNT_DISCRIMINATOR, tree_account_size},
+    state::{nullifier_tree_params, discriminator::TREE_ACCOUNT_DISCRIMINATOR, tree_account_size},
 };
 use zolana_tree::TreeAccount;
 
@@ -741,7 +741,7 @@ async fn discovers_rings_tree_account_metadata() {
                 .try_into()
                 .expect("Rings state tree height must fit in u8"),
             tree_pubkey.to_bytes(),
-            address_tree_params(),
+            nullifier_tree_params(),
         )
         .unwrap();
         let nullifier = tree.nullifier_tree();

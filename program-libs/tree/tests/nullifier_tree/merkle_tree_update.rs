@@ -2,7 +2,7 @@ use zolana_tree::nullifier_tree::{
     access::{get_merkle_tree_account_size, test_utils::init_tree_account_data},
     batch::CachedTreeUpdate,
     error::NullifierTreeError,
-    merkle_tree_update::InstructionDataAddressAppendInputs,
+    merkle_tree_update::InstructionDataBatchNullifyInputs,
     proof::CompressedProof,
 };
 
@@ -14,7 +14,7 @@ use zolana_tree::nullifier_tree::{
 fn test_replay_after_apply_is_noop() {
     let mut account_data = vec![0u8; get_merkle_tree_account_size::<4>()];
     let pubkey = [1u8; 32];
-    let tree = init_tree_account_data::<4>(&mut account_data, 4, 1, 40, None)
+    let tree = init_tree_account_data::<4>(&mut account_data, 4, 1, 40)
         .unwrap();
 
     // Two zkp batches finalized, one already inserted -> num_inserted = 1.
@@ -29,9 +29,9 @@ fn test_replay_after_apply_is_noop() {
     // Replay zkp batch 0, which is behind the live next index, with an
     // invalid proof. Verification must be skipped, so the call succeeds.
     let result = tree
-        .update_tree_from_address_queue(
+        .update_tree_from_queue(
             pubkey,
-            InstructionDataAddressAppendInputs {
+            InstructionDataBatchNullifyInputs {
                 new_root: [3u8; 32],
                 old_root: [2u8; 32],
                 zkp_batch_index: 0,
@@ -51,7 +51,7 @@ fn test_replay_after_apply_is_noop() {
 fn test_replay_while_cached_verifies_and_keeps_update_on_failure() {
     let mut account_data = vec![0u8; get_merkle_tree_account_size::<4>()];
     let pubkey = [1u8; 32];
-    let tree = init_tree_account_data::<4>(&mut account_data, 4, 1, 40, None)
+    let tree = init_tree_account_data::<4>(&mut account_data, 4, 1, 40)
         .unwrap();
 
     // Finalize a zkp batch so zkp_batch_index 0 passes the readiness guard.
@@ -71,9 +71,9 @@ fn test_replay_while_cached_verifies_and_keeps_update_on_failure() {
     // Re-submit zkp batch 0 with different roots and an invalid proof. The
     // occupied slot is ahead of the inserted count, so the proof is verified
     // and rejected; the stored update is preserved unchanged.
-    let result = tree.update_tree_from_address_queue(
+    let result = tree.update_tree_from_queue(
         pubkey,
-        InstructionDataAddressAppendInputs {
+        InstructionDataBatchNullifyInputs {
             new_root: [3u8; 32],
             old_root: [2u8; 32],
             zkp_batch_index: 0,

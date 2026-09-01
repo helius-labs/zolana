@@ -15,7 +15,7 @@ use zolana_interface::{
         UpdateProtocolConfigData,
     },
     pda,
-    state::{address_tree_params, ProtocolConfig, SplAssetCounter},
+    state::{nullifier_tree_params, ProtocolConfig, SplAssetCounter},
     BPF_LOADER_UPGRADEABLE_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_smart_account_client::{
@@ -862,7 +862,7 @@ fn create_tree(
         rpc,
         &payer.pubkey(),
         &tree_keypair.pubkey(),
-        &address_tree_params(),
+        &nullifier_tree_params(),
     )
     .context("rent and working capital for tree account")?;
     let create_tree_ix = CreateTree {

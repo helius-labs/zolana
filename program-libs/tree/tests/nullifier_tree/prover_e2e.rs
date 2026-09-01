@@ -12,9 +12,9 @@ use zolana_tree::nullifier_tree::{
     },
     constants::NULLIFIER_TREE_INIT_ROOT_40,
     error::NullifierTreeError,
-    init::InitAddressTreeAccountsInstructionData,
+    init::NullifierTreeInitParams,
     layout::NullifierTreeLayout,
-    merkle_tree_update::InstructionDataAddressAppendInputs,
+    merkle_tree_update::InstructionDataBatchNullifyInputs,
     proof::CompressedProof,
 };
 
@@ -33,8 +33,8 @@ fn reference_nullifier_tree() -> IndexedMerkleTree<Poseidon, usize> {
         .unwrap()
 }
 
-fn test_config() -> InitAddressTreeAccountsInstructionData {
-    InitAddressTreeAccountsInstructionData::test_default()
+fn test_config() -> NullifierTreeInitParams {
+    NullifierTreeInitParams::test_default()
 }
 
 fn init_nullifier_tree(account_data: &mut [u8]) -> &mut NullifierTree {
@@ -44,7 +44,6 @@ fn init_nullifier_tree(account_data: &mut [u8]) -> &mut NullifierTree {
         params.input_queue_batch_size,
         params.input_queue_zkp_batch_size,
         params.height,
-        Some(NULLIFIER_TREE_INIT_ROOT_40),
     )
     .unwrap()
 }
@@ -66,7 +65,7 @@ fn path_to_biguint(path: Vec<[u8; 32]>) -> Vec<BigUint> {
 }
 
 struct PreparedUpdate {
-    instruction: InstructionDataAddressAppendInputs,
+    instruction: InstructionDataBatchNullifyInputs,
     new_root: [u8; 32],
 }
 
@@ -114,7 +113,7 @@ impl NullifierForester {
             .prove_batch_address_append(&inputs)
             .unwrap();
         let compressed = ProofCompressed::try_from(proof).unwrap();
-        let instruction_data = InstructionDataAddressAppendInputs {
+        let instruction_data = InstructionDataBatchNullifyInputs {
             new_root,
             old_root,
             zkp_batch_index: zkp_index as u16,
@@ -125,7 +124,7 @@ impl NullifierForester {
             },
         };
         let result = account
-            .update_tree_from_address_queue(TREE_PUBKEY, instruction_data)
+            .update_tree_from_queue(TREE_PUBKEY, instruction_data)
             .unwrap();
         let event = result.unwrap();
         assert_eq!(event.num_update, 1);
@@ -174,7 +173,7 @@ impl NullifierForester {
                 .prove_batch_address_append(&inputs)
                 .unwrap();
             let compressed = ProofCompressed::try_from(proof).unwrap();
-            let instruction = InstructionDataAddressAppendInputs {
+            let instruction = InstructionDataBatchNullifyInputs {
                 new_root,
                 old_root,
                 zkp_batch_index: zkp_index as u16,
@@ -346,7 +345,7 @@ fn nullifier_tree_fills_root_history_with_random_submit_order() {
         for prep in &prepared {
             let account = load_nullifier_tree(&mut account_data);
             let result = account
-                .update_tree_from_address_queue(TREE_PUBKEY, prep.instruction)
+                .update_tree_from_queue(TREE_PUBKEY, prep.instruction)
                 .unwrap();
             if let Some(event) = result {
                 assert_eq!(event.first_zkp_batch_index as usize, applied);
@@ -398,7 +397,7 @@ fn nullifier_tree_reverse_order_submission_cascades() {
     for (offset, prep) in prepared.iter().rev().enumerate() {
         let account = load_nullifier_tree(&mut account_data);
         let result = account
-            .update_tree_from_address_queue(TREE_PUBKEY, prep.instruction)
+            .update_tree_from_queue(TREE_PUBKEY, prep.instruction)
             .unwrap();
         if offset < last_index {
             assert!(result.is_none());
@@ -433,7 +432,7 @@ fn nullifier_tree_partial_prefix_waits_then_cascades() {
     for prep in prepared.iter().skip(1) {
         let account = load_nullifier_tree(&mut account_data);
         let result = account
-            .update_tree_from_address_queue(TREE_PUBKEY, prep.instruction)
+            .update_tree_from_queue(TREE_PUBKEY, prep.instruction)
             .unwrap();
         assert!(result.is_none());
         assert_eq!(account.get_root().unwrap(), genesis_root);
@@ -441,7 +440,7 @@ fn nullifier_tree_partial_prefix_waits_then_cascades() {
 
     let account = load_nullifier_tree(&mut account_data);
     let result = account
-        .update_tree_from_address_queue(TREE_PUBKEY, prepared.first().unwrap().instruction)
+        .update_tree_from_queue(TREE_PUBKEY, prepared.first().unwrap().instruction)
         .unwrap();
     assert_eq!(result.unwrap().num_update as usize, prepared.len());
     assert_eq!(account.get_root().unwrap(), forester.reference.root());
@@ -469,7 +468,7 @@ fn nullifier_tree_duplicate_index_applies_once() {
     for _ in 0..2 {
         let account = load_nullifier_tree(&mut account_data);
         let result = account
-            .update_tree_from_address_queue(TREE_PUBKEY, resend.instruction)
+            .update_tree_from_queue(TREE_PUBKEY, resend.instruction)
             .unwrap();
         assert!(result.is_none());
     }
@@ -478,7 +477,7 @@ fn nullifier_tree_duplicate_index_applies_once() {
     for prep in &prepared {
         let account = load_nullifier_tree(&mut account_data);
         let result = account
-            .update_tree_from_address_queue(TREE_PUBKEY, prep.instruction)
+            .update_tree_from_queue(TREE_PUBKEY, prep.instruction)
             .unwrap();
         total_applied += result.map_or(0, |e| e.num_update as usize);
     }
@@ -510,7 +509,7 @@ fn nullifier_tree_resend_applied_proof_is_noop() {
     for prep in prepared.iter().take(prefix) {
         let account = load_nullifier_tree(&mut account_data);
         let result = account
-            .update_tree_from_address_queue(TREE_PUBKEY, prep.instruction)
+            .update_tree_from_queue(TREE_PUBKEY, prep.instruction)
             .unwrap();
         assert_eq!(result.unwrap().num_update, 1);
     }
@@ -523,7 +522,7 @@ fn nullifier_tree_resend_applied_proof_is_noop() {
     for prep in prepared.iter().take(prefix) {
         let account = load_nullifier_tree(&mut account_data);
         let result = account
-            .update_tree_from_address_queue(TREE_PUBKEY, prep.instruction)
+            .update_tree_from_queue(TREE_PUBKEY, prep.instruction)
             .unwrap();
         assert!(result.is_none());
         assert_eq!(account.get_root().unwrap(), prefix_root);
@@ -532,7 +531,7 @@ fn nullifier_tree_resend_applied_proof_is_noop() {
     for prep in prepared.iter().skip(prefix) {
         let account = load_nullifier_tree(&mut account_data);
         account
-            .update_tree_from_address_queue(TREE_PUBKEY, prep.instruction)
+            .update_tree_from_queue(TREE_PUBKEY, prep.instruction)
             .unwrap();
     }
     let account = load_nullifier_tree(&mut account_data);
@@ -552,7 +551,7 @@ fn nullifier_tree_submit_index_errors() {
         account.insert_nullifier_into_queue(&nullifier).unwrap();
     }
 
-    let dummy = InstructionDataAddressAppendInputs {
+    let dummy = InstructionDataBatchNullifyInputs {
         new_root: [0u8; 32],
         old_root: [0u8; 32],
         zkp_batch_index: 0,
@@ -568,7 +567,7 @@ fn nullifier_tree_submit_index_errors() {
     let account = load_nullifier_tree(&mut account_data);
     assert_eq!(
         account
-            .update_tree_from_address_queue(TREE_PUBKEY, out_of_range)
+            .update_tree_from_queue(TREE_PUBKEY, out_of_range)
             .unwrap_err(),
         NullifierTreeError::ZkpBatchIndexOutOfRange
     );
@@ -578,7 +577,7 @@ fn nullifier_tree_submit_index_errors() {
     let account = load_nullifier_tree(&mut account_data);
     assert_eq!(
         account
-            .update_tree_from_address_queue(TREE_PUBKEY, not_ready)
+            .update_tree_from_queue(TREE_PUBKEY, not_ready)
             .unwrap_err(),
         NullifierTreeError::HashChainNotReady
     );

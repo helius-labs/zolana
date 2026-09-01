@@ -3,7 +3,7 @@ use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use zolana_account_checks::{checks::check_owner, AccountIterator};
 use zolana_interface::{
     error::ShieldedPoolError,
-    state::{address_tree_params, discriminator::TREE_ACCOUNT_DISCRIMINATOR, STATE_HEIGHT},
+    state::{nullifier_tree_params, discriminator::TREE_ACCOUNT_DISCRIMINATOR, STATE_HEIGHT},
 };
 use zolana_tree::TreeAccount;
 
@@ -45,11 +45,11 @@ pub fn process_create_tree(accounts: &mut [AccountView], data: &[u8]) -> Program
 
 fn parse_create_tree_data(
     mut data: &[u8],
-) -> Result<zolana_tree::InitAddressTreeAccountsInstructionData, ProgramError> {
+) -> Result<zolana_tree::NullifierTreeInitParams, ProgramError> {
     let nullifier_params = if data.is_empty() {
-        address_tree_params()
+        nullifier_tree_params()
     } else {
-        let params = zolana_tree::InitAddressTreeAccountsInstructionData::deserialize(&mut data)
+        let params = zolana_tree::NullifierTreeInitParams::deserialize(&mut data)
             .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
         if !data.is_empty() {
             return Err(ShieldedPoolError::InvalidInstructionData.into());

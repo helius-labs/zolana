@@ -52,7 +52,7 @@
 //! | Feature | Adds | Pulls in |
 //! |---------|------|----------|
 //! | `account-view` | `TreeAccount::from_account_view_mut` and its allow-paused twin | `pinocchio` |
-//! | `verify` | `nullifier_tree::verify` and `NullifierTreeLayout::update_tree_from_address_queue` | `groth16-solana` |
+//! | `verify` | `nullifier_tree::verify` and `NullifierTreeLayout::update_tree_from_queue` | `groth16-solana` |
 //!
 //! [`TreeAccount::from_bytes`], [`TreeAccount::init`], both subtree layouts
 //! and [`nullifier_tree::proof::CompressedProof`] are always available, so
@@ -76,11 +76,9 @@ pub mod smt;
 use core::mem::{size_of, MaybeUninit};
 
 pub use error::TreeError;
-pub use nullifier_tree::init::InitAddressTreeAccountsInstructionData;
+pub use nullifier_tree::init::NullifierTreeInitParams;
 use nullifier_tree::{
-    constants::{
-        ADDRESS_TREE_DEFAULT_ZKP, DEFAULT_BATCH_ADDRESS_TREE_HEIGHT, NULLIFIER_TREE_INIT_ROOT_40,
-    },
+    constants::{DEFAULT_NULLIFIER_TREE_HEIGHT, NULLIFIER_TREE_ZKP_BATCHES},
     init::match_circuit_size,
     layout::NullifierTreeLayout,
 };
@@ -98,8 +96,6 @@ use wincode::{
 /// value instead of pinning a literal by comment.
 pub const UTXO_TREE_HEIGHT: usize = 32;
 
-const NULLIFIER_ZKP: usize = ADDRESS_TREE_DEFAULT_ZKP;
-
 /// `state` byte values. Writes to the tree are only allowed in `INITIALIZED`.
 pub const UNINITIALIZED: u8 = 0;
 pub const INITIALIZED: u8 = 1;
@@ -110,22 +106,22 @@ pub const TREE_RESERVED_BYTES: usize = 64;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct TreeAccountLayout<const UTXO_HEIGHT: usize, const ZKP: usize> {
+pub struct TreeAccountLayout<const UTXO_HEIGHT: usize, const ZKP_BATCHES: usize> {
     pub discriminator: u8,
     pub state: u8,
     pub _padding: [u8; 6],
     pub _reserved: [u8; TREE_RESERVED_BYTES],
     pub utxo: UtxoTreeLayout<UTXO_HEIGHT>,
-    pub nullifier: NullifierTreeLayout<ZKP>,
+    pub nullifier: NullifierTreeLayout<ZKP_BATCHES>,
 }
 
-unsafe impl<C: ConfigCore, const UH: usize, const ZKP: usize> ZeroCopy<C>
-    for TreeAccountLayout<UH, ZKP>
+unsafe impl<C: ConfigCore, const UH: usize, const ZKP_BATCHES: usize> ZeroCopy<C>
+    for TreeAccountLayout<UH, ZKP_BATCHES>
 {
 }
 
-unsafe impl<'de, C: ConfigCore, const UH: usize, const ZKP: usize> SchemaRead<'de, C>
-    for TreeAccountLayout<UH, ZKP>
+unsafe impl<'de, C: ConfigCore, const UH: usize, const ZKP_BATCHES: usize> SchemaRead<'de, C>
+    for TreeAccountLayout<UH, ZKP_BATCHES>
 {
     type Dst = Self;
     const TYPE_META: TypeMeta = TypeMeta::Static {
@@ -138,7 +134,7 @@ unsafe impl<'de, C: ConfigCore, const UH: usize, const ZKP: usize> SchemaRead<'d
     }
 }
 
-type SppTreeLayout = TreeAccountLayout<UTXO_TREE_HEIGHT, NULLIFIER_ZKP>;
+type SppTreeLayout = TreeAccountLayout<UTXO_TREE_HEIGHT, NULLIFIER_TREE_ZKP_BATCHES>;
 
 /// The layout reference either borrows caller-provided bytes (`init`,
 /// `from_bytes`) or owns the account-data borrow guard, so the account's
@@ -173,7 +169,7 @@ impl<'a> TreeAccount<'a> {
         discriminator: u8,
         utxo_tree_height: u8,
         pubkey: [u8; 32],
-        nullifier_params: InitAddressTreeAccountsInstructionData,
+        nullifier_params: NullifierTreeInitParams,
     ) -> Result<Self, TreeError> {
         if utxo_tree_height as usize != UTXO_TREE_HEIGHT {
             return Err(TreeError::HeightTooLarge);
@@ -182,10 +178,10 @@ impl<'a> TreeAccount<'a> {
         // update can ever be proven and the queue wedges once both batches
         // fill. Batch and root-history configuration is validated by the
         // nullifier tree init below.
-        if nullifier_params.height != DEFAULT_BATCH_ADDRESS_TREE_HEIGHT
+        if nullifier_params.height != DEFAULT_NULLIFIER_TREE_HEIGHT
             || !match_circuit_size(nullifier_params.input_queue_zkp_batch_size)
         {
-            return Err(TreeError::AddressInit);
+            return Err(TreeError::NullifierInit);
         }
         if bytes.len() != size_of::<SppTreeLayout>() {
             return Err(TreeError::InvalidBufferSize);
@@ -208,9 +204,8 @@ impl<'a> TreeAccount<'a> {
                 nullifier_params.input_queue_batch_size,
                 nullifier_params.input_queue_zkp_batch_size,
                 nullifier_params.height,
-                Some(NULLIFIER_TREE_INIT_ROOT_40),
             )
-            .map_err(|_| TreeError::AddressInit)?;
+            .map_err(|_| TreeError::NullifierInit)?;
 
         Ok(Self {
             pubkey,
@@ -308,7 +303,7 @@ impl<'a> TreeAccount<'a> {
         self.pubkey
     }
 
-    pub fn nullifier_tree(&mut self) -> &mut NullifierTreeLayout<NULLIFIER_ZKP> {
+    pub fn nullifier_tree(&mut self) -> &mut NullifierTreeLayout<NULLIFIER_TREE_ZKP_BATCHES> {
         &mut self.layout_mut().nullifier
     }
 
@@ -399,7 +394,7 @@ mod layout_equivalence {
     fn size_and_offsets_include_reserved_header() {
         let account_size_without_reserved = STATIC_METADATA_LEN
             + aligned_utxo_size(UTXO_TREE_HEIGHT)
-            + size_of::<NullifierTreeLayout<NULLIFIER_ZKP>>();
+            + size_of::<NullifierTreeLayout<NULLIFIER_TREE_ZKP_BATCHES>>();
         assert_eq!(size_of::<SppTreeLayout>(), EXPECTED_ACCOUNT_SIZE);
         assert_eq!(
             size_of::<SppTreeLayout>(),
@@ -440,7 +435,7 @@ mod layout_equivalence {
             7,
             UTXO_TREE_HEIGHT as u8,
             [2u8; 32],
-            InitAddressTreeAccountsInstructionData::default(),
+            NullifierTreeInitParams::default(),
         )
         .expect("initialize tree");
 
