@@ -404,28 +404,33 @@ impl Init<'_> {
                 }
                 .instruction()],
             )?;
-        // Only the upgrade authority may pin the compiled policy table.
-        let policy = match Observed::of(&self.ring.read_policy_config(rpc)?) {
-            Observed::Present => StepOutcome::Present,
-            Observed::Absent => {
-                let deployer = self.deployer()?;
-                self.step(
-                    rpc,
-                    "create_policy",
-                    &[deployer],
-                    CREATE_POLICY_COMPUTE_UNIT_LIMIT,
-                )
-                .ensure_present(
-                    Observed::Absent,
-                    &[CreatePolicy {
-                        ring: self.ring,
-                        payer: config_authority,
-                        authority: deployer.pubkey(),
-                        entries_tree: self.entries_tree,
-                        shared_sources: self.shared_sources.clone(),
-                    }
-                    .instruction()?],
-                )?
+        // An audit-only ring pins no policy, only a policy ring runs create_policy
+        // and only its upgrade authority may pin the compiled table.
+        let policy = if !self.has_policy {
+            StepOutcome::Absent
+        } else {
+            match Observed::of(&self.ring.read_policy_config(rpc)?) {
+                Observed::Present => StepOutcome::Present,
+                Observed::Absent => {
+                    let deployer = self.deployer()?;
+                    self.step(
+                        rpc,
+                        "create_policy",
+                        &[deployer],
+                        CREATE_POLICY_COMPUTE_UNIT_LIMIT,
+                    )
+                    .ensure_present(
+                        Observed::Absent,
+                        &[CreatePolicy {
+                            ring: self.ring,
+                            payer: config_authority,
+                            authority: deployer.pubkey(),
+                            entries_tree: self.entries_tree,
+                            shared_sources: self.shared_sources.clone(),
+                        }
+                        .instruction()?],
+                    )?
+                }
             }
         };
         Ok(InitOutcome {
