@@ -1,9 +1,10 @@
 import type { Address, Bytes32, Signature } from "../../interface/types.js";
 import type { P256PublicKey } from "../../keypair/public-key.js";
 import type { ShieldedAddress } from "../../keypair/shielded.js";
+import type { NullifierKey } from "../../keypair/nullifier-key.js";
 
 import { TransactionError } from "../error.js";
-import { copy } from "../internal.js";
+import { copy, equal } from "../internal.js";
 import { Utxo } from "../utxo.js";
 import { AssetRegistry } from "./asset.js";
 
@@ -133,6 +134,9 @@ export interface WalletUtxo {
   readonly spent: boolean;
 }
 
+/** A decrypted opening that an external viewing service says is spendable. */
+export type SpendableUtxoOpening = Omit<WalletUtxo, "nullifier" | "spent">;
+
 function copyUtxo(value: Utxo): Utxo {
   return new Utxo({
     owner: value.owner,
@@ -257,6 +261,47 @@ export class Wallet {
 
   utxos(): readonly WalletUtxo[] {
     return this.#utxos.map(snapshotUtxo);
+  }
+
+  /**
+   * Replaces the spendable set from externally decrypted openings without
+   * requiring the wallet viewing secret in this process.
+   *
+   * Each opening is rebound to this wallet's public identity and on-chain
+   * commitment. Its nullifier is then derived from the supplied spend role;
+   * callers cannot inject either value independently.
+   */
+  replaceSpendableUtxos(
+    openings: readonly SpendableUtxoOpening[],
+    nullifierKey: NullifierKey,
+  ): void {
+    if (!equal(nullifierKey.publicKey(), this.identity.nullifierPublicKey)) {
+      throw new TransactionError("TRANSACTION_WALLET_AUTHORITY_MISMATCH");
+    }
+    const seen = new Set<string>();
+    const utxos = openings.map((opening) => {
+      this.#registry.assetId(opening.utxo.asset);
+      if (!equal(opening.utxo.owner.toBytes(), this.identity.signingPublicKey.toBytes())) {
+        throw new TransactionError("TRANSACTION_OUTPUT_OWNER_MISMATCH");
+      }
+      const commitment = opening.utxo.hash(
+        this.identity.nullifierPublicKey,
+        opening.dataHash,
+        opening.ringDataHash,
+      );
+      if (!equal(commitment, opening.outputContext.hash)) {
+        throw new TransactionError("TRANSACTION_OUTPUT_COMMITMENT_MISMATCH");
+      }
+      const key = Array.from(commitment, (byte) => byte.toString(16).padStart(2, "0")).join("");
+      if (seen.has(key)) throw new TransactionError("TRANSACTION_DUPLICATE_OUTPUT", { hash: key });
+      seen.add(key);
+      return {
+        ...opening,
+        nullifier: opening.utxo.nullifier(opening.outputContext.hash, nullifierKey),
+        spent: false,
+      };
+    });
+    this.#utxos = utxos.map(snapshotUtxo);
   }
 
   privateTransactions(): readonly PrivateTransaction[] {

@@ -203,7 +203,8 @@ describe("ring flow", () => {
 
     const transfer = await buildRingTransferTransaction({
       client,
-      ringProgramId,
+      sourceRing: ringProgramId,
+      destinationRing: ringProgramId,
       wallet: sender.wallet,
       authority: sender.authority,
       feePayer: sender.signer.address,
@@ -251,7 +252,8 @@ describe("ring flow", () => {
     // The received note spends inside the ring again.
     const hop = await buildRingTransferTransaction({
       client,
-      ringProgramId,
+      sourceRing: ringProgramId,
+      destinationRing: ringProgramId,
       wallet: recipient.wallet,
       authority: recipient.authority,
       feePayer: recipient.signer.address,

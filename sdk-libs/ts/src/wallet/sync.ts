@@ -31,7 +31,7 @@ import { decryptTransactions } from "../transaction/wallet/sync.js";
 
 import { WalletError, wrapWalletError } from "./error.js";
 import { bytesKey } from "./internal.js";
-import type { WalletAuthority } from "../transaction/wallet/authority.js";
+import type { SyncWalletAuthority } from "../transaction/wallet/authority.js";
 
 const addressEncoder = getAddressEncoder();
 const base64Decoder = getBase64Decoder();
@@ -454,7 +454,7 @@ async function collectShieldedTransactionsByNullifiers(
 export async function syncWallet(
   input: Readonly<{
     wallet: Wallet;
-    authority: WalletAuthority;
+    authority: SyncWalletAuthority;
     client: SyncClient;
     config?: SyncWalletConfig;
   }>,

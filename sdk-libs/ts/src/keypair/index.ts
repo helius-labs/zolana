@@ -37,7 +37,7 @@ export {
 } from "./derivation.js";
 export { poseidon } from "./poseidon.js";
 export { ownerHash, sha256Be, sha256Bytes, splitBigEndian128 } from "./hash.js";
-export { symmetricApply } from "./merge/index.js";
+export { mergeDummyNullifier, mergeOutputBlinding, symmetricApply } from "./merge/index.js";
 export {
   auditorMessageData,
   auditorViewTag,

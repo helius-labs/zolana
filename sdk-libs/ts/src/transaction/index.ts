@@ -53,6 +53,7 @@ export type { Blinding, ProofOutputInit, ProofOutputUtxo, UtxoInit } from "./utx
 export {
   AssetRegistry,
   ClientEd25519WalletAuthority,
+  ClientNullifierWalletAuthority,
   KeypairWalletAuthority,
   SOL_ASSET_ID,
   SOL_MINT,
@@ -78,13 +79,16 @@ export type {
   PrivateTransactionId,
   PrivateTransactionKind,
   PrivateTransactionStatus,
+  PrivateTransactionAuthority,
   SplitBundlePlaintext,
   SyncWalletAuthority,
+  TransactionViewingSecretProvider,
   SyncReport,
   SerializedWalletState,
   ViewingKeyEntry,
   WalletAuthority,
   WalletSyncMaterial,
+  SpendableUtxoOpening,
   WalletUtxo,
 } from "./wallet/index.js";
 /** Wire type prefixes, defined once beside the reader and writer that enforce them. */
@@ -118,6 +122,7 @@ export {
   decodeOutputData,
   decodePlaintextTransfer,
   decodeProofless,
+  encodeProofless,
   decodeSplitBundle,
   decodeSplitEncrypted,
   type AnonymousRecipientPlaintext,

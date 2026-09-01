@@ -14,6 +14,7 @@ import { InstructionTag } from "../interface/program.js";
 import { checkedTransactionSize } from "../interface/transaction-size.js";
 import type {
   Address,
+  Bytes32,
   RequestContext,
   Transaction,
   TransactInstructionData,
@@ -31,7 +32,7 @@ import {
 } from "../transaction/instructions/transact.js";
 import { EncryptedScheme, encodeOutputData } from "../transaction/serialization/codecs.js";
 import { ProofInputUtxo } from "../transaction/utxo.js";
-import type { WalletAuthority } from "../transaction/wallet/authority.js";
+import type { PrivateTransactionAuthority } from "../transaction/wallet/authority.js";
 import { SOL_MINT, type AssetRegistry } from "../transaction/wallet/asset.js";
 import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 import { resolveRegisteredAddress } from "../wallet/registry.js";
@@ -49,13 +50,18 @@ const CONFIDENTIAL_BODY_OVERHEAD = 1 + 4 + 1 + 33;
 
 export interface RingTransferTransactionParams {
   readonly client: ZolanaClient;
-  readonly ringProgramId: Address;
   readonly wallet: Wallet;
-  readonly authority: WalletAuthority;
+  readonly authority: PrivateTransactionAuthority;
   readonly feePayer: Address;
   readonly recipient: Address | ShieldedAddress;
   readonly asset?: Address;
   readonly amount: bigint;
+  /** `null` is the default pool; an address is the custom-ring program. */
+  readonly sourceRing: Address | null;
+  /** `null` is the default pool; an address is the custom-ring program. */
+  readonly destinationRing: Address | null;
+  /** Exact default-pool inputs when entering this ring. */
+  readonly inputCommitments?: readonly Bytes32[];
   /** Must be at least one slot old. */
   readonly lookupTable: Address;
   readonly computeUnitLimit?: number;
@@ -65,7 +71,7 @@ export interface RingWithdrawalTransactionParams {
   readonly client: ZolanaClient;
   readonly ringProgramId: Address;
   readonly wallet: Wallet;
-  readonly authority: WalletAuthority;
+  readonly authority: PrivateTransactionAuthority;
   readonly feePayer: Address;
   /** Any Solana account. It needs no registry record and need not exist yet. */
   readonly recipient: Address;
@@ -81,7 +87,7 @@ export interface CustomRingTransferParams {
   readonly client: ZolanaClient;
   readonly ringProgramId: Address;
   readonly prepared: PreparedTransfer;
-  readonly authority: WalletAuthority;
+  readonly authority: PrivateTransactionAuthority;
   readonly assets: AssetRegistry;
   readonly tree: Address;
 }
@@ -102,12 +108,26 @@ export async function buildRingTransferTransaction(
 ): Promise<Transaction> {
   try {
     const asset = input.asset ?? SOL_MINT;
+    const ringProgramId = input.sourceRing ?? input.destinationRing;
+    if (
+      ringProgramId === null ||
+      (input.sourceRing !== null &&
+        input.destinationRing !== null &&
+        input.sourceRing !== input.destinationRing)
+    ) {
+      throw new RingError("RING_BUILD_TRANSFER", {
+        details: { reason: "a transition must involve exactly one custom ring" },
+      });
+    }
     const [recipient, address, nullifierKey] = await Promise.all([
       resolveRecipient(input, context),
       input.authority.shieldedAddress(),
       input.authority.spendNullifierKey(),
     ]);
-    const selected = selectRingInputs(input.wallet, input.ringProgramId, asset, input.amount);
+    const selected =
+      input.sourceRing !== null
+        ? selectRingInputs(input.wallet, ringProgramId, asset, input.amount)
+        : selectExactDefaultInputs(input.wallet, asset, input.amount, input.inputCommitments ?? []);
     const inputs = selected.map(
       ({ entry }) =>
         new ProofInputUtxo({
@@ -119,8 +139,9 @@ export async function buildRingTransferTransaction(
     );
     const transfer = new ConfidentialTransfer(address, inputs, input.feePayer)
       .withCompactChange()
-      .withRingProgramId(input.ringProgramId);
-    transfer.send(recipient, asset, input.amount);
+      .withRingProgramId(ringProgramId);
+    if (input.destinationRing !== null) transfer.send(recipient, asset, input.amount);
+    else transfer.sendDefaultRing(recipient, asset, input.amount);
     const tree = selected[0]?.tree ?? input.client.tree;
     await input.authority.requestUserApproval({
       solanaPublicKey: input.authority.solanaPublicKey(),
@@ -129,7 +150,7 @@ export async function buildRingTransferTransaction(
     const proven = await proveCustomRingTransfer(
       {
         client: input.client,
-        ringProgramId: input.ringProgramId,
+        ringProgramId,
         prepared: transfer.prepare(),
         authority: input.authority,
         assets: input.wallet.registry,
@@ -139,7 +160,7 @@ export async function buildRingTransferTransaction(
     );
     const [instruction, tableAddresses, lifetime] = await Promise.all([
       ringTransactInstruction({
-        ringProgramId: input.ringProgramId,
+        ringProgramId,
         payer: proven.payer,
         inputTree: proven.tree,
         outputTree: proven.tree,
@@ -148,7 +169,7 @@ export async function buildRingTransferTransaction(
       }),
       fetchRingLookupTable({
         client: input.client,
-        ringProgramId: input.ringProgramId,
+        ringProgramId,
         address: input.lookupTable,
         tree: proven.tree,
       }),
@@ -452,6 +473,62 @@ function selectRingInputs(
   if (selected.length > MAX_INPUTS) {
     throw new RingError("RING_TOO_MANY_INPUTS", {
       details: { selected: selected.length, maximum: MAX_INPUTS },
+    });
+  }
+  return Object.freeze(selected);
+}
+
+/** Entering a ring may not sweep unrelated default-pool change into it. */
+function selectExactDefaultInputs(
+  wallet: Wallet,
+  asset: Address,
+  amount: bigint,
+  commitments: readonly Bytes32[],
+): readonly SelectedInput[] {
+  if (commitments.length === 0 || commitments.length > MAX_INPUTS) {
+    throw new RingError("RING_BUILD_TRANSFER", {
+      details: { reason: "entering a ring requires one to five exact input commitments" },
+    });
+  }
+  const candidates = wallet
+    .utxos()
+    .filter(
+      (entry) =>
+        !entry.spent && entry.utxo.asset === asset && entry.utxo.ringProgramId === undefined,
+    );
+  const seen = new Set<string>();
+  const selected = commitments.map((commitment) => {
+    const key = Array.from(commitment, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    if (seen.has(key)) {
+      throw new RingError("RING_BUILD_TRANSFER", {
+        details: { reason: "duplicate default-pool input commitment" },
+      });
+    }
+    seen.add(key);
+    const entry = candidates.find((candidate) =>
+      candidate.outputContext.hash.every((byte, index) => byte === commitment[index]),
+    );
+    if (entry === undefined) {
+      throw new RingError("RING_BUILD_TRANSFER", {
+        details: { reason: "default-pool input is unavailable", commitment: key },
+      });
+    }
+    return { entry, tree: entry.outputContext.tree };
+  });
+  const trees = new Set(selected.map(({ tree }) => tree));
+  if (trees.size !== 1) {
+    throw new RingError("RING_MULTIPLE_INPUT_TREES", {
+      details: { asset, treeCount: trees.size },
+    });
+  }
+  const available = selected.reduce((sum, { entry }) => sum + entry.utxo.amount, 0n);
+  if (available !== amount) {
+    throw new RingError("RING_BUILD_TRANSFER", {
+      details: {
+        reason: "default-pool inputs must exactly equal the amount entering the ring",
+        amount: amount.toString(),
+        available: available.toString(),
+      },
     });
   }
   return Object.freeze(selected);

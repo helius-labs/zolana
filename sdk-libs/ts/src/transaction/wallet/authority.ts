@@ -1,7 +1,14 @@
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { getAddressEncoder } from "@solana/kit";
 
-import type { Address, Bytes16, Bytes32, Bytes64, MessageData } from "../../interface/types.js";
+import type {
+  Address,
+  Bytes16,
+  Bytes31,
+  Bytes32,
+  Bytes64,
+  MessageData,
+} from "../../interface/types.js";
 import { auditorMessageData, encryptTransactionViewingSecret } from "../../keypair/audit.js";
 import { checkedBytes, randomSalt } from "../../keypair/bytes.js";
 import {
@@ -91,12 +98,11 @@ export interface SyncWalletAuthority {
   syncMaterial(): Promise<WalletSyncMaterial>;
 }
 
-export interface WalletAuthority {
+/** Operations needed to construct a private transaction in this process. */
+export interface PrivateTransactionAuthority {
   solanaPublicKey(): Address;
   shieldedAddress(): Promise<ShieldedAddress>;
-  viewingKeys(): Promise<readonly ViewingKey[]>;
   spendNullifierKey(): Promise<NullifierKey>;
-  syncMaterial(): Promise<WalletSyncMaterial>;
   encryptConfidentialTransfer(
     input: Readonly<{
       firstNullifier: Bytes32;
@@ -130,7 +136,217 @@ export interface WalletAuthority {
   requestUserApproval(request: ApprovalRequest): Promise<void>;
 }
 
+/** A local authority can both construct transactions and scan wallet history. */
+export interface WalletAuthority extends PrivateTransactionAuthority, SyncWalletAuthority {
+  viewingKeys(): Promise<readonly ViewingKey[]>;
+}
+
+/** Returns one transaction-scoped viewing secret without exposing the wallet viewing key. */
+export type TransactionViewingSecretProvider = (firstNullifier: Bytes32) => Promise<Bytes32>;
+
 const addressEncoder = getAddressEncoder();
+
+/**
+ * Client-owned spend role with a remotely held viewing role.
+ *
+ * The long-lived nullifier secret is present in this process because the
+ * current SPP circuits require it in their proof inputs. The wallet viewing
+ * secret remains behind `transactionViewingSecret`; only a key scoped to one
+ * first nullifier crosses that boundary. Wallet sync therefore continues to
+ * use a separate {@link SyncWalletAuthority}.
+ */
+export class ClientNullifierWalletAuthority implements PrivateTransactionAuthority {
+  readonly #solanaPublicKey: Address;
+  readonly #address: ShieldedAddress;
+  readonly #nullifierKey: NullifierKey;
+  readonly #transactionViewingSecret: TransactionViewingSecretProvider;
+
+  constructor(
+    input: Readonly<{
+      solanaPublicKey: Address;
+      shieldedAddress: ShieldedAddress;
+      nullifierSecret: Bytes31;
+      transactionViewingSecret: TransactionViewingSecretProvider;
+    }>,
+  ) {
+    const nullifierKey = NullifierKey.fromSecret(input.nullifierSecret);
+    const expectedNullifierPublicKey = input.shieldedAddress.nullifierPublicKey;
+    const actualNullifierPublicKey = nullifierKey.publicKey();
+    if (
+      input.shieldedAddress.solanaAddress() !== input.solanaPublicKey ||
+      !actualNullifierPublicKey.every((byte, index) => byte === expectedNullifierPublicKey[index])
+    ) {
+      nullifierKey.destroy();
+      throw new TransactionError("TRANSACTION_WALLET_AUTHORITY_MISMATCH");
+    }
+    this.#solanaPublicKey = input.solanaPublicKey;
+    this.#address = input.shieldedAddress;
+    this.#nullifierKey = nullifierKey;
+    this.#transactionViewingSecret = input.transactionViewingSecret;
+  }
+
+  solanaPublicKey(): Address {
+    return this.#solanaPublicKey;
+  }
+
+  shieldedAddress(): Promise<ShieldedAddress> {
+    return Promise.resolve(this.#address);
+  }
+
+  spendNullifierKey(): Promise<NullifierKey> {
+    const secret = this.#nullifierKey.secretBytes();
+    try {
+      return Promise.resolve(NullifierKey.fromSecret(secret));
+    } finally {
+      secret.fill(0);
+    }
+  }
+
+  async encryptConfidentialTransfer(
+    input: Readonly<{
+      firstNullifier: Bytes32;
+      outputs: readonly ProofOutputUtxo[];
+      assets: AssetRegistry;
+    }>,
+  ): Promise<EncryptedTransfer> {
+    return this.#withTransactionViewingKey(input.firstNullifier, (tx) => {
+      const salt = randomSalt();
+      return {
+        txViewingPublicKey: tx.publicKey(),
+        salt,
+        payload: encodeConfidentialSlots(input.outputs, input.assets, tx, salt),
+      };
+    });
+  }
+
+  async encryptCustomRingTransfer(
+    input: Readonly<{
+      firstNullifier: Bytes32;
+      outputs: readonly ProofOutputUtxo[];
+      assets: AssetRegistry;
+      auditorPublicKey: P256PublicKey;
+    }>,
+  ): Promise<EncryptedCustomRingTransfer> {
+    return this.#withTransactionViewingKey(input.firstNullifier, (tx) => {
+      const salt = randomSalt();
+      const txViewingSecret = tx.secretBytes();
+      const encryption = encryptTransactionViewingSecret(txViewingSecret, input.auditorPublicKey);
+      return {
+        txViewingPublicKey: tx.publicKey(),
+        salt,
+        payload: encodeConfidentialSlots(input.outputs, input.assets, tx, salt),
+        auditorMessage: auditorMessageData(encryption.message, input.auditorPublicKey),
+        audit: Object.freeze({
+          txViewingSecret,
+          ephemeralSecret: encryption.ephemeralSecret,
+        }),
+      };
+    });
+  }
+
+  async encryptAnonymousTransfer(
+    input: Readonly<{
+      firstNullifier: Bytes32;
+      senderViewTag: Bytes32;
+      sender: AnonymousSenderPlaintext;
+      recipients: readonly AnonymousRecipientSlot[];
+    }>,
+  ): Promise<EncryptedTransfer> {
+    return this.#withTransactionViewingKey(input.firstNullifier, (tx) => {
+      const salt = randomSalt();
+      const slot = (
+        scheme: EncryptedScheme,
+        recipient: P256PublicKey,
+        plaintext: Uint8Array,
+        slotIndex: number,
+        viewTag: Bytes32,
+      ): MessageData => ({
+        viewTag,
+        data: encodeOutputData(
+          scheme,
+          encryptAnonymous(tx, recipient, plaintext, salt, slotIndex),
+          "encrypted",
+        ),
+      });
+      return {
+        txViewingPublicKey: tx.publicKey(),
+        salt,
+        payload: [
+          slot(
+            EncryptedScheme.anonymousSender,
+            this.#address.viewingPublicKey,
+            encodeAnonymousSender(input.sender),
+            0,
+            input.senderViewTag,
+          ),
+          ...input.recipients.map((recipient, index) =>
+            slot(
+              EncryptedScheme.anonymousRecipient,
+              recipient.recipientPublicKey,
+              encodeAnonymousRecipient(recipient.plaintext),
+              index + 1,
+              recipient.viewTag,
+            ),
+          ),
+        ],
+      };
+    });
+  }
+
+  async encryptSplit(
+    input: Readonly<{
+      firstNullifier: Bytes32;
+      viewTag: Bytes32;
+      bundle: SplitBundlePlaintext;
+    }>,
+  ): Promise<EncryptedSplit> {
+    return this.#withTransactionViewingKey(input.firstNullifier, (tx) => {
+      const salt = randomSalt();
+      return {
+        txViewingPublicKey: tx.publicKey(),
+        salt,
+        payload: {
+          viewTag: input.viewTag,
+          data: encodeOutputData(
+            EncryptedScheme.split,
+            encryptSplit(
+              tx,
+              this.#address.viewingPublicKey,
+              encodeSplitBundle(input.bundle),
+              salt,
+              0,
+            ),
+            "encrypted",
+          ),
+        },
+      };
+    });
+  }
+
+  requestUserApproval(request: ApprovalRequest): Promise<void> {
+    void request;
+    return Promise.resolve();
+  }
+
+  async #withTransactionViewingKey<T>(
+    firstNullifier: Bytes32,
+    use: (key: ViewingKey) => T,
+  ): Promise<T> {
+    const secret = checkedBytes<Bytes32>(
+      await this.#transactionViewingSecret(firstNullifier),
+      32,
+      "transaction viewing secret",
+    );
+    let key: ViewingKey | undefined;
+    try {
+      key = ViewingKey.fromBytes(secret);
+      return use(key);
+    } finally {
+      secret.fill(0);
+      key?.destroy();
+    }
+  }
+}
 
 /**
  * Client-owned privacy roles derived from a deterministic Ed25519 signature

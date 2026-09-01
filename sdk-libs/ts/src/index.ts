@@ -43,6 +43,8 @@ export {
 export {
   CompressedShieldedAddress,
   KeypairError,
+  mergeDummyNullifier,
+  mergeOutputBlinding,
   NullifierKey,
   P256PublicKey,
   ShieldedAddress,
@@ -53,8 +55,10 @@ export {
   type KeypairErrorCode,
 } from "./keypair/index.js";
 export {
+  AssetRegistry,
   Data,
   ClientEd25519WalletAuthority,
+  ClientNullifierWalletAuthority,
   KeypairWalletAuthority,
   SOL_MINT,
   TransactionError,
@@ -65,6 +69,9 @@ export {
   type SerializedWalletState,
   type SyncReport,
   type TransactionErrorCode,
+  type PrivateTransactionAuthority,
+  type TransactionViewingSecretProvider,
+  type SpendableUtxoOpening,
   type WalletAuthority,
   type WalletUtxo,
 } from "./transaction/index.js";

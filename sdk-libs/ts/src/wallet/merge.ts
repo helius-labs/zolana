@@ -7,7 +7,10 @@ import type { P256PublicKey, ShieldedPublicKey } from "../keypair/public-key.js"
 import { ShieldedAddress, type ShieldedKeypair } from "../keypair/shielded.js";
 import { Merge, type PreparedMerge } from "../transaction/instructions/builders.js";
 import { ProofInputUtxo } from "../transaction/utxo.js";
-import type { WalletAuthority, WalletSyncMaterial } from "../transaction/wallet/authority.js";
+import type {
+  PrivateTransactionAuthority,
+  WalletSyncMaterial,
+} from "../transaction/wallet/authority.js";
 import { SOL_MINT } from "../transaction/wallet/asset.js";
 import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 
@@ -153,7 +156,7 @@ export class MergeMaterial {
 export interface MergeTransactionParams {
   readonly client: ZolanaClient;
   readonly wallet: Wallet;
-  readonly authority: WalletAuthority;
+  readonly authority: PrivateTransactionAuthority;
   readonly feePayer: Address;
   readonly asset?: Address;
   readonly inputs?: readonly Bytes32[];
@@ -165,7 +168,15 @@ export async function buildMergeTransaction(
 ): Promise<Transaction> {
   try {
     const owner = input.authority.solanaPublicKey();
-    const material = MergeMaterial.fromSyncMaterial(await input.authority.syncMaterial());
+    const [address, nullifierKey] = await Promise.all([
+      input.authority.shieldedAddress(),
+      input.authority.spendNullifierKey(),
+    ]);
+    const material = new MergeMaterial({
+      signingPublicKey: address.signingPublicKey,
+      viewingPublicKey: address.viewingPublicKey,
+      nullifierKey,
+    });
     const created = createMerge({
       wallet: input.wallet,
       material,

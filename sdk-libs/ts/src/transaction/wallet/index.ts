@@ -1,5 +1,6 @@
 export {
   ClientEd25519WalletAuthority,
+  ClientNullifierWalletAuthority,
   KeypairWalletAuthority,
   type AnonymousRecipientSlot,
   type ApprovalRequest,
@@ -9,7 +10,9 @@ export {
   type EncryptedCustomRingTransfer,
   type EncryptedTransfer,
   type SplitBundlePlaintext,
+  type PrivateTransactionAuthority,
   type SyncWalletAuthority,
+  type TransactionViewingSecretProvider,
   type WalletAuthority,
   type WalletSyncMaterial,
 } from "./authority.js";
@@ -31,6 +34,7 @@ export type {
   PrivateTransactionKind,
   PrivateTransactionStatus,
   SyncReport,
+  SpendableUtxoOpening,
   ViewingKeyEntry,
   WalletUtxo,
 } from "./state.js";

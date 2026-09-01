@@ -9,7 +9,7 @@ import type { Wallet } from "../transaction/wallet/state.js";
 import { UnsignedPrivateTransaction } from "./actions.js";
 import { WalletError } from "./error.js";
 import { equalBytes } from "./internal.js";
-import type { WalletAuthority } from "../transaction/wallet/authority.js";
+import type { PrivateTransactionAuthority } from "../transaction/wallet/authority.js";
 
 function sameOptionalHash(left: Bytes32 | undefined, right: Bytes32 | undefined): boolean {
   if (left === undefined || right === undefined) return left === right;
@@ -72,7 +72,7 @@ function matchingInput(
 export async function authorizePrivateTransaction(
   transaction: UnsignedPrivateTransaction,
   wallet: Wallet,
-  authority: WalletAuthority,
+  authority: PrivateTransactionAuthority,
 ): Promise<AuthorizedPrivateTransaction> {
   const unsignedInputs = transaction._inputs();
   unsignedInputs.forEach((input, index) => {
