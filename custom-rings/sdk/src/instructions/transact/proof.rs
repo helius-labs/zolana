@@ -215,3 +215,99 @@ pub fn to_instruction_proof(proof: Proof) -> Result<CustomRingProof, CustomRingP
         commitment_pok: commitment.commitment_pok,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::{
+        CustomRingOpening, SourceOwnerEntry, POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS,
+    };
+    use super::*;
+    use crate::witness::{CustomRingWitness, TransactRoots};
+    use custom_ring_interface::CustomRingPublicInput;
+    use zolana_ring_policy::{MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES};
+
+    /// The `go_vectors.rs` fixture scalars, valid P-256 keys below the group order.
+    const TX_SK: &str = "011013121514171619181b1a1d1c1f1e010003020504070609080b0a0d0c0f0e";
+    const AUDITOR_SK: &str = "01323130373635343b3a39383f3e3d3c23222120272625242b2a29282f2e2d2c";
+
+    fn key(hex_str: &str) -> ViewingKey {
+        let bytes: [u8; 32] = hex::decode(hex_str)
+            .expect("hex")
+            .try_into()
+            .expect("scalar length");
+        ViewingKey::from_bytes(&bytes).expect("valid P-256 scalar")
+    }
+
+    fn witness(state: [u8; 32], nullifier: [u8; 32]) -> CustomRingWitness {
+        CustomRingWitness {
+            roots: TransactRoots {
+                state,
+                state_index: 0,
+                nullifier,
+                nullifier_index: 0,
+            },
+            sources: [SourceOwnerEntry::default(); MAX_SOURCES],
+            inputs: [CustomRingOpening::default(); POLICY_INPUT_SLOTS],
+            outputs: [CustomRingOpening::default(); POLICY_OUTPUT_SLOTS],
+            n_in: 1,
+            n_out: 1,
+            rules: [[0u8; 32]; MAX_RULES],
+            policy_len: 0,
+            inline_assets: [[0u8; 32]; MAX_INLINE_ASSETS],
+            inline_count: 0,
+            answers: Vec::new(),
+        }
+    }
+
+    /// finish must fold the finish-side private_tx_hash, the witness roots, the
+    /// policy hash, and the published ciphertext into the one public input the
+    /// program recomputes on chain.
+    #[test]
+    fn finish_binds_the_public_input_the_program_recomputes() {
+        let tx_key = key(TX_SK);
+        let tx_pk = tx_key.pubkey();
+        let auditor_pk = key(AUDITOR_SK).pubkey();
+        let EncryptedAudit { pending, message } = CustomRingProofParams {
+            tx_viewing_key: tx_key,
+            auditor_pk,
+        }
+        .encrypt()
+        .expect("encrypt");
+
+        let mut private_tx_hash = [0u8; 32];
+        private_tx_hash[29..].copy_from_slice(&[0xab, 0xcd, 0xef]);
+        let state = [7u8; 32];
+        let nullifier = [9u8; 32];
+        let policy_hash = [4u8; 32];
+        let external_data_hash = [5u8; 32];
+
+        let request = pending
+            .finish(
+                CustomRingPrivateTxHash::try_from(private_tx_hash).expect("below the modulus"),
+                &external_data_hash,
+                witness(state, nullifier),
+                &policy_hash,
+            )
+            .expect("finish");
+
+        let expected = CustomRingPublicInput {
+            audit: AuditPublicInput {
+                private_tx_hash: &private_tx_hash,
+                tx_viewing_pk: tx_pk.as_bytes(),
+                auditor_pk: auditor_pk.as_bytes(),
+                eph_pk: message.ephemeral_pubkey_bytes(),
+                ciphertext: message.ciphertext(),
+            },
+            policy_hash: &policy_hash,
+            state_root: &state,
+            nullifier_root: &nullifier,
+        }
+        .hash()
+        .expect("public input hash");
+
+        assert_eq!(request.public_input_hash, expected);
+        assert_eq!(request.private_tx_hash, private_tx_hash);
+        assert_eq!(request.state_root, state);
+        assert_eq!(request.nullifier_root, nullifier);
+    }
+}
