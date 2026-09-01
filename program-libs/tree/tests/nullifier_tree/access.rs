@@ -40,10 +40,10 @@ fn test_state_struct_sizes() {
     const HASH_CHAINS: usize = ZKP * 32;
     const CACHED_TREE_UPDATES: usize = ZKP * 65;
     // A batch is padded to the alignment of its metadata words.
-    const BATCH: usize = 464;
+    const BATCH: usize = 448;
     const ROOT_HISTORY: usize = 8 + ZKP * 32;
     assert_eq!(
-        (72 + HASH_CHAINS + CACHED_TREE_UPDATES).next_multiple_of(8),
+        (56 + HASH_CHAINS + CACHED_TREE_UPDATES).next_multiple_of(8),
         BATCH
     );
     assert_eq!(core::mem::size_of::<Batch<ZKP>>(), BATCH);

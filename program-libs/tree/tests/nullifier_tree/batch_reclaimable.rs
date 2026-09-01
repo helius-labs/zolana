@@ -104,8 +104,6 @@ fn fully_applied_successor_advances_watermark_after_natural_root_overwrite() {
         let tree = load_tree(&mut data);
         let batch = tree.batches.first().unwrap();
         assert_eq!(batch.get_state(), BatchState::Inserted);
-        assert_eq!(batch.sequence_number, 0);
-        assert_eq!(batch.root_index, 0);
         assert_eq!(batch.reclaimable_sequence().unwrap(), BATCH_SIZE);
         assert!(!batch.is_reclaimable(tree.close_before_index));
         assert_eq!(tree.close_before_index, 0);

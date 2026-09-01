@@ -101,13 +101,8 @@ pub struct Batch<const ZKP: usize> {
     /// Number of elements in a zkp batch.
     /// A batch consists out of one or more zkp batches.
     pub zkp_batch_size: u64,
-    /// Reserved for account-layout compatibility.
-    pub sequence_number: u64, // TODO: remove
     /// Start leaf index of the first
     pub start_index: u64,
-    /// Reserved for account-layout compatibility.
-    pub root_index: u32, // TODO: remove
-    _padding: [u8; 4],
     /// One Poseidon hash chain per ZKP batch. The chain at
     /// `num_full_zkp_batches` is the one insertions currently extend; the
     /// chains below it are complete and are the prover inputs of the pending
@@ -119,12 +114,12 @@ pub struct Batch<const ZKP: usize> {
     cached_tree_updates: [CachedTreeUpdate; ZKP],
 }
 
-/// `repr(C)`: 72 metadata bytes, then one hash chain and one cached update per
+/// `repr(C)`: 56 metadata bytes, then one hash chain and one cached update per
 /// ZKP batch. Both arrays are align-1, so the only implicit padding is the tail
 /// that rounds the batch up to the alignment of its metadata words; the
 /// production configuration (`ZKP = 120`) has none.
 const fn batch_size_bytes(zkp: usize) -> usize {
-    let unpadded = 72 + (32 + size_of::<CachedTreeUpdate>()) * zkp;
+    let unpadded = 56 + (32 + size_of::<CachedTreeUpdate>()) * zkp;
     unpadded.next_multiple_of(align_of::<Batch<1>>())
 }
 
@@ -144,7 +139,7 @@ impl<const ZKP: usize> Batch<ZKP> {
     }
 
     /// Resets every metadata word, so a reused batch cannot inherit a counter
-    /// or a reserved value from its previous queue range. The hash chains and
+    /// from its previous queue range. The hash chains and
     /// cached updates need no zeroing: a filling batch writes a chain slot
     /// before anything reads it, and every cached update slot is cleared
     /// together with its consumed chain when its update lands in the tree, so
@@ -156,10 +151,7 @@ impl<const ZKP: usize> Batch<ZKP> {
         self.num_inserted_zkp_batches = 0;
         self.batch_size = batch_size;
         self.zkp_batch_size = zkp_batch_size;
-        self.sequence_number = 0;
         self.start_index = start_index;
-        self.root_index = 0;
-        self._padding = [0u8; 4];
     }
 
     /// Returns the complete or in-progress hash chain of a ZKP batch.
