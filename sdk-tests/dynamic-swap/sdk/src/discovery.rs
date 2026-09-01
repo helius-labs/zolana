@@ -35,10 +35,10 @@ pub fn discover_escrow_note<I: Rpc>(indexer: &I, owner: &ShieldedPda) -> Result<
         .shielded_address()?
         .confidential_view_tag()
         .map_err(err)?;
-    let mut cursor = None;
+    let mut since = None;
     loop {
         let page = indexer
-            .get_shielded_transactions_by_tags(vec![tag], cursor, None, None)
+            .get_shielded_transactions_by_tags(vec![tag], since, None, None)
             .map_err(err)?;
         for tx in &page.transactions {
             if let Some((order_utxo_hash, plaintext)) =
@@ -54,8 +54,8 @@ pub fn discover_escrow_note<I: Rpc>(indexer: &I, owner: &ShieldedPda) -> Result<
                 });
             }
         }
-        match page.next_cursor {
-            Some(next) => cursor = Some(next),
+        match page.next {
+            Some(next) => since = Some(next),
             None => bail!("no escrow order note found for the escrow_authority view tag"),
         }
     }
