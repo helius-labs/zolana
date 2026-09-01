@@ -48,3 +48,20 @@ fn verifying_key_fingerprint_is_pinned() {
         "verifying key changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }
+
+#[test]
+fn audit_verifying_key_fingerprint_is_pinned() {
+    let mut preimage = Vec::new();
+    absorb(
+        &mut preimage,
+        "audit_verifying_key",
+        &custom_ring_interface::audit_verifying_key::VERIFYINGKEY,
+    );
+    let digest = Sha256BE::hash(&preimage).expect("fingerprint digest");
+    let fingerprint: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+
+    assert_eq!(
+        fingerprint, "00df9e3cfed60315e206eac35ad854b8360a7e4ae488ddb964148ab1c956fc4e",
+        "audit verifying key changed; if this rotation is intentional, re-pin the fingerprint"
+    );
+}
