@@ -55,8 +55,6 @@ pub enum NullifierTreeError {
     InvalidProofSize(usize),
     #[error("Hasher error: {0}")]
     Hasher(#[from] HasherError),
-    #[error("Program error {0}")]
-    ProgramError(#[from] ProgramError),
     #[error("Account error {0}")]
     AccountError(#[from] AccountError),
 }
@@ -94,8 +92,6 @@ impl From<NullifierTreeError> for u32 {
             NullifierTreeError::InvalidProofSize(_) => 14026,
             NullifierTreeError::Hasher(e) => e.into(),
             NullifierTreeError::AccountError(e) => e.into(),
-            #[allow(clippy::useless_conversion)]
-            NullifierTreeError::ProgramError(e) => u32::try_from(u64::from(e)).unwrap(),
         }
     }
 }
