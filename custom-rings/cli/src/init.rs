@@ -151,7 +151,9 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
     let held_by_config_authority = existing
         .as_ref()
         .is_some_and(|config| config.authority == config_authority.pubkey());
-    let upgrade_authority = if held_by_config_authority {
+    // A partial init still needs the upgrade authority to pin the policy.
+    let policy_pinned = ctx.ring.read_policy_config(&ctx.rpc)?.is_some();
+    let upgrade_authority = if held_by_config_authority && policy_pinned {
         None
     } else {
         Some(ctx.config.upgrade_authority().map_err(ContextError::from)?)
