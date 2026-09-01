@@ -16,6 +16,7 @@ use crate::{
 use crate::{
     error::ClientError,
     rpc::{
+        ChainPosition,
         AsyncRpc, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
         GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
         GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
@@ -119,26 +120,26 @@ impl Rpc for ZolanaIndexer {
     fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        since: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
         self.block_on(
             self.indexer
-                .get_encrypted_utxos_by_tags(tags, cursor, limit, config),
+                .get_encrypted_utxos_by_tags(tags, since, limit, config),
         )
     }
 
     fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        since: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         self.block_on(
             self.indexer
-                .get_shielded_transactions_by_tags(tags, cursor, limit, config),
+                .get_shielded_transactions_by_tags(tags, since, limit, config),
         )
     }
 
@@ -167,13 +168,13 @@ impl Rpc for ZolanaIndexer {
     fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        since: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
         self.block_on(
             self.indexer
-                .get_shielded_transactions_by_nullifiers(nullifiers, cursor, limit, config),
+                .get_shielded_transactions_by_nullifiers(nullifiers, since, limit, config),
         )
     }
 

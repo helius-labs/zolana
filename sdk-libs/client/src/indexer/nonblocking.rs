@@ -8,7 +8,7 @@ use zolana_api::{SerializableSignature, ZolanaApi};
 use crate::{
     error::ClientError,
     rpc::{
-        AsyncRpc, Context, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
+        AsyncRpc, ChainPosition, Context, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
         GetNonInclusionProofsResponse, GetRingKeyRegistryEntryResponse,
         GetRingKeyRegistryRegisterProofResponse, GetRingSpendRecordResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
@@ -22,7 +22,7 @@ use super::{
         convert_context, convert_encrypted_utxo_match, convert_merkle_proof,
         convert_non_inclusion_proof, convert_shielded_transaction,
         convert_shielded_transactions_by_signature_response,
-        convert_shielded_transactions_response, convert_user_records_response, encode_cursor,
+        convert_shielded_transactions_response, convert_user_records_response, decode_position, encode_position,
         encode_hash, encode_pubkey, ring_history_request,
     },
     error::indexer_error,
@@ -75,7 +75,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
     async fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        since: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
@@ -87,7 +87,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
                     .api
                     .get_encrypted_utxos_by_tags(
                         tags.iter().copied().map(encode_hash).collect(),
-                        encode_cursor(cursor.clone()),
+                        since.map(encode_position),
                         limit.map(u64::from),
                     )
                     .await
@@ -102,8 +102,8 @@ impl AsyncRpc for AsyncZolanaIndexer {
                         .enumerate()
                         .map(|(index, item)| convert_encrypted_utxo_match(index, item))
                         .collect::<Result<Vec<_>, _>>()?,
-                    next_cursor: response.next_cursor.map(Into::into),
-                    scanned_through: response.scanned_through.map(Into::into),
+                    next: response.next.map(decode_position),
+                    latest: response.latest.map(decode_position),
                 })
             },
         )
@@ -113,7 +113,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
     async fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        since: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
@@ -125,7 +125,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
                     .api
                     .get_shielded_transactions_by_tags(
                         tags.iter().copied().map(encode_hash).collect(),
-                        encode_cursor(cursor.clone()),
+                        since.map(encode_position),
                         limit.map(u64::from),
                     )
                     .await
@@ -181,7 +181,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
     async fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        since: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
@@ -193,7 +193,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
                     .api
                     .get_shielded_transactions_by_nullifiers(
                         nullifiers.iter().copied().map(encode_hash).collect(),
-                        encode_cursor(cursor.clone()),
+                        since.map(encode_position),
                         limit.map(u64::from),
                     )
                     .await
@@ -210,8 +210,8 @@ impl AsyncRpc for AsyncZolanaIndexer {
                             convert_shielded_transaction(&format!("transactions[{index}]"), item)
                         })
                         .collect::<Result<Vec<_>, _>>()?,
-                    next_cursor: response.next_cursor.map(Into::into),
-                    scanned_through: response.scanned_through.map(Into::into),
+                    next: response.next.map(decode_position),
+                    latest: response.latest.map(decode_position),
                 })
             },
         )

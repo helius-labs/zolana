@@ -1,7 +1,7 @@
 use solana_address::Address;
 use zolana_api::{
-    Base64String, GetRingsByTagsRequest, Hash as ApiHash, Limit, RingsOutputSlot as ApiOutputSlot,
-    SerializablePubkey,
+    Base64String, ChainPosition as ApiChainPosition, GetRingsByTagsRequest, Hash as ApiHash, Limit,
+    RingsOutputSlot as ApiOutputSlot, SerializablePubkey, SerializableSignature,
 };
 use zolana_keypair::{x25519::X25519_PUBKEY_LEN, KeypairError, X25519Pubkey};
 use zolana_user_registry_interface::{user_record_pda, MergeEncryptionScheme};
@@ -9,6 +9,7 @@ use zolana_user_registry_interface::{user_record_pda, MergeEncryptionScheme};
 use crate::{
     error::ClientError,
     rpc::{
+        ChainPosition,
         Context, EncryptedUtxoMatch, GetShieldedTransactionsBySignatureResponse,
         GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, IndexedShieldedTransaction,
         MerkleContext, MerkleProof, NonInclusionProof, OutputContext, OutputSlot,
@@ -25,7 +26,7 @@ pub(super) fn ring_history_request(
         .transpose()?;
     Ok(GetRingsByTagsRequest {
         tags: Vec::new(),
-        cursor: encode_cursor(options.cursor),
+        since: options.since.map(encode_position),
         limit,
         ring_program_id: Some(SerializablePubkey(options.ring_program_id)),
     })
@@ -68,8 +69,8 @@ pub(super) fn convert_shielded_transactions_response(
                 convert_shielded_transaction(&format!("transactions[{index}]"), item)
             })
             .collect::<Result<Vec<_>, _>>()?,
-        next_cursor: response.next_cursor.map(Into::into),
-        scanned_through: response.scanned_through.map(Into::into),
+        next: response.next.map(decode_position),
+        latest: response.latest.map(decode_position),
     })
 }
 
@@ -241,8 +242,18 @@ pub(super) fn encode_pubkey(address: Address) -> SerializablePubkey {
     SerializablePubkey::from(address.to_bytes())
 }
 
-pub(super) fn encode_cursor(cursor: Option<Vec<u8>>) -> Option<Base64String> {
-    cursor.map(Base64String::from)
+pub(super) fn encode_position(position: ChainPosition) -> ApiChainPosition {
+    ApiChainPosition {
+        slot: position.slot,
+        signature: SerializableSignature(position.signature),
+    }
+}
+
+pub(super) fn decode_position(position: ApiChainPosition) -> ChainPosition {
+    ChainPosition {
+        slot: position.slot,
+        signature: position.signature.0,
+    }
 }
 
 /// Chosen by the sender, a malformed key reads as absent and leaves its outputs undecryptable.
@@ -318,19 +329,25 @@ mod tests {
     #[test]
     fn ring_history_request_pins_the_ring_without_a_view_tag() {
         let ring = solana_address::Address::new_from_array([19; 32]);
+        let since = crate::rpc::ChainPosition {
+            slot: 7,
+            signature: solana_signature::Signature::from([7; 64]),
+        };
         let request = super::ring_history_request(crate::rpc::RingHistoryOptions {
             ring_program_id: ring,
-            cursor: Some(vec![7]),
+            since: Some(since),
             limit: Some(17),
         })
         .unwrap();
         assert!(request.tags.is_empty());
         assert_eq!(request.ring_program_id.unwrap().0, ring);
-        assert_eq!(request.cursor.unwrap().0, vec![7]);
+        let wire = request.since.unwrap();
+        assert_eq!(wire.slot, 7);
+        assert_eq!(wire.signature.0, since.signature);
         assert_eq!(request.limit.unwrap().value(), 17);
         assert!(super::ring_history_request(crate::rpc::RingHistoryOptions {
             ring_program_id: ring,
-            cursor: None,
+            since: None,
             limit: Some(0)
         })
         .is_err());

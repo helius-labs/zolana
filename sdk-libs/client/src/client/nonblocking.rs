@@ -19,6 +19,7 @@ use crate::{
         verify_confidential_transfer_inputs, ProofCompressed,
     },
     rpc::{
+        ChainPosition,
         GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
         GetRingKeyRegistryEntryResponse, GetRingKeyRegistryRegisterProofResponse,
         GetRingSpendRecordResponse, GetShieldedTransactionsByNullifiersResponse,
@@ -138,14 +139,14 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncRpc for AsyncZolanaClient<R, I> {
     async fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        since: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
         self.indexer
             .get_encrypted_utxos_by_tags(
                 tags,
-                cursor,
+                since,
                 limit,
                 Some(config.unwrap_or(self.indexer_config)),
             )
@@ -155,14 +156,14 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncRpc for AsyncZolanaClient<R, I> {
     async fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        since: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         self.indexer
             .get_shielded_transactions_by_tags(
                 tags,
-                cursor,
+                since,
                 limit,
                 Some(config.unwrap_or(self.indexer_config)),
             )
@@ -195,14 +196,14 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncRpc for AsyncZolanaClient<R, I> {
     async fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        since: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
         self.indexer
             .get_shielded_transactions_by_nullifiers(
                 nullifiers,
-                cursor,
+                since,
                 limit,
                 Some(config.unwrap_or(self.indexer_config)),
             )
