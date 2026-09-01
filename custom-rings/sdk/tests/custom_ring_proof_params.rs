@@ -1,8 +1,6 @@
-//! `CustomRingProofParams::encrypt` + `PendingCustomRingProof::finish` is the only place the
-//! sdk turns domain values into a witness, so what is pinned here is that it lands
-//! on the public input the program recomputes, that it never reuses an AES-CTR
-//! keystream, and that the split across the two calls puts `private_tx_hash` on
-//! the `finish` side alone.
+//! `CustomRingProofParams::encrypt` mints the auditor ciphertext, pinned here to
+//! use a fresh AES-CTR keystream per call and to open under the auditor key
+//! alone. The `finish` public-input binding is pinned in the `proof` unit tests.
 
 use custom_ring_sdk::{
     to_instruction_proof, AuditorMessage, CustomRingProofError, CustomRingProofParams,
