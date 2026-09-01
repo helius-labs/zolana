@@ -173,13 +173,15 @@ fn require_initialized(ctx: &Context) -> Result<(), AuthorityError> {
     InitializationState::observe(
         ctx.ring.read_config(&ctx.rpc)?,
         ctx.ring.read_spp_ring_config(&ctx.rpc)?,
+        ctx.ring.read_policy_config(&ctx.rpc)?,
     )
     .require(ctx.ring.program_id())
 }
 
 impl InitializationState {
-    fn observe<C, R>(config: Option<C>, spp_ring: Option<R>) -> Self {
-        if config.is_some() && spp_ring.is_some() {
+    /// An unpinned policy can never be created once renounce drops the upgrade authority.
+    fn observe<C, R, P>(config: Option<C>, spp_ring: Option<R>, policy: Option<P>) -> Self {
+        if config.is_some() && spp_ring.is_some() && policy.is_some() {
             Self::Complete
         } else {
             Self::Incomplete
@@ -296,19 +298,21 @@ mod tests {
     }
 
     #[test]
-    fn renounce_requires_both_ring_accounts() {
+    fn renounce_requires_every_ring_account_including_the_policy() {
         let program = Address::new_from_array([1; 32]);
         for state in [
-            InitializationState::observe(None::<()>, None::<()>),
-            InitializationState::observe(Some(()), None::<()>),
-            InitializationState::observe(None::<()>, Some(())),
+            InitializationState::observe(None::<()>, None::<()>, None::<()>),
+            InitializationState::observe(Some(()), None::<()>, None::<()>),
+            InitializationState::observe(None::<()>, Some(()), None::<()>),
+            InitializationState::observe(Some(()), Some(()), None::<()>),
+            InitializationState::observe(Some(()), None::<()>, Some(())),
         ] {
             assert!(matches!(
                 state.require(program),
                 Err(AuthorityError::NotInitialized { program: found }) if found == program
             ));
         }
-        assert!(InitializationState::observe(Some(()), Some(()))
+        assert!(InitializationState::observe(Some(()), Some(()), Some(()))
             .require(program)
             .is_ok());
     }
