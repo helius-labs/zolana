@@ -18,7 +18,8 @@ use solana_address::Address;
 use solana_signature::Signature;
 use zeroize::Zeroizing;
 use zolana_client::{
-    Context, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, Rpc, ShieldedTransaction,
+    rpc::ChainPosition, Context, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, Rpc,
+    ShieldedTransaction,
 };
 use zolana_interface::{
     event::{ring_confidential_encrypted_output_body, OutputDataEncoding},
@@ -556,28 +557,35 @@ struct PagedIndexer {
     requested: RefCell<Vec<Option<u32>>>,
 }
 
+/// A position whose slot is a page index, the mock pages by index, not by row.
+fn page_position(index: usize) -> ChainPosition {
+    ChainPosition {
+        slot: index as u64,
+        signature: Signature::default(),
+    }
+}
+
 impl Rpc for PagedIndexer {
     fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        since: Option<ChainPosition>,
         limit: Option<u32>,
         _config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, zolana_client::ClientError> {
         assert_eq!(tags, vec![self.expected_tag]);
         self.requested.borrow_mut().push(limit);
-        let page_index = usize::from(*cursor.unwrap_or_default().first().unwrap_or(&0));
+        let page_index = since.map_or(0, |position| position.slot as usize);
         let transactions = self.pages.get(page_index).cloned().unwrap_or_default();
-        let next_cursor = (page_index + 1 < self.pages.len())
-            .then(|| vec![u8::try_from(page_index + 1).expect("page index")]);
+        let next = (page_index + 1 < self.pages.len()).then(|| page_position(page_index + 1));
         Ok(GetShieldedTransactionsByTagsResponse {
             context: Context {
                 block_time: 0,
                 slot: 1,
             },
             transactions,
-            next_cursor,
-            scanned_through: None,
+            next,
+            latest: None,
         })
     }
 }
@@ -850,18 +858,18 @@ fn a_scan_stopped_by_max_pages_resumes_where_it_stopped() {
         .with_max_pages(NonZeroUsize::new(2).expect("page limit"))
         .run(env)
         .expect("first scan");
-    let cursor = stopped.next_cursor.clone().expect("unread history");
+    let since = stopped.next.expect("unread history");
     assert_eq!(
         signatures(&stopped.transactions),
         signatures(&pages[..2].concat())
     );
 
     let resumed = RingScan::new(ring, &auditor_pk)
-        .with_cursor(cursor)
+        .with_since(since)
         .with_max_pages(NonZeroUsize::new(2).expect("page limit"))
         .run(env)
         .expect("resumed scan");
-    assert_eq!(resumed.next_cursor, None);
+    assert_eq!(resumed.next, None);
     assert_eq!(signatures(&resumed.transactions), signatures(&pages[2]));
 }
 
@@ -882,7 +890,7 @@ fn an_empty_page_does_not_end_the_scan() {
         })
         .expect("scan");
 
-    assert_eq!(page.next_cursor, None);
+    assert_eq!(page.next, None);
     assert_eq!(signatures(&page.transactions), signatures(&pages[1]));
 }
 
@@ -895,7 +903,7 @@ fn a_cursor_at_the_end_of_history_returns_an_empty_page() {
     let indexer = indexer(&auditor_pk, pages);
 
     let page = RingScan::new(ring, &auditor_pk)
-        .with_cursor(vec![2])
+        .with_since(page_position(2))
         .with_max_pages(NonZeroUsize::new(2).expect("page limit"))
         .run(RingEnvironment {
             indexer: &indexer,
@@ -904,6 +912,6 @@ fn a_cursor_at_the_end_of_history_returns_an_empty_page() {
         .expect("scan");
 
     assert!(page.transactions.is_empty());
-    assert_eq!(page.next_cursor, None);
+    assert_eq!(page.next, None);
     assert_eq!(origin.lookups.get(), 0);
 }
