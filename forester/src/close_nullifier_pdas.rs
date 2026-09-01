@@ -1,6 +1,7 @@
 use std::{thread, time::Duration};
 
 use anyhow::{anyhow, bail, Result};
+use solana_account::Account;
 use solana_commitment_config::CommitmentConfig;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
@@ -11,7 +12,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
 use zolana_api::{BlockingZolanaApi, NullifierQueueElement, SerializablePubkey, PAGE_LIMIT};
-use zolana_interface::{instruction::CloseNullifierPdas, pda};
+use zolana_interface::{instruction::CloseNullifierPdas, pda, NULLIFIER_PDA_SIZE};
 use zolana_tree::TreeAccount;
 
 use crate::config::ForesterConfig;
@@ -114,9 +115,9 @@ fn nullifier_pda_capacity(tree: Pubkey, payer: Pubkey) -> Result<usize> {
     bail!("legacy transaction size limit did not bound nullifier PDA account count")
 }
 
-pub fn retain_existing<T>(
+pub fn retain_open_accounts(
     nullifiers: &[[u8; 32]],
-    accounts: &[Option<T>],
+    accounts: &[Option<Account>],
 ) -> Result<Vec<[u8; 32]>> {
     if nullifiers.len() != accounts.len() {
         bail!(
@@ -125,10 +126,15 @@ pub fn retain_existing<T>(
             nullifiers.len()
         );
     }
+    let program_id = pda::shielded_pool_program_id();
     Ok(nullifiers
         .iter()
         .zip(accounts)
-        .filter(|(_, account)| account.is_some())
+        .filter(|(_, account)| {
+            account.as_ref().is_some_and(|account| {
+                account.owner == program_id && account.data.len() == NULLIFIER_PDA_SIZE
+            })
+        })
         .map(|(nullifier, _)| *nullifier)
         .collect())
 }
@@ -356,7 +362,7 @@ fn retain_open_nullifier_pdas(
         let accounts = rpc
             .get_multiple_accounts(&addresses)
             .map_err(|err| anyhow!("fetch nullifier PDA accounts: {err}"))?;
-        open.extend(retain_existing(chunk, &accounts)?);
+        open.extend(retain_open_accounts(chunk, &accounts)?);
     }
     Ok(open)
 }

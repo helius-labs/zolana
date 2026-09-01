@@ -1,11 +1,12 @@
 use anyhow::anyhow;
 use forester::close_nullifier_pdas::{
-    collect_queued_pages, plan_batches, retain_existing, CloseNullifierPdasBatch,
+    collect_queued_pages, plan_batches, retain_open_accounts, CloseNullifierPdasBatch,
     LEGACY_TRANSACTION_SIZE_LIMIT,
 };
+use solana_account::Account;
 use solana_pubkey::Pubkey;
 use zolana_api::{Hash, NullifierQueueElement, PAGE_LIMIT};
-use zolana_interface::instruction::CloseNullifierPdas;
+use zolana_interface::{instruction::CloseNullifierPdas, pda, NULLIFIER_PDA_SIZE};
 
 fn nullifier(seq: u64) -> [u8; 32] {
     let mut value = [0u8; 32];
@@ -90,15 +91,37 @@ fn batch_instruction_matches_the_interface_builder() {
 }
 
 #[test]
-fn retain_existing_drops_already_closed_nullifier_pdas() {
-    let nullifiers: Vec<[u8; 32]> = (0..4).map(nullifier).collect();
-    let accounts = vec![Some(()), None, Some(()), None];
+fn retain_open_accounts_requires_program_owner_and_nullifier_pda_size() {
+    let nullifiers: Vec<[u8; 32]> = (0..5).map(nullifier).collect();
+    let accounts = vec![
+        Some(Account {
+            owner: pda::shielded_pool_program_id(),
+            data: vec![0; NULLIFIER_PDA_SIZE],
+            ..Account::default()
+        }),
+        None,
+        Some(Account {
+            owner: Pubkey::default(),
+            data: vec![0; NULLIFIER_PDA_SIZE],
+            ..Account::default()
+        }),
+        Some(Account {
+            owner: pda::shielded_pool_program_id(),
+            data: vec![0; NULLIFIER_PDA_SIZE - 1],
+            ..Account::default()
+        }),
+        Some(Account {
+            lamports: 890_880,
+            owner: Pubkey::default(),
+            ..Account::default()
+        }),
+    ];
 
-    let open = retain_existing(&nullifiers, &accounts).unwrap();
-    assert_eq!(open, vec![nullifier(0), nullifier(2)]);
+    let open = retain_open_accounts(&nullifiers, &accounts).unwrap();
+    assert_eq!(open, vec![nullifier(0)]);
 
-    let short: Vec<Option<()>> = vec![Some(())];
-    assert!(retain_existing(&nullifiers, &short).is_err());
+    let short = vec![Some(Account::default())];
+    assert!(retain_open_accounts(&nullifiers, &short).is_err());
 }
 
 #[test]
