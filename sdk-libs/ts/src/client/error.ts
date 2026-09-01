@@ -1,3 +1,4 @@
+import { SECRET_KEY_PATTERN } from "../errors/internal.js";
 import { KeypairError, type KeypairErrorCode } from "../keypair/error.js";
 import { TransactionError, type TransactionErrorCode } from "../transaction/error.js";
 
@@ -6,7 +7,12 @@ type IndexDetails = Readonly<{ index: number }>;
 type CountDetails = Readonly<{ got: number; expected: number }>;
 type MethodDetails = Readonly<{ method: string }>;
 
-export type HasherErrorCode = "InvalidNumFields" | "EmptyInput";
+export type HasherErrorCode =
+  | "InvalidNumFields"
+  | "EmptyInput"
+  | "NotInitialized"
+  | "InvalidInputLength"
+  | "Poseidon";
 
 export const CANONICAL_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_KEYPAIR",
@@ -117,6 +123,7 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_MERGE_OUTPUT_MISMATCH: NoDetails;
   readonly CLIENT_INVALID_TRANSACTION: NoDetails;
   readonly CLIENT_TRANSACTION_ASSEMBLY: NoDetails;
+  readonly CLIENT_INTENT_MISMATCH: Readonly<{ field: string }>;
   readonly CLIENT_INVALID_LENGTH: Readonly<{
     field: string;
     expected: number;
@@ -181,6 +188,7 @@ export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_MERGE_OUTPUT_MISMATCH",
   "CLIENT_INVALID_TRANSACTION",
   "CLIENT_TRANSACTION_ASSEMBLY",
+  "CLIENT_INTENT_MISMATCH",
   "CLIENT_INVALID_LENGTH",
   "CLIENT_INVALID_FIELD",
   "CLIENT_INVALID_BASE58",
@@ -286,6 +294,7 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_TRANSACTION: { code: "string" },
   CLIENT_HASHER: { code: "string" },
   CLIENT_TREE_MISMATCH: { transactionTree: "string", clientTree: "string" },
+  CLIENT_INTENT_MISMATCH: { field: "string" },
   CLIENT_MERGE_TREE_MISMATCH: { proofTree: "string", submitTree: "string" },
   CLIENT_FIELD_TOO_LONG: { field: "string", actual: "number", maximum: "number" },
   CLIENT_PROVER_SERVER: { method: "string", status: "number", reason: "string" },
@@ -531,7 +540,7 @@ function sanitizeDetails(
     const safe: Record<string, unknown> = {};
     for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
       if (!descriptor.enumerable || !("value" in descriptor)) continue;
-      if (/(secret|private|seed|blinding|nonce|scalar)/iu.test(key)) continue;
+      if (SECRET_KEY_PATTERN.test(key)) continue;
       const sanitized = sanitize(descriptor.value);
       if (sanitized !== undefined) safe[key] = sanitized;
     }
@@ -556,5 +565,11 @@ function ownDataEntries(value: Record<string, unknown>): readonly (readonly [str
 }
 
 function isHasherErrorCode(value: unknown): value is HasherErrorCode {
-  return value === "InvalidNumFields" || value === "EmptyInput";
+  return (
+    value === "InvalidNumFields" ||
+    value === "EmptyInput" ||
+    value === "NotInitialized" ||
+    value === "InvalidInputLength" ||
+    value === "Poseidon"
+  );
 }

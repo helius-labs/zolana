@@ -1,8 +1,4 @@
 import {
-  getSetComputeUnitLimitInstruction,
-  getSetComputeUnitPriceInstruction,
-} from "@solana-program/compute-budget";
-import {
   assertIsAddress,
   assertIsSignature,
   getBase64Encoder,
@@ -21,23 +17,39 @@ import {
   type MergeTransactInstructionData,
 } from "../interface/instructions/index.js";
 import { DEFAULT_TREE_ADDRESS } from "../interface/program.js";
-import { checkedTransactionSize } from "../interface/transaction-size.js";
 import type {
   Bytes32,
   RequestContext,
   TransactInstructionData,
   TransactWithdrawal,
 } from "../interface/types.js";
-import type { NullifierKey } from "../keypair/nullifier-key.js";
-import type { ShieldedPublicKey } from "../keypair/public-key.js";
 import { PreparedMerge } from "../transaction/instructions/builders.js";
 import { SppProofInputs, type InputUtxoContext } from "../transaction/instructions/transact.js";
+import { checkAuthorizedBinding, checkTransactData } from "../transaction/wallet/intent.js";
 
+import { compileUnsignedTransaction } from "../flows/compile.js";
+import { checkedU32 } from "../flows/internal.js";
 import { ClientError, fromClientCause } from "./error.js";
 import { checkedServiceUrl } from "./internal.js";
 import { ZolanaIndexer } from "./indexer.js";
 import {
-  buildUnsignedTransaction as buildKitUnsignedTransaction,
+  authorizedPrivateTransactionMaterial,
+  type AuthorizedPrivateTransaction,
+  type AuthorizedPrivateTransactionMaterial,
+  type BlockhashProvider,
+  type ChainReader,
+  type IndexerReader,
+  type KitRpcAccess,
+  type MergeAssembler,
+  type MergeMaterialInput,
+  type ProofReader,
+  type ProvedMerge,
+  type Prover,
+  type TransactionAssembler,
+  type TransactionConfirmer,
+  type TreeContext,
+} from "./ports.js";
+import {
   createKitClients,
   runKitRpc,
   type LatestBlockhash,
@@ -102,24 +114,21 @@ export interface ZolanaClientConfig {
   readonly allowInsecureHttp?: boolean;
 }
 
-/** @internal */
-export interface AuthorizedPrivateTransaction {
-  readonly proofInputs: SppProofInputs;
-  readonly withdrawal?: TransactWithdrawal;
-  readonly tree: Address;
-}
+export type { AuthorizedPrivateTransaction, MergeMaterialInput, ProvedMerge } from "./ports.js";
 
-export interface MergeMaterialInput {
-  readonly signingPublicKey: ShieldedPublicKey;
-  readonly nullifierKey: NullifierKey;
-}
-
-export interface ProvedMerge {
-  readonly data: MergeTransactInstructionData;
-  readonly outputHash: Bytes32;
-}
-
-export class ZolanaClient {
+export class ZolanaClient
+  implements
+    ChainReader,
+    BlockhashProvider,
+    IndexerReader,
+    ProofReader,
+    Prover,
+    TransactionConfirmer,
+    KitRpcAccess,
+    TreeContext,
+    TransactionAssembler,
+    MergeAssembler
+{
   readonly tree: Address;
   readonly solanaRpc: SolanaRpc;
   readonly solanaRpcSubscriptions: SolanaRpcSubscriptions;
@@ -640,7 +649,7 @@ export class ZolanaClient {
     input: Readonly<{
       prepared: PreparedMerge;
       material: MergeMaterialInput;
-      indexer?: Pick<ZolanaClient, "getInputMerkleProofs" | "getNonInclusionProofs">;
+      indexer?: Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs">;
     }>,
     context?: RequestContext,
   ): Promise<ProvedMerge> {
@@ -668,7 +677,6 @@ export class ZolanaClient {
     });
   }
 
-  /** @internal */
   async assembleAuthorizedMergeTransaction(
     input: Readonly<{
       proved: ProvedMerge;
@@ -682,7 +690,7 @@ export class ZolanaClient {
       typeof candidate === "object" && candidate !== null
         ? (candidate as Record<string, unknown>)["proved"]
         : undefined;
-    if (!isProvedMerge(proved)) {
+    if (!hasMergeOutputBinding(proved)) {
       throw new ClientError("CLIENT_INVALID_MERGE");
     }
     if (!equal(proved.outputHash, proved.data.outputUtxoHash)) {
@@ -696,66 +704,77 @@ export class ZolanaClient {
       feePayer: input.feePayer,
       userRecord: input.userRecord,
       lifetime,
-      data: proved.data,
+      ...(this.#computeUnitPrice === undefined
+        ? {}
+        : { computeUnitPriceMicroLamports: this.#computeUnitPrice }),
+      data: input.proved.data,
     });
   }
 
-  /** @internal */
   async assembleAuthorizedPrivateTransaction(
     input: Readonly<{
       authorized: AuthorizedPrivateTransaction;
       feePayer: Address;
-      setupInstructions?: readonly Instruction[];
     }>,
     context?: RequestContext,
   ): Promise<Transaction> {
-    const data = await this.#proveAuthorizedPrivateTransaction(input, context);
+    const candidate: unknown = input;
+    if (typeof candidate !== "object" || candidate === null) {
+      throw new ClientError("CLIENT_INVALID_TRANSACTION");
+    }
+    const fields = Reflect.ownKeys(candidate);
+    if (
+      fields.length !== 2 ||
+      !Object.hasOwn(candidate, "authorized") ||
+      !Object.hasOwn(candidate, "feePayer") ||
+      fields.some((key) => key !== "authorized" && key !== "feePayer")
+    ) {
+      throw new ClientError("CLIENT_INVALID_TRANSACTION");
+    }
+    const feePayer: unknown = Reflect.get(candidate, "feePayer");
+    checkedAddress(feePayer, "feePayer");
+    const authorized = authorizedPrivateTransactionMaterial(Reflect.get(candidate, "authorized"));
+    if (authorized === undefined) {
+      throw new ClientError("CLIENT_INVALID_TRANSACTION");
+    }
+    const data = await this.#proveAuthorizedPrivateTransaction(authorized, feePayer, context);
+    checkTransactData(data, authorized.intent, intentMismatch);
     const lifetime = await this.getLatestBlockhash(context);
     return buildUnsignedTransaction({
       computeUnitLimit: this.#computeUnitLimit,
       ...(this.#computeUnitPrice === undefined
         ? {}
         : { computeUnitPriceMicroLamports: this.#computeUnitPrice }),
-      feePayer: input.feePayer,
-      inputTree: input.authorized.tree,
+      feePayer,
+      inputTree: authorized.tree,
       outputTree: this.tree,
-      ...(input.setupInstructions === undefined
-        ? {}
-        : { setupInstructions: input.setupInstructions }),
-      ...(input.authorized.withdrawal === undefined
-        ? {}
-        : { withdrawal: input.authorized.withdrawal }),
+      setupInstructions: authorized.setupInstructions,
+      ...(authorized.withdrawal === undefined ? {} : { withdrawal: authorized.withdrawal }),
       data,
       lifetime,
     });
   }
 
   async #proveAuthorizedPrivateTransaction(
-    input: Readonly<{ authorized: AuthorizedPrivateTransaction; feePayer: Address }>,
+    authorized: AuthorizedPrivateTransactionMaterial,
+    feePayer: Address,
     context?: RequestContext,
   ): Promise<TransactInstructionData> {
-    const candidate: unknown = input;
-    if (typeof candidate !== "object" || candidate === null) {
-      throw new ClientError("CLIENT_INVALID_TRANSACTION");
-    }
-    checkedAddress(input.feePayer, "feePayer");
-    if (!isAuthorizedPrivateTransaction(input.authorized)) {
-      throw new ClientError("CLIENT_INVALID_TRANSACTION");
-    }
-    // Compare the address itself, like Rust's `validate_fee_payer_pubkey`. The
-    // proof inputs cache a hash of it, but under a different function than any
-    // hash derived here would use.
-    if (input.feePayer !== input.authorized.proofInputs.payer) {
+    if (feePayer !== authorized.proofInputs.payer) {
       throw new ClientError("CLIENT_FEE_PAYER_MISMATCH");
     }
-    if (input.authorized.tree !== this.tree) {
+    if (authorized.tree !== this.tree) {
       throw new ClientError("CLIENT_TREE_MISMATCH", {
-        details: { transactionTree: input.authorized.tree, clientTree: this.tree },
+        details: { transactionTree: authorized.tree, clientTree: this.tree },
       });
     }
-    return this.proveTransact(input.authorized.proofInputs, undefined, context);
+    checkAuthorizedBinding(authorized, intentMismatch);
+    return this.proveTransact(authorized.proofInputs, undefined, context);
   }
 }
+
+/** Mirrors Rust `MERGE_CU_LIMIT`, the merge verifies one proof over eight inputs. */
+export const MERGE_TRANSACT_COMPUTE_UNIT_LIMIT = 1_400_000;
 
 export function buildUnsignedTransaction(
   input: Readonly<{
@@ -770,53 +789,32 @@ export function buildUnsignedTransaction(
     lifetime: LatestBlockhash;
   }>,
 ): Transaction {
-  checkedAddress(input.feePayer, "feePayer");
   checkedAddress(input.inputTree, "inputTree");
   checkedAddress(input.outputTree, "outputTree");
-  const instructions = privateTransactionInstructions({ ...input, payer: input.feePayer });
-  return checkedTransactionSize(
-    compileKitTransaction(input.feePayer, input.lifetime, instructions),
-    {
+  return compileUnsignedTransaction({
+    feePayer: input.feePayer,
+    lifetime: input.lifetime,
+    computeUnitLimit: input.computeUnitLimit,
+    ...(input.computeUnitPriceMicroLamports === undefined
+      ? {}
+      : { computeUnitPriceMicroLamports: input.computeUnitPriceMicroLamports }),
+    ...(input.setupInstructions === undefined
+      ? {}
+      : { setupInstructions: input.setupInstructions }),
+    instructions: [
+      transactInstruction({
+        payer: input.feePayer,
+        inputTree: input.inputTree,
+        outputTree: input.outputTree,
+        data: input.data,
+        ...(input.withdrawal === undefined ? {} : { withdrawal: input.withdrawal }),
+      }),
+    ],
+    sizeShape: {
       inputs: input.data.inputs.length,
       outputs: input.data.outputs.length,
     },
-  );
-}
-
-function privateTransactionInstructions(
-  input: Readonly<{
-    computeUnitLimit: number;
-    computeUnitPriceMicroLamports?: bigint;
-    payer: Address;
-    inputTree: Address;
-    outputTree: Address;
-    setupInstructions?: readonly Instruction[];
-    withdrawal?: TransactWithdrawal;
-    data: TransactInstructionData;
-  }>,
-): readonly Instruction[] {
-  checkedAddress(input.inputTree, "inputTree");
-  checkedAddress(input.outputTree, "outputTree");
-  checkedU32(input.computeUnitLimit, "computeUnitLimit");
-  checkedComputeUnitPrice(input.computeUnitPriceMicroLamports);
-  return [
-    getSetComputeUnitLimitInstruction({ units: input.computeUnitLimit }),
-    ...(input.computeUnitPriceMicroLamports === undefined
-      ? []
-      : [
-          getSetComputeUnitPriceInstruction({
-            microLamports: input.computeUnitPriceMicroLamports,
-          }),
-        ]),
-    ...(input.setupInstructions ?? []),
-    transactInstruction({
-      payer: input.payer,
-      inputTree: input.inputTree,
-      outputTree: input.outputTree,
-      data: input.data,
-      ...(input.withdrawal === undefined ? {} : { withdrawal: input.withdrawal }),
-    }),
-  ];
+  });
 }
 
 export function buildUnsignedMergeTransaction(
@@ -825,15 +823,20 @@ export function buildUnsignedMergeTransaction(
     feePayer: Address;
     userRecord: Address;
     lifetime: LatestBlockhash;
+    computeUnitPriceMicroLamports?: bigint;
     data: MergeTransactInstructionData;
   }>,
 ): Transaction {
   checkedAddress(input.tree, "tree");
-  checkedAddress(input.feePayer, "feePayer");
   checkedAddress(input.userRecord, "userRecord");
-  return checkedTransactionSize(
-    compileKitTransaction(input.feePayer, input.lifetime, [
-      getSetComputeUnitLimitInstruction({ units: 1_400_000 }),
+  return compileUnsignedTransaction({
+    feePayer: input.feePayer,
+    lifetime: input.lifetime,
+    computeUnitLimit: MERGE_TRANSACT_COMPUTE_UNIT_LIMIT,
+    ...(input.computeUnitPriceMicroLamports === undefined
+      ? {}
+      : { computeUnitPriceMicroLamports: input.computeUnitPriceMicroLamports }),
+    instructions: [
       mergeTransactInstruction({
         inputTree: input.tree,
         outputTree: input.tree,
@@ -841,38 +844,14 @@ export function buildUnsignedMergeTransaction(
         userRecord: input.userRecord,
         data: input.data,
       }),
-    ]),
-  );
+    ],
+  });
 }
 
-function compileKitTransaction(
-  feePayer: Address,
-  lifetime: LatestBlockhash,
-  instructions: readonly Instruction[],
-): Transaction {
-  try {
-    return buildKitUnsignedTransaction({ feePayer, instructions, lifetime });
-  } catch (cause) {
-    throw new ClientError("CLIENT_TRANSACTION_ASSEMBLY", { cause });
+function checkedAddress(value: unknown, field: string): asserts value is Address {
+  if (typeof value !== "string") {
+    throw new ClientError("CLIENT_INVALID_BASE58", { details: { field } });
   }
-}
-
-function checkedU32(value: number, fieldName: string): number {
-  if (!Number.isSafeInteger(value) || value < 0 || value > 0xffff_ffff) {
-    throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field: fieldName } });
-  }
-  return value;
-}
-
-function checkedComputeUnitPrice(value: bigint | undefined): void {
-  if (value !== undefined && (value < 0n || value > 0xffff_ffff_ffff_ffffn)) {
-    throw new ClientError("CLIENT_INVALID_INTEGER", {
-      details: { field: "computeUnitPriceMicroLamports" },
-    });
-  }
-}
-
-function checkedAddress(value: Address, field: string): void {
   try {
     assertIsAddress(value);
   } catch {
@@ -936,7 +915,13 @@ function equal(left: Uint8Array, right: Uint8Array): boolean {
   return difference === 0;
 }
 
-function isProvedMerge(value: unknown): value is ProvedMerge {
+/** The one field pair the assembler binds, the rest of `ProvedMerge` stays unclaimed. */
+interface MergeOutputBinding {
+  readonly outputHash: Uint8Array;
+  readonly data: Readonly<{ outputUtxoHash: Uint8Array }>;
+}
+
+function hasMergeOutputBinding(value: unknown): value is MergeOutputBinding {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
   const data = candidate["data"];
@@ -953,10 +938,6 @@ function isProvedMerge(value: unknown): value is ProvedMerge {
   );
 }
 
-function isAuthorizedPrivateTransaction(value: unknown): value is AuthorizedPrivateTransaction {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as Record<string, unknown>;
-  return (
-    candidate["proofInputs"] instanceof SppProofInputs && typeof candidate["tree"] === "string"
-  );
+function intentMismatch(field: string): ClientError {
+  return new ClientError("CLIENT_INTENT_MISMATCH", { details: { field } });
 }

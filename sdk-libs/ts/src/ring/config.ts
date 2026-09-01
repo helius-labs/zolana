@@ -5,7 +5,7 @@ import {
   type ProgramDerivedAddress,
 } from "@solana/kit";
 
-import type { ZolanaClient } from "../client/client.js";
+import type { ChainReader } from "../client/ports.js";
 import { meta, type SignerAccount } from "../interface/instructions/index.js";
 import { addressBytes } from "../interface/internal.js";
 import type { RequestContext } from "../interface/types.js";
@@ -40,7 +40,7 @@ export async function ringProgramDataAddress(ringProgramId: Address): Promise<Ad
 
 /** Mirrors Rust `CustomRing::read_config`, a non-canonical bump or a reserved auditor key is invalid. */
 export async function fetchRingProgramConfig(
-  client: ZolanaClient,
+  client: Pick<ChainReader, "getAccount">,
   ringProgramId: Address,
   context?: RequestContext,
 ): Promise<RingProgramConfig> {

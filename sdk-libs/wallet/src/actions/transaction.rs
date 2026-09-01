@@ -8,10 +8,12 @@ use zolana_interface::{
         TransactSplWithdrawalAccounts,
     },
     pda,
-    shape::Shape,
+    shape::{Shape, SPP_SUPPORTED_SHAPES},
     MAX_INTERFACE_TRANSFERS, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, ShieldedKeypair};
+use zolana_keypair::{
+    shielded::ShieldedAddress, viewing_key::ViewTag, NullifierKey, ShieldedKeypair,
+};
 use zolana_transaction::{
     instructions::{
         merge::{Merge, PreparedMerge, MERGE_INPUTS},
@@ -226,7 +228,13 @@ fn create_transfer_with_recipient<R>(
             },
         });
     };
-    let inputs = select_inputs(request.wallet, tree, request.asset, request.amount)?;
+    let inputs = select_inputs(
+        request.wallet,
+        tree,
+        request.asset,
+        request.amount,
+        is_default_ring_spendable,
+    )?;
     Ok(CreatedTransfer {
         transaction: UnsignedPrivateTransaction {
             payer: request.payer,
@@ -542,6 +550,138 @@ pub fn create_merge(request: MergeParams<'_>) -> Result<CreatedMerge, ClientErro
     })
 }
 
+pub struct SpendInputParams<'a> {
+    pub wallet: &'a Wallet,
+    pub asset: Address,
+    pub amount: u64,
+}
+
+/// Every input lives in `tree`.
+pub struct SelectedSpendInputs {
+    pub inputs: Vec<SppProofInputUtxo>,
+    pub tree: Address,
+}
+
+/// Default-ring notes only, a ring entry spends them through
+/// `CustomRingTransfer`.
+pub async fn select_spend_inputs<A: WalletAuthority + ?Sized>(
+    request: SpendInputParams<'_>,
+    authority: &A,
+) -> Result<SelectedSpendInputs, ClientError> {
+    let (tree, inputs) = unsigned_spend_inputs(request)?;
+    let nullifier_key = authority.spend_nullifier_key().await?;
+    Ok(SelectedSpendInputs {
+        inputs: spend_proof_inputs(inputs, nullifier_key),
+        tree,
+    })
+}
+
+pub fn select_spend_inputs_sync<A: SyncWalletAuthority + ?Sized>(
+    request: SpendInputParams<'_>,
+    authority: &A,
+) -> Result<SelectedSpendInputs, ClientError> {
+    let (tree, inputs) = unsigned_spend_inputs(request)?;
+    let nullifier_key = authority.spend_nullifier_key()?;
+    Ok(SelectedSpendInputs {
+        inputs: spend_proof_inputs(inputs, nullifier_key),
+        tree,
+    })
+}
+
+fn unsigned_spend_inputs(
+    request: SpendInputParams<'_>,
+) -> Result<(Address, Vec<UnsignedSpendInput>), ClientError> {
+    // Mirrors the TS eligibility, a default note carrying ring data proves on
+    // no rail.
+    let eligible =
+        |entry: &WalletUtxo| is_default_ring_spendable(entry) && entry.ring_data_hash.is_none();
+    let tree = resolve_spend_tree(request.wallet, request.asset, eligible)?;
+    let inputs = select_bounded_inputs(
+        request.wallet,
+        tree,
+        request.asset,
+        request.amount,
+        eligible,
+    )?;
+    Ok((tree, inputs))
+}
+
+/// Largest first, a fragmented balance covers with the fewest notes.
+fn select_bounded_inputs(
+    wallet: &Wallet,
+    tree: Address,
+    asset: Address,
+    amount: u64,
+    eligible: impl Fn(&WalletUtxo) -> bool,
+) -> Result<Vec<UnsignedSpendInput>, ClientError> {
+    // Zero selects a note whose whole change would cross the ring boundary.
+    if amount == 0 {
+        return Err(ClientError::ZeroSpendAmount);
+    }
+    let max_inputs = SPP_SUPPORTED_SHAPES
+        .iter()
+        .map(|shape| shape.n_inputs())
+        .max()
+        .unwrap_or(0);
+    let mut candidates: Vec<&WalletUtxo> = wallet
+        .utxos
+        .iter()
+        .filter(|entry| {
+            !entry.spent
+                && entry.utxo.asset == asset
+                && entry.output_context.tree == tree
+                && eligible(entry)
+        })
+        .collect();
+    candidates.sort_by_key(|entry| std::cmp::Reverse(entry.utxo.amount));
+    let mut total = 0u64;
+    for entry in &candidates {
+        total = total
+            .checked_add(entry.utxo.amount)
+            .ok_or(ClientError::SelectedBalanceOverflow)?;
+    }
+    let mut selected = Vec::new();
+    let mut available = 0u64;
+    for entry in candidates.iter().take(max_inputs) {
+        selected.push(UnsignedSpendInput {
+            utxo: entry.utxo.clone(),
+            utxo_hash: entry.output_context.hash,
+            nullifier: entry.nullifier,
+            data_hash: entry.data_hash,
+            ring_data_hash: entry.ring_data_hash,
+        });
+        available += entry.utxo.amount;
+        if available >= amount {
+            return Ok(selected);
+        }
+    }
+    if total >= amount {
+        return Err(ClientError::TooManyInputs {
+            got: candidates.len(),
+            max: max_inputs,
+        });
+    }
+    Err(ClientError::InsufficientBalance {
+        requested: amount,
+        available: total,
+    })
+}
+
+fn spend_proof_inputs(
+    inputs: Vec<UnsignedSpendInput>,
+    nullifier_key: NullifierKey,
+) -> Vec<SppProofInputUtxo> {
+    inputs
+        .into_iter()
+        .map(|input| SppProofInputUtxo {
+            utxo: input.utxo,
+            nullifier_key: nullifier_key.clone(),
+            data_hash: input.data_hash,
+            ring_data_hash: input.ring_data_hash,
+        })
+        .collect()
+}
+
 /// A ring-bound utxo's commitment covers its ring, the default-ring circuit
 /// does not.
 pub fn is_default_ring_spendable(entry: &WalletUtxo) -> bool {
@@ -769,16 +909,7 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
     validate_unsigned_inputs(wallet, transaction.tree, &transaction.inputs)?;
     let address = authority.shielded_address().await?;
     let nullifier_key = authority.spend_nullifier_key().await?;
-    let inputs = transaction
-        .inputs
-        .into_iter()
-        .map(|input| SppProofInputUtxo {
-            utxo: input.utxo,
-            nullifier_key: nullifier_key.clone(),
-            data_hash: input.data_hash,
-            ring_data_hash: input.ring_data_hash,
-        })
-        .collect();
+    let inputs = spend_proof_inputs(transaction.inputs, nullifier_key);
     let signed = match transaction.action {
         PrivateTransactionAction::Transfer {
             recipient,
@@ -994,7 +1125,13 @@ fn select_withdrawal_inputs(
                 spend_tree: tree,
             });
         }
-        inputs.extend(select_inputs(wallet, tree, *asset, *amount)?);
+        inputs.extend(select_inputs(
+            wallet,
+            tree,
+            *asset,
+            *amount,
+            is_default_ring_spendable,
+        )?);
     }
 
     Ok((tree, inputs))
@@ -1046,6 +1183,7 @@ fn select_inputs(
     tree: Address,
     asset: Address,
     amount: u64,
+    eligible: impl Fn(&WalletUtxo) -> bool,
 ) -> Result<Vec<UnsignedSpendInput>, ClientError> {
     let mut selected = Vec::new();
     let mut available = 0u64;
@@ -1053,7 +1191,7 @@ fn select_inputs(
         !entry.spent
             && entry.utxo.asset == asset
             && entry.output_context.tree == tree
-            && is_default_ring_spendable(entry)
+            && eligible(entry)
     }) {
         selected.push(UnsignedSpendInput {
             utxo: entry.utxo.clone(),
@@ -2295,6 +2433,7 @@ mod tests {
     }
 
     const RING_TREE: Address = Address::new_from_array([9u8; 32]);
+    const TEST_RING: Address = Address::new_from_array([7u8; 32]);
 
     fn bind_to_ring(wallet: &mut Wallet, hash: [u8; 32], tree: Address) {
         let entry = wallet
@@ -2303,7 +2442,7 @@ mod tests {
             .find(|entry| entry.output_context.hash == hash)
             .expect("pushed utxo");
         entry.output_context.tree = tree;
-        entry.utxo.ring_program_id = Some(Address::new_from_array([7u8; 32]));
+        entry.utxo.ring_program_id = Some(TEST_RING);
     }
 
     fn wallet_with_ring_balance_on_another_tree(keypair: &ShieldedKeypair) -> Wallet {
@@ -2347,19 +2486,298 @@ mod tests {
         let ring_bound = push_utxo(&mut wallet, &keypair, 100, [2u8; 31]);
         bind_to_ring(&mut wallet, ring_bound, Address::default());
 
-        let selected = select_inputs(&wallet, Address::default(), SOL_MINT, 10)
-            .expect("a plain utxo covers the amount");
+        let selected = select_inputs(
+            &wallet,
+            Address::default(),
+            SOL_MINT,
+            10,
+            is_default_ring_spendable,
+        )
+        .expect("a plain utxo covers the amount");
         assert_eq!(selected.len(), 1);
         assert!(selected
             .iter()
             .all(|input| input.utxo.ring_program_id.is_none()));
 
         assert!(matches!(
-            select_inputs(&wallet, Address::default(), SOL_MINT, 50),
+            select_inputs(
+                &wallet,
+                Address::default(),
+                SOL_MINT,
+                50,
+                is_default_ring_spendable
+            ),
             Err(ClientError::InsufficientBalance {
                 requested: 50,
                 available: 10
             })
+        ));
+    }
+
+    #[test]
+    fn select_spend_inputs_returns_transfer_ready_default_inputs() {
+        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
+        push_utxo(&mut wallet, &keypair, 15, [3u8; 31]);
+        let ring_bound = push_utxo(&mut wallet, &keypair, 100, [2u8; 31]);
+        bind_to_ring(&mut wallet, ring_bound, RING_TREE);
+
+        let selected = select_spend_inputs_sync(
+            SpendInputParams {
+                wallet: &wallet,
+                asset: SOL_MINT,
+                amount: 20,
+            },
+            &keypair,
+        )
+        .expect("two plain utxos cover the amount");
+
+        assert_eq!(selected.tree, Address::default());
+        assert_eq!(amounts(&selected.inputs), vec![15, 10]);
+        assert!(selected
+            .inputs
+            .iter()
+            .all(|input| input.utxo.ring_program_id.is_none() && input.ring_data_hash.is_none()));
+
+        assert!(matches!(
+            select_spend_inputs_sync(
+                SpendInputParams {
+                    wallet: &wallet,
+                    asset: SOL_MINT,
+                    amount: 50,
+                },
+                &keypair,
+            ),
+            Err(ClientError::InsufficientBalance {
+                requested: 50,
+                available: 25
+            })
+        ));
+    }
+
+    #[test]
+    fn balances_split_ring_bound_notes_from_the_spendable_view() {
+        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
+        let ring_bound = push_utxo(&mut wallet, &keypair, 100, [2u8; 31]);
+        bind_to_ring(&mut wallet, ring_bound, RING_TREE);
+
+        let spendable = wallet.balances(true).expect("balances");
+        assert_eq!(spendable.len(), 1);
+        assert_eq!(spendable[0].amount, 10);
+
+        let rings = wallet.ring_balances(true).expect("ring balances");
+        assert_eq!(rings.len(), 1);
+        assert_eq!(rings[0].ring_program_id, TEST_RING);
+        assert_eq!(rings[0].assets.len(), 1);
+        assert_eq!(rings[0].assets[0].amount, 100);
+    }
+
+    #[test]
+    fn ring_balances_group_by_ring_in_address_order() {
+        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        let first = push_utxo(&mut wallet, &keypair, 40, [1u8; 31]);
+        bind_to_ring(&mut wallet, first, RING_TREE);
+        let second = push_utxo(&mut wallet, &keypair, 60, [2u8; 31]);
+        bind_to_ring(&mut wallet, second, RING_TREE);
+        let other_ring = Address::new_from_array([3u8; 32]);
+        wallet
+            .utxos
+            .iter_mut()
+            .find(|entry| entry.output_context.hash == second)
+            .expect("pushed utxo")
+            .utxo
+            .ring_program_id = Some(other_ring);
+
+        let rings = wallet.ring_balances(true).expect("ring balances");
+        assert_eq!(
+            rings
+                .iter()
+                .map(|ring| (ring.ring_program_id, ring.assets[0].amount))
+                .collect::<Vec<_>>(),
+            vec![(other_ring, 60), (Address::new_from_array([7u8; 32]), 40),]
+        );
+    }
+
+    #[test]
+    fn ring_notes_of_an_unregistered_mint_leave_the_spendable_view_intact() {
+        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
+        let ring_bound = push_utxo(&mut wallet, &keypair, 100, [2u8; 31]);
+        bind_to_ring(&mut wallet, ring_bound, RING_TREE);
+        wallet
+            .utxos
+            .iter_mut()
+            .find(|entry| entry.output_context.hash == ring_bound)
+            .expect("pushed utxo")
+            .utxo
+            .asset = Address::new_from_array([8u8; 32]);
+
+        let spendable = wallet.balances(true).expect("balances");
+        assert_eq!(spendable.len(), 1);
+        assert_eq!(spendable[0].amount, 10);
+        assert!(matches!(
+            wallet.ring_balances(true),
+            Err(TransactionError::UnknownMint(mint)) if mint == Address::new_from_array([8u8; 32])
+        ));
+    }
+
+    #[test]
+    fn select_spend_inputs_requires_one_default_tree() {
+        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
+        let elsewhere = push_utxo(&mut wallet, &keypair, 10, [2u8; 31]);
+        wallet
+            .utxos
+            .iter_mut()
+            .find(|entry| entry.output_context.hash == elsewhere)
+            .expect("pushed utxo")
+            .output_context
+            .tree = RING_TREE;
+
+        assert!(matches!(
+            select_spend_inputs_sync(
+                SpendInputParams {
+                    wallet: &wallet,
+                    asset: SOL_MINT,
+                    amount: 15,
+                },
+                &keypair,
+            ),
+            Err(ClientError::AmbiguousTree { tree_count: 2, .. })
+        ));
+    }
+
+    #[test]
+    fn select_spend_inputs_skip_default_notes_carrying_ring_data() {
+        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        let tainted = push_utxo(&mut wallet, &keypair, 50, [1u8; 31]);
+        wallet
+            .utxos
+            .iter_mut()
+            .find(|entry| entry.output_context.hash == tainted)
+            .expect("pushed utxo")
+            .ring_data_hash = Some([5u8; 32]);
+        push_utxo(&mut wallet, &keypair, 20, [2u8; 31]);
+
+        let selected = select_spend_inputs_sync(
+            SpendInputParams {
+                wallet: &wallet,
+                asset: SOL_MINT,
+                amount: 20,
+            },
+            &keypair,
+        )
+        .expect("the clean note covers the amount");
+        assert_eq!(amounts(&selected.inputs), vec![20]);
+
+        assert!(matches!(
+            select_spend_inputs_sync(
+                SpendInputParams {
+                    wallet: &wallet,
+                    asset: SOL_MINT,
+                    amount: 60,
+                },
+                &keypair,
+            ),
+            Err(ClientError::InsufficientBalance {
+                requested: 60,
+                available: 20
+            })
+        ));
+    }
+
+    #[test]
+    fn select_spend_inputs_skips_spent_notes_and_stops_at_cover() {
+        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        let spent = push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
+        wallet
+            .utxos
+            .iter_mut()
+            .find(|entry| entry.output_context.hash == spent)
+            .expect("pushed utxo")
+            .spent = true;
+        push_utxo(&mut wallet, &keypair, 15, [2u8; 31]);
+        push_utxo(&mut wallet, &keypair, 20, [3u8; 31]);
+
+        let selected = select_spend_inputs_sync(
+            SpendInputParams {
+                wallet: &wallet,
+                asset: SOL_MINT,
+                amount: 15,
+            },
+            &keypair,
+        )
+        .expect("the unspent 20 covers the amount");
+
+        assert_eq!(amounts(&selected.inputs), vec![20]);
+    }
+
+    #[test]
+    fn select_spend_inputs_prefer_one_covering_note_over_fragments() {
+        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        for index in 0..6u8 {
+            push_utxo(&mut wallet, &keypair, 5, [index + 1; 31]);
+        }
+        push_utxo(&mut wallet, &keypair, 100, [10u8; 31]);
+
+        let selected = select_spend_inputs_sync(
+            SpendInputParams {
+                wallet: &wallet,
+                asset: SOL_MINT,
+                amount: 100,
+            },
+            &keypair,
+        )
+        .expect("the covering note spends alone");
+        assert_eq!(amounts(&selected.inputs), vec![100]);
+    }
+
+    #[test]
+    fn select_spend_inputs_refuse_a_zero_amount() {
+        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
+
+        assert!(matches!(
+            select_spend_inputs_sync(
+                SpendInputParams {
+                    wallet: &wallet,
+                    asset: SOL_MINT,
+                    amount: 0,
+                },
+                &keypair,
+            ),
+            Err(ClientError::ZeroSpendAmount)
+        ));
+    }
+
+    #[test]
+    fn select_spend_inputs_refuse_a_cover_wider_than_the_shape() {
+        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        for index in 0..6u8 {
+            push_utxo(&mut wallet, &keypair, 5, [index + 1; 31]);
+        }
+
+        assert!(matches!(
+            select_spend_inputs_sync(
+                SpendInputParams {
+                    wallet: &wallet,
+                    asset: SOL_MINT,
+                    amount: 30,
+                },
+                &keypair,
+            ),
+            Err(ClientError::TooManyInputs { got: 6, max: 5 })
         ));
     }
 

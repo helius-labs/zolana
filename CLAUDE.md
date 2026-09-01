@@ -433,6 +433,14 @@ only (empty `committed_wires`). Committing a **public** input (e.g.
 `Bsb22UnsupportedMultiCommitment`. The eddsa rail must therefore stay standard
 Groth16 (no explicit `Commit`), not force a public-wire commitment.
 
+## Releasing The TypeScript SDK
+
+`@heliuslabs/zolana` publishes manually with `npm publish` from `sdk-libs/ts`
+and documents through the `ts-sdk-v<version>` tag workflow. Every
+published-surface change updates `sdk-libs/ts/CHANGELOG.md` in the same
+branch, written under `sdk-libs/ts/CHANGELOG-RULES.md`. `prepublishOnly`
+refuses an undated or missing entry.
+
 ## Releasing Photon
 
 Photon lives at `services/photon` and is a member of this Cargo workspace. Build

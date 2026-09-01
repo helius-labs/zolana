@@ -1,15 +1,32 @@
-import type { AuthorizedPrivateTransaction } from "../client/client.js";
-import type { Address, Bytes32 } from "../interface/types.js";
+import {
+  mintAuthorizedPrivateTransaction,
+  type AuthorizedPrivateTransaction,
+} from "../client/ports.js";
+import { initializePoseidon } from "../hasher/index.js";
+import type { Address, Bytes32, Instruction } from "../interface/types.js";
+import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { Data } from "../transaction/data.js";
 import { ConfidentialSplit } from "../transaction/instructions/builders.js";
 import { ConfidentialTransfer, type SppProofInputs } from "../transaction/instructions/transact.js";
+import { TransactionError } from "../transaction/error.js";
 import { ProofInputUtxo, type Utxo } from "../transaction/utxo.js";
+import {
+  checkAuthorizedBinding,
+  checkIntentApproval,
+  checkPreparedTransfer,
+  withdrawalIntentRecipient,
+  type TransactionIntent,
+} from "../transaction/wallet/intent.js";
 import type { Wallet } from "../transaction/wallet/state.js";
 
 import { UnsignedPrivateTransaction } from "./actions.js";
 import { WalletError } from "./error.js";
 import { equalBytes } from "./internal.js";
-import type { WalletAuthority } from "../transaction/wallet/authority.js";
+import type { SpendSession, WalletAuthority } from "../transaction/wallet/authority.js";
+
+function intentMismatch(field: string): WalletError {
+  return new WalletError("WALLET_INTENT_MISMATCH", { details: { field } });
+}
 
 function sameOptionalHash(left: Bytes32 | undefined, right: Bytes32 | undefined): boolean {
   if (left === undefined || right === undefined) return left === right;
@@ -73,7 +90,9 @@ export async function authorizePrivateTransaction(
   transaction: UnsignedPrivateTransaction,
   wallet: Wallet,
   authority: WalletAuthority,
+  setupInstructions: readonly Instruction[] = [],
 ): Promise<AuthorizedPrivateTransaction> {
+  await initializePoseidon();
   const unsignedInputs = transaction._inputs();
   unsignedInputs.forEach((input, index) => {
     if (!matchingInput(wallet, transaction.tree(), input.entry)) {
@@ -82,21 +101,57 @@ export async function authorizePrivateTransaction(
       });
     }
   });
-  const [address, nullifierKey] = await Promise.all([
-    authority.shieldedAddress(),
-    authority.spendNullifierKey(),
-  ]);
-  const inputs = unsignedInputs.map(
-    ({ entry }) =>
-      new ProofInputUtxo({
-        utxo: entry.utxo,
-        nullifierKey,
-        ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),
-        ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
-      }),
-  );
+  const address = await authority.shieldedAddress();
+  // The default transact appends no owner signer accounts, the owner must pay.
+  if (address.solanaAddress() !== transaction.payer()) {
+    throw new TransactionError("TRANSACTION_ED25519_PAYER_MISMATCH", {
+      owner: address.solanaAddress(),
+      payer: transaction.payer(),
+    });
+  }
+  return authority.withSpendSession(async (session) => {
+    const nullifierKey = session.nullifierKey();
+    let inputs: readonly ProofInputUtxo[] = [];
+    try {
+      inputs = unsignedInputs.map(
+        ({ entry }) =>
+          new ProofInputUtxo({
+            utxo: entry.utxo,
+            nullifierKey,
+            ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),
+            ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
+          }),
+      );
+      return await authorizeWithInputs(
+        transaction,
+        wallet,
+        authority,
+        session,
+        address,
+        inputs,
+        setupInstructions,
+      );
+    } catch (cause) {
+      for (const proofInput of inputs) proofInput.destroy();
+      throw cause;
+    }
+  });
+}
+
+async function authorizeWithInputs(
+  transaction: UnsignedPrivateTransaction,
+  wallet: Wallet,
+  authority: WalletAuthority,
+  session: SpendSession,
+  address: ShieldedAddress,
+  inputs: readonly ProofInputUtxo[],
+  setupInstructions: readonly Instruction[],
+): Promise<AuthorizedPrivateTransaction> {
   const action = transaction._action();
   let proofInputs: SppProofInputs;
+  let intent: TransactionIntent;
+  let senderOutputCount: number;
+  let approvedIntentHash: Bytes32;
   if (action.kind === "split") {
     const input = inputs[0];
     if (input === undefined) throw new WalletError("WALLET_NO_INPUTS");
@@ -108,15 +163,25 @@ export async function authorizePrivateTransaction(
       perOutputAmount: action.perOutputAmount,
       payer: transaction.payer(),
     }).prepare();
-    const encrypted = await authority.encryptSplit({
+    const encrypted = await session.encryptSplit({
       firstNullifier: prepared.firstNullifier,
       viewTag: prepared.owner.confidentialViewTag(),
       bundle: prepared.bundlePlaintext(wallet.registry),
     });
-    await authority.requestUserApproval({
+    intent = {
+      kind: "split",
+      asset: action.asset,
+      numOutputs: action.numOutputs,
+      perOutputAmount: action.perOutputAmount,
+    };
+    const approval = await authority.requestUserApproval({
       solanaPublicKey: authority.solanaPublicKey(),
+      intent,
       summary: transaction._summary(),
     });
+    checkIntentApproval(approval, intent, intentMismatch);
+    approvedIntentHash = approval.intentHash;
+    senderOutputCount = 0;
     proofInputs = prepared.finalize({
       txViewingPublicKey: encrypted.txViewingPublicKey,
       salt: encrypted.salt,
@@ -130,15 +195,34 @@ export async function authorizePrivateTransaction(
       transfer.withdraw(action.asset, action.amount, action.target);
     }
     const prepared = transfer.prepare();
-    const encrypted = await authority.encryptConfidentialTransfer({
+    const encrypted = await session.encryptConfidentialTransfer({
       firstNullifier: prepared.firstNullifier,
       outputs: prepared.outputs,
       assets: wallet.registry,
     });
-    await authority.requestUserApproval({
+    intent =
+      action.kind === "transfer"
+        ? {
+            kind: "transfer",
+            asset: action.asset,
+            amount: action.amount,
+            recipient: action.recipient,
+          }
+        : {
+            kind: "withdrawal",
+            asset: action.asset,
+            amount: action.amount,
+            recipient: withdrawalIntentRecipient(action.target),
+          };
+    const approval = await authority.requestUserApproval({
       solanaPublicKey: authority.solanaPublicKey(),
+      intent,
       summary: transaction._summary(),
     });
+    checkIntentApproval(approval, intent, intentMismatch);
+    approvedIntentHash = approval.intentHash;
+    checkPreparedTransfer(prepared, intent, intentMismatch);
+    senderOutputCount = prepared.senderOutputCount;
     proofInputs = prepared.finalize({
       txViewingPublicKey: encrypted.txViewingPublicKey,
       salt: encrypted.salt,
@@ -146,9 +230,15 @@ export async function authorizePrivateTransaction(
     });
   }
   const withdrawal = transaction._withdrawal();
-  return Object.freeze({
+  const material = Object.freeze({
     proofInputs,
     tree: transaction.tree(),
+    intent,
+    senderOutputCount,
+    owner: address,
+    setupInstructions,
     ...(withdrawal === undefined ? {} : { withdrawal }),
   });
+  checkAuthorizedBinding(material, intentMismatch);
+  return mintAuthorizedPrivateTransaction(material, approvedIntentHash);
 }

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { sha256 } from "@noble/hashes/sha2.js";
 
 const FIXTURES = new URL("../../fixtures/", import.meta.url);
-const readTextFile = readFileSync as unknown as (path: URL, encoding: "utf8") => string;
+const readTextFile: (path: URL, encoding: "utf8") => string = readFileSync;
 
 interface Manifest {
   readonly files: readonly Readonly<{ path: string; sha256: string }>[];

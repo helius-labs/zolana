@@ -2,24 +2,34 @@ import { ed25519 } from "@noble/curves/ed25519.js";
 import {
   createSignableMessage,
   getBase58Decoder,
-  getBase58Encoder,
   getBase64Decoder,
-  getBase64Encoder,
   type MessagePartialSigner,
 } from "@solana/kit";
 
-import type { Address, Bytes32, Bytes33, Bytes64, Signature } from "../interface/types.js";
-import { addressBytes, copyBytes, unsignedBigint } from "../interface/internal.js";
+import type {
+  Address,
+  Bytes32,
+  Bytes33,
+  Bytes64,
+  RequestContext,
+  Signature,
+} from "../interface/types.js";
+import { postJsonRpc } from "../services/jsonrpc.js";
+import { TransportFailure, checkedEndpoint, checkedFetch } from "../services/transport.js";
+import { wireDecoder } from "../interface/decode.js";
+import { addressBytes, copyBytes } from "../interface/internal.js";
 import { P256PublicKey } from "../keypair/public-key.js";
 
 import { RingError } from "./error.js";
-import { checkedReaderKey, readerKeyBytes } from "./reader.js";
+import { checkedReaderKey, readerKeyBytes, readerKeyFromBytes } from "./reader.js";
 
 const base58Decoder = getBase58Decoder();
-const base58Encoder = getBase58Encoder();
 const base64Decoder = getBase64Decoder();
-const base64Encoder = getBase64Encoder();
 const encoder = new TextEncoder();
+
+const RING_RPC_TIMEOUT_MS = 30_000;
+const RING_RPC_MAX_REQUEST_BYTES = 1024 * 1024;
+const RING_RPC_MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 
 /** `reader` is the 34-byte scheme-tagged key of `readerKeyBytes`, a P-256 reader signs through WebAuthn only. */
 export interface RingReadSigner {
@@ -136,24 +146,18 @@ export class RingReadRequest {
   }
 
   withCursor(cursor: Uint8Array): this {
-    if (cursor.length === 0 || cursor.length > RING_READ_CURSOR_LIMIT) {
-      throw new RingError("RING_READ_CURSOR", { details: { length: cursor.length } });
-    }
-    this.#cursor = new Uint8Array(cursor);
+    this.#cursor = new Uint8Array(checkedReadCursor(cursor));
     return this;
   }
 
   withLimit(limit: bigint): this {
-    if (limit < 1n || limit > RING_READ_PAGE_LIMIT) {
-      throw new RingError("RING_READ_LIMIT", { details: { limit: limit.toString() } });
-    }
-    this.#limit = limit;
+    this.#limit = checkedReadLimit(limit);
     return this;
   }
 
   /** Unix seconds, the RPC rejects a clock more than its skew away. */
   at(timestamp: bigint): this {
-    this.#timestamp = unsignedBigint(timestamp, BigInt(Number.MAX_SAFE_INTEGER), "timestamp");
+    this.#timestamp = checkedUnixTimestamp(timestamp, "timestamp");
     return this;
   }
 
@@ -212,7 +216,7 @@ export class RingAuditorKeyRequest {
 
   /** Unix seconds, the RPC rejects a clock more than its skew away. */
   at(timestamp: bigint): this {
-    this.#timestamp = unsignedBigint(timestamp, BigInt(Number.MAX_SAFE_INTEGER), "timestamp");
+    this.#timestamp = checkedUnixTimestamp(timestamp, "timestamp");
     return this;
   }
 
@@ -333,27 +337,42 @@ export interface DecryptedRingTransactionsPage {
   readonly cursor?: Uint8Array;
 }
 
+export interface RingRpcOptions {
+  readonly fetch?: typeof globalThis.fetch;
+  /** Even loopback needs it for plain HTTP. */
+  readonly allowInsecureHttp?: boolean;
+}
+
 export class RingRpc {
-  readonly #url: string;
+  readonly #url: URL;
   readonly #fetch: typeof globalThis.fetch;
 
-  constructor(url: string | URL, options?: Readonly<{ fetch?: typeof globalThis.fetch }>) {
-    this.#url = url instanceof URL ? url.href : url;
-    // Browsers refuse `fetch` called with another receiver, so it stays bound.
-    this.#fetch = options?.fetch ?? ((input, init) => globalThis.fetch(input, init));
+  constructor(url: string | URL, options?: RingRpcOptions) {
+    try {
+      this.#url = checkedEndpoint(url, {
+        field: "url",
+        ...(options?.allowInsecureHttp === undefined
+          ? {}
+          : { allowInsecureHttp: options.allowInsecureHttp }),
+      });
+      this.#fetch = checkedFetch(options?.fetch);
+    } catch (error) {
+      if (!(error instanceof TransportFailure)) throw error;
+      throw new RingError("RING_RPC_CONFIG", { details: { ...error.facts } });
+    }
   }
 
   get url(): string {
-    return this.#url;
+    return this.#url.href;
   }
 
-  async health(): Promise<RingRpcHealth> {
-    const wire = record(await this.#call("health"), "result");
+  async health(context?: RequestContext): Promise<RingRpcHealth> {
+    const wire = record(await this.#call("health", undefined, context), "result");
     const mode = wire["mode"];
     if (mode !== "local" && mode !== "derived") throw invalid("result.mode");
     return Object.freeze({
       mode,
-      servicePublicKey: string(wire["servicePubkey"], "result.servicePubkey") as Address,
+      servicePublicKey: address(wire["servicePubkey"], "result.servicePubkey"),
     });
   }
 
@@ -366,31 +385,40 @@ export class RingRpc {
       authority: MessagePartialSigner;
       timestamp?: bigint;
     }>,
+    context?: RequestContext,
   ): Promise<RingAuditorKey> {
     let request = RingAuditorKeyRequest.forRing(input.ringProgramId, input.genesisHash);
     if (input.timestamp !== undefined) request = request.at(input.timestamp);
-    return this.createAuditorKeySigned(await request.sign(input.authority));
+    return this.createAuditorKeySigned(await request.sign(input.authority), context);
   }
 
-  async createAuditorKeySigned(request: SignedAuditorKeyRequest): Promise<RingAuditorKey> {
+  async createAuditorKeySigned(
+    request: SignedAuditorKeyRequest,
+    context?: RequestContext,
+  ): Promise<RingAuditorKey> {
+    const checked = checkedSignedAuditorKeyRequest(request);
     const wire = record(
-      await this.#call("createAuditorKey", {
-        ringProgramId: request.ringProgramId,
-        auth: {
-          authority: request.authority,
-          genesisHash: base58Decoder.decode(request.genesisHash),
-          ...authWire(request),
+      await this.#call(
+        "createAuditorKey",
+        {
+          ringProgramId: checked.ringProgramId,
+          auth: {
+            authority: checked.authority,
+            genesisHash: base58Decoder.decode(checked.genesisHash),
+            ...authWire(checked),
+          },
         },
-      }),
+        context,
+      ),
       "result",
     );
     const key = base64(wire["auditorPubkey"], "result.auditorPubkey");
     if (key.length !== 33) throw invalid("result.auditorPubkey");
     const auditorPublicKey = P256PublicKey.fromBytes(key as Bytes33);
-    const servicePublicKey = string(wire["servicePubkey"], "result.servicePubkey") as Address;
+    const servicePublicKey = address(wire["servicePubkey"], "result.servicePubkey");
     const signature = base58(wire["signature"], "result.signature");
-    const ring = string(wire["ringProgramId"], "result.ringProgramId") as Address;
-    if (ring !== request.ringProgramId) throw invalid("result.ringProgramId");
+    const ring = address(wire["ringProgramId"], "result.ringProgramId");
+    if (ring !== checked.ringProgramId) throw invalid("result.ringProgramId");
     const attested = ed25519.verify(
       signature,
       auditorKeyAttestation(ring, auditorPublicKey),
@@ -416,13 +444,18 @@ export class RingRpc {
    */
   async ringDeposits(
     input: Readonly<{ ringProgramId: Address; limit?: number; cursor?: Uint8Array }>,
+    context?: RequestContext,
   ): Promise<RingDepositsPage> {
     const wire = record(
-      await this.#call("ringDeposits", {
-        ringProgramId: input.ringProgramId,
-        ...(input.limit === undefined ? {} : { limit: input.limit }),
-        ...(input.cursor === undefined ? {} : { cursor: base64Decoder.decode(input.cursor) }),
-      }),
+      await this.#call(
+        "ringDeposits",
+        {
+          ringProgramId: input.ringProgramId,
+          ...(input.limit === undefined ? {} : { limit: input.limit }),
+          ...(input.cursor === undefined ? {} : { cursor: base64Decoder.decode(input.cursor) }),
+        },
+        context,
+      ),
       "result",
     );
     const cursor = wire["cursor"];
@@ -432,10 +465,10 @@ export class RingRpc {
         list(wire["deposits"], "result.deposits").map((entry) => {
           const deposit = record(entry, "result.deposits");
           return Object.freeze({
-            signature: string(deposit["signature"], "deposits.signature") as Signature,
+            signature: signature(deposit["signature"], "deposits.signature"),
             slot: integer(deposit["slot"], "deposits.slot"),
-            depositor: string(deposit["depositor"], "deposits.depositor") as Address,
-            asset: string(deposit["asset"], "deposits.asset") as Address,
+            depositor: address(deposit["depositor"], "deposits.depositor"),
+            asset: address(deposit["asset"], "deposits.asset"),
             amount: integer(deposit["amount"], "deposits.amount"),
           });
         }),
@@ -450,20 +483,20 @@ export class RingRpc {
   }
 
   /** Whether this service can open the ring, before a read is attempted. */
-  async ringStatus(ringProgramId: Address): Promise<RingStatus> {
-    const wire = record(await this.#call("ringStatus", { ringProgramId }), "result");
+  async ringStatus(ringProgramId: Address, context?: RequestContext): Promise<RingStatus> {
+    const wire = record(await this.#call("ringStatus", { ringProgramId }, context), "result");
     const state = string(wire["state"], "result.state");
     if (state !== "served" && state !== "foreignAuditor" && state !== "uninitialized") {
       throw invalid("result.state");
     }
     const config = wire["configAuditorPubkey"];
     return Object.freeze({
-      ringProgramId: string(wire["ringProgramId"], "result.ringProgramId") as Address,
+      ringProgramId: address(wire["ringProgramId"], "result.ringProgramId"),
       state,
       ...(config === undefined || config === null
         ? {}
         : { configAuditorPublicKey: p256Key(config, "result.configAuditorPubkey") }),
-      servicePublicKey: string(wire["servicePubkey"], "result.servicePubkey") as Address,
+      servicePublicKey: address(wire["servicePubkey"], "result.servicePubkey"),
     });
   }
 
@@ -476,46 +509,55 @@ export class RingRpc {
       limit?: bigint;
       timestamp?: bigint;
     }>,
+    context?: RequestContext,
   ): Promise<DecryptedRingTransactionsPage> {
     let request = RingReadRequest.read(input.ringProgramId);
     if (input.cursor !== undefined) request = request.withCursor(input.cursor);
     if (input.limit !== undefined) request = request.withLimit(input.limit);
     if (input.timestamp !== undefined) request = request.at(input.timestamp);
-    return this.readSigned(await request.sign(input.signer));
+    return this.readSigned(await request.sign(input.signer), context);
   }
 
-  async readSigned(read: SignedRingRead): Promise<DecryptedRingTransactionsPage> {
-    const { signature } = read;
+  async readSigned(
+    read: SignedRingRead,
+    context?: RequestContext,
+  ): Promise<DecryptedRingTransactionsPage> {
+    const checked = checkedSignedRead(read);
+    const { signature } = checked;
     const wire = record(
-      await this.#call("getDecryptedTransactions", {
-        ringProgramId: read.ringProgramId,
-        ...(read.cursor === undefined ? {} : { cursor: base64Decoder.decode(read.cursor) }),
-        ...(read.limit === undefined ? {} : { limit: Number(read.limit) }),
-        auth: {
-          reader: base64Decoder.decode(read.reader),
-          ...authWire({
-            timestamp: read.timestamp,
-            nonce: read.nonce,
-            signature: signature instanceof Uint8Array ? signature : signature.signature,
-          }),
-          ...(signature instanceof Uint8Array
-            ? {}
-            : {
-                webauthn: {
-                  authenticatorData: base64Decoder.decode(signature.authenticatorData),
-                  clientDataJson: base64Decoder.decode(signature.clientDataJSON),
-                },
-              }),
+      await this.#call(
+        "getDecryptedTransactions",
+        {
+          ringProgramId: checked.ringProgramId,
+          ...(checked.cursor === undefined ? {} : { cursor: base64Decoder.decode(checked.cursor) }),
+          ...(checked.limit === undefined ? {} : { limit: Number(checked.limit) }),
+          auth: {
+            reader: base64Decoder.decode(checked.reader),
+            ...authWire({
+              timestamp: checked.timestamp,
+              nonce: checked.nonce,
+              signature: signature instanceof Uint8Array ? signature : signature.signature,
+            }),
+            ...(signature instanceof Uint8Array
+              ? {}
+              : {
+                  webauthn: {
+                    authenticatorData: base64Decoder.decode(signature.authenticatorData),
+                    clientDataJson: base64Decoder.decode(signature.clientDataJSON),
+                  },
+                }),
+          },
         },
-      }),
+        context,
+      ),
       "result",
     );
-    const context = record(wire["context"], "result.context");
+    const wireContext = record(wire["context"], "result.context");
     const value = record(wire["value"], "result.value");
     const cursor = value["cursor"];
     return Object.freeze({
-      slot: integer(context["slot"], "result.context.slot"),
-      blockTime: signedInteger(context["blockTime"], "result.context.blockTime"),
+      slot: integer(wireContext["slot"], "result.context.slot"),
+      blockTime: signedInteger(wireContext["blockTime"], "result.context.blockTime"),
       items: Object.freeze(
         list(value["items"], "result.value.items").map((item, index) =>
           decodeTransaction(record(item, `result.value.items[${index}]`)),
@@ -533,35 +575,34 @@ export class RingRpc {
   }
 
   // `params` is the request object, not a positional list.
-  async #call(method: string, params?: Readonly<Record<string, unknown>>): Promise<unknown> {
-    let response: Response;
+  async #call(
+    method: string,
+    params: Readonly<Record<string, unknown>> | undefined,
+    context: RequestContext | undefined,
+  ): Promise<unknown> {
     try {
-      response = await this.#fetch(this.#url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-      });
-    } catch (cause) {
-      throw new RingError("RING_RPC_TRANSPORT", { details: { method }, cause });
+      return await postJsonRpc(
+        {
+          fetch: this.#fetch,
+          url: new URL(this.#url.href),
+          rpcMethod: method,
+          params,
+          id: 1,
+          maxRequestBytes: RING_RPC_MAX_REQUEST_BYTES,
+          maxResponseBytes: RING_RPC_MAX_RESPONSE_BYTES,
+        },
+        { timeoutMs: RING_RPC_TIMEOUT_MS, ...context },
+      );
+    } catch (error) {
+      if (!(error instanceof TransportFailure)) throw error;
+      const code =
+        error.kind === "envelope" || error.kind === "missingResult" || error.kind === "rpc"
+          ? "RING_RPC"
+          : error.kind === "context" || error.kind === "config"
+            ? "RING_RPC_CONFIG"
+            : "RING_RPC_TRANSPORT";
+      throw new RingError(code, { details: { method, ...error.facts } });
     }
-    if (!response.ok) {
-      throw new RingError("RING_RPC_TRANSPORT", {
-        details: { method, status: response.status },
-      });
-    }
-    const body = (await response.json()) as {
-      result?: unknown;
-      error?: { code: number; message: string };
-    };
-    if (body.error !== undefined) {
-      throw new RingError("RING_RPC", {
-        details: { method, code: body.error.code, message: body.error.message },
-      });
-    }
-    if (body.result === undefined) {
-      throw new RingError("RING_RPC", { details: { method, reason: "empty result" } });
-    }
-    return body.result;
   }
 }
 
@@ -598,7 +639,7 @@ async function signMessage(signer: MessagePartialSigner, message: Uint8Array): P
 function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransaction {
   return Object.freeze({
     slot: integer(wire["slot"], "slot"),
-    signature: string(wire["txSignature"], "txSignature") as Signature,
+    signature: signature(wire["txSignature"], "txSignature"),
     txViewingPublicKey: p256Key(wire["txViewingPk"], "txViewingPk"),
     outputs: Object.freeze(
       list(wire["outputs"], "outputs").map((entry, index) =>
@@ -613,15 +654,13 @@ function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransact
     nullifiers: Object.freeze(
       list(wire["nullifiers"], "nullifiers").map((nullifier) => hash(nullifier, "nullifiers")),
     ),
-    signers: Object.freeze(
-      list(wire["signers"], "signers").map((key) => string(key, "signers") as Address),
-    ),
+    signers: Object.freeze(list(wire["signers"], "signers").map((key) => address(key, "signers"))),
     withdrawals: Object.freeze(
       list(wire["withdrawals"], "withdrawals").map((entry) => {
         const leg = record(entry, "withdrawals");
         return Object.freeze({
-          recipient: string(leg["recipient"], "withdrawals.recipient") as Address,
-          asset: string(leg["asset"], "withdrawals.asset") as Address,
+          recipient: address(leg["recipient"], "withdrawals.recipient"),
+          asset: address(leg["asset"], "withdrawals.asset"),
           amount: integer(leg["amount"], "withdrawals.amount"),
         });
       }),
@@ -635,11 +674,11 @@ function decodeOutput(output: Record<string, unknown>): DecryptedRingOutput {
     slotIndex: Number(integer(output["slotIndex"], "slotIndex")),
     recipientViewingPublicKey: p256Key(output["recipientViewingPk"], "recipientViewingPk"),
     ownerTag: hash(output["ownerTag"], "ownerTag"),
-    asset: string(output["asset"], "asset") as Address,
+    asset: address(output["asset"], "asset"),
     amount: integer(output["amount"], "amount"),
     ...(ring === undefined || ring === null
       ? {}
-      : { ringProgramId: string(ring, "ringProgramId") as Address }),
+      : { ringProgramId: address(ring, "ringProgramId") }),
   });
 }
 
@@ -650,7 +689,7 @@ function decodeSkipped(wire: Record<string, unknown>): SkippedRingTransaction {
   }
   return Object.freeze({
     slot: integer(wire["slot"], "slot"),
-    signature: string(wire["txSignature"], "txSignature") as Signature,
+    signature: signature(wire["txSignature"], "txSignature"),
     reason,
   });
 }
@@ -659,47 +698,173 @@ function invalid(path: string): RingError {
   return new RingError("RING_RPC", { details: { reason: "invalid response", path } });
 }
 
-function record(value: unknown, path: string): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) throw invalid(path);
-  return value as Record<string, unknown>;
+const { record, list, string, address, signature, signedInteger, integer, base64, base58 } =
+  wireDecoder(invalid);
+
+function invalidRequest(field: string): RingError {
+  return new RingError("RING_RPC", { details: { reason: "invalid request", field } });
 }
 
-function list(value: unknown, path: string): readonly unknown[] {
-  if (!Array.isArray(value)) throw invalid(path);
+const { address: requestAddress, record: requestRecord } = wireDecoder(invalidRequest);
+
+function exactRequestRecord(
+  value: unknown,
+  allowed: ReadonlySet<string>,
+  required: ReadonlySet<string>,
+  field: string,
+): Record<string, unknown> {
+  const candidate = requestRecord(value, field);
+  const invalidField = Reflect.ownKeys(candidate).find(
+    (key) => typeof key !== "string" || !allowed.has(key),
+  );
+  if (invalidField !== undefined) throw invalidRequest(`${field}.shape`);
+  const missing = [...required].find((key) => !Object.hasOwn(candidate, key));
+  if (missing !== undefined) throw invalidRequest(`${field}.${missing}`);
+  return candidate;
+}
+
+function requestBytes(value: unknown, length: number, field: string): Uint8Array {
+  if (!(value instanceof Uint8Array) || value.length !== length) throw invalidRequest(field);
+  return new Uint8Array(value);
+}
+
+function checkedReadCursor(cursor: unknown): Uint8Array {
+  if (
+    !(cursor instanceof Uint8Array) ||
+    cursor.length === 0 ||
+    cursor.length > RING_READ_CURSOR_LIMIT
+  ) {
+    throw new RingError("RING_READ_CURSOR", {
+      details: { length: cursor instanceof Uint8Array ? cursor.length : -1 },
+    });
+  }
+  return new Uint8Array(cursor);
+}
+
+function checkedReadLimit(limit: unknown): bigint {
+  if (typeof limit !== "bigint" || limit < 1n || limit > RING_READ_PAGE_LIMIT) {
+    throw new RingError("RING_READ_LIMIT", { details: { limit: String(limit) } });
+  }
+  return limit;
+}
+
+/** Bounded to the safe integer range, `Number` in the wire encoding stays exact. */
+function checkedUnixTimestamp(value: unknown, field: string): bigint {
+  if (typeof value !== "bigint" || value < 0n || value > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw invalidRequest(field);
+  }
   return value;
 }
 
-function string(value: unknown, path: string): string {
-  if (typeof value !== "string") throw invalid(path);
-  return value;
-}
+const SIGNED_READ_FIELDS = new Set([
+  "ringProgramId",
+  "cursor",
+  "limit",
+  "reader",
+  "timestamp",
+  "nonce",
+  "signature",
+]);
+const SIGNED_READ_REQUIRED_FIELDS = new Set([
+  "ringProgramId",
+  "reader",
+  "timestamp",
+  "nonce",
+  "signature",
+]);
+const WEBAUTHN_FIELDS = new Set(["signature", "authenticatorData", "clientDataJSON"]);
+const SIGNED_AUDITOR_FIELDS = new Set([
+  "ringProgramId",
+  "authority",
+  "genesisHash",
+  "timestamp",
+  "nonce",
+  "signature",
+]);
 
-function signedInteger(value: unknown, path: string): bigint {
-  if (typeof value === "number" && Number.isSafeInteger(value)) return BigInt(value);
-  if (typeof value === "string" && /^-?\d+$/u.test(value)) return BigInt(value);
-  throw invalid(path);
-}
-
-function integer(value: unknown, path: string): bigint {
-  const result = signedInteger(value, path);
-  if (result < 0n) throw invalid(path);
-  return result;
-}
-
-function base64(value: unknown, path: string): Uint8Array {
-  try {
-    return new Uint8Array(base64Encoder.encode(string(value, path)));
-  } catch {
-    throw invalid(path);
+function checkedReaderBytes(value: unknown): Uint8Array {
+  if (!(value instanceof Uint8Array) || value.length !== 34) {
+    throw new RingError("RING_READER_KEY", {
+      details: { length: value instanceof Uint8Array ? value.length : -1 },
+    });
   }
+  const reader = new Uint8Array(value);
+  try {
+    readerKeyFromBytes(reader);
+  } catch (cause) {
+    if (cause instanceof RingError) throw cause;
+    throw new RingError("RING_READER_KEY", { cause });
+  }
+  return reader;
 }
 
-function base58(value: unknown, path: string): Uint8Array {
-  try {
-    return new Uint8Array(base58Encoder.encode(string(value, path)));
-  } catch {
-    throw invalid(path);
+function checkedSignedRead(value: unknown): SignedRingRead {
+  const read = exactRequestRecord(
+    value,
+    SIGNED_READ_FIELDS,
+    SIGNED_READ_REQUIRED_FIELDS,
+    "request",
+  );
+  const ringProgramId = requestAddress(read["ringProgramId"], "ringProgramId");
+  const reader = checkedReaderBytes(read["reader"]);
+  const nonce = requestBytes(read["nonce"], 32, "nonce") as Bytes32;
+  const cursor = read["cursor"] === undefined ? undefined : checkedReadCursor(read["cursor"]);
+  const limit = read["limit"] === undefined ? undefined : checkedReadLimit(read["limit"]);
+  const timestamp = checkedUnixTimestamp(read["timestamp"], "timestamp");
+  const signature = read["signature"];
+  if (signature instanceof Uint8Array) {
+    return Object.freeze({
+      ringProgramId,
+      reader,
+      nonce,
+      timestamp,
+      signature: requestBytes(signature, 64, "signature"),
+      ...(cursor === undefined ? {} : { cursor }),
+      ...(limit === undefined ? {} : { limit }),
+    });
   }
+  const webauthn = exactRequestRecord(signature, WEBAUTHN_FIELDS, WEBAUTHN_FIELDS, "signature");
+  if (!(webauthn["signature"] instanceof Uint8Array) || webauthn["signature"].length === 0) {
+    throw invalidRequest("signature");
+  }
+  const authenticatorData = webauthn["authenticatorData"];
+  if (!(authenticatorData instanceof Uint8Array) || authenticatorData.length < 37) {
+    throw invalidRequest("authenticatorData");
+  }
+  const clientDataJSON = webauthn["clientDataJSON"];
+  if (!(clientDataJSON instanceof Uint8Array) || clientDataJSON.length === 0) {
+    throw invalidRequest("clientDataJSON");
+  }
+  return Object.freeze({
+    ringProgramId,
+    reader,
+    nonce,
+    timestamp,
+    signature: Object.freeze({
+      signature: new Uint8Array(webauthn["signature"]),
+      authenticatorData: new Uint8Array(authenticatorData),
+      clientDataJSON: new Uint8Array(clientDataJSON),
+    }),
+    ...(cursor === undefined ? {} : { cursor }),
+    ...(limit === undefined ? {} : { limit }),
+  });
+}
+
+function checkedSignedAuditorKeyRequest(value: unknown): SignedAuditorKeyRequest {
+  const request = exactRequestRecord(
+    value,
+    SIGNED_AUDITOR_FIELDS,
+    SIGNED_AUDITOR_FIELDS,
+    "request",
+  );
+  return Object.freeze({
+    ringProgramId: requestAddress(request["ringProgramId"], "ringProgramId"),
+    authority: requestAddress(request["authority"], "authority"),
+    genesisHash: requestBytes(request["genesisHash"], 32, "genesisHash") as Bytes32,
+    nonce: requestBytes(request["nonce"], 32, "nonce") as Bytes32,
+    signature: requestBytes(request["signature"], 64, "signature") as Bytes64,
+    timestamp: checkedUnixTimestamp(request["timestamp"], "timestamp"),
+  });
 }
 
 function hash(value: unknown, path: string): Bytes32 {
