@@ -148,7 +148,7 @@ impl<'a> MemberRecovery<'a> {
             .with_page_size(self.recovery.page_size)
             .with_max_pages(self.recovery.max_pages)
             .run(ring)?;
-        if page.next_cursor.is_some() {
+        if page.next.is_some() {
             return Err(RecoveryError::IncompleteScan);
         }
 
@@ -436,12 +436,12 @@ impl<I: Rpc, O: TransactionOrigin> DepositHistory<'_, I, O> {
     fn read(self) -> Result<Vec<DepositHistoryEntry>, RecoveryError> {
         let mut deposits = Vec::new();
         let mut seen = HashSet::new();
-        let mut cursor = None;
+        let mut since = None;
         for _ in 0..self.max_pages.get() {
             let page = self.environment.indexer.get_shielded_transactions_by_ring(
                 zolana_client::rpc::RingHistoryOptions {
                     ring_program_id: self.ring,
-                    cursor: cursor.clone(),
+                    since,
                     limit: Some(self.page_size.get()),
                 },
                 None,
@@ -489,16 +489,13 @@ impl<I: Rpc, O: TransactionOrigin> DepositHistory<'_, I, O> {
                     }
                 }
             }
-            if page.scanned_through.is_some() {
-                return Ok(deposits);
-            }
-            let Some(next) = page.next_cursor else {
+            let Some(next) = page.next else {
                 return Ok(deposits);
             };
-            if cursor.as_ref() == Some(&next) {
+            if since.is_some_and(|reached| next <= reached) {
                 return Err(AuditError::CursorNotAdvanced.into());
             }
-            cursor = Some(next);
+            since = Some(next);
         }
         Err(RecoveryError::IncompleteScan)
     }
@@ -514,7 +511,7 @@ impl<I: Rpc> SpendHistory<'_, I> {
     fn read(self) -> Result<Vec<ShieldedTransaction>, RecoveryError> {
         let mut transactions = Vec::new();
         for batch in self.nullifiers.chunks(PAGE_LIMIT as usize) {
-            let mut cursor = None;
+            let mut since = None;
             loop {
                 *self.remaining_queries = self
                     .remaining_queries
@@ -522,21 +519,18 @@ impl<I: Rpc> SpendHistory<'_, I> {
                     .ok_or(RecoveryError::IncompleteScan)?;
                 let page = self.indexer.get_shielded_transactions_by_nullifiers(
                     batch.to_vec(),
-                    cursor.clone(),
+                    since,
                     None,
                     None,
                 )?;
                 transactions.extend(page.transactions);
-                if page.scanned_through.is_some() {
-                    break;
-                }
-                let Some(next) = page.next_cursor else {
+                let Some(next) = page.next else {
                     break;
                 };
-                if cursor.as_ref() == Some(&next) {
+                if since.is_some_and(|reached| next <= reached) {
                     return Err(AuditError::CursorNotAdvanced.into());
                 }
-                cursor = Some(next);
+                since = Some(next);
             }
         }
         Ok(transactions)
@@ -629,14 +623,22 @@ mod tests {
     use std::cell::RefCell;
 
     use zolana_client::{
-        rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context, IndexerRpcConfig,
+        rpc::{ChainPosition, GetShieldedTransactionsByNullifiersResponse},
+        ClientError, Context, IndexerRpcConfig,
     };
 
     use super::*;
 
     struct Query {
         nullifiers: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        since: Option<ChainPosition>,
+    }
+
+    fn position() -> ChainPosition {
+        ChainPosition {
+            slot: 1,
+            signature: solana_signature::Signature::default(),
+        }
     }
 
     #[derive(Default)]
@@ -649,15 +651,13 @@ mod tests {
         fn get_shielded_transactions_by_nullifiers(
             &self,
             nullifiers: Vec<[u8; 32]>,
-            cursor: Option<Vec<u8>>,
+            since: Option<ChainPosition>,
             _limit: Option<u32>,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
             assert!(nullifiers.len() <= PAGE_LIMIT as usize);
-            self.queries.borrow_mut().push(Query {
-                nullifiers,
-                cursor: cursor.clone(),
-            });
+            self.queries.borrow_mut().push(Query { nullifiers, since });
+            let terminal = since.is_some() && !self.stuck;
             Ok(GetShieldedTransactionsByNullifiersResponse {
                 context: Context {
                     block_time: 0,
@@ -665,8 +665,8 @@ mod tests {
                 },
                 transactions: Vec::new(),
                 output_tree_id: None,
-                next_cursor: Some(vec![1]),
-                scanned_through: (cursor.is_some() && !self.stuck).then(|| vec![1]),
+                next: (!terminal).then(position),
+                latest: terminal.then(position),
             })
         }
     }
@@ -698,11 +698,8 @@ mod tests {
             vec![1000, 1000, 1, 1]
         );
         assert_eq!(
-            queries
-                .iter()
-                .map(|query| query.cursor.clone())
-                .collect::<Vec<_>>(),
-            vec![None, Some(vec![1]), None, Some(vec![1])]
+            queries.iter().map(|query| query.since).collect::<Vec<_>>(),
+            vec![None, Some(position()), None, Some(position())]
         );
         assert_eq!(queries[2].nullifiers, nullifiers[1000..]);
         assert_eq!(remaining_queries, 0);
