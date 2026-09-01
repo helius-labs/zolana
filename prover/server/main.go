@@ -215,16 +215,16 @@ func runCli() {
 					&cli.StringFlag{Name: "vk-out", Usage: "raw gnark verifying key (vk.WriteRawTo)", Required: true},
 				},
 				Action: func(context *cli.Context) error {
-					pk, vk, err := customring.SetupAudit()
+					ps, err := customring.SetupAudit()
 					if err != nil {
 						return err
 					}
 					if path := context.String("pk-out"); path != "" {
-						if err := writeKey(path, pk.WriteTo); err != nil {
+						if err := writeKey(path, ps.ProvingKey.WriteTo); err != nil {
 							return err
 						}
 					}
-					return writeKey(context.String("vk-out"), vk.WriteRawTo)
+					return writeKey(context.String("vk-out"), ps.VerifyingKey.WriteRawTo)
 				},
 			},
 			{
