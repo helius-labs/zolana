@@ -49,6 +49,7 @@ func (c *Circuit) defineOpenings(api frontend.API, checker frontend.Rangechecker
 		outputs[i], out.outputs[i] = wires.defineOutput(api, checker, activeOut[i])
 	}
 
+	// Recomputing PrivateTxHash binds the screened openings to the SPP transaction.
 	api.AssertIsEqual(c.PrivateTxHash, gadget.PoseidonHash(api, []frontend.Variable{
 		prefixSelect(api, inputs, c.NInOneHot[:]),
 		prefixSelect(api, outputs, c.NOutOneHot[:]),

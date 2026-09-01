@@ -2,7 +2,7 @@ use crate::{
     error::CustomRingError,
     instructions::{
         loader::UpgradeAuthorityCheck,
-        policy_shared::{load_curator_policy_config, namespace_pda, source_map},
+        policy_shared::{compute_policy_hash, load_curator_policy_config, namespace_pda},
         shared::PdaCheck,
     },
     state::PolicyConfigInitParams,
@@ -73,9 +73,7 @@ pub fn process_create_policy_ix(
         &own_namespace,
         entries_tree.address(),
     )?;
-    let policy_hash = RULES
-        .hash(&source_map(&sources)?)
-        .map_err(|_| CustomRingError::HashingFailed)?;
+    let policy_hash = compute_policy_hash(&sources)?;
 
     let bump_seed = [bump];
     let seeds = [
