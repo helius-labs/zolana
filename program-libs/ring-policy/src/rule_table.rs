@@ -177,8 +177,7 @@ impl Rule {
         }
     }
 
-    /// Injective over every rule field, byte 29 is zero exactly for inline
-    /// sources.
+    /// Byte positions are the circuit packed-field weights (Go ruleShift), reordering breaks proof verification.
     pub fn encoded(&self) -> [u8; 32] {
         let mut field = [0u8; 32];
         let (guard_tag, threshold) = match self.guard {

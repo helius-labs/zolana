@@ -96,6 +96,25 @@ pub(crate) fn source_map(
     SourceMap::from_slots(slots).map_err(|_| CustomRingError::InvalidPolicyConfigPda)
 }
 
+pub(crate) fn compute_policy_hash(
+    sources: &[SourceSlot; N_SOURCE_SLOTS],
+) -> Result<[u8; 32], CustomRingError> {
+    RULES
+        .hash(&source_map(sources)?)
+        .map_err(|_| CustomRingError::HashingFailed)
+}
+
+/// A rebuilt table hashing differently must not spend under the pinned rules.
+pub(crate) fn verify_policy_hash(
+    sources: &[SourceSlot; N_SOURCE_SLOTS],
+    expected: &[u8; 32],
+) -> ProgramResult {
+    if compute_policy_hash(sources)? != *expected {
+        return Err(CustomRingError::PolicyHashMismatch.into());
+    }
+    Ok(())
+}
+
 pub(crate) struct MutationAccounts<'a> {
     pub payer: &'a AccountView,
     pub namespace_address: Address,
@@ -159,12 +178,7 @@ impl<'a> MutationAccounts<'a> {
 
         let owner = ListNamespace::new(entries.address().as_array())
             .map_err(|_| CustomRingError::HashingFailed)?;
-        let compiled = RULES
-            .hash(&source_map(&policy_config.sources)?)
-            .map_err(|_| CustomRingError::HashingFailed)?;
-        if compiled != policy_config.policy_hash {
-            return Err(CustomRingError::PolicyHashMismatch.into());
-        }
+        verify_policy_hash(&policy_config.sources, &policy_config.policy_hash)?;
 
         Ok(Self {
             payer,

@@ -158,7 +158,6 @@ impl ListEntry {
         ])
     }
 
-    /// The version, a re-added member never repeats a utxo hash or nullifier.
     pub fn blinding(&self) -> [u8; 32] {
         field_u64(self.version)
     }

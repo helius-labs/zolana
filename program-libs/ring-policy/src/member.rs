@@ -27,16 +27,6 @@ impl Member {
         Self::from_hash_bytes(mint.as_array())
     }
 
-    /// A ring program id, hashed like every other 32-byte tag.
-    pub fn ring(program_id: &Address) -> Result<Self, MemberError> {
-        Self::from_hash_bytes(program_id.as_array())
-    }
-
-    /// A destination address, hashed like every other 32-byte tag.
-    pub fn destination(address: &Address) -> Result<Self, MemberError> {
-        Self::from_hash_bytes(address.as_array())
-    }
-
     pub const fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
@@ -71,11 +61,11 @@ mod tests {
     }
 
     #[test]
-    fn asset_ring_and_destination_share_the_owner_tag_derivation() {
+    fn asset_shares_the_owner_tag_derivation() {
         let address = Address::new_from_array([9u8; 32]);
-        let expected = Member::owner_tag(&[9u8; 32]).unwrap();
-        assert_eq!(Member::asset(&address).unwrap(), expected);
-        assert_eq!(Member::ring(&address).unwrap(), expected);
-        assert_eq!(Member::destination(&address).unwrap(), expected);
+        assert_eq!(
+            Member::asset(&address).unwrap(),
+            Member::owner_tag(&[9u8; 32]).unwrap()
+        );
     }
 }

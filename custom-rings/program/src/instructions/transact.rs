@@ -1,6 +1,6 @@
 use custom_ring_interface::{
     AuditPublicInput, CustomRingPublicInput, CustomRingTransactIxData, AUDIT_CIPHERTEXT_LEN,
-    COMPRESSED_P256_KEY_LEN, RULES,
+    COMPRESSED_P256_KEY_LEN,
 };
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
@@ -15,7 +15,7 @@ use crate::{
     error::CustomRingError,
     instructions::{
         loader::{load_config, load_policy_config, validate_spp_program},
-        policy_shared::source_map,
+        policy_shared::verify_policy_hash,
         roots::load_roots,
         shared::cpi_spp_signed,
         verifier::{verify_groth16, CompressedGroth16Proof},
@@ -94,15 +94,7 @@ pub fn process_transact_ix(
         let policy = load_policy_config(program_id, policy_config_account)?;
         (policy.policy_hash, policy.entries_tree, policy.sources)
     };
-    // A rebuilt table hashing differently must not spend under the rules the
-    // deployed one pinned.
-    if RULES
-        .hash(&source_map(&sources)?)
-        .map_err(|_| CustomRingError::HashingFailed)?
-        != policy_hash
-    {
-        return Err(CustomRingError::PolicyHashMismatch.into());
-    }
+    verify_policy_hash(&sources, &policy_hash)?;
     // The borrow drops before the CPI below, else SPP faults borrowing the
     // aliased money tree.
     let roots = load_roots(

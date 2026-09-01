@@ -1,5 +1,5 @@
 use bytemuck::from_bytes_mut;
-use custom_ring_interface::{PolicyConfig, SetPolicySourceIxData, SourceSlot, RULES};
+use custom_ring_interface::{PolicyConfig, SetPolicySourceIxData, SourceSlot};
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 use zolana_ring_policy::ListId;
@@ -8,7 +8,9 @@ use crate::{
     error::CustomRingError,
     instructions::{
         loader::{load_authorized_config, load_policy_config},
-        policy_shared::{load_curator_policy_config, namespace_pda, source_map},
+        policy_shared::{
+            compute_policy_hash, load_curator_policy_config, namespace_pda, verify_policy_hash,
+        },
     },
 };
 
@@ -33,13 +35,7 @@ pub fn process_set_policy_source_ix(
     load_authorized_config(program_id, config, authority)?;
     let stored: PolicyConfig = *load_policy_config(program_id, policy_config)?;
 
-    if RULES
-        .hash(&source_map(&stored.sources)?)
-        .map_err(|_| CustomRingError::HashingFailed)?
-        != stored.policy_hash
-    {
-        return Err(CustomRingError::PolicyHashMismatch.into());
-    }
+    verify_policy_hash(&stored.sources, &stored.policy_hash)?;
 
     let list_id = ListId::try_from(ix.list_id).map_err(|_| CustomRingError::InvalidListId)?;
     let index = list_id as usize - 1;
@@ -59,9 +55,7 @@ pub fn process_set_policy_source_ix(
         list_id: list_id as u8,
         namespace: entries,
     };
-    let policy_hash = RULES
-        .hash(&source_map(&sources)?)
-        .map_err(|_| CustomRingError::HashingFailed)?;
+    let policy_hash = compute_policy_hash(&sources)?;
 
     let mut data = policy_config
         .try_borrow_mut()
