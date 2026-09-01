@@ -4,6 +4,7 @@ import { ClientError } from "../client/error.js";
 import { concatBytes } from "../keypair/bytes.js";
 import { ownerHash } from "../keypair/hash.js";
 import type { IndexerReader, RingSpendRecordLookup } from "../client/ports.js";
+import { compareChainPositions, type ChainPosition } from "../client/rpc.js";
 import {
   RING_ANSWER_SLOTS,
   RING_INLINE_ASSET_SLOTS,
@@ -977,11 +978,11 @@ export async function readRingEntries(
   const pairs = new Map<string, EntryPair>();
   await collectPages(
     "getEncryptedUtxosByTags",
-    (cursor) =>
+    (since) =>
       input.indexer.getEncryptedUtxosByTags(
         {
           tags: [tag],
-          ...(cursor === undefined ? {} : { cursor }),
+          ...(since === undefined ? {} : { since }),
           ...(input.pageLimit === undefined ? {} : { limit: input.pageLimit }),
         },
         undefined,
@@ -1216,9 +1217,9 @@ async function fetchSpenders(
   const spenders: IndexedShieldedTransaction[] = [];
   await collectPages(
     "getShieldedTransactionsByNullifiers",
-    (cursor) =>
+    (since) =>
       indexer.getShieldedTransactionsByNullifiers(
-        { nullifiers, ...(cursor === undefined ? {} : { cursor }) },
+        { nullifiers, ...(since === undefined ? {} : { since }) },
         undefined,
         context,
       ),
@@ -1269,31 +1270,27 @@ async function decodeSuccessor(
   return { entry, utxoHash: hashes.utxoHash, nullifier: hashes.nullifier, tree, treeId };
 }
 
-interface CursorPage {
-  readonly nextCursor?: Uint8Array | undefined;
-  readonly scannedThrough?: Uint8Array | undefined;
+interface PositionPage {
+  readonly next?: ChainPosition | undefined;
 }
 
-/** A terminal page still names a cursor, only `scannedThrough` ends the round. */
-async function collectPages<P extends CursorPage>(
+/** Only a truncated page names `next`, a terminal page ends the round. */
+async function collectPages<P extends PositionPage>(
   method: string,
-  request: (cursor: Uint8Array | undefined) => Promise<P>,
+  request: (since: ChainPosition | undefined) => Promise<P>,
   absorb: (page: P) => void,
 ): Promise<void> {
-  const seen = new Set<string>();
-  let cursor: Uint8Array | undefined;
+  let since: ChainPosition | undefined;
   for (;;) {
-    const page = await request(cursor);
+    const page = await request(since);
     absorb(page);
-    const next = page.scannedThrough === undefined ? page.nextCursor : undefined;
+    const next = page.next;
     if (next === undefined) return;
-    const key = bytesKey(next);
-    if (seen.has(key)) {
+    if (since !== undefined && compareChainPositions(next, since) <= 0) {
       throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
-        details: { method, path: "$.nextCursor" },
+        details: { method, path: "$.next" },
       });
     }
-    seen.add(key);
-    cursor = next;
+    since = next;
   }
 }
