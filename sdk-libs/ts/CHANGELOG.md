@@ -21,15 +21,15 @@ Breaking
 - `serializeWallet` writes `SerializedWalletState` version 3 with sync
   cursors → state saved by version 2 still loads, and its first sync
   rescans history once.
-- Private transfers and withdrawals spend the largest notes first and at
-  most five notes → a balance that covers only with more notes is
+- Private transfers and withdrawals spend the largest UTXOs first and at
+  most five UTXOs → a balance that covers only with more UTXOs is
   refused with `WALLET_TOO_MANY_INPUTS`, merge first.
 - A wrapped wallet or ring error surfaces the outer operation code instead
   of the inner code → match on `causeCode` for the inner reason, selection
   and balance codes included.
-- A build reserves its selected notes for two minutes, concurrent builds
-  on one wallet cannot spend the same note → rebuild an unsent transaction
-  after the reservation expires, a failed build releases its notes at
+- A build reserves its selected UTXOs for two minutes, concurrent builds
+  on one wallet cannot spend the same UTXO → rebuild an unsent transaction
+  after the reservation expires, a failed build releases its UTXOs at
   once, and `WALLET_NOTE_RESERVED` refuses a named input another build
   holds.
 - `HasherWasmError` is removed, hashing failures surface through
@@ -56,7 +56,7 @@ Breaking
 Added
 
 - `buildRingEntryTransaction(params)` moves an exact amount from default
-  notes into the caller's custom ring, leaves excess input value in the
+  UTXOs into the caller's custom ring, leaves excess input value in the
   default pool, and records the boundary move as a `ringEntry` self transfer.
 - `fetchAssetMetadata`, `AssetMetadataCache`, `formatAmount`, and
   `parseAmount` provide mint decimals and exact raw unit conversion for SOL,
@@ -104,8 +104,8 @@ Added
   `InterfaceError`, and `KeypairError`, and `causeCodes` lists the wrapped
   operation chain outermost first.
 - `SerializedCursor`, `SerializedSyncCursors`, and `SerializedNoteReservation`
-  expose resume points and active note holds in `SerializedWalletState`, a
-  restored wallet resumes scans and blocks spending reserved notes.
+  expose resume points and active UTXO holds in `SerializedWalletState`, a
+  restored wallet resumes scans and blocks spending reserved UTXOs.
 - `ChainReader`, `BlockhashProvider`, `IndexerReader`, `ProofReader`,
   `Prover`, `TransactionConfirmer`, and `KitRpcAccess` name the client's
   capabilities, `ZolanaClient` implements them all, and a consumer can
@@ -132,6 +132,8 @@ Added
 
 Changed
 
+- Selection, reservation, and ring approval text uses UTXO terminology.
+  Version 3 reservation field names stay unchanged for snapshot compatibility.
 - Two `syncWallet` calls on one `Wallet` run one after the other, and a
   sync overtaken by another writer fails with
   `TRANSACTION_WALLET_STATE_STALE` instead of overwriting the newer state.
@@ -140,7 +142,7 @@ Changed
 - Every builder compiles through one shared path with the packet-size
   check built in, a compile failure in any build surfaces
   `CLIENT_TRANSACTION_ASSEMBLY`.
-- Every rail selects notes through one selector with the rail's own
+- Every rail selects UTXOs through one selector with the rail's own
   ordering and caps, and `WALLET_INSUFFICIENT_BALANCE` reports the full
   spendable balance instead of a partial running sum.
 - `WalletError`, `RingError`, and `InterfaceError` strip secret-named keys
@@ -150,16 +152,16 @@ Changed
 Fixed
 
 - A fresh wallet replay could inspect a merge before its same-batch inputs
-  and permanently omit the merged note. Sync now resolves merge dependencies
+  and permanently omit the merged UTXO. Sync now resolves merge dependencies
   after ordinary outputs and reaches the same state as incremental sync.
 - A sync holding an asset the registry could not resolve still committed
-  its cursors and skipped the unstored note for good, it now fails with
+  its cursors and skipped the unstored UTXO for good, it now fails with
   `WALLET_UNRESOLVED_ASSET` and the next sync re-reads the same pages.
 - `RingRpc` returned unchecked response strings as typed addresses and
   signatures, every such field is now validated and a malformed one is
   refused with `RING_RPC`.
 - A sync that failed partway had advanced its resume cursors past rows it
-  never stored, losing those notes for good, rows and cursors now commit
+  never stored, losing those UTXOs for good, rows and cursors now commit
   together and a failed sync leaves the wallet untouched.
 - A private transfer, withdrawal, or split kept its spend key and every
   per-input key copy in memory after building, all of them are wiped once

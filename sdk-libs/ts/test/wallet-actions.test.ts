@@ -160,7 +160,7 @@ describe("private transaction construction", () => {
     ).rejects.toMatchObject({ code: "WALLET_INVALID_AMOUNT" });
   });
 
-  it("covers a withdrawal with the largest notes first", async () => {
+  it("covers a withdrawal with the largest UTXOs first", async () => {
     const keypair = ShieldedKeypair.generate();
     const created = await createWithdrawal({
       wallet: fundedWallet(keypair, [20n, 40n, 80n]),
@@ -228,7 +228,7 @@ describe("private transaction construction", () => {
     ).rejects.toMatchObject({ code: "TRANSACTION_ED25519_PAYER_MISMATCH" });
   });
 
-  it("does not spend ring-bound notes through a default-ring action", async () => {
+  it("does not spend ring-bound UTXOs through a default-ring action", async () => {
     const keypair = ShieldedKeypair.generate();
     await expect(
       createWithdrawal({
@@ -368,7 +368,7 @@ describe("unsigned public transaction builders", () => {
     });
   });
 
-  it("refuses a fee payer other than the note owner", async () => {
+  it("refuses a fee payer other than the UTXO owner", async () => {
     const keypair = spendingKeypair();
     const wallet = fundedWallet(keypair, [100n]);
     const { client } = capturePrivateBuild();
@@ -391,7 +391,7 @@ describe("unsigned public transaction builders", () => {
     });
   });
 
-  it("does not mutate spend state and holds the notes after a build", async () => {
+  it("does not mutate spend state and holds the UTXOs after a build", async () => {
     const keypair = spendingKeypair();
     const payer = keypair.shieldedAddress().solanaAddress();
     const wallet = fundedWallet(keypair, [100n]);
@@ -506,14 +506,14 @@ describe("wallet balances split", () => {
     return wallet;
   }
 
-  it("keeps ring-bound notes out of the spendable view like Rust `balances`", () => {
+  it("keeps ring-bound UTXOs out of the spendable view like Rust `balances`", () => {
     const wallet = mixedWallet(spendingKeypair());
     const spendable = wallet.balances(true);
     expect(spendable.map((balance) => balance.amount)).toEqual([10n]);
     expect(wallet.balance(SOL_MINT).amount).toBe(10n);
   });
 
-  it("groups ring-bound notes by ring in address order", () => {
+  it("groups ring-bound UTXOs by ring in address order", () => {
     const wallet = mixedWallet(spendingKeypair());
     const rings = wallet.ringBalances(true);
     const expected = [[RING, 40n] as const, [RECIPIENT, 60n] as const].sort(([left], [right]) =>
@@ -533,13 +533,13 @@ describe("AssetRegistry register", () => {
   });
 });
 
-function ringNoteWallet(
+function ringUtxoWallet(
   keypair: ShieldedKeypair,
-  notes: readonly (readonly [bigint, Address | undefined, Address?])[],
+  utxos: readonly (readonly [bigint, Address | undefined, Address?])[],
 ): Wallet {
   const wallet = fundedWallet(keypair, []);
   wallet._replace({
-    utxos: notes.map(([amount, ringProgramId, tree], index) => ({
+    utxos: utxos.map(([amount, ringProgramId, tree], index) => ({
       utxo: new Utxo({
         owner: keypair.signingPublicKey(),
         asset: SOL_MINT,
@@ -560,14 +560,14 @@ function ringNoteWallet(
 
 describe("selectRingInputs", () => {
   it("refuses a zero amount", () => {
-    const wallet = ringNoteWallet(spendingKeypair(), [[10n, RING]]);
+    const wallet = ringUtxoWallet(spendingKeypair(), [[10n, RING]]);
     expect(() => selectRingInputs(wallet, RING, SOL_MINT, 0n, "ring", TREE)).toThrow(
       "RING_ZERO_AMOUNT",
     );
   });
 
-  it("keeps default notes out of ring funding unless the entry opts in", () => {
-    const wallet = ringNoteWallet(spendingKeypair(), [
+  it("keeps default UTXOs out of ring funding unless the entry opts in", () => {
+    const wallet = ringUtxoWallet(spendingKeypair(), [
       [10n, undefined],
       [10n, RING],
     ]);
@@ -578,8 +578,8 @@ describe("selectRingInputs", () => {
     expect(selected).toHaveLength(2);
   });
 
-  it("funds a default-only entry even when a ring note covers", () => {
-    const wallet = ringNoteWallet(spendingKeypair(), [
+  it("funds a default-only entry even when a ring UTXO covers", () => {
+    const wallet = ringUtxoWallet(spendingKeypair(), [
       [100n, RING],
       [25n, undefined],
     ]);
@@ -591,8 +591,8 @@ describe("selectRingInputs", () => {
     );
   });
 
-  it("never offers a note outside the requested tree", () => {
-    const wallet = ringNoteWallet(spendingKeypair(), [
+  it("never offers a UTXO outside the requested tree", () => {
+    const wallet = ringUtxoWallet(spendingKeypair(), [
       [50n, RING, RECIPIENT],
       [20n, RING],
     ]);
@@ -604,8 +604,8 @@ describe("selectRingInputs", () => {
     );
   });
 
-  it("covers a fragmented balance with the largest note", () => {
-    const wallet = ringNoteWallet(spendingKeypair(), [
+  it("covers a fragmented balance with the largest UTXO", () => {
+    const wallet = ringUtxoWallet(spendingKeypair(), [
       ...Array.from({ length: 6 }, () => [5n, RING] as const),
       [100n, RING],
     ]);
@@ -615,7 +615,7 @@ describe("selectRingInputs", () => {
   });
 
   it("refuses a cover wider than the input cap", () => {
-    const wallet = ringNoteWallet(
+    const wallet = ringUtxoWallet(
       spendingKeypair(),
       Array.from({ length: 6 }, () => [5n, RING] as const),
     );
@@ -624,8 +624,8 @@ describe("selectRingInputs", () => {
     );
   });
 
-  it("never offers another ring's notes under either mode", () => {
-    const wallet = ringNoteWallet(spendingKeypair(), [
+  it("never offers another ring's UTXOs under either mode", () => {
+    const wallet = ringUtxoWallet(spendingKeypair(), [
       [50n, RECIPIENT],
       [20n, undefined],
     ]);
@@ -641,7 +641,7 @@ describe("selectRingInputs", () => {
 describe("ring approval summary", () => {
   it("approves the exact amount moved into the ring", async () => {
     const keypair = spendingKeypair();
-    const wallet = ringNoteWallet(keypair, [[40n, undefined]]);
+    const wallet = ringUtxoWallet(keypair, [[40n, undefined]]);
     const authority = new KeypairWalletAuthority({
       solanaPublicKey: keypair.shieldedAddress().solanaAddress(),
       keypair,
@@ -668,12 +668,12 @@ describe("ring approval summary", () => {
   });
 
   async function capturedSummary(
-    notes: readonly (readonly [bigint, Address | undefined])[],
+    utxos: readonly (readonly [bigint, Address | undefined])[],
     amount: bigint,
     inputs: "ring" | "ring-or-default" | "default",
   ): Promise<string> {
     const keypair = spendingKeypair();
-    const wallet = ringNoteWallet(keypair, notes);
+    const wallet = ringUtxoWallet(keypair, utxos);
     const authority = new KeypairWalletAuthority({
       solanaPublicKey: keypair.shieldedAddress().solanaAddress(),
       keypair,
@@ -701,10 +701,10 @@ describe("ring approval summary", () => {
     return summary;
   }
 
-  it("names the whole default note crossing into the ring, change included", async () => {
+  it("names the whole default UTXO crossing into the ring, change included", async () => {
     const summary = await capturedSummary([[40n, undefined]], 25n, "default");
     expect(summary).toContain("ring entry of 25 SOL");
-    expect(summary).toContain("moves 40 SOL of default notes into the ring");
+    expect(summary).toContain("moves 40 SOL of default UTXOs into the ring");
   });
 
   it("counts only the default share of mixed funding", async () => {
@@ -717,13 +717,13 @@ describe("ring approval summary", () => {
       "ring-or-default",
     );
     expect(summary).toContain("ring entry of 35 SOL");
-    expect(summary).toContain("moves 30 SOL of default notes into the ring");
+    expect(summary).toContain("moves 30 SOL of default UTXOs into the ring");
   });
 
   it("stays a transfer with no crossing clause on ring-only funding", async () => {
     const summary = await capturedSummary([[40n, RING]], 25n, "ring");
     expect(summary).toContain("ring transfer of 25 SOL");
-    expect(summary).not.toContain("default notes");
+    expect(summary).not.toContain("default UTXOs");
   });
 });
 

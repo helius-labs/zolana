@@ -17,14 +17,14 @@ function filled(value: number): Bytes32 {
 function walletWith(keypair: ShieldedKeypair, amounts: readonly bigint[]): Wallet {
   const wallet = new Wallet({ identity: keypair.shieldedAddress(), registry: new AssetRegistry() });
   wallet._replace({
-    utxos: amounts.map((amount, index) => noteEntry(keypair, amount, index)),
+    utxos: amounts.map((amount, index) => utxoEntry(keypair, amount, index)),
     transactions: [],
     nullifiers: new Set(),
   });
   return wallet;
 }
 
-function noteEntry(keypair: ShieldedKeypair, amount: bigint, index: number) {
+function utxoEntry(keypair: ShieldedKeypair, amount: bigint, index: number) {
   return {
     utxo: new Utxo({
       owner: keypair.signingPublicKey(),
@@ -91,8 +91,8 @@ describe("wallet commit machinery", () => {
     const wallet = walletWith(keypair, [10n]);
     const revision = wallet._revision;
     const staged = walletWith(keypair, [10n]);
-    wallet._reserveNotes({
-      noteHashes: [wallet.utxos()[0]!.outputContext.hash],
+    wallet._reserveUtxos({
+      utxoHashes: [wallet.utxos()[0]!.outputContext.hash],
       nowMs: 0n,
       ttlMs: 1n,
     });
@@ -123,7 +123,7 @@ describe("wallet commit machinery", () => {
   it("refuses a duplicate output before touching registry or cursors", () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = walletWith(keypair, []);
-    const entry = noteEntry(keypair, 10n, 0);
+    const entry = utxoEntry(keypair, 10n, 0);
 
     expect(() =>
       wallet._commitSync(

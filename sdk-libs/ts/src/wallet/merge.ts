@@ -15,11 +15,11 @@ import { initializePoseidon } from "../hasher/index.js";
 import { MERGE_INPUT_COUNT } from "../interface/constants.js";
 import {
   isPlainUtxo,
-  selectNotes,
+  selectUtxos,
   type SpendPolicy,
   type SpendSelectionErrors,
 } from "../flows/select.js";
-import { reservedNoteKeys, unreserved } from "../flows/reserve.js";
+import { reservedUtxoKeys, unreserved } from "../flows/reserve.js";
 import { checkIntentApproval, type TransactionIntent } from "../transaction/wallet/intent.js";
 import { WalletError, wrapWalletError } from "./error.js";
 import { bytesKey, equalBytes, reserveWalletEntries } from "./internal.js";
@@ -53,7 +53,7 @@ const mergeSelectionErrors: SpendSelectionErrors = {
       details: { available: available.toString() },
     }),
   multipleTrees: () => new WalletError("WALLET_MULTIPLE_INPUT_TREES"),
-  tooFewNotes: () => new WalletError("WALLET_NOTHING_TO_MERGE"),
+  tooFewUtxos: () => new WalletError("WALLET_NOTHING_TO_MERGE"),
 };
 
 function mergePolicy(reserved: ReadonlySet<string>): SpendPolicy {
@@ -132,11 +132,11 @@ function selectMergeEntries(params: MergeParams): readonly WalletUtxo[] {
       return entry;
     });
   }
-  return selectNotes({
+  return selectUtxos({
     wallet: params.wallet,
     asset: params.asset,
     target: { kind: "consolidate", minInputs: 2 },
-    policy: mergePolicy(reservedNoteKeys(params.wallet)),
+    policy: mergePolicy(reservedUtxoKeys(params.wallet)),
   }).entries;
 }
 

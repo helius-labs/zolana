@@ -63,7 +63,7 @@ function actor(seed: number) {
   };
 }
 
-/** A 10 SOL ring note of `sender` sending `amount` to `recipient` and `others` to more actors. */
+/** A 10 SOL ring UTXO of `sender` sending `amount` to `recipient` and `others`. */
 function preparedTransfer(
   amount: bigint,
   others: readonly bigint[] = [],
@@ -256,7 +256,7 @@ describe("withCompactChange", () => {
     ).toThrow("RING_FOREIGN_RING");
   });
 
-  it("refuses ring data on a default note like Rust `RingMembership`", () => {
+  it("refuses ring data on a default UTXO like Rust `RingMembership`", () => {
     const sender = actor(3);
     const tainted = new ProofInputUtxo({
       utxo: new Utxo({
@@ -435,7 +435,7 @@ describe("ring witness", () => {
   it("destroys only its own clone of the nullifier key", () => {
     const owner = actor(3);
     const nullifierKey = owner.keypair.nullifierKey();
-    const note = new ProofInputUtxo({
+    const input = new ProofInputUtxo({
       utxo: new Utxo({
         owner: owner.keypair.signingPublicKey(),
         asset: SOL_MINT,
@@ -444,15 +444,15 @@ describe("ring witness", () => {
       }),
       nullifierKey,
     });
-    note.destroy();
-    expect(() => note.nullifierKey.publicKey()).toThrow("KEYPAIR_INVALID_SECRET_KEY");
+    input.destroy();
+    expect(() => input.nullifierKey.publicKey()).toThrow("KEYPAIR_INVALID_SECRET_KEY");
     expect(nullifierKey.publicKey()).toEqual(owner.keypair.nullifierKey().publicKey());
   });
 
   it("derives non-payer owner signers like Rust `owner_signer_pubkeys`", () => {
     const owner = actor(3);
     const payer = actor(8).address.solanaAddress();
-    const note = (blinding: number) =>
+    const input = (blinding: number) =>
       new ProofInputUtxo({
         utxo: new Utxo({
           owner: owner.keypair.signingPublicKey(),
@@ -463,11 +463,11 @@ describe("ring witness", () => {
         nullifierKey: owner.keypair.nullifierKey(),
       });
     const ownerAddress = owner.address.solanaAddress();
-    expect(ownerSignerAddresses([note(1), note(2)], payer)).toEqual([ownerAddress]);
-    expect(ownerSignerAddresses([note(1), note(2)], ownerAddress)).toEqual([]);
+    expect(ownerSignerAddresses([input(1), input(2)], payer)).toEqual([ownerAddress]);
+    expect(ownerSignerAddresses([input(1), input(2)], ownerAddress)).toEqual([]);
   });
 
-  it("keeps a default note's own zero ring fields under the signing ring's public input", async () => {
+  it("keeps a default UTXO's zero ring fields under the signing ring public input", async () => {
     const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate(), [], [], null);
     const input = proofInputs.inputUtxos[0];
     if (!input) throw new Error("input");

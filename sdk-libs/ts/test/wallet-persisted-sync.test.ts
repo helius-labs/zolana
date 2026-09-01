@@ -85,8 +85,8 @@ function newWallet() {
   return { keypair, wallet, authority };
 }
 
-/** One unspent note gives the nullifier stream something to scan. */
-function seedNote(wallet: Wallet, keypair: ShieldedKeypair): void {
+/** One unspent UTXO gives the nullifier stream something to scan. */
+function seedUtxo(wallet: Wallet, keypair: ShieldedKeypair): void {
   wallet._replace({
     utxos: [
       {
@@ -141,7 +141,7 @@ describe("persisted wallet sync", () => {
 
   it("resumes every cursor stream from the saved snapshot", async () => {
     const { keypair, wallet, authority } = newWallet();
-    seedNote(wallet, keypair);
+    seedUtxo(wallet, keypair);
     const store = memoryStore();
     await syncPersistedWallet({
       wallet,
@@ -181,7 +181,7 @@ describe("persisted wallet sync", () => {
 
   it("saves nothing when the sync fails after cursors advanced", async () => {
     const { keypair, wallet, authority } = newWallet();
-    seedNote(wallet, keypair);
+    seedUtxo(wallet, keypair);
     const reads = cursorPages();
     // The nullifier scan runs after both tag streams staged their cursors.
     reads.getShieldedTransactionsByNullifiers.mockRejectedValueOnce(new Error("indexer down"));

@@ -262,7 +262,7 @@ export interface RingAuditorKey {
 export interface RingDeposit {
   readonly signature: Signature;
   readonly slot: bigint;
-  /** The owner tag of the note the deposit created. */
+  /** The owner tag of the UTXO the deposit created. */
   readonly depositor: Address;
   readonly asset: Address;
   readonly amount: bigint;

@@ -8,7 +8,7 @@ import { AssetRegistry } from "../src/transaction/asset.js";
 import {
   MAX_SPEND_INPUTS,
   isPlainUtxo,
-  selectNotes,
+  selectUtxos,
   type SpendPolicy,
   type SpendSelectionErrors,
 } from "../src/flows/select.js";
@@ -27,7 +27,7 @@ const errors: SpendSelectionErrors = {
   tooManyInputs: ({ eligible, max }) => new Error(`tooMany ${String(eligible)} ${String(max)}`),
   overflow: () => new Error("overflow"),
   multipleTrees: ({ treeCount }) => new Error(`trees ${String(treeCount)}`),
-  tooFewNotes: ({ eligible, minimum }) =>
+  tooFewUtxos: ({ eligible, minimum }) =>
     new Error(`tooFew ${String(eligible)} ${String(minimum)}`),
 };
 
@@ -42,11 +42,11 @@ function policy(overrides: Partial<SpendPolicy> = {}): SpendPolicy {
   };
 }
 
-function walletWith(notes: readonly (readonly [bigint, Address?])[]): Wallet {
+function walletWith(utxos: readonly (readonly [bigint, Address?])[]): Wallet {
   const keypair = ShieldedKeypair.generate();
   const wallet = new Wallet({ identity: keypair.shieldedAddress(), registry: new AssetRegistry() });
   wallet._replace({
-    utxos: notes.map(([amount, tree], index) => ({
+    utxos: utxos.map(([amount, tree], index) => ({
       utxo: new Utxo({
         owner: keypair.signingPublicKey(),
         asset: MINT,
@@ -64,10 +64,10 @@ function walletWith(notes: readonly (readonly [bigint, Address?])[]): Wallet {
   return wallet;
 }
 
-describe("note selection", () => {
-  it("covers with the fewest notes under largest-first ordering", () => {
+describe("UTXO selection", () => {
+  it("covers with the fewest UTXOs under largest-first ordering", () => {
     const wallet = walletWith([[5n], [5n], [5n], [5n], [5n], [5n], [100n]]);
-    const selection = selectNotes({
+    const selection = selectUtxos({
       wallet,
       asset: MINT,
       target: { kind: "cover", amount: 100n },
@@ -77,9 +77,9 @@ describe("note selection", () => {
     expect(selection.total).toBe(130n);
   });
 
-  it("consolidates the smallest notes first up to the cap", () => {
+  it("consolidates the smallest UTXOs first up to the cap", () => {
     const wallet = walletWith([[9n], [1n], [5n], [3n]]);
-    const selection = selectNotes({
+    const selection = selectUtxos({
       wallet,
       asset: MINT,
       target: { kind: "consolidate", minInputs: 2 },
@@ -91,7 +91,7 @@ describe("note selection", () => {
   it("distinguishes a fragmented balance from a poor one", () => {
     const fragmented = walletWith([[5n], [5n], [5n], [5n], [5n], [5n]]);
     expect(() =>
-      selectNotes({
+      selectUtxos({
         wallet: fragmented,
         asset: MINT,
         target: { kind: "cover", amount: 30n },
@@ -99,7 +99,7 @@ describe("note selection", () => {
       }),
     ).toThrow("tooMany 6 5");
     expect(() =>
-      selectNotes({
+      selectUtxos({
         wallet: fragmented,
         asset: MINT,
         target: { kind: "cover", amount: 31n },
@@ -110,7 +110,7 @@ describe("note selection", () => {
 
   it("filters to a fixed tree and infers a single one otherwise", () => {
     const wallet = walletWith([[50n, OTHER_TREE], [20n]]);
-    const selection = selectNotes({
+    const selection = selectUtxos({
       wallet,
       asset: MINT,
       target: { kind: "cover", amount: 20n },
@@ -119,7 +119,7 @@ describe("note selection", () => {
     expect(selection.entries.map((entry) => entry.utxo.amount)).toEqual([20n]);
     expect(selection.tree).toBe(TREE);
     expect(() =>
-      selectNotes({
+      selectUtxos({
         wallet,
         asset: MINT,
         target: { kind: "cover", amount: 20n },
@@ -131,7 +131,7 @@ describe("note selection", () => {
   it("reports an empty eligible set as an insufficient one-lamport cover", () => {
     const wallet = walletWith([]);
     expect(() =>
-      selectNotes({
+      selectUtxos({
         wallet,
         asset: MINT,
         target: { kind: "cover", amount: 1n },
@@ -143,7 +143,7 @@ describe("note selection", () => {
   it("refuses an eligible balance past the u64 ceiling", () => {
     const wallet = walletWith([[0xffff_ffff_ffff_ffffn], [1n]]);
     expect(() =>
-      selectNotes({
+      selectUtxos({
         wallet,
         asset: MINT,
         target: { kind: "cover", amount: 1n },
@@ -152,10 +152,10 @@ describe("note selection", () => {
     ).toThrow("overflow");
   });
 
-  it("refuses a consolidation below the minimum note count", () => {
+  it("refuses a consolidation below the minimum UTXO count", () => {
     const wallet = walletWith([[9n]]);
     expect(() =>
-      selectNotes({
+      selectUtxos({
         wallet,
         asset: MINT,
         target: { kind: "consolidate", minInputs: 2 },

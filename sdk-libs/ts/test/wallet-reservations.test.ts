@@ -120,7 +120,7 @@ function assemblingClient(): Readonly<{
   };
 }
 
-describe("note reservations", () => {
+describe("UTXO reservations", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -135,7 +135,7 @@ describe("note reservations", () => {
     });
   });
 
-  it("lets exactly one of two concurrent builds spend a note", async () => {
+  it("lets exactly one of two concurrent builds spend a UTXO", async () => {
     const keypair = spendingKeypair();
     const wallet = fundedWallet(keypair, [5n]);
     const { client, assemble } = assemblingClient();
@@ -163,7 +163,7 @@ describe("note reservations", () => {
     await expect(createTransfer(transferParams(wallet, 3n))).resolves.toBeDefined();
   });
 
-  it("frees the notes after the reservation expires", async () => {
+  it("frees the UTXOs after the reservation expires", async () => {
     const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
     const keypair = spendingKeypair();
     const wallet = fundedWallet(keypair, [5n]);
@@ -176,7 +176,7 @@ describe("note reservations", () => {
     await expect(createTransfer(transferParams(wallet, 3n))).resolves.toBeDefined();
   });
 
-  it("drops the reservation when sync marks its note spent", async () => {
+  it("drops the reservation when sync marks its UTXO spent", async () => {
     const keypair = spendingKeypair();
     const wallet = fundedWallet(keypair, [5n]);
     await createTransfer(transferParams(wallet, 3n));
@@ -208,7 +208,7 @@ describe("note reservations", () => {
     await expect(createTransfer(transferParams(accepted, 3n))).resolves.toBeDefined();
   });
 
-  it("releases at once when merge preparation refuses the notes", () => {
+  it("releases at once when merge preparation refuses the UTXOs", () => {
     const keypair = spendingKeypair();
     const wallet = fundedWallet(keypair, [6n, 4n], [1]);
     expect(() =>

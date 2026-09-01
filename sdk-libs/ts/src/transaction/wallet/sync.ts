@@ -211,7 +211,7 @@ function rowKey(row: PrivateTransaction): string {
 }
 
 /**
- * The notes and history rows one sync produces, accumulated across every
+ * The UTXOs and history rows one sync produces, accumulated across every
  * viewing key the authority supplied. This is the counterpart of Rust
  * `SyncCtx`: it owns the staged wallet contents so a rejection leaves the
  * wallet untouched, and it carries the report counters each decode step
@@ -325,7 +325,7 @@ class SyncPass {
   }
 
   /**
-   * Store a note whose slot is not known in advance, by finding the slot whose
+   * Store a UTXO whose slot is not known in advance. Find the slot whose
    * committed leaf its hash reproduces. The sender-side bundles carry their
    * change this way: one bundle describes several outputs spread across the
    * transaction.
@@ -340,7 +340,7 @@ class SyncPass {
     this.#store(utxo, slot.outputContext, undefined, undefined);
   }
 
-  /** Verify each 1:1 recipient note against the slot's committed leaf and store it. */
+  /** Verify each 1:1 recipient UTXO against the committed leaf and store it. */
   #storeRecipientUtxos(
     utxos: readonly Utxo[],
     outputContext: OutputContext,
@@ -372,12 +372,12 @@ class SyncPass {
   }
 
   /**
-   * Record a candidate that failed to become notes. When the failure was an
+   * Record a candidate that failed to become UTXOs. When the failure was an
    * unknown asset id, remember the id so the client sync layer can backfill the
    * registry and retry; that is the single seam where a stale registry surfaces
    * during decode.
    */
-  #noteUndecryptable(error: unknown, siteKey: string): void {
+  #recordUndecryptable(error: unknown, siteKey: string): void {
     if (error instanceof TransactionError) {
       let candidate = this.#unknownAssetsBySite.get(siteKey);
       const assetCandidate = (): Readonly<{
@@ -689,7 +689,7 @@ class SyncPass {
         deposit = decodeProofless(body);
         utxo = prooflessUtxo(deposit, this.#owner);
       } catch (error) {
-        this.#noteUndecryptable(error, siteKey);
+        this.#recordUndecryptable(error, siteKey);
         return;
       }
       this.#resolveAssetCandidate(siteKey);
@@ -707,7 +707,7 @@ class SyncPass {
       try {
         utxos = plaintextTransferUtxos(decodePlaintextTransfer(body), this.#assets, SOL_MINT);
       } catch (error) {
-        this.#noteUndecryptable(error, siteKey);
+        this.#recordUndecryptable(error, siteKey);
         return;
       }
       this.#resolveAssetCandidate(siteKey);
@@ -724,7 +724,7 @@ class SyncPass {
         sender = plaintext.senderPublicKey;
         utxo = anonymousRecipientUtxo(plaintext, this.#assets);
       } catch (error) {
-        this.#noteUndecryptable(error, siteKey);
+        this.#recordUndecryptable(error, siteKey);
         return;
       }
       this.#resolveAssetCandidate(siteKey);
@@ -753,7 +753,7 @@ class SyncPass {
           this.#assets,
         );
       } catch (error) {
-        this.#noteUndecryptable(error, siteKey);
+        this.#recordUndecryptable(error, siteKey);
         return;
       }
       this.#resolveAssetCandidate(siteKey);
@@ -781,7 +781,7 @@ class SyncPass {
           ? output.ringDataHash
           : undefined;
       } catch (error) {
-        this.#noteUndecryptable(error, siteKey);
+        this.#recordUndecryptable(error, siteKey);
         return;
       }
       this.#resolveAssetCandidate(siteKey);
@@ -800,7 +800,7 @@ class SyncPass {
         recipients = plaintext.recipientViewingPublicKeys;
         change = anonymousSenderUtxos(plaintext, this.#assets, SOL_MINT);
       } catch (error) {
-        this.#noteUndecryptable(error, siteKey);
+        this.#recordUndecryptable(error, siteKey);
         return;
       }
       this.#resolveAssetCandidate(siteKey);
@@ -830,7 +830,7 @@ class SyncPass {
           this.#assets,
         );
       } catch (error) {
-        this.#noteUndecryptable(error, siteKey);
+        this.#recordUndecryptable(error, siteKey);
         return;
       }
       this.#resolveAssetCandidate(siteKey);
@@ -930,7 +930,7 @@ class SyncPass {
       }
       return true;
     } catch (error) {
-      this.#noteUndecryptable(error, siteKey);
+      this.#recordUndecryptable(error, siteKey);
       return true;
     }
   }

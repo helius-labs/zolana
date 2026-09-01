@@ -202,7 +202,7 @@ describe("ring flow", () => {
     await airdrop(client, sender.signer.address);
 
     const amount = 1_000_000_000n;
-    // Input selection stops at the first note that covers the transfer, so the
+    // Input selection stops at the first UTXO that covers the transfer, so the
     // deposits differ and the sender keeps a change output next to the recipient's.
     for (const deposited of [amount * 3n, amount]) {
       const deposit = await buildRingDepositTransaction({
@@ -257,7 +257,7 @@ describe("ring flow", () => {
       if (audited === undefined) await new Promise((resolve) => setTimeout(resolve, 500));
     }
     expect(audited).toBeDefined();
-    // The 3x deposit is the covering note, the change slot keeps 2x.
+    // The 3x deposit is the covering UTXO, and the change slot keeps 2x.
     const amounts = [...(audited?.outputs.map((output) => output.amount) ?? [])].sort((a, b) =>
       a < b ? -1 : 1,
     );
@@ -270,15 +270,15 @@ describe("ring flow", () => {
     // Participants read their own side from wallet sync.
     await airdrop(client, recipient.signer.address);
     await sync(client, recipient);
-    const notes = recipient.wallet.utxos().filter((entry) => !entry.spent);
-    expect(notes.map((entry) => entry.utxo.amount)).toContain(amount);
-    expect(notes.map((entry) => entry.utxo.ringProgramId)).toEqual([ringProgramId]);
+    const utxos = recipient.wallet.utxos().filter((entry) => !entry.spent);
+    expect(utxos.map((entry) => entry.utxo.amount)).toContain(amount);
+    expect(utxos.map((entry) => entry.utxo.ringProgramId)).toEqual([ringProgramId]);
     await sync(client, sender);
     const change = sender.wallet.utxos().filter((entry) => !entry.spent);
     expect(change.length).toBeGreaterThan(0);
     expect(change.every((entry) => entry.utxo.ringProgramId === ringProgramId)).toBe(true);
 
-    // The received note spends inside the ring again.
+    // The received UTXO spends inside the ring again.
     const hop = await buildRingTransferTransaction({
       client,
       ringProgramId,
@@ -303,7 +303,7 @@ describe("ring flow", () => {
       ringProgramId,
       ringProgramId,
     ]);
-    // The hop pays half the note onward, the change slot keeps the rest.
+    // The hop pays half the UTXO onward, and the change slot keeps the rest.
     const hopAmounts = [...(hopAudited?.outputs.map((output) => output.amount) ?? [])].sort(
       (a, b) => (a < b ? -1 : 1),
     );
@@ -415,10 +415,10 @@ describe("ring flow", () => {
     });
     await signSendAndConfirm(client, deposit, [mintAuthority]);
     await sync(client, sender);
-    const defaultNotes = sender.wallet
+    const defaultUtxos = sender.wallet
       .utxos()
-      .filter((note) => !note.spent && note.utxo.asset === mint);
-    expect(defaultNotes.map((note) => [note.utxo.amount, note.utxo.ringProgramId])).toEqual([
+      .filter((entry) => !entry.spent && entry.utxo.asset === mint);
+    expect(defaultUtxos.map((entry) => [entry.utxo.amount, entry.utxo.ringProgramId])).toEqual([
       [deposited, undefined],
     ]);
 
@@ -433,7 +433,7 @@ describe("ring flow", () => {
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
 
-    // Entry, the default note funds a ring transfer.
+    // Entry. The default UTXO funds a ring transfer.
     const entryTransaction = await buildRingTransferTransaction({
       client,
       ringProgramId,
@@ -459,10 +459,10 @@ describe("ring flow", () => {
       ringProgramId,
     ]);
     await sync(client, recipient);
-    const ringNotes = recipient.wallet
+    const ringUtxos = recipient.wallet
       .utxos()
-      .filter((note) => !note.spent && note.utxo.asset === mint);
-    expect(ringNotes.map((note) => [note.utxo.amount, note.utxo.ringProgramId])).toEqual([
+      .filter((entry) => !entry.spent && entry.utxo.asset === mint);
+    expect(ringUtxos.map((entry) => [entry.utxo.amount, entry.utxo.ringProgramId])).toEqual([
       [entry, ringProgramId],
     ]);
 
@@ -487,7 +487,7 @@ describe("ring flow", () => {
       causeCode: "INTERFACE_TRANSACTION_TOO_LARGE",
     });
 
-    // Exit, part of the ring note returns to the sender's default ring.
+    // Exit. Part of the ring UTXO returns to the sender's default ring.
     const exitTransaction = await buildRingExitTransaction({
       client,
       ringProgramId,
@@ -513,17 +513,17 @@ describe("ring flow", () => {
     expect(exitRings.get(exit)).toBeUndefined();
     expect(exitRings.get(entry - exit)).toBe(ringProgramId);
     await sync(client, sender);
-    const senderNotes = sender.wallet
+    const senderUtxos = sender.wallet
       .utxos()
-      .filter((note) => !note.spent && note.utxo.asset === mint)
-      .map((note) => [note.utxo.amount, note.utxo.ringProgramId] as const)
+      .filter((entry) => !entry.spent && entry.utxo.asset === mint)
+      .map((entry) => [entry.utxo.amount, entry.utxo.ringProgramId] as const)
       .sort((a, b) => (a[0] < b[0] ? -1 : 1));
-    expect(senderNotes).toEqual([
+    expect(senderUtxos).toEqual([
       [exit, undefined],
       [deposited - entry, ringProgramId],
     ]);
 
-    // The remaining ring note settles a public withdrawal into the funding account.
+    // The remaining ring UTXO settles a public withdrawal into the funding account.
     await sync(client, recipient);
     const before = await tokenBalance(client, fundingTokenAccount);
     const withdrawalTransaction = await buildRingWithdrawalTransaction({

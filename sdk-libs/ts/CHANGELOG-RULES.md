@@ -64,11 +64,11 @@ time`) when the version is published, else with the bump commit date.
 
 Ring holdings move out of the pool balances into their own view, and one
 transaction moves value out of a ring back to the pool. Selection covers
-a fragmented balance with the fewest notes.
+a fragmented balance with the fewest UTXOs.
 
 Breaking
 
-- `Wallet.balances()` no longer counts notes locked to a custom ring →
+- `Wallet.balances()` no longer counts UTXOs locked to a custom ring →
   call `Wallet.ringBalances()` for ring holdings.
 
 Added
@@ -80,12 +80,12 @@ Added
 
 Changed
 
-- Ring transfers pick the largest notes first, a balance split across many
-  small notes covers a payment with the fewest inputs.
+- Ring transfers pick the largest UTXOs first, a balance split across many
+  small UTXOs covers a payment with the fewest inputs.
 
 Fixed
 
-- A transfer funded by notes of more than one owner built a proof the
+- A transfer funded by UTXOs of more than one owner built a proof the
   chain rejects, the proof carries every owner's signature slot (#312).
 
 Dependencies

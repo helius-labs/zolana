@@ -26,7 +26,7 @@ export type TransactionIntent =
       amount: bigint;
       recipient: ShieldedAddress;
       boundary: "entry" | "transfer" | "exit";
-      /** Default-note value the transfer moves into the ring. */
+      /** Default-ring UTXO value the transfer moves into the ring. */
       defaultFunding: bigint;
     }>
   | Readonly<{

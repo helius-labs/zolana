@@ -388,7 +388,7 @@ describe("wallet sync", () => {
 
   it("resumes each tag stream from where it was read to", async () => {
     // Without this every sync re-reads the wallet's whole history: 569 ECDH
-    // operations for a wallet holding a handful of notes, growing forever.
+    // operations for a wallet holding a handful of UTXOs, growing forever.
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     const cursor = Uint8Array.of(1, 2, 3);
@@ -1455,7 +1455,7 @@ describe("wallet sync", () => {
     });
   });
 
-  it("does not ask about notes already known spent", async () => {
+  it("does not ask about UTXOs already known spent", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     const entries = [31n, 11n, 17n].map((amount, index) => {
@@ -1471,7 +1471,7 @@ describe("wallet sync", () => {
         utxo,
         outputContext: { hash, tree: TREE, leafIndex: BigInt(index) },
         nullifier: keypair.nullifier(hash, blinding),
-        // Only the last note is still unspent.
+        // Only the last UTXO is still unspent.
         spent: index < 2,
       };
     });
@@ -1502,7 +1502,7 @@ describe("wallet sync", () => {
     });
 
     // One request carrying one nullifier -- not three, and not one request per
-    // note the wallet has ever held.
+    // UTXO the wallet has ever held.
     expect(getShieldedTransactionsByNullifiers).toHaveBeenCalledOnce();
     expect(getShieldedTransactionsByNullifiers.mock.calls[0]?.[0]).toMatchObject({
       nullifiers: [entries[2]!.nullifier],
@@ -1510,7 +1510,7 @@ describe("wallet sync", () => {
   });
 
   it("resumes the nullifier stream from where the indexer said it scanned to", async () => {
-    // The rows cannot supply this: an unspent note matches nothing, so there is
+    // The rows cannot supply this. An unspent UTXO matches nothing, so there is
     // no last row whose position could be remembered, and every sync would walk
     // the whole stream again.
     const keypair = ShieldedKeypair.generate();
@@ -1614,7 +1614,7 @@ describe("wallet sync", () => {
     expect(getShieldedTransactionsByNullifiers).toHaveBeenCalledTimes(2);
   });
 
-  it("performs one follow-up nullifier lookup for a newly discovered note", async () => {
+  it("performs one follow-up nullifier lookup for a newly discovered UTXO", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     const blinding = bytes(33);

@@ -7,7 +7,7 @@ const U64_MAX = 0xffff_ffff_ffff_ffffn;
 /** @internal The cover cap, matches Rust `select_bounded_inputs`. */
 export const MAX_SPEND_INPUTS = Math.max(...SPP_SUPPORTED_SHAPES.map((shape) => shape.inputs));
 
-/** @internal Rust `is_plain_utxo`, a note the default rail can always prove. */
+/** @internal Rust `is_plain_utxo`, a UTXO the default rail can always prove. */
 export function isPlainUtxo(entry: WalletUtxo): boolean {
   return (
     entry.utxo.ringProgramId === undefined &&
@@ -23,7 +23,7 @@ export interface SpendSelectionErrors {
   tooManyInputs(input: Readonly<{ eligible: number; max: number }>): Error;
   overflow(input: Readonly<{ available: bigint }>): Error;
   multipleTrees?(input: Readonly<{ asset: Address; treeCount: number }>): Error;
-  tooFewNotes?(input: Readonly<{ eligible: number; minimum: number }>): Error;
+  tooFewUtxos?(input: Readonly<{ eligible: number; minimum: number }>): Error;
 }
 
 /** @internal */
@@ -50,7 +50,7 @@ export interface SelectedSpendInputs {
 }
 
 /** @internal */
-export function selectNotes(
+export function selectUtxos(
   input: Readonly<{
     wallet: Wallet;
     asset: Address;
@@ -84,8 +84,8 @@ export function selectNotes(
     const entries = sorted.slice(0, policy.maxInputs);
     if (entries.length < input.target.minInputs) {
       throw requiredError(
-        policy.errors.tooFewNotes,
-        "tooFewNotes",
+        policy.errors.tooFewUtxos,
+        "tooFewUtxos",
       )({
         eligible: entries.length,
         minimum: input.target.minInputs,
