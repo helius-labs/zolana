@@ -13,7 +13,7 @@ use zolana_interface::{
 
 use super::loader::load_unused_nullifier_pda;
 
-pub(crate) struct NullifierPdaRent {
+struct NullifierPdaRent {
     nullifier_pda_minimum: u64,
     tree_minimum: u64,
 }
@@ -35,10 +35,10 @@ impl NullifierPdaRent {
 #[inline(never)]
 #[profile]
 pub(crate) fn create_nullifier_pdas(
-    tree: &AccountView,
+    tree: &mut AccountView,
     nullifier_pdas: &mut [&mut AccountView],
     inputs: &[Input],
-) -> Result<NullifierPdaRent, ProgramError> {
+) -> ProgramResult {
     if nullifier_pdas.len() != inputs.len() {
         return Err(ShieldedPoolError::InvalidNullifierPda.into());
     }
@@ -48,15 +48,21 @@ pub(crate) fn create_nullifier_pdas(
         tree_minimum: rent_sysvar.try_minimum_balance(tree.data_len())?,
     };
     let tree_address = *tree.address().as_array();
-    let mut total_missing: u64 = 0;
     for (nullifier_pda, input) in nullifier_pdas.iter_mut().zip(inputs) {
         create_nullifier_pda(nullifier_pda, &tree_address, input)?;
-        total_missing = total_missing
-            .checked_add(rent.missing(nullifier_pda))
+        let missing = rent.missing(nullifier_pda);
+        if missing == 0 {
+            continue;
+        }
+        let tree_remaining = rent.tree_remaining(tree, missing)?;
+        let nullifier_pda_balance = nullifier_pda
+            .lamports()
+            .checked_add(missing)
             .ok_or(ProgramError::ArithmeticOverflow)?;
+        tree.set_lamports(tree_remaining);
+        nullifier_pda.set_lamports(nullifier_pda_balance);
     }
-    rent.tree_remaining(tree, total_missing)?;
-    Ok(rent)
+    Ok(())
 }
 
 #[inline(never)]
@@ -94,27 +100,4 @@ fn create_nullifier_pda(
     }
     .serialize(&mut writer)
     .map_err(|_| ShieldedPoolError::InvalidNullifierPda.into())
-}
-
-#[inline(never)]
-#[profile]
-pub(crate) fn fund_nullifier_pdas(
-    tree: &mut AccountView,
-    nullifier_pdas: &mut [&mut AccountView],
-    rent: &NullifierPdaRent,
-) -> ProgramResult {
-    for nullifier_pda in nullifier_pdas.iter_mut() {
-        let missing = rent.missing(nullifier_pda);
-        if missing == 0 {
-            continue;
-        }
-        let tree_remaining = rent.tree_remaining(tree, missing)?;
-        let nullifier_pda_balance = nullifier_pda
-            .lamports()
-            .checked_add(missing)
-            .ok_or(ProgramError::ArithmeticOverflow)?;
-        tree.set_lamports(tree_remaining);
-        nullifier_pda.set_lamports(nullifier_pda_balance);
-    }
-    Ok(())
 }

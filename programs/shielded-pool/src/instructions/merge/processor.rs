@@ -24,7 +24,7 @@ use super::{
 };
 use crate::instructions::{
     event::emit_general_event,
-    nullifier_pda::{create_nullifier_pdas, fund_nullifier_pdas},
+    nullifier_pda::create_nullifier_pdas,
     shared::{bool_field, check_not_expired, collect_forester_fee, tree_error},
 };
 
@@ -118,8 +118,7 @@ pub(crate) fn process_merge_core(
         let zkp_batch_size = tree.nullifier_tree().zkp_batch_size;
         (inputs, derived, zkp_batch_size)
     };
-    let nullifier_pda_rent =
-        create_nullifier_pdas(accounts.input_tree, &mut accounts.nullifier_pdas, &inputs)?;
+    create_nullifier_pdas(accounts.input_tree, &mut accounts.nullifier_pdas, &inputs)?;
     let tree_write = {
         let output_tree = accounts.output_tree.address().to_bytes();
         let mut tree = TreeAccount::from_account_view_mut(
@@ -138,11 +137,6 @@ pub(crate) fn process_merge_core(
         accounts.input_tree,
         MERGE_INPUT_COUNT as u64,
         zkp_batch_size,
-    )?;
-    fund_nullifier_pdas(
-        accounts.input_tree,
-        &mut accounts.nullifier_pdas,
-        &nullifier_pda_rent,
     )?;
     emit_general_event(EventKind::Merge, event)
 }
