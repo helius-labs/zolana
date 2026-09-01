@@ -370,6 +370,32 @@ impl<'de> Deserialize<'de> for SerializablePubkey {
     }
 }
 
+/// One transaction's place in the total order every rings stream shares.
+///
+/// `(slot, signature)` compares lexicographically, matching the indexer's
+/// `ORDER BY slot, signature`. A resume request returns rows strictly after
+/// the position, so record a position only once every row of its transaction
+/// has been consumed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ChainPosition {
+    pub slot: u64,
+    pub signature: SerializableSignature,
+}
+
+impl Ord for ChainPosition {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (self.slot, self.signature.0.as_ref()).cmp(&(other.slot, other.signature.0.as_ref()))
+    }
+}
+
+impl PartialOrd for ChainPosition {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 /// A Solana transaction signature represented as a base58 string.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -534,8 +560,11 @@ pub struct Context {
 pub struct GetRingsByTagsRequest {
     /// Empty tags require a ring and select its full history.
     pub tags: Vec<Hash>,
+    /// Resume strictly after the given transaction. Every stream shares the
+    /// order, so one recorded position serves tags, nullifiers, and encrypted
+    /// UTXOs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<Base64String>,
+    pub since: Option<ChainPosition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<Limit>,
     /// Restrict the match to one ring. Its config account is derived from this
@@ -550,7 +579,7 @@ pub struct GetRingsByTagsRequest {
 pub struct GetRingsByNullifiersRequest {
     pub nullifiers: Vec<Hash>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<Base64String>,
+    pub since: Option<ChainPosition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<Limit>,
 }
@@ -585,10 +614,13 @@ pub struct GetEncryptedUtxosByTagsResponse {
     /// Output-level matches. With tags these carry a requested view tag; with
     /// an empty tag set they contain all outputs in the selected ring.
     pub matches: Vec<EncryptedUtxoMatch>,
-    pub next_cursor: Option<Base64String>,
-    /// Where the scan reached on a terminal page, including an empty page.
+    /// Last returned transaction when the limit truncated the scan. Pages never
+    /// split a transaction, so resuming strictly after it loses nothing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scanned_through: Option<Base64String>,
+    pub next: Option<ChainPosition>,
+    /// Stream tip at the snapshot on a terminal page, including an empty one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest: Option<ChainPosition>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -666,10 +698,12 @@ pub struct GetShieldedTransactionsByTagsResponse {
     /// transaction has at least one requested view tag; with an empty tag set,
     /// the response contains the selected ring's full history.
     pub transactions: Vec<ShieldedTransaction>,
-    pub next_cursor: Option<Base64String>,
-    /// Where the scan reached on a terminal page, including an empty page.
+    /// Last returned transaction when the limit truncated the scan.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scanned_through: Option<Base64String>,
+    pub next: Option<ChainPosition>,
+    /// Stream tip at the snapshot on a terminal page, including an empty one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest: Option<ChainPosition>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -709,16 +743,13 @@ pub struct GetShieldedTransactionsByNullifiersResponse {
     /// Transaction-level matches; each returned transaction spends at least one
     /// requested nullifier and includes all of its output and input slots.
     pub transactions: Vec<ShieldedTransaction>,
-    pub next_cursor: Option<Base64String>,
-    /// Where the scan reached, when it ran out of rows rather than filling a
-    /// page.
-    ///
-    /// `next_cursor` is the last returned row's position, and a query for
-    /// unspent nullifiers returns none. Present only on a page the limit did not
-    /// truncate, which is when "no match exists at or before this position"
-    /// holds.
+    /// Last returned transaction when the limit truncated the scan.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scanned_through: Option<Base64String>,
+    pub next: Option<ChainPosition>,
+    /// Stream tip when the scan ran out of rows rather than filling a page.
+    /// An unspent nullifier matches nothing, so the tip is its only resume point.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest: Option<ChainPosition>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -958,12 +989,15 @@ mod tests {
                 tx_viewing_pk: None,
                 salt: None,
             }],
-            next_cursor: Some(Base64String(vec![1])),
-            scanned_through: None,
+            next: Some(ChainPosition {
+                slot: 1,
+                signature: SerializableSignature::default(),
+            }),
+            latest: None,
         })
         .unwrap();
-        assert!(value.get("nextCursor").is_some());
-        assert!(value.get("next_cursor").is_none());
+        assert!(value.get("next").is_some());
+        assert!(value["next"].get("signature").is_some());
         assert!(value["context"].get("blockTime").is_some());
         assert!(value["context"].get("block_time").is_none());
         assert_eq!(value["outputTreeId"], 4);
@@ -979,28 +1013,52 @@ mod tests {
 
     #[test]
     fn a_tag_page_reads_an_index_that_reports_its_resume_point() {
-        // A reader that refuses the field cannot open the ring.
+        let signature = SerializableSignature::default().to_string();
         let page = serde_json::json!({
             "context": { "blockTime": 3, "slot": 1 },
             "transactions": [],
-            "nextCursor": null,
-            "scannedThrough": "AQID",
+            "latest": { "slot": 7, "signature": signature },
         });
         let response: GetShieldedTransactionsByTagsResponse =
             serde_json::from_value(page).expect("a reported resume point is readable");
-        assert_eq!(response.scanned_through, Some(Base64String(vec![1, 2, 3])));
+        assert_eq!(
+            response.latest,
+            Some(ChainPosition {
+                slot: 7,
+                signature: SerializableSignature::default(),
+            })
+        );
+        assert_eq!(response.next, None);
 
         // An index that reports none sends no such key.
         let quiet = serde_json::json!({
             "context": { "blockTime": 3, "slot": 1 },
             "transactions": [],
-            "nextCursor": null,
         });
         let response: GetShieldedTransactionsByTagsResponse =
             serde_json::from_value(quiet).expect("an absent resume point is readable");
-        assert_eq!(response.scanned_through, None);
+        assert_eq!(response.latest, None);
         let value = serde_json::to_value(&response).expect("serialize");
-        assert!(value.get("scannedThrough").is_none());
+        assert!(value.get("latest").is_none());
+        assert!(value.get("next").is_none());
+    }
+
+    #[test]
+    fn chain_positions_order_by_slot_then_signature() {
+        let low = ChainPosition {
+            slot: 5,
+            signature: SerializableSignature(Signature::from([1u8; 64])),
+        };
+        let same_slot_higher_signature = ChainPosition {
+            slot: 5,
+            signature: SerializableSignature(Signature::from([2u8; 64])),
+        };
+        let higher_slot = ChainPosition {
+            slot: 6,
+            signature: SerializableSignature(Signature::from([0u8; 64])),
+        };
+        assert!(low < same_slot_higher_signature);
+        assert!(same_slot_higher_signature < higher_slot);
     }
 
     #[test]
