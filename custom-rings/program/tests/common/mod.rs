@@ -625,14 +625,23 @@ pub fn update_entry_fixture(
     Fixture::new(data, entry_mutation_slots(policy_config, payer))
 }
 
-/// An initialized config account as this program would have written it.
+/// An initialized policy-ring config as this program would have written it.
 pub fn initialized_config_account(authority: Pubkey, auditor_pubkey: [u8; 33]) -> Account {
+    config_account_with(authority, auditor_pubkey, 1)
+}
+
+/// An audit-only ring config, transact takes the lighter proof path.
+pub fn audit_only_config_account(authority: Pubkey, auditor_pubkey: [u8; 33]) -> Account {
+    config_account_with(authority, auditor_pubkey, 0)
+}
+
+fn config_account_with(authority: Pubkey, auditor_pubkey: [u8; 33], has_policy: u8) -> Account {
     let state = RingProgramConfig {
         discriminator: RING_PROGRAM_CONFIG,
         authority: Address::new_from_array(authority.to_bytes()),
         auditor_pubkey,
         bump: config_pda().1,
-        has_policy: 1,
+        has_policy,
     };
     Account {
         lamports: 1_000_000_000,
@@ -799,6 +808,48 @@ pub fn transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
             },
             // A stub distinct from entries_tree, unread because the CPI is
             // unreached.
+            Slot {
+                label: "input_tree",
+                meta: AccountMeta::new(Pubkey::new_from_array([40; 32]), false),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "output_tree",
+                meta: AccountMeta::new(Pubkey::new_from_array([42; 32]), false),
+                account: account(1_000_000_000),
+            },
+            spp_program_slot(),
+            system_program_slot(),
+            Slot {
+                label: "ring_config",
+                meta: AccountMeta::new_readonly(ring_auth_pda().0, false),
+                account: account(1_000_000_000),
+            },
+        ],
+    )
+}
+
+/// An audit-only transact fixture, the policy_config and entries_tree accounts
+/// the policy path reads are absent.
+pub fn audit_transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
+    Fixture::new(
+        data,
+        vec![
+            Slot {
+                label: "payer",
+                meta: AccountMeta::new(payer(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "config",
+                meta: AccountMeta::new_readonly(config_pda().0, false),
+                account: config,
+            },
+            Slot {
+                label: "spp_payer",
+                meta: AccountMeta::new(payer(), true),
+                account: account(1_000_000_000),
+            },
             Slot {
                 label: "input_tree",
                 meta: AccountMeta::new(Pubkey::new_from_array([40; 32]), false),

@@ -22,15 +22,17 @@ use crate::{
     },
 };
 
-/// Verifies the folded ring proof against the recomputed public input, then
-/// CPIs SPP `RING_TRANSACT` with the `ring_auth` PDA as signer.
+/// Verifies the ring proof against the recomputed public input, then CPIs SPP
+/// `RING_TRANSACT` with the `ring_auth` PDA as signer.
 ///
-/// Accounts: `[payer(w,s), config, policy_config, entries_tree(r)]` followed by
-/// SPP's own `RING_TRANSACT` list (`payer, input_tree, output_tree, spp_program,
-/// system_program, ring_config, owner signers, settlement accounts`). Only the
-/// SPP list is forwarded, position for position, with `ring_config` (the ring's
-/// `ring_auth` PDA) gaining a signature. `entries_tree` is the ring's own root
-/// source and is read but not forwarded.
+/// The config `has_policy` flag pins the tier and no client input can override
+/// it. A policy ring verifies the folded eleven-element statement over the
+/// pinned policy hash and the entries-tree roots, its accounts
+/// `[payer(w,s), config, policy_config, entries_tree(r)]` precede the SPP list.
+/// An audit-only ring verifies just the eight-element audit statement against
+/// `AUDIT_VERIFYINGKEY`, its accounts are `[payer(w,s), config]`. Only the SPP
+/// `RING_TRANSACT` list is forwarded, position for position, with `ring_config`
+/// gaining a signature.
 #[inline(never)]
 pub fn process_transact_ix(
     program_id: &Address,
@@ -40,8 +42,6 @@ pub fn process_transact_ix(
     let mut iter = AccountIterator::new(accounts);
     iter.next_signer_mut("payer")?;
     let config_account = iter.next_account("config")?;
-    let policy_config_account = iter.next_account("policy_config")?;
-    let entries_tree_account = iter.next_account("entries_tree")?;
 
     let CustomRingTransactIxData {
         proof,
@@ -50,13 +50,24 @@ pub fn process_transact_ix(
         transact,
     } = wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
 
-    // The forwarded list is taken before the expensive work so a malformed
-    // account list costs no pairing.
+    // The tier comes from the authenticated config, a policy ring cannot drop its
+    // policy accounts to spend through the lighter audit statement.
+    let (auditor_pubkey, has_policy) = {
+        let config = load_config(program_id, config_account)?;
+        (config.auditor_pubkey, config.has_policy)
+    };
+    let policy_accounts = if has_policy != 0 {
+        let policy_config_account = iter.next_account("policy_config")?;
+        let entries_tree_account = iter.next_account("entries_tree")?;
+        Some((policy_config_account, entries_tree_account))
+    } else {
+        None
+    };
+
+    // The forwarded list is validated before the pairing so a malformed account
+    // list costs no verification.
     let spp_accounts = iter.remaining_mut()?;
     validate_spp_program(spp_accounts)?;
-
-    // The typed loader releases the account borrow before the CPI.
-    let auditor_pubkey = load_config(program_id, config_account)?.auditor_pubkey;
 
     if !matches!(transact.circuit, CircuitId::RingEddsa(..)) {
         return Err(CustomRingError::UnsupportedCircuit.into());
@@ -90,31 +101,42 @@ pub fn process_transact_ix(
         commitment_pok: &proof.commitment_pok,
     };
 
-    let (policy_hash, entries_tree, sources) = {
-        let policy = load_policy_config(program_id, policy_config_account)?;
-        (policy.policy_hash, policy.entries_tree, policy.sources)
-    };
-    verify_policy_hash(&sources, &policy_hash)?;
-    // The borrow drops before the CPI below, else SPP faults borrowing the
-    // aliased money tree.
-    let roots = load_roots(
-        entries_tree_account,
-        &entries_tree,
-        state_root_index,
-        nullifier_root_index,
-    )?;
-    verify_groth16(
-        compressed,
-        CustomRingPublicInput {
-            audit,
-            policy_hash: &policy_hash,
-            state_root: &roots.state,
-            nullifier_root: &roots.nullifier,
+    match policy_accounts {
+        Some((policy_config_account, entries_tree_account)) => {
+            let (policy_hash, entries_tree, sources) = {
+                let policy = load_policy_config(program_id, policy_config_account)?;
+                (policy.policy_hash, policy.entries_tree, policy.sources)
+            };
+            verify_policy_hash(&sources, &policy_hash)?;
+            // The borrow drops before the CPI below, else SPP faults borrowing the
+            // aliased money tree.
+            let roots = load_roots(
+                entries_tree_account,
+                &entries_tree,
+                state_root_index,
+                nullifier_root_index,
+            )?;
+            verify_groth16(
+                compressed,
+                CustomRingPublicInput {
+                    audit,
+                    policy_hash: &policy_hash,
+                    state_root: &roots.state,
+                    nullifier_root: &roots.nullifier,
+                }
+                .hash()
+                .map_err(|_| CustomRingError::HashingFailed)?,
+                &custom_ring_interface::verifying_key::VERIFYINGKEY,
+            )?;
         }
-        .hash()
-        .map_err(|_| CustomRingError::HashingFailed)?,
-        &custom_ring_interface::verifying_key::VERIFYINGKEY,
-    )?;
+        None => {
+            verify_groth16(
+                compressed,
+                audit.hash().map_err(|_| CustomRingError::HashingFailed)?,
+                &custom_ring_interface::audit_verifying_key::VERIFYINGKEY,
+            )?;
+        }
+    }
 
     // Reserialized from the parsed struct rather than sliced out of `data`: the
     // proof is verified against the parsed content, so the bytes SPP sees must be
