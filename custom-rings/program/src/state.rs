@@ -38,6 +38,7 @@ pub(crate) struct RingProgramConfigInitParams {
     pub authority: Address,
     pub auditor_pubkey: [u8; 33],
     pub bump: u8,
+    pub has_policy: u8,
 }
 
 impl RingProgramConfigInitParams {
@@ -50,6 +51,7 @@ impl RingProgramConfigInitParams {
                 authority: self.authority,
                 auditor_pubkey: self.auditor_pubkey,
                 bump: self.bump,
+                has_policy: self.has_policy,
             },
         )
     }

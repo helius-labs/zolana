@@ -68,6 +68,7 @@ pub struct Init<'a> {
     pub auditor_pk: P256Pubkey,
     pub entries_tree: Address,
     pub shared_sources: Vec<(zolana_ring_policy::ListId, CustomRing)>,
+    pub has_policy: bool,
     pub existing: Option<CustomRingConfig>,
 }
 
@@ -232,6 +233,7 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
         entries_tree: args.entries_tree,
         shared_sources: crate::list::shared_sources(ctx.config.policy.as_ref())
             .map_err(|error| InitError::SourceMap(Box::new(error)))?,
+        has_policy: ctx.config.policy.is_some(),
         existing,
     }
     .run(&ctx.rpc)?;
@@ -350,6 +352,7 @@ impl Init<'_> {
                     payer: config_authority,
                     authority: deployer.pubkey(),
                     auditor_pubkey: self.auditor_pk,
+                    has_policy: self.has_policy,
                 }
                 .instruction()?];
                 let transfer = deployer.pubkey() != config_authority;

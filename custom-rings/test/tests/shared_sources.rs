@@ -243,6 +243,7 @@ impl RegisterRing<'_> {
                 payer: authority,
                 authority,
                 auditor_pubkey: ViewingKey::new().pubkey(),
+                has_policy: true,
             }
             .instruction()?],
         )?;
