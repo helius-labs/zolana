@@ -2,8 +2,10 @@ use std::{collections::HashMap, num::NonZeroU32, sync::Arc, time::Duration};
 
 use solana_address::Address;
 use solana_signature::Signature;
-use zolana_client::{GetShieldedTransactionsByTagsResponse, Shape, SPP_SUPPORTED_SHAPES};
-use zolana_indexer_api::{Base64String, Limit};
+use zolana_client::{
+    rpc::ChainPosition, GetShieldedTransactionsByTagsResponse, Shape, SPP_SUPPORTED_SHAPES,
+};
+use zolana_indexer_api::{ChainPosition as WireChainPosition, Limit};
 use zolana_keypair::{P256Pubkey, ViewingKey};
 use zolana_ring_client::{
     AuditError, AuditedTransaction, RingOrigin, RingWithdrawal, TransactionAudit,
@@ -11,9 +13,10 @@ use zolana_ring_client::{
 
 use crate::{
     api::{
-        cursor_in_bounds, limit_in_bounds, AuthorityAuth, DecryptedOutput, DecryptedTransaction,
-        DecryptedTransactionsPage, DecryptedWithdrawal, GetDecryptedTransactionsResponse,
-        ReadAttestation, ReadAuth, SkippedReason, SkippedTransaction, AUDIT_PAGE_LIMIT,
+        domain_position, limit_in_bounds, wire_position, AuthorityAuth, DecryptedOutput,
+        DecryptedTransaction, DecryptedTransactionsPage, DecryptedWithdrawal,
+        GetDecryptedTransactionsResponse, ReadAttestation, ReadAuth, SkippedReason,
+        SkippedTransaction, AUDIT_PAGE_LIMIT,
     },
     authorize::{self, AuthorityCheck, ReadCheck, Unauthorized},
     error::RingRpcError,
@@ -27,7 +30,7 @@ pub(crate) const ASSET_REFRESH_INTERVAL: Duration = Duration::from_secs(60);
 pub(crate) const MAX_ASSET_REGISTRY_ACCOUNTS: usize = 4_096;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Page {
-    cursor: Option<Vec<u8>>,
+    since: Option<ChainPosition>,
     limit: NonZeroU32,
     attested_limit: Option<Limit>,
 }
@@ -35,7 +38,7 @@ pub struct Page {
 #[derive(Default)]
 #[must_use]
 pub struct PageOptions {
-    cursor: Option<Vec<u8>>,
+    since: Option<ChainPosition>,
     limit: Option<Limit>,
 }
 
@@ -61,12 +64,9 @@ pub struct AuditRead<'a> {
 
 impl PageOptions {
     #[must_use = "use the updated options"]
-    pub fn with_cursor(mut self, cursor: Base64String) -> Result<Self, RingRpcError> {
-        if !cursor_in_bounds(&cursor.0) {
-            return Err(RingRpcError::InvalidPage);
-        }
-        self.cursor = Some(cursor.0);
-        Ok(self)
+    pub fn with_since(mut self, since: &WireChainPosition) -> Self {
+        self.since = Some(domain_position(since));
+        self
     }
 
     #[must_use = "use the updated options"]
@@ -88,7 +88,7 @@ impl PageOptions {
             .and_then(NonZeroU32::new)
             .ok_or(RingRpcError::InvalidPage)?;
         Ok(Page {
-            cursor: self.cursor,
+            since: self.since,
             limit,
             attested_limit,
         })
@@ -96,8 +96,8 @@ impl PageOptions {
 }
 
 impl Page {
-    pub fn cursor(&self) -> Option<&[u8]> {
-        self.cursor.as_deref()
+    pub fn since(&self) -> Option<ChainPosition> {
+        self.since
     }
 
     pub fn limit(&self) -> NonZeroU32 {
@@ -176,7 +176,7 @@ impl<S: TransactionSource> AuditService<S> {
             ring: self.ring,
             timestamp: request.auth.timestamp,
             nonce: &nonce,
-            cursor: request.page.cursor.as_deref(),
+            since: request.page.since,
             limit: request.page.attested_limit.clone(),
         };
         let claim = ReadCheck::new(request.auth, &attestation)
@@ -220,15 +220,17 @@ impl<S: TransactionSource> AuditService<S> {
         &self,
         page: &Page,
     ) -> Result<GetDecryptedTransactionsResponse, RingRpcError> {
+        let since = page.since();
         let response = self
             .shared
             .source
             .transactions_by_tag(TransactionPage {
                 tag: self.view_tag,
-                page,
+                since,
+                limit: page.limit(),
             })
             .await?;
-        validate_indexer_response(&response, page, self.view_tag)?;
+        validate_indexer_response(&response, page, since, self.view_tag)?;
         let mut assets = self.shared.cached_assets().await;
         let mut refreshed_assets = false;
 
@@ -293,7 +295,7 @@ impl<S: TransactionSource> AuditService<S> {
             value: DecryptedTransactionsPage {
                 items,
                 skipped,
-                cursor: response.next_cursor.map(Into::into),
+                next: response.next.map(wire_position),
             },
         })
     }
@@ -316,13 +318,13 @@ fn skipped_reason(error: &AuditError) -> SkippedReason {
 fn validate_indexer_response(
     response: &GetShieldedTransactionsByTagsResponse,
     page: &Page,
+    since: Option<ChainPosition>,
     auditor_tag: [u8; 32],
 ) -> Result<(), RingRpcError> {
     if response.transactions.len() > page.limit.get() as usize
         || response
-            .next_cursor
-            .as_ref()
-            .is_some_and(|cursor| !cursor_in_bounds(cursor) || page.cursor.as_ref() == Some(cursor))
+            .next
+            .is_some_and(|next| since.is_some_and(|reached| next <= reached))
     {
         return Err(RingRpcError::InvalidIndexerResponse);
     }
