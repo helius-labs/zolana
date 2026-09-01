@@ -7,6 +7,8 @@ pub mod public_input;
 pub mod rules;
 pub mod state;
 #[cfg(feature = "verifying-keys")]
+pub mod audit_verifying_key;
+#[cfg(feature = "verifying-keys")]
 pub mod verifying_key;
 
 pub use audit::{pack32_to_2fe, pack33_to_2fe, AuditPublicInput, FieldPair};
