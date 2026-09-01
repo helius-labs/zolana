@@ -32,7 +32,7 @@ zolana-interface = { workspace = true, features = ["solana"] }
 zolana-event = { workspace = true, features = ["program-test"] }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
-zolana-hasher = { workspace = true, features = ["poseidon"] }
+zolana-hasher = { workspace = true }
 zolana-merkle-tree = { workspace = true }
 zolana-tree = { workspace = true }
 

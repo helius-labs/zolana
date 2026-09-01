@@ -1,4 +1,4 @@
-#[cfg(feature = "poseidon")]
+#[cfg(not(target_os = "solana"))]
 use light_poseidon::PoseidonError;
 use thiserror::Error;
 
@@ -8,7 +8,7 @@ use crate::poseidon::PoseidonSyscallError;
 pub enum HasherError {
     #[error("Integer overflow, value too large")]
     IntegerOverflow,
-    #[cfg(feature = "poseidon")]
+    #[cfg(not(target_os = "solana"))]
     #[error("Poseidon hasher error: {0}")]
     Poseidon(#[from] PoseidonError),
     #[error("Poseidon syscall error: {0}")]
@@ -19,8 +19,6 @@ pub enum HasherError {
     InvalidInputLength(usize, usize),
     #[error("Invalid number of fields")]
     InvalidNumFields,
-    #[error("Poseidon feature is not enabled. Without feature poseidon only syscalls are accessible in target os solana")]
-    PoseidonFeatureNotEnabled,
     #[error("SHA256 feature is not enabled. Enable the sha256 feature to use SHA256 hashing in non-Solana targets")]
     Sha256FeatureNotEnabled,
     #[error("Keccak feature is not enabled. Enable the keccak feature to use Keccak hashing in non-Solana targets")]
@@ -33,13 +31,12 @@ impl From<HasherError> for u32 {
     fn from(e: HasherError) -> u32 {
         match e {
             HasherError::IntegerOverflow => 7001,
-            #[cfg(feature = "poseidon")]
+            #[cfg(not(target_os = "solana"))]
             HasherError::Poseidon(_) => 7002,
             HasherError::PoseidonSyscall(e) => (u64::from(e)).try_into().unwrap_or(7003),
             HasherError::UnknownSolanaSyscall(e) => e.try_into().unwrap_or(7004),
             HasherError::InvalidInputLength(_, _) => 7005,
             HasherError::InvalidNumFields => 7006,
-            HasherError::PoseidonFeatureNotEnabled => 7010,
             HasherError::Sha256FeatureNotEnabled => 7011,
             HasherError::KeccakFeatureNotEnabled => 7012,
         }

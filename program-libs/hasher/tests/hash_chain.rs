@@ -1,5 +1,3 @@
-#![cfg(feature = "poseidon")]
-
 use zolana_hasher::{
     hash_chain::{
         create_hash_chain_from_slice, create_hash_chain_from_slice_ref,
@@ -68,7 +66,6 @@ fn test_create_hash_chain_from_slice() {
         assert_eq!(result, [0u8; 32], "Empty input should return zero hash");
     }
     // 4. Failing - input larger than modulus
-    #[cfg(feature = "poseidon")]
     {
         use ark_ff::PrimeField;
         use light_poseidon::PoseidonError;

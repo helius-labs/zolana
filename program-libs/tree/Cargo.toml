@@ -23,7 +23,7 @@ profile-program = ["dep:light-program-profiler", "light-program-profiler/profile
 [dependencies]
 zolana-account-checks = { workspace = true }
 zolana-event = { workspace = true }
-zolana-hasher = { workspace = true, features = ["poseidon", "keccak"] }
+zolana-hasher = { workspace = true }
 groth16-solana = { workspace = true, optional = true }
 pinocchio = { workspace = true, optional = true }
 solana-program-error = { workspace = true }
@@ -39,7 +39,6 @@ light-program-profiler = { workspace = true, optional = true }
 rand = { workspace = true }
 zolana-merkle-tree = { workspace = true }
 zolana-account-checks = { workspace = true, features = ["test-only"] }
-zolana-hasher = { workspace = true, features = ["keccak"] }
 zolana-client = { workspace = true }
 zolana-indexed-array = { workspace = true }
 num-bigint = { workspace = true }

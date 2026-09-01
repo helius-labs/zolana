@@ -32,4 +32,4 @@ bytemuck = { workspace = true }
 proptest = { workspace = true }
 solana-address = { workspace = true }
 solana-rent = { workspace = true }
-zolana-hasher = { workspace = true, features = ["sha256", "poseidon"] }
+zolana-hasher = { workspace = true, features = ["sha256"] }

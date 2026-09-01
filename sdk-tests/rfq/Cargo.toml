@@ -29,7 +29,7 @@ zolana-wallet = { workspace = true }
 [dev-dependencies]
 bincode = "1.3"
 num-bigint = { workspace = true }
-zolana-hasher = { workspace = true, features = ["poseidon"] }
+zolana-hasher = { workspace = true }
 zolana-merkle-tree = { workspace = true }
 zolana-tree = { workspace = true }
 mollusk-svm = { workspace = true }
