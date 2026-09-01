@@ -130,12 +130,15 @@ fn set_source(ctx: &mut Context, list_id: ListId, source: SourceOwner) -> Result
 }
 
 fn init(ctx: &mut Context, entries_tree: Address) -> Result<(), ListError> {
-    let authority = ctx.funded_authority()?;
+    let payer = ctx.funded_authority()?;
+    // create_policy is gated on the upgrade authority, not the config authority.
+    let upgrade_authority = ctx.config.upgrade_authority().map_err(ContextError::from)?;
+    let co_signers: [&dyn Signer; 1] = [&upgrade_authority];
     let observed = Observed::of(&ctx.ring.read_policy_config(&ctx.rpc)?);
     let outcome = IdempotentStep {
         rpc: &ctx.rpc,
-        authority: &authority,
-        co_signers: &[],
+        authority: &payer,
+        co_signers: &co_signers,
         name: "create_policy",
         compute_unit_limit: CREATE_POLICY_COMPUTE_UNIT_LIMIT,
         hint: no_hint,
@@ -144,8 +147,8 @@ fn init(ctx: &mut Context, entries_tree: Address) -> Result<(), ListError> {
         observed,
         &[CreatePolicy {
             ring: ctx.ring,
-            payer: authority.pubkey(),
-            authority: authority.pubkey(),
+            payer: payer.pubkey(),
+            authority: upgrade_authority.pubkey(),
             entries_tree,
             shared_sources: shared_sources(ctx.config.policy.as_ref())?,
         }
