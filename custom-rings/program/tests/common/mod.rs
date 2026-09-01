@@ -632,6 +632,7 @@ pub fn initialized_config_account(authority: Pubkey, auditor_pubkey: [u8; 33]) -
         authority: Address::new_from_array(authority.to_bytes()),
         auditor_pubkey,
         bump: config_pda().1,
+        has_policy: 1,
     };
     Account {
         lamports: 1_000_000_000,
@@ -645,7 +646,7 @@ pub fn initialized_config_account(authority: Pubkey, auditor_pubkey: [u8; 33]) -
 pub fn create_config_data(auditor_pubkey: [u8; 33]) -> Vec<u8> {
     let mut data = vec![tag::CREATE_CONFIG];
     data.extend_from_slice(
-        &wincode::serialize(&CreateConfigIxData { auditor_pubkey })
+        &wincode::serialize(&CreateConfigIxData { auditor_pubkey, has_policy: 1 })
             .expect("serialize create_config data"),
     );
     data

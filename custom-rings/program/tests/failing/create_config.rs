@@ -45,6 +45,7 @@ fn create_config_writes_the_config_account() {
             authority: pinocchio::Address::new_from_array(authority().to_bytes()),
             auditor_pubkey: auditor_pubkey(2),
             bump,
+            has_policy: 1,
         }
     );
 }
