@@ -29,9 +29,11 @@ impl Default for InitAddressTreeAccountsInstructionData {
 
 /// Only 10 and 250 are supported.
 pub fn match_circuit_size(size: u64) -> bool {
-    matches!(size, 10 | 250)
+    matches!(size, 10 | 250) // TODO: make these constants (10, 5000), 3 configs (local test (current local), devnet (5k proofs, 30k queue len), mainnet(5k proofs, 1.2mm queue len))
 }
 
+// TODO: rename ZKP -> ZKP_BATCH_SIZE
+// TODO: rename AddressV2 -> NullifierTreeV1
 impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     /// Initializes a zeroed layout in place.
     ///
@@ -45,14 +47,14 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         input_queue_batch_size: u64,
         input_queue_zkp_batch_size: u64,
         height: u32,
-        tree_type: TreeType,
+        tree_type: TreeType, // TODO: remove TreeType
         address_init_root: Option<[u8; 32]>,
     ) -> Result<(), NullifierTreeError> {
         Self::validate_configuration(input_queue_batch_size, input_queue_zkp_batch_size)?;
         let capacity = 1u64
             .checked_shl(height)
             .ok_or(NullifierTreeError::InvalidHeight)?;
-
+        // TODO: always use init root
         let (next_index, init_root) = if tree_type == TreeType::AddressV2 {
             // Sanity check since init value is hardcoded. Gated on the test-only
             // feature, never enabled in the on-chain build, so tests can build

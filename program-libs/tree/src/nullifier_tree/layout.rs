@@ -37,7 +37,7 @@ pub struct RootHistory<const N: usize> {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, FromBytes, KnownLayout, Immutable)]
 pub struct NullifierTreeLayout<const ZKP_BATCHES: usize> {
-    pub tree_type: u64,
+    pub tree_type: u64, // TODO: remove TreeType
     pub sequence_number: u64,
     pub next_index: u64,
     pub height: u32,
@@ -119,9 +119,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     }
 
     /// Initializes the queue metadata and both batches from an already
-    /// validated configuration. Writes in place: a batch carries its hash
-    /// chains and cached tree updates, which are too large to move through a
-    /// Solana stack frame.
+    /// validated configuration.
     pub(crate) fn init_queue(
         &mut self,
         batch_size: u64,

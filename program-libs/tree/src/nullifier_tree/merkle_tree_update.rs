@@ -151,7 +151,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     ///    root, and mark the ZKP batch inserted. When that fully inserts the
     ///    pending batch, advance the nullifier PDA-close watermark before advancing
     ///    the pending index (spec batch append steps 8-9).
-    /// 4. Clear the applied cache slot.
+    /// 4. Clear the applied cache slot and its consumed hash chain.
     /// 5. Record the new root in the cascade event.
     #[cfg_attr(feature = "profile-program", light_program_profiler::profile)]
     pub fn apply_cached_tree_updates(
@@ -186,7 +186,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
             let current_root = self.get_root().ok_or(NullifierTreeError::InvalidIndex)?;
             if cached_update.old_root != current_root {
                 self.get_pending_batch_mut()?
-                    .clear_cached_tree_update(zkp_batch_index)?;
+                    .evict_cached_tree_update(zkp_batch_index)?;
                 #[cfg(feature = "log")]
                 solana_msg::msg!(
                     "Evicted cached update [{}][{}]: old_root does not match account tree root",
@@ -208,7 +208,7 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
             let sequence_number = self.sequence_number;
             let pending_batch = self.get_pending_batch_mut()?;
             let pending_batch_state = pending_batch.mark_as_inserted_in_merkle_tree()?;
-            // 4. Clear the applied cache slot.
+            // 4. Clear the applied cache slot and its consumed hash chain.
             pending_batch.clear_cached_tree_update(zkp_batch_index)?;
             self.advance_nullifier_pda_close_watermark(pending_batch_state)?;
             self.increment_pending_batch_index_if_inserted(pending_batch_state);

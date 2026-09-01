@@ -102,11 +102,11 @@ pub struct Batch<const ZKP: usize> {
     /// A batch consists out of one or more zkp batches.
     pub zkp_batch_size: u64,
     /// Reserved for account-layout compatibility.
-    pub sequence_number: u64,
+    pub sequence_number: u64, // TODO: remove
     /// Start leaf index of the first
     pub start_index: u64,
     /// Reserved for account-layout compatibility.
-    pub root_index: u32,
+    pub root_index: u32, // TODO: remove
     _padding: [u8; 4],
     /// One Poseidon hash chain per ZKP batch. The chain at
     /// `num_full_zkp_batches` is the one insertions currently extend; the
@@ -136,19 +136,19 @@ const _: () = {
 };
 
 impl<const ZKP: usize> Batch<ZKP> {
-    /// Writes every word of a zeroed batch. The hash chains and cached updates
-    /// are zeroed here and never again: [`reset`](Self::reset) leaves them
-    /// alone because a batch that starts filling always writes chain slot 0
-    /// before anything reads it, and a batch reaches `Inserted` only once every
-    /// cached update has been applied and its slot cleared.
+    /// Initializes a batch in place on zeroed account data, a precondition the
+    /// layout init relies on throughout (it never writes root-history slots
+    /// past index 0 either).
     pub(crate) fn init(&mut self, batch_size: u64, zkp_batch_size: u64, start_index: u64) {
         self.reset(batch_size, zkp_batch_size, start_index);
-        self.hash_chains.fill([0u8; 32]);
-        self.cached_tree_updates.fill(CachedTreeUpdate::default());
     }
 
     /// Resets every metadata word, so a reused batch cannot inherit a counter
-    /// or a reserved value from its previous queue range.
+    /// or a reserved value from its previous queue range. The hash chains and
+    /// cached updates need no zeroing: a filling batch writes a chain slot
+    /// before anything reads it, and every cached update slot is cleared
+    /// together with its consumed chain when its update lands in the tree, so
+    /// a batch reaches `Inserted` with both arrays zeroed.
     fn reset(&mut self, batch_size: u64, zkp_batch_size: u64, start_index: u64) {
         self.num_inserted = 0;
         self.state = BatchState::Fill.into();
@@ -194,9 +194,27 @@ impl<const ZKP: usize> Batch<ZKP> {
         Ok(())
     }
 
-    /// Resets a ZKP batch's cached update to empty (`occupied = 0`), freeing
-    /// the slot for a fresh proof.
+    /// Clears an applied ZKP batch's slots: the cached update (`occupied = 0`)
+    /// and the hash chain it was verified against, which is dead once the
+    /// update is in the tree. A batch therefore reaches `Inserted` with both
+    /// arrays fully zeroed.
     pub(crate) fn clear_cached_tree_update(
+        &mut self,
+        zkp_batch_index: usize,
+    ) -> Result<(), NullifierTreeError> {
+        self.evict_cached_tree_update(zkp_batch_index)?;
+        *self
+            .hash_chains
+            .get_mut(zkp_batch_index)
+            .ok_or(NullifierTreeError::CachedTreeUpdateIndexOutOfRange)? = [0u8; 32];
+        Ok(())
+    }
+
+    /// Resets a ZKP batch's cached update to empty (`occupied = 0`), freeing
+    /// the slot for a fresh proof. The hash chain must survive eviction: it is
+    /// the only stored commitment to the queued leaves, and the replacement
+    /// proof is verified against it.
+    pub(crate) fn evict_cached_tree_update(
         &mut self,
         zkp_batch_index: usize,
     ) -> Result<(), NullifierTreeError> {
