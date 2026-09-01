@@ -118,7 +118,23 @@ pub(crate) fn process_merge_core(
         let zkp_batch_size = tree.nullifier_tree().zkp_batch_size;
         (inputs, derived, zkp_batch_size)
     };
-    create_nullifier_pdas(accounts.input_tree, &mut accounts.nullifier_pdas, &inputs)?;
+    // The fee transfer CPI includes the tree, so it must run before
+    // create_nullifier_pdas moves tree lamports directly: a CPI boundary syncs
+    // only its own accounts into the transaction context, and a pending tree
+    // debit without the matching nullifier PDA credits trips the runtime's
+    // UnbalancedInstruction check.
+    collect_forester_fee(
+        accounts.payer,
+        accounts.input_tree,
+        MERGE_INPUT_COUNT as u64,
+        zkp_batch_size,
+    )?;
+    create_nullifier_pdas(
+        accounts.payer,
+        accounts.input_tree,
+        &mut accounts.nullifier_pdas,
+        &inputs,
+    )?;
     let tree_write = {
         let output_tree = accounts.output_tree.address().to_bytes();
         let mut tree = TreeAccount::from_account_view_mut(
@@ -132,12 +148,6 @@ pub(crate) fn process_merge_core(
 
     let event = build_merge_event(ix, tree_write, output_view_tag, output_data);
     MergeProof::new(ix, derived).verify()?;
-    collect_forester_fee(
-        accounts.payer,
-        accounts.input_tree,
-        MERGE_INPUT_COUNT as u64,
-        zkp_batch_size,
-    )?;
     emit_general_event(EventKind::Merge, event)
 }
 

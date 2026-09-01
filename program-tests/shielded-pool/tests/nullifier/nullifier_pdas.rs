@@ -22,8 +22,8 @@ use zolana_interface::{
 use zolana_program_test::{Rejection, Rpc, TransactionTrace};
 use zolana_test_utils::{
     nullifier_pda::{
-        assert_nullifier_pda, assert_nullifier_pdas_absent, nullifier_pda_addresses,
-        nullifier_pda_rent, tree_close_before_index,
+        assert_nullifier_pda, assert_nullifier_pdas_absent, forester_fee_for_inputs,
+        nullifier_pda_addresses, nullifier_pda_rent, tree_close_before_index,
     },
     transact::{eddsa_input_utxo, fe, inline_output},
 };
@@ -416,8 +416,16 @@ fn transact_rejects_a_tree_short_of_nullifier_pda_rent() {
     let nullifier_pda_rent = pool_nullifier_pda_rent(&env);
     let data = transfer_ix_data(2, 3);
     let nullifiers = nullifiers_of(&data);
+    // The forester fee lands in the tree before the PDA rent check, so the
+    // largest still-rejecting balance sits one lamport below the two PDA
+    // rents minus that fee.
+    let forester_fee =
+        forester_fee_for_inputs(&tree_account(&env), &env.tree.pubkey(), 2).expect("forester fee");
 
-    for tree_lamports in [tree_rent, tree_rent + 2 * nullifier_pda_rent - 1] {
+    for tree_lamports in [
+        tree_rent,
+        tree_rent + 2 * nullifier_pda_rent - 1 - forester_fee,
+    ] {
         set_tree_lamports(&mut env, tree_lamports);
         let ix = transact_instruction(&env, data.clone());
         expect_transact_rejection(

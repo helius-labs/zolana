@@ -84,7 +84,19 @@ pub fn process_transact_ix(
     )?;
     // 8. Insert nullifiers into queue.
     let input_tree_result = apply_input_tree(transact_accounts.input_tree, &ix, &mut proof_inputs)?;
+    // The fee transfer CPI includes the tree, so it must run before
+    // create_nullifier_pdas moves tree lamports directly: a CPI boundary syncs
+    // only its own accounts into the transaction context, and a pending tree
+    // debit without the matching nullifier PDA credits trips the runtime's
+    // UnbalancedInstruction check.
+    collect_forester_fee(
+        transact_accounts.payer,
+        transact_accounts.input_tree,
+        ix.inputs.len() as u64,
+        input_tree_result.zkp_batch_size,
+    )?;
     create_nullifier_pdas(
+        transact_accounts.payer,
         transact_accounts.input_tree,
         &mut transact_accounts.nullifier_pdas,
         &input_tree_result.inputs,
@@ -115,13 +127,6 @@ pub fn process_transact_ix(
     TransactProof::new(&ix, &proof_inputs).verify()?;
 
     settle_interface_transfers(&ix.interface_transfers, &transact_accounts.settlements)?;
-
-    collect_forester_fee(
-        transact_accounts.payer,
-        transact_accounts.input_tree,
-        ix.inputs.len() as u64,
-        input_tree_result.zkp_batch_size,
-    )?;
 
     let event = build_transact_event(
         &ix,

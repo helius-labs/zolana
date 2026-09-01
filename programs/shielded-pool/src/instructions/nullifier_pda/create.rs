@@ -6,7 +6,7 @@ use pinocchio::{
     sysvars::{rent::Rent, Sysvar},
     AccountView, ProgramResult,
 };
-use pinocchio_system::instructions::{Allocate, Assign};
+use pinocchio_system::instructions::{Allocate, Assign, CreateAccount};
 use zolana_interface::{
     error::ShieldedPoolError, event::Input, NullifierPda, NULLIFIER_PDA_SEED, NULLIFIER_PDA_SIZE,
 };
@@ -35,6 +35,7 @@ impl NullifierPdaRent {
 #[inline(never)]
 #[profile]
 pub(crate) fn create_nullifier_pdas(
+    payer: &AccountView,
     tree: &mut AccountView,
     nullifier_pdas: &mut [&mut AccountView],
     inputs: &[Input],
@@ -49,7 +50,7 @@ pub(crate) fn create_nullifier_pdas(
     };
     let tree_address = *tree.address().as_array();
     for (nullifier_pda, input) in nullifier_pdas.iter_mut().zip(inputs) {
-        create_nullifier_pda(nullifier_pda, &tree_address, input)?;
+        create_nullifier_pda(payer, nullifier_pda, &tree_address, input)?;
         let missing = rent.missing(nullifier_pda);
         if missing == 0 {
             continue;
@@ -67,6 +68,7 @@ pub(crate) fn create_nullifier_pdas(
 
 #[inline(never)]
 fn create_nullifier_pda(
+    payer: &AccountView,
     nullifier_pda: &mut AccountView,
     tree_address: &[u8; 32],
     input: &Input,
@@ -79,16 +81,27 @@ fn create_nullifier_pda(
         Seed::from(input.nullifier.as_ref()),
         Seed::from(bump_seed.as_ref()),
     ];
-    Allocate {
-        account: nullifier_pda,
-        space: NULLIFIER_PDA_SIZE as u64,
+    if nullifier_pda.lamports() == 0 {
+        CreateAccount {
+            from: payer,
+            to: nullifier_pda,
+            lamports: 0,
+            space: NULLIFIER_PDA_SIZE as u64,
+            owner: &crate::ID,
+        }
+        .invoke_signed(&[Signer::from(&seeds)])?;
+    } else {
+        Allocate {
+            account: nullifier_pda,
+            space: NULLIFIER_PDA_SIZE as u64,
+        }
+        .invoke_signed(&[Signer::from(&seeds)])?;
+        Assign {
+            account: nullifier_pda,
+            owner: &crate::ID,
+        }
+        .invoke_signed(&[Signer::from(&seeds)])?;
     }
-    .invoke_signed(&[Signer::from(&seeds)])?;
-    Assign {
-        account: nullifier_pda,
-        owner: &crate::ID,
-    }
-    .invoke_signed(&[Signer::from(&seeds)])?;
 
     let mut data = nullifier_pda
         .try_borrow_mut()
