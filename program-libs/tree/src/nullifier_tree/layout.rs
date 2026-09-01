@@ -5,8 +5,7 @@ use wincode::{
     io::Reader,
     ReadResult, SchemaRead, TypeMeta,
 };
-#[cfg(feature = "test-only")]
-use zerocopy::FromZeros;
+
 use zerocopy::{FromBytes, Immutable, KnownLayout};
 
 use crate::nullifier_tree::{
@@ -15,8 +14,9 @@ use crate::nullifier_tree::{
     error::NullifierTreeError,
 };
 
+// TODO: remove
 pub const ADDRESS_MERKLE_TREE_TYPE_V2: u64 = 4;
-
+// TODO: remove
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[repr(u64)]
 pub enum TreeType {
@@ -116,49 +116,6 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
             return Err(NullifierTreeError::InvalidRootHistoryCapacity);
         }
         Ok(())
-    }
-
-    /// Initializes the queue metadata and both batches from an already
-    /// validated configuration.
-    pub(crate) fn init_queue(
-        &mut self,
-        batch_size: u64,
-        zkp_batch_size: u64,
-        start_index: u64,
-    ) -> Result<(), NullifierTreeError> {
-        let second_batch_start_index = start_index
-            .checked_add(batch_size)
-            .ok_or(NullifierTreeError::ArithmeticOverflow)?;
-
-        self.batch_size = batch_size;
-        self.zkp_batch_size = zkp_batch_size;
-        self.currently_processing_batch_index = 0;
-        self.pending_batch_index = 0;
-        self.queue_next_index = 0;
-        for (batch, batch_start_index) in self
-            .batches
-            .iter_mut()
-            .zip([start_index, second_batch_start_index])
-        {
-            batch.init(batch_size, zkp_batch_size, batch_start_index);
-        }
-        Ok(())
-    }
-
-    /// Validated counterpart to [`init_queue`](Self::init_queue) that returns a
-    /// layout by value, which integration tests need to drive queue rotation
-    /// without an account. Gated on `test-only`, which the on-chain build never
-    /// enables.
-    #[cfg(feature = "test-only")]
-    pub fn new_queue_validated(
-        batch_size: u64,
-        zkp_batch_size: u64,
-        start_index: u64,
-    ) -> Result<Self, NullifierTreeError> {
-        Self::validate_configuration(batch_size, zkp_batch_size)?;
-        let mut layout = Self::new_zeroed();
-        layout.init_queue(batch_size, zkp_batch_size, start_index)?;
-        Ok(layout)
     }
 
     /// Increment the next full batch index if current state is BatchState::Inserted.

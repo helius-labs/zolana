@@ -1,15 +1,18 @@
 use zolana_tree::nullifier_tree::{
     batch::{Batch, BatchState, CachedTreeUpdate},
+    constants::ADDRESS_TREE_INIT_ROOT_40,
     error::NullifierTreeError,
-    layout::{NullifierTreeLayout, RootHistory},
+    layout::{NullifierTreeLayout, RootHistory, TreeType},
 };
 
 fn new_queue<const ZKP: usize>(
     batch_size: u64,
     zkp_batch_size: u64,
-    start_index: u64,
 ) -> Result<NullifierTreeLayout<ZKP>, NullifierTreeError> {
-    NullifierTreeLayout::<ZKP>::new_queue_validated(batch_size, zkp_batch_size, start_index)
+    let mut bytes = vec![0u8; core::mem::size_of::<NullifierTreeLayout<ZKP>>()];
+    let layout: &mut NullifierTreeLayout<ZKP> = wincode::deserialize_mut(&mut bytes).unwrap();
+    layout.init(batch_size, zkp_batch_size, 40, TreeType::AddressV2, None)?;
+    Ok(*layout)
 }
 
 #[test]
@@ -32,7 +35,7 @@ fn tree_layout_round_trips() {
 
 #[test]
 fn test_increment_next_pending_batch_index_if_inserted() {
-    let mut metadata = new_queue::<1>(10, 10, 0).unwrap();
+    let mut metadata = new_queue::<1>(10, 10).unwrap();
     assert_eq!(metadata.pending_batch_index, 0);
     // increment next full batch index
     metadata.increment_pending_batch_index_if_inserted(BatchState::Inserted);
@@ -49,7 +52,7 @@ fn test_increment_next_pending_batch_index_if_inserted() {
 
 #[test]
 fn test_increment_currently_processing_batch_index_if_full() {
-    let mut metadata = new_queue::<1>(10, 10, 0).unwrap();
+    let mut metadata = new_queue::<1>(10, 10).unwrap();
     assert_eq!(metadata.currently_processing_batch_index, 0);
     metadata
         .get_current_batch_mut()
@@ -111,43 +114,47 @@ fn test_validate_batch_sizes() {
 
 #[test]
 fn test_new_initializes_entire_queue() {
-    let metadata = new_queue::<5>(10, 2, 7).unwrap();
+    let metadata = new_queue::<5>(10, 2).unwrap();
+    let mut roots = [[0u8; 32]; 5];
+    roots[0] = ADDRESS_TREE_INIT_ROOT_40;
     assert_eq!(
         metadata,
         NullifierTreeLayout {
-            tree_type: 0,
+            tree_type: TreeType::AddressV2 as u64,
             sequence_number: 0,
-            next_index: 0,
-            height: 0,
+            next_index: 1,
+            height: 40,
             currently_processing_batch_index: 0,
-            capacity: 0,
+            capacity: 1 << 40,
             batch_size: 10,
             zkp_batch_size: 2,
             pending_batch_index: 0,
             queue_next_index: 0,
             close_before_index: 0,
             root_history: RootHistory {
-                current_index: 0,
-                roots: [[0u8; 32]; 5],
+                current_index: 1,
+                roots,
             },
-            batches: [Batch::new(10, 2, 7), Batch::new(10, 2, 17)],
+            batches: [Batch::new(10, 2, 1), Batch::new(10, 2, 11)],
         }
     );
+    // The second batch start index is next_index + batch_size and must not
+    // overflow.
     assert_eq!(
-        new_queue::<5>(10, 2, u64::MAX),
+        new_queue::<1>(u64::MAX, u64::MAX),
         Err(NullifierTreeError::ArithmeticOverflow)
     );
 }
 
 #[test]
 fn test_get_num_zkp_batches() {
-    let metadata = new_queue::<5>(10, 2, 0).unwrap();
+    let metadata = new_queue::<5>(10, 2).unwrap();
     assert_eq!(metadata.get_num_zkp_batches(), 5);
 }
 
 #[test]
 fn test_get_current_batch() {
-    let mut metadata = new_queue::<5>(10, 2, 0).unwrap();
+    let mut metadata = new_queue::<5>(10, 2).unwrap();
     assert_eq!(
         metadata.get_current_batch().unwrap().get_state(),
         BatchState::Fill
