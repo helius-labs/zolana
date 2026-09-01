@@ -2,6 +2,7 @@ use custom_ring_interface::{PolicyConfig, POLICY_CONFIG};
 use custom_ring_program::CustomRingError;
 use mollusk_svm::result::ProgramResult;
 use solana_program_error::ProgramError;
+use zolana_account_checks::AccountError;
 
 use crate::common::{
     self, create_policy_fixture, entries_tree, entries_tree_account, namespace_pda,
@@ -107,6 +108,8 @@ fn a_short_account_list_is_rejected() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = create_policy_fixture();
     fixture.truncate(3);
-    let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
-    assert_ne!(result.program_result, ProgramResult::Success);
+    fixture.expect_err(
+        &mollusk,
+        ProgramError::Custom(u32::from(AccountError::NotEnoughAccountKeys)),
+    );
 }
