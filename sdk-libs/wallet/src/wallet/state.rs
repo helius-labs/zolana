@@ -4,7 +4,7 @@ use solana_address::Address;
 use zolana_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, P256Pubkey};
 
 use zolana_transaction::{
-    error::TransactionError, utxo::Utxo, AssetBalance, AssetRegistry, WalletUtxo,
+    error::TransactionError, utxo::Utxo, AssetBalance, AssetRegistry, ChainPosition, WalletUtxo,
 };
 
 pub const DEFAULT_TAG_WINDOW: u64 = 64;
@@ -154,7 +154,7 @@ pub struct Wallet {
     pub last_synced: i64,
     /// Per key, the position everything matching it has been seen through.
     /// Streams advance independently. Nullifier entries die with their spend.
-    pub cursors: HashMap<CursorStream, Vec<u8>>,
+    pub cursors: HashMap<CursorStream, ChainPosition>,
 }
 
 impl Wallet {

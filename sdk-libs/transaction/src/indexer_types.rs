@@ -1,8 +1,33 @@
+use std::cmp::Ordering;
+
 use borsh::BorshDeserialize;
 use zolana_event::{MessageData, OutputDataEncoding, ProoflessOutput};
 use zolana_keypair::P256Pubkey;
 
 use crate::serialization::{proofless::Proofless, scheme::EncryptedScheme, UtxoSerialization};
+
+/// One transaction's place in the total order every rings stream shares.
+///
+/// Ordered by `(slot, signature)`, matching the indexer's pagination. Record a
+/// position only once every row of that transaction has been applied, a resume
+/// returns rows strictly after it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ChainPosition {
+    pub slot: u64,
+    pub signature: solana_signature::Signature,
+}
+
+impl Ord for ChainPosition {
+    fn cmp(&self, other: &Self) -> Ordering {
+        (self.slot, self.signature.as_ref()).cmp(&(other.slot, other.signature.as_ref()))
+    }
+}
+
+impl PartialOrd for ChainPosition {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShieldedTransaction {

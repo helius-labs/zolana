@@ -8,7 +8,7 @@ pub use zolana_indexer_api::{
     GetRingSpendRecordResponse, RingMemberProofRequest, RingSpendRecord, RingSpendRecordRequest,
 };
 use zolana_keypair::P256Pubkey;
-pub use zolana_transaction::{OutputContext, OutputSlot, ShieldedTransaction};
+pub use zolana_transaction::{ChainPosition, OutputContext, OutputSlot, ShieldedTransaction};
 
 use crate::{error::ClientError, prover::ProofCompressed};
 
@@ -37,29 +37,6 @@ pub struct EncryptedUtxoMatch {
     /// Transaction-level AES salt shared by every output ciphertext; `None` for
     /// plaintext/proofless payloads.
     pub salt: Option<[u8; 16]>,
-}
-
-/// One transaction's place in the total order every rings stream shares.
-///
-/// Ordered by `(slot, signature)`, matching the indexer's pagination. Record a
-/// position only once every row of that transaction has been applied, a resume
-/// returns rows strictly after it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ChainPosition {
-    pub slot: u64,
-    pub signature: Signature,
-}
-
-impl Ord for ChainPosition {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        (self.slot, self.signature.as_ref()).cmp(&(other.slot, other.signature.as_ref()))
-    }
-}
-
-impl PartialOrd for ChainPosition {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -122,7 +99,7 @@ pub struct GetShieldedTransactionsByNullifiersResponse {
     /// Last returned transaction when the limit truncated the scan.
     pub next: Option<ChainPosition>,
     /// Stream tip on a terminal page. An unspent nullifier matches nothing, so
-    /// this is its only resume point.
+    /// the tip is its only resume point.
     pub latest: Option<ChainPosition>,
 }
 
