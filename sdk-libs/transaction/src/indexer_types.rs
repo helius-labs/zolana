@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_event::{EncryptedRingDepositOutput, MessageData, OutputDataEncoding, ProoflessOutput};
@@ -12,6 +14,29 @@ use crate::{
 /// the recipient's ciphertext inside it, `None` when the ciphertext carries no
 /// framing, or an error when the framing does not parse.
 pub type DepositPayload = for<'a> fn(&'a [u8]) -> Result<Option<&'a [u8]>, TransactionError>;
+
+/// One transaction's place in the total order every rings stream shares.
+///
+/// Ordered by `(slot, signature)`, matching the indexer's pagination. Record a
+/// position only once every row of that transaction has been applied, a resume
+/// returns rows strictly after it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ChainPosition {
+    pub slot: u64,
+    pub signature: solana_signature::Signature,
+}
+
+impl Ord for ChainPosition {
+    fn cmp(&self, other: &Self) -> Ordering {
+        (self.slot, self.signature.as_ref()).cmp(&(other.slot, other.signature.as_ref()))
+    }
+}
+
+impl PartialOrd for ChainPosition {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShieldedTransaction {
