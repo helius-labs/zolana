@@ -1,27 +1,19 @@
 use zolana_hasher::primitives::is_canonical_bn254_scalar_be;
 
-use crate::nullifier_tree::{
-    batch::BatchState,
-    error::NullifierTreeError,
-    layout::{NullifierTreeLayout, TreeType},
-};
+use crate::nullifier_tree::{error::NullifierTreeError, layout::NullifierTreeLayout};
 
 impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     pub fn insert_nullifier_into_queue(
         &mut self,
         nullifier: &[u8; 32],
     ) -> Result<u64, NullifierTreeError> {
-        if self.tree_type != TreeType::AddressV2 as u64 {
-            return Err(NullifierTreeError::InvalidTreeType);
-        }
         if !is_canonical_bn254_scalar_be(nullifier) {
             return Err(NullifierTreeError::NonCanonicalFieldElement);
         }
         let queue_index = self.checked_next_queue_index()?;
-
-        let rotation = self.rotation()?;
+        let batch_size = self.batch_size;
         let current_batch = self.get_current_batch_mut()?;
-        current_batch.ensure_ready_to_fill(rotation)?;
+        current_batch.ensure_ready_to_fill(batch_size)?;
         current_batch.add_to_hash_chain(nullifier)?;
 
         self.increment_currently_processing_batch_index_if_full()?;
@@ -30,46 +22,26 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         Ok(queue_index)
     }
 
-    /// Queue index the next value takes, once both queue invariants hold: the
-    /// queue counter must agree with the leaf index the current batch reserves
-    /// next (the init element occupies leaf 0, so queue indices are one behind
-    /// tree leaf indices), and that leaf must still be inside the tree.
     fn checked_next_queue_index(&self) -> Result<u64, NullifierTreeError> {
         let queue_index = self.queue_next_index;
         let leaf_index = queue_index
             .checked_add(1)
             .ok_or(NullifierTreeError::ArithmeticOverflow)?;
-        if leaf_index != self.next_queued_leaf_index()? {
-            return Err(NullifierTreeError::QueueIndexMismatch);
-        }
         if leaf_index >= self.capacity {
             return Err(NullifierTreeError::TreeIsFull);
         }
         Ok(queue_index)
     }
 
-    /// Leaf index reserved by the next queue insertion. This includes values
-    /// already queued but not yet applied to the Merkle tree. An `Inserted`
-    /// current batch is about to be reused one rotation ahead, so its next
-    /// leaf is `start_index + NUM_BATCHES * batch_size`. A `Full` current
-    /// batch means both batches are full: the next value can only go into this
-    /// batch once it is inserted and reused, so it reserves the same leaf.
-    pub fn next_queued_leaf_index(&self) -> Result<u64, NullifierTreeError> {
-        let current_batch = self.get_current_batch()?;
-        let offset = match current_batch.checked_state()? {
-            BatchState::Fill => current_batch.get_num_inserted_elements(),
-            BatchState::Full | BatchState::Inserted => self.rotation()?,
-        };
-        current_batch
-            .start_index
-            .checked_add(offset)
-            .ok_or(NullifierTreeError::ArithmeticOverflow)
-    }
-
-    /// Number of leaves not yet reserved by the queue.
+    /// Number of leaves not yet reserved by the queue. Reservations count
+    /// values already queued but not yet applied to the Merkle tree.
     pub fn remaining_queue_capacity(&self) -> Result<u64, NullifierTreeError> {
+        let next_leaf_index = self
+            .queue_next_index
+            .checked_add(1)
+            .ok_or(NullifierTreeError::ArithmeticOverflow)?;
         self.capacity
-            .checked_sub(self.next_queued_leaf_index()?)
+            .checked_sub(next_leaf_index)
             .ok_or(NullifierTreeError::ArithmeticOverflow)
     }
 

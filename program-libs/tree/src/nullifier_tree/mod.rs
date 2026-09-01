@@ -101,7 +101,6 @@
 //! - `BatchNotReady` (14001) - Batch is not ready to be inserted
 //! - `BatchAlreadyInserted` (14002) - Batch is already inserted
 //! - `TreeIsFull` (14008) - Batched Merkle tree reached capacity
-//! - `QueueIndexMismatch` (14009) - Queue index and batch position disagree
 //! - `NonCanonicalFieldElement` (14010) - Value is not below the BN254 scalar modulus
 //! - `InvalidRootHistoryCapacity` (14017) - Root history must contain exactly one
 //!   queue batch of ZKP update roots

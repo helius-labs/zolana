@@ -21,8 +21,6 @@ pub enum NullifierTreeError {
     InvalidBatchConfiguration,
     #[error("Batched Merkle tree is full.")]
     TreeIsFull,
-    #[error("Queue index does not match the current batch position.")]
-    QueueIndexMismatch,
     #[error("Value is not a canonical BN254 scalar field element.")]
     NonCanonicalFieldElement,
     #[error("Arithmetic overflow.")]
@@ -76,7 +74,8 @@ impl From<NullifierTreeError> for u32 {
             NullifierTreeError::InvalidBatchState => 14006,
             NullifierTreeError::InvalidBatchConfiguration => 14007,
             NullifierTreeError::TreeIsFull => 14008,
-            NullifierTreeError::QueueIndexMismatch => 14009,
+            // 14009 was QueueIndexMismatch, removed with the redundant queue
+            // counter cross-check; do not reuse the code.
             NullifierTreeError::NonCanonicalFieldElement => 14010,
             NullifierTreeError::ArithmeticOverflow => 14011,
             NullifierTreeError::CachedTreeUpdateIndexOutOfRange => 14012,

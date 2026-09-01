@@ -66,17 +66,6 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         self.batch_size / self.zkp_batch_size
     }
 
-    /// Queue indices covered by one pass over all batches. A batch reaches
-    /// Inserted only after exactly batch_size insertions, so on reuse its
-    /// coverage starts one full rotation after its previous start. Nothing in
-    /// verify/apply reads batch start_index (the proof StartIndex is derived
-    /// from the tree next index); it is kept correct for indexers.
-    pub fn rotation(&self) -> Result<u64, NullifierTreeError> {
-        (NUM_BATCHES as u64)
-            .checked_mul(self.batch_size)
-            .ok_or(NullifierTreeError::ArithmeticOverflow)
-    }
-
     pub fn get_current_batch(&self) -> Result<&Batch<ZKP>, NullifierTreeError> {
         self.batches
             .get(self.currently_processing_batch_index as usize)

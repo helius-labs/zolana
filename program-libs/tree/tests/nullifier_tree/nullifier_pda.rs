@@ -152,16 +152,3 @@ fn non_canonical_values_are_rejected() {
         0
     );
 }
-
-#[test]
-fn queue_index_mismatch_is_rejected() {
-    let mut data = account_data();
-    init_tree(&mut data);
-
-    let tree = load_tree(&mut data);
-    tree.queue_next_index += 1;
-    assert_eq!(
-        tree.insert_nullifier_into_queue(&nullifier(1)).unwrap_err(),
-        NullifierTreeError::QueueIndexMismatch
-    );
-}

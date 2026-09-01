@@ -6,7 +6,7 @@ use zerocopy::FromZeros;
 use zerocopy::{FromBytes, Immutable, KnownLayout};
 use zolana_hasher::{Hasher, Poseidon};
 
-use crate::nullifier_tree::error::NullifierTreeError;
+use crate::nullifier_tree::{constants::NUM_BATCHES, error::NullifierTreeError};
 
 #[derive(Clone, Debug, PartialEq, Eq, Copy)]
 #[repr(u64)]
@@ -266,16 +266,16 @@ impl<const ZKP: usize> Batch<ZKP> {
         Ok(())
     }
 
-    /// Prepares the batch to take another value. An inserted batch is reused for
-    /// the next queue range, which starts `rotation` indices after its previous
-    /// start. A full batch cannot take values until it is inserted into the tree.
-    pub(crate) fn ensure_ready_to_fill(&mut self, rotation: u64) -> Result<(), NullifierTreeError> {
+    pub(crate) fn ensure_ready_to_fill(
+        &mut self,
+        batch_size: u64,
+    ) -> Result<(), NullifierTreeError> {
         match self.checked_state()? {
             BatchState::Fill => Ok(()),
             BatchState::Inserted => {
                 let start_index = self
                     .start_index
-                    .checked_add(rotation)
+                    .checked_add(batch_size * NUM_BATCHES as u64)
                     .ok_or(NullifierTreeError::ArithmeticOverflow)?;
                 self.advance_state_to_fill(start_index)
             }
@@ -387,11 +387,11 @@ impl<const ZKP: usize> Batch<ZKP> {
                 .ok_or(NullifierTreeError::HashChainFull)?;
             Poseidon::hashv(&[existing.as_slice(), value.as_slice()])?
         };
-        let slot = self
+        let current_hash_chain = self
             .hash_chains
             .get_mut(hash_chain_index)
             .ok_or(NullifierTreeError::HashChainFull)?;
-        *slot = hash_chain;
+        *current_hash_chain = hash_chain;
         self.num_inserted += 1;
 
         // 4. If the zkp batch is full, increment the zkp batch index.

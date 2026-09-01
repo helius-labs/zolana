@@ -8,9 +8,7 @@ use crate::nullifier_tree::{
     proof::CompressedProof,
 };
 #[cfg(feature = "verify")]
-use crate::nullifier_tree::{
-    batch::CachedTreeUpdate, layout::TreeType, verify::verify_batch_address_update,
-};
+use crate::nullifier_tree::{batch::CachedTreeUpdate, verify::verify_batch_address_update};
 
 #[repr(C)]
 #[derive(Debug, PartialEq, Clone, Copy, BorshDeserialize, BorshSerialize)]
@@ -28,10 +26,9 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
     /// update.
     ///
     /// Steps:
-    /// 1. Reject non-address trees.
-    /// 2. Verify the proof and cache the update. A replayed proof caches
-    ///    nothing, so the apply pass is skipped and an empty result returned.
-    /// 3. Apply cached updates in order: the just-verified one and any it
+    /// 1. Verify the proof and cache the update. A replayed proof overwrites the
+    ///    cache.
+    /// 2. Apply cached updates in order: the just-verified one and any it
     ///    unblocks. Updates that do not match the account tree are skipped, not
     ///    errors.
     #[cfg(feature = "verify")]
@@ -40,10 +37,6 @@ impl<const ZKP: usize> NullifierTreeLayout<ZKP> {
         merkle_tree_pubkey: [u8; 32],
         instruction_data: InstructionDataAddressAppendInputs,
     ) -> Result<Option<BatchAddressAppendEvent>, NullifierTreeError> {
-        // 1. Reject non-address trees.
-        if self.tree_type != TreeType::AddressV2 as u64 {
-            return Err(NullifierTreeError::InvalidTreeType);
-        }
         // 2. Verify the proof and cache the update.
         if !self.verify_proof_cache_update(&instruction_data)? {
             return Ok(None);

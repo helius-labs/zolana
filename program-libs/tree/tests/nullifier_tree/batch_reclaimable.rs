@@ -218,7 +218,7 @@ fn full_queue_rejects_inserts_until_the_pending_batch_is_applied() {
         assert_eq!(tree.batches.first().unwrap().get_state(), BatchState::Full);
         assert_eq!(tree.batches.get(1).unwrap().get_state(), BatchState::Full);
         assert_eq!(tree.currently_processing_batch_index, 0);
-        assert_eq!(tree.next_queued_leaf_index().unwrap(), 1 + 2 * BATCH_SIZE);
+        assert_eq!(tree.queue_next_index, 2 * BATCH_SIZE);
         assert_eq!(
             tree.remaining_queue_capacity().unwrap(),
             tree.capacity - (1 + 2 * BATCH_SIZE)
@@ -243,5 +243,5 @@ fn full_queue_rejects_inserts_until_the_pending_batch_is_applied() {
     assert_eq!(reused.get_state(), BatchState::Fill);
     assert_eq!(reused.start_index, 1 + 2 * BATCH_SIZE);
     assert_eq!(reused.get_num_inserted_elements(), 1);
-    assert_eq!(tree.next_queued_leaf_index().unwrap(), 2 + 2 * BATCH_SIZE);
+    assert_eq!(tree.queue_next_index, 1 + 2 * BATCH_SIZE);
 }
