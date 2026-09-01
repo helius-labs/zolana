@@ -11,8 +11,9 @@ pub use authority::{
     WalletAuthority, WalletSyncMaterial,
 };
 pub use state::{
-    AssetBalance, Balances, CursorStream, Filter, PrivateTransaction, PrivateTransactionDirection,
-    PrivateTransactionId, PrivateTransactionKind, PrivateTransactionStatus, RingBalance,
-    SyncReport, ViewingKeyEntry, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW,
+    AssetBalance, Balances, ChainPosition, CursorStream, Filter, PrivateTransaction,
+    PrivateTransactionDirection, PrivateTransactionId, PrivateTransactionKind,
+    PrivateTransactionStatus, RingBalance, SyncReport, ViewingKeyEntry, Wallet, WalletUtxo,
+    DEFAULT_TAG_WINDOW,
 };
 pub use sync::{decrypt_transactions, decrypt_transactions_with_config, SyncConfig};

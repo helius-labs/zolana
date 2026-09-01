@@ -15,9 +15,9 @@ use zolana_interface::{
 };
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_transaction::{
-    AssetBalance, CursorStream, OutputContext, OutputSlot, PrivateTransaction, ShieldedTransaction,
-    SyncReport, SyncWalletAuthority, TransactionError, Wallet, WalletAuthority, WalletSyncMaterial,
-    DEFAULT_TAG_WINDOW,
+    AssetBalance, ChainPosition, CursorStream, OutputContext, OutputSlot, PrivateTransaction,
+    ShieldedTransaction, SyncReport, SyncWalletAuthority, TransactionError, Wallet,
+    WalletAuthority, WalletSyncMaterial, DEFAULT_TAG_WINDOW,
 };
 
 use zolana_client::{
@@ -114,19 +114,19 @@ where
         let nullifiers = wallet_query_nullifiers(wallet);
         timing::note(round, "tags", tags.len());
         timing::note(round, "nullifiers", nullifiers.len());
-        {
+        let staged_cursors = {
             let _t = timing::Phase::start("fetch_round", round);
             // The three queries are independent: different indexer methods,
             // disjoint cursor state, and separate accumulators. Run sequentially
             // a round cost the sum of three round trips (866 + 521 + 503ms
             // measured on devnet) when it need only cost the slowest.
             //
-            // Cursors come out of the wallet and go back rather than staying
-            // borrowed, because `wallet` is needed mutably further down.
-            // Three threads, three `&mut`. Variants keep the keys disjoint, so
-            // the merge after the join is lossless.
+            // Positions are staged on a copy and reach the wallet only after
+            // the round's rows are applied, so a failed round resumes from the
+            // last applied position. Three threads, three `&mut`. Variants keep
+            // the keys disjoint, so the merge after the join is lossless.
             let (mut cursors, mut nullifier_cursors, mut proofless_cursors) =
-                split_by_stream(std::mem::take(&mut wallet.cursors));
+                split_by_stream(wallet.cursors.clone());
             let tag_keys = stream_keys(&tags, CursorStream::Tags);
             let nullifier_keys = stream_keys(&nullifiers, CursorStream::Nullifiers);
             let proofless_keys = stream_keys(&tags, CursorStream::Proofless);
@@ -182,9 +182,6 @@ where
                 )
             });
 
-            wallet.cursors = cursors;
-            wallet.cursors.extend(nullifier_cursors);
-            wallet.cursors.extend(proofless_cursors);
             // Propagate a panic rather than swallowing it into a sync error: a
             // panicked fetch means a bug here, not an unreachable indexer.
             let tag_result = tag_result.unwrap_or_else(|payload| resume_unwind(payload));
@@ -201,17 +198,12 @@ where
             for (key, tx) in by_nullifier {
                 transactions.entry(key).or_insert(tx);
             }
-            timing::note(
-                round,
-                "tag_cursors",
-                stream_len(wallet, |key| matches!(key, CursorStream::Tags(_))),
-            );
-            timing::note(
-                round,
-                "nullifier_cursors",
-                stream_len(wallet, |key| matches!(key, CursorStream::Nullifiers(_))),
-            );
-        }
+            timing::note(round, "tag_cursors", cursors.len());
+            timing::note(round, "nullifier_cursors", nullifier_cursors.len());
+            cursors.extend(nullifier_cursors);
+            cursors.extend(proofless_cursors);
+            cursors
+        };
         timing::note(round, "transactions", transactions.len());
         timing::note(round, "proofless_deposits", proofless_deposits.len());
         let _round_tail = timing::Phase::start("collect_sort_and_decrypt", round);
@@ -241,6 +233,7 @@ where
             let _t = timing::Phase::start("sync_with_material", round);
             wallet.sync_with_material(&material, &txs, now_unix_ts(), config.tag_window)?
         };
+        wallet.cursors = staged_cursors;
 
         if before == (transactions.len(), proofless_deposits.len()) {
             timing::note(round, "converged", 1);
@@ -302,54 +295,48 @@ where
         let before = (transactions.len(), proofless_deposits.len());
         let tags = wallet_query_tags(wallet, &material, config.tag_window)?;
         let nullifiers = wallet_query_nullifiers(wallet);
-        // Sequential here, so one borrow serves all three.
-        let mut cursors = std::mem::take(&mut wallet.cursors);
+        // Positions are staged on a copy and reach the wallet only after the
+        // round's rows are applied, so a failed round resumes from the last
+        // applied position.
+        let mut cursors = wallet.cursors.clone();
         let tag_keys = stream_keys(&tags, CursorStream::Tags);
         let nullifier_keys = stream_keys(&nullifiers, CursorStream::Nullifiers);
         let proofless_keys = stream_keys(&tags, CursorStream::Proofless);
+        // One gate for the whole round, not one per call: every query in a
+        // round should read the chain at the same freshness bound, and
+        // `take()`ing it three times would gate only the first.
+        let gate = freshness_gate.take();
 
-        let fetched = fetch_shielded_transactions_incremental_async(
+        fetch_shielded_transactions_incremental_async(
             indexer,
             &tag_keys,
             &mut transactions,
             config,
-            freshness_gate.take(),
+            gate,
             &mut cursors,
             &mut scanned_to_tip,
         )
-        .await;
-        let nullifiers_fetched = if fetched.is_ok() {
-            fetch_shielded_transactions_by_nullifiers_async(
-                indexer,
-                &nullifier_keys,
-                &mut transactions,
-                config,
-                freshness_gate.take(),
-                &mut cursors,
-                &mut nullifier_scanned_to_tip,
-            )
-            .await
-        } else {
-            Ok(())
-        };
-        let fetched_proofless = if fetched.is_ok() && nullifiers_fetched.is_ok() {
-            fetch_proofless_deposits_async(
-                indexer,
-                &proofless_keys,
-                &mut proofless_deposits,
-                config,
-                freshness_gate.take(),
-                &mut cursors,
-                &mut proofless_scanned_to_tip,
-            )
-            .await
-        } else {
-            Ok(())
-        };
-        wallet.cursors = cursors;
-        fetched?;
-        nullifiers_fetched?;
-        fetched_proofless?;
+        .await?;
+        fetch_shielded_transactions_by_nullifiers_async(
+            indexer,
+            &nullifier_keys,
+            &mut transactions,
+            config,
+            gate,
+            &mut cursors,
+            &mut nullifier_scanned_to_tip,
+        )
+        .await?;
+        fetch_proofless_deposits_async(
+            indexer,
+            &proofless_keys,
+            &mut proofless_deposits,
+            config,
+            gate,
+            &mut cursors,
+            &mut proofless_scanned_to_tip,
+        )
+        .await?;
 
         txs = transactions.values().cloned().collect::<Vec<_>>();
         txs.sort_by_key(|a| (a.slot, a.tx_signature));
@@ -372,6 +359,7 @@ where
         });
         txs.extend(deposits);
         report = wallet.sync_with_material(&material, &txs, now_unix_ts(), config.tag_window)?;
+        wallet.cursors = cursors;
 
         if before == (transactions.len(), proofless_deposits.len()) {
             break;
@@ -545,54 +533,57 @@ fn wallet_query_nullifiers(wallet: &Wallet) -> Vec<[u8; 32]> {
 
 /// Buckets keys by the position their stream was last read to.
 ///
-/// A chunk carries one cursor, so keys at different positions cannot share a
-/// request. `None` (never queried) is its own group. Keys already read to the
-/// tip in this sync are dropped.
+/// A chunk carries one resume position, so keys at different positions cannot
+/// share a request. `None` (never queried) is its own group. Keys already read
+/// to the tip in this sync are dropped.
 fn group_by_resume_point<K: Copy + Eq + std::hash::Hash>(
     keys: &[K],
-    cursors: &HashMap<K, Vec<u8>>,
+    cursors: &HashMap<K, ChainPosition>,
     scanned_to_tip: &HashSet<K>,
-) -> HashMap<Option<Vec<u8>>, Vec<K>> {
-    let mut groups: HashMap<Option<Vec<u8>>, Vec<K>> = HashMap::new();
+) -> HashMap<Option<ChainPosition>, Vec<K>> {
+    let mut groups: HashMap<Option<ChainPosition>, Vec<K>> = HashMap::new();
     for key in keys {
         if scanned_to_tip.contains(key) {
             continue;
         }
         groups
-            .entry(cursors.get(key).cloned())
+            .entry(cursors.get(key).copied())
             .or_default()
             .push(*key);
     }
     groups
 }
 
-/// One page of a cursor-ordered stream, reduced to what paging needs.
+/// One page of a position-ordered stream, reduced to what paging needs.
 struct Page {
-    next_cursor: Option<Vec<u8>>,
-    /// Where the server's scan reached. Reported only by the nullifier stream,
-    /// whose pages are normally empty and so carry no last row.
-    scanned_through: Option<Vec<u8>>,
+    /// Present only when the limit truncated the page.
+    next: Option<ChainPosition>,
+    /// The stream tip, present on the terminal page.
+    latest: Option<ChainPosition>,
 }
 
 /// Reads one chunk until the stream offers no further cursor, returning the
 /// position reached.
-fn read_chunk<F>(start: Option<Vec<u8>>, mut request: F) -> Result<Option<Vec<u8>>, ClientError>
+fn read_chunk<F>(
+    start: Option<ChainPosition>,
+    mut request: F,
+) -> Result<Option<ChainPosition>, ClientError>
 where
-    F: FnMut(Option<Vec<u8>>) -> Result<Page, ClientError>,
+    F: FnMut(Option<ChainPosition>) -> Result<Page, ClientError>,
 {
-    let mut cursor = start.clone();
+    let mut since = start;
     let mut furthest = start;
     loop {
-        let page = request(cursor)?;
-        let Some(next) = advance(&mut furthest, page) else {
+        let page = request(since)?;
+        let Some(next) = advance(&mut furthest, page)? else {
             return Ok(furthest);
         };
-        cursor = Some(next);
+        since = Some(next);
     }
 }
 
 /// Per key, the position read through.
-type StreamCursors = HashMap<CursorStream, Vec<u8>>;
+type StreamCursors = HashMap<CursorStream, ChainPosition>;
 
 /// One map per stream, so concurrent fetches borrow disjointly. Caller merges.
 fn split_by_stream(cursors: StreamCursors) -> (StreamCursors, StreamCursors, StreamCursors) {
@@ -614,80 +605,81 @@ fn stream_keys(values: &[[u8; 32]], stream: fn([u8; 32]) -> CursorStream) -> Vec
     values.iter().copied().map(stream).collect()
 }
 
-/// Keys with a watermark on one stream.
-fn stream_len(wallet: &Wallet, matches: fn(&CursorStream) -> bool) -> usize {
-    wallet.cursors.keys().filter(|key| matches(key)).count()
-}
-
 /// Records one position for every key in the chunk.
 ///
 /// Sound because the ordering is global: a position from a query over
 /// {A, B, C} holds for each of them individually.
 fn record_chunk<K: Copy + Eq + std::hash::Hash>(
     chunk: &[K],
-    furthest: Option<Vec<u8>>,
-    cursors: &mut HashMap<K, Vec<u8>>,
+    furthest: Option<ChainPosition>,
+    cursors: &mut HashMap<K, ChainPosition>,
     scanned_to_tip: &mut HashSet<K>,
 ) {
     if let Some(position) = furthest {
         for key in chunk {
-            cursors.insert(*key, position.clone());
+            cursors.insert(*key, position);
         }
     }
     scanned_to_tip.extend(chunk.iter().copied());
 }
 
-/// Folds one page into the position read so far. `None` ends the read.
+/// Folds one page into the position read so far. `Ok(None)` ends the read.
 ///
-/// A cursor means there may be more, whatever the page size. Stopping on a short
-/// page would make the non-advancing-cursor guard unreachable.
+/// `next` means there may be more, whatever the page size. A `next` that does
+/// not move past the position already read is a server paging fault and would
+/// loop forever, so it is rejected.
 ///
 /// The async paths keep their own loop and share only this: an `AsyncFnMut`
 /// cannot carry the `Send` bound their callers require.
-fn advance(furthest: &mut Option<Vec<u8>>, page: Page) -> Option<Vec<u8>> {
-    // The server's scan position if reported, else the last row, else unchanged.
-    *furthest = page
-        .scanned_through
-        .or_else(|| page.next_cursor.clone())
-        .or_else(|| furthest.take());
-    page.next_cursor
+fn advance(
+    furthest: &mut Option<ChainPosition>,
+    page: Page,
+) -> Result<Option<ChainPosition>, ClientError> {
+    if let (Some(next), Some(reached)) = (page.next, *furthest) {
+        if next <= reached {
+            return Err(ClientError::Indexer("page did not advance".into()));
+        }
+    }
+    // The stream tip if reported, else the truncation point, else unchanged.
+    *furthest = page.latest.or(page.next).or(*furthest);
+    Ok(page.next)
 }
 
 /// Fetch shielded transactions for `tags`, resuming each tag from where it was
 /// last seen.
 ///
-/// The cursor photon returns is a position in a GLOBAL ordering -- slot, then
-/// signature, then event index -- and that ordering does not depend on which tags
-/// were requested. So a cursor obtained from a query over {A, B, C} is a valid
-/// statement about each of A, B and C individually: everything matching that tag
-/// up to this position has been seen. It says nothing about a tag that was not in
-/// the query, which is exactly why a single shared cursor is unsafe.
+/// The position photon returns lives in a GLOBAL ordering -- slot, then
+/// signature -- that does not depend on which tags were requested. So a position
+/// obtained from a query over {A, B, C} is a valid statement about each of A, B
+/// and C individually: everything matching that tag up to this position has been
+/// seen. It says nothing about a tag that was not in the query, which is exactly
+/// why a single shared position is unsafe.
 ///
-/// Tags are therefore grouped by the cursor they carry, and one query is issued
-/// per group. In the steady state every known tag shares one cursor and newly
+/// Tags are therefore grouped by the position they carry, and one query is issued
+/// per group. In the steady state every known tag shares one position and newly
 /// derived tags have none, so this is two queries regardless of how many tags the
-/// wallet has -- against one query per 64-tag chunk, repeated every sync, before.
+/// wallet has.
 ///
-/// Without this, a tag that becomes relevant only after the cursor advanced past
-/// its transactions would never be scanned for them. That is not hypothetical: a
-/// wallet's tag set is derived from a local counter plus a window of 64, and a
-/// second device spending further ahead than that window makes the counter lag by
-/// more than the window can absorb.
+/// Without this, a tag that becomes relevant only after the position advanced
+/// past its transactions would never be scanned for them. That is not
+/// hypothetical: a wallet's tag set is derived from a local counter plus a window
+/// of 64, and a second device spending further ahead than that window makes the
+/// counter lag by more than the window can absorb.
 fn fetch_shielded_transactions_incremental<I: Rpc>(
     indexer: &I,
     keys: &[CursorStream],
     out: &mut HashMap<String, ShieldedTransaction>,
     config: SyncWalletConfig,
     rpc_config: Option<IndexerRpcConfig>,
-    cursors: &mut HashMap<CursorStream, Vec<u8>>,
+    cursors: &mut StreamCursors,
     scanned_to_tip: &mut HashSet<CursorStream>,
 ) -> Result<(), ClientError> {
     for (start, group) in group_by_resume_point(keys, cursors, scanned_to_tip) {
         for chunk in group.chunks(config.tag_query_chunk) {
-            let furthest = read_chunk(start.clone(), |cursor| {
+            let furthest = read_chunk(start, |since| {
                 let response = indexer.get_shielded_transactions_by_tags(
                     chunk.iter().copied().map(CursorStream::value).collect(),
-                    cursor,
+                    since,
                     Some(config.page_limit),
                     rpc_config,
                 )?;
@@ -699,8 +691,8 @@ fn fetch_shielded_transactions_incremental<I: Rpc>(
                     out.entry(key).or_insert(convert_sync_transaction(tx)?);
                 }
                 Ok(Page {
-                    next_cursor: response.next_cursor,
-                    scanned_through: response.scanned_through,
+                    next: response.next,
+                    latest: response.latest,
                 })
             })?;
 
@@ -718,18 +710,18 @@ async fn fetch_shielded_transactions_incremental_async<I: AsyncRpc>(
     out: &mut HashMap<String, ShieldedTransaction>,
     config: SyncWalletConfig,
     rpc_config: Option<IndexerRpcConfig>,
-    cursors: &mut HashMap<CursorStream, Vec<u8>>,
+    cursors: &mut StreamCursors,
     scanned_to_tip: &mut HashSet<CursorStream>,
 ) -> Result<(), ClientError> {
     for (start, group) in group_by_resume_point(keys, cursors, scanned_to_tip) {
         for chunk in group.chunks(config.tag_query_chunk) {
-            let mut cursor = start.clone();
-            let mut furthest = start.clone();
+            let mut since = start;
+            let mut furthest = start;
             loop {
                 let response = indexer
                     .get_shielded_transactions_by_tags(
                         chunk.iter().copied().map(CursorStream::value).collect(),
-                        cursor,
+                        since,
                         Some(config.page_limit),
                         rpc_config,
                     )
@@ -742,13 +734,13 @@ async fn fetch_shielded_transactions_incremental_async<I: AsyncRpc>(
                     out.entry(key).or_insert(convert_sync_transaction(tx)?);
                 }
                 let page = Page {
-                    next_cursor: response.next_cursor,
-                    scanned_through: response.scanned_through,
+                    next: response.next,
+                    latest: response.latest,
                 };
-                let Some(next) = advance(&mut furthest, page) else {
+                let Some(next) = advance(&mut furthest, page)? else {
                     break;
                 };
-                cursor = Some(next);
+                since = Some(next);
             }
 
             record_chunk(chunk, furthest, cursors, scanned_to_tip);
@@ -759,25 +751,24 @@ async fn fetch_shielded_transactions_incremental_async<I: AsyncRpc>(
 
 /// Fetches spends of `nullifiers`, resuming each from where it was last checked.
 ///
-/// The resume point comes from `scanned_through`, not from rows: an unspent
-/// nullifier matches nothing. Positions are per nullifier, since a scan over
-/// {A, B, C} says nothing about D. A nullifier with no entry is read from
-/// zero.
+/// The resume point comes from `latest`, not from rows: an unspent nullifier
+/// matches nothing. Positions are per nullifier, since a scan over {A, B, C}
+/// says nothing about D. A nullifier with no entry is read from zero.
 fn fetch_shielded_transactions_by_nullifiers<I: Rpc>(
     indexer: &I,
     keys: &[CursorStream],
     out: &mut HashMap<String, ShieldedTransaction>,
     config: SyncWalletConfig,
     rpc_config: Option<IndexerRpcConfig>,
-    cursors: &mut HashMap<CursorStream, Vec<u8>>,
+    cursors: &mut StreamCursors,
     scanned_to_tip: &mut HashSet<CursorStream>,
 ) -> Result<(), ClientError> {
     for (start, group) in group_by_resume_point(keys, cursors, scanned_to_tip) {
         for chunk in group.chunks(config.tag_query_chunk) {
-            let furthest = read_chunk(start.clone(), |cursor| {
+            let furthest = read_chunk(start, |since| {
                 let response = indexer.get_shielded_transactions_by_nullifiers(
                     chunk.iter().copied().map(CursorStream::value).collect(),
-                    cursor,
+                    since,
                     Some(config.page_limit),
                     rpc_config,
                 )?;
@@ -786,8 +777,8 @@ fn fetch_shielded_transactions_by_nullifiers<I: Rpc>(
                     out.entry(key).or_insert(convert_sync_transaction(tx)?);
                 }
                 Ok(Page {
-                    next_cursor: response.next_cursor,
-                    scanned_through: response.scanned_through,
+                    next: response.next,
+                    latest: response.latest,
                 })
             })?;
 
@@ -805,18 +796,18 @@ async fn fetch_shielded_transactions_by_nullifiers_async<I: AsyncRpc>(
     out: &mut HashMap<String, ShieldedTransaction>,
     config: SyncWalletConfig,
     rpc_config: Option<IndexerRpcConfig>,
-    cursors: &mut HashMap<CursorStream, Vec<u8>>,
+    cursors: &mut StreamCursors,
     scanned_to_tip: &mut HashSet<CursorStream>,
 ) -> Result<(), ClientError> {
     for (start, group) in group_by_resume_point(keys, cursors, scanned_to_tip) {
         for chunk in group.chunks(config.tag_query_chunk) {
-            let mut cursor = start.clone();
-            let mut furthest = start.clone();
+            let mut since = start;
+            let mut furthest = start;
             loop {
                 let response = indexer
                     .get_shielded_transactions_by_nullifiers(
                         chunk.iter().copied().map(CursorStream::value).collect(),
-                        cursor,
+                        since,
                         Some(config.page_limit),
                         rpc_config,
                     )
@@ -826,13 +817,13 @@ async fn fetch_shielded_transactions_by_nullifiers_async<I: AsyncRpc>(
                     out.entry(key).or_insert(convert_sync_transaction(tx)?);
                 }
                 let page = Page {
-                    next_cursor: response.next_cursor,
-                    scanned_through: response.scanned_through,
+                    next: response.next,
+                    latest: response.latest,
                 };
-                let Some(next) = advance(&mut furthest, page) else {
+                let Some(next) = advance(&mut furthest, page)? else {
                     break;
                 };
-                cursor = Some(next);
+                since = Some(next);
             }
 
             record_chunk(chunk, furthest, cursors, scanned_to_tip);
@@ -852,7 +843,7 @@ fn fetch_proofless_deposits<I>(
     out: &mut HashMap<String, ShieldedTransaction>,
     config: SyncWalletConfig,
     rpc_config: Option<IndexerRpcConfig>,
-    cursors: &mut HashMap<CursorStream, Vec<u8>>,
+    cursors: &mut StreamCursors,
     scanned_to_tip: &mut HashSet<CursorStream>,
 ) -> Result<(), ClientError>
 where
@@ -860,10 +851,10 @@ where
 {
     for (start, group) in group_by_resume_point(keys, cursors, scanned_to_tip) {
         for chunk in group.chunks(config.tag_query_chunk) {
-            let furthest = read_chunk(start.clone(), |cursor| {
+            let furthest = read_chunk(start, |since| {
                 let response = indexer.get_encrypted_utxos_by_tags(
                     chunk.iter().copied().map(CursorStream::value).collect(),
-                    cursor,
+                    since,
                     Some(config.page_limit),
                     rpc_config,
                 )?;
@@ -883,8 +874,8 @@ where
                     }
                 }
                 Ok(Page {
-                    next_cursor: response.next_cursor,
-                    scanned_through: response.scanned_through,
+                    next: response.next,
+                    latest: response.latest,
                 })
             })?;
 
@@ -902,18 +893,18 @@ async fn fetch_proofless_deposits_async<I: AsyncRpc>(
     out: &mut HashMap<String, ShieldedTransaction>,
     config: SyncWalletConfig,
     rpc_config: Option<IndexerRpcConfig>,
-    cursors: &mut HashMap<CursorStream, Vec<u8>>,
+    cursors: &mut StreamCursors,
     scanned_to_tip: &mut HashSet<CursorStream>,
 ) -> Result<(), ClientError> {
     for (start, group) in group_by_resume_point(keys, cursors, scanned_to_tip) {
         for chunk in group.chunks(config.tag_query_chunk) {
-            let mut cursor = start.clone();
-            let mut furthest = start.clone();
+            let mut since = start;
+            let mut furthest = start;
             loop {
                 let response = indexer
                     .get_encrypted_utxos_by_tags(
                         chunk.iter().copied().map(CursorStream::value).collect(),
-                        cursor,
+                        since,
                         Some(config.page_limit),
                         rpc_config,
                     )
@@ -934,13 +925,13 @@ async fn fetch_proofless_deposits_async<I: AsyncRpc>(
                     }
                 }
                 let page = Page {
-                    next_cursor: response.next_cursor,
-                    scanned_through: response.scanned_through,
+                    next: response.next,
+                    latest: response.latest,
                 };
-                let Some(next) = advance(&mut furthest, page) else {
+                let Some(next) = advance(&mut furthest, page)? else {
                     break;
                 };
-                cursor = Some(next);
+                since = Some(next);
             }
 
             record_chunk(chunk, furthest, cursors, scanned_to_tip);
@@ -1044,12 +1035,12 @@ mod tests {
         GetShieldedTransactionsByTagsResponse, OutputContext, OutputSlot,
     };
 
-    /// A mock that behaves like photon: filters by tag, honours the cursor, and
+    /// A mock that behaves like photon: filters by tag, honours `since`, and
     /// orders globally by slot.
     ///
-    /// The existing `MockIndexer` ignores both tags and cursor, which is fine for
-    /// decryption tests and useless for this one -- the bug being pinned here is
-    /// precisely an interaction between the two.
+    /// The existing `MockIndexer` ignores both tags and `since`, which is fine
+    /// for decryption tests and useless for this one -- the bug being pinned here
+    /// is precisely an interaction between the two.
     #[derive(Default)]
     struct TaggedIndexer {
         /// (slot, view tag) pairs. Signature is derived from the slot so the sort
@@ -1069,18 +1060,23 @@ mod tests {
     }
 
     impl TaggedIndexer {
-        /// Cursor is the slot of the last row returned, encoded as 8 bytes. Real
-        /// photon encodes (slot, signature, event_index); slot alone is a total
-        /// order here because each fixture uses a distinct slot.
+        /// A position's signature derives from its slot, matching the rows the
+        /// mock fabricates, and slot alone is a total order here because each
+        /// fixture uses a distinct slot.
+        fn position(slot: u64) -> ChainPosition {
+            ChainPosition {
+                slot,
+                signature: Signature::from([slot as u8; 64]),
+            }
+        }
+
         fn matching(
             &self,
             tags: &[ViewTag],
-            cursor: Option<Vec<u8>>,
+            since: Option<ChainPosition>,
             limit: usize,
-        ) -> (Vec<ShieldedTransaction>, Option<Vec<u8>>) {
-            let after = cursor.as_ref().map(|bytes| {
-                u64::from_be_bytes(bytes.as_slice().try_into().expect("8-byte cursor"))
-            });
+        ) -> PagedRows {
+            let after = since.map(|position| position.slot);
             self.calls
                 .lock()
                 .expect("calls poisoned")
@@ -1093,12 +1089,14 @@ mod tests {
                 .collect();
             rows.sort_by_key(|(slot, _)| *slot);
 
-            // Photon's rule (`next_cursor_from_rows`): the position of the last
-            // row returned, or None when there were none. A short page still
-            // carries a cursor, so the client can resume from the tip next sync
-            // instead of rescanning; the loop ends on the following empty page.
+            // Mirrors photon, a truncated page carries its last row's position
+            // as `next`, a terminal page the stream tip as `latest`.
+            let truncated = rows.len() > limit;
             rows.truncate(limit);
-            let next = rows.last().map(|(slot, _)| slot.to_be_bytes().to_vec());
+            let next = truncated.then(|| Self::position(rows.last().expect("truncated row").0));
+            let latest = (!truncated)
+                .then(|| self.stream_tip().map(Self::position))
+                .flatten();
             let transactions = rows
                 .into_iter()
                 .map(|(slot, tag)| ShieldedTransaction {
@@ -1120,19 +1118,17 @@ mod tests {
                     proofless: false,
                 })
                 .collect();
-            (transactions, next)
+            (transactions, next, latest)
         }
 
-        /// The nullifier stream, same ordering and cursor rule.
+        /// The nullifier stream, same ordering and paging rule.
         fn matching_nullifiers(
             &self,
             nullifiers: &[[u8; 32]],
-            cursor: Option<Vec<u8>>,
+            since: Option<ChainPosition>,
             limit: usize,
-        ) -> (Vec<ShieldedTransaction>, Option<Vec<u8>>, Option<Vec<u8>>) {
-            let after = cursor.as_ref().map(|bytes| {
-                u64::from_be_bytes(bytes.as_slice().try_into().expect("8-byte cursor"))
-            });
+        ) -> PagedRows {
+            let after = since.map(|position| position.slot);
             self.nullifier_calls
                 .lock()
                 .expect("calls poisoned")
@@ -1146,14 +1142,13 @@ mod tests {
                 })
                 .collect();
             rows.sort_by_key(|(slot, _)| *slot);
+            let truncated = rows.len() > limit;
             rows.truncate(limit);
 
-            let next = rows.last().map(|(slot, _)| slot.to_be_bytes().to_vec());
-            // Photon reports the position only when the limit did not cut the
-            // scan short, and it is the tip of the whole stream, not of the
-            // matching rows.
-            let scanned_through = (rows.len() < limit)
-                .then(|| self.stream_tip().map(|slot| slot.to_be_bytes().to_vec()))
+            let next = truncated.then(|| Self::position(rows.last().expect("truncated row").0));
+            // The tip of the whole stream, not of the matching rows.
+            let latest = (!truncated)
+                .then(|| self.stream_tip().map(Self::position))
                 .flatten();
             let transactions = rows
                 .into_iter()
@@ -1168,7 +1163,7 @@ mod tests {
                     proofless: false,
                 })
                 .collect();
-            (transactions, next, scanned_through)
+            (transactions, next, latest)
         }
 
         /// The greatest position in the stream, matching or not, as photon reads
@@ -1181,6 +1176,13 @@ mod tests {
                 .max()
         }
     }
+
+    /// Rows plus the `next` and `latest` positions of the page they came on.
+    type PagedRows = (
+        Vec<ShieldedTransaction>,
+        Option<ChainPosition>,
+        Option<ChainPosition>,
+    );
 
     #[derive(Default)]
     struct MockIndexer {
@@ -1202,7 +1204,7 @@ mod tests {
         fn get_encrypted_utxos_by_tags(
             &self,
             _tags: Vec<ViewTag>,
-            _cursor: Option<Vec<u8>>,
+            _since: Option<ChainPosition>,
             _limit: Option<u32>,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
@@ -1212,15 +1214,15 @@ mod tests {
                     slot: 1,
                 },
                 matches: self.matches.clone(),
-                next_cursor: None,
-                scanned_through: None,
+                next: None,
+                latest: None,
             })
         }
 
         fn get_shielded_transactions_by_tags(
             &self,
             _tags: Vec<ViewTag>,
-            _cursor: Option<Vec<u8>>,
+            _since: Option<ChainPosition>,
             _limit: Option<u32>,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
@@ -1230,15 +1232,15 @@ mod tests {
                     slot: 1,
                 },
                 transactions: self.transactions.clone(),
-                next_cursor: None,
-                scanned_through: None,
+                next: None,
+                latest: None,
             })
         }
 
         fn get_shielded_transactions_by_nullifiers(
             &self,
             nullifiers: Vec<ViewTag>,
-            _cursor: Option<Vec<u8>>,
+            _since: Option<ChainPosition>,
             _limit: Option<u32>,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
@@ -1253,10 +1255,10 @@ mod tests {
                     .filter(|tx| tx.nullifiers.iter().any(|nf| nullifiers.contains(nf)))
                     .cloned()
                     .collect(),
-                next_cursor: None,
+                next: None,
                 // Answers in one page and never paginates; resumption is covered
                 // by TaggedIndexer.
-                scanned_through: None,
+                latest: None,
             })
         }
     }
@@ -1276,14 +1278,12 @@ mod tests {
         fn get_encrypted_utxos_by_tags(
             &self,
             tags: Vec<ViewTag>,
-            cursor: Option<Vec<u8>>,
+            since: Option<ChainPosition>,
             limit: Option<u32>,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
             let limit = limit.unwrap_or(1_000).max(1) as usize;
-            let after = cursor.as_ref().map(|bytes| {
-                u64::from_be_bytes(bytes.as_slice().try_into().expect("8-byte cursor"))
-            });
+            let after = since.map(|position| position.slot);
             self.utxo_calls
                 .lock()
                 .expect("calls poisoned")
@@ -1295,9 +1295,19 @@ mod tests {
                 .filter(|(slot, tag)| tags.contains(tag) && after.is_none_or(|after| *slot > after))
                 .collect();
             rows.sort_by_key(|(slot, _)| *slot);
+            let truncated = rows.len() > limit;
             rows.truncate(limit);
 
-            let next_cursor = rows.last().map(|(slot, _)| slot.to_be_bytes().to_vec());
+            let next = truncated.then(|| Self::position(rows.last().expect("truncated row").0));
+            let latest = (!truncated)
+                .then(|| {
+                    self.utxo_entries
+                        .iter()
+                        .map(|(slot, _)| *slot)
+                        .max()
+                        .map(Self::position)
+                })
+                .flatten();
             let matches = rows
                 .into_iter()
                 .map(|(slot, tag)| EncryptedUtxoMatch {
@@ -1322,54 +1332,48 @@ mod tests {
                     slot: 1,
                 },
                 matches,
-                next_cursor,
-                scanned_through: None,
+                next,
+                latest,
             })
         }
 
         fn get_shielded_transactions_by_tags(
             &self,
             tags: Vec<ViewTag>,
-            cursor: Option<Vec<u8>>,
+            since: Option<ChainPosition>,
             limit: Option<u32>,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
             let limit = limit.unwrap_or(1_000).max(1) as usize;
-            let (transactions, next_cursor) = self.matching(&tags, cursor, limit);
+            let (transactions, next, latest) = self.matching(&tags, since, limit);
             Ok(GetShieldedTransactionsByTagsResponse {
                 context: Context {
                     block_time: 0,
                     slot: 1,
                 },
                 transactions,
-                next_cursor,
-                scanned_through: None,
+                next,
+                latest,
             })
         }
 
-        /// Faithful to the server in the same way the tag method is: it honours
-        /// the cursor and reports the last row's position even on a short page.
-        /// The previous stub ignored both and always answered `None`, which is
-        /// what let the nullifier path look incremental in tests while rescanning
-        /// from zero against real photon.
         fn get_shielded_transactions_by_nullifiers(
             &self,
             nullifiers: Vec<[u8; 32]>,
-            cursor: Option<Vec<u8>>,
+            since: Option<ChainPosition>,
             limit: Option<u32>,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
             let limit = limit.unwrap_or(1_000).max(1) as usize;
-            let (transactions, next_cursor, scanned_through) =
-                self.matching_nullifiers(&nullifiers, cursor, limit);
+            let (transactions, next, latest) = self.matching_nullifiers(&nullifiers, since, limit);
             Ok(GetShieldedTransactionsByNullifiersResponse {
                 context: Context {
                     block_time: 0,
                     slot: 1,
                 },
                 transactions,
-                next_cursor,
-                scanned_through,
+                next,
+                latest,
             })
         }
     }
@@ -1406,7 +1410,7 @@ mod tests {
 
         let config = SyncWalletConfig::default();
         let mut out = HashMap::new();
-        let mut cursors: HashMap<CursorStream, Vec<u8>> = HashMap::new();
+        let mut cursors: HashMap<CursorStream, ChainPosition> = HashMap::new();
         let mut scanned = HashSet::new();
 
         // Round 0: only the early tag is known.
@@ -1434,24 +1438,20 @@ mod tests {
         )
         .expect("round 1");
 
-        // Two requests per round: one for the rows, one that comes back empty
-        // and ends the stream. What matters is that no request ever carries two
-        // tags -- the early tag is never re-queried.
+        // One request per round, a terminal page ends the stream without an
+        // extra empty-page round trip. What matters is that no request ever
+        // carries two tags -- the early tag is never re-queried.
         assert_eq!(
             *indexer.calls.lock().expect("calls poisoned"),
-            vec![(1, None), (1, Some(10)), (1, None), (1, Some(50))],
+            vec![(1, None), (1, None)],
             "round 1 must ask for the late tag alone, not both tags again"
         );
     }
 
     /// A wallet whose whole history fits in one page must still record where it
-    /// got to. Photon used to return no cursor for a short page, which is right
-    /// for pagination and wrong for resumption: such a wallet recorded nothing
-    /// and refetched its entire history on every sync, growing with every
-    /// transfer. On devnet an 881-transaction wallet spent 2.4s of a 5.0s sync
-    /// doing exactly that.
-    ///
-    /// The stream now ends on the following empty page instead.
+    /// got to. A terminal page carries `latest`, so such a wallet records the
+    /// stream tip in one request instead of refetching its entire history on
+    /// every sync.
     #[test]
     fn a_short_page_still_advances_the_cursor_to_the_tip() {
         let keypair = ShieldedKeypair::new_p256().expect("keypair");
@@ -1463,7 +1463,7 @@ mod tests {
         };
 
         let mut out = HashMap::new();
-        let mut cursors: HashMap<CursorStream, Vec<u8>> = HashMap::new();
+        let mut cursors: HashMap<CursorStream, ChainPosition> = HashMap::new();
         fetch_shielded_transactions_incremental(
             &indexer,
             &[CursorStream::Tags(tag)],
@@ -1478,14 +1478,14 @@ mod tests {
         assert_eq!(
             cursors
                 .get(&CursorStream::Tags(tag))
-                .map(|c| u64::from_be_bytes(c.as_slice().try_into().expect("8-byte cursor"))),
+                .map(|position| position.slot),
             Some(50),
             "a short page still records the tip, so the next sync resumes there"
         );
         assert_eq!(
             *indexer.calls.lock().expect("calls poisoned"),
-            vec![(1, None), (1, Some(50))],
-            "one request for the rows, one more that returns none and ends the loop"
+            vec![(1, None)],
+            "a terminal page carries the tip, so one request is the whole read"
         );
     }
 
@@ -1542,56 +1542,70 @@ mod tests {
         );
     }
 
-    /// A cursor means there may be more; only its absence ends the read. Every
+    /// `next` means there may be more; only its absence ends the read. Every
     /// stream pages through [`advance`], so this is the rule for all three.
     ///
     /// Guessing from page size instead would save a request per chunk, and was
-    /// tried: it makes the non-advancing-cursor guard unreachable, and stakes
+    /// tried: it makes the non-advancing-page guard unreachable, and stakes
     /// correctness on every endpoint returning a short page only when genuinely
     /// out of rows. Skipping a spend silently is not worth a round trip.
     #[test]
-    fn only_a_missing_cursor_ends_the_read() {
-        let cursor = |slot: u64| Some(slot.to_be_bytes().to_vec());
+    fn only_a_missing_next_ends_the_read() {
+        let position = |slot: u64| Some(TaggedIndexer::position(slot));
 
         let mut furthest = None;
         assert_eq!(
             advance(
                 &mut furthest,
                 Page {
-                    next_cursor: cursor(50),
-                    scanned_through: None,
+                    next: position(50),
+                    latest: None,
                 },
-            ),
-            cursor(50),
-            "a cursor is an invitation to read on"
+            )
+            .expect("advance"),
+            position(50),
+            "next is an invitation to read on"
         );
 
-        let mut furthest = cursor(10);
+        let mut furthest = position(10);
         assert!(
             advance(
                 &mut furthest,
                 Page {
-                    next_cursor: None,
-                    scanned_through: None,
+                    next: None,
+                    latest: None,
                 },
             )
+            .expect("advance")
             .is_none(),
-            "no cursor ends it"
+            "no next ends it"
         );
-        assert_eq!(furthest, cursor(10), "and the earlier position is kept");
+        assert_eq!(furthest, position(10), "and the earlier position is kept");
 
-        // The nullifier stream's pages are normally empty, so its position comes
-        // from the server rather than from a row.
+        // A terminal page reports the stream tip even when it carried no rows.
         let mut furthest = None;
         assert!(advance(
             &mut furthest,
             Page {
-                next_cursor: None,
-                scanned_through: cursor(99),
+                next: None,
+                latest: position(99),
             },
         )
+        .expect("advance")
         .is_none());
-        assert_eq!(furthest, cursor(99));
+        assert_eq!(furthest, position(99));
+
+        // A next that does not move past the position already read would loop
+        // forever, so it is an error, not a retry.
+        let mut furthest = position(50);
+        assert!(advance(
+            &mut furthest,
+            Page {
+                next: position(50),
+                latest: None,
+            },
+        )
+        .is_err());
     }
 
     /// The async twins page and resume like the blocking ones.
@@ -1611,7 +1625,7 @@ mod tests {
         };
         let config = SyncWalletConfig::default();
 
-        let mut tag_cursors = HashMap::new();
+        let mut tag_cursors: HashMap<CursorStream, ChainPosition> = HashMap::new();
         fetch_shielded_transactions_incremental_async(
             &indexer,
             &[CursorStream::Tags(tag)],
@@ -1667,11 +1681,9 @@ mod tests {
             Some(30)
         );
 
-        // The streams that return rows take a second request to reach the empty
-        // page that ends them. The nullifier stream matches nothing, so its
-        // first page is already the last.
-        assert_eq!(indexer.calls.lock().expect("calls poisoned").len(), 2);
-        assert_eq!(indexer.utxo_calls.lock().expect("calls poisoned").len(), 2);
+        // Every stream answers in one terminal page, so one request each.
+        assert_eq!(indexer.calls.lock().expect("calls poisoned").len(), 1);
+        assert_eq!(indexer.utxo_calls.lock().expect("calls poisoned").len(), 1);
         assert_eq!(
             indexer
                 .nullifier_calls
@@ -1682,15 +1694,15 @@ mod tests {
         );
     }
 
-    fn slot_of(cursor: &Vec<u8>) -> u64 {
-        u64::from_be_bytes(cursor.as_slice().try_into().expect("8-byte cursor"))
+    fn slot_of(position: &ChainPosition) -> u64 {
+        position.slot
     }
 
     /// A second sync resumes the nullifier stream instead of walking it again.
     ///
-    /// This is what the indexer's `scanned_through` buys. The rows cannot supply
-    /// it: an unspent nullifier matches nothing, so there is no last row whose
-    /// position could be remembered, and every sync would start from zero.
+    /// This is what the indexer's `latest` buys. The rows cannot supply it: an
+    /// unspent nullifier matches nothing, so there is no last row whose position
+    /// could be remembered, and every sync would start from zero.
     #[test]
     fn a_second_sync_resumes_the_nullifier_stream() {
         let unspent = [7u8; 32];
@@ -1702,7 +1714,7 @@ mod tests {
 
         let config = SyncWalletConfig::default();
         let mut out = HashMap::new();
-        let mut cursors: HashMap<CursorStream, Vec<u8>> = HashMap::new();
+        let mut cursors: HashMap<CursorStream, ChainPosition> = HashMap::new();
 
         fetch_shielded_transactions_by_nullifiers(
             &indexer,
@@ -1718,7 +1730,7 @@ mod tests {
         assert_eq!(
             cursors
                 .get(&CursorStream::Nullifiers(unspent))
-                .map(|c| u64::from_be_bytes(c.as_slice().try_into().expect("8-byte cursor"))),
+                .map(|position| position.slot),
             Some(50),
             "nothing matched, but the scan still reached the tip of the stream"
         );
@@ -1749,12 +1761,9 @@ mod tests {
 
     /// A second sync resumes the encrypted-utxo stream instead of re-reading it.
     ///
-    /// This is the test the change that introduced `proofless_cursors` said it
-    /// could not write: the old mock answered every page with `next_cursor:
-    /// None`, so the client looked incremental while re-reading everything. It
-    /// pins what the client *sends* -- that the second sync carries the position
-    /// the first one reached. Whether photon reports that position the same way
-    /// is the local stack's job, not this one's.
+    /// It pins what the client *sends* -- that the second sync carries the
+    /// position the first one reached. Whether photon reports that position the
+    /// same way is the local stack's job, not this one's.
     #[test]
     fn a_second_sync_resumes_the_proofless_stream() {
         let tag = ViewTag::from([5u8; 32]);
@@ -1765,7 +1774,7 @@ mod tests {
 
         let config = SyncWalletConfig::default();
         let mut out = HashMap::new();
-        let mut cursors: HashMap<CursorStream, Vec<u8>> = HashMap::new();
+        let mut cursors: HashMap<CursorStream, ChainPosition> = HashMap::new();
 
         fetch_proofless_deposits(
             &indexer,
@@ -1781,7 +1790,7 @@ mod tests {
         assert_eq!(
             cursors
                 .get(&CursorStream::Proofless(tag))
-                .map(|c| u64::from_be_bytes(c.as_slice().try_into().expect("8-byte cursor"))),
+                .map(|position| position.slot),
             Some(50),
             "the scan read to the last row, so that is where it resumes"
         );
@@ -1826,15 +1835,8 @@ mod tests {
             ..Default::default()
         };
 
-        // page_limit 1 so every page is full and photon hands back a cursor.
-        // At the default limit these two rows are one short page, which by
-        // photon's rule carries no cursor at all -- see
-        // `a_short_page_ends_the_stream_and_advances_no_cursor`.
-        let config = SyncWalletConfig {
-            page_limit: 1,
-            ..SyncWalletConfig::default()
-        };
-        let mut cursors: HashMap<CursorStream, Vec<u8>> = HashMap::new();
+        let config = SyncWalletConfig::default();
+        let mut cursors: HashMap<CursorStream, ChainPosition> = HashMap::new();
 
         // First sync knows only the early tag, and advances past slot 50.
         let mut first = HashMap::new();
@@ -1853,9 +1855,9 @@ mod tests {
         assert_eq!(
             cursors
                 .get(&CursorStream::Tags(early))
-                .map(|c| u64::from_be_bytes(c.as_slice().try_into().unwrap())),
+                .map(|position| position.slot),
             Some(50),
-            "the early tag should have advanced to the last row it saw"
+            "the early tag should have advanced to the stream tip"
         );
         assert!(
             !cursors.contains_key(&CursorStream::Tags(late)),
@@ -1906,31 +1908,31 @@ mod tests {
         async fn get_encrypted_utxos_by_tags(
             &self,
             tags: Vec<ViewTag>,
-            cursor: Option<Vec<u8>>,
+            since: Option<ChainPosition>,
             limit: Option<u32>,
             config: Option<IndexerRpcConfig>,
         ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
-            Rpc::get_encrypted_utxos_by_tags(self, tags, cursor, limit, config)
+            Rpc::get_encrypted_utxos_by_tags(self, tags, since, limit, config)
         }
 
         async fn get_shielded_transactions_by_tags(
             &self,
             tags: Vec<ViewTag>,
-            cursor: Option<Vec<u8>>,
+            since: Option<ChainPosition>,
             limit: Option<u32>,
             config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-            Rpc::get_shielded_transactions_by_tags(self, tags, cursor, limit, config)
+            Rpc::get_shielded_transactions_by_tags(self, tags, since, limit, config)
         }
 
         async fn get_shielded_transactions_by_nullifiers(
             &self,
             nullifiers: Vec<ViewTag>,
-            cursor: Option<Vec<u8>>,
+            since: Option<ChainPosition>,
             limit: Option<u32>,
             config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
-            Rpc::get_shielded_transactions_by_nullifiers(self, nullifiers, cursor, limit, config)
+            Rpc::get_shielded_transactions_by_nullifiers(self, nullifiers, since, limit, config)
         }
     }
 
@@ -1946,31 +1948,31 @@ mod tests {
         async fn get_encrypted_utxos_by_tags(
             &self,
             tags: Vec<ViewTag>,
-            cursor: Option<Vec<u8>>,
+            since: Option<ChainPosition>,
             limit: Option<u32>,
             config: Option<IndexerRpcConfig>,
         ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
-            Rpc::get_encrypted_utxos_by_tags(self, tags, cursor, limit, config)
+            Rpc::get_encrypted_utxos_by_tags(self, tags, since, limit, config)
         }
 
         async fn get_shielded_transactions_by_tags(
             &self,
             tags: Vec<ViewTag>,
-            cursor: Option<Vec<u8>>,
+            since: Option<ChainPosition>,
             limit: Option<u32>,
             config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-            Rpc::get_shielded_transactions_by_tags(self, tags, cursor, limit, config)
+            Rpc::get_shielded_transactions_by_tags(self, tags, since, limit, config)
         }
 
         async fn get_shielded_transactions_by_nullifiers(
             &self,
             nullifiers: Vec<ViewTag>,
-            cursor: Option<Vec<u8>>,
+            since: Option<ChainPosition>,
             limit: Option<u32>,
             config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
-            Rpc::get_shielded_transactions_by_nullifiers(self, nullifiers, cursor, limit, config)
+            Rpc::get_shielded_transactions_by_nullifiers(self, nullifiers, since, limit, config)
         }
     }
 
