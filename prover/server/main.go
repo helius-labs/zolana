@@ -209,6 +209,25 @@ func runCli() {
 				},
 			},
 			{
+				Name: "setup-audit",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "pk-out", Usage: "raw gnark proving key (pk.WriteTo)"},
+					&cli.StringFlag{Name: "vk-out", Usage: "raw gnark verifying key (vk.WriteRawTo)", Required: true},
+				},
+				Action: func(context *cli.Context) error {
+					pk, vk, err := customring.SetupAudit()
+					if err != nil {
+						return err
+					}
+					if path := context.String("pk-out"); path != "" {
+						if err := writeKey(path, pk.WriteTo); err != nil {
+							return err
+						}
+					}
+					return writeKey(context.String("vk-out"), vk.WriteRawTo)
+				},
+			},
+			{
 				Name:  "convert-custom-ring",
 				Usage: "Wrap an existing gnark pk/vk pair into a proving system file without a new setup",
 				Flags: []cli.Flag{
