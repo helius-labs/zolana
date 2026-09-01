@@ -26,7 +26,7 @@ async fn seeded_database() -> DatabaseConnection {
 fn request(view_tag: [u8; 32]) -> GetRingsByTagsRequest {
     GetRingsByTagsRequest {
         tags: vec![Hash::from(view_tag)],
-        cursor: None,
+        since: None,
         limit: Some(Limit::new(10).expect("limit is within the shared bounds")),
         ring_program_id: None,
     }
