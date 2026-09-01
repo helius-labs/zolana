@@ -552,7 +552,7 @@ fn phase_unshield_indexer_assertions(
             Some(1),
             None,
         )?;
-        if response.transactions.len() == 1 && response.next_cursor.is_some() {
+        if response.transactions.len() == 1 && response.next.is_some() {
             Ok(Some(response))
         } else {
             Ok(None)
@@ -560,7 +560,7 @@ fn phase_unshield_indexer_assertions(
     })?;
     let second_page = indexer.get_shielded_transactions_by_tags(
         vec![recipient_view_tag],
-        first_page.next_cursor,
+        first_page.next,
         Some(1),
         None,
     )?;
