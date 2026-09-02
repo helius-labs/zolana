@@ -2,18 +2,17 @@
 
 ## 0.1.6-alpha — unreleased
 
-A tree is addressed by its id and carries its own fee schedule, so a tree
-derives from its id instead of one fixed address and creation takes three
-instructions in one transaction. Every spent nullifier gets its own account,
-and the transact, merge, and ring builders carry one nullifier account per
-input. Wallet replay keeps merge outputs when their inputs arrive in the same
+A tree derives from its id instead of one fixed address, holds its own fee
+schedule, and takes three instructions in one transaction to create. Every
+spent nullifier gets its own account, and the transact, merge, and ring
+builders take one nullifier account per input. Wallet replay keeps merge outputs when their inputs arrive in the same
 sync.
 
 Breaking
 
 - `DEFAULT_TREE_ADDRESS` is removed and a tree derives from its id → call
-  `getTreeAddress(0)` for the default tree, a different address than the
-  removed constant named.
+  `getTreeAddress(0)` for the default tree, which is not the address the
+  removed constant held.
 - `addressTreeParams` and `AddressTreeParams` are `nullifierTreeParams` and
   `NullifierTreeParams`, without the `rootHistoryCapacity` member → rename, and
   read `NULLIFIER_TREE_ROOT_HISTORY_CAPACITY` for the capacity.
@@ -25,7 +24,7 @@ Breaking
   `NULLIFIER_TREE_ROOT_HISTORY_CAPACITY`.
 - `foresterFeePerQueueElement(zkpBatchSize)` and
   `FORESTER_REIMBURSEMENT_LAMPORTS` are removed → `defaultTreeFees(zkpBatchSize)`
-  returns the whole `TreeFeeSchedule` a tree is created with, and
+  returns the `TreeFeeSchedule` a tree is created with, and
   `DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS` and
   `DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS` hold the per-batch reimbursements it
   covers.
@@ -35,7 +34,7 @@ Breaking
   the account → send all of them in one transaction, and pass the protocol
   config's `nextTreeId` as the `treeId`.
 - `transactInstruction`, `mergeTransactInstruction`, and `ringTransactAccounts`
-  are async and carry one writable nullifier account per spent input → await
+  are async and include one writable nullifier account per spent input → await
   them, pass the spent `inputs` to `ringTransactAccounts`, and rename
   `getTransactInstruction` and `getMergeTransactInstruction` to
   `getTransactInstructionAsync` and `getMergeTransactInstructionAsync`.
@@ -64,13 +63,13 @@ Added
   for a spent nullifier.
 - `nullifierPdaAccounts(inputTree, nullifiers)`, exported as
   `getNullifierPdaAccountsAsync`, returns the writable nullifier accounts a
-  transact instruction carries, one per input in the same order.
+  transact instruction takes, one per input in the same order.
 - `getSetTreeFeesInstructionAsync({ authority, tree, fees })` writes a tree's
   `TreeFeeSchedule`, signed by the fee authority.
 - `decodeTreeFees(account)` reads a tree's `TreeFees`, its schedule and its
-  accrued balance, `encodeTreeFeeSchedule` and `decodeTreeFeeSchedule` convert
-  the schedule alone, `TREE_FEES_OFFSET` and `TREE_FEE_BALANCE_OFFSET` locate
-  both in the account, and `CreateTreeData` names the create-tree payload.
+  accrued balance. `encodeTreeFeeSchedule` and `decodeTreeFeeSchedule` convert
+  the schedule alone, and `TREE_FEES_OFFSET` and `TREE_FEE_BALANCE_OFFSET`
+  locate both in the account. `CreateTreeData` names the create-tree payload.
 
 Changed
 

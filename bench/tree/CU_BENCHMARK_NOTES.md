@@ -54,4 +54,4 @@ The benchmarked tree uses `zkp_batch_size = 10` (`batch_size = 1200`,
 because only the `batch_address-append_40_10` proving key is available locally.
 The root history is sized by the production rule, `RH = batch_size /
 zkp_batch_size` (120 here, 100 in production), exactly one batch of ZKP update
-roots, so a fully applied successor naturally overwrites all older roots.
+roots, so a fully applied successor overwrites every older root.
