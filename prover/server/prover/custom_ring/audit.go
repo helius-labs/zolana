@@ -1,6 +1,8 @@
 package custom_ring
 
 import (
+	"crypto/elliptic"
+	"encoding/json"
 	"fmt"
 	"math/big"
 
@@ -54,6 +56,67 @@ type AuditParameters struct {
 	TxViewingSk     [scalarLen]byte
 	EphSk           [scalarLen]byte
 	AuditorPk       [uncompressedPubkeyLen]byte
+}
+
+type auditParametersJSON struct {
+	CircuitType     string `json:"circuitType"`
+	Variant         string `json:"variant"`
+	PublicInputHash string `json:"publicInputHash"`
+	PrivateTxHash   string `json:"privateTxHash"`
+	TxViewingSk     string `json:"txViewingSk"`
+	EphSk           string `json:"ephSk"`
+	AuditorPk       string `json:"auditorPk"`
+}
+
+func (p *AuditParameters) MarshalJSON() ([]byte, error) {
+	return json.Marshal(auditParametersJSON{
+		CircuitType:     string(common.CustomRingCircuitType),
+		Variant:         AuditVariant,
+		PublicInputHash: common.ToHex(p.PublicInputHash),
+		PrivateTxHash:   common.ToHex(p.PrivateTxHash),
+		TxViewingSk:     bytesHex(p.TxViewingSk[:]),
+		EphSk:           bytesHex(p.EphSk[:]),
+		AuditorPk:       bytesHex(p.AuditorPk[:]),
+	})
+}
+
+func (p *AuditParameters) UnmarshalJSON(data []byte) error {
+	var raw auditParametersJSON
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw.CircuitType != string(common.CustomRingCircuitType) {
+		return fmt.Errorf("custom-ring: unexpected circuitType %q", raw.CircuitType)
+	}
+	if raw.Variant != AuditVariant {
+		return fmt.Errorf("custom-ring: unexpected variant %q", raw.Variant)
+	}
+	var err error
+	if p.PublicInputHash, err = fieldFromHex(raw.PublicInputHash, "publicInputHash"); err != nil {
+		return err
+	}
+	if p.PrivateTxHash, err = fieldFromHex(raw.PrivateTxHash, "privateTxHash"); err != nil {
+		return err
+	}
+	if err = bytesFromHex(p.TxViewingSk[:], raw.TxViewingSk, "txViewingSk"); err != nil {
+		return err
+	}
+	if err = validateP256Scalar(p.TxViewingSk[:], "txViewingSk"); err != nil {
+		return err
+	}
+	if err = bytesFromHex(p.EphSk[:], raw.EphSk, "ephSk"); err != nil {
+		return err
+	}
+	if err = validateP256Scalar(p.EphSk[:], "ephSk"); err != nil {
+		return err
+	}
+	if err = bytesFromHex(p.AuditorPk[:], raw.AuditorPk, "auditorPk"); err != nil {
+		return err
+	}
+	if x, y := elliptic.Unmarshal(elliptic.P256(), p.AuditorPk[:]); x == nil || y == nil {
+		return fmt.Errorf("custom-ring: auditorPk is not a P256 point")
+	}
+	return nil
 }
 
 func (p *AuditParameters) CreateWitness() (*customring.Circuit, error) {

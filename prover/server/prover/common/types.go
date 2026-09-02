@@ -34,3 +34,5 @@ const (
 )
 
 const CustomRingKeyFile = "custom_ring.key"
+
+const AuditKeyFile = "audit.key"

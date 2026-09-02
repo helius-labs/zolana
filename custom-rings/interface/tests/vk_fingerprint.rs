@@ -61,7 +61,7 @@ fn audit_verifying_key_fingerprint_is_pinned() {
     let fingerprint: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
 
     assert_eq!(
-        fingerprint, "00df9e3cfed60315e206eac35ad854b8360a7e4ae488ddb964148ab1c956fc4e",
+        fingerprint, "00f7a6b59535d13916122f08bb448587411e3214b425e4a519139d8b427bc79a",
         "audit verifying key changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }
