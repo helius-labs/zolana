@@ -1,0 +1,13 @@
+export declare const BLINDING_LENGTH = 31;
+export declare const SALT_LENGTH = 16;
+export declare const P256_PUBLIC_KEY_LENGTH = 33;
+export declare const SHIELDED_PUBLIC_KEY_LENGTH = 34;
+export declare const VIEW_TAG_LENGTH = 32;
+export declare const DST_VIEW_ROOT = "TSPP/view_root/P_const/v1";
+export declare const P_CONST_SEC1: Uint8Array<ArrayBuffer>;
+export declare const INFO_NULLIFIER = "TSPP/nullifier";
+export declare const INFO_MERGE_VIEW_TAG_SECRET = "TSPP/merge_view_tag";
+export declare const INFO_TX_VIEWING = "TSPP/tx_viewing";
+export declare const INFO_MERGE_VIEW_TAG_PREFIX = "TSPP/merge_view_tag/";
+export declare const HPKE_PREFIX = "TSPP/hpke/";
+export declare const ENC_INFO_TRANSFER = "TSPP/tx";

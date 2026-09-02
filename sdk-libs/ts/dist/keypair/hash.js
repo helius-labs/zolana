@@ -1,0 +1,40 @@
+import { sha256 } from "@noble/hashes/sha2.js";
+import { pack33 as interfacePack33 } from "../interface/merge-utils.js";
+import { hashBytes } from "../hasher/index.js";
+import {} from "./bytes.js";
+import { wrapKeypairError } from "./error.js";
+import { poseidon } from "./poseidon.js";
+export function splitBigEndian128(value) {
+    const low = new Uint8Array(32);
+    const high = new Uint8Array(32);
+    high.set(value.subarray(0, 16), 16);
+    low.set(value.subarray(16, 32), 16);
+    return [low, high];
+}
+export function hashField(value) {
+    return hashBytes(value);
+}
+export function ownerHash(ownerPublicKeyField, nullifierPublicKey) {
+    return poseidon([ownerPublicKeyField, nullifierPublicKey]);
+}
+/**
+ * The one boundary a TypeScript-only code belongs at: Rust's `pack33` takes
+ * `&[u8; 33]` and cannot fail, so a wrong-length input has no Rust variant to
+ * mirror.
+ */
+export function pack33(bytes) {
+    try {
+        return interfacePack33(bytes);
+    }
+    catch (error) {
+        throw wrapKeypairError("KEYPAIR_HASH", error);
+    }
+}
+export function sha256Bytes(bytes) {
+    return sha256(bytes);
+}
+export function sha256Be(bytes) {
+    const digest = sha256(bytes);
+    digest[0] = 0;
+    return digest;
+}
