@@ -569,6 +569,7 @@ describe("ring proof folded fields", () => {
             ...new Uint8Array(32),
             ...auditor.publicKey().toBytes(),
             configBump,
+            1,
           ]),
         };
       }

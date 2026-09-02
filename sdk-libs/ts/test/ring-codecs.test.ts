@@ -222,11 +222,12 @@ describe("ring config", () => {
   });
 
   it("decodes the config account and rejects another layout", () => {
-    const data = Uint8Array.from([1, ...filled(12, 32), ...hex(P256_HEX), 254]);
+    const data = Uint8Array.from([1, ...filled(12, 32), ...hex(P256_HEX), 254, 1]);
     const config = decodeRingProgramConfig(data);
     expect(config.authority).toBe(AUTHORITY);
     expect(config.auditorPublicKey.equals(AUDITOR)).toBe(true);
     expect(config.bump).toBe(254);
+    expect(config.hasPolicy).toBe(true);
     expect(() => decodeRingProgramConfig(data.subarray(1))).toThrow("RING_CONFIG_INVALID");
     expect(() => decodeRingProgramConfig(Uint8Array.from([2, ...data.subarray(1)]))).toThrow(
       "RING_CONFIG_INVALID",

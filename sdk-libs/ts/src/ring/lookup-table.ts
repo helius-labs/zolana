@@ -28,13 +28,19 @@ export async function buildRingLookupTableTransaction(
     ringProgramId: Address;
     feePayer: Address;
     tree?: Address;
+    /** The config tier. False builds a table without the policy_config and entries_tree entries. */
+    hasPolicy?: boolean;
   }>,
   context?: RequestContext,
 ): Promise<RingLookupTable> {
   try {
     const tree = input.tree ?? input.client.tree;
     const [addresses, slot, lifetime] = await Promise.all([
-      ringLookupTableAddresses({ ringProgramId: input.ringProgramId, tree }),
+      ringLookupTableAddresses({
+        ringProgramId: input.ringProgramId,
+        tree,
+        ...(input.hasPolicy === undefined ? {} : { hasPolicy: input.hasPolicy }),
+      }),
       // The create instruction checks the slot against SlotHashes, so it must be finalized.
       input.client.solanaRpc.getSlot({ commitment: "finalized" }).send(),
       input.client.getLatestBlockhash(context),
@@ -78,6 +84,8 @@ export async function fetchRingLookupTable(
     tree?: Address;
     outputTree?: Address;
     entriesTree?: Address;
+    /** The config tier. False drops the policy_config and entries_tree entries. */
+    hasPolicy?: boolean;
   }>,
 ): Promise<readonly Address[]> {
   const tree = input.tree ?? input.client.tree;
@@ -90,6 +98,7 @@ export async function fetchRingLookupTable(
       tree,
       ...(input.outputTree === undefined ? {} : { outputTree: input.outputTree }),
       ...(input.entriesTree === undefined ? {} : { entriesTree: input.entriesTree }),
+      ...(input.hasPolicy === undefined ? {} : { hasPolicy: input.hasPolicy }),
     }),
   ]);
   if (!table.exists) {
