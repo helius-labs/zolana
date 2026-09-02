@@ -140,7 +140,7 @@ Operations 1-4 run against the default ring via [`transact`](#transact) (or [`de
 | # | Name | Description |
 | --- | --- | --- |
 | 1 | create_spl_interface | Initialize SPL/Token-22 pool escrow per token mint |
-| 2 | create_tree | Initialize new Tree account (nullifier tree + queue and UTXO tree, co-located) |
+| 2 | create_tree | Create and initialize a new Tree PDA (nullifier tree + queue and UTXO tree, co-located) |
 | 3 | create_protocol_config | Initialize protocol config (role authorities, permissionless flags) |
 | 4 | update_protocol_config | Rotate the protocol config authority and the role authorities |
 | 5 | pause_tree | Freeze writes to a Tree account |
@@ -1196,8 +1196,8 @@ The single public signal is `public_input_hash`, a Poseidon hash chain over a sh
 
 | Account | Description |
 | --- | --- |
-| Tree account | Contains the nullifier tree (`zolana-batched-merkle-tree`, H=40), nullifier queue, and UTXO tree (sparse Merkle tree, H=32). Holds the lamports that fund nullifier PDAs (working capital above its own rent exemption) and records `close_before_index`, the queue-sequence watermark below which PDAs may be closed. |
-| Nullifier PDA | One 9-byte program-owned PDA per queued nullifier: `[b"nullifier", tree, nullifier]` storing `{ queue_index: u64, bump: u8 }` (Borsh, no discriminator). Created by the inserting instruction and funded from the tree; it makes a second queue insertion of the same pending nullifier fail. Closed permissionlessly by `close_nullifier_pdas` once `queue_index < tree.close_before_index`, returning its lamports to the tree. See `program-libs/batched-merkle-tree/spec.md`. |
+| Tree account | PDA `[b"tree", tree_id.to_le_bytes()]`; `tree_id: u16` is taken from `protocol_config.next_tree_id` at creation and stored in the header. Contains the nullifier tree (`zolana-batched-merkle-tree`, H=40), nullifier queue, and UTXO tree (sparse Merkle tree, H=32). Holds the lamports that fund nullifier PDAs (working capital above its own rent exemption) and records `close_before_index`, the queue-sequence watermark below which PDAs may be closed. |
+| Nullifier PDA | One 10-byte program-owned PDA per queued nullifier: `[b"nullifier", tree, nullifier]` storing `{ queue_index: u64, tree_id: u16 }` (Borsh, no discriminator). Created by the inserting instruction and funded from the tree; it makes a second queue insertion of the same pending nullifier fail. Closed permissionlessly by `close_nullifier_pdas` once `queue_index < tree.close_before_index` and `tree_id` equals the tree's, returning its lamports to the tree. See `program-libs/tree/nullifier_tree_spec.md`. |
 | SPL interface vault | Per-mint SPL / Token-22 vault holding all shielded SPL tokens. |
 | Asset registry | PDA derived from the mint, set at `create_spl_interface` time. Stores the `asset_id: u64` assigned to that mint (used as the compact asset identifier inside UTXOs and ciphertexts). `asset_id = 1` is reserved for native SOL and has no `Asset registry` entry; SPL mints get `asset_id ≥ 2`. |
 | Asset counter | One global account per program, holding the monotonic `next_asset_id: u64`. Initialized to `2` (since `1` is reserved for SOL) and incremented on each `create_spl_interface`. |
@@ -1221,6 +1221,9 @@ struct ProtocolConfig {
     /// When set, any signer may call `create_spl_interface`; otherwise it is
     /// gated by `protocol_authority`.
     spl_interface_creation_is_permissionless: bool,
+    /// `tree_id` the next `create_tree` must use; incremented when a tree PDA
+    /// is allocated.
+    next_tree_id: u16,
 }
 ```
 
@@ -1292,7 +1295,7 @@ operations, and tag 18 is permissionless nullifier-PDA cleanup.
 | --- | --- |
 | create_protocol_config | Tag 0; the transaction signer must equal the `protocol_authority` it writes; on an upgradeable loader-v3 deployment the signer must also be the program's deploy upgrade authority (read from the loader-v3 `ProgramData` account), so initialization cannot be front-run. The instruction takes the program account and its `ProgramData` account as trailing read-only inputs; non-upgradeable deployments and an unset or zeroed upgrade authority skip the binding. |
 | update_protocol_config | Tag 1; gated by `protocol_config.protocol_authority`; updates exactly one authority or flag per call; rotating `protocol_authority` requires the incoming authority to co-sign |
-| create_tree | Tag 2; gated by `protocol_config.tree_creation_authority` unless `tree_creation_is_permissionless`; initializes the shared Tree account (nullifier tree + queue, UTXO tree) |
+| create_tree | Tag 2; gated by `protocol_config.tree_creation_authority` unless `tree_creation_is_permissionless`. Accounts: `payer` (signer), `authority` (signer), `protocol_config`, the tree PDA, system program; data `{ tree_id: u16, nullifier_params }`. Repeated once per 10 KiB allocation step within one transaction: the first step requires `tree_id == protocol_config.next_tree_id`, increments it, and creates the PDA funded by `payer` with its rent plus the nullifier-PDA working capital; the step that reaches the full size initializes the shared Tree account (nullifier tree + queue, UTXO tree). |
 | pause_tree | Tag 3; gated by `protocol_config.protocol_authority`; can pause and unpause trees |
 | batch_update_nullifier_tree | Tag 4; gated by `protocol_config.forester_authority`; inserts queued nullifiers into the nullifier tree via a batch ZKP and emits the batch address-append event. When an applied update marks the previously inserted queue batch reclaimable it zeroes the root-history slots that predate that batch's final root and advances `close_before_index`, releasing that batch's nullifier PDAs for `close_nullifier_pdas`. |
 | create_asset_counter | Tag 5; gated by `protocol_config.protocol_authority`; creates the singleton `Asset counter` PDA with `next_asset_id = 2`. |
@@ -1308,7 +1311,7 @@ operations, and tag 18 is permissionless nullifier-PDA cleanup.
 | ring_transact | Tag 15; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees; checks that the encrypted UTXOs decrypt under the ring auditor key and the recipient keys named in the policy proof |
 | merge_ring | Tag 16; CPI from an active ring program; consolidates the 8 input slots of the fixed merge shape (same owner, same asset, same `ring_program_id`) into one output UTXO that preserves `ring_program_id`. Mirrors `merge_transact` for policy-ring UTXOs. The ring program runs its own authorization before CPI; the merge proof enforces `data_hash = 0` on inputs and output. |
 | ring_authority_transact | Tag 17; checks the ring config is active and signed, then checks the state transition only includes ring-program-owned UTXOs. UTXO owners do not sign; the ring has full control subject to its policy. |
-| close_nullifier_pdas | Tag 18; permissionless, no signer; rejected while the tree is paused. Accounts: the writable tree, then one writable PDA per `nullifiers[i]`. For every pair: the PDA is program-owned with an exact 9-byte payload, recreates `[b"nullifier", tree, nullifier, bump]`, and has `queue_index < tree.close_before_index`; its lamports move to the tree and the account is closed. The call is atomic. |
+| close_nullifier_pdas | Tag 18; permissionless, no signer, no instruction data; rejected while the tree is paused. Accounts: the writable tree, then at least one writable nullifier PDA. For every PDA: it is program-owned with an exact 10-byte payload, its stored `tree_id` equals the tree's (`NullifierPdaTreeMismatch` otherwise), and `queue_index < tree.close_before_index`; its lamports move to the tree and the account is closed. The call is atomic. |
 
 ### `transact`
 
@@ -1503,7 +1506,7 @@ one proof slot does not remove their individual account metas.
 6. Both tree accounts permit their respective writes: nullifier insertion in `input_tree` and UTXO append in `output_tree`.
 7. Proof verifies against the three aggregated public slots.
 8. Append each `outputs[i].utxo_hash` (in order) to `output_tree`'s UTXO sparse Merkle tree.
-9. Insert each input's `nullifier_hash` into `input_tree`'s nullifier queue and create its nullifier PDA: allocate 9 bytes at the canonical PDA, assign it to SPP, store `{ queue_index, bump }`, and move the missing rent-exempt balance from `input_tree` (`InsufficientNullifierPdaRent` if the tree would fall below its own rent minimum). An already initialized PDA rejects the transaction with `NullifierAlreadyQueued`.
+9. Insert each input's `nullifier_hash` into `input_tree`'s nullifier queue and create its nullifier PDA: allocate 10 bytes at the canonical PDA, assign it to SPP, store `{ queue_index, tree_id }`, and move the missing rent-exempt balance from `input_tree` (`InsufficientNullifierPdaRent` if the tree would fall below its own rent minimum). An already initialized PDA rejects the transaction with `NullifierAlreadyQueued`.
 10. The sender bundle needs no nullifier-tree insertion: input nullifiers already prevent replay. SPP does not check the `data` of any `OutputCiphertext`; a wallet that writes an inconsistent blob only harms itself (sync will fail to decrypt). SPP does not constrain `output_ciphertexts.len()`.
 11. Settle every original leg independently using its full `u64` amount: `is_deposit = true` moves SOL/SPL from the public account into custody, while `false` moves value from custody to the named public account. Aggregation affects proof inputs only; account resolution, settlement, the external-data hash, and event movements retain leg order.
 12. Emit a [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI.

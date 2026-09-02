@@ -13,8 +13,10 @@ import {
   SHIELDED_POOL_PROGRAM_ID,
   SOL_INTERFACE,
   SPL_TOKEN_PROGRAM_ID,
+  nullifierTreeParams,
 } from "../program.js";
-import type { AddressTreeParams } from "../program.js";
+import type { NullifierTreeParams } from "../program.js";
+import { TREE_CREATION_STEP_COUNT } from "../state.js";
 import {
   type Address,
   type AssetDeposit,
@@ -36,9 +38,10 @@ import {
   splAssetRegistryAddress,
   splAssetVaultAddress,
   splInterfaceWithBump,
+  treeAddress,
 } from "../pda/index.js";
 import {
-  encodeAddressTreeParams,
+  encodeCreateTreeData,
   encodeDepositInstructionData,
   encodeRingDepositInstructionData,
   encodeMergeTransactInstructionData,
@@ -150,22 +153,35 @@ export async function createSplInterfaceInstruction(
   ]);
 }
 
-export async function createTreeInstruction(
+/**
+ * Mirrors Rust `CreateTree::instructions`. The tree PDA is allocated in
+ * `TREE_ALLOCATION_STEP` chunks, so creation is `TREE_CREATION_STEP_COUNT`
+ * identical instructions that must land in one transaction. `treeId` has to be
+ * the protocol config's `nextTreeId`.
+ */
+export async function createTreeInstructions(
   input: Readonly<{
+    payer: SignerAccount;
     authority: SignerAccount;
-    tree: Address;
-    nullifierTreeParams?: AddressTreeParams;
+    treeId: number;
+    nullifierTreeParams?: NullifierTreeParams;
   }>,
-): Promise<Instruction> {
-  const payload =
-    input.nullifierTreeParams === undefined
-      ? undefined
-      : encodeAddressTreeParams(input.nullifierTreeParams);
-  return instruction(tagged(InstructionTag.createTree, payload), [
+): Promise<Instruction[]> {
+  const data = tagged(
+    InstructionTag.createTree,
+    encodeCreateTreeData({
+      treeId: input.treeId,
+      nullifierParams: input.nullifierTreeParams ?? nullifierTreeParams(),
+    }),
+  );
+  const accounts = [
+    meta(input.payer, true, true),
     meta(input.authority, true, false),
-    meta(await protocolConfigAddress(), false, false),
-    meta(input.tree, false, true),
-  ]);
+    meta(await protocolConfigAddress(), false, true),
+    meta(treeAddress(input.treeId), false, true),
+    meta(SYSTEM_PROGRAM, false, false),
+  ];
+  return Array.from({ length: TREE_CREATION_STEP_COUNT }, () => instruction(data, accounts));
 }
 
 interface DepositLayout {

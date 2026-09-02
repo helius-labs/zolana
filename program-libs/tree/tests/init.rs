@@ -8,6 +8,7 @@ use zolana_tree::{
 // rejects any other height with `HeightTooLarge`.
 const HEIGHT: u8 = 32;
 const DISCRIMINATOR: u8 = 7;
+const TREE_ID: u16 = 11;
 
 fn leaf(i: u8) -> [u8; 32] {
     let mut bytes = [0u8; 32];
@@ -24,13 +25,14 @@ fn init_then_reload() {
 
     let appended_root = {
         let mut tree =
-            TreeAccount::init(&mut bytes, DISCRIMINATOR, HEIGHT, pubkey, params).unwrap();
+            TreeAccount::init(&mut bytes, DISCRIMINATOR, HEIGHT, pubkey, TREE_ID, params).unwrap();
 
         assert_eq!(tree.discriminator(), DISCRIMINATOR);
         assert_eq!(tree.state(), INITIALIZED);
         assert_eq!(tree.utxo_tree().height(), HEIGHT as usize);
         assert_eq!(tree.utxo_tree().next_index(), 0);
         assert_eq!(tree.pubkey(), pubkey);
+        assert_eq!(tree.tree_id(), TREE_ID);
 
         let empty_root = tree.utxo_tree().root();
         assert_ne!(empty_root, [0u8; 32]);
@@ -67,7 +69,7 @@ fn reload_rejects_inconsistent_nullifier_batch_metadata() {
 
     {
         let mut tree =
-            TreeAccount::init(&mut bytes, DISCRIMINATOR, HEIGHT, pubkey, params).unwrap();
+            TreeAccount::init(&mut bytes, DISCRIMINATOR, HEIGHT, pubkey, TREE_ID, params).unwrap();
         tree.nullifier_tree().batches[0].batch_size += 1;
     }
 
@@ -84,7 +86,15 @@ fn append_batch_matches_sequential() {
     let count = 10u8;
 
     let mut seq_bytes = vec![0u8; TreeAccount::account_size()];
-    let mut seq = TreeAccount::init(&mut seq_bytes, DISCRIMINATOR, HEIGHT, pubkey, params).unwrap();
+    let mut seq = TreeAccount::init(
+        &mut seq_bytes,
+        DISCRIMINATOR,
+        HEIGHT,
+        pubkey,
+        TREE_ID,
+        params,
+    )
+    .unwrap();
     for i in 0..count {
         seq.utxo_tree().append(leaf(i + 1)).unwrap();
     }
@@ -93,8 +103,15 @@ fn append_batch_matches_sequential() {
     let seq_cursor = seq.utxo_tree().current_root_index();
 
     let mut batch_bytes = vec![0u8; TreeAccount::account_size()];
-    let mut batch =
-        TreeAccount::init(&mut batch_bytes, DISCRIMINATOR, HEIGHT, pubkey, params).unwrap();
+    let mut batch = TreeAccount::init(
+        &mut batch_bytes,
+        DISCRIMINATOR,
+        HEIGHT,
+        pubkey,
+        TREE_ID,
+        params,
+    )
+    .unwrap();
     let leaves: Vec<[u8; 32]> = (0..count).map(|i| leaf(i + 1)).collect();
     batch.utxo_tree().append_batch(leaves.iter()).unwrap();
 
@@ -149,7 +166,7 @@ fn init_rejects_invalid_nullifier_params() {
     ];
     for params in invalid {
         let mut bytes = vec![0u8; TreeAccount::account_size()];
-        let err = TreeAccount::init(&mut bytes, DISCRIMINATOR, HEIGHT, pubkey, params)
+        let err = TreeAccount::init(&mut bytes, DISCRIMINATOR, HEIGHT, pubkey, TREE_ID, params)
             .err()
             .expect("invalid params must be rejected");
         assert!(
@@ -188,7 +205,15 @@ fn append_fails_when_tree_is_full() {
 fn root_history_wraps_around() {
     let params = NullifierTreeInitParams::default();
     let mut bytes = vec![0u8; TreeAccount::account_size()];
-    let mut tree = TreeAccount::init(&mut bytes, DISCRIMINATOR, HEIGHT, [2u8; 32], params).unwrap();
+    let mut tree = TreeAccount::init(
+        &mut bytes,
+        DISCRIMINATOR,
+        HEIGHT,
+        [2u8; 32],
+        TREE_ID,
+        params,
+    )
+    .unwrap();
 
     // Append past capacity so the ring buffer wraps. Cursor starts at 0 (the
     // empty root), so after N appends it sits at N % capacity.

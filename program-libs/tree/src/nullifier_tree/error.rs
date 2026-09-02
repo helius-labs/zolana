@@ -1,6 +1,5 @@
 use solana_program_error::ProgramError;
 use thiserror::Error;
-use zolana_account_checks::error::AccountError;
 use zolana_hasher::HasherError;
 
 #[derive(Debug, Error, PartialEq)]
@@ -37,26 +36,18 @@ pub enum NullifierTreeError {
     InvalidRootHistoryCapacity,
     #[error("Account data length does not match the tree layout size.")]
     InvalidAccountSize,
-    #[error("PublicInputsTryIntoFailed")]
-    PublicInputsTryIntoFailed,
     #[error("DecompressG1Failed")]
     DecompressG1Failed,
     #[error("DecompressG2Failed")]
     DecompressG2Failed,
-    #[error("InvalidPublicInputsLength")]
-    InvalidPublicInputsLength,
     #[error("CreateGroth16VerifierFailed")]
     CreateGroth16VerifierFailed,
     #[error("ProofVerificationFailed")]
     ProofVerificationFailed,
     #[error("InvalidBatchSize supported batch sizes are 10 and 250")]
     InvalidBatchSize,
-    #[error("Invalid proof size: expected 128 bytes, got {0}")]
-    InvalidProofSize(usize),
     #[error("Hasher error: {0}")]
     Hasher(#[from] HasherError),
-    #[error("Account error {0}")]
-    AccountError(#[from] AccountError),
 }
 
 impl From<NullifierTreeError> for u32 {
@@ -82,16 +73,12 @@ impl From<NullifierTreeError> for u32 {
             NullifierTreeError::InvalidHeight => 14016,
             NullifierTreeError::InvalidRootHistoryCapacity => 14017,
             NullifierTreeError::InvalidAccountSize => 14018,
-            NullifierTreeError::PublicInputsTryIntoFailed => 14019,
             NullifierTreeError::DecompressG1Failed => 14020,
             NullifierTreeError::DecompressG2Failed => 14021,
-            NullifierTreeError::InvalidPublicInputsLength => 14022,
             NullifierTreeError::CreateGroth16VerifierFailed => 14023,
             NullifierTreeError::ProofVerificationFailed => 14024,
             NullifierTreeError::InvalidBatchSize => 14025,
-            NullifierTreeError::InvalidProofSize(_) => 14026,
             NullifierTreeError::Hasher(e) => e.into(),
-            NullifierTreeError::AccountError(e) => e.into(),
         }
     }
 }

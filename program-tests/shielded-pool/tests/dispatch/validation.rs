@@ -40,9 +40,12 @@ fn rejects_empty_unknown_and_malformed_instruction_data_exactly() {
 #[test]
 fn valid_create_tree_payload_reaches_account_validation() {
     let mut data = vec![tag::CREATE_TREE];
-    zolana_tree::NullifierTreeInitParams::default()
-        .serialize(&mut data)
-        .unwrap();
+    zolana_interface::instruction::CreateTreeData {
+        tree_id: 0,
+        nullifier_params: zolana_tree::NullifierTreeInitParams::default(),
+    }
+    .serialize(&mut data)
+    .unwrap();
     assert_eq!(
         process_instruction(&ID, &mut [], &data),
         Err(ProgramError::Custom(20_014))

@@ -63,8 +63,8 @@ fn transfer_ix_data(n_in: u64, n_out: u64) -> TransactIxData {
 fn expect_rejection(env: &mut Pool, data: TransactIxData, expected: ShieldedPoolError) {
     let ix = Transact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree.pubkey(),
-        output_tree: env.tree.pubkey(),
+        input_tree: env.tree,
+        output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data,
@@ -134,7 +134,7 @@ fn ring_instruction(
     data: TransactIxData,
 ) -> Instruction {
     let payer = env.rpc.payer.pubkey();
-    let tree = env.tree.pubkey();
+    let tree = env.tree;
     let ring_program_id = Pubkey::new_from_array(RING_TEST_PROGRAM_ID);
     let mut data = data;
     data.circuit = if authority_variant {
@@ -260,8 +260,8 @@ fn transact_rejects_a_wrong_trailing_system_program_account() {
         .expect("fund impostor");
     let mut ix = Transact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree.pubkey(),
-        output_tree: env.tree.pubkey(),
+        input_tree: env.tree,
+        output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data(2, 3),
@@ -281,8 +281,8 @@ fn ring_transact_rejects_an_unsigned_ring_config() {
     let mut env = Pool::initialized();
     let mut ix = RingTransact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree.pubkey(),
-        output_tree: env.tree.pubkey(),
+        input_tree: env.tree,
+        output_tree: env.tree,
         owner_signers: Vec::new(),
         ring_program_id: Pubkey::new_from_array(RING_TEST_PROGRAM_ID),
         interface_transfer_accounts: Vec::new(),
@@ -315,8 +315,8 @@ fn transact_rejects_a_non_writable_tree_meta() {
     // their privileges, so both must be downgraded.
     let mut ix = Transact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree.pubkey(),
-        output_tree: env.tree.pubkey(),
+        input_tree: env.tree,
+        output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data(2, 3),
@@ -364,15 +364,11 @@ fn transact_rejects_a_tree_with_a_wrong_discriminator() {
     let mut env = Pool::initialized();
     // INV-TRANSACT-03: a program-owned account whose first byte is not exactly
     // TREE_ACCOUNT_DISCRIMINATOR (1) must fail the same way as a foreign tree.
-    let mut account = env
-        .rpc
-        .svm
-        .get_account(&env.tree.pubkey())
-        .expect("tree account");
+    let mut account = env.rpc.svm.get_account(&env.tree).expect("tree account");
     *account.data.first_mut().expect("tree discriminator byte") = 0;
     env.rpc
         .svm
-        .set_account(env.tree.pubkey(), account)
+        .set_account(env.tree, account)
         .expect("corrupt tree discriminator");
     expect_rejection(
         &mut env,
@@ -386,8 +382,8 @@ fn transact_rejects_a_malformed_wincode_payload() {
     let mut env = Pool::initialized();
     let template = Transact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree.pubkey(),
-        output_tree: env.tree.pubkey(),
+        input_tree: env.tree,
+        output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data(2, 3),
@@ -450,8 +446,8 @@ fn transact_rejects_trailing_payload_bytes_at_parse() {
     // bare `InvalidInstructionData` as any other parse error.
     let mut ix = Transact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree.pubkey(),
-        output_tree: env.tree.pubkey(),
+        input_tree: env.tree,
+        output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data(2, 3),
@@ -595,8 +591,8 @@ fn ring_authority_transact_rejects_an_unsigned_ring_config() {
     // `ring_config` signature is rejected before the config is even loaded.
     let mut ix = RingAuthorityTransact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree.pubkey(),
-        output_tree: env.tree.pubkey(),
+        input_tree: env.tree,
+        output_tree: env.tree,
         ring_program_id: Pubkey::new_from_array(RING_TEST_PROGRAM_ID),
         interface_transfer_accounts: Vec::new(),
         data: {

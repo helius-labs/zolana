@@ -20,7 +20,7 @@ fn tree_state_byte(backend: &LiteSvmPoolBackend, tree: &Pubkey) -> u8 {
 fn pause_blocks_tree_mutation_and_unpause_restores_it() {
     let mut backend = LiteSvmPoolBackend::initialized();
     let depositor = backend.funded_signer(2_000_000_000);
-    let tree = backend.tree.pubkey();
+    let tree = backend.tree;
     assert_eq!(tree_state_byte(&backend, &tree), INITIALIZED);
 
     backend
@@ -52,7 +52,7 @@ fn pause_blocks_tree_mutation_and_unpause_restores_it() {
 fn deposit_rejects_an_append_to_a_full_utxo_tree() {
     let mut backend = LiteSvmPoolBackend::initialized();
     let depositor = backend.funded_signer(2_000_000_000);
-    let tree = backend.tree.pubkey();
+    let tree = backend.tree;
 
     // Drive the UTXO tree to capacity by moving its cursor; the next append
     // must fail `TreeError::TreeIsFull`, which the shared `tree_error` mapping

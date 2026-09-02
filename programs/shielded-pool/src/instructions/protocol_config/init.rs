@@ -34,6 +34,7 @@ impl ProtocolConfigInitParams {
             tree_creation_is_permissionless: self.tree_creation_is_permissionless,
             ring_creation_is_permissionless: self.ring_creation_is_permissionless,
             spl_interface_creation_is_permissionless: self.spl_interface_creation_is_permissionless,
+            next_tree_id: 0,
         };
         Ok(())
     }

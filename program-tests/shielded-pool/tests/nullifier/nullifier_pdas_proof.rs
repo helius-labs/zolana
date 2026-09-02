@@ -52,11 +52,11 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
         data: Data::default(),
     };
     env.rpc
-        .deposit_sol(&env.tree.pubkey(), &payer, 0, owner_field, blinding)
+        .deposit_sol(&env.tree, &payer, 0, owner_field, blinding)
         .expect("proofless zero deposit");
 
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
-    let (utxo_root, nullifier_root) = tree_roots(&env.rpc, &env.tree.pubkey(), 1);
+    let (utxo_root, nullifier_root) = tree_roots(&env.rpc, &env.tree, 1);
     let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     state_tree.append(&utxo_hash).expect("append state leaf");
     assert_eq!(state_tree.root(), utxo_root, "state root gate");
@@ -152,8 +152,8 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
 fn transact_instruction(env: &Pool, data: TransactIxData) -> solana_instruction::Instruction {
     Transact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree.pubkey(),
-        output_tree: env.tree.pubkey(),
+        input_tree: env.tree,
+        output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data,
@@ -169,10 +169,7 @@ fn nullifiers_of(data: &TransactIxData) -> Vec<[u8; 32]> {
 }
 
 fn tree_account(env: &Pool) -> Account {
-    env.rpc
-        .svm
-        .get_account(&env.tree.pubkey())
-        .expect("tree account")
+    env.rpc.svm.get_account(&env.tree).expect("tree account")
 }
 
 fn payer_lamports(env: &Pool) -> u64 {
@@ -185,7 +182,7 @@ fn payer_lamports(env: &Pool) -> u64 {
 
 #[track_caller]
 fn assert_transact_frame(env: &Pool, trace: &TransactionTrace, nullifiers: &[[u8; 32]]) {
-    let tree = env.tree.pubkey();
+    let tree = env.tree;
     let payer = env.rpc.payer.pubkey();
     let mut changed: Vec<Pubkey> = trace
         .changed_accounts()
@@ -206,7 +203,7 @@ fn assert_transact_frame(env: &Pool, trace: &TransactionTrace, nullifiers: &[[u8
 #[test]
 fn transact_creates_one_nullifier_pda_per_input() {
     let mut env = proof_env();
-    let tree = env.tree.pubkey();
+    let tree = env.tree;
     let data = build_valid_transact_ix(&mut env);
     let nullifiers = nullifiers_of(&data);
     let queue_next_before = nullifier_queue_next_index(&env.rpc, &tree).expect("queue index");
@@ -241,7 +238,7 @@ fn transact_creates_one_nullifier_pda_per_input() {
 #[test]
 fn transact_rejects_a_nullifier_queued_by_an_earlier_transaction() {
     let mut env = proof_env();
-    let tree = env.tree.pubkey();
+    let tree = env.tree;
     let data = build_valid_transact_ix(&mut env);
     let nullifiers = nullifiers_of(&data);
     let queue_next_before = nullifier_queue_next_index(&env.rpc, &tree).expect("queue index");
@@ -274,7 +271,7 @@ fn transact_rejects_a_nullifier_queued_by_an_earlier_transaction() {
 #[test]
 fn transact_tops_up_prefunded_nullifier_pdas() {
     let mut env = proof_env();
-    let tree = env.tree.pubkey();
+    let tree = env.tree;
     let payer = env.rpc.payer.pubkey();
     let data = build_valid_transact_ix(&mut env);
     let nullifiers = nullifiers_of(&data);

@@ -98,6 +98,7 @@ pub fn process_transact_ix(
     create_nullifier_pdas(
         transact_accounts.payer,
         transact_accounts.input_tree,
+        input_tree_result.tree_id,
         &mut transact_accounts.nullifier_pdas,
         &input_tree_result.inputs,
     )?;

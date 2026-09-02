@@ -3,7 +3,7 @@ export {
   createAssociatedTokenAccountInstruction as getCreateAssociatedTokenAccountInstructionAsync,
   createProtocolConfigInstruction as getCreateProtocolConfigInstructionAsync,
   createSplInterfaceInstruction as getCreateSplInterfaceInstructionAsync,
-  createTreeInstruction as getCreateTreeInstructionAsync,
+  createTreeInstructions as getCreateTreeInstructionsAsync,
   depositInstruction as getDepositInstructionAsync,
   mergeTransactInstruction as getMergeTransactInstructionAsync,
   nullifierPdaAccounts as getNullifierPdaAccountsAsync,

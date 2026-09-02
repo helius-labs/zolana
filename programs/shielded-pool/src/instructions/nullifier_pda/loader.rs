@@ -1,5 +1,5 @@
 use borsh::BorshDeserialize;
-use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address};
+use pinocchio::{error::ProgramError, AccountView};
 use zolana_interface::{
     error::ShieldedPoolError, NullifierPda, NULLIFIER_PDA_SEED, NULLIFIER_PDA_SIZE,
 };
@@ -30,8 +30,7 @@ pub(crate) fn load_unused_nullifier_pda(
 #[inline(never)]
 pub(crate) fn load_nullifier_pda(
     nullifier_pda: &AccountView,
-    tree: &[u8; 32],
-    nullifier: &[u8; 32],
+    tree_id: u16,
 ) -> Result<NullifierPda, ProgramError> {
     if !nullifier_pda.is_writable()
         || !nullifier_pda.owned_by(&crate::ID)
@@ -39,19 +38,13 @@ pub(crate) fn load_nullifier_pda(
     {
         return Err(ShieldedPoolError::InvalidNullifierPda.into());
     }
-    let record = {
-        let data = nullifier_pda
-            .try_borrow()
-            .map_err(|_| ShieldedPoolError::InvalidNullifierPda)?;
-        NullifierPda::try_from_slice(&data).map_err(|_| ShieldedPoolError::InvalidNullifierPda)?
-    };
-    let expected = Address::derive_address(
-        &[NULLIFIER_PDA_SEED, tree, nullifier],
-        Some(record.bump),
-        &crate::ID,
-    );
-    if !address_eq(nullifier_pda.address(), &expected) {
-        return Err(ShieldedPoolError::InvalidNullifierPda.into());
+    let data = nullifier_pda
+        .try_borrow()
+        .map_err(|_| ShieldedPoolError::InvalidNullifierPda)?;
+    let record =
+        NullifierPda::try_from_slice(&data).map_err(|_| ShieldedPoolError::InvalidNullifierPda)?;
+    if record.tree_id != tree_id {
+        return Err(ShieldedPoolError::NullifierPdaTreeMismatch.into());
     }
     Ok(record)
 }

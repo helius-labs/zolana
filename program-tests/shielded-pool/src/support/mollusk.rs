@@ -51,15 +51,13 @@ pub fn deposit_fixture() -> (Mollusk, Instruction, Vec<(Pubkey, MolluskAccount)>
     let authority = Keypair::new();
     test.create_protocol_config(&authority)
         .expect("create protocol config");
-    let tree = test
-        .create_tree(runtime::tree_account_size(), &authority)
-        .expect("create tree");
+    let tree = test.create_tree(&authority).expect("create tree");
     let depositor = Keypair::new();
     test.airdrop(&depositor.pubkey(), 1_000_000_000)
         .expect("fund depositor");
     let data = ZolanaProgramTest::sol_shield_data(1_000_000, [8u8; 32], [8u8; 32]);
     let ix = Deposit {
-        tree: tree.pubkey(),
+        tree,
         depositor: depositor.pubkey(),
         deposits: vec![data],
     }
@@ -97,12 +95,10 @@ pub fn pause_tree_fixture() -> (Mollusk, Instruction, Vec<(Pubkey, MolluskAccoun
     let authority = Keypair::new();
     test.create_protocol_config(&authority)
         .expect("create protocol config");
-    let tree = test
-        .create_tree(runtime::tree_account_size(), &authority)
-        .expect("create tree");
+    let tree = test.create_tree(&authority).expect("create tree");
     let ix = PauseTree {
         authority: authority.pubkey(),
-        tree: tree.pubkey(),
+        tree,
         paused: true,
     }
     .instruction();

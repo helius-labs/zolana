@@ -43,7 +43,7 @@ fn sol_deposit_moves_lamports_emits_the_exact_output_and_updates_the_indexer() {
             .expect("deposit data");
     data.memo = Some(b"manual program test".to_vec());
 
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let mut oracle = SolDepositOracle::capture(&pool.rpc, &tree, &depositor.pubkey());
     let root_before = pool.rpc.state_root(&tree).expect("state root");
     assert_eq!(
@@ -78,7 +78,7 @@ fn sol_deposit_emits_one_general_event_with_the_exact_deposit_withdraw() {
     const AMOUNT: u64 = 1_000_000;
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(2_000_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let data = ZolanaProgramTest::sol_shield_data(AMOUNT, [9u8; 32], [9u8; 32]);
     let ix = Deposit {
         tree,
@@ -198,7 +198,7 @@ fn sol_deposit_with_utxo_data_commits_the_data_hash() {
         data: vec![1, 2, 3],
     });
 
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let event = pool
         .rpc
         .deposit(&tree, &depositor, &data)
@@ -224,7 +224,7 @@ fn bootstrap_deposits_keep_indexer_wallet_and_tree_in_sync() {
     const AMOUNTS: [u64; 3] = [1_000_000_000, 250_000_000, 1_000_000];
 
     let mut pool = Pool::initialized();
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     assert_eq!(
         pool.rpc.indexer().root(),
         pool.rpc.state_root(&tree).expect("state root"),
@@ -314,7 +314,7 @@ fn ring_sol_deposit_settles_and_indexes_the_exact_output() {
         .create_ring_config(&ring_authority, &ring_authority.pubkey(), true)
         .expect("create ring config");
 
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let depositor = pool.funded_signer(5_000_000_000);
     let recipient_key = ShieldedKeypair::new_p256().expect("recipient keypair");
     let mut recipient = Wallet::new(
@@ -390,7 +390,7 @@ fn ring_deposit_event_carries_the_ring_data_preimage_verbatim() {
     pool.rpc
         .create_ring_config(&ring_authority, &ring_authority.pubkey(), true)
         .expect("create ring config");
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let depositor = pool.funded_signer(2_000_000_000);
     let mut data = pool
         .rpc
@@ -448,7 +448,7 @@ fn ring_deposit_batch_binds_distinct_ring_data_per_entry() {
         .create_ring_config(&ring_authority, &ring_authority.pubkey(), true)
         .expect("create ring config");
 
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let depositor = pool.funded_signer(2_000_000_000);
     let recipient_key = ShieldedKeypair::new_p256().expect("recipient keypair");
     let recipient = recipient_key
@@ -571,7 +571,7 @@ fn ring_spl_deposit_settles_and_indexes_the_exact_output() {
     )
     .expect("ring SPL deposit data");
     data.ring_data_hash = [9u8; 32];
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let root_before = pool.rpc.state_root(&tree).expect("root");
     let vault_before = pool.rpc.token_balance(&vault).expect("vault balance");
     let user_before = pool
@@ -649,7 +649,7 @@ fn sol_deposit_batch_settles_once_and_appends_three_distinct_leaves() {
     const COUNT: u64 = 3;
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(5_000_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let interface_before = sol_interface_lamports(&pool.rpc);
     let deposits: Vec<AssetDeposit> = (1..=COUNT)
         .map(|seed| {
@@ -693,7 +693,7 @@ fn multi_asset_deposit_batch_settles_each_asset_once_and_appends_three_distinct_
     let mut pool = Pool::initialized();
     let (mint, _, vault) = register_mint(&mut pool);
     let (depositor, user_token) = spl_depositor(&mut pool, mint, 1_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let interface_before = sol_interface_lamports(&pool.rpc);
     let vault_before = pool.rpc.token_balance(&vault).expect("vault balance");
 

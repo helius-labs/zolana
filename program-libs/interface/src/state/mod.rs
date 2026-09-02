@@ -12,8 +12,9 @@ pub use ring_config::RingConfig;
 pub use spl_asset_counter::SplAssetCounter;
 pub use spl_asset_registry::SplAssetRegistry;
 pub use tree::{
-    nullifier_tree_params, forester_fee_per_queue_element, state_root_offset, tree_account_size,
-    tree_creation_lamports, tree_working_capital_lamports, ADDRESS_TREE_HEIGHT,
-    ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE, ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
-    ADDRESS_TREE_ROOT_HISTORY_CAPACITY, FORESTER_REIMBURSEMENT_LAMPORTS, STATE_HEIGHT,
+    forester_fee_per_queue_element, nullifier_tree_params, state_root_offset, tree_account_size,
+    tree_creation_lamports, tree_creation_step_count, tree_working_capital_lamports,
+    FORESTER_REIMBURSEMENT_LAMPORTS, NULLIFIER_TREE_HEIGHT, NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE,
+    NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE, NULLIFIER_TREE_ROOT_HISTORY_CAPACITY, STATE_HEIGHT,
+    TREE_ALLOCATION_STEP,
 };

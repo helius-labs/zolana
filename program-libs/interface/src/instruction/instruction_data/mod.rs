@@ -1,5 +1,5 @@
 pub mod batch_update_nullifier_tree;
-pub mod close_nullifier_pdas;
+pub mod create_tree;
 pub mod deposit;
 pub mod merge_ring;
 pub mod merge_transact;
@@ -8,7 +8,7 @@ pub mod ring_config;
 pub mod transact;
 
 pub use batch_update_nullifier_tree::{BatchUpdateNullifierTreeData, CompressedProof};
-pub use close_nullifier_pdas::CloseNullifierPdasData;
+pub use create_tree::CreateTreeData;
 pub use deposit::{
     DepositAssetKind, DepositEntry, DepositEntryRef, DepositIxData, DepositIxDataRef,
     EncryptedRingDepositData, EncryptedRingDepositDataRef, RingDepositEntry, RingDepositEntryRef,

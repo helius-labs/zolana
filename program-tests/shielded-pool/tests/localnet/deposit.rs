@@ -60,9 +60,9 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
         &[3u8; 32],
         0,
     )?;
-    let direct_root_before = rpc_state_root(&rpc, &tree.pubkey())?;
+    let direct_root_before = rpc_state_root(&rpc, &tree)?;
     let direct_ix = Deposit {
-        tree: tree.pubkey(),
+        tree: tree,
         depositor: depositor.pubkey(),
         deposits: vec![direct_data],
     }
@@ -77,7 +77,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
         &[&payer, &depositor],
     )?;
     print_signature("deposit", &direct_tx.signature);
-    let direct_root_after = rpc_state_root(&rpc, &tree.pubkey())?;
+    let direct_root_after = rpc_state_root(&rpc, &tree)?;
     assert_ne!(direct_root_after, direct_root_before);
     let direct_view = single_deposit_view(&direct_tx.events)?;
     assert_eq!(direct_root_after, indexer.root());
@@ -136,9 +136,9 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
         0,
     )?;
     ring_data.ring_data_hash = [5u8; 32];
-    let ring_root_before = rpc_state_root(&rpc, &tree.pubkey())?;
+    let ring_root_before = rpc_state_root(&rpc, &tree)?;
     let ring_ix = RingDeposit {
-        tree: tree.pubkey(),
+        tree: tree,
         depositor: depositor.pubkey(),
         ring_program_id,
         deposits: vec![ring_data],
@@ -154,7 +154,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
         &[&payer, &depositor],
     )?;
     print_signature("ring_deposit", &ring_tx.signature);
-    let ring_root_after = rpc_state_root(&rpc, &tree.pubkey())?;
+    let ring_root_after = rpc_state_root(&rpc, &tree)?;
     assert_ne!(ring_root_after, ring_root_before);
     let ring_view = single_deposit_view(&ring_tx.events)?;
     assert_eq!(ring_root_after, indexer.root());

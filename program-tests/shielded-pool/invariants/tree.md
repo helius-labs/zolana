@@ -193,7 +193,7 @@ now states H=32 and lists tag 4.
 - [ ] **INV-BATCH-NULL-09: the event emit is the last fallible operation**
   - Partial coverage: photon parser tests (the consumer half: Photon records updates only from events in successful transactions); the ordering itself is a documented code invariant, untestable directly
   - Kind: state
-  - Statement: every fallible step (including `reimburse_forester`) precedes the `emit_batch_address_append_event` self-CPI; Photon's parser records updates only from events in successful transactions, so an emit-then-fail shape would drop a genuine update or wedge the indexer on a forged one (F-04 companion).
+  - Statement: every fallible step (including `reimburse_forester`) precedes the `emit_batch_nullifier_append_event` self-CPI; Photon's parser records updates only from events in successful transactions, so an emit-then-fail shape would drop a genuine update or wedge the indexer on a forged one (F-04 companion).
   - Location: `programs/shielded-pool/src/instructions/batch_update_nullifier_tree.rs:43-52` (documented code INVARIANT)
   - Severity: Critical (indexer wedge, F-04 companion)
   - Suggested test: none possible on-chain (convention); consumer half exists as photon parser unit tests

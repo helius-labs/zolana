@@ -37,8 +37,8 @@ use zolana_interface::{
     },
     pda,
     state::{
-        nullifier_tree_params, ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE,
-        ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+        nullifier_tree_params, NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE,
+        NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
     },
     SHIELDED_POOL_PROGRAM_ID,
 };
@@ -191,7 +191,7 @@ fn latest_tree_roots(rpc: &SolanaRpc, tree: &Pubkey) -> TestResult<LatestTreeRoo
 fn localnet_nullifier_params() -> zolana_tree::NullifierTreeInitParams {
     let mut params = nullifier_tree_params();
     let zkp_batch_count =
-        ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE / ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
+        NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE / NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
     params.input_queue_zkp_batch_size = LOCALNET_NULLIFIER_ZKP_BATCH_SIZE;
     params.input_queue_batch_size = LOCALNET_NULLIFIER_ZKP_BATCH_SIZE * zkp_batch_count;
     params

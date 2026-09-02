@@ -33,7 +33,7 @@ Regenerate with `just bench-shielded-pool`.
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `process_instruction`         |      4,465 |      4,465 |
+| `process_instruction`         |      4,489 |      4,489 |
 
 ## 2. Deposit sol
 
@@ -41,8 +41,8 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `settle_sol`                  |      1,170 |      1,170 |
 | `process_instruction`         |         31 |         31 |
-| `process_deposit`             |     38,352 |     37,151 |
-| `process_instruction`         |     38,403 |          0 |
+| `process_deposit`             |     38,389 |     37,188 |
+| `process_instruction`         |     38,440 |          0 |
 
 ## 3. Deposit sol batch 3
 
@@ -50,8 +50,8 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `settle_sol`                  |      1,170 |      1,170 |
 | `process_instruction`         |         31 |         31 |
-| `process_deposit`             |     49,740 |     48,539 |
-| `process_instruction`         |     49,791 |          0 |
+| `process_deposit`             |     49,777 |     48,576 |
+| `process_instruction`         |     49,828 |          0 |
 
 ## 4. Deposit spl
 
@@ -59,14 +59,14 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `settle_spl_deposit`          |      1,277 |      1,277 |
 | `process_instruction`         |         31 |         31 |
-| `process_deposit`             |     39,206 |     37,898 |
-| `process_instruction`         |     39,257 |          0 |
+| `process_deposit`             |     39,243 |     37,935 |
+| `process_instruction`         |     39,294 |          0 |
 
 ## 5. Pause tree
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `process_instruction`         |        191 |        191 |
+| `process_instruction`         |        240 |        240 |
 
 ## 6. Transfer eddsa 1x1
 
@@ -74,14 +74,13 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `fill_output_owner_pk_hashes` |      1,078 |      1,078 |
 | `fill_owner_signer_hashes`    |        114 |        114 |
-| `apply_input_tree`            |      1,137 |      1,137 |
-| `create_nullifier_pdas`       |      8,643 |      8,643 |
-| `apply_output_tree`           |     28,010 |     28,010 |
+| `apply_input_tree`            |        737 |        737 |
+| `create_nullifier_pdas`       |      4,540 |      4,540 |
+| `apply_output_tree`           |     28,046 |     28,046 |
 | `verify_groth16`              |     93,351 |     93,351 |
-| `fund_nullifier_pdas`         |         49 |         49 |
 | `process_instruction`         |         31 |         31 |
-| `process_transact_ix`         |    156,595 |     24,182 |
-| `process_instruction`         |    156,648 |          0 |
+| `process_transact_ix`         |    152,179 |     24,282 |
+| `process_instruction`         |    152,232 |          0 |
 
 ## 7. Transfer eddsa 1x2
 
@@ -89,14 +88,13 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `fill_output_owner_pk_hashes` |      1,144 |      1,144 |
 | `fill_owner_signer_hashes`    |        114 |        114 |
-| `apply_input_tree`            |      1,137 |      1,137 |
-| `create_nullifier_pdas`       |      8,643 |      8,643 |
-| `apply_output_tree`           |     28,053 |     28,053 |
+| `apply_input_tree`            |        737 |        737 |
+| `create_nullifier_pdas`       |      4,540 |      4,540 |
+| `apply_output_tree`           |     28,089 |     28,089 |
 | `verify_groth16`              |     93,351 |     93,351 |
-| `fund_nullifier_pdas`         |         49 |         49 |
 | `process_instruction`         |         31 |         31 |
-| `process_transact_ix`         |    158,804 |     26,282 |
-| `process_instruction`         |    158,857 |          0 |
+| `process_transact_ix`         |    154,420 |     26,414 |
+| `process_instruction`         |    154,473 |          0 |
 
 ## 8. Transfer eddsa 1x8
 
@@ -104,14 +102,13 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `fill_output_owner_pk_hashes` |      1,540 |      1,540 |
 | `fill_owner_signer_hashes`    |        114 |        114 |
-| `apply_input_tree`            |      1,137 |      1,137 |
-| `create_nullifier_pdas`       |      8,643 |      8,643 |
-| `apply_output_tree`           |     31,783 |     31,783 |
+| `apply_input_tree`            |        737 |        737 |
+| `create_nullifier_pdas`       |      4,540 |      4,540 |
+| `apply_output_tree`           |     31,819 |     31,819 |
 | `verify_groth16`              |     93,351 |     93,351 |
-| `fund_nullifier_pdas`         |         49 |         49 |
 | `process_instruction`         |         31 |         31 |
-| `process_transact_ix`         |    175,073 |     38,425 |
-| `process_instruction`         |    175,126 |          0 |
+| `process_transact_ix`         |    170,785 |     38,653 |
+| `process_instruction`         |    170,838 |          0 |
 
 ## 9. Transfer eddsa 2x2
 
@@ -119,14 +116,13 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `fill_output_owner_pk_hashes` |      1,144 |      1,144 |
 | `fill_owner_signer_hashes`    |        114 |        114 |
-| `apply_input_tree`            |      2,721 |      2,721 |
-| `create_nullifier_pdas`       |     12,622 |     12,622 |
-| `apply_output_tree`           |     28,053 |     28,053 |
+| `apply_input_tree`            |      1,990 |      1,990 |
+| `create_nullifier_pdas`       |     10,425 |     10,425 |
+| `apply_output_tree`           |     28,089 |     28,089 |
 | `verify_groth16`              |     93,351 |     93,351 |
-| `fund_nullifier_pdas`         |         89 |         89 |
 | `process_instruction`         |         31 |         31 |
-| `process_transact_ix`         |    166,971 |     28,846 |
-| `process_instruction`         |    167,024 |          0 |
+| `process_transact_ix`         |    164,170 |     29,026 |
+| `process_instruction`         |    164,223 |          0 |
 
 ## 10. Transfer eddsa 2x3
 
@@ -134,14 +130,13 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `fill_output_owner_pk_hashes` |      1,210 |      1,210 |
 | `fill_owner_signer_hashes`    |        114 |        114 |
-| `apply_input_tree`            |      2,721 |      2,721 |
-| `create_nullifier_pdas`       |     12,622 |     12,622 |
-| `apply_output_tree`           |     28,964 |     28,964 |
+| `apply_input_tree`            |      1,990 |      1,990 |
+| `create_nullifier_pdas`       |     10,425 |     10,425 |
+| `apply_output_tree`           |     29,000 |     29,000 |
 | `verify_groth16`              |     93,351 |     93,351 |
-| `fund_nullifier_pdas`         |         89 |         89 |
 | `process_instruction`         |         31 |         31 |
-| `process_transact_ix`         |    169,926 |     30,824 |
-| `process_instruction`         |    169,979 |          0 |
+| `process_transact_ix`         |    167,141 |     31,020 |
+| `process_instruction`         |    167,194 |          0 |
 
 ## 11. Transfer eddsa 3x3
 
@@ -149,14 +144,13 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `fill_output_owner_pk_hashes` |      1,210 |      1,210 |
 | `fill_owner_signer_hashes`    |        114 |        114 |
-| `apply_input_tree`            |      4,305 |      4,305 |
-| `create_nullifier_pdas`       |     16,601 |     16,601 |
-| `apply_output_tree`           |     28,964 |     28,964 |
+| `apply_input_tree`            |      3,243 |      3,243 |
+| `create_nullifier_pdas`       |     16,310 |     16,310 |
+| `apply_output_tree`           |     29,000 |     29,000 |
 | `verify_groth16`              |     93,351 |     93,351 |
-| `fund_nullifier_pdas`         |        129 |        129 |
 | `process_instruction`         |         31 |         31 |
-| `process_transact_ix`         |    178,086 |     33,381 |
-| `process_instruction`         |    178,139 |          0 |
+| `process_transact_ix`         |    176,860 |     33,601 |
+| `process_instruction`         |    176,913 |          0 |
 
 ## 12. Transfer eddsa 4x3
 
@@ -164,14 +158,13 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `fill_output_owner_pk_hashes` |      1,210 |      1,210 |
 | `fill_owner_signer_hashes`    |        114 |        114 |
-| `apply_input_tree`            |      5,889 |      5,889 |
-| `create_nullifier_pdas`       |     20,580 |     20,580 |
-| `apply_output_tree`           |     28,964 |     28,964 |
+| `apply_input_tree`            |      4,496 |      4,496 |
+| `create_nullifier_pdas`       |     19,195 |     19,195 |
+| `apply_output_tree`           |     29,000 |     29,000 |
 | `verify_groth16`              |     93,351 |     93,351 |
-| `fund_nullifier_pdas`         |        169 |        169 |
 | `process_instruction`         |         31 |         31 |
-| `process_transact_ix`         |    186,252 |     35,944 |
-| `process_instruction`         |    186,305 |          0 |
+| `process_transact_ix`         |    183,585 |     36,188 |
+| `process_instruction`         |    183,638 |          0 |
 
 ## 13. Transfer eddsa 4x4
 
@@ -179,14 +172,13 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `fill_output_owner_pk_hashes` |      1,276 |      1,276 |
 | `fill_owner_signer_hashes`    |        114 |        114 |
-| `apply_input_tree`            |      5,889 |      5,889 |
-| `create_nullifier_pdas`       |     20,580 |     20,580 |
-| `apply_output_tree`           |     29,007 |     29,007 |
+| `apply_input_tree`            |      4,496 |      4,496 |
+| `create_nullifier_pdas`       |     19,195 |     19,195 |
+| `apply_output_tree`           |     29,043 |     29,043 |
 | `verify_groth16`              |     93,351 |     93,351 |
-| `fund_nullifier_pdas`         |        169 |        169 |
 | `process_instruction`         |         31 |         31 |
-| `process_transact_ix`         |    188,633 |     38,216 |
-| `process_instruction`         |    188,686 |          0 |
+| `process_transact_ix`         |    185,982 |     38,476 |
+| `process_instruction`         |    186,035 |          0 |
 
 ## 14. Transfer eddsa 5x3
 
@@ -194,14 +186,13 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `fill_output_owner_pk_hashes` |      1,210 |      1,210 |
 | `fill_owner_signer_hashes`    |        114 |        114 |
-| `apply_input_tree`            |      7,473 |      7,473 |
-| `create_nullifier_pdas`       |     24,559 |     24,559 |
-| `apply_output_tree`           |     28,964 |     28,964 |
+| `apply_input_tree`            |      5,749 |      5,749 |
+| `create_nullifier_pdas`       |     22,080 |     22,080 |
+| `apply_output_tree`           |     29,000 |     29,000 |
 | `verify_groth16`              |     93,351 |     93,351 |
-| `fund_nullifier_pdas`         |        209 |        209 |
 | `process_instruction`         |         31 |         31 |
-| `process_transact_ix`         |    194,532 |     38,621 |
-| `process_instruction`         |    194,585 |          0 |
+| `process_transact_ix`         |    190,424 |     38,889 |
+| `process_instruction`         |    190,477 |          0 |
 
 ## 15. Transfer eddsa 5x4
 
@@ -209,14 +200,13 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `fill_output_owner_pk_hashes` |      1,276 |      1,276 |
 | `fill_owner_signer_hashes`    |        114 |        114 |
-| `apply_input_tree`            |      7,473 |      7,473 |
-| `create_nullifier_pdas`       |     24,559 |     24,559 |
-| `apply_output_tree`           |     29,007 |     29,007 |
+| `apply_input_tree`            |      5,749 |      5,749 |
+| `create_nullifier_pdas`       |     22,080 |     22,080 |
+| `apply_output_tree`           |     29,043 |     29,043 |
 | `verify_groth16`              |     93,351 |     93,351 |
-| `fund_nullifier_pdas`         |        209 |        209 |
 | `process_instruction`         |         31 |         31 |
-| `process_transact_ix`         |    196,798 |     40,778 |
-| `process_instruction`         |    196,851 |          0 |
+| `process_transact_ix`         |    192,706 |     41,062 |
+| `process_instruction`         |    192,759 |          0 |
 
 ## 16. Withdrawal sol
 
@@ -224,15 +214,14 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `fill_output_owner_pk_hashes` |      1,210 |      1,210 |
 | `fill_owner_signer_hashes`    |        114 |        114 |
-| `apply_input_tree`            |      2,721 |      2,721 |
-| `create_nullifier_pdas`       |      8,122 |      8,122 |
-| `apply_output_tree`           |     28,964 |     28,964 |
+| `apply_input_tree`            |      1,990 |      1,990 |
+| `create_nullifier_pdas`       |      5,925 |      5,925 |
+| `apply_output_tree`           |     29,000 |     29,000 |
 | `verify_groth16`              |     93,351 |     93,351 |
 | `settle_sol`                  |      1,189 |      1,189 |
-| `fund_nullifier_pdas`         |         89 |         89 |
 | `process_instruction`         |         31 |         31 |
-| `process_transact_ix`         |    169,467 |     33,676 |
-| `process_instruction`         |    169,520 |          0 |
+| `process_transact_ix`         |    166,682 |     33,872 |
+| `process_instruction`         |    166,735 |          0 |
 
 ## 17. Withdrawal spl
 
@@ -240,13 +229,12 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `fill_output_owner_pk_hashes` |      1,210 |      1,210 |
 | `fill_owner_signer_hashes`    |        114 |        114 |
-| `apply_input_tree`            |      2,721 |      2,721 |
-| `create_nullifier_pdas`       |      8,122 |      8,122 |
-| `apply_output_tree`           |     28,964 |     28,964 |
+| `apply_input_tree`            |      1,990 |      1,990 |
+| `create_nullifier_pdas`       |      7,425 |      7,425 |
+| `apply_output_tree`           |     29,000 |     29,000 |
 | `verify_groth16`              |     93,351 |     93,351 |
 | `settle_spl_withdrawal`       |      1,210 |      1,210 |
-| `fund_nullifier_pdas`         |         89 |         89 |
 | `process_instruction`         |         31 |         31 |
-| `process_transact_ix`         |    171,168 |     35,356 |
-| `process_instruction`         |    171,221 |          0 |
+| `process_transact_ix`         |    169,891 |     35,560 |
+| `process_instruction`         |    169,944 |          0 |
 

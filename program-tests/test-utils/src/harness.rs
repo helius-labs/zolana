@@ -25,7 +25,7 @@ use zolana_interface::{
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{ShieldedKeypair, SigningKey};
-use zolana_smart_account_client::execute_sync_ix;
+use zolana_smart_account_client::{execute_sync_each, execute_sync_ix};
 use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo, Wallet, WalletUtxo};
 use zolana_tree::NullifierTreeInitParams;
 
@@ -323,35 +323,26 @@ impl<D> LocalnetHarness<D> {
         setup: &ProtocolSetup,
         nullifier_params: Option<NullifierTreeInitParams>,
     ) -> Result<(Pubkey, Address)> {
-        let tree = Keypair::new();
-        let alloc_ix = zolana_program_test::create_tree_account_ix(
-            rpc,
-            &setup.payer.pubkey(),
-            &tree.pubkey(),
-            &nullifier_params.unwrap_or_else(nullifier_tree_params),
-        )?;
         let create = CreateTree {
+            payer: setup.payer.pubkey(),
             authority: setup.accounts.tree_vault,
-            tree: tree.pubkey(),
+            tree_id: zolana_program_test::next_tree_id(rpc)?,
+            nullifier_params: nullifier_params.unwrap_or_else(nullifier_tree_params),
         };
-        let create_tree_ix = match nullifier_params {
-            Some(params) => create.instruction_with_nullifier_params(params),
-            None => create.instruction(),
-        };
-        let create_tree_sync = execute_sync_ix(
+        let steps = execute_sync_each(
             &setup.accounts.tree_settings,
             0,
             &[setup.tree_key.pubkey()],
-            &[create_tree_ix],
+            &create.instructions(),
         );
         send_transaction(
             rpc,
-            &[alloc_ix, create_tree_sync],
+            &steps,
             &setup.payer.pubkey(),
-            &[&setup.payer, &tree, &setup.tree_key],
+            &[&setup.payer, &setup.tree_key],
         )?;
 
-        let tree = tree.pubkey();
+        let tree = create.tree();
         Ok((tree, Address::new_from_array(tree.to_bytes())))
     }
 

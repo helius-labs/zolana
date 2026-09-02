@@ -37,6 +37,7 @@ impl NullifierPdaRent {
 pub(crate) fn create_nullifier_pdas(
     payer: &AccountView,
     tree: &mut AccountView,
+    tree_id: u16,
     nullifier_pdas: &mut [&mut AccountView],
     inputs: &[Input],
 ) -> ProgramResult {
@@ -50,7 +51,7 @@ pub(crate) fn create_nullifier_pdas(
     };
     let tree_address = *tree.address().as_array();
     for (nullifier_pda, input) in nullifier_pdas.iter_mut().zip(inputs) {
-        create_nullifier_pda(payer, nullifier_pda, &tree_address, input)?;
+        create_nullifier_pda(payer, nullifier_pda, &tree_address, tree_id, input)?;
         let missing = rent.missing(nullifier_pda);
         if missing == 0 {
             continue;
@@ -71,6 +72,7 @@ fn create_nullifier_pda(
     payer: &AccountView,
     nullifier_pda: &mut AccountView,
     tree_address: &[u8; 32],
+    tree_id: u16,
     input: &Input,
 ) -> ProgramResult {
     let bump = load_unused_nullifier_pda(nullifier_pda, tree_address, &input.nullifier)?;
@@ -109,7 +111,7 @@ fn create_nullifier_pda(
     let mut writer: &mut [u8] = &mut data;
     NullifierPda {
         queue_index: input.input_queue_seq,
-        bump,
+        tree_id,
     }
     .serialize(&mut writer)
     .map_err(|_| ShieldedPoolError::InvalidNullifierPda.into())

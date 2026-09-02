@@ -200,6 +200,25 @@ pub fn execute_sync_ix(
     }
 }
 
+pub fn execute_sync_each(
+    settings_key: &Pubkey,
+    account_index: u8,
+    signer_keys: &[Pubkey],
+    inner_instructions: &[Instruction],
+) -> Vec<Instruction> {
+    inner_instructions
+        .iter()
+        .map(|inner| {
+            execute_sync_ix(
+                settings_key,
+                account_index,
+                signer_keys,
+                std::slice::from_ref(inner),
+            )
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------------------
 // Payload compilation (internal)
 // ---------------------------------------------------------------------------

@@ -16,6 +16,7 @@ use crate::instructions::shared::{bool_field, tree_error};
 pub(crate) struct InputTreeResult {
     pub inputs: Vec<Input>,
     pub zkp_batch_size: u64,
+    pub tree_id: u16,
 }
 
 #[profile]
@@ -67,6 +68,7 @@ pub(crate) fn apply_input_tree(
     Ok(InputTreeResult {
         inputs,
         zkp_batch_size,
+        tree_id: input_tree.tree_id(),
     })
 }
 

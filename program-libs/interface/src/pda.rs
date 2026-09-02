@@ -5,7 +5,7 @@ use crate::{
     RING_AUTH_PDA_SEED, SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID,
     SOL_INTERFACE_PDA_SEED, SPL_ASSET_COUNTER_PDA_SEED, SPL_ASSET_REGISTRY_PDA_SEED,
     SPL_INTERFACE_PDA_SEED, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
-    SPP_PROTOCOL_CONFIG_PDA_SEED,
+    SPP_PROTOCOL_CONFIG_PDA_SEED, TREE_PDA_SEED,
 };
 
 pub fn shielded_pool_program_id() -> Pubkey {
@@ -114,6 +114,17 @@ pub fn nullifier_pda(tree: &Pubkey, nullifier: &[u8; 32]) -> (Pubkey, u8) {
     )
 }
 
+pub fn tree(tree_id: u16) -> Pubkey {
+    tree_with_bump(tree_id).0
+}
+
+pub fn tree_with_bump(tree_id: u16) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[TREE_PDA_SEED, &tree_id.to_le_bytes()],
+        &shielded_pool_program_id(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use solana_pubkey::Pubkey;
@@ -143,6 +154,20 @@ mod tests {
         let tree = Pubkey::from_str_const("2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr");
         let expected = Pubkey::from_str_const("FketprhoGrMJG7tu9XaXEXhm4vCqzEubwMPFm874xtMm");
         assert_eq!(super::nullifier_pda(&tree, &[7u8; 32]), (expected, 252));
+    }
+
+    #[test]
+    fn tree_pda_is_bound_to_tree_id() {
+        let (address, bump) = super::tree_with_bump(7);
+        let recreated = Pubkey::create_program_address(
+            &[crate::TREE_PDA_SEED, &7u16.to_le_bytes(), &[bump]],
+            &super::shielded_pool_program_id(),
+        )
+        .expect("canonical bump is on the curve complement");
+        assert_eq!(recreated, address);
+        assert_eq!(super::tree(7), address);
+        assert_ne!(super::tree(8), address);
+        assert_ne!(super::tree(7 << 8), address);
     }
 
     #[test]

@@ -11290,7 +11290,6 @@ dependencies = [
  "thiserror 2.0.18",
  "wincode 0.5.5",
  "zerocopy",
- "zolana-account-checks",
  "zolana-client",
  "zolana-event",
  "zolana-hasher",

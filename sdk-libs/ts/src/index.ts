@@ -26,7 +26,6 @@ export {
   type ZolanaClientConfig,
 } from "./client/index.js";
 export {
-  DEFAULT_TREE_ADDRESS,
   SHIELDED_POOL_PROGRAM_ID,
   SPL_TOKEN_2022_PROGRAM_ID,
   SPL_TOKEN_PROGRAM_ID,

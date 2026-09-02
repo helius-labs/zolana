@@ -37,6 +37,6 @@ state-changing instructions live in their own files and in INV-XC-27.
   - Covered by: `program-tests/shielded-pool/tests/spl_interface/functional.rs` `spl_deposit_moves_tokens_emits_the_exact_output_and_updates_the_indexer`
   - Kind: reachability
   - Statement: for every state-changing instruction that reaches its event-emission step, the self-CPI `EmitEvent` succeeds (it passes no accounts, so no borrow or writability conflict with the tree account can block it).
-  - Location: `programs/shielded-pool/src/instructions/event.rs:11-35` (`fn emit_encoded_event`, `fn emit_general_event`, `fn emit_batch_address_append_event`)
+  - Location: `programs/shielded-pool/src/instructions/event.rs:11-35` (`fn emit_encoded_event`, `fn emit_general_event`, `fn emit_batch_nullifier_append_event`)
   - Severity: Medium (indexer liveness)
   - Suggested test: positive (covered implicitly by every successful-flow test asserting the event); harness: litesvm

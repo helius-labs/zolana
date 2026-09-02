@@ -14,7 +14,7 @@ use zolana_interface::{
     pda,
     state::{nullifier_tree_params, RingConfig},
 };
-use zolana_program_test::{system_create_account_ix, Rejection, Rpc, RING_TEST_PROGRAM_ID};
+use zolana_program_test::{next_tree_id, Rejection, RING_TEST_PROGRAM_ID};
 use zolana_test_utils::mollusk::{
     empty_placeholder_account, expect_err_exact, mollusk_pubkey, sweep_account_matrix,
     AccountMutation, Expected,
@@ -24,7 +24,7 @@ use zolana_tree::NullifierTreeInitParams;
 use shielded_pool_tests::support::{
     fixtures::Pool,
     mollusk::{pause_tree_fixture, protocol_config_fixture},
-    runtime::{program_test, tree_account_size},
+    runtime::program_test,
 };
 
 #[test]
@@ -73,11 +73,9 @@ fn tree_creation_rejects_unconfigured_authority() {
 
     let err = pool
         .rpc
-        .create_tree(tree_account_size(), &impostor)
+        .create_tree(&impostor)
         .expect_err("impostor tree creation must fail");
-    Rejection::pool(ShieldedPoolError::UnauthorizedCaller)
-        .at(1)
-        .assert_litesvm(err);
+    Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(err);
 }
 
 #[test]
@@ -96,45 +94,72 @@ fn pause_tree_rejects_unconfigured_authority_atomically() {
         .assert_rolled_back_except(&[pool.rpc.payer.pubkey()]);
 }
 
-#[test]
-fn undersized_tree_creation_is_rejected() {
-    let mut pool = Pool::initialized();
-
-    let err = pool
-        .rpc
-        .create_tree(10_000, &pool.authority)
-        .expect_err("undersized tree must fail");
-    Rejection::pool(ShieldedPoolError::InvalidTreeAccounts)
-        .at(1)
-        .assert_litesvm(err);
+fn create_tree_steps(pool: &Pool, tree_id: u16) -> CreateTree {
+    CreateTree {
+        payer: pool.rpc.payer.pubkey(),
+        authority: pool.authority.pubkey(),
+        tree_id,
+        nullifier_params: nullifier_tree_params(),
+    }
 }
 
 #[test]
-fn oversized_tree_creation_is_rejected() {
+fn tree_creation_rejects_a_skipped_tree_id() {
     let mut pool = Pool::initialized();
+    let skipped = next_tree_id(&pool.rpc).expect("next tree id") + 1;
+    let create = create_tree_steps(&pool, skipped);
 
     let err = pool
         .rpc
-        .create_tree(tree_account_size() + 8, &pool.authority)
-        .expect_err("oversized tree must fail");
-    Rejection::pool(ShieldedPoolError::InvalidTreeAccounts)
-        .at(1)
-        .assert_litesvm(err);
+        .create_and_send_default_payer_transaction(&create.instructions(), &[&pool.authority])
+        .expect_err("skipping a tree id must fail");
+    Rejection::pool(ShieldedPoolError::InvalidTreeId).assert_litesvm(err);
+    assert!(pool.rpc.account_data(&create.tree()).is_none());
+}
+
+#[test]
+fn tree_creation_rejects_a_non_canonical_tree_address() {
+    let mut pool = Pool::initialized();
+    let tree_id = next_tree_id(&pool.rpc).expect("next tree id");
+    let mut step = create_tree_steps(&pool, tree_id).step();
+    step.accounts.get_mut(3).expect("tree meta").pubkey = pda::tree(tree_id + 1);
+
+    let err = pool
+        .rpc
+        .create_and_send_default_payer_transaction(&[step], &[&pool.authority])
+        .expect_err("a tree address derived from another id must fail");
+    Rejection::pool(ShieldedPoolError::InvalidPda).assert_litesvm(err);
+}
+
+#[test]
+fn partially_allocated_tree_is_not_usable() {
+    let mut pool = Pool::initialized();
+    let tree_id = next_tree_id(&pool.rpc).expect("next tree id");
+    let create = create_tree_steps(&pool, tree_id);
+    let steps = create.instructions();
+    pool.rpc
+        .create_and_send_default_payer_transaction(
+            steps.get(..3).expect("allocation steps"),
+            &[&pool.authority],
+        )
+        .expect("allocation steps");
+
+    let depositor = pool.funded_signer(1_000_000_000);
+    let err = pool
+        .rpc
+        .deposit_sol(&create.tree(), &depositor, 1_000_000, [1; 32], [2; 32])
+        .expect_err("a tree that is still allocating must reject deposits");
+    Rejection::pool(ShieldedPoolError::InvalidTreeAccounts).assert_litesvm(err);
 }
 
 #[test]
 fn tree_creation_rejects_an_unsigned_authority() {
     let mut pool = Pool::initialized();
-    let tree = Keypair::new();
-    let mut create = CreateTree {
-        authority: pool.authority.pubkey(),
-        tree: tree.pubkey(),
-    }
-    .instruction();
-    // Same authority address, but its meta carries no signature.
+    let tree_id = next_tree_id(&pool.rpc).expect("next tree id");
+    let mut create = create_tree_steps(&pool, tree_id).step();
     create
         .accounts
-        .first_mut()
+        .get_mut(1)
         .expect("authority meta")
         .is_signer = false;
 
@@ -156,31 +181,12 @@ fn tree_creation_rejects_non_canonical_nullifier_params() {
         ..canonical
     };
 
-    let payer = pool.rpc.payer.pubkey();
-    let tree = Keypair::new();
-    let rent = pool
-        .rpc
-        .get_minimum_balance_for_rent_exemption(tree_account_size() as usize)
-        .expect("rent");
-    let alloc = system_create_account_ix(
-        &payer,
-        &tree.pubkey(),
-        rent,
-        tree_account_size(),
-        &pda::shielded_pool_program_id(),
-    );
-    let create = CreateTree {
-        authority: pool.authority.pubkey(),
-        tree: tree.pubkey(),
-    }
-    .instruction_with_nullifier_params(wrong_zkp_ratio);
-
     let err = pool
         .rpc
-        .create_and_send_default_payer_transaction(&[alloc, create], &[&tree, &pool.authority])
+        .create_tree_with_nullifier_params(&pool.authority, wrong_zkp_ratio)
         .expect_err("non-canonical nullifier params must fail");
     Rejection::pool(ShieldedPoolError::InvalidTreeAccounts)
-        .at(1)
+        .at(3)
         .assert_litesvm(err);
 }
 
@@ -190,9 +196,8 @@ fn pause_requires_a_protocol_config() {
     let signer = Keypair::new();
     rpc.airdrop(&signer.pubkey(), 1_000_000_000)
         .expect("fund signer");
-    let tree = Keypair::new();
     let err = rpc
-        .pause_tree(&signer, &tree, true)
+        .pause_tree(&signer, &pda::tree(0), true)
         .expect_err("pause without config must fail");
     Rejection::pool(ShieldedPoolError::InvalidProtocolConfig).assert_litesvm(err);
 }
@@ -462,49 +467,11 @@ fn pause_tree_rejects_wrong_config_owner_exactly() {
 }
 
 #[test]
-fn tree_creation_rejects_an_account_not_owned_by_the_pool() {
-    let mut pool = Pool::initialized();
-    let payer = pool.rpc.payer.pubkey();
-    let tree = Keypair::new();
-    let rent = pool
-        .rpc
-        .get_minimum_balance_for_rent_exemption(tree_account_size() as usize)
-        .expect("rent");
-    // Allocate the tree account owned by the system program, not the pool.
-    let alloc = system_create_account_ix(
-        &payer,
-        &tree.pubkey(),
-        rent,
-        tree_account_size(),
-        &Pubkey::default(),
-    );
-    let create = CreateTree {
-        authority: pool.authority.pubkey(),
-        tree: tree.pubkey(),
-    }
-    .instruction();
-
-    let err = pool
-        .rpc
-        .create_and_send_default_payer_transaction(&[alloc, create], &[&tree, &pool.authority])
-        .expect_err("tree account with a foreign owner must fail");
-    Rejection::custom(u32::from(AccountError::AccountOwnedByWrongProgram))
-        .at(1)
-        .assert_litesvm(err);
-}
-
-#[test]
 fn tree_creation_rejects_double_initialization() {
     let mut pool = Pool::initialized();
-    let tree_before = pool
-        .rpc
-        .account_data(&pool.tree.pubkey())
-        .expect("tree data");
-    let create_again = CreateTree {
-        authority: pool.authority.pubkey(),
-        tree: pool.tree.pubkey(),
-    }
-    .instruction();
+    let tree_before = pool.rpc.account_data(&pool.tree).expect("tree data");
+    let create_again = create_tree_steps(&pool, 0).step();
+    assert_eq!(pda::tree(0), pool.tree);
 
     let err = pool
         .rpc
@@ -512,7 +479,7 @@ fn tree_creation_rejects_double_initialization() {
         .expect_err("re-initializing an existing tree must fail");
     Rejection::pool(ShieldedPoolError::InvalidTreeAccounts).assert_litesvm(err);
     assert_eq!(
-        pool.rpc.account_data(&pool.tree.pubkey()).expect("tree"),
+        pool.rpc.account_data(&pool.tree).expect("tree"),
         tree_before,
         "rejected re-init must leave the tree untouched"
     );
@@ -521,33 +488,15 @@ fn tree_creation_rejects_double_initialization() {
 #[test]
 fn tree_creation_rejects_trailing_instruction_bytes() {
     let mut pool = Pool::initialized();
-    let payer = pool.rpc.payer.pubkey();
-    let tree = Keypair::new();
-    let rent = pool
-        .rpc
-        .get_minimum_balance_for_rent_exemption(tree_account_size() as usize)
-        .expect("rent");
-    let alloc = system_create_account_ix(
-        &payer,
-        &tree.pubkey(),
-        rent,
-        tree_account_size(),
-        &pda::shielded_pool_program_id(),
-    );
-    let mut create = CreateTree {
-        authority: pool.authority.pubkey(),
-        tree: tree.pubkey(),
-    }
-    .instruction();
+    let tree_id = next_tree_id(&pool.rpc).expect("next tree id");
+    let mut create = create_tree_steps(&pool, tree_id).step();
     create.data.push(0xFF);
 
     let err = pool
         .rpc
-        .create_and_send_default_payer_transaction(&[alloc, create], &[&tree, &pool.authority])
+        .create_and_send_default_payer_transaction(&[create], &[&pool.authority])
         .expect_err("trailing instruction bytes must fail");
-    Rejection::pool(ShieldedPoolError::InvalidInstructionData)
-        .at(1)
-        .assert_litesvm(err);
+    Rejection::pool(ShieldedPoolError::InvalidInstructionData).assert_litesvm(err);
 }
 
 #[test]

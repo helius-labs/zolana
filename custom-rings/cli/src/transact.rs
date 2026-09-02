@@ -14,7 +14,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use thiserror::Error;
 use zolana_client::{ClientError, Rpc, SolanaRpc, SppProofInputUtxo, ZolanaIndexer};
-use zolana_interface::DEFAULT_TREE_ADDRESS;
+use zolana_interface::pda;
 use zolana_keypair::{shielded::ShieldedAddress, KeypairError, ShieldedKeypair};
 use zolana_ring_client::{ReaderKey, ReaderKeyError};
 use zolana_transaction::{
@@ -181,7 +181,7 @@ pub fn run_transfer(ctx: &mut Context, args: TransferArgs) -> Result<(), Transac
         deposits: [half, args.amount - half],
         recipient: args.to,
         amount: args.amount,
-        tree: Address::from_str_const(DEFAULT_TREE_ADDRESS),
+        tree: pda::tree(0),
         assets: &AssetRegistry::default(),
     }
     .send(session.env(ctx))?;
@@ -313,7 +313,7 @@ impl DemoTransfer<'_> {
             deposits: [self.amount; 2],
             recipient: recipient.shielded_address()?,
             amount: self.amount,
-            tree: Address::from_str_const(DEFAULT_TREE_ADDRESS),
+            tree: pda::tree(0),
             assets: &AssetRegistry::default(),
         }
         .send(env)?;

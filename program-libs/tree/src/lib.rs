@@ -109,7 +109,8 @@ pub const TREE_RESERVED_BYTES: usize = 64;
 pub struct TreeAccountLayout<const UTXO_HEIGHT: usize, const ZKP_BATCHES: usize> {
     pub discriminator: u8,
     pub state: u8,
-    pub _padding: [u8; 6],
+    pub tree_id: u16,
+    pub _padding: [u8; 4],
     pub _reserved: [u8; TREE_RESERVED_BYTES],
     pub utxo: UtxoTreeLayout<UTXO_HEIGHT>,
     pub nullifier: NullifierTreeLayout<ZKP_BATCHES>,
@@ -169,6 +170,7 @@ impl<'a> TreeAccount<'a> {
         discriminator: u8,
         utxo_tree_height: u8,
         pubkey: [u8; 32],
+        tree_id: u16,
         nullifier_params: NullifierTreeInitParams,
     ) -> Result<Self, TreeError> {
         if utxo_tree_height as usize != UTXO_TREE_HEIGHT {
@@ -194,6 +196,8 @@ impl<'a> TreeAccount<'a> {
         }
         layout.discriminator = discriminator;
         layout.state = INITIALIZED;
+        layout.tree_id = tree_id;
+        layout._padding = [0u8; 4];
         layout._reserved = [0u8; TREE_RESERVED_BYTES];
 
         layout.utxo.init(utxo_tree_height as usize)?;
@@ -345,6 +349,10 @@ impl<'a> TreeAccount<'a> {
         self.layout().discriminator
     }
 
+    pub fn tree_id(&self) -> u16 {
+        self.layout().tree_id
+    }
+
     pub fn state(&self) -> u8 {
         self.layout().state
     }
@@ -408,6 +416,7 @@ mod layout_equivalence {
             nullifier_offset
         );
 
+        assert_eq!(core::mem::offset_of!(SppTreeLayout, tree_id), 2);
         assert_eq!(
             core::mem::offset_of!(SppTreeLayout, _reserved),
             STATIC_METADATA_LEN
@@ -430,18 +439,24 @@ mod layout_equivalence {
             layout._reserved.fill(0xa5);
         }
 
-        TreeAccount::init(
-            &mut bytes,
-            7,
-            UTXO_TREE_HEIGHT as u8,
-            [2u8; 32],
-            NullifierTreeInitParams::default(),
-        )
-        .expect("initialize tree");
+        {
+            let tree = TreeAccount::init(
+                &mut bytes,
+                7,
+                UTXO_TREE_HEIGHT as u8,
+                [2u8; 32],
+                0x0102,
+                NullifierTreeInitParams::default(),
+            )
+            .expect("initialize tree");
+            assert_eq!(tree.tree_id(), 0x0102);
+        }
 
         let layout: &mut SppTreeLayout =
             wincode::deserialize_mut(&mut bytes).expect("reload layout");
         assert_eq!(layout._reserved, [0u8; TREE_RESERVED_BYTES]);
+        assert_eq!(layout.tree_id, 0x0102);
+        assert_eq!(bytes.get(2..4), Some(&[0x02, 0x01][..]));
     }
 
     #[test]

@@ -18,13 +18,7 @@ fn account_data() -> Vec<u8> {
 }
 
 fn init_tree(data: &mut [u8]) -> &mut NullifierTreeLayout<ZKP> {
-    init_tree_account_data::<ZKP>(
-        data,
-        BATCH_SIZE,
-        ZKP_BATCH_SIZE,
-        40,
-    )
-    .unwrap()
+    init_tree_account_data::<ZKP>(data, BATCH_SIZE, ZKP_BATCH_SIZE, 40).unwrap()
 }
 
 fn load_tree(data: &mut [u8]) -> &mut NullifierTreeLayout<ZKP> {
@@ -44,13 +38,7 @@ fn nullifier(i: u8) -> [u8; 32] {
 fn single_slot_root_history_initializes_and_reloads() {
     let mut data = vec![0u8; get_merkle_tree_account_size::<1>()];
 
-    let tree = init_tree_account_data::<1>(
-        &mut data,
-        ZKP_BATCH_SIZE,
-        ZKP_BATCH_SIZE,
-        40,
-    )
-    .unwrap();
+    let tree = init_tree_account_data::<1>(&mut data, ZKP_BATCH_SIZE, ZKP_BATCH_SIZE, 40).unwrap();
     assert_eq!(tree.get_root(), Some(NULLIFIER_TREE_INIT_ROOT_40));
 
     let reloaded = load_tree_account_data::<1>(&mut data).unwrap();
@@ -73,13 +61,8 @@ fn derived_root_history_must_match_one_batch_of_zkp_updates() {
 
     let mut wrong_cache_count = vec![0u8; get_merkle_tree_account_size::<5>()];
     assert_eq!(
-        init_tree_account_data::<5>(
-            &mut wrong_cache_count,
-            BATCH_SIZE,
-            ZKP_BATCH_SIZE,
-            40,
-        )
-        .unwrap_err(),
+        init_tree_account_data::<5>(&mut wrong_cache_count, BATCH_SIZE, ZKP_BATCH_SIZE, 40,)
+            .unwrap_err(),
         NullifierTreeError::InvalidRootHistoryCapacity
     );
 }

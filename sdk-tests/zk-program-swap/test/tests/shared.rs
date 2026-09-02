@@ -18,7 +18,7 @@ use zolana_client::{
     ZolanaIndexer,
 };
 use zolana_interface::{
-    instruction::{CreateAssetCounter, CreateProtocolConfig, CreateSplInterface, CreateTree},
+    instruction::{CreateAssetCounter, CreateProtocolConfig, CreateSplInterface},
     pda,
     state::nullifier_tree_params,
     SHIELDED_POOL_PROGRAM_ID,
@@ -26,7 +26,7 @@ use zolana_interface::{
 use zolana_keypair::{
     constants::BLINDING_LEN, NullifierKey, PublicKey, ShieldedAddress, ShieldedKeypair, SigningKey,
 };
-use zolana_program_test::create_tree_account_ix;
+use zolana_program_test::create_tree_instructions;
 use zolana_test_utils::{
     localnet::{isolated_temp_path, LocalnetValidator, WorkspaceArtifacts},
     prover::spawn_workspace_prover,
@@ -172,31 +172,25 @@ pub fn setup() -> Result<TestEnv> {
     );
     rpc.create_and_send_transaction(&[create_config_sync], payer_address, &[&payer, &authority])?;
 
-    let tree = Keypair::new();
-    let alloc_ix = create_tree_account_ix(
+    let tree_creation = create_tree_instructions(
         &rpc,
         &payer.pubkey(),
-        &tree.pubkey(),
-        &nullifier_tree_params(),
+        &accounts.tree_vault,
+        nullifier_tree_params(),
     )?;
-    let create_tree_ix = CreateTree {
-        authority: accounts.tree_vault,
-        tree: tree.pubkey(),
-    }
-    .instruction();
-    let create_tree_sync = smart_account::execute_sync_ix(
+    let create_tree_syncs = smart_account::execute_sync_each(
         &accounts.tree_settings,
         0,
         &[tree_creation_authority.pubkey()],
-        &[create_tree_ix],
+        &tree_creation.instructions,
     );
     rpc.create_and_send_transaction(
-        &[alloc_ix, create_tree_sync],
+        &create_tree_syncs,
         payer_address,
-        &[&payer, &tree, &tree_creation_authority],
+        &[&payer, &tree_creation_authority],
     )?;
 
-    let tree = tree.pubkey();
+    let tree = tree_creation.tree;
 
     // Register an SPL asset with the pool so the maker can order it. Both
     // CreateAssetCounter and CreateSplInterface check the protocol authority (the

@@ -20,6 +20,13 @@ pub fn nullifier_pda_addresses(tree: &Pubkey, nullifiers: &[[u8; 32]]) -> Vec<Pu
         .collect()
 }
 
+pub fn tree_id<R: Rpc>(rpc: &R, tree: &Pubkey) -> Result<u16, ClientError> {
+    let mut account = fetch_account(rpc, tree)?;
+    let tree_account = TreeAccount::from_bytes(&mut account.data, tree.to_bytes())
+        .map_err(|error| ClientError::Rpc(format!("load tree {tree}: {error:?}")))?;
+    Ok(tree_account.tree_id())
+}
+
 pub fn tree_close_before_index<R: Rpc>(rpc: &R, tree: &Pubkey) -> Result<u64, ClientError> {
     let mut account = fetch_account(rpc, tree)?;
     let tree_account = TreeAccount::from_bytes(&mut account.data, tree.to_bytes())
@@ -110,8 +117,9 @@ pub fn decode_nullifier_pda(
     nullifier_pda: &Pubkey,
     account: &Account,
     nullifier_pda_rent: u64,
+    tree_id: u16,
 ) -> NullifierPda {
-    let (expected_nullifier_pda, bump) = pda::nullifier_pda(tree, nullifier);
+    let (expected_nullifier_pda, _) = pda::nullifier_pda(tree, nullifier);
     assert_eq!(
         *nullifier_pda, expected_nullifier_pda,
         "nullifier PDA address"
@@ -120,7 +128,7 @@ pub fn decode_nullifier_pda(
         .unwrap_or_else(|error| panic!("decode nullifier PDA {nullifier_pda}: {error}"));
     let expected_nullifier_pda = NullifierPda {
         queue_index: decoded.queue_index,
-        bump,
+        tree_id,
     };
     let expected_account = Account {
         lamports: nullifier_pda_rent,
@@ -144,6 +152,7 @@ pub fn assert_nullifier_pda<R: Rpc>(
     expected_queue_index: u64,
 ) -> Result<Pubkey, ClientError> {
     let nullifier_pda_rent = nullifier_pda_rent(rpc)?;
+    let tree_id = tree_id(rpc, tree)?;
     let (nullifier_pda, _) = pda::nullifier_pda(tree, nullifier);
     let account = fetch_account(rpc, &nullifier_pda)?;
     let decoded = decode_nullifier_pda(
@@ -152,6 +161,7 @@ pub fn assert_nullifier_pda<R: Rpc>(
         &nullifier_pda,
         &account,
         nullifier_pda_rent,
+        tree_id,
     );
     assert_eq!(
         decoded.queue_index, expected_queue_index,
@@ -167,6 +177,7 @@ pub fn assert_nullifier_pdas<R: Rpc>(
     nullifiers: &[[u8; 32]],
 ) -> Result<Vec<NullifierPda>, ClientError> {
     let nullifier_pda_rent = nullifier_pda_rent(rpc)?;
+    let tree_id = tree_id(rpc, tree)?;
     nullifiers
         .iter()
         .zip(nullifier_pda_addresses(tree, nullifiers))
@@ -178,6 +189,7 @@ pub fn assert_nullifier_pdas<R: Rpc>(
                 &nullifier_pda,
                 &account,
                 nullifier_pda_rent,
+                tree_id,
             ))
         })
         .collect()

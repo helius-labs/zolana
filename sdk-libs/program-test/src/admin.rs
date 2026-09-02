@@ -9,6 +9,9 @@ use zolana_interface::{
     pda,
 };
 
+use zolana_interface::state::nullifier_tree_params;
+use zolana_tree::NullifierTreeInitParams;
+
 use crate::{instructions::create_tree_instructions, ProgramTestError, ZolanaProgramTest};
 
 impl ZolanaProgramTest {
@@ -96,30 +99,32 @@ impl ZolanaProgramTest {
     pub fn pause_tree(
         &mut self,
         authority: &Keypair,
-        tree: &Keypair,
+        tree: &Pubkey,
         paused: bool,
     ) -> Result<(), ProgramTestError> {
         let ix = PauseTree {
             authority: authority.pubkey(),
-            tree: tree.pubkey(),
+            tree: *tree,
             paused,
         }
         .instruction();
         self.send(&[ix], &[authority])
     }
 
-    pub fn create_tree(
+    pub fn create_tree(&mut self, authority: &Keypair) -> Result<Pubkey, ProgramTestError> {
+        self.create_tree_with_nullifier_params(authority, nullifier_tree_params())
+    }
+
+    pub fn create_tree_with_nullifier_params(
         &mut self,
-        account_size: u64,
         authority: &Keypair,
-    ) -> Result<Keypair, ProgramTestError> {
-        let tree = self.next_tree_keypair();
+        nullifier_params: NullifierTreeInitParams,
+    ) -> Result<Pubkey, ProgramTestError> {
         let payer = self.payer.pubkey();
-        let authority_key = authority.pubkey();
-        let tree_key = tree.pubkey();
-        let ixs = create_tree_instructions(self, &payer, &authority_key, &tree_key, account_size)?;
-        self.send(&ixs, &[&tree, authority])?;
-        Ok(tree)
+        let creation =
+            create_tree_instructions(self, &payer, &authority.pubkey(), nullifier_params)?;
+        self.send(&creation.instructions, &[authority])?;
+        Ok(creation.tree)
     }
 }
 

@@ -160,13 +160,7 @@ fn print_program_ids() {
         "CUSTOM_RING_PROGRAM_ID={}",
         zolana_test_utils::localnet::CUSTOM_RING_PROGRAM_ADDRESS
     );
-    // The canonical account snapshots pre-allocate the state Merkle tree that
-    // stores private token accounts (UTXOs) at this address, so localnet
-    // callers never create one.
-    println!(
-        "DEFAULT_TREE_ADDRESS={}",
-        zolana_interface::DEFAULT_TREE_ADDRESS
-    );
+    println!("DEFAULT_TREE_ADDRESS={}", zolana_interface::pda::tree(0));
 }
 
 #[derive(Debug)]

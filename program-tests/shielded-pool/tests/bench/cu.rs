@@ -104,7 +104,7 @@ fn bench_setup() -> (ZolanaProgramTest, Keypair, Pubkey) {
         authority,
         tree,
     } = Pool::initialized();
-    (rpc, authority, tree.pubkey())
+    (rpc, authority, tree)
 }
 
 fn deposit_sol_accounts(

@@ -15,7 +15,7 @@ import type {
   RingConfigAccount,
 } from "../types.js";
 import { MERGE_INPUT_COUNT } from "../constants.js";
-import type { AddressTreeParams } from "../program.js";
+import type { CreateTreeData, NullifierTreeParams } from "../program.js";
 import { StateDiscriminator } from "../state.js";
 import {
   Reader,
@@ -106,16 +106,22 @@ export function encodeRingDepositInstructionData(value: RingDepositInstructionDa
   return encoded(value, writeRingDepositData);
 }
 
-export function encodeAddressTreeParams(value: AddressTreeParams): Uint8Array {
+function writeNullifierTreeParams(writer: Writer, value: NullifierTreeParams): void {
+  writer
+    .u64(value.inputQueueBatchSize, "inputQueueBatchSize")
+    .u64(value.inputQueueZkpBatchSize, "inputQueueZkpBatchSize")
+    .u32(value.height, "height");
+}
+
+/** Borsh `CreateTreeData { tree_id: u16, nullifier_params }`. */
+export function encodeCreateTreeData(value: CreateTreeData): Uint8Array {
   return encoded(
     value,
     (writer, input) => {
-      writer
-        .u64(input.inputQueueBatchSize, "inputQueueBatchSize")
-        .u64(input.inputQueueZkpBatchSize, "inputQueueZkpBatchSize")
-        .u32(input.height, "height");
+      writer.u16(input.treeId, "treeId");
+      writeNullifierTreeParams(writer, input.nullifierParams);
     },
-    20,
+    22,
   );
 }
 
@@ -284,7 +290,7 @@ function readAddress(reader: Reader, name: string): Address {
 }
 
 export function decodeProtocolConfigAccount(bytes: Uint8Array): ProtocolConfigAccount {
-  return decodeAccount(bytes, 132, StateDiscriminator.protocolConfig, (reader) => ({
+  return decodeAccount(bytes, 134, StateDiscriminator.protocolConfig, (reader) => ({
     authority: readAddress(reader, "authority"),
     treeCreationAuthority: readAddress(reader, "treeCreationAuthority"),
     foresterAuthority: readAddress(reader, "foresterAuthority"),
@@ -294,6 +300,7 @@ export function decodeProtocolConfigAccount(bytes: Uint8Array): ProtocolConfigAc
     splInterfaceCreationIsPermissionless: reader.nonzeroBool(
       "splInterfaceCreationIsPermissionless",
     ),
+    nextTreeId: reader.u16("nextTreeId"),
   }));
 }
 

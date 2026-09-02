@@ -38,7 +38,7 @@ fn forester_dry_run_reconstructs_from_photon() -> TestResult {
         authority: _authority,
         tree,
     } = initialize_pool(&mut rpc)?;
-    let tree_pubkey = tree.pubkey();
+    let tree_pubkey = tree;
 
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let forester_bin = [

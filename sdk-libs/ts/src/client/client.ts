@@ -20,7 +20,7 @@ import {
   transactInstruction,
   type MergeTransactInstructionData,
 } from "../interface/instructions/index.js";
-import { DEFAULT_TREE_ADDRESS } from "../interface/program.js";
+import { treeAddress } from "../interface/pda/index.js";
 import { checkedTransactionSize } from "../interface/transaction-size.js";
 import type {
   Bytes32,
@@ -136,7 +136,7 @@ export class ZolanaClient {
       throw new ClientError("CLIENT_INVALID_CONFIG");
     }
 
-    const tree = input.tree ?? DEFAULT_TREE_ADDRESS;
+    const tree = input.tree ?? treeAddress(0);
     checkedAddress(tree, "tree");
     const commitment = input.commitment ?? DEFAULT_COMMITMENT;
     if (!isCommitment(commitment)) {

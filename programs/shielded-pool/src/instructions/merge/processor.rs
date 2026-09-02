@@ -98,7 +98,7 @@ pub(crate) fn process_merge_core(
     output_view_tag: [u8; 32],
     output_data: Vec<u8>,
 ) -> ProgramResult {
-    let (inputs, derived, zkp_batch_size) = {
+    let (inputs, derived, zkp_batch_size, tree_id) = {
         let input_tree = accounts.input_tree.address().to_bytes();
         let mut tree = TreeAccount::from_account_view_mut(
             &mut *accounts.input_tree,
@@ -116,7 +116,7 @@ pub(crate) fn process_merge_core(
         };
         let inputs = apply_input_tree(&mut tree, ix, input_tree, &mut derived)?;
         let zkp_batch_size = tree.nullifier_tree().zkp_batch_size;
-        (inputs, derived, zkp_batch_size)
+        (inputs, derived, zkp_batch_size, tree.tree_id())
     };
     // The fee transfer CPI includes the tree, so it must run before
     // create_nullifier_pdas moves tree lamports directly: a CPI boundary syncs
@@ -132,6 +132,7 @@ pub(crate) fn process_merge_core(
     create_nullifier_pdas(
         accounts.payer,
         accounts.input_tree,
+        tree_id,
         &mut accounts.nullifier_pdas,
         &inputs,
     )?;

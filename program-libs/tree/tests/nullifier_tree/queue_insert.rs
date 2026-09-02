@@ -80,9 +80,7 @@ fn test_queue_rejects_insert_at_tree_capacity() {
     let mut account_data = vec![0u8; get_merkle_tree_account_size::<200>()];
     let height = 4;
     let tree_capacity = 2u64.pow(height);
-    let tree =
-        init_tree_account_data::<200>(&mut account_data, 200, 1, height)
-            .unwrap();
+    let tree = init_tree_account_data::<200>(&mut account_data, 200, 1, height).unwrap();
     // 1. The init element occupies leaf 0, so capacity - 1 leaves remain.
     assert_eq!(tree.remaining_queue_capacity().unwrap(), tree_capacity - 1);
 
@@ -111,8 +109,7 @@ fn test_queue_rejects_insert_at_tree_capacity() {
 fn test_queue_insert_advances_queue_index_only() {
     let mut account_data = vec![0u8; get_merkle_tree_account_size::<5>()];
     let rng = &mut rand::rngs::StdRng::from_seed([0u8; 32]);
-    let tree = init_tree_account_data::<5>(&mut account_data, 5, 1, 40)
-        .unwrap();
+    let tree = init_tree_account_data::<5>(&mut account_data, 5, 1, 40).unwrap();
 
     let previous_next_index = tree.next_index;
     let previous_queue_next_index = tree.queue_next_index;

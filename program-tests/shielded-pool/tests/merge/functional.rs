@@ -26,7 +26,7 @@ use zolana_client::{
 use zolana_hasher::Poseidon;
 use zolana_interface::{
     instruction::{instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeTransact},
-    state::{forester_fee_per_queue_element, ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE},
+    state::{forester_fee_per_queue_element, NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE},
     verifying_keys::merge_8_1,
     NULLIFIER_PDA_SIZE, SHIELDED_POOL_PROGRAM_ID,
 };
@@ -98,7 +98,7 @@ fn merge_collects_the_exact_forester_fee_from_the_payer() {
     let mut env = proof_env();
     let payer = env.rpc.payer.insecure_clone();
     let payer_pk = payer.pubkey();
-    let tree = env.tree.pubkey();
+    let tree = env.tree;
     let zero = [0u8; 32];
 
     // The merge owner IS the payer: the shielded keypair derives from the
@@ -284,7 +284,7 @@ fn merge_collects_the_exact_forester_fee_from_the_payer() {
     // collected from the payer into the input tree after proof verification.
     // The tree in turn funds one nullifier PDA per queued nullifier.
     const LAMPORTS_PER_SIGNATURE: u64 = 5_000;
-    let fee_per_element = forester_fee_per_queue_element(ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE)
+    let fee_per_element = forester_fee_per_queue_element(NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE)
         .expect("non-zero ZKP batch size");
     let forester_fee = fee_per_element * MERGE_INPUT_COUNT as u64;
     assert_eq!(forester_fee, 160, "merge forester fee formula");

@@ -151,6 +151,7 @@ fn create_and_update_protocol_config() {
         tree_creation_is_permissionless: 0,
         ring_creation_is_permissionless: 0,
         spl_interface_creation_is_permissionless: 0,
+        next_tree_id: 0,
     };
     assert_eq!(read_config(&backend), expected, "config after create");
 

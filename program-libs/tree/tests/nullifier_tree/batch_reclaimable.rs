@@ -19,13 +19,7 @@ fn account_data() -> Vec<u8> {
 }
 
 fn init_tree(data: &mut [u8]) {
-    init_tree_account_data::<ZKP>(
-        data,
-        BATCH_SIZE,
-        ZKP_BATCH_SIZE,
-        40,
-    )
-    .unwrap();
+    init_tree_account_data::<ZKP>(data, BATCH_SIZE, ZKP_BATCH_SIZE, 40).unwrap();
 }
 
 fn load_tree(data: &mut [u8]) -> &mut NullifierTreeLayout<ZKP> {

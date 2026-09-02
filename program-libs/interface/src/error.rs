@@ -133,6 +133,12 @@ pub enum ShieldedPoolError {
     NullifierPdaNotClosable = 7050,
     #[error("nullifier PDA account is invalid")]
     InvalidNullifierPda = 7051,
+    #[error("tree id does not match the protocol config's next tree id")]
+    InvalidTreeId = 7052,
+    #[error("nullifier PDA belongs to a different tree")]
+    NullifierPdaTreeMismatch = 7053,
+    #[error("tree id space is exhausted")]
+    TreeIdOverflow = 7054,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -225,6 +231,9 @@ mod tests {
                 InsufficientNullifierPdaRent => 7049,
                 NullifierPdaNotClosable => 7050,
                 InvalidNullifierPda => 7051,
+                InvalidTreeId => 7052,
+                NullifierPdaTreeMismatch => 7053,
+                TreeIdOverflow => 7054,
             }
         }
 
@@ -279,6 +288,9 @@ mod tests {
             InsufficientNullifierPdaRent,
             NullifierPdaNotClosable,
             InvalidNullifierPda,
+            InvalidTreeId,
+            NullifierPdaTreeMismatch,
+            TreeIdOverflow,
         ];
         for variant in variants {
             assert_eq!(
@@ -287,7 +299,7 @@ mod tests {
                 "error code drifted: {variant:?}"
             );
         }
-        // The live wire surface is exactly 48 variants on this branch.
-        assert_eq!(variants.len(), 48, "variant count drifted");
+        // The live wire surface is exactly 51 variants on this branch.
+        assert_eq!(variants.len(), 51, "variant count drifted");
     }
 }

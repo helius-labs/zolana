@@ -302,6 +302,7 @@ fn inited_tree_bytes(tree_pubkey: Pubkey) -> Vec<u8> {
             DISCRIMINATOR,
             HEIGHT,
             tree_pubkey.to_bytes(),
+            0,
             params,
         )
         .unwrap();

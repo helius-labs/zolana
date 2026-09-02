@@ -163,6 +163,7 @@ fn localnet_bring_up_is_live() -> Result<()> {
             tree_creation_is_permissionless: 0,
             ring_creation_is_permissionless: 1,
             spl_interface_creation_is_permissionless: 0,
+            next_tree_id: 1,
         },
         "protocol config"
     );

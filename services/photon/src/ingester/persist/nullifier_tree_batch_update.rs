@@ -404,7 +404,7 @@ mod tests {
     use sea_orm::{Database, DatabaseConnection, Set, TransactionTrait};
     use sea_orm_migration::MigratorTrait;
     use solana_signature::Signature;
-    use zolana_interface::state::ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
+    use zolana_interface::state::NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
 
     async fn setup_test_db() -> DatabaseConnection {
         let db = Database::connect("sqlite::memory:").await.unwrap();
@@ -416,7 +416,7 @@ mod tests {
         let data = TreeAccountData {
             queue_pubkey: tree,
             root_history_capacity: RingsTreeKind::Nullifier.root_history_capacity(),
-            input_queue_zkp_batch_size: ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+            input_queue_zkp_batch_size: NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
             height: RingsTreeKind::Nullifier.tree_height(),
             sequence_number: 0,
             next_index: 0,
@@ -430,7 +430,7 @@ mod tests {
                 queue: tree,
                 height: RingsTreeKind::Nullifier.tree_height(),
                 root_history_capacity: RingsTreeKind::Nullifier.root_history_capacity(),
-                input_queue_zkp_batch_size: ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+                input_queue_zkp_batch_size: NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
             },
         )])
     }
@@ -513,7 +513,7 @@ mod tests {
         NullifierTreeBatchUpdate {
             tree,
             new_root: [0; 32],
-            zkp_batch_size: ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+            zkp_batch_size: NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
             num_update,
             sequence_number,
             signature: Signature::from([8; 64]),
@@ -551,7 +551,7 @@ mod tests {
         let db = setup_test_db().await;
         let tree = Pubkey::new_from_array([7; 32]);
         let tree_info_cache = insert_test_tree(&db, tree).await;
-        let batch_size = ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
+        let batch_size = NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
 
         let tx = db.begin().await.unwrap();
         seed_queued_nullifiers(&tx, tree, batch_size * 2).await;
@@ -596,7 +596,7 @@ mod tests {
         let db = setup_test_db().await;
         let tree = Pubkey::new_from_array([7; 32]);
         let tree_info_cache = insert_test_tree(&db, tree).await;
-        let batch_size = ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
+        let batch_size = NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
 
         let tx = db.begin().await.unwrap();
         seed_queued_nullifiers(&tx, tree, batch_size * 2).await;
@@ -626,7 +626,7 @@ mod tests {
         // the program apply several zkp batches under one event. Photon must
         // reach the root the chain reached, which is the root after all of them,
         // not after the first.
-        let batch_size = ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
+        let batch_size = NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
         let tree = Pubkey::new_from_array([7; 32]);
 
         let sequential_db = setup_test_db().await;
@@ -683,7 +683,7 @@ mod tests {
         // Only two batches are queued, so a three-batch cascade cannot be
         // reconstructed. It must fail loudly rather than apply what it has and
         // report a root that does not match.
-        let batch_size = ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
+        let batch_size = NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
         let tree = Pubkey::new_from_array([7; 32]);
         let db = setup_test_db().await;
         insert_test_tree(&db, tree).await;
@@ -740,7 +740,7 @@ mod tests {
             .unwrap();
 
         let err =
-            queued_nullifiers_for_batch(&tx, tree, 0, ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE)
+            queued_nullifiers_for_batch(&tx, tree, 0, NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE)
                 .await
                 .unwrap_err();
 

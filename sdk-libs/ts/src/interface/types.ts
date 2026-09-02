@@ -223,6 +223,7 @@ export interface ProtocolConfigAccount {
   readonly ringCreationAuthority: Address;
   readonly ringCreationIsPermissionless: boolean;
   readonly splInterfaceCreationIsPermissionless: boolean;
+  readonly nextTreeId: number;
 }
 
 export interface SplAssetCounterAccount {

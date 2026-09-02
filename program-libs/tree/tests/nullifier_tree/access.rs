@@ -8,8 +8,7 @@ use zolana_tree::nullifier_tree::{
 #[test]
 fn test_init_invalid_account_size() {
     let mut account_data = vec![0u8; 200];
-    let layout =
-        init_tree_account_data::<5>(&mut account_data, 10, 10, 40);
+    let layout = init_tree_account_data::<5>(&mut account_data, 10, 10, 40);
     assert_eq!(
         layout.err().unwrap(),
         NullifierTreeError::InvalidAccountSize
@@ -55,8 +54,7 @@ fn test_state_struct_sizes() {
 #[test]
 fn test_tree_is_full() {
     let mut account_data = vec![0u8; get_merkle_tree_account_size::<5>()];
-    let tree =
-        init_tree_account_data::<5>(&mut account_data, 5, 1, 4).unwrap();
+    let tree = init_tree_account_data::<5>(&mut account_data, 5, 1, 4).unwrap();
     // 1. empty tree is not full
     assert!(!tree.tree_is_full(1));
     tree.next_index = tree.capacity - 2;

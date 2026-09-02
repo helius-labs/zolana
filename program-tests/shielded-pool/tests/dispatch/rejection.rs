@@ -44,7 +44,7 @@ fn dispatch_rejects_unknown_instruction_tag() {
 fn dispatch_rejects_truncated_deposit_data() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(1_000_000_000);
-    let accounts = sol_deposit_accounts(&pool.rpc, pool.tree.pubkey(), depositor.pubkey());
+    let accounts = sol_deposit_accounts(&pool.rpc, pool.tree, depositor.pubkey());
     let err = pool
         .rpc
         .create_and_send_default_payer_transaction(

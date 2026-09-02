@@ -15,6 +15,7 @@ pub struct ProtocolConfig {
     pub tree_creation_is_permissionless: u8,
     pub ring_creation_is_permissionless: u8,
     pub spl_interface_creation_is_permissionless: u8,
+    pub next_tree_id: u16,
 }
 
 impl ProtocolConfig {
@@ -74,5 +75,6 @@ impl ProtocolConfig {
     }
 }
 
-const _: () = assert!(ProtocolConfig::SIZE == 132);
-const _: () = assert!(core::mem::align_of::<ProtocolConfig>() == 1);
+const _: () = assert!(ProtocolConfig::SIZE == 134);
+const _: () = assert!(core::mem::align_of::<ProtocolConfig>() == 2);
+const _: () = assert!(core::mem::offset_of!(ProtocolConfig, next_tree_id) == 132);

@@ -92,7 +92,7 @@ pub fn process_instruction(
 #[profile]
 fn bench_init(bytes: &mut [u8], pubkey: [u8; 32]) -> ProgramResult {
     let params = NullifierTreeInitParams::default();
-    TreeAccount::init(bytes, DISCRIMINATOR, HEIGHT, pubkey, params)
+    TreeAccount::init(bytes, DISCRIMINATOR, HEIGHT, pubkey, 0, params)
         .map_err(|_| ProgramError::InvalidAccountData)?;
     Ok(())
 }

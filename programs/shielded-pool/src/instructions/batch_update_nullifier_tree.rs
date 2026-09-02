@@ -8,7 +8,7 @@ use zolana_interface::{
 use zolana_tree::TreeAccount;
 
 use crate::instructions::{
-    event::emit_batch_address_append_event, protocol_config::loader::load_protocol_config,
+    event::emit_batch_nullifier_append_event, protocol_config::loader::load_protocol_config,
     shared::reimburse_forester,
 };
 
@@ -49,7 +49,7 @@ pub fn process_batch_update_nullifier_tree(
     // one. Keep every fallible step (including `reimburse_forester`) above it.
     if let Some(event) = event {
         reimburse_forester(tree, reimbursement_recipient, event.num_update)?;
-        emit_batch_address_append_event(&event)?;
+        emit_batch_nullifier_append_event(&event)?;
     }
     Ok(())
 }

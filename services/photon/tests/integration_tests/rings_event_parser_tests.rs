@@ -67,7 +67,7 @@ use zolana_indexer_api::{
 use zolana_interface::{
     instruction::{encode_instruction, tag, BatchUpdateNullifierTreeData, CompressedProof},
     pda,
-    state::{nullifier_tree_params, discriminator::TREE_ACCOUNT_DISCRIMINATOR, tree_account_size},
+    state::{discriminator::TREE_ACCOUNT_DISCRIMINATOR, nullifier_tree_params, tree_account_size},
 };
 use zolana_tree::TreeAccount;
 
@@ -741,6 +741,7 @@ async fn discovers_rings_tree_account_metadata() {
                 .try_into()
                 .expect("Rings state tree height must fit in u8"),
             tree_pubkey.to_bytes(),
+            0,
             nullifier_tree_params(),
         )
         .unwrap();
@@ -1698,7 +1699,7 @@ fn known_rings_tree_account_metadata(tree: [u8; 32]) -> tree_metadata::ActiveMod
         height: Set(RingsTreeKind::Nullifier.tree_height() as i32),
         root_history_capacity: Set(RingsTreeKind::Nullifier.root_history_capacity() as i64),
         input_queue_zkp_batch_size: Set(i64::try_from(
-            zolana_interface::state::ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+            zolana_interface::state::NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
         )
         .unwrap()),
         sequence_number: Set(0),
@@ -1716,7 +1717,7 @@ fn test_tree_info_cache(tree: Pubkey) -> HashMap<Pubkey, TreeInfo> {
             height: RingsTreeKind::Nullifier.tree_height(),
             root_history_capacity: RingsTreeKind::Nullifier.root_history_capacity(),
             input_queue_zkp_batch_size:
-                zolana_interface::state::ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+                zolana_interface::state::NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
         },
     )])
 }

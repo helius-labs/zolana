@@ -80,7 +80,6 @@
 //!
 //! - **`zolana-hasher`** - Poseidon hash for hash chains and tree operations
 //! - **`groth16-solana`** - Groth16 proof verification for batch updates (see the `verify` module)
-//! - **`zolana-account-checks`** - `AccountError` variants reused by [`error`]
 //!
 //! ## Testing and reference implementations
 //!

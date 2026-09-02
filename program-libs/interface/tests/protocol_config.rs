@@ -14,7 +14,15 @@ fn protocol_config() -> ProtocolConfig {
         tree_creation_is_permissionless: 0,
         ring_creation_is_permissionless: 0,
         spl_interface_creation_is_permissionless: 1,
+        next_tree_id: 0x0102,
     }
+}
+
+#[test]
+fn next_tree_id_is_the_trailing_little_endian_word() {
+    let bytes = bytemuck::bytes_of(&protocol_config()).to_vec();
+    assert_eq!(bytes.len(), ProtocolConfig::SIZE);
+    assert_eq!(bytes.get(132..134), Some(&[0x02, 0x01][..]));
 }
 
 #[test]

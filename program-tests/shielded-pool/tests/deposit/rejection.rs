@@ -34,7 +34,7 @@ fn sol_deposit_accepts_zero_amount() {
     // nothing and appends an empty proofless output.
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(1_000_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let data = ZolanaProgramTest::sol_shield_data(0, [2u8; 32], [2u8; 32]);
 
     let event = pool
@@ -51,7 +51,7 @@ fn spl_deposit_accepts_zero_amount() {
     let mut pool = Pool::initialized();
     let (mint, _, vault) = register_mint(&mut pool);
     let (depositor, user_token) = spl_depositor(&mut pool, mint, 1_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let zero_spl = ZolanaProgramTest::spl_shield_data(0, [3u8; 32], [3u8; 32], &mint, &user_token);
 
     let event = pool
@@ -89,7 +89,7 @@ fn deposit_batch_rejects_an_empty_batch() {
     // only raw instruction data can reach this on-chain check.
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(5_000_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
 
     let err = raw_deposit_batch(
         &mut pool.rpc,
@@ -107,7 +107,7 @@ fn deposit_batch_rejects_an_empty_batch() {
 fn deposit_batch_rejects_an_out_of_range_asset_index() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(5_000_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let mut entry = raw_entry(1_000);
     entry.asset_index = 1;
 
@@ -127,7 +127,7 @@ fn deposit_batch_rejects_an_out_of_range_asset_index() {
 fn deposit_batch_rejects_summed_amounts_that_overflow() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(5_000_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
 
     let err = raw_deposit_batch(
         &mut pool.rpc,
@@ -146,7 +146,7 @@ fn deposit_batch_rejects_a_declared_asset_no_entry_funds() {
     let mut pool = Pool::initialized();
     let (mint, _, _) = register_mint(&mut pool);
     let (depositor, user_token) = spl_depositor(&mut pool, mint, 1_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
 
     let err = raw_deposit_batch(
         &mut pool.rpc,
@@ -166,7 +166,7 @@ fn deposit_batch_rejects_more_assets_than_any_layout_supports() {
     // fires at account parsing, before any settlement account is read.
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(5_000_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
 
     let err = raw_deposit_batch(
         &mut pool.rpc,
@@ -187,7 +187,7 @@ fn deposit_batch_rejects_an_empty_assets_list() {
     // empty-batch gate (7029) is not the branch that fires.
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(5_000_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
 
     let err = raw_deposit_batch(
         &mut pool.rpc,
@@ -206,7 +206,7 @@ fn deposit_batch_rejects_declaring_the_same_mint_twice() {
     let mut pool = Pool::initialized();
     let (mint, _, _) = register_mint(&mut pool);
     let (depositor, user_token) = spl_depositor(&mut pool, mint, 1_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let mut second = raw_entry(1_000);
     second.asset_index = 1;
 
@@ -229,7 +229,7 @@ fn deposit_batch_rejects_declaring_the_same_mint_twice() {
 fn sol_deposit_rejects_missing_program_account() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(2_000_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let mut missing_program = sol_deposit_accounts(&pool.rpc, tree, depositor.pubkey());
     missing_program.pop();
 
@@ -242,7 +242,7 @@ fn sol_deposit_rejects_missing_program_account() {
 fn sol_deposit_rejects_wrong_vault() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(2_000_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let mut wrong_vault = sol_deposit_accounts(&pool.rpc, tree, depositor.pubkey());
     *wrong_vault.get_mut(3).expect("vault account") =
         AccountMeta::new(pool.rpc.payer.pubkey(), false);
@@ -256,7 +256,7 @@ fn sol_deposit_rejects_wrong_vault() {
 fn sol_deposit_rejects_extra_settlement_account() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(2_000_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let mut extra = sol_deposit_accounts(&pool.rpc, tree, depositor.pubkey());
     extra.insert(5, AccountMeta::new_readonly(pool.rpc.payer.pubkey(), false));
 
@@ -275,7 +275,7 @@ fn sol_deposit_rejects_a_readonly_depositor() {
     // `validate_sol_settlement` rejects a read-only depositor.
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(2_000_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let mut readonly_depositor = sol_deposit_accounts(&pool.rpc, tree, depositor.pubkey());
     *readonly_depositor.get_mut(1).expect("depositor account") =
         AccountMeta::new_readonly(depositor.pubkey(), true);
@@ -289,7 +289,7 @@ fn sol_deposit_rejects_a_readonly_depositor() {
 fn sol_deposit_rejects_wrong_system_program_account() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(2_000_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let mut wrong_system = sol_deposit_accounts(&pool.rpc, tree, depositor.pubkey());
     *wrong_system.get_mut(2).expect("system program account") =
         AccountMeta::new_readonly(Pubkey::new_unique(), false);
@@ -303,7 +303,7 @@ fn sol_deposit_rejects_wrong_system_program_account() {
 fn sol_deposit_rejects_readonly_sol_interface() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(2_000_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let mut readonly_interface = sol_deposit_accounts(&pool.rpc, tree, depositor.pubkey());
     *readonly_interface.get_mut(3).expect("vault account") =
         AccountMeta::new_readonly(pda::sol_interface(), false);
@@ -317,7 +317,7 @@ fn sol_deposit_rejects_readonly_sol_interface() {
 fn sol_deposit_rejects_foreign_tree_atomically() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(2_000_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let tree_before = pool.rpc.account_data(&tree).expect("tree");
     let depositor_before = pool
         .rpc
@@ -347,7 +347,7 @@ fn sol_deposit_rejects_foreign_tree_atomically() {
 fn paused_tree_rejects_sol_deposit() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(2_000_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     pool.rpc
         .pause_tree(&pool.authority, &pool.tree, true)
         .expect("pause tree");
@@ -370,7 +370,7 @@ fn paused_tree_rejects_ring_deposit() {
         .create_ring_config(&ring_authority, &ring_authority.pubkey(), true)
         .expect("create ring config");
     let depositor = pool.funded_signer(2_000_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     pool.rpc
         .pause_tree(&pool.authority, &pool.tree, true)
         .expect("pause tree");
@@ -405,7 +405,7 @@ fn paused_ring_rejects_ring_deposit_and_unpause_restores_it() {
         .expect("pause ring config");
 
     let depositor = pool.funded_signer(2_000_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let tree_before = pool.rpc.account_data(&tree).expect("tree data");
     let data = pool
         .rpc
@@ -438,7 +438,7 @@ fn paused_ring_rejects_ring_deposit_and_unpause_restores_it() {
 fn ring_deposit_rejects_a_signer_that_is_not_the_ring_authority() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(5_000_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let data = pool
         .rpc
         .ring_sol_shield_data(1_000_000, [3u8; 32], [4u8; 32]);
@@ -470,7 +470,7 @@ fn ring_deposit_rejects_a_signer_that_is_not_the_ring_authority() {
 fn ring_deposit_rejects_an_unsigned_ring_config() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(5_000_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let data = pool
         .rpc
         .ring_sol_shield_data(1_000_000, [3u8; 32], [4u8; 32]);
@@ -505,7 +505,7 @@ fn ring_deposit_rejects_an_unsigned_ring_config() {
 fn ring_deposit_rejects_malformed_payload_exactly() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(2_000_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let data = pool
         .rpc
         .ring_sol_shield_data(1_000_000, [3u8; 32], [4u8; 32]);

@@ -5,10 +5,11 @@ use solana_instruction::AccountMeta;
 use solana_pubkey::Pubkey;
 use zolana_interface::instruction::instruction_data::merge_transact::MergeProof;
 use zolana_interface::instruction::{
-    nullifier_pda_accounts, tag, CircuitId, CloseNullifierPdas, CloseNullifierPdasData, InputUtxo,
-    MergeRing, MergeTransact, MergeTransactIxData, RingAuthorityTransact, RingTransact, Transact,
-    TransactIxData, TransactProof,
+    nullifier_pda_accounts, tag, CircuitId, CloseNullifierPdas, CreateTree, CreateTreeData,
+    InputUtxo, MergeRing, MergeTransact, MergeTransactIxData, RingAuthorityTransact, RingTransact,
+    Transact, TransactIxData, TransactProof,
 };
+use zolana_interface::state::nullifier_tree_params;
 use zolana_interface::{pda, PROGRAM_ID_PUBKEY};
 
 fn transact_data(circuit: CircuitId, nullifiers: &[[u8; 32]]) -> TransactIxData {
@@ -229,10 +230,42 @@ fn close_nullifier_pdas_builder_encodes_data_and_exact_accounts() {
     expected_accounts.extend(nullifier_pdas(&tree, &nullifiers));
     assert_eq!(instruction.accounts, expected_accounts);
     assert_eq!(instruction.program_id, PROGRAM_ID_PUBKEY);
-    assert_eq!(instruction.data.first(), Some(&tag::CLOSE_NULLIFIER_PDAS));
+    assert_eq!(instruction.data, vec![tag::CLOSE_NULLIFIER_PDAS]);
+}
+
+#[test]
+fn create_tree_builder_repeats_one_step_per_allocation_chunk() {
+    let payer = Pubkey::new_unique();
+    let authority = Pubkey::new_unique();
+    let builder = CreateTree {
+        payer,
+        authority,
+        tree_id: 3,
+        nullifier_params: nullifier_tree_params(),
+    };
+    let instructions = builder.instructions();
+
+    assert_eq!(instructions.len(), 4);
+    assert!(instructions.iter().all(|step| *step == builder.step()));
+    let step = instructions.first().unwrap();
+    assert_eq!(step.program_id, PROGRAM_ID_PUBKEY);
     assert_eq!(
-        CloseNullifierPdasData::try_from_slice(&instruction.data[1..]).unwrap(),
-        CloseNullifierPdasData { nullifiers }
+        step.accounts,
+        vec![
+            AccountMeta::new(payer, true),
+            AccountMeta::new_readonly(authority, true),
+            AccountMeta::new(pda::protocol_config(), false),
+            AccountMeta::new(pda::tree(3), false),
+            AccountMeta::new_readonly(Pubkey::default(), false),
+        ]
+    );
+    assert_eq!(step.data.first(), Some(&tag::CREATE_TREE));
+    assert_eq!(
+        CreateTreeData::try_from_slice(step.data.get(1..).unwrap()).unwrap(),
+        CreateTreeData {
+            tree_id: 3,
+            nullifier_params: nullifier_tree_params(),
+        }
     );
 }
 

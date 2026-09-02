@@ -235,8 +235,8 @@ impl SplWithdrawalEnv {
         let ix_data = spl_withdrawal_leg(sol_withdrawal_ix_data(), 1_000, &self.mint);
         let ix = Transact {
             payer: self.attacker.pubkey(),
-            input_tree: self.tree.pubkey(),
-            output_tree: self.tree.pubkey(),
+            input_tree: self.tree,
+            output_tree: self.tree,
             owner_signers: Vec::new(),
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
                 spl,
@@ -296,8 +296,8 @@ fn spl_withdrawal_rejects_a_wrong_cpi_authority_account() {
     let cpi_authority_index = 5 + ix_data.inputs.len();
     let mut ix = Transact {
         payer: env.attacker.pubkey(),
-        input_tree: env.tree.pubkey(),
-        output_tree: env.tree.pubkey(),
+        input_tree: env.tree,
+        output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
             env.valid_withdrawal(),

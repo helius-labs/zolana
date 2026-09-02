@@ -95,11 +95,11 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
         data: Data::default(),
     };
     env.rpc
-        .deposit_sol(&env.tree.pubkey(), &payer, 0, owner_field, blinding)
+        .deposit_sol(&env.tree, &payer, 0, owner_field, blinding)
         .expect("proofless zero deposit");
 
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
-    let (utxo_root, nullifier_root) = tree_roots(&env.rpc, &env.tree.pubkey(), 1);
+    let (utxo_root, nullifier_root) = tree_roots(&env.rpc, &env.tree, 1);
     let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     state_tree.append(&utxo_hash).expect("append state leaf");
     assert_eq!(state_tree.root(), utxo_root, "state root gate");
@@ -309,11 +309,11 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     };
     let deposit_data = env.rpc.ring_sol_shield_data(0, owner_field, blinding);
     env.rpc
-        .ring_deposit(&env.tree.pubkey(), &payer, &deposit_data)
+        .ring_deposit(&env.tree, &payer, &deposit_data)
         .expect("ring zero deposit");
 
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
-    let (utxo_root, nullifier_root) = tree_roots(&env.rpc, &env.tree.pubkey(), 1);
+    let (utxo_root, nullifier_root) = tree_roots(&env.rpc, &env.tree, 1);
     let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     state_tree.append(&utxo_hash).expect("append state leaf");
     assert_eq!(state_tree.root(), utxo_root, "state root gate");
@@ -502,7 +502,7 @@ fn transact_sends_valid_proof() {
     let mut env = proof_env();
 
     let payer = env.rpc.payer.pubkey();
-    let tree = env.tree.pubkey();
+    let tree = env.tree;
     let transact_ix_data = build_valid_transact_ix(&mut env);
     let expected_nullifiers: Vec<[u8; 32]> = transact_ix_data
         .inputs
@@ -673,7 +673,7 @@ fn transact_rejects_tampered_output_owner_tag() {
     let mut env = proof_env();
 
     let payer = env.rpc.payer.pubkey();
-    let tree = env.tree.pubkey();
+    let tree = env.tree;
     let mut transact_ix_data = build_valid_transact_ix(&mut env);
 
     // Flip a recipient output's owner tag. The proof committed to the original
@@ -713,7 +713,7 @@ fn transact_rejects_tampered_public_amount() {
     let mut env = proof_env();
 
     let payer = env.rpc.payer.pubkey();
-    let tree = env.tree.pubkey();
+    let tree = env.tree;
     let mut transact_ix_data = build_valid_transact_ix(&mut env);
 
     // The proof was built for a pure shielded transfer (no interface
@@ -760,7 +760,7 @@ fn transact_rejects_tampered_public_amount() {
 fn transact_rejects_tampered_private_transaction_hash() {
     let mut env = proof_env();
     let payer = env.rpc.payer.pubkey();
-    let tree = env.tree.pubkey();
+    let tree = env.tree;
     let mut data = build_valid_transact_ix(&mut env);
     // A small valid field element: the recomputed public input hash no longer
     // matches the proof (an out-of-field value would fail earlier in the
@@ -792,7 +792,7 @@ fn transact_rejects_tampered_private_transaction_hash() {
 fn transact_rejects_tampered_external_data() {
     let mut env = proof_env();
     let payer = env.rpc.payer.pubkey();
-    let tree = env.tree.pubkey();
+    let tree = env.tree;
     let mut data = build_valid_transact_ix(&mut env);
     data.data_hash = Some([0x5A; 32]);
     let ix = Transact {
@@ -822,7 +822,7 @@ fn transact_rejects_out_of_field_output_hash() {
     let mut env = proof_env();
 
     let payer = env.rpc.payer.pubkey();
-    let tree = env.tree.pubkey();
+    let tree = env.tree;
     let mut transact_ix_data = build_valid_transact_ix(&mut env);
 
     // 0xFF..FF == 2^256 - 1, far above the BN254 modulus (~2^254), so the tree
@@ -880,8 +880,8 @@ fn transact_rejects_unsigned_eddsa_input_owner() {
     let owner_signer_index = 5 + transact_ix_data.inputs.len();
     let mut ix = Transact {
         payer,
-        input_tree: env.tree.pubkey(),
-        output_tree: env.tree.pubkey(),
+        input_tree: env.tree,
+        output_tree: env.tree,
         owner_signers: vec![input_owner.pubkey()],
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
@@ -913,7 +913,7 @@ fn transact_rejects_a_substituted_input_signer() {
     let mut env = proof_env();
 
     let payer = env.rpc.payer.pubkey();
-    let tree = env.tree.pubkey();
+    let tree = env.tree;
     let bound_owner = Keypair::new();
     let substitute_owner = Keypair::new();
     env.rpc
@@ -956,7 +956,7 @@ fn transact_rejects_a_substituted_input_signer() {
 fn transact_rejects_a_substituted_payer() {
     let mut env = proof_env();
 
-    let tree = env.tree.pubkey();
+    let tree = env.tree;
     let fee_payer = env.rpc.payer.pubkey();
     let input_owner = Keypair::new();
     env.rpc
@@ -1005,7 +1005,7 @@ fn transact_rejects_replay_under_the_ring_transact_tag() {
     let mut env = proof_env();
 
     let payer = env.rpc.payer.pubkey();
-    let tree = env.tree.pubkey();
+    let tree = env.tree;
     let mut transact_ix_data = build_valid_transact_ix(&mut env);
     // Select the ring circuit family so the replay reaches proof verification:
     // the external-data hash the proof committed to uses the `transact`
@@ -1051,7 +1051,7 @@ fn ring_transact_rejects_a_confidential_proof_bound_to_the_ring_tag() {
     let mut env = proof_env();
 
     let payer = env.rpc.payer.pubkey();
-    let tree = env.tree.pubkey();
+    let tree = env.tree;
     let mut transact_ix_data =
         build_valid_transact_ix_for_owner_with_discriminator(&mut env, payer, tag::RING_TRANSACT);
     transact_ix_data.circuit = CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8);
@@ -1096,7 +1096,7 @@ fn ring_transact_rejects_a_proof_bound_to_a_different_ring() {
     let mut env = proof_env();
 
     let payer = env.rpc.payer.pubkey();
-    let tree = env.tree.pubkey();
+    let tree = env.tree;
     // The fixture ring program is the only real ring the deposit can bind; the
     // cross-ring negative uses an arbitrary second program id.
     let ring_a = Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID);
@@ -1155,7 +1155,7 @@ fn ring_authority_transact_rejects_a_proof_bound_to_a_different_ring() {
     let mut env = proof_env();
 
     let payer = env.rpc.payer.pubkey();
-    let tree = env.tree.pubkey();
+    let tree = env.tree;
     let ring_a = Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID);
     let ring_b = Pubkey::new_unique();
 
@@ -1209,7 +1209,7 @@ fn ring_authority_transact_accepts_the_maximum_square_shape() {
     let mut env = proof_env();
 
     let payer = env.rpc.payer.pubkey();
-    let tree = env.tree.pubkey();
+    let tree = env.tree;
     let ring = Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID);
     let transact_ix_data = build_valid_ring_ix::<true>(&mut env, ring, 4, 4);
     let mut ix = Transact {
@@ -1254,8 +1254,8 @@ fn transact_rejects_an_overrunning_owner_signer_run() {
     }
     let ix = Transact {
         payer,
-        input_tree: env.tree.pubkey(),
-        output_tree: env.tree.pubkey(),
+        input_tree: env.tree,
+        output_tree: env.tree,
         owner_signers: extra_signers.iter().map(|signer| signer.pubkey()).collect(),
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
@@ -1287,7 +1287,7 @@ fn transact_rejects_dummy_inputs_after_capacity_threshold() {
     let mut env = proof_env();
 
     let payer = env.rpc.payer.pubkey();
-    let tree = env.tree.pubkey();
+    let tree = env.tree;
     let transact_ix_data = build_valid_transact_ix(&mut env);
 
     // Move only the nullifier queue cursor so it has one fewer free leaf than

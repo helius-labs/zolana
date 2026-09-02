@@ -14,7 +14,7 @@ use zolana_interface::instruction::tag::TRANSACT;
 
 use crate::error::CompressionError;
 
-pub const DEFAULT_TREE: Address = address!("trEEbaNobcTESNmtsPBj3FX27q5sDCQePV2kb12FYho");
+pub const DEFAULT_TREE: Address = address!("7XD1LF7FMhd8Na9yG86wfMjGhAHsjipc2LCHRtciEjtE");
 pub const SPP_PROGRAM: Address = address!("sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG");
 
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]

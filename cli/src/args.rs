@@ -514,9 +514,6 @@ pub(crate) struct CreateTreeOptions {
     #[command(flatten)]
     pub(crate) sync: SyncOptions,
 
-    #[arg(long, help = "Tree keypair path to create or reuse")]
-    pub(crate) tree_keypair: String,
-
     #[arg(
         long = "airdrop-lamports",
         default_value_t = 20_000_000_000,
@@ -1105,8 +1102,6 @@ mod tests {
             "create-tree",
             "--keypair",
             "/tmp/alice.pid.json",
-            "--tree-keypair",
-            "/tmp/tree.json",
             "--rpc-url",
             "http://127.0.0.1:8900",
             "--indexer-url",
@@ -1124,7 +1119,6 @@ mod tests {
                 rpc_url: Some("http://127.0.0.1:8900".to_string()),
                 indexer_url: Some("http://127.0.0.1:8785".to_string()),
             },
-            tree_keypair: "/tmp/tree.json".to_string(),
             airdrop_lamports: 1_000_000_000,
         };
         assert_eq!(opts, expected);

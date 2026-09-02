@@ -21,7 +21,6 @@ log = ["dep:solana-msg"]
 profile-program = ["dep:light-program-profiler", "light-program-profiler/profile-program"]
 
 [dependencies]
-zolana-account-checks = { workspace = true }
 zolana-event = { workspace = true }
 zolana-hasher = { workspace = true }
 groth16-solana = { workspace = true, optional = true }
@@ -38,7 +37,6 @@ light-program-profiler = { workspace = true, optional = true }
 [dev-dependencies]
 rand = { workspace = true }
 zolana-merkle-tree = { workspace = true }
-zolana-account-checks = { workspace = true, features = ["test-only"] }
 zolana-client = { workspace = true }
 zolana-indexed-array = { workspace = true }
 num-bigint = { workspace = true }

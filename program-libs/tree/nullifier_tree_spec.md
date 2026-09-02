@@ -87,10 +87,10 @@ PDA = canonical_pda(
 ```
 
 ```rust
-// Borsh-serialized length: 9 bytes.
+// Borsh-serialized length: 10 bytes.
 struct NullifierPda {
     queue_index: u64,
-    bump: u8,
+    tree_id: u16,
 }
 ```
 
@@ -127,7 +127,8 @@ The instruction also receives the writable PDA.
    `ShieldedPoolError::NullifierAlreadyQueued` (7048).
 5. Accept an unused PDA that is System-owned, empty, and optionally
    prefunded. Transfer only its missing rent-exempt balance from the tree, then
-   allocate nine bytes, assign it to the program, and store `{ q, bump }`.
+   allocate ten bytes, assign it to the program, and store `{ q, tree_id }`
+   with the tree header's `tree_id`.
 6. Let `j = batches[c].num_full_zkp_batches`. Update the open commitment:
 
    ```text
@@ -303,20 +304,17 @@ PDAs.
 
 **Input**
 
-```rust
-nullifiers: Vec<[u8; 32]>
-```
-
-The instruction also receives the writable tree and one writable PDA per
-nullifier. The shielded-pool index supplies the nullifiers to the cleaner.
+The instruction has no data. It receives the writable tree followed by one
+writable PDA per nullifier to close. The shielded-pool index supplies the
+nullifiers to the cleaner, which derives the PDA addresses from them.
 
 **Checks and state changes**
 
-For every `(nullifier, PDA)` pair:
+For every PDA account:
 
-1. Require program ownership and an exact nine-byte Borsh payload.
-2. Recreate `PDA(["nullifier", tree_pubkey, nullifier, PDA.bump])` and
-   require it to equal the PDA address.
+1. Require program ownership and an exact ten-byte Borsh payload.
+2. Require `PDA.tree_id` to equal the tree header's `tree_id`
+   (`ShieldedPoolError::NullifierPdaTreeMismatch`, 7053).
 3. Require `PDA.queue_index < w`.
 4. Transfer every PDA lamport to the tree and close the PDA.
 
@@ -354,7 +352,7 @@ maintenance_transactions = ceil(K / A) + ceil(B / C)
 
 compute_units = K * CU_append + ceil(B / C) * CU_cleanup(C)
 network_fee = maintenance_transactions * base_fee
-locked_nullifier_pda_rent = L * Rent::minimum_balance(9)
+locked_nullifier_pda_rent = L * Rent::minimum_balance(10)
 ```
 
 With `B = 30_000` and `Z = 250`, a full batch contains 120 append proofs. A
@@ -378,8 +376,8 @@ are additional. At a 5,000-lamport signature fee and one signature per
 transaction, 268 to 270 maintenance transactions cost 0.00134 to 0.00135 SOL in
 base fees.
 
-At the current default rent rate, one nine-byte PDA requires 953,520
-lamports. One full batch locks 28.6056 SOL, all returned to the tree when its
+At the current default rent rate, one ten-byte PDA requires 960,480
+lamports. One full batch locks 28.8144 SOL, all returned to the tree when its
 PDAs are closed.
 
 ### Working capital
@@ -388,7 +386,7 @@ The tree funds every PDA, so at creation it must hold, above its own rent
 exemption:
 
 ```text
-working_capital = 3 * B * Rent::minimum_balance(9)
+working_capital = 3 * B * Rent::minimum_balance(10)
 ```
 
 A PDA cannot be closed before its batch is reclaimable, and reclaimability
@@ -398,7 +396,7 @@ the successor batch's PDAs, and the PDAs being created in the reused
 batch. With prompt cleanup, this is the working capital required for continuous
 insertion. Closed PDAs return their rent to the tree; delayed cleanup can
 lock capital beyond this amount and eventually stop insertion. With
-`B = 30_000` this is 85.8168 SOL; with `B = 630_000` it is 1,802.1528 SOL.
+`B = 30_000` this is 86.4432 SOL; with `B = 630_000` it is 1,815.3072 SOL.
 
 ### Cost per nullifier
 

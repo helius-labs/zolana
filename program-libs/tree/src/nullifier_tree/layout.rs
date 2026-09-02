@@ -137,9 +137,14 @@ const _: () = {
     );
 };
 
-unsafe impl<C: ConfigCore, const ZKP_BATCHES: usize> ZeroCopy<C> for NullifierTreeLayout<ZKP_BATCHES> {}
+unsafe impl<C: ConfigCore, const ZKP_BATCHES: usize> ZeroCopy<C>
+    for NullifierTreeLayout<ZKP_BATCHES>
+{
+}
 
-unsafe impl<'de, C: ConfigCore, const ZKP_BATCHES: usize> SchemaRead<'de, C> for NullifierTreeLayout<ZKP_BATCHES> {
+unsafe impl<'de, C: ConfigCore, const ZKP_BATCHES: usize> SchemaRead<'de, C>
+    for NullifierTreeLayout<ZKP_BATCHES>
+{
     type Dst = Self;
     const TYPE_META: TypeMeta = TypeMeta::Static {
         size: size_of::<Self>(),
