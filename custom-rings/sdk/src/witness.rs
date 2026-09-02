@@ -108,22 +108,25 @@ impl CustomRingWitnessInput<'_> {
         })
     }
 
-    /// One answer per distinct `(list_id, member, mode)` the table asks about.
+    /// One covering answer per subject a rule screens, a group is covered by any
+    /// one of its lists.
     fn answer_rules<I: Rpc>(&self, indexer: &I) -> Result<Vec<RuleAnswer>, TransferError> {
         let mut answers: Vec<RuleAnswer> = Vec::new();
         for rule in self.policy.rules() {
-            let RuleSource::List(list_id) = rule.source else {
+            let lists: Vec<ListId> = rule.referenced_lists().collect();
+            if lists.is_empty() {
                 continue;
-            };
+            }
             for member in self.subjects(rule)? {
+                let answer = self.cover(indexer, &lists, &member, rule.mode)?;
                 if answers.iter().any(|entry| {
-                    entry.list_id == list_id as u8
-                        && entry.member == *member.as_bytes()
-                        && entry.mode == rule.mode as u8
+                    entry.list_id == answer.list_id
+                        && entry.member == answer.member
+                        && entry.mode == answer.mode
                 }) {
                     continue;
                 }
-                answers.push(self.entry(indexer, list_id, &member, rule.mode)?);
+                answers.push(answer);
             }
         }
         if answers.len() > ANSWER_SLOTS {
@@ -131,6 +134,27 @@ impl CustomRingWitnessInput<'_> {
         }
         answers.resize_with(ANSWER_SLOTS, RuleAnswer::default);
         Ok(answers)
+    }
+
+    /// The first group list whose entry satisfies the mode, a member present in
+    /// any allow list or absent from any block list covers the group.
+    fn cover<I: Rpc>(
+        &self,
+        indexer: &I,
+        lists: &[ListId],
+        member: &Member,
+        mode: Mode,
+    ) -> Result<RuleAnswer, TransferError> {
+        let mut unsatisfied = false;
+        for &list_id in lists {
+            match self.entry(indexer, list_id, member, mode) {
+                Ok(answer) => return Ok(answer),
+                Err(TransferError::PolicyRuleUnsatisfied) => unsatisfied = true,
+                Err(other) => return Err(other),
+            }
+        }
+        debug_assert!(unsatisfied);
+        Err(TransferError::PolicyRuleUnsatisfied)
     }
 
     fn subjects(&self, rule: &Rule) -> Result<Vec<Member>, TransferError> {

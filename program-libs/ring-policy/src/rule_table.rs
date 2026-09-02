@@ -10,7 +10,7 @@ pub const MAX_INLINE_ASSETS: usize = 8;
 /// Source slots, one per list the enum can name.
 pub const MAX_SOURCES: usize = 8;
 /// Enters `policy_hash`, bump it with any change of the encoding below.
-pub const POLICY_VERSION: u8 = 2;
+pub const POLICY_VERSION: u8 = 3;
 
 /// One list and owner pair, list id 0 marks an empty slot with a zero hash.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -122,9 +122,14 @@ pub enum Guard {
 }
 
 /// A list of entries or assets carried inline by the table.
+///
+/// `AnyOf` is a disjunction, the rule is satisfied by an answer for any one of
+/// the lists, a `Present` group is a union allowlist and an `Absent` group an
+/// intersection blocklist.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RuleSource {
     List(ListId),
+    AnyOf(&'static [ListId]),
     InlineAssets(&'static [[u8; 32]]),
 }
 
@@ -158,6 +163,26 @@ impl Rule {
         }
     }
 
+    /// Every live instance must be present in at least one of the lists.
+    pub const fn require_any(subject: Subject, lists: &'static [ListId]) -> Self {
+        Self {
+            subject,
+            mode: Mode::Present,
+            source: RuleSource::AnyOf(lists),
+            guard: Guard::Always,
+        }
+    }
+
+    /// A live instance is refused only when present in every one of the lists.
+    pub const fn forbid_all(subject: Subject, lists: &'static [ListId]) -> Self {
+        Self {
+            subject,
+            mode: Mode::Absent,
+            source: RuleSource::AnyOf(lists),
+            guard: Guard::Always,
+        }
+    }
+
     /// Restricts assets to members the table itself carries, no entries involved.
     pub const fn allow_only_assets(members: &'static [[u8; 32]]) -> Self {
         Self {
@@ -177,6 +202,31 @@ impl Rule {
         }
     }
 
+    /// Bit `i` set means list `i + 1` is referenced, zero marks the inline source.
+    pub const fn list_mask(&self) -> u8 {
+        match self.source {
+            RuleSource::List(list_id) => 1 << (list_id as u8 - 1),
+            RuleSource::AnyOf(lists) => {
+                let mut mask = 0u8;
+                let mut i = 0;
+                while i < lists.len() {
+                    mask |= 1 << (lists[i] as u8 - 1);
+                    i += 1;
+                }
+                mask
+            }
+            RuleSource::InlineAssets(_) => 0,
+        }
+    }
+
+    /// The lists the rule consults, empty for an inline source.
+    pub fn referenced_lists(&self) -> impl Iterator<Item = ListId> + '_ {
+        let mask = self.list_mask();
+        (1..=MAX_SOURCES as u8)
+            .filter(move |id| mask & (1 << (id - 1)) != 0)
+            .filter_map(|id| ListId::try_from(id).ok())
+    }
+
     /// Byte positions are the circuit packed-field weights (Go ruleShift), reordering breaks proof verification.
     pub fn encoded(&self) -> [u8; 32] {
         let mut field = [0u8; 32];
@@ -186,21 +236,14 @@ impl Rule {
         };
         field[20..28].copy_from_slice(&threshold.to_be_bytes());
         field[28] = guard_tag;
-        field[29] = match self.source {
-            RuleSource::List(list_id) => list_id as u8,
-            RuleSource::InlineAssets(_) => 0,
-        };
+        field[29] = self.list_mask();
         field[30] = self.mode as u8;
         field[31] = self.subject as u8;
         field
     }
 
     const fn signature(&self) -> u32 {
-        let list_id = match self.source {
-            RuleSource::List(list_id) => list_id as u8,
-            RuleSource::InlineAssets(_) => 0,
-        };
-        ((self.subject as u32) << 16) | ((self.mode as u32) << 8) | list_id as u32
+        ((self.subject as u32) << 16) | ((self.mode as u32) << 8) | self.list_mask() as u32
     }
 
     const fn disabled() -> Self {
@@ -235,7 +278,7 @@ impl RuleTable {
     /// rule fails closed.
     pub fn hash(&self, sources: &SourceMap) -> Result<[u8; 32], PolicyHashError> {
         for rule in self.rules() {
-            if let RuleSource::List(list_id) = rule.source {
+            for list_id in rule.referenced_lists() {
                 if sources.owner_hash(list_id).is_none() {
                     return Err(PolicyHashError::MissingSource(list_id));
                 }
@@ -320,6 +363,22 @@ impl RuleTableBuilder {
                     }
                 }
                 RuleSource::List(_) => {}
+                RuleSource::AnyOf(lists) => {
+                    assert!(!lists.is_empty(), "a group names no list");
+                    assert!(
+                        lists.len() <= MAX_SOURCES,
+                        "a group exceeds the source width"
+                    );
+                    let mut a = 0;
+                    while a < lists.len() {
+                        let mut b = a + 1;
+                        while b < lists.len() {
+                            assert!(lists[a] as u8 != lists[b] as u8, "a group repeats a list");
+                            b += 1;
+                        }
+                        a += 1;
+                    }
+                }
             }
             assert!(
                 !(matches!(rule.subject, Subject::Sender)
@@ -370,6 +429,48 @@ mod tests {
         assert_eq!(rules[0].subject, Subject::OutputOwner);
         assert_eq!(rules[1].mode, Mode::Absent);
         assert!(matches!(rules[2].source, RuleSource::InlineAssets(_)));
+    }
+
+    #[test]
+    fn a_group_encodes_the_union_mask() {
+        assert_eq!(
+            Rule::require(Subject::OutputOwner, ListId::Allow).list_mask(),
+            0b0000_0001
+        );
+        assert_eq!(
+            Rule::require_any(Subject::OutputOwner, &[ListId::Allow, ListId::Frozen]).list_mask(),
+            0b0000_0101
+        );
+        assert_eq!(
+            Rule::forbid_all(Subject::OutputOwner, &[ListId::Block, ListId::Frozen]).list_mask(),
+            0b0000_0110
+        );
+        assert_eq!(Rule::allow_only_assets(ASSETS).list_mask(), 0);
+    }
+
+    #[test]
+    fn a_group_hash_binds_every_listed_source() {
+        const GROUP: RuleTable = RuleTable::builder()
+            .rule(Rule::require_any(
+                Subject::OutputOwner,
+                &[ListId::Allow, ListId::Frozen],
+            ))
+            .build();
+        let both = sources(&[(ListId::Allow, [4u8; 32]), (ListId::Frozen, [5u8; 32])]);
+        assert!(GROUP.hash(&both).is_ok());
+        let only_one = sources(&[(ListId::Allow, [4u8; 32])]);
+        assert_eq!(
+            GROUP.hash(&only_one),
+            Err(PolicyHashError::MissingSource(ListId::Frozen))
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "a group names no list")]
+    fn an_empty_group_is_rejected() {
+        let _ = RuleTable::builder()
+            .rule(Rule::require_any(Subject::OutputOwner, &[]))
+            .build();
     }
 
     #[test]

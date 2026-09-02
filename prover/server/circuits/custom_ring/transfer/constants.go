@@ -14,7 +14,7 @@ const (
 
 // PolicyVersion enters the policy_hash preimage, mirroring
 // ring_policy::POLICY_VERSION.
-const PolicyVersion = 2
+const PolicyVersion = 3
 
 // What a rule ranges over, ExitDestination having no in-circuit instance.
 const (

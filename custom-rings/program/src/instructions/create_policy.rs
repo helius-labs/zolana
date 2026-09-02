@@ -20,7 +20,7 @@ use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_ring_policy::{ListId, RuleSource};
+use zolana_ring_policy::ListId;
 
 /// The table is part of the deployed program, only its upgrade authority can
 /// pin the hash.
@@ -108,7 +108,7 @@ pub(crate) fn resolve_sources(
 ) -> Result<[SourceSlot; N_SOURCE_SLOTS], ProgramError> {
     let mut referenced = [false; N_SOURCE_SLOTS];
     for rule in RULES.rules() {
-        if let RuleSource::List(list_id) = rule.source {
+        for list_id in rule.referenced_lists() {
             referenced[list_id as usize - 1] = true;
         }
     }

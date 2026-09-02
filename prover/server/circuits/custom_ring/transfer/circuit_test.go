@@ -117,6 +117,16 @@ func TestCircuitSolvesValidWitness(t *testing.T) {
 	solve(t, cs, validAssignment(t))
 }
 
+// A require-any group is satisfied when the subject is present in any one of the
+// masked lists, the recipient sits on Allow within an Allow-or-Block group.
+func TestCircuitSolvesGroupRule(t *testing.T) {
+	cs := testConstraintSystem(t)
+
+	f := defaultFixture()
+	f.outputOwnerMask = lmask(kindBlock, kindAllow)
+	solve(t, cs, buildAssignment(t, f))
+}
+
 // Two outputs to one recipient whose total stays at or below the threshold are
 // exempt together, aggregation does not over-reject a legitimate split.
 func TestCircuitSolvesAggregatedGuard(t *testing.T) {
@@ -276,6 +286,14 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
+			name: "output owner group excludes the recipient's list",
+			build: func(t *testing.T) *Circuit {
+				f := defaultFixture()
+				f.outputOwnerMask = lmask(kindBlock, kindApproval)
+				return buildAssignment(t, f)
+			},
+		},
+		{
 			name: "asset outside the inline allowlist",
 			build: func(t *testing.T) *Circuit {
 				f := defaultFixture()
@@ -350,11 +368,11 @@ func TestPrintPolicyVectors(t *testing.T) {
 	fmt.Printf("empty_policy_hash    %s\n", hex32(hostPolicyHash(t, nil, nil, emptySources())))
 	oneMap := emptySources()
 	oneMap[kindAllow-1] = source{listId: kindAllow, owner: s.ownOwnerHash}
-	oneRule := []rule{{subject: SubjectOutputOwner, mode: ModePresent, listId: kindAllow}}
+	oneRule := []rule{{subject: SubjectOutputOwner, mode: ModePresent, mask: lmask(kindAllow)}}
 	fmt.Printf("one_rule_policy_hash %s\n", hex32(hostPolicyHash(t, oneRule, nil, oneMap)))
 	twoMap := oneMap
 	twoMap[kindFrozen-1] = source{listId: kindFrozen, owner: s.curatorOwnerHash}
-	twoRules := append(oneRule, rule{subject: SubjectSender, mode: ModeAbsent, listId: kindFrozen})
+	twoRules := append(oneRule, rule{subject: SubjectSender, mode: ModeAbsent, mask: lmask(kindFrozen)})
 	fmt.Printf("two_rule_policy_hash %s\n", hex32(hostPolicyHash(t, twoRules, nil, twoMap)))
 }
 
@@ -379,6 +397,7 @@ func validAssignment(t *testing.T) *Circuit {
 type fixture struct {
 	amount          uint64
 	secondAmount    uint64 // 0 keeps one real output, else a second to the same recipient
+	outputOwnerMask int64  // 0 keeps the single Allow rule, else the OutputOwner rule's list mask
 	transferred     [32]byte
 	inlineAsset     [32]byte
 	rulesFree       bool
@@ -425,14 +444,23 @@ type derived struct {
 type rule struct {
 	subject   int64
 	mode      int64
-	listId    int64
+	mask      int64
 	guardTag  int64
 	threshold uint64
 }
 
+// lmask ORs the bit of each list id, mirroring ring_policy::Rule::list_mask.
+func lmask(ids ...int64) int64 {
+	var mask int64
+	for _, id := range ids {
+		mask |= 1 << (id - 1)
+	}
+	return mask
+}
+
 func (r rule) packed() *big.Int {
 	packed := new(big.Int).SetUint64(r.threshold)
-	for _, part := range []int64{r.guardTag, r.listId, r.mode, r.subject} {
+	for _, part := range []int64{r.guardTag, r.mask, r.mode, r.subject} {
 		packed.Or(packed.Lsh(packed, 8), big.NewInt(part))
 	}
 	return packed
@@ -443,7 +471,7 @@ func (r rule) wires() RuleWires {
 		Packed:    r.packed(),
 		Subject:   big.NewInt(r.subject),
 		Mode:      big.NewInt(r.mode),
-		ListId:    big.NewInt(r.listId),
+		Mask:      big.NewInt(r.mask),
 		GuardTag:  big.NewInt(r.guardTag),
 		Threshold: new(big.Int).SetUint64(r.threshold),
 	}
@@ -524,12 +552,15 @@ func newStatement(t *testing.T, f fixture) *statement {
 	}
 
 	s.rules = []rule{
-		{subject: SubjectOutputOwner, mode: ModePresent, listId: kindAllow},
-		{subject: SubjectSender, mode: ModeAbsent, listId: kindFrozen},
-		{subject: SubjectAsset, mode: ModePresent, listId: InlineKind},
-		{subject: SubjectOutputOwner, mode: ModePresent, listId: kindApproval, guardTag: GuardAboveAmount, threshold: guardThreshold},
+		{subject: SubjectOutputOwner, mode: ModePresent, mask: lmask(kindAllow)},
+		{subject: SubjectSender, mode: ModeAbsent, mask: lmask(kindFrozen)},
+		{subject: SubjectAsset, mode: ModePresent, mask: lmask()},
+		{subject: SubjectOutputOwner, mode: ModePresent, mask: lmask(kindApproval), guardTag: GuardAboveAmount, threshold: guardThreshold},
 	}
 	s.inlineAssets = []*big.Int{pkField(t, f.inlineAsset)}
+	if f.outputOwnerMask != 0 {
+		s.rules[0].mask = f.outputOwnerMask
+	}
 	if f.rulesFree {
 		s.rules = nil
 		s.inlineAssets = nil
@@ -680,7 +711,7 @@ func buildAssignment(t *testing.T, f fixture) *Circuit {
 	c.NOutOneHot[len(s.outputs)-1] = big.NewInt(1)
 
 	// Padding rules repeat ring_policy::Rule::disabled.
-	disabled := rule{subject: SubjectOutputOwner, mode: ModePresent, listId: kindAllow}
+	disabled := rule{subject: SubjectOutputOwner, mode: ModePresent, mask: lmask(kindAllow)}
 	for k := range c.Rules {
 		c.Rules[k] = disabled.wires()
 		c.LenOneHot[k] = big.NewInt(0)

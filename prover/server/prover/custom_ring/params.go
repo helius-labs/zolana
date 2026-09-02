@@ -509,7 +509,7 @@ func assignRule(dst *transfer.RuleWires, encoded [ruleEncLen]byte) {
 	dst.Packed = new(big.Int).SetBytes(encoded[:])
 	dst.Subject = encoded[31]
 	dst.Mode = encoded[30]
-	dst.ListId = encoded[29]
+	dst.Mask = encoded[29]
 	dst.GuardTag = encoded[28]
 	dst.Threshold = new(big.Int).SetBytes(encoded[20:28])
 }

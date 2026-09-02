@@ -39,7 +39,7 @@ func (c *Circuit) evaluate(
 	}
 
 	for k, rule := range c.Rules {
-		isInline := api.IsZero(api.Sub(rule.ListId, InlineKind))
+		isInline := api.IsZero(rule.Mask)
 		onOutputOwner := api.IsZero(api.Sub(rule.Subject, SubjectOutputOwner))
 		onAsset := api.IsZero(api.Sub(rule.Subject, SubjectAsset))
 		// SubjectExitDestination has no instance here, nothing constrains a rule
@@ -49,7 +49,7 @@ func (c *Circuit) evaluate(
 		var matched [NAnswers]frontend.Variable
 		for e, entry := range answers {
 			matched[e] = api.Mul(entry.enabled, api.Mul(
-				api.IsZero(api.Sub(entry.listId, rule.ListId)),
+				bitMember(api, rule.Mask, entry.listId),
 				api.IsZero(api.Sub(entry.mode, rule.Mode)),
 			))
 		}
@@ -140,4 +140,14 @@ func anyOf(api frontend.API, terms []frontend.Variable) frontend.Variable {
 
 func nonZero(api frontend.API, value frontend.Variable) frontend.Variable {
 	return api.Sub(1, api.IsZero(value))
+}
+
+// Tests bit listId-1 of mask, listId 0 (a disabled answer) matches nothing.
+func bitMember(api frontend.API, mask, listId frontend.Variable) frontend.Variable {
+	bits := api.ToBinary(mask, NSources)
+	member := frontend.Variable(0)
+	for v := 1; v <= NSources; v++ {
+		member = api.Add(member, api.Mul(api.IsZero(api.Sub(listId, v)), bits[v-1]))
+	}
+	return member
 }

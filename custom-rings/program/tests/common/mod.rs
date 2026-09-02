@@ -280,7 +280,7 @@ pub fn own_source_slots(
         namespace: Address::new_from_array([0; 32]),
     }; custom_ring_interface::N_SOURCE_SLOTS];
     for rule in custom_ring_interface::RULES.rules() {
-        if let zolana_ring_policy::RuleSource::List(list_id) = rule.source {
+        for list_id in rule.referenced_lists() {
             sources[list_id as usize - 1] = custom_ring_interface::SourceSlot {
                 list_id: list_id as u8,
                 namespace: own,
