@@ -81,8 +81,7 @@ pub(crate) fn load_curator_policy_config<'a>(
 pub(crate) fn source_map(
     sources: &[SourceSlot; N_SOURCE_SLOTS],
 ) -> Result<SourceMap, CustomRingError> {
-    let slots =
-        core::array::from_fn(|i| (sources[i].list_id, *sources[i].namespace.as_array()));
+    let slots = core::array::from_fn(|i| (sources[i].list_id, *sources[i].namespace.as_array()));
     SourceMap::from_namespaces(&slots, |namespace| {
         ListNamespace::new(namespace).map(|owner| owner.owner_hash)
     })

@@ -6,7 +6,9 @@ use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use zolana_ring_policy::ListId;
 
-use crate::common::{create_entry_fixture, initialized_policy_config_account, payer, setup_mollusk};
+use crate::common::{
+    create_entry_fixture, initialized_policy_config_account, payer, setup_mollusk,
+};
 
 fn custom(error: CustomRingError) -> ProgramError {
     ProgramError::Custom(error as u32)
@@ -26,7 +28,10 @@ fn an_authority_written_list_rejects_a_non_authority_payer() {
         ListId::Allow as u8,
         payer(),
     )
-    .expect_err(&mollusk, custom(CustomRingError::UnauthorizedNamespaceSigner));
+    .expect_err(
+        &mollusk,
+        custom(CustomRingError::UnauthorizedNamespaceSigner),
+    );
 }
 
 /// A member-written list refuses a payer whose owner tag is not the entry member.
@@ -38,7 +43,10 @@ fn a_member_written_list_rejects_a_mismatched_payer() {
         ListId::Escrow as u8,
         payer(),
     )
-    .expect_err(&mollusk, custom(CustomRingError::UnauthorizedNamespaceSigner));
+    .expect_err(
+        &mollusk,
+        custom(CustomRingError::UnauthorizedNamespaceSigner),
+    );
 }
 
 /// The matching member payer clears the writer gate and reaches the unloaded CPI.
