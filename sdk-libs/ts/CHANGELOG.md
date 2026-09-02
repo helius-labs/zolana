@@ -76,6 +76,10 @@ Added
 - `DecryptRequest`, `DeriveRequest`, `TransactionKeyRequest`, `DecryptLabel`,
   `ProofService`, `ProverInputs`, `MergeInputs`, and `ProverRequestBody` are
   exported for key holder implementations.
+- `keyedWalletSnapshotCipher(identity, key)` seals wallet snapshots in the
+  `walletSnapshotCipher` envelope under an AES-GCM key the caller supplies,
+  and `walletSnapshotKey(secret)` derives that key from 32 bytes a key holder
+  handed out, for a wallet whose viewing secret never enters the process.
 
 Changed
 

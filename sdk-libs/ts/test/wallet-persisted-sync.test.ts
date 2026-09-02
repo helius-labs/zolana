@@ -13,9 +13,11 @@ import {
   serializeWallet,
 } from "../src/transaction/index.js";
 import {
+  keyedWalletSnapshotCipher,
   loadPersistedWallet,
   syncPersistedWallet,
   walletSnapshotCipher,
+  walletSnapshotKey,
   type WalletStateStore,
 } from "../src/wallet/index.js";
 import { syncWallet } from "../src/wallet/sync.js";
@@ -398,6 +400,69 @@ describe("sealed wallet snapshots", () => {
     await expect(cipher.seal(serializeWallet(other))).rejects.toMatchObject({
       code: "WALLET_SNAPSHOT",
     });
+  });
+
+  it("opens under a caller-derived key exactly when it is the keypair's key", async () => {
+    const { keypair, store, snapshot } = await sealedStore();
+    const viewing = keypair.viewingKey();
+    const secret = viewing.secretBytes();
+    const key = await walletSnapshotKey(new Uint8Array(secret));
+    viewing.destroy();
+    const keyed = keyedWalletSnapshotCipher(keypair.shieldedAddress(), key);
+    const restored = await loadPersistedWallet({ store, cipher: keyed });
+    expect(serializeWallet(restored!)).toBe(snapshot);
+    // Resealed under the caller's key, the keypair cipher still opens it.
+    store.saved = await keyed.seal(snapshot);
+    expect(
+      serializeWallet(
+        (await loadPersistedWallet({ store, cipher: walletSnapshotCipher(keypair) }))!,
+      ),
+    ).toBe(snapshot);
+
+    const otherKey = await walletSnapshotKey(new Uint8Array(32).fill(7));
+    await expect(
+      loadPersistedWallet({
+        store,
+        cipher: keyedWalletSnapshotCipher(keypair.shieldedAddress(), otherKey),
+      }),
+    ).rejects.toMatchObject({ code: "WALLET_SNAPSHOT" });
+  });
+
+  it("wipes the key material it imports and refuses the wrong length", async () => {
+    const secret = new Uint8Array(32).fill(9);
+    await walletSnapshotKey(secret);
+    expect(secret).toEqual(new Uint8Array(32));
+    const short = new Uint8Array(16).fill(9);
+    await expect(walletSnapshotKey(short)).rejects.toMatchObject({ code: "WALLET_SNAPSHOT" });
+    expect(short).toEqual(new Uint8Array(16));
+  });
+
+  it("refuses a key that is not an AES-256-GCM cipher key", async () => {
+    const identity = ShieldedKeypair.generate().shieldedAddress();
+    const wrongAlgorithm = await globalThis.crypto.subtle.generateKey(
+      { name: "AES-CBC", length: 256 },
+      false,
+      ["encrypt", "decrypt"],
+    );
+    expect(() => keyedWalletSnapshotCipher(identity, wrongAlgorithm)).toThrowError(
+      expect.objectContaining({ code: "WALLET_SNAPSHOT" }),
+    );
+    const wrongLength = await globalThis.crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 128 },
+      false,
+      ["encrypt", "decrypt"],
+    );
+    expect(() => keyedWalletSnapshotCipher(identity, wrongLength)).toThrowError(
+      expect.objectContaining({ code: "WALLET_SNAPSHOT" }),
+    );
+    const encryptOnly = await globalThis.crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt"],
+    );
+    expect(() => keyedWalletSnapshotCipher(identity, encryptOnly)).toThrowError(
+      expect.objectContaining({ code: "WALLET_SNAPSHOT" }),
+    );
   });
 
   it("maps store load failures into the wallet taxonomy", async () => {

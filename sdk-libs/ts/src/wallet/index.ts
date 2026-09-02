@@ -62,7 +62,11 @@ export {
   type WalletStateCipher,
   type WalletStateStore,
 } from "./persisted.js";
-export { walletSnapshotCipher } from "./snapshot-cipher.js";
+export {
+  keyedWalletSnapshotCipher,
+  walletSnapshotCipher,
+  walletSnapshotKey,
+} from "./snapshot-cipher.js";
 export {
   buildRegistrationTransaction,
   buildSetMergingEnabledTransaction,

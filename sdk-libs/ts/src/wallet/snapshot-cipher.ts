@@ -1,6 +1,6 @@
 import { getBase64Decoder, getBase64Encoder } from "@solana/kit";
 
-import type { ShieldedKeypair } from "../keypair/shielded.js";
+import type { ShieldedAddress, ShieldedKeypair } from "../keypair/shielded.js";
 import { deserializeWallet } from "../transaction/wallet/persistence.js";
 
 import { WalletError } from "./error.js";
@@ -28,11 +28,72 @@ interface SealedEnvelope {
  * version, a modified snapshot or one sealed for another wallet fails to open.
  */
 export function walletSnapshotCipher(keypair: ShieldedKeypair): WalletStateCipher {
-  const identity = keypair.shieldedAddress().toBytes();
+  return snapshotCipher(keypair.shieldedAddress(), () => snapshotKey(keypair));
+}
+
+/**
+ * `walletSnapshotCipher` for a wallet whose viewing secret lives elsewhere:
+ * `key` is the AES-GCM key `walletSnapshotKey` derives from material the key
+ * holder handed out, the envelope and its identity binding are the same.
+ */
+export function keyedWalletSnapshotCipher(
+  identity: ShieldedAddress,
+  key: CryptoKey,
+): WalletStateCipher {
+  if (
+    key.algorithm.name !== "AES-GCM" ||
+    !("length" in key.algorithm) ||
+    key.algorithm.length !== 256 ||
+    !key.usages.includes("encrypt") ||
+    !key.usages.includes("decrypt")
+  ) {
+    throw new WalletError("WALLET_SNAPSHOT", { details: { field: "key" } });
+  }
+  return snapshotCipher(identity, () => Promise.resolve(key));
+}
+
+/**
+ * The snapshot key `walletSnapshotCipher` derives from a viewing secret, over
+ * 32 bytes of key material the caller obtained instead. Wipes `secret` once
+ * the key is imported.
+ */
+export async function walletSnapshotKey(secret: Uint8Array): Promise<CryptoKey> {
+  if (secret.length !== 32) {
+    secret.fill(0);
+    throw new WalletError("WALLET_SNAPSHOT", { details: { field: "secret" } });
+  }
+  const ikmBytes = new Uint8Array(secret);
+  try {
+    const ikm = await globalThis.crypto.subtle.importKey("raw", ikmBytes, "HKDF", false, [
+      "deriveKey",
+    ]);
+    return await globalThis.crypto.subtle.deriveKey(
+      {
+        name: "HKDF",
+        hash: "SHA-256",
+        salt: new Uint8Array(0),
+        info: encoder.encode(SNAPSHOT_DOMAIN),
+      },
+      ikm,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt", "decrypt"],
+    );
+  } finally {
+    ikmBytes.fill(0);
+    secret.fill(0);
+  }
+}
+
+function snapshotCipher(
+  address: ShieldedAddress,
+  snapshotKey: () => Promise<CryptoKey>,
+): WalletStateCipher {
+  const identity = address.toBytes();
   return Object.freeze({
     async seal(snapshot: string): Promise<string> {
       const snapshotVersion = checkedSnapshot(snapshot, identity);
-      const key = await snapshotKey(keypair);
+      const key = await snapshotKey();
       const nonce = new Uint8Array(12);
       globalThis.crypto.getRandomValues(nonce);
       const data = new Uint8Array(
@@ -52,7 +113,7 @@ export function walletSnapshotCipher(keypair: ShieldedKeypair): WalletStateCiphe
     },
     async open(sealed: string): Promise<string> {
       const envelope = parseEnvelope(sealed);
-      const key = await snapshotKey(keypair);
+      const key = await snapshotKey();
       let plaintext: ArrayBuffer;
       try {
         plaintext = await globalThis.crypto.subtle.decrypt(
@@ -137,25 +198,9 @@ function sealedContext(identity: Uint8Array, snapshotVersion: number): Uint8Arra
 async function snapshotKey(keypair: ShieldedKeypair): Promise<CryptoKey> {
   const viewing = keypair.viewingKey();
   const secret = viewing.secretBytes();
-  const ikmBytes = new Uint8Array(secret);
   try {
-    const ikm = await globalThis.crypto.subtle.importKey("raw", ikmBytes, "HKDF", false, [
-      "deriveKey",
-    ]);
-    return await globalThis.crypto.subtle.deriveKey(
-      {
-        name: "HKDF",
-        hash: "SHA-256",
-        salt: new Uint8Array(0),
-        info: encoder.encode(SNAPSHOT_DOMAIN),
-      },
-      ikm,
-      { name: "AES-GCM", length: 256 },
-      false,
-      ["encrypt", "decrypt"],
-    );
+    return await walletSnapshotKey(new Uint8Array(secret));
   } finally {
-    ikmBytes.fill(0);
     secret.fill(0);
     viewing.destroy();
   }
