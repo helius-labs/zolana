@@ -655,8 +655,11 @@ fn config_account_with(authority: Pubkey, auditor_pubkey: [u8; 33], has_policy: 
 pub fn create_config_data(auditor_pubkey: [u8; 33]) -> Vec<u8> {
     let mut data = vec![tag::CREATE_CONFIG];
     data.extend_from_slice(
-        &wincode::serialize(&CreateConfigIxData { auditor_pubkey, has_policy: 1 })
-            .expect("serialize create_config data"),
+        &wincode::serialize(&CreateConfigIxData {
+            auditor_pubkey,
+            has_policy: 1,
+        })
+        .expect("serialize create_config data"),
     );
     data
 }

@@ -463,8 +463,8 @@ mod tests {
     fn from_namespaces_resolves_and_validates_positionally() {
         let mut slots = [(0u8, [0u8; 32]); MAX_SOURCES];
         slots[0] = (1, [9u8; 32]);
-        let map = SourceMap::from_namespaces(&slots, |ns| Ok::<_, ()>(*ns))
-            .expect("positional owners");
+        let map =
+            SourceMap::from_namespaces(&slots, |ns| Ok::<_, ()>(*ns)).expect("positional owners");
         assert_eq!(map.owner_hash(ListId::Allow), Some(&[9u8; 32]));
         let mut misplaced = [(0u8, [0u8; 32]); MAX_SOURCES];
         misplaced[1] = (1, [9u8; 32]);
