@@ -116,12 +116,16 @@ The circuit witnesses the components, range-checks each, and re-derives the
 packed value by weighted sum. Without the range checks a prover could borrow
 across byte boundaries and reinterpret a pinned rule as a different one.
 
-A rule's source is `List`, naming a list, or `InlineAssets`, an asset
-allowlist carried by the table itself. `Rule::allow_only_assets` lists up to
+A rule's source is `List`, naming a list, `AnyOf`, naming a group, or
+`InlineAssets`, an asset allowlist carried by the table itself. The list byte is
+a bitmask, bit `i` names list `i + 1`, and the circuit covers the rule by an
+answer for any set bit. A single list sets one bit, a group sets several, and
+the mode reads the disjunction, `require_any` as a union allowlist and
+`forbid_all` as an intersection blocklist. `Rule::allow_only_assets` lists up to
 eight asset members, hashed after the rules. The circuit answers an inline
 rule by direct member comparison, no entry, no answer, no source slot.
 The builder restricts inline members to `Asset` subjects in `Present` mode.
-List id zero in a rule encoding marks the inline source.
+A zero mask marks the inline source.
 
 The **source map** decides where each list's entries live. It is eight
 positional slots, slot `i` is empty or serves list `i + 1`. An occupied slot
