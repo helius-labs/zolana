@@ -170,18 +170,28 @@ fn expected_binary(
 }
 
 fn require_initialized(ctx: &Context) -> Result<(), AuthorityError> {
+    let config = ctx.ring.read_config(&ctx.rpc)?;
+    let has_policy = config.as_ref().is_some_and(|config| config.has_policy);
     InitializationState::observe(
-        ctx.ring.read_config(&ctx.rpc)?,
+        config,
         ctx.ring.read_spp_ring_config(&ctx.rpc)?,
         ctx.ring.read_policy_config(&ctx.rpc)?,
+        has_policy,
     )
     .require(ctx.ring.program_id())
 }
 
 impl InitializationState {
-    /// An unpinned policy can never be created once renounce drops the upgrade authority.
-    fn observe<C, R, P>(config: Option<C>, spp_ring: Option<R>, policy: Option<P>) -> Self {
-        if config.is_some() && spp_ring.is_some() && policy.is_some() {
+    /// A policy ring must pin its policy before renounce drops the upgrade
+    /// authority, an audit-only ring pins none.
+    fn observe<C, R, P>(
+        config: Option<C>,
+        spp_ring: Option<R>,
+        policy: Option<P>,
+        has_policy: bool,
+    ) -> Self {
+        let policy_ready = !has_policy || policy.is_some();
+        if config.is_some() && spp_ring.is_some() && policy_ready {
             Self::Complete
         } else {
             Self::Incomplete
@@ -298,22 +308,30 @@ mod tests {
     }
 
     #[test]
-    fn renounce_requires_every_ring_account_including_the_policy() {
+    fn renounce_requires_the_policy_only_for_a_policy_ring() {
         let program = Address::new_from_array([1; 32]);
+        // A policy ring is incomplete until its policy config exists.
         for state in [
-            InitializationState::observe(None::<()>, None::<()>, None::<()>),
-            InitializationState::observe(Some(()), None::<()>, None::<()>),
-            InitializationState::observe(None::<()>, Some(()), None::<()>),
-            InitializationState::observe(Some(()), Some(()), None::<()>),
-            InitializationState::observe(Some(()), None::<()>, Some(())),
+            InitializationState::observe(None::<()>, None::<()>, None::<()>, true),
+            InitializationState::observe(Some(()), None::<()>, None::<()>, true),
+            InitializationState::observe(None::<()>, Some(()), None::<()>, true),
+            InitializationState::observe(Some(()), Some(()), None::<()>, true),
         ] {
             assert!(matches!(
                 state.require(program),
                 Err(AuthorityError::NotInitialized { program: found }) if found == program
             ));
         }
-        assert!(InitializationState::observe(Some(()), Some(()), Some(()))
+        assert!(InitializationState::observe(Some(()), Some(()), Some(()), true)
             .require(program)
             .is_ok());
+        // An audit-only ring is complete with config and spp ring alone.
+        assert!(InitializationState::observe(Some(()), Some(()), None::<()>, false)
+            .require(program)
+            .is_ok());
+        assert!(matches!(
+            InitializationState::observe(Some(()), None::<()>, None::<()>, false).require(program),
+            Err(AuthorityError::NotInitialized { .. })
+        ));
     }
 }
