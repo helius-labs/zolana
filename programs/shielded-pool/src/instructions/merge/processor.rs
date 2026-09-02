@@ -25,7 +25,10 @@ use super::{
 use crate::instructions::{
     event::emit_general_event,
     nullifier_pda::{create_nullifier_pdas, InputTreeResult},
-    shared::{bool_field, check_not_expired, collect_forester_fee, tree_error},
+    shared::{
+        bool_field, check_field_element, check_field_elements, check_not_expired,
+        collect_forester_fee, tree_error,
+    },
 };
 
 pub(crate) struct MergeCoreAccounts<'a> {
@@ -35,10 +38,31 @@ pub(crate) struct MergeCoreAccounts<'a> {
     pub nullifier_pdas: ArrayVec<&'a mut AccountView, MERGE_INPUT_COUNT>,
 }
 
+pub(crate) fn validate_field_elements(ix: &MergeTransactIxDataRef<'_>) -> ProgramResult {
+    check_field_elements(
+        ix.nullifiers.iter(),
+        "input nullifier",
+        ShieldedPoolError::NonCanonicalInputNullifier,
+    )?;
+    check_field_element(
+        ix.output_utxo_hash,
+        "output utxo hash",
+        None,
+        ShieldedPoolError::NonCanonicalOutputUtxoHash,
+    )?;
+    check_field_element(
+        ix.private_tx_hash,
+        "private tx hash",
+        None,
+        ShieldedPoolError::NonCanonicalPrivateTxHash,
+    )
+}
+
 #[inline(never)]
 pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let ix = MergeTransactIxDataRef::from_bytes(data)
         .map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
+    validate_field_elements(&ix)?;
 
     let clock = Clock::get()?;
     check_not_expired(ix.expiry_unix_ts, &clock)?;

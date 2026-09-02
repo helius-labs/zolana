@@ -4,6 +4,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_account_checks::AccountError;
+use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 use zolana_interface::{error::ShieldedPoolError, instruction::BatchUpdateNullifierTree};
 use zolana_program_test::{Rejection, ZolanaProgramTest};
 
@@ -106,6 +107,39 @@ fn batch_update_rejects_an_unsigned_authority() {
 /// leave every account untouched. Rejecting a tampered proof for a FULL zkp
 /// batch is exercised on localnet only: filling one batch takes 250 queued
 /// nullifiers plus a real batch-address-append proof.
+#[test]
+fn batch_update_rejects_a_non_canonical_root() {
+    let (mut rpc, authority, tree) = forester_env();
+    let tree_before = rpc.account_data(&tree).expect("tree data");
+
+    for (new_root, old_root) in [
+        (BN254_SCALAR_MODULUS_BE, [2u8; 32]),
+        ([1u8; 32], BN254_SCALAR_MODULUS_BE),
+    ] {
+        let ix = BatchUpdateNullifierTree {
+            authority: authority.pubkey(),
+            tree,
+            reimbursement_recipient: authority.pubkey(),
+            new_root,
+            old_root,
+            zkp_batch_index: 0,
+            compressed_proof_a: [0u8; 32],
+            compressed_proof_b: [0u8; 64],
+            compressed_proof_c: [0u8; 32],
+        }
+        .instruction();
+        let error = rpc
+            .create_and_send_default_payer_transaction(&[ix], &[&authority])
+            .expect_err("a non-canonical root must be rejected");
+        Rejection::pool(ShieldedPoolError::NonCanonicalRoot).assert_litesvm(error);
+        assert_eq!(
+            rpc.account_data(&tree).expect("tree data"),
+            tree_before,
+            "rejected batch update must leave the tree untouched"
+        );
+    }
+}
+
 #[test]
 fn batch_update_rejects_a_proof_for_an_unready_zkp_batch() {
     let (mut rpc, authority, tree) = forester_env();

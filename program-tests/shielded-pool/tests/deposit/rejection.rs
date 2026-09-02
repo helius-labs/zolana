@@ -5,6 +5,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use solana_system_interface::error::SystemError;
 use zolana_account_checks::AccountError;
+use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
@@ -101,6 +102,26 @@ fn deposit_batch_rejects_an_empty_batch() {
     )
     .expect_err("empty batch must fail");
     Rejection::pool(ShieldedPoolError::EmptyDepositBatch).assert_litesvm(err);
+}
+
+#[test]
+fn deposit_batch_rejects_a_non_canonical_owner() {
+    let mut pool = Pool::initialized();
+    let depositor = pool.funded_signer(5_000_000_000);
+    let tree = pool.tree;
+    let mut entry = raw_entry(1_000);
+    entry.owner = BN254_SCALAR_MODULUS_BE;
+
+    let err = raw_deposit_batch(
+        &mut pool.rpc,
+        tree,
+        &depositor,
+        vec![DepositAssetKind::Sol],
+        vec![raw_entry(1_000), entry],
+        vec![sol_group_accounts()],
+    )
+    .expect_err("non-canonical deposit owner must fail");
+    Rejection::pool(ShieldedPoolError::NonCanonicalDepositField).assert_litesvm(err);
 }
 
 #[test]

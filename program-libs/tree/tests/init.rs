@@ -1,3 +1,4 @@
+use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 use zolana_tree::{
     error::TreeError,
     smt::{UtxoTreeLayout, ROOT_HISTORY_CAPACITY},
@@ -72,6 +73,30 @@ fn init_then_reload() {
     // Root history survives the reload.
     assert_eq!(tree.utxo_tree().current_root_index(), 1);
     assert_eq!(tree.utxo_tree().root_by_index(1).unwrap(), appended_root);
+}
+
+#[test]
+fn append_rejects_a_non_canonical_leaf() {
+    let params = NullifierTreeInitParams::default();
+    let mut bytes = vec![0u8; TreeAccount::account_size()];
+    let mut tree = TreeAccount::init(
+        &mut bytes,
+        DISCRIMINATOR,
+        HEIGHT,
+        [2u8; 32],
+        TREE_ID,
+        params,
+        FEES,
+    )
+    .unwrap();
+    let root_before = tree.utxo_tree().root();
+
+    assert_eq!(
+        tree.utxo_tree().append(BN254_SCALAR_MODULUS_BE),
+        Err(TreeError::Hash)
+    );
+    assert_eq!(tree.utxo_tree().root(), root_before);
+    assert_eq!(tree.utxo_tree().next_index(), 0);
 }
 
 #[test]

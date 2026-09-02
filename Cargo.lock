@@ -6558,6 +6558,7 @@ dependencies = [
  "pinocchio-system",
  "serde_json",
  "solana-loader-v3-interface 8.0.1",
+ "solana-msg",
  "spl-token-2022-interface 2.1.0",
  "tinyvec",
  "zolana-account-checks",

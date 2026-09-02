@@ -1,7 +1,9 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zolana_event::NullifierTreeUpdateEvent;
 #[cfg(feature = "verify")]
-use zolana_hasher::hash_chain::create_hash_chain_from_array;
+use zolana_hasher::{
+    hash_chain::create_hash_chain_from_array, primitives::is_canonical_bn254_scalar_be,
+};
 
 use crate::nullifier_tree::{
     batch::BatchState, error::NullifierTreeError, layout::NullifierTreeLayout,
@@ -34,6 +36,11 @@ impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
         merkle_tree_pubkey: [u8; 32],
         instruction_data: InstructionDataBatchNullifyInputs,
     ) -> Result<Option<NullifierTreeUpdateEvent>, NullifierTreeError> {
+        if !is_canonical_bn254_scalar_be(&instruction_data.old_root)
+            || !is_canonical_bn254_scalar_be(&instruction_data.new_root)
+        {
+            return Err(NullifierTreeError::NonCanonicalFieldElement);
+        }
         // 1. Verify the proof and cache the update.
         if !self.verify_proof_cache_update(&instruction_data)? {
             return Ok(None);

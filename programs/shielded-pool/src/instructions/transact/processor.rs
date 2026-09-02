@@ -24,7 +24,7 @@ use super::{
 use crate::instructions::{
     event::emit_general_event,
     nullifier_pda::create_nullifier_pdas,
-    shared::{check_not_expired, collect_forester_fee},
+    shared::{check_field_element, check_field_elements, check_not_expired, collect_forester_fee},
     transact::verify::{OwnerHashCache, TransactProof, TransactProofInputs},
 };
 
@@ -140,6 +140,8 @@ pub fn process_transact_ix(
 /// 1. Circuit is allowed for the instruction type
 /// 2. Circuit parameters (in, out) match instruction data
 /// 3. Circuit variant exists with in out public params is supported.
+/// 4. Nullifiers, output utxo hashes, and the private tx hash are canonical
+///    field elements.
 pub fn validate_circuit_type(
     ix: &TransactIxDataRef<'_>,
     instruction_tag: InstructionTag,
@@ -167,5 +169,20 @@ pub fn validate_circuit_type(
     {
         return Err(ShieldedPoolError::InvalidTransactShape.into());
     }
-    Ok(())
+    check_field_elements(
+        ix.inputs.iter().map(|input| &input.nullifier_hash),
+        "input nullifier",
+        ShieldedPoolError::NonCanonicalInputNullifier,
+    )?;
+    check_field_elements(
+        ix.outputs.iter().map(|output| output.utxo_hash),
+        "output utxo hash",
+        ShieldedPoolError::NonCanonicalOutputUtxoHash,
+    )?;
+    check_field_element(
+        ix.private_tx_hash,
+        "private tx hash",
+        None,
+        ShieldedPoolError::NonCanonicalPrivateTxHash,
+    )
 }

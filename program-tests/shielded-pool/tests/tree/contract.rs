@@ -199,6 +199,7 @@ mod program_unit {
             TreeError::InvalidDiscriminator,
             TreeError::Borrowed,
             TreeError::InvalidCapacity,
+            TreeError::Hash,
         ];
         for variant in catch_all {
             assert_eq!(

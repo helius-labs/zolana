@@ -30,4 +30,6 @@ pub enum TreeError {
     InvalidCapacity,
     #[error("fee arithmetic overflowed")]
     FeeOverflow,
+    #[error("poseidon hash of a tree node failed")]
+    Hash,
 }

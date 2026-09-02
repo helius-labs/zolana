@@ -7,8 +7,9 @@ use pinocchio::{
     AccountView, Address, ProgramResult,
 };
 use pinocchio_system::instructions::Transfer;
+use zolana_hasher::primitives::is_canonical_bn254_scalar_be;
 use zolana_interface::error::ShieldedPoolError;
-use zolana_tree::TreeError;
+use zolana_tree::{nullifier_tree::error::NullifierTreeError, TreeError};
 
 pub(crate) fn bool_field(value: bool) -> [u8; 32] {
     let mut field = [0u8; 32];
@@ -23,6 +24,49 @@ pub fn tree_error(error: TreeError) -> ProgramError {
         TreeError::TreeIsFull => ShieldedPoolError::StateAppendFailed.into(),
         TreeError::FeeOverflow => ShieldedPoolError::InvalidForesterFee.into(),
         _ => ShieldedPoolError::InvalidTreeAccounts.into(),
+    }
+}
+
+pub fn nullifier_tree_error(error: NullifierTreeError) -> ProgramError {
+    match error {
+        NullifierTreeError::NonCanonicalFieldElement => ShieldedPoolError::NonCanonicalRoot.into(),
+        _ => ShieldedPoolError::NullifierTreeUpdateFailed.into(),
+    }
+}
+
+pub(crate) fn check_field_element(
+    value: &[u8; 32],
+    field: &str,
+    index: Option<usize>,
+    error: ShieldedPoolError,
+) -> ProgramResult {
+    if is_canonical_bn254_scalar_be(value) {
+        return Ok(());
+    }
+    print_non_canonical(field, index);
+    Err(error.into())
+}
+
+pub(crate) fn check_field_elements<'a>(
+    values: impl IntoIterator<Item = &'a [u8; 32]>,
+    field: &str,
+    error: ShieldedPoolError,
+) -> ProgramResult {
+    for (index, value) in values.into_iter().enumerate() {
+        check_field_element(value, field, Some(index), error)?;
+    }
+    Ok(())
+}
+
+#[cold]
+fn print_non_canonical(field: &str, index: Option<usize>) {
+    match index {
+        Some(index) => solana_msg::msg!(
+            "ERROR: {} at index {} is not a canonical BN254 field element",
+            field,
+            index
+        ),
+        None => solana_msg::msg!("ERROR: {} is not a canonical BN254 field element", field),
     }
 }
 

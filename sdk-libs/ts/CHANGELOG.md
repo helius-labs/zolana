@@ -5,6 +5,14 @@
 Wallet replay keeps merge outputs when their inputs arrive in the same sync.
 Selection and approval text use UTXO terminology without changing version 3 snapshot keys.
 
+Added
+
+- `ShieldedPoolError` codes 7056 to 7061 (`NonCanonicalOutputUtxoHash`,
+  `NonCanonicalInputNullifier`, `NonCanonicalPrivateTxHash`,
+  `NonCanonicalRingDataHash`, `NonCanonicalDepositField`, `NonCanonicalRoot`):
+  the program rejects instruction-data hashes that are not canonical BN254
+  field elements before touching any account.
+
 Changed
 
 - `NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE` is 25,000, so

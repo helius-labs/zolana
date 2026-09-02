@@ -14,10 +14,10 @@ use zolana_interface::{
 use super::account::MergeRingAccounts;
 use crate::instructions::{
     merge::{
-        processor::{process_merge_core, MergeCoreAccounts},
+        processor::{process_merge_core, validate_field_elements, MergeCoreAccounts},
         verify::MergeOwnerBinding,
     },
-    shared::check_not_expired,
+    shared::{check_field_element, check_not_expired},
 };
 
 /// Policy-ring analog of `merge_transact`, invoked via CPI from a ring program.
@@ -29,6 +29,13 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
     let ix =
         MergeRingIxDataRef::from_bytes(data).map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
     let merge = &ix.merge;
+    validate_field_elements(merge)?;
+    check_field_element(
+        ix.output_ring_data_hash,
+        "output ring data hash",
+        None,
+        ShieldedPoolError::NonCanonicalRingDataHash,
+    )?;
     let clock = Clock::get()?;
     check_not_expired(merge.expiry_unix_ts, &clock)?;
 

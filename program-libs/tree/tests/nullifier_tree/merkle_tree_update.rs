@@ -1,4 +1,5 @@
 use crate::common::init_tree_account_data;
+use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 use zolana_tree::nullifier_tree::{
     access::get_merkle_tree_account_size, batch::CachedTreeUpdate, error::NullifierTreeError,
     merkle_tree_update::InstructionDataBatchNullifyInputs, proof::CompressedProof,
@@ -84,4 +85,32 @@ fn test_replay_while_cached_verifies_and_keeps_update_on_failure() {
         tree.batches.first().unwrap().cached_tree_update(0),
         Some(cached)
     );
+}
+
+#[test]
+fn test_update_rejects_non_canonical_roots_before_verification() {
+    let mut account_data = vec![0u8; get_merkle_tree_account_size::<4>()];
+    let pubkey = [1u8; 32];
+    let tree = init_tree_account_data::<4>(&mut account_data, 4, 1, 40).unwrap();
+    tree.batches.get_mut(0).unwrap().set_num_full_zkp_batches(2);
+
+    for (new_root, old_root) in [
+        (BN254_SCALAR_MODULUS_BE, [2u8; 32]),
+        ([3u8; 32], BN254_SCALAR_MODULUS_BE),
+    ] {
+        let result = tree.update_tree_from_queue(
+            pubkey,
+            InstructionDataBatchNullifyInputs {
+                new_root,
+                old_root,
+                zkp_batch_index: 0,
+                compressed_proof: CompressedProof::default(),
+            },
+        );
+        assert_eq!(
+            result.unwrap_err(),
+            NullifierTreeError::NonCanonicalFieldElement
+        );
+        assert_eq!(tree.batches.first().unwrap().cached_tree_update(0), None);
+    }
 }

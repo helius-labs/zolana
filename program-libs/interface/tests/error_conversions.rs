@@ -64,6 +64,7 @@ fn tree_error_conversions_are_stable() {
         TreeError::InvalidRootIndex,
         TreeError::Borrowed,
         TreeError::InvalidCapacity,
+        TreeError::Hash,
     ];
     for variant in catch_all {
         assert_eq!(

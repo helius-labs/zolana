@@ -99,11 +99,12 @@ impl<const HEIGHT: usize> UtxoTreeLayout<HEIGHT> {
                     if !is_last {
                         break;
                     }
-                    current_level_hash =
-                        Poseidon::hashv(&[&current_level_hash, zero_byte]).unwrap();
+                    current_level_hash = Poseidon::hashv(&[&current_level_hash, zero_byte])
+                        .map_err(|_| TreeError::Hash)?;
                 } else {
                     let left = *subtree;
-                    current_level_hash = Poseidon::hashv(&[&left, &current_level_hash]).unwrap();
+                    current_level_hash = Poseidon::hashv(&[&left, &current_level_hash])
+                        .map_err(|_| TreeError::Hash)?;
                 }
                 current_index /= 2;
             }

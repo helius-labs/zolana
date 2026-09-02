@@ -66,6 +66,12 @@ export const ShieldedPoolError = Object.freeze({
   NullifierPdaTreeMismatch: 7053,
   TreeIdOverflow: 7054,
   InvalidReimbursementRecipient: 7055,
+  NonCanonicalOutputUtxoHash: 7056,
+  NonCanonicalInputNullifier: 7057,
+  NonCanonicalPrivateTxHash: 7058,
+  NonCanonicalRingDataHash: 7059,
+  NonCanonicalDepositField: 7060,
+  NonCanonicalRoot: 7061,
 } as const);
 
 export type ShieldedPoolErrorName = keyof typeof ShieldedPoolError;

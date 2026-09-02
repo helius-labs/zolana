@@ -142,6 +142,18 @@ pub enum ShieldedPoolError {
     TreeIdOverflow = 7054,
     #[error("reimbursement recipient must not be a program-owned account")]
     InvalidReimbursementRecipient = 7055,
+    #[error("output utxo hash is not a canonical BN254 field element")]
+    NonCanonicalOutputUtxoHash = 7056,
+    #[error("input nullifier is not a canonical BN254 field element")]
+    NonCanonicalInputNullifier = 7057,
+    #[error("private tx hash is not a canonical BN254 field element")]
+    NonCanonicalPrivateTxHash = 7058,
+    #[error("ring data hash is not a canonical BN254 field element")]
+    NonCanonicalRingDataHash = 7059,
+    #[error("deposit entry field is not a canonical BN254 field element")]
+    NonCanonicalDepositField = 7060,
+    #[error("nullifier tree root is not a canonical BN254 field element")]
+    NonCanonicalRoot = 7061,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -240,6 +252,12 @@ mod tests {
                 NullifierPdaTreeMismatch => 7053,
                 TreeIdOverflow => 7054,
                 InvalidReimbursementRecipient => 7055,
+                NonCanonicalOutputUtxoHash => 7056,
+                NonCanonicalInputNullifier => 7057,
+                NonCanonicalPrivateTxHash => 7058,
+                NonCanonicalRingDataHash => 7059,
+                NonCanonicalDepositField => 7060,
+                NonCanonicalRoot => 7061,
             }
         }
 
@@ -298,6 +316,12 @@ mod tests {
             NullifierPdaTreeMismatch,
             TreeIdOverflow,
             InvalidReimbursementRecipient,
+            NonCanonicalOutputUtxoHash,
+            NonCanonicalInputNullifier,
+            NonCanonicalPrivateTxHash,
+            NonCanonicalRingDataHash,
+            NonCanonicalDepositField,
+            NonCanonicalRoot,
         ];
         for variant in variants {
             assert_eq!(
@@ -306,7 +330,7 @@ mod tests {
                 "error code drifted: {variant:?}"
             );
         }
-        // The live wire surface is exactly 52 variants on this branch.
-        assert_eq!(variants.len(), 52, "variant count drifted");
+        // The live wire surface is exactly 58 variants on this branch.
+        assert_eq!(variants.len(), 58, "variant count drifted");
     }
 }

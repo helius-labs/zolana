@@ -22,6 +22,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_account_checks::AccountError;
+use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
@@ -331,6 +332,38 @@ fn transact_rejects_a_non_writable_tree_meta() {
         &[],
         Rejection::custom(u32::from(AccountError::AccountNotMutable)),
     );
+}
+
+#[test]
+fn transact_rejects_a_non_canonical_output_utxo_hash() {
+    let mut env = Pool::initialized();
+    let mut data = transfer_ix_data(2, 3);
+    data.outputs.get_mut(1).expect("second output").utxo_hash = BN254_SCALAR_MODULUS_BE;
+    expect_rejection(
+        &mut env,
+        data,
+        ShieldedPoolError::NonCanonicalOutputUtxoHash,
+    );
+}
+
+#[test]
+fn transact_rejects_a_non_canonical_input_nullifier() {
+    let mut env = Pool::initialized();
+    let mut data = transfer_ix_data(2, 3);
+    data.inputs.get_mut(1).expect("second input").nullifier_hash = BN254_SCALAR_MODULUS_BE;
+    expect_rejection(
+        &mut env,
+        data,
+        ShieldedPoolError::NonCanonicalInputNullifier,
+    );
+}
+
+#[test]
+fn transact_rejects_a_non_canonical_private_tx_hash() {
+    let mut env = Pool::initialized();
+    let mut data = transfer_ix_data(2, 3);
+    data.private_tx_hash = BN254_SCALAR_MODULUS_BE;
+    expect_rejection(&mut env, data, ShieldedPoolError::NonCanonicalPrivateTxHash);
 }
 
 #[test]

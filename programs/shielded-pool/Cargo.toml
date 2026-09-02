@@ -27,6 +27,7 @@ bytemuck = { workspace = true }
 groth16-solana = { workspace = true }
 light-array-map = { workspace = true }
 solana-loader-v3-interface = { workspace = true, features = ["serde"] }
+solana-msg = { workspace = true, features = ["alloc"] }
 zolana-account-checks = { workspace = true }
 zolana-hasher = { workspace = true }
 light-program-profiler = { workspace = true }

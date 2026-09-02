@@ -20,12 +20,47 @@ use super::{
         ProoflessOutputCtx,
     },
 };
-use crate::instructions::hash::{field_from_u64, UTXO_DOMAIN_FIELD};
+use crate::instructions::{
+    hash::{field_from_u64, UTXO_DOMAIN_FIELD},
+    shared::check_field_element,
+};
 
 #[derive(Clone, Copy)]
 enum ProcessingEntry<'a> {
     Default(DepositEntryRef<'a>),
     Ring(RingDepositEntryRef<'a>),
+}
+
+fn check_entry_field_elements(entry_index: usize, entry: &ProcessingEntry<'_>) -> ProgramResult {
+    let index = Some(entry_index);
+    let error = ShieldedPoolError::NonCanonicalDepositField;
+    match entry {
+        ProcessingEntry::Default(entry) => {
+            check_field_element(entry.owner, "deposit owner", index, error)?;
+            check_field_element(entry.blinding, "deposit blinding", index, error)?;
+            if let Some(utxo_data) = entry.utxo_data {
+                check_field_element(utxo_data.data_hash, "deposit data hash", index, error)?;
+            }
+        }
+        ProcessingEntry::Ring(entry) => {
+            check_field_element(
+                entry.owner_utxo_hash,
+                "ring deposit owner utxo hash",
+                index,
+                error,
+            )?;
+            if let Some(data_hash) = entry.data_hash {
+                check_field_element(data_hash, "ring deposit data hash", index, error)?;
+            }
+            check_field_element(
+                entry.ring_data_hash,
+                "ring deposit ring data hash",
+                index,
+                error,
+            )?;
+        }
+    }
+    Ok(())
 }
 
 #[profile]
@@ -74,7 +109,8 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
     let mut outputs = Vec::with_capacity(entry_count);
     let mut utxo_hashes = Vec::with_capacity(entry_count);
 
-    for processing_entry in entries {
+    for (entry_index, processing_entry) in entries.enumerate() {
+        check_entry_field_elements(entry_index, &processing_entry)?;
         let (asset_index, amount) = match processing_entry {
             ProcessingEntry::Default(entry) => (entry.asset_index, entry.amount),
             ProcessingEntry::Ring(entry) => (entry.asset_index, entry.amount),
