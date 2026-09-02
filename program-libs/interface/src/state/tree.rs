@@ -27,12 +27,12 @@ pub fn default_tree_fees(zkp_batch_size: u64) -> Option<TreeFeeSchedule> {
 /// PDA generations. Prompt cleanup keeps the maximum at `NUM_BATCHES + 1`
 /// batches.
 pub fn tree_working_capital_lamports(
-    nullifier_params: &NullifierTreeInitParams,
+    input_queue_batch_size: u64,
     nullifier_pda_rent: u64,
 ) -> Option<u64> {
     (NUM_BATCHES as u64)
         .checked_add(1)?
-        .checked_mul(nullifier_params.input_queue_batch_size)?
+        .checked_mul(input_queue_batch_size)?
         .checked_mul(nullifier_pda_rent)
 }
 
@@ -44,7 +44,7 @@ pub fn tree_creation_lamports(
     nullifier_pda_rent: u64,
 ) -> Option<u64> {
     tree_rent.checked_add(tree_working_capital_lamports(
-        nullifier_params,
+        nullifier_params.input_queue_batch_size,
         nullifier_pda_rent,
     )?)
 }
@@ -103,22 +103,16 @@ mod tests {
         let nullifier_pda_rent = Rent::default().minimum_balance(NULLIFIER_PDA_SIZE);
         assert_eq!(nullifier_pda_rent, 960_480);
 
-        let canonical = nullifier_tree_params();
+        let canonical = nullifier_tree_params().input_queue_batch_size;
         assert_eq!(
-            tree_working_capital_lamports(&canonical, nullifier_pda_rent),
+            tree_working_capital_lamports(canonical, nullifier_pda_rent),
             Some(3 * 25_000 * 960_480)
         );
-
-        let half = NullifierTreeInitParams {
-            input_queue_batch_size: canonical.input_queue_batch_size / 2,
-            ..canonical
-        };
         assert_eq!(
-            tree_working_capital_lamports(&half, nullifier_pda_rent),
+            tree_working_capital_lamports(canonical / 2, nullifier_pda_rent),
             Some(37_500 * 960_480)
         );
-
-        assert_eq!(tree_working_capital_lamports(&canonical, u64::MAX), None);
+        assert_eq!(tree_working_capital_lamports(canonical, u64::MAX), None);
     }
 
     #[test]

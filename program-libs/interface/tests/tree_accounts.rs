@@ -9,7 +9,7 @@ use zolana_interface::instruction::{
     InputUtxo, MergeRing, MergeTransact, MergeTransactIxData, RingAuthorityTransact, RingTransact,
     Transact, TransactIxData, TransactProof,
 };
-use zolana_interface::instruction::{SetTreeFees, SetTreeFeesData};
+use zolana_interface::instruction::{ClaimTreeLamports, SetTreeFees, SetTreeFeesData};
 use zolana_interface::state::{
     default_tree_fees, nullifier_tree_params, NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
 };
@@ -318,6 +318,31 @@ fn set_tree_fees_builder_has_exact_accounts_and_data() {
         SetTreeFeesData::try_from_slice(instruction.data.get(1..).unwrap()).unwrap(),
         fees
     );
+}
+
+#[test]
+fn claim_tree_lamports_builder_has_exact_accounts_and_data() {
+    let authority = Pubkey::new_unique();
+    let tree = Pubkey::new_unique();
+    let recipient = Pubkey::new_unique();
+    let instruction = ClaimTreeLamports {
+        authority,
+        tree,
+        recipient,
+    }
+    .instruction();
+
+    assert_eq!(instruction.program_id, PROGRAM_ID_PUBKEY);
+    assert_eq!(
+        instruction.accounts,
+        vec![
+            AccountMeta::new_readonly(authority, true),
+            AccountMeta::new_readonly(pda::protocol_config(), false),
+            AccountMeta::new(tree, false),
+            AccountMeta::new(recipient, false),
+        ]
+    );
+    assert_eq!(instruction.data, vec![tag::CLAIM_TREE_LAMPORTS]);
 }
 
 #[test]

@@ -154,6 +154,8 @@ pub enum ShieldedPoolError {
     NonCanonicalDepositField = 7060,
     #[error("nullifier tree root is not a canonical BN254 field element")]
     NonCanonicalRoot = 7061,
+    #[error("tree holds no lamports above its rent, fee balance, and working capital")]
+    NoClaimableTreeLamports = 7062,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -258,6 +260,7 @@ mod tests {
                 NonCanonicalRingDataHash => 7059,
                 NonCanonicalDepositField => 7060,
                 NonCanonicalRoot => 7061,
+                NoClaimableTreeLamports => 7062,
             }
         }
 
@@ -322,6 +325,7 @@ mod tests {
             NonCanonicalRingDataHash,
             NonCanonicalDepositField,
             NonCanonicalRoot,
+            NoClaimableTreeLamports,
         ];
         for variant in variants {
             assert_eq!(
@@ -331,6 +335,6 @@ mod tests {
             );
         }
         // The live wire surface is exactly 58 variants on this branch.
-        assert_eq!(variants.len(), 58, "variant count drifted");
+        assert_eq!(variants.len(), 59, "variant count drifted");
     }
 }

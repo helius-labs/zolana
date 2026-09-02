@@ -3,7 +3,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
     instruction::{
-        CreateProtocolConfig, CreateProtocolConfigData, PauseTree, SetTreeFees,
+        ClaimTreeLamports, CreateProtocolConfig, CreateProtocolConfigData, PauseTree, SetTreeFees,
         UpdateProtocolConfig, UpdateProtocolConfigData,
     },
     pda,
@@ -150,6 +150,21 @@ impl ZolanaProgramTest {
             authority: authority.pubkey(),
             tree: *tree,
             fees,
+        }
+        .instruction();
+        self.send(&[ix], &[authority])
+    }
+
+    pub fn claim_tree_lamports(
+        &mut self,
+        authority: &Keypair,
+        tree: &Pubkey,
+        recipient: &Pubkey,
+    ) -> Result<(), ProgramTestError> {
+        let ix = ClaimTreeLamports {
+            authority: authority.pubkey(),
+            tree: *tree,
+            recipient: *recipient,
         }
         .instruction();
         self.send(&[ix], &[authority])

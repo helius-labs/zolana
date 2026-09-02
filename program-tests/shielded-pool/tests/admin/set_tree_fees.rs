@@ -1,5 +1,4 @@
 use mollusk_svm::result::Check;
-use solana_account::Account;
 use solana_keypair::Keypair;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
@@ -24,26 +23,10 @@ type Layout = TreeAccountLayout<
 
 use shielded_pool_tests::support::{
     fixtures::Pool,
-    mollusk::{set_tree_fees_fixture, SET_TREE_FEES_FIXTURE_SCHEDULE},
+    mollusk::{
+        account_named, set_tree_fees_fixture, system_account, SET_TREE_FEES_FIXTURE_SCHEDULE,
+    },
 };
-
-fn account_named<'a>(accounts: &'a [(Pubkey, Account)], key: &Pubkey) -> &'a Account {
-    &accounts
-        .iter()
-        .find(|(account_key, _)| account_key == key)
-        .expect("account present in set")
-        .1
-}
-
-fn system_account(lamports: u64) -> Account {
-    Account {
-        lamports,
-        data: Vec::new(),
-        owner: Pubkey::new_from_array([0; 32]),
-        executable: false,
-        rent_epoch: 0,
-    }
-}
 
 fn set_fees_ix(
     pool: &Pool,
@@ -137,7 +120,7 @@ fn set_tree_fees_is_gated_by_the_fee_authority_alone() {
     pool.rpc
         .send_protocol_config_update(
             &protocol_authority,
-            UpdateProtocolConfigData::FeeAuthority(fee_authority.pubkey().to_bytes().into()),
+            UpdateProtocolConfigData::FeeAuthority(fee_authority.pubkey()),
         )
         .expect("rotate fee authority");
     let before = tree_fees(&pool.rpc, &pool.tree).expect("tree fees");

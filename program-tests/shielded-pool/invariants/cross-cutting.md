@@ -29,7 +29,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-tests/shielded-pool/tests/dispatch/validation.rs` `every_first_byte_dispatches_or_is_rejected_exactly` (full 256-byte sweep)
   - Kind: precondition
   - Affects: all 20 instructions
-  - Statement: for every first byte outside the set {0..=19} (tag 18 `close_nullifier_pdas`, tag 19 `set_tree_fees`), `process_instruction` returns Err; for every byte inside the set it dispatches to exactly the processor of that tag.
+  - Statement: for every first byte outside the set {0..=20} (tag 18 `close_nullifier_pdas`, tag 19 `set_tree_fees`, tag 20 `claim_tree_lamports`), `process_instruction` returns Err; for every byte inside the set it dispatches to exactly the processor of that tag.
   - Location: `programs/shielded-pool/src/lib.rs` (`fn process_instruction`), `program-libs/event/src/tag.rs` (`impl TryFrom<u8> for InstructionTag`)
   - Error: `ProgramError::InvalidInstructionData`
   - Severity: Medium

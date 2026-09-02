@@ -127,3 +127,24 @@ impl SetTreeFees {
         }
     }
 }
+
+pub struct ClaimTreeLamports {
+    pub authority: Pubkey,
+    pub tree: Pubkey,
+    pub recipient: Pubkey,
+}
+
+impl ClaimTreeLamports {
+    pub fn instruction(&self) -> Instruction {
+        Instruction {
+            program_id: PROGRAM_ID_PUBKEY,
+            accounts: vec![
+                AccountMeta::new_readonly(self.authority, true),
+                AccountMeta::new_readonly(pda::protocol_config(), false),
+                AccountMeta::new(self.tree, false),
+                AccountMeta::new(self.recipient, false),
+            ],
+            data: vec![tag::CLAIM_TREE_LAMPORTS],
+        }
+    }
+}

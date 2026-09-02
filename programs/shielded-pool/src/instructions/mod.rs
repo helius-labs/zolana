@@ -1,4 +1,5 @@
 pub mod batch_update_nullifier_tree;
+pub mod claim_tree_lamports;
 pub mod close_nullifier_pdas;
 pub mod create_asset_counter;
 pub mod create_spl_interface;

@@ -145,6 +145,7 @@ Operations 1-4 run against the default ring via [`transact`](#transact) (or [`de
 | 4 | update_protocol_config | Rotate the protocol config authority and the role authorities |
 | 5 | pause_tree | Freeze writes to a Tree account |
 | 6 | set_tree_fees | Set a tree's fee schedule (insertion fee, append and close reimbursements) |
+| 7 | claim_tree_lamports | Claim a tree's lamports above its rent, fee balance, and nullifier PDA working capital |
 
 ### Ring Creator
 
@@ -1218,7 +1219,7 @@ struct ProtocolConfig {
     forester_authority: Address,
     /// Permitted to call `create_ring_config` unless `ring_creation_is_permissionless`.
     ring_creation_authority: Address,
-    /// Permitted to call `set_tree_fees`.
+    /// Permitted to call `set_tree_fees` and `claim_tree_lamports`.
     fee_authority: Address,
     ring_creation_is_permissionless: bool,
     /// When set, any signer may call `create_spl_interface`; otherwise it is
@@ -1292,7 +1293,7 @@ Usage by instruction:
 
 Tags 0–9 cover administration and maintenance, tag 10 is the internal event
 hook, tags 11–13 are default-ring operations, tags 14–17 are policy-ring
-operations, and tags 18–19 are maintenance and administration.
+operations, and tags 18–20 are maintenance and administration.
 
 | Instruction | Description |
 | --- | --- |
@@ -1316,6 +1317,7 @@ operations, and tags 18–19 are maintenance and administration.
 | ring_authority_transact | Tag 17; checks the ring config is active and signed, then checks the state transition only includes ring-program-owned UTXOs. UTXO owners do not sign; the ring has full control subject to its policy. |
 | close_nullifier_pdas | Tag 18; gated by `protocol_config.forester_authority`; rejected while the tree is paused. Closes one or more nullifier PDAs whose `tree_id` matches and `queue_index < close_before_index`, returning their rent to the tree, then pays `min(close_reimbursement * n, fee_balance)` to `reimbursement_recipient` (must not be program-owned). |
 | set_tree_fees | Tag 19; gated by `protocol_config.fee_authority`; overwrites the tree's `TreeFeeSchedule`; works on paused trees. |
+| claim_tree_lamports | Tag 20; gated by `protocol_config.fee_authority`; works on paused trees. Moves every lamport above `rent_minimum + fee_balance + working_capital` to `recipient` (must not be program-owned), where working capital is `(NUM_BATCHES + 1) * input_queue_batch_size * nullifier_pda_rent` recomputed at the current rent. Fails with `NoClaimableTreeLamports` when nothing is above the reserve. Recovers lamports released by a rent reduction; `fee_balance` is never claimable. |
 
 ### `transact`
 

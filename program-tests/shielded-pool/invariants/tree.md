@@ -527,3 +527,85 @@ so a schedule can be fixed while writes are frozen.
   - Location: `programs/shielded-pool/src/instructions/set_tree_fees.rs` (`fn process_set_tree_fees`)
   - Severity: Medium
   - Suggested test: positive (full data compare); harness: mollusk unit
+
+## ClaimTreeLamports
+
+`claim_tree_lamports` (tag 20) lets the fee authority recover lamports a tree
+holds above its reserve, typically after a rent reduction. Accounts:
+`authority` (signer), `protocol_config`, `tree` (writable), `recipient`
+(writable, not program-owned); data: empty. The reserve is
+`rent_minimum(tree) + fee_balance + (NUM_BATCHES + 1) * input_queue_batch_size * rent_minimum(NULLIFIER_PDA_SIZE)`
+at the current rent, so a claim never starves nullifier PDA creation and never
+touches forester money. It works on paused trees.
+
+### Authorization
+
+- [x] **INV-CLAIM-01: authority must sign**
+  - Covered by: `program-tests/shielded-pool/tests/admin/claim_tree_lamports.rs` `mollusk_claim_tree_lamports_rejects_every_account_privilege_downgrade` (unsigning account 0 -> account-checks `InvalidSigner`)
+  - Kind: precondition
+  - Statement: `claim_tree_lamports` can only succeed when the first account (`authority`) is a signer.
+  - Location: `programs/shielded-pool/src/instructions/claim_tree_lamports.rs` (`next_signer("authority")`)
+  - Error: account-checks signer error
+  - Severity: High
+  - Suggested test: negative; harness: mollusk unit
+
+- [x] **INV-CLAIM-02: only the fee authority may claim**
+  - Covered by: `program-tests/shielded-pool/tests/admin/claim_tree_lamports.rs` `claim_tree_lamports_is_gated_by_the_fee_authority_alone` (rotate `fee_authority`; the protocol authority is rejected with exact 7003 and rolled back, the new fee authority succeeds), `claim_tree_lamports_rejects_wrong_authority_exactly` (unrelated signer -> exact 7003)
+  - Kind: precondition
+  - Statement: `claim_tree_lamports` returns Err for every signer whose address differs from `protocol_config.fee_authority`; neither `protocol_authority` nor `forester_authority` is accepted and there is no permissionless flag.
+  - Location: `programs/shielded-pool/src/instructions/claim_tree_lamports.rs` (`load_and_validate_fee_authority`)
+  - Error: `ShieldedPoolError::UnauthorizedCaller = 7003`
+  - Severity: Critical (moves lamports out of protocol custody)
+  - Suggested test: negative (protocol authority, random signer) + positive after rotation; harness: mollusk unit + litesvm
+
+### Account Constraints
+
+- [x] **INV-CLAIM-03: the tree must be an initialized shielded-pool tree; paused is allowed**
+  - Covered by: `program-tests/shielded-pool/tests/admin/claim_tree_lamports.rs` `claim_tree_lamports_rejects_a_non_tree_account` (System-owned impostor -> exact 7001), `mollusk_claim_tree_lamports_rejects_every_account_privilege_downgrade` (read-only tree meta -> account-checks `AccountNotMutable`), `claim_tree_lamports_keeps_the_fee_balance_and_works_on_a_paused_tree` (state byte `PAUSED` before and after)
+  - Kind: precondition
+  - Statement: the tree account must be writable, owned by the program, carry the tree discriminator and a valid layout; a tree still in its multi-step creation has no discriminator and is rejected; a paused tree is accepted.
+  - Location: `programs/shielded-pool/src/instructions/claim_tree_lamports.rs` (`from_account_view_mut_allow_paused`)
+  - Error: `ShieldedPoolError::InvalidTreeAccounts = 7001`
+  - Severity: High
+  - Suggested test: negative + positive on paused; harness: mollusk unit + litesvm
+
+- [x] **INV-CLAIM-04: the recipient must not be program-owned**
+  - Covered by: `program-tests/shielded-pool/tests/admin/claim_tree_lamports.rs` `claim_tree_lamports_rejects_a_program_owned_recipient` (protocol config as recipient -> exact 7055, rolled back), `mollusk_claim_tree_lamports_rejects_every_account_privilege_downgrade` (read-only recipient meta -> account-checks `AccountNotMutable`)
+  - Kind: precondition
+  - Statement: the recipient must be writable and not owned by the shielded-pool program (this rejects the tree itself, nullifier PDAs, unallocated tree PDAs, and the protocol config), checked before any state change.
+  - Location: `programs/shielded-pool/src/instructions/claim_tree_lamports.rs` (`check_reimbursement_recipient`)
+  - Error: `ShieldedPoolError::InvalidReimbursementRecipient = 7055`
+  - Severity: High
+  - Suggested test: negative; harness: litesvm + mollusk unit
+
+### Instruction Data Validation
+
+- [x] **INV-CLAIM-05: the payload must be empty**
+  - Covered by: `program-tests/shielded-pool/tests/admin/claim_tree_lamports.rs` `claim_tree_lamports_rejects_a_non_empty_payload` (one trailing byte -> exact 7000)
+  - Kind: precondition
+  - Statement: any byte after the tag makes `claim_tree_lamports` return Err.
+  - Location: `programs/shielded-pool/src/instructions/claim_tree_lamports.rs` (`data.is_empty()`)
+  - Error: `ShieldedPoolError::InvalidInstructionData = 7000`
+  - Severity: Medium
+  - Suggested test: negative; harness: mollusk unit
+
+### Success Postconditions
+
+- [x] **INV-CLAIM-06: the tree ends exactly at its reserve and the surplus reaches the recipient**
+  - Covered by: `program-tests/shielded-pool/tests/admin/claim_tree_lamports.rs` `claim_tree_lamports_pays_exactly_the_surplus` (airdropped surplus moves in full; tree lamports equal the reserve), `claim_tree_lamports_keeps_the_fee_balance_and_works_on_a_paused_tree` (forged `fee_balance` stays in the tree and in the header), `claim_tree_lamports_recovers_a_rent_reduction` (halving `Rent` releases exactly the old minus the new reserve), `claim_tree_lamports_rejects_a_tree_without_surplus` (a tree at its reserve fails with exact 7062 and is rolled back)
+  - Kind: postcondition
+  - Statement: after a successful claim `tree.lamports == rent_minimum(tree) + fee_balance + (NUM_BATCHES + 1) * input_queue_batch_size * rent_minimum(NULLIFIER_PDA_SIZE)` at the Rent sysvar of that slot, and the recipient gains exactly the difference; a tree at or below that reserve returns `NoClaimableTreeLamports` and moves nothing. `fee_balance` and the working capital are never claimable.
+  - Location: `programs/shielded-pool/src/instructions/claim_tree_lamports.rs`, `program-libs/interface/src/state/tree.rs` (`fn tree_working_capital_lamports`), `shared.rs` (`pay_reimbursement_with_rent_minimum`)
+  - Error: `ShieldedPoolError::NoClaimableTreeLamports = 7062`
+  - Severity: Critical (an over-claim would make nullifier PDA creation fail with 7028 and halt spends)
+  - Suggested test: positive with exact balances; harness: litesvm + mollusk unit
+
+### Frame Conditions
+
+- [x] **INV-CLAIM-07: only lamports move**
+  - Covered by: `program-tests/shielded-pool/tests/admin/claim_tree_lamports.rs` `mollusk_claim_tree_lamports_moves_only_lamports` (authority and config accounts byte-identical; tree and recipient differ from their pre-call state only in lamports), `claim_tree_lamports_is_gated_by_the_fee_authority_alone` (`assert_rolled_back_except(payer)` on rejection)
+  - Kind: frame condition
+  - Statement: a successful claim changes no account data and no owner; only the tree's and the recipient's lamports change, by the same amount. On any Err every account other than the transaction fee payer is unchanged.
+  - Location: `programs/shielded-pool/src/instructions/claim_tree_lamports.rs` (no writes besides the lamport move)
+  - Severity: Medium
+  - Suggested test: positive; harness: mollusk unit

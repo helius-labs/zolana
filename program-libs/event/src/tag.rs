@@ -38,6 +38,7 @@ pub const CLOSE_NULLIFIER_PDAS: u8 = 18;
 
 // Administration, continued.
 pub const SET_TREE_FEES: u8 = 19;
+pub const CLAIM_TREE_LAMPORTS: u8 = 20;
 
 /// Implemented instruction tags.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,6 +64,7 @@ pub enum InstructionTag {
     RingAuthorityTransact = RING_AUTHORITY_TRANSACT,
     CloseNullifierPdas = CLOSE_NULLIFIER_PDAS,
     SetTreeFees = SET_TREE_FEES,
+    ClaimTreeLamports = CLAIM_TREE_LAMPORTS,
 }
 
 impl TryFrom<u8> for InstructionTag {
@@ -90,6 +92,7 @@ impl TryFrom<u8> for InstructionTag {
             RING_AUTHORITY_TRANSACT => Ok(Self::RingAuthorityTransact),
             CLOSE_NULLIFIER_PDAS => Ok(Self::CloseNullifierPdas),
             SET_TREE_FEES => Ok(Self::SetTreeFees),
+            CLAIM_TREE_LAMPORTS => Ok(Self::ClaimTreeLamports),
             _ => Err(()),
         }
     }

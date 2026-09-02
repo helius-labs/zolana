@@ -12,6 +12,11 @@ Added
   `NonCanonicalRingDataHash`, `NonCanonicalDepositField`, `NonCanonicalRoot`):
   the program rejects instruction-data hashes that are not canonical BN254
   field elements before touching any account.
+- `InstructionTag.claimTreeLamports` (tag 20): the fee authority moves a
+  tree's lamports above its rent, fee balance, and nullifier PDA working
+  capital to a recipient, for example after a rent reduction.
+- `ShieldedPoolError` code 7062 (`NoClaimableTreeLamports`): the tree holds
+  nothing above that reserve.
 
 Changed
 

@@ -71,6 +71,7 @@ solana-account = { workspace = true }
 solana-instruction = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-program-error = { workspace = true }
+solana-rent = { workspace = true }
 proptest = { workspace = true }
 
 # Test targets are declared explicitly (`autotests = false`): each `[[test]]`
@@ -97,6 +98,10 @@ path = "tests/admin/edge_cases.rs"
 [[test]]
 name = "admin_set_tree_fees"
 path = "tests/admin/set_tree_fees.rs"
+
+[[test]]
+name = "admin_claim_tree_lamports"
+path = "tests/admin/claim_tree_lamports.rs"
 
 [[test]]
 name = "protocol_config_contract"

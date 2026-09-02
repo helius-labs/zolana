@@ -23,7 +23,7 @@ and return with that merge).
 | `transact.md` | Transact, RingTransact, RingAuthorityTransact |
 | `deposit.md` | Deposit, RingDeposit |
 | `merge.md` | MergeTransact, RingMergeTransact |
-| `tree.md` | CreateTree, BatchUpdateNullifierTree, PauseTree, CloseNullifierPdas, SetTreeFees, nullifier PDAs created by the spend instructions |
+| `tree.md` | CreateTree, BatchUpdateNullifierTree, PauseTree, CloseNullifierPdas, SetTreeFees, ClaimTreeLamports, nullifier PDAs created by the spend instructions |
 | `protocol-config.md` | CreateProtocolConfig, UpdateProtocolConfig |
 | `ring-config.md` | CreateRingConfig, UpdateRingConfig, UpdateRingConfigOwner |
 | `spl.md` | CreateAssetCounter, CreateSplInterface |
@@ -68,6 +68,7 @@ from all three rows. The same holds for `Deposit`/`RingDeposit`
 | RingAuthorityTransact (17) | `transact.md` | INV-RING-AUTH-01, INV-RING-TRANSACT-02, INV-TRANSACT-48 | INV-TRANSACT-07..12, INV-TRANSACT-31..38 | INV-RING-AUTH-01..03, INV-XC-26 | INV-RING-AUTH-04..07, INV-TRANSACT-23..28, INV-TRANSACT-46, INV-TRANSACT-47, INV-TRANSACT-49 | INV-XC-04, INV-XC-05, INV-TRANSACT-50 | INV-TRANSACT-30 |
 | CloseNullifierPdas (18) | `tree.md` | INV-CLOSE-PDA-03, INV-CLOSE-PDA-04, INV-CLOSE-PDA-05, INV-CLOSE-PDA-09 | INV-CLOSE-PDA-05 | INV-CLOSE-PDA-01 | INV-CLOSE-PDA-02, INV-CLOSE-PDA-06, INV-CLOSE-PDA-10 | INV-CLOSE-PDA-07, INV-XC-04 | INV-CLOSE-PDA-08 |
 | SetTreeFees (19) | `tree.md` | INV-SET-FEES-01, INV-SET-FEES-03, INV-SET-FEES-04 | INV-SET-FEES-05, INV-SET-FEES-06 | INV-SET-FEES-02 | INV-SET-FEES-07 | INV-SET-FEES-08, INV-XC-04 | INV-SET-FEES-09 |
+| ClaimTreeLamports (20) | `tree.md` | INV-CLAIM-01, INV-CLAIM-03, INV-CLAIM-04 | INV-CLAIM-05 | INV-CLAIM-02 | INV-CLAIM-06 | INV-XC-04, INV-CLAIM-07 | INV-CLAIM-07 |
 
 Cross-cutting rows that apply to every proof-bearing instruction (Transact,
 RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact) and are not
@@ -80,19 +81,19 @@ apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicabl
 
 ## Summary
 
-- Total invariants: 273
+- Total invariants: 280
   - transact.md: 60 (Transact 45, RingTransact 8, RingAuthorityTransact 7)
   - deposit.md: 35 (Deposit 25, RingDeposit 10)
   - merge.md: 33 (MergeTransact 19, RingMergeTransact 14)
-  - tree.md: 48 (CreateTree 10, BatchUpdateNullifierTree 9, PauseTree 5, nullifier PDAs INV-TRANSACT-46..50, CloseNullifierPdas 10, SetTreeFees 9)
+  - tree.md: 55 (CreateTree 10, BatchUpdateNullifierTree 9, PauseTree 5, nullifier PDAs INV-TRANSACT-46..50, CloseNullifierPdas 10, SetTreeFees 9, ClaimTreeLamports 7)
   - protocol-config.md: 18 (Create 10, Update 8)
   - ring-config.md: 20 (Create 9, UpdateOwner 5, Update 6)
   - spl.md: 22 (CreateAssetCounter 8, CreateSplInterface 14)
   - event.md: 4
   - cross-cutting.md: 33
-- Critical (funds/double-spend/authority takeover): 99
-- High: 96
-- Medium: 73
+- Critical (funds/double-spend/authority takeover): 101
+- High: 99
+- Medium: 75
 - Not applicable post-PR164: 5 (the both-amounts gate (INV-TRANSACT-12) and the merge ciphertext/`merge_view_tag` entries; the P256 entries returned with PR172 and are re-scoped, not N/A; IDs retained, never renumbered)
 - SPEC_DIVERGENCE items: all 8 originally flagged items were resolved by updating
   `docs/spec.md` to match the code (items 1 and 3 were re-corrected on 2026-07-28
