@@ -191,18 +191,15 @@ function historyId(tx: IndexedShieldedTransaction, index: bigint): PrivateTransa
   return { signature: tx.txSignature, slot: tx.slot, index };
 }
 
+/**
+ * A row's identity is its transaction and index: a received or merged output
+ * by leaf index, a sender-side aggregate by its asset row. Recording the same
+ * identity again replaces the row, so a transaction seen with a fuller view of
+ * the wallet (its change now known, its spend now netted) does not leave the
+ * earlier row beside the corrected one.
+ */
 function rowKey(row: PrivateTransaction): string {
-  return [
-    row.id.signature,
-    row.id.slot,
-    row.id.index,
-    row.kind,
-    row.asset,
-    row.amount,
-    row.counterpartyViewingPublicKey === undefined
-      ? ""
-      : hex(row.counterpartyViewingPublicKey.toBytes()),
-  ].join("|");
+  return `${row.id.signature}|${row.id.slot}|${row.id.index}`;
 }
 
 /**

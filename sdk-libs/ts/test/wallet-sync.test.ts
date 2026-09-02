@@ -1038,6 +1038,25 @@ describe("wallet sync", () => {
     expect(transactions[0]?.direction).toBe("selfTransfer");
   });
 
+  it("replaces a row recorded with a stale amount instead of keeping both", async () => {
+    // Keyed by content, a transfer synced before its change was known and
+    // again after would show twice; the row's identity is the transaction and
+    // its index, so the corrected row takes the stale one's place.
+    const { wallet, keys, indexedTransactions } = await syncConfidentialSelfSend(
+      (transfer, identity) => transfer.send(identity, SOL_MINT, 40n),
+    );
+    const [row] = wallet.privateTransactions();
+    expect(row).toBeDefined();
+    wallet._replace({
+      ...wallet._state(),
+      transactions: [{ ...row!, amount: 999n, kind: "publicWithdrawal" }],
+    });
+    await decryptWithKeys(keys, { wallet, transactions: indexedTransactions });
+    const transactions = wallet.privateTransactions();
+    expect(transactions).toHaveLength(1);
+    expect(transactions[0]).toMatchObject({ kind: "privateTransfer", amount: 40n });
+  });
+
   it("classifies an exact default to custom move as a ring entry", async () => {
     const { wallet } = await syncConfidentialSelfSend((transfer, identity) =>
       transfer.sendToRing(identity, SOL_MINT, 40n, TREE),

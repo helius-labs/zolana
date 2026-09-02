@@ -101,6 +101,11 @@ Fixed
   spreading every byte into one `String.fromCharCode` call, which overflowed
   the stack past roughly a hundred kilobytes and surfaced as `WALLET_SNAPSHOT`
   with a `RangeError` cause.
+- A private-transaction row is identified by its transaction, slot and index.
+  Re-recording it, as a sync does when a transaction it saw earlier is decoded
+  again with the wallet's change now known, replaces the row; before, a row
+  whose amount, kind or counterparty differed was kept beside the stale one and
+  `privateTransactions()` listed the same transfer twice.
 
 ## 0.1.5-alpha — 2026-09-01
 
