@@ -32,10 +32,21 @@ const RingProgramTag = Object.freeze({
   transact: 3,
 } as const);
 
-/** Rust `CREATE_CONFIG_COMPUTE_UNIT_LIMIT`, `INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT` and `READ_ACCESS_COMPUTE_UNIT_LIMIT`. */
+/** Rust `CREATE_CONFIG_COMPUTE_UNIT_LIMIT`, `INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT`, `READ_ACCESS_COMPUTE_UNIT_LIMIT` and `SET_PAUSED_COMPUTE_UNIT_LIMIT`. */
 export const RING_CREATE_CONFIG_COMPUTE_UNIT_LIMIT = 50_000;
 export const RING_INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT = 50_000;
 export const RING_READ_ACCESS_COMPUTE_UNIT_LIMIT = 50_000;
+export const RING_SET_PAUSED_COMPUTE_UNIT_LIMIT = 50_000;
+
+export type RingTransactTrees = Readonly<{ tree: Address; outputTree: Address }> &
+  (
+    | Readonly<{ hasPolicy: false }>
+    | Readonly<{
+        hasPolicy: true;
+        /** The pinned `PolicyConfig.entriesTree`. */
+        entriesTree: Address;
+      }>
+  );
 
 /** Mirrors Rust `CreateConfig`. The authority signs, so the recorded authority consented to the role. */
 export async function createRingConfigInstruction(
@@ -79,12 +90,15 @@ export async function initSppRingConfigInstruction(
     ringProgramId: Address;
     payer: SignerAccount;
     authority: SignerAccount;
+    /** A policy ring registers only after its policy config exists. */
+    hasPolicy: boolean;
   }>,
 ): Promise<Instruction> {
-  const [config, protocolConfig, ringAuth] = await Promise.all([
+  const [config, protocolConfig, ringAuth, policyConfig] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
     protocolConfigAddress(),
     ringAuthAddress(input.ringProgramId),
+    input.hasPolicy ? ringPolicyConfigAddress(input.ringProgramId) : undefined,
   ]);
   return {
     programAddress: input.ringProgramId,
@@ -96,6 +110,7 @@ export async function initSppRingConfigInstruction(
       meta(ringAuth, false, true),
       meta(SYSTEM_PROGRAM, false, false),
       meta(SHIELDED_POOL_PROGRAM_ID, false, false),
+      ...(policyConfig === undefined ? [] : [meta(policyConfig, false, false)]),
     ],
     data: Uint8Array.of(RingProgramTag.initSppRingConfig),
   };
@@ -182,34 +197,26 @@ async function policyAccountMetas(
   ];
 }
 
-/** Mirrors Rust `lookup_table_addresses`; optional trees default to `tree`. */
+/** Mirrors Rust `lookup_table_addresses`. */
 export async function ringLookupTableAddresses(
-  input: Readonly<{
-    ringProgramId: Address;
-    tree: Address;
-    outputTree?: Address;
-    entriesTree?: Address;
-    /** The config tier. False drops the policy_config and entries_tree entries. */
-    hasPolicy?: boolean;
-  }>,
+  input: Readonly<{ ringProgramId: Address; trees: RingTransactTrees }>,
 ): Promise<readonly Address[]> {
-  const hasPolicy = input.hasPolicy ?? true;
   const [config, ringAuth] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
     ringAuthAddress(input.ringProgramId),
   ]);
+  const policy = input.trees.hasPolicy
+    ? await policyAccountMetas(input.ringProgramId, input.trees.entriesTree)
+    : [];
   const answers = ringTransactAccounts({
     payer: SHIELDED_POOL_PROGRAM_ID,
-    inputTree: input.tree,
-    outputTree: input.outputTree ?? input.tree,
+    inputTree: input.trees.tree,
+    outputTree: input.trees.outputTree,
     ringAuth,
   });
   const addresses = [
     config,
-    ...(hasPolicy
-      ? [await ringPolicyConfigAddress(input.ringProgramId), input.entriesTree ?? input.tree]
-      : []),
-    ...answers
+    ...[...policy, ...answers]
       .filter(
         (meta) =>
           meta.role !== AccountRole.WRITABLE_SIGNER && meta.role !== AccountRole.READONLY_SIGNER,

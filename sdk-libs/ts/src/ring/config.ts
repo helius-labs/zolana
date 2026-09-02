@@ -8,6 +8,8 @@ import {
 import type { ChainReader } from "../client/ports.js";
 import { meta, type SignerAccount } from "../interface/instructions/index.js";
 import { addressBytes } from "../interface/internal.js";
+import { ringAuthAddress } from "../interface/pda/index.js";
+import { SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
 import type { RequestContext } from "../interface/types.js";
 import { isDerivationPoint } from "../keypair/derivation.js";
 
@@ -22,6 +24,7 @@ import { RingError } from "./error.js";
 const encoder = new TextEncoder();
 const BPF_LOADER_UPGRADEABLE_ID = "BPFLoaderUpgradeab1e11111111111111111111111" as Address;
 const SET_AUTHORITY_TAG = 6;
+const SET_PAUSED_TAG = 11;
 
 export async function ringConfigAddress(ringProgramId: Address): Promise<Address> {
   return (await ringConfigPda(ringProgramId))[0];
@@ -110,6 +113,21 @@ export async function fetchRingPolicyConfig(
   return config;
 }
 
+export type RingConfigs =
+  | Readonly<{ hasPolicy: false; config: RingProgramConfig }>
+  | Readonly<{ hasPolicy: true; config: RingProgramConfig; policy: RingPolicyConfig }>;
+
+export async function fetchRingConfigs(
+  client: Pick<ChainReader, "getAccount">,
+  ringProgramId: Address,
+  context?: RequestContext,
+): Promise<RingConfigs> {
+  const config = await fetchRingProgramConfig(client, ringProgramId, context);
+  if (!config.hasPolicy) return Object.freeze({ hasPolicy: false, config });
+  const policy = await fetchRingPolicyConfig(client, ringProgramId, context);
+  return Object.freeze({ hasPolicy: true, config, policy });
+}
+
 /** Mirrors Rust `SetAuthority`. Both authorities sign, a mistyped address cannot strand the config. */
 export async function setRingAuthorityInstruction(
   input: Readonly<{
@@ -127,5 +145,29 @@ export async function setRingAuthorityInstruction(
       meta(config, false, true),
     ],
     data: new Uint8Array([SET_AUTHORITY_TAG]),
+  };
+}
+
+/** Mirrors Rust `SetPaused`. */
+export async function setRingPausedInstruction(
+  input: Readonly<{
+    ringProgramId: Address;
+    authority: SignerAccount;
+    paused: boolean;
+  }>,
+): Promise<Instruction> {
+  const [config, ringAuth] = await Promise.all([
+    ringConfigAddress(input.ringProgramId),
+    ringAuthAddress(input.ringProgramId),
+  ]);
+  return {
+    programAddress: input.ringProgramId,
+    accounts: [
+      meta(input.authority, true, false),
+      meta(config, false, false),
+      meta(ringAuth, false, true),
+      meta(SHIELDED_POOL_PROGRAM_ID, false, false),
+    ],
+    data: Uint8Array.of(SET_PAUSED_TAG, input.paused ? 1 : 0),
   };
 }

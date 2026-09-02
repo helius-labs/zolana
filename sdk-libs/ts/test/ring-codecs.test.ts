@@ -29,6 +29,7 @@ import {
 } from "../src/interface/types.js";
 import {
   RING_CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
+  RING_SET_PAUSED_COMPUTE_UNIT_LIMIT,
   createRingConfigInstruction,
   initSppRingConfigInstruction,
   ringLookupTableAddresses,
@@ -36,7 +37,7 @@ import {
   ringTransactInstruction,
 } from "../src/ring/instructions.js";
 import { decodeRingPolicyConfig, decodeRingProgramConfig } from "../src/ring/codecs.js";
-import { setRingAuthorityInstruction } from "../src/ring/config.js";
+import { setRingAuthorityInstruction, setRingPausedInstruction } from "../src/ring/config.js";
 import { getProtocolConfigAddress } from "../src/addresses.js";
 import { passkeyReader } from "../src/ring/passkey.js";
 import {
@@ -114,6 +115,13 @@ const SPP = address("sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG");
 const SYSTEM = address("11111111111111111111111111111111");
 const JSON_HEADERS = { headers: { "content-type": "application/json" } };
 const SOL_INTERFACE = address("GGk4JbLExpASWVCAtAVdxZ65BCQsj8WN5TsL6v8Dd1c8");
+
+function ringPolicyConfig() {
+  return getProgramDerivedAddress({
+    programAddress: RING,
+    seeds: [new TextEncoder().encode("policy")],
+  }).then(([address]) => address);
+}
 
 describe("ring deposit", () => {
   it("encodes the plaintext like Rust wincode", () => {
@@ -228,7 +236,10 @@ describe("ring transact settlement", () => {
   });
 
   it("adds the settlement statics to a new table without requiring them at fetch", async () => {
-    const required = await ringLookupTableAddresses({ ringProgramId: RING, tree: TREE });
+    const required = await ringLookupTableAddresses({
+      ringProgramId: RING,
+      trees: { tree: TREE, outputTree: TREE, hasPolicy: false },
+    });
     for (const address of ringSettlementStatics()) {
       expect(required).not.toContain(address);
     }
@@ -284,6 +295,7 @@ describe("ring config", () => {
       ringProgramId: RING,
       payer: PAYER,
       authority: AUTHORITY,
+      hasPolicy: false,
     });
     expect(instruction.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
       [PAYER, AccountRole.WRITABLE_SIGNER],
@@ -294,6 +306,31 @@ describe("ring config", () => {
       [SYSTEM, AccountRole.READONLY],
       [SPP, AccountRole.READONLY],
     ]);
+    expect(instruction.data).toEqual(Uint8Array.of(2));
+  });
+
+  it("registers a policy ring with its policy config as the eighth read-only account", async () => {
+    const instruction = await initSppRingConfigInstruction({
+      ringProgramId: RING,
+      payer: PAYER,
+      authority: AUTHORITY,
+      hasPolicy: true,
+    });
+    expect(instruction.accounts).toHaveLength(8);
+    expect(instruction.accounts?.slice(0, 7)).toEqual(
+      (
+        await initSppRingConfigInstruction({
+          ringProgramId: RING,
+          payer: PAYER,
+          authority: AUTHORITY,
+          hasPolicy: false,
+        })
+      ).accounts,
+    );
+    expect(instruction.accounts?.[7]).toEqual({
+      address: await ringPolicyConfig(),
+      role: AccountRole.READONLY,
+    });
     expect(instruction.data).toEqual(Uint8Array.of(2));
   });
 
@@ -361,6 +398,25 @@ describe("ring config", () => {
       [RING_CONFIG, AccountRole.WRITABLE],
     ]);
     expect(Buffer.from(handover.data ?? []).toString("hex")).toBe("06");
+  });
+
+  it("builds the pause switch like Rust `SetPaused` for both states", async () => {
+    for (const paused of [true, false]) {
+      const instruction = await setRingPausedInstruction({
+        ringProgramId: RING,
+        authority: AUTHORITY,
+        paused,
+      });
+      expect(instruction.programAddress).toBe(RING);
+      expect(instruction.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
+        [AUTHORITY, AccountRole.READONLY_SIGNER],
+        [RING_CONFIG, AccountRole.READONLY],
+        [RING_AUTH, AccountRole.WRITABLE],
+        [SPP, AccountRole.READONLY],
+      ]);
+      expect(instruction.data).toEqual(Uint8Array.of(11, paused ? 1 : 0));
+    }
+    expect(RING_SET_PAUSED_COMPUTE_UNIT_LIMIT).toBe(50_000);
   });
 });
 
@@ -677,13 +733,21 @@ describe("ring transact", () => {
   it("includes distinct input, output and entries trees in the lookup-table contract", async () => {
     const addresses = await ringLookupTableAddresses({
       ringProgramId: RING,
-      tree: TREE,
-      outputTree: OUTPUT_TREE,
-      entriesTree: ENTRIES_TREE,
+      trees: { tree: TREE, outputTree: OUTPUT_TREE, entriesTree: ENTRIES_TREE, hasPolicy: true },
     });
     expect(addresses).toContain(TREE);
     expect(addresses).toContain(OUTPUT_TREE);
     expect(addresses).toContain(ENTRIES_TREE);
+    expect(addresses).toContain(await ringPolicyConfig());
+  });
+
+  it("leaves the policy accounts out of an audit-only ring's lookup-table contract", async () => {
+    const addresses = await ringLookupTableAddresses({
+      ringProgramId: RING,
+      trees: { tree: TREE, outputTree: TREE, hasPolicy: false },
+    });
+    expect(addresses).not.toContain(ENTRIES_TREE);
+    expect(addresses).not.toContain(await ringPolicyConfig());
   });
 
   const customRingProof = () =>
