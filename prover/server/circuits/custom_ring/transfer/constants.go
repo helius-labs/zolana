@@ -68,7 +68,9 @@ var solAssetField, _ = new(big.Int).SetString(
 // emptyRingHash is Poseidon(0, 0) again, the ring hash of a utxo in no ring.
 var emptyRingHash = solAssetField
 
-var amountOffset = new(big.Int).Lsh(big.NewInt(1), 64)
+// aggregatedOffset keeps the guard comparison non-negative over a sum of up to
+// NOut range-checked 64-bit amounts, 2^66 bounds NOut=4.
+var aggregatedOffset = new(big.Int).Lsh(big.NewInt(1), 66)
 
 // ruleShift are the field weights of the ring_policy::Rule::encoded byte groups.
 var ruleShift = [4]*big.Int{
