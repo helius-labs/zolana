@@ -140,9 +140,13 @@ and `nullifier_root` (`custom-rings/interface/src/public_input.rs`). The
 program resolves both roots from the history indices in the instruction data
 and verifies one proof.
 
-One circuit serves every ring. A rules-free ring proves a zero-length table
-with every answer slot disabled. Proof size, account list, and verification cost
-do not vary with the table, a transfer reveals none of the checks it passed.
+A ring is one of two tiers, pinned by the config `has_policy` flag that transact
+dispatches on. A policy ring proves the folded audit-and-policy statement above.
+An audit-only ring proves the eight-element audit statement alone against a
+lighter circuit and verifying key, with no policy accounts. Within the policy
+circuit an empty table proves a zero-length table with every answer slot
+disabled, and proof size, account list, and verification cost do not vary with
+the table, a transfer reveals none of the checks it passed.
 
 ## Adding a list
 
@@ -157,8 +161,8 @@ entry shape, the membership proofs, and the circuit are reused unchanged.
   address checked equal to `PolicyConfig.entries_tree`, and refuses roots from
   any other tree. The SPP money input and output trees are independent and may
   be any registered tree.
-- A rules-free ring still needs `create_policy`. The transact path loads the
-  policy config unconditionally.
+- A policy ring pins `create_policy` and the transact path loads its policy
+  config, an audit-only ring pins none and takes the audit path.
 - A ring-owned entry tree looks equivalent to reusing SPP's trees. It fails
   on maintenance, nothing rolls its roots forward or drains its nullifier
   queue. Entries as SPP UTXOs inherit the forester, the root history, and the
@@ -178,6 +182,11 @@ entry shape, the membership proofs, and the circuit are reused unchanged.
 - Sender rules take no amount guard, a transfer has no single sender amount.
 - A ring keeps its rule table for life. An upgrade with a different table
   fails closed on every transact, a new table means a new ring.
+- The tier is fixed at `create_config` and immutable. A ring cannot move
+  between audit-only and policy after init.
+- The config account grew a tier byte, so this is a fresh-deploy format. An
+  existing ring on the shorter config reads as uninitialized, there is no
+  in-place migration.
 
 ## The cycle
 

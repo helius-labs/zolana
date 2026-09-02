@@ -222,6 +222,14 @@ statement. The whole circuit keeps exactly one BSB22 commitment by reusing
 the range checker the audit block instantiates, a shape the on-chain
 verifier requires.
 
+A ring chooses its tier at deployment. A ring with rules is a policy ring and
+proves the eleven-element statement above. A ring without rules is audit-only
+and proves the eight-element prefix against a lighter circuit and verifying key.
+The tier is the config `has_policy` flag, pinned at `create_config` and
+immutable, so a policy ring cannot present the audit statement to skip its rules.
+The audit block is identical in both circuits, so the auditor decrypts every
+transfer on either tier.
+
 The audit-only circuit treats `private_tx_hash` as a pass-through wire.
 The policy circuit cannot. It witnesses full slot openings for every input
 and output and recomputes `private_tx_hash` from them (`openings.go`). The
