@@ -607,6 +607,7 @@ async function runWalletSync(
       keys,
       transactions: ordered,
       config: { syncedAt },
+      context,
     });
     let registryRefreshed = false;
     if (
@@ -621,6 +622,7 @@ async function runWalletSync(
           keys,
           transactions: ordered,
           config: { syncedAt },
+          context,
         });
       }
     }
@@ -641,6 +643,7 @@ async function runWalletSync(
         keys,
         transactions: ordered,
         config: { syncedAt },
+        context,
       });
       if (
         !registryRefreshed &&
@@ -654,6 +657,7 @@ async function runWalletSync(
             keys,
             transactions: ordered,
             config: { syncedAt },
+            context,
           });
         }
       }

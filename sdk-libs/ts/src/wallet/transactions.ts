@@ -131,6 +131,7 @@ async function buildAuthorizedTransaction(
       input.keys,
       setupInstructions,
       input.approve,
+      context,
     );
     return await input.client.assembleAuthorizedPrivateTransaction(
       { authorized, feePayer: input.feePayer, keys: input.keys },

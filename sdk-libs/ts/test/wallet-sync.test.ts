@@ -819,6 +819,37 @@ describe("wallet sync", () => {
     expect(calls.derive).toBeLessThanOrEqual(6);
   });
 
+  it("hands the sync's request context to every key holder batch", async () => {
+    const { keypair, keys, split, merge, chainedMerge } = mergeAfterSplit();
+    const seen: unknown[] = [];
+    const remote: ShieldedKeys = {
+      address: () => keys.address(),
+      viewingPublicKeys: () => keys.viewingPublicKeys(),
+      decrypt: (requests, context) => {
+        seen.push(context);
+        return keys.decrypt(requests);
+      },
+      derive: (requests, context) => {
+        seen.push(context);
+        return keys.derive(requests);
+      },
+      transactionKeys: (requests, context) => {
+        seen.push(context);
+        return keys.transactionKeys(requests);
+      },
+    };
+    const context = { signal: new AbortController().signal, timeoutMs: 1_000 };
+
+    await decryptWithKeys(remote, {
+      wallet: new Wallet({ identity: keypair.shieldedAddress() }),
+      transactions: [split, chainedMerge, merge],
+      context,
+    });
+
+    expect(seen.length).toBeGreaterThan(1);
+    expect(seen.every((entry) => entry === context)).toBe(true);
+  });
+
   /** `depth` merges, each consolidating the previous one's single output. */
   function mergeChain(depth: number) {
     const fixture = mergeAfterSplit();

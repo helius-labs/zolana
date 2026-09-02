@@ -3,7 +3,7 @@ import {
   type AuthorizedPrivateTransaction,
 } from "../client/ports.js";
 import { initializePoseidon } from "../hasher/index.js";
-import type { Address, Bytes32, Instruction } from "../interface/types.js";
+import type { Address, Bytes32, Instruction, RequestContext } from "../interface/types.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import { ViewingKey } from "../keypair/viewing-key.js";
 import type { Data } from "../transaction/data.js";
@@ -96,6 +96,7 @@ export async function authorizePrivateTransaction(
   keys: ShieldedKeys,
   setupInstructions: readonly Instruction[] = [],
   approve: ApprovalHandler = approveUnattended,
+  context?: RequestContext,
 ): Promise<AuthorizedPrivateTransaction> {
   await initializePoseidon();
   const unsignedInputs = transaction._inputs();
@@ -123,6 +124,7 @@ export async function authorizePrivateTransaction(
     address,
     inputs,
     setupInstructions,
+    context,
   );
 }
 
@@ -145,6 +147,7 @@ async function authorizeWithInputs(
   address: ShieldedAddress,
   inputs: readonly ProofInputUtxo[],
   setupInstructions: readonly Instruction[],
+  context: RequestContext | undefined,
 ): Promise<AuthorizedPrivateTransaction> {
   const action = transaction._action();
   let proofInputs: SppProofInputs;
@@ -162,12 +165,16 @@ async function authorizeWithInputs(
       perOutputAmount: action.perOutputAmount,
       payer: transaction.payer(),
     }).prepare();
-    const encrypted = await withTransactionKey(keys, prepared.firstNullifier, (tx) =>
-      encryptSplit(tx, {
-        viewingPublicKey: address.viewingPublicKey,
-        viewTag: prepared.owner.confidentialViewTag(),
-        bundle: prepared.bundlePlaintext(wallet.registry),
-      }),
+    const encrypted = await withTransactionKey(
+      keys,
+      prepared.firstNullifier,
+      (tx) =>
+        encryptSplit(tx, {
+          viewingPublicKey: address.viewingPublicKey,
+          viewTag: prepared.owner.confidentialViewTag(),
+          bundle: prepared.bundlePlaintext(wallet.registry),
+        }),
+      context,
     );
     intent = {
       kind: "split",
@@ -196,8 +203,12 @@ async function authorizeWithInputs(
       transfer.withdraw(action.asset, action.amount, action.target);
     }
     const prepared = transfer.prepare();
-    const encrypted = await withTransactionKey(keys, prepared.firstNullifier, (tx) =>
-      encryptConfidentialTransfer(tx, { outputs: prepared.outputs, assets: wallet.registry }),
+    const encrypted = await withTransactionKey(
+      keys,
+      prepared.firstNullifier,
+      (tx) =>
+        encryptConfidentialTransfer(tx, { outputs: prepared.outputs, assets: wallet.registry }),
+      context,
     );
     intent =
       action.kind === "transfer"
@@ -252,10 +263,12 @@ export async function withTransactionKey<T>(
   keys: ShieldedKeys,
   firstNullifier: Bytes32,
   use: (tx: ViewingKey) => T extends Promise<unknown> ? never : T,
+  context?: RequestContext,
 ): Promise<T> {
-  const minted = await keys.transactionKeys([
-    { viewingPublicKey: keys.address().viewingPublicKey, firstNullifier },
-  ]);
+  const minted = await keys.transactionKeys(
+    [{ viewingPublicKey: keys.address().viewingPublicKey, firstNullifier }],
+    context,
+  );
   const [tx] = minted;
   if (minted.length !== 1 || !(tx instanceof ViewingKey)) {
     for (const key of minted) if (key instanceof ViewingKey) key.destroy();

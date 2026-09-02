@@ -1,4 +1,4 @@
-import type { Bytes32 } from "../../interface/types.js";
+import type { Bytes32, RequestContext } from "../../interface/types.js";
 import { ViewingKey } from "../../keypair/viewing-key.js";
 
 import { TransactionError } from "../error.js";
@@ -72,7 +72,7 @@ export class KeyMemo {
     );
   }
 
-  async resolve(): Promise<void> {
+  async resolve(context?: RequestContext): Promise<void> {
     const decrypts = [...this.#pendingDecrypt.entries()];
     const derives = [...this.#pendingDerive.entries()];
     const transactionKeys = [...this.#pendingTransactionKeys.entries()];
@@ -82,11 +82,24 @@ export class KeyMemo {
     // Settled, not raced: a rejection in one call must not lose the fresh keys
     // another call already handed out.
     const settled = await Promise.allSettled([
-      decrypts.length === 0 ? [] : this.#keys.decrypt(decrypts.map(([, request]) => request)),
-      derives.length === 0 ? [] : this.#keys.derive(derives.map(([, request]) => request)),
+      decrypts.length === 0
+        ? []
+        : this.#keys.decrypt(
+            decrypts.map(([, request]) => request),
+            context,
+          ),
+      derives.length === 0
+        ? []
+        : this.#keys.derive(
+            derives.map(([, request]) => request),
+            context,
+          ),
       transactionKeys.length === 0
         ? []
-        : this.#keys.transactionKeys(transactionKeys.map(([, request]) => request)),
+        : this.#keys.transactionKeys(
+            transactionKeys.map(([, request]) => request),
+            context,
+          ),
     ]);
     const minted = settled[2].status === "fulfilled" ? settled[2].value : [];
     try {

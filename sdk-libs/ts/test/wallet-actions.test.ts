@@ -491,6 +491,46 @@ describe("unsigned public transaction builders", () => {
     });
   });
 
+  it("hands the build's request context to the key holder", async () => {
+    // A remote holder stops its round trip when the caller's signal fires;
+    // that only works if the build passes the context it was given on.
+    const keypair = spendingKeypair();
+    const wallet = fundedWallet(keypair, [20n, 30n, 100n]);
+    const local = LocalShieldedKeys.fromKeypair(keypair);
+    const seen: unknown[] = [];
+    const keys: ShieldedKeys = {
+      address: () => local.address(),
+      viewingPublicKeys: () => local.viewingPublicKeys(),
+      decrypt: (requests) => local.decrypt(requests),
+      derive: (requests, context) => {
+        seen.push(context);
+        return local.derive(requests);
+      },
+      transactionKeys: (requests, context) => {
+        seen.push(context);
+        return local.transactionKeys(requests);
+      },
+    };
+    const context = { signal: new AbortController().signal, timeoutMs: 1_000 };
+    const { client } = capturePrivateBuild();
+
+    await buildTransferTransaction(
+      {
+        client,
+        wallet,
+        keys: { ...keys, ...stubProofs() },
+        feePayer: keypair.shieldedAddress().solanaAddress(),
+        recipient: ShieldedKeypair.generate().shieldedAddress(),
+        amount: 25n,
+      },
+      context,
+    );
+    await createMerge({ wallet, keys, asset: SOL_MINT }, context);
+
+    expect(seen).toHaveLength(2);
+    expect(seen.every((entry) => entry === context)).toBe(true);
+  });
+
   it("does not mutate spend state and holds the UTXOs after a build", async () => {
     const keypair = spendingKeypair();
     const payer = keypair.shieldedAddress().solanaAddress();

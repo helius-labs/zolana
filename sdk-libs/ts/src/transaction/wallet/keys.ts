@@ -1,7 +1,7 @@
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { getAddressEncoder } from "@solana/kit";
 
-import type { Address, Bytes16, Bytes32, Bytes64 } from "../../interface/types.js";
+import type { Address, Bytes16, Bytes32, Bytes64, RequestContext } from "../../interface/types.js";
 import { checkedBytes } from "../../keypair/bytes.js";
 import {
   checkedDerivationSeed,
@@ -65,15 +65,26 @@ export type DeriveRequest =
  * Proving is the one place the nullifier secret is consumed rather than
  * derived from; it lives on the client-layer `ProofAuthority`, next to the
  * witness types it needs.
+ *
+ * Every batch method takes the caller's `RequestContext`: a sync or a build
+ * that is cancelled or times out passes its signal on, so a remote holder
+ * stops the round trip too. In-process keys have nothing to cancel and ignore
+ * it.
  */
 export interface ShieldedKeys {
   address(): ShieldedAddress;
   /** Every viewing key held, the current one first. Sync opens under each. */
   viewingPublicKeys(): readonly P256PublicKey[];
-  decrypt(requests: readonly DecryptRequest[]): Promise<readonly Uint8Array[]>;
-  derive(requests: readonly DeriveRequest[]): Promise<readonly Bytes32[]>;
+  decrypt(
+    requests: readonly DecryptRequest[],
+    context?: RequestContext,
+  ): Promise<readonly Uint8Array[]>;
+  derive(requests: readonly DeriveRequest[], context?: RequestContext): Promise<readonly Bytes32[]>;
   /** Fresh key objects; the caller destroys them. */
-  transactionKeys(requests: readonly TransactionKeyRequest[]): Promise<readonly ViewingKey[]>;
+  transactionKeys(
+    requests: readonly TransactionKeyRequest[],
+    context?: RequestContext,
+  ): Promise<readonly ViewingKey[]>;
 }
 
 const addressEncoder = getAddressEncoder();

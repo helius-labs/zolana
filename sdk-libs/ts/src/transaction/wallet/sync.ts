@@ -1,5 +1,5 @@
 import { MERGE_INPUT_COUNT } from "../../interface/constants.js";
-import type { Address, Bytes16, Bytes32, Bytes33 } from "../../interface/types.js";
+import type { Address, Bytes16, Bytes32, Bytes33, RequestContext } from "../../interface/types.js";
 import { P256PublicKey, type ShieldedPublicKey } from "../../keypair/public-key.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
 import type { ViewingKey } from "../../keypair/viewing-key.js";
@@ -1048,6 +1048,8 @@ export async function decryptTransactions(
     keys: ShieldedKeys;
     transactions: readonly IndexedShieldedTransaction[];
     config?: DecryptTransactionsConfig;
+    /** Forwarded to every batch the key holder answers. */
+    context?: RequestContext | undefined;
   }>,
 ): Promise<SyncReport> {
   await initializePoseidon();
@@ -1078,7 +1080,7 @@ export async function decryptTransactions(
       pass.processStableTags({ identityTag, index });
       pass.resolveMergeSites(mergeSites);
       if (memo.pending()) {
-        await memo.resolve();
+        await memo.resolve(input.context);
         continue;
       }
       return commitPass(input, pass, index, viewingKeyHistory);

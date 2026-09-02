@@ -423,12 +423,16 @@ export async function proveCustomRingTransfer(
   }
   const prepared = input.prepared;
   checkRingMembership(prepared, input.ringProgramId);
-  const encrypted = await withTransactionKey(input.keys, prepared.firstNullifier, (tx) =>
-    encryptCustomRingTransfer(tx, {
-      outputs: prepared.outputs,
-      assets: input.assets,
-      auditorPublicKey: config.auditorPublicKey,
-    }),
+  const encrypted = await withTransactionKey(
+    input.keys,
+    prepared.firstNullifier,
+    (tx) =>
+      encryptCustomRingTransfer(tx, {
+        outputs: prepared.outputs,
+        assets: input.assets,
+        auditorPublicKey: config.auditorPublicKey,
+      }),
+    context,
   );
   try {
     const proofInputs = frameDummyOutputs(

@@ -78,7 +78,10 @@ function mergePolicy(reserved: ReadonlySet<string>): SpendPolicy {
 }
 
 /** @internal */
-export async function createMerge(params: MergeParams): Promise<CreatedMerge> {
+export async function createMerge(
+  params: MergeParams,
+  context?: RequestContext,
+): Promise<CreatedMerge> {
   const selected = selectMergeEntries(params);
   const tree = selected[0]?.outputContext.tree;
   if (tree === undefined) throw new WalletError("WALLET_NOTHING_TO_MERGE");
@@ -94,14 +97,17 @@ export async function createMerge(params: MergeParams): Promise<CreatedMerge> {
     const firstNullifier = inputs[0]?.nullifier();
     if (firstNullifier === undefined) throw new WalletError("WALLET_NOTHING_TO_MERGE");
     const dummySlots = PreparedMerge.dummySlots(inputs.length);
-    const [outputBlinding, ...dummyNullifiers] = await params.keys.derive([
-      { kind: "mergeOutputBlinding", firstNullifier },
-      ...dummySlots.map((slotIndex) => ({
-        kind: "mergeDummyNullifier" as const,
-        firstNullifier,
-        slotIndex,
-      })),
-    ]);
+    const [outputBlinding, ...dummyNullifiers] = await params.keys.derive(
+      [
+        { kind: "mergeOutputBlinding", firstNullifier },
+        ...dummySlots.map((slotIndex) => ({
+          kind: "mergeDummyNullifier" as const,
+          firstNullifier,
+          slotIndex,
+        })),
+      ],
+      context,
+    );
     if (outputBlinding === undefined || dummyNullifiers.length !== dummySlots.length) {
       throw new WalletError("WALLET_KEYS_BATCH_MISMATCH");
     }
@@ -172,12 +178,15 @@ export async function buildMergeTransaction(
     await initializePoseidon();
     const address = input.keys.address();
     const owner = ownerSolanaAccount(address, input.feePayer);
-    const created = await createMerge({
-      wallet: input.wallet,
-      keys: input.keys,
-      asset: input.asset ?? SOL_MINT,
-      ...(input.inputs === undefined ? {} : { inputs: input.inputs }),
-    });
+    const created = await createMerge(
+      {
+        wallet: input.wallet,
+        keys: input.keys,
+        asset: input.asset ?? SOL_MINT,
+        ...(input.inputs === undefined ? {} : { inputs: input.inputs }),
+      },
+      context,
+    );
     try {
       return await proveAndAssembleMerge(input, owner, address, created, context);
     } catch (cause) {

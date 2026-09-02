@@ -56,7 +56,9 @@ Added
 - `ShieldedKeys` (`address`, `viewingPublicKeys`, `decrypt`, `derive`,
   `transactionKeys`) and `ProofAuthority` (`prove`, `proveMerge`) describe a
   wallet's privacy roles as batched functions, `WalletKeys` is both, and a
-  remote key holder implements them to drive every build and sync.
+  remote key holder implements them to drive every build and sync; every
+  method receives the `RequestContext` the sync or build was called with, so
+  the holder's round trip stops when the caller's signal fires.
 - `LocalKeys` and `LocalShieldedKeys` answer those interfaces from keys held
   in-process, with `fromKeypair`,
   `fromKeys({ address, viewingKeys, nullifierKey })` for a wallet holding
