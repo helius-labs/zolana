@@ -473,6 +473,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         payer: &env.payer,
         auditor_pubkey: auditor_pk,
         entries_tree: env.tree,
+        has_policy: true,
     }
     .send(rpc)?;
 
@@ -602,7 +603,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
             payer: sender_address,
             input_tree: env.tree,
             output_tree: env.tree,
-            entries_tree: env.tree,
+            entries_tree: Some(env.tree),
             owner_signers: proven.owner_signers.clone(),
             interface_transfer_accounts: Vec::new(),
             proof: proven.proof,
@@ -810,6 +811,7 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
         payer: &env.payer,
         auditor_pubkey: auditor.pubkey(),
         entries_tree: env.tree,
+        has_policy: true,
     }
     .send(rpc)?;
     let prover = ProverClient::local();
@@ -1002,6 +1004,7 @@ fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
         payer: &env.payer,
         auditor_pubkey: auditor.pubkey(),
         entries_tree: env.tree,
+        has_policy: true,
     }
     .send(rpc)?;
 
@@ -1118,6 +1121,7 @@ struct RegisterRing<'a> {
     payer: &'a Keypair,
     auditor_pubkey: P256Pubkey,
     entries_tree: Address,
+    has_policy: bool,
 }
 
 impl RegisterRing<'_> {
@@ -1131,7 +1135,7 @@ impl RegisterRing<'_> {
                 payer: authority,
                 authority,
                 auditor_pubkey: self.auditor_pubkey,
-                has_policy: true,
+                has_policy: self.has_policy,
             }
             .instruction()?],
         )?;
@@ -1145,20 +1149,21 @@ impl RegisterRing<'_> {
             }
             .instruction()],
         )?;
-        // Every transact loads the policy config, a rules-free ring pins the
-        // empty table.
-        send(
-            rpc,
-            self.payer,
-            &[CreatePolicy {
-                ring: self.ring,
-                payer: authority,
-                authority,
-                entries_tree: self.entries_tree,
-                shared_sources: vec![],
-            }
-            .instruction()?],
-        )?;
+        // A policy ring pins its table, an audit-only ring runs no create_policy.
+        if self.has_policy {
+            send(
+                rpc,
+                self.payer,
+                &[CreatePolicy {
+                    ring: self.ring,
+                    payer: authority,
+                    authority,
+                    entries_tree: self.entries_tree,
+                    shared_sources: vec![],
+                }
+                .instruction()?],
+            )?;
+        }
         Ok(())
     }
 }

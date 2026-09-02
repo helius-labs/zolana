@@ -197,6 +197,37 @@ impl PendingCustomRingProof {
             answers: witness.answers,
         })
     }
+
+    /// Proves the audit statement alone over the unchanged ciphertext.
+    pub fn finish_audit(
+        self,
+        private_tx_hash: CustomRingPrivateTxHash,
+    ) -> Result<crate::instructions::transact::AuditProofRequest, CustomRingProofInputError> {
+        let Self {
+            tx_viewing_key,
+            tx_viewing_pk,
+            auditor_pk,
+            ephemeral_sk,
+            message,
+        } = self;
+        let public_input_hash = AuditPublicInput {
+            private_tx_hash: private_tx_hash.as_ref(),
+            tx_viewing_pk: tx_viewing_pk.as_bytes(),
+            auditor_pk: auditor_pk.as_bytes(),
+            eph_pk: message.ephemeral_pubkey_bytes(),
+            ciphertext: message.ciphertext(),
+        }
+        .hash()
+        .map_err(|_| CustomRingProofInputError::Hashing)?;
+
+        Ok(crate::instructions::transact::AuditProofRequest {
+            public_input_hash,
+            private_tx_hash: *private_tx_hash.as_ref(),
+            tx_viewing_key,
+            ephemeral_key: ViewingKey::from_bytes(&ephemeral_sk)?,
+            auditor_key: auditor_pk,
+        })
+    }
 }
 
 /// Re-encodes a prover result as the proof the instruction carries.
