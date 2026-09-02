@@ -185,6 +185,15 @@ export interface CustomRingProofRequest {
   readonly answers: readonly CustomRingRuleAnswer[];
 }
 
+/** Mirrors Rust `AuditProofRequest`, the no-policy subset of `CustomRingProofRequest`. */
+export interface CustomRingAuditRequest {
+  readonly publicInputHash: Bytes32;
+  readonly privateTxHash: Bytes32;
+  readonly txViewingSecret: Bytes32;
+  readonly ephemeralSecret: Bytes32;
+  readonly auditorPublicKey: Uint8Array;
+}
+
 export interface Proof {
   readonly a: Bytes64;
   readonly b: Bytes128;

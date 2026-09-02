@@ -30,7 +30,11 @@ import type {
   Transaction,
   TransactInstructionData,
 } from "../interface/types.js";
-import { customRingPublicInputHash, parseAuditorMessage } from "../keypair/audit.js";
+import {
+  auditPublicInputHash,
+  customRingPublicInputHash,
+  parseAuditorMessage,
+} from "../keypair/audit.js";
 import { ownerHash } from "../keypair/hash.js";
 import { poseidon } from "../keypair/poseidon.js";
 import type { P256PublicKey } from "../keypair/public-key.js";
@@ -51,6 +55,7 @@ import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 import { equalBytes } from "../wallet/internal.js";
 import { resolveRegisteredAddress } from "../wallet/registry.js";
 
+import type { RingPolicyConfig } from "./codecs.js";
 import { fetchRingPolicyConfig, fetchRingProgramConfig } from "./config.js";
 import { RingError, wrapRingError } from "./error.js";
 import { ringTransactInstruction } from "./instructions.js";
@@ -138,7 +143,8 @@ export interface ProvenRingTransfer {
   /** Input money tree, retained as `tree` for compatibility. */
   readonly tree: Address;
   readonly outputTree: Address;
-  readonly entriesTree: Address;
+  /** The pinned policy entries tree, absent for an audit-only ring, Rust `Option<Address>`. */
+  readonly entriesTree?: Address;
   /** The config tier, false for an audit-only ring that carries no policy accounts. */
   readonly hasPolicy: boolean;
   /** History entries the ring proof binds, sent on the tag-3 wire. */
@@ -357,22 +363,9 @@ export async function proveCustomRingTransfer(
   input: CustomRingTransferParams,
   context?: RequestContext,
 ): Promise<ProvenRingTransfer> {
-  const [config, policyConfig] = await Promise.all([
-    fetchRingProgramConfig(input.client, input.ringProgramId, context),
-    fetchRingPolicyConfig(input.client, input.ringProgramId, context),
-  ]);
-  // The empty-table proof satisfies only an empty rule table, a rules-bearing
-  // ring pins a different `policy_hash` and fails in proving.
-  if (!equalBytes(policyConfig.policyHash, RING_EMPTY_RULES_POLICY_HASH)) {
-    throw new RingError("RING_RULES_UNSUPPORTED", {
-      details: { ringProgramId: input.ringProgramId, policyHash: policyConfig.policyHash },
-    });
-  }
-  const suppliedEntriesRoots = checkEntriesRoots(
-    input.entriesRoots,
-    policyConfig.entriesTree,
-    input.tree,
-  );
+  const config = await fetchRingProgramConfig(input.client, input.ringProgramId, context);
+  // An audit-only ring has no policy config account to read.
+  const policy = config.hasPolicy ? await loadPolicyContext(input, context) : undefined;
   // A padded change slot pushes the custom-ring instruction past the packet limit
   // even behind an address lookup table.
   if (input.prepared.changeLayout !== "compact") {
@@ -405,7 +398,42 @@ export async function proveCustomRingTransfer(
       undefined,
       context,
     );
-    const entriesRoots = suppliedEntriesRoots ?? roots;
+    // The audit statement rehashes the auditor message SPP already folded into privateTxHash.
+    const message = parseAuditorMessage(encrypted.auditorMessage.data);
+    const common = {
+      data,
+      txViewingPublicKey: encrypted.txViewingPublicKey,
+      payer: prepared.payer,
+      tree: input.tree,
+      outputTree: input.outputTree ?? input.tree,
+    } as const;
+
+    if (policy === undefined) {
+      const proof = await input.client.proveCustomRingAudit(
+        {
+          publicInputHash: auditPublicInputHash({
+            privateTxHash: data.privateTxHash,
+            txViewingPublicKey: encrypted.txViewingPublicKey,
+            auditorPublicKey: config.auditorPublicKey,
+            message,
+          }),
+          privateTxHash: data.privateTxHash,
+          txViewingSecret: encrypted.audit.txViewingSecret,
+          ephemeralSecret: encrypted.audit.ephemeralSecret,
+          auditorPublicKey: config.auditorPublicKey.toUncompressed(),
+        },
+        context,
+      );
+      return Object.freeze({
+        ...common,
+        proof,
+        hasPolicy: false,
+        stateRootIndex: 0,
+        nullifierRootIndex: 0,
+      });
+    }
+
+    const entriesRoots = policy.suppliedEntriesRoots ?? roots;
     // A ring without rules proves the empty table over its own openings, every
     // further policy field is zero or disabled.
     const proof = await input.client.proveCustomRing(
@@ -414,8 +442,8 @@ export async function proveCustomRingTransfer(
           privateTxHash: data.privateTxHash,
           txViewingPublicKey: encrypted.txViewingPublicKey,
           auditorPublicKey: config.auditorPublicKey,
-          message: parseAuditorMessage(encrypted.auditorMessage.data),
-          policyHash: policyConfig.policyHash,
+          message,
+          policyHash: policy.config.policyHash,
           stateRoot: entriesRoots.stateRoot,
           nullifierRoot: entriesRoots.nullifierRoot,
         }),
@@ -431,7 +459,7 @@ export async function proveCustomRingTransfer(
         // `privateTxHash`, else the gnark witness is unsatisfiable.
         addressChain: ringAddressChain(openings.nIn),
         externalDataHash: proofInputs.externalData.hash(),
-        sources: policyConfig.sources.map((slot) =>
+        sources: policy.config.sources.map((slot) =>
           slot.listId === 0
             ? { listId: 0, ownerHash: new Uint8Array(32) as Bytes32 }
             : { listId: slot.listId, ownerHash: ringNamespaceOwnerHash(slot.namespace) },
@@ -447,13 +475,9 @@ export async function proveCustomRingTransfer(
       context,
     );
     return Object.freeze({
-      data,
+      ...common,
       proof,
-      txViewingPublicKey: encrypted.txViewingPublicKey,
-      payer: prepared.payer,
-      tree: input.tree,
-      outputTree: input.outputTree ?? input.tree,
-      entriesTree: policyConfig.entriesTree,
+      entriesTree: policy.config.entriesTree,
       hasPolicy: config.hasPolicy,
       stateRootIndex: entriesRoots.stateRootIndex,
       nullifierRootIndex: entriesRoots.nullifierRootIndex,
@@ -462,6 +486,30 @@ export async function proveCustomRingTransfer(
     encrypted.audit.txViewingSecret.fill(0);
     encrypted.audit.ephemeralSecret.fill(0);
   }
+}
+
+/** The policy account and caller-supplied entries roots a policy ring proves against. */
+interface PolicyContext {
+  readonly config: RingPolicyConfig;
+  readonly suppliedEntriesRoots: RingEntriesRoots | undefined;
+}
+
+async function loadPolicyContext(
+  input: CustomRingTransferParams,
+  context: RequestContext | undefined,
+): Promise<PolicyContext> {
+  const config = await fetchRingPolicyConfig(input.client, input.ringProgramId, context);
+  // The empty-table proof satisfies only an empty rule table, a rules-bearing
+  // ring pins a different `policy_hash` and fails in proving.
+  if (!equalBytes(config.policyHash, RING_EMPTY_RULES_POLICY_HASH)) {
+    throw new RingError("RING_RULES_UNSUPPORTED", {
+      details: { ringProgramId: input.ringProgramId, policyHash: config.policyHash },
+    });
+  }
+  return Object.freeze({
+    config,
+    suppliedEntriesRoots: checkEntriesRoots(input.entriesRoots, config.entriesTree, input.tree),
+  });
 }
 
 function checkEntriesRoots(

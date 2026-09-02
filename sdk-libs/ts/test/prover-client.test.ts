@@ -13,6 +13,7 @@ import type { NonInclusionProof } from "../src/client/rpc.js";
 import type { Bytes32 } from "../src/interface/index.js";
 import { disabledRuleAnswer } from "../src/client/prover/types.js";
 import type {
+  CustomRingAuditRequest,
   CustomRingOpening,
   CustomRingProofRequest,
   MergeInputs,
@@ -94,6 +95,28 @@ function ringRequest(auditorPublicKey: Uint8Array): CustomRingProofRequest {
     answers: Array.from({ length: 10 }, () => disabledRuleAnswer()),
   };
 }
+
+/** The no-policy subset, Rust `AuditProofRequest`. */
+function auditRequest(auditorPublicKey: Uint8Array): CustomRingAuditRequest {
+  return {
+    publicInputHash: bytes(0),
+    privateTxHash: bytes(1),
+    txViewingSecret: bytes(2),
+    ephemeralSecret: bytes(3),
+    auditorPublicKey,
+  };
+}
+
+/** Key order from Rust `AuditProofRequestJson` in `request_ring.rs`. */
+const EXPECTED_AUDIT_BODY = {
+  circuitType: "custom-ring",
+  variant: "audit",
+  publicInputHash: fieldHex(0),
+  privateTxHash: fieldHex(1),
+  txViewingSk: fieldHex(2),
+  ephSk: fieldHex(3),
+  auditorPk: AUDITOR_PK_HEX,
+};
 
 const EXPECTED_OPENING = {
   domain: fieldHex(0),
@@ -345,6 +368,45 @@ describe("prover request routing", () => {
     await expect(
       prover.proveCustomRing({ ...ringRequest(auditorPublicKey), answers: [] }),
     ).rejects.toMatchObject({ code: "CLIENT_INVALID_LENGTH" });
+    expect(raw).toHaveLength(1);
+  });
+
+  it("encodes the audit request byte for byte like Rust `AuditProofRequest::body`", async () => {
+    const raw: string[] = [];
+    const deliveries: (string | null)[] = [];
+    const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
+      raw.push(String(init?.body));
+      deliveries.push(new Headers(init?.headers).get("X-Sync"));
+      return new Response(JSON.stringify(STANDARD_PROOF), {
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof globalThis.fetch;
+    const prover = new ProverClient({ url: "https://prover.example", fetch });
+    const auditorPublicKey = p256.getPublicKey(bytes(4), false);
+
+    await prover.proveCustomRingAudit(auditRequest(auditorPublicKey));
+
+    expect(raw[0]).toBe(JSON.stringify(EXPECTED_AUDIT_BODY));
+    // The audit proof is queued, never sent inline.
+    expect(deliveries).toEqual([null]);
+    const body = JSON.parse(raw[0] ?? "") as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual([
+      "auditorPk",
+      "circuitType",
+      "ephSk",
+      "privateTxHash",
+      "publicInputHash",
+      "txViewingSk",
+      "variant",
+    ]);
+    expect(body["variant"]).toBe("audit");
+    expect(body["auditorPk"]).toHaveLength(132);
+
+    for (const auditorPublicKey of [new Uint8Array(33).fill(2), new Uint8Array(65).fill(2)]) {
+      await expect(
+        prover.proveCustomRingAudit(auditRequest(auditorPublicKey)),
+      ).rejects.toMatchObject({ code: "CLIENT_INVALID_P256_KEY" });
+    }
     expect(raw).toHaveLength(1);
   });
 

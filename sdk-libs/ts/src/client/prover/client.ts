@@ -24,6 +24,7 @@ import {
   RING_STATE_PATH_LENGTH,
 } from "./types.js";
 import type {
+  CustomRingAuditRequest,
   CustomRingOpening,
   CustomRingSourceOwner,
   CustomRingRuleAnswer,
@@ -122,6 +123,13 @@ export class ProverClient {
 
   async proveCustomRing(inputs: CustomRingProofRequest, context?: RequestContext): Promise<Proof> {
     return this.#send(JSON.stringify(customRingProofRequest(inputs)), "queued", context);
+  }
+
+  async proveCustomRingAudit(
+    inputs: CustomRingAuditRequest,
+    context?: RequestContext,
+  ): Promise<Proof> {
+    return this.#send(JSON.stringify(customRingAuditRequest(inputs)), "queued", context);
   }
 
   /** The circuits the server serves, `custom-ring` among them only with a queue. */
@@ -365,18 +373,25 @@ function mergeOutputJson(output: TransferOutput): Readonly<Record<string, unknow
   });
 }
 
+/** Mirrors Rust `AuditProofRequest::body`, the no-policy subset with `variant:"audit"`, key order included. */
+export function customRingAuditRequest(
+  inputs: CustomRingAuditRequest,
+): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    circuitType: "custom-ring",
+    variant: "audit",
+    publicInputHash: hex32(inputs.publicInputHash, "publicInputHash"),
+    privateTxHash: hex32(inputs.privateTxHash, "privateTxHash"),
+    txViewingSk: hex32(inputs.txViewingSecret, "txViewingSecret"),
+    ephSk: hex32(inputs.ephemeralSecret, "ephemeralSecret"),
+    auditorPk: auditorPkHex(inputs.auditorPublicKey),
+  });
+}
+
 /** Mirrors Rust `CustomRingProofRequest::body`, key order included. */
 export function customRingProofRequest(
   inputs: CustomRingProofRequest,
 ): Readonly<Record<string, unknown>> {
-  const auditorPublicKey = inputs.auditorPublicKey;
-  if (
-    !(auditorPublicKey instanceof Uint8Array) ||
-    auditorPublicKey.length !== UNCOMPRESSED_P256_LENGTH ||
-    auditorPublicKey[0] !== 0x04
-  ) {
-    throw new ClientError("CLIENT_INVALID_P256_KEY");
-  }
   return Object.freeze({
     circuitType: "custom-ring",
     variant: "transfer",
@@ -384,7 +399,7 @@ export function customRingProofRequest(
     privateTxHash: hex32(inputs.privateTxHash, "privateTxHash"),
     txViewingSk: hex32(inputs.txViewingSecret, "txViewingSecret"),
     ephSk: hex32(inputs.ephemeralSecret, "ephemeralSecret"),
-    auditorPk: bytesHex(auditorPublicKey),
+    auditorPk: auditorPkHex(inputs.auditorPublicKey),
     nIn: u8(inputs.nIn, "nIn"),
     nOut: u8(inputs.nOut, "nOut"),
     inputs: sized(inputs.inputs, RING_INPUT_SLOTS, "inputs").map(openingJson),
@@ -451,6 +466,18 @@ function answersJson(entry: CustomRingRuleAnswer): Readonly<Record<string, unkno
 /** Rust `field_hex`, the fixed-width hex the prover requires. */
 function hex32(bytes: Uint8Array, field: string): string {
   return bytesHex(checkedBytes(bytes, 32, field));
+}
+
+/** The uncompressed SEC1 auditor point the circuit witnesses, `0x04 || x || y`. */
+function auditorPkHex(auditorPublicKey: Uint8Array): string {
+  if (
+    !(auditorPublicKey instanceof Uint8Array) ||
+    auditorPublicKey.length !== UNCOMPRESSED_P256_LENGTH ||
+    auditorPublicKey[0] !== 0x04
+  ) {
+    throw new ClientError("CLIENT_INVALID_P256_KEY");
+  }
+  return bytesHex(auditorPublicKey);
 }
 
 function u8(value: number, field: string): number {

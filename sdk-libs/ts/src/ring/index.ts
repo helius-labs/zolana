@@ -1,6 +1,7 @@
 export {
   auditorMessageData,
   auditorViewTag,
+  auditPublicInputHash,
   customRingPublicInputHash,
   auditSharedSecret,
   AUDIT_ENC_INFO,

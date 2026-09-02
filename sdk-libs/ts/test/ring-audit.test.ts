@@ -5,6 +5,7 @@ import { P256PublicKey } from "../src/keypair/public-key.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
 import type { Bytes32, Bytes33 } from "../src/interface/types.js";
 import {
+  auditPublicInputHash,
   customRingPublicInputHash,
   auditSharedSecret,
   auditorMessageData,
@@ -72,6 +73,20 @@ describe("ring audit encryption", () => {
     expect(parsed.ephemeralPublicKey.toBytes()).toEqual(
       encrypted.message.ephemeralPublicKey.toBytes(),
     );
+  });
+
+  it("hashes the audit statement to the eight-element prefix like Rust `AuditPublicInput::hash`", () => {
+    expect(
+      auditPublicInputHash({
+        privateTxHash: PRIVATE_TX_HASH,
+        txViewingPublicKey: P256PublicKey.fromBytes(TX_PK),
+        auditorPublicKey: P256PublicKey.fromBytes(AUDITOR_PK),
+        message: {
+          ephemeralPublicKey: P256PublicKey.fromBytes(EPH_PK),
+          ciphertext: CIPHERTEXT,
+        },
+      }),
+    ).toEqual(PUBLIC_INPUT_HASH);
   });
 
   // The pinned Go fixture is the eight-element prefix and the policy tail folds onto it.
