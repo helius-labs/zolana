@@ -11,12 +11,14 @@ import {
   ClientError,
   LocalKeys,
   ZolanaClient,
+  proverRequestBody,
   type GetMerkleProofsResponse,
   type GetNonInclusionProofsResponse,
   type SpendProof,
   type ZolanaClientConfig,
 } from "../src/client/index.js";
 import { defaultSolanaRpcSubscriptionsUrl, runKitRpc } from "../src/client/kit.js";
+import { assemble } from "../src/client/prover/assembly.js";
 import type { Bytes16, Bytes32 } from "../src/interface/index.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
 import {
@@ -545,6 +547,36 @@ describe("ZolanaClient", () => {
     });
 
     await expect(pending).resolves.toHaveLength(1);
+  });
+
+  it("writes an open nullifier secret slot as null for a remote key holder", async () => {
+    const fixture = proofFixture();
+    const assembled = assemble(fixture.proofInputs, [fixture.spendProof]);
+    const body = proverRequestBody(assembled.proverInputs);
+    const inputs = body["inputs"];
+    if (!Array.isArray(inputs)) throw new Error("inputs must be an array");
+    const slots = inputs.map((input: unknown) =>
+      typeof input === "object" && input !== null && "nullifierSecret" in input
+        ? input.nullifierSecret
+        : "missing",
+    );
+    // The wallet's own real input waits for its holder; padding carries zero.
+    expect(slots[0]).toBeNull();
+    expect(slots.slice(1).every((slot) => slot === "0x0")).toBe(true);
+    // The same body, complete, is what the prover client posts.
+    const posted = vi.fn<typeof globalThis.fetch>(async (_url, init) => {
+      const sent = JSON.parse(String(init?.body)) as { inputs: { nullifierSecret: unknown }[] };
+      expect(sent.inputs[0]?.nullifierSecret).toMatch(/^0x[0-9a-f]+$/u);
+      expect(sent.inputs[0]?.nullifierSecret).not.toBe("0x0");
+      return new Response(JSON.stringify(STANDARD_PROOF), {
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const instance = client(posted);
+    await LocalKeys.fromKeypair(fixture.keypair, instance.proofService).prove(
+      assembled.proverInputs,
+    );
+    expect(posted).toHaveBeenCalledOnce();
   });
 
   it("refuses to prove an own input whose keys left the nullifier secret out", async () => {

@@ -26,7 +26,13 @@ export type {
   HasherErrorCode,
   RetryErrorCause,
 } from "./error.js";
-export type { AsyncPollConfig, ProverHealth } from "./prover/client.js";
+export {
+  mergeProverRequestBody,
+  proverRequestBody,
+  type AsyncPollConfig,
+  type ProverHealth,
+  type ProverRequestBody,
+} from "./prover/client.js";
 export { CUSTOM_RING_PROOF_LENGTH, compressProof, parseProof } from "./prover/proof.js";
 export type {
   CustomRingProofRequest,

@@ -100,11 +100,15 @@ export class ProverClient {
   }
 
   async prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
-    return this.#send(JSON.stringify(proverRequest(inputs)), "inResponse", context);
+    return this.#send(JSON.stringify(proverRequest(inputs, completeSecret)), "inResponse", context);
   }
 
   async proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
-    return this.#send(JSON.stringify(mergeProverRequest(inputs)), "inResponse", context);
+    return this.#send(
+      JSON.stringify(mergeProverRequest(inputs, completeSecret)),
+      "inResponse",
+      context,
+    );
   }
 
   async proveCustomRing(inputs: CustomRingProofRequest, context?: RequestContext): Promise<Proof> {
@@ -308,7 +312,31 @@ export class ProverClient {
   }
 }
 
-function mergeProverRequest(inputs: MergeInputs): Readonly<Record<string, unknown>> {
+/** The JSON body the prover accepts; every field a hex string but the slot counts. */
+export type ProverRequestBody = Readonly<Record<string, unknown>>;
+
+/** How a nullifier secret slot is written: the prover client requires it, a holder's transport leaves it open. */
+type SecretEncoder = (secret: Field | undefined) => string | null;
+
+const completeSecret: SecretEncoder = (secret) => hex(requireSecret(secret));
+const pendingSecret: SecretEncoder = (secret) => (secret === undefined ? null : hex(secret));
+
+/**
+ * The body `ProofService.prove` would post, with `null` in every nullifier
+ * secret slot a `ProofAuthority` has yet to fill: what a remote key holder is
+ * sent, to complete and forward to its prover. `ProverClient` itself refuses
+ * a body with a slot still open.
+ */
+export function proverRequestBody(inputs: ProverInputs): ProverRequestBody {
+  return proverRequest(inputs, pendingSecret);
+}
+
+/** The merge counterpart of `proverRequestBody`. */
+export function mergeProverRequestBody(inputs: MergeInputs): ProverRequestBody {
+  return mergeProverRequest(inputs, pendingSecret);
+}
+
+function mergeProverRequest(inputs: MergeInputs, secret: SecretEncoder): ProverRequestBody {
   return Object.freeze({
     circuitType: "merge",
     inputs: inputs.inputs.map(mergeInputJson),
@@ -316,7 +344,7 @@ function mergeProverRequest(inputs: MergeInputs): Readonly<Record<string, unknow
     asset: hex(inputs.output.circuit.asset),
     ownerPkHash: hex(inputs.ownerPublicKeyHash),
     userNullifierPk: hex(inputs.userNullifierPublicKey),
-    userNullifierSecret: hex(requireSecret(inputs.userNullifierSecret)),
+    userNullifierSecret: secret(inputs.userNullifierSecret),
     externalDataHash: hex(inputs.externalDataHash),
     privateTxHash: hex(inputs.privateTxHash),
     publicInputHash: hex(inputs.publicInputHash),
@@ -375,13 +403,13 @@ export function customRingProofRequest(
   });
 }
 
-function proverRequest(inputs: ProverInputs): Readonly<Record<string, unknown>> {
+function proverRequest(inputs: ProverInputs, secret: SecretEncoder): ProverRequestBody {
   const payload = inputs.payload;
   return Object.freeze({
     circuitType: inputs.circuit === "transferRing" ? "transfer-ring" : "transfer-confidential",
     nInputs: payload.inputs.length,
     nOutputs: payload.outputs.length,
-    inputs: payload.inputs.map(inputJson),
+    inputs: payload.inputs.map((input) => inputJson(input, secret)),
     outputs: payload.outputs.map(outputJson),
     externalDataHash: hex(payload.externalDataHash),
     privateTxHash: hex(payload.privateTxHash),
@@ -395,7 +423,7 @@ function proverRequest(inputs: ProverInputs): Readonly<Record<string, unknown>> 
   });
 }
 
-function inputJson(input: TransferInput): Readonly<Record<string, unknown>> {
+function inputJson(input: TransferInput, secret: SecretEncoder): Readonly<Record<string, unknown>> {
   return Object.freeze({
     utxo: utxoJson(input),
     isDummy: hex(input.isDummy),
@@ -409,7 +437,7 @@ function inputJson(input: TransferInput): Readonly<Record<string, unknown>> {
     nullifierTreeRoot: hex(input.nullifierTreeRoot),
     nullifier: hex(input.nullifier),
     ownerPkHash: hex(input.ownerPublicKeyHash),
-    nullifierSecret: hex(requireSecret(input.nullifierSecret)),
+    nullifierSecret: secret(input.nullifierSecret),
   });
 }
 

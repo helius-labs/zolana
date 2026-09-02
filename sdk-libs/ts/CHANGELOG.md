@@ -70,9 +70,12 @@ Added
   under the per-transaction key `ShieldedKeys.transactionKeys` returns.
 - `approveUnattended` is the default `ApprovalHandler`, and `checkKeysIdentity`
   refuses keys that do not describe a wallet's address.
+- `proverRequestBody(inputs)` and `mergeProverRequestBody(inputs)` return the
+  prover's request body with `null` in every nullifier secret slot a key
+  holder has yet to fill, for a remote `ProofAuthority` to send it.
 - `DecryptRequest`, `DeriveRequest`, `TransactionKeyRequest`, `DecryptLabel`,
-  `ProofService`, `ProverInputs`, and `MergeInputs` are exported for key holder
-  implementations.
+  `ProofService`, `ProverInputs`, `MergeInputs`, and `ProverRequestBody` are
+  exported for key holder implementations.
 
 Changed
 
