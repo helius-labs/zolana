@@ -249,7 +249,7 @@ impl<D> LocalnetHarness<D> {
         let merge_key = Keypair::new();
         let tree_key = Keypair::new();
         let ring_key = Keypair::new();
-        rpc.airdrop(&payer.pubkey(), 100_000_000_000)?;
+        rpc.airdrop(&payer.pubkey(), 500_000_000_000)?;
         rpc.airdrop(&authority.pubkey(), 1_000_000_000)?;
         rpc.airdrop(&forester_key.pubkey(), 1_000_000_000)?;
         rpc.airdrop(&merge_key.pubkey(), 1_000_000_000)?;
