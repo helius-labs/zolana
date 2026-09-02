@@ -112,7 +112,10 @@ fn a_policy_ring_cannot_spend_through_the_audit_layout() {
         initialized_config_account(authority(), auditor_pubkey(2)),
         transact_body(0, 0),
     );
-    fixture.expect_err(&mollusk, custom(CustomRingError::PolicyConfigNotInitialized));
+    fixture.expect_err(
+        &mollusk,
+        custom(CustomRingError::PolicyConfigNotInitialized),
+    );
 }
 
 /// The stored hash is what a rebuilt table must reproduce.
@@ -152,7 +155,10 @@ fn an_uninitialized_policy_config_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = policy_fixture(0, 0);
     fixture.set_account("policy_config", account(0));
-    fixture.expect_err(&mollusk, custom(CustomRingError::PolicyConfigNotInitialized));
+    fixture.expect_err(
+        &mollusk,
+        custom(CustomRingError::PolicyConfigNotInitialized),
+    );
 }
 
 /// A nullifier root the entries tree has not written is stale and the transact

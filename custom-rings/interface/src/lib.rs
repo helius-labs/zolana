@@ -2,12 +2,12 @@
 //! custom ring program, shared by the program, the SDK, and the services.
 
 pub mod audit;
+#[cfg(feature = "verifying-keys")]
+pub mod audit_verifying_key;
 pub mod instruction;
 pub mod public_input;
 pub mod rules;
 pub mod state;
-#[cfg(feature = "verifying-keys")]
-pub mod audit_verifying_key;
 #[cfg(feature = "verifying-keys")]
 pub mod verifying_key;
 
