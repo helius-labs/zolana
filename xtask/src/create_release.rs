@@ -153,6 +153,16 @@ const RING_PROGRAM_SOURCE: ProgramSource = ProgramSource {
     asset_stem: "custom-ring-program",
 };
 
+/// The rules-configured build a policy ring deploys, from the featured deploy dir.
+const RING_PROGRAM_POLICY_SOURCE: ProgramSource = ProgramSource {
+    role: "ring_program_policy",
+    file: "custom_ring_program.so",
+    asset_stem: "custom-ring-program-policy",
+};
+
+/// The featured deploy dir `just build-programs` writes the policy build into.
+const RING_POLICY_DEPLOY_DIR: &str = "target/deploy-ring-rules";
+
 pub fn run(options: Options) -> Result<()> {
     let (os, arch) = current_platform()?;
     let staging = &options.staging_dir;
@@ -243,6 +253,10 @@ fn custom_rings_lock(options: &Options, staging: &Path, host: (&str, &str)) -> R
     let path = options.deploy_dir.join(RING_PROGRAM_SOURCE.file);
     require_file(&path, "run `just build-programs` first")?;
     let repo = repo_root()?;
+    let policy_path = repo
+        .join(RING_POLICY_DEPLOY_DIR)
+        .join(RING_PROGRAM_POLICY_SOURCE.file);
+    require_file(&policy_path, "run `just build-programs` first")?;
     let key_source = repo.join(RING_PROVING_KEY_SOURCE);
     require_file(
         &key_source,
@@ -266,6 +280,8 @@ fn custom_rings_lock(options: &Options, staging: &Path, host: (&str, &str)) -> R
     Ok(json!({
         "release_tag": options.tag,
         "ring_program": stage_program(&RING_PROGRAM_SOURCE, &path, &options.tag, staging)?,
+        "ring_program_policy":
+            stage_program(&RING_PROGRAM_POLICY_SOURCE, &policy_path, &options.tag, staging)?,
         "proving_key": {
             "asset": key_asset,
             "size": key_staged.size,
@@ -620,7 +636,12 @@ fn staged_asset_paths(staging: &Path, lock: &Value) -> Vec<PathBuf> {
     if let Some(programs) = lock.get("programs").and_then(Value::as_array) {
         names.extend(programs.iter().filter_map(asset_name));
     }
-    for key in ["ring_program", "proving_key", "accounts"] {
+    for key in [
+        "ring_program",
+        "ring_program_policy",
+        "proving_key",
+        "accounts",
+    ] {
         if let Some(name) = lock.get(key).and_then(asset_name) {
             names.push(name);
         }
