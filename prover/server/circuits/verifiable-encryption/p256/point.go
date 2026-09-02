@@ -6,10 +6,16 @@
 package p256
 
 import (
+	"math/big"
+
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/algebra/emulated/sw_emulated"
 	"github.com/consensys/gnark/std/math/emulated"
 )
+
+func GroupOrder() *big.Int {
+	return new(big.Int).Set(emulated.P256Fr{}.Modulus())
+}
 
 // bytesToLimb converts 8 big-endian bytes (frontend.Variables) into a single
 // 64-bit native field value.
@@ -57,7 +63,10 @@ func bytesToEmulatedFr(api frontend.API, bytes []frontend.Variable) *emulated.El
 	if err != nil {
 		panic(err)
 	}
-	return field.NewElement(limbs)
+	elem := field.NewElement(limbs)
+	// 0 and n map to the point at infinity, a key no host ECDH can match.
+	field.AssertIsDifferent(elem, field.Zero())
+	return elem
 }
 
 // bitsToBytes converts MSB-first bits to big-endian bytes.
