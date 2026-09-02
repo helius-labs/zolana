@@ -1219,6 +1219,29 @@ func (handler proveHandler) mergeRingProof(buf []byte) (*common.Proof, *Error) {
 }
 
 func (handler proveHandler) customRingProof(buf []byte) (*common.Proof, *Error) {
+	var meta struct {
+		Variant string `json:"variant"`
+	}
+	if err := json.Unmarshal(buf, &meta); err != nil {
+		return nil, malformedBodyError(err)
+	}
+
+	if meta.Variant == customring.AuditVariant {
+		var params customring.AuditParameters
+		if err := json.Unmarshal(buf, &params); err != nil {
+			return nil, malformedBodyError(err)
+		}
+		ps, err := handler.keyManager.GetRingSystem(common.CustomRingCircuitType, customring.AuditVariant)
+		if err != nil {
+			return nil, provingError(fmt.Errorf("custom-ring audit: %w", err))
+		}
+		proof, err := customring.ProveAudit(ps, &params)
+		if err != nil {
+			return nil, provingError(errors.New("custom ring proof failed"))
+		}
+		return proof, nil
+	}
+
 	var params customring.CustomRingParameters
 	if err := json.Unmarshal(buf, &params); err != nil {
 		return nil, malformedBodyError(err)
