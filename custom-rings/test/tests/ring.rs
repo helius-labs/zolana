@@ -1232,6 +1232,108 @@ fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
     Ok(())
 }
 
+/// The money output tree is free of the pinned entries tree, output lands in a
+/// third tree while the policy roots stay bound to the entries tree.
+#[test]
+fn a_transfer_outputs_apart_from_the_entries_tree() -> Result<()> {
+    let mut env = setup()?;
+    let rpc = env.client.rpc();
+    let indexer = env.client.indexer();
+    let ring_program = custom_ring_program_id()?;
+    let ring = CustomRing::new(ring_program);
+    let auditor = ViewingKey::new();
+    let auditor_tag = auditor_view_tag(&auditor.pubkey());
+    let prover = ProverClient::local();
+
+    // Three distinct trees, the entries tree the policy roots bind stays env.tree
+    // while the money moves between two other trees.
+    let input_tree = env.create_registered_tree()?;
+    let output_tree = env.create_registered_tree()?;
+    assert_ne!(input_tree, env.tree);
+    assert_ne!(output_tree, env.tree);
+    assert_ne!(input_tree, output_tree);
+
+    RegisterRing {
+        ring,
+        payer: &env.payer,
+        auditor_pubkey: auditor.pubkey(),
+        entries_tree: env.tree,
+        has_policy: true,
+    }
+    .send(rpc)?;
+
+    let sender = &env.sender.keypair;
+    let recipient = &env.recipient.keypair;
+    let RingDepositReceipt { utxo, .. } = RingDeposit {
+        ring,
+        payer: sender,
+        recipient: sender,
+        tree: input_tree,
+        amount: DEFAULT_DEPOSIT,
+    }
+    .send(rpc)?;
+    wait_for_merkle_proof(
+        indexer,
+        input_tree,
+        SppProofInputUtxo::new(utxo.clone(), sender).hash()?,
+    );
+
+    let mut transfer = ConfidentialTransfer::new(
+        sender.shielded_address()?,
+        vec![SppProofInputUtxo::new(utxo, sender)],
+        sender.pubkey(),
+    )
+    .with_compact_change()
+    .with_ring_program_id(ring_program);
+    transfer.send(&recipient.shielded_address()?, SOL_MINT, ENTRY_AMOUNT)?;
+    let prepared = transfer.prepare()?;
+    let proven = CustomRingTransfer::new(CustomRingTransferInput {
+        ring,
+        sender,
+        prepared,
+    })
+    .with_tree(input_tree)
+    .with_output_tree(output_tree)
+    .with_assets(&env.assets)
+    .prove(TransferProofEnvironment {
+        indexer,
+        rpc,
+        prover: &prover,
+    })?;
+    let signature = V0WithLookupTable {
+        payer: sender,
+        signers: &[],
+        instruction: proven.instruction()?,
+    }
+    .send(rpc)?;
+    let indexed = wait_for_indexed_transaction(indexer, auditor_tag, signature);
+    assert_eq!(indexed.nullifiers.len(), 1, "the input note is spent");
+
+    let recipient_authority = KeypairWalletAuthority::new(Address::default(), recipient);
+    env.recipient.wallet.sync(
+        &recipient_authority,
+        std::slice::from_ref(&indexed),
+        0,
+        DEFAULT_TAG_WINDOW,
+    )?;
+    let received = env
+        .recipient
+        .wallet
+        .utxos
+        .iter()
+        .find(|held| !held.spent && held.utxo.amount == ENTRY_AMOUNT)
+        .map(|held| held.utxo.clone())
+        .ok_or_else(|| anyhow!("recipient output"))?;
+    // The output leaf is provable against output_tree, not the entries tree.
+    wait_for_merkle_proof(
+        indexer,
+        output_tree,
+        SppProofInputUtxo::new(received, recipient).hash()?,
+    );
+
+    Ok(())
+}
+
 fn lamports<R: Rpc>(rpc: &R, address: Address) -> Result<u64> {
     Ok(rpc
         .get_account(address)?
