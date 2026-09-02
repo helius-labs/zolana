@@ -40,7 +40,7 @@ and reports two functions:
 - `apply_cached_tree_updates` (19,978 CU): the 120-entry cascade, ~166 CU
   per applied zkp batch. Each apply advances `next_index`, appends a root to the
   root-history ring, marks the zkp batch inserted, and clears its cached update.
-  The final apply advances `close_before_index` from the completed batch's start
+  The final apply advances `close_before_index` to the completed batch's start
   index; no root-history slots or bloom-filter slices are zeroed. The cascade
   re-verifies no proofs; the submit path already did.
 - `bench_batch_address_update` net (96,047 CU): the index-0 submit path,

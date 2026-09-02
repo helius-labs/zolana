@@ -245,13 +245,10 @@ impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
             return Ok(());
         }
 
-        let pending_batch = self.get_pending_batch()?;
-        self.close_before_index = self.close_before_index.max(
-            pending_batch
-                .start_index
-                .checked_sub(1)
-                .ok_or(NullifierTreeError::ArithmeticOverflow)?,
-        );
+        // The fully applied batch's roots have overwritten every older root, so
+        // every PDA below its first leaf is contained in all accepted roots.
+        let start_index = self.get_pending_batch()?.start_index;
+        self.close_before_index = self.close_before_index.max(start_index);
         Ok(())
     }
 

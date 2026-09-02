@@ -226,7 +226,8 @@ pub fn run(config: &ForesterConfig, opts: CloseNullifierPdasOptions) -> Result<(
     );
 
     let mut submitted_total = 0u64;
-    let mut scan_from = opts.from_seq;
+    // Queue sequences start at 1; a lower start would only trip the gap check.
+    let mut scan_from = opts.from_seq.max(1);
     loop {
         let remaining = opts
             .max_transactions

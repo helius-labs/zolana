@@ -55,6 +55,7 @@ signing as a member. Batch storage may be reused before that point.
 `--watch` repeats with `--poll-secs` between passes and only rescans sequences
 it has not already closed. On restart, pass the last completed watermark via
 `--from-seq` (and persist it in the process supervisor) to avoid rescanning from
-zero. Failed watch passes retain their scan watermark and retry instead of
-terminating the daemon. `info` prints `close_before_index` and a per-batch
-`reclaimable` flag so the remaining cleanup work is visible without a payer key.
+the first sequence (queue sequences start at 1). Failed watch passes retain
+their scan watermark and retry instead of terminating the daemon. `info` prints
+`close_before_index` and a per-batch `reclaimable` flag so the remaining cleanup
+work is visible without a payer key.

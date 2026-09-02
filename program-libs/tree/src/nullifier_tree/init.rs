@@ -69,7 +69,9 @@ impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
         self.zkp_batch_size = input_queue_zkp_batch_size;
         self.currently_processing_batch_index = 0;
         self.pending_batch_index = 0;
-        self.queue_next_index = 0;
+        // A queue index is the leaf index its value takes once appended, so
+        // the queue starts at the first free leaf and zero is never issued.
+        self.queue_next_index = self.next_index;
         for (batch, batch_start_index) in self
             .batches
             .iter_mut()

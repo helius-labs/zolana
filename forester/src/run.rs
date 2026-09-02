@@ -394,10 +394,15 @@ fn collect_nullifier_pages(
     mut fetch_page: impl FnMut(u64, u64) -> Result<Vec<(u64, [u8; 32])>>,
 ) -> Result<Vec<[u8; 32]>> {
     let mut values = Vec::new();
-    let mut next_seq = 0u64;
+    // Queue sequences equal leaf indices and start at 1, so the first
+    // `fetch_total` values occupy sequences `1..=fetch_total`.
+    let mut next_seq = 1u64;
+    let end_seq = fetch_total
+        .checked_add(1)
+        .ok_or_else(|| anyhow!("queued nullifier sequence overflow"))?;
 
-    while next_seq < fetch_total {
-        let page_limit = (fetch_total - next_seq).min(PAGE_LIMIT);
+    while next_seq < end_seq {
+        let page_limit = (end_seq - next_seq).min(PAGE_LIMIT);
         let page = fetch_page(next_seq, page_limit)?;
         let returned =
             u64::try_from(page.len()).map_err(|_| anyhow!("photon page length exceeds u64"))?;
@@ -921,13 +926,13 @@ mod tests {
         assert_eq!(
             requests,
             vec![
-                (0, PAGE_LIMIT),
-                (PAGE_LIMIT, PAGE_LIMIT),
-                (PAGE_LIMIT * 2, 7)
+                (1, PAGE_LIMIT),
+                (1 + PAGE_LIMIT, PAGE_LIMIT),
+                (1 + PAGE_LIMIT * 2, 7)
             ]
         );
         assert_eq!(values.len(), usize::try_from(total).unwrap());
-        assert_eq!(values.last().unwrap()[24..], (total - 1).to_be_bytes());
+        assert_eq!(values.last().unwrap()[24..], total.to_be_bytes());
     }
 
     #[test]

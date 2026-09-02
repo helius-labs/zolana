@@ -1324,7 +1324,7 @@ fn transact_rejects_dummy_inputs_after_capacity_threshold() {
                 .get_current_batch_mut()
                 .expect("current nullifier batch")
                 .start_index = next_leaf;
-            nullifier.queue_next_index = next_leaf - 1;
+            nullifier.queue_next_index = next_leaf;
         }
         assert!(
             !on_chain.allow_dummy_inputs().expect("dummy-input policy"),

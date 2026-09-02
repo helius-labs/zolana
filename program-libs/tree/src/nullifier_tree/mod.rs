@@ -53,10 +53,12 @@
 //!
 //! **Reclaimable batches and `close_before_index`:** Once a batch is fully
 //! applied (`Inserted`), its roots have overwritten every older root in the
-//! history, and the watermark `w` advances to that batch's `start_index - 1`.
+//! history, and the watermark `w` advances to that batch's `start_index`.
 //! An `Inserted` batch is reused immediately; reclaimability gates nullifier
 //! PDA cleanup, not batch storage reuse. A nullifier PDA may be closed only
-//! once `NullifierPda.queue_index < w`.
+//! once `NullifierPda.queue_index < w`. Queue indices equal the leaf index the
+//! value takes and start at 1, so a zero `queue_index` never names a queued
+//! nullifier.
 //!
 //! ## Testing
 //!

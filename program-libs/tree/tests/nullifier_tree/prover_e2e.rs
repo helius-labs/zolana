@@ -363,7 +363,7 @@ fn nullifier_tree_fills_root_history_with_random_submit_order() {
             forester.reference.root(),
             "on-chain root diverged from the reference tree"
         );
-        assert_eq!(account.close_before_index, (cycle * batch_size) as u64);
+        assert_eq!(account.close_before_index, 1 + (cycle * batch_size) as u64);
         updates += prepared.len();
     }
 

@@ -39,9 +39,14 @@ pub struct NullifierTreeLayout<const ZKP_BATCHES: usize> {
     pub zkp_batch_size: u64,
     /// Next batch to be inserted into the tree.
     pub pending_batch_index: u64,
-    /// Queue index the next queued value takes. The queue is ahead of or equal
-    /// to the tree: values are queued before they are applied to the tree.
+    /// Queue index the next queued value takes, equal to the leaf index it
+    /// will occupy. Starts at 1 because leaf 0 is the init sentinel, so a
+    /// queued value never has index 0. The queue is ahead of or equal to the
+    /// tree: values are queued before they are applied to the tree.
     pub queue_next_index: u64,
+    /// Exclusive watermark: a nullifier PDA with `queue_index` below it may be
+    /// closed. Advances to a batch's `start_index` once that batch is fully
+    /// applied.
     pub close_before_index: u64,
     pub root_history: RootHistory<ZKP_BATCHES>,
     pub batches: [Batch<ZKP_BATCHES>; NUM_BATCHES],

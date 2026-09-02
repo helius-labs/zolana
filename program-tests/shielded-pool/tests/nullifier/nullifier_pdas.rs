@@ -358,7 +358,7 @@ fn transact_rejects_a_pending_nullifier() {
     let data = transfer_ix_data(2, 3);
     let nullifiers = nullifiers_of(&data);
     let pending = *nullifiers.first().expect("first nullifier");
-    queue_nullifier_pda(&mut env, &pending, 0);
+    queue_nullifier_pda(&mut env, &pending, 1);
 
     let ix = transact_instruction(&env, data);
     expect_transact_rejection(
@@ -366,7 +366,7 @@ fn transact_rejects_a_pending_nullifier() {
         ix,
         Rejection::pool(ShieldedPoolError::NullifierAlreadyQueued),
     );
-    assert_nullifier_pda(&env.rpc, &env.tree, &pending, 0).expect("pending nullifier PDA");
+    assert_nullifier_pda(&env.rpc, &env.tree, &pending, 1).expect("pending nullifier PDA");
     assert_nullifier_pdas_absent(
         &env.rpc,
         &env.tree,
@@ -510,8 +510,8 @@ fn transact_rejects_when_working_capital_would_borrow_from_the_fee_pool() {
 fn close_rejects_a_non_forester_authority() {
     let mut env = Pool::initialized();
     let nullifier = fe(1);
-    queue_nullifier_pda(&mut env, &nullifier, 0);
-    set_close_before_index(&mut env, 1);
+    queue_nullifier_pda(&mut env, &nullifier, 1);
+    set_close_before_index(&mut env, 2);
     let intruder = env.funded_signer(1_000_000_000);
     let tree_before = tree_account(&env);
 
@@ -539,15 +539,15 @@ fn close_rejects_a_non_forester_authority() {
         tree_before,
         "rejected close must leave the tree untouched"
     );
-    assert_nullifier_pda(&env.rpc, &env.tree, &nullifier, 0).expect("nullifier PDA kept");
+    assert_nullifier_pda(&env.rpc, &env.tree, &nullifier, 1).expect("nullifier PDA kept");
 }
 
 #[test]
 fn close_rejects_an_unsigned_authority() {
     let mut env = Pool::initialized();
     let nullifier = fe(1);
-    queue_nullifier_pda(&mut env, &nullifier, 0);
-    set_close_before_index(&mut env, 1);
+    queue_nullifier_pda(&mut env, &nullifier, 1);
+    set_close_before_index(&mut env, 2);
 
     let mut ix = close_instruction(&env, vec![nullifier]);
     ix.accounts.first_mut().expect("authority meta").is_signer = false;
@@ -556,14 +556,14 @@ fn close_rejects_an_unsigned_authority() {
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("an unsigned forester authority must be rejected");
     Rejection::custom(u32::from(AccountError::InvalidSigner)).assert_litesvm(error);
-    assert_nullifier_pda(&env.rpc, &env.tree, &nullifier, 0).expect("nullifier PDA kept");
+    assert_nullifier_pda(&env.rpc, &env.tree, &nullifier, 1).expect("nullifier PDA kept");
 }
 
 #[test]
 fn close_rejects_nullifier_pda_before_batch_is_reclaimable() {
     let mut env = Pool::initialized();
     let nullifier = fe(1);
-    queue_nullifier_pda(&mut env, &nullifier, 0);
+    queue_nullifier_pda(&mut env, &nullifier, 1);
     assert_eq!(
         tree_close_before_index(&env.rpc, &env.tree).expect("close_before_index"),
         0,
@@ -576,7 +576,7 @@ fn close_rejects_nullifier_pda_before_batch_is_reclaimable() {
         ix,
         Rejection::pool(ShieldedPoolError::NullifierPdaNotClosable),
     );
-    assert_nullifier_pda(&env.rpc, &env.tree, &nullifier, 0).expect("nullifier PDA kept");
+    assert_nullifier_pda(&env.rpc, &env.tree, &nullifier, 1).expect("nullifier PDA kept");
 }
 
 #[test]
@@ -617,8 +617,8 @@ fn close_honours_the_watermark_boundary() {
 fn close_returns_nullifier_pda_rent_to_the_tree() {
     let mut env = Pool::initialized();
     let nullifiers = [fe(1), fe(2), fe(3)];
-    queue_nullifier_pdas(&mut env, &nullifiers, 0);
-    set_close_before_index(&mut env, 3);
+    queue_nullifier_pdas(&mut env, &nullifiers, 1);
+    set_close_before_index(&mut env, 4);
     let tree_before = tree_account(&env);
 
     let ix = close_instruction(&env, nullifiers.to_vec());
@@ -632,8 +632,8 @@ fn close_returns_nullifier_pda_rent_to_the_tree() {
 }
 
 fn close_funded(env: &mut Pool, fee_balance: u64, nullifiers: &[[u8; 32]]) -> u64 {
-    queue_nullifier_pdas(env, nullifiers, 0);
-    set_close_before_index(env, nullifiers.len() as u64);
+    queue_nullifier_pdas(env, nullifiers, 1);
+    set_close_before_index(env, 1 + nullifiers.len() as u64);
     fund_fee_balance(env, fee_balance);
     let tree_before = tree_account(env);
     let payer_before = env
@@ -717,8 +717,8 @@ fn close_with_a_zero_schedule_pays_nothing_and_still_closes() {
 fn close_rejects_a_program_owned_reimbursement_recipient() {
     let mut env = Pool::initialized();
     let nullifiers = [fe(1), fe(2)];
-    queue_nullifier_pdas(&mut env, &nullifiers, 0);
-    set_close_before_index(&mut env, 2);
+    queue_nullifier_pdas(&mut env, &nullifiers, 1);
+    set_close_before_index(&mut env, 3);
     fund_fee_balance(&mut env, 1_000_000);
     let open_nullifier_pda = pda::nullifier_pda(&env.tree, &fe(2)).0;
 
@@ -738,8 +738,8 @@ fn close_rejects_a_program_owned_reimbursement_recipient() {
 fn close_pays_a_recipient_other_than_the_payer() {
     let mut env = Pool::initialized();
     let nullifiers = [fe(1), fe(2)];
-    queue_nullifier_pdas(&mut env, &nullifiers, 0);
-    set_close_before_index(&mut env, 2);
+    queue_nullifier_pdas(&mut env, &nullifiers, 1);
+    set_close_before_index(&mut env, 3);
     fund_fee_balance(&mut env, 1_000_000);
     let recipient = funded_system_account(&mut env);
     let recipient_before = env.rpc.svm.get_account(&recipient).expect("recipient");
@@ -768,8 +768,8 @@ fn closed_nullifier_pda_does_not_make_an_obsolete_root_spendable_again() {
     let mut env = Pool::initialized();
     let data = transfer_ix_data(2, 3);
     let nullifiers = nullifiers_of(&data);
-    queue_nullifier_pdas(&mut env, &nullifiers, 0);
-    set_synthetic_watermark_and_zero_root(&mut env, nullifiers.len() as u64, 0);
+    queue_nullifier_pdas(&mut env, &nullifiers, 1);
+    set_synthetic_watermark_and_zero_root(&mut env, 1 + nullifiers.len() as u64, 0);
 
     let ix = close_instruction(&env, nullifiers.clone());
     send_close(&mut env, ix).expect("close nullifier PDAs below the reclaim watermark");
@@ -790,8 +790,8 @@ fn closed_nullifier_pda_does_not_make_an_obsolete_root_spendable_again() {
 fn close_is_atomic_across_nullifier_pdas() {
     let mut env = Pool::initialized();
     let nullifiers = [fe(1), fe(2), fe(3)];
-    queue_nullifier_pdas(&mut env, &nullifiers, 0);
-    set_close_before_index(&mut env, 2);
+    queue_nullifier_pdas(&mut env, &nullifiers, 1);
+    set_close_before_index(&mut env, 3);
 
     let ix = close_instruction(&env, nullifiers.to_vec());
     expect_close_rejection(
@@ -799,7 +799,7 @@ fn close_is_atomic_across_nullifier_pdas() {
         ix,
         Rejection::pool(ShieldedPoolError::NullifierPdaNotClosable),
     );
-    for (nullifier, queue_index) in nullifiers.iter().zip(0..) {
+    for (nullifier, queue_index) in nullifiers.iter().zip(1..) {
         assert_nullifier_pda(&env.rpc, &env.tree, nullifier, queue_index)
             .expect("no nullifier PDA closed by a rejected batch");
     }
@@ -809,8 +809,8 @@ fn close_is_atomic_across_nullifier_pdas() {
 fn close_accepts_nullifier_pdas_in_any_order() {
     let mut env = Pool::initialized();
     let nullifiers = [fe(1), fe(2)];
-    queue_nullifier_pdas(&mut env, &nullifiers, 0);
-    set_close_before_index(&mut env, 2);
+    queue_nullifier_pdas(&mut env, &nullifiers, 1);
+    set_close_before_index(&mut env, 3);
     let mut ix = close_instruction(&env, nullifiers.to_vec());
     ix.accounts
         .swap(CLOSE_NULLIFIER_PDA_OFFSET, CLOSE_NULLIFIER_PDA_OFFSET + 1);
@@ -829,12 +829,12 @@ fn close_rejects_a_nullifier_pda_of_another_tree() {
         &mut env,
         &nullifier,
         NullifierPda {
-            queue_index: 0,
+            queue_index: 1,
             tree_id: 1,
         },
         rent,
     );
-    set_close_before_index(&mut env, 1);
+    set_close_before_index(&mut env, 2);
 
     let ix = close_instruction(&env, vec![nullifier]);
     expect_close_rejection(
@@ -848,7 +848,7 @@ fn close_rejects_a_nullifier_pda_of_another_tree() {
 fn close_rejects_a_non_nullifier_pda_account() {
     let mut env = Pool::initialized();
     let nullifier = fe(1);
-    set_close_before_index(&mut env, 1);
+    set_close_before_index(&mut env, 2);
     let system_owned = funded_system_account(&mut env);
     let tree = env.tree;
 
@@ -866,12 +866,39 @@ fn close_rejects_a_non_nullifier_pda_account() {
     }
 }
 
+/// A program-owned ten-byte account the program never wrote decodes as an
+/// all-zero record. Queue indices start at 1, so a zero `queue_index` is
+/// rejected even though `tree_id` matches and the watermark is above it.
+#[test]
+fn close_rejects_a_zero_queue_index_record() {
+    let mut env = Pool::initialized();
+    let nullifier = fe(1);
+    let rent = pool_nullifier_pda_rent(&env);
+    write_nullifier_pda_account(
+        &mut env,
+        &nullifier,
+        NullifierPda {
+            queue_index: 0,
+            tree_id: 0,
+        },
+        rent,
+    );
+    set_close_before_index(&mut env, 2);
+
+    let ix = close_instruction(&env, vec![nullifier]);
+    expect_close_rejection(
+        &mut env,
+        ix,
+        Rejection::pool(ShieldedPoolError::InvalidNullifierPda),
+    );
+}
+
 #[test]
 fn close_rejects_a_read_only_nullifier_pda_meta() {
     let mut env = Pool::initialized();
     let nullifier = fe(1);
-    queue_nullifier_pda(&mut env, &nullifier, 0);
-    set_close_before_index(&mut env, 1);
+    queue_nullifier_pda(&mut env, &nullifier, 1);
+    set_close_before_index(&mut env, 2);
     let mut ix = close_instruction(&env, vec![nullifier]);
     ix.accounts
         .get_mut(CLOSE_NULLIFIER_PDA_OFFSET)
@@ -889,8 +916,8 @@ fn close_rejects_a_read_only_nullifier_pda_meta() {
 fn close_rejects_the_same_nullifier_pda_twice_in_one_instruction() {
     let mut env = Pool::initialized();
     let nullifier = fe(1);
-    queue_nullifier_pda(&mut env, &nullifier, 0);
-    set_close_before_index(&mut env, 1);
+    queue_nullifier_pda(&mut env, &nullifier, 1);
+    set_close_before_index(&mut env, 2);
 
     let ix = close_instruction(&env, vec![nullifier, nullifier]);
     expect_close_rejection(
@@ -898,7 +925,7 @@ fn close_rejects_the_same_nullifier_pda_twice_in_one_instruction() {
         ix,
         Rejection::pool(ShieldedPoolError::InvalidNullifierPda),
     );
-    assert_nullifier_pda(&env.rpc, &env.tree, &nullifier, 0).expect("nullifier PDA kept");
+    assert_nullifier_pda(&env.rpc, &env.tree, &nullifier, 1).expect("nullifier PDA kept");
 }
 
 #[test]
@@ -917,8 +944,8 @@ fn close_rejects_an_empty_nullifier_list() {
 fn close_rejects_a_trailing_non_nullifier_account() {
     let mut env = Pool::initialized();
     let nullifier = fe(1);
-    queue_nullifier_pda(&mut env, &nullifier, 0);
-    set_close_before_index(&mut env, 1);
+    queue_nullifier_pda(&mut env, &nullifier, 1);
+    set_close_before_index(&mut env, 2);
     let extra = funded_system_account(&mut env);
     let mut ix = close_instruction(&env, vec![nullifier]);
     ix.accounts.push(AccountMeta::new(extra, false));
@@ -928,15 +955,15 @@ fn close_rejects_a_trailing_non_nullifier_account() {
         ix,
         Rejection::pool(ShieldedPoolError::InvalidNullifierPda),
     );
-    assert_nullifier_pda(&env.rpc, &env.tree, &nullifier, 0).expect("nullifier PDA kept");
+    assert_nullifier_pda(&env.rpc, &env.tree, &nullifier, 1).expect("nullifier PDA kept");
 }
 
 #[test]
 fn close_rejects_a_paused_tree() {
     let mut env = Pool::initialized();
     let nullifier = fe(1);
-    queue_nullifier_pda(&mut env, &nullifier, 0);
-    set_close_before_index(&mut env, 1);
+    queue_nullifier_pda(&mut env, &nullifier, 1);
+    set_close_before_index(&mut env, 2);
     let authority = env.authority.insecure_clone();
     env.rpc
         .pause_tree(&authority, &env.tree, true)
@@ -944,15 +971,15 @@ fn close_rejects_a_paused_tree() {
 
     let ix = close_instruction(&env, vec![nullifier]);
     expect_close_rejection(&mut env, ix, Rejection::pool(ShieldedPoolError::TreePaused));
-    assert_nullifier_pda(&env.rpc, &env.tree, &nullifier, 0).expect("nullifier PDA kept");
+    assert_nullifier_pda(&env.rpc, &env.tree, &nullifier, 1).expect("nullifier PDA kept");
 }
 
 #[test]
 fn close_rejects_a_read_only_tree_meta() {
     let mut env = Pool::initialized();
     let nullifier = fe(1);
-    queue_nullifier_pda(&mut env, &nullifier, 0);
-    set_close_before_index(&mut env, 1);
+    queue_nullifier_pda(&mut env, &nullifier, 1);
+    set_close_before_index(&mut env, 2);
     let mut ix = close_instruction(&env, vec![nullifier]);
     ix.accounts
         .get_mut(CLOSE_TREE_OFFSET)
@@ -970,7 +997,7 @@ fn close_rejects_a_read_only_tree_meta() {
 fn close_rejects_a_non_tree_account() {
     let mut env = Pool::initialized();
     let nullifier = fe(1);
-    queue_nullifier_pda(&mut env, &nullifier, 0);
+    queue_nullifier_pda(&mut env, &nullifier, 1);
     let impostor = funded_system_account(&mut env);
     let mut ix = close_instruction(&env, vec![nullifier]);
     ix.accounts

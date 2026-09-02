@@ -86,10 +86,10 @@ pub enum Commands {
         /// Vault index within the forester smart-account settings.
         #[arg(long, default_value_t = 0)]
         account_index: u8,
-        /// First Photon queue sequence to scan. Persist the last completed
-        /// watermark externally and pass it here to avoid rescanning from zero
-        /// after a restart.
-        #[arg(long, default_value_t = 0)]
+        /// First Photon queue sequence to scan; sequences start at 1. Persist
+        /// the last completed watermark externally and pass it here to avoid
+        /// rescanning from the first sequence after a restart.
+        #[arg(long, default_value_t = 1)]
         from_seq: u64,
         /// Stop after submitting at most N transactions (default: all).
         #[arg(long)]

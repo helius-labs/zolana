@@ -46,10 +46,7 @@ fn test_reused_batch_start_index_advances_by_one_rotation() {
     let batch = tree.batches.get_mut(0).unwrap();
     batch.mark_as_inserted_in_merkle_tree().unwrap();
     assert_eq!(batch.get_state(), BatchState::Inserted);
-    assert_eq!(
-        batch.reclaimable_sequence().unwrap(),
-        init_start_index - 1 + batch_size
-    );
+    assert_eq!(batch.end_index().unwrap(), init_start_index + batch_size);
 
     // Fill batch 1, which returns the cursor to batch 0.
     for _ in 0..batch_size {

@@ -205,16 +205,18 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
             .ok_or(NullifierTreeError::InvalidBatchState)
     }
 
-    pub fn reclaimable_sequence(&self) -> Result<u64, NullifierTreeError> {
+    /// Exclusive leaf index just past the batch's last element.
+    pub fn end_index(&self) -> Result<u64, NullifierTreeError> {
         self.start_index
             .checked_add(self.batch_size)
-            .and_then(|end| end.checked_sub(1))
             .ok_or(NullifierTreeError::ArithmeticOverflow)
     }
 
+    /// Every PDA of the batch is closable once the watermark has passed its
+    /// last element.
     pub fn is_reclaimable(&self, close_before_index: u64) -> bool {
-        self.reclaimable_sequence()
-            .is_ok_and(|sequence| close_before_index >= sequence)
+        self.end_index()
+            .is_ok_and(|end_index| close_before_index >= end_index)
     }
 
     /// `start_index` is the leaf index of the reused batch's first element.

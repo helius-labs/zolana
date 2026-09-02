@@ -128,7 +128,7 @@ fn test_new_initializes_entire_queue() {
             batch_size: 10,
             zkp_batch_size: 2,
             pending_batch_index: 0,
-            queue_next_index: 0,
+            queue_next_index: 1,
             close_before_index: 0,
             root_history: RootHistory {
                 current_index: 1,

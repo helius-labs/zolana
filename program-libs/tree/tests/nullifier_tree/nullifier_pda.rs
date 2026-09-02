@@ -90,13 +90,14 @@ fn malformed_root_history_and_batch_metadata_are_rejected_on_load() {
 fn insert_returns_sequential_queue_indices() {
     let mut data = account_data();
     let tree = init_tree(&mut data);
-    for i in 0..3u8 {
+    // Queue indices are leaf indices; leaf 0 is the init sentinel.
+    for i in 1..=3u8 {
         assert_eq!(
-            tree.insert_nullifier_into_queue(&nullifier(i + 1)).unwrap(),
+            tree.insert_nullifier_into_queue(&nullifier(i)).unwrap(),
             i as u64
         );
     }
-    assert_eq!(tree.queue_next_index, 3);
+    assert_eq!(tree.queue_next_index, 4);
 }
 
 #[test]
@@ -120,6 +121,6 @@ fn non_canonical_values_are_rejected() {
     assert_eq!(
         tree.insert_nullifier_into_queue(&modulus_minus_one)
             .unwrap(),
-        0
+        1
     );
 }

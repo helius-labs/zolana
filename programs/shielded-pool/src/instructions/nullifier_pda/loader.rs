@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use borsh::BorshDeserialize;
 use pinocchio::{error::ProgramError, AccountView};
 use zolana_interface::{
@@ -20,7 +21,7 @@ pub(crate) fn load_unused_nullifier_pda(
         &[NULLIFIER_PDA_SEED, tree, nullifier],
         &crate::ID,
     )
-    .map_err(|_| ShieldedPoolError::InvalidNullifierPda)?;
+    .map_err(caused_by(ShieldedPoolError::InvalidNullifierPda))?;
     if !pinocchio_system::check_id(nullifier_pda.owner()) || nullifier_pda.data_len() != 0 {
         return Err(ShieldedPoolError::NullifierAlreadyQueued.into());
     }
@@ -40,9 +41,14 @@ pub(crate) fn load_nullifier_pda(
     }
     let data = nullifier_pda
         .try_borrow()
-        .map_err(|_| ShieldedPoolError::InvalidNullifierPda)?;
-    let record =
-        NullifierPda::try_from_slice(&data).map_err(|_| ShieldedPoolError::InvalidNullifierPda)?;
+        .map_err(caused_by(ShieldedPoolError::InvalidNullifierPda))?;
+    let record = NullifierPda::try_from_slice(&data)
+        .map_err(caused_by(ShieldedPoolError::InvalidNullifierPda))?;
+    // Queue indices start at 1. A zero record is an account the program never
+    // wrote, e.g. a system-allocated account assigned to the program.
+    if record.queue_index == 0 {
+        return Err(ShieldedPoolError::InvalidNullifierPda.into());
+    }
     if record.tree_id != tree_id {
         return Err(ShieldedPoolError::NullifierPdaTreeMismatch.into());
     }

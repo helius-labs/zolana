@@ -17,8 +17,8 @@ Let:
 | `p` | batch currently being appended to the tree |
 | `N` | queue batch count (`2` in the current layout) |
 | `RH` | root-history capacity, derived as `B / Z` |
-| `q` | next zero-based input-queue sequence number |
-| `w` | exclusive queue-sequence PDA-close watermark (`close_before_index`) |
+| `q` | next input-queue sequence number, equal to the leaf index the value takes; starts at 1 |
+| `w` | exclusive PDA-close watermark (`close_before_index`), in the same index space as `q` |
 
 The tree is a program-derived account. It holds the queue, root history, and
 lamports used as working capital for nullifier PDAs.
@@ -88,25 +88,23 @@ unapplied_values =
 
 inserted_elements = num_full_zkp_batches * Z + num_inserted
 
-first_sequence(batch) = batch.start_index - 1
+end_index(batch) = batch.start_index + B
 
-reclaimable(batch) = w >= first_sequence(batch) + B
+reclaimable(batch) = w >= end_index(batch)
 
 batches[p].state != Inserted =>
     tree.next_index =
         batches[p].start_index + batches[p].num_inserted_zkp_batches * Z
 
-next_queued_leaf_index = q + 1
-
-tree.next_index <= next_queued_leaf_index <= tree.capacity
+tree.next_index <= q <= tree.capacity
 
 accepted_root(i) = i < RH and root_history[i] != 0
 ```
 
-Initialization fills leaf zero and sets `q = 0`, `tree.next_index = 1`, and
+Initialization fills leaf zero and sets `q = 1`, `tree.next_index = 1`, and
 `batches[i].start_index = 1 + i * B` for `0 <= i < N`. Queue sequence `x`
-reserves leaf `x + 1`. Leaves in `[tree.next_index, q + 1)` are queued but not
-yet appended to the tree.
+reserves leaf `x`, so no queued value has sequence 0. Leaves in
+`[tree.next_index, q)` are queued but not yet appended to the tree.
 
 `RH = K` keeps exactly one queue batch's worth of update roots. Fully applying
 the successor batch therefore overwrites every root that predates it.
@@ -160,7 +158,7 @@ The instruction also receives the writable PDA.
    reuse resets its counters and advances `start_index` by `N * B` without
    waiting for the batch's PDAs to become reclaimable. `Full` is not
    reusable.
-3. Require `q + 1 < tree.capacity`.
+3. Require `q < tree.capacity`.
 4. Let `j = batches[c].num_full_zkp_batches`. Update the open commitment:
 
    ```text
@@ -276,7 +274,7 @@ The Groth16 proof establishes the height-40 indexed append from `old_root` to
 
    At this point `current.state == Inserted` and its `K = RH` applied updates
    have naturally overwritten every root that predates `current`. Set
-   `w = max(w, first_sequence(current))`. This makes PDAs from every earlier
+   `w = max(w, current.start_index)`. This makes PDAs from every earlier
    batch reclaimable regardless of whether that batch has already been reused
    and returned to `Fill`. No root-history slots are explicitly zeroed. These
    changes are atomic.
@@ -296,7 +294,7 @@ hash-chain bytes remain until overwritten on reuse. Its PDAs remain until
 separate cleanup transactions close them.
 
 **Property — reclaim liveness.** When the current batch's final ZKP update is
-applied, `w` reaches `first_sequence(current)`, so every PDA from the
+applied, `w` reaches `current.start_index`, so every PDA from the
 previous batch is reclaimable even if that batch has already been reused.
 Reclaimability never gates batch storage reuse.
 
@@ -384,7 +382,11 @@ them.
 
 For every PDA account:
 
-4. Require program ownership and an exact ten-byte Borsh payload.
+4. Require program ownership, an exact ten-byte Borsh payload, and
+   `PDA.queue_index >= 1` (`ShieldedPoolError::InvalidNullifierPda`, 7051).
+   Queue sequences start at 1, so an all-zero record is an account the
+   program never wrote, such as a system-allocated account assigned to the
+   program.
 5. Require `PDA.tree_id` to equal the tree header's `tree_id`
    (`ShieldedPoolError::NullifierPdaTreeMismatch`, 7053).
 6. Require `PDA.queue_index < w`.
