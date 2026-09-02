@@ -3,9 +3,6 @@ package custom_ring
 import (
 	"crypto/ecdh"
 	"math/big"
-	"os"
-	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc"
@@ -31,22 +28,7 @@ var auditChainElements = [7]string{
 }
 
 func TestCustomRingProofVerifies(t *testing.T) {
-	_, source, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("source path unavailable")
-	}
-	keyPath := filepath.Join(filepath.Dir(source), "..", "..", "proving-keys", common.CustomRingKeyFile)
-	if _, err := os.Stat(keyPath); err != nil {
-		t.Skip("custom ring proving key is not available")
-	}
-	loaded, err := common.ReadSystemFromFile(keyPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	loadedSystem, ok := loaded.(*common.RingProofSystem)
-	if !ok {
-		t.Fatalf("unexpected proof system %T", loaded)
-	}
+	loadedSystem := loadRingSystem(t, common.CustomRingKeyFile)
 	params := rulesFreeParams(t)
 	proof, err := ProveCustomRing(loadedSystem, params)
 	if err != nil {
@@ -66,13 +48,7 @@ func TestCustomRingProofVerifies(t *testing.T) {
 }
 
 func TestAuditProofVerifies(t *testing.T) {
-	if testing.Short() {
-		t.Skip("audit setup is slow")
-	}
-	ps, err := SetupAudit()
-	if err != nil {
-		t.Fatal(err)
-	}
+	ps := loadRingSystem(t, common.AuditKeyFile)
 	params := auditParams(t)
 	proof, err := ProveAudit(ps, params)
 	if err != nil {

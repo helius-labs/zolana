@@ -12,12 +12,30 @@ import (
 	"github.com/consensys/gnark/frontend"
 
 	"zolana/prover/circuits/custom_ring/transfer"
+	"zolana/prover/circuits/verifiable-encryption/p256"
 )
 
+func sampleAuditParams() *AuditParameters {
+	p := &AuditParameters{
+		PublicInputHash: big.NewInt(0x1234),
+		PrivateTxHash:   big.NewInt(0xabcdef),
+	}
+	for i := range p.TxViewingSk {
+		p.TxViewingSk[i] = byte(i)
+		p.EphSk[i] = byte(0x20 + i)
+	}
+	copy(p.AuditorPk[:], elliptic.Marshal(elliptic.P256(), elliptic.P256().Params().Gx, elliptic.P256().Params().Gy))
+	return p
+}
+
 func sampleParams() *CustomRingParameters {
+	audit := sampleAuditParams()
 	p := &CustomRingParameters{
-		PublicInputHash:  big.NewInt(0x1234),
-		PrivateTxHash:    big.NewInt(0xabcdef),
+		PublicInputHash:  audit.PublicInputHash,
+		PrivateTxHash:    audit.PrivateTxHash,
+		TxViewingSk:      audit.TxViewingSk,
+		EphSk:            audit.EphSk,
+		AuditorPk:        audit.AuditorPk,
 		NIn:              2,
 		NOut:             2,
 		AddressChain:     big.NewInt(0x31),
@@ -32,11 +50,6 @@ func sampleParams() *CustomRingParameters {
 	}
 	p.Sources[0] = SourceOwner{ListId: 1, OwnerHash: big.NewInt(0x33)}
 	p.Sources[6] = SourceOwner{ListId: 7, OwnerHash: big.NewInt(0x34)}
-	for i := range p.TxViewingSk {
-		p.TxViewingSk[i] = byte(i)
-		p.EphSk[i] = byte(0x20 + i)
-	}
-	copy(p.AuditorPk[:], elliptic.Marshal(elliptic.P256(), elliptic.P256().Params().Gx, elliptic.P256().Params().Gy))
 	for i := range p.Inputs {
 		p.Inputs[i] = sampleOpening(int64(0x40 + i))
 	}
@@ -211,8 +224,10 @@ func TestCustomRingParametersRejectBadInput(t *testing.T) {
 		"missing prefix":       func(m map[string]interface{}) { m["ephSk"] = strings.TrimPrefix(m["ephSk"].(string), "0x") },
 		"uppercase":            func(m map[string]interface{}) { m["auditorPk"] = strings.ToUpper(m["auditorPk"].(string)) },
 		"short field":          func(m map[string]interface{}) { m["privateTxHash"] = "0x01" },
-		"zero scalar":          func(m map[string]interface{}) { m["ephSk"] = "0x" + strings.Repeat("00", 32) },
-		"scalar at order":      func(m map[string]interface{}) { m["ephSk"] = "0x" + elliptic.P256().Params().N.Text(16) },
+		"zero scalar":          func(m map[string]interface{}) { m["ephSk"] = zeroScalarHex },
+		"scalar at order":      func(m map[string]interface{}) { m["ephSk"] = orderScalarHex() },
+		"zero tx scalar":       func(m map[string]interface{}) { m["txViewingSk"] = zeroScalarHex },
+		"tx scalar at order":   func(m map[string]interface{}) { m["txViewingSk"] = orderScalarHex() },
 		"invalid point":        func(m map[string]interface{}) { m["auditorPk"] = "0x04" + strings.Repeat("00", 64) },
 		"hash above field order": func(m map[string]interface{}) {
 			m["publicInputHash"] = "0x" + ecc.BN254.ScalarField().Text(16)
@@ -247,6 +262,35 @@ func TestCustomRingParametersRejectBadInput(t *testing.T) {
 			answers(m)["nfPathElements"] = paths[:len(paths)-1]
 		},
 	}
+	rejectTampered[CustomRingParameters](t, base, tests)
+}
+
+func TestAuditParametersRejectBadInput(t *testing.T) {
+	base, err := json.Marshal(sampleAuditParams())
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	tests := map[string]func(map[string]interface{}){
+		"foreign circuit type": func(m map[string]interface{}) { m["circuitType"] = "transfer" },
+		"foreign variant":      func(m map[string]interface{}) { m["variant"] = TransferVariant },
+		"zero tx scalar":       func(m map[string]interface{}) { m["txViewingSk"] = zeroScalarHex },
+		"tx scalar at order":   func(m map[string]interface{}) { m["txViewingSk"] = orderScalarHex() },
+		"zero eph scalar":      func(m map[string]interface{}) { m["ephSk"] = zeroScalarHex },
+		"eph scalar at order":  func(m map[string]interface{}) { m["ephSk"] = orderScalarHex() },
+		"invalid point":        func(m map[string]interface{}) { m["auditorPk"] = "0x04" + strings.Repeat("00", 64) },
+		"short field":          func(m map[string]interface{}) { m["privateTxHash"] = "0x01" },
+	}
+	rejectTampered[AuditParameters](t, base, tests)
+}
+
+const zeroScalarHex = "0x0000000000000000000000000000000000000000000000000000000000000000"
+
+func orderScalarHex() string {
+	return "0x" + p256.GroupOrder().Text(16)
+}
+
+func rejectTampered[P any](t *testing.T, base []byte, tests map[string]func(map[string]interface{})) {
+	t.Helper()
 	for name, tamper := range tests {
 		t.Run(name, func(t *testing.T) {
 			var raw map[string]interface{}
@@ -258,7 +302,7 @@ func TestCustomRingParametersRejectBadInput(t *testing.T) {
 			if err != nil {
 				t.Fatalf("marshal: %v", err)
 			}
-			var got CustomRingParameters
+			var got P
 			if err := json.Unmarshal(data, &got); err == nil {
 				t.Fatalf("expected an error")
 			}

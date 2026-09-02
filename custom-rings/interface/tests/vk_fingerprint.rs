@@ -1,5 +1,5 @@
 //! Pins a SHA-256 fingerprint over the committed custom-ring verifying key. The key
-//! is a generated artifact (`prover/server/scripts/regenerate_all_vkeys.sh`);
+//! is a generated artifact (`prover/server/scripts/generate_keys_custom_ring.sh`),
 //! a regeneration rewrites an opaque constant file that is effectively
 //! unreviewable by diff. This test turns any VK change into an explicit
 //! one-line re-pin: if it fails, confirm the rotation was intentional and
@@ -44,7 +44,7 @@ fn verifying_key_fingerprint_is_pinned() {
     // `Sha256BE` zeroes the leading byte (field-element convention), so the
     // fingerprint always starts with `00`.
     assert_eq!(
-        fingerprint, "00f759e32e0d2b68cc94fa686f7ebddae0635158d1d2182d27a40fbac1edf61b",
+        fingerprint, "006cadbd70a0e694e395db10bbf3e02df9d673ab28103363904171f86673876f",
         "verifying key changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }
@@ -61,7 +61,7 @@ fn audit_verifying_key_fingerprint_is_pinned() {
     let fingerprint: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
 
     assert_eq!(
-        fingerprint, "00f7a6b59535d13916122f08bb448587411e3214b425e4a519139d8b427bc79a",
+        fingerprint, "00f4b4e4a7a51b5ca5871a02f8d3eb92f9d8203943f3119967f7a245b0b172e0",
         "audit verifying key changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }
