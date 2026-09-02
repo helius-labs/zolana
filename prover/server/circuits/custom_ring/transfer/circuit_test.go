@@ -1,9 +1,6 @@
 package transfer
 
 import (
-	stdaes "crypto/aes"
-	"crypto/cipher"
-	"crypto/ecdh"
 	"fmt"
 	"math/big"
 	"os"
@@ -16,8 +13,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
-	audit "zolana/prover/circuits/custom_ring"
-	ve "zolana/prover/circuits/verifiable-encryption"
+	"zolana/prover/circuits/custom_ring/audittest"
 	"zolana/prover/prover-test/spp/protocol"
 	"zolana/prover/prover-test/spp/spptest"
 )
@@ -28,10 +24,6 @@ import (
 // SPP trees with the protocol helpers. Solving the compiled R1CS against that
 // witness is the cross-check that the circuit computes what
 // program-libs/ring-policy will recompute.
-
-// auditEncInfo mirrors the unexported key-schedule info string of package
-// audit.
-const auditEncInfo = "CRING/adt1"
 
 // The policy the fixture proves against.
 const (
@@ -326,6 +318,16 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 				return c
 			},
 		},
+		{
+			name: "tx scalar zero",
+			build: func(t *testing.T) *Circuit {
+				f := defaultFixture()
+				f.keys = func(k audittest.Keys) audittest.Keys {
+					return k.WithInfinityTxScalar(big.NewInt(0))
+				}
+				return buildAssignment(t, f)
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -403,6 +405,7 @@ type fixture struct {
 	rulesFree       bool
 	dropCuratorSlot bool
 	curatorSlotOwn  bool
+	keys            func(audittest.Keys) audittest.Keys
 }
 
 func defaultFixture() fixture {
@@ -501,9 +504,7 @@ type statement struct {
 	privateTxHash    *big.Int
 	publicInputHash  *big.Int
 
-	txViewingSk [32]byte
-	ephSk       [32]byte
-	auditorPk   [65]byte
+	keys audittest.Keys
 }
 
 // newStatement builds a ring whose entries allow the recipient, hold no Frozen
@@ -568,6 +569,10 @@ func newStatement(t *testing.T, f fixture) *statement {
 	}
 	s.policyHash = hostPolicyHash(t, s.rules, s.inlineAssets, s.sources)
 
+	s.keys = audittest.DefaultKeys(t)
+	if f.keys != nil {
+		s.keys = f.keys(s.keys)
+	}
 	s.buildTrees(t)
 	s.buildTransaction(t, recipient, sender, asset, f.amount, f.secondAmount)
 	return s
@@ -658,11 +663,7 @@ func (s *statement) buildTransaction(t *testing.T, recipient, sender, asset *big
 		s.externalDataHash,
 	)
 
-	s.txViewingSk = scalar(t, 0x11)
-	s.ephSk = scalar(t, 0x22)
-	auditorSk := scalar(t, 0x33)
-	elements := hostAuditBlock(t, s.privateTxHash, s.txViewingSk, s.ephSk, auditorSk)
-	s.auditorPk = auditorPublicKey(t, auditorSk)
+	elements := s.keys.ChainElements(t, s.privateTxHash)
 	s.publicInputHash = spptest.MustHashChain(t, append(elements,
 		s.policyHash, s.stateRoot, s.nullifierRoot))
 }
@@ -671,9 +672,13 @@ func buildAssignment(t *testing.T, f fixture) *Circuit {
 	t.Helper()
 	s := newStatement(t, f)
 
+	wires := s.keys.BlockWires(s.privateTxHash)
 	c := &Circuit{
 		PublicInputHash:  s.publicInputHash,
-		PrivateTxHash:    s.privateTxHash,
+		PrivateTxHash:    wires.PrivateTxHash,
+		TxViewingSk:      wires.TxViewingSk,
+		EphSk:            wires.EphSk,
+		AuditorPk:        wires.AuditorPk,
 		AddressChain:     s.addressChain,
 		ExternalDataHash: s.externalDataHash,
 		StateRoot:        s.stateRoot,
@@ -681,15 +686,6 @@ func buildAssignment(t *testing.T, f fixture) *Circuit {
 	}
 	for i, slot := range s.sources {
 		c.Sources[i] = SourceWires{ListId: big.NewInt(slot.listId), OwnerHash: slot.owner}
-	}
-	for i, b := range s.txViewingSk {
-		c.TxViewingSk[i] = int(b)
-	}
-	for i, b := range s.ephSk {
-		c.EphSk[i] = int(b)
-	}
-	for i, b := range s.auditorPk {
-		c.AuditorPk[i] = int(b)
 	}
 
 	for i := range c.Inputs {
@@ -923,152 +919,8 @@ func hex32(value *big.Int) string {
 	return fmt.Sprintf("%x", feBytes(value))
 }
 
-// hostAuditBlock recomputes chain elements 1 to 8 of package audit.
-func hostAuditBlock(t *testing.T, privateTxHash *big.Int, txSk, ephSk, auditorSk [32]byte) []*big.Int {
-	t.Helper()
-	curve := ecdh.P256()
-	txPriv, err := curve.NewPrivateKey(txSk[:])
-	if err != nil {
-		t.Fatalf("tx private key: %v", err)
-	}
-	ephPriv, err := curve.NewPrivateKey(ephSk[:])
-	if err != nil {
-		t.Fatalf("ephemeral private key: %v", err)
-	}
-	auditorPriv, err := curve.NewPrivateKey(auditorSk[:])
-	if err != nil {
-		t.Fatalf("auditor private key: %v", err)
-	}
-
-	txCompressed := compress(t, txPriv.PublicKey().Bytes())
-	ephCompressed := compress(t, ephPriv.PublicKey().Bytes())
-	auditorCompressed := compress(t, auditorPriv.PublicKey().Bytes())
-
-	dh, err := ephPriv.ECDH(auditorPriv.PublicKey())
-	if err != nil {
-		t.Fatalf("ecdh: %v", err)
-	}
-	dhLo, dhHi := hostPack32(t, dh)
-	txLo, txHi := hostPack33(txCompressed)
-	ephLo, ephHi := hostPack33(ephCompressed)
-	auditorLo, auditorHi := hostPack33(auditorCompressed)
-
-	sharedSecret := spptest.MustPoseidon(t, 8, []*big.Int{
-		new(big.Int).SetUint64(uint64(audit.DomSepCRShared)),
-		dhLo, dhHi,
-		ephLo, ephHi,
-		auditorLo, auditorHi,
-	})
-	key, nonce := hostKeySchedule(t, sharedSecret)
-	ciphertext, err := protocol.HashBytes(hostCtrEncrypt(t, key, nonce, txSk[:]))
-	ciphertextHash := spptest.MustHash(t, ciphertext, err)
-
-	return []*big.Int{
-		privateTxHash,
-		txLo, txHi,
-		auditorLo, auditorHi,
-		ephLo, ephHi,
-		ciphertextHash,
-	}
-}
-
-func auditorPublicKey(t *testing.T, auditorSk [32]byte) [65]byte {
-	t.Helper()
-	priv, err := ecdh.P256().NewPrivateKey(auditorSk[:])
-	if err != nil {
-		t.Fatalf("auditor private key: %v", err)
-	}
-	return uncompressed(t, priv.PublicKey().Bytes())
-}
-
-// scalar builds a deterministic non-zero P-256 scalar below the group order.
-func scalar(t *testing.T, seed byte) [32]byte {
-	t.Helper()
-	var out [32]byte
-	for i := range out {
-		out[i] = seed ^ byte(i)
-	}
-	out[0] = 0x01
-	return out
-}
-
-func uncompressed(t *testing.T, publicKey []byte) [65]byte {
-	t.Helper()
-	if len(publicKey) != 65 {
-		t.Fatalf("expected a 65-byte uncompressed key, got %d bytes", len(publicKey))
-	}
-	var out [65]byte
-	copy(out[:], publicKey)
-	return out
-}
-
-// compress mirrors p256.CompressPubkey host-side, (0x02 + parity(y)) || x.
-func compress(t *testing.T, publicKey []byte) [33]byte {
-	t.Helper()
-	key := uncompressed(t, publicKey)
-	var out [33]byte
-	out[0] = 2 + (key[64] & 1)
-	copy(out[1:], key[1:33])
-	return out
-}
-
-// hostPack32 mirrors audit.Pack32To2FECircuit.
-func hostPack32(t *testing.T, bytes []byte) (lo, hi *big.Int) {
-	t.Helper()
-	if len(bytes) != 32 {
-		t.Fatalf("hostPack32: expected 32 bytes, got %d", len(bytes))
-	}
-	return new(big.Int).SetBytes(bytes[:31]), new(big.Int).SetUint64(uint64(bytes[31]))
-}
-
-// hostPack33 mirrors audit.Pack33To2FECircuit.
-func hostPack33(key [33]byte) (lo, hi *big.Int) {
-	return new(big.Int).SetBytes(key[:31]), new(big.Int).SetUint64(uint64(key[31])<<8 | uint64(key[32]))
-}
-
-// hostKeySchedule mirrors ve.KeySchedule with auditEncInfo as the info string.
-func hostKeySchedule(t *testing.T, sharedSecret *big.Int) ([32]byte, [12]byte) {
-	t.Helper()
-	siloed := spptest.MustPoseidon(t, 4, []*big.Int{
-		new(big.Int).SetUint64(uint64(ve.DomSepSilo)),
-		sharedSecret,
-		new(big.Int).SetBytes([]byte(auditEncInfo)),
-	})
-	keyLo := spptest.MustPoseidon(t, 3, []*big.Int{new(big.Int).SetUint64(uint64(ve.DomSepKey)), siloed})
-	keyHi := spptest.MustPoseidon(t, 3, []*big.Int{new(big.Int).SetUint64(uint64(ve.DomSepKey + 1)), siloed})
-	nonceRaw := spptest.MustPoseidon(t, 3, []*big.Int{new(big.Int).SetUint64(uint64(ve.DomSepNonce)), siloed})
-
-	keyLoBytes := feBytes(keyLo)
-	keyHiBytes := feBytes(keyHi)
-	var key [32]byte
-	copy(key[:16], keyHiBytes[16:])
-	copy(key[16:], keyLoBytes[16:])
-
-	var nonce [12]byte
-	nonceBytes := feBytes(nonceRaw)
-	copy(nonce[:], nonceBytes[20:])
-	return key, nonce
-}
-
 func feBytes(value *big.Int) [32]byte {
 	var out [32]byte
 	value.FillBytes(out[:])
 	return out
-}
-
-// hostCtrEncrypt mirrors aes.CTREncrypt, the counter block incremented once
-// before the first block, leaving nonce || 2 for the first keystream block.
-func hostCtrEncrypt(t *testing.T, key [32]byte, nonce [12]byte, plaintext []byte) []byte {
-	t.Helper()
-	block, err := stdaes.NewCipher(key[:])
-	if err != nil {
-		t.Fatalf("aes: %v", err)
-	}
-	var counter [16]byte
-	copy(counter[:12], nonce[:])
-	counter[15] = 2
-
-	ciphertext := make([]byte, len(plaintext))
-	cipher.NewCTR(block, counter[:]).XORKeyStream(ciphertext, plaintext)
-	return ciphertext
 }
