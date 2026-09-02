@@ -44,13 +44,41 @@ export type TransactionIntent =
     }>;
 
 /**
- * An authority's receipt, valid only for the intent whose hash it carries.
- * It binds the economic operation, not the compiled message, final signing
- * trusts the assembling client.
+ * An approval handler's receipt, valid only for the intent whose hash it
+ * carries. It binds the economic operation, not the compiled message, final
+ * signing trusts the assembling client.
  */
 export interface IntentApproval {
   readonly intentHash: Bytes32;
 }
+
+export interface ApprovalRequest {
+  /** The Solana account whose signature will authorize the transaction. */
+  readonly solanaPublicKey: Address;
+  readonly intent: TransactionIntent;
+  readonly summary: string;
+}
+
+/**
+ * The Solana account that signs for a shielded owner: its own for an ed25519
+ * identity, the fee payer for a P256 identity, which has none.
+ * @internal
+ */
+export function ownerSolanaAccount(address: ShieldedAddress, feePayer: Address): Address {
+  return address.signingPublicKey.signatureType() === "ed25519"
+    ? address.solanaAddress()
+    : feePayer;
+}
+
+/**
+ * How a wallet approves an intent before it is proved. The default approves
+ * unattended: the signature over the finished transaction is the user's gate,
+ * and every builder revalidates the compiled transaction against the intent.
+ */
+export type ApprovalHandler = (request: ApprovalRequest) => Promise<IntentApproval>;
+
+export const approveUnattended: ApprovalHandler = (request) =>
+  Promise.resolve(approveIntent(request.intent));
 
 const INTENT_DOMAIN = "zolana/intent/v1";
 const KIND_TAGS = {
@@ -124,7 +152,7 @@ export function withdrawalIntentRecipient(target: WithdrawalTarget): Address {
   return target.kind === "sol" ? target.recipient : target.recipientTokenAccount;
 }
 
-/** What a custom authority returns after showing the intent to its user. */
+/** What an approval handler returns after showing the intent to its user. */
 export function approveIntent(intent: TransactionIntent): IntentApproval {
   return Object.freeze({ intentHash: intentHash(intent) });
 }

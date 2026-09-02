@@ -630,7 +630,7 @@ export class ConfidentialTransfer {
       }
       if (
         !equal(input.utxo.owner.toBytes(), owner.signingPublicKey.toBytes()) ||
-        !equal(input.nullifierKey.publicKey(), owner.nullifierPublicKey)
+        !equal(input.nullifierPublicKey, owner.nullifierPublicKey)
       ) {
         throw new TransactionError("TRANSACTION_INPUT_OWNER_MISMATCH", { index });
       }
@@ -840,9 +840,9 @@ export class ConfidentialTransfer {
   }
 
   /**
-   * Keypair rail: encrypt every real slot with the owner's own viewing key and
-   * sign in place. The authority rail is `prepare` plus `PreparedTransfer.finalize`,
-   * with encryption and signing delegated to a `WalletAuthority`.
+   * Keypair shortcut: seal every real slot under the owner's own viewing key in
+   * one step. The keys rail is `prepare`, `encryptConfidentialTransfer` over the
+   * key `ShieldedKeys.transactionKeys` returns, then `PreparedTransfer.finalize`.
    */
   sign(keypair: ShieldedKeypair, assets: AssetRegistry): SppProofInputs {
     const prepared = this.prepare();

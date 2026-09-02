@@ -21,11 +21,11 @@ import type { Address, Bytes32, RequestContext } from "../interface/types.js";
 import { TransactionError } from "../transaction/error.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
 import { decodeOutputData } from "../transaction/serialization/codecs.js";
-import type {
-  SyncAuthority,
-  SyncWalletAuthority,
-  WalletSyncMaterial,
-} from "../transaction/wallet/authority.js";
+import {
+  checkKeysIdentity,
+  checkViewingPublicKeys,
+  type ShieldedKeys,
+} from "../transaction/wallet/keys.js";
 import {
   type AssetBalance,
   type PrivateTransaction,
@@ -143,42 +143,26 @@ function positiveInteger(value: number, field: string, maximum = Number.MAX_SAFE
   return value;
 }
 
-/** Rust compares the whole `ShieldedAddress`, which is these three keys. */
-function sameIdentity(material: WalletSyncMaterial, wallet: Wallet): boolean {
-  return (
-    bytesKey(material.identity.signingPublicKey.toBytes()) ===
-      bytesKey(wallet.identity.signingPublicKey.toBytes()) &&
-    bytesKey(material.identity.nullifierPublicKey) ===
-      bytesKey(wallet.identity.nullifierPublicKey) &&
-    bytesKey(material.identity.viewingPublicKey.toBytes()) ===
-      bytesKey(wallet.identity.viewingPublicKey.toBytes())
-  );
-}
-
 /**
  * The stable tags a wallet asks the indexer about: one shielded-identity
- * signing tag for confidential transactions and one bootstrap tag per retained
- * viewing key for deposits and key rotation.
+ * signing tag for confidential transactions and one bootstrap tag per held
+ * viewing key for deposits and key rotation. The bootstrap tag is the key's
+ * x-coordinate, so the public keys are enough to derive it.
  *
- * Material that does not belong to this wallet is refused here rather than by
- * the decrypt pass further down, because a tag is a query the indexer sees: a
+ * Keys that do not belong to this wallet are refused here rather than by the
+ * decrypt pass further down, because a tag is a query the indexer sees: a
  * wallet handed the wrong keys must not publish any of them before the
  * mismatch is noticed.
  */
-function walletQueryTags(wallet: Wallet, material: WalletSyncMaterial): readonly Bytes32[] {
-  if (!sameIdentity(material, wallet)) {
-    throw new TransactionError("TRANSACTION_WALLET_AUTHORITY_MISMATCH");
-  }
-  const current = bytesKey(wallet.identity.viewingPublicKey.toBytes());
-  if (!material.viewingKeys.some((key) => bytesKey(key.publicKey().toBytes()) === current)) {
-    throw new TransactionError("TRANSACTION_MISSING_CURRENT_VIEWING_KEY");
-  }
+function walletQueryTags(wallet: Wallet, keys: ShieldedKeys): readonly Bytes32[] {
+  checkKeysIdentity(keys, wallet.identity);
+  const held = checkViewingPublicKeys(keys, wallet.identity);
   const tags = new Map<string, Bytes32>();
   const add = (tag: Bytes32): void => {
     tags.set(bytesKey(tag), tag);
   };
-  add(material.identity.signingPublicKey.confidentialViewTag());
-  for (const key of material.viewingKeys) add(key.recipientBootstrapViewTag());
+  add(wallet.identity.signingPublicKey.confidentialViewTag());
+  for (const key of held) add(key.x());
   return [...tags.values()];
 }
 
@@ -488,7 +472,7 @@ async function collectShieldedTransactionsByNullifiers(
 
 export interface SyncWalletInput {
   readonly wallet: Wallet;
-  readonly authority: SyncAuthority;
+  readonly keys: ShieldedKeys;
   readonly client: SyncClient;
   readonly config?: SyncWalletConfig;
 }
@@ -513,7 +497,7 @@ export async function runLockedWalletSync<T>(
   await initializePoseidon();
   // Writes stage in a session and commit once, a failed sync changes nothing.
   return input.wallet._withSyncLock(async () =>
-    after(await input.authority.withSyncSession((keys) => runWalletSync(input, keys, context))),
+    after(await runWalletSync(input, input.keys, context)),
   );
 }
 
@@ -523,7 +507,7 @@ async function runWalletSync(
     client: SyncClient;
     config?: SyncWalletConfig;
   }>,
-  keys: SyncWalletAuthority,
+  keys: ShieldedKeys,
   context?: RequestContext,
 ): Promise<SyncReport> {
   try {
@@ -545,11 +529,10 @@ async function runWalletSync(
       pendingGate = undefined;
       return gate;
     };
-    const material = await keys.syncMaterial();
     const session = beginSyncSession(input.wallet);
     const transactions = new Map<string, IndexedShieldedTransaction>();
     const deposits = new Map<string, IndexedShieldedTransaction>();
-    const tags = walletQueryTags(session.staging, material);
+    const tags = walletQueryTags(session.staging, keys);
     // Tags are grouped by where each was last read to, because a chunk can only
     // carry one cursor. Mixing a tag at the tip with one learned this sync would
     // resume the new tag from the old one's position and skip its history
@@ -621,7 +604,7 @@ async function runWalletSync(
     let ordered = orderedTransactions();
     let report = await decryptTransactions({
       wallet: session.staging,
-      authority: keys,
+      keys,
       transactions: ordered,
       config: { syncedAt },
     });
@@ -635,7 +618,7 @@ async function runWalletSync(
       if ((await backfillSessionRegistry(session, input.client, context)) > 0) {
         report = await decryptTransactions({
           wallet: session.staging,
-          authority: keys,
+          keys,
           transactions: ordered,
           config: { syncedAt },
         });
@@ -655,7 +638,7 @@ async function runWalletSync(
       ordered = orderedTransactions();
       report = await decryptTransactions({
         wallet: session.staging,
-        authority: keys,
+        keys,
         transactions: ordered,
         config: { syncedAt },
       });
@@ -668,7 +651,7 @@ async function runWalletSync(
         if ((await backfillSessionRegistry(session, input.client, context)) > 0) {
           report = await decryptTransactions({
             wallet: session.staging,
-            authority: keys,
+            keys,
             transactions: ordered,
             config: { syncedAt },
           });

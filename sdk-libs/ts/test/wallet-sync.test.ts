@@ -16,7 +16,7 @@ import {
   AssetRegistry,
   ConfidentialTransfer,
   Data,
-  KeypairWalletAuthority,
+  LocalShieldedKeys,
   ProofInputUtxo,
   SOL_MINT,
   Utxo,
@@ -26,9 +26,10 @@ import {
   deriveBlinding,
   deserializeWallet,
   encodeConfidentialSlots,
+  encryptAnonymousTransfer,
   serializeWallet,
   splitBundleFromUtxos,
-  type SyncWalletAuthority,
+  type ShieldedKeys,
 } from "../src/transaction/index.js";
 import {
   EncryptedScheme,
@@ -178,7 +179,7 @@ function mergeAfterSplit() {
 
   return {
     keypair,
-    authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+    keys: LocalShieldedKeys.fromKeypair(keypair),
     split,
     merge,
     chainedMerge,
@@ -189,11 +190,22 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function decryptWithAuthority(
-  authority: KeypairWalletAuthority,
-  input: Omit<Parameters<typeof decryptTransactions>[0], "authority">,
+/** A holder that forwards to `keys`; tests override one method to misbehave. */
+function remoteOver(keys: ShieldedKeys): ShieldedKeys {
+  return {
+    address: () => keys.address(),
+    viewingPublicKeys: () => keys.viewingPublicKeys(),
+    decrypt: (requests) => keys.decrypt(requests),
+    derive: (requests) => keys.derive(requests),
+    transactionKeys: (requests) => keys.transactionKeys(requests),
+  };
+}
+
+function decryptWithKeys(
+  keys: ShieldedKeys,
+  input: Omit<Parameters<typeof decryptTransactions>[0], "keys">,
 ): Promise<ReturnType<typeof decryptTransactions> extends Promise<infer R> ? R : never> {
-  return authority.withSyncSession((keys) => decryptTransactions({ ...input, authority: keys }));
+  return decryptTransactions({ ...input, keys });
 }
 
 describe("wallet sync atomicity", () => {
@@ -210,7 +222,7 @@ describe("wallet sync atomicity", () => {
   it("commits no cursor from a sync that failed partway", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-    const authority = new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair });
+    const keys = LocalShieldedKeys.fromKeypair(keypair);
     const cursor = Uint8Array.of(1, 2, 3);
     // Chunk size 1 splits the wallet's two tags into two calls, the first
     // returns a cursor, the second dies.
@@ -230,13 +242,13 @@ describe("wallet sync atomicity", () => {
     });
 
     await expect(
-      syncWallet({ wallet, authority, client, config: { queryChunk: 1 } }),
+      syncWallet({ wallet, keys, client, config: { queryChunk: 1 } }),
     ).rejects.toMatchObject({ code: "WALLET_SYNC" });
     expect(wallet.lastSynced).toBe(0n);
 
     served = 10;
     getShieldedTransactionsByTags.mockClear();
-    await syncWallet({ wallet, authority, client, config: { queryChunk: 1 } });
+    await syncWallet({ wallet, keys, client, config: { queryChunk: 1 } });
     for (const call of getShieldedTransactionsByTags.mock.calls) {
       expect(call[0]?.cursor).toBeUndefined();
     }
@@ -245,7 +257,7 @@ describe("wallet sync atomicity", () => {
   it("runs concurrent syncs one after the other over the committed cursor", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-    const authority = new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair });
+    const keys = LocalShieldedKeys.fromKeypair(keypair);
     const cursor = Uint8Array.of(7, 7);
     let release: (() => void) | undefined;
     const gate = new Promise<void>((resolve) => {
@@ -268,8 +280,8 @@ describe("wallet sync atomicity", () => {
       ...emptyTagPages(),
     });
 
-    const first = syncWallet({ wallet, authority, client });
-    const second = syncWallet({ wallet, authority, client });
+    const first = syncWallet({ wallet, keys, client });
+    const second = syncWallet({ wallet, keys, client });
     release?.();
     await first;
     await second;
@@ -282,7 +294,7 @@ describe("wallet sync atomicity", () => {
   it("fails a sync overtaken by another writer and keeps the newer state", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-    const authority = new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair });
+    const keys = LocalShieldedKeys.fromKeypair(keypair);
     let release: (() => void) | undefined;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
@@ -300,7 +312,7 @@ describe("wallet sync atomicity", () => {
       ...emptyTagPages(),
     });
 
-    const sync = syncWallet({ wallet, authority, client });
+    const sync = syncWallet({ wallet, keys, client });
     await vi.waitFor(() => expect(getShieldedTransactionsByTags).toHaveBeenCalled());
     // An out-of-band writer lands between the sync's snapshot and its commit.
     wallet._replace({ utxos: [], transactions: [], nullifiers: new Set(), lastSynced: 42n });
@@ -316,7 +328,7 @@ describe("wallet sync atomicity", () => {
   it("resumes from persisted cursors after a restart", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-    const authority = new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair });
+    const keys = LocalShieldedKeys.fromKeypair(keypair);
     const cursor = Uint8Array.of(5, 5, 5);
     let served = 0;
     const getShieldedTransactionsByTags = vi.fn(async (_request: RequestWithCursor) => {
@@ -332,30 +344,32 @@ describe("wallet sync atomicity", () => {
       ...emptyTagPages(),
     });
 
-    await syncWallet({ wallet, authority, client });
+    await syncWallet({ wallet, keys, client });
     const restored = deserializeWallet(serializeWallet(wallet));
     getShieldedTransactionsByTags.mockClear();
-    await syncWallet({ wallet: restored, authority, client });
+    await syncWallet({ wallet: restored, keys, client });
 
     const call = getShieldedTransactionsByTags.mock.calls[0]?.[0];
     expect(call?.cursor).toEqual(cursor);
   });
 
-  it("derives the sync material once per sync", async () => {
+  it("refuses keys that describe another wallet before querying any tag", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-    const authority = new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair });
-    const session = vi.spyOn(authority, "withSyncSession");
-    const client = syncReads({
-      getShieldedTransactionsByTags: vi.fn(async () => ({
-        context: { blockTime: 1_700_000_000n, slot: 0n },
-        transactions: [],
-      })),
-      ...emptyTagPages(),
-    });
+    const getShieldedTransactionsByTags = vi.fn(async () => ({
+      context: { blockTime: 1_700_000_000n, slot: 0n },
+      transactions: [],
+    }));
+    const client = syncReads({ getShieldedTransactionsByTags, ...emptyTagPages() });
 
-    await syncWallet({ wallet, authority, client });
-    expect(session).toHaveBeenCalledTimes(1);
+    await expect(
+      syncWallet({
+        wallet,
+        keys: LocalShieldedKeys.fromKeypair(ShieldedKeypair.generate()),
+        client,
+      }),
+    ).rejects.toMatchObject({ code: "WALLET_SYNC" });
+    expect(getShieldedTransactionsByTags).not.toHaveBeenCalled();
   });
 });
 
@@ -378,7 +392,7 @@ describe("wallet sync", () => {
 
     const report = await syncWallet({
       wallet,
-      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      keys: LocalShieldedKeys.fromKeypair(keypair),
       client,
     });
 
@@ -411,15 +425,15 @@ describe("wallet sync", () => {
       })),
       getShieldedTransactionsByNullifiers: vi.fn(),
     });
-    const authority = new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair });
+    const keys = LocalShieldedKeys.fromKeypair(keypair);
 
-    await syncWallet({ wallet, authority, client });
+    await syncWallet({ wallet, keys, client });
     const calls = () => getShieldedTransactionsByTags.mock.calls;
     const firstCall = calls()[0]?.[0];
     expect(firstCall?.cursor).toBeUndefined();
 
     getShieldedTransactionsByTags.mockClear();
-    await syncWallet({ wallet, authority, client });
+    await syncWallet({ wallet, keys, client });
     const secondCall = calls()[0]?.[0];
     expect(secondCall?.cursor).toEqual(cursor);
   });
@@ -447,7 +461,7 @@ describe("wallet sync", () => {
 
     await syncWallet({
       wallet,
-      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      keys: LocalShieldedKeys.fromKeypair(keypair),
       client,
     });
 
@@ -530,7 +544,7 @@ describe("wallet sync", () => {
     await expect(
       syncWallet({
         wallet,
-        authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+        keys: LocalShieldedKeys.fromKeypair(keypair),
         client,
       }),
     ).rejects.toMatchObject({
@@ -575,7 +589,7 @@ describe("wallet sync", () => {
 
     const report = await syncWallet({
       wallet,
-      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      keys: LocalShieldedKeys.fromKeypair(keypair),
       client,
     });
 
@@ -588,7 +602,7 @@ describe("wallet sync", () => {
   it("holds the cursors until the registry resolves every held mint", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = unknownMintWallet(keypair);
-    const authority = new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair });
+    const keys = LocalShieldedKeys.fromKeypair(keypair);
     const requestCursors: (Uint8Array | undefined)[] = [];
     const tagPage = vi.fn(async (request: { cursor?: Uint8Array }) => {
       requestCursors.push(request.cursor);
@@ -635,14 +649,14 @@ describe("wallet sync", () => {
       }),
     };
     await expect(
-      syncPersistedWallet({ wallet, authority, client, store, cipher: plainCipher }),
+      syncPersistedWallet({ wallet, keys, client, store, cipher: plainCipher }),
     ).rejects.toMatchObject({
       code: "WALLET_SYNC",
       causeCode: "CLIENT_UNSUPPORTED_RPC_METHOD",
     });
     scan = () => [];
     await expect(
-      syncPersistedWallet({ wallet, authority, client, store, cipher: plainCipher }),
+      syncPersistedWallet({ wallet, keys, client, store, cipher: plainCipher }),
     ).rejects.toMatchObject({
       code: "WALLET_SYNC",
       causeCode: "WALLET_UNRESOLVED_ASSET",
@@ -651,7 +665,7 @@ describe("wallet sync", () => {
     expect(wallet.lastSynced).toBe(0n);
 
     scan = () => [registration];
-    await syncPersistedWallet({ wallet, authority, client, store, cipher: plainCipher });
+    await syncPersistedWallet({ wallet, keys, client, store, cipher: plainCipher });
     expect(requestCursors.every((cursor) => cursor === undefined)).toBe(true);
     expect(wallet.balance(SPL_MINT).amount).toBe(42n);
     expect(store.save).toHaveBeenCalledTimes(1);
@@ -691,42 +705,39 @@ describe("wallet sync", () => {
       blinding: mergeOutputBlinding(keypair.nullifierKey(), firstNullifier),
     });
 
-    const report = await decryptWithAuthority(
-      new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
-      {
-        wallet,
-        transactions: [
-          {
-            slot: 1n,
-            txSignature: SIGNATURE,
-            outputSlots: [
-              {
-                viewTag: keypair.signingPublicKey().confidentialViewTag(),
-                outputContext: {
-                  hash: merged.hash(keypair.nullifierPublicKey()),
-                  tree: TREE,
-                  leafIndex: 2n,
-                },
-                payload: new Uint8Array(),
+    const report = await decryptWithKeys(LocalShieldedKeys.fromKeypair(keypair), {
+      wallet,
+      transactions: [
+        {
+          slot: 1n,
+          txSignature: SIGNATURE,
+          outputSlots: [
+            {
+              viewTag: keypair.signingPublicKey().confidentialViewTag(),
+              outputContext: {
+                hash: merged.hash(keypair.nullifierPublicKey()),
+                tree: TREE,
+                leafIndex: 2n,
               },
-            ],
-            messages: [],
-            nullifiers,
-            proofless: false,
-          },
-        ],
-      },
-    );
+              payload: new Uint8Array(),
+            },
+          ],
+          messages: [],
+          nullifiers,
+          proofless: false,
+        },
+      ],
+    });
 
     expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
     expect(wallet.balance(SOL_MINT).amount).toBe(42n);
   });
 
   it("reconstructs a merge whose inputs arrive in the same batch", async () => {
-    const { keypair, authority, split, merge } = mergeAfterSplit();
+    const { keypair, keys, split, merge } = mergeAfterSplit();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
 
-    const report = await decryptWithAuthority(authority, {
+    const report = await decryptWithKeys(keys, {
       wallet,
       transactions: [split, merge],
     });
@@ -736,32 +747,200 @@ describe("wallet sync", () => {
   });
 
   it("reaches the same state whether the merge replays fresh or incrementally", async () => {
-    const { keypair, authority, split, merge } = mergeAfterSplit();
+    const { keypair, keys, split, merge } = mergeAfterSplit();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
 
-    await decryptWithAuthority(authority, { wallet, transactions: [split] });
-    const report = await decryptWithAuthority(authority, { wallet, transactions: [merge] });
+    await decryptWithKeys(keys, { wallet, transactions: [split] });
+    const report = await decryptWithKeys(keys, { wallet, transactions: [merge] });
 
     expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
     expect(wallet.balance(SOL_MINT).amount).toBe(42n);
 
     const fresh = new Wallet({ identity: keypair.shieldedAddress() });
-    await decryptWithAuthority(authority, { wallet: fresh, transactions: [split, merge] });
+    await decryptWithKeys(keys, { wallet: fresh, transactions: [split, merge] });
     expect(fresh.balance(SOL_MINT).amount).toBe(wallet.balance(SOL_MINT).amount);
     expect(fresh.utxos()).toEqual(wallet.utxos());
   });
 
   it("resolves merge chains when a dependent merge arrives first", async () => {
-    const { keypair, authority, split, merge, chainedMerge } = mergeAfterSplit();
+    const { keypair, keys, split, merge, chainedMerge } = mergeAfterSplit();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
 
-    const report = await decryptWithAuthority(authority, {
+    const report = await decryptWithKeys(keys, {
       wallet,
       transactions: [split, chainedMerge, merge],
     });
 
     expect(report).toMatchObject({ storedUtxos: 4, undecryptableCandidates: 0 });
     expect(wallet.balance(SOL_MINT).amount).toBe(42n);
+  });
+
+  it("asks a remote key holder once per dependency level, not once per output", async () => {
+    // A key holder behind a network answers in batches: the pass records every
+    // request it cannot answer, resolves them together, and runs again. The
+    // result must be the one in-process keys produce, and the call count must
+    // follow the dependency chain (ciphertext, nullifier, merge derivations),
+    // not the number of outputs.
+    const { keypair, keys, split, merge, chainedMerge } = mergeAfterSplit();
+    const calls = { decrypt: 0, derive: 0, transactionKeys: 0, items: 0 };
+    const remote: ShieldedKeys = {
+      address: () => keys.address(),
+      viewingPublicKeys: () => keys.viewingPublicKeys(),
+      decrypt: (requests) => {
+        calls.decrypt++;
+        calls.items += requests.length;
+        return keys.decrypt(requests);
+      },
+      derive: (requests) => {
+        calls.derive++;
+        calls.items += requests.length;
+        return keys.derive(requests);
+      },
+      transactionKeys: (requests) => {
+        calls.transactionKeys++;
+        calls.items += requests.length;
+        return keys.transactionKeys(requests);
+      },
+    };
+    const local = new Wallet({ identity: keypair.shieldedAddress() });
+    await decryptWithKeys(keys, { wallet: local, transactions: [split, chainedMerge, merge] });
+
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const report = await decryptWithKeys(remote, {
+      wallet,
+      transactions: [split, chainedMerge, merge],
+    });
+
+    expect(report).toMatchObject({ storedUtxos: 4, undecryptableCandidates: 0 });
+    expect(wallet.utxos()).toEqual(local.utxos());
+    expect(wallet.privateTransactions()).toEqual(local.privateTransactions());
+    expect(calls.items).toBeGreaterThan(calls.decrypt + calls.derive + calls.transactionKeys);
+    expect(calls.decrypt).toBeLessThanOrEqual(2);
+    expect(calls.derive).toBeLessThanOrEqual(6);
+  });
+
+  /** `depth` merges, each consolidating the previous one's single output. */
+  function mergeChain(depth: number) {
+    const fixture = mergeAfterSplit();
+    const { keypair } = fixture;
+    const identityTag = keypair.signingPublicKey().confidentialViewTag();
+    const merges = [fixture.merge];
+    let previous = {
+      utxo: new Utxo({
+        owner: keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 42n,
+        blinding: mergeOutputBlinding(keypair.nullifierKey(), fixture.merge.nullifiers[0]!),
+      }),
+      context: fixture.merge.outputSlots[0]!.outputContext,
+    };
+    for (let index = 1; index < depth; index++) {
+      const spent = previous.utxo.nullifier(previous.context.hash, keypair.nullifierKey());
+      const utxo = new Utxo({
+        owner: keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 42n,
+        blinding: mergeOutputBlinding(keypair.nullifierKey(), spent),
+      });
+      const context = {
+        hash: utxo.hash(keypair.nullifierPublicKey()),
+        tree: TREE,
+        leafIndex: BigInt(index + 2),
+      };
+      merges.push({
+        slot: BigInt(index + 2),
+        txSignature: String(index + 3)
+          .repeat(64)
+          .slice(0, 64) as Signature,
+        outputSlots: [{ viewTag: identityTag, outputContext: context, payload: new Uint8Array() }],
+        messages: [],
+        nullifiers: [
+          spent,
+          ...Array.from({ length: 7 }, (_, offset) =>
+            mergeDummyNullifier(keypair.nullifierKey(), spent, offset + 1),
+          ),
+        ],
+        proofless: false,
+      });
+      previous = { utxo, context };
+    }
+    return { ...fixture, merges };
+  }
+
+  it("restores a wallet through a long chain of merges in one batch", async () => {
+    // Every merge in the chain needs the nullifier of the previous one's
+    // output, so a fresh restore resolves one merge per key round. The round
+    // budget follows the batch, not a fixed depth.
+    const { keypair, keys, split, merges } = mergeChain(9);
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+
+    const report = await decryptWithKeys(keys, {
+      wallet,
+      transactions: [split, ...[...merges].reverse()],
+    });
+
+    expect(report).toMatchObject({ storedUtxos: 2 + merges.length, undecryptableCandidates: 0 });
+    expect(wallet.balance(SOL_MINT).amount).toBe(42n);
+    expect(wallet.utxos().filter((entry) => !entry.spent)).toHaveLength(1);
+  });
+
+  it("refuses a key holder that answers a batch short or with a hole", async () => {
+    const { keypair, keys, split, merge } = mergeAfterSplit();
+    const short: ShieldedKeys = {
+      ...remoteOver(keys),
+      derive: async (requests) => (await keys.derive(requests)).slice(1),
+    };
+    await expect(
+      decryptWithKeys(short, {
+        wallet: new Wallet({ identity: keypair.shieldedAddress() }),
+        transactions: [split, merge],
+      }),
+    ).rejects.toMatchObject({ code: "TRANSACTION_KEYS_BATCH_MISMATCH" });
+
+    const holed: ShieldedKeys = {
+      ...remoteOver(keys),
+      decrypt: async (requests) => {
+        const answers = [...(await keys.decrypt(requests))];
+        // The right length with a hole: never "ask again", an error.
+        answers.pop();
+        answers.length = requests.length;
+        return answers;
+      },
+    };
+    await expect(
+      decryptWithKeys(holed, {
+        wallet: new Wallet({ identity: keypair.shieldedAddress() }),
+        transactions: [split, merge],
+      }),
+    ).rejects.toMatchObject({ code: "TRANSACTION_KEYS_BATCH_MISMATCH" });
+  });
+
+  it("destroys the per-transaction keys a round minted when another call of the round fails", async () => {
+    const { wallet, keys, indexedTransactions } = await syncConfidentialSelfSend(
+      (transfer, identity) => transfer.send(identity, SOL_MINT, 40n),
+    );
+    // The nullifier derivation and the transaction key are asked for in the
+    // same round; the keys handed out must not survive the derivation failing.
+    const minted: ViewingKey[] = [];
+    const failing: ShieldedKeys = {
+      ...remoteOver(keys),
+      derive: () => Promise.reject(new Error("holder offline")),
+      transactionKeys: async (requests) => {
+        const result = await keys.transactionKeys(requests);
+        minted.push(...result);
+        return result;
+      },
+    };
+    await expect(
+      decryptWithKeys(failing, {
+        wallet: new Wallet({ identity: wallet.identity }),
+        transactions: indexedTransactions,
+      }),
+    ).rejects.toThrow("holder offline");
+    expect(minted.length).toBeGreaterThan(0);
+    for (const key of minted) {
+      expect(() => key.publicKey()).toThrow("KEYPAIR_INVALID_SECRET_KEY");
+    }
   });
 
   async function syncConfidentialSelfSend(
@@ -794,16 +973,13 @@ describe("wallet sync", () => {
     });
     const transfer = new ConfidentialTransfer(
       identity,
-      [new ProofInputUtxo({ utxo, nullifierKey: keypair.nullifierKey() })],
+      [ProofInputUtxo.fromKeypair(utxo, keypair)],
       identity.solanaAddress(),
     );
     configure(transfer, identity);
     const signed = transfer.sign(keypair, wallet.registry);
     const external = signed.externalData;
-    const authority = new KeypairWalletAuthority({
-      solanaPublicKey: identity.solanaAddress(),
-      keypair,
-    });
+    const keys = LocalShieldedKeys.fromKeypair(keypair);
     const indexedTransactions = [
       {
         slot: 1n,
@@ -825,16 +1001,16 @@ describe("wallet sync", () => {
       },
     ];
 
-    await decryptWithAuthority(authority, {
+    await decryptWithKeys(keys, {
       wallet,
       transactions: indexedTransactions,
     });
 
-    return { wallet, authority, indexedTransactions, keypair };
+    return { wallet, keys, indexedTransactions, keypair };
   }
 
   it("classifies a confidential send to the same wallet as a self transfer", async () => {
-    const { wallet, authority, indexedTransactions, keypair } = await syncConfidentialSelfSend(
+    const { wallet, keys, indexedTransactions, keypair } = await syncConfidentialSelfSend(
       (transfer, identity) => transfer.send(identity, SOL_MINT, 40n),
     );
     let transactions = wallet.privateTransactions();
@@ -856,7 +1032,7 @@ describe("wallet sync", () => {
         direction: "outbound",
       })),
     });
-    await decryptWithAuthority(authority, { wallet, transactions: indexedTransactions });
+    await decryptWithKeys(keys, { wallet, transactions: indexedTransactions });
     transactions = wallet.privateTransactions();
     expect(transactions).toHaveLength(1);
     expect(transactions[0]?.direction).toBe("selfTransfer");
@@ -917,7 +1093,7 @@ describe("wallet sync", () => {
     const retiredIdentity = retired.shieldedAddress();
     const transfer = new ConfidentialTransfer(
       retiredIdentity,
-      [new ProofInputUtxo({ utxo, nullifierKey: retired.nullifierKey() })],
+      [ProofInputUtxo.fromKeypair(utxo, retired)],
       retiredIdentity.solanaAddress(),
     );
     transfer.send(retiredIdentity, SOL_MINT, 40n);
@@ -925,18 +1101,15 @@ describe("wallet sync", () => {
     const external = signed.externalData;
 
     // Both keys, current first, the way an authority reports a rotation.
-    const authority = {
-      syncMaterial: () =>
-        Promise.resolve({
-          identity,
-          viewingKeys: [current.viewingKey(), retired.viewingKey()],
-          nullifierKey: current.nullifierKey(),
-        }),
-    };
+    const keys = LocalShieldedKeys.fromKeys({
+      address: identity,
+      viewingKeys: [current.viewingKey(), retired.viewingKey()],
+      nullifierKey: current.nullifierKey(),
+    });
 
     await decryptTransactions({
       wallet,
-      authority,
+      keys,
       transactions: [
         {
           slot: 1n,
@@ -1034,30 +1207,29 @@ describe("wallet sync", () => {
     };
     const recipientUtxo = anonymousRecipientUtxo(recipientPlaintext, wallet.registry);
 
-    const authority = new KeypairWalletAuthority({
-      solanaPublicKey: identity.solanaAddress(),
-      keypair,
-    });
+    const keys = LocalShieldedKeys.fromKeypair(keypair);
     // The sender bundle is tagged with the identity's signing tag, which is one
     // of the two stable families `decryptTransactions` opens.
     const identityTag = keypair.signingPublicKey().confidentialViewTag();
-    const envelope = await authority.withSpendSession((session) =>
-      session.encryptAnonymousTransfer({
-        firstNullifier: nullifier,
-        senderViewTag: identityTag,
-        sender,
-        recipients: [
-          {
-            viewTag: keypair.viewingKey().recipientBootstrapViewTag(),
-            recipientPublicKey: keypair.viewingPublicKey(),
-            plaintext: recipientPlaintext,
-          },
-        ],
-      }),
-    );
+    const [txKey] = await keys.transactionKeys([
+      { viewingPublicKey: identity.viewingPublicKey, firstNullifier: nullifier },
+    ]);
+    const envelope = encryptAnonymousTransfer(txKey!, {
+      viewingPublicKey: identity.viewingPublicKey,
+      senderViewTag: identityTag,
+      sender,
+      recipients: [
+        {
+          viewTag: keypair.viewingKey().recipientBootstrapViewTag(),
+          recipientPublicKey: keypair.viewingPublicKey(),
+          plaintext: recipientPlaintext,
+        },
+      ],
+    });
+    txKey!.destroy();
     const slotUtxos = [...change, recipientUtxo];
 
-    await decryptWithAuthority(authority, {
+    await decryptWithKeys(keys, {
       wallet,
       transactions: [
         {
@@ -1122,34 +1294,31 @@ describe("wallet sync", () => {
       "encrypted",
     );
 
-    const report = await decryptWithAuthority(
-      new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair: recipient }),
-      {
-        wallet,
-        transactions: [
-          {
-            slot: 2n,
-            txSignature: SIGNATURE,
-            txViewingPublicKey: sender.viewingPublicKey(),
-            salt,
-            outputSlots: [
-              {
-                viewTag: recipient.signingPublicKey().confidentialViewTag(),
-                outputContext: {
-                  hash: output.hash(recipient.nullifierPublicKey()),
-                  tree: TREE,
-                  leafIndex: 4n,
-                },
-                payload,
+    const report = await decryptWithKeys(LocalShieldedKeys.fromKeypair(recipient), {
+      wallet,
+      transactions: [
+        {
+          slot: 2n,
+          txSignature: SIGNATURE,
+          txViewingPublicKey: sender.viewingPublicKey(),
+          salt,
+          outputSlots: [
+            {
+              viewTag: recipient.signingPublicKey().confidentialViewTag(),
+              outputContext: {
+                hash: output.hash(recipient.nullifierPublicKey()),
+                tree: TREE,
+                leafIndex: 4n,
               },
-            ],
-            messages: [],
-            nullifiers: [bytes(32)],
-            proofless: false,
-          },
-        ],
-      },
-    );
+              payload,
+            },
+          ],
+          messages: [],
+          nullifiers: [bytes(32)],
+          proofless: false,
+        },
+      ],
+    });
 
     expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
     expect(wallet.utxos()[0]?.utxo.ringProgramId).toBe(OWNER);
@@ -1253,43 +1422,40 @@ describe("wallet sync", () => {
       "encrypted",
     );
 
-    await decryptWithAuthority(
-      new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair: sender }),
-      {
-        wallet,
-        transactions: [
-          {
-            slot: 3n,
-            txSignature: SIGNATURE,
-            txViewingPublicKey: txKey.publicKey(),
-            salt,
-            outputSlots: [
-              {
-                viewTag: sender.signingPublicKey().confidentialViewTag(),
-                outputContext: {
-                  hash: change.hash(sender.nullifierPublicKey()),
-                  tree: TREE,
-                  leafIndex: 1n,
-                },
-                payload: changePayload,
+    await decryptWithKeys(LocalShieldedKeys.fromKeypair(sender), {
+      wallet,
+      transactions: [
+        {
+          slot: 3n,
+          txSignature: SIGNATURE,
+          txViewingPublicKey: txKey.publicKey(),
+          salt,
+          outputSlots: [
+            {
+              viewTag: sender.signingPublicKey().confidentialViewTag(),
+              outputContext: {
+                hash: change.hash(sender.nullifierPublicKey()),
+                tree: TREE,
+                leafIndex: 1n,
               },
-              {
-                viewTag: recipient.signingPublicKey().confidentialViewTag(),
-                outputContext: {
-                  hash: payment.hash(recipient.nullifierPublicKey()),
-                  tree: TREE,
-                  leafIndex: 2n,
-                },
-                payload: paymentPayload,
+              payload: changePayload,
+            },
+            {
+              viewTag: recipient.signingPublicKey().confidentialViewTag(),
+              outputContext: {
+                hash: payment.hash(recipient.nullifierPublicKey()),
+                tree: TREE,
+                leafIndex: 2n,
               },
-            ],
-            messages: [],
-            nullifiers: [nullifier],
-            proofless: false,
-          },
-        ],
-      },
-    );
+              payload: paymentPayload,
+            },
+          ],
+          messages: [],
+          nullifiers: [nullifier],
+          proofless: false,
+        },
+      ],
+    });
 
     expect(wallet.utxos().find((entry) => !entry.spent)?.utxo.ringProgramId).toBe(OWNER);
     expect(wallet.privateTransactions()).toContainEqual(
@@ -1351,20 +1517,9 @@ describe("wallet sync", () => {
         transactions: [],
       })),
     });
-    const authority = {
-      withSyncSession: (run: (keys: SyncWalletAuthority) => Promise<never>) =>
-        run({
-          syncMaterial: async () => ({
-            identity: keypair.shieldedAddress(),
-            viewingKeys: [keypair.viewingKey()],
-            nullifierKey: keypair.nullifierKey(),
-          }),
-        }),
-    } as never;
-
     const report = await syncWallet({
       wallet,
-      authority,
+      keys: LocalShieldedKeys.fromKeypair(keypair),
       client,
     });
 
@@ -1432,7 +1587,7 @@ describe("wallet sync", () => {
 
     await syncWallet({
       wallet,
-      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      keys: LocalShieldedKeys.fromKeypair(keypair),
       client,
     });
 
@@ -1497,7 +1652,7 @@ describe("wallet sync", () => {
 
     await syncWallet({
       wallet,
-      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      keys: LocalShieldedKeys.fromKeypair(keypair),
       client,
     });
 
@@ -1552,13 +1707,13 @@ describe("wallet sync", () => {
       })),
       getShieldedTransactionsByNullifiers,
     });
-    const authority = new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair });
+    const keys = LocalShieldedKeys.fromKeypair(keypair);
 
-    await syncWallet({ wallet, authority, client });
+    await syncWallet({ wallet, keys, client });
     expect(getShieldedTransactionsByNullifiers.mock.calls[0]?.[0]?.cursor).toBeUndefined();
 
     getShieldedTransactionsByNullifiers.mockClear();
-    await syncWallet({ wallet, authority, client });
+    await syncWallet({ wallet, keys, client });
     expect(getShieldedTransactionsByNullifiers.mock.calls[0]?.[0]?.cursor).toEqual(scannedThrough);
   });
 
@@ -1594,7 +1749,7 @@ describe("wallet sync", () => {
     await expect(
       syncWallet({
         wallet,
-        authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+        keys: LocalShieldedKeys.fromKeypair(keypair),
         client: syncReads({
           getShieldedTransactionsByTags: vi.fn(async () => ({
             context: { blockTime: 1n, slot: 0n },
@@ -1668,7 +1823,7 @@ describe("wallet sync", () => {
 
     await syncWallet({
       wallet,
-      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      keys: LocalShieldedKeys.fromKeypair(keypair),
       client,
     });
 
@@ -1697,7 +1852,7 @@ describe("wallet sync", () => {
     await expect(
       syncWallet({
         wallet: new Wallet({ identity: keypair.shieldedAddress() }),
-        authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+        keys: LocalShieldedKeys.fromKeypair(keypair),
         client,
       }),
     ).rejects.toMatchObject({
@@ -1742,7 +1897,7 @@ describe("wallet sync", () => {
 
     const report = await syncWallet({
       wallet: new Wallet({ identity: keypair.shieldedAddress() }),
-      authority: new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      keys: LocalShieldedKeys.fromKeypair(keypair),
       client,
     });
 

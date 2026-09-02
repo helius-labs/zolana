@@ -28,9 +28,9 @@ import {
   type RequestContext,
   type SplitTransactionParams,
   type TransferTransactionParams,
-  type WalletAuthority,
   type WithdrawalTransactionParams,
 } from "../../src/index.js";
+import type { ApprovalHandler } from "../../src/transaction/wallet/intent.js";
 import { getAssociatedTokenAddress, getSplAssetVaultAddress } from "../../src/addresses.js";
 import type { ZolanaClient } from "../../src/client/client.js";
 import type { WalletUtxo } from "../../src/transaction/wallet/state.js";
@@ -155,7 +155,8 @@ async function transfer(
     {
       client: input.client,
       wallet: input.wallet,
-      authority: input.authority,
+      keys: input.keys,
+      ...(input.approve === undefined ? {} : { approve: input.approve }),
       feePayer: input.feePayer.address,
       recipient: input.recipient,
       ...(input.asset === undefined ? {} : { asset: input.asset }),
@@ -181,7 +182,8 @@ async function withdraw(
     {
       client: input.client,
       wallet: input.wallet,
-      authority: input.authority,
+      keys: input.keys,
+      ...(input.approve === undefined ? {} : { approve: input.approve }),
       feePayer: input.feePayer.address,
       recipient: input.recipient,
       ...(input.asset === undefined ? {} : { asset: input.asset }),
@@ -208,7 +210,8 @@ async function split(
     {
       client: input.client,
       wallet: input.wallet,
-      authority: input.authority,
+      keys: input.keys,
+      ...(input.approve === undefined ? {} : { approve: input.approve }),
       feePayer: input.feePayer.address,
       ...(input.asset === undefined ? {} : { asset: input.asset }),
       ...(input.parts === undefined ? {} : { parts: input.parts }),
@@ -280,19 +283,7 @@ async function register(client: ZolanaClient, owner: Actor): Promise<void> {
   ).resolves.toMatchObject({ kind: "written" });
 }
 
-function rejectingAuthority(authority: WalletAuthority): WalletAuthority {
-  return new Proxy(authority, {
-    get(target, property) {
-      if (property === "requestUserApproval") {
-        return async () => {
-          throw new Error("approval rejected");
-        };
-      }
-      const value = Reflect.get(target, property);
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  });
-}
+const rejectApproval: ApprovalHandler = () => Promise.reject(new Error("approval rejected"));
 
 function fetchUrl(input: URL | RequestInfo): string {
   return input instanceof Request ? input.url : input.toString();
@@ -307,9 +298,9 @@ describe.sequential("live SDK lifecycle", () => {
   }, 60_000);
 
   it("covers SOL registration, multiple owners, sender change, spent state, and history", async () => {
-    const alice = await actor(71);
-    const bob = await actor(72);
-    const carol = await actor(73);
+    const alice = await actor(harness.client, 71);
+    const bob = await actor(harness.client, 72);
+    const carol = await actor(harness.client, 73);
     await fund(harness.client, alice, bob, carol);
     await register(harness.client, alice);
     await register(harness.client, bob);
@@ -343,7 +334,7 @@ describe.sequential("live SDK lifecycle", () => {
     const toBob = await transfer({
       client: harness.client,
       wallet: alice.wallet,
-      authority: alice.authority,
+      keys: alice.keys,
       feePayer: alice.signer,
       recipient: bob.signer.address,
       amount: 20_000_000n,
@@ -364,7 +355,7 @@ describe.sequential("live SDK lifecycle", () => {
     const toCarol = await transfer({
       client: harness.client,
       wallet: alice.wallet,
-      authority: alice.authority,
+      keys: alice.keys,
       feePayer: alice.signer,
       recipient: carol.signer.address,
       amount: 30_000_000n,
@@ -385,7 +376,7 @@ describe.sequential("live SDK lifecycle", () => {
     const carolToBob = await transfer({
       client: harness.client,
       wallet: carol.wallet,
-      authority: carol.authority,
+      keys: carol.keys,
       feePayer: carol.signer,
       recipient: bob.signer.address,
       amount: 10_000_000n,
@@ -436,8 +427,8 @@ describe.sequential("live SDK lifecycle", () => {
   }, 900_000);
 
   it("covers a multi-input SOL withdrawal", async () => {
-    const owner = await actor(81);
-    const recipient = await actor(101);
+    const owner = await actor(harness.client, 81);
+    const recipient = await actor(harness.client, 101);
     await fund(harness.client, owner);
 
     for (const amount of [30_000_000n, 40_000_000n]) {
@@ -456,7 +447,7 @@ describe.sequential("live SDK lifecycle", () => {
     const submitted = await withdraw({
       client: harness.client,
       wallet: owner.wallet,
-      authority: owner.authority,
+      keys: owner.keys,
       feePayer: owner.signer,
       recipient: recipient.signer.address,
       amount: 50_000_000n,
@@ -478,9 +469,9 @@ describe.sequential("live SDK lifecycle", () => {
   }, 900_000);
 
   it("covers the SPL deposit, transfer, missing and existing ATA withdrawal paths", async () => {
-    const alice = await actor(91);
-    const bob = await actor(92);
-    const publicRecipient = await actor(93);
+    const alice = await actor(harness.client, 91);
+    const bob = await actor(harness.client, 92);
+    const publicRecipient = await actor(harness.client, 93);
     await fund(harness.client, alice, bob);
     await register(harness.client, bob);
 
@@ -500,7 +491,7 @@ describe.sequential("live SDK lifecycle", () => {
     await transfer({
       client: harness.client,
       wallet: alice.wallet,
-      authority: alice.authority,
+      keys: alice.keys,
       feePayer: alice.signer,
       recipient: bob.signer.address,
       asset: harness.mint,
@@ -519,7 +510,7 @@ describe.sequential("live SDK lifecycle", () => {
     await withdraw({
       client: harness.client,
       wallet: bob.wallet,
-      authority: bob.authority,
+      keys: bob.keys,
       feePayer: bob.signer,
       recipient: publicRecipient.signer.address,
       asset: harness.mint,
@@ -537,7 +528,7 @@ describe.sequential("live SDK lifecycle", () => {
     await withdraw({
       client: harness.client,
       wallet: alice.wallet,
-      authority: alice.authority,
+      keys: alice.keys,
       feePayer: alice.signer,
       recipient: harness.testAuthority.address,
       asset: harness.mint,
@@ -585,9 +576,9 @@ describe.sequential("live SDK lifecycle", () => {
   }, 900_000);
 
   it("creates and transfers a plain Token-2022 asset", async () => {
-    const alice = await actor(94);
-    const bob = await actor(95);
-    const publicRecipient = await actor(96);
+    const alice = await actor(harness.client, 94);
+    const bob = await actor(harness.client, 95);
+    const publicRecipient = await actor(harness.client, 96);
     await fund(harness.client, alice, bob);
     await register(harness.client, bob);
 
@@ -614,7 +605,7 @@ describe.sequential("live SDK lifecycle", () => {
     await transfer({
       client: harness.client,
       wallet: alice.wallet,
-      authority: alice.authority,
+      keys: alice.keys,
       feePayer: alice.signer,
       recipient: bob.signer.address,
       asset: harness.token2022Mint,
@@ -634,7 +625,7 @@ describe.sequential("live SDK lifecycle", () => {
     await withdraw({
       client: harness.client,
       wallet: bob.wallet,
-      authority: bob.authority,
+      keys: bob.keys,
       feePayer: bob.signer,
       recipient: publicRecipient.signer.address,
       asset: harness.token2022Mint,
@@ -647,7 +638,7 @@ describe.sequential("live SDK lifecycle", () => {
   }, 900_000);
 
   it("covers a real 1x8 split and merges all eight UTXOs back to one", async () => {
-    const owner = await actor(101);
+    const owner = await actor(harness.client, 101);
     await fund(harness.client, owner);
     await register(harness.client, owner);
     await deposit({
@@ -661,7 +652,7 @@ describe.sequential("live SDK lifecycle", () => {
     await split({
       client: harness.client,
       wallet: owner.wallet,
-      authority: owner.authority,
+      keys: owner.keys,
       feePayer: owner.signer,
       parts: 8,
     });
@@ -687,7 +678,7 @@ describe.sequential("live SDK lifecycle", () => {
     const mergeTransaction = await buildMergeTransaction({
       client: harness.client,
       wallet: owner.wallet,
-      authority: owner.authority,
+      keys: owner.keys,
       feePayer: owner.signer.address,
     });
     expect(unspent(owner)).toHaveLength(8);
@@ -714,8 +705,8 @@ describe.sequential("live SDK lifecycle", () => {
   }, 1_200_000);
 
   it("keeps wallet spend state unchanged across build and signing failures", async () => {
-    const owner = await actor(111);
-    const recipient = await actor(112);
+    const owner = await actor(harness.client, 111);
+    const recipient = await actor(harness.client, 112);
     await fund(harness.client, owner, recipient);
     await register(harness.client, recipient);
     await deposit({
@@ -731,7 +722,8 @@ describe.sequential("live SDK lifecycle", () => {
       transfer({
         client: harness.client,
         wallet: owner.wallet,
-        authority: rejectingAuthority(owner.authority),
+        keys: owner.keys,
+        approve: rejectApproval,
         feePayer: owner.signer,
         recipient: recipient.signer.address,
         amount: 10_000_000n,
@@ -770,7 +762,7 @@ describe.sequential("live SDK lifecycle", () => {
       {
         client: abortingClient,
         wallet: owner.wallet,
-        authority: owner.authority,
+        keys: owner.keys,
         feePayer: owner.signer,
         recipient: recipient.signer.address,
         amount: 10_000_000n,
@@ -793,7 +785,7 @@ describe.sequential("live SDK lifecycle", () => {
     const transaction = await buildTransferTransaction({
       client: harness.client,
       wallet: owner.wallet,
-      authority: owner.authority,
+      keys: owner.keys,
       feePayer: owner.signer.address,
       recipient: recipient.signer.address,
       amount: 10_000_000n,
@@ -814,8 +806,8 @@ describe.sequential("live SDK lifecycle", () => {
   }, 1_200_000);
 
   it("reconciles a post-broadcast sync failure and persists paginated state without duplicates", async () => {
-    const owner = await actor(121);
-    const recipient = await actor(122);
+    const owner = await actor(harness.client, 121);
+    const recipient = await actor(harness.client, 122);
     await fund(harness.client, owner, recipient);
     await register(harness.client, recipient);
     await deposit({
@@ -830,7 +822,7 @@ describe.sequential("live SDK lifecycle", () => {
     const broadcast = await transfer({
       client: harness.client,
       wallet: owner.wallet,
-      authority: owner.authority,
+      keys: owner.keys,
       feePayer: owner.signer,
       recipient: recipient.signer.address,
       amount: 10_000_000n,
@@ -854,7 +846,7 @@ describe.sequential("live SDK lifecycle", () => {
       syncWallet({
         client: timeoutClient,
         wallet: owner.wallet,
-        authority: owner.authority,
+        keys: owner.keys,
         config: { requireSlot: await currentSlot(timeoutClient), pageLimit: 1 },
       }),
     ).rejects.toMatchObject({
@@ -871,7 +863,7 @@ describe.sequential("live SDK lifecycle", () => {
     await syncWallet({
       client: harness.client,
       wallet: fresh,
-      authority: owner.authority,
+      keys: owner.keys,
       config: { requireSlot: await currentSlot(harness.client), pageLimit: 1 },
     });
     expect(fresh.balance(SOL_MINT).amount).toBe(40_000_000n);
@@ -887,7 +879,7 @@ describe.sequential("live SDK lifecycle", () => {
     await syncWallet({
       client: harness.client,
       wallet: restored,
-      authority: owner.authority,
+      keys: owner.keys,
       config: { requireSlot: await currentSlot(harness.client), pageLimit: 1 },
     });
     expect(restored.balance(SOL_MINT).amount).toBe(45_000_000n);
@@ -897,7 +889,7 @@ describe.sequential("live SDK lifecycle", () => {
     await syncWallet({
       client: harness.client,
       wallet: restored,
-      authority: owner.authority,
+      keys: owner.keys,
       config: { requireSlot: await currentSlot(harness.client), pageLimit: 1 },
     });
     expect(restored.utxos()).toHaveLength(beforeUtxos);
@@ -906,7 +898,7 @@ describe.sequential("live SDK lifecycle", () => {
     await transfer({
       client: harness.client,
       wallet: restored,
-      authority: owner.authority,
+      keys: owner.keys,
       feePayer: owner.signer,
       recipient: recipient.signer.address,
       amount: 5_000_000n,
@@ -914,7 +906,7 @@ describe.sequential("live SDK lifecycle", () => {
     await syncWallet({
       client: harness.client,
       wallet: restored,
-      authority: owner.authority,
+      keys: owner.keys,
       config: { requireSlot: await currentSlot(harness.client), pageLimit: 1 },
     });
     expect(restored.balance(SOL_MINT).amount).toBe(40_000_000n);

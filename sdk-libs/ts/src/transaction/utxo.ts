@@ -1,9 +1,9 @@
 import { address } from "@solana/kit";
 
-import type { Address, Bytes31, Bytes32 } from "../interface/types.js";
+import type { Address, Bytes32 } from "../interface/types.js";
 import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../interface/program.js";
 import { randomBlinding } from "../keypair/bytes.js";
-import { NullifierKey } from "../keypair/nullifier-key.js";
+import type { NullifierKey } from "../keypair/nullifier-key.js";
 import { ShieldedPublicKey } from "../keypair/public-key.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../keypair/shielded.js";
 
@@ -16,6 +16,7 @@ import {
   commitmentPoseidon,
   copy,
   decodeAddress,
+  equal,
   hashBytes,
   poseidon,
   rightAlign,
@@ -226,21 +227,32 @@ export class Utxo {
   }
 }
 
+/**
+ * A UTXO as the circuit consumes it: the opening plus the nullifier public key
+ * that closes its commitment and the nullifier that spending it publishes.
+ *
+ * The nullifier is derived by whoever holds the nullifier secret (see
+ * `ShieldedKeys.derive`) and carried here as a value, so this type never
+ * holds a secret and can cross any boundary, including the wire to a remote
+ * key holder. The secret itself enters only the prover witness.
+ */
 export class ProofInputUtxo {
   readonly utxo: Utxo;
-  readonly nullifierKey: NullifierKey;
+  readonly nullifierPublicKey: Bytes32;
+  readonly #nullifier: Bytes32;
   readonly dataHash?: Bytes32;
   readonly ringDataHash?: Bytes32;
 
   constructor(
     input: Readonly<{
       utxo: Utxo;
-      nullifierKey: NullifierKey;
+      nullifierPublicKey: Bytes32;
+      nullifier: Bytes32;
       dataHash?: Bytes32;
       ringDataHash?: Bytes32;
     }>,
   ) {
-    if (!(input.utxo instanceof Utxo) || !(input.nullifierKey instanceof NullifierKey)) {
+    if (!(input.utxo instanceof Utxo)) {
       throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "proofInput" });
     }
     this.utxo = new Utxo({
@@ -255,7 +267,10 @@ export class ProofInputUtxo {
         ? {}
         : { ringProgramId: input.utxo.ringProgramId }),
     });
-    this.nullifierKey = cloneNullifierKey(input.nullifierKey);
+    this.nullifierPublicKey = copy(
+      checked<Bytes32>(input.nullifierPublicKey, 32, "nullifier public key"),
+    );
+    this.#nullifier = copy(checked<Bytes32>(input.nullifier, 32, "nullifier"));
     if (input.dataHash) {
       this.dataHash = checked<Bytes32>(input.dataHash, 32, "data hash");
     }
@@ -266,39 +281,57 @@ export class ProofInputUtxo {
     this.checkCanonicalDummy();
   }
 
-  static fromKeypair(utxo: Utxo, keypair: ShieldedKeypair): ProofInputUtxo {
+  /** Derives the nullifier locally; the key never leaves this call. */
+  static fromKeypair(
+    utxo: Utxo,
+    keypair: ShieldedKeypair,
+    hashes: Readonly<{ dataHash?: Bytes32; ringDataHash?: Bytes32 }> = {},
+  ): ProofInputUtxo {
     const nullifierKey = keypair.nullifierKey();
     try {
-      return new ProofInputUtxo({ utxo, nullifierKey });
+      return ProofInputUtxo.fromNullifierKey(utxo, nullifierKey, hashes);
     } finally {
       nullifierKey.destroy();
     }
   }
 
+  /** Derives the nullifier locally from a caller-held key, which stays the caller's. */
+  static fromNullifierKey(
+    utxo: Utxo,
+    nullifierKey: NullifierKey,
+    hashes: Readonly<{ dataHash?: Bytes32; ringDataHash?: Bytes32 }> = {},
+  ): ProofInputUtxo {
+    const nullifierPublicKey = nullifierKey.publicKey();
+    const hash = utxo.hash(nullifierPublicKey, hashes.dataHash, hashes.ringDataHash);
+    return new ProofInputUtxo({
+      utxo,
+      nullifierPublicKey,
+      nullifier: nullifierKey.nullifier(hash, utxo.blinding),
+      ...(hashes.dataHash === undefined ? {} : { dataHash: hashes.dataHash }),
+      ...(hashes.ringDataHash === undefined ? {} : { ringDataHash: hashes.ringDataHash }),
+    });
+  }
+
+  /**
+   * An unused slot. Its nullifier is the zero-key derivation over its own
+   * commitment, the value the circuit expects for a slot marked dummy.
+   */
   static dummy(blinding = randomBlinding()): ProofInputUtxo {
-    const nullifierKey = NullifierKey.fromSecret(new Uint8Array(31) as Bytes31);
-    try {
-      return new ProofInputUtxo({
-        utxo: new Utxo({
-          owner: ShieldedPublicKey.zeroed(),
-          asset: address("11111111111111111111111111111111"),
-          amount: 0n,
-          blinding: checked<Bytes32>(blinding, 32, "dummy blinding"),
-        }),
-        nullifierKey,
-      });
-    } finally {
-      nullifierKey.destroy();
-    }
+    const utxo = new Utxo({
+      owner: ShieldedPublicKey.zeroed(),
+      asset: address("11111111111111111111111111111111"),
+      amount: 0n,
+      blinding: checked<Bytes32>(blinding, 32, "dummy blinding"),
+    });
+    return new ProofInputUtxo({
+      utxo,
+      nullifierPublicKey: ZERO_32,
+      nullifier: dummyNullifier(utxo),
+    });
   }
 
   isDummy(): boolean {
     return this.utxo.owner.isZero();
-  }
-
-  /** Destroys the cloned nullifier key, later proving throws. */
-  destroy(): void {
-    this.nullifierKey.destroy();
   }
 
   /**
@@ -323,7 +356,7 @@ export class ProofInputUtxo {
     this.checkCanonicalDummy();
     const owner = this.isDummy()
       ? ZERO_32
-      : poseidon([this.utxo.owner.ownerProofInputHash(), this.nullifierKey.publicKey()]);
+      : poseidon([this.utxo.owner.ownerProofInputHash(), this.nullifierPublicKey]);
     return fullOwnerUtxoHash(
       {
         owner,
@@ -341,8 +374,17 @@ export class ProofInputUtxo {
   }
 
   nullifier(): Bytes32 {
-    return this.nullifierKey.nullifier(this.hash(), this.utxo.blinding);
+    return copy(this.#nullifier);
   }
+}
+
+/** The zero-key nullifier of a dummy slot: Poseidon over its commitment, blinding, and a zero secret. */
+function dummyNullifier(utxo: Utxo): Bytes32 {
+  const hash = fullOwnerUtxoHash(
+    { owner: ZERO_32, asset: utxo.asset, amount: utxo.amount, blinding: utxo.blinding },
+    true,
+  );
+  return poseidon([hash, utxo.blinding, ZERO_32]);
 }
 
 const DUMMY_ASSET = address("11111111111111111111111111111111");
@@ -364,7 +406,8 @@ function noncanonicalDummyField(input: ProofInputUtxo): string | undefined {
   if (input.utxo.ringProgramId !== undefined) return "ring_program_id";
   if (!isZero(committedHash(input.dataHash))) return "data_hash";
   if (!isZero(committedHash(input.ringDataHash))) return "ring_data_hash";
-  if (!isZeroNullifierKey(input.nullifierKey)) return "nullifier_key";
+  if (!isZero(input.nullifierPublicKey)) return "nullifier_public_key";
+  if (!equal(input.nullifier(), dummyNullifier(input.utxo))) return "nullifier";
   return undefined;
 }
 
@@ -475,24 +518,6 @@ export function createProofOutput(input: ProofOutputInit): ProofOutputUtxo {
   });
 }
 
-function cloneNullifierKey(key: NullifierKey): NullifierKey {
-  const secret = key.secretBytes();
-  try {
-    return NullifierKey.fromSecret(secret);
-  } finally {
-    secret.fill(0);
-  }
-}
-
 function isZero(bytes: Uint8Array): boolean {
   return bytes.every((byte) => byte === 0);
-}
-
-function isZeroNullifierKey(key: NullifierKey): boolean {
-  const secret = key.secretBytes();
-  try {
-    return isZero(secret);
-  } finally {
-    secret.fill(0);
-  }
 }

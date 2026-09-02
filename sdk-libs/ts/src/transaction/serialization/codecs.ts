@@ -964,7 +964,9 @@ export const decryptSplit = decryptAnonymous;
  * Rust reports a body too short to hold one as `InvalidLength { expected: 33 }`
  * even though 33 is a minimum, so the detail keys match across the two.
  */
-function splitEmbeddedKey(body: Uint8Array): Readonly<{ key: P256PublicKey; rest: Uint8Array }> {
+export function splitEmbeddedKey(
+  body: Uint8Array,
+): Readonly<{ key: P256PublicKey; rest: Uint8Array }> {
   if (body.length < 33) {
     throw new TransactionError("TRANSACTION_INVALID_LENGTH", {
       expected: 33,

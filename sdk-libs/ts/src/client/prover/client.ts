@@ -316,7 +316,7 @@ function mergeProverRequest(inputs: MergeInputs): Readonly<Record<string, unknow
     asset: hex(inputs.output.circuit.asset),
     ownerPkHash: hex(inputs.ownerPublicKeyHash),
     userNullifierPk: hex(inputs.userNullifierPublicKey),
-    userNullifierSecret: hex(inputs.userNullifierSecret),
+    userNullifierSecret: hex(requireSecret(inputs.userNullifierSecret)),
     externalDataHash: hex(inputs.externalDataHash),
     privateTxHash: hex(inputs.privateTxHash),
     publicInputHash: hex(inputs.publicInputHash),
@@ -409,7 +409,7 @@ function inputJson(input: TransferInput): Readonly<Record<string, unknown>> {
     nullifierTreeRoot: hex(input.nullifierTreeRoot),
     nullifier: hex(input.nullifier),
     ownerPkHash: hex(input.ownerPublicKeyHash),
-    nullifierSecret: hex(input.nullifierSecret),
+    nullifierSecret: hex(requireSecret(input.nullifierSecret)),
   });
 }
 
@@ -435,6 +435,12 @@ function utxoJson(value: TransferInput | TransferOutput): Readonly<Record<string
     ringDataHash: hex(utxo.ringDataHash),
     ringProgramId: hex(utxo.ringProgramId),
   });
+}
+
+/** Inputs reach the prover only complete; a missing secret is a `ProofAuthority` that did not run. */
+function requireSecret(secret: Field | undefined): Field {
+  if (secret === undefined) throw new ClientError("CLIENT_MISSING_NULLIFIER_SECRET");
+  return secret;
 }
 
 function hex(value: Field): string {

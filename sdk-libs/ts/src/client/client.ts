@@ -30,7 +30,7 @@ import { checkAuthorizedBinding, checkTransactData } from "../transaction/wallet
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import { checkedU32 } from "../flows/internal.js";
 import { ClientError, fromClientCause } from "./error.js";
-import { checkedServiceUrl } from "./internal.js";
+import { checkedServiceUrl, hasProofMethods } from "./internal.js";
 import { ZolanaIndexer } from "./indexer.js";
 import {
   authorizedPrivateTransactionMaterial,
@@ -41,8 +41,9 @@ import {
   type IndexerReader,
   type KitRpcAccess,
   type MergeAssembler,
-  type MergeMaterialInput,
+  type ProofAuthority,
   type ProofReader,
+  type ProofService,
   type ProvedMerge,
   type Prover,
   type TransactionAssembler,
@@ -114,7 +115,13 @@ export interface ZolanaClientConfig {
   readonly allowInsecureHttp?: boolean;
 }
 
-export type { AuthorizedPrivateTransaction, MergeMaterialInput, ProvedMerge } from "./ports.js";
+export type {
+  AuthorizedPrivateTransaction,
+  ProofAuthority,
+  ProofService,
+  ProvedMerge,
+  WalletKeys,
+} from "./ports.js";
 
 export class ZolanaClient
   implements
@@ -133,6 +140,8 @@ export class ZolanaClient
   readonly solanaRpc: SolanaRpc;
   readonly solanaRpcSubscriptions: SolanaRpcSubscriptions;
   readonly commitment: Commitment;
+  /** The prover server, for a `LocalKeys` to forward completed inputs to. */
+  readonly proofService: ProofService;
   readonly #indexer: ZolanaIndexer;
   readonly #prover: ProverClient;
   readonly #computeUnitLimit: number;
@@ -220,6 +229,7 @@ export class ZolanaClient
     this.commitment = commitment;
     this.#indexer = indexer;
     this.#prover = prover;
+    this.proofService = prover;
     this.#computeUnitPrice = input.computeUnitPriceMicroLamports;
     const indexerConfig = input.indexerConfig ?? DEFAULT_INDEXER_RPC_CONFIG;
     validatePollConfig(indexerConfig.poll);
@@ -567,20 +577,22 @@ export class ZolanaClient
 
   async proveTransact(
     proofInputs: SppProofInputs,
+    keys: ProofAuthority,
     config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<TransactInstructionData> {
-    return this.#proveTransfer(proofInputs, undefined, config, context);
+    return this.#proveTransfer(proofInputs, undefined, keys, config, context);
   }
 
   async proveRingTransact(
     proofInputs: SppProofInputs,
     ringProgramId: Address,
+    keys: ProofAuthority,
     config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<TransactInstructionData> {
     checkedAddress(ringProgramId, "ringProgramId");
-    return this.#proveTransfer(proofInputs, ringProgramId, config, context);
+    return this.#proveTransfer(proofInputs, ringProgramId, keys, config, context);
   }
 
   async proverHealth(context?: RequestContext): Promise<ProverHealth> {
@@ -606,12 +618,14 @@ export class ZolanaClient
   async #proveTransfer(
     proofInputs: SppProofInputs,
     ring: Address | undefined,
+    keys: ProofAuthority,
     config: IndexerRpcConfig | undefined,
     context: RequestContext | undefined,
   ): Promise<TransactInstructionData> {
     if (!(proofInputs instanceof SppProofInputs)) {
       throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
     }
+    checkProofAuthority(keys);
     try {
       const dummyNullifiers = proofInputs.dummyNullifiers();
       const [proofs, dummyResponse] = await Promise.all([
@@ -638,7 +652,7 @@ export class ZolanaClient
         }
       });
       const assembled = assemble(proofInputs, proofs, dummyProofs, ring);
-      const proof = await this.#prover.prove(assembled.proverInputs, context);
+      const proof = await keys.prove(assembled.proverInputs, context);
       return assembled.withProof(compressProof(proof).toTransactProof());
     } catch (cause) {
       throw fromClientCause(cause);
@@ -648,7 +662,7 @@ export class ZolanaClient
   async proveMerge(
     input: Readonly<{
       prepared: PreparedMerge;
-      material: MergeMaterialInput;
+      keys: ProofAuthority;
       indexer?: Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs">;
     }>,
     context?: RequestContext,
@@ -657,16 +671,14 @@ export class ZolanaClient
     if (typeof candidate !== "object" || candidate === null) {
       throw new ClientError("CLIENT_INVALID_MERGE");
     }
+    checkProofAuthority(input.keys);
     const assembled = await assembleMerge(
       input.prepared,
-      input.material,
       input.indexer ?? this,
       this.tree,
       context,
     );
-    const compressed = compressProof(
-      await this.#prover.proveMerge(assembled.proverInputs, context),
-    );
+    const compressed = compressProof(await input.keys.proveMerge(assembled.proverInputs, context));
     return Object.freeze({
       data: assembled.instructionData({
         a: compressed.a,
@@ -715,6 +727,7 @@ export class ZolanaClient
     input: Readonly<{
       authorized: AuthorizedPrivateTransaction;
       feePayer: Address;
+      keys: ProofAuthority;
     }>,
     context?: RequestContext,
   ): Promise<Transaction> {
@@ -724,20 +737,23 @@ export class ZolanaClient
     }
     const fields = Reflect.ownKeys(candidate);
     if (
-      fields.length !== 2 ||
+      fields.length !== 3 ||
       !Object.hasOwn(candidate, "authorized") ||
       !Object.hasOwn(candidate, "feePayer") ||
-      fields.some((key) => key !== "authorized" && key !== "feePayer")
+      !Object.hasOwn(candidate, "keys") ||
+      fields.some((key) => key !== "authorized" && key !== "feePayer" && key !== "keys")
     ) {
       throw new ClientError("CLIENT_INVALID_TRANSACTION");
     }
     const feePayer: unknown = Reflect.get(candidate, "feePayer");
     checkedAddress(feePayer, "feePayer");
+    const keys: unknown = Reflect.get(candidate, "keys");
+    checkProofAuthority(keys);
     const authorized = authorizedPrivateTransactionMaterial(Reflect.get(candidate, "authorized"));
     if (authorized === undefined) {
       throw new ClientError("CLIENT_INVALID_TRANSACTION");
     }
-    const data = await this.#proveAuthorizedPrivateTransaction(authorized, feePayer, context);
+    const data = await this.#proveAuthorizedPrivateTransaction(authorized, feePayer, keys, context);
     checkTransactData(data, authorized.intent, intentMismatch);
     const lifetime = await this.getLatestBlockhash(context);
     return buildUnsignedTransaction({
@@ -758,6 +774,7 @@ export class ZolanaClient
   async #proveAuthorizedPrivateTransaction(
     authorized: AuthorizedPrivateTransactionMaterial,
     feePayer: Address,
+    keys: ProofAuthority,
     context?: RequestContext,
   ): Promise<TransactInstructionData> {
     if (feePayer !== authorized.proofInputs.payer) {
@@ -769,8 +786,13 @@ export class ZolanaClient
       });
     }
     checkAuthorizedBinding(authorized, intentMismatch);
-    return this.proveTransact(authorized.proofInputs, undefined, context);
+    return this.proveTransact(authorized.proofInputs, keys, undefined, context);
   }
+}
+
+/** A `ProofAuthority` is a structural type; a wrong argument fails here rather than as a missing method later. */
+function checkProofAuthority(keys: unknown): asserts keys is ProofAuthority {
+  if (!hasProofMethods(keys)) throw new ClientError("CLIENT_INVALID_PROOF_AUTHORITY");
 }
 
 /** Mirrors Rust `MERGE_CU_LIMIT`, the merge verifies one proof over eight inputs. */

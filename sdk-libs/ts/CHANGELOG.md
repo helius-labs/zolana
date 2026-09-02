@@ -2,11 +2,85 @@
 
 ## 0.1.6-alpha — unreleased
 
-Wallet replay keeps merge outputs when their inputs arrive in the same sync.
-Selection and approval text use UTXO terminology without changing version 3 snapshot keys.
+The wallet authority is replaced by a key interface a remote holder can
+answer: `WalletKeys` exposes the derivations a wallet needs and proving,
+never a long-lived secret, and every build and sync takes it. Proof inputs
+carry the nullifier instead of the nullifier key, so a transaction is
+prepared and encrypted without the spending secret in the process. Wallet
+replay keeps merge outputs when their inputs arrive in the same sync.
+
+Breaking
+
+- `WalletAuthority`, `KeypairWalletAuthority`, `ClientEd25519WalletAuthority`,
+  `SpendAuthority`, `SpendSession`, `SyncAuthority`, `SyncWalletAuthority`, and
+  `WalletSyncMaterial` are removed → build
+  `LocalKeys.fromKeypair(keypair, client.proofService)`, or from a browser
+  wallet's signature
+  `LocalKeys.fromDerivationSeed({ solanaPublicKey, derivationSeed }, client.proofService)`,
+  and pass it as `keys`.
+- `buildTransferTransaction`, `buildWithdrawalTransaction`,
+  `buildSplitTransaction`, `buildMergeTransaction`, `buildRingEntryTransaction`,
+  `buildRingTransferTransaction`, `buildRingExitTransaction`, and
+  `buildRingWithdrawalTransaction` take `keys: WalletKeys` and an optional
+  `approve: ApprovalHandler` instead of `authority` → pass the keys, and move
+  a `requestUserApproval` implementation into `approve`, which receives the
+  same `ApprovalRequest` and returns `approveIntent(request.intent)`; builds
+  without `approve` are approved unattended, and a P256 owner's
+  `solanaPublicKey` and registry record are the fee payer's.
+- `syncWallet`, `syncPersistedWallet`, and `decryptTransactions` take
+  `keys: ShieldedKeys` instead of `authority` → pass `LocalKeys` or
+  `LocalShieldedKeys.fromKeypair(keypair)`; keys for another wallet fail with
+  `TRANSACTION_WALLET_AUTHORITY_MISMATCH` before any indexer query.
+- `ProofInputUtxo` carries `nullifierPublicKey` and the derived nullifier
+  instead of a `NullifierKey`, its constructor takes
+  `{ utxo, nullifierPublicKey, nullifier, dataHash?, ringDataHash? }`, and
+  `destroy()` is removed → build inputs with
+  `ProofInputUtxo.fromKeypair(utxo, keypair, hashes?)` or the new
+  `ProofInputUtxo.fromNullifierKey(utxo, key, hashes?)`; wallet entries
+  already hold their nullifier.
+- `ZolanaClient.proveTransact(proofInputs, keys, config?)`,
+  `proveRingTransact(proofInputs, ringProgramId, keys, config?)`,
+  `proveMerge({ prepared, keys })`, and
+  `assembleAuthorizedPrivateTransaction({ authorized, feePayer, keys })`
+  require a `ProofAuthority`, and `MergeMaterialInput` is removed with its
+  `CLIENT_INVALID_MERGE_MATERIAL` code → pass the same `keys` object; a value
+  that cannot prove fails with `CLIENT_INVALID_PROOF_AUTHORITY`.
+- `proveCustomRingTransfer` takes `keys: WalletKeys` instead of `session` →
+  pass the keys.
+- `ProverInputs` input slots and `MergeInputs` carry the nullifier secret only
+  once a `ProofAuthority` fills it in → a prover call whose own real input still
+  lacks it fails with `CLIENT_MISSING_NULLIFIER_SECRET`.
+
+Added
+
+- `ShieldedKeys` (`address`, `viewingPublicKeys`, `decrypt`, `derive`,
+  `transactionKeys`) and `ProofAuthority` (`prove`, `proveMerge`) describe a
+  wallet's privacy roles as batched functions, `WalletKeys` is both, and a
+  remote key holder implements them to drive every build and sync.
+- `LocalKeys` and `LocalShieldedKeys` answer those interfaces from keys held
+  in-process, with `fromKeypair`,
+  `fromKeys({ address, viewingKeys, nullifierKey })` for a wallet holding
+  retired viewing keys, and `fromDerivationSeed`, which verifies the seed is
+  the wallet's signature and fails otherwise with
+  `TRANSACTION_INVALID_DERIVATION_SEED`.
+- `ZolanaClient.proofService` is the prover behind the client, what
+  `LocalKeys` forwards completed proof inputs to.
+- `encryptConfidentialTransfer`, `encryptCustomRingTransfer`,
+  `encryptAnonymousTransfer`, and `encryptSplit` seal a prepared transaction
+  under the per-transaction key `ShieldedKeys.transactionKeys` returns.
+- `approveUnattended` is the default `ApprovalHandler`, and `checkKeysIdentity`
+  refuses keys that do not describe a wallet's address.
+- `DecryptRequest`, `DeriveRequest`, `TransactionKeyRequest`, `DecryptLabel`,
+  `ProofService`, `ProverInputs`, and `MergeInputs` are exported for key holder
+  implementations.
 
 Changed
 
+- A sync asks the key holder for every ciphertext, nullifier, and
+  per-transaction key it needs in one batch per method and per dependency
+  round, as many rounds as the merges in the batch chain, and a sync or merge
+  fails with `TRANSACTION_KEYS_BATCH_MISMATCH`, `WALLET_KEYS_BATCH_MISMATCH`,
+  or `TRANSACTION_KEYS_UNRESOLVED` when a holder does not answer in full.
 - `buildRingEntryTransaction`, `buildRingTransferTransaction`, and
   `buildRingExitTransaction` use UTXO terminology in approval summaries, while
   version 3 `SerializedWalletState` reservation field names remain unchanged.

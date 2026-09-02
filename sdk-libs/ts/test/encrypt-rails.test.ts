@@ -4,13 +4,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bytes32, Bytes64 } from "../src/interface/index.js";
 import { ShieldedKeypair, SigningKey, ViewingKey } from "../src/keypair/index.js";
 import {
-  ClientEd25519WalletAuthority,
   Data,
-  KeypairWalletAuthority,
+  LocalShieldedKeys,
   createProofOutput,
-  type WalletAuthority,
+  encryptAnonymousTransfer,
+  encryptConfidentialTransfer,
+  encryptCustomRingTransfer,
+  encryptSplit,
+  type ShieldedKeys,
 } from "../src/transaction/index.js";
 import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
+import { withTransactionKey } from "../src/wallet/private-transaction.js";
 
 function filled(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
@@ -20,19 +24,14 @@ function signingKey(): SigningKey {
   return SigningKey.fromEd25519Bytes(filled(11));
 }
 
-function keypairAuthority(): WalletAuthority {
-  const signing = signingKey();
-  const solanaPublicKey = getAddressDecoder().decode(signing.publicKey().ed25519());
-  return new KeypairWalletAuthority({
-    solanaPublicKey,
-    keypair: ShieldedKeypair.fromKeypair(signingKey()),
-  });
+function keypairKeys(): ShieldedKeys {
+  return LocalShieldedKeys.fromKeypair(ShieldedKeypair.fromKeypair(signingKey()));
 }
 
-function ed25519Authority(): WalletAuthority {
+function derivedKeys(): ShieldedKeys {
   const signing = signingKey();
   const solanaPublicKey = getAddressDecoder().decode(signing.publicKey().ed25519());
-  return ClientEd25519WalletAuthority.fromDerivationSeed({
+  return LocalShieldedKeys.fromDerivationSeed({
     solanaPublicKey,
     derivationSeed: signing.derivationSeed() as Bytes64,
   });
@@ -70,19 +69,18 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("authority encrypt rails wipe the per-transaction viewing key", () => {
-  const cases: readonly (readonly [string, () => WalletAuthority])[] = [
-    ["KeypairWalletAuthority", keypairAuthority],
-    ["ClientEd25519WalletAuthority", ed25519Authority],
+describe("encrypt rails run under a per-transaction key that is wiped after them", () => {
+  const cases: readonly (readonly [string, () => ShieldedKeys])[] = [
+    ["keypair keys", keypairKeys],
+    ["derivation-seed keys", derivedKeys],
   ];
 
   for (const [name, make] of cases) {
     it(`${name} confidential transfer`, async () => {
-      const authority = make();
+      const keys = make();
       const minted = trackMintedTxViewingKeys();
-      await authority.withSpendSession((session) =>
-        session.encryptConfidentialTransfer({
-          firstNullifier: filled(1),
+      await withTransactionKey(keys, filled(1), (tx) =>
+        encryptConfidentialTransfer(tx, {
           outputs: [recipientOutput()],
           assets: new AssetRegistry(),
         }),
@@ -91,12 +89,11 @@ describe("authority encrypt rails wipe the per-transaction viewing key", () => {
     });
 
     it(`${name} custom ring transfer keeps the audit secrets readable`, async () => {
-      const authority = make();
+      const keys = make();
       const auditor = ViewingKey.generate();
       const minted = trackMintedTxViewingKeys();
-      const encrypted = await authority.withSpendSession((session) =>
-        session.encryptCustomRingTransfer({
-          firstNullifier: filled(1),
+      const encrypted = await withTransactionKey(keys, filled(1), (tx) =>
+        encryptCustomRingTransfer(tx, {
           outputs: [recipientOutput()],
           assets: new AssetRegistry(),
           auditorPublicKey: auditor.publicKey(),
@@ -108,12 +105,12 @@ describe("authority encrypt rails wipe the per-transaction viewing key", () => {
     });
 
     it(`${name} anonymous transfer`, async () => {
-      const authority = make();
+      const keys = make();
       const recipient = ShieldedKeypair.generate();
       const minted = trackMintedTxViewingKeys();
-      await authority.withSpendSession((session) =>
-        session.encryptAnonymousTransfer({
-          firstNullifier: filled(1),
+      await withTransactionKey(keys, filled(1), (tx) =>
+        encryptAnonymousTransfer(tx, {
+          viewingPublicKey: keys.address().viewingPublicKey,
           senderViewTag: filled(2),
           sender: {
             ownerPublicKey: recipient.signingPublicKey(),
@@ -132,12 +129,12 @@ describe("authority encrypt rails wipe the per-transaction viewing key", () => {
     });
 
     it(`${name} split`, async () => {
-      const authority = make();
+      const keys = make();
       const owner = ShieldedKeypair.generate();
       const minted = trackMintedTxViewingKeys();
-      await authority.withSpendSession((session) =>
-        session.encryptSplit({
-          firstNullifier: filled(1),
+      await withTransactionKey(keys, filled(1), (tx) =>
+        encryptSplit(tx, {
+          viewingPublicKey: keys.address().viewingPublicKey,
           viewTag: filled(2),
           bundle: {
             ownerPublicKey: owner.signingPublicKey(),
@@ -152,4 +149,37 @@ describe("authority encrypt rails wipe the per-transaction viewing key", () => {
       expectWiped(minted);
     });
   }
+
+  it("refuses a holder that answers with more than the one key and wipes them all", async () => {
+    const keys = keypairKeys();
+    const minted = trackMintedTxViewingKeys();
+    const generous: ShieldedKeys = {
+      address: () => keys.address(),
+      viewingPublicKeys: () => keys.viewingPublicKeys(),
+      decrypt: (requests) => keys.decrypt(requests),
+      derive: (requests) => keys.derive(requests),
+      transactionKeys: async (requests) => [
+        ...(await keys.transactionKeys(requests)),
+        ...(await keys.transactionKeys(requests)),
+      ],
+    };
+    await expect(
+      withTransactionKey(generous, filled(1), (tx) => tx.publicKey()),
+    ).rejects.toMatchObject({ code: "TRANSACTION_KEYS_BATCH_MISMATCH" });
+    expect(minted).toHaveLength(2);
+    for (const key of minted) {
+      expect(() => key.publicKey()).toThrow("KEYPAIR_INVALID_SECRET_KEY");
+    }
+  });
+
+  it("wipes the key when the sealing step throws", async () => {
+    const keys = keypairKeys();
+    const minted = trackMintedTxViewingKeys();
+    await expect(
+      withTransactionKey(keys, filled(1), () => {
+        throw new Error("refused");
+      }),
+    ).rejects.toThrow("refused");
+    expectWiped(minted);
+  });
 });

@@ -1,7 +1,7 @@
 /// <reference types="node" />
 
 import { SOL_MINT, createZolanaClient } from "@heliuslabs/zolana";
-import { atSlot } from "@heliuslabs/zolana/client";
+import { LocalKeys, atSlot } from "@heliuslabs/zolana/client";
 import {
   depositInstruction,
   transactInstruction,
@@ -36,12 +36,13 @@ describe("example: deposit, transfer, withdraw", () => {
     //     solanaRpcUrl: `https://devnet.helius-rpc.com?api-key=${process.env.API_KEY!}`,
     // });
 
-    // Initialize the sender's private wallet and local authority
-    // to decrypt transactions and sync balances.
     // The Solana signer and private wallet are derived from the same Ed25519 seed.
     const senderSigner = senderKeypair.toSolanaSigner();
     const senderAddress = senderKeypair.shieldedAddress();
     const recipient = recipientKeypair.shieldedAddress();
+    // The sender's privacy keys, held in this process: they complete the proof
+    // inputs with the nullifier secret and forward them to the client's prover.
+    const senderKeys = LocalKeys.fromKeypair(senderKeypair, client.proofService);
 
     // The SDK hands back instructions; the app owns signing and sending.
     const sendAndConfirm = sendAndConfirmFactory(client, senderSigner);
@@ -109,7 +110,7 @@ describe("example: deposit, transfer, withdraw", () => {
     const transferProofInputs = transfer.sign(senderKeypair, assets);
 
     // 4. Fetch the ZK proof to prove the sender can spend the balance without revealing asset and amount.
-    const transferData = await client.proveTransact(transferProofInputs);
+    const transferData = await client.proveTransact(transferProofInputs, senderKeys);
 
     // 5. Build the instruction with the state Merkle tree and Solana accounts required for the transfer.
     // Private transfers move balances only between private token accounts, not public token accounts.
@@ -163,7 +164,7 @@ describe("example: deposit, transfer, withdraw", () => {
     const withdrawalProofInputs = withdrawal.sign(senderKeypair, assets);
 
     // 4. Fetch the ZK proof to prove the sender can spend the balance.
-    const withdrawalData = await client.proveTransact(withdrawalProofInputs);
+    const withdrawalData = await client.proveTransact(withdrawalProofInputs, senderKeys);
 
     // 5. Build the instruction with the state Merkle tree and Solana accounts required for the withdrawal.
     const withdrawalInstruction = transactInstruction({

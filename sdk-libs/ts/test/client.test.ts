@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   ClientError,
+  LocalKeys,
   ZolanaClient,
   type GetMerkleProofsResponse,
   type GetNonInclusionProofsResponse,
@@ -44,17 +45,21 @@ function bytes(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
 }
 
-function proofFixture(): Readonly<{ proofInputs: SppProofInputs; spendProof: SpendProof }> {
+function proofFixture(): Readonly<{
+  proofInputs: SppProofInputs;
+  spendProof: SpendProof;
+  keypair: ShieldedKeypair;
+}> {
   const keypair = ShieldedKeypair.generate();
-  const input = new ProofInputUtxo({
-    utxo: new Utxo({
+  const input = ProofInputUtxo.fromKeypair(
+    new Utxo({
       owner: keypair.signingPublicKey(),
       asset: SOL_MINT,
       amount: 7n,
       blinding: bytes(1),
     }),
-    nullifierKey: keypair.nullifierKey(),
-  });
+    keypair,
+  );
   const output = createProofOutput({
     ownerAddress: keypair.shieldedAddress(),
     asset: SOL_MINT,
@@ -98,7 +103,7 @@ function proofFixture(): Readonly<{ proofInputs: SppProofInputs; spendProof: Spe
       rootIndex: 7,
     },
   };
-  return { proofInputs, spendProof };
+  return { proofInputs, spendProof, keypair };
 }
 
 type ServiceOverrides = Pick<ZolanaClientConfig, "indexerUrl" | "proverUrl">;
@@ -142,7 +147,10 @@ async function serviceRequestUrls(
   await instance.getShieldedTransactionsByNullifiers({ nullifiers: [bytes(7)] });
   const fixture = proofFixture();
   vi.spyOn(instance, "getInputMerkleProofs").mockResolvedValue([fixture.spendProof]);
-  await instance.proveTransact(fixture.proofInputs);
+  await instance.proveTransact(
+    fixture.proofInputs,
+    LocalKeys.fromKeypair(fixture.keypair, instance.proofService),
+  );
   return urls;
 }
 
@@ -537,5 +545,25 @@ describe("ZolanaClient", () => {
     });
 
     await expect(pending).resolves.toHaveLength(1);
+  });
+
+  it("refuses to prove an own input whose keys left the nullifier secret out", async () => {
+    // A `ProofAuthority` that forwards the inputs untouched is a holder that
+    // did not run; the prover request fails before any network call.
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+      throw new Error("network reached");
+    });
+    const instance = client(fetch);
+    const fixture = proofFixture();
+    vi.spyOn(instance, "getInputMerkleProofs").mockResolvedValue([fixture.spendProof]);
+    const forwarding = {
+      prove: instance.proofService.prove.bind(instance.proofService),
+      proveMerge: instance.proofService.proveMerge.bind(instance.proofService),
+    };
+
+    await expect(instance.proveTransact(fixture.proofInputs, forwarding)).rejects.toMatchObject({
+      code: "CLIENT_MISSING_NULLIFIER_SECRET",
+    });
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
