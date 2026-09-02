@@ -632,6 +632,16 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
 }
 
 #[cfg(feature = "test-only")]
+impl<const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP: usize>
+    BatchedMerkleTreeAccount<'_, RH, NUM_ITERS, BLOOM, ZKP>
+{
+    /// Rotates the root history without a batch update.
+    pub fn push_root(&mut self, root: [u8; 32]) {
+        self.append_root(root);
+    }
+}
+
+#[cfg(feature = "test-only")]
 pub mod test_utils {
     use super::*;
 

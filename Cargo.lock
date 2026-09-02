@@ -2054,6 +2054,7 @@ dependencies = [
  "anyhow",
  "bincode 2.0.1",
  "clap",
+ "custom-ring-interface",
  "custom-ring-program",
  "custom-ring-sdk",
  "hex",
@@ -2132,6 +2133,7 @@ dependencies = [
 name = "custom-ring-sdk"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "borsh",
  "bytemuck",
  "curve25519-dalek 4.1.3",
@@ -2174,6 +2176,7 @@ name = "custom-ring-test-validator"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64",
  "bincode 2.0.1",
  "custom-ring-interface",
  "custom-ring-program",
@@ -2184,6 +2187,7 @@ dependencies = [
  "solana-instruction",
  "solana-keypair",
  "solana-packet 3.0.0",
+ "solana-rent 4.3.0",
  "solana-signature",
  "solana-signer",
  "solana-system-interface 3.2.0",

@@ -82,7 +82,7 @@ pub enum Command {
     /// Create the config with the auditor key and register the ring with SPP.
     Init(InitArgs),
     /// Deploy, init, check the ring rpc, grant the authority and transact.
-    Pipeline,
+    Pipeline(DeployArgs),
     /// Two ring deposits and one custom-ring transfer, read back from the ring RPC.
     Transact(TransactArgs),
     /// Deposit an amount and send all of it to a shielded address inside the ring.
@@ -180,6 +180,10 @@ pub enum AuthorityCommand {
     },
     /// Hand the ring config authority to another keypair, both keys sign.
     TransferConfig { new_authority_keypair: PathBuf },
+    /// Stop every deposit, transfer and merge of the ring.
+    Pause,
+    /// Open the ring again after a pause.
+    Resume,
     /// Make the program immutable, irreversible.
     Renounce {
         /// Confirms the irreversible step.
@@ -482,7 +486,7 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
             deploy::run(&mut ctx, args)?;
         }
         Command::Init(args) => init::run(&mut ctx, args)?,
-        Command::Pipeline => pipeline::run(&mut ctx)?,
+        Command::Pipeline(args) => pipeline::run(&mut ctx, args)?,
         Command::Transact(args) => transact::run(&mut ctx, args)?,
         Command::Transfer(args) => transact::run_transfer(&mut ctx, args)?,
         Command::RpcCheck => ring_rpc::run_check(&ctx)?,
@@ -502,7 +506,25 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
 
 #[cfg(test)]
 mod tests {
+    use clap::ValueEnum;
+    use custom_ring_interface::RULES;
+    use zolana_ring_policy::ListId;
+
     use super::*;
+
+    #[test]
+    fn every_referenced_list_has_a_cli_arm() {
+        let arms: Vec<ListId> = ListIdArg::value_variants()
+            .iter()
+            .map(|arm| ListId::from(*arm))
+            .collect();
+        for list_id in ListId::ALL
+            .into_iter()
+            .filter(|list_id| transact::references(&RULES, *list_id))
+        {
+            assert!(arms.contains(&list_id), "{list_id:?} has no cli arm");
+        }
+    }
 
     #[test]
     fn explicit_config_roots_local_key_output() {

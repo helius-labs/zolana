@@ -9,8 +9,27 @@ pub const MAX_RULES: usize = 16;
 pub const MAX_INLINE_ASSETS: usize = 8;
 /// Source slots, one per list the enum can name.
 pub const MAX_SOURCES: usize = 8;
+/// Answer slots per transfer, a circuit width.
+pub const ANSWER_SLOTS: usize = 10;
+/// Input slots the policy opens per transfer, a circuit width.
+pub const POLICY_INPUT_SLOTS: usize = 5;
+/// Output slots the policy opens per transfer, a circuit width.
+pub const POLICY_OUTPUT_SLOTS: usize = 4;
 /// Enters `policy_hash`, bump it with any change of the encoding below.
 pub const POLICY_VERSION: u8 = 3;
+
+/// Distinct sender keys and live outputs of one transfer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AnswerLoad {
+    pub senders: usize,
+    pub outputs: usize,
+}
+
+/// A one-key spend at the output width, every table answers it in one transfer.
+pub const GUARANTEED_LOAD: AnswerLoad = AnswerLoad {
+    senders: 1,
+    outputs: POLICY_OUTPUT_SLOTS,
+};
 
 /// One list and owner pair, list id 0 marks an empty slot with a zero hash.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -70,7 +89,7 @@ impl SourceMap {
             if *owner_hash == [0u8; 32] {
                 return Err(SourceMapError::ZeroOwner);
             }
-            let slot = &mut sources.slots[*list_id as usize - 1];
+            let slot = &mut sources.slots[list_id.slot()];
             if slot.list_id != 0 {
                 return Err(SourceMapError::Duplicate);
             }
@@ -115,7 +134,7 @@ impl SourceMap {
 
     /// The owner serving a list, `None` when unmapped.
     pub fn owner_hash(&self, list_id: ListId) -> Option<&[u8; 32]> {
-        let slot = &self.slots[list_id as usize - 1];
+        let slot = &self.slots[list_id.slot()];
         (slot.list_id != 0).then_some(&slot.owner_hash)
     }
 
@@ -142,7 +161,8 @@ pub enum Mode {
     Absent = 2,
 }
 
-/// AboveAmount exempts instances at or below the threshold.
+/// AboveAmount exempts an instance whose summed output amount is at or below
+/// the threshold, in base units of the output asset.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Guard {
     Always,
@@ -233,12 +253,12 @@ impl Rule {
     /// Bit `i` set means list `i + 1` is referenced, zero marks the inline source.
     pub const fn list_mask(&self) -> u8 {
         match self.source {
-            RuleSource::List(list_id) => 1 << (list_id as u8 - 1),
+            RuleSource::List(list_id) => list_id.mask_bit(),
             RuleSource::AnyOf(lists) => {
                 let mut mask = 0u8;
                 let mut i = 0;
                 while i < lists.len() {
-                    mask |= 1 << (lists[i] as u8 - 1);
+                    mask |= lists[i].mask_bit();
                     i += 1;
                 }
                 mask
@@ -250,9 +270,9 @@ impl Rule {
     /// The lists the rule consults, empty for an inline source.
     pub fn referenced_lists(&self) -> impl Iterator<Item = ListId> + '_ {
         let mask = self.list_mask();
-        (1..=MAX_SOURCES as u8)
-            .filter(move |id| mask & (1 << (id - 1)) != 0)
-            .filter_map(|id| ListId::try_from(id).ok())
+        ListId::ALL
+            .into_iter()
+            .filter(move |list_id| mask & list_id.mask_bit() != 0)
     }
 
     /// Byte positions are the circuit packed-field weights (Go ruleShift), reordering breaks proof verification.
@@ -272,6 +292,17 @@ impl Rule {
 
     const fn signature(&self) -> u32 {
         ((self.subject as u32) << 16) | ((self.mode as u32) << 8) | self.list_mask() as u32
+    }
+
+    const fn max_answers(&self, load: AnswerLoad) -> usize {
+        match self.source {
+            RuleSource::InlineAssets(_) => 0,
+            RuleSource::List(_) | RuleSource::AnyOf(_) => match self.subject {
+                Subject::Sender => load.senders,
+                Subject::OutputOwner | Subject::Asset => load.outputs,
+                Subject::ExitDestination => 0,
+            },
+        }
     }
 
     const fn disabled() -> Self {
@@ -300,6 +331,21 @@ impl RuleTable {
 
     pub const fn is_empty(&self) -> bool {
         self.len == 0
+    }
+
+    /// Upper bound on answer triples, reached with members disjoint across subjects.
+    pub const fn max_answers(&self, load: AnswerLoad) -> usize {
+        assert!(
+            load.senders <= POLICY_INPUT_SLOTS && load.outputs <= POLICY_OUTPUT_SLOTS,
+            "answer load exceeds the policy openings"
+        );
+        let mut total = 0;
+        let mut i = 0;
+        while i < self.len {
+            total += self.rules[i].max_answers(load);
+            i += 1;
+        }
+        total
     }
 
     /// The map binds each referenced list to one namespace, an uncovered
@@ -358,6 +404,8 @@ impl RuleTableBuilder {
     }
 
     pub const fn build(self) -> RuleTable {
+        let mut owner_guard = false;
+        let mut single_unguarded_inline = false;
         let mut i = 0;
         while i < self.len {
             let rule = self.rules[i];
@@ -376,6 +424,8 @@ impl RuleTableBuilder {
                         members.len() <= MAX_INLINE_ASSETS,
                         "inline asset list exceeds the circuit width"
                     );
+                    single_unguarded_inline =
+                        members.len() == 1 && matches!(rule.guard, Guard::Always);
                     let mut m = 0;
                     while m < members.len() {
                         let mut nonzero = false;
@@ -419,6 +469,7 @@ impl RuleTableBuilder {
             );
             if let Guard::AboveAmount(amount) = rule.guard {
                 assert!(amount > 0, "a zero threshold is Guard::Always");
+                owner_guard = owner_guard || matches!(rule.subject, Subject::OutputOwner);
             }
             let mut j = 0;
             while j < i {
@@ -430,10 +481,19 @@ impl RuleTableBuilder {
             }
             i += 1;
         }
-        RuleTable {
+        assert!(
+            !owner_guard || single_unguarded_inline,
+            "an owner amount guard needs a single unguarded inline asset"
+        );
+        let table = RuleTable {
             rules: self.rules,
             len: self.len,
-        }
+        };
+        assert!(
+            table.max_answers(GUARANTEED_LOAD) <= ANSWER_SLOTS,
+            "a one-key spend at the output width exceeds the answer slots"
+        );
+        table
     }
 }
 
@@ -631,5 +691,103 @@ mod tests {
         let _ = RuleTable::builder()
             .rule(Rule::allow_only_assets(&[[0u8; 32]]))
             .build();
+    }
+
+    const RELEASED: RuleTable = RuleTable::builder()
+        .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
+        .rule(Rule::require(Subject::Sender, ListId::Allow))
+        .rule(Rule::forbid(Subject::OutputOwner, ListId::Block))
+        .rule(Rule::forbid(Subject::Sender, ListId::Frozen))
+        .build();
+
+    #[test]
+    fn answers_scale_with_senders_and_outputs_per_subject() {
+        let load = |senders, outputs| AnswerLoad { senders, outputs };
+        assert_eq!(RELEASED.max_answers(GUARANTEED_LOAD), 10);
+        assert_eq!(RELEASED.max_answers(load(2, 4)), 12);
+        assert_eq!(RELEASED.max_answers(load(5, 4)), 18);
+    }
+
+    #[test]
+    #[should_panic(expected = "answer load exceeds the policy openings")]
+    fn a_load_above_the_openings_is_refused() {
+        let _ = RELEASED.max_answers(AnswerLoad {
+            senders: POLICY_INPUT_SLOTS + 1,
+            outputs: POLICY_OUTPUT_SLOTS,
+        });
+    }
+
+    #[test]
+    fn an_inline_asset_rule_answers_nothing() {
+        const WITH_INLINE: RuleTable = RuleTable::builder()
+            .rule(Rule::require(Subject::Sender, ListId::Allow))
+            .rule(Rule::allow_only_assets(ASSETS))
+            .build();
+        assert_eq!(WITH_INLINE.max_answers(GUARANTEED_LOAD), 1);
+    }
+
+    #[test]
+    fn a_guard_does_not_lower_the_answer_bound() {
+        const UNGUARDED: RuleTable = RuleTable::builder()
+            .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
+            .rule(Rule::allow_only_assets(ASSETS))
+            .build();
+        const GUARDED: RuleTable = RuleTable::builder()
+            .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above(7))
+            .rule(Rule::allow_only_assets(ASSETS))
+            .build();
+        assert_eq!(
+            GUARDED.max_answers(GUARANTEED_LOAD),
+            UNGUARDED.max_answers(GUARANTEED_LOAD)
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "exceeds the answer slots")]
+    fn a_table_no_one_key_spend_can_answer_is_rejected() {
+        let _ = RuleTable::builder()
+            .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
+            .rule(Rule::forbid(Subject::OutputOwner, ListId::Block))
+            .rule(Rule::require(Subject::OutputOwner, ListId::Approval))
+            .build();
+    }
+
+    #[test]
+    #[should_panic(expected = "an owner amount guard needs a single unguarded inline asset")]
+    fn an_owner_guard_without_an_inline_asset_is_rejected() {
+        let _ = RuleTable::builder()
+            .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above(7))
+            .build();
+    }
+
+    #[test]
+    #[should_panic(expected = "an owner amount guard needs a single unguarded inline asset")]
+    fn an_owner_guard_beside_two_inline_assets_is_rejected() {
+        let _ = RuleTable::builder()
+            .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above(7))
+            .rule(Rule::allow_only_assets(&[[3u8; 32], [4u8; 32]]))
+            .build();
+    }
+
+    #[test]
+    #[should_panic(expected = "an owner amount guard needs a single unguarded inline asset")]
+    fn an_owner_guard_beside_a_guarded_inline_asset_is_rejected() {
+        let _ = RuleTable::builder()
+            .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above(7))
+            .rule(Rule::allow_only_assets(ASSETS).above(9))
+            .build();
+    }
+
+    #[test]
+    fn an_asset_guard_needs_no_inline_asset() {
+        const ASSET_GUARD: RuleTable = RuleTable::builder()
+            .rule(Rule::require(Subject::Asset, ListId::Approval).above(7))
+            .build();
+        const BESIDE_INLINE: RuleTable = RuleTable::builder()
+            .rule(Rule::require(Subject::Asset, ListId::Approval).above(7))
+            .rule(Rule::allow_only_assets(ASSETS))
+            .build();
+        assert_eq!(ASSET_GUARD.rules().len(), 1);
+        assert_eq!(BESIDE_INLINE.rules().len(), 2);
     }
 }

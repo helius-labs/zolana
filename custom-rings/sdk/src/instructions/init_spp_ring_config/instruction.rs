@@ -18,6 +18,7 @@ pub struct InitSppRingConfig {
     /// Must equal the authority stored in the config account; the program compares
     /// them and rejects any other signer.
     pub authority: Address,
+    pub has_policy: bool,
 }
 
 impl InitSppRingConfig {
@@ -26,9 +27,10 @@ impl InitSppRingConfig {
             ring,
             payer,
             authority,
+            has_policy,
         } = self;
 
-        Instruction {
+        let mut instruction = Instruction {
             program_id: ring.program_id(),
             accounts: vec![
                 AccountMeta::new(payer, true),
@@ -44,6 +46,12 @@ impl InitSppRingConfig {
                 AccountMeta::new_readonly(pda::shielded_pool_program_id(), false),
             ],
             data: vec![tag::INIT_SPP_RING_CONFIG],
+        };
+        if has_policy {
+            instruction
+                .accounts
+                .push(AccountMeta::new_readonly(ring.policy_config_pda(), false));
         }
+        instruction
     }
 }

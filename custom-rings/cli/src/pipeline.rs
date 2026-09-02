@@ -28,9 +28,9 @@ pub enum PipelineError {
 }
 
 /// Steps already on chain are skipped, a rerun resumes where it stopped.
-pub fn run(ctx: &mut Context) -> Result<(), CliError> {
+pub fn run(ctx: &mut Context, deploy: DeployArgs) -> Result<(), CliError> {
     localnet::ensure(ctx)?;
-    deploy::run(ctx, DeployArgs::default())?;
+    deploy::run(ctx, deploy)?;
     let hosted = !ctx.config.urls().ring_rpc_is_local();
     if hosted {
         // A hosted service that cannot serve the ring must fail before `init`

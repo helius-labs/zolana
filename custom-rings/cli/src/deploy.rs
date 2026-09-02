@@ -19,7 +19,7 @@ use crate::{
     config::expand_tilde,
     file::{self, FileError},
     line,
-    release::{ReleaseError, RingProgram},
+    release::{ReleaseError, RingProgram, RingTier},
     tool::{ToolError, SOLANA},
     Context, ContextError, DeployArgs,
 };
@@ -37,6 +37,7 @@ pub struct Deploy<'a> {
 pub enum DeployOutcome {
     Deployed,
     Upgraded,
+    Present,
 }
 
 pub struct ProgramDataInfo {
@@ -52,11 +53,14 @@ pub struct ProgramBinary {
     pub sha256: [u8; 32],
 }
 
-pub struct DeployPlan {
-    pub binary: ProgramBinary,
-    /// `None` on the first deploy.
-    pub deployed: Option<ProgramDataInfo>,
-    pub required_balance: u64,
+pub enum DeployPlan {
+    Present,
+    Upload {
+        binary: ProgramBinary,
+        /// `None` on the first deploy.
+        deployed: Option<ProgramDataInfo>,
+        required_balance: u64,
+    },
 }
 
 #[derive(Debug, Error)]
@@ -115,7 +119,7 @@ const SLOT_POLL: Duration = Duration::from_millis(400);
 pub fn run(ctx: &mut Context, args: DeployArgs) -> Result<(), DeployError> {
     let program_so = match args.program_so {
         Some(path) => ctx.project_path(&path),
-        None => released_program_so(ctx.config.policy.is_some())?,
+        None => released_program_so(RingTier::of(ctx.config.policy.as_ref()))?,
     };
     line("binary", program_so.display());
     let program_keypair = ctx.project_path(&args.program_keypair);
@@ -130,14 +134,20 @@ pub fn run(ctx: &mut Context, args: DeployArgs) -> Result<(), DeployError> {
         program_so: &program_so,
     };
     let planned = deploy.plan(&ctx.rpc)?;
-    // Stop before the loader's write sequence, not inside it.
-    ctx.fund_authority(&authority, planned.required_balance)?;
+    if let DeployPlan::Upload {
+        required_balance, ..
+    } = &planned
+    {
+        // A short balance fails before the loader writes.
+        ctx.fund_authority(&authority, *required_balance)?;
+    }
     let outcome = deploy.apply(&ctx.rpc, planned)?;
     println!(
         "{} {} under {}",
         match outcome {
             DeployOutcome::Deployed => "deployed",
             DeployOutcome::Upgraded => "upgraded",
+            DeployOutcome::Present => "present",
         },
         ctx.ring.program_id(),
         authority.pubkey()
@@ -177,8 +187,11 @@ impl Deploy<'_> {
         } else {
             self.check_program_keypair()?;
         }
+        if deployed.is_some() && binary.deployed_sha256(rpc, self.ring)? == Some(binary.sha256) {
+            return Ok(DeployPlan::Present);
+        }
         let required_balance = required_balance(rpc, binary.len, deployed.as_ref())?;
-        Ok(DeployPlan {
+        Ok(DeployPlan::Upload {
             binary,
             deployed,
             required_balance,
@@ -186,12 +199,18 @@ impl Deploy<'_> {
     }
 
     pub fn apply(self, rpc: &SolanaRpc, plan: DeployPlan) -> Result<DeployOutcome, DeployError> {
+        let DeployPlan::Upload {
+            binary, deployed, ..
+        } = plan
+        else {
+            return Ok(DeployOutcome::Present);
+        };
         let program = self.ring.program_id();
-        if let Some(info) = &plan.deployed {
-            if plan.binary.len > info.capacity {
+        if let Some(info) = &deployed {
+            if binary.len > info.capacity {
                 self.extend(
                     rpc.client().url(),
-                    (plan.binary.len - info.capacity).max(MIN_EXTEND_BYTES),
+                    (binary.len - info.capacity).max(MIN_EXTEND_BYTES),
                 )?;
             }
         }
@@ -209,7 +228,7 @@ impl Deploy<'_> {
             .arg("--upgrade-authority")
             .arg(self.authority_keypair)
             .arg("--program-id");
-        if plan.deployed.is_some() {
+        if deployed.is_some() {
             command.arg(program.to_string());
         } else {
             command.arg(self.program_keypair);
@@ -222,12 +241,13 @@ impl Deploy<'_> {
                 program,
                 source: Box::new(source),
             })?;
-        plan.binary.verify_deployed(rpc, self.ring)?;
+        binary.verify_deployed(rpc, self.ring)?;
+        let upgraded = deployed.is_some();
         let deployed = read_program_data(rpc, self.ring)?.ok_or(DeployError::ProgramData {
             address: self.ring.program_data_pda(),
         })?;
         wait_until_usable(rpc, program, deployed.slot)?;
-        Ok(if plan.deployed.is_some() {
+        Ok(if upgraded {
             DeployOutcome::Upgraded
         } else {
             DeployOutcome::Deployed
@@ -274,14 +294,24 @@ impl ProgramBinary {
         })
     }
 
-    pub fn verify_deployed<R: Rpc>(&self, rpc: &R, ring: CustomRing) -> Result<(), DeployError> {
+    /// `None` when the program data holds fewer bytes than the binary.
+    pub fn deployed_sha256<R: Rpc>(
+        &self,
+        rpc: &R,
+        ring: CustomRing,
+    ) -> Result<Option<[u8; 32]>, DeployError> {
         let address = ring.program_data_pda();
         let account = rpc
             .get_account(address)?
             .ok_or(DeployError::ProgramData { address })?;
-        let deployed =
-            deployed_bytes(&account.data, self.len).ok_or(DeployError::ProgramData { address })?;
-        let found: [u8; 32] = Sha256::digest(deployed).into();
+        Ok(deployed_bytes(&account.data, self.len).map(|deployed| Sha256::digest(deployed).into()))
+    }
+
+    pub fn verify_deployed<R: Rpc>(&self, rpc: &R, ring: CustomRing) -> Result<(), DeployError> {
+        let address = ring.program_data_pda();
+        let found = self
+            .deployed_sha256(rpc, ring)?
+            .ok_or(DeployError::ProgramData { address })?;
         if found != self.sha256 {
             return Err(DeployError::DeployedMismatch {
                 program: ring.program_id(),
@@ -385,8 +415,8 @@ fn deployed_bytes(program_data: &[u8], so_len: usize) -> Option<&[u8]> {
     program_data.get(start..start.checked_add(so_len)?)
 }
 
-fn released_program_so(has_policy: bool) -> Result<PathBuf, ReleaseError> {
-    let program = RingProgram::from_lock_tier(has_policy)?;
+fn released_program_so(tier: RingTier) -> Result<PathBuf, ReleaseError> {
+    let program = RingProgram::from_lock_tier(tier)?;
     line(
         "release",
         format_args!("{} {}", program.tag, program.asset.name),

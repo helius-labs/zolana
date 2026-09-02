@@ -10,6 +10,7 @@ mod instructions;
 mod state;
 
 pub use error::CustomRingError;
+pub use instructions::NULLIFIER_ROOT_WINDOW;
 
 use custom_ring_interface::tag;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
@@ -20,8 +21,8 @@ use crate::instructions::{
     process_transact_ix,
 };
 use crate::instructions::{
-    process_create_entry_ix, process_create_policy_ix, process_set_policy_source_ix,
-    process_update_entry_ix,
+    process_create_entry_ix, process_create_policy_ix, process_set_paused_ix,
+    process_set_policy_source_ix, process_update_entry_ix,
 };
 
 #[cfg(all(feature = "bpf-entrypoint", not(feature = "no-entrypoint")))]
@@ -51,6 +52,7 @@ pub fn process_instruction(
         tag::CREATE_ENTRY => process_create_entry_ix(program_id, accounts, ix_data),
         tag::UPDATE_ENTRY => process_update_entry_ix(program_id, accounts, ix_data),
         tag::SET_POLICY_SOURCE => process_set_policy_source_ix(program_id, accounts, ix_data),
+        tag::SET_PAUSED => process_set_paused_ix(program_id, accounts, ix_data),
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }

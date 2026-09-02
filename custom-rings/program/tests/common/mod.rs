@@ -2,19 +2,23 @@
 #![allow(dead_code)]
 
 use custom_ring_interface::{
-    tag, CreateConfigIxData, ReadAccessRecord, ReaderKeyBytes, RingProgramConfig, CONFIG_PDA_SEED,
-    READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED,
-    RING_PROGRAM_CONFIG,
+    tag, CreateConfigIxData, CreateEntryIxData, ReadAccessRecord, ReaderKeyBytes,
+    RingProgramConfig, SetPausedIxData, UpdateEntryIxData, CONFIG_PDA_SEED, READER_KEY_ED25519,
+    READER_KEY_P256, READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG,
 };
-use mollusk_svm::Mollusk;
+use mollusk_svm::{result::ProgramResult, Mollusk};
 use pinocchio::Address;
 use solana_account::Account;
-use solana_instruction::{AccountMeta, Instruction};
+use solana_instruction::{error::InstructionError, AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use zolana_interface::{
+    instruction::instruction_data::transact::TransactProof,
+    state::{discriminator::RING_CONFIG, RingConfig},
     BPF_LOADER_UPGRADEABLE_PUBKEY, RING_AUTH_PDA_SEED, SHIELDED_POOL_PROGRAM_ID,
 };
+use zolana_ring_policy::ListId;
+use zolana_tree::TreeAccount;
 
 /// A workspace deploy dir, filled by `just build-programs`.
 fn sbf_dir(relative: &str) -> String {
@@ -123,6 +127,19 @@ impl Fixture {
             &self.accounts,
             error,
         );
+    }
+
+    /// SPP is absent from mollusk, a run that clears every ring check dies in
+    /// the CPI.
+    #[track_caller]
+    pub fn expect_spp_cpi(&self, mollusk: &Mollusk) -> u64 {
+        let result = mollusk.process_instruction(&self.instruction, &self.accounts);
+        assert_eq!(
+            result.program_result,
+            ProgramResult::UnknownError(InstructionError::UnsupportedProgramId),
+            "expected the SPP CPI"
+        );
+        result.compute_units_consumed
     }
 
     fn meta_mut(&mut self, label: &str) -> &mut AccountMeta {
@@ -281,7 +298,7 @@ pub fn own_source_slots(
     }; custom_ring_interface::N_SOURCE_SLOTS];
     for rule in custom_ring_interface::RULES.rules() {
         for list_id in rule.referenced_lists() {
-            sources[list_id as usize - 1] = custom_ring_interface::SourceSlot {
+            sources[list_id.slot()] = custom_ring_interface::SourceSlot {
                 list_id: list_id as u8,
                 namespace: own,
             };
@@ -413,8 +430,8 @@ pub fn entries_tree_account() -> Account {
 /// A real SPP tree at the entries address, so the transact path reaches proof
 /// verification.
 pub fn initialized_entries_tree_account() -> Account {
-    let mut data = vec![0u8; zolana_tree::TreeAccount::account_size()];
-    zolana_tree::TreeAccount::init(
+    let mut data = vec![0u8; TreeAccount::account_size()];
+    TreeAccount::init(
         &mut data,
         zolana_interface::state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
         zolana_tree::UTXO_TREE_HEIGHT as u8,
@@ -429,6 +446,38 @@ pub fn initialized_entries_tree_account() -> Account {
         executable: false,
         rent_epoch: 0,
     }
+}
+
+fn entries_tree_view(account: &mut Account) -> TreeAccount<'_> {
+    TreeAccount::from_bytes(&mut account.data, entries_tree().to_bytes()).expect("entries tree")
+}
+
+/// The initialized tree after `rotations` nonzero nullifier roots.
+pub fn initialized_entries_tree_account_with_roots(rotations: u16) -> Account {
+    let mut account = initialized_entries_tree_account();
+    let mut tree = entries_tree_view(&mut account);
+    let mut nullifier = tree.nullifer_tree();
+    for rotation in 1..=rotations {
+        let mut root = [0u8; 32];
+        root[..2].copy_from_slice(&rotation.to_le_bytes());
+        nullifier.push_root(root);
+    }
+    drop(tree);
+    account
+}
+
+pub fn paused_entries_tree_account() -> Account {
+    let mut account = initialized_entries_tree_account();
+    entries_tree_view(&mut account).set_paused(true);
+    account
+}
+
+pub fn nullifier_root_cursor(account: &Account) -> u16 {
+    let mut account = account.clone();
+    let cursor = entries_tree_view(&mut account)
+        .nullifer_tree()
+        .get_root_index();
+    u16::try_from(cursor).expect("root cursor")
 }
 
 pub fn create_policy_data(specs: &[custom_ring_interface::SourceSpec]) -> Vec<u8> {
@@ -568,61 +617,64 @@ pub fn default_entry_member() -> [u8; 32] {
         .as_bytes()
 }
 
-pub fn create_entry_fixture(policy_config: Account, list_id: u8, payer: Pubkey) -> Fixture {
-    create_entry_fixture_with(policy_config, list_id, payer, default_entry_member(), 1)
+/// The entry a mutation writes, `writer` signs as the payer.
+pub struct EntryFixture {
+    pub list_id: ListId,
+    pub writer: Pubkey,
+    pub member: [u8; 32],
+    pub state: u8,
+    pub content_hash: [u8; 32],
 }
 
-/// A `create_entry` fixture with an explicit member and state discriminant.
-pub fn create_entry_fixture_with(
-    policy_config: Account,
-    list_id: u8,
-    payer: Pubkey,
-    member: [u8; 32],
-    state: u8,
-) -> Fixture {
-    let mut data = vec![tag::CREATE_ENTRY];
-    data.extend_from_slice(
-        &wincode::serialize(&custom_ring_interface::CreateEntryIxData {
+impl EntryFixture {
+    /// Active with unit content.
+    pub fn new(list_id: ListId, writer: Pubkey) -> Self {
+        Self {
             list_id,
-            member,
-            state,
-            content_hash: [7u8; 32],
-            nullifier_tree_root_index: 0,
-            utxo_tree_root_index: 0,
-            proof: zolana_interface::instruction::instruction_data::transact::TransactProof::zeroed(
-            ),
-        })
-        .expect("create_entry data"),
-    );
-    Fixture::new(data, entry_mutation_slots(policy_config, payer))
-}
-
-/// An `update_entry` fixture spending `spent_version` into its successor.
-pub fn update_entry_fixture(
-    policy_config: Account,
-    list_id: u8,
-    payer: Pubkey,
-    member: [u8; 32],
-    spent_version: u64,
-) -> Fixture {
-    let mut data = vec![tag::UPDATE_ENTRY];
-    data.extend_from_slice(
-        &wincode::serialize(&custom_ring_interface::UpdateEntryIxData {
-            list_id,
-            member,
-            spent_state: 1,
-            spent_content_hash: [0u8; 32],
-            spent_version,
-            state: 2,
+            writer,
+            member: default_entry_member(),
+            state: 1,
             content_hash: [0u8; 32],
-            nullifier_tree_root_index: 0,
-            utxo_tree_root_index: 0,
-            proof: zolana_interface::instruction::instruction_data::transact::TransactProof::zeroed(
-            ),
-        })
-        .expect("update_entry data"),
-    );
-    Fixture::new(data, entry_mutation_slots(policy_config, payer))
+        }
+    }
+
+    pub fn create(self, policy_config: Account) -> Fixture {
+        let mut data = vec![tag::CREATE_ENTRY];
+        data.extend_from_slice(
+            &wincode::serialize(&CreateEntryIxData {
+                list_id: self.list_id as u8,
+                member: self.member,
+                state: self.state,
+                content_hash: self.content_hash,
+                nullifier_tree_root_index: 0,
+                utxo_tree_root_index: 0,
+                proof: TransactProof::zeroed(),
+            })
+            .expect("create_entry data"),
+        );
+        Fixture::new(data, entry_mutation_slots(policy_config, self.writer))
+    }
+
+    /// Spends the Active unit-content version `spent_version` into the entry.
+    pub fn update(self, policy_config: Account, spent_version: u64) -> Fixture {
+        let mut data = vec![tag::UPDATE_ENTRY];
+        data.extend_from_slice(
+            &wincode::serialize(&UpdateEntryIxData {
+                list_id: self.list_id as u8,
+                member: self.member,
+                spent_state: 1,
+                spent_content_hash: [0u8; 32],
+                spent_version,
+                state: self.state,
+                content_hash: self.content_hash,
+                nullifier_tree_root_index: 0,
+                utxo_tree_root_index: 0,
+                proof: TransactProof::zeroed(),
+            })
+            .expect("update_entry data"),
+        );
+        Fixture::new(data, entry_mutation_slots(policy_config, self.writer))
+    }
 }
 
 /// An initialized policy-ring config as this program would have written it.
@@ -708,9 +760,9 @@ pub fn create_config_fixture_deployed_by(
 }
 
 /// `init_spp_ring_config` fixture: `[payer(w,s), authority(s), config,
-/// protocol_config, ring_auth(w), system_program, spp_program]`. `config` is
-/// supplied by the caller so negatives can pass an uninitialized or
-/// foreign-authority config.
+/// protocol_config, ring_auth(w), system_program, spp_program, policy_config]`.
+/// `config` is supplied by the caller so negatives can pass an uninitialized or
+/// foreign-authority config, an audit-only ring truncates to seven accounts.
 pub fn init_spp_ring_config_fixture(config: Account) -> Fixture {
     Fixture::new(
         vec![tag::INIT_SPP_RING_CONFIG],
@@ -741,6 +793,60 @@ pub fn init_spp_ring_config_fixture(config: Account) -> Fixture {
                 account: account(0),
             },
             system_program_slot(),
+            spp_program_slot(),
+            Slot {
+                label: "policy_config",
+                meta: AccountMeta::new_readonly(policy_config_pda().0, false),
+                account: initialized_policy_config_account(),
+            },
+        ],
+    )
+}
+
+/// SPP's `RingConfig` at the `ring_auth` PDA, the PDA is its own authority.
+pub fn spp_ring_config_account() -> Account {
+    let (ring_auth, bump) = ring_auth_pda();
+    let state = RingConfig {
+        discriminator: RING_CONFIG,
+        authority: Address::new_from_array(ring_auth.to_bytes()),
+        program_id: Address::new_from_array(program_id().to_bytes()),
+        ring_authority_transact_is_enabled: 0,
+        paused: 0,
+        bump,
+    };
+    Account {
+        lamports: 1_000_000_000,
+        data: bytemuck::bytes_of(&state).to_vec(),
+        owner: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
+        executable: false,
+        rent_epoch: 0,
+    }
+}
+
+/// Green `set_paused` fixture, `[authority(s), config, ring_auth(w), spp_program]`.
+pub fn set_paused_fixture(paused: u8) -> Fixture {
+    let mut data = vec![tag::SET_PAUSED];
+    data.extend_from_slice(
+        &wincode::serialize(&SetPausedIxData { paused }).expect("set_paused data"),
+    );
+    Fixture::new(
+        data,
+        vec![
+            Slot {
+                label: "authority",
+                meta: AccountMeta::new_readonly(authority(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "config",
+                meta: AccountMeta::new_readonly(config_pda().0, false),
+                account: initialized_config_account(authority(), auditor_pubkey(2)),
+            },
+            Slot {
+                label: "ring_auth",
+                meta: AccountMeta::new(ring_auth_pda().0, false),
+                account: spp_ring_config_account(),
+            },
             spp_program_slot(),
         ],
     )

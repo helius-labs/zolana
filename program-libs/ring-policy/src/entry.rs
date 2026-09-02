@@ -3,7 +3,10 @@ use zolana_hasher::{
 };
 use zolana_interface::{ADDRESS_DOMAIN, SOL_ASSET_FIELD, UTXO_DOMAIN};
 
-use crate::{field_u16, field_u64, field_u8, Member, POLICY_ADDRESS_DOMAIN, POLICY_RECORD_DOMAIN};
+use crate::{
+    field_u16, field_u64, field_u8, Member, MAX_SOURCES, POLICY_ADDRESS_DOMAIN,
+    POLICY_RECORD_DOMAIN,
+};
 
 /// The on-chain discriminant of a list, never `0` (the circuit reserves it as the inline-asset sentinel).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,6 +30,18 @@ pub enum Writer {
 }
 
 impl ListId {
+    /// Source-slot order, the id of `ALL[i]` is `i + 1`.
+    pub const ALL: [Self; MAX_SOURCES] = [
+        Self::Allow,
+        Self::Block,
+        Self::Frozen,
+        Self::RingViewing,
+        Self::Recovery,
+        Self::Reader,
+        Self::Approval,
+        Self::Escrow,
+    ];
+
     /// The single source of truth the program and every `ListSchema` impl read.
     /// Exhaustive on purpose, a new list must declare its writer to compile.
     pub const fn writer(self) -> Writer {
@@ -37,23 +52,34 @@ impl ListId {
             }
         }
     }
+
+    /// Index into the source map and into `ALL`.
+    pub const fn slot(self) -> usize {
+        self as usize - 1
+    }
+
+    pub(crate) const fn mask_bit(self) -> u8 {
+        1 << self.slot()
+    }
 }
+
+const _: () = {
+    assert!(MAX_SOURCES <= u8::BITS as usize);
+    let mut i = 0;
+    while i < MAX_SOURCES {
+        assert!(ListId::ALL[i].slot() == i);
+        i += 1;
+    }
+};
 
 impl TryFrom<u8> for ListId {
     type Error = ();
 
     fn try_from(value: u8) -> Result<Self, ()> {
-        Ok(match value {
-            1 => Self::Allow,
-            2 => Self::Block,
-            3 => Self::Frozen,
-            4 => Self::RingViewing,
-            5 => Self::Recovery,
-            6 => Self::Reader,
-            7 => Self::Approval,
-            8 => Self::Escrow,
-            _ => return Err(()),
-        })
+        usize::from(value)
+            .checked_sub(1)
+            .and_then(|slot| Self::ALL.get(slot).copied())
+            .ok_or(())
     }
 }
 
@@ -240,6 +266,16 @@ mod tests {
 
     fn member(byte: u8) -> Member {
         Member::owner_tag(&[byte; 32]).unwrap()
+    }
+
+    #[test]
+    fn every_slot_of_all_parses_and_nothing_else_does() {
+        for (slot, list_id) in ListId::ALL.into_iter().enumerate() {
+            assert_eq!(ListId::try_from(slot as u8 + 1), Ok(list_id));
+            assert_eq!(list_id.slot(), slot);
+        }
+        assert_eq!(ListId::try_from(0), Err(()));
+        assert_eq!(ListId::try_from(MAX_SOURCES as u8 + 1), Err(()));
     }
 
     #[test]

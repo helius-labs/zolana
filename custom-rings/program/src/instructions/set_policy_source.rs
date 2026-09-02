@@ -38,14 +38,14 @@ pub fn process_set_policy_source_ix(
     verify_policy_hash(&stored.sources, &stored.policy_hash)?;
 
     let list_id = ListId::try_from(ix.list_id).map_err(|_| CustomRingError::InvalidListId)?;
-    let index = list_id as usize - 1;
+    let index = list_id.slot();
     if stored.sources[index].list_id == 0 {
         return Err(CustomRingError::InvalidSource.into());
     }
     let entries = match (ix.source, curators) {
         (0, []) => namespace_pda(program_id)?.0,
         (1, [curator]) => load_curator_policy_config(curator, &stored.entries_tree)?
-            .source_for(list_id as u8)
+            .source_for(list_id)
             .ok_or(CustomRingError::CuratorSourceMissing)?,
         _ => return Err(CustomRingError::InvalidSource.into()),
     };
