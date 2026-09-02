@@ -31,6 +31,7 @@ export {
 } from "./prover/types.js";
 export type {
   CompressedProof,
+  CustomRingAuditRequest,
   CustomRingOpening,
   CustomRingRuleAnswer,
   CustomRingProofRequest,
