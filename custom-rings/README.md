@@ -16,23 +16,26 @@ that proof.
 `zolana-ring` operator binary, `test` the lifecycle test on a local validator.
 The ring RPC in `services/ring-rpc` holds the auditor key,
 `custom-rings/client` is the auditor side it is built on. A custom-rings release
-(`just release-custom-rings <tag> --upload --prerelease`) ships `zolana-ring`
-and the ring program binary together, the CLI deploys the binary of the
-release it was built from.
+(`just release-custom-rings <tag> --upload --prerelease`) ships `zolana-ring`,
+the ring program in both tiers, the two ring proving keys and the ring RPC
+together, the CLI deploys the binary of the release it was built from.
 
 ## Roles
 
 The operator holds the upgrade authority keypair and the ring directory. It
-deploys and upgrades the program, creates the config, registers the ring with
-SPP, hands the authority over or renounces it. The ring authority is the key in
-the ring config, the operator's by default, and it grants and revokes readers.
+deploys and upgrades the program, creates the config, pins the policy of a
+policy ring, registers the ring with SPP, hands the authority over or renounces
+it. The ring authority is the key in the ring config, the operator's by
+default. It grants and revokes readers, pauses and resumes the ring, and writes
+the authority-written lists.
 The auditor is a P-256 viewing key inside a ring RPC and opens every transfer
 of the ring. A reader is a Solana key or a passkey the authority granted and
 reads what the auditor reads. A participant is a shielded wallet that deposits
 into the ring and transfers inside it.
 
 The authority is a plain signer, a Squads vault holds it through proposals,
-and `SetAuthority` hands it to another key, signed by both.
+and `SetAuthority` hands it to another key, signed by both, readers, lists and
+the pause move with it.
 Readers are on-chain records, so the same proposal flow grants a regulator a
 passkey without anyone sharing a key.
 
@@ -83,7 +86,8 @@ carries the ring program it deploys. On `PATH` before `zolana-ring deploy`:
 localnet release of this repository is on `PATH` too. Photon, the prover, the
 SPP programs and their protocol accounts come from that release, the
 validator is the Anza `solana-test-validator`, the ring RPC and the prover's
-`custom_ring.key` come from the custom-rings release the ring cli came from,
+two ring keys, `custom_ring.key` and `audit.key`, come from the custom-rings
+release the ring cli came from,
 and the ring RPC serves `keys/auditor.key`, created when missing. A rerun
 keeps a live validator and its ledger and replaces the ring RPC with this
 ring's. `pipeline` and `deploy` on localnet start whatever does not answer
@@ -102,7 +106,9 @@ localnet` picks localnet and starts them. `zolana-ring deploy` downloads the
 ring program of the release the CLI came from, checks it against the lockfile
 built into the CLI, and
 fixes who may `init`, the upgrade authority; `--program-so` deploys a local
-build instead. A ring with a `[policy]` section is a policy ring, `deploy`
+build instead. A cli whose embedded release predates the ring tiers refuses
+`deploy` and names `--program-so`. A ring with a `[policy]` section is a
+policy ring, `deploy`
 takes the release's rules-configured binary for it and the plain binary for an
 audit-only ring. The released policy binary enforces all three rules, and the
 released cli is built to match it, so a downloaded cli drives it directly. A
@@ -111,16 +117,24 @@ with the same rule features (`cargo build -p custom-ring-cli --features
 blocklist`). `init` recomputes the client rules against the pinned policy hash
 and refuses a mismatch. After the loader finishes, `deploy` reads the program back and
 refuses to report success unless the bytes on chain hash to the file it
-deployed. `zolana-ring init` fixes the auditor. After `init` the authority
+deployed. A binary already on chain byte for byte is reported present and
+not uploaded again. `zolana-ring init` fixes the auditor. On a policy ring it checks that
+each curator serves its list and pins the table with `create_policy` before it
+registers the ring with SPP, the program refuses to register a policy ring
+before its policy is pinned. After `init` the authority
 can be transferred (`--yes`, the new key alone can hand it back) or renounced
 (`--yes`, and only when the bytes on chain match the released program or the
 `--program-so` given), readers come and go, and the program can be upgraded
-by running `zolana-ring deploy` again. `zolana-ring transact` makes two ring
-deposits and one custom-ring transfer and reads it back, `zolana-ring transfer`
+by running `zolana-ring deploy` again. `zolana-ring authority pause` stops
+every ring deposit, transfer and merge in SPP under the ring authority alone,
+`resume` opens the ring again. `zolana-ring transact` makes two ring
+deposits and one custom-ring transfer and reads it back, on a policy ring whose
+rules reference `Allow` it enrols the sender and the recipient in `Allow`
+first, unless a curator serves `Allow`. `zolana-ring transfer`
 sends an amount to a shielded address. Both spend from
 `keys/sender-keypair.json`, created on first use. Its change and fee budget
 stay spendable with that key, keep it with the other keys. `zolana-ring
-pipeline` runs deploy to transact.
+pipeline` runs deploy to transact and takes `--program-so` like `deploy`.
 
 On devnet the prover, the indexer and the ring RPC are already deployed and
 are probed, never started. The hosted ring RPC derives one auditor key per
@@ -164,12 +178,17 @@ is in `services/ring-rpc/README.md`.
 `custom-ring-sdk` starts from `CustomRing::new(program_id)`, the handle that
 derives the config, read access record and `ring_auth` addresses and reads the
 typed accounts. The authority builds `CreateConfig`, `InitSppRingConfig`,
-`GrantReadAccess`, `RevokeReadAccess` and `SetAuthority` from it. A
+`GrantReadAccess`, `RevokeReadAccess`, `SetAuthority` and `SetPaused` from it,
+a policy ring adds `CreatePolicy`, `SetSourceOwner` and the entry mutations
+`CreateEntry` and `UpdateEntry`. A
 participant sends `RingDeposit`, prepares a `ConfidentialTransfer` from the
 SPP transaction SDK
 and proves it with
 `CustomRingTransfer::new(..).with_tree(..).with_assets(..).prove(env)`,
-where the environment is the indexer, the RPC and the prover. The custom-ring
+where the environment is the indexer, the RPC and the prover. The SDK compiles
+no rule feature, a policy ring passes its compiled table through `with_rules`
+and `CreatePolicy.rules`, and `prove` refuses a table the pinned hash does not
+cover. `prove_async` serves both tiers. The custom-ring
 instruction forwards SPP's full account list and does not fit a legacy
 transaction, `V0WithLookupTable` submits it behind a throwaway lookup table.
 The auditor side is `zolana-ring-client`, `RingAudit` scans a ring and opens
@@ -177,6 +196,13 @@ its transactions, the ring RPC and the lifecycle test both use it. The indexer
 only matches the auditor view tag and needs no ring support. A transaction
 belongs to the ring when, in its confirmed call stack read from Solana RPC,
 the shielded pool instruction has the ring program as direct caller.
+
+The TypeScript ring SDK in `@heliuslabs/zolana` (`sdk-libs/ts/src/ring`) proves
+audit-only rings and policy rings with an empty table, a rules-bearing ring
+fails with `RING_RULES_UNSUPPORTED`. It spends from `client.tree` only and
+takes `entriesRoots` when the pinned entries tree is another tree. Its lookup
+table builder reads the tier and the entries tree from the chain, and
+`setRingPausedInstruction` pauses and resumes the ring.
 
 The operator CLI in `cli` reads a `ring.toml` and exposes `parse_and_run`.
 
@@ -198,5 +224,8 @@ full.
 
 The auditor opens outputs created by the supported clients and reports slots
 in another encoding as undecryptable. Ring deposits are public on chain and
-not part of the auditor's view. The released transfer proof does not prove that
-a ciphertext matches a committed output.
+not part of the auditor's view. A ring deposit passes no policy check, the ring
+only lends its `ring_auth` signature, the rules apply when the note is spent.
+SPP takes the pause only from the ring program's `ring_auth` PDA, a renounced
+ring pauses only through its frozen `set_paused` instruction. The released
+transfer proof does not prove that a ciphertext matches a committed output.
