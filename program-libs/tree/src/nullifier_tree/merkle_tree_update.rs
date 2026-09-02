@@ -168,8 +168,9 @@ impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
             //    account tree does not have. The leaves are fixed by the hash
             //    chain stored in the account and the StartIndex is computed from
             //    the slot, but the starting root is not. An update whose old_root
-            //    does not match is evicted so a correct proof can be resubmitted
-            //    (submit skips an occupied slot). The eviction must commit:
+            //    does not match is evicted. Caching a later verified proof for
+            //    the same still-pending ZKP batch replaces the slot
+            //    unconditionally. The eviction must commit:
             //    returning an error would roll back the clear, so the slot is
             //    zeroed and the accumulated event returned.
             let current_root = self.get_root().ok_or(NullifierTreeError::InvalidIndex)?;

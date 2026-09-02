@@ -258,6 +258,14 @@ its replacement changes neither the tree nor the queue in that call. A later
 apply pass applies the replacement if its `old_root` matches and evicts it
 otherwise.
 
+The overwrite rule is a recovery mechanism: if a forester caches a verified
+update built from the wrong starting state, a corrected update for the same
+committed hash chain and start index can replace it before application. The
+trade-off is a liveness-only griefing surface: a valid proof from the wrong
+starting state can also replace an honest future update, but each overwrite can
+only stop one later cascade at that slot and require resubmission; it cannot
+change the tree, although repeated overwrites can repeat the delay.
+
 **Event**
 
 The call returns no event when it only caches or evicts an update. Otherwise it
