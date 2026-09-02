@@ -101,8 +101,10 @@ export async function ringTransactInstruction(
     payer: SignerAccount;
     inputTree: Address;
     outputTree: Address;
-    /** Read for the policy roots, never forwarded to SPP. */
-    entriesTree: Address;
+    /** Read for the policy roots, never forwarded to SPP. Required for the policy tier. */
+    entriesTree?: Address;
+    /** The config tier. False drops the policy_config and entries_tree accounts. */
+    hasPolicy?: boolean;
     proof: Uint8Array;
     /** History entries the ring statement binds, unread by a ring without rules. */
     stateRootIndex: number;
@@ -114,9 +116,9 @@ export async function ringTransactInstruction(
     withdrawal?: TransactWithdrawal;
   }>,
 ): Promise<Instruction> {
-  const [config, policyConfig, ringAuth] = await Promise.all([
+  const hasPolicy = input.hasPolicy ?? true;
+  const [config, ringAuth] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
-    ringPolicyConfigAddress(input.ringProgramId),
     ringAuthAddress(input.ringProgramId),
   ]);
   const payerAddress = typeof input.payer === "string" ? input.payer : input.payer.address;
@@ -148,13 +150,26 @@ export async function ringTransactInstruction(
         ...(typeof input.payer === "string" ? {} : { signer: input.payer }),
       },
       { address: config, role: AccountRole.READONLY },
-      { address: policyConfig, role: AccountRole.READONLY },
-      // Read for the policy roots only, so read-only and before the forwarded SPP list.
-      { address: input.entriesTree, role: AccountRole.READONLY },
+      ...(hasPolicy ? await policyAccountMetas(input.ringProgramId, input.entriesTree) : []),
       ...answers,
     ],
     data,
   };
+}
+
+/** The policy tier reads `policy_config` and `entries_tree`, read-only and before the SPP list. */
+async function policyAccountMetas(
+  ringProgramId: Address,
+  entriesTree: Address | undefined,
+): Promise<readonly { address: Address; role: AccountRole }[]> {
+  if (entriesTree === undefined) {
+    throw new RingError("RING_ENTRIES_TREE_REQUIRED", { details: { ringProgramId } });
+  }
+  const policyConfig = await ringPolicyConfigAddress(ringProgramId);
+  return [
+    { address: policyConfig, role: AccountRole.READONLY },
+    { address: entriesTree, role: AccountRole.READONLY },
+  ];
 }
 
 /** Mirrors Rust `lookup_table_addresses`; optional trees default to `tree`. */
@@ -164,11 +179,13 @@ export async function ringLookupTableAddresses(
     tree: Address;
     outputTree?: Address;
     entriesTree?: Address;
+    /** The config tier. False drops the policy_config and entries_tree entries. */
+    hasPolicy?: boolean;
   }>,
 ): Promise<readonly Address[]> {
-  const [config, policyConfig, ringAuth] = await Promise.all([
+  const hasPolicy = input.hasPolicy ?? true;
+  const [config, ringAuth] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
-    ringPolicyConfigAddress(input.ringProgramId),
     ringAuthAddress(input.ringProgramId),
   ]);
   const answers = ringTransactAccounts({
@@ -179,8 +196,9 @@ export async function ringLookupTableAddresses(
   });
   const addresses = [
     config,
-    policyConfig,
-    input.entriesTree ?? input.tree,
+    ...(hasPolicy
+      ? [await ringPolicyConfigAddress(input.ringProgramId), input.entriesTree ?? input.tree]
+      : []),
     ...answers
       .filter(
         (meta) =>

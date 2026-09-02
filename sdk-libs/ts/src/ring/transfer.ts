@@ -139,6 +139,8 @@ export interface ProvenRingTransfer {
   readonly tree: Address;
   readonly outputTree: Address;
   readonly entriesTree: Address;
+  /** The config tier, false for an audit-only ring that carries no policy accounts. */
+  readonly hasPolicy: boolean;
   /** History entries the ring proof binds, sent on the tag-3 wire. */
   readonly stateRootIndex: number;
   readonly nullifierRootIndex: number;
@@ -194,7 +196,8 @@ export async function buildRingTransferTransaction(
         payer: proven.payer,
         inputTree: proven.tree,
         outputTree: proven.outputTree,
-        entriesTree: proven.entriesTree,
+        hasPolicy: proven.hasPolicy,
+        ...(proven.hasPolicy ? { entriesTree: proven.entriesTree } : {}),
         proof: proven.proof,
         stateRootIndex: proven.stateRootIndex,
         nullifierRootIndex: proven.nullifierRootIndex,
@@ -206,7 +209,8 @@ export async function buildRingTransferTransaction(
         address: input.lookupTable,
         tree: proven.tree,
         outputTree: proven.outputTree,
-        entriesTree: proven.entriesTree,
+        hasPolicy: proven.hasPolicy,
+        ...(proven.hasPolicy ? { entriesTree: proven.entriesTree } : {}),
       }),
       input.client.getLatestBlockhash(context),
     ]);
@@ -293,7 +297,8 @@ export async function buildRingWithdrawalTransaction(
         payer: proven.payer,
         inputTree: proven.tree,
         outputTree: proven.outputTree,
-        entriesTree: proven.entriesTree,
+        hasPolicy: proven.hasPolicy,
+        ...(proven.hasPolicy ? { entriesTree: proven.entriesTree } : {}),
         proof: proven.proof,
         stateRootIndex: proven.stateRootIndex,
         nullifierRootIndex: proven.nullifierRootIndex,
@@ -306,7 +311,8 @@ export async function buildRingWithdrawalTransaction(
         address: input.lookupTable,
         tree: proven.tree,
         outputTree: proven.outputTree,
-        entriesTree: proven.entriesTree,
+        hasPolicy: proven.hasPolicy,
+        ...(proven.hasPolicy ? { entriesTree: proven.entriesTree } : {}),
       }),
       input.client.getLatestBlockhash(context),
     ]);
@@ -448,6 +454,7 @@ export async function proveCustomRingTransfer(
       tree: input.tree,
       outputTree: input.outputTree ?? input.tree,
       entriesTree: policyConfig.entriesTree,
+      hasPolicy: config.hasPolicy,
       stateRootIndex: entriesRoots.stateRootIndex,
       nullifierRootIndex: entriesRoots.nullifierRootIndex,
     });
