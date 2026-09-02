@@ -50,7 +50,7 @@ use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::{test_blinding, Rejection};
 use zolana_test_utils::nullifier_pda::{
-    assert_nullifier_pdas, nullifier_pda_addresses, nullifier_pda_rent,
+    assert_nullifier_pdas, nullifier_pda_addresses, nullifier_pda_rent, tree_fees,
 };
 use zolana_test_utils::transact::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo, fe,
@@ -516,6 +516,7 @@ fn transact_sends_valid_proof() {
         .collect();
     let (utxo_next_before, nullifier_next_before) = tree_progress(&env.rpc, &tree);
     let (utxo_root_before, _) = tree_roots(&env.rpc, &tree, 0);
+    let (fees, fee_balance_before) = tree_fees(&env.rpc, &tree).expect("tree fees");
 
     // Accounts: `[payer (signer), tree (writable)]`. Index 0 is the fee payer
     // and the eddsa signer the inputs reference (`eddsa_signer_index = 0`).
@@ -585,11 +586,17 @@ fn transact_sends_valid_proof() {
     // nothing. The journaled snapshots must show the tree and the two new
     // nullifier PDAs as the only accounts whose data changed, the payer
     // debited exactly the transaction fee (one signature at LiteSVM's default
-    // rate) plus the forester fee (2 nullifier insertions at 20 lamports each),
-    // which the program collects into the input tree via one System-Program CPI
-    // (INV-TRANSACT-42), and the tree funding one nullifier PDA's rent per input.
+    // rate) plus the forester fee (2 nullifier insertions at the tree's stored
+    // fee_per_nullifier), which the program collects into the input tree via
+    // one System-Program CPI (INV-TRANSACT-42) and credits to the tree's fee
+    // balance, and the tree funding one nullifier PDA's rent per input.
     const LAMPORTS_PER_SIGNATURE: u64 = 5_000;
-    const FORESTER_FEE_LAMPORTS: u64 = 40;
+    let forester_fee = fees.fee_per_nullifier * expected_nullifiers.len() as u64;
+    assert_eq!(
+        tree_fees(&env.rpc, &tree).expect("tree fees"),
+        (fees, fee_balance_before + forester_fee),
+        "transact credits the fee balance and keeps the schedule"
+    );
     let nullifier_pda_rent = nullifier_pda_rent(&env.rpc).expect("nullifier PDA rent");
     let nullifier_pdas = nullifier_pda_addresses(&tree, &expected_nullifiers);
     let nullifier_pda_rent_total = nullifier_pda_rent * expected_nullifiers.len() as u64;
@@ -634,7 +641,7 @@ fn transact_sends_valid_proof() {
         let after = transition.after.as_ref().expect("account after transact");
         if transition.address == tree {
             assert_eq!(
-                before.lamports + FORESTER_FEE_LAMPORTS,
+                before.lamports + forester_fee,
                 after.lamports + nullifier_pda_rent_total,
                 "tree collects the forester reimbursement fee and funds one nullifier PDA per input"
             );
@@ -644,7 +651,7 @@ fn transact_sends_valid_proof() {
         } else if transition.address == payer {
             assert_eq!(
                 before.lamports,
-                after.lamports + LAMPORTS_PER_SIGNATURE + FORESTER_FEE_LAMPORTS,
+                after.lamports + LAMPORTS_PER_SIGNATURE + forester_fee,
                 "payer pays exactly the transaction fee plus the forester reimbursement fee"
             );
             assert_eq!(

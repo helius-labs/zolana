@@ -17,7 +17,10 @@ use zolana_interface::{
 use zolana_tree::TreeAccount;
 
 use super::allocate::{fund_tree, grow_tree, is_unallocated, TreeAllocation};
-use crate::instructions::{protocol_config::loader::load_protocol_config_mut, shared::verify_pda};
+use crate::instructions::{
+    protocol_config::loader::load_protocol_config_mut,
+    shared::{tree_error, verify_pda},
+};
 
 pub fn process_create_tree(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let data = CreateTreeData::try_from_slice(data)
@@ -94,7 +97,8 @@ pub fn process_create_tree(accounts: &mut [AccountView], data: &[u8]) -> Program
         tree_pubkey,
         data.tree_id,
         data.nullifier_params,
+        data.fees,
     )
-    .map_err(|_| ShieldedPoolError::InvalidTreeAccounts)?;
+    .map_err(tree_error)?;
     Ok(())
 }

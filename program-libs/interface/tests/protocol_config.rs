@@ -11,6 +11,7 @@ fn protocol_config() -> ProtocolConfig {
         tree_creation_authority: Address::new_from_array([2; 32]),
         forester_authority: Address::new_from_array([3; 32]),
         ring_creation_authority: Address::new_from_array([4; 32]),
+        fee_authority: Address::new_from_array([5; 32]),
         tree_creation_is_permissionless: 0,
         ring_creation_is_permissionless: 0,
         spl_interface_creation_is_permissionless: 1,
@@ -22,7 +23,9 @@ fn protocol_config() -> ProtocolConfig {
 fn next_tree_id_is_the_trailing_little_endian_word() {
     let bytes = bytemuck::bytes_of(&protocol_config()).to_vec();
     assert_eq!(bytes.len(), ProtocolConfig::SIZE);
-    assert_eq!(bytes.get(132..134), Some(&[0x02, 0x01][..]));
+    assert_eq!(bytes.get(129..161), Some(&[5u8; 32][..]));
+    assert_eq!(bytes.get(161..164), Some(&[0, 0, 1][..]));
+    assert_eq!(bytes.get(164..166), Some(&[0x02, 0x01][..]));
 }
 
 #[test]

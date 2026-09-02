@@ -6,6 +6,7 @@ import {
   NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE,
   NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
 } from "./state.js";
+import type { TreeFeeSchedule } from "./types.js";
 
 export interface NullifierTreeParams {
   readonly inputQueueBatchSize: bigint;
@@ -16,6 +17,7 @@ export interface NullifierTreeParams {
 export interface CreateTreeData {
   readonly treeId: number;
   readonly nullifierParams: NullifierTreeParams;
+  readonly fees: TreeFeeSchedule;
 }
 
 export const SHIELDED_POOL_PROGRAM_ID = address("sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG");
@@ -58,6 +60,7 @@ export const InstructionTag = Object.freeze({
   ringMergeTransact: 16,
   ringAuthorityTransact: 17,
   closeNullifierPdas: 18,
+  setTreeFees: 19,
 } as const);
 export type InstructionTag = (typeof InstructionTag)[keyof typeof InstructionTag];
 

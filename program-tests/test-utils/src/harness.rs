@@ -21,7 +21,7 @@ use zolana_client::{Rpc, SolanaRpc, ZolanaIndexer};
 use zolana_interface::{
     instruction::{CreateAssetCounter, CreateProtocolConfig, CreateSplInterface, CreateTree},
     pda,
-    state::nullifier_tree_params,
+    state::{default_tree_fees, nullifier_tree_params},
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{ShieldedKeypair, SigningKey};
@@ -288,6 +288,7 @@ impl<D> LocalnetHarness<D> {
             ring_creation_authority: accounts.ring_vault.to_bytes().into(),
             ring_creation_is_permissionless: config.ring_creation_is_permissionless,
             spl_interface_creation_is_permissionless: false,
+            fee_authority: accounts.protocol_vault.to_bytes().into(),
         }
         .instruction();
         let create_config_sync = execute_sync_ix(
@@ -328,6 +329,11 @@ impl<D> LocalnetHarness<D> {
             authority: setup.accounts.tree_vault,
             tree_id: zolana_program_test::next_tree_id(rpc)?,
             nullifier_params: nullifier_params.unwrap_or_else(nullifier_tree_params),
+            fees: default_tree_fees(
+                nullifier_params
+                    .unwrap_or_else(nullifier_tree_params)
+                    .input_queue_zkp_batch_size,
+            ),
         };
         let steps = execute_sync_each(
             &setup.accounts.tree_settings,

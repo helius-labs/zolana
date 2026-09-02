@@ -5,8 +5,8 @@
 //!
 //! The assertion target is the merge side of the forester-fee contract (the
 //! transact side is pinned in `transact/functional.rs`): a successful merge
-//! collects exactly `MERGE_INPUT_COUNT (8) x forester_fee_per_queue_element(
-//! zkp_batch_size)` lamports from the payer into the input tree.
+//! collects exactly `MERGE_INPUT_COUNT (8) x fee_per_nullifier` lamports from
+//! the payer into the input tree, per the tree's stored fee schedule.
 //!
 //! Requires `cargo build-sbf -p shielded-pool-program`.
 
@@ -26,7 +26,7 @@ use zolana_client::{
 use zolana_hasher::Poseidon;
 use zolana_interface::{
     instruction::{instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeTransact},
-    state::{forester_fee_per_queue_element, NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE},
+    state::{default_tree_fees, NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE},
     verifying_keys::merge_8_1,
     NULLIFIER_PDA_SIZE, SHIELDED_POOL_PROGRAM_ID,
 };
@@ -34,7 +34,7 @@ use zolana_keypair::{hash::owner_hash, PublicKey, ShieldedKeypair, ShieldedKeypa
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::{test_blinding, ZolanaProgramTest};
 use zolana_test_utils::nullifier_pda::{
-    assert_nullifier_pdas, nullifier_pda_addresses, nullifier_pda_rent,
+    assert_nullifier_pdas, nullifier_pda_addresses, nullifier_pda_rent, tree_fees,
 };
 use zolana_test_utils::transact::nullifier_tree;
 use zolana_transaction::{
@@ -256,6 +256,7 @@ fn merge_collects_the_exact_forester_fee_from_the_payer() {
         .expect("merge rail proof");
 
     let (utxo_next_before, nullifier_next_before) = tree_progress(&env.rpc, &tree);
+    let (_, fee_balance_before) = tree_fees(&env.rpc, &tree).expect("tree fees");
     let ix = MergeTransact {
         input_tree: tree,
         output_tree: tree,
@@ -279,15 +280,24 @@ fn merge_collects_the_exact_forester_fee_from_the_payer() {
         "eight nullifiers queued"
     );
 
-    // Exact forester fee: MERGE_INPUT_COUNT (8) queue insertions at
-    // forester_fee_per_queue_element(zkp_batch_size) = 20 lamports each,
-    // collected from the payer into the input tree after proof verification.
-    // The tree in turn funds one nullifier PDA per queued nullifier.
+    // Exact forester fee: MERGE_INPUT_COUNT (8) queue insertions at the tree's
+    // stored fee_per_nullifier, collected from the payer into the input tree
+    // and credited to the tree's fee balance. The tree in turn funds one
+    // nullifier PDA per queued nullifier.
     const LAMPORTS_PER_SIGNATURE: u64 = 5_000;
-    let fee_per_element = forester_fee_per_queue_element(NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE)
-        .expect("non-zero ZKP batch size");
-    let forester_fee = fee_per_element * MERGE_INPUT_COUNT as u64;
-    assert_eq!(forester_fee, 160, "merge forester fee formula");
+    let (fees, fee_balance_after) = tree_fees(&env.rpc, &tree).expect("tree fees");
+    assert_eq!(
+        fees,
+        default_tree_fees(NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE),
+        "merge leaves the fee schedule untouched"
+    );
+    let forester_fee = fees.fee_per_nullifier * MERGE_INPUT_COUNT as u64;
+    assert_eq!(forester_fee, 1_520, "merge forester fee formula");
+    assert_eq!(
+        fee_balance_after,
+        fee_balance_before + forester_fee,
+        "merge credits the fee balance"
+    );
     assert_eq!(
         result.nullifiers.len(),
         MERGE_INPUT_COUNT,

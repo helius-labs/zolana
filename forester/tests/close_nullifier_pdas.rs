@@ -78,10 +78,18 @@ fn batch_instruction_matches_the_interface_builder() {
     for batch in &batches {
         let expected = CloseNullifierPdas {
             tree,
+            reimbursement_recipient: payer,
             nullifiers: batch.nullifiers.clone(),
         }
         .instruction();
         assert_eq!(batch.instruction(), expected);
+        assert_eq!(
+            expected
+                .accounts
+                .get(1)
+                .map(|meta| (meta.pubkey, meta.is_writable)),
+            Some((payer, true))
+        );
 
         let message = batch.message();
         assert_eq!(message.account_keys.first(), Some(&payer));

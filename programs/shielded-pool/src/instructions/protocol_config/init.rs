@@ -13,6 +13,7 @@ pub struct ProtocolConfigInitParams {
     pub ring_creation_authority: Address,
     pub ring_creation_is_permissionless: u8,
     pub spl_interface_creation_is_permissionless: u8,
+    pub fee_authority: Address,
 }
 
 impl ProtocolConfigInitParams {
@@ -31,6 +32,7 @@ impl ProtocolConfigInitParams {
             tree_creation_authority: self.tree_creation_authority,
             forester_authority: self.forester_authority,
             ring_creation_authority: self.ring_creation_authority,
+            fee_authority: self.fee_authority,
             tree_creation_is_permissionless: self.tree_creation_is_permissionless,
             ring_creation_is_permissionless: self.ring_creation_is_permissionless,
             spl_interface_creation_is_permissionless: self.spl_interface_creation_is_permissionless,

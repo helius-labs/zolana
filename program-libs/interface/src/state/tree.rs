@@ -1,5 +1,5 @@
 use zolana_tree::nullifier_tree::constants::NUM_BATCHES;
-use zolana_tree::{NullifierTreeInitParams, TreeAccount};
+use zolana_tree::{NullifierTreeInitParams, TreeAccount, TreeFeeSchedule};
 
 pub const STATE_HEIGHT: usize = 32;
 
@@ -9,8 +9,18 @@ pub const NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE: u64 = 250;
 pub const NULLIFIER_TREE_HEIGHT: u32 = 40;
 pub const NULLIFIER_TREE_ROOT_HISTORY_CAPACITY: u32 =
     (NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE / NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE) as u32;
-/// Lamports reimbursed for each applied nullifier-tree ZKP batch.
-pub const FORESTER_REIMBURSEMENT_LAMPORTS: u64 = 5_000;
+
+pub const DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS: u64 = 5_000;
+pub const DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS: u64 = 170;
+
+pub fn default_tree_fees(zkp_batch_size: u64) -> TreeFeeSchedule {
+    TreeFeeSchedule::at_cost(
+        zkp_batch_size,
+        DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS,
+        DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS,
+    )
+    .unwrap_or_default()
+}
 
 /// Nullifier-PDA rent needed while one reused batch overlaps the two preceding
 /// PDA generations. Prompt cleanup keeps the maximum at `NUM_BATCHES + 1`
@@ -36,13 +46,6 @@ pub fn tree_creation_lamports(
         nullifier_params,
         nullifier_pda_rent,
     )?)
-}
-
-/// Derive the fee charged for each element inserted into a tree's nullifier
-/// queue. The standard tree configuration is pinned by the test below so the
-/// division is exact.
-pub fn forester_fee_per_queue_element(zkp_batch_size: u64) -> Option<u64> {
-    FORESTER_REIMBURSEMENT_LAMPORTS.checked_div(zkp_batch_size)
 }
 
 /// Canonical nullifier-tree parameters for the shielded pool.
@@ -79,17 +82,19 @@ mod tests {
     use crate::NULLIFIER_PDA_SIZE;
 
     #[test]
-    fn standard_tree_forester_fee_exactly_funds_reimbursement() {
-        let zkp_batch_size = nullifier_tree_params().input_queue_zkp_batch_size;
-
-        assert_eq!(FORESTER_REIMBURSEMENT_LAMPORTS % zkp_batch_size, 0);
-        let fee_per_element =
-            forester_fee_per_queue_element(zkp_batch_size).expect("non-zero ZKP batch size");
-        assert_eq!(fee_per_element, 20);
-        assert_eq!(
-            fee_per_element * zkp_batch_size,
-            FORESTER_REIMBURSEMENT_LAMPORTS
-        );
+    fn default_tree_fees_are_exact_cost_for_the_supported_batch_sizes() {
+        for (zkp_batch_size, fee_per_nullifier) in [
+            (nullifier_tree_params().input_queue_zkp_batch_size, 190),
+            (10, 670),
+        ] {
+            let fees = default_tree_fees(zkp_batch_size);
+            assert_eq!(
+                fees.fee_per_nullifier * zkp_batch_size,
+                fees.append_reimbursement + zkp_batch_size * fees.close_reimbursement
+            );
+            assert_eq!(fees.fee_per_nullifier, fee_per_nullifier);
+        }
+        assert_eq!(default_tree_fees(0), TreeFeeSchedule::default());
     }
 
     #[test]

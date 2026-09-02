@@ -1,6 +1,6 @@
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use zolana_tree::NullifierTreeInitParams;
+use zolana_tree::{NullifierTreeInitParams, TreeFeeSchedule};
 
 use crate::{
     instruction::{encode_instruction, tag, CreateTreeData},
@@ -14,6 +14,7 @@ pub struct CreateTree {
     pub authority: Pubkey,
     pub tree_id: u16,
     pub nullifier_params: NullifierTreeInitParams,
+    pub fees: TreeFeeSchedule,
 }
 
 impl CreateTree {
@@ -32,6 +33,7 @@ impl CreateTree {
         let data = CreateTreeData {
             tree_id: self.tree_id,
             nullifier_params: self.nullifier_params,
+            fees: self.fees,
         };
         Instruction {
             program_id: PROGRAM_ID_PUBKEY,

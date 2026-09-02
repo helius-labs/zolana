@@ -8,8 +8,9 @@ use zolana_interface::{
 use zolana_tree::TreeAccount;
 
 use crate::instructions::{
-    event::emit_batch_nullifier_append_event, protocol_config::loader::load_protocol_config,
-    shared::reimburse_forester,
+    event::emit_batch_nullifier_append_event,
+    protocol_config::loader::load_protocol_config,
+    shared::{check_reimbursement_recipient, pay_reimbursement},
 };
 
 pub fn process_batch_update_nullifier_tree(
@@ -29,16 +30,24 @@ pub fn process_batch_update_nullifier_tree(
         .check_forester_authority(authority.address())
         .map_err(ShieldedPoolError::from)?;
     drop(config);
+    check_reimbursement_recipient(reimbursement_recipient)?;
 
-    let event = {
+    let applied = {
         let mut tree_account =
             TreeAccount::from_account_view_mut(&mut *tree, &crate::ID, TREE_ACCOUNT_DISCRIMINATOR)
                 .map_err(ShieldedPoolError::from)?;
         let tree_pubkey = tree_account.pubkey();
-        tree_account
+        let event = tree_account
             .nullifier_tree()
             .update_tree_from_queue(tree_pubkey, instruction)
-            .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?
+            .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
+        match event {
+            Some(event) => {
+                let paid = tree_account.take_append_reimbursement(event.num_update);
+                Some((event, paid))
+            }
+            None => None,
+        }
     };
 
     // The emit self-CPI passes no accounts, so the tree borrow does not conflict.
@@ -46,9 +55,9 @@ pub fn process_batch_update_nullifier_tree(
     // processor. Photon's parser records batch updates from the emitted event in
     // successful transactions only (its `tx.error` guard); an emit-then-fail
     // shape would either drop a genuine update or wedge the indexer on a forged
-    // one. Keep every fallible step (including `reimburse_forester`) above it.
-    if let Some(event) = event {
-        reimburse_forester(tree, reimbursement_recipient, event.num_update)?;
+    // one. Keep every fallible step (including `pay_reimbursement`) above it.
+    if let Some((event, paid)) = applied {
+        pay_reimbursement(tree, reimbursement_recipient, paid)?;
         emit_batch_nullifier_append_event(&event)?;
     }
     Ok(())

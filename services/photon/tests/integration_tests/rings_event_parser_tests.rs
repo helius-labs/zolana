@@ -67,7 +67,10 @@ use zolana_indexer_api::{
 use zolana_interface::{
     instruction::{encode_instruction, tag, BatchUpdateNullifierTreeData, CompressedProof},
     pda,
-    state::{discriminator::TREE_ACCOUNT_DISCRIMINATOR, nullifier_tree_params, tree_account_size},
+    state::{
+        default_tree_fees, discriminator::TREE_ACCOUNT_DISCRIMINATOR, nullifier_tree_params,
+        tree_account_size,
+    },
 };
 use zolana_tree::TreeAccount;
 
@@ -743,6 +746,7 @@ async fn discovers_rings_tree_account_metadata() {
             tree_pubkey.to_bytes(),
             0,
             nullifier_tree_params(),
+            default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size),
         )
         .unwrap();
         let nullifier = tree.nullifier_tree();

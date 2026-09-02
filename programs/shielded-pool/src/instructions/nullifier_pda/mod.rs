@@ -3,4 +3,4 @@ pub(crate) mod create;
 pub(crate) mod loader;
 
 pub(crate) use close::NullifierPdaClose;
-pub(crate) use create::create_nullifier_pdas;
+pub(crate) use create::{create_nullifier_pdas, InputTreeResult};

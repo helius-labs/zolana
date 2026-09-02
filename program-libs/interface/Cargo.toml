@@ -7,11 +7,12 @@ repository.workspace = true
 publish = false
 
 [features]
-default = ["verifying-keys"]
+default = ["verifying-keys", "tree"]
 borsh = ["dep:borsh", "solana-address/borsh"]
-solana = ["dep:solana-instruction", "borsh"]
+solana = ["dep:solana-instruction", "borsh", "tree"]
 events = []
 verifying-keys = ["dep:groth16-solana"]
+tree = ["dep:zolana-tree"]
 
 [dependencies]
 borsh = { workspace = true, optional = true }
@@ -25,7 +26,7 @@ solana-program-error = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }
 zolana-event = { workspace = true }
-zolana-tree = { workspace = true }
+zolana-tree = { workspace = true, optional = true }
 
 [dev-dependencies]
 bytemuck = { workspace = true }
@@ -33,3 +34,4 @@ proptest = { workspace = true }
 solana-address = { workspace = true }
 solana-rent = { workspace = true }
 zolana-hasher = { workspace = true, features = ["sha256"] }
+zolana-tree = { workspace = true }

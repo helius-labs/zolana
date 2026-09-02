@@ -9,7 +9,10 @@ use zolana_interface::instruction::{
     InputUtxo, MergeRing, MergeTransact, MergeTransactIxData, RingAuthorityTransact, RingTransact,
     Transact, TransactIxData, TransactProof,
 };
-use zolana_interface::state::nullifier_tree_params;
+use zolana_interface::instruction::{SetTreeFees, SetTreeFeesData};
+use zolana_interface::state::{
+    default_tree_fees, nullifier_tree_params, NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+};
 use zolana_interface::{pda, PROGRAM_ID_PUBKEY};
 
 fn transact_data(circuit: CircuitId, nullifiers: &[[u8; 32]]) -> TransactIxData {
@@ -147,9 +150,9 @@ fn every_spend_builder_has_the_exact_account_layout() {
         AccountMeta::new(payer, true),
         AccountMeta::new_readonly(user_record, false),
         AccountMeta::new_readonly(Pubkey::default(), false),
+        AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
     ];
     expected_merge.extend(merge_nullifier_pdas.clone());
-    expected_merge.push(AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false));
     assert_eq!(merge.accounts, expected_merge);
 
     let merge_ring = MergeRing {
@@ -167,9 +170,9 @@ fn every_spend_builder_has_the_exact_account_layout() {
         AccountMeta::new_readonly(ring_auth, true),
         AccountMeta::new(payer, true),
         AccountMeta::new_readonly(Pubkey::default(), false),
+        AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
     ];
     expected_merge_ring.extend(merge_nullifier_pdas);
-    expected_merge_ring.push(AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false));
     assert_eq!(merge_ring.accounts, expected_merge_ring);
 }
 
@@ -219,14 +222,19 @@ fn outer_ring_builders_target_the_ring_and_leave_auth_unsigned() {
 #[test]
 fn close_nullifier_pdas_builder_encodes_data_and_exact_accounts() {
     let tree = Pubkey::new_unique();
+    let reimbursement_recipient = Pubkey::new_unique();
     let nullifiers = vec![[1u8; 32], [2u8; 32], [3u8; 32]];
     let instruction = CloseNullifierPdas {
         tree,
+        reimbursement_recipient,
         nullifiers: nullifiers.clone(),
     }
     .instruction();
 
-    let mut expected_accounts = vec![AccountMeta::new(tree, false)];
+    let mut expected_accounts = vec![
+        AccountMeta::new(tree, false),
+        AccountMeta::new(reimbursement_recipient, false),
+    ];
     expected_accounts.extend(nullifier_pdas(&tree, &nullifiers));
     assert_eq!(instruction.accounts, expected_accounts);
     assert_eq!(instruction.program_id, PROGRAM_ID_PUBKEY);
@@ -242,6 +250,7 @@ fn create_tree_builder_repeats_one_step_per_allocation_chunk() {
         authority,
         tree_id: 3,
         nullifier_params: nullifier_tree_params(),
+        fees: default_tree_fees(NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE),
     };
     let instructions = builder.instructions();
 
@@ -265,7 +274,41 @@ fn create_tree_builder_repeats_one_step_per_allocation_chunk() {
         CreateTreeData {
             tree_id: 3,
             nullifier_params: nullifier_tree_params(),
+            fees: default_tree_fees(NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE),
         }
+    );
+}
+
+#[test]
+fn set_tree_fees_builder_has_exact_accounts_and_data() {
+    let authority = Pubkey::new_unique();
+    let tree = Pubkey::new_unique();
+    let fees = SetTreeFeesData {
+        fee_per_nullifier: 190,
+        append_reimbursement: 5_000,
+        close_reimbursement: 170,
+    };
+    let instruction = SetTreeFees {
+        authority,
+        tree,
+        fees,
+    }
+    .instruction();
+
+    assert_eq!(instruction.program_id, PROGRAM_ID_PUBKEY);
+    assert_eq!(
+        instruction.accounts,
+        vec![
+            AccountMeta::new_readonly(authority, true),
+            AccountMeta::new_readonly(pda::protocol_config(), false),
+            AccountMeta::new(tree, false),
+        ]
+    );
+    assert_eq!(instruction.data.len(), 25);
+    assert_eq!(instruction.data.first(), Some(&tag::SET_TREE_FEES));
+    assert_eq!(
+        SetTreeFeesData::try_from_slice(instruction.data.get(1..).unwrap()).unwrap(),
+        fees
     );
 }
 

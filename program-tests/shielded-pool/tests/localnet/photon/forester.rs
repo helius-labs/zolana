@@ -6,7 +6,7 @@ use zolana_interface::error::ShieldedPoolError;
 use zolana_program_test::Rejection;
 use zolana_test_utils::nullifier_pda::{
     assert_nullifier_pda, assert_nullifier_pdas, assert_tree_lamports_after_spend,
-    nullifier_queue_next_index, tree_close_before_index,
+    nullifier_queue_next_index, tree_close_before_index, tree_fees,
 };
 
 /// Plumbing smoke for `forester run --dry-run`: stand up the validator + Photon,
@@ -541,6 +541,10 @@ fn phase_run_forester_batches(env: &mut ForesterEnv, queued_nullifiers: &[[u8; 3
     // the real `forester` binary instead (a full end-to-end drain through the
     // smart-account vault: photon RPC -> reconstruct -> prove -> execute_sync
     // submit).
+    let (fees, fee_balance_before) = tree_fees(&env.rpc, &env.tree_pubkey)?;
+    let expected_reimbursement =
+        (LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT * fees.append_reimbursement).min(fee_balance_before);
+    let member_before = fetch_member_lamports(env)?;
     if let Ok(forester_bin) = std::env::var("FORESTER_BIN") {
         let prover_url = std::env::var("ZOLANA_PROVER_URL")
             .unwrap_or_else(|_| "http://127.0.0.1:3001".to_string());
@@ -630,8 +634,32 @@ fn phase_run_forester_batches(env: &mut ForesterEnv, queued_nullifiers: &[[u8; 3
             LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT,
             "all forester batches should advance the nullifier root"
         );
+        assert_eq!(
+            member_before + expected_reimbursement,
+            fetch_member_lamports(env)? + LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT * 5_000,
+            "the member pays one signature per batch and receives the append reimbursement"
+        );
     }
+    let (fees_after, fee_balance_after) = tree_fees(&env.rpc, &env.tree_pubkey)?;
+    assert_eq!(
+        fees_after, fees,
+        "draining leaves the fee schedule untouched"
+    );
+    assert_eq!(
+        fee_balance_before,
+        fee_balance_after + expected_reimbursement,
+        "every applied batch is reimbursed from the fee balance"
+    );
     Ok(())
+}
+
+fn fetch_member_lamports(env: &ForesterEnv) -> TestResult<u64> {
+    let member = Address::new_from_array(env.forester_key.pubkey().to_bytes());
+    Ok(env
+        .rpc
+        .get_account(member)?
+        .ok_or_else(|| anyhow!("forester member account not found: {member}"))?
+        .lamports)
 }
 
 fn fetch_tree_account(env: &ForesterEnv) -> TestResult<solana_account::Account> {

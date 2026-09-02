@@ -1,7 +1,7 @@
 use zolana_tree::{
     error::TreeError,
     smt::{UtxoTreeLayout, ROOT_HISTORY_CAPACITY},
-    NullifierTreeInitParams, TreeAccount, INITIALIZED,
+    NullifierTreeInitParams, TreeAccount, TreeFeeSchedule, INITIALIZED,
 };
 
 // Must equal the pool's `UTXO_TREE_HEIGHT` (lib.rs) — `TreeAccount::init`
@@ -9,6 +9,11 @@ use zolana_tree::{
 const HEIGHT: u8 = 32;
 const DISCRIMINATOR: u8 = 7;
 const TREE_ID: u16 = 11;
+const FEES: TreeFeeSchedule = TreeFeeSchedule {
+    fee_per_nullifier: 190,
+    append_reimbursement: 5_000,
+    close_reimbursement: 170,
+};
 
 fn leaf(i: u8) -> [u8; 32] {
     let mut bytes = [0u8; 32];
@@ -24,8 +29,16 @@ fn init_then_reload() {
     let pubkey = [2u8; 32];
 
     let appended_root = {
-        let mut tree =
-            TreeAccount::init(&mut bytes, DISCRIMINATOR, HEIGHT, pubkey, TREE_ID, params).unwrap();
+        let mut tree = TreeAccount::init(
+            &mut bytes,
+            DISCRIMINATOR,
+            HEIGHT,
+            pubkey,
+            TREE_ID,
+            params,
+            FEES,
+        )
+        .unwrap();
 
         assert_eq!(tree.discriminator(), DISCRIMINATOR);
         assert_eq!(tree.state(), INITIALIZED);
@@ -68,8 +81,16 @@ fn reload_rejects_inconsistent_nullifier_batch_metadata() {
     let pubkey = [2u8; 32];
 
     {
-        let mut tree =
-            TreeAccount::init(&mut bytes, DISCRIMINATOR, HEIGHT, pubkey, TREE_ID, params).unwrap();
+        let mut tree = TreeAccount::init(
+            &mut bytes,
+            DISCRIMINATOR,
+            HEIGHT,
+            pubkey,
+            TREE_ID,
+            params,
+            FEES,
+        )
+        .unwrap();
         tree.nullifier_tree().batches[0].batch_size += 1;
     }
 
@@ -93,6 +114,7 @@ fn append_batch_matches_sequential() {
         pubkey,
         TREE_ID,
         params,
+        FEES,
     )
     .unwrap();
     for i in 0..count {
@@ -110,6 +132,7 @@ fn append_batch_matches_sequential() {
         pubkey,
         TREE_ID,
         params,
+        FEES,
     )
     .unwrap();
     let leaves: Vec<[u8; 32]> = (0..count).map(|i| leaf(i + 1)).collect();
@@ -166,9 +189,17 @@ fn init_rejects_invalid_nullifier_params() {
     ];
     for params in invalid {
         let mut bytes = vec![0u8; TreeAccount::account_size()];
-        let err = TreeAccount::init(&mut bytes, DISCRIMINATOR, HEIGHT, pubkey, TREE_ID, params)
-            .err()
-            .expect("invalid params must be rejected");
+        let err = TreeAccount::init(
+            &mut bytes,
+            DISCRIMINATOR,
+            HEIGHT,
+            pubkey,
+            TREE_ID,
+            params,
+            FEES,
+        )
+        .err()
+        .expect("invalid params must be rejected");
         assert!(
             matches!(err, TreeError::NullifierInit),
             "params {params:?} failed with {err:?}, expected NullifierInit"
@@ -212,6 +243,7 @@ fn root_history_wraps_around() {
         [2u8; 32],
         TREE_ID,
         params,
+        FEES,
     )
     .unwrap();
 

@@ -14,7 +14,7 @@ use zolana_interface::{
     },
     pda,
     state::{
-        tree_account_size, NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE,
+        tree_account_size, TreeFeeSchedule, NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE,
         NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
     },
     NullifierPda, NULLIFIER_PDA_SIZE, N_PUBLIC_SLOTS,
@@ -22,8 +22,9 @@ use zolana_interface::{
 use zolana_program_test::{Rejection, Rpc, TransactionTrace};
 use zolana_test_utils::{
     nullifier_pda::{
-        assert_nullifier_pda, assert_nullifier_pdas_absent, forester_fee_for_inputs,
-        nullifier_pda_addresses, nullifier_pda_rent, tree_close_before_index,
+        assert_nullifier_pda, assert_nullifier_pdas, assert_nullifier_pdas_absent,
+        nullifier_pda_addresses, nullifier_pda_rent, tree_close_before_index, tree_fees,
+        tree_fees_from,
     },
     transact::{eddsa_input_utxo, fe, inline_output},
 };
@@ -31,6 +32,9 @@ use zolana_tree::{TreeAccount, TreeAccountLayout, UTXO_TREE_HEIGHT};
 
 const LAMPORTS_PER_SIGNATURE: u64 = 5_000;
 const TRANSACT_NULLIFIER_PDA_OFFSET: usize = 5;
+const NULLIFIER_ZKP_BATCHES: usize =
+    (NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE / NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE) as usize;
+type Layout = TreeAccountLayout<UTXO_TREE_HEIGHT, NULLIFIER_ZKP_BATCHES>;
 
 fn transfer_ix_data(n_in: u64, n_out: u64) -> TransactIxData {
     TransactIxData {
@@ -71,11 +75,35 @@ fn transact_instruction(env: &Pool, data: TransactIxData) -> Instruction {
 }
 
 fn close_instruction(env: &Pool, nullifiers: Vec<[u8; 32]>) -> Instruction {
+    close_instruction_for(env, env.rpc.payer.pubkey(), nullifiers)
+}
+
+fn close_instruction_for(
+    env: &Pool,
+    reimbursement_recipient: Pubkey,
+    nullifiers: Vec<[u8; 32]>,
+) -> Instruction {
     CloseNullifierPdas {
         tree: env.tree,
+        reimbursement_recipient,
         nullifiers,
     }
     .instruction()
+}
+
+fn fund_fee_balance(env: &mut Pool, lamports: u64) {
+    let tree = env.tree;
+    let mut account = tree_account(env);
+    {
+        let layout: &mut Layout =
+            wincode::deserialize_mut(&mut account.data).expect("load tree layout");
+        layout.fee_balance += lamports;
+    }
+    account.lamports += lamports;
+    env.rpc
+        .svm
+        .set_account(tree, account)
+        .expect("write fee balance fixture");
 }
 
 fn pool_nullifier_pda_rent(env: &Pool) -> u64 {
@@ -172,11 +200,6 @@ fn set_synthetic_watermark_and_zero_root(
     close_before_index: u64,
     root_index: usize,
 ) {
-    const NULLIFIER_ZKP_BATCHES: usize = (NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE
-        / NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE)
-        as usize;
-    type Layout = TreeAccountLayout<UTXO_TREE_HEIGHT, NULLIFIER_ZKP_BATCHES>;
-
     let tree = env.tree;
     let mut account = tree_account(env);
     let layout: &mut Layout = wincode::deserialize_mut(&mut account.data)
@@ -254,13 +277,21 @@ fn assert_close_nullifier_pdas(
     let payer = env.rpc.payer.pubkey();
     let rent = pool_nullifier_pda_rent(env);
     let nullifier_pdas = nullifier_pda_addresses(&tree, nullifiers);
+    let (fees, fee_balance_before) = tree_fees_from(tree_before, &tree).expect("tree fees");
+    let paid = (fees.close_reimbursement * nullifiers.len() as u64).min(fee_balance_before);
 
     let mut expected_tree = tree_before.clone();
     expected_tree.lamports += rent * nullifiers.len() as u64;
+    expected_tree.lamports -= paid;
+    {
+        let layout: &mut Layout =
+            wincode::deserialize_mut(&mut expected_tree.data).expect("expected tree layout");
+        layout.fee_balance -= paid;
+    }
     assert_eq!(
         tree_account(env),
         expected_tree,
-        "close moves exactly the nullifier PDA rent into the tree and touches no tree byte"
+        "close moves the nullifier PDA rent into the tree, pays the close reimbursement from the fee balance, and touches no other tree byte"
     );
     assert_nullifier_pdas_absent(&env.rpc, &tree, nullifiers).expect("nullifier PDAs closed");
 
@@ -300,9 +331,9 @@ fn assert_close_nullifier_pdas(
             let before = transition.before.as_ref().expect("payer before close");
             let after = transition.after.as_ref().expect("payer after close");
             assert_eq!(
-                before.lamports,
+                before.lamports + paid,
                 after.lamports + LAMPORTS_PER_SIGNATURE,
-                "fee payer pays exactly the transaction fee"
+                "fee payer pays exactly the transaction fee and receives the close reimbursement"
             );
         }
     }
@@ -421,16 +452,11 @@ fn transact_rejects_a_tree_short_of_nullifier_pda_rent() {
     let nullifier_pda_rent = pool_nullifier_pda_rent(&env);
     let data = transfer_ix_data(2, 3);
     let nullifiers = nullifiers_of(&data);
-    // The forester fee lands in the tree before the PDA rent check, so the
-    // largest still-rejecting balance sits one lamport below the two PDA
-    // rents minus that fee.
-    let forester_fee =
-        forester_fee_for_inputs(&tree_account(&env), &env.tree, 2).expect("forester fee");
+    // The forester fee lands in the tree before the PDA rent check but is
+    // reserved for the fee balance, so it never funds working capital: the
+    // largest still-rejecting balance sits one lamport below the two PDA rents.
 
-    for tree_lamports in [
-        tree_rent,
-        tree_rent + 2 * nullifier_pda_rent - 1 - forester_fee,
-    ] {
+    for tree_lamports in [tree_rent, tree_rent + 2 * nullifier_pda_rent - 1] {
         set_tree_lamports(&mut env, tree_lamports);
         let ix = transact_instruction(&env, data.clone());
         expect_transact_rejection(
@@ -441,6 +467,30 @@ fn transact_rejects_a_tree_short_of_nullifier_pda_rent() {
         assert_nullifier_pdas_absent(&env.rpc, &env.tree, &nullifiers)
             .expect("no nullifier PDA survives an underfunded tree");
     }
+}
+
+#[test]
+fn transact_rejects_when_working_capital_would_borrow_from_the_fee_pool() {
+    let mut env = Pool::initialized();
+    let tree_rent = tree_rent(&env);
+    let nullifier_pda_rent = pool_nullifier_pda_rent(&env);
+    let fee_balance = 1_000_000;
+    fund_fee_balance(&mut env, fee_balance);
+    let data = transfer_ix_data(2, 3);
+    let nullifiers = nullifiers_of(&data);
+
+    set_tree_lamports(
+        &mut env,
+        tree_rent + fee_balance + 2 * nullifier_pda_rent - 1,
+    );
+    let ix = transact_instruction(&env, data);
+    expect_transact_rejection(
+        &mut env,
+        ix,
+        Rejection::pool(ShieldedPoolError::InsufficientNullifierPdaRent),
+    );
+    assert_nullifier_pdas_absent(&env.rpc, &env.tree, &nullifiers)
+        .expect("no nullifier PDA is funded from the fee balance");
 }
 
 #[test]
@@ -523,6 +573,146 @@ fn close_returns_nullifier_pda_rent_to_the_tree() {
     assert_close_nullifier_pdas(&env, &trace, &tree_before, &nullifiers);
 }
 
+fn close_funded(env: &mut Pool, fee_balance: u64, nullifiers: &[[u8; 32]]) -> u64 {
+    queue_nullifier_pdas(env, nullifiers, 0);
+    set_close_before_index(env, nullifiers.len() as u64);
+    fund_fee_balance(env, fee_balance);
+    let tree_before = tree_account(env);
+    let payer_before = env
+        .rpc
+        .svm
+        .get_account(&env.rpc.payer.pubkey())
+        .expect("payer")
+        .lamports;
+
+    env.rpc
+        .create_and_send_default_payer_transaction(
+            &[close_instruction(env, nullifiers.to_vec())],
+            &[],
+        )
+        .expect("close nullifier PDAs below the reclaim watermark");
+    let trace = env
+        .rpc
+        .last_transaction_trace()
+        .expect("close trace")
+        .clone();
+    assert_close_nullifier_pdas(env, &trace, &tree_before, nullifiers);
+    let payer_after = env
+        .rpc
+        .svm
+        .get_account(&env.rpc.payer.pubkey())
+        .expect("payer")
+        .lamports;
+    payer_after + LAMPORTS_PER_SIGNATURE - payer_before
+}
+
+#[test]
+fn close_pays_the_closer_from_the_fee_balance() {
+    let mut env = Pool::initialized();
+    let nullifiers = [fe(1), fe(2), fe(3)];
+    let (fees, _) = tree_fees(&env.rpc, &env.tree).expect("tree fees");
+    let owed = fees.close_reimbursement * nullifiers.len() as u64;
+    assert_eq!(owed, 510);
+
+    let paid = close_funded(&mut env, 1_000_000, &nullifiers);
+
+    assert_eq!(
+        paid, owed,
+        "the closer receives the full close reimbursement"
+    );
+    assert_eq!(
+        tree_fees(&env.rpc, &env.tree).expect("tree fees"),
+        (fees, 1_000_000 - owed)
+    );
+}
+
+#[test]
+fn close_pays_only_what_the_fee_balance_holds() {
+    let mut env = Pool::initialized();
+    let nullifiers = [fe(1), fe(2), fe(3)];
+
+    let paid = close_funded(&mut env, 100, &nullifiers);
+
+    assert_eq!(paid, 100, "a short fee balance pays out in full and stops");
+    assert_eq!(
+        tree_fees(&env.rpc, &env.tree).expect("tree fees").1,
+        0,
+        "the fee balance is drained, never negative"
+    );
+}
+
+#[test]
+fn close_with_a_zero_schedule_pays_nothing_and_still_closes() {
+    let mut env = Pool::initialized();
+    let authority = env.authority.insecure_clone();
+    env.rpc
+        .set_tree_fees(&authority, &env.tree, TreeFeeSchedule::default())
+        .expect("zero the fee schedule");
+    let nullifiers = [fe(1), fe(2)];
+
+    let paid = close_funded(&mut env, 1_000, &nullifiers);
+
+    assert_eq!(paid, 0);
+    assert_eq!(
+        tree_fees(&env.rpc, &env.tree).expect("tree fees"),
+        (TreeFeeSchedule::default(), 1_000)
+    );
+}
+
+#[test]
+fn close_rejects_a_program_owned_reimbursement_recipient() {
+    let mut env = Pool::initialized();
+    let nullifiers = [fe(1), fe(2)];
+    queue_nullifier_pdas(&mut env, &nullifiers, 0);
+    set_close_before_index(&mut env, 2);
+    fund_fee_balance(&mut env, 1_000_000);
+    let open_nullifier_pda = pda::nullifier_pda(&env.tree, &fe(2)).0;
+
+    for recipient in [env.tree, open_nullifier_pda, pda::protocol_config()] {
+        let ix = close_instruction_for(&env, recipient, vec![fe(1)]);
+        expect_close_rejection(
+            &mut env,
+            ix,
+            Rejection::pool(ShieldedPoolError::InvalidReimbursementRecipient),
+        );
+        assert_nullifier_pdas(&env.rpc, &env.tree, &nullifiers)
+            .expect("no nullifier PDA closed by a rejected close");
+    }
+}
+
+#[test]
+fn close_pays_a_recipient_other_than_the_payer() {
+    let mut env = Pool::initialized();
+    let nullifiers = [fe(1), fe(2)];
+    queue_nullifier_pdas(&mut env, &nullifiers, 0);
+    set_close_before_index(&mut env, 2);
+    fund_fee_balance(&mut env, 1_000_000);
+    let recipient = funded_system_account(&mut env);
+    let recipient_before = env.rpc.svm.get_account(&recipient).expect("recipient");
+    let (fees, fee_balance_before) = tree_fees(&env.rpc, &env.tree).expect("tree fees");
+
+    env.rpc
+        .create_and_send_default_payer_transaction(
+            &[close_instruction_for(&env, recipient, nullifiers.to_vec())],
+            &[],
+        )
+        .expect("close with a separate recipient");
+
+    let owed = fees.close_reimbursement * nullifiers.len() as u64;
+    let mut expected_recipient = recipient_before;
+    expected_recipient.lamports += owed;
+    assert_eq!(
+        env.rpc.svm.get_account(&recipient).expect("recipient"),
+        expected_recipient,
+        "the recipient receives exactly the close reimbursement"
+    );
+    assert_eq!(
+        tree_fees(&env.rpc, &env.tree).expect("tree fees"),
+        (fees, fee_balance_before - owed)
+    );
+    assert_nullifier_pdas_absent(&env.rpc, &env.tree, &nullifiers).expect("nullifier PDAs closed");
+}
+
 #[test]
 fn closed_nullifier_pda_does_not_make_an_obsolete_root_spendable_again() {
     let mut env = Pool::initialized();
@@ -576,7 +766,7 @@ fn close_accepts_nullifier_pdas_in_any_order() {
     queue_nullifier_pdas(&mut env, &nullifiers, 0);
     set_close_before_index(&mut env, 2);
     let mut ix = close_instruction(&env, nullifiers.to_vec());
-    ix.accounts.swap(1, 2);
+    ix.accounts.swap(2, 3);
 
     env.rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
@@ -619,7 +809,7 @@ fn close_rejects_a_non_nullifier_pda_account() {
 
     for impostor in [system_owned, tree] {
         let mut ix = close_instruction(&env, vec![nullifier]);
-        ix.accounts.get_mut(1).expect("nullifier PDA meta").pubkey = impostor;
+        ix.accounts.get_mut(2).expect("nullifier PDA meta").pubkey = impostor;
         expect_close_rejection(
             &mut env,
             ix,
@@ -636,7 +826,7 @@ fn close_rejects_a_read_only_nullifier_pda_meta() {
     set_close_before_index(&mut env, 1);
     let mut ix = close_instruction(&env, vec![nullifier]);
     ix.accounts
-        .get_mut(1)
+        .get_mut(2)
         .expect("nullifier PDA meta")
         .is_writable = false;
 

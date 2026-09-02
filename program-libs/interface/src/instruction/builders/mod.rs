@@ -23,7 +23,7 @@ pub use create_tree::CreateTree;
 pub use deposit::{AssetDeposit, Deposit, DepositAsset, DepositBuildError, DepositSplAccounts};
 pub use merge_ring::MergeRing;
 pub use merge_transact::MergeTransact;
-pub use protocol_config::{CreateProtocolConfig, PauseTree, UpdateProtocolConfig};
+pub use protocol_config::{CreateProtocolConfig, PauseTree, SetTreeFees, UpdateProtocolConfig};
 pub use ring_authority_transact::RingAuthorityTransact;
 pub use ring_config::{CreateRingConfig, UpdateRingConfig, UpdateRingConfigOwner};
 pub use ring_deposit::{RingAssetDeposit, RingDeposit};

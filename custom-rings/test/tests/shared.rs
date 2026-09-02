@@ -20,7 +20,9 @@ use zolana_client::{
     SolanaRpc, ZolanaClient, ZolanaIndexer,
 };
 use zolana_interface::{
-    instruction::CreateProtocolConfig, state::nullifier_tree_params, SHIELDED_POOL_PROGRAM_ID,
+    instruction::CreateProtocolConfig,
+    state::{default_tree_fees, nullifier_tree_params},
+    SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::create_tree_instructions;
@@ -179,6 +181,7 @@ pub fn setup() -> Result<TestEnv> {
     let create_config_ix = CreateProtocolConfig {
         authority: accounts.protocol_vault,
         protocol_authority: accounts.protocol_vault.to_bytes().into(),
+        fee_authority: accounts.protocol_vault.to_bytes().into(),
         tree_creation_authority: accounts.tree_vault.to_bytes().into(),
         tree_creation_is_permissionless: false,
         forester_authority: accounts.forester_vault.to_bytes().into(),
@@ -200,6 +203,7 @@ pub fn setup() -> Result<TestEnv> {
         &payer.pubkey(),
         &accounts.tree_vault,
         nullifier_tree_params(),
+        default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size),
     )?;
     let create_tree_syncs = smart_account::execute_sync_each(
         &accounts.tree_settings,

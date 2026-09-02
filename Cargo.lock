@@ -10734,6 +10734,7 @@ dependencies = [
  "zolana-smart-account-client",
  "zolana-test-utils",
  "zolana-transaction",
+ "zolana-tree",
  "zolana-user-registry-interface",
  "zolana-wallet",
 ]

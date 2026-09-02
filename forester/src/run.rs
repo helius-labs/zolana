@@ -43,7 +43,7 @@ use zolana_client::{BatchAddressAppendInputs, ProofCompressed, ProverClient};
 use zolana_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};
 use zolana_interface::instruction::{BatchUpdateNullifierTreeData, CompressedProof};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
-use zolana_tree::TreeAccount;
+use zolana_tree::{TreeAccount, TreeFeeSchedule};
 
 type ReferenceNullifierTree = IndexedMerkleTree<Poseidon, usize>;
 
@@ -116,6 +116,8 @@ struct TreeSnapshot {
     on_chain_root: [u8; 32],
     /// Leaves hash chain per ready zkp-batch, in order.
     hash_chains: Vec<[u8; 32]>,
+    fees: TreeFeeSchedule,
+    fee_balance: u64,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -301,6 +303,8 @@ fn read_snapshot(rpc_url: &str, tree: Pubkey) -> Result<TreeSnapshot> {
 
     let mut account = TreeAccount::from_bytes(&mut data, tree.to_bytes())
         .map_err(|err| anyhow!("parse tree account {tree}: {err:?}"))?;
+    let fees = account.fees();
+    let fee_balance = account.fee_balance();
     let nullifier = account.nullifier_tree();
     let on_chain_root = nullifier
         .get_root()
@@ -338,7 +342,21 @@ fn read_snapshot(rpc_url: &str, tree: Pubkey) -> Result<TreeSnapshot> {
         pending_queued,
         on_chain_root,
         hash_chains,
+        fees,
+        fee_balance,
     })
+}
+
+pub const LAMPORTS_PER_SIGNATURE: u64 = 5_000;
+
+pub fn reimbursement_shortfall(append_reimbursement: u64, fee_balance: u64, batches: u64) -> u64 {
+    append_reimbursement
+        .saturating_mul(batches)
+        .saturating_sub(fee_balance)
+}
+
+pub fn append_reimbursement_below_base_cost(append_reimbursement: u64) -> bool {
+    append_reimbursement < LAMPORTS_PER_SIGNATURE
 }
 
 /// Nullifiers already appended into the tree; the init element occupies leaf 0.
@@ -580,6 +598,35 @@ fn drain_once(
         .map(|limit| limit.min(snapshot.ready))
         .unwrap_or(snapshot.ready);
     let concurrency = proof_concurrency.max(1);
+
+    let tree_label = tree.to_string();
+    crate::metrics::set_fee_schedule(
+        &tree_label,
+        snapshot.fees.append_reimbursement,
+        snapshot.fee_balance,
+    );
+    if append_reimbursement_below_base_cost(snapshot.fees.append_reimbursement) {
+        tracing::warn!(
+            append_reimbursement = snapshot.fees.append_reimbursement,
+            base_fee = LAMPORTS_PER_SIGNATURE,
+            "append reimbursement is below the base transaction fee; forester runs below cost"
+        );
+    }
+    let shortfall = reimbursement_shortfall(
+        snapshot.fees.append_reimbursement,
+        snapshot.fee_balance,
+        cap,
+    );
+    if shortfall > 0 {
+        crate::metrics::add_reimbursement_shortfall(&tree_label, shortfall);
+        tracing::warn!(
+            shortfall,
+            fee_balance = snapshot.fee_balance,
+            append_reimbursement = snapshot.fees.append_reimbursement,
+            batches = cap,
+            "tree fee balance does not cover the append reimbursement for this pass"
+        );
+    }
 
     // Build the next witness while the previous proofs are still running.
     //

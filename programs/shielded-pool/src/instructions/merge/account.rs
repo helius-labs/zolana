@@ -1,5 +1,9 @@
 use arrayvec::ArrayVec;
-use pinocchio::{address::Address, error::ProgramError, AccountView};
+use pinocchio::{
+    address::{address_eq, Address},
+    error::ProgramError,
+    AccountView,
+};
 use zolana_account_checks::AccountIterator;
 use zolana_hasher::primitives::hash_bytes;
 use zolana_interface::{
@@ -12,7 +16,8 @@ use zolana_user_registry_interface::{
 
 /// Validated accounts for `merge_transact`, in loader order: `input_tree` and
 /// `output_tree` (writable), `payer` (signer, pays fees), `user_record`
-/// (read-only), System Program, then one writable nullifier PDA per input.
+/// (read-only), System Program, the program account (for the `emit_event`
+/// self-CPI), then one writable nullifier PDA per input.
 pub struct MergeTransactAccounts<'a> {
     pub input_tree: &'a mut AccountView,
     pub output_tree: &'a mut AccountView,
@@ -31,6 +36,10 @@ impl<'a> MergeTransactAccounts<'a> {
         let system_program = iter.next_account("system_program")?;
         if !pinocchio_system::check_id(system_program.address()) {
             return Err(ShieldedPoolError::InvalidSystemProgram.into());
+        }
+        let shielded_pool_program = iter.next_account("shielded_pool_program")?;
+        if !address_eq(shielded_pool_program.address(), &crate::ID) {
+            return Err(ProgramError::IncorrectProgramId);
         }
         let mut nullifier_pdas = ArrayVec::new();
         for _ in 0..MERGE_INPUT_COUNT {

@@ -345,7 +345,8 @@ describe("address and instruction builders", () => {
     ]);
     expect(step?.accounts?.[0]).toMatchObject({ signer: payer });
     expect(step?.accounts?.[1]).toMatchObject({ signer: authority });
-    // tag, tree_id u16, batch size u64, zkp batch size u64, height u32.
+    // tag, tree_id u16, batch size u64, zkp batch size u64, height u32, then the
+    // at-cost fee schedule for 250: fee_per_nullifier 190, append 5000, close 170.
     expect(step?.data).toEqual(
       Uint8Array.of(
         InstructionTag.createTree,
@@ -371,6 +372,30 @@ describe("address and instruction builders", () => {
         0,
         0,
         0,
+        190,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        136,
+        19,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        170,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
       ),
     );
   });
@@ -387,6 +412,7 @@ describe("address and instruction builders", () => {
       },
     });
     expect(step?.accounts?.[3]?.address).toBe(getTreeAddress(0x0102));
+    // ceil((5000 + 2 * 170) / 2) = 2670 lamports per nullifier for a ZKP batch of 2.
     expect(step?.data).toEqual(
       Uint8Array.of(
         InstructionTag.createTree,
@@ -409,6 +435,30 @@ describe("address and instruction builders", () => {
         0,
         0,
         3,
+        0,
+        0,
+        0,
+        110,
+        10,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        136,
+        19,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        170,
+        0,
+        0,
+        0,
+        0,
         0,
         0,
         0,

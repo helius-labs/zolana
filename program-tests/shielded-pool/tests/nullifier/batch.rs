@@ -56,6 +56,27 @@ fn batch_update_rejects_a_non_forester_authority() {
 }
 
 #[test]
+fn batch_update_rejects_a_program_owned_reimbursement_recipient() {
+    let (mut rpc, authority, tree) = forester_env();
+    let tree_before = rpc.account_data(&tree).expect("tree data");
+
+    let mut ix = batch_update_instruction(authority.pubkey(), tree);
+    ix.accounts
+        .get_mut(3)
+        .expect("reimbursement recipient meta")
+        .pubkey = tree;
+    let error = rpc
+        .create_and_send_transaction(&[ix], &authority.pubkey(), &[&authority])
+        .expect_err("the tree must not be its own reimbursement recipient");
+    Rejection::pool(ShieldedPoolError::InvalidReimbursementRecipient).assert_litesvm(error);
+    assert_eq!(
+        rpc.account_data(&tree).expect("tree data"),
+        tree_before,
+        "rejected batch update must leave the tree untouched"
+    );
+}
+
+#[test]
 fn batch_update_rejects_malformed_instruction_data() {
     let (mut rpc, authority, tree) = forester_env();
 

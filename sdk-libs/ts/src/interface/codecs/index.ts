@@ -13,10 +13,18 @@ import type {
   TransactOutput,
   TransactProof,
   RingConfigAccount,
+  TreeFeeSchedule,
+  TreeFees,
 } from "../types.js";
 import { MERGE_INPUT_COUNT } from "../constants.js";
 import type { CreateTreeData, NullifierTreeParams } from "../program.js";
-import { StateDiscriminator } from "../state.js";
+import {
+  PROTOCOL_CONFIG_SIZE,
+  StateDiscriminator,
+  TREE_ACCOUNT_SIZE,
+  TREE_FEES_OFFSET,
+  TREE_FEE_BALANCE_OFFSET,
+} from "../state.js";
 import {
   Reader,
   Writer,
@@ -113,15 +121,46 @@ function writeNullifierTreeParams(writer: Writer, value: NullifierTreeParams): v
     .u32(value.height, "height");
 }
 
-/** Borsh `CreateTreeData { tree_id: u16, nullifier_params }`. */
+function writeTreeFeeSchedule(writer: Writer, value: TreeFeeSchedule): void {
+  writer
+    .u64(value.feePerNullifier, "feePerNullifier")
+    .u64(value.appendReimbursement, "appendReimbursement")
+    .u64(value.closeReimbursement, "closeReimbursement");
+}
+
+function readTreeFeeSchedule(reader: Reader): TreeFeeSchedule {
+  return {
+    feePerNullifier: reader.u64("feePerNullifier"),
+    appendReimbursement: reader.u64("appendReimbursement"),
+    closeReimbursement: reader.u64("closeReimbursement"),
+  };
+}
+
+/** Borsh `TreeFeeSchedule`: three u64 LE. */
+export function encodeTreeFeeSchedule(value: TreeFeeSchedule): Uint8Array {
+  return encoded(value, writeTreeFeeSchedule, 24);
+}
+
+export function decodeTreeFeeSchedule(bytes: Uint8Array): TreeFeeSchedule {
+  if (bytes.length !== 24) {
+    fail("INTERFACE_INVALID_LENGTH", { expected: 24, actual: bytes.length });
+  }
+  const reader = new Reader(copyBytes(bytes));
+  const value = readTreeFeeSchedule(reader);
+  reader.done();
+  return value;
+}
+
+/** Borsh `CreateTreeData { tree_id: u16, nullifier_params, fees }`. */
 export function encodeCreateTreeData(value: CreateTreeData): Uint8Array {
   return encoded(
     value,
     (writer, input) => {
       writer.u16(input.treeId, "treeId");
       writeNullifierTreeParams(writer, input.nullifierParams);
+      writeTreeFeeSchedule(writer, input.fees);
     },
-    22,
+    46,
   );
 }
 
@@ -290,18 +329,48 @@ function readAddress(reader: Reader, name: string): Address {
 }
 
 export function decodeProtocolConfigAccount(bytes: Uint8Array): ProtocolConfigAccount {
-  return decodeAccount(bytes, 134, StateDiscriminator.protocolConfig, (reader) => ({
-    authority: readAddress(reader, "authority"),
-    treeCreationAuthority: readAddress(reader, "treeCreationAuthority"),
-    foresterAuthority: readAddress(reader, "foresterAuthority"),
-    ringCreationAuthority: readAddress(reader, "ringCreationAuthority"),
-    treeCreationIsPermissionless: reader.nonzeroBool("treeCreationIsPermissionless"),
-    ringCreationIsPermissionless: reader.nonzeroBool("ringCreationIsPermissionless"),
-    splInterfaceCreationIsPermissionless: reader.nonzeroBool(
-      "splInterfaceCreationIsPermissionless",
-    ),
-    nextTreeId: reader.u16("nextTreeId"),
-  }));
+  return decodeAccount(
+    bytes,
+    PROTOCOL_CONFIG_SIZE,
+    StateDiscriminator.protocolConfig,
+    (reader) => ({
+      authority: readAddress(reader, "authority"),
+      treeCreationAuthority: readAddress(reader, "treeCreationAuthority"),
+      foresterAuthority: readAddress(reader, "foresterAuthority"),
+      ringCreationAuthority: readAddress(reader, "ringCreationAuthority"),
+      feeAuthority: readAddress(reader, "feeAuthority"),
+      treeCreationIsPermissionless: reader.nonzeroBool("treeCreationIsPermissionless"),
+      ringCreationIsPermissionless: reader.nonzeroBool("ringCreationIsPermissionless"),
+      splInterfaceCreationIsPermissionless: reader.nonzeroBool(
+        "splInterfaceCreationIsPermissionless",
+      ),
+      nextTreeId: reader.u16("nextTreeId"),
+    }),
+  );
+}
+
+/**
+ * Reads the fee schedule and accrued fee balance from a full tree account.
+ * The tree header is `discriminator, state, tree_id, padding[4], fees, fee_balance`.
+ */
+export function decodeTreeFees(bytes: Uint8Array): TreeFees {
+  if (bytes.length !== TREE_ACCOUNT_SIZE) {
+    fail("INTERFACE_INVALID_ACCOUNT_DATA", { expected: TREE_ACCOUNT_SIZE, actual: bytes.length });
+  }
+  const discriminator = bytes[0];
+  if (discriminator !== StateDiscriminator.treeAccount) {
+    fail("INTERFACE_INVALID_DISCRIMINATOR", {
+      expected: StateDiscriminator.treeAccount,
+      actual: discriminator,
+    });
+  }
+  const reader = new Reader(
+    copyBytes(bytes.subarray(TREE_FEES_OFFSET, TREE_FEE_BALANCE_OFFSET + 8)),
+  );
+  const fees = readTreeFeeSchedule(reader);
+  const feeBalance = reader.u64("feeBalance");
+  reader.done();
+  return { fees, feeBalance };
 }
 
 export function decodeSplAssetCounterAccount(bytes: Uint8Array): SplAssetCounterAccount {

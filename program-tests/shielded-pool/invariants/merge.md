@@ -65,7 +65,7 @@ nullifiers.
 - [x] **INV-MERGE-18: merge account layout — two trees, signer payer, system program**
   - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `rejects_invalid_system_program_with_specific_error`
   - Kind: precondition
-  - Statement: the `merge_transact` account layout is `input_tree` (writable), `output_tree` (writable), `payer` (signer), `user_record`, `system_program`; the `ring_merge_transact` layout is `input_tree`, `output_tree`, `ring_config` (signer), `payer` (signer), `system_program`; the trailing system-program account must be the system program (it is kept in the account keys so the forester-fee Transfer CPI resolves).
+  - Statement: the `merge_transact` account layout is `input_tree` (writable), `output_tree` (writable), `payer` (signer), `user_record`, `system_program`, `program` (SPP), then the eight nullifier PDAs; the `ring_merge_transact` layout is `input_tree`, `output_tree`, `ring_config` (signer), `payer` (signer), `system_program`, `program` (SPP), then the eight nullifier PDAs; the system-program account must be the system program (it is kept in the account keys so the forester-fee Transfer CPI resolves) and the program account must be SPP (`ProgramError::IncorrectProgramId` otherwise).
   - Location: `programs/shielded-pool/src/instructions/merge/account.rs:19-36` (`fn validate_and_parse`), `merge_ring/account.rs:22-39`
   - Error: `ShieldedPoolError::InvalidSystemProgram = 7028`
   - Severity: Medium
@@ -146,11 +146,11 @@ nullifiers.
   - Severity: Medium (owner rediscovery on sync)
   - Suggested test: positive; harness: litesvm
 
-- [x] **INV-MERGE-19: merge collects the forester fee for 8 queued nullifiers**
-  - Covered by: `program-tests/shielded-pool/tests/merge/functional.rs` `merge_collects_the_exact_forester_fee_from_the_payer` (real on-chain merge proof; tree gains exactly 160 lamports, payer loses exactly fee+160, every other account byte-identical); also `program-tests/spp-test-validator/tests/lifecycle.rs` `actor_owned_merge_covers_every_supported_input_count` and `eddsa_merge_covers_every_supported_input_count` via the shared merge action, which asserts the payer loses and the input tree gains exactly `MERGE_INPUT_COUNT` (8) × the 20-lamport per-element fee (`spp-test-validator/tests/actions/merge.rs:224-238`)
+- [x] **INV-MERGE-19: merge collects the tree's insertion fee for 8 queued nullifiers and credits the fee balance**
+  - Covered by: `program-tests/shielded-pool/tests/merge/functional.rs` `merge_collects_the_exact_forester_fee_from_the_payer` (real on-chain merge proof; the input tree gains exactly `8 * fees.fee_per_nullifier` lamports read from the tree header, its `fee_balance` grows by the same amount, the payer loses exactly the signature fee plus that amount, every other account byte-identical); also `program-tests/spp-test-validator/tests/lifecycle.rs` `actor_owned_merge_covers_every_supported_input_count` and `eddsa_merge_covers_every_supported_input_count` via the shared merge action, which asserts the payer loses and the input tree gains exactly `MERGE_INPUT_COUNT` (8) × the tree's per-nullifier fee (`spp-test-validator/tests/actions/merge.rs`)
   - Kind: postcondition
-  - Statement: after proof verification the payer transfers exactly `MERGE_INPUT_COUNT` (8) × `forester_fee_per_queue_element(zkp_batch_size)` lamports to the input tree via one System-Program CPI; a fee-computation overflow returns 7026; a zero fee skips the CPI; the tree must be writable and program-owned else 7001.
-  - Location: `programs/shielded-pool/src/instructions/merge/processor.rs:131-136` (`fn process_merge_core`), `shared.rs:77-103` (`fn collect_forester_fee`)
+  - Statement: while queueing the inputs the input tree's `fee_balance` increases by exactly `fee = MERGE_INPUT_COUNT` (8) × `input_tree.fees.fee_per_nullifier` (the schedule stored in the tree header; no constant fee exists any more), and the payer then transfers exactly `fee` lamports to the input tree via one System-Program CPI before the PDAs are funded; a fee-computation overflow returns 7026; a zero fee (all-zero schedule) skips the CPI; the tree must be writable and program-owned else 7001.
+  - Location: `programs/shielded-pool/src/instructions/merge/processor.rs` (`fn process_merge_core`: `credit_insertion_fee(MERGE_INPUT_COUNT)`, `collect_forester_fee`), `shared.rs` (`fn collect_forester_fee`), `program-libs/tree/src/fees.rs` (`fn TreeAccount::credit_insertion_fee`)
   - Error: `ShieldedPoolError::InvalidForesterFee = 7026`
   - Severity: High (fund movement)
   - Suggested test: none remaining (exact deltas pinned; 7026 overflow legs covered by `program-tests/shielded-pool/tests/tree/contract.rs` `forester_fee_overflow_is_invalid_forester_fee`, `reimbursement_recipient_balance_overflow_is_invalid_forester_fee`)
@@ -158,10 +158,10 @@ nullifiers.
 ### Frame Conditions
 
 - [x] **INV-MERGE-15: merge modifies only the two tree accounts and the payer**
-  - Covered by: `program-tests/spp-test-validator/tests/lifecycle.rs` `actor_owned_merge_covers_every_supported_input_count` and `eddsa_merge_covers_every_supported_input_count` via the shared merge action, which asserts the payer loses exactly the 8×20-lamport forester fee, the input tree gains exactly that amount, and the read-only user record is unchanged around every successful merge (`spp-test-validator/tests/actions/merge.rs:224-239`); the remaining instruction account is the system program, which cannot be modified by the program.
+  - Covered by: `program-tests/shielded-pool/tests/merge/functional.rs` `merge_collects_the_exact_forester_fee_from_the_payer` (every account other than the trees and the payer byte-identical); `program-tests/spp-test-validator/tests/lifecycle.rs` `actor_owned_merge_covers_every_supported_input_count` and `eddsa_merge_covers_every_supported_input_count` via the shared merge action, which asserts the payer loses exactly 8 × the tree's `fee_per_nullifier`, the input tree gains exactly that amount, and the read-only user record is unchanged around every successful merge (`spp-test-validator/tests/actions/merge.rs`); the remaining instruction account is the system program, which cannot be modified by the program.
   - Kind: frame
-  - Statement: after a successful `merge_transact`, every account other than the two tree accounts (`input_tree`, `output_tree`) and the `payer` has unchanged data and unchanged lamports (no settlement exists on this instruction); the only lamport movement is the forester fee (`MERGE_INPUT_COUNT` × `forester_fee_per_queue_element(zkp_batch_size)`, 160 lamports at 20/element) from the payer to the input tree; in particular the `user_record` is read-only.
-  - Location: `programs/shielded-pool/src/instructions/merge/processor.rs:30-72` (`fn process_merge_transact_ix`), `merge/processor.rs:82-138` (`fn process_merge_core`, fee at 131-136)
+  - Statement: after a successful `merge_transact`, every account other than the two tree accounts (`input_tree`, `output_tree`) and the `payer` has unchanged data and unchanged lamports (no settlement exists on this instruction); the only lamport movement is the insertion fee (`MERGE_INPUT_COUNT` × `input_tree.fees.fee_per_nullifier`, 1,520 lamports at the default 190 for `Z = 250`, credited to the tree's `fee_balance`) from the payer to the input tree; in particular the `user_record` is read-only.
+  - Location: `programs/shielded-pool/src/instructions/merge/processor.rs` (`fn process_merge_transact_ix`, `fn process_merge_core`: `credit_insertion_fee`, `collect_forester_fee`)
   - Severity: High
   - Suggested test: positive; harness: mollusk unit (account snapshot compare)
 

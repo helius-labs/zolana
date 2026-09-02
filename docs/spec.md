@@ -144,6 +144,7 @@ Operations 1-4 run against the default ring via [`transact`](#transact) (or [`de
 | 3 | create_protocol_config | Initialize protocol config (role authorities, permissionless flags) |
 | 4 | update_protocol_config | Rotate the protocol config authority and the role authorities |
 | 5 | pause_tree | Freeze writes to a Tree account |
+| 6 | set_tree_fees | Set a tree's fee schedule (insertion fee, append and close reimbursements) |
 
 ### Ring Creator
 
@@ -1196,7 +1197,7 @@ The single public signal is `public_input_hash`, a Poseidon hash chain over a sh
 
 | Account | Description |
 | --- | --- |
-| Tree account | PDA `[b"tree", tree_id.to_le_bytes()]`; `tree_id: u16` is taken from `protocol_config.next_tree_id` at creation and stored in the header. Contains the nullifier tree (`zolana-batched-merkle-tree`, H=40), nullifier queue, and UTXO tree (sparse Merkle tree, H=32). Holds the lamports that fund nullifier PDAs (working capital above its own rent exemption) and records `close_before_index`, the queue-sequence watermark below which PDAs may be closed. |
+| Tree account | PDA `[b"tree", tree_id.to_le_bytes()]`; `tree_id: u16` is taken from `protocol_config.next_tree_id` at creation and stored in the header. Contains the nullifier tree (`zolana-batched-merkle-tree`, H=40), nullifier queue, and UTXO tree (sparse Merkle tree, H=32). The header stores the fee schedule `fees: TreeFeeSchedule { fee_per_nullifier, append_reimbursement, close_reimbursement }` (bytes 8..32, set by `create_tree` and `set_tree_fees`) and `fee_balance: u64` (bytes 32..40), the lamports collected from insertions and not yet paid out. Holds the lamports that fund nullifier PDAs (working capital above its own rent exemption) and records `close_before_index`, the queue-sequence watermark below which PDAs may be closed. Lamport invariant: `tree.lamports >= rent_minimum + fee_balance`; the working capital is the remainder and never borrows from the fee balance (nullifier PDA creation floors the tree at `rent_minimum + fee_balance`, `InsufficientNullifierPdaRent` otherwise). |
 | Nullifier PDA | One 10-byte program-owned PDA per queued nullifier: `[b"nullifier", tree, nullifier]` storing `{ queue_index: u64, tree_id: u16 }` (Borsh, no discriminator). Created by the inserting instruction and funded from the tree; it makes a second queue insertion of the same pending nullifier fail. Closed permissionlessly by `close_nullifier_pdas` once `queue_index < tree.close_before_index` and `tree_id` equals the tree's, returning its lamports to the tree. See `program-libs/tree/nullifier_tree_spec.md`. |
 | SPL interface vault | Per-mint SPL / Token-22 vault holding all shielded SPL tokens. |
 | Asset registry | PDA derived from the mint, set at `create_spl_interface` time. Stores the `asset_id: u64` assigned to that mint (used as the compact asset identifier inside UTXOs and ciphertexts). `asset_id = 1` is reserved for native SOL and has no `Asset registry` entry; SPL mints get `asset_id ≥ 2`. |
@@ -1217,6 +1218,9 @@ struct ProtocolConfig {
     forester_authority: Address,
     /// Permitted to call `create_ring_config` unless `ring_creation_is_permissionless`.
     ring_creation_authority: Address,
+    /// Permitted to call `set_tree_fees` (operational fee tuning). Kept
+    /// separate from `forester_authority` so foresters cannot set their own pay.
+    fee_authority: Address,
     ring_creation_is_permissionless: bool,
     /// When set, any signer may call `create_spl_interface`; otherwise it is
     /// gated by `protocol_authority`.
@@ -1231,9 +1235,18 @@ When a `*_is_permissionless` flag is set, any signer may call the corresponding
 creation instruction; otherwise the transaction signer must equal the matching
 creation authority.
 
+The on-chain layout is `#[repr(C)]` with a leading `discriminator: u8` and the
+fields in the order `protocol_authority`, `tree_creation_authority`,
+`forester_authority`, `ring_creation_authority`, `fee_authority`, the three
+flags, `next_tree_id` (166 bytes). Adding `fee_authority` was a breaking layout
+change: a protocol config deployed before it must be re-initialized after the
+program upgrade (there is no migration instruction), and trees deployed before
+it decode an all-zero fee schedule (no fees charged, no reimbursements paid)
+until `set_tree_fees` runs on them.
+
 ### Authority Governance
 
-All four authority fields store vault PDAs of [Squads smart accounts](https://github.com/Squads-Protocol/smart-account-program) (program `SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG`). SPP checks only that the address is a signer; threshold and key membership are validated by the smart account program.
+All five authority fields store vault PDAs of [Squads smart accounts](https://github.com/Squads-Protocol/smart-account-program) (program `SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG`). SPP checks only that the address is a signer; threshold and key membership are validated by the smart account program.
 
 **Hierarchy**
 
@@ -1243,6 +1256,14 @@ All four authority fields store vault PDAs of [Squads smart accounts](https://gi
 | `forester_authority` | Forester | controlled | 1-of-N | Protocol authority vault |
 | `tree_creation_authority` | Tree creation | controlled | 1-of-N | Protocol authority vault |
 | `ring_creation_authority` | Ring creation | controlled | 1-of-N | Protocol authority vault |
+| `fee_authority` | Protocol authority (for now) | autonomous | 2-of-5 | — |
+
+`fee_authority` is an operational key: it retunes tree fee schedules when
+Solana limits or priority fees shift. It is deliberately not the forester
+authority, so foresters cannot set their own reimbursement. `xtask
+init-protocol` currently points it at the protocol authority vault; it can be
+rotated to a dedicated controlled smart account later via
+`update_protocol_config(FeeAuthority)`.
 
 **Key management**
 
@@ -1289,15 +1310,16 @@ Usage by instruction:
 
 Tags 0–9 cover administration and maintenance, tag 10 is the internal event
 hook, tags 11–13 are default-ring operations, tags 14–17 are policy-ring
-operations, and tag 18 is permissionless nullifier-PDA cleanup.
+operations, tag 18 is permissionless nullifier-PDA cleanup, and tag 19
+(`set_tree_fees`) is administration again.
 
 | Instruction | Description |
 | --- | --- |
 | create_protocol_config | Tag 0; the transaction signer must equal the `protocol_authority` it writes; on an upgradeable loader-v3 deployment the signer must also be the program's deploy upgrade authority (read from the loader-v3 `ProgramData` account), so initialization cannot be front-run. The instruction takes the program account and its `ProgramData` account as trailing read-only inputs; non-upgradeable deployments and an unset or zeroed upgrade authority skip the binding. |
 | update_protocol_config | Tag 1; gated by `protocol_config.protocol_authority`; updates exactly one authority or flag per call; rotating `protocol_authority` requires the incoming authority to co-sign |
-| create_tree | Tag 2; gated by `protocol_config.tree_creation_authority` unless `tree_creation_is_permissionless`. Accounts: `payer` (signer), `authority` (signer), `protocol_config`, the tree PDA, system program; data `{ tree_id: u16, nullifier_params }`. Repeated once per 10 KiB allocation step within one transaction: the first step requires `tree_id == protocol_config.next_tree_id`, increments it, and creates the PDA funded by `payer` with its rent plus the nullifier-PDA working capital; the step that reaches the full size initializes the shared Tree account (nullifier tree + queue, UTXO tree). |
+| create_tree | Tag 2; gated by `protocol_config.tree_creation_authority` unless `tree_creation_is_permissionless`. Accounts: `payer` (signer), `authority` (signer), `protocol_config`, the tree PDA, system program; data `{ tree_id: u16, nullifier_params, fees: TreeFeeSchedule }`. Repeated once per 10 KiB allocation step within one transaction: the first step requires `tree_id == protocol_config.next_tree_id`, increments it, and creates the PDA funded by `payer` with its rent plus the nullifier-PDA working capital; the step that reaches the full size initializes the shared Tree account (nullifier tree + queue, UTXO tree), stores `fees` as submitted (no check against `nullifier_params.input_queue_zkp_batch_size`; payouts are capped by `fee_balance`), and starts `fee_balance` at 0. The default schedule (`default_tree_fees(Z)`) is `append_reimbursement = 5_000`, `close_reimbursement = 170`, `fee_per_nullifier = ceil((5_000 + Z * 170) / Z)`: 190 for `Z = 250`, 670 for `Z = 10`, so insertions pay exactly the maintenance cost and nothing accumulates. |
 | pause_tree | Tag 3; gated by `protocol_config.protocol_authority`; can pause and unpause trees |
-| batch_update_nullifier_tree | Tag 4; gated by `protocol_config.forester_authority`; inserts queued nullifiers into the nullifier tree via a batch ZKP and emits the batch address-append event. When an applied update marks the previously inserted queue batch reclaimable it zeroes the root-history slots that predate that batch's final root and advances `close_before_index`, releasing that batch's nullifier PDAs for `close_nullifier_pdas`. |
+| batch_update_nullifier_tree | Tag 4; gated by `protocol_config.forester_authority`; accounts `authority` (signer), `protocol_config`, `tree` (writable), `reimbursement_recipient` (writable). Inserts queued nullifiers into the nullifier tree via a batch ZKP and emits the batch address-append event. When an applied update marks the previously inserted queue batch reclaimable it zeroes the root-history slots that predate that batch's final root and advances `close_before_index`, releasing that batch's nullifier PDAs for `close_nullifier_pdas`. After applying `num_update` ZKP batches it pays `min(fees.append_reimbursement * num_update, fee_balance)` from the tree to `reimbursement_recipient` and debits `fee_balance` by the paid amount; a shortfall never fails the update, so liveness survives a fee increase. The recipient must not be program-owned (`InvalidReimbursementRecipient`, 7055), checked before any state change. |
 | create_asset_counter | Tag 5; gated by `protocol_config.protocol_authority`; creates the singleton `Asset counter` PDA with `next_asset_id = 2`. |
 | create_spl_interface | Tag 6; gated by `protocol_config.protocol_authority` unless `spl_interface_creation_is_permissionless`; reads + bumps the `Asset counter`, creates the per-mint SPL interface vault and writes the assigned `asset_id` into the per-mint `Asset registry` PDA. |
 | create_ring_config | Tag 7; creates the ring's `ring_config` (the `ring_auth` PDA), which must sign its own creation; the payer must equal `protocol_config.ring_creation_authority` unless `ring_creation_is_permissionless`. See [Ring Accounts](#ring-accounts). |
@@ -1311,7 +1333,8 @@ operations, and tag 18 is permissionless nullifier-PDA cleanup.
 | ring_transact | Tag 15; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees; checks that the encrypted UTXOs decrypt under the ring auditor key and the recipient keys named in the policy proof |
 | merge_ring | Tag 16; CPI from an active ring program; consolidates the 8 input slots of the fixed merge shape (same owner, same asset, same `ring_program_id`) into one output UTXO that preserves `ring_program_id`. Mirrors `merge_transact` for policy-ring UTXOs. The ring program runs its own authorization before CPI; the merge proof enforces `data_hash = 0` on inputs and output. |
 | ring_authority_transact | Tag 17; checks the ring config is active and signed, then checks the state transition only includes ring-program-owned UTXOs. UTXO owners do not sign; the ring has full control subject to its policy. |
-| close_nullifier_pdas | Tag 18; permissionless, no signer, no instruction data; rejected while the tree is paused. Accounts: the writable tree, then at least one writable nullifier PDA. For every PDA: it is program-owned with an exact 10-byte payload, its stored `tree_id` equals the tree's (`NullifierPdaTreeMismatch` otherwise), and `queue_index < tree.close_before_index`; its lamports move to the tree and the account is closed. The call is atomic. |
+| close_nullifier_pdas | Tag 18; permissionless, no signer, no instruction data; rejected while the tree is paused. Accounts: the writable tree, the writable `reimbursement_recipient`, then at least one writable nullifier PDA. The recipient must not be program-owned (`InvalidReimbursementRecipient`, 7055: this rejects the tree itself, open nullifier PDAs, and the protocol config). For every PDA: it is program-owned with an exact 10-byte payload, its stored `tree_id` equals the tree's (`NullifierPdaTreeMismatch` otherwise), and `queue_index < tree.close_before_index`; its lamports move to the tree and the account is closed. After closing `n` PDAs the tree pays `min(fees.close_reimbursement * n, fee_balance)` to the recipient and debits `fee_balance` by the paid amount; every PDA's rent still returns to the tree. The call is atomic. |
+| set_tree_fees | Tag 19; gated by `protocol_config.fee_authority`. Accounts: `authority` (signer), `protocol_config`, `tree` (writable); data is the borsh `TreeFeeSchedule { fee_per_nullifier: u64, append_reimbursement: u64, close_reimbursement: u64 }` (exactly 24 bytes, `InvalidInstructionData` 7000 otherwise). Works on paused trees. Stores any schedule as submitted: there is no check against the tree's ZKP batch size, because every payout is capped at `min(owed, fee_balance)`; `TreeFeeSchedule::at_cost` derives the smallest `fee_per_nullifier` with `fee_per_nullifier * zkp_batch_size >= append_reimbursement + zkp_batch_size * close_reimbursement`, so one ZKP batch of insertions covers its own append and cleanup reimbursements. Overwrites only the 24 schedule bytes and never touches `fee_balance`. Errors: `UnauthorizedCaller` (7003) for a wrong authority, `InvalidProtocolConfig` (7012) for a non-config account, `InvalidTreeAccounts` (7001) for a non-tree account. |
 
 ### `transact`
 
@@ -1872,8 +1895,8 @@ Every entry's `blinding` is a fresh CSPRNG value sent in the clear, as in
 | 3 | payer |   | x | fee payer; any account may run the merge |
 | 4 | user_record |   |   | read-only; the owner's [registry](#registry) record. SPP checks `merging_enabled == true` and binds the proof's owner `pk_field(user_signing_pk)` to it (rail-selected by `eddsa_owner`) |
 | 5 | system_program |   |   | canonical System Program |
+| 6 | program |   |   | SPP, for the [`emit_event`](#instructions) self-CPI |
 | .. | nullifier_pdas | x |   | eight, one per `nullifiers[i]` in order: the canonical PDA `[b"nullifier", input_tree, nullifier]`, System-owned and empty (prefunding accepted); created and funded from `input_tree` as in [`transact`](#transact) |
-| n | program |   |   | SPP, for the [`emit_event`](#instructions) self-CPI |
 
 **Instruction data**
 
@@ -1937,8 +1960,8 @@ There is no ciphertext; the ring program selects the output `ring_data_hash`, th
 | 3 | ring_config |   | x | the ring's `ring_auth` PDA; signs. SPP reads its `program_id` and checks inputs/output `ring_program_id` against it. See [Ring Accounts](#ring-accounts) |
 | 4 | payer |   | x | fee payer |
 | 5 | system_program |   |   | canonical System Program |
+| 6 | program |   |   | SPP, for the [`emit_event`](#instructions) self-CPI |
 | .. | nullifier_pdas | x |   | eight, one per `nullifiers[i]` in order, as in [`merge_transact`](#merge_transact) |
-| n | program |   |   | SPP, for the [`emit_event`](#instructions) self-CPI |
 
 **Instruction data**
 

@@ -92,15 +92,13 @@ pub fn process_transact_ix(
     collect_forester_fee(
         transact_accounts.payer,
         transact_accounts.input_tree,
-        ix.inputs.len() as u64,
-        input_tree_result.zkp_batch_size,
+        input_tree_result.forester_fee,
     )?;
     create_nullifier_pdas(
         transact_accounts.payer,
         transact_accounts.input_tree,
-        input_tree_result.tree_id,
         &mut transact_accounts.nullifier_pdas,
-        &input_tree_result.inputs,
+        &input_tree_result,
     )?;
     // 9. Append new utxo hashes.
     let tree_write =

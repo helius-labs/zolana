@@ -2,10 +2,8 @@ use borsh::BorshDeserialize;
 use solana_account::Account;
 use solana_pubkey::Pubkey;
 use zolana_client::{ClientError, Rpc};
-use zolana_interface::{
-    pda, state::forester_fee_per_queue_element, NullifierPda, NULLIFIER_PDA_SIZE, PROGRAM_ID_PUBKEY,
-};
-use zolana_tree::TreeAccount;
+use zolana_interface::{pda, NullifierPda, NULLIFIER_PDA_SIZE, PROGRAM_ID_PUBKEY};
+use zolana_tree::{TreeAccount, TreeFeeSchedule};
 
 use crate::test_validator_asserts::{fetch_account, fetch_optional_account};
 
@@ -49,11 +47,19 @@ pub fn nullifier_queue_next_index_from(
     Ok(tree_account.nullifier_tree().queue_next_index)
 }
 
-pub fn nullifier_zkp_batch_size_from(account: &Account, tree: &Pubkey) -> Result<u64, ClientError> {
+pub fn tree_fees_from(
+    account: &Account,
+    tree: &Pubkey,
+) -> Result<(TreeFeeSchedule, u64), ClientError> {
     let mut data = account.data.clone();
-    let mut tree_account = TreeAccount::from_bytes(&mut data, tree.to_bytes())
+    let tree_account = TreeAccount::from_bytes(&mut data, tree.to_bytes())
         .map_err(|error| ClientError::Rpc(format!("load tree {tree}: {error:?}")))?;
-    Ok(tree_account.nullifier_tree().zkp_batch_size)
+    Ok((tree_account.fees(), tree_account.fee_balance()))
+}
+
+pub fn tree_fees<R: Rpc>(rpc: &R, tree: &Pubkey) -> Result<(TreeFeeSchedule, u64), ClientError> {
+    let account = fetch_account(rpc, tree)?;
+    tree_fees_from(&account, tree)
 }
 
 pub fn forester_fee_for_inputs(
@@ -61,9 +67,9 @@ pub fn forester_fee_for_inputs(
     tree: &Pubkey,
     num_inputs: u64,
 ) -> Result<u64, ClientError> {
-    let zkp_batch_size = nullifier_zkp_batch_size_from(tree_before, tree)?;
-    forester_fee_per_queue_element(zkp_batch_size)
-        .and_then(|fee| fee.checked_mul(num_inputs))
+    let (fees, _) = tree_fees_from(tree_before, tree)?;
+    fees.fee_per_nullifier
+        .checked_mul(num_inputs)
         .ok_or_else(|| ClientError::Rpc("invalid nullifier forester fee".to_owned()))
 }
 

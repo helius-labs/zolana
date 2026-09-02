@@ -38,6 +38,7 @@ impl CloseNullifierPdasBatch {
     pub fn instruction(&self) -> Instruction {
         CloseNullifierPdas {
             tree: self.tree,
+            reimbursement_recipient: self.payer,
             nullifiers: self.nullifiers.clone(),
         }
         .instruction()

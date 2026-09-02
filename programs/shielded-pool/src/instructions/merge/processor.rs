@@ -24,7 +24,7 @@ use super::{
 };
 use crate::instructions::{
     event::emit_general_event,
-    nullifier_pda::create_nullifier_pdas,
+    nullifier_pda::{create_nullifier_pdas, InputTreeResult},
     shared::{bool_field, check_not_expired, collect_forester_fee, tree_error},
 };
 
@@ -98,7 +98,7 @@ pub(crate) fn process_merge_core(
     output_view_tag: [u8; 32],
     output_data: Vec<u8>,
 ) -> ProgramResult {
-    let (inputs, derived, zkp_batch_size, tree_id) = {
+    let (input_tree_result, derived) = {
         let input_tree = accounts.input_tree.address().to_bytes();
         let mut tree = TreeAccount::from_account_view_mut(
             &mut *accounts.input_tree,
@@ -115,8 +115,18 @@ pub(crate) fn process_merge_core(
             owner_binding,
         };
         let inputs = apply_input_tree(&mut tree, ix, input_tree, &mut derived)?;
-        let zkp_batch_size = tree.nullifier_tree().zkp_batch_size;
-        (inputs, derived, zkp_batch_size, tree.tree_id())
+        let forester_fee = tree
+            .credit_insertion_fee(MERGE_INPUT_COUNT as u64)
+            .map_err(tree_error)?;
+        (
+            InputTreeResult {
+                inputs,
+                forester_fee,
+                fee_balance: tree.fee_balance(),
+                tree_id: tree.tree_id(),
+            },
+            derived,
+        )
     };
     // The fee transfer CPI includes the tree, so it must run before
     // create_nullifier_pdas moves tree lamports directly: a CPI boundary syncs
@@ -126,15 +136,13 @@ pub(crate) fn process_merge_core(
     collect_forester_fee(
         accounts.payer,
         accounts.input_tree,
-        MERGE_INPUT_COUNT as u64,
-        zkp_batch_size,
+        input_tree_result.forester_fee,
     )?;
     create_nullifier_pdas(
         accounts.payer,
         accounts.input_tree,
-        tree_id,
         &mut accounts.nullifier_pdas,
-        &inputs,
+        &input_tree_result,
     )?;
     let tree_write = {
         let output_tree = accounts.output_tree.address().to_bytes();
@@ -144,7 +152,7 @@ pub(crate) fn process_merge_core(
             TREE_ACCOUNT_DISCRIMINATOR,
         )
         .map_err(tree_error)?;
-        apply_output_tree(&mut tree, ix, output_tree, inputs)?
+        apply_output_tree(&mut tree, ix, output_tree, input_tree_result.inputs)?
     };
 
     let event = build_merge_event(ix, tree_write, output_view_tag, output_data);

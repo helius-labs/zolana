@@ -11,13 +11,10 @@ use super::{
     event::TreeWrite,
     verify::{TransactProofInputs, MAX_INPUTS},
 };
-use crate::instructions::shared::{bool_field, tree_error};
-
-pub(crate) struct InputTreeResult {
-    pub inputs: Vec<Input>,
-    pub zkp_batch_size: u64,
-    pub tree_id: u16,
-}
+use crate::instructions::{
+    nullifier_pda::InputTreeResult,
+    shared::{bool_field, tree_error},
+};
 
 #[profile]
 pub(crate) fn apply_input_tree(
@@ -63,11 +60,14 @@ pub(crate) fn apply_input_tree(
         &nullifier_tree_roots[..ix.inputs.len()],
         allow_dummy_inputs,
     )?;
-    let zkp_batch_size = input_tree.nullifier_tree().zkp_batch_size;
+    let forester_fee = input_tree
+        .credit_insertion_fee(ix.inputs.len() as u64)
+        .map_err(tree_error)?;
 
     Ok(InputTreeResult {
         inputs,
-        zkp_batch_size,
+        forester_fee,
+        fee_balance: input_tree.fee_balance(),
         tree_id: input_tree.tree_id(),
     })
 }

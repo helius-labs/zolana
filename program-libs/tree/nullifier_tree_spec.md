@@ -23,6 +23,44 @@ Let:
 The tree is a program-derived account. It holds the queue, root history, and
 lamports used as working capital for nullifier PDAs.
 
+The account header also holds the fee schedule and the fee balance:
+
+| Offset | Field | Meaning |
+| --- | --- | --- |
+| 0 | `discriminator: u8` | account type |
+| 1 | `state: u8` | `UNINITIALIZED`, `INITIALIZED`, or `PAUSED` |
+| 2 | `tree_id: u16` | id assigned at creation |
+| 4 | padding | 4 bytes |
+| 8 | `fees.fee_per_nullifier: u64` | lamports charged per queued nullifier |
+| 16 | `fees.append_reimbursement: u64` | lamports paid per applied ZKP batch |
+| 24 | `fees.close_reimbursement: u64` | lamports paid per closed PDA |
+| 32 | `fee_balance: u64` | collected fees not yet paid out |
+| 40 | reserved | 32 bytes |
+| 72 | UTXO tree | `UtxoTreeLayout` |
+| 7544 | nullifier tree | `NullifierTreeLayout` |
+
+The schedule is runtime state: `create_tree` writes it and `set_tree_fees`
+overwrites it; neither checks the values. `TreeFeeSchedule::at_cost` derives
+the smallest `fee_per_nullifier` satisfying
+
+```text
+fees.fee_per_nullifier * Z >= fees.append_reimbursement + Z * fees.close_reimbursement
+```
+
+so one ZKP batch of insertions collects at least what its append and its `Z`
+PDA closes pay out, but the fee authority may store any schedule.
+`fee_balance` is the lamport amount owed to future reimbursements; both
+payouts are capped by it (`min(owed, fee_balance)`), so the balance never goes
+negative and an insolvent schedule never fails an update.
+The lamport invariant
+
+```text
+tree.lamports >= rent_minimum + fee_balance
+```
+
+separates the fee pool from the working capital: PDA creation floors the tree
+at `rent_minimum + fee_balance` and never borrows from collected fees.
+
 The queue holds `N` batches. Each batch stores `K` hash-chain
 commitments, `K` cached tree updates, and:
 
@@ -142,8 +180,13 @@ The instruction also receives the writable PDA.
    `num_full_zkp_batches == K`, set the batch to `Full` and advance `c` modulo
    `N`.
 8. Increment `q` once.
+9. Charge `fees.fee_per_nullifier` from the transaction payer to the tree
+   (System transfer) and add the same amount to `fee_balance`. The inserting
+   instruction charges once per input, before it funds the PDAs, so the PDA
+   rent check in step 5 sees the tree floored at `rent_minimum + fee_balance`.
 
-PDA creation and queue mutation are atomic. Failure changes neither.
+PDA creation, fee collection, and queue mutation are atomic. Failure changes
+none of them.
 
 **Property — pending non-inclusion.** A successful insertion makes every later
 queue insertion of the same nullifier fail while its PDA exists. The check
@@ -231,6 +274,14 @@ The Groth16 proof establishes the height-40 indexed append from `old_root` to
    batch reclaimable regardless of whether that batch has already been reused
    and returned to `Fill`. No root-history slots are explicitly zeroed. These
    changes are atomic.
+10. When the call applied `num_update >= 1` updates, pay
+    `min(fees.append_reimbursement * num_update, fee_balance)` from the tree
+    to the writable `reimbursement_recipient` account and subtract the paid
+    amount from `fee_balance`. The recipient must not be program-owned
+    (`ShieldedPoolError::InvalidReimbursementRecipient`, 7055), checked before
+    any state change. A short fee balance pays what it holds and never fails
+    the update, so a fee increase cannot stall the queue. A call that only
+    caches or evicts pays nothing.
 
 **Property — queue draining.** One applied update reduces
 `unapplied_values` by exactly `Z`. After all `K` updates, the batch has
@@ -300,26 +351,40 @@ final `new_root`.
 ## Close nullifier PDAs
 
 **Description.** Permissionlessly closes any number of closable nullifier
-PDAs.
+PDAs and reimburses the cleaner from the tree's fee balance.
 
 **Input**
 
-The instruction has no data. It receives the writable tree followed by one
-writable PDA per nullifier to close. The shielded-pool index supplies the
-nullifiers to the cleaner, which derives the PDA addresses from them.
+The instruction has no data. It receives the writable tree, a writable
+`reimbursement_recipient`, and then one writable PDA per nullifier to close.
+The shielded-pool index supplies the nullifiers to the cleaner, which derives
+the PDA addresses from them.
 
 **Checks and state changes**
 
+1. Require the recipient not to be program-owned
+   (`ShieldedPoolError::InvalidReimbursementRecipient`, 7055). This rejects
+   the tree itself, open nullifier PDAs, and the protocol config as
+   recipients.
+2. Require at least one PDA account.
+
 For every PDA account:
 
-1. Require program ownership and an exact ten-byte Borsh payload.
-2. Require `PDA.tree_id` to equal the tree header's `tree_id`
+3. Require program ownership and an exact ten-byte Borsh payload.
+4. Require `PDA.tree_id` to equal the tree header's `tree_id`
    (`ShieldedPoolError::NullifierPdaTreeMismatch`, 7053).
-3. Require `PDA.queue_index < w`.
-4. Transfer every PDA lamport to the tree and close the PDA.
+5. Require `PDA.queue_index < w`.
+6. Transfer every PDA lamport to the tree and close the PDA.
+
+After closing `n` PDAs:
+
+7. Pay `min(fees.close_reimbursement * n, fee_balance)` from the tree to the
+   recipient and subtract the paid amount from `fee_balance`. A zero schedule
+   or an empty fee balance pays nothing and still closes the PDAs.
 
 The call is atomic. A cleanup call may contain PDAs from different reclaimable
-batches of the same tree.
+batches of the same tree. The PDA rent always returns to the tree; only the
+reimbursement leaves it.
 
 **Property — safe PDA lifetime.** For every queued nullifier `n`:
 
@@ -412,3 +477,41 @@ if B = 120_000: 44.58 to 44.96 lamports
 Rounding up, successful maintenance costs **45 lamports per nullifier**. At
 100 USD/SOL, this is 0.0000045 USD per nullifier. This excludes priority fees,
 retries, failed transactions, and the opportunity cost of locked PDA rent.
+
+### Fee schedule
+
+The arithmetic above is the motivating estimate. What actually applies is the
+schedule stored in the tree header (see [State](#state)): every insertion
+charges `fees.fee_per_nullifier` into `fee_balance`, every applied ZKP batch
+pays `fees.append_reimbursement`, and every closed PDA pays
+`fees.close_reimbursement`, each payout capped by the fee balance. A schedule
+satisfying the solvency inequality
+
+```text
+fee_per_nullifier * Z >= append_reimbursement + Z * close_reimbursement
+```
+
+collects over the `Z` insertions of one ZKP batch at least what that batch's
+append and its `Z` closes pay out, so a tree that starts with `fee_balance =
+0` never runs short on its own schedule. The program does not enforce the
+inequality; `TreeFeeSchedule::at_cost` derives the smallest fee that satisfies
+it. A schedule change applies to insertions and payouts from that point on:
+raising the payouts ahead of the collected balance only reduces payouts to
+`min(owed, fee_balance)`, it never blocks an append or a close.
+
+The default schedule prices one 5,000-lamport append transaction per ZKP batch
+and 170 lamports per PDA close, and sets the insertion fee to exactly cover
+them:
+
+```text
+append_reimbursement = 5_000
+close_reimbursement  = 170
+fee_per_nullifier    = ceil((5_000 + Z * 170) / Z)
+
+Z = 250: 190 lamports per nullifier
+Z = 10:  670 lamports per nullifier
+```
+
+With these values nothing accumulates in the fee balance beyond rounding. The
+fee authority retunes the schedule with `set_tree_fees` when Solana's limits or
+priority fees move.

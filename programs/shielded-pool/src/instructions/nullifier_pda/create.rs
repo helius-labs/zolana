@@ -32,26 +32,41 @@ impl NullifierPdaRent {
     }
 }
 
+pub(crate) struct InputTreeResult {
+    pub inputs: Vec<Input>,
+    pub forester_fee: u64,
+    pub fee_balance: u64,
+    pub tree_id: u16,
+}
+
 #[inline(never)]
 #[profile]
 pub(crate) fn create_nullifier_pdas(
     payer: &AccountView,
     tree: &mut AccountView,
-    tree_id: u16,
     nullifier_pdas: &mut [&mut AccountView],
-    inputs: &[Input],
+    input_tree: &InputTreeResult,
 ) -> ProgramResult {
-    if nullifier_pdas.len() != inputs.len() {
+    if nullifier_pdas.len() != input_tree.inputs.len() {
         return Err(ShieldedPoolError::InvalidNullifierPda.into());
     }
     let rent_sysvar = Rent::get()?;
     let rent = NullifierPdaRent {
         nullifier_pda_minimum: rent_sysvar.try_minimum_balance(NULLIFIER_PDA_SIZE)?,
-        tree_minimum: rent_sysvar.try_minimum_balance(tree.data_len())?,
+        tree_minimum: rent_sysvar
+            .try_minimum_balance(tree.data_len())?
+            .checked_add(input_tree.fee_balance)
+            .ok_or(ProgramError::ArithmeticOverflow)?,
     };
     let tree_address = *tree.address().as_array();
-    for (nullifier_pda, input) in nullifier_pdas.iter_mut().zip(inputs) {
-        create_nullifier_pda(payer, nullifier_pda, &tree_address, tree_id, input)?;
+    for (nullifier_pda, input) in nullifier_pdas.iter_mut().zip(&input_tree.inputs) {
+        create_nullifier_pda(
+            payer,
+            nullifier_pda,
+            &tree_address,
+            input_tree.tree_id,
+            input,
+        )?;
         let missing = rent.missing(nullifier_pda);
         if missing == 0 {
             continue;

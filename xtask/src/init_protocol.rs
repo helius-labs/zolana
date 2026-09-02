@@ -15,7 +15,7 @@ use zolana_interface::{
         UpdateProtocolConfigData,
     },
     pda,
-    state::{nullifier_tree_params, ProtocolConfig, SplAssetCounter},
+    state::{default_tree_fees, nullifier_tree_params, ProtocolConfig, SplAssetCounter},
     BPF_LOADER_UPGRADEABLE_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_smart_account_client::{
@@ -702,6 +702,7 @@ fn send_protocol_config(
             tree_creation_is_permissionless: false,
             forester_authority: forester.vault.to_bytes().into(),
             ring_creation_authority: ring.vault.to_bytes().into(),
+            fee_authority: upgrade_signer.pubkey().to_bytes().into(),
             ring_creation_is_permissionless: false,
             spl_interface_creation_is_permissionless: true,
         }
@@ -729,6 +730,7 @@ fn send_protocol_config(
         tree_creation_is_permissionless: false,
         forester_authority: forester.vault.to_bytes().into(),
         ring_creation_authority: ring.vault.to_bytes().into(),
+        fee_authority: protocol.vault.to_bytes().into(),
         ring_creation_is_permissionless: false,
         spl_interface_creation_is_permissionless: true,
     }
@@ -847,6 +849,7 @@ fn create_tree(
         authority: tree_vault,
         tree_id,
         nullifier_params: nullifier_tree_params(),
+        fees: default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size),
     };
     let steps = execute_sync_each(
         tree_settings,

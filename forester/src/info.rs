@@ -101,6 +101,8 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
     };
     // Approximate: each ready zkp-batch holds a full zkp_batch_size of nullifiers.
     let ready_nullifiers = ready_total.saturating_mul(zkp_batch_size);
+    let fees = account.fees();
+    let fee_balance = account.fee_balance();
 
     // --- forester balance (fee capacity); None when PAYER is unset ---
     let forester = read_forester(config, &rpc)?;
@@ -137,6 +139,12 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
                 "currently_processing_batch_index": currently_processing_batch_index,
                 "close_before_index": close_before_index,
                 "root": nullifier_root.map(hex::encode),
+            },
+            "fees": {
+                "fee_per_nullifier": fees.fee_per_nullifier,
+                "append_reimbursement": fees.append_reimbursement,
+                "close_reimbursement": fees.close_reimbursement,
+                "fee_balance": fee_balance,
             },
             "forester": forester.as_ref().map(|(pubkey, lamports)| json!({
                 "pubkey": pubkey.to_string(),
@@ -177,6 +185,11 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
         Some(root) => println!("  nullifier root: {}", hex::encode(root)),
         None => println!("  nullifier root: <none>"),
     }
+    println!(
+        "fees: fee_per_nullifier={}  append_reimbursement={}  close_reimbursement={}  \
+         fee_balance={}",
+        fees.fee_per_nullifier, fees.append_reimbursement, fees.close_reimbursement, fee_balance
+    );
     match &forester {
         Some((pubkey, lamports)) => println!(
             "forester {pubkey}: {} SOL   (fee capacity)",

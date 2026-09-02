@@ -28,4 +28,6 @@ pub enum TreeError {
     TreeIsFull,
     #[error("tree capacity metadata is inconsistent")]
     InvalidCapacity,
+    #[error("fee arithmetic overflowed")]
+    FeeOverflow,
 }

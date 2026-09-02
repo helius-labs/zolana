@@ -24,7 +24,7 @@ use zolana_tree::nullifier_tree::{
     merkle_tree_update::InstructionDataBatchNullifyInputs,
     proof::CompressedProof,
 };
-use zolana_tree::{NullifierTreeInitParams, TreeAccount, UTXO_TREE_HEIGHT};
+use zolana_tree::{NullifierTreeInitParams, TreeAccount, TreeFeeSchedule, UTXO_TREE_HEIGHT};
 
 const HEIGHT: u8 = UTXO_TREE_HEIGHT as u8;
 const DISCRIMINATOR: u8 = 7;
@@ -304,6 +304,7 @@ fn inited_tree_bytes(tree_pubkey: Pubkey) -> Vec<u8> {
             tree_pubkey.to_bytes(),
             0,
             params,
+            TreeFeeSchedule::at_cost(params.input_queue_zkp_batch_size, 5_000, 170).unwrap(),
         )
         .unwrap();
     }

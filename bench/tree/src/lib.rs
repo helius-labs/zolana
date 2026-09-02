@@ -4,7 +4,7 @@ use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_tree::nullifier_tree::{
     layout::NullifierTreeLayout, merkle_tree_update::InstructionDataBatchNullifyInputs,
 };
-use zolana_tree::{NullifierTreeInitParams, TreeAccount, UTXO_TREE_HEIGHT};
+use zolana_tree::{NullifierTreeInitParams, TreeAccount, TreeFeeSchedule, UTXO_TREE_HEIGHT};
 
 #[cfg(not(feature = "no-entrypoint"))]
 mod entrypoint {
@@ -92,7 +92,12 @@ pub fn process_instruction(
 #[profile]
 fn bench_init(bytes: &mut [u8], pubkey: [u8; 32]) -> ProgramResult {
     let params = NullifierTreeInitParams::default();
-    TreeAccount::init(bytes, DISCRIMINATOR, HEIGHT, pubkey, 0, params)
+    let fees = TreeFeeSchedule {
+        fee_per_nullifier: 190,
+        append_reimbursement: 5_000,
+        close_reimbursement: 170,
+    };
+    TreeAccount::init(bytes, DISCRIMINATOR, HEIGHT, pubkey, 0, params, fees)
         .map_err(|_| ProgramError::InvalidAccountData)?;
     Ok(())
 }

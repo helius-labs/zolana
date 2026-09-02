@@ -18,7 +18,7 @@ use zolana_interface::{
         },
         CreateProtocolConfig,
     },
-    state::nullifier_tree_params,
+    state::{default_tree_fees, nullifier_tree_params},
 };
 use zolana_program_test::{
     create_tree_instructions, index_events, parsed_instruction_from_compiled, IndexedEvent,
@@ -53,6 +53,7 @@ pub fn initialize_pool(rpc: &mut SolanaRpc) -> Result<LocalnetPool> {
         &payer.pubkey(),
         &authority.pubkey(),
         nullifier_tree_params(),
+        default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size),
     )?;
     print_signature(
         "create_tree",
@@ -93,6 +94,7 @@ pub fn initialize_indexed_pool(
         &payer.pubkey(),
         &authority.pubkey(),
         nullifier_tree_params(),
+        default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size),
     )?;
     let create_tree_tx = send_indexed(
         rpc,
@@ -135,6 +137,7 @@ fn protocol_config_instruction(authority: &Keypair) -> Instruction {
         ring_creation_authority: authority_bytes.into(),
         ring_creation_is_permissionless: false,
         spl_interface_creation_is_permissionless: false,
+        fee_authority: authority_bytes.into(),
     }
     .instruction()
 }

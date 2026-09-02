@@ -1,13 +1,19 @@
+#[cfg(feature = "tree")]
 pub mod batch_update_nullifier_tree;
+#[cfg(feature = "tree")]
 pub mod create_tree;
 pub mod deposit;
 pub mod merge_ring;
 pub mod merge_transact;
 pub mod protocol_config;
 pub mod ring_config;
+#[cfg(feature = "tree")]
+pub mod set_tree_fees;
 pub mod transact;
 
+#[cfg(feature = "tree")]
 pub use batch_update_nullifier_tree::{BatchUpdateNullifierTreeData, CompressedProof};
+#[cfg(feature = "tree")]
 pub use create_tree::CreateTreeData;
 pub use deposit::{
     DepositAssetKind, DepositEntry, DepositEntryRef, DepositIxData, DepositIxDataRef,
@@ -21,6 +27,8 @@ pub use merge_transact::{
 };
 pub use protocol_config::{CreateProtocolConfigData, PauseTreeData, UpdateProtocolConfigData};
 pub use ring_config::{CreateRingConfigData, UpdateRingConfigData};
+#[cfg(feature = "tree")]
+pub use set_tree_fees::SetTreeFeesData;
 pub use transact::{
     fetch_tag, validate_interface_transfers, CircuitId, InputUtxo, InterfaceTransfer, MessageData,
     OutputDataRef, OutputUtxo, OwnerTag, ResolvedInterfaceTransfer, ResolvedOutput, TransactIxData,

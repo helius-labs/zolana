@@ -8,6 +8,7 @@ export {
   mergeTransactInstruction as getMergeTransactInstructionAsync,
   nullifierPdaAccounts as getNullifierPdaAccountsAsync,
   pauseTreeInstruction as getPauseTreeInstructionAsync,
+  setTreeFeesInstruction as getSetTreeFeesInstructionAsync,
   transactInstruction as getTransactInstructionAsync,
   updateProtocolConfigInstruction as getUpdateProtocolConfigInstructionAsync,
   type ProtocolConfigUpdate,
@@ -21,4 +22,5 @@ export {
   type DepositSplAccounts,
   type MergeTransactInstructionData,
   type TransactInstructionData,
+  type TreeFeeSchedule,
 } from "./interface/index.js";

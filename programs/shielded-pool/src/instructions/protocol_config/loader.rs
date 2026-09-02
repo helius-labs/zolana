@@ -50,6 +50,21 @@ pub fn load_and_validate_protocol_authority<'a>(
     Ok(config)
 }
 
+#[inline(always)]
+pub fn load_and_validate_fee_authority<'a>(
+    config_account: &'a AccountView,
+    authority_account: &AccountView,
+) -> Result<Ref<'a, ProtocolConfig>, ProgramError> {
+    if !authority_account.is_signer() {
+        return Err(ShieldedPoolError::InvalidProtocolConfig.into());
+    }
+    let config = load_protocol_config(config_account)?;
+    config
+        .check_fee_authority(authority_account.address())
+        .map_err(ShieldedPoolError::from)?;
+    Ok(config)
+}
+
 /// Mutable counterpart of [`load_and_validate_protocol_authority`].
 #[inline(always)]
 pub fn load_and_validate_protocol_authority_mut<'a>(

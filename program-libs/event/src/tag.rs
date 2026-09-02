@@ -35,6 +35,9 @@ pub const RING_AUTHORITY_TRANSACT: u8 = 17;
 // Permissionless maintenance.
 pub const CLOSE_NULLIFIER_PDAS: u8 = 18;
 
+// Administration, continued.
+pub const SET_TREE_FEES: u8 = 19;
+
 /// Implemented instruction tags.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -58,6 +61,7 @@ pub enum InstructionTag {
     RingMergeTransact = RING_MERGE_TRANSACT,
     RingAuthorityTransact = RING_AUTHORITY_TRANSACT,
     CloseNullifierPdas = CLOSE_NULLIFIER_PDAS,
+    SetTreeFees = SET_TREE_FEES,
 }
 
 impl TryFrom<u8> for InstructionTag {
@@ -84,6 +88,7 @@ impl TryFrom<u8> for InstructionTag {
             RING_MERGE_TRANSACT => Ok(Self::RingMergeTransact),
             RING_AUTHORITY_TRANSACT => Ok(Self::RingAuthorityTransact),
             CLOSE_NULLIFIER_PDAS => Ok(Self::CloseNullifierPdas),
+            SET_TREE_FEES => Ok(Self::SetTreeFees),
             _ => Err(()),
         }
     }

@@ -25,7 +25,7 @@ pub(crate) use registry::run_set_merging;
 pub(crate) use sync::run_sync;
 pub(crate) use test_mint::run_test_mint;
 pub(crate) use transaction::{run_merge, run_split, run_transfer, run_utxos};
-pub(crate) use tree::run_create_tree;
+pub(crate) use tree::{run_create_tree, run_set_tree_fees};
 pub(crate) use withdraw::run_withdraw;
 
 const INDEXER_TIMEOUT: Duration = Duration::from_secs(120);

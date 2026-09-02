@@ -12,7 +12,7 @@ use zolana_interface::{
         CreateTree, UpdateProtocolConfigData,
     },
     pda,
-    state::{nullifier_tree_params, RingConfig},
+    state::{default_tree_fees, nullifier_tree_params, RingConfig},
 };
 use zolana_program_test::{next_tree_id, Rejection, RING_TEST_PROGRAM_ID};
 use zolana_test_utils::mollusk::{
@@ -56,6 +56,7 @@ fn protocol_config_rejects_a_signer_that_names_other_authorities() {
         ring_creation_authority: named.into(),
         ring_creation_is_permissionless: false,
         spl_interface_creation_is_permissionless: false,
+        fee_authority: named.into(),
     }
     .instruction();
 
@@ -100,6 +101,7 @@ fn create_tree_steps(pool: &Pool, tree_id: u16) -> CreateTree {
         authority: pool.authority.pubkey(),
         tree_id,
         nullifier_params: nullifier_tree_params(),
+        fees: default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size),
     }
 }
 

@@ -157,6 +157,7 @@ fn localnet_bring_up_is_live() -> Result<()> {
         ProtocolConfig {
             discriminator: PROTOCOL_CONFIG,
             protocol_authority: accounts.protocol_vault,
+            fee_authority: accounts.protocol_vault,
             tree_creation_authority: accounts.tree_vault,
             forester_authority: accounts.forester_vault,
             ring_creation_authority: accounts.ring_vault,

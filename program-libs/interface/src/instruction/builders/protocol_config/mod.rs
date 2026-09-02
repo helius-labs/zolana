@@ -4,7 +4,8 @@ use solana_pubkey::Pubkey;
 
 use crate::{
     instruction::{
-        encode_instruction, tag, CreateProtocolConfigData, PauseTreeData, UpdateProtocolConfigData,
+        encode_instruction, tag, CreateProtocolConfigData, PauseTreeData, SetTreeFeesData,
+        UpdateProtocolConfigData,
     },
     pda, PROGRAM_ID_PUBKEY,
 };
@@ -24,6 +25,7 @@ pub struct CreateProtocolConfig {
     pub ring_creation_authority: Address,
     pub ring_creation_is_permissionless: bool,
     pub spl_interface_creation_is_permissionless: bool,
+    pub fee_authority: Address,
 }
 
 impl CreateProtocolConfig {
@@ -37,6 +39,7 @@ impl CreateProtocolConfig {
             ring_creation_is_permissionless: self.ring_creation_is_permissionless as u8,
             spl_interface_creation_is_permissionless: self.spl_interface_creation_is_permissionless
                 as u8,
+            fee_authority: self.fee_authority,
         };
 
         Instruction {
@@ -101,6 +104,26 @@ impl PauseTree {
                     paused: self.paused as u8,
                 },
             ),
+        }
+    }
+}
+
+pub struct SetTreeFees {
+    pub authority: Pubkey,
+    pub tree: Pubkey,
+    pub fees: SetTreeFeesData,
+}
+
+impl SetTreeFees {
+    pub fn instruction(&self) -> Instruction {
+        Instruction {
+            program_id: PROGRAM_ID_PUBKEY,
+            accounts: vec![
+                AccountMeta::new_readonly(self.authority, true),
+                AccountMeta::new_readonly(pda::protocol_config(), false),
+                AccountMeta::new(self.tree, false),
+            ],
+            data: encode_instruction(tag::SET_TREE_FEES, &self.fees),
         }
     }
 }

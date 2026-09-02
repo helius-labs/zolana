@@ -1,5 +1,6 @@
 use solana_program_error::ProgramError;
 use thiserror::Error;
+#[cfg(feature = "tree")]
 use zolana_tree::TreeError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -139,6 +140,8 @@ pub enum ShieldedPoolError {
     NullifierPdaTreeMismatch = 7053,
     #[error("tree id space is exhausted")]
     TreeIdOverflow = 7054,
+    #[error("reimbursement recipient must not be a program-owned account")]
+    InvalidReimbursementRecipient = 7055,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -161,11 +164,13 @@ impl From<InterfaceError> for ShieldedPoolError {
     }
 }
 
+#[cfg(feature = "tree")]
 impl From<TreeError> for ShieldedPoolError {
     fn from(error: TreeError) -> Self {
         match error {
             TreeError::Paused => ShieldedPoolError::TreePaused,
             TreeError::TreeIsFull => ShieldedPoolError::StateAppendFailed,
+            TreeError::FeeOverflow => ShieldedPoolError::InvalidForesterFee,
             _ => ShieldedPoolError::InvalidTreeAccounts,
         }
     }
@@ -234,6 +239,7 @@ mod tests {
                 InvalidTreeId => 7052,
                 NullifierPdaTreeMismatch => 7053,
                 TreeIdOverflow => 7054,
+                InvalidReimbursementRecipient => 7055,
             }
         }
 
@@ -291,6 +297,7 @@ mod tests {
             InvalidTreeId,
             NullifierPdaTreeMismatch,
             TreeIdOverflow,
+            InvalidReimbursementRecipient,
         ];
         for variant in variants {
             assert_eq!(
@@ -299,7 +306,7 @@ mod tests {
                 "error code drifted: {variant:?}"
             );
         }
-        // The live wire surface is exactly 51 variants on this branch.
-        assert_eq!(variants.len(), 51, "variant count drifted");
+        // The live wire surface is exactly 52 variants on this branch.
+        assert_eq!(variants.len(), 52, "variant count drifted");
     }
 }

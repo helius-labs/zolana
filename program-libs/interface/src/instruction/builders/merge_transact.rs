@@ -9,9 +9,9 @@ use crate::{
 /// Builder for the `merge_transact` instruction. The account layout mirrors the
 /// program loader (`MergeTransactAccounts::validate_and_parse`):
 /// `input_tree` and `output_tree` (writable), `payer` (signer, writable),
-/// `user_record` (read-only), the System Program, one writable nullifier PDA
-/// per `nullifiers` entry, and the program account last for the `emit_event`
-/// self-CPI.
+/// `user_record` (read-only), the System Program, the program account for the
+/// `emit_event` self-CPI, then one writable nullifier PDA per `nullifiers`
+/// entry.
 pub struct MergeTransact {
     pub input_tree: Pubkey,
     pub output_tree: Pubkey,
@@ -36,12 +36,12 @@ impl MergeTransact {
             AccountMeta::new(self.payer, true),
             AccountMeta::new_readonly(self.user_record, false),
             AccountMeta::new_readonly(Pubkey::default(), false),
+            AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
         ];
         accounts.extend(nullifier_pda_accounts(
             &self.input_tree,
             self.data.nullifiers.iter(),
         ));
-        accounts.push(AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false));
 
         Instruction {
             program_id: PROGRAM_ID_PUBKEY,

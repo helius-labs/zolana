@@ -139,7 +139,7 @@ describe("nullifier PDA accounts", () => {
     ]);
   });
 
-  it("places the eight merge PDAs between the system program and the pool", async () => {
+  it("places the eight merge PDAs after the pool program", async () => {
     const nullifiers = Array.from({ length: 8 }, (_, index) => filled(80 + index, 32) as Bytes32);
     const data: MergeTransactInstructionData = {
       expiryUnixTs: 0xffff_ffff_ffff_ffffn,
@@ -172,8 +172,8 @@ describe("nullifier PDA accounts", () => {
       [PAYER, AccountRole.WRITABLE_SIGNER],
       [OWNER, AccountRole.READONLY],
       [SYSTEM, AccountRole.READONLY],
-      ...expectedNullifierPdas.map((pda) => [pda, AccountRole.WRITABLE]),
       [SHIELDED_POOL_PROGRAM_ID, AccountRole.READONLY],
+      ...expectedNullifierPdas.map((pda) => [pda, AccountRole.WRITABLE]),
     ]);
   });
 });

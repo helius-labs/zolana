@@ -11,6 +11,7 @@ mod create_release;
 mod find_smart_accounts;
 mod init_protocol;
 mod loadtest;
+mod set_tree_fees;
 mod update_protocol_config;
 
 fn main() {
@@ -83,6 +84,12 @@ fn main() {
                 update_protocol_config::run(update_protocol_config::Options::parse(args.collect()))
             {
                 eprintln!("update-protocol-config failed: {error:?}");
+                std::process::exit(1);
+            }
+        }
+        Some("set-tree-fees") => {
+            if let Err(error) = set_tree_fees::run(set_tree_fees::Options::parse(args.collect())) {
+                eprintln!("set-tree-fees failed: {error:?}");
                 std::process::exit(1);
             }
         }
@@ -373,6 +380,7 @@ fn print_help() {
         "  find-smart-accounts      Recover an existing deployment's authority smart accounts"
     );
     println!("  update-protocol-config   Update protocol config flags on a cluster (see --help)");
+    println!("  set-tree-fees            Set a pool tree's forester fee schedule (see --help)");
     println!(
         "  create-release           Build the localnet release artifacts + lockfile (see --help)"
     );

@@ -7,6 +7,7 @@ use zolana_interface::{
     instruction::{CreateTree, UpdateProtocolConfigData},
     pda,
     state::{
+        default_tree_fees,
         discriminator::{RING_CONFIG, TREE_ACCOUNT_DISCRIMINATOR},
         nullifier_tree_params, tree_creation_lamports, ProtocolConfig, RingConfig,
         TREE_ALLOCATION_STEP,
@@ -16,6 +17,7 @@ use zolana_interface::{
 use zolana_program_test::{ZolanaProgramTest, RING_TEST_PROGRAM_ID};
 use zolana_test_utils::litesvm_asserts::litesvm_assert_protocol_config;
 use zolana_test_utils::mollusk::snapshot_instruction_accounts;
+use zolana_test_utils::nullifier_pda::tree_fees;
 use zolana_tree::{INITIALIZED, PAUSED};
 
 use shielded_pool_tests::support::{
@@ -113,6 +115,7 @@ fn tree_creation_changes_only_the_tree_account() {
         authority: authority.pubkey(),
         tree_id: 0,
         nullifier_params: nullifier_tree_params(),
+        fees: default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size),
     };
     let ix = create.step();
     let (mollusk, program_id) = setup_mollusk();
@@ -187,6 +190,7 @@ fn tree_creation_completes_in_four_steps_and_advances_next_tree_id() {
         authority: pool.authority.pubkey(),
         tree_id: next_tree_id,
         nullifier_params: nullifier_tree_params(),
+        fees: default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size),
     };
     let steps = create.instructions();
     assert_eq!(steps.len(), 4);
@@ -211,6 +215,10 @@ fn tree_creation_completes_in_four_steps_and_advances_next_tree_id() {
     assert_eq!(tree.first(), Some(&TREE_ACCOUNT_DISCRIMINATOR));
     assert_eq!(tree.get(1), Some(&INITIALIZED));
     assert_eq!(tree.get(2..4), Some(&next_tree_id.to_le_bytes()[..]));
+    assert_eq!(
+        tree_fees(&pool.rpc, &create.tree()).expect("tree fees"),
+        (create.fees, 0)
+    );
     assert_eq!(
         zolana_program_test::next_tree_id(&pool.rpc).expect("next tree id"),
         2

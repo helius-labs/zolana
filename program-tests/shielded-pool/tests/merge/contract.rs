@@ -653,4 +653,25 @@ mod program_unit {
             ProgramError::Custom(ShieldedPoolError::InvalidSystemProgram as u32)
         );
     }
+
+    /// The program account sits after the System Program and before the
+    /// nullifier PDAs; any address other than SPP is rejected before the PDAs
+    /// are read.
+    #[test]
+    fn rejects_wrong_program_account_with_incorrect_program_id() {
+        let mut accounts = [
+            get_account_view([1; 32], ID.to_bytes(), false, true, false, vec![]),
+            get_account_view([2; 32], ID.to_bytes(), false, true, false, vec![]),
+            get_account_view([3; 32], [0; 32], true, true, false, vec![]),
+            get_account_view([4; 32], [0; 32], false, false, false, vec![]),
+            get_account_view([0; 32], [0; 32], false, false, true, vec![]),
+            get_account_view([6; 32], [0; 32], false, false, true, vec![]),
+        ];
+
+        let error = match MergeTransactAccounts::validate_and_parse(&mut accounts) {
+            Ok(_) => panic!("a non-SPP program account must fail"),
+            Err(error) => error,
+        };
+        assert_eq!(error, ProgramError::IncorrectProgramId);
+    }
 }

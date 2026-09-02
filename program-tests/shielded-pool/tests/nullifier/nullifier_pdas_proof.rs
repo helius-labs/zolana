@@ -17,7 +17,8 @@ use zolana_program_test::{test_blinding, Rejection, Rpc, TransactionTrace};
 use zolana_test_utils::{
     nullifier_pda::{
         assert_nullifier_pda, assert_tree_lamports_after_spend, forester_fee_for_inputs,
-        nullifier_pda_addresses, nullifier_pda_rent, nullifier_queue_next_index,
+        nullifier_pda_addresses, nullifier_pda_rent, nullifier_queue_next_index, tree_fees,
+        tree_fees_from, tree_id,
     },
     transact::{
         build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
@@ -227,6 +228,13 @@ fn transact_creates_one_nullifier_pda_per_input() {
         payer_lamports(&env) + LAMPORTS_PER_SIGNATURE + forester_fee,
         "payer pays the transaction fee and the forester fee; nullifier PDA rent comes from the tree"
     );
+    let (fees_before, fee_balance_before) =
+        tree_fees_from(&tree_before, &tree).expect("tree fees before");
+    assert_eq!(
+        tree_fees(&env.rpc, &tree).expect("tree fees after"),
+        (fees_before, fee_balance_before + forester_fee),
+        "transact credits exactly the collected fee to the fee balance"
+    );
     let trace = env
         .rpc
         .last_transaction_trace()
@@ -313,7 +321,7 @@ fn transact_tops_up_prefunded_nullifier_pdas() {
     };
     assert_nullifier_pda(&env.rpc, &tree, first_nullifier, queue_next_before)
         .expect("underfunded nullifier PDA topped up to exactly its rent");
-    let (overfunded_nullifier_pda, overfunded_bump) = pda::nullifier_pda(&tree, second_nullifier);
+    let (overfunded_nullifier_pda, _) = pda::nullifier_pda(&tree, second_nullifier);
     let overfunded_account = env
         .rpc
         .svm
@@ -323,7 +331,7 @@ fn transact_tops_up_prefunded_nullifier_pdas() {
         lamports: overfunded,
         data: borsh::to_vec(&NullifierPda {
             queue_index: queue_next_before + 1,
-            bump: overfunded_bump,
+            tree_id: tree_id(&env.rpc, &tree).expect("tree id"),
         })
         .expect("serialize expected nullifier PDA"),
         owner: pda::shielded_pool_program_id(),

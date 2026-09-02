@@ -12,8 +12,8 @@ use crate::{
 /// [`super::merge_transact::MergeTransact`]. The account layout mirrors the
 /// program loader (`MergeRingAccounts::validate_and_parse`): `input_tree` and
 /// `output_tree` (writable), `ring_config` (the ring's `ring_auth` PDA), `payer`
-/// (signer), the System Program, one writable nullifier PDA per `nullifiers`
-/// entry, and the program account last for the `emit_event` self-CPI.
+/// (signer), the System Program, the program account for the `emit_event`
+/// self-CPI, then one writable nullifier PDA per `nullifiers` entry.
 /// Instruction data is the output `ring_data_hash` followed by the
 /// `MergeTransactIxData` body.
 pub struct MergeRing {
@@ -61,12 +61,12 @@ impl MergeRing {
             AccountMeta::new_readonly(ring_config, auth_signer),
             AccountMeta::new(self.payer, true),
             AccountMeta::new_readonly(Pubkey::default(), false),
+            AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
         ];
         accounts.extend(nullifier_pda_accounts(
             &self.input_tree,
             self.data.nullifiers.iter(),
         ));
-        accounts.push(AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false));
 
         Instruction {
             program_id,
@@ -105,17 +105,17 @@ mod tests {
             AccountMeta::new_readonly(pda::ring_auth(&builder.ring_program_id).0, auth_signer),
             AccountMeta::new(builder.payer, true),
             AccountMeta::new_readonly(Pubkey::default(), false),
+            AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
         ];
         expected.extend(builder.data.nullifiers.iter().map(|nullifier| {
             AccountMeta::new(pda::nullifier_pda(&builder.input_tree, nullifier).0, false)
         }));
-        expected.push(AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false));
         expected
     }
 
     /// The instruction targets the ring program, lays out `input_tree`,
-    /// `output_tree`, `ring_config`, `payer`, System Program, eight nullifier
-    /// nullifier PDAs, program account, and tags the data with `RING_MERGE_TRANSACT`
+    /// `output_tree`, `ring_config`, `payer`, System Program, program account,
+    /// eight nullifier PDAs, and tags the data with `RING_MERGE_TRANSACT`
     /// followed by the 32-byte output `ring_data_hash`.
     #[test]
     fn instruction_account_order_and_ring_config() {

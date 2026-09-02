@@ -7,7 +7,7 @@ use zolana_interface::{
     pda,
     state::{state_root_offset, ProtocolConfig},
 };
-use zolana_tree::NullifierTreeInitParams;
+use zolana_tree::{NullifierTreeInitParams, TreeFeeSchedule};
 
 use crate::ProgramTestError;
 
@@ -56,12 +56,14 @@ pub fn create_tree_instructions<R: Rpc>(
     payer: &Pubkey,
     authority: &Pubkey,
     nullifier_params: NullifierTreeInitParams,
+    fees: TreeFeeSchedule,
 ) -> Result<TreeCreation, ProgramTestError> {
     let create = CreateTree {
         payer: *payer,
         authority: *authority,
         tree_id: next_tree_id(rpc)?,
         nullifier_params,
+        fees,
     };
     Ok(TreeCreation {
         tree: create.tree(),
