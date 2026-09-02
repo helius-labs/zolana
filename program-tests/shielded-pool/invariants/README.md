@@ -133,16 +133,17 @@ Tree fee-schedule sync (2026-09-02): the tree header gained a runtime
 `TreeFeeSchedule` and `fee_balance`, `set_tree_fees` (tag 19) and
 `protocol_config.fee_authority` were added, `batch_update_nullifier_tree` and
 `close_nullifier_pdas` pay `min(owed, fee_balance)` to a non-program
-`reimbursement_recipient` (7055), and the constant 20-lamport insertion fee is
-gone. New entries: INV-SET-FEES-01..09, INV-CLOSE-PDA-09/-10,
-INV-CREATE-TREE-10, INV-UPDATE-PC-08 (13, all covered); INV-BATCH-NULL-08,
+`reimbursement_recipient` (7055), `claim_tree_lamports` (tag 20) lets the fee
+authority sweep surplus lamports, and the constant 20-lamport insertion fee is
+gone. New entries: INV-SET-FEES-01..09, INV-CLAIM-01..07, INV-CLOSE-PDA-09/-10,
+INV-CREATE-TREE-10, INV-UPDATE-PC-08 (20, all covered); INV-BATCH-NULL-08,
 INV-CLOSE-PDA-02/-05/-08, INV-TRANSACT-29/-30/-42/-49, INV-MERGE-15/-19,
 INV-CREATE-PC-05..07, INV-UPDATE-PC-03/-05, INV-XC-03/-28/-29/-31 restated.
-The counts below are updated for the 13 additions.
+The counts below are updated for the 20 additions.
 
 Post-PR172 sync (2026-07-31):
 
-- Covered: 245 / 273
+- Covered: 252 / 280
 - Covered on companion security branches (#175, #176): 3 (the `- [~]` entries:
   INV-CREATE-PC-10, INV-CREATE-AC-07, INV-BATCH-NULL-07 — behavior and tests
   land with those branches)
@@ -150,11 +151,11 @@ Post-PR172 sync (2026-07-31):
 - Pointer: 1 (INV-XC-30, by design: it documents reachability and defers to INV-XC-31 / INV-TRANSACT-44 for coverage; it is counted in cross-cutting's 6 partial+untested below)
 - Not covered: 0
 
-(245 + 3 + 19 + 1 + 5 = 273. The per-file partial+untested column sums to 21
+(252 + 3 + 19 + 1 + 5 = 280. The per-file partial+untested column sums to 21
 because it includes the pointer.)
 
 Per file (covered / partial+untested / companion / not-applicable):
-transact 57/2/0/1, deposit 35/0/0/0, merge 23/6/0/4, tree 43/4/1/0,
+transact 57/2/0/1, deposit 35/0/0/0, merge 23/6/0/4, tree 50/4/1/0,
 protocol-config 17/0/1/0, ring-config 18/2/0/0, spl 21/0/1/0, event 4/0/0/0,
 cross-cutting 27/6/0/0.
 
