@@ -115,7 +115,7 @@ const SLOT_POLL: Duration = Duration::from_millis(400);
 pub fn run(ctx: &mut Context, args: DeployArgs) -> Result<(), DeployError> {
     let program_so = match args.program_so {
         Some(path) => ctx.project_path(&path),
-        None => released_program_so()?,
+        None => released_program_so(ctx.config.policy.is_some())?,
     };
     line("binary", program_so.display());
     let program_keypair = ctx.project_path(&args.program_keypair);
@@ -385,8 +385,8 @@ fn deployed_bytes(program_data: &[u8], so_len: usize) -> Option<&[u8]> {
     program_data.get(start..start.checked_add(so_len)?)
 }
 
-fn released_program_so() -> Result<PathBuf, ReleaseError> {
-    let program = RingProgram::from_lock()?;
+fn released_program_so(has_policy: bool) -> Result<PathBuf, ReleaseError> {
+    let program = RingProgram::from_lock_tier(has_policy)?;
     line(
         "release",
         format_args!("{} {}", program.tag, program.asset.name),

@@ -32,6 +32,8 @@ pub struct RingConfig {
     pub upgrade_authority_keypair: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub config_authority_keypair: Option<PathBuf>,
+    /// Presence selects the policy tier, `deploy` picks the rules-configured
+    /// binary and `init` pins its table.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy: Option<PolicyTable>,
     pub localnet: Urls,
@@ -39,7 +41,8 @@ pub struct RingConfig {
 }
 
 /// Curator sources by lowercase list name, absent lists use the ring's own
-/// entries.
+/// entries. The rule set is compiled into the deployed binary, the cli must be
+/// built with the same rule features.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PolicyTable {

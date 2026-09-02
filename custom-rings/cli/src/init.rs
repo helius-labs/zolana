@@ -110,6 +110,8 @@ pub enum InitError {
     #[error(transparent)]
     AccountRead(#[from] AccountReadError),
     #[error(transparent)]
+    PolicyMismatch(Box<custom_ring_sdk::PolicyMatchError>),
+    #[error(transparent)]
     Program(Box<DeployError>),
     #[error(transparent)]
     Build(#[from] CreateConfigError),
@@ -433,6 +435,13 @@ impl Init<'_> {
                 }
             }
         };
+        // The deployed rules must reproduce the client's, else every policy
+        // transfer would build its witness from the wrong table.
+        if self.has_policy {
+            self.ring
+                .verify_client_rules(rpc)
+                .map_err(|error| InitError::PolicyMismatch(Box::new(error)))?;
+        }
         Ok(InitOutcome {
             config,
             authority,

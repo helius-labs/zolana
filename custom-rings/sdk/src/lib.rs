@@ -40,7 +40,9 @@ pub use crate::{
             CustomRingTransact, EncryptedAudit, PendingCustomRingProof,
         },
     },
-    shared::{AccountReadError, CustomRing, CustomRingConfig, ReaderKey, ReaderKeyError},
+    shared::{
+        AccountReadError, CustomRing, CustomRingConfig, PolicyMatchError, ReaderKey, ReaderKeyError,
+    },
     transfer::{
         CustomRingTransfer, CustomRingTransferInput, DepositError, ProvenTransfer, RingDeposit,
         RingDepositReceipt, TransferError, TransferProofEnvironment,

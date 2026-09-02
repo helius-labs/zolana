@@ -37,6 +37,19 @@ pub enum AccountReadError {
     InvalidAccount { address: Address },
 }
 
+/// The client's compiled rules disagree with the deployed ring.
+#[derive(Debug, Error)]
+pub enum PolicyMatchError {
+    #[error(transparent)]
+    AccountRead(#[from] AccountReadError),
+    #[error("the ring has no policy config")]
+    NoPolicy,
+    #[error("the cli was built for a different policy than the deployed program, rebuild it with the same rule features")]
+    HashMismatch,
+    #[error("policy hashing failed")]
+    Hashing,
+}
+
 impl CustomRing {
     pub const fn new(program_id: Address) -> Self {
         Self { program_id }
@@ -126,6 +139,29 @@ impl CustomRing {
             return Err(AccountReadError::InvalidAccount { address });
         }
         Ok(Some(config))
+    }
+
+    /// The client's compiled `RULES` must reproduce the pinned `policy_hash`, else
+    /// the cli was built without the deployed program's rule features and every
+    /// policy transfer would build the wrong witness.
+    pub fn verify_client_rules<R: Rpc>(self, rpc: &R) -> Result<(), PolicyMatchError> {
+        let config = self
+            .read_policy_config(rpc)?
+            .ok_or(PolicyMatchError::NoPolicy)?;
+        let slots = core::array::from_fn(|i| {
+            (config.sources[i].list_id, *config.sources[i].namespace.as_array())
+        });
+        let sources = zolana_ring_policy::SourceMap::from_namespaces(&slots, |namespace| {
+            zolana_ring_policy::ListNamespace::new(namespace).map(|owner| owner.owner_hash)
+        })
+        .map_err(|_| PolicyMatchError::Hashing)?;
+        let hash = custom_ring_interface::RULES
+            .hash(&sources)
+            .map_err(|_| PolicyMatchError::Hashing)?;
+        if hash != config.policy_hash {
+            return Err(PolicyMatchError::HashMismatch);
+        }
+        Ok(())
     }
 
     pub fn read_access_record<R: Rpc>(

@@ -26,6 +26,8 @@ pub struct RingProgram {
 pub struct RingRelease {
     pub tag: String,
     pub program: Asset,
+    /// The rules-configured binary a policy ring deploys.
+    pub program_policy: Option<Asset>,
     /// Absent from a lock older than the key.
     pub proving_key: Option<Asset>,
     pub binaries: Vec<Binary>,
@@ -54,6 +56,8 @@ pub enum ReleaseError {
     Lock(#[from] serde_json::Error),
     #[error("release {tag} ships no ring program, pass --program-so")]
     NoRingProgram { tag: String },
+    #[error("release {tag} ships no policy ring program, a ring with a [policy] needs a rules-configured build, pass --program-so")]
+    NoPolicyRingProgram { tag: String },
     #[error("release {tag} ships no proving key for the prover")]
     NoProvingKey { tag: String },
     #[error("release {tag} ships no {role} for {os}-{arch}")]
@@ -98,6 +102,9 @@ struct ReleaseLock {
     release_tag: String,
     #[serde(default)]
     ring_program: Option<Asset>,
+    /// The rules-configured binary, absent until a release publishes it.
+    #[serde(default)]
+    ring_program_policy: Option<Asset>,
     #[serde(default)]
     proving_key: Option<Asset>,
     #[serde(default)]
@@ -115,9 +122,25 @@ impl RingRelease {
         Ok(Self {
             tag: lock.release_tag,
             program,
+            program_policy: lock.ring_program_policy,
             proving_key: lock.proving_key,
             binaries: lock.binaries,
         })
+    }
+
+    /// The binary a ring of the given tier deploys, a policy ring needs the
+    /// rules-configured build.
+    fn program_for(self, has_policy: bool) -> Result<(String, Asset), ReleaseError> {
+        if has_policy {
+            let asset = self
+                .program_policy
+                .ok_or(ReleaseError::NoPolicyRingProgram {
+                    tag: self.tag.clone(),
+                })?;
+            Ok((self.tag, asset))
+        } else {
+            Ok((self.tag, self.program))
+        }
     }
 
     pub fn proving_key(&self) -> Result<&Asset, ReleaseError> {
@@ -157,11 +180,14 @@ impl RingRelease {
 
 impl RingProgram {
     pub fn from_lock() -> Result<Self, ReleaseError> {
-        let release = RingRelease::from_lock()?;
-        Ok(Self {
-            tag: release.tag,
-            asset: release.program,
-        })
+        Self::from_lock_tier(false)
+    }
+
+    /// A policy ring deploys the rules-configured binary, an audit-only ring the
+    /// plain one.
+    pub fn from_lock_tier(has_policy: bool) -> Result<Self, ReleaseError> {
+        let (tag, asset) = RingRelease::from_lock()?.program_for(has_policy)?;
+        Ok(Self { tag, asset })
     }
 
     pub fn ensure(&self) -> Result<PathBuf, ReleaseError> {
