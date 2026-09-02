@@ -395,7 +395,7 @@ describe("manifest-verified wallet behavior", () => {
         keys: other.keys,
         transactions,
       }),
-    ).rejects.toMatchObject({ code: "TRANSACTION_WALLET_AUTHORITY_MISMATCH" });
+    ).rejects.toMatchObject({ code: "TRANSACTION_KEYS_IDENTITY_MISMATCH" });
 
     // A key holder that claims this identity but does not lead with its
     // viewing key would open nothing addressed to the wallet.
@@ -423,7 +423,7 @@ describe("manifest-verified wallet behavior", () => {
         viewingKeys: [stranger],
         nullifierKey: other.nullifier,
       }),
-    ).toThrow(expect.objectContaining({ code: "TRANSACTION_WALLET_AUTHORITY_MISMATCH" }));
+    ).toThrow(expect.objectContaining({ code: "TRANSACTION_KEYS_IDENTITY_MISMATCH" }));
   });
 
   // `decrypt_transactions` keeps no wallet: it builds one, scans, reports the

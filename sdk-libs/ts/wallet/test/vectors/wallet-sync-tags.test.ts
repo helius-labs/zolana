@@ -185,7 +185,7 @@ describe("wallet sync stable-tag vectors", () => {
     const rotatedOnly: readonly P256PublicKey[] = [viewingKey("rotated").publicKey()];
     for (const [keys, causeCode] of [
       // Another wallet's keys.
-      [keysFor(other, [other.viewingKey()]), "TRANSACTION_WALLET_AUTHORITY_MISMATCH"],
+      [keysFor(other, [other.viewingKey()]), "TRANSACTION_KEYS_IDENTITY_MISMATCH"],
       // The right address, but the identity's viewing key is not among those held.
       [
         misreporting(ownerKeys, { viewingPublicKeys: () => rotatedOnly }),

@@ -60,7 +60,10 @@ export type DeriveRequest =
  * `decrypt` returns the transfer cipher's output, not the ECDH shared point:
  * the view root is itself an ECDH with a fixed point, and ECDH is linear, so a
  * chosen-point oracle over the viewing key would leak every per-transaction
- * key this wallet ever used. Keystream results do not compose that way.
+ * key this wallet ever used. Keystream results do not compose that way. The
+ * cipher is unauthenticated, so a ciphertext not addressed to this wallet
+ * decrypts to noise rather than failing, and the caller detects it by the
+ * commitment; a batch is rejected as a whole only for a malformed request.
  *
  * Proving is the one place the nullifier secret is consumed rather than
  * derived from; it lives on the client-layer `ProofAuthority`, next to the
@@ -133,8 +136,8 @@ export class LocalShieldedKeys implements ShieldedKeys {
     const viewing: ViewingKey[] = [];
     let nullifier: NullifierKey | undefined;
     try {
-      for (const key of input.viewingKeys) viewing.push(copyViewingKey(key));
-      nullifier = copyNullifierKey(input.nullifierKey);
+      for (const key of input.viewingKeys) viewing.push(key.clone());
+      nullifier = input.nullifierKey.clone();
     } catch (cause) {
       for (const key of viewing) key.destroy();
       throw cause;
@@ -252,7 +255,7 @@ export class LocalShieldedKeys implements ShieldedKeys {
    * The copy is destroyed when `use` settles, so it must not be retained.
    */
   withNullifierKey<T>(use: (key: NullifierKey) => T): T {
-    const key = copyNullifierKey(this.#nullifier);
+    const key = this.#nullifier.clone();
     try {
       return use(key);
     } finally {
@@ -283,7 +286,7 @@ export class LocalShieldedKeys implements ShieldedKeys {
       !equal(this.#nullifier.publicKey(), this.#address.nullifierPublicKey)
     ) {
       this.destroy();
-      throw new TransactionError("TRANSACTION_WALLET_AUTHORITY_MISMATCH");
+      throw new TransactionError("TRANSACTION_KEYS_IDENTITY_MISMATCH");
     }
   }
 }
@@ -300,7 +303,7 @@ export function checkKeysIdentity(keys: ShieldedKeys, identity: ShieldedAddress)
     !equal(address.nullifierPublicKey, identity.nullifierPublicKey) ||
     !equal(address.viewingPublicKey.toBytes(), identity.viewingPublicKey.toBytes())
   ) {
-    throw new TransactionError("TRANSACTION_WALLET_AUTHORITY_MISMATCH");
+    throw new TransactionError("TRANSACTION_KEYS_IDENTITY_MISMATCH");
   }
 }
 
@@ -335,23 +338,5 @@ function checkDecryptRequest(request: DecryptRequest): void {
 function checkSlotIndex(slotIndex: number, max: number): void {
   if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex > max) {
     throw new TransactionError("TRANSACTION_INVALID_POSITION", { position: slotIndex });
-  }
-}
-
-function copyViewingKey(key: ViewingKey): ViewingKey {
-  const secret = key.secretBytes();
-  try {
-    return ViewingKey.fromBytes(secret);
-  } finally {
-    secret.fill(0);
-  }
-}
-
-function copyNullifierKey(key: NullifierKey): NullifierKey {
-  const secret = key.secretBytes();
-  try {
-    return NullifierKey.fromSecret(secret);
-  } finally {
-    secret.fill(0);
   }
 }

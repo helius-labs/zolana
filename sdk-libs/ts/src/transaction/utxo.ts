@@ -3,7 +3,7 @@ import { address } from "@solana/kit";
 import type { Address, Bytes32 } from "../interface/types.js";
 import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../interface/program.js";
 import { randomBlinding } from "../keypair/bytes.js";
-import type { NullifierKey } from "../keypair/nullifier-key.js";
+import { zeroKeyNullifier, type NullifierKey } from "../keypair/nullifier-key.js";
 import { ShieldedPublicKey } from "../keypair/public-key.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../keypair/shielded.js";
 
@@ -343,6 +343,11 @@ export class ProofInputUtxo {
    * `ringProgramId` is checked for presence rather than for a zero value,
    * unlike the two hashes: the zero address commits to `pk_field(0)`, a
    * non-zero field, so it is carried rather than absent.
+   *
+   * The input carries no key, so the key-side check is on what it does carry:
+   * the nullifier public key must be zero (the value the circuit reads for a
+   * dummy, not the public key of a zero secret) and the nullifier must be the
+   * zero-key derivation. Together they pin the same slot the zero secret did.
    */
   checkCanonicalDummy(): void {
     if (!this.isDummy()) return;
@@ -378,13 +383,13 @@ export class ProofInputUtxo {
   }
 }
 
-/** The zero-key nullifier of a dummy slot: Poseidon over its commitment, blinding, and a zero secret. */
+/** A dummy slot's nullifier: the zero-key derivation over its own dummy-domain commitment. */
 function dummyNullifier(utxo: Utxo): Bytes32 {
   const hash = fullOwnerUtxoHash(
     { owner: ZERO_32, asset: utxo.asset, amount: utxo.amount, blinding: utxo.blinding },
     true,
   );
-  return poseidon([hash, utxo.blinding, ZERO_32]);
+  return zeroKeyNullifier(hash, utxo.blinding);
 }
 
 const DUMMY_ASSET = address("11111111111111111111111111111111");

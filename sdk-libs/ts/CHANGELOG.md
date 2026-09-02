@@ -30,7 +30,7 @@ Breaking
 - `syncWallet`, `syncPersistedWallet`, and `decryptTransactions` take
   `keys: ShieldedKeys` instead of `authority` → pass `LocalKeys` or
   `LocalShieldedKeys.fromKeypair(keypair)`; keys for another wallet fail with
-  `TRANSACTION_WALLET_AUTHORITY_MISMATCH` before any indexer query.
+  `TRANSACTION_KEYS_IDENTITY_MISMATCH` before any indexer query.
 - `ProofInputUtxo` carries `nullifierPublicKey` and the derived nullifier
   instead of a `NullifierKey`, its constructor takes
   `{ utxo, nullifierPublicKey, nullifier, dataHash?, ringDataHash? }`, and
@@ -50,6 +50,9 @@ Breaking
 - `ProverInputs` input slots and `MergeInputs` carry the nullifier secret only
   once a `ProofAuthority` fills it in → a prover call whose own real input still
   lacks it fails with `CLIENT_MISSING_NULLIFIER_SECRET`.
+- `TRANSACTION_WALLET_AUTHORITY_MISMATCH` is renamed
+  `TRANSACTION_KEYS_IDENTITY_MISMATCH`, what the check compares → match the new
+  code.
 
 Added
 
@@ -79,6 +82,8 @@ Added
   `ProofService`, `ProverInputs`, `MergeInputs`, `TransferInputs`,
   `TransferInput`, `TransferOutput`, `CircuitUtxo`, `Field`, and
   `ProverRequestBody` are exported for key holder implementations.
+- `ViewingKey.clone()` and `NullifierKey.clone()` return an independent copy of
+  a key, so a holder can lend one without exposing the secret bytes.
 - `keyedWalletSnapshotCipher(identity, key)` seals wallet snapshots in the
   `walletSnapshotCipher` envelope under an AES-GCM key the caller supplies,
   and `walletSnapshotKey(secret)` derives that key from 32 bytes a key holder

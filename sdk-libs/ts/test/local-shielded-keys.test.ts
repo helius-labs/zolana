@@ -125,14 +125,14 @@ describe("LocalShieldedKeys", () => {
         viewingKeys: [other.viewingKey()],
         nullifierKey: keypair.nullifierKey(),
       }),
-    ).toThrowError(expect.objectContaining({ code: "TRANSACTION_WALLET_AUTHORITY_MISMATCH" }));
+    ).toThrowError(expect.objectContaining({ code: "TRANSACTION_KEYS_IDENTITY_MISMATCH" }));
     expect(() =>
       LocalShieldedKeys.fromKeys({
         address: keypair.shieldedAddress(),
         viewingKeys: [keypair.viewingKey()],
         nullifierKey: other.nullifierKey(),
       }),
-    ).toThrowError(expect.objectContaining({ code: "TRANSACTION_WALLET_AUTHORITY_MISMATCH" }));
+    ).toThrowError(expect.objectContaining({ code: "TRANSACTION_KEYS_IDENTITY_MISMATCH" }));
   });
 
   it("opens under a retired viewing key and refuses one it does not hold", async () => {

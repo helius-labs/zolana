@@ -75,6 +75,12 @@ export class ViewingKey implements ViewingKeyLike {
     return P256PublicKey.fromSecret(this.#secret);
   }
 
+  /** An independent copy of the key; destroying either leaves the other usable. */
+  clone(): ViewingKey {
+    this.#assertUsable();
+    return new ViewingKey(copyBytes(this.#secret));
+  }
+
   secretBytes(): Bytes32 {
     this.#assertUsable();
     return copyBytes(this.#secret) as Bytes32;
