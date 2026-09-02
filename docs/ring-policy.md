@@ -42,7 +42,12 @@ to her proves absence through the cleared entry.
 `Rule { subject, mode, source, guard }` lives in
 `program-libs/ring-policy/src/rule_table.rs`. A rule checks `OutputOwner`,
 `Sender`, or `Asset` for `Present` or `Absent` in one list. The source is a
-list or an inline asset set. An `AboveAmount` guard exempts a subject from the
+list, a group of lists, or an inline asset set. A group is a disjunction over
+its lists, `require_any` passes a subject present in at least one list (a union
+allowlist) and `forbid_all` refuses a subject only when present in every list
+(an intersection blocklist). Several separate rules stay a conjunction, absence
+from every listed block list or presence in every listed allow list. An
+`AboveAmount` guard exempts a subject from the
 membership check when the total that subject receives in the transaction stays
 at or below the threshold. The exemption aggregates every output to the same
 recipient, so splitting a payment across slots does not escape it. It is
