@@ -117,6 +117,17 @@ func TestCircuitSolvesValidWitness(t *testing.T) {
 	solve(t, cs, validAssignment(t))
 }
 
+// Two outputs to one recipient whose total stays at or below the threshold are
+// exempt together, aggregation does not over-reject a legitimate split.
+func TestCircuitSolvesAggregatedGuard(t *testing.T) {
+	cs := testConstraintSystem(t)
+
+	f := defaultFixture()
+	f.amount = guardThreshold / 2
+	f.secondAmount = guardThreshold / 2
+	solve(t, cs, buildAssignment(t, f))
+}
+
 func TestCircuitSolvesRulesFreeWitness(t *testing.T) {
 	cs := testConstraintSystem(t)
 
@@ -256,6 +267,15 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
+			name: "guard bypassed by structuring below the threshold",
+			build: func(t *testing.T) *Circuit {
+				f := defaultFixture()
+				f.amount = guardThreshold - 500
+				f.secondAmount = guardThreshold - 500
+				return buildAssignment(t, f)
+			},
+		},
+		{
 			name: "asset outside the inline allowlist",
 			build: func(t *testing.T) *Circuit {
 				f := defaultFixture()
@@ -358,6 +378,7 @@ func validAssignment(t *testing.T) *Circuit {
 // self-consistent witness rebuilds with one knob changed.
 type fixture struct {
 	amount          uint64
+	secondAmount    uint64 // 0 keeps one real output, else a second to the same recipient
 	transferred     [32]byte
 	inlineAsset     [32]byte
 	rulesFree       bool
@@ -517,7 +538,7 @@ func newStatement(t *testing.T, f fixture) *statement {
 	s.policyHash = hostPolicyHash(t, s.rules, s.inlineAssets, s.sources)
 
 	s.buildTrees(t)
-	s.buildTransaction(t, recipient, sender, asset, f.amount)
+	s.buildTransaction(t, recipient, sender, asset, f.amount, f.secondAmount)
 	return s
 }
 
@@ -549,7 +570,7 @@ func (s *statement) buildTrees(t *testing.T) {
 	}
 }
 
-func (s *statement) buildTransaction(t *testing.T, recipient, sender, asset *big.Int, amount uint64) {
+func (s *statement) buildTransaction(t *testing.T, recipient, sender, asset *big.Int, amount, secondAmount uint64) {
 	t.Helper()
 	spent := OpeningWires{
 		Domain:        big.NewInt(protocol.UtxoDomain),
@@ -574,13 +595,34 @@ func (s *statement) buildTransaction(t *testing.T, recipient, sender, asset *big
 		RingProgramID: big.NewInt(0),
 	}
 	s.inputs = []OpeningWires{spent, dummyOpening(t, 0x53)}
-	s.outputs = []OpeningWires{created, dummyOpening(t, 0x54)}
+	// A second real output to the same recipient exercises the per-recipient
+	// amount aggregation, else a dummy fills the slot.
+	second := dummyOpening(t, 0x54)
+	if secondAmount > 0 {
+		second = OpeningWires{
+			Domain:        big.NewInt(protocol.UtxoDomain),
+			OwnerPkHash:   recipient,
+			NullifierPk:   spptest.MustNullifierPk(t, big.NewInt(11)),
+			Asset:         asset,
+			Amount:        new(big.Int).SetUint64(secondAmount),
+			Blinding:      big.NewInt(0x55),
+			DataHash:      big.NewInt(0),
+			RingDataHash:  big.NewInt(0),
+			RingProgramID: big.NewInt(0),
+		}
+	}
+	s.outputs = []OpeningWires{created, second}
 
+	// A dummy slot contributes 0 to the chain, mirroring the circuit's isUtxo mux.
+	secondContribution := big.NewInt(0)
+	if secondAmount > 0 {
+		secondContribution = hostUtxoHash(t, s.outputs[1])
+	}
 	s.addressChain = spptest.MustHashChain(t, []*big.Int{big.NewInt(0), big.NewInt(0)})
 	s.externalDataHash = big.NewInt(0x5eed)
 	s.privateTxHash = spptest.MustPrivateTxHash(t,
 		[]*big.Int{hostUtxoHash(t, s.inputs[0]), big.NewInt(0)},
-		[]*big.Int{hostUtxoHash(t, s.outputs[0]), big.NewInt(0)},
+		[]*big.Int{hostUtxoHash(t, s.outputs[0]), secondContribution},
 		[]*big.Int{big.NewInt(0), big.NewInt(0)},
 		s.externalDataHash,
 	)

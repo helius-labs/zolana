@@ -263,7 +263,9 @@ Coverage closes the plane (`eval.go`). Every live slot instance of every
 enabled entry-sourced rule demands an enabled answer with the same list
 and mode carrying that member. Coverage answers an inline rule against
 the inline member table instead. A rule
-guarded above a threshold exempts instances at or below it. The quantifier
+guarded above a threshold exempts a subject when the total it receives in the
+transaction stays at or below the threshold, a payment split across slots does
+not escape it. The quantifier
 direction carries the soundness. A wallet paying a blocked member cannot
 omit the convicting entry. Omission leaves the instance uncovered, and
 once the bound nullifier root absorbs the ban, neither absence branch is
