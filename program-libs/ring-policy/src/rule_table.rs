@@ -45,6 +45,15 @@ pub enum PolicyHashError {
     MissingSource(ListId),
 }
 
+/// The slots break the positional layout, or an owner hash could not be derived.
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+pub enum SourceMapOwnerError<E> {
+    #[error(transparent)]
+    Map(SourceMapError),
+    #[error("owner hash derivation failed")]
+    Owner(E),
+}
+
 impl SourceMap {
     pub const fn empty() -> Self {
         Self {
@@ -83,6 +92,25 @@ impl SourceMap {
             }
         }
         Ok(Self { slots })
+    }
+
+    /// The map a `PolicyConfig`'s stored `(list_id, namespace)` slots resolve to,
+    /// each namespace address hashed to its owner. An empty slot is `list_id` 0.
+    pub fn from_namespaces<E>(
+        slots: &[(u8, [u8; 32]); MAX_SOURCES],
+        owner_hash: impl Fn(&[u8; 32]) -> Result<[u8; 32], E>,
+    ) -> Result<Self, SourceMapOwnerError<E>> {
+        let mut out = [SourceOwner::default(); MAX_SOURCES];
+        for (dst, (list_id, namespace)) in out.iter_mut().zip(slots) {
+            if *list_id == 0 {
+                continue;
+            }
+            *dst = SourceOwner {
+                list_id: *list_id,
+                owner_hash: owner_hash(namespace).map_err(SourceMapOwnerError::Owner)?,
+            };
+        }
+        Self::from_slots(out).map_err(SourceMapOwnerError::Map)
     }
 
     /// The owner serving a list, `None` when unmapped.
@@ -429,6 +457,21 @@ mod tests {
         assert_eq!(rules[0].subject, Subject::OutputOwner);
         assert_eq!(rules[1].mode, Mode::Absent);
         assert!(matches!(rules[2].source, RuleSource::InlineAssets(_)));
+    }
+
+    #[test]
+    fn from_namespaces_resolves_and_validates_positionally() {
+        let mut slots = [(0u8, [0u8; 32]); MAX_SOURCES];
+        slots[0] = (1, [9u8; 32]);
+        let map = SourceMap::from_namespaces(&slots, |ns| Ok::<_, ()>(*ns))
+            .expect("positional owners");
+        assert_eq!(map.owner_hash(ListId::Allow), Some(&[9u8; 32]));
+        let mut misplaced = [(0u8, [0u8; 32]); MAX_SOURCES];
+        misplaced[1] = (1, [9u8; 32]);
+        assert!(matches!(
+            SourceMap::from_namespaces(&misplaced, |ns| Ok::<_, ()>(*ns)),
+            Err(SourceMapOwnerError::Map(SourceMapError::NotPositional))
+        ));
     }
 
     #[test]

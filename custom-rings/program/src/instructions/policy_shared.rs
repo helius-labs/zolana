@@ -21,7 +21,7 @@ use zolana_interface::{
 };
 use zolana_ring_policy::{
     entry_nullifier, entry_seed, mutation_private_tx_hash, ListEntry, ListId, ListNamespace,
-    Member, SourceMap, SourceOwner, Writer, MAX_SOURCES, NAMESPACE_PDA_SEED,
+    Member, SourceMap, Writer, NAMESPACE_PDA_SEED,
 };
 
 use crate::{
@@ -81,19 +81,12 @@ pub(crate) fn load_curator_policy_config<'a>(
 pub(crate) fn source_map(
     sources: &[SourceSlot; N_SOURCE_SLOTS],
 ) -> Result<SourceMap, CustomRingError> {
-    let mut slots = [SourceOwner::default(); MAX_SOURCES];
-    for (slot, stored) in slots.iter_mut().zip(sources) {
-        if stored.list_id == 0 {
-            continue;
-        }
-        *slot = SourceOwner {
-            list_id: stored.list_id,
-            owner_hash: ListNamespace::new(stored.namespace.as_array())
-                .map_err(|_| CustomRingError::HashingFailed)?
-                .owner_hash,
-        };
-    }
-    SourceMap::from_slots(slots).map_err(|_| CustomRingError::InvalidPolicyConfigPda)
+    let slots =
+        core::array::from_fn(|i| (sources[i].list_id, *sources[i].namespace.as_array()));
+    SourceMap::from_namespaces(&slots, |namespace| {
+        ListNamespace::new(namespace).map(|owner| owner.owner_hash)
+    })
+    .map_err(|_| CustomRingError::InvalidPolicyConfigPda)
 }
 
 pub(crate) fn compute_policy_hash(
