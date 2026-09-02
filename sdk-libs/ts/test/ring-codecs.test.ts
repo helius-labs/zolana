@@ -172,6 +172,7 @@ describe("ring config", () => {
       payer: PAYER,
       authority: AUTHORITY,
       auditorPublicKey: AUDITOR,
+      hasPolicy: true,
     });
     const [programData] = await getProgramDerivedAddress({
       programAddress: address("BPFLoaderUpgradeab1e11111111111111111111111"),
@@ -186,7 +187,7 @@ describe("ring config", () => {
       [RING, AccountRole.READONLY],
       [programData, AccountRole.READONLY],
     ]);
-    expect(Buffer.from(instruction.data ?? []).toString("hex")).toBe(`01${P256_HEX}`);
+    expect(Buffer.from(instruction.data ?? []).toString("hex")).toBe(`01${P256_HEX}01`);
     expect(RING_CREATE_CONFIG_COMPUTE_UNIT_LIMIT).toBe(50_000);
   });
 
@@ -198,6 +199,7 @@ describe("ring config", () => {
           payer: PAYER,
           authority: AUTHORITY,
           auditorPublicKey: P256PublicKey.fromBytes(reserved as Bytes33),
+          hasPolicy: true,
         }),
       ).rejects.toMatchObject({ code: "RING_RESERVED_AUDITOR_KEY" });
     }
