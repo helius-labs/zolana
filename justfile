@@ -254,7 +254,22 @@ ensure-custom-ring-prover-key: build-prover-server
     cargo run -q -p xtask -- bsb22-vk "$export_dir/vk.bin" custom-rings/interface/src verifying_key.rs
     rustfmt custom-rings/interface/src/verifying_key.rs
 
-ensure-custom-ring-live-keys: ensure-custom-ring-prover-key
+ensure-audit-prover-key: build-prover-server
+    #!/usr/bin/env bash
+    set -euo pipefail
+    key="prover/server/proving-keys/audit.key"
+    mkdir -p prover/server/proving-keys
+    if [[ -f "$key" ]]; then
+        echo "audit proving key present"
+        exit 0
+    fi
+    export_dir="$(mktemp -d)"
+    trap 'rm -rf "$export_dir"' EXIT
+    target/prover-server setup-audit --output "$key" --vk-out "$export_dir/vk.bin"
+    cargo run -q -p xtask -- bsb22-vk "$export_dir/vk.bin" custom-rings/interface/src audit_verifying_key.rs
+    rustfmt custom-rings/interface/src/audit_verifying_key.rs
+
+ensure-custom-ring-live-keys: ensure-custom-ring-prover-key ensure-audit-prover-key
     #!/usr/bin/env bash
     set -euo pipefail
     keys_dir="prover/server/proving-keys"
