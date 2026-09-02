@@ -102,7 +102,12 @@ localnet` picks localnet and starts them. `zolana-ring deploy` downloads the
 ring program of the release the CLI came from, checks it against the lockfile
 built into the CLI, and
 fixes who may `init`, the upgrade authority; `--program-so` deploys a local
-build instead. After the loader finishes, `deploy` reads the program back and
+build instead. A ring with a `[policy]` section is a policy ring, `deploy`
+takes the release's rules-configured binary for it and the plain binary for an
+audit-only ring. The rules live in the deployed binary, so a policy ring's CLI
+has to be built with the same rule features (`cargo build -p custom-ring-cli
+--features blocklist`). `init` recomputes the client rules against the pinned
+policy hash and refuses a mismatch. After the loader finishes, `deploy` reads the program back and
 refuses to report success unless the bytes on chain hash to the file it
 deployed. `zolana-ring init` fixes the auditor. After `init` the authority
 can be transferred (`--yes`, the new key alone can hand it back) or renounced
