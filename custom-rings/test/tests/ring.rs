@@ -799,7 +799,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
 /// audit statement and the auditor still recovers every output.
 #[test]
 fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
-    let mut env = setup()?;
+    let env = setup()?;
     let rpc = env.client.rpc();
     let indexer = env.client.indexer();
     let ring_program = custom_ring_program_id()?;

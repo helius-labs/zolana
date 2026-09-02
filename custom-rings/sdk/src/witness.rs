@@ -344,53 +344,6 @@ fn encode_table(policy: &RuleTable) -> ([[u8; 32]; MAX_RULES], [[u8; 32]; MAX_IN
     (rules, inline, inline_count as u8)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use custom_ring_interface::{PolicyConfig, SourceSlot, N_SOURCE_SLOTS, POLICY_CONFIG};
-    use zolana_keypair::ShieldedKeypair;
-
-    #[test]
-    fn list_backed_asset_rules_name_each_live_output_asset() {
-        let recipient = ShieldedKeypair::new_ed25519().expect("recipient");
-        let asset = Address::new_from_array([9; 32]);
-        let outputs = [
-            SppProofOutputUtxo::new(
-                asset,
-                1,
-                recipient.shielded_address().expect("shielded address"),
-            )
-            .expect("output"),
-            SppProofOutputUtxo::default(),
-        ];
-        let config = PolicyConfig {
-            discriminator: POLICY_CONFIG,
-            policy_hash: [0; 32],
-            entries_tree: Address::default(),
-            namespace_bump: 0,
-            bump: 0,
-            sources: [SourceSlot {
-                list_id: 0,
-                namespace: Address::default(),
-            }; N_SOURCE_SLOTS],
-        };
-        let policy = RuleTable::builder().build();
-        let input = CustomRingWitnessInput {
-            policy: &policy,
-            policy_config: &config,
-            inputs: &[],
-            outputs: &outputs,
-        };
-
-        assert_eq!(
-            input
-                .subjects(&Rule::require(Subject::Asset, ListId::Allow))
-                .expect("asset subjects"),
-            vec![Member::asset(&asset).expect("asset member")]
-        );
-    }
-}
-
 struct MerklePath {
     path: Vec<[u8; 32]>,
     leaf_index: u64,
@@ -461,4 +414,51 @@ fn read_roots<R: Rpc>(rpc: &R, tree: Address) -> Result<TransactRoots, TransferE
         nullifier,
         nullifier_index,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use custom_ring_interface::{PolicyConfig, SourceSlot, N_SOURCE_SLOTS, POLICY_CONFIG};
+    use zolana_keypair::ShieldedKeypair;
+
+    #[test]
+    fn list_backed_asset_rules_name_each_live_output_asset() {
+        let recipient = ShieldedKeypair::new_ed25519().expect("recipient");
+        let asset = Address::new_from_array([9; 32]);
+        let outputs = [
+            SppProofOutputUtxo::new(
+                asset,
+                1,
+                recipient.shielded_address().expect("shielded address"),
+            )
+            .expect("output"),
+            SppProofOutputUtxo::default(),
+        ];
+        let config = PolicyConfig {
+            discriminator: POLICY_CONFIG,
+            policy_hash: [0; 32],
+            entries_tree: Address::default(),
+            namespace_bump: 0,
+            bump: 0,
+            sources: [SourceSlot {
+                list_id: 0,
+                namespace: Address::default(),
+            }; N_SOURCE_SLOTS],
+        };
+        let policy = RuleTable::builder().build();
+        let input = CustomRingWitnessInput {
+            policy: &policy,
+            policy_config: &config,
+            inputs: &[],
+            outputs: &outputs,
+        };
+
+        assert_eq!(
+            input
+                .subjects(&Rule::require(Subject::Asset, ListId::Allow))
+                .expect("asset subjects"),
+            vec![Member::asset(&asset).expect("asset member")]
+        );
+    }
 }
