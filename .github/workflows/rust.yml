@@ -167,12 +167,6 @@ jobs:
     name: tests / custom-ring
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    env:
-      # The custom-ring key comes from the custom-ring-keys release
-      # (ensure-custom-ring-prover-key, no token). The circuit proof check
-      # proves with the released pk and must verify under the committed
-      # VERIFYINGKEY, so a locally generated key set cannot substitute.
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -183,7 +177,14 @@ jobs:
         with:
           shared-key: custom-ring
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - name: Cache proving keys
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: prover/server/proving-keys
+          key: custom-ring-keys-${{ hashFiles('prover/server/prover/provingkeys/proving-keys.lock') }}
       - run: just test-custom-ring
+      # No key recipe may rewrite the committed verifying keys.
+      - run: git diff --exit-code -- custom-rings/interface/src
 
   build-photon:
     name: build / photon
@@ -243,6 +244,8 @@ jobs:
           path: |
             target/nextest-archives/
             target/deploy/*.so
+            target/deploy-ring-rules/*.so
+            target/deploy-ring-blocklist/*.so
             target/debug/zolana
             target/debug/xtask
             target/prover-server
@@ -287,6 +290,12 @@ jobs:
             runner: ubuntu-latest
           - name: custom-ring lifecycle
             recipe: test-custom-ring-validator
+            runner: ubuntu-latest
+          - name: custom-ring shared sources
+            recipe: test-custom-ring-shared
+            runner: ubuntu-latest
+          - name: custom-ring policy rules
+            recipe: test-custom-ring-rules
             runner: ubuntu-latest
           - name: rfq settlement
             recipe: test-rfq-validator

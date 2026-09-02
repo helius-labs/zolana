@@ -110,20 +110,30 @@ impl ReleaseSet {
         }
     }
 
-    /// `(package, bin, asset stem)` of every cli the set ships.
-    /// `(package, bin, asset stem, features)`. The ring cli links the rule
-    /// features so its `RULES` matches the released policy binary's table.
-    fn cli_binaries(self) -> &'static [(&'static str, &'static str, &'static str, &'static str)] {
+    /// The ring cli links the rule features of the released policy binary.
+    fn cli_binaries(self) -> &'static [CliBinary] {
         match self {
-            Self::Localnet => &[("zolana-cli", "zolana", "zolana", "")],
-            Self::CustomRings => &[(
-                "custom-ring-cli",
-                "zolana-ring",
-                "zolana-ring",
-                "allowlist,blocklist,freeze",
-            )],
+            Self::Localnet => &[CliBinary {
+                package: "zolana-cli",
+                bin: "zolana",
+                asset_stem: "zolana",
+                features: "",
+            }],
+            Self::CustomRings => &[CliBinary {
+                package: "custom-ring-cli",
+                bin: "zolana-ring",
+                asset_stem: "zolana-ring",
+                features: "allowlist,blocklist,freeze",
+            }],
         }
     }
+}
+
+struct CliBinary {
+    package: &'static str,
+    bin: &'static str,
+    asset_stem: &'static str,
+    features: &'static str,
 }
 
 struct ProgramSource {
@@ -150,8 +160,33 @@ const PROGRAM_SOURCES: [ProgramSource; 3] = [
     },
 ];
 
-/// The prover key the custom-rings set ships, the same file the prover lock pins.
-const RING_PROVING_KEY_SOURCE: &str = "prover/server/proving-keys/custom_ring.key";
+const PROVING_KEYS_DIR: &str = "prover/server/proving-keys";
+const PROVING_KEYS_LOCK: &str = "prover/server/prover/provingkeys/proving-keys.lock";
+
+struct RingKeySource {
+    section: &'static str,
+    prover_file: &'static str,
+    asset_stem: &'static str,
+}
+
+impl RingKeySource {
+    fn asset(&self, tag: &str) -> String {
+        format!("{}-{tag}.key", self.asset_stem)
+    }
+}
+
+const RING_KEY_SOURCES: [RingKeySource; 2] = [
+    RingKeySource {
+        section: "proving_key",
+        prover_file: "custom_ring.key",
+        asset_stem: "custom-ring-key",
+    },
+    RingKeySource {
+        section: "audit_key",
+        prover_file: "audit.key",
+        asset_stem: "custom-ring-audit-key",
+    },
+];
 
 /// Deployed per ring under its own id, shipped by the custom-rings set alone.
 const RING_PROGRAM_SOURCE: ProgramSource = ProgramSource {
@@ -254,8 +289,6 @@ fn localnet_lock(options: &Options, staging: &Path, host: (&str, &str)) -> Resul
     }))
 }
 
-/// The ring program, the prover's ring key and the ring rpc, the ring cli
-/// embeds the lock and is uploaded next to them.
 fn custom_rings_lock(options: &Options, staging: &Path, host: (&str, &str)) -> Result<Value> {
     let path = options.deploy_dir.join(RING_PROGRAM_SOURCE.file);
     require_file(&path, "run `just build-programs` first")?;
@@ -264,13 +297,32 @@ fn custom_rings_lock(options: &Options, staging: &Path, host: (&str, &str)) -> R
         .join(RING_POLICY_DEPLOY_DIR)
         .join(RING_PROGRAM_POLICY_SOURCE.file);
     require_file(&policy_path, "run `just build-programs` first")?;
-    let key_source = repo.join(RING_PROVING_KEY_SOURCE);
-    require_file(
-        &key_source,
-        "run `just ensure-custom-ring-prover-key` first",
-    )?;
-    let key_asset = format!("custom-ring-key-{}.key", options.tag);
-    let key_staged = stage_file(&key_source, &staging.join(&key_asset))?;
+    let mut lock = json!({
+        "release_tag": options.tag,
+        "ring_program": stage_program(&RING_PROGRAM_SOURCE, &path, &options.tag, staging)?,
+        "ring_program_policy":
+            stage_program(&RING_PROGRAM_POLICY_SOURCE, &policy_path, &options.tag, staging)?,
+    });
+    let prover_lock = read_json(&repo.join(PROVING_KEYS_LOCK))?;
+    for source in &RING_KEY_SOURCES {
+        let key_source = repo.join(PROVING_KEYS_DIR).join(source.prover_file);
+        require_file(&key_source, "run `just ensure-custom-ring-live-keys` first")?;
+        let asset = source.asset(&options.tag);
+        let staged = stage_file(&key_source, &staging.join(&asset))?;
+        let pinned = pinned_sha256(&prover_lock, source.prover_file)?;
+        if staged.sha256 != pinned {
+            bail!(
+                "{} hashes to {}, {PROVING_KEYS_LOCK} pins {pinned}, run `just regen-custom-ring-keys` to rotate both",
+                source.prover_file,
+                staged.sha256
+            );
+        }
+        lock[source.section] = json!({
+            "asset": asset,
+            "size": staged.size,
+            "sha256": staged.sha256,
+        });
+    }
     let mut binaries = Vec::new();
     for (os, arch) in release_targets(host) {
         let asset = format!("ring-rpc-{os}-{arch}-{}", options.tag);
@@ -285,18 +337,21 @@ fn custom_rings_lock(options: &Options, staging: &Path, host: (&str, &str)) -> R
         )?;
         binaries.push(binary_json("ring_rpc", os, arch, &asset, &path)?);
     }
-    Ok(json!({
-        "release_tag": options.tag,
-        "ring_program": stage_program(&RING_PROGRAM_SOURCE, &path, &options.tag, staging)?,
-        "ring_program_policy":
-            stage_program(&RING_PROGRAM_POLICY_SOURCE, &policy_path, &options.tag, staging)?,
-        "proving_key": {
-            "asset": key_asset,
-            "size": key_staged.size,
-            "sha256": key_staged.sha256,
-        },
-        "binaries": binaries,
-    }))
+    lock["binaries"] = json!(binaries);
+    Ok(lock)
+}
+
+fn read_json(path: &Path) -> Result<Value> {
+    let contents =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    serde_json::from_str(&contents).with_context(|| format!("failed to parse {}", path.display()))
+}
+
+fn pinned_sha256(prover_lock: &Value, file: &str) -> Result<String> {
+    prover_lock["keys"][file]["sha256"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| anyhow!("{PROVING_KEYS_LOCK} pins no {file}"))
 }
 
 fn stage_program(source: &ProgramSource, path: &Path, tag: &str, staging: &Path) -> Result<Value> {
@@ -353,10 +408,17 @@ fn build_cli_binaries(
     let repo = repo_root()?;
     let mut assets = Vec::new();
     for (os, arch) in release_targets(host) {
-        for (package, bin, stem, features) in options.set.cli_binaries() {
-            let asset = format!("{stem}-{os}-{arch}-{}", options.tag);
+        for cli in options.set.cli_binaries() {
+            let asset = format!("{}-{os}-{arch}-{}", cli.asset_stem, options.tag);
             let path = staging.join(&asset);
-            build_rust_binary(&repo, package, bin, features, &path, (os, arch) == host)?;
+            build_rust_binary(
+                &repo,
+                cli.package,
+                cli.bin,
+                cli.features,
+                &path,
+                (os, arch) == host,
+            )?;
             assets.push(path);
         }
     }
@@ -682,6 +744,7 @@ fn staged_asset_paths(staging: &Path, lock: &Value) -> Vec<PathBuf> {
         "ring_program",
         "ring_program_policy",
         "proving_key",
+        "audit_key",
         "accounts",
     ] {
         if let Some(name) = lock.get(key).and_then(asset_name) {
@@ -919,16 +982,22 @@ mod tests {
         }
     }
 
-    /// The ring cli reads `release_tag`, `ring_program`, `proving_key` and `binaries`.
     #[test]
     fn custom_rings_lock_shape_matches_the_ring_cli_parser() {
         let lock = json!({
             "release_tag": "v1",
             "ring_program": {"asset": "custom-ring-program-v1.so", "size": 1, "sha256": "x"},
-            "proving_key": {"asset": "custom-ring-key-v1.key", "size": 1, "sha256": "x"},
+            "ring_program_policy": {"asset": "custom-ring-program-policy-v1.so", "size": 1, "sha256": "x"},
+            "proving_key": {"asset": RING_KEY_SOURCES[0].asset("v1"), "size": 1, "sha256": "x"},
+            "audit_key": {"asset": RING_KEY_SOURCES[1].asset("v1"), "size": 1, "sha256": "x"},
             "binaries": [{"role": "ring_rpc", "os": "linux", "arch": "x64", "asset": "ring-rpc-linux-x64-v1", "size": 1, "sha256": "x"}],
         });
-        for section in ["ring_program", "proving_key"] {
+        for section in [
+            "ring_program",
+            "ring_program_policy",
+            "proving_key",
+            "audit_key",
+        ] {
             for key in ["asset", "size", "sha256"] {
                 assert!(lock[section].get(key).is_some(), "{section} missing {key}");
             }
@@ -937,7 +1006,9 @@ mod tests {
             staged_asset_paths(Path::new("/stage"), &lock),
             vec![
                 PathBuf::from("/stage/custom-ring-program-v1.so"),
+                PathBuf::from("/stage/custom-ring-program-policy-v1.so"),
                 PathBuf::from("/stage/custom-ring-key-v1.key"),
+                PathBuf::from("/stage/custom-ring-audit-key-v1.key"),
                 PathBuf::from("/stage/ring-rpc-linux-x64-v1"),
             ]
         );
