@@ -5,9 +5,9 @@ use crate::nullifier_tree::{
 };
 
 impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
-    /// Validates the invariants required for safe queue rotation and natural
-    /// root-history overwrite. Every loader must run this before the layout is
-    /// used; the tree operations assume it held.
+    /// Validates the invariants queue rotation and root-history overwrite
+    /// rely on. Loaders run this before the layout is used; the tree
+    /// operations assume it held.
     pub fn validate(&self) -> Result<(), NullifierTreeError> {
         Self::validate_configuration(self.batch_size, self.zkp_batch_size)?;
 
@@ -36,12 +36,10 @@ impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
         (self.root_history.current_index as usize + capacity - 1) % capacity
     }
 
-    /// Return the latest root index.
     pub fn get_root_index(&self) -> u32 {
         self.latest_root_index() as u32
     }
 
-    /// Return the latest root of the tree.
     pub fn get_root(&self) -> Option<[u8; 32]> {
         self.root_history
             .roots
@@ -59,12 +57,12 @@ impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
         Some(root)
     }
 
-    /// Return a stored queue hash-chain for a pending ZKP batch.
+    /// Hash chain slot of a ZKP batch: complete, in progress, or zeroed.
     pub fn get_hash_chain(&self, batch_index: usize, zkp_batch_index: usize) -> Option<[u8; 32]> {
         self.batches.get(batch_index)?.hash_chain(zkp_batch_index)
     }
 
-    /// Checks whether `num_leaves` values fit in the remaining tree capacity.
+    /// True when `num_leaves` more values would exceed the tree capacity.
     pub fn tree_is_full(&self, num_leaves: u64) -> bool {
         match self.next_index.checked_add(num_leaves) {
             Some(end_index) => end_index > self.capacity,
@@ -73,8 +71,8 @@ impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
     }
 }
 
-/// The Merkle tree account is a single zero-copy cast, so its size is fully
-/// determined by the layout const generics.
+/// The account is a single zero-copy cast, so its size is determined by the
+/// layout const generics.
 pub fn get_merkle_tree_account_size<const ZKP_BATCHES: usize>() -> usize {
     size_of::<NullifierTreeLayout<ZKP_BATCHES>>()
 }

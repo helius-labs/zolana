@@ -54,7 +54,7 @@ impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
     /// 2. Return `false` if the update is already applied, then reconstruct the
     ///    proof's StartIndex, the tree next index this zkp batch writes at.
     /// 3. Rebuild the public input hash and verify the proof.
-    /// 4. Store the cached update, keyed by StartIndex, at its zkp batch index.
+    /// 4. Store the cached update at its zkp batch index.
     #[cfg(feature = "verify")]
     fn verify_proof_cache_update(
         &mut self,

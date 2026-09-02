@@ -6,14 +6,13 @@ use zolana_hasher::{Hasher, Poseidon};
 
 use crate::nullifier_tree::{constants::NUM_BATCHES, error::NullifierTreeError};
 
+/// Transitions: `Fill -> Full -> Inserted -> Fill`. From the tree's
+/// perspective a batch is pending while `Fill` or `Full`.
 #[derive(Clone, Debug, PartialEq, Eq, Copy)]
 #[repr(u64)]
 pub enum BatchState {
-    /// Batch can be filled with values.
     Fill,
-    /// Batch has been inserted into the tree.
     Inserted,
-    /// Batch is full.
     Full,
 }
 
@@ -64,14 +63,8 @@ impl CachedTreeUpdate {
     }
 }
 
-/// Batch structure that holds
-/// the metadata and state of a batch.
-///
-/// A batch:
-/// - has a size and a number of zkp batches.
-/// - size must be divisible by zkp batch size.
-/// - is part of a queue, each queue has two batches.
-/// - is inserted into the tree by zkp batch.
+/// One of the queue's two batches: its counters, state, hash chains, and
+/// cached tree updates. It is applied to the tree one ZKP batch at a time.
 #[repr(C)]
 #[derive(
     Clone,
@@ -86,20 +79,16 @@ impl CachedTreeUpdate {
     BorshDeserialize,
 )]
 pub struct Batch<const ZKP_BATCHES: usize> {
-    /// Number of inserted elements in the zkp batch.
+    /// Elements in the ZKP batch currently being filled.
     num_inserted: u64,
     state: u64,
-    /// Number of full zkp batches in the batch,
-    /// that are ready to be inserted into the tree.
+    /// ZKP batches whose hash chain is complete.
     pub(crate) num_full_zkp_batches: u64,
-    /// Number zkp batches that are inserted into the tree.
+    /// ZKP batches applied to the tree.
     num_inserted_zkp_batches: u64,
-    /// Number of elements in a batch.
     pub batch_size: u64,
-    /// Number of elements in a zkp batch.
-    /// A batch consists out of one or more zkp batches.
     pub zkp_batch_size: u64,
-    /// Start leaf index of the first
+    /// Leaf index of the batch's first element.
     pub start_index: u64,
     /// One Poseidon hash chain per ZKP batch. The chain at
     /// `num_full_zkp_batches` is the one insertions currently extend; the
@@ -113,19 +102,17 @@ pub struct Batch<const ZKP_BATCHES: usize> {
 }
 
 impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
-    /// Initializes a batch in place on zeroed account data, a precondition the
-    /// layout init relies on throughout (it never writes root-history slots
-    /// past index 0 either).
+    /// Initializes a batch in place. Requires zeroed account data: the hash
+    /// chains and cached updates are not written here.
     pub(crate) fn init(&mut self, batch_size: u64, zkp_batch_size: u64, start_index: u64) {
         self.reset(batch_size, zkp_batch_size, start_index);
     }
 
-    /// Resets every metadata word, so a reused batch cannot inherit a counter
-    /// from its previous queue range. The hash chains and
-    /// cached updates need no zeroing: a filling batch writes a chain slot
-    /// before anything reads it, and every cached update slot is cleared
-    /// together with its consumed chain when its update lands in the tree, so
-    /// a batch reaches `Inserted` with both arrays zeroed.
+    /// Resets the counters and state so a reused batch inherits nothing from
+    /// its previous queue range. The hash chains and cached updates need no
+    /// zeroing: a filling batch writes a chain slot before reading it, and
+    /// `clear_cached_tree_update` zeroes each slot pair as its update lands in
+    /// the tree, so a batch reaches `Inserted` with both arrays zeroed.
     fn reset(&mut self, batch_size: u64, zkp_batch_size: u64, start_index: u64) {
         self.num_inserted = 0;
         self.state = BatchState::Fill.into();
@@ -170,8 +157,7 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
 
     /// Clears an applied ZKP batch's slots: the cached update (`occupied = 0`)
     /// and the hash chain it was verified against, which is dead once the
-    /// update is in the tree. A batch therefore reaches `Inserted` with both
-    /// arrays fully zeroed.
+    /// update is in the tree.
     pub(crate) fn clear_cached_tree_update(
         &mut self,
         zkp_batch_index: usize,
@@ -195,7 +181,6 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
         self.cache_tree_update(zkp_batch_index, CachedTreeUpdate::default())
     }
 
-    /// Returns the state of the batch.
     pub fn get_state(&self) -> BatchState {
         self.state.into()
     }
@@ -213,7 +198,7 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
     }
 
     /// State read for account-data paths: an out-of-range raw state is an
-    /// error, never a panic. `get_state` (which panics on corrupt data) is
+    /// error instead of a panic. `get_state`, which panics on corrupt data, is
     /// for tests that construct the batch in memory.
     pub(crate) fn checked_state(&self) -> Result<BatchState, NullifierTreeError> {
         self.try_get_state()
@@ -232,9 +217,7 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
             .is_ok_and(|sequence| close_before_index >= sequence)
     }
 
-    /// fill -> full -> inserted -> fill
-    /// (from tree insertion perspective is pending if fill or full)
-    /// `start_index` is the first queue index covered by the reused batch.
+    /// `start_index` is the leaf index of the reused batch's first element.
     pub fn advance_state_to_fill(&mut self, start_index: u64) -> Result<(), NullifierTreeError> {
         if self.checked_state()? != BatchState::Inserted {
             #[cfg(feature = "log")]
@@ -269,8 +252,6 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
         }
     }
 
-    /// fill -> full -> inserted -> fill
-    /// (from tree insertion perspective is pending if fill or full)
     pub fn advance_state_to_inserted(&mut self) -> Result<(), NullifierTreeError> {
         if self.checked_state()? == BatchState::Full {
             self.state = BatchState::Inserted.into();
@@ -285,8 +266,6 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
         Ok(())
     }
 
-    /// fill -> full -> inserted -> fill
-    /// (from tree insertion perspective is pending if fill or full)
     pub fn advance_state_to_full(&mut self) -> Result<(), NullifierTreeError> {
         if self.checked_state()? == BatchState::Fill {
             self.state = BatchState::Full.into();
@@ -315,36 +294,30 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
         self.num_full_zkp_batches > self.num_inserted_zkp_batches
     }
 
-    /// Returns the number of zkp batch updates
-    /// that are ready to be inserted into the tree.
     pub fn get_num_ready_zkp_updates(&self) -> u64 {
         self.num_full_zkp_batches
             .saturating_sub(self.num_inserted_zkp_batches)
     }
 
-    /// Returns the current zkp batch index.
-    /// New values are inserted into the current zkp batch.
+    /// Index of the ZKP batch new values are inserted into.
     pub fn get_current_zkp_batch_index(&self) -> u64 {
         self.num_full_zkp_batches
     }
 
-    /// Returns the number of inserted zkps.
     pub fn get_num_inserted_zkps(&self) -> u64 {
         self.num_inserted_zkp_batches
     }
 
-    /// Returns the number of inserted elements in the batch.
     pub fn get_num_inserted_elements(&self) -> u64 {
         self.num_full_zkp_batches * self.zkp_batch_size + self.num_inserted
     }
 
-    /// Returns the number of zkp batches in the batch.
     pub fn get_num_zkp_batches(&self) -> u64 {
         self.batch_size / self.zkp_batch_size
     }
 
     /// Add a value to the current hash chain, and advance batch state.
-    /// Never mutates on error: all of its failure points (batch state, store
+    /// Does not mutate on error: all of its failure points (batch state, store
     /// capacity, hashing) precede the write.
     /// 1. Check that the batch is ready.
     /// 2. If the zkp batch is empty, start a new hash chain.
@@ -394,7 +367,8 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
         Ok(())
     }
 
-    /// Marks the batch as inserted in the merkle tree.
+    /// Marks the next zkp batch as inserted in the merkle tree; the batch
+    /// becomes `Inserted` once the last one is.
     /// 1. Checks that the batch is ready.
     /// 2. increments the number of inserted zkps.
     /// 3. If all zkps are inserted, sets the state to inserted.
@@ -418,8 +392,7 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
 }
 
 /// Direct access to the private counters so integration tests can drive a batch
-/// into states the public transitions reach only after many insertions. Gated on
-/// `test-only`, which the on-chain build never enables.
+/// into states the public transitions reach only after many insertions.
 #[cfg(feature = "test-only")]
 impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
     /// Builds a batch by value, which integration tests need to compare against

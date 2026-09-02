@@ -27,9 +27,8 @@ impl Default for NullifierTreeInitParams {
     }
 }
 
-/// Only 10 and 250 are supported.
 pub fn match_circuit_size(size: u64) -> bool {
-    matches!(size, 10 | 250) // TODO: make these constants (10, 5000), 3 configs (local test (current local), devnet (5k proofs, 30k queue len), mainnet(5k proofs, 1.2mm queue len))
+    matches!(size, 10 | 250)
 }
 
 impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
@@ -45,9 +44,8 @@ impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
         let capacity = 1u64
             .checked_shl(height)
             .ok_or(NullifierTreeError::InvalidHeight)?;
-        // Sanity check since init value is hardcoded. Gated on the test-only
-        // feature, never enabled in the on-chain build, so tests can build
-        // small trees while the program keeps the check.
+        // NULLIFIER_TREE_INIT_ROOT_40 is the root for height 40. The
+        // `test-only` feature drops this check so tests can build small trees.
         #[cfg(not(feature = "test-only"))]
         if height != 40 {
             return Err(NullifierTreeError::InvalidHeight);
@@ -84,17 +82,15 @@ impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
             );
         }
 
-        // The initialized indexed Merkle tree contains two elements: element 0
-        // linking to the BN254 `p-1` sentinel (the highest valid nullifier),
-        // and the sentinel itself. `init_roots.rs` derives the constant from
-        // the reference implementation.
+        // The initialized tree holds one leaf, element 0 with `next_value` set
+        // to the BN254 `p-1` sentinel, hence `next_index = 1` above.
         *self
             .root_history
             .roots
             .get_mut(0)
             .ok_or(NullifierTreeError::InvalidRootHistoryCapacity)? = NULLIFIER_TREE_INIT_ROOT_40;
-        // The cursor wraps modulo ZKP_BATCHES so a single-slot root history seeds back
-        // to index 0 instead of an out-of-range 1 that no load would accept.
+        // Wraps so a single-slot root history (test-only) starts at 0, which
+        // `validate` accepts.
         self.root_history.current_index = 1 % ZKP_BATCHES as u64;
         Ok(())
     }

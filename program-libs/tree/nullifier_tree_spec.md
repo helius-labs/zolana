@@ -40,7 +40,8 @@ The account header also holds the fee schedule and the fee balance:
 | 7544 | nullifier tree | `NullifierTreeLayout` |
 
 The schedule is runtime state: `create_tree` writes it and `set_tree_fees`
-overwrites it; neither checks the values. `TreeFeeSchedule::at_cost` derives
+overwrites it; neither checks the values. `set_tree_fees` also accepts a
+`PAUSED` tree, so the schedule can be retuned while the write paths are frozen. `TreeFeeSchedule::at_cost` derives
 the smallest `fee_per_nullifier` satisfying
 
 ```text
@@ -71,8 +72,8 @@ struct Batch {
     num_inserted: u64,              // queued values in the open ZKP batch
     num_full_zkp_batches: u64,      // finalized hash chains
     num_inserted_zkp_batches: u64,  // finalized ZKP batches applied to the tree
-    sequence_number: u64,           // reserved for account-layout compatibility
-    root_index: u32,                // reserved for account-layout compatibility
+    batch_size: u64,                // B, equal to the tree's batch_size
+    zkp_batch_size: u64,            // Z, equal to the tree's zkp_batch_size
 }
 ```
 
@@ -152,38 +153,42 @@ The instruction also receives the writable PDA.
 
 **Checks and state changes**
 
-1. Require the nullifier-tree type and canonical nullifier encoding.
+1. Require a writable tree account owned by the program with the tree
+   discriminator, in state `INITIALIZED` (a `PAUSED` tree rejects insertion),
+   and canonical nullifier encoding.
 2. Require `batches[c].state == Fill`. If it is `Inserted`, reuse it first;
    reuse resets its counters and advances `start_index` by `N * B` without
    waiting for the batch's PDAs to become reclaimable. `Full` is not
    reusable.
-3. Require
-   `q + 1 = batches[c].start_index + batches[c].inserted_elements` and
-   `q + 1 < tree.capacity`.
-4. Derive the canonical PDA and bump. Require the supplied address to
-   match. An initialized PDA fails with
-   `ShieldedPoolError::NullifierAlreadyQueued` (7048).
-5. Accept an unused PDA that is System-owned, empty, and optionally
-   prefunded. Transfer only its missing rent-exempt balance from the tree, then
-   allocate ten bytes, assign it to the program, and store `{ q, tree_id }`
-   with the tree header's `tree_id`.
-6. Let `j = batches[c].num_full_zkp_batches`. Update the open commitment:
+3. Require `q + 1 < tree.capacity`.
+4. Let `j = batches[c].num_full_zkp_batches`. Update the open commitment:
 
    ```text
    hash_chains[c][j] = nullifier                              if num_inserted == 0
    hash_chains[c][j] = Poseidon(hash_chains[c][j], nullifier) otherwise
    ```
 
-7. Increment `num_inserted`. When `num_inserted == Z`, finalize the commitment,
+5. Increment `num_inserted`. When `num_inserted == Z`, finalize the commitment,
    increment
    `num_full_zkp_batches`, and reset `num_inserted` to zero. When
    `num_full_zkp_batches == K`, set the batch to `Full` and advance `c` modulo
    `N`.
-8. Increment `q` once.
-9. Charge `fees.fee_per_nullifier` from the transaction payer to the tree
+6. Increment `q` once.
+7. Charge `fees.fee_per_nullifier` from the transaction payer to the tree
    (System transfer) and add the same amount to `fee_balance`. The inserting
-   instruction charges once per input, before it funds the PDAs, so the PDA
-   rent check in step 5 sees the tree floored at `rent_minimum + fee_balance`.
+   instruction charges once for all of its inputs, before it funds the PDAs,
+   so the PDA rent check in step 9 sees the tree floored at
+   `rent_minimum + fee_balance`.
+8. Derive the canonical PDA and bump. Require the supplied address to
+   match. An initialized PDA fails with
+   `ShieldedPoolError::NullifierAlreadyQueued` (7048).
+9. Accept an unused PDA that is System-owned, empty, and optionally
+   prefunded. A PDA with zero lamports is created through a System
+   `CreateAccount` signed with the PDA seeds, funded with zero lamports by the
+   payer; a prefunded PDA is allocated and assigned instead. Either way the
+   account has ten bytes and is owned by the program. Store `{ q, tree_id }`
+   with the tree header's `tree_id`, then transfer only its missing
+   rent-exempt balance from the tree.
 
 PDA creation, fee collection, and queue mutation are atomic. Failure changes
 none of them.
@@ -206,7 +211,7 @@ prefix. Each applied proof dequeues `Z` values: the tree root becomes
 **Instruction data**
 
 ```rust
-struct BatchAppendInputs {
+struct BatchUpdateNullifierTreeData {
     new_root: [u8; 32],
     old_root: [u8; 32],
     zkp_batch_index: u16,
@@ -216,11 +221,10 @@ struct BatchAppendInputs {
 
 **Proof statement**
 
-For pending batch `p`, requested ZKP batch `i`, and
-`a = batches[p].num_inserted_zkp_batches`:
+For pending batch `p` and requested ZKP batch `i`:
 
 ```text
-start_index = tree.next_index + (i - a) * Z
+start_index = batches[p].start_index + i * Z
 leaves_hash = hash_chains[p][i]
 
 public_input = HashChain(
@@ -235,7 +239,9 @@ HashChain(x0, ..., xn) = Poseidon(...Poseidon(Poseidon(x0, x1), x2)..., xn)
 
 The Groth16 proof establishes the height-40 indexed append from `old_root` to
 `new_root` for the ordered values committed by `leaves_hash`, starting at
-`start_index`. Supported `Z` values are `10` and `250`.
+`start_index`. By the `tree.next_index` invariant in [State](#state), with
+`a = batches[p].num_inserted_zkp_batches`, this equals
+`tree.next_index + (i - a) * Z`. Supported `Z` values are `10` and `250`.
 
 **Checks and state changes**
 
@@ -324,7 +330,7 @@ The call returns no event when it only caches or evicts an update. Otherwise it
 returns one event for the applied cascade:
 
 ```rust
-struct BatchAddressAppendEvent {
+struct NullifierTreeUpdateEvent {
     merkle_tree_pubkey: [u8; 32],
     zkp_batch_size: u16,
     old_next_index: u64,
@@ -446,7 +452,7 @@ if A = 19: append_transactions = 6, maintenance_transactions = 224
 instruction and serialized transaction layouts. The counts are for the
 successful path: proof replacements, retries, and duplicate cleanup attempts
 are additional. At a 5,000-lamport signature fee and one signature per
-transaction, 268 to 270 maintenance transactions cost 0.00134 to 0.00135 SOL in
+transaction, 224 to 226 maintenance transactions cost 0.00112 to 0.00113 SOL in
 base fees.
 
 At the current default rent rate, one ten-byte PDA requires 960,480

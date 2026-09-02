@@ -4,11 +4,9 @@ pub const DEFAULT_NULLIFIER_BATCH_SIZE: u64 = 25000;
 
 pub const DEFAULT_NULLIFIER_ZKP_BATCH_SIZE: u64 = 250;
 
-/// Init root of a height-40 indexed Merkle tree seeded with the BN254 `p-1`
-/// sentinel (the highest valid field element). Used to initialize nullifier
-/// trees, whose values are full BN254 field elements rather than 248-bit
-/// addresses. Generated from `zolana-merkle-tree`; see
-/// `tests/init_roots.rs`.
+/// Root of a height-40 indexed Merkle tree holding the single leaf
+/// `H(0, p-1)`, where `p-1` is the BN254 sentinel. Derived from
+/// `zolana-merkle-tree` in `tests/nullifier_tree/init_roots.rs`.
 pub const NULLIFIER_TREE_INIT_ROOT_40: [u8; 32] = [
     29, 142, 113, 166, 1, 179, 232, 222, 187, 186, 155, 85, 123, 131, 105, 199, 244, 4, 174, 87,
     190, 191, 8, 82, 35, 107, 7, 40, 32, 149, 66, 119,

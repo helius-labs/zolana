@@ -66,7 +66,6 @@ impl<const HEIGHT: usize> UtxoTreeLayout<HEIGHT> {
         Ok(())
     }
 
-    /// Number of leaves the tree can hold (`2^HEIGHT`).
     pub const fn capacity(&self) -> u64 {
         1u64 << HEIGHT
     }
@@ -76,10 +75,9 @@ impl<const HEIGHT: usize> UtxoTreeLayout<HEIGHT> {
     }
 
     /// Appends a batch of leaves. Returns [`TreeError::TreeIsFull`] once the
-    /// tree holds `2^HEIGHT` leaves; without the guard a full tree silently
-    /// overwrites every subtree and produces a garbage root. On error the
-    /// leaves appended so far stay appended (on-chain the error aborts the
-    /// whole instruction, so there is no partial state).
+    /// tree holds `2^HEIGHT` leaves; appending past that would overwrite the
+    /// subtrees and produce a garbage root. Leaves appended before the error
+    /// stay appended; in the program the error aborts the instruction.
     pub fn append_batch<'l, I>(&mut self, leaves: I) -> Result<(), TreeError>
     where
         I: IntoIterator<Item = &'l [u8; 32]>,
@@ -110,9 +108,8 @@ impl<const HEIGHT: usize> UtxoTreeLayout<HEIGHT> {
                 current_index /= 2;
             }
 
-            // Only the batch-final root enters the history. Pushing per-leaf
-            // placeholders would evict real roots batch_size times faster and
-            // `root_by_index` rejects zero slots, so they are never usable.
+            // Intermediate roots are not computed; only the batch-final root
+            // enters the history.
             if is_last {
                 self.root = current_level_hash;
                 self.push_root(current_level_hash);
@@ -131,8 +128,8 @@ impl<const HEIGHT: usize> UtxoTreeLayout<HEIGHT> {
         u16::from_le_bytes(self.root_history_cursor)
     }
 
-    /// Historical root at `index`, with the same validity checks the on-chain
-    /// proof path relies on (rejects empty slots and out-of-window indices).
+    /// Historical root at `index`. Rejects empty slots and indices past the
+    /// written window.
     pub fn root_by_index(&self, index: u16) -> Result<[u8; 32], TreeError> {
         let capacity = self.root_history.len();
         let index = index as usize;

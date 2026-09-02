@@ -31,14 +31,11 @@ pub struct NullifierTreeLayout<const ZKP_BATCHES: usize> {
     pub sequence_number: u64,
     pub next_index: u64,
     pub height: u32,
-    /// Batch elements are currently inserted in. Sized to fill the word `height`
-    /// opens, so the layout carries no implicit padding.
+    /// Index of the batch accepting insertions. A `u32` so it fills the word
+    /// `height` opens and the layout has no implicit padding.
     pub currently_processing_batch_index: u32,
     pub capacity: u64,
-    /// Number of elements in a batch.
     pub batch_size: u64,
-    /// Number of elements in a ZKP batch.
-    /// A batch has one or more ZKP batches.
     pub zkp_batch_size: u64,
     /// Next batch to be inserted into the tree.
     pub pending_batch_index: u64,
@@ -51,7 +48,6 @@ pub struct NullifierTreeLayout<const ZKP_BATCHES: usize> {
 }
 
 impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
-    /// Returns the number of ZKP batches contained within a single regular batch.
     pub fn get_num_zkp_batches(&self) -> u64 {
         self.batch_size / self.zkp_batch_size
     }
@@ -97,14 +93,12 @@ impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
         Ok(())
     }
 
-    /// Increment the next full batch index if current state is BatchState::Inserted.
     pub fn increment_pending_batch_index_if_inserted(&mut self, state: BatchState) {
         if state == BatchState::Inserted {
             self.pending_batch_index = (self.pending_batch_index + 1) % NUM_BATCHES as u64;
         }
     }
 
-    /// Increment the currently_processing_batch_index if current state is BatchState::Full.
     pub fn increment_currently_processing_batch_index_if_full(
         &mut self,
     ) -> Result<(), NullifierTreeError> {

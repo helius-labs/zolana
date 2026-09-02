@@ -26,13 +26,13 @@ pub enum HasherError {
 impl From<HasherError> for u32 {
     fn from(e: HasherError) -> u32 {
         match e {
-            HasherError::IntegerOverflow => 7001,
+            HasherError::IntegerOverflow => 8001,
             #[cfg(not(target_os = "solana"))]
-            HasherError::Poseidon(_) => 7002,
-            HasherError::PoseidonSyscall(e) => (u64::from(e)).try_into().unwrap_or(7003),
-            HasherError::UnknownSolanaSyscall(e) => e.try_into().unwrap_or(7004),
-            HasherError::InvalidInputLength(_, _) => 7005,
-            HasherError::InvalidNumFields => 7006,
+            HasherError::Poseidon(_) => 8002,
+            HasherError::PoseidonSyscall(e) => (u64::from(e)).try_into().unwrap_or(8003),
+            HasherError::UnknownSolanaSyscall(e) => e.try_into().unwrap_or(8004),
+            HasherError::InvalidInputLength(_, _) => 8005,
+            HasherError::InvalidNumFields => 8006,
         }
     }
 }

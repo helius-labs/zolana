@@ -14,13 +14,13 @@
 //!
 //! ## Loading
 //!
-//! [`TreeAccount`] is the loader for both subtrees. It checks program
-//! ownership, the discriminator, and the pause flag, then returns `&mut`
-//! access to [`TreeAccount::utxo_tree`] or [`TreeAccount::nullifier_tree`].
-//! Under the `account-view` feature it also loads straight from a pinocchio
-//! `AccountView`: `from_account_view_mut` rejects a paused tree, which freezes
-//! the write paths, and `pause_tree` loads through
-//! `from_account_view_mut_allow_paused` so it can unpause.
+//! [`TreeAccount`] is the loader for both subtrees. It returns `&mut` access
+//! to [`TreeAccount::utxo_tree`] or [`TreeAccount::nullifier_tree`]. Under the
+//! `account-view` feature it loads from a pinocchio `AccountView`, checking
+//! writability, program ownership, the discriminator, and the pause flag:
+//! `from_account_view_mut` rejects a paused tree, which freezes the write
+//! paths, and `pause_tree` loads through `from_account_view_mut_allow_paused`
+//! so it can unpause.
 //!
 //! ## State tree
 //!
@@ -32,7 +32,7 @@
 //! ## Nullifier tree
 //!
 //! [`nullifier_tree`] is an indexed Merkle tree with an integrated input
-//! queue. Spent-note nullifiers are queued instead of being applied a leaf at
+//! queue. Spent-UTXO nullifiers are queued instead of being applied a leaf at
 //! a time, and a queued batch is applied to the tree with a Groth16 proof that
 //! the values append correctly. A per-nullifier PDA
 //! (`zolana_interface::state::NullifierPda`) records the queue index a value
@@ -95,8 +95,7 @@ use wincode::{
 };
 
 /// Height of the pool's UTXO state tree. `TreeAccount::init` rejects any
-/// other height; exported so programs/tests initialize trees with the same
-/// value instead of pinning a literal by comment.
+/// other height.
 pub const UTXO_TREE_HEIGHT: usize = 32;
 
 /// `state` byte values. Writes to the tree are only allowed in `INITIALIZED`.
@@ -183,9 +182,7 @@ impl<'a> TreeAccount<'a> {
             return Err(TreeError::HeightTooLarge);
         }
         // The zkp batch size must have a verifying key, otherwise no batch
-        // update can ever be proven and the queue wedges once both batches
-        // fill. Batch and root-history configuration is validated by the
-        // nullifier tree init below.
+        // update can be proven and the queue wedges once both batches fill.
         if nullifier_params.height != DEFAULT_NULLIFIER_TREE_HEIGHT
             || !match_circuit_size(nullifier_params.input_queue_zkp_batch_size)
         {
@@ -235,9 +232,9 @@ impl<'a> TreeAccount<'a> {
         })
     }
 
-    /// Load a writable tree from its account, checking program ownership, the
-    /// discriminator, and that the tree is not paused. Use this on every write
-    /// path that must be frozen while paused.
+    /// Load a tree from its account, checking writability, program ownership,
+    /// the discriminator, and that the tree is not paused. Use this on write
+    /// paths that must be frozen while paused.
     #[cfg(feature = "account-view")]
     pub fn from_account_view_mut(
         account: &'a mut AccountView,
