@@ -77,11 +77,7 @@ impl Default for RuleAnswer {
 }
 
 /// One positional source slot, slot `i` is empty or serves list `i + 1`.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct SourceOwnerEntry {
-    pub list_id: u8,
-    pub owner_hash: [u8; 32],
-}
+pub use zolana_ring_policy::SourceOwner as SourceOwnerEntry;
 
 pub struct CustomRingProofRequest {
     pub public_input_hash: [u8; 32],
