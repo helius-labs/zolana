@@ -27,6 +27,7 @@ use crate::{
 /// SIMD-0500 off, the ring program deploys as SBPF v0 like on devnet.
 const SBPF_V0_FEATURE: &str = "B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g";
 const PROVING_KEY_FILE: &str = "custom_ring.key";
+const AUDIT_KEY_FILE: &str = "audit.key";
 const RING_RPC: Tool = Tool {
     name: "ring-rpc serve",
     install: "rerun `zolana-ring localnet`, it downloads the ring rpc of the release",
@@ -135,10 +136,9 @@ fn bring_up(
         for tool in [ZOLANA, SOLANA_TEST_VALIDATOR] {
             tool.check_installed()?;
         }
-        release.ensure_as(
-            release.proving_key()?,
-            &prover_keys_dir()?.join(PROVING_KEY_FILE),
-        )?;
+        let keys_dir = prover_keys_dir()?;
+        release.ensure_as(release.proving_key()?, &keys_dir.join(PROVING_KEY_FILE))?;
+        release.ensure_as(release.audit_key()?, &keys_dir.join(AUDIT_KEY_FILE))?;
         start_validator(ports)?;
     }
     check_prover_serves_custom_ring(&urls.prover)?;

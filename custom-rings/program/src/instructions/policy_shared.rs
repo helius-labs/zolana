@@ -163,7 +163,7 @@ impl<'a> MutationAccounts<'a> {
         }
         // A referenced list serves its mapped entries only, an unmapped list
         // stays mutable against the ring's own.
-        let slot = policy_config.sources[list_id as usize - 1];
+        let slot = policy_config.sources[list_id.slot()];
         if slot.list_id != 0 && !address_eq(&slot.namespace, entries.address()) {
             return Err(CustomRingError::ForeignSource.into());
         }

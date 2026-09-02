@@ -14,16 +14,13 @@
 //!
 //! [`an_audit_only_ring_audits_every_transfer`] runs the lighter tier, no
 //! policy config and the audit statement alone, with the same auditor recovery.
-//! Its second hop is proven over BOTH transports and lands the async one, so
-//! `CustomRingTransfer::prove_async` is exercised end to end and held to parity
-//! with `prove` (see [`AsyncHopParity`]). A policy ring proves over the
-//! blocking transport only, the capstone pins the refusal.
+//! Its second hop, like the capstone's, is proven over BOTH transports and
+//! lands the async one, so `CustomRingTransfer::prove_async` is held to parity
+//! with `prove` on both statements (see [`AsyncHopParity`]).
 //!
 //! [`ring_value_leaves_and_enters_through_audited_transfers`] crosses the ring
 //! boundary in both directions under the auditor and pins that a note of
 //! another ring is refused before proving.
-
-mod shared;
 
 use std::{
     net::{TcpStream, ToSocketAddrs},
@@ -31,17 +28,20 @@ use std::{
 };
 
 use anyhow::{anyhow, Context, Result};
-use custom_ring_interface::{RingProgramConfig, CONFIG_PDA_SEED, RING_PROGRAM_CONFIG};
+use custom_ring_interface::{RingProgramConfig, CONFIG_PDA_SEED, RING_PROGRAM_CONFIG, RULES};
 use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
-    auditor_view_tag, AsyncTransferProofEnvironment, CreateConfig, CreatePolicy, CustomRing,
-    CustomRingTransact, CustomRingTransfer, CustomRingTransferInput, InitSppRingConfig,
-    ProvenTransfer, RingDeposit, RingDepositReceipt, SetAuthority, TransferError,
-    TransferProofEnvironment, V0WithLookupTable,
+    auditor_view_tag, AsyncTransferProofEnvironment, CreateConfig, CustomRing, CustomRingTransact,
+    CustomRingTransfer, CustomRingTransferInput, DepositError, ProvenTransfer, RingDeposit,
+    RingDepositReceipt, SetAuthority, SetPaused, TransferError, TransferProofEnvironment,
+    V0WithLookupTable,
 };
-use shared::{
-    custom_ring_program_id, prover_url, send, send_v0_expecting_rejection, setup, TestEnv,
-    USDC_ASSET_ID,
+use custom_ring_test_validator::{
+    cli::{RingProject, RingToml},
+    shared::{
+        custom_ring_program_id, prover_url, send, send_v0_expecting_rejection, setup,
+        ExpectRejection, RegisterRing, TestEnv, Tier, USDC_ASSET_ID,
+    },
 };
 use solana_address::Address;
 use solana_keypair::Keypair;
@@ -54,9 +54,10 @@ use zolana_client::{
     SolanaRpc,
 };
 use zolana_interface::{
+    error::ShieldedPoolError,
     instruction::{
         AssetDeposit, Deposit as SppDeposit, DepositAsset, DepositSplAccounts,
-        TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts,
+        TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts, UpdateRingConfig,
     },
     pda,
     state::{
@@ -65,7 +66,7 @@ use zolana_interface::{
     },
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{random_blinding, P256Pubkey, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey};
 use zolana_program_test::Rejection;
 use zolana_ring_client::{AuditedOutput, AuditedTransaction, RingAudit, RingEnvironment};
 use zolana_ring_rpc::{
@@ -404,87 +405,49 @@ fn auditor_key_is_released_only_to_the_ring_authority() -> Result<()> {
 fn cli_init_hands_the_config_over_and_reruns_from_the_chain() -> Result<()> {
     let env = setup()?;
     let rpc = env.client.rpc();
-    let ring_program = custom_ring_program_id()?;
-    let ring = CustomRing::new(ring_program);
-    let dir = std::env::temp_dir().join(format!("zolana-ring-cli-{}", std::process::id()));
-    let keys = dir.join("keys");
-    std::fs::create_dir_all(&keys)?;
-    let config_authority = Keypair::new();
-    let upgrade_path = dir.join("upgrade.json");
-    let config_path = dir.join("config.json");
-    solana_keypair::write_keypair_file(&env.payer, &upgrade_path)
-        .map_err(|e| anyhow!("write upgrade keypair {e}"))?;
-    solana_keypair::write_keypair_file(&config_authority, &config_path)
-        .map_err(|e| anyhow!("write config keypair {e}"))?;
+    let ring = CustomRing::new(custom_ring_program_id()?);
     let auditor = ViewingKey::new();
-    std::fs::write(
-        keys.join("auditor.key.pub"),
-        format!("{}\n", hex::encode(auditor.pubkey().as_bytes())),
-    )?;
-    let ring_toml = dir.join("ring.toml");
-    let write_config = |ring_rpc: &str| {
-        std::fs::write(
-            &ring_toml,
-            format!(
-                "name = \"cli\"\ntarget = \"localnet\"\nprogram_id = \"{ring_program}\"\n\
-                 authority_keypair = \"{}\"\nconfig_authority_keypair = \"{}\"\n\n\
-                 [localnet]\nrpc = \"{}\"\nindexer = \"{}\"\nprover = \"{}\"\nring_rpc = \"{ring_rpc}\"\n\n\
-                 [devnet]\nrpc = \"https://api.devnet.solana.com\"\nindexer = \"http://indexer.invalid\"\n\
-                 prover = \"http://prover.invalid\"\nring_rpc = \"http://ring.invalid\"\n",
-                upgrade_path.display(),
-                config_path.display(),
-                env.rpc_url,
-                env.indexer_url,
-                prover_url(),
-            ),
-        )
-    };
-    let cli = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../target/debug/zolana-ring"
-    );
-    let init = || -> Result<String> {
-        let output = std::process::Command::new(cli)
-            // The harness tree is not the default address, the policy step
-            // must name it.
-            .args([
-                "--config",
-                &ring_toml.to_string_lossy(),
-                "init",
-                "--entries-tree",
-                &env.tree.to_string(),
-            ])
-            .output()
-            .context("run zolana-ring init")?;
-        let text = format!(
-            "{}{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-        if !output.status.success() {
-            return Err(anyhow!("init failed\n{text}"));
-        }
-        Ok(text)
-    };
+    let project = RingProject::create(&env, &auditor.pubkey())?;
+    let init = || project.run(&["init"]);
 
     // 1. A local ring rpc lets the key file through, the config is created
     //    under the deployer and handed over in the same run.
-    write_config("http://127.0.0.1:1")?;
+    project.write_config(RingToml {
+        env: &env,
+        ring_rpc: "http://127.0.0.1:1",
+        policy: false,
+    })?;
     let first = init()?;
     assert!(first.contains("authority   transferred"), "{first}");
     let config = ring
         .read_config(rpc)?
         .ok_or_else(|| anyhow!("config after init"))?;
-    assert_eq!(config.authority, config_authority.pubkey());
+    assert_eq!(config.authority, project.config_authority.pubkey());
     assert_eq!(config.auditor_pubkey, auditor.pubkey());
 
     // 2. The rerun takes the key from the chain, so the hosted-looking rpc is
     //    never asked and the key file is not mistaken for a local key.
-    write_config("http://ring.invalid:1")?;
+    project.write_config(RingToml {
+        env: &env,
+        ring_rpc: "http://ring.invalid:1",
+        policy: false,
+    })?;
     let second = init()?;
     assert!(second.contains("config      already present"), "{second}");
     assert!(second.contains("authority   already present"), "{second}");
-    std::fs::remove_dir_all(dir)?;
+
+    // 3. The config authority closes and reopens the ring through the program,
+    //    the SPP flag follows each run.
+    let paused = project.run(&["authority", "pause"])?;
+    assert!(paused.contains("spp ring    paused"), "{paused}");
+    assert!(spp_ring_config(rpc, ring)?.is_paused(), "paused by the cli");
+    let resumed = project.run(&["authority", "resume"])?;
+    assert!(resumed.contains("spp ring    resumed"), "{resumed}");
+    assert!(
+        !spp_ring_config(rpc, ring)?.is_paused(),
+        "reopened by the cli"
+    );
+    project.remove()?;
     Ok(())
 }
 
@@ -508,15 +471,28 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
 
     // 2. Create the ring's singleton config holding the auditor key. The payer
     //    doubles as the config authority, so one signature covers both roles.
+    //    The ring program refuses the SPP registration until the policy is pinned.
     let authority = env.payer.pubkey();
-    RegisterRing {
+    let configured = RegisterRing {
         ring,
         payer: &env.payer,
         auditor_pubkey: auditor_pk,
-        entries_tree: env.tree,
-        has_policy: true,
+        tier: Tier::policy(env.tree),
+    }
+    .configure(rpc)?;
+    let rejection = ExpectRejection {
+        payer: &env.payer,
+        instructions: &[configured.registration()],
     }
     .send(rpc)?;
+    Rejection::custom(CustomRingError::PolicyConfigNotInitialized as u32)
+        .at(1)
+        .assert_client(&rejection);
+    assert!(
+        ring.read_spp_ring_config(rpc)?.is_none(),
+        "no SPP ring config before the policy is pinned"
+    );
+    configured.pin(rpc)?.register(rpc)?;
 
     let (config_address, config_bump) =
         Address::find_program_address(&[CONFIG_PDA_SEED], &ring_program);
@@ -536,7 +512,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
 
     // 3. Register the ring with SPP. The `RingConfig` SPP allocates IS the ring's
     //    `ring_auth` PDA, and the content is built on chain from the config
-    //    account, so the registered authority is the one asserted above and the
+    //    account, so the registered authority is `ring_auth` itself and the
     //    authority-transact rail stays disabled.
     let (ring_auth, ring_auth_bump) = pda::ring_auth(&ring_program);
     assert_eq!(ring_auth, ring.ring_auth_pda(), "sdk ring_auth PDA helper");
@@ -545,7 +521,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         ring_config,
         RingConfig {
             discriminator: RING_CONFIG,
-            authority,
+            authority: ring_auth,
             program_id: ring_program,
             ring_authority_transact_is_enabled: 0,
             paused: 0,
@@ -554,20 +530,58 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         "SPP ring config"
     );
 
+    // 3b. The human authority reaches the SPP flags only through the program,
+    //     and a paused ring takes no deposit until it is reopened.
+    let rejection = ExpectRejection {
+        payer: &env.payer,
+        instructions: &[UpdateRingConfig {
+            authority,
+            ring_config: ring_auth,
+            ring_authority_transact_is_enabled: false,
+            paused: true,
+        }
+        .instruction()],
+    }
+    .send(rpc)?;
+    Rejection::pool(ShieldedPoolError::UnauthorizedCaller)
+        .at(1)
+        .assert_client(&rejection);
+    let deposit = |amount| RingDeposit {
+        ring,
+        payer: &env.sender.keypair,
+        recipient: &env.sender.keypair,
+        tree: env.tree,
+        asset: DepositAsset::Sol,
+        amount,
+    };
+    let pause = |authority: Address, paused: bool| {
+        SetPaused {
+            ring,
+            authority,
+            paused,
+        }
+        .instruction()
+    };
+    send(rpc, &env.payer, &[pause(authority, true)?])?;
+    assert!(
+        spp_ring_config(rpc, ring)?.is_paused(),
+        "paused by the ring authority"
+    );
+    match deposit(RING_DEPOSIT_A).send(rpc) {
+        Err(DepositError::Client(error)) => {
+            Rejection::pool(ShieldedPoolError::RingPaused).assert_client(&error)
+        }
+        Err(other) => return Err(anyhow!("expected RingPaused, got {other}")),
+        Ok(_) => return Err(anyhow!("the paused ring took a deposit")),
+    }
+    send(rpc, &env.payer, &[pause(authority, false)?])?;
+
     // 4. Two ring SOL deposits give the sender the ring-owned UTXOs the transfer
     //    spends. Their blindings come back from the deposit builder, so the spend
     //    is rebuilt without needing a wallet sync here.
     let mut spendable = Vec::with_capacity(2);
     for amount in [RING_DEPOSIT_A, RING_DEPOSIT_B] {
-        let RingDepositReceipt { utxo, .. } = RingDeposit {
-            ring,
-            payer: &env.sender.keypair,
-            recipient: &env.sender.keypair,
-            tree: env.tree,
-            asset: DepositAsset::Sol,
-            amount,
-        }
-        .send(rpc)?;
+        let RingDepositReceipt { utxo, .. } = deposit(amount).send(rpc)?;
         spendable.push(utxo);
     }
 
@@ -612,6 +626,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         sender: &env.sender.keypair,
         prepared,
     })
+    .with_rules(&RULES)
     .with_tree(env.tree)
     .with_assets(&env.assets)
     .prove(TransferProofEnvironment {
@@ -813,42 +828,13 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         Ok(hop_transfer.prepare()?)
     };
 
-    // 10. A policy ring gathers its witness over the blocking transport only,
-    //     so the async path is refused on the config read, before the
-    //     unreachable prover is asked.
-    let async_rpc = AsyncSolanaRpc::new(env.rpc_url.clone());
-    let async_indexer = AsyncZolanaIndexer::new(env.indexer_url.clone());
-    let unreachable = AsyncProverClient::new("http://127.0.0.1:1".to_string());
-    let refused = tokio::runtime::Runtime::new()?.block_on(
-        CustomRingTransfer::new(CustomRingTransferInput {
-            ring,
-            sender: &env.recipient.keypair,
-            prepared: prepare_hop()?,
-        })
-        .with_tree(env.tree)
-        .with_assets(&env.assets)
-        .prove_async(AsyncTransferProofEnvironment {
-            indexer: &async_indexer,
-            rpc: &async_rpc,
-            prover: &unreachable,
-        }),
-    );
-    match refused {
-        Err(TransferError::PolicyAsyncUnsupported) => {}
-        Err(other) => return Err(anyhow!("expected PolicyAsyncUnsupported, got {other}")),
-        Ok(_) => {
-            return Err(anyhow!(
-                "expected PolicyAsyncUnsupported, the transfer was proven"
-            ))
-        }
-    }
-
-    // 11. The second hop, over the blocking transport.
-    let hop = RingTransfer {
+    // 10. The second hop goes over BOTH transports, the policy statement holds
+    //     the same parity as the audit statement.
+    let hop = AsyncHopParity {
         ring,
         sender: &env.recipient.keypair,
-        prepared: prepare_hop()?,
-        interface_transfer_accounts: Vec::new(),
+        blocking: prepare_hop()?,
+        asynchronous: prepare_hop()?,
         auditor_tag,
     }
     .send(&env, &prover)?;
@@ -871,6 +857,37 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         "second hop outputs"
     );
 
+    // 11. The config authority hands over, only the new key pauses the ring.
+    let successor = env.funded_keypair()?;
+    rpc.create_and_send_transaction(
+        &[SetAuthority {
+            ring,
+            authority,
+            new_authority: successor.pubkey(),
+        }
+        .instruction()],
+        authority,
+        &[&env.payer, &successor],
+    )?;
+    let rejection = ExpectRejection {
+        payer: &env.payer,
+        instructions: &[pause(authority, true)?],
+    }
+    .send(rpc)?;
+    Rejection::custom(CustomRingError::UnauthorizedAuthority as u32)
+        .at(1)
+        .assert_client(&rejection);
+    send(rpc, &successor, &[pause(successor.pubkey(), true)?])?;
+    assert!(
+        spp_ring_config(rpc, ring)?.is_paused(),
+        "paused by the successor"
+    );
+    send(rpc, &successor, &[pause(successor.pubkey(), false)?])?;
+    assert!(
+        !spp_ring_config(rpc, ring)?.is_paused(),
+        "reopened by the successor"
+    );
+
     Ok(())
 }
 
@@ -891,8 +908,7 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
         ring,
         payer: &env.payer,
         auditor_pubkey: auditor_pk,
-        entries_tree: env.tree,
-        has_policy: false,
+        tier: Tier::AuditOnly,
     }
     .send(rpc)?;
 
@@ -1082,8 +1098,7 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
         ring,
         payer: &env.payer,
         auditor_pubkey: auditor.pubkey(),
-        entries_tree: env.tree,
-        has_policy: true,
+        tier: Tier::policy(env.tree),
     }
     .send(rpc)?;
     let prover = ProverClient::local();
@@ -1225,6 +1240,7 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
             sender,
             prepared,
         })
+        .with_rules(&RULES)
         .with_tree(env.tree)
         .with_assets(&env.assets)
         .prove(TransferProofEnvironment {
@@ -1278,8 +1294,7 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
         ring,
         payer: &env.payer,
         auditor_pubkey: auditor.pubkey(),
-        entries_tree: env.tree,
-        has_policy: true,
+        tier: Tier::policy(env.tree),
     }
     .send(rpc)?;
     let prover = ProverClient::local();
@@ -1612,15 +1627,14 @@ fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
     let auditor_tag = auditor_view_tag(&auditor.pubkey());
     let prover = ProverClient::local();
 
-    // env.tree is the active tree and the ring's entries tree, old_tree holds
-    // the stranded note.
-    let old_tree = env.create_registered_tree()?;
+    // env.tree is the active tree and the ring's entries tree, the genesis
+    // default tree holds the stranded note.
+    let old_tree = env.register_default_tree()?;
     RegisterRing {
         ring,
         payer: &env.payer,
         auditor_pubkey: auditor.pubkey(),
-        entries_tree: env.tree,
-        has_policy: true,
+        tier: Tier::policy(env.tree),
     }
     .send(rpc)?;
 
@@ -1655,6 +1669,7 @@ fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
         sender,
         prepared,
     })
+    .with_rules(&RULES)
     .with_tree(old_tree)
     .with_output_tree(env.tree)
     .with_assets(&env.assets)
@@ -1752,8 +1767,7 @@ fn a_transfer_outputs_apart_from_the_entries_tree() -> Result<()> {
         ring,
         payer: &env.payer,
         auditor_pubkey: auditor.pubkey(),
-        entries_tree: env.tree,
-        has_policy: true,
+        tier: Tier::policy(env.tree),
     }
     .send(rpc)?;
 
@@ -1788,6 +1802,7 @@ fn a_transfer_outputs_apart_from_the_entries_tree() -> Result<()> {
         sender,
         prepared,
     })
+    .with_rules(&RULES)
     .with_tree(input_tree)
     .with_output_tree(output_tree)
     .with_assets(&env.assets)
@@ -1837,56 +1852,9 @@ fn lamports<R: Rpc>(rpc: &R, address: Address) -> Result<u64> {
         .lamports)
 }
 
-struct RegisterRing<'a> {
-    ring: CustomRing,
-    payer: &'a Keypair,
-    auditor_pubkey: P256Pubkey,
-    entries_tree: Address,
-    has_policy: bool,
-}
-
-impl RegisterRing<'_> {
-    fn send(self, rpc: &SolanaRpc) -> Result<()> {
-        let authority = self.payer.pubkey();
-        send(
-            rpc,
-            self.payer,
-            &[CreateConfig {
-                ring: self.ring,
-                payer: authority,
-                authority,
-                auditor_pubkey: self.auditor_pubkey,
-                has_policy: self.has_policy,
-            }
-            .instruction()?],
-        )?;
-        send(
-            rpc,
-            self.payer,
-            &[InitSppRingConfig {
-                ring: self.ring,
-                payer: authority,
-                authority,
-            }
-            .instruction()],
-        )?;
-        // A policy ring pins its table, an audit-only ring runs no create_policy.
-        if self.has_policy {
-            send(
-                rpc,
-                self.payer,
-                &[CreatePolicy {
-                    ring: self.ring,
-                    payer: authority,
-                    authority,
-                    entries_tree: self.entries_tree,
-                    shared_sources: vec![],
-                }
-                .instruction()?],
-            )?;
-        }
-        Ok(())
-    }
+fn spp_ring_config(rpc: &SolanaRpc, ring: CustomRing) -> Result<RingConfig> {
+    ring.read_spp_ring_config(rpc)?
+        .ok_or_else(|| anyhow!("SPP ring config of {}", ring.program_id()))
 }
 
 /// The test's own view of a note, spent and audited from the same values.
@@ -1985,6 +1953,7 @@ impl RingTransfer<'_> {
             sender: self.sender,
             prepared: self.prepared,
         })
+        .with_rules(&RULES)
         .with_tree(env.tree)
         .with_assets(&env.assets)
         .with_interface_transfer_accounts(self.interface_transfer_accounts)
@@ -2033,6 +2002,7 @@ impl AsyncHopParity<'_> {
             sender: self.sender,
             prepared: self.blocking,
         })
+        .with_rules(&RULES)
         .with_tree(env.tree)
         .with_assets(&env.assets)
         .prove(TransferProofEnvironment {
@@ -2056,6 +2026,7 @@ impl AsyncHopParity<'_> {
                 sender: self.sender,
                 prepared: self.asynchronous,
             })
+            .with_rules(&RULES)
             .with_tree(env.tree)
             .with_assets(&env.assets)
             .prove_async(AsyncTransferProofEnvironment {

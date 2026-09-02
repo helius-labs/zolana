@@ -23,6 +23,9 @@ pub fn process_create_entry_ix(
     let list_id = ListId::try_from(ix.list_id).map_err(|_| CustomRingError::InvalidListId)?;
     let state = EntryState::try_from(ix.state).map_err(|_| CustomRingError::InvalidEntryState)?;
     let member = Member::from_bytes(ix.member).map_err(|_| CustomRingError::InvalidPolicyMember)?;
+    if !list_id.admits_content(ix.content_hash) {
+        return Err(CustomRingError::InvalidEntryContent.into());
+    }
 
     let parsed = MutationAccounts::validate_and_parse(program_id, accounts, list_id)?;
     parsed.check_mutator(list_id, &member)?;

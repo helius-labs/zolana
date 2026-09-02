@@ -4,7 +4,8 @@ use std::{
 };
 
 use custom_ring_sdk::{
-    AccountReadError, CustomRing, SetAuthority, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
+    AccountReadError, CustomRing, SetAuthority, SetPaused, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
+    SET_PAUSED_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
@@ -12,12 +13,15 @@ use solana_keypair::read_keypair_file;
 use solana_signer::Signer;
 use thiserror::Error;
 use zolana_client::{Rpc, SolanaRpc};
+use zolana_interface::state::RingConfig;
 
 use crate::{
     config::{expand_tilde, ConfigError},
     deploy::{read_program_data, DeployError, ProgramBinary, ProgramDataInfo},
     file::FileError,
-    release::{ReleaseError, RingProgram},
+    line,
+    release::{ReleaseError, RingProgram, RingTier},
+    step::{no_hint, IdempotentStep, Observed, StepError, StepOutcome},
     tool::{ToolError, SOLANA},
     AuthorityCommand, Context,
 };
@@ -30,10 +34,22 @@ pub struct SetUpgradeAuthority<'a> {
 }
 
 #[must_use]
+pub struct RingPause {
+    pub paused: bool,
+}
+
+#[must_use]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum InitializationState {
-    Complete,
+enum InitializationState<R> {
+    Complete(R),
     Incomplete,
+}
+
+struct RingAccounts<C, R, P> {
+    config: Option<C>,
+    spp_ring: Option<R>,
+    policy: Option<P>,
+    has_policy: bool,
 }
 
 #[derive(Debug, Error)]
@@ -68,6 +84,10 @@ pub enum AuthorityError {
     NewAuthorityKeypair { path: String },
     #[error("sending set_authority failed")]
     SetAuthority(#[source] Box<zolana_client::ClientError>),
+    #[error(transparent)]
+    Build(#[from] wincode::Error),
+    #[error(transparent)]
+    Step(#[from] StepError),
 }
 
 pub fn run(ctx: &Context, command: AuthorityCommand) -> Result<(), AuthorityError> {
@@ -128,6 +148,8 @@ pub fn run(ctx: &Context, command: AuthorityCommand) -> Result<(), AuthorityErro
                 new_authority_keypair.display()
             );
         }
+        AuthorityCommand::Pause => RingPause { paused: true }.send(ctx)?,
+        AuthorityCommand::Resume => RingPause { paused: false }.send(ctx)?,
         AuthorityCommand::Renounce { yes, program_so } => {
             if !yes {
                 return Err(AuthorityError::NeedsConfirmation { program });
@@ -156,9 +178,7 @@ fn expected_binary(
     if let Some(path) = program_so {
         return Ok(ProgramBinary::read(&ctx.project_path(&path))?);
     }
-    // A policy ring deployed the rules-configured binary, its bytes must verify
-    // against that one, not the plain build.
-    let program = RingProgram::from_lock_tier(ctx.config.policy.is_some())?;
+    let program = RingProgram::from_lock_tier(RingTier::of(ctx.config.policy.as_ref()))?;
     let sha256 = hex::decode(&program.asset.sha256)
         .ok()
         .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok())
@@ -171,38 +191,73 @@ fn expected_binary(
     })
 }
 
-fn require_initialized(ctx: &Context) -> Result<(), AuthorityError> {
+fn require_initialized(ctx: &Context) -> Result<RingConfig, AuthorityError> {
     let config = ctx.ring.read_config(&ctx.rpc)?;
-    let has_policy = config.as_ref().is_some_and(|config| config.has_policy);
-    InitializationState::observe(
+    RingAccounts {
+        has_policy: config.as_ref().is_some_and(|config| config.has_policy),
         config,
-        ctx.ring.read_spp_ring_config(&ctx.rpc)?,
-        ctx.ring.read_policy_config(&ctx.rpc)?,
-        has_policy,
-    )
+        spp_ring: ctx.ring.read_spp_ring_config(&ctx.rpc)?,
+        policy: ctx.ring.read_policy_config(&ctx.rpc)?,
+    }
+    .initialization()
     .require(ctx.ring.program_id())
 }
 
-impl InitializationState {
+impl RingPause {
+    pub fn send(self, ctx: &Context) -> Result<(), AuthorityError> {
+        let spp_ring = require_initialized(ctx)?;
+        let authority = ctx.config.config_authority()?;
+        let observed = if spp_ring.is_paused() == self.paused {
+            Observed::Present
+        } else {
+            Observed::Absent
+        };
+        let outcome = IdempotentStep {
+            rpc: &ctx.rpc,
+            authority: &authority,
+            co_signers: &[],
+            name: "set_paused",
+            compute_unit_limit: SET_PAUSED_COMPUTE_UNIT_LIMIT,
+            hint: no_hint,
+        }
+        .ensure_present(
+            observed,
+            &[SetPaused {
+                ring: ctx.ring,
+                authority: authority.pubkey(),
+                paused: self.paused,
+            }
+            .instruction()?],
+        )?;
+        let label = match outcome {
+            StepOutcome::Created if self.paused => "paused",
+            StepOutcome::Created => "resumed",
+            _ if self.paused => "already paused",
+            _ => "already open",
+        };
+        line("spp ring", label);
+        Ok(())
+    }
+}
+
+impl<C, R, P> RingAccounts<C, R, P> {
     /// A policy ring must pin its policy before renounce drops the upgrade
     /// authority, an audit-only ring pins none.
-    fn observe<C, R, P>(
-        config: Option<C>,
-        spp_ring: Option<R>,
-        policy: Option<P>,
-        has_policy: bool,
-    ) -> Self {
-        let policy_ready = !has_policy || policy.is_some();
-        if config.is_some() && spp_ring.is_some() && policy_ready {
-            Self::Complete
-        } else {
-            Self::Incomplete
+    fn initialization(self) -> InitializationState<R> {
+        let policy_ready = !self.has_policy || self.policy.is_some();
+        match self.spp_ring {
+            Some(spp_ring) if self.config.is_some() && policy_ready => {
+                InitializationState::Complete(spp_ring)
+            }
+            _ => InitializationState::Incomplete,
         }
     }
+}
 
-    fn require(self, program: Address) -> Result<(), AuthorityError> {
+impl<R> InitializationState<R> {
+    fn require(self, program: Address) -> Result<R, AuthorityError> {
         match self {
-            Self::Complete => Ok(()),
+            Self::Complete(spp_ring) => Ok(spp_ring),
             Self::Incomplete => Err(AuthorityError::NotInitialized { program }),
         }
     }
@@ -312,31 +367,55 @@ mod tests {
     #[test]
     fn renounce_requires_the_policy_only_for_a_policy_ring() {
         let program = Address::new_from_array([1; 32]);
+        let some = Some(());
+        let none = None::<()>;
         // A policy ring is incomplete until its policy config exists.
-        for state in [
-            InitializationState::observe(None::<()>, None::<()>, None::<()>, true),
-            InitializationState::observe(Some(()), None::<()>, None::<()>, true),
-            InitializationState::observe(None::<()>, Some(()), None::<()>, true),
-            InitializationState::observe(Some(()), Some(()), None::<()>, true),
+        for (config, spp_ring, policy) in [
+            (none, none, none),
+            (some, none, none),
+            (none, some, none),
+            (some, some, none),
         ] {
+            let state = RingAccounts {
+                config,
+                spp_ring,
+                policy,
+                has_policy: true,
+            }
+            .initialization();
             assert!(matches!(
                 state.require(program),
                 Err(AuthorityError::NotInitialized { program: found }) if found == program
             ));
         }
-        assert!(
-            InitializationState::observe(Some(()), Some(()), Some(()), true)
-                .require(program)
-                .is_ok()
-        );
+        assert!(RingAccounts {
+            config: some,
+            spp_ring: some,
+            policy: some,
+            has_policy: true,
+        }
+        .initialization()
+        .require(program)
+        .is_ok());
         // An audit-only ring is complete with config and spp ring alone.
-        assert!(
-            InitializationState::observe(Some(()), Some(()), None::<()>, false)
-                .require(program)
-                .is_ok()
-        );
+        assert!(RingAccounts {
+            config: some,
+            spp_ring: some,
+            policy: none,
+            has_policy: false,
+        }
+        .initialization()
+        .require(program)
+        .is_ok());
         assert!(matches!(
-            InitializationState::observe(Some(()), None::<()>, None::<()>, false).require(program),
+            RingAccounts {
+                config: some,
+                spp_ring: none,
+                policy: none,
+                has_policy: false,
+            }
+            .initialization()
+            .require(program),
             Err(AuthorityError::NotInitialized { .. })
         ));
     }

@@ -1,19 +1,21 @@
+use custom_ring_interface::RULES;
 use custom_ring_sdk::{
-    read_entry, AccountReadError, CreateEntry, CreatePolicy, CustomRing,
-    EntryError as SdkEntryError, EntryProofEnvironment, EntryProofError, LiveEntry, SetSourceOwner,
-    SourceOwner, UpdateEntry, CREATE_POLICY_COMPUTE_UNIT_LIMIT, ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
+    AccountReadError, CreateEntry, CreatePolicy, CustomRing, EntryError as SdkEntryError,
+    EntryProofEnvironment, EntryProofError, LiveEntry, ReadEntry, SetSourceOwner, SourceOwner,
+    UpdateEntry, CREATE_POLICY_COMPUTE_UNIT_LIMIT, ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
     SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
 use solana_signer::Signer;
 use thiserror::Error;
+use zolana_client::{SolanaRpc, ZolanaIndexer};
 use zolana_ring_policy::{EntryState, ListId, Member, MemberError};
 
 use crate::{
     config::PolicyTable,
     line,
     step::{no_hint, IdempotentStep, Observed, StepError, StepOutcome},
-    Context, ContextError, ListCommand,
+    Context, ContextError, ListCommand, ListIdArg,
 };
 
 #[derive(Debug, Error)]
@@ -40,6 +42,29 @@ pub enum ListError {
     UnknownSourceList { name: String },
 }
 
+#[must_use]
+pub struct EntryMutation<'a> {
+    pub ring: CustomRing,
+    pub authority: &'a dyn Signer,
+    pub list_id: ListId,
+    pub member: Member,
+    pub state: EntryState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
+pub struct EntryOutcome {
+    pub version: u64,
+    pub change: EntryChange,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntryChange {
+    Unchanged,
+    Claimed,
+    Moved,
+}
+
 /// The `[policy.sources]` block as builder input.
 pub fn shared_sources(
     policy: Option<&PolicyTable>,
@@ -51,13 +76,9 @@ pub fn shared_sources(
         .sources
         .iter()
         .map(|(name, curator)| {
-            let list_id = match name.as_str() {
-                "allow" => ListId::Allow,
-                "block" => ListId::Block,
-                "frozen" => ListId::Frozen,
-                _ => return Err(ListError::UnknownSourceList { name: name.clone() }),
-            };
-            Ok((list_id, CustomRing::new(curator.0)))
+            let list_id = <ListIdArg as clap::ValueEnum>::from_str(name, true)
+                .map_err(|_| ListError::UnknownSourceList { name: name.clone() })?;
+            Ok((list_id.into(), CustomRing::new(curator.0)))
         })
         .collect()
 }
@@ -77,13 +98,21 @@ impl From<EntryProofError> for ListError {
 pub fn run(ctx: &mut Context, command: ListCommand) -> Result<(), ListError> {
     match command {
         ListCommand::Init { entries_tree } => init(ctx, entries_tree),
-        ListCommand::Add { list_id, member } => {
-            mutate(ctx, list_id.into(), member, EntryState::Active)
+        ListCommand::Add { list_id, member } => EntryArg {
+            list_id: list_id.into(),
+            member,
         }
-        ListCommand::Clear { list_id, member } => {
-            mutate(ctx, list_id.into(), member, EntryState::Cleared)
+        .set(ctx, EntryState::Active),
+        ListCommand::Clear { list_id, member } => EntryArg {
+            list_id: list_id.into(),
+            member,
         }
-        ListCommand::Show { list_id, member } => show(ctx, list_id.into(), member),
+        .set(ctx, EntryState::Cleared),
+        ListCommand::Show { list_id, member } => EntryArg {
+            list_id: list_id.into(),
+            member,
+        }
+        .show(ctx),
         ListCommand::SetSource {
             list_id,
             curator,
@@ -95,6 +124,150 @@ pub fn run(ctx: &mut Context, command: ListCommand) -> Result<(), ListError> {
             };
             set_source(ctx, list_id.into(), source)
         }
+    }
+}
+
+impl EntryMutation<'_> {
+    pub fn apply(
+        self,
+        environment: EntryProofEnvironment<'_, ZolanaIndexer, SolanaRpc>,
+    ) -> Result<EntryOutcome, ListError> {
+        let rpc = environment.rpc;
+        let config = self
+            .ring
+            .read_policy_config(rpc)?
+            .ok_or(ListError::NoPolicy)?;
+        // Mutations serve the ring's own entries only, the program refuses the rest.
+        if let Some(curator) = config
+            .source_for(self.list_id)
+            .filter(|entries| *entries != self.ring.namespace_pda())
+        {
+            return Err(ListError::SharedList {
+                list_id: self.list_id,
+                curator,
+            });
+        }
+        let live = ReadEntry {
+            entries_tree: config.entries_tree,
+            namespace: self.ring.namespace_pda(),
+            list_id: self.list_id,
+            member: self.member,
+        }
+        .read(environment.indexer)?;
+        let proven = match live {
+            None => CreateEntry {
+                ring: self.ring,
+                payer: self.authority.pubkey(),
+                entries_tree: config.entries_tree,
+                list_id: self.list_id,
+                member: self.member,
+                state: self.state,
+                content_hash: [0u8; 32],
+            }
+            .prove(environment)?,
+            Some(LiveEntry { entry, .. }) if entry.state == self.state => {
+                return Ok(EntryOutcome {
+                    version: entry.version,
+                    change: EntryChange::Unchanged,
+                });
+            }
+            Some(LiveEntry { entry, .. }) => UpdateEntry {
+                ring: self.ring,
+                payer: self.authority.pubkey(),
+                entries_tree: config.entries_tree,
+                spent: entry,
+                state: self.state,
+                content_hash: [0u8; 32],
+            }
+            .prove(environment)?,
+        };
+        let version = proven.entry().version;
+        IdempotentStep {
+            rpc,
+            authority: self.authority,
+            co_signers: &[],
+            name: "entry_mutation",
+            compute_unit_limit: ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
+            hint: no_hint,
+        }
+        .ensure_present(Observed::Absent, &[proven.instruction()?])?;
+        Ok(EntryOutcome {
+            version,
+            change: match live {
+                None => EntryChange::Claimed,
+                Some(_) => EntryChange::Moved,
+            },
+        })
+    }
+}
+
+impl EntryChange {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Unchanged => "already there",
+            Self::Claimed => "claimed",
+            Self::Moved => "moved",
+        }
+    }
+}
+
+struct EntryArg {
+    list_id: ListId,
+    member: Address,
+}
+
+impl EntryArg {
+    fn member(&self) -> Result<Member, MemberError> {
+        Member::owner_tag(self.member.as_array())
+    }
+
+    fn set(self, ctx: &mut Context, state: EntryState) -> Result<(), ListError> {
+        let authority = ctx.funded_authority()?;
+        let indexer = ctx.indexer();
+        let prover = ctx.prover();
+        line("entry", format_args!("{:?} {}", self.list_id, self.member));
+        let outcome = EntryMutation {
+            ring: ctx.ring,
+            authority: &authority,
+            list_id: self.list_id,
+            member: self.member()?,
+            state,
+        }
+        .apply(EntryProofEnvironment {
+            indexer: &indexer,
+            rpc: &ctx.rpc,
+            prover: &prover,
+        })?;
+        line(
+            "state",
+            format_args!("{state:?} {}", outcome.change.label()),
+        );
+        line("version", outcome.version);
+        Ok(())
+    }
+
+    fn show(self, ctx: &Context) -> Result<(), ListError> {
+        let config = ctx
+            .ring
+            .read_policy_config(&ctx.rpc)?
+            .ok_or(ListError::NoPolicy)?;
+        let live = ReadEntry {
+            entries_tree: config.entries_tree,
+            namespace: config
+                .source_for(self.list_id)
+                .unwrap_or_else(|| ctx.ring.namespace_pda()),
+            list_id: self.list_id,
+            member: self.member()?,
+        }
+        .read(&ctx.indexer())?
+        .ok_or(ListError::NoEntry {
+            list_id: self.list_id,
+            member: self.member,
+        })?;
+        line("entry", format_args!("{:?} {}", self.list_id, self.member));
+        line("state", format_args!("{:?}", live.entry.state));
+        line("version", live.entry.version);
+        Ok(())
     }
 }
 
@@ -122,7 +295,7 @@ fn set_source(ctx: &mut Context, list_id: ListId, source: SourceOwner) -> Result
         .ring
         .read_policy_config(&ctx.rpc)?
         .ok_or(ListError::NoPolicy)?
-        .source_for(list_id as u8)
+        .source_for(list_id)
         .ok_or(ListError::NoPolicy)?;
     line("list_id", format_args!("{list_id:?}"));
     line("entries", entries);
@@ -150,6 +323,7 @@ fn init(ctx: &mut Context, entries_tree: Address) -> Result<(), ListError> {
             payer: payer.pubkey(),
             authority: upgrade_authority.pubkey(),
             entries_tree,
+            rules: &RULES,
             shared_sources: shared_sources(ctx.config.policy.as_ref())?,
         }
         .instruction()?],
@@ -160,105 +334,51 @@ fn init(ctx: &mut Context, entries_tree: Address) -> Result<(), ListError> {
     Ok(())
 }
 
-fn mutate(
-    ctx: &mut Context,
-    list_id: ListId,
-    member: Address,
-    state: EntryState,
-) -> Result<(), ListError> {
-    let authority = ctx.funded_authority()?;
-    let config = ctx
-        .ring
-        .read_policy_config(&ctx.rpc)?
-        .ok_or(ListError::NoPolicy)?;
-    let entries_tree = config.entries_tree;
-    // Mutations serve the ring's own entries only, the program refuses the rest.
-    if let Some(entries) = config.source_for(list_id as u8) {
-        if entries != ctx.ring.namespace_pda() {
-            return Err(ListError::SharedList {
-                list_id,
-                curator: entries,
-            });
-        }
-    }
-    let member_field = Member::owner_tag(member.as_array())?;
-    let indexer = ctx.indexer();
-    let prover = ctx.prover();
-    let environment = EntryProofEnvironment {
-        indexer: &indexer,
-        rpc: &ctx.rpc,
-        prover: &prover,
-    };
-
-    let live = read_entry(&indexer, ctx.ring.namespace_pda(), list_id, &member_field)?;
-    line("entry", format_args!("{list_id:?} {member}"));
-    let proven = match live {
-        None => {
-            line("action", format_args!("claiming at state {state:?}"));
-            CreateEntry {
-                ring: ctx.ring,
-                payer: authority.pubkey(),
-                entries_tree,
-                list_id,
-                member: member_field,
-                state,
-                content_hash: [0u8; 32],
-            }
-            .prove(environment)?
-        }
-        Some(LiveEntry { entry, .. }) if entry.state == state => {
-            line("action", format_args!("already {state:?}"));
-            return Ok(());
-        }
-        Some(LiveEntry { entry, .. }) => {
-            line("action", format_args!("moving to {state:?}"));
-            UpdateEntry {
-                ring: ctx.ring,
-                payer: authority.pubkey(),
-                entries_tree,
-                spent: entry,
-                state,
-                content_hash: [0u8; 32],
-            }
-            .prove(environment)?
-        }
-    };
-    let version = proven.entry().version;
-    IdempotentStep {
-        rpc: &ctx.rpc,
-        authority: &authority,
-        co_signers: &[],
-        name: "entry_mutation",
-        compute_unit_limit: ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
-        hint: no_hint,
-    }
-    .ensure_present(Observed::Absent, &[proven.instruction()?])?;
-    line("version", version);
-    Ok(())
-}
-
-fn show(ctx: &mut Context, list_id: ListId, member: Address) -> Result<(), ListError> {
-    let member_field = Member::owner_tag(member.as_array())?;
-    let entries = ctx
-        .ring
-        .read_policy_config(&ctx.rpc)?
-        .ok_or(ListError::NoPolicy)?
-        .source_for(list_id as u8)
-        .unwrap_or_else(|| ctx.ring.namespace_pda());
-    let indexer = ctx.indexer();
-    let live = read_entry(&indexer, entries, list_id, &member_field)?
-        .ok_or(ListError::NoEntry { list_id, member })?;
-    line("entry", format_args!("{list_id:?} {member}"));
-    line("state", format_args!("{:?}", live.entry.state));
-    line("version", live.entry.version);
-    Ok(())
-}
-
 fn outcome_label(outcome: StepOutcome) -> &'static str {
     match outcome {
         StepOutcome::Created => "created",
         StepOutcome::Present => "already created",
         StepOutcome::Closed => "closed",
         StepOutcome::Absent => "absent",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use crate::config::Base58Address;
+
+    use super::*;
+
+    fn sources(names: &[&str]) -> Result<Vec<ListId>, ListError> {
+        let curator = Base58Address(Address::new_from_array([1; 32]));
+        let policy = PolicyTable {
+            sources: names
+                .iter()
+                .map(|name| ((*name).to_owned(), curator))
+                .collect::<BTreeMap<_, _>>(),
+        };
+        Ok(shared_sources(Some(&policy))?
+            .into_iter()
+            .map(|(list_id, _)| list_id)
+            .collect())
+    }
+
+    #[test]
+    fn source_names_are_the_cli_list_arms_in_any_case() {
+        assert_eq!(
+            sources(&["allow", "block", "frozen"]).expect("known lists"),
+            vec![ListId::Allow, ListId::Block, ListId::Frozen]
+        );
+        assert_eq!(
+            sources(&["Block"]).expect("case-insensitive name"),
+            vec![ListId::Block]
+        );
+        assert!(matches!(
+            sources(&["reader"]),
+            Err(ListError::UnknownSourceList { name }) if name == "reader"
+        ));
+        assert!(shared_sources(None).expect("no policy").is_empty());
     }
 }

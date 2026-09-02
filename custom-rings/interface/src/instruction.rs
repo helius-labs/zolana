@@ -19,12 +19,14 @@ pub mod tag {
     pub const CREATE_ENTRY: u8 = 8;
     pub const UPDATE_ENTRY: u8 = 9;
     pub const SET_POLICY_SOURCE: u8 = 10;
+    pub const SET_PAUSED: u8 = 11;
 }
 
 pub const CREATE_CONFIG_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const READ_ACCESS_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const SET_AUTHORITY_COMPUTE_UNIT_LIMIT: u32 = 50_000;
+pub const SET_PAUSED_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CreateConfigIxData {
@@ -37,6 +39,12 @@ pub struct CreateConfigIxData {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct ReaderIxData {
     pub reader: ReaderKeyBytes,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct SetPausedIxData {
+    /// 1 pauses the ring on SPP, 0 resumes it, any other value is rejected.
+    pub paused: u8,
 }
 
 /// Groth16 proof of the custom-ring circuit. The circuit's emulated P256
@@ -96,7 +104,7 @@ pub struct SetPolicySourceIxData {
     pub source: u8,
 }
 
-/// `member` is pre-derived, member-written lists require the signer to derive to it.
+/// A member-written list requires the payer's Solana address to derive to `member`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CreateEntryIxData {
     pub list_id: u8,

@@ -4,10 +4,12 @@
 //! `custom-rings/program/tests/common/mod.rs`.
 
 use curve25519_dalek::constants::{ED25519_BASEPOINT_POINT, EIGHT_TORSION};
+use custom_ring_interface::SetPausedIxData;
 use custom_ring_sdk::{
     tag, CreateConfig, CreateConfigIxData, CustomRing, CustomRingProof, CustomRingTransact,
     CustomRingTransactIxData, Deposit, GrantReadAccess, InitSppRingConfig, ReaderIxData, ReaderKey,
-    ReaderKeyError, RevokeReadAccess, SetAuthority, CONFIG_PDA_SEED, READ_ACCESS_RECORD_PDA_SEED,
+    ReaderKeyError, RevokeReadAccess, SetAuthority, SetPaused, CONFIG_PDA_SEED,
+    READ_ACCESS_RECORD_PDA_SEED, SET_PAUSED_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -128,6 +130,7 @@ fn init_spp_ring_config_emits_the_program_account_order_and_no_body() {
         ring: ring(),
         payer: payer(),
         authority: authority(),
+        has_policy: false,
     }
     .instruction();
 
@@ -147,6 +150,33 @@ fn init_spp_ring_config_emits_the_program_account_order_and_no_body() {
     // The processor rejects any trailing byte, so the tag has to be the whole
     // instruction data.
     assert_eq!(instruction.data, vec![tag::INIT_SPP_RING_CONFIG]);
+}
+
+#[test]
+fn a_policy_ring_registers_with_its_policy_config_as_the_eighth_account() {
+    let audit_only = InitSppRingConfig {
+        ring: ring(),
+        payer: payer(),
+        authority: authority(),
+        has_policy: false,
+    }
+    .instruction();
+    let policy = InitSppRingConfig {
+        ring: ring(),
+        payer: payer(),
+        authority: authority(),
+        has_policy: true,
+    }
+    .instruction();
+
+    assert_eq!(audit_only.accounts.len(), 7);
+    assert_eq!(policy.accounts.len(), 8);
+    assert_eq!(policy.accounts[..7], audit_only.accounts[..]);
+    assert_eq!(
+        policy.accounts[7],
+        AccountMeta::new_readonly(ring().policy_config_pda(), false)
+    );
+    assert_eq!(policy.data, vec![tag::INIT_SPP_RING_CONFIG]);
 }
 
 fn reader() -> ReaderKey {
@@ -299,6 +329,37 @@ fn set_authority_emits_both_signers_and_the_config() {
 }
 
 #[test]
+fn set_paused_emits_the_authority_the_ring_auth_and_spp() {
+    for paused in [true, false] {
+        let instruction = SetPaused {
+            ring: ring(),
+            authority: authority(),
+            paused,
+        }
+        .instruction()
+        .expect("instruction");
+
+        assert_eq!(instruction.program_id, ring().program_id());
+        assert_eq!(
+            instruction.accounts,
+            vec![
+                AccountMeta::new_readonly(authority(), true),
+                AccountMeta::new_readonly(ring().config_pda(), false),
+                AccountMeta::new(ring().ring_auth_pda(), false),
+                AccountMeta::new_readonly(pda::shielded_pool_program_id(), false),
+            ]
+        );
+        let (ix_tag, body) = split_tag(&instruction);
+        assert_eq!(ix_tag, tag::SET_PAUSED);
+        let decoded: SetPausedIxData =
+            wincode::deserialize_exact(body).expect("body is a complete SetPausedIxData");
+        assert_eq!(decoded.paused, u8::from(paused));
+        assert_eq!(instruction.data, vec![tag::SET_PAUSED, u8::from(paused)]);
+    }
+    assert_eq!(SET_PAUSED_COMPUTE_UNIT_LIMIT, 50_000);
+}
+
+#[test]
 fn read_access_record_pda_derives_from_the_hashed_tagged_key() {
     use sha2::Digest;
     for key in [reader(), p256_reader()] {
@@ -347,6 +408,7 @@ fn builders_place_the_canonical_config_and_ring_auth_pdas() {
         ring: ring(),
         payer: payer(),
         authority: authority(),
+        has_policy: false,
     }
     .instruction();
     assert_eq!(
@@ -377,6 +439,7 @@ fn ring_auth_is_never_a_signer_in_the_outer_instruction() {
         ring: ring(),
         payer: payer(),
         authority: authority(),
+        has_policy: false,
     }
     .instruction();
     let init_ring_auth = init.accounts.get(4).expect("ring_auth meta");
@@ -695,5 +758,6 @@ fn ring_instruction_tags_are_stable() {
     assert_eq!(tag::GRANT_READ_ACCESS, 4);
     assert_eq!(tag::REVOKE_READ_ACCESS, 5);
     assert_eq!(tag::SET_AUTHORITY, 6);
+    assert_eq!(tag::SET_PAUSED, 11);
     assert_eq!(tag::DEPOSIT, 14);
 }

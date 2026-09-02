@@ -109,14 +109,14 @@ pub(crate) fn resolve_sources(
     let mut referenced = [false; N_SOURCE_SLOTS];
     for rule in RULES.rules() {
         for list_id in rule.referenced_lists() {
-            referenced[list_id as usize - 1] = true;
+            referenced[list_id.slot()] = true;
         }
     }
     let mut sources = [SourceSlot::zeroed(); N_SOURCE_SLOTS];
     let mut seen = [false; N_SOURCE_SLOTS];
     for spec in specs {
         let list_id = ListId::try_from(spec.list_id).map_err(|_| CustomRingError::InvalidSource)?;
-        let index = list_id as usize - 1;
+        let index = list_id.slot();
         if !referenced[index] || seen[index] {
             return Err(CustomRingError::InvalidSource.into());
         }
@@ -130,7 +130,7 @@ pub(crate) fn resolve_sources(
                 // Copies the curator's resolved owner, a curator of a curator
                 // never chains.
                 load_curator_policy_config(curator, entries_tree)?
-                    .source_for(list_id as u8)
+                    .source_for(list_id)
                     .ok_or(CustomRingError::CuratorSourceMissing)?
             }
         };

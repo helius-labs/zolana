@@ -36,8 +36,12 @@ pub enum EntryProofError {
     InvalidTree { address: Address },
     #[error("indexer returned no proof for the entry")]
     MissingProof,
-    #[error("more than one live {list_id:?} entry for the member")]
-    AmbiguousEntry { list_id: ListId, member: [u8; 32] },
+    #[error("the spend of the {list_id:?} entry published no version {version}")]
+    BrokenLineage {
+        list_id: ListId,
+        member: [u8; 32],
+        version: u64,
+    },
     #[error("proof is not a transact proof")]
     InvalidProof,
 }

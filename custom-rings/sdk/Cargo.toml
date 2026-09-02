@@ -54,6 +54,7 @@ zolana-transaction = { workspace = true }
 zolana-tree = { workspace = true }
 
 [dev-dependencies]
+async-trait = { workspace = true }
 curve25519-dalek = "4.1"
 groth16-solana = { workspace = true, features = ["bsb22"] }
 sha2 = { workspace = true }

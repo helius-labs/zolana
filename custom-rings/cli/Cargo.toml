@@ -13,15 +13,17 @@ name = "zolana-ring"
 path = "src/main.rs"
 
 [features]
-# Match the deployed policy binary, the linked RULES builds the transfer witness.
-allowlist = ["custom-ring-program/allowlist"]
-blocklist = ["custom-ring-program/blocklist"]
-freeze = ["custom-ring-program/freeze"]
+# Must match the deployed binary, the compiled table is hashed on chain.
+allowlist = ["custom-ring-interface/allowlist"]
+blocklist = ["custom-ring-interface/blocklist"]
+freeze = ["custom-ring-interface/freeze"]
 
 [dependencies]
 anyhow = { workspace = true }
 bincode = { workspace = true }
 clap = { workspace = true }
+custom-ring-interface = { workspace = true }
+# Only for the error codes the init hints name.
 custom-ring-program = { path = "../program", features = ["no-entrypoint"] }
 custom-ring-sdk = { path = "../sdk" }
 hex = { workspace = true }

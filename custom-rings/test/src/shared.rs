@@ -7,12 +7,20 @@
 //! also registers one SPL mint, named USDC in the tests, under asset id 2,
 //! with the mint authority parked on the payer.
 
+use std::path::Path;
+
 use anyhow::{anyhow, Result};
-use custom_ring_sdk::{V0WithLookupTable, TRANSACT_COMPUTE_UNIT_LIMIT};
+use base64::{engine::general_purpose::STANDARD, Engine as _};
+use custom_ring_interface::RULES;
+use custom_ring_sdk::{
+    CreateConfig, CreatePolicy, CustomRing, InitSppRingConfig, V0WithLookupTable,
+    TRANSACT_COMPUTE_UNIT_LIMIT,
+};
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
+use solana_rent::Rent;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
@@ -23,10 +31,11 @@ use zolana_interface::{
     instruction::{CreateProtocolConfig, CreateTree},
     pda,
     state::{tree_account_size, SplAssetCounter},
-    SHIELDED_POOL_PROGRAM_ID,
+    DEFAULT_TREE_ADDRESS, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::ShieldedKeypair;
+use zolana_keypair::{P256Pubkey, ShieldedKeypair};
 use zolana_program_test::system_create_account_ix;
+use zolana_ring_policy::ListId;
 use zolana_test_utils::{
     localnet::{isolated_temp_path, LocalnetValidator, UpgradeableProgram, WorkspaceArtifacts},
     prover::spawn_workspace_prover,
@@ -68,38 +77,77 @@ pub struct TestEnv {
     standard_accounts: smart_account::StandardAccounts,
 }
 
+enum TreeSlot<'a> {
+    /// Allocated in genesis at `DEFAULT_TREE_ADDRESS`, `CreateTree` takes it unsigned.
+    Fixture,
+    Fresh(&'a Keypair),
+}
+
 impl TestEnv {
     /// Allocate and register a second SPP tree owned by the shielded pool.
     pub fn create_registered_tree(&self) -> Result<Address> {
-        let rpc = self.client.rpc();
         let tree = Keypair::new();
-        let rent = rpc
-            .get_minimum_balance_for_rent_exemption(tree_account_size())
-            .map_err(|e| anyhow!("{e}"))?;
-        let alloc_ix = system_create_account_ix(
-            &self.payer.pubkey(),
-            &tree.pubkey(),
-            rent,
-            tree_account_size() as u64,
-            &pda::shielded_pool_program_id(),
-        );
+        self.register_tree(TreeSlot::Fresh(&tree))
+    }
+
+    /// The tree the cli names by default.
+    pub fn register_default_tree(&self) -> Result<Address> {
+        self.register_tree(TreeSlot::Fixture)
+    }
+
+    fn register_tree(&self, slot: TreeSlot<'_>) -> Result<Address> {
+        let rpc = self.client.rpc();
+        let mut instructions = Vec::with_capacity(2);
+        let mut signers: Vec<&dyn Signer> = vec![&self.payer, &self.tree_creation_authority];
+        let tree = match slot {
+            TreeSlot::Fixture => Address::from_str_const(DEFAULT_TREE_ADDRESS),
+            TreeSlot::Fresh(keypair) => {
+                let rent = rpc
+                    .get_minimum_balance_for_rent_exemption(tree_account_size())
+                    .map_err(|e| anyhow!("{e}"))?;
+                instructions.push(system_create_account_ix(
+                    &self.payer.pubkey(),
+                    &keypair.pubkey(),
+                    rent,
+                    tree_account_size() as u64,
+                    &pda::shielded_pool_program_id(),
+                ));
+                signers.push(keypair);
+                keypair.pubkey()
+            }
+        };
         let create_tree_ix = CreateTree {
             authority: self.standard_accounts.tree_vault,
-            tree: tree.pubkey(),
+            tree,
         }
         .instruction();
-        let create_tree_sync = smart_account::execute_sync_ix(
+        instructions.push(smart_account::execute_sync_ix(
             &self.standard_accounts.tree_settings,
             0,
             &[self.tree_creation_authority.pubkey()],
             &[create_tree_ix],
-        );
-        rpc.create_and_send_transaction(
-            &[alloc_ix, create_tree_sync],
-            self.payer.pubkey(),
-            &[&self.payer, &tree, &self.tree_creation_authority],
+        ));
+        rpc.create_and_send_transaction(&instructions, self.payer.pubkey(), &signers)?;
+        Ok(tree)
+    }
+
+    pub fn fund(&self, recipient: Address, lamports: u64) -> Result<()> {
+        send(
+            self.client.rpc(),
+            &self.payer,
+            &[solana_system_interface::instruction::transfer(
+                &self.payer.pubkey(),
+                &recipient,
+                lamports,
+            )],
         )?;
-        Ok(tree.pubkey())
+        Ok(())
+    }
+
+    pub fn funded_keypair(&self) -> Result<Keypair> {
+        let keypair = Keypair::new();
+        self.fund(keypair.pubkey(), SIGNER_AIRDROP)?;
+        Ok(keypair)
     }
 }
 
@@ -121,6 +169,125 @@ impl std::ops::Deref for TestWallet {
 impl std::ops::DerefMut for TestWallet {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.wallet
+    }
+}
+
+pub enum Tier {
+    AuditOnly,
+    Policy {
+        entries_tree: Address,
+        shared_sources: Vec<(ListId, CustomRing)>,
+    },
+}
+
+impl Tier {
+    /// Every referenced list served from the ring's own entries.
+    pub fn policy(entries_tree: Address) -> Self {
+        Self::Policy {
+            entries_tree,
+            shared_sources: Vec::new(),
+        }
+    }
+}
+
+/// The payer doubles as the config authority.
+pub struct RegisterRing<'a> {
+    pub ring: CustomRing,
+    pub payer: &'a Keypair,
+    pub auditor_pubkey: P256Pubkey,
+    pub tier: Tier,
+}
+
+#[must_use]
+pub struct ConfiguredRing<'a> {
+    ring: CustomRing,
+    payer: &'a Keypair,
+    tier: Tier,
+}
+
+#[must_use]
+pub struct PinnedRing<'a> {
+    payer: &'a Keypair,
+    registration: Instruction,
+}
+
+impl<'a> RegisterRing<'a> {
+    pub fn send(self, rpc: &SolanaRpc) -> Result<()> {
+        self.pin(rpc)?.register(rpc)
+    }
+
+    pub fn pin(self, rpc: &SolanaRpc) -> Result<PinnedRing<'a>> {
+        self.configure(rpc)?.pin(rpc)
+    }
+
+    pub fn configure(self, rpc: &SolanaRpc) -> Result<ConfiguredRing<'a>> {
+        let authority = self.payer.pubkey();
+        send(
+            rpc,
+            self.payer,
+            &[CreateConfig {
+                ring: self.ring,
+                payer: authority,
+                authority,
+                auditor_pubkey: self.auditor_pubkey,
+                has_policy: matches!(self.tier, Tier::Policy { .. }),
+            }
+            .instruction()?],
+        )?;
+        Ok(ConfiguredRing {
+            ring: self.ring,
+            payer: self.payer,
+            tier: self.tier,
+        })
+    }
+}
+
+impl<'a> ConfiguredRing<'a> {
+    /// The program refuses it for a policy ring until the policy is pinned.
+    pub fn registration(&self) -> Instruction {
+        let authority = self.payer.pubkey();
+        InitSppRingConfig {
+            ring: self.ring,
+            payer: authority,
+            authority,
+            has_policy: matches!(self.tier, Tier::Policy { .. }),
+        }
+        .instruction()
+    }
+
+    pub fn pin(self, rpc: &SolanaRpc) -> Result<PinnedRing<'a>> {
+        let registration = self.registration();
+        let authority = self.payer.pubkey();
+        if let Tier::Policy {
+            entries_tree,
+            shared_sources,
+        } = self.tier
+        {
+            send(
+                rpc,
+                self.payer,
+                &[CreatePolicy {
+                    ring: self.ring,
+                    payer: authority,
+                    authority,
+                    entries_tree,
+                    rules: &RULES,
+                    shared_sources,
+                }
+                .instruction()?],
+            )?;
+        }
+        Ok(PinnedRing {
+            payer: self.payer,
+            registration,
+        })
+    }
+}
+
+impl PinnedRing<'_> {
+    pub fn register(self, rpc: &SolanaRpc) -> Result<()> {
+        send(rpc, self.payer, &[self.registration])?;
+        Ok(())
     }
 }
 
@@ -150,8 +317,7 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
         std::env::var("ZOLANA_LOCALNET_PHOTON_PORT").unwrap_or_else(|_| "8784".to_string());
 
     let ring_program = custom_ring_program_id()?;
-    let ring_program_so = std::env::var("CUSTOM_RING_PROGRAM_SO")
-        .unwrap_or_else(|_| artifacts.path("target/deploy/custom_ring_program.so"));
+    let ring_program_so = ring_program_so();
     let spp_program = Address::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     let spp_program_so = artifacts.path("target/deploy/shielded_pool_program.so");
     let user_registry = user_registry_program_id();
@@ -191,6 +357,7 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
             authority: &upgrade_authority,
         })
         .collect();
+    write_default_tree_fixture(&validator.account_dir)?;
     validator.start_with_upgradeable_programs(&ring_deployments);
 
     spawn_workspace_prover();
@@ -336,6 +503,30 @@ pub fn custom_ring_program_id() -> Result<Address> {
         .map_err(|e| anyhow!("CUSTOM_RING_PROGRAM_ID {id} failed {e}"))
 }
 
+pub fn ring_program_so() -> String {
+    let artifacts = WorkspaceArtifacts::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
+    std::env::var("CUSTOM_RING_PROGRAM_SO")
+        .unwrap_or_else(|_| artifacts.path("target/deploy/custom_ring_program.so"))
+}
+
+/// The default tree account as the release snapshots ship it.
+fn write_default_tree_fixture(account_dir: &str) -> Result<()> {
+    let size = tree_account_size();
+    let json = format!(
+        r#"{{"pubkey":"{DEFAULT_TREE_ADDRESS}","account":{{"lamports":{},"data":["{}","base64"],"owner":"{}","executable":false,"rentEpoch":{}}}}}"#,
+        Rent::default().minimum_balance(size),
+        STANDARD.encode(vec![0u8; size]),
+        pda::shielded_pool_program_id(),
+        u64::MAX,
+    );
+    std::fs::create_dir_all(account_dir)?;
+    std::fs::write(
+        Path::new(account_dir).join(format!("{DEFAULT_TREE_ADDRESS}.json")),
+        json,
+    )?;
+    Ok(())
+}
+
 /// A fresh ed25519 actor: one keypair funded on chain, its shielded address,
 /// and an empty wallet over the shared asset registry.
 fn new_actor(rpc: &mut SolanaRpc, assets: &AssetRegistry) -> Result<TestWallet> {
@@ -386,5 +577,23 @@ pub fn send_v0_expecting_rejection(
             operation: "send v0",
             source,
         }),
+    }
+}
+
+/// Over [`send`], the failing instruction sits at index 1 behind its compute budget.
+#[must_use]
+pub struct ExpectRejection<'a> {
+    pub payer: &'a dyn Signer,
+    pub instructions: &'a [Instruction],
+}
+
+impl ExpectRejection<'_> {
+    pub fn send(self, rpc: &SolanaRpc) -> Result<ClientError> {
+        match send(rpc, self.payer, self.instructions) {
+            Ok(signature) => Err(anyhow!(
+                "transaction {signature} was expected to be rejected but landed"
+            )),
+            Err(error) => error.downcast::<ClientError>(),
+        }
     }
 }

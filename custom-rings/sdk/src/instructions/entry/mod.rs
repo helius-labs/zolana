@@ -1,8 +1,9 @@
-mod discovery;
+pub(crate) mod discovery;
 mod instruction;
 mod proof;
 
-pub use discovery::{read_entry, LiveEntry};
+pub(crate) use discovery::{EntryLookup, Lineages};
+pub use discovery::{LiveEntry, ReadEntry};
 pub use instruction::{
     CreateEntry, CreatePolicy, EntryError, EntryProofEnvironment, ProvenEntry, UpdateEntry,
 };

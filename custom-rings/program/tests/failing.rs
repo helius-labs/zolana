@@ -14,5 +14,7 @@ mod init_spp_ring_config;
 mod read_access;
 #[path = "failing/set_authority.rs"]
 mod set_authority;
+#[path = "failing/set_paused.rs"]
+mod set_paused;
 #[path = "failing/transact.rs"]
 mod transact;

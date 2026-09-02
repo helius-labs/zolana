@@ -139,7 +139,8 @@ fn print_chain(config: &RingConfig, ring: CustomRing, rpc: &SolanaRpc) -> Result
         Some(_) => line("program", "account exists but is not executable"),
         None => line("program", "not deployed"),
     }
-    match ring.read_config(rpc)? {
+    let state = ring.read_config(rpc)?;
+    match &state {
         Some(state) => line(
             "config",
             format_args!(
@@ -153,6 +154,24 @@ fn print_chain(config: &RingConfig, ring: CustomRing, rpc: &SolanaRpc) -> Result
             "config",
             format_args!("not created ({})", ring.config_pda()),
         ),
+    }
+    // Until the config exists, ring.toml names the tier.
+    let has_policy = state
+        .as_ref()
+        .map_or(config.policy.is_some(), |state| state.has_policy);
+    if has_policy {
+        match ring.read_policy_config(rpc)? {
+            Some(policy) => line(
+                "policy",
+                format_args!("{} tree {}", ring.policy_config_pda(), policy.entries_tree),
+            ),
+            None => line(
+                "policy",
+                format_args!("not pinned ({})", ring.policy_config_pda()),
+            ),
+        }
+    } else {
+        line("policy", "none (audit-only ring)");
     }
     match ring.read_spp_ring_config(rpc)? {
         Some(state) => line(

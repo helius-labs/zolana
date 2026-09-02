@@ -1,6 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use solana_address::Address;
 use zolana_hasher::{sha256::Sha256, Hasher, HasherError};
+use zolana_ring_policy::ListId;
 
 use crate::{ReaderKeyBytes, COMPRESSED_P256_KEY_LEN};
 
@@ -61,7 +62,7 @@ pub const POLICY_CONFIG_PDA_SEED: &[u8] = b"policy";
 /// First byte of an initialized policy config.
 pub const POLICY_CONFIG: u8 = 3;
 /// One slot per list the enum can name, all eight enter the hash.
-pub const N_SOURCE_SLOTS: usize = 8;
+pub const N_SOURCE_SLOTS: usize = zolana_ring_policy::MAX_SOURCES;
 
 /// One list's source, slot `i` is empty (`list_id == 0`) or serves list
 /// `i + 1`.
@@ -94,8 +95,8 @@ impl PolicyConfig {
 
     /// The namespace owner serving `list_id`, `None` when the table does not
     /// reference it.
-    pub fn source_for(&self, list_id: u8) -> Option<Address> {
-        let slot = self.sources[list_id as usize - 1];
+    pub fn source_for(&self, list_id: ListId) -> Option<Address> {
+        let slot = self.sources[list_id.slot()];
         (slot.list_id != 0).then_some(slot.namespace)
     }
 }

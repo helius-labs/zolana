@@ -15,7 +15,7 @@ use zolana_interface::{
 };
 use zolana_keypair::P256Pubkey;
 pub use zolana_ring_client::{ReaderKey, ReaderKeyError};
-use zolana_ring_policy::NAMESPACE_PDA_SEED;
+use zolana_ring_policy::{RuleTable, NAMESPACE_PDA_SEED};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CustomRing {
@@ -45,7 +45,7 @@ pub enum PolicyMatchError {
     AccountRead(#[from] AccountReadError),
     #[error("the ring has no policy config")]
     NoPolicy,
-    #[error("the cli was built for a different policy than the deployed program, rebuild it with the same rule features")]
+    #[error("the rule table does not reproduce the pinned policy hash")]
     HashMismatch,
     #[error("policy hashing failed")]
     Hashing,
@@ -169,14 +169,15 @@ impl CustomRing {
         Ok(Some(config))
     }
 
-    /// The client's compiled `RULES` must reproduce the pinned `policy_hash`, else
-    /// the cli was built without the deployed program's rule features and every
-    /// policy transfer would build the wrong witness.
-    pub fn verify_client_rules<R: Rpc>(self, rpc: &R) -> Result<(), PolicyMatchError> {
+    pub fn verify_client_rules<R: Rpc>(
+        self,
+        rpc: &R,
+        rules: &RuleTable,
+    ) -> Result<(), PolicyMatchError> {
         let config = self
             .read_policy_config(rpc)?
             .ok_or(PolicyMatchError::NoPolicy)?;
-        client_rules_match(&config)
+        client_rules_match(rules, &config)
     }
 
     pub fn read_access_record<R: Rpc>(
@@ -233,9 +234,10 @@ impl CustomRing {
     }
 }
 
-/// The client `RULES` reproduce the config's pinned `policy_hash`, a mismatch
-/// means the cli lacks the deployed program's rule features.
-pub fn client_rules_match(config: &PolicyConfig) -> Result<(), PolicyMatchError> {
+pub fn client_rules_match(
+    rules: &RuleTable,
+    config: &PolicyConfig,
+) -> Result<(), PolicyMatchError> {
     let slots = core::array::from_fn(|i| {
         (
             config.sources[i].list_id,
@@ -246,7 +248,7 @@ pub fn client_rules_match(config: &PolicyConfig) -> Result<(), PolicyMatchError>
         zolana_ring_policy::ListNamespace::new(namespace).map(|owner| owner.owner_hash)
     })
     .map_err(|_| PolicyMatchError::Hashing)?;
-    let hash = custom_ring_interface::RULES
+    let hash = rules
         .hash(&sources)
         .map_err(|_| PolicyMatchError::Hashing)?;
     if hash != config.policy_hash {

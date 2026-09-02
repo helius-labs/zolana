@@ -3,7 +3,7 @@ use thiserror::Error;
 
 /// Errors of the custom ring program.
 ///
-/// The 8100..8138 range is reserved for this program and is collision-free
+/// The 8100..8139 range is reserved for the ring program and is collision-free
 /// against SPP (7000..7047) and the other programs (zk-program-swap
 /// 8005..8016, the rest 9xxx). Every code is pinned by
 /// `tests/error_codes.rs::error_codes_are_stable`; clients observe them, so they
@@ -88,6 +88,8 @@ pub enum CustomRingError {
     CuratorSourceMissing = 8137,
     #[error("the list is served by a curator's entries, mutate it on the curator ring")]
     ForeignSource = 8138,
+    #[error("entry content does not fit the list")]
+    InvalidEntryContent = 8139,
 }
 
 impl From<CustomRingError> for ProgramError {

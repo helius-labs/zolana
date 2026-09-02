@@ -7,8 +7,8 @@ use zolana_tree::TreeAccount;
 
 use crate::error::CustomRingError;
 
-/// Staleness bound on the nullifier root, an older root still proves a retired
-/// entry current.
+/// Root rotations back from the cursor, an older nullifier root still proves a
+/// retired entry current.
 pub const NULLIFIER_ROOT_WINDOW: u32 = 8;
 
 pub struct TransactRoots {
