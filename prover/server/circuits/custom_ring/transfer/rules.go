@@ -10,10 +10,11 @@ import (
 // RuleWires is one compiled policy rule, the policy hash committing only to
 // Packed.
 type RuleWires struct {
-	Packed    frontend.Variable
-	Subject   frontend.Variable
-	Mode      frontend.Variable
-	ListId    frontend.Variable
+	Packed  frontend.Variable
+	Subject frontend.Variable
+	Mode    frontend.Variable
+	// Mask has bit i set for list i+1, zero marks the inline source.
+	Mask      frontend.Variable
 	GuardTag  frontend.Variable
 	Threshold frontend.Variable
 }
@@ -46,19 +47,19 @@ func (c *Circuit) definePolicy(
 func (w RuleWires) define(api frontend.API, checker frontend.Rangechecker, enabled frontend.Variable) {
 	checker.Check(w.Subject, 8)
 	checker.Check(w.Mode, 8)
-	checker.Check(w.ListId, 8)
+	checker.Check(w.Mask, 8)
 	checker.Check(w.GuardTag, 8)
 	checker.Check(w.Threshold, 64)
 	// Mirrors ring_policy::Rule::encoded, byte 31 down to byte 20.
 	api.AssertIsEqual(w.Packed, api.Add(
 		w.Subject,
 		api.Mul(w.Mode, ruleShift[0]),
-		api.Mul(w.ListId, ruleShift[1]),
+		api.Mul(w.Mask, ruleShift[1]),
 		api.Mul(w.GuardTag, ruleShift[2]),
 		api.Mul(w.Threshold, ruleShift[3]),
 	))
 
-	inline := api.Mul(enabled, api.IsZero(api.Sub(w.ListId, InlineKind)))
+	inline := api.Mul(enabled, api.IsZero(w.Mask))
 	abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: inline, A: w.Subject, B: SubjectAsset})
 	abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: inline, A: w.Mode, B: ModePresent})
 }
