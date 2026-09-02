@@ -130,6 +130,7 @@ export {
   readAccessRecordAddress,
   revokeReadAccessInstruction,
   setRingAuthorityInstruction,
+  setRingPausedInstruction,
   RingError,
   RingRpc,
   type DecryptedRingTransaction,

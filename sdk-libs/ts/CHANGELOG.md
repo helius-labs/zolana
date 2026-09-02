@@ -18,11 +18,17 @@ Breaking
   a policy ring also needs `entriesTree`, and `hasPolicy: false` drops the
   policy accounts → forward the fields of `ProvenRingTransfer`, a policy ring
   without its entries tree is refused with `RING_ENTRIES_TREE_REQUIRED`.
-- `buildRingLookupTableTransaction` and `fetchRingLookupTable` include the
-  policy config and entries tree of a policy ring → rebuild a policy ring's
-  table, one built by an earlier version is refused with
-  `RING_LOOKUP_TABLE_INCOMPLETE`, and pass `hasPolicy: false` for an
-  audit-only ring.
+- `initSppRingConfigInstruction` takes `hasPolicy` and adds the policy config
+  account for a policy ring → pass the value given to
+  `createRingConfigInstruction`, a policy ring registers only after its policy
+  config exists.
+- `buildRingLookupTableTransaction` reads the tier and a policy ring's entries
+  tree from the chain, accepts `outputTree`, and needs `getAccount` on
+  `RingLookupTableClient`, `fetchRingLookupTable` and
+  `ringLookupTableAddresses` take the trees as `RingTransactTrees` → rebuild a
+  policy ring's table, one built by an earlier version is refused with
+  `RING_LOOKUP_TABLE_INCOMPLETE`, and pass a `ProvenRingTransfer` as the
+  `trees` of the fetch.
 - `Prover.proveRingTransact` resolves to `ProvenRingTransact`, the instruction
   data beside the `RingTransactRoots` the ring statement binds, and `Prover`
   gains `proveCustomRingAudit` → read `.data` where the instruction data was
@@ -33,9 +39,10 @@ Breaking
 Added
 
 - `proveCustomRingTransfer` proves the tier the ring config selects, and
-  `ProvenRingTransfer` reports `hasPolicy`, `outputTree`, `entriesTree`,
-  `stateRootIndex`, and `nullifierRootIndex`, a policy ring with a non-empty
-  rule table is refused with `RING_RULES_UNSUPPORTED`.
+  `ProvenRingTransfer` reports `hasPolicy`, `outputTree`, `stateRootIndex`,
+  and `nullifierRootIndex`, with `entriesTree` when `hasPolicy` is true, a
+  policy ring with a non-empty rule table is refused with
+  `RING_RULES_UNSUPPORTED`.
 - `buildRingTransferTransaction`, `buildRingEntryTransaction`,
   `buildRingExitTransaction`, and `buildRingWithdrawalTransaction` accept
   `outputTree` for the outputs and, when the policy entries tree differs from
@@ -50,6 +57,9 @@ Added
   `RING_POLICY_CONFIG_INVALID`.
 - `ZolanaClient.proveCustomRingAudit` proves the audit statement from a
   `CustomRingAuditRequest`.
+- `setRingPausedInstruction` pauses or resumes a ring under its own authority,
+  the shielded pool refuses the ring's transactions while it is paused, and
+  `RING_SET_PAUSED_COMPUTE_UNIT_LIMIT` is its compute budget.
 - `ringOpenings` derives the `RingOpenings` a `CustomRingProofRequest` carries
   from `SppProofInputs`, `ringNamespaceOwnerHash` derives the owner hash of a
   list namespace, and `disabledRuleAnswer` fills an unused rule slot.
@@ -59,6 +69,8 @@ Changed
 - `buildRingEntryTransaction`, `buildRingTransferTransaction`, and
   `buildRingExitTransaction` use UTXO terminology in approval summaries, while
   version 3 `SerializedWalletState` reservation field names remain unchanged.
+- `RingLookupTableReader` is `KitRpcAccess` alone, `fetchRingLookupTable` no
+  longer reads `client.tree`.
 
 Fixed
 
