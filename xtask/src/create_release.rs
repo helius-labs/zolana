@@ -111,10 +111,17 @@ impl ReleaseSet {
     }
 
     /// `(package, bin, asset stem)` of every cli the set ships.
-    fn cli_binaries(self) -> &'static [(&'static str, &'static str, &'static str)] {
+    /// `(package, bin, asset stem, features)`. The ring cli links the rule
+    /// features so its `RULES` matches the released policy binary's table.
+    fn cli_binaries(self) -> &'static [(&'static str, &'static str, &'static str, &'static str)] {
         match self {
-            Self::Localnet => &[("zolana-cli", "zolana", "zolana")],
-            Self::CustomRings => &[("custom-ring-cli", "zolana-ring", "zolana-ring")],
+            Self::Localnet => &[("zolana-cli", "zolana", "zolana", "")],
+            Self::CustomRings => &[(
+                "custom-ring-cli",
+                "zolana-ring",
+                "zolana-ring",
+                "allowlist,blocklist,freeze",
+            )],
         }
     }
 }
@@ -272,6 +279,7 @@ fn custom_rings_lock(options: &Options, staging: &Path, host: (&str, &str)) -> R
             &repo,
             "zolana-ring-rpc",
             "ring-rpc",
+            "",
             &path,
             (os, arch) == host,
         )?;
@@ -324,7 +332,7 @@ fn build_binaries(options: &Options, staging: &Path, host: (&str, &str)) -> Resu
 
         let photon_asset = format!("photon-{os}-{arch}-{}", options.tag);
         let photon_path = staging.join(&photon_asset);
-        build_rust_binary(&repo, "photon-indexer", "photon", &photon_path, is_host)?;
+        build_rust_binary(&repo, "photon-indexer", "photon", "", &photon_path, is_host)?;
         out.push(binary_json(
             "photon",
             os,
@@ -345,10 +353,10 @@ fn build_cli_binaries(
     let repo = repo_root()?;
     let mut assets = Vec::new();
     for (os, arch) in release_targets(host) {
-        for (package, bin, stem) in options.set.cli_binaries() {
+        for (package, bin, stem, features) in options.set.cli_binaries() {
             let asset = format!("{stem}-{os}-{arch}-{}", options.tag);
             let path = staging.join(&asset);
-            build_rust_binary(&repo, package, bin, &path, (os, arch) == host)?;
+            build_rust_binary(&repo, package, bin, features, &path, (os, arch) == host)?;
             assets.push(path);
         }
     }
@@ -420,19 +428,42 @@ fn build_prover(repo: &Path, os: &str, arch: &str, out: &Path) -> Result<()> {
 /// The host build uses cargo directly; linux-x64 builds in a Docker container so
 /// no host cross-linker is needed. Both are cache-first via the shared
 /// `target`/`target-linux-x64` dirs, so building a second binary is incremental.
-fn build_rust_binary(repo: &Path, package: &str, bin: &str, out: &Path, host: bool) -> Result<()> {
+fn build_rust_binary(
+    repo: &Path,
+    package: &str,
+    bin: &str,
+    features: &str,
+    out: &Path,
+    host: bool,
+) -> Result<()> {
     if host {
-        build_rust_binary_host(repo, package, bin, out)
+        build_rust_binary_host(repo, package, bin, features, out)
     } else {
-        build_rust_binary_linux_x64(repo, package, bin, out)
+        build_rust_binary_linux_x64(repo, package, bin, features, out)
     }
 }
 
-fn build_rust_binary_host(repo: &Path, package: &str, bin: &str, out: &Path) -> Result<()> {
+/// `--features` selector, empty when the binary takes none.
+fn feature_args(features: &str) -> Vec<&str> {
+    if features.is_empty() {
+        Vec::new()
+    } else {
+        vec!["--features", features]
+    }
+}
+
+fn build_rust_binary_host(
+    repo: &Path,
+    package: &str,
+    bin: &str,
+    features: &str,
+    out: &Path,
+) -> Result<()> {
     println!("building {bin} (host)");
     let status = Command::new("cargo")
         .current_dir(repo)
         .args(["build", "--release", "-p", package, "--bin", bin])
+        .args(feature_args(features))
         .status()
         .with_context(|| format!("failed to run cargo build for {bin}"))?;
     if !status.success() {
@@ -443,11 +474,22 @@ fn build_rust_binary_host(repo: &Path, package: &str, bin: &str, out: &Path) -> 
     Ok(())
 }
 
-fn build_rust_binary_linux_x64(repo: &Path, package: &str, bin: &str, out: &Path) -> Result<()> {
+fn build_rust_binary_linux_x64(
+    repo: &Path,
+    package: &str,
+    bin: &str,
+    features: &str,
+    out: &Path,
+) -> Result<()> {
     println!("building {bin} linux-x64 (docker {PHOTON_LINUX_BUILDER_IMAGE})");
     let mount = format!("{}:/work", path_str(repo)?);
+    let feature_flag = if features.is_empty() {
+        String::new()
+    } else {
+        format!(" --features {features}")
+    };
     let build = format!(
-        "set -e; apt-get update -qq && apt-get install -y -qq pkg-config libssl-dev protobuf-compiler cmake clang build-essential >/dev/null 2>&1; cargo build --release -p {package} --bin {bin} --target-dir /work/target-linux-x64"
+        "set -e; apt-get update -qq && apt-get install -y -qq pkg-config libssl-dev protobuf-compiler cmake clang build-essential >/dev/null 2>&1; cargo build --release -p {package} --bin {bin}{feature_flag} --target-dir /work/target-linux-x64"
     );
     let status = Command::new("docker")
         .args([
