@@ -25,7 +25,6 @@ zolana-event = { workspace = true }
 zolana-hasher = { workspace = true }
 groth16-solana = { workspace = true, optional = true }
 pinocchio = { workspace = true, optional = true }
-solana-program-error = { workspace = true }
 solana-msg = { workspace = true, features = ["alloc"], optional = true }
 borsh = { workspace = true }
 bytemuck = { workspace = true, features = ["derive"] }
