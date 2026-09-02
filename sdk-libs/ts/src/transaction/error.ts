@@ -1,3 +1,4 @@
+import { SECRET_KEY_PATTERN } from "../errors/internal.js";
 import { KeypairError } from "../keypair/error.js";
 
 export const TRANSACTION_ERROR_CODES = Object.freeze([
@@ -19,6 +20,8 @@ export const TRANSACTION_ERROR_CODES = Object.freeze([
   "TRANSACTION_INVALID_BLINDING",
   "TRANSACTION_INVALID_DATA_LENGTH",
   "TRANSACTION_INVALID_DERIVATION_SEED",
+  "TRANSACTION_INVALID_DECIMALS",
+  "TRANSACTION_INVALID_DISPLAY_AMOUNT",
   "TRANSACTION_INVALID_INTEGER",
   "TRANSACTION_INVALID_LENGTH",
   "TRANSACTION_INVALID_POSITION",
@@ -52,9 +55,12 @@ export const TRANSACTION_ERROR_CODES = Object.freeze([
   "TRANSACTION_POSEIDON",
   "TRANSACTION_PUBLIC_SOL_ALREADY_SET",
   "TRANSACTION_PUBLIC_SPL_ALREADY_SET",
+  "TRANSACTION_NOTE_RESERVED",
   "TRANSACTION_RESERVED_ASSET_ID",
+  "TRANSACTION_RESERVED_NOTE_UNAVAILABLE",
   "TRANSACTION_SELECTED_BALANCE_OVERFLOW",
   "TRANSACTION_WALLET_BALANCE_OVERFLOW",
+  "TRANSACTION_WALLET_STATE_STALE",
   "TRANSACTION_SERIALIZE",
   "TRANSACTION_SIGNATURE_OWNER_MISMATCH",
   "TRANSACTION_SPLIT_AMOUNT_MISMATCH",
@@ -159,7 +165,7 @@ function safeDetails(
   if (details === undefined) return undefined;
   const safe = Object.fromEntries(
     Object.entries(details).flatMap(([key, value]) => {
-      if (/(secret|private|seed|blinding|nonce|scalar|signature)/iu.test(key)) return [];
+      if (SECRET_KEY_PATTERN.test(key)) return [];
       const sanitized = safeValue(value);
       return sanitized === undefined ? [] : [[key, sanitized]];
     }),

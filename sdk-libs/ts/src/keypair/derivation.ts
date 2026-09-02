@@ -281,28 +281,37 @@ function railViewingInfo(rail: Rail): Uint8Array {
   return encoder.encode(rail === "ed25519" ? INFO_VIEW_KEY_ED25519 : INFO_VIEW_KEY_ECDH);
 }
 
+export interface RoleSecrets {
+  readonly nullifierSecret: Bytes31;
+  readonly viewingSecret: Bytes32;
+}
+
 /**
  * One HKDF-Extract over the derivation seed, then one Expand per role with the
  * rail's tag; mirrors Rust's `RoleExpansion`. Every keypair constructor funnels
- * through this.
+ * through this. The PRK and both role secrets live only for the synchronous
+ * `use` callback and are wiped when it settles, copy what outlives it.
  */
-export function roleExpansion(
-  seed: Uint8Array,
-  rail: Rail,
-): Readonly<{ nullifierSecret(): Bytes31; viewingSecret(): Bytes32 }> {
+export function roleExpansion<T>(seed: Uint8Array, rail: Rail, use: (roles: RoleSecrets) => T): T {
   assertSeedWidth(seed, rail);
   const prk = hkdfExtract(seed);
-  return Object.freeze({
-    nullifierSecret(): Bytes31 {
-      return hkdfExpandPrk(prk, railNullifierInfo(rail), 31) as Bytes31;
-    },
-    viewingSecret(): Bytes32 {
-      const okm = hkdfExpandPrk(prk, railViewingInfo(rail), 48);
-      try {
-        return scalarFromOkm(okm);
-      } finally {
-        okm.fill(0);
-      }
-    },
-  });
+  let nullifierSecret: Uint8Array | undefined;
+  let viewingSecret: Uint8Array | undefined;
+  try {
+    nullifierSecret = hkdfExpandPrk(prk, railNullifierInfo(rail), 31);
+    const okm = hkdfExpandPrk(prk, railViewingInfo(rail), 48);
+    try {
+      viewingSecret = scalarFromOkm(okm);
+    } finally {
+      okm.fill(0);
+    }
+    return use({
+      nullifierSecret: nullifierSecret as Bytes31,
+      viewingSecret: viewingSecret as Bytes32,
+    });
+  } finally {
+    prk.fill(0);
+    nullifierSecret?.fill(0);
+    viewingSecret?.fill(0);
+  }
 }

@@ -1,16 +1,16 @@
 import { getAddressDecoder } from "@solana/kit";
 
-import type { ZolanaClient } from "../client/client.js";
+import type { IndexerReader } from "../client/ports.js";
 import type { Address, RequestContext, Signature } from "../interface/types.js";
 
-type SignatureReader = Pick<ZolanaClient, "getShieldedTransactionsBySignature">;
+type SignatureReader = Pick<IndexerReader, "getShieldedTransactionsBySignature">;
 
 const addressDecoder = getAddressDecoder();
 
 export interface TransactionSlots {
   /** Owner tag by output slot index. */
   readonly ownerTags: ReadonlyMap<number, Address>;
-  /** Tree leaf by output slot index, which ties a slot to a wallet's note. */
+  /** Tree leaf by output slot index, which ties a slot to a wallet's UTXO. */
   readonly leaves: ReadonlyMap<number, bigint>;
 }
 

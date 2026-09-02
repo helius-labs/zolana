@@ -6,7 +6,7 @@
 // here; every dynamic-swap domain flow is inlined into the test that uses it.
 #![allow(dead_code)]
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 use dynamic_swap_sdk::{escrow_authority_pda, instructions::create_pair::CreatePair, pair_pda};
@@ -396,6 +396,22 @@ pub fn setup_with_pair(price: u64) -> Result<(TestEnv, Pubkey)> {
         )
         .map_err(|e| anyhow!("send create_pair: {e:?}"))?;
     Ok((env, pair))
+}
+
+/// Photon indexes a send asynchronously, poll until the value appears or the deadline passes.
+pub fn wait_until<T>(what: &str, mut poll: impl FnMut() -> Result<Option<T>>) -> Result<T> {
+    const DEADLINE: Duration = Duration::from_secs(30);
+    const INTERVAL: Duration = Duration::from_millis(500);
+    let start = Instant::now();
+    loop {
+        if let Some(value) = poll()? {
+            return Ok(value);
+        }
+        if start.elapsed() >= DEADLINE {
+            return Err(anyhow!("{what} did not appear within {DEADLINE:?}"));
+        }
+        std::thread::sleep(INTERVAL);
+    }
 }
 
 /// The validator's RPC connection can transiently drop a request right after

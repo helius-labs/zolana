@@ -53,8 +53,14 @@ export {
   ringLookupTableAddresses,
   ringTransactInstruction,
 } from "./instructions.js";
+export { listRegisteredRings } from "./registry.js";
+export type { RegisteredRing } from "./registry.js";
 export { buildRingLookupTableTransaction, fetchRingLookupTable } from "./lookup-table.js";
-export type { RingLookupTable } from "./lookup-table.js";
+export type {
+  RingLookupTable,
+  RingLookupTableClient,
+  RingLookupTableReader,
+} from "./lookup-table.js";
 export { createPasskey, passkeyReader } from "./passkey.js";
 export type { Passkey } from "./passkey.js";
 export {
@@ -92,6 +98,7 @@ export type {
   RingDepositsPage,
   RingKeyMode,
   RingReadSigner,
+  RingRpcOptions,
   RingRpcHealth,
   RingState,
   RingStatus,
@@ -107,7 +114,12 @@ export {
   auditRingTransaction,
   recoverTransactionViewingKey,
 } from "./audit.js";
-export type { AuditedRingOutput, AuditedRingTransaction, RingAuditPage } from "./audit.js";
+export type {
+  AuditedRingOutput,
+  AuditedRingTransaction,
+  RingAuditPage,
+  RingAuditReader,
+} from "./audit.js";
 export {
   CachedTransactionOrigin,
   confirmedInstructionGroups,
@@ -126,6 +138,8 @@ export type {
   TransactionOrigin,
 } from "./origin.js";
 export {
+  buildRingEntryTransaction,
+  buildRingExitTransaction,
   buildRingTransferTransaction,
   buildRingWithdrawalTransaction,
   frameDummyOutputs,
@@ -137,5 +151,9 @@ export type {
   CustomRingTransferParams,
   ProvenRingTransfer,
   RingEntriesRoots,
+  RingEntryTransactionParams,
+  RingTransferClient,
   RingTransferTransactionParams,
+  RingWithdrawalTransactionParams,
 } from "./transfer.js";
+export type { ErrorEnvelope } from "../errors/internal.js";

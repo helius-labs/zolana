@@ -4,10 +4,12 @@ import {
   getAddressDecoder,
   getAddressEncoder,
   getProgramDerivedAddress,
+  type Address,
 } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
-import { InstructionTag } from "../src/interface/program.js";
+import { InstructionTag, SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
+import { StateDiscriminator } from "../src/interface/state.js";
 import type {
   Bytes16,
   Bytes32,
@@ -29,13 +31,14 @@ import { ShieldedKeypair } from "../src/keypair/shielded.js";
 import { SigningKey } from "../src/keypair/signing-key.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
 import {
+  auditRing,
   auditRingTransaction,
   auditorMessage,
   recoverTransactionViewingKey,
 } from "../src/ring/audit.js";
-import { assemble, ringOpenings } from "../src/client/prover/assembly.js";
-import { ZolanaClient } from "../src/client/client.js";
+import { assemble, ownerSignerAddresses, ringOpenings } from "../src/client/prover/assembly.js";
 import type { CustomRingAuditRequest, CustomRingProofRequest } from "../src/client/prover/types.js";
+import { ringAuditReader, ringTransferClient, transactionsPage } from "./helpers/clients.js";
 import type { SpendProof } from "../src/client/rpc.js";
 import { bigintToBytes, hashBytesBigInt, hashChain, poseidon } from "../src/client/internal.js";
 import { hashBytes } from "../src/hasher/index.js";
@@ -46,6 +49,7 @@ import {
   ringAddressChain,
   ringNamespaceOwnerHash,
   RING_EMPTY_RULES_POLICY_HASH,
+  type CustomRingTransferParams,
 } from "../src/ring/transfer.js";
 import {
   ConfidentialTransfer,
@@ -56,8 +60,11 @@ import {
 } from "../src/transaction/instructions/transact.js";
 import { EncryptedScheme, readOutputData } from "../src/transaction/serialization/codecs.js";
 import { ProofInputUtxo, Utxo, createProofOutput } from "../src/transaction/utxo.js";
-import { AssetRegistry, SOL_MINT } from "../src/transaction/wallet/asset.js";
-import { LocalWalletAuthority } from "../src/transaction/wallet/authority.js";
+import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
+import {
+  KeypairWalletAuthority,
+  type WalletAuthority,
+} from "../src/transaction/wallet/authority.js";
 
 const RING = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
 const ACTIVE_TREE = getAddressDecoder().decode(new Uint8Array(32).fill(44));
@@ -75,16 +82,19 @@ function actor(seed: number) {
   );
   return {
     keypair,
-    authority: new LocalWalletAuthority({ solanaPublicKey, keypair }),
+    authority: new KeypairWalletAuthority({ solanaPublicKey, keypair }),
     address: keypair.shieldedAddress(),
   };
 }
 
-/** A 10 SOL ring note of `sender` sending `amount` to `recipient` and `others` to more actors. */
+/** A 10 SOL ring UTXO of `sender` sending `amount` to `recipient` and `others`. */
 function preparedTransfer(
   amount: bigint,
   others: readonly bigint[] = [],
   exits: readonly bigint[] = [],
+  inputRing: typeof RING | null = RING,
+  asset: Address = SOL_MINT,
+  payer?: Address,
 ): Readonly<{
   prepared: PreparedTransfer;
   sender: ReturnType<typeof actor>;
@@ -95,21 +105,23 @@ function preparedTransfer(
   const input = new ProofInputUtxo({
     utxo: new Utxo({
       owner: sender.keypair.signingPublicKey(),
-      asset: SOL_MINT,
+      asset,
       amount: 10n,
       blinding: scalar(6),
-      ringProgramId: RING,
+      ...(inputRing === null ? {} : { ringProgramId: inputRing }),
     }),
     nullifierKey: sender.keypair.nullifierKey(),
   });
-  const transfer = new ConfidentialTransfer(sender.address, [input], sender.address.solanaAddress())
+  const transfer = new ConfidentialTransfer(
+    sender.address,
+    [input],
+    payer ?? sender.address.solanaAddress(),
+  )
     .withCompactChange()
     .withRingProgramId(RING);
-  transfer.send(recipient.address, SOL_MINT, amount);
-  others.forEach((other, index) => transfer.send(actor(5 + index).address, SOL_MINT, other));
-  exits.forEach((exit, index) =>
-    transfer.sendDefaultRing(actor(20 + index).address, SOL_MINT, exit),
-  );
+  transfer.send(recipient.address, asset, amount);
+  others.forEach((other, index) => transfer.send(actor(5 + index).address, asset, other));
+  exits.forEach((exit, index) => transfer.sendDefaultRing(actor(20 + index).address, asset, exit));
   return { prepared: transfer.prepare(), sender, recipient };
 }
 
@@ -118,14 +130,24 @@ async function auditedProofInputs(
   auditor: ViewingKey,
   others: readonly bigint[] = [],
   exits: readonly bigint[] = [],
+  inputRing: typeof RING | null = RING,
+  asset: Address = SOL_MINT,
+  assets: AssetRegistry = new AssetRegistry(),
+  payer?: Address,
 ): Promise<Readonly<{ proofInputs: SppProofInputs; recipient: ReturnType<typeof actor> }>> {
-  const { prepared: ring, sender, recipient } = preparedTransfer(amount, others, exits);
-  const encrypted = await sender.authority.encryptCustomRingTransfer({
-    firstNullifier: ring.firstNullifier,
-    outputs: ring.outputs,
-    assets: new AssetRegistry(),
-    auditorPublicKey: auditor.publicKey(),
-  });
+  const {
+    prepared: ring,
+    sender,
+    recipient,
+  } = preparedTransfer(amount, others, exits, inputRing, asset, payer);
+  const encrypted = await sender.authority.withSpendSession((session) =>
+    session.encryptCustomRingTransfer({
+      firstNullifier: ring.firstNullifier,
+      outputs: ring.outputs,
+      assets,
+      auditorPublicKey: auditor.publicKey(),
+    }),
+  );
   const proofInputs = frameDummyOutputs(
     ring.finalize({
       txViewingPublicKey: encrypted.txViewingPublicKey,
@@ -156,10 +178,66 @@ function indexed(proofInputs: SppProofInputs): IndexedShieldedTransaction {
   };
 }
 
-function ringInstructionData(privateTxHash: Bytes32): TransactInstructionData {
+function spendSession(authority: WalletAuthority): CustomRingTransferParams["session"] {
+  return {
+    encryptCustomRingTransfer: (request) =>
+      authority.withSpendSession((session) => session.encryptCustomRingTransfer(request)),
+  };
+}
+
+/** The ring's config and, for a policy ring, an empty-rule policy config over `ACTIVE_TREE`. */
+async function ringAccounts(auditor: ViewingKey, hasPolicy: boolean) {
+  const encoder = new TextEncoder();
+  const pda = (seed: string) =>
+    getProgramDerivedAddress({ programAddress: RING, seeds: [encoder.encode(seed)] });
+  const [configAddress, configBump] = await pda("config");
+  const [policyAddress, policyBump] = await pda("policy");
+  const read: Address[] = [];
+  const getAccount = async (account: Address) => {
+    read.push(account);
+    if (account === configAddress) {
+      return {
+        owner: RING,
+        lamports: 1n,
+        data: Uint8Array.from([
+          1,
+          ...new Uint8Array(32),
+          ...auditor.publicKey().toBytes(),
+          configBump,
+          hasPolicy ? 1 : 0,
+        ]),
+      };
+    }
+    if (hasPolicy && account === policyAddress) {
+      return {
+        owner: RING,
+        lamports: 1n,
+        data: Uint8Array.from([
+          3,
+          ...RING_EMPTY_RULES_POLICY_HASH,
+          ...getAddressEncoder().encode(ACTIVE_TREE),
+          0,
+          policyBump,
+          ...new Uint8Array(33 * 8),
+        ]),
+      };
+    }
+    return undefined;
+  };
+  return { getAccount, read, policyAddress };
+}
+
+const SPP_ROOTS = {
+  stateRoot: scalar(92),
+  stateRootIndex: 4,
+  nullifierRoot: scalar(93),
+  nullifierRootIndex: 5,
+};
+
+function ringInstructionData(txHash: Bytes32): TransactInstructionData {
   return {
     expiryUnixTs: 0n,
-    privateTxHash,
+    privateTxHash: txHash,
     circuit: { kind: "ringEddsa", inputs: 2, outputs: 3, publicAssetSlots: 3 },
     txViewingPk: new Uint8Array(33) as Bytes33,
     salt: new Uint8Array(16) as Bytes16,
@@ -221,6 +299,33 @@ describe("withCompactChange", () => {
     expect(ring.outputs.every((output) => output.ringProgramId === RING)).toBe(true);
   });
 
+  it("moves an exact amount into a ring and keeps default change", () => {
+    const sender = actor(3);
+    const input = new ProofInputUtxo({
+      utxo: new Utxo({
+        owner: sender.keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 10n,
+        blinding: scalar(6),
+      }),
+      nullifierKey: sender.keypair.nullifierKey(),
+    });
+    const transfer = new ConfidentialTransfer(
+      sender.address,
+      [input],
+      sender.address.solanaAddress(),
+    ).withCompactChange();
+    transfer.sendToRing(sender.address, SOL_MINT, 4n, RING);
+
+    const prepared = transfer.prepare();
+
+    expect(prepared.senderOutputCount).toBe(1);
+    expect(prepared.outputs.map((output) => [output.amount, output.ringProgramId])).toEqual([
+      [6n, undefined],
+      [4n, RING],
+    ]);
+  });
+
   it("keeps a default-ring recipient out of the ring and refuses a foreign one", () => {
     const sender = actor(3);
     const input = new ProofInputUtxo({
@@ -248,6 +353,35 @@ describe("withCompactChange", () => {
     expect(() =>
       checkRingMembership({ ...prepared, outputs: [prepared.outputs[0]!, foreign!] }, RING),
     ).toThrow("RING_FOREIGN_RING");
+  });
+
+  it("refuses ring data on a default UTXO like Rust `RingMembership`", () => {
+    const sender = actor(3);
+    const tainted = new ProofInputUtxo({
+      utxo: new Utxo({
+        owner: sender.keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 10n,
+        blinding: scalar(6),
+      }),
+      nullifierKey: sender.keypair.nullifierKey(),
+      ringDataHash: scalar(9),
+    });
+    const transfer = new ConfidentialTransfer(
+      sender.address,
+      [tainted],
+      sender.address.solanaAddress(),
+    )
+      .withCompactChange()
+      .withRingProgramId(RING);
+    transfer.send(actor(4).address, SOL_MINT, 4n);
+    // The builder refuses before membership runs.
+    expect(() => transfer.prepare()).toThrow("TRANSACTION_MISSING_RING_PROGRAM_ID");
+
+    const { prepared } = preparedTransfer(4n);
+    expect(() => checkRingMembership({ ...prepared, inputs: [tainted] }, RING)).toThrow(
+      "RING_DATA_OUTSIDE_RING",
+    );
   });
 });
 
@@ -303,34 +437,38 @@ describe("frameDummyOutputs with an exit", () => {
   });
 });
 
+function spendProofFor(input: ProofInputUtxo): SpendProof {
+  return {
+    state: {
+      leaf: input.hash(),
+      merkleContext: { treeType: 0, tree: RING },
+      path: Array.from({ length: 32 }, () => scalar(0)),
+      leafIndex: 0n,
+      root: scalar(3),
+      rootSeq: 1n,
+      rootIndex: 4,
+    },
+    nullifier: {
+      leaf: input.nullifier(),
+      merkleContext: { treeType: 1, tree: RING },
+      path: Array.from({ length: 40 }, () => scalar(0)),
+      lowElement: scalar(4),
+      lowElementIndex: 0n,
+      highElement: scalar(5),
+      highElementIndex: 1n,
+      root: scalar(6),
+      rootSeq: 1n,
+      rootIndex: 7,
+    },
+  };
+}
+
 describe("ring witness", () => {
   it("publishes owner hashes only for `Confidential` slots like Rust `confidential_marked_output_owner_pk_hashes`", async () => {
     const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate(), [1n, 1n, 1n]);
     const input = proofInputs.inputUtxos[0];
     if (!input) throw new Error("input");
-    const spendProof: SpendProof = {
-      state: {
-        leaf: input.hash(),
-        merkleContext: { treeType: 0, tree: RING },
-        path: Array.from({ length: 32 }, () => scalar(0)),
-        leafIndex: 0n,
-        root: scalar(3),
-        rootSeq: 1n,
-        rootIndex: 4,
-      },
-      nullifier: {
-        leaf: input.nullifier(),
-        merkleContext: { treeType: 1, tree: RING },
-        path: Array.from({ length: 40 }, () => scalar(0)),
-        lowElement: scalar(4),
-        lowElementIndex: 0n,
-        highElement: scalar(5),
-        highElementIndex: 1n,
-        root: scalar(6),
-        rootSeq: 1n,
-        rootIndex: 7,
-      },
-    };
+    const spendProof = spendProofFor(input);
     const assembled = assemble(proofInputs, [spendProof], [], RING);
     const published = assembled.proverInputs.payload.publishedOutputOwnerPublicKeyHashes;
     const tags = proofInputs.externalData.resolvedOwnerTags;
@@ -436,6 +574,101 @@ describe("ring openings", () => {
       ),
     );
   });
+
+  it("assembles a foreign fee payer with the owner as an appended signer", async () => {
+    const payer = actor(8).address.solanaAddress();
+    const owner = actor(3);
+    const { proofInputs } = await auditedProofInputs(
+      4n,
+      ViewingKey.generate(),
+      [],
+      [],
+      RING,
+      SOL_MINT,
+      new AssetRegistry(),
+      payer,
+    );
+    const input = proofInputs.inputUtxos[0];
+    if (!input) throw new Error("input");
+    const assembled = assemble(proofInputs, [spendProofFor(input)], [], RING);
+    const vector = assembled.proverInputs.payload.signerPublicKeyHashes;
+    const hashOf = (target: Address) =>
+      hashBytesBigInt(new Uint8Array(getAddressEncoder().encode(target)));
+    expect(vector[0]).toBe(hashOf(payer));
+    expect(vector[1]).toBe(hashOf(owner.address.solanaAddress()));
+    expect(vector.slice(2).every((entry) => entry === 0n)).toBe(true);
+    expect(ownerSignerAddresses(proofInputs.inputUtxos, payer)).toEqual([
+      owner.address.solanaAddress(),
+    ]);
+  });
+
+  it("refuses a tree the client does not prove from, before any fetch", async () => {
+    const client = ringTransferClient({ tree: RING });
+    await expect(
+      proveCustomRingTransfer({
+        client,
+        ringProgramId: RING,
+        prepared: {} as PreparedTransfer,
+        session: spendSession(actor(3).authority),
+        assets: new AssetRegistry(),
+        tree: actor(8).address.solanaAddress(),
+      }),
+    ).rejects.toThrow("RING_TREE_MISMATCH");
+  });
+
+  it("destroys only its own clone of the nullifier key", () => {
+    const owner = actor(3);
+    const nullifierKey = owner.keypair.nullifierKey();
+    const input = new ProofInputUtxo({
+      utxo: new Utxo({
+        owner: owner.keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 5n,
+        blinding: scalar(1),
+      }),
+      nullifierKey,
+    });
+    input.destroy();
+    expect(() => input.nullifierKey.publicKey()).toThrow("KEYPAIR_INVALID_SECRET_KEY");
+    expect(nullifierKey.publicKey()).toEqual(owner.keypair.nullifierKey().publicKey());
+  });
+
+  it("derives non-payer owner signers like Rust `owner_signer_pubkeys`", () => {
+    const owner = actor(3);
+    const payer = actor(8).address.solanaAddress();
+    const input = (blinding: number) =>
+      new ProofInputUtxo({
+        utxo: new Utxo({
+          owner: owner.keypair.signingPublicKey(),
+          asset: SOL_MINT,
+          amount: 5n,
+          blinding: scalar(blinding),
+        }),
+        nullifierKey: owner.keypair.nullifierKey(),
+      });
+    const ownerAddress = owner.address.solanaAddress();
+    expect(ownerSignerAddresses([input(1), input(2)], payer)).toEqual([ownerAddress]);
+    expect(ownerSignerAddresses([input(1), input(2)], ownerAddress)).toEqual([]);
+  });
+
+  it("keeps a default UTXO's zero ring fields under the signing ring public input", async () => {
+    const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate(), [], [], null);
+    const input = proofInputs.inputUtxos[0];
+    if (!input) throw new Error("input");
+    const assembled = assemble(proofInputs, [spendProofFor(input)], [], RING);
+    const slot = assembled.proverInputs.payload.inputs[0];
+    if (!slot) throw new Error("input slot");
+    expect(slot.circuit.ringProgramId).toBe(0n);
+    expect(slot.circuit.ringDataHash).toBe(0n);
+    const vector = assembled.proverInputs.payload.signerPublicKeyHashes;
+    expect(vector.slice(1).every((entry) => entry === 0n)).toBe(true);
+    expect(assembled.proverInputs.payload.ringProgramId).toBe(
+      hashBytesBigInt(new Uint8Array(getAddressEncoder().encode(RING))),
+    );
+    proofInputs.outputs
+      .filter((output) => !output.isDummy())
+      .forEach((output) => expect(output.ringProgramId).toBe(RING));
+  });
 });
 
 describe("ring audit", () => {
@@ -492,6 +725,104 @@ describe("ring audit", () => {
       }),
     ).toThrow("RING_AUDIT_KEY_MISMATCH");
     expect(auditorViewTag(auditor.publicKey())).toEqual(message.viewTag);
+  });
+
+  it("resolves an SPL output through the registry and refuses an unknown id", async () => {
+    const auditor = ViewingKey.generate();
+    const mint = getAddressDecoder().decode(scalar(41));
+    const registry = new AssetRegistry([[2n, mint]]);
+    const { proofInputs } = await auditedProofInputs(4n, auditor, [], [], RING, mint, registry);
+    const transaction = indexed(proofInputs);
+    expect(() =>
+      auditRingTransaction({ auditor, transaction, assets: new AssetRegistry() }),
+    ).toThrow("TRANSACTION_UNKNOWN_ASSET");
+    const audited = auditRingTransaction({ auditor, transaction, assets: registry });
+    expect(audited.outputs.length).toBeGreaterThan(0);
+    expect(audited.outputs.every((output) => output.asset === mint)).toBe(true);
+  });
+
+  it("refreshes the registry once from the chain on an unknown asset id", async () => {
+    const auditor = ViewingKey.generate();
+    const mint = getAddressDecoder().decode(scalar(41));
+    const { proofInputs } = await auditedProofInputs(
+      4n,
+      auditor,
+      [],
+      [],
+      RING,
+      mint,
+      new AssetRegistry([[2n, mint]]),
+    );
+    const transaction = indexed(proofInputs);
+    const registryBytes = new Uint8Array(48);
+    registryBytes[0] = StateDiscriminator.splAssetRegistry;
+    registryBytes.set(new Uint8Array(getAddressEncoder().encode(mint)), 8);
+    new DataView(registryBytes.buffer).setBigUint64(40, 2n, true);
+    const getProgramAccounts = vi.fn(() => ({
+      send: async () => [
+        {
+          account: {
+            owner: SHIELDED_POOL_PROGRAM_ID,
+            data: [Buffer.from(registryBytes).toString("base64"), "base64"],
+          },
+        },
+      ],
+    }));
+    const client = ringAuditReader({
+      getShieldedTransactionsByTags: async () =>
+        transactionsPage({ transactions: [transaction, transaction] }),
+      solanaRpc: { getProgramAccounts },
+      commitment: "confirmed",
+    });
+
+    const assets = new AssetRegistry();
+    const page = await auditRing({
+      client,
+      auditor,
+      ringProgramId: RING,
+      assets,
+      origin: { ringInvoked: async () => true },
+    });
+
+    expect(page.transactions).toHaveLength(2);
+    for (const audited of page.transactions) {
+      expect(audited.outputs.length).toBeGreaterThan(0);
+      expect(audited.outputs.every((output) => output.asset === mint)).toBe(true);
+    }
+    expect(getProgramAccounts).toHaveBeenCalledTimes(1);
+    expect(assets.resolve(2n)).toBe(mint);
+  });
+
+  it("throws after one refresh when the chain does not know the id either", async () => {
+    const auditor = ViewingKey.generate();
+    const mint = getAddressDecoder().decode(scalar(41));
+    const { proofInputs } = await auditedProofInputs(
+      4n,
+      auditor,
+      [],
+      [],
+      RING,
+      mint,
+      new AssetRegistry([[2n, mint]]),
+    );
+    const transaction = indexed(proofInputs);
+    const getProgramAccounts = vi.fn(() => ({ send: async () => [] }));
+    const client = ringAuditReader({
+      getShieldedTransactionsByTags: async () => transactionsPage({ transactions: [transaction] }),
+      solanaRpc: { getProgramAccounts },
+      commitment: "confirmed",
+    });
+
+    await expect(
+      auditRing({
+        client,
+        auditor,
+        ringProgramId: RING,
+        assets: new AssetRegistry(),
+        origin: { ringInvoked: async () => true },
+      }),
+    ).rejects.toThrow("TRANSACTION_UNKNOWN_ASSET");
+    expect(getProgramAccounts).toHaveBeenCalledTimes(1);
   });
 
   it("reduces a noncanonical scalar like Rust `recovery_reduces_a_noncanonical_scalar`", () => {
@@ -563,85 +894,29 @@ describe("ring proof folded fields", () => {
 
   it("sends the finalized SPP external hash and address chain to the custom prover", async () => {
     const { prepared, sender } = preparedTransfer(4n, [1n]);
-    const auditor = ViewingKey.generate();
-    const encoder = new TextEncoder();
-    const [configAddress, configBump] = await getProgramDerivedAddress({
-      programAddress: RING,
-      seeds: [encoder.encode("config")],
-    });
-    const [policyAddress, policyBump] = await getProgramDerivedAddress({
-      programAddress: RING,
-      seeds: [encoder.encode("policy")],
-    });
-    const client = new ZolanaClient({
-      solanaRpcUrl: "http://127.0.0.1:8899",
-      indexerUrl: "http://127.0.0.1:8784",
-      proverUrl: "http://127.0.0.1:3001",
-      tree: RING,
-    });
-    vi.spyOn(client, "getAccount").mockImplementation(async (account) => {
-      if (account === configAddress) {
-        return {
-          owner: RING,
-          lamports: 1n,
-          data: Uint8Array.from([
-            1,
-            ...new Uint8Array(32),
-            ...auditor.publicKey().toBytes(),
-            configBump,
-            1,
-          ]),
-        };
-      }
-      if (account === policyAddress) {
-        return {
-          owner: RING,
-          lamports: 1n,
-          data: Uint8Array.from([
-            3,
-            ...RING_EMPTY_RULES_POLICY_HASH,
-            ...getAddressEncoder().encode(ACTIVE_TREE),
-            0,
-            policyBump,
-            ...new Uint8Array(33 * 8),
-          ]),
-        };
-      }
-      return undefined;
-    });
-
-    const privateTxHash = scalar(91);
-    const data = ringInstructionData(privateTxHash);
-    const stateRoot = scalar(92);
-    const nullifierRoot = scalar(93);
-    const entriesStateRoot = scalar(94);
-    const entriesNullifierRoot = scalar(95);
+    const accounts = await ringAccounts(ViewingKey.generate(), true);
+    const txHash = scalar(91);
+    const data = ringInstructionData(txHash);
     let finalized: SppProofInputs | undefined;
-    const ringProver = vi
-      .spyOn(client, "proveRingTransact")
-      .mockImplementation(async (proofInputs) => {
-        finalized = proofInputs;
-        return {
-          data,
-          roots: {
-            stateRoot,
-            stateRootIndex: 4,
-            nullifierRoot,
-            nullifierRootIndex: 5,
-          },
-        };
-      });
+    const proveRingTransact = vi.fn(async (proofInputs: SppProofInputs) => {
+      finalized = proofInputs;
+      return { data, roots: SPP_ROOTS };
+    });
     let request: CustomRingProofRequest | undefined;
-    vi.spyOn(client, "proveCustomRing").mockImplementation(async (input) => {
+    const proveCustomRing = vi.fn(async (input: CustomRingProofRequest) => {
       request = input;
       return new Uint8Array(192);
     });
-
     const base = {
-      client,
+      client: ringTransferClient({
+        tree: RING,
+        getAccount: accounts.getAccount,
+        proveRingTransact,
+        proveCustomRing,
+      }),
       ringProgramId: RING,
       prepared,
-      authority: sender.authority,
+      session: spendSession(sender.authority),
       assets: new AssetRegistry(),
       tree: RING,
       outputTree: ACTIVE_TREE,
@@ -649,8 +924,10 @@ describe("ring proof folded fields", () => {
     await expect(proveCustomRingTransfer(base)).rejects.toMatchObject({
       code: "RING_ENTRIES_ROOTS_REQUIRED",
     });
-    expect(ringProver).not.toHaveBeenCalled();
+    expect(proveRingTransact).not.toHaveBeenCalled();
 
+    const entriesStateRoot = scalar(94);
+    const entriesNullifierRoot = scalar(95);
     const proven = await proveCustomRingTransfer({
       ...base,
       entriesRoots: {
@@ -665,80 +942,43 @@ describe("ring proof folded fields", () => {
     expect(request).toBeDefined();
     expect(request?.externalDataHash).toEqual(finalized?.externalData.hash());
     expect(request?.addressChain).toEqual(ringAddressChain(finalized?.inputUtxos.length ?? 0));
-    expect(request?.privateTxHash).toEqual(privateTxHash);
+    expect(request?.privateTxHash).toEqual(txHash);
     expect(request?.stateRoot).toEqual(entriesStateRoot);
     expect(request?.nullifierRoot).toEqual(entriesNullifierRoot);
+    expect(proven.hasPolicy).toBe(true);
     expect(proven.tree).toBe(RING);
     expect(proven.outputTree).toBe(ACTIVE_TREE);
     expect(proven.entriesTree).toBe(ACTIVE_TREE);
     expect(proven.stateRootIndex).toBe(7);
     expect(proven.nullifierRootIndex).toBe(8);
+    expect(proven.ownerSigners).toEqual([]);
   });
 
   it("proves the audit statement alone for a no-policy ring like Rust `finish_audit`", async () => {
     const { prepared, sender } = preparedTransfer(4n, [1n]);
     const auditor = ViewingKey.generate();
-    const encoder = new TextEncoder();
-    const [configAddress, configBump] = await getProgramDerivedAddress({
-      programAddress: RING,
-      seeds: [encoder.encode("config")],
-    });
-    const [policyAddress] = await getProgramDerivedAddress({
-      programAddress: RING,
-      seeds: [encoder.encode("policy")],
-    });
-    const client = new ZolanaClient({
-      solanaRpcUrl: "http://127.0.0.1:8899",
-      indexerUrl: "http://127.0.0.1:8784",
-      proverUrl: "http://127.0.0.1:3001",
-      tree: RING,
-    });
-    const read: string[] = [];
-    vi.spyOn(client, "getAccount").mockImplementation(async (account) => {
-      read.push(account);
-      if (account === configAddress) {
-        return {
-          owner: RING,
-          lamports: 1n,
-          data: Uint8Array.from([
-            1,
-            ...new Uint8Array(32),
-            ...auditor.publicKey().toBytes(),
-            configBump,
-            0,
-          ]),
-        };
-      }
-      return undefined;
-    });
-
-    const privateTxHash = scalar(91);
-    const data = ringInstructionData(privateTxHash);
+    const accounts = await ringAccounts(auditor, false);
+    const txHash = scalar(91);
+    const data = ringInstructionData(txHash);
     let finalized: SppProofInputs | undefined;
-    vi.spyOn(client, "proveRingTransact").mockImplementation(async (proofInputs) => {
-      finalized = proofInputs;
-      return {
-        data,
-        roots: {
-          stateRoot: scalar(92),
-          stateRootIndex: 4,
-          nullifierRoot: scalar(93),
-          nullifierRootIndex: 5,
-        },
-      };
-    });
-    const policyProver = vi.spyOn(client, "proveCustomRing");
     let request: CustomRingAuditRequest | undefined;
-    vi.spyOn(client, "proveCustomRingAudit").mockImplementation(async (input) => {
-      request = input;
-      return new Uint8Array(192);
-    });
 
     const proven = await proveCustomRingTransfer({
-      client,
+      client: ringTransferClient({
+        tree: RING,
+        getAccount: accounts.getAccount,
+        proveRingTransact: async (proofInputs) => {
+          finalized = proofInputs;
+          return { data, roots: SPP_ROOTS };
+        },
+        proveCustomRingAudit: async (input) => {
+          request = input;
+          return new Uint8Array(192);
+        },
+      }),
       ringProgramId: RING,
       prepared,
-      authority: sender.authority,
+      session: spendSession(sender.authority),
       assets: new AssetRegistry(),
       tree: RING,
       outputTree: ACTIVE_TREE,
@@ -748,13 +988,12 @@ describe("ring proof folded fields", () => {
     const message = finalized.externalData.messages[0];
     if (message === undefined) throw new Error("auditor message");
     // The policy config account is never read for an audit-only ring.
-    expect(read).not.toContain(policyAddress);
-    expect(policyProver).not.toHaveBeenCalled();
-    expect(request?.privateTxHash).toEqual(privateTxHash);
+    expect(accounts.read).not.toContain(accounts.policyAddress);
+    expect(request?.privateTxHash).toEqual(txHash);
     expect(request?.auditorPublicKey).toEqual(auditor.publicKey().toUncompressed());
     expect(request?.publicInputHash).toEqual(
       auditPublicInputHash({
-        privateTxHash,
+        privateTxHash: txHash,
         txViewingPublicKey: finalized.externalData.txViewingPublicKey,
         auditorPublicKey: auditor.publicKey(),
         message: parseAuditorMessage(message.data),

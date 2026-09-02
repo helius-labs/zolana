@@ -9,12 +9,28 @@ export {
   type EncryptedCustomRingTransfer,
   type EncryptedTransfer,
   type SplitBundlePlaintext,
+  type SpendAuthority,
+  type SpendSession,
+  type SyncAuthority,
   type SyncWalletAuthority,
   type WalletAuthority,
   type WalletSyncMaterial,
 } from "./authority.js";
-export { AssetRegistry, SOL_ASSET_ID, SOL_MINT } from "./asset.js";
-export { deserializeWallet, serializeWallet, type SerializedWalletState } from "./persistence.js";
+export {
+  approveIntent,
+  intentHash,
+  type IntentApproval,
+  type TransactionIntent,
+} from "./intent.js";
+export { AssetRegistry, SOL_ASSET_ID, SOL_MINT } from "../asset.js";
+export {
+  deserializeWallet,
+  serializeWallet,
+  type SerializedCursor,
+  type SerializedNoteReservation,
+  type SerializedSyncCursors,
+  type SerializedWalletState,
+} from "./persistence.js";
 export {
   decryptToBalances,
   decryptTransactions,
@@ -30,6 +46,7 @@ export type {
   PrivateTransactionId,
   PrivateTransactionKind,
   PrivateTransactionStatus,
+  RingBalance,
   SyncReport,
   ViewingKeyEntry,
   WalletUtxo,

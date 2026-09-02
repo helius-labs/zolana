@@ -112,6 +112,7 @@ function uniqueSigners(signers: readonly SolanaSigner[]): readonly SolanaSigner[
 
 async function deposit(
   input: Omit<DepositTransactionParams, "feePayer" | "depositor"> & {
+    readonly client: ZolanaClient;
     readonly feePayer: SolanaSigner;
     readonly depositor?: SolanaSigner;
     readonly waitForIndexer?: boolean;
@@ -143,6 +144,7 @@ async function deposit(
 
 async function transfer(
   input: Omit<TransferTransactionParams, "feePayer"> & {
+    readonly client: ZolanaClient;
     readonly feePayer: SolanaSigner;
     readonly skipPreflight?: boolean;
     readonly waitForIndexer?: boolean;
@@ -168,6 +170,7 @@ async function transfer(
 
 async function withdraw(
   input: Omit<WithdrawalTransactionParams, "feePayer"> & {
+    readonly client: ZolanaClient;
     readonly feePayer: SolanaSigner;
     readonly skipPreflight?: boolean;
     readonly waitForIndexer?: boolean;
@@ -194,6 +197,7 @@ async function withdraw(
 
 async function split(
   input: Omit<SplitTransactionParams, "feePayer"> & {
+    readonly client: ZolanaClient;
     readonly feePayer: SolanaSigner;
     readonly skipPreflight?: boolean;
     readonly waitForIndexer?: boolean;
@@ -642,7 +646,7 @@ describe.sequential("live SDK lifecycle", () => {
     expect(bob.wallet.balance(harness.token2022Mint).amount).toBe(50_000n);
   }, 900_000);
 
-  it("covers a real 1x8 split and merges all eight notes back to one", async () => {
+  it("covers a real 1x8 split and merges all eight UTXOs back to one", async () => {
     const owner = await actor(101);
     await fund(harness.client, owner);
     await register(harness.client, owner);

@@ -1,14 +1,15 @@
 import { address, assertIsFullySignedTransaction, type Blockhash } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
-import { buildUnsignedTransaction, defaultSolanaRpcSubscriptionsUrl } from "../src/client/kit.js";
+import { defaultSolanaRpcSubscriptionsUrl } from "../src/client/kit.js";
+import { compileUnsignedTransaction } from "../src/flows/compile.js";
 
 const PAYER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 const PROGRAM = address("11111111111111111111111111111111");
 
 describe("Solana Kit transaction construction", () => {
   it("builds an unsigned transaction without taking a signer", () => {
-    const transaction = buildUnsignedTransaction({
+    const transaction = compileUnsignedTransaction({
       feePayer: PAYER,
       instructions: [{ programAddress: PROGRAM }],
       lifetime: {

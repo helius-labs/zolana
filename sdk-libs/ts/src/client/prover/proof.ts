@@ -1,5 +1,7 @@
-import type { Bytes32, Bytes64, Bytes128, TransactProof } from "../../interface/types.js";
 import { bn254 } from "@noble/curves/bn254.js";
+
+import { wireDecoder } from "../../interface/decode.js";
+import type { Bytes32, Bytes64, Bytes128, TransactProof } from "../../interface/types.js";
 
 import { ClientError } from "../error.js";
 import { bigintToBytes, bytesToBigInt, checkedBytes } from "../internal.js";
@@ -217,16 +219,11 @@ function present(value: unknown): boolean {
   return value !== undefined && !(Array.isArray(value) && value.length === 0);
 }
 
-function asObject(value: unknown, path: string): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) invalid(path);
-  return value as Record<string, unknown>;
-}
+const invalidResponse = (path: string): ClientError =>
+  new ClientError("CLIENT_PROOF_PARSE", { details: { path } });
 
-function asArray(value: unknown, path: string): unknown[] {
-  if (!Array.isArray(value)) invalid(path);
-  return value;
-}
+const { record: asObject, list: asArray } = wireDecoder(invalidResponse);
 
 function invalid(path: string): never {
-  throw new ClientError("CLIENT_PROOF_PARSE", { details: { path } });
+  throw invalidResponse(path);
 }

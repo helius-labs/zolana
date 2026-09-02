@@ -55,17 +55,22 @@ export function auditSharedSecret(
   auditorPublicKey: P256PublicKey,
 ): Bytes32 {
   const [dhLow, dhHigh] = pack32(dh);
-  const [ephLow, ephHigh] = pack33(ephemeralPublicKey.toBytes());
-  const [auditorLow, auditorHigh] = pack33(auditorPublicKey.toBytes());
-  return poseidon([
-    rightAlign(u32be(DOM_SEP_CR_SHARED)),
-    dhLow,
-    dhHigh,
-    ephLow,
-    ephHigh,
-    auditorLow,
-    auditorHigh,
-  ]) as Bytes32;
+  try {
+    const [ephLow, ephHigh] = pack33(ephemeralPublicKey.toBytes());
+    const [auditorLow, auditorHigh] = pack33(auditorPublicKey.toBytes());
+    return poseidon([
+      rightAlign(u32be(DOM_SEP_CR_SHARED)),
+      dhLow,
+      dhHigh,
+      ephLow,
+      ephHigh,
+      auditorLow,
+      auditorHigh,
+    ]) as Bytes32;
+  } finally {
+    dhLow.fill(0);
+    dhHigh.fill(0);
+  }
 }
 
 /** `(ephemeral, auditor)` fixes the keystream, so the ephemeral scalar is never taken from a caller. */
@@ -74,13 +79,12 @@ export function encryptTransactionViewingSecret(
   auditorPublicKey: P256PublicKey,
 ): AuditorEncryption {
   const ephemeral = ViewingKey.generate();
+  let dh: Bytes32 | undefined;
+  let shared: Bytes32 | undefined;
   try {
     const ephemeralPublicKey = ephemeral.publicKey();
-    const shared = auditSharedSecret(
-      ephemeral.ecdh(auditorPublicKey),
-      ephemeralPublicKey,
-      auditorPublicKey,
-    );
+    dh = ephemeral.ecdh(auditorPublicKey);
+    shared = auditSharedSecret(dh, ephemeralPublicKey, auditorPublicKey);
     const ciphertext = symmetricApply(shared, AUDIT_ENC_INFO, txViewingSecret) as Bytes32;
     return Object.freeze({
       ephemeralSecret: ephemeral.secretBytes(),
@@ -88,6 +92,8 @@ export function encryptTransactionViewingSecret(
     });
   } finally {
     ephemeral.destroy();
+    dh?.fill(0);
+    shared?.fill(0);
   }
 }
 
@@ -96,12 +102,16 @@ export function decryptTransactionViewingSecret(
   auditor: ViewingKey,
   message: AuditorMessage,
 ): Bytes32 {
-  const shared = auditSharedSecret(
-    auditor.ecdh(message.ephemeralPublicKey),
-    message.ephemeralPublicKey,
-    auditor.publicKey(),
-  );
-  return symmetricApply(shared, AUDIT_ENC_INFO, message.ciphertext) as Bytes32;
+  let dh: Bytes32 | undefined;
+  let shared: Bytes32 | undefined;
+  try {
+    dh = auditor.ecdh(message.ephemeralPublicKey);
+    shared = auditSharedSecret(dh, message.ephemeralPublicKey, auditor.publicKey());
+    return symmetricApply(shared, AUDIT_ENC_INFO, message.ciphertext) as Bytes32;
+  } finally {
+    dh?.fill(0);
+    shared?.fill(0);
+  }
 }
 
 export function auditorViewTag(auditorPublicKey: P256PublicKey): Bytes32 {

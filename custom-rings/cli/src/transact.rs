@@ -4,9 +4,9 @@ use std::{
 };
 
 use custom_ring_sdk::{
-    AccountReadError, CustomRing, CustomRingTransfer, CustomRingTransferInput, DepositError,
-    RingDeposit, RingDepositReceipt, SendV0Error, TransferError, TransferProofEnvironment,
-    V0WithLookupTable,
+    AccountReadError, CustomRing, CustomRingTransfer, CustomRingTransferInput, DepositAsset,
+    DepositError, RingDeposit, RingDepositReceipt, SendV0Error, TransferError,
+    TransferProofEnvironment, V0WithLookupTable,
 };
 use solana_address::Address;
 use solana_keypair::Keypair;
@@ -345,6 +345,7 @@ impl RingTransfer<'_> {
                 payer: self.payer,
                 recipient: &sender,
                 tree: self.tree,
+                asset: DepositAsset::Sol,
                 amount,
             }
             .send(env.rpc)?;

@@ -11,7 +11,7 @@ import {
   sleep,
   type ComposedSignal,
 } from "../internal.js";
-import { circuitUtxo } from "./assembly.js";
+import { TransportFailure, checkedFetch, readBoundedJson } from "../../services/transport.js";
 import { parseProof } from "./proof.js";
 import {
   RING_INLINE_ASSET_SLOTS,
@@ -103,13 +103,13 @@ export class ProverClient {
     }
     const url = checkedServiceUrl(input.url, "url", input.allowInsecureHttp ?? false);
     url.pathname = `${url.pathname.replace(/\/+$/u, "")}${PROVE_PATH}`;
-    // Browsers refuse `fetch` called with another receiver, so the global stays bound.
-    const fetchImplementation = input.fetch ?? ((input, init) => globalThis.fetch(input, init));
-    if (typeof fetchImplementation !== "function") {
+    try {
+      this.#fetch = checkedFetch(input.fetch);
+    } catch (error) {
+      if (!(error instanceof TransportFailure)) throw error;
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "fetch" } });
     }
     this.#url = url;
-    this.#fetch = fetchImplementation;
     this.#asyncPoll = asyncPollConfig(input.asyncPoll);
   }
 
@@ -334,7 +334,7 @@ function mergeProverRequest(inputs: MergeInputs): Readonly<Record<string, unknow
     circuitType: "merge",
     inputs: inputs.inputs.map(mergeInputJson),
     output: mergeOutputJson(inputs.output),
-    asset: hex(circuitUtxo(inputs.output).asset),
+    asset: hex(inputs.output.circuit.asset),
     ownerPkHash: hex(inputs.ownerPublicKeyHash),
     userNullifierPk: hex(inputs.userNullifierPublicKey),
     userNullifierSecret: hex(inputs.userNullifierSecret),
@@ -348,7 +348,7 @@ function mergeProverRequest(inputs: MergeInputs): Readonly<Record<string, unknow
 }
 
 function mergeInputJson(input: TransferInput): Readonly<Record<string, unknown>> {
-  const utxo = circuitUtxo(input);
+  const utxo = input.circuit;
   return Object.freeze({
     domain: hex(utxo.domain),
     amount: hex(utxo.amount),
@@ -368,7 +368,7 @@ function mergeInputJson(input: TransferInput): Readonly<Record<string, unknown>>
 
 function mergeOutputJson(output: TransferOutput): Readonly<Record<string, unknown>> {
   return Object.freeze({
-    ringDataHash: hex(circuitUtxo(output).ringDataHash),
+    ringDataHash: hex(output.circuit.ringDataHash),
     hash: hex(output.hash),
   });
 }
@@ -552,8 +552,8 @@ function outputJson(output: TransferOutput): Readonly<Record<string, unknown>> {
   });
 }
 
-function utxoJson(value: object): Readonly<Record<string, unknown>> {
-  const utxo = circuitUtxo(value);
+function utxoJson(value: TransferInput | TransferOutput): Readonly<Record<string, unknown>> {
+  const utxo = value.circuit;
   return Object.freeze({
     domain: hex(utxo.domain),
     owner: hex(utxo.owner),
@@ -575,23 +575,13 @@ function bytesHex(bytes: Uint8Array): string {
 }
 
 async function decodeResponse(response: Response): Promise<unknown> {
-  const length = response.headers.get("content-length");
-  if (length !== null && /^\d+$/u.test(length) && Number(length) > MAX_RESPONSE_BYTES) {
-    throw new ClientError("CLIENT_PROVER_RESPONSE_TOO_LARGE");
-  }
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.length > MAX_RESPONSE_BYTES) {
-    throw new ClientError("CLIENT_PROVER_RESPONSE_TOO_LARGE");
-  }
-  let text: string;
   try {
-    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    throw new ClientError("CLIENT_PROVER_TEXT");
-  }
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
+    return await readBoundedJson(response, MAX_RESPONSE_BYTES);
+  } catch (error) {
+    if (!(error instanceof TransportFailure)) throw error;
+    if (error.kind === "responseTooLarge")
+      throw new ClientError("CLIENT_PROVER_RESPONSE_TOO_LARGE");
+    if (error.kind === "text") throw new ClientError("CLIENT_PROVER_TEXT");
     throw new ClientError("CLIENT_PROVER_JSON");
   }
 }

@@ -1,18 +1,28 @@
 import { getAddressEncoder } from "@solana/kit";
 
-import type { ZolanaClient } from "../client/client.js";
+import type { ChainReader, MergeAssembler, ProofReader, TreeContext } from "../client/ports.js";
 import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
 import type { NullifierKey } from "../keypair/nullifier-key.js";
 import type { P256PublicKey, ShieldedPublicKey } from "../keypair/public-key.js";
-import { ShieldedAddress, type ShieldedKeypair } from "../keypair/shielded.js";
+import { ShieldedAddress } from "../keypair/shielded.js";
 import { Merge, type PreparedMerge } from "../transaction/instructions/builders.js";
 import { ProofInputUtxo } from "../transaction/utxo.js";
 import type { WalletAuthority, WalletSyncMaterial } from "../transaction/wallet/authority.js";
-import { SOL_MINT } from "../transaction/wallet/asset.js";
+import { SOL_MINT } from "../transaction/asset.js";
 import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 
+import { initializePoseidon } from "../hasher/index.js";
+import { MERGE_INPUT_COUNT } from "../interface/constants.js";
+import {
+  isPlainUtxo,
+  selectUtxos,
+  type SpendPolicy,
+  type SpendSelectionErrors,
+} from "../flows/select.js";
+import { reservedUtxoKeys, unreserved } from "../flows/reserve.js";
+import { checkIntentApproval, type TransactionIntent } from "../transaction/wallet/intent.js";
 import { WalletError, wrapWalletError } from "./error.js";
-import { bytesKey, equalBytes } from "./internal.js";
+import { bytesKey, equalBytes, reserveWalletEntries } from "./internal.js";
 import { internalMergeRecord, type MergeRecord } from "./registry.js";
 
 const addressEncoder = getAddressEncoder();
@@ -31,66 +41,85 @@ export interface CreatedMerge {
   readonly numInputs: number;
   readonly mergedAmount: bigint;
   readonly tree: Address;
+  readonly reservationId: string;
+}
+
+const mergeSelectionErrors: SpendSelectionErrors = {
+  insufficient: () => new WalletError("WALLET_NOTHING_TO_MERGE"),
+  tooManyInputs: ({ eligible, max }) =>
+    new WalletError("WALLET_TOO_MANY_INPUTS", { details: { got: eligible, max } }),
+  overflow: ({ available }) =>
+    new WalletError("WALLET_SELECTED_BALANCE_OVERFLOW", {
+      details: { available: available.toString() },
+    }),
+  multipleTrees: () => new WalletError("WALLET_MULTIPLE_INPUT_TREES"),
+  tooFewUtxos: () => new WalletError("WALLET_NOTHING_TO_MERGE"),
+};
+
+function mergePolicy(reserved: ReadonlySet<string>): SpendPolicy {
+  return {
+    eligible: (entry) => isPlainUtxo(entry) && unreserved(reserved)(entry),
+    ordering: "smallestFirst",
+    maxInputs: MERGE_INPUT_COUNT,
+    tree: { kind: "inferSingle" },
+    errors: mergeSelectionErrors,
+  };
 }
 
 /** @internal */
 export function createMerge(params: MergeParams): CreatedMerge {
-  const eligible = params.wallet
-    .utxos()
-    .filter((entry) => !entry.spent && entry.utxo.asset === params.asset);
-  const selected = selectMergeEntries(eligible, params.inputs);
+  const selected = selectMergeEntries(params);
   const tree = selected[0]?.outputContext.tree;
   if (tree === undefined) throw new WalletError("WALLET_NOTHING_TO_MERGE");
   if (selected.some((entry) => entry.outputContext.tree !== tree)) {
     throw new WalletError("WALLET_INPUT_UTXO_TREE_MISMATCH");
   }
-  const nullifierKey = params.material.nullifierKey;
-  const inputs = selected.map(
-    (entry) =>
-      new ProofInputUtxo({
-        utxo: entry.utxo,
+  const reservation = reserveWalletEntries(params.wallet, selected);
+  try {
+    const nullifierKey = params.material.nullifierKey;
+    const inputs = selected.map(
+      (entry) =>
+        new ProofInputUtxo({
+          utxo: entry.utxo,
+          nullifierKey,
+          ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),
+          ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
+        }),
+    );
+    const prepared = new Merge(
+      {
+        address: ShieldedAddress.fromPublicKeys(
+          params.material.signingPublicKey,
+          params.material.nullifierKey.publicKey(),
+          params.material.viewingPublicKey,
+        ),
         nullifierKey,
-        ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),
-        ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
-      }),
-  );
-  const prepared = new Merge(
-    {
-      address: ShieldedAddress.fromPublicKeys(
-        params.material.signingPublicKey,
-        params.material.nullifierKey.publicKey(),
-        params.material.viewingPublicKey,
-      ),
-      nullifierKey,
-    },
-    inputs,
-  ).prepare();
-  return Object.freeze({
-    prepared,
-    numInputs: selected.length,
-    mergedAmount: prepared.output.amount,
-    tree,
-  });
+      },
+      inputs,
+    ).prepare();
+    return Object.freeze({
+      prepared,
+      numInputs: selected.length,
+      mergedAmount: prepared.output.amount,
+      tree,
+      reservationId: reservation.id,
+    });
+  } catch (cause) {
+    params.wallet._releaseReservation(reservation.id);
+    throw cause;
+  }
 }
 
-function isPlain(entry: WalletUtxo): boolean {
-  return (
-    entry.utxo.ringProgramId === undefined &&
-    entry.dataHash === undefined &&
-    entry.ringDataHash === undefined &&
-    entry.utxo.data.isEmpty()
-  );
-}
-
-function selectMergeEntries(
-  entries: readonly WalletUtxo[],
-  hashes: readonly Bytes32[] | undefined,
-): readonly WalletUtxo[] {
+function selectMergeEntries(params: MergeParams): readonly WalletUtxo[] {
+  const hashes = params.inputs;
   if (hashes !== undefined) {
+    const entries = params.wallet
+      .utxos()
+      .filter((entry) => !entry.spent && entry.utxo.asset === params.asset);
     if (hashes.length < 2) throw new WalletError("WALLET_NOTHING_TO_MERGE");
-    if (hashes.length > 8) {
+    if (hashes.length > MERGE_INPUT_COUNT) {
       throw new WalletError("WALLET_TOO_MANY_INPUTS", {
-        details: { got: hashes.length, max: 8 },
+        details: { got: hashes.length, max: MERGE_INPUT_COUNT },
       });
     }
     const seen = new Set<string>();
@@ -103,16 +132,12 @@ function selectMergeEntries(
       return entry;
     });
   }
-  const plain = entries.filter(isPlain);
-  const trees = new Set(plain.map((entry) => entry.outputContext.tree));
-  if (trees.size > 1) throw new WalletError("WALLET_MULTIPLE_INPUT_TREES");
-  const selected = [...plain]
-    .sort((left, right) =>
-      left.utxo.amount < right.utxo.amount ? -1 : left.utxo.amount > right.utxo.amount ? 1 : 0,
-    )
-    .slice(0, 8);
-  if (selected.length < 2) throw new WalletError("WALLET_NOTHING_TO_MERGE");
-  return selected;
+  return selectUtxos({
+    wallet: params.wallet,
+    asset: params.asset,
+    target: { kind: "consolidate", minInputs: 2 },
+    policy: mergePolicy(reservedUtxoKeys(params.wallet)),
+  }).entries;
 }
 
 /** @internal */
@@ -133,14 +158,6 @@ export class MergeMaterial {
     this.nullifierKey = input.nullifierKey;
   }
 
-  static fromKeypair(keypair: ShieldedKeypair): MergeMaterial {
-    return new MergeMaterial({
-      signingPublicKey: keypair.signingPublicKey(),
-      viewingPublicKey: keypair.viewingPublicKey(),
-      nullifierKey: keypair.nullifierKey(),
-    });
-  }
-
   static fromSyncMaterial(material: WalletSyncMaterial): MergeMaterial {
     return new MergeMaterial({
       signingPublicKey: material.identity.signingPublicKey,
@@ -150,8 +167,13 @@ export class MergeMaterial {
   }
 }
 
+export type MergeClient = MergeAssembler &
+  TreeContext &
+  Pick<ChainReader, "getAccount"> &
+  Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs">;
+
 export interface MergeTransactionParams {
-  readonly client: ZolanaClient;
+  readonly client: MergeClient;
   readonly wallet: Wallet;
   readonly authority: WalletAuthority;
   readonly feePayer: Address;
@@ -164,44 +186,74 @@ export async function buildMergeTransaction(
   context?: RequestContext,
 ): Promise<Transaction> {
   try {
+    await initializePoseidon();
     const owner = input.authority.solanaPublicKey();
-    const material = MergeMaterial.fromSyncMaterial(await input.authority.syncMaterial());
-    const created = createMerge({
-      wallet: input.wallet,
-      material,
-      asset: input.asset ?? SOL_MINT,
-      ...(input.inputs === undefined ? {} : { inputs: input.inputs }),
-    });
-    await input.authority.requestUserApproval({
-      solanaPublicKey: owner,
-      summary: `merge ${String(created.numInputs)} private inputs`,
-    });
-    const record = await internalMergeRecord({ rpc: input.client, owner }, context);
-    validateMergeBuild(record, owner, material);
-    if (input.client.tree !== created.tree) {
-      throw new WalletError("WALLET_MERGE_TREE_MISMATCH", {
-        details: { proofTree: input.client.tree, submitTree: created.tree },
-      });
-    }
-    const proved = await input.client.proveMerge(
-      {
-        prepared: created.prepared,
+    return await input.authority.withSyncSession(async (keys) => {
+      const material = MergeMaterial.fromSyncMaterial(await keys.syncMaterial());
+      const created = createMerge({
+        wallet: input.wallet,
         material,
-        indexer: treeCheckedIndexer(input.client, created.tree),
-      },
-      context,
-    );
-    return await input.client.assembleAuthorizedMergeTransaction(
-      {
-        proved,
-        feePayer: input.feePayer,
-        userRecord: record.recordAddress,
-      },
-      context,
-    );
+        asset: input.asset ?? SOL_MINT,
+        ...(input.inputs === undefined ? {} : { inputs: input.inputs }),
+      });
+      try {
+        return await proveAndAssembleMerge(input, owner, material, created, context);
+      } catch (cause) {
+        input.wallet._releaseReservation(created.reservationId);
+        throw cause;
+      } finally {
+        for (const proofInput of created.prepared.inputs) proofInput.destroy();
+      }
+    });
   } catch (cause) {
     throw wrapWalletError("WALLET_BUILD_MERGE", cause);
   }
+}
+
+async function proveAndAssembleMerge(
+  input: MergeTransactionParams,
+  owner: Address,
+  material: MergeMaterial,
+  created: ReturnType<typeof createMerge>,
+  context: RequestContext | undefined,
+): Promise<Transaction> {
+  const intent: TransactionIntent = {
+    kind: "merge",
+    asset: input.asset ?? SOL_MINT,
+    numInputs: created.numInputs,
+    mergedAmount: created.mergedAmount,
+  };
+  const approval = await input.authority.requestUserApproval({
+    solanaPublicKey: owner,
+    intent,
+    summary: `merge ${String(created.numInputs)} private inputs`,
+  });
+  checkIntentApproval(approval, intent, (field) => {
+    return new WalletError("WALLET_INTENT_MISMATCH", { details: { field } });
+  });
+  const record = await internalMergeRecord({ rpc: input.client, owner }, context);
+  validateMergeBuild(record, owner, material);
+  if (input.client.tree !== created.tree) {
+    throw new WalletError("WALLET_MERGE_TREE_MISMATCH", {
+      details: { proofTree: input.client.tree, submitTree: created.tree },
+    });
+  }
+  const proved = await input.client.proveMerge(
+    {
+      prepared: created.prepared,
+      material,
+      indexer: treeCheckedIndexer(input.client, created.tree),
+    },
+    context,
+  );
+  return input.client.assembleAuthorizedMergeTransaction(
+    {
+      proved,
+      feePayer: input.feePayer,
+      userRecord: record.recordAddress,
+    },
+    context,
+  );
 }
 
 function validateMergeBuild(record: MergeRecord, owner: Address, material: MergeMaterial): void {
@@ -231,9 +283,9 @@ function validateMergeBuild(record: MergeRecord, owner: Address, material: Merge
 }
 
 function treeCheckedIndexer(
-  indexer: Pick<ZolanaClient, "getInputMerkleProofs" | "getNonInclusionProofs">,
+  indexer: Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs">,
   submitTree: Address,
-): Pick<ZolanaClient, "getInputMerkleProofs" | "getNonInclusionProofs"> {
+): Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs"> {
   return {
     getInputMerkleProofs: async (commitments, config, context) => {
       const proofs = await indexer.getInputMerkleProofs(commitments, config, context);

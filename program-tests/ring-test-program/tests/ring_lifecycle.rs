@@ -8,7 +8,14 @@ use solana_rpc_client::api::config::RpcTransactionConfig;
 use solana_transaction_status_client_types::UiTransactionEncoding;
 use zolana_client::Rpc;
 use zolana_test_utils::ring::RingHarness;
+use zolana_test_utils::test_validator_asserts::{fetch_account, token_amount};
 use zolana_transaction::SOL_MINT;
+
+fn spl_mint(harness: &RingHarness) -> Result<Address> {
+    Ok(Address::new_from_array(
+        harness.spl_asset()?.mint.to_bytes(),
+    ))
+}
 
 #[test]
 #[serial]
@@ -53,6 +60,84 @@ fn eddsa_ring_transfer_updates_recipient_wallet() -> Result<()> {
     harness.ring_transfer("alice", "bob", SOL_MINT, 300_000_000)?;
     harness.sync("bob")?;
     harness.assert_utxos("bob");
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn spl_ring_transfer_updates_recipient_wallet() -> Result<()> {
+    let mut harness = RingHarness::new()?;
+    harness.create_enabled_ring_config()?;
+    harness.make_payer_actor("alice")?;
+    for _ in 0..2 {
+        harness.ring_shield_spl("alice", 400)?;
+    }
+    let mint = spl_mint(&harness)?;
+    harness.ring_transfer("alice", "bob", mint, 300)?;
+    harness.sync("bob")?;
+    harness.assert_utxos("bob");
+    harness.sync("alice")?;
+    harness.assert_utxos("alice");
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn spl_ring_withdraw_credits_the_recipient_token_account() -> Result<()> {
+    let mut harness = RingHarness::new()?;
+    harness.create_enabled_ring_config()?;
+    harness.make_payer_actor("alice")?;
+    for _ in 0..2 {
+        harness.ring_shield_spl("alice", 600)?;
+    }
+    let mint = spl_mint(&harness)?;
+    let (_, recipient_token) = harness.ring_withdraw("alice", mint, 700)?;
+    assert_eq!(
+        token_amount(&fetch_account(&harness.rpc, &recipient_token)?),
+        700,
+        "withdrawn tokens"
+    );
+    assert_eq!(
+        token_amount(&fetch_account(&harness.rpc, &harness.spl_asset()?.vault)?),
+        500,
+        "vault keeps the shielded remainder"
+    );
+    harness.sync("alice")?;
+    harness.assert_utxos("alice");
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn mixed_asset_ring_transfer_returns_sol_change_beside_spl_change() -> Result<()> {
+    let mut harness = RingHarness::new()?;
+    harness.create_enabled_ring_config()?;
+    harness.make_payer_actor("alice")?;
+    harness.ring_shield_sol("alice", 1_000_000_000)?;
+    harness.ring_shield_spl("alice", 800)?;
+    let mint = spl_mint(&harness)?;
+    harness.ring_transfer_mixed("alice", "bob", mint, 300)?;
+    harness.sync("bob")?;
+    harness.assert_utxos("bob");
+    harness.sync("alice")?;
+    harness.assert_utxos("alice");
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn spl_default_note_funds_an_eddsa_ring_transfer() -> Result<()> {
+    let mut harness = RingHarness::new()?;
+    harness.create_enabled_ring_config()?;
+    harness.make_payer_actor("alice")?;
+    harness.shield_default_spl("alice", 600)?;
+    harness.ring_shield_spl("alice", 400)?;
+    let mint = spl_mint(&harness)?;
+    harness.ring_transfer("alice", "bob", mint, 900)?;
+    harness.sync("bob")?;
+    harness.assert_utxos("bob");
+    harness.sync("alice")?;
+    harness.assert_utxos("alice");
     Ok(())
 }
 
