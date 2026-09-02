@@ -32,8 +32,9 @@ impl<'a> TransactAccounts<'a> {
     /// 3. output tree - mut
     /// 4. self program - program id match
     /// 5. system program - program id match
-    /// 6. N signers - signer
-    ///    6 + N: transfer settlement accounts -
+    /// 6. I nullifier PDAs - mut, one per input in `inputs` order
+    ///    6 + I: N signers - signer
+    ///    6 + I + N: transfer settlement accounts -
     pub fn validate_and_parse(
         accounts: &'a mut [AccountView],
         ix: &TransactIxDataRef<'_>,
@@ -179,7 +180,8 @@ pub struct RingTransactAccounts;
 impl RingTransactAccounts {
     /// Parse the accounts shared by `ring_transact` and `ring_authority_transact`:
     /// `payer`, `input_tree`, `output_tree`, SPP, System Program, the `RingConfig`
-    /// account (the ring's `ring_auth` PDA), then owner signers and settlement
+    /// account (the ring's `ring_auth` PDA), one writable nullifier PDA per input
+    /// in `inputs` order, then owner signers and settlement
     /// accounts. Returns the parsed transact accounts and the ring's
     /// `program_id`, read from the validated, unpaused `RingConfig` (never
     /// re-derived; the create-time `ring_auth` derivation already bound it).

@@ -135,11 +135,11 @@ Tree fee-schedule sync (2026-09-02): the tree header gained a runtime
 `close_nullifier_pdas` pay `min(owed, fee_balance)` to a non-program
 `reimbursement_recipient` (7055), `claim_tree_lamports` (tag 20) lets the fee
 authority sweep surplus lamports, and the constant 20-lamport insertion fee is
-gone. New entries: INV-SET-FEES-01..09, INV-CLAIM-01..07, INV-CLOSE-PDA-09/-10,
-INV-CREATE-TREE-10, INV-UPDATE-PC-08 (20, all covered); INV-BATCH-NULL-08,
-INV-CLOSE-PDA-02/-05/-08, INV-TRANSACT-29/-30/-42/-49, INV-MERGE-15/-19,
+gone. New entries: INV-SET-FEES-01..09, INV-CLAIM-01..07, INV-CLOSE-PDA-01..10,
+INV-TRANSACT-46..50, INV-CREATE-TREE-10, INV-UPDATE-PC-08 (33, all covered);
+INV-BATCH-NULL-08, INV-TRANSACT-29/-30/-42, INV-MERGE-15/-19,
 INV-CREATE-PC-05..07, INV-UPDATE-PC-03/-05, INV-XC-03/-28/-29/-31 restated.
-The counts below are updated for the 20 additions.
+The counts below are updated for the 33 additions.
 
 Post-PR172 sync (2026-07-31):
 

@@ -41,8 +41,8 @@ and reports two functions:
   per applied zkp batch. Each apply advances `next_index`, appends a root to the
   root-history ring, marks the zkp batch inserted, and clears its cached update.
   The final apply advances `close_before_index` to the completed batch's start
-  index; no root-history slots or bloom-filter slices are zeroed. The cascade
-  re-verifies no proofs; the submit path already did.
+  index; no root-history slots are zeroed. The cascade re-verifies no proofs;
+  the submit path already did.
 - `bench_batch_address_update` net (96,047 CU): the index-0 submit path,
   dominated by the single Groth16 proof verification (alt_bn128 pairing).
 
@@ -52,5 +52,6 @@ Total is 116,025 CU, well under the 1.4M per-transaction limit, so a backlog of
 The benchmarked tree uses `zkp_batch_size = 10` (`batch_size = 1200`,
 `ZKP = 120`) rather than the production address-tree `zkp_batch_size = 250`,
 because only the `batch_address-append_40_10` proving key is available locally.
-The root history is sized to production (`RH = 120`), exactly one batch of ZKP
-update roots, so a fully applied successor naturally overwrites all older roots.
+The root history is sized by the production rule, `RH = batch_size /
+zkp_batch_size` (120 here, 100 in production), exactly one batch of ZKP update
+roots, so a fully applied successor naturally overwrites all older roots.
