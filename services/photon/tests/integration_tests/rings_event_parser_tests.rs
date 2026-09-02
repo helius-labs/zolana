@@ -746,7 +746,8 @@ async fn discovers_rings_tree_account_metadata() {
             tree_pubkey.to_bytes(),
             0,
             nullifier_tree_params(),
-            default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size),
+            default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size)
+                .expect("default tree fees"),
         )
         .unwrap();
         let nullifier = tree.nullifier_tree();

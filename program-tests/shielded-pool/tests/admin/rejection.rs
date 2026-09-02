@@ -101,7 +101,8 @@ fn create_tree_steps(pool: &Pool, tree_id: u16) -> CreateTree {
         authority: pool.authority.pubkey(),
         tree_id,
         nullifier_params: nullifier_tree_params(),
-        fees: default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size),
+        fees: default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size)
+            .expect("default tree fees"),
     }
 }
 

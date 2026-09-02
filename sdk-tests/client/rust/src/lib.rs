@@ -132,7 +132,8 @@ pub fn setup() -> Result<SetupContext> {
         &payer.pubkey(),
         &accounts.tree_vault,
         nullifier_tree_params(),
-        default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size),
+        default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size)
+            .ok_or_else(|| anyhow::anyhow!("default tree fees do not fit the zkp batch size"))?,
     )?;
     let create_tree_syncs = smart_account::execute_sync_each(
         &accounts.tree_settings,

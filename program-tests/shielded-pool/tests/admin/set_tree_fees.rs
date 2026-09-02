@@ -173,7 +173,7 @@ fn set_tree_fees_is_gated_by_the_fee_authority_alone() {
 fn set_tree_fees_stores_insolvent_schedules() {
     let mut pool = Pool::initialized();
     let authority = pool.authority.insecure_clone();
-    let valid = default_tree_fees(250);
+    let valid = default_tree_fees(250).expect("default tree fees");
     let insolvent = [
         TreeFeeSchedule {
             append_reimbursement: valid.append_reimbursement + 1,

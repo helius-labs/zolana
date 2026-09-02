@@ -92,6 +92,8 @@ pub enum ProgramTestError {
     Rpc(String),
     #[error("pubkey: {0}")]
     Pubkey(#[from] solana_pubkey::PubkeyError),
+    #[error("the default tree fee schedule does not fit zkp batch size {0}")]
+    InvalidTreeFees(u64),
 }
 
 impl From<ClientError> for ProgramTestError {

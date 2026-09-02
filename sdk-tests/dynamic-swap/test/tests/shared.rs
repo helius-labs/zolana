@@ -208,7 +208,8 @@ pub fn setup() -> Result<TestEnv> {
         &payer.pubkey(),
         &accounts.tree_vault,
         nullifier_tree_params(),
-        default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size),
+        default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size)
+            .expect("default tree fees"),
     )?;
     let create_tree_syncs = smart_account::execute_sync_each(
         &accounts.tree_settings,

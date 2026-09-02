@@ -254,7 +254,8 @@ fn create_tree_builder_repeats_one_step_per_allocation_chunk() {
         authority,
         tree_id: 3,
         nullifier_params: nullifier_tree_params(),
-        fees: default_tree_fees(NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE),
+        fees: default_tree_fees(NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE)
+            .expect("default tree fees"),
     };
     let instructions = builder.instructions();
 
@@ -280,7 +281,8 @@ fn create_tree_builder_repeats_one_step_per_allocation_chunk() {
         CreateTreeData {
             tree_id: 3,
             nullifier_params: nullifier_tree_params(),
-            fees: default_tree_fees(NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE),
+            fees: default_tree_fees(NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE)
+                .expect("default tree fees"),
         }
     );
 }

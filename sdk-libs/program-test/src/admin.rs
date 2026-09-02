@@ -121,7 +121,9 @@ impl ZolanaProgramTest {
         authority: &Keypair,
         nullifier_params: NullifierTreeInitParams,
     ) -> Result<Pubkey, ProgramTestError> {
-        let fees = default_tree_fees(nullifier_params.input_queue_zkp_batch_size);
+        let fees = default_tree_fees(nullifier_params.input_queue_zkp_batch_size).ok_or(
+            ProgramTestError::InvalidTreeFees(nullifier_params.input_queue_zkp_batch_size),
+        )?;
         self.create_tree_with_params(authority, nullifier_params, fees)
     }
 

@@ -13,13 +13,14 @@ pub const NULLIFIER_TREE_ROOT_HISTORY_CAPACITY: u32 =
 pub const DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS: u64 = 5_000;
 pub const DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS: u64 = 170;
 
-pub fn default_tree_fees(zkp_batch_size: u64) -> TreeFeeSchedule {
+/// Fee schedule that exactly covers the default reimbursements for one zkp
+/// batch. `None` when `zkp_batch_size` is zero or the schedule overflows.
+pub fn default_tree_fees(zkp_batch_size: u64) -> Option<TreeFeeSchedule> {
     TreeFeeSchedule::at_cost(
         zkp_batch_size,
         DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS,
         DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS,
     )
-    .unwrap_or_default()
 }
 
 /// Nullifier-PDA rent needed while one reused batch overlaps the two preceding
@@ -87,14 +88,14 @@ mod tests {
             (nullifier_tree_params().input_queue_zkp_batch_size, 190),
             (10, 670),
         ] {
-            let fees = default_tree_fees(zkp_batch_size);
+            let fees = default_tree_fees(zkp_batch_size).expect("default tree fees");
             assert_eq!(
                 fees.fee_per_nullifier * zkp_batch_size,
                 fees.append_reimbursement + zkp_batch_size * fees.close_reimbursement
             );
             assert_eq!(fees.fee_per_nullifier, fee_per_nullifier);
         }
-        assert_eq!(default_tree_fees(0), TreeFeeSchedule::default());
+        assert_eq!(default_tree_fees(0), None);
     }
 
     #[test]

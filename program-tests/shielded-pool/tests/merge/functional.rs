@@ -288,7 +288,7 @@ fn merge_collects_the_exact_forester_fee_from_the_payer() {
     let (fees, fee_balance_after) = tree_fees(&env.rpc, &tree).expect("tree fees");
     assert_eq!(
         fees,
-        default_tree_fees(NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE),
+        default_tree_fees(NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE).expect("default tree fees"),
         "merge leaves the fee schedule untouched"
     );
     let forester_fee = fees.fee_per_nullifier * MERGE_INPUT_COUNT as u64;
