@@ -795,6 +795,129 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
     Ok(())
 }
 
+/// An audit-only ring pins no policy config, its transfer proves the lighter
+/// audit statement and the auditor still recovers every output.
+#[test]
+fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
+    let mut env = setup()?;
+    let rpc = env.client.rpc();
+    let indexer = env.client.indexer();
+    let ring_program = custom_ring_program_id()?;
+    let ring = CustomRing::new(ring_program);
+
+    let auditor = ViewingKey::new();
+    let auditor_pk = auditor.pubkey();
+
+    RegisterRing {
+        ring,
+        payer: &env.payer,
+        auditor_pubkey: auditor_pk,
+        entries_tree: env.tree,
+        has_policy: false,
+    }
+    .send(rpc)?;
+
+    assert!(
+        ring.read_policy_config(rpc)?.is_none(),
+        "an audit-only ring pins no policy config"
+    );
+    let config: RingProgramConfig = fetch_state(rpc, &ring.config_pda())?;
+    assert_eq!(config.has_policy, 0, "audit-only config flag");
+
+    let mut spendable = Vec::with_capacity(2);
+    for amount in [RING_DEPOSIT_A, RING_DEPOSIT_B] {
+        let RingDepositReceipt { utxo, .. } = RingDeposit {
+            ring,
+            payer: &env.sender.keypair,
+            recipient: &env.sender.keypair,
+            tree: env.tree,
+            amount,
+        }
+        .send(rpc)?;
+        spendable.push(utxo);
+    }
+
+    let sender_address = env.sender.keypair.pubkey();
+    let inputs = spendable
+        .into_iter()
+        .map(|utxo| SppProofInputUtxo::new(utxo, &env.sender.keypair))
+        .collect();
+    let mut transfer = ConfidentialTransfer::new(
+        env.sender.keypair.shielded_address()?,
+        inputs,
+        sender_address,
+    )
+    .with_compact_change()
+    .with_ring_program_id(ring_program);
+    transfer.send(
+        &env.recipient.keypair.shielded_address()?,
+        SOL_MINT,
+        RING_TRANSFER_AMOUNT,
+    )?;
+    let prepared = transfer.prepare()?;
+
+    let prover = ProverClient::local();
+    let proven = CustomRingTransfer::new(CustomRingTransferInput {
+        ring,
+        sender: &env.sender.keypair,
+        prepared,
+    })
+    .with_tree(env.tree)
+    .with_assets(&env.assets)
+    .prove(TransferProofEnvironment {
+        indexer,
+        rpc,
+        prover: &prover,
+    })?;
+    let tx_viewing_pk = proven.tx_viewing_key.pubkey();
+
+    let transaction = V0WithLookupTable {
+        payer: &env.sender.keypair,
+        signers: &[],
+        instruction: proven.instruction()?,
+    }
+    .build(rpc)?;
+    let signature = rpc
+        .client()
+        .send_and_confirm_transaction(&transaction)
+        .map_err(|error| anyhow!("send v0 failed {error}"))?;
+
+    let auditor_tag = auditor_view_tag(&auditor_pk);
+    let indexed = wait_for_indexed_transaction(indexer, auditor_tag, signature);
+    assert_eq!(indexed.nullifiers.len(), 2, "both inputs spend");
+    assert_eq!(
+        indexed.tx_viewing_pk,
+        Some(tx_viewing_pk),
+        "the on-chain tx_viewing_pk is the sender's"
+    );
+
+    let audited = RingAudit::new(ring_program, &auditor)
+        .run(
+            RingEnvironment {
+                indexer,
+                origin: rpc,
+            },
+            &env.assets,
+        )?
+        .transactions;
+    assert_eq!(audited.len(), 1, "one auditor-tagged transaction");
+    let audited = audited
+        .first()
+        .ok_or_else(|| anyhow!("audited transaction"))?;
+    assert_eq!(audited.tx_signature, signature, "audited signature");
+    assert_eq!(
+        audited.tx_viewing_pk, tx_viewing_pk,
+        "auditor recovered the transaction viewing key"
+    );
+    let mut amounts: Vec<u64> = audited.outputs.iter().map(|output| output.amount).collect();
+    amounts.sort_unstable();
+    let mut expected = vec![RING_CHANGE, RING_TRANSFER_AMOUNT];
+    expected.sort_unstable();
+    assert_eq!(amounts, expected, "auditor decrypts both output amounts");
+
+    Ok(())
+}
+
 /// Default-ring notes are legal ring transact inputs and outputs
 /// (`AssertRingMemberOrFree`).
 #[test]
