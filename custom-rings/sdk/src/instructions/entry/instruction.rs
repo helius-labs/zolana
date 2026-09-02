@@ -52,10 +52,7 @@ impl CreatePolicy {
         let referenced: Vec<ListId> = custom_ring_interface::RULES
             .rules()
             .iter()
-            .filter_map(|rule| match rule.source {
-                zolana_ring_policy::RuleSource::List(list_id) => Some(list_id),
-                zolana_ring_policy::RuleSource::InlineAssets(_) => None,
-            })
+            .flat_map(|rule| rule.referenced_lists())
             .collect();
         for (list_id, _) in &shared_sources {
             if !referenced.contains(list_id) {

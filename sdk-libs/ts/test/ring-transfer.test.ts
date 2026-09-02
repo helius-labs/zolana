@@ -537,7 +537,7 @@ describe("ring proof folded fields", () => {
 
   it("pins the empty-rule policy hash to Rust `EMPTY_POLICY_HASH`", () => {
     expect(Buffer.from(RING_EMPTY_RULES_POLICY_HASH).toString("hex")).toBe(
-      "25cc39e678cf0a5b3e48b56b6447c6676667e8775d2615daf11358d3d55d3f4b",
+      "1fdd9c12850df78caef73299c35baf2a64eb41a13b6374e3684a8dc29f3343d4",
     );
   });
 

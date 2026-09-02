@@ -12,7 +12,7 @@ use solana_account::Account;
 use solana_instruction::AccountMeta;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
-use zolana_ring_policy::{ListId, RuleSource};
+use zolana_ring_policy::ListId;
 
 use crate::common::{
     authority, create_entry_fixture, create_policy_fixture_with, curator_namespace_pda,
@@ -30,10 +30,7 @@ fn referenced_lists() -> Vec<u8> {
     let mut kinds: Vec<u8> = RULES
         .rules()
         .iter()
-        .filter_map(|rule| match rule.source {
-            RuleSource::List(list_id) => Some(list_id as u8),
-            RuleSource::InlineAssets(_) => None,
-        })
+        .flat_map(|rule| rule.referenced_lists().map(|list_id| list_id as u8))
         .collect();
     kinds.sort_unstable();
     kinds.dedup();
