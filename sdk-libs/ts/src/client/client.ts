@@ -48,7 +48,11 @@ import { assemble } from "./prover/assembly.js";
 import { ProverClient, type AsyncPollConfig, type ProverHealth } from "./prover/client.js";
 import { assembleMerge } from "./prover/merge.js";
 import { compressProof } from "./prover/proof.js";
-import type { CustomRingProofRequest, RingTransactRoots } from "./prover/types.js";
+import type {
+  CustomRingAuditRequest,
+  CustomRingProofRequest,
+  RingTransactRoots,
+} from "./prover/types.js";
 import {
   DEFAULT_INDEXER_RPC_CONFIG,
   indexerPollTimeout,
@@ -594,6 +598,18 @@ export class ZolanaClient {
   ): Promise<Uint8Array> {
     try {
       const proof = await this.#prover.proveCustomRing(inputs, context);
+      return compressProof(proof).toCustomRingProof();
+    } catch (cause) {
+      throw fromClientCause(cause);
+    }
+  }
+
+  async proveCustomRingAudit(
+    inputs: CustomRingAuditRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array> {
+    try {
+      const proof = await this.#prover.proveCustomRingAudit(inputs, context);
       return compressProof(proof).toCustomRingProof();
     } catch (cause) {
       throw fromClientCause(cause);

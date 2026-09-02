@@ -18,6 +18,7 @@ import type {
 } from "../src/interface/types.js";
 import {
   AUDIT_ENC_INFO,
+  auditPublicInputHash,
   auditSharedSecret,
   auditorViewTag,
   parseAuditorMessage,
@@ -34,7 +35,7 @@ import {
 } from "../src/ring/audit.js";
 import { assemble, ringOpenings } from "../src/client/prover/assembly.js";
 import { ZolanaClient } from "../src/client/client.js";
-import type { CustomRingProofRequest } from "../src/client/prover/types.js";
+import type { CustomRingAuditRequest, CustomRingProofRequest } from "../src/client/prover/types.js";
 import type { SpendProof } from "../src/client/rpc.js";
 import { bigintToBytes, hashBytesBigInt, hashChain, poseidon } from "../src/client/internal.js";
 import { hashBytes } from "../src/hasher/index.js";
@@ -152,6 +153,25 @@ function indexed(proofInputs: SppProofInputs): IndexedShieldedTransaction {
     messages: external.messages,
     nullifiers: proofInputs.inputUtxos.map((input) => input.nullifier()),
     proofless: false,
+  };
+}
+
+function ringInstructionData(privateTxHash: Bytes32): TransactInstructionData {
+  return {
+    expiryUnixTs: 0n,
+    privateTxHash,
+    circuit: { kind: "ringEddsa", inputs: 2, outputs: 3, publicAssetSlots: 3 },
+    txViewingPk: new Uint8Array(33) as Bytes33,
+    salt: new Uint8Array(16) as Bytes16,
+    proof: {
+      a: new Uint8Array(32) as Bytes32,
+      b: new Uint8Array(64) as Bytes64,
+      c: new Uint8Array(32) as Bytes32,
+    },
+    inputs: [],
+    interfaceTransfers: [],
+    outputs: [],
+    messages: [],
   };
 }
 
@@ -591,22 +611,7 @@ describe("ring proof folded fields", () => {
     });
 
     const privateTxHash = scalar(91);
-    const data: TransactInstructionData = {
-      expiryUnixTs: 0n,
-      privateTxHash,
-      circuit: { kind: "ringEddsa", inputs: 2, outputs: 3, publicAssetSlots: 3 },
-      txViewingPk: new Uint8Array(33) as Bytes33,
-      salt: new Uint8Array(16) as Bytes16,
-      proof: {
-        a: new Uint8Array(32) as Bytes32,
-        b: new Uint8Array(64) as Bytes64,
-        c: new Uint8Array(32) as Bytes32,
-      },
-      inputs: [],
-      interfaceTransfers: [],
-      outputs: [],
-      messages: [],
-    };
+    const data = ringInstructionData(privateTxHash);
     const stateRoot = scalar(92);
     const nullifierRoot = scalar(93);
     const entriesStateRoot = scalar(94);
@@ -668,5 +673,98 @@ describe("ring proof folded fields", () => {
     expect(proven.entriesTree).toBe(ACTIVE_TREE);
     expect(proven.stateRootIndex).toBe(7);
     expect(proven.nullifierRootIndex).toBe(8);
+  });
+
+  it("proves the audit statement alone for a no-policy ring like Rust `finish_audit`", async () => {
+    const { prepared, sender } = preparedTransfer(4n, [1n]);
+    const auditor = ViewingKey.generate();
+    const encoder = new TextEncoder();
+    const [configAddress, configBump] = await getProgramDerivedAddress({
+      programAddress: RING,
+      seeds: [encoder.encode("config")],
+    });
+    const [policyAddress] = await getProgramDerivedAddress({
+      programAddress: RING,
+      seeds: [encoder.encode("policy")],
+    });
+    const client = new ZolanaClient({
+      solanaRpcUrl: "http://127.0.0.1:8899",
+      indexerUrl: "http://127.0.0.1:8784",
+      proverUrl: "http://127.0.0.1:3001",
+      tree: RING,
+    });
+    const read: string[] = [];
+    vi.spyOn(client, "getAccount").mockImplementation(async (account) => {
+      read.push(account);
+      if (account === configAddress) {
+        return {
+          owner: RING,
+          lamports: 1n,
+          data: Uint8Array.from([
+            1,
+            ...new Uint8Array(32),
+            ...auditor.publicKey().toBytes(),
+            configBump,
+            0,
+          ]),
+        };
+      }
+      return undefined;
+    });
+
+    const privateTxHash = scalar(91);
+    const data = ringInstructionData(privateTxHash);
+    let finalized: SppProofInputs | undefined;
+    vi.spyOn(client, "proveRingTransact").mockImplementation(async (proofInputs) => {
+      finalized = proofInputs;
+      return {
+        data,
+        roots: {
+          stateRoot: scalar(92),
+          stateRootIndex: 4,
+          nullifierRoot: scalar(93),
+          nullifierRootIndex: 5,
+        },
+      };
+    });
+    const policyProver = vi.spyOn(client, "proveCustomRing");
+    let request: CustomRingAuditRequest | undefined;
+    vi.spyOn(client, "proveCustomRingAudit").mockImplementation(async (input) => {
+      request = input;
+      return new Uint8Array(192);
+    });
+
+    const proven = await proveCustomRingTransfer({
+      client,
+      ringProgramId: RING,
+      prepared,
+      authority: sender.authority,
+      assets: new AssetRegistry(),
+      tree: RING,
+      outputTree: ACTIVE_TREE,
+    });
+
+    if (finalized === undefined) throw new Error("finalized");
+    const message = finalized.externalData.messages[0];
+    if (message === undefined) throw new Error("auditor message");
+    // The policy config account is never read for an audit-only ring.
+    expect(read).not.toContain(policyAddress);
+    expect(policyProver).not.toHaveBeenCalled();
+    expect(request?.privateTxHash).toEqual(privateTxHash);
+    expect(request?.auditorPublicKey).toEqual(auditor.publicKey().toUncompressed());
+    expect(request?.publicInputHash).toEqual(
+      auditPublicInputHash({
+        privateTxHash,
+        txViewingPublicKey: finalized.externalData.txViewingPublicKey,
+        auditorPublicKey: auditor.publicKey(),
+        message: parseAuditorMessage(message.data),
+      }),
+    );
+    expect(proven.hasPolicy).toBe(false);
+    expect(proven.entriesTree).toBeUndefined();
+    expect(proven.stateRootIndex).toBe(0);
+    expect(proven.nullifierRootIndex).toBe(0);
+    expect(proven.tree).toBe(RING);
+    expect(proven.outputTree).toBe(ACTIVE_TREE);
   });
 });

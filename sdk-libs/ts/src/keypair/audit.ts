@@ -126,26 +126,20 @@ export function parseAuditorMessage(data: Uint8Array): AuditorMessage {
   });
 }
 
-/**
- * Poseidon chain over `[private_tx_hash, tx_pk, auditor_pk, eph_pk,
- * hash(ciphertext), policy_hash, state_root, nullifier_root]` with keys packed
- * into two fields, Rust `CustomRingPublicInput::hash`.
- */
-export function customRingPublicInputHash(
-  input: Readonly<{
-    privateTxHash: Bytes32;
-    txViewingPublicKey: P256PublicKey;
-    auditorPublicKey: P256PublicKey;
-    message: AuditorMessage;
-    policyHash: Bytes32;
-    stateRoot: Bytes32;
-    nullifierRoot: Bytes32;
-  }>,
-): Bytes32 {
+/** The audit statement's public-input elements, Rust `AuditPublicInput`. */
+interface AuditPublicInput {
+  readonly privateTxHash: Bytes32;
+  readonly txViewingPublicKey: P256PublicKey;
+  readonly auditorPublicKey: P256PublicKey;
+  readonly message: AuditorMessage;
+}
+
+/** The eight-element prefix every custom-ring public input starts with, Rust `AuditPublicInput::elements`. */
+function auditChainElements(input: AuditPublicInput): readonly Bytes32[] {
   const [txLow, txHigh] = pack33(input.txViewingPublicKey.toBytes());
   const [auditorLow, auditorHigh] = pack33(input.auditorPublicKey.toBytes());
   const [ephLow, ephHigh] = pack33(input.message.ephemeralPublicKey.toBytes());
-  return hashChain([
+  return [
     input.privateTxHash,
     txLow,
     txHigh,
@@ -154,6 +148,21 @@ export function customRingPublicInputHash(
     ephLow,
     ephHigh,
     hashBytes(input.message.ciphertext) as Bytes32,
+  ];
+}
+
+/** Input order binds the audit statement, Rust `AuditPublicInput::hash`. */
+export function auditPublicInputHash(input: AuditPublicInput): Bytes32 {
+  return hashChain(auditChainElements(input));
+}
+
+/** The audit prefix then `[policy_hash, state_root, nullifier_root]`, Rust `CustomRingPublicInput::hash`. */
+export function customRingPublicInputHash(
+  input: AuditPublicInput &
+    Readonly<{ policyHash: Bytes32; stateRoot: Bytes32; nullifierRoot: Bytes32 }>,
+): Bytes32 {
+  return hashChain([
+    ...auditChainElements(input),
     checkedBytes(input.policyHash, 32, "policy hash"),
     checkedBytes(input.stateRoot, 32, "state root"),
     checkedBytes(input.nullifierRoot, 32, "nullifier root"),
