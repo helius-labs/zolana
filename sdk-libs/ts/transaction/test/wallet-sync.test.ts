@@ -1,4 +1,4 @@
-import type { Bytes16, Bytes32, Bytes33, Signature } from "../../src/interface/index.js";
+import type { Address, Bytes16, Bytes32, Bytes33, Signature } from "../../src/interface/index.js";
 import {
   NullifierKey,
   P256PublicKey,
@@ -21,7 +21,7 @@ import {
   type ViewingKeyEntry,
 } from "../../src/transaction/index.js";
 import type {
-  WalletAuthority,
+  SyncWalletAuthority,
   WalletSyncMaterial,
 } from "../../src/transaction/wallet/authority.js";
 import {
@@ -53,7 +53,7 @@ function fixtureAuthority(
   inputs: Readonly<Record<string, unknown>>,
   offset = 0,
 ): Readonly<{
-  authority: WalletAuthority;
+  authority: SyncWalletAuthority & { solanaPublicKey(): Address };
   identity: ShieldedAddress;
   keypair: ShieldedKeypair;
   nullifier: NullifierKey;
@@ -74,22 +74,13 @@ function fixtureAuthority(
     viewingKeys: [viewing],
     nullifierKey: nullifier,
   };
-  const unsupported = (): Promise<never> => Promise.reject(new Error("not used by sync"));
   const solanaPublicKey =
     "solanaPubkeyBytes" in inputs
       ? encodeAddress(hexBytes(fixtureString(inputs, "solanaPubkeyBytes")))
       : SOL_MINT;
-  const authority: WalletAuthority = {
+  const authority = {
     solanaPublicKey: () => solanaPublicKey,
-    shieldedAddress: () => Promise.resolve(identity),
-    viewingKeys: () => Promise.resolve([viewing]),
-    spendNullifierKey: () => Promise.resolve(nullifier),
     syncMaterial: () => Promise.resolve(material),
-    encryptConfidentialTransfer: unsupported,
-    encryptCustomRingTransfer: unsupported,
-    encryptAnonymousTransfer: unsupported,
-    encryptSplit: unsupported,
-    requestUserApproval: () => Promise.resolve(),
   };
   return { authority, identity, keypair, nullifier, signing, viewing };
 }
@@ -214,7 +205,7 @@ function shieldedTransactions(
 
 async function decryptWallet(
   input: Readonly<{
-    authority: WalletAuthority;
+    authority: SyncWalletAuthority;
     transactions: readonly IndexedShieldedTransaction[];
     registry: AssetRegistry;
   }>,
@@ -404,7 +395,7 @@ describe("manifest-verified wallet behavior", () => {
     expect(tamperWallet.utxos()).toHaveLength(Number(fixtureString(tamperExpected, "utxoCount")));
 
     const other = fixtureAuthority(inputs, 1);
-    const mismatched: WalletAuthority = {
+    const mismatched: SyncWalletAuthority = {
       ...value.authority,
       syncMaterial: () => other.authority.syncMaterial(),
     };
@@ -415,7 +406,7 @@ describe("manifest-verified wallet behavior", () => {
         transactions,
       }),
     ).rejects.toMatchObject({ code: "TRANSACTION_WALLET_AUTHORITY_MISMATCH" });
-    const missingViewingKey: WalletAuthority = {
+    const missingViewingKey: SyncWalletAuthority = {
       ...value.authority,
       syncMaterial: () =>
         Promise.resolve({
@@ -434,7 +425,7 @@ describe("manifest-verified wallet behavior", () => {
 
     // `sync_with_material_in_place` checks the viewing keys before the
     // nullifier key, so material wrong in both ways names the viewing key.
-    const bothWrong: WalletAuthority = {
+    const bothWrong: SyncWalletAuthority = {
       ...value.authority,
       syncMaterial: () =>
         Promise.resolve({

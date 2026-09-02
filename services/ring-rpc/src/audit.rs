@@ -11,10 +11,9 @@ use zolana_ring_client::{
 
 use crate::{
     api::{
-        cursor_in_bounds, limit_in_bounds, unix_now, AuthorityAuth, DecryptedOutput,
-        DecryptedTransaction, DecryptedTransactionsPage, DecryptedWithdrawal,
-        GetDecryptedTransactionsResponse, ReadAttestation, ReadAuth, SkippedReason,
-        SkippedTransaction, AUDIT_PAGE_LIMIT,
+        cursor_in_bounds, limit_in_bounds, AuthorityAuth, DecryptedOutput, DecryptedTransaction,
+        DecryptedTransactionsPage, DecryptedWithdrawal, GetDecryptedTransactionsResponse,
+        ReadAttestation, ReadAuth, SkippedReason, SkippedTransaction, AUDIT_PAGE_LIMIT,
     },
     authorize::{self, AuthorityCheck, ReadCheck, Unauthorized},
     error::RingRpcError,
@@ -141,7 +140,7 @@ impl<S: TransactionSource> AuditService<S> {
     /// Before the config exists only the upgrade authority can ask, afterwards
     /// only the config authority, the same split the program enforces.
     pub async fn authorize_auditor_key(&self, auth: &AuthorityAuth) -> Result<(), RingRpcError> {
-        let now = unix_now().map_err(|_| RingRpcError::StateUnavailable)?;
+        let now = self.shared.clock.now()?;
         let claim = AuthorityCheck {
             auth,
             ring: self.ring,
@@ -171,7 +170,7 @@ impl<S: TransactionSource> AuditService<S> {
         request: AuditRead<'a>,
     ) -> Result<AuthorizedRead<'a, S>, RingRpcError> {
         // One reading for the skew rule and for the nonce eviction window.
-        let now = unix_now().map_err(|_| RingRpcError::StateUnavailable)?;
+        let now = self.shared.clock.now()?;
         let nonce = authorize::nonce(&request.auth.nonce)?;
         let attestation = ReadAttestation {
             ring: self.ring,

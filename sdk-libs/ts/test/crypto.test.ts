@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import fixture from "../vectors/poseidon-parity-v1.json" with { type: "json" };
-import { HasherWasmError, MAX_POSEIDON_INPUTS, poseidon } from "../src/hasher/index.js";
+import {
+  HasherFailure,
+  MAX_POSEIDON_INPUTS,
+  initializePoseidon,
+  poseidon,
+  resetPoseidonForTests,
+} from "../src/hasher/index.js";
+import { SOL_MINT } from "../src/transaction/index.js";
+import { createDeposit } from "../src/wallet/deposit.js";
 import {
   KeypairError,
   P256PublicKey,
@@ -17,6 +25,7 @@ import {
   type Bytes32,
   type Bytes33,
 } from "../src/keypair/index.js";
+import { roleExpansion, type RoleSecrets } from "../src/keypair/derivation.js";
 import { MERGE_INFO } from "../src/keypair/merge/index.js";
 
 function bytes(hex: string): Uint8Array {
@@ -42,12 +51,23 @@ describe("Poseidon parity with Rust", () => {
     }
   });
 
+  it("loads the hasher itself at an async build entry", async () => {
+    const recipient = ShieldedKeypair.generate().shieldedAddress();
+    resetPoseidonForTests();
+    try {
+      const deposit = await createDeposit({ recipient, asset: SOL_MINT, amount: 1n });
+      expect(deposit.utxoHash).toHaveLength(32);
+    } finally {
+      await initializePoseidon();
+    }
+  });
+
   it("rejects empty, over-wide, and over-arity inputs", () => {
-    expect(() => poseidon([])).toThrow(HasherWasmError);
-    expect(() => poseidon([new Uint8Array(33)])).toThrow(HasherWasmError);
+    expect(() => poseidon([])).toThrow(HasherFailure);
+    expect(() => poseidon([new Uint8Array(33)])).toThrow(HasherFailure);
     expect(() =>
       poseidon(Array.from({ length: MAX_POSEIDON_INPUTS + 1 }, () => new Uint8Array(32))),
-    ).toThrow(HasherWasmError);
+    ).toThrow(HasherFailure);
   });
 });
 
@@ -70,6 +90,29 @@ describe("shielded key material", () => {
     expect(ShieldedKeypair.generate("p256").curve()).toBe("p256");
   });
 
+  it("wipes role secrets when the expansion callback settles or throws", () => {
+    const seed = new Uint8Array(64).fill(7);
+    const zero31 = new Uint8Array(31);
+    const zero32 = new Uint8Array(32);
+    const kept: RoleSecrets[] = [];
+    roleExpansion(seed, "ed25519", (roles) => {
+      kept.push(roles);
+      expect(roles.nullifierSecret).not.toEqual(zero31);
+      expect(roles.viewingSecret).not.toEqual(zero32);
+    });
+    expect(() =>
+      roleExpansion(seed, "ed25519", (roles) => {
+        kept.push(roles);
+        throw new Error("interrupted");
+      }),
+    ).toThrow("interrupted");
+    for (const roles of kept) {
+      expect(roles.nullifierSecret).toEqual(zero31);
+      expect(roles.viewingSecret).toEqual(zero32);
+    }
+    expect(kept).toHaveLength(2);
+  });
+
   it("derives symmetric ECDH secrets", () => {
     const alice = ViewingKey.fromBytes(new Uint8Array(32).fill(1) as Bytes32);
     const bob = ViewingKey.fromBytes(new Uint8Array(32).fill(2) as Bytes32);
@@ -79,7 +122,7 @@ describe("shielded key material", () => {
   it("applies the symmetric key schedule as an involution", () => {
     const sharedSecret = new Uint8Array(32);
     sharedSecret.set(new Uint8Array(31).fill(0x11), 1);
-    const plaintext = new TextEncoder().encode("private note");
+    const plaintext = new TextEncoder().encode("private UTXO");
     const ciphertext = symmetricApply(sharedSecret, MERGE_INFO, plaintext);
     expect(ciphertext).not.toEqual(plaintext);
     expect(symmetricApply(sharedSecret, MERGE_INFO, ciphertext)).toEqual(plaintext);

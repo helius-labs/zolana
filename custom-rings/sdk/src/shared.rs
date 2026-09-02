@@ -5,9 +5,10 @@ use custom_ring_interface::{
     PolicyConfig, ReadAccessRecord, RingProgramConfig, POLICY_CONFIG, READ_ACCESS_RECORD,
     RING_PROGRAM_CONFIG,
 };
+use solana_account::Account;
 use solana_address::Address;
 use thiserror::Error;
-use zolana_client::{ClientError, Rpc};
+use zolana_client::{AsyncRpc, ClientError, Rpc};
 use zolana_interface::{
     is_reserved_p256_derivation_point, pda, state::RingConfig, BPF_LOADER_UPGRADEABLE_ID,
     RING_AUTH_PDA_SEED,
@@ -98,12 +99,27 @@ impl CustomRing {
         rpc: &R,
     ) -> Result<Option<CustomRingConfig>, AccountReadError> {
         let address = self.config_pda();
-        let Some(config) = (AccountRead {
-            rpc,
-            program_id: self.program_id,
-            address,
-        })
-        .read::<RingProgramConfig>()?
+        self.decode_config(address, rpc.get_account(address)?)
+    }
+
+    /// The async twin of [`Self::read_config`], over [`AsyncRpc`]. A host that
+    /// cannot link a blocking Solana client -- an enclave pinned below the
+    /// versions it needs -- reaches the same config through its own transport.
+    pub async fn read_config_async<R: AsyncRpc>(
+        self,
+        rpc: &R,
+    ) -> Result<Option<CustomRingConfig>, AccountReadError> {
+        let address = self.config_pda();
+        self.decode_config(address, rpc.get_account(address).await?)
+    }
+
+    fn decode_config(
+        self,
+        address: Address,
+        account: Option<Account>,
+    ) -> Result<Option<CustomRingConfig>, AccountReadError> {
+        let Some(config) =
+            AccountRead::decode::<RingProgramConfig>(self.program_id, address, account)?
         else {
             return Ok(None);
         };
@@ -125,12 +141,24 @@ impl CustomRing {
         rpc: &R,
     ) -> Result<Option<PolicyConfig>, AccountReadError> {
         let address = self.policy_config_pda();
-        let Some(config) = (AccountRead {
-            rpc,
-            program_id: self.program_id,
-            address,
-        })
-        .read::<PolicyConfig>()?
+        self.decode_policy_config(address, rpc.get_account(address)?)
+    }
+
+    /// The async twin of [`Self::read_policy_config`], over [`AsyncRpc`].
+    pub async fn read_policy_config_async<R: AsyncRpc>(
+        self,
+        rpc: &R,
+    ) -> Result<Option<PolicyConfig>, AccountReadError> {
+        let address = self.policy_config_pda();
+        self.decode_policy_config(address, rpc.get_account(address).await?)
+    }
+
+    fn decode_policy_config(
+        self,
+        address: Address,
+        account: Option<Account>,
+    ) -> Result<Option<PolicyConfig>, AccountReadError> {
+        let Some(config) = AccountRead::decode::<PolicyConfig>(self.program_id, address, account)?
         else {
             return Ok(None);
         };
@@ -157,12 +185,11 @@ impl CustomRing {
         reader: &ReaderKey,
     ) -> Result<Option<ReadAccessRecord>, AccountReadError> {
         let address = self.read_access_record_pda(reader);
-        let Some(entry) = (AccountRead {
-            rpc,
-            program_id: self.program_id,
+        let Some(record) = AccountRead::decode::<ReadAccessRecord>(
+            self.program_id,
             address,
-        })
-        .read::<ReadAccessRecord>()?
+            rpc.get_account(address)?,
+        )?
         else {
             return Ok(None);
         };
@@ -172,10 +199,10 @@ impl CustomRing {
         let bump =
             Address::find_program_address(&[ReadAccessRecord::SEED, &seed_hash], &self.program_id)
                 .1;
-        if entry.reader != reader_bytes || entry.bump != bump {
+        if record.reader != reader_bytes || record.bump != bump {
             return Err(AccountReadError::InvalidAccount { address });
         }
-        Ok(Some(entry))
+        Ok(Some(record))
     }
 
     /// Owned by SPP, not by the ring program.
@@ -258,33 +285,27 @@ impl ReadableAccount for ReadAccessRecord {
     }
 }
 
-struct AccountRead<'a, R> {
-    rpc: &'a R,
-    program_id: Address,
-    address: Address,
-}
+struct AccountRead;
 
-impl<R: Rpc> AccountRead<'_, R> {
-    fn read<T: ReadableAccount>(self) -> Result<Option<T>, AccountReadError> {
-        let Some(account) = self.rpc.get_account(self.address)? else {
+impl AccountRead {
+    /// Shared by both transports: only fetching the account differs.
+    fn decode<T: ReadableAccount>(
+        program_id: Address,
+        address: Address,
+        account: Option<Account>,
+    ) -> Result<Option<T>, AccountReadError> {
+        let Some(account) = account else {
             return Ok(None);
         };
-        if account.owner.to_bytes() != *self.program_id.as_array()
+        if account.owner.to_bytes() != *program_id.as_array()
             || account.data.len() != core::mem::size_of::<T>()
         {
-            return Err(AccountReadError::InvalidAccount {
-                address: self.address,
-            });
+            return Err(AccountReadError::InvalidAccount { address });
         }
-        let value = bytemuck::try_from_bytes::<T>(&account.data).map_err(|_| {
-            AccountReadError::InvalidAccount {
-                address: self.address,
-            }
-        })?;
+        let value = bytemuck::try_from_bytes::<T>(&account.data)
+            .map_err(|_| AccountReadError::InvalidAccount { address })?;
         if value.discriminator() != T::DISCRIMINATOR {
-            return Err(AccountReadError::InvalidAccount {
-                address: self.address,
-            });
+            return Err(AccountReadError::InvalidAccount { address });
         }
         Ok(Some(*value))
     }

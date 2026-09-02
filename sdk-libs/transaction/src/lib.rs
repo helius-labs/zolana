@@ -34,9 +34,9 @@ pub use wallet::{
     AnonymousRecipientSlot, ApprovalRequest, AssetBalance, Balances, ClientEd25519WalletAuthority,
     CursorStream, EncryptedEnvelope, EncryptedSplit, EncryptedTransfer, Filter,
     KeypairWalletAuthority, P256Signature, PrivateTransaction, PrivateTransactionDirection,
-    PrivateTransactionId, PrivateTransactionKind, PrivateTransactionStatus, SyncReport,
-    SyncWalletAuthority, ViewingKeyEntry, Wallet, WalletAuthority, WalletSyncMaterial, WalletUtxo,
-    DEFAULT_TAG_WINDOW,
+    PrivateTransactionId, PrivateTransactionKind, PrivateTransactionStatus, RingBalance,
+    SyncReport, SyncWalletAuthority, ViewingKeyEntry, Wallet, WalletAuthority, WalletSyncMaterial,
+    WalletUtxo, DEFAULT_TAG_WINDOW,
 };
 pub use wallet::{decrypt_transactions, decrypt_transactions_with_config, SyncConfig};
 pub use zolana_keypair::constants::VIEW_TAG_LEN;

@@ -32,6 +32,9 @@ pub enum ClientError {
     #[error("no supported circuit shape holds {n_in} inputs and {n_out} outputs")]
     UnsupportedShape { n_in: usize, n_out: usize },
 
+    #[error("spend amount must be greater than zero")]
+    ZeroSpendAmount,
+
     #[error("too many inputs: got {got}, shape holds at most {max}")]
     TooManyInputs { got: usize, max: usize },
 

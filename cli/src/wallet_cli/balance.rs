@@ -19,6 +19,16 @@ pub(crate) fn run_balance(opts: BalanceOptions) -> Result<()> {
             .find_map(|balance| (balance.mint == mint).then_some(balance.amount))
             .unwrap_or(0);
         println!("ok balance mint={} amount={amount}", format_address(mint));
+        for ring in ctx.wallet.ring_balances(true)? {
+            if let Some(asset) = ring.assets.iter().find(|asset| asset.mint == mint) {
+                println!(
+                    "ok balance ring={} mint={} amount={}",
+                    format_address(ring.ring_program_id),
+                    format_address(mint),
+                    asset.amount
+                );
+            }
+        }
         return Ok(());
     }
 
@@ -45,6 +55,16 @@ pub(crate) fn run_balance(opts: BalanceOptions) -> Result<()> {
         let mint = zolana_transaction::Address::new_from_array(mint.to_bytes());
         if !printed_spl.contains(&mint) {
             println!("ok balance mint={} amount=0", format_address(mint));
+        }
+    }
+    for ring in ctx.wallet.ring_balances(true)? {
+        for asset in &ring.assets {
+            println!(
+                "ok balance ring={} mint={} amount={}",
+                format_address(ring.ring_program_id),
+                format_address(asset.mint),
+                asset.amount
+            );
         }
     }
     Ok(())

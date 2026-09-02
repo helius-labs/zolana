@@ -1,8 +1,17 @@
-import type { ZolanaClient } from "../client/client.js";
-import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
-import { createAssociatedTokenAccountInstruction } from "../interface/instructions/index.js";
+import {
+  authorizedPrivateTransactionMaterial,
+  type ChainReader,
+  type TransactionAssembler,
+} from "../client/ports.js";
+import type {
+  Address,
+  Bytes32,
+  Instruction,
+  RequestContext,
+  Transaction,
+} from "../interface/types.js";
 import type { WalletAuthority } from "../transaction/wallet/authority.js";
-import { SOL_MINT } from "../transaction/wallet/asset.js";
+import { SOL_MINT } from "../transaction/asset.js";
 import type { Wallet } from "../transaction/wallet/state.js";
 
 import {
@@ -13,9 +22,12 @@ import {
 } from "./actions.js";
 import { wrapWalletError } from "./error.js";
 import { authorizePrivateTransaction } from "./private-transaction.js";
+import { withdrawalSetupInstructions } from "../flows/settlement.js";
+
+export type PrivateTransactionClient = TransactionAssembler & Pick<ChainReader, "getAccount">;
 
 export interface PrivateTransactionParams {
-  readonly client: ZolanaClient;
+  readonly client: PrivateTransactionClient;
   readonly wallet: Wallet;
   readonly authority: WalletAuthority;
   readonly feePayer: Address;
@@ -68,6 +80,12 @@ export async function buildWithdrawalTransaction(
 ): Promise<Transaction> {
   try {
     const asset = input.asset ?? SOL_MINT;
+    const setupInstructions = await withdrawalSetupInstructions({
+      payer: input.feePayer,
+      recipient: input.recipient,
+      asset,
+      ...(input.splTokenProgram === undefined ? {} : { splTokenProgram: input.splTokenProgram }),
+    });
     const created = await createWithdrawal({
       wallet: input.wallet,
       payer: input.feePayer,
@@ -76,19 +94,6 @@ export async function buildWithdrawalTransaction(
       amount: input.amount,
       ...(input.splTokenProgram === undefined ? {} : { splTokenProgram: input.splTokenProgram }),
     });
-    const setupInstructions =
-      asset === SOL_MINT
-        ? []
-        : [
-            await createAssociatedTokenAccountInstruction({
-              payer: input.feePayer,
-              owner: input.recipient,
-              mint: asset,
-              ...(input.splTokenProgram === undefined
-                ? {}
-                : { tokenProgram: input.splTokenProgram }),
-            }),
-          ];
     return await buildAuthorizedTransaction(input, created.transaction, setupInstructions, context);
   } catch (cause) {
     throw wrapWalletError("WALLET_BUILD_WITHDRAWAL", cause);
@@ -116,22 +121,35 @@ export async function buildSplitTransaction(
 async function buildAuthorizedTransaction(
   input: PrivateTransactionParams,
   transaction: Parameters<typeof authorizePrivateTransaction>[0],
-  setupInstructions: Parameters<
-    ZolanaClient["assembleAuthorizedPrivateTransaction"]
-  >[0]["setupInstructions"],
+  setupInstructions: readonly Instruction[],
   context: RequestContext | undefined,
 ): Promise<Transaction> {
-  const authorized = await authorizePrivateTransaction(transaction, input.wallet, input.authority);
-  return input.client.assembleAuthorizedPrivateTransaction(
-    {
-      authorized,
-      feePayer: input.feePayer,
-      ...(setupInstructions === undefined || setupInstructions.length === 0
-        ? {}
-        : { setupInstructions }),
-    },
-    context,
-  );
+  try {
+    const authorized = await authorizePrivateTransaction(
+      transaction,
+      input.wallet,
+      input.authority,
+      setupInstructions,
+    );
+    try {
+      return await input.client.assembleAuthorizedPrivateTransaction(
+        {
+          authorized,
+          feePayer: input.feePayer,
+        },
+        context,
+      );
+    } finally {
+      const material = authorizedPrivateTransactionMaterial(authorized);
+      if (material !== undefined) {
+        for (const proofInput of material.proofInputs.inputUtxos) proofInput.destroy();
+      }
+    }
+  } catch (cause) {
+    const reservationId = transaction._reservationId();
+    if (reservationId !== undefined) input.wallet._releaseReservation(reservationId);
+    throw cause;
+  }
 }
 
 export type { TransferDestination } from "./actions.js";

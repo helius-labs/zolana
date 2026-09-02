@@ -1,11 +1,11 @@
 //! Localnet bring-up shared by the custom-ring test binaries.
 //!
-//! Mirrors `sdk-tests/zk-program-swap/test/tests/shared.rs`, reduced to what a
-//! SOL-only ring example needs: no SPL mint, no token accounts, and neither
-//! `CreateAssetCounter` nor `CreateSplInterface`. SOL settles through
-//! `zolana_interface::SOL_INTERFACE`, a system-owned PDA with a hardcoded
-//! address that no instruction has to create, and `AssetRegistry::default()`
-//! already carries SOL as asset id 1.
+//! Mirrors `sdk-tests/zk-program-swap/test/tests/shared.rs`. SOL settles
+//! through `zolana_interface::SOL_INTERFACE`, a system-owned PDA with a
+//! hardcoded address that no instruction has to create, and
+//! `AssetRegistry::default()` already carries SOL as asset id 1. The bring-up
+//! also registers one SPL mint, named USDC in the tests, under asset id 2,
+//! with the mint authority parked on the payer.
 
 use anyhow::{anyhow, Result};
 use custom_ring_sdk::{V0WithLookupTable, TRANSACT_COMPUTE_UNIT_LIMIT};
@@ -22,7 +22,7 @@ use zolana_client::{
 use zolana_interface::{
     instruction::{CreateProtocolConfig, CreateTree},
     pda,
-    state::tree_account_size,
+    state::{tree_account_size, SplAssetCounter},
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::ShieldedKeypair;
@@ -31,6 +31,7 @@ use zolana_test_utils::{
     localnet::{isolated_temp_path, LocalnetValidator, UpgradeableProgram, WorkspaceArtifacts},
     prover::spawn_workspace_prover,
     smart_account::{self, StandardSigners},
+    spl::{create_mint, RegisterSplAsset},
 };
 use zolana_transaction::{AssetRegistry, Wallet};
 use zolana_user_registry_interface::user_registry_program_id;
@@ -46,6 +47,8 @@ pub const PROTOCOL_VAULT_AIRDROP: u64 = 5_000_000_000;
 /// Each actor signs its own ring deposits and transacts, and the deposits move
 /// real lamports out of this balance.
 pub const ACTOR_AIRDROP: u64 = 10_000_000_000;
+/// The bring-up registers USDC first.
+pub const USDC_ASSET_ID: u64 = SplAssetCounter::FIRST_ASSET_ID;
 /// A live localnet with the protocol bootstrapped and two funded actors. The
 /// custom-ring program's own config account is NOT created here: that is the
 /// first step of the lifecycle under test.
@@ -53,9 +56,11 @@ pub struct TestEnv {
     pub client: ZolanaClient<SolanaRpc>,
     pub rpc_url: String,
     pub indexer_url: String,
-    /// Fee payer for bootstrap and for instructions no actor must sign.
+    /// Fee payer for bootstrap and for instructions no actor must sign, also
+    /// the USDC mint authority.
     pub payer: Keypair,
     pub tree: Address,
+    pub usdc_mint: Address,
     pub assets: AssetRegistry,
     pub sender: TestWallet,
     pub recipient: TestWallet,
@@ -280,7 +285,19 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
 
     let tree = tree.pubkey();
 
-    let assets = AssetRegistry::default();
+    let usdc_mint = create_mint(&rpc, &payer)?;
+    RegisterSplAsset {
+        payer: &payer,
+        authority: &authority,
+        protocol_settings: accounts.protocol_settings,
+        protocol_vault: accounts.protocol_vault,
+        mint: usdc_mint,
+        token_program: pda::spl_token_program_id(),
+    }
+    .send(&rpc)?;
+
+    let mut assets = AssetRegistry::default();
+    assets.insert(USDC_ASSET_ID, usdc_mint)?;
 
     let sender = new_actor(&mut rpc, &assets)?;
     let recipient = new_actor(&mut rpc, &assets)?;
@@ -300,6 +317,7 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
         indexer_url,
         payer,
         tree,
+        usdc_mint,
         assets,
         sender,
         recipient,

@@ -6,13 +6,12 @@ import {
 } from "@solana-program/address-lookup-table";
 import { createNoopSigner, type Address, type Transaction } from "@solana/kit";
 
-import type { ZolanaClient } from "../client/client.js";
-import { buildUnsignedTransaction } from "../client/kit.js";
-import { checkedTransactionSize } from "../interface/transaction-size.js";
+import type { BlockhashProvider, KitRpcAccess, TreeContext } from "../client/ports.js";
+import { compileUnsignedTransaction } from "../flows/compile.js";
 import type { RequestContext } from "../interface/types.js";
 
 import { RingError, wrapRingError } from "./error.js";
-import { ringLookupTableAddresses } from "./instructions.js";
+import { ringLookupTableAddresses, ringSettlementStatics } from "./instructions.js";
 
 export interface RingLookupTable {
   readonly transaction: Transaction;
@@ -21,10 +20,13 @@ export interface RingLookupTable {
   readonly slot: bigint;
 }
 
+export type RingLookupTableReader = TreeContext & KitRpcAccess;
+export type RingLookupTableClient = RingLookupTableReader & BlockhashProvider;
+
 /** One table serves every transact of the ring and tree pair. */
 export async function buildRingLookupTableTransaction(
   input: Readonly<{
-    client: ZolanaClient;
+    client: RingLookupTableClient;
     ringProgramId: Address;
     feePayer: Address;
     tree?: Address;
@@ -58,16 +60,14 @@ export async function buildRingLookupTableTransaction(
       address: address[0],
       authority,
       payer: authority,
-      addresses: [...addresses],
+      addresses: [...new Set([...addresses, ...ringSettlementStatics()])],
     });
     return Object.freeze({
-      transaction: checkedTransactionSize(
-        buildUnsignedTransaction({
-          feePayer: input.feePayer,
-          lifetime,
-          instructions: [create, extend],
-        }),
-      ),
+      transaction: compileUnsignedTransaction({
+        feePayer: input.feePayer,
+        lifetime,
+        instructions: [create, extend],
+      }),
       address: address[0],
       slot: recentSlot,
     });
@@ -78,7 +78,7 @@ export async function buildRingLookupTableTransaction(
 
 export async function fetchRingLookupTable(
   input: Readonly<{
-    client: ZolanaClient;
+    client: RingLookupTableReader;
     ringProgramId: Address;
     address: Address;
     tree?: Address;

@@ -1,10 +1,23 @@
-export { ZolanaClient } from "./client.js";
+export { MERGE_TRANSACT_COMPUTE_UNIT_LIMIT, ZolanaClient } from "./client.js";
 export type {
+  AuthorizedPrivateTransaction,
   MergeMaterialInput,
   ProvedMerge,
-  ProvenRingTransact,
   ZolanaClientConfig,
 } from "./client.js";
+export type {
+  BlockhashProvider,
+  ChainReader,
+  IndexerReader,
+  KitRpcAccess,
+  MergeAssembler,
+  ProofReader,
+  ProvenRingTransact,
+  Prover,
+  TransactionAssembler,
+  TransactionConfirmer,
+  TreeContext,
+} from "./ports.js";
 export { CANONICAL_CLIENT_ERROR_CODES, ClientError } from "./error.js";
 export type {
   CanonicalClientErrorCode,
@@ -65,3 +78,4 @@ export type {
   RpcContext,
   SpendProof,
 } from "./rpc.js";
+export type { ErrorEnvelope } from "../errors/internal.js";

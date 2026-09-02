@@ -7,7 +7,6 @@ import {
 
 import { hashBytes } from "../hasher/index.js";
 import {
-  type Bytes31,
   type Bytes32,
   type Bytes33,
   type Bytes34,
@@ -16,7 +15,7 @@ import {
   concatBytes,
   copyBytes,
 } from "./bytes.js";
-import { type Rail, roleExpansion } from "./derivation.js";
+import { type Rail, type RoleSecrets, roleExpansion } from "./derivation.js";
 import { KeypairError } from "./error.js";
 import { ownerHash } from "./hash.js";
 import { NullifierKey } from "./nullifier-key.js";
@@ -230,8 +229,10 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
 
   /** Mirrors Rust's `ShieldedKeypair::from_keypair`. */
   static fromKeypair(signing: SigningKey): ShieldedKeypair {
-    const expansion = ShieldedKeypair.#roleExpansion(signing);
-    return ShieldedKeypair.withViewingKey(signing, ViewingKey.fromBytes(expansion.viewingSecret()));
+    return ShieldedKeypair.#roleExpansion(signing, (roles) => {
+      const viewing = ViewingKey.fromBytes(roles.viewingSecret);
+      return new ShieldedKeypair(signing, NullifierKey.fromSecret(roles.nullifierSecret), viewing);
+    });
   }
 
   /**
@@ -241,21 +242,18 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
    * detach it.
    */
   static withViewingKey(signing: SigningKey, viewing: ViewingKey): ShieldedKeypair {
-    const expansion = ShieldedKeypair.#roleExpansion(signing);
-    return new ShieldedKeypair(
+    return ShieldedKeypair.#roleExpansion(
       signing,
-      NullifierKey.fromSecret(expansion.nullifierSecret()),
-      viewing,
+      (roles) =>
+        new ShieldedKeypair(signing, NullifierKey.fromSecret(roles.nullifierSecret), viewing),
     );
   }
 
-  static #roleExpansion(
-    signing: SigningKey,
-  ): Readonly<{ nullifierSecret(): Bytes31; viewingSecret(): Bytes32 }> {
+  static #roleExpansion<T>(signing: SigningKey, use: (roles: RoleSecrets) => T): T {
     const rail: Rail = signing.isEd25519() ? "ed25519" : "ecdh";
     const seed = signing.derivationSeed();
     try {
-      return roleExpansion(seed, rail);
+      return roleExpansion(seed, rail, use);
     } finally {
       seed.fill(0);
     }

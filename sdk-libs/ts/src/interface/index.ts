@@ -65,3 +65,4 @@ export {
   transactionSize,
 } from "./transaction-size.js";
 export type * from "./types.js";
+export type { ErrorEnvelope } from "../errors/internal.js";

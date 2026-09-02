@@ -29,7 +29,15 @@ impl ZolanaProgramTest {
         &mut self,
         token_program: Pubkey,
     ) -> Result<Pubkey, ProgramTestError> {
-        let mint = Keypair::new();
+        self.create_mint_from(&Keypair::new(), token_program)
+    }
+
+    /// A fixed mint pins mint-seeded PDA bump search costs.
+    pub fn create_mint_from(
+        &mut self,
+        mint: &Keypair,
+        token_program: Pubkey,
+    ) -> Result<Pubkey, ProgramTestError> {
         let rent = self
             .svm
             .minimum_balance_for_rent_exemption(SPL_TOKEN_MINT_ACCOUNT_LEN);
@@ -48,7 +56,7 @@ impl ZolanaProgramTest {
             accounts: vec![AccountMeta::new(mint.pubkey(), false)],
             data,
         };
-        self.send(&[create_ix, init_ix], &[&mint])?;
+        self.send(&[create_ix, init_ix], &[mint])?;
         Ok(mint.pubkey())
     }
 

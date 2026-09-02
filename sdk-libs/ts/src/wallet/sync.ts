@@ -6,7 +6,8 @@ import {
 } from "@solana/kit";
 
 import { runKitRpc } from "../client/kit.js";
-import type { ZolanaClient } from "../client/client.js";
+import { initializePoseidon } from "../hasher/index.js";
+import type { IndexerReader, KitRpcAccess } from "../client/ports.js";
 import { ClientError } from "../client/error.js";
 import {
   DEFAULT_INDEXER_POLL_CONFIG,
@@ -20,7 +21,11 @@ import type { Address, Bytes32, RequestContext } from "../interface/types.js";
 import { TransactionError } from "../transaction/error.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
 import { decodeOutputData } from "../transaction/serialization/codecs.js";
-import type { WalletSyncMaterial } from "../transaction/wallet/authority.js";
+import type {
+  SyncAuthority,
+  SyncWalletAuthority,
+  WalletSyncMaterial,
+} from "../transaction/wallet/authority.js";
 import {
   type AssetBalance,
   type PrivateTransaction,
@@ -31,20 +36,29 @@ import { decryptTransactions } from "../transaction/wallet/sync.js";
 
 import { WalletError, wrapWalletError } from "./error.js";
 import { bytesKey } from "./internal.js";
-import type { WalletAuthority } from "../transaction/wallet/authority.js";
+import {
+  advanceSessionCursors,
+  beginSyncSession,
+  ensureSessionAsset,
+  sealSyncDelta,
+  sessionCursor,
+  type WalletSyncSession,
+} from "./sync-session.js";
 
 const addressEncoder = getAddressEncoder();
 const base64Decoder = getBase64Decoder();
 const base64Encoder = getBase64Encoder();
 
-type SyncClient = Pick<
-  ZolanaClient,
-  | "solanaRpc"
-  | "commitment"
+/** Kit access is required only when the wallet holds a mint the registry cannot resolve. */
+export interface SyncClient extends Pick<
+  IndexerReader,
   | "getEncryptedUtxosByTags"
   | "getShieldedTransactionsByNullifiers"
   | "getShieldedTransactionsByTags"
->;
+> {
+  readonly solanaRpc?: KitRpcAccess["solanaRpc"];
+  readonly commitment?: KitRpcAccess["commitment"];
+}
 
 export interface SyncWalletConfig {
   /** Stable tags and nullifiers per indexer request. Defaults to 64. */
@@ -56,50 +70,68 @@ export interface SyncWalletConfig {
   readonly retry?: IndexerPollConfig;
 }
 
-export async function backfillAssetRegistry(
-  wallet: Wallet,
-  registryRpc: Pick<ZolanaClient, "solanaRpc" | "commitment">,
-  context?: RequestContext,
-): Promise<number> {
-  let accounts;
-  try {
-    accounts = await runKitRpc("getProgramAccounts", context, (abortSignal) =>
-      registryRpc.solanaRpc
-        .getProgramAccounts(SHIELDED_POOL_PROGRAM_ID, {
-          commitment: registryRpc.commitment,
-          encoding: "base64",
-          filters: [
-            { dataSize: 48n },
-            {
-              memcmp: {
-                offset: 0n,
-                encoding: "base64",
-                bytes: base64Decoder.decode(
-                  Uint8Array.of(StateDiscriminator.splAssetRegistry),
-                ) as Base64EncodedBytes,
-              },
-            },
-          ],
-        })
-        .send({ abortSignal }),
-    );
-  } catch (error) {
-    if (error instanceof ClientError && error.code === "CLIENT_UNSUPPORTED_RPC_METHOD") return 0;
-    throw error;
-  }
+export interface SplAssetRegistration {
+  readonly assetId: bigint;
+  readonly mint: Address;
+}
 
-  let inserted = 0;
-  for (const { account } of accounts) {
-    if (account.owner !== SHIELDED_POOL_PROGRAM_ID) continue;
+/** Every on-chain SPL asset registration, an unsupported or partial scan fails, never reads as empty. */
+export async function fetchSplAssetRegistrations(
+  registryRpc: KitRpcAccess,
+  context?: RequestContext,
+): Promise<readonly SplAssetRegistration[]> {
+  const accounts = await runKitRpc("getProgramAccounts", context, (abortSignal) =>
+    registryRpc.solanaRpc
+      .getProgramAccounts(SHIELDED_POOL_PROGRAM_ID, {
+        commitment: registryRpc.commitment,
+        encoding: "base64",
+        filters: [
+          { dataSize: 48n },
+          {
+            memcmp: {
+              offset: 0n,
+              encoding: "base64",
+              bytes: base64Decoder.decode(
+                Uint8Array.of(StateDiscriminator.splAssetRegistry),
+              ) as Base64EncodedBytes,
+            },
+          },
+        ],
+      })
+      .send({ abortSignal }),
+  );
+
+  // The filters matched only asset registries, an account that fails to
+  // decode means the RPC did not honour the query and the whole listing is
+  // suspect.
+  const registrations: SplAssetRegistration[] = [];
+  for (const [index, { account }] of accounts.entries()) {
+    const invalid = (cause?: unknown) =>
+      new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
+        details: { method: "getProgramAccounts", path: `$.result[${String(index)}]` },
+        ...(cause === undefined ? {} : { cause }),
+      });
+    if (account.owner !== SHIELDED_POOL_PROGRAM_ID) throw invalid();
     try {
       const registry = decodeSplAssetRegistry(
         new Uint8Array(base64Encoder.encode(account.data[0])),
       );
-      wallet.registerAsset(registry.assetId, registry.mint);
-      inserted++;
-    } catch {
-      continue;
+      registrations.push({ assetId: registry.assetId, mint: registry.mint });
+    } catch (cause) {
+      throw invalid(cause);
     }
+  }
+  return Object.freeze(registrations);
+}
+
+export async function backfillAssetRegistry(
+  wallet: Wallet,
+  registryRpc: KitRpcAccess,
+  context?: RequestContext,
+): Promise<number> {
+  let inserted = 0;
+  for (const { assetId, mint } of await fetchSplAssetRegistrations(registryRpc, context)) {
+    if (wallet.ensureAsset(assetId, mint)) inserted++;
   }
   return inserted;
 }
@@ -151,7 +183,7 @@ function walletQueryTags(wallet: Wallet, material: WalletSyncMaterial): readonly
 }
 
 /**
- * Nullifiers of unspent notes.
+ * Nullifiers of unspent UTXOs.
  *
  * A nullifier appears at most once on chain, so once its spend is known the
  * answer is final. Cost tracks the unspent count, not history.
@@ -280,7 +312,10 @@ function compareDeposits(
 }
 
 interface CollectByTagsInput {
-  readonly indexer: Pick<ZolanaClient, "getEncryptedUtxosByTags" | "getShieldedTransactionsByTags">;
+  readonly indexer: Pick<
+    IndexerReader,
+    "getEncryptedUtxosByTags" | "getShieldedTransactionsByTags"
+  >;
   readonly chunk: readonly Bytes32[];
   readonly pageLimit: number;
   readonly nextRpcConfig: () => IndexerRpcConfig;
@@ -335,7 +370,7 @@ async function collectShieldedTransactions(
     for (const transaction of response.transactions) {
       // Photon can surface a proofless deposit here before flagging it. Those
       // are collected from the encrypted-utxo endpoint instead, so taking them
-      // twice would store the same note under two keys.
+      // twice would store the same UTXO under two keys.
       if (transaction.proofless) continue;
       const key = shieldedTransactionKey(transaction);
       if (!input.out.has(key)) input.out.set(key, transaction);
@@ -408,7 +443,7 @@ function groupByResumePoint(
 }
 
 interface CollectByNullifiersInput {
-  readonly indexer: Pick<ZolanaClient, "getShieldedTransactionsByNullifiers">;
+  readonly indexer: Pick<IndexerReader, "getShieldedTransactionsByNullifiers">;
   readonly chunk: readonly Bytes32[];
   readonly pageLimit: number;
   readonly nextRpcConfig: () => IndexerRpcConfig;
@@ -451,13 +486,44 @@ async function collectShieldedTransactionsByNullifiers(
   });
 }
 
+export interface SyncWalletInput {
+  readonly wallet: Wallet;
+  readonly authority: SyncAuthority;
+  readonly client: SyncClient;
+  readonly config?: SyncWalletConfig;
+}
+
 export async function syncWallet(
+  input: SyncWalletInput,
+  context?: RequestContext,
+): Promise<SyncReport> {
+  return runLockedWalletSync(input, context, (report) => report);
+}
+
+/**
+ * `after` runs inside the wallet's sync queue, once the commit landed and the
+ * key session closed, no later sync starts before it settles.
+ * @internal
+ */
+export async function runLockedWalletSync<T>(
+  input: SyncWalletInput,
+  context: RequestContext | undefined,
+  after: (report: SyncReport) => T | Promise<T>,
+): Promise<T> {
+  await initializePoseidon();
+  // Writes stage in a session and commit once, a failed sync changes nothing.
+  return input.wallet._withSyncLock(async () =>
+    after(await input.authority.withSyncSession((keys) => runWalletSync(input, keys, context))),
+  );
+}
+
+async function runWalletSync(
   input: Readonly<{
     wallet: Wallet;
-    authority: WalletAuthority;
     client: SyncClient;
     config?: SyncWalletConfig;
   }>,
+  keys: SyncWalletAuthority,
   context?: RequestContext,
 ): Promise<SyncReport> {
   try {
@@ -479,10 +545,11 @@ export async function syncWallet(
       pendingGate = undefined;
       return gate;
     };
-    const material = await input.authority.syncMaterial();
+    const material = await keys.syncMaterial();
+    const session = beginSyncSession(input.wallet);
     const transactions = new Map<string, IndexedShieldedTransaction>();
     const deposits = new Map<string, IndexedShieldedTransaction>();
-    const tags = walletQueryTags(input.wallet, material);
+    const tags = walletQueryTags(session.staging, material);
     // Tags are grouped by where each was last read to, because a chunk can only
     // carry one cursor. Mixing a tag at the tip with one learned this sync would
     // resume the new tag from the old one's position and skip its history
@@ -490,7 +557,7 @@ export async function syncWallet(
     // `undefined` (never queried) is its own group.
     for (const stream of ["transactions", "proofless"] as const) {
       const groups = groupByResumePoint(tags, (tag) =>
-        input.wallet._syncCursor(stream, bytesKey(tag)),
+        sessionCursor(session, stream, bytesKey(tag)),
       );
 
       for (const group of groups) {
@@ -510,7 +577,7 @@ export async function syncWallet(
             context,
           );
           if (furthest !== undefined) {
-            for (const tag of chunk) input.wallet._setSyncCursor(stream, bytesKey(tag), furthest);
+            advanceSessionCursors(session, stream, chunk, furthest);
           }
         }
       }
@@ -518,7 +585,7 @@ export async function syncWallet(
 
     const scanNullifiers = async (nullifiers: readonly Bytes32[]): Promise<void> => {
       const groups = groupByResumePoint(nullifiers, (nullifier) =>
-        input.wallet._syncCursor("nullifiers", bytesKey(nullifier)),
+        sessionCursor(session, "nullifiers", bytesKey(nullifier)),
       );
 
       for (const group of groups) {
@@ -536,16 +603,14 @@ export async function syncWallet(
             context,
           );
           if (furthest !== undefined) {
-            for (const nullifier of chunk) {
-              input.wallet._setSyncCursor("nullifiers", bytesKey(nullifier), furthest);
-            }
+            advanceSessionCursors(session, "nullifiers", chunk, furthest);
           }
         }
       }
     };
 
     const queriedNullifiers = new Set<string>();
-    const initialNullifiers = walletQueryNullifiers(input.wallet);
+    const initialNullifiers = walletQueryNullifiers(session.staging);
     for (const nullifier of initialNullifiers) queriedNullifiers.add(bytesKey(nullifier));
     await scanNullifiers(initialNullifiers);
 
@@ -555,8 +620,8 @@ export async function syncWallet(
     ];
     let ordered = orderedTransactions();
     let report = await decryptTransactions({
-      wallet: input.wallet,
-      authority: input.authority,
+      wallet: session.staging,
+      authority: keys,
       transactions: ordered,
       config: { syncedAt },
     });
@@ -564,24 +629,24 @@ export async function syncWallet(
     if (
       report.unknownAssetIds.length > 0 ||
       report.unknownAssetFields.length > 0 ||
-      walletHasUnknownMint(input.wallet)
+      walletHasUnknownMint(session.staging)
     ) {
       registryRefreshed = true;
-      if ((await backfillAssetRegistry(input.wallet, input.client, context)) > 0) {
+      if ((await backfillSessionRegistry(session, input.client, context)) > 0) {
         report = await decryptTransactions({
-          wallet: input.wallet,
-          authority: input.authority,
+          wallet: session.staging,
+          authority: keys,
           transactions: ordered,
           config: { syncedAt },
         });
       }
     }
 
-    // A transaction found by a stable tag can create a note that another
+    // A transaction found by a stable tag can create a UTXO that another
     // device already spent. Query each newly discovered nullifier once, then
     // stop: this is an explicit bounded backstop rather than a generic round
     // loop that re-queries the same stable tags.
-    const followUpNullifiers = walletQueryNullifiers(input.wallet).filter(
+    const followUpNullifiers = walletQueryNullifiers(session.staging).filter(
       (nullifier) => !queriedNullifiers.has(bytesKey(nullifier)),
     );
     const beforeFollowUp = transactions.size;
@@ -589,8 +654,8 @@ export async function syncWallet(
     if (transactions.size !== beforeFollowUp) {
       ordered = orderedTransactions();
       report = await decryptTransactions({
-        wallet: input.wallet,
-        authority: input.authority,
+        wallet: session.staging,
+        authority: keys,
         transactions: ordered,
         config: { syncedAt },
       });
@@ -598,22 +663,52 @@ export async function syncWallet(
         !registryRefreshed &&
         (report.unknownAssetIds.length > 0 ||
           report.unknownAssetFields.length > 0 ||
-          walletHasUnknownMint(input.wallet))
+          walletHasUnknownMint(session.staging))
       ) {
-        if ((await backfillAssetRegistry(input.wallet, input.client, context)) > 0) {
+        if ((await backfillSessionRegistry(session, input.client, context)) > 0) {
           report = await decryptTransactions({
-            wallet: input.wallet,
-            authority: input.authority,
+            wallet: session.staging,
+            authority: keys,
             transactions: ordered,
             config: { syncedAt },
           });
         }
       }
     }
+    // An unresolved asset means a fetched UTXO was not stored. A commit would
+    // advance the cursors past it and lose the UTXO until a full rescan.
+    if (
+      report.unknownAssetIds.length > 0 ||
+      report.unknownAssetFields.length > 0 ||
+      walletHasUnknownMint(session.staging)
+    ) {
+      throw new WalletError("WALLET_UNRESOLVED_ASSET", {
+        details: { unknownAssetIds: report.unknownAssetIds.map(String) },
+      });
+    }
+    input.wallet._commitSync(sealSyncDelta(session), session.baseRevision);
     return report;
   } catch (cause) {
     throw wrapWalletError("WALLET_SYNC", cause);
   }
+}
+
+async function backfillSessionRegistry(
+  session: WalletSyncSession,
+  client: SyncClient,
+  context?: RequestContext,
+): Promise<number> {
+  if (client.solanaRpc === undefined || client.commitment === undefined) {
+    throw new WalletError("WALLET_INVALID_SYNC_CONFIG", {
+      details: { field: client.solanaRpc === undefined ? "solanaRpc" : "commitment" },
+    });
+  }
+  const registryRpc: KitRpcAccess = { solanaRpc: client.solanaRpc, commitment: client.commitment };
+  let inserted = 0;
+  for (const { assetId, mint } of await fetchSplAssetRegistrations(registryRpc, context)) {
+    if (ensureSessionAsset(session, assetId, mint)) inserted++;
+  }
+  return inserted;
 }
 
 export function getPrivateTokenBalances(wallet: Wallet): readonly AssetBalance[] {

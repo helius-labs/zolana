@@ -1,31 +1,32 @@
-import { buildUnsignedTransaction } from "../client/kit.js";
-import type { ZolanaClient } from "../client/client.js";
-import { SPL_TOKEN_PROGRAM_ID } from "../interface/program.js";
-import { checkedTransactionSize } from "../interface/transaction-size.js";
-import {
-  type Address,
-  type AssetDeposit,
-  type Bytes32,
+import { compileUnsignedTransaction } from "../flows/compile.js";
+import type { BlockhashProvider, ChainReader, TreeContext } from "../client/ports.js";
+import type {
+  Address,
+  AssetDeposit,
+  Bytes32,
   DepositAsset,
-  type Instruction,
-  type RequestContext,
-  type Transaction,
+  Instruction,
+  RequestContext,
+  Transaction,
 } from "../interface/types.js";
-import { associatedTokenAddress } from "../interface/pda/index.js";
 import { depositInstruction } from "../interface/instructions/index.js";
+import { initializePoseidon } from "../hasher/index.js";
 import { randomBlinding } from "../keypair/bytes.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
 import { ownerUtxoHash } from "../transaction/utxo.js";
-import { SOL_MINT } from "../transaction/wallet/asset.js";
+import { SOL_MINT } from "../transaction/asset.js";
+
+import { resolveDepositSettlement } from "../flows/settlement.js";
 
 import { WalletError, wrapWalletError } from "./error.js";
-import { resolveRegisteredAddress } from "./registry.js";
+import { resolveShieldedRecipient } from "./registry.js";
 
 /** @internal */
 export interface DepositParams {
   readonly recipient: ShieldedAddress;
   readonly asset: Address;
   readonly amount: bigint;
+  readonly depositor?: Address;
   readonly splTokenAccount?: Address;
   readonly splTokenProgram?: Address | null;
   readonly memo?: Uint8Array;
@@ -74,6 +75,7 @@ export class Deposit {
 /** @internal */
 export async function createDeposit(params: DepositParams): Promise<Deposit> {
   try {
+    await initializePoseidon();
     if (params.amount <= 0n || params.amount > 0xffff_ffff_ffff_ffffn) {
       throw new WalletError("WALLET_INVALID_AMOUNT", {
         details: { amount: params.amount.toString() },
@@ -92,19 +94,22 @@ export async function createDeposit(params: DepositParams): Promise<Deposit> {
     };
     // A SOL deposit needs no token accounts, so one supplied alongside it is
     // ignored rather than rejected.
-    let settlement: DepositAsset = DepositAsset.sol();
-    if (params.asset !== SOL_MINT) {
-      if (params.splTokenAccount === undefined) {
-        throw new WalletError("WALLET_MISSING_SPL_TOKEN_ACCOUNT", {
+    const settlement = await resolveDepositSettlement(
+      {
+        asset: params.asset,
+        ...(params.depositor === undefined ? {} : { depositor: params.depositor }),
+        ...(params.splTokenAccount === undefined
+          ? {}
+          : { splTokenAccount: params.splTokenAccount }),
+        ...(params.splTokenProgram === undefined
+          ? {}
+          : { splTokenProgram: params.splTokenProgram }),
+      },
+      () =>
+        new WalletError("WALLET_MISSING_SPL_TOKEN_ACCOUNT", {
           details: { mint: params.asset },
-        });
-      }
-      settlement = DepositAsset.spl({
-        mint: params.asset,
-        sourceTokenAccount: params.splTokenAccount,
-        tokenProgram: params.splTokenProgram ?? SPL_TOKEN_PROGRAM_ID,
-      });
-    }
+        }),
+    );
     return new Deposit({
       data,
       utxoHash: ownerUtxoHash({
@@ -121,8 +126,10 @@ export async function createDeposit(params: DepositParams): Promise<Deposit> {
   }
 }
 
+export type DepositClient = TreeContext & BlockhashProvider & Pick<ChainReader, "getAccount">;
+
 export interface DepositTransactionParams {
-  readonly client: ZolanaClient;
+  readonly client: DepositClient;
   readonly feePayer: Address;
   readonly depositor?: Address;
   readonly tree?: Address;
@@ -139,45 +146,32 @@ export async function buildDepositTransaction(
   context?: RequestContext,
 ): Promise<Transaction> {
   try {
-    let recipient: ShieldedAddress;
-    if (input.recipient instanceof ShieldedAddress) {
-      recipient = input.recipient;
-    } else {
-      const registered = await resolveRegisteredAddress(
-        { rpc: input.client, owner: input.recipient },
-        context,
-      );
-      if (registered === undefined) {
-        throw new WalletError("WALLET_RECIPIENT_NOT_REGISTERED", {
-          details: { recipient: input.recipient },
-        });
-      }
-      recipient = registered.address;
-    }
+    const recipient = await resolveShieldedRecipient(
+      { rpc: input.client, recipient: input.recipient },
+      (unregistered) =>
+        new WalletError("WALLET_RECIPIENT_NOT_REGISTERED", {
+          details: { recipient: unregistered },
+        }),
+      context,
+    );
     const depositor = input.depositor ?? input.feePayer;
     const tree = input.tree ?? input.client.tree;
     const asset = input.asset ?? SOL_MINT;
-    const splTokenAccount =
-      asset === SOL_MINT
-        ? undefined
-        : (input.splTokenAccount ??
-          (await associatedTokenAddress(depositor, asset, input.splTokenProgram)));
     const deposit = await createDeposit({
       recipient,
       asset,
       amount: input.amount,
-      ...(splTokenAccount === undefined ? {} : { splTokenAccount }),
+      depositor,
+      ...(input.splTokenAccount === undefined ? {} : { splTokenAccount: input.splTokenAccount }),
       ...(input.splTokenProgram === undefined ? {} : { splTokenProgram: input.splTokenProgram }),
       ...(input.memo === undefined ? {} : { memo: input.memo }),
     });
     const lifetime = await input.client.getLatestBlockhash(context);
-    return checkedTransactionSize(
-      buildUnsignedTransaction({
-        feePayer: input.feePayer,
-        lifetime,
-        instructions: [await deposit.instruction(tree, depositor)],
-      }),
-    );
+    return compileUnsignedTransaction({
+      feePayer: input.feePayer,
+      lifetime,
+      instructions: [await deposit.instruction(tree, depositor)],
+    });
   } catch (cause) {
     throw wrapWalletError("WALLET_BUILD_DEPOSIT", cause);
   }
