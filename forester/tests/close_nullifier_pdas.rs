@@ -1,12 +1,21 @@
 use anyhow::anyhow;
 use forester::close_nullifier_pdas::{
     collect_queued_pages, plan_batches, retain_open_accounts, CloseNullifierPdasBatch,
-    LEGACY_TRANSACTION_SIZE_LIMIT,
+    ForesterSmartAccount, LEGACY_TRANSACTION_SIZE_LIMIT,
 };
 use solana_account::Account;
 use solana_pubkey::Pubkey;
 use zolana_api::{Hash, NullifierQueueElement, PAGE_LIMIT};
 use zolana_interface::{instruction::CloseNullifierPdas, pda, NULLIFIER_PDA_SIZE};
+use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
+
+fn forester() -> ForesterSmartAccount {
+    ForesterSmartAccount {
+        settings: Pubkey::new_unique(),
+        account_index: 0,
+        member: Pubkey::new_unique(),
+    }
+}
 
 fn nullifier(seq: u64) -> [u8; 32] {
     let mut value = [0u8; 32];
@@ -24,10 +33,10 @@ fn element(seq: u64) -> NullifierQueueElement {
 #[test]
 fn plan_fills_each_transaction_up_to_the_legacy_size_limit() {
     let tree = Pubkey::new_unique();
-    let payer = Pubkey::new_unique();
+    let forester = forester();
     let nullifiers: Vec<[u8; 32]> = (0..100).map(nullifier).collect();
 
-    let batches = plan_batches(tree, payer, &nullifiers).unwrap();
+    let batches = plan_batches(tree, forester, &nullifiers).unwrap();
     let nullifier_pdas_per_transaction = batches.first().unwrap().nullifiers.len();
 
     for batch in &batches {
@@ -42,7 +51,7 @@ fn plan_fills_each_transaction_up_to_the_legacy_size_limit() {
         overfilled.extend(next.nullifiers.first().copied());
         let overfilled = CloseNullifierPdasBatch {
             tree,
-            payer,
+            forester,
             nullifiers: overfilled,
         };
         assert!(overfilled.serialized_size().unwrap() > LEGACY_TRANSACTION_SIZE_LIMIT);
@@ -62,37 +71,60 @@ fn plan_fills_each_transaction_up_to_the_legacy_size_limit() {
 
 #[test]
 fn plan_of_nothing_is_empty() {
-    let batches = plan_batches(Pubkey::new_unique(), Pubkey::new_unique(), &[]).unwrap();
+    let batches = plan_batches(Pubkey::new_unique(), forester(), &[]).unwrap();
     assert!(batches.is_empty());
 }
 
 #[test]
 fn batch_instruction_matches_the_interface_builder() {
     let tree = Pubkey::new_unique();
-    let payer = Pubkey::new_unique();
+    let forester = forester();
     let nullifiers: Vec<[u8; 32]> = (0..40).map(nullifier).collect();
 
-    let batches = plan_batches(tree, payer, &nullifiers).unwrap();
+    let batches = plan_batches(tree, forester, &nullifiers).unwrap();
 
     assert!(batches.len() > 1);
     for batch in &batches {
         let expected = CloseNullifierPdas {
+            authority: forester.vault(),
             tree,
-            reimbursement_recipient: payer,
+            reimbursement_recipient: forester.member,
             nullifiers: batch.nullifiers.clone(),
         }
         .instruction();
-        assert_eq!(batch.instruction(), expected);
+        assert_eq!(batch.inner_instruction(), expected);
         assert_eq!(
             expected
                 .accounts
-                .get(1)
+                .first()
+                .map(|meta| (meta.pubkey, meta.is_signer)),
+            Some((forester.vault(), true))
+        );
+        assert_eq!(
+            expected
+                .accounts
+                .get(3)
                 .map(|meta| (meta.pubkey, meta.is_writable)),
-            Some((payer, true))
+            Some((forester.member, true))
         );
 
+        let execute = batch.instruction();
+        assert_eq!(execute.program_id, SMART_ACCOUNT_PROGRAM_ID);
+        assert_eq!(
+            execute.accounts.first().map(|meta| meta.pubkey),
+            Some(forester.settings)
+        );
+        assert!(execute
+            .accounts
+            .iter()
+            .any(|meta| meta.pubkey == forester.member && meta.is_signer));
+        assert!(!execute
+            .accounts
+            .iter()
+            .any(|meta| meta.pubkey == forester.vault() && meta.is_signer));
+
         let message = batch.message();
-        assert_eq!(message.account_keys.first(), Some(&payer));
+        assert_eq!(message.account_keys.first(), Some(&forester.member));
         assert_eq!(message.header.num_required_signatures, 1);
         assert_eq!(message.instructions.len(), 1);
     }

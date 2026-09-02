@@ -73,11 +73,19 @@ pub enum Commands {
     },
     /// Close nullifier PDAs below the reclaim watermark and
     /// return their rent to the tree. Reads RPC_URL, PHOTON_URL, and PAYER
-    /// (fee payer) from the environment.
+    /// (smart-account member, fee payer) from the environment.
     CloseNullifierPdas {
         /// Pool tree whose closable nullifier PDAs to close.
         #[arg(long, default_value_t = default_tree())]
         tree: Pubkey,
+        /// Forester smart-account settings account. The vault at
+        /// `--account-index` is the tree's `forester_authority`; the PAYER key
+        /// signs as a member of this smart account.
+        #[arg(long)]
+        settings: Pubkey,
+        /// Vault index within the forester smart-account settings.
+        #[arg(long, default_value_t = 0)]
+        account_index: u8,
         /// First Photon queue sequence to scan. Persist the last completed
         /// watermark externally and pass it here to avoid rescanning from zero
         /// after a restart.

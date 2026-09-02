@@ -75,6 +75,8 @@ fn dispatch(cli: Cli) -> Result<()> {
         }
         Commands::CloseNullifierPdas {
             tree,
+            settings,
+            account_index,
             from_seq,
             max_transactions,
             watch,
@@ -83,6 +85,8 @@ fn dispatch(cli: Cli) -> Result<()> {
             &ForesterConfig::from_env()?,
             CloseNullifierPdasOptions {
                 tree,
+                settings,
+                account_index,
                 from_seq,
                 max_transactions,
                 watch,

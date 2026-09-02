@@ -13,6 +13,7 @@ use solana_signer::Signer;
 use solana_transaction::Transaction;
 use zolana_api::{BlockingZolanaApi, NullifierQueueElement, SerializablePubkey, PAGE_LIMIT};
 use zolana_interface::{instruction::CloseNullifierPdas, pda, NULLIFIER_PDA_SIZE};
+use zolana_smart_account_client::{execute_sync_ix, smart_account_pda};
 use zolana_tree::TreeAccount;
 
 use crate::config::ForesterConfig;
@@ -22,30 +23,58 @@ pub const MULTIPLE_ACCOUNTS_CHUNK: usize = 100;
 
 pub struct CloseNullifierPdasOptions {
     pub tree: Pubkey,
+    pub settings: Pubkey,
+    pub account_index: u8,
     pub from_seq: u64,
     pub max_transactions: Option<u64>,
     pub watch: bool,
     pub poll_secs: u64,
 }
 
+/// The forester smart account: the vault at `account_index` is the tree's
+/// `forester_authority`, and `member` signs the outer transaction, pays its
+/// fee, and receives the close reimbursement.
+#[derive(Clone, Copy, Debug)]
+pub struct ForesterSmartAccount {
+    pub settings: Pubkey,
+    pub account_index: u8,
+    pub member: Pubkey,
+}
+
+impl ForesterSmartAccount {
+    pub fn vault(&self) -> Pubkey {
+        smart_account_pda(&self.settings, self.account_index).0
+    }
+}
+
 pub struct CloseNullifierPdasBatch {
     pub tree: Pubkey,
-    pub payer: Pubkey,
+    pub forester: ForesterSmartAccount,
     pub nullifiers: Vec<[u8; 32]>,
 }
 
 impl CloseNullifierPdasBatch {
-    pub fn instruction(&self) -> Instruction {
+    pub fn inner_instruction(&self) -> Instruction {
         CloseNullifierPdas {
+            authority: self.forester.vault(),
             tree: self.tree,
-            reimbursement_recipient: self.payer,
+            reimbursement_recipient: self.forester.member,
             nullifiers: self.nullifiers.clone(),
         }
         .instruction()
     }
 
+    pub fn instruction(&self) -> Instruction {
+        execute_sync_ix(
+            &self.forester.settings,
+            self.forester.account_index,
+            &[self.forester.member],
+            &[self.inner_instruction()],
+        )
+    }
+
     pub fn message(&self) -> Message {
-        Message::new(&[self.instruction()], Some(&self.payer))
+        Message::new(&[self.instruction()], Some(&self.forester.member))
     }
 
     pub fn serialized_size(&self) -> Result<usize> {
@@ -59,11 +88,11 @@ impl CloseNullifierPdasBatch {
         Ok(self.serialized_size()? <= LEGACY_TRANSACTION_SIZE_LIMIT)
     }
 
-    fn submit(&self, rpc: &RpcClient, payer: &Keypair) -> Result<Signature> {
+    fn submit(&self, rpc: &RpcClient, member: &Keypair) -> Result<Signature> {
         let blockhash = rpc
             .get_latest_blockhash()
             .map_err(|err| anyhow!("fetch latest blockhash: {err}"))?;
-        let transaction = Transaction::new(&[payer], self.message(), blockhash);
+        let transaction = Transaction::new(&[member], self.message(), blockhash);
         rpc.send_and_confirm_transaction(&transaction)
             .map_err(|err| anyhow!("close {} nullifier PDAs: {err}", self.nullifiers.len()))
     }
@@ -71,19 +100,19 @@ impl CloseNullifierPdasBatch {
 
 pub fn plan_batches(
     tree: Pubkey,
-    payer: Pubkey,
+    forester: ForesterSmartAccount,
     nullifiers: &[[u8; 32]],
 ) -> Result<Vec<CloseNullifierPdasBatch>> {
     if nullifiers.is_empty() {
         return Ok(Vec::new());
     }
 
-    let capacity = nullifier_pda_capacity(tree, payer)?;
+    let capacity = nullifier_pda_capacity(tree, forester)?;
     Ok(nullifiers
         .chunks(capacity)
         .map(|chunk| CloseNullifierPdasBatch {
             tree,
-            payer,
+            forester,
             nullifiers: chunk.to_vec(),
         })
         .collect())
@@ -93,7 +122,7 @@ pub fn plan_batches(
 /// on the number of unique accounts, not their key bytes, so deterministic
 /// unique nullifier PDA PDAs avoid re-deriving and re-serializing the growing batch
 /// for every queued nullifier.
-fn nullifier_pda_capacity(tree: Pubkey, payer: Pubkey) -> Result<usize> {
+fn nullifier_pda_capacity(tree: Pubkey, forester: ForesterSmartAccount) -> Result<usize> {
     let mut nullifiers = Vec::new();
     for sequence in 0..=u8::MAX as u64 {
         let mut nullifier = [0u8; 32];
@@ -101,7 +130,7 @@ fn nullifier_pda_capacity(tree: Pubkey, payer: Pubkey) -> Result<usize> {
         nullifiers.push(nullifier);
         let candidate = CloseNullifierPdasBatch {
             tree,
-            payer,
+            forester,
             nullifiers: nullifiers.clone(),
         };
         if candidate.fits()? {
@@ -182,9 +211,19 @@ struct ClosePass {
 pub fn run(config: &ForesterConfig, opts: CloseNullifierPdasOptions) -> Result<()> {
     let rpc = RpcClient::new_with_commitment(config.rpc_url.clone(), CommitmentConfig::confirmed());
     let photon = BlockingZolanaApi::new(config.photon_url.clone());
-    let payer = config.signer()?;
+    let member = config.signer()?;
+    let forester = ForesterSmartAccount {
+        settings: opts.settings,
+        account_index: opts.account_index,
+        member: member.pubkey(),
+    };
 
-    tracing::info!(tree = %opts.tree, payer = %payer.pubkey(), "forester close-nullifier-pdas");
+    tracing::info!(
+        tree = %opts.tree,
+        member = %forester.member,
+        vault = %forester.vault(),
+        "forester close-nullifier-pdas"
+    );
 
     let mut submitted_total = 0u64;
     let mut scan_from = opts.from_seq;
@@ -197,7 +236,9 @@ pub fn run(config: &ForesterConfig, opts: CloseNullifierPdasOptions) -> Result<(
             break;
         }
 
-        let pass = match close_once(&rpc, &photon, &payer, opts.tree, scan_from, remaining) {
+        let pass = match close_once(
+            &rpc, &photon, &member, forester, opts.tree, scan_from, remaining,
+        ) {
             Ok(pass) => pass,
             Err(error) if opts.watch => {
                 tracing::warn!(%error, scan_from, "close-nullifier-pdas pass failed; retrying");
@@ -224,7 +265,8 @@ pub fn run(config: &ForesterConfig, opts: CloseNullifierPdasOptions) -> Result<(
 fn close_once(
     rpc: &RpcClient,
     photon: &BlockingZolanaApi,
-    payer: &Keypair,
+    member: &Keypair,
+    forester: ForesterSmartAccount,
     tree: Pubkey,
     scan_from: u64,
     limit: Option<u64>,
@@ -255,7 +297,7 @@ fn close_once(
         .map(|element| element.value.0)
         .collect();
     let open = retain_open_nullifier_pdas(rpc, tree, &candidates)?;
-    let batches = plan_batches(tree, payer.pubkey(), &open)?;
+    let batches = plan_batches(tree, forester, &open)?;
     tracing::info!(
         close_before_index,
         candidates = candidates.len(),
@@ -271,7 +313,7 @@ fn close_once(
             capped = true;
             break;
         }
-        if let Some((signature, nullifier_pdas)) = submit_race_tolerant(rpc, payer, batch)? {
+        if let Some((signature, nullifier_pdas)) = submit_race_tolerant(rpc, member, batch)? {
             submitted += 1;
             tracing::info!(%signature, nullifier_pdas, "closed nullifier PDAs");
         }
@@ -284,22 +326,22 @@ fn close_once(
     })
 }
 
-/// Submit a planned batch and recover from another permissionless closer
-/// winning the race. A failed transaction is retried only when a fresh account
-/// read proves that at least one planned nullifier PDA disappeared; unrelated RPC or
+/// Submit a planned batch and recover from another forester instance winning
+/// the race. A failed transaction is retried only when a fresh account read
+/// proves that at least one planned nullifier PDA disappeared; unrelated RPC or
 /// program failures are returned unchanged.
 fn submit_race_tolerant(
     rpc: &RpcClient,
-    payer: &Keypair,
+    member: &Keypair,
     planned: &CloseNullifierPdasBatch,
 ) -> Result<Option<(Signature, usize)>> {
     let mut batch = CloseNullifierPdasBatch {
         tree: planned.tree,
-        payer: planned.payer,
+        forester: planned.forester,
         nullifiers: planned.nullifiers.clone(),
     };
     loop {
-        match batch.submit(rpc, payer) {
+        match batch.submit(rpc, member) {
             Ok(signature) => return Ok(Some((signature, batch.nullifiers.len()))),
             Err(submit_error) => {
                 let open = retain_open_nullifier_pdas(rpc, batch.tree, &batch.nullifiers)?;
@@ -309,7 +351,7 @@ fn submit_race_tolerant(
                 tracing::info!(
                     raced = batch.nullifiers.len() - open.len(),
                     remaining = open.len(),
-                    "another closer removed nullifier PDAs; replanning batch"
+                    "another forester removed nullifier PDAs; replanning batch"
                 );
                 if open.is_empty() {
                     return Ok(None);

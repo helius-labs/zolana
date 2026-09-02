@@ -7,6 +7,7 @@ use zolana_tree::TreeAccount;
 
 use crate::instructions::{
     nullifier_pda::NullifierPdaClose,
+    protocol_config::loader::validate_forester_authority,
     shared::{check_reimbursement_recipient, pay_reimbursement, tree_error},
 };
 
@@ -16,8 +17,11 @@ pub fn process_close_nullifier_pdas(accounts: &mut [AccountView], data: &[u8]) -
         return Err(ShieldedPoolError::InvalidInstructionData.into());
     }
     let mut iter = AccountIterator::new(accounts);
+    let authority = iter.next_signer("authority")?;
+    let protocol_config = iter.next_account("protocol_config")?;
     let tree = iter.next_mut("tree")?;
     let reimbursement_recipient = iter.next_mut("reimbursement_recipient")?;
+    validate_forester_authority(protocol_config, authority)?;
     check_reimbursement_recipient(reimbursement_recipient)?;
     if iter.iterator_is_empty() {
         return Err(ShieldedPoolError::InvalidInstructionData.into());

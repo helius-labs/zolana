@@ -350,35 +350,43 @@ final `new_root`.
 
 ## Close nullifier PDAs
 
-**Description.** Permissionlessly closes any number of closable nullifier
-PDAs and reimburses the cleaner from the tree's fee balance.
+**Description.** Closes any number of closable nullifier PDAs and reimburses
+the forester from the tree's fee balance. The instruction is gated to
+`protocol_config.forester_authority`, the same signer as the batch update: an
+open close would let anyone race the forester's cleanup transaction, collect
+the reimbursement, and leave the forester paying the fee of a failed
+transaction.
 
 **Input**
 
-The instruction has no data. It receives the writable tree, a writable
-`reimbursement_recipient`, and then one writable PDA per nullifier to close.
-The shielded-pool index supplies the nullifiers to the cleaner, which derives
-the PDA addresses from them.
+The instruction has no data. It receives the signing `authority`, the
+`protocol_config`, the writable tree, a writable `reimbursement_recipient`,
+and then one writable PDA per nullifier to close. The shielded-pool index
+supplies the nullifiers to the forester, which derives the PDA addresses from
+them.
 
 **Checks and state changes**
 
-1. Require the recipient not to be program-owned
+1. Require `authority` to sign and to equal
+   `protocol_config.forester_authority`
+   (`ShieldedPoolError::UnauthorizedCaller`, 7003).
+2. Require the recipient not to be program-owned
    (`ShieldedPoolError::InvalidReimbursementRecipient`, 7055). This rejects
    the tree itself, open nullifier PDAs, and the protocol config as
    recipients.
-2. Require at least one PDA account.
+3. Require at least one PDA account.
 
 For every PDA account:
 
-3. Require program ownership and an exact ten-byte Borsh payload.
-4. Require `PDA.tree_id` to equal the tree header's `tree_id`
+4. Require program ownership and an exact ten-byte Borsh payload.
+5. Require `PDA.tree_id` to equal the tree header's `tree_id`
    (`ShieldedPoolError::NullifierPdaTreeMismatch`, 7053).
-5. Require `PDA.queue_index < w`.
-6. Transfer every PDA lamport to the tree and close the PDA.
+6. Require `PDA.queue_index < w`.
+7. Transfer every PDA lamport to the tree and close the PDA.
 
 After closing `n` PDAs:
 
-7. Pay `min(fees.close_reimbursement * n, fee_balance)` from the tree to the
+8. Pay `min(fees.close_reimbursement * n, fee_balance)` from the tree to the
    recipient and subtract the paid amount from `fee_balance`. A zero schedule
    or an empty fee balance pays nothing and still closes the PDAs.
 

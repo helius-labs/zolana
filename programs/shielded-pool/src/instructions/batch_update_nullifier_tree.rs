@@ -9,7 +9,7 @@ use zolana_tree::TreeAccount;
 
 use crate::instructions::{
     event::emit_batch_nullifier_append_event,
-    protocol_config::loader::load_protocol_config,
+    protocol_config::loader::validate_forester_authority,
     shared::{check_reimbursement_recipient, pay_reimbursement},
 };
 
@@ -25,11 +25,7 @@ pub fn process_batch_update_nullifier_tree(
     let tree = iter.next_mut("tree")?;
     let reimbursement_recipient = iter.next_mut("reimbursement_recipient")?;
 
-    let config = load_protocol_config(protocol_config)?;
-    config
-        .check_forester_authority(authority.address())
-        .map_err(ShieldedPoolError::from)?;
-    drop(config);
+    validate_forester_authority(protocol_config, authority)?;
     check_reimbursement_recipient(reimbursement_recipient)?;
 
     let applied = {

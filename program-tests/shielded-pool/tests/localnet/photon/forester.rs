@@ -672,7 +672,7 @@ fn fetch_tree_account(env: &ForesterEnv) -> TestResult<solana_account::Account> 
 /// 120 ZKP batches per queue batch, so with Z = 10 one queue batch holds
 /// B = 1200 nullifiers; this suite queues 200, batch 0 never fills, and no
 /// batch becomes reclaimable: `close_before_index` must stay at zero, every nullifier PDA must
-/// survive the drain, and the test forester's `close_nullifier_pdas` must be rejected
+/// survive the drain, and the forester vault's `close_nullifier_pdas` must be rejected
 /// with `NullifierPdaNotClosable` without moving lamports. The positive
 /// close path (reclaimable batch, rent returned) is covered hermetically in
 /// `tests/nullifier/nullifier PDAs.rs` with a watermark fixture.
@@ -692,7 +692,13 @@ fn phase_assert_nullifier_pda_cleanup(
     );
     assert_nullifier_pdas(&env.rpc, &env.tree_pubkey, queued_nullifiers)?;
 
-    let close_plan = plan_batches(env.tree_pubkey, env.payer.pubkey(), queued_nullifiers)?;
+    let forester = ForesterAuthority {
+        signer: &env.forester_key,
+        settings: env.accounts.forester_settings,
+        account_index: 0,
+        vault: env.accounts.forester_vault,
+    };
+    let close_plan = plan_batches(env.tree_pubkey, forester.smart_account(), queued_nullifiers)?;
     let sample_len = close_plan
         .first()
         .ok_or_else(|| anyhow!("no close-nullifier PDA batch planned"))?
@@ -703,7 +709,7 @@ fn phase_assert_nullifier_pda_cleanup(
         .ok_or_else(|| anyhow!("fewer queued nullifiers than one close chunk"))?;
     let tree_before = fetch_tree_account(env)?;
     let error = NullifierTestForester::default()
-        .close_nullifier_pdas(&mut env.rpc, &env.payer, env.tree_pubkey, sample)
+        .close_nullifier_pdas(&mut env.rpc, forester, env.tree_pubkey, sample)
         .expect_err("closing nullifier PDAs before the batch is reclaimable must be rejected");
     let client_error = error
         .downcast_ref::<ClientError>()

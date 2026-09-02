@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context, Result};
-use forester::close_nullifier_pdas::plan_batches;
+use forester::close_nullifier_pdas::{plan_batches, ForesterSmartAccount};
 use num_bigint::BigUint;
 use solana_address::Address;
 use solana_keypair::Keypair;
@@ -31,6 +31,16 @@ pub struct ForesterAuthority<'a> {
     pub settings: Pubkey,
     pub account_index: u8,
     pub vault: Pubkey,
+}
+
+impl ForesterAuthority<'_> {
+    pub fn smart_account(&self) -> ForesterSmartAccount {
+        ForesterSmartAccount {
+            settings: self.settings,
+            account_index: self.account_index,
+            member: self.signer.pubkey(),
+        }
+    }
 }
 
 impl NullifierTestForester {
@@ -73,16 +83,17 @@ impl NullifierTestForester {
     pub fn close_nullifier_pdas(
         &self,
         rpc: &mut SolanaRpc,
-        payer: &Keypair,
+        authority: ForesterAuthority<'_>,
         tree: Pubkey,
         nullifiers: &[[u8; 32]],
     ) -> Result<Vec<Signature>> {
-        plan_batches(tree, payer.pubkey(), nullifiers)?
+        let member = authority.signer.pubkey();
+        plan_batches(tree, authority.smart_account(), nullifiers)?
             .into_iter()
             .map(|batch| {
                 let (blockhash, _) = rpc.get_latest_blockhash()?;
-                let message = Message::new(&[batch.instruction()], Some(&payer.pubkey()));
-                let tx = Transaction::new(&[payer], message, blockhash);
+                let message = Message::new(&[batch.instruction()], Some(&member));
+                let tx = Transaction::new(&[authority.signer], message, blockhash);
                 Ok(rpc.send_transaction(&tx)?)
             })
             .collect()

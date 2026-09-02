@@ -3,10 +3,11 @@ use solana_pubkey::Pubkey;
 
 use crate::{
     instruction::{builders::transact::nullifier_pda_accounts, tag},
-    PROGRAM_ID_PUBKEY,
+    pda, PROGRAM_ID_PUBKEY,
 };
 
 pub struct CloseNullifierPdas {
+    pub authority: Pubkey,
     pub tree: Pubkey,
     pub reimbursement_recipient: Pubkey,
     pub nullifiers: Vec<[u8; 32]>,
@@ -15,6 +16,8 @@ pub struct CloseNullifierPdas {
 impl CloseNullifierPdas {
     pub fn instruction(&self) -> Instruction {
         let mut accounts = vec![
+            AccountMeta::new_readonly(self.authority, true),
+            AccountMeta::new_readonly(pda::protocol_config(), false),
             AccountMeta::new(self.tree, false),
             AccountMeta::new(self.reimbursement_recipient, false),
         ];

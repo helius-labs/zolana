@@ -19,7 +19,7 @@ use zolana_interface::{
     },
     NullifierPda, NULLIFIER_PDA_SIZE, N_PUBLIC_SLOTS,
 };
-use zolana_program_test::{Rejection, Rpc, TransactionTrace};
+use zolana_program_test::{ProgramTestError, Rejection, Rpc, TransactionTrace, ZolanaProgramTest};
 use zolana_test_utils::{
     nullifier_pda::{
         assert_nullifier_pda, assert_nullifier_pdas, assert_nullifier_pdas_absent,
@@ -31,7 +31,10 @@ use zolana_test_utils::{
 use zolana_tree::{TreeAccount, TreeAccountLayout, UTXO_TREE_HEIGHT};
 
 const LAMPORTS_PER_SIGNATURE: u64 = 5_000;
+const CLOSE_TRANSACTION_FEE: u64 = 2 * LAMPORTS_PER_SIGNATURE;
 const TRANSACT_NULLIFIER_PDA_OFFSET: usize = 5;
+const CLOSE_TREE_OFFSET: usize = 2;
+const CLOSE_NULLIFIER_PDA_OFFSET: usize = 4;
 const NULLIFIER_ZKP_BATCHES: usize =
     (NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE / NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE) as usize;
 type Layout = TreeAccountLayout<UTXO_TREE_HEIGHT, NULLIFIER_ZKP_BATCHES>;
@@ -84,11 +87,24 @@ fn close_instruction_for(
     nullifiers: Vec<[u8; 32]>,
 ) -> Instruction {
     CloseNullifierPdas {
+        authority: env.authority.pubkey(),
         tree: env.tree,
         reimbursement_recipient,
         nullifiers,
     }
     .instruction()
+}
+
+fn send_close(env: &mut Pool, ix: Instruction) -> Result<(), ProgramTestError> {
+    let payer = env.rpc.payer.insecure_clone();
+    let authority = env.authority.insecure_clone();
+    ZolanaProgramTest::create_and_send_transaction(
+        &mut env.rpc,
+        &[ix],
+        &payer.pubkey(),
+        &[&payer, &authority],
+    )
+    .map(|_| ())
 }
 
 fn fund_fee_balance(env: &mut Pool, lamports: u64) {
@@ -250,10 +266,7 @@ fn expect_transact_rejection(env: &mut Pool, ix: Instruction, expected: Rejectio
 #[track_caller]
 fn expect_close_rejection(env: &mut Pool, ix: Instruction, expected: Rejection) {
     let tree_before = tree_account(env);
-    let error = env
-        .rpc
-        .create_and_send_default_payer_transaction(&[ix], &[])
-        .expect_err("close must be rejected");
+    let error = send_close(env, ix).expect_err("close must be rejected");
     expected.assert_litesvm(error);
     env.rpc
         .last_transaction_trace()
@@ -332,8 +345,8 @@ fn assert_close_nullifier_pdas(
             let after = transition.after.as_ref().expect("payer after close");
             assert_eq!(
                 before.lamports + paid,
-                after.lamports + LAMPORTS_PER_SIGNATURE,
-                "fee payer pays exactly the transaction fee and receives the close reimbursement"
+                after.lamports + CLOSE_TRANSACTION_FEE,
+                "fee payer pays exactly the two-signature transaction fee and receives the close reimbursement"
             );
         }
     }
@@ -494,6 +507,59 @@ fn transact_rejects_when_working_capital_would_borrow_from_the_fee_pool() {
 }
 
 #[test]
+fn close_rejects_a_non_forester_authority() {
+    let mut env = Pool::initialized();
+    let nullifier = fe(1);
+    queue_nullifier_pda(&mut env, &nullifier, 0);
+    set_close_before_index(&mut env, 1);
+    let intruder = env.funded_signer(1_000_000_000);
+    let tree_before = tree_account(&env);
+
+    let ix = CloseNullifierPdas {
+        authority: intruder.pubkey(),
+        tree: env.tree,
+        reimbursement_recipient: intruder.pubkey(),
+        nullifiers: vec![nullifier],
+    }
+    .instruction();
+    let error = ZolanaProgramTest::create_and_send_transaction(
+        &mut env.rpc,
+        &[ix],
+        &intruder.pubkey(),
+        &[&intruder],
+    )
+    .expect_err("a signer that is not the forester authority must be rejected");
+    Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(error);
+    env.rpc
+        .last_transaction_trace()
+        .expect("rejected close trace")
+        .assert_rolled_back_except(&[intruder.pubkey()]);
+    assert_eq!(
+        tree_account(&env),
+        tree_before,
+        "rejected close must leave the tree untouched"
+    );
+    assert_nullifier_pda(&env.rpc, &env.tree, &nullifier, 0).expect("nullifier PDA kept");
+}
+
+#[test]
+fn close_rejects_an_unsigned_authority() {
+    let mut env = Pool::initialized();
+    let nullifier = fe(1);
+    queue_nullifier_pda(&mut env, &nullifier, 0);
+    set_close_before_index(&mut env, 1);
+
+    let mut ix = close_instruction(&env, vec![nullifier]);
+    ix.accounts.first_mut().expect("authority meta").is_signer = false;
+    let error = env
+        .rpc
+        .create_and_send_default_payer_transaction(&[ix], &[])
+        .expect_err("an unsigned forester authority must be rejected");
+    Rejection::custom(u32::from(AccountError::InvalidSigner)).assert_litesvm(error);
+    assert_nullifier_pda(&env.rpc, &env.tree, &nullifier, 0).expect("nullifier PDA kept");
+}
+
+#[test]
 fn close_rejects_nullifier_pda_before_batch_is_reclaimable() {
     let mut env = Pool::initialized();
     let nullifier = fe(1);
@@ -532,12 +598,8 @@ fn close_honours_the_watermark_boundary() {
         .expect("nullifier PDA at the watermark kept");
 
     let tree_before = tree_account(&env);
-    env.rpc
-        .create_and_send_default_payer_transaction(
-            &[close_instruction(&env, vec![below_watermark])],
-            &[],
-        )
-        .expect("close a nullifier PDA below the watermark");
+    let ix = close_instruction(&env, vec![below_watermark]);
+    send_close(&mut env, ix).expect("close a nullifier PDA below the watermark");
     let trace = env
         .rpc
         .last_transaction_trace()
@@ -559,12 +621,8 @@ fn close_returns_nullifier_pda_rent_to_the_tree() {
     set_close_before_index(&mut env, 3);
     let tree_before = tree_account(&env);
 
-    env.rpc
-        .create_and_send_default_payer_transaction(
-            &[close_instruction(&env, nullifiers.to_vec())],
-            &[],
-        )
-        .expect("close nullifier PDAs below the reclaim watermark");
+    let ix = close_instruction(&env, nullifiers.to_vec());
+    send_close(&mut env, ix).expect("close nullifier PDAs below the reclaim watermark");
     let trace = env
         .rpc
         .last_transaction_trace()
@@ -585,12 +643,8 @@ fn close_funded(env: &mut Pool, fee_balance: u64, nullifiers: &[[u8; 32]]) -> u6
         .expect("payer")
         .lamports;
 
-    env.rpc
-        .create_and_send_default_payer_transaction(
-            &[close_instruction(env, nullifiers.to_vec())],
-            &[],
-        )
-        .expect("close nullifier PDAs below the reclaim watermark");
+    let ix = close_instruction(env, nullifiers.to_vec());
+    send_close(env, ix).expect("close nullifier PDAs below the reclaim watermark");
     let trace = env
         .rpc
         .last_transaction_trace()
@@ -603,7 +657,7 @@ fn close_funded(env: &mut Pool, fee_balance: u64, nullifiers: &[[u8; 32]]) -> u6
         .get_account(&env.rpc.payer.pubkey())
         .expect("payer")
         .lamports;
-    payer_after + LAMPORTS_PER_SIGNATURE - payer_before
+    payer_after + CLOSE_TRANSACTION_FEE - payer_before
 }
 
 #[test]
@@ -691,12 +745,8 @@ fn close_pays_a_recipient_other_than_the_payer() {
     let recipient_before = env.rpc.svm.get_account(&recipient).expect("recipient");
     let (fees, fee_balance_before) = tree_fees(&env.rpc, &env.tree).expect("tree fees");
 
-    env.rpc
-        .create_and_send_default_payer_transaction(
-            &[close_instruction_for(&env, recipient, nullifiers.to_vec())],
-            &[],
-        )
-        .expect("close with a separate recipient");
+    let ix = close_instruction_for(&env, recipient, nullifiers.to_vec());
+    send_close(&mut env, ix).expect("close with a separate recipient");
 
     let owed = fees.close_reimbursement * nullifiers.len() as u64;
     let mut expected_recipient = recipient_before;
@@ -721,12 +771,8 @@ fn closed_nullifier_pda_does_not_make_an_obsolete_root_spendable_again() {
     queue_nullifier_pdas(&mut env, &nullifiers, 0);
     set_synthetic_watermark_and_zero_root(&mut env, nullifiers.len() as u64, 0);
 
-    env.rpc
-        .create_and_send_default_payer_transaction(
-            &[close_instruction(&env, nullifiers.clone())],
-            &[],
-        )
-        .expect("close nullifier PDAs below the reclaim watermark");
+    let ix = close_instruction(&env, nullifiers.clone());
+    send_close(&mut env, ix).expect("close nullifier PDAs below the reclaim watermark");
     assert_nullifier_pdas_absent(&env.rpc, &env.tree, &nullifiers)
         .expect("closable nullifier PDAs closed");
 
@@ -766,11 +812,10 @@ fn close_accepts_nullifier_pdas_in_any_order() {
     queue_nullifier_pdas(&mut env, &nullifiers, 0);
     set_close_before_index(&mut env, 2);
     let mut ix = close_instruction(&env, nullifiers.to_vec());
-    ix.accounts.swap(2, 3);
+    ix.accounts
+        .swap(CLOSE_NULLIFIER_PDA_OFFSET, CLOSE_NULLIFIER_PDA_OFFSET + 1);
 
-    env.rpc
-        .create_and_send_default_payer_transaction(&[ix], &[])
-        .expect("close in swapped account order");
+    send_close(&mut env, ix).expect("close in swapped account order");
     assert_nullifier_pdas_absent(&env.rpc, &env.tree, &nullifiers)
         .expect("both nullifier PDAs closed");
 }
@@ -809,7 +854,10 @@ fn close_rejects_a_non_nullifier_pda_account() {
 
     for impostor in [system_owned, tree] {
         let mut ix = close_instruction(&env, vec![nullifier]);
-        ix.accounts.get_mut(2).expect("nullifier PDA meta").pubkey = impostor;
+        ix.accounts
+            .get_mut(CLOSE_NULLIFIER_PDA_OFFSET)
+            .expect("nullifier PDA meta")
+            .pubkey = impostor;
         expect_close_rejection(
             &mut env,
             ix,
@@ -826,7 +874,7 @@ fn close_rejects_a_read_only_nullifier_pda_meta() {
     set_close_before_index(&mut env, 1);
     let mut ix = close_instruction(&env, vec![nullifier]);
     ix.accounts
-        .get_mut(2)
+        .get_mut(CLOSE_NULLIFIER_PDA_OFFSET)
         .expect("nullifier PDA meta")
         .is_writable = false;
 
@@ -906,7 +954,10 @@ fn close_rejects_a_read_only_tree_meta() {
     queue_nullifier_pda(&mut env, &nullifier, 0);
     set_close_before_index(&mut env, 1);
     let mut ix = close_instruction(&env, vec![nullifier]);
-    ix.accounts.first_mut().expect("tree meta").is_writable = false;
+    ix.accounts
+        .get_mut(CLOSE_TREE_OFFSET)
+        .expect("tree meta")
+        .is_writable = false;
 
     expect_close_rejection(
         &mut env,
@@ -922,7 +973,10 @@ fn close_rejects_a_non_tree_account() {
     queue_nullifier_pda(&mut env, &nullifier, 0);
     let impostor = funded_system_account(&mut env);
     let mut ix = close_instruction(&env, vec![nullifier]);
-    ix.accounts.first_mut().expect("tree meta").pubkey = impostor;
+    ix.accounts
+        .get_mut(CLOSE_TREE_OFFSET)
+        .expect("tree meta")
+        .pubkey = impostor;
 
     expect_close_rejection(
         &mut env,

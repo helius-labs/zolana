@@ -65,6 +65,21 @@ pub fn load_and_validate_fee_authority<'a>(
     Ok(config)
 }
 
+/// Require `authority_account` to be the stored forester authority. The signer
+/// check stays in the processor (`next_signer`) so both forester instructions
+/// report `AccountError::InvalidSigner` for an unsigned authority.
+#[inline(always)]
+pub fn validate_forester_authority(
+    config_account: &AccountView,
+    authority_account: &AccountView,
+) -> Result<(), ProgramError> {
+    let config = load_protocol_config(config_account)?;
+    config
+        .check_forester_authority(authority_account.address())
+        .map_err(ShieldedPoolError::from)?;
+    Ok(())
+}
+
 /// Mutable counterpart of [`load_and_validate_protocol_authority`].
 #[inline(always)]
 pub fn load_and_validate_protocol_authority_mut<'a>(

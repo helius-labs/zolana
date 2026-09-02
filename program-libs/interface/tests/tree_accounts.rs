@@ -221,10 +221,12 @@ fn outer_ring_builders_target_the_ring_and_leave_auth_unsigned() {
 
 #[test]
 fn close_nullifier_pdas_builder_encodes_data_and_exact_accounts() {
+    let authority = Pubkey::new_unique();
     let tree = Pubkey::new_unique();
     let reimbursement_recipient = Pubkey::new_unique();
     let nullifiers = vec![[1u8; 32], [2u8; 32], [3u8; 32]];
     let instruction = CloseNullifierPdas {
+        authority,
         tree,
         reimbursement_recipient,
         nullifiers: nullifiers.clone(),
@@ -232,6 +234,8 @@ fn close_nullifier_pdas_builder_encodes_data_and_exact_accounts() {
     .instruction();
 
     let mut expected_accounts = vec![
+        AccountMeta::new_readonly(authority, true),
+        AccountMeta::new_readonly(pda::protocol_config(), false),
         AccountMeta::new(tree, false),
         AccountMeta::new(reimbursement_recipient, false),
     ];

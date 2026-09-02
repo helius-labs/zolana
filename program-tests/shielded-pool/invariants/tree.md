@@ -6,9 +6,9 @@ accounts the transact family creates while queueing nullifiers. Shared invariant
 (pause semantics across write paths, rollback) live in `cross-cutting.md`.
 
 Convention deviations confirmed for the PDA design (`program-libs/tree/nullifier_tree_spec.md`):
-`close_nullifier_pdas` is permissionless, takes no fee payer, and returns PDA rent
-to the tree (a caller-chosen `rent_recipient` would drain the tree's PDA working
-capital); its `reimbursement_recipient` receives only the close reimbursement
+`close_nullifier_pdas` is gated to `protocol_config.forester_authority`, takes no
+fee payer, and returns PDA rent to the tree (a caller-chosen `rent_recipient`
+would drain the tree's PDA working capital); its `reimbursement_recipient` receives only the close reimbursement
 paid out of the tree's `fee_balance`, never PDA rent; the PDA payload is a
 discriminator-less 10-byte Borsh `NullifierPda { queue_index, tree_id }`; a
 duplicate pending nullifier surfaces as
@@ -333,29 +333,29 @@ the proof-backed binary `nullifier_pdas_proof` covers the success path.
 
 ### Authorization
 
-- [x] **INV-CLOSE-PDA-01: closing PDAs below the reclaim watermark is permissionless**
-  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `close_returns_nullifier_pda_rent_to_the_tree`, `close_honours_the_watermark_boundary` (the transaction fee payer is the unrelated test payer; the instruction takes no signer)
-  - Kind: reachability
-  - Statement: `close_nullifier_pdas` takes no signer and no fee-payer account; for every tree and every set of PDAs with `queue_index < close_before_index`, any transaction submitter can close them.
-  - Location: `programs/shielded-pool/src/instructions/close_nullifier_pdas.rs:13-33` (`fn process_close_nullifier_pdas`)
-  - Severity: Medium (liveness of working-capital recovery)
-  - Suggested test: positive; harness: program-tests integration
+- [x] **INV-CLOSE-PDA-01: only the forester authority closes PDAs below the reclaim watermark**
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `close_rejects_a_non_forester_authority` (`UnauthorizedCaller`, tree and PDA untouched), `close_rejects_an_unsigned_authority` (`AccountError::InvalidSigner`), `close_returns_nullifier_pda_rent_to_the_tree` and `close_honours_the_watermark_boundary` (the forester authority co-signs; the unrelated test payer pays the fee and receives the reimbursement)
+  - Kind: precondition
+  - Statement: `close_nullifier_pdas` returns Err for every `authority` that does not sign or whose address differs from `protocol_config.forester_authority`, before any PDA or recipient check; there is no permissionless flag. The instruction takes no fee-payer account. Rationale: an open close let anyone race the forester's cleanup, collect the reimbursement, and leave the forester paying for the failed transaction.
+  - Location: `programs/shielded-pool/src/instructions/close_nullifier_pdas.rs` (`fn process_close_nullifier_pdas`: `next_signer("authority")`, `check_forester_authority`)
+  - Severity: Medium (forester fee griefing; liveness of working-capital recovery now depends on the forester)
+  - Suggested test: negative; harness: program-tests integration
 
 ### Account Constraints
 
 - [x] **INV-CLOSE-PDA-02: the tree is the fixed rent recipient**
   - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `close_returns_nullifier_pda_rent_to_the_tree` (tree gains exactly `n * Rent::minimum_balance(10)`), `close_honours_the_watermark_boundary`, `close_pays_a_recipient_other_than_the_payer` (`assert_close_nullifier_pdas`: the recipient gains only the reimbursement, the PDA rent lands in the tree)
   - Kind: postcondition
-  - Statement: after a successful close of `n` PDAs the tree account's lamports increase by exactly the sum of the closed PDAs' lamports minus the close reimbursement it pays out (INV-CLOSE-PDA-10); no account other than the `reimbursement_recipient` gains lamports, and the recipient never receives PDA rent. There is no caller-chosen rent recipient (deviation from the dedicated `rent_recipient` convention, accepted because the instruction is permissionless and a rent recipient would drain the tree's working capital).
+  - Statement: after a successful close of `n` PDAs the tree account's lamports increase by exactly the sum of the closed PDAs' lamports minus the close reimbursement it pays out (INV-CLOSE-PDA-10); no account other than the `reimbursement_recipient` gains lamports, and the recipient never receives PDA rent. There is no caller-chosen rent recipient (deviation from the dedicated `rent_recipient` convention, accepted because a rent recipient would drain the tree's working capital).
   - Location: `programs/shielded-pool/src/instructions/nullifier_pda/close.rs:18-24` (`fn close_nullifier_pda`)
   - Severity: High (tree working-capital drainage otherwise)
   - Suggested test: positive; harness: program-tests integration
 
-- [x] **INV-CLOSE-PDA-03: the first account must be the writable, unpaused pool tree**
+- [x] **INV-CLOSE-PDA-03: the third account must be the writable, unpaused pool tree**
   - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `close_rejects_a_paused_tree` (7013), `close_rejects_a_non_tree_account` (7001), `close_rejects_a_read_only_tree_meta` (account-checks `AccountNotMutable` = 20002)
   - Kind: precondition
   - Statement: the tree loads through `TreeAccount::from_account_view_mut` (owner, discriminator, and state checks); a paused tree, a non-tree account, or a read-only tree meta makes the instruction return Err. PDA cleanup is frozen together with every other tree write.
-  - Location: `programs/shielded-pool/src/instructions/close_nullifier_pdas.rs:20-25`
+  - Location: `programs/shielded-pool/src/instructions/close_nullifier_pdas.rs` (`TreeAccount::from_account_view_mut`)
   - Error: `ShieldedPoolError::TreePaused = 7013` / `InvalidTreeAccounts = 7001` / account-checks 20002
   - Severity: High
   - Suggested test: negative; harness: program-tests integration
@@ -372,9 +372,9 @@ the proof-backed binary `nullifier_pdas_proof` covers the success path.
 ### Instruction Data Validation
 
 - [x] **INV-CLOSE-PDA-05: the instruction carries no data and at least one PDA account**
-  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `close_rejects_an_empty_nullifier_list` (tree and recipient only -> 7000), `close_rejects_a_trailing_non_nullifier_account` (a non-PDA account after the PDAs is consumed as a PDA and fails INV-CLOSE-PDA-04)
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `close_rejects_an_empty_nullifier_list` (authority, protocol config, tree and recipient only -> 7000), `close_rejects_a_trailing_non_nullifier_account` (a non-PDA account after the PDAs is consumed as a PDA and fails INV-CLOSE-PDA-04)
   - Kind: precondition
-  - Statement: the instruction payload must be empty (the former borsh `CloseNullifierPdasData` nullifier list is gone; every account after `tree` and `reimbursement_recipient` is a PDA to close, and the closer derives the addresses off-chain), and at least one PDA account must follow the two fixed accounts; a non-empty payload or a missing PDA makes the instruction return Err.
+  - Statement: the instruction payload must be empty (the former borsh `CloseNullifierPdasData` nullifier list is gone; every account after `authority`, `protocol_config`, `tree` and `reimbursement_recipient` is a PDA to close, and the forester derives the addresses off-chain), and at least one PDA account must follow the four fixed accounts; a non-empty payload or a missing PDA makes the instruction return Err.
   - Location: `programs/shielded-pool/src/instructions/close_nullifier_pdas.rs` (`fn process_close_nullifier_pdas`: `data.is_empty()` check, `iterator_is_empty()` check)
   - Error: `ShieldedPoolError::InvalidInstructionData = 7000`
   - Severity: Medium
@@ -383,7 +383,7 @@ the proof-backed binary `nullifier_pdas_proof` covers the success path.
 - [x] **INV-CLOSE-PDA-09: the reimbursement recipient must not be program-owned**
   - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `close_rejects_a_program_owned_reimbursement_recipient` (the tree, an open nullifier PDA, and the protocol config each rejected with exact 7055; every PDA survives, tree bytes unchanged)
   - Kind: precondition
-  - Statement: the second account (`reimbursement_recipient`) must not be owned by the shielded-pool program; the check runs before the tree is loaded or any PDA is touched, so the tree cannot pay itself, a live nullifier PDA cannot be credited above its rent, and the protocol config cannot absorb fees.
+  - Statement: the fourth account (`reimbursement_recipient`) must not be owned by the shielded-pool program; the check runs before the tree is loaded or any PDA is touched, so the tree cannot pay itself, a live nullifier PDA cannot be credited above its rent, and the protocol config cannot absorb fees.
   - Location: `programs/shielded-pool/src/instructions/close_nullifier_pdas.rs` (`check_reimbursement_recipient`), `shared.rs` (`fn check_reimbursement_recipient`)
   - Error: `ShieldedPoolError::InvalidReimbursementRecipient = 7055`
   - Severity: High (fee-pool misdirection)
@@ -417,7 +417,7 @@ the proof-backed binary `nullifier_pdas_proof` covers the success path.
   - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `close_is_atomic_across_nullifier_pdas` (two closable PDAs plus one at the watermark: all three survive, tree unchanged), every `expect_close_rejection` site (`assert_rolled_back_except(payer)` plus a full tree-account compare)
   - Kind: rollback
   - Statement: when any pair fails a check, the instruction returns Err, no PDA is closed, and the tree's lamports and data are unchanged.
-  - Location: `programs/shielded-pool/src/instructions/close_nullifier_pdas.rs:26-29`
+  - Location: `programs/shielded-pool/src/instructions/close_nullifier_pdas.rs` (the `while !iter.iterator_is_empty()` close loop; any Err aborts the whole instruction)
   - Severity: High
   - Suggested test: negative; harness: program-tests integration
 

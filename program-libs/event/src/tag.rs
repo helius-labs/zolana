@@ -32,7 +32,8 @@ pub const RING_TRANSACT: u8 = 15;
 pub const RING_MERGE_TRANSACT: u8 = 16;
 pub const RING_AUTHORITY_TRANSACT: u8 = 17;
 
-// Permissionless maintenance.
+// Forester maintenance, gated by `protocol_config.forester_authority` like
+// `BATCH_UPDATE_NULLIFIER_TREE`.
 pub const CLOSE_NULLIFIER_PDAS: u8 = 18;
 
 // Administration, continued.
