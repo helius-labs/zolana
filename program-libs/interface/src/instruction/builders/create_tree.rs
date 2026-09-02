@@ -23,13 +23,13 @@ impl CreateTree {
     }
 
     pub fn instructions(&self) -> Vec<Instruction> {
-        let step = self.step();
+        let step = self.allocation_step();
         (0..tree_creation_step_count())
             .map(|_| step.clone())
             .collect()
     }
 
-    pub fn step(&self) -> Instruction {
+    pub fn allocation_step(&self) -> Instruction {
         let data = CreateTreeData {
             tree_id: self.tree_id,
             nullifier_params: self.nullifier_params,

@@ -123,7 +123,7 @@ fn tree_creation_rejects_a_skipped_tree_id() {
 fn tree_creation_rejects_a_non_canonical_tree_address() {
     let mut pool = Pool::initialized();
     let tree_id = next_tree_id(&pool.rpc).expect("next tree id");
-    let mut step = create_tree_steps(&pool, tree_id).step();
+    let mut step = create_tree_steps(&pool, tree_id).allocation_step();
     step.accounts.get_mut(3).expect("tree meta").pubkey = pda::tree(tree_id + 1);
 
     let err = pool
@@ -158,7 +158,7 @@ fn partially_allocated_tree_is_not_usable() {
 fn tree_creation_rejects_an_unsigned_authority() {
     let mut pool = Pool::initialized();
     let tree_id = next_tree_id(&pool.rpc).expect("next tree id");
-    let mut create = create_tree_steps(&pool, tree_id).step();
+    let mut create = create_tree_steps(&pool, tree_id).allocation_step();
     create
         .accounts
         .get_mut(1)
@@ -472,7 +472,7 @@ fn pause_tree_rejects_wrong_config_owner_exactly() {
 fn tree_creation_rejects_double_initialization() {
     let mut pool = Pool::initialized();
     let tree_before = pool.rpc.account_data(&pool.tree).expect("tree data");
-    let create_again = create_tree_steps(&pool, 0).step();
+    let create_again = create_tree_steps(&pool, 0).allocation_step();
     assert_eq!(pda::tree(0), pool.tree);
 
     let err = pool
@@ -491,7 +491,7 @@ fn tree_creation_rejects_double_initialization() {
 fn tree_creation_rejects_trailing_instruction_bytes() {
     let mut pool = Pool::initialized();
     let tree_id = next_tree_id(&pool.rpc).expect("next tree id");
-    let mut create = create_tree_steps(&pool, tree_id).step();
+    let mut create = create_tree_steps(&pool, tree_id).allocation_step();
     create.data.push(0xFF);
 
     let err = pool

@@ -117,7 +117,7 @@ fn tree_creation_changes_only_the_tree_account() {
         nullifier_params: nullifier_tree_params(),
         fees: default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size),
     };
-    let ix = create.step();
+    let ix = create.allocation_step();
     let (mollusk, program_id) = setup_mollusk();
     let accounts = snapshot_instruction_accounts(&ix, (&PROGRAM_ID_PUBKEY, program_id), |key| {
         test.svm.get_account(key)
