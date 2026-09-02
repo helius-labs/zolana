@@ -111,6 +111,8 @@ pub enum InitError {
     AccountRead(#[from] AccountReadError),
     #[error(transparent)]
     PolicyMismatch(Box<custom_ring_sdk::PolicyMatchError>),
+    #[error("the ring is deployed as {}, ring.toml now selects the other tier, redeploy is not a tier change", if *on_chain { "a policy ring" } else { "audit-only" })]
+    TierDrift { on_chain: bool },
     #[error("curator {curator} does not serve {list_id:?}, subscribe to a ring whose table references it")]
     CuratorDoesNotServe {
         list_id: zolana_ring_policy::ListId,
@@ -336,6 +338,18 @@ impl Init<'_> {
             return Err(InitError::ConfigMismatch {
                 authority: config.authority,
                 auditor: hex::encode(config.auditor_pubkey.as_bytes()),
+            });
+        }
+        // The config's tier is immutable, transact dispatches on it. A ring.toml
+        // that now disagrees would pin policy state the audit path never reads,
+        // or drop rules the ring still enforces.
+        if let Some(config) = self
+            .existing
+            .as_ref()
+            .filter(|config| config.has_policy != self.has_policy)
+        {
+            return Err(InitError::TierDrift {
+                on_chain: config.has_policy,
             });
         }
         let state = ConfigOwnership {

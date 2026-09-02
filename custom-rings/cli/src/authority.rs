@@ -156,7 +156,9 @@ fn expected_binary(
     if let Some(path) = program_so {
         return Ok(ProgramBinary::read(&ctx.project_path(&path))?);
     }
-    let program = RingProgram::from_lock()?;
+    // A policy ring deployed the rules-configured binary, its bytes must verify
+    // against that one, not the plain build.
+    let program = RingProgram::from_lock_tier(ctx.config.policy.is_some())?;
     let sha256 = hex::decode(&program.asset.sha256)
         .ok()
         .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok())
@@ -322,13 +324,17 @@ mod tests {
                 Err(AuthorityError::NotInitialized { program: found }) if found == program
             ));
         }
-        assert!(InitializationState::observe(Some(()), Some(()), Some(()), true)
-            .require(program)
-            .is_ok());
+        assert!(
+            InitializationState::observe(Some(()), Some(()), Some(()), true)
+                .require(program)
+                .is_ok()
+        );
         // An audit-only ring is complete with config and spp ring alone.
-        assert!(InitializationState::observe(Some(()), Some(()), None::<()>, false)
-            .require(program)
-            .is_ok());
+        assert!(
+            InitializationState::observe(Some(()), Some(()), None::<()>, false)
+                .require(program)
+                .is_ok()
+        );
         assert!(matches!(
             InitializationState::observe(Some(()), None::<()>, None::<()>, false).require(program),
             Err(AuthorityError::NotInitialized { .. })
