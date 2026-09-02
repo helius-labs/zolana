@@ -72,6 +72,11 @@ var emptyRingHash = solAssetField
 // NOut range-checked 64-bit amounts, 2^66 bounds NOut=4.
 var aggregatedOffset = new(big.Int).Lsh(big.NewInt(1), 66)
 
+// Raising NOut past 4 without widening aggregatedOffset and the atMostAggregated
+// bit count would let the guard sum wrap into a false exemption, this underflows
+// at compile time first.
+const _ = uint(4 - NOut)
+
 // ruleShift are the field weights of the ring_policy::Rule::encoded byte groups.
 var ruleShift = [4]*big.Int{
 	new(big.Int).Lsh(big.NewInt(1), 8),
