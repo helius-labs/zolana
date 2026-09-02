@@ -128,11 +128,6 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
         self.hash_chains.get(zkp_batch_index).copied()
     }
 
-    /// Number of cached update slots, one per ZKP batch.
-    pub fn num_zkp_batches(&self) -> usize {
-        self.hash_chains.len()
-    }
-
     /// Returns the cached update of a ZKP batch, or `None` for an
     /// out-of-range index or an empty slot.
     pub fn cached_tree_update(&self, zkp_batch_index: usize) -> Option<CachedTreeUpdate> {
