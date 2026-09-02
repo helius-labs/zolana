@@ -34,7 +34,7 @@ solana-instruction = { workspace = true }
 solana-pubkey = { workspace = true }
 zolana-client = { workspace = true }
 zolana-merkle-tree = { workspace = true }
-zolana-hasher = { workspace = true, features = ["keccak"] }
+zolana-hasher = { workspace = true }
 bytemuck = { workspace = true, features = ["derive"] }
 num-bigint = { workspace = true }
 ark-bn254 = { workspace = true }

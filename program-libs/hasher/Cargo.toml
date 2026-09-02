@@ -11,8 +11,6 @@ edition = "2021"
 default = ["std"]
 alloc = []
 std = ["alloc"]
-sha256 = ["dep:sha2"]
-keccak = ["dep:sha3"]
 
 
 [dependencies]
@@ -24,8 +22,8 @@ solana-program-error = { workspace = true }
 [target.'cfg(not(target_os = "solana"))'.dependencies]
 light-poseidon = { workspace = true }
 ark-bn254 = { workspace = true }
-sha2 = { version = "0.10", optional = true }
-sha3 = { version = "0.10", optional = true }
+sha2 = { version = "0.10" }
+sha3 = { version = "0.10" }
 ark-ff = { workspace = true }
 
 [lints.rust.unexpected_cfgs]

@@ -14,6 +14,6 @@ num-traits = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-zolana-hasher = { workspace = true, features = ["keccak", "sha256"] }
+zolana-hasher = { workspace = true }
 rand = { workspace = true }
 num-bigint = { workspace = true, features = ["rand"] }
