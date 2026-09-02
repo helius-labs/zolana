@@ -61,11 +61,11 @@ import { equalBytes } from "../wallet/internal.js";
 import { resolveShieldedRecipient } from "../wallet/registry.js";
 
 import type { RingPolicyConfig } from "./codecs.js";
-import { fetchRingPolicyConfig, fetchRingProgramConfig } from "./config.js";
+import { fetchRingConfigs } from "./config.js";
 import { MAX_SPEND_INPUTS, selectUtxos, type SpendSelectionErrors } from "../flows/select.js";
 import { reserveEntries, reservedUtxoKeys, unreserved } from "../flows/reserve.js";
 import { RingError, wrapRingError } from "./error.js";
-import { ringTransactInstruction } from "./instructions.js";
+import { ringTransactInstruction, type RingTransactTrees } from "./instructions.js";
 import { fetchRingLookupTable } from "./lookup-table.js";
 
 /** Rust `TRANSACT_COMPUTE_UNIT_LIMIT`. The custom-ring transact verifies two proofs. */
@@ -97,9 +97,9 @@ export interface RingTransferTransactionParams {
   readonly amount: bigint;
   /** `"default"` funds only from default UTXOs. `"ring-or-default"` mixes both pools. */
   readonly inputs?: "ring" | "ring-or-default" | "default";
-  /** Destination money tree; defaults to the input note tree. */
+  /** Receives every private output, defaults to `client.tree`. */
   readonly outputTree?: Address;
-  /** Required when the policy entries tree differs from the input note tree. */
+  /** Required when `PolicyConfig.entriesTree` differs from the input tree. */
   readonly entriesRoots?: RingEntriesRoots;
   /** Must be at least one slot old. */
   readonly lookupTable: Address;
@@ -124,9 +124,9 @@ export interface RingWithdrawalTransactionParams {
   readonly amount: bigint;
   /** SPL Token or Token-2022 for non-SOL assets, the settlement lands in the recipient's ATA. */
   readonly splTokenProgram?: Address;
-  /** Destination money tree for private change; defaults to the input note tree. */
+  /** Receives the private change, defaults to `client.tree`. */
   readonly outputTree?: Address;
-  /** Required when the policy entries tree differs from the input note tree. */
+  /** Required when `PolicyConfig.entriesTree` differs from the input tree. */
   readonly entriesRoots?: RingEntriesRoots;
   /** Must be at least one slot old. */
   readonly lookupTable: Address;
@@ -142,11 +142,11 @@ export interface CustomRingTransferParams {
   /** The encryption capability of an open spend session. */
   readonly session: Pick<SpendSession, "encryptCustomRingTransfer">;
   readonly assets: AssetRegistry;
-  /** Tree containing the spent notes. */
+  /** Must equal `client.tree`. */
   readonly tree: Address;
-  /** Tree receiving every private output; defaults to `tree`. */
+  /** Receives every private output, defaults to `tree`. */
   readonly outputTree?: Address;
-  /** A root pair read from `PolicyConfig.entriesTree`, required for migration. */
+  /** Required when `PolicyConfig.entriesTree` differs from the input tree. */
   readonly entriesRoots?: RingEntriesRoots;
 }
 
@@ -159,24 +159,18 @@ export interface RingEntriesRoots {
 }
 
 /** Mirrors Rust `ProvenTransfer`. */
-export interface ProvenRingTransfer {
-  readonly data: TransactInstructionData;
-  readonly proof: Uint8Array;
-  readonly txViewingPublicKey: P256PublicKey;
-  readonly payer: Address;
-  /** Tree containing the spent notes. */
-  readonly tree: Address;
-  readonly outputTree: Address;
-  /** The pinned policy entries tree, absent for an audit-only ring, Rust `Option<Address>`. */
-  readonly entriesTree?: Address;
-  /** The config tier, false for an audit-only ring that carries no policy accounts. */
-  readonly hasPolicy: boolean;
-  /** History entries the ring proof binds, sent on the tag-3 wire. */
-  readonly stateRootIndex: number;
-  readonly nullifierRootIndex: number;
-  /** Non-payer ed25519 input owners, they sign the transaction beside the fee payer. */
-  readonly ownerSigners: readonly Address[];
-}
+export type ProvenRingTransfer = RingTransactTrees &
+  Readonly<{
+    data: TransactInstructionData;
+    proof: Uint8Array;
+    txViewingPublicKey: P256PublicKey;
+    payer: Address;
+    /** History entries the ring proof binds, sent on the tag-3 wire. */
+    stateRootIndex: number;
+    nullifierRootIndex: number;
+    /** Non-payer ed25519 input owners, they sign the transaction beside the fee payer. */
+    ownerSigners: readonly Address[];
+  }>;
 
 /** Returns a v0 transaction over `lookupTable`, signed by the fee payer only. */
 export async function buildRingTransferTransaction(
@@ -388,7 +382,7 @@ async function buildRingSpend<R>(
           inputTree: proven.tree,
           outputTree: proven.outputTree,
           hasPolicy: proven.hasPolicy,
-          ...(proven.entriesTree === undefined ? {} : { entriesTree: proven.entriesTree }),
+          ...(proven.hasPolicy ? { entriesTree: proven.entriesTree } : {}),
           proof: proven.proof,
           stateRootIndex: proven.stateRootIndex,
           nullifierRootIndex: proven.nullifierRootIndex,
@@ -400,10 +394,7 @@ async function buildRingSpend<R>(
           client: input.client,
           ringProgramId: input.ringProgramId,
           address: input.lookupTable,
-          tree: proven.tree,
-          outputTree: proven.outputTree,
-          hasPolicy: proven.hasPolicy,
-          ...(proven.entriesTree === undefined ? {} : { entriesTree: proven.entriesTree }),
+          trees: proven,
         }),
         input.client.getLatestBlockhash(context),
       ]);
@@ -502,9 +493,9 @@ export async function proveCustomRingTransfer(
       details: { tree: input.tree, clientTree: input.client.tree },
     });
   }
-  const config = await fetchRingProgramConfig(input.client, input.ringProgramId, context);
-  // An audit-only ring has no policy config account to read.
-  const policy = config.hasPolicy ? await loadPolicyContext(input, context) : undefined;
+  const configs = await fetchRingConfigs(input.client, input.ringProgramId, context);
+  const config = configs.config;
+  const policy = configs.hasPolicy ? policyContext(configs.policy, input) : undefined;
   // A padded change slot pushes the custom-ring instruction past the packet limit
   // even behind an address lookup table.
   if (input.prepared.changeLayout !== "compact") {
@@ -618,7 +609,7 @@ export async function proveCustomRingTransfer(
       ...common,
       proof,
       entriesTree: policy.config.entriesTree,
-      hasPolicy: config.hasPolicy,
+      hasPolicy: true,
       stateRootIndex: entriesRoots.stateRootIndex,
       nullifierRootIndex: entriesRoots.nullifierRootIndex,
     });
@@ -634,11 +625,7 @@ interface PolicyContext {
   readonly suppliedEntriesRoots: RingEntriesRoots | undefined;
 }
 
-async function loadPolicyContext(
-  input: CustomRingTransferParams,
-  context: RequestContext | undefined,
-): Promise<PolicyContext> {
-  const config = await fetchRingPolicyConfig(input.client, input.ringProgramId, context);
+function policyContext(config: RingPolicyConfig, input: CustomRingTransferParams): PolicyContext {
   // The empty-table proof satisfies only an empty rule table, a rules-bearing
   // ring pins a different `policy_hash` and fails in proving.
   if (!equalBytes(config.policyHash, RING_EMPTY_RULES_POLICY_HASH)) {

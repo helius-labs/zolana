@@ -39,6 +39,7 @@ export {
   ringPolicyNamespaceAddress,
   ringProgramDataAddress,
   setRingAuthorityInstruction,
+  setRingPausedInstruction,
 } from "./config.js";
 export { buildRingDepositTransaction } from "./deposit.js";
 export type { RingDepositTransactionParams } from "./deposit.js";
@@ -48,11 +49,13 @@ export {
   RING_CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
   RING_INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
   RING_READ_ACCESS_COMPUTE_UNIT_LIMIT,
+  RING_SET_PAUSED_COMPUTE_UNIT_LIMIT,
   createRingConfigInstruction,
   initSppRingConfigInstruction,
   ringLookupTableAddresses,
   ringTransactInstruction,
 } from "./instructions.js";
+export type { RingTransactTrees } from "./instructions.js";
 export { listRegisteredRings } from "./registry.js";
 export type { RegisteredRing } from "./registry.js";
 export { buildRingLookupTableTransaction, fetchRingLookupTable } from "./lookup-table.js";
