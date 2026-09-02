@@ -522,7 +522,7 @@ pub(crate) struct CreateTreeOptions {
 
     #[arg(
         long = "airdrop-lamports",
-        default_value_t = 20_000_000_000,
+        default_value_t = 100_000_000_000,
         help = "Localnet airdrop amount for the wallet funding key"
     )]
     pub(crate) airdrop_lamports: u64,

@@ -436,7 +436,7 @@ fn phase_create_tree_and_spl_mint(env: &CycleEnv, rpc: &mut SolanaRpc) -> Result
             "pool",
             "create-tree",
             "--airdrop-lamports",
-            "20000000000",
+            "100000000000",
         ],
         &cli_env,
     )?;
