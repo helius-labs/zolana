@@ -1,6 +1,7 @@
 export { initializePoseidon, isPoseidonInitialized } from "../hasher/index.js";
 export { Data } from "./data.js";
 export type { DataRecord } from "./data.js";
+export { formatAmount, parseAmount } from "./amount.js";
 export {
   TRANSACTION_ERROR_CODES,
   TransactionError,
@@ -62,6 +63,12 @@ export {
   deserializeWallet,
   serializeWallet,
 } from "./wallet/index.js";
+export {
+  approveIntent,
+  intentHash,
+  type IntentApproval,
+  type TransactionIntent,
+} from "./wallet/index.js";
 export type {
   AnonymousRecipientSlot,
   ApprovalRequest,
@@ -78,9 +85,16 @@ export type {
   PrivateTransactionId,
   PrivateTransactionKind,
   PrivateTransactionStatus,
+  RingBalance,
   SplitBundlePlaintext,
+  SpendAuthority,
+  SpendSession,
+  SyncAuthority,
   SyncWalletAuthority,
   SyncReport,
+  SerializedCursor,
+  SerializedNoteReservation,
+  SerializedSyncCursors,
   SerializedWalletState,
   ViewingKeyEntry,
   WalletAuthority,
@@ -104,5 +118,29 @@ export {
   type OutputDataEncoding,
   type OwnerContext,
 } from "./serialization/index.js";
+// The plaintext decoders, for a client that decrypts somewhere other than in
+// this process. `syncWallet` decrypts and decodes together and needs the
+// viewing key locally; a client whose viewing key is held remotely gets
+// plaintext back and still has to read it. `decodeOutputData` names the scheme
+// of a slot payload and hands back the body to decrypt; the per-scheme decoders
+// turn the returned plaintext into fields.
+export {
+  decodeAnonymousRecipient,
+  decodeAnonymousSender,
+  decodeConfidential,
+  decodeData,
+  decodeOutputData,
+  decodePlaintextTransfer,
+  decodeProofless,
+  decodeSplitBundle,
+  decodeSplitEncrypted,
+  type AnonymousRecipientPlaintext,
+  type AnonymousSenderPlaintext,
+  type ConfidentialOutputPlaintext,
+  type ProoflessOutput,
+  type SplitEncryptedUtxos,
+  type TransferPlaintextUtxos,
+} from "./serialization/index.js";
 
-export const VIEW_TAG_LEN = 32;
+export { VIEW_TAG_LENGTH as VIEW_TAG_LEN } from "../keypair/constants.js";
+export type { ErrorEnvelope } from "../errors/internal.js";

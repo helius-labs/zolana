@@ -1,9 +1,9 @@
 import { address } from "@solana/kit";
 
-import type { Address, Bytes32 } from "../../interface/types.js";
+import type { Address, Bytes32 } from "../interface/types.js";
 
-import { TransactionError } from "../error.js";
-import { checked, decodeAddress, equal, hashBytes } from "../internal.js";
+import { TransactionError } from "./error.js";
+import { checked, decodeAddress, equal, hashBytes } from "./internal.js";
 
 export const SOL_ASSET_ID = 1n;
 export const SOL_MINT = address("11111111111111111111111111111111");
@@ -38,6 +38,23 @@ export class AssetRegistry {
     }
     this.#byId.set(assetId, mint);
     this.#byMint.set(mint, assetId);
+  }
+
+  /** Inserts when absent, `false` when the exact pair is present, a conflicting binding raises. */
+  register(assetId: bigint, mint: Address): boolean {
+    const knownMint = this.#byId.get(assetId);
+    const knownId = this.#byMint.get(mint);
+    if (knownMint === mint && knownId === assetId) return false;
+    if (knownMint !== undefined) {
+      throw new TransactionError("TRANSACTION_DUPLICATE_ASSET_ID", {
+        assetId: assetId.toString(),
+      });
+    }
+    if (knownId !== undefined) {
+      throw new TransactionError("TRANSACTION_DUPLICATE_MINT", { mint });
+    }
+    this.insert(assetId, mint);
+    return true;
   }
 
   resolve(assetId: bigint): Address {

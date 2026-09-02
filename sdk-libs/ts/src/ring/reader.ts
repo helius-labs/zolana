@@ -8,7 +8,7 @@ import {
   type ProgramDerivedAddress,
 } from "@solana/kit";
 
-import type { ZolanaClient } from "../client/client.js";
+import type { ChainReader } from "../client/ports.js";
 import { SYSTEM_PROGRAM, meta, type SignerAccount } from "../interface/instructions/index.js";
 import { addressBytes, encodeBase58, Reader, sha256 } from "../interface/internal.js";
 import type { Bytes32, Bytes33, RequestContext } from "../interface/types.js";
@@ -200,7 +200,7 @@ export function decodeReadAccessRecord(data: Uint8Array): ReadAccessRecord {
 
 /** Mirrors Rust `CustomRing::read_read_access_record`, a record under the address that names another key is invalid. */
 export async function fetchReaderGrant(
-  client: ZolanaClient,
+  client: Pick<ChainReader, "getAccount">,
   ringProgramId: Address,
   reader: ReaderKey,
   context?: RequestContext,

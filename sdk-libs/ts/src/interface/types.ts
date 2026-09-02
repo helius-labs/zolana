@@ -238,6 +238,8 @@ export interface RingConfigAccount {
   readonly authority: Address;
   readonly programId: Address;
   readonly ringAuthorityTransactIsEnabled: boolean;
+  /** Every operational ring instruction is refused while this is set. */
+  readonly paused: boolean;
   readonly bump: number;
 }
 

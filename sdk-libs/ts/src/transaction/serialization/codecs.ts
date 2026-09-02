@@ -7,7 +7,7 @@ import type { ViewingKey } from "../../keypair/viewing-key.js";
 import { Data, type DataRecord } from "../data.js";
 import { TransactionError } from "../error.js";
 import { checked, concat, copy, decodeAddress, encodeAddress, equal } from "../internal.js";
-import { SOL_MINT, type AssetRegistry } from "../wallet/asset.js";
+import { SOL_MINT, type AssetRegistry } from "../asset.js";
 import { Utxo, deriveBlinding, resolveRingProgramId } from "../utxo.js";
 
 /**

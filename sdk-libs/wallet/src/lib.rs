@@ -17,6 +17,9 @@
 //! Spend tree and recipient registry resolution are inferred internally. Use
 //! [`is_wallet_registered`] / [`try_resolve_registered_address_async`] when you
 //! need an explicit lookup before creating a transfer.
+//!
+//! For a custom-ring entry, [`select_spend_inputs`] hands spendable default
+//! notes to an external ring transact builder.
 
 pub mod actions;
 pub mod user_registry;
@@ -29,12 +32,13 @@ pub use actions::{
     build_deposit_transaction, build_deposit_transaction_sync, build_private_transaction,
     build_private_transaction_sync, create_associated_token_account,
     create_associated_token_account_with_program, create_deposit, create_merge, create_split,
-    create_transfer, create_transfer_sync, create_withdrawal, sign_private_transaction,
+    create_transfer, create_transfer_sync, create_withdrawal, is_default_ring_spendable,
+    is_plain_utxo, select_spend_inputs, select_spend_inputs_sync, sign_private_transaction,
     sign_private_transaction_sync, sign_private_transaction_sync_with_signers,
     sign_private_transaction_with_signers, submit_merge_transaction, CreatedMerge, CreatedSplit,
     CreatedTransfer, CreatedWithdrawal, Deposit, DepositParams, MergeParams, ResolvedAddress,
-    SplitParams, SubmitMergeTransaction, SubmittedMerge, TransferParams, TransferRecipient,
-    UnsignedPrivateTransaction, WithdrawalLeg, WithdrawalParams,
+    SelectedSpendInputs, SpendInputParams, SplitParams, SubmitMergeTransaction, SubmittedMerge,
+    TransferParams, TransferRecipient, UnsignedPrivateTransaction, WithdrawalLeg, WithdrawalParams,
 };
 pub use user_registry::{
     build_registration_transaction, build_registration_transaction_sync,

@@ -63,7 +63,7 @@ function proofFixture(): Readonly<{ proofInputs: SppProofInputs; spendProof: Spe
   });
   const ownerTag = bytes(8);
   const proofInputs = new SppProofInputs({
-    // The payer must own the input notes: only its own are provable.
+    // The payer must own the input UTXOs. Only its own are provable.
     payer: keypair.shieldedAddress().solanaAddress(),
     inputUtxos: [input],
     outputs: [output],

@@ -9,7 +9,7 @@ import { NullifierKey } from "../../keypair/nullifier-key.js";
 import { ShieldedPublicKey } from "../../keypair/public-key.js";
 import { MERGE_INPUTS, PreparedMerge } from "../../transaction/instructions/builders.js";
 
-import type { ZolanaClient } from "../client.js";
+import type { ProofReader } from "../ports.js";
 import { ClientError, fromClientCause } from "../error.js";
 import {
   bigintToBytes,
@@ -55,7 +55,7 @@ export interface MergeAssembly {
 export async function assembleMerge(
   prepared: PreparedMerge,
   material: MergeMaterialInput,
-  indexer: Pick<ZolanaClient, "getInputMerkleProofs" | "getNonInclusionProofs">,
+  indexer: Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs">,
   tree: Address,
   context?: RequestContext,
 ): Promise<MergeAssembly> {

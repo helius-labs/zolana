@@ -1,3 +1,5 @@
+import { getAddressDecoder } from "@solana/kit";
+
 import type {
   Address,
   Bytes32,
@@ -8,7 +10,7 @@ import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
 import { SppProofInputs, type ExternalData } from "../../transaction/instructions/transact.js";
 import { EncryptedScheme } from "../../transaction/serialization/codecs.js";
 import { ProofInputUtxo, type ProofOutputUtxo } from "../../transaction/utxo.js";
-import { SOL_MINT } from "../../transaction/wallet/asset.js";
+import { SOL_MINT } from "../../transaction/asset.js";
 
 import { ClientError, fromClientCause } from "../error.js";
 import {
@@ -27,6 +29,7 @@ import type { NonInclusionProof, SpendProof } from "../rpc.js";
 import { RING_INPUT_SLOTS, RING_OUTPUT_SLOTS } from "./types.js";
 import type {
   AssembledTransfer,
+  CircuitUtxo,
   CustomRingOpening,
   Field,
   ProverInputs,
@@ -35,34 +38,32 @@ import type {
   TransferOutput,
 } from "./types.js";
 
-const STATE_TREE_HEIGHT = 32;
-const NULLIFIER_TREE_HEIGHT = 40;
+export const STATE_TREE_HEIGHT = 32;
+export const NULLIFIER_TREE_HEIGHT = 40;
 const ZERO_PROOF = Object.freeze({
   a: new Uint8Array(32),
   b: new Uint8Array(64),
   c: new Uint8Array(32),
 }) as TransactProof;
 
-interface CircuitUtxo {
-  readonly domain: Field;
-  readonly owner: Field;
-  readonly asset: Field;
-  readonly amount: Field;
-  readonly blinding: Field;
-  readonly dataHash: Field;
-  readonly ringDataHash: Field;
-  readonly ringProgramId: Field;
+/** Unique non-payer Ed25519 input owners in first-input order, mirrors Rust `owner_signer_pubkeys`. */
+export function ownerSignerAddresses(
+  inputs: readonly ProofInputUtxo[],
+  payer: Address,
+): readonly Address[] {
+  const seen = new Set<string>();
+  const signers: Address[] = [];
+  for (const input of inputs) {
+    if (input.isDummy() || input.utxo.owner.signatureType() === "p256") continue;
+    const address = getAddressDecoder().decode(input.utxo.owner.confidentialViewTag());
+    if (address === payer || seen.has(address)) continue;
+    seen.add(address);
+    signers.push(address);
+  }
+  return Object.freeze(signers);
 }
 
-const CIRCUIT_UTXOS = new WeakMap<object, CircuitUtxo>();
-
-export function circuitUtxo(value: object): CircuitUtxo {
-  const result = CIRCUIT_UTXOS.get(value);
-  if (!result) throw new ClientError("CLIENT_PROVER_INPUT");
-  return result;
-}
-
-/** With `ring` set, the circuit binds every real input's ring field to `ringProgramId`. */
+/** With `ring` set, every real UTXO is in that ring or in the default ring, per its own fields. */
 export function assemble(
   proofInputs: SppProofInputs,
   spendProofs: readonly SpendProof[],
@@ -116,12 +117,15 @@ function assembleUnchecked(
     movements.amounts[index] ?? 0n,
   ]);
   // The circuit authorizes an input owner by finding its Poseidon owner hash in
-  // this vector, so the payer enters as `hashBytesBigInt`, matching Rust's
-  // `signer_pk_hashes`.
-  const payerSignerHash = hashBytesBigInt(addressBytes(proofInputs.payer));
+  // the vector, the payer in slot zero and unique non-payer owners after it,
+  // matching Rust's `signer_pk_hashes`.
+  const ownerSignerHashes = ownerSignerAddresses(proofInputs.inputUtxos, proofInputs.payer).map(
+    (address) => hashBytesBigInt(addressBytes(address)),
+  );
   const signerPublicKeyHashes = [
-    payerSignerHash,
-    ...Array.from({ length: inputHashes.length }, () => 0n),
+    hashBytesBigInt(addressBytes(proofInputs.payer)),
+    ...ownerSignerHashes,
+    ...Array.from({ length: inputHashes.length - ownerSignerHashes.length }, () => 0n),
   ];
   const allowDummyInputs = 1n;
   const ringProgramId = ring === undefined ? 0n : hashBytesBigInt(addressBytes(ring));
@@ -366,8 +370,9 @@ export function createRealInput(
   proof: SpendProof,
   ownerPublicKeyHash: bigint,
 ): TransferInput {
-  const value = Object.freeze({
+  return Object.freeze({
     utxo: input,
+    circuit: inputCircuitUtxo(input),
     isDummy: asField(0n),
     statePathElements: Object.freeze(
       proof.state.path.map((item) => asField(bytesField(item, "state path element"))),
@@ -385,8 +390,6 @@ export function createRealInput(
     ownerPublicKeyHash: asField(ownerPublicKeyHash),
     nullifierSecret: asField(bytesField(input.nullifierKey.secretBytes(), "nullifier secret")),
   });
-  CIRCUIT_UTXOS.set(value, inputCircuitUtxo(input));
-  return value;
 }
 
 export function createDummyTransferInput(
@@ -395,8 +398,9 @@ export function createDummyTransferInput(
   proof: NonInclusionProof,
   nullifier = input.nullifier(),
 ): TransferInput {
-  const value = Object.freeze({
+  return Object.freeze({
     utxo: input,
+    circuit: inputCircuitUtxo(input, true),
     isDummy: asField(1n),
     statePathElements: Object.freeze(Array.from({ length: STATE_TREE_HEIGHT }, () => asField(0n))),
     statePathIndex: asField(0n),
@@ -412,8 +416,6 @@ export function createDummyTransferInput(
     ownerPublicKeyHash: asField(0n),
     nullifierSecret: asField(0n),
   });
-  CIRCUIT_UTXOS.set(value, inputCircuitUtxo(input, true));
-  return value;
 }
 
 export function createOutput(output: ProofOutputUtxo): TransferOutput {
@@ -423,8 +425,9 @@ export function createOutput(output: ProofOutputUtxo): TransferOutput {
         "output owner public key",
       )
     : hashBytesBigInt(output.ownerTag ?? new Uint8Array(32));
-  const value = Object.freeze({
-    utxo: output as unknown as ProofInputUtxo,
+  return Object.freeze({
+    utxo: output,
+    circuit: outputCircuitUtxo(output),
     isDummy: asField(output.isDummy() ? 1n : 0n),
     hash: asField(bytesField(output.hash(), "output hash")),
     ownerPublicKeyHash: asField(ownerPublicKeyHash),
@@ -434,8 +437,6 @@ export function createOutput(output: ProofOutputUtxo): TransferOutput {
         : 0n,
     ),
   });
-  CIRCUIT_UTXOS.set(value, outputCircuitUtxo(output));
-  return value;
 }
 
 function inputCircuitUtxo(input: ProofInputUtxo, dummy = false): CircuitUtxo {

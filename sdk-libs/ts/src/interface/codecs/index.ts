@@ -313,10 +313,13 @@ export function decodeSplAssetRegistryAccount(bytes: Uint8Array): SplAssetRegist
 }
 
 export function decodeRingConfigAccount(bytes: Uint8Array): RingConfigAccount {
-  return decodeAccount(bytes, 67, StateDiscriminator.ringConfig, (reader) => ({
+  // 1 + 32 + 32 + 1 + 1 + 1. The program asserts the same size, and `paused`
+  // sits between the enable flag and the bump.
+  return decodeAccount(bytes, 68, StateDiscriminator.ringConfig, (reader) => ({
     authority: readAddress(reader, "authority"),
     programId: readAddress(reader, "programId"),
     ringAuthorityTransactIsEnabled: reader.nonzeroBool("ringAuthorityTransactIsEnabled"),
+    paused: reader.nonzeroBool("paused"),
     bump: reader.u8("bump"),
   }));
 }

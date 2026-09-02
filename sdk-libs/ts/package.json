@@ -1,6 +1,6 @@
 {
   "name": "@heliuslabs/zolana",
-  "version": "0.1.0",
+  "version": "0.1.6-alpha",
   "description": "TypeScript SDK for the Zolana shielded protocol.",
   "license": "Apache-2.0",
   "files": [
@@ -53,14 +53,17 @@
     "clean": "node -e \"import('node:fs/promises').then(({ rm }) => rm('dist', { recursive: true, force: true }))\"",
     "build": "npm run clean && tsc -p tsconfig.build.json && node scripts/copy-assets.mjs",
     "prepack": "npm run build",
+    "prepublishOnly": "npm run changelog:check -- --release",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "changelog:check": "node scripts/check-changelog.mjs",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "lint": "oxlint --deny-warnings src test api/test transaction/test wallet/test scripts",
     "test": "vitest run --exclude \"test/e2e/**\"",
-    "test:e2e": "vitest run test/e2e",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build",
-    "loadtest": "npm run build && node bench/loadtest.ts"
+    "test:e2e": "vitest run --no-file-parallelism test/e2e",
+    "check": "npm run format:check && npm run lint && npm run changelog:check && npm run typecheck && npm run test && npm run build && npm run check:dist",
+    "loadtest": "npm run build && node bench/loadtest.ts",
+    "check:dist": "tsc -p tsconfig.dist.json"
   },
   "dependencies": {
     "@lightprotocol/hasher.rs": "^0.2.1",

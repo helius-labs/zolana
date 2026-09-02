@@ -92,8 +92,16 @@ pub struct AssetBalance {
     pub utxos: Vec<Utxo>,
 }
 
+/// Spendable default-ring balances.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Balances {
+    pub assets: Vec<AssetBalance>,
+}
+
+/// Holdings bound to one ring, never selectable by the default spend path.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RingBalance {
+    pub ring_program_id: Address,
     pub assets: Vec<AssetBalance>,
 }
 
@@ -229,6 +237,7 @@ impl Wallet {
         self.utxos.iter().filter(|u| !u.spent)
     }
 
+    /// The spendable default-ring balance of one mint.
     pub fn balance(
         &self,
         mint: Address,
@@ -241,7 +250,7 @@ impl Wallet {
             utxos: Vec::new(),
         };
         for wallet_utxo in self.unspent() {
-            if wallet_utxo.utxo.asset != mint {
+            if wallet_utxo.utxo.asset != mint || wallet_utxo.utxo.ring_program_id.is_some() {
                 continue;
             }
             if let Some(filter) = &filter {
@@ -255,9 +264,40 @@ impl Wallet {
         Ok(balance)
     }
 
+    /// Spendable default-ring balances, ring-bound notes appear in
+    /// [`Self::ring_balances`].
     pub fn balances(&self, skip_utxos: bool) -> Result<Vec<AssetBalance>, TransactionError> {
+        self.asset_balances(skip_utxos, |entry| entry.utxo.ring_program_id.is_none())
+    }
+
+    pub fn ring_balances(&self, skip_utxos: bool) -> Result<Vec<RingBalance>, TransactionError> {
+        let rings: BTreeSet<Address> = self
+            .unspent()
+            .filter_map(|entry| entry.utxo.ring_program_id)
+            .collect();
+        rings
+            .into_iter()
+            .map(|ring| {
+                Ok(RingBalance {
+                    ring_program_id: ring,
+                    assets: self.asset_balances(skip_utxos, |entry| {
+                        entry.utxo.ring_program_id == Some(ring)
+                    })?,
+                })
+            })
+            .collect()
+    }
+
+    fn asset_balances(
+        &self,
+        skip_utxos: bool,
+        eligible: impl Fn(&WalletUtxo) -> bool,
+    ) -> Result<Vec<AssetBalance>, TransactionError> {
         let mut by_mint: HashMap<Address, AssetBalance> = HashMap::new();
         for wallet_utxo in self.unspent() {
+            if !eligible(wallet_utxo) {
+                continue;
+            }
             let balance = match by_mint.entry(wallet_utxo.utxo.asset) {
                 Entry::Occupied(occupied) => occupied.into_mut(),
                 Entry::Vacant(vacant) => vacant.insert(AssetBalance {

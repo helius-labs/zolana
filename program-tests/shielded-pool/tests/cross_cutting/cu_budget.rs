@@ -17,7 +17,7 @@ const CONFIG_UPDATE_CU_CEILING: u64 = 750;
 const CREATE_TREE_CU_CEILING: u64 = 1_800; // observed 581
 const PAUSE_TREE_CU_CEILING: u64 = 800; // observed 250-251
 const CREATE_ASSET_COUNTER_CU_CEILING: u64 = 14_000; // observed 4_600
-const CREATE_SPL_INTERFACE_CU_CEILING: u64 = 23_000; // observed 7_638
+const CREATE_SPL_INTERFACE_CU_CEILING: u64 = 23_000; // observed 7_706
 const DEPOSIT_SOL_CU_CEILING: u64 = 90_000; // observed 38_393
 const DEPOSIT_SPL_CU_CEILING: u64 = 100_000; // observed 39_424
 const CREATE_RING_CONFIG_CU_CEILING: u64 = 20_000; // observed 6_658
@@ -51,7 +51,8 @@ fn assert_last_under(test: &ZolanaProgramTest, operation: &str, limit: u64) {
 #[test]
 fn proofless_instruction_families_stay_within_transaction_budgets() {
     let mut test = ZolanaProgramTest::new().expect("program test");
-    let authority = Keypair::new();
+    // PDA bump search cost moves with the address, fixed keypairs pin the metered CU.
+    let authority = Keypair::new_from_array([1; 32]);
     test.create_protocol_config(&authority)
         .expect("create protocol config");
     assert_last_under(
@@ -106,7 +107,12 @@ fn proofless_instruction_families_stay_within_transaction_budgets() {
         .expect("unpause tree");
     assert_last_under(&test, "unpause tree", PAUSE_TREE_CU_CEILING);
 
-    let mint = test.create_mint().expect("create mint");
+    let mint = test
+        .create_mint_from(
+            &Keypair::new_from_array([2; 32]),
+            ZolanaProgramTest::token_program_id(),
+        )
+        .expect("create mint");
     test.create_asset_counter(&authority)
         .expect("create asset counter");
     assert_last_under(
@@ -122,7 +128,7 @@ fn proofless_instruction_families_stay_within_transaction_budgets() {
         CREATE_SPL_INTERFACE_CU_CEILING,
     );
 
-    let depositor = Keypair::new();
+    let depositor = Keypair::new_from_array([3; 32]);
     test.airdrop(&depositor.pubkey(), 1_000_000_000)
         .expect("fund depositor");
     test.deposit_sol(&tree.pubkey(), &depositor, 1_000_000, [1; 32], [2; 32])
@@ -156,7 +162,7 @@ fn proofless_instruction_families_stay_within_transaction_budgets() {
         .expect("ring deposit SOL");
     assert_last_under(&test, "ring deposit SOL", RING_DEPOSIT_SOL_CU_CEILING);
 
-    let next_ring_owner = Keypair::new();
+    let next_ring_owner = Keypair::new_from_array([4; 32]);
     test.update_ring_config_owner(&authority, &ring_config, &next_ring_owner)
         .expect("rotate ring config owner");
     assert_last_under(

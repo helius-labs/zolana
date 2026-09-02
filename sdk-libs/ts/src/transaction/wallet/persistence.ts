@@ -1,10 +1,6 @@
-import {
-  address as kitAddress,
-  assertIsSignature,
-  getBase64Decoder,
-  getBase64Encoder,
-} from "@solana/kit";
+import { getBase64Decoder } from "@solana/kit";
 
+import { wireDecoder } from "../../interface/decode.js";
 import type { Address, Bytes32, Bytes33, Signature } from "../../interface/types.js";
 import type { Bytes34 } from "../../keypair/bytes.js";
 import { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
@@ -13,10 +9,11 @@ import { ShieldedAddress } from "../../keypair/shielded.js";
 import { Data, type DataRecord } from "../data.js";
 import { TransactionError } from "../error.js";
 import { Utxo } from "../utxo.js";
-import { AssetRegistry, SOL_ASSET_ID } from "./asset.js";
+import { AssetRegistry, SOL_ASSET_ID } from "../asset.js";
 import {
   Wallet,
   hex,
+  type CursorStream,
   type PrivateTransaction,
   type PrivateTransactionDirection,
   type PrivateTransactionKind,
@@ -24,7 +21,6 @@ import {
   type WalletUtxo,
 } from "./state.js";
 
-const decodeBase64 = getBase64Encoder();
 const encodeBase64 = getBase64Decoder();
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
 const I64_MIN = -(1n << 63n);
@@ -72,13 +68,32 @@ interface SerializedPrivateTransaction {
   readonly counterpartyViewingPublicKey?: string;
 }
 
+export interface SerializedCursor {
+  /** Lowercase hex of the tag or nullifier the stream position belongs to. */
+  readonly key: string;
+  readonly cursor: string;
+}
+
+export interface SerializedSyncCursors {
+  readonly transactions: readonly SerializedCursor[];
+  readonly proofless: readonly SerializedCursor[];
+  readonly nullifiers: readonly SerializedCursor[];
+}
+
+/** Version 3 wire names remain frozen for persisted snapshot compatibility. */
+export interface SerializedNoteReservation {
+  readonly id: string;
+  readonly noteHashes: readonly string[];
+  readonly expiresAtMs: string;
+}
+
 /**
- * Versioned, JSON-safe wallet state. It contains private note plaintext and
+ * Versioned, JSON-safe wallet state. It contains private UTXO plaintext and
  * blindings, but never signing, nullifier, or viewing secrets. Applications
  * must still encrypt it at rest.
  */
 export interface SerializedWalletState {
-  readonly version: 2;
+  readonly version: 3;
   readonly identity: Readonly<{
     signingPublicKey: string;
     nullifierPublicKey: string;
@@ -90,13 +105,15 @@ export interface SerializedWalletState {
   readonly transactions: readonly SerializedPrivateTransaction[];
   readonly nullifiers: readonly string[];
   readonly lastSynced: string;
+  readonly syncCursors: SerializedSyncCursors;
+  readonly reservations: readonly SerializedNoteReservation[];
 }
 
 export function serializeWallet(wallet: Wallet): string {
   if (!(wallet instanceof Wallet)) fail("wallet");
   const state = wallet._state();
   const snapshot: SerializedWalletState = {
-    version: 2,
+    version: 3,
     identity: {
       signingPublicKey: encode(wallet.identity.signingPublicKey.toBytes()),
       nullifierPublicKey: encode(wallet.identity.nullifierPublicKey),
@@ -111,8 +128,28 @@ export function serializeWallet(wallet: Wallet): string {
     transactions: state.transactions.map(serializeTransaction),
     nullifiers: [...state.nullifiers].sort().map((value) => encode(unhex(value))),
     lastSynced: wallet.lastSynced.toString(),
+    syncCursors: {
+      transactions: serializeCursors(wallet, "transactions"),
+      proofless: serializeCursors(wallet, "proofless"),
+      nullifiers: serializeCursors(wallet, "nullifiers"),
+    },
+    reservations: wallet
+      ._reservationEntries()
+      .map((reservation) => ({
+        id: reservation.id,
+        noteHashes: reservation.utxoHashes.map(encode),
+        expiresAtMs: reservation.expiresAtMs.toString(),
+      }))
+      .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)),
   };
   return JSON.stringify(snapshot);
+}
+
+function serializeCursors(wallet: Wallet, stream: CursorStream): readonly SerializedCursor[] {
+  return wallet
+    ._cursorEntries(stream)
+    .map(([key, cursor]) => Object.freeze({ key, cursor: encode(cursor) }))
+    .sort((left, right) => (left.key < right.key ? -1 : left.key > right.key ? 1 : 0));
 }
 
 export function deserializeWallet(serialized: string): Wallet {
@@ -127,7 +164,8 @@ export function deserializeWallet(serialized: string): Wallet {
 
 function hydrate(value: unknown): Wallet {
   const snapshot = record(value, "wallet");
-  if (snapshot["version"] !== 2) fail("version");
+  const version = snapshot["version"];
+  if (version !== 2 && version !== 3) fail("version");
   const identityValue = record(snapshot["identity"], "identity");
   const identity = ShieldedAddress.fromPublicKeys(
     ShieldedPublicKey.fromBytes(
@@ -182,7 +220,49 @@ function hydrate(value: unknown): Wallet {
     viewingKeyHistory,
     lastSynced: signed(snapshot["lastSynced"], "lastSynced"),
   });
+  // Version 2 predates persisted cursors, its first sync rescans history once.
+  if (version === 3) {
+    hydrateCursors(wallet, snapshot["syncCursors"]);
+    wallet._forgetNullifierCursors(nullifiers);
+    if (snapshot["reservations"] !== undefined) {
+      hydrateReservations(wallet, snapshot["reservations"]);
+    }
+  }
   return wallet;
+}
+
+function hydrateReservations(wallet: Wallet, value: unknown): void {
+  const seen = new Set<string>();
+  wallet._restoreReservations(
+    array(value, "reservations").map((entry, index) => {
+      const path = `reservations[${String(index)}]`;
+      const item = record(entry, path);
+      const id = item["id"];
+      if (typeof id !== "string" || !/^[0-9a-f]{32}$/u.test(id) || seen.has(id)) fail(`${path}.id`);
+      seen.add(id);
+      return Object.freeze({
+        id,
+        utxoHashes: array(item["noteHashes"], `${path}.noteHashes`).map(
+          (hash, hashIndex) =>
+            bytes(hash, 32, `${path}.noteHashes[${String(hashIndex)}]`) as Bytes32,
+        ),
+        expiresAtMs: signed(item["expiresAtMs"], `${path}.expiresAtMs`),
+      });
+    }),
+  );
+}
+
+function hydrateCursors(wallet: Wallet, value: unknown): void {
+  const streams = record(value, "syncCursors");
+  for (const stream of ["transactions", "proofless", "nullifiers"] as const) {
+    array(streams[stream], `syncCursors.${stream}`).forEach((entry, index) => {
+      const field = `syncCursors.${stream}[${String(index)}]`;
+      const item = record(entry, field);
+      const key = item["key"];
+      if (typeof key !== "string" || !/^[0-9a-f]{64}$/u.test(key)) fail(`${field}.key`);
+      wallet._setSyncCursor(stream, key, bytes(item["cursor"], undefined, `${field}.cursor`));
+    });
+  }
 }
 
 function serializeViewingKeyEntry(value: ViewingKeyEntry): SerializedViewingKeyEntry {
@@ -298,6 +378,7 @@ function deserializeTransaction(value: unknown, index: number): PrivateTransacti
   if (
     kind !== "deposit" &&
     kind !== "privateTransfer" &&
+    kind !== "ringEntry" &&
     kind !== "publicWithdrawal" &&
     kind !== "split" &&
     kind !== "merge"
@@ -346,17 +427,9 @@ function unhex(value: string): Uint8Array {
 }
 
 function bytes(value: unknown, length: number | undefined, field: string): Uint8Array {
-  if (typeof value !== "string") fail(field);
-  try {
-    const decoded = new Uint8Array(decodeBase64.encode(value));
-    if (encode(decoded) !== value || (length !== undefined && decoded.length !== length)) {
-      fail(field);
-    }
-    return decoded;
-  } catch (cause) {
-    if (cause instanceof TransactionError) throw cause;
-    fail(field);
-  }
+  return length === undefined
+    ? decode.base64(value, field)
+    : decode.fixedBytes(value, length, field);
 }
 
 function unsigned(value: unknown, field: string): bigint {
@@ -380,39 +453,8 @@ function decimal(value: unknown, field: string): bigint {
   }
 }
 
-function address(value: unknown, field: string): Address {
-  if (typeof value !== "string") fail(field);
-  try {
-    return kitAddress(value);
-  } catch {
-    fail(field);
-  }
-}
-
-function signature(value: unknown, field: string): Signature {
-  if (typeof value !== "string") fail(field);
-  try {
-    assertIsSignature(value);
-    return value;
-  } catch {
-    fail(field);
-  }
-}
-
-function boolean(value: unknown, field: string): boolean {
-  if (typeof value !== "boolean") fail(field);
-  return value;
-}
-
-function array(value: unknown, field: string): readonly unknown[] {
-  if (!Array.isArray(value)) fail(field);
-  return value;
-}
-
-function record(value: unknown, field: string): Readonly<Record<string, unknown>> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) fail(field);
-  return value as Readonly<Record<string, unknown>>;
-}
+const decode = wireDecoder((field) => new TransactionError("TRANSACTION_DESERIALIZE", { field }));
+const { address, signature, boolean, list: array, record } = decode;
 
 function fail(field: string): never {
   throw new TransactionError("TRANSACTION_DESERIALIZE", { field });

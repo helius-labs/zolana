@@ -1,13 +1,18 @@
+use futures::future::try_join;
 use rand::{rngs::OsRng, RngCore};
+use solana_account::Account;
 use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use thiserror::Error;
+use zeroize::Zeroizing;
 use zolana_client::{
-    ClientError, ProofCompressed, ProverClient, RingTransferProofResult, RingTransferProver, Rpc,
+    prover::{Delivery, ProveRequest},
+    AsyncProverClient, AsyncRpc, ClientError, MerkleProof, NonInclusionProof, Proof,
+    ProofCompressed, ProverClient, RingTransferProofResult, RingTransferProver, Rpc,
     SettlementAccountValidation, Shape, SpendProof, SppProofInputUtxo, SppProofInputs,
-    TransferSpendInput,
+    TransferInputs, TransferSpendInput,
 };
 use zolana_interface::event::OutputDataEncoding;
 use zolana_interface::{
@@ -18,19 +23,25 @@ use zolana_interface::{
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{random_blinding, random_salt, KeypairError, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{
+    random_blinding, random_salt, KeypairError, P256Pubkey, ShieldedKeypair, ViewingKey,
+    ViewingKeyTrait,
+};
 use zolana_transaction::{
     instructions::transact::{
         encode_confidential_slots, ChangeLayout, PreparedTransfer, SppProofOutputUtxo,
     },
     owner_utxo_hash, AssetRegistry, Data, EncryptedScheme, RingDepositPlaintext, TransactionError,
-    Utxo, SOL_MINT,
+    Utxo,
 };
 use zolana_tree::{TreeAccount, TreeError};
 
 use crate::{
-    to_instruction_proof, AccountReadError, CustomRing, CustomRingProof, CustomRingProofError,
-    CustomRingProofInputError, CustomRingProofParams, CustomRingTransact, Deposit, EncryptedAudit,
+    to_instruction_proof,
+    witness::{CustomRingWitness, CustomRingWitnessInput, TransactRoots},
+    AccountReadError, AuditProofRequest, CustomRing, CustomRingProof, CustomRingProofError,
+    CustomRingProofInputError, CustomRingProofParams, CustomRingProofRequest, CustomRingTransact,
+    Deposit, EncryptedAudit, PendingCustomRingProof,
 };
 
 const NO_RING_DATA_HASH: [u8; 32] = [0u8; 32];
@@ -38,7 +49,7 @@ const NO_RING_DATA_HASH: [u8; 32] = [0u8; 32];
 #[must_use = "prove or discard the transfer explicitly"]
 pub struct CustomRingTransfer<'a> {
     ring: CustomRing,
-    sender: &'a ShieldedKeypair,
+    sender: &'a (dyn ViewingKeyTrait + Send + Sync),
     prepared: PreparedTransfer,
     interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     input_tree: Option<Address>,
@@ -48,7 +59,18 @@ pub struct CustomRingTransfer<'a> {
 
 pub struct CustomRingTransferInput<'a> {
     pub ring: CustomRing,
-    pub sender: &'a ShieldedKeypair,
+    /// The sender's viewing key. Only [`ViewingKeyTrait::get_transaction_viewing_key`]
+    /// is used, so a backend that keeps the owner's signing key elsewhere -- an
+    /// HSM, or a remote custodian -- can build a transfer. The owner's signature
+    /// is not taken here: [`ProvenTransfer`] reports `owner_signers`, and the
+    /// owner signs the assembled Solana transaction.
+    ///
+    /// `ShieldedKeypair` implements the trait, so passing one still works.
+    ///
+    /// `Send + Sync` so that [`Self::prove_async`]'s future is `Send`. Without
+    /// it the async path cannot be awaited on a multi-threaded runtime, which
+    /// is exactly where a host that needs the async path runs.
+    pub sender: &'a (dyn ViewingKeyTrait + Send + Sync),
     pub prepared: PreparedTransfer,
 }
 
@@ -56,6 +78,13 @@ pub struct TransferProofEnvironment<'a, I: Rpc, R: Rpc> {
     pub indexer: &'a I,
     pub rpc: &'a R,
     pub prover: &'a ProverClient,
+}
+
+/// The async counterpart of [`TransferProofEnvironment`].
+pub struct AsyncTransferProofEnvironment<'a, I: AsyncRpc, R: AsyncRpc> {
+    pub indexer: &'a I,
+    pub rpc: &'a R,
+    pub prover: &'a AsyncProverClient,
 }
 
 #[must_use = "build or submit the proven transfer"]
@@ -79,9 +108,11 @@ pub struct ProvenTransfer {
 #[must_use]
 pub struct RingDeposit<'a> {
     pub ring: CustomRing,
+    /// Lamport source for Sol, the user token's authority for Spl.
     pub payer: &'a dyn Signer,
     pub recipient: &'a ShieldedKeypair,
     pub tree: Address,
+    pub asset: DepositAsset,
     pub amount: u64,
 }
 
@@ -132,6 +163,8 @@ pub enum TransferError {
     PolicyShapeUnsupported,
     #[error("a policy rule refuses the transfer")]
     PolicyRuleUnsatisfied,
+    #[error("a policy ring proves over the blocking transport only")]
+    PolicyAsyncUnsupported,
     #[error("no policy source serves the list")]
     MissingSourceOwner,
     #[error(transparent)]
@@ -205,19 +238,107 @@ impl<'a> CustomRingTransfer<'a> {
         self
     }
 
+    /// Proves the transfer over a blocking transport.
     pub fn prove<I: Rpc, R: Rpc>(
         self,
         environment: TransferProofEnvironment<'_, I, R>,
     ) -> Result<ProvenTransfer, TransferError> {
-        let input_tree = self.input_tree.ok_or(TransferError::TreeRequired)?;
-        let output_tree = self.output_tree.unwrap_or(input_tree);
-        let assets = self.assets.ok_or(TransferError::MissingAssetRegistry)?;
         let config = self
             .ring
             .read_config(environment.rpc)?
             .ok_or(TransferError::MissingRingConfig)?;
-        let auditor_pk = config.auditor_pubkey;
-        let has_policy = config.has_policy;
+        let staged = self.stage(config.auditor_pubkey)?;
+        // The tree is read and validated first. A tree that is absent, owned by
+        // another program, or not a tree account at all fails here rather than
+        // after the indexer has served a full inclusion and non-inclusion proof
+        // set that nothing can use.
+        let allow_dummy_inputs = read_dummy_input_policy(environment.rpc, staged.input_tree)?;
+        let spend_inputs = RingSpendInputs {
+            indexer: environment.indexer,
+            tree: staged.input_tree,
+            spends: &staged.proof_inputs.input_utxos,
+        }
+        .load()?;
+        let tier = if config.has_policy {
+            staged.policy_tier(&environment)?
+        } else {
+            Tier::Audit
+        };
+        let (request, witnessed) = staged.witness(spend_inputs, allow_dummy_inputs, tier)?;
+        let spp_proof =
+            ProofCompressed::try_from(environment.prover.prove_transfer_ring(witnessed.spp())?)?
+                .to_transact_proof();
+        let ring_proof = environment.prover.prove(&request)?;
+        witnessed.finish(spp_proof, request.proven(ring_proof)?)
+    }
+
+    /// The async twin of [`Self::prove`], over [`AsyncRpc`] and
+    /// [`AsyncProverClient`].
+    ///
+    /// The blocking path needs `zolana-client`'s `solana-rpc` feature for its
+    /// only Solana `Rpc` implementation, which a host pinned below the versions
+    /// that feature requires cannot link. Such a host already speaks `AsyncRpc`
+    /// over its own transport, and the rest of this SDK is async-first, so the
+    /// ring transfer being blocking-only was the outlier.
+    ///
+    /// Both paths run the same proof assembly; only the five reads differ, and
+    /// this one asks for its two proofs together rather than one after the other.
+    ///
+    /// The policy witness is gathered over the blocking transport only, so a
+    /// policy ring is refused with [`TransferError::PolicyAsyncUnsupported`]
+    /// right after the config read.
+    pub async fn prove_async<I: AsyncRpc, R: AsyncRpc>(
+        self,
+        environment: AsyncTransferProofEnvironment<'_, I, R>,
+    ) -> Result<ProvenTransfer, TransferError> {
+        let config = self
+            .ring
+            .read_config_async(environment.rpc)
+            .await?
+            .ok_or(TransferError::MissingRingConfig)?;
+        if config.has_policy {
+            return Err(TransferError::PolicyAsyncUnsupported);
+        }
+        let staged = self.stage(config.auditor_pubkey)?;
+        // Same ordering reason as the blocking path: validate the tree before
+        // asking the indexer for proofs against it.
+        let allow_dummy_inputs =
+            read_dummy_input_policy_async(environment.rpc, staged.input_tree).await?;
+        let spend_inputs = RingSpendInputs {
+            indexer: environment.indexer,
+            tree: staged.input_tree,
+            spends: &staged.proof_inputs.input_utxos,
+        }
+        .load_async()
+        .await?;
+        let (request, witnessed) = staged.witness(spend_inputs, allow_dummy_inputs, Tier::Audit)?;
+        // Both witnesses are complete, and neither proof is an input to the
+        // other: SPP proves the transfer, the ring circuit proves the auditor
+        // encryption over the `private_tx_hash` the SPP witness already fixed.
+        // So both requests go out together instead of the second waiting on the
+        // first's proof, which it never needed. Whether they then prove at once
+        // is the prover's call -- its sync admission control bounds in-request
+        // proving, and one gnark proof already spreads across every free core --
+        // but that bound belongs there, not in a caller that cannot see the
+        // fleet. The blocking path has no way to express this.
+        let (spp, ring) = try_join(
+            environment.prover.prove_transfer_ring(witnessed.spp()),
+            environment.prover.prove(&request),
+        )
+        .await?;
+        witnessed.finish(
+            ProofCompressed::try_from(spp)?.to_transact_proof(),
+            request.proven(ring)?,
+        )
+    }
+
+    /// Everything before the first read: validation, the transaction viewing
+    /// key, and the auditor encryption that has to be inside `external_data`
+    /// before anything hashes it.
+    fn stage(self, auditor_pk: P256Pubkey) -> Result<StagedTransfer, TransferError> {
+        let input_tree = self.input_tree.ok_or(TransferError::TreeRequired)?;
+        let output_tree = self.output_tree.unwrap_or(input_tree);
+        let assets = self.assets.ok_or(TransferError::MissingAssetRegistry)?;
         // A padded change slot pushes the custom-ring instruction past the packet
         // limit even behind an address lookup table, and every published slot
         // must be one the auditor can open.
@@ -226,7 +347,6 @@ impl<'a> CustomRingTransfer<'a> {
         }
         let prepared = self.prepared;
         let program_id = self.ring.program_id();
-        let allow_dummy_inputs = read_dummy_input_policy(environment.rpc, input_tree)?;
         RingMembership {
             program_id,
             inputs: &prepared.inputs,
@@ -265,96 +385,258 @@ impl<'a> CustomRingTransfer<'a> {
         // private_tx_hash, so it must be bound before anything hashes external data.
         proof_inputs.external_data.instruction_discriminator = RING_TRANSACT;
 
-        // Prove the SPP ring transfer over the message-bearing external data.
-        let tx_shape = proof_inputs.check_shape()?;
+        Ok(StagedTransfer {
+            tx_viewing_key,
+            pending_proof,
+            proof_inputs,
+            payer,
+            input_tree,
+            output_tree,
+            program_id,
+            interface_transfer_accounts: self.interface_transfer_accounts,
+            ring: self.ring,
+        })
+    }
+}
+
+/// A policy ring proves the folded statement over its entries-tree roots, an
+/// audit-only ring proves the audit statement alone.
+enum Tier {
+    Audit,
+    Policy {
+        policy_hash: [u8; 32],
+        entries_tree: Address,
+        witness: Box<CustomRingWitness>,
+    },
+}
+
+/// A transfer past validation and auditor encryption, waiting on the reads.
+///
+/// The stages are types, not flags: [`Self::witness`] consumes this one and is
+/// the only way to reach [`WitnessedTransfer`], which is the only type
+/// [`WitnessedTransfer::finish`] is defined on. Skipping a step, or repeating
+/// one, does not compile, so no state has to be checked at run time and no
+/// error variant has to stand in for "called out of order".
+struct StagedTransfer {
+    tx_viewing_key: ViewingKey,
+    pending_proof: PendingCustomRingProof,
+    proof_inputs: SppProofInputs,
+    payer: Address,
+    input_tree: Address,
+    output_tree: Address,
+    program_id: Address,
+    interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
+    ring: CustomRing,
+}
+
+impl StagedTransfer {
+    /// Gathers the policy witness from the chain and the indexer.
+    fn policy_tier<I: Rpc, R: Rpc>(
+        &self,
+        environment: &TransferProofEnvironment<'_, I, R>,
+    ) -> Result<Tier, TransferError> {
+        let policy_config = self
+            .ring
+            .read_policy_config(environment.rpc)?
+            .ok_or(TransferError::MissingPolicyConfig)?;
+        // Fail with the named mismatch before the prover round, not an opaque
+        // proof failure, if the client lacks the deployed rule features.
+        crate::client_rules_match(&policy_config)
+            .map_err(|error| TransferError::PolicyMatch(Box::new(error)))?;
+        let witness = CustomRingWitnessInput {
+            policy: &custom_ring_interface::RULES,
+            policy_config: &policy_config,
+            inputs: &self.proof_inputs.input_utxos,
+            outputs: &self.proof_inputs.output_utxos,
+        }
+        .build(environment.indexer, environment.rpc)?;
+        Ok(Tier::Policy {
+            policy_hash: policy_config.policy_hash,
+            entries_tree: policy_config.entries_tree,
+            witness: Box::new(witness),
+        })
+    }
+
+    /// Builds the SPP ring witness over the message-bearing external data, then
+    /// finishes the pending auditor encryption over the `private_tx_hash` that
+    /// witness fixes, into the tier's proof request over the unchanged
+    /// ciphertext. The program recomputes that same public-input chain from the
+    /// payload and the config account.
+    ///
+    /// Both witnesses leave together because the second only ever needed the
+    /// first's `private_tx_hash`, not its proof: a caller can then ask for both
+    /// proofs at once.
+    fn witness(
+        self,
+        inputs: Vec<TransferSpendInput>,
+        allow_dummy_inputs: bool,
+        tier: Tier,
+    ) -> Result<(TierRequest, WitnessedTransfer), TransferError> {
+        let tx_shape = self.proof_inputs.check_shape()?;
         let ring_result = RingTransferProver {
-            inputs: RingSpendInputs {
-                indexer: environment.indexer,
-                tree: input_tree,
-                spends: &proof_inputs.input_utxos,
-            }
-            .load()?,
-            outputs: proof_inputs.output_utxos.clone(),
-            external_data: proof_inputs.external_data.clone(),
-            public_transfers: proof_inputs.public_transfers()?,
-            signer_pk_hashes: proof_inputs.signer_pk_hashes(tx_shape.n_inputs() + 1)?,
+            inputs,
+            outputs: self.proof_inputs.output_utxos.clone(),
+            external_data: self.proof_inputs.external_data.clone(),
+            public_transfers: self.proof_inputs.public_transfers()?,
+            signer_pk_hashes: self
+                .proof_inputs
+                .signer_pk_hashes(tx_shape.n_inputs() + 1)?,
             allow_dummy_inputs,
-            ring_program_id: Some(program_id),
+            ring_program_id: Some(self.program_id),
             shape: Some(Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs())),
         }
         .build()?;
-        let spp_proof = ProofCompressed::try_from(
-            environment
-                .prover
-                .prove_transfer_ring(&ring_result.inputs)?,
-        )?
-        .to_transact_proof();
-
-        // Now the real `private_tx_hash` exists, so the pending encryption can be
-        // finished into the proof request over the unchanged ciphertext. The program
-        // recomputes the same public-input chain from the content and the config.
         let private_tx_hash = ring_result.private_tx_hash.try_into()?;
-        // A policy ring proves the folded statement over its entries-tree roots, an
-        // audit-only ring proves the audit statement alone.
-        let (proof, entries_tree, state_root_index, nullifier_root_index) = if has_policy {
-            let policy_config = self
-                .ring
-                .read_policy_config(environment.rpc)?
-                .ok_or(TransferError::MissingPolicyConfig)?;
-            // Fail with the named mismatch before the prover round, not an opaque
-            // proof failure, if the client lacks the deployed rule features.
-            crate::client_rules_match(&policy_config)
-                .map_err(|error| TransferError::PolicyMatch(Box::new(error)))?;
-            let witness = crate::witness::CustomRingWitnessInput {
-                policy: &custom_ring_interface::RULES,
-                policy_config: &policy_config,
-                inputs: &proof_inputs.input_utxos,
-                outputs: &proof_inputs.output_utxos,
-            }
-            .build(environment.indexer, environment.rpc)?;
-            let policy_roots = witness.roots;
-            let external_data_hash = proof_inputs
-                .external_data
-                .hash()
-                .map_err(|_| TransferError::PolicyHashing)?;
-            let request = pending_proof.finish(
-                private_tx_hash,
-                &external_data_hash,
+        let request = match tier {
+            Tier::Audit => TierRequest::Audit(self.pending_proof.finish_audit(private_tx_hash)?),
+            Tier::Policy {
+                policy_hash,
+                entries_tree,
                 witness,
-                &policy_config.policy_hash,
-            )?;
-            (
-                to_instruction_proof(environment.prover.prove(&request)?)?,
-                Some(policy_config.entries_tree),
-                policy_roots.state_index,
-                policy_roots.nullifier_index,
-            )
-        } else {
-            let request = pending_proof.finish_audit(private_tx_hash)?;
-            (
-                to_instruction_proof(environment.prover.prove(&request)?)?,
-                None,
-                0,
-                0,
-            )
+            } => {
+                let external_data_hash = self
+                    .proof_inputs
+                    .external_data
+                    .hash()
+                    .map_err(|_| TransferError::PolicyHashing)?;
+                let roots = witness.roots;
+                let request = self.pending_proof.finish(
+                    private_tx_hash,
+                    &external_data_hash,
+                    *witness,
+                    &policy_hash,
+                )?;
+                TierRequest::Policy {
+                    request: Box::new(request),
+                    entries_tree,
+                    roots,
+                }
+            }
         };
+        Ok((
+            request,
+            WitnessedTransfer {
+                tx_viewing_key: self.tx_viewing_key,
+                proof_inputs: self.proof_inputs,
+                ring_result,
+                payer: self.payer,
+                input_tree: self.input_tree,
+                output_tree: self.output_tree,
+                interface_transfer_accounts: self.interface_transfer_accounts,
+                ring: self.ring,
+            },
+        ))
+    }
+}
 
+/// The tier's prover request, with the accounts and roots the instruction binds
+/// for it.
+enum TierRequest {
+    Audit(AuditProofRequest),
+    Policy {
+        request: Box<CustomRingProofRequest>,
+        entries_tree: Address,
+        roots: TransactRoots,
+    },
+}
+
+impl ProveRequest for TierRequest {
+    fn body(&self) -> Result<Zeroizing<String>, ClientError> {
+        match self {
+            Self::Audit(request) => request.body(),
+            Self::Policy { request, .. } => request.body(),
+        }
+    }
+
+    fn delivery(&self) -> Delivery {
+        match self {
+            Self::Audit(request) => request.delivery(),
+            Self::Policy { request, .. } => request.delivery(),
+        }
+    }
+}
+
+impl TierRequest {
+    fn proven(self, proof: Proof) -> Result<TierProof, TransferError> {
+        let proof = to_instruction_proof(proof)?;
+        Ok(match self {
+            Self::Audit(_) => TierProof::Audit(proof),
+            Self::Policy {
+                entries_tree,
+                roots,
+                ..
+            } => TierProof::Policy {
+                proof,
+                entries_tree,
+                roots,
+            },
+        })
+    }
+}
+
+/// The tier's proof in the instruction's wire encoding.
+enum TierProof {
+    Audit(CustomRingProof),
+    Policy {
+        proof: CustomRingProof,
+        entries_tree: Address,
+        roots: TransactRoots,
+    },
+}
+
+/// Both witnesses built and the auditor encryption closed over the transfer's
+/// `private_tx_hash`. Only the two proofs are outstanding.
+struct WitnessedTransfer {
+    tx_viewing_key: ViewingKey,
+    proof_inputs: SppProofInputs,
+    ring_result: RingTransferProofResult,
+    payer: Address,
+    input_tree: Address,
+    output_tree: Address,
+    interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
+    ring: CustomRing,
+}
+
+impl WitnessedTransfer {
+    /// The SPP transfer witness to prove.
+    fn spp(&self) -> &TransferInputs {
+        &self.ring_result.inputs
+    }
+
+    fn finish(
+        self,
+        spp_proof: TransactProof,
+        ring: TierProof,
+    ) -> Result<ProvenTransfer, TransferError> {
+        let (proof, entries_tree, state_root_index, nullifier_root_index) = match ring {
+            TierProof::Audit(proof) => (proof, None, 0, 0),
+            TierProof::Policy {
+                proof,
+                entries_tree,
+                roots,
+            } => (
+                proof,
+                Some(entries_tree),
+                roots.state_index,
+                roots.nullifier_index,
+            ),
+        };
         Ok(ProvenTransfer {
-            tx_viewing_key,
+            tx_viewing_key: self.tx_viewing_key,
             data: RingEddsaInstructionData {
-                proof_inputs: &proof_inputs,
-                result: &ring_result,
+                proof_inputs: &self.proof_inputs,
+                result: &self.ring_result,
                 proof: spp_proof,
             }
             .assemble()?,
             proof,
-            owner_signers: proof_inputs.owner_signer_pubkeys()?,
+            owner_signers: self.proof_inputs.owner_signer_pubkeys()?,
             interface_transfer_accounts: self.interface_transfer_accounts,
             state_root_index,
             nullifier_root_index,
-            payer,
-            input_tree,
-            output_tree,
+            payer: self.payer,
+            input_tree: self.input_tree,
+            output_tree: self.output_tree,
             entries_tree,
             ring: self.ring,
         })
@@ -385,7 +667,7 @@ impl RingDeposit<'_> {
     pub fn send<R: Rpc>(self, rpc: &R) -> Result<RingDepositReceipt, DepositError> {
         let blinding = random_blinding();
         let deposit = RingAssetDeposit {
-            asset: DepositAsset::Sol,
+            asset: self.asset,
             view_tag: self.recipient.recipient_bootstrap_view_tag(),
             owner_utxo_hash: owner_utxo_hash(&self.recipient.owner_hash()?, &blinding)?,
             amount: self.amount,
@@ -412,7 +694,7 @@ impl RingDeposit<'_> {
             signature,
             utxo: Utxo {
                 owner: self.recipient.signing_pubkey(),
-                asset: SOL_MINT,
+                asset: self.asset.mint(),
                 amount: self.amount,
                 blinding,
                 ring_program_id: Some(self.ring.program_id()),
@@ -423,7 +705,19 @@ impl RingDeposit<'_> {
 }
 
 fn read_dummy_input_policy<R: Rpc>(rpc: &R, tree: Address) -> Result<bool, TransferError> {
-    let mut account = rpc.get_account(tree)?.ok_or(TransferError::MissingTree)?;
+    dummy_input_policy(rpc.get_account(tree)?, tree)
+}
+
+async fn read_dummy_input_policy_async<R: AsyncRpc>(
+    rpc: &R,
+    tree: Address,
+) -> Result<bool, TransferError> {
+    dummy_input_policy(rpc.get_account(tree).await?, tree)
+}
+
+/// Reading the policy out of a fetched tree account is transport-independent.
+fn dummy_input_policy(account: Option<Account>, tree: Address) -> Result<bool, TransferError> {
+    let mut account = account.ok_or(TransferError::MissingTree)?;
     if account.owner.to_bytes() != SHIELDED_POOL_PROGRAM_ID {
         return Err(TransferError::InvalidTreeOwner);
     }
@@ -538,16 +832,30 @@ fn frame_dummy_outputs(proof_inputs: &mut SppProofInputs) -> Result<(), Transfer
     Ok(())
 }
 
+/// The two indexer queries one spend set needs.
+///
+/// Named fields rather than a pair of `Vec<[u8; 32]>`: the two have the same
+/// type, so a tuple lets a caller hand the nullifiers to the inclusion query and
+/// the hashes to the non-inclusion one without the compiler noticing.
+struct SpendQueries {
+    /// Hashes of the real spends, whose inclusion in the tree is proved.
+    utxo_hashes: Vec<[u8; 32]>,
+    /// Nullifiers of every spend, real and dummy, whose absence is proved.
+    nullifiers: Vec<[u8; 32]>,
+}
+
 #[must_use = "use the updated transfer"]
-struct RingSpendInputs<'a, I: Rpc> {
+struct RingSpendInputs<'a, I> {
     indexer: &'a I,
     tree: Address,
     spends: &'a [SppProofInputUtxo],
 }
 
-impl<I: Rpc> RingSpendInputs<'_, I> {
-    fn load(self) -> Result<Vec<TransferSpendInput>, TransferError> {
-        let real_hashes = self
+impl<'a, I> RingSpendInputs<'a, I> {
+    /// The hashes to prove inclusion for, and the nullifiers to prove absence
+    /// of. Independent of transport.
+    fn queries(&self) -> Result<SpendQueries, TransferError> {
+        let utxo_hashes = self
             .spends
             .iter()
             .filter(|spend| !spend.is_dummy())
@@ -558,14 +866,58 @@ impl<I: Rpc> RingSpendInputs<'_, I> {
             .iter()
             .map(SppProofInputUtxo::nullifier)
             .collect::<Result<Vec<_>, _>>()?;
+        Ok(SpendQueries {
+            utxo_hashes,
+            nullifiers,
+        })
+    }
+}
+
+impl<I: AsyncRpc> RingSpendInputs<'_, I> {
+    async fn load_async(self) -> Result<Vec<TransferSpendInput>, TransferError> {
+        let SpendQueries {
+            utxo_hashes,
+            nullifiers,
+        } = self.queries()?;
         let states = self
             .indexer
-            .get_merkle_proofs(self.tree, real_hashes, None)?
+            .get_merkle_proofs(self.tree, utxo_hashes, None)
+            .await?
+            .proofs;
+        let non_inclusions = self
+            .indexer
+            .get_non_inclusion_proofs(self.tree, nullifiers, None)
+            .await?
+            .proofs;
+        self.assemble(states, non_inclusions)
+    }
+}
+
+impl<I: Rpc> RingSpendInputs<'_, I> {
+    fn load(self) -> Result<Vec<TransferSpendInput>, TransferError> {
+        let SpendQueries {
+            utxo_hashes,
+            nullifiers,
+        } = self.queries()?;
+        let states = self
+            .indexer
+            .get_merkle_proofs(self.tree, utxo_hashes, None)?
             .proofs;
         let non_inclusions = self
             .indexer
             .get_non_inclusion_proofs(self.tree, nullifiers, None)?
             .proofs;
+        self.assemble(states, non_inclusions)
+    }
+}
+
+impl<I> RingSpendInputs<'_, I> {
+    /// Pairs each spend with its proofs. Both transports share this.
+    fn assemble(
+        self,
+        states: Vec<MerkleProof>,
+        non_inclusions: Vec<NonInclusionProof>,
+    ) -> Result<Vec<TransferSpendInput>, TransferError> {
         let real_count = self.spends.iter().filter(|spend| !spend.is_dummy()).count();
         if states.len() != real_count || non_inclusions.len() != self.spends.len() {
             return Err(TransferError::IncompleteProofSet);
@@ -584,8 +936,8 @@ impl<I: Rpc> RingSpendInputs<'_, I> {
                 Ok(TransferSpendInput {
                     utxo: spend.utxo.clone(),
                     nullifier_key: spend.nullifier_key.clone(),
-                    data_hash: None,
-                    ring_data_hash: None,
+                    data_hash: spend.data_hash,
+                    ring_data_hash: spend.ring_data_hash,
                     proof,
                     nullifier_proof,
                 })
@@ -649,6 +1001,7 @@ impl RingEddsaInstructionData<'_> {
 
 #[cfg(test)]
 mod tests {
+    use zolana_client::MerkleContext;
     use zolana_interface::instruction::{
         instruction_data::transact::{
             confidential_encrypted_output_body, ring_confidential_encrypted_output_body,
@@ -656,11 +1009,66 @@ mod tests {
         TransactSolTransferAccounts,
     };
     use zolana_transaction::instructions::transact::{ConfidentialTransfer, SettlementTarget};
+    use zolana_transaction::SOL_MINT;
 
     use super::*;
 
     fn ring() -> CustomRing {
         CustomRing::new(Address::new_from_array([42u8; 32]))
+    }
+
+    #[test]
+    fn spend_proofs_carry_the_note_data_hashes() {
+        let owner = ShieldedKeypair::new_ed25519().expect("owner");
+        let spends = [SppProofInputUtxo {
+            utxo: Utxo {
+                owner: owner.signing_pubkey(),
+                asset: SOL_MINT,
+                amount: 5,
+                blinding: [1u8; 32],
+                ring_program_id: None,
+                data: Data::default(),
+            },
+            nullifier_key: owner.nullifier_key.clone(),
+            data_hash: Some([7u8; 32]),
+            ring_data_hash: Some([8u8; 32]),
+        }];
+        let merkle = MerkleProof {
+            leaf: [2u8; 32],
+            merkle_context: MerkleContext {
+                tree_type: 0,
+                tree: Address::default(),
+            },
+            path: vec![[0u8; 32]; 32],
+            leaf_index: 0,
+            root: [3u8; 32],
+            root_seq: 1,
+            root_index: 0,
+        };
+        let non_inclusion = NonInclusionProof {
+            leaf: [4u8; 32],
+            merkle_context: MerkleContext {
+                tree_type: 1,
+                tree: Address::default(),
+            },
+            path: vec![[0u8; 32]; 40],
+            low_element: [5u8; 32],
+            low_element_index: 0,
+            high_element: [6u8; 32],
+            high_element_index: 1,
+            root: [9u8; 32],
+            root_seq: 1,
+            root_index: 0,
+        };
+        let inputs = RingSpendInputs {
+            indexer: &(),
+            tree: Address::default(),
+            spends: &spends,
+        }
+        .assemble(vec![merkle], vec![non_inclusion])
+        .expect("one real spend pairs with its proofs");
+        assert_eq!(inputs[0].data_hash, Some([7u8; 32]));
+        assert_eq!(inputs[0].ring_data_hash, Some([8u8; 32]));
     }
 
     fn prepared_transfer(amount: u64) -> (ShieldedKeypair, PreparedTransfer) {
@@ -680,7 +1088,7 @@ mod tests {
         let mut transfer = ConfidentialTransfer::new(
             sender.shielded_address().expect("sender address"),
             vec![input],
-            sender.pubkey(),
+            solana_signer::Signer::pubkey(&sender),
         );
         transfer
             .send(
@@ -763,7 +1171,7 @@ mod tests {
         let mut transfer = ConfidentialTransfer::new(
             sender.shielded_address().expect("sender address"),
             vec![input],
-            sender.pubkey(),
+            solana_signer::Signer::pubkey(&sender),
         );
         transfer
             .withdraw(
@@ -788,6 +1196,74 @@ mod tests {
             )],
         )
         .expect("withdrawal accounts");
+    }
+
+    /// Every `AsyncRpc` method has a default, so an empty type is a valid one.
+    struct NoRpc;
+    impl AsyncRpc for NoRpc {}
+
+    #[test]
+    fn the_async_prove_future_is_send() {
+        // A host reaches for the async path because it runs on a multi-threaded
+        // runtime; a future that cannot cross threads is no use to it. The
+        // `Send + Sync` bound on `sender` is what makes this hold, and dropping
+        // it fails here rather than in whatever server tries to await it.
+        //
+        // This only type-checks the future. Running one to completion against a
+        // live chain, prover and indexer -- and comparing it against a blocking
+        // proof of the same note -- is `auditor_sees_every_ring_transfer` in
+        // custom-rings/test/tests/ring.rs.
+        fn assert_send<F: Send>(_: F) {}
+
+        let (keypair, prepared) = prepared_transfer(4);
+        let prover = AsyncProverClient::new(String::new());
+        let rpc = NoRpc;
+        assert_send(
+            CustomRingTransfer::new(CustomRingTransferInput {
+                ring: ring(),
+                sender: &keypair,
+                prepared,
+            })
+            .prove_async(AsyncTransferProofEnvironment {
+                indexer: &rpc,
+                rpc: &rpc,
+                prover: &prover,
+            }),
+        );
+    }
+
+    #[test]
+    fn a_viewing_key_alone_can_build_a_transfer() {
+        // The sender is used only to derive the transaction viewing key. The
+        // owner's signature is taken later, over the assembled Solana
+        // transaction, from the `owner_signers` a `ProvenTransfer` reports. So a
+        // backend that keeps the signing key elsewhere -- an HSM, or a remote
+        // custodian holding it in an enclave -- can still build the transfer.
+        // This test exists to keep that true: narrowing `sender` back to
+        // `&ShieldedKeypair` would stop it compiling.
+        let (keypair, prepared) = prepared_transfer(4);
+        let first_nullifier = prepared.first_nullifier;
+        let viewing_key: &ViewingKey = &keypair.viewing_key;
+
+        let transfer = CustomRingTransfer::new(CustomRingTransferInput {
+            ring: ring(),
+            sender: viewing_key,
+            prepared,
+        });
+
+        // The viewing key alone derives the same per-transaction key the full
+        // keypair would, so the built transfer is not merely well-typed.
+        assert_eq!(
+            transfer
+                .sender
+                .get_transaction_viewing_key(&first_nullifier)
+                .expect("transaction viewing key from the viewing key alone")
+                .pubkey(),
+            keypair
+                .get_transaction_viewing_key(&first_nullifier)
+                .expect("transaction viewing key from the keypair")
+                .pubkey(),
+        );
     }
 
     #[test]

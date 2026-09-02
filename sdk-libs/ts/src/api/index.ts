@@ -22,8 +22,14 @@ import {
   getShieldedTransactionsByTagsMethod,
   type MethodDescriptor,
 } from "../indexer/methods/index.js";
+import { postJsonRpc } from "../services/jsonrpc.js";
+import {
+  TransportFailure,
+  checkedEndpoint,
+  checkedFetch,
+  type TransportFailureKind,
+} from "../services/transport.js";
 
-const JSON_RPC_VERSION = "2.0";
 const REQUEST_ID = "test-account";
 const MAX_BODY_BYTES = 1024 * 1024;
 const MAX_API_KEY_LENGTH = 4096;
@@ -55,18 +61,6 @@ export interface ZolanaApiConfig {
   readonly url: URL | string;
   readonly apiKey?: string;
   readonly fetch?: typeof globalThis.fetch;
-}
-
-interface PreparedRequest {
-  readonly body: string;
-  readonly method: string;
-  readonly url: URL;
-}
-
-interface ComposedSignal {
-  readonly signal: AbortSignal;
-  readonly timedOut: () => boolean;
-  cleanup(): void;
 }
 
 export class ZolanaApi {
@@ -128,22 +122,6 @@ export class ZolanaApi {
     request: Request,
     context?: RequestContext,
   ): Promise<Response> {
-    const prepared = this.#prepare(descriptor, request);
-    const composed = composeSignal(context, descriptor.name);
-
-    try {
-      const response = await this.#send(prepared, composed);
-      const envelope = await decodeEnvelope(response, descriptor.name, composed);
-      return decodeResult(descriptor, envelope);
-    } finally {
-      composed.cleanup();
-    }
-  }
-
-  #prepare<Request, Response>(
-    descriptor: MethodDescriptor<Request, Response>,
-    request: Request,
-  ): PreparedRequest {
     let params: Readonly<Record<string, unknown>>;
     try {
       params = descriptor.encodeRequest(request);
@@ -151,38 +129,75 @@ export class ZolanaApi {
       throw schemaError("API_INVALID_REQUEST", descriptor.name, error);
     }
 
-    const body = JSON.stringify({
-      id: REQUEST_ID,
-      jsonrpc: JSON_RPC_VERSION,
-      method: descriptor.name,
-      params,
-    });
-    const bodyBytes = new TextEncoder().encode(body).length;
-    if (bodyBytes > MAX_BODY_BYTES) {
-      throw new ApiError("API_REQUEST_TOO_LARGE", "JSON-RPC request body is too large", {
-        details: { method: descriptor.name, bodyBytes, maxBodyBytes: MAX_BODY_BYTES },
-      });
-    }
-
     const url = new URL(this.#baseUrl.href);
     url.pathname = `${url.pathname.replace(/\/+$/u, "")}/${descriptor.name}`;
     if (this.#apiKey !== undefined) url.searchParams.set("api-key", this.#apiKey);
-    return { body, method: descriptor.name, url };
-  }
 
-  async #send(prepared: PreparedRequest, composed: ComposedSignal): Promise<Response> {
+    let result: unknown;
     try {
-      return await this.#fetch(prepared.url, {
-        body: prepared.body,
-        headers: { "content-type": "application/json" },
-        method: "POST",
-        redirect: "error",
-        signal: composed.signal,
-      });
-    } catch {
-      throw requestFailure(prepared.method, composed);
+      result = await postJsonRpc(
+        {
+          fetch: this.#fetch,
+          url,
+          rpcMethod: descriptor.name,
+          params,
+          id: REQUEST_ID,
+          maxRequestBytes: MAX_BODY_BYTES,
+          maxResponseBytes: MAX_BODY_BYTES,
+        },
+        context,
+      );
+    } catch (error) {
+      throw apiFailure(error, descriptor.name);
+    }
+
+    try {
+      return descriptor.decodeResponse(result);
+    } catch (error) {
+      throw schemaError("API_INVALID_RESULT", descriptor.name, error);
     }
   }
+}
+
+const API_CODE_BY_KIND: Record<TransportFailureKind, `API_${string}`> = {
+  config: "API_INVALID_CONFIG",
+  context: "API_INVALID_CONTEXT",
+  aborted: "API_ABORTED",
+  timeout: "API_TIMEOUT",
+  request: "API_REQUEST",
+  requestTooLarge: "API_REQUEST_TOO_LARGE",
+  responseTooLarge: "API_RESPONSE_TOO_LARGE",
+  http: "API_HTTP",
+  contentType: "API_INVALID_CONTENT_TYPE",
+  text: "API_INVALID_TEXT",
+  json: "API_INVALID_JSON",
+  envelope: "API_INVALID_ENVELOPE",
+  missingResult: "API_MISSING_RESULT",
+  rpc: "API_JSON_RPC",
+};
+
+const API_MESSAGE_BY_KIND: Record<TransportFailureKind, string> = {
+  config: "API configuration is invalid",
+  context: "Request timeout is invalid",
+  aborted: "API request was aborted",
+  timeout: "API request timed out",
+  request: "API request failed",
+  requestTooLarge: "JSON-RPC request body is too large",
+  responseTooLarge: "API response body is too large",
+  http: "API returned an HTTP error",
+  contentType: "API response is not JSON",
+  text: "API response is not valid UTF-8",
+  json: "API response is not valid JSON",
+  envelope: "API returned an invalid JSON-RPC envelope",
+  missingResult: "JSON-RPC response omitted its result",
+  rpc: "API returned a JSON-RPC error",
+};
+
+function apiFailure(error: unknown, method: string): unknown {
+  if (!(error instanceof TransportFailure)) return error;
+  return new ApiError(API_CODE_BY_KIND[error.kind], API_MESSAGE_BY_KIND[error.kind], {
+    details: { method, ...error.facts },
+  });
 }
 
 function parseConfig(config: unknown): {
@@ -196,28 +211,15 @@ function parseConfig(config: unknown): {
     });
   }
 
-  const configuredUrl = config["url"];
-  if (typeof configuredUrl !== "string" && !(configuredUrl instanceof URL)) {
-    throw new ApiError("API_INVALID_CONFIG", "API URL is invalid", {
-      details: { field: "url" },
-    });
-  }
   let url: URL;
+  let fetchImplementation: typeof globalThis.fetch;
   try {
-    url = new URL(configuredUrl instanceof URL ? configuredUrl.href : configuredUrl);
-  } catch {
-    throw new ApiError("API_INVALID_CONFIG", "API URL is invalid", {
-      details: { field: "url" },
-    });
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new ApiError("API_INVALID_CONFIG", "API URL must use HTTP or HTTPS", {
-      details: { field: "url", protocol: url.protocol },
-    });
-  }
-  if (url.username !== "" || url.password !== "" || url.hash !== "") {
-    throw new ApiError("API_INVALID_CONFIG", "API URL cannot contain credentials or a fragment", {
-      details: { field: "url" },
+    url = checkedEndpoint(config["url"], { field: "url", allowInsecureHttp: true });
+    fetchImplementation = checkedFetch(config["fetch"]);
+  } catch (error) {
+    if (!(error instanceof TransportFailure)) throw error;
+    throw new ApiError("API_INVALID_CONFIG", "API configuration is invalid", {
+      details: error.facts,
     });
   }
 
@@ -242,15 +244,6 @@ function parseConfig(config: unknown): {
   if (queryKeys.length === 1) url.searchParams.delete("api-key");
   validateApiKey(apiKey);
 
-  // Browsers refuse `fetch` called with another receiver, so the global stays bound.
-  const boundFetch: typeof globalThis.fetch = (input, init) => globalThis.fetch(input, init);
-  const fetchImplementation: unknown = config["fetch"] ?? boundFetch;
-  if (!isFetch(fetchImplementation)) {
-    throw new ApiError("API_INVALID_CONFIG", "A fetch implementation is required", {
-      details: { field: "fetch" },
-    });
-  }
-
   return {
     ...(apiKey === undefined ? {} : { apiKey }),
     fetch: fetchImplementation,
@@ -264,287 +257,6 @@ function validateApiKey(apiKey: string | undefined): void {
     throw new ApiError("API_INVALID_CONFIG", "API key is invalid", {
       details: { field: "apiKey" },
     });
-  }
-}
-
-function composeSignal(context: RequestContext | undefined, method: string): ComposedSignal {
-  const timeoutMs = context?.timeoutMs;
-  if (timeoutMs !== undefined && (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)) {
-    throw new ApiError("API_INVALID_CONTEXT", "Request timeout is invalid", {
-      details: { field: "timeoutMs", method },
-    });
-  }
-  if (context?.signal?.aborted === true) {
-    throw new ApiError("API_ABORTED", "API request was aborted", {
-      details: { method, retryable: false },
-    });
-  }
-
-  const controller = new AbortController();
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  let didTimeOut = false;
-  const abortFromCaller = (): void => {
-    controller.abort();
-  };
-  context?.signal?.addEventListener("abort", abortFromCaller, { once: true });
-  if (timeoutMs !== undefined) {
-    timeout = setTimeout(() => {
-      didTimeOut = true;
-      controller.abort();
-    }, timeoutMs);
-  }
-
-  return {
-    signal: controller.signal,
-    timedOut: () => didTimeOut,
-    cleanup(): void {
-      if (timeout !== undefined) clearTimeout(timeout);
-      context?.signal?.removeEventListener("abort", abortFromCaller);
-    },
-  };
-}
-
-function requestFailure(method: string, composed: ComposedSignal): ApiError {
-  if (composed.timedOut()) {
-    return new ApiError("API_TIMEOUT", "API request timed out", {
-      details: { method, retryable: true },
-    });
-  }
-  if (composed.signal.aborted) {
-    return new ApiError("API_ABORTED", "API request was aborted", {
-      details: { method, retryable: false },
-    });
-  }
-  return new ApiError("API_REQUEST", "API request failed", {
-    details: { method, retryable: true },
-  });
-}
-
-async function decodeEnvelope(
-  response: Response,
-  method: string,
-  composed: ComposedSignal,
-): Promise<JsonObject> {
-  let bytes: Uint8Array;
-  try {
-    bytes = await readBoundedBody(response, method);
-  } catch (error) {
-    if (error instanceof ApiError) throw error;
-    throw requestFailure(method, composed);
-  }
-
-  if (!response.ok) {
-    throw new ApiError("API_HTTP", "API returned an HTTP error", {
-      details: {
-        method,
-        status: response.status,
-        retryable: isRetryableStatus(response.status),
-        bodyBytes: bytes.length,
-        contentType: contentTypeCategory(response.headers.get("content-type")),
-      },
-    });
-  }
-
-  const contentType = response.headers.get("content-type");
-  if (!isJsonContentType(contentType)) {
-    throw new ApiError("API_INVALID_CONTENT_TYPE", "API response is not JSON", {
-      details: {
-        method,
-        bodyBytes: bytes.length,
-        contentType: contentTypeCategory(contentType),
-        retryable: false,
-      },
-    });
-  }
-
-  let text: string;
-  try {
-    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    throw new ApiError("API_INVALID_TEXT", "API response is not valid UTF-8", {
-      details: { method, bodyBytes: bytes.length, retryable: false },
-    });
-  }
-
-  let value: unknown;
-  try {
-    value = JSON.parse(quoteUnsafeIntegers(text)) as unknown;
-  } catch {
-    throw new ApiError("API_INVALID_JSON", "API response is not valid JSON", {
-      details: { method, bodyBytes: bytes.length, retryable: false },
-    });
-  }
-  return validateEnvelope(value, method);
-}
-
-/**
- * The indexer serializes `u64` and `i64` as bare JSON numbers, so a value above
- * `Number.MAX_SAFE_INTEGER` would be rounded by `JSON.parse` before any decoder
- * could see it. Quoting those literals first hands the decoder the exact digits.
- * Numbers within the safe range keep their JSON type, so nothing else moves.
- */
-function quoteUnsafeIntegers(text: string): string {
-  let result = "";
-  let copiedTo = 0;
-  let index = 0;
-
-  while (index < text.length) {
-    const character = text[index] as string;
-
-    if (character === '"') {
-      index = endOfStringLiteral(text, index);
-      continue;
-    }
-
-    if (character !== "-" && (character < "0" || character > "9")) {
-      index += 1;
-      continue;
-    }
-
-    const start = index;
-    index = endOfNumberLiteral(text, index);
-    const literal = text.slice(start, index);
-    if (!isUnsafeIntegerLiteral(literal)) continue;
-
-    result += text.slice(copiedTo, start) + '"' + literal + '"';
-    copiedTo = index;
-  }
-
-  return copiedTo === 0 ? text : result + text.slice(copiedTo);
-}
-
-function endOfStringLiteral(text: string, start: number): number {
-  let index = start + 1;
-  while (index < text.length) {
-    const character = text[index];
-    if (character === "\\") {
-      index += 2;
-      continue;
-    }
-    index += 1;
-    if (character === '"') break;
-  }
-  return index;
-}
-
-function endOfNumberLiteral(text: string, start: number): number {
-  let index = start;
-  if (text[index] === "-") index += 1;
-  while (index < text.length && isNumberBody(text[index] as string)) index += 1;
-  return index;
-}
-
-function isNumberBody(character: string): boolean {
-  return (
-    (character >= "0" && character <= "9") ||
-    character === "." ||
-    character === "e" ||
-    character === "E" ||
-    character === "+" ||
-    character === "-"
-  );
-}
-
-function isUnsafeIntegerLiteral(literal: string): boolean {
-  if (!/^-?[0-9]+$/u.test(literal)) return false;
-  return !Number.isSafeInteger(Number(literal));
-}
-
-async function readBoundedBody(response: Response, method: string): Promise<Uint8Array> {
-  const contentLength = response.headers.get("content-length");
-  if (contentLength !== null && /^\d+$/u.test(contentLength)) {
-    const bodyBytes = Number(contentLength);
-    if (bodyBytes > MAX_BODY_BYTES) throw oversizedResponse(method, bodyBytes);
-  }
-
-  if (response.body === null) return new Uint8Array();
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let bodyBytes = 0;
-  for (;;) {
-    const next = await reader.read();
-    if (next.done) break;
-    bodyBytes += next.value.length;
-    if (bodyBytes > MAX_BODY_BYTES) {
-      try {
-        await reader.cancel();
-      } catch {
-        // The size limit remains the primary failure.
-      }
-      throw oversizedResponse(method, bodyBytes);
-    }
-    chunks.push(next.value);
-  }
-
-  const body = new Uint8Array(bodyBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return body;
-}
-
-function oversizedResponse(method: string, bodyBytes: number): ApiError {
-  return new ApiError("API_RESPONSE_TOO_LARGE", "API response body is too large", {
-    details: { method, bodyBytes, maxBodyBytes: MAX_BODY_BYTES, retryable: false },
-  });
-}
-
-function validateEnvelope(value: unknown, method: string): JsonObject {
-  if (!isObject(value)) return invalidEnvelope(method);
-  const allowed = ["id", "jsonrpc", "result", "error"];
-  if (Object.keys(value).some((key) => !allowed.includes(key))) return invalidEnvelope(method);
-  if (value["jsonrpc"] !== JSON_RPC_VERSION || value["id"] !== REQUEST_ID) {
-    return invalidEnvelope(method);
-  }
-
-  const hasResult = Object.hasOwn(value, "result");
-  const hasError = Object.hasOwn(value, "error") && value["error"] !== null;
-  if (hasResult && hasError) return invalidEnvelope(method);
-  if (hasError) throw jsonRpcError(value["error"], method);
-  if (!hasResult) {
-    throw new ApiError("API_MISSING_RESULT", "JSON-RPC response omitted its result", {
-      details: { method, retryable: false },
-    });
-  }
-  return value;
-}
-
-function jsonRpcError(value: unknown, method: string): ApiError {
-  if (!isObject(value)) return invalidEnvelope(method);
-  const allowed = ["code", "message", "data"];
-  if (Object.keys(value).some((key) => !allowed.includes(key))) return invalidEnvelope(method);
-  const code = value["code"];
-  const message = value["message"];
-  if (code !== undefined && (typeof code !== "number" || !Number.isSafeInteger(code))) {
-    return invalidEnvelope(method);
-  }
-  if (message !== undefined && typeof message !== "string") return invalidEnvelope(method);
-  return new ApiError("API_JSON_RPC", "API returned a JSON-RPC error", {
-    details: {
-      method,
-      retryable: false,
-      ...(code === undefined ? {} : { rpcCode: code }),
-      ...(message === undefined ? {} : { rpcMessage: { type: "string", length: message.length } }),
-    },
-  });
-}
-
-function invalidEnvelope(method: string): never {
-  throw new ApiError("API_INVALID_ENVELOPE", "API returned an invalid JSON-RPC envelope", {
-    details: { method, retryable: false },
-  });
-}
-
-function decodeResult<Request, Response>(
-  descriptor: MethodDescriptor<Request, Response>,
-  envelope: JsonObject,
-): Response {
-  try {
-    return descriptor.decodeResponse(envelope["result"]);
-  } catch (error) {
-    throw schemaError("API_INVALID_RESULT", descriptor.name, error);
   }
 }
 
@@ -573,28 +285,6 @@ function schemaError(
 
 function isObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isFetch(value: unknown): value is typeof globalThis.fetch {
-  return typeof value === "function";
-}
-
-function isJsonContentType(contentType: string | null): boolean {
-  if (contentType === null) return false;
-  const mediaType = contentType.split(";", 1)[0]?.trim().toLowerCase();
-  return mediaType === "application/json" || mediaType?.endsWith("+json") === true;
-}
-
-function contentTypeCategory(contentType: string | null): string {
-  if (contentType === null) return "missing";
-  const mediaType = contentType.split(";", 1)[0]?.trim().toLowerCase();
-  if (mediaType === "application/json" || mediaType?.endsWith("+json") === true) return "json";
-  if (mediaType?.startsWith("text/") === true) return "text";
-  return "binary";
-}
-
-function isRetryableStatus(status: number): boolean {
-  return status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
 function hasControlCharacter(value: string): boolean {

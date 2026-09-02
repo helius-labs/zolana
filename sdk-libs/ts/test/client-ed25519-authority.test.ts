@@ -27,7 +27,14 @@ describe("ClientEd25519WalletAuthority", () => {
       solanaPublicKey,
       derivationSeed: seed,
     });
-    const material = await authority.syncMaterial();
+    // The session wipes the lent keys when the callback settles, capture inside.
+    const material = await authority.withSyncSession(async (keys) => {
+      const lent = await keys.syncMaterial();
+      return {
+        identity: lent.identity,
+        nullifierSecret: hex(lent.nullifierKey.secretBytes()),
+      };
+    });
 
     expect(hex(material.identity.signingPublicKey.toBytes())).toBe(
       hex(expected.signingPublicKey().toBytes()),
@@ -36,9 +43,7 @@ describe("ClientEd25519WalletAuthority", () => {
     expect(hex(material.identity.viewingPublicKey.toBytes())).toBe(
       hex(expected.viewingPublicKey().toBytes()),
     );
-    expect(hex(material.nullifierKey.secretBytes())).toBe(
-      hex(expected.nullifierKey().secretBytes()),
-    );
+    expect(material.nullifierSecret).toBe(hex(expected.nullifierKey().secretBytes()));
     // The authority exposes scan and encryption material and nothing that can
     // authorize a Solana transaction; that stays with the remote signer.
     expect(

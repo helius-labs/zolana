@@ -1,8 +1,29 @@
 import { getBase64Encoder } from "@solana/kit";
 
+import { reserveEntries } from "../flows/reserve.js";
 import type { Bytes32 } from "../interface/types.js";
+import { TransactionError } from "../transaction/error.js";
+import type { UtxoReservation, Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 
 import { WalletError } from "./error.js";
+
+/** @internal Named-input conflicts surface as `WALLET_NOTE_RESERVED`. */
+export function reserveWalletEntries(
+  wallet: Wallet,
+  entries: readonly WalletUtxo[],
+): UtxoReservation {
+  try {
+    return reserveEntries(wallet, entries);
+  } catch (cause) {
+    if (cause instanceof TransactionError && cause.code === "TRANSACTION_NOTE_RESERVED") {
+      throw new WalletError("WALLET_NOTE_RESERVED", {
+        ...(cause.details === undefined ? {} : { details: cause.details }),
+        cause,
+      });
+    }
+    throw cause;
+  }
+}
 
 const base64Encoder = getBase64Encoder();
 

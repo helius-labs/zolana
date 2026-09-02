@@ -163,7 +163,11 @@ impl RingHarness {
     pub fn sync(&mut self, name: &str) -> Result<()> {
         self.ensure_fresh_actor(name)?;
         let indexed = self.indexed.clone();
+        // Actors may exist before assets are registered, so refresh the wallet's
+        // asset registry before decoding SPL UTXOs.
+        let assets = self.assets.clone();
         let actor = self.actor_mut(name);
+        actor.wallet.registry = assets;
         let authority = KeypairWalletAuthority::new(Address::default(), &actor.keypair);
         actor
             .wallet

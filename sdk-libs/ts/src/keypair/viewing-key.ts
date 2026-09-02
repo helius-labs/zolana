@@ -61,11 +61,13 @@ export class ViewingKey implements ViewingKeyLike {
   /**
    * The viewing key of the wallet whose ed25519 `derivationSeed` is the
    * signature over `ed25519DerivationMessage(publicKey)`. Same key as
-   * `LocalWalletAuthority.fromDerivationSeed` holds, without the nullifier
+   * `KeypairWalletAuthority.fromDerivationSeed` holds, without the nullifier
    * key, so nothing here hashes.
    */
   static fromDerivationSeed(derivationSeed: Uint8Array): ViewingKey {
-    return new ViewingKey(roleExpansion(derivationSeed, "ed25519").viewingSecret());
+    return roleExpansion(derivationSeed, "ed25519", (roles) =>
+      ViewingKey.fromBytes(roles.viewingSecret),
+    );
   }
 
   publicKey(): P256PublicKey {
@@ -83,7 +85,13 @@ export class ViewingKey implements ViewingKeyLike {
     if (isDerivationPoint(counterparty)) {
       throw new KeypairError("KEYPAIR_DERIVATION_INPUT");
     }
-    return copyBytes(ecdhX(this.#secret, counterparty)) as Bytes32;
+    // The view aliases the shared point buffer, not a copy.
+    const shared = ecdhX(this.#secret, counterparty);
+    try {
+      return copyBytes(shared) as Bytes32;
+    } finally {
+      shared.fill(0);
+    }
   }
 
   recipientBootstrapViewTag(): ViewTag {
@@ -94,11 +102,16 @@ export class ViewingKey implements ViewingKeyLike {
     this.#assertUsable();
     const nullifier = checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier");
     const txViewingSecret = this.#viewSecret(INFO_TX_VIEWING);
+    let salted: Uint8Array | undefined;
+    let scalar: Uint8Array | undefined;
     try {
-      const salted = hkdfExpand(nullifier, txViewingSecret, encoder.encode(INFO_TX_VIEWING), 48);
-      return ViewingKey.fromBytes(scalarFromOkm(salted));
+      salted = hkdfExpand(nullifier, txViewingSecret, encoder.encode(INFO_TX_VIEWING), 48);
+      scalar = scalarFromOkm(salted);
+      return ViewingKey.fromBytes(scalar as Bytes32);
     } finally {
       txViewingSecret.fill(0);
+      salted?.fill(0);
+      scalar?.fill(0);
     }
   }
 

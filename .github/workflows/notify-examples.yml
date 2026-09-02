@@ -1,0 +1,46 @@
+name: notify-examples
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "sdk-libs/ts/**"
+      - "sdk-libs/client/**"
+      - "sdk-libs/keypair/**"
+      - "sdk-libs/transaction/**"
+      - "program-libs/interface/**"
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: zolana SHA to sync (blank uses github.sha)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve SHA
+        id: ref
+        env:
+          INPUT_SHA: ${{ github.event.inputs.sha }}
+          PUSH_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          sha="${INPUT_SHA:-$PUSH_SHA}"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "html_url=${{ github.server_url }}/helius-labs/zolana/commit/$sha" >> "$GITHUB_OUTPUT"
+
+      - uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.CROSS_REPO_TOKEN }}
+          repository: helius-labs/zolana-examples
+          event-type: sdk-changed
+          client-payload: |
+            {
+              "sha": "${{ steps.ref.outputs.sha }}",
+              "html_url": "${{ steps.ref.outputs.html_url }}"
+            }

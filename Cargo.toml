@@ -105,13 +105,13 @@ zolana-bloom-filter = { path = "program-libs/bloom-filter", version = "0.6.0" }
 zolana-hasher = { path = "program-libs/hasher", version = "5.0.0", default-features = false }
 zolana-indexed-array = { path = "program-libs/indexed-array", version = "0.3.0" }
 light-poseidon = "0.4.0"
-# Pinned to the head of the mollusk-0.14 PR (Lightprotocol/light-program-profiler#1).
+# Pinned to the head of the mollusk-0.15 branch (Lightprotocol/light-program-profiler).
 # Switch back to a released version once that lands upstream.
-light-program-profiler = { git = "https://github.com/Lightprotocol/light-program-profiler", rev = "8afb60d66842e5428e562d468a5e4a891c031cbf" }
+light-program-profiler = { git = "https://github.com/Lightprotocol/light-program-profiler", rev = "db49f3c801996a80e1cb7e4e92b13a694e962b65" }
 light-sparse-merkle-tree = "0.3.0"
 
-# Mollusk test harness. Tracks the workspace's agave 4.1 wire crates.
-mollusk-svm = "0.14.0"
+# Mollusk test harness. Tracks the workspace's agave 4.2 wire crates.
+mollusk-svm = "0.15.0"
 
 # Solana and SPL.
 anchor-lang = "1.1"
@@ -134,7 +134,7 @@ solana-cpi = "3.1"
 solana-curve25519 = "4.0"
 solana-derivation-path = "3.0.0"
 solana-epoch-info = "3.1"
-# Pin solana-hash to 4.5.0: the agave 4.1 graph (agave-feature-set,
+# Pin solana-hash to 4.5.0: the agave 4.2 graph (agave-feature-set,
 # solana-message, solana-transaction) is built against 4.5.x; letting it float
 # duplicates the crate with types the rest of the graph does not share.
 solana-hash = "=4.5.0"
@@ -150,7 +150,7 @@ solana-program-pack = "3.1"
 solana-pubkey = { version = "4.2", features = ["curve25519"] }
 solana-rent = "4.2"
 # Pin solana-reward-info to 6.2.0: 6.3.0 pulls in wincode 0.6.0, which conflicts
-# with the wincode 0.5.x used by the rest of the agave 4.1 graph.
+# with the wincode 0.5.x used by the rest of the agave 4.2 graph.
 solana-reward-info = "=6.2.0"
 solana-rpc-client = "4.1"
 solana-rpc-client-api = "4.1"
@@ -209,7 +209,7 @@ jsonwebtoken = "10.4.0"
 jsonrpsee = { version = "0.26.0", features = ["server", "macros"] }
 lazy_static = "1.5.0"
 log = "0.4"
-litesvm = "0.15"
+litesvm = "0.16"
 num-bigint = "0.4.6"
 num-traits = "0.2.19"
 once_cell = "1.21.4"

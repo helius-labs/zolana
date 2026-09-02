@@ -16,6 +16,7 @@ use zolana_ring_client::{auditor_view_tag, ReaderKey};
 use zolana_transaction::AssetRegistry;
 
 use crate::{
+    api::unix_now,
     audit::{AuditService, ASSET_REFRESH_INTERVAL},
     authorize::Unauthorized,
     config::RootSecret,
@@ -65,18 +66,36 @@ impl NotReady {
     }
 }
 
+/// Unix seconds for the auth skew rule and the nonce eviction window.
+#[derive(Debug, Clone, Copy)]
+pub enum Clock {
+    System,
+    Fixed(u64),
+}
+
+impl Clock {
+    pub(crate) fn now(self) -> Result<u64, RingRpcError> {
+        match self {
+            Self::System => unix_now().map_err(|_| RingRpcError::StateUnavailable),
+            Self::Fixed(now) => Ok(now),
+        }
+    }
+}
+
 #[must_use]
 pub struct HubBuilder<S> {
     source: S,
     genesis_hash: [u8; 32],
     assets: AssetRegistry,
     origins: Origins,
+    clock: Clock,
 }
 
 pub(crate) struct Shared<S> {
     pub(crate) source: S,
     /// Captured at boot, every authority signature and derived key binds to it.
     pub(crate) genesis_hash: [u8; 32],
+    pub(crate) clock: Clock,
     assets: AsyncMutex<AssetCache>,
     pub(crate) origins: Origins,
     pub(crate) replay: ReplayGuard,
@@ -157,6 +176,7 @@ impl<S: TransactionSource> Hub<S> {
             genesis_hash,
             assets: AssetRegistry::default(),
             origins: Origins::default(),
+            clock: Clock::System,
         }
     }
 
@@ -381,6 +401,12 @@ impl<S: TransactionSource> HubBuilder<S> {
         self
     }
 
+    #[must_use = "use the updated builder"]
+    pub fn with_clock(mut self, clock: Clock) -> Self {
+        self.clock = clock;
+        self
+    }
+
     pub fn local(self, ring: Address, auditor: ViewingKey) -> Result<Hub<S>, RingRpcError> {
         let signer = service_keypair(auditor.secret_bytes().as_slice())?;
         Ok(Hub {
@@ -403,6 +429,7 @@ impl<S: TransactionSource> HubBuilder<S> {
         Arc::new(Shared {
             source: self.source,
             genesis_hash: self.genesis_hash,
+            clock: self.clock,
             assets: AsyncMutex::new(AssetCache {
                 registry: self.assets,
                 refresh: RefreshState::Never,

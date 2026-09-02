@@ -1,12 +1,18 @@
 import { WasmFactory, type LightWasm } from "@lightprotocol/hasher.rs";
 
-/** A rejection from the Poseidon runtime, carrying the matching Rust hasher code. */
-export class HasherWasmError extends Error {
-  readonly code: number;
+export type HasherFailureCode =
+  | "NotInitialized"
+  | "InvalidNumFields"
+  | "InvalidInputLength"
+  | "Poseidon";
 
-  constructor(code: number, message: string) {
+/** @internal No barrel exports it. */
+export class HasherFailure extends Error {
+  readonly code: HasherFailureCode;
+
+  constructor(code: HasherFailureCode, message: string) {
     super(message);
-    this.name = "HasherWasmError";
+    this.name = "HasherFailure";
     this.code = code;
   }
 }
@@ -15,11 +21,6 @@ const FIELD_BYTES = 32;
 
 /** The widest digest supported by both the runtime and the Solana verifier. */
 export const MAX_POSEIDON_INPUTS = 12;
-
-const ERROR_ARITY = 1;
-const ERROR_UNINITIALIZED = 2;
-const ERROR_POSEIDON = 7002;
-const ERROR_INVALID_INPUT_LENGTH = 7005;
 
 let loaded: LightWasm | undefined;
 let loading: Promise<LightWasm> | undefined;
@@ -52,22 +53,22 @@ export function resetPoseidonForTests(): void {
 export function poseidon(inputs: readonly Uint8Array[]): Uint8Array {
   const active = loaded;
   if (active === undefined) {
-    throw new HasherWasmError(
-      ERROR_UNINITIALIZED,
-      "the Poseidon hasher is not loaded; await initializePoseidon() once before hashing",
+    throw new HasherFailure(
+      "NotInitialized",
+      "the Poseidon hasher is not loaded, await initializePoseidon() once before hashing",
     );
   }
   if (inputs.length === 0 || inputs.length > MAX_POSEIDON_INPUTS) {
-    throw new HasherWasmError(
-      ERROR_ARITY,
+    throw new HasherFailure(
+      "InvalidNumFields",
       `Poseidon takes 1 to ${String(MAX_POSEIDON_INPUTS)} inputs, received ${String(inputs.length)}`,
     );
   }
 
   const decimalInputs = inputs.map((input, index) => {
     if (input.length > FIELD_BYTES) {
-      throw new HasherWasmError(
-        ERROR_INVALID_INPUT_LENGTH,
+      throw new HasherFailure(
+        "InvalidInputLength",
         `Poseidon input ${String(index)} is ${String(input.length)} bytes, the field takes 32`,
       );
     }
@@ -79,7 +80,7 @@ export function poseidon(inputs: readonly Uint8Array[]): Uint8Array {
     return new Uint8Array(active.poseidonHash(decimalInputs));
   } catch (cause) {
     const reason = cause instanceof Error ? cause.message : String(cause);
-    throw new HasherWasmError(ERROR_POSEIDON, `Poseidon rejected the input: ${reason}`);
+    throw new HasherFailure("Poseidon", `Poseidon rejected the input, ${reason}`);
   }
 }
 

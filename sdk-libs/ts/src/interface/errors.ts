@@ -74,8 +74,16 @@ export function decodeShieldedPoolError(code: number): DecodedShieldedPoolError 
     : Object.freeze({ kind: "known", code: code as ShieldedPoolErrorCode, name });
 }
 
+import {
+  extractCauseCode,
+  hideCause,
+  sanitizeDetails,
+  type ErrorEnvelope,
+} from "../errors/internal.js";
+
 export class InterfaceError extends Error {
   readonly code: InterfaceErrorCode;
+  readonly causeCode?: string;
   readonly details?: Readonly<Record<string, unknown>>;
   override readonly cause?: unknown;
 
@@ -87,7 +95,19 @@ export class InterfaceError extends Error {
     super(code);
     this.name = "InterfaceError";
     this.code = code;
-    if (details !== undefined) this.details = details;
-    if (cause !== undefined) this.cause = cause;
+    const safe = sanitizeDetails(details);
+    if (safe !== undefined) this.details = safe;
+    const inner = extractCauseCode(cause);
+    if (inner !== undefined) this.causeCode = inner;
+    hideCause(this, cause);
+  }
+
+  toJSON(): ErrorEnvelope {
+    return {
+      name: this.name,
+      code: this.code,
+      ...(this.details === undefined ? {} : { details: this.details }),
+      ...(this.causeCode === undefined ? {} : { causeCode: this.causeCode }),
+    };
   }
 }

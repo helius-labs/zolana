@@ -1,4 +1,4 @@
-import type { ZolanaClient } from "../client/client.js";
+import type { ChainReader } from "../client/ports.js";
 import type { RpcAccount } from "../client/rpc.js";
 import type { Address, RequestContext } from "../interface/types.js";
 
@@ -12,7 +12,7 @@ import {
   type ReaderKey,
 } from "./reader.js";
 
-type AccountReader = Pick<ZolanaClient, "getMultipleAccounts">;
+type AccountReader = Pick<ChainReader, "getMultipleAccounts">;
 
 export type RingRole = "authority" | "delegated reader" | "participant only";
 

@@ -12,9 +12,9 @@ use custom_ring_interface::RULES;
 use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
     read_entry, CreateConfig, CreateEntry, CreatePolicy, CustomRing, CustomRingTransfer,
-    CustomRingTransferInput, EntryProofEnvironment, InitSppRingConfig, ProvenTransfer, RingDeposit,
-    RingDepositReceipt, SetSourceOwner, SourceOwner, TransferError, TransferProofEnvironment,
-    UpdateEntry, V0WithLookupTable,
+    CustomRingTransferInput, DepositAsset, EntryProofEnvironment, InitSppRingConfig,
+    ProvenTransfer, RingDeposit, RingDepositReceipt, SetSourceOwner, SourceOwner, TransferError,
+    TransferProofEnvironment, UpdateEntry, V0WithLookupTable,
 };
 use shared::{
     custom_ring_program_id, send, send_v0_expecting_rejection, setup_with_extra_rings, TestEnv,
@@ -106,6 +106,7 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
             payer: &env.sender.keypair,
             recipient: &env.sender.keypair,
             tree: env.tree,
+            asset: DepositAsset::Sol,
             amount: DEPOSIT,
         }
         .send(rpc)?;

@@ -1,4 +1,5 @@
 export { initializePoseidon, isPoseidonInitialized } from "../hasher/index.js";
+export { AssetMetadataCache, fetchAssetMetadata, type AssetMetadata } from "./asset-metadata.js";
 export { WALLET_ERROR_CODES, WalletError, type WalletErrorCode } from "./error.js";
 export {
   ClientEd25519WalletAuthority,
@@ -10,11 +11,24 @@ export {
   type EncryptedEnvelope,
   type EncryptedSplit,
   type EncryptedTransfer,
+  type SpendAuthority,
+  type SpendSession,
+  type SyncAuthority,
   type SyncWalletAuthority,
   type WalletAuthority,
   type WalletSyncMaterial,
 } from "../transaction/wallet/authority.js";
-export { buildDepositTransaction, type DepositTransactionParams } from "./deposit.js";
+export {
+  approveIntent,
+  intentHash,
+  type IntentApproval,
+  type TransactionIntent,
+} from "../transaction/wallet/intent.js";
+export {
+  buildDepositTransaction,
+  type DepositClient,
+  type DepositTransactionParams,
+} from "./deposit.js";
 export { fetchTransactionSlots, type TransactionSlots } from "./transaction-slots.js";
 export {
   buildSplitTransaction,
@@ -23,17 +37,28 @@ export {
   type PrivateTransactionParams,
   type SplitTransactionParams,
   type TransferDestination,
+  type PrivateTransactionClient,
   type TransferTransactionParams,
   type WithdrawalTransactionParams,
 } from "./transactions.js";
-export { buildMergeTransaction, type MergeTransactionParams } from "./merge.js";
+export { buildMergeTransaction, type MergeClient, type MergeTransactionParams } from "./merge.js";
 export {
   backfillAssetRegistry,
   getPrivateTokenBalances,
   getPrivateTransactions,
   syncWallet,
+  type SyncClient,
   type SyncWalletConfig,
+  type SyncWalletInput,
 } from "./sync.js";
+export {
+  loadPersistedWallet,
+  syncPersistedWallet,
+  type SyncPersistedWalletResult,
+  type WalletStateCipher,
+  type WalletStateStore,
+} from "./persisted.js";
+export { walletSnapshotCipher } from "./snapshot-cipher.js";
 export {
   buildRegistrationTransaction,
   buildSetMergingEnabledTransaction,
@@ -50,3 +75,4 @@ export {
   type ResolvedAddress,
   type UserRecord,
 } from "./registry.js";
+export type { ErrorEnvelope } from "../errors/internal.js";

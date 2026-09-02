@@ -8,9 +8,12 @@ import { RingRpc } from "../src/ring/rpc.js";
 // which a stored method reference is not. The stub enforces the same rule.
 function strictFetch() {
   const calls: unknown[] = [];
-  const fetch = function (this: unknown, input: unknown) {
+  const fetch: typeof globalThis.fetch = function (
+    this: unknown,
+    ...args: Parameters<typeof globalThis.fetch>
+  ) {
     if (this !== globalThis && this !== undefined) throw new TypeError("Illegal invocation");
-    calls.push(input);
+    calls.push(args[0]);
     return Promise.resolve(
       new Response(
         JSON.stringify({
@@ -24,7 +27,7 @@ function strictFetch() {
       ),
     );
   };
-  return { fetch: fetch as unknown as typeof globalThis.fetch, calls };
+  return { fetch, calls };
 }
 
 describe("fetch binding", () => {
@@ -32,7 +35,7 @@ describe("fetch binding", () => {
     const { fetch, calls } = strictFetch();
     vi.stubGlobal("fetch", fetch);
     try {
-      await new RingRpc("http://ring.example").health();
+      await new RingRpc("http://ring.example", { allowInsecureHttp: true }).health();
       await new ZolanaApi({ url: "https://indexer.example" })
         .getEncryptedUtxosByTags({ tags: [] } as never)
         .catch(() => undefined);

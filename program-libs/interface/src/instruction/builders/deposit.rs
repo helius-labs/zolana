@@ -26,6 +26,16 @@ pub enum DepositAsset {
     Spl(DepositSplAccounts),
 }
 
+impl DepositAsset {
+    /// The settled mint, the zero address for SOL.
+    pub fn mint(&self) -> Pubkey {
+        match self {
+            DepositAsset::Sol => Pubkey::default(),
+            DepositAsset::Spl(spl) => spl.mint,
+        }
+    }
+}
+
 /// One output of a deposit batch, tagged with the asset it deposits.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AssetDeposit {

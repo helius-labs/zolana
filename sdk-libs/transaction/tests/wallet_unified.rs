@@ -5,7 +5,14 @@ use common::{
 };
 #[cfg(feature = "parallel")]
 use zolana_transaction::PrivateTransactionDirection;
-use zolana_transaction::{Address, AssetRegistry, KeypairWalletAuthority, Wallet};
+use zolana_transaction::{
+    instructions::{
+        merge::{merge_dummy_nullifier, merge_output_blinding, MERGE_INPUTS},
+        transact::SENDER_SLOT_COUNT,
+    },
+    Address, AssetRegistry, Data, KeypairWalletAuthority, OutputContext, OutputSlot,
+    ShieldedTransaction, Utxo, Wallet, SOL_MINT,
+};
 
 const WINDOW: u64 = 8;
 
@@ -56,6 +63,129 @@ fn sync_stores_unified_change_and_recipient_utxos() {
             .collect::<Vec<_>>(),
         vec![recipient_utxo]
     );
+}
+
+#[test]
+fn fresh_sync_resolves_merge_dependencies() {
+    let assets = AssetRegistry::default();
+    let alice = keypair_from_index(2);
+    let bob = keypair_from_index(3);
+    let mut counter = 0u64;
+
+    let (mut funding, _, input) = build_unified_transfer(
+        &assets,
+        UnifiedTransferSpec {
+            sender: &bob,
+            recipient: &alice,
+            amount: 42,
+            change_amount: 1,
+            first_nullifier: unique_nullifier(&mut counter),
+            blinding: unique31(&mut counter, 0x03),
+            change_blinding: unique31(&mut counter, 0x04),
+        },
+    );
+    funding.slot = 1;
+    let input_context = &funding.output_slots[SENDER_SLOT_COUNT].output_context;
+    let nullifier_key = &alice.nullifier_key;
+    let nullifier_pk = nullifier_key.pubkey().unwrap();
+    let first_nullifier = input.nullifier(&input_context.hash, nullifier_key).unwrap();
+    let output = Utxo {
+        owner: alice.signing_pubkey(),
+        asset: SOL_MINT,
+        amount: input.amount,
+        blinding: merge_output_blinding(nullifier_key, &first_nullifier).unwrap(),
+        ring_program_id: None,
+        data: Data::default(),
+    };
+    let mut nullifiers = vec![first_nullifier];
+    nullifiers.extend(
+        (1..MERGE_INPUTS).map(|slot| {
+            merge_dummy_nullifier(nullifier_key, &first_nullifier, slot as u8).unwrap()
+        }),
+    );
+    let merge = ShieldedTransaction {
+        slot: 2,
+        tx_signature: solana_signature::Signature::default(),
+        tx_viewing_pk: None,
+        salt: None,
+        output_slots: vec![OutputSlot {
+            view_tag: alice.signing_pubkey().confidential_view_tag().unwrap(),
+            output_context: OutputContext {
+                hash: output.hash(&nullifier_pk, &[0; 32], &[0; 32]).unwrap(),
+                tree: Address::default(),
+                leaf_index: 2,
+            },
+            payload: Vec::new(),
+        }],
+        messages: Vec::new(),
+        nullifiers,
+        proofless: false,
+    };
+    let merge_context = &merge.output_slots[0].output_context;
+    let chained_nullifier = output
+        .nullifier(&merge_context.hash, nullifier_key)
+        .unwrap();
+    let chained_output = Utxo {
+        owner: alice.signing_pubkey(),
+        asset: SOL_MINT,
+        amount: output.amount,
+        blinding: merge_output_blinding(nullifier_key, &chained_nullifier).unwrap(),
+        ring_program_id: None,
+        data: Data::default(),
+    };
+    let mut chained_nullifiers = vec![chained_nullifier];
+    chained_nullifiers.extend(
+        (1..MERGE_INPUTS).map(|slot| {
+            merge_dummy_nullifier(nullifier_key, &chained_nullifier, slot as u8).unwrap()
+        }),
+    );
+    let chained_merge = ShieldedTransaction {
+        slot: 3,
+        tx_signature: solana_signature::Signature::default(),
+        tx_viewing_pk: None,
+        salt: None,
+        output_slots: vec![OutputSlot {
+            view_tag: alice.signing_pubkey().confidential_view_tag().unwrap(),
+            output_context: OutputContext {
+                hash: chained_output
+                    .hash(&nullifier_pk, &[0; 32], &[0; 32])
+                    .unwrap(),
+                tree: Address::default(),
+                leaf_index: 3,
+            },
+            payload: Vec::new(),
+        }],
+        messages: Vec::new(),
+        nullifiers: chained_nullifiers,
+        proofless: false,
+    };
+    let authority = KeypairWalletAuthority::new(Address::default(), &alice);
+
+    let mut fresh = Wallet::new(alice.shielded_address().unwrap(), assets.clone()).unwrap();
+    let report = fresh
+        .sync(
+            &authority,
+            &[funding.clone(), chained_merge.clone(), merge.clone()],
+            1,
+            WINDOW,
+        )
+        .unwrap();
+    assert_eq!(report.stored_utxos, 3);
+    assert_eq!(report.undecryptable_candidates, 0);
+    assert_eq!(fresh.balance(SOL_MINT, None).unwrap().amount, 42);
+
+    let mut incremental = Wallet::new(alice.shielded_address().unwrap(), assets).unwrap();
+    incremental
+        .sync(&authority, std::slice::from_ref(&funding), 1, WINDOW)
+        .unwrap();
+    incremental
+        .sync(&authority, std::slice::from_ref(&merge), 1, WINDOW)
+        .unwrap();
+    incremental
+        .sync(&authority, std::slice::from_ref(&chained_merge), 1, WINDOW)
+        .unwrap();
+    assert_eq!(incremental.balance(SOL_MINT, None).unwrap().amount, 42);
+    assert_eq!(fresh.utxos, incremental.utxos);
 }
 
 /// The confidential rail through both scan strategies.

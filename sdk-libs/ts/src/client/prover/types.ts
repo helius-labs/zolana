@@ -5,15 +5,27 @@ import type {
   TransactInstructionData,
   TransactProof,
 } from "../../interface/types.js";
-import type { ProofInputUtxo } from "../../transaction/utxo.js";
+import type { ProofInputUtxo, ProofOutputUtxo } from "../../transaction/utxo.js";
 
 import type { SpendProof } from "../rpc.js";
 
 export type Shape = Readonly<{ inputs: number; outputs: number }>;
 export type Field = bigint & { readonly __bn254Field: unique symbol };
 
+export interface CircuitUtxo {
+  readonly domain: Field;
+  readonly owner: Field;
+  readonly asset: Field;
+  readonly amount: Field;
+  readonly blinding: Field;
+  readonly dataHash: Field;
+  readonly ringDataHash: Field;
+  readonly ringProgramId: Field;
+}
+
 export interface TransferInput {
   readonly utxo: ProofInputUtxo;
+  readonly circuit: CircuitUtxo;
   readonly isDummy: Field;
   readonly statePathElements: readonly Field[];
   readonly statePathIndex: Field;
@@ -29,7 +41,8 @@ export interface TransferInput {
 }
 
 export interface TransferOutput {
-  readonly utxo: ProofInputUtxo;
+  readonly utxo: ProofOutputUtxo;
+  readonly circuit: CircuitUtxo;
   readonly isDummy: Field;
   readonly hash: Field;
   readonly ownerPublicKeyHash: Field;

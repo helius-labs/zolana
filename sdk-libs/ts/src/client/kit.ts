@@ -1,21 +1,13 @@
 import {
-  appendTransactionMessageInstructions,
-  compileTransaction,
   createSolanaRpc,
   createSolanaRpcSubscriptions,
-  createTransactionMessage,
   isSolanaError,
-  pipe,
-  setTransactionMessageFeePayer,
   setTransactionMessageLifetimeUsingBlockhash,
   SOLANA_ERROR__JSON_RPC__METHOD_NOT_FOUND,
-  type Address,
-  type Instruction,
   type Rpc,
   type RpcSubscriptions,
   type SolanaRpcApi,
   type SolanaRpcSubscriptionsApi,
-  type Transaction,
 } from "@solana/kit";
 
 import type { RequestContext } from "../interface/types.js";
@@ -48,24 +40,6 @@ export function createKitClients(
     solanaRpc: createSolanaRpc(rpcUrl),
     solanaRpcSubscriptions: createSolanaRpcSubscriptions(subscriptionsUrl),
   });
-}
-
-export function buildUnsignedTransaction(
-  input: Readonly<{
-    feePayer: Address;
-    instructions: readonly Instruction[];
-    lifetime: LatestBlockhash;
-  }>,
-): Transaction {
-  const message = pipe(
-    createTransactionMessage({ version: 0 }),
-    (transactionMessage) => setTransactionMessageFeePayer(input.feePayer, transactionMessage),
-    (transactionMessage) =>
-      setTransactionMessageLifetimeUsingBlockhash(input.lifetime, transactionMessage),
-    (transactionMessage) =>
-      appendTransactionMessageInstructions(input.instructions, transactionMessage),
-  );
-  return compileTransaction(message);
 }
 
 export async function runKitRpc<T>(

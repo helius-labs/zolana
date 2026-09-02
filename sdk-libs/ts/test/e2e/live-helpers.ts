@@ -77,7 +77,7 @@ export async function actor(
   };
 }
 
-async function signerFromWalletFile(path: string): Promise<KeyPairSigner> {
+export async function signerFromWalletFile(path: string): Promise<KeyPairSigner> {
   const parsed = JSON.parse(await readFile(path, "utf8")) as {
     funding_secret_hex?: unknown;
   };

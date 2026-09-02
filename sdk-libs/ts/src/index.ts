@@ -1,9 +1,9 @@
 import { ZolanaClient, type ZolanaClientConfig } from "./client/index.js";
 import { initializePoseidon } from "./hasher/index.js";
 
+export type { ErrorEnvelope } from "./errors/internal.js";
 export type { TransactionSigner } from "@solana/kit";
 export { initializePoseidon };
-export { HasherWasmError } from "./hasher/index.js";
 
 /**
  * Connects a client and loads the hasher it needs.
@@ -12,9 +12,8 @@ export { HasherWasmError } from "./hasher/index.js";
  * provided. Omitting all URLs uses the local stack ports.
  */
 export async function createZolanaClient(config: ZolanaClientConfig = {}): Promise<ZolanaClient> {
-  const client = new ZolanaClient(config);
   await initializePoseidon();
-  return client;
+  return new ZolanaClient(config);
 }
 
 export {
@@ -55,20 +54,29 @@ export {
 export {
   Data,
   ClientEd25519WalletAuthority,
+  formatAmount,
   KeypairWalletAuthority,
+  parseAmount,
   SOL_MINT,
   TransactionError,
   Utxo,
   Wallet,
   deserializeWallet,
   serializeWallet,
+  type SerializedCursor,
+  type SerializedNoteReservation,
+  type SerializedSyncCursors,
   type SerializedWalletState,
   type SyncReport,
   type TransactionErrorCode,
+  type SpendAuthority,
+  type SpendSession,
+  type SyncAuthority,
   type WalletAuthority,
   type WalletUtxo,
 } from "./transaction/index.js";
 export {
+  AssetMetadataCache,
   buildDepositTransaction,
   buildMergeTransaction,
   buildRegistrationTransaction,
@@ -77,31 +85,44 @@ export {
   buildTransferTransaction,
   buildWithdrawalTransaction,
   fetchTransactionSlots,
+  fetchAssetMetadata,
   fetchViewingKeyOwners,
   getPrivateTokenBalances,
   getPrivateTransactions,
+  loadPersistedWallet,
+  syncPersistedWallet,
   syncWallet,
   viewingKeyIndex,
+  walletSnapshotCipher,
   WalletError,
   type DepositTransactionParams,
+  type AssetMetadata,
   type MergeTransactionParams,
   type PrivateTransactionParams,
   type SplitTransactionParams,
+  type SyncClient,
+  type SyncPersistedWalletResult,
   type SyncWalletConfig,
+  type SyncWalletInput,
   type TransactionSlots,
   type TransferDestination,
   type TransferTransactionParams,
   type WalletErrorCode,
+  type WalletStateCipher,
+  type WalletStateStore,
   type WithdrawalTransactionParams,
 } from "./wallet/index.js";
 export {
   buildRingDepositTransaction,
+  buildRingEntryTransaction,
+  buildRingExitTransaction,
   buildRingLookupTableTransaction,
   buildRingTransferTransaction,
   buildRingWithdrawalTransaction,
   createPasskey,
   fetchReaderGrant,
   fetchRingProgramConfig,
+  listRegisteredRings,
   grantReadAccessInstruction,
   parseReaderKey,
   passkeyReader,
@@ -114,12 +135,18 @@ export {
   type DecryptedRingTransaction,
   type DecryptedRingTransactionsPage,
   type RingDepositTransactionParams,
+  type RingEntryTransactionParams,
   type RingErrorCode,
   type Passkey,
   type ReaderKey,
   type ReadAccessRecord,
   type RingLookupTable,
+  type RingLookupTableClient,
+  type RingLookupTableReader,
+  type RegisteredRing,
   type RingProgramConfig,
   type RingReadSigner,
+  type RingRpcOptions,
   type RingTransferTransactionParams,
+  type RingWithdrawalTransactionParams,
 } from "./ring/index.js";

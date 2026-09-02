@@ -20,14 +20,21 @@ function keySchedule(
   info: Uint8Array,
 ): readonly [Uint8Array, Uint8Array] {
   const siloed = poseidon([bigIntToBytes(BigInt(DOM_SEP_SILO)), sharedSecret, rightAlign(info)]);
-  const keyLow = poseidon([bigIntToBytes(BigInt(DOM_SEP_KEY)), siloed]);
-  const keyHigh = poseidon([bigIntToBytes(BigInt(DOM_SEP_KEY) + 1n), siloed]);
-  const key = concatBytes(keyHigh.subarray(16), keyLow.subarray(16));
-  const nonce = poseidon([bigIntToBytes(BigInt(DOM_SEP_NONCE)), siloed]).subarray(20);
-  siloed.fill(0);
-  keyLow.fill(0);
-  keyHigh.fill(0);
-  return [key, nonce];
+  let keyLow: Uint8Array | undefined;
+  let keyHigh: Uint8Array | undefined;
+  let nonceSource: Uint8Array | undefined;
+  try {
+    keyLow = poseidon([bigIntToBytes(BigInt(DOM_SEP_KEY)), siloed]);
+    keyHigh = poseidon([bigIntToBytes(BigInt(DOM_SEP_KEY) + 1n), siloed]);
+    const key = concatBytes(keyHigh.subarray(16), keyLow.subarray(16));
+    nonceSource = poseidon([bigIntToBytes(BigInt(DOM_SEP_NONCE)), siloed]);
+    return [key, nonceSource.slice(20)];
+  } finally {
+    siloed.fill(0);
+    keyLow?.fill(0);
+    keyHigh?.fill(0);
+    nonceSource?.fill(0);
+  }
 }
 
 /**
@@ -40,29 +47,37 @@ export function symmetricApply(
   info: Uint8Array,
   data: Uint8Array,
 ): Uint8Array {
-  const secret = checkedBytes<Bytes32>(sharedSecret, 32, "shared secret");
   if (info.length !== MERGE_INFO_BYTES.length) {
     throw invalidLength("key schedule info", MERGE_INFO_BYTES.length, info.length);
   }
+  const secret = checkedBytes<Bytes32>(sharedSecret, 32, "shared secret");
   let key: Uint8Array | undefined;
+  let nonce: Uint8Array | undefined;
+  const counter = new Uint8Array(16);
   try {
-    let nonce: Uint8Array;
     [key, nonce] = keySchedule(secret, info);
-    const counter = new Uint8Array(16);
     counter.set(nonce);
     counter[15] = 2;
     return ctr(key, counter).encrypt(copyBytes(data));
   } finally {
+    secret.fill(0);
     key?.fill(0);
+    nonce?.fill(0);
+    counter.fill(0);
   }
 }
 
 export function mergeOutputBlinding(nullifierKey: NullifierKey, firstNullifier: Bytes32): Bytes32 {
-  return poseidon([
-    fieldU32(DOMAIN_MERGE_OUTPUT_BLINDING_V1),
-    rightAlign(nullifierKey.secretBytes()),
-    checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"),
-  ]) as Bytes32;
+  const secret = alignedNullifierSecret(nullifierKey);
+  try {
+    return poseidon([
+      fieldU32(DOMAIN_MERGE_OUTPUT_BLINDING_V1),
+      secret,
+      checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"),
+    ]) as Bytes32;
+  } finally {
+    secret.fill(0);
+  }
 }
 
 export function mergeDummyNullifier(
@@ -73,12 +88,26 @@ export function mergeDummyNullifier(
   if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex > 0xff) {
     throw new RangeError("merge dummy slot index must fit in u8");
   }
-  return poseidon([
-    fieldU32(DOMAIN_MERGE_DUMMY_NULLIFIER),
-    rightAlign(nullifierKey.secretBytes()),
-    checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"),
-    fieldU32(slotIndex),
-  ]) as Bytes32;
+  const secret = alignedNullifierSecret(nullifierKey);
+  try {
+    return poseidon([
+      fieldU32(DOMAIN_MERGE_DUMMY_NULLIFIER),
+      secret,
+      checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"),
+      fieldU32(slotIndex),
+    ]) as Bytes32;
+  } finally {
+    secret.fill(0);
+  }
+}
+
+function alignedNullifierSecret(nullifierKey: NullifierKey): Bytes32 {
+  const secret = nullifierKey.secretBytes();
+  try {
+    return rightAlign(secret);
+  } finally {
+    secret.fill(0);
+  }
 }
 
 function fieldU32(value: number): Bytes32 {

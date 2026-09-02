@@ -37,7 +37,7 @@ use crate::{
 pub(super) struct TxIndex {
     pub(super) sender_sites: HashMap<ViewTag, Vec<usize>>,
     pub(super) recipient_sites: HashMap<ViewTag, Vec<(usize, usize)>>,
-    pub(super) merge_sites: Vec<(usize, usize)>,
+    pub(super) merge_sites: HashMap<ViewTag, Vec<(usize, usize)>>,
 }
 
 /// A merge publishes no per-transaction encryption material: no
@@ -52,15 +52,15 @@ impl TxIndex {
     pub(super) fn build(transactions: &[ShieldedTransaction], report: &mut SyncReport) -> Self {
         let mut sender_sites: HashMap<ViewTag, Vec<usize>> = HashMap::new();
         let mut recipient_sites: HashMap<ViewTag, Vec<(usize, usize)>> = HashMap::new();
-        let mut merge_sites = Vec::new();
+        let mut merge_sites: HashMap<ViewTag, Vec<(usize, usize)>> = HashMap::new();
         for (t, tx) in transactions.iter().enumerate() {
             let mut classified = false;
             if is_merge_site(tx) {
-                // Merge outputs carry no ciphertext payload and are discovered
-                // by spent nullifier, independently of their output view tag.
                 for (slot_index, slot) in tx.output_slots.iter().enumerate() {
-                    let _ = slot;
-                    merge_sites.push((t, slot_index));
+                    merge_sites
+                        .entry(slot.view_tag)
+                        .or_default()
+                        .push((t, slot_index));
                     classified = true;
                 }
                 if !classified {
@@ -119,6 +119,12 @@ impl TxIndex {
 pub(super) struct SlotOutcome {
     pub(super) sender: Option<P256Pubkey>,
     pub(super) recipients: Vec<P256Pubkey>,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum MergeResolution {
+    Complete,
+    Pending,
 }
 
 pub(super) struct SyncCtx<'a> {
@@ -502,32 +508,45 @@ impl SyncCtx<'_> {
         Ok(())
     }
 
-    /// A merge output carries no ciphertext, so it is reconstructed from the
-    /// spent inputs and the published first nullifier — both keyed off the
-    /// nullifier secret. No viewing key takes part, which is why merge sites
-    /// have their own entry point rather than passing an unused key through
-    /// [`Self::decode_slot`].
-    ///
-    /// Returns nothing: a reconstructed merge names no counterparty, so there is
-    /// no [`SlotOutcome`] for a caller to fold into `known_senders` /
-    /// `known_recipients`.
-    pub(super) fn decode_merge_site(
+    fn decode_merge_site(
         &mut self,
         transactions: &[ShieldedTransaction],
         site: (usize, usize),
-    ) -> Result<(), TransactionError> {
+    ) -> Result<MergeResolution, TransactionError> {
         if self.processed_slots.contains(&site) {
-            return Ok(());
+            return Ok(MergeResolution::Complete);
         }
         let Some(tx) = transactions.get(site.0) else {
             self.report.undecryptable_candidates += 1;
-            return Ok(());
+            return Ok(MergeResolution::Complete);
         };
         if tx.output_slots.get(site.1).is_none() || !is_merge_site(tx) {
             self.report.undecryptable_candidates += 1;
-            return Ok(());
+            return Ok(MergeResolution::Complete);
         }
-        self.reconstruct_merge(tx, site)?;
+        self.reconstruct_merge(tx, site)
+    }
+
+    fn resolve_merge_sites(
+        &mut self,
+        transactions: &[ShieldedTransaction],
+        sites: &[(usize, usize)],
+    ) -> Result<(), TransactionError> {
+        let mut pending = sites.to_vec();
+        while !pending.is_empty() {
+            let pending_count = pending.len();
+            let mut unresolved = Vec::new();
+            for site in pending {
+                if self.decode_merge_site(transactions, site)? == MergeResolution::Pending {
+                    unresolved.push(site);
+                }
+            }
+            if unresolved.len() == pending_count {
+                self.report.undecryptable_candidates += unresolved.len();
+                break;
+            }
+            pending = unresolved;
+        }
         Ok(())
     }
 
@@ -555,9 +574,6 @@ impl SyncCtx<'_> {
             self.report.undecryptable_candidates += 1;
             return Ok(outcome);
         };
-        if is_merge_site(tx) {
-            return self.reconstruct_merge(tx, site);
-        }
         let Some(output_data) = slot.output_data() else {
             self.report.undecryptable_candidates += 1;
             return Ok(outcome);
@@ -805,24 +821,21 @@ impl SyncCtx<'_> {
         &mut self,
         tx: &ShieldedTransaction,
         site: (usize, usize),
-    ) -> Result<SlotOutcome, TransactionError> {
-        let outcome = SlotOutcome::default();
+    ) -> Result<MergeResolution, TransactionError> {
         let Some(slot) = tx.output_slots.get(site.1) else {
             self.report.undecryptable_candidates += 1;
-            return Ok(outcome);
+            return Ok(MergeResolution::Complete);
         };
         let output_context = slot.output_context.clone();
 
         let Some(first_nullifier) = tx.nullifiers.first() else {
-            self.report.undecryptable_candidates += 1;
-            return Ok(outcome);
+            return Ok(MergeResolution::Pending);
         };
         // The first nullifier must be one of ours: it both confirms the merge
         // is this wallet's and seeds the deterministic dummy/output
         // derivations (keyed by the owner's nullifier secret).
         if !self.utxos.iter().any(|u| &u.nullifier == first_nullifier) {
-            self.report.undecryptable_candidates += 1;
-            return Ok(outcome);
+            return Ok(MergeResolution::Pending);
         }
 
         // Match this wallet's spent inputs in slot order; deterministic dummy
@@ -834,8 +847,7 @@ impl SyncCtx<'_> {
                 continue;
             }
             let Some(wallet_utxo) = self.utxos.iter().find(|u| &u.nullifier == nullifier) else {
-                self.report.undecryptable_candidates += 1;
-                return Ok(outcome);
+                return Ok(MergeResolution::Pending);
             };
             matched.push((
                 wallet_utxo.utxo.asset,
@@ -846,11 +858,11 @@ impl SyncCtx<'_> {
         }
         let Some(&(asset, _, _, ring_program_id)) = matched.first() else {
             self.report.undecryptable_candidates += 1;
-            return Ok(outcome);
+            return Ok(MergeResolution::Complete);
         };
         if matched.iter().any(|m| m.0 != asset) {
             self.report.undecryptable_candidates += 1;
-            return Ok(outcome);
+            return Ok(MergeResolution::Complete);
         }
         let mut amount = 0u64;
         for m in &matched {
@@ -863,7 +875,7 @@ impl SyncCtx<'_> {
         let ring_data_hash: Option<[u8; 32]> = if ring_program_id.is_some() {
             let Ok(hash) = <&[u8; 32]>::try_from(slot.payload.as_slice()) else {
                 self.report.undecryptable_candidates += 1;
-                return Ok(outcome);
+                return Ok(MergeResolution::Complete);
             };
             Some(*hash)
         } else {
@@ -881,7 +893,7 @@ impl SyncCtx<'_> {
             self.processed_slots.insert(site);
             self.record_merge(tx, &output_context, &utxo);
         }
-        Ok(outcome)
+        Ok(MergeResolution::Complete)
     }
 }
 
@@ -1047,10 +1059,6 @@ impl Wallet {
             report,
         };
 
-        for site in &index.merge_sites {
-            ctx.decode_merge_site(transactions, *site)?;
-        }
-
         for entry in self.viewing_key_history.iter_mut() {
             let ViewingKeyEntry {
                 viewing_pubkey,
@@ -1078,11 +1086,7 @@ impl Wallet {
                     }
                 }
             }
-            // Confidential default-ring scan: a confidential output is tagged by the
-            // owner signing pubkey, so the owner's own change, received recipient
-            // slots, and merge outputs all live in `recipient_sites` under that tag.
-            // A split bundle the wallet created is tagged the same way and sits in
-            // `sender_sites`, decoded at slot 0.
+            // Confidential default-ring outputs use the owner signing tag.
             if let Some(sites) = index.recipient_sites.get(&owner_tag) {
                 for site in sites {
                     ctx.decode_slot(transactions, key, assets, *site)?;
@@ -1166,6 +1170,10 @@ impl Wallet {
                     known_recipients.insert(recipient, m + 1);
                 }
             }
+        }
+
+        if let Some(sites) = index.merge_sites.get(&owner_tag) {
+            ctx.resolve_merge_sites(transactions, sites)?;
         }
 
         let report = ctx.report;

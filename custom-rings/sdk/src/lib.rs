@@ -4,8 +4,10 @@
 //! definition serves both sides.
 
 mod instructions;
+mod lookup_table;
 mod shared;
 mod transfer;
+#[cfg(feature = "solana-rpc")]
 mod v0;
 mod witness;
 
@@ -17,6 +19,7 @@ pub use custom_ring_interface::{
     SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
 };
 
+pub use zolana_interface::instruction::{DepositAsset, DepositSplAccounts};
 pub use zolana_ring_client::{
     auditor_view_tag, AuditEncryptionError, AuditorEncryption, AuditorMessage, AUDITOR_MESSAGE_LEN,
 };
@@ -45,8 +48,14 @@ pub use crate::{
         ReaderKey, ReaderKeyError,
     },
     transfer::{
-        CustomRingTransfer, CustomRingTransferInput, DepositError, ProvenTransfer, RingDeposit,
-        RingDepositReceipt, TransferError, TransferProofEnvironment,
+        AsyncTransferProofEnvironment, CustomRingTransfer, CustomRingTransferInput, DepositError,
+        ProvenTransfer, RingDeposit, RingDepositReceipt, TransferError, TransferProofEnvironment,
     },
-    v0::{SendV0Error, V0WithLookupTable, TRANSACT_COMPUTE_UNIT_LIMIT},
 };
+
+/// Every account a custom-ring transact must place in a lookup table. A key left
+/// out costs 32 message bytes the transact cannot spare, so a host assembling
+/// the v0 message itself needs the same list [`V0WithLookupTable`] builds.
+pub use crate::lookup_table::{lookup_table_addresses, TRANSACT_COMPUTE_UNIT_LIMIT};
+#[cfg(feature = "solana-rpc")]
+pub use crate::v0::{SendV0Error, V0WithLookupTable};

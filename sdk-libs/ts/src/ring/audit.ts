@@ -1,6 +1,7 @@
 import { p256 } from "@noble/curves/nist.js";
+import { initializePoseidon } from "../hasher/index.js";
 
-import type { ZolanaClient } from "../client/client.js";
+import type { IndexerReader, KitRpcAccess } from "../client/ports.js";
 import type {
   Address,
   Bytes16,
@@ -18,6 +19,7 @@ import {
 import { bigIntToBytes, bytesToBigInt } from "../keypair/bytes.js";
 import { P256PublicKey } from "../keypair/public-key.js";
 import { ViewingKey } from "../keypair/viewing-key.js";
+import { TransactionError } from "../transaction/error.js";
 import { equal } from "../transaction/internal.js";
 import type {
   IndexedShieldedTransaction,
@@ -28,7 +30,9 @@ import {
   decryptConfidentialAsSender,
   readOutputData,
 } from "../transaction/serialization/codecs.js";
-import type { AssetRegistry } from "../transaction/wallet/asset.js";
+import type { AssetRegistry } from "../transaction/asset.js";
+
+import { fetchSplAssetRegistrations } from "../wallet/sync.js";
 
 import { RingError } from "./error.js";
 import { CachedTransactionOrigin, RpcTransactionOrigin, type TransactionOrigin } from "./origin.js";
@@ -148,14 +152,17 @@ export function auditRingTransaction(
   }
 }
 
+export type RingAuditReader = KitRpcAccess & Pick<IndexerReader, "getShieldedTransactionsByTags">;
+
 /**
  * Mirrors Rust `RingAudit`. The indexer knows no rings, each tagged transaction
  * is attributed through its confirmed call stack, and the tag match is
- * re-applied because the indexer matches output tags too.
+ * re-applied because the indexer matches output tags too. An unknown SPL asset
+ * id refreshes `assets` once from the chain registry.
  */
 export async function auditRing(
   input: Readonly<{
-    client: ZolanaClient;
+    client: RingAuditReader;
     auditor: ViewingKey;
     ringProgramId: Address;
     assets: AssetRegistry;
@@ -166,6 +173,7 @@ export async function auditRing(
   }>,
   context?: RequestContext,
 ): Promise<RingAuditPage> {
+  await initializePoseidon();
   const viewTag = auditorViewTag(input.auditor.publicKey());
   const pageSize = input.pageSize ?? DEFAULT_PAGE_SIZE;
   const maxPages = input.maxPages ?? DEFAULT_MAX_PAGES;
@@ -173,6 +181,7 @@ export async function auditRing(
     input.origin ?? new RpcTransactionOrigin(input.client.solanaRpc),
   );
   const transactions: AuditedRingTransaction[] = [];
+  let assetsRefreshed = false;
   let cursor = input.cursor;
   for (let page = 0; page < maxPages; page++) {
     const response = await input.client.getShieldedTransactionsByTags(
@@ -189,9 +198,20 @@ export async function auditRing(
       if (!(await origin.ringInvoked(transaction.txSignature, input.ringProgramId, context))) {
         continue;
       }
-      transactions.push(
-        auditRingTransaction({ auditor: input.auditor, transaction, assets: input.assets }),
-      );
+      try {
+        transactions.push(
+          auditRingTransaction({ auditor: input.auditor, transaction, assets: input.assets }),
+        );
+      } catch (error) {
+        if (assetsRefreshed || !isUnknownAsset(error)) throw error;
+        assetsRefreshed = true;
+        for (const { assetId, mint } of await fetchSplAssetRegistrations(input.client, context)) {
+          input.assets.register(assetId, mint);
+        }
+        transactions.push(
+          auditRingTransaction({ auditor: input.auditor, transaction, assets: input.assets }),
+        );
+      }
     }
     const next = response.nextCursor;
     if (next === undefined) return Object.freeze({ transactions: Object.freeze(transactions) });
@@ -204,6 +224,10 @@ export async function auditRing(
     transactions: Object.freeze(transactions),
     ...(cursor === undefined ? {} : { nextCursor: cursor }),
   });
+}
+
+function isUnknownAsset(error: unknown): boolean {
+  return error instanceof TransactionError && error.code === "TRANSACTION_UNKNOWN_ASSET";
 }
 
 /** `undefined` for a slot this audit cannot open, Rust `OutputAudit::run`. */

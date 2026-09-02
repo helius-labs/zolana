@@ -62,3 +62,4 @@ export {
 
 /** Mirrors Rust's `Signature` / `ECDSASignature` aliases: 64 raw bytes. */
 export type Signature = import("./bytes.js").Bytes64;
+export type { ErrorEnvelope } from "../errors/internal.js";

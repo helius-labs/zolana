@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use solana_address::Address;
 use solana_address_lookup_table_interface::instruction::{
     create_lookup_table, extend_lookup_table,
 };
@@ -14,7 +13,7 @@ use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use thiserror::Error;
 use zolana_client::SolanaRpc;
 
-pub const TRANSACT_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
+use crate::lookup_table::{lookup_table_addresses, TRANSACT_COMPUTE_UNIT_LIMIT};
 
 const SLOT_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
@@ -102,23 +101,6 @@ impl V0WithLookupTable<'_> {
             &all_signers,
         )?)
     }
-}
-
-/// A key left out of the table costs 32 message bytes the transact cannot spare.
-fn lookup_table_addresses(instruction: &Instruction, compute_program: Address) -> Vec<Address> {
-    let mut addresses = Vec::new();
-    for address in instruction
-        .accounts
-        .iter()
-        .filter(|meta| !meta.is_signer)
-        .map(|meta| meta.pubkey)
-        .chain([instruction.program_id, compute_program])
-    {
-        if !addresses.contains(&address) {
-            addresses.push(address);
-        }
-    }
-    addresses
 }
 
 /// A lookup table resolves only from the slot after the one it was written in.

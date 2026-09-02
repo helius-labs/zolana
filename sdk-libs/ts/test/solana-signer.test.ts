@@ -1,6 +1,7 @@
 import {
   address,
   appendTransactionMessageInstruction,
+  assertIsTransactionWithinSizeLimit,
   compileTransaction,
   createKeyPairSignerFromPrivateKeyBytes,
   createTransactionMessage,
@@ -27,7 +28,7 @@ type SignableTransaction = Parameters<
 
 /** A real compiled transaction: Kit's signer refuses anything it is not a signer for. */
 function compileTransferTransaction(feePayer: Address): SignableTransaction {
-  return compileTransaction(
+  const transaction = compileTransaction(
     pipe(
       createTransactionMessage({ version: 0 }),
       (message) => setTransactionMessageFeePayer(feePayer, message),
@@ -42,7 +43,9 @@ function compileTransferTransaction(feePayer: Address): SignableTransaction {
           message,
         ),
     ),
-  ) as unknown as SignableTransaction;
+  );
+  assertIsTransactionWithinSizeLimit(transaction);
+  return transaction;
 }
 
 describe("ShieldedKeypair.toSolanaSigner", () => {

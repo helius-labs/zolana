@@ -4,6 +4,7 @@ import { mergeDummyNullifier, mergeOutputBlinding } from "../../keypair/merge/in
 import { P256PublicKey, type ShieldedPublicKey } from "../../keypair/public-key.js";
 import type { ShieldedKeypair, ViewingKeyLike } from "../../keypair/shielded.js";
 
+import { initializePoseidon } from "../../hasher/index.js";
 import { TransactionError } from "../error.js";
 import { copy, decodeAddress, equal } from "../internal.js";
 import { SENDER_SLOT_COUNT } from "../instructions/transact.js";
@@ -30,7 +31,7 @@ import {
 import { decodeRingDepositOutput, decryptRingDepositUtxo } from "../serialization/ring-deposit.js";
 import { Utxo } from "../utxo.js";
 import type { SyncWalletAuthority, WalletSyncMaterial } from "./authority.js";
-import { SOL_MINT, type AssetRegistry } from "./asset.js";
+import { SOL_MINT, type AssetRegistry } from "../asset.js";
 import {
   SENDER_HISTORY_ROW_BASE,
   newViewingKeyEntry,
@@ -97,6 +98,7 @@ interface Site {
 interface TagIndex {
   readonly senderSites: ReadonlyMap<string, readonly number[]>;
   readonly recipientSites: ReadonlyMap<string, readonly Site[]>;
+  readonly mergeSites: ReadonlyMap<string, readonly Site[]>;
   readonly unparsedTransactions: number;
 }
 
@@ -109,12 +111,13 @@ function pushInto<T>(into: Map<string, T[]>, tag: string, value: T): void {
 function buildTagIndex(transactions: readonly IndexedShieldedTransaction[]): TagIndex {
   const senderSites = new Map<string, number[]>();
   const recipientSites = new Map<string, Site[]>();
+  const mergeSites = new Map<string, Site[]>();
   let unparsedTransactions = 0;
   for (const [transaction, tx] of transactions.entries()) {
     let classified = false;
     if (!tx.proofless && tx.txViewingPublicKey === undefined && tx.salt === undefined) {
-      for (const [index, slot] of tx.outputSlots.entries()) {
-        pushInto(recipientSites, hex(slot.viewTag), { transaction, slot: index });
+      for (const [slotIndex, slot] of tx.outputSlots.entries()) {
+        pushInto(mergeSites, hex(slot.viewTag), { transaction, slot: slotIndex });
         classified = true;
       }
       if (!classified) unparsedTransactions++;
@@ -137,7 +140,7 @@ function buildTagIndex(transactions: readonly IndexedShieldedTransaction[]): Tag
     }
     if (!classified) unparsedTransactions++;
   }
-  return { senderSites, recipientSites, unparsedTransactions };
+  return { senderSites, recipientSites, mergeSites, unparsedTransactions };
 }
 
 function compareBigints(left: bigint, right: bigint): number {
@@ -170,9 +173,23 @@ function ensureViewingKeyEntries(
 /** Whether the kept outputs account for every asset the transaction spent. */
 function covered(spent: ReadonlyMap<Address, bigint>, kept: readonly Utxo[]): boolean {
   if (spent.size === 0) return false;
-  const byAsset = new Map<Address, bigint>();
-  for (const utxo of kept) byAsset.set(utxo.asset, (byAsset.get(utxo.asset) ?? 0n) + utxo.amount);
+  const byAsset = amountsByAsset(kept);
   return [...spent].every(([asset, amount]) => (byAsset.get(asset) ?? 0n) >= amount);
+}
+
+function sameAmounts(spent: ReadonlyMap<Address, bigint>, kept: readonly Utxo[]): boolean {
+  if (spent.size === 0) return false;
+  const byAsset = amountsByAsset(kept);
+  return (
+    byAsset.size === spent.size &&
+    [...spent].every(([asset, amount]) => byAsset.get(asset) === amount)
+  );
+}
+
+function amountsByAsset(utxos: readonly Utxo[]): ReadonlyMap<Address, bigint> {
+  const byAsset = new Map<Address, bigint>();
+  for (const utxo of utxos) byAsset.set(utxo.asset, (byAsset.get(utxo.asset) ?? 0n) + utxo.amount);
+  return byAsset;
 }
 
 function historyId(tx: IndexedShieldedTransaction, index: bigint): PrivateTransactionId {
@@ -194,7 +211,7 @@ function rowKey(row: PrivateTransaction): string {
 }
 
 /**
- * The notes and history rows one sync produces, accumulated across every
+ * The UTXOs and history rows one sync produces, accumulated across every
  * viewing key the authority supplied. This is the counterpart of Rust
  * `SyncCtx`: it owns the staged wallet contents so a rejection leaves the
  * wallet untouched, and it carries the report counters each decode step
@@ -308,7 +325,7 @@ class SyncPass {
   }
 
   /**
-   * Store a note whose slot is not known in advance, by finding the slot whose
+   * Store a UTXO whose slot is not known in advance. Find the slot whose
    * committed leaf its hash reproduces. The sender-side bundles carry their
    * change this way: one bundle describes several outputs spread across the
    * transaction.
@@ -323,7 +340,7 @@ class SyncPass {
     this.#store(utxo, slot.outputContext, undefined, undefined);
   }
 
-  /** Verify each 1:1 recipient note against the slot's committed leaf and store it. */
+  /** Verify each 1:1 recipient UTXO against the committed leaf and store it. */
   #storeRecipientUtxos(
     utxos: readonly Utxo[],
     outputContext: OutputContext,
@@ -355,12 +372,12 @@ class SyncPass {
   }
 
   /**
-   * Record a candidate that failed to become notes. When the failure was an
+   * Record a candidate that failed to become UTXOs. When the failure was an
    * unknown asset id, remember the id so the client sync layer can backfill the
    * registry and retry; that is the single seam where a stale registry surfaces
    * during decode.
    */
-  #noteUndecryptable(error: unknown, siteKey: string): void {
+  #recordUndecryptable(error: unknown, siteKey: string): void {
     if (error instanceof TransactionError) {
       let candidate = this.#unknownAssetsBySite.get(siteKey);
       const assetCandidate = (): Readonly<{
@@ -406,6 +423,11 @@ class SyncPass {
       byAsset.set(entry.utxo.asset, total);
     }
     return byAsset;
+  }
+
+  #spentEntries(nullifiers: readonly Bytes32[]): readonly WalletUtxo[] {
+    const spent = new Set(nullifiers.map(hex));
+    return this.#utxos.filter((entry) => spent.has(hex(entry.nullifier)));
   }
 
   #recordReceived(
@@ -524,10 +546,12 @@ class SyncPass {
   #authored(tx: IndexedShieldedTransaction, key: ViewingKeyLike): boolean {
     const firstNullifier = tx.nullifiers[0];
     if (tx.txViewingPublicKey === undefined || firstNullifier === undefined) return false;
-    return equal(
-      key.transactionViewingKey(firstNullifier).publicKey().toBytes(),
-      tx.txViewingPublicKey.toBytes(),
-    );
+    const txKey = key.transactionViewingKey(firstNullifier);
+    try {
+      return equal(txKey.publicKey().toBytes(), tx.txViewingPublicKey.toBytes());
+    } finally {
+      txKey.destroy();
+    }
   }
 
   /** The embedded viewing key and committed UTXO identify change. */
@@ -538,12 +562,23 @@ class SyncPass {
       return;
     }
     const txKey = key.transactionViewingKey(firstNullifier);
-    if (!equal(txKey.publicKey().toBytes(), tx.txViewingPublicKey.toBytes())) return;
-    if (this.#processedOutbound.has(index)) return;
-    this.#processedOutbound.add(index);
+    try {
+      if (!equal(txKey.publicKey().toBytes(), tx.txViewingPublicKey.toBytes())) return;
+      if (this.#processedOutbound.has(index)) return;
+      this.#processedOutbound.add(index);
+      this.#decodeOutboundSlots(tx, txKey, salt);
+    } finally {
+      txKey.destroy();
+    }
+  }
 
+  #decodeOutboundSlots(
+    tx: IndexedShieldedTransaction,
+    txKey: ReturnType<ViewingKeyLike["transactionViewingKey"]>,
+    salt: Bytes16,
+  ): void {
     const change: Utxo[] = [];
-    const recipientKeys: P256PublicKey[] = [];
+    const recipients: Array<Readonly<{ key: P256PublicKey; utxo: Utxo }>> = [];
     tx.outputSlots.forEach((slot, position) => {
       try {
         const frame = readOutputData(slot.payload);
@@ -566,7 +601,10 @@ class SyncPass {
             return;
           }
         }
-        recipientKeys.push(recipientKey);
+        recipients.push({
+          key: recipientKey,
+          utxo: confidentialUtxo(plaintext, this.#owner, this.#assets),
+        });
       } catch {
         // A dummy slot fails the transaction-key decrypt; skip it.
       }
@@ -575,18 +613,47 @@ class SyncPass {
     const spent = this.#spentAmounts(tx.nullifiers);
     // Paying yourself keeps every output, so nothing distinguishes it from
     // change except that the change covers the whole spend.
-    if (recipientKeys.length === 0 && covered(spent, change)) {
+    if (recipients.length === 0 && covered(spent, change)) {
       this.#recordSplit(tx, spent);
       return;
     }
-    const kind = recipientKeys.length === 0 ? "publicWithdrawal" : "privateTransfer";
+    const entry = this.#isRingEntry(tx.nullifiers, change, recipients);
+    const kind = entry
+      ? "ringEntry"
+      : recipients.length === 0
+        ? "publicWithdrawal"
+        : "privateTransfer";
+    const recipientKeys = recipients.map((recipient) => recipient.key);
     this.#recordOutboundTransfer(
       tx,
       spent,
       change,
       kind,
-      recipientKeys.length === 1 ? recipientKeys[0] : undefined,
-      this.#transferDirection(recipientKeys),
+      !entry && recipientKeys.length === 1 ? recipientKeys[0] : undefined,
+      entry ? "selfTransfer" : this.#transferDirection(recipientKeys),
+    );
+  }
+
+  #isRingEntry(
+    nullifiers: readonly Bytes32[],
+    change: readonly Utxo[],
+    recipients: readonly Readonly<{ key: P256PublicKey; utxo: Utxo }>[],
+  ): boolean {
+    const inputs = this.#spentEntries(nullifiers);
+    const rings = new Set(recipients.map(({ utxo }) => utxo.ringProgramId));
+    const assets = new Set(recipients.map(({ utxo }) => utxo.asset));
+    return (
+      inputs.length > 0 &&
+      inputs.every((entry) => entry.utxo.ringProgramId === undefined) &&
+      change.every((utxo) => utxo.ringProgramId === undefined) &&
+      recipients.length > 0 &&
+      rings.size === 1 &&
+      assets.size === 1 &&
+      recipients.every(({ key, utxo }) => this.#isSelf(key) && utxo.ringProgramId !== undefined) &&
+      sameAmounts(this.#spentAmounts(nullifiers), [
+        ...change,
+        ...recipients.map(({ utxo }) => utxo),
+      ])
     );
   }
 
@@ -603,10 +670,6 @@ class SyncPass {
     const slot = tx?.outputSlots[site.slot];
     if (tx === undefined || slot === undefined) {
       this.undecryptableCandidates++;
-      return;
-    }
-    if (!tx.proofless && tx.txViewingPublicKey === undefined && tx.salt === undefined) {
-      this.#reconstructMerge(tx, site, siteKey);
       return;
     }
     let frame: ReturnType<typeof readOutputData>;
@@ -626,7 +689,7 @@ class SyncPass {
         deposit = decodeProofless(body);
         utxo = prooflessUtxo(deposit, this.#owner);
       } catch (error) {
-        this.#noteUndecryptable(error, siteKey);
+        this.#recordUndecryptable(error, siteKey);
         return;
       }
       this.#resolveAssetCandidate(siteKey);
@@ -644,7 +707,7 @@ class SyncPass {
       try {
         utxos = plaintextTransferUtxos(decodePlaintextTransfer(body), this.#assets, SOL_MINT);
       } catch (error) {
-        this.#noteUndecryptable(error, siteKey);
+        this.#recordUndecryptable(error, siteKey);
         return;
       }
       this.#resolveAssetCandidate(siteKey);
@@ -661,7 +724,7 @@ class SyncPass {
         sender = plaintext.senderPublicKey;
         utxo = anonymousRecipientUtxo(plaintext, this.#assets);
       } catch (error) {
-        this.#noteUndecryptable(error, siteKey);
+        this.#recordUndecryptable(error, siteKey);
         return;
       }
       this.#resolveAssetCandidate(siteKey);
@@ -690,7 +753,7 @@ class SyncPass {
           this.#assets,
         );
       } catch (error) {
-        this.#noteUndecryptable(error, siteKey);
+        this.#recordUndecryptable(error, siteKey);
         return;
       }
       this.#resolveAssetCandidate(siteKey);
@@ -718,7 +781,7 @@ class SyncPass {
           ? output.ringDataHash
           : undefined;
       } catch (error) {
-        this.#noteUndecryptable(error, siteKey);
+        this.#recordUndecryptable(error, siteKey);
         return;
       }
       this.#resolveAssetCandidate(siteKey);
@@ -737,7 +800,7 @@ class SyncPass {
         recipients = plaintext.recipientViewingPublicKeys;
         change = anonymousSenderUtxos(plaintext, this.#assets, SOL_MINT);
       } catch (error) {
-        this.#noteUndecryptable(error, siteKey);
+        this.#recordUndecryptable(error, siteKey);
         return;
       }
       this.#resolveAssetCandidate(siteKey);
@@ -767,7 +830,7 @@ class SyncPass {
           this.#assets,
         );
       } catch (error) {
-        this.#noteUndecryptable(error, siteKey);
+        this.#recordUndecryptable(error, siteKey);
         return;
       }
       this.#resolveAssetCandidate(siteKey);
@@ -783,8 +846,30 @@ class SyncPass {
     this.undecryptableCandidates++;
   }
 
-  /** Reconstruct the ciphertext-free merge output from this wallet's spent inputs. */
-  #reconstructMerge(tx: IndexedShieldedTransaction, site: Site, siteKey: string): void {
+  resolveMergeSites(sites: readonly Site[]): void {
+    let pending = [...sites];
+    while (pending.length > 0) {
+      const unresolved: Site[] = [];
+      for (const site of pending) {
+        const siteKey = `${String(site.transaction)}:${String(site.slot)}`;
+        if (this.#processedSlots.has(siteKey)) continue;
+        const tx = this.#transactions[site.transaction];
+        if (tx === undefined || tx.outputSlots[site.slot] === undefined) {
+          this.undecryptableCandidates++;
+          continue;
+        }
+        if (!this.#reconstructMerge(tx, site, siteKey)) unresolved.push(site);
+      }
+      if (unresolved.length === pending.length) {
+        this.undecryptableCandidates += unresolved.length;
+        return;
+      }
+      pending = unresolved;
+    }
+  }
+
+  /** Missing inputs may be outputs of another merge in the same batch. */
+  #reconstructMerge(tx: IndexedShieldedTransaction, site: Site, siteKey: string): boolean {
     const slot = tx.outputSlots[site.slot];
     const firstNullifier = tx.nullifiers[0];
     if (
@@ -792,8 +877,7 @@ class SyncPass {
       firstNullifier === undefined ||
       !this.#utxos.some((entry) => equal(entry.nullifier, firstNullifier))
     ) {
-      this.undecryptableCandidates++;
-      return;
+      return false;
     }
 
     try {
@@ -804,15 +888,14 @@ class SyncPass {
         }
         const entry = this.#utxos.find((candidate) => equal(candidate.nullifier, nullifier));
         if (entry === undefined) {
-          this.undecryptableCandidates++;
-          return;
+          return false;
         }
         matched.push(entry);
       }
       const first = matched[0];
       if (first === undefined || matched.some((entry) => entry.utxo.asset !== first.utxo.asset)) {
         this.undecryptableCandidates++;
-        return;
+        return true;
       }
       let amount = 0n;
       for (const entry of matched) {
@@ -822,7 +905,7 @@ class SyncPass {
       const ringProgramId = first.utxo.ringProgramId;
       if (matched.some((entry) => entry.utxo.ringProgramId !== ringProgramId)) {
         this.undecryptableCandidates++;
-        return;
+        return true;
       }
       const ringDataHash =
         ringProgramId === undefined
@@ -832,7 +915,7 @@ class SyncPass {
             : null;
       if (ringDataHash === null) {
         this.undecryptableCandidates++;
-        return;
+        return true;
       }
       const utxo = new Utxo({
         owner: this.#owner,
@@ -845,9 +928,10 @@ class SyncPass {
         this.#processedSlots.add(siteKey);
         this.#recordMerge(tx, slot.outputContext, utxo);
       }
-      return;
+      return true;
     } catch (error) {
-      this.#noteUndecryptable(error, siteKey);
+      this.#recordUndecryptable(error, siteKey);
+      return true;
     }
   }
 
@@ -905,6 +989,7 @@ export async function decryptTransactions(
     config?: DecryptTransactionsConfig;
   }>,
 ): Promise<SyncReport> {
+  await initializePoseidon();
   const material = await input.authority.syncMaterial();
   validateMaterial(input.wallet, material);
   const current = input.wallet._state();
@@ -933,6 +1018,7 @@ export async function decryptTransactions(
     );
     if (key !== undefined) pass.processStableTags(key, { identityTag, index });
   }
+  pass.resolveMergeSites(index.mergeSites.get(hex(identityTag)) ?? []);
 
   const nullifiers = new Set(current.nullifiers);
   for (const tx of input.transactions) {
@@ -982,20 +1068,23 @@ export async function decryptToBalances(
     transactions: readonly IndexedShieldedTransaction[];
   }>,
 ): Promise<PrivateBalances> {
+  await initializePoseidon();
   const identity = input.keypair.shieldedAddress();
   const wallet = new Wallet({ identity, registry: input.registry });
-  await decryptTransactions({
-    wallet,
-    authority: {
-      syncMaterial: () =>
-        Promise.resolve({
-          identity,
-          viewingKeys: [input.keypair.viewingKey()],
-          nullifierKey: input.keypair.nullifierKey(),
-        }),
-    },
-    transactions: input.transactions,
-  });
+  const viewingKey = input.keypair.viewingKey();
+  let nullifierKey: NullifierKey | undefined;
+  try {
+    nullifierKey = input.keypair.nullifierKey();
+    const material = { identity, viewingKeys: [viewingKey], nullifierKey };
+    await decryptTransactions({
+      wallet,
+      authority: { syncMaterial: () => Promise.resolve(material) },
+      transactions: input.transactions,
+    });
+  } finally {
+    viewingKey.destroy();
+    nullifierKey?.destroy();
+  }
   return Object.freeze({
     balance: (mint: Address, filter?: Filter) => wallet.balance(mint, filter),
     balances: (skipUtxos = false) => wallet.balances(skipUtxos),

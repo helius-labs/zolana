@@ -15,6 +15,8 @@ use zolana_interface::{
     SPL_TOKEN_MINT_TO_DISCRIMINATOR, SPL_TOKEN_PROGRAM_ID,
 };
 
+use crate::smart_account;
+
 fn token_program_id() -> Pubkey {
     Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID)
 }
@@ -141,6 +143,51 @@ pub fn ensure_asset_counter<R: Rpc>(rpc: &R, authority: &Keypair) -> Result<(), 
         rpc.create_and_send_transaction(&[ix], to_address(&authority.pubkey()), &[authority])?;
     }
     Ok(())
+}
+
+/// Registers `mint` with the pool through the protocol Squads vault, creating
+/// the asset counter on first use.
+pub struct RegisterSplAsset<'a> {
+    pub payer: &'a Keypair,
+    pub authority: &'a Keypair,
+    pub protocol_settings: Pubkey,
+    pub protocol_vault: Pubkey,
+    pub mint: Pubkey,
+    pub token_program: Pubkey,
+}
+
+impl RegisterSplAsset<'_> {
+    pub fn send<R: Rpc>(self, rpc: &R) -> Result<(), ClientError> {
+        let payer = to_address(&self.payer.pubkey());
+        if rpc
+            .get_account(to_address(&pda::spl_asset_counter()))?
+            .is_none()
+        {
+            let counter = smart_account::execute_sync_ix(
+                &self.protocol_settings,
+                0,
+                &[self.authority.pubkey()],
+                &[CreateAssetCounter {
+                    authority: self.protocol_vault,
+                }
+                .instruction()],
+            );
+            rpc.create_and_send_transaction(&[counter], payer, &[self.payer, self.authority])?;
+        }
+        let interface = smart_account::execute_sync_ix(
+            &self.protocol_settings,
+            0,
+            &[self.authority.pubkey()],
+            &[CreateSplInterface {
+                authority: self.protocol_vault,
+                mint: self.mint,
+                token_program: self.token_program,
+            }
+            .instruction()],
+        );
+        rpc.create_and_send_transaction(&[interface], payer, &[self.payer, self.authority])?;
+        Ok(())
+    }
 }
 
 /// Register `mint` with the shielded pool (creates its registry + vault PDAs).

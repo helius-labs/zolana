@@ -296,6 +296,11 @@ export class ProofInputUtxo {
     return this.utxo.owner.isZero();
   }
 
+  /** Destroys the cloned nullifier key, later proving throws. */
+  destroy(): void {
+    this.nullifierKey.destroy();
+  }
+
   /**
    * A zero owner is not a parseable key, so a zero-owner input can only stand
    * for an unused slot. Every other field must be zero as well: the circuit
@@ -378,11 +383,11 @@ export interface ProofOutputUtxo {
   isDummy(): boolean;
   withUtxoData(utxoData: Uint8Array, dataHash: Bytes32): ProofOutputUtxo;
   /**
-   * A memo rides in the recipient's note but no commitment covers it, so unlike
+   * A memo rides in the recipient's UTXO but no commitment covers it, so unlike
    * the data setter above it leaves `dataHash` alone.
    */
   withMemo(memo: Uint8Array): ProofOutputUtxo;
-  /** Binds the note to a ring, only that ring's transact can spend it. */
+  /** Binds the UTXO to a ring, only that ring's transact can spend it. */
   withRingProgramId(ringProgramId: Address): ProofOutputUtxo;
 }
 

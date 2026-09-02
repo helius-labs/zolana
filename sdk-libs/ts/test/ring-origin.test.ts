@@ -15,7 +15,7 @@ import type {
   Bytes64,
   InterfaceTransfer,
 } from "../src/interface/types.js";
-import { SOL_MINT } from "../src/transaction/wallet/asset.js";
+import { SOL_MINT } from "../src/transaction/asset.js";
 import { RingError } from "../src/ring/error.js";
 import {
   CachedTransactionOrigin,
@@ -26,6 +26,7 @@ import {
   type OriginInstructionGroup,
   type TransactionOrigin,
 } from "../src/ring/origin.js";
+import { solanaRpcReads } from "./helpers/clients.js";
 
 // Mirrors custom-rings/client/tests/origin.rs.
 const RING = address("zYYvj4LTBF4Lz2FBhDaAbJ7CsVWvHjyanxQJPmN2dSU");
@@ -356,7 +357,7 @@ function rpcWith(result: unknown | Error): ConstructorParameters<typeof RpcTrans
   const getTransaction = () => ({
     send: () => (result instanceof Error ? Promise.reject(result) : Promise.resolve(result)),
   });
-  return { getTransaction } as unknown as ConstructorParameters<typeof RpcTransactionOrigin>[0];
+  return solanaRpcReads({ getTransaction });
 }
 
 describe("RpcTransactionOrigin", () => {

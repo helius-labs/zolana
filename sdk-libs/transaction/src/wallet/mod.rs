@@ -12,7 +12,7 @@ pub use authority::{
 };
 pub use state::{
     AssetBalance, Balances, CursorStream, Filter, PrivateTransaction, PrivateTransactionDirection,
-    PrivateTransactionId, PrivateTransactionKind, PrivateTransactionStatus, SyncReport,
-    ViewingKeyEntry, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW,
+    PrivateTransactionId, PrivateTransactionKind, PrivateTransactionStatus, RingBalance,
+    SyncReport, ViewingKeyEntry, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW,
 };
 pub use sync::{decrypt_transactions, decrypt_transactions_with_config, SyncConfig};
