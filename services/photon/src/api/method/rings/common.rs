@@ -526,8 +526,11 @@ mod tests {
             "this test is only meaningful while the capacities differ"
         );
 
-        // Chosen so the two capacities disagree about where it lands.
-        let root_seq = state_capacity + 5;
+        // The smaller ring has wrapped exactly once here and the larger has
+        // not, so the two disagree about where it lands for any pair of
+        // distinct capacities. A fixed offset would collapse as soon as one
+        // capacity divides the other.
+        let root_seq = nullifier_capacity.min(state_capacity);
         let info = tree_info_with(nullifier_capacity);
 
         let nullifier = root_index(root_seq, RingsTreeKind::Nullifier, &info).expect("nullifier");

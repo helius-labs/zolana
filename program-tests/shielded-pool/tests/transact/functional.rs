@@ -22,7 +22,7 @@ use groth16_solana::groth16::Groth16Verifier;
 use shielded_pool_program::testing::MAX_SIGNERS;
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
-use solana_instruction::{error::InstructionError, AccountMeta};
+use solana_instruction::AccountMeta;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
@@ -854,7 +854,7 @@ fn transact_rejects_out_of_field_output_hash() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("out-of-field output hash must be rejected");
-    Rejection::new(InstructionError::ProgramFailedToComplete).assert_litesvm(error);
+    Rejection::pool(ShieldedPoolError::NonCanonicalOutputUtxoHash).assert_litesvm(error);
 
     // A failed transaction commits nothing: the tree counters read the same
     // before and after (the builder's zero deposit already advanced the utxo
@@ -862,7 +862,7 @@ fn transact_rejects_out_of_field_output_hash() {
     // rolled back.
     let (utxo_next, nullifier_next) = tree_progress(&env.rpc, &tree);
     assert_eq!(utxo_next, 1, "utxo tree must not advance past the deposit");
-    assert_eq!(nullifier_next, 0, "nullifier queue must not advance");
+    assert_eq!(nullifier_next, 1, "nullifier queue must not advance");
     env.rpc
         .last_transaction_trace()
         .expect("out-of-field transaction trace")
@@ -947,7 +947,7 @@ fn transact_rejects_a_substituted_input_signer() {
     Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
     let (utxo_next, nullifier_next) = tree_progress(&env.rpc, &tree);
     assert_eq!(utxo_next, 1, "utxo tree must not advance past the deposit");
-    assert_eq!(nullifier_next, 0, "nullifier queue must not advance");
+    assert_eq!(nullifier_next, 1, "nullifier queue must not advance");
     env.rpc
         .last_transaction_trace()
         .expect("substituted signer transaction trace")
@@ -994,7 +994,7 @@ fn transact_rejects_a_substituted_payer() {
     Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
     let (utxo_next, nullifier_next) = tree_progress(&env.rpc, &tree);
     assert_eq!(utxo_next, 1, "utxo tree must not advance past the deposit");
-    assert_eq!(nullifier_next, 0, "nullifier queue must not advance");
+    assert_eq!(nullifier_next, 1, "nullifier queue must not advance");
     env.rpc
         .last_transaction_trace()
         .expect("substituted payer transaction trace")
@@ -1043,7 +1043,7 @@ fn transact_rejects_replay_under_the_ring_transact_tag() {
     Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
     let (utxo_next, nullifier_next) = tree_progress(&env.rpc, &tree);
     assert_eq!(utxo_next, 1, "utxo tree must not advance past the deposit");
-    assert_eq!(nullifier_next, 0, "nullifier queue must not advance");
+    assert_eq!(nullifier_next, 1, "nullifier queue must not advance");
     env.rpc
         .last_transaction_trace()
         .expect("cross-tag replay transaction trace")
@@ -1083,7 +1083,7 @@ fn ring_transact_rejects_a_confidential_proof_bound_to_the_ring_tag() {
     Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
     assert_eq!(
         tree_progress(&env.rpc, &tree),
-        (1, 0),
+        (1, 1),
         "rejected cross-family proof must roll back outputs and nullifiers"
     );
     env.rpc
@@ -1133,7 +1133,7 @@ fn ring_transact_rejects_a_proof_bound_to_a_different_ring() {
     Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
     let (utxo_next, nullifier_next) = tree_progress(&env.rpc, &tree);
     assert_eq!(utxo_next, 1, "utxo tree must not advance past the deposit");
-    assert_eq!(nullifier_next, 0, "nullifier queue must not advance");
+    assert_eq!(nullifier_next, 1, "nullifier queue must not advance");
     env.rpc
         .last_transaction_trace()
         .expect("cross-ring transact transaction trace")
@@ -1149,7 +1149,10 @@ fn ring_transact_rejects_a_proof_bound_to_a_different_ring() {
         .expect("the same ring proof with the bound ring's config succeeds");
     let (utxo_next, nullifier_next) = tree_progress(&env.rpc, &tree);
     assert_eq!(utxo_next, 4, "deposit leaf plus three outputs appended");
-    assert_eq!(nullifier_next, 2, "two nullifiers queued");
+    assert_eq!(
+        nullifier_next, 3,
+        "two nullifiers queued after the init sentinel"
+    );
 }
 
 /// INV-RING-AUTH-07: `ring_authority_transact` binds the same
@@ -1192,7 +1195,7 @@ fn ring_authority_transact_rejects_a_proof_bound_to_a_different_ring() {
     Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
     let (utxo_next, nullifier_next) = tree_progress(&env.rpc, &tree);
     assert_eq!(utxo_next, 1, "utxo tree must not advance past the deposit");
-    assert_eq!(nullifier_next, 0, "nullifier queue must not advance");
+    assert_eq!(nullifier_next, 1, "nullifier queue must not advance");
     env.rpc
         .last_transaction_trace()
         .expect("cross-ring authority transaction trace")
@@ -1208,7 +1211,10 @@ fn ring_authority_transact_rejects_a_proof_bound_to_a_different_ring() {
         .expect("the same ring-authority proof with the bound ring's config succeeds");
     let (utxo_next, nullifier_next) = tree_progress(&env.rpc, &tree);
     assert_eq!(utxo_next, 3, "deposit leaf plus two outputs appended");
-    assert_eq!(nullifier_next, 2, "two nullifiers queued");
+    assert_eq!(
+        nullifier_next, 3,
+        "two nullifiers queued after the init sentinel"
+    );
 }
 
 #[test]
@@ -1240,8 +1246,8 @@ fn ring_authority_transact_accepts_the_maximum_square_shape() {
 
     assert_eq!(
         tree_progress(&env.rpc, &tree),
-        (5, 4),
-        "one deposit plus four outputs and four queued nullifiers"
+        (5, 5),
+        "one deposit plus four outputs; four queued nullifiers after the init sentinel"
     );
 }
 
