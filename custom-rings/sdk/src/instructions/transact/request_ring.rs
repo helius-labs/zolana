@@ -105,6 +105,60 @@ pub struct CustomRingProofRequest {
     pub answers: Vec<RuleAnswer>,
 }
 
+/// Request for the audit statement alone, the no-policy proof.
+pub struct AuditProofRequest {
+    pub public_input_hash: [u8; 32],
+    pub private_tx_hash: [u8; 32],
+    pub tx_viewing_key: ViewingKey,
+    pub ephemeral_key: ViewingKey,
+    pub auditor_key: P256Pubkey,
+}
+
+impl ProveRequest for AuditProofRequest {
+    fn body(&self) -> Result<Zeroizing<String>, ClientError> {
+        let tx_viewing_secret = self.tx_viewing_key.secret_bytes();
+        let ephemeral_secret = self.ephemeral_key.secret_bytes();
+        let auditor_key = self
+            .auditor_key
+            .to_p256()
+            .map_err(|_| ClientError::Prover("invalid audit public key".to_string()))?;
+        let auditor_pk = auditor_key.to_encoded_point(false);
+        let json = AuditProofRequestJson {
+            circuit_type: "custom-ring",
+            variant: "audit",
+            public_input_hash: field_hex(&self.public_input_hash),
+            private_tx_hash: field_hex(&self.private_tx_hash),
+            tx_viewing_sk: SecretHex(tx_viewing_secret.as_slice()),
+            eph_sk: SecretHex(ephemeral_secret.as_slice()),
+            auditor_pk: bytes_to_hex(auditor_pk.as_bytes()),
+        };
+        serde_json::to_string(&json)
+            .map(Zeroizing::new)
+            .map_err(|_| ClientError::Prover("audit request serialization failed".to_string()))
+    }
+
+    fn delivery(&self) -> Delivery {
+        Delivery::Queued
+    }
+}
+
+#[derive(Serialize)]
+struct AuditProofRequestJson<'a> {
+    #[serde(rename = "circuitType")]
+    circuit_type: &'static str,
+    variant: &'static str,
+    #[serde(rename = "publicInputHash")]
+    public_input_hash: String,
+    #[serde(rename = "privateTxHash")]
+    private_tx_hash: String,
+    #[serde(rename = "txViewingSk")]
+    tx_viewing_sk: SecretHex<'a>,
+    #[serde(rename = "ephSk")]
+    eph_sk: SecretHex<'a>,
+    #[serde(rename = "auditorPk")]
+    auditor_pk: String,
+}
+
 impl ProveRequest for CustomRingProofRequest {
     fn body(&self) -> Result<Zeroizing<String>, ClientError> {
         let tx_viewing_secret = self.tx_viewing_key.secret_bytes();
