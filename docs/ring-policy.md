@@ -70,7 +70,8 @@ The ring's table is the `RULES` const in
 with the source map and the entries tree. Only the upgrade authority may sign
 it, the table is part of the deployed program. Every transact and entry
 mutation recomputes `RULES.hash` and refuses a mismatch, a changed table
-fails closed.
+fails closed. `init_spp_ring_config` registers a policy ring with SPP only
+after `create_policy`, it loads the policy config as its last account.
 
 ## Entries
 
@@ -95,7 +96,9 @@ A mutation is a one-input one-output SPP transact built over
 version-zero UTXO. `update_entry` spends the live UTXO and inserts the next
 version at the same address. There is no delete, removal is an update to
 `Cleared`. Absence therefore has two provable shapes, an address never claimed
-or a live entry in `Cleared`.
+or a live entry in `Cleared`. `create_entry` and `update_entry` refuse a
+content commitment the list's schema does not recover (`InvalidEntryContent`).
+Every current list carries unit content and commits to zero.
 
 Entries publish their bytes in plaintext through `ListEntry::to_output_data`.
 Discovery re-derives `data_hash` from the published bytes and compares it with
@@ -107,7 +110,13 @@ the on-chain leaf before trusting them.
 exhaustive, a new list does not compile until it declares its writer.
 `RingViewing`, `Recovery`, and `Escrow` are member-written, the member signs
 their own mutations. Every other list is authority-written. `check_mutator` in
-the ring program enforces the matching signer on every mutation.
+the ring program enforces the matching signer on every mutation. The
+mutation's payer signs as the SPP payer, funds the forester fee and is bound
+in the proof, so it is fixed at proof time. The transaction fee payer may be
+any other signer. A member of a member-written list is the Solana key whose
+owner tag hashes to the member. The ring admits the eddsa rail only, a P-256
+identity can be listed by the authority but cannot transact in the ring or
+self-manage a member-written list.
 
 ## Sources
 
@@ -128,12 +137,14 @@ member-written lists at the curator directly, every subscriber sees the entry.
 
 ## Proving compliance
 
-The wallet builds the answers in `answer_rules`
+The wallet builds the answers in `CustomRingWitnessInput::build`
 (`custom-rings/sdk/src/witness.rs`), one slot per distinct triple, unused
-slots disabled and zero-filled. Presence is an inclusion proof of the entry's
-`utxo_hash` in the state tree plus a non-inclusion proof of its nullifier.
-Absence is a non-inclusion proof of the pair's address, or the same two
-proofs over the cleared entry.
+slots disabled and zero-filled. It fixes every entry before the first proof
+read and takes the state root and the nullifier root from the proof responses
+against the pinned entries tree, `PolicyRootMismatch` when a response mixes
+roots. Presence is an inclusion proof of the entry's `utxo_hash` in the state
+tree plus a non-inclusion proof of its nullifier. Absence is a non-inclusion
+proof of the pair's address, or the same two proofs over the cleared entry.
 
 The public input chains the audit statement with `policy_hash`, `state_root`,
 and `nullifier_root` (`custom-rings/interface/src/public_input.rs`). The
@@ -150,17 +161,24 @@ the table, a transfer reveals none of the checks it passed.
 
 ## Adding a list
 
-A new list is one trait impl. The sealed `ListSchema` trait in
-`program-libs/ring-policy/src/schema.rs` fixes the list, its `EntryContent`
-type, and the writer. Its module doc walks the four steps. The keying, the
-entry shape, the membership proofs, and the circuit are reused unchanged.
+The eight `ListId` values fill the circuit's source width, a ninth is a circuit
+and encoding change. `Allow`, `Block` and `Frozen` back the released rules, the
+other five are writable and read by no rule. The sealed `ListSchema` trait in
+`program-libs/ring-policy/src/schema.rs` fixes a list and its `EntryContent`
+type, its module doc walks the four steps. The keying, the entry shape, the
+membership proofs, and the circuit are reused unchanged.
 
 ## Pitfalls
 
+- Photon learns a tree from the first transaction it indexes in it, so an
+  entries tree serves no membership proof before its first transact lands.
+  An entry claim into a fresh tree fails at the indexer until a deposit or
+  transfer has reached the tree.
 - The transact reads its roots from a dedicated entries-tree account, its
   address checked equal to `PolicyConfig.entries_tree`, and refuses roots from
   any other tree. The SPP money input and output trees are independent and may
-  be any registered tree.
+  be any registered tree. A paused entries tree stops every policy transact,
+  money in other trees included.
 - A policy ring pins `create_policy` and the transact path loads its policy
   config, an audit-only ring pins none and takes the audit path.
 - A ring-owned entry tree looks equivalent to reusing SPP's trees. It fails
@@ -169,8 +187,18 @@ entry shape, the membership proofs, and the circuit are reused unchanged.
   indexer.
 - A curator on another entries tree is refused at `create_policy`. The proof
   runs against one root pair, every source shares the transfer's tree.
-- A subscriber trusts its curator wholly. A curator mutation takes effect on
-  every subscriber at the next transfer, with no per-ring review step.
+- A subscriber trusts its curator wholly. A curator mutation reaches every
+  subscriber on the same schedule as the ring's own entries, with no per-ring
+  review step.
+- The moment a mutation takes effect depends on the tree its effect lives in.
+  A new state leaf, an `Allow` entry or a `Cleared` version, is provable at
+  the next transfer, transact appends the leaf synchronously. An effect that
+  lives in the nullifier tree, a `Block` address claim or the retirement of an
+  `Allow` entry, is enforced on chain only after the forester appends the zkp
+  batch holding it and the window has dropped every earlier root,
+  `NULLIFIER_ROOT_WINDOW` rotations later. Indexer-backed clients are refused
+  at once, photon serves no non-inclusion proof for a queued leaf and the SDK
+  refuses a contradicting live entry. No slot or clock bound exists.
 
 ## Limits
 
@@ -180,26 +208,39 @@ entry shape, the membership proofs, and the circuit are reused unchanged.
 - The builder rejects `ExitDestination` rules, no layer enforces exit
   destinations.
 - Sender rules take no amount guard, a transfer has no single sender amount.
+- An owner amount guard needs a single unguarded inline asset rule and reads
+  in that asset's base units. An asset guard reads in its own asset's units.
+- The builder asserts a spend from one key at `POLICY_OUTPUT_SLOTS` distinct
+  recipients fits `ANSWER_SLOTS`. A shape past `POLICY_INPUT_SLOTS` inputs or
+  `POLICY_OUTPUT_SLOTS` outputs, or a spend whose answers exceed
+  `ANSWER_SLOTS`, is refused at witness build with `PolicyShapeUnsupported`.
+  A padded change slot pushes the transact past the packet limit, `prove`
+  refuses it with `PaddedChange`.
+- The entries tree is pinned at `create_policy` for the life of the ring, like
+  the table and the tier. The cli default pins the SPP default tree. A full
+  entries tree ends list changes, transfers in other trees still prove against
+  its roots. Another tree means a new ring.
 - A ring keeps its rule table for life. An upgrade with a different table
   fails closed on every transact, a new table means a new ring.
 - The tier is fixed at `create_config` and immutable. A ring cannot move
   between audit-only and policy after init.
-- The config account grew a tier byte, so this is a fresh-deploy format. An
-  existing ring on the shorter config reads as uninitialized, there is no
-  in-place migration.
+- The program reads a config account of another size as uninitialized, the
+  SDK refuses it.
 
 ## The cycle
 
 1. The operator deploys the ring program with its compiled table.
 2. `create_policy` pins `policy_hash`, the source map, and the entries tree,
    signed by the upgrade authority.
-3. Each list's writer creates and updates entries through SPP transacts on
+3. `init_spp_ring_config` registers the ring with SPP under its `ring_auth`
+   PDA, refused before step 2.
+4. Each list's writer creates and updates entries through SPP transacts on
    the ring the source map names.
-4. The wallet reads the policy config and the entries, then builds the answers
+5. The wallet reads the policy config and the entries, then builds the answers
    witness.
-5. The prover produces one proof over the audit statement and the table
+6. The prover produces one proof over the audit statement and the table
    statement.
-6. The ring program recomputes the table hash, resolves the roots, verifies
+7. The ring program recomputes the table hash, resolves the roots, verifies
    the proof, and CPIs into SPP.
 
 ## Diagrams
