@@ -358,6 +358,38 @@ describe("prover request routing", () => {
     expect(refusal.bodyUsed).toBe(true);
   });
 
+  it("reports the prover's own error code and message on a refused request", async () => {
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ code: "malformed_body", message: "unknown circuit type: custom-ring" }),
+          { status: 400, headers: { "content-type": "application/json" } },
+        ),
+    ) as typeof globalThis.fetch;
+    const prover = new ProverClient({ url: "https://prover.example", fetch });
+
+    await expect(prover.prove(INPUTS)).rejects.toMatchObject({
+      code: "CLIENT_PROVER_HTTP",
+      details: {
+        method: "prove",
+        status: 400,
+        attempts: 1,
+        reason: "malformed_body: unknown circuit type: custom-ring",
+      },
+    });
+
+    // A body that is not the prover's error shape adds nothing.
+    const html = vi.fn(
+      async () => new Response("<html>502</html>", { status: 502 }),
+    ) as typeof globalThis.fetch;
+    await expect(
+      new ProverClient({ url: "https://prover.example", fetch: html }).prove(INPUTS),
+    ).rejects.toMatchObject({
+      code: "CLIENT_PROVER_HTTP",
+      details: { method: "prove", status: 502 },
+    });
+  });
+
   it("reads the served circuits from the health endpoint", async () => {
     const urls: URL[] = [];
     const fetch = vi.fn(async (input: URL | string) => {

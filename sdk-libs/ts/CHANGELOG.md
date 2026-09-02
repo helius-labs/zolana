@@ -91,6 +91,9 @@ Added
 
 Changed
 
+- `CLIENT_PROVER_HTTP` carries the prover's own error code and message in
+  `details.reason` when the prover sent them, so a refused proof says whether
+  the circuit is unknown, a field is malformed, or a key is missing.
 - A sync asks the key holder for every ciphertext, nullifier, and
   per-transaction key it needs in one batch per method and per dependency
   round, as many rounds as the merges in the batch chain, and a sync or merge

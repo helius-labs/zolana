@@ -24,6 +24,8 @@ import type {
 } from "./types.js";
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
+/** An error body is a code and a message; anything larger is not read. */
+const MAX_REASON_BYTES = 4096;
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 2_000n;
 /// Per-request bound, mirroring the Rust client's `PROVE_REQUEST_TIMEOUT_SECS`.
@@ -132,7 +134,7 @@ export class ProverClient {
       }
       if (!response.ok) {
         throw new ClientError("CLIENT_PROVER_HTTP", {
-          details: { method: "health", status: response.status },
+          details: { method: "health", status: response.status, ...(await proverReason(response)) },
         });
       }
       const value = await decodeResponse(response);
@@ -190,7 +192,12 @@ export class ProverClient {
             // Rust fails fast on any non-success status; only a transport failure retries.
             if (!response.ok) {
               throw new ClientError("CLIENT_PROVER_HTTP", {
-                details: { method: "prove", status: response.status, attempts: attempt },
+                details: {
+                  method: "prove",
+                  status: response.status,
+                  attempts: attempt,
+                  ...(await proverReason(response)),
+                },
               });
             }
             let value: unknown;
@@ -271,7 +278,11 @@ export class ProverClient {
         }
         if (response.status >= 400 && response.status < 500) {
           throw new ClientError("CLIENT_PROVER_HTTP", {
-            details: { method: "proveStatus", status: response.status },
+            details: {
+              method: "proveStatus",
+              status: response.status,
+              ...(await proverReason(response)),
+            },
           });
         }
         if (response.status >= 500) {
@@ -493,6 +504,27 @@ async function decodeResponse(response: Response): Promise<unknown> {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const MAX_REASON_CHARS = 200;
+
+/**
+ * The prover's `{ code, message }` error body as one bounded string, so a
+ * refused request says why (an unknown circuit, a malformed field, a missing
+ * key) instead of only its status. Untrusted text; absent when unreadable.
+ */
+async function proverReason(response: Response): Promise<Readonly<{ reason?: string }>> {
+  let body: unknown;
+  try {
+    body = await readBoundedJson(response, MAX_REASON_BYTES);
+  } catch {
+    return {};
+  }
+  if (!isObject(body)) return {};
+  const parts = [body["code"], body["message"]].filter(
+    (part): part is string => typeof part === "string" && part.length > 0,
+  );
+  return parts.length === 0 ? {} : { reason: parts.join(": ").slice(0, MAX_REASON_CHARS) };
 }
 
 function asyncPollConfig(input: AsyncPollConfig | undefined): AsyncPollConfig {

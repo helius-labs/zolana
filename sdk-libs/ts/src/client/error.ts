@@ -157,6 +157,8 @@ export interface ClientErrorDetailsMap {
     method: string;
     status?: number;
     attempts?: number;
+    /** The prover's own error code and message, when it sent them. */
+    reason?: string;
   }>;
   readonly CLIENT_PROVER_JOB: MethodDetails;
   readonly CLIENT_PROVER_TIMEOUT: Readonly<{
@@ -333,7 +335,7 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_PROOF_TREE_MISMATCH: { index: "number" },
   CLIENT_INVALID_MERGE_SHAPE: { expected: "number", actual: "number" },
   CLIENT_PROVER_REQUEST: { method: "string", attempts: "number" },
-  CLIENT_PROVER_HTTP: { method: "string", status: "number", attempts: "number" },
+  CLIENT_PROVER_HTTP: { method: "string", status: "number", attempts: "number", reason: "string" },
   CLIENT_PROVER_JOB: { method: "string" },
   CLIENT_PROVER_TIMEOUT: { method: "string", jobId: "string", timeoutMs: "number" },
   CLIENT_INVALID_RPC_RESPONSE: {
