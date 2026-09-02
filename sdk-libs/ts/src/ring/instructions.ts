@@ -37,6 +37,8 @@ export async function createRingConfigInstruction(
     payer: SignerAccount;
     authority: SignerAccount;
     auditorPublicKey: P256PublicKey;
+    /** A policy ring enforces its compiled rules, an audit-only ring skips them. */
+    hasPolicy: boolean;
   }>,
 ): Promise<Instruction> {
   if (isDerivationPoint(input.auditorPublicKey)) {
@@ -46,9 +48,10 @@ export async function createRingConfigInstruction(
     ringConfigAddress(input.ringProgramId),
     ringProgramDataAddress(input.ringProgramId),
   ]);
-  const data = new Uint8Array(1 + 33);
+  const data = new Uint8Array(1 + 33 + 1);
   data[0] = RING_PROGRAM_CREATE_CONFIG_TAG;
   data.set(input.auditorPublicKey.toBytes(), 1);
+  data[34] = input.hasPolicy ? 1 : 0;
   return {
     programAddress: input.ringProgramId,
     accounts: [
