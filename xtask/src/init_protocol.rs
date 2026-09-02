@@ -15,7 +15,7 @@ use zolana_interface::{
         UpdateProtocolConfigData,
     },
     pda,
-    state::{default_tree_fees, nullifier_tree_params, ProtocolConfig, SplAssetCounter},
+    state::{nullifier_tree_params, ProtocolConfig, SplAssetCounter},
     BPF_LOADER_UPGRADEABLE_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_smart_account_client::{
@@ -26,6 +26,11 @@ use zolana_test_utils::smart_account::{
     create_smart_account_ix, execute_sync_each, execute_sync_ix, program_config_pda, settings_pda,
     smart_account_pda, Permissions, SmartAccountSigner, PROGRAM_CONFIG_ACCOUNT_DISCRIMINATOR,
     SMART_ACCOUNT_PROGRAM_ID,
+};
+use zolana_tree::TreeFeeSchedule;
+
+use crate::tree_fees::{
+    at_cost_for_transaction_size, print_schedule, ForesterClose, TransactionSize,
 };
 
 const VAULT_FUNDING_BUFFER_LAMPORTS: u64 = 10_000_000;
@@ -100,6 +105,7 @@ pub struct Options {
     protocol_signer: PathBuf,
     upgrade_authority: Option<PathBuf>,
     reuse_settings: Option<[Pubkey; 5]>,
+    transaction_size: TransactionSize,
     yes: bool,
     dry_run: bool,
 }
@@ -112,6 +118,7 @@ impl Options {
         let mut protocol_signer = None;
         let mut upgrade_authority = None;
         let mut reuse_settings: [Option<Pubkey>; 5] = [None; 5];
+        let mut transaction_size = TransactionSize::V1;
         let mut yes = false;
         let mut dry_run = false;
 
@@ -168,6 +175,13 @@ impl Options {
                     };
                     *slot = Some(key);
                 }
+                "--transaction-size" => {
+                    let value = args
+                        .next()
+                        .unwrap_or_else(|| usage_and_exit("--transaction-size missing value"));
+                    transaction_size = TransactionSize::parse(&value)
+                        .unwrap_or_else(|e| usage_and_exit(&e.to_string()));
+                }
                 "--yes" => yes = true,
                 "--dry-run" => dry_run = true,
                 "--help" | "-h" => {
@@ -207,6 +221,7 @@ impl Options {
             protocol_signer,
             upgrade_authority,
             reuse_settings,
+            transaction_size,
             yes,
             dry_run,
         }
@@ -843,13 +858,14 @@ fn create_tree(
     tree_id: u16,
     tree_settings: &Pubkey,
     tree_vault: Pubkey,
+    fees: TreeFeeSchedule,
 ) -> Result<Pubkey> {
     let create = CreateTree {
         payer: payer.pubkey(),
         authority: tree_vault,
         tree_id,
         nullifier_params: nullifier_tree_params(),
-        fees: default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size),
+        fees,
     };
     let steps = execute_sync_each(
         tree_settings,
@@ -929,6 +945,16 @@ pub fn run(options: Options) -> Result<()> {
     let roles = reused_roles.unwrap_or_else(|| derive_roles(program_config.smart_account_index));
     let protocol_vault = roles[0].vault;
     let tree_id = next_tree_id(&rpc, initialized)?;
+    let forester_close = ForesterClose {
+        settings: roles[4].settings,
+        member: signers.payer.pubkey(),
+        tree: pda::tree(tree_id),
+    };
+    let closes_per_transaction = forester_close.closes_per_transaction(options.transaction_size)?;
+    let fees = at_cost_for_transaction_size(
+        nullifier_tree_params().input_queue_zkp_batch_size,
+        closes_per_transaction,
+    )?;
 
     println!("cluster={}", options.cluster.name());
     println!("rpc_url={url}");
@@ -951,6 +977,7 @@ pub fn run(options: Options) -> Result<()> {
     }
     println!("protocol_config={}", pda::protocol_config());
     println!("spl_asset_counter={}", pda::spl_asset_counter());
+    print_schedule(options.transaction_size, closes_per_transaction, &fees);
 
     if options.dry_run {
         println!("dry_run: no transactions sent");
@@ -1058,6 +1085,7 @@ pub fn run(options: Options) -> Result<()> {
         tree_id,
         &tree.settings,
         tree.vault,
+        fees,
     )?;
 
     println!("init_protocol=complete");
@@ -1095,6 +1123,11 @@ fn print_help() {
     println!("  --ring-settings <PUBKEY>              are required together; each must be a");
     println!("  --merge-settings <PUBKEY>             Squads Settings account listing the");
     println!("  --forester-settings <PUBKEY>          expected role members");
+    println!("  --transaction-size <v0|v1>            size limit of the forester's close");
+    println!("                                        transactions (1232 or 4096 bytes); sets");
+    println!(
+        "                                        the tree's default fee schedule. default: v1"
+    );
     println!("  --yes                                 confirm irreversible mainnet sends");
     println!("  --dry-run                             derive + print addresses, send nothing");
     println!("  -h | --help                           print this help");

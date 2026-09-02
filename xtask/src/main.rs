@@ -12,6 +12,7 @@ mod find_smart_accounts;
 mod init_protocol;
 mod loadtest;
 mod set_tree_fees;
+mod tree_fees;
 mod update_protocol_config;
 
 fn main() {
