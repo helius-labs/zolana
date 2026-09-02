@@ -11,8 +11,8 @@ use solana_pubkey::Pubkey;
 use zolana_account_checks::AccountError;
 
 use crate::common::{
-    account, auditor_pubkey, authority, init_spp_ring_config_fixture, initialized_config_account,
-    setup_mollusk,
+    account, audit_only_config_account, auditor_pubkey, authority, init_spp_ring_config_fixture,
+    initialized_config_account, initialized_policy_config_account, setup_mollusk,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -98,4 +98,46 @@ fn init_with_an_unsigned_payer_is_rejected() {
         &mollusk,
         ProgramError::Custom(u32::from(AccountError::InvalidSigner)),
     );
+}
+
+/// A policy ring registers only after `create_policy`, else deposits land
+/// while every transact fails.
+#[test]
+fn a_policy_ring_without_its_policy_config_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = init_spp_ring_config_fixture(valid_config());
+    fixture.set_account("policy_config", account(0));
+    fixture.expect_err(
+        &mollusk,
+        custom(CustomRingError::PolicyConfigNotInitialized),
+    );
+}
+
+#[test]
+fn a_policy_ring_with_the_audit_only_layout_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = init_spp_ring_config_fixture(valid_config());
+    fixture.truncate(7);
+    fixture.expect_err(
+        &mollusk,
+        ProgramError::Custom(u32::from(AccountError::NotEnoughAccountKeys)),
+    );
+}
+
+#[test]
+fn a_non_canonical_policy_config_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = init_spp_ring_config_fixture(valid_config());
+    fixture.substitute("policy_config", Pubkey::new_from_array([63; 32]));
+    fixture.set_account("policy_config", initialized_policy_config_account());
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidPolicyConfigPda));
+}
+
+#[test]
+fn an_audit_only_ring_registers_with_seven_accounts() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture =
+        init_spp_ring_config_fixture(audit_only_config_account(authority(), auditor_pubkey(2)));
+    fixture.truncate(7);
+    fixture.expect_spp_cpi(&mollusk);
 }

@@ -3,23 +3,26 @@
 //! An entry list is a namespace of `(list_id, member)` entries, each a zero-amount
 //! data UTXO in the SPP state tree owned by the ring's namespace PDA, present or
 //! absent provably against SPP's own roots (see [`ListEntry`]). The
-//! [`crate::RuleTable`] is one consumer, a list of auditors or co-signers is another.
+//! [`crate::RuleTable`] consumes them through its rules.
 //!
 //! # Adding a list
 //!
-//! 1. Add a [`ListId`] variant with any unused `u8` (never `0`, the circuit
-//!    reserves it as the inline-asset sentinel) and its `TryFrom<u8>` arm.
-//! 2. Place the variant in [`ListId::writer`]. The total match makes the
-//!    compiler demand it.
+//! The eight ids fill the circuit's source width, a ninth is a circuit and
+//! encoding change.
+//!
+//! 1. Add a [`ListId`] variant at its slot in [`ListId::ALL`], `TryFrom<u8>`
+//!    reads the array and the positional assertion refuses a gap.
+//! 2. Place the variant in [`ListId::writer`] and [`ListId::admits_content`].
+//!    The total matches make the compiler demand both.
 //! 3. Pick an [`EntryContent`] (`()` when the member is the whole entry, [`CoSignerKey`]
 //!    or a new type when a value is committed beside it, a value above 32 bytes
 //!    hashes in `commit` and implements only [`EntryContent`]).
 //! 4. Declare a zero-sized type and `impl ListSchema` for it. `WRITER` derives itself.
 //!
-//! The keying, the 74-byte envelope, the present-absent membership proofs, the
-//! `create_entry` and `update_entry` instructions, and the circuit are reused
-//! unchanged. Only a rule that consults the list touches the [`crate::RuleTable`]. The
-//! circuit proves membership, never who mutated. Authorization stays here in
+//! The keying, the envelope, the present-absent membership proofs, and the
+//! `create_entry` and `update_entry` instructions are reused unchanged. Only a
+//! rule that consults the list touches the [`crate::RuleTable`]. The circuit
+//! proves membership, never who mutated. Authorization stays here in
 //! [`ListId::writer`], never crossing the CPI or reaching Go or TypeScript.
 
 use crate::entry::{EntryState, ListEntry, ListId, Writer};
@@ -142,12 +145,80 @@ where
     }
 }
 
+impl ListId {
+    /// Refuses a commitment no content of the list recovers.
+    #[must_use]
+    pub fn admits_content(self, commit: [u8; 32]) -> bool {
+        match self {
+            Self::Allow => admits::<Allow>(commit),
+            Self::Block => admits::<Block>(commit),
+            Self::Frozen => admits::<Frozen>(commit),
+            Self::RingViewing => admits::<RingViewing>(commit),
+            Self::Recovery => admits::<Recovery>(commit),
+            Self::Reader => admits::<Reader>(commit),
+            Self::Approval => admits::<Approval>(commit),
+            Self::Escrow => admits::<Escrow>(commit),
+        }
+    }
+}
+
+fn admits<L: ListSchema>(commit: [u8; 32]) -> bool
+where
+    L::EntryContent: InlineContent,
+{
+    L::EntryContent::from_commit(commit).is_some()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn member(byte: u8) -> Member {
         Member::owner_tag(&[byte; 32]).unwrap()
+    }
+
+    fn gate_agrees_with_the_typed_view<L: ListSchema>()
+    where
+        L::EntryContent: InlineContent,
+    {
+        for commit in [[0u8; 32], [1u8; 32]] {
+            let entry = ListEntry {
+                list_id: L::ID,
+                member: member(1),
+                state: EntryState::Active,
+                version: 0,
+                content_hash: commit,
+            };
+            assert_eq!(
+                L::ID.admits_content(commit),
+                Typed::<L>::from_entry(&entry).is_some(),
+                "{:?} {}",
+                L::ID,
+                commit[0]
+            );
+        }
+    }
+
+    #[test]
+    fn the_gate_admits_exactly_what_the_typed_view_recovers() {
+        for list_id in ListId::ALL {
+            match list_id {
+                ListId::Allow => gate_agrees_with_the_typed_view::<Allow>(),
+                ListId::Block => gate_agrees_with_the_typed_view::<Block>(),
+                ListId::Frozen => gate_agrees_with_the_typed_view::<Frozen>(),
+                ListId::RingViewing => gate_agrees_with_the_typed_view::<RingViewing>(),
+                ListId::Recovery => gate_agrees_with_the_typed_view::<Recovery>(),
+                ListId::Reader => gate_agrees_with_the_typed_view::<Reader>(),
+                ListId::Approval => gate_agrees_with_the_typed_view::<Approval>(),
+                ListId::Escrow => gate_agrees_with_the_typed_view::<Escrow>(),
+            }
+        }
+    }
+
+    #[test]
+    fn a_unit_content_list_admits_only_the_zero_commitment() {
+        assert!(ListId::Allow.admits_content([0u8; 32]));
+        assert!(!ListId::Allow.admits_content([1u8; 32]));
     }
 
     #[test]

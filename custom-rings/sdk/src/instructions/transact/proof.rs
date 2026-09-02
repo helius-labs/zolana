@@ -249,13 +249,13 @@ pub fn to_instruction_proof(proof: Proof) -> Result<CustomRingProof, CustomRingP
 
 #[cfg(test)]
 mod tests {
-    use super::super::{
-        CustomRingOpening, SourceOwnerEntry, POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS,
-    };
+    use super::super::{CustomRingOpening, SourceOwnerEntry};
     use super::*;
     use crate::witness::{CustomRingWitness, TransactRoots};
     use custom_ring_interface::CustomRingPublicInput;
-    use zolana_ring_policy::{MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES};
+    use zolana_ring_policy::{
+        MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES, POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS,
+    };
 
     /// The `go_vectors.rs` fixture scalars, valid P-256 keys below the group order.
     const TX_SK: &str = "011013121514171619181b1a1d1c1f1e010003020504070609080b0a0d0c0f0e";

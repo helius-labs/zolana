@@ -1,3 +1,4 @@
+use custom_ring_interface::PolicyConfig;
 use futures::future::try_join;
 use rand::{rngs::OsRng, RngCore};
 use solana_account::Account;
@@ -27,6 +28,7 @@ use zolana_keypair::{
     random_blinding, random_salt, KeypairError, P256Pubkey, ShieldedKeypair, ViewingKey,
     ViewingKeyTrait,
 };
+use zolana_ring_policy::RuleTable;
 use zolana_transaction::{
     instructions::transact::{
         encode_confidential_slots, ChangeLayout, PreparedTransfer, SppProofOutputUtxo,
@@ -39,9 +41,9 @@ use zolana_tree::{TreeAccount, TreeError};
 use crate::{
     to_instruction_proof,
     witness::{CustomRingWitness, CustomRingWitnessInput, TransactRoots},
-    AccountReadError, AuditProofRequest, CustomRing, CustomRingProof, CustomRingProofError,
-    CustomRingProofInputError, CustomRingProofParams, CustomRingProofRequest, CustomRingTransact,
-    Deposit, EncryptedAudit, PendingCustomRingProof,
+    AccountReadError, AuditProofRequest, CustomRing, CustomRingConfig, CustomRingProof,
+    CustomRingProofError, CustomRingProofInputError, CustomRingProofParams, CustomRingProofRequest,
+    CustomRingTransact, Deposit, EncryptedAudit, PendingCustomRingProof,
 };
 
 const NO_RING_DATA_HASH: [u8; 32] = [0u8; 32];
@@ -55,6 +57,7 @@ pub struct CustomRingTransfer<'a> {
     input_tree: Option<Address>,
     output_tree: Option<Address>,
     assets: Option<&'a AssetRegistry>,
+    rules: Option<&'a RuleTable>,
 }
 
 pub struct CustomRingTransferInput<'a> {
@@ -163,8 +166,10 @@ pub enum TransferError {
     PolicyShapeUnsupported,
     #[error("a policy rule refuses the transfer")]
     PolicyRuleUnsatisfied,
-    #[error("a policy ring proves over the blocking transport only")]
-    PolicyAsyncUnsupported,
+    #[error("a policy ring needs its rule table")]
+    RulesRequired,
+    #[error("the indexer proved the entries against more than one root")]
+    PolicyRootMismatch,
     #[error("no policy source serves the list")]
     MissingSourceOwner,
     #[error(transparent)]
@@ -205,7 +210,15 @@ impl<'a> CustomRingTransfer<'a> {
             input_tree: None,
             output_tree: None,
             assets: None,
+            rules: None,
         }
+    }
+
+    /// The table the deployed program compiled in, an audit-only ring ignores it.
+    #[must_use = "use the updated transfer"]
+    pub fn with_rules(mut self, rules: &'a RuleTable) -> Self {
+        self.rules = Some(rules);
+        self
     }
 
     /// The tree the spent notes live in, and where outputs land unless
@@ -247,6 +260,7 @@ impl<'a> CustomRingTransfer<'a> {
             .ring
             .read_config(environment.rpc)?
             .ok_or(TransferError::MissingRingConfig)?;
+        let rules = self.policy_rules(&config)?;
         let staged = self.stage(config.auditor_pubkey)?;
         // The tree is read and validated first. A tree that is absent, owned by
         // another program, or not a tree account at all fails here rather than
@@ -259,10 +273,9 @@ impl<'a> CustomRingTransfer<'a> {
             spends: &staged.proof_inputs.input_utxos,
         }
         .load()?;
-        let tier = if config.has_policy {
-            staged.policy_tier(&environment)?
-        } else {
-            Tier::Audit
+        let tier = match rules {
+            Some(rules) => staged.policy_tier(rules, &environment)?,
+            None => Tier::Audit,
         };
         let (request, witnessed) = staged.witness(spend_inputs, allow_dummy_inputs, tier)?;
         let spp_proof =
@@ -283,10 +296,6 @@ impl<'a> CustomRingTransfer<'a> {
     ///
     /// Both paths run the same proof assembly; only the five reads differ, and
     /// this one asks for its two proofs together rather than one after the other.
-    ///
-    /// The policy witness is gathered over the blocking transport only, so a
-    /// policy ring is refused with [`TransferError::PolicyAsyncUnsupported`]
-    /// right after the config read.
     pub async fn prove_async<I: AsyncRpc, R: AsyncRpc>(
         self,
         environment: AsyncTransferProofEnvironment<'_, I, R>,
@@ -296,9 +305,7 @@ impl<'a> CustomRingTransfer<'a> {
             .read_config_async(environment.rpc)
             .await?
             .ok_or(TransferError::MissingRingConfig)?;
-        if config.has_policy {
-            return Err(TransferError::PolicyAsyncUnsupported);
-        }
+        let rules = self.policy_rules(&config)?;
         let staged = self.stage(config.auditor_pubkey)?;
         // Same ordering reason as the blocking path: validate the tree before
         // asking the indexer for proofs against it.
@@ -311,7 +318,11 @@ impl<'a> CustomRingTransfer<'a> {
         }
         .load_async()
         .await?;
-        let (request, witnessed) = staged.witness(spend_inputs, allow_dummy_inputs, Tier::Audit)?;
+        let tier = match rules {
+            Some(rules) => staged.policy_tier_async(rules, &environment).await?,
+            None => Tier::Audit,
+        };
+        let (request, witnessed) = staged.witness(spend_inputs, allow_dummy_inputs, tier)?;
         // Both witnesses are complete, and neither proof is an input to the
         // other: SPP proves the transfer, the ring circuit proves the auditor
         // encryption over the `private_tx_hash` the SPP witness already fixed.
@@ -330,6 +341,16 @@ impl<'a> CustomRingTransfer<'a> {
             ProofCompressed::try_from(spp)?.to_transact_proof(),
             request.proven(ring)?,
         )
+    }
+
+    fn policy_rules(
+        &self,
+        config: &CustomRingConfig,
+    ) -> Result<Option<&'a RuleTable>, TransferError> {
+        if !config.has_policy {
+            return Ok(None);
+        }
+        self.rules.map(Some).ok_or(TransferError::RulesRequired)
     }
 
     /// Everything before the first read: validation, the transaction viewing
@@ -410,6 +431,16 @@ enum Tier {
     },
 }
 
+impl Tier {
+    fn policy(config: &PolicyConfig, witness: CustomRingWitness) -> Self {
+        Self::Policy {
+            policy_hash: config.policy_hash,
+            entries_tree: config.entries_tree,
+            witness: Box::new(witness),
+        }
+    }
+}
+
 /// A transfer past validation and auditor encryption, waiting on the reads.
 ///
 /// The stages are types, not flags: [`Self::witness`] consumes this one and is
@@ -430,30 +461,50 @@ struct StagedTransfer {
 }
 
 impl StagedTransfer {
-    /// Gathers the policy witness from the chain and the indexer.
     fn policy_tier<I: Rpc, R: Rpc>(
         &self,
+        rules: &RuleTable,
         environment: &TransferProofEnvironment<'_, I, R>,
     ) -> Result<Tier, TransferError> {
         let policy_config = self
             .ring
             .read_policy_config(environment.rpc)?
             .ok_or(TransferError::MissingPolicyConfig)?;
-        // Fail with the named mismatch before the prover round, not an opaque
-        // proof failure, if the client lacks the deployed rule features.
-        crate::client_rules_match(&policy_config)
+        let witness = self
+            .policy_witness(rules, &policy_config)?
+            .build(environment.indexer, environment.rpc)?;
+        Ok(Tier::policy(&policy_config, witness))
+    }
+
+    async fn policy_tier_async<I: AsyncRpc, R: AsyncRpc>(
+        &self,
+        rules: &RuleTable,
+        environment: &AsyncTransferProofEnvironment<'_, I, R>,
+    ) -> Result<Tier, TransferError> {
+        let policy_config = self
+            .ring
+            .read_policy_config_async(environment.rpc)
+            .await?
+            .ok_or(TransferError::MissingPolicyConfig)?;
+        let witness = self
+            .policy_witness(rules, &policy_config)?
+            .build_async(environment.indexer, environment.rpc)
+            .await?;
+        Ok(Tier::policy(&policy_config, witness))
+    }
+
+    fn policy_witness<'s>(
+        &'s self,
+        rules: &'s RuleTable,
+        policy_config: &'s PolicyConfig,
+    ) -> Result<CustomRingWitnessInput<'s>, TransferError> {
+        crate::client_rules_match(rules, policy_config)
             .map_err(|error| TransferError::PolicyMatch(Box::new(error)))?;
-        let witness = CustomRingWitnessInput {
-            policy: &custom_ring_interface::RULES,
-            policy_config: &policy_config,
+        Ok(CustomRingWitnessInput {
+            policy: rules,
+            policy_config,
             inputs: &self.proof_inputs.input_utxos,
             outputs: &self.proof_inputs.output_utxos,
-        }
-        .build(environment.indexer, environment.rpc)?;
-        Ok(Tier::Policy {
-            policy_hash: policy_config.policy_hash,
-            entries_tree: policy_config.entries_tree,
-            witness: Box::new(witness),
         })
     }
 

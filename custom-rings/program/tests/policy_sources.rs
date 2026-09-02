@@ -15,11 +15,11 @@ use solana_pubkey::Pubkey;
 use zolana_ring_policy::ListId;
 
 use crate::common::{
-    authority, create_entry_fixture, create_policy_fixture_with, curator_namespace_pda,
+    authority, create_policy_fixture_with, curator_namespace_pda,
     curator_policy_config_account_with, curator_policy_config_pda, curator_source_slots,
     entries_tree, initialized_curator_policy_config_account, initialized_policy_config_account,
     own_source_slots, policy_config_account_with, policy_config_pda, policy_hash_for,
-    set_policy_source_fixture, setup_mollusk_rules, Fixture, Slot,
+    set_policy_source_fixture, setup_mollusk_rules, EntryFixture, Fixture, Slot,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -56,7 +56,7 @@ fn specs_with_block_source(source: u8) -> Vec<SourceSpec> {
 
 fn mixed_sources() -> [SourceSlot; N_SOURCE_SLOTS] {
     let mut sources = own_source_slots();
-    sources[ListId::Block as usize - 1].namespace =
+    sources[ListId::Block.slot()].namespace =
         Address::new_from_array(curator_namespace_pda().0.to_bytes());
     sources
 }
@@ -105,7 +105,7 @@ fn create_policy_copies_the_curators_resolved_owner() {
     fixture.push(curator_slot(initialized_curator_policy_config_account()));
     let config = stored_policy_config(&mollusk, &fixture);
     assert_eq!(
-        config.sources[ListId::Block as usize - 1].namespace,
+        config.sources[ListId::Block.slot()].namespace,
         Address::new_from_array(curator_namespace_pda().0.to_bytes())
     );
     assert_eq!(config.sources, mixed_sources());
@@ -217,7 +217,7 @@ fn a_curator_without_the_requested_kind_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk_rules();
     let mut curator = initialized_curator_policy_config_account();
     let mut state: PolicyConfig = *bytemuck::from_bytes(&curator.data);
-    state.sources[ListId::Block as usize - 1] = SourceSlot {
+    state.sources[ListId::Block.slot()] = SourceSlot {
         list_id: 0,
         namespace: Address::new_from_array([0; 32]),
     };
@@ -321,23 +321,17 @@ fn a_shared_source_without_a_curator_is_rejected_exactly() {
 #[test]
 fn a_curator_served_kind_refuses_local_mutation_exactly() {
     let (mollusk, _) = setup_mollusk_rules();
-    let fixture = create_entry_fixture(
-        policy_config_account_with(mixed_sources()),
-        ListId::Block as u8,
-        authority(),
-    );
-    fixture.expect_err(&mollusk, custom(CustomRingError::ForeignSource));
+    EntryFixture::new(ListId::Block, authority())
+        .create(policy_config_account_with(mixed_sources()))
+        .expect_err(&mollusk, custom(CustomRingError::ForeignSource));
 }
 
 /// An own slot passes the source gate, the fixture then dies in the SPP CPI.
 #[test]
 fn an_own_served_kind_passes_the_source_gate() {
     let (mollusk, _) = setup_mollusk_rules();
-    let fixture = create_entry_fixture(
-        policy_config_account_with(mixed_sources()),
-        ListId::Allow as u8,
-        authority(),
-    );
+    let fixture = EntryFixture::new(ListId::Allow, authority())
+        .create(policy_config_account_with(mixed_sources()));
     let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
     assert_ne!(result.program_result, ProgramResult::Success);
     assert_ne!(
@@ -362,11 +356,8 @@ fn the_layout_keeps_entries_tree_and_sources_fixed() {
 fn a_mutation_tree_apart_from_the_entries_tree_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk_rules();
     for tree in ["input_tree", "output_tree"] {
-        let mut fixture = create_entry_fixture(
-            initialized_policy_config_account(),
-            ListId::Allow as u8,
-            authority(),
-        );
+        let mut fixture = EntryFixture::new(ListId::Allow, authority())
+            .create(initialized_policy_config_account());
         fixture.substitute(tree, Pubkey::new_from_array([80; 32]));
         fixture.expect_err(&mollusk, custom(CustomRingError::InvalidPolicyTree));
     }

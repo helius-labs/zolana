@@ -1,5 +1,5 @@
 use custom_ring_interface::{tag, CustomRingProof, CustomRingTransactIxData, AUDITOR_MESSAGE_LEN};
-use custom_ring_program::CustomRingError;
+use custom_ring_program::{CustomRingError, NULLIFIER_ROOT_WINDOW};
 use solana_program_error::ProgramError;
 use zolana_interface::N_PUBLIC_SLOTS;
 use zolana_interface::{
@@ -13,11 +13,14 @@ use zolana_interface::{
 };
 
 use solana_pubkey::Pubkey;
+use zolana_batched_merkle_tree::constants::DEFAULT_ADDRESS_BATCH_ROOT_HISTORY_LEN;
 
 use crate::common::{
     account, audit_only_config_account, audit_transact_fixture, auditor_pubkey, authority,
     entries_tree, entries_tree_account, initialized_config_account,
-    initialized_policy_config_account, setup_mollusk, transact_fixture, Fixture,
+    initialized_entries_tree_account, initialized_entries_tree_account_with_roots,
+    initialized_policy_config_account, nullifier_root_cursor, paused_entries_tree_account,
+    setup_mollusk, transact_fixture, Fixture,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -168,6 +171,49 @@ fn a_stale_nullifier_root_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let fixture = policy_fixture(0, 5);
     fixture.expect_err(&mollusk, custom(CustomRingError::StalePolicyRoot));
+}
+
+/// The oldest admitted root is `NULLIFIER_ROOT_WINDOW` rotations behind the cursor.
+#[test]
+fn a_nullifier_root_at_the_window_edge_reaches_the_proof() {
+    let (mollusk, _) = setup_mollusk();
+    let tree = initialized_entries_tree_account_with_roots(NULLIFIER_ROOT_WINDOW as u16 + 1);
+    let edge = nullifier_root_cursor(&tree) - NULLIFIER_ROOT_WINDOW as u16;
+    let mut fixture = policy_fixture(0, edge);
+    fixture.set_account("entries_tree", tree);
+    fixture.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+}
+
+#[test]
+fn a_nullifier_root_one_rotation_past_the_window_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let tree = initialized_entries_tree_account_with_roots(NULLIFIER_ROOT_WINDOW as u16 + 1);
+    let past = nullifier_root_cursor(&tree) - NULLIFIER_ROOT_WINDOW as u16 - 1;
+    let mut fixture = policy_fixture(0, past);
+    fixture.set_account("entries_tree", tree);
+    fixture.expect_err(&mollusk, custom(CustomRingError::StalePolicyRoot));
+}
+
+/// The history wraps, a slot inside the window that no rotation has written
+/// holds zero and is refused.
+#[test]
+fn an_unwritten_slot_inside_the_window_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let last = u16::try_from(DEFAULT_ADDRESS_BATCH_ROOT_HISTORY_LEN - 1).unwrap();
+    let fixture = policy_fixture(0, last);
+    fixture.expect_err(&mollusk, custom(CustomRingError::StalePolicyRoot));
+}
+
+/// A paused entries tree yields no root, the same fixture reaches the proof
+/// once the tree is live again.
+#[test]
+fn a_paused_entries_tree_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = policy_fixture(0, 0);
+    fixture.set_account("entries_tree", paused_entries_tree_account());
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidEntriesTree));
+    fixture.set_account("entries_tree", initialized_entries_tree_account());
+    fixture.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }
 
 /// The default fixture's money tree already differs from the entries tree.

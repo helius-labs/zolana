@@ -10,15 +10,12 @@ use zolana_client::{
     ClientError,
 };
 use zolana_keypair::{P256Pubkey, ViewingKey};
-use zolana_ring_policy::{MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES};
+use zolana_ring_policy::{
+    MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES, POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS,
+};
 
 use crate::instructions::transact::request::{bytes_to_hex, field_hex, SecretHex};
 
-/// Slots the answers array proves in one transaction, a transfer needing more must be
-/// split.
-pub const ANSWER_SLOTS: usize = 10;
-pub const POLICY_INPUT_SLOTS: usize = 5;
-pub const POLICY_OUTPUT_SLOTS: usize = 4;
 pub const STATE_PATH_LEN: usize = 32;
 pub const NULLIFIER_PATH_LEN: usize = 40;
 
@@ -331,6 +328,8 @@ struct CustomRingProofRequestJson<'a> {
 
 #[cfg(test)]
 mod tests {
+    use zolana_ring_policy::ANSWER_SLOTS;
+
     use super::*;
 
     fn request() -> CustomRingProofRequest {

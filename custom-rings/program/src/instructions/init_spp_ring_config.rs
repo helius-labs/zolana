@@ -5,7 +5,7 @@ use zolana_interface::instruction::{encode_instruction, tag, CreateRingConfigDat
 use crate::{
     error::CustomRingError,
     instructions::{
-        loader::{load_authorized_config, validate_spp_program},
+        loader::{load_authorized_config, load_policy_config, validate_spp_program},
         shared::cpi_spp_signed,
     },
 };
@@ -34,17 +34,21 @@ pub fn process_init_spp_ring_config_ix(
     let system_program = iter.next_account("system_program")?;
     let spp_program = iter.next_account("spp_program")?;
 
-    let ring_authority = load_authorized_config(program_id, config_account, authority)?.authority;
+    let has_policy = load_authorized_config(program_id, config_account, authority)?.has_policy;
     // The borrow is scoped so the config account is not still borrowed across the
     // CPI.
 
     validate_spp_program(core::slice::from_ref(spp_program))?;
+    if has_policy != 0 {
+        load_policy_config(program_id, iter.next_account("policy_config")?)?;
+    }
 
     let instruction_data = encode_instruction(
         tag::CREATE_RING_CONFIG,
         &CreateRingConfigData {
             program_id: *program_id,
-            authority: ring_authority,
+            // SPP admin actions on the ring pass only through the ring program.
+            authority: *ring_auth.address(),
             // This ring exposes no authority-transact rail: every transaction has
             // to carry an auditor proof, so the shortcut stays disabled.
             ring_authority_transact_is_enabled: false,

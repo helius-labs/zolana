@@ -6,7 +6,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use thiserror::Error;
 use zolana_client::{ProverClient, Rpc};
 use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
-use zolana_ring_policy::{EntryState, ListEntry, ListId, ListNamespace, Member};
+use zolana_ring_policy::{EntryState, ListEntry, ListId, ListNamespace, Member, RuleTable};
 
 use crate::{
     instructions::entry::proof::{EntryProof, EntryProofError, EntryWitness},
@@ -24,32 +24,37 @@ pub enum EntryError {
     VersionOverflow,
     #[error("the compiled table does not reference the list")]
     UnreferencedList(ListId),
+    #[error("no content of the list recovers the commitment")]
+    InvalidContent(ListId),
     #[error(transparent)]
     Encoding(#[from] wincode::WriteError),
 }
 
 /// Pins the compiled table and the source map, signed by the upgrade authority.
 #[must_use]
-pub struct CreatePolicy {
+pub struct CreatePolicy<'a> {
     pub ring: CustomRing,
     pub payer: Address,
     pub authority: Address,
     pub entries_tree: Address,
+    /// The table the deployed program compiled in.
+    pub rules: &'a RuleTable,
     /// Referenced lists reading a curator ring's entries, every other
     /// referenced list defaults to the ring's own entries.
     pub shared_sources: Vec<(ListId, CustomRing)>,
 }
 
-impl CreatePolicy {
+impl CreatePolicy<'_> {
     pub fn instruction(self) -> Result<Instruction, EntryError> {
         let Self {
             ring,
             payer,
             authority,
             entries_tree,
+            rules,
             shared_sources,
         } = self;
-        let referenced: Vec<ListId> = custom_ring_interface::RULES
+        let referenced: Vec<ListId> = rules
             .rules()
             .iter()
             .flat_map(|rule| rule.referenced_lists())
@@ -61,10 +66,7 @@ impl CreatePolicy {
         }
         let mut curators: Vec<CustomRing> = Vec::new();
         let mut specs: Vec<SourceSpec> = Vec::new();
-        for list_id in 1u8..=custom_ring_interface::N_SOURCE_SLOTS as u8 {
-            let Ok(list_id) = ListId::try_from(list_id) else {
-                continue;
-            };
+        for list_id in ListId::ALL {
             if !referenced.contains(&list_id) {
                 continue;
             }
@@ -129,6 +131,9 @@ impl CreateEntry {
         self,
         environment: EntryProofEnvironment<'_, I, R>,
     ) -> Result<ProvenEntry, EntryError> {
+        if !self.list_id.admits_content(self.content_hash) {
+            return Err(EntryError::InvalidContent(self.list_id));
+        }
         let namespace = self.ring.namespace_pda();
         let owner = ListNamespace::new(namespace.as_array()).map_err(|_| EntryError::Hashing)?;
         let entry = ListEntry {
@@ -174,6 +179,9 @@ impl UpdateEntry {
         self,
         environment: EntryProofEnvironment<'_, I, R>,
     ) -> Result<ProvenEntry, EntryError> {
+        if !self.spent.list_id.admits_content(self.content_hash) {
+            return Err(EntryError::InvalidContent(self.spent.list_id));
+        }
         let namespace = self.ring.namespace_pda();
         let owner = ListNamespace::new(namespace.as_array()).map_err(|_| EntryError::Hashing)?;
         let entry = ListEntry {
@@ -286,5 +294,36 @@ impl ProvenEntry {
             ],
             data,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every `Rpc` method has a default that fails, a reached call is an error.
+    struct NoRpc;
+    impl Rpc for NoRpc {}
+
+    #[test]
+    fn a_commitment_no_list_content_recovers_is_refused_before_any_call() {
+        let refused = CreateEntry {
+            ring: CustomRing::new(Address::new_from_array([42u8; 32])),
+            payer: Address::new_from_array([1u8; 32]),
+            entries_tree: Address::new_from_array([2u8; 32]),
+            list_id: ListId::Allow,
+            member: Member::owner_tag(&[3u8; 32]).expect("member"),
+            state: EntryState::Active,
+            content_hash: [1u8; 32],
+        }
+        .prove(EntryProofEnvironment {
+            indexer: &NoRpc,
+            rpc: &NoRpc,
+            prover: &ProverClient::new(String::new()),
+        });
+        assert!(matches!(
+            refused,
+            Err(EntryError::InvalidContent(ListId::Allow))
+        ));
     }
 }

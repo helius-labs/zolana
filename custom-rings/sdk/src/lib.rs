@@ -16,7 +16,7 @@ pub use custom_ring_interface::{
     CONFIG_PDA_SEED, CREATE_CONFIG_COMPUTE_UNIT_LIMIT, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
     ENTRY_MUTATION_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
     READ_ACCESS_COMPUTE_UNIT_LIMIT, READ_ACCESS_RECORD_PDA_SEED, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
-    SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
+    SET_PAUSED_COMPUTE_UNIT_LIMIT, SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
 };
 
 pub use zolana_interface::instruction::{DepositAsset, DepositSplAccounts};
@@ -29,13 +29,14 @@ pub use crate::{
         create_config::{CreateConfig, CreateConfigError},
         deposit::Deposit,
         entry::{
-            read_entry, CreateEntry, CreatePolicy, EntryError, EntryProof, EntryProofEnvironment,
-            EntryProofError, LiveEntry, ProvenEntry, UpdateEntry,
+            CreateEntry, CreatePolicy, EntryError, EntryProof, EntryProofEnvironment,
+            EntryProofError, LiveEntry, ProvenEntry, ReadEntry, UpdateEntry,
         },
         grant_read_access::GrantReadAccess,
         init_spp_ring_config::InitSppRingConfig,
         revoke_read_access::RevokeReadAccess,
         set_authority::SetAuthority,
+        set_paused::SetPaused,
         set_policy_source::{SetSourceOwner, SourceOwner},
         transact::{
             to_instruction_proof, AuditProofRequest, CustomRingPrivateTxHash, CustomRingProofError,

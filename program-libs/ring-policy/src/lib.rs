@@ -1,12 +1,11 @@
-//! The entry-list primitive for custom rings and the compiled rule table that
-//! is one consumer of it.
+//! The entry-list primitive for custom rings and the rule table compiled over
+//! it.
 //!
 //! One entry per `(list_id, member)` lives as a zero-amount data UTXO in the SPP
 //! state tree, owned by the ring's namespace PDA, present or absent provably
 //! against SPP's own roots. [`ListId`] names each list, [`ListNamespace`]
 //! keys it, and [`ListEntry`] carries it on the wire. [`RuleTable`] compiles a rule
-//! table over these lists, and [`schema`] is the typed extension point where a new
-//! list (a roster of auditors or co-signers) is one trait impl.
+//! table over these lists, and [`schema`] types the content of each.
 
 mod entry;
 mod member;
@@ -19,8 +18,9 @@ pub use entry::{
 };
 pub use member::{Member, MemberError};
 pub use rule_table::{
-    Guard, Mode, PolicyHashError, Rule, RuleSource, RuleTable, RuleTableBuilder, SourceMap,
-    SourceMapError, SourceOwner, Subject, MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES,
+    AnswerLoad, Guard, Mode, PolicyHashError, Rule, RuleSource, RuleTable, RuleTableBuilder,
+    SourceMap, SourceMapError, SourceOwner, Subject, ANSWER_SLOTS, GUARANTEED_LOAD,
+    MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES, POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS,
     POLICY_VERSION,
 };
 

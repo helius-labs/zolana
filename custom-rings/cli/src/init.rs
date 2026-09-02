@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use custom_ring_interface::RULES;
 use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
     AccountReadError, CreateConfig, CreateConfigError, CreatePolicy, CustomRing, CustomRingConfig,
@@ -75,8 +76,8 @@ pub struct Init<'a> {
 pub struct InitOutcome {
     pub config: StepOutcome,
     pub authority: StepOutcome,
-    pub ring: StepOutcome,
     pub policy: StepOutcome,
+    pub ring: StepOutcome,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -268,6 +269,7 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
             other => other.label(),
         },
     );
+    line("policy", outcome.policy.label());
     line(
         "spp ring",
         match outcome.ring {
@@ -275,7 +277,6 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
             other => other.label(),
         },
     );
-    line("policy", outcome.policy.label());
     if matches!(outcome.ring, StepOutcome::Created | StepOutcome::Present) {
         crate::status::announce(&ctx.config);
     }
@@ -409,28 +410,11 @@ impl Init<'_> {
                 (StepOutcome::Present, authority)
             }
         };
-        let ring = self
-            .step(
-                rpc,
-                "init_spp_ring_config",
-                &[],
-                INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
-            )
-            .ensure_present(
-                Observed::of(&self.ring.read_spp_ring_config(rpc)?),
-                &[InitSppRingConfig {
-                    ring: self.ring,
-                    payer: config_authority,
-                    authority: config_authority,
-                }
-                .instruction()],
-            )?;
-        // A curator serves a list only when its own table references it, catch
-        // the mismatch here rather than at the opaque on-chain CuratorSourceMissing.
+        // A curator serves a list only when its own table references it.
         for (list_id, curator) in &self.shared_sources {
             let serves = curator
                 .read_policy_config(rpc)?
-                .is_some_and(|config| config.source_for(*list_id as u8).is_some());
+                .is_some_and(|config| config.source_for(*list_id).is_some());
             if !serves {
                 return Err(InitError::CuratorDoesNotServe {
                     list_id: *list_id,
@@ -460,6 +444,7 @@ impl Init<'_> {
                             payer: config_authority,
                             authority: deployer.pubkey(),
                             entries_tree: self.entries_tree,
+                            rules: &RULES,
                             shared_sources: self.shared_sources.clone(),
                         }
                         .instruction()?],
@@ -471,14 +456,32 @@ impl Init<'_> {
         // transfer would build its witness from the wrong table.
         if self.has_policy {
             self.ring
-                .verify_client_rules(rpc)
+                .verify_client_rules(rpc, &RULES)
                 .map_err(|error| InitError::PolicyMismatch(Box::new(error)))?;
         }
+        // The program registers a policy ring only after its policy is pinned.
+        let ring = self
+            .step(
+                rpc,
+                "init_spp_ring_config",
+                &[],
+                INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
+            )
+            .ensure_present(
+                Observed::of(&self.ring.read_spp_ring_config(rpc)?),
+                &[InitSppRingConfig {
+                    ring: self.ring,
+                    payer: config_authority,
+                    authority: config_authority,
+                    has_policy: self.has_policy,
+                }
+                .instruction()],
+            )?;
         Ok(InitOutcome {
             config,
             authority,
-            ring,
             policy,
+            ring,
         })
     }
 
