@@ -12,6 +12,12 @@ path = "src/lib.rs"
 name = "zolana-ring"
 path = "src/main.rs"
 
+[features]
+# Match the deployed policy binary, the linked RULES builds the transfer witness.
+allowlist = ["custom-ring-program/allowlist"]
+blocklist = ["custom-ring-program/blocklist"]
+freeze = ["custom-ring-program/freeze"]
+
 [dependencies]
 anyhow = { workspace = true }
 bincode = { workspace = true }
