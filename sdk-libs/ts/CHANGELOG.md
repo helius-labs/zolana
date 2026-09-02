@@ -76,8 +76,9 @@ Added
   prover's request body with `null` in every nullifier secret slot a key
   holder has yet to fill, for a remote `ProofAuthority` to send it.
 - `DecryptRequest`, `DeriveRequest`, `TransactionKeyRequest`, `DecryptLabel`,
-  `ProofService`, `ProverInputs`, `MergeInputs`, and `ProverRequestBody` are
-  exported for key holder implementations.
+  `ProofService`, `ProverInputs`, `MergeInputs`, `TransferInputs`,
+  `TransferInput`, `TransferOutput`, `CircuitUtxo`, `Field`, and
+  `ProverRequestBody` are exported for key holder implementations.
 - `keyedWalletSnapshotCipher(identity, key)` seals wallet snapshots in the
   `walletSnapshotCipher` envelope under an AES-GCM key the caller supplies,
   and `walletSnapshotKey(secret)` derives that key from 32 bytes a key holder

@@ -35,11 +35,16 @@ export {
 } from "./prover/client.js";
 export { CUSTOM_RING_PROOF_LENGTH, compressProof, parseProof } from "./prover/proof.js";
 export type {
+  CircuitUtxo,
   CustomRingProofRequest,
   CompressedProof,
+  Field,
   MergeInputs,
   Proof,
   ProverInputs,
+  TransferInput,
+  TransferInputs,
+  TransferOutput,
 } from "./prover/types.js";
 export {
   DEFAULT_INDEXER_POLL_CONFIG,
