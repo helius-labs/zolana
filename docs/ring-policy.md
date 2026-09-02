@@ -42,8 +42,11 @@ to her proves absence through the cleared entry.
 `Rule { subject, mode, source, guard }` lives in
 `program-libs/ring-policy/src/rule_table.rs`. A rule checks `OutputOwner`,
 `Sender`, or `Asset` for `Present` or `Absent` in one list. The source is a
-list or an inline asset set. An `AboveAmount` guard passes transfers
-below the threshold without a membership check.
+list or an inline asset set. An `AboveAmount` guard exempts a subject from the
+membership check when the total that subject receives in the transaction stays
+at or below the threshold. The exemption aggregates every output to the same
+recipient, so splitting a payment across slots does not escape it. It is
+per-transaction and does not bound a total across transactions.
 
 `RuleTableBuilder::build` runs in const context and panics at compile time on a
 table the circuit cannot enforce. Duplicate rules, guarded sender rules, and

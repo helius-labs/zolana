@@ -55,36 +55,52 @@ func (c *Circuit) evaluate(
 		}
 
 		onOutput := api.Mul(enabled[k], api.Add(onOutputOwner, onAsset))
-		for j, out := range slots.outputs {
+		for j := range slots.outputs {
+			subjectVal := api.Select(onAsset, slots.outputs[j].asset, slots.outputs[j].owner)
+			// The exemption weighs the total sent to the same subject value, a
+			// payment split into sub-threshold slots no longer escapes the rule.
+			aggregated := frontend.Variable(0)
+			for jp := range slots.outputs {
+				otherVal := api.Select(onAsset, slots.outputs[jp].asset, slots.outputs[jp].owner)
+				liveOther := api.Select(onAsset, liveAsset[jp], liveOwner[jp])
+				same := api.IsZero(api.Sub(otherVal, subjectVal))
+				aggregated = api.Add(aggregated, api.Mul(api.Mul(liveOther, same), slots.outputs[jp].amount))
+			}
 			terms := make([]frontend.Variable, NAnswers)
 			for e := range matched {
 				terms[e] = api.Mul(matched[e], api.Select(onAsset, eqOutputAsset[e][j], eqOutputOwner[e][j]))
 			}
-			rule.assertAnswered(
+			rule.assertGuardedAnswered(
 				api,
 				api.Mul(onOutput, api.Select(onAsset, liveAsset[j], liveOwner[j])),
 				api.Select(isInline, inline[j], anyOf(api, terms)),
-				out.amount,
+				aggregated,
 			)
 		}
 
+		// Sender rules take no amount guard, an input is answered only by a
+		// covering entry.
 		onInput := api.Mul(enabled[k], onSender)
-		for i, in := range slots.inputs {
+		for i := range slots.inputs {
 			terms := make([]frontend.Variable, NAnswers)
 			for e := range matched {
 				terms[e] = api.Mul(matched[e], eqSender[e][i])
 			}
-			rule.assertAnswered(api, api.Mul(onInput, liveSender[i]), anyOf(api, terms), in.amount)
+			assertCovered(api, api.Mul(onInput, liveSender[i]), anyOf(api, terms))
 		}
 	}
 }
 
-func (w RuleWires) assertAnswered(api frontend.API, instance, covered, amount frontend.Variable) {
+func (w RuleWires) assertGuardedAnswered(api frontend.API, instance, covered, aggregated frontend.Variable) {
 	exempt := api.Mul(
 		api.IsZero(api.Sub(w.GuardTag, GuardAboveAmount)),
-		atMost(api, amount, w.Threshold),
+		atMostAggregated(api, aggregated, w.Threshold),
 	)
 	api.AssertIsEqual(api.Mul(instance, api.Mul(api.Sub(1, covered), api.Sub(1, exempt))), 0)
+}
+
+func assertCovered(api frontend.API, instance, covered frontend.Variable) {
+	api.AssertIsEqual(api.Mul(instance, api.Sub(1, covered)), 0)
 }
 
 // inlineCoverage matches output assets against the policy's inline members, the
@@ -106,10 +122,10 @@ func (c *Circuit) inlineCoverage(api frontend.API, outputs [NOut]slotView) [NOut
 	return covered
 }
 
-// atMost returns 1 iff amount <= threshold, sound only because both are
-// range-checked to 64 bits and the offset sum cannot wrap.
-func atMost(api frontend.API, amount, threshold frontend.Variable) frontend.Variable {
-	return api.ToBinary(api.Add(api.Sub(threshold, amount), amountOffset), 65)[64]
+// atMostAggregated returns 1 iff aggregated <= threshold, sound because every
+// summed amount is range-checked to 64 bits, the offset sum never wraps.
+func atMostAggregated(api frontend.API, aggregated, threshold frontend.Variable) frontend.Variable {
+	return api.ToBinary(api.Add(api.Sub(threshold, aggregated), aggregatedOffset), 67)[66]
 }
 
 // anyOf ORs boolean terms by summing, sound while the term count stays far
