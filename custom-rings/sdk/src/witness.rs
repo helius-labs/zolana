@@ -11,8 +11,8 @@ use zolana_interface::{
     UTXO_DOMAIN,
 };
 use zolana_ring_policy::{
-    entry_nullifier, EntryState, ListId, ListNamespace, Member, Mode, Rule, RuleSource, RuleTable,
-    Subject, MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES,
+    entry_nullifier, EntryState, Guard, ListId, ListNamespace, Member, Mode, Rule, RuleSource,
+    RuleTable, Subject, MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES,
 };
 use zolana_transaction::instructions::{transact::SppProofOutputUtxo, types::SppProofInputUtxo};
 use zolana_tree::TreeAccount;
@@ -118,6 +118,12 @@ impl CustomRingWitnessInput<'_> {
                 continue;
             }
             for member in self.subjects(rule)? {
+                // A guarded subject at or below the threshold is exempt, the
+                // circuit needs no answer for it and demanding one would refuse a
+                // transfer the circuit accepts.
+                if self.guard_exempts(rule, &member)? {
+                    continue;
+                }
                 let answer = self.cover(indexer, &lists, &member, rule.mode)?;
                 if answers.iter().any(|entry| {
                     entry.list_id == answer.list_id
@@ -155,6 +161,44 @@ impl CustomRingWitnessInput<'_> {
         }
         debug_assert!(unsatisfied);
         Err(TransferError::PolicyRuleUnsatisfied)
+    }
+
+    /// The rule's guard exempts the subject when the total it receives in the
+    /// transaction is at or below the threshold, the same sum the circuit weighs.
+    fn guard_exempts(&self, rule: &Rule, member: &Member) -> Result<bool, TransferError> {
+        let Guard::AboveAmount(threshold) = rule.guard else {
+            return Ok(false);
+        };
+        Ok(self.subject_total(rule.subject, member)? <= threshold)
+    }
+
+    /// The total the subject value receives across live outputs, aggregated per
+    /// owner or per asset as the circuit does.
+    fn subject_total(&self, subject: Subject, member: &Member) -> Result<u64, TransferError> {
+        if matches!(subject, Subject::Sender | Subject::ExitDestination) {
+            return Ok(0);
+        }
+        let mut total: u64 = 0;
+        for output in self.outputs {
+            let Some(address) = output.owner_address.as_ref() else {
+                continue;
+            };
+            let output_member = match subject {
+                Subject::Asset => {
+                    Member::asset(&output.asset).map_err(|_| TransferError::PolicyHashing)?
+                }
+                _ => {
+                    let tag = address
+                        .confidential_view_tag()
+                        .map_err(|_| TransferError::PolicyHashing)?;
+                    Member::owner_tag(&tag).map_err(|_| TransferError::PolicyHashing)?
+                }
+            };
+            if output_member == *member {
+                total = total.saturating_add(output.amount);
+            }
+        }
+        Ok(total)
     }
 
     fn subjects(&self, rule: &Rule) -> Result<Vec<Member>, TransferError> {
@@ -460,5 +504,54 @@ mod tests {
                 .expect("asset subjects"),
             vec![Member::asset(&asset).expect("asset member")]
         );
+    }
+
+    #[test]
+    fn a_guarded_rule_exempts_a_recipient_only_below_the_aggregated_threshold() {
+        let recipient = ShieldedKeypair::new_ed25519().expect("recipient");
+        let asset = Address::new_from_array([9; 32]);
+        let address = recipient.shielded_address().expect("address");
+        let member =
+            Member::owner_tag(&address.confidential_view_tag().expect("tag")).expect("member");
+        let config = PolicyConfig {
+            discriminator: POLICY_CONFIG,
+            policy_hash: [0; 32],
+            entries_tree: Address::default(),
+            namespace_bump: 0,
+            bump: 0,
+            sources: [SourceSlot {
+                list_id: 0,
+                namespace: Address::default(),
+            }; N_SOURCE_SLOTS],
+        };
+        let policy = RuleTable::builder().build();
+        // Two outputs to the same recipient sum to 2500, over the 2000 threshold.
+        let outputs = [
+            SppProofOutputUtxo::new(asset, 1000, address).expect("first output"),
+            SppProofOutputUtxo::new(asset, 1500, address).expect("second output"),
+        ];
+        let input = CustomRingWitnessInput {
+            policy: &policy,
+            policy_config: &config,
+            inputs: &[],
+            outputs: &outputs,
+        };
+        let guarded = Rule::require(Subject::OutputOwner, ListId::Allow).above(2000);
+        assert!(!input
+            .guard_exempts(&guarded, &member)
+            .expect("aggregated over"));
+        assert!(!input
+            .guard_exempts(&Rule::require(Subject::OutputOwner, ListId::Allow), &member)
+            .expect("no guard"));
+        let one = [SppProofOutputUtxo::new(asset, 1000, address).expect("single output")];
+        let below = CustomRingWitnessInput {
+            policy: &policy,
+            policy_config: &config,
+            inputs: &[],
+            outputs: &one,
+        };
+        assert!(below
+            .guard_exempts(&guarded, &member)
+            .expect("below threshold"));
     }
 }
