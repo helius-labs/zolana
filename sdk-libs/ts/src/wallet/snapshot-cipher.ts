@@ -1,17 +1,13 @@
-import { getBase64Decoder, getBase64Encoder } from "@solana/kit";
-
 import type { ShieldedAddress, ShieldedKeypair } from "../keypair/shielded.js";
 import { deserializeWallet } from "../transaction/wallet/persistence.js";
 
 import { WalletError } from "./error.js";
-import { equalBytes } from "./internal.js";
+import { base64Bytes, base64Text, equalBytes } from "./internal.js";
 import type { WalletStateCipher } from "./persisted.js";
 
 const SNAPSHOT_DOMAIN = "zolana/wallet-snapshot/v1";
 const ENVELOPE_VERSION = 1;
 
-const base64Decoder = getBase64Decoder();
-const base64Encoder = getBase64Encoder();
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -106,8 +102,8 @@ function snapshotCipher(
       const envelope: SealedEnvelope = {
         v: ENVELOPE_VERSION,
         snapshotVersion,
-        nonce: base64Decoder.decode(nonce),
-        data: base64Decoder.decode(data),
+        nonce: base64Text(nonce),
+        data: base64Text(data),
       };
       return JSON.stringify(envelope);
     },
@@ -119,11 +115,11 @@ function snapshotCipher(
         plaintext = await globalThis.crypto.subtle.decrypt(
           {
             name: "AES-GCM",
-            iv: new Uint8Array(base64Encoder.encode(envelope.nonce)),
+            iv: base64Bytes(envelope.nonce),
             additionalData: sealedContext(identity, envelope.snapshotVersion),
           },
           key,
-          new Uint8Array(base64Encoder.encode(envelope.data)),
+          base64Bytes(envelope.data),
         );
       } catch (cause) {
         throw new WalletError("WALLET_SNAPSHOT", { cause });

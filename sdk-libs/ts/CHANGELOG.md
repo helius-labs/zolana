@@ -96,6 +96,11 @@ Fixed
 
 - `decryptTransactions` no longer omits a merge when its inputs arrive in the
   same sync because merge dependencies resolve before wallet commit.
+- `walletSnapshotCipher` and `keyedWalletSnapshotCipher` seal snapshots of any
+  size in a browser: the ciphertext is base64-encoded in chunks instead of
+  spreading every byte into one `String.fromCharCode` call, which overflowed
+  the stack past roughly a hundred kilobytes and surfaced as `WALLET_SNAPSHOT`
+  with a `RangeError` cause.
 
 ## 0.1.5-alpha — 2026-09-01
 

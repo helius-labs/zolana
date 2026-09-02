@@ -1,4 +1,4 @@
-import { address, type Signature } from "@solana/kit";
+import { address, getAddressDecoder, type Signature } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Bytes32 } from "../src/interface/index.js";
@@ -372,6 +372,22 @@ describe("sealed wallet snapshots", () => {
     const restored = await loadPersistedWallet({ store, cipher });
     expect(restored).toBeDefined();
     expect(serializeWallet(restored!)).toBe(snapshot);
+  });
+
+  it("seals and opens a snapshot of several megabytes", async () => {
+    // A browser's base64 must not spread the whole ciphertext into one call.
+    const { keypair, wallet } = newWallet();
+    const decodeAddress = getAddressDecoder();
+    for (let index = 1; index <= 40_000; index += 1) {
+      const mint = new Uint8Array(32);
+      new DataView(mint.buffer).setUint32(0, index);
+      wallet.registerAsset(1_000n + BigInt(index), decodeAddress.decode(mint));
+    }
+    const snapshot = serializeWallet(wallet);
+    expect(snapshot.length).toBeGreaterThan(2_000_000);
+    const cipher = walletSnapshotCipher(keypair);
+    const sealed = await cipher.seal(snapshot);
+    expect(await cipher.open(sealed)).toBe(snapshot);
   });
 
   it("refuses a tampered snapshot", async () => {
