@@ -104,10 +104,12 @@ built into the CLI, and
 fixes who may `init`, the upgrade authority; `--program-so` deploys a local
 build instead. A ring with a `[policy]` section is a policy ring, `deploy`
 takes the release's rules-configured binary for it and the plain binary for an
-audit-only ring. The rules live in the deployed binary, so a policy ring's CLI
-has to be built with the same rule features (`cargo build -p custom-ring-cli
---features blocklist`). `init` recomputes the client rules against the pinned
-policy hash and refuses a mismatch. After the loader finishes, `deploy` reads the program back and
+audit-only ring. The released policy binary enforces all three rules, and the
+released cli is built to match it, so a downloaded cli drives it directly. A
+ring enforcing a subset self-builds both the program (`--program-so`) and a cli
+with the same rule features (`cargo build -p custom-ring-cli --features
+blocklist`). `init` recomputes the client rules against the pinned policy hash
+and refuses a mismatch. After the loader finishes, `deploy` reads the program back and
 refuses to report success unless the bytes on chain hash to the file it
 deployed. `zolana-ring init` fixes the auditor. After `init` the authority
 can be transferred (`--yes`, the new key alone can hand it back) or renounced
