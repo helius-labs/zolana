@@ -10087,7 +10087,6 @@ dependencies = [
  "pinocchio 0.11.2",
  "rand 0.8.7",
  "solana-account 4.3.1",
- "solana-address 2.6.1",
  "solana-instruction",
  "solana-pubkey 4.2.0",
  "wincode",

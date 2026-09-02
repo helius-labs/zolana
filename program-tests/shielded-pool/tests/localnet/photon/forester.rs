@@ -1,6 +1,6 @@
 use super::*;
 
-use forester::close_nullifier_pdas::plan_batches;
+use ::forester::close_nullifier_pdas::plan_batches;
 use zolana_client::ClientError;
 use zolana_interface::error::ShieldedPoolError;
 use zolana_program_test::Rejection;

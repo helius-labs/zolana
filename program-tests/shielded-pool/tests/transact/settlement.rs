@@ -71,7 +71,7 @@ fn spl_withdrawal_leg(mut ix_data: TransactIxData, amount: u64, mint: &Pubkey) -
     ix_data
 }
 
-fn withdrawal_env() -> (ZolanaProgramTest, Keypair) {
+fn withdrawal_env() -> (ZolanaProgramTest, Pubkey) {
     let Pool { rpc, tree, .. } = Pool::initialized();
     (rpc, tree)
 }
@@ -91,8 +91,8 @@ fn sol_withdrawal_rejects_an_unsigned_payer_meta() {
     let ix_data = sol_withdrawal_ix_data();
     let mut ix = Transact {
         payer: spp_payer,
-        input_tree: tree.pubkey(),
-        output_tree: tree.pubkey(),
+        input_tree: tree,
+        output_tree: tree,
         owner_signers: vec![fee_payer],
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts { recipient },
@@ -127,8 +127,8 @@ fn sol_withdrawal_rejects_a_non_canonical_sol_interface() {
     let sol_interface_index = 5 + data.inputs.len();
     let mut ix = Transact {
         payer,
-        input_tree: tree.pubkey(),
-        output_tree: tree.pubkey(),
+        input_tree: tree,
+        output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts { recipient },
@@ -162,7 +162,7 @@ fn sol_withdrawal_rejects_a_non_canonical_sol_interface() {
 /// defect, so the asserted rejection isolates that check.
 struct SplWithdrawalEnv {
     rpc: ZolanaProgramTest,
-    tree: Keypair,
+    tree: Pubkey,
     attacker: Keypair,
     mint: Pubkey,
     vault: Pubkey,

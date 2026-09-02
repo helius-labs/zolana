@@ -62,7 +62,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     )?;
     let direct_root_before = rpc_state_root(&rpc, &tree)?;
     let direct_ix = Deposit {
-        tree: tree,
+        tree,
         depositor: depositor.pubkey(),
         deposits: vec![direct_data],
     }
@@ -138,7 +138,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     ring_data.ring_data_hash = [5u8; 32];
     let ring_root_before = rpc_state_root(&rpc, &tree)?;
     let ring_ix = RingDeposit {
-        tree: tree,
+        tree,
         depositor: depositor.pubkey(),
         ring_program_id,
         deposits: vec![ring_data],
