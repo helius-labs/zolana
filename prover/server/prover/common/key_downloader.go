@@ -302,7 +302,7 @@ func EnsureProvingKey(keyPath string, autoDownload bool, config *DownloadConfig)
 
 	if entry.Source != "" {
 		return fmt.Errorf(
-			"key %s is built from the %s artifact and is not on the object store: run just ensure-custom-ring-prover-key",
+			"key %s is a %s asset and is not on the object store, run just ensure-custom-ring-live-keys",
 			filename,
 			entry.Source,
 		)
