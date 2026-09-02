@@ -35,7 +35,7 @@ pub use crate::{
         set_authority::SetAuthority,
         set_policy_source::{SetSourceOwner, SourceOwner},
         transact::{
-            to_instruction_proof, CustomRingPrivateTxHash, CustomRingProofError,
+            to_instruction_proof, AuditProofRequest, CustomRingPrivateTxHash, CustomRingProofError,
             CustomRingProofInputError, CustomRingProofParams, CustomRingProofRequest,
             CustomRingTransact, EncryptedAudit, PendingCustomRingProof,
         },

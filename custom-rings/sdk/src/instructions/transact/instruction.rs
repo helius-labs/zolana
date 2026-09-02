@@ -11,12 +11,11 @@ use crate::CustomRing;
 /// Audited ring transact: the ring's auditor key-encryption proof followed by the
 /// SPP content it forwards.
 ///
-/// The account list is `[payer, config, policy_config, entries_tree]` prepended
-/// to SPP's own `RING_TRANSACT` list. Those four prefix accounts are all this
-/// program reads for itself: the payer it requires as a signer, the config
-/// account holding the auditor key the public-input hash is recomputed against,
-/// the policy config, and the ring's `entries_tree`, the only tree the policy
-/// roots are read from. Everything after them is forwarded to SPP position for
+/// A policy ring prepends `[payer, config, policy_config, entries_tree]` to SPP's
+/// own `RING_TRANSACT` list, an audit-only ring prepends just `[payer, config]`.
+/// The config holds the auditor key the public-input hash is recomputed against,
+/// and a policy ring's `entries_tree` is the only tree the policy roots are read
+/// from. Everything after the prefix is forwarded to SPP position for
 /// position, so it is taken straight from [`RingTransact::instruction`] rather
 /// than re-listed here -- a hand-written copy would be a second definition of
 /// SPP's loader order, free to drift from it.
@@ -29,9 +28,9 @@ pub struct CustomRingTransact {
     pub payer: Address,
     pub input_tree: Address,
     pub output_tree: Address,
-    /// The ring's policy-entry tree, read for the state and nullifier roots the
-    /// proof binds.
-    pub entries_tree: Address,
+    /// The pinned entries tree for a policy ring, `None` for an audit-only ring
+    /// whose layout drops the policy_config and entries_tree accounts.
+    pub entries_tree: Option<Address>,
     /// The eddsa owners of the spent UTXOs; SPP requires each as a signer.
     pub owner_signers: Vec<Address>,
     /// Settlement accounts for the content's `interface_transfers`, in the same
@@ -82,13 +81,15 @@ impl CustomRingTransact {
         let mut accounts = Vec::with_capacity(4 + spp_accounts.len());
         accounts.push(AccountMeta::new(payer, true));
         accounts.push(AccountMeta::new_readonly(deployment.config_pda(), false));
-        accounts.push(AccountMeta::new_readonly(
-            deployment.policy_config_pda(),
-            false,
-        ));
-        // An existing ring may alias entries_tree with the writable SPP input
-        // tree.
-        accounts.push(AccountMeta::new_readonly(entries_tree, false));
+        if let Some(entries_tree) = entries_tree {
+            accounts.push(AccountMeta::new_readonly(
+                deployment.policy_config_pda(),
+                false,
+            ));
+            // An existing ring may alias entries_tree with the writable SPP input
+            // tree.
+            accounts.push(AccountMeta::new_readonly(entries_tree, false));
+        }
         accounts.extend(spp_accounts);
 
         let body = wincode::serialize(&CustomRingTransactIxData {

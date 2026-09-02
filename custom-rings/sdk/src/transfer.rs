@@ -71,7 +71,8 @@ pub struct ProvenTransfer {
     payer: Address,
     input_tree: Address,
     output_tree: Address,
-    entries_tree: Address,
+    /// The pinned entries tree for a policy ring, `None` for an audit-only ring.
+    entries_tree: Option<Address>,
     ring: CustomRing,
 }
 
@@ -209,11 +210,12 @@ impl<'a> CustomRingTransfer<'a> {
         let input_tree = self.input_tree.ok_or(TransferError::TreeRequired)?;
         let output_tree = self.output_tree.unwrap_or(input_tree);
         let assets = self.assets.ok_or(TransferError::MissingAssetRegistry)?;
-        let auditor_pk = self
+        let config = self
             .ring
             .read_config(environment.rpc)?
-            .ok_or(TransferError::MissingRingConfig)?
-            .auditor_pubkey;
+            .ok_or(TransferError::MissingRingConfig)?;
+        let auditor_pk = config.auditor_pubkey;
+        let has_policy = config.has_policy;
         // A padded change slot pushes the custom-ring instruction past the packet
         // limit even behind an address lookup table, and every published slot
         // must be one the auditor can open.
@@ -288,36 +290,48 @@ impl<'a> CustomRingTransfer<'a> {
 
         // Now the real `private_tx_hash` exists, so the pending encryption can be
         // finished into the proof request over the unchanged ciphertext. The program
-        // recomputes that same public-input chain from the content and the config
-        // account.
-        // One proof carries the audit and the policy statement.
+        // recomputes the same public-input chain from the content and the config.
         let private_tx_hash = ring_result.private_tx_hash.try_into()?;
-        let policy_config = self
-            .ring
-            .read_policy_config(environment.rpc)?
-            .ok_or(TransferError::MissingPolicyConfig)?;
-        // The policy roots and entry proofs bind the entries tree, not the SPP
-        // money trees.
-        let entries_tree = policy_config.entries_tree;
-        let witness = crate::witness::CustomRingWitnessInput {
-            policy: &custom_ring_interface::RULES,
-            policy_config: &policy_config,
-            inputs: &proof_inputs.input_utxos,
-            outputs: &proof_inputs.output_utxos,
-        }
-        .build(environment.indexer, environment.rpc)?;
-        let policy_roots = witness.roots;
-        let external_data_hash = proof_inputs
-            .external_data
-            .hash()
-            .map_err(|_| TransferError::PolicyHashing)?;
-        let request = pending_proof.finish(
-            private_tx_hash,
-            &external_data_hash,
-            witness,
-            &policy_config.policy_hash,
-        )?;
-        let proof = to_instruction_proof(environment.prover.prove(&request)?)?;
+        // A policy ring proves the folded statement over its entries-tree roots, an
+        // audit-only ring proves the audit statement alone.
+        let (proof, entries_tree, state_root_index, nullifier_root_index) = if has_policy {
+            let policy_config = self
+                .ring
+                .read_policy_config(environment.rpc)?
+                .ok_or(TransferError::MissingPolicyConfig)?;
+            let witness = crate::witness::CustomRingWitnessInput {
+                policy: &custom_ring_interface::RULES,
+                policy_config: &policy_config,
+                inputs: &proof_inputs.input_utxos,
+                outputs: &proof_inputs.output_utxos,
+            }
+            .build(environment.indexer, environment.rpc)?;
+            let policy_roots = witness.roots;
+            let external_data_hash = proof_inputs
+                .external_data
+                .hash()
+                .map_err(|_| TransferError::PolicyHashing)?;
+            let request = pending_proof.finish(
+                private_tx_hash,
+                &external_data_hash,
+                witness,
+                &policy_config.policy_hash,
+            )?;
+            (
+                to_instruction_proof(environment.prover.prove(&request)?)?,
+                Some(policy_config.entries_tree),
+                policy_roots.state_index,
+                policy_roots.nullifier_index,
+            )
+        } else {
+            let request = pending_proof.finish_audit(private_tx_hash)?;
+            (
+                to_instruction_proof(environment.prover.prove(&request)?)?,
+                None,
+                0,
+                0,
+            )
+        };
 
         Ok(ProvenTransfer {
             tx_viewing_key,
@@ -330,8 +344,8 @@ impl<'a> CustomRingTransfer<'a> {
             proof,
             owner_signers: proof_inputs.owner_signer_pubkeys()?,
             interface_transfer_accounts: self.interface_transfer_accounts,
-            state_root_index: policy_roots.state_index,
-            nullifier_root_index: policy_roots.nullifier_index,
+            state_root_index,
+            nullifier_root_index,
             payer,
             input_tree,
             output_tree,

@@ -24,6 +24,9 @@ pub struct CustomRing {
 pub struct CustomRingConfig {
     pub authority: Address,
     pub auditor_pubkey: P256Pubkey,
+    /// A policy ring enforces its compiled rules, an audit-only ring proves only
+    /// the audit statement.
+    pub has_policy: bool,
 }
 
 #[derive(Debug, Error)]
@@ -100,6 +103,7 @@ impl CustomRing {
         Ok(Some(CustomRingConfig {
             authority: config.authority,
             auditor_pubkey,
+            has_policy: config.has_policy != 0,
         }))
     }
 
