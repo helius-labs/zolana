@@ -185,16 +185,17 @@ describe("ring deposit", () => {
 });
 
 describe("ring transact settlement", () => {
-  it("appends the SPL withdrawal group Rust `append_interface_transfer_accounts` appends", () => {
+  it("appends the SPL withdrawal group Rust `append_interface_transfer_accounts` appends", async () => {
     const mint = addressOf(41);
     const splTokenInterface = addressOf(42);
     const recipientTokenAccount = addressOf(43);
     const tokenProgram = addressOf(44);
-    const pool = ringTransactAccounts({
+    const pool = await ringTransactAccounts({
       payer: PAYER,
       inputTree: TREE,
       outputTree: OUTPUT_TREE,
       ringAuth: RING_AUTH,
+      inputs: [],
       withdrawal: TransactWithdrawal.spl({
         mint,
         splTokenInterface,
@@ -211,13 +212,14 @@ describe("ring transact settlement", () => {
     ]);
   });
 
-  it("appends non-payer owner signers as readonly signers", () => {
+  it("appends non-payer owner signers as readonly signers", async () => {
     const owner = addressOf(45);
-    const pool = ringTransactAccounts({
+    const pool = await ringTransactAccounts({
       payer: PAYER,
       inputTree: TREE,
       outputTree: OUTPUT_TREE,
       ringAuth: RING_AUTH,
+      inputs: [],
       ownerSigners: [owner],
     });
     expect(pool.map((meta) => [meta.address, meta.role])).toContainEqual([

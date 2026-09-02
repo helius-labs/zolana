@@ -37,8 +37,8 @@ use zolana_hasher::Poseidon;
 use zolana_interface::{
     instruction::instruction_data::transact::{OwnerTag, TransactIxData, TransactOutput},
     state::{
-        address_tree_params, discriminator::TREE_ACCOUNT_DISCRIMINATOR, tree_account_size,
-        STATE_HEIGHT,
+        default_tree_fees, discriminator::TREE_ACCOUNT_DISCRIMINATOR, nullifier_tree_params,
+        tree_account_size, STATE_HEIGHT,
     },
     SHIELDED_POOL_PROGRAM_ID,
 };
@@ -102,7 +102,9 @@ fn build_tree_fixture(tree: &Pubkey, leaves: &[[u8; 32]]) -> (Account, [u8; 32],
             TREE_ACCOUNT_DISCRIMINATOR,
             STATE_HEIGHT as u8,
             tree.to_bytes(),
-            address_tree_params(),
+            0,
+            nullifier_tree_params(),
+            default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size),
         )
         .expect("init tree account");
         for leaf in leaves {

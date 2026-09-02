@@ -23,7 +23,7 @@ and return with that merge).
 | `transact.md` | Transact, RingTransact, RingAuthorityTransact |
 | `deposit.md` | Deposit, RingDeposit |
 | `merge.md` | MergeTransact, RingMergeTransact |
-| `tree.md` | CreateTree, BatchUpdateNullifierTree, PauseTree |
+| `tree.md` | CreateTree, BatchUpdateNullifierTree, PauseTree, CloseNullifierPdas, SetTreeFees, nullifier PDAs created by the spend instructions |
 | `protocol-config.md` | CreateProtocolConfig, UpdateProtocolConfig |
 | `ring-config.md` | CreateRingConfig, UpdateRingConfig, UpdateRingConfigOwner |
 | `spl.md` | CreateAssetCounter, CreateSplInterface |
@@ -32,10 +32,10 @@ and return with that merge).
 
 ID prefixes: `INV-TRANSACT`, `INV-RING-TRANSACT`, `INV-RING-AUTH`, `INV-DEPOSIT`,
 `INV-RING-DEPOSIT`, `INV-MERGE`, `INV-RING-MERGE`, `INV-CREATE-TREE`,
-`INV-BATCH-NULL`, `INV-PAUSE-TREE`, `INV-CREATE-PC`, `INV-UPDATE-PC`,
-`INV-CREATE-ZC`, `INV-UPDATE-ZC`, `INV-UPDATE-ZC-OWNER`, `INV-CREATE-AC`,
-`INV-CREATE-SPL`, `INV-EMIT-EVENT`, `INV-XC`. IDs are stable once assigned --
-never renumber.
+`INV-BATCH-NULL`, `INV-PAUSE-TREE`, `INV-CLOSE-PDA`, `INV-SET-FEES`,
+`INV-CREATE-PC`, `INV-UPDATE-PC`, `INV-CREATE-ZC`, `INV-UPDATE-ZC`,
+`INV-UPDATE-ZC-OWNER`, `INV-CREATE-AC`, `INV-CREATE-SPL`, `INV-EMIT-EVENT`,
+`INV-XC`. IDs are stable once assigned -- never renumber.
 
 `Transact`, `RingTransact`, and `RingAuthorityTransact` share one parser and core
 (`process_transact_core`), so the shared `INV-TRANSACT-*` data/settlement/tree
@@ -50,7 +50,7 @@ from all three rows. The same holds for `Deposit`/`RingDeposit`
 |---|---|---|---|---|---|---|---|
 | CreateProtocolConfig (0) | `protocol-config.md` | INV-CREATE-PC-03, INV-CREATE-PC-04 | INV-CREATE-PC-05 | INV-CREATE-PC-01, INV-CREATE-PC-02, INV-CREATE-PC-10 | INV-CREATE-PC-06..08 | INV-XC-04 | INV-CREATE-PC-09 |
 | UpdateProtocolConfig (1) | `protocol-config.md` | INV-UPDATE-PC-03 | INV-UPDATE-PC-04 | INV-UPDATE-PC-01, INV-UPDATE-PC-02 | INV-UPDATE-PC-05, INV-UPDATE-PC-07 | INV-XC-04 | INV-UPDATE-PC-06 |
-| CreateTree (2) | `tree.md` | INV-CREATE-TREE-03, INV-CREATE-TREE-04 | INV-CREATE-TREE-05, INV-CREATE-TREE-06 | INV-CREATE-TREE-01, INV-CREATE-TREE-02 | INV-CREATE-TREE-07, INV-CREATE-TREE-08 | INV-XC-04 | INV-CREATE-TREE-09 |
+| CreateTree (2) | `tree.md` | INV-CREATE-TREE-03, INV-CREATE-TREE-04 | INV-CREATE-TREE-05, INV-CREATE-TREE-06, INV-CREATE-TREE-10 | INV-CREATE-TREE-01, INV-CREATE-TREE-02 | INV-CREATE-TREE-07, INV-CREATE-TREE-08, INV-CREATE-TREE-10 | INV-XC-04 | INV-CREATE-TREE-09 |
 | PauseTree (3) | `tree.md` | INV-XC-24 | INV-PAUSE-TREE-02 | INV-PAUSE-TREE-01 | INV-PAUSE-TREE-03, INV-PAUSE-TREE-04 | INV-XC-04 | INV-PAUSE-TREE-05 |
 | BatchUpdateNullifierTree (4) | `tree.md` | INV-XC-24, INV-XC-08 | INV-BATCH-NULL-03 | INV-BATCH-NULL-01, INV-BATCH-NULL-02 | INV-BATCH-NULL-05, INV-BATCH-NULL-08 | INV-BATCH-NULL-04, INV-XC-04 | INV-BATCH-NULL-06, INV-BATCH-NULL-09 |
 | CreateAssetCounter (5) | `spl.md` | INV-CREATE-AC-03, INV-CREATE-AC-04 | INV-CREATE-AC-05 | INV-CREATE-AC-01, INV-CREATE-AC-02 | INV-CREATE-AC-06, INV-CREATE-AC-07 | INV-XC-04 | INV-CREATE-AC-08 |
@@ -60,12 +60,14 @@ from all three rows. The same holds for `Deposit`/`RingDeposit`
 | UpdateRingConfigOwner (9) | `ring-config.md` | INV-UPDATE-ZC-02 | INV-UPDATE-ZC-OWNER-05 | INV-UPDATE-ZC-OWNER-01, INV-UPDATE-ZC-OWNER-02 | INV-UPDATE-ZC-OWNER-03 | INV-XC-04 | INV-UPDATE-ZC-OWNER-04 |
 | EmitEvent (10) | `event.md` | INV-EMIT-EVENT-03 | INV-EMIT-EVENT-02 | permissionless by design (INV-EMIT-EVENT-01 bounds the risk) | INV-EMIT-EVENT-02, INV-EMIT-EVENT-04 | INV-XC-04 | INV-EMIT-EVENT-01 |
 | Deposit (11) | `deposit.md` | INV-DEPOSIT-01..09, INV-DEPOSIT-20, INV-DEPOSIT-23, INV-DEPOSIT-24 | INV-DEPOSIT-10, INV-DEPOSIT-11, INV-DEPOSIT-18, INV-DEPOSIT-19, INV-DEPOSIT-21, INV-DEPOSIT-22 | INV-DEPOSIT-01, INV-DEPOSIT-03, INV-DEPOSIT-05 | INV-DEPOSIT-12..16, INV-DEPOSIT-25 | INV-XC-04 | INV-DEPOSIT-17 |
-| Transact (12) | `transact.md` | INV-TRANSACT-01..04, INV-TRANSACT-13..16, INV-TRANSACT-40, INV-TRANSACT-41, INV-TRANSACT-43, INV-XC-24 | INV-TRANSACT-07..12, INV-TRANSACT-31..38, INV-XC-02 | INV-TRANSACT-04..06, INV-TRANSACT-20, INV-TRANSACT-39 | INV-TRANSACT-23..28, INV-TRANSACT-42, INV-TRANSACT-44, INV-XC-18, INV-XC-27 | INV-XC-04, INV-XC-05 | INV-TRANSACT-29, INV-TRANSACT-30 |
-| MergeTransact (13) | `merge.md` | INV-MERGE-01..03, INV-MERGE-17, INV-MERGE-18 | INV-MERGE-06, INV-MERGE-07, INV-MERGE-16 | INV-MERGE-02, INV-MERGE-04, INV-MERGE-05, INV-MERGE-08 | INV-MERGE-13, INV-MERGE-14, INV-MERGE-19 | INV-XC-04, INV-XC-05 | INV-MERGE-15 |
+| Transact (12) | `transact.md` | INV-TRANSACT-01..04, INV-TRANSACT-13..16, INV-TRANSACT-40, INV-TRANSACT-41, INV-TRANSACT-43, INV-TRANSACT-48, INV-XC-24 | INV-TRANSACT-07..12, INV-TRANSACT-31..38, INV-XC-02 | INV-TRANSACT-04..06, INV-TRANSACT-20, INV-TRANSACT-39 | INV-TRANSACT-23..28, INV-TRANSACT-42, INV-TRANSACT-44, INV-TRANSACT-46, INV-TRANSACT-47, INV-TRANSACT-49, INV-XC-18, INV-XC-27 | INV-XC-04, INV-XC-05, INV-TRANSACT-50 | INV-TRANSACT-29, INV-TRANSACT-30 |
+| MergeTransact (13) | `merge.md` | INV-MERGE-01..03, INV-MERGE-17, INV-MERGE-18, INV-TRANSACT-48 | INV-MERGE-06, INV-MERGE-07, INV-MERGE-16 | INV-MERGE-02, INV-MERGE-04, INV-MERGE-05, INV-MERGE-08 | INV-MERGE-13, INV-MERGE-14, INV-MERGE-19, INV-TRANSACT-46, INV-TRANSACT-47, INV-TRANSACT-49 | INV-XC-04, INV-XC-05, INV-TRANSACT-50 | INV-MERGE-15 |
 | RingDeposit (14) | `deposit.md` | INV-RING-DEPOSIT-01..04 | INV-RING-DEPOSIT-05, INV-DEPOSIT-11, INV-DEPOSIT-18..25 | INV-RING-DEPOSIT-01, INV-RING-DEPOSIT-03, INV-RING-DEPOSIT-09, INV-XC-26 | INV-RING-DEPOSIT-06..08, INV-RING-DEPOSIT-10 | INV-XC-04 | INV-DEPOSIT-17 |
-| RingTransact (15) | `transact.md` | INV-RING-TRANSACT-01, INV-RING-TRANSACT-02 | INV-TRANSACT-07..12, INV-TRANSACT-31..38 | INV-RING-TRANSACT-01, INV-RING-TRANSACT-03, INV-RING-TRANSACT-07, INV-RING-TRANSACT-08, INV-XC-26 | INV-RING-TRANSACT-03..06, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
-| RingMergeTransact (16) | `merge.md` | INV-RING-MERGE-01..03, INV-MERGE-18 | INV-RING-MERGE-05 | INV-RING-MERGE-01, INV-RING-MERGE-04, INV-RING-MERGE-14, INV-XC-26 | INV-RING-MERGE-09..13 | INV-XC-04, INV-XC-05 | INV-MERGE-15 |
-| RingAuthorityTransact (17) | `transact.md` | INV-RING-AUTH-01, INV-RING-TRANSACT-02 | INV-TRANSACT-07..12, INV-TRANSACT-31..38 | INV-RING-AUTH-01..03, INV-XC-26 | INV-RING-AUTH-04..07, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
+| RingTransact (15) | `transact.md` | INV-RING-TRANSACT-01, INV-RING-TRANSACT-02, INV-TRANSACT-48 | INV-TRANSACT-07..12, INV-TRANSACT-31..38 | INV-RING-TRANSACT-01, INV-RING-TRANSACT-03, INV-RING-TRANSACT-07, INV-RING-TRANSACT-08, INV-XC-26 | INV-RING-TRANSACT-03..06, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
+| RingMergeTransact (16) | `merge.md` | INV-RING-MERGE-01..03, INV-MERGE-18, INV-TRANSACT-48 | INV-RING-MERGE-05 | INV-RING-MERGE-01, INV-RING-MERGE-04, INV-RING-MERGE-14, INV-XC-26 | INV-RING-MERGE-09..13 | INV-XC-04, INV-XC-05 | INV-MERGE-15 |
+| RingAuthorityTransact (17) | `transact.md` | INV-RING-AUTH-01, INV-RING-TRANSACT-02, INV-TRANSACT-48 | INV-TRANSACT-07..12, INV-TRANSACT-31..38 | INV-RING-AUTH-01..03, INV-XC-26 | INV-RING-AUTH-04..07, INV-TRANSACT-23..28, INV-TRANSACT-46, INV-TRANSACT-47, INV-TRANSACT-49 | INV-XC-04, INV-XC-05, INV-TRANSACT-50 | INV-TRANSACT-30 |
+| CloseNullifierPdas (18) | `tree.md` | INV-CLOSE-PDA-03, INV-CLOSE-PDA-04, INV-CLOSE-PDA-05, INV-CLOSE-PDA-09 | INV-CLOSE-PDA-05 | INV-CLOSE-PDA-01 (permissionless by design) | INV-CLOSE-PDA-02, INV-CLOSE-PDA-06, INV-CLOSE-PDA-10 | INV-CLOSE-PDA-07, INV-XC-04 | INV-CLOSE-PDA-08 |
+| SetTreeFees (19) | `tree.md` | INV-SET-FEES-01, INV-SET-FEES-03, INV-SET-FEES-04 | INV-SET-FEES-05, INV-SET-FEES-06 | INV-SET-FEES-02 | INV-SET-FEES-07 | INV-SET-FEES-08, INV-XC-04 | INV-SET-FEES-09 |
 
 Cross-cutting rows that apply to every proof-bearing instruction (Transact,
 RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact) and are not
@@ -78,19 +80,19 @@ apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicabl
 
 ## Summary
 
-- Total invariants: 247
+- Total invariants: 273
   - transact.md: 60 (Transact 45, RingTransact 8, RingAuthorityTransact 7)
   - deposit.md: 35 (Deposit 25, RingDeposit 10)
   - merge.md: 33 (MergeTransact 19, RingMergeTransact 14)
-  - tree.md: 23 (CreateTree 9, BatchUpdateNullifierTree 9, PauseTree 5)
-  - protocol-config.md: 17 (Create 10, Update 7)
+  - tree.md: 48 (CreateTree 10, BatchUpdateNullifierTree 9, PauseTree 5, nullifier PDAs INV-TRANSACT-46..50, CloseNullifierPdas 10, SetTreeFees 9)
+  - protocol-config.md: 18 (Create 10, Update 8)
   - ring-config.md: 20 (Create 9, UpdateOwner 5, Update 6)
   - spl.md: 22 (CreateAssetCounter 8, CreateSplInterface 14)
   - event.md: 4
   - cross-cutting.md: 33
-- Critical (funds/double-spend/authority takeover): 93
-- High: 83
-- Medium: 66
+- Critical (funds/double-spend/authority takeover): 99
+- High: 98
+- Medium: 71
 - Not applicable post-PR164: 5 (the both-amounts gate (INV-TRANSACT-12) and the merge ciphertext/`merge_view_tag` entries; the P256 entries returned with PR172 and are re-scoped, not N/A; IDs retained, never renumbered)
 - SPEC_DIVERGENCE items: all 8 originally flagged items were resolved by updating
   `docs/spec.md` to match the code (items 1 and 3 were re-corrected on 2026-07-28
@@ -126,9 +128,20 @@ Every invariant was mapped against the test suite (integration tests in
 Ticked invariants carry a `Covered by:` line; the remaining ones carry a
 `Partial coverage:` line stating what is still missing.
 
+Tree fee-schedule sync (2026-09-02): the tree header gained a runtime
+`TreeFeeSchedule` and `fee_balance`, `set_tree_fees` (tag 19) and
+`protocol_config.fee_authority` were added, `batch_update_nullifier_tree` and
+`close_nullifier_pdas` pay `min(owed, fee_balance)` to a non-program
+`reimbursement_recipient` (7055), and the constant 20-lamport insertion fee is
+gone. New entries: INV-SET-FEES-01..09, INV-CLOSE-PDA-09/-10,
+INV-CREATE-TREE-10, INV-UPDATE-PC-08 (13, all covered); INV-BATCH-NULL-08,
+INV-CLOSE-PDA-02/-05/-08, INV-TRANSACT-29/-30/-42/-49, INV-MERGE-15/-19,
+INV-CREATE-PC-05..07, INV-UPDATE-PC-03/-05, INV-XC-03/-28/-29/-31 restated.
+The counts below are updated for the 13 additions.
+
 Post-PR172 sync (2026-07-31):
 
-- Covered: 219 / 247
+- Covered: 245 / 273
 - Covered on companion security branches (#175, #176): 3 (the `- [~]` entries:
   INV-CREATE-PC-10, INV-CREATE-AC-07, INV-BATCH-NULL-07 — behavior and tests
   land with those branches)
@@ -136,12 +149,12 @@ Post-PR172 sync (2026-07-31):
 - Pointer: 1 (INV-XC-30, by design: it documents reachability and defers to INV-XC-31 / INV-TRANSACT-44 for coverage; it is counted in cross-cutting's 6 partial+untested below)
 - Not covered: 0
 
-(219 + 3 + 19 + 1 + 5 = 247. The per-file partial+untested column sums to 21
+(245 + 3 + 19 + 1 + 5 = 273. The per-file partial+untested column sums to 21
 because it includes the pointer.)
 
 Per file (covered / partial+untested / companion / not-applicable):
-transact 57/2/0/1, deposit 35/0/0/0, merge 23/6/0/4, tree 18/4/1/0,
-protocol-config 16/0/1/0, ring-config 18/2/0/0, spl 21/0/1/0, event 4/0/0/0,
+transact 57/2/0/1, deposit 35/0/0/0, merge 23/6/0/4, tree 43/4/1/0,
+protocol-config 17/0/1/0, ring-config 18/2/0/0, spl 21/0/1/0, event 4/0/0/0,
 cross-cutting 27/6/0/0.
 
 All added tests pass. Suites run green this pass:

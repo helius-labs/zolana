@@ -93,17 +93,18 @@ where
 fn process_rings_tree_account(pubkey: Pubkey, account: &Account) -> Option<TreeAccountData> {
     let mut data = account.data.clone();
     let mut tree = parse_rings_tree_account(pubkey, account, &mut data)?;
-    let nullifier_metadata = *tree.nullifer_tree().get_metadata();
+    let nullifier = tree.nullifier_tree();
+    let root_history_capacity = u64::try_from(nullifier.root_history.roots.len()).ok()?;
 
     Some(TreeAccountData {
         // Rings UTXO and nullifier trees live in the same account; there is
         // no separate queue account for Photon to reference.
         queue_pubkey: pubkey,
-        root_history_capacity: u64::from(nullifier_metadata.root_history_capacity),
-        input_queue_zkp_batch_size: nullifier_metadata.queue_batches.zkp_batch_size,
-        height: nullifier_metadata.height,
-        sequence_number: nullifier_metadata.sequence_number,
-        next_index: nullifier_metadata.next_index,
+        root_history_capacity,
+        input_queue_zkp_batch_size: nullifier.zkp_batch_size,
+        height: nullifier.height,
+        sequence_number: nullifier.sequence_number,
+        next_index: nullifier.next_index,
     })
 }
 

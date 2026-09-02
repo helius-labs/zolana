@@ -7,6 +7,7 @@ pub mod shape;
 pub mod state;
 pub mod verifying_keys;
 
+pub use state::{NullifierPda, NULLIFIER_PDA_SEED, NULLIFIER_PDA_SIZE};
 pub use zolana_hasher::p256::{P_CONST_SEC1, P_DERIVE_SEC1, P_PDA_SEC1};
 
 /// Decode a base58 program id into a `[u8; 32]` const at compile time.
@@ -55,11 +56,6 @@ pub const SHIELDED_POOL_PROGRAM_ID: [u8; 32] =
 pub const PROGRAM_ID_PUBKEY: solana_pubkey::Pubkey =
     solana_pubkey::Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
 
-/// Devnet/localnet fixture SPP pool tree address. Single source of truth so the
-/// CLI config default, forester CLI default, xtask protocol init, and the CLI
-/// resolve test all reference one value and cannot drift.
-pub const DEFAULT_TREE_ADDRESS: &str = "trEEbaNobcTESNmtsPBj3FX27q5sDCQePV2kb12FYho";
-
 /// The upgradeable BPF loader. `create_protocol_config` binds one-time protocol
 /// initialization to the program's deploy upgrade authority: when the program
 /// account is owned by this loader and its `ProgramData` names an upgrade
@@ -85,6 +81,7 @@ pub const SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED: &[u8] = b"cpi_authority";
 /// program creates and address-checks; a substituted config can't name a new
 /// authority.
 pub const SPP_PROTOCOL_CONFIG_PDA_SEED: &[u8] = b"protocol_config";
+pub const TREE_PDA_SEED: &[u8] = b"tree";
 pub const RING_AUTH_PDA_SEED: &[u8] = b"ring_auth";
 pub const SPL_ASSET_COUNTER_PDA_SEED: &[u8] = b"spl_asset_counter";
 pub const SPL_ASSET_REGISTRY_PDA_SEED: &[u8] = b"spl_asset_registry";

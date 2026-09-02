@@ -11,11 +11,7 @@ use sha2::{Digest, Sha256};
 use solana_account::Account;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
-use solana_signer::Signer;
-use zolana_interface::{
-    instruction::CreateTree, pda, state::tree_account_size, DEFAULT_TREE_ADDRESS,
-    SHIELDED_POOL_PROGRAM_ID,
-};
+use zolana_interface::pda;
 use zolana_program_test::ZolanaProgramTest;
 
 const DEFAULT_SURFPOOL_TAG: &str = "v1.1.1-light";
@@ -510,8 +506,7 @@ fn git_head() -> Result<String> {
 
 /// Build the initialized account set fully in-process with LiteSVM. No maintainer
 /// keypairs and no running validator are needed: every authority is generated
-/// here, and the pool tree is pre-allocated directly at DEFAULT_TREE_ADDRESS
-/// without the tree keypair.
+/// here.
 pub(crate) fn generate_account_snapshots(deploy_dir: &Path, accounts_dir: &Path) -> Result<()> {
     let shielded_so = deploy_dir.join("shielded_pool_program.so");
     require_file(&shielded_so, "run `just build-programs` first")?;
@@ -526,33 +521,15 @@ pub(crate) fn generate_account_snapshots(deploy_dir: &Path, accounts_dir: &Path)
     test.create_asset_counter(&authority)
         .map_err(|e| anyhow!("create_asset_counter failed: {e:?}"))?;
 
-    // Pre-allocate the tree at the canonical address, then initialize it. The
-    // program requires the tree account to be program-owned and correctly sized
-    // but not a signer, so no tree keypair is required.
-    let tree: Pubkey = DEFAULT_TREE_ADDRESS
-        .parse()
-        .context("parsing DEFAULT_TREE_ADDRESS")?;
-    let size = tree_account_size();
-    let rent = test.svm.minimum_balance_for_rent_exemption(size);
-    test.svm
-        .set_account(
-            tree,
-            Account {
-                lamports: rent,
-                data: vec![0u8; size],
-                owner: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
-                executable: false,
-                rent_epoch: u64::MAX,
-            },
-        )
-        .map_err(|e| anyhow!("failed to pre-allocate tree account: {e:?}"))?;
-    let create_tree_ix = CreateTree {
-        authority: authority.pubkey(),
-        tree,
-    }
-    .instruction();
-    test.create_and_send_default_payer_transaction(&[create_tree_ix], &[&authority])
+    let tree = test
+        .create_tree(&authority)
         .map_err(|e| anyhow!("create_tree failed: {e:?}"))?;
+    if tree != pda::tree(0) {
+        bail!(
+            "fresh protocol created tree {tree}, expected {}",
+            pda::tree(0)
+        );
+    }
 
     for (label, pubkey) in [
         ("protocol_config", pda::protocol_config()),

@@ -9,39 +9,36 @@ use mollusk_svm::{result::Check, Mollusk};
 use num_bigint::BigUint;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use solana_account::Account;
-use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use zolana_batched_merkle_tree::merkle_tree_metadata::TreeType;
-use zolana_batched_merkle_tree::{
-    constants::NULLIFIER_TREE_INIT_ROOT_40,
-    merkle_tree::{
-        get_merkle_tree_account_size, BatchedMerkleTreeAccount, InstructionDataAddressAppendInputs,
-    },
-    verify::CompressedProof,
-    zero_copy::{CachedTreeUpdate, TreeAccountLayout},
-};
 use zolana_client::{spawn_prover, BatchAddressAppendInputs, ProofCompressed, ProverClient};
 use zolana_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
-use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount, UTXO_TREE_HEIGHT};
+use zolana_tree::nullifier_tree::{
+    access::{
+        get_merkle_tree_account_size,
+        test_utils::{init_tree_account_data, load_tree_account_data},
+    },
+    batch::CachedTreeUpdate,
+    layout::NullifierTreeLayout,
+    merkle_tree_update::InstructionDataBatchNullifyInputs,
+    proof::CompressedProof,
+};
+use zolana_tree::{NullifierTreeInitParams, TreeAccount, TreeFeeSchedule, UTXO_TREE_HEIGHT};
 
 const HEIGHT: u8 = UTXO_TREE_HEIGHT as u8;
 const DISCRIMINATOR: u8 = 7;
 
-const OP_BATCH_ADDRESS_UPDATE: u8 = 5;
+const OP_BATCH_UPDATE_NULLIFIER_TREE: u8 = 5;
 
-const ADDRESS_RH: usize = 120;
-const ADDRESS_NUM_ITERS: usize = 10;
-const ADDRESS_BLOOM: usize = 575384;
 const ADDRESS_ZKP: usize = 120;
 const ADDRESS_HEIGHT: u32 = 40;
 const ADDRESS_ZKP_BATCH_SIZE: u64 = 10;
 const ADDRESS_BATCH_SIZE: u64 = 1200;
-const ADDRESS_ROOT_HISTORY_CAPACITY: u32 = 120;
 
-type AddressTree<'a> =
-    BatchedMerkleTreeAccount<'a, ADDRESS_RH, ADDRESS_NUM_ITERS, ADDRESS_BLOOM, ADDRESS_ZKP>;
+fn load_address_tree(account_data: &mut [u8]) -> &mut NullifierTreeLayout<ADDRESS_ZKP> {
+    load_tree_account_data::<ADDRESS_ZKP>(account_data).unwrap()
+}
 
 struct AddressUpdateFixture {
     account_data: Vec<u8>,
@@ -139,35 +136,22 @@ fn build_index0_inputs(
 
 fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateFixture {
     spawn_prover().expect("prover server");
-    let pubkey = Address::new_unique();
     let zkp = ADDRESS_ZKP_BATCH_SIZE as usize;
     let total = num_batches * zkp;
 
-    let mut account_data = vec![
-        0u8;
-        get_merkle_tree_account_size::<
-            ADDRESS_RH,
-            ADDRESS_NUM_ITERS,
-            ADDRESS_BLOOM,
-            ADDRESS_ZKP,
-        >()
-    ];
-    AddressTree::init(
+    let mut account_data = vec![0u8; get_merkle_tree_account_size::<ADDRESS_ZKP>()];
+    init_tree_account_data::<ADDRESS_ZKP>(
         &mut account_data,
-        &pubkey,
-        ADDRESS_ROOT_HISTORY_CAPACITY,
         ADDRESS_BATCH_SIZE,
         ADDRESS_ZKP_BATCH_SIZE,
         ADDRESS_HEIGHT,
-        TreeType::AddressV2,
-        Some(NULLIFIER_TREE_INIT_ROOT_40),
     )
     .unwrap();
 
     let mut rng = StdRng::seed_from_u64(seed);
     let mut queued: Vec<[u8; 32]> = Vec::with_capacity(total);
     {
-        let mut account = AddressTree::address_from_bytes(&mut account_data, &pubkey).unwrap();
+        let account = load_address_tree(&mut account_data);
         for _ in 0..total {
             let mut value: [u8; 32] = rng.gen();
             value[0] = 0;
@@ -176,27 +160,20 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
         }
     }
 
-    let base_next_index = AddressTree::address_from_bytes(&mut account_data, &pubkey)
-        .unwrap()
-        .get_metadata()
-        .next_index;
+    let base_next_index = load_address_tree(&mut account_data).next_index;
 
     let mut reference = reference_address_tree();
     assert_eq!(
         reference.root(),
-        AddressTree::address_from_bytes(&mut account_data, &pubkey)
-            .unwrap()
-            .get_root()
-            .unwrap(),
+        load_address_tree(&mut account_data).get_root().unwrap(),
         "reference root must match the live tree before building updates"
     );
 
     let mut cached_updates: Vec<CachedTreeUpdate> = Vec::with_capacity(num_batches);
-    let mut index0_ix: Option<InstructionDataAddressAppendInputs> = None;
+    let mut index0_ix: Option<InstructionDataBatchNullifyInputs> = None;
     for i in 0..num_batches {
         let next_index = base_next_index + (i * zkp) as u64;
-        let leaves_hash_chain = AddressTree::address_from_bytes(&mut account_data, &pubkey)
-            .unwrap()
+        let leaves_hash_chain = load_address_tree(&mut account_data)
             .get_hash_chain(0, i)
             .unwrap();
         let old_root = reference.root();
@@ -213,7 +190,7 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
                 .prove_batch_address_append(&inputs)
                 .unwrap();
             let compressed = ProofCompressed::try_from(proof).unwrap();
-            index0_ix = Some(InstructionDataAddressAppendInputs {
+            index0_ix = Some(InstructionDataBatchNullifyInputs {
                 new_root,
                 old_root,
                 zkp_batch_index: 0,
@@ -235,20 +212,15 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
     }
 
     {
-        let layout: &mut TreeAccountLayout<
-            ADDRESS_RH,
-            ADDRESS_NUM_ITERS,
-            ADDRESS_BLOOM,
-            ADDRESS_ZKP,
-        > = wincode::deserialize_mut(&mut account_data).unwrap();
-        let updates = layout.cached_tree_updates.get_mut(0).unwrap();
+        let layout: &mut NullifierTreeLayout<ADDRESS_ZKP> =
+            wincode::deserialize_mut(&mut account_data).unwrap();
+        let batch = layout.batches.get_mut(0).unwrap();
         for i in 1..num_batches {
-            let cached_update = *cached_updates.get(i).unwrap();
-            *updates.get_mut(i).unwrap() = cached_update;
+            batch.set_cached_tree_update(i, *cached_updates.get(i).unwrap());
         }
     }
 
-    let mut instruction_data = vec![OP_BATCH_ADDRESS_UPDATE];
+    let mut instruction_data = vec![OP_BATCH_UPDATE_NULLIFIER_TREE];
     index0_ix.unwrap().serialize(&mut instruction_data).unwrap();
 
     AddressUpdateFixture {
@@ -260,10 +232,9 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
 
 fn assert_cascade_applied(account_data: &[u8], expected_next_index: u64) {
     let mut data = account_data.to_vec();
-    let account = AddressTree::address_from_bytes(&mut data, &Address::new_unique()).unwrap();
+    let account = load_address_tree(&mut data);
     assert_eq!(
-        account.get_metadata().next_index,
-        expected_next_index,
+        account.next_index, expected_next_index,
         "cascade did not advance next_index as expected"
     );
 }
@@ -323,7 +294,7 @@ fn shapes() -> Vec<Shape> {
 }
 
 fn inited_tree_bytes(tree_pubkey: Pubkey) -> Vec<u8> {
-    let params = InitAddressTreeAccountsInstructionData::default();
+    let params = NullifierTreeInitParams::default();
     let mut data = vec![0u8; TreeAccount::account_size()];
     {
         let _ = TreeAccount::init(
@@ -331,7 +302,9 @@ fn inited_tree_bytes(tree_pubkey: Pubkey) -> Vec<u8> {
             DISCRIMINATOR,
             HEIGHT,
             tree_pubkey.to_bytes(),
+            0,
             params,
+            TreeFeeSchedule::at_cost(params.input_queue_zkp_batch_size, 5_000, 170).unwrap(),
         )
         .unwrap();
     }
@@ -354,7 +327,7 @@ fn bench_cu_tree() {
     let mut bench = CuBenchmark::new(ReadmeConfig {
         title: "Tree -- CU Benchmark".into(),
         description:
-            "Compute unit profiling for zolana-tree: account init, zero-copy deserialization, UTXO sparse-merkle-tree append, end-to-end nullifier insert (bloom + hash chain + non-inclusion), and the worst-case address-tree batch update that finalizes 120 cached tree updates in one transaction.\n\nSee `CU_BENCHMARK_NOTES.md` for analysis notes (e.g. why nullifier insert x10 is not 10x x1, and the proof-verify vs cascade-apply split of the batch update)."
+            "Compute unit profiling for zolana-tree: account init, zero-copy deserialization, UTXO sparse-merkle-tree append, nullifier queue insert (canonical field check + queue position check + hash chain; nullifier-PDA creation is measured by the shielded-pool program benches), and the worst-case address-tree batch update that finalizes 120 cached tree updates in one transaction.\n\nSee `CU_BENCHMARK_NOTES.md` for analysis notes (e.g. why nullifier insert x10 is not 10x x1, and the proof-verify vs cascade-apply split of the batch update)."
                 .into(),
         output_path: concat!(env!("CARGO_MANIFEST_DIR"), "/CU_BENCHMARK.md").into(),
         regenerate_command: Some("just bench-tree".into()),

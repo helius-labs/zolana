@@ -16,6 +16,7 @@ proofs = []
 
 [dependencies]
 anyhow = { workspace = true }
+forester = { path = "../../forester" }
 solana-instruction = { workspace = true }
 solana-compute-budget-interface = { workspace = true }
 solana-clock = { workspace = true }
@@ -94,6 +95,10 @@ name = "admin_edge_cases"
 path = "tests/admin/edge_cases.rs"
 
 [[test]]
+name = "admin_set_tree_fees"
+path = "tests/admin/set_tree_fees.rs"
+
+[[test]]
 name = "protocol_config_contract"
 path = "tests/protocol_config/contract.rs"
 
@@ -162,6 +167,16 @@ path = "tests/cross_cutting/cu_budget.rs"
 [[test]]
 name = "nullifier_batch"
 path = "tests/nullifier/batch.rs"
+
+[[test]]
+name = "nullifier_pdas"
+path = "tests/nullifier/nullifier_pdas.rs"
+
+# Proof-backed nullifier-PDA creation (real 2x3 transact), so it sits in the proofs tier.
+[[test]]
+name = "nullifier_pdas_proof"
+path = "tests/nullifier/nullifier_pdas_proof.rs"
+required-features = ["proofs"]
 
 [[test]]
 name = "merge_contract"

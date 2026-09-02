@@ -1,3 +1,5 @@
+#![cfg(feature = "tree")]
+
 //! Table pins for the error conversions: every `InterfaceError` and
 //! `TreeError` variant maps to an exact `ShieldedPoolError` code, including
 //! the catch-all arms. A new variant without an explicit arm falls into the
@@ -43,6 +45,10 @@ fn tree_error_conversions_are_stable() {
         ShieldedPoolError::from(TreeError::TreeIsFull) as u32,
         ShieldedPoolError::StateAppendFailed as u32
     );
+    assert_eq!(
+        ShieldedPoolError::from(TreeError::FeeOverflow) as u32,
+        ShieldedPoolError::InvalidForesterFee as u32
+    );
 
     // Every other variant falls into the catch-all (7001), enumerated
     // explicitly so a future variant's mapping is a deliberate choice.
@@ -50,7 +56,7 @@ fn tree_error_conversions_are_stable() {
         TreeError::InvalidBufferSize,
         TreeError::HeightTooLarge,
         TreeError::Deserialize,
-        TreeError::AddressInit,
+        TreeError::NullifierInit,
         TreeError::AlreadyInitialized,
         TreeError::InvalidOwner,
         TreeError::NotWritable,

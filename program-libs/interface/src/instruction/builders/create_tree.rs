@@ -1,53 +1,50 @@
-use borsh::BorshSerialize;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use zolana_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccountsInstructionData;
+use zolana_tree::{NullifierTreeInitParams, TreeFeeSchedule};
 
-use crate::{instruction::tag, pda, PROGRAM_ID_PUBKEY};
+use crate::{
+    instruction::{encode_instruction, tag, CreateTreeData},
+    pda,
+    state::tree_creation_step_count,
+    PROGRAM_ID_PUBKEY,
+};
 
-/// Initialize a combined-account shielded-pool tree (state sub-tree +
-/// address sub-tree co-located). Tree creation is admin-gated: `authority` must
-/// be the signer named by the canonical protocol config, otherwise anyone could
-/// stand up a rogue tree and drain the shared vault against roots they control.
 pub struct CreateTree {
+    pub payer: Pubkey,
     pub authority: Pubkey,
-    pub tree: Pubkey,
+    pub tree_id: u16,
+    pub nullifier_params: NullifierTreeInitParams,
+    pub fees: TreeFeeSchedule,
 }
 
 impl CreateTree {
-    pub fn instruction(&self) -> Instruction {
-        self.build_instruction(None)
+    pub fn tree(&self) -> Pubkey {
+        pda::tree(self.tree_id)
     }
 
-    /// Build a create-tree instruction with custom nullifier-tree params.
-    /// Tree creation remains authority-gated, and the program validates the
-    /// account layout during initialization.
-    pub fn instruction_with_nullifier_params(
-        &self,
-        params: InitAddressTreeAccountsInstructionData,
-    ) -> Instruction {
-        self.build_instruction(Some(params))
+    pub fn instructions(&self) -> Vec<Instruction> {
+        let step = self.step();
+        (0..tree_creation_step_count())
+            .map(|_| step.clone())
+            .collect()
     }
 
-    fn build_instruction(
-        &self,
-        params: Option<InitAddressTreeAccountsInstructionData>,
-    ) -> Instruction {
-        let mut data = vec![tag::CREATE_TREE];
-        if let Some(params) = params {
-            params
-                .serialize(&mut data)
-                .expect("shielded-pool instruction serialization is infallible");
-        }
-
+    pub fn step(&self) -> Instruction {
+        let data = CreateTreeData {
+            tree_id: self.tree_id,
+            nullifier_params: self.nullifier_params,
+            fees: self.fees,
+        };
         Instruction {
             program_id: PROGRAM_ID_PUBKEY,
             accounts: vec![
+                AccountMeta::new(self.payer, true),
                 AccountMeta::new_readonly(self.authority, true),
-                AccountMeta::new_readonly(pda::protocol_config(), false),
-                AccountMeta::new(self.tree, false),
+                AccountMeta::new(pda::protocol_config(), false),
+                AccountMeta::new(self.tree(), false),
+                AccountMeta::new_readonly(Pubkey::default(), false),
             ],
-            data,
+            data: encode_instruction(tag::CREATE_TREE, &data),
         }
     }
 }

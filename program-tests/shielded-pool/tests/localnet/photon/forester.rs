@@ -1,5 +1,14 @@
 use super::*;
 
+use forester::close_nullifier_pdas::plan_batches;
+use zolana_client::ClientError;
+use zolana_interface::error::ShieldedPoolError;
+use zolana_program_test::Rejection;
+use zolana_test_utils::nullifier_pda::{
+    assert_nullifier_pda, assert_nullifier_pdas, assert_tree_lamports_after_spend,
+    nullifier_queue_next_index, tree_close_before_index, tree_fees,
+};
+
 /// Plumbing smoke for `forester run --dry-run`: stand up the validator + Photon,
 /// create a fresh pool tree, and confirm the forester binary reconstructs the
 /// reference nullifier tree from Photon and matches the on-chain root — no
@@ -29,7 +38,7 @@ fn forester_dry_run_reconstructs_from_photon() -> TestResult {
         authority: _authority,
         tree,
     } = initialize_pool(&mut rpc)?;
-    let tree_pubkey = tree.pubkey();
+    let tree_pubkey = tree;
 
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let forester_bin = [
@@ -102,6 +111,7 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
     let queued_nullifiers = phase_queue_nullifiers(&mut env)?;
     phase_run_forester_batches(&mut env, &queued_nullifiers)?;
     phase_assert_forested_nullifiers(&env, &queued_nullifiers)?;
+    phase_assert_nullifier_pda_cleanup(&mut env, &queued_nullifiers)?;
 
     println!(
         "localnet Photon nullifier forester test passed via rpc={} indexer={}",
@@ -356,8 +366,29 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
         data: ix_data,
     }
     .instruction();
+    let queue_next_before = nullifier_queue_next_index(&env.rpc, &env.tree_pubkey)?;
+    let tree_before = fetch_tree_account(env)?;
     let sig = send_transaction(&mut env.rpc, &[tx_ix], &env.payer.pubkey(), &[&env.payer])?;
     print_signature(&format!("queue_nullifiers_{i}"), &sig);
+
+    assert_nullifier_pda(
+        &env.rpc,
+        &env.tree_pubkey,
+        &first_utxo.nullifier,
+        queue_next_before,
+    )?;
+    assert_nullifier_pda(
+        &env.rpc,
+        &env.tree_pubkey,
+        &second_utxo.nullifier,
+        queue_next_before + 1,
+    )?;
+    assert_tree_lamports_after_spend(
+        &env.rpc,
+        &env.tree_pubkey,
+        &tree_before,
+        LOCALNET_NULLIFIERS_PER_QUEUE_TX,
+    )?;
 
     let indexed = wait_for_indexed_transaction(&env.indexer, wait_tag, sig);
     assert_eq!(
@@ -510,6 +541,10 @@ fn phase_run_forester_batches(env: &mut ForesterEnv, queued_nullifiers: &[[u8; 3
     // the real `forester` binary instead (a full end-to-end drain through the
     // smart-account vault: photon RPC -> reconstruct -> prove -> execute_sync
     // submit).
+    let (fees, fee_balance_before) = tree_fees(&env.rpc, &env.tree_pubkey)?;
+    let expected_reimbursement =
+        (LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT * fees.append_reimbursement).min(fee_balance_before);
+    let member_before = fetch_member_lamports(env)?;
     if let Ok(forester_bin) = std::env::var("FORESTER_BIN") {
         let prover_url = std::env::var("ZOLANA_PROVER_URL")
             .unwrap_or_else(|_| "http://127.0.0.1:3001".to_string());
@@ -599,7 +634,87 @@ fn phase_run_forester_batches(env: &mut ForesterEnv, queued_nullifiers: &[[u8; 3
             LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT,
             "all forester batches should advance the nullifier root"
         );
+        assert_eq!(
+            member_before + expected_reimbursement,
+            fetch_member_lamports(env)? + LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT * 5_000,
+            "the member pays one signature per batch and receives the append reimbursement"
+        );
     }
+    let (fees_after, fee_balance_after) = tree_fees(&env.rpc, &env.tree_pubkey)?;
+    assert_eq!(
+        fees_after, fees,
+        "draining leaves the fee schedule untouched"
+    );
+    assert_eq!(
+        fee_balance_before,
+        fee_balance_after + expected_reimbursement,
+        "every applied batch is reimbursed from the fee balance"
+    );
+    Ok(())
+}
+
+fn fetch_member_lamports(env: &ForesterEnv) -> TestResult<u64> {
+    let member = Address::new_from_array(env.forester_key.pubkey().to_bytes());
+    Ok(env
+        .rpc
+        .get_account(member)?
+        .ok_or_else(|| anyhow!("forester member account not found: {member}"))?
+        .lamports)
+}
+
+fn fetch_tree_account(env: &ForesterEnv) -> TestResult<solana_account::Account> {
+    env.rpc
+        .get_account(env.tree_address)?
+        .ok_or_else(|| anyhow!("tree account not found: {}", env.tree_pubkey))
+}
+
+/// Nullifier-PDA lifecycle after the drain. The localnet tree keeps the canonical
+/// 120 ZKP batches per queue batch, so with Z = 10 one queue batch holds
+/// B = 1200 nullifiers; this suite queues 200, batch 0 never fills, and no
+/// batch becomes reclaimable: `close_before_index` must stay at zero, every nullifier PDA must
+/// survive the drain, and the test forester's `close_nullifier_pdas` must be rejected
+/// with `NullifierPdaNotClosable` without moving lamports. The positive
+/// close path (reclaimable batch, rent returned) is covered hermetically in
+/// `tests/nullifier/nullifier PDAs.rs` with a watermark fixture.
+fn phase_assert_nullifier_pda_cleanup(
+    env: &mut ForesterEnv,
+    queued_nullifiers: &[[u8; 32]],
+) -> TestResult {
+    let batch_size = localnet_nullifier_params().input_queue_batch_size;
+    assert!(
+        (queued_nullifiers.len() as u64) < batch_size,
+        "queue batch 0 (B = {batch_size}) must stay in Fill for this phase's expectations"
+    );
+    assert_eq!(
+        tree_close_before_index(&env.rpc, &env.tree_pubkey)?,
+        0,
+        "draining a partially filled batch makes nothing reclaimable"
+    );
+    assert_nullifier_pdas(&env.rpc, &env.tree_pubkey, queued_nullifiers)?;
+
+    let close_plan = plan_batches(env.tree_pubkey, env.payer.pubkey(), queued_nullifiers)?;
+    let sample_len = close_plan
+        .first()
+        .ok_or_else(|| anyhow!("no close-nullifier PDA batch planned"))?
+        .nullifiers
+        .len();
+    let sample = queued_nullifiers
+        .get(..sample_len)
+        .ok_or_else(|| anyhow!("fewer queued nullifiers than one close chunk"))?;
+    let tree_before = fetch_tree_account(env)?;
+    let error = NullifierTestForester::default()
+        .close_nullifier_pdas(&mut env.rpc, &env.payer, env.tree_pubkey, sample)
+        .expect_err("closing nullifier PDAs before the batch is reclaimable must be rejected");
+    let client_error = error
+        .downcast_ref::<ClientError>()
+        .ok_or_else(|| anyhow!("expected a client error, got {error:#}"))?;
+    Rejection::pool(ShieldedPoolError::NullifierPdaNotClosable).assert_client(client_error);
+    assert_nullifier_pdas(&env.rpc, &env.tree_pubkey, sample)?;
+    assert_eq!(
+        fetch_tree_account(env)?.lamports,
+        tree_before.lamports,
+        "rejected close moves no lamports"
+    );
     Ok(())
 }
 

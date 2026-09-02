@@ -75,7 +75,13 @@ test: test-shielded-pool test-sdk-libs test-photon
 
 # Everything that needs nothing running. No prover, no validator, no network,
 # and no proving keys. CI runs these same suites on every push, one job each.
-test-hermetic: test-cli test-program-fast test-user-registry-litesvm test-sdk-libs test-photon
+test-hermetic: test-cli test-tree test-program-fast test-user-registry-litesvm test-sdk-libs test-photon
+
+# The tests need the test-only feature. Keep the prover-backed
+# nullifier_tree::prover_e2e module out of this hermetic lane.
+test-tree:
+    cargo nextest run -p zolana-tree --features test-only,verify \
+        -E 'not test(/^prover_e2e::/)'
 
 # Program/interface tests for the shielded-pool implementation.
 # Depends on build-programs so the litesvm tests load a fresh .so and actually
@@ -598,13 +604,6 @@ test-cli:
 # they are manual profiling runs (regenerate a CU report), so nextest's
 # hang-timeout/retry value does not apply, and `--run-ignored` + streamed
 # --nocapture output is simplest via plain `cargo test`.
-
-# Regenerate bench/bloom-filter/CU_BENCHMARK.md. Builds the bench program with
-# the profiling syscalls enabled, then runs the mollusk harness that profiles
-# light-bloom-filter insert/contains.
-bench-bloom-filter:
-    cargo build-sbf --manifest-path bench/bloom-filter/Cargo.toml --features bench
-    cargo test -p bloom-filter-bench --test bench_cu -- --ignored --nocapture
 
 # Build the tree bench program with profiling enabled, then run the mollusk
 # harness that profiles zolana-tree init/deserialize/append/nullifier-insert.
@@ -1454,7 +1453,7 @@ build-localnet-archives dir="target/nextest-archives": build-programs build-cli 
 # Regenerate all proving keys (transfer, merge, custom ring, and batch
 # address-append), the committed verifying keys in both crates, and
 # proving-keys.lock. groth16 setup is non-deterministic, so the
-# batched-merkle-tree vkeys are regenerated with the keys -- commit both
+# nullifier-tree vkeys are regenerated with the keys -- commit both
 # together. Mirrors scripts/rotate_proving_keys.sh minus the fingerprint refresh
 # and the S3 upload (publish-spp-keys).
 build-spp-keys:
@@ -1482,7 +1481,7 @@ build-spp-keys:
         prover/server/light-prover export-vk --keys-file "$keys_dir/${stem}.key" --output "$tmp_dir/${stem}.vkbin" >/dev/null
         cargo run -q -p xtask -- bsb22-vk \
             "$tmp_dir/${stem}.vkbin" \
-            "program-libs/batched-merkle-tree/src/verify/verifying_keys" \
+            "program-libs/tree/src/nullifier_tree/verify/verifying_keys" \
             "${module}.rs"
     done
     python3 prover/server/scripts/generate_lockfile.py "$keys_dir"

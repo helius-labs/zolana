@@ -9,7 +9,7 @@ publish = false
 [features]
 default = ["verifying-keys", "tree"]
 borsh = ["dep:borsh", "solana-address/borsh"]
-solana = ["dep:solana-instruction", "borsh"]
+solana = ["dep:solana-instruction", "borsh", "tree"]
 events = []
 verifying-keys = ["dep:groth16-solana"]
 tree = ["dep:zolana-tree"]
@@ -21,7 +21,6 @@ solana-address = { workspace = true, features = ["bytemuck"] }
 solana-instruction = { workspace = true, optional = true }
 solana-pubkey = { workspace = true }
 groth16-solana = { workspace = true, optional = true }
-zolana-batched-merkle-tree = { workspace = true }
 zolana-hasher = { workspace = true, features = ["sha256"] }
 solana-program-error = { workspace = true }
 thiserror = { workspace = true }
@@ -33,4 +32,6 @@ zolana-tree = { workspace = true, optional = true }
 bytemuck = { workspace = true }
 proptest = { workspace = true }
 solana-address = { workspace = true }
-zolana-hasher = { workspace = true, features = ["sha256", "poseidon"] }
+solana-rent = { workspace = true }
+zolana-hasher = { workspace = true, features = ["sha256"] }
+zolana-tree = { workspace = true }

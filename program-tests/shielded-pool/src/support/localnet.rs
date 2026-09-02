@@ -18,7 +18,7 @@ use zolana_interface::{
         },
         CreateProtocolConfig,
     },
-    state::tree_account_size,
+    state::{default_tree_fees, nullifier_tree_params},
 };
 use zolana_program_test::{
     create_tree_instructions, index_events, parsed_instruction_from_compiled, IndexedEvent,
@@ -35,7 +35,7 @@ use zolana_tree::TreeAccount;
 pub struct LocalnetPool {
     pub payer: Keypair,
     pub authority: Keypair,
-    pub tree: Keypair,
+    pub tree: Pubkey,
 }
 
 /// Fund the standard payer and authority, then create a protocol config and
@@ -48,27 +48,26 @@ pub fn initialize_pool(rpc: &mut SolanaRpc) -> Result<LocalnetPool> {
         &send_transaction(rpc, &[create_config], &authority.pubkey(), &[&authority])?,
     );
 
-    let tree = Keypair::new();
     let create_tree = create_tree_instructions(
         rpc,
         &payer.pubkey(),
         &authority.pubkey(),
-        &tree.pubkey(),
-        tree_account_size() as u64,
+        nullifier_tree_params(),
+        default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size),
     )?;
     print_signature(
         "create_tree",
         &send_transaction(
             rpc,
-            &create_tree,
+            &create_tree.instructions,
             &payer.pubkey(),
-            &[&payer, &tree, &authority],
+            &[&payer, &authority],
         )?,
     );
     Ok(LocalnetPool {
         payer,
         authority,
-        tree,
+        tree: create_tree.tree,
     })
 }
 
@@ -90,27 +89,26 @@ pub fn initialize_indexed_pool(
     )?;
     print_signature("create_protocol_config", &create_config_tx.signature);
 
-    let tree = Keypair::new();
     let create_tree = create_tree_instructions(
         rpc,
         &payer.pubkey(),
         &authority.pubkey(),
-        &tree.pubkey(),
-        tree_account_size() as u64,
+        nullifier_tree_params(),
+        default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size),
     )?;
     let create_tree_tx = send_indexed(
         rpc,
         indexer,
         program_id,
-        &create_tree,
+        &create_tree.instructions,
         &payer.pubkey(),
-        &[&payer, &tree, &authority],
+        &[&payer, &authority],
     )?;
     print_signature("create_tree", &create_tree_tx.signature);
     Ok(LocalnetPool {
         payer,
         authority,
-        tree,
+        tree: create_tree.tree,
     })
 }
 
@@ -119,7 +117,7 @@ fn funded_pool_signers(rpc: &mut SolanaRpc) -> Result<(Keypair, Keypair)> {
     let authority = Keypair::new();
     print_signature(
         "airdrop payer",
-        &rpc.airdrop(&payer.pubkey(), 20_000_000_000)?,
+        &rpc.airdrop(&payer.pubkey(), 100_000_000_000)?,
     );
     print_signature(
         "airdrop authority",
@@ -139,6 +137,7 @@ fn protocol_config_instruction(authority: &Keypair) -> Instruction {
         ring_creation_authority: authority_bytes.into(),
         ring_creation_is_permissionless: false,
         spl_interface_creation_is_permissionless: false,
+        fee_authority: authority_bytes.into(),
     }
     .instruction()
 }

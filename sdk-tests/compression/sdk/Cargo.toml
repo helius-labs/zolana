@@ -13,7 +13,7 @@ solana-address = { workspace = true }
 solana-instruction = { workspace = true }
 wincode = { workspace = true }
 zolana-client = { workspace = true, features = ["indexer-api"] }
-zolana-hasher = { workspace = true, features = ["poseidon"] }
+zolana-hasher = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }

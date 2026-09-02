@@ -13,7 +13,10 @@ use zolana_interface::{
 
 use super::account::MergeRingAccounts;
 use crate::instructions::{
-    merge::{processor::process_merge_core, verify::MergeOwnerBinding},
+    merge::{
+        processor::{process_merge_core, MergeCoreAccounts},
+        verify::MergeOwnerBinding,
+    },
     shared::check_not_expired,
 };
 
@@ -55,9 +58,12 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
     // `ring_data_hash` is published in the event so the wallet can reconstruct
     // the ring output.
     process_merge_core(
-        merge_accounts.input_tree,
-        merge_accounts.output_tree,
-        merge_accounts.payer,
+        MergeCoreAccounts {
+            input_tree: merge_accounts.input_tree,
+            output_tree: merge_accounts.output_tree,
+            payer: merge_accounts.payer,
+            nullifier_pdas: merge_accounts.nullifier_pdas,
+        },
         merge,
         external_data_hash,
         owner_binding,

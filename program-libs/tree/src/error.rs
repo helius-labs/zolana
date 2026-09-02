@@ -9,7 +9,7 @@ pub enum TreeError {
     #[error("tree account deserialization failed")]
     Deserialize,
     #[error("nullifier tree initialization failed")]
-    AddressInit,
+    NullifierInit,
     #[error("tree account is already initialized")]
     AlreadyInitialized,
     #[error("tree account has an invalid owner")]
@@ -28,4 +28,6 @@ pub enum TreeError {
     TreeIsFull,
     #[error("tree capacity metadata is inconsistent")]
     InvalidCapacity,
+    #[error("fee arithmetic overflowed")]
+    FeeOverflow,
 }

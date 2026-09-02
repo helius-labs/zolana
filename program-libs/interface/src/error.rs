@@ -126,6 +126,22 @@ pub enum ShieldedPoolError {
     SplAssetCounterAlreadyInitialized = 7046,
     #[error("ring is paused")]
     RingPaused = 7047,
+    #[error("nullifier is already queued in the nullifier tree")]
+    NullifierAlreadyQueued = 7048,
+    #[error("tree does not hold enough lamports to fund a nullifier PDA")]
+    InsufficientNullifierPdaRent = 7049,
+    #[error("nullifier PDA batch is not reclaimable yet")]
+    NullifierPdaNotClosable = 7050,
+    #[error("nullifier PDA account is invalid")]
+    InvalidNullifierPda = 7051,
+    #[error("tree id does not match the protocol config's next tree id")]
+    InvalidTreeId = 7052,
+    #[error("nullifier PDA belongs to a different tree")]
+    NullifierPdaTreeMismatch = 7053,
+    #[error("tree id space is exhausted")]
+    TreeIdOverflow = 7054,
+    #[error("reimbursement recipient must not be a program-owned account")]
+    InvalidReimbursementRecipient = 7055,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -154,6 +170,7 @@ impl From<TreeError> for ShieldedPoolError {
         match error {
             TreeError::Paused => ShieldedPoolError::TreePaused,
             TreeError::TreeIsFull => ShieldedPoolError::StateAppendFailed,
+            TreeError::FeeOverflow => ShieldedPoolError::InvalidForesterFee,
             _ => ShieldedPoolError::InvalidTreeAccounts,
         }
     }
@@ -215,6 +232,14 @@ mod tests {
                 ZeroNetInterfaceTransferAmount => 7045,
                 SplAssetCounterAlreadyInitialized => 7046,
                 RingPaused => 7047,
+                NullifierAlreadyQueued => 7048,
+                InsufficientNullifierPdaRent => 7049,
+                NullifierPdaNotClosable => 7050,
+                InvalidNullifierPda => 7051,
+                InvalidTreeId => 7052,
+                NullifierPdaTreeMismatch => 7053,
+                TreeIdOverflow => 7054,
+                InvalidReimbursementRecipient => 7055,
             }
         }
 
@@ -265,6 +290,14 @@ mod tests {
             ZeroNetInterfaceTransferAmount,
             SplAssetCounterAlreadyInitialized,
             RingPaused,
+            NullifierAlreadyQueued,
+            InsufficientNullifierPdaRent,
+            NullifierPdaNotClosable,
+            InvalidNullifierPda,
+            InvalidTreeId,
+            NullifierPdaTreeMismatch,
+            TreeIdOverflow,
+            InvalidReimbursementRecipient,
         ];
         for variant in variants {
             assert_eq!(
@@ -273,7 +306,7 @@ mod tests {
                 "error code drifted: {variant:?}"
             );
         }
-        // The live wire surface is exactly 44 variants on this branch.
-        assert_eq!(variants.len(), 44, "variant count drifted");
+        // The live wire surface is exactly 52 variants on this branch.
+        assert_eq!(variants.len(), 52, "variant count drifted");
     }
 }

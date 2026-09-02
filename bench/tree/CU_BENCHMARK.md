@@ -1,6 +1,6 @@
 # Tree -- CU Benchmark
 
-Compute unit profiling for zolana-tree: account init, zero-copy deserialization, UTXO sparse-merkle-tree append, end-to-end nullifier insert (bloom + hash chain + non-inclusion), and the worst-case address-tree batch update that finalizes 120 cached tree updates in one transaction.
+Compute unit profiling for zolana-tree: account init, zero-copy deserialization, UTXO sparse-merkle-tree append, nullifier queue insert (canonical field check + queue position check + hash chain; nullifier-PDA creation is measured by the shielded-pool program benches), and the worst-case address-tree batch update that finalizes 120 cached tree updates in one transaction.
 
 See `CU_BENCHMARK_NOTES.md` for analysis notes (e.g. why nullifier insert x10 is not 10x x1, and the proof-verify vs cascade-apply split of the batch update).
 
@@ -26,32 +26,32 @@ Regenerate with `just bench-tree`.
 
 | Function                     |   Total CU |     Net CU |
 | ---------------------------- | ---------- | ---------- |
-| `apply_cached_tree_updates`  |     33,063 |     33,063 |
-| `bench_batch_address_update` |    129,097 |     96,034 |
+| `apply_cached_tree_updates`  |     19,978 |     19,978 |
+| `bench_batch_address_update` |    116,025 |     96,047 |
 
 ## 2. Deserialize
 
 | Function                     |   Total CU |     Net CU |
 | ---------------------------- | ---------- | ---------- |
-| `bench_deserialize`          |         66 |         66 |
+| `bench_deserialize`          |        100 |        100 |
 
 ## 3. Nullifier insert x1
 
 | Function                     |   Total CU |     Net CU |
 | ---------------------------- | ---------- | ---------- |
-| `bench_nullifier_insert`     |        877 |        877 |
+| `bench_nullifier_insert`     |        391 |        391 |
 
 ## 4. Nullifier insert x10
 
 | Function                     |   Total CU |     Net CU |
 | ---------------------------- | ---------- | ---------- |
-| `bench_nullifier_insert`     |     16,240 |     16,240 |
+| `bench_nullifier_insert`     |     11,398 |     11,398 |
 
 ## 5. Tree init
 
 | Function                     |   Total CU |     Net CU |
 | ---------------------------- | ---------- | ---------- |
-| `bench_init`                 |        244 |        244 |
+| `bench_init`                 |        304 |        304 |
 
 ## 6. Utxo append x1
 

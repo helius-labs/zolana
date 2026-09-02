@@ -8,7 +8,7 @@ use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc, ZolanaIndexer};
-use zolana_interface::{DEFAULT_TREE_ADDRESS, SHIELDED_POOL_PROGRAM_ID};
+use zolana_interface::{pda, SHIELDED_POOL_PROGRAM_ID};
 use zolana_test_utils::{
     localnet::{isolated_temp_path, LocalnetValidator, WorkspaceArtifacts},
     prover::spawn_workspace_prover,
@@ -82,9 +82,7 @@ pub fn setup() -> Result<Environment> {
     let mut rpc = SolanaRpc::new(rpc_url);
     let authority = Keypair::new();
     rpc.airdrop(&authority.pubkey(), 10_000_000_000)?;
-    let tree = DEFAULT_TREE_ADDRESS
-        .parse::<Address>()
-        .context("parse default tree address")?;
+    let tree = pda::tree(0);
     if rpc.get_account(tree)?.is_none() {
         bail!("default tree {tree} was not loaded");
     }

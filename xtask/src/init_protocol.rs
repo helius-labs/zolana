@@ -15,7 +15,7 @@ use zolana_interface::{
         UpdateProtocolConfigData,
     },
     pda,
-    state::{tree_account_size, ProtocolConfig, SplAssetCounter},
+    state::{default_tree_fees, nullifier_tree_params, ProtocolConfig, SplAssetCounter},
     BPF_LOADER_UPGRADEABLE_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_smart_account_client::{
@@ -23,8 +23,8 @@ use zolana_smart_account_client::{
     settings::{settings_member_keys, settings_seed},
 };
 use zolana_test_utils::smart_account::{
-    create_smart_account_ix, execute_sync_ix, program_config_pda, settings_pda, smart_account_pda,
-    Permissions, SmartAccountSigner, PROGRAM_CONFIG_ACCOUNT_DISCRIMINATOR,
+    create_smart_account_ix, execute_sync_each, execute_sync_ix, program_config_pda, settings_pda,
+    smart_account_pda, Permissions, SmartAccountSigner, PROGRAM_CONFIG_ACCOUNT_DISCRIMINATOR,
     SMART_ACCOUNT_PROGRAM_ID,
 };
 
@@ -53,8 +53,6 @@ pub mod authorities {
         pubkey!("4riGd5piEfB6Ge3TCY8Vk8JGLP5HDyLkDEajN8rvAw4i"),
         pubkey!("E8Dmx8zP1E9xdcCJCZjzSUuFo61LPxSbvmg8a3NQKwMB"),
     ];
-
-    pub const TREE_ACCOUNT: Pubkey = Pubkey::from_str_const(zolana_interface::DEFAULT_TREE_ADDRESS);
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -100,7 +98,6 @@ pub struct Options {
     rpc_url: Option<String>,
     payer: PathBuf,
     protocol_signer: PathBuf,
-    tree_keypair: PathBuf,
     upgrade_authority: Option<PathBuf>,
     reuse_settings: Option<[Pubkey; 5]>,
     yes: bool,
@@ -113,7 +110,6 @@ impl Options {
         let mut rpc_url = None;
         let mut payer = None;
         let mut protocol_signer = None;
-        let mut tree_keypair = None;
         let mut upgrade_authority = None;
         let mut reuse_settings: [Option<Pubkey>; 5] = [None; 5];
         let mut yes = false;
@@ -145,12 +141,6 @@ impl Options {
                     protocol_signer =
                         Some(PathBuf::from(args.next().unwrap_or_else(|| {
                             usage_and_exit("--protocol-signer missing value")
-                        })));
-                }
-                "--tree-keypair" => {
-                    tree_keypair =
-                        Some(PathBuf::from(args.next().unwrap_or_else(|| {
-                            usage_and_exit("--tree-keypair missing value")
                         })));
                 }
                 "--upgrade-authority" => {
@@ -191,8 +181,6 @@ impl Options {
         let payer = payer.unwrap_or_else(|| usage_and_exit("--payer is required"));
         let protocol_signer =
             protocol_signer.unwrap_or_else(|| usage_and_exit("--protocol-signer is required"));
-        let tree_keypair =
-            tree_keypair.unwrap_or_else(|| usage_and_exit("--tree-keypair is required"));
 
         let provided = reuse_settings.iter().filter(|key| key.is_some()).count();
         let reuse_settings = match provided {
@@ -217,7 +205,6 @@ impl Options {
             rpc_url,
             payer,
             protocol_signer,
-            tree_keypair,
             upgrade_authority,
             reuse_settings,
             yes,
@@ -235,7 +222,6 @@ impl Options {
 struct Signers {
     payer: Keypair,
     protocol_signer: Keypair,
-    tree_keypair: Keypair,
     upgrade_authority: Option<Keypair>,
 }
 
@@ -247,7 +233,6 @@ pub(crate) fn load_keypair(path: &PathBuf, label: &str) -> Result<Keypair> {
 fn load_signers(options: &Options) -> Result<Signers> {
     let payer = load_keypair(&options.payer, "payer")?;
     let protocol_signer = load_keypair(&options.protocol_signer, "protocol-signer")?;
-    let tree_keypair = load_keypair(&options.tree_keypair, "tree-keypair")?;
     let upgrade_authority = options
         .upgrade_authority
         .as_ref()
@@ -260,18 +245,10 @@ fn load_signers(options: &Options) -> Result<Signers> {
             protocol_signer.pubkey()
         );
     }
-    if tree_keypair.pubkey() != authorities::TREE_ACCOUNT {
-        bail!(
-            "tree-keypair {} does not match the hardcoded tree account {}",
-            tree_keypair.pubkey(),
-            authorities::TREE_ACCOUNT
-        );
-    }
 
     Ok(Signers {
         payer,
         protocol_signer,
-        tree_keypair,
         upgrade_authority,
     })
 }
@@ -725,6 +702,7 @@ fn send_protocol_config(
             tree_creation_is_permissionless: false,
             forester_authority: forester.vault.to_bytes().into(),
             ring_creation_authority: ring.vault.to_bytes().into(),
+            fee_authority: upgrade_signer.pubkey().to_bytes().into(),
             ring_creation_is_permissionless: false,
             spl_interface_creation_is_permissionless: true,
         }
@@ -752,6 +730,7 @@ fn send_protocol_config(
         tree_creation_is_permissionless: false,
         forester_authority: forester.vault.to_bytes().into(),
         ring_creation_authority: ring.vault.to_bytes().into(),
+        fee_authority: protocol.vault.to_bytes().into(),
         ring_creation_is_permissionless: false,
         spl_interface_creation_is_permissionless: true,
     }
@@ -850,45 +829,44 @@ fn send_asset_counter(
     Ok(())
 }
 
+fn next_tree_id(rpc: &SolanaRpc, initialized: bool) -> Result<u16> {
+    if !initialized {
+        return Ok(0);
+    }
+    zolana_program_test::next_tree_id(rpc).context("reading next_tree_id from protocol_config")
+}
+
 fn create_tree(
     rpc: &SolanaRpc,
     payer: &Keypair,
     protocol_signer: &Keypair,
-    tree_keypair: &Keypair,
+    tree_id: u16,
     tree_settings: &Pubkey,
     tree_vault: Pubkey,
-) -> Result<()> {
-    let size = tree_account_size();
-    let rent = rpc
-        .get_minimum_balance_for_rent_exemption(size)
-        .context("rent for tree account")?;
-    let alloc_ix = zolana_program_test::system_create_account_ix(
-        &payer.pubkey(),
-        &tree_keypair.pubkey(),
-        rent,
-        size as u64,
-        &pda::shielded_pool_program_id(),
-    );
-    let create_tree_ix = CreateTree {
+) -> Result<Pubkey> {
+    let create = CreateTree {
+        payer: payer.pubkey(),
         authority: tree_vault,
-        tree: tree_keypair.pubkey(),
-    }
-    .instruction();
-    let sync = execute_sync_ix(
+        tree_id,
+        nullifier_params: nullifier_tree_params(),
+        fees: default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size),
+    };
+    let steps = execute_sync_each(
         tree_settings,
         0,
         &[protocol_signer.pubkey()],
-        &[create_tree_ix],
+        &create.instructions(),
     );
     let signature = rpc
         .create_and_send_transaction(
-            &[alloc_ix, sync],
+            &steps,
             to_address(&payer.pubkey()),
-            &[payer, tree_keypair, protocol_signer],
+            &[payer, protocol_signer],
         )
         .map_err(|e| anyhow!("create_tree failed: {e}"))?;
-    println!("created tree={} sig={signature}", tree_keypair.pubkey());
-    Ok(())
+    let tree = create.tree();
+    println!("created tree={tree} tree_id={tree_id} sig={signature}");
+    Ok(tree)
 }
 
 pub fn run(options: Options) -> Result<()> {
@@ -950,6 +928,7 @@ pub fn run(options: Options) -> Result<()> {
         .context("resolving the smart accounts to reuse")?;
     let roles = reused_roles.unwrap_or_else(|| derive_roles(program_config.smart_account_index));
     let protocol_vault = roles[0].vault;
+    let tree_id = next_tree_id(&rpc, initialized)?;
 
     println!("cluster={}", options.cluster.name());
     println!("rpc_url={url}");
@@ -961,7 +940,8 @@ pub fn run(options: Options) -> Result<()> {
     println!("treasury={}", program_config.treasury);
     println!("payer={}", signers.payer.pubkey());
     println!("protocol_signer={}", signers.protocol_signer.pubkey());
-    println!("tree_account={}", signers.tree_keypair.pubkey());
+    println!("tree_id={tree_id}");
+    println!("tree_account={}", pda::tree(tree_id));
     println!("protocol_vault={protocol_vault}");
     for role in &roles {
         println!(
@@ -1071,11 +1051,11 @@ pub fn run(options: Options) -> Result<()> {
         protocol.vault,
     )?;
 
-    create_tree(
+    let tree_account = create_tree(
         &rpc,
         &signers.payer,
         &signers.protocol_signer,
-        &signers.tree_keypair,
+        tree_id,
         &tree.settings,
         tree.vault,
     )?;
@@ -1083,7 +1063,7 @@ pub fn run(options: Options) -> Result<()> {
     println!("init_protocol=complete");
     println!("protocol_config={}", pda::protocol_config());
     println!("spl_asset_counter={}", pda::spl_asset_counter());
-    println!("tree={}", signers.tree_keypair.pubkey());
+    println!("tree={tree_account}");
     for role in &created {
         println!("{}_vault={}", role.label, role.vault);
     }
@@ -1108,7 +1088,6 @@ fn print_help() {
     println!("  --rpc-url <URL>                       override the cluster default RPC URL");
     println!("  --payer <KEYPAIR_PATH>                funds + outer fee payer (required)");
     println!("  --protocol-signer <KEYPAIR_PATH>      one of the protocol authorities (required)");
-    println!("  --tree-keypair <KEYPAIR_PATH>         the tree account keypair (required)");
     println!("  --upgrade-authority <KEYPAIR_PATH>    the program's deploy upgrade authority");
     println!("                                        (required on upgradeable deployments)");
     println!("  --protocol-settings <PUBKEY>          reuse existing authority smart accounts");

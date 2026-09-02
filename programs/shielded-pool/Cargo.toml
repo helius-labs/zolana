@@ -31,11 +31,11 @@ zolana-account-checks = { workspace = true }
 zolana-hasher = { workspace = true }
 light-program-profiler = { workspace = true }
 pinocchio-system = { workspace = true }
-pinocchio = { workspace = true }
+pinocchio = { workspace = true, features = ["account-resize"] }
 spl-token-2022-interface = { workspace = true }
 tinyvec = { workspace = true }
 zolana-interface = { workspace = true, features = ["borsh"] }
-zolana-tree = { workspace = true }
+zolana-tree = { workspace = true, features = ["account-view", "verify"] }
 zolana-user-registry-interface = { workspace = true }
 
 [dev-dependencies]

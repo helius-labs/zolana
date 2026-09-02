@@ -1,3 +1,4 @@
+use arrayvec::ArrayVec;
 use pinocchio::{
     error::ProgramError,
     sysvars::{clock::Clock, Sysvar},
@@ -23,8 +24,16 @@ use super::{
 };
 use crate::instructions::{
     event::emit_general_event,
+    nullifier_pda::{create_nullifier_pdas, InputTreeResult},
     shared::{bool_field, check_not_expired, collect_forester_fee, tree_error},
 };
+
+pub(crate) struct MergeCoreAccounts<'a> {
+    pub input_tree: &'a mut AccountView,
+    pub output_tree: &'a mut AccountView,
+    pub payer: &'a AccountView,
+    pub nullifier_pdas: ArrayVec<&'a mut AccountView, MERGE_INPUT_COUNT>,
+}
 
 #[inline(never)]
 pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
@@ -60,9 +69,12 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
 
     process_merge_core(
-        merge_accounts.input_tree,
-        merge_accounts.output_tree,
-        merge_accounts.payer,
+        MergeCoreAccounts {
+            input_tree: merge_accounts.input_tree,
+            output_tree: merge_accounts.output_tree,
+            payer: merge_accounts.payer,
+            nullifier_pdas: merge_accounts.nullifier_pdas,
+        },
         &ix,
         external_data_hash,
         MergeOwnerBinding::Registry { signing_pk_field },
@@ -78,21 +90,18 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
 /// `output_data` is the event's output payload: empty for `merge_transact`, the
 /// output `ring_data_hash` for `merge_ring`.
 #[inline(never)]
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn process_merge_core(
-    input_tree_account: &mut AccountView,
-    output_tree_account: &mut AccountView,
-    payer: &AccountView,
+    mut accounts: MergeCoreAccounts<'_>,
     ix: &MergeTransactIxDataRef<'_>,
     external_data_hash: [u8; 32],
     owner_binding: MergeOwnerBinding,
     output_view_tag: [u8; 32],
     output_data: Vec<u8>,
 ) -> ProgramResult {
-    let (inputs, derived, zkp_batch_size) = {
-        let input_tree = input_tree_account.address().to_bytes();
+    let (input_tree_result, derived) = {
+        let input_tree = accounts.input_tree.address().to_bytes();
         let mut tree = TreeAccount::from_account_view_mut(
-            &mut *input_tree_account,
+            &mut *accounts.input_tree,
             &crate::ID,
             TREE_ACCOUNT_DISCRIMINATOR,
         )
@@ -106,28 +115,48 @@ pub(crate) fn process_merge_core(
             owner_binding,
         };
         let inputs = apply_input_tree(&mut tree, ix, input_tree, &mut derived)?;
-        let zkp_batch_size = tree.nullifer_tree().queue_batches.zkp_batch_size;
-        (inputs, derived, zkp_batch_size)
+        let forester_fee = tree
+            .credit_insertion_fee(MERGE_INPUT_COUNT as u64)
+            .map_err(tree_error)?;
+        (
+            InputTreeResult {
+                inputs,
+                forester_fee,
+                fee_balance: tree.fee_balance(),
+                tree_id: tree.tree_id(),
+            },
+            derived,
+        )
     };
+    // The fee transfer CPI includes the tree, so it must run before
+    // create_nullifier_pdas moves tree lamports directly: a CPI boundary syncs
+    // only its own accounts into the transaction context, and a pending tree
+    // debit without the matching nullifier PDA credits trips the runtime's
+    // UnbalancedInstruction check.
+    collect_forester_fee(
+        accounts.payer,
+        accounts.input_tree,
+        input_tree_result.forester_fee,
+    )?;
+    create_nullifier_pdas(
+        accounts.payer,
+        accounts.input_tree,
+        &mut accounts.nullifier_pdas,
+        &input_tree_result,
+    )?;
     let tree_write = {
-        let output_tree = output_tree_account.address().to_bytes();
+        let output_tree = accounts.output_tree.address().to_bytes();
         let mut tree = TreeAccount::from_account_view_mut(
-            &mut *output_tree_account,
+            &mut *accounts.output_tree,
             &crate::ID,
             TREE_ACCOUNT_DISCRIMINATOR,
         )
         .map_err(tree_error)?;
-        apply_output_tree(&mut tree, ix, output_tree, inputs)?
+        apply_output_tree(&mut tree, ix, output_tree, input_tree_result.inputs)?
     };
 
     let event = build_merge_event(ix, tree_write, output_view_tag, output_data);
     MergeProof::new(ix, derived).verify()?;
-    collect_forester_fee(
-        payer,
-        input_tree_account,
-        MERGE_INPUT_COUNT as u64,
-        zkp_batch_size,
-    )?;
     emit_general_event(EventKind::Merge, event)
 }
 
@@ -139,7 +168,6 @@ fn apply_input_tree(
     derived: &mut MergeProofInputs,
 ) -> Result<Vec<Input>, ProgramError> {
     let shape = ShieldedPoolError::InvalidMergeShape;
-    let nullifier_seq_base = tree.nullifer_tree().queue_batches.next_index;
     let mut inputs = Vec::with_capacity(MERGE_INPUT_COUNT);
     for i in 0..MERGE_INPUT_COUNT {
         let nullifier = ix.nullifiers.get(i).ok_or(shape)?;
@@ -152,12 +180,13 @@ fn apply_input_tree(
         *derived.nullifier_tree_roots.get_mut(i).ok_or(shape)? = tree
             .get_nullifier_tree_root(nullifier_root_index)
             .map_err(tree_error)?;
-        tree.nullifer_tree()
+        let queue_index = tree
+            .nullifier_tree()
             .insert_nullifier_into_queue(nullifier)
             .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
         inputs.push(Input {
             tree: input_tree,
-            input_queue_seq: nullifier_seq_base + i as u64,
+            input_queue_seq: queue_index,
             nullifier: *nullifier,
         });
     }

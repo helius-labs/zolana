@@ -10,7 +10,7 @@
 //	prover/server/scripts/rotate_proving_keys.sh
 //
 // which regenerates proving keys, regenerates and commits the Rust verifying
-// keys (interface + batched-merkle-tree crates), regenerates proving-keys.lock,
+// keys (interface + tree crates), regenerates proving-keys.lock,
 // and uploads the keys to a new immutable version folder in S3. Only then update
 // the pinned values below (UPDATE_FINGERPRINTS=1 prints the current ones).
 package fingerprint

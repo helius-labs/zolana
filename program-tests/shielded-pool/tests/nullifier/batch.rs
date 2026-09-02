@@ -11,7 +11,7 @@ use zolana_program_test::{Rejection, ZolanaProgramTest};
 // instruction-data, and protocol-config gates of `batch_update_nullifier_tree`
 // each pinned to their exact error.
 
-fn forester_env() -> (ZolanaProgramTest, Keypair, Keypair) {
+fn forester_env() -> (ZolanaProgramTest, Keypair, Pubkey) {
     let Pool {
         rpc,
         authority,
@@ -41,15 +41,36 @@ fn batch_update_rejects_a_non_forester_authority() {
     let intruder = Keypair::new();
     rpc.airdrop(&intruder.pubkey(), 1_000_000_000)
         .expect("fund intruder");
-    let tree_before = rpc.account_data(&tree.pubkey()).expect("tree data");
+    let tree_before = rpc.account_data(&tree).expect("tree data");
 
-    let ix = batch_update_instruction(intruder.pubkey(), tree.pubkey());
+    let ix = batch_update_instruction(intruder.pubkey(), tree);
     let error = rpc
         .create_and_send_transaction(&[ix], &intruder.pubkey(), &[&intruder])
         .expect_err("a signer that is not the forester authority must be rejected");
     Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(error);
     assert_eq!(
-        rpc.account_data(&tree.pubkey()).expect("tree data"),
+        rpc.account_data(&tree).expect("tree data"),
+        tree_before,
+        "rejected batch update must leave the tree untouched"
+    );
+}
+
+#[test]
+fn batch_update_rejects_a_program_owned_reimbursement_recipient() {
+    let (mut rpc, authority, tree) = forester_env();
+    let tree_before = rpc.account_data(&tree).expect("tree data");
+
+    let mut ix = batch_update_instruction(authority.pubkey(), tree);
+    ix.accounts
+        .get_mut(3)
+        .expect("reimbursement recipient meta")
+        .pubkey = tree;
+    let error = rpc
+        .create_and_send_transaction(&[ix], &authority.pubkey(), &[&authority])
+        .expect_err("the tree must not be its own reimbursement recipient");
+    Rejection::pool(ShieldedPoolError::InvalidReimbursementRecipient).assert_litesvm(error);
+    assert_eq!(
+        rpc.account_data(&tree).expect("tree data"),
         tree_before,
         "rejected batch update must leave the tree untouched"
     );
@@ -59,7 +80,7 @@ fn batch_update_rejects_a_non_forester_authority() {
 fn batch_update_rejects_malformed_instruction_data() {
     let (mut rpc, authority, tree) = forester_env();
 
-    let mut ix = batch_update_instruction(authority.pubkey(), tree.pubkey());
+    let mut ix = batch_update_instruction(authority.pubkey(), tree);
     ix.data.truncate(4);
     let error = rpc
         .create_and_send_transaction(&[ix], &authority.pubkey(), &[&authority])
@@ -72,7 +93,7 @@ fn batch_update_rejects_an_unsigned_authority() {
     let (mut rpc, authority, tree) = forester_env();
 
     // The correct forester authority address, but its meta carries no signature.
-    let mut ix = batch_update_instruction(authority.pubkey(), tree.pubkey());
+    let mut ix = batch_update_instruction(authority.pubkey(), tree);
     ix.accounts.first_mut().expect("authority meta").is_signer = false;
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
@@ -88,16 +109,16 @@ fn batch_update_rejects_an_unsigned_authority() {
 #[test]
 fn batch_update_rejects_a_proof_for_an_unready_zkp_batch() {
     let (mut rpc, authority, tree) = forester_env();
-    let tree_before = rpc.account_data(&tree.pubkey()).expect("tree data");
+    let tree_before = rpc.account_data(&tree).expect("tree data");
 
     // Nothing is queued, so zkp batch 0 has no finalized hash chain.
-    let ix = batch_update_instruction(authority.pubkey(), tree.pubkey());
+    let ix = batch_update_instruction(authority.pubkey(), tree);
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[&authority])
         .expect_err("a proof for an unready zkp batch must be rejected");
     Rejection::pool(ShieldedPoolError::NullifierTreeUpdateFailed).assert_litesvm(error);
     assert_eq!(
-        rpc.account_data(&tree.pubkey()).expect("tree data"),
+        rpc.account_data(&tree).expect("tree data"),
         tree_before,
         "rejected batch update must leave the tree untouched"
     );
@@ -109,7 +130,7 @@ fn batch_update_rejects_a_proof_for_an_unready_zkp_batch() {
     // An out-of-range zkp batch index is rejected with the same error.
     let out_of_range = BatchUpdateNullifierTree {
         authority: authority.pubkey(),
-        tree: tree.pubkey(),
+        tree,
         reimbursement_recipient: authority.pubkey(),
         new_root: [1u8; 32],
         old_root: [2u8; 32],
@@ -124,7 +145,7 @@ fn batch_update_rejects_a_proof_for_an_unready_zkp_batch() {
         .expect_err("an out-of-range zkp batch index must be rejected");
     Rejection::pool(ShieldedPoolError::NullifierTreeUpdateFailed).assert_litesvm(error);
     assert_eq!(
-        rpc.account_data(&tree.pubkey()).expect("tree data"),
+        rpc.account_data(&tree).expect("tree data"),
         tree_before,
         "rejected batch update must leave the tree untouched"
     );
@@ -138,7 +159,7 @@ fn batch_update_rejects_a_paused_tree() {
     let (mut rpc, authority, tree) = forester_env();
     rpc.pause_tree(&authority, &tree, true).expect("pause tree");
 
-    let ix = batch_update_instruction(authority.pubkey(), tree.pubkey());
+    let ix = batch_update_instruction(authority.pubkey(), tree);
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[&authority])
         .expect_err("batch update on a paused tree must be rejected");
@@ -151,7 +172,7 @@ fn batch_update_rejects_a_non_config_account() {
     let impostor = Pubkey::new_unique();
     rpc.airdrop(&impostor, 1_000_000).expect("fund impostor");
 
-    let mut ix = batch_update_instruction(authority.pubkey(), tree.pubkey());
+    let mut ix = batch_update_instruction(authority.pubkey(), tree);
     ix.accounts.get_mut(1).expect("protocol config meta").pubkey = impostor;
     let error = rpc
         .create_and_send_transaction(&[ix], &authority.pubkey(), &[&authority])

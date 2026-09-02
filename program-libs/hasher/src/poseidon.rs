@@ -87,7 +87,7 @@ impl Hasher for Poseidon {
     fn hashv(_vals: &[&[u8]]) -> Result<Hash, HasherError> {
         // Perform the calculation inline, calling this from within a program is
         // not supported.
-        #[cfg(all(not(target_os = "solana"), feature = "poseidon"))]
+        #[cfg(not(target_os = "solana"))]
         {
             use ark_bn254::Fr;
             use light_poseidon::{Poseidon, PoseidonBytesHasher};
@@ -96,10 +96,6 @@ impl Hasher for Poseidon {
             let res = hasher.hash_bytes_be(_vals)?;
 
             Ok(res)
-        }
-        #[cfg(all(not(target_os = "solana"), not(feature = "poseidon")))]
-        {
-            Err(HasherError::PoseidonFeatureNotEnabled)
         }
         // Call via a system call to perform the calculation.
         #[cfg(target_os = "solana")]

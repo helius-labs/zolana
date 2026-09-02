@@ -20,7 +20,7 @@ fn tree_state_byte(backend: &LiteSvmPoolBackend, tree: &Pubkey) -> u8 {
 fn pause_blocks_tree_mutation_and_unpause_restores_it() {
     let mut backend = LiteSvmPoolBackend::initialized();
     let depositor = backend.funded_signer(2_000_000_000);
-    let tree = backend.tree.pubkey();
+    let tree = backend.tree;
     assert_eq!(tree_state_byte(&backend, &tree), INITIALIZED);
 
     backend
@@ -52,7 +52,7 @@ fn pause_blocks_tree_mutation_and_unpause_restores_it() {
 fn deposit_rejects_an_append_to_a_full_utxo_tree() {
     let mut backend = LiteSvmPoolBackend::initialized();
     let depositor = backend.funded_signer(2_000_000_000);
-    let tree = backend.tree.pubkey();
+    let tree = backend.tree;
 
     // Drive the UTXO tree to capacity by moving its cursor; the next append
     // must fail `TreeError::TreeIsFull`, which the shared `tree_error` mapping
@@ -85,15 +85,27 @@ fn deposit_rejects_an_append_to_a_full_utxo_tree() {
 mod program_unit {
     use pinocchio::error::ProgramError;
     use shielded_pool_program::{
-        testing::{forester_fee_amount, reimburse_forester_with_rent_minimum, tree_error},
+        testing::{check_reimbursement_recipient, pay_reimbursement_with_rent_minimum, tree_error},
         ID,
     };
     use zolana_account_checks::account_info::test_account_info::get_account_view;
     use zolana_interface::error::ShieldedPoolError;
 
     #[test]
-    fn per_tree_fee_scales_with_inserted_elements() {
-        assert_eq!(forester_fee_amount(3, 250).unwrap(), 60);
+    fn reimbursement_recipient_must_not_be_program_owned() {
+        let program_owned =
+            get_account_view([3; 32], ID.to_bytes(), false, true, false, vec![0; 10]);
+        assert_eq!(
+            check_reimbursement_recipient(&program_owned),
+            Err(ProgramError::Custom(
+                ShieldedPoolError::InvalidReimbursementRecipient as u32
+            ))
+        );
+
+        let system_owned = get_account_view([4; 32], [0; 32], false, true, false, vec![]);
+        assert_eq!(check_reimbursement_recipient(&system_owned), Ok(()));
+        let other_program = get_account_view([5; 32], [9; 32], false, true, false, vec![1; 8]);
+        assert_eq!(check_reimbursement_recipient(&other_program), Ok(()));
     }
 
     #[test]
@@ -103,7 +115,7 @@ mod program_unit {
         tree.set_lamports(6_500);
         recipient.set_lamports(1_000);
 
-        reimburse_forester_with_rent_minimum(&mut tree, &mut recipient, 5_000, 1_500).unwrap();
+        pay_reimbursement_with_rent_minimum(&mut tree, &mut recipient, 5_000, 1_500).unwrap();
 
         assert_eq!(tree.lamports(), 1_500);
         assert_eq!(recipient.lamports(), 6_000);
@@ -115,7 +127,7 @@ mod program_unit {
         let mut recipient = get_account_view([2; 32], [0; 32], false, true, false, vec![]);
         tree.set_lamports(6_499);
 
-        let error = reimburse_forester_with_rent_minimum(&mut tree, &mut recipient, 5_000, 1_500)
+        let error = pay_reimbursement_with_rent_minimum(&mut tree, &mut recipient, 5_000, 1_500)
             .unwrap_err();
 
         assert_eq!(
@@ -126,16 +138,6 @@ mod program_unit {
         assert_eq!(recipient.lamports(), 1_000);
     }
 
-    /// 7026 leg: fee × inserted_elements overflows u64.
-    #[test]
-    fn forester_fee_overflow_is_invalid_forester_fee() {
-        let error = forester_fee_amount(u64::MAX, 250).unwrap_err();
-        assert_eq!(
-            error,
-            ProgramError::Custom(ShieldedPoolError::InvalidForesterFee as u32)
-        );
-    }
-
     /// 7026 leg: recipient.lamports() + amount overflows u64.
     #[test]
     fn reimbursement_recipient_balance_overflow_is_invalid_forester_fee() {
@@ -144,7 +146,7 @@ mod program_unit {
         tree.set_lamports(10_000_000);
         recipient.set_lamports(u64::MAX - 100);
 
-        let error = reimburse_forester_with_rent_minimum(&mut tree, &mut recipient, 5_000, 1_500)
+        let error = pay_reimbursement_with_rent_minimum(&mut tree, &mut recipient, 5_000, 1_500)
             .unwrap_err();
 
         assert_eq!(
@@ -156,27 +158,19 @@ mod program_unit {
         assert_eq!(recipient.lamports(), u64::MAX - 100);
     }
 
-    /// The third overflow guard (applied_batches × reimbursement) is
-    /// unreachable by construction: `applied_batches` is a u32 and
-    /// u32::MAX × FORESTER_REIMBURSEMENT_LAMPORTS (5_000) fits u64, so no
-    /// boundary input can make the checked_mul fail. Pin that type bound.
-    #[test]
-    fn applied_batches_cannot_overflow_by_type_bound() {
-        let max = u64::from(u32::MAX)
-            .checked_mul(5_000)
-            .expect("u32::MAX batches x 5_000 lamports fits u64");
-        assert_eq!(max, u64::from(u32::MAX) * 5_000);
-    }
-
     /// The program-side `tree_error` conversion table (INV-XC-31): Paused,
-    /// InvalidRootIndex, and TreeIsFull have named mappings; every other
-    /// variant hits the catch-all.
+    /// InvalidRootIndex, TreeIsFull, and FeeOverflow have named mappings; every
+    /// other variant hits the catch-all.
     #[test]
     fn tree_error_table_is_stable() {
         use zolana_tree::TreeError;
 
         let named = [
             (TreeError::Paused, ShieldedPoolError::TreePaused as u32),
+            (
+                TreeError::FeeOverflow,
+                ShieldedPoolError::InvalidForesterFee as u32,
+            ),
             (
                 TreeError::InvalidRootIndex,
                 ShieldedPoolError::StaleNullifierRoot as u32,
@@ -198,7 +192,7 @@ mod program_unit {
             TreeError::InvalidBufferSize,
             TreeError::HeightTooLarge,
             TreeError::Deserialize,
-            TreeError::AddressInit,
+            TreeError::NullifierInit,
             TreeError::AlreadyInitialized,
             TreeError::InvalidOwner,
             TreeError::NotWritable,

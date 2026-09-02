@@ -54,7 +54,7 @@ pub struct RingsNullifierUpdate {
     pub nullifier: [u8; 32],
 }
 
-/// One `BatchAddressAppendEvent`: the zkp batches the program actually applied,
+/// One `NullifierTreeUpdateEvent`: the zkp batches the program actually applied,
 /// which is not always the one its instruction asked for. An out-of-order proof
 /// is cached and applied later, so a single instruction can land several batches
 /// at once -- `num_update` of them, `zkp_batch_size` nullifiers each -- and

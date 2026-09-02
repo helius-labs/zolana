@@ -62,6 +62,7 @@ pub fn process_create_protocol_config(accounts: &mut [AccountView], data: &[u8])
         ring_creation_authority: data.ring_creation_authority,
         ring_creation_is_permissionless: data.ring_creation_is_permissionless,
         spl_interface_creation_is_permissionless: data.spl_interface_creation_is_permissionless,
+        fee_authority: data.fee_authority,
     }
     .init(protocol_config)
 }

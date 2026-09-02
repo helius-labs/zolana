@@ -11,12 +11,10 @@ use super::{
     event::TreeWrite,
     verify::{TransactProofInputs, MAX_INPUTS},
 };
-use crate::instructions::shared::{bool_field, tree_error};
-
-pub(crate) struct InputTreeResult {
-    pub inputs: Vec<Input>,
-    pub zkp_batch_size: u64,
-}
+use crate::instructions::{
+    nullifier_pda::InputTreeResult,
+    shared::{bool_field, tree_error},
+};
 
 #[profile]
 pub(crate) fn apply_input_tree(
@@ -36,7 +34,6 @@ pub(crate) fn apply_input_tree(
     let mut inputs = Vec::with_capacity(ix.inputs.len());
     let mut utxo_roots = [[0u8; 32]; MAX_INPUTS];
     let mut nullifier_tree_roots = [[0u8; 32]; MAX_INPUTS];
-    let nullifier_seq_base = input_tree.nullifer_tree().queue_batches.next_index;
     for (i, input) in ix.inputs.iter().enumerate() {
         // 1. Assign state tree root to proof inputs.
         *utxo_roots.get_mut(i).ok_or(error)? = input_tree
@@ -47,14 +44,14 @@ pub(crate) fn apply_input_tree(
             .get_nullifier_tree_root(input.nullifier_tree_root_index)
             .map_err(tree_error)?;
         // 3. insert_nullifier_into_queue
-        input_tree
-            .nullifer_tree()
+        let queue_index = input_tree
+            .nullifier_tree()
             .insert_nullifier_into_queue(&input.nullifier_hash)
             .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
         // 4. Build indexer nullifier queue data.
         inputs.push(Input {
             tree: input_tree_address,
-            input_queue_seq: nullifier_seq_base + i as u64,
+            input_queue_seq: queue_index,
             nullifier: input.nullifier_hash,
         });
     }
@@ -63,11 +60,15 @@ pub(crate) fn apply_input_tree(
         &nullifier_tree_roots[..ix.inputs.len()],
         allow_dummy_inputs,
     )?;
-    let zkp_batch_size = input_tree.nullifer_tree().queue_batches.zkp_batch_size;
+    let forester_fee = input_tree
+        .credit_insertion_fee(ix.inputs.len() as u64)
+        .map_err(tree_error)?;
 
     Ok(InputTreeResult {
         inputs,
-        zkp_batch_size,
+        forester_fee,
+        fee_balance: input_tree.fee_balance(),
+        tree_id: input_tree.tree_id(),
     })
 }
 
