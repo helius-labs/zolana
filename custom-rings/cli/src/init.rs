@@ -111,6 +111,11 @@ pub enum InitError {
     AccountRead(#[from] AccountReadError),
     #[error(transparent)]
     PolicyMismatch(Box<custom_ring_sdk::PolicyMatchError>),
+    #[error("curator {curator} does not serve {list_id:?}, subscribe to a ring whose table references it")]
+    CuratorDoesNotServe {
+        list_id: zolana_ring_policy::ListId,
+        curator: Address,
+    },
     #[error(transparent)]
     Program(Box<DeployError>),
     #[error(transparent)]
@@ -406,6 +411,19 @@ impl Init<'_> {
                 }
                 .instruction()],
             )?;
+        // A curator serves a list only when its own table references it, catch
+        // the mismatch here rather than at the opaque on-chain CuratorSourceMissing.
+        for (list_id, curator) in &self.shared_sources {
+            let serves = curator
+                .read_policy_config(rpc)?
+                .is_some_and(|config| config.source_for(*list_id as u8).is_some());
+            if !serves {
+                return Err(InitError::CuratorDoesNotServe {
+                    list_id: *list_id,
+                    curator: curator.program_id(),
+                });
+            }
+        }
         // An audit-only ring pins no policy, only a policy ring runs create_policy
         // and only its upgrade authority may pin the compiled table.
         let policy = if !self.has_policy {
