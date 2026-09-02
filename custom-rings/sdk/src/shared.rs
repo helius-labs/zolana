@@ -148,20 +148,7 @@ impl CustomRing {
         let config = self
             .read_policy_config(rpc)?
             .ok_or(PolicyMatchError::NoPolicy)?;
-        let slots = core::array::from_fn(|i| {
-            (config.sources[i].list_id, *config.sources[i].namespace.as_array())
-        });
-        let sources = zolana_ring_policy::SourceMap::from_namespaces(&slots, |namespace| {
-            zolana_ring_policy::ListNamespace::new(namespace).map(|owner| owner.owner_hash)
-        })
-        .map_err(|_| PolicyMatchError::Hashing)?;
-        let hash = custom_ring_interface::RULES
-            .hash(&sources)
-            .map_err(|_| PolicyMatchError::Hashing)?;
-        if hash != config.policy_hash {
-            return Err(PolicyMatchError::HashMismatch);
-        }
-        Ok(())
+        client_rules_match(&config)
     }
 
     pub fn read_access_record<R: Rpc>(
@@ -217,6 +204,28 @@ impl CustomRing {
         }
         Ok(Some(*config))
     }
+}
+
+/// The client `RULES` reproduce the config's pinned `policy_hash`, a mismatch
+/// means the cli lacks the deployed program's rule features.
+pub fn client_rules_match(config: &PolicyConfig) -> Result<(), PolicyMatchError> {
+    let slots = core::array::from_fn(|i| {
+        (
+            config.sources[i].list_id,
+            *config.sources[i].namespace.as_array(),
+        )
+    });
+    let sources = zolana_ring_policy::SourceMap::from_namespaces(&slots, |namespace| {
+        zolana_ring_policy::ListNamespace::new(namespace).map(|owner| owner.owner_hash)
+    })
+    .map_err(|_| PolicyMatchError::Hashing)?;
+    let hash = custom_ring_interface::RULES
+        .hash(&sources)
+        .map_err(|_| PolicyMatchError::Hashing)?;
+    if hash != config.policy_hash {
+        return Err(PolicyMatchError::HashMismatch);
+    }
+    Ok(())
 }
 
 trait ReadableAccount: Pod + Copy {

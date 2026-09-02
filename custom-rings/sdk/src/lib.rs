@@ -41,7 +41,8 @@ pub use crate::{
         },
     },
     shared::{
-        AccountReadError, CustomRing, CustomRingConfig, PolicyMatchError, ReaderKey, ReaderKeyError,
+        client_rules_match, AccountReadError, CustomRing, CustomRingConfig, PolicyMatchError,
+        ReaderKey, ReaderKeyError,
     },
     transfer::{
         CustomRingTransfer, CustomRingTransferInput, DepositError, ProvenTransfer, RingDeposit,

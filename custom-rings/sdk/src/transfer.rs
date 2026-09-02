@@ -124,6 +124,8 @@ pub enum TransferError {
     MissingRingConfig,
     #[error("the ring has no policy config")]
     MissingPolicyConfig,
+    #[error(transparent)]
+    PolicyMatch(Box<crate::PolicyMatchError>),
     #[error("policy hashing failed")]
     PolicyHashing,
     #[error("the transfer needs more policy slots than the circuit holds")]
@@ -299,6 +301,10 @@ impl<'a> CustomRingTransfer<'a> {
                 .ring
                 .read_policy_config(environment.rpc)?
                 .ok_or(TransferError::MissingPolicyConfig)?;
+            // Fail with the named mismatch before the prover round, not an opaque
+            // proof failure, if the client lacks the deployed rule features.
+            crate::client_rules_match(&policy_config)
+                .map_err(|error| TransferError::PolicyMatch(Box::new(error)))?;
             let witness = crate::witness::CustomRingWitnessInput {
                 policy: &custom_ring_interface::RULES,
                 policy_config: &policy_config,
