@@ -7,6 +7,9 @@ Selection and approval text use UTXO terminology without changing version 3 snap
 
 Changed
 
+- `NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE` is 25,000, so
+  `NULLIFIER_TREE_ROOT_HISTORY_CAPACITY` is 100, `TREE_ACCOUNT_SIZE` is 30,344,
+  and `TREE_CREATION_STEP_COUNT` is 3.
 - `buildRingEntryTransaction`, `buildRingTransferTransaction`, and
   `buildRingExitTransaction` use UTXO terminology in approval summaries, while
   version 3 `SerializedWalletState` reservation field names remain unchanged.

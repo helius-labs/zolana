@@ -9,8 +9,8 @@ type Layout = TreeAccountLayout<UTXO_TREE_HEIGHT, NULLIFIER_TREE_ZKP_BATCHES>;
 
 #[test]
 fn account_layout_is_pinned() {
-    assert_eq!(size_of::<Layout>(), 34_856);
-    assert_eq!(TreeAccount::account_size(), 34_856);
+    assert_eq!(size_of::<Layout>(), 30_344);
+    assert_eq!(TreeAccount::account_size(), 30_344);
     assert_eq!(offset_of!(Layout, tree_id), 2);
     assert_eq!(offset_of!(Layout, fees), 8);
     assert_eq!(offset_of!(Layout, fee_balance), 32);

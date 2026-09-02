@@ -4,7 +4,7 @@ use zolana_tree::{NullifierTreeInitParams, TreeAccount, TreeFeeSchedule};
 pub const STATE_HEIGHT: usize = 32;
 
 // Production nullifier-tree parameters.
-pub const NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE: u64 = 30_000;
+pub const NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE: u64 = 25_000;
 pub const NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE: u64 = 250;
 pub const NULLIFIER_TREE_HEIGHT: u32 = 40;
 pub const NULLIFIER_TREE_ROOT_HISTORY_CAPACITY: u32 =
@@ -105,7 +105,7 @@ mod tests {
         let canonical = nullifier_tree_params();
         assert_eq!(
             tree_working_capital_lamports(&canonical, nullifier_pda_rent),
-            Some(3 * 30_000 * 960_480)
+            Some(3 * 25_000 * 960_480)
         );
 
         let half = NullifierTreeInitParams {
@@ -114,17 +114,17 @@ mod tests {
         };
         assert_eq!(
             tree_working_capital_lamports(&half, nullifier_pda_rent),
-            Some(45_000 * 960_480)
+            Some(37_500 * 960_480)
         );
 
         assert_eq!(tree_working_capital_lamports(&canonical, u64::MAX), None);
     }
 
     #[test]
-    fn tree_creation_takes_four_allocation_steps() {
-        assert_eq!(tree_account_size(), 34_856);
-        assert_eq!(tree_creation_step_count(), 4);
-        assert!(tree_account_size() > 3 * TREE_ALLOCATION_STEP);
-        assert!(tree_account_size() <= 4 * TREE_ALLOCATION_STEP);
+    fn tree_creation_takes_three_allocation_steps() {
+        assert_eq!(tree_account_size(), 30_344);
+        assert_eq!(tree_creation_step_count(), 3);
+        assert!(tree_account_size() > 2 * TREE_ALLOCATION_STEP);
+        assert!(tree_account_size() <= 3 * TREE_ALLOCATION_STEP);
     }
 }

@@ -428,7 +428,7 @@ network_fee = maintenance_transactions * base_fee
 locked_nullifier_pda_rent = L * Rent::minimum_balance(10)
 ```
 
-With `B = 30_000` and `Z = 250`, a full batch contains 120 append proofs. A
+With `B = 25_000` and `Z = 250`, a full batch contains 100 append proofs. A
 4,096-byte transaction fits approximately 19 append instructions by size;
 `A_compute` may be lower and must be benchmarked. Each cleanup entry adds a
 32-byte nullifier and one writable PDA. For compressed account references
@@ -436,10 +436,10 @@ and a 128-account limit:
 
 ```text
 PDAs_per_cleanup_transaction ~= 115
-cleanup_transactions = ceil(30_000 / 115) = 261
+cleanup_transactions = ceil(25_000 / 115) = 218
 
-if A = 14: append_transactions = 9, maintenance_transactions = 270
-if A = 19: append_transactions = 7, maintenance_transactions = 268
+if A = 14: append_transactions = 8, maintenance_transactions = 226
+if A = 19: append_transactions = 6, maintenance_transactions = 224
 ```
 
 `A`, `C`, `CU_append`, and `CU_cleanup(C)` must be measured from the final
@@ -469,7 +469,7 @@ the successor batch's PDAs, and the PDAs being created in the reused
 batch. With prompt cleanup, this is the working capital required for continuous
 insertion. Closed PDAs return their rent to the tree; delayed cleanup can
 lock capital beyond this amount and eventually stop insertion. With
-`B = 30_000` this is 86.4432 SOL; with `B = 630_000` it is 1,815.3072 SOL.
+`B = 25_000` this is 72.036 SOL; with `B = 630_000` it is 1,815.3072 SOL.
 
 ### Cost per nullifier
 
@@ -478,12 +478,12 @@ At a 5,000-lamport transaction fee, `C ~= 115`, and `A` between 14 and 19:
 ```text
 fee_per_nullifier = maintenance_transactions * 5_000 / B
 
-if B = 30_000:  44.67 to 45.00 lamports
+if B = 25_000:  44.80 to 45.20 lamports
 if B = 120_000: 44.58 to 44.96 lamports
 ```
 
-Rounding up, successful maintenance costs **45 lamports per nullifier**. At
-100 USD/SOL, this is 0.0000045 USD per nullifier. This excludes priority fees,
+Rounding up, successful maintenance costs **46 lamports per nullifier**. At
+100 USD/SOL, this is 0.0000046 USD per nullifier. This excludes priority fees,
 retries, failed transactions, and the opportunity cost of locked PDA rent.
 
 ### Fee schedule

@@ -11,7 +11,7 @@ export const StateDiscriminator = Object.freeze({
 
 export const FIRST_ASSET_ID = 2n;
 export const STATE_HEIGHT = 32;
-export const NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE = 30_000n;
+export const NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE = 25_000n;
 export const NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE = 250n;
 export const NULLIFIER_TREE_HEIGHT = 40;
 export const NULLIFIER_TREE_ROOT_HISTORY_CAPACITY = Number(
@@ -45,7 +45,7 @@ export function defaultTreeFees(zkpBatchSize: bigint): TreeFeeSchedule {
 }
 
 export const PROTOCOL_CONFIG_SIZE = 166;
-export const TREE_ACCOUNT_SIZE = 34_856;
+export const TREE_ACCOUNT_SIZE = 30_344;
 /// The program allocates a tree PDA in chunks of this many bytes; creation
 /// repeats the create-tree instruction once per chunk within one transaction.
 export const TREE_ALLOCATION_STEP = 10 * 1024;

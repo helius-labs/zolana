@@ -14,7 +14,7 @@ const CREATE_PROTOCOL_CONFIG_CU_CEILING: u64 = 15_000; // observed 5_538
 
 // Worst of the seven protocol-config updates below (observed 179-240).
 const CONFIG_UPDATE_CU_CEILING: u64 = 750;
-const CREATE_TREE_CU_CEILING: u64 = 50_000; // observed 16_129 across the four allocation steps
+const CREATE_TREE_CU_CEILING: u64 = 50_000; // observed 16_129 across the allocation steps
 const PAUSE_TREE_CU_CEILING: u64 = 800; // observed 250-251
 const CREATE_ASSET_COUNTER_CU_CEILING: u64 = 14_000; // observed 4_600
 const CREATE_SPL_INTERFACE_CU_CEILING: u64 = 23_000; // observed 7_706
