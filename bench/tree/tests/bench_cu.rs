@@ -15,13 +15,8 @@ use zolana_client::{spawn_prover, BatchAddressAppendInputs, ProofCompressed, Pro
 use zolana_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_tree::nullifier_tree::{
-    access::{
-        get_merkle_tree_account_size,
-        test_utils::{init_tree_account_data, load_tree_account_data},
-    },
-    batch::CachedTreeUpdate,
-    layout::NullifierTreeLayout,
-    merkle_tree_update::InstructionDataBatchNullifyInputs,
+    access::get_merkle_tree_account_size, batch::CachedTreeUpdate, error::NullifierTreeError,
+    layout::NullifierTreeLayout, merkle_tree_update::InstructionDataBatchNullifyInputs,
     proof::CompressedProof,
 };
 use zolana_tree::{NullifierTreeInitParams, TreeAccount, TreeFeeSchedule, UTXO_TREE_HEIGHT};
@@ -36,8 +31,27 @@ const ADDRESS_HEIGHT: u32 = 40;
 const ADDRESS_ZKP_BATCH_SIZE: u64 = 10;
 const ADDRESS_BATCH_SIZE: u64 = 1200;
 
+fn cast_address_tree(
+    account_data: &mut [u8],
+) -> Result<&mut NullifierTreeLayout<ADDRESS_ZKP>, NullifierTreeError> {
+    if account_data.len() != get_merkle_tree_account_size::<ADDRESS_ZKP>() {
+        return Err(NullifierTreeError::InvalidAccountSize);
+    }
+    wincode::deserialize_mut(account_data).map_err(|_| NullifierTreeError::InvalidAccountSize)
+}
+
+fn init_address_tree(account_data: &mut [u8]) -> &mut NullifierTreeLayout<ADDRESS_ZKP> {
+    let layout = cast_address_tree(account_data).unwrap();
+    layout
+        .init(ADDRESS_BATCH_SIZE, ADDRESS_ZKP_BATCH_SIZE, ADDRESS_HEIGHT)
+        .unwrap();
+    layout
+}
+
 fn load_address_tree(account_data: &mut [u8]) -> &mut NullifierTreeLayout<ADDRESS_ZKP> {
-    load_tree_account_data::<ADDRESS_ZKP>(account_data).unwrap()
+    let layout = cast_address_tree(account_data).unwrap();
+    layout.validate().unwrap();
+    layout
 }
 
 struct AddressUpdateFixture {
@@ -140,13 +154,7 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
     let total = num_batches * zkp;
 
     let mut account_data = vec![0u8; get_merkle_tree_account_size::<ADDRESS_ZKP>()];
-    init_tree_account_data::<ADDRESS_ZKP>(
-        &mut account_data,
-        ADDRESS_BATCH_SIZE,
-        ADDRESS_ZKP_BATCH_SIZE,
-        ADDRESS_HEIGHT,
-    )
-    .unwrap();
+    init_address_tree(&mut account_data);
 
     let mut rng = StdRng::seed_from_u64(seed);
     let mut queued: Vec<[u8; 32]> = Vec::with_capacity(total);

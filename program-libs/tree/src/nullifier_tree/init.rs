@@ -99,19 +99,3 @@ impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
         Ok(())
     }
 }
-
-#[cfg(feature = "test-only")]
-pub mod test_utils {
-    pub use super::NullifierTreeInitParams;
-    use crate::nullifier_tree::constants::{TEST_DEFAULT_BATCH_SIZE, TEST_DEFAULT_ZKP_BATCH_SIZE};
-
-    impl NullifierTreeInitParams {
-        pub fn test_default() -> Self {
-            Self {
-                input_queue_batch_size: TEST_DEFAULT_BATCH_SIZE,
-                input_queue_zkp_batch_size: TEST_DEFAULT_ZKP_BATCH_SIZE,
-                height: 40,
-            }
-        }
-    }
-}

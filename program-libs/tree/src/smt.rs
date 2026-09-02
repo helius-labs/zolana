@@ -41,10 +41,6 @@ unsafe impl<'de, C: ConfigCore, const HEIGHT: usize> SchemaRead<'de, C> for Utxo
 }
 
 impl<const HEIGHT: usize> UtxoTreeLayout<HEIGHT> {
-    pub const fn serialized_size(height: usize) -> usize {
-        45 + height * 32 + 1 + ROOT_HISTORY_CAPACITY * 32
-    }
-
     pub fn init(&mut self, height: usize) -> Result<(), TreeError> {
         if height != HEIGHT {
             return Err(TreeError::HeightTooLarge);

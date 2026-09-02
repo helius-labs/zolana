@@ -1,12 +1,7 @@
+use crate::common::{init_tree_account_data, load_tree_account_data};
 use zolana_tree::nullifier_tree::{
-    access::{
-        get_merkle_tree_account_size,
-        test_utils::{init_tree_account_data, load_tree_account_data},
-    },
-    batch::BatchState,
-    batch::CachedTreeUpdate,
-    error::NullifierTreeError,
-    layout::NullifierTreeLayout,
+    access::get_merkle_tree_account_size, batch::BatchState, batch::CachedTreeUpdate,
+    error::NullifierTreeError, layout::NullifierTreeLayout,
 };
 
 const ZKP: usize = 4;

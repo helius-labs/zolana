@@ -1,9 +1,7 @@
+use crate::common::init_tree_account_data;
 use zolana_tree::nullifier_tree::{
-    access::{get_merkle_tree_account_size, test_utils::init_tree_account_data},
-    batch::CachedTreeUpdate,
-    error::NullifierTreeError,
-    merkle_tree_update::InstructionDataBatchNullifyInputs,
-    proof::CompressedProof,
+    access::get_merkle_tree_account_size, batch::CachedTreeUpdate, error::NullifierTreeError,
+    merkle_tree_update::InstructionDataBatchNullifyInputs, proof::CompressedProof,
 };
 
 /// Re-submitting a proof for a zkp batch that has already been applied

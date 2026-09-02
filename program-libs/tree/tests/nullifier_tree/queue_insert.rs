@@ -1,11 +1,7 @@
+use crate::common::{init_tree_account_data, load_tree_account_data};
 use rand::{Rng, SeedableRng};
 use zolana_tree::nullifier_tree::{
-    access::{
-        get_merkle_tree_account_size,
-        test_utils::{init_tree_account_data, load_tree_account_data},
-    },
-    batch::BatchState,
-    constants::NUM_BATCHES,
+    access::get_merkle_tree_account_size, batch::BatchState, constants::NUM_BATCHES,
     error::NullifierTreeError,
 };
 

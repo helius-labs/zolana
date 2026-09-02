@@ -1,3 +1,4 @@
+use crate::common::{init_tree_account_data, load_tree_account_data};
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use num_bigint::BigUint;
@@ -6,21 +7,15 @@ use zolana_client::{spawn_prover, BatchAddressAppendInputs, ProofCompressed, Pro
 use zolana_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_tree::nullifier_tree::{
-    access::{
-        get_merkle_tree_account_size,
-        test_utils::{init_tree_account_data, load_tree_account_data},
-    },
-    constants::NULLIFIER_TREE_INIT_ROOT_40,
-    error::NullifierTreeError,
-    init::NullifierTreeInitParams,
-    layout::NullifierTreeLayout,
-    merkle_tree_update::InstructionDataBatchNullifyInputs,
-    proof::CompressedProof,
+    access::get_merkle_tree_account_size, constants::NULLIFIER_TREE_INIT_ROOT_40,
+    error::NullifierTreeError, init::NullifierTreeInitParams, layout::NullifierTreeLayout,
+    merkle_tree_update::InstructionDataBatchNullifyInputs, proof::CompressedProof,
 };
 
 const HEIGHT: u32 = 40;
 const ZKP: usize = 5;
 const ZKP_BATCH_SIZE: u64 = 10;
+const BATCH_SIZE: u64 = ZKP as u64 * ZKP_BATCH_SIZE;
 const NUM_TXNS: usize = 300;
 
 type NullifierTree = NullifierTreeLayout<ZKP>;
@@ -34,7 +29,11 @@ fn reference_nullifier_tree() -> IndexedMerkleTree<Poseidon, usize> {
 }
 
 fn test_config() -> NullifierTreeInitParams {
-    NullifierTreeInitParams::test_default()
+    NullifierTreeInitParams {
+        input_queue_batch_size: BATCH_SIZE,
+        input_queue_zkp_batch_size: ZKP_BATCH_SIZE,
+        height: HEIGHT,
+    }
 }
 
 fn init_nullifier_tree(account_data: &mut [u8]) -> &mut NullifierTree {

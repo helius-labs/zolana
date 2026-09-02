@@ -1,13 +1,15 @@
 mod init_roots;
 
-// The rest of the suite drives the layout through `access::test_utils` and the
-// `test-only` accessors on `Batch`, so it does not exist without the feature.
+// The rest of the suite builds small trees and uses the `test-only` accessors
+// on `Batch`, so it does not exist without the feature.
 #[cfg(feature = "test-only")]
 mod access;
 #[cfg(feature = "test-only")]
 mod batch;
 #[cfg(feature = "test-only")]
 mod batch_reclaimable;
+#[cfg(feature = "test-only")]
+mod common;
 #[cfg(feature = "test-only")]
 mod layout;
 #[cfg(feature = "test-only")]

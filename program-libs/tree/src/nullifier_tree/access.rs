@@ -78,39 +78,3 @@ impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
 pub fn get_merkle_tree_account_size<const ZKP_BATCHES: usize>() -> usize {
     size_of::<NullifierTreeLayout<ZKP_BATCHES>>()
 }
-
-/// Byte-slice entry points for tests and benchmarks. Programs hold a typed
-/// layout (see `zolana_tree::TreeAccount`) and call the layout methods directly.
-#[cfg(feature = "test-only")]
-pub mod test_utils {
-    use super::*;
-    use crate::nullifier_tree::error::NullifierTreeError;
-
-    pub fn init_tree_account_data<const ZKP_BATCHES: usize>(
-        account_data: &mut [u8],
-        input_queue_batch_size: u64,
-        input_queue_zkp_batch_size: u64,
-        height: u32,
-    ) -> Result<&mut NullifierTreeLayout<ZKP_BATCHES>, NullifierTreeError> {
-        let layout = cast_tree_account_data(account_data)?;
-        layout.init(input_queue_batch_size, input_queue_zkp_batch_size, height)?;
-        Ok(layout)
-    }
-
-    pub fn load_tree_account_data<const ZKP_BATCHES: usize>(
-        account_data: &mut [u8],
-    ) -> Result<&mut NullifierTreeLayout<ZKP_BATCHES>, NullifierTreeError> {
-        let layout = cast_tree_account_data::<ZKP_BATCHES>(account_data)?;
-        layout.validate()?;
-        Ok(layout)
-    }
-
-    fn cast_tree_account_data<const ZKP_BATCHES: usize>(
-        account_data: &mut [u8],
-    ) -> Result<&mut NullifierTreeLayout<ZKP_BATCHES>, NullifierTreeError> {
-        if account_data.len() != size_of::<NullifierTreeLayout<ZKP_BATCHES>>() {
-            return Err(NullifierTreeError::InvalidAccountSize);
-        }
-        wincode::deserialize_mut(account_data).map_err(|_| NullifierTreeError::InvalidAccountSize)
-    }
-}

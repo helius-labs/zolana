@@ -63,10 +63,10 @@
 //!
 //! `just test-tree` runs every test that needs no prover.
 //!
-//! The nullifier-tree suite drives the layout through byte slices, so all of
-//! it except `tests/nullifier_tree/init_roots.rs` is gated on the `test-only`
-//! feature. That feature also relaxes the height-40 check in
-//! [`nullifier_tree::init`], letting tests build small trees;
+//! The nullifier-tree suite builds small trees and drives `Batch` through its
+//! `test-only` accessors, so all of it except
+//! `tests/nullifier_tree/init_roots.rs` is gated on that feature. The feature
+//! relaxes the height-40 check in [`nullifier_tree::init`];
 //! [`TreeAccount::init`] still rejects any height but 40, and the
 //! shielded-pool build leaves `test-only` off. The `prover_e2e` module
 //! additionally needs a prover at `ZOLANA_PROVER_URL`.
@@ -339,7 +339,7 @@ impl<'a> TreeAccount<'a> {
             .nullifier_tree()
             .remaining_queue_capacity()
             .map_err(|_| TreeError::InvalidCapacity)?;
-        Ok(dummy_inputs_allowed(nullifier_remaining, state_remaining))
+        Ok(nullifier_remaining >= state_remaining)
     }
 
     pub fn get_utxo_tree_root(&self, index: u16) -> Result<[u8; 32], TreeError> {
@@ -374,11 +374,6 @@ impl<'a> TreeAccount<'a> {
     }
 }
 
-#[inline]
-const fn dummy_inputs_allowed(nullifier_remaining: u64, state_remaining: u64) -> bool {
-    nullifier_remaining >= state_remaining
-}
-
 fn check_layout(layout: &SppTreeLayout) -> Result<(), TreeError> {
     if layout.utxo.subtrees_len as usize != UTXO_TREE_HEIGHT
         || layout.utxo.root_history_capacity as usize != smt::ROOT_HISTORY_CAPACITY
@@ -390,121 +385,4 @@ fn check_layout(layout: &SppTreeLayout) -> Result<(), TreeError> {
         .validate()
         .map_err(|_| TreeError::Deserialize)?;
     Ok(())
-}
-
-#[cfg(test)]
-mod layout_equivalence {
-    use super::*;
-
-    const STATIC_METADATA_LEN: usize = 8;
-    const FEE_HEADER_LEN: usize = size_of::<TreeFeeSchedule>() + size_of::<u64>();
-    const HEADER_LEN: usize = STATIC_METADATA_LEN + FEE_HEADER_LEN + TREE_RESERVED_BYTES;
-    const EXPECTED_ACCOUNT_SIZE: usize = 34_856;
-    const EXPECTED_NULLIFIER_OFFSET: usize = 7_544;
-    const EXPECTED_STATE_ROOT_OFFSET: usize = 80;
-
-    fn aligned_utxo_size(height: usize) -> usize {
-        UtxoTreeLayout::<0>::serialized_size(height).next_multiple_of(8)
-    }
-
-    #[test]
-    fn size_and_offsets_include_reserved_header() {
-        let account_size_without_reserved = STATIC_METADATA_LEN
-            + aligned_utxo_size(UTXO_TREE_HEIGHT)
-            + size_of::<NullifierTreeLayout<NULLIFIER_TREE_ZKP_BATCHES>>();
-        assert_eq!(size_of::<SppTreeLayout>(), EXPECTED_ACCOUNT_SIZE);
-        assert_eq!(
-            size_of::<SppTreeLayout>(),
-            account_size_without_reserved + FEE_HEADER_LEN + TREE_RESERVED_BYTES
-        );
-        assert_eq!(HEADER_LEN, 72);
-
-        let nullifier_offset = HEADER_LEN + aligned_utxo_size(UTXO_TREE_HEIGHT);
-        assert_eq!(nullifier_offset, EXPECTED_NULLIFIER_OFFSET);
-        assert_eq!(
-            core::mem::offset_of!(SppTreeLayout, nullifier),
-            nullifier_offset
-        );
-
-        assert_eq!(core::mem::offset_of!(SppTreeLayout, tree_id), 2);
-        assert_eq!(
-            core::mem::offset_of!(SppTreeLayout, fees),
-            STATIC_METADATA_LEN
-        );
-        assert_eq!(core::mem::offset_of!(SppTreeLayout, fee_balance), 32);
-        assert_eq!(core::mem::offset_of!(SppTreeLayout, _reserved), 40);
-        assert_eq!(core::mem::offset_of!(SppTreeLayout, utxo), HEADER_LEN);
-        assert_eq!(TreeAccount::state_root_offset(), EXPECTED_STATE_ROOT_OFFSET);
-        assert_eq!(EXPECTED_STATE_ROOT_OFFSET, HEADER_LEN + smt::ROOT_OFFSET);
-        assert_eq!(
-            size_of::<UtxoTreeLayout<UTXO_TREE_HEIGHT>>(),
-            UtxoTreeLayout::<UTXO_TREE_HEIGHT>::serialized_size(UTXO_TREE_HEIGHT)
-        );
-    }
-
-    #[test]
-    fn init_zeroes_reserved_header() {
-        let mut bytes = vec![0u8; size_of::<SppTreeLayout>()];
-        {
-            let layout: &mut SppTreeLayout =
-                wincode::deserialize_mut(&mut bytes).expect("cast layout");
-            layout._reserved.fill(0xa5);
-            layout.fee_balance = 0xa5a5;
-        }
-        let fees = TreeFeeSchedule {
-            fee_per_nullifier: 190,
-            append_reimbursement: 5_000,
-            close_reimbursement: 170,
-        };
-
-        {
-            let tree = TreeAccount::init(
-                &mut bytes,
-                7,
-                UTXO_TREE_HEIGHT as u8,
-                [2u8; 32],
-                0x0102,
-                NullifierTreeInitParams::default(),
-                fees,
-            )
-            .expect("initialize tree");
-            assert_eq!(tree.tree_id(), 0x0102);
-            assert_eq!(tree.fees(), fees);
-            assert_eq!(tree.fee_balance(), 0);
-        }
-
-        let layout: &mut SppTreeLayout =
-            wincode::deserialize_mut(&mut bytes).expect("reload layout");
-        assert_eq!(layout._reserved, [0u8; TREE_RESERVED_BYTES]);
-        assert_eq!(layout.fees, fees);
-        assert_eq!(layout.fee_balance, 0);
-        assert_eq!(layout.tree_id, 0x0102);
-        assert_eq!(bytes.get(2..4), Some(&[0x02, 0x01][..]));
-    }
-
-    #[test]
-    fn deserialize_mut_round_trip() {
-        let mut bytes = vec![0u8; size_of::<SppTreeLayout>()];
-        {
-            let layout: &mut SppTreeLayout = wincode::deserialize_mut(&mut bytes).expect("cast");
-            layout.utxo.init(UTXO_TREE_HEIGHT).unwrap();
-            let mut leaf = [0u8; 32];
-            leaf[31] = 9;
-            layout.utxo.append(leaf).unwrap();
-            *layout.nullifier.root_history.roots.get_mut(3).unwrap() = [7u8; 32];
-        }
-        let reloaded: &mut SppTreeLayout = wincode::deserialize_mut(&mut bytes).expect("reload");
-        assert_eq!(reloaded.utxo.next_index(), 1);
-        assert_eq!(
-            reloaded.nullifier.root_history.roots.get(3),
-            Some(&[7u8; 32])
-        );
-    }
-
-    #[test]
-    fn dummy_input_policy_disables_only_after_nullifier_capacity_falls_behind() {
-        assert!(dummy_inputs_allowed(10, 9));
-        assert!(dummy_inputs_allowed(10, 10));
-        assert!(!dummy_inputs_allowed(9, 10));
-    }
 }

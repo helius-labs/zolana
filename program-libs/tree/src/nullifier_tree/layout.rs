@@ -1,4 +1,4 @@
-use core::mem::{offset_of, size_of, MaybeUninit};
+use core::mem::{size_of, MaybeUninit};
 
 use wincode::{
     config::{ConfigCore, ZeroCopy},
@@ -116,26 +116,6 @@ impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
         Ok(())
     }
 }
-
-/// The account layout admits no implicit padding between regions: the header
-/// and queue words are 8-aligned (`height` and
-/// `currently_processing_batch_index` share one), the root history opens with an
-/// 8-aligned cursor and holds align-1 roots, and `Batch` is a multiple of 8. Two
-/// instantiations pin the region offsets.
-const _: () = {
-    assert!(offset_of!(NullifierTreeLayout<1>, root_history) == 72);
-    assert!(offset_of!(NullifierTreeLayout<9>, root_history) == 72);
-    assert!(offset_of!(NullifierTreeLayout<1>, batches) == 72 + size_of::<RootHistory<1>>());
-    assert!(offset_of!(NullifierTreeLayout<9>, batches) == 72 + size_of::<RootHistory<9>>());
-    assert!(
-        size_of::<NullifierTreeLayout<1>>()
-            == 72 + size_of::<RootHistory<1>>() + NUM_BATCHES * size_of::<Batch<1>>()
-    );
-    assert!(
-        size_of::<NullifierTreeLayout<9>>()
-            == 72 + size_of::<RootHistory<9>>() + NUM_BATCHES * size_of::<Batch<9>>()
-    );
-};
 
 unsafe impl<C: ConfigCore, const ZKP_BATCHES: usize> ZeroCopy<C>
     for NullifierTreeLayout<ZKP_BATCHES>

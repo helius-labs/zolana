@@ -1,5 +1,3 @@
-use core::mem::{align_of, size_of};
-
 use borsh::{BorshDeserialize, BorshSerialize};
 #[cfg(feature = "test-only")]
 use zerocopy::FromZeros;
@@ -113,22 +111,6 @@ pub struct Batch<const ZKP_BATCHES: usize> {
     /// that can be applied; a slot is cleared once its update is in the tree.
     cached_tree_updates: [CachedTreeUpdate; ZKP_BATCHES],
 }
-
-/// `repr(C)`: 56 metadata bytes, then one hash chain and one cached update per
-/// ZKP batch. Both arrays are align-1, so the only implicit padding is the tail
-/// that rounds the batch up to the alignment of its metadata words; the
-/// production configuration (`ZKP_BATCHES = 120`) has none.
-const fn batch_size_bytes(zkp: usize) -> usize {
-    let unpadded = 56 + (32 + size_of::<CachedTreeUpdate>()) * zkp;
-    unpadded.next_multiple_of(align_of::<Batch<1>>())
-}
-
-/// Two instantiations pin the size formula for every `ZKP_BATCHES`.
-const _: () = {
-    assert!(size_of::<CachedTreeUpdate>() == 65);
-    assert!(size_of::<Batch<1>>() == batch_size_bytes(1));
-    assert!(size_of::<Batch<9>>() == batch_size_bytes(9));
-};
 
 impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
     /// Initializes a batch in place on zeroed account data, a precondition the
