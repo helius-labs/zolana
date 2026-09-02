@@ -314,6 +314,9 @@ func (m *LazyKeyManager) determineRingKeyPath(circuitType CircuitType, variant s
 	if circuitType == CustomRingCircuitType && variant == "transfer" {
 		return m.keyPath(CustomRingKeyFile)
 	}
+	if circuitType == CustomRingCircuitType && variant == "audit" {
+		return m.keyPath(AuditKeyFile)
+	}
 	return ""
 }
 

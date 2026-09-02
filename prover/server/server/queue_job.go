@@ -719,6 +719,23 @@ func (w *BaseQueueWorker) processMergeProof(payload json.RawMessage, circuitType
 }
 
 func (w *BaseQueueWorker) processCustomRingProof(payload json.RawMessage) (*common.Proof, error) {
+	var meta struct {
+		Variant string `json:"variant"`
+	}
+	if err := json.Unmarshal(payload, &meta); err != nil {
+		return nil, fmt.Errorf("unmarshal custom-ring params: %w", err)
+	}
+	if meta.Variant == customring.AuditVariant {
+		var params customring.AuditParameters
+		if err := json.Unmarshal(payload, &params); err != nil {
+			return nil, fmt.Errorf("unmarshal custom-ring audit params: %w", err)
+		}
+		ps, err := w.keyManager.GetRingSystem(common.CustomRingCircuitType, customring.AuditVariant)
+		if err != nil {
+			return nil, fmt.Errorf("custom-ring audit: %w", err)
+		}
+		return customring.ProveAudit(ps, &params)
+	}
 	var params customring.CustomRingParameters
 	if err := json.Unmarshal(payload, &params); err != nil {
 		return nil, fmt.Errorf("unmarshal custom-ring params: %w", err)

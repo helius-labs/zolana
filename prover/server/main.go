@@ -188,7 +188,7 @@ func runCli() {
 					&cli.StringFlag{Name: "vk-out", Usage: "Also write the raw gnark verifying key (vk.WriteRawTo)"},
 				},
 				Action: func(context *cli.Context) error {
-					if err := checkRingKeyName(context.String("output")); err != nil {
+					if err := checkRingKeyName(context.String("output"), common.CustomRingKeyFile); err != nil {
 						return err
 					}
 					ps, err := customring.SetupCustomRing()
@@ -211,6 +211,7 @@ func runCli() {
 			{
 				Name: "setup-audit",
 				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "output", Usage: "Output key file"},
 					&cli.StringFlag{Name: "pk-out", Usage: "raw gnark proving key (pk.WriteTo)"},
 					&cli.StringFlag{Name: "vk-out", Usage: "raw gnark verifying key (vk.WriteRawTo)", Required: true},
 				},
@@ -221,6 +222,11 @@ func runCli() {
 					}
 					if path := context.String("pk-out"); path != "" {
 						if err := writeKey(path, ps.ProvingKey.WriteTo); err != nil {
+							return err
+						}
+					}
+					if path := context.String("output"); path != "" {
+						if err := writeRingProofSystem(ps, path); err != nil {
 							return err
 						}
 					}
@@ -1059,15 +1065,19 @@ func writeKey(path string, write func(io.Writer) (int64, error)) error {
 	return file.Close()
 }
 
-func checkRingKeyName(path string) error {
-	if filepath.Base(path) != common.CustomRingKeyFile {
-		return fmt.Errorf("output file must be named %s", common.CustomRingKeyFile)
+func checkRingKeyName(path string, want string) error {
+	if filepath.Base(path) != want {
+		return fmt.Errorf("output file must be named %s", want)
 	}
 	return nil
 }
 
 func writeRingProofSystem(ps *common.RingProofSystem, path string) error {
-	if err := checkRingKeyName(path); err != nil {
+	want := common.CustomRingKeyFile
+	if ps.Variant == customring.AuditVariant {
+		want = common.AuditKeyFile
+	}
+	if err := checkRingKeyName(path, want); err != nil {
 		return err
 	}
 	file, err := os.Create(path)
