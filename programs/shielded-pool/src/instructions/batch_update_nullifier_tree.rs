@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use borsh::BorshDeserialize;
 use pinocchio::{AccountView, ProgramResult};
 use zolana_account_checks::AccountIterator;
@@ -18,7 +19,7 @@ pub fn process_batch_update_nullifier_tree(
     data: &[u8],
 ) -> ProgramResult {
     let instruction = BatchUpdateNullifierTreeData::try_from_slice(data)
-        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
+        .map_err(caused_by(ShieldedPoolError::InvalidInstructionData))?;
     let mut iter = AccountIterator::new(accounts);
     let authority = iter.next_signer("authority")?;
     let protocol_config = iter.next_account("protocol_config")?;

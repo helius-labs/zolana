@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView};
 use zolana_interface::{
@@ -47,7 +48,7 @@ pub(crate) fn apply_input_tree(
         let queue_index = input_tree
             .nullifier_tree()
             .insert_nullifier_into_queue(&input.nullifier_hash)
-            .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
+            .map_err(caused_by(ShieldedPoolError::NullifierTreeUpdateFailed))?;
         // 4. Build indexer nullifier queue data.
         inputs.push(Input {
             tree: input_tree_address,

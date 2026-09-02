@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use borsh::BorshDeserialize;
 use pinocchio::{AccountView, ProgramResult};
 use zolana_account_checks::AccountIterator;
@@ -13,7 +14,7 @@ use crate::instructions::{
 
 pub fn process_set_tree_fees(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let fees = SetTreeFeesData::try_from_slice(data)
-        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
+        .map_err(caused_by(ShieldedPoolError::InvalidInstructionData))?;
     let mut iter = AccountIterator::new(accounts);
     let authority = iter.next_signer("authority")?;
     let protocol_config = iter.next_account("protocol_config")?;

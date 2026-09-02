@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use borsh::BorshDeserialize;
 use pinocchio::{
     error::ProgramError,
@@ -24,7 +25,7 @@ use crate::instructions::{
 
 pub fn process_create_tree(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let data = CreateTreeData::try_from_slice(data)
-        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
+        .map_err(caused_by(ShieldedPoolError::InvalidInstructionData))?;
     let mut iter = AccountIterator::new(accounts);
     let payer = iter.next_signer_mut("payer")?;
     let authority = iter.next_signer("authority")?;

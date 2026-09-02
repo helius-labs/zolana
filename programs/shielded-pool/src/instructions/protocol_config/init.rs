@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -21,7 +22,7 @@ impl ProtocolConfigInitParams {
     pub fn init(self, account: &mut AccountView) -> ProgramResult {
         let mut data = account
             .try_borrow_mut()
-            .map_err(|_| ShieldedPoolError::InvalidProtocolConfig)?;
+            .map_err(caused_by(ShieldedPoolError::InvalidProtocolConfig))?;
         if data.len() != ProtocolConfig::SIZE || data.iter().any(|byte| *byte != 0) {
             return Err(ShieldedPoolError::InvalidProtocolConfig.into());
         }

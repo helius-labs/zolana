@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use borsh::BorshSerialize;
 use light_program_profiler::profile;
 use pinocchio::{
@@ -122,12 +123,12 @@ fn create_nullifier_pda(
 
     let mut data = nullifier_pda
         .try_borrow_mut()
-        .map_err(|_| ShieldedPoolError::InvalidNullifierPda)?;
+        .map_err(caused_by(ShieldedPoolError::InvalidNullifierPda))?;
     let mut writer: &mut [u8] = &mut data;
     NullifierPda {
         queue_index: input.input_queue_seq,
         tree_id,
     }
     .serialize(&mut writer)
-    .map_err(|_| ShieldedPoolError::InvalidNullifierPda.into())
+    .map_err(caused_by(ShieldedPoolError::InvalidNullifierPda))
 }

@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use pinocchio::{
     cpi::{Seed, Signer},
     AccountView, ProgramResult, Resize,
@@ -80,7 +81,7 @@ pub(super) fn grow_tree(tree: &mut AccountView, full_size: usize) -> ProgramResu
     {
         let data = tree
             .try_borrow()
-            .map_err(|_| ShieldedPoolError::InvalidTreeAccounts)?;
+            .map_err(caused_by(ShieldedPoolError::InvalidTreeAccounts))?;
         if data.get(1).copied() != Some(UNINITIALIZED) {
             return Err(ShieldedPoolError::InvalidTreeAccounts.into());
         }

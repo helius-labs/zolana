@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use light_program_profiler::profile;
 use pinocchio::{
     error::ProgramError,
@@ -40,8 +41,8 @@ pub fn process_transact_ix(
     instruction: InstructionTag,
 ) -> ProgramResult {
     // 1. Deserialize instruction data.
-    let ix =
-        TransactIxDataRef::from_bytes(data).map_err(|_| ProgramError::InvalidInstructionData)?;
+    let ix = TransactIxDataRef::from_bytes(data)
+        .map_err(caused_by(ProgramError::InvalidInstructionData))?;
     // 2. Validate declared circuit type.
     validate_circuit_type(&ix, instruction)?;
 
@@ -119,7 +120,9 @@ pub fn process_transact_ix(
         messages: &ix.messages,
     }
     .hash()
-    .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
+    .map_err(caused_by(
+        ShieldedPoolError::TransactProofVerificationFailed,
+    ))?;
     proof_inputs.assign_external_data_hash(external_data_hash);
     proof_inputs.ensure_complete()?;
 

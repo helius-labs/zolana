@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
@@ -26,8 +27,8 @@ use crate::instructions::{
 /// `protocol_config.merge_authorities`.
 #[inline(never)]
 pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
-    let ix =
-        MergeRingIxDataRef::from_bytes(data).map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
+    let ix = MergeRingIxDataRef::from_bytes(data)
+        .map_err(caused_by(ShieldedPoolError::InvalidMergeShape))?;
     let merge = &ix.merge;
     validate_field_elements(merge)?;
     check_field_element(
@@ -47,7 +48,9 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
         output_utxo_hash: merge.output_utxo_hash,
     }
     .hash()
-    .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
+    .map_err(caused_by(
+        ShieldedPoolError::TransactProofVerificationFailed,
+    ))?;
 
     // The ring merge proof binds `ring_program_id` from the signing `ring_config`
     // and the output `ring_data_hash` the ring program selected, and is verified

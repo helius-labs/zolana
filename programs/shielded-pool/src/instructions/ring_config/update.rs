@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use borsh::BorshDeserialize;
 use pinocchio::{AccountView, ProgramResult};
 use zolana_account_checks::AccountIterator;
@@ -7,7 +8,7 @@ use crate::instructions::ring_config::loader::load_and_validate_ring_authority_m
 
 pub fn process_update_ring_config(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let data = UpdateRingConfigData::try_from_slice(data)
-        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
+        .map_err(caused_by(ShieldedPoolError::InvalidInstructionData))?;
     let mut iter = AccountIterator::new(accounts);
     let authority = iter.next_signer("authority")?;
     let config = iter.next_mut("ring_config")?;

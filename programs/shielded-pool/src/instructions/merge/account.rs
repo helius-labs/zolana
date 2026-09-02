@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use arrayvec::ArrayVec;
 use pinocchio::{
     address::{address_eq, Address},
@@ -88,9 +89,9 @@ pub fn load_user_record(
     }
     let data = account
         .try_borrow()
-        .map_err(|_| ShieldedPoolError::InvalidUserRecord)?;
+        .map_err(caused_by(ShieldedPoolError::InvalidUserRecord))?;
     let record = UserRecord::try_from_account_data(&data)
-        .map_err(|_| ShieldedPoolError::InvalidUserRecord)?;
+        .map_err(caused_by(ShieldedPoolError::InvalidUserRecord))?;
     let (expected_record, expected_bump) =
         Address::find_program_address(&[USER_RECORD_SEED, record.owner.as_ref()], &registry_id);
     if account.address() != &expected_record || record.bump != expected_bump {
@@ -107,7 +108,7 @@ pub fn load_user_record(
             .ok_or(ShieldedPoolError::InvalidUserRecord)?;
         signing_view_tag.copy_from_slice(&owner_p256[1..]);
         owner_proof_input_hash_compressed(&owner_p256)
-            .map_err(|_| ShieldedPoolError::InvalidUserRecord)?
+            .map_err(caused_by(ShieldedPoolError::InvalidUserRecord))?
     };
     Ok(UserPkFields {
         signing_pk_field,

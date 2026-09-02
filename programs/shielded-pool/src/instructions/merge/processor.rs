@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use arrayvec::ArrayVec;
 use pinocchio::{
     error::ProgramError,
@@ -61,7 +62,7 @@ pub(crate) fn validate_field_elements(ix: &MergeTransactIxDataRef<'_>) -> Progra
 #[inline(never)]
 pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let ix = MergeTransactIxDataRef::from_bytes(data)
-        .map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
+        .map_err(caused_by(ShieldedPoolError::InvalidMergeShape))?;
     validate_field_elements(&ix)?;
 
     let clock = Clock::get()?;
@@ -90,7 +91,9 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
         output_utxo_hash: ix.output_utxo_hash,
     }
     .hash()
-    .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
+    .map_err(caused_by(
+        ShieldedPoolError::TransactProofVerificationFailed,
+    ))?;
 
     process_merge_core(
         MergeCoreAccounts {
@@ -207,7 +210,7 @@ fn apply_input_tree(
         let queue_index = tree
             .nullifier_tree()
             .insert_nullifier_into_queue(nullifier)
-            .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
+            .map_err(caused_by(ShieldedPoolError::NullifierTreeUpdateFailed))?;
         inputs.push(Input {
             tree: input_tree,
             input_queue_seq: queue_index,
