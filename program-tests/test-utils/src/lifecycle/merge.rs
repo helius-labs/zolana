@@ -25,7 +25,7 @@ use zolana_user_registry_interface::{
 use super::LifecycleHarness;
 use crate::{
     localnet::{pack_merge_proof, send_transaction, ZERO},
-    nullifier_pda::{assert_nullifier_pdas, nullifier_pda_rent},
+    nullifier_pda::{assert_nullifier_pdas, forester_fee_for_inputs, nullifier_pda_rent},
     test_validator_asserts::{
         assert_account_unchanged, fetch_account, wait_for_indexed_transaction,
         wait_for_merkle_proof, wait_for_non_inclusion_proof,
@@ -224,10 +224,11 @@ impl LifecycleHarness {
             &merge_key.pubkey(),
             &[&merge_key],
         )?;
-        // A successful merge collects the forester fee from the inner payer: one
-        // 20-lamport share per inserted nullifier, transferred into the tree. The
+        // A successful merge collects the tree's insertion fee from the inner payer:
+        // fee_per_nullifier per inserted nullifier, transferred into the tree. The
         // tree then funds one nullifier PDA per inserted nullifier.
-        let forester_fee = MERGE_INPUT_COUNT as u64 * 20;
+        let forester_fee =
+            forester_fee_for_inputs(&tree_before, &self.tree, MERGE_INPUT_COUNT as u64)?;
         let payer_after = fetch_account(&self.rpc, &self.merge_vault)?;
         assert_eq!(
             payer_before.lamports - payer_after.lamports,
